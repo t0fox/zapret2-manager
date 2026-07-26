@@ -1,0 +1,8 @@
+WARNING: opening from cache https://downloads.openwrt.org/releases/25.12.5/targets/mediatek/filogic/packages/packages.adb: No such file or directory
+WARNING: opening from cache https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/base/packages.adb: No such file or directory
+WARNING: opening from cache https://downloads.openwrt.org/releases/25.12.5/targets/mediatek/filogic/kmods/6.12.94-1-5a6c1f71be683ae9980b15d3ce73e24d/packages.adb: No such file or directory
+WARNING: opening from cache https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/luci/packages.adb: No such file or directory
+WARNING: opening from cache https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/packages/packages.adb: No such file or directory
+WARNING: opening from cache https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/routing/packages.adb: No such file or directory
+WARNING: opening from cache https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/telephony/packages.adb: No such file or directory
+WARNING: opening from cache https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/video/packages.adb: No such file or directory

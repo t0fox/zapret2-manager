@@ -1,0 +1,5 @@
+drwxr-xr-x    1 root     root           232 Jul 26 07:04 .
+drwxr-xr-x    1 root     root           224 Jun 29 12:59 ..
+-rw-r--r--    1 root     root           155 Jun 29 12:59 00-netstate
+-rw-r--r--    1 root     root           498 Jun 29 12:59 20-firewall
+-rwxr-xr-x    1 root     root           840 Jul 16 15:33 90-zapret2

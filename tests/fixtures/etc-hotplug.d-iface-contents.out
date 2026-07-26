@@ -1,0 +1,65 @@
+===FILE:/etc/hotplug.d/iface/00-netstate===
+[ ifup = "$ACTION" ] && {
+	uci_toggle_state network "$INTERFACE" up 1
+	[ -n "$DEVICE" ] && {
+		uci_toggle_state network "$INTERFACE" ifname "$DEVICE"
+	}
+}
+
+===END:/etc/hotplug.d/iface/00-netstate===
+===FILE:/etc/hotplug.d/iface/20-firewall===
+#!/bin/sh
+
+has_zone() {
+	fw4 -q network "$INTERFACE" >/dev/null && return 0
+	eval $(ubus call "network.interface.$INTERFACE" status | jsonfilter -e 'ZONE=@.data.zone')
+	fw4 -q zone "$ZONE" >/dev/null
+}
+
+[ "$ACTION" = ifup -o "$ACTION" = ifupdate ] || exit 0
+[ "$ACTION" = ifupdate -a -z "$IFUPDATE_ADDRESSES" -a -z "$IFUPDATE_DATA" ] && exit 0
+
+/etc/init.d/firewall enabled || exit 0
+
+has_zone || exit 0
+
+logger -t firewall "Reloading firewall due to $ACTION of $INTERFACE ($DEVICE)"
+fw4 -q reload
+
+===END:/etc/hotplug.d/iface/20-firewall===
+===FILE:/etc/hotplug.d/iface/90-zapret2===
+#!/bin/sh
+
+ZAPRET=/etc/init.d/zapret2
+
+[ -n "$INTERFACE" ] && [ "$ACTION" = ifup -o "$ACTION" = ifdown ] && [ -x "$ZAPRET" ] && "$ZAPRET" enabled && {
+	SCRIPT=$(readlink "$ZAPRET")
+	if [ -n "$SCRIPT" ]; then
+		EXEDIR=$(dirname "$SCRIPT")
+		ZAPRET_BASE=$(readlink -f "$EXEDIR/../..")
+	else
+		ZAPRET_BASE=/opt/zapret2
+	fi
+	ZAPRET_RW=${ZAPRET_RW:-"$ZAPRET_BASE"}
+	ZAPRET_CONFIG=${ZAPRET_CONFIG:-"$ZAPRET_RW/config"}
+	CUSTOM_DIR="$ZAPRET_RW/init.d/openwrt"
+	. "$ZAPRET_CONFIG"
+	. "$ZAPRET_BASE/common/base.sh"
+	. "$ZAPRET_BASE/common/fwtype.sh"
+
+	linux_fwtype
+	case "$FWTYPE" in
+		nftables)
+			logger -t zapret reloading nftables ifsets due to $ACTION of $INTERFACE
+			"$ZAPRET" reload_ifsets
+			;;
+		iptables)
+			openwrt_fw3 || {
+				logger -t zapret reloading iptables due to $ACTION of $INTERFACE
+				"$ZAPRET" restart_fw
+			}
+			;;
+	esac
+}
+
+===END:/etc/hotplug.d/iface/90-zapret2===
