@@ -82,8 +82,12 @@ take opt-zapret2-version  'cat /opt/zapret2/version'
 
 # --- process listing + daemon argv -------------------------------------------
 take ps-full              'ps w'
-take nfqws2-cmdline       'P=$(pgrep -x nfqws2 2>/dev/null | head -1); [ -n "$P" ] && { printf "PID=%s\n" "$P"; tr "\0" " " < /proc/$P/cmdline; echo; } || echo NFQWS2_NOT_RUNNING'
-take nfqws2-cmdline-nfqws 'P=$(pgrep -x nfqws 2>/dev/null | head -1); [ -n "$P" ] && { printf "PID=%s\n" "$P"; tr "\0" " " < /proc/$P/cmdline; echo; } || echo NFQWS_NOT_RUNNING'
+# NOTE: busybox pgrep -x does NOT match the process comm on this target (it
+# returns rc=1 for a running nfqws2 whose /proc/<pid>/comm IS "nfqws2"), so use
+# pidof (matches the comm basename) instead — pgrep -x would falsely report
+# NOT_RUNNING. The ps-full fixture cross-checks liveness independently.
+take nfqws2-cmdline       'P=$(pidof nfqws2 2>/dev/null | tr " " "\n" | head -1); [ -n "$P" ] && { printf "PID=%s\n" "$P"; tr "\0" " " < /proc/$P/cmdline; echo; } || echo NFQWS2_NOT_RUNNING'
+take nfqws2-cmdline-nfqws 'P=$(pidof nfqws 2>/dev/null | tr " " "\n" | head -1); [ -n "$P" ] && { printf "PID=%s\n" "$P"; tr "\0" " " < /proc/$P/cmdline; echo; } || echo NFQWS_NOT_RUNNING'
 
 # --- daemon version flags (separate rc per flag) -----------------------------
 take nfqws2-version-long  'for c in /opt/zapret2/nfq2/nfqws2 /opt/zapret2/nfqws2 /opt/zapret2/nfq2/nfqws /opt/zapret2/nfqws "$(command -v nfqws2 2>/dev/null)" "$(command -v nfqws 2>/dev/null)"; do [ -x "$c" ] || continue; printf "BIN=%s\n" "$c"; "$c" --version 2>&1; exit $?; done; echo NO_NFQWS_BINARY_FOUND; exit 127'
