@@ -11,7 +11,8 @@
 			"ubus": {
 				"zapret2-manager": [
 					"start", "stop", "restart", "restart_daemons",
-					"start_fw", "confirm_alive", "rollback", "passthrough"
+					"start_fw", "reload_ifsets",
+					"confirm_alive", "rollback", "passthrough"
 				]
 			}
 		}

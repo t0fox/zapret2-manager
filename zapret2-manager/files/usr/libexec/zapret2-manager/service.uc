@@ -5,21 +5,32 @@
 // by the rpcd plugin (usr/libexec/rpcd/zapret2-manager.uc) and by the
 // detached rollback timer. Prints one JSON object on stdout.
 //
-// Calls UPSTREAM's init for actual start/stop/restart — we do not re-implement
-// daemon launch or firewall rules (docs/upstream-mapping.md). We own only:
-//   - the paused flag (/tmp/zapret2-manager/paused)
-//   - the safe firewall refresh: start_fw = `fw4 reload_ifsets` ONLY. Never a
-//     full fw restart — that destroys the whole nft table (incident r12).
-//   - the 90s link-alive rollback scaffold for disruptive ops
+// Calls UPSTREAM's init for every daemon/firewall action — we never re-implement
+// daemon launch or nft rules (docs/upstream-mapping.md). The full, exhaustive
+// list of /etc/init.d/zapret2 subcommands we may call (do not invent others):
+//   start stop restart start_daemons stop_daemons restart_daemons
+//   start_fw stop_fw restart_fw reload_ifsets list_ifsets list_table
 //
-// [VERIFY] UPSTREAM_INIT path and the restart_daemons subcommand on the target.
+// FIREWALL PROHIBITION (incident r12 + a router reset to factory defaults from
+// touching fw4's ruleset): never issue a wholesale firewall stop or restart —
+// stopping or restarting the firewall service, or stopping/restarting fw4 as a
+// whole, destroys OTHER packages' nft tables. Only upstream's own start_fw /
+// reload_ifsets (which touch the zapret2 table only) are allowed. Do not add a
+// "restart firewall" UI button no matter how convenient it seems.
+//
+// start_fw and reload_ifsets are TWO DIFFERENT operations:
+//   start_fw      — install the zapret2 nft rules (after they are missing).
+//   reload_ifsets — re-read interface sets after an interface came/went.
+// They are not interchangeable.
+//
+// [VERIFY:ROUTER] exact ucode API (popen close rc, time) — smoke.sh 06.
 
 import { readfile, writefile, stat, mkdir, unlink, popen } from 'fs';
 import { parse as jparse, stringify as jstringify } from 'json';
 import { PATHS } from './constants.uc';
 import { PASSTHROUGH } from './constants.uc';
 
-const UPSTREAM_INIT = '/etc/init.d/zapret2';          // [VERIFY] upstream init
+const UPSTREAM_INIT = '/etc/init.d/zapret2';
 const LASTGOOD_DIR  = '/tmp/zapret2-manager/last-good';
 const PENDING       = '/tmp/zapret2-manager/pending-rollback';
 const ROLLBACK_TTL  = 90;
@@ -91,15 +102,30 @@ function restart_daemons() {
 		rollback_pending: true, rollback_ttl: ROLLBACK_TTL };
 }
 
+// start_fw — INSTALL the zapret2 nft rules (use when the rules are missing,
+// e.g. after the table was cleared). Delegates to upstream's own start_fw,
+// which touches only the zapret2 table. NEVER a full firewall restart — see
+// the prohibition in the file header.
 function start_fw() {
-	// The ONLY firewall-touching command we issue. Never `service firewall
-	// stop` / fw4 wholesale restart (incident r12). reload_ifsets refreshes
-	// interface sets without rebuilding the table.
 	snapshot_last_good();
-	let r = run('fw4 reload_ifsets');   // [VERIFY] subcommand name on 25.12
+	let r = run(UPSTREAM_INIT + ' start_fw');
 	schedule_rollback();
-	event('ui', 'start_fw reload_ifsets rc=' + r.rc);
+	event('ui', 'start_fw rc=' + r.rc);
 	return { ok: r.rc == 0, action: 'start_fw', rc: r.rc, out: r.out,
+		rollback_pending: true, rollback_ttl: ROLLBACK_TTL };
+}
+
+// reload_ifsets — RE-READ interface sets after an interface came/went. Distinct
+// from start_fw: the rules are already installed, only the ifset membership is
+// stale. Also delegated to upstream. The fw4 binary has no reload-ifsets
+// subcommand (that is a subcommand of the zapret2 init script), and a full fw
+// restart is forbidden — see the file header.
+function reload_ifsets() {
+	snapshot_last_good();
+	let r = run(UPSTREAM_INIT + ' reload_ifsets');
+	schedule_rollback();
+	event('ui', 'reload_ifsets rc=' + r.rc);
+	return { ok: r.rc == 0, action: 'reload_ifsets', rc: r.rc, out: r.out,
 		rollback_pending: true, rollback_ttl: ROLLBACK_TTL };
 }
 
@@ -188,10 +214,11 @@ if (arg == 'passthrough') {
 	let enabled = (on == 'true' || on == '1');
 	print(jstringify(passthrough(enabled)) + '\n');
 } else if (arg == 'start' || arg == 'stop' || arg == 'restart' ||
-           arg == 'restart_daemons' || arg == 'start_fw' ||
+           arg == 'restart_daemons' || arg == 'start_fw' || arg == 'reload_ifsets' ||
            arg == 'confirm_alive' || arg == 'rollback') {
 	let m = { start: start, stop: stop, restart: restart, restart_daemons: restart_daemons,
-		start_fw: start_fw, confirm_alive: confirm_alive, rollback: rollback };
+		start_fw: start_fw, reload_ifsets: reload_ifsets,
+		confirm_alive: confirm_alive, rollback: rollback };
 	print(jstringify(m[arg]()) + '\n');
 } else {
 	print(jstringify({ ok: false, error: 'unknown action: ' + (arg ?? '') }) + '\n');

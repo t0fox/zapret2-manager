@@ -157,9 +157,13 @@ gate_04() {
     && ok "guard present" || bad "hotplug guard missing"
   ssh_out g "guard paused check" "grep -F -- '/tmp/zapret2-manager/paused' /etc/hotplug.d/iface/90-zapret2-manager"
   want_nz "$g" "guard checks paused flag"
-  # start_fw uses reload_ifsets (never full fw restart)
-  ssh_out sf "service.uc start_fw" "grep -F -- 'fw4 reload_ifsets' /usr/libexec/zapret2-manager/service.uc"
-  want_nz "$sf" "start_fw uses fw4 reload_ifsets"
+  # start_fw and reload_ifsets both delegate to /etc/init.d/zapret2 (never fw4,
+  # never a full fw restart). start_fw installs rules; reload_ifsets re-reads
+  # ifsets — two distinct ops.
+  ssh_out sf "service.uc start_fw" "grep -F -- '/etc/init.d/zapret2 start_fw' /usr/libexec/zapret2-manager/service.uc"
+  want_nz "$sf" "start_fw uses /etc/init.d/zapret2 start_fw"
+  ssh_out ri "service.uc reload_ifsets" "grep -F -- '/etc/init.d/zapret2 reload_ifsets' /usr/libexec/zapret2-manager/service.uc"
+  want_nz "$ri" "reload_ifsets uses /etc/init.d/zapret2 reload_ifsets"
   ssh_out nosf "service.uc no fw stop" "grep -F -- 'service firewall stop' /usr/libexec/zapret2-manager/service.uc; true"
   [ -z "$nosf" ] && ok "service.uc never calls 'service firewall stop'" || bad "service.uc calls 'service firewall stop'"
   # FORBIDDEN: no full firewall restart button in any shipped UI JS

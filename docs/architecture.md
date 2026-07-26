@@ -161,9 +161,11 @@ is rotated by the manager when it exceeds 1 MB, trimmed to the last 500 lines.
 These are non-negotiable. Each encodes a past incident.
 
 - **No full firewall restart.** Never `service firewall stop` and never restart
-  fw4 wholesale — that destroys the entire nft table (incident r12). Use
-  `fw4 reload_ifsets` and surgical edits inside table `zapret2` only. The UI
-  must not expose a "restart firewall" button.
+  fw4 wholesale — that destroys the entire nft table (incident r12) and once
+  reset this router to factory defaults. Only upstream's own
+  `/etc/init.d/zapret2 start_fw` (install rules) and
+  `/etc/init.d/zapret2 reload_ifsets` (re-read ifsets) — both touch the
+  zapret2 table only. The UI must not expose a "restart firewall" button.
 - **ssh rc=255 is a dropped connection**, not a check result. Every ssh call in
   the tools checks the return code and treats 255 as comms failure, never as a
   green check. (Past green tests were false this way.)

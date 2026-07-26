@@ -114,10 +114,19 @@ return L.view.extend({
 				btn(_('Stop'), 'cbi-button-negative', 'stop', false),
 				btn(_('Restart'), 'cbi-button-neutral', 'restart', true),
 				btn(_('Restart daemons'), 'cbi-button-neutral', 'restart_daemons', true),
-				btn(_('Reload interface sets'), 'cbi-button-neutral', 'start_fw', true)
+				btn(_('Install firewall rules'), 'cbi-button-neutral', 'start_fw', true),
+				btn(_('Reload interface sets'), 'cbi-button-neutral', 'reload_ifsets', true)
 			]),
+			// 'Install firewall rules' = start_fw (install the zapret2 nft rules
+			// when missing). 'Reload interface sets' = reload_ifsets (re-read
+			// ifset membership after an interface came/went; rules already
+			// installed). Two distinct operations, both delegated to upstream's
+			// /etc/init.d/zapret2 — they touch only the zapret2 table.
+			// DO NOT add a 'Restart firewall' button: a full firewall
+			// stop/restart destroys other packages' nft tables and once reset
+			// this router to factory defaults. That prohibition is absolute.
 			E('div', { 'class': 'cbi-value-description' },
-				_('Reload interface sets runs `fw4 reload_ifsets` only. A full firewall restart is intentionally not offered — it destroys the nft table.')),
+				_('Install firewall rules (start_fw) installs the zapret2 nft rules when missing. Reload interface sets (reload_ifsets) re-reads ifset membership after an interface change. A full firewall restart is intentionally not offered — it destroys other packages\' nft tables.')),
 			status
 		]);
 	},

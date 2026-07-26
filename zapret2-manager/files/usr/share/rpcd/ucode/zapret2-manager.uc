@@ -80,6 +80,7 @@ return {
 			restart:          function (req) { return service_action('restart'); },
 			restart_daemons:  function (req) { return service_action('restart_daemons'); },
 			start_fw:         function (req) { return service_action('start_fw'); },
+			reload_ifsets:    function (req) { return service_action('reload_ifsets'); },
 			confirm_alive:    function (req) { return service_action('confirm_alive'); },
 			rollback:         function (req) { return service_action('rollback'); },
 			passthrough:      passthrough_method

@@ -54,20 +54,25 @@ own apply/reload path, never as a direct file stomp.
 
 | Manager concern | Upstream artifact | Direction | Notes |
 |---|---|---|---|
-| nft table existence/integrity | nft table `zapret2` [VERIFY table name] | read only | manager checks the table is present and non-empty; **never** rebuilds it |
-| Raise rules on interface events | hotplug hook `90-zapret2` [VERIFY] | stay out | upstream owns it; paused flag makes it no-op (manager writes the flag, not the rules) |
-| Reload interface sets | `fw4 reload_ifsets` | control (service-control branch) | the *only* firewall-touching command the manager issues |
-| Full firewall restart | — | **forbidden** | never `service firewall stop` / fw4 wholesale restart (incident r12) |
+| nft table existence/integrity | nft table `zapret2` | read only | manager checks the table is present and non-empty; **never** rebuilds it |
+| Install the zapret2 rules | `/etc/init.d/zapret2 start_fw` | control | installs the zapret2 nft rules when missing. Touches the zapret2 table only. |
+| Re-read interface sets | `/etc/init.d/zapret2 reload_ifsets` | control | re-reads ifset membership after an interface came/went. Distinct from start_fw. |
+| Raise rules on interface events | hotplug hook `90-zapret2` | stay out | upstream owns it; pause uses upstream's NFQWS2_ENABLE so its start is a no-op (see REVIEW 1) |
+| Full firewall restart | — | **forbidden** | never `service firewall stop` / fw4 wholesale restart (incident r12 + a factory reset) |
 
-[VERIFY]: exact nft table name (`zapret2` per spec) and the hotplug script
-path/filename. Confirm the `fw4 reload_ifsets` subcommand name on 25.12.5.
+Confirmed by external source: the full, exhaustive list of
+`/etc/init.d/zapret2` subcommands is `start`, `stop`, `restart`,
+`start_daemons`, `stop_daemons`, `restart_daemons`, `start_fw`, `stop_fw`,
+`restart_fw`, `reload_ifsets`, `list_ifsets`, `list_table`. No others are
+invented. `fw4` has no `reload_ifsets` subcommand; that is a zapret2 init
+subcommand.
 
 ## NFQUEUE
 
 | Manager concern | Upstream artifact | Direction | Notes |
 |---|---|---|---|
-| Queue depth | `/proc/net/netfilter/nfnetlink_queue`, row queue 300, field `qlen` | read | third liveness signal; manager never creates or binds the queue |
-| Queue number | 300 | constant | upstream binds it; manager matches it for reading |
+| Queue depth | `/proc/net/netfilter/nfnetlink_queue`, row queue 300, fields queue_total / queue_dropped / queue_user_dropped / copy_range | read | third liveness signal; manager never creates or binds the queue |
+| Queue number | 300 | constant | upstream binds it; manager matches field 1 to select the row |
 
 ## Lists & blockcheck (present upstream, untouched this stage)
 
