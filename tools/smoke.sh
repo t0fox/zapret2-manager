@@ -217,14 +217,30 @@ pause_fw_effect() {
 }
 
 # ---- branch 05: passthrough --------------------------------------------------
+# Passthrough is enforced on the live argv now (fix/02-02): ON strips every
+# --lua-desync from NFQWS2_OPT via apply.uc and restarts; the live cmdline has
+# NOT A SINGLE --lua-desync. OFF restores the original and the args return.
 gate_05() {
-  log "gate 05 — passthrough toggle"
-  ssh_ok "passthrough on"  ubus call zapret2-manager passthrough '{"enabled":true}'  || bad "passthrough on failed"
-  ssh_out pt "passthrough state" ubus call zapret2-manager status
-  want_contains "$pt" '"passthrough"' "status reports passthrough"
-  # in passthrough, nfqws2 running + rules present but no fake-send flag
+  log "gate 05 — passthrough (no --lua-desync in live argv)"
+  ssh_ok "passthrough on" ubus call zapret2-manager passthrough '{"enabled":true}' || bad "passthrough on failed"
+  sleep 1
   ssh_ok "nfqws2 still running in passthrough" pgrep -x nfqws2 || bad "nfqws2 down in passthrough"
+  # live argv: NUL-separated cmdline → spaces, then grep -F for the literal.
+  # \$() is escaped so pgrep runs ON THE ROUTER, not locally.
+  ssh_out ptargv "nfqws2 cmdline in passthrough" "tr '\0' ' ' < /proc/\$(pgrep -x nfqws2 | head -n 1)/cmdline 2>/dev/null"
+  if printf '%s' "$ptargv" | grep -F -- '--lua-desync=' >/dev/null; then
+    bad "passthrough argv STILL has --lua-desync (strip did not take effect on the live daemon)"
+  else
+    ok "passthrough: live argv has no --lua-desync"
+  fi
   ssh_ok "passthrough off" ubus call zapret2-manager passthrough '{"enabled":false}' || bad "passthrough off failed"
+  sleep 1
+  ssh_out ptoff "nfqws2 cmdline after passthrough off" "tr '\0' ' ' < /proc/\$(pgrep -x nfqws2 | head -n 1)/cmdline 2>/dev/null"
+  if printf '%s' "$ptoff" | grep -F -- '--lua-desync=' >/dev/null; then
+    ok "passthrough OFF restored --lua-desync args"
+  else
+    bad "passthrough OFF did not restore --lua-desync (original NFQWS2_OPT not restored)"
+  fi
 }
 
 # ---- branch 06: watchdog -----------------------------------------------------

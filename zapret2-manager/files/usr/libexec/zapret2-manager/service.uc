@@ -307,21 +307,60 @@ function rollback() {
 
 // ---- passthrough (our entity; no upstream option) ---------------------------
 //
-// Passthrough is NOT a UCI flag (upstream has no passthrough option and will
-// not grow one; a separate flag would desync from reality and create a 4th
-// state level). It is modelled as a PROFILE WITH NO STRATEGIES: the instance
-// is up, filters are in place, and not a single lua-desync argument is passed
-// to nfqws2. Passthrough is therefore a property of the generated nfqws2
-// options string — it flows through config generation, rolls back by the
-// standard mechanism, and is visible in the live process argv.
+// Passthrough is NOT a UCI flag (upstream has no passthrough option; a flag
+// would desync from reality and create a 4th state level). It is a property
+// of the nfqws2 options string: the instance is up, filters and ports are in
+// place, and not a single --lua-desync argument is passed. It flows through
+// apply.uc (the single writer), rolls back by the standard 90s mechanism, and
+// is visible in the live process argv AND in the applied config — not only in
+// our draft state.
 //
-// What this function owns: toggling which profile is active in the draft
-// state. The active profile is recorded as { name, strategies: [] } for
-// passthrough-on. Applying that profile to the running daemon (rendering the
-// no-lua-desync argv and starting nfqws2 with it) is the config-generation
-// mechanism's job; until that branch lands, passthrough is modelled here and
-// surfaced in status, but not yet enforced on the live argv. See
-// docs/upstream-mapping.md and the [ASK] note in the branch report.
+// ON:  snapshot + save the current NFQWS2_OPT to last-good, strip every
+//      --lua-desync arg from it, write the stripped string via apply.uc,
+//      capture the new applied hash, restart, arm rollback.
+// OFF: restore the original NFQWS2_OPT from last-good via apply.uc, capture
+//      the hash, restart, arm rollback.
+//
+// The from-profiles options-string CONSTRUCTOR is still deferred (strategy-
+// editor branch); passthrough does not construct — it transforms the already
+// applied NFQWS2_OPT (strip lua-desync) and writes it back through apply.uc.
+
+const PREV_OPT = LASTGOOD_DIR + '/nfqws2_opt.orig';
+
+function save_orig_opt(v) {
+	try { run('mkdir -p ' + LASTGOOD_DIR); writefile(PREV_OPT, (v == null ? '' : v) + '\n'); }
+	catch (e) { }
+}
+
+function read_orig_opt() {
+	try {
+		let raw = readfile(PREV_OPT);
+		if (!raw) return null;
+		let v = trim(raw);
+		return length(v) ? v : null;
+	} catch (e) { return null; }
+}
+
+// Remove every --lua-desync argument from an NFQWS2_OPT value, keeping the
+// rest unchanged (order + line separators preserved). Mirrors
+// tests/lib/stripper.mjs; runtime confirmed on target via smoke.sh. Line-
+// based (the real NFQWS2_OPT puts one arg per line): a line is a lua-desync
+// arg iff its trimmed content starts with "--lua-desync=" (exact prefix —
+// --lua-init= and --lua-desync2= survive). A line that only contains
+// --lua-desync= mid-line is kept (we never rewrite an arg by stripping a
+// token out of the middle of a line).
+const LUA_DESYNC_TOKEN = '--lua-desync=';
+function strip_lua_desync(value) {
+	if (value == null) return '';
+	let lines = split(value, '\n');
+	let kept = [];
+	for (let i = 0; i < length(lines); i++) {
+		let t = trim(lines[i]);
+		if (substr(t, 0, length(LUA_DESYNC_TOKEN)) == LUA_DESYNC_TOKEN) continue;
+		push(kept, lines[i]);
+	}
+	return join(kept, '\n');
+}
 
 function read_state() {
 	try { let raw = readfile(PATHS.draft_state); return raw ? jparse(raw) : {}; }
@@ -336,21 +375,38 @@ function write_state(st) {
 function passthrough(enabled) {
 	let on = !!enabled;
 	let st = read_state();
-	// The passthrough profile: no strategies → no lua-desync args in the
-	// generated options string. 'default' is a placeholder for the normal
-	// profile; the config-generation branch will define real profiles.
-	if (on) {
-		st.active_profile = { name: PASSTHROUGH_PROFILE_NAME, strategies: [] };
-		st.passthrough = { enabled: true };
-	} else {
-		st.active_profile = { name: 'default', strategies: null };
-		st.passthrough = { enabled: false };
-	}
-	write_state(st);
 	set_paused(false);
 	snapshot_last_good();
-	// Restart via upstream so the daemon reflects the current applied config.
-	// (Full enforcement of the no-lua-desync argv awaits config generation.)
+	if (on) {
+		// Strip every --lua-desync from the CURRENT applied NFQWS2_OPT and write
+		// the stripped string back through apply.uc. The original is saved to
+		// last-good so OFF restores it. Passthrough is then visible in the live
+		// argv (no --lua-desync) and in the applied config, not only our state.
+		let cur = read_var('NFQWS2_OPT');
+		if (cur == null) {
+			event('ui', 'config', 'warn',
+				'passthrough ON skipped: no NFQWS2_OPT in /opt/zapret2/config to strip',
+				{ passthrough: true, reason: 'no_nfqws2_opt' });
+			return { ok: false, action: 'passthrough', enabled: true,
+				error: 'no NFQWS2_OPT in /opt/zapret2/config' };
+		}
+		save_orig_opt(cur);
+		set_var('NFQWS2_OPT', strip_lua_desync(cur));
+		capture_applied_hash();
+		st.active_profile = { name: PASSTHROUGH_PROFILE_NAME, strategies: [] };
+		st.passthrough = { enabled: true };
+		write_state(st);
+	} else {
+		// Restore the original NFQWS2_OPT captured at ON-time.
+		let orig = read_orig_opt();
+		if (orig != null) {
+			set_var('NFQWS2_OPT', orig);
+			capture_applied_hash();
+		}
+		st.active_profile = { name: 'default', strategies: null };
+		st.passthrough = { enabled: false };
+		write_state(st);
+	}
 	let r = run(UPSTREAM_INIT + ' restart');
 	schedule_rollback();
 	event('ui', 'config', 'info',
