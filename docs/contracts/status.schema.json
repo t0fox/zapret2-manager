@@ -1,0 +1,137 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://zapret2-manager.local/contracts/status.schema.json",
+	"title": "zapret2-manager status.json",
+	"description": "Shape of /tmp/zapret2-manager/status.json produced by usr/libexec/zapret2-manager/status.uc and served (3s cached) by the ubus `status` method. The collector populates every block; the UI renders, never recomputes. Drift and queue signals are backend-computed so the watchdog (no UI) sees the same picture a human sees.",
+	"type": "object",
+	"additionalProperties": true,
+	"required": ["collected_at", "cache_ttl", "runtime", "applied", "draft", "queues", "signals"],
+	"properties": {
+		"collected_at": { "type": ["integer", "null"], "description": "Unix seconds at collection. null = not collected." },
+		"cache_ttl": { "type": "integer", "description": "Seconds the rpcd `status` method serves this snapshot before re-running the collector." },
+		"runtime": {
+			"type": "object",
+			"description": "RUNTIME level: what is actually running right now (ps + list_table + actual /proc/<pid>/cmdline).",
+			"properties": {
+				"present": { "type": "boolean" },
+				"count": { "type": "integer" },
+				"pids": {
+					"type": "array",
+					"items": {
+						"type": "object",
+						"required": ["pid", "cmdline"],
+						"properties": {
+							"pid": { "type": "integer" },
+							"cmdline": { "type": "string", "description": "Actual argv from /proc/<pid>/cmdline, NULs → spaces. Ground truth, not config." },
+							"start_time": { "type": ["integer", "null"] }
+						}
+					}
+				},
+				"strategies": { "type": ["string", "null"], "description": "list_table output (running strategy table)." },
+				"ps_summary": { "type": "string" }
+			}
+		},
+		"applied": {
+			"type": "object",
+			"description": "APPLIED level: on-disk intent upstream will honor on next start (/opt/zapret2/config + /etc/config/zapret2).",
+			"properties": {
+				"config_path": { "type": "string" },
+				"config_present": { "type": "boolean" },
+				"config_size": { "type": ["integer", "null"] },
+				"uci": { "type": ["string", "null"], "description": "uci show zapret2 output." },
+				"generation": { "type": ["integer", "null"], "description": "Config generation number. null = not checked / not present." }
+			}
+		},
+		"draft": {
+			"type": "object",
+			"description": "DRAFT level: manager's own staged state (/etc/zapret2-manager/state.json). Upstream never reads this."
+		},
+		"queues": {
+			"type": "object",
+			"description": "Third liveness signal: NFQUEUE queue 300. Raw values from /proc/net/netfilter/nfnetlink_queue; cycle-based signals computed by the watchdog and persisted to qlen.state.json, surfaced here for display.",
+			"required": ["number", "registered"],
+			"properties": {
+				"number": { "type": "integer", "const": 300 },
+				"registered": { "type": "boolean", "description": "false = the queue is not registered in the kernel (nfqws2 not connected). Distinct from queue_total=0." },
+				"reason": { "type": ["string", "null"], "description": "Why registered is false, when applicable." },
+				"warning": { "type": ["string", "null"], "enum": ["queue_not_registered", null] },
+				"queue_total": { "type": ["integer", "null"], "description": "Field 3. Instantaneous queue length; threshold 50 + three-consecutive rule apply." },
+				"copy_range": { "type": ["integer", "null"], "description": "Field 5." },
+				"queue_dropped": { "type": ["integer", "null"], "description": "Field 6. Cumulative monotonic counter since queue creation. Absolute value MUST NOT be compared to a threshold; consume as delta only." },
+				"queue_user_dropped": { "type": ["integer", "null"], "description": "Field 7. Cumulative monotonic counter; delta-only." },
+				"signals": {
+					"type": "object",
+					"description": "Computed by the watchdog (60s cycle); read-only mirror for the UI.",
+					"properties": {
+						"state": { "type": "string", "enum": ["nominal", "warn", "critical", "unknown"] },
+						"consecutive": { "type": "integer", "description": "Consecutive cycles queue_total > 50." },
+						"dropped_delta": { "type": ["integer", "null"], "description": "Per-cycle delta of queue_dropped. Never negative; null when no baseline or queue recreated." },
+						"user_dropped_delta": { "type": ["integer", "null"] },
+						"updated_at": { "type": ["integer", "null"] }
+					}
+				}
+			}
+		},
+		"drift": {
+			"type": "object",
+			"description": "Backend-computed divergence between RUNTIME and APPLIED. The UI renders this block; it does NOT recompute drift from mtimes or anything else. Intermediate basis (REVIEW 2): sha256 of both applied sources captured at apply time, stored in /tmp/zapret2-manager/applied.sha256, compared each collection. Target basis: normalized runtime argv vs argv the applied state would generate. Both bases account for /opt/zapret2/config AND /etc/config/zapret2, never one alone.",
+			"required": ["divergent"],
+			"properties": {
+				"divergent": { "type": "boolean", "description": "true = running argv does not match applied state." },
+				"reason": { "type": ["string", "null"], "description": "Human-readable, not parsed: e.g. 'applied sha256 mismatch', 'no stored apply hash', 'process absent'." },
+				"basis": { "type": "string", "enum": ["sha256-intermediate", "argv-render"], "description": "Which basis produced this result." },
+				"applied_sha256": {
+					"type": ["object", "null"],
+					"description": "Hashes captured at apply time (sha256-intermediate basis).",
+					"properties": {
+						"config": { "type": ["string", "null"] },
+						"uci": { "type": ["string", "null"] }
+					}
+				},
+				"current_sha256": {
+					"type": ["object", "null"],
+					"description": "Hashes computed this collection, for comparison.",
+					"properties": {
+						"config": { "type": ["string", "null"] },
+						"uci": { "type": ["string", "null"] }
+					}
+				},
+				"normalized_runtime": { "type": ["string", "null"], "description": "Normalized runtime argv (argv-render basis). null under sha256-intermediate." }
+			}
+		},
+		"passthrough": { "type": "boolean", "description": "Derived from draft: whether the active profile is the no-strategy passthrough profile." },
+		"meta": {
+			"type": "object",
+			"description": "Version, autostart, upgradable badge, autohostlist vars.",
+			"properties": {
+				"nfqws2_version": { "type": ["string", "null"], "description": "null = checked, no value (distinct from key absence = not checked)." },
+				"autostart": {
+					"type": "object",
+					"properties": {
+						"enabled": { "type": "boolean" },
+						"symlinks": { "type": "array", "items": { "type": "string" } }
+					}
+				},
+				"versions": {
+					"type": "object",
+					"properties": {
+						"upgradable": { "type": ["boolean", "null"], "description": "null = unknown." }
+					}
+				},
+				"autohostlist": {
+					"type": ["object", "null"],
+					"description": "AUTOHOSTLIST* vars read as-is from /opt/zapret2/config and shown verbatim; the manager applies no thresholds of its own here.",
+					"additionalProperties": { "type": ["string", "null"] }
+				}
+			}
+		},
+		"signals": {
+			"type": "object",
+			"description": "Coarse boolean signals for quick UI badges; the queues and drift blocks carry the detail.",
+			"properties": {
+				"process_present": { "type": "boolean" },
+				"rules_present": { "type": "boolean" }
+			}
+		}
+	}
+}

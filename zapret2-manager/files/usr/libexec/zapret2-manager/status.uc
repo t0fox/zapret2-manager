@@ -20,9 +20,10 @@
 import { readfile, writefile, stat, mkdir, lsdir, popen } from 'fs';
 import { parse as jparse, stringify as jstringify } from 'json';
 import {
-	NFQUEUE, QLEN_WARN, QLEN_CRIT_CONSECUTIVE, QLEN_FIELD_INDEX, CACHE_TTL_SEC,
+	NFQUEUE, QLEN_WARN, QLEN_CRIT_CONSECUTIVE, CACHE_TTL_SEC,
 	DAEMON, NFT_TABLE, PATHS
 } from './constants.uc';
+import { parse_queue } from './qlen.uc';
 
 // ---- helpers ----------------------------------------------------------------
 
@@ -50,22 +51,6 @@ function read_json(path, fallback) {
 	} catch (e) {
 		return fallback;
 	}
-}
-
-// tokenize on whitespace without relying on regex split edge cases
-function tokenize(s) {
-	let out = [];
-	let cur = '';
-	for (let i = 0; i < length(s); i++) {
-		let c = substr(s, i, 1);
-		if (c == ' ' || c == '\t' || c == '\r') {
-			if (length(cur)) { push(out, cur); cur = ''; }
-		} else {
-			cur += c;
-		}
-	}
-	if (length(cur)) push(out, cur);
-	return out;
 }
 
 // ---- RUNTIME: process + strategies + actual cmdline -------------------------
@@ -158,41 +143,39 @@ function draft_level() {
 	return read_json(PATHS.draft_state, {});
 }
 
-// ---- third liveness signal: NFQUEUE qlen ------------------------------------
+// ---- third liveness signal: NFQUEUE queue block -----------------------------
+//
+// Raw queue values come from the shared parser (qlen.uc). The cycle-based
+// signals (queue_total three-consecutive → critical; queue_dropped delta →
+// warn) are computed by the WATCHDOG on its 60s cycle and persisted to
+// qlen.state.json; the collector only READS that state for display, so the UI
+// and the watchdog see the same picture. If the watchdog has not run yet, the
+// signal state is unknown.
 
-function qlen_signal() {
-	let raw = readfile(PATHS.nfqueue_proc);
-	if (!raw)
-		return { qlen: null, state: 'unknown', consecutive: 0, error: 'no nfnetlink_queue' };
+function queues_block() {
+	let q = parse_queue();
+	let sig = read_json(PATHS.qlen_state, null);
 
-	let qlen = null;
-	let row = null;
-	for (let line of split(raw, '\n')) {
-		line = trim(line);
-		if (!length(line)) continue;
-		let f = tokenize(line);
-		if (length(f) > QLEN_FIELD_INDEX && f[0] == '' + NFQUEUE) {
-			qlen = +f[QLEN_FIELD_INDEX];
-			row = line;
-			break;
+	let warning = null;
+	if (!q.registered) warning = 'queue_not_registered';
+
+	return {
+		number: NFQUEUE,
+		registered: q.registered,
+		reason: q.reason ?? null,
+		warning: warning,
+		queue_total: q.queue_total,           // instantaneous; threshold 50 applies
+		copy_range: q.copy_range,
+		queue_dropped: q.queue_dropped,       // cumulative raw; delta-only downstream
+		queue_user_dropped: q.queue_user_dropped,
+		signals: {
+			state: sig ? (sig.last_state ?? 'unknown') : 'unknown',
+			consecutive: sig ? (sig.consecutive ?? 0) : 0,
+			dropped_delta: sig ? (sig.dropped_delta ?? null) : null,
+			user_dropped_delta: sig ? (sig.user_dropped_delta ?? null) : null,
+			updated_at: sig ? (sig.updated_at ?? null) : null
 		}
-	}
-	if (qlen == null)
-		return { qlen: null, state: 'unknown', consecutive: 0, error: 'queue ' + NFQUEUE + ' not found' };
-
-	// Persist + update the consecutive-exceedance counter across collections.
-	let prev = read_json(PATHS.qlen_state, { consecutive: 0, last_qlen: null });
-	let consecutive = (qlen > QLEN_WARN) ? (prev.consecutive ?? 0) + 1 : 0;
-
-	let state;
-	if (consecutive >= QLEN_CRIT_CONSECUTIVE) state = 'critical';
-	else if (qlen > QLEN_WARN) state = 'warn';
-	else state = 'nominal';
-
-	let st = { consecutive: consecutive, last_qlen: qlen, last_state: state, updated_at: now() };
-	try { writefile(PATHS.qlen_state, jstringify(st) + '\n'); } catch (e) { }
-
-	return { qlen: qlen, state: state, consecutive: consecutive, row: row };
+	};
 }
 
 // ---- rules present (nft table zapret2) --------------------------------------
@@ -250,11 +233,11 @@ function collect() {
 	// Ensure runtime dir exists (volatile; created on demand).
 	try { mkdir('/tmp/zapret2-manager'); } catch (e) { }
 
-	let runtime, applied, draft, qlen, rules, meta;
+	let runtime, applied, draft, queues, rules, meta;
 	try { runtime = runtime_level(); } catch (e) { runtime = { error: 'runtime collect failed: ' + e }; }
 	try { applied = applied_level(); } catch (e) { applied = { error: 'applied collect failed: ' + e }; }
 	try { draft = draft_level(); } catch (e) { draft = { error: 'draft read failed: ' + e }; }
-	try { qlen = qlen_signal(); } catch (e) { qlen = { error: 'qlen read failed: ' + e }; }
+	try { queues = queues_block(); } catch (e) { queues = { error: 'queues read failed: ' + e }; }
 	try { rules = rules_present(); } catch (e) { rules = false; }
 	try { meta = meta_info(); } catch (e) { meta = { error: 'meta collect failed: ' + e }; }
 
@@ -264,16 +247,15 @@ function collect() {
 		runtime: runtime,
 		applied: applied,
 		draft: draft,
+		queues: queues,
 		passthrough: (draft && draft.passthrough && draft.passthrough.enabled) || false,
 		meta: meta,
 		signals: {
 			process_present: runtime.present ?? false,
-			rules_present: rules,
-			qlen: qlen
+			rules_present: rules
 		}
-		// Note: runtime-vs-applied divergence is computed by the Overview page
-		// (branch 03) from the raw runtime/applied data above, not here; a
-		// collector-side heuristic would be a misleading second opinion.
+		// Drift (runtime-vs-applied) is computed in the collector (REVIEW 2) and
+		// exposed as status.drift; the UI renders it, never recomputes.
 	};
 
 	try { writefile(PATHS.status_json, jstringify(status, null, '  ') + '\n'); } catch (e) { }

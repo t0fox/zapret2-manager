@@ -26,18 +26,19 @@
 
 import { readfile, writefile, stat, mkdir, unlink, popen } from 'fs';
 import { parse as jparse, stringify as jstringify } from 'json';
-import { NFQUEUE, QLEN_WARN, QLEN_CRIT_CONSECUTIVE, QLEN_FIELD_INDEX,
+import { NFQUEUE, QLEN_WARN, QLEN_CRIT_CONSECUTIVE,
 	DAEMON, NFT_TABLE, PATHS } from './constants.uc';
+import { parse_queue } from './qlen.uc';
 
 const CYCLE_SEC    = 60;
-const CLK_TCK      = 100;          // [VERIFY] sysconf(_SC_CLK_TCK) on target
 const CPU_WARN_PCT = 70;
 const CPU_WARN_WIN = 3;            // 3 × 60s = 180s
 const CPU_CRIT_PCT = 90;
 const RAM_CRIT_KB  = 40 * 1024;    // 40 MB
 const OVERLAY_CRIT = 90;
 const COOLDOWN_SEC = 600;
-const STATE_FILE   = '/tmp/zapret2-manager/watchdog.state.json';
+const STATE_FILE   = PATHS.watchdog_state;
+const QLEN_STATE   = PATHS.qlen_state;
 
 function sh(cmd) {
 	let p = popen(cmd + ' 2>/dev/null', 'r');
@@ -100,6 +101,15 @@ function find_pids() {
 	return pids;
 }
 
+// CLK_TCK: read from the system rather than hardcode 100. [VERIFY:ROUTER]
+// answered by smoke.sh 06 (watchdog cycle runs without error → the value is
+// sane). Fallback 100 if getconf is unavailable.
+function clk_tck() {
+	let v = trim(sh('getconf CLK_TCK 2>/dev/null'));
+	if (length(v) && match(v, /^[0-9]+$/)) return +v;
+	return 100;
+}
+
 function cpu_ticks(pids) {
 	let total = 0;
 	for (let pid of pids) {
@@ -115,17 +125,102 @@ function cpu_ticks(pids) {
 	return total;
 }
 
-function read_qlen() {
-	let raw = readfile(PATHS.nfqueue_proc);
-	if (!raw) return null;
-	for (let line of split(raw, '\n')) {
-		line = trim(line);
-		if (!length(line)) continue;
-		let f = split(line, /[ ]+/);
-		if (length(f) > QLEN_FIELD_INDEX && f[0] == '' + NFQUEUE)
-			return +f[QLEN_FIELD_INDEX];
+// ---- queue signals (the ONLY place cycle-based qlen state is computed) -------
+//
+// queue_total is instantaneous: threshold 50, three consecutive cycles above
+// → critical. queue_dropped / queue_user_dropped are CUMULATIVE monotonic
+// counters: we compute the per-cycle delta vs the previous cycle's value
+// (persisted in qlen.state.json). delta > 0 means the kernel had nowhere to
+// put packets — a warn that appears BEFORE queue_total grows. If the new
+// value is less than the stored one, the queue was recreated (counter reset);
+// the delta cannot be computed this cycle, so we rewrite the base and skip —
+// never emit a negative delta.
+
+function read_qlen_prev() {
+	try { let raw = readfile(QLEN_STATE); return raw ? jparse(raw) : null; }
+	catch (e) { return null; }
+}
+
+function write_qlen_state(st) {
+	try { mkdir('/tmp/zapret2-manager'); writefile(QLEN_STATE, jstringify(st) + '\n'); }
+	catch (e) { }
+}
+
+function qlen_cycle(st) {
+	let q = parse_queue();
+	let prev = read_qlen_prev() ?? {};
+	let t = now();
+
+	if (!q.registered) {
+		// Queue not registered in the kernel at all — nfqws2 not connected.
+		let next = {
+			consecutive: 0,
+			prev_dropped: null, prev_user_dropped: null,
+			dropped_delta: null, user_dropped_delta: null,
+			last_state: 'unknown', last_qlen: null, updated_at: t
+		};
+		write_qlen_state(next);
+		alert_if('queue_not_registered', 'qlen',
+			'NFQUEUE ' + NFQUEUE + ' not registered in kernel (nfqws2 not connected)',
+			'crit', st);
+		return { registered: false, queue_total: null };
 	}
-	return null;
+
+	// queue_total: instantaneous, three-consecutive rule.
+	let consecutive = (q.queue_total > QLEN_WARN) ? (prev.consecutive ?? 0) + 1 : 0;
+
+	// dropped deltas (cumulative → delta vs prev cycle, with reset handling).
+	let dd = null, udd = null;
+	let prev_d = prev.prev_dropped ?? null;
+	let prev_ud = prev.prev_user_dropped ?? null;
+	if (prev_d == null) {
+		// first observed cycle: no baseline yet, just record it.
+	} else if (q.queue_dropped < prev_d) {
+		// counter went backwards → queue recreated; no delta this cycle.
+	} else {
+		dd = q.queue_dropped - prev_d;
+	}
+	if (prev_ud == null) {
+		// no baseline
+	} else if (q.queue_user_dropped < prev_ud) {
+		// reset → no delta
+	} else {
+		udd = q.queue_user_dropped - prev_ud;
+	}
+
+	// state: worst of (critical > warn > nominal). Dropped delta is a warn only.
+	let state = 'nominal';
+	if (consecutive >= QLEN_CRIT_CONSECUTIVE) state = 'critical';
+	else if (q.queue_total > QLEN_WARN) state = 'warn';
+	else if (dd != null && dd > 0) state = 'warn';
+
+	let next = {
+		consecutive: consecutive,
+		prev_dropped: q.queue_dropped,
+		prev_user_dropped: q.queue_user_dropped,
+		dropped_delta: dd,
+		user_dropped_delta: udd,
+		last_state: state,
+		last_qlen: q.queue_total,
+		updated_at: t
+	};
+	write_qlen_state(next);
+
+	// Events (each carries actual values + threshold + cycle count, not a
+	// bare label — see docs/contracts/events.v1.json).
+	if (consecutive >= QLEN_CRIT_CONSECUTIVE)
+		alert_if('qlen_critical', 'qlen',
+			'queue_total=' + q.queue_total + ' > ' + QLEN_WARN + ' for ' +
+			consecutive + ' consecutive cycles', 'crit', st);
+	if (dd != null && dd > 0)
+		alert_if('queue_dropped_delta', 'qlen',
+			'queue_dropped delta=' + dd + ' (kernel could not enqueue packets; ' +
+			'warn appears before queue_total grows)', 'warn', st);
+	if (udd != null && udd > 0)
+		alert_if('queue_user_dropped_delta', 'qlen',
+			'queue_user_dropped delta=' + udd, 'warn', st);
+
+	return { registered: true, queue_total: q.queue_total };
 }
 
 function free_ram_kb() {
@@ -180,22 +275,18 @@ function check_cycle() {
 				'nft table ' + NFT_TABLE + ' missing or empty', 'crit', st);
 	} catch (e) { }
 
-	// 3) qlen — critical after 3 consecutive >50 (state shared with collector)
-	let qlen = read_qlen();
-	if (qlen != null && qlen > QLEN_WARN) {
-		let qst = jparse(readfile(PATHS.qlen_state) ?? '{"consecutive":0}');
-		if ((qst.consecutive || 0) >= QLEN_CRIT_CONSECUTIVE)
-			alert_if('qlen_critical', 'qlen',
-				'NFQUEUE ' + NFQUEUE + ' jammed: qlen=' + qlen +
-				' (' + qst.consecutive + ' consecutive)', 'crit', st);
-	}
+	// 3) queue signals — queue_total three-consecutive critical, dropped delta
+	// warn, queue-not-registered. Computed here (60s cycle) and persisted to
+	// qlen.state.json; the collector reads it for display.
+	let qres = qlen_cycle(st);
+	let qlen = qres.queue_total;
 
 	// 4) cpu — sustained over a rolling window
 	let ticks = cpu_ticks(pids);
 	let t = now();
 	let prev = st.cpu_prev || { ticks: ticks, time: t };
 	let elapsed = t - prev.time;
-	let cpu_pct = (elapsed > 0) ? ((ticks - prev.ticks) / (CLK_TCK * elapsed)) * 100 : 0;
+	let cpu_pct = (elapsed > 0) ? ((ticks - prev.ticks) / (clk_tck() * elapsed)) * 100 : 0;
 	st.cpu_prev = { ticks: ticks, time: t };
 	st.cpu_samples = st.cpu_samples || [];
 	push(st.cpu_samples, cpu_pct);

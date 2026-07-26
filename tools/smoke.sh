@@ -95,8 +95,24 @@ gate_02() {
   want_contains "$j" '"runtime"' "status has RUNTIME level"
   want_contains "$j" '"applied"' "status has APPLIED level"
   want_contains "$j" '"draft"'   "status has DRAFT level"
-  # third liveness signal: qlen for queue 300
-  want_contains "$j" '"qlen"'    "status has qlen signal"
+  # third liveness signal: queues block (queue 300)
+  want_contains "$j" '"queues"' "status has queues block"
+  want_contains "$j" '"queue_total"' "queues block has queue_total (field 3)"
+  want_contains "$j" '"queue_dropped"' "queues block has queue_dropped (field 6)"
+  want_contains "$j" '"registered"' "queues block has registered flag"
+  # row is matched by queue number, not row order: if another queue exists, the
+  # parser must still return queue 300's values. Cross-check queue_total against
+  # the raw proc file for queue 300 (field 3).
+  ssh_out rawq "raw nfnetlink_queue" cat /proc/net/netfilter/nfnetlink_queue
+  ssh_out jsq "status queue_total" "ubus call zapret2-manager status | jsonfilter -e '@.queues.queue_total' 2>/dev/null"
+  # Find queue 300's field 3 in the raw file and compare. grep -F for '['? no
+  # brackets here; awk by first column.
+  rawtotal=$(printf '%s' "$rawq" | awk '$1==300{print $3; exit}')
+  if [ -n "$rawtotal" ] && [ -n "$jsq" ] && [ "$rawtotal" = "$jsq" ]; then
+    ok "queue_total matches /proc field 3 for queue 300 (row match by number)"
+  else
+    bad "queue_total ($jsq) != raw field 3 ($rawtotal) — wrong field or wrong row"
+  fi
   # ubus status method works
   ssh_out ub "ubus call" ubus call zapret2-manager status
   want_contains "$ub" '"runtime"' "ubus status returns RUNTIME"
