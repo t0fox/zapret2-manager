@@ -2,86 +2,65 @@
 	"$schema": "https://json-schema.org/draft/2020-12/schema",
 	"$id": "https://zapret2-manager.local/contracts/status.schema.json",
 	"title": "zapret2-manager status.json",
-	"description": "Shape of /tmp/zapret2-manager/status.json produced by usr/libexec/zapret2-manager/status.uc and served (3s cached) by the ubus `status` method. The collector populates every block; the UI renders, never recomputes. Drift and queue signals are backend-computed so the watchdog (no UI) sees the same picture a human sees.",
+	"description": "Shape of /tmp/zapret2-manager/status.json produced by usr/libexec/zapret2-manager/status.uc and served (3s cached) by the ubus `status` method. The collector populates every block; the UI renders, never recomputes. Drift, serviceState, and qlenHealth are backend-computed so the watchdog (no UI) sees the same picture a human sees. camelCase, schema v2: fix/02-04 is the LAST permitted rename (renames break parallel agents); extend only by ADDING fields and bumping the `schema` number.",
 	"type": "object",
 	"additionalProperties": true,
-	"required": ["collected_at", "cache_ttl", "runtime", "applied", "draft", "queues", "signals"],
+	"required": ["schema", "generatedAt", "generation", "serviceState", "runtime", "applied", "draft", "drift", "health", "system", "upstream", "jobs", "warnings"],
 	"properties": {
-		"collected_at": { "type": ["integer", "null"], "description": "Unix seconds at collection. null = not collected." },
-		"cache_ttl": { "type": "integer", "description": "Seconds the rpcd `status` method serves this snapshot before re-running the collector." },
+		"schema": { "type": "integer", "const": 2, "description": "Schema version. v2 = the camelCase rename (fix/02-04). Extend only by adding fields and bumping this number; renames after v2 are forbidden." },
+		"generatedAt": { "type": ["string", "null"], "format": "date-time", "description": "ISO-8601 with timezone (e.g. 2026-07-27T00:07:00Z). null = not collected. All timestamps in this document are ISO-8601 with timezone." },
+		"generation": { "type": ["integer", "null"], "description": "Config generation number read from the applied config. null = not present / not checked. The manager does not bump it; upstream does on its own apply." },
+		"serviceState": { "type": "string", "enum": ["running", "stopped", "partial", "error", "paused", "passthrough"], "description": "Backend-computed, single closed-enum value. paused and passthrough are self-standing states, NOT flags layered on running. paused = the paused indicator is set; passthrough = the no-strategy passthrough profile is active. partial = process up but nft table missing; error = queue not registered / queue jammed / collector failed. The UI maps a value to a badge (presentation only — no threshold/state logic in the UI)." },
 		"runtime": {
 			"type": "object",
-			"description": "RUNTIME level: what is actually running right now (ps + list_table + actual /proc/<pid>/cmdline).",
+			"description": "RUNTIME level: what is actually running right now (ps + /proc/<pid>/cmdline + list_table + nft table presence).",
 			"properties": {
 				"present": { "type": "boolean" },
 				"count": { "type": "integer" },
-				"pids": {
+				"instances": {
 					"type": "array",
+					"description": "One entry per running nfqws2 process.",
 					"items": {
 						"type": "object",
 						"required": ["pid", "cmdline"],
 						"properties": {
 							"pid": { "type": "integer" },
 							"cmdline": { "type": "string", "description": "Actual argv from /proc/<pid>/cmdline, NULs → spaces. Ground truth, not config." },
-							"start_time": { "type": ["integer", "null"] }
+							"startTime": { "type": ["string", "null"], "format": "date-time", "description": "ISO-8601. null = unknown. /proc/<pid> dir mtime ≈ start." },
+							"rssKb": { "type": ["integer", "null"], "description": "Resident set size in KB from /proc/<pid>/status (VmRSS). null = not read." }
 						}
 					}
 				},
-				"strategies": { "type": ["string", "null"], "description": "list_table output (running strategy table)." },
-				"profile_count": { "type": ["integer", "null"], "description": "Backend-computed count of non-empty list_table lines. null = not available." },
-				"ps_summary": { "type": "string" }
+				"strategies": { "type": ["string", "null"], "description": "list_table output (the nft table dump the daemon's ruleset currently holds)." },
+				"profileCount": { "type": ["integer", "null"], "description": "Backend-computed count of non-empty list_table lines. null = not available." },
+				"psSummary": { "type": "string" },
+				"rulesPresent": { "type": "boolean", "description": "nft table `zapret2` is present and non-empty. Distinct from process presence." }
 			}
 		},
 		"applied": {
 			"type": "object",
-			"description": "APPLIED level: on-disk intent upstream will honor on next start (/opt/zapret2/config + /etc/config/zapret2).",
+			"description": "APPLIED level: on-disk intent upstream will honor on next start (/opt/zapret2/config + /etc/config/zapret2 IF it exists).",
 			"properties": {
-				"config_path": { "type": "string" },
-				"config_present": { "type": "boolean" },
-				"config_size": { "type": ["integer", "null"] },
-				"uci": { "type": ["string", "null"], "description": "uci show zapret2 output." },
-				"generation": { "type": ["integer", "null"], "description": "Config generation number. null = not checked / not present." }
+				"configPath": { "type": "string" },
+				"configPresent": { "type": "boolean" },
+				"configMtime": { "type": ["string", "null"], "format": "date-time", "description": "ISO-8601 mtime of /opt/zapret2/config. null if absent." },
+				"configSize": { "type": ["integer", "null"] },
+				"uci": { "type": ["string", "null"], "description": "uci show zapret2 output. null if /etc/config/zapret2 is absent (confirmed on this installation)." }
 			}
 		},
 		"draft": {
 			"type": "object",
-			"description": "DRAFT level: manager's own staged state (/etc/zapret2-manager/state.json). Upstream never reads this."
-		},
-		"queues": {
-			"type": "object",
-			"description": "Third liveness signal: NFQUEUE queue 300. Raw values from /proc/net/netfilter/nfnetlink_queue; cycle-based signals computed by the watchdog and persisted to qlen.state.json, surfaced here for display.",
-			"required": ["number", "registered"],
-			"properties": {
-				"number": { "type": "integer", "const": 300 },
-				"registered": { "type": "boolean", "description": "false = the queue is not registered in the kernel (nfqws2 not connected). Distinct from queue_total=0." },
-				"reason": { "type": ["string", "null"], "description": "Why registered is false, when applicable." },
-				"warning": { "type": ["string", "null"], "enum": ["queue_not_registered", null] },
-				"queue_total": { "type": ["integer", "null"], "description": "Field 3. Instantaneous queue length; threshold 50 + three-consecutive rule apply." },
-				"copy_range": { "type": ["integer", "null"], "description": "Field 5." },
-				"queue_dropped": { "type": ["integer", "null"], "description": "Field 6. Cumulative monotonic counter since queue creation. Absolute value MUST NOT be compared to a threshold; consume as delta only." },
-				"queue_user_dropped": { "type": ["integer", "null"], "description": "Field 7. Cumulative monotonic counter; delta-only." },
-				"signals": {
-					"type": "object",
-					"description": "Computed by the watchdog (60s cycle); read-only mirror for the UI.",
-					"properties": {
-						"state": { "type": "string", "enum": ["nominal", "warn", "critical", "unknown"] },
-						"consecutive": { "type": "integer", "description": "Consecutive cycles queue_total > 50." },
-						"dropped_delta": { "type": ["integer", "null"], "description": "Per-cycle delta of queue_dropped. Never negative; null when no baseline or queue recreated." },
-						"user_dropped_delta": { "type": ["integer", "null"] },
-						"updated_at": { "type": ["integer", "null"] }
-					}
-				}
-			}
+			"description": "DRAFT level: manager's own staged state (/etc/zapret2-manager/state.json). Upstream never reads this. Free-form (active profile, passthrough flag, etc.)."
 		},
 		"drift": {
 			"type": "object",
-			"description": "Backend-computed divergence between RUNTIME and APPLIED. The UI renders this block; it does NOT recompute drift from mtimes or anything else. Intermediate basis (REVIEW 2): sha256 of both applied sources captured at apply time, stored in /tmp/zapret2-manager/applied.sha256, compared each collection. Target basis: normalized runtime argv vs argv the applied state would generate. Both bases account for /opt/zapret2/config AND /etc/config/zapret2, never one alone.",
+			"description": "Backend-computed divergence between RUNTIME and APPLIED. The UI renders this block; it does NOT recompute drift. Intermediate basis: sha256 of both applied sources captured at apply time, compared each collection. Both sources are accounted, never one alone; an absent source hashes to null and is skipped.",
 			"required": ["divergent"],
 			"properties": {
 				"divergent": { "type": "boolean", "description": "true = running argv does not match applied state." },
-				"reason": { "type": ["string", "null"], "description": "Human-readable, not parsed: e.g. 'applied sha256 mismatch', 'no stored apply hash', 'process absent'." },
+				"reason": { "type": ["string", "null"], "description": "Human-readable, not parsed." },
 				"basis": { "type": "string", "enum": ["sha256-intermediate", "argv-render"], "description": "Which basis produced this result." },
-				"applied_sha256": {
+				"appliedSha256": {
 					"type": ["object", "null"],
 					"description": "Hashes captured at apply time (sha256-intermediate basis).",
 					"properties": {
@@ -89,7 +68,7 @@
 						"uci": { "type": ["string", "null"] }
 					}
 				},
-				"current_sha256": {
+				"currentSha256": {
 					"type": ["object", "null"],
 					"description": "Hashes computed this collection, for comparison.",
 					"properties": {
@@ -97,51 +76,105 @@
 						"uci": { "type": ["string", "null"] }
 					}
 				},
-				"normalized_runtime": { "type": ["string", "null"], "description": "Normalized runtime argv (argv-render basis). null under sha256-intermediate." }
+				"normalizedRuntime": { "type": ["string", "null"], "description": "Normalized runtime argv (argv-render basis). null under sha256-intermediate." }
 			}
 		},
-		"passthrough": { "type": "boolean", "description": "Derived from draft: whether the active profile is the no-strategy passthrough profile." },
-		"service_state": {
+		"health": {
 			"type": "object",
-			"description": "Backend-computed service state (REVIEW 2). The UI renders this; it does not derive it. The watchdog reads the same value.",
-			"required": ["state", "label", "cls"],
+			"description": "Backend-computed health: the NFQUEUE qlen signal (qlenHealth) and a list of discrete checks. The UI renders; it does not apply thresholds (the backend computes state).",
 			"properties": {
-				"state": { "type": "string", "enum": ["running", "stopped", "degraded", "partial", "warn", "unknown"] },
-				"label": { "type": "string", "description": "Human-readable, not parsed." },
-				"cls": { "type": "string", "enum": ["ok", "warn", "bad", ""] }
+				"qlenHealth": {
+					"type": "object",
+					"description": "The third liveness signal (NFQUEUE 300 depth). Backend-computed; the UI only renders.",
+					"required": ["state", "threshold", "consecutiveOverThreshold", "critTurns"],
+					"properties": {
+						"state": { "type": "string", "enum": ["nominal", "warn", "critical", "unknown"], "description": "Backend-computed: warn at >threshold, critical after critTurns consecutive over." },
+						"threshold": { "type": "integer", "const": 50, "description": "queue_total warn threshold (constant 50)." },
+						"consecutiveOverThreshold": { "type": "integer", "description": "Consecutive collections queue_total > threshold. Reset to 0 when it drops back." },
+						"critTurns": { "type": "integer", "const": 3, "description": "Consecutive over-threshold turns that flip state to critical (constant 3)." }
+					}
+				},
+				"checks": {
+					"type": "array",
+					"description": "Discrete health checks. Each has an `id` from a CLOSED set. A result field that is null means 'checked, no value'; a result field that is ABSENT means 'not checked'. The UI MUST render those two cases differently.",
+					"items": {
+						"type": "object",
+						"required": ["id"],
+						"properties": {
+							"id": { "type": "string", "enum": ["dns_consistency", "tls12_reachable", "udp443_quic", "queue_health", "lua_version_match"] }
+						},
+						"additionalProperties": true
+					}
+				},
+				"queue": {
+					"type": "object",
+					"description": "Raw NFQUEUE values for queue 300 (the detail behind qlenHealth). Cycle-based deltas are computed by the watchdog; updatedAt mirrors that.",
+					"properties": {
+						"number": { "type": "integer", "const": 300 },
+						"registered": { "type": "boolean", "description": "false = the queue is not registered in the kernel (nfqws2 not connected). Distinct from queueTotal=0." },
+						"reason": { "type": ["string", "null"] },
+						"queueTotal": { "type": ["integer", "null"], "description": "Field 3. Instantaneous queue length; threshold 50 + three-consecutive rule apply." },
+						"copyRange": { "type": ["integer", "null"], "description": "Field 5." },
+						"queueDropped": { "type": ["integer", "null"], "description": "Field 6. Cumulative monotonic counter; consume as delta only." },
+						"queueUserDropped": { "type": ["integer", "null"], "description": "Field 7. Cumulative monotonic counter; delta only." },
+						"updatedAt": { "type": ["string", "null"], "format": "date-time", "description": "ISO-8601 of the watchdog's last qlen cycle." }
+					}
+				}
 			}
 		},
-		"meta": {
+		"system": {
 			"type": "object",
-			"description": "Version, autostart, upgradable badge, autohostlist vars.",
+			"description": "System-integration facts: autostart symlinks, upgradable badge.",
 			"properties": {
-				"nfqws2_version": { "type": ["string", "null"], "description": "null = checked, no value (distinct from key absence = not checked)." },
 				"autostart": {
 					"type": "object",
+					"description": "Informational. Authoritative autostart check is a real reboot (tools/smoke.sh autostart).",
 					"properties": {
 						"enabled": { "type": "boolean" },
 						"symlinks": { "type": "array", "items": { "type": "string" } }
 					}
 				},
-				"versions": {
-					"type": "object",
-					"properties": {
-						"upgradable": { "type": ["boolean", "null"], "description": "null = unknown." }
-					}
-				},
+				"upgradable": { "type": ["boolean", "null"], "description": "null = unknown (apk version unavailable)." }
+			}
+		},
+		"upstream": {
+			"type": "object",
+			"description": "Facts about the upstream zapret2 installation: daemon version, autohostlist vars (shown verbatim, no manager thresholds).",
+			"properties": {
+				"nfqws2Version": { "type": ["string", "null"], "description": "null = checked, no value (distinct from the key being absent = not checked). Resolved: /opt/zapret2/version file, else the binary." },
 				"autohostlist": {
 					"type": ["object", "null"],
-					"description": "AUTOHOSTLIST* vars read as-is from /opt/zapret2/config and shown verbatim; the manager applies no thresholds of its own here.",
+					"description": "AUTOHOSTLIST* vars read as-is from /opt/zapret2/config and shown verbatim. null = no AUTOHOSTLIST vars or config unreadable.",
 					"additionalProperties": { "type": ["string", "null"] }
 				}
 			}
 		},
-		"signals": {
-			"type": "object",
-			"description": "Coarse boolean signals for quick UI badges; the queues and drift blocks carry the detail.",
-			"properties": {
-				"process_present": { "type": "boolean" },
-				"rules_present": { "type": "boolean" }
+		"jobs": {
+			"type": "array",
+			"description": "Recent long-running jobs (the ubus job model — see docs/contracts/ubus.md). Empty until the job model lands; the block is present so consumers can rely on the shape.",
+			"items": {
+				"type": "object",
+				"properties": {
+					"id": { "type": "string", "description": "Opaque job id; do not parse." },
+					"status": { "type": "string", "enum": ["pending", "running", "succeeded", "failed", "rolled_back", "expired"] },
+					"createdAt": { "type": ["string", "null"], "format": "date-time" },
+					"updatedAt": { "type": ["string", "null"], "format": "date-time" }
+				},
+				"additionalProperties": true
+			}
+		},
+		"warnings": {
+			"type": "array",
+			"description": "Active, non-fatal warnings the operator should see. Empty when all is well.",
+			"items": {
+				"type": "object",
+				"required": ["code", "message"],
+				"properties": {
+					"code": { "type": "string", "description": "Stable, machine-readable. Closed by convention; new codes added, not renamed." },
+					"message": { "type": "string", "description": "Human-readable, not parsed." },
+					"severity": { "type": "string", "enum": ["info", "warn", "crit"] }
+				},
+				"additionalProperties": true
 			}
 		}
 	}

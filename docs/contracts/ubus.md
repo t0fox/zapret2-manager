@@ -14,7 +14,7 @@ denial (empty page, no error).
 
 | Method | Args | Direction | UI confirm? | Description |
 |---|---|---|---|---|
-| `status` | none | read | no | Three-level state + queues + drift + service_state + meta. 3s cached. |
+| `status` | none | read | no | Schema v2 (camelCase): the mandatory top-level blocks schema, generatedAt, generation, serviceState, runtime, applied, draft, drift, health, system, upstream, jobs, warnings. See docs/contracts/status.schema.json. 3s cached. |
 | `start` | none | mutate | no | Clear paused indicator + NFQWS2_ENABLE=1 intent; upstream start. |
 | `stop` | none | mutate | yes (90s) | Pause: NFQWS2_ENABLE=0 intent + (optionally stop_fw) + upstream stop; snapshot + 90s rollback. |
 | `restart` | none | mutate | yes (90s) | Clear paused; upstream restart; snapshot + 90s rollback. |
@@ -134,3 +134,11 @@ removed, and existing `status` fields MUST NOT change type or semantics —
 parallel agents and persisted job records depend on them. A rename breaks
 every consumer at once; version new shapes under a new key instead
 (e.g. `status2` is forbidden; add `status.new_field`).
+
+**The v2 camelCase rename (fix/02-04) is the LAST permitted rename.** It
+renamed the status fields from snake_case to camelCase (collected_at →
+generatedAt, service_state → serviceState, queues → health, meta → split into
+system + upstream, pids → instances, etc.) and bumped `schema` to 2. It was a
+one-time, authorized break of the "no renames" rule, taken because the schema
+was agreed before any parallel consumer shipped. From v2 forward the
+no-rename rule applies in full: extend by adding fields and bumping `schema`.

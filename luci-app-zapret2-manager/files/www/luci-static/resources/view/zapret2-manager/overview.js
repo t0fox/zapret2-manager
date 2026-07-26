@@ -10,49 +10,72 @@ return L.view.extend({
 	title: _('Overview'),
 
 	load: function () {
+		// Schema v2 (camelCase) fallback shape — see docs/contracts/status.schema.json.
 		return L.resolveDefault(L.ubus.call('zapret2-manager', 'status'), {
-			runtime: {}, applied: {}, draft: {}, meta: {},
-			queues: { signals: {} }, drift: { divergent: false },
-			service_state: { state: 'unknown', label: 'unknown', cls: '' },
-			signals: { process_present: false, rules_present: false }
+			schema: 2, generatedAt: null, generation: null, serviceState: 'stopped',
+			runtime: { present: false, count: 0, instances: [], rulesPresent: false },
+			applied: {}, draft: {},
+			health: { qlenHealth: { state: 'unknown', threshold: 50,
+				consecutiveOverThreshold: 0, critTurns: 3 }, checks: [], queue: {} },
+			drift: { divergent: false },
+			system: { autostart: { enabled: false, symlinks: [] }, upgradable: null },
+			upstream: { nfqws2Version: null, autohostlist: null },
+			jobs: [], warnings: []
 		});
+	},
+
+	// serviceState is a closed-enum STRING from the backend. The UI maps a value
+	// to a label + CSS class — pure presentation, no state/threshold logic.
+	serviceStateBadge: function (state) {
+		var map = {
+			running: { label: _('running'), cls: 'ok' },
+			stopped: { label: _('stopped'), cls: 'bad' },
+			partial: { label: _('partial (no rules)'), cls: 'warn' },
+			error: { label: _('error'), cls: 'bad' },
+			paused: { label: _('paused'), cls: 'warn' },
+			passthrough: { label: _('passthrough'), cls: 'ok' }
+		};
+		var m = map[state] || { label: state || _('unknown'), cls: '' };
+		return this.badge(m.label, m.cls);
 	},
 
 	render: function (data) {
 		var rt = data.runtime || {};
 		var ap = data.applied || {};
-		var meta = data.meta || {};
-		var queues = data.queues || {};
-		var qsig = queues.signals || {};
-		// Backend-computed conclusions (REVIEW 2): the UI only renders these, it
-		// does not recompute state/thresholds/drift. The watchdog reads the same
-		// status, so it sees the same picture a human sees.
-		var svc = data.service_state || { state: 'unknown', label: 'unknown', cls: '' };
+		var system = data.system || { autostart: { enabled: false, symlinks: [] }, upgradable: null };
+		var upstream = data.upstream || { nfqws2Version: null, autohostlist: null };
+		var health = data.health || { qlenHealth: {}, checks: [], queue: {} };
+		var qh = health.qlenHealth || {};
+		var queue = health.queue || {};
+		// Backend-computed conclusions: the UI only renders these, it does not
+		// recompute state/thresholds/drift. The watchdog reads the same status,
+		// so it sees the same picture a human sees.
 		var drift = data.drift || { divergent: false };
 
-		var pids = (rt.pids || []).map(function (p) { return p.pid; });
-		var instances = rt.count || pids.length || 0;
-		var profiles = (rt.profile_count != null) ? rt.profile_count : _('n/a');
+		var insts = rt.instances || [];
+		var pidList = insts.map(function (p) { return p.pid; });
+		var instances = rt.count || insts.length || 0;
+		var profiles = (rt.profileCount != null) ? rt.profileCount : _('n/a');
 		// null version = checked, no value (distinct from the key being absent =
 		// not checked). The key is always present in status; render null as its
 		// own thing, not as 'unknown'.
-		var version = (meta.nfqws2_version == null)
+		var version = (upstream.nfqws2Version == null)
 			? _('— (none found)')
-			: meta.nfqws2_version;
-		var generation = (ap.generation != null) ? ap.generation : _('n/a');
+			: upstream.nfqws2Version;
+		var generation = (data.generation != null) ? data.generation : _('n/a');
 
 		// ---- assemble --------------------------------------------------------
 		var plaque = E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Service')),
-			this.row(_('State'), this.badge(svc.label, svc.cls)),
+			this.row(_('State'), this.serviceStateBadge(data.serviceState)),
 			this.row(_('Instances'), instances),
 			this.row(_('Profiles'), profiles),
-			this.row(_('PIDs'), pids.length ? pids.join(', ') : _('none')),
-			this.row(_('nfqws2 version'), version + this.updateBadge(meta)),
+			this.row(_('PIDs'), pidList.length ? pidList.join(', ') : _('none')),
+			this.row(_('nfqws2 version'), version + this.updateBadge(system)),
 			this.row(_('Config generation'), generation)
 		]);
 
-		var auto = meta.autostart || { enabled: false, symlinks: [] };
+		var auto = system.autostart || { enabled: false, symlinks: [] };
 		var autoNode = E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Autostart')),
 			this.row(_('rc.d symlinks'),
@@ -67,26 +90,28 @@ return L.view.extend({
 
 		var qlenNode = E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('NFQUEUE 300')),
-			this.row(_('Registered'), queues.registered
+			this.row(_('Registered'), queue.registered
 				? this.badge(_('yes'), 'ok')
 				: this.badge(_('no — queue not in kernel'), 'bad')),
-			this.row(_('Queue length (queue_total)'),
-				(queues.queue_total != null) ? queues.queue_total : _('—')),
-			this.row(_('State'), this.qlenBadge(qsig)),
-			this.row(_('Consecutive over threshold'), qsig.consecutive != null ? qsig.consecutive : 0),
-			this.row(_('queue_dropped delta'), qsig.dropped_delta != null ? qsig.dropped_delta : _('—'))
+			this.row(_('Queue length (queueTotal)'),
+				(queue.queueTotal != null) ? queue.queueTotal : _('—')),
+			this.row(_('State'), this.qlenBadge(qh)),
+			this.row(_('Consecutive over threshold'),
+				(qh.consecutiveOverThreshold != null) ? qh.consecutiveOverThreshold : 0),
+			this.row(_('Threshold / crit turns'),
+				(qh.threshold != null ? qh.threshold : 50) + ' / ' + (qh.critTurns != null ? qh.critTurns : 3))
 		]);
 
-		if (queues.warning === 'queue_not_registered') {
+		if (queue.registered === false) {
 			qlenNode.appendChild(E('div', { 'class': 'alert-message warning' },
 				E('p', {}, _('NFQUEUE 300 is not registered in the kernel — nfqws2 is not connected to it. This is diagnostically important and is NOT the same as an empty queue.'))));
 		}
 
-		var autohostlistNode = this.autohostlistSection(meta.autohostlist);
+		var autohostlistNode = this.autohostlistSection(upstream.autohostlist);
 
 		var container = E('div', { 'class': 'cbi-map' }, [
 			E('h2', { 'name': 'content' }, _('Zapret 2 Manager')),
-			plaque, auto, qlenNode, autohostlistNode
+			plaque, autoNode, qlenNode, autohostlistNode
 		]);
 
 		if (drift.divergent) {
@@ -94,7 +119,8 @@ return L.view.extend({
 		}
 
 		container.appendChild(this.controlSection());
-		container.appendChild(this.passthroughSection(data.passthrough));
+		// passthrough is a self-standing serviceState now (not a separate flag).
+		container.appendChild(this.passthroughSection(data.serviceState === 'passthrough'));
 
 		return container;
 	},
@@ -286,8 +312,8 @@ return L.view.extend({
 		]));
 	},
 
-	updateBadge: function (meta) {
-		var v = (meta.versions && meta.versions.upgradable);
+	updateBadge: function (system) {
+		var v = system ? system.upgradable : null;
 		if (v === true) return ' ' + this.badge(_('update available'), 'warn');
 		if (v === false) return ' ' + this.badge(_('up to date'), 'ok');
 		return '';   // null = unknown → no badge
@@ -310,11 +336,11 @@ return L.view.extend({
 			E('div', { 'class': 'cbi-value-description' },
 				_('Basis: ') + (drift.basis || '?') + ' — ' + reason),
 			E('div', { 'class': 'cbi-value-description' },
-				_('Applied sha256: ') + JSON.stringify(drift.applied_sha256 || {})),
+				_('Applied sha256: ') + JSON.stringify(drift.appliedSha256 || {})),
 			E('div', { 'class': 'cbi-value-description' },
-				_('Current sha256: ') + JSON.stringify(drift.current_sha256 || {})),
+				_('Current sha256: ') + JSON.stringify(drift.currentSha256 || {})),
 			E('pre', { 'style': 'white-space:pre-wrap;margin:.5em 0' },
-				_('RUNTIME cmdline:\n') + (rt.pids || []).map(function (p) {
+				_('RUNTIME cmdline:\n') + (rt.instances || []).map(function (p) {
 					return p.pid + ': ' + (p.cmdline || '');
 				}).join('\n')),
 			E('pre', { 'style': 'white-space:pre-wrap;margin:.5em 0' },

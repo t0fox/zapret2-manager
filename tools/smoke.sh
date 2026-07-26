@@ -117,31 +117,45 @@ gate_02() {
   want_contains "$j" '"runtime"' "status has RUNTIME level"
   want_contains "$j" '"applied"' "status has APPLIED level"
   want_contains "$j" '"draft"'   "status has DRAFT level"
-  # third liveness signal: queues block (queue 300)
-  want_contains "$j" '"queues"' "status has queues block"
-  want_contains "$j" '"queue_total"' "queues block has queue_total (field 3)"
-  want_contains "$j" '"queue_dropped"' "queues block has queue_dropped (field 6)"
-  want_contains "$j" '"registered"' "queues block has registered flag"
+  # schema v2 (camelCase): top-level blocks
+  want_contains "$j" '"schema"' "status has schema version"
+  want_contains "$j" '"generatedAt"' "status has generatedAt (ISO-8601)"
+  want_contains "$j" '"serviceState"' "status has serviceState (scalar)"
+  want_contains "$j" '"health"' "status has health block"
+  want_contains "$j" '"qlenHealth"' "health has qlenHealth"
+  want_contains "$j" '"system"' "status has system block"
+  want_contains "$j" '"upstream"' "status has upstream block"
+  # third liveness signal: health.queue (queue 300), camelCase fields
+  want_contains "$j" '"queueTotal"' "health.queue has queueTotal (field 3)"
+  want_contains "$j" '"queueDropped"' "health.queue has queueDropped (field 6)"
+  want_contains "$j" '"registered"' "health.queue has registered flag"
+  # no snake_case top-level keys remain (v2 rename)
+  if printf '%s' "$j" | grep -F '"collected_at"' >/dev/null; then
+    bad "status.json still has old snake_case collected_at"
+  else
+    ok "status.json has no snake_case collected_at"
+  fi
   # row is matched by queue number, not row order: if another queue exists, the
-  # parser must still return queue 300's values. Cross-check queue_total against
+  # parser must still return queue 300's values. Cross-check queueTotal against
   # the raw proc file for queue 300 (field 3).
   ssh_out rawq "raw nfnetlink_queue" cat /proc/net/netfilter/nfnetlink_queue
-  ssh_out jsq "status queue_total" "ubus call zapret2-manager status | jsonfilter -e '@.queues.queue_total' 2>/dev/null"
+  ssh_out jsq "status queueTotal" "ubus call zapret2-manager status | jsonfilter -e '@.health.queue.queueTotal' 2>/dev/null"
   # Find queue 300's field 3 in the raw file and compare. grep -F for '['? no
   # brackets here; awk by first column.
   rawtotal=$(printf '%s' "$rawq" | awk '$1==300{print $3; exit}')
   if [ -n "$rawtotal" ] && [ -n "$jsq" ] && [ "$rawtotal" = "$jsq" ]; then
-    ok "queue_total matches /proc field 3 for queue 300 (row match by number)"
+    ok "queueTotal matches /proc field 3 for queue 300 (row match by number)"
   else
-    bad "queue_total ($jsq) != raw field 3 ($rawtotal) — wrong field or wrong row"
+    bad "queueTotal ($jsq) != raw field 3 ($rawtotal) — wrong field or wrong row"
   fi
   # ubus status method works
   ssh_out ub "ubus call" ubus call zapret2-manager status
   want_contains "$ub" '"runtime"' "ubus status returns RUNTIME"
-  # 3s cache: two rapid calls should be served from cache (same stamp)
-  ssh_out t1 "cache stamp 1" "ubus call zapret2-manager status | jsonfilter -e '@.collected_at' 2>/dev/null || ubus call zapret2-manager status"
-  ssh_out t2 "cache stamp 2" "ubus call zapret2-manager status | jsonfilter -e '@.collected_at' 2>/dev/null || ubus call zapret2-manager status"
-  want "$t1" "$t2" "3s cache serves identical stamp on rapid calls"
+  want_contains "$ub" '"serviceState"' "ubus status returns serviceState"
+  # 3s cache: two rapid calls should be served from cache (same generatedAt)
+  ssh_out t1 "cache stamp 1" "ubus call zapret2-manager status | jsonfilter -e '@.generatedAt' 2>/dev/null || ubus call zapret2-manager status"
+  ssh_out t2 "cache stamp 2" "ubus call zapret2-manager status | jsonfilter -e '@.generatedAt' 2>/dev/null || ubus call zapret2-manager status"
+  want "$t1" "$t2" "3s cache serves identical generatedAt on rapid calls"
 }
 
 # ---- branch 03: overview page ------------------------------------------------
