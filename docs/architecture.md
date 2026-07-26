@@ -330,13 +330,27 @@ The three are NEVER blended into one field. Their disagreement IS the
 signal the UI shows. Drift (RUNTIME vs APPLIED) is backend-computed in the
 `drift` block; the UI only renders it.
 
-**Fixture-confirmed (live router, OpenWrt 25.12.5 aarch64):**
-`/etc/config/zapret2` does NOT exist on this installation (`cat` rc=1). The
-APPLIED level is therefore effectively `/opt/zapret2/config` only. The drift
-code already handles an absent UCI source (`sha256_file` → null, and the
-divergence test gates on `stored.uci != null && cur_uci != null`), so this
-is a confirmation, not a defect. `/opt/zapret2/version` is also absent
-(rc=1); version resolution falls back to the binary.
+**Fixture sample (UNCONFIRMED origin):** the fixtures in `tests/fixtures/`
+were collected from a router by `tools/collect-fixtures.sh` before that
+device was factory-reset. The engine is no longer on the device, so the
+snapshots CANNOT be re-verified against the current target. They are samples
+of the upstream config/rule format, NOT verified live-target readings. The
+infra branch therefore does NOT close any [VERIFY:ROUTER] marker; all such
+markers remain OPEN until a freshly installed engine is checked on the
+device (see the interrupt rule). Treat as format samples only:
+
+- `/etc/config/zapret2` was absent in the snapshot (`cat` rc=1). The APPLIED
+  level is likely `/opt/zapret2/config` only on this installation. The drift
+  code already handles an absent UCI source (`sha256_file` → null, divergence
+  gates on `stored.uci != null && cur_uci != null`), so this is consistent,
+  not a defect. CONFIRM ON DEVICE (do not assume from the snapshot).
+- `/opt/zapret2/version` was absent (rc=1); version resolution falls back to
+  the binary. CONFIRM ON DEVICE.
+- The snapshot's NFQWS2_OPT uses one nfqws2 argument per line inside a
+  double-quoted multi-line value (opening `"` alone, closing `"` alone). If
+  the real config on a freshly installed engine lays out long values
+  differently, the writer/stripper self-tests (built on this snapshot) must
+  be re-run on the real sample; a format mismatch is a BLOCKER.
 
 ### 10.2 serviceState — closed enum, backend-computed
 

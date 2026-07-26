@@ -9,6 +9,16 @@
 // claimed to "work" on the strength of this node equivalent alone — it
 // proves the algorithm; the ucode execution is a separate, on-target check.
 //
+// FIXTURE ORIGIN: the config sample is tests/fixtures/opt-zapret2-config.out,
+// a snapshot of UNCONFIRMED origin. It was collected from a router by
+// tools/collect-fixtures.sh before that device was factory-reset; the engine
+// is no longer on the device, so the snapshot CANNOT be re-verified against
+// the current target. It stands as a sample of the upstream config FORMAT,
+// not as a verified live-target reading. If the real config on a freshly
+// installed engine differs in format (especially multi-line value layout),
+// these self-tests must be re-run against the real sample and discrepancies
+// are a blocker (see the interrupt rule in the task).
+//
 // Run: node --test tests/apply-writer.test.mjs   (or node --test tests/)
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -18,6 +28,8 @@ import { dirname, join } from 'node:path';
 import { read_var, write_var } from './lib/apply-writer.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
+// FIXTURE: snapshot of unconfirmed origin (see header). Used only as a config
+// FORMAT sample for the writer algorithm self-test.
 const FIXTURE = readFileSync(join(here, 'fixtures/opt-zapret2-config.out'), 'utf8');
 
 // ---- read_var ---------------------------------------------------------------

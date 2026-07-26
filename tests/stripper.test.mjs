@@ -11,6 +11,12 @@
 // strip_lua_desync mirrors tests/lib/stripper.mjs; its runtime is confirmed
 // on the target via smoke.sh.
 //
+// FIXTURE ORIGIN: tests/fixtures/opt-zapret2-config.out is a snapshot of
+// UNCONFIRMED origin (collected from a router before it was factory-reset;
+// the engine is no longer on the device, so the snapshot cannot be re-verified
+// against the current target). It is a FORMAT sample, not a verified live
+// reading. A format mismatch on a freshly installed engine is a blocker.
+//
 // Run: node --test tests/stripper.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -21,6 +27,7 @@ import { read_var } from './lib/apply-writer.mjs';
 import { strip_lua_desync } from './lib/stripper.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
+// FIXTURE: snapshot of unconfirmed origin (see header). FORMAT sample only.
 const FIXTURE = readFileSync(join(here, 'fixtures/opt-zapret2-config.out'), 'utf8');
 const REAL_OPT = read_var(FIXTURE, 'NFQWS2_OPT');
 
