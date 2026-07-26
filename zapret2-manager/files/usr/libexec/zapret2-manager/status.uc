@@ -27,6 +27,7 @@ import {
 	DAEMON, NFT_TABLE, PATHS
 } from './constants.uc';
 import { parse_queue } from './qlen.uc';
+import { read_var } from './apply.uc';   // applied NFQWS2_OPT for profile_count (followup 5)
 
 // ---- helpers ----------------------------------------------------------------
 
@@ -310,14 +311,28 @@ function service_state(runtime, rules, health, draft) {
 	return 'running';
 }
 
-// profile count from list_table output (backend-computed; UI only renders).
-function profile_count(strategies) {
-	if (!strategies || !length(strategies)) return null;
+// profile count from the APPLIED options string (followup 5), NOT from the
+// list_table dump. The profile/strategy separator in NFQWS2_OPT is the
+// ':strategy=N' marker inside each '--lua-desync=...' entry; each is one
+// profile in the rotation. The controller arg (e.g. circular_quality) has no
+// :strategy= and is NOT a profile, so this is less than the --lua-desync=
+// count — which is the point (profiles are the strategies). Mirrors
+// tests/lib/profile-count.mjs; returns null when NFQWS2_OPT is absent or has
+// no markers (null = "checked, no value"). Backend-computed; UI only renders.
+const STRATEGY_MARKER = ':strategy=';
+function profile_count(opt_value) {
+	if (opt_value == null) return null;
 	let n = 0;
-	let lines = split(strategies, '\n');
-	for (let i = 0; i < length(lines); i++)
-		if (length(trim(lines[i]))) n++;
-	return n;
+	let i = 0;
+	let len = length(opt_value);
+	let mlen = length(STRATEGY_MARKER);
+	while (i < len) {
+		let p = index(substr(opt_value, i), STRATEGY_MARKER);
+		if (p < 0) break;
+		n++;
+		i = i + p + mlen;
+	}
+	return n > 0 ? n : null;
 }
 
 // ---- system + upstream (split from the old meta block) ----------------------
@@ -419,7 +434,8 @@ function collect() {
 	let drift, svc_state, prof_count;
 	try { drift = drift_block(runtime, rules); } catch (e) { drift = { divergent: false, reason: 'drift compute failed: ' + e, basis: 'sha256-intermediate' }; }
 	try { svc_state = service_state(runtime, rules, health, draft); } catch (e) { svc_state = 'error'; }
-	try { prof_count = profile_count(runtime.strategies); } catch (e) { prof_count = null; }
+	// profile_count from the APPLIED NFQWS2_OPT (followup 5), not list_table.
+	try { prof_count = profile_count(read_var('NFQWS2_OPT')); } catch (e) { prof_count = null; }
 
 	// runtime already carries camelCase fields; pass them straight through.
 	let instances = runtime.instances || [];
