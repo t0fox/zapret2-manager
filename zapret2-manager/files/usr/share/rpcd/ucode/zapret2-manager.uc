@@ -54,17 +54,28 @@ function status_method(req) {
 function service_action(action) {
 	let cmd = '/usr/bin/ucode ' + SERVICE + ' ' + action + ' 2>/dev/null';
 	let p = popen(cmd, 'r');
-	let out = p ? (p.read('all') ?? '') : '';
-	if (p) p.close();
-	try { return jparse(out) ?? { ok: false, error: 'no output', raw: out }; }
+	if (!p) return { ok: false, error: 'popen failed' };
+	let out = p.read('all');
+	if (!out) out = '';
+	p.close();
+	// explicit null check (no nullish-coalescing — point 6): jparse returns
+	// null on 'null' or nothing-parsable; only null falls back to the
+	// no-output envelope.
+	try {
+		let parsed = jparse(out);
+		if (parsed != null) return parsed;
+		return { ok: false, error: 'no output', raw: out };
+	}
 	catch (e) { return { ok: false, error: 'parse failed', raw: out }; }
 }
 
-// passthrough takes {enabled:bool}. Param access is defensive — see [VERIFY] above.
+// passthrough takes {enabled:bool}. Param access is explicit key-existence +
+// null checks (no optional-chaining — point 6): the rpcd param path
+// (req.args vs req) is [VERIFY:ROUTER], so check both defensively.
 function passthrough_method(req) {
 	let en = null;
-	try { en = req?.args?.enabled; } catch (e) { }
-	if (en == null) { try { en = req?.enabled; } catch (e) { } }
+	try { if (req && req.args && req.args.enabled != null) en = req.args.enabled; } catch (e) { }
+	if (en == null) { try { if (req && req.enabled != null) en = req.enabled; } catch (e) { } }
 	if (en == null) return { ok: false, error: 'missing enabled param' };
 	let on = (en == true || en == 'true' || en == 1 || en == '1');
 	return service_action('passthrough ' + (on ? 'true' : 'false'));

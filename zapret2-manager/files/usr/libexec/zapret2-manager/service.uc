@@ -39,8 +39,10 @@ const ROLLBACK_TTL  = 90;
 
 function run(cmd) {
 	let p = popen(cmd + ' 2>&1', 'r');
-	let out = p ? (p.read('all') ?? '') : '';
-	let rc = p ? p.close() : -1;     // [VERIFY] popen close() returns exit code
+	if (!p) return { out: '', rc: -1 };
+	let out = p.read('all');
+	if (!out) out = '';
+	let rc = p.close();     // [VERIFY] popen close() returns exit code
 	return { out: out, rc: rc };
 }
 
@@ -49,7 +51,8 @@ function run(cmd) {
 // without defining it, so event() threw into its own try/catch and the WHOLE
 // event was silently dropped — pause/restart/rollback events were never
 // written. Defined here (matching status.uc/watchdog.uc) so pause events
-// actually fire. No ?. / ?? — explicit truthiness check (point 6 clean).
+// actually fire. No optional-chaining or nullish-coalescing — explicit
+// truthiness check (point 6 clean).
 function sh(cmd) {
 	let p = popen(cmd + ' 2>/dev/null', 'r');
 	if (!p) return '';
@@ -66,7 +69,8 @@ function event(source, category, severity, msg, extra) {
 		mkdir('/tmp/zapret2-manager');
 		let ts = trim(sh('date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null'));
 		if (!length(ts)) ts = '' + time();
-		let prev = readfile(PATHS.events_ndjson) ?? '';
+		let prev = readfile(PATHS.events_ndjson);
+		if (!prev) prev = '';
 		// id unique within the file: source + unixseconds + current line count
 		let id = source + '-' + time() + '-' + length(split(prev, '\n'));
 		// Build the event on top of `extra` (avoids for-in object iteration, whose
@@ -434,6 +438,7 @@ if (arg == 'passthrough') {
 		confirm_alive: confirm_alive, rollback: rollback };
 	print(jstringify(m[arg]()) + '\n');
 } else {
-	print(jstringify({ ok: false, error: 'unknown action: ' + (arg ?? '') }) + '\n');
+	let argval = arg ? arg : '';
+	print(jstringify({ ok: false, error: 'unknown action: ' + argval }) + '\n');
 	exit(1);
 }

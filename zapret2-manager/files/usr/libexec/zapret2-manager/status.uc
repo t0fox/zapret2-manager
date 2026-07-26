@@ -124,12 +124,11 @@ function runtime_level(rules) {
 
 	return {
 		present: length(pids) > 0,
-		pids_internal: pids,            // renamed to instances below
+		instances: pids,
 		count: length(pids),
 		psSummary: ps_summary,
 		strategies: strategies,
-		rulesPresent: !!rules,
-		collected: iso_now()
+		rulesPresent: !!rules
 	};
 }
 
@@ -157,7 +156,7 @@ function applied_level() {
 		configSize: conf ? conf.size : null,
 		uci: uci_dump,
 		// generation is hoisted to the top-level `generation` field in collect()
-		_generation: generation
+		generation: generation
 	};
 }
 
@@ -246,7 +245,7 @@ function drift_block(runtime, rules) {
 	let norm = null;
 	try {
 		let parts = [];
-		let pids = runtime.pids_internal || [];
+		let pids = runtime.instances || [];
 		for (let i = 0; i < length(pids); i++)
 			push(parts, trim(pids[i].cmdline || ''));
 		parts.sort();
@@ -409,8 +408,8 @@ function collect() {
 	try { svc_state = service_state(runtime, rules, health, draft); } catch (e) { svc_state = 'error'; }
 	try { prof_count = profile_count(runtime.strategies); } catch (e) { prof_count = null; }
 
-	// Re-key runtime: pids_internal → instances, drop the helper fields.
-	let instances = runtime.pids_internal || [];
+	// runtime already carries camelCase fields; pass them straight through.
+	let instances = runtime.instances || [];
 	let runtime_out = {
 		present: runtime.present ? true : false,
 		count: runtime.count ? runtime.count : 0,
@@ -421,8 +420,8 @@ function collect() {
 		rulesPresent: runtime.rulesPresent ? true : false
 	};
 
-	// generation hoisted to top-level (from applied._generation).
-	let generation = (applied && applied._generation != null) ? applied._generation : null;
+	// generation hoisted to top-level (from applied.generation).
+	let generation = (applied && applied.generation != null) ? applied.generation : null;
 	let applied_out = {
 		configPath: applied.configPath ? applied.configPath : PATHS.applied_conf,
 		configPresent: applied.configPresent ? true : false,

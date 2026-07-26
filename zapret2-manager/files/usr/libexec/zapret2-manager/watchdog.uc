@@ -45,13 +45,15 @@ function sh(cmd) {
 	if (!p) return '';
 	let out = p.read('all');
 	p.close();
-	return out ?? '';
+	return out ? out : '';
 }
 
 function run(cmd) {
 	let p = popen(cmd + ' 2>&1', 'r');
-	let out = p ? (p.read('all') ?? '') : '';
-	let rc = p ? p.close() : -1;
+	if (!p) return { out: '', rc: -1 };
+	let out = p.read('all');
+	if (!out) out = '';
+	let rc = p.close();
 	return { out: out, rc: rc };
 }
 
@@ -75,7 +77,8 @@ function event(source, category, severity, msg, extra) {
 		mkdir('/tmp/zapret2-manager');
 		let ts = trim(sh('date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null'));
 		if (!length(ts)) ts = '' + now();
-		let prev = readfile(PATHS.events_ndjson) ?? '';
+		let prev = readfile(PATHS.events_ndjson);
+		if (!prev) prev = '';
 		let id = source + '-' + now() + '-' + length(split(prev, '\n'));
 		let ev = extra ? extra : {};
 		ev.schema = 'events.v1'; ev.ts = ts; ev.id = id;
@@ -103,7 +106,8 @@ function find_pids() {
 	for (let i = 0; i < length(names); i++) {
 		let name = names[i];
 		if (!match(name, /^[0-9]+$/)) continue;
-		let cl = readfile('/proc/' + name + '/cmdline') ?? '';
+		let cl = readfile('/proc/' + name + '/cmdline');
+		if (!cl) cl = '';
 		if (!length(cl)) continue;
 		if (index(replace(cl, '\x00', ' '), DAEMON) >= 0)
 			push(pids, +name);
@@ -123,7 +127,8 @@ function clk_tck() {
 function cpu_ticks(pids) {
 	let total = 0;
 	for (let i = 0; i < length(pids); i++) {
-		let s = readfile('/proc/' + pids[i] + '/stat') ?? '';
+		let s = readfile('/proc/' + pids[i] + '/stat');
+		if (!s) s = '';
 		let p = rindex(s, ')');
 		if (p < 0) continue;
 		let f = split(trim(substr(s, p + 1)), /[ ]+/);
@@ -158,7 +163,8 @@ function write_qlen_state(st) {
 
 function qlen_cycle(st) {
 	let q = parse_queue();
-	let prev = read_qlen_prev() ?? {};
+	let prev = read_qlen_prev();
+	if (!prev) prev = {};
 	let t = now();
 
 	if (!q.registered) {
@@ -177,12 +183,16 @@ function qlen_cycle(st) {
 	}
 
 	// queue_total: instantaneous, three-consecutive rule.
-	let consecutive = (q.queue_total > QLEN_WARN) ? (prev.consecutive ?? 0) + 1 : 0;
+	let prev_consecutive = (prev && prev.consecutive != null) ? prev.consecutive : 0;
+	let consecutive = (q.queue_total > QLEN_WARN) ? prev_consecutive + 1 : 0;
 
 	// dropped deltas (cumulative → delta vs prev cycle, with reset handling).
 	let dd = null, udd = null;
-	let prev_d = prev.prev_dropped ?? null;
-	let prev_ud = prev.prev_user_dropped ?? null;
+	// explicit key-existence + null checks (no nullish-coalescing — point 6).
+	// 0 is a valid counter value and must be preserved, so test != null, not
+	// truthiness.
+	let prev_d = (prev && prev.prev_dropped != null) ? prev.prev_dropped : null;
+	let prev_ud = (prev && prev.prev_user_dropped != null) ? prev.prev_user_dropped : null;
 	if (prev_d == null) {
 		// first observed cycle: no baseline yet, just record it.
 	} else if (q.queue_dropped < prev_d) {
@@ -237,7 +247,8 @@ function qlen_cycle(st) {
 }
 
 function free_ram_kb() {
-	let raw = readfile('/proc/meminfo') ?? '';
+	let raw = readfile('/proc/meminfo');
+	if (!raw) raw = '';
 	let m = match(raw, /MemAvailable:[ ]+([0-9]+)/);
 	if (m) return +m[1];
 	// fallback: MemFree + Buffers + Cached
