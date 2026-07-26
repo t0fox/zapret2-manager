@@ -28,14 +28,14 @@
 import { readfile, writefile, stat, mkdir, unlink, popen } from 'fs';
 import { parse as jparse, stringify as jstringify } from 'json';
 import { PATHS, PASSTHROUGH_PROFILE_NAME,
-	NFQWS2_ENABLE_VAR, PAUSE_STOPS_FW } from './constants.uc';
+	NFQWS2_ENABLE_VAR, PAUSE_STOPS_FW,
+	ROLLBACK_TIMEOUT_ENABLED, ROLLBACK_TTL } from './constants.uc';
 import { read_var, set_var } from './apply.uc';
 
 const UPSTREAM_INIT = '/etc/init.d/zapret2';
 const LASTGOOD_DIR  = '/tmp/zapret2-manager/last-good';
 const PREV_ENABLE   = LASTGOOD_DIR + '/nfqws2_enable.prev';
 const PENDING       = '/tmp/zapret2-manager/pending-rollback';
-const ROLLBACK_TTL  = 90;
 
 function run(cmd) {
 	let p = popen(cmd + ' 2>&1', 'r');
@@ -189,7 +189,7 @@ function stop() {
 		'stop rc=' + r.rc + ' (paused; NFQWS2_ENABLE=0; prev=' + (prev == null ? 'null' : prev) + ')',
 		{ pause: 'enter', rc: r.rc, prev: prev });
 	return { ok: r.rc == 0, action: 'stop', rc: r.rc, out: r.out, paused: true,
-		rollback_pending: true, rollback_ttl: ROLLBACK_TTL };
+		rollback_pending: ROLLBACK_TIMEOUT_ENABLED, rollback_ttl: ROLLBACK_TTL };
 }
 
 function restart() {
@@ -197,10 +197,10 @@ function restart() {
 	snapshot_last_good();
 	let r = run(UPSTREAM_INIT + ' restart');
 	schedule_rollback();
-	event('ui', 'restart', 'info', 'restart rc=' + r.rc + ' (rollback scheduled ' + ROLLBACK_TTL + 's)',
+	event('ui', 'restart', 'info', 'restart rc=' + r.rc + (ROLLBACK_TIMEOUT_ENABLED ? ' (rollback armed ' + ROLLBACK_TTL + 's)' : ' (snapshot taken; auto-rollback off by default)'),
 		{ reason: 'manual_ui', rc: r.rc, rollback_ttl: ROLLBACK_TTL });
 	return { ok: r.rc == 0, action: 'restart', rc: r.rc, out: r.out,
-		rollback_pending: true, rollback_ttl: ROLLBACK_TTL };
+		rollback_pending: ROLLBACK_TIMEOUT_ENABLED, rollback_ttl: ROLLBACK_TTL };
 }
 
 function restart_daemons() {
@@ -212,7 +212,7 @@ function restart_daemons() {
 	event('ui', 'restart', 'info', 'restart_daemons rc=' + r.rc,
 		{ reason: 'manual_ui', rc: r.rc });
 	return { ok: r.rc == 0, action: 'restart_daemons', rc: r.rc, out: r.out,
-		rollback_pending: true, rollback_ttl: ROLLBACK_TTL };
+		rollback_pending: ROLLBACK_TIMEOUT_ENABLED, rollback_ttl: ROLLBACK_TTL };
 }
 
 // start_fw — INSTALL the zapret2 nft rules (use when the rules are missing,
@@ -225,7 +225,7 @@ function start_fw() {
 	schedule_rollback();
 	event('ui', 'config', 'info', 'start_fw rc=' + r.rc, { rc: r.rc });
 	return { ok: r.rc == 0, action: 'start_fw', rc: r.rc, out: r.out,
-		rollback_pending: true, rollback_ttl: ROLLBACK_TTL };
+		rollback_pending: ROLLBACK_TIMEOUT_ENABLED, rollback_ttl: ROLLBACK_TTL };
 }
 
 // reload_ifsets — RE-READ interface sets after an interface came/went. Distinct
@@ -239,7 +239,7 @@ function reload_ifsets() {
 	schedule_rollback();
 	event('ui', 'config', 'info', 'reload_ifsets rc=' + r.rc, { rc: r.rc });
 	return { ok: r.rc == 0, action: 'reload_ifsets', rc: r.rc, out: r.out,
-		rollback_pending: true, rollback_ttl: ROLLBACK_TTL };
+		rollback_pending: ROLLBACK_TIMEOUT_ENABLED, rollback_ttl: ROLLBACK_TTL };
 }
 
 // ---- 90s rollback scaffold --------------------------------------------------
@@ -276,9 +276,14 @@ function snapshot_last_good() {
 }
 
 function schedule_rollback() {
-	// (Re)arm a pending marker with an expiry timestamp + a detached timer.
-	// confirm_alive removes the marker; if it survives past the timer, the
-	// rollback action restores last-good and restarts.
+	// The MECHANISM stays (rollback / confirm_alive + the snapshot in
+	// snapshot_last_good), but the AUTOMATIC timer is NOT armed by default —
+	// ROLLBACK_TIMEOUT_ENABLED is false until the timer path is confirmed on
+	// the device. A premature rollback drops the link, and a stale-timer
+	// defect was already found here. When enabled, arm a pending marker with
+	// an expiry timestamp + a detached timer; confirm_alive removes it; if it
+	// survives past the timer, rollback() restores last-good and restarts.
+	if (!ROLLBACK_TIMEOUT_ENABLED) return;
 	try {
 		writefile(PENDING, '' + (time() + ROLLBACK_TTL) + '\n');
 		run('setsid sh -c "sleep ' + ROLLBACK_TTL + '; [ -f ' + PENDING +
@@ -450,7 +455,7 @@ function passthrough(enabled) {
 		{ passthrough: on, profile: (on ? PASSTHROUGH_PROFILE_NAME : 'default'), rc: r.rc });
 	return { ok: r.rc == 0, action: 'passthrough', enabled: on, rc: r.rc,
 		profile: (on ? PASSTHROUGH_PROFILE_NAME : 'default'),
-		rollback_pending: true, rollback_ttl: ROLLBACK_TTL };
+		rollback_pending: ROLLBACK_TIMEOUT_ENABLED, rollback_ttl: ROLLBACK_TTL };
 }
 
 // ---- CLI dispatch -----------------------------------------------------------

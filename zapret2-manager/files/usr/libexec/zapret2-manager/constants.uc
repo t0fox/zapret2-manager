@@ -50,6 +50,16 @@ export const NFT_TABLE = 'zapret2';
 export const NFQWS2_ENABLE_VAR = 'NFQWS2_ENABLE';
 export const PAUSE_STOPS_FW = false;   // [VERIFY:ROUTER] → smoke.sh pause_fw_effect
 
+// 90s auto-rollback by timeout. The MECHANISM stays (schedule_rollback /
+// rollback / confirm_alive), but the timer is NOT armed by default — a
+// premature rollback drops the link to the device, and a stale-timer defect
+// was already found in this mechanism (review). Set ROLLBACK_TIMEOUT_ENABLED
+// = true ONLY after the timer path is confirmed on the device. Until then the
+// snapshot to last-good still happens (manual rollback via the 'rollback'
+// ubus method is available); only the AUTOMATIC timer is off.
+export const ROLLBACK_TIMEOUT_ENABLED = false;   // [VERIFY:ROUTER] → smoke.sh rollback_timer
+export const ROLLBACK_TTL = 90;
+
 // Passthrough is OUR entity (no upstream option exists). It is modelled as a
 // profile with no strategies — see service.uc and docs/upstream-mapping.md.
 // It is NOT stored as a UCI flag (would desync from reality and create a 4th

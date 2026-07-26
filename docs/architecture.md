@@ -409,10 +409,13 @@ PAUSE:  "I stopped this on purpose; do not re-raise it."
   entry              : snapshot previous NFQWS2_ENABLE to last-good,
                        set NFQWS2_ENABLE=0 via the apply path, (optionally
                        stop_fw if NFQWS2_ENABLE=0 does not also clear fw
-                       rules — PAUSE_STOPS_FW, one constant), arm 90s rollback
+                       rules — PAUSE_STOPS_FW, one constant)
   exit               : restore the previous NFQWS2_ENABLE from last-good
                        (NOT a hardcoded 1), clear indicator
-  rollback           : same path as any config change (§10.4)
+  rollback           : same path as any config change (§10.4). The AUTOMATIC
+                       90s timer is OFF by default (ROLLBACK_TIMEOUT_ENABLED =
+                       false); manual rollback via the 'rollback' ubus method
+                       is available. See §10.4.
 
 PASSTHROUGH:  "instance up, filters/ports in place, no fakes sent."
   mechanism          : the nfqws2 options string (NFQWS2_OPT) with EVERY
@@ -423,7 +426,7 @@ PASSTHROUGH:  "instance up, filters/ports in place, no fakes sent."
                        and in the config generation, not only in our state.
   entry              : snapshot current NFQWS2_OPT to last-good, strip
                        --lua-desync args, write the stripped string via the
-                       apply path, restart, arm 90s rollback
+                       apply path, restart
   exit               : restore the original NFQWS2_OPT from last-good
   visibility         : serviceState = passthrough; live argv has no
                        --lua-desync; generation counter advanced
@@ -482,7 +485,7 @@ to "work" on the strength of the node equivalent alone.
 ```
   operator stages edit ──► DRAFT (/etc/zapret2-manager/state.json)
                                 │
-        explicit apply ─────────┤  (the apply mechanism; [ASK] absent)
+        explicit apply ─────────┤  (the apply mechanism; apply.uc)
                                 ▼
   snapshot prior ──► APPLIED (/opt/zapret2/config)     last-good/
   state to last-good  generation = N → N+1              config, uci,
@@ -490,11 +493,18 @@ to "work" on the strength of the node equivalent alone.
                                 ▼
   upstream restart ──► RUNTIME reflects new APPLIED
                                 │
-        confirm_alive within 90s? ─── yes ──► commit (pending marker removed)
+        confirm_alive (manual) ─── removes pending marker
                                 │
-                                no (timer fires)
-                                ▼
-          rollback: restore last-good to APPLIED, restart, event severity=crit
+        rollback (manual, ubus) ─── restore last-good, restart, event crit
+                                │
+        ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─
+        AUTOMATIC 90s timer path: OFF BY DEFAULT (ROLLBACK_TIMEOUT_ENABLED=false)
+        ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─
+        when enabled: confirm_alive within 90s? yes → commit
+                                         no (timer fires) → rollback
+        default: NOT armed. A premature rollback drops the device link, and a
+        stale-timer defect was already found in this path. Enable only after
+        the timer path is confirmed on the device (smoke.sh rollback_timer).
 ```
 
 - The generation counter lives in the applied config; the manager does not
@@ -502,13 +512,15 @@ to "work" on the strength of the node equivalent alone.
 - `snapshot_last_good()` copies `/opt/zapret2/config` (+ UCI if present)
   into `/tmp/zapret2-manager/last-good/` and captures sha256 of both
   applied sources into `applied.sha256` (the drift intermediate basis).
-- `schedule_rollback()` arms a pending marker with an expiry timestamp and
-  a detached `sleep 90; … rollback` timer. `confirm_alive` removes the
-  marker; if it survives past 90s, `rollback()` restores last-good and
-  restarts.
-- Pause entry and passthrough entry BOTH snapshot + arm rollback, so a
-  pause or passthrough that breaks the link is auto-reversed — they are
-  diagnostic stances, not persistent preferences.
+  This ALWAYS runs, so manual rollback always has a baseline.
+- `schedule_rollback()` arms the automatic timer ONLY when
+  `ROLLBACK_TIMEOUT_ENABLED` is true (default false). The mechanism
+  (`rollback`, `confirm_alive`, the marker, the detached timer) stays; only
+  the default arming is off. Manual rollback via the `rollback` ubus method
+  is always available.
+- The automatic timer path is marked INACTIVE-BY-DEFAULT in the diagram
+  above. Enable it (one constant) only after the timer is confirmed on the
+  device.
 
 ### 10.5 Failure-mode catalog
 
