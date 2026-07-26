@@ -124,20 +124,31 @@ gate_03() {
 # ---- branch 04: service control ----------------------------------------------
 gate_04() {
   log "gate 04 — service control + paused flag"
-  ssh_ok "restart_daemons" ubus call zapret2-manager restart_daemons || bad "restart_daemons failed"
-  # stop sets paused flag
+  # ubus methods respond
+  for m in start stop restart restart_daemons start_fw confirm_alive rollback; do
+    ssh_ok "ubus $m responds" ubus call zapret2-manager "$m" || bad "ubus $m missing/failed"
+  done
+  # stop sets paused flag and stops nfqws2
   ssh_ok "stop" ubus call zapret2-manager stop || bad "stop failed"
-  ssh_ok "paused flag set" test -f /tmp/zapret2-manager/paused && ok "paused flag set on stop" || bad "paused flag not set"
-  # while paused, init start must be a no-op (service stays down)
-  ssh_ok "init start no-op while paused" /etc/init.d/zapret2-manager start || true
-  ssh_ok "still paused (process not raised)" "! pgrep -x nfqws2 >/dev/null" && ok "paused holds: nfqws2 not raised" || bad "paused violated: nfqws2 raised"
-  # start clears paused flag and raises service
-  ssh_ok "start" ubus call zapret2-manager start || bad "start failed"
-  ssh_ok "paused flag cleared" test ! -f /tmp/zapret2-manager/paused && ok "paused flag cleared on start" || bad "paused flag not cleared"
-  # FORBIDDEN: no full firewall restart button in any shipped JS
+  ssh_ok "paused flag set on stop" test -f /tmp/zapret2-manager/paused || bad "paused flag not set after stop"
+  # while paused, a manual ubus start must clear the flag and raise nfqws2
+  ssh_ok "start clears paused + raises" ubus call zapret2-manager start || bad "start failed"
+  ssh_ok "paused flag cleared on start" test ! -f /tmp/zapret2-manager/paused || bad "paused flag not cleared after start"
+  ssh_ok "nfqws2 raised after start" pgrep -x nfqws2 || bad "nfqws2 not running after start"
+  # hotplug guard installed and paused-aware (grep -F: the path has no brackets,
+  # but we keep -F discipline for the paused-flag literal)
+  ssh_ok "hotplug guard installed" test -f /etc/hotplug.d/iface/90-zapret2-manager \
+    && ok "guard present" || bad "hotplug guard missing"
+  ssh_out g "guard paused check" "grep -F -- '/tmp/zapret2-manager/paused' /etc/hotplug.d/iface/90-zapret2-manager"
+  want_nz "$g" "guard checks paused flag"
+  # start_fw uses reload_ifsets (never full fw restart)
+  ssh_out sf "service.uc start_fw" "grep -F -- 'fw4 reload_ifsets' /usr/libexec/zapret2-manager/service.uc"
+  want_nz "$sf" "start_fw uses fw4 reload_ifsets"
+  ssh_out nosf "service.uc no fw stop" "grep -F -- 'service firewall stop' /usr/libexec/zapret2-manager/service.uc; true"
+  [ -z "$nosf" ] && ok "service.uc never calls 'service firewall stop'" || bad "service.uc calls 'service firewall stop'"
+  # FORBIDDEN: no full firewall restart button in any shipped UI JS
   ssh_out alljs "scan UI for forbidden fw restart" "grep -rF -- 'service firewall stop' /www/luci-static/resources/view/zapret2-manager/ 2>/dev/null; true"
   [ -z "$alljs" ] && ok "no 'service firewall stop' in UI" || bad "UI references 'service firewall stop'"
-  ssh_ok "start_fw exists" ubus call zapret2-manager start_fw || bad "start_fw failed"
 }
 
 # ---- branch 05: passthrough --------------------------------------------------
@@ -168,6 +179,9 @@ gate_06() {
   ssh_ok "force cycle" "/usr/libexec/zapret2-manager/watchdog.uc check 2>/dev/null || true"
   ssh_out after "events size after" "wc -l < /tmp/zapret2-manager/events.ndjson"
   [ "$before" = "$after" ] && ok "paused: watchdog cycle skipped (no new events)" || bad "paused: watchdog wrote events"
+  # while paused, the watchdog init script's start must be a no-op (nfqws2 not raised)
+  ssh_ok "init start no-op while paused" "/etc/init.d/zapret2-manager start || true"
+  ssh_ok "nfqws2 not raised by init while paused" "! pgrep -x nfqws2 >/dev/null" && ok "paused holds: init did not raise nfqws2" || bad "paused violated: init raised nfqws2"
   ssh_ok "clear paused" rm -f /tmp/zapret2-manager/paused
   # log rotation: if autohostlist log >1MB it must trim to last 500 lines
   ssh_ok "rotation helper exists" "command -v /usr/libexec/zapret2-manager/log-rotate.sh || test -x /usr/libexec/zapret2-manager/log-rotate.sh" \

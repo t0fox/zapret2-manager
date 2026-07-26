@@ -1,0 +1,21 @@
+#!/bin/sh
+# 90-zapret2-manager — paused-flag enforcer on interface hotplug events.
+#
+# The operator may have stopped the service on purpose (paused flag set). We
+# cannot edit upstream's 90-zapret2 hook, so after it runs and (possibly)
+# re-raises the service, we tear it back down using upstream's OWN stop — no
+# firewall logic is duplicated here. There is a brief flap (upstream raises,
+# we stop); that is the cost of not owning upstream's hook. The paused state
+# is a diagnostic stance for this uptime, not a persistent preference.
+#
+# Lexical order: "90-zapret2" < "90-zapret2-manager", so this runs AFTER
+# upstream's hook. [VERIFY] upstream's hook filename on the target.
+
+[ -f /tmp/zapret2-manager/paused ] || exit 0
+
+# Only act on interface up events that upstream would react to.
+[ "$ACTION" = "ifup" ] || exit 0
+
+/etc/init.d/zapret2 stop >/dev/null 2>&1 || true
+logger -t zapret2-manager "paused flag active; re-enforced stop after hotplug ifup" 2>/dev/null || true
+exit 0

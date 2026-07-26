@@ -74,7 +74,107 @@ return L.view.extend({
 			container.appendChild(this.divergenceWarning(rt, ap));
 		}
 
+		container.appendChild(this.controlSection());
+
 		return container;
+	},
+
+	// ---- service control (branch 04) -----------------------------------------
+
+	controlSection: function () {
+		var self = this;
+		var status = E('div', { 'class': 'cbi-value-description' }, '');
+
+		function btn(label, cls, action, disruptive) {
+			var b = E('button', { 'class': 'cbi-button ' + (cls || ''), 'type': 'button' }, label);
+			b.addEventListener('click', function () {
+				b.disabled = true;
+				status.textContent = _('Working…');
+				L.ubus.call('zapret2-manager', action).then(function (res) {
+					b.disabled = false;
+					res = res || {};
+					if (disruptive && res.rollback_pending) {
+						self.confirmFlow(res, status);
+					} else {
+						status.textContent = res.ok ? _('Done.') : (_('Failed: ') + (res.error || ('rc=' + res.rc)));
+						self.refresh();
+					}
+				});
+			});
+			return b;
+		}
+
+		return E('div', { 'class': 'cbi-section' }, [
+			E('h3', {}, _('Service control')),
+			E('div', { 'class': 'cbi-value-description' },
+				_('Stop sets a paused flag so hotplug/init/watchdog will not re-raise the service.')),
+			E('div', { 'class': 'cbi-button-row', 'style': 'margin:.4em 0' }, [
+				btn(_('Start'), 'cbi-button-apply', 'start', false),
+				btn(_('Stop'), 'cbi-button-negative', 'stop', false),
+				btn(_('Restart'), 'cbi-button-neutral', 'restart', true),
+				btn(_('Restart daemons'), 'cbi-button-neutral', 'restart_daemons', true),
+				btn(_('Reload interface sets'), 'cbi-button-neutral', 'start_fw', true)
+			]),
+			E('div', { 'class': 'cbi-value-description' },
+				_('Reload interface sets runs `fw4 reload_ifsets` only. A full firewall restart is intentionally not offered — it destroys the nft table.')),
+			status
+		]);
+	},
+
+	confirmFlow: function (res, statusEl) {
+		// Disruptive ops arm a 90s backend rollback. Ask the operator to confirm
+		// the link is alive; otherwise the backend auto-rolls back at 90s.
+		var ttl = res.rollback_ttl || 90;
+		var remaining = ttl;
+		var box = E('div', { 'class': 'alert-message warning', 'style': 'margin-top:.5em' }, [
+			E('p', {}, _('Link still alive after the change?')),
+			E('span', { 'class': 'zonebadge warn', 'id': 'z2m-countdown' }, '' + remaining),
+			E('div', { 'style': 'margin-top:.4em' }, [])
+		]);
+		var okBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button' }, _('Link OK'));
+		var rbBtn = E('button', { 'class': 'cbi-button cbi-button-negative', 'type': 'button' }, _('Roll back now'));
+		box.lastChild.appendChild(okBtn);
+		box.lastChild.appendChild(rbBtn);
+		statusEl.textContent = '';
+		statusEl.appendChild(box);
+
+		var cd = box.querySelector('#z2m-countdown');
+		var timer = setInterval(function () {
+			remaining--;
+			if (cd) cd.textContent = '' + Math.max(remaining, 0);
+			if (remaining <= 0) {
+				clearInterval(timer);
+				statusEl.textContent = _('No confirmation — backend rolling back to last-good…');
+				this.refresh();
+			}
+		}.bind(this), 1000);
+
+		okBtn.addEventListener('click', function () {
+			clearInterval(timer);
+			L.ubus.call('zapret2-manager', 'confirm_alive').then(function () {
+				statusEl.textContent = _('Confirmed. Change kept.');
+			});
+			this.refresh();
+		}.bind(this));
+
+		rbBtn.addEventListener('click', function () {
+			clearInterval(timer);
+			L.ubus.call('zapret2-manager', 'rollback').then(function () {
+				statusEl.textContent = _('Rolled back to last-good.');
+			});
+			this.refresh();
+		}.bind(this));
+	},
+
+	refresh: function () {
+		// Re-render from a fresh status call after a mutation.
+		var self = this;
+		L.resolveDefault(L.ubus.call('zapret2-manager', 'status'), {})
+			.then(function (data) {
+				var old = document.querySelector('.cbi-map');
+				if (old && old.parentNode)
+					old.parentNode.replaceChild(self.render(data || {}), old);
+			});
 	},
 
 	// ---- helpers -------------------------------------------------------------

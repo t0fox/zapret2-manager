@@ -1,6 +1,6 @@
 {
 	"luci-app-zapret2-manager": {
-		"description": "Zapret 2 Manager — overview page access",
+		"description": "Zapret 2 Manager — overview + service control",
 		"read": {
 			"ubus": {
 				"zapret2-manager": [ "status" ]
@@ -8,6 +8,12 @@
 			"uci": [ "zapret2" ]
 		},
 		"write": {
+			"ubus": {
+				"zapret2-manager": [
+					"start", "stop", "restart", "restart_daemons",
+					"start_fw", "confirm_alive", "rollback", "passthrough"
+				]
+			}
 		}
 	}
 }

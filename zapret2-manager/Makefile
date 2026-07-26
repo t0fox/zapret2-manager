@@ -45,6 +45,8 @@ define Package/zapret2-manager/install
 		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/status.uc \
 		$(1)/usr/libexec/zapret2-manager/
+	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/service.uc \
+		$(1)/usr/libexec/zapret2-manager/
 
 	# rpcd ucode plugin → ubus object zapret2-manager.
 	# [VERIFY] load path: task spec says /usr/libexec/rpcd/ (used here). Some
@@ -53,6 +55,12 @@ define Package/zapret2-manager/install
 	$(INSTALL_DIR) $(1)/usr/libexec/rpcd
 	$(INSTALL_DATA) ./files/usr/libexec/rpcd/zapret2-manager.uc \
 		$(1)/usr/libexec/rpcd/
+
+	# Paused-flag enforcer on interface hotplug (branch 04). Runs after
+	# upstream's 90-zapret2 by lexical order; calls upstream's own stop.
+	$(INSTALL_DIR) $(1)/etc/hotplug.d/iface
+	$(INSTALL_BIN) ./files/etc/hotplug.d/iface/90-zapret2-manager \
+		$(1)/etc/hotplug.d/iface/
 endef
 
 # No postinst here: LuCI cache reset lives in luci-app-zapret2-manager, which
