@@ -1,26 +1,46 @@
-// Node reference implementation of the lua-desync stripper (point 2).
+// Node reference implementation of the lua-desync stripper (point 2 + followup 3).
 //
-// ALGORITHM SPEC for the shipped ucode strip_lua_desync. ucode does not run
-// in the build environment, so this is what the local self-test exercises;
-// the ucode function mirrors it and runs on the target via smoke.sh.
+// ALGORITHM SPEC for the shipped ucode strip_lua_desync. ucode does not run in
+// the build environment, so this is what the local self-test exercises; the
+// ucode function mirrors it and runs on the target via smoke.sh.
 //
-// The real NFQWS2_OPT value puts one nfqws2 argument per line (see the
-// /opt/zapret2/config fixture). Passthrough removes every --lua-desync arg
-// and keeps the rest unchanged — order and line separators preserved. A line
-// is a lua-desync arg iff its trimmed content starts with "--lua-desync="
-// (exact prefix: --lua-init= and --lua-desync2= are NOT removed). A line that
-// merely contains --lua-desync= mid-line is kept (we never rewrite an arg by
-// stripping a token out of the middle of a line).
+// ARG-based (not line-based): nfqws2 args are whitespace-separated (spaces OR
+// newlines). The stripper removes every --lua-desync= TOKEN, preserving the
+// order and the ORIGINAL separators between the KEPT tokens. Dropping a token
+// also drops the separator that immediately preceded it, so no orphan
+// separator is left behind. A token is a lua-desync arg iff it starts with
+// "--lua-desync=" (exact prefix: --lua-init= and --lua-desync2= survive). This
+// handles several args on one line (the line-based stripper did not, and that
+// class of defect shows up silently at the user).
 
 const TOKEN = '--lua-desync=';
 
+function isWs(c) { return c == ' ' || c == '\n' || c == '\t' || c == '\r'; }
+
 export function strip_lua_desync(value) {
 	if (value == null) return '';
-	const lines = value.split('\n');
-	const kept = [];
-	for (let i = 0; i < lines.length; i++) {
-		if (lines[i].trimStart().startsWith(TOKEN)) continue;   // drop this arg
-		kept.push(lines[i]);
+	let out = '';
+	let i = 0;
+	let n = value.length;
+	while (i < n) {
+		// capture a whitespace run (the separator before the next token)
+		let wsStart = i;
+		while (i < n && isWs(value[i])) i++;
+		let ws = value.slice(wsStart, i);
+		// capture a token (non-whitespace run)
+		let tokStart = i;
+		while (i < n && !isWs(value[i])) i++;
+		let tok = value.slice(tokStart, i);
+		if (tok.length === 0) {
+			// trailing whitespace only (no token after) — keep it
+			if (ws.length) out += ws;
+			break;
+		}
+		if (tok.startsWith(TOKEN)) {
+			// drop the token AND its preceding separator so no orphan sep remains
+			continue;
+		}
+		out += ws + tok;
 	}
-	return kept.join('\n');
+	return out;
 }

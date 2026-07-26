@@ -362,24 +362,39 @@ function read_orig_opt() {
 }
 
 // Remove every --lua-desync argument from an NFQWS2_OPT value, keeping the
-// rest unchanged (order + line separators preserved). Mirrors
-// tests/lib/stripper.mjs; runtime confirmed on target via smoke.sh. Line-
-// based (the real NFQWS2_OPT puts one arg per line): a line is a lua-desync
-// arg iff its trimmed content starts with "--lua-desync=" (exact prefix —
-// --lua-init= and --lua-desync2= survive). A line that only contains
-// --lua-desync= mid-line is kept (we never rewrite an arg by stripping a
-// token out of the middle of a line).
+// rest unchanged (order + separators preserved). Mirrors tests/lib/stripper.mjs;
+// runtime confirmed on target via smoke.sh. ARG-based (followup 3): nfqws2 args
+// are whitespace-separated (spaces OR newlines). Walks the value capturing a
+// whitespace run (separator) then a token; a token starting with "--lua-desync="
+// (exact prefix — --lua-init= and --lua-desync2= survive) is dropped together
+// with its preceding separator, so no orphan separator is left. Handles several
+// args on one line (the line-based version did not, and that silent defect
+// reaches the user).
 const LUA_DESYNC_TOKEN = '--lua-desync=';
+function _is_ws(c) { return c == ' ' || c == '\n' || c == '\t' || c == '\r'; }
 function strip_lua_desync(value) {
 	if (value == null) return '';
-	let lines = split(value, '\n');
-	let kept = [];
-	for (let i = 0; i < length(lines); i++) {
-		let t = trim(lines[i]);
-		if (substr(t, 0, length(LUA_DESYNC_TOKEN)) == LUA_DESYNC_TOKEN) continue;
-		push(kept, lines[i]);
+	let out = '';
+	let i = 0;
+	let n = length(value);
+	while (i < n) {
+		// capture a whitespace run (separator before the next token)
+		let wsStart = i;
+		while (i < n && _is_ws(substr(value, i, 1))) i++;
+		let ws = substr(value, wsStart, i - wsStart);
+		// capture a token (non-whitespace run)
+		let tokStart = i;
+		while (i < n && !_is_ws(substr(value, i, 1))) i++;
+		let tok = substr(value, tokStart, i - tokStart);
+		if (length(tok) == 0) {
+			if (length(ws)) out += ws;   // trailing whitespace only — keep it
+			break;
+		}
+		if (substr(tok, 0, length(LUA_DESYNC_TOKEN)) == LUA_DESYNC_TOKEN)
+			continue;                    // drop token + its preceding separator
+		out += ws + tok;
 	}
-	return join(kept, '\n');
+	return out;
 }
 
 function read_state() {

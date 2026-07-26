@@ -110,12 +110,31 @@ test('order and separators of the kept args are preserved with lua-desync in the
 	assert.equal(out, '--lua-init=@/a.lua\n--filter-tcp=80\n--payload=all');
 });
 
-test('a line that merely contains --lua-desync= but does not START with it is kept', () => {
-	// a value like "--filter-tcp=80 --lua-desync=x" on one line is NOT a
-	// standalone lua-desync line; the stripper is line-based (the real
-	// NFQWS2_OPT puts one arg per line). Such a line is kept as-is — we do
-	// not silently strip mid-line tokens, which would change the arg.
+test('several args on one line: --lua-desync is stripped, the rest kept in order', () => {
+	// arg-based (followup 3): several nfqws2 args share a line separated by
+	// spaces. The --lua-desync token is removed; the kept args stay in order
+	// with a single space between them (the dropped token's separator goes too).
+	const v = '--filter-tcp=80,443 --lua-desync=mid:1 --payload=all';
+	assert.equal(strip_lua_desync(v), '--filter-tcp=80,443 --payload=all');
+});
+
+test('several args on one line with multiple --lua-desync interspersed', () => {
+	const v = '--lua-init=@/a.lua --lua-desync=x:1 --filter-tcp=80 --lua-desync=y:2 --payload=all';
+	assert.equal(strip_lua_desync(v), '--lua-init=@/a.lua --filter-tcp=80 --payload=all');
+});
+
+test('a --lua-desync token mid-line (not at line start) IS stripped (arg-based)', () => {
+	// The OLD line-based stripper kept a line that merely contained
+	// --lua-desync= mid-line. The arg-based stripper (followup 3) treats the
+	// value as a whitespace-separated arg list, so the inline --lua-desync
+	// token IS removed. This is the silent-defect class the change targets.
 	const v = '--filter-tcp=80 --lua-desync=x';
-	// trimmed line starts with "--filter-tcp=", not "--lua-desync=", so kept
-	assert.equal(strip_lua_desync(v), v);
+	assert.equal(strip_lua_desync(v), '--filter-tcp=80');
+});
+
+test('mixed newlines and spaces: separators of kept args preserved', () => {
+	// one arg per line AND an inline pair; the kept args keep their newline
+	// separators (space-separated inline pair keeps its single space).
+	const v = '--lua-init=@/a.lua\n--filter-tcp=80 --lua-desync=x --payload=all\n--in-range=-d10000';
+	assert.equal(strip_lua_desync(v), '--lua-init=@/a.lua\n--filter-tcp=80 --payload=all\n--in-range=-d10000');
 });
