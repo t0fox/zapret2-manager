@@ -31,11 +31,11 @@ const here = dirname(fileURLToPath(import.meta.url));
 const FIXTURE = readFileSync(join(here, 'fixtures/opt-zapret2-config.out'), 'utf8');
 const REAL_OPT = read_var(FIXTURE, 'NFQWS2_OPT');
 
-// ---- the real NFQWS2_OPT from the live router --------------------------------
+// ---- the NFQWS2_OPT from the unconfirmed-origin fixture sample ---------------
 
-test('stripping the real NFQWS2_OPT removes every --lua-desync and keeps the rest', () => {
+test('stripping the fixture NFQWS2_OPT removes every --lua-desync and keeps the rest', () => {
 	assert.ok(REAL_OPT != null && REAL_OPT.includes('--lua-desync='),
-		'sanity: the real OPT has lua-desync args to strip');
+		'sanity: the fixture OPT has lua-desync args to strip');
 	const out = strip_lua_desync(REAL_OPT);
 	// not a single lua-desync remains
 	assert.equal(out.includes('--lua-desync='), false,
@@ -137,4 +137,12 @@ test('mixed newlines and spaces: separators of kept args preserved', () => {
 	// separators (space-separated inline pair keeps its single space).
 	const v = '--lua-init=@/a.lua\n--filter-tcp=80 --lua-desync=x --payload=all\n--in-range=-d10000';
 	assert.equal(strip_lua_desync(v), '--lua-init=@/a.lua\n--filter-tcp=80 --payload=all\n--in-range=-d10000');
+});
+
+test('leading --lua-desync dropped: no orphan leading separator', () => {
+	// the first token is dropped; its preceding separator (none here, but the
+	// separator BEFORE the first kept token must not be orphaned)
+	assert.equal(strip_lua_desync('--lua-desync=x --filter-tcp=80'), '--filter-tcp=80');
+	assert.equal(strip_lua_desync('--lua-desync=x\n--filter-tcp=80'), '--filter-tcp=80');
+	assert.equal(strip_lua_desync('  --lua-desync=x --filter-tcp=80'), '--filter-tcp=80');
 });

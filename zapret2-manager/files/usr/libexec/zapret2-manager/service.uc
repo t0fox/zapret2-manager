@@ -297,21 +297,27 @@ function confirm_alive() {
 	return { ok: true, action: 'confirm_alive', rollback_pending: false };
 }
 
-function rollback() {
+function rollback(force) {
 	try {
-		// Honor the expiry timestamp written by schedule_rollback. A stale
-		// timer (e.g. from a prior pause that was resumed — start() cancels
-		// PENDING, but a timer already firing races) must NOT roll back if the
-		// marker is gone or its expiry is still in the future (a newer action
-		// re-armed it). Without this, the timer fires under normal
-		// pause-then-resume use and flaps the service.
-		let pending = readfile(PENDING);
-		if (!pending) return { ok: true, action: 'rollback', skipped: true,
-			reason: 'no pending rollback marker' };
-		let expiry = +trim(pending);
-		if (expiry && time() < expiry)
-			return { ok: true, action: 'rollback', skipped: true,
-				reason: 'marker expiry in the future (a newer action re-armed it)' };
+		// MANUAL rollback (force=true, from the ubus 'rollback' method) restores
+		// last-good UNCONDITIONALLY — the operator is explicitly undoing a bad
+		// apply/passthrough. This is the safety net; it must work even when the
+		// automatic timer is OFF (ROLLBACK_TIMEOUT_ENABLED=false, the default),
+		// because then PENDING is never written and a PENDING gate would make
+		// manual rollback a silent no-op.
+		//
+		// TIMER rollback (force=false, from the detached sleep timer) honors the
+		// expiry timestamp: a stale timer must NOT roll back if the marker is
+		// gone or its expiry is still in the future (a newer action re-armed it).
+		if (!force) {
+			let pending = readfile(PENDING);
+			if (!pending) return { ok: true, action: 'rollback', skipped: true,
+				reason: 'no pending rollback marker' };
+			let expiry = +trim(pending);
+			if (expiry && time() < expiry)
+				return { ok: true, action: 'rollback', skipped: true,
+					reason: 'marker expiry in the future (a newer action re-armed it)' };
+		}
 		if (stat(LASTGOOD_DIR + '/' + basename(PATHS.applied_conf)))
 			run('cp -f ' + LASTGOOD_DIR + '/' + basename(PATHS.applied_conf) + ' ' + PATHS.applied_conf);
 		if (stat(LASTGOOD_DIR + '/' + basename(PATHS.uci_conf)))
@@ -397,7 +403,10 @@ function strip_lua_desync(value) {
 		}
 		if (substr(tok, 0, length(LUA_DESYNC_TOKEN)) == LUA_DESYNC_TOKEN)
 			continue;                    // drop token + its preceding separator
-		out += ws + tok;
+		// If out is empty (first KEPT token), drop the leading separator — it
+		// was before a dropped token and would be an orphan (leading space/nl).
+		if (length(out) == 0) out += tok;
+		else out += ws + tok;
 	}
 	return out;
 }
@@ -466,12 +475,16 @@ if (arg == 'passthrough') {
 	let on = ARGV[1];
 	let enabled = (on == 'true' || on == '1');
 	print(jstringify(passthrough(enabled)) + '\n');
+} else if (arg == 'rollback') {
+	// CLI/ubus 'rollback' = MANUAL (force=true): restore last-good
+	// unconditionally (the automatic timer path passes no arg = not forced).
+	print(jstringify(rollback(true)) + '\n');
 } else if (arg == 'start' || arg == 'stop' || arg == 'restart' ||
            arg == 'restart_daemons' || arg == 'start_fw' || arg == 'reload_ifsets' ||
-           arg == 'confirm_alive' || arg == 'rollback') {
+           arg == 'confirm_alive') {
 	let m = { start: start, stop: stop, restart: restart, restart_daemons: restart_daemons,
 		start_fw: start_fw, reload_ifsets: reload_ifsets,
-		confirm_alive: confirm_alive, rollback: rollback };
+		confirm_alive: confirm_alive };
 	print(jstringify(m[arg]()) + '\n');
 } else {
 	let argval = arg ? arg : '';

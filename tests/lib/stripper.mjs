@@ -40,7 +40,11 @@ export function strip_lua_desync(value) {
 			// drop the token AND its preceding separator so no orphan sep remains
 			continue;
 		}
-		out += ws + tok;
+		// If out is empty (this is the first KEPT token), drop the leading
+		// separator — it was the separator before a dropped token and would
+		// be an orphan (leading space/newline).
+		if (out.length === 0) out += tok;
+		else out += ws + tok;
 	}
 	return out;
 }

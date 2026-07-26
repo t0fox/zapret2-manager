@@ -172,27 +172,37 @@ function have_flock() {
 // the race. [VERIFY:ROUTER] flock presence decides which path is live.
 export function set_var(name, value) {
 	if (have_flock()) {
-		// Delegate the RMW to a subprocess under an exclusive flock on the
-		// lockfile. The subprocess runs this same module's do_set (reads name
-		// and value from temp files — multi-line values survive), does the RMW,
-		// and atomically renames. flock is held for the whole subprocess.
-		let name_f = '/tmp/z2m-set.name';
-		let val_f  = '/tmp/z2m-set.value';
+		// Delegate the RMW to a subprocess under an exclusive flock. Use mktemp
+		// for the name/value temp files so concurrent set_var calls do not
+		// clobber each other's temp files before flock is taken.
+		let name_f = _mktemp();
+		let val_f  = _mktemp();
 		writefile(name_f, name + '\n');
-		writefile(val_f, value);
-		// PROG path: this file is installed at /usr/libexec/zapret2-manager/apply.uc
+		writefile(val_f, '' + value);
 		let cmd = "flock " + LOCKFILE + " -c 'ucode /usr/libexec/zapret2-manager/apply.uc do_set " + name_f + " " + val_f + " 2>/dev/null'";
 		let p = popen(cmd, 'r');
 		if (p) p.close();
 		try { unlink(name_f); } catch (e) { }
 		try { unlink(val_f); } catch (e) { }
-		return read_var(name) ? ('' + value) : null;
+		// Verify the write: read back and compare. read_var returns null for
+		// absent/empty; an empty value is a valid write (returns '' from
+		// read_var only if the var exists with an empty quoted value, which is
+		// rare). For a normal value, read_var must equal the written value.
+		let rb = read_var(name);
+		if (rb == ('' + value)) return '' + value;
+		if (('' + value) == '' && rb != null) return '' + value;  // empty-ish edge
+		return null;   // write did not take
 	}
-	// Fallback: marker file (check-then-create race — see header).
+	// Fallback: marker file. A stale marker (crash between create and unlink)
+	// is detected by timestamp: if older than 60s, ignore and proceed.
 	if (stat(MARKER)) {
-		// Another writer is in progress. Best-effort: refuse rather than race.
-		// The caller (service.uc) treats a null return as a failed apply.
-		return null;
+		try {
+			let mtime = trim(readfile(MARKER));
+			let age = time() - (+mtime);
+			if (mtime && age < 60) return null;   // another writer is active
+		} catch (e) { }
+		// stale marker → remove and proceed
+		try { unlink(MARKER); } catch (e) { }
 	}
 	try { writefile(MARKER, '' + time() + '\n'); } catch (e) { }
 	let raw = readfile(CONFIG);
@@ -209,16 +219,24 @@ export function set_var(name, value) {
 	return out;
 }
 
+function _mktemp() {
+	let p = popen('mktemp 2>/dev/null', 'r');
+	if (!p) return '/tmp/z2m-set.' + time();
+	let out = trim(p.read('all'));
+	p.close();
+	return length(out) ? out : ('/tmp/z2m-set.' + time());
+}
+
 // do_set <namefile> <valuefile> — runs UNDER flock (invoked by set_var above).
 // Reads the config, renders name=value, atomically renames. Single entry point
 // so the whole RMW is inside the locked subprocess.
 function do_set(name_f, val_f) {
 	let name = trim(readfile(name_f));
 	let value = readfile(val_f);
-	// value may have a trailing newline from the caller's writefile(name+\n);
-	// only strip ONE trailing newline (the caller's), preserve embedded ones.
-	if (length(value) > 0 && substr(value, length(value) - 1, 1) == '\n')
-		value = substr(value, 0, length(value) - 1);
+	// set_var writes value with NO trailing newline (writefile(val_f, value)),
+	// so readfile(val_f) returns exactly the value. Do NOT strip a trailing
+	// newline — that would remove a legitimate one from a multi-line value
+	// (data loss). The name file gets name+'\n', so trim(name) is correct.
 	let raw = readfile(CONFIG);
 	if (!raw) raw = '';
 	let out = render_var(raw, name, value);
