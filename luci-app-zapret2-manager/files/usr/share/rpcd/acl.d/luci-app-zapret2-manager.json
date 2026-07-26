@@ -2,6 +2,9 @@
 	"luci-app-zapret2-manager": {
 		"description": "Zapret 2 Manager — overview page access",
 		"read": {
+			"ubus": {
+				"zapret2-manager": [ "status" ]
+			},
 			"uci": [ "zapret2" ]
 		},
 		"write": {

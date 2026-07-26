@@ -39,8 +39,20 @@ define Package/zapret2-manager/install
 	$(INSTALL_DIR) $(1)/etc/zapret2-manager
 	$(INSTALL_DATA) ./files/etc/zapret2-manager/state.json \
 		$(1)/etc/zapret2-manager/state.json
-	# Runtime dirs under /tmp are created on demand; no static install needed.
+	# Backend logic (ucode). Runtime /tmp dirs are created on demand.
 	$(INSTALL_DIR) $(1)/usr/libexec/zapret2-manager
+	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/constants.uc \
+		$(1)/usr/libexec/zapret2-manager/
+	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/status.uc \
+		$(1)/usr/libexec/zapret2-manager/
+
+	# rpcd ucode plugin → ubus object zapret2-manager.
+	# [VERIFY] load path: task spec says /usr/libexec/rpcd/ (used here). Some
+	# OpenWrt builds load ucode rpcd plugins from /usr/share/rpcd/ucode/ — if
+	# `ubus call zapret2-manager status` returns not-found, move this file.
+	$(INSTALL_DIR) $(1)/usr/libexec/rpcd
+	$(INSTALL_DATA) ./files/usr/libexec/rpcd/zapret2-manager.uc \
+		$(1)/usr/libexec/rpcd/
 endef
 
 # No postinst here: LuCI cache reset lives in luci-app-zapret2-manager, which
