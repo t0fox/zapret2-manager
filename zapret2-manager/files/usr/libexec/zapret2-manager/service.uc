@@ -29,9 +29,11 @@ import { readfile, writefile, stat, mkdir, unlink, popen } from 'fs';
 import { parse as jparse, stringify as jstringify } from 'json';
 import { PATHS, PASSTHROUGH_PROFILE_NAME,
 	NFQWS2_ENABLE_VAR, PAUSE_STOPS_FW } from './constants.uc';
+import { read_var, set_var } from './apply.uc';
 
 const UPSTREAM_INIT = '/etc/init.d/zapret2';
 const LASTGOOD_DIR  = '/tmp/zapret2-manager/last-good';
+const PREV_ENABLE   = LASTGOOD_DIR + '/nfqws2_enable.prev';
 const PENDING       = '/tmp/zapret2-manager/pending-rollback';
 const ROLLBACK_TTL  = 90;
 
@@ -40,6 +42,20 @@ function run(cmd) {
 	let out = p ? (p.read('all') ?? '') : '';
 	let rc = p ? p.close() : -1;     // [VERIFY] popen close() returns exit code
 	return { out: out, rc: rc };
+}
+
+// sh() runs a command and returns its stdout (stderr discarded). event()
+// below uses it for the ISO timestamp. Pre-existing: service.uc called sh()
+// without defining it, so event() threw into its own try/catch and the WHOLE
+// event was silently dropped — pause/restart/rollback events were never
+// written. Defined here (matching status.uc/watchdog.uc) so pause events
+// actually fire. No ?. / ?? — explicit truthiness check (point 6 clean).
+function sh(cmd) {
+	let p = popen(cmd + ' 2>/dev/null', 'r');
+	if (!p) return '';
+	let out = p.read('all');
+	p.close();
+	return out ? out : '';
 }
 
 // Append an events.v1 ndjson event. Telemetry never blocks: any failure is
@@ -81,23 +97,47 @@ function basename(p) {
 //
 // Setting NFQWS2_ENABLE in the APPLIED config is the pause mechanism: with
 // NFQWS2_ENABLE=0, upstream's start is a no-op by upstream's own logic. We do
-// NOT edit upstream's files; the write is done by the config-generation apply
-// mechanism, which renders the applied config (including NFQWS2_ENABLE) from
-// our draft state and writes it through the sanctioned apply path.
+// NOT edit upstream's files; the write goes through apply.uc, the SINGLE
+// sanctioned writer for /opt/zapret2/config. The previous value is captured
+// to last-good before the change and restored on resume (NOT hardcoded 1).
+// The change flows through the generation mechanism (snapshot_last_good +
+// schedule_rollback are called by the caller), so a pause that breaks the
+// link rolls back the same way as any edit — including the 90s timeout
+// rollback. The PAUSE_STOPS_FW flag and the smoke.sh pause_fw_effect check
+// answer whether NFQWS2_ENABLE=0 also clears fw rules (one constant, one
+// place). See docs/architecture.md §10.3 and apply.uc.
 //
-// [ASK] That apply mechanism is not yet built (the strategy-editor branch was
-// deferred). Until it lands, apply_nfqws2_enable() records the intent in draft
-// state and logs, but does not write the applied config — so the PRIMARY pause
-// mechanism is not yet effective and the guard hook remains the active stop.
-// When the apply branch lands, fill in the single write step here; the
-// PAUSE_STOPS_FW flag and the smoke.sh pause_fw_effect check do not change.
-// See the branch report's [ASK] section.
+// apply.uc is the apply MECHANISM (write a var), not the deferred full
+// options-string CONSTRUCTOR from profiles (strategy-editor branch). Writing
+// NFQWS2_ENABLE has no side effect on NFQWS2_OPT — set_var is surgical.
+
+// Capture/restore the pre-pause NFQWS2_ENABLE value alongside the last-good
+// config snapshot, so resume restores the real previous value, not a hard 1.
+function save_prev_enable(prev) {
+	try {
+		run('mkdir -p ' + LASTGOOD_DIR);
+		writefile(PREV_ENABLE, (prev == null ? '' : prev) + '\n');
+	} catch (e) { }
+}
+
+function read_prev_enable() {
+	try {
+		let raw = readfile(PREV_ENABLE);
+		if (!raw) return null;
+		let v = trim(raw);
+		return length(v) ? v : null;
+	} catch (e) { return null; }
+}
+
 function apply_nfqws2_enable(value) {
-	let st = read_state();
-	st.nfqws2_enable = value;   // 0 on pause, 1 on resume
-	write_state(st);
+	// Write through apply.uc (single writer). Re-capture the applied hash AFTER
+	// the write so drift sees the new config as the applied baseline (a
+	// snapshot_last_good just before this captured the pre-change hash; this
+	// overwrites it with the post-change hash that drift compares against).
+	set_var(NFQWS2_ENABLE_VAR, '' + value);
+	capture_applied_hash();
 	event('ui', 'config', 'info',
-		NFQWS2_ENABLE_VAR + '=' + value + ' intent recorded (apply pending config-generation branch)',
+		NFQWS2_ENABLE_VAR + '=' + value + ' written to /opt/zapret2/config via apply.uc',
 		{ var: NFQWS2_ENABLE_VAR, value: value });
 	return value;
 }
@@ -105,29 +145,42 @@ function apply_nfqws2_enable(value) {
 // ---- actions ----------------------------------------------------------------
 
 function start() {
+	// Resume from pause: clear the indicator and restore the PREVIOUS
+	// NFQWS2_ENABLE value captured at pause entry (not a hardcoded 1). If no
+	// prior pause stored a value, default to 1.
 	set_paused(false);
-	apply_nfqws2_enable(1);
+	let prev = read_prev_enable();
+	let restored = (prev == null) ? 1 : prev;
+	apply_nfqws2_enable(restored);
 	let r = run(UPSTREAM_INIT + ' start');
-	event('ui', 'pause', 'info', 'start rc=' + r.rc, { reason: 'manual_ui', rc: r.rc });
+	event('ui', 'pause', 'info',
+		'start rc=' + r.rc + ' (resumed; NFQWS2_ENABLE=' + restored + ')',
+		{ reason: 'manual_ui', rc: r.rc, pause: 'exit', nfqws2_enable: restored });
 	return { ok: r.rc == 0, action: 'start', rc: r.rc, out: r.out };
 }
 
 function stop() {
-	// Pause: set the indicator, drive NFQWS2_ENABLE=0 through the config
-	// mechanism (no-op until the apply branch lands — see apply_nfqws2_enable),
-	// optionally stop_fw if NFQWS2_ENABLE=0 does not also stop fw rules
-	// (PAUSE_STOPS_FW, answered by smoke.sh pause_fw_effect), then stop the
-	// daemon. Snapshot + arm the 90s rollback so a pause that breaks the link
-	// is auto-reversed — pause is a diagnostic stance, not a persistent pref.
+	// Pause entry: capture the current NFQWS2_ENABLE BEFORE the change, snapshot
+	// the pre-pause config to last-good, store the previous value alongside it,
+	// then drive NFQWS2_ENABLE=0 through apply.uc. Optionally stop_fw if
+	// NFQWS2_ENABLE=0 does not also stop fw rules (PAUSE_STOPS_FW, answered by
+	// smoke.sh pause_fw_effect), then stop the daemon. Arm the 90s rollback so a
+	// pause that breaks the link is auto-reversed — pause is a diagnostic
+	// stance, not a persistent pref. With NFQWS2_ENABLE=0 in the applied config,
+	// an external `start` (init, hotplug, manual) is a no-op by upstream's own
+	// logic, so the pause survives even a restart of the service.
+	let prev = read_var(NFQWS2_ENABLE_VAR);
 	set_paused(true);
-	apply_nfqws2_enable(0);
 	snapshot_last_good();
+	save_prev_enable(prev);
+	apply_nfqws2_enable(0);
 	if (PAUSE_STOPS_FW)
 		run(UPSTREAM_INIT + ' stop_fw');
 	let r = run(UPSTREAM_INIT + ' stop');
 	schedule_rollback();
-	event('ui', 'pause', 'info', 'stop rc=' + r.rc + ' (paused; NFQWS2_ENABLE=0 intent)',
-		{ pause: 'enter', rc: r.rc });
+	event('ui', 'pause', 'info',
+		'stop rc=' + r.rc + ' (paused; NFQWS2_ENABLE=0; prev=' + (prev == null ? 'null' : prev) + ')',
+		{ pause: 'enter', rc: r.rc, prev: prev });
 	return { ok: r.rc == 0, action: 'stop', rc: r.rc, out: r.out, paused: true,
 		rollback_pending: true, rollback_ttl: ROLLBACK_TTL };
 }
@@ -239,6 +292,9 @@ function rollback() {
 		if (stat(LASTGOOD_DIR + '/' + basename(PATHS.uci_conf)))
 			run('cp -f ' + LASTGOOD_DIR + '/' + basename(PATHS.uci_conf) + ' ' + PATHS.uci_conf);
 		try { unlink(PENDING); } catch (e) { }
+		// Re-capture the applied hash for the RESTORED config so drift does not
+		// false-positive against the pre-rollback (changed) baseline.
+		capture_applied_hash();
 		let r = run(UPSTREAM_INIT + ' restart');
 		event('ui', 'rollback', 'crit',
 			'ROLLBACK applied (link not confirmed within ' + ROLLBACK_TTL + 's) rc=' + r.rc,

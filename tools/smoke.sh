@@ -56,6 +56,7 @@ ssh_out() {
 ucode_syntax_check() {
   log "ucode syntax check (interpreter on target)"
   for f in /usr/libexec/zapret2-manager/constants.uc \
+           /usr/libexec/zapret2-manager/apply.uc \
            /usr/libexec/zapret2-manager/qlen.uc \
            /usr/libexec/zapret2-manager/status.uc \
            /usr/libexec/zapret2-manager/service.uc \
