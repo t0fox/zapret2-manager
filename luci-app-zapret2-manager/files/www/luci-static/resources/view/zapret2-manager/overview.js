@@ -12,7 +12,9 @@ return L.view.extend({
 	load: function () {
 		return L.resolveDefault(L.ubus.call('zapret2-manager', 'status'), {
 			runtime: {}, applied: {}, draft: {}, meta: {},
-			signals: { process_present: false, rules_present: false, qlen: {} }
+			queues: { signals: {} }, drift: { divergent: false },
+			service_state: { state: 'unknown', label: 'unknown', cls: '' },
+			signals: { process_present: false, rules_present: false }
 		});
 	},
 
@@ -20,15 +22,17 @@ return L.view.extend({
 		var rt = data.runtime || {};
 		var ap = data.applied || {};
 		var meta = data.meta || {};
-		var sig = data.signals || {};
 		var queues = data.queues || {};
 		var qsig = queues.signals || {};
+		// Backend-computed conclusions (REVIEW 2): the UI only renders these, it
+		// does not recompute state/thresholds/drift. The watchdog reads the same
+		// status, so it sees the same picture a human sees.
+		var svc = data.service_state || { state: 'unknown', label: 'unknown', cls: '' };
+		var drift = data.drift || { divergent: false };
 
-		// ---- service state (REVIEW 2 will move this derivation to the backend) -
-		var state = this.deriveState(rt, sig, queues, qsig);
 		var pids = (rt.pids || []).map(function (p) { return p.pid; });
 		var instances = rt.count || pids.length || 0;
-		var profiles = this.countProfiles(rt.strategies);
+		var profiles = (rt.profile_count != null) ? rt.profile_count : _('n/a');
 		// null version = checked, no value (distinct from the key being absent =
 		// not checked). The key is always present in status; render null as its
 		// own thing, not as 'unknown'.
@@ -37,13 +41,10 @@ return L.view.extend({
 			: meta.nfqws2_version;
 		var generation = (ap.generation != null) ? ap.generation : _('n/a');
 
-		// ---- divergence (REVIEW 2 moves this to the backend drift block) ------
-		var divergent = this.detectDivergence(rt, ap);
-
 		// ---- assemble --------------------------------------------------------
 		var plaque = E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Service')),
-			this.row(_('State'), this.badge(state.label, state.cls)),
+			this.row(_('State'), this.badge(svc.label, svc.cls)),
 			this.row(_('Instances'), instances),
 			this.row(_('Profiles'), profiles),
 			this.row(_('PIDs'), pids.length ? pids.join(', ') : _('none')),
@@ -88,8 +89,8 @@ return L.view.extend({
 			plaque, auto, qlenNode, autohostlistNode
 		]);
 
-		if (divergent) {
-			container.appendChild(this.divergenceWarning(rt, ap));
+		if (drift.divergent) {
+			container.appendChild(this.divergenceWarning(rt, ap, drift));
 		}
 
 		container.appendChild(this.controlSection());
@@ -246,49 +247,17 @@ return L.view.extend({
 
 	// ---- helpers -------------------------------------------------------------
 
-	// NOTE (REVIEW 2): deriveState, countProfiles, detectDivergence, and
-	// qlenBadge contain state/threshold logic in the UI. REVIEW 2 moves all of
-	// them to the collector so the watchdog (no UI) sees the same picture. They
-	// remain here only until that commit; do not add more UI-side logic.
-	deriveState: function (rt, sig, queues, qsig) {
-		if (!sig.process_present)
-			return { label: _('stopped'), cls: 'bad' };
-		if (queues && queues.registered === false)
-			return { label: _('degraded: queue not registered'), cls: 'bad' };
-		if (qsig && qsig.state === 'critical')
-			return { label: _('degraded: queue jammed'), cls: 'bad' };
-		if (!sig.rules_present)
-			return { label: _('partial: no rules'), cls: 'warn' };
-		if (qsig && qsig.state === 'warn')
-			return { label: _('running (qlen warn)'), cls: 'warn' };
-		return { label: _('running'), cls: 'ok' };
-	},
-
-	countProfiles: function (strategies) {
-		if (!strategies || !strategies.length) return _('n/a');
-		var n = strategies.split('\n').filter(function (l) { return l.trim().length; }).length;
-		return n || _('n/a');
-	},
-
-	detectDivergence: function (rt, ap) {
-		// REVIEW 2 replaces this mtime heuristic with backend drift (sha256 /
-		// argv-render) from BOTH applied sources.
-		if (!rt.present || !ap.config_present || ap.config_mtime == null) return false;
-		var starts = (rt.pids || []).map(function (p) { return p.start_time; })
-			.filter(function (t) { return t != null; });
-		if (!starts.length) return false;
-		var earliest = Math.min.apply(null, starts);
-		return ap.config_mtime > earliest;
-	},
-
-	badge: function (text, cls) {
-		return E('span', { 'class': 'zonebadge ' + (cls || '') }, text);
-	},
-
+	// qlenBadge maps the backend-computed qlen state string to a CSS class —
+	// pure presentation, no threshold logic. The threshold logic (when state
+	// becomes warn/critical) lives in the watchdog; the UI only renders.
 	qlenBadge: function (qsig) {
 		var map = { nominal: 'ok', warn: 'warn', critical: 'bad', unknown: '' };
 		var label = (qsig && qsig.state) || 'unknown';
 		return this.badge(label, map[label] || '');
+	},
+
+	badge: function (text, cls) {
+		return E('span', { 'class': 'zonebadge ' + (cls || '') }, text);
 	},
 
 	// autohostlist vars are upstream's knobs, shown verbatim — NO manager
@@ -331,11 +300,19 @@ return L.view.extend({
 		]);
 	},
 
-	divergenceWarning: function (rt, ap) {
+	// divergenceWarning renders the backend drift block (status.drift). It
+	// shows the backend's reason + basis and a toggleable raw view of runtime
+	// argv vs applied. No drift computation here (REVIEW 2).
+	divergenceWarning: function (rt, ap, drift) {
+		var reason = drift.reason || _('Runtime does not match applied config.');
 		var panel = E('div', { 'class': 'cbi-section', 'style': 'display:none' }, [
 			E('h3', {}, _('Runtime vs applied')),
 			E('div', { 'class': 'cbi-value-description' },
-				_('The config was modified after the running process started — a restart is needed to apply it.')),
+				_('Basis: ') + (drift.basis || '?') + ' — ' + reason),
+			E('div', { 'class': 'cbi-value-description' },
+				_('Applied sha256: ') + JSON.stringify(drift.applied_sha256 || {})),
+			E('div', { 'class': 'cbi-value-description' },
+				_('Current sha256: ') + JSON.stringify(drift.current_sha256 || {})),
 			E('pre', { 'style': 'white-space:pre-wrap;margin:.5em 0' },
 				_('RUNTIME cmdline:\n') + (rt.pids || []).map(function (p) {
 					return p.pid + ': ' + (p.cmdline || '');
@@ -343,11 +320,7 @@ return L.view.extend({
 			E('pre', { 'style': 'white-space:pre-wrap;margin:.5em 0' },
 				_('RUNTIME strategies:\n') + (rt.strategies || _('none'))),
 			E('pre', { 'style': 'white-space:pre-wrap;margin:.5em 0' },
-				_('APPLIED uci:\n') + (ap.uci || _('none'))),
-			E('div', { 'class': 'cbi-value-description' },
-				_('APPLIED config: ') + (ap.config_path || '?') +
-				'  mtime=' + (ap.config_mtime || '?') +
-				'  size=' + (ap.config_size || '?'))
+				_('APPLIED uci:\n') + (ap.uci || _('none')))
 		]);
 
 		var btn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' },
@@ -361,7 +334,7 @@ return L.view.extend({
 		return E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Divergence')),
 			E('div', { 'class': 'alert-message warning' }, [
-				E('p', {}, _('Runtime does not match applied config.')),
+				E('p', {}, reason),
 				btn
 			]),
 			panel

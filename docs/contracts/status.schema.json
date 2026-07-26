@@ -28,6 +28,7 @@
 					}
 				},
 				"strategies": { "type": ["string", "null"], "description": "list_table output (running strategy table)." },
+				"profile_count": { "type": ["integer", "null"], "description": "Backend-computed count of non-empty list_table lines. null = not available." },
 				"ps_summary": { "type": "string" }
 			}
 		},
@@ -100,6 +101,16 @@
 			}
 		},
 		"passthrough": { "type": "boolean", "description": "Derived from draft: whether the active profile is the no-strategy passthrough profile." },
+		"service_state": {
+			"type": "object",
+			"description": "Backend-computed service state (REVIEW 2). The UI renders this; it does not derive it. The watchdog reads the same value.",
+			"required": ["state", "label", "cls"],
+			"properties": {
+				"state": { "type": "string", "enum": ["running", "stopped", "degraded", "partial", "warn", "unknown"] },
+				"label": { "type": "string", "description": "Human-readable, not parsed." },
+				"cls": { "type": "string", "enum": ["ok", "warn", "bad", ""] }
+			}
+		},
 		"meta": {
 			"type": "object",
 			"description": "Version, autostart, upgradable badge, autohostlist vars.",

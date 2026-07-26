@@ -183,12 +183,100 @@ function queues_block() {
 
 function rules_present() {
 	try {
-		// [VERIFY] table family. `nft list table <name>` resolves by name.
+		// [VERIFY:ROUTER] table family. `nft list table <name>` resolves by name.
 		let raw = sh('nft list table ' + NFT_TABLE);
 		return length(raw) && index(raw, 'chain ') >= 0;
 	} catch (e) {
 		return false;
 	}
+}
+
+// ---- drift (RUNTIME vs APPLIED), backend-computed ---------------------------
+//
+// Ground truth is: does the running argv match what the applied state would
+// generate? The full argv-render basis is the target; until that renderer
+// exists we use the sha256-INTERMEDIATE basis allowed by REVIEW 2: hashes of
+// BOTH applied sources (/opt/zapret2/config AND /etc/config/zapret2) captured
+// at apply time into /tmp/zapret2-manager/applied.sha256, compared each
+// collection. mtime is NOT used (package updates, backup restores, and any file
+// touch change mtime without content → false positives; and edits in the UCI
+// file alone were never noticed). Both sources are hashed, never one alone.
+//
+// If there is no stored apply hash (e.g. fresh boot before any apply), drift
+// is unknown, not divergent — the UI must not cry wolf.
+function sha256_file(path) {
+	if (!stat(path)) return null;
+	try {
+		let raw = sh('sha256sum ' + path + " 2>/dev/null | awk '{print $1}'");
+		let h = trim(raw);
+		return length(h) ? h : null;
+	} catch (e) { return null; }
+}
+
+function drift_block(runtime, rules) {
+	let cur_config = sha256_file(PATHS.applied_conf);
+	let cur_uci    = sha256_file(PATHS.uci_conf);
+	let stored = read_json('/tmp/zapret2-manager/applied.sha256', null);
+
+	// Also carry the normalized runtime argv for the future argv-render basis.
+	let norm = null;
+	try {
+		let parts = [];
+		let pids = runtime.pids || [];
+		for (let i = 0; i < length(pids); i++)
+			push(parts, trim(pids[i].cmdline || ''));
+		// normalization: sort instance lines so order is not significant; per-
+		// instance arg order is preserved (it IS significant for nfqws2).
+		parts.sort();
+		norm = join(parts, '\n');
+	} catch (e) { norm = null; }
+
+	if (!runtime.present) {
+		return { divergent: false, reason: 'process absent (nothing to compare)',
+			basis: 'sha256-intermediate', applied_sha256: stored,
+			current_sha256: { config: cur_config, uci: cur_uci },
+			normalized_runtime: norm };
+	}
+	if (!stored) {
+		return { divergent: false, reason: 'no stored apply hash (run an apply first)',
+			basis: 'sha256-intermediate', applied_sha256: null,
+			current_sha256: { config: cur_config, uci: cur_uci },
+			normalized_runtime: norm };
+	}
+	let divergent = (stored.config != null && cur_config != null && stored.config != cur_config) ||
+		(stored.uci != null && cur_uci != null && stored.uci != cur_uci);
+	return { divergent: divergent,
+		reason: divergent ? 'applied sha256 mismatch (config or uci changed since last apply)' : 'applied hash matches',
+		basis: 'sha256-intermediate', applied_sha256: stored,
+		current_sha256: { config: cur_config, uci: cur_uci },
+		normalized_runtime: norm };
+}
+
+// ---- service state (backend-computed; UI only renders) ----------------------
+
+function service_state(runtime, rules, queues) {
+	let qsig = (queues && queues.signals) || {};
+	if (!runtime.present)
+		return { state: 'stopped', label: 'stopped', cls: 'bad' };
+	if (queues && queues.registered === false)
+		return { state: 'degraded', label: 'degraded: queue not registered', cls: 'bad' };
+	if (qsig.state === 'critical')
+		return { state: 'degraded', label: 'degraded: queue jammed', cls: 'bad' };
+	if (!rules)
+		return { state: 'partial', label: 'partial: no rules', cls: 'warn' };
+	if (qsig.state === 'warn')
+		return { state: 'warn', label: 'running (qlen warn)', cls: 'warn' };
+	return { state: 'running', label: 'running', cls: 'ok' };
+}
+
+// profile count from list_table output (backend-computed; UI only renders).
+function profile_count(strategies) {
+	if (!strategies || !length(strategies)) return null;
+	let n = 0;
+	let lines = split(strategies, '\n');
+	for (let i = 0; i < length(lines); i++)
+		if (length(trim(lines[i]))) n++;
+	return n;
 }
 
 // ---- meta: version, autostart symlinks, upgradable badge, autohostlist -----
@@ -288,6 +376,15 @@ function collect() {
 	try { rules = rules_present(); } catch (e) { rules = false; }
 	try { meta = meta_info(); } catch (e) { meta = { error: 'meta collect failed: ' + e }; }
 
+	// Backend-computed conclusions (REVIEW 2): the UI renders these, it does not
+	// recompute. The watchdog (no UI) reads the same status, so everyone sees
+	// the same picture.
+	let drift, svc_state, prof_count;
+	try { drift = drift_block(runtime, rules); } catch (e) { drift = { divergent: false, reason: 'drift compute failed: ' + e, basis: 'sha256-intermediate' }; }
+	try { svc_state = service_state(runtime, rules, queues); } catch (e) { svc_state = { state: 'unknown', label: 'unknown', cls: '' }; }
+	try { prof_count = profile_count(runtime.strategies); } catch (e) { prof_count = null; }
+	if (runtime && prof_count != null) runtime.profile_count = prof_count;
+
 	let status = {
 		collected_at: now(),
 		cache_ttl: CACHE_TTL_SEC,
@@ -295,14 +392,14 @@ function collect() {
 		applied: applied,
 		draft: draft,
 		queues: queues,
+		drift: drift,
+		service_state: svc_state,
 		passthrough: (draft && draft.passthrough && draft.passthrough.enabled) || false,
 		meta: meta,
 		signals: {
 			process_present: runtime.present ?? false,
 			rules_present: rules
 		}
-		// Drift (runtime-vs-applied) is computed in the collector (REVIEW 2) and
-		// exposed as status.drift; the UI renders it, never recomputes.
 	};
 
 	try { writefile(PATHS.status_json, jstringify(status, null, '  ') + '\n'); } catch (e) { }

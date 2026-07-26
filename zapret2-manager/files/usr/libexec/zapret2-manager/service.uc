@@ -168,11 +168,34 @@ function reload_ifsets() {
 
 // ---- 90s rollback scaffold --------------------------------------------------
 
+function sha256_file(path) {
+	if (!stat(path)) return null;
+	try {
+		let raw = run("sha256sum " + path + " 2>/dev/null | awk '{print $1}'");
+		let h = trim(raw.out);
+		return length(h) ? h : null;
+	} catch (e) { return null; }
+}
+
+// Capture the applied-config hashes at apply time, so the collector's drift
+// check (REVIEW 2) can compare the current hashes to these. Both sources are
+// hashed, never one alone. Written to /tmp/zapret2-manager/applied.sha256.
+function capture_applied_hash() {
+	try {
+		let st = { config: sha256_file(PATHS.applied_conf),
+			uci:    sha256_file(PATHS.uci_conf),
+			captured_at: time() };
+		mkdir('/tmp/zapret2-manager');
+		writefile('/tmp/zapret2-manager/applied.sha256', jstringify(st) + '\n');
+	} catch (e) { }
+}
+
 function snapshot_last_good() {
 	try {
 		run('mkdir -p ' + LASTGOOD_DIR);
 		run('cp -f ' + PATHS.applied_conf + ' ' + LASTGOOD_DIR + '/ 2>/dev/null');
 		run('cp -f ' + PATHS.uci_conf + ' ' + LASTGOOD_DIR + '/ 2>/dev/null');
+		capture_applied_hash();
 	} catch (e) { }
 }
 
