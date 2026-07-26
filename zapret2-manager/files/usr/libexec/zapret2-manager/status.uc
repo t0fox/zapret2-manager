@@ -82,7 +82,12 @@ function find_pids() {
 		if (!length(cl)) continue;
 		let human = replace(cl, '\x00', ' ');   // NUL-separated → space
 		if (index(human, DAEMON) >= 0) {
-			push(pids, { pid: +name, cmdline: trim(human) });
+			let pst = stat('/proc/' + name);
+			push(pids, {
+				pid: +name,
+				cmdline: trim(human),
+				start_time: pst ? pst.mtime : null   // /proc/<pid> dir mtime ≈ start
+			});
 		}
 	}
 	return pids;
@@ -202,18 +207,56 @@ function rules_present() {
 	}
 }
 
+// ---- meta: version, autostart symlinks, upgradable badge --------------------
+
+function meta_info() {
+	let version = null;
+	try {
+		// [VERIFY] exact version flag/output for nfqws2.
+		let raw = sh('nfqws2 --version 2>/dev/null | head -n 1');
+		version = length(raw) ? trim(raw) : null;
+	} catch (e) { }
+
+	// Autostart: ACTUAL /etc/rc.d symlink check (informational only — the
+	// authoritative test is a real reboot, run in tools/smoke.sh autostart).
+	let autostart = { enabled: false, symlinks: [] };
+	try {
+		let entries = lsdir('/etc/rc.d') ?? [];
+		let links = [];
+		for (let e of entries)
+			if (index(e, 'zapret2') >= 0) push(links, e);
+		autostart.symlinks = links;
+		for (let l of links)
+			if (substr(l, 0, 1) == 'S') { autostart.enabled = true; break; }
+	} catch (e) { }
+
+	let upgradable = null;
+	try {
+		// [VERIFY] apk version subcommand on 25.12. Best-effort; null = unknown.
+		let raw = sh('apk version -c 2>/dev/null');
+		if (length(raw)) upgradable = index(raw, 'nfqws2') >= 0;
+	} catch (e) { }
+
+	return {
+		nfqws2_version: version,
+		autostart: autostart,
+		versions: { upgradable: upgradable }
+	};
+}
+
 // ---- assemble ----------------------------------------------------------------
 
 function collect() {
 	// Ensure runtime dir exists (volatile; created on demand).
 	try { mkdir('/tmp/zapret2-manager'); } catch (e) { }
 
-	let runtime, applied, draft, qlen, rules;
+	let runtime, applied, draft, qlen, rules, meta;
 	try { runtime = runtime_level(); } catch (e) { runtime = { error: 'runtime collect failed: ' + e }; }
 	try { applied = applied_level(); } catch (e) { applied = { error: 'applied collect failed: ' + e }; }
 	try { draft = draft_level(); } catch (e) { draft = { error: 'draft read failed: ' + e }; }
 	try { qlen = qlen_signal(); } catch (e) { qlen = { error: 'qlen read failed: ' + e }; }
 	try { rules = rules_present(); } catch (e) { rules = false; }
+	try { meta = meta_info(); } catch (e) { meta = { error: 'meta collect failed: ' + e }; }
 
 	let status = {
 		collected_at: now(),
@@ -221,13 +264,14 @@ function collect() {
 		runtime: runtime,
 		applied: applied,
 		draft: draft,
+		meta: meta,
 		signals: {
 			process_present: runtime.present ?? false,
 			rules_present: rules,
 			qlen: qlen
 		}
 		// Note: runtime-vs-applied divergence is computed by the Overview page
-		// (branch 03) from the raw runtime/applied data above, not here — a
+		// (branch 03) from the raw runtime/applied data above, not here; a
 		// collector-side heuristic would be a misleading second opinion.
 	};
 
