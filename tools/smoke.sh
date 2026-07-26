@@ -49,6 +49,26 @@ ssh_out() {
   eval "$_var=\"\$_val\""
 }
 
+# ucode_syntax_check — parse every shipped ucode file with the interpreter on
+# the target. This is the REAL grammar check (brace counting is not). ucode
+# supports `-p` (parse only, no execution). If the flag differs on the target,
+# adjust here; the principle is: the interpreter accepts the file.
+ucode_syntax_check() {
+  log "ucode syntax check (interpreter on target)"
+  for f in /usr/libexec/zapret2-manager/constants.uc \
+           /usr/libexec/zapret2-manager/qlen.uc \
+           /usr/libexec/zapret2-manager/status.uc \
+           /usr/libexec/zapret2-manager/service.uc \
+           /usr/libexec/zapret2-manager/watchdog.uc \
+           /usr/share/rpcd/ucode/zapret2-manager.uc; do
+    ssh_ok "parse $f" test -f "$f" || { bad "missing $f"; continue; }
+    # `ucode -p FILE` parses and exits 0 on success. Redirect stderr to spot
+    # the parse error if any.
+    ssh_ok "ucode -p $f" "ucode -p '$f' >/dev/null 2>&1" \
+      && ok "parse OK: $f" || bad "parse FAIL: $f (ucode -p)"
+  done
+}
+
 want() { [ "$1" = "$2" ] && ok "$3" || bad "$3 (got '$1' want '$2')"; }
 want_nz() { [ -n "$1" ] && ok "$2" || bad "$2 (empty)"; }
 want_contains() { printf '%s' "$1" | grep -F -- "$2" >/dev/null && ok "$3" || bad "$3 (missing '$2')"; }
@@ -88,6 +108,7 @@ gate_01() {
 # ---- branch 02: status.json + ubus -------------------------------------------
 gate_02() {
   log "gate 02 — status.json + ubus status"
+  ucode_syntax_check
   # status.json exists and is valid JSON with the three levels
   ssh_ok "status.json exists" test -f /tmp/zapret2-manager/status.json \
     || { bad "status.json missing"; return; }

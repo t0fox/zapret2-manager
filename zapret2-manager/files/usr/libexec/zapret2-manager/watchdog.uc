@@ -91,7 +91,9 @@ function alert_if(cond, source, msg, level, st) {
 function find_pids() {
 	let pids = [];
 	let entries = sh('ls /proc');
-	for (let name of split(entries, '\n')) {
+	let names = split(entries, '\n');
+	for (let i = 0; i < length(names); i++) {
+		let name = names[i];
 		if (!match(name, /^[0-9]+$/)) continue;
 		let cl = readfile('/proc/' + name + '/cmdline') ?? '';
 		if (!length(cl)) continue;
@@ -112,8 +114,8 @@ function clk_tck() {
 
 function cpu_ticks(pids) {
 	let total = 0;
-	for (let pid of pids) {
-		let s = readfile('/proc/' + pid + '/stat') ?? '';
+	for (let i = 0; i < length(pids); i++) {
+		let s = readfile('/proc/' + pids[i] + '/stat') ?? '';
 		let p = rindex(s, ')');
 		if (p < 0) continue;
 		let f = split(trim(substr(s, p + 1)), /[ ]+/);
@@ -290,8 +292,13 @@ function check_cycle() {
 	st.cpu_prev = { ticks: ticks, time: t };
 	st.cpu_samples = st.cpu_samples || [];
 	push(st.cpu_samples, cpu_pct);
-	if (length(st.cpu_samples) > CPU_WARN_WIN)
-		st.cpu_samples = st.cpu_samples[length(st.cpu_samples) - CPU_WARN_WIN:];
+	// Keep only the last CPU_WARN_WIN samples (avoid slice syntax — rebuild).
+	if (length(st.cpu_samples) > CPU_WARN_WIN) {
+		let tail = [];
+		let start = length(st.cpu_samples) - CPU_WARN_WIN;
+		for (let i = start; i < length(st.cpu_samples); i++) push(tail, st.cpu_samples[i]);
+		st.cpu_samples = tail;
+	}
 	if (length(st.cpu_samples) >= 1) {
 		let last1 = st.cpu_samples[length(st.cpu_samples) - 1];
 		if (last1 >= CPU_CRIT_PCT)
@@ -300,7 +307,7 @@ function check_cycle() {
 	}
 	if (length(st.cpu_samples) >= CPU_WARN_WIN) {
 		let sum = 0;
-		for (let v of st.cpu_samples) sum += v;
+		for (let i = 0; i < length(st.cpu_samples); i++) sum += st.cpu_samples[i];
 		let avg = sum / length(st.cpu_samples);
 		if (avg >= CPU_WARN_PCT)
 			alert_if('cpu_warn', 'watchdog',

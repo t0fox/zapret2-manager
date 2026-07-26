@@ -6,49 +6,45 @@ table names the upstream component that already handles it and whether the
 manager **reads** it (observes), **controls** it (invokes upstream's own
 mechanism), or **stays out** (upstream owns it entirely).
 
-> **Provenance note.** The upstream `docs/manual.md` could not be fetched in the
-> environment this repo was first written in (web search returned no results).
-> Rows marked **[VERIFY]** are inferred from the task spec's stated integration
-> contract plus knowledge of the original bol-van/zapret architecture; they
-> must be confirmed against the real zapret2 `docs/manual.md` on first build and
-> corrected here. Rows without the marker are stated directly by the task spec.
+> **Provenance.** Facts marked *confirmed (external source)* are stated by this
+> project's task spec and are not to be re-derived or guessed. Facts marked
+> **[VERIFY:ROUTER]** still need the live router; each carries the exact
+> `tools/smoke.sh` check that answers it. The three wrong facts from the first
+> build (qlen field index, rpcd plugin path, fw4 reload_ifsets) are corrected
+> below and no longer carry a marker.
 
 ## Daemon & process
 
 | Manager concern | Upstream artifact | Direction | Notes |
 |---|---|---|---|
 | Is the daemon running? PID/CPU/RSS | `nfqws2` process | read | `ps` + `/proc/<pid>/stat`; manager never spawns its own worker |
-| Actual flags the daemon uses | `/proc/<pid>/cmdline` of `nfqws2` | read | ground truth, not config — this is what catches edited-but-not-restarted |
-| Start the daemon | upstream init script / `zapret2` service | control | manager calls upstream's start, never re-implements launch flags |
-| Stop the daemon | upstream init script stop | control | plus sets paused flag (manager-only, §5 arch) |
-| Daemon binary version | `nfqws2 --version` [VERIFY exact flag] | read | for the upstream-update badge on Overview |
-
-[VERIFY]: the exact `--version`/`-v` flag and output format of `nfqws2`.
-Confirm against upstream `docs/manual.md` and record here.
+| Actual flags the daemon uses | `/proc/<pid>/cmdline` of `nfqws2` | read | ground truth, not config — catches edited-but-not-restarted |
+| Start the daemon | `/etc/init.d/zapret2 start` | control | manager calls upstream's start, never re-implements launch flags |
+| Stop the daemon | `/etc/init.d/zapret2 stop` | control | plus the paused indicator (manager-only, §5 arch) |
+| Pause = upstream start is a no-op | `NFQWS2_ENABLE=0` in the applied config | control | upstream honors its own variable; see REVIEW 1. *confirmed (external source)* that the variable exists; **[VERIFY:ROUTER]** whether it also stops fw rules → smoke.sh `pause_fw_effect`. |
+| Daemon version | `/opt/zapret2/version` (file), else `nfqws2 <flag>`, else null | read | *confirmed (external source)*: read the version file first. The binary flag is **[VERIFY:ROUTER]** → smoke.sh 02 (`status.nfqws2_version` non-null on a device without the version file). |
 
 ## Strategy & rotation
 
 | Manager concern | Upstream artifact | Direction | Notes |
 |---|---|---|---|
-| What strategies are cycling now | `list_table` command/output [VERIFY exact invocation] | read | RUNTIME level; the manager parses, it does not rotate |
-| Rotation orchestration | `zapret-auto.lua` (mode `circular`) [VERIFY] | stay out | upstream owns rotation; manager only reports current generation |
-| Strategy set in config | `/opt/zapret2/config` [VERIFY path] | read (APPLIED) | manager reads; the (later) editor writes via upstream's apply path |
-| Config generation number | a generation marker in `/opt/zapret2/config` or a sidecar [VERIFY] | read | shown on Overview; manager does not bump it |
-
-[VERIFY]: exact `list_table` invocation and output schema; the on-disk location
-of the config generation counter; whether `zapret-auto.lua` is the real
-rotation entrypoint in zapret2 (it is in zapret). Confirm and record.
+| What strategies are cycling now | `/etc/init.d/zapret2 list_table` | read | RUNTIME level; the manager parses, it does not rotate. *confirmed (external source)* — list_table is an init subcommand. |
+| Rotation orchestration | upstream rotation (circular) | stay out | upstream owns rotation; manager only reports current generation |
+| Strategy set in config | `/opt/zapret2/config` | read (APPLIED) | *confirmed (external source)*. Manager reads; the (later) editor writes via the config-generation apply path. |
+| Config generation number | generation in the applied config | read | shown on Overview; manager does not bump it. **[VERIFY:ROUTER]** exact storage location → smoke.sh 03 (Overview shows a generation; if null, locate it and wire `applied.generation`). |
 
 ## Config sources (APPLIED level)
 
 | Path | Role | Direction |
 |---|---|---|
-| `/opt/zapret2/config` [VERIFY] | upstream main config the engine reads | read |
-| `/etc/config/zapret2` [VERIFY] | UCI-native view of intent | read |
+| `/opt/zapret2/config` | upstream main config the engine reads (shell-style VAR=value) | read |
+| `/etc/config/zapret2` | UCI-native view of intent | read |
+| `/opt/zapret2/version` | nfqws2 version file | read |
 
-The manager reads both for the APPLIED level. It does not write either in this
-stage. Writes come with the (later) strategy editor and go through upstream's
-own apply/reload path, never as a direct file stomp.
+Both config sources are *confirmed (external source)*. The manager reads both
+for the APPLIED level and for drift (REVIEW 2 uses BOTH, never one alone). It
+does not write either directly; writes go through the config-generation apply
+mechanism (later branch), never a raw file stomp.
 
 ## Firewall / nftables
 
@@ -57,10 +53,10 @@ own apply/reload path, never as a direct file stomp.
 | nft table existence/integrity | nft table `zapret2` | read only | manager checks the table is present and non-empty; **never** rebuilds it |
 | Install the zapret2 rules | `/etc/init.d/zapret2 start_fw` | control | installs the zapret2 nft rules when missing. Touches the zapret2 table only. |
 | Re-read interface sets | `/etc/init.d/zapret2 reload_ifsets` | control | re-reads ifset membership after an interface came/went. Distinct from start_fw. |
-| Raise rules on interface events | hotplug hook `90-zapret2` | stay out | upstream owns it; pause uses upstream's NFQWS2_ENABLE so its start is a no-op (see REVIEW 1) |
-| Full firewall restart | — | **forbidden** | never `service firewall stop` / fw4 wholesale restart (incident r12 + a factory reset) |
+| Raise rules on interface events | hotplug hook `90-zapret2` | stay out | upstream owns it; pause uses NFQWS2_ENABLE so its start is a no-op (REVIEW 1) |
+| Full firewall restart | — | **forbidden** | never a wholesale firewall stop/restart (incident r12 + a factory reset) |
 
-Confirmed by external source: the full, exhaustive list of
+*Confirmed (external source)*: the full, exhaustive list of
 `/etc/init.d/zapret2` subcommands is `start`, `stop`, `restart`,
 `start_daemons`, `stop_daemons`, `restart_daemons`, `start_fw`, `stop_fw`,
 `restart_fw`, `reload_ifsets`, `list_ifsets`, `list_table`. No others are
@@ -71,25 +67,46 @@ subcommand.
 
 | Manager concern | Upstream artifact | Direction | Notes |
 |---|---|---|---|
-| Queue depth | `/proc/net/netfilter/nfnetlink_queue`, row queue 300, fields queue_total / queue_dropped / queue_user_dropped / copy_range | read | third liveness signal; manager never creates or binds the queue |
-| Queue number | 300 | constant | upstream binds it; manager matches field 1 to select the row |
+| Queue depth | `/proc/net/netfilter/nfnetlink_queue`, row selected by field 1 == 300 | read | fields: queue_total (3), copy_range (5), queue_dropped (6), queue_user_dropped (7). *confirmed (external source)*. |
+| Queue number | 300 | constant | upstream binds it; manager matches field 1, not row order |
+
+queue_total is instantaneous (threshold 50, three-consecutive → critical).
+queue_dropped / queue_user_dropped are cumulative monotonic counters —
+consumed as per-cycle deltas only, never compared to a threshold. If the queue
+is not registered at all → null + `queue_not_registered` warning.
 
 ## Lists & blockcheck (present upstream, untouched this stage)
 
 | Upstream component | Manager action this stage |
 |---|---|
-| autohostlists (auto-maintained host lists) | none, except: watchdog rotates the autohostlist log (>1 MB → last 500 lines) |
+| autohostlists | none, except: watchdog rotates the autohostlist log (>1 MB → last 500 lines). The log path is read from `AUTOHOSTLIST_DEBUGLOG` in `/opt/zapret2/config` — *confirmed (external source)*, never hardcoded. All `AUTOHOSTLIST*` vars are surfaced in `status.meta.autohostlist` verbatim, with no manager thresholds. |
 | `blockcheck2` | none (not built this stage; later branch may invoke it) |
 
 The manager does not generate, merge, or serve hostlists. The log-rotation is
 the only list-adjacent thing it does, and only because unbounded logs fill
-`/overlay` on a flash-constrained device.
+`/overlay` on a flash-constrained device. If `AUTOHOSTLIST_DEBUGLOG` is unset
+or the file is absent, rotation is a skip — not an error, not a warning.
+
+## Passthrough (manager entity, no upstream option)
+
+Passthrough is OURS — upstream has no passthrough UCI option and will not grow
+one. It is modelled as a **profile with no strategies**: instance up, filters
+in place, no lua-desync argument passed. It is a property of the generated
+nfqws2 options string, so it flows through config generation, rolls back by the
+standard mechanism, and is visible in the live argv. It is NOT a UCI flag
+(would desync and create a 4th state level).
+
+**[VERIFY:ROUTER]** actual enforcement on the live argv (no fakes sent) depends
+on the config-generation branch rendering the no-strategy profile; until then
+passthrough is modelled in draft state and surfaced in status, not yet enforced
+on the running daemon → smoke.sh 05 (`ubus call ... passthrough` toggles the
+active profile; argv verification deferred to the config-generation branch).
 
 ## Draft state (manager-only)
 
 | Path | Role |
 |---|---|
-| `/etc/zapret2-manager/state.json` | DRAFT level — manager's own staged edits. Upstream never reads this. |
+| `/etc/zapret2-manager/state.json` | DRAFT level — manager's own staged edits (profiles, active profile, passthrough). Upstream never reads this. |
 
 This path is not upstream. It exists so staged edits are not mistaken for
 applied config (§3 arch).
@@ -99,8 +116,13 @@ applied config (§3 arch).
 | Path | Purpose |
 |---|---|
 | `/tmp/zapret2-manager/status.json` | cached three-level status (3 s TTL) |
-| `/tmp/zapret2-manager/events.ndjson` | append-only event log with `source` field |
-| `/tmp/zapret2-manager/paused` | paused flag file (presence = paused) |
+| `/tmp/zapret2-manager/events.ndjson` | append-only telemetry, ndjson, events.v1 schema |
+| `/tmp/zapret2-manager/paused` | paused indicator (presence = paused). Indicator only since REVIEW 1; coercion is NFQWS2_ENABLE. |
+| `/tmp/zapret2-manager/qlen.state.json` | watchdog's queue signal state (consecutive, dropped baselines/deltas) |
+| `/tmp/zapret2-manager/watchdog.state.json` | watchdog cycle state (cpu samples, last_alert timestamps) |
+| `/tmp/zapret2-manager/applied.sha256` | applied-config hashes captured at apply time (drift, REVIEW 2) |
+| `/tmp/zapret2-manager/last-good/` | snapshot for 90s rollback |
+| `/tmp/zapret2-manager/pending-rollback` | marker + expiry for the 90s rollback timer |
 
 All under `/tmp` (volatile) except the DRAFT state under `/etc`.
 
@@ -109,6 +131,7 @@ All under `/tmp` (volatile) except the DRAFT state under `/etc`.
 Before writing any backend code, find your concern in the left column. If the
 Direction is **read**, parse upstream's output — do not recompute it. If it is
 **control**, call upstream's command — do not re-implement the effect. If it is
-**stay out** or **forbidden**, do not write that code at all. If a row is
-**[VERIFY]**, the path/flag/output shape must be confirmed on the target device
-and the marker removed once confirmed.
+**stay out** or **forbidden**, do not write that code at all. A
+**[VERIFY:ROUTER]** row names the smoke.sh check that confirms it on the live
+device; remove the marker only after that check passes.
+

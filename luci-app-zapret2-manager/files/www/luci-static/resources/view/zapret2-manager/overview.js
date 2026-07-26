@@ -21,17 +21,23 @@ return L.view.extend({
 		var ap = data.applied || {};
 		var meta = data.meta || {};
 		var sig = data.signals || {};
-		var qlen = sig.qlen || {};
+		var queues = data.queues || {};
+		var qsig = queues.signals || {};
 
-		// ---- service state ---------------------------------------------------
-		var state = this.deriveState(rt, sig, qlen);
+		// ---- service state (REVIEW 2 will move this derivation to the backend) -
+		var state = this.deriveState(rt, sig, queues, qsig);
 		var pids = (rt.pids || []).map(function (p) { return p.pid; });
 		var instances = rt.count || pids.length || 0;
 		var profiles = this.countProfiles(rt.strategies);
-		var version = meta.nfqws2_version || _('unknown');
+		// null version = checked, no value (distinct from the key being absent =
+		// not checked). The key is always present in status; render null as its
+		// own thing, not as 'unknown'.
+		var version = (meta.nfqws2_version == null)
+			? _('— (none found)')
+			: meta.nfqws2_version;
 		var generation = (ap.generation != null) ? ap.generation : _('n/a');
 
-		// ---- divergence: edited-but-not-restarted ----------------------------
+		// ---- divergence (REVIEW 2 moves this to the backend drift block) ------
 		var divergent = this.detectDivergence(rt, ap);
 
 		// ---- assemble --------------------------------------------------------
@@ -60,14 +66,26 @@ return L.view.extend({
 
 		var qlenNode = E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('NFQUEUE 300')),
-			this.row(_('Queue length'), (qlen.qlen != null) ? qlen.qlen : _('unknown')),
-			this.row(_('State'), this.qlenBadge(qlen)),
-			this.row(_('Consecutive over threshold'), qlen.consecutive != null ? qlen.consecutive : 0)
+			this.row(_('Registered'), queues.registered
+				? this.badge(_('yes'), 'ok')
+				: this.badge(_('no — queue not in kernel'), 'bad')),
+			this.row(_('Queue length (queue_total)'),
+				(queues.queue_total != null) ? queues.queue_total : _('—')),
+			this.row(_('State'), this.qlenBadge(qsig)),
+			this.row(_('Consecutive over threshold'), qsig.consecutive != null ? qsig.consecutive : 0),
+			this.row(_('queue_dropped delta'), qsig.dropped_delta != null ? qsig.dropped_delta : _('—'))
 		]);
+
+		if (queues.warning === 'queue_not_registered') {
+			qlenNode.appendChild(E('div', { 'class': 'alert-message warning' },
+				E('p', {}, _('NFQUEUE 300 is not registered in the kernel — nfqws2 is not connected to it. This is diagnostically important and is NOT the same as an empty queue.'))));
+		}
+
+		var autohostlistNode = this.autohostlistSection(meta.autohostlist);
 
 		var container = E('div', { 'class': 'cbi-map' }, [
 			E('h2', { 'name': 'content' }, _('Zapret 2 Manager')),
-			plaque, auto, qlenNode
+			plaque, auto, qlenNode, autohostlistNode
 		]);
 
 		if (divergent) {
@@ -228,14 +246,20 @@ return L.view.extend({
 
 	// ---- helpers -------------------------------------------------------------
 
-	deriveState: function (rt, sig, qlen) {
+	// NOTE (REVIEW 2): deriveState, countProfiles, detectDivergence, and
+	// qlenBadge contain state/threshold logic in the UI. REVIEW 2 moves all of
+	// them to the collector so the watchdog (no UI) sees the same picture. They
+	// remain here only until that commit; do not add more UI-side logic.
+	deriveState: function (rt, sig, queues, qsig) {
 		if (!sig.process_present)
 			return { label: _('stopped'), cls: 'bad' };
-		if (qlen.state === 'critical')
+		if (queues && queues.registered === false)
+			return { label: _('degraded: queue not registered'), cls: 'bad' };
+		if (qsig && qsig.state === 'critical')
 			return { label: _('degraded: queue jammed'), cls: 'bad' };
 		if (!sig.rules_present)
 			return { label: _('partial: no rules'), cls: 'warn' };
-		if (qlen.state === 'warn')
+		if (qsig && qsig.state === 'warn')
 			return { label: _('running (qlen warn)'), cls: 'warn' };
 		return { label: _('running'), cls: 'ok' };
 	},
@@ -247,8 +271,8 @@ return L.view.extend({
 	},
 
 	detectDivergence: function (rt, ap) {
-		// Edited-but-not-restarted: the config file was modified after the
-		// running process started. Honest, concrete, not a heuristic guess.
+		// REVIEW 2 replaces this mtime heuristic with backend drift (sha256 /
+		// argv-render) from BOTH applied sources.
 		if (!rt.present || !ap.config_present || ap.config_mtime == null) return false;
 		var starts = (rt.pids || []).map(function (p) { return p.start_time; })
 			.filter(function (t) { return t != null; });
@@ -261,10 +285,36 @@ return L.view.extend({
 		return E('span', { 'class': 'zonebadge ' + (cls || '') }, text);
 	},
 
-	qlenBadge: function (qlen) {
+	qlenBadge: function (qsig) {
 		var map = { nominal: 'ok', warn: 'warn', critical: 'bad', unknown: '' };
-		var label = qlen.state || 'unknown';
+		var label = (qsig && qsig.state) || 'unknown';
 		return this.badge(label, map[label] || '');
+	},
+
+	// autohostlist vars are upstream's knobs, shown verbatim — NO manager
+	// thresholds here (PART 2.2). null = the var is in the config but empty;
+	// the whole block is null when /opt/zapret2/config is unreadable.
+	autohostlistSection: function (vars) {
+		if (vars == null) {
+			return E('div', { 'class': 'cbi-section' }, [
+				E('h3', {}, _('Autohostlist (upstream)')),
+				E('div', { 'class': 'cbi-value-description' },
+					_('No AUTOHOSTLIST variables in /opt/zapret2/config, or config unreadable.'))
+			]);
+		}
+		var rows = [];
+		var keys = Object.keys(vars).sort();
+		for (var i = 0; i < keys.length; i++) {
+			var k = keys[i];
+			rows.push(this.row(k, (vars[k] == null) ? _('(empty)') : vars[k]));
+		}
+		return E('div', { 'class': 'cbi-section' }, [
+			E('h3', {}, _('Autohostlist (upstream, shown as-is)')),
+			E('div', { 'class': 'cbi-value-description' },
+				_('These are upstream AUTOHOSTLIST* values from /opt/zapret2/config, displayed verbatim. The manager applies no thresholds of its own here.'))
+		].concat(rows.length ? rows : [
+			E('div', { 'class': 'cbi-value-description' }, _('No AUTOHOSTLIST variables set.'))
+		]));
 	},
 
 	updateBadge: function (meta) {

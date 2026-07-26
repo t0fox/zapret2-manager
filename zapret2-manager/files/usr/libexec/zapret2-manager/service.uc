@@ -27,8 +27,7 @@
 
 import { readfile, writefile, stat, mkdir, unlink, popen } from 'fs';
 import { parse as jparse, stringify as jstringify } from 'json';
-import { PATHS } from './constants.uc';
-import { PASSTHROUGH } from './constants.uc';
+import { PATHS, PASSTHROUGH_PROFILE_NAME } from './constants.uc';
 
 const UPSTREAM_INIT = '/etc/init.d/zapret2';
 const LASTGOOD_DIR  = '/tmp/zapret2-manager/last-good';
@@ -171,7 +170,23 @@ function rollback() {
 	}
 }
 
-// ---- passthrough (branch 05) -----------------------------------------------
+// ---- passthrough (our entity; no upstream option) ---------------------------
+//
+// Passthrough is NOT a UCI flag (upstream has no passthrough option and will
+// not grow one; a separate flag would desync from reality and create a 4th
+// state level). It is modelled as a PROFILE WITH NO STRATEGIES: the instance
+// is up, filters are in place, and not a single lua-desync argument is passed
+// to nfqws2. Passthrough is therefore a property of the generated nfqws2
+// options string — it flows through config generation, rolls back by the
+// standard mechanism, and is visible in the live process argv.
+//
+// What this function owns: toggling which profile is active in the draft
+// state. The active profile is recorded as { name, strategies: [] } for
+// passthrough-on. Applying that profile to the running daemon (rendering the
+// no-lua-desync argv and starting nfqws2 with it) is the config-generation
+// mechanism's job; until that branch lands, passthrough is modelled here and
+// surfaced in status, but not yet enforced on the live argv. See
+// docs/upstream-mapping.md and the [ASK] note in the branch report.
 
 function read_state() {
 	try { let raw = readfile(PATHS.draft_state); return raw ? jparse(raw) : {}; }
@@ -184,24 +199,29 @@ function write_state(st) {
 }
 
 function passthrough(enabled) {
-	// Toggle no-fake mode: set the upstream UCI option, persist manager state,
-	// and restart via upstream so nfqws2 picks up the change. Rules stay in
-	// place (we only restart the daemon, not the firewall).
 	let on = !!enabled;
-	try {
-		let val = on ? '1' : '0';
-		run('uci set zapret2.@' + PASSTHROUGH.uci_section + '[0].' + PASSTHROUGH.uci_option + '=' + val);
-		run('uci commit zapret2');
-	} catch (e) { }
 	let st = read_state();
-	st.passthrough = { enabled: on };
+	// The passthrough profile: no strategies → no lua-desync args in the
+	// generated options string. 'default' is a placeholder for the normal
+	// profile; the config-generation branch will define real profiles.
+	if (on) {
+		st.active_profile = { name: PASSTHROUGH_PROFILE_NAME, strategies: [] };
+		st.passthrough = { enabled: true };
+	} else {
+		st.active_profile = { name: 'default', strategies: null };
+		st.passthrough = { enabled: false };
+	}
 	write_state(st);
 	set_paused(false);
 	snapshot_last_good();
+	// Restart via upstream so the daemon reflects the current applied config.
+	// (Full enforcement of the no-lua-desync argv awaits config generation.)
 	let r = run(UPSTREAM_INIT + ' restart');
 	schedule_rollback();
-	event('ui', 'passthrough ' + (on ? 'ON' : 'OFF') + ' rc=' + r.rc);
+	event('ui', 'passthrough ' + (on ? 'ON' : 'OFF') + ' (profile=' +
+		(on ? PASSTHROUGH_PROFILE_NAME : 'default') + ') rc=' + r.rc);
 	return { ok: r.rc == 0, action: 'passthrough', enabled: on, rc: r.rc,
+		profile: (on ? PASSTHROUGH_PROFILE_NAME : 'default'),
 		rollback_pending: true, rollback_ttl: ROLLBACK_TTL };
 }
 

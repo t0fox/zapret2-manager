@@ -61,7 +61,8 @@ function find_pids() {
 	// we also capture a ps line per pid for the human-readable view.
 	let pids = [];
 	let entries = lsdir('/proc') ?? [];
-	for (let name of entries) {
+	for (let i = 0; i < length(entries); i++) {
+		let name = entries[i];
 		if (!match(name, /^[0-9]+$/)) continue;
 		let cl = readfile('/proc/' + name + '/cmdline') ?? '';
 		if (!length(cl)) continue;
@@ -86,9 +87,9 @@ function runtime_level() {
 		let raw = sh('ps w');
 		let lines = split(raw, '\n');
 		let hit = [];
-		for (let line of lines)
-			if (index(line, DAEMON) >= 0 && index(line, 'ps w') < 0)
-				push(hit, trim(line));
+		for (let i = 0; i < length(lines); i++)
+			if (index(lines[i], DAEMON) >= 0 && index(lines[i], 'ps w') < 0)
+				push(hit, trim(lines[i]));
 		ps_summary = join(hit, '\n');
 	} catch (e) { ps_summary = ''; }
 
@@ -190,15 +191,60 @@ function rules_present() {
 	}
 }
 
-// ---- meta: version, autostart symlinks, upgradable badge --------------------
+// ---- meta: version, autostart symlinks, upgradable badge, autohostlist -----
+
+// nfqws2 version, resolved in a fixed order: read /opt/zapret2/version first;
+// if absent, ask the binary; if that yields nothing, return null. null means
+// "checked, no value" (distinct from the key being absent = "not checked") —
+// the UI renders the two differently (status.schema.json meta.nfqws2_version).
+function nfqws2_version() {
+	try {
+		let raw = readfile(PATHS.applied_version);
+		if (raw) { let v = trim(raw); if (length(v)) return v; }
+	} catch (e) { }
+	// Binary fallback: the exact version flag is unconfirmed, so try the common
+	// forms and take the first non-empty line. [VERIFY:ROUTER] which flag the
+	// binary answers — answered by smoke.sh 02 (status.nfqws2_version is a
+	// string on a device where /opt/zapret2/version is absent).
+	let flags = ['--version', '-V', 'version'];
+	for (let i = 0; i < length(flags); i++) {
+		try {
+			let raw = sh('nfqws2 ' + flags[i] + ' 2>/dev/null | head -n 1');
+			let v = trim(raw);
+			if (length(v)) return v;
+		} catch (e) { }
+	}
+	return null;
+}
+
+// AUTOHOSTLIST* vars from /opt/zapret2/config, read verbatim and shown as-is.
+// The manager applies NO thresholds of its own here — these are upstream's
+// knobs, displayed for the operator. Values are null when unset.
+function autohostlist_vars() {
+	let out = {};
+	try {
+		let raw = readfile(PATHS.applied_conf);
+		if (!raw) return null;
+		let lines = split(raw, '\n');
+		for (let i = 0; i < length(lines); i++) {
+			let line = trim(lines[i]);
+			if (!length(line)) continue;
+			if (substr(line, 0, 12) != 'AUTOHOSTLIST') continue;
+			let eq = index(line, '=');
+			if (eq < 0) continue;
+			let k = trim(substr(line, 0, eq));
+			let v = trim(substr(line, eq + 1));
+			// strip a leading/trailing quote pair if present
+			if (length(v) >= 2 && substr(v, 0, 1) == '"' && substr(v, length(v) - 1, 1) == '"')
+				v = substr(v, 1, length(v) - 2);
+			out[k] = length(v) ? v : null;
+		}
+	} catch (e) { return null; }
+	return out;
+}
 
 function meta_info() {
-	let version = null;
-	try {
-		// [VERIFY] exact version flag/output for nfqws2.
-		let raw = sh('nfqws2 --version 2>/dev/null | head -n 1');
-		version = length(raw) ? trim(raw) : null;
-	} catch (e) { }
+	let version = nfqws2_version();
 
 	// Autostart: ACTUAL /etc/rc.d symlink check (informational only — the
 	// authoritative test is a real reboot, run in tools/smoke.sh autostart).
@@ -206,16 +252,16 @@ function meta_info() {
 	try {
 		let entries = lsdir('/etc/rc.d') ?? [];
 		let links = [];
-		for (let e of entries)
-			if (index(e, 'zapret2') >= 0) push(links, e);
+		for (let i = 0; i < length(entries); i++)
+			if (index(entries[i], 'zapret2') >= 0) push(links, entries[i]);
 		autostart.symlinks = links;
-		for (let l of links)
-			if (substr(l, 0, 1) == 'S') { autostart.enabled = true; break; }
+		for (let i = 0; i < length(links); i++)
+			if (substr(links[i], 0, 1) == 'S') { autostart.enabled = true; break; }
 	} catch (e) { }
 
 	let upgradable = null;
 	try {
-		// [VERIFY] apk version subcommand on 25.12. Best-effort; null = unknown.
+		// [VERIFY:ROUTER] apk version subcommand on 25.12. null = unknown.
 		let raw = sh('apk version -c 2>/dev/null');
 		if (length(raw)) upgradable = index(raw, 'nfqws2') >= 0;
 	} catch (e) { }
@@ -223,7 +269,8 @@ function meta_info() {
 	return {
 		nfqws2_version: version,
 		autostart: autostart,
-		versions: { upgradable: upgradable }
+		versions: { upgradable: upgradable },
+		autohostlist: autohostlist_vars()
 	};
 }
 

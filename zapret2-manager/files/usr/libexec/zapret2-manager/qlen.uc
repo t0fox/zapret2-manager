@@ -50,8 +50,9 @@ export function parse_queue() {
 			reason: 'nfnetlink_queue unavailable' };
 
 	let want = '' + NFQUEUE;
-	for (let line of split(raw, '\n')) {
-		line = trim(line);
+	let lines = split(raw, '\n');
+	for (let i = 0; i < length(lines); i++) {
+		let line = trim(lines[i]);
 		if (!length(line)) continue;
 		let f = tokenize(line);
 		if (length(f) < field(NFQ_FIELD_QUEUE_USER_DROPPED) + 1) continue;
