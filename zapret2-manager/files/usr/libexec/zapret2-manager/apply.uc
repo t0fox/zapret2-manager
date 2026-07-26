@@ -141,12 +141,60 @@ function render_var(config, name, value) {
 	return config + sep + prefix + value;
 }
 
+const LOCKFILE = CONFIG + '.lock';     // /opt/zapret2/config.lock  (flock)
+const MARKER   = CONFIG + '.writing';  // /opt/zapret2/config.writing (fallback)
+
+// flock is the right serializer and is USUALLY present in this firmware build
+// (util-linux / util-linux-flock). [VERIFY:ROUTER] confirmed on device — until
+// then we PROBE at runtime and fall back to a marker file if it is absent.
+let _have_flock = null;
+function have_flock() {
+	if (_have_flock != null) return _have_flock;
+	let r = popen('command -v flock 2>/dev/null', 'r');
+	let out = r ? r.read('all') : '';
+	if (r) r.close();
+	_have_flock = (out && length(trim(out)) > 0) ? true : false;
+	return _have_flock;
+}
+
 // Set `name` to `value` in /opt/zapret2/config. Returns the new config text.
-// Preserves a trailing newline if the original had one. Writes are ATOMIC
-// (temp file + mv) so a concurrent reader or a crash mid-write never sees a
-// half-written config — the read-modify-write itself is not serialized across
-// callers (no flock on busybox), but the file on disk is never partial.
+// Preserves a trailing newline if the original had one. The atomic phase
+// (temp file + mv) is wrapped in flock when flock is present, so two writers
+// never race the rename. The read-modify-write read phase is serialized the
+// same way: when flock is present the WHOLE RMW is delegated to a ucode
+// subprocess run under `flock <lockfile> -c 'ucode ... do_set'`, because ucode
+// fs has no fd-lock to hold across an in-process RMW.
+//
+// REMAINING RACE (flock absent): the marker-file fallback has a check-then-
+// create window — two writers can both see no marker, both create it, both
+// RMW; the second mv wins and the first writer's change is LOST (lost update).
+// The marker only narrows the window; it does NOT serialize. flock removes
+// the race. [VERIFY:ROUTER] flock presence decides which path is live.
 export function set_var(name, value) {
+	if (have_flock()) {
+		// Delegate the RMW to a subprocess under an exclusive flock on the
+		// lockfile. The subprocess runs this same module's do_set (reads name
+		// and value from temp files — multi-line values survive), does the RMW,
+		// and atomically renames. flock is held for the whole subprocess.
+		let name_f = '/tmp/z2m-set.name';
+		let val_f  = '/tmp/z2m-set.value';
+		writefile(name_f, name + '\n');
+		writefile(val_f, value);
+		// PROG path: this file is installed at /usr/libexec/zapret2-manager/apply.uc
+		let cmd = "flock " + LOCKFILE + " -c 'ucode /usr/libexec/zapret2-manager/apply.uc do_set " + name_f + " " + val_f + " 2>/dev/null'";
+		let p = popen(cmd, 'r');
+		if (p) p.close();
+		try { unlink(name_f); } catch (e) { }
+		try { unlink(val_f); } catch (e) { }
+		return read_var(name) ? ('' + value) : null;
+	}
+	// Fallback: marker file (check-then-create race — see header).
+	if (stat(MARKER)) {
+		// Another writer is in progress. Best-effort: refuse rather than race.
+		// The caller (service.uc) treats a null return as a failed apply.
+		return null;
+	}
+	try { writefile(MARKER, '' + time() + '\n'); } catch (e) { }
 	let raw = readfile(CONFIG);
 	if (!raw) raw = '';
 	let out = render_var(raw, name, value);
@@ -155,24 +203,50 @@ export function set_var(name, value) {
 		out += '\n';
 	let tmp = CONFIG + '.tmp.' + time();
 	writefile(tmp, out);
-	// atomic rename; mv -f over the real path. Same filesystem (same dir), so
-	// rename is atomic on ext4/overlay. popen directly (apply.uc has no run()).
 	let p = popen('mv -f ' + tmp + ' ' + CONFIG + ' 2>/dev/null', 'r');
 	if (p) p.close();
+	try { unlink(MARKER); } catch (e) { }
 	return out;
+}
+
+// do_set <namefile> <valuefile> — runs UNDER flock (invoked by set_var above).
+// Reads the config, renders name=value, atomically renames. Single entry point
+// so the whole RMW is inside the locked subprocess.
+function do_set(name_f, val_f) {
+	let name = trim(readfile(name_f));
+	let value = readfile(val_f);
+	// value may have a trailing newline from the caller's writefile(name+\n);
+	// only strip ONE trailing newline (the caller's), preserve embedded ones.
+	if (length(value) > 0 && substr(value, length(value) - 1, 1) == '\n')
+		value = substr(value, 0, length(value) - 1);
+	let raw = readfile(CONFIG);
+	if (!raw) raw = '';
+	let out = render_var(raw, name, value);
+	if (length(raw) > 0 && substr(raw, length(raw) - 1, 1) == '\n' &&
+	    (length(out) == 0 || substr(out, length(out) - 1, 1) != '\n'))
+		out += '\n';
+	let tmp = CONFIG + '.tmp.do.' + time();
+	writefile(tmp, out);
+	let p = popen('mv -f ' + tmp + ' ' + CONFIG + ' 2>/dev/null', 'r');
+	if (p) p.close();
 }
 
 // ---- CLI (for smoke.sh / manual use) ----------------------------------------
 //   ucode apply.uc read <name>          → prints value or "null"
 //   ucode apply.uc set  <name> <value>  → sets a single-line var, prints "ok"
+//   ucode apply.uc do_set <namefile> <valuefile>  → INTERNAL, runs under flock
 // Multi-line values (NFQWS2_OPT) are set via service.uc importing set_var,
-// not via this CLI (argv is line-oriented).
+// not via the 'set' CLI (argv is line-oriented); do_set reads value from a
+// file so multi-line values survive.
 let mode = ARGV[0];
 if (mode == 'read') {
 	let v = read_var(ARGV[1]);
 	print((v == null ? 'null' : v) + '\n');
 } else if (mode == 'set') {
 	set_var(ARGV[1], ARGV[2]);
+	print('ok\n');
+} else if (mode == 'do_set') {
+	do_set(ARGV[1], ARGV[2]);
 	print('ok\n');
 } else if (mode == undefined) {
 	// imported as a library — do nothing
