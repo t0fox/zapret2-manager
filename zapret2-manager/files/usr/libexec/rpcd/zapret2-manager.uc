@@ -59,10 +59,20 @@ function service_action(action, params) {
 	catch (e) { return { ok: false, error: 'parse failed', raw: out }; }
 }
 
-// passthrough is added in branch 05; stubbed here so the ACL/method table is
-// stable across branches. [VERIFY] removed/replaced in branch 05.
+// passthrough (branch 05): toggle no-fake diagnostic mode. Takes {enabled:bool}.
+// [VERIFY] rpcd-ucode param access shape (req.args vs req) — handled defensively.
 function passthrough_method(req) {
-	return { ok: false, error: 'not implemented until branch 05' };
+	let en = null;
+	try { en = req?.args?.enabled; } catch (e) { }
+	if (en == null) { try { en = req?.enabled; } catch (e) { } }
+	if (en == null) return { ok: false, error: 'missing enabled param' };
+	let on = (en == true || en == 'true' || en == 1 || en == '1');
+	let cmd = '/usr/bin/ucode ' + SERVICE + ' passthrough ' + (on ? 'true' : 'false') + ' 2>/dev/null';
+	let p = popen(cmd, 'r');
+	let out = p ? (p.read('all') ?? '') : '';
+	if (p) p.close();
+	try { return jparse(out) ?? { ok: false, error: 'no output', raw: out }; }
+	catch (e) { return { ok: false, error: 'parse failed', raw: out }; }
 }
 
 return {

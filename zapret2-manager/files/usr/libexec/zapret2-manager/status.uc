@@ -264,6 +264,7 @@ function collect() {
 		runtime: runtime,
 		applied: applied,
 		draft: draft,
+		passthrough: (draft && draft.passthrough && draft.passthrough.enabled) || false,
 		meta: meta,
 		signals: {
 			process_present: runtime.present ?? false,

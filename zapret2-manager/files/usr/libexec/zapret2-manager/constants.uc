@@ -18,6 +18,17 @@ export const CACHE_TTL_SEC = 3;
 export const DAEMON = 'nfqws2';      // [VERIFY] exact process name
 export const NFT_TABLE = 'zapret2';  // [VERIFY] table name (and family)
 
+// Passthrough = nfqws2 running, rules in place, fakes NOT sent. The manager
+// toggles an upstream UCI option that disables fake generation, then restarts
+// the daemon via upstream's init. [VERIFY] the section/option upstream's
+// nfqws2 actually honors for no-fake/diagnostic mode — if upstream has no such
+// option, wire this to the real mechanism (env override, strategy swap, etc.)
+// and keep the toggle plumbing.
+export const PASSTHROUGH = {
+	uci_section: 'general',     // [VERIFY]
+	uci_option:  'passthrough'  // [VERIFY]
+};
+
 export const PATHS = {
 	applied_conf:   '/opt/zapret2/config',            // [VERIFY] upstream main config
 	uci_conf:       '/etc/config/zapret2',             // [VERIFY] UCI view of intent

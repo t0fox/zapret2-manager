@@ -75,6 +75,7 @@ return L.view.extend({
 		}
 
 		container.appendChild(this.controlSection());
+		container.appendChild(this.passthroughSection(data.passthrough));
 
 		return container;
 	},
@@ -175,6 +176,45 @@ return L.view.extend({
 				if (old && old.parentNode)
 					old.parentNode.replaceChild(self.render(data || {}), old);
 			});
+	},
+
+	// ---- passthrough (branch 05) ---------------------------------------------
+
+	passthroughSection: function (current) {
+		var self = this;
+		var status = E('div', { 'class': 'cbi-value-description' }, '');
+		var cb = E('input', { 'type': 'checkbox', 'id': 'z2m-passthrough' });
+		if (current) cb.checked = true;
+
+		cb.addEventListener('change', function () {
+			var on = cb.checked;
+			cb.disabled = true;
+			status.textContent = _('Restarting nfqws2 in passthrough mode…');
+			L.ubus.call('zapret2-manager', 'passthrough', { enabled: on }).then(function (res) {
+				cb.disabled = false;
+				res = res || {};
+				if (res.rollback_pending) {
+					self.confirmFlow(res, status);
+				} else {
+					status.textContent = res.ok ? _('Passthrough ' + (on ? 'ON' : 'OFF') + '.') :
+						(_('Failed: ') + (res.error || ('rc=' + res.rc)));
+					self.refresh();
+				}
+			});
+		});
+
+		return E('div', { 'class': 'cbi-section' }, [
+			E('h3', {}, _('Passthrough (diagnostic)')),
+			E('div', { 'class': 'cbi-value' }, [
+				E('label', { 'class': 'cbi-value-title', 'for': 'z2m-passthrough' }, _('No fakes')),
+				E('div', { 'class': 'cbi-value-field' }, cb)
+			]),
+			E('div', { 'class': 'cbi-value-description' },
+				_('Runs nfqws2 with rules in place but does not send fake packets. ' +
+				  'Use this to answer "is zapret at fault?": if connectivity returns ' +
+				  'in passthrough, the bypass strategies are the cause; if not, the ' +
+				  'problem is upstream of zapret. Toggling restarts nfqws2.'))
+		]);
 	},
 
 	// ---- helpers -------------------------------------------------------------

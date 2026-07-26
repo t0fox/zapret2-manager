@@ -15,8 +15,9 @@
 // [VERIFY] UPSTREAM_INIT path and the restart_daemons subcommand on the target.
 
 import { readfile, writefile, stat, mkdir, unlink, popen } from 'fs';
-import { stringify as jstringify } from 'json';
+import { parse as jparse, stringify as jstringify } from 'json';
 import { PATHS } from './constants.uc';
+import { PASSTHROUGH } from './constants.uc';
 
 const UPSTREAM_INIT = '/etc/init.d/zapret2';          // [VERIFY] upstream init
 const LASTGOOD_DIR  = '/tmp/zapret2-manager/last-good';
@@ -144,16 +145,54 @@ function rollback() {
 	}
 }
 
+// ---- passthrough (branch 05) -----------------------------------------------
+
+function read_state() {
+	try { let raw = readfile(PATHS.draft_state); return raw ? jparse(raw) : {}; }
+	catch (e) { return {}; }
+}
+
+function write_state(st) {
+	try { mkdir('/etc/zapret2-manager'); writefile(PATHS.draft_state, jstringify(st) + '\n'); }
+	catch (e) { }
+}
+
+function passthrough(enabled) {
+	// Toggle no-fake mode: set the upstream UCI option, persist manager state,
+	// and restart via upstream so nfqws2 picks up the change. Rules stay in
+	// place (we only restart the daemon, not the firewall).
+	let on = !!enabled;
+	try {
+		let val = on ? '1' : '0';
+		run('uci set zapret2.@' + PASSTHROUGH.uci_section + '[0].' + PASSTHROUGH.uci_option + '=' + val);
+		run('uci commit zapret2');
+	} catch (e) { }
+	let st = read_state();
+	st.passthrough = { enabled: on };
+	write_state(st);
+	set_paused(false);
+	snapshot_last_good();
+	let r = run(UPSTREAM_INIT + ' restart');
+	schedule_rollback();
+	event('ui', 'passthrough ' + (on ? 'ON' : 'OFF') + ' rc=' + r.rc);
+	return { ok: r.rc == 0, action: 'passthrough', enabled: on, rc: r.rc,
+		rollback_pending: true, rollback_ttl: ROLLBACK_TTL };
+}
+
 // ---- CLI dispatch -----------------------------------------------------------
 
-let actions = {
-	start: start, stop: stop, restart: restart, restart_daemons: restart_daemons,
-	start_fw: start_fw, confirm_alive: confirm_alive, rollback: rollback
-};
-
 let arg = ARGV[0];
-if (arg && actions[arg]) {
-	print(jstringify(actions[arg]()) + '\n');
+if (arg == 'passthrough') {
+	// ucode service.uc passthrough <true|false|1|0>
+	let on = ARGV[1];
+	let enabled = (on == 'true' || on == '1');
+	print(jstringify(passthrough(enabled)) + '\n');
+} else if (arg == 'start' || arg == 'stop' || arg == 'restart' ||
+           arg == 'restart_daemons' || arg == 'start_fw' ||
+           arg == 'confirm_alive' || arg == 'rollback') {
+	let m = { start: start, stop: stop, restart: restart, restart_daemons: restart_daemons,
+		start_fw: start_fw, confirm_alive: confirm_alive, rollback: rollback };
+	print(jstringify(m[arg]()) + '\n');
 } else {
 	print(jstringify({ ok: false, error: 'unknown action: ' + (arg ?? '') }) + '\n');
 	exit(1);
