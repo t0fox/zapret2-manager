@@ -11,5 +11,18 @@
 				"luci-app-zapret2-manager": [ "read" ]
 			}
 		}
+	},
+	"admin/services/zapret2-manager/lists": {
+		"title": "Lists",
+		"order": 91,
+		"action": {
+			"type": "view",
+			"path": "zapret2-manager/lists"
+		},
+		"depends": {
+			"acl": {
+				"luci-app-zapret2-manager": [ "read" ]
+			}
+		}
 	}
 }

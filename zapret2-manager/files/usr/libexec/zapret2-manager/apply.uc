@@ -249,6 +249,41 @@ function do_set(name_f, val_f) {
 	if (p) p.close();
 }
 
+// ---- list files (ЦЕЛЬ ДВА — ui/07-lists-page) -------------------------------
+//
+// The lists page generates list FILES (hostlist, exclude, ip lists) through
+// this SAME module — no second write path. read_list_file returns an array of
+// trimmed non-empty lines; write_list_file writes an array of lines atomically
+// (temp + mv, same as set_var). The flock path is NOT used here (list files are
+// low-rate user edits, not RMW on a shared config); the atomic rename still
+// prevents a partial read. [VERIFY:ROUTER] the exact list file paths live in
+// lists.uc; apply.uc just reads/writes a path it is given.
+
+export function read_list_file(path) {
+	try {
+		let raw = readfile(path);
+		if (!raw) return [];
+		let lines = split(raw, '\n');
+		let out = [];
+		for (let i = 0; i < length(lines); i++) {
+			let t = trim(lines[i]);
+			if (length(t)) push(out, t);
+		}
+		return out;
+	} catch (e) { return []; }
+}
+
+export function write_list_file(path, lines) {
+	let body = '';
+	for (let i = 0; i < length(lines); i++)
+		body += lines[i] + '\n';
+	let tmp = path + '.tmp.' + time();
+	writefile(tmp, body);
+	let p = popen('mv -f ' + tmp + ' ' + path + ' 2>/dev/null', 'r');
+	if (p) p.close();
+	return body;
+}
+
 // ---- CLI (for smoke.sh / manual use) ----------------------------------------
 //   ucode apply.uc read <name>          → prints value or "null"
 //   ucode apply.uc set  <name> <value>  → sets a single-line var, prints "ok"
