@@ -1,0 +1,15 @@
+{
+	"admin/services/zapret2-manager": {
+		"title": "Zapret 2 Manager",
+		"order": 90,
+		"action": {
+			"type": "view",
+			"path": "zapret2-manager/overview"
+		},
+		"depends": {
+			"acl": {
+				"luci-app-zapret2-manager": [ "read" ]
+			}
+		}
+	}
+}

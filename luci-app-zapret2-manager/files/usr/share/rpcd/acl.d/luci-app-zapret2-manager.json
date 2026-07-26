@@ -1,0 +1,10 @@
+{
+	"luci-app-zapret2-manager": {
+		"description": "Zapret 2 Manager — overview page access",
+		"read": {
+			"uci": [ "zapret2" ]
+		},
+		"write": {
+		}
+	}
+}
