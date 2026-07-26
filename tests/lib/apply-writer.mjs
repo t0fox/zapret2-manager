@@ -76,8 +76,17 @@ export function write_var(config, name, value) {
 		if (isMultiQuoted) {
 			// find the line carrying the closing "
 			let end = i;
+			let found = false;
 			for (let j = i + 1; j < lines.length; j++) {
-				if (lines[j].indexOf('"') >= 0) { end = j; break; }
+				if (lines[j].indexOf('"') >= 0) { end = j; found = true; break; }
+			}
+			// Unterminated quoted value (no closing " on any later line): do
+			// NOT rewrite the block (would silently drop trailing content).
+			// Fall back to a single-line replace of the opening line only.
+			if (!found) {
+				const before = lines.slice(0, i);
+				const after = lines.slice(i + 1);
+				return [...before, prefix + value, ...after].join('\n');
 			}
 			const before = lines.slice(0, i);
 			const after = lines.slice(end + 1);

@@ -46,12 +46,15 @@ function iso_now() {
 }
 
 // Convert a unix-seconds value to ISO-8601 UTC, or null if the input is null.
+// [VERIFY:ROUTER] busybox date support: try GNU `date -u -d @N` first, then
+// busybox `date -u -r N` (busybox -r takes unix seconds), then give up (null
+// = "checked, no value", which the schema allows and the UI renders as such).
 function iso_from_unix(sec) {
 	if (sec == null) return null;
-	let s = trim(sh('date -u -d @' + sec + ' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null'));
-	if (length(s)) return s;
-	// fallback: busybox date may not support -d @N; format manually is not
-	// possible without gmtime, so fall back to a unix-stamp string marker.
+	let s = trim(sh("date -u -d @" + sec + " +%Y-%m-%dT%H:%M:%SZ 2>/dev/null"));
+	if (length(s) && index(s, 'T') >= 0) return s;
+	s = trim(sh("date -u -r " + sec + " +%Y-%m-%dT%H:%M:%SZ 2>/dev/null"));
+	if (length(s) && index(s, 'T') >= 0) return s;
 	return null;
 }
 
@@ -280,17 +283,27 @@ function drift_block(runtime, rules) {
 // ---- serviceState (backend-computed; UI only renders) -----------------------
 //
 // Closed enum: running, stopped, partial, error, paused, passthrough. paused
-// and passthrough are self-standing states. priority: paused > passthrough >
-// stopped > partial > error > running. qlen warn does NOT change serviceState
-// away from running (it is carried in health.qlenHealth.state).
+// and passthrough are self-standing states. The indicator is the INTENT; the
+// process is the REALITY. If the indicator says paused/passthrough but the
+// process disagrees, that is an ERROR (the primary mechanism did not hold),
+// not the intended state — surfacing it is exactly what the guard hook's crit
+// event is for. qlen warn does NOT change serviceState away from running (it
+// is carried in health.qlenHealth.state).
 
 function service_state(runtime, rules, health, draft) {
 	let qh = (health && health.qlenHealth) ? health.qlenHealth : null;
+	let present = runtime && runtime.present;
 	// paused indicator (manager-only, /tmp) — the intended pause stance.
-	if (stat(PATHS.paused_flag)) return 'paused';
-	// passthrough profile active in draft
-	if (draft && draft.passthrough && draft.passthrough.enabled) return 'passthrough';
-	if (!runtime.present) return 'stopped';
+	if (stat(PATHS.paused_flag)) {
+		// pause HELD: process is down as intended. NOT held: process is up
+		// despite NFQWS2_ENABLE=0 → primary mechanism failed → error.
+		return present ? 'error' : 'paused';
+	}
+	// passthrough profile active in draft — the instance should be UP.
+	if (draft && draft.passthrough && draft.passthrough.enabled) {
+		return present ? 'passthrough' : 'error';
+	}
+	if (!present) return 'stopped';
 	if (!rules) return 'partial';
 	if (health && health.queue && health.queue.registered === false) return 'error';
 	if (qh && qh.state === 'critical') return 'error';

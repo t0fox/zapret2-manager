@@ -151,8 +151,11 @@ function apply_nfqws2_enable(value) {
 function start() {
 	// Resume from pause: clear the indicator and restore the PREVIOUS
 	// NFQWS2_ENABLE value captured at pause entry (not a hardcoded 1). If no
-	// prior pause stored a value, default to 1.
+	// prior pause stored a value, default to 1. A deliberate start means the
+	// link is alive, so CANCEL any armed rollback (otherwise a stale timer
+	// from the prior pause/restart could fire and flap the service).
 	set_paused(false);
+	try { unlink(PENDING); } catch (e) { }
 	let prev = read_prev_enable();
 	let restored = (prev == null) ? 1 : prev;
 	apply_nfqws2_enable(restored);
@@ -291,6 +294,19 @@ function confirm_alive() {
 
 function rollback() {
 	try {
+		// Honor the expiry timestamp written by schedule_rollback. A stale
+		// timer (e.g. from a prior pause that was resumed — start() cancels
+		// PENDING, but a timer already firing races) must NOT roll back if the
+		// marker is gone or its expiry is still in the future (a newer action
+		// re-armed it). Without this, the timer fires under normal
+		// pause-then-resume use and flaps the service.
+		let pending = readfile(PENDING);
+		if (!pending) return { ok: true, action: 'rollback', skipped: true,
+			reason: 'no pending rollback marker' };
+		let expiry = +trim(pending);
+		if (expiry && time() < expiry)
+			return { ok: true, action: 'rollback', skipped: true,
+				reason: 'marker expiry in the future (a newer action re-armed it)' };
 		if (stat(LASTGOOD_DIR + '/' + basename(PATHS.applied_conf)))
 			run('cp -f ' + LASTGOOD_DIR + '/' + basename(PATHS.applied_conf) + ' ' + PATHS.applied_conf);
 		if (stat(LASTGOOD_DIR + '/' + basename(PATHS.uci_conf)))

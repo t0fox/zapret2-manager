@@ -46,7 +46,7 @@ function refresh() {
 function status_method(req) {
 	if (!cache_fresh()) refresh();
 	let raw = readfile(STATUS_JSON);
-	if (!raw) return { error: 'status unavailable', collected_at: null };
+	if (!raw) return { error: 'status unavailable', generatedAt: null };
 	try { return jparse(raw); }
 	catch (e) { return { error: 'status parse failed', raw: raw }; }
 }

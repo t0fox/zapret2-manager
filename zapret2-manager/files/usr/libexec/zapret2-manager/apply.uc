@@ -100,8 +100,21 @@ function render_var(config, name, value) {
 		let is_multi = (substr(rest, 0, 1) == '"') && !(cp >= 0 && cp + 1 == length(rest) - 1);
 		if (is_multi) {
 			let end = i;
+			let found = false;
 			for (let j = i + 1; j < length(lines); j++) {
-				if (index(lines[j], '"') >= 0) { end = j; break; }
+				if (index(lines[j], '"') >= 0) { end = j; found = true; break; }
+			}
+			// Unterminated quoted value (no closing " on any later line): do
+			// NOT rewrite — that would silently drop the trailing content.
+			// Treat as a single-line replace of the opening line only, leaving
+			// the rest of the file untouched. (The real NFQWS2_OPT is always
+			// terminated; this guards against a hand-corrupted config.)
+			if (!found) {
+				let result = [];
+				for (let k = 0; k < i; k++) push(result, lines[k]);
+				push(result, prefix + value);
+				for (let k = i + 1; k < length(lines); k++) push(result, lines[k]);
+				return join(result, '\n');
 			}
 			let result = [];
 			for (let k = 0; k < i; k++) push(result, lines[k]);
@@ -129,18 +142,23 @@ function render_var(config, name, value) {
 }
 
 // Set `name` to `value` in /opt/zapret2/config. Returns the new config text.
-// Preserves a trailing newline if the original had one (cosmetic, but keeps
-// the diff to the assignment we touched).
+// Preserves a trailing newline if the original had one. Writes are ATOMIC
+// (temp file + mv) so a concurrent reader or a crash mid-write never sees a
+// half-written config — the read-modify-write itself is not serialized across
+// callers (no flock on busybox), but the file on disk is never partial.
 export function set_var(name, value) {
 	let raw = readfile(CONFIG);
 	if (!raw) raw = '';
 	let out = render_var(raw, name, value);
-	// trailing-newline safety: ucode split/join round-trip is assumed to match
-	// the node reference; if it does not, this keeps the file ending stable.
 	if (length(raw) > 0 && substr(raw, length(raw) - 1, 1) == '\n' &&
 	    (length(out) == 0 || substr(out, length(out) - 1, 1) != '\n'))
 		out += '\n';
-	writefile(CONFIG, out);
+	let tmp = CONFIG + '.tmp.' + time();
+	writefile(tmp, out);
+	// atomic rename; mv -f over the real path. Same filesystem (same dir), so
+	// rename is atomic on ext4/overlay. popen directly (apply.uc has no run()).
+	let p = popen('mv -f ' + tmp + ' ' + CONFIG + ' 2>/dev/null', 'r');
+	if (p) p.close();
 	return out;
 }
 

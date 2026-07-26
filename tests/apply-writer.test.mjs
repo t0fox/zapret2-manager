@@ -132,3 +132,15 @@ test('write_var appends a new variable that does not exist', () => {
 	assert.ok(out.endsWith('BRAND_NEW_VAR=hello'),
 		'appended assignment is the last line');
 });
+
+test('write_var does not drop content when a multi-line quote is unterminated', () => {
+	// a hand-corrupted config: NFQWS2_OPT opens but never closes. Rewriting
+	// the block would silently drop the trailing content; the guard instead
+	// replaces only the opening line and leaves the rest intact.
+	const broken = 'NFQWS2_ENABLE=1\nNFQWS2_OPT="\n--lua-init=@/x.lua\n--filter-tcp=80\n';
+	const out = write_var(broken, 'NFQWS2_ENABLE', '0');
+	assert.equal(read_var(out, 'NFQWS2_ENABLE'), '0');
+	// the unterminated OPT lines are still present (not dropped)
+	assert.ok(out.includes('--lua-init=@/x.lua'), 'unterminated OPT content preserved');
+	assert.ok(out.includes('--filter-tcp=80'), 'unterminated OPT content preserved');
+});
