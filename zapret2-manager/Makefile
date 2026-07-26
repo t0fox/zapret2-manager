@@ -54,13 +54,12 @@ define Package/zapret2-manager/install
 	$(INSTALL_BIN) ./files/usr/libexec/zapret2-manager/log-rotate.sh \
 		$(1)/usr/libexec/zapret2-manager/
 
-	# rpcd ucode plugin → ubus object zapret2-manager.
-	# [VERIFY] load path: task spec says /usr/libexec/rpcd/ (used here). Some
-	# OpenWrt builds load ucode rpcd plugins from /usr/share/rpcd/ucode/ — if
-	# `ubus call zapret2-manager status` returns not-found, move this file.
-	$(INSTALL_DIR) $(1)/usr/libexec/rpcd
-	$(INSTALL_DATA) ./files/usr/libexec/rpcd/zapret2-manager.uc \
-		$(1)/usr/libexec/rpcd/
+	# rpcd ucode plugin → ubus object zapret2-manager. ucode plugins that
+	# return a signature object load from /usr/share/rpcd/ucode/ (NOT
+	# /usr/libexec/rpcd/, which is for exec-plugins — a different contract).
+	$(INSTALL_DIR) $(1)/usr/share/rpcd/ucode
+	$(INSTALL_DATA) ./files/usr/share/rpcd/ucode/zapret2-manager.uc \
+		$(1)/usr/share/rpcd/ucode/
 
 	# Paused-flag enforcer on interface hotplug (branch 04). Runs after
 	# upstream's 90-zapret2 by lexical order; calls upstream's own stop.

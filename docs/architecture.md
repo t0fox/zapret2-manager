@@ -180,11 +180,41 @@ These are non-negotiable. Each encodes a past incident.
 ## 8. ubus / rpcd interface
 
 The backend exposes a ubus object `zapret2-manager` over rpcd, with a `status`
-method returning the three-level state plus the qlen signal. The response is
-cached for **3 seconds** (the collector writes `/tmp/zapret2-manager/status.json`
-and stamps it; the rpcd method serves the cached file when fresh and otherwise
-re-runs the collector). The LuCI frontend calls this method and renders; it
-does no state collection of its own.
+method returning the three-level state plus the queue signal, and mutating
+methods for service control. The `status` response is cached for **3 seconds**
+(the collector writes `/tmp/zapret2-manager/status.json` and stamps it; the
+rpcd method serves the cached file when fresh and otherwise re-runs the
+collector). The LuCI frontend calls these methods and renders; it does no state
+collection of its own. The full method list, long-operation model, error form,
+and caching rules are specified in [docs/contracts/ubus.md](contracts/ubus.md).
+
+### Two rpcd plugin contracts — do not mix
+
+rpcd loads plugins by **two different, incompatible contracts**. A file's
+location determines which contract rpcd expects, and getting it wrong silently
+breaks ubus registration.
+
+- **Exec-plugin** — `/usr/libexec/rpcd/`. An executable that reads a JSON
+  request on stdin, writes a JSON reply on stdout, and answers a `list` call.
+  This is the classic rpcd plugin mechanism (C `.so` or a script behaving as
+  one). We do **not** use this.
+- **ucode signature plugin** — `/usr/share/rpcd/ucode/`. A ucode script that
+  **returns a signature object** describing ubus objects and their methods.
+  The top-level key of the returned object is the ubus object name; methods
+  are nested under it. **This is what we use.**
+
+Our plugin is `usr/share/rpcd/ucode/zapret2-manager.uc` and returns
+`{ "zapret2-manager": { methods: { … } } }`. The top-level key
+`zapret2-manager` must match, symbol for symbol, the ubus object name granted
+in `luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json`
+— a mismatch registers the object but denies LuCI by permission, which renders
+as an empty page with no error.
+
+Internal ucode libraries (`constants.uc`, `qlen.uc`, `status.uc`, `service.uc`,
+`watchdog.uc`) stay under `/usr/libexec/zapret2-manager/` — they are not rpcd
+plugins. Only the ubus-registering script lives in `/usr/share/rpcd/ucode/`.
+Do not move it back to `/usr/libexec/rpcd/`: that directory's exec-plugin
+contract would not load a signature-returning script.
 
 ## 9. File layout
 
@@ -203,9 +233,10 @@ zapret2-manager/                       (feed root)
 │       ├── etc/zapret2-manager/state.json   (DRAFT state, empty {})
 │       ├── etc/hotplug.d/iface/90-zapret2-manager  (paused enforcer)
 │       ├── etc/init.d/zapret2-manager       (procd: watchdog daemon)
-│       ├── usr/libexec/rpcd/zapret2-manager.uc     (ubus object)
+│       ├── usr/share/rpcd/ucode/zapret2-manager.uc  (ubus object, signature plugin)
 │       └── usr/libexec/zapret2-manager/
 │           ├── constants.uc           (NFQUEUE 300, paths, thresholds)
+│           ├── qlen.uc                (shared nfnetlink_queue parser)
 │           ├── status.uc              (collector → status.json)
 │           ├── service.uc             (start/stop/…, paused flag, rollback)
 │           ├── watchdog.uc            (60s cycle: process/rules/qlen/CPU/RAM/overlay)
