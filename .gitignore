@@ -1,0 +1,19 @@
+# OpenWrt build artifacts
+/bin/
+/build/
+/tmp/
+*.apk
+*.ipk
+*.pkg.tar.gz
+*.pkg.tar.zst
+
+# LuCI / rpcd index caches (generated at runtime, never shipped)
+luci-indexcache
+luci-modulecache/
+
+# editor / os noise
+*~
+.*.swp
+.swp
+.DS_Store
+Thumbs.db
