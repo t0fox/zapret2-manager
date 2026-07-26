@@ -200,12 +200,16 @@ zapret2-manager/                       (feed root)
 ├── zapret2-manager/                   (backend package)
 │   ├── Makefile
 │   └── files/
-│       ├── usr/libexec/zapret2-manager/
-│       │   ├── constants.uc
-│       │   ├── status.uc              (collector → status.json)
-│       │   └── service.uc             (start/stop/…, paused flag)
-│       ├── usr/libexec/rpcd/          (ubus object registration)
-│       └── etc/init.d/zapret2-manager (watchdog daemon)
+│       ├── etc/zapret2-manager/state.json   (DRAFT state, empty {})
+│       ├── etc/hotplug.d/iface/90-zapret2-manager  (paused enforcer)
+│       ├── etc/init.d/zapret2-manager       (procd: watchdog daemon)
+│       ├── usr/libexec/rpcd/zapret2-manager.uc     (ubus object)
+│       └── usr/libexec/zapret2-manager/
+│           ├── constants.uc           (NFQUEUE 300, paths, thresholds)
+│           ├── status.uc              (collector → status.json)
+│           ├── service.uc             (start/stop/…, paused flag, rollback)
+│           ├── watchdog.uc            (60s cycle: process/rules/qlen/CPU/RAM/overlay)
+│           └── log-rotate.sh          (autohostlist log >1 MB → last 500 lines)
 └── luci-app-zapret2-manager/          (frontend package)
     ├── Makefile
     └── files/
