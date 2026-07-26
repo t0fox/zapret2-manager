@@ -47,6 +47,10 @@ define Package/zapret2-manager/install
 		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/service.uc \
 		$(1)/usr/libexec/zapret2-manager/
+	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/watchdog.uc \
+		$(1)/usr/libexec/zapret2-manager/
+	$(INSTALL_BIN) ./files/usr/libexec/zapret2-manager/log-rotate.sh \
+		$(1)/usr/libexec/zapret2-manager/
 
 	# rpcd ucode plugin → ubus object zapret2-manager.
 	# [VERIFY] load path: task spec says /usr/libexec/rpcd/ (used here). Some
@@ -61,9 +65,24 @@ define Package/zapret2-manager/install
 	$(INSTALL_DIR) $(1)/etc/hotplug.d/iface
 	$(INSTALL_BIN) ./files/etc/hotplug.d/iface/90-zapret2-manager \
 		$(1)/etc/hotplug.d/iface/
+
+	# Watchdog init (procd). Starts only the watchdog daemon, never nfqws2.
+	$(INSTALL_DIR) $(1)/etc/init.d
+	$(INSTALL_BIN) ./files/etc/init.d/zapret2-manager \
+		$(1)/etc/init.d/
 endef
 
-# No postinst here: LuCI cache reset lives in luci-app-zapret2-manager, which
-# is what makes the page re-render after install.
+# No LuCI cache reset here (that lives in luci-app-zapret2-manager). We do
+# enable the watchdog init and reload rpcd so a backend-only update picks up
+# the ubus plugin. The watchdog starts on next boot; start it now with
+# '/etc/init.d/zapret2-manager start'. Autostart is verified by a real reboot
+# (tools/smoke.sh autostart), not by this enable.
+
+define Package/zapret2-manager/postinst
+#!/bin/sh
+/etc/init.d/rpcd reload
+/etc/init.d/zapret2-manager enable
+exit 0
+endef
 
 $(eval $(call BuildPackage,zapret2-manager))

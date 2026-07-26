@@ -166,25 +166,27 @@ gate_05() {
 gate_06() {
   log "gate 06 — watchdog daemon"
   ssh_ok "init enabled" /etc/init.d/zapret2-manager enabled || bad "watchdog not enabled"
+  ssh_ok "start watchdog" /etc/init.d/zapret2-manager start || bad "watchdog start failed"
+  sleep 2
   ssh_ok "watchdog running" pgrep -f "zapret2-manager.*watch" && ok "watchdog process alive" || bad "watchdog process absent"
   ssh_ok "events log exists" test -f /tmp/zapret2-manager/events.ndjson || { bad "events.ndjson missing"; return; }
   # events carry a source field from the allowed set
   ssh_out ev "last event" "tail -1 /tmp/zapret2-manager/events.ndjson"
   want_contains "$ev" '"source"' "events carry source field"
-  # paused flag skips the whole cycle: set paused, wait >60s would be needed;
-  # instead verify the code path: while paused, watchdog must not write recovery events.
+  # paused flag skips the whole cycle: set paused, then force one cycle via the
+  # init's 'check' extra-command; while paused the watchdog must write no events.
   ssh_ok "set paused" touch /tmp/zapret2-manager/paused
   ssh_out before "events size" "wc -l < /tmp/zapret2-manager/events.ndjson"
-  # trigger one cycle without waiting 60s: call the watchdog check function directly
-  ssh_ok "force cycle" "/usr/libexec/zapret2-manager/watchdog.uc check 2>/dev/null || true"
+  ssh_ok "force cycle" "/etc/init.d/zapret2-manager check 2>/dev/null || true"
   ssh_out after "events size after" "wc -l < /tmp/zapret2-manager/events.ndjson"
   [ "$before" = "$after" ] && ok "paused: watchdog cycle skipped (no new events)" || bad "paused: watchdog wrote events"
-  # while paused, the watchdog init script's start must be a no-op (nfqws2 not raised)
+  # while paused, the watchdog init's start must not raise nfqws2 (it never does
+  # — it starts only the watchdog — but assert it explicitly).
   ssh_ok "init start no-op while paused" "/etc/init.d/zapret2-manager start || true"
   ssh_ok "nfqws2 not raised by init while paused" "! pgrep -x nfqws2 >/dev/null" && ok "paused holds: init did not raise nfqws2" || bad "paused violated: init raised nfqws2"
   ssh_ok "clear paused" rm -f /tmp/zapret2-manager/paused
-  # log rotation: if autohostlist log >1MB it must trim to last 500 lines
-  ssh_ok "rotation helper exists" "command -v /usr/libexec/zapret2-manager/log-rotate.sh || test -x /usr/libexec/zapret2-manager/log-rotate.sh" \
+  # log rotation helper present (autohostlist log >1MB → last 500 lines)
+  ssh_ok "rotation helper exists" "test -x /usr/libexec/zapret2-manager/log-rotate.sh" \
     && ok "log-rotate helper present" || bad "log-rotate helper missing"
 }
 
