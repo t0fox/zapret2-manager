@@ -15,6 +15,7 @@ PKG_RELEASE:=1
 PKG_MAINTAINER:=Ásgeir
 PKG_LICENSE:=MIT
 PKGARCH:=all
+PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -23,13 +24,17 @@ define Package/zapret2-manager
   CATEGORY:=Network
   SUBMENU:=DPI bypass
   TITLE:=Management backend for upstream zapret2
-  DEPENDS:=+zapret2 +ucode
+  DEPENDS:=zapret2 ucode
 endef
 
 define Package/zapret2-manager/description
   ucode + ash backend that reports honest three-level state (RUNTIME /
   APPLIED / DRAFT) for upstream zapret2 and controls the service through
   upstream's own mechanisms. Does not implement DPI bypass.
+endef
+
+define Build/Prepare
+	mkdir -p $(PKG_BUILD_DIR)
 endef
 
 define Build/Compile

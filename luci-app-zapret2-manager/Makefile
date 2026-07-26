@@ -15,6 +15,7 @@ PKG_RELEASE:=1
 PKG_MAINTAINER:=Ásgeir
 PKG_LICENSE:=MIT
 PKGARCH:=all
+PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -23,12 +24,16 @@ define Package/luci-app-zapret2-manager
   CATEGORY:=LuCI
   SUBMENU:=3. Applications
   TITLE:=LuCI frontend for zapret2-manager
-  DEPENDS:=+luci-base +zapret2-manager
+  DEPENDS:=luci-base zapret2-manager
 endef
 
 define Package/luci-app-zapret2-manager/description
   Read-only LuCI status page for zapret2-manager. Menu:
   Services -> Zapret 2 Manager.
+endef
+
+define Build/Prepare
+	mkdir -p $(PKG_BUILD_DIR)
 endef
 
 define Build/Compile
