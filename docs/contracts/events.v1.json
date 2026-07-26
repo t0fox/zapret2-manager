@@ -1,0 +1,112 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://zapret2-manager.local/contracts/events.v1.json",
+	"title": "zapret2-manager telemetry event (events.v1)",
+	"description": "One event per line, ndjson, appended to /tmp/zapret2-manager/events.ndjson. Every event is SELF-CONTAINED: it carries enough context (actual values, threshold, cycle count, rc) to be understood WITHOUT consulting system state at recording time. Telemetry NEVER blocks functionality: if the events file is unwritable, the operation that produced the event still succeeds — see the file-level rules below. schema=events.v1. Closed enumerations are principled: parsing is built on `source` and `category` later, so free strings are forbidden.",
+	"type": "object",
+	"required": ["schema", "ts", "id", "category", "severity", "source"],
+	"additionalProperties": true,
+	"properties": {
+		"schema": { "type": "string", "const": "events.v1", "description": "Schema version. Bump to events.v2 (new file) for breaking changes; never mutate v1 incompatibly." },
+		"ts": { "type": "string", "format": "date-time", "description": "ISO-8601 with timezone, e.g. 2026-07-26T20:05:00Z. Wall-clock, not monotonic." },
+		"id": { "type": "string", "description": "Opaque event id, unique within the file. `<source>-<pid>-<unixseconds>` is the producer convention; do not parse it." },
+		"category": {
+			"type": "string",
+			"description": "What kind of event. Closed enum. New values may be ADDED; existing ones are not renamed.",
+			"enum": [
+				"restart",
+				"pause",
+				"queue",
+				"watchdog",
+				"lists",
+				"rollback",
+				"config",
+				"health"
+			]
+		},
+		"severity": {
+			"type": "string",
+			"description": "Closed enum.",
+			"enum": ["info", "warn", "crit", "error"]
+		},
+		"source": {
+			"type": "string",
+			"description": "Who produced the event. Closed enum — parsing is built on this field, free strings kill it. New values may be ADDED only by updating this schema.",
+			"enum": ["ui", "watchdog", "qlen", "lists", "hotplug", "jobs"]
+		},
+		"msg": { "type": "string", "description": "Human-readable summary, NOT parsed. Carries the self-contained context in prose (e.g. 'queue_total=87 > 50 for 3 consecutive cycles'). May change between versions." }
+	},
+
+	"restart_reason": {
+		"description": "NOT a top-level field name — this documents the closed `reason` enum carried by category=restart events. The taxonomy of restarts, as enum values (not free text):",
+		"enum": [
+			"manual_ui",
+			"weblist_update",
+			"ipset_update",
+			"queue_length",
+			"process_crash"
+		]
+	},
+
+	"examples": {
+		"restart_manual_ui": {
+			"schema": "events.v1", "ts": "2026-07-26T20:05:00Z", "id": "ui-412-1780000000",
+			"category": "restart", "severity": "info", "source": "ui",
+			"reason": "manual_ui", "rc": 0,
+			"msg": "restart from UI rc=0 (rollback scheduled 90s)"
+		},
+		"restart_process_crash": {
+			"schema": "events.v1", "ts": "2026-07-26T20:06:00Z", "id": "watchdog-515-1780000060",
+			"category": "restart", "severity": "crit", "source": "watchdog",
+			"reason": "process_crash", "rc": 0,
+			"msg": "nfqws2 process gone; recovery start rc=0"
+		},
+		"restart_queue_length": {
+			"schema": "events.v1", "ts": "2026-07-26T20:07:00Z", "id": "qlen-515-1780000120",
+			"category": "restart", "severity": "crit", "source": "qlen",
+			"reason": "queue_length", "queue_total": 87, "threshold": 50, "consecutive": 3,
+			"msg": "queue_total=87 > 50 for 3 consecutive cycles"
+		},
+		"queue_dropped_delta": {
+			"schema": "events.v1", "ts": "2026-07-26T20:08:00Z", "id": "qlen-515-1780000180",
+			"category": "queue", "severity": "warn", "source": "qlen",
+			"dropped_delta": 12, "msg": "queue_dropped delta=12 (kernel could not enqueue packets; warn appears before queue_total grows)"
+		},
+		"queue_not_registered": {
+			"schema": "events.v1", "ts": "2026-07-26T20:09:00Z", "id": "qlen-515-1780000240",
+			"category": "queue", "severity": "crit", "source": "qlen",
+			"queue": 300, "msg": "NFQUEUE 300 not registered in kernel (nfqws2 not connected)"
+		},
+		"pause_enter": {
+			"schema": "events.v1", "ts": "2026-07-26T20:10:00Z", "id": "ui-412-1780000300",
+			"category": "pause", "severity": "info", "source": "ui",
+			"pause": "enter", "msg": "stop rc=0 (paused; NFQWS2_ENABLE=0 intent)"
+		},
+		"pause_exit": {
+			"schema": "events.v1", "ts": "2026-07-26T20:11:00Z", "id": "ui-412-1780000360",
+			"category": "pause", "severity": "info", "source": "ui",
+			"pause": "exit", "msg": "start rc=0"
+		},
+		"guard_found_process_while_paused": {
+			"schema": "events.v1", "ts": "2026-07-26T20:12:00Z", "id": "hotplug-721-1780000420",
+			"category": "pause", "severity": "warn", "source": "hotplug",
+			"action": "ifup", "msg": "nfqws2 found running while paused; primary NFQWS2_ENABLE=0 mechanism did not hold; guard re-enforced stop"
+		},
+		"lists_rotation": {
+			"schema": "events.v1", "ts": "2026-07-26T20:13:00Z", "id": "lists-515-1780000480",
+			"category": "lists", "severity": "info", "source": "lists",
+			"path": "/opt/zapret2/logs/autohostlist.log", "keep_lines": 500, "was_bytes": 1100000,
+			"msg": "autohostlist log rotated to last 500 lines (was 1100000 bytes)"
+		}
+	},
+
+	"file_rules": {
+		"description": "File-level rules for /tmp/zapret2-manager/events.ndjson.",
+		"path": "/tmp/zapret2-manager/events.ndjson",
+		"format": "ndjson — exactly one event object per line, UTF-8, newline-terminated. No pretty-printing.",
+		"rotation": "The watchdog rotates this file when it exceeds 1 MB, keeping the last 500 lines (same rule as the autohostlist log). Rotation is best-effort.",
+		"size_limit": "1 MB before rotation; never let it grow unbounded on the flash-constrained device.",
+		"never_blocks": "Telemetry NEVER blocks functionality. Producers append best-effort: if the file is unwritable, full, or the directory missing, the append is dropped silently and the operation that produced the event still completes. A missed event is acceptable; a blocked operation is not.",
+		"concurrency": "Append-only; last-writer-wins per line. Producers do not read-modify-write the whole file under contention (the current event() helper does read-modify-write and is acceptable only because events are low-rate; a high-rate producer must use atomic append)."
+	}
+}

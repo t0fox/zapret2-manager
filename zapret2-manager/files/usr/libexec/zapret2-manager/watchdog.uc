@@ -67,22 +67,30 @@ function write_state(st) {
 	catch (e) { }
 }
 
-function event(source, msg, level) {
+// Append an events.v1 ndjson event. Telemetry never blocks. See
+// docs/contracts/events.v1.json. extra (optional) carries self-contained
+// context (actual values, threshold, cycle count...).
+function event(source, category, severity, msg, extra) {
 	try {
 		mkdir('/tmp/zapret2-manager');
-		let line = jstringify({ ts: now(), source: source, level: level || 'info', msg: msg }) + '\n';
+		let ts = trim(sh('date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null'));
+		if (!length(ts)) ts = '' + now();
 		let prev = readfile(PATHS.events_ndjson) ?? '';
-		writefile(PATHS.events_ndjson, prev + line);
+		let id = source + '-' + now() + '-' + length(split(prev, '\n'));
+		let ev = extra ? extra : {};
+		ev.schema = 'events.v1'; ev.ts = ts; ev.id = id;
+		ev.category = category; ev.severity = severity; ev.source = source; ev.msg = msg;
+		writefile(PATHS.events_ndjson, prev + jstringify(ev) + '\n');
 	} catch (e) { }
 }
 
 // Alert only if the cooldown for this condition has elapsed.
-function alert_if(cond, source, msg, level, st) {
+function alert_if(cond, category, source, msg, level, st, extra) {
 	let last = (st.last_alert || {})[cond] || 0;
 	if ((now() - last) < COOLDOWN_SEC) return false;
 	st.last_alert = st.last_alert || {};
 	st.last_alert[cond] = now();
-	event(source, msg, level);
+	event(source, category, level, msg, extra);
 	return true;
 }
 
@@ -162,9 +170,9 @@ function qlen_cycle(st) {
 			last_state: 'unknown', last_qlen: null, updated_at: t
 		};
 		write_qlen_state(next);
-		alert_if('queue_not_registered', 'qlen',
+		alert_if('queue_not_registered', 'queue', 'qlen',
 			'NFQUEUE ' + NFQUEUE + ' not registered in kernel (nfqws2 not connected)',
-			'crit', st);
+			'crit', st, { queue: NFQUEUE });
 		return { registered: false, queue_total: null };
 	}
 
@@ -211,16 +219,19 @@ function qlen_cycle(st) {
 	// Events (each carries actual values + threshold + cycle count, not a
 	// bare label — see docs/contracts/events.v1.json).
 	if (consecutive >= QLEN_CRIT_CONSECUTIVE)
-		alert_if('qlen_critical', 'qlen',
+		alert_if('qlen_critical', 'restart', 'qlen',
 			'queue_total=' + q.queue_total + ' > ' + QLEN_WARN + ' for ' +
-			consecutive + ' consecutive cycles', 'crit', st);
+			consecutive + ' consecutive cycles', 'crit', st,
+			{ reason: 'queue_length', queue_total: q.queue_total, threshold: QLEN_WARN, consecutive: consecutive });
 	if (dd != null && dd > 0)
-		alert_if('queue_dropped_delta', 'qlen',
+		alert_if('queue_dropped_delta', 'queue', 'qlen',
 			'queue_dropped delta=' + dd + ' (kernel could not enqueue packets; ' +
-			'warn appears before queue_total grows)', 'warn', st);
+			'warn appears before queue_total grows)', 'warn', st,
+			{ dropped_delta: dd });
 	if (udd != null && udd > 0)
-		alert_if('queue_user_dropped_delta', 'qlen',
-			'queue_user_dropped delta=' + udd, 'warn', st);
+		alert_if('queue_user_dropped_delta', 'queue', 'qlen',
+			'queue_user_dropped delta=' + udd, 'warn', st,
+			{ user_dropped_delta: udd });
 
 	return { registered: true, queue_total: q.queue_total };
 }
@@ -263,8 +274,9 @@ function check_cycle() {
 	if (!length(pids)) {
 		// unexpected crash (we are not paused): recover via upstream start
 		let r = run('/etc/init.d/zapret2 start');   // [VERIFY] upstream init
-		alert_if('process_gone', 'watchdog',
-			'nfqws2 process gone; recovery start rc=' + r.rc, 'crit', st);
+		alert_if('process_gone', 'restart', 'watchdog',
+			'nfqws2 process gone; recovery start rc=' + r.rc, 'crit', st,
+			{ reason: 'process_crash', rc: r.rc });
 	} else {
 		st.last_seen_process = now();
 	}
@@ -273,8 +285,9 @@ function check_cycle() {
 	try {
 		let raw = sh('nft list table ' + NFT_TABLE);
 		if (!length(raw) || index(raw, 'chain ') < 0)
-			alert_if('rules_gone', 'watchdog',
-				'nft table ' + NFT_TABLE + ' missing or empty', 'crit', st);
+			alert_if('rules_gone', 'health', 'watchdog',
+				'nft table ' + NFT_TABLE + ' missing or empty', 'crit', st,
+				{ table: NFT_TABLE });
 	} catch (e) { }
 
 	// 3) queue signals — queue_total three-consecutive critical, dropped delta
@@ -302,29 +315,33 @@ function check_cycle() {
 	if (length(st.cpu_samples) >= 1) {
 		let last1 = st.cpu_samples[length(st.cpu_samples) - 1];
 		if (last1 >= CPU_CRIT_PCT)
-			alert_if('cpu_crit', 'watchdog',
-				'nfqws2 CPU ' + last1 + '% (>= ' + CPU_CRIT_PCT + '% over 60s)', 'crit', st);
+			alert_if('cpu_crit', 'health', 'watchdog',
+				'nfqws2 CPU ' + last1 + '% (>= ' + CPU_CRIT_PCT + '% over 60s)', 'crit', st,
+				{ cpu_pct: last1, threshold: CPU_CRIT_PCT, window_s: 60 });
 	}
 	if (length(st.cpu_samples) >= CPU_WARN_WIN) {
 		let sum = 0;
 		for (let i = 0; i < length(st.cpu_samples); i++) sum += st.cpu_samples[i];
 		let avg = sum / length(st.cpu_samples);
 		if (avg >= CPU_WARN_PCT)
-			alert_if('cpu_warn', 'watchdog',
-				'nfqws2 CPU ' + avg + '% avg over ' + (CPU_WARN_WIN * CYCLE_SEC) + 's', 'warn', st);
+			alert_if('cpu_warn', 'health', 'watchdog',
+				'nfqws2 CPU ' + avg + '% avg over ' + (CPU_WARN_WIN * CYCLE_SEC) + 's', 'warn', st,
+				{ cpu_pct: avg, threshold: CPU_WARN_PCT, window_s: CPU_WARN_WIN * CYCLE_SEC });
 	}
 
 	// 5) ram
 	let ram = free_ram_kb();
 	if (ram != null && ram < RAM_CRIT_KB)
-		alert_if('ram_low', 'watchdog',
-			'free RAM ' + ram + ' KB (< ' + RAM_CRIT_KB + ' KB)', 'crit', st);
+		alert_if('ram_low', 'health', 'watchdog',
+			'free RAM ' + ram + ' KB (< ' + RAM_CRIT_KB + ' KB)', 'crit', st,
+			{ free_ram_kb: ram, threshold_kb: RAM_CRIT_KB });
 
 	// 6) overlay
 	let ov = overlay_usage_pct();
 	if (ov != null && ov > OVERLAY_CRIT)
-		alert_if('overlay_full', 'watchdog',
-			'/overlay usage ' + ov + '% (> ' + OVERLAY_CRIT + '%)', 'crit', st);
+		alert_if('overlay_full', 'health', 'watchdog',
+			'/overlay usage ' + ov + '% (> ' + OVERLAY_CRIT + '%)', 'crit', st,
+			{ overlay_pct: ov, threshold_pct: OVERLAY_CRIT });
 
 	// 7) autohostlist log rotation (>1 MB → last 500 lines), source=lists
 	try {
@@ -343,7 +360,7 @@ if (mode == 'check') {
 } else {
 	// daemon loop
 	while (true) {
-		try { check_cycle(); } catch (e) { event('watchdog', 'cycle error: ' + e, 'error'); }
+		try { check_cycle(); } catch (e) { event('watchdog', 'watchdog', 'error', 'cycle error: ' + e); }
 		sleep(CYCLE_SEC);   // [VERIFY] ucode sleep() seconds
 	}
 }

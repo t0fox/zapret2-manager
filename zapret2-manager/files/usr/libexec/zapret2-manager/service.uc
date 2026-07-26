@@ -42,12 +42,24 @@ function run(cmd) {
 	return { out: out, rc: rc };
 }
 
-function event(source, msg) {
-	// Append an ndjson event with a source field (arch §6).
+// Append an events.v1 ndjson event. Telemetry never blocks: any failure is
+// swallowed. See docs/contracts/events.v1.json. extra (optional object) is
+// merged in to carry self-contained context (rc, threshold, cycle count...).
+function event(source, category, severity, msg, extra) {
 	try {
 		mkdir('/tmp/zapret2-manager');
-		let line = jstringify({ ts: time(), source: source, msg: msg }) + '\n';
+		let ts = trim(sh('date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null'));
+		if (!length(ts)) ts = '' + time();
 		let prev = readfile(PATHS.events_ndjson) ?? '';
+		// id unique within the file: source + unixseconds + current line count
+		let id = source + '-' + time() + '-' + length(split(prev, '\n'));
+		// Build the event on top of `extra` (avoids for-in object iteration, whose
+		// key-vs-value semantics are not relied on). extra is a caller literal.
+		let ev = extra ? extra : {};
+		ev.schema = 'events.v1'; ev.ts = ts; ev.id = id;
+		ev.category = category; ev.severity = severity; ev.source = source; ev.msg = msg;
+		let line = jstringify(ev) + '\n';
+		// best-effort append (read-modify-write; events are low-rate)
 		writefile(PATHS.events_ndjson, prev + line);
 	} catch (e) { }
 }
@@ -84,8 +96,9 @@ function apply_nfqws2_enable(value) {
 	let st = read_state();
 	st.nfqws2_enable = value;   // 0 on pause, 1 on resume
 	write_state(st);
-	event('ui', NFQWS2_ENABLE_VAR + '=' + value + ' intent recorded' +
-		' (apply pending config-generation branch)');
+	event('ui', 'config', 'info',
+		NFQWS2_ENABLE_VAR + '=' + value + ' intent recorded (apply pending config-generation branch)',
+		{ var: NFQWS2_ENABLE_VAR, value: value });
 	return value;
 }
 
@@ -95,7 +108,7 @@ function start() {
 	set_paused(false);
 	apply_nfqws2_enable(1);
 	let r = run(UPSTREAM_INIT + ' start');
-	event('ui', 'start rc=' + r.rc);
+	event('ui', 'pause', 'info', 'start rc=' + r.rc, { reason: 'manual_ui', rc: r.rc });
 	return { ok: r.rc == 0, action: 'start', rc: r.rc, out: r.out };
 }
 
@@ -113,7 +126,8 @@ function stop() {
 		run(UPSTREAM_INIT + ' stop_fw');
 	let r = run(UPSTREAM_INIT + ' stop');
 	schedule_rollback();
-	event('ui', 'stop rc=' + r.rc + ' (paused; NFQWS2_ENABLE=0 intent)');
+	event('ui', 'pause', 'info', 'stop rc=' + r.rc + ' (paused; NFQWS2_ENABLE=0 intent)',
+		{ pause: 'enter', rc: r.rc });
 	return { ok: r.rc == 0, action: 'stop', rc: r.rc, out: r.out, paused: true,
 		rollback_pending: true, rollback_ttl: ROLLBACK_TTL };
 }
@@ -123,7 +137,8 @@ function restart() {
 	snapshot_last_good();
 	let r = run(UPSTREAM_INIT + ' restart');
 	schedule_rollback();
-	event('ui', 'restart rc=' + r.rc + ' (rollback scheduled ' + ROLLBACK_TTL + 's)');
+	event('ui', 'restart', 'info', 'restart rc=' + r.rc + ' (rollback scheduled ' + ROLLBACK_TTL + 's)',
+		{ reason: 'manual_ui', rc: r.rc, rollback_ttl: ROLLBACK_TTL });
 	return { ok: r.rc == 0, action: 'restart', rc: r.rc, out: r.out,
 		rollback_pending: true, rollback_ttl: ROLLBACK_TTL };
 }
@@ -134,7 +149,8 @@ function restart_daemons() {
 	// [VERIFY] upstream daemon-only restart; fall back to full restart.
 	let r = run(UPSTREAM_INIT + ' restart_daemons 2>/dev/null || ' + UPSTREAM_INIT + ' restart');
 	schedule_rollback();
-	event('ui', 'restart_daemons rc=' + r.rc);
+	event('ui', 'restart', 'info', 'restart_daemons rc=' + r.rc,
+		{ reason: 'manual_ui', rc: r.rc });
 	return { ok: r.rc == 0, action: 'restart_daemons', rc: r.rc, out: r.out,
 		rollback_pending: true, rollback_ttl: ROLLBACK_TTL };
 }
@@ -147,7 +163,7 @@ function start_fw() {
 	snapshot_last_good();
 	let r = run(UPSTREAM_INIT + ' start_fw');
 	schedule_rollback();
-	event('ui', 'start_fw rc=' + r.rc);
+	event('ui', 'config', 'info', 'start_fw rc=' + r.rc, { rc: r.rc });
 	return { ok: r.rc == 0, action: 'start_fw', rc: r.rc, out: r.out,
 		rollback_pending: true, rollback_ttl: ROLLBACK_TTL };
 }
@@ -161,7 +177,7 @@ function reload_ifsets() {
 	snapshot_last_good();
 	let r = run(UPSTREAM_INIT + ' reload_ifsets');
 	schedule_rollback();
-	event('ui', 'reload_ifsets rc=' + r.rc);
+	event('ui', 'config', 'info', 'reload_ifsets rc=' + r.rc, { rc: r.rc });
 	return { ok: r.rc == 0, action: 'reload_ifsets', rc: r.rc, out: r.out,
 		rollback_pending: true, rollback_ttl: ROLLBACK_TTL };
 }
@@ -212,7 +228,7 @@ function schedule_rollback() {
 
 function confirm_alive() {
 	try { unlink(PENDING); } catch (e) { }
-	event('ui', 'link confirmed alive; rollback cancelled');
+	event('ui', 'rollback', 'info', 'link confirmed alive; rollback cancelled');
 	return { ok: true, action: 'confirm_alive', rollback_pending: false };
 }
 
@@ -224,7 +240,9 @@ function rollback() {
 			run('cp -f ' + LASTGOOD_DIR + '/' + basename(PATHS.uci_conf) + ' ' + PATHS.uci_conf);
 		try { unlink(PENDING); } catch (e) { }
 		let r = run(UPSTREAM_INIT + ' restart');
-		event('ui', 'ROLLBACK applied (link not confirmed within ' + ROLLBACK_TTL + 's) rc=' + r.rc);
+		event('ui', 'rollback', 'crit',
+			'ROLLBACK applied (link not confirmed within ' + ROLLBACK_TTL + 's) rc=' + r.rc,
+			{ rc: r.rc, rollback_ttl: ROLLBACK_TTL });
 		return { ok: r.rc == 0, action: 'rollback', rc: r.rc };
 	} catch (e) {
 		return { ok: false, action: 'rollback', error: '' + e };
@@ -279,8 +297,10 @@ function passthrough(enabled) {
 	// (Full enforcement of the no-lua-desync argv awaits config generation.)
 	let r = run(UPSTREAM_INIT + ' restart');
 	schedule_rollback();
-	event('ui', 'passthrough ' + (on ? 'ON' : 'OFF') + ' (profile=' +
-		(on ? PASSTHROUGH_PROFILE_NAME : 'default') + ') rc=' + r.rc);
+	event('ui', 'config', 'info',
+		'passthrough ' + (on ? 'ON' : 'OFF') + ' (profile=' +
+		(on ? PASSTHROUGH_PROFILE_NAME : 'default') + ') rc=' + r.rc,
+		{ passthrough: on, profile: (on ? PASSTHROUGH_PROFILE_NAME : 'default'), rc: r.rc });
 	return { ok: r.rc == 0, action: 'passthrough', enabled: on, rc: r.rc,
 		profile: (on ? PASSTHROUGH_PROFILE_NAME : 'default'),
 		rollback_pending: true, rollback_ttl: ROLLBACK_TTL };
