@@ -113,20 +113,45 @@ This is deliberately a *third* signal. It catches the case where ps and the
 rules table both look fine but packets are piling up unhandled — the exact
 silent failure a process-only check would miss.
 
-## 5. The paused flag
+## 5. Pause (no service flap)
 
-`/tmp/zapret2-manager/paused` is an intentionally-empty flag file. While it
-exists:
+Pause = "I stopped this on purpose; do not let anything re-raise it." The
+PRIMARY mechanism is upstream's variable `NFQWS2_ENABLE`: while the applied
+config carries `NFQWS2_ENABLE=0`, upstream's `start` — called from init,
+hotplug, another script, or by hand — is a no-op by upstream's own logic. No
+flap, no duplicated firewall logic, no editing of upstream's files by us. The
+change flows through the config-generation apply mechanism (same path as any
+other change, including the 90s rollback), so pause is removed and rolled back
+the same way as any edit.
 
-- The hotplug hook `90-zapret2` does **not** raise the service.
-- The init script does **not** start the service on boot/reload.
+`/tmp/zapret2-manager/paused` is now an **indicator only** (for the UI and the
+watchdog), not the coercion mechanism. It lives in `/tmp` so a reboot clears
+it: a paused state is not a persistent preference, it is a diagnostic stance
+for this uptime.
+
+While paused:
+
 - The watchdog (§6) skips its **entire** cycle — not just the recovery step.
+- The hotplug guard `90-zapret2-manager` (second-level safety) normally does
+  nothing: with `NFQWS2_ENABLE=0` effective, there is no running nfqws2 to
+  find. It only acts if it finds a running nfqws2 despite an active pause —
+  meaning the primary mechanism did not hold — in which case it stops the
+  process via upstream's own stop and logs a `source=hotplug` event. That event
+  is telemetry: it says the primary pause mechanism is not effective here.
 
-The flag is set by an explicit Stop from the UI (branch 04) and removed by an
-explicit Start. It is the mechanism that makes "I stopped this on purpose"
-stick across the events that would otherwise auto-raise it. It lives in `/tmp`
-so a reboot clears it: a paused state is not a persistent preference, it is a
-diagnostic stance for this uptime.
+**Open question, one flag in one place.** Does `NFQWS2_ENABLE=0` stop only the
+daemons, or also prevent firewall rule installation? If it stops only daemons,
+`PAUSE_STOPS_FW=true` makes pause entry also call `stop_fw`. The answer is
+produced on the live router by `tools/smoke.sh pause_fw_effect` (enter pause,
+snapshot the zapret2 table via `list_table`, compare). `PAUSE_STOPS_FW` lives
+in `constants.uc`.
+
+> **Build status note.** Setting `NFQWS2_ENABLE` in the applied config is the
+> job of the config-generation apply mechanism, which is not yet built (the
+> strategy-editor branch was deferred). Until it lands, `apply_nfqws2_enable()`
+> records the intent in draft state but does not write the applied config, so
+> the primary mechanism is not yet effective and the guard hook remains the
+> active stop. See the branch report's [ASK] section.
 
 ## 6. Watchdog
 

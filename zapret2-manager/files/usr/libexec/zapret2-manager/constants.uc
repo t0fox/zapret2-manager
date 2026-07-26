@@ -34,6 +34,22 @@ export const CACHE_TTL_SEC = 3;
 export const DAEMON = 'nfqws2';
 export const NFT_TABLE = 'zapret2';
 
+// Pause uses upstream's standard variable NFQWS2_ENABLE. When the applied
+// config carries NFQWS2_ENABLE=0, upstream's start (from init, hotplug, or a
+// manual call) is a no-op BY UPSTREAM'S OWN LOGIC — no flap, no duplicated
+// firewall logic, no editing of upstream's files by us. The change flows
+// through the config-generation apply mechanism (same path as any other
+// change, including 90s rollback). confirmed (external source) that the
+// variable exists.
+//
+// OPEN QUESTION (one flag, one place): does NFQWS2_ENABLE=0 stop only the
+// daemons, or also prevent firewall rule installation? If it also stops fw
+// rules, set PAUSE_STOPS_FW=false (no extra call needed). If it stops only
+// daemons, set PAUSE_STOPS_FW=true so pause entry also calls stop_fw. The
+// answer is produced on the live router by smoke.sh `pause_fw_effect`.
+export const NFQWS2_ENABLE_VAR = 'NFQWS2_ENABLE';
+export const PAUSE_STOPS_FW = false;   // [VERIFY:ROUTER] → smoke.sh pause_fw_effect
+
 // Passthrough is OUR entity (no upstream option exists). It is modelled as a
 // profile with no strategies — see service.uc and docs/upstream-mapping.md.
 // It is NOT stored as a UCI flag (would desync from reality and create a 4th

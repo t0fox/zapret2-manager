@@ -192,6 +192,29 @@ gate_04() {
   [ -z "$alljs" ] && ok "no 'service firewall stop' in UI" || bad "UI references 'service firewall stop'"
 }
 
+# ---- pause_fw_effect: answers the REVIEW 1 open question on the live router --
+# Does NFQWS2_ENABLE=0 stop only the daemons, or also prevent firewall rule
+# installation? Enter pause, snapshot the zapret2 table via list_table, compare.
+# If the table is gone after pause → NFQWS2_ENABLE=0 also stops fw rules →
+# PAUSE_STOPS_FW can stay false. If the table is still present → NFQWS2_ENABLE=0
+# stops only daemons → set PAUSE_STOPS_FW=true so pause entry calls stop_fw.
+# This is informational; it prints the answer and does not pass/fail the gate.
+pause_fw_effect() {
+  log "pause_fw_effect — does NFQWS2_ENABLE=0 also stop fw rules?"
+  ssh_ok "ensure running before pause" ubus call zapret2-manager start || true
+  sleep 1
+  ssh_out before "table before pause" "/etc/init.d/zapret2 list_table 2>/dev/null | wc -l"
+  ssh_ok "enter pause" ubus call zapret2-manager stop || true
+  sleep 2
+  ssh_out after "table after pause" "/etc/init.d/zapret2 list_table 2>/dev/null | wc -l"
+  ssh_ok "resume" ubus call zapret2-manager start || true
+  if [ -z "$after" ] || [ "$after" -eq 0 ]; then
+    log "ANSWER: NFQWS2_ENABLE=0 also clears the zapret2 table → PAUSE_STOPS_FW=false is correct."
+  else
+    log "ANSWER: NFQWS2_ENABLE=0 leaves the zapret2 table present (rows before=$before after=$after) → set PAUSE_STOPS_FW=true in constants.uc so pause calls stop_fw."
+  fi
+}
+
 # ---- branch 05: passthrough --------------------------------------------------
 gate_05() {
   log "gate 05 — passthrough toggle"
@@ -274,8 +297,9 @@ case "$SELECTION" in
   all) for n in 00 01 02 03 04 05 06; do "gate_$n" 2>/dev/null || true; done ;;
   00|01|02|03|04|05|06) "gate_$SELECTION" ;;
   autostart) gate_autostart ;;
+  pause_fw_effect) pause_fw_effect ;;
   -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
-  *) die "unknown gate: $SELECTION (try: all, 00-06, autostart)" ;;
+  *) die "unknown gate: $SELECTION (try: all, 00-06, autostart, pause_fw_effect)" ;;
 esac
 
 log "result: PASS=$PASS FAIL=$FAIL"

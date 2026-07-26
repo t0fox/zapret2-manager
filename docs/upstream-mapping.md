@@ -10,8 +10,8 @@ mechanism), or **stays out** (upstream owns it entirely).
 > project's task spec and are not to be re-derived or guessed. Facts marked
 > **[VERIFY:ROUTER]** still need the live router; each carries the exact
 > `tools/smoke.sh` check that answers it. The three wrong facts from the first
-> build (qlen field index, rpcd plugin path, fw4 reload_ifsets) are corrected
-> below and no longer carry a marker.
+> build (the qlen field index, the rpcd plugin load path, and the firewall
+> refresh command) are corrected below and no longer carry a marker.
 
 ## Daemon & process
 

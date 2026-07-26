@@ -27,7 +27,8 @@
 
 import { readfile, writefile, stat, mkdir, unlink, popen } from 'fs';
 import { parse as jparse, stringify as jstringify } from 'json';
-import { PATHS, PASSTHROUGH_PROFILE_NAME } from './constants.uc';
+import { PATHS, PASSTHROUGH_PROFILE_NAME,
+	NFQWS2_ENABLE_VAR, PAUSE_STOPS_FW } from './constants.uc';
 
 const UPSTREAM_INIT = '/etc/init.d/zapret2';
 const LASTGOOD_DIR  = '/tmp/zapret2-manager/last-good';
@@ -64,20 +65,57 @@ function basename(p) {
 	return parts[length(parts) - 1];
 }
 
+// ---- NFQWS2_ENABLE apply (pause mechanism) -----------------------------------
+//
+// Setting NFQWS2_ENABLE in the APPLIED config is the pause mechanism: with
+// NFQWS2_ENABLE=0, upstream's start is a no-op by upstream's own logic. We do
+// NOT edit upstream's files; the write is done by the config-generation apply
+// mechanism, which renders the applied config (including NFQWS2_ENABLE) from
+// our draft state and writes it through the sanctioned apply path.
+//
+// [ASK] That apply mechanism is not yet built (the strategy-editor branch was
+// deferred). Until it lands, apply_nfqws2_enable() records the intent in draft
+// state and logs, but does not write the applied config — so the PRIMARY pause
+// mechanism is not yet effective and the guard hook remains the active stop.
+// When the apply branch lands, fill in the single write step here; the
+// PAUSE_STOPS_FW flag and the smoke.sh pause_fw_effect check do not change.
+// See the branch report's [ASK] section.
+function apply_nfqws2_enable(value) {
+	let st = read_state();
+	st.nfqws2_enable = value;   // 0 on pause, 1 on resume
+	write_state(st);
+	event('ui', NFQWS2_ENABLE_VAR + '=' + value + ' intent recorded' +
+		' (apply pending config-generation branch)');
+	return value;
+}
+
 // ---- actions ----------------------------------------------------------------
 
 function start() {
 	set_paused(false);
+	apply_nfqws2_enable(1);
 	let r = run(UPSTREAM_INIT + ' start');
 	event('ui', 'start rc=' + r.rc);
 	return { ok: r.rc == 0, action: 'start', rc: r.rc, out: r.out };
 }
 
 function stop() {
+	// Pause: set the indicator, drive NFQWS2_ENABLE=0 through the config
+	// mechanism (no-op until the apply branch lands — see apply_nfqws2_enable),
+	// optionally stop_fw if NFQWS2_ENABLE=0 does not also stop fw rules
+	// (PAUSE_STOPS_FW, answered by smoke.sh pause_fw_effect), then stop the
+	// daemon. Snapshot + arm the 90s rollback so a pause that breaks the link
+	// is auto-reversed — pause is a diagnostic stance, not a persistent pref.
 	set_paused(true);
+	apply_nfqws2_enable(0);
+	snapshot_last_good();
+	if (PAUSE_STOPS_FW)
+		run(UPSTREAM_INIT + ' stop_fw');
 	let r = run(UPSTREAM_INIT + ' stop');
-	event('ui', 'stop rc=' + r.rc + ' (paused flag set)');
-	return { ok: r.rc == 0, action: 'stop', rc: r.rc, out: r.out, paused: true };
+	schedule_rollback();
+	event('ui', 'stop rc=' + r.rc + ' (paused; NFQWS2_ENABLE=0 intent)');
+	return { ok: r.rc == 0, action: 'stop', rc: r.rc, out: r.out, paused: true,
+		rollback_pending: true, rollback_ttl: ROLLBACK_TTL };
 }
 
 function restart() {

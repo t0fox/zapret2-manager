@@ -1,21 +1,39 @@
 #!/bin/sh
-# 90-zapret2-manager — paused-flag enforcer on interface hotplug events.
+# 90-zapret2-manager — pause safety + telemetry on interface hotplug events.
 #
-# The operator may have stopped the service on purpose (paused flag set). We
-# cannot edit upstream's 90-zapret2 hook, so after it runs and (possibly)
-# re-raises the service, we tear it back down using upstream's OWN stop — no
-# firewall logic is duplicated here. There is a brief flap (upstream raises,
-# we stop); that is the cost of not owning upstream's hook. The paused state
-# is a diagnostic stance for this uptime, not a persistent preference.
+# PRIMARY pause mechanism (REVIEW 1): NFQWS2_ENABLE=0 in the applied config
+# makes upstream's start a no-op by upstream's own logic — so on an ifup, even
+# though upstream's 90-zapret2 hook runs, it does not raise nfqws2. No flap.
 #
-# Lexical order: "90-zapret2" < "90-zapret2-manager", so this runs AFTER
-# upstream's hook. [VERIFY] upstream's hook filename on the target.
+# THIS hook is the SECOND-LEVEL safety. In normal operation (NFQWS2_ENABLE=0
+# effective) it does NOTHING: there is no running nfqws2 to find while paused.
+# It only acts if it finds a running nfqws2 despite an active pause — which
+# means the primary mechanism did NOT hold. In that case it tears the process
+# back down via upstream's OWN stop (no firewall logic duplicated here) and
+# logs an event. That event is valuable telemetry: it says the primary pause
+# mechanism is not effective on this installation.
+#
+# The paused flag in /tmp is an indicator (for UI + watchdog), not the coercion
+# mechanism. Lexical order: "90-zapret2" < "90-zapret2-manager", so this runs
+# AFTER upstream's hook.
 
 [ -f /tmp/zapret2-manager/paused ] || exit 0
-
-# Only act on interface up events that upstream would react to.
 [ "$ACTION" = "ifup" ] || exit 0
 
+# Is nfqws2 actually running despite the pause? If not, the primary mechanism
+# held — do nothing (no event, no stop). This is the normal path.
+if ! pgrep -x nfqws2 >/dev/null 2>&1; then
+	exit 0
+fi
+
+# Primary mechanism did not hold: re-enforce the stop and record telemetry.
 /etc/init.d/zapret2 stop >/dev/null 2>&1 || true
-logger -t zapret2-manager "paused flag active; re-enforced stop after hotplug ifup" 2>/dev/null || true
+
+# Append an ndjson event (source=hotplug) — see docs/contracts/events.v1.json.
+ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")
+id="hotplug-$$-$(date +%s 2>/dev/null || echo 0)"
+mkdir -p /tmp/zapret2-manager 2>/dev/null
+printf '{"schema":"events.v1","ts":"%s","id":"%s","category":"pause","severity":"warn","source":"hotplug","msg":"nfqws2 found running while paused; primary NFQWS2_ENABLE=0 mechanism did not hold; guard re-enforced stop","action":"ifup"}\n' \
+	"$ts" "$id" >> /tmp/zapret2-manager/events.ndjson 2>/dev/null || true
+logger -t zapret2-manager "pause: nfqws2 found running while paused; guard stop + event" 2>/dev/null || true
 exit 0
