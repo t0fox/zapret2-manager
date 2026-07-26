@@ -214,6 +214,19 @@ These are non-negotiable. Each encodes a past incident.
   within 90 seconds.
 - **Mock tests are not proof.** Each branch is verified on a live router via
   `tools/smoke.sh`.
+- **A gate whose ability to go RED is unproven is considered absent.** Every
+  gate has a self-test: run it on a known-broken sample (must return non-zero)
+  and a known-good sample (must return zero); if either fails, the self-test
+  reports the gate non-functional. Reason: this project once had a gate that
+  never fired on green tests (the ucode syntax gate used `ucode -p FILE`, but
+  `-p` takes an EXPRESSION and prints it — a filename-as-string evaluates to
+  itself, rc=0 always, so the gate was degenerate always-green) and it cost a
+  day. The ucode syntax flag is `-c` (compile), confirmed by the live-router
+  fixture. Self-tests run before the gates they test
+  (`tools/smoke.sh ucode_syntax_selftest` before `ucode_syntax_check`;
+  `tests/gate-selftests.test.sh` for the local gates). Broken samples live in
+  `tests/fixtures/gate-samples/` — they neither ship nor get checked by the
+  normal gates.
 
 ## 8. ubus / rpcd interface
 

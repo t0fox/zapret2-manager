@@ -49,12 +49,18 @@ ssh_out() {
   eval "$_var=\"\$_val\""
 }
 
-# ucode_syntax_check — parse every shipped ucode file with the interpreter on
-# the target. This is the REAL grammar check (brace counting is not). ucode
-# supports `-p` (parse only, no execution). If the flag differs on the target,
-# adjust here; the principle is: the interpreter accepts the file.
+# ucode_syntax_check — COMPILE every shipped ucode file with the interpreter on
+# the target. This is the REAL grammar check (brace counting is not). The flag
+# is `-c` (compile to bytecode, no execution) — confirmed by the live-router
+# fixture (ucode -h shows `ucode -c [-s] [-o output.uc] input.uc`). Do NOT use
+# `-p`: `-p` takes an EXPRESSION and prints its result, so `ucode -p FILE`
+# evaluates the path string as a ucode expression, prints it, and exits 0
+# regardless of FILE's real syntax — a degenerate ALWAYS-GREEN gate (this exact
+# bug once passed a broken file for a day). ucode_syntax_selftest (below) proves
+# the gate can go red before this gate is trusted.
+UCODE_COMPILE_FLAG=-c
 ucode_syntax_check() {
-  log "ucode syntax check (interpreter on target)"
+  log "ucode syntax check (ucode $UCODE_COMPILE_FLAG on target)"
   for f in /usr/libexec/zapret2-manager/constants.uc \
            /usr/libexec/zapret2-manager/apply.uc \
            /usr/libexec/zapret2-manager/qlen.uc \
@@ -62,12 +68,41 @@ ucode_syntax_check() {
            /usr/libexec/zapret2-manager/service.uc \
            /usr/libexec/zapret2-manager/watchdog.uc \
            /usr/share/rpcd/ucode/zapret2-manager.uc; do
-    ssh_ok "parse $f" test -f "$f" || { bad "missing $f"; continue; }
-    # `ucode -p FILE` parses and exits 0 on success. Redirect stderr to spot
-    # the parse error if any.
-    ssh_ok "ucode -p $f" "ucode -p '$f' >/dev/null 2>&1" \
-      && ok "parse OK: $f" || bad "parse FAIL: $f (ucode -p)"
+    ssh_ok "compile $f" test -f "$f" || { bad "missing $f"; continue; }
+    # `ucode -c FILE` compiles and exits 0 on success. Redirect stderr to spot
+    # the compile error if any.
+    ssh_ok "ucode $UCODE_COMPILE_FLAG $f" "ucode $UCODE_COMPILE_FLAG '$f' >/dev/null 2>&1" \
+      && ok "compile OK: $f" || bad "compile FAIL: $f (ucode $UCODE_COMPILE_FLAG)"
   done
+}
+
+# ucode_syntax_selftest — prove the ucode syntax gate can go RED and GREEN
+# (hard rule: a gate whose red-ability is unproven is ABSENT). Runs the SAME
+# compile command on a KNOWN-BROKEN ucode sample (must return non-zero) and a
+# KNOWN-GOOD one (must return zero). If the broken sample compiles (rc=0) the
+# gate is degenerate ALWAYS-GREEN; if the good sample fails (rc!=0) it is
+# ALWAYS-RED. Either is a WRONG-FLAG problem — report it specifically, not just
+# "gate failed". Samples are staged to /tmp on the router (they never ship and
+# are not checked by the normal gates — they live in tests/fixtures/gate-samples).
+# Run BEFORE ucode_syntax_check (self-tests run before the gates they test).
+ucode_syntax_selftest() {
+  log "ucode syntax self-test (proves the gate can go red and green)"
+  # stage the samples on the router
+  ssh_ok "stage broken sample" "printf 'let x = ;\\n' > /tmp/z2m-gate-broken.uc" || { bad "selftest: cannot stage broken sample"; return; }
+  ssh_ok "stage good sample"   "printf 'let x = 1;\\n'  > /tmp/z2m-gate-good.uc"   || { bad "selftest: cannot stage good sample"; return; }
+  # broken MUST fail (rc!=0)
+  if ssh_ok "broken sample fails" "ucode $UCODE_COMPILE_FLAG /tmp/z2m-gate-broken.uc >/dev/null 2>&1"; then
+    bad "ucode syntax gate is ALWAYS-GREEN: broken sample compiled (wrong flag? ucode $UCODE_COMPILE_FLAG does not compile a file)"
+  else
+    ok "ucode syntax gate goes RED on a broken sample"
+  fi
+  # good MUST pass (rc==0)
+  if ssh_ok "good sample passes" "ucode $UCODE_COMPILE_FLAG /tmp/z2m-gate-good.uc >/dev/null 2>&1"; then
+    ok "ucode syntax gate goes GREEN on a good sample"
+  else
+    bad "ucode syntax gate is ALWAYS-RED: good sample failed (wrong flag? ucode $UCODE_COMPILE_FLAG rejects valid ucode)"
+  fi
+  ssh_ok "cleanup samples" "rm -f /tmp/z2m-gate-broken.uc /tmp/z2m-gate-good.uc" || true
 }
 
 want() { [ "$1" = "$2" ] && ok "$3" || bad "$3 (got '$1' want '$2')"; }
@@ -109,6 +144,7 @@ gate_01() {
 # ---- branch 02: status.json + ubus -------------------------------------------
 gate_02() {
   log "gate 02 — status.json + ubus status"
+  ucode_syntax_selftest
   ucode_syntax_check
   # status.json exists and is valid JSON with the three levels
   ssh_ok "status.json exists" test -f /tmp/zapret2-manager/status.json \
