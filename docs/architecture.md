@@ -132,12 +132,18 @@ for this uptime.
 While paused:
 
 - The watchdog (§6) skips its **entire** cycle — not just the recovery step.
-- The hotplug guard `90-zapret2-manager` (second-level safety) normally does
-  nothing: with `NFQWS2_ENABLE=0` effective, there is no running nfqws2 to
-  find. It only acts if it finds a running nfqws2 despite an active pause —
-  meaning the primary mechanism did not hold — in which case it stops the
-  process via upstream's own stop and logs a `source=hotplug` event. That event
-  is telemetry: it says the primary pause mechanism is not effective here.
+- The hotplug guard `90-zapret2-manager` is **telemetry-only** (fix/02-03):
+  with `NFQWS2_ENABLE=0` effective, there is no running nfqws2 to find, so it
+  does nothing. If it finds a running nfqws2 despite an active pause, the
+  primary mechanism did not hold — a serious condition — and it emits a
+  `source=hotplug`, `severity=crit` event. It does NOT stop the process: with
+  the primary mechanism in place, stopping is upstream's job (a later start is
+  a no-op while `NFQWS2_ENABLE=0`), and a guard that also stops would mask a
+  broken primary mechanism instead of surfacing it. If this event fires, the
+  operator must investigate why `NFQWS2_ENABLE=0` did not hold. The
+  primary-form assumption is [VERIFY:ROUTER] via `tools/smoke.sh
+  pause_fw_effect`; if it does not hold, revert to the fallback (active stop +
+  `warn` event) and record the hole in `upstream-mapping.md`.
 
 **Open question, one flag in one place.** Does `NFQWS2_ENABLE=0` stop only the
 daemons, or also prevent firewall rule installation? If it stops only daemons,

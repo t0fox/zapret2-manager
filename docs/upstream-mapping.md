@@ -54,6 +54,7 @@ mechanism (later branch), never a raw file stomp.
 | Install the zapret2 rules | `/etc/init.d/zapret2 start_fw` | control | installs the zapret2 nft rules when missing. Touches the zapret2 table only. |
 | Re-read interface sets | `/etc/init.d/zapret2 reload_ifsets` | control | re-reads ifset membership after an interface came/went. Distinct from start_fw. |
 | Raise rules on interface events | hotplug hook `90-zapret2` | stay out | upstream owns it; pause uses NFQWS2_ENABLE so its start is a no-op (REVIEW 1) |
+| Pause telemetry on ifup | our `90-zapret2-manager` hook | telemetry | with NFQWS2_ENABLE=0 holding (point 1 closed), the guard does NOT stop nfqws2; it only emits a `severity=crit` event if it finds a running process despite an active pause (primary mechanism failed). [VERIFY:ROUTER] via smoke.sh pause_fw_effect; if NFQWS2_ENABLE=0 does not hold, revert to fallback (active stop + warn) and record the hole here. |
 | Full firewall restart | — | **forbidden** | never a wholesale firewall stop/restart (incident r12 + a factory reset) |
 
 *Confirmed (external source)*: the full, exhaustive list of
