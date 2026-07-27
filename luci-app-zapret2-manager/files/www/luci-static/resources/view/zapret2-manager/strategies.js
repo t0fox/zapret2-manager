@@ -29,6 +29,7 @@
 // object argument would nest. reject: true makes ubus errors reject into
 // .catch() instead of resolving as a numeric code.
 const callStatus = rpc.declare({ object: 'zapret2-manager', method: 'status', reject: true });
+const callProfilesList = rpc.declare({ object: 'zapret2-manager', method: 'profiles_list', reject: true });
 const callPassthrough = rpc.declare({
 	object: 'zapret2-manager', method: 'passthrough', params: ['enabled'], reject: true
 });
@@ -37,8 +38,9 @@ const callRollback = rpc.declare({ object: 'zapret2-manager', method: 'rollback'
 
 // Backend methods this page waits for (rendered as the reason edit actions
 // are disabled — also the dependency list for the backend agent).
+// profiles_list EXISTS (SLICE 1) and feeds the profiles section below.
 const MISSING_METHODS = [
-	'profiles_list', 'profiles_create', 'profiles_update', 'profiles_clone',
+	'profiles_create', 'profiles_update', 'profiles_clone',
 	'profiles_delete', 'profiles_validate', 'profiles_apply'
 ];
 
@@ -56,10 +58,23 @@ return L.view.extend({
 	title: _('Strategies'),
 
 	load: function () {
-		return callStatus().then(function (res) {
+		// status and profiles_list are INDEPENDENT reads: one may fail while
+		// the other succeeds, and each failure renders its own honest
+		// "Unavailable" (never a fabricated empty list).
+		var statusP = callStatus().then(function (res) {
 			return { loadError: null, data: res || null };
 		}).catch(function (err) {
 			return { loadError: String(err), data: null };
+		});
+		var profilesP = callProfilesList().then(function (res) {
+			res = res || {};
+			if (res.ok === false) return { loadError: (res.error && res.error.message) || res.error || 'profiles_list failed', data: res };
+			return { loadError: null, data: res };
+		}).catch(function (err) {
+			return { loadError: String(err), data: null };
+		});
+		return Promise.all([statusP, profilesP]).then(function (r) {
+			return { loadError: r[0].loadError, data: r[0].data, profilesError: r[1].loadError, profilesData: r[1].data };
 		});
 	},
 
@@ -67,6 +82,8 @@ return L.view.extend({
 		envelope = envelope || { loadError: 'no data', data: null };
 		var data = envelope.data || {};
 		var unavailable = envelope.loadError || data.error || null;
+		var profData = envelope.profilesData || null;
+		var profUnavailable = envelope.profilesError || (profData && profData.ok === false ? 'profiles_list failed' : null);
 
 		var rt = data.runtime || {};
 		var ap = data.applied || {};
@@ -77,7 +94,7 @@ return L.view.extend({
 		var container = E('div', { 'class': 'cbi-map' }, [
 			E('h2', { 'name': 'content' }, _('Zapret 2 Manager — Strategies')),
 			E('div', { 'class': 'cbi-value-description' },
-				_('Profiles and desync strategies of the zapret2 engine. Read from the live status contract; editing waits for backend methods and is honestly disabled until then.'))
+				_('Profiles and desync strategies of the zapret2 engine. Applied profiles are parsed losslessly by the backend (profiles_list); editing waits for backend methods and is honestly disabled until then.'))
 		]);
 
 		if (unavailable) {
@@ -93,10 +110,16 @@ return L.view.extend({
 			this.row(_('Service state'), unavailable ? _('Unavailable') : this.serviceStateBadge(data.serviceState)),
 			this.row(_('Profiles (runtime)'),
 				(rt.profileCount != null) ? rt.profileCount : _('Unavailable')),
+			this.row(_('Profiles (applied, backend)'),
+				profUnavailable ? _('Unavailable')
+					: (profData && profData.profileCount != null ? profData.profileCount : _('Unavailable'))),
 			this.row(_('Engine instances'),
 				unavailable ? _('Unavailable') : (rt.count != null ? rt.count : insts.length)),
 			this.row(_('Source'), drift.divergent ? _('applied + draft (divergent — see below)') : _('applied'))
 		]));
+
+		// ---- applied profiles from the backend (profiles_list) -------------
+		container.appendChild(this.backendProfilesSection(profData, profUnavailable));
 
 		// ---- per-instance argv ----------------------------------------------
 		container.appendChild(this.instancesSection(insts, unavailable));
@@ -133,6 +156,99 @@ return L.view.extend({
 		container.appendChild(this.passthroughSection(data.serviceState === 'passthrough', unavailable));
 
 		return container;
+	},
+
+	// ---- backend profiles (profiles_list envelope, schema 1) -----------------
+	backendProfilesSection: function (profData, profUnavailable) {
+		var node = E('div', { 'class': 'cbi-section' }, [
+			E('h3', {}, _('Applied profiles (backend parse)'))
+		]);
+		if (profUnavailable) {
+			node.appendChild(E('div', { 'class': 'cbi-value-description' },
+				_('Unavailable — profiles_list: ') + profUnavailable));
+			return node;
+		}
+		if (!profData) {
+			node.appendChild(E('div', { 'class': 'cbi-value-description' }, _('Unavailable — no profiles data.')));
+			return node;
+		}
+		var src = profData.source || {};
+		var rt = profData.roundtrip || {};
+		node.appendChild(this.row(_('Parse status'), profData.parseStatus || _('Unavailable')));
+		node.appendChild(this.row(_('Preserve round trip'),
+			rt.preserve === 'identical' ? _('identical (lossless)') : (rt.preserve || _('Unavailable'))));
+		node.appendChild(this.row(_('Applied config'),
+			(src.configPath || _('Unavailable')) +
+			(src.configSha256 ? ' · sha256 ' + String(src.configSha256).substring(0, 12) + '…' : '')));
+
+		var profiles = profData.profiles || [];
+		if (!profiles.length) {
+			node.appendChild(E('div', { 'class': 'cbi-value-description' },
+				profData.parseStatus === 'unavailable'
+					? _('NFQWS2_OPT is not set in the applied config — no profiles applied.')
+					: _('No profiles in the applied options string.')));
+		}
+		profiles.forEach(function (p) { node.appendChild(this.profileCard(p)); }, this);
+
+		var diags = profData.diagnostics || [];
+		if (diags.length) {
+			var list = E('div', { 'class': 'cbi-value' });
+			diags.forEach(function (d) {
+				var cls = d.severity === 'error' ? 'bad' : 'warn';
+				list.appendChild(E('div', { 'class': 'cbi-value-field' }, [
+					E('span', { 'class': 'zonebadge ' + cls }, d.severity || '?'),
+					' ' + (d.code || '') + (d.profileIndex != null ? ' (profile ' + d.profileIndex + ')' : '') + ': ' + (d.message || '')
+				]));
+			});
+			node.appendChild(E('h4', {}, _('Parse diagnostics')));
+			node.appendChild(list);
+		}
+		return node;
+	},
+
+	profileCard: function (p) {
+		var title = '#' + p.index + (p.name ? ' — ' + p.name : ' — ' + _('(unnamed)'));
+		if (p.protocol) title += ' · ' + p.protocol;
+		if (p.enabled === false) title += ' · ' + _('disabled (--skip)');
+		var card = E('div', { 'class': 'cbi-section' }, [E('h4', {}, title)]);
+
+		var ports = [];
+		(p.tcpPorts || []).forEach(function (e) { ports.push('tcp: ' + e.value); });
+		(p.udpPorts || []).forEach(function (e) { ports.push('udp: ' + e.value); });
+		card.appendChild(this.row(_('Ports'), ports.length ? ports.join(' · ') : _('none')));
+
+		var l7 = (p.l7Filters || []).map(function (e) { return e.value; });
+		if (l7.length) card.appendChild(this.row(_('L7 filter'), l7.join(', ')));
+
+		var lists = [];
+		(p.hostlists || []).forEach(function (e) { lists.push(e.option + '=' + e.value); });
+		(p.ipsets || []).forEach(function (e) { lists.push(e.option + '=' + e.value); });
+		if (lists.length) card.appendChild(this.row(_('Lists'), lists.join(', ')));
+
+		var desync = p.luaDesync || [];
+		if (desync.length) {
+			var dl = E('div', { 'class': 'cbi-value' }, [
+				E('label', { 'class': 'cbi-value-title' }, _('lua-desync (opaque)'))
+			]);
+			var field = E('div', { 'class': 'cbi-value-field' });
+			desync.forEach(function (e) {
+				var nv = e.nativeValidation || {};
+				field.appendChild(E('div', {}, [
+					E('code', { 'style': 'word-break:break-all' }, e.raw),
+					' ',
+					E('span', { 'class': 'zonebadge' }, _('native: ') + (nv.status || 'not_checked'))
+				]));
+			});
+			dl.appendChild(field);
+			card.appendChild(dl);
+		}
+
+		var unk = p.unknownOptions || [];
+		if (unk.length) {
+			card.appendChild(this.row(_('Unknown/preserved'),
+				unk.map(function (e) { return e.strayWord ? e.value : (e.option + (e.value != null ? '=' + e.value : '')); }).join(' ')));
+		}
+		return card;
 	},
 
 	instancesSection: function (insts, unavailable) {

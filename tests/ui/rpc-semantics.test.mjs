@@ -381,7 +381,105 @@ test('monitor: failed poll keeps last-good data, shows STALE, never hangs', asyn
 	assert.ok(statusCalls >= 3, 'expected load + two poll ticks to each issue one status call');
 });
 
-// ---- 6. overview: passthrough wire + reject gate (no longer excluded) --------
+// ---- 6. strategies: profiles_list read path ------------------------------------
+
+const PROFILES_FIXTURE = {
+	ok: true, schema: 1,
+	source: { configPath: '/opt/zapret2/config', configPresent: true, optPresent: true, optVar: 'NFQWS2_OPT', configSha256: 'abcdef0123456789' },
+	parseStatus: 'success', profileCount: 2,
+	profiles: [
+		{
+			index: 0, name: null, nameSource: null, nameRecords: [], enabled: true, protocol: 'tcp',
+			tcpPorts: [{ option: '--filter-tcp', value: '80', tokenIndex: 1 }], udpPorts: [],
+			l7Filters: [{ option: '--filter-l7', value: 'http', tokenIndex: 2 }],
+			payloads: [], outboundRanges: [], inboundRanges: [],
+			hostlists: [], hostlistExcludes: [], ipsets: [], ipsetExcludes: [], blobs: [], luaInit: [],
+			luaDesync: [{
+				raw: 'fake:blob=fake_default_http:tcp_md5', tokenIndex: 5,
+				catalogHints: { functionName: 'fake', referencedBlobs: ['fake_default_http'], fragmentCount: 3 },
+				nativeValidation: { status: 'not_checked', entryPoint: null, coverage: {}, diagnostics: [] }
+			}],
+			passthroughOptions: [], unknownOptions: [{ option: null, value: '<HOSTLIST>', strayWord: true, tokenIndex: 3 }],
+			sourceSpan: { start: 0, end: 100 }
+		},
+		{
+			index: 1, name: 'Games', nameSource: 'new',
+			nameRecords: [{ value: 'Games', via: 'new', tokenIndex: 6 }], enabled: true, protocol: 'udp',
+			tcpPorts: [], udpPorts: [{ option: '--filter-udp', value: '443', tokenIndex: 7 }],
+			l7Filters: [{ option: '--filter-l7', value: 'quic', tokenIndex: 8 }],
+			payloads: [], outboundRanges: [], inboundRanges: [],
+			hostlists: [], hostlistExcludes: [], ipsets: [], ipsetExcludes: [], blobs: [], luaInit: [],
+			luaDesync: [{
+				raw: 'fake:blob=fake_default_quic:repeats=6', tokenIndex: 10,
+				catalogHints: { functionName: 'fake', referencedBlobs: ['fake_default_quic'], fragmentCount: 3 },
+				nativeValidation: { status: 'not_checked', entryPoint: null, coverage: {}, diagnostics: [] }
+			}],
+			passthroughOptions: [], unknownOptions: [],
+			sourceSpan: { start: 100, end: 200 }
+		}
+	],
+	diagnostics: [],
+	roundtrip: { preserve: 'identical', diagnostics: [] },
+	nativeValidation: { status: 'not_checked', entryPoint: null, coverage: {}, diagnostics: [] },
+	provenance: { source: 'applied', reader: 'apply.uc read_var', model: 'strategy-model.md v1', upstreamCommit: 'd3b3011', configPath: '/opt/zapret2/config' }
+};
+
+test('strategies: profiles_list renders backend profiles (names, opaque lua-desync, round trip)', async () => {
+	const w = makeWorld({
+		status: { type: 'ok', value: STATUS_FIXTURE },
+		profiles_list: { type: 'ok', value: PROFILES_FIXTURE }
+	});
+	const view = loadView(readViewSource('strategies'), 'strategies', w);
+	const envelope = await view.load();
+	assert.equal(envelope.profilesError, null, 'profiles_list must load without error');
+	const root = view.render(envelope);
+	const text = collectText(root).join(' | ');
+	assert.ok(text.includes('Games'), 'backend profile name "Games" must render');
+	assert.ok(text.includes('fake:blob=fake_default_http:tcp_md5'), 'opaque lua-desync raw must render verbatim');
+	assert.ok(text.includes('identical'), 'preserve round-trip state must render');
+	assert.ok(text.includes('<HOSTLIST>'), 'preserved upstream placeholder must render');
+	const calls = w.calls.filter((c) => c.method === 'profiles_list');
+	assert.ok(calls.length >= 1, 'the view must call profiles_list');
+});
+
+test('strategies: profiles_list ubus error → honest Unavailable, zero fabricated profiles', async () => {
+	const w = makeWorld({
+		status: { type: 'ok', value: STATUS_FIXTURE },
+		profiles_list: { type: 'ubusError', code: 5 }
+	});
+	const view = loadView(readViewSource('strategies'), 'strategies', w);
+	const envelope = await view.load();
+	assert.ok(envelope.profilesError !== null,
+		'with reject:true a profiles_list ubus error rejects into profilesError');
+	const root = view.render(envelope);
+	const text = collectText(root).join(' | ');
+	assert.ok(text.includes('Unavailable'), 'profiles section must render Unavailable on backend error');
+	assert.ok(!text.includes('Games'), 'no fabricated profile names may appear on backend error');
+});
+
+test('strategies: ok:false (ETARGET) envelope → Unavailable, not an empty-profile fabrication', async () => {
+	const w = makeWorld({
+		status: { type: 'ok', value: STATUS_FIXTURE },
+		profiles_list: {
+			type: 'ok',
+			value: {
+				ok: false, schema: 1,
+				error: { code: 'ETARGET', message: 'applied config is unreadable or absent' },
+				parseStatus: 'unavailable', profileCount: 0, profiles: [], diagnostics: [],
+				roundtrip: { preserve: 'skipped', diagnostics: [] },
+				nativeValidation: { status: 'not_checked' }, provenance: { source: 'applied' }
+			}
+		}
+	});
+	const view = loadView(readViewSource('strategies'), 'strategies', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	const text = collectText(root).join(' | ');
+	assert.ok(text.includes('Unavailable'), 'ETARGET envelope must render Unavailable');
+	assert.ok(!text.includes('Games'), 'no fabricated profiles on ETARGET');
+});
+
+// ---- 7. overview: passthrough wire + reject gate (no longer excluded) --------
 
 test('overview: callPassthrough is declared with params:[enabled] + reject:true (fixed → green)', () => {
 	const src = readViewSource('overview');

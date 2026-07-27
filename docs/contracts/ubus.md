@@ -24,6 +24,7 @@ denial (empty page, no error).
 | `passthrough` | `{enabled: bool}` | mutate | yes (90s) | Toggle the no-strategy profile; 90s rollback. |
 | `confirm_alive` | none | mutate | — | Cancel a pending 90s rollback (the "link OK" button). |
 | `rollback` | none | mutate | — | Force rollback to last-good now (manual). |
+| `profiles_list` | none | read | no | Applied `NFQWS2_OPT` parsed LOSSLESSLY into profiles (schema 1): per-profile name/protocol/filters/hostlists/opaque `luaDesync` hints, manager diagnostics, preserve round-trip state, native-validation vocabulary (`not_checked`/`partial`/`rejected`/`unavailable` — never `valid`), provenance. Read-only; parse errors degrade to `parseStatus: partial`, a missing config to `ETARGET`, an unset opt to `parseStatus: unavailable`. |
 
 **Read vs mutate.** `status` is the only read. Everything else changes state
 and arms the 90s rollback snapshot. Mutating calls do not block the link they

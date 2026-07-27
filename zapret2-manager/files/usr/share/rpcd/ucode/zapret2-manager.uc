@@ -132,6 +132,23 @@ function lists_set_method(req) {
 	} catch (e) { return { ok: false, error: 'parse failed', raw: out }; }
 }
 
+// ---- profiles methods (strategy read path — SLICE 1) -----------------------
+const PROFILES_CLI = '/usr/libexec/zapret2-manager/profiles-cli.uc';
+function profiles_action(sub) {
+	let cmd = '/usr/bin/ucode ' + PROFILES_CLI + ' ' + sub + ' 2>/dev/null';
+	let p = popen(cmd, 'r');
+	if (!p) return { ok: false, error: 'popen failed' };
+	let out = p.read('all');
+	if (!out) out = '';
+	p.close();
+	try {
+		let parsed = json(out);
+		if (parsed != null) return parsed;
+		return { ok: false, error: 'no output', raw: out };
+	} catch (e) { return { ok: false, error: 'parse failed', raw: out }; }
+}
+function profiles_list_method(req) { return profiles_action('list'); }
+
 // Signature: top-level key == ubus object name (matches ACL). Methods nested.
 // Signature: top-level key == ubus object name (matches ACL). Per the rpcd
 // ucode plugin contract (verified against the on-device `luci` plugin):
@@ -152,6 +169,7 @@ return {
 		passthrough:       { args: { enabled: 'boolean' }, call: function (req) { return passthrough_method(req); } },
 		lists_get:         { call: function (req) { return lists_get_method(req); } },
 		lists_check_domain: { args: { domain: 'string' }, call: function (req) { return lists_check_domain_method(req); } },
-		lists_set:         { args: { edit: 'string' }, call: function (req) { return lists_set_method(req); } }
+		lists_set:         { args: { edit: 'string' }, call: function (req) { return lists_set_method(req); } },
+		profiles_list:     { call: function (req) { return profiles_list_method(req); } }
 	}
 };

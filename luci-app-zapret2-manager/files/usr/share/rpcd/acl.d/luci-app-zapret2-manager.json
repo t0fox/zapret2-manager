@@ -3,7 +3,7 @@
 		"description": "Zapret 2 Manager — overview + service control + lists",
 		"read": {
 			"ubus": {
-				"zapret2-manager": [ "status", "lists_get", "lists_check_domain" ]
+				"zapret2-manager": [ "status", "lists_get", "lists_check_domain", "profiles_list" ]
 			},
 			"uci": [ "zapret2" ]
 		},
