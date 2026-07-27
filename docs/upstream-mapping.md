@@ -54,6 +54,7 @@ mechanism (later branch), never a raw file stomp.
 | Install the zapret2 rules | `/etc/init.d/zapret2 start_fw` | control | installs the zapret2 nft rules when missing. Touches the zapret2 table only. |
 | Re-read interface sets | `/etc/init.d/zapret2 reload_ifsets` | control | re-reads ifset membership after an interface came/went. Distinct from start_fw. |
 | Raise rules on interface events | hotplug hook `90-zapret2` | stay out | upstream owns it; pause uses NFQWS2_ENABLE so its start is a no-op (REVIEW 1) |
+| Pause telemetry on ifup | our `90-zapret2-manager` hook | telemetry | with NFQWS2_ENABLE=0 holding (point 1 closed), the guard does NOT stop nfqws2; it only emits a `severity=crit` event if it finds a running process despite an active pause (primary mechanism failed). [VERIFY:ROUTER] via smoke.sh pause_fw_effect; if NFQWS2_ENABLE=0 does not hold, revert to fallback (active stop + warn) and record the hole here. |
 | Full firewall restart | — | **forbidden** | never a wholesale firewall stop/restart (incident r12 + a factory reset) |
 
 *Confirmed (external source)*: the full, exhaustive list of
@@ -90,17 +91,28 @@ or the file is absent, rotation is a skip — not an error, not a warning.
 ## Passthrough (manager entity, no upstream option)
 
 Passthrough is OURS — upstream has no passthrough UCI option and will not grow
-one. It is modelled as a **profile with no strategies**: instance up, filters
-in place, no lua-desync argument passed. It is a property of the generated
-nfqws2 options string, so it flows through config generation, rolls back by the
-standard mechanism, and is visible in the live argv. It is NOT a UCI flag
-(would desync and create a 4th state level).
+one. It is a property of the nfqws2 options string: instance up, filters and
+ports in place, no `--lua-desync` argument passed. It is NOT a UCI flag (would
+desync from reality and create a 4th state level). The active profile is
+recorded in DRAFT state for the UI, but the ENFORCEMENT is on the applied
+config and the live argv, not on a flag.
 
-**[VERIFY:ROUTER]** actual enforcement on the live argv (no fakes sent) depends
-on the config-generation branch rendering the no-strategy profile; until then
-passthrough is modelled in draft state and surfaced in status, not yet enforced
-on the running daemon → smoke.sh 05 (`ubus call ... passthrough` toggles the
-active profile; argv verification deferred to the config-generation branch).
+ON takes the CURRENT applied `NFQWS2_OPT`, strips every `--lua-desync` arg
+from it (keeping `--lua-init`, `--blob`, `--filter-tcp`, ports, etc. unchanged
+— order and separators preserved), and writes the stripped string back to
+`/opt/zapret2/config` through `apply.uc` (the single writer). The original
+string is saved to `last-good/` so OFF restores it. Both ON and OFF snapshot +
+arm the 90s rollback, so a passthrough that breaks the link auto-reverts. This
+is a TRANSFORM of the existing string, not the from-profiles CONSTRUCTOR (that
+renderer is still deferred to the strategy-editor branch, which will extend
+`apply.uc`).
+
+**[VERIFY:ROUTER]** enforcement is now wired (the applied `NFQWS2_OPT` carries
+no `--lua-desync` after ON; the live argv reflects it after the restart) →
+smoke.sh 05: `ubus call zapret2-manager passthrough '{"enabled":true}'`, then
+read `/proc/<pid>/cmdline` (or `nfqws2-cmdline`) and assert NO `--lua-desync`
+token is present while the daemon is up and the nft table is installed; OFF
+restores the original and the `--lua-desync` args return.
 
 ## Draft state (manager-only)
 

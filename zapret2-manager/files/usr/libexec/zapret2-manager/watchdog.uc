@@ -25,7 +25,6 @@
 //   ucode watchdog.uc check    — one cycle and exit (smoke.sh)
 
 import { readfile, writefile, stat, mkdir, unlink, popen } from 'fs';
-import { parse as jparse, stringify as jstringify } from 'json';
 import { NFQUEUE, QLEN_WARN, QLEN_CRIT_CONSECUTIVE,
 	DAEMON, NFT_TABLE, PATHS } from './constants.uc';
 import { parse_queue } from './qlen.uc';
@@ -45,25 +44,27 @@ function sh(cmd) {
 	if (!p) return '';
 	let out = p.read('all');
 	p.close();
-	return out ?? '';
+	return out ? out : '';
 }
 
 function run(cmd) {
 	let p = popen(cmd + ' 2>&1', 'r');
-	let out = p ? (p.read('all') ?? '') : '';
-	let rc = p ? p.close() : -1;
+	if (!p) return { out: '', rc: -1 };
+	let out = p.read('all');
+	if (!out) out = '';
+	let rc = p.close();
 	return { out: out, rc: rc };
 }
 
 function now() { return time(); }
 
 function read_state() {
-	try { let raw = readfile(STATE_FILE); return raw ? jparse(raw) : {}; }
+	try { let raw = readfile(STATE_FILE); return raw ? json(raw) : {}; }
 	catch (e) { return {}; }
 }
 
 function write_state(st) {
-	try { mkdir('/tmp/zapret2-manager'); writefile(STATE_FILE, jstringify(st) + '\n'); }
+	try { mkdir('/tmp/zapret2-manager'); writefile(STATE_FILE, sprintf("%J", st) + '\n'); }
 	catch (e) { }
 }
 
@@ -75,12 +76,13 @@ function event(source, category, severity, msg, extra) {
 		mkdir('/tmp/zapret2-manager');
 		let ts = trim(sh('date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null'));
 		if (!length(ts)) ts = '' + now();
-		let prev = readfile(PATHS.events_ndjson) ?? '';
+		let prev = readfile(PATHS.events_ndjson);
+		if (!prev) prev = '';
 		let id = source + '-' + now() + '-' + length(split(prev, '\n'));
 		let ev = extra ? extra : {};
 		ev.schema = 'events.v1'; ev.ts = ts; ev.id = id;
 		ev.category = category; ev.severity = severity; ev.source = source; ev.msg = msg;
-		writefile(PATHS.events_ndjson, prev + jstringify(ev) + '\n');
+		writefile(PATHS.events_ndjson, prev + sprintf("%J", ev) + '\n');
 	} catch (e) { }
 }
 
@@ -103,7 +105,8 @@ function find_pids() {
 	for (let i = 0; i < length(names); i++) {
 		let name = names[i];
 		if (!match(name, /^[0-9]+$/)) continue;
-		let cl = readfile('/proc/' + name + '/cmdline') ?? '';
+		let cl = readfile('/proc/' + name + '/cmdline');
+		if (!cl) cl = '';
 		if (!length(cl)) continue;
 		if (index(replace(cl, '\x00', ' '), DAEMON) >= 0)
 			push(pids, +name);
@@ -123,7 +126,8 @@ function clk_tck() {
 function cpu_ticks(pids) {
 	let total = 0;
 	for (let i = 0; i < length(pids); i++) {
-		let s = readfile('/proc/' + pids[i] + '/stat') ?? '';
+		let s = readfile('/proc/' + pids[i] + '/stat');
+		if (!s) s = '';
 		let p = rindex(s, ')');
 		if (p < 0) continue;
 		let f = split(trim(substr(s, p + 1)), /[ ]+/);
@@ -147,18 +151,19 @@ function cpu_ticks(pids) {
 // never emit a negative delta.
 
 function read_qlen_prev() {
-	try { let raw = readfile(QLEN_STATE); return raw ? jparse(raw) : null; }
+	try { let raw = readfile(QLEN_STATE); return raw ? json(raw) : null; }
 	catch (e) { return null; }
 }
 
 function write_qlen_state(st) {
-	try { mkdir('/tmp/zapret2-manager'); writefile(QLEN_STATE, jstringify(st) + '\n'); }
+	try { mkdir('/tmp/zapret2-manager'); writefile(QLEN_STATE, sprintf("%J", st) + '\n'); }
 	catch (e) { }
 }
 
 function qlen_cycle(st) {
 	let q = parse_queue();
-	let prev = read_qlen_prev() ?? {};
+	let prev = read_qlen_prev();
+	if (!prev) prev = {};
 	let t = now();
 
 	if (!q.registered) {
@@ -177,12 +182,16 @@ function qlen_cycle(st) {
 	}
 
 	// queue_total: instantaneous, three-consecutive rule.
-	let consecutive = (q.queue_total > QLEN_WARN) ? (prev.consecutive ?? 0) + 1 : 0;
+	let prev_consecutive = (prev && prev.consecutive != null) ? prev.consecutive : 0;
+	let consecutive = (q.queue_total > QLEN_WARN) ? prev_consecutive + 1 : 0;
 
 	// dropped deltas (cumulative → delta vs prev cycle, with reset handling).
 	let dd = null, udd = null;
-	let prev_d = prev.prev_dropped ?? null;
-	let prev_ud = prev.prev_user_dropped ?? null;
+	// explicit key-existence + null checks (no nullish-coalescing — point 6).
+	// 0 is a valid counter value and must be preserved, so test != null, not
+	// truthiness.
+	let prev_d = (prev && prev.prev_dropped != null) ? prev.prev_dropped : null;
+	let prev_ud = (prev && prev.prev_user_dropped != null) ? prev.prev_user_dropped : null;
 	if (prev_d == null) {
 		// first observed cycle: no baseline yet, just record it.
 	} else if (q.queue_dropped < prev_d) {
@@ -237,7 +246,8 @@ function qlen_cycle(st) {
 }
 
 function free_ram_kb() {
-	let raw = readfile('/proc/meminfo') ?? '';
+	let raw = readfile('/proc/meminfo');
+	if (!raw) raw = '';
 	let m = match(raw, /MemAvailable:[ ]+([0-9]+)/);
 	if (m) return +m[1];
 	// fallback: MemFree + Buffers + Cached
@@ -356,7 +366,7 @@ function check_cycle() {
 
 let mode = ARGV[0];
 if (mode == 'check') {
-	print(jstringify(check_cycle()) + '\n');
+	print(sprintf("%J", check_cycle()) + '\n');
 } else {
 	// daemon loop
 	while (true) {

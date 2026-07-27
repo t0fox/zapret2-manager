@@ -26,20 +26,38 @@
 // [VERIFY:ROUTER] exact ucode API (popen close rc, time) — smoke.sh 06.
 
 import { readfile, writefile, stat, mkdir, unlink, popen } from 'fs';
-import { parse as jparse, stringify as jstringify } from 'json';
 import { PATHS, PASSTHROUGH_PROFILE_NAME,
-	NFQWS2_ENABLE_VAR, PAUSE_STOPS_FW } from './constants.uc';
+	NFQWS2_ENABLE_VAR, PAUSE_STOPS_FW,
+	ROLLBACK_TIMEOUT_ENABLED, ROLLBACK_TTL } from './constants.uc';
+import { read_var, set_var } from './apply.uc';
 
 const UPSTREAM_INIT = '/etc/init.d/zapret2';
 const LASTGOOD_DIR  = '/tmp/zapret2-manager/last-good';
+const PREV_ENABLE   = LASTGOOD_DIR + '/nfqws2_enable.prev';
 const PENDING       = '/tmp/zapret2-manager/pending-rollback';
-const ROLLBACK_TTL  = 90;
 
 function run(cmd) {
 	let p = popen(cmd + ' 2>&1', 'r');
-	let out = p ? (p.read('all') ?? '') : '';
-	let rc = p ? p.close() : -1;     // [VERIFY] popen close() returns exit code
+	if (!p) return { out: '', rc: -1 };
+	let out = p.read('all');
+	if (!out) out = '';
+	let rc = p.close();     // [VERIFY] popen close() returns exit code
 	return { out: out, rc: rc };
+}
+
+// sh() runs a command and returns its stdout (stderr discarded). event()
+// below uses it for the ISO timestamp. Pre-existing: service.uc called sh()
+// without defining it, so event() threw into its own try/catch and the WHOLE
+// event was silently dropped — pause/restart/rollback events were never
+// written. Defined here (matching status.uc/watchdog.uc) so pause events
+// actually fire. No optional-chaining or nullish-coalescing — explicit
+// truthiness check (point 6 clean).
+function sh(cmd) {
+	let p = popen(cmd + ' 2>/dev/null', 'r');
+	if (!p) return '';
+	let out = p.read('all');
+	p.close();
+	return out ? out : '';
 }
 
 // Append an events.v1 ndjson event. Telemetry never blocks: any failure is
@@ -50,7 +68,8 @@ function event(source, category, severity, msg, extra) {
 		mkdir('/tmp/zapret2-manager');
 		let ts = trim(sh('date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null'));
 		if (!length(ts)) ts = '' + time();
-		let prev = readfile(PATHS.events_ndjson) ?? '';
+		let prev = readfile(PATHS.events_ndjson);
+		if (!prev) prev = '';
 		// id unique within the file: source + unixseconds + current line count
 		let id = source + '-' + time() + '-' + length(split(prev, '\n'));
 		// Build the event on top of `extra` (avoids for-in object iteration, whose
@@ -58,7 +77,7 @@ function event(source, category, severity, msg, extra) {
 		let ev = extra ? extra : {};
 		ev.schema = 'events.v1'; ev.ts = ts; ev.id = id;
 		ev.category = category; ev.severity = severity; ev.source = source; ev.msg = msg;
-		let line = jstringify(ev) + '\n';
+		let line = sprintf("%J", ev) + '\n';
 		// best-effort append (read-modify-write; events are low-rate)
 		writefile(PATHS.events_ndjson, prev + line);
 	} catch (e) { }
@@ -81,23 +100,47 @@ function basename(p) {
 //
 // Setting NFQWS2_ENABLE in the APPLIED config is the pause mechanism: with
 // NFQWS2_ENABLE=0, upstream's start is a no-op by upstream's own logic. We do
-// NOT edit upstream's files; the write is done by the config-generation apply
-// mechanism, which renders the applied config (including NFQWS2_ENABLE) from
-// our draft state and writes it through the sanctioned apply path.
+// NOT edit upstream's files; the write goes through apply.uc, the SINGLE
+// sanctioned writer for /opt/zapret2/config. The previous value is captured
+// to last-good before the change and restored on resume (NOT hardcoded 1).
+// The change flows through the generation mechanism (snapshot_last_good +
+// schedule_rollback are called by the caller), so a pause that breaks the
+// link rolls back the same way as any edit — including the 90s timeout
+// rollback. The PAUSE_STOPS_FW flag and the smoke.sh pause_fw_effect check
+// answer whether NFQWS2_ENABLE=0 also clears fw rules (one constant, one
+// place). See docs/architecture.md §10.3 and apply.uc.
 //
-// [ASK] That apply mechanism is not yet built (the strategy-editor branch was
-// deferred). Until it lands, apply_nfqws2_enable() records the intent in draft
-// state and logs, but does not write the applied config — so the PRIMARY pause
-// mechanism is not yet effective and the guard hook remains the active stop.
-// When the apply branch lands, fill in the single write step here; the
-// PAUSE_STOPS_FW flag and the smoke.sh pause_fw_effect check do not change.
-// See the branch report's [ASK] section.
+// apply.uc is the apply MECHANISM (write a var), not the deferred full
+// options-string CONSTRUCTOR from profiles (strategy-editor branch). Writing
+// NFQWS2_ENABLE has no side effect on NFQWS2_OPT — set_var is surgical.
+
+// Capture/restore the pre-pause NFQWS2_ENABLE value alongside the last-good
+// config snapshot, so resume restores the real previous value, not a hard 1.
+function save_prev_enable(prev) {
+	try {
+		run('mkdir -p ' + LASTGOOD_DIR);
+		writefile(PREV_ENABLE, (prev == null ? '' : prev) + '\n');
+	} catch (e) { }
+}
+
+function read_prev_enable() {
+	try {
+		let raw = readfile(PREV_ENABLE);
+		if (!raw) return null;
+		let v = trim(raw);
+		return length(v) ? v : null;
+	} catch (e) { return null; }
+}
+
 function apply_nfqws2_enable(value) {
-	let st = read_state();
-	st.nfqws2_enable = value;   // 0 on pause, 1 on resume
-	write_state(st);
+	// Write through apply.uc (single writer). Re-capture the applied hash AFTER
+	// the write so drift sees the new config as the applied baseline (a
+	// snapshot_last_good just before this captured the pre-change hash; this
+	// overwrites it with the post-change hash that drift compares against).
+	set_var(NFQWS2_ENABLE_VAR, '' + value);
+	capture_applied_hash();
 	event('ui', 'config', 'info',
-		NFQWS2_ENABLE_VAR + '=' + value + ' intent recorded (apply pending config-generation branch)',
+		NFQWS2_ENABLE_VAR + '=' + value + ' written to /opt/zapret2/config via apply.uc',
 		{ var: NFQWS2_ENABLE_VAR, value: value });
 	return value;
 }
@@ -105,31 +148,47 @@ function apply_nfqws2_enable(value) {
 // ---- actions ----------------------------------------------------------------
 
 function start() {
+	// Resume from pause: clear the indicator and restore the PREVIOUS
+	// NFQWS2_ENABLE value captured at pause entry (not a hardcoded 1). If no
+	// prior pause stored a value, default to 1. A deliberate start means the
+	// link is alive, so CANCEL any armed rollback (otherwise a stale timer
+	// from the prior pause/restart could fire and flap the service).
 	set_paused(false);
-	apply_nfqws2_enable(1);
+	try { unlink(PENDING); } catch (e) { }
+	let prev = read_prev_enable();
+	let restored = (prev == null) ? 1 : prev;
+	apply_nfqws2_enable(restored);
 	let r = run(UPSTREAM_INIT + ' start');
-	event('ui', 'pause', 'info', 'start rc=' + r.rc, { reason: 'manual_ui', rc: r.rc });
+	event('ui', 'pause', 'info',
+		'start rc=' + r.rc + ' (resumed; NFQWS2_ENABLE=' + restored + ')',
+		{ reason: 'manual_ui', rc: r.rc, pause: 'exit', nfqws2_enable: restored });
 	return { ok: r.rc == 0, action: 'start', rc: r.rc, out: r.out };
 }
 
 function stop() {
-	// Pause: set the indicator, drive NFQWS2_ENABLE=0 through the config
-	// mechanism (no-op until the apply branch lands — see apply_nfqws2_enable),
-	// optionally stop_fw if NFQWS2_ENABLE=0 does not also stop fw rules
-	// (PAUSE_STOPS_FW, answered by smoke.sh pause_fw_effect), then stop the
-	// daemon. Snapshot + arm the 90s rollback so a pause that breaks the link
-	// is auto-reversed — pause is a diagnostic stance, not a persistent pref.
+	// Pause entry: capture the current NFQWS2_ENABLE BEFORE the change, snapshot
+	// the pre-pause config to last-good, store the previous value alongside it,
+	// then drive NFQWS2_ENABLE=0 through apply.uc. Optionally stop_fw if
+	// NFQWS2_ENABLE=0 does not also stop fw rules (PAUSE_STOPS_FW, answered by
+	// smoke.sh pause_fw_effect), then stop the daemon. Arm the 90s rollback so a
+	// pause that breaks the link is auto-reversed — pause is a diagnostic
+	// stance, not a persistent pref. With NFQWS2_ENABLE=0 in the applied config,
+	// an external `start` (init, hotplug, manual) is a no-op by upstream's own
+	// logic, so the pause survives even a restart of the service.
+	let prev = read_var(NFQWS2_ENABLE_VAR);
 	set_paused(true);
-	apply_nfqws2_enable(0);
 	snapshot_last_good();
+	save_prev_enable(prev);
+	apply_nfqws2_enable(0);
 	if (PAUSE_STOPS_FW)
 		run(UPSTREAM_INIT + ' stop_fw');
 	let r = run(UPSTREAM_INIT + ' stop');
 	schedule_rollback();
-	event('ui', 'pause', 'info', 'stop rc=' + r.rc + ' (paused; NFQWS2_ENABLE=0 intent)',
-		{ pause: 'enter', rc: r.rc });
+	event('ui', 'pause', 'info',
+		'stop rc=' + r.rc + ' (paused; NFQWS2_ENABLE=0; prev=' + (prev == null ? 'null' : prev) + ')',
+		{ pause: 'enter', rc: r.rc, prev: prev });
 	return { ok: r.rc == 0, action: 'stop', rc: r.rc, out: r.out, paused: true,
-		rollback_pending: true, rollback_ttl: ROLLBACK_TTL };
+		rollback_pending: ROLLBACK_TIMEOUT_ENABLED, rollback_ttl: ROLLBACK_TTL };
 }
 
 function restart() {
@@ -137,10 +196,10 @@ function restart() {
 	snapshot_last_good();
 	let r = run(UPSTREAM_INIT + ' restart');
 	schedule_rollback();
-	event('ui', 'restart', 'info', 'restart rc=' + r.rc + ' (rollback scheduled ' + ROLLBACK_TTL + 's)',
+	event('ui', 'restart', 'info', 'restart rc=' + r.rc + (ROLLBACK_TIMEOUT_ENABLED ? ' (rollback armed ' + ROLLBACK_TTL + 's)' : ' (snapshot taken; auto-rollback off by default)'),
 		{ reason: 'manual_ui', rc: r.rc, rollback_ttl: ROLLBACK_TTL });
 	return { ok: r.rc == 0, action: 'restart', rc: r.rc, out: r.out,
-		rollback_pending: true, rollback_ttl: ROLLBACK_TTL };
+		rollback_pending: ROLLBACK_TIMEOUT_ENABLED, rollback_ttl: ROLLBACK_TTL };
 }
 
 function restart_daemons() {
@@ -152,7 +211,7 @@ function restart_daemons() {
 	event('ui', 'restart', 'info', 'restart_daemons rc=' + r.rc,
 		{ reason: 'manual_ui', rc: r.rc });
 	return { ok: r.rc == 0, action: 'restart_daemons', rc: r.rc, out: r.out,
-		rollback_pending: true, rollback_ttl: ROLLBACK_TTL };
+		rollback_pending: ROLLBACK_TIMEOUT_ENABLED, rollback_ttl: ROLLBACK_TTL };
 }
 
 // start_fw — INSTALL the zapret2 nft rules (use when the rules are missing,
@@ -165,7 +224,7 @@ function start_fw() {
 	schedule_rollback();
 	event('ui', 'config', 'info', 'start_fw rc=' + r.rc, { rc: r.rc });
 	return { ok: r.rc == 0, action: 'start_fw', rc: r.rc, out: r.out,
-		rollback_pending: true, rollback_ttl: ROLLBACK_TTL };
+		rollback_pending: ROLLBACK_TIMEOUT_ENABLED, rollback_ttl: ROLLBACK_TTL };
 }
 
 // reload_ifsets — RE-READ interface sets after an interface came/went. Distinct
@@ -179,7 +238,7 @@ function reload_ifsets() {
 	schedule_rollback();
 	event('ui', 'config', 'info', 'reload_ifsets rc=' + r.rc, { rc: r.rc });
 	return { ok: r.rc == 0, action: 'reload_ifsets', rc: r.rc, out: r.out,
-		rollback_pending: true, rollback_ttl: ROLLBACK_TTL };
+		rollback_pending: ROLLBACK_TIMEOUT_ENABLED, rollback_ttl: ROLLBACK_TTL };
 }
 
 // ---- 90s rollback scaffold --------------------------------------------------
@@ -202,7 +261,7 @@ function capture_applied_hash() {
 			uci:    sha256_file(PATHS.uci_conf),
 			captured_at: time() };
 		mkdir('/tmp/zapret2-manager');
-		writefile('/tmp/zapret2-manager/applied.sha256', jstringify(st) + '\n');
+		writefile('/tmp/zapret2-manager/applied.sha256', sprintf("%J", st) + '\n');
 	} catch (e) { }
 }
 
@@ -216,9 +275,14 @@ function snapshot_last_good() {
 }
 
 function schedule_rollback() {
-	// (Re)arm a pending marker with an expiry timestamp + a detached timer.
-	// confirm_alive removes the marker; if it survives past the timer, the
-	// rollback action restores last-good and restarts.
+	// The MECHANISM stays (rollback / confirm_alive + the snapshot in
+	// snapshot_last_good), but the AUTOMATIC timer is NOT armed by default —
+	// ROLLBACK_TIMEOUT_ENABLED is false until the timer path is confirmed on
+	// the device. A premature rollback drops the link, and a stale-timer
+	// defect was already found here. When enabled, arm a pending marker with
+	// an expiry timestamp + a detached timer; confirm_alive removes it; if it
+	// survives past the timer, rollback() restores last-good and restarts.
+	if (!ROLLBACK_TIMEOUT_ENABLED) return;
 	try {
 		writefile(PENDING, '' + (time() + ROLLBACK_TTL) + '\n');
 		run('setsid sh -c "sleep ' + ROLLBACK_TTL + '; [ -f ' + PENDING +
@@ -232,13 +296,35 @@ function confirm_alive() {
 	return { ok: true, action: 'confirm_alive', rollback_pending: false };
 }
 
-function rollback() {
+function rollback(force) {
 	try {
+		// MANUAL rollback (force=true, from the ubus 'rollback' method) restores
+		// last-good UNCONDITIONALLY — the operator is explicitly undoing a bad
+		// apply/passthrough. This is the safety net; it must work even when the
+		// automatic timer is OFF (ROLLBACK_TIMEOUT_ENABLED=false, the default),
+		// because then PENDING is never written and a PENDING gate would make
+		// manual rollback a silent no-op.
+		//
+		// TIMER rollback (force=false, from the detached sleep timer) honors the
+		// expiry timestamp: a stale timer must NOT roll back if the marker is
+		// gone or its expiry is still in the future (a newer action re-armed it).
+		if (!force) {
+			let pending = readfile(PENDING);
+			if (!pending) return { ok: true, action: 'rollback', skipped: true,
+				reason: 'no pending rollback marker' };
+			let expiry = +trim(pending);
+			if (expiry && time() < expiry)
+				return { ok: true, action: 'rollback', skipped: true,
+					reason: 'marker expiry in the future (a newer action re-armed it)' };
+		}
 		if (stat(LASTGOOD_DIR + '/' + basename(PATHS.applied_conf)))
 			run('cp -f ' + LASTGOOD_DIR + '/' + basename(PATHS.applied_conf) + ' ' + PATHS.applied_conf);
 		if (stat(LASTGOOD_DIR + '/' + basename(PATHS.uci_conf)))
 			run('cp -f ' + LASTGOOD_DIR + '/' + basename(PATHS.uci_conf) + ' ' + PATHS.uci_conf);
 		try { unlink(PENDING); } catch (e) { }
+		// Re-capture the applied hash for the RESTORED config so drift does not
+		// false-positive against the pre-rollback (changed) baseline.
+		capture_applied_hash();
 		let r = run(UPSTREAM_INIT + ' restart');
 		event('ui', 'rollback', 'crit',
 			'ROLLBACK applied (link not confirmed within ' + ROLLBACK_TTL + 's) rc=' + r.rc,
@@ -251,50 +337,124 @@ function rollback() {
 
 // ---- passthrough (our entity; no upstream option) ---------------------------
 //
-// Passthrough is NOT a UCI flag (upstream has no passthrough option and will
-// not grow one; a separate flag would desync from reality and create a 4th
-// state level). It is modelled as a PROFILE WITH NO STRATEGIES: the instance
-// is up, filters are in place, and not a single lua-desync argument is passed
-// to nfqws2. Passthrough is therefore a property of the generated nfqws2
-// options string — it flows through config generation, rolls back by the
-// standard mechanism, and is visible in the live process argv.
+// Passthrough is NOT a UCI flag (upstream has no passthrough option; a flag
+// would desync from reality and create a 4th state level). It is a property
+// of the nfqws2 options string: the instance is up, filters and ports are in
+// place, and not a single --lua-desync argument is passed. It flows through
+// apply.uc (the single writer), rolls back by the standard 90s mechanism, and
+// is visible in the live process argv AND in the applied config — not only in
+// our draft state.
 //
-// What this function owns: toggling which profile is active in the draft
-// state. The active profile is recorded as { name, strategies: [] } for
-// passthrough-on. Applying that profile to the running daemon (rendering the
-// no-lua-desync argv and starting nfqws2 with it) is the config-generation
-// mechanism's job; until that branch lands, passthrough is modelled here and
-// surfaced in status, but not yet enforced on the live argv. See
-// docs/upstream-mapping.md and the [ASK] note in the branch report.
+// ON:  snapshot + save the current NFQWS2_OPT to last-good, strip every
+//      --lua-desync arg from it, write the stripped string via apply.uc,
+//      capture the new applied hash, restart, arm rollback.
+// OFF: restore the original NFQWS2_OPT from last-good via apply.uc, capture
+//      the hash, restart, arm rollback.
+//
+// The from-profiles options-string CONSTRUCTOR is still deferred (strategy-
+// editor branch); passthrough does not construct — it transforms the already
+// applied NFQWS2_OPT (strip lua-desync) and writes it back through apply.uc.
+
+const PREV_OPT = LASTGOOD_DIR + '/nfqws2_opt.orig';
+
+function save_orig_opt(v) {
+	try { run('mkdir -p ' + LASTGOOD_DIR); writefile(PREV_OPT, (v == null ? '' : v) + '\n'); }
+	catch (e) { }
+}
+
+function read_orig_opt() {
+	try {
+		let raw = readfile(PREV_OPT);
+		if (!raw) return null;
+		let v = trim(raw);
+		return length(v) ? v : null;
+	} catch (e) { return null; }
+}
+
+// Remove every --lua-desync argument from an NFQWS2_OPT value, keeping the
+// rest unchanged (order + separators preserved). Mirrors tests/lib/stripper.mjs;
+// runtime confirmed on target via smoke.sh. ARG-based (followup 3): nfqws2 args
+// are whitespace-separated (spaces OR newlines). Walks the value capturing a
+// whitespace run (separator) then a token; a token starting with "--lua-desync="
+// (exact prefix — --lua-init= and --lua-desync2= survive) is dropped together
+// with its preceding separator, so no orphan separator is left. Handles several
+// args on one line (the line-based version did not, and that silent defect
+// reaches the user).
+const LUA_DESYNC_TOKEN = '--lua-desync=';
+function _is_ws(c) { return c == ' ' || c == '\n' || c == '\t' || c == '\r'; }
+function strip_lua_desync(value) {
+	if (value == null) return '';
+	let out = '';
+	let i = 0;
+	let n = length(value);
+	while (i < n) {
+		// capture a whitespace run (separator before the next token)
+		let wsStart = i;
+		while (i < n && _is_ws(substr(value, i, 1))) i++;
+		let ws = substr(value, wsStart, i - wsStart);
+		// capture a token (non-whitespace run)
+		let tokStart = i;
+		while (i < n && !_is_ws(substr(value, i, 1))) i++;
+		let tok = substr(value, tokStart, i - tokStart);
+		if (length(tok) == 0) {
+			if (length(ws)) out += ws;   // trailing whitespace only — keep it
+			break;
+		}
+		if (substr(tok, 0, length(LUA_DESYNC_TOKEN)) == LUA_DESYNC_TOKEN)
+			continue;                    // drop token + its preceding separator
+		// If out is empty (first KEPT token), drop the leading separator — it
+		// was before a dropped token and would be an orphan (leading space/nl).
+		if (length(out) == 0) out += tok;
+		else out += ws + tok;
+	}
+	return out;
+}
 
 function read_state() {
-	try { let raw = readfile(PATHS.draft_state); return raw ? jparse(raw) : {}; }
+	try { let raw = readfile(PATHS.draft_state); return raw ? json(raw) : {}; }
 	catch (e) { return {}; }
 }
 
 function write_state(st) {
-	try { mkdir('/etc/zapret2-manager'); writefile(PATHS.draft_state, jstringify(st) + '\n'); }
+	try { mkdir('/etc/zapret2-manager'); writefile(PATHS.draft_state, sprintf("%J", st) + '\n'); }
 	catch (e) { }
 }
 
 function passthrough(enabled) {
 	let on = !!enabled;
 	let st = read_state();
-	// The passthrough profile: no strategies → no lua-desync args in the
-	// generated options string. 'default' is a placeholder for the normal
-	// profile; the config-generation branch will define real profiles.
-	if (on) {
-		st.active_profile = { name: PASSTHROUGH_PROFILE_NAME, strategies: [] };
-		st.passthrough = { enabled: true };
-	} else {
-		st.active_profile = { name: 'default', strategies: null };
-		st.passthrough = { enabled: false };
-	}
-	write_state(st);
 	set_paused(false);
 	snapshot_last_good();
-	// Restart via upstream so the daemon reflects the current applied config.
-	// (Full enforcement of the no-lua-desync argv awaits config generation.)
+	if (on) {
+		// Strip every --lua-desync from the CURRENT applied NFQWS2_OPT and write
+		// the stripped string back through apply.uc. The original is saved to
+		// last-good so OFF restores it. Passthrough is then visible in the live
+		// argv (no --lua-desync) and in the applied config, not only our state.
+		let cur = read_var('NFQWS2_OPT');
+		if (cur == null) {
+			event('ui', 'config', 'warn',
+				'passthrough ON skipped: no NFQWS2_OPT in /opt/zapret2/config to strip',
+				{ passthrough: true, reason: 'no_nfqws2_opt' });
+			return { ok: false, action: 'passthrough', enabled: true,
+				error: 'no NFQWS2_OPT in /opt/zapret2/config' };
+		}
+		save_orig_opt(cur);
+		set_var('NFQWS2_OPT', strip_lua_desync(cur));
+		capture_applied_hash();
+		st.active_profile = { name: PASSTHROUGH_PROFILE_NAME, strategies: [] };
+		st.passthrough = { enabled: true };
+		write_state(st);
+	} else {
+		// Restore the original NFQWS2_OPT captured at ON-time.
+		let orig = read_orig_opt();
+		if (orig != null) {
+			set_var('NFQWS2_OPT', orig);
+			capture_applied_hash();
+		}
+		st.active_profile = { name: 'default', strategies: null };
+		st.passthrough = { enabled: false };
+		write_state(st);
+	}
 	let r = run(UPSTREAM_INIT + ' restart');
 	schedule_rollback();
 	event('ui', 'config', 'info',
@@ -303,7 +463,7 @@ function passthrough(enabled) {
 		{ passthrough: on, profile: (on ? PASSTHROUGH_PROFILE_NAME : 'default'), rc: r.rc });
 	return { ok: r.rc == 0, action: 'passthrough', enabled: on, rc: r.rc,
 		profile: (on ? PASSTHROUGH_PROFILE_NAME : 'default'),
-		rollback_pending: true, rollback_ttl: ROLLBACK_TTL };
+		rollback_pending: ROLLBACK_TIMEOUT_ENABLED, rollback_ttl: ROLLBACK_TTL };
 }
 
 // ---- CLI dispatch -----------------------------------------------------------
@@ -313,15 +473,20 @@ if (arg == 'passthrough') {
 	// ucode service.uc passthrough <true|false|1|0>
 	let on = ARGV[1];
 	let enabled = (on == 'true' || on == '1');
-	print(jstringify(passthrough(enabled)) + '\n');
+	print(sprintf("%J", passthrough(enabled)) + '\n');
+} else if (arg == 'rollback') {
+	// CLI/ubus 'rollback' = MANUAL (force=true): restore last-good
+	// unconditionally (the automatic timer path passes no arg = not forced).
+	print(sprintf("%J", rollback(true)) + '\n');
 } else if (arg == 'start' || arg == 'stop' || arg == 'restart' ||
            arg == 'restart_daemons' || arg == 'start_fw' || arg == 'reload_ifsets' ||
-           arg == 'confirm_alive' || arg == 'rollback') {
+           arg == 'confirm_alive') {
 	let m = { start: start, stop: stop, restart: restart, restart_daemons: restart_daemons,
 		start_fw: start_fw, reload_ifsets: reload_ifsets,
-		confirm_alive: confirm_alive, rollback: rollback };
-	print(jstringify(m[arg]()) + '\n');
+		confirm_alive: confirm_alive };
+	print(sprintf("%J", m[arg]()) + '\n');
 } else {
-	print(jstringify({ ok: false, error: 'unknown action: ' + (arg ?? '') }) + '\n');
+	let argval = arg ? arg : '';
+	print(sprintf("%J", { ok: false, error: 'unknown action: ' + argval }) + '\n');
 	exit(1);
 }

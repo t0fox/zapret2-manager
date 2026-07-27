@@ -1,6 +1,7 @@
 #!/usr/bin/ucode
 'use strict';
-// status.uc — three-level status collector for zapret2-manager.
+// status.uc — three-level status collector for zapret2-manager (schema v2,
+// camelCase — see docs/contracts/status.schema.json).
 //
 // Collects, never mixes, three independent levels (docs/architecture.md §3):
 //   RUNTIME  — ps + list_table + actual /proc/<pid>/cmdline of nfqws2
@@ -13,17 +14,19 @@
 // Run as a CLI it writes PATHS.status_json and prints it. The rpcd plugin
 // (usr/libexec/rpcd/zapret2-manager.uc) re-runs this on cache miss.
 //
-// [VERIFY] markers note upstream integration points to confirm on the target
-// device — see docs/upstream-mapping.md. The collection *structure* does not
-// depend on those; only the exact source paths/commands do.
+// The collector computes the backend conclusions (serviceState, drift,
+// qlenHealth, checks) so the UI and the watchdog see the same picture; the UI
+// only renders. [VERIFY] markers note upstream integration points to confirm
+// on the target device — see docs/upstream-mapping.md. The collection
+// *structure* does not depend on those; only the exact source paths/commands.
 
 import { readfile, writefile, stat, mkdir, lsdir, popen } from 'fs';
-import { parse as jparse, stringify as jstringify } from 'json';
 import {
 	NFQUEUE, QLEN_WARN, QLEN_CRIT_CONSECUTIVE, CACHE_TTL_SEC,
 	DAEMON, NFT_TABLE, PATHS
 } from './constants.uc';
 import { parse_queue } from './qlen.uc';
+import { read_var } from './apply.uc';   // applied NFQWS2_OPT for profile_count (followup 5)
 
 // ---- helpers ----------------------------------------------------------------
 
@@ -32,11 +35,27 @@ function sh(cmd) {
 	if (!p) return '';
 	let out = p.read('all');
 	p.close();
-	return out ?? '';
+	return out ? out : '';
 }
 
-function now() {
-	return time();   // [VERIFY] ucode time() returns unix seconds
+// ISO-8601 UTC with timezone. Wall-clock, not monotonic. [VERIFY] date -u
+// format on target — smoke.sh 02 reads status.generatedAt as an ISO string.
+function iso_now() {
+	let s = trim(sh('date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null'));
+	return length(s) ? s : null;
+}
+
+// Convert a unix-seconds value to ISO-8601 UTC, or null if the input is null.
+// [VERIFY:ROUTER] busybox date support: try GNU `date -u -d @N` first, then
+// busybox `date -u -r N` (busybox -r takes unix seconds), then give up (null
+// = "checked, no value", which the schema allows and the UI renders as such).
+function iso_from_unix(sec) {
+	if (sec == null) return null;
+	let s = trim(sh("date -u -d @" + sec + " +%Y-%m-%dT%H:%M:%SZ 2>/dev/null"));
+	if (length(s) && index(s, 'T') >= 0) return s;
+	s = trim(sh("date -u -r " + sec + " +%Y-%m-%dT%H:%M:%SZ 2>/dev/null"));
+	if (length(s) && index(s, 'T') >= 0) return s;
+	return null;
 }
 
 function mtime_of(path) {
@@ -47,7 +66,7 @@ function mtime_of(path) {
 function read_json(path, fallback) {
 	try {
 		let raw = readfile(path);
-		return raw ? jparse(raw) : fallback;
+		return raw ? json(raw) : fallback;
 	} catch (e) {
 		return fallback;
 	}
@@ -56,34 +75,41 @@ function read_json(path, fallback) {
 // ---- RUNTIME: process + strategies + actual cmdline -------------------------
 
 function find_pids() {
-	// Scan /proc for processes whose cmdline contains the daemon name.
-	// Robust against ps format drift; the task wants ps as a source too, so
-	// we also capture a ps line per pid for the human-readable view.
 	let pids = [];
-	let entries = lsdir('/proc') ?? [];
+	let entries = lsdir('/proc');
+	if (!entries) entries = [];
 	for (let i = 0; i < length(entries); i++) {
 		let name = entries[i];
 		if (!match(name, /^[0-9]+$/)) continue;
-		let cl = readfile('/proc/' + name + '/cmdline') ?? '';
-		if (!length(cl)) continue;
+		let cl = readfile('/proc/' + name + '/cmdline');
+		if (!cl || !length(cl)) continue;
 		let human = replace(cl, '\x00', ' ');   // NUL-separated → space
-		if (index(human, DAEMON) >= 0) {
-			let pst = stat('/proc/' + name);
-			push(pids, {
-				pid: +name,
-				cmdline: trim(human),
-				start_time: pst ? pst.mtime : null   // /proc/<pid> dir mtime ≈ start
-			});
-		}
+		if (index(human, DAEMON) < 0) continue;
+		let pst = stat('/proc/' + name);
+		let pid = +name;
+		// RSS in KB from /proc/<pid>/status (VmRSS line). null if unreadable.
+		let rss = null;
+		try {
+			let st_raw = readfile('/proc/' + name + '/status');
+			if (st_raw) {
+				let m = match(st_raw, /VmRSS:[ ]+([0-9]+)/);
+				if (m) rss = +m[1];
+			}
+		} catch (e) { rss = null; }
+		push(pids, {
+			pid: pid,
+			cmdline: trim(human),
+			startTime: iso_from_unix(pst ? pst.mtime : null),
+			rssKb: rss
+		});
 	}
 	return pids;
 }
 
-function runtime_level() {
+function runtime_level(rules) {
 	let pids = find_pids();
 	let ps_summary = '';
 	try {
-		// `ps w` filtered in-language (no shell grep on bracketed output).
 		let raw = sh('ps w');
 		let lines = split(raw, '\n');
 		let hit = [];
@@ -95,18 +121,17 @@ function runtime_level() {
 
 	let strategies = null;
 	try {
-		// [VERIFY] exact list_table invocation/output shape (upstream).
 		let raw = sh('list_table');
 		strategies = length(raw) ? trim(raw) : null;
 	} catch (e) { strategies = null; }
 
 	return {
 		present: length(pids) > 0,
-		pids: pids,
+		instances: pids,
 		count: length(pids),
-		ps_summary: ps_summary,
+		psSummary: ps_summary,
 		strategies: strategies,
-		collected_at: now()
+		rulesPresent: !!rules
 	};
 }
 
@@ -116,9 +141,8 @@ function applied_level() {
 	let conf = stat(PATHS.applied_conf);
 	let uci_dump = null;
 	try {
-		// [VERIFY] uci package name 'zapret2'. Best-effort structured dump.
 		let raw = sh('uci show zapret2');
-		uci_dump = length(raw) ? trim(raw) : null;
+		uci_dump = length(raw) ? trim(raw) : null;   // null if /etc/config/zapret2 absent
 	} catch (e) { uci_dump = null; }
 
 	// generation marker: best-effort. [VERIFY] where upstream stores it.
@@ -129,11 +153,12 @@ function applied_level() {
 	} catch (e) { }
 
 	return {
-		config_path: PATHS.applied_conf,
-		config_present: !!conf,
-		config_mtime: conf ? conf.mtime : null,
-		config_size: conf ? conf.size : null,
+		configPath: PATHS.applied_conf,
+		configPresent: !!conf,
+		configMtime: conf ? iso_from_unix(conf.mtime) : null,
+		configSize: conf ? conf.size : null,
 		uci: uci_dump,
+		// generation is hoisted to the top-level `generation` field in collect()
 		generation: generation
 	};
 }
@@ -144,46 +169,53 @@ function draft_level() {
 	return read_json(PATHS.draft_state, {});
 }
 
-// ---- third liveness signal: NFQUEUE queue block -----------------------------
+// ---- health: qlen signal + checks -------------------------------------------
 //
-// Raw queue values come from the shared parser (qlen.uc). The cycle-based
-// signals (queue_total three-consecutive → critical; queue_dropped delta →
-// warn) are computed by the WATCHDOG on its 60s cycle and persisted to
-// qlen.state.json; the collector only READS that state for display, so the UI
-// and the watchdog see the same picture. If the watchdog has not run yet, the
-// signal state is unknown.
+// qlenHealth (state, threshold, consecutiveOverThreshold, critTurns) is
+// backend-computed from the watchdog's persisted qlen.state.json; the UI only
+// renders it. Raw queue values live in health.queue; the discrete checks in
+// health.checks[] carry id from a closed set. A null result field = "checked,
+// no value"; an absent field = "not checked" (the UI renders these differently).
 
-function queues_block() {
+function health_block() {
 	let q = parse_queue();
 	let sig = read_json(PATHS.qlen_state, null);
 
-	let warning = null;
-	if (!q.registered) warning = 'queue_not_registered';
+	let qstate = sig ? (sig.last_state ? sig.last_state : 'unknown') : 'unknown';
+	let consec = sig ? (sig.consecutive ? sig.consecutive : 0) : 0;
 
-	return {
+	let qlenHealth = {
+		state: qstate,
+		threshold: QLEN_WARN,                 // 50
+		consecutiveOverThreshold: consec,
+		critTurns: QLEN_CRIT_CONSECUTIVE      // 3
+	};
+
+	let checks = [];
+	// queue_health is always emitted (we always read the queue). Other checks
+	// (dns_consistency, tls12_reachable, udp443_quic, lua_version_match) are
+	// future; they are ABSENT here = "not checked" until wired.
+	push(checks, { id: 'queue_health', state: qstate, registered: q.registered,
+		queueTotal: q.queue_total });
+
+	let queue = {
 		number: NFQUEUE,
 		registered: q.registered,
-		reason: q.reason ?? null,
-		warning: warning,
-		queue_total: q.queue_total,           // instantaneous; threshold 50 applies
-		copy_range: q.copy_range,
-		queue_dropped: q.queue_dropped,       // cumulative raw; delta-only downstream
-		queue_user_dropped: q.queue_user_dropped,
-		signals: {
-			state: sig ? (sig.last_state ?? 'unknown') : 'unknown',
-			consecutive: sig ? (sig.consecutive ?? 0) : 0,
-			dropped_delta: sig ? (sig.dropped_delta ?? null) : null,
-			user_dropped_delta: sig ? (sig.user_dropped_delta ?? null) : null,
-			updated_at: sig ? (sig.updated_at ?? null) : null
-		}
+		reason: q.reason ? q.reason : null,
+		queueTotal: q.queue_total,           // instantaneous; threshold 50 applies
+		copyRange: q.copy_range,
+		queueDropped: q.queue_dropped,       // cumulative raw; delta-only downstream
+		queueUserDropped: q.queue_user_dropped,
+		updatedAt: sig ? iso_from_unix(sig.updated_at ? sig.updated_at : null) : null
 	};
+
+	return { qlenHealth: qlenHealth, checks: checks, queue: queue };
 }
 
 // ---- rules present (nft table zapret2) --------------------------------------
 
 function rules_present() {
 	try {
-		// [VERIFY:ROUTER] table family. `nft list table <name>` resolves by name.
 		let raw = sh('nft list table ' + NFT_TABLE);
 		return length(raw) && index(raw, 'chain ') >= 0;
 	} catch (e) {
@@ -195,19 +227,14 @@ function rules_present() {
 //
 // Ground truth is: does the running argv match what the applied state would
 // generate? The full argv-render basis is the target; until that renderer
-// exists we use the sha256-INTERMEDIATE basis allowed by REVIEW 2: hashes of
-// BOTH applied sources (/opt/zapret2/config AND /etc/config/zapret2) captured
-// at apply time into /tmp/zapret2-manager/applied.sha256, compared each
-// collection. mtime is NOT used (package updates, backup restores, and any file
-// touch change mtime without content → false positives; and edits in the UCI
-// file alone were never noticed). Both sources are hashed, never one alone.
-//
-// If there is no stored apply hash (e.g. fresh boot before any apply), drift
-// is unknown, not divergent — the UI must not cry wolf.
+// exists we use the sha256-INTERMEDIATE basis: hashes of BOTH applied sources
+// captured at apply time into /tmp/zapret2-manager/applied.sha256, compared
+// each collection. Both sources are hashed, never one alone. If there is no
+// stored apply hash, drift is unknown, not divergent — the UI must not cry wolf.
 function sha256_file(path) {
 	if (!stat(path)) return null;
 	try {
-		let raw = sh('sha256sum ' + path + " 2>/dev/null | awk '{print $1}'");
+		let raw = sh("sha256sum " + path + " 2>/dev/null | awk '{print $1}'");
 		let h = trim(raw);
 		return length(h) ? h : null;
 	} catch (e) { return null; }
@@ -218,86 +245,120 @@ function drift_block(runtime, rules) {
 	let cur_uci    = sha256_file(PATHS.uci_conf);
 	let stored = read_json('/tmp/zapret2-manager/applied.sha256', null);
 
-	// Also carry the normalized runtime argv for the future argv-render basis.
 	let norm = null;
 	try {
 		let parts = [];
-		let pids = runtime.pids || [];
+		let pids = runtime.instances || [];
 		for (let i = 0; i < length(pids); i++)
 			push(parts, trim(pids[i].cmdline || ''));
-		// normalization: sort instance lines so order is not significant; per-
-		// instance arg order is preserved (it IS significant for nfqws2).
 		parts.sort();
 		norm = join(parts, '\n');
 	} catch (e) { norm = null; }
 
 	if (!runtime.present) {
 		return { divergent: false, reason: 'process absent (nothing to compare)',
-			basis: 'sha256-intermediate', applied_sha256: stored,
-			current_sha256: { config: cur_config, uci: cur_uci },
-			normalized_runtime: norm };
+			basis: 'sha256-intermediate',
+			appliedSha256: stored,
+			currentSha256: { config: cur_config, uci: cur_uci },
+			normalizedRuntime: norm };
 	}
 	if (!stored) {
 		return { divergent: false, reason: 'no stored apply hash (run an apply first)',
-			basis: 'sha256-intermediate', applied_sha256: null,
-			current_sha256: { config: cur_config, uci: cur_uci },
-			normalized_runtime: norm };
+			basis: 'sha256-intermediate', appliedSha256: null,
+			currentSha256: { config: cur_config, uci: cur_uci },
+			normalizedRuntime: norm };
 	}
-	let divergent = (stored.config != null && cur_config != null && stored.config != cur_config) ||
-		(stored.uci != null && cur_uci != null && stored.uci != cur_uci);
+	let stored_config = stored.config ? stored.config : null;
+	let stored_uci = stored.uci ? stored.uci : null;
+	let divergent = (stored_config != null && cur_config != null && stored_config != cur_config) ||
+		(stored_uci != null && cur_uci != null && stored_uci != cur_uci);
 	return { divergent: divergent,
 		reason: divergent ? 'applied sha256 mismatch (config or uci changed since last apply)' : 'applied hash matches',
-		basis: 'sha256-intermediate', applied_sha256: stored,
-		current_sha256: { config: cur_config, uci: cur_uci },
-		normalized_runtime: norm };
+		basis: 'sha256-intermediate',
+		appliedSha256: stored,
+		currentSha256: { config: cur_config, uci: cur_uci },
+		normalizedRuntime: norm };
 }
 
-// ---- service state (backend-computed; UI only renders) ----------------------
+// ---- serviceState (backend-computed; UI only renders) -----------------------
+//
+// Closed enum: running, stopped, partial, error, paused, passthrough. paused
+// and passthrough are self-standing states. The indicator is the INTENT; the
+// process is the REALITY. If the indicator says paused/passthrough but the
+// process disagrees, that is an ERROR (the primary mechanism did not hold),
+// not the intended state — surfacing it is exactly what the guard hook's crit
+// event is for. qlen warn does NOT change serviceState away from running (it
+// is carried in health.qlenHealth.state).
 
-function service_state(runtime, rules, queues) {
-	let qsig = (queues && queues.signals) || {};
-	if (!runtime.present)
-		return { state: 'stopped', label: 'stopped', cls: 'bad' };
-	if (queues && queues.registered === false)
-		return { state: 'degraded', label: 'degraded: queue not registered', cls: 'bad' };
-	if (qsig.state === 'critical')
-		return { state: 'degraded', label: 'degraded: queue jammed', cls: 'bad' };
-	if (!rules)
-		return { state: 'partial', label: 'partial: no rules', cls: 'warn' };
-	if (qsig.state === 'warn')
-		return { state: 'warn', label: 'running (qlen warn)', cls: 'warn' };
-	return { state: 'running', label: 'running', cls: 'ok' };
+function service_state(runtime, rules, health, draft) {
+	let qh = (health && health.qlenHealth) ? health.qlenHealth : null;
+	let present = runtime && runtime.present;
+	// paused indicator (manager-only, /tmp) — the intended pause stance.
+	if (stat(PATHS.paused_flag)) {
+		// pause HELD: process is down as intended. NOT held: process is up
+		// despite NFQWS2_ENABLE=0 → primary mechanism failed → error.
+		return present ? 'error' : 'paused';
+	}
+	// passthrough profile active in draft — the instance should be UP.
+	if (draft && draft.passthrough && draft.passthrough.enabled) {
+		return present ? 'passthrough' : 'error';
+	}
+	if (!present) return 'stopped';
+	if (!rules) return 'partial';
+	if (health && health.queue && health.queue.registered === false) return 'error';
+	if (qh && qh.state === 'critical') return 'error';
+	return 'running';
 }
 
-// profile count from list_table output (backend-computed; UI only renders).
-function profile_count(strategies) {
-	if (!strategies || !length(strategies)) return null;
+// profile count from the APPLIED options string (followup 5), NOT from the
+// list_table dump. The profile/strategy separator in NFQWS2_OPT is the
+// ':strategy=N' marker inside each '--lua-desync=...' entry; each is one
+// profile in the rotation. The controller arg (e.g. circular_quality) has no
+// :strategy= and is NOT a profile, so this is less than the --lua-desync=
+// count — which is the point (profiles are the strategies). Mirrors
+// tests/lib/profile-count.mjs; returns null when NFQWS2_OPT is absent or has
+// no markers (null = "checked, no value"). Backend-computed; UI only renders.
+const STRATEGY_MARKER = ':strategy=';
+function profile_count(opt_value) {
+	if (opt_value == null) return null;
 	let n = 0;
-	let lines = split(strategies, '\n');
-	for (let i = 0; i < length(lines); i++)
-		if (length(trim(lines[i]))) n++;
-	return n;
+	let i = 0;
+	let len = length(opt_value);
+	let mlen = length(STRATEGY_MARKER);
+	while (i < len) {
+		let p = index(substr(opt_value, i), STRATEGY_MARKER);
+		if (p < 0) break;
+		n++;
+		i = i + p + mlen;
+	}
+	return n > 0 ? n : null;
 }
 
-// ---- meta: version, autostart symlinks, upgradable badge, autohostlist -----
+// ---- system + upstream (split from the old meta block) ----------------------
 
 // nfqws2 version, resolved in a fixed order: read /opt/zapret2/version first;
 // if absent, ask the binary; if that yields nothing, return null. null means
 // "checked, no value" (distinct from the key being absent = "not checked") —
-// the UI renders the two differently (status.schema.json meta.nfqws2_version).
+// the UI renders the two differently.
 function nfqws2_version() {
 	try {
 		let raw = readfile(PATHS.applied_version);
 		if (raw) { let v = trim(raw); if (length(v)) return v; }
 	} catch (e) { }
 	// Binary fallback: the exact version flag is unconfirmed, so try the common
-	// forms and take the first non-empty line. [VERIFY:ROUTER] which flag the
-	// binary answers — answered by smoke.sh 02 (status.nfqws2_version is a
-	// string on a device where /opt/zapret2/version is absent).
+	// forms and take the first non-empty line. [VERIFY:ROUTER] closed: --version is
+	// the working flag (tests/fixtures/nfqws2-version-long.out); status.nfqws2Version
+	// is a string on a device where /opt/zapret2/version is absent. The binary
+	// is NOT in PATH on this device (no /usr/bin symlink; lives at
+	// /opt/zapret2/nfq2/nfqws2 — verified). Resolve the path: try `command -v`
+	// first (honors PATH if a future build adds a symlink), fall back to the known
+	// full path. The full path is the FALLBACK, never the only option.
 	let flags = ['--version', '-V', 'version'];
+	let bin = trim(sh('command -v nfqws2 2>/dev/null'));
+	if (!length(bin)) bin = '/opt/zapret2/nfq2/nfqws2';
 	for (let i = 0; i < length(flags); i++) {
 		try {
-			let raw = sh('nfqws2 ' + flags[i] + ' 2>/dev/null | head -n 1');
+			let raw = sh(bin + ' ' + flags[i] + ' 2>/dev/null | head -n 1');
 			let v = trim(raw);
 			if (length(v)) return v;
 		} catch (e) { }
@@ -322,7 +383,6 @@ function autohostlist_vars() {
 			if (eq < 0) continue;
 			let k = trim(substr(line, 0, eq));
 			let v = trim(substr(line, eq + 1));
-			// strip a leading/trailing quote pair if present
 			if (length(v) >= 2 && substr(v, 0, 1) == '"' && substr(v, length(v) - 1, 1) == '"')
 				v = substr(v, 1, length(v) - 2);
 			out[k] = length(v) ? v : null;
@@ -331,14 +391,11 @@ function autohostlist_vars() {
 	return out;
 }
 
-function meta_info() {
-	let version = nfqws2_version();
-
-	// Autostart: ACTUAL /etc/rc.d symlink check (informational only — the
-	// authoritative test is a real reboot, run in tools/smoke.sh autostart).
+function system_info() {
 	let autostart = { enabled: false, symlinks: [] };
 	try {
-		let entries = lsdir('/etc/rc.d') ?? [];
+		let entries = lsdir('/etc/rc.d');
+		if (!entries) entries = [];
 		let links = [];
 		for (let i = 0; i < length(entries); i++)
 			if (index(entries[i], 'zapret2') >= 0) push(links, entries[i]);
@@ -349,15 +406,16 @@ function meta_info() {
 
 	let upgradable = null;
 	try {
-		// [VERIFY:ROUTER] apk version subcommand on 25.12. null = unknown.
 		let raw = sh('apk version -c 2>/dev/null');
 		if (length(raw)) upgradable = index(raw, 'nfqws2') >= 0;
 	} catch (e) { }
 
+	return { autostart: autostart, upgradable: upgradable };
+}
+
+function upstream_info() {
 	return {
-		nfqws2_version: version,
-		autostart: autostart,
-		versions: { upgradable: upgradable },
+		nfqws2Version: nfqws2_version(),
 		autohostlist: autohostlist_vars()
 	};
 }
@@ -365,44 +423,63 @@ function meta_info() {
 // ---- assemble ----------------------------------------------------------------
 
 function collect() {
-	// Ensure runtime dir exists (volatile; created on demand).
 	try { mkdir('/tmp/zapret2-manager'); } catch (e) { }
 
-	let runtime, applied, draft, queues, rules, meta;
-	try { runtime = runtime_level(); } catch (e) { runtime = { error: 'runtime collect failed: ' + e }; }
+	let runtime, applied, draft, health, rules, system, upstream;
+	try { rules = rules_present(); } catch (e) { rules = false; }
+	try { runtime = runtime_level(rules); } catch (e) { runtime = { error: 'runtime collect failed: ' + e }; }
 	try { applied = applied_level(); } catch (e) { applied = { error: 'applied collect failed: ' + e }; }
 	try { draft = draft_level(); } catch (e) { draft = { error: 'draft read failed: ' + e }; }
-	try { queues = queues_block(); } catch (e) { queues = { error: 'queues read failed: ' + e }; }
-	try { rules = rules_present(); } catch (e) { rules = false; }
-	try { meta = meta_info(); } catch (e) { meta = { error: 'meta collect failed: ' + e }; }
+	try { health = health_block(); } catch (e) { health = { error: 'health collect failed: ' + e }; }
+	try { system = system_info(); } catch (e) { system = { error: 'system collect failed: ' + e }; }
+	try { upstream = upstream_info(); } catch (e) { upstream = { error: 'upstream collect failed: ' + e }; }
 
-	// Backend-computed conclusions (REVIEW 2): the UI renders these, it does not
-	// recompute. The watchdog (no UI) reads the same status, so everyone sees
-	// the same picture.
+	// Backend-computed conclusions (the UI renders these, it does not recompute).
 	let drift, svc_state, prof_count;
 	try { drift = drift_block(runtime, rules); } catch (e) { drift = { divergent: false, reason: 'drift compute failed: ' + e, basis: 'sha256-intermediate' }; }
-	try { svc_state = service_state(runtime, rules, queues); } catch (e) { svc_state = { state: 'unknown', label: 'unknown', cls: '' }; }
-	try { prof_count = profile_count(runtime.strategies); } catch (e) { prof_count = null; }
-	if (runtime && prof_count != null) runtime.profile_count = prof_count;
+	try { svc_state = service_state(runtime, rules, health, draft); } catch (e) { svc_state = 'error'; }
+	// profile_count from the APPLIED NFQWS2_OPT (followup 5), not list_table.
+	try { prof_count = profile_count(read_var('NFQWS2_OPT')); } catch (e) { prof_count = null; }
 
-	let status = {
-		collected_at: now(),
-		cache_ttl: CACHE_TTL_SEC,
-		runtime: runtime,
-		applied: applied,
-		draft: draft,
-		queues: queues,
-		drift: drift,
-		service_state: svc_state,
-		passthrough: (draft && draft.passthrough && draft.passthrough.enabled) || false,
-		meta: meta,
-		signals: {
-			process_present: runtime.present ?? false,
-			rules_present: rules
-		}
+	// runtime already carries camelCase fields; pass them straight through.
+	let instances = runtime.instances || [];
+	let runtime_out = {
+		present: runtime.present ? true : false,
+		count: runtime.count ? runtime.count : 0,
+		instances: instances,
+		strategies: runtime.strategies ? runtime.strategies : null,
+		profileCount: prof_count,
+		psSummary: runtime.psSummary ? runtime.psSummary : '',
+		rulesPresent: runtime.rulesPresent ? true : false
 	};
 
-	try { writefile(PATHS.status_json, jstringify(status, null, '  ') + '\n'); } catch (e) { }
+	// generation hoisted to top-level (from applied.generation).
+	let generation = (applied && applied.generation != null) ? applied.generation : null;
+	let applied_out = {
+		configPath: applied.configPath ? applied.configPath : PATHS.applied_conf,
+		configPresent: applied.configPresent ? true : false,
+		configMtime: applied.configMtime ? applied.configMtime : null,
+		configSize: applied.configSize ? applied.configSize : null,
+		uci: applied.uci ? applied.uci : null
+	};
+
+	let status = {
+		schema: 2,
+		generatedAt: iso_now(),
+		generation: generation,
+		serviceState: svc_state,
+		runtime: runtime_out,
+		applied: applied_out,
+		draft: draft,
+		drift: drift,
+		health: health,
+		system: system,
+		upstream: upstream,
+		jobs: [],
+		warnings: []
+	};
+
+	try { writefile(PATHS.status_json, sprintf("%J", status) + '\n'); } catch (e) { }
 	return status;
 }
 
@@ -410,7 +487,7 @@ function collect() {
 
 if (length(ARGV) == 0 || ARGV[0] != '--no-print') {
 	let s = collect();
-	print(jstringify(s, null, '  ') + '\n');
+	print(sprintf("%J", s) + '\n');
 } else {
 	collect();
 }
