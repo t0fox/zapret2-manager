@@ -8,7 +8,7 @@
 // or has no strategy markers, profile_count is null (not 0 — null = "checked,
 // no value", distinct from the key being absent = "not checked").
 //
-// FIXTURE: tests/fixtures/opt-zapret2-config.out is a snapshot of UNCONFIRMED
+// FIXTURE: tests/fixtures-postinstall/opt-zapret2-config.out is a snapshot of UNCONFIRMED
 // origin (see tests/apply-writer.test.mjs header). FORMAT sample only.
 //
 // Run: node --test tests/profile-count.test.mjs
@@ -21,19 +21,19 @@ import { read_var } from './lib/apply-writer.mjs';
 import { count_strategy_markers } from './lib/profile-count.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const FIXTURE = readFileSync(join(here, 'fixtures/opt-zapret2-config.out'), 'utf8');
+const FIXTURE = readFileSync(join(here, 'fixtures-postinstall/opt-zapret2-config.out'), 'utf8');
 const REAL_OPT = read_var(FIXTURE, 'NFQWS2_OPT');
 
 test('profile_count counts :strategy= markers in the applied NFQWS2_OPT', () => {
 	const n = count_strategy_markers(REAL_OPT);
-	assert.ok(n != null, 'count is non-null when NFQWS2_OPT is present');
-	assert.ok(n > 0, 'the real OPT has strategy markers');
-	// The function counts ':strategy=' markers. Confirm it matches an
-	// independent regex count (the controller arg circular_quality has no
-	// :strategy=, so this is LESS than the --lua-desync= count — that is the
-	// point: profiles are the STRATEGIES, not every --lua-desync arg).
+	// The real DEFAULT config has NO ':strategy=' markers (it uses --lua-desync
+	// directly with --new profile separators + <HOSTLIST> placeholders, not the
+	// per-strategy ':strategy=N' form the custom sample used). count_strategy_markers
+	// returns null when there are no markers — that is correct, not a defect:
+	// profile_count is null (= 'checked, no value') on the default config.
 	const regexCount = (REAL_OPT.match(/:strategy=/g) || []).length;
-	assert.equal(n, regexCount, 'count matches independent :strategy= count');
+	assert.equal(n, null, 'count is null when there are no :strategy= markers');
+	assert.equal(regexCount, 0, 'the real default OPT has no :strategy= markers');
 });
 
 test('profile_count is null when the value has no strategy markers', () => {

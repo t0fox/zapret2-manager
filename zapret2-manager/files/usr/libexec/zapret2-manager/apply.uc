@@ -129,7 +129,17 @@ function render_var(config, name, value) {
 			for (let k = end + 1; k < length(lines); k++) push(result, lines[k]);
 			return join(result, '\n');
 		}
-		// single-line (quoted or unquoted): replace the one line
+		// single-line quoted: VAR="value" (the only inner " is the closing one).
+		// Preserve the quotes — writing VAR=value (no quotes) would change the
+		// format the engine reads. Mirror the original quoting style.
+		if (substr(rest, 0, 1) == '"' && cp >= 0 && cp + 1 == length(rest) - 1) {
+			let result = [];
+			for (let k = 0; k < i; k++) push(result, lines[k]);
+			push(result, prefix + '"' + value + '"');
+			for (let k = i + 1; k < length(lines); k++) push(result, lines[k]);
+			return join(result, '\n');
+		}
+		// single-line unquoted: replace the one line
 		let result = [];
 		for (let k = 0; k < i; k++) push(result, lines[k]);
 		push(result, prefix + value);

@@ -11,7 +11,7 @@
 // strip_lua_desync mirrors tests/lib/stripper.mjs; its runtime is confirmed
 // on the target via smoke.sh.
 //
-// FIXTURE ORIGIN: tests/fixtures/opt-zapret2-config.out is a snapshot of
+// FIXTURE ORIGIN: tests/fixtures-postinstall/opt-zapret2-config.out is a snapshot of
 // UNCONFIRMED origin (collected from a router before it was factory-reset;
 // the engine is no longer on the device, so the snapshot cannot be re-verified
 // against the current target). It is a FORMAT sample, not a verified live
@@ -28,7 +28,7 @@ import { strip_lua_desync } from './lib/stripper.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 // FIXTURE: snapshot of unconfirmed origin (see header). FORMAT sample only.
-const FIXTURE = readFileSync(join(here, 'fixtures/opt-zapret2-config.out'), 'utf8');
+const FIXTURE = readFileSync(join(here, 'fixtures-postinstall/opt-zapret2-config.out'), 'utf8');
 const REAL_OPT = read_var(FIXTURE, 'NFQWS2_OPT');
 
 // ---- the NFQWS2_OPT from the unconfirmed-origin fixture sample ---------------
@@ -42,14 +42,16 @@ test('stripping the fixture NFQWS2_OPT removes every --lua-desync and keeps the 
 		'no --lua-desync= may remain after stripping');
 	// the non-lua-desync args are preserved, in order
 	for (const kept of [
-		'--lua-init=@/opt/zapret2/lua/orchestra-extra/init.lua',
-		'--lua-init=@/opt/zapret2/lua/init_vars.lua',
-		'--blob=stun_pat:@/opt/zapret2/bin/stun.bin',
-		'--filter-tcp=80,443,1080,2053,2083,2087,2096,8443',
-		'--hostlist-domains=discord.com',
-		'--payload=all',
-		'--in-range=-d10000',
-		'--out-range=-d10'
+		'--comment=Strategy__default',
+		'--filter-tcp=80',
+		'--filter-l7=http',
+		'<HOSTLIST>',
+		'--payload=http_req',
+		'--new',
+		'--filter-tcp=443',
+		'--filter-l7=tls',
+		'<HOSTLIST_NOAUTO>',
+		'--payload=quic_initial'
 	]) {
 		assert.ok(out.includes(kept), `kept arg preserved: ${kept}`);
 	}
@@ -58,12 +60,15 @@ test('stripping the fixture NFQWS2_OPT removes every --lua-desync and keeps the 
 test('stripped real OPT preserves the order of the kept args', () => {
 	const out = strip_lua_desync(REAL_OPT);
 	const idx = (s) => out.indexOf(s);
-	const luainit = idx('--lua-init=@/opt/zapret2/lua/orchestra-extra/init.lua');
-	const blob = idx('--blob=stun_pat:');
-	const filter = idx('--filter-tcp=');
-	const payload = idx('--payload=all');
-	const outrange = idx('--out-range=-d10');
-	assert.ok(luainit < blob && blob < filter && filter < payload && payload < outrange,
+	const comment = idx('--comment=Strategy__default');
+	const filter80 = idx('--filter-tcp=80');
+	const filterl7http = idx('--filter-l7=http');
+	const hostlist = idx('<HOSTLIST>');
+	const payload = idx('--payload=http_req');
+	const newtok = idx('--new');
+	const filter443 = idx('--filter-tcp=443');
+	assert.ok(comment < filter80 && filter80 < filterl7http && filterl7http < hostlist &&
+		hostlist < payload && payload < newtok && newtok < filter443,
 		'kept args remain in their original order');
 });
 

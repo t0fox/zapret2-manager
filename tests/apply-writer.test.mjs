@@ -9,7 +9,7 @@
 // claimed to "work" on the strength of this node equivalent alone — it
 // proves the algorithm; the ucode execution is a separate, on-target check.
 //
-// FIXTURE ORIGIN: the config sample is tests/fixtures/opt-zapret2-config.out,
+// FIXTURE ORIGIN: the config sample is tests/fixtures-postinstall/opt-zapret2-config.out,
 // a snapshot of UNCONFIRMED origin. It was collected from a router by
 // tools/collect-fixtures.sh before that device was factory-reset; the engine
 // is no longer on the device, so the snapshot CANNOT be re-verified against
@@ -30,13 +30,13 @@ import { read_var, write_var } from './lib/apply-writer.mjs';
 const here = dirname(fileURLToPath(import.meta.url));
 // FIXTURE: snapshot of unconfirmed origin (see header). Used only as a config
 // FORMAT sample for the writer algorithm self-test.
-const FIXTURE = readFileSync(join(here, 'fixtures/opt-zapret2-config.out'), 'utf8');
+const FIXTURE = readFileSync(join(here, 'fixtures-postinstall/opt-zapret2-config.out'), 'utf8');
 
 // ---- read_var ---------------------------------------------------------------
 
 test('read_var returns the value of a simple VAR=value line', () => {
 	assert.equal(read_var(FIXTURE, 'NFQWS2_ENABLE'), '1');
-	assert.equal(read_var(FIXTURE, 'MODE_FILTER'), 'none');
+	assert.equal(read_var(FIXTURE, 'MODE_FILTER'), 'hostlist');
 	assert.equal(read_var(FIXTURE, 'DISABLE_IPV6'), '1');
 });
 
@@ -45,18 +45,20 @@ test('read_var returns null for an absent variable', () => {
 });
 
 test('read_var does NOT match commented-out assignments', () => {
-	// #FILTER_MARK=0x10000000 is commented in the fixture; the active var is
-	// absent, so read_var must return null, not the commented value.
-	assert.equal(read_var(FIXTURE, 'FILTER_MARK'), null);
-	assert.equal(read_var(FIXTURE, 'POSTNAT'), null); // commented: #POSTNAT=0
+	// #OPENWRT_LAN="lan lan2 lan3" is commented in the real config; there is NO
+	// active OPENWRT_LAN, so read_var must return null, not the commented value.
+	assert.equal(read_var(FIXTURE, 'OPENWRT_LAN'), null);
+	assert.equal(read_var(FIXTURE, 'GETLIST'), null); // commented: #GETLIST=
 });
 
-test('read_var returns the full multi-line quoted value of NFQWS2_OPT', () => {
+test('read_var returns the full single-line quoted value of NFQWS2_OPT', () => {
 	const v = read_var(FIXTURE, 'NFQWS2_OPT');
 	assert.ok(v != null, 'NFQWS2_OPT must be present');
 	assert.ok(v.includes('--lua-desync='), 'OPT value contains lua-desync args');
-	assert.ok(v.includes('--lua-init=@/opt/zapret2/lua/orchestra-extra/init.lua'));
-	assert.ok(v.includes('--filter-tcp=80,443'));
+	assert.ok(v.includes('--comment=Strategy__default'));
+	assert.ok(v.includes('--filter-l7=http'));
+	assert.ok(v.includes('<HOSTLIST>'));
+	assert.ok(v.includes('--filter-tcp=80'));
 	// the value is the text BETWEEN the opening and closing double quotes
 	assert.ok(!v.startsWith('"'), 'value is inside quotes, not including them');
 	assert.ok(!v.endsWith('"'));
@@ -66,7 +68,7 @@ test('read_var value may contain "=" (split on first "=" only)', () => {
 	// IPSET_OPT="hashsize 262144 maxelem $SET_MAXELEM" — value has no =, but
 	// NFQWS2_OPT's value has many "=". read_var must keep them.
 	const v = read_var(FIXTURE, 'NFQWS2_OPT');
-	assert.ok(v.includes('seqovl_pattern=tls_google'));
+	assert.ok(v.includes('fake_default_http'));
 });
 
 // ---- write_var: simple line (point 1 — pause) ------------------------------
@@ -96,12 +98,12 @@ test('write_var preserves the multi-line NFQWS2_OPT block when editing ENABLE', 
 });
 
 test('write_var does NOT touch a commented line with the same name', () => {
-	// FILTER_MARK only appears commented (#FILTER_MARK=...). Writing it must
-	// APPEND a new active assignment, not rewrite the comment.
-	const out = write_var(FIXTURE, 'FILTER_MARK', '0x10000000');
-	assert.equal(read_var(out, 'FILTER_MARK'), '0x10000000');
+	// OPENWRT_LAN only appears commented (#OPENWRT_LAN="lan lan2 lan3"). Writing
+	// it must APPEND a new active assignment, not rewrite the comment.
+	const out = write_var(FIXTURE, 'OPENWRT_LAN', 'lan');
+	assert.equal(read_var(out, 'OPENWRT_LAN'), 'lan');
 	// the original comment line is still there
-	assert.ok(out.includes('#FILTER_MARK=0x10000000'),
+	assert.ok(out.includes('#OPENWRT_LAN='),
 		'commented line preserved');
 });
 
@@ -113,7 +115,7 @@ test('write_var NFQWS2_OPT replaces the whole quoted block, keeps other lines', 
 	assert.equal(read_var(out, 'NFQWS2_OPT'), stripped);
 	// NFQWS2_ENABLE and surrounding lines are intact
 	assert.equal(read_var(out, 'NFQWS2_ENABLE'), '1');
-	assert.equal(read_var(out, 'MODE_FILTER'), 'none');
+	assert.equal(read_var(out, 'MODE_FILTER'), 'hostlist');
 	// the block is still a double-quoted assignment
 	assert.ok(out.includes('NFQWS2_OPT="'), 'opening quote preserved');
 });

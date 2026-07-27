@@ -100,7 +100,15 @@ export function write_var(config, name, value) {
 			}
 			return [...before, ...block, ...after].join('\n');
 		}
-		// single-line (quoted or unquoted): replace the one line
+		// single-line quoted: VAR="value" (the only inner " is the closing one).
+		// Preserve the quotes — writing VAR=value (no quotes) would change the
+		// format the engine reads. Mirror the original quoting style.
+		if (rest.startsWith('"') && closeAt === rest.length - 1) {
+			const before = lines.slice(0, i);
+			const after = lines.slice(i + 1);
+			return [...before, name + '="' + value + '"', ...after].join('\n');
+		}
+		// single-line unquoted: replace the one line
 		const before = lines.slice(0, i);
 		const after = lines.slice(i + 1);
 		return [...before, name + '=' + value, ...after].join('\n');
