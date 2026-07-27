@@ -42,7 +42,7 @@ function field(n) { return n - 1; }
 //   queue_user_dropped, row } with raw integer values (null when not
 //   registered). Cumulative counters are returned raw; delta math is the
 //   watchdog's job.
-export function parse_queue() {
+export const parse_queue = function() {
 	let raw = readfile('/proc/net/netfilter/nfnetlink_queue');
 	if (!raw)
 		return { registered: false, queue_total: null, copy_range: null,
@@ -71,4 +71,4 @@ export function parse_queue() {
 	return { registered: false, queue_total: null, copy_range: null,
 		queue_dropped: null, queue_user_dropped: null, row: null,
 		reason: 'queue ' + NFQUEUE + ' not registered in kernel' };
-}
+};

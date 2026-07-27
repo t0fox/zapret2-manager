@@ -26,7 +26,6 @@
 // [VERIFY:ROUTER] exact ucode API (popen close rc, time) — smoke.sh 06.
 
 import { readfile, writefile, stat, mkdir, unlink, popen } from 'fs';
-import { parse as jparse, stringify as jstringify } from 'json';
 import { PATHS, PASSTHROUGH_PROFILE_NAME,
 	NFQWS2_ENABLE_VAR, PAUSE_STOPS_FW,
 	ROLLBACK_TIMEOUT_ENABLED, ROLLBACK_TTL } from './constants.uc';
@@ -78,7 +77,7 @@ function event(source, category, severity, msg, extra) {
 		let ev = extra ? extra : {};
 		ev.schema = 'events.v1'; ev.ts = ts; ev.id = id;
 		ev.category = category; ev.severity = severity; ev.source = source; ev.msg = msg;
-		let line = jstringify(ev) + '\n';
+		let line = sprintf("%J", ev) + '\n';
 		// best-effort append (read-modify-write; events are low-rate)
 		writefile(PATHS.events_ndjson, prev + line);
 	} catch (e) { }
@@ -262,7 +261,7 @@ function capture_applied_hash() {
 			uci:    sha256_file(PATHS.uci_conf),
 			captured_at: time() };
 		mkdir('/tmp/zapret2-manager');
-		writefile('/tmp/zapret2-manager/applied.sha256', jstringify(st) + '\n');
+		writefile('/tmp/zapret2-manager/applied.sha256', sprintf("%J", st) + '\n');
 	} catch (e) { }
 }
 
@@ -412,12 +411,12 @@ function strip_lua_desync(value) {
 }
 
 function read_state() {
-	try { let raw = readfile(PATHS.draft_state); return raw ? jparse(raw) : {}; }
+	try { let raw = readfile(PATHS.draft_state); return raw ? json(raw) : {}; }
 	catch (e) { return {}; }
 }
 
 function write_state(st) {
-	try { mkdir('/etc/zapret2-manager'); writefile(PATHS.draft_state, jstringify(st) + '\n'); }
+	try { mkdir('/etc/zapret2-manager'); writefile(PATHS.draft_state, sprintf("%J", st) + '\n'); }
 	catch (e) { }
 }
 
@@ -474,20 +473,20 @@ if (arg == 'passthrough') {
 	// ucode service.uc passthrough <true|false|1|0>
 	let on = ARGV[1];
 	let enabled = (on == 'true' || on == '1');
-	print(jstringify(passthrough(enabled)) + '\n');
+	print(sprintf("%J", passthrough(enabled)) + '\n');
 } else if (arg == 'rollback') {
 	// CLI/ubus 'rollback' = MANUAL (force=true): restore last-good
 	// unconditionally (the automatic timer path passes no arg = not forced).
-	print(jstringify(rollback(true)) + '\n');
+	print(sprintf("%J", rollback(true)) + '\n');
 } else if (arg == 'start' || arg == 'stop' || arg == 'restart' ||
            arg == 'restart_daemons' || arg == 'start_fw' || arg == 'reload_ifsets' ||
            arg == 'confirm_alive') {
 	let m = { start: start, stop: stop, restart: restart, restart_daemons: restart_daemons,
 		start_fw: start_fw, reload_ifsets: reload_ifsets,
 		confirm_alive: confirm_alive };
-	print(jstringify(m[arg]()) + '\n');
+	print(sprintf("%J", m[arg]()) + '\n');
 } else {
 	let argval = arg ? arg : '';
-	print(jstringify({ ok: false, error: 'unknown action: ' + argval }) + '\n');
+	print(sprintf("%J", { ok: false, error: 'unknown action: ' + argval }) + '\n');
 	exit(1);
 }

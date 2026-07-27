@@ -21,7 +21,6 @@
 // algorithm; runtime confirmed on target via smoke.sh.
 
 import { readfile, writefile, stat } from 'fs';
-import { stringify as jstringify } from 'json';
 import { read_list_file, write_list_file } from './apply.uc';
 
 // [VERIFY:ROUTER] list file paths (zapret2 ipset/ convention)
@@ -93,7 +92,7 @@ function _in_list(n, arr) {
 
 // Read all list state: user lists (editable) + engine lists (read-only).
 // Returns an object the UI renders directly.
-export function lists_get() {
+export const lists_get = function() {
 	let domainInclude = read_list_file(LIST_PATHS.domainInclude);
 	let domainExclude = read_list_file(LIST_PATHS.domainExclude);
 	let autohostlist  = read_list_file(LIST_PATHS.autohostlist);
@@ -127,7 +126,7 @@ export function lists_get() {
 // Apply user list edits. Validates conflicts BEFORE writing; if any domain is
 // in BOTH include and exclude, refuses and returns the conflicts (no files
 // written). File generation goes through apply.uc write_list_file only.
-export function lists_set(edit) {
+export const lists_set = function(edit) {
 	// edit = { domainInclude: [...], domainExclude: [...], ipInclude: [...],
 	//          ipExclude: [...], ipBlock: [...] } (only the lists being edited
 	//          are present; absent lists are not touched)
@@ -150,7 +149,7 @@ export function lists_set(edit) {
 // Check whether a domain falls under the autohostlist or the user lists.
 // The main user-confusion source: "I added a domain manually, but the auto-
 // hostlist covers it, or vice versa."
-export function lists_check_domain(domain) {
+export const lists_check_domain = function(domain) {
 	let st = lists_get();
 	return check_domain(domain, {
 		userInclude: st.userLists.domainInclude,
@@ -160,19 +159,18 @@ export function lists_check_domain(domain) {
 }
 
 // ---- CLI --------------------------------------------------------------------
-import { parse as jparse } from 'json';
 let mode = ARGV[0];
 if (mode == 'get') {
-	print(jstringify(lists_get()) + '\n');
+	print(sprintf("%J", lists_get()) + '\n');
 } else if (mode == 'check') {
-	print(jstringify(lists_check_domain(ARGV[1])) + '\n');
+	print(sprintf("%J", lists_check_domain(ARGV[1])) + '\n');
 } else if (mode == 'set') {
 	// 'set <file>' — file contains a JSON edit object
 	let raw = readfile(ARGV[1]);
-	if (!raw) { print(jstringify({ ok: false, error: 'no edit file' }) + '\n'); exit(1); }
-	let edit = jparse(raw);
-	if (!edit) { print(jstringify({ ok: false, error: 'bad edit JSON' }) + '\n'); exit(1); }
-	print(jstringify(lists_set(edit)) + '\n');
+	if (!raw) { print(sprintf("%J", { ok: false, error: 'no edit file' }) + '\n'); exit(1); }
+	let edit = json(raw);
+	if (!edit) { print(sprintf("%J", { ok: false, error: 'bad edit JSON' }) + '\n'); exit(1); }
+	print(sprintf("%J", lists_set(edit)) + '\n');
 } else if (mode == undefined) {
 	// imported as a library
 } else {

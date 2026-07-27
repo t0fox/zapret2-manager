@@ -21,7 +21,6 @@
 // *structure* does not depend on those; only the exact source paths/commands.
 
 import { readfile, writefile, stat, mkdir, lsdir, popen } from 'fs';
-import { parse as jparse, stringify as jstringify } from 'json';
 import {
 	NFQUEUE, QLEN_WARN, QLEN_CRIT_CONSECUTIVE, CACHE_TTL_SEC,
 	DAEMON, NFT_TABLE, PATHS
@@ -67,7 +66,7 @@ function mtime_of(path) {
 function read_json(path, fallback) {
 	try {
 		let raw = readfile(path);
-		return raw ? jparse(raw) : fallback;
+		return raw ? json(raw) : fallback;
 	} catch (e) {
 		return fallback;
 	}
@@ -347,14 +346,19 @@ function nfqws2_version() {
 		if (raw) { let v = trim(raw); if (length(v)) return v; }
 	} catch (e) { }
 	// Binary fallback: the exact version flag is unconfirmed, so try the common
-	// forms and take the first non-empty line. [VERIFY:ROUTER] which flag the
-	// binary answers — answered by smoke.sh 02 (status.upstream.nfqws2Version is
-	// a string on a device where /opt/zapret2/version is absent). NOTE: the real
-	// binary is /opt/zapret2/nfq2/nfqws2 (may not be in PATH as 'nfqws2').
+	// forms and take the first non-empty line. [VERIFY:ROUTER] closed: --version is
+	// the working flag (tests/fixtures/nfqws2-version-long.out); status.nfqws2Version
+	// is a string on a device where /opt/zapret2/version is absent. The binary
+	// is NOT in PATH on this device (no /usr/bin symlink; lives at
+	// /opt/zapret2/nfq2/nfqws2 — verified). Resolve the path: try `command -v`
+	// first (honors PATH if a future build adds a symlink), fall back to the known
+	// full path. The full path is the FALLBACK, never the only option.
 	let flags = ['--version', '-V', 'version'];
+	let bin = trim(sh('command -v nfqws2 2>/dev/null'));
+	if (!length(bin)) bin = '/opt/zapret2/nfq2/nfqws2';
 	for (let i = 0; i < length(flags); i++) {
 		try {
-			let raw = sh('nfqws2 ' + flags[i] + ' 2>/dev/null | head -n 1');
+			let raw = sh(bin + ' ' + flags[i] + ' 2>/dev/null | head -n 1');
 			let v = trim(raw);
 			if (length(v)) return v;
 		} catch (e) { }
@@ -475,7 +479,7 @@ function collect() {
 		warnings: []
 	};
 
-	try { writefile(PATHS.status_json, jstringify(status, null, '  ') + '\n'); } catch (e) { }
+	try { writefile(PATHS.status_json, sprintf("%J", status) + '\n'); } catch (e) { }
 	return status;
 }
 
@@ -483,7 +487,7 @@ function collect() {
 
 if (length(ARGV) == 0 || ARGV[0] != '--no-print') {
 	let s = collect();
-	print(jstringify(s, null, '  ') + '\n');
+	print(sprintf("%J", s) + '\n');
 } else {
 	collect();
 }

@@ -52,7 +52,7 @@ function closing_quote_pos(rest) {
 // Read the current value of `name`, or null if there is no active assignment.
 // Multi-line quoted values return the text BETWEEN the quotes (newlines
 // preserved), without the quotes.
-export function read_var(name) {
+export const read_var = function(name) {
 	let raw = readfile(CONFIG);
 	if (!raw) return null;
 	let lines = split(raw, '\n');
@@ -170,7 +170,7 @@ function have_flock() {
 // RMW; the second mv wins and the first writer's change is LOST (lost update).
 // The marker only narrows the window; it does NOT serialize. flock removes
 // the race. [VERIFY:ROUTER] flock presence decides which path is live.
-export function set_var(name, value) {
+export const set_var = function(name, value) {
 	if (have_flock()) {
 		// Delegate the RMW to a subprocess under an exclusive flock. Use mktemp
 		// for the name/value temp files so concurrent set_var calls do not
@@ -259,7 +259,7 @@ function do_set(name_f, val_f) {
 // prevents a partial read. [VERIFY:ROUTER] the exact list file paths live in
 // lists.uc; apply.uc just reads/writes a path it is given.
 
-export function read_list_file(path) {
+export const read_list_file = function(path) {
 	try {
 		let raw = readfile(path);
 		if (!raw) return [];
@@ -273,7 +273,7 @@ export function read_list_file(path) {
 	} catch (e) { return []; }
 }
 
-export function write_list_file(path, lines) {
+export const write_list_file = function(path, lines) {
 	let body = '';
 	for (let i = 0; i < length(lines); i++)
 		body += lines[i] + '\n';

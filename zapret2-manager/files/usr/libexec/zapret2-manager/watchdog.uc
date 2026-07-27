@@ -25,7 +25,6 @@
 //   ucode watchdog.uc check    — one cycle and exit (smoke.sh)
 
 import { readfile, writefile, stat, mkdir, unlink, popen } from 'fs';
-import { parse as jparse, stringify as jstringify } from 'json';
 import { NFQUEUE, QLEN_WARN, QLEN_CRIT_CONSECUTIVE,
 	DAEMON, NFT_TABLE, PATHS } from './constants.uc';
 import { parse_queue } from './qlen.uc';
@@ -60,12 +59,12 @@ function run(cmd) {
 function now() { return time(); }
 
 function read_state() {
-	try { let raw = readfile(STATE_FILE); return raw ? jparse(raw) : {}; }
+	try { let raw = readfile(STATE_FILE); return raw ? json(raw) : {}; }
 	catch (e) { return {}; }
 }
 
 function write_state(st) {
-	try { mkdir('/tmp/zapret2-manager'); writefile(STATE_FILE, jstringify(st) + '\n'); }
+	try { mkdir('/tmp/zapret2-manager'); writefile(STATE_FILE, sprintf("%J", st) + '\n'); }
 	catch (e) { }
 }
 
@@ -83,7 +82,7 @@ function event(source, category, severity, msg, extra) {
 		let ev = extra ? extra : {};
 		ev.schema = 'events.v1'; ev.ts = ts; ev.id = id;
 		ev.category = category; ev.severity = severity; ev.source = source; ev.msg = msg;
-		writefile(PATHS.events_ndjson, prev + jstringify(ev) + '\n');
+		writefile(PATHS.events_ndjson, prev + sprintf("%J", ev) + '\n');
 	} catch (e) { }
 }
 
@@ -152,12 +151,12 @@ function cpu_ticks(pids) {
 // never emit a negative delta.
 
 function read_qlen_prev() {
-	try { let raw = readfile(QLEN_STATE); return raw ? jparse(raw) : null; }
+	try { let raw = readfile(QLEN_STATE); return raw ? json(raw) : null; }
 	catch (e) { return null; }
 }
 
 function write_qlen_state(st) {
-	try { mkdir('/tmp/zapret2-manager'); writefile(QLEN_STATE, jstringify(st) + '\n'); }
+	try { mkdir('/tmp/zapret2-manager'); writefile(QLEN_STATE, sprintf("%J", st) + '\n'); }
 	catch (e) { }
 }
 
@@ -367,7 +366,7 @@ function check_cycle() {
 
 let mode = ARGV[0];
 if (mode == 'check') {
-	print(jstringify(check_cycle()) + '\n');
+	print(sprintf("%J", check_cycle()) + '\n');
 } else {
 	// daemon loop
 	while (true) {

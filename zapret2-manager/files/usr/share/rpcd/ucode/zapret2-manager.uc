@@ -23,7 +23,6 @@
 // does not register at all.
 
 import { stat, readfile, writefile, unlink, popen } from 'fs';
-import { parse as jparse, stringify as jstringify } from 'json';
 
 const STATUS_JSON = '/tmp/zapret2-manager/status.json';
 const COLLECTOR   = '/usr/libexec/zapret2-manager/status.uc';
@@ -47,7 +46,7 @@ function status_method(req) {
 	if (!cache_fresh()) refresh();
 	let raw = readfile(STATUS_JSON);
 	if (!raw) return { error: 'status unavailable', generatedAt: null };
-	try { return jparse(raw); }
+	try { return json(raw); }
 	catch (e) { return { error: 'status parse failed', raw: raw }; }
 }
 
@@ -62,7 +61,7 @@ function service_action(action) {
 	// null on 'null' or nothing-parsable; only null falls back to the
 	// no-output envelope.
 	try {
-		let parsed = jparse(out);
+		let parsed = json(out);
 		if (parsed != null) return parsed;
 		return { ok: false, error: 'no output', raw: out };
 	}
@@ -91,7 +90,7 @@ function lists_action(sub) {
 	if (!out) out = '';
 	p.close();
 	try {
-		let parsed = jparse(out);
+		let parsed = json(out);
 		if (parsed != null) return parsed;
 		return { ok: false, error: 'no output', raw: out };
 	} catch (e) { return { ok: false, error: 'parse failed', raw: out }; }
@@ -113,7 +112,7 @@ function lists_set_method(req) {
 	if (edit == null) return { ok: false, error: 'missing edit param' };
 	// write the edit to a temp file, invoke lists.uc with 'set <file>'
 	let tmp = '/tmp/z2m-lists-edit.' + time();
-	writefile(tmp, jstringify(edit));
+	writefile(tmp, sprintf("%J", edit));
 	let cmd = '/usr/bin/ucode ' + LISTS_CLI + ' set ' + tmp + ' 2>/dev/null';
 	let p = popen(cmd, 'r');
 	if (!p) return { ok: false, error: 'popen failed' };
@@ -122,29 +121,32 @@ function lists_set_method(req) {
 	p.close();
 	try { unlink(tmp); } catch (e) { }
 	try {
-		let parsed = jparse(out);
+		let parsed = json(out);
 		if (parsed != null) return parsed;
 		return { ok: false, error: 'no output', raw: out };
 	} catch (e) { return { ok: false, error: 'parse failed', raw: out }; }
 }
 
 // Signature: top-level key == ubus object name (matches ACL). Methods nested.
+// Signature: top-level key == ubus object name (matches ACL). Per the rpcd
+// ucode plugin contract (verified against the on-device `luci` plugin):
+// each method is a DICT with a `call` field holding the function, NOT a bare
+// function — a bare function does NOT register. `args` is an optional schema
+// dict for request params. No `methods:` wrapper (not in the contract).
 return {
 	'zapret2-manager': {
-		methods: {
-			status:           status_method,
-			start:            function (req) { return service_action('start'); },
-			stop:             function (req) { return service_action('stop'); },
-			restart:          function (req) { return service_action('restart'); },
-			restart_daemons:  function (req) { return service_action('restart_daemons'); },
-			start_fw:         function (req) { return service_action('start_fw'); },
-			reload_ifsets:    function (req) { return service_action('reload_ifsets'); },
-			confirm_alive:    function (req) { return service_action('confirm_alive'); },
-			rollback:         function (req) { return service_action('rollback'); },
-			passthrough:      passthrough_method,
-			lists_get:          lists_get_method,
-			lists_check_domain: lists_check_domain_method,
-			lists_set:          lists_set_method
-		}
+		status:            { call: function (req) { return status_method(req); } },
+		start:             { call: function (req) { return service_action('start'); } },
+		stop:              { call: function (req) { return service_action('stop'); } },
+		restart:           { call: function (req) { return service_action('restart'); } },
+		restart_daemons:   { call: function (req) { return service_action('restart_daemons'); } },
+		start_fw:          { call: function (req) { return service_action('start_fw'); } },
+		reload_ifsets:     { call: function (req) { return service_action('reload_ifsets'); } },
+		confirm_alive:     { call: function (req) { return service_action('confirm_alive'); } },
+		rollback:          { call: function (req) { return service_action('rollback'); } },
+		passthrough:       { args: { enabled: 'boolean' }, call: function (req) { return passthrough_method(req); } },
+		lists_get:         { call: function (req) { return lists_get_method(req); } },
+		lists_check_domain: { args: { domain: 'string' }, call: function (req) { return lists_check_domain_method(req); } },
+		lists_set:         { args: { edit: 'string' }, call: function (req) { return lists_set_method(req); } }
 	}
 };
