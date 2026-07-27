@@ -231,3 +231,20 @@ test('duplicate draft names are allowed but flagged in the list entry', () => {
 	const flagged = st.profiles.map((p) => draftListEntry(p, st.profiles));
 	assert.ok(flagged.every((e) => e.duplicateName === true), 'duplicates flagged, not rejected');
 });
+
+test('service.uc keys (passthrough/active_profile) survive a draft CRUD round trip', () => {
+	// service.uc passthrough() writes free-form keys into the SAME state.json;
+	// status.uc reads draft.passthrough.enabled for the serviceState. A draft
+	// save must NEVER drop them (Slice-2 regression class).
+	const withSvc = {
+		schema: 1, updatedAt: NOW, nextIdSeq: 1, profiles: [],
+		passthrough: { enabled: true }, active_profile: { name: 'passthrough', strategies: [] }
+	};
+	const parsed = parseState(JSON.stringify(withSvc));
+	assert.equal(parsed.ok, true);
+	const saved = createProfile(parsed.state, { name: 'Web', opt: OPT_A }, NOW + 1);
+	assert.equal(saved.ok, true);
+	const reread = parseState(serializeState(saved.state));
+	assert.equal(reread.state.passthrough?.enabled, true, 'passthrough key must survive parse+save');
+	assert.equal(reread.state.active_profile?.name, 'passthrough', 'active_profile key must survive');
+});

@@ -15,7 +15,7 @@
 					"confirm_alive", "rollback", "passthrough",
 					"lists_set",
 					"profiles_create", "profiles_update", "profiles_clone",
-					"profiles_delete", "profiles_import_applied"
+					"profiles_delete", "profiles_import_applied", "profiles_apply"
 				]
 			}
 		}

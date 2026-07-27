@@ -36,19 +36,15 @@ const callProfilesClone = rpc.declare({ object: 'zapret2-manager', method: 'prof
 const callProfilesDelete = rpc.declare({ object: 'zapret2-manager', method: 'profiles_delete', params: ['edit'], reject: true });
 const callProfilesValidate = rpc.declare({ object: 'zapret2-manager', method: 'profiles_validate', params: ['edit'], reject: true });
 const callProfilesImportApplied = rpc.declare({ object: 'zapret2-manager', method: 'profiles_import_applied', reject: true });
+const callProfilesApply = rpc.declare({ object: 'zapret2-manager', method: 'profiles_apply', params: ['edit'], reject: true });
 const callPassthrough = rpc.declare({
 	object: 'zapret2-manager', method: 'passthrough', params: ['enabled'], reject: true
 });
 const callConfirmAlive = rpc.declare({ object: 'zapret2-manager', method: 'confirm_alive', reject: true });
 const callRollback = rpc.declare({ object: 'zapret2-manager', method: 'rollback', reject: true });
 
-// Backend methods this page still waits for (rendered as the reason Apply is
-// disabled — also the dependency list for the backend agent).
-// profiles_list/create/update/clone/delete/validate/import_applied EXIST
-// (Slices 1–2) and drive the applied viewer + the draft manager below.
-const MISSING_METHODS = [
-	'profiles_apply'
-];
+// Every profiles_* method this page uses now EXISTS (Slices 1–3). Apply is
+// wired below through the preview → confirm → apply → verify flow.
 
 // collect all occurrences of an argv flag, e.g. --hostlist=… (presentation
 // hint only; the raw cmdline stays the source of truth)
@@ -152,7 +148,7 @@ return L.view.extend({
 		}
 
 		// ---- actions ------------------------------------------------------------
-		container.appendChild(this.applyPlaceholderSection());
+		container.appendChild(this.applySection(profData, profUnavailable));
 		container.appendChild(this.passthroughSection(data.serviceState === 'passthrough', unavailable));
 
 		return container;
@@ -327,7 +323,7 @@ return L.view.extend({
 		var node = E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Draft profiles (manager-staged, never applied yet)')),
 			E('div', { 'class': 'cbi-value-description' },
-				_('Drafts live only in the manager state (/etc/zapret2-manager/state.json). The engine never reads them. Apply is not available yet (waits for profiles_apply).'))
+				_('Drafts live only in the manager state (/etc/zapret2-manager/state.json). The engine never reads them. Applying them happens below via the preview → confirm → apply flow.'))
 		]);
 
 		if (profUnavailable) {
@@ -604,20 +600,168 @@ return L.view.extend({
 		return box;
 	},
 
-	// Apply does NOT exist yet (Slice 3). One honest placeholder, no fake path.
-	applyPlaceholderSection: function () {
-		return E('div', { 'class': 'cbi-section' }, [
-			E('h3', {}, _('Apply')),
-			E('button', {
-				'class': 'cbi-button cbi-button-neutral', 'type': 'button',
-				'disabled': 'disabled',
-				'title': _('Backend method unavailable')
-			}, _('Apply drafts')),
+	// ---- APPLY (SLICE 3): preview → one confirmation → apply → verify ---------
+	applySection: function (profData, profUnavailable) {
+		var self = this;
+		var node = E('div', { 'class': 'cbi-section' }, [
+			E('h3', {}, _('Apply drafts to the engine')),
 			E('div', { 'class': 'cbi-value-description' },
-				_('Applying drafts to the running engine requires a backend method that is not registered yet: ') +
-				MISSING_METHODS.join(', ') +
-				_('. Drafts above are staged only — the applied config and the running engine are never touched from this page.'))
+				_('Preview renders the exact candidate and its diff against the applied config. Apply snapshots last-good, writes only NFQWS2_OPT through the sanctioned writer, restarts via upstream init, and verifies the engine — a failed verification rolls back immediately. The automatic 90s timer stays off; manual rollback remains available.'))
 		]);
+		if (profUnavailable) {
+			node.appendChild(E('div', { 'class': 'cbi-value-description' },
+				_('Unavailable — profiles_list: ') + profUnavailable));
+			return node;
+		}
+		var draftCount = (profData && profData.draft && profData.draft.profileCount) || 0;
+
+		var prevBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button', 'id': 'z2m-apply-preview' }, _('Preview apply'));
+		prevBtn.addEventListener('click', function () {
+			prevBtn.disabled = true;
+			self._apply = { busy: true };
+			callProfilesApply(JSON.stringify({ mode: 'preview' })).then(function (res) {
+				prevBtn.disabled = false;
+				self._apply = { preview: res || {} };
+				self.refresh();
+			}).catch(function (err) {
+				prevBtn.disabled = false;
+				self._apply = { error: String(err) };
+				self.refresh();
+			});
+		});
+		node.appendChild(E('div', { 'class': 'cbi-button-row', 'style': 'margin:.4em 0' }, [prevBtn]));
+
+		var ap = this._apply;
+		if (ap && ap.busy) node.appendChild(E('div', { 'class': 'cbi-value-description' }, _('Working…')));
+		if (ap && ap.error) node.appendChild(E('div', { 'class': 'alert-message danger' }, _('Apply call failed: ') + ap.error));
+		if (ap && ap.preview) node.appendChild(this.applyPreviewBox(ap.preview, draftCount));
+		if (ap && ap.result) node.appendChild(this.applyResultBox(ap.result));
+		return node;
+	},
+
+	applyPreviewBox: function (pv, draftCount) {
+		var self = this;
+		if (pv.ok !== true) {
+			var msg = (pv.error && pv.error.message) || pv.error || _('unknown');
+			var box = E('div', { 'class': 'alert-message danger' }, [
+				E('p', {}, _('Preview refused: ') + msg)
+			]);
+			(pv.failures || []).forEach(function (f) {
+				box.appendChild(E('div', { 'class': 'cbi-value-description' },
+					(f.id || '?') + ': ' + (f.diagnostics || []).map(function (d) { return d.code; }).join(', ')));
+			});
+			if (pv.native) box.appendChild(this.nativeCoverageRow(pv.native));
+			return box;
+		}
+		var diff = pv.diff || {};
+		var native = pv.native || {};
+		var box = E('div', { 'class': 'cbi-section', 'id': 'z2m-apply-preview-box' }, [
+			E('h4', {}, _('Apply preview')),
+			this.row(_('Draft profiles'), pv.draftCount != null ? pv.draftCount : draftCount),
+			this.row(_('Changed vs applied'), diff.changed == null ? _('Unavailable') : (diff.changed ? _('yes') : _('no (identical)'))),
+			this.row(_('Applied sha256'), diff.currentSha256 ? String(diff.currentSha256).substring(0, 16) + '…' : _('Unavailable')),
+			this.row(_('Candidate sha256'), diff.candidateSha256 ? String(diff.candidateSha256).substring(0, 16) + '…' : _('Unavailable')),
+			this.nativeCoverageRow(native),
+			E('h4', {}, _('Candidate NFQWS2_OPT')),
+			E('pre', { 'style': 'white-space:pre-wrap;word-break:break-all;font-family:monospace;font-size:.85em;max-height:200px;overflow:auto' }, pv.candidate || _('(empty)'))
+		]);
+
+		if (!pv.wouldApply) {
+			box.appendChild(E('div', { 'class': 'alert-message warning' },
+				_('Apply is refused by validation: ') + (pv.refuseReason || _('unknown'))));
+			return box;
+		}
+
+		var armed = this._apply && this._apply.armed;
+		var applyBtn = E('button', {
+			'class': 'cbi-button ' + (armed ? 'cbi-button-negative' : 'cbi-button-apply'),
+			'type': 'button', 'id': 'z2m-apply-run'
+		}, armed ? _('Confirm apply (engine will restart)?') : _('Apply drafts'));
+		applyBtn.addEventListener('click', function () {
+			if (!self._apply.armed) { self._apply.armed = true; self.refresh(); return; }
+			applyBtn.disabled = true;
+			self._apply = { busy: true };
+			callProfilesApply(JSON.stringify({ mode: 'apply' })).then(function (res) {
+				self._apply = { result: res || {}, preview: pv };
+				self.refresh();
+			}).catch(function (err) {
+				self._apply = { error: String(err), preview: pv };
+				self.refresh();
+			});
+		});
+		box.appendChild(E('div', { 'class': 'alert-message warning' }, [
+			E('p', {}, _('Applying restarts nfqws2 and may drop connectivity briefly. Exactly one confirmation follows.'))
+		]));
+		box.appendChild(E('div', { 'class': 'cbi-button-row' }, [applyBtn]));
+		return box;
+	},
+
+	nativeCoverageRow: function (native) {
+		var cov = native.coverage || {};
+		var parts = [];
+		var ks = ['cliSyntax', 'luaLoad', 'functionExistence', 'runtimeArguments'];
+		ks.forEach(function (k) { parts.push(k + ': ' + (cov[k] || 'not_checked')); });
+		return this.row(_('Native validation'),
+			E('span', {}, [
+				E('span', { 'class': 'zonebadge ' + (native.status === 'partial' ? 'ok' : (native.status === 'not_checked' ? '' : 'warn')) },
+					native.status || 'not_checked'),
+				' ' + _('(dry-run proves CLI syntax only — never full runtime validity) · ') + parts.join(' · ')
+			]));
+	},
+
+	applyResultBox: function (res) {
+		var self = this;
+		if (res.ok !== true) {
+			var msg = (res.error && res.error.message) || res.error || _('unknown');
+			var cls = res.critical ? 'alert-message danger' : 'alert-message warning';
+			var box = E('div', { 'class': cls }, [
+				E('p', {}, _('Apply failed') + (res.stage ? ' (' + res.stage + ')' : '') + ': ' + msg)
+			]);
+			if (res.rolledBack) box.appendChild(E('p', {}, _('The last-good configuration was restored automatically.')));
+			if (res.critical) box.appendChild(E('p', {}, _('CRITICAL: rollback failed — manual recovery required (see last-good under /tmp/zapret2-manager/last-good).')));
+			if (res.verify) box.appendChild(this.verifyChecksRow(res.verify));
+			return box;
+		}
+		var v = res.verify || {};
+		var box = E('div', { 'class': 'cbi-section', 'id': 'z2m-apply-result' }, [
+			E('h4', {}, _('Applied and verified')),
+			this.row(_('Profiles applied'), (res.applied && res.applied.profiles) || _('Unavailable')),
+			this.verifyChecksRow(v),
+			E('div', { 'class': 'cbi-value-description' },
+				_('The automatic 90s rollback timer is off. If the link dropped, use Roll back now — last-good is kept.'))
+		]);
+
+		var okBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button' }, _('Link OK'));
+		var rbBtn = E('button', { 'class': 'cbi-button cbi-button-negative', 'type': 'button' }, _('Roll back now'));
+		var status = E('div', { 'class': 'cbi-value-description' });
+		okBtn.addEventListener('click', function () {
+			okBtn.disabled = true; rbBtn.disabled = true;
+			callConfirmAlive().then(function () {
+				status.textContent = _('Confirmed. Change kept.');
+			}).catch(function (err) {
+				status.textContent = _('Confirm failed: ') + String(err);
+			}).then(function () { self.refresh(); });
+		});
+		rbBtn.addEventListener('click', function () {
+			okBtn.disabled = true; rbBtn.disabled = true;
+			callRollback().then(function () {
+				status.textContent = _('Rolled back to last-good.');
+			}).catch(function (err) {
+				status.textContent = _('Rollback failed: ') + String(err);
+			}).then(function () { self.refresh(); });
+		});
+		box.appendChild(E('div', { 'class': 'cbi-button-row' }, [okBtn, rbBtn]));
+		box.appendChild(status);
+		return box;
+	},
+
+	verifyChecksRow: function (v) {
+		var checks = (v && v.checks) || {};
+		var names = ['processPresent', 'singleInstance', 'rulesPresent', 'queueRegistered', 'ownerMatch'];
+		var parts = names.map(function (n) {
+			return E('span', { 'class': 'zonebadge ' + (checks[n] ? 'ok' : 'bad') }, n);
+		});
+		return this.row(_('Post-restart verification'), E('span', {}, parts));
 	},
 
 	// Passthrough: the one strategy mutation the contract HAS (ubus.md).

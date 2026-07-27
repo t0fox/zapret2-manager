@@ -716,6 +716,146 @@ test('strategies: guided add-option appends a whitelisted option to the raw edit
 	assert.equal(optArea.value, '--filter-tcp=80 --filter-udp=443', 'guided row appends --opt=value to the raw editor');
 });
 
+// ---- 6c. strategies: apply flow (SLICE 3) ---------------------------------------
+
+const PREVIEW_OK = {
+	ok: true, mode: 'preview', draftCount: 2,
+	candidate: '--filter-tcp=80 --lua-desync=pass --new --filter-udp=443 --lua-desync=pass',
+	diff: { changed: true, currentSha256: 'aaaa0000bbbb1111', candidateSha256: 'cccc2222dddd3333', currentLength: 30, candidateLength: 70 },
+	native: {
+		status: 'partial', entryPoint: 'dry-run',
+		coverage: { cliSyntax: 'passed', luaLoad: 'not_checked', luaCompatibility: 'not_checked', functionExistence: 'not_checked', runtimeArguments: 'not_checked', executionPlan: 'not_checked' },
+		diagnostics: []
+	},
+	wouldApply: true, refuseReason: null
+};
+
+test('strategies: Preview apply renders diff + honest native coverage; apply needs ONE confirm', async () => {
+	const w = makeWorld({
+		status: { type: 'ok', value: STATUS_FIXTURE },
+		profiles_list: { type: 'ok', value: PROFILES_WITH_DRAFT },
+		profiles_apply: { type: 'ok', value: PREVIEW_OK }
+	});
+	const view = loadView(readViewSource('strategies'), 'strategies', w);
+	const envelope = await view.load();
+	let root = view.render(envelope);
+
+	const prevBtn = w.created.find((n) => n.attrs.id === 'z2m-apply-preview');
+	assert.ok(prevBtn, 'Preview apply button not found');
+	prevBtn.listeners.click();
+	await flush();
+
+	const previewCall = w.calls.find((c) => c.method === 'profiles_apply');
+	assert.ok(previewCall, 'profiles_apply was not called');
+	assert.deepEqual(JSON.parse(previewCall.params.edit), { mode: 'preview' }, 'preview mode on the wire');
+
+	root = view.render({ loadError: null, data: STATUS_FIXTURE, profilesData: PROFILES_WITH_DRAFT });
+	const text = collectText(root).join(' | ');
+	assert.ok(text.includes('aaaa0000bbbb1111'.substring(0, 16)), 'applied sha256 renders');
+	assert.ok(text.includes('dry-run proves CLI syntax only'), 'honest coverage note renders');
+	assert.ok(text.includes('yes'), 'changed=yes renders');
+
+	const applyBtn = w.created.find((n) => n.attrs.id === 'z2m-apply-run');
+	assert.ok(applyBtn, 'apply button must render when wouldApply');
+	applyBtn.listeners.click();   // ARM — not the apply call
+	const callsSoFar = w.calls.filter((c) => c.method === 'profiles_apply');
+	assert.equal(callsSoFar.length, 1, 'first click only ARMS — no second apply call yet');
+});
+
+test('strategies: refused preview (native rejected) keeps Apply disabled with the reason', async () => {
+	const refused = {
+		ok: true, mode: 'preview', draftCount: 2, candidate: 'x',
+		diff: { changed: true, currentSha256: 'a', candidateSha256: 'b' },
+		native: {
+			status: 'rejected', entryPoint: 'dry-run',
+			coverage: { cliSyntax: 'failed', luaLoad: 'not_checked', luaCompatibility: 'not_checked', functionExistence: 'not_checked', runtimeArguments: 'not_checked', executionPlan: 'not_checked' },
+			diagnostics: [{ severity: 'error', code: 'NATIVE_REJECTED', message: 'unknown option --bogus' }]
+		},
+		wouldApply: false, refuseReason: 'native validation did not pass (status: rejected)'
+	};
+	const w = makeWorld({
+		status: { type: 'ok', value: STATUS_FIXTURE },
+		profiles_list: { type: 'ok', value: PROFILES_WITH_DRAFT },
+		profiles_apply: { type: 'ok', value: refused }
+	});
+	const view = loadView(readViewSource('strategies'), 'strategies', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	w.created.find((n) => n.attrs.id === 'z2m-apply-preview').listeners.click();
+	await flush();
+	const root2 = view.render({ loadError: null, data: STATUS_FIXTURE, profilesData: PROFILES_WITH_DRAFT });
+	const text = collectText(root2).join(' | ');
+	assert.ok(text.includes('refused by validation'), 'the refusal renders');
+	assert.ok(text.includes('rejected'), 'the native status renders');
+	assert.ok(!w.created.find((n) => n.attrs.id === 'z2m-apply-run'),
+		'no apply button when validation refuses');
+});
+
+test('strategies: apply success renders the five verification checks + manual rollback row', async () => {
+	const applied = {
+		ok: true, mode: 'apply',
+		applied: { profiles: 2, candidateSha256: 'cccc2222dddd3333' },
+		verify: { ok: true, checks: { processPresent: true, singleInstance: true, rulesPresent: true, queueRegistered: true, ownerMatch: true }, daemonPid: 6128, queueOwner: 6128 },
+		snapshot: { configSha256: 'aaaa', uciSha256: null, generation: 7 },
+		rollback: { available: true, armed: false }
+	};
+	const w = makeWorld({
+		status: { type: 'ok', value: STATUS_FIXTURE },
+		profiles_list: { type: 'ok', value: PROFILES_WITH_DRAFT },
+		profiles_apply: { type: 'ok', value: PREVIEW_OK }
+	});
+	const view = loadView(readViewSource('strategies'), 'strategies', w);
+	const envelope = await view.load();
+	let root = view.render(envelope);
+	w.created.find((n) => n.attrs.id === 'z2m-apply-preview').listeners.click();
+	await flush();
+	view.render({ loadError: null, data: STATUS_FIXTURE, profilesData: PROFILES_WITH_DRAFT });
+	const applyBtn = w.created.find((n) => n.attrs.id === 'z2m-apply-run');
+	assert.ok(applyBtn, 'apply button renders after preview');
+	applyBtn.listeners.click();   // ARM (listener closes over view state)
+	assert.equal(view._apply.armed, true, 'first click arms');
+	w.responses.profiles_apply = { type: 'ok', value: applied };
+	applyBtn.listeners.click();   // CONFIRM → apply executes
+	await flush();
+	const applyCalls = w.calls.filter((c) => c.method === 'profiles_apply' && JSON.parse(c.params.edit).mode === 'apply');
+	assert.ok(applyCalls.length === 1, 'exactly one apply call after arm+confirm');
+	root = view.render({ loadError: null, data: STATUS_FIXTURE, profilesData: PROFILES_WITH_DRAFT });
+	const text = collectText(root).join(' | ');
+	assert.ok(text.includes('Applied and verified'), 'success state renders');
+	assert.ok(text.includes('processPresent'), 'verification checks render');
+	assert.ok(text.includes('ownerMatch'), 'owner-match check renders');
+	assert.ok(text.includes('Roll back'), 'manual rollback row renders');
+});
+
+test('strategies: apply failure with rollback renders the rolled-back state; critical is loud', async () => {
+	const failed = {
+		ok: false, stage: 'verify', critical: false,
+		error: { code: 'ETARGET', message: 'apply failed verification (restart rc=0) — rolled back to last-good' },
+		verify: { ok: false, checks: { processPresent: true, singleInstance: true, rulesPresent: true, queueRegistered: false, ownerMatch: false }, daemonPid: 6128, queueOwner: null },
+		rolledBack: true, rollbackOk: true
+	};
+	const w = makeWorld({
+		status: { type: 'ok', value: STATUS_FIXTURE },
+		profiles_list: { type: 'ok', value: PROFILES_WITH_DRAFT },
+		profiles_apply: { type: 'ok', value: PREVIEW_OK }
+	});
+	const view = loadView(readViewSource('strategies'), 'strategies', w);
+	const envelope = await view.load();
+	let root = view.render(envelope);
+	w.created.find((n) => n.attrs.id === 'z2m-apply-preview').listeners.click();
+	await flush();
+	view.render({ loadError: null, data: STATUS_FIXTURE, profilesData: PROFILES_WITH_DRAFT });
+	w.created.find((n) => n.attrs.id === 'z2m-apply-run').listeners.click();
+	view._apply.armed = true;
+	w.responses.profiles_apply = { type: 'ok', value: failed };
+	w.created.find((n) => n.attrs.id === 'z2m-apply-run').listeners.click();
+	await flush();
+	root = view.render({ loadError: null, data: STATUS_FIXTURE, profilesData: PROFILES_WITH_DRAFT });
+	const text = collectText(root).join(' | ');
+	assert.ok(text.includes('Apply failed'), 'failure renders');
+	assert.ok(text.includes('restored automatically'), 'rolled-back state renders');
+});
+
 // ---- 7. overview: passthrough wire + reject gate (no longer excluded) --------
 
 test('overview: callPassthrough is declared with params:[enabled] + reject:true (fixed → green)', () => {

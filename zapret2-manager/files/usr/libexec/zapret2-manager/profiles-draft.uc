@@ -84,15 +84,18 @@ function parse_state(text) {
 	}
 	let profiles = [];
 	for (let i = 0; i < length(obj.profiles); i++) push(profiles, normalize_profile(obj.profiles[i]));
-	return {
-		ok: true,
-		state: {
-			schema: DRAFT_SCHEMA,
-			updatedAt: (type(obj.updatedAt) == 'int') ? obj.updatedAt : null,
-			nextIdSeq: (type(obj.nextIdSeq) == 'int' && obj.nextIdSeq >= 1) ? obj.nextIdSeq : 1,
-			profiles: profiles
-		}
+	let state = {
+		schema: DRAFT_SCHEMA,
+		updatedAt: (type(obj.updatedAt) == 'int') ? obj.updatedAt : null,
+		nextIdSeq: (type(obj.nextIdSeq) == 'int' && obj.nextIdSeq >= 1) ? obj.nextIdSeq : 1,
+		profiles: profiles
 	};
+	// service.uc co-owns two free-form keys in the same file (passthrough /
+	// active_profile — read by status.uc for the serviceState). They are NOT
+	// draft-schema fields, but a draft save must never drop them: preserve.
+	if (type(obj.passthrough) == 'object' && obj.passthrough != null) state.passthrough = obj.passthrough;
+	if (type(obj.active_profile) == 'object' && obj.active_profile != null) state.active_profile = obj.active_profile;
+	return { ok: true, state: state };
 }
 
 export const load_state = function() {

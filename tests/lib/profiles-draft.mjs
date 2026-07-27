@@ -52,15 +52,18 @@ export function parseState(text) {
 			return { ok: false, malformed: true, reason: 'a profile record is malformed (id/name/opt must be strings)', state: null };
 	}
 	const nextIdSeq = Number.isInteger(obj.nextIdSeq) && obj.nextIdSeq >= 1 ? obj.nextIdSeq : 1;
-	return {
-		ok: true,
-		state: {
-			schema: DRAFT_SCHEMA,
-			updatedAt: Number.isInteger(obj.updatedAt) ? obj.updatedAt : null,
-			nextIdSeq,
-			profiles: obj.profiles.map(normalizeProfile)
-		}
+	const state = {
+		schema: DRAFT_SCHEMA,
+		updatedAt: Number.isInteger(obj.updatedAt) ? obj.updatedAt : null,
+		nextIdSeq,
+		profiles: obj.profiles.map(normalizeProfile)
 	};
+	// service.uc co-owns two free-form keys in the same file (passthrough /
+	// active_profile — read by status.uc for the serviceState). They are NOT
+	// draft-schema fields, but a draft save must never drop them: preserve.
+	if (obj.passthrough && typeof obj.passthrough === 'object') state.passthrough = obj.passthrough;
+	if (obj.active_profile && typeof obj.active_profile === 'object') state.active_profile = obj.active_profile;
+	return { ok: true, state };
 }
 
 function normalizeProfile(p) {

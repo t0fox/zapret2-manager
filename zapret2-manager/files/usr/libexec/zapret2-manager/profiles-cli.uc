@@ -30,6 +30,7 @@
 import { readfile, popen } from 'fs';
 import { profiles_list } from './profiles.uc';
 import { draft_block, profiles_create, profiles_update, profiles_clone, profiles_delete, profiles_validate, profiles_import_applied } from './profiles-draft.uc';
+import { profiles_apply_preview, profiles_apply_run } from './profiles-apply.uc';
 
 const LOCKFILE = '/tmp/zapret2-manager/state.lock';
 
@@ -41,7 +42,7 @@ function have_flock() {
 }
 
 function is_mutating(mode) {
-	return (mode == 'create' || mode == 'update' || mode == 'clone' || mode == 'delete' || mode == 'import_applied');
+	return (mode == 'create' || mode == 'update' || mode == 'clone' || mode == 'delete' || mode == 'import_applied' || mode == 'apply');
 }
 
 // flock_wrap(mode, argfile): re-exec this CLI under an exclusive flock and
@@ -72,7 +73,7 @@ function read_args(file) {
 let mode = ARGV[0];
 
 if (mode == null) {
-	print('usage: ucode profiles-cli.uc list | create <f> | update <f> | clone <f> | delete <f> | validate <f> | import_applied\n');
+	print('usage: ucode profiles-cli.uc list | create <f> | update <f> | clone <f> | delete <f> | validate <f> | import_applied | preview | apply\n');
 	exit(1);
 }
 
@@ -99,7 +100,11 @@ if (mode == 'list') {
 	print(sprintf("%J", profiles_validate(read_args(ARGV[1]))) + '\n');
 } else if (mode == 'import_applied') {
 	print(sprintf("%J", profiles_import_applied()) + '\n');
+} else if (mode == 'preview') {
+	print(sprintf("%J", profiles_apply_preview()) + '\n');
+} else if (mode == 'apply') {
+	print(sprintf("%J", profiles_apply_run()) + '\n');
 } else {
-	print('usage: ucode profiles-cli.uc list | create <f> | update <f> | clone <f> | delete <f> | validate <f> | import_applied\n');
+	print('usage: ucode profiles-cli.uc list | create <f> | update <f> | clone <f> | delete <f> | validate <f> | import_applied | preview | apply\n');
 	exit(1);
 }

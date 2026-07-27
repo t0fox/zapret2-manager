@@ -182,6 +182,23 @@ function profiles_delete_method(req) { return profiles_edit_action('delete', req
 function profiles_validate_method(req) { return profiles_edit_action('validate', req); }
 function profiles_import_applied_method(req) { return profiles_action('import_applied'); }
 
+// profiles_apply {edit: '{"mode":"preview"|"apply"}'} — preview is read-only
+// (no write, no restart); apply runs the full pipeline (snapshot → write →
+// restart → verify → rollback-on-failure). Mode parsing happens here; the
+// CLI subcommand is chosen, never interpolated from the payload.
+function profiles_apply_method(req) {
+	let edit = null;
+	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
+	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
+	let mode = 'preview';
+	if (edit != null && type(edit) == 'string') {
+		let obj = null;
+		try { obj = json(edit); } catch (e) { obj = null; }
+		if (type(obj) == 'object' && obj != null && obj.mode == 'apply') mode = 'apply';
+	}
+	return profiles_action(mode);
+}
+
 // Signature: top-level key == ubus object name (matches ACL). Methods nested.
 // Signature: top-level key == ubus object name (matches ACL). Per the rpcd
 // ucode plugin contract (verified against the on-device `luci` plugin):
@@ -209,6 +226,7 @@ return {
 		profiles_clone:    { args: { edit: 'string' }, call: function (req) { return profiles_clone_method(req); } },
 		profiles_delete:   { args: { edit: 'string' }, call: function (req) { return profiles_delete_method(req); } },
 		profiles_validate: { args: { edit: 'string' }, call: function (req) { return profiles_validate_method(req); } },
-		profiles_import_applied: { call: function (req) { return profiles_import_applied_method(req); } }
+		profiles_import_applied: { call: function (req) { return profiles_import_applied_method(req); } },
+		profiles_apply:    { args: { edit: 'string' }, call: function (req) { return profiles_apply_method(req); } }
 	}
 };
