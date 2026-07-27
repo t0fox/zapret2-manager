@@ -3,7 +3,7 @@
 		"description": "Zapret 2 Manager — overview + service control + lists",
 		"read": {
 			"ubus": {
-				"zapret2-manager": [ "status", "lists_get", "lists_check_domain", "profiles_list" ]
+				"zapret2-manager": [ "status", "lists_get", "lists_check_domain", "profiles_list", "profiles_validate" ]
 			},
 			"uci": [ "zapret2" ]
 		},
@@ -13,7 +13,9 @@
 					"start", "stop", "restart", "restart_daemons",
 					"start_fw", "reload_ifsets",
 					"confirm_alive", "rollback", "passthrough",
-					"lists_set"
+					"lists_set",
+					"profiles_create", "profiles_update", "profiles_clone",
+					"profiles_delete", "profiles_import_applied"
 				]
 			}
 		}

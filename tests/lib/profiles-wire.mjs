@@ -21,6 +21,7 @@ import { parse } from '../strategy/lib/parse.mjs';
 import { serializePreserve } from '../strategy/lib/serialize.mjs';
 import { allDiagnostics } from '../strategy/lib/validate.mjs';
 import { read_var } from './apply-writer.mjs';
+import { profileFragment, draftBlock } from './profiles-draft.mjs';
 
 export const PROFILES_WIRE_SCHEMA = 1;
 export const OPT_VAR = 'NFQWS2_OPT';
@@ -102,7 +103,7 @@ function luaDesyncOut(e) {
 	};
 }
 
-function profileOut(p) {
+function profileOut(p, model, optText) {
 	return {
 		index: p.index,
 		name: p.name,
@@ -110,6 +111,7 @@ function profileOut(p) {
 		nameRecords: p.nameRecords.map((r) => ({ value: r.value, via: r.via, tokenIndex: r.tokenIndex })),
 		enabled: p.enabled,
 		protocol: p.protocol,
+		fragment: profileFragment(model, p, optText),
 		tcpPorts: p.tcpPorts.map(optionEntryOut),
 		udpPorts: p.udpPorts.map(optionEntryOut),
 		l7Filters: p.l7Filters.map(optionEntryOut),
@@ -200,7 +202,7 @@ export function buildEnvelope(input, opts = {}) {
 		source,
 		parseStatus: hasErrors ? 'partial' : 'success',
 		profileCount: model.profiles.length,
-		profiles: model.profiles.map(profileOut),
+		profiles: model.profiles.map((p) => profileOut(p, model, opt)),
 		diagnostics: diags,
 		roundtrip: {
 			preserve: preserveIdentical ? 'identical' : 'lossy',
@@ -209,4 +211,12 @@ export function buildEnvelope(input, opts = {}) {
 		nativeValidation: sanitizeNativeValidation(model.nativeValidation),
 		provenance,
 	};
+}
+
+// withDraftStateResult(envelope, stateResult) — the CLI composes the draft
+// block into the envelope (kept out of buildEnvelope so the applied read
+// path never depends on draft state health).
+export function withDraftStateResult(envelope, stateResult) {
+	if (!envelope || envelope.ok !== true) return envelope;
+	return { ...envelope, draft: draftBlock(stateResult) };
 }

@@ -37,6 +37,12 @@ define Build/Prepare
 	mkdir -p $(PKG_BUILD_DIR)
 endef
 
+# Draft profiles live in state.json — declare it a conffile so package
+# upgrades never overwrite the operator's drafts (Slice 2).
+define Package/zapret2-manager/conffiles
+/etc/zapret2-manager/state.json
+endef
+
 define Build/Compile
 endef
 
@@ -63,6 +69,8 @@ define Package/zapret2-manager/install
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/profiles.uc \
 		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/profiles-cli.uc \
+		$(1)/usr/libexec/zapret2-manager/
+	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/profiles-draft.uc \
 		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/qlen.uc \
 		$(1)/usr/libexec/zapret2-manager/

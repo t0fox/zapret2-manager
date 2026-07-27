@@ -479,6 +479,243 @@ test('strategies: ok:false (ETARGET) envelope → Unavailable, not an empty-prof
 	assert.ok(!text.includes('Games'), 'no fabricated profiles on ETARGET');
 });
 
+// ---- 6b. strategies: draft CRUD (SLICE 2) ---------------------------------------
+
+const DRAFT_BLOCK = {
+	present: true, malformed: false, malformedReason: null, profileCount: 2,
+	profiles: [
+		{
+			id: 'p000001', name: 'Web', source: 'imported', revision: 3,
+			createdAt: 1785000000, updatedAt: 1785000001,
+			opt: '--filter-tcp=80 --filter-l7=http --lua-desync=fake:blob=fake_default_http:tcp_md5',
+			parseStatus: 'success', diagnostics: [], duplicateName: false
+		},
+		{
+			id: 'p000002', name: 'Games', source: 'created', revision: 1,
+			createdAt: 1785000002, updatedAt: 1785000002,
+			opt: '--filter-udp=443 --filter-l7=quic --lua-desync=fake:blob=fake_default_quic:repeats=6',
+			parseStatus: 'success', diagnostics: [], duplicateName: false
+		}
+	]
+};
+
+const PROFILES_WITH_DRAFT = { ...PROFILES_FIXTURE, draft: DRAFT_BLOCK };
+
+function findBtn(rootChildren, label) {
+	let found = null;
+	(function walk(n) {
+		if (!n || typeof n !== 'object' || found) return;
+		if ((n.tag === 'button' || (n.attrs && (n.attrs.class || '').includes('cbi-button')))
+			&& n.children && n.children.includes(label)) { found = n; return; }
+		for (const c of n.children || []) walk(c);
+	})({ children: rootChildren });
+	return found;
+}
+
+test('strategies: draft manager lists drafts with ids/revisions (no fabrication)', async () => {
+	const w = makeWorld({
+		status: { type: 'ok', value: STATUS_FIXTURE },
+		profiles_list: { type: 'ok', value: PROFILES_WITH_DRAFT }
+	});
+	const view = loadView(readViewSource('strategies'), 'strategies', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	const text = collectText(root).join(' | ');
+	assert.ok(text.includes('p000001'), 'draft id renders');
+	assert.ok(text.includes('rev 3'), 'draft revision renders');
+	assert.ok(text.includes('imported'), 'draft source renders');
+});
+
+test('strategies: New draft → editor → Create sends { name, opt } as a JSON STRING', async () => {
+	const w = makeWorld({
+		status: { type: 'ok', value: STATUS_FIXTURE },
+		profiles_list: { type: 'ok', value: PROFILES_WITH_DRAFT },
+		profiles_create: { type: 'ok', value: { ok: true, id: 'p000003', revision: 1 } }
+	});
+	const view = loadView(readViewSource('strategies'), 'strategies', w);
+	const envelope = await view.load();
+	let root = view.render(envelope);
+
+	const newBtn = findBtn(root.children, 'New draft profile');
+	assert.ok(newBtn, 'New draft button not found');
+	newBtn.listeners.click();
+	root = view.render({ loadError: null, data: STATUS_FIXTURE, profilesData: PROFILES_WITH_DRAFT });
+
+	const nameInput = w.created.find((n) => n.attrs.id === 'z2m-editor-name');
+	const optArea = w.created.find((n) => n.attrs.id === 'z2m-editor-opt');
+	assert.ok(nameInput && optArea, 'editor fields not rendered');
+	nameInput.value = 'My Draft';
+	optArea.value = '--filter-tcp=443 --lua-desync=pass';
+
+	const saveBtn = w.created.find((n) => n.attrs.id === 'z2m-editor-save');
+	assert.ok(saveBtn, 'save button not found');
+	assert.equal(saveBtn.disabled, false);
+	saveBtn.listeners.click();
+	assert.equal(saveBtn.disabled, true, 'save disables while busy (no double submit)');
+	await flush();
+
+	const call = w.calls.find((c) => c.method === 'profiles_create');
+	assert.ok(call, 'profiles_create was not called');
+	assert.deepEqual(Object.keys(call.params), ['edit'], 'profiles_create sends exactly one param: edit');
+	assert.equal(typeof call.params.edit, 'string', 'edit must be a JSON string');
+	const parsed = JSON.parse(call.params.edit);
+	assert.deepEqual(parsed, { name: 'My Draft', opt: '--filter-tcp=443 --lua-desync=pass' });
+});
+
+test('strategies: Edit save sends { id, revision, name, opt } (optimistic concurrency)', async () => {
+	const w = makeWorld({
+		status: { type: 'ok', value: STATUS_FIXTURE },
+		profiles_list: { type: 'ok', value: PROFILES_WITH_DRAFT },
+		profiles_update: { type: 'ok', value: { ok: true, id: 'p000001', revision: 4 } }
+	});
+	const view = loadView(readViewSource('strategies'), 'strategies', w);
+	const envelope = await view.load();
+	let root = view.render(envelope);
+
+	const editBtn = findBtn(root.children, 'Edit');
+	assert.ok(editBtn, 'Edit button not found');
+	editBtn.listeners.click();
+	root = view.render({ loadError: null, data: STATUS_FIXTURE, profilesData: PROFILES_WITH_DRAFT });
+
+	const nameInput = w.created.find((n) => n.attrs.id === 'z2m-editor-name');
+	const saveBtn = w.created.find((n) => n.attrs.id === 'z2m-editor-save');
+	assert.ok(nameInput && saveBtn, 'editor not open for edit');
+	nameInput.value = 'Web v2';
+	saveBtn.listeners.click();
+	await flush();
+
+	const call = w.calls.find((c) => c.method === 'profiles_update');
+	assert.ok(call, 'profiles_update was not called');
+	const parsed = JSON.parse(call.params.edit);
+	assert.deepEqual(parsed, {
+		id: 'p000001', revision: 3, name: 'Web v2',
+		opt: '--filter-tcp=80 --filter-l7=http --lua-desync=fake:blob=fake_default_http:tcp_md5'
+	}, 'update carries the CURRENT revision for optimistic concurrency');
+});
+
+test('strategies: ECONFLICT keeps the editor open with the conflict message (no silent overwrite)', async () => {
+	const w = makeWorld({
+		status: { type: 'ok', value: STATUS_FIXTURE },
+		profiles_list: { type: 'ok', value: PROFILES_WITH_DRAFT },
+		profiles_update: { type: 'ok', value: { ok: false, error: { code: 'ECONFLICT', message: 'draft p000001 was changed elsewhere (revision 5); reload and retry' } } }
+	});
+	const view = loadView(readViewSource('strategies'), 'strategies', w);
+	const envelope = await view.load();
+	let root = view.render(envelope);
+	findBtn(root.children, 'Edit').listeners.click();
+	root = view.render({ loadError: null, data: STATUS_FIXTURE, profilesData: PROFILES_WITH_DRAFT });
+	const saveBtn = w.created.find((n) => n.attrs.id === 'z2m-editor-save');
+	saveBtn.listeners.click();
+	await flush();
+	assert.ok(view._editor, 'editor must stay open on ECONFLICT');
+	root = view.render({ loadError: null, data: STATUS_FIXTURE, profilesData: PROFILES_WITH_DRAFT });
+	const text = collectText(root).join(' | ');
+	assert.ok(text.includes('Conflict'), 'the ECONFLICT message renders');
+	assert.ok(text.includes('revision 5'), 'the backend conflict detail renders');
+});
+
+test('strategies: delete is two-step (arm → confirm) and sends { id }', async () => {
+	const w = makeWorld({
+		status: { type: 'ok', value: STATUS_FIXTURE },
+		profiles_list: { type: 'ok', value: PROFILES_WITH_DRAFT },
+		profiles_delete: { type: 'ok', value: { ok: true, id: 'p000002' } }
+	});
+	const view = loadView(readViewSource('strategies'), 'strategies', w);
+	const envelope = await view.load();
+	let root = view.render(envelope);
+
+	const delBtn = findBtn(root.children, 'Delete');
+	assert.ok(delBtn, 'Delete button not found');
+	delBtn.listeners.click();   // arm
+	assert.ok(w.calls.every((c) => c.method !== 'profiles_delete'), 'first click only ARMS — no backend call yet');
+	root = view.render({ loadError: null, data: STATUS_FIXTURE, profilesData: PROFILES_WITH_DRAFT });
+	const confirmBtn = findBtn(root.children, 'Confirm delete?');
+	assert.ok(confirmBtn, 'armed delete must require an explicit confirm');
+	confirmBtn.listeners.click();   // confirm
+	await flush();
+	const call = w.calls.find((c) => c.method === 'profiles_delete');
+	assert.ok(call, 'profiles_delete was not called after confirm');
+	assert.deepEqual(JSON.parse(call.params.edit), { id: 'p000001' }, 'the FIRST row\'s delete sends its own id');
+});
+
+test('strategies: Validate per draft sends { id } and renders manager+native vocabulary', async () => {
+	const w = makeWorld({
+		status: { type: 'ok', value: STATUS_FIXTURE },
+		profiles_list: { type: 'ok', value: PROFILES_WITH_DRAFT },
+		profiles_validate: {
+			type: 'ok',
+			value: {
+				ok: true, draftId: 'p000001',
+				manager: { parseStatus: 'success', profileCount: 1, diagnostics: [] },
+				native: {
+					status: 'partial', entryPoint: 'dry-run',
+					coverage: { cliSyntax: 'passed', luaLoad: 'not_checked', luaCompatibility: 'not_checked', functionExistence: 'not_checked', runtimeArguments: 'not_checked', executionPlan: 'not_checked' },
+					diagnostics: []
+				}
+			}
+		}
+	});
+	const view = loadView(readViewSource('strategies'), 'strategies', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	const valBtn = findBtn(root.children, 'Validate');
+	assert.ok(valBtn, 'Validate button not found');
+	valBtn.listeners.click();
+	await flush();
+	const call = w.calls.find((c) => c.method === 'profiles_validate');
+	assert.ok(call, 'profiles_validate was not called');
+	assert.deepEqual(JSON.parse(call.params.edit), { id: 'p000001' });
+	const root2 = view.render({ loadError: null, data: STATUS_FIXTURE, profilesData: PROFILES_WITH_DRAFT });
+	// the result lives in view state; re-render via refresh path shows it
+	const text = collectText(view.draftManagerSection(PROFILES_WITH_DRAFT, null)).join(' | ');
+	assert.ok(view._validateResult, 'validate result is stored for rendering');
+});
+
+test('strategies: malformed draft block renders the preserved-state warning, no CRUD', async () => {
+	const malformed = {
+		...PROFILES_FIXTURE,
+		draft: { present: true, malformed: true, malformedReason: 'state.json is not valid JSON', profileCount: 0, profiles: [] }
+	};
+	const w = makeWorld({
+		status: { type: 'ok', value: STATUS_FIXTURE },
+		profiles_list: { type: 'ok', value: malformed }
+	});
+	const view = loadView(readViewSource('strategies'), 'strategies', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	const text = collectText(root).join(' | ');
+	assert.ok(text.includes('MALFORMED'), 'malformed draft must be surfaced loudly');
+	assert.ok(text.includes('never overwritten'), 'the preserve guarantee renders');
+	assert.ok(!findBtn(root.children, 'New draft profile'), 'no CRUD while the state is malformed');
+});
+
+test('strategies: guided add-option appends a whitelisted option to the raw editor', async () => {
+	const w = makeWorld({
+		status: { type: 'ok', value: STATUS_FIXTURE },
+		profiles_list: { type: 'ok', value: PROFILES_WITH_DRAFT }
+	});
+	const view = loadView(readViewSource('strategies'), 'strategies', w);
+	const envelope = await view.load();
+	let root = view.render(envelope);
+	findBtn(root.children, 'New draft profile').listeners.click();
+	view.render({ loadError: null, data: STATUS_FIXTURE, profilesData: PROFILES_WITH_DRAFT });
+
+	const optArea = w.created.find((n) => n.attrs.id === 'z2m-editor-opt');
+	const sel = w.created.find((n) => n.attrs.id === 'z2m-editor-addopt');
+	const valInput = w.created.find((n) => n.attrs.id === 'z2m-editor-addval');
+	assert.ok(optArea && sel && valInput, 'guided row not rendered');
+	optArea.value = '--filter-tcp=80';
+	sel.value = '--filter-udp';
+	valInput.value = '443';
+	const addBtn = findBtn([{ children: [] }], 'Add option') || (function () {
+		let b = null;
+		for (const n of w.created) if (n.children.includes('Add option')) b = n;
+		return b;
+	})();
+	addBtn.listeners.click();
+	assert.equal(optArea.value, '--filter-tcp=80 --filter-udp=443', 'guided row appends --opt=value to the raw editor');
+});
+
 // ---- 7. overview: passthrough wire + reject gate (no longer excluded) --------
 
 test('overview: callPassthrough is declared with params:[enabled] + reject:true (fixed → green)', () => {

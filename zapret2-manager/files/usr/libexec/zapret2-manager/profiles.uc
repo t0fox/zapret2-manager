@@ -1003,7 +1003,7 @@ function lua_desync_out(e) {
 	};
 }
 
-function profile_out(p) {
+function profile_out(p, model, optText) {
 	let nameRecords = [];
 	for (let i = 0; i < length(p.nameRecords); i++) {
 		let r = p.nameRecords[i];
@@ -1018,6 +1018,7 @@ function profile_out(p) {
 		nameRecords: nameRecords,
 		enabled: p.enabled,
 		protocol: p.protocol,
+		fragment: profile_fragment(model, p, optText),
 		tcpPorts: entries_out(p.tcpPorts),
 		udpPorts: entries_out(p.udpPorts),
 		l7Filters: entries_out(p.l7Filters),
@@ -1037,8 +1038,27 @@ function profile_out(p) {
 	};
 }
 
-function sha256_file(path) {
-	let p = popen("sha256sum " + path + " 2>/dev/null | awk '{print $1}'", 'r');
+// profile_fragment(model, profile, optText) — the profile's raw byte-slice:
+// from the end of its --new separator (or its first token, for the implicit
+// first profile) to its sourceSpan end; surrounding whitespace trimmed. All
+// CONTENT bytes (quotes, escapes, placeholders) survive verbatim. Mirrors
+// tests/lib/profiles-draft.mjs profileFragment.
+function profile_fragment(model, p, optText) {
+	let start;
+	if (p.separator != null && p.separator.span != null) start = p.separator.span.end;
+	else if (length(p.originalTokens) > 0) start = model.tokens[p.originalTokens[0]].start;
+	else start = (p.sourceSpan.start != null) ? p.sourceSpan.start : 0;
+	let end = (p.sourceSpan.end != null) ? p.sourceSpan.end : length(optText);
+	let frag = substr(optText, start, end - start);
+	// trim surrounding whitespace only (content bytes preserved)
+	let a = 0;
+	while (a < length(frag) && is_ws(substr(frag, a, 1))) a++;
+	let b = length(frag);
+	while (b > a && is_ws(substr(frag, b - 1, 1))) b--;
+	return substr(frag, a, b - a);
+}
+
+function sha256_file(path) {	let p = popen("sha256sum " + path + " 2>/dev/null | awk '{print $1}'", 'r');
 	if (!p) return null;
 	let out = trim(p.read('all'));
 	p.close();
@@ -1120,7 +1140,7 @@ export const profiles_list = function() {
 	}
 
 	let profiles = [];
-	for (let i = 0; i < length(model.profiles); i++) push(profiles, profile_out(model.profiles[i]));
+	for (let i = 0; i < length(model.profiles); i++) push(profiles, profile_out(model.profiles[i], model, opt));
 
 	return {
 		ok: true,
@@ -1138,3 +1158,10 @@ export const profiles_list = function() {
 		provenance: provenance_block()
 	};
 };
+
+// ---- export aliases for profiles-draft.uc (the draft CRUD layer reuses the
+// SAME lossless parser — there is no second parser in the tree) -------------
+export const z2m_tokenize = tokenize;
+export const z2m_parse = parse_opt;
+export const z2m_validate = validate_manager;
+export const z2m_fragment = profile_fragment;

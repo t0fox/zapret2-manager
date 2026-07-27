@@ -23,7 +23,8 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { buildEnvelope, sanitizeNativeValidation, PROFILES_WIRE_SCHEMA } from './lib/profiles-wire.mjs';
+import { buildEnvelope, withDraftStateResult, sanitizeNativeValidation, PROFILES_WIRE_SCHEMA } from './lib/profiles-wire.mjs';
+import { createProfile, emptyState } from './lib/profiles-draft.mjs';
 import { read_var } from './lib/apply-writer.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -209,4 +210,55 @@ test('provenance identifies the applied source and the model contract', () => {
 	assert.equal(env.provenance.model, 'strategy-model.md v1');
 	assert.ok(env.provenance.upstreamCommit, 'upstream pin must be recorded');
 	assert.equal(env.provenance.reader, 'apply.uc read_var');
+});
+
+// ---- 8. raw fragments (SLICE 2: import + diff basis) ------------------------------
+
+test('applied profiles carry their raw fragment (separator excluded, content verbatim)', () => {
+	const env = buildEnvelope(POSTINSTALL_CONFIG, { configPath: '/opt/zapret2/config' });
+	assert.equal(env.profiles.length, 3);
+	const f0 = env.profiles[0].fragment;
+	const f1 = env.profiles[1].fragment;
+	const f2 = env.profiles[2].fragment;
+	assert.ok(f0.includes('--filter-tcp=80') && f0.includes('<HOSTLIST>'));
+	assert.ok(f1.startsWith('--filter-tcp=443'), 'fragment of profile 1 excludes its --new separator');
+	assert.ok(!f1.includes('--new'), 'a fragment never embeds the separator');
+	assert.ok(f2.includes('<HOSTLIST_NOAUTO>'));
+	// fragments re-parse to exactly one profile each
+	for (const f of [f0, f1, f2]) {
+		const sub = buildEnvelope(f, { alreadyOptValue: true });
+		assert.equal(sub.profileCount, 1);
+	}
+});
+
+// ---- 9. draft block (SLICE 2) -------------------------------------------------------
+
+test('withDraftStateResult composes an honest draft block (absent / populated / malformed)', () => {
+	const env = buildEnvelope(POSTINSTALL_CONFIG, { configPath: '/opt/zapret2/config' });
+
+	const absent = withDraftStateResult(env, null);
+	assert.equal(absent.draft.present, false);
+	assert.equal(absent.draft.profileCount, 0);
+	assert.deepEqual(absent.draft.profiles, []);
+
+	let st = createProfile(emptyState(), { name: 'Web', opt: '--filter-tcp=80 --lua-desync=pass' }, 1785000000).state;
+	st = createProfile(st, { name: 'Web', opt: '--filter-udp=443 --lua-desync=pass' }, 1785000001).state;
+	const populated = withDraftStateResult(env, { ok: true, state: st });
+	assert.equal(populated.draft.present, true);
+	assert.equal(populated.draft.malformed, false);
+	assert.equal(populated.draft.profileCount, 2);
+	assert.equal(populated.draft.profiles[0].id, 'p000001');
+	assert.equal(populated.draft.profiles[0].duplicateName, true, 'duplicate names flagged');
+	assert.equal(populated.draft.profiles[0].parseStatus, 'success');
+	// applied data is untouched by the draft composition
+	assert.equal(populated.profileCount, 3);
+
+	const malformed = withDraftStateResult(env, { ok: false, malformed: true, reason: 'state.json is not valid JSON' });
+	assert.equal(malformed.draft.malformed, true);
+	assert.equal(malformed.draft.profileCount, 0);
+	assert.equal(malformed.profileCount, 3, 'a malformed draft never hides the applied profiles');
+
+	// an error envelope passes through unchanged (no draft fabrication)
+	const err = buildEnvelope(null, { configPath: '/opt/zapret2/config' });
+	assert.equal(withDraftStateResult(err, { ok: true, state: st }), err);
 });

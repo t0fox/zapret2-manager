@@ -149,6 +149,39 @@ function profiles_action(sub) {
 }
 function profiles_list_method(req) { return profiles_action('list'); }
 
+// profiles mutating/parametrized methods: the frontend sends `edit` as a JSON
+// STRING (same wire pattern as lists_set): written verbatim to a temp file
+// and handed to the CLI (a file, not argv, carries multi-line opts and
+// avoids shell interpolation of content entirely).
+function profiles_edit_action(sub, req) {
+	let edit = null;
+	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
+	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
+	if (edit == null) return { ok: false, error: { code: 'EINPUT', message: 'missing edit param' } };
+	if (type(edit) != 'string') return { ok: false, error: { code: 'EINPUT', message: 'edit must be a JSON string', got: type(edit) } };
+	let tmp = '/tmp/z2m-profiles-edit.' + time();
+	writefile(tmp, edit);   // verbatim — no re-encode
+	let cmd = '/usr/bin/ucode ' + PROFILES_CLI + ' ' + sub + ' ' + tmp + ' 2>/dev/null';
+	let p = popen(cmd, 'r');
+	if (!p) { try { unlink(tmp); } catch (e) { } return { ok: false, error: 'popen failed' }; }
+	let out = p.read('all');
+	if (!out) out = '';
+	p.close();
+	try { unlink(tmp); } catch (e) { }
+	try {
+		let parsed = json(out);
+		if (parsed != null) return parsed;
+		return { ok: false, error: 'no output', raw: out };
+	} catch (e) { return { ok: false, error: 'parse failed', raw: out }; }
+}
+
+function profiles_create_method(req) { return profiles_edit_action('create', req); }
+function profiles_update_method(req) { return profiles_edit_action('update', req); }
+function profiles_clone_method(req) { return profiles_edit_action('clone', req); }
+function profiles_delete_method(req) { return profiles_edit_action('delete', req); }
+function profiles_validate_method(req) { return profiles_edit_action('validate', req); }
+function profiles_import_applied_method(req) { return profiles_action('import_applied'); }
+
 // Signature: top-level key == ubus object name (matches ACL). Methods nested.
 // Signature: top-level key == ubus object name (matches ACL). Per the rpcd
 // ucode plugin contract (verified against the on-device `luci` plugin):
@@ -170,6 +203,12 @@ return {
 		lists_get:         { call: function (req) { return lists_get_method(req); } },
 		lists_check_domain: { args: { domain: 'string' }, call: function (req) { return lists_check_domain_method(req); } },
 		lists_set:         { args: { edit: 'string' }, call: function (req) { return lists_set_method(req); } },
-		profiles_list:     { call: function (req) { return profiles_list_method(req); } }
+		profiles_list:     { call: function (req) { return profiles_list_method(req); } },
+		profiles_create:   { args: { edit: 'string' }, call: function (req) { return profiles_create_method(req); } },
+		profiles_update:   { args: { edit: 'string' }, call: function (req) { return profiles_update_method(req); } },
+		profiles_clone:    { args: { edit: 'string' }, call: function (req) { return profiles_clone_method(req); } },
+		profiles_delete:   { args: { edit: 'string' }, call: function (req) { return profiles_delete_method(req); } },
+		profiles_validate: { args: { edit: 'string' }, call: function (req) { return profiles_validate_method(req); } },
+		profiles_import_applied: { call: function (req) { return profiles_import_applied_method(req); } }
 	}
 };

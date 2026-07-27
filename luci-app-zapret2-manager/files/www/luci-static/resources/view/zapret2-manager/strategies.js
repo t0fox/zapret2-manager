@@ -30,18 +30,24 @@
 // .catch() instead of resolving as a numeric code.
 const callStatus = rpc.declare({ object: 'zapret2-manager', method: 'status', reject: true });
 const callProfilesList = rpc.declare({ object: 'zapret2-manager', method: 'profiles_list', reject: true });
+const callProfilesCreate = rpc.declare({ object: 'zapret2-manager', method: 'profiles_create', params: ['edit'], reject: true });
+const callProfilesUpdate = rpc.declare({ object: 'zapret2-manager', method: 'profiles_update', params: ['edit'], reject: true });
+const callProfilesClone = rpc.declare({ object: 'zapret2-manager', method: 'profiles_clone', params: ['edit'], reject: true });
+const callProfilesDelete = rpc.declare({ object: 'zapret2-manager', method: 'profiles_delete', params: ['edit'], reject: true });
+const callProfilesValidate = rpc.declare({ object: 'zapret2-manager', method: 'profiles_validate', params: ['edit'], reject: true });
+const callProfilesImportApplied = rpc.declare({ object: 'zapret2-manager', method: 'profiles_import_applied', reject: true });
 const callPassthrough = rpc.declare({
 	object: 'zapret2-manager', method: 'passthrough', params: ['enabled'], reject: true
 });
 const callConfirmAlive = rpc.declare({ object: 'zapret2-manager', method: 'confirm_alive', reject: true });
 const callRollback = rpc.declare({ object: 'zapret2-manager', method: 'rollback', reject: true });
 
-// Backend methods this page waits for (rendered as the reason edit actions
-// are disabled — also the dependency list for the backend agent).
-// profiles_list EXISTS (SLICE 1) and feeds the profiles section below.
+// Backend methods this page still waits for (rendered as the reason Apply is
+// disabled — also the dependency list for the backend agent).
+// profiles_list/create/update/clone/delete/validate/import_applied EXIST
+// (Slices 1–2) and drive the applied viewer + the draft manager below.
 const MISSING_METHODS = [
-	'profiles_create', 'profiles_update', 'profiles_clone',
-	'profiles_delete', 'profiles_validate', 'profiles_apply'
+	'profiles_apply'
 ];
 
 // collect all occurrences of an argv flag, e.g. --hostlist=… (presentation
@@ -87,7 +93,6 @@ return L.view.extend({
 
 		var rt = data.runtime || {};
 		var ap = data.applied || {};
-		var draft = data.draft || {};
 		var drift = data.drift || { divergent: false };
 		var insts = rt.instances || [];
 
@@ -121,6 +126,9 @@ return L.view.extend({
 		// ---- applied profiles from the backend (profiles_list) -------------
 		container.appendChild(this.backendProfilesSection(profData, profUnavailable));
 
+		// ---- DRAFT manager (create/edit/clone/delete/validate — draft only) --
+		container.appendChild(this.draftManagerSection(profData, profUnavailable));
+
 		// ---- per-instance argv ----------------------------------------------
 		container.appendChild(this.instancesSection(insts, unavailable));
 
@@ -134,7 +142,6 @@ return L.view.extend({
 
 		// ---- applied / draft --------------------------------------------------
 		container.appendChild(this.appliedSection(ap, unavailable));
-		container.appendChild(this.draftSection(draft, unavailable));
 
 		// ---- drift ------------------------------------------------------------
 		if (drift.divergent) {
@@ -144,15 +151,8 @@ return L.view.extend({
 			]));
 		}
 
-		// ---- validation ---------------------------------------------------------
-		container.appendChild(E('div', { 'class': 'cbi-section' }, [
-			E('h3', {}, _('Validation')),
-			E('div', { 'class': 'cbi-value-description' },
-				_('Unavailable — validation state requires backend method profiles_validate.'))
-		]));
-
 		// ---- actions ------------------------------------------------------------
-		container.appendChild(this.editActionsSection());
+		container.appendChild(this.applyPlaceholderSection());
 		container.appendChild(this.passthroughSection(data.serviceState === 'passthrough', unavailable));
 
 		return container;
@@ -318,44 +318,305 @@ return L.view.extend({
 		return E('div', { 'class': 'cbi-section' }, [E('h3', {}, _('Applied (on-disk intent)'))].concat(rows));
 	},
 
-	draftSection: function (draft, unavailable) {
-		var body;
-		if (unavailable) {
-			body = E('div', { 'class': 'cbi-value-description' }, _('Unavailable — status not reported.'));
-		} else {
-			var keys = Object.keys(draft || {});
-			body = keys.length
-				? E('pre', { 'style': 'white-space:pre-wrap;font-family:monospace' }, JSON.stringify(draft, null, 2))
-				: E('div', { 'class': 'cbi-value-description' }, _('(no staged draft)'));
-		}
-		return E('div', { 'class': 'cbi-section' }, [
-			E('h3', {}, _('Draft (manager-staged)')),
+	// ---- DRAFT manager (SLICE 2) ---------------------------------------------
+	// Drafts live only in /etc/zapret2-manager/state.json (the profiles_list
+	// `draft` block). CRUD/validate are wired to real backend methods; APPLY
+	// does not exist yet — drafts are staged, never applied.
+	draftManagerSection: function (profData, profUnavailable) {
+		var self = this;
+		var node = E('div', { 'class': 'cbi-section' }, [
+			E('h3', {}, _('Draft profiles (manager-staged, never applied yet)')),
 			E('div', { 'class': 'cbi-value-description' },
-				_('The manager\'s own staged state. Upstream never reads this.')),
-			body
+				_('Drafts live only in the manager state (/etc/zapret2-manager/state.json). The engine never reads them. Apply is not available yet (waits for profiles_apply).'))
 		]);
+
+		if (profUnavailable) {
+			node.appendChild(E('div', { 'class': 'cbi-value-description' },
+				_('Unavailable — profiles_list: ') + profUnavailable));
+			return node;
+		}
+		var draft = (profData && profData.draft) || { present: false, malformed: false, profileCount: 0, profiles: [] };
+
+		if (draft.malformed) {
+			node.appendChild(E('div', { 'class': 'alert-message danger' }, [
+				E('p', {}, _('Draft state is MALFORMED: ') + (draft.malformedReason || _('unknown'))),
+				E('p', {}, _('The file is preserved and never overwritten. Fix or remove /etc/zapret2-manager/state.json manually, then reload.'))
+			]));
+			return node;
+		}
+
+		// ---- toolbar -------------------------------------------------------
+		var newBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button', 'id': 'z2m-draft-new' }, _('New draft profile'));
+		newBtn.addEventListener('click', function () {
+			self._editor = { mode: 'create', id: null, revision: null, name: '', opt: '', error: null, dirty: false };
+			self.refresh();
+		});
+		var importBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button', 'id': 'z2m-draft-import' }, _('Import applied profiles into drafts'));
+		importBtn.addEventListener('click', function () {
+			importBtn.disabled = true;
+			callProfilesImportApplied().then(function (res) {
+				res = res || {};
+				if (res.ok !== true) {
+					importBtn.disabled = false;
+					self._flash = _('Import failed: ') + ((res.error && res.error.message) || res.error || _('unknown'));
+				} else {
+					self._flash = _('Imported ') + (res.imported || []).length + _(' profile(s) into drafts.');
+				}
+				self.refresh();
+			}).catch(function (err) {
+				importBtn.disabled = false;
+				self._flash = _('Import call failed: ') + String(err);
+				self.refresh();
+			});
+		});
+		node.appendChild(E('div', { 'class': 'cbi-button-row', 'style': 'margin:.4em 0' }, [newBtn, importBtn]));
+		if (this._flash) {
+			node.appendChild(E('div', { 'class': 'cbi-value-description' }, this._flash));
+			this._flash = null;
+		}
+
+		// ---- draft list ------------------------------------------------------
+		var profiles = draft.profiles || [];
+		if (!profiles.length) {
+			node.appendChild(E('div', { 'class': 'cbi-value-description' },
+				draft.present ? _('(no draft profiles — create one or import the applied set)') : _('(no draft state yet)')));
+		}
+		profiles.forEach(function (p) { node.appendChild(self.draftRow(p)); });
+
+		// ---- editor (create / edit) -----------------------------------------
+		if (this._editor) node.appendChild(this.draftEditor());
+		return node;
 	},
 
-	// Edit actions: rendered but DISABLED — the backend methods do not exist
-	// yet. The caption names the exact methods waited for; no fake save path.
-	editActionsSection: function () {
-		var names = [
-			_('New draft'), _('Edit'), _('Clone'), _('Delete'), _('Validate'), _('Apply')
-		];
-		var buttons = names.map(function (n) {
-			return E('button', {
+	draftRow: function (p) {
+		var self = this;
+		var badges = [];
+		badges.push(E('span', { 'class': 'zonebadge ' + (p.parseStatus === 'success' ? 'ok' : 'warn') }, p.parseStatus || 'unknown'));
+		if (p.duplicateName) badges.push(E('span', { 'class': 'zonebadge warn' }, _('duplicate name')));
+		badges.push(E('span', { 'class': 'zonebadge' }, p.source || 'created'));
+		badges.push(E('span', { 'class': 'zonebadge' }, 'rev ' + (p.revision != null ? p.revision : '?')));
+
+		var editBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Edit'));
+		editBtn.addEventListener('click', function () {
+			self._editor = { mode: 'edit', id: p.id, revision: p.revision, name: p.name, opt: p.opt, error: null, dirty: false };
+			self.refresh();
+		});
+
+		var cloneBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Clone'));
+		cloneBtn.addEventListener('click', function () {
+			cloneBtn.disabled = true;
+			callProfilesClone(JSON.stringify({ id: p.id })).then(function (res) {
+				res = res || {};
+				if (res.ok !== true) {
+					cloneBtn.disabled = false;
+					self._flash = _('Clone failed: ') + ((res.error && res.error.message) || res.error || _('unknown'));
+				}
+				self.refresh();
+			}).catch(function (err) {
+				cloneBtn.disabled = false;
+				self._flash = _('Clone call failed: ') + String(err);
+				self.refresh();
+			});
+		});
+
+		// delete is a TWO-STEP confirm (first click arms, second executes) —
+		// exactly one confirmation, no modal dependency
+		var armed = self._deleteArmed === p.id;
+		var delBtn = E('button', { 'class': 'cbi-button ' + (armed ? 'cbi-button-negative' : 'cbi-button-neutral'), 'type': 'button' },
+			armed ? _('Confirm delete?') : _('Delete'));
+		delBtn.addEventListener('click', function () {
+			if (self._deleteArmed !== p.id) { self._deleteArmed = p.id; self.refresh(); return; }
+			self._deleteArmed = null;
+			delBtn.disabled = true;
+			callProfilesDelete(JSON.stringify({ id: p.id })).then(function (res) {
+				res = res || {};
+				if (res.ok !== true) {
+					delBtn.disabled = false;
+					self._flash = _('Delete failed: ') + ((res.error && res.error.message) || res.error || _('unknown'));
+				}
+				self.refresh();
+			}).catch(function (err) {
+				delBtn.disabled = false;
+				self._flash = _('Delete call failed: ') + String(err);
+				self.refresh();
+			});
+		});
+
+		var valBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Validate'));
+		valBtn.addEventListener('click', function () {
+			valBtn.disabled = true;
+			self._validateBusy = p.id;
+			callProfilesValidate(JSON.stringify({ id: p.id })).then(function (res) {
+				self._validateBusy = null;
+				self._validateResult = { key: p.id, res: res || {} };
+				self.refresh();
+			}).catch(function (err) {
+				self._validateBusy = null;
+				self._validateResult = { key: p.id, error: String(err) };
+				self.refresh();
+			});
+		});
+
+		var row = E('div', { 'class': 'cbi-section', 'data-draft-id': p.id }, [
+			E('h4', {}, (p.name || _('(unnamed)')) + ' · ' + p.id),
+			E('div', { 'style': 'margin:.2em 0' }, badges),
+			E('pre', { 'style': 'white-space:pre-wrap;word-break:break-all;font-family:monospace;font-size:.85em;max-height:120px;overflow:auto' }, p.opt || ''),
+			E('div', { 'class': 'cbi-button-row' }, [editBtn, cloneBtn, delBtn, valBtn])
+		]);
+		if (this._validateResult && this._validateResult.key === p.id)
+			row.appendChild(this.validateResultBox(this._validateResult));
+		if (this._validateBusy === p.id)
+			row.appendChild(E('div', { 'class': 'cbi-value-description' }, _('Validating…')));
+		return row;
+	},
+
+	// Guided safe-field whitelist for the "add option" row (top-level,
+	// manager-owned structure only — no Lua is ever composed by the UI).
+	SAFE_OPTION_NAMES: ['--filter-tcp', '--filter-udp', '--filter-l7', '--payload', '--hostlist', '--hostlist-exclude', '--ipset', '--ipset-exclude', '--out-range', '--in-range'],
+
+	draftEditor: function () {
+		var self = this;
+		var ed = this._editor;
+		var title = ed.mode === 'create' ? _('New draft profile') : (_('Edit draft ') + ed.id);
+
+		var nameInput = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'id': 'z2m-editor-name', 'value': ed.name || '' });
+		var optArea = E('textarea', {
+			'class': 'cbi-input-textarea', 'id': 'z2m-editor-opt', 'rows': 8,
+			'style': 'width:100%;font-family:monospace'
+		});
+		optArea.value = ed.opt || '';
+
+		var dirtyBadge = E('span', { 'class': 'zonebadge warn', 'style': 'visibility:hidden', 'id': 'z2m-editor-dirty' }, _('unsaved changes'));
+		function markDirty() { ed.dirty = true; dirtyBadge.style.visibility = 'visible'; }
+		nameInput.addEventListener('input', markDirty);
+		optArea.addEventListener('input', markDirty);
+
+		// guided row: whitelist select + value + Add (appends to the raw editor)
+		var sel = E('select', { 'class': 'cbi-input-select', 'id': 'z2m-editor-addopt' });
+		this.SAFE_OPTION_NAMES.forEach(function (o) { sel.appendChild(E('option', { 'value': o }, o)); });
+		var valInput = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'id': 'z2m-editor-addval', 'placeholder': _('value') });
+		var addBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Add option'));
+		addBtn.addEventListener('click', function () {
+			var optName = sel.value || sel.attrs.value || '--filter-tcp';
+			var v = String(valInput.value != null ? valInput.value : (valInput.attrs.value || '')).trim();
+			if (!v) return;
+			var cur = String(optArea.value || '');
+			optArea.value = cur + (cur.length && !/\s$/.test(cur) ? ' ' : '') + optName + '=' + v;
+			markDirty();
+		});
+
+		var saveBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button', 'id': 'z2m-editor-save' },
+			ed.mode === 'create' ? _('Create draft') : _('Save draft'));
+		saveBtn.addEventListener('click', function () {
+			saveBtn.disabled = true;
+			var payload = { name: String(nameInput.value != null ? nameInput.value : ''), opt: String(optArea.value || '') };
+			var call, body;
+			if (ed.mode === 'create') {
+				body = JSON.stringify(payload);
+				call = callProfilesCreate;
+			} else {
+				payload.id = ed.id;
+				payload.revision = ed.revision;
+				body = JSON.stringify(payload);
+				call = callProfilesUpdate;
+			}
+			call(body).then(function (res) {
+				res = res || {};
+				if (res.ok === true) {
+					self._editor = null;
+					self._flash = ed.mode === 'create' ? _('Draft created.') : _('Draft saved (revision ') + res.revision + ').';
+					self.refresh();
+				} else {
+					saveBtn.disabled = false;
+					var code = res.error && res.error.code;
+					ed.error = (code === 'ECONFLICT')
+						? (_('Conflict: ') + ((res.error && res.error.message) || _('changed elsewhere — reload and retry')))
+						: (_('Save failed: ') + ((res.error && res.error.message) || res.error || _('unknown')));
+					self.refresh();
+				}
+			}).catch(function (err) {
+				saveBtn.disabled = false;
+				ed.error = _('Save call failed: ') + String(err);
+				self.refresh();
+			});
+		});
+
+		var cancelBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, ed.dirty ? _('Discard changes') : _('Cancel'));
+		cancelBtn.addEventListener('click', function () { self._editor = null; self.refresh(); });
+
+		var valBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Validate'));
+		valBtn.addEventListener('click', function () {
+			valBtn.disabled = true;
+			callProfilesValidate(JSON.stringify({ opt: String(optArea.value || '') })).then(function (res) {
+				self._validateResult = { key: 'editor', res: res || {} };
+				self.refresh();
+			}).catch(function (err) {
+				self._validateResult = { key: 'editor', error: String(err) };
+				self.refresh();
+			});
+		});
+
+		var box = E('div', { 'class': 'cbi-section', 'id': 'z2m-draft-editor' }, [
+			E('h4', {}, title),
+			ed.error ? E('div', { 'class': 'alert-message danger' }, ed.error) : E('span', {}),
+			E('div', { 'class': 'cbi-value' }, [
+				E('label', { 'class': 'cbi-value-title' }, _('Name')),
+				E('div', { 'class': 'cbi-value-field' }, [nameInput])
+			]),
+			E('div', { 'class': 'cbi-value' }, [
+				E('label', { 'class': 'cbi-value-title' }, _('Options (raw NFQWS2_OPT fragment)')),
+				E('div', { 'class': 'cbi-value-field' }, [optArea])
+			]),
+			E('div', { 'class': 'cbi-value' }, [
+				E('label', { 'class': 'cbi-value-title' }, _('Add a safe option')),
+				E('div', { 'class': 'cbi-value-field' }, [sel, valInput, addBtn])
+			]),
+			E('div', { 'class': 'cbi-button-row' }, [saveBtn, cancelBtn, valBtn, dirtyBadge])
+		]);
+		if (this._validateResult && this._validateResult.key === 'editor')
+			box.appendChild(this.validateResultBox(this._validateResult));
+		return box;
+	},
+
+	validateResultBox: function (vr) {
+		if (vr.error) return E('div', { 'class': 'alert-message danger' }, _('Validate call failed: ') + vr.error);
+		var res = vr.res || {};
+		if (res.ok !== true) return E('div', { 'class': 'alert-message danger' }, _('Validate failed: ') + ((res.error && res.error.message) || res.error || _('unknown')));
+		var mgr = res.manager || {};
+		var native = res.native || {};
+		var box = E('div', { 'class': 'cbi-section', 'data-validate-result': '1' }, [
+			E('h4', {}, _('Validation result')),
+			E('div', {}, [
+				E('span', { 'class': 'zonebadge ' + (mgr.parseStatus === 'success' ? 'ok' : 'warn') }, _('manager: ') + (mgr.parseStatus || 'unknown')),
+				' ',
+				E('span', { 'class': 'zonebadge ' + (native.status === 'partial' ? 'ok' : (native.status === 'not_checked' ? '' : 'warn')) }, _('native: ') + (native.status || 'not_checked'))
+			])
+		]);
+		(native.diagnostics || []).forEach(function (d) {
+			box.appendChild(E('div', { 'class': 'cbi-value-description' }, (d.code || 'NATIVE') + ': ' + (d.message || '')));
+		});
+		(mgr.diagnostics || []).forEach(function (d) {
+			box.appendChild(E('div', { 'class': 'cbi-value-description' },
+				'[' + (d.severity || '?') + '] ' + (d.code || '') + ': ' + (d.message || '')));
+		});
+		box.appendChild(E('div', { 'class': 'cbi-value-description' },
+			_('Coverage is honest: a passing dry-run proves CLI syntax only (partial) — never full runtime validity.')));
+		return box;
+	},
+
+	// Apply does NOT exist yet (Slice 3). One honest placeholder, no fake path.
+	applyPlaceholderSection: function () {
+		return E('div', { 'class': 'cbi-section' }, [
+			E('h3', {}, _('Apply')),
+			E('button', {
 				'class': 'cbi-button cbi-button-neutral', 'type': 'button',
 				'disabled': 'disabled',
 				'title': _('Backend method unavailable')
-			}, n);
-		});
-		return E('div', { 'class': 'cbi-section' }, [
-			E('h3', {}, _('Edit profiles')),
-			E('div', { 'class': 'cbi-button-row', 'style': 'margin:.4em 0' }, buttons),
+			}, _('Apply drafts')),
 			E('div', { 'class': 'cbi-value-description' },
-				_('Editing requires backend methods that are not registered yet: ') +
+				_('Applying drafts to the running engine requires a backend method that is not registered yet: ') +
 				MISSING_METHODS.join(', ') +
-				_('. Until then this page is read-only — it never saves to localStorage and never writes UCI directly.'))
+				_('. Drafts above are staged only — the applied config and the running engine are never touched from this page.'))
 		]);
 	},
 
