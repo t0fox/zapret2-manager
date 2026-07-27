@@ -16,8 +16,8 @@
 import { readfile } from 'fs';
 import {
 	NFQUEUE,
-	NFQ_FIELD_QUEUE_NUMBER, NFQ_FIELD_QUEUE_TOTAL, NFQ_FIELD_COPY_RANGE,
-	NFQ_FIELD_QUEUE_DROPPED, NFQ_FIELD_QUEUE_USER_DROPPED
+	NFQ_FIELD_QUEUE_NUMBER, NFQ_FIELD_PEER_PORTID, NFQ_FIELD_QUEUE_TOTAL,
+	NFQ_FIELD_COPY_RANGE, NFQ_FIELD_QUEUE_DROPPED, NFQ_FIELD_QUEUE_USER_DROPPED
 } from './constants.uc';
 
 function tokenize(s) {
@@ -38,16 +38,18 @@ function tokenize(s) {
 // field(n) → 0-based index for a 1-based field number.
 function field(n) { return n - 1; }
 
-// parse_queue() → { registered, queue_total, copy_range, queue_dropped,
-//   queue_user_dropped, row } with raw integer values (null when not
-//   registered). Cumulative counters are returned raw; delta math is the
-//   watchdog's job.
+// parse_queue() → { registered, peer_portid, queue_total, copy_range,
+//   queue_dropped, queue_user_dropped, row } with raw integer values (null when
+//   not registered). peer_portid (field 2) is the PID of the userspace process
+//   that bound the queue — used by status.uc to confirm QNUM NFQUEUE is owned by
+//   nfqws2, not some other process. Cumulative counters are returned raw; delta
+//   math is the watchdog's job.
 export const parse_queue = function() {
 	let raw = readfile('/proc/net/netfilter/nfnetlink_queue');
 	if (!raw)
-		return { registered: false, queue_total: null, copy_range: null,
-			queue_dropped: null, queue_user_dropped: null, row: null,
-			reason: 'nfnetlink_queue unavailable' };
+		return { registered: false, peer_portid: null, queue_total: null,
+			copy_range: null, queue_dropped: null, queue_user_dropped: null,
+			row: null, reason: 'nfnetlink_queue unavailable' };
 
 	let want = '' + NFQUEUE;
 	let lines = split(raw, '\n');
@@ -59,6 +61,7 @@ export const parse_queue = function() {
 		if (f[field(NFQ_FIELD_QUEUE_NUMBER)] != want) continue;   // match field 1
 		return {
 			registered: true,
+			peer_portid:        +f[field(NFQ_FIELD_PEER_PORTID)],
 			queue_total:        +f[field(NFQ_FIELD_QUEUE_TOTAL)],
 			copy_range:         +f[field(NFQ_FIELD_COPY_RANGE)],
 			queue_dropped:      +f[field(NFQ_FIELD_QUEUE_DROPPED)],
@@ -68,7 +71,7 @@ export const parse_queue = function() {
 	}
 
 	// Our queue number is not registered in the kernel at all.
-	return { registered: false, queue_total: null, copy_range: null,
-		queue_dropped: null, queue_user_dropped: null, row: null,
-		reason: 'queue ' + NFQUEUE + ' not registered in kernel' };
+	return { registered: false, peer_portid: null, queue_total: null,
+		copy_range: null, queue_dropped: null, queue_user_dropped: null,
+		row: null, reason: 'queue ' + NFQUEUE + ' not registered in kernel' };
 };

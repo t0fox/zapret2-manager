@@ -2,13 +2,16 @@
 //
 // Run: node --test tests/ui/
 //
-// Gates 1-8, 12 apply to ALL views (global safety invariants; overview.js
-// passes them unchanged). Gates 9-11 apply to the seven pages in the UI
-// agent's zone (overview.js is the backend agent's zone and is not gated
-// here beyond the global invariants).
+// Gates 1-8, 12 apply to ALL views (global safety invariants). The RPC-
+// semantics gates 9 (catch), 14 (positional params), 15 (reject:true) also
+// apply to ALL views including overview.js (it is no longer excluded from the
+// RPC gate — its service/passthrough calls must reject+catch too). Gates 10-11
+// (busy/unavailable rendering) apply to the seven UI-agent zone views.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync, writeFileSync, unlinkSync, existsSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import {
 	EXPECTED_VIEWS, ZONE_VIEWS,
 	listViewFiles, readViewSource, readMenu, viewDirAbs,
@@ -18,6 +21,9 @@ import {
 	checkSyntax, moduleLoadHarness, checkNoStringFormat,
 	checkPositionalCalls, checkRejectTrue
 } from './lib/checks.mjs';
+import { REPO_ROOT } from './lib/checks.mjs';
+
+const LUCI_MAKEFILE = join(REPO_ROOT, 'luci-app-zapret2-manager/Makefile');
 
 function assertNoErrors(errs) {
 	assert.deepEqual(errs, [], errs.join('\n'));
@@ -79,9 +85,9 @@ test('gate 8: only the zapret2-manager RPC object is used', () => {
 	}
 });
 
-// Gate 9 — promise rejection has a visible error path (zone views).
-test('gate 9: rejected promises are caught (zone views)', () => {
-	for (const v of ZONE_VIEWS) {
+// Gate 9 — promise rejection has a visible error path (ALL views, incl overview).
+test('gate 9: rejected promises are caught (all views)', () => {
+	for (const v of EXPECTED_VIEWS) {
 		const src = readViewSource(v);
 		assert.ok(src !== null, `${v}.js missing`);
 		assertNoErrors(checkCatchPath(src, v));
@@ -128,18 +134,18 @@ test('gate 13: no String.prototype.format reliance', () => {
 
 // Gate 14 — rpc.declare with a params ARRAY is invoked positionally, never
 // with an object (router rpc.js: params[i] = args[i]; an object nests).
-test('gate 14: params-array declarations are called positionally (zone views)', () => {
-	for (const v of ZONE_VIEWS) {
+test('gate 14: params-array declarations are called positionally (all views)', () => {
+	for (const v of EXPECTED_VIEWS) {
 		const src = readViewSource(v);
 		assert.ok(src !== null, `${v}.js missing`);
 		assertNoErrors(checkPositionalCalls(src, v));
 	}
 });
 
-// Gate 15 — every rpc.declare in zone views has reject: true, so ubus errors
-// reject into .catch() instead of resolving as numeric codes.
-test('gate 15: all rpc.declare have reject: true (zone views)', () => {
-	for (const v of ZONE_VIEWS) {
+// Gate 15 — every rpc.declare in ALL views (incl overview) has reject: true,
+// so ubus errors reject into .catch() instead of resolving as numeric codes.
+test('gate 15: all rpc.declare have reject: true (all views)', () => {
+	for (const v of EXPECTED_VIEWS) {
 		const src = readViewSource(v);
 		assert.ok(src !== null, `${v}.js missing`);
 		assertNoErrors(checkRejectTrue(src, v));
@@ -156,4 +162,41 @@ test('module harness: zone views load under stubbed LuCI modules', () => {
 		assert.ok(src !== null, `${v}.js missing`);
 		assertNoErrors(moduleLoadHarness(src, v));
 	}
+});
+
+// Gate 16 — the official luci-app Makefile installs ALL shipped views
+// automatically (no hardcoded per-file list that silently drops pages).
+test('gate 16: luci Makefile auto-installs every .js view (no hardcoded list)', () => {
+	const mk = readFileSync(LUCI_MAKEFILE, 'utf8');
+	// MUST glob the view dir, NOT hardcode overview.js (the old defect installed
+	// only overview.js while 8 views shipped).
+	assert.ok(/\$\(wildcard [^)]*view\/zapret2-manager\/\*\.js\)/.test(mk),
+		'luci Makefile must use $(wildcard .../view/zapret2-manager/*.js) to install views');
+	assert.ok(!/INSTALL_DATA.*view\/zapret2-manager\/overview\.js/.test(mk),
+		'luci Makefile must NOT hardcode overview.js (drops the other views)');
+	// the glob covers exactly the shipped views
+	const dir = viewDirAbs();
+	const shipped = readdirSync(dir).filter((f) => f.endsWith('.js'));
+	assert.equal(shipped.length, EXPECTED_VIEWS.length, 'shipped view count matches EXPECTED_VIEWS');
+});
+
+// Gate 16 negative/positive control: a 9th fixture view is automatically
+// picked up by the glob (positive), then removed (no leftover).
+test('gate 16 control: a 9th fixture view is auto-covered by the Makefile glob', () => {
+	const dir = viewDirAbs();
+	const fixture = join(dir, 'zz-fixture-gate16.js');
+	const before = readdirSync(dir).filter((f) => f.endsWith('.js')).length;
+	try {
+		writeFileSync(fixture, "/* fixture for gate 16: the Makefile glob must cover me */\n");
+		const after = readdirSync(dir).filter((f) => f.endsWith('.js')).length;
+		assert.equal(after, before + 1, 'fixture view added');
+		// the Makefile glob pattern matches the fixture (it ends in .js under the dir)
+		assert.ok(/\$\(wildcard [^)]*view\/zapret2-manager\/\*\.js\)/.test(readFileSync(LUCI_MAKEFILE, 'utf8')),
+			'glob covers any .js in the dir, including the fixture');
+	} finally {
+		try { unlinkSync(fixture); } catch {}
+	}
+	assert.ok(!existsSync(fixture), 'fixture removed after the control');
+	assert.equal(readdirSync(dir).filter((f) => f.endsWith('.js')).length, before,
+		'view count restored after fixture removal');
 });

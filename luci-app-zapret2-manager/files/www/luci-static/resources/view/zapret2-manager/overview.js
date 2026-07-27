@@ -14,16 +14,21 @@
 
 'require rpc';
 
-const callStatus = rpc.declare({ object: 'zapret2-manager', method: 'status' });
-const callStart = rpc.declare({ object: 'zapret2-manager', method: 'start' });
-const callStop = rpc.declare({ object: 'zapret2-manager', method: 'stop' });
-const callRestart = rpc.declare({ object: 'zapret2-manager', method: 'restart' });
-const callRestartDaemons = rpc.declare({ object: 'zapret2-manager', method: 'restart_daemons' });
-const callStartFw = rpc.declare({ object: 'zapret2-manager', method: 'start_fw' });
-const callReloadIfsets = rpc.declare({ object: 'zapret2-manager', method: 'reload_ifsets' });
-const callConfirmAlive = rpc.declare({ object: 'zapret2-manager', method: 'confirm_alive' });
-const callRollback = rpc.declare({ object: 'zapret2-manager', method: 'rollback' });
-const callPassthrough = rpc.declare({ object: 'zapret2-manager', method: 'passthrough' });
+const callStatus = rpc.declare({ object: 'zapret2-manager', method: 'status', reject: true });
+const callStart = rpc.declare({ object: 'zapret2-manager', method: 'start', reject: true });
+const callStop = rpc.declare({ object: 'zapret2-manager', method: 'stop', reject: true });
+const callRestart = rpc.declare({ object: 'zapret2-manager', method: 'restart', reject: true });
+const callRestartDaemons = rpc.declare({ object: 'zapret2-manager', method: 'restart_daemons', reject: true });
+const callStartFw = rpc.declare({ object: 'zapret2-manager', method: 'start_fw', reject: true });
+const callReloadIfsets = rpc.declare({ object: 'zapret2-manager', method: 'reload_ifsets', reject: true });
+const callConfirmAlive = rpc.declare({ object: 'zapret2-manager', method: 'confirm_alive', reject: true });
+const callRollback = rpc.declare({ object: 'zapret2-manager', method: 'rollback', reject: true });
+const callPassthrough = rpc.declare({
+	object: 'zapret2-manager',
+	method: 'passthrough',
+	params: ['enabled'],
+	reject: true
+});
 
 return L.view.extend({
 	title: _('Overview'),
@@ -164,6 +169,9 @@ return L.view.extend({
 						status.textContent = res.ok ? _('Done.') : (_('Failed: ') + (res.error || ('rc=' + res.rc)));
 						self.refresh();
 					}
+				}).catch(function (err) {
+					b.disabled = false;   // busy flag cleared on error too
+					status.textContent = _('Failed: ') + (err && (err.message || err) || 'ubus error');
 				});
 			});
 			return b;
@@ -227,6 +235,8 @@ return L.view.extend({
 			clearInterval(timer);
 			callConfirmAlive().then(function () {
 				statusEl.textContent = _('Confirmed. Change kept.');
+			}).catch(function (err) {
+				statusEl.textContent = _('Confirm failed: ') + (err && (err.message || err) || 'ubus error');
 			});
 			this.refresh();
 		}.bind(this));
@@ -235,6 +245,8 @@ return L.view.extend({
 			clearInterval(timer);
 			callRollback().then(function () {
 				statusEl.textContent = _('Rolled back to last-good.');
+			}).catch(function (err) {
+				statusEl.textContent = _('Rollback failed: ') + (err && (err.message || err) || 'ubus error');
 			});
 			this.refresh();
 		}.bind(this));
@@ -263,7 +275,7 @@ return L.view.extend({
 			var on = cb.checked;
 			cb.disabled = true;
 			status.textContent = _('Restarting nfqws2 in passthrough mode…');
-			callPassthrough({ enabled: on }).then(function (res) {
+			callPassthrough(on).then(function (res) {
 				cb.disabled = false;
 				res = res || {};
 				if (res.rollback_pending) {
@@ -273,6 +285,9 @@ return L.view.extend({
 						(_('Failed: ') + (res.error || ('rc=' + res.rc)));
 					self.refresh();
 				}
+			}).catch(function (err) {
+				cb.disabled = false;   // busy flag cleared on error too
+				status.textContent = _('Failed: ') + (err && (err.message || err) || 'ubus error');
 			});
 		});
 

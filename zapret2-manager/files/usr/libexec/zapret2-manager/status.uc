@@ -83,8 +83,23 @@ function find_pids() {
 		if (!match(name, /^[0-9]+$/)) continue;
 		let cl = readfile('/proc/' + name + '/cmdline');
 		if (!cl || !length(cl)) continue;
-		let human = replace(cl, '\x00', ' ');   // NUL-separated → space
-		if (index(human, DAEMON) < 0) continue;
+		// /proc/<pid>/cmdline is NUL-separated argv. ucode's replace() with a
+		// NUL search string misbehaves (it inserts a space between every byte,
+		// so 'nfqws2' is never a contiguous substring and the daemon is never
+		// detected → runtime.present=false while the process is alive). Split
+		// on chr(0) into argv and re-join with spaces; index() on the raw cl
+		// works too, but join gives a clean human-readable cmdline AND a stable
+		// argv[0] (the absolute binary path) for the owner/path match.
+		let argv = split(cl, chr(0));
+		let human = join(' ', argv);
+		// Match the BINARY (argv[0]), not the whole cmdline. A substring match on
+		// the full human cmdline also matches shells running scripts that merely
+		// MENTION nfqws2 (e.g. 'ash -c ... pgrep nfqws2 ...') → false count.
+		// argv[0] for the daemon is '/opt/zapret2/nfq2/nfqws2' (contains
+		// '/nfqws2'); for an ash shell it is 'ash' (no '/nfqws2'). Match the
+		// absolute-path tail '/nfqws2' OR the bare name 'nfqws2'.
+		let bin = (length(argv) && length(argv[0])) ? argv[0] : '';
+		if (index(bin, '/' + DAEMON) < 0 && bin != DAEMON) continue;
 		let pst = stat('/proc/' + name);
 		let pid = +name;
 		// RSS in KB from /proc/<pid>/status (VmRSS line). null if unreadable.
@@ -98,6 +113,7 @@ function find_pids() {
 		} catch (e) { rss = null; }
 		push(pids, {
 			pid: pid,
+			binary: (length(argv) && length(argv[0])) ? argv[0] : null,
 			cmdline: trim(human),
 			startTime: iso_from_unix(pst ? pst.mtime : null),
 			rssKb: rss
@@ -116,7 +132,7 @@ function runtime_level(rules) {
 		for (let i = 0; i < length(lines); i++)
 			if (index(lines[i], DAEMON) >= 0 && index(lines[i], 'ps w') < 0)
 				push(hit, trim(lines[i]));
-		ps_summary = join(hit, '\n');
+		ps_summary = join('\n', hit);
 	} catch (e) { ps_summary = ''; }
 
 	let strategies = null;
@@ -202,6 +218,9 @@ function health_block() {
 		number: NFQUEUE,
 		registered: q.registered,
 		reason: q.reason ? q.reason : null,
+		peerPortid: q.peer_portid,           // PID that bound the queue (field 2)
+		ownerPid: null,                      // filled by reconcile_queue_owner
+		ownerConflict: false,                // filled: queue bound by non-nfqws2
 		queueTotal: q.queue_total,           // instantaneous; threshold 50 applies
 		copyRange: q.copy_range,
 		queueDropped: q.queue_dropped,       // cumulative raw; delta-only downstream
@@ -216,7 +235,11 @@ function health_block() {
 
 function rules_present() {
 	try {
-		let raw = sh('nft list table ' + NFT_TABLE);
+		// The zapret2 rules live in the inet family — upstream installs them
+		// under `table inet zapret2` (fw4 is inet). `nft list table zapret2`
+		// with no family defaults to ip and does NOT find the inet table, so
+		// rulesPresent was always false despite live rules. Specify inet.
+		let raw = sh('nft list table inet ' + NFT_TABLE);
 		return length(raw) && index(raw, 'chain ') >= 0;
 	} catch (e) {
 		return false;
@@ -252,7 +275,7 @@ function drift_block(runtime, rules) {
 		for (let i = 0; i < length(pids); i++)
 			push(parts, trim(pids[i].cmdline || ''));
 		parts.sort();
-		norm = join(parts, '\n');
+		norm = join('\n', parts);
 	} catch (e) { norm = null; }
 
 	if (!runtime.present) {
@@ -290,8 +313,43 @@ function drift_block(runtime, rules) {
 // event is for. qlen warn does NOT change serviceState away from running (it
 // is carried in health.qlenHealth.state).
 
+// Reconcile the queue owner: peer_portid (field 2 — the PID that bound QNUM
+// NFQUEUE) must match one of the nfqws2 PIDs found by find_pids(). Mutates
+// health.queue in place to set ownerPid / ownerConflict. Returns a warning
+// string when the queue is bound by a non-nfqws2 process (or by an unknown
+// process while nfqws2 is down), else null. This is what closes the
+// runtime-vs-NFQUEUE contradiction: the queue being registered is only proof
+// OUR engine owns it when peer_portid matches a detected nfqws2 PID.
+function join_pids(pids) {
+	let s = [];
+	for (let i = 0; i < length(pids); i++) push(s, '' + pids[i].pid);
+	return join(',', s);
+}
+
+function reconcile_queue_owner(runtime, health) {
+	let q = (health && health.queue) ? health.queue : null;
+	if (!q || !q.registered) return null;
+	let pp = q.peerPortid;
+	let pids = (runtime && runtime.instances) ? runtime.instances : [];
+	let ownedByNfqws = false;
+	for (let i = 0; i < length(pids); i++) {
+		if (pids[i].pid == pp) { ownedByNfqws = true; break; }
+	}
+	q.ownerPid = pp;
+	q.ownerConflict = !ownedByNfqws;
+	if (q.ownerConflict) {
+		if (length(pids))
+			return 'QNUM ' + NFQUEUE + ' registered to PID ' + pp +
+				', not to the detected nfqws2 process(es) [' + join_pids(pids) + ']';
+		return 'QNUM ' + NFQUEUE + ' registered to PID ' + pp +
+			' but no nfqws2 process is running (stale/unknown owner)';
+	}
+	return null;
+}
+
 function service_state(runtime, rules, health, draft) {
 	let qh = (health && health.qlenHealth) ? health.qlenHealth : null;
+	let q = (health && health.queue) ? health.queue : null;
 	let present = runtime && runtime.present;
 	// paused indicator (manager-only, /tmp) — the intended pause stance.
 	if (stat(PATHS.paused_flag)) {
@@ -303,9 +361,21 @@ function service_state(runtime, rules, health, draft) {
 	if (draft && draft.passthrough && draft.passthrough.enabled) {
 		return present ? 'passthrough' : 'error';
 	}
-	if (!present) return 'stopped';
+	// Process ABSENT. Two sub-states:
+	//   - queue also absent → genuinely stopped (clean shutdown).
+	//   - queue still registered → the owner is unknown (stale/zombie/other
+	//     engine occupying QNUM NFQUEUE) → ERROR, not 'stopped'. This is the
+	//     runtime-vs-NFQUEUE contradiction: present=false + registered=true is
+	//     not a coherent 'stopped' state.
+	if (!present) {
+		if (q && q.registered) return 'error';
+		return 'stopped';
+	}
+	// Process PRESENT. The queue must be bound by THIS nfqws2 (ownerConflict
+	// is reconciled in collect() before service_state runs).
 	if (!rules) return 'partial';
-	if (health && health.queue && health.queue.registered === false) return 'error';
+	if (q && q.registered === false) return 'error';          // up but queue not bound
+	if (q && q.registered && q.ownerConflict) return 'error'; // bound by non-nfqws2
 	if (qh && qh.state === 'critical') return 'error';
 	return 'running';
 }
@@ -436,6 +506,11 @@ function collect() {
 	try { upstream = upstream_info(); } catch (e) { upstream = { error: 'upstream collect failed: ' + e }; }
 
 	// Backend-computed conclusions (the UI renders these, it does not recompute).
+	// Reconcile the queue owner BEFORE the service-state call — service_state
+	// reads health.queue.ownerConflict, which reconcile sets from peer_portid
+	// vs the detected nfqws2 PIDs.
+	let ownerWarn = null;
+	try { ownerWarn = reconcile_queue_owner(runtime, health); } catch (e) { ownerWarn = null; }
 	let drift, svc_state, prof_count;
 	try { drift = drift_block(runtime, rules); } catch (e) { drift = { divergent: false, reason: 'drift compute failed: ' + e, basis: 'sha256-intermediate' }; }
 	try { svc_state = service_state(runtime, rules, health, draft); } catch (e) { svc_state = 'error'; }
@@ -464,6 +539,9 @@ function collect() {
 		uci: applied.uci ? applied.uci : null
 	};
 
+	let warnings = [];
+	if (ownerWarn) push(warnings, ownerWarn);
+
 	let status = {
 		schema: 2,
 		generatedAt: iso_now(),
@@ -477,7 +555,7 @@ function collect() {
 		system: system,
 		upstream: upstream,
 		jobs: [],
-		warnings: []
+		warnings: warnings
 	};
 
 	try { writefile(PATHS.status_json, sprintf("%J", status) + '\n'); } catch (e) { }

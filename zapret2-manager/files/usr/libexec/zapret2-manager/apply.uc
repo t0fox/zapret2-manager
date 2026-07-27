@@ -26,7 +26,7 @@
 //                                  assignment instead of rewriting the comment)
 //   value may contain "=" (split on the FIRST "=" after the name only)
 
-import { readfile, writefile, stat, popen, unlink } from 'fs';
+import { readfile, writefile, stat, popen, unlink, mkdir } from 'fs';
 import { PATHS } from './constants.uc';
 
 const CONFIG = PATHS.applied_conf;
@@ -70,11 +70,11 @@ export const read_var = function(name) {
 					let q = index(lines[j], '"');
 					if (q >= 0) {
 						if (q > 0) push(buf, substr(lines[j], 0, q));
-						return join(buf, '\n');
+						return join('\n', buf);
 					}
 					push(buf, lines[j]);
 				}
-				return join(buf, '\n');   // unterminated (should not happen)
+				return join('\n', buf);   // unterminated (should not happen)
 			}
 			// single-line quoted: closing " is the LAST " in the line (rindex, so
 			// a value with an INNER " like VAR="a "b" c" is still single-line).
@@ -88,11 +88,11 @@ export const read_var = function(name) {
 				let q = index(lines[j], '"');
 				if (q >= 0) {
 					if (q > 0) push(buf, substr(lines[j], 0, q));
-					return join(buf, '\n');
+					return join('\n', buf);
 				}
 				push(buf, lines[j]);
 			}
-			return join(buf, '\n');   // unterminated (should not happen)
+			return join('\n', buf);   // unterminated (should not happen)
 		}
 		return rest;   // unquoted single-line value
 	}
@@ -130,7 +130,7 @@ function render_var(config, name, value) {
 				for (let k = 0; k < i; k++) push(result, lines[k]);
 				push(result, prefix + value);
 				for (let k = i + 1; k < length(lines); k++) push(result, lines[k]);
-				return join(result, '\n');
+				return join('\n', result);
 			}
 			let result = [];
 			for (let k = 0; k < i; k++) push(result, lines[k]);
@@ -143,7 +143,7 @@ function render_var(config, name, value) {
 				push(result, prefix + '"' + value + '"');
 			}
 			for (let k = end + 1; k < length(lines); k++) push(result, lines[k]);
-			return join(result, '\n');
+			return join('\n', result);
 		}
 		// single-line quoted: VAR="value" (closing " is the last " in the line, so
 		// an inner " like in VAR="a "b" c" still counts as single-line). Preserve the
@@ -153,14 +153,14 @@ function render_var(config, name, value) {
 			for (let k = 0; k < i; k++) push(result, lines[k]);
 			push(result, prefix + '"' + value + '"');
 			for (let k = i + 1; k < length(lines); k++) push(result, lines[k]);
-			return join(result, '\n');
+			return join('\n', result);
 		}
 		// single-line unquoted: replace the one line
 		let result = [];
 		for (let k = 0; k < i; k++) push(result, lines[k]);
 		push(result, prefix + value);
 		for (let k = i + 1; k < length(lines); k++) push(result, lines[k]);
-		return join(result, '\n');
+		return join('\n', result);
 	}
 	// not found (or only commented): append a new active assignment
 	let sep = (length(config) == 0 || substr(config, length(config) - 1, 1) == '\n') ? '' : '\n';
@@ -276,4 +276,58 @@ export const do_set = function(name_f, val_f) {
 	writefile(tmp, out);
 	let p = popen('mv -f ' + tmp + ' ' + CONFIG + ' 2>/dev/null', 'r');
 	if (p) p.close();
+};
+
+// ---- list file I/O (single writer, same module as set_var) ------------------
+// lists.uc imports these — there is no second write path. List files are the
+// user-editable text lists under /opt/zapret2/ipset/ (one entry per line).
+
+// Read a list file into an array of trimmed, NON-empty lines (one entry per
+// line). Missing file → empty list. Order preserved; no invented entries.
+// Mirrors tests/lib/list-io.mjs read_list_file.
+export const read_list_file = function(path) {
+	let raw = readfile(path);
+	if (!raw) return [];
+	let lines = split(raw, '\n');
+	let out = [];
+	for (let i = 0; i < length(lines); i++) {
+		let line = trim(lines[i]);
+		if (length(line)) push(out, line);
+	}
+	return out;
+};
+
+// Write a list file atomically: temp file in the SAME directory + mv -f rename
+// (same-FS rename is atomic, so a concurrent writer never sees a partial file
+// and a crash leaves only the temp — the target is untouched). One entry per
+// line, LF-separated, with a trailing LF. Parent dir is created if missing.
+// Returns the written content on success; returns null on write/rename failure
+// so the caller (lists_set) surfaces the error rather than silently dropping it
+// (ucode has no throw, so the error is returned, not raised). Engine-owned
+// lists are NOT written here — the caller enforces that; this function is
+// path-agnostic by design. Mirrors tests/lib/list-io.mjs write_list_file.
+export const write_list_file = function(path, entries) {
+	let out = '';
+	for (let i = 0; i < length(entries); i++) {
+		let line = trim('' + entries[i]);
+		if (!length(line)) continue;        // drop empty lines
+		out += line + '\n';                 // LF-separated, trailing LF
+	}
+	// Ensure the parent directory exists (mkdir -p). rindex finds the last '/'.
+	let slash = rindex(path, '/');
+	let parent = (slash > 0) ? substr(path, 0, slash) : null;
+	if (parent) {
+		try { mkdir(parent); } catch (e) { }   // exists is fine; other errors surface at writefile
+	}
+	let tmp = path + '.tmp.' + time();
+	writefile(tmp, out);
+	let p = popen('mv -f ' + tmp + ' ' + path + ' 2>/dev/null', 'r');
+	if (p) p.close();
+	// Verify the rename took: the temp must be gone and the target present.
+	// On failure, best-effort clean up the orphan temp so no partial is left.
+	if (stat(tmp) || !stat(path)) {
+		try { unlink(tmp); } catch (e) { }
+		return null;
+	}
+	return out;
 };

@@ -33,6 +33,22 @@ const LIST_PATHS = {
 };
 
 // ---- logic (mirrors tests/lib/lists-logic.mjs) ------------------------------
+// ucode does NOT hoist `function` declarations in module mode (a helper must
+// precede its first caller), so tolower is defined BEFORE normalize_domain.
+
+// ucode has no built-in tolower/.lower(); map A-Z → a-z via ord/chr (no
+// subprocess, no shell injection). ASCII only — domains are ASCII (IDN is
+// punycode-encoded before it reaches here).
+function tolower(s) {
+	let out = '';
+	for (let i = 0; i < length(s); i++) {
+		let c = substr(s, i, 1);
+		let code = ord(c);
+		if (code >= 65 && code <= 90) c = chr(code + 32);   // 'A'..'Z' → 'a'..'z'
+		out += c;
+	}
+	return out;
+}
 
 function normalize_domain(d) {
 	if (d == null) return '';
@@ -40,13 +56,6 @@ function normalize_domain(d) {
 	s = tolower(s);
 	if (substr(s, 0, 1) == '.') s = substr(s, 1);
 	return s;
-}
-
-function tolower(s) {
-	// ucode has no tolower; use tr via popen-free char map is overkill. The
-	// domain strings from the UI are already lowercase in practice; this is a
-	// best-effort normalization. [VERIFY:ROUTER] ucode string case functions.
-	return s;   // TODO: replace with ucode tolower if available
 }
 
 function find_conflicts(include, exclude) {
@@ -66,6 +75,15 @@ function find_conflicts(include, exclude) {
 	return conflicts;
 }
 
+// _in_list is declared BEFORE check_domain (ucode does not hoist `function`
+// declarations in module mode — a helper must precede its first caller).
+function _in_list(n, arr) {
+	if (!arr) return false;
+	for (let i = 0; i < length(arr); i++)
+		if (normalize_domain(arr[i]) == n) return true;
+	return false;
+}
+
 function check_domain(domain, lists) {
 	let n = normalize_domain(domain);
 	let inInc = _in_list(n, lists.userInclude);
@@ -78,13 +96,6 @@ function check_domain(domain, lists) {
 		autohostlist: inAuto,
 		conflict: inInc && inExc
 	};
-}
-
-function _in_list(n, arr) {
-	if (!arr) return false;
-	for (let i = 0; i < length(arr); i++)
-		if (normalize_domain(arr[i]) == n) return true;
-	return false;
 }
 
 // ---- state ------------------------------------------------------------------
@@ -120,30 +131,81 @@ export const lists_get = function() {
 		paths: LIST_PATHS,
 		conflicts: find_conflicts(domainInclude, domainExclude)
 	};
-}
+};
 
-// Apply user list edits. Validates conflicts BEFORE writing; if any domain is
-// in BOTH include and exclude, refuses and returns the conflicts (no files
-// written). File generation goes through apply.uc write_list_file only.
-export const lists_set = function(edit) {
-	// edit = { domainInclude: [...], domainExclude: [...], ipInclude: [...],
-	//          ipExclude: [...], ipBlock: [...] } (only the lists being edited
-	//          are present; absent lists are not touched)
+// Apply user list edits. WIRE FORMAT: `edit` is a JSON STRING (rpcd params are
+// strings — the frontend sends edit as a JSON-encoded string). We parse it ONCE
+// (no sprintf("%J") before parse, no double-encode), require an OBJECT with
+// ALLOWED keys whose values are arrays of strings. Engine-owned lists
+// (autohostlist) are rejected. Conflicts (a domain in BOTH include and exclude)
+// are refused BEFORE any write — no files touched. Each write goes through
+// apply.uc write_list_file (single write path); a write failure is surfaced as
+// {ok:false, error} (write_list_file returns null on failure). Mirrors
+// tests/lib/lists-wire.mjs validate_edit + lists_set.
+const ALLOWED_LIST_KEYS = {
+	domainInclude: true, domainExclude: true,
+	ipInclude: true, ipExclude: true, ipBlock: true
+};
+const ENGINE_OWNED_LISTS = { autohostlist: true };
+
+// validate_edit(editStr) → { ok:true, edit } | { ok:false, error, ... }.
+// Pure (no writes); runs every wire-format rule so the CLI and the rpcd plugin
+// share one validation path. ucode type() returns 'string'/'array'/'object'/
+// 'int'/'bool'/''(null); arrays are 'array' (NOT 'object'), so type() distinguishes.
+export const validate_edit = function(edit_str) {
+	if (type(edit_str) != 'string')
+		return { ok: false, error: 'edit must be a JSON string', got: type(edit_str) };
+	let edit = null;
+	try { edit = json(edit_str); } catch (e) { return { ok: false, error: 'invalid JSON' }; }
+	// json() decodes an object to type 'object', an array to 'array', null to ''
+	// (empty), numbers to 'int'. Require an object (rejects array/null/scalar).
+	if (type(edit) != 'object')
+		return { ok: false, error: 'edit must decode to an object' };
+	let ks = keys(edit);
+	if (length(ks) === 0)
+		return { ok: false, error: 'edit must be a non-empty object' };
+	for (let i = 0; i < length(ks); i++) {
+		let k = ks[i];
+		if (ENGINE_OWNED_LISTS[k])
+			return { ok: false, error: 'engine-owned list cannot be edited: ' + k };
+		if (!ALLOWED_LIST_KEYS[k])
+			return { ok: false, error: 'unknown list key: ' + k };
+		let v = edit[k];
+		if (type(v) != 'array')
+			return { ok: false, error: 'value for ' + k + ' must be an array' };
+		for (let j = 0; j < length(v); j++) {
+			if (type(v[j]) != 'string')
+				return { ok: false, error: 'element ' + j + ' of ' + k + ' must be a string' };
+		}
+	}
+	return { ok: true, edit: edit };
+};
+
+export const lists_set = function(edit_str) {
+	let v = validate_edit(edit_str);
+	if (!v.ok) return v;          // { ok:false, error, ... }
+	let edit = v.edit;
 	let conflicts = find_conflicts(edit.domainInclude, edit.domainExclude);
 	if (length(conflicts) > 0) {
 		return { ok: false, error: 'conflict',
 			message: 'domains in BOTH include and exclude',
 			conflicts: conflicts };
 	}
-	// write each present list through apply.uc (single write path)
+	// write each present list through apply.uc write_list_file (single write
+	// path). write_list_file returns null on failure — surface it, do NOT claim
+	// success.
 	let written = [];
-	if (edit.domainInclude) { write_list_file(LIST_PATHS.domainInclude, edit.domainInclude); push(written, 'domainInclude'); }
-	if (edit.domainExclude) { write_list_file(LIST_PATHS.domainExclude, edit.domainExclude); push(written, 'domainExclude'); }
-	if (edit.ipInclude)     { write_list_file(LIST_PATHS.ipInclude, edit.ipInclude); push(written, 'ipInclude'); }
-	if (edit.ipExclude)     { write_list_file(LIST_PATHS.ipExclude, edit.ipExclude); push(written, 'ipExclude'); }
-	if (edit.ipBlock)       { write_list_file(LIST_PATHS.ipBlock, edit.ipBlock); push(written, 'ipBlock'); }
+	let order = ['domainInclude', 'domainExclude', 'ipInclude', 'ipExclude', 'ipBlock'];
+	for (let i = 0; i < length(order); i++) {
+		let k = order[i];
+		if (edit[k] == null) continue;
+		let r = write_list_file(LIST_PATHS[k], edit[k]);
+		if (r == null)
+			return { ok: false, error: 'write failed', list: k, written: written };
+		push(written, k);
+	}
 	return { ok: true, written: written };
-}
+};
 
 // Check whether a domain falls under the autohostlist or the user lists.
 // The main user-confusion source: "I added a domain manually, but the auto-
@@ -155,24 +217,4 @@ export const lists_check_domain = function(domain) {
 		userExclude: st.userLists.domainExclude,
 		autohostlist: st.engineLists.autohostlist
 	});
-}
-
-// ---- CLI --------------------------------------------------------------------
-let mode = ARGV[0];
-if (mode == 'get') {
-	print(sprintf("%J", lists_get()) + '\n');
-} else if (mode == 'check') {
-	print(sprintf("%J", lists_check_domain(ARGV[1])) + '\n');
-} else if (mode == 'set') {
-	// 'set <file>' — file contains a JSON edit object
-	let raw = readfile(ARGV[1]);
-	if (!raw) { print(sprintf("%J", { ok: false, error: 'no edit file' }) + '\n'); exit(1); }
-	let edit = json(raw);
-	if (!edit) { print(sprintf("%J", { ok: false, error: 'bad edit JSON' }) + '\n'); exit(1); }
-	print(sprintf("%J", lists_set(edit)) + '\n');
-} else if (mode == undefined) {
-	// imported as a library
-} else {
-	print('usage: ucode lists.uc get | check <domain>\n');
-	exit(1);
-}
+};

@@ -81,7 +81,7 @@ function passthrough_method(req) {
 }
 
 // ---- lists methods (ЦЕЛЬ ДВА — ui/07-lists-page) ---------------------------
-const LISTS_CLI = '/usr/libexec/zapret2-manager/lists.uc';
+const LISTS_CLI = '/usr/libexec/zapret2-manager/lists-cli.uc';
 function lists_action(sub) {
 	let cmd = '/usr/bin/ucode ' + LISTS_CLI + ' ' + sub + ' 2>/dev/null';
 	let p = popen(cmd, 'r');
@@ -104,15 +104,20 @@ function lists_check_domain_method(req) {
 	if (d == null) return { ok: false, error: 'missing domain param' };
 	return lists_action('check ' + d);
 }
-// lists_set takes a JSON edit object via stdin (multi-line lists do not fit argv).
+// lists_set: the frontend sends `edit` as a JSON STRING (rpcd params are
+// strings). We check it IS a string, write it VERBATIM to a temp file (NO
+// sprintf("%J") re-encode — that would double-encode a JSON string), and hand
+// the file to lists-cli.uc 'set <file>'. lists_set parses the string ONCE
+// (json(edit)) and validates the object/keys/values. A file (not argv) carries
+// multi-line lists and avoids shell injection.
 function lists_set_method(req) {
 	let edit = null;
 	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
 	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
 	if (edit == null) return { ok: false, error: 'missing edit param' };
-	// write the edit to a temp file, invoke lists.uc with 'set <file>'
+	if (type(edit) != 'string') return { ok: false, error: 'edit must be a JSON string', got: type(edit) };
 	let tmp = '/tmp/z2m-lists-edit.' + time();
-	writefile(tmp, sprintf("%J", edit));
+	writefile(tmp, edit);   // verbatim — no sprintf("%J"), no double-encode
 	let cmd = '/usr/bin/ucode ' + LISTS_CLI + ' set ' + tmp + ' 2>/dev/null';
 	let p = popen(cmd, 'r');
 	if (!p) return { ok: false, error: 'popen failed' };

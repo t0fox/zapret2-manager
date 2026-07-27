@@ -11,7 +11,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-zapret2-manager
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 PKG_MAINTAINER:=Ásgeir
 PKG_LICENSE:=MIT
 PKGARCH:=all
@@ -49,8 +49,12 @@ define Package/luci-app-zapret2-manager/install
 		$(1)/usr/share/luci/menu.d/
 
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/zapret2-manager
-	$(INSTALL_DATA) ./files/www/luci-static/resources/view/zapret2-manager/overview.js \
-		$(1)/www/luci-static/resources/view/zapret2-manager/
+	# Install EVERY shipped view (.js) in the view directory — automatically, not
+	# a hardcoded list. A per-file enumeration silently drops pages when the UI
+	# grows (this Makefile used to install only overview.js while 8 views ship).
+	# $(wildcard) globs the source dir at expand time; $(foreach) installs each.
+	$(foreach js,$(wildcard ./files/www/luci-static/resources/view/zapret2-manager/*.js), \
+		$(INSTALL_DATA) $(js) $(1)/www/luci-static/resources/view/zapret2-manager/;)
 endef
 
 define Package/luci-app-zapret2-manager/postinst

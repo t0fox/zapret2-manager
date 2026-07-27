@@ -53,7 +53,7 @@ export TMPDIR="${TMPDIR:-$HOME/z2m-build}"
 OUTDIR="$SDK/bin/packages/aarch64_cortex-a53/zapret2-manager"
 mkdir -p "$OUTDIR"
 
-VER="0.1.0-r1"
+VER="0.1.0-r2"
 
 # mkfile <path> — write a postinst/postrm body from stdin to a temp file.
 # Use a unique file in a writable home dir: mktemp in WSL defaults to root-owned
@@ -99,7 +99,7 @@ mkdir -p "$R/etc/zapret2-manager" "$R/usr/libexec/zapret2-manager" \
          "$R/usr/share/rpcd/ucode" "$R/etc/hotplug.d/iface" "$R/etc/init.d"
 install -m 0644 "$REPO/zapret2-manager/files/etc/zapret2-manager/state.json" \
                 "$R/etc/zapret2-manager/state.json"
-for u in constants qlen status service watchdog apply apply-cli lists backup; do
+for u in constants qlen status service watchdog apply apply-cli lists lists-cli backup; do
   install -m 0644 "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/${u}.uc" \
                   "$R/usr/libexec/zapret2-manager/${u}.uc"
 done

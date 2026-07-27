@@ -369,3 +369,34 @@ test('monitor: failed poll keeps last-good data, shows STALE, never hangs', asyn
 	const statusCalls = w.calls.filter((c) => c.method === 'status').length;
 	assert.ok(statusCalls >= 3, 'expected load + two poll ticks to each issue one status call');
 });
+
+// ---- 6. overview: passthrough wire + reject gate (no longer excluded) --------
+
+test('overview: callPassthrough is declared with params:[enabled] + reject:true (fixed → green)', () => {
+	const src = readViewSource('overview');
+	assert.ok(src !== null, 'overview.js missing');
+	// the exact declaration the contract requires
+	assert.ok(/callPassthrough\s*=\s*rpc\.declare\(\s*\{\s*object:\s*'zapret2-manager'\s*,\s*method:\s*'passthrough'\s*,\s*params:\s*\[\s*'enabled'\s*\]\s*,\s*reject:\s*true\s*\}\s*\)/.test(src),
+		'callPassthrough must be rpc.declare({object,method,params:[enabled],reject:true})');
+	assert.deepEqual(checkRejectTrue(src, 'overview'), [], 'every overview rpc.declare has reject:true');
+	assert.deepEqual(checkPositionalCalls(src, 'overview'), [], 'overview params-array calls are positional');
+});
+
+test('NEGATIVE CONTROL: overview object-form passthrough call → gate 14 RED', () => {
+	const original = readViewSource('overview');
+	// mutate the fixed positional call back into the defect (object) form
+	const mutated = original.replace(/callPassthrough\(on\)/, 'callPassthrough({ enabled: on })');
+	assert.ok(mutated !== original, 'mutation applied — the defect call must be present');
+	// the positional-call gate MUST flag the object-form call
+	const errs = checkPositionalCalls(mutated, 'overview (mutated: object call)');
+	assert.ok(errs.length > 0, 'object-form callPassthrough({enabled:on}) MUST redden the positional gate');
+});
+
+test('NEGATIVE CONTROL: overview without reject:true → gate 15 RED', () => {
+	const original = readViewSource('overview');
+	assert.ok(/reject:\s*true/.test(original), 'overview.js must contain reject:true for this control');
+	const mutated = original.replace(/,\s*reject:\s*true/g, '');
+	assert.ok(!/reject:\s*true/.test(stripComments(mutated)), 'mutation stripped reject:true');
+	const errs = checkRejectTrue(mutated, 'overview (mutated: no reject)');
+	assert.ok(errs.length > 0, 'overview without reject:true MUST redden the reject gate');
+});

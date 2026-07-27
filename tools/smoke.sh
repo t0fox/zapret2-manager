@@ -88,48 +88,72 @@ want_nz() { [ -n "$1" ] && ok "$2" || bad "$2 (empty)"; }
 ucode_syntax() {
   log "ucode syntax check (wrapper import + interpreter -c on target)"
   # Two file natures, two methods (verified on the device):
-  #  * MODULES (use `export`): constants.uc, qlen.uc, apply.uc, lists.uc, status.uc,
-  #    service.uc. `ucode -c FILE` directly rejects ANY export (const or function) —
-  #    "Exports may only appear at top level of a module" — because -c compiles as a
-  #    SCRIPT (export illegal there). Method: a wrapper that `import`s the target
-  #    (import loads it AS A MODULE, export legal) compiled with -c.
-  #  * SCRIPTS (no `export`; watchdog.uc, the rpcd plugin): `ucode -c FILE` DIRECTLY
-  #    works (ignores the shebang, checks syntax).
-  # CAVEAT: a wrapper-import chokes on a shebang (`#!/usr/bin/ucode` → "Unexpected
-  # character" line 1). Several backend files are HYBRIDS: they have BOTH a shebang
-  #    (script) AND `export` (module) — apply.uc, lists.uc, status.uc, service.uc.
-  #    Neither direct -c (export illegal in script) nor wrapper-import (shebang
-  #    illegal in module) works on the ORIGINAL. UNIVERSAL METHOD: strip the shebang
-  #    to a temp copy on the device, then check the temp — wrapper-import if it has
-  #    export (module), direct -c if not (script). The temp has no shebang, so
-  #    wrapper-import no longer chokes; export decides module vs script mode.
+  #  * LIBRARIES (use `export`): constants.uc, qlen.uc, apply.uc, lists.uc,
+  #    status.uc, service.uc. `ucode -c FILE` directly rejects ANY export —
+  #    "Exports may only appear at top level of a module" — because -c compiles
+  #    as a SCRIPT (export illegal there). Method: a wrapper that `import`s the
+  #    target (import loads it AS A MODULE, export legal) compiled with -c.
+  #  * CLI WRAPPERS (shebang, no `export`): apply-cli.uc, lists-cli.uc,
+  #    watchdog.uc, the rpcd plugin. `ucode -c FILE` DIRECTLY works (ignores the
+  #    shebang, checks syntax).
+  # CRITICAL: the temp copy MUST live NEXT TO the module (not in /tmp). A wrapper
+  # that imports the temp resolves the module's RELATIVE imports ('./apply.uc',
+  #    './qlen.uc') against the temp's directory. A temp in /tmp makes them
+  #    unresolvable → false FAIL for every file with a relative import (status.uc,
+  #    service.uc, watchdog.uc, lists.uc, apply.uc all failed the old /tmp method).
+  # The temp is staged as <module-dir>/.smoke-<basename>.uc, stripped of its
+  # shebang (wrapper-import chokes on a shebang line 1), then removed after.
   for f in /usr/libexec/zapret2-manager/constants.uc \
            /usr/libexec/zapret2-manager/qlen.uc \
            /usr/libexec/zapret2-manager/apply.uc \
+           /usr/libexec/zapret2-manager/apply-cli.uc \
            /usr/libexec/zapret2-manager/lists.uc \
+           /usr/libexec/zapret2-manager/lists-cli.uc \
            /usr/libexec/zapret2-manager/status.uc \
            /usr/libexec/zapret2-manager/service.uc \
            /usr/libexec/zapret2-manager/watchdog.uc \
-           /usr/share/rpcd/ucode/zapret2-manager.uc; do
+           /usr/share/rpcd/ucode/zapret2-manager; do
     ssh_ok "exists $f" test -f "$f" || { bad "missing $f"; continue; }
-    # strip shebang to a temp copy on the device (wrapper-import chokes on shebang;
-    # direct -c rejects export in script mode — the temp avoids both)
-    ssh_ok "stage temp $f" "sed '1{/^#!/d}' '$f' > /tmp/smoke_w.uc" || { bad "cannot stage temp for $f"; continue; }
-    # module (has export) → wrapper-import on temp; script (no export) → direct -c on temp
+    # stage the temp NEXT TO the module so relative imports resolve; strip shebang.
+    base=$(basename "$f")
+    dir=$(dirname "$f")
+    tmp="$dir/.smoke-$base"
+    if ssh_ok "stage temp $f" "sed '1{/^#!/d}' '$f' > '$tmp'"; then
+      :
+    else
+      bad "cannot stage temp for $f"; continue
+    fi
+    # module (has export) → wrapper-import on the temp; script (no export) → direct -c
     if ssh_ok "has export $f" "grep -q -- export '$f'"; then
-      if ssh_ok "import $f" "echo \"import * as m from '/tmp/smoke_w.uc';\" > /tmp/smoke_w2.uc; ucode -c -o /dev/null /tmp/smoke_w2.uc >/dev/null 2>&1; rc=\$?; rm -f /tmp/smoke_w2.uc; [ \$rc -eq 0 ] && exit 0 || exit 1"; then
+      if ssh_ok "import $f" "printf 'import * as m from \"%s\";' '$tmp' > '$tmp.wrap'; ucode -c -o /dev/null '$tmp.wrap' >/dev/null 2>&1; rc=\$?; rm -f '$tmp.wrap' '$tmp'; [ \$rc -eq 0 ] && exit 0 || exit 1"; then
         ok "parse OK: $f"
       else
         bad "parse FAIL: $f (import + ucode -c)"
       fi
     else
-      if ssh_ok "ucode -c $f" "ucode -c -o /dev/null /tmp/smoke_w.uc >/dev/null 2>&1; rc=\$?; rm -f /tmp/smoke_w.uc; [ \$rc -eq 0 ] && exit 0 || exit 1"; then
+      if ssh_ok "ucode -c $f" "ucode -c -o /dev/null '$tmp' >/dev/null 2>&1; rc=\$?; rm -f '$tmp'; [ \$rc -eq 0 ] && exit 0 || exit 1"; then
         ok "parse OK: $f"
       else
         bad "parse FAIL: $f (ucode -c)"
       fi
     fi
   done
+
+  # NEGATIVE CONTROLS — the gate MUST go red on a deliberately broken file, or
+  # it is non-functional (a green-only gate proves nothing). A broken LIBRARY
+  # (unbalanced brace) and a broken CLI (unterminated string) each must FAIL.
+  ssh_ok "neg-lib stage" "printf 'export const broken = function() {\\n' > /usr/libexec/zapret2-manager/.smoke-neg-lib.uc"
+  if ssh_ok "neg-lib import" "printf 'import * as m from \"/usr/libexec/zapret2-manager/.smoke-neg-lib.uc\";' > /usr/libexec/zapret2-manager/.smoke-neg-lib.wrap; ucode -c -o /dev/null /usr/libexec/zapret2-manager/.smoke-neg-lib.wrap >/dev/null 2>&1; rc=\$?; rm -f /usr/libexec/zapret2-manager/.smoke-neg-lib.wrap /usr/libexec/zapret2-manager/.smoke-neg-lib.uc; [ \$rc -eq 0 ] && exit 0 || exit 1"; then
+    bad "NEGATIVE CONTROL FAILED: broken library did NOT redden ucode_syntax (gate is non-functional)"
+  else
+    ok "negative control: broken library → red (gate can fail)"
+  fi
+  ssh_ok "neg-cli stage" "printf 'let x = \"unterminated\\n' > /usr/libexec/zapret2-manager/.smoke-neg-cli.uc"
+  if ssh_ok "neg-cli -c" "ucode -c -o /dev/null /usr/libexec/zapret2-manager/.smoke-neg-cli.uc >/dev/null 2>&1; rc=\$?; rm -f /usr/libexec/zapret2-manager/.smoke-neg-cli.uc; [ \$rc -eq 0 ] && exit 0 || exit 1"; then
+    bad "NEGATIVE CONTROL FAILED: broken CLI did NOT redden ucode_syntax (gate is non-functional)"
+  else
+    ok "negative control: broken CLI → red (gate can fail)"
+  fi
 }
 
 # ---- queue_qlen_match: status.queues.queue_total == /proc field 3, row 300 ---

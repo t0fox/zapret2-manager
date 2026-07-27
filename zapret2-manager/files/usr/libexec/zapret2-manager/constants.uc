@@ -24,6 +24,7 @@ export const QLEN_CRIT_CONSECUTIVE = 3;
 // subtracts 1 for 0-based array access, so the numbers stay self-documenting
 // and match the kernel layout.
 export const NFQ_FIELD_QUEUE_NUMBER       = 1;
+export const NFQ_FIELD_PEER_PORTID        = 2;
 export const NFQ_FIELD_QUEUE_TOTAL        = 3;
 export const NFQ_FIELD_COPY_RANGE         = 5;
 export const NFQ_FIELD_QUEUE_DROPPED      = 6;
