@@ -27,7 +27,11 @@
 
 set -eu
 
-SDK="${OPENWRT_SDK:-$HOME/openwrt-sdk-25.12.5-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64}"
+# $HOME does not expand in an assignment in `bash -c` (non-login) — it stays empty,
+# leaving SDK empty and apk mkpkg unable to find its binary. cd into the SDK
+# dir with a literal path, then SDK=$PWD.
+cd /home/kirill/openwrt-sdk-25.12.5-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64
+SDK="$PWD"
 REPO="${REPO:-/mnt/g/zapret2-manager}"
 APK="$SDK/staging_dir/host/bin/apk"
 FAKE="$SDK/staging_dir/host/bin/fakeroot"
@@ -46,10 +50,12 @@ mkdir -p "$OUTDIR"
 VER="0.1.0-r1"
 
 # mkfile <path> — write a postinst/postrm body from stdin to a temp file.
-mkscript() { f=$(mktemp); cat > "$f"; chmod 0755 "$f"; echo "$f"; }
+# mktemp in WSL defaults to root-owned /tmp (mkdir -p inside fails); use a writable home dir.
+mkscript() { f="$HOME/z2m-build/script"; cat > "$f"; chmod 0755 "$f"; echo "$f"; }
 
 build_one() {
   _name="$1"; _desc="$2"; _deps="$3"; _root="$4"; _postinst="$5"; _postrm="${6:-}"
+  _provides="${7:-}"
   _out="$OUTDIR/${_name}-${VER}.apk"
   set -- "$FAKE" "$APK" mkpkg
   set -- "$@" --info "name:${_name}"
@@ -60,6 +66,7 @@ build_one() {
   set -- "$@" --info "maintainer:Ásgeir"
   set -- "$@" --info "origin:package/${_name}"
   set -- "$@" --info "depends:${_deps}"
+  [ -n "$_provides" ] && set -- "$@" --info "provides:${_provides}"
   [ -n "$_postinst" ] && set -- "$@" --script "post-install:${_postinst}"
   [ -n "$_postrm"   ] && set -- "$@" --script "post-deinstall:${_postrm}"
   set -- "$@" --files "$_root" --output "$_out"
@@ -69,25 +76,27 @@ build_one() {
 }
 
 # ---- zapret2-manager ---------------------------------------------------------
-# Standard LuCI app build copies the view/system/library directories wholesale.
-# Per-file enumeration is the cause of one view being present and another absent on the
-# device (platform fact 1). Copy the directories whole instead.
+# Per-file install (cp -a wholesale — `apk mkpkg --files <dir>` fails with "failed to load
+# script: Is a directory"; apk mkpkg expects --files = FILE, not a directory. Use
+# install -m per file with mkdir -p for each target dir.
 R="$HOME/z2m-build/root"
-# Backend: copy the whole /usr/libexec/zapret2-manager directory (libraries: apply.uc,
-# backup.uc, constants.uc, lists.uc, qlen.uc; thin wrappers: service.uc, status.uc,
-# watchdog.uc — libraries have no shebang, wrappers do).
-mkdir -p "$R/usr/libexec/zapret2-manager"
-cp -a "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/." "$R/usr/libexec/zapret2-manager/"
+mkdir -p "$R/etc/zapret2-manager" "$R/usr/libexec/zapret2-manager" \
+         "$R/usr/share/rpcd/ucode" "$R/etc/hotplug.d/iface" "$R/etc/init.d"
+install -m 0644 "$REPO/zapret2-manager/files/etc/zapret2-manager/state.json" \
+                "$R/etc/zapret2-manager/state.json"
+for u in constants qlen status service watchdog apply lists backup; do
+  install -m 0644 "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/${u}.uc" \
+                  "$R/usr/libexec/zapret2-manager/${u}.uc"
+done
+install -m 0755 "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/log-rotate.sh" \
+                "$R/usr/libexec/zapret2-manager/log-rotate.sh"
 # rpcd ucode plugin: install WITHOUT extension, matching the on-device `luci`
 # plugin (/usr/share/rpcd/ucode/luci, no .uc). rpcd ucode.so scans the dir and
 # loads each file; keeping .uc would diverge from convention.
-mkdir -p "$R/usr/share/rpcd/ucode"
 install -m 0644 "$REPO/zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc" \
                 "$R/usr/share/rpcd/ucode/zapret2-manager"
-mkdir -p "$R/etc/hotplug.d/iface"
 install -m 0755 "$REPO/zapret2-manager/files/etc/hotplug.d/iface/90-zapret2-manager" \
                 "$R/etc/hotplug.d/iface/90-zapret2-manager"
-mkdir -p "$R/etc/init.d"
 install -m 0755 "$REPO/zapret2-manager/files/etc/init.d/zapret2-manager" \
                 "$R/etc/init.d/zapret2-manager"
 ZPI=$(mkscript <<'EOF'
@@ -100,17 +109,22 @@ EOF
 build_one "zapret2-manager" \
   "Management backend for upstream zapret2" \
   "zapret2 ucode" \
+  "zapret2-manager" \
   "$R" "$ZPI"
 rm -rf "$R" "$ZPI"
 
 # ---- luci-app-zapret2-manager ------------------------------------------------
-# Standard LuCI app build copies the view/menu/acl directories wholesale
-# (platform fact 1: per-file enumeration drops views).
+# Per-file install (cp -a wholesale fails — see zapret2-manager section above).
 R="$HOME/z2m-build/root"
 mkdir -p "$R/usr/share/rpcd/acl.d" "$R/usr/share/luci/menu.d" "$R/www/luci-static/resources/view/zapret2-manager"
-cp -a "$REPO/luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/." "$R/usr/share/rpcd/acl.d/"
-cp -a "$REPO/luci-app-zapret2-manager/files/usr/share/luci/menu.d/." "$R/usr/share/luci/menu.d/"
-cp -a "$REPO/luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/." "$R/www/luci-static/resources/view/zapret2-manager/"
+install -m 0644 "$REPO/luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json" \
+                "$R/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json"
+install -m 0644 "$REPO/luci-app-zapret2-manager/files/usr/share/luci/menu.d/luci-app-zapret2-manager.json" \
+                "$R/usr/share/luci/menu.d/luci-app-zapret2-manager.json"
+install -m 0644 "$REPO/luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/overview.js" \
+                "$R/www/luci-static/resources/view/zapret2-manager/overview.js"
+install -m 0644 "$REPO/luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/lists.js" \
+                "$R/www/luci-static/resources/view/zapret2-manager/lists.js"
 LPI=$(mkscript <<'EOF'
 #!/bin/sh
 rm -f /var/luci-indexcache
