@@ -54,19 +54,28 @@ fi
 # 4. all shipped ucode is bracket-balanced (cheap local sanity; the real syntax
 # check is ucode -c on the target — see smoke.sh ucode_syntax_check, which is
 # self-tested by ucode_syntax_selftest).
+# STRIP comments (// to end-of-line) and string literals ("..." and '...') BEFORE
+# counting, so brackets inside comments/strings do not cause false imbalances
+# (the real ucode -c parses the code, not the raw text).
 for f in $(find zapret2-manager/files luci-app-zapret2-manager/files -name '*.uc' 2>/dev/null); do
   d=0; p=0; b=0
+  # strip // comments to end of line
+  stripped=$(sed 's://.*$::' "$f")
+  # strip double-quoted string literals "..."
+  stripped=$(printf '%s\n' "$stripped" | sed 's/"[^"]*"//g')
+  # strip single-quoted string literals '...'
+  stripped=$(printf '%s\n' "$stripped" | sed "s/'[^']*'//g")
   while IFS= read -r ch; do
     case "$ch" in
       '{') d=$((d+1)) ;; '}') d=$((d-1)) ;;
       '(') p=$((p+1)) ;; ')') p=$((p-1)) ;;
       '[') b=$((b+1)) ;; ']') b=$((b-1)) ;;
     esac
-  done < <(tr -cd '{}()\[\]' < "$f")
+  done < <(printf '%s' "$stripped" | tr -cd '{}()\[\]')
   if [ "$d" -ne 0 ] || [ "$p" -ne 0 ] || [ "$b" -ne 0 ]; then
     echo "FAIL  bracket imbalance in $f (brace=$d paren=$p bracket=$b)"; fail=1
   fi
 done
-[ "$fail" -eq 0 ] && echo "PASS  shipped ucode brackets balanced (local sanity)"
+[ "$fail" -eq 0 ] && echo "PASS  shipped ucode brackets balanced (local sanity, comments/strings stripped)"
 
 if [ "$fail" = 0 ]; then echo "ucode-no-sugar: ALL PASS"; exit 0; else echo "ucode-no-sugar: FAILED"; exit 1; fi

@@ -67,7 +67,7 @@ const MUTATIONS = [
 	['newer-version: accept a newer-version archive', (k, s) => k === './lib/backup-logic.mjs' ? s.replace('if (archive.version > currentVersion) {', 'if (false) {') : s, 'tests/backup.test.mjs', true],
 	['one scope: restore one scope also touches another', (k, s) => k === './lib/backup-logic.mjs' ? s.replace('writeFiles(f.path, f.content);', "writeFiles(f.path, f.content); writeFiles('/p/ourState', 'TOUCHED');") : s, 'tests/backup.test.mjs', true],
 	['pre-snapshot: do NOT take a pre-restore snapshot', (k, s) => k === './lib/backup-logic.mjs' ? s.replace('if (pre != null) this.store(scope, st.current,', 'if (false) this.store(scope, st.current,') : s, 'tests/backup.test.mjs', true],
-	['atomic write: NOOP (test-asserted, no logic mutation)', () => null, 'tests/backup.test.mjs', false],
+	['atomic write: write directly to the target (no temp+rename)', (k, s) => k === './lib/backup-logic.mjs' ? s.replace('fsOps.rename(tmp, name);', 'fsOps.writeTemp(name, content);') : s, 'tests/backup.test.mjs', true],
 	['writer quotes: drop the quotes around a single-line quoted value', (k, s) => k === './lib/apply-writer.mjs' ? s.replace("name + '=\"' + value + '\"'", "name + '=' + value") : s, 'tests/apply-writer.test.mjs', true],
 	['options multi-line: write the options string split across several lines', (k, s) => k === './lib/apply-writer.mjs' ? s.replace("block = [name + '=\"' + value + '\"'];", "block = (name + '=\"' + value + '\"').split('\\n');") : s, 'tests/apply-writer.test.mjs', true],
 	['stripper eat <HOSTLIST>: eat the list placeholder', (k, s) => k === './lib/stripper.mjs' ? s.replace('if (tok.startsWith(TOKEN))', 'if (tok.startsWith(TOKEN) || tok.startsWith("<HOST"))') : s, 'tests/stripper.test.mjs', true],
@@ -85,6 +85,4 @@ for (const [name, mutate, expectRed, isHole] of MUTATIONS) {
 }
 console.log(rows.join('\n  '));
 console.log(`\nHOLEs: ${holes.length === 0 ? 'none' : holes.join('; ')}`);
-// process.exit() does NOT flush console.log to a piped stdout; set exitCode and let the
-// process exit naturally so the HOLEs line is flushed.
 process.exitCode = holes.length === 0 ? 0 : 1;

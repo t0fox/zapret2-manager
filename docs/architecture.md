@@ -561,7 +561,14 @@ to "work" on the strength of the node equivalent alone.
    `ucode -p FILE`; the real interpreter's `-p` takes an EXPRESSION (prints
    result), not a file, so the gate is degenerate always-green. The real
    compile/syntax flag is `ucode -c FILE`. Point 5 replaces this with a
-   self-tested gate that proves it can go red.
+   self-tested gate (`tools/gate-ucode-compile.sh` + `tests/gate-ucode-compile.test.sh`)
+   that proves it can go red. The local bracket-balance check in
+   `tests/ucode-no-sugar.test.sh` STRIPS comments (// to EOL) and string literals
+   ("...", '...') before counting, so brackets inside comments/strings no
+   longer cause false imbalances. There is NO local ucode syntax gate beyond
+   this bracket sanity: the ucode interpreter is not on the build machine, so
+   syntax is checked only in the on-target приемка (`ucode -c` in
+   `tools/smoke.sh ucode_syntax_check`, self-tested by `ucode_syntax_selftest`).
 6. **nfqws2 binary path** — the real binary is `/opt/zapret2/nfq2/nfqws2`,
    not `nfqws2` from PATH. The version fallback in `status.uc` calls
    `nfqws2 <flag>` and may fail if the binary is not in PATH. Out of scope
