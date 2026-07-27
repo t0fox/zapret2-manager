@@ -1,31 +1,29 @@
 'use strict';
 
-// DNS page — DNS upstreams, domain rules, DoH, and the DNS consistency check.
+// DNS page — validated domain DNS overrides (S6).
 //
-// Backend reality: there are NO DNS ubus methods yet (the contract is
-// extend-only; dns_* will be added by a later branch). This page therefore:
-//   - renders the one DNS fact the status contract HAS today — the
-//     dns_consistency health check (status.health.checks[], closed id set);
-//   - shows every other section as an honest "Unavailable" panel naming the
-//     backend method it waits for;
-//   - offers well-known options as EXAMPLE PRESETS ONLY — never presented as
-//     the current configuration;
-//   - writes nothing: /etc/config/dhcp and network UCI are never touched from
-//     the browser — a future backend contract will own all writes.
+// Grounding (captured READ-ONLY from the target): dnsmasq is the resolver
+// (/etc/config/dhcp); odhcpd does RA; no third-party resolver components on
+// this device. The manager owns ONE addnhosts file
+// (/etc/zapret2-manager/dns-overrides.hosts); dnsmasq's own option lists are
+// never edited. Draft entries live in the manager state; apply is preview →
+// snapshot → write → register-once → reload → verify → rollback-on-failure.
+// No browser-direct UCI writes — every write goes through dns_* methods.
 
 'require rpc';
 
-// reject: true — a ubus error must reject into .catch(); the default
-// (reject:false) would resolve it as a numeric code and fake a healthy load.
-const callStatus = rpc.declare({ object: 'zapret2-manager', method: 'status', reject: true });
-
-const MISSING_METHODS = ['dns_get', 'dns_set', 'dns_validate', 'dns_apply', 'dns_check'];
+const callDnsGet = rpc.declare({ object: 'zapret2-manager', method: 'dns_get', reject: true });
+const callDnsSet = rpc.declare({ object: 'zapret2-manager', method: 'dns_set', params: ['edit'], reject: true });
+const callDnsValidate = rpc.declare({ object: 'zapret2-manager', method: 'dns_validate', params: ['edit'], reject: true });
+const callDnsApply = rpc.declare({ object: 'zapret2-manager', method: 'dns_apply', params: ['edit'], reject: true });
+const callDnsCheck = rpc.declare({ object: 'zapret2-manager', method: 'dns_check', params: ['edit'], reject: true });
+const callDnsRollback = rpc.declare({ object: 'zapret2-manager', method: 'dns_rollback', reject: true });
 
 return L.view.extend({
 	title: _('DNS'),
 
 	load: function () {
-		return callStatus().then(function (res) {
+		return callDnsGet().then(function (res) {
 			return { loadError: null, data: res || null };
 		}).catch(function (err) {
 			return { loadError: String(err), data: null };
@@ -33,109 +31,300 @@ return L.view.extend({
 	},
 
 	render: function (envelope) {
-		envelope = envelope || { loadError: 'no data', data: null };
+		envelope = envelope || {};
 		var data = envelope.data || {};
-		var statusError = envelope.loadError || data.error || null;
-		var checks = (data.health && data.health.checks) || [];
-		var dnsCheck = null;
-		for (var i = 0; i < checks.length; i++)
-			if (checks[i] && checks[i].id === 'dns_consistency') { dnsCheck = checks[i]; break; }
+		var unavailable = envelope.loadError || (data.ok === false ? 'dns_get failed' : null);
 
 		var container = E('div', { 'class': 'cbi-map' }, [
 			E('h2', { 'name': 'content' }, _('Zapret 2 Manager — DNS')),
 			E('div', { 'class': 'cbi-value-description' },
-				_('DNS upstreams, per-domain DNS rules, and DoH for the bypass path. Read-only until the dns_* backend methods land — this page never writes dhcp/network UCI from the browser.'))
+				_('Domain DNS overrides pinned through dnsmasq. The manager owns one addnhosts file; system DNS configuration is never edited. Overrides work only when DNS itself resolves — they cannot fix a spoofed resolver.'))
 		]);
 
-		if (statusError) {
+		if (unavailable) {
 			container.appendChild(E('div', { 'class': 'alert-message warning' },
-				E('p', {}, _('Status unavailable: ') + statusError)));
+				E('p', {}, _('Unavailable: ') + unavailable)));
+			return container;
 		}
 
-		container.appendChild(this.checkSection(dnsCheck, statusError));
-
-		// Live-config sections — all waiting on dns_get.
-		container.appendChild(this.unavailableSection(_('Current DNS upstreams'),
-			_('Router DNS upstreams, peer DNS enabled/disabled, and the dnsmasq server list.'), 'dns_get'));
-		container.appendChild(this.unavailableSection(_('Domain rules'),
-			_('Per-domain DNS rules and a separate DNS for selected sites, plus conflict warnings when rules overlap.'), 'dns_get'));
-		container.appendChild(this.unavailableSection(_('DoH endpoint'),
-			_('DNS-over-HTTPS endpoint for the bypass path.'), 'dns_get'));
-		container.appendChild(this.unavailableSection(_('Applied / draft'),
-			_('Whether the shown DNS state is applied or a staged draft.'), 'dns_get'));
-
-		container.appendChild(this.presetsSection());
-		container.appendChild(this.actionsSection());
-
+		container.appendChild(this.resolverSection(data));
+		container.appendChild(this.appliedSection(data));
+		container.appendChild(this.draftSection(data));
+		container.appendChild(this.applySection(data));
+		if (this._flash) {
+			container.appendChild(E('div', { 'class': 'alert-message warning' }, this._flash));
+			this._flash = null;
+		}
 		return container;
 	},
 
-	// The one real DNS fact available today: the backend health check.
-	checkSection: function (check, statusError) {
-		var node = E('div', { 'class': 'cbi-section' }, [E('h3', {}, _('DNS consistency check'))]);
-		if (statusError) {
-			node.appendChild(E('div', { 'class': 'cbi-value-description' }, _('Unavailable — status not reported.')));
-			return node;
-		}
-		if (!check) {
-			node.appendChild(E('div', { 'class': 'cbi-value-description' },
-				_('Check not reported — the backend did not include a dns_consistency result in this collection (absent = not checked; that is different from a null result).')));
-			return node;
-		}
-		var keys = Object.keys(check);
-		for (var i = 0; i < keys.length; i++) {
-			var k = keys[i];
-			var v = check[k];
-			node.appendChild(E('div', { 'class': 'cbi-value' }, [
-				E('label', { 'class': 'cbi-value-title' }, k),
-				E('div', { 'class': 'cbi-value-field' },
-					v == null ? _('Unavailable (checked, no value)') : (typeof v === 'object' ? JSON.stringify(v) : String(v)))
-			]));
+	resolverSection: function (data) {
+		var rz = data.resolver || {};
+		var node = E('div', { 'class': 'cbi-section' }, [E('h3', {}, _('Resolver'))]);
+		var comps = (rz.components || []).map(function (c) { return c.name; }).join(', ');
+		node.appendChild(this.row(_('Components'), comps || _('Unavailable')));
+		node.appendChild(this.row(_('Upstream nameservers'),
+			(rz.upstreamNameservers || []).join(', ') || _('Unavailable')));
+		node.appendChild(this.row(_('Resolvfile'), rz.resolvfile || _('Unavailable')));
+		(rz.conflicts || []).forEach(function (c) {
+			node.appendChild(E('div', { 'class': 'alert-message danger' },
+				_('Resolver conflict: ') + c.name + ' — ' + c.role));
+		});
+		return node;
+	},
+
+	appliedSection: function (data) {
+		var self = this;
+		var node = E('div', { 'class': 'cbi-section' }, [
+			E('h3', {}, _('Applied overrides')),
+			E('div', { 'class': 'cbi-value-description' },
+				(data.overridesPath || '') + (data.registered === false ? _(' — NOT yet registered in /etc/config/dhcp (registration happens on apply)') : ''))
+		]);
+		var applied = data.applied || [];
+		if (!applied.length) {
+			node.appendChild(E('div', { 'class': 'cbi-value-description' }, _('(no overrides applied)')));
+		} else {
+			applied.forEach(function (e) {
+				node.appendChild(E('div', { 'class': 'cbi-value' }, [
+					E('label', { 'class': 'cbi-value-title', 'style': 'font-family:monospace' }, e.domain),
+					E('div', { 'class': 'cbi-value-field' },
+						e.ip + (e.enabled === false ? _(' (disabled)') : ''))
+				]));
+			});
+			var checkBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button', 'id': 'z2m-dns-check' }, _('Check resolution now'));
+			checkBtn.addEventListener('click', function () {
+				checkBtn.disabled = true;
+				callDnsCheck('{}').then(function (res) {
+					self._check = res || {};
+					self.refresh();
+				}).catch(function (err) {
+					self._check = { error: String(err) };
+					self.refresh();
+				});
+			});
+			node.appendChild(E('div', { 'class': 'cbi-button-row' }, [checkBtn]));
+			if (this._check) {
+				var c = this._check;
+				this._check = null;
+				if (c.error) node.appendChild(E('div', { 'class': 'alert-message danger' }, _('Check failed: ') + c.error));
+				else {
+					(c.results || []).forEach(function (r) {
+						node.appendChild(E('div', { 'class': 'cbi-value-description' }, [
+							E('span', { 'class': 'zonebadge ' + (r.matched ? 'ok' : 'bad') }, r.matched ? _('match') : _('MISMATCH')),
+							' ' + r.domain + ' → ' + r.expectedIp
+						]));
+					});
+					if (c.note) node.appendChild(E('div', { 'class': 'cbi-value-description' }, c.note));
+				}
+			}
 		}
 		return node;
 	},
 
-	unavailableSection: function (title, what, method) {
-		return E('div', { 'class': 'cbi-section' }, [
-			E('h3', {}, title),
-			E('div', { 'class': 'cbi-value-description' }, what),
+	draftSection: function (data) {
+		var self = this;
+		var draft = data.draft || { entries: [], revision: 0, malformed: false };
+		var node = E('div', { 'class': 'cbi-section' }, [
+			E('h3', {}, _('Draft overrides')),
 			E('div', { 'class': 'cbi-value-description' },
-				_('Unavailable — requires backend method ') + method +
-				_('. Shown as unavailable rather than fabricated.'))
+				_('Drafts live in the manager state; nothing reaches dnsmasq until apply.'))
 		]);
+		if (draft.malformed) {
+			node.appendChild(E('div', { 'class': 'alert-message danger' },
+				_('Draft state is MALFORMED: ') + (draft.malformedReason || _('unknown'))));
+			return node;
+		}
+		var rows = this._dnsRows || (draft.entries || []).map(function (e) {
+			return { domain: e.domain, ip: e.ip };
+		});
+		this._dnsRows = rows;
+
+		var table = E('div', { 'id': 'z2m-dns-rows' });
+		rows.forEach(function (r, i) {
+			var dom = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'data-dns-row': i, 'data-field': 'domain', 'value': r.domain || '', 'placeholder': 'example.com' });
+			var ip = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'data-dns-row': i, 'data-field': 'ip', 'value': r.ip || '', 'placeholder': '1.2.3.4' });
+			var del = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Remove'));
+			dom.addEventListener('input', function () { r.domain = dom.value; });
+			ip.addEventListener('input', function () { r.ip = ip.value; });
+			del.addEventListener('click', function () { rows.splice(i, 1); self.refresh(); });
+			table.appendChild(E('div', { 'style': 'display:flex;gap:.4em;margin:.2em 0' }, [dom, ip, del]));
+		});
+		node.appendChild(table);
+
+		var addBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button', 'id': 'z2m-dns-add' }, _('Add entry'));
+		addBtn.addEventListener('click', function () {
+			rows.push({ domain: '', ip: '' });
+			self.refresh();
+		});
+
+		var saveBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button', 'id': 'z2m-dns-save' }, _('Save draft'));
+		saveBtn.addEventListener('click', function () {
+			saveBtn.disabled = true;
+			var entries = rows.filter(function (r) { return String(r.domain || '').trim() !== ''; });
+			callDnsSet(JSON.stringify({ entries: entries, revision: draft.revision })).then(function (res) {
+				res = res || {};
+				if (res.ok !== true) {
+					saveBtn.disabled = false;
+					self._draftError = ((res.error && res.error.message) || res.error || _('Save failed')) +
+						(res.errors ? ': ' + res.errors.map(function (e) { return e.reason; }).join('; ') : '');
+				} else {
+					self._dnsRows = null;
+				}
+				self.refresh();
+			}).catch(function (err) {
+				saveBtn.disabled = false;
+				self._draftError = _('Save call failed: ') + String(err);
+				self.refresh();
+			});
+		});
+
+		var valBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button', 'id': 'z2m-dns-validate' }, _('Validate'));
+		valBtn.addEventListener('click', function () {
+			var entries = rows.filter(function (r) { return String(r.domain || '').trim() !== ''; });
+			callDnsValidate(JSON.stringify({ entries: entries })).then(function (res) {
+				self._validation = res || {};
+				self.refresh();
+			}).catch(function (err) {
+				self._validation = { error: String(err) };
+				self.refresh();
+			});
+		});
+
+		node.appendChild(E('div', { 'class': 'cbi-button-row', 'style': 'margin:.4em 0' }, [addBtn, saveBtn, valBtn]));
+		if (this._draftError) {
+			node.appendChild(E('div', { 'class': 'alert-message danger' }, this._draftError));
+			this._draftError = null;
+		}
+		if (this._validation) {
+			var v = this._validation;
+			this._validation = null;
+			if (v.error) node.appendChild(E('div', { 'class': 'alert-message danger' }, _('Validate failed: ') + v.error));
+			else {
+				node.appendChild(E('div', { 'class': 'cbi-value-description' }, [
+					E('span', { 'class': 'zonebadge ' + (v.valid ? 'ok' : 'bad') }, v.valid ? _('valid') : _('invalid'))
+				]));
+				(v.errors || []).forEach(function (e) {
+					node.appendChild(E('div', { 'class': 'cbi-value-description' }, '# ' + e.index + ': ' + e.reason));
+				});
+				(v.foreignConflicts || []).forEach(function (c) {
+					node.appendChild(E('div', { 'class': 'alert-message warning' }, c.domain + ': ' + c.reason));
+				});
+				(v.resolverConflicts || []).forEach(function (c) {
+					node.appendChild(E('div', { 'class': 'alert-message danger' }, c.name + ': ' + c.role));
+				});
+			}
+		}
+		return node;
 	},
 
-	// Example presets — clearly labelled, NOT the running configuration. No
-	// addresses are invented here: names only, values to be confirmed by the
-	// operator when the dns_* methods exist.
-	presetsSection: function () {
-		return E('div', { 'class': 'cbi-section' }, [
-			E('h3', {}, _('Known options (example presets — not the current configuration)')),
-			E('div', { 'class': 'cbi-value' }, [
-				E('label', { 'class': 'cbi-value-title' }, _('COMSS DNS')),
-				E('div', { 'class': 'cbi-value-field' },
-					_('Public DNS family (comss.one) with filtering variants. Upstream addresses are intentionally not hardcoded here — confirm them before use.'))
-			]),
-			E('div', { 'class': 'cbi-value' }, [
-				E('label', { 'class': 'cbi-value-title' }, _('DoH endpoint')),
-				E('div', { 'class': 'cbi-value-field' },
-					_('DNS-over-HTTPS resolver URL (operator-chosen). Example shape: https://<resolver>/dns-query — shown as a shape, not as a configured value.'))
-			]),
+	applySection: function (data) {
+		var self = this;
+		var node = E('div', { 'class': 'cbi-section' }, [
+			E('h3', {}, _('Apply overrides')),
 			E('div', { 'class': 'cbi-value-description' },
-				_('These presets are informational. Applying one will go through the dns_* backend contract once it exists.'))
+				_('Apply snapshots the current state, writes the overrides file, registers it once, reloads dnsmasq (HUP — no listener drop), and verifies resolution. A failed verification rolls back automatically. Manual rollback is available.'))
 		]);
+		var prevBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button', 'id': 'z2m-dns-preview' }, _('Preview apply'));
+		prevBtn.addEventListener('click', function () {
+			prevBtn.disabled = true;
+			callDnsApply(JSON.stringify({ mode: 'preview' })).then(function (res) {
+				self._apply = { preview: res || {} };
+				self.refresh();
+			}).catch(function (err) {
+				self._apply = { error: String(err) };
+				self.refresh();
+			});
+		});
+		var rbBtn = E('button', { 'class': 'cbi-button cbi-button-negative', 'type': 'button', 'id': 'z2m-dns-rollback' }, _('Roll back DNS'));
+		rbBtn.addEventListener('click', function () {
+			rbBtn.disabled = true;
+			callDnsRollback().then(function (res) {
+				res = res || {};
+				self._flash = (res.ok === true) ? _('Rolled back and reloaded.') : (_('Rollback failed: ') + ((res.error && res.error.message) || res.error || _('unknown')));
+				self.refresh();
+			}).catch(function (err) {
+				self._flash = _('Rollback call failed: ') + String(err);
+				self.refresh();
+			});
+		});
+		node.appendChild(E('div', { 'class': 'cbi-button-row' }, [prevBtn, rbBtn]));
+
+		var ap = this._apply;
+		if (ap && ap.error) node.appendChild(E('div', { 'class': 'alert-message danger' }, _('Apply call failed: ') + ap.error));
+		if (ap && ap.preview) node.appendChild(this.applyPreviewBox(ap.preview));
+		if (ap && ap.result) node.appendChild(this.applyResultBox(ap.result));
+		return node;
 	},
 
-	actionsSection: function () {
-		var btn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button',
-			'disabled': 'disabled', 'title': _('Backend method unavailable') }, _('Save DNS draft'));
-		return E('div', { 'class': 'cbi-section' }, [
-			E('h3', {}, _('Changes')),
-			E('div', { 'class': 'cbi-button-row', 'style': 'margin:.4em 0' }, [btn]),
-			E('div', { 'class': 'cbi-value-description' },
-				_('DNS changes require backend methods that are not registered yet: ') +
-				MISSING_METHODS.join(', ') +
-				_('. This page never edits /etc/config/dhcp or network UCI directly.'))
+	applyPreviewBox: function (pv) {
+		var self = this;
+		if (pv.ok !== true) {
+			return E('div', { 'class': 'alert-message danger' },
+				_('Preview refused: ') + ((pv.error && pv.error.message) || pv.error || _('unknown')));
+		}
+		var diff = pv.diff || {};
+		var box = E('div', { 'class': 'cbi-section', 'id': 'z2m-dns-preview-box' }, [
+			E('h4', {}, _('Apply preview')),
+			this.row(_('Added'), (diff.added || []).length),
+			this.row(_('Removed'), (diff.removed || []).length),
+			this.row(_('Changed'), (diff.changed || []).length),
+			this.row(_('Registration needed'), pv.registrationNeeded ? _('yes (addnhosts not registered yet)') : _('no')),
+			E('pre', { 'style': 'white-space:pre-wrap;font-family:monospace;font-size:.85em;max-height:160px;overflow:auto' }, pv.candidate || _('(empty overrides)'))
+		]);
+		var armed = this._apply && this._apply.armed;
+		var applyBtn = E('button', {
+			'class': 'cbi-button ' + (armed ? 'cbi-button-negative' : 'cbi-button-apply'),
+			'type': 'button', 'id': 'z2m-dns-apply-run'
+		}, armed ? _('Confirm apply (dnsmasq reloads)?') : _('Apply overrides'));
+		applyBtn.addEventListener('click', function () {
+			if (!self._apply.armed) { self._apply.armed = true; self.refresh(); return; }
+			applyBtn.disabled = true;
+			callDnsApply(JSON.stringify({ mode: 'apply' })).then(function (res) {
+				self._apply = { result: res || {}, preview: pv };
+				self._dnsRows = null;
+				self.refresh();
+			}).catch(function (err) {
+				self._apply = { error: String(err), preview: pv };
+				self.refresh();
+			});
+		});
+		box.appendChild(E('div', { 'class': 'cbi-button-row' }, [applyBtn]));
+		return box;
+	},
+
+	applyResultBox: function (res) {
+		if (res.ok !== true) {
+			return E('div', { 'class': 'alert-message warning' }, [
+				E('p', {}, _('Apply failed') + (res.stage ? ' (' + res.stage + ')' : '') + ': ' + ((res.error && res.error.message) || res.error || _('unknown')))
+			]);
+		}
+		var v = res.verify || {};
+		var box = E('div', { 'class': 'cbi-section' }, [
+			E('h4', {}, _('Applied and verified')),
+			this.row(_('dnsmasq process'), v.processAlive ? E('span', { 'class': 'zonebadge ok' }, _('alive')) : E('span', { 'class': 'zonebadge bad' }, _('dead'))),
+			this.row(_('port 53'), v.portListening ? E('span', { 'class': 'zonebadge ok' }, _('listening')) : E('span', { 'class': 'zonebadge bad' }, _('not listening'))),
+			this.row(_('entries resolve'), v.entriesMatch ? E('span', { 'class': 'zonebadge ok' }, _('all matched')) : E('span', { 'class': 'zonebadge bad' }, _('MISMATCH')))
+		]);
+		(v.entries || []).forEach(function (e) {
+			box.appendChild(E('div', { 'class': 'cbi-value-description' },
+				(e.matched ? '✓ ' : '✗ ') + e.domain + ' → ' + e.expectedIp));
+		});
+		return box;
+	},
+
+	refresh: function () {
+		var self = this;
+		this.load().then(function (envelope) {
+			var old = document.querySelector('.cbi-map');
+			if (old && old.parentNode)
+				old.parentNode.replaceChild(self.render(envelope), old);
+		});
+	},
+
+	row: function (label, value) {
+		return E('div', { 'class': 'cbi-value' }, [
+			E('label', { 'class': 'cbi-value-title' }, label),
+			E('div', { 'class': 'cbi-value-field' }, value)
 		]);
 	},
 

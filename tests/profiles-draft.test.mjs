@@ -248,3 +248,15 @@ test('service.uc keys (passthrough/active_profile) survive a draft CRUD round tr
 	assert.equal(reread.state.passthrough?.enabled, true, 'passthrough key must survive parse+save');
 	assert.equal(reread.state.active_profile?.name, 'passthrough', 'active_profile key must survive');
 });
+
+test('the dns draft key survives a draft CRUD round trip (S6 co-owned key)', () => {
+	const withDns = {
+		schema: 1, updatedAt: NOW, nextIdSeq: 1, profiles: [],
+		dns: { entries: [{ domain: 'a.com', ip: '1.2.3.4', enabled: true }], revision: 1 }
+	};
+	const parsed = parseState(JSON.stringify(withDns));
+	assert.equal(parsed.ok, true);
+	const saved = createProfile(parsed.state, { name: 'Web', opt: OPT_A }, NOW + 1);
+	const reread = parseState(serializeState(saved.state));
+	assert.equal(reread.state.dns?.entries?.[0]?.domain, 'a.com', 'dns key must survive parse+save');
+});

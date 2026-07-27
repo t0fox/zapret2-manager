@@ -279,6 +279,28 @@ function backup_restore_preview_method(req) { return cli_edit_action(BACKUP_CLI,
 function backup_restore_method(req) { return cli_edit_action(BACKUP_CLI, 'restore', req, 'backup'); }
 function backup_delete_method(req) { return cli_edit_action(BACKUP_CLI, 'delete', req, 'backup'); }
 
+// ---- DNS (S6) ----------------------------------------------------------------
+const DNS_CLI = '/usr/libexec/zapret2-manager/dns-cli.uc';
+function dns_get_method(req) { return cli_action(DNS_CLI, 'get'); }
+function dns_set_method(req) { return cli_edit_action(DNS_CLI, 'set', req, 'dns'); }
+function dns_validate_method(req) { return cli_edit_action(DNS_CLI, 'validate', req, 'dns'); }
+function dns_apply_method(req) {
+	// {mode:"preview"|"apply"} — preview is read-only; apply runs the full
+	// pipeline with snapshot + verify + rollback-on-failure
+	let edit = null;
+	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
+	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
+	let mode = 'preview';
+	if (edit != null && type(edit) == 'string') {
+		let obj = null;
+		try { obj = json(edit); } catch (e) { obj = null; }
+		if (type(obj) == 'object' && obj != null && obj.mode == 'apply') mode = 'apply';
+	}
+	return cli_action(DNS_CLI, mode);
+}
+function dns_check_method(req) { return cli_edit_action(DNS_CLI, 'check', req, 'dns'); }
+function dns_rollback_method(req) { return cli_action(DNS_CLI, 'rollback'); }
+
 // profiles_apply {edit: '{"mode":"preview"|"apply"}'} — preview is read-only
 // (no write, no restart); apply runs the full pipeline (snapshot → write →
 // restart → verify → rollback-on-failure). Mode parsing happens here; the
@@ -338,6 +360,12 @@ return {
 		backup_create:     { args: { edit: 'string' }, call: function (req) { return backup_create_method(req); } },
 		backup_restore_preview: { args: { edit: 'string' }, call: function (req) { return backup_restore_preview_method(req); } },
 		backup_restore:    { args: { edit: 'string' }, call: function (req) { return backup_restore_method(req); } },
-		backup_delete:     { args: { edit: 'string' }, call: function (req) { return backup_delete_method(req); } }
+		backup_delete:     { args: { edit: 'string' }, call: function (req) { return backup_delete_method(req); } },
+		dns_get:           { call: function (req) { return dns_get_method(req); } },
+		dns_set:           { args: { edit: 'string' }, call: function (req) { return dns_set_method(req); } },
+		dns_validate:      { args: { edit: 'string' }, call: function (req) { return dns_validate_method(req); } },
+		dns_apply:         { args: { edit: 'string' }, call: function (req) { return dns_apply_method(req); } },
+		dns_check:         { args: { edit: 'string' }, call: function (req) { return dns_check_method(req); } },
+		dns_rollback:      { call: function (req) { return dns_rollback_method(req); } }
 	}
 };

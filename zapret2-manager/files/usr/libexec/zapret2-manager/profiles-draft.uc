@@ -91,10 +91,12 @@ function parse_state(text) {
 		profiles: profiles
 	};
 	// service.uc co-owns two free-form keys in the same file (passthrough /
-	// active_profile — read by status.uc for the serviceState). They are NOT
+	// active_profile — read by status.uc for the serviceState). The DNS slice
+	// adds a third co-owned key (dns — draft DNS entries). They are NOT
 	// draft-schema fields, but a draft save must never drop them: preserve.
 	if (type(obj.passthrough) == 'object' && obj.passthrough != null) state.passthrough = obj.passthrough;
 	if (type(obj.active_profile) == 'object' && obj.active_profile != null) state.active_profile = obj.active_profile;
+	if (type(obj.dns) == 'object' && obj.dns != null) state.dns = obj.dns;
 	return { ok: true, state: state };
 }
 
@@ -149,7 +151,9 @@ export const restore_drafts = function(profilesArray) {
 // save_state(state) — backup rotation (.bak.1/.2/.3) then atomic temp+mv.
 // Returns true on success, false on any write failure (the caller surfaces
 // ETARGET; nothing is left half-written: a failed mv leaves only the temp).
-function save_state(state) {
+// Exported (Slice 6): the DNS module writes its draft entries through the
+// SAME disciplined path (lock + backups + atomic), never a second writer.
+export const save_state = function(state) {
 	// marker fallback (flock is the real serializer — see profiles-cli.uc)
 	if (stat(MARKER)) {
 		let mt = trim(readfile(MARKER));

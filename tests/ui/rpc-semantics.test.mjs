@@ -1144,6 +1144,139 @@ test('maintenance: diagnostics export calls diagnostics_export (no browser files
 	assert.ok(w.calls.some((c) => c.method === 'diagnostics_export'), 'diagnostics_export was not called');
 });
 
+// ---- 6f. dns: overrides UI (S6) ---------------------------------------------------
+
+const DNS_GET_FIXTURE = {
+	ok: true,
+	resolver: {
+		components: [{ name: 'dnsmasq', role: 'system resolver (managed integration point)' }],
+		conflicts: [],
+		upstreamNameservers: ['195.98.64.65', '195.98.64.66'],
+		resolvfile: '/tmp/resolv.conf.d/resolv.conf.auto',
+		dnsmasqAddressEntries: []
+	},
+	overridesPath: '/etc/zapret2-manager/dns-overrides.hosts',
+	registered: true,
+	applied: [{ domain: 'rutracker.org', ip: '195.82.146.214', enabled: true }],
+	draft: { malformed: false, malformedReason: null, revision: 1, entries: [{ domain: 'rutracker.org', ip: '195.82.146.214', enabled: true }] },
+	note: 'n'
+};
+
+function dnsWorld(extra = {}) {
+	return makeWorld({
+		dns_get: { type: 'ok', value: DNS_GET_FIXTURE },
+		...extra
+	});
+}
+
+test('dns: resolver summary + applied overrides render real target data', async () => {
+	const w = dnsWorld();
+	const view = loadView(readViewSource('dns'), 'dns', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	const text = collectText(root).join(' | ');
+	assert.ok(text.includes('dnsmasq'), 'resolver component renders');
+	assert.ok(text.includes('195.98.64.65'), 'upstream nameserver renders');
+	assert.ok(text.includes('rutracker.org'), 'applied override renders');
+	assert.ok(text.includes('195.82.146.214'), 'pinned ip renders');
+});
+
+test('dns: Save draft sends { entries, revision } as JSON string', async () => {
+	const w = dnsWorld({ dns_set: { type: 'ok', value: { ok: true, revision: 2, count: 1 } } });
+	const view = loadView(readViewSource('dns'), 'dns', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	const saveBtn = w.created.find((n) => n.attrs.id === 'z2m-dns-save');
+	assert.ok(saveBtn, 'Save draft button not found');
+	saveBtn.listeners.click();
+	await flush();
+	const call = w.calls.find((c) => c.method === 'dns_set');
+	assert.ok(call, 'dns_set was not called');
+	const parsed = JSON.parse(call.params.edit);
+	assert.deepEqual(parsed, { entries: [{ domain: 'rutracker.org', ip: '195.82.146.214' }], revision: 1 });
+});
+
+test('dns: Validate renders backend errors (no fake valid state)', async () => {
+	const w = dnsWorld({
+		dns_validate: {
+			type: 'ok',
+			value: {
+				ok: true, valid: false,
+				errors: [{ index: 0, reason: 'conflict: a.com pinned to two different IPs (1.1.1.1 vs 2.2.2.2)' }],
+				resolverConflicts: [], foreignConflicts: [], checkedEntries: 0
+			}
+		}
+	});
+	const view = loadView(readViewSource('dns'), 'dns', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	w.created.find((n) => n.attrs.id === 'z2m-dns-validate').listeners.click();
+	await flush();
+	const root2 = view.render(await view.load());
+	const text = collectText(root2).join(' | ');
+	assert.ok(text.includes('invalid'), 'invalid verdict renders');
+	assert.ok(text.includes('two different IPs'), 'the backend conflict detail renders');
+});
+
+test('dns: preview → apply is arm→confirm; result shows verification', async () => {
+	const previewOk = {
+		ok: true, mode: 'preview', registered: true, registrationNeeded: false,
+		diff: { added: [{ domain: 'ntc.party', ip: '104.21.5.19' }], removed: [], changed: [], unchangedCount: 1 },
+		candidate: '# zapret2-manager DNS overrides\n195.82.146.214 rutracker.org\n104.21.5.19 ntc.party\n',
+		note: 'n'
+	};
+	const applyOk = {
+		ok: true, mode: 'apply', registered: true,
+		verify: {
+			processAlive: true, portListening: true, entriesMatch: true,
+			entries: [{ domain: 'rutracker.org', expectedIp: '195.82.146.214', matched: true }]
+		},
+		snapshot: { dir: '/tmp/zapret2-manager/last-good/dns' }, note: 'n'
+	};
+	const w = dnsWorld({ dns_apply: { type: 'ok', value: previewOk } });
+	const view = loadView(readViewSource('dns'), 'dns', w);
+	const envelope = await view.load();
+	let root = view.render(envelope);
+	w.created.find((n) => n.attrs.id === 'z2m-dns-preview').listeners.click();
+	await flush();
+	const prevCall = w.calls.find((c) => c.method === 'dns_apply');
+	assert.deepEqual(JSON.parse(prevCall.params.edit), { mode: 'preview' });
+	root = view.render(await view.load());
+	const text = collectText(root).join(' | ');
+	assert.ok(text.includes('Added'), 'diff renders');
+	const applyBtn = w.created.find((n) => n.attrs.id === 'z2m-dns-apply-run');
+	assert.ok(applyBtn, 'apply button renders');
+	applyBtn.listeners.click();   // ARM
+	assert.ok(w.calls.filter((c) => c.method === 'dns_apply').length === 1, 'first click only ARMS');
+	w.responses.dns_apply = { type: 'ok', value: applyOk };
+	applyBtn.listeners.click();   // CONFIRM
+	await flush();
+	const applyCalls = w.calls.filter((c) => c.method === 'dns_apply' && JSON.parse(c.params.edit).mode === 'apply');
+	assert.equal(applyCalls.length, 1, 'exactly one apply call after arm+confirm');
+	root = view.render(await view.load());
+	const text2 = collectText(root).join(' | ');
+	assert.ok(text2.includes('Applied and verified'), 'verification renders');
+	assert.ok(text2.includes('listening'), 'port check renders');
+});
+
+test('dns: Check resolution calls dns_check and shows matches', async () => {
+	const w = dnsWorld({
+		dns_check: {
+			type: 'ok',
+			value: { ok: true, results: [{ domain: 'rutracker.org', expectedIp: '195.82.146.214', matched: true }], allMatch: true }
+		}
+	});
+	const view = loadView(readViewSource('dns'), 'dns', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	w.created.find((n) => n.attrs.id === 'z2m-dns-check').listeners.click();
+	await flush();
+	assert.ok(w.calls.some((c) => c.method === 'dns_check'), 'dns_check was not called');
+	const root2 = view.render(await view.load());
+	const text = collectText(root2).join(' | ');
+	assert.ok(text.includes('match'), 'match result renders');
+});
+
 // ---- 7. overview: passthrough wire + reject gate (no longer excluded) --------
 
 test('overview: callPassthrough is declared with params:[enabled] + reject:true (fixed → green)', () => {

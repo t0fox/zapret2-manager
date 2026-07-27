@@ -59,10 +59,12 @@ export function parseState(text) {
 		profiles: obj.profiles.map(normalizeProfile)
 	};
 	// service.uc co-owns two free-form keys in the same file (passthrough /
-	// active_profile — read by status.uc for the serviceState). They are NOT
+	// active_profile — read by status.uc for the serviceState). The DNS slice
+	// adds a third co-owned key (dns — draft DNS entries). They are NOT
 	// draft-schema fields, but a draft save must never drop them: preserve.
 	if (obj.passthrough && typeof obj.passthrough === 'object') state.passthrough = obj.passthrough;
 	if (obj.active_profile && typeof obj.active_profile === 'object') state.active_profile = obj.active_profile;
+	if (obj.dns && typeof obj.dns === 'object') state.dns = obj.dns;
 	return { ok: true, state };
 }
 

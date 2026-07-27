@@ -69,6 +69,12 @@ Methods:
 | `backup_restore` | `{edit: string}` (`{"scope","takenAt"?}`) | mutate | Pre-restore snapshot (always) → allowlist gate (a crafted path REFUSES the whole restore) → manifest/syntax/version checks → restore ONLY through sanctioned writers (apply.uc restore_whole_file / write_list_file, profiles-draft restore_state_raw/restore_drafts) → mode/owner reapply → downgrade warning when older. |
 | `backup_delete` | `{edit: string}` (`{"scope","takenAt"}`) | mutate | Delete a history entry (deleting the current baseline is refused). |
 | `diagnostics_export` | none | read | Redacted bundle (versions, maintenance, status snapshot, events, hashes). Secrets redacted by key name and value pattern; `redactedFields` count included. |
+| `dns_get` | none | read | Resolver summary (detected components + conflicts, upstream nameservers from the real resolvfile) + applied overrides (manager-owned addnhosts file) + draft entries (state.json `dns` key). Grounded on the target's real dnsmasq/odhcpd layout, captured read-only — no guessed paths. |
+| `dns_set` | `{edit: string}` (`{"entries":[...],"revision"?}`) | mutate (draft only) | Validate + store draft DNS entries (optimistic revision check → `ECONFLICT`). Never touches dnsmasq. |
+| `dns_validate` | `{edit: string}` (`{"entries"?}`) | read | Format validation + resolver-component conflicts + conflicts with existing dnsmasq `address=` entries. |
+| `dns_apply` | `{edit: string}` (`{"mode":"preview"\|"apply"}`) | mutate | Preview: diff + candidate hosts + registration flag, no writes. Apply: snapshot → write the manager-owned addnhosts file → register in `/etc/config/dhcp` once (uci) → dnsmasq reload (HUP, no listener drop) → verify (process, port 53, per-entry nslookup) → rollback on failure. |
+| `dns_check` | `{edit: string}` (`{"domain","ip"}?`) | read | Live per-entry resolution check against 127.0.0.1 (read-only). |
+| `dns_rollback` | none | mutate | Restore the DNS snapshot + reload dnsmasq. |
 
 Job statuses (closed enum) and allowed transitions:
 
