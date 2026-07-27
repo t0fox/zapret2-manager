@@ -1,4 +1,3 @@
-#!/usr/bin/ucode
 'use strict';
 // lists.uc — list management backend for zapret2-manager (ЦЕЛЬ ДВА).
 //

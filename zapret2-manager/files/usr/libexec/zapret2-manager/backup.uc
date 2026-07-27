@@ -1,4 +1,3 @@
-#!/usr/bin/ucode
 'use strict';
 // backup.uc — backup/restore for the four independent scopes (ЦЕЛЬ cleanup/15).
 //
@@ -97,7 +96,7 @@ function checksum(s) {
 	return hex;
 }
 
-export function make_archive(scope, version, takenAt, files) {
+export const make_archive = function(scope, version, takenAt, files) {
 	let payload = jstringify({ scope: scope, version: version, takenAt: takenAt, files: files });
 	return {
 		scope: scope, version: version, takenAt: takenAt, files: files,
@@ -142,7 +141,7 @@ function snapshot(scope) {
 	return files;
 }
 
-export function backup_scope(scope, now) {
+export const backup_scope = function(scope, now) {
 	let cfg = SCOPES[scope];
 	if (!cfg) return { ok: false, reason: 'unknown scope: ' + scope };
 	if (!ensure_dir(scope_dir(scope))) return { ok: false, reason: 'cannot create backup dir' };
@@ -173,7 +172,7 @@ export function backup_scope(scope, now) {
 
 // ---- restore ---------------------------------------------------------------
 
-export function restore_scope(scope, archive, opts) {
+export const restore_scope = function(scope, archive, opts) {
 	let cfg = SCOPES[scope];
 	if (!cfg) return { ok: false, reason: 'unknown scope: ' + scope };
 	let currentVersion = (opts && opts.currentVersion != null) ? opts.currentVersion : PKG_VERSION;

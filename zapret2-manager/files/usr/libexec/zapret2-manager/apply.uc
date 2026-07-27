@@ -1,4 +1,3 @@
-#!/usr/bin/ucode
 'use strict';
 // apply.uc — the SINGLE writer for /opt/zapret2/config (upstream's shell config).
 //
@@ -53,7 +52,7 @@ function closing_quote_pos(rest) {
 // Read the current value of `name`, or null if there is no active assignment.
 // Multi-line quoted values return the text BETWEEN the quotes (newlines
 // preserved), without the quotes.
-export function read_var(name) {
+export const read_var = function(name) {
 	let raw = readfile(CONFIG);
 	if (!raw) return null;
 	let lines = split(raw, '\n');
@@ -197,7 +196,7 @@ function have_flock() {
 // RMW; the second mv wins and the first writer's change is LOST (lost update).
 // The marker only narrows the window; it does NOT serialize. flock removes
 // the race. [VERIFY:ROUTER] flock presence decides which path is live.
-export function set_var(name, value) {
+export const set_var = function(name, value) {
 	if (have_flock()) {
 		// Delegate the RMW to a subprocess under an exclusive flock. Use mktemp
 		// for the name/value temp files so concurrent set_var calls do not

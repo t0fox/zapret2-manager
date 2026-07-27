@@ -1,0 +1,5 @@
+--filter-tcp=443
+--hostlist-domains=example.com
+--payload=tls_client_hello
+--lua-desync=circular:fails=3:time=60:hostkey=tls:nld=3
+--lua-desync=fake:blob=fake_default_tls:repeats=4:strategy=1

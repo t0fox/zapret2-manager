@@ -35,6 +35,11 @@ FAKE="$SDK/staging_dir/host/bin/fakeroot"
 # FAKEROOT_LIB=${STAGING_DIR_HOST}/lib/libfakeroot.so). Without it, fakeroot
 # aborts with "preload library libfakeroot.so not found".
 export STAGING_DIR_HOST="$SDK/staging_dir/host"
+# mktemp in this WSL defaults to /tmp which is root-owned (drwxrwxrwt) — the
+# invoking user (kirill) can create files in it but NOT subdirectories, so
+# `mkdir -p` inside the mktemp dir fails with "Permission denied". Use a
+# TMPDIR inside the user's home (writable) so mktemp creates the build root there.
+export TMPDIR="${TMPDIR:-$HOME/z2m-build}"
 OUTDIR="$SDK/bin/packages/aarch64_cortex-a53/zapret2-manager"
 mkdir -p "$OUTDIR"
 
@@ -64,27 +69,25 @@ build_one() {
 }
 
 # ---- zapret2-manager ---------------------------------------------------------
-R=$(mktemp -d)
-mkdir -p "$R/etc/zapret2-manager" \
-         "$R/usr/libexec/zapret2-manager" \
-         "$R/usr/share/rpcd/ucode" \
-         "$R/etc/hotplug.d/iface" \
-         "$R/etc/init.d"
-install -m 0644 "$REPO/zapret2-manager/files/etc/zapret2-manager/state.json" \
-                "$R/etc/zapret2-manager/state.json"
-for u in constants qlen status service watchdog apply lists; do
-  install -m 0644 "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/${u}.uc" \
-                  "$R/usr/libexec/zapret2-manager/${u}.uc"
-done
-install -m 0755 "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/log-rotate.sh" \
-                "$R/usr/libexec/zapret2-manager/log-rotate.sh"
+# Standard LuCI app build copies the view/system/library directories wholesale.
+# Per-file enumeration is the cause of one view being present and another absent on the
+# device (platform fact 1). Copy the directories whole instead.
+R="$HOME/z2m-build/root"
+# Backend: copy the whole /usr/libexec/zapret2-manager directory (libraries: apply.uc,
+# backup.uc, constants.uc, lists.uc, qlen.uc; thin wrappers: service.uc, status.uc,
+# watchdog.uc — libraries have no shebang, wrappers do).
+mkdir -p "$R/usr/libexec/zapret2-manager"
+cp -a "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/." "$R/usr/libexec/zapret2-manager/"
 # rpcd ucode plugin: install WITHOUT extension, matching the on-device `luci`
 # plugin (/usr/share/rpcd/ucode/luci, no .uc). rpcd ucode.so scans the dir and
 # loads each file; keeping .uc would diverge from convention.
+mkdir -p "$R/usr/share/rpcd/ucode"
 install -m 0644 "$REPO/zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc" \
                 "$R/usr/share/rpcd/ucode/zapret2-manager"
+mkdir -p "$R/etc/hotplug.d/iface"
 install -m 0755 "$REPO/zapret2-manager/files/etc/hotplug.d/iface/90-zapret2-manager" \
                 "$R/etc/hotplug.d/iface/90-zapret2-manager"
+mkdir -p "$R/etc/init.d"
 install -m 0755 "$REPO/zapret2-manager/files/etc/init.d/zapret2-manager" \
                 "$R/etc/init.d/zapret2-manager"
 ZPI=$(mkscript <<'EOF'
@@ -101,20 +104,17 @@ build_one "zapret2-manager" \
 rm -rf "$R" "$ZPI"
 
 # ---- luci-app-zapret2-manager ------------------------------------------------
-R=$(mktemp -d)
-mkdir -p "$R/usr/share/rpcd/acl.d" \
-         "$R/usr/share/luci/menu.d" \
-         "$R/www/luci-static/resources/view/zapret2-manager"
-install -m 0644 "$REPO/luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json" \
-                "$R/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json"
-install -m 0644 "$REPO/luci-app-zapret2-manager/files/usr/share/luci/menu.d/luci-app-zapret2-manager.json" \
-                "$R/usr/share/luci/menu.d/luci-app-zapret2-manager.json"
-install -m 0644 "$REPO/luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/overview.js" \
-                "$R/www/luci-static/resources/view/zapret2-manager/overview.js"
+# Standard LuCI app build copies the view/menu/acl directories wholesale
+# (platform fact 1: per-file enumeration drops views).
+R="$HOME/z2m-build/root"
+mkdir -p "$R/usr/share/rpcd/acl.d" "$R/usr/share/luci/menu.d" "$R/www/luci-static/resources/view/zapret2-manager"
+cp -a "$REPO/luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/." "$R/usr/share/rpcd/acl.d/"
+cp -a "$REPO/luci-app-zapret2-manager/files/usr/share/luci/menu.d/." "$R/usr/share/luci/menu.d/"
+cp -a "$REPO/luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/." "$R/www/luci-static/resources/view/zapret2-manager/"
 LPI=$(mkscript <<'EOF'
 #!/bin/sh
-rm -f /tmp/luci-indexcache
-rm -rf /tmp/luci-modulecache/* 2>/dev/null || true
+rm -f /var/luci-indexcache
+rm -rf /var/luci-modulecache/* 2>/dev/null || true
 /etc/init.d/rpcd reload
 /etc/init.d/uhttpd reload
 exit 0
@@ -122,8 +122,8 @@ EOF
 )
 LPR=$(mkscript <<'EOF'
 #!/bin/sh
-rm -f /tmp/luci-indexcache
-rm -rf /tmp/luci-modulecache/* 2>/dev/null || true
+rm -f /var/luci-indexcache
+rm -rf /var/luci-modulecache/* 2>/dev/null || true
 exit 0
 EOF
 )

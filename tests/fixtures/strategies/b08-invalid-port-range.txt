@@ -1,0 +1,3 @@
+--filter-tcp=abc-xyz
+--hostlist-domains=example.com
+--lua-desync=fake:blob=fake_default_tls:repeats=4

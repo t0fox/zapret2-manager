@@ -9,25 +9,22 @@
 // testable. The ucode apply.uc wraps the same parse/replace with file I/O on
 // /opt/zapret2/config.
 //
-// Shell-style config rules handled:
-//   - simple  VAR=value            (e.g. NFQWS2_ENABLE=1)
-//   - quoted  VAR="value"          (single-line, e.g. IPSET_OPT="...")
-//   - multi   VAR="                (opening quote alone; closing " on a later
+// Shell-style config rules handled (see tests/apply-writer.test.mjs):
+//   simple  VAR=value            (e.g. NFQWS2_ENABLE=1)
+//   quoted  VAR="value"          (single-line, e.g. IPSET_OPT="...")
+//   multi   VAR="                (opening quote alone; closing " on a later
 //                                    line alone — e.g. NFQWS2_OPT)
-//   - commented  #VAR=value        (NOT matched; a write appends a new active
-//                                    assignment rather than rewriting the
+//   commented  #VAR=value        (NOT matched; a write appends a new active
+//                                    assignment instead of rewriting the
 //                                    comment)
 //   - value may contain "=" (split on the FIRST "=" after the var name only)
+//   - value may contain an INNER " (VAR="a "b" c") — the closing " is the
+//     LAST " in the line (lastIndexOf), so an inner " is not mistaken for closing
 
-// Is a line a comment? Leading whitespace then #. (Shell config vars sit at
-// column 0, so a # prefix means the line is not an active assignment.)
 function isComment(line) {
 	return /^\s*#/.test(line);
 }
 
-// Read the current value of `name`, or null if there is no active assignment.
-// For multi-line quoted values, returns the text BETWEEN the opening and
-// closing double quotes (newlines preserved), without the quotes themselves.
 export function read_var(config, name) {
 	const lines = config.split('\n');
 	const prefix = name + '=';
@@ -36,14 +33,29 @@ export function read_var(config, name) {
 		if (!line.startsWith(prefix) || isComment(line)) continue;
 		const rest = line.slice(prefix.length); // after "NAME="
 		if (rest.startsWith('"')) {
-			// single-line quoted?  "...." with the only inner " at the last pos
-			const closeAt = rest.indexOf('"', 1);
+			// opening " alone → multi-line quoted (closing " on a later line)
+			if (rest === '"') {
+				const buf = [];
+				for (let j = i + 1; j < lines.length; j++) {
+					const q = lines[j].indexOf('"');
+					if (q >= 0) {
+						if (q > 0) buf.push(lines[j].slice(0, q));
+						return buf.join('\n');
+					}
+					buf.push(lines[j]);
+				}
+				return buf.join('\n'); // unterminated quote (should not happen)
+			}
+			// single-line quoted: closing " is the LAST " in the line (lastIndexOf, so
+			// a value with an INNER " like VAR="a "b" c" is still single-line — the
+			// inner " is not mistaken for the closing one).
+			const closeAt = rest.lastIndexOf('"');
 			if (closeAt === rest.length - 1) {
 				return rest.slice(1, closeAt); // content between the quotes
 			}
-			// multi-line quoted: collect until the line that carries the close.
+			// multi-line quoted: closing " not on this line → collect later lines
 			const buf = [];
-			if (rest.length > 1) buf.push(rest.slice(1)); // content after opening "
+			buf.push(rest.slice(1)); // content after opening "
 			for (let j = i + 1; j < lines.length; j++) {
 				const q = lines[j].indexOf('"');
 				if (q >= 0) {
@@ -59,11 +71,6 @@ export function read_var(config, name) {
 	return null;
 }
 
-// Set `name` to `value` in the config text. Surgical: only the named
-// assignment changes; every other line is preserved. If `name` has no active
-// assignment (only a commented one, or none), a new assignment is APPENDED.
-// Multi-line quoted assignments are rewritten preserving the original
-// opening/closing style (opening " alone → opening " alone).
 export function write_var(config, name, value) {
 	const lines = config.split('\n');
 	const prefix = name + '=';
@@ -71,8 +78,13 @@ export function write_var(config, name, value) {
 		const line = lines[i];
 		if (!line.startsWith(prefix) || isComment(line)) continue;
 		const rest = line.slice(prefix.length);
-		const closeAt = rest.startsWith('"') ? rest.indexOf('"', 1) : -1;
-		const isMultiQuoted = rest.startsWith('"') && closeAt !== rest.length - 1;
+		// opening " alone → multi-line; otherwise the closing " is the LAST " in
+		// the line (lastIndexOf, so an inner " like in VAR="a "b" c" does not make it
+		// multi-line).
+		const closeAt = rest.startsWith('"') ? rest.lastIndexOf('"') : -1;
+		// multi-line iff: opening " alone (rest === '"'), OR the closing " is not the
+		// last char of this line (a value with an inner " stays single-line).
+		const isMultiQuoted = rest.startsWith('"') && (rest === '"' || closeAt !== rest.length - 1);
 		if (isMultiQuoted) {
 			// find the line carrying the closing "
 			let end = i;
@@ -100,7 +112,15 @@ export function write_var(config, name, value) {
 			}
 			return [...before, ...block, ...after].join('\n');
 		}
-		// single-line (quoted or unquoted): replace the one line
+		// single-line quoted: VAR="value" (the only inner " is the closing one).
+		// Preserve the quotes — writing VAR=value (no quotes) would change the
+		// format the engine reads.
+		if (rest.startsWith('"') && rest !== '"' && closeAt === rest.length - 1) {
+			const before = lines.slice(0, i);
+			const after = lines.slice(i + 1);
+			return [...before, name + '="' + value + '"', ...after].join('\n');
+		}
+		// single-line unquoted: replace the one line
 		const before = lines.slice(0, i);
 		const after = lines.slice(i + 1);
 		return [...before, name + '=' + value, ...after].join('\n');
