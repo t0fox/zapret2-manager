@@ -1,0 +1,206 @@
+// Render harness — execute every zone page's render() against fixtures with a
+// minimal DOM stub. Catches render-time ReferenceErrors/TypeErrors (bad E()
+// usage, wrong variable refs) that the module-load harness cannot, for the
+// three envelopes a page must survive:
+//   a) healthy fixture data
+//   b) a rejected RPC  ({ loadError })
+//   c) an error payload ({ data: { error: 'status unavailable' } } and
+//      { data: { ok: false, error: '…' } })
+//
+// This is NOT a browser substitute: layout, CSS, and real event dispatch are
+// out of scope. It proves the render path executes and produces a node tree.
+//
+// Run: node --test tests/ui/
+
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { ZONE_VIEWS, readViewSource } from './lib/checks.mjs';
+
+// ---- minimal DOM/LuCI stubs -------------------------------------------------
+
+function makeNode(tag) {
+	const node = {
+		tag: tag || 'div',
+		attrs: {},
+		children: [],
+		style: {},
+		_tc: '',
+		appendChild(c) { node.children.push(c); return c; },
+		addEventListener() { },
+		setAttribute(k, v) { node.attrs[k] = v; },
+		getAttribute(k) { return node.attrs[k]; },
+		querySelector() { return makeNode(); },
+		querySelectorAll() { return []; }
+	};
+	Object.defineProperty(node, 'textContent', {
+		get() { return node._tc; },
+		set(v) { node._tc = String(v); }
+	});
+	return node;
+}
+
+function E(tag, attrs, children) {
+	const node = makeNode(tag);
+	if (attrs && typeof attrs === 'object') Object.assign(node.attrs, attrs);
+	const kids = Array.isArray(children) ? children : (children !== undefined ? [children] : []);
+	for (const c of kids) if (c && typeof c === 'object') node.children.push(c);
+	return node;
+}
+
+const STATUS_FIXTURE = {
+	schema: 2,
+	generatedAt: '2026-07-27T12:00:00Z',
+	generation: 7,
+	serviceState: 'running',
+	runtime: {
+		present: true,
+		count: 1,
+		profileCount: 2,
+		strategies: 'table inet zapret2 {\n}\n',
+		rulesPresent: true,
+		instances: [{
+			pid: 1234,
+			cmdline: '/opt/zapret2/nfqws2 --qnum=300 --filter-tcp=443 --hostlist=/opt/zapret2/ipset/zapret-hostlist-user.txt --lua-desync=fake:blob=fake1',
+			startTime: '2026-07-27T11:00:00Z',
+			rssKb: 2048
+		}]
+	},
+	applied: {
+		configPath: '/opt/zapret2/config', configPresent: true,
+		configMtime: '2026-07-27T10:00:00Z', configSize: 4321,
+		uci: "zapret2.main.enabled='1'"
+	},
+	draft: { passthrough: false },
+	drift: { divergent: false },
+	health: {
+		qlenHealth: { state: 'nominal', threshold: 50, consecutiveOverThreshold: 0, critTurns: 3 },
+		queue: {
+			number: 300, registered: true, reason: null, queueTotal: 0,
+			copyRange: 65535, queueDropped: 3, queueUserDropped: 1,
+			updatedAt: '2026-07-27T11:59:00Z'
+		},
+		checks: [
+			{ id: 'dns_consistency', result: 'ok', detail: 'system==dhcp' },
+			{ id: 'queue_health', result: null }
+		]
+	},
+	system: { autostart: { enabled: true, symlinks: ['/etc/rc.d/S99zapret2-manager'] }, upgradable: false },
+	upstream: { nfqws2Version: '2.0.0-test', autohostlist: null },
+	jobs: [
+		{ id: 'job-1', status: 'running', createdAt: '2026-07-27T11:50:00Z', updatedAt: '2026-07-27T11:55:00Z' },
+		{ id: 'job-0', status: 'succeeded', createdAt: '2026-07-27T10:00:00Z', updatedAt: '2026-07-27T10:05:00Z' }
+	],
+	warnings: [{ code: 'DRIFT', message: 'example warning', severity: 'warn' }]
+};
+
+const LISTS_FIXTURE = {
+	userLists: {
+		domainInclude: ['example.com', 'conflict.com'],
+		domainExclude: ['conflict.com'],
+		ipInclude: ['1.2.3.4'],
+		ipExclude: [],
+		ipBlock: []
+	},
+	engineLists: {
+		autohostlist: ['auto.example.com'],
+		autohostlistPath: '/opt/zapret2/ipset/zapret-hosts-auto.txt',
+		engineSupplied: { autohostlist: true }
+	},
+	paths: {
+		domainInclude: '/opt/zapret2/ipset/zapret-hostlist-user.txt',
+		domainExclude: '/opt/zapret2/ipset/zapret-ipset-exclude-user.txt',
+		autohostlist: '/opt/zapret2/ipset/zapret-hosts-auto.txt',
+		ipInclude: '/opt/zapret2/ipset/zapret-ipset-include-user.txt',
+		ipExclude: '/opt/zapret2/ipset/zapret-ipset-exclude-user.txt',
+		ipBlock: '/opt/zapret2/ipset/zapret-ipset-block-user.txt'
+	},
+	conflicts: ['conflict.com']
+};
+
+const RPC_FIXTURES = {
+	status: STATUS_FIXTURE,
+	lists_get: LISTS_FIXTURE,
+	lists_check_domain: { domain: 'example.com', userInclude: true, userExclude: false, autohostlist: false, conflict: false },
+	lists_set: { ok: true, written: ['domainInclude'] },
+	passthrough: { ok: true },
+	confirm_alive: { ok: true },
+	rollback: { ok: true }
+};
+
+function loadModule(src, name) {
+	const declared = [];
+	const rpcStub = {
+		declare: (spec) => {
+			declared.push(spec);
+			return (args) => Promise.resolve(RPC_FIXTURES[spec.method] || { ok: true });
+		}
+	};
+	const stubs = {
+		L: { view: { extend: (o) => o }, resolveDefault: (p, d) => Promise.resolve(d) },
+		view: {},
+		rpc: rpcStub,
+		ui: {},
+		dom: {},
+		form: {},
+		poll: { add: () => { }, remove: () => { }, start: () => { }, stop: () => { } },
+		_: (s) => s,
+		E: E
+	};
+	const documentStub = {
+		querySelector() { return null; },
+		querySelectorAll() { return []; },
+		getElementById() { return null; },
+		body: { contains() { return false; } }
+	};
+	const windowStub = { addEventListener() { } };
+	const fn = new Function(
+		'L', 'view', 'rpc', 'ui', 'dom', 'form', 'poll', '_', 'E',
+		'document', 'window', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout',
+		'"use strict";' + src
+	);
+	const noopTimer = () => 1;
+	const exported = fn(
+		stubs.L, stubs.view, stubs.rpc, stubs.ui, stubs.dom, stubs.form,
+		stubs.poll, stubs._, stubs.E,
+		documentStub, windowStub, noopTimer, () => { }, noopTimer, () => { }
+	);
+	assert.ok(exported && typeof exported === 'object', `${name}: module did not export a view object`);
+	return { view: exported, declared };
+}
+
+function assertNodeTree(node, name) {
+	assert.ok(node && typeof node === 'object', `${name}: render() did not return a node`);
+	assert.ok(Array.isArray(node.children), `${name}: rendered root has no children array`);
+	assert.ok(node.children.length > 0, `${name}: rendered root is empty`);
+}
+
+// ---- the harness ------------------------------------------------------------
+
+test('render harness: healthy fixture renders a node tree (zone views)', async () => {
+	for (const v of ZONE_VIEWS) {
+		const { view } = loadModule(readViewSource(v), v);
+		// pages build their envelope in load(); feed render() the same shape.
+		const method = v === 'lists' ? 'lists_get' : 'status';
+		const envelope = { loadError: null, data: RPC_FIXTURES[method] };
+		const node = view.render(envelope);
+		assertNodeTree(node, v);
+	}
+});
+
+test('render harness: rejected-RPC envelope renders, never throws', () => {
+	for (const v of ZONE_VIEWS) {
+		const { view } = loadModule(readViewSource(v), v);
+		const node = view.render({ loadError: 'Error: connection reset', data: null });
+		assertNodeTree(node, v);
+	}
+});
+
+test('render harness: error-payload envelopes render unavailable, never throw', () => {
+	for (const v of ZONE_VIEWS) {
+		const { view } = loadModule(readViewSource(v), v);
+		const a = view.render({ loadError: null, data: { error: 'status unavailable', generatedAt: null } });
+		assertNodeTree(a, v);
+		const b = view.render({ loadError: null, data: { ok: false, error: 'parse failed', raw: '' } });
+		assertNodeTree(b, v);
+	}
+});

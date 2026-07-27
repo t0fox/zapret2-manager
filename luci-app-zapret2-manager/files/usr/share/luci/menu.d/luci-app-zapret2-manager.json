@@ -12,12 +12,90 @@
 			]
 		}
 	},
-	"admin/services/zapret2-manager/lists": {
-		"title": "Lists",
+	"admin/services/zapret2-manager/strategies": {
+		"title": "Strategies",
 		"order": 91,
 		"action": {
 			"type": "view",
+			"path": "zapret2-manager/strategies"
+		},
+		"depends": {
+			"acl": [
+				"zapret2-manager"
+			]
+		}
+	},
+	"admin/services/zapret2-manager/blockcheck": {
+		"title": "Blockcheck",
+		"order": 92,
+		"action": {
+			"type": "view",
+			"path": "zapret2-manager/blockcheck"
+		},
+		"depends": {
+			"acl": [
+				"zapret2-manager"
+			]
+		}
+	},
+	"admin/services/zapret2-manager/lists": {
+		"title": "Lists",
+		"order": 93,
+		"action": {
+			"type": "view",
 			"path": "zapret2-manager/lists"
+		},
+		"depends": {
+			"acl": [
+				"zapret2-manager"
+			]
+		}
+	},
+	"admin/services/zapret2-manager/dns": {
+		"title": "DNS",
+		"order": 94,
+		"action": {
+			"type": "view",
+			"path": "zapret2-manager/dns"
+		},
+		"depends": {
+			"acl": [
+				"zapret2-manager"
+			]
+		}
+	},
+	"admin/services/zapret2-manager/monitor": {
+		"title": "Monitor",
+		"order": 95,
+		"action": {
+			"type": "view",
+			"path": "zapret2-manager/monitor"
+		},
+		"depends": {
+			"acl": [
+				"zapret2-manager"
+			]
+		}
+	},
+	"admin/services/zapret2-manager/proxy": {
+		"title": "Proxy",
+		"order": 96,
+		"action": {
+			"type": "view",
+			"path": "zapret2-manager/proxy"
+		},
+		"depends": {
+			"acl": [
+				"zapret2-manager"
+			]
+		}
+	},
+	"admin/services/zapret2-manager/maintenance": {
+		"title": "Maintenance",
+		"order": 97,
+		"action": {
+			"type": "view",
+			"path": "zapret2-manager/maintenance"
 		},
 		"depends": {
 			"acl": [
