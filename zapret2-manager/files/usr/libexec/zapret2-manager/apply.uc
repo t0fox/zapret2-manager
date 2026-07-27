@@ -26,7 +26,7 @@
 //                                  assignment instead of rewriting the comment)
 //   value may contain "=" (split on the FIRST "=" after the name only)
 
-import { readfile, writefile, stat } from 'fs';
+import { readfile, writefile, stat, popen, unlink } from 'fs';
 import { PATHS } from './constants.uc';
 
 const CONFIG = PATHS.applied_conf;
@@ -97,7 +97,7 @@ export const read_var = function(name) {
 		return rest;   // unquoted single-line value
 	}
 	return null;
-}
+};
 
 // Render a new config text with `name` set to `value`. Pure (no file I/O);
 // mirrors tests/lib/apply-writer.mjs write_var. Surgical: only the named
@@ -183,6 +183,17 @@ function have_flock() {
 	return _have_flock;
 }
 
+// mktemp helper for set_var's name/value temp files. Declared BEFORE set_var:
+// ucode does not hoist `function` declarations in module mode, so a helper
+// must precede its first caller (set_var below) or it is an undeclared var.
+function _mktemp() {
+	let p = popen('mktemp 2>/dev/null', 'r');
+	if (!p) return '/tmp/z2m-set.' + time();
+	let out = trim(p.read('all'));
+	p.close();
+	return length(out) ? out : ('/tmp/z2m-set.' + time());
+}
+
 // Set `name` to `value` in /opt/zapret2/config. Returns the new config text.
 // Preserves a trailing newline if the original had one. The atomic phase
 // (temp file + mv) is wrapped in flock when flock is present, so two writers
@@ -205,7 +216,7 @@ export const set_var = function(name, value) {
 		let val_f  = _mktemp();
 		writefile(name_f, name + '\n');
 		writefile(val_f, '' + value);
-		let cmd = "flock " + LOCKFILE + " -c 'ucode /usr/libexec/zapret2-manager/apply.uc do_set " + name_f + " " + val_f + " 2>/dev/null'";
+		let cmd = "flock " + LOCKFILE + " -c 'ucode /usr/libexec/zapret2-manager/apply-cli.uc do_set " + name_f + " " + val_f + " 2>/dev/null'";
 		let p = popen(cmd, 'r');
 		if (p) p.close();
 		try { unlink(name_f); } catch (e) { }
@@ -243,20 +254,12 @@ export const set_var = function(name, value) {
 	if (p) p.close();
 	try { unlink(MARKER); } catch (e) { }
 	return out;
-}
-
-function _mktemp() {
-	let p = popen('mktemp 2>/dev/null', 'r');
-	if (!p) return '/tmp/z2m-set.' + time();
-	let out = trim(p.read('all'));
-	p.close();
-	return length(out) ? out : ('/tmp/z2m-set.' + time());
-}
+};
 
 // do_set <namefile> <valuefile> — runs UNDER flock (invoked by set_var above).
 // Reads the config, renders name=value, atomically renames. Single entry point
 // so the whole RMW is inside the locked subprocess.
-function do_set(name_f, val_f) {
+export const do_set = function(name_f, val_f) {
 	let name = trim(readfile(name_f));
 	let value = readfile(val_f);
 	// set_var writes value with NO trailing newline (writefile(val_f, value)),
@@ -273,28 +276,4 @@ function do_set(name_f, val_f) {
 	writefile(tmp, out);
 	let p = popen('mv -f ' + tmp + ' ' + CONFIG + ' 2>/dev/null', 'r');
 	if (p) p.close();
-}
-
-// ---- CLI (for smoke.sh / manual use) ----------------------------------------
-//   ucode apply.uc read <name>          → prints value or "null"
-//   ucode apply.uc set  <name> <value>  → sets a single-line var, prints "ok"
-//   ucode apply.uc do_set <namefile> <valuefile>  → INTERNAL, runs under flock
-// Multi-line values (NFQWS2_OPT) are set via service.uc importing set_var,
-// not via the 'set' CLI (argv is line-oriented); do_set reads value from a
-// file so multi-line values survive.
-let mode = ARGV[0];
-if (mode == 'read') {
-	let v = read_var(ARGV[1]);
-	print((v == null ? 'null' : v) + '\n');
-} else if (mode == 'set') {
-	set_var(ARGV[1], ARGV[2]);
-	print('ok\n');
-} else if (mode == 'do_set') {
-	do_set(ARGV[1], ARGV[2]);
-	print('ok\n');
-} else if (mode == undefined) {
-	// imported as a library — do nothing
-} else {
-	print('usage: ucode apply.uc read <name> | set <name> <value>\n');
-	exit(1);
-}
+};

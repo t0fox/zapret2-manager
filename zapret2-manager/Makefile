@@ -50,6 +50,8 @@ define Package/zapret2-manager/install
 		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/apply.uc \
 		$(1)/usr/libexec/zapret2-manager/
+	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/apply-cli.uc \
+		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/qlen.uc \
 		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/status.uc \
