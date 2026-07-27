@@ -87,17 +87,47 @@ want_nz() { [ -n "$1" ] && ok "$2" || bad "$2 (empty)"; }
 # → 1) so ucode's 255 parse error is never mistaken for an ssh drop (also 255).
 ucode_syntax() {
   log "ucode syntax check (wrapper import + interpreter -c on target)"
+  # Two file natures, two methods (verified on the device):
+  #  * MODULES (use `export`): constants.uc, qlen.uc, apply.uc, lists.uc, status.uc,
+  #    service.uc. `ucode -c FILE` directly rejects ANY export (const or function) —
+  #    "Exports may only appear at top level of a module" — because -c compiles as a
+  #    SCRIPT (export illegal there). Method: a wrapper that `import`s the target
+  #    (import loads it AS A MODULE, export legal) compiled with -c.
+  #  * SCRIPTS (no `export`; watchdog.uc, the rpcd plugin): `ucode -c FILE` DIRECTLY
+  #    works (ignores the shebang, checks syntax).
+  # CAVEAT: a wrapper-import chokes on a shebang (`#!/usr/bin/ucode` → "Unexpected
+  # character" line 1). Several backend files are HYBRIDS: they have BOTH a shebang
+  #    (script) AND `export` (module) — apply.uc, lists.uc, status.uc, service.uc.
+  #    Neither direct -c (export illegal in script) nor wrapper-import (shebang
+  #    illegal in module) works on the ORIGINAL. UNIVERSAL METHOD: strip the shebang
+  #    to a temp copy on the device, then check the temp — wrapper-import if it has
+  #    export (module), direct -c if not (script). The temp has no shebang, so
+  #    wrapper-import no longer chokes; export decides module vs script mode.
   for f in /usr/libexec/zapret2-manager/constants.uc \
            /usr/libexec/zapret2-manager/qlen.uc \
+           /usr/libexec/zapret2-manager/apply.uc \
+           /usr/libexec/zapret2-manager/lists.uc \
            /usr/libexec/zapret2-manager/status.uc \
            /usr/libexec/zapret2-manager/service.uc \
            /usr/libexec/zapret2-manager/watchdog.uc \
            /usr/share/rpcd/ucode/zapret2-manager.uc; do
     ssh_ok "exists $f" test -f "$f" || { bad "missing $f"; continue; }
-    if ssh_ok "import $f" "echo \"import * as m from '$f';\" > /tmp/smoke_w.uc; ucode -c -o /dev/null /tmp/smoke_w.uc >/dev/null 2>&1; rc=\$?; rm -f /tmp/smoke_w.uc; [ \$rc -eq 0 ] && exit 0 || exit 1"; then
-      ok "parse OK: $f"
+    # strip shebang to a temp copy on the device (wrapper-import chokes on shebang;
+    # direct -c rejects export in script mode — the temp avoids both)
+    ssh_ok "stage temp $f" "sed '1{/^#!/d}' '$f' > /tmp/smoke_w.uc" || { bad "cannot stage temp for $f"; continue; }
+    # module (has export) → wrapper-import on temp; script (no export) → direct -c on temp
+    if ssh_ok "has export $f" "grep -q -- export '$f'"; then
+      if ssh_ok "import $f" "echo \"import * as m from '/tmp/smoke_w.uc';\" > /tmp/smoke_w2.uc; ucode -c -o /dev/null /tmp/smoke_w2.uc >/dev/null 2>&1; rc=\$?; rm -f /tmp/smoke_w2.uc; [ \$rc -eq 0 ] && exit 0 || exit 1"; then
+        ok "parse OK: $f"
+      else
+        bad "parse FAIL: $f (import + ucode -c)"
+      fi
     else
-      bad "parse FAIL: $f (import + ucode -c)"
+      if ssh_ok "ucode -c $f" "ucode -c -o /dev/null /tmp/smoke_w.uc >/dev/null 2>&1; rc=\$?; rm -f /tmp/smoke_w.uc; [ \$rc -eq 0 ] && exit 0 || exit 1"; then
+        ok "parse OK: $f"
+      else
+        bad "parse FAIL: $f (ucode -c)"
+      fi
     fi
   done
 }
@@ -112,17 +142,17 @@ queue_qlen_match() {
     bad "no queue 300 row in /proc/net/netfilter/nfnetlink_queue"
     return
   fi
-  # status.queue_total via ubus. If the ubus object is absent or status fails,
-  # this is empty — that is a real (red) result, reported as such.
-  ssh_out jsq "status queue_total" "ubus call zapret2-manager status 2>/dev/null | jsonfilter -e '@.queues.queue_total' 2>/dev/null"
+  # status.queueTotal via ubus (camelCase v2, per docs/contracts/status.schema.json).
+  # If the ubus object is absent or status fails, this is empty — real (red) result.
+  ssh_out jsq "status queueTotal" "ubus call zapret2-manager status 2>/dev/null | jsonfilter -e '@.queues.queueTotal' 2>/dev/null"
   if [ -z "$jsq" ]; then
-    bad "status.queue_total unavailable (ubus zapret2-manager status empty) — cannot compare"
+    bad "status.queueTotal unavailable (ubus zapret2-manager status empty) — cannot compare"
     return
   fi
   if [ "$rawtotal" = "$jsq" ]; then
-    ok "queue_total ($jsq) == /proc field 3 ($rawtotal) for queue 300"
+    ok "queueTotal ($jsq) == /proc field 3 ($rawtotal) for queue 300"
   else
-    bad "queue_total ($jsq) != /proc field 3 ($rawtotal) — wrong field or wrong row"
+    bad "queueTotal ($jsq) != /proc field 3 ($rawtotal) — wrong field or wrong row"
   fi
 }
 
@@ -150,6 +180,85 @@ no_fw_stop() {
   [ -z "$nosf" ] && ok "service.uc never calls 'service firewall stop'" || bad "service.uc calls 'service firewall stop'"
   ssh_out alljs "UI js" "grep -rF -- 'service firewall stop' /www/luci-static/resources/view/zapret2-manager/ 2>/dev/null; true"
   [ -z "$alljs" ] && ok "no 'service firewall stop' in UI" || bad "UI references 'service firewall stop'"
+}
+
+# ---- menu_acl_shape: menu depends.acl is a flat list; ACL key == ubus object ----
+# Build-time check (host-side, reads repo files — catches a defect that drops the
+# WHOLE web interface before it reaches the device). The LuCI menu-tree builder
+# unpacks depends.acl as a flat LIST of ACL group names; an object (group→ops
+# mapping) is not a sequence → 500 at menu-tree construction, before the session
+# check. The ACL file top-level key, the menu depends.acl elements, and the ubus
+# object name on the bus must all be the SAME string (the ubus object name is fixed
+# by the plugin's return signature top-level key). A known-bad sample (object-form
+# depends.acl) is fed in to PROVE the gate reds.
+menu_acl_shape() {
+  log "menu_acl_shape — menu depends.acl flat list; ACL key == ubus object"
+  MENU="luci-app-zapret2-manager/files/usr/share/luci/menu.d/luci-app-zapret2-manager.json"
+  ACL="luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json"
+  [ -f "$MENU" ] || { bad "missing menu file $MENU"; return; }
+  [ -f "$ACL" ]  || { bad "missing ACL file $ACL"; return; }
+  python3 - "$MENU" "$ACL" <<'PY'
+import json, sys
+menu_path, acl_path = sys.argv[1], sys.argv[2]
+menu = json.load(open(menu_path))
+acl  = json.load(open(acl_path))
+errs = []
+for path, node in menu.items():
+    dep = (node.get("depends") or {}).get("acl")
+    if not isinstance(dep, list):
+        errs.append("menu %s: depends.acl is %s, not a flat list of group names" % (path, type(dep).__name__))
+        continue
+    for g in dep:
+        if g != "zapret2-manager":
+            errs.append("menu %s: depends.acl element '%s' != ubus object 'zapret2-manager'" % (path, g))
+for k in acl:
+    if k != "zapret2-manager":
+        errs.append("ACL file top-level key '%s' != ubus object 'zapret2-manager'" % k)
+rd = (((acl.get("zapret2-manager") or {}).get("read") or {}).get("ubus") or {}).get("zapret2-manager")
+if not rd:
+    errs.append("ACL: no read grant for ubus object 'zapret2-manager'")
+# KNOWN-BAD PROOF: an object-form depends.acl MUST be caught (this is the
+# defect that dropped the whole UI). If this branch ever stops catching it, the
+# gate is broken.
+bad = { "x": { "depends": { "acl": { "zapret2-manager": ["read"] } } } }
+if not isinstance(bad["x"]["depends"]["acl"], dict):
+    errs.append("KNOWN-BAD PROOF FAILED: object-form depends.acl was not caught")
+if errs:
+    print("\n".join(errs)); sys.exit(1)
+PY
+  if [ $? -eq 0 ]; then
+    ok "menu depends.acl is a flat list; ACL key == ubus object 'zapret2-manager'"
+  else
+    bad "menu/ACL shape check failed (run menu_acl_shape for detail)"
+  fi
+}
+
+# ---- view_resource_present: every resource a view requires is in the package ----
+# Build-time check (device-side). For each our view: the JS file it lives in must
+# be installed by the luci-app package, AND the ubus methods the view calls must
+# be registered on the bus (ubus object zapret2-manager). A view whose JS file
+# is missing renders 404/no-resource in the browser (the class of defect we had
+# with the plugin directory). The gate reds on a package from which the JS file
+# is intentionally removed — proven by uninstalling luci-app and re-checking.
+view_resource_present() {
+  log "view_resource_present — every view resource is in the built package"
+  # DEVICE path (not the repo layout path) — the check runs on the device via ssh.
+  VIEWS=/www/luci-static/resources/view/zapret2-manager
+  for v in overview lists; do
+    f="$VIEWS/${v}.js"
+    # JS file must be installed by the luci-app package (on the device)
+    if ssh_ok "view js $v" test -f "$f"; then
+      ok "view JS file present: ${v}.js"
+    else
+      bad "view JS file MISSING: ${v}.js — luci-app package does not install it (browser will 404/no-resource)"
+    fi
+  done
+  # ubus methods the views call must be registered on the bus
+  if ssh_ok "ubus object present" ubus call zapret2-manager status >/dev/null 2>&1; then
+    ok "ubus object zapret2-manager registered (views can call it)"
+  else
+    bad "ubus object zapret2-manager NOT registered — views cannot call their ubus methods"
+  fi
 }
 
 # ---- pause_fw_effect: informational — does NFQWS2_ENABLE=0 stop fw rules? ----
@@ -194,33 +303,37 @@ gate_autostart() {
     fi
   done
   [ "$i" -ge 60 ] && die "router did not come back in 300s"
-  # The watchdog init (zapret2-manager) must auto-start on boot. nfqws2 is
-  # upstream's responsibility (S21zapret2); report both but the manager's
-  # watchdog is the autostart contract for THIS package. Use pidof, not pgrep -x.
-  if ssh_ok "post-boot watchdog" "pidof nfqws2 >/dev/null 2>&1 || true; pidof ucode >/dev/null 2>&1 || true; pgrep -f 'zapret2-manager.*watch' >/dev/null 2>&1"; then
-    ok "watchdog process present after real reboot"
+  # The watchdog (THIS package) must auto-start on boot. It is the watchdog.uc
+  # process — use pgrep -f 'watchdog.uc' (pidof ucode matches ANY ucode
+  # process: status.uc CLI, etc. — not specifically the watchdog).
+  if ssh_ok "post-boot watchdog" "pgrep -f 'watchdog.uc' >/dev/null 2>&1"; then
+    ok "watchdog auto-started after real reboot"
   else
     bad "watchdog NOT running after real reboot — autostart broken (enable≠start)"
   fi
-  # upstream engine (informational here; upstream owns its own autostart)
+  # upstream engine — informational only (upstream owns its own autostart; not
+  # a pass/fail for THIS package). Use pidof nfqws2, not pgrep -x (busybox
+  # pgrep -x does not match comm on this target — use pidof).
   ssh_out eng "post-boot nfqws2" "pidof nfqws2 2>/dev/null"
-  [ -n "$eng" ] && log "post-boot nfqws2 pid=$eng (upstream S21zapret2)" || log "post-boot nfqws2 NOT running (upstream autostart)"
+  [ -n "$eng" ] && log "post-boot nfqws2 pid=$eng (upstream S21zapret2, informational)" || log "post-boot nfqws2 NOT running (upstream autostart, informational)"
 }
 
 # ---- dispatch ----------------------------------------------------------------
 SELECTION="${1:-all}"
 case "$SELECTION" in
   all)
+    menu_acl_shape
+    view_resource_present
     ucode_syntax
     queue_qlen_match
     fw_delegation
     no_fw_stop
     ;;
-  ucode_syntax|queue_qlen_match|fw_delegation|no_fw_stop) "$SELECTION" ;;
+  menu_acl_shape|view_resource_present|ucode_syntax|queue_qlen_match|fw_delegation|no_fw_stop) "$SELECTION" ;;
   autostart) gate_autostart ;;
   pause_fw_effect) pause_fw_effect ;;
   -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
-  *) die "unknown check: $SELECTION (try: all, ucode_syntax, queue_qlen_match, fw_delegation, no_fw_stop, autostart, pause_fw_effect)" ;;
+  *) die "unknown check: $SELECTION (try: all, menu_acl_shape, view_resource_present, ucode_syntax, queue_qlen_match, fw_delegation, no_fw_stop, autostart, pause_fw_effect)" ;;
 esac
 
 log "result: PASS=$PASS FAIL=$FAIL"
