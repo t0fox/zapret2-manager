@@ -50,7 +50,7 @@ build_one() {
   set -- "$@" --info "name:${_name}"
   set -- "$@" --info "version:${VER}"
   set -- "$@" --info "description:${_desc}"
-  set -- "$@" --info "arch:all"
+  set -- "$@" --info "arch:${ARCH:-all}"
   set -- "$@" --info "license:MIT"
   set -- "$@" --info "maintainer:Ásgeir"
   set -- "$@" --info "origin:package/${_name}"
