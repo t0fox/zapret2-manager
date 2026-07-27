@@ -221,6 +221,56 @@ export function checkNoStringFormat(src, name) {
 	return errs;
 }
 
+// ---- rpc.js wire-semantics gates --------------------------------------------
+//
+// Verified against /www/luci-static/resources/rpc.js on the router:
+//   declare(options): if options.params is an ARRAY, the formed ubus message
+//   is params[options.params[i]] = args[i] — POSITIONAL. Calling the declared
+//   function with an object nests it: fn({domain: d}) with params:['domain']
+//   sends {domain: {domain: d}}. (The object-call form only matches a params
+//   OBJECT declaration.)
+//   options.reject defaults to false: req.raise = options.reject; a ubus
+//   error reply then RESOLVES (msg.result[1], else the numeric code) instead
+//   of rejecting — .catch() never fires and the resolved number can be
+//   mistaken for data (breaks unavailable/anti-wipe/stale paths).
+
+// Every `const <name> = rpc.declare({...})` with a params ARRAY must be
+// invoked positionally: forbid `<name>( {` call sites.
+export function checkPositionalCalls(src, name) {
+	const errs = [];
+	const clean = stripComments(src);
+	const declRe = /const\s+(\w+)\s*=\s*rpc\.declare\s*\(\s*\{([\s\S]*?)\}\s*\)\s*;/g;
+	let m;
+	while ((m = declRe.exec(clean)) !== null) {
+		const fnName = m[1];
+		const body = m[2];
+		if (!/params\s*:\s*\[/.test(body)) continue;
+		const method = (body.match(/method:\s*'([^']+)'/) || [null, '?'])[1];
+		const callRe = new RegExp('\\b' + fnName + '\\s*\\(\\s*\\{');
+		if (callRe.test(clean))
+			errs.push(`${name}: ${fnName} ("${method}") is declared with a params ARRAY — call it positionally (e.g. ${fnName}(value)), not with an object; rpc.js maps args[i] → params[i] and an object argument nests`);
+	}
+	return errs;
+}
+
+// Every rpc.declare in the zone views is part of a flow that relies on
+// .catch() for its error/unavailable path (load envelopes, busy buttons,
+// stale polling). Without reject: true a ubus error RESOLVES (numeric code)
+// and those paths go dead — so each declaration must opt in explicitly.
+export function checkRejectTrue(src, name) {
+	const errs = [];
+	const clean = stripComments(src);
+	const declRe = /rpc\.declare\s*\(\s*\{([\s\S]*?)\}\s*\)/g;
+	let m;
+	while ((m = declRe.exec(clean)) !== null) {
+		const body = m[1];
+		const method = (body.match(/method:\s*'([^']+)'/) || [null, '?'])[1];
+		if (!/reject\s*:\s*true/.test(body))
+			errs.push(`${name}: rpc.declare ("${method}") lacks reject: true — a ubus error would RESOLVE (numeric code) and bypass .catch()`);
+	}
+	return errs;
+}
+
 export function checkSyntax(src, name) {
 	const errs = [];
 	try {

@@ -24,12 +24,16 @@
 
 'require rpc';
 
-const callStatus = rpc.declare({ object: 'zapret2-manager', method: 'status' });
+// rpc.js wire semantics (verified on the router): a params ARRAY declaration
+// is invoked POSITIONALLY — callPassthrough(flag) → { enabled: flag }; an
+// object argument would nest. reject: true makes ubus errors reject into
+// .catch() instead of resolving as a numeric code.
+const callStatus = rpc.declare({ object: 'zapret2-manager', method: 'status', reject: true });
 const callPassthrough = rpc.declare({
-	object: 'zapret2-manager', method: 'passthrough', params: ['enabled']
+	object: 'zapret2-manager', method: 'passthrough', params: ['enabled'], reject: true
 });
-const callConfirmAlive = rpc.declare({ object: 'zapret2-manager', method: 'confirm_alive' });
-const callRollback = rpc.declare({ object: 'zapret2-manager', method: 'rollback' });
+const callConfirmAlive = rpc.declare({ object: 'zapret2-manager', method: 'confirm_alive', reject: true });
+const callRollback = rpc.declare({ object: 'zapret2-manager', method: 'rollback', reject: true });
 
 // Backend methods this page waits for (rendered as the reason edit actions
 // are disabled — also the dependency list for the backend agent).
@@ -254,7 +258,7 @@ return L.view.extend({
 			btn.disabled = true;
 			status.className = 'cbi-value-description';
 			status.textContent = _('Restarting nfqws2 in passthrough mode…');
-			callPassthrough({ enabled: !current }).then(function (res) {
+			callPassthrough(!current).then(function (res) {
 				res = res || {};
 				if (res.rollback_pending) {
 					self.confirmFlow(res, status, btn);

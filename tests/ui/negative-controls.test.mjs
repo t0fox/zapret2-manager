@@ -9,8 +9,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-	readViewSource, readMenu,
-	checkNoLubus, checkMenuAclIsArray
+	readViewSource, readMenu, stripComments,
+	checkNoLubus, checkMenuAclIsArray,
+	checkPositionalCalls, checkRejectTrue
 } from './lib/checks.mjs';
 
 // Negative control 1 — L.ubus.
@@ -58,4 +59,44 @@ test('negative control: object-form depends.acl is caught, array form is green',
 
 	// green: original
 	assert.deepEqual(checkMenuAclIsArray(menu), []);
+});
+
+// Negative control 3 — object-form call to a params-array declaration.
+// Reintroduce `callFn({ ... })` into a copy of lists.js: the positional gate
+// MUST go red. The real positional call MUST be green.
+test('negative control: object RPC call is caught, positional call is green', () => {
+	const original = readViewSource('lists');
+	assert.ok(original !== null, 'lists.js missing');
+	assert.ok(original.includes('callListsCheck(d)'),
+		'lists.js must call callListsCheck positionally for this control to be meaningful');
+
+	// red: reintroduce the defect form on a copy
+	const poisoned = original.replace('callListsCheck(d)', 'callListsCheck({ domain: d })');
+	const errs = checkPositionalCalls(poisoned, 'lists (poisoned copy)');
+	assert.ok(errs.length > 0, 'object-form RPC call was NOT caught — gate is broken');
+	assert.match(errs[0], /positionally/);
+
+	// green: original
+	assert.deepEqual(checkPositionalCalls(original, 'lists'), []);
+});
+
+// Negative control 4 — missing reject:true.
+// Strip reject:true from a copy: the reject gate MUST go red (and the
+// behavioral anti-wipe proof lives in rpc-semantics.test.mjs). The real
+// declarations MUST be green.
+test('negative control: missing reject:true is caught, declared views are green', () => {
+	const original = readViewSource('lists');
+	assert.ok(original !== null, 'lists.js missing');
+	assert.ok(/reject:\s*true/.test(original), 'lists.js must declare reject: true');
+
+	// red: strip on a copy (check code, not comments — the phrase "reject: true"
+	// legitimately appears in the explanatory comment block)
+	const poisoned = original.replace(/,\s*reject:\s*true/g, '');
+	assert.ok(!/reject:\s*true/.test(stripComments(poisoned)), 'mutation failed to strip reject: true');
+	const errs = checkRejectTrue(poisoned, 'lists (poisoned copy)');
+	assert.ok(errs.length > 0, 'missing reject:true was NOT caught — gate is broken');
+	assert.match(errs[0], /reject: true/);
+
+	// green: original
+	assert.deepEqual(checkRejectTrue(original, 'lists'), []);
 });

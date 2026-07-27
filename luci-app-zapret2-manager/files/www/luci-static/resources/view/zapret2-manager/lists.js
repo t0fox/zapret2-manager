@@ -27,12 +27,20 @@
 
 'require rpc';
 
-const callListsGet = rpc.declare({ object: 'zapret2-manager', method: 'lists_get' });
+// rpc.js wire semantics (verified on the router):
+//   - a params ARRAY declaration is invoked POSITIONALLY: fn(value) →
+//     { param: value }. fn({ param: value }) would nest: { param: {…} }.
+//   - reject: true makes a ubus error REJECT the promise; without it the
+//     error would RESOLVE as a numeric code and bypass .catch() — which
+//     would unlock editing and defeat the anti-wipe lock below.
+const callListsGet = rpc.declare({
+	object: 'zapret2-manager', method: 'lists_get', reject: true
+});
 const callListsCheck = rpc.declare({
-	object: 'zapret2-manager', method: 'lists_check_domain', params: ['domain']
+	object: 'zapret2-manager', method: 'lists_check_domain', params: ['domain'], reject: true
 });
 const callListsSet = rpc.declare({
-	object: 'zapret2-manager', method: 'lists_set', params: ['edit']
+	object: 'zapret2-manager', method: 'lists_set', params: ['edit'], reject: true
 });
 
 // normalize mirrors lists.uc/tests/lib/lists-logic.mjs (lowercase, trim,
@@ -133,7 +141,7 @@ return L.view.extend({
 			btn.disabled = true;
 			result.className = 'cbi-value-description';
 			result.textContent = _('Checking…');
-			callListsCheck({ domain: d }).then(function (res) {
+			callListsCheck(d).then(function (res) {
 				btn.disabled = false;
 				res = res || {};
 				if (res.error || res.ok === false) {
@@ -262,8 +270,9 @@ return L.view.extend({
 			btn.disabled = true;
 			status.className = 'cbi-value-description';
 			status.textContent = _('Applying…');
-			// ubus signature declares edit as string → send JSON text.
-			callListsSet({ edit: JSON.stringify(edit) }).then(function (res) {
+			// ubus signature declares edit as string → send JSON text, and the
+			// params array declaration takes it positionally.
+			callListsSet(JSON.stringify(edit)).then(function (res) {
 				btn.disabled = false;
 				res = res || {};
 				if (res.ok) {

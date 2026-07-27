@@ -15,7 +15,9 @@
 
 'require rpc';
 
-const callStatus = rpc.declare({ object: 'zapret2-manager', method: 'status' });
+// reject: true — a ubus error must reject into .catch(); the default
+// (reject:false) would resolve it as a numeric code and fake a healthy load.
+const callStatus = rpc.declare({ object: 'zapret2-manager', method: 'status', reject: true });
 
 const MISSING_METHODS = ['dns_get', 'dns_set', 'dns_validate', 'dns_apply', 'dns_check'];
 

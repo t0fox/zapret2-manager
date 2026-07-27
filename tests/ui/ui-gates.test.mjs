@@ -15,7 +15,8 @@ import {
 	checkExactlyEightViews, checkMenuEntries, checkMenuAclIsArray,
 	checkNoLubus, checkRpcDeclare, checkExportsView, checkMenuViewFilesMatch,
 	checkRpcObjects, checkCatchPath, checkBusyPath, checkUnavailableLabel,
-	checkSyntax, moduleLoadHarness, checkNoStringFormat
+	checkSyntax, moduleLoadHarness, checkNoStringFormat,
+	checkPositionalCalls, checkRejectTrue
 } from './lib/checks.mjs';
 
 function assertNoErrors(errs) {
@@ -122,6 +123,26 @@ test('gate 13: no String.prototype.format reliance', () => {
 		const src = readViewSource(v);
 		assert.ok(src !== null, `${v}.js missing`);
 		assertNoErrors(checkNoStringFormat(src, v));
+	}
+});
+
+// Gate 14 — rpc.declare with a params ARRAY is invoked positionally, never
+// with an object (router rpc.js: params[i] = args[i]; an object nests).
+test('gate 14: params-array declarations are called positionally (zone views)', () => {
+	for (const v of ZONE_VIEWS) {
+		const src = readViewSource(v);
+		assert.ok(src !== null, `${v}.js missing`);
+		assertNoErrors(checkPositionalCalls(src, v));
+	}
+});
+
+// Gate 15 — every rpc.declare in zone views has reject: true, so ubus errors
+// reject into .catch() instead of resolving as numeric codes.
+test('gate 15: all rpc.declare have reject: true (zone views)', () => {
+	for (const v of ZONE_VIEWS) {
+		const src = readViewSource(v);
+		assert.ok(src !== null, `${v}.js missing`);
+		assertNoErrors(checkRejectTrue(src, v));
 	}
 });
 

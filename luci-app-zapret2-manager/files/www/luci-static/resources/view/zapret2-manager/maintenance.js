@@ -17,7 +17,9 @@
 
 'require rpc';
 
-const callStatus = rpc.declare({ object: 'zapret2-manager', method: 'status' });
+// reject: true — a ubus error must reject into .catch(); the default
+// (reject:false) would resolve it as a numeric code and fake a healthy load.
+const callStatus = rpc.declare({ object: 'zapret2-manager', method: 'status', reject: true });
 
 // The four backup scopes (zapret2-manager/files/usr/libexec/zapret2-manager/
 // backup.uc). Paths shown are the expected scope sources, marked as such.

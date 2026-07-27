@@ -27,8 +27,8 @@ The only ubus object the UI talks to is `zapret2-manager`
 |---|---|---|
 | `status` | Overview, Strategies, Blockcheck, DNS, Monitor, Maintenance | Schema v2 (docs/contracts/status.schema.json). May return `{error: 'status unavailable'}` — pages render that as an unavailable state, not as data. |
 | `lists_get` | Lists | Returns user/engine lists, `paths`, `conflicts`. On failure: `{ok:false,error}` — the page locks editing. |
-| `lists_check_domain` | Lists | `params: ['domain']`. |
-| `lists_set` | Lists | `params: ['edit']`. **The ubus signature declares `edit` as type string** (verified on the router: an object argument is rejected with "Invalid argument"), so the UI sends the edit as a JSON string. |
+| `lists_check_domain` | Lists | `params: ['domain']` — called positionally: `callListsCheck(d)`. |
+| `lists_set` | Lists | `params: ['edit']` — called positionally: `callListsSet(JSON.stringify(edit))`. **The ubus signature declares `edit` as type string** (verified on the router: an object argument is rejected with "Invalid argument"), so the UI sends the edit as a JSON string. |
 | `passthrough` | Strategies | `params: ['enabled']`; arms the 90s backend rollback. |
 | `confirm_alive` | Strategies | Cancels a pending rollback ("Link OK"). |
 | `rollback` | Strategies | Forces rollback now. |
@@ -59,6 +59,17 @@ Every page:
 10. Strings are built by **plain concatenation** (overview.js style).
     `String.prototype.format` lives in `cbi.js`, which these views do not
     require — calling `.format()` would throw at render time.
+11. **rpc.js wire semantics** (verified against
+    `/www/luci-static/resources/rpc.js` on the router): a `params` ARRAY
+    declaration is invoked **positionally** — `fn(value)` forms
+    `{ param: value }`; `fn({ param: value })` would double-nest
+    `{ param: {…} }`. (The object-call form only pairs with a `params`
+    OBJECT declaration, which these views do not use.)
+12. Every `rpc.declare` carries **`reject: true`**: rpc.js defaults
+    `reject` to false, and a ubus error reply then RESOLVES
+    (`msg.result[1]`, else the numeric code) instead of rejecting — the
+    `.catch()` error paths, the lists anti-wipe lock, and the monitor stale
+    fallback all depend on real rejections.
 
 ## Menu
 

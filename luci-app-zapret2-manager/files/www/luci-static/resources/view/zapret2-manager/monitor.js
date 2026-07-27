@@ -18,7 +18,10 @@
 
 'require rpc';
 
-const callStatus = rpc.declare({ object: 'zapret2-manager', method: 'status' });
+// reject: true — CRITICAL for the stale path: without it a failed poll would
+// RESOLVE a numeric ubus code, the number would be rendered as if it were
+// status data, and the STALE banner would never appear.
+const callStatus = rpc.declare({ object: 'zapret2-manager', method: 'status', reject: true });
 
 const POLL_MS = 5000;
 
@@ -39,6 +42,11 @@ return L.view.extend({
 	},
 
 	render: function (envelope) {
+		// capture ANY good data arrival as the stale fallback — including the
+		// initial load (previously only the poller captured it, so a first
+		// failed poll right after a good load had nothing to fall back to).
+		if (envelope && envelope.loadError == null && envelope.data && !envelope.data.error)
+			this._lastGood = { data: envelope.data, at: new Date() };
 		var container = this.buildContainer(envelope || { loadError: 'no data', data: null }, null);
 		this.startPoller();
 		return container;
