@@ -146,3 +146,51 @@ test('leading --lua-desync dropped: no orphan leading separator', () => {
 	assert.equal(strip_lua_desync('--lua-desync=x\n--filter-tcp=80'), '--filter-tcp=80');
 	assert.equal(strip_lua_desync('  --lua-desync=x --filter-tcp=80'), '--filter-tcp=80');
 });
+
+// ---- ПУНКТ ТРЕТЬЕ: real-format markers/separators survive stripping ----------------
+// The real NFQWS2_OPT uses <HOSTLIST>/<HOSTLIST_NOAUTO> list placeholders, --new
+// profile separators, --filter-l7= protocol filter. Stripping --lua-desync must
+// NOT eat any of these (eating them corrupts the user's config — worst defect class).
+
+test('<HOSTLIST> placeholder survives stripping (not eaten)', () => {
+	const v = '--filter-tcp=80 --filter-l7=http <HOSTLIST> --lua-desync=fake:1 --payload=http_req';
+	const out = strip_lua_desync(v);
+	assert.ok(out.includes('<HOSTLIST>'), '<HOSTLIST> placeholder preserved');
+	assert.ok(!out.includes('--lua-desync='), 'lua-desync removed');
+});
+
+test('<HOSTLIST_NOAUTO> placeholder survives stripping (not eaten)', () => {
+	const v = '--filter-udp=443 --filter-l7=quic <HOSTLIST_NOAUTO> --lua-desync=fake:quic:repeats=6 --payload=quic_initial';
+	const out = strip_lua_desync(v);
+	assert.ok(out.includes('<HOSTLIST_NOAUTO>'), '<HOSTLIST_NOAUTO> placeholder preserved');
+	assert.ok(!out.includes('--lua-desync='));
+});
+
+test('--new profile separator survives stripping (not eaten)', () => {
+	const v = '--comment=A --filter-tcp=80 --lua-desync=fake:a  --new --filter-tcp=443 --lua-desync=fake:b';
+	const out = strip_lua_desync(v);
+	assert.ok(out.includes('--new'), '--new profile separator preserved');
+	assert.ok(!out.includes('--lua-desync='));
+});
+
+test('--filter-l7= protocol filter survives stripping (not eaten)', () => {
+	const v = '--filter-tcp=80 --filter-l7=http --lua-desync=fake:1 --payload=http_req';
+	const out = strip_lua_desync(v);
+	assert.ok(out.includes('--filter-l7=http'), 'protocol filter preserved');
+	assert.ok(!out.includes('--lua-desync='));
+});
+
+test('real default NFQWS2_OPT: strip all lua-desync, keep every marker/separator (no corruption)', () => {
+	const F = readFileSync(join(here, 'fixtures-postinstall/opt-zapret2-config.out'), 'utf8');
+	const v = read_var(F, 'NFQWS2_OPT');
+	const out = strip_lua_desync(v);
+	assert.ok(!out.includes('--lua-desync='), 'no lua-desync remains');
+	// every marker and separator that was in the real OPT is still there
+	assert.ok(out.includes('<HOSTLIST>'));
+	assert.ok(out.includes('<HOSTLIST_NOAUTO>'));
+	assert.ok(out.includes('--new'));
+	assert.ok(out.includes('--filter-l7='));
+	assert.ok(out.includes('--comment=Strategy__default'));
+	// profile count by --new is unchanged (the --new separators are NOT eaten)
+	assert.equal((out.match(/--new/g) || []).length, (v.match(/--new/g) || []).length);
+});

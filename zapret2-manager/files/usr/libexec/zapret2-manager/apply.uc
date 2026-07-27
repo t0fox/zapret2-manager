@@ -41,18 +41,19 @@ function is_comment(line) {
 }
 
 // Position of the closing " in `rest` (a value string starting with "), or -1.
-// Looks for a " after the opening one; ucode index returns -1 when absent.
+// Position of the closing " in `rest` (a value string starting with ").
+// Uses rindex (LAST ") so a value with an INNER " like VAR="a "b" c" is still
+// recognized as single-line (closing " is the last "). ucode rindex returns -1
+// when absent. Returns the 0-based position in rest.
 function closing_quote_pos(rest) {
 	if (substr(rest, 0, 1) != '"') return -1;
-	let inner = substr(rest, 1);        // after the opening "
-	let p = index(inner, '"');          // -1 if no inner "
-	return p;                           // 0-based within inner == pos-1 in rest
+	return rindex(rest, '"');
 }
 
 // Read the current value of `name`, or null if there is no active assignment.
 // Multi-line quoted values return the text BETWEEN the quotes (newlines
 // preserved), without the quotes.
-export const read_var = function(name) {
+export function read_var(name) {
 	let raw = readfile(CONFIG);
 	if (!raw) return null;
 	let lines = split(raw, '\n');
@@ -63,13 +64,27 @@ export const read_var = function(name) {
 		if (is_comment(line)) continue;
 		let rest = substr(line, length(prefix));   // after NAME=
 		if (substr(rest, 0, 1) == '"') {
+			// opening " alone → multi-line quoted (closing " on a later line)
+			if (rest == '"') {
+				let buf = [];
+				for (let j = i + 1; j < length(lines); j++) {
+					let q = index(lines[j], '"');
+					if (q >= 0) {
+						if (q > 0) push(buf, substr(lines[j], 0, q));
+						return join(buf, '\n');
+					}
+					push(buf, lines[j]);
+				}
+				return join(buf, '\n');   // unterminated (should not happen)
+			}
+			// single-line quoted: closing " is the LAST " in the line (rindex, so
+			// a value with an INNER " like VAR="a "b" c" is still single-line).
 			let cp = closing_quote_pos(rest);
-			// single-line quoted: "value" (closing " is the last char)
-			if (cp >= 0 && cp + 1 == length(rest) - 1)
+			if (cp >= 0 && cp == length(rest) - 1)
 				return substr(rest, 1, length(rest) - 2);
-			// multi-line quoted: collect until the line carrying the closing "
+			// multi-line quoted: closing " not on this line → collect later lines
 			let buf = [];
-			if (length(rest) > 1) push(buf, substr(rest, 1));   // content after opening "
+			push(buf, substr(rest, 1));   // content after opening "
 			for (let j = i + 1; j < length(lines); j++) {
 				let q = index(lines[j], '"');
 				if (q >= 0) {
@@ -97,7 +112,9 @@ function render_var(config, name, value) {
 		if (is_comment(line)) continue;
 		let rest = substr(line, length(prefix));
 		let cp = closing_quote_pos(rest);
-		let is_multi = (substr(rest, 0, 1) == '"') && !(cp >= 0 && cp + 1 == length(rest) - 1);
+		// multi-line iff: opening " alone (rest == '"'), OR the closing " is not the
+		// last char of this line (a value with an inner " stays single-line).
+		let is_multi = (substr(rest, 0, 1) == '"') && (rest == '"' || !(cp >= 0 && cp == length(rest) - 1));
 		if (is_multi) {
 			let end = i;
 			let found = false;
@@ -129,7 +146,17 @@ function render_var(config, name, value) {
 			for (let k = end + 1; k < length(lines); k++) push(result, lines[k]);
 			return join(result, '\n');
 		}
-		// single-line (quoted or unquoted): replace the one line
+		// single-line quoted: VAR="value" (closing " is the last " in the line, so
+		// an inner " like in VAR="a "b" c" still counts as single-line). Preserve the
+		// quotes — writing VAR=value (no quotes) would change the format the engine reads.
+		if (substr(rest, 0, 1) == '"' && rest != '"' && cp >= 0 && cp == length(rest) - 1) {
+			let result = [];
+			for (let k = 0; k < i; k++) push(result, lines[k]);
+			push(result, prefix + '"' + value + '"');
+			for (let k = i + 1; k < length(lines); k++) push(result, lines[k]);
+			return join(result, '\n');
+		}
+		// single-line unquoted: replace the one line
 		let result = [];
 		for (let k = 0; k < i; k++) push(result, lines[k]);
 		push(result, prefix + value);
@@ -170,7 +197,7 @@ function have_flock() {
 // RMW; the second mv wins and the first writer's change is LOST (lost update).
 // The marker only narrows the window; it does NOT serialize. flock removes
 // the race. [VERIFY:ROUTER] flock presence decides which path is live.
-export const set_var = function(name, value) {
+export function set_var(name, value) {
 	if (have_flock()) {
 		// Delegate the RMW to a subprocess under an exclusive flock. Use mktemp
 		// for the name/value temp files so concurrent set_var calls do not
@@ -247,41 +274,6 @@ function do_set(name_f, val_f) {
 	writefile(tmp, out);
 	let p = popen('mv -f ' + tmp + ' ' + CONFIG + ' 2>/dev/null', 'r');
 	if (p) p.close();
-}
-
-// ---- list files (ЦЕЛЬ ДВА — ui/07-lists-page) -------------------------------
-//
-// The lists page generates list FILES (hostlist, exclude, ip lists) through
-// this SAME module — no second write path. read_list_file returns an array of
-// trimmed non-empty lines; write_list_file writes an array of lines atomically
-// (temp + mv, same as set_var). The flock path is NOT used here (list files are
-// low-rate user edits, not RMW on a shared config); the atomic rename still
-// prevents a partial read. [VERIFY:ROUTER] the exact list file paths live in
-// lists.uc; apply.uc just reads/writes a path it is given.
-
-export const read_list_file = function(path) {
-	try {
-		let raw = readfile(path);
-		if (!raw) return [];
-		let lines = split(raw, '\n');
-		let out = [];
-		for (let i = 0; i < length(lines); i++) {
-			let t = trim(lines[i]);
-			if (length(t)) push(out, t);
-		}
-		return out;
-	} catch (e) { return []; }
-}
-
-export const write_list_file = function(path, lines) {
-	let body = '';
-	for (let i = 0; i < length(lines); i++)
-		body += lines[i] + '\n';
-	let tmp = path + '.tmp.' + time();
-	writefile(tmp, body);
-	let p = popen('mv -f ' + tmp + ' ' + path + ' 2>/dev/null', 'r');
-	if (p) p.close();
-	return body;
 }
 
 // ---- CLI (for smoke.sh / manual use) ----------------------------------------

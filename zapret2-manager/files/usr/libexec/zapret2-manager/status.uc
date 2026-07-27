@@ -310,28 +310,29 @@ function service_state(runtime, rules, health, draft) {
 	return 'running';
 }
 
-// profile count from the APPLIED options string (followup 5), NOT from the
-// list_table dump. The profile/strategy separator in NFQWS2_OPT is the
-// ':strategy=N' marker inside each '--lua-desync=...' entry; each is one
-// profile in the rotation. The controller arg (e.g. circular_quality) has no
-// :strategy= and is NOT a profile, so this is less than the --lua-desync=
-// count — which is the point (profiles are the strategies). Mirrors
-// tests/lib/profile-count.mjs; returns null when NFQWS2_OPT is absent or has
-// no markers (null = "checked, no value"). Backend-computed; UI only renders.
-const STRATEGY_MARKER = ':strategy=';
+// profile count from the APPLIED options string (ПУНКТ ЧЕТВЁРТОЕ), NOT from the
+// list_table dump. The real options string splits profiles with the `--new`
+// SEPARATOR (not the ':strategy=N' marker the pre-reset sample used — the
+// real default config has no :strategy=). The number of profiles = the number
+// of `--new` separators + 1 (the first profile has no --new before it). A
+// profile with a separator but no --comment= name still counts as a profile
+// (profiles are counted, not names). A string with NO --new is ONE profile;
+// profile_count is null ONLY when the value itself is null. Mirrors
+// tests/lib/profile-count.mjs. Backend-computed; UI only renders.
+const PROFILE_SEP = '--new';
 function profile_count(opt_value) {
 	if (opt_value == null) return null;
 	let n = 0;
 	let i = 0;
 	let len = length(opt_value);
-	let mlen = length(STRATEGY_MARKER);
+	let mlen = length(PROFILE_SEP);
 	while (i < len) {
-		let p = index(substr(opt_value, i), STRATEGY_MARKER);
+		let p = index(substr(opt_value, i), PROFILE_SEP);
 		if (p < 0) break;
 		n++;
 		i = i + p + mlen;
 	}
-	return n > 0 ? n : null;
+	return n + 1;   // profiles = separators + 1 (first profile has no --new before it)
 }
 
 // ---- system + upstream (split from the old meta block) ----------------------

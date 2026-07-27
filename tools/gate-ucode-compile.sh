@@ -28,7 +28,7 @@ for f in "$SRC"/*.uc "$RPCD"/*.uc; do
 	[ -f "$f" ] || continue
 	# skip the broken self-test sample (it is not shipped)
 	case "$(basename "$f")" in
-	ucode-broken-sample.uc) continue ;;
+		ucode-broken-sample.uc) continue ;;
 	esac
 	if ! ucode -c -o /dev/null "$f" >/dev/null 2>&1; then
 		printf '[gate-ucode-compile] FAIL  %s (ucode -c non-zero)\n' "$f"
