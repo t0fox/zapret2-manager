@@ -36,7 +36,7 @@ test('invalid JSON → error', () => {
 });
 
 test('JSON array (not object) → error', () => {
-	assert.match(validate_edit('["a","b"]').error, /object, not an array|non-empty object/);
+	assert.match(validate_edit('["a","b"]').error, /must decode to an object/);
 });
 
 test('unknown key → error', () => {

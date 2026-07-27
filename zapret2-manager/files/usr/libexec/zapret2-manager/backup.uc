@@ -61,8 +61,10 @@ const SCOPES = {
 		}
 	},
 	lists: {
-		paths: [ '/opt/zapret2/ipset/zapret-hostlist-user.txt',
-	         '/opt/zapret2/ipset/zapret-ipset-exclude-user.txt' ],
+		// the proven user-maintained lists (lists-model.json: domainInclude +
+		// domainExclude — the only editable, argv-referenced user sources).
+		paths: [ '/opt/zapret2/ipset/zapret-hosts-user.txt',
+		         '/opt/zapret2/ipset/zapret-hosts-user-exclude.txt' ],
 		syntaxCheck: (path, content) => null
 	},
 	profiles: {

@@ -1,0 +1,6 @@
+# LF everywhere for text: the repo ships router-facing files (ucode, ash,
+# Makefiles, LuCI JS) and byte-exact router captures (tests/fixtures*.out).
+# A CRLF worktree (Windows core.autocrlf=true) breaks fixture assertions and
+# would leak \r into APK-shipped ucode. Binary payloads are excluded.
+* text=auto eol=lf
+*.bin binary

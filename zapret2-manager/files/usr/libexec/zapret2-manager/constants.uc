@@ -82,6 +82,7 @@ export const PATHS = {
 	paused_flag:    '/tmp/zapret2-manager/paused',
 	nfqueue_proc:   '/proc/net/netfilter/nfnetlink_queue',
 	collector:      '/usr/libexec/zapret2-manager/status.uc',
-	qlen_lib:       '/usr/libexec/zapret2-manager/qlen.uc'
+	qlen_lib:       '/usr/libexec/zapret2-manager/qlen.uc',
+	lists_model:    '/usr/libexec/zapret2-manager/lists-model.json'
 };
 

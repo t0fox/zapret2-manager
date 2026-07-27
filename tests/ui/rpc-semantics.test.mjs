@@ -156,12 +156,16 @@ function collectText(node, out) {
 }
 
 const LISTS_FIXTURE = {
-	userLists: {
-		domainInclude: ['example.com'], domainExclude: [],
-		ipInclude: [], ipExclude: [], ipBlock: []
+	schema: 2,
+	lists: {
+		domainInclude: { entries: ['example.com'], path: '/p/di.txt', type: 'domain', editable: true, engine: false, present: true, reason: null },
+		domainExclude: { entries: [], path: '/p/de.txt', type: 'domain', editable: true, engine: false, present: true, reason: null },
+		ipInclude: { entries: [], path: '/p/ii.txt', type: 'ip', editable: false, engine: false, present: true, reason: 'generated' },
+		ipExclude: { entries: null, path: null, type: 'ip', editable: false, engine: false, present: false, reason: 'no entity' },
+		ipBlock: { entries: [], path: '/p/ib.txt', type: 'ip', editable: false, engine: false, present: true, reason: 'generated' },
+		autohostlist: { entries: [], path: '/p/auto.txt', type: 'domain', editable: false, engine: true, present: true, reason: 'engine-owned' }
 	},
-	engineLists: { autohostlist: [], autohostlistPath: '/p/auto.txt', engineSupplied: { autohostlist: true } },
-	paths: { domainInclude: '/p/di.txt', domainExclude: '/p/de.txt', autohostlist: '/p/auto.txt' },
+	provenance: 'fixture',
 	conflicts: []
 };
 
@@ -308,7 +312,7 @@ test('anti-wipe: lists_get ubus error locks textareas and disables Apply', async
 		'Apply must be disabled while the backend is errored — empty textareas must never be applied');
 });
 
-test('anti-wipe negative control: stripping reject:true reopens editing (defect form)', async () => {
+test('anti-wipe negative control: stripping reject:true loses the visible error path (defect form)', async () => {
 	const original = readViewSource('lists');
 	assert.ok(/reject:\s*true/.test(original), 'lists.js must contain reject: true for this control');
 	const mutated = original.replace(/,\s*reject:\s*true/g, '');
@@ -322,11 +326,18 @@ test('anti-wipe negative control: stripping reject:true reopens editing (defect 
 	// number, loadError stays null…
 	assert.equal(envelope.loadError, null,
 		'defect reproduction: without reject:true the numeric ubus error resolves');
-	view.render(envelope);
+	const root = view.render(envelope);
+	// …and because the numeric resolution carries no list model, the page must
+	// fail CLOSED (no unlocked editable textarea — empty content can never be
+	// applied), while the explicit error banner+lock that reject:true wires up
+	// is LOST. That loss is exactly why gate 15 requires reject: true.
 	const tas = w.created.filter((n) => n.attrs['data-list-key'] !== undefined);
-	const editable = tas.filter((ta) => ta.readOnly !== true);
-	assert.ok(editable.length > 0,
-		'defect reproduction: without reject:true the numeric error unlocks editing (the anti-wipe hole)');
+	const unlocked = tas.filter((ta) => ta.readOnly !== true);
+	assert.equal(unlocked.length, 0,
+		'fail-closed: without a loaded model no textarea may be editable');
+	const banner = collectText(root).join(' | ');
+	assert.ok(!banner.includes('List backend unavailable'),
+		'without reject:true the explicit backend-error banner is lost (why reject:true is required)');
 });
 
 // ---- 5. monitor: stale path on ubus error --------------------------------------

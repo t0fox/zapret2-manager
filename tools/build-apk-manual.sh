@@ -53,7 +53,12 @@ export TMPDIR="${TMPDIR:-$HOME/z2m-build}"
 OUTDIR="$SDK/bin/packages/aarch64_cortex-a53/zapret2-manager"
 mkdir -p "$OUTDIR"
 
-VER="0.1.0-r2"
+# Version comes from the package Makefiles (single source), never a stale
+# hardcode: PKG_VERSION + PKG_RELEASE of zapret2-manager (both packages bump
+# together in this project). Override with VER=.
+_PV="$(sed -n 's/^PKG_VERSION:=//p' "$REPO/zapret2-manager/Makefile" | head -1)"
+_PR="$(sed -n 's/^PKG_RELEASE:=//p' "$REPO/zapret2-manager/Makefile" | head -1)"
+VER="${VER:-${_PV:-0.1.0}-r${_PR:-1}}"
 
 # mkfile <path> — write a postinst/postrm body from stdin to a temp file.
 # Use a unique file in a writable home dir: mktemp in WSL defaults to root-owned
@@ -103,6 +108,9 @@ for u in constants qlen status service watchdog apply apply-cli lists lists-cli 
   install -m 0644 "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/${u}.uc" \
                   "$R/usr/libexec/zapret2-manager/${u}.uc"
 done
+# the declarative list-path model (router-derived manifest consumed by lists.uc)
+install -m 0644 "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/lists-model.json" \
+                "$R/usr/libexec/zapret2-manager/lists-model.json"
 install -m 0755 "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/log-rotate.sh" \
                 "$R/usr/libexec/zapret2-manager/log-rotate.sh"
 # rpcd ucode plugin: install WITHOUT extension, matching the on-device `luci`

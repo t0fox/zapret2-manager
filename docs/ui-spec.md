@@ -26,7 +26,7 @@ The only ubus object the UI talks to is `zapret2-manager`
 | Method | Used by | Notes |
 |---|---|---|
 | `status` | Overview, Strategies, Blockcheck, DNS, Monitor, Maintenance | Schema v2 (docs/contracts/status.schema.json). May return `{error: 'status unavailable'}` — pages render that as an unavailable state, not as data. |
-| `lists_get` | Lists | Returns user/engine lists, `paths`, `conflicts`. On failure: `{ok:false,error}` — the page locks editing. |
+| `lists_get` | Lists | Schema 2: `lists` (per-key `{entries, path, type, editable, engine, present, reason}`), `conflicts`, `provenance`. The path model is the router-derived `lists-model.json`; only `domainInclude`/`domainExclude` are editable — IP-semantic keys and the autohostlist are read-only with reasons. On failure: `{error}` — the page locks editing. |
 | `lists_check_domain` | Lists | `params: ['domain']` — called positionally: `callListsCheck(d)`. |
 | `lists_set` | Lists | `params: ['edit']` — called positionally: `callListsSet(JSON.stringify(edit))`. **The ubus signature declares `edit` as type string** (verified on the router: an object argument is rejected with "Invalid argument"), so the UI sends the edit as a JSON string. |
 | `passthrough` | Strategies | `params: ['enabled']`; arms the 90s backend rollback. |

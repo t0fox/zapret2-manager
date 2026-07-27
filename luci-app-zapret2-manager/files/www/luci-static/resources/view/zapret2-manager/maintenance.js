@@ -26,8 +26,8 @@ const callStatus = rpc.declare({ object: 'zapret2-manager', method: 'status', re
 const BACKUP_SCOPES = [
 	{ id: 'engineConfig', paths: ['/opt/zapret2/config'], what: _('upstream engine config') },
 	{ id: 'ourState', paths: ['/etc/zapret2-manager/state.json'], what: _('manager state') },
-	{ id: 'lists', paths: ['/opt/zapret2/ipset/zapret-hostlist-user.txt',
-		'/opt/zapret2/ipset/zapret-ipset-exclude-user.txt'], what: _('user lists') },
+	{ id: 'lists', paths: ['/opt/zapret2/ipset/zapret-hosts-user.txt',
+		'/opt/zapret2/ipset/zapret-hosts-user-exclude.txt'], what: _('user lists') },
 	{ id: 'profiles', paths: ['/etc/zapret2-manager/profiles'], what: _('profiles') }
 ];
 

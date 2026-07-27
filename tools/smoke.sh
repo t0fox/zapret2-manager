@@ -30,6 +30,7 @@
 #   tools/smoke.sh autostart        # DESTRUCTIVE: reboot, verify auto-start
 #   tools/smoke.sh pause_fw_effect  # informational: NFQWS2_ENABLE=0 fw effect
 #   tools/smoke.sh queue_qlen_match | fw_delegation | no_fw_stop | ucode_syntax
+#   tools/smoke.sh lists_paths
 #   DEPLOY_HOST=192.168.1.1 tools/smoke.sh
 #
 # Exit: 0 = all selected checks passed, 1 = any failed.
@@ -166,9 +167,10 @@ queue_qlen_match() {
     bad "no queue 300 row in /proc/net/netfilter/nfnetlink_queue"
     return
   fi
-  # status.queueTotal via ubus (camelCase v2, per docs/contracts/status.schema.json).
+  # status queueTotal via ubus: health.queue.queueTotal (camelCase v2, per
+  # docs/contracts/status.schema.json — health.queue is the queue block).
   # If the ubus object is absent or status fails, this is empty — real (red) result.
-  ssh_out jsq "status queueTotal" "ubus call zapret2-manager status 2>/dev/null | jsonfilter -e '@.queues.queueTotal' 2>/dev/null"
+  ssh_out jsq "status queueTotal" "ubus call zapret2-manager status 2>/dev/null | jsonfilter -e '@.health.queue.queueTotal' 2>/dev/null"
   if [ -z "$jsq" ]; then
     bad "status.queueTotal unavailable (ubus zapret2-manager status empty) — cannot compare"
     return
@@ -285,7 +287,49 @@ view_resource_present() {
   fi
 }
 
-# ---- pause_fw_effect: informational — does NFQWS2_ENABLE=0 stop fw rules? ----
+# ---- lists_paths: shipped lists-model.json matches the live nfqws2 argv ----
+# The list model is router-derived and FIXED at ship time (lists-model.json).
+# If the engine config ever changes the active list paths (or one flag starts
+# resolving to several DISTINCT paths across profiles), the manifest is stale
+# and this gate goes red instead of letting the manager write a wrong file.
+# Read-only: never starts the service, never writes a list.
+lists_paths() {
+  log "lists_paths — lists-model.json vs live nfqws2 argv (no silent drift)"
+  ssh_out mp_di "manifest domainInclude" "jsonfilter -i /usr/libexec/zapret2-manager/lists-model.json -e '@.lists.domainInclude.path' 2>/dev/null"
+  ssh_out mp_de "manifest domainExclude" "jsonfilter -i /usr/libexec/zapret2-manager/lists-model.json -e '@.lists.domainExclude.path' 2>/dev/null"
+  want_nz "$mp_di" "manifest domainInclude.path readable"
+  want_nz "$mp_de" "manifest domainExclude.path readable"
+  ssh_out pid "nfqws2 pid" "pidof nfqws2 2>/dev/null | tr ' ' '\n' | head -1"
+  if [ -z "$pid" ]; then
+    bad "nfqws2 not running — cannot verify argv (service not auto-started by this check)"
+    return
+  fi
+  ssh_out argv "nfqws2 argv" "tr '\0' '\n' < /proc/$pid/cmdline"
+  live_di=$(printf '%s\n' "$argv" | sed -n 's/^--hostlist=//p' | sort -u)
+  live_de=$(printf '%s\n' "$argv" | sed -n 's/^--hostlist-exclude=//p' | sort -u)
+  if [ "$(printf '%s\n' "$live_di" | grep -c .)" -ne 1 ]; then
+    bad "--hostlist resolves to several DISTINCT paths (ambiguity — manifest stale): $(printf '%s ' $live_di)"
+  elif [ "$live_di" = "$mp_di" ]; then
+    ok "domainInclude path == live --hostlist ($mp_di)"
+  else
+    bad "domainInclude: manifest $mp_di != live --hostlist $live_di"
+  fi
+  if [ "$(printf '%s\n' "$live_de" | grep -c .)" -ne 1 ]; then
+    bad "--hostlist-exclude resolves to several DISTINCT paths (ambiguity — manifest stale): $(printf '%s ' $live_de)"
+  elif [ "$live_de" = "$mp_de" ]; then
+    ok "domainExclude path == live --hostlist-exclude ($mp_de)"
+  else
+    bad "domainExclude: manifest $mp_de != live --hostlist-exclude $live_de"
+  fi
+  # the two editable paths must be distinct (the historical collision class)
+  if [ -n "$mp_di" ] && [ -n "$mp_de" ] && [ "$mp_di" != "$mp_de" ]; then
+    ok "editable paths are distinct (no domain/ip collision)"
+  else
+    bad "editable paths collide or unreadable: '$mp_di' vs '$mp_de'"
+  fi
+}
+
+# ---- pause_fw_effect: informational — does NFQWS2_ENABLE=0 stop fw rules? ---
 # Pause sets NFQWS2_ENABLE=0; snapshot the zapret2 table via list_table before
 # and after pause. If the table is gone after pause → NFQWS2_ENABLE=0 also
 # clears fw rules → PAUSE_STOPS_FW stays false. If it remains → set
@@ -352,12 +396,13 @@ case "$SELECTION" in
     queue_qlen_match
     fw_delegation
     no_fw_stop
+    lists_paths
     ;;
-  menu_acl_shape|view_resource_present|ucode_syntax|queue_qlen_match|fw_delegation|no_fw_stop) "$SELECTION" ;;
+  menu_acl_shape|view_resource_present|ucode_syntax|queue_qlen_match|fw_delegation|no_fw_stop|lists_paths) "$SELECTION" ;;
   autostart) gate_autostart ;;
   pause_fw_effect) pause_fw_effect ;;
   -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
-  *) die "unknown check: $SELECTION (try: all, menu_acl_shape, view_resource_present, ucode_syntax, queue_qlen_match, fw_delegation, no_fw_stop, autostart, pause_fw_effect)" ;;
+  *) die "unknown check: $SELECTION (try: all, menu_acl_shape, view_resource_present, ucode_syntax, queue_qlen_match, fw_delegation, no_fw_stop, lists_paths, autostart, pause_fw_effect)" ;;
 esac
 
 log "result: PASS=$PASS FAIL=$FAIL"
