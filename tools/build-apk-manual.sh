@@ -72,14 +72,17 @@ mkdir -p "$R/etc/zapret2-manager" \
          "$R/etc/init.d"
 install -m 0644 "$REPO/zapret2-manager/files/etc/zapret2-manager/state.json" \
                 "$R/etc/zapret2-manager/state.json"
-for u in constants qlen status service watchdog; do
+for u in constants qlen status service watchdog apply lists; do
   install -m 0644 "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/${u}.uc" \
                   "$R/usr/libexec/zapret2-manager/${u}.uc"
 done
 install -m 0755 "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/log-rotate.sh" \
                 "$R/usr/libexec/zapret2-manager/log-rotate.sh"
+# rpcd ucode plugin: install WITHOUT extension, matching the on-device `luci`
+# plugin (/usr/share/rpcd/ucode/luci, no .uc). rpcd ucode.so scans the dir and
+# loads each file; keeping .uc would diverge from convention.
 install -m 0644 "$REPO/zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc" \
-                "$R/usr/share/rpcd/ucode/zapret2-manager.uc"
+                "$R/usr/share/rpcd/ucode/zapret2-manager"
 install -m 0755 "$REPO/zapret2-manager/files/etc/hotplug.d/iface/90-zapret2-manager" \
                 "$R/etc/hotplug.d/iface/90-zapret2-manager"
 install -m 0755 "$REPO/zapret2-manager/files/etc/init.d/zapret2-manager" \
