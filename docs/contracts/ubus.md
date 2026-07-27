@@ -60,6 +60,15 @@ Methods:
 | `blockcheck_start` | `{edit: string}` (`{"mode":"quick"\|"domains"\|"full", "domains":[...]}`) | mutate | Start ONE blockcheck job wrapping upstream `/opt/zapret2/blockcheck2.sh` (called, never reimplemented). `ECONFLICT` when a blockcheck job is non-terminal; `ETARGET` when the scanner is absent (never simulated). Response carries `warning` when nfqws2 is running (upstream: results unreliable with bypass active — the engine is NOT stopped automatically). |
 | `blockcheck_status` | none | read | The active job (else the newest) + logTail + recommendations when finished. |
 | `blockcheck_cancel` | `{edit: string}` (`{"id"}`) | mutate | Real cancel: the runner INT-signals the scanner's process group (it unpreparse its own firewall artifacts); last-resort -9 after grace. |
+| `versions` | none | read | Installed versions (manager/LuCI/upstream apk, nfqws2, lua_compat_ver, OS). `updateAvailable: null` with an explicit note — never fabricated. |
+| `maintenance_status` | none | read | Uptime, memory, storage (overlay/tmp %), backups summary, events summary, `rebootRequired: false` (the manager never requires one). |
+| `events_tail` | `{edit: string}` (`{"n"?}`, ≤200) | read | Last N events from `events.ndjson`; malformed lines REPORTED, never silently dropped. |
+| `backup_list` | none | read | Per-scope current + history (max 3) with SHA-256 manifest briefs. |
+| `backup_create` | `{edit: string}` (`{"scope"|"all"}`) | mutate | Snapshot scope(s) into a v2 archive (per-file SHA-256 manifest, mode/owner meta, size limits enforced). |
+| `backup_restore_preview` | `{edit: string}` (`{"scope","takenAt"?}`) | read | Integrity verify + live diff + syntax findings + version gate (`restorable` verdict). NO writes. |
+| `backup_restore` | `{edit: string}` (`{"scope","takenAt"?}`) | mutate | Pre-restore snapshot (always) → allowlist gate (a crafted path REFUSES the whole restore) → manifest/syntax/version checks → restore ONLY through sanctioned writers (apply.uc restore_whole_file / write_list_file, profiles-draft restore_state_raw/restore_drafts) → mode/owner reapply → downgrade warning when older. |
+| `backup_delete` | `{edit: string}` (`{"scope","takenAt"}`) | mutate | Delete a history entry (deleting the current baseline is refused). |
+| `diagnostics_export` | none | read | Redacted bundle (versions, maintenance, status snapshot, events, hashes). Secrets redacted by key name and value pattern; `redactedFields` count included. |
 
 Job statuses (closed enum) and allowed transitions:
 

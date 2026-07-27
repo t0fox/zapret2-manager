@@ -23,7 +23,7 @@
 // library apply.uc, which carries `export` and therefore cannot run in script
 // mode (ucode: "Exports may only appear at top level of a module").
 
-import { read_var, set_var, do_set } from './apply.uc';
+import { read_var, set_var, do_set, do_restore } from './apply.uc';
 
 let mode = ARGV[0];
 if (mode == 'read') {
@@ -35,7 +35,11 @@ if (mode == 'read') {
 } else if (mode == 'do_set') {
 	do_set(ARGV[1], ARGV[2]);
 	print('ok\n');
+} else if (mode == 'do_restore') {
+	// INTERNAL, runs under flock: whole-file restore of the applied config
+	do_restore(ARGV[1], ARGV[2]);
+	print('ok\n');
 } else {
-	print('usage: ucode apply-cli.uc read <name> | set <name> <value> | do_set <namefile> <valuefile>\n');
+	print('usage: ucode apply-cli.uc read <name> | set <name> <value> | do_set <namefile> <valuefile> | do_restore <path> <contentfile>\n');
 	exit(1);
 }

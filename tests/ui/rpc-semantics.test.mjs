@@ -977,6 +977,173 @@ test('blockcheck: recommendations render with provenance; Save to Draft sends th
 	assert.ok(parsed.name.includes('rutracker.org'));
 });
 
+// ---- 6e. maintenance: versions/backups/events/diagnostics (SLICE 5) ---------------
+
+const VERSIONS_FIXTURE = {
+	ok: true,
+	manager: { name: 'zapret2-manager', version: '0.1.0-r4' },
+	luciApp: { name: 'luci-app-zapret2-manager', version: '0.1.0-r4' },
+	upstreamPkg: { name: 'zapret2', version: '0.9.20260307-r1' },
+	nfqws2: '0.9.20260307', luaCompatVer: 5, os: 'OpenWrt 25.12.5',
+	updateAvailable: null, note: 'installed versions read from the system'
+};
+
+const MAINT_FIXTURE = {
+	ok: true, uptimeSec: 3661, memory: { availableKb: 102400 },
+	storage: { overlayPercent: 42, tmpPercent: 3 },
+	backups: {}, events: { total: 12, lastSeverity: 'info' },
+	rebootRequired: false, note: 'n'
+};
+
+const BACKUPS_FIXTURE = {
+	ok: true, historyCap: 3,
+	scopes: {
+		engineConfig: {
+			paths: ['/opt/zapret2/config'],
+			current: { takenAt: 1785000000, version: 1, manifestSha256: 'aabbccdd00112233', format: 2, files: [{ path: '/opt/zapret2/config', sha256: 'aa', size: 100 }] },
+			history: [{ takenAt: 1785000000, version: 1, manifestSha256: 'aabbccdd00112233', format: 2, files: [{ path: '/opt/zapret2/config', sha256: 'aa', size: 100 }] }]
+		},
+		ourState: { paths: ['/etc/zapret2-manager/state.json'], current: null, history: [] },
+		lists: { paths: [], current: null, history: [] },
+		profiles: { paths: [], current: null, history: [] }
+	}
+};
+
+const EVENTS_FIXTURE = {
+	ok: true, total: 2,
+	events: [
+		{ schema: 'events.v1', ts: '2026-07-28T01:00:00Z', id: 'watchdog-1', category: 'config', severity: 'info', source: 'watchdog', msg: 'cycle ok' },
+		{ schema: 'events.v1', ts: '2026-07-28T02:00:00Z', id: 'ui-2', category: 'pause', severity: 'warn', source: 'ui', msg: 'paused' }
+	],
+	malformed: [{ preview: '{ broken' }]
+};
+
+function maintWorld(extra = {}) {
+	return makeWorld({
+		versions: { type: 'ok', value: VERSIONS_FIXTURE },
+		maintenance_status: { type: 'ok', value: MAINT_FIXTURE },
+		backup_list: { type: 'ok', value: BACKUPS_FIXTURE },
+		events_tail: { type: 'ok', value: EVENTS_FIXTURE },
+		...extra
+	});
+}
+
+test('maintenance: versions/events render real data; malformed event line shown', async () => {
+	const w = maintWorld();
+	const view = loadView(readViewSource('maintenance'), 'maintenance', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	const text = collectText(root).join(' | ');
+	assert.ok(text.includes('0.1.0-r4'), 'manager version renders');
+	assert.ok(text.includes('OpenWrt 25.12.5'), 'OS renders');
+	assert.ok(text.includes('cycle ok'), 'event renders');
+	assert.ok(text.includes('malformed line'), 'malformed event line is REPORTED');
+	assert.ok(text.includes('42%'), 'storage renders');
+});
+
+test('maintenance: backup_create sends { scope } as JSON string', async () => {
+	const w = maintWorld({ backup_create: { type: 'ok', value: { ok: true, scopes: {} } } });
+	const view = loadView(readViewSource('maintenance'), 'maintenance', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	const sel = w.created.find((n) => n.attrs.id === 'z2m-backup-scope');
+	const btn = w.created.find((n) => n.attrs.id === 'z2m-backup-create');
+	assert.ok(sel && btn, 'backup create controls not rendered');
+	sel.value = 'engineConfig';
+	btn.listeners.click();
+	await flush();
+	const call = w.calls.find((c) => c.method === 'backup_create');
+	assert.ok(call, 'backup_create was not called');
+	assert.deepEqual(JSON.parse(call.params.edit), { scope: 'engineConfig' });
+});
+
+test('maintenance: preview → restorable → restore is arm→confirm with the right payload', async () => {
+	const previewOk = {
+		ok: true, scope: 'engineConfig', takenAt: 1785000000,
+		archive: { takenAt: 1785000000, version: 1 },
+		integrity: { manifest: true, ok: true, reason: null },
+		diffs: [{ path: '/opt/zapret2/config', presentNow: true, changed: true, currentSha256: 'aaaa', archiveSha256: 'bbbb', currentSize: 90, archiveSize: 100 }],
+		syntax: [], versionGate: 'ok', restorable: true
+	};
+	const w = maintWorld({
+		backup_restore_preview: { type: 'ok', value: previewOk },
+		backup_restore: { type: 'ok', value: { ok: true, restored: true, preTaken: true, scope: 'engineConfig', downgradeWarning: null, note: 'restart the service' } }
+	});
+	const view = loadView(readViewSource('maintenance'), 'maintenance', w);
+	const envelope = await view.load();
+	let root = view.render(envelope);
+	const prevBtn = findBtn(root.children, 'Preview');
+	assert.ok(prevBtn, 'Preview button not found');
+	prevBtn.listeners.click();
+	await flush();
+	root = view.render(await view.load());
+	const text = collectText(root).join(' | ');
+	assert.ok(text.includes('sha256 manifest OK'), 'integrity renders');
+	assert.ok(text.includes('changed'), 'diff renders');
+	const restoreBtn = findBtn(root.children, 'Restore this archive');
+	assert.ok(restoreBtn, 'restore button renders when restorable');
+	restoreBtn.listeners.click();   // ARM
+	assert.ok(w.calls.every((c) => c.method !== 'backup_restore'), 'first click only ARMS');
+	root = view.render(await view.load());
+	const confirmBtn = findBtn(root.children, 'Confirm restore (current state is snapshotted first)?');
+	assert.ok(confirmBtn, 'confirm step renders');
+	confirmBtn.listeners.click();   // CONFIRM
+	await flush();
+	const call = w.calls.find((c) => c.method === 'backup_restore');
+	assert.ok(call, 'backup_restore was not called after confirm');
+	assert.deepEqual(JSON.parse(call.params.edit), { scope: 'engineConfig', takenAt: 1785000000 });
+});
+
+test('maintenance: NOT-restorable preview shows the reason and no restore button', async () => {
+	const previewBad = {
+		ok: true, scope: 'engineConfig', takenAt: 1785000000,
+		integrity: { manifest: true, ok: false, reason: 'sha256 mismatch for /opt/zapret2/config' },
+		diffs: [], syntax: [], versionGate: 'ok', restorable: false
+	};
+	const w = maintWorld({ backup_restore_preview: { type: 'ok', value: previewBad } });
+	const view = loadView(readViewSource('maintenance'), 'maintenance', w);
+	const envelope = await view.load();
+	let root = view.render(envelope);
+	findBtn(root.children, 'Preview').listeners.click();
+	await flush();
+	root = view.render(await view.load());
+	const text = collectText(root).join(' | ');
+	assert.ok(text.includes('Not restorable'), 'the not-restorable verdict renders');
+	assert.ok(!findBtn(root.children, 'Restore this archive'), 'no restore button when integrity fails');
+});
+
+test('maintenance: delete is two-step and sends { scope, takenAt }', async () => {
+	const w = maintWorld({ backup_delete: { type: 'ok', value: { ok: true, scope: 'engineConfig', deleted: 1785000000 } } });
+	const view = loadView(readViewSource('maintenance'), 'maintenance', w);
+	const envelope = await view.load();
+	let root = view.render(envelope);
+	const delBtn = findBtn(root.children, 'Delete');
+	assert.ok(delBtn, 'Delete button not found');
+	delBtn.listeners.click();   // arm
+	assert.ok(w.calls.every((c) => c.method !== 'backup_delete'), 'first click only ARMS');
+	root = view.render(await view.load());
+	const confirmBtn = findBtn(root.children, 'Confirm delete?');
+	confirmBtn.listeners.click();   // confirm
+	await flush();
+	const call = w.calls.find((c) => c.method === 'backup_delete');
+	assert.ok(call, 'backup_delete was not called');
+	assert.deepEqual(JSON.parse(call.params.edit), { scope: 'engineConfig', takenAt: 1785000000 });
+});
+
+test('maintenance: diagnostics export calls diagnostics_export (no browser filesystem)', async () => {
+	const w = maintWorld({
+		diagnostics_export: { type: 'ok', value: { ok: true, export: { generatedAt: 1, redactedFields: 1, versions: {} } } }
+	});
+	const view = loadView(readViewSource('maintenance'), 'maintenance', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	const btn = w.created.find((n) => n.attrs.id === 'z2m-diagnostics');
+	assert.ok(btn, 'diagnostics button not found');
+	btn.listeners.click();
+	await flush();
+	assert.ok(w.calls.some((c) => c.method === 'diagnostics_export'), 'diagnostics_export was not called');
+});
+
 // ---- 7. overview: passthrough wire + reject gate (no longer excluded) --------
 
 test('overview: callPassthrough is declared with params:[enabled] + reject:true (fixed → green)', () => {

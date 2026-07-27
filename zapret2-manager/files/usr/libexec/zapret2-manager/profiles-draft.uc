@@ -102,6 +102,50 @@ export const load_state = function() {
 	return parse_state(readfile(STATE));
 };
 
+// restore_state_raw(content) — the SANCTIONED restore of state.json (Slice 5
+// backup restore). The content is VALIDATED through parse_state (a malformed
+// restore never lands), then written through save_state (rolling backup of
+// the previous draft + atomic temp+mv + lock discipline). Returns the
+// parse_state result on success, { ok:false, reason } on refusal.
+export const restore_state_raw = function(content) {
+	let pr = parse_state(content);
+	if (!pr.ok) return { ok: false, reason: 'restore content is not a valid draft state: ' + pr.reason };
+	if (!save_state(pr.state)) return { ok: false, reason: 'failed to write draft state (lock active or disk error)' };
+	return { ok: true };
+};
+
+// restore_drafts(profilesArray) — replace ONLY the draft profiles (the
+// 'profiles' backup scope): service keys (passthrough/active_profile) and
+// the id sequence are preserved; every restored record is normalized
+// through the same shape rules as CRUD. Returns { ok, count } | { ok:false }.
+export const restore_drafts = function(profilesArray) {
+	if (type(profilesArray) != 'array') return { ok: false, reason: 'profiles scope content is not an array' };
+	let ls = load_state();
+	if (!ls.ok) return { ok: false, reason: 'draft state is malformed — refusing to overwrite it: ' + ls.reason };
+	let clean = [];
+	for (let i = 0; i < length(profilesArray); i++) {
+		let p = profilesArray[i];
+		if (type(p) != 'object' || type(p.id) != 'string' || type(p.name) != 'string' || type(p.opt) != 'string')
+			return { ok: false, reason: 'restored profile record #' + i + ' is malformed (id/name/opt must be strings)' };
+		push(clean, normalize_profile(p));
+	}
+	if (length(clean) > MAX_PROFILES) return { ok: false, reason: 'restored set exceeds the draft profile limit' };
+	// keep the id sequence ahead of every restored id to avoid collisions
+	let maxSeq = ls.state.nextIdSeq;
+	for (let i = 0; i < length(clean); i++) {
+		let m = clean[i];
+		if (substr(m.id, 0, 1) == 'p') {
+			let n = +substr(m.id, 1);
+			if (n > 0 && n + 1 > maxSeq) maxSeq = n + 1;
+		}
+	}
+	ls.state.profiles = clean;
+	ls.state.nextIdSeq = maxSeq;
+	ls.state.updatedAt = time();
+	if (!save_state(ls.state)) return { ok: false, reason: 'failed to write draft state (lock active or disk error)' };
+	return { ok: true, count: length(clean) };
+};
+
 // save_state(state) — backup rotation (.bak.1/.2/.3) then atomic temp+mv.
 // Returns true on success, false on any write failure (the caller surfaces
 // ETARGET; nothing is left half-written: a failed mv leaves only the temp).

@@ -278,6 +278,59 @@ export const do_set = function(name_f, val_f) {
 	if (p) p.close();
 };
 
+// do_restore <path> <contentfile> — runs UNDER flock (invoked by
+// restore_whole_file below). Whole-file atomic replace + readback verify.
+export const do_restore = function(path, content_f) {
+	let content = readfile(content_f);
+	if (content == null) content = '';
+	let tmp = path + '.tmp.rst.' + time();
+	writefile(tmp, content);
+	let p = popen('mv -f ' + tmp + ' ' + path + ' 2>/dev/null', 'r');
+	if (p) p.close();
+};
+
+// restore_whole_file(path, content) — the SANCTIONED whole-file restore for
+// the applied config (Slice 5). Before this existed, backup restore wrote
+// /opt/zapret2/config through its own atomic_write — a SECOND writer, which
+// the single-writer rule forbids. Restrictions:
+//   - path allowlist: ONLY the applied config (PATHS.applied_conf);
+//   - same serialization as set_var: flock subprocess when flock is present
+//     (marker fallback otherwise, same remaining-race caveat);
+//   - readback verify: the restored bytes must read back exactly.
+// The caller (backup restore) is responsible for its own pre-restore
+// snapshot, manifest/syntax verification and version gate — this function is
+// the WRITE primitive only.
+export const restore_whole_file = function(path, content) {
+	if (path != CONFIG) return null;   // allowlist: the applied config only
+	if (content == null) content = '';
+	if (have_flock()) {
+		let val_f = _mktemp();
+		writefile(val_f, '' + content);
+		let cmd = "flock " + LOCKFILE + " -c 'ucode /usr/libexec/zapret2-manager/apply-cli.uc do_restore " + path + " " + val_f + " 2>/dev/null'";
+		let p = popen(cmd, 'r');
+		if (p) p.close();
+		try { unlink(val_f); } catch (e) { }
+	} else {
+		// marker fallback (same 60s stale window as set_var)
+		if (stat(MARKER)) {
+			let mtime = trim(readfile(MARKER));
+			let age = time() - (+mtime);
+			if (mtime && age < 60) return null;   // another writer is active
+			try { unlink(MARKER); } catch (e) { }
+		}
+		try { writefile(MARKER, '' + time() + '\n'); } catch (e) { }
+		let f = _mktemp();
+		writefile(f, '' + content);
+		do_restore(path, f);
+		try { unlink(f); } catch (e) { }
+		try { unlink(MARKER); } catch (e) { }
+	}
+	// readback verify
+	let rb = readfile(path);
+	if (rb == content) return content;
+	return null;
+};
+
 // ---- list file I/O (single writer, same module as set_var) ------------------
 // lists.uc imports these — there is no second write path. List files are the
 // user-editable text lists under /opt/zapret2/ipset/ (one entry per line).

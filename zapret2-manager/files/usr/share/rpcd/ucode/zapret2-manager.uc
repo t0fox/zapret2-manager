@@ -229,6 +229,56 @@ function blockcheck_start_method(req) { return jobs_edit_action('start', req); }
 function blockcheck_cancel_method(req) { return jobs_edit_action('cancel', req); }
 function blockcheck_status_method(req) { return jobs_action('status'); }
 
+// ---- maintenance + backups (SLICE 5) -----------------------------------------
+const BACKUP_CLI = '/usr/libexec/zapret2-manager/backup-cli.uc';
+const MAINT_CLI = '/usr/libexec/zapret2-manager/maintenance-cli.uc';
+
+function cli_action(cli, sub) {
+	let cmd = '/usr/bin/ucode ' + cli + ' ' + sub + ' 2>/dev/null';
+	let p = popen(cmd, 'r');
+	if (!p) return { ok: false, error: 'popen failed' };
+	let out = p.read('all');
+	if (!out) out = '';
+	p.close();
+	try {
+		let parsed = json(out);
+		if (parsed != null) return parsed;
+		return { ok: false, error: 'no output', raw: out };
+	} catch (e) { return { ok: false, error: 'parse failed', raw: out }; }
+}
+
+function cli_edit_action(cli, sub, req, tag) {
+	let edit = null;
+	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
+	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
+	if (edit == null) return { ok: false, error: { code: 'EINPUT', message: 'missing edit param' } };
+	if (type(edit) != 'string') return { ok: false, error: { code: 'EINPUT', message: 'edit must be a JSON string', got: type(edit) } };
+	let tmp = '/tmp/z2m-' + tag + '-edit.' + time();
+	writefile(tmp, edit);
+	let cmd = '/usr/bin/ucode ' + cli + ' ' + sub + ' ' + tmp + ' 2>/dev/null';
+	let p = popen(cmd, 'r');
+	if (!p) { try { unlink(tmp); } catch (e) { } return { ok: false, error: 'popen failed' }; }
+	let out = p.read('all');
+	if (!out) out = '';
+	p.close();
+	try { unlink(tmp); } catch (e) { }
+	try {
+		let parsed = json(out);
+		if (parsed != null) return parsed;
+		return { ok: false, error: 'no output', raw: out };
+	} catch (e) { return { ok: false, error: 'parse failed', raw: out }; }
+}
+
+function versions_method(req) { return cli_action(MAINT_CLI, 'versions'); }
+function maintenance_status_method(req) { return cli_action(MAINT_CLI, 'status'); }
+function events_tail_method(req) { return cli_edit_action(MAINT_CLI, 'events', req, 'events'); }
+function diagnostics_export_method(req) { return cli_action(MAINT_CLI, 'diagnostics'); }
+function backup_list_method(req) { return cli_action(BACKUP_CLI, 'list'); }
+function backup_create_method(req) { return cli_edit_action(BACKUP_CLI, 'create', req, 'backup'); }
+function backup_restore_preview_method(req) { return cli_edit_action(BACKUP_CLI, 'preview', req, 'backup'); }
+function backup_restore_method(req) { return cli_edit_action(BACKUP_CLI, 'restore', req, 'backup'); }
+function backup_delete_method(req) { return cli_edit_action(BACKUP_CLI, 'delete', req, 'backup'); }
+
 // profiles_apply {edit: '{"mode":"preview"|"apply"}'} — preview is read-only
 // (no write, no restart); apply runs the full pipeline (snapshot → write →
 // restart → verify → rollback-on-failure). Mode parsing happens here; the
@@ -279,6 +329,15 @@ return {
 		job_list:          { call: function (req) { return job_list_method(req); } },
 		blockcheck_start:  { args: { edit: 'string' }, call: function (req) { return blockcheck_start_method(req); } },
 		blockcheck_cancel: { args: { edit: 'string' }, call: function (req) { return blockcheck_cancel_method(req); } },
-		blockcheck_status: { call: function (req) { return blockcheck_status_method(req); } }
+		blockcheck_status: { call: function (req) { return blockcheck_status_method(req); } },
+		versions:          { call: function (req) { return versions_method(req); } },
+		maintenance_status: { call: function (req) { return maintenance_status_method(req); } },
+		events_tail:       { args: { edit: 'string' }, call: function (req) { return events_tail_method(req); } },
+		diagnostics_export: { call: function (req) { return diagnostics_export_method(req); } },
+		backup_list:       { call: function (req) { return backup_list_method(req); } },
+		backup_create:     { args: { edit: 'string' }, call: function (req) { return backup_create_method(req); } },
+		backup_restore_preview: { args: { edit: 'string' }, call: function (req) { return backup_restore_preview_method(req); } },
+		backup_restore:    { args: { edit: 'string' }, call: function (req) { return backup_restore_method(req); } },
+		backup_delete:     { args: { edit: 'string' }, call: function (req) { return backup_delete_method(req); } }
 	}
 };

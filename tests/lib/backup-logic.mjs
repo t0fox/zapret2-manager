@@ -106,16 +106,31 @@ export class BackupsStore {
 	//    is STORED in history (so a bad restore can itself be rolled back), with
 	//    the same eviction rule (max 3, oldest out).
 	//  - verify archive (checksum + syntax); fail → touch nothing, return why.
+	//  - when opts.allowedPaths is given, EVERY archive path must be in it —
+	//    a crafted archive path outside the scope allowlist is REFUSED before
+	//    anything is written (no arbitrary-file-write primitive).
 	//  - refuse if archive.version > currentVersion (newer package version).
 	//  - else restore: hand the files back to the live writer (atomic: temp+rename).
 	// `writeFiles(path, content)` writes a file atomically (temp + rename) — no half.
 	// `syntaxCheck(path, content)` returns a reason string or null.
 	// `currentVersion` is the running package version.
+	// `allowedPaths` (optional array) — the scope's restore allowlist.
 	restore(scope, archive, opts) {
 		const st = this._ensure(scope);
 		const currentVersion = opts.currentVersion;
 		const writeFiles = opts.writeFiles;
 		const syntaxCheck = opts.syntaxCheck;
+		const allowedPaths = opts.allowedPaths || null;
+		// 0) allowlist gate BEFORE any write (Slice 5: a crafted archive must
+		//    never become an arbitrary-file-write primitive)
+		if (allowedPaths) {
+			for (let i = 0; i < archive.files.length; i++) {
+				if (!allowedPaths.includes(archive.files[i].path)) {
+					return { ok: false, restored: false, preTaken: false,
+						reason: 'archive path ' + archive.files[i].path + ' is not in the ' + scope + ' allowlist — restore REFUSED (no arbitrary paths)' };
+				}
+			}
+		}
 		// 1) pre-restore snapshot of current (ALWAYS, no exceptions). The snapshot is
 		//    STORED in history (so a bad restore can itself be rolled back), with the
 		//    same eviction rule (max 3, oldest out).
