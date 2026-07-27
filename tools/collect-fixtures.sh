@@ -1,14 +1,5 @@
 #!/bin/sh
-# tools/collect-fixtures.sh — snapshot the zapret2 router into tests/fixtures.
-#
-# ORIGIN NOTE: the fixtures currently in tests/fixtures/ were collected from a
-# router BEFORE it was factory-reset; the engine is no longer on that device,
-# so those snapshots are of UNCONFIRMED origin (they cannot be re-verified
-# against the current target). They stand as samples of the upstream config
-# FORMAT for the writer/stripper self-tests, not as verified live readings.
-# Re-run this script against a freshly installed engine to refresh them with a
-# confirmed-origin sample; a format mismatch (especially multi-line value
-# layout) is a blocker for the apply.uc/stripper self-tests.
+# tools/collect-fixtures.sh — snapshot the live zapret2 router into tests/fixtures.
 #
 # One command pulls a full upstream-state snapshot and lays it out in
 # tests/fixtures/, one file per fixture, each paired with a <name>.rc file
