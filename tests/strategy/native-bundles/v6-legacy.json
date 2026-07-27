@@ -1,0 +1,34 @@
+{
+	"id": "legacy-v6",
+	"role": "legacy",
+	"binaryVersionFixture": "tests/fixtures/nfqws2-version-long.out",
+	"luaContentsFixture": "tests/fixtures/opt-zapret2-lua-contents.out",
+	"binaryVersion": "self-built version Jun 29 2026 12:59:20",
+	"binaryCommit": null,
+	"binarySha256": null,
+	"luaCompatVer": 6,
+	"upstreamCommit": "8a0f53f3cf2c92ddeaa66995ee63a35c1210c410",
+	"sameReleaseProven": false,
+	"sameReleaseEvidence": {
+		"method": "byte-exact comparison of captured Lua files against upstream commits (verified 2026-07-27)",
+		"luaFileMatches": {
+			"zapret-tests.lua": "byte-exact vs 8a0f53f",
+			"zapret-lib.lua": "byte-exact vs 8a0f53f (and fe8b8df)",
+			"zapret-auto.lua": "byte-exact vs 8a0f53f (file unchanged across 8e76197..8a0f53f — era-ambiguous)",
+			"zapret-antidpi.lua": "byte-exact vs 8a0f53f",
+			"zapret-obfs.lua": "byte-exact vs 8a0f53f (file unchanged across the range — era-ambiguous)",
+			"zapret-pcap.lua": "byte-exact vs 8a0f53f (file unchanged across the range — era-ambiguous)"
+		},
+		"binaryCommitUnproven": "the binary is a self-built artifact ('self-built version Jun 29 2026'); its exact source commit is unknown, so same-release with the Lua bundle cannot be PROVEN even though compat versions agree (6=6)"
+	},
+	"provenance": {
+		"source": "pre-reset router capture (legacy fixture set)",
+		"capturedAt": null,
+		"target": "same device family, earlier state",
+		"notes": [
+			"do NOT use this bundle to validate strategies for the current target (lua_compat_ver 5)",
+			"the Lua bundle matches the pinned study commit 8a0f53f byte-for-byte"
+		]
+	},
+	"confidence": "medium"
+}

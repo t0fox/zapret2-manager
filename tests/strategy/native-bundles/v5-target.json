@@ -1,0 +1,33 @@
+{
+	"id": "target-v5-20260307",
+	"role": "current-target",
+	"binaryVersionFixture": "tests/fixtures-postinstall/nfqws2-version-long.out",
+	"luaContentsFixture": "tests/fixtures-postinstall/opt-zapret2-lua-contents.out",
+	"binaryVersion": "github version 0.9.20260307 (d3b3011000f103c5af161cc4e3167e80fd6928a2)",
+	"binaryCommit": "d3b3011000f103c5af161cc4e3167e80fd6928a2",
+	"binarySha256": null,
+	"luaCompatVer": 5,
+	"upstreamCommit": "d3b3011000f103c5af161cc4e3167e80fd6928a2",
+	"sameReleaseProven": true,
+	"sameReleaseEvidence": {
+		"method": "byte-exact comparison of all six captured Lua files against upstream bol-van/zapret2@d3b3011 (verified 2026-07-27); zapret-lib.lua@d3b3011 declares NFQWS2_COMPAT_VER_REQUIRED=5, matching the binary self-report",
+		"luaFileMatches": {
+			"zapret-tests.lua": "byte-exact",
+			"zapret-lib.lua": "byte-exact",
+			"zapret-auto.lua": "byte-exact",
+			"zapret-antidpi.lua": "byte-exact",
+			"zapret-obfs.lua": "byte-exact",
+			"zapret-pcap.lua": "byte-exact"
+		}
+	},
+	"provenance": {
+		"source": "postinstall router capture",
+		"capturedAt": null,
+		"target": "Cudy WBR3000UAX v1, OpenWrt 25.12.5, aarch64_cortex-a53",
+		"notes": [
+			"binary self-reports upstream commit d3b3011 and lua_compat_ver 5",
+			"the Lua bundle is byte-identical to upstream d3b3011 — this is hash-level evidence, not co-location inference"
+		]
+	},
+	"confidence": "high"
+}

@@ -5,13 +5,33 @@ parameter, filter, and blob name here is grounded in an upstream artifact — no
 invented. An invented parameter here becomes a non-working button in the editor,
 so the rule is: **nothing is listed unless an upstream source states it**.
 
+> **Authority (2026-07-27 correction).** The authoritative parsers are the
+> target's `nfqws2` binary (C option parser) plus the Lua bundle loaded with
+> it — same release, matching `lua_compat_ver` (pinned `bol-van/zapret2`
+> study commit `8a0f53f3cf2c92ddeaa66995ee63a35c1210c410`; target commit
+> `d3b3011`). This catalog and the static validator are a **drift linter and
+> UI hint source — not a native oracle**: final validity of any Lua strategy
+> expression is decided only by the native parser/bundle. See
+> `docs/contracts/strategy-model.md`.
+>
+> **Target compatibility.** The current target reports
+> `github version 0.9.20260307 (d3b3011) lua_compat_ver 5`
+> (`tests/fixtures-postinstall/nfqws2-version-long.out`). The older capture
+> with `lua_compat_ver 6` (`tests/fixtures/nfqws2-version-long.out`) is a
+> **legacy** fixture — do not use it as the current target. The v5 target Lua
+> bundle is byte-exact to upstream commit `d3b3011` (verified by hash
+> comparison of all six Lua files, 2026-07-27); the legacy v6 bundle is
+> byte-exact to the pinned study commit `8a0f53f`. Bundle manifests live in
+> `tests/strategy/native-bundles/`.
+>
 > **Provenance legend.**
 > **[LUA]** confirmed by cross-check against the Lua fixture
-> `tests/fixtures/opt-zapret2-lua-contents.out` (binary `lua_compat_ver 6`): the
+> `tests/fixtures/opt-zapret2-lua-contents.out` (**legacy** capture,
+> `lua_compat_ver 6`, byte-exact to upstream `8a0f53f`): the
 > function exists as `function name(ctx, desync)` and its parameters match the
 > `-- arg:` / `-- standard args :` comment block above it. The validator
 > (`tools/validate-strategy.sh`) re-runs this cross-check automatically when the
-> fixture is present.
+> fixture is present — as a catalog-drift check, not a native verdict.
 > **[HELP]** confirmed against the `nfqws2 -V` help output (option grammar).
 > **[TARGET]** stated as community practice but **requires a run on the target
 > before use** — not confirmed by fixture alone.
@@ -213,19 +233,29 @@ hostname as the key), `reqhost` (fall back to the request host). Selected by
 ### Range forms observed in live configs
 **[HELP]** + live config: `--out-range=-d10`, `--in-range=-d10000`,
 `--in-range=-s4096` (incoming, relative-sequence 4096). The task's enumerated
-forms — `-10`, `-n3`, `<n2`, `<n3`, `-s4096` (incoming) — all fit the
-`--out-range`/`--in-range` grammar with an optional left operand. `-10` (a bare
-integer with no prefix letter) is accepted because it appears in live configs,
-though the `-V` grammar shows prefixed operands (`n/d/s/p/a/b/x`) as canonical;
-the editor should prefer the prefixed form. *(Decision under incomplete info —
-see §11.)*
+forms — `-n3`, `<n2`, `<n3`, `-s4096` (incoming) — all fit the
+`--out-range`/`--in-range` grammar with an optional left operand.
+**Correction (2026-07-27, pinned `nfq2/filter.c:115-117`):** a **bare integer
+operand** (e.g. `-10`, no prefix letter) is **rejected** by the native parser
+— `packet_pos_parse` requires the first character to be one of
+`n/d/s/p/b/x/a`, so `--out-range=-10` fails with `invalid packet range value`
+and exit(1). Earlier text claiming `-10` is "accepted because it appears in
+live configs" was wrong. The editor must always emit the prefixed form
+(`-n10`).
 
 ### Profile separator vs name — a data-model distinction
 **[HELP]** `--new[=<name>]` **begins a new profile** (and may name it).
 `--name=<name>` **sets the name of the current profile** without starting a new
 one. `name` is therefore an **independent property of the data model**, not a
 synonym for the `new` separator. The editor must model `new` (boundary) and
-`name` (property) separately. Other profile-structural options: `--skip`
+`name` (property) separately.
+**Pinned confirmation (nfq2/nfqws.c @8a0f53f):** `IDX_NEW` (:2706) begins the
+profile and, when a value is present, assigns `dp->name` (:2738); `IDX_NAME`
+(:2756) assigns `dp->name` of the current profile, so with `--new=One` +
+`--name=Two` the **last** naming event wins — the manager model records every
+naming event and raises `MANAGER_CONFLICTING_PROFILE_NAMES` on conflicting
+values while preserving both source forms byte-for-byte.
+Other profile-structural options: `--skip`
 (disable the profile), `--template[=<name>]`, `--import=<name>`, `--cookie[=<str>]`.
 
 ---
@@ -419,9 +449,15 @@ errors `blob arg required` / the blob resolves to nothing. Declare it with
 A `--lua-desync=<fn>` references a function that does not exist in the loaded
 Lua. The known community error: "such a desync function does not exist" — cause:
 **the binary and the Lua files are from different releases** (a method present
-in one release's Lua is absent in another's). The validator's Lua-fixture
-cross-check is what catches this definitively (the method is used in the options
-but not defined in the Lua).
+in one release's Lua is absent in another's).
+**Correction (2026-07-27):** absence from a *static catalog* is only a
+**manager warning** (`MANAGER_NOT_IN_CATALOG`) — never a fatal error by
+itself. The definitive check is native: `lua_desync_functions_exist()`
+(`nfq2/lua.c` @d3b3011:3891 / @8a0f53f:4023) resolves every `--lua-desync`
+function against the actually loaded bundle at init time
+(`nfqws2 --intercept=0`, side-effect-free per static analysis —
+`docs/contracts/strategy-model.md` §2.2). The validator's Lua-fixture
+cross-check remains a drift linter, not an oracle.
 
 ### Derived rule — binary and Lua must be from one release
 From #6: **the nfqws2 binary and the `/opt/zapret2/lua/*.lua` files must be from
@@ -432,13 +468,25 @@ Lua-contents fixture to be present (co-captured from the same target), reads
 cross-check that detects #6. If either fixture is absent, the cross-check is
 **skipped (not an error)**; the static catalog checks still run.
 
-> **Limitation, stated honestly.** The Lua files do not declare their own
-> compat version, so "same release" cannot be proven from the fixtures alone —
-> the validator verifies **co-presence** of the two fixtures and reports
-> `lua_compat_ver`, and relies on the **method cross-check** as the actual
-> mismatch detector (a method used but absent from the Lua = mismatch). A
-> definitive same-release assertion needs a target-side check. *(Decision under
-> incomplete info — §11.)*
+> **Correction (2026-07-27).** Co-capture of the two fixtures in one directory
+> is **not** proof of same release. Proof requires a versioned bundle manifest
+> with hashes: see `tests/strategy/native-bundles/`. For the current target
+> the proof EXISTS: the binary self-reports upstream commit `d3b3011` and
+> `lua_compat_ver 5`, and all six captured Lua files are byte-exact to
+> upstream `d3b3011` (SHA-256 comparison, 2026-07-27) whose `zapret-lib.lua`
+> declares `NFQWS2_COMPAT_VER_REQUIRED=5` — a three-way match. For the legacy
+> v6 capture the Lua bundle is byte-exact to pinned `8a0f53f` but the binary
+> is a self-built artifact with an unproven commit, so same-release remains
+> **unproven** there.
+>
+> **Limitation, stated honestly.** The method cross-check in
+> `tools/validate-strategy.sh` is a drift linter, not a native oracle: a
+> method absent from the catalog is a **manager warning**
+> (`MANAGER_NOT_IN_CATALOG`), and the authoritative existence check is the
+> native one — `lua_desync_functions_exist()` in `nfq2/lua.c`
+> (@d3b3011:3891, @8a0f53f:4023), executed via `nfqws2 --intercept=0`
+> (side-effect-free per static analysis, `docs/contracts/strategy-model.md`
+> §2.2).
 
 ---
 
@@ -455,9 +503,10 @@ exposed as editor entries:
   one is not.)*
 - **`stun` as a built-in blob.** The live config loads stun from a file
   (`--blob=stun_pat:@stun.bin`); a built-in `stun` global was not found.
-- **`lua_compat_ver` cross-version matrix.** Only ver 6 was observed; the
-  validator reports the value but cannot map it to a release without a
-  target-side version source.
+- **`lua_compat_ver` cross-version matrix.** The current target is ver 5
+  (proven, see the header correction); ver 6 appears only in the legacy
+  capture (byte-exact to pinned `8a0f53f`). A full version matrix still needs
+  more target-side captures.
 - **Custom/orchestra-extra methods** (`circular_quality`, `http_aggressive`,
   `combined_*_detector`, etc.) are real **[LUA]** but are **not** in the base
   25+5 catalog the editor exposes by default; the validator accepts them only
@@ -473,10 +522,13 @@ exposed as editor entries:
    narrow reference ranges (5222–5228, 19294–19344, 3478–3481, etc.). Negated
    ranges (`~N-M`) and `*` are treated as wide only for `*`; a negated range is
    not flagged (it captures the complement).
-2. **Bare-integer range operand (`-10`).** The `-V` grammar shows prefixed
-   operands (`n/d/s/p/a/b/x`); the task lists `-10` (no prefix) as a live form.
-   The validator accepts a bare integer as an operand; the editor should prefer
-   the prefixed form.
+2. **~~Bare-integer range operand (`-10`).~~ RESOLVED (2026-07-27).** Pinned
+   `nfq2/filter.c:115-117` (`packet_pos_parse`) requires the first character
+   of an operand to be one of `n/d/s/p/b/x/a`; a bare integer is **rejected**
+   by the native parser (`invalid packet range value`, exit 1). The old
+   decision to accept bare integers is revoked; the new manager model
+   diagnoses them as `MANAGER_INVALID_TOP_LEVEL_RANGE` with a message naming
+   the missing unit prefix.
 3. **C-builtin blob names (`fake_default_tls/http/quic`).** Inferred from usage
    in the Lua/config (they are read but never assigned in any Lua file); listed
    as built-in so the validator does not false-positive on them, but marked
