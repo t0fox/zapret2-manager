@@ -36,14 +36,29 @@ export function read_var(config, name) {
 		if (!line.startsWith(prefix) || isComment(line)) continue;
 		const rest = line.slice(prefix.length); // after "NAME="
 		if (rest.startsWith('"')) {
-			// single-line quoted?  "...." with the only inner " at the last pos
-			const closeAt = rest.indexOf('"', 1);
+			// opening " alone → multi-line quoted (closing " on a later line)
+			if (rest === '"') {
+				const buf = [];
+				for (let j = i + 1; j < lines.length; j++) {
+					const q = lines[j].indexOf('"');
+					if (q >= 0) {
+						if (q > 0) buf.push(lines[j].slice(0, q));
+						return buf.join('\n');
+					}
+					buf.push(lines[j]);
+				}
+				return buf.join('\n'); // unterminated quote (should not happen)
+			}
+			// single-line quoted: closing " is the LAST " in the line (lastIndexOf, so
+			// a value with an INNER " like VAR="a "b" c" is still single-line — the
+			// inner " is not mistaken for the closing one).
+			const closeAt = rest.lastIndexOf('"');
 			if (closeAt === rest.length - 1) {
 				return rest.slice(1, closeAt); // content between the quotes
 			}
-			// multi-line quoted: collect until the line that carries the close.
+			// multi-line quoted: closing " not on this line → collect later lines
 			const buf = [];
-			if (rest.length > 1) buf.push(rest.slice(1)); // content after opening "
+			buf.push(rest.slice(1)); // content after opening "
 			for (let j = i + 1; j < lines.length; j++) {
 				const q = lines[j].indexOf('"');
 				if (q >= 0) {
@@ -71,8 +86,13 @@ export function write_var(config, name, value) {
 		const line = lines[i];
 		if (!line.startsWith(prefix) || isComment(line)) continue;
 		const rest = line.slice(prefix.length);
-		const closeAt = rest.startsWith('"') ? rest.indexOf('"', 1) : -1;
-		const isMultiQuoted = rest.startsWith('"') && closeAt !== rest.length - 1;
+		// opening " alone → multi-line; otherwise the closing " is the LAST " in
+		// the line (lastIndexOf, so an inner " like in VAR="a "b" c" does not make it
+		// multi-line).
+		const closeAt = rest.startsWith('"') ? rest.lastIndexOf('"') : -1;
+		// multi-line iff: opening " alone (rest === '"'), OR the closing " is not the
+		// last char of this line (a value with an inner " stays single-line).
+		const isMultiQuoted = rest.startsWith('"') && (rest === '"' || closeAt !== rest.length - 1);
 		if (isMultiQuoted) {
 			// find the line carrying the closing "
 			let end = i;
@@ -101,8 +121,8 @@ export function write_var(config, name, value) {
 			return [...before, ...block, ...after].join('\n');
 		}
 		// single-line quoted: VAR="value" (the only inner " is the closing one).
-		// Preserve the quotes — writing VAR=value (no quotes) would change the
-		// format the engine reads. Mirror the original quoting style.
+	// Preserve the quotes — writing VAR=value (no quotes) would change the
+	// format the engine reads. Mirror the original quoting style.
 		if (rest.startsWith('"') && closeAt === rest.length - 1) {
 			const before = lines.slice(0, i);
 			const after = lines.slice(i + 1);

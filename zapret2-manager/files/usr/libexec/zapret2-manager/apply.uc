@@ -41,12 +41,13 @@ function is_comment(line) {
 }
 
 // Position of the closing " in `rest` (a value string starting with "), or -1.
-// Looks for a " after the opening one; ucode index returns -1 when absent.
+// Position of the closing " in `rest` (a value string starting with ").
+// Uses rindex (LAST ") so a value with an INNER " like VAR="a "b" c" is still
+// recognized as single-line (closing " is the last "). ucode rindex returns -1
+// when absent. Returns the 0-based position in rest.
 function closing_quote_pos(rest) {
 	if (substr(rest, 0, 1) != '"') return -1;
-	let inner = substr(rest, 1);        // after the opening "
-	let p = index(inner, '"');          // -1 if no inner "
-	return p;                           // 0-based within inner == pos-1 in rest
+	return rindex(rest, '"');
 }
 
 // Read the current value of `name`, or null if there is no active assignment.
@@ -63,13 +64,27 @@ export function read_var(name) {
 		if (is_comment(line)) continue;
 		let rest = substr(line, length(prefix));   // after NAME=
 		if (substr(rest, 0, 1) == '"') {
+			// opening " alone → multi-line quoted (closing " on a later line)
+			if (rest == '"') {
+				let buf = [];
+				for (let j = i + 1; j < length(lines); j++) {
+					let q = index(lines[j], '"');
+					if (q >= 0) {
+						if (q > 0) push(buf, substr(lines[j], 0, q));
+						return join(buf, '\n');
+					}
+					push(buf, lines[j]);
+				}
+				return join(buf, '\n');   // unterminated (should not happen)
+			}
+			// single-line quoted: closing " is the LAST " in the line (rindex, so
+			// a value with an INNER " like VAR="a "b" c" is still single-line).
 			let cp = closing_quote_pos(rest);
-			// single-line quoted: "value" (closing " is the last char)
-			if (cp >= 0 && cp + 1 == length(rest) - 1)
+			if (cp >= 0 && cp == length(rest) - 1)
 				return substr(rest, 1, length(rest) - 2);
-			// multi-line quoted: collect until the line carrying the closing "
+			// multi-line quoted: closing " not on this line → collect later lines
 			let buf = [];
-			if (length(rest) > 1) push(buf, substr(rest, 1));   // content after opening "
+			push(buf, substr(rest, 1));   // content after opening "
 			for (let j = i + 1; j < length(lines); j++) {
 				let q = index(lines[j], '"');
 				if (q >= 0) {
@@ -97,7 +112,9 @@ function render_var(config, name, value) {
 		if (is_comment(line)) continue;
 		let rest = substr(line, length(prefix));
 		let cp = closing_quote_pos(rest);
-		let is_multi = (substr(rest, 0, 1) == '"') && !(cp >= 0 && cp + 1 == length(rest) - 1);
+		// multi-line iff: opening " alone (rest == '"'), OR the closing " is not the
+		// last char of this line (a value with an inner " stays single-line).
+		let is_multi = (substr(rest, 0, 1) == '"') && (rest == '"' || !(cp >= 0 && cp == length(rest) - 1));
 		if (is_multi) {
 			let end = i;
 			let found = false;
@@ -129,10 +146,10 @@ function render_var(config, name, value) {
 			for (let k = end + 1; k < length(lines); k++) push(result, lines[k]);
 			return join(result, '\n');
 		}
-		// single-line quoted: VAR="value" (the only inner " is the closing one).
-		// Preserve the quotes — writing VAR=value (no quotes) would change the
-		// format the engine reads. Mirror the original quoting style.
-		if (substr(rest, 0, 1) == '"' && cp >= 0 && cp + 1 == length(rest) - 1) {
+		// single-line quoted: VAR="value" (closing " is the last " in the line, so
+		// an inner " like in VAR="a "b" c" still counts as single-line). Preserve the
+		// quotes — writing VAR=value (no quotes) would change the format the engine reads.
+		if (substr(rest, 0, 1) == '"' && rest != '"' && cp >= 0 && cp == length(rest) - 1) {
 			let result = [];
 			for (let k = 0; k < i; k++) push(result, lines[k]);
 			push(result, prefix + '"' + value + '"');

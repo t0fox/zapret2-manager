@@ -339,18 +339,20 @@ infra branch therefore does NOT close any [VERIFY:ROUTER] marker; all such
 markers remain OPEN until a freshly installed engine is checked on the
 device (see the interrupt rule). Treat as format samples only:
 
-- `/etc/config/zapret2` was absent in the snapshot (`cat` rc=1). The APPLIED
-  level is likely `/opt/zapret2/config` only on this installation. The drift
-  code already handles an absent UCI source (`sha256_file` → null, divergence
-  gates on `stored.uci != null && cur_uci != null`), so this is consistent,
-  not a defect. CONFIRM ON DEVICE (do not assume from the snapshot).
+- `/etc/config/zapret2` was absent in the pre-reset snapshot (`cat` rc=1).
+  CONFIRM ON DEVICE whether the APPLIED level is `/opt/zapret2/config` only or
+  also includes the UCI file (the post-install snapshot has `/etc/config/zapret2`
+  present, but that is a different snapshot; do not assume from either).
 - `/opt/zapret2/version` was absent (rc=1); version resolution falls back to
   the binary. CONFIRM ON DEVICE.
-- The snapshot's NFQWS2_OPT uses one nfqws2 argument per line inside a
-  double-quoted multi-line value (opening `"` alone, closing `"` alone). If
-  the real config on a freshly installed engine lays out long values
-  differently, the writer/stripper self-tests (built on this snapshot) must
-  be re-run on the real sample; a format mismatch is a BLOCKER.
+- The NFQWS2_OPT format is UNCONFIRMED from these snapshots alone. The
+  post-install snapshot lays the value out as a SINGLE quoted line (profiles
+  split by `--new`, `<HOSTLIST>`/`<HOSTLIST_NOAUTO>` placeholders, `--filter-l7`
+  protocol filter); the pre-reset snapshot laid it out multi-line (one arg per
+  line). The writer/stripper self-tests are now built on the post-install
+  snapshot; if the real config on a freshly installed engine differs from
+  that snapshot, the self-tests must be re-run on the real sample; a format
+  mismatch is a BLOCKER.
 
 ### 10.2 serviceState — closed enum, backend-computed
 

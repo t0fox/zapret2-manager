@@ -125,12 +125,13 @@ test('write_var NFQWS2_OPT with no lua-desync is the passthrough shape', () => {
 	// stripper itself is point 2's concern; here we only assert the writer can
 	// store a multi-line value that has no --lua-desync and reads back exactly.
 	const passthrough = [
-		'--lua-init=@/opt/zapret2/lua/orchestra-extra/init.lua',
 		'--lua-init=@/opt/zapret2/lua/init_vars.lua',
-		'--filter-tcp=80,443',
-		'--payload=all'
+		'--lua-init=@/opt/zapret2/lua/custom_funcs.lua',
+		'--filter-tcp=80',
+		'--filter-l7=http',
+		'<HOSTLIST>',
+		'--payload=http_req'
 	].join('\n');
-	assert.ok(!passthrough.includes('--lua-desync='));
 	const out = write_var(FIXTURE, 'NFQWS2_OPT', passthrough);
 	assert.equal(read_var(out, 'NFQWS2_OPT'), passthrough);
 	assert.ok(!read_var(out, 'NFQWS2_OPT').includes('--lua-desync='));
@@ -157,4 +158,77 @@ test('write_var does not drop content when a multi-line quote is unterminated', 
 	// the unterminated OPT lines are still present (not dropped)
 	assert.ok(out.includes('--lua-init=@/x.lua'), 'unterminated OPT content preserved');
 	assert.ok(out.includes('--filter-tcp=80'), 'unterminated OPT content preserved');
+});
+
+// ---- ПУНКТ ВТОРОЙ: explicit cases for every real-format situation ----------------
+// Each case pins the format the real post-install config uses (quoted values,
+// single-line NFQWS2_OPT, inner quotes, '=' inside values, commented, absent, duplicate).
+// Every case MUST reddened before the writer fix; the fix makes them green.
+
+// 1) values in quotes: write_var preserves the quoting style (VAR="v" -> VAR="newv")
+test('write_var preserves quotes on a single-line quoted var', () => {
+	const cfg = 'NFQWS2_ENABLE=1\nVAR_Q="hello"\nMODE_FILTER=hostlist';
+	const out = write_var(cfg, 'VAR_Q', 'world');
+	assert.equal(read_var(out, 'VAR_Q'), 'world');
+	assert.ok(out.includes('VAR_Q="world"'), 'quotes preserved');
+	assert.ok(!out.includes('VAR_Q=world'), 'no bare rewrite');
+});
+
+// 2) options string on one line: write_var replaces the single-line quoted NFQWS2_OPT
+//    (the real config has NFQWS2_OPT on ONE line, not multi-line)
+test('write_var replaces a single-line quoted NFQWS2_OPT (real one-line layout)', () => {
+	const oneLine = 'NFQWS2_ENABLE=1\nNFQWS2_OPT=" --comment=X --filter-tcp=80 --lua-desync=fake:1  --new --filter-tcp=443 --lua-desync=fake:2"\nMODE_FILTER=hostlist';
+	const stripped = ' --comment=X --filter-tcp=80  --new --filter-tcp=443';
+	const out = write_var(oneLine, 'NFQWS2_OPT', stripped);
+	assert.equal(read_var(out, 'NFQWS2_OPT'), stripped);
+	assert.ok(out.includes('NFQWS2_OPT="' + stripped + '"'), 'still one quoted line');
+});
+
+// 3) inner quote in value: VAR="a "b" c" -> read_var returns a "b" c (inner " not mistaken for
+//    closing); write_var preserves quotes
+test('read_var + write_var handle an inner quote in a single-line quoted value', () => {
+	const cfg = 'VAR_INNER="a "b" c"\nNFQWS2_ENABLE=1';
+	assert.equal(read_var(cfg, 'VAR_INNER'), 'a "b" c');
+	const out = write_var(cfg, 'VAR_INNER', 'x "y" z');
+	assert.equal(read_var(out, 'VAR_INNER'), 'x "y" z');
+	assert.ok(out.includes('VAR_INNER="x "y" z"'), 'quotes + inner quote preserved');
+});
+
+// 4) "=" inside value: VAR="a=b=c" -> read_var keeps the "=" (split on FIRST "=")
+test('read_var + write_var keep "=" inside a quoted value', () => {
+	const cfg = 'VAR_EQ="a=b=c"\nNFQWS2_ENABLE=1';
+	assert.equal(read_var(cfg, 'VAR_EQ'), 'a=b=c');
+	const out = write_var(cfg, 'VAR_EQ', 'x=y=z');
+	assert.equal(read_var(out, 'VAR_EQ'), 'x=y=z');
+	assert.ok(out.includes('VAR_EQ="x=y=z"'), 'value with "=" preserved');
+});
+
+// 5) commented line with the same name: write APPENDS a new active assignment,
+//    the comment is untouched
+test('write_var does not touch a commented line (pin)', () => {
+	const cfg = '#VAR_C="old"\nNFQWS2_ENABLE=1';
+	const out = write_var(cfg, 'VAR_C', 'new');
+	assert.equal(read_var(out, 'VAR_C'), 'new');
+	assert.ok(out.includes('#VAR_C="old"'), 'comment line preserved');
+	assert.ok(out.includes('VAR_C=new'), 'new active assignment appended (no quotes: writer does not know the new var should be quoted; the file convention is mixed)');
+});
+
+// 6) absent variable: write_var APPENDS a new assignment
+test('write_var appends a var absent from the file (pin)', () => {
+	const cfg = 'NFQWS2_ENABLE=1\nMODE_FILTER=hostlist';
+	const out = write_var(cfg, 'ABSENT_VAR', 'val');
+	assert.equal(read_var(out, 'ABSENT_VAR'), 'val');
+	assert.ok(out.includes('ABSENT_VAR=val'), 'absent var appended');
+});
+
+// 7) variable appearing twice: read_var returns the FIRST active assignment;
+//    write_var rewrites the FIRST, the second active line is left intact
+test('read_var returns the first; write_var rewrites the first of a duplicate', () => {
+	const cfg = 'VAR_DUP=1\nVAR_DUP=2\nNFQWS2_ENABLE=1';
+	assert.equal(read_var(cfg, 'VAR_DUP'), '1');
+	const out = write_var(cfg, 'VAR_DUP', '9');
+	assert.equal(read_var(out, 'VAR_DUP'), '9');
+	assert.ok(!out.includes('VAR_DUP=1'), 'first active rewritten');
+	assert.ok(out.includes('VAR_DUP=2'), 'second active left intact');
+	assert.ok(out.includes('VAR_DUP=9'), 'first rewritten to 9');
 });
