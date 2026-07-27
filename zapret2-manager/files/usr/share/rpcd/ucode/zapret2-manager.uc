@@ -182,6 +182,53 @@ function profiles_delete_method(req) { return profiles_edit_action('delete', req
 function profiles_validate_method(req) { return profiles_edit_action('validate', req); }
 function profiles_import_applied_method(req) { return profiles_action('import_applied'); }
 
+// ---- jobs + blockcheck (SLICE 4) --------------------------------------------
+const JOBS_CLI = '/usr/libexec/zapret2-manager/jobs-cli.uc';
+
+function jobs_action(sub) {
+	let cmd = '/usr/bin/ucode ' + JOBS_CLI + ' ' + sub + ' 2>/dev/null';
+	let p = popen(cmd, 'r');
+	if (!p) return { ok: false, error: 'popen failed' };
+	let out = p.read('all');
+	if (!out) out = '';
+	p.close();
+	try {
+		let parsed = json(out);
+		if (parsed != null) return parsed;
+		return { ok: false, error: 'no output', raw: out };
+	} catch (e) { return { ok: false, error: 'parse failed', raw: out }; }
+}
+
+// parametrized jobs methods: `edit` JSON string → temp file (same wire
+// pattern as lists_set / profiles_*): content never touches the shell.
+function jobs_edit_action(sub, req) {
+	let edit = null;
+	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
+	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
+	if (edit == null) return { ok: false, error: { code: 'EINPUT', message: 'missing edit param' } };
+	if (type(edit) != 'string') return { ok: false, error: { code: 'EINPUT', message: 'edit must be a JSON string', got: type(edit) } };
+	let tmp = '/tmp/z2m-jobs-edit.' + time();
+	writefile(tmp, edit);
+	let cmd = '/usr/bin/ucode ' + JOBS_CLI + ' ' + sub + ' ' + tmp + ' 2>/dev/null';
+	let p = popen(cmd, 'r');
+	if (!p) { try { unlink(tmp); } catch (e) { } return { ok: false, error: 'popen failed' }; }
+	let out = p.read('all');
+	if (!out) out = '';
+	p.close();
+	try { unlink(tmp); } catch (e) { }
+	try {
+		let parsed = json(out);
+		if (parsed != null) return parsed;
+		return { ok: false, error: 'no output', raw: out };
+	} catch (e) { return { ok: false, error: 'parse failed', raw: out }; }
+}
+
+function job_get_method(req) { return jobs_edit_action('get', req); }
+function job_list_method(req) { return jobs_action('list'); }
+function blockcheck_start_method(req) { return jobs_edit_action('start', req); }
+function blockcheck_cancel_method(req) { return jobs_edit_action('cancel', req); }
+function blockcheck_status_method(req) { return jobs_action('status'); }
+
 // profiles_apply {edit: '{"mode":"preview"|"apply"}'} — preview is read-only
 // (no write, no restart); apply runs the full pipeline (snapshot → write →
 // restart → verify → rollback-on-failure). Mode parsing happens here; the
@@ -227,6 +274,11 @@ return {
 		profiles_delete:   { args: { edit: 'string' }, call: function (req) { return profiles_delete_method(req); } },
 		profiles_validate: { args: { edit: 'string' }, call: function (req) { return profiles_validate_method(req); } },
 		profiles_import_applied: { call: function (req) { return profiles_import_applied_method(req); } },
-		profiles_apply:    { args: { edit: 'string' }, call: function (req) { return profiles_apply_method(req); } }
+		profiles_apply:    { args: { edit: 'string' }, call: function (req) { return profiles_apply_method(req); } },
+		job_get:           { args: { edit: 'string' }, call: function (req) { return job_get_method(req); } },
+		job_list:          { call: function (req) { return job_list_method(req); } },
+		blockcheck_start:  { args: { edit: 'string' }, call: function (req) { return blockcheck_start_method(req); } },
+		blockcheck_cancel: { args: { edit: 'string' }, call: function (req) { return blockcheck_cancel_method(req); } },
+		blockcheck_status: { call: function (req) { return blockcheck_status_method(req); } }
 	}
 };

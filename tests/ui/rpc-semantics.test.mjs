@@ -856,6 +856,127 @@ test('strategies: apply failure with rollback renders the rolled-back state; cri
 	assert.ok(text.includes('restored automatically'), 'rolled-back state renders');
 });
 
+// ---- 6d. blockcheck: jobs UI (SLICE 4) -----------------------------------------
+
+const BC_JOB_RUNNING = {
+	ok: true,
+	job: {
+		id: 'job-1785000000-1', kind: 'blockcheck', mode: 'quick', domains: ['rutracker.org'],
+		status: 'running', createdAt: 1785000000, startedAt: 1785000001, finishedAt: null,
+		timeoutSec: 300, rc: null, error: null, cancelled: false,
+		engineRunning: true, elapsedSec: 42, recommendations: [], summary: null,
+		logTail: '* checking system\nLinux detected\n* checking without DPI bypass\n'
+	}
+};
+
+const BC_JOB_DONE = {
+	ok: true,
+	job: {
+		id: 'job-1785000000-2', kind: 'blockcheck', mode: 'full', domains: ['rutracker.org'],
+		status: 'succeeded', createdAt: 1785000000, startedAt: 1785000001, finishedAt: 1785001000,
+		timeoutSec: 1800, rc: 0, error: null, cancelled: false,
+		engineRunning: false, elapsedSec: 199,
+		recommendations: [{
+			test: 'curl_test_https_tls12', ipver: 'ipv4', domain: 'rutracker.org', daemon: 'nfqws2',
+			strategy: '--lua-desync=fake:blob=fake_default_tls:tcp_md5:tcp_seq=-10000',
+			raw: '!!!!! curl_test_https_tls12: working strategy found for ipv4 rutracker.org : nfqws2 --lua-desync=fake:blob=fake_default_tls:tcp_md5:tcp_seq=-10000 !!!!!',
+			provenance: { source: 'upstream blockcheck2.sh', mode: 'full', domains: ['rutracker.org'], engineRunning: false }
+		}],
+		summary: { summary: [{ test: 'curl_test_https_tls12', ipver: 'ipv4', domain: 'rutracker.org', result: 'nfqws2 --lua-desync=fake:blob=fake_default_tls:tcp_md5:tcp_seq=-10000' }], common: [] },
+		logTail: '* SUMMARY\ncurl_test_https_tls12 ipv4 rutracker.org : nfqws2 --lua-desync=fake:...\n'
+	}
+};
+
+test('blockcheck: Start sends { mode, domains } as a JSON string', async () => {
+	const w = makeWorld({
+		blockcheck_status: { type: 'ok', value: { ok: true, job: null, note: 'no blockcheck jobs yet' } },
+		job_list: { type: 'ok', value: { ok: true, jobs: [] } },
+		blockcheck_start: { type: 'ok', value: { ok: true, job: BC_JOB_RUNNING.job, warning: null } }
+	});
+	const view = loadView(readViewSource('blockcheck'), 'blockcheck', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	const modeSel = w.created.find((n) => n.attrs.id === 'z2m-bc-mode');
+	const domArea = w.created.find((n) => n.attrs.id === 'z2m-bc-domains');
+	const startBtn = w.created.find((n) => n.attrs.id === 'z2m-bc-start');
+	assert.ok(modeSel && domArea && startBtn, 'run controls not rendered');
+	modeSel.value = 'domains';
+	domArea.value = 'rutracker.org example.com';
+	startBtn.listeners.click();
+	await flush();
+	const call = w.calls.find((c) => c.method === 'blockcheck_start');
+	assert.ok(call, 'blockcheck_start was not called');
+	assert.equal(typeof call.params.edit, 'string');
+	assert.deepEqual(JSON.parse(call.params.edit), { mode: 'domains', domains: ['rutracker.org', 'example.com'] });
+});
+
+test('blockcheck: running job shows badge + elapsed + log tail; Start disabled; Cancel wired', async () => {
+	const w = makeWorld({
+		blockcheck_status: { type: 'ok', value: BC_JOB_RUNNING },
+		job_list: { type: 'ok', value: { ok: true, jobs: [BC_JOB_RUNNING.job] } },
+		blockcheck_cancel: { type: 'ok', value: { ok: true, cancelling: true, id: 'job-1785000000-1' } }
+	});
+	const view = loadView(readViewSource('blockcheck'), 'blockcheck', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	const text = collectText(root).join(' | ');
+	assert.ok(text.includes('running'), 'status badge renders');
+	assert.ok(text.includes('42s'), 'elapsed renders (honest signal — no percentage)');
+	assert.ok(!/\d+%/.test(text), 'NEGATIVE: no progress percentage anywhere');
+	assert.ok(text.includes('checking system'), 'log tail renders');
+	assert.ok(text.includes('results may be unreliable'), 'engine-running warning renders');
+	const startBtn = w.created.find((n) => n.attrs.id === 'z2m-bc-start');
+	assert.equal(startBtn.disabled, true, 'Start disabled while a job is active');
+	const cancelBtn = w.created.find((n) => n.attrs.id === 'z2m-bc-cancel');
+	assert.ok(cancelBtn, 'Cancel renders for the active job');
+	cancelBtn.listeners.click();
+	await flush();
+	const call = w.calls.find((c) => c.method === 'blockcheck_cancel');
+	assert.ok(call, 'blockcheck_cancel was not called');
+	assert.deepEqual(JSON.parse(call.params.edit), { id: 'job-1785000000-1' });
+});
+
+test('blockcheck: ECONFLICT start refusal renders the backend message', async () => {
+	const w = makeWorld({
+		blockcheck_status: { type: 'ok', value: { ok: true, job: null } },
+		job_list: { type: 'ok', value: { ok: true, jobs: [] } },
+		blockcheck_start: { type: 'ok', value: { ok: false, error: { code: 'ECONFLICT', message: 'blockcheck job job-1 is already running' } } }
+	});
+	const view = loadView(readViewSource('blockcheck'), 'blockcheck', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	w.created.find((n) => n.attrs.id === 'z2m-bc-start').listeners.click();
+	await flush();
+	const root2 = view.render(await view.load());
+	const text = collectText(root2).join(' | ');
+	assert.ok(text.includes('Start refused'), 'the refusal renders');
+	assert.ok(text.includes('already running'), 'the backend ECONFLICT detail renders');
+});
+
+test('blockcheck: recommendations render with provenance; Save to Draft sends the strategy VERBATIM', async () => {
+	const w = makeWorld({
+		blockcheck_status: { type: 'ok', value: BC_JOB_DONE },
+		job_list: { type: 'ok', value: { ok: true, jobs: [BC_JOB_DONE.job] } },
+		profiles_create: { type: 'ok', value: { ok: true, id: 'p000007', revision: 1 } }
+	});
+	const view = loadView(readViewSource('blockcheck'), 'blockcheck', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	const text = collectText(root).join(' | ');
+	assert.ok(text.includes('fake:blob=fake_default_tls:tcp_md5:tcp_seq=-10000'), 'strategy renders verbatim');
+	assert.ok(text.includes('upstream blockcheck2.sh'), 'provenance renders');
+	const saveBtn = findBtn(root.children, 'Save to Draft');
+	assert.ok(saveBtn, 'Save to Draft button not found');
+	saveBtn.listeners.click();
+	await flush();
+	const call = w.calls.find((c) => c.method === 'profiles_create');
+	assert.ok(call, 'profiles_create was not called');
+	const parsed = JSON.parse(call.params.edit);
+	assert.equal(parsed.opt, '--lua-desync=fake:blob=fake_default_tls:tcp_md5:tcp_seq=-10000',
+		'the strategy is stored VERBATIM — never mutated on its way to a draft');
+	assert.ok(parsed.name.includes('rutracker.org'));
+});
+
 // ---- 7. overview: passthrough wire + reject gate (no longer excluded) --------
 
 test('overview: callPassthrough is declared with params:[enabled] + reject:true (fixed → green)', () => {

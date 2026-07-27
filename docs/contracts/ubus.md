@@ -55,8 +55,11 @@ Methods:
 
 | Method | Args | Direction | Description |
 |---|---|---|---|
-| `job_get` | `{id: string}` | read | Poll a job: returns `{id, status, result, created_at, updated_at}`. |
-| `job_list` | none | read | List recent jobs (see lifetime). |
+| `job_get` | `{edit: string}` (`{"id"}`) | read | Poll a job: `{ok, job:{id, kind, mode, status, times, rc, error, elapsedSec, recommendations, logTail}}`. Unknown id → `ESTATE`. |
+| `job_list` | none | read | Recent jobs newest-first (see lifetime). |
+| `blockcheck_start` | `{edit: string}` (`{"mode":"quick"\|"domains"\|"full", "domains":[...]}`) | mutate | Start ONE blockcheck job wrapping upstream `/opt/zapret2/blockcheck2.sh` (called, never reimplemented). `ECONFLICT` when a blockcheck job is non-terminal; `ETARGET` when the scanner is absent (never simulated). Response carries `warning` when nfqws2 is running (upstream: results unreliable with bypass active — the engine is NOT stopped automatically). |
+| `blockcheck_status` | none | read | The active job (else the newest) + logTail + recommendations when finished. |
+| `blockcheck_cancel` | `{edit: string}` (`{"id"}`) | mutate | Real cancel: the runner INT-signals the scanner's process group (it unpreparse its own firewall artifacts); last-resort -9 after grace. |
 
 Job statuses (closed enum) and allowed transitions:
 
