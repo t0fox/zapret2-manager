@@ -7,9 +7,9 @@
 			"path": "zapret2-manager/overview"
 		},
 		"depends": {
-			"acl": {
-				"luci-app-zapret2-manager": [ "read" ]
-			}
+			"acl": [
+				"zapret2-manager"
+			]
 		}
 	},
 	"admin/services/zapret2-manager/lists": {
@@ -20,9 +20,9 @@
 			"path": "zapret2-manager/lists"
 		},
 		"depends": {
-			"acl": {
-				"luci-app-zapret2-manager": [ "read" ]
-			}
+			"acl": [
+				"zapret2-manager"
+			]
 		}
 	}
 }

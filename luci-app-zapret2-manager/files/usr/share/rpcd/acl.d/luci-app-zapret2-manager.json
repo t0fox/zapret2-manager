@@ -1,5 +1,5 @@
 {
-	"luci-app-zapret2-manager": {
+	"zapret2-manager": {
 		"description": "Zapret 2 Manager — overview + service control + lists",
 		"read": {
 			"ubus": {
