@@ -7,10 +7,11 @@
 import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
-const HERE = new URL('..', import.meta.url).pathname.replace(/^\//, '');
+// fileURLToPath: OS-agnostic (see mutation.test.mjs note).
+const HERE = fileURLToPath(new URL('..', import.meta.url));
 const MOD_SRC = {
 	'./lib/backup-logic.mjs': readFileSync(new URL('lib/backup-logic.mjs', import.meta.url), 'utf8'),
 	'./lib/apply-writer.mjs': readFileSync(new URL('lib/apply-writer.mjs', import.meta.url), 'utf8'),
@@ -40,7 +41,7 @@ function stagePatched(mutator) {
 }
 
 function runAgainst(targetTest, urls) {
-	const dir = dirname(new URL(Object.values(urls)[0]).pathname.replace(/^\//, ''));
+	const dir = dirname(fileURLToPath(Object.values(urls)[0]));
 	const testSrc = readFileSync(join(HERE, targetTest), 'utf8');
 	let harness = testSrc;
 	for (const k of Object.keys(urls))

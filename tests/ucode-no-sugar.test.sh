@@ -57,21 +57,23 @@ fi
 # STRIP comments (// to end-of-line) and string literals ("..." and '...') BEFORE
 # counting, so brackets inside comments/strings do not cause false imbalances
 # (the real ucode -c parses the code, not the raw text).
+# Counting is tr+wc per bracket TYPE, not a read-loop: `read` iterates LINES and
+# the filtered bracket string has no newlines, so a read-loop sees one giant
+# "line" that never matches a single-char case — the previous version of this
+# gate was degenerate always-green (proven by probe: unbalanced input scored
+# d=0). tr|wc counts bytes directly and dash-safe (process substitution is a
+# bash-ism; /bin/sh is dash on dev machines and ash on target).
 for f in $(find zapret2-manager/files luci-app-zapret2-manager/files -name '*.uc' 2>/dev/null); do
-  d=0; p=0; b=0
   # strip // comments to end of line
   stripped=$(sed 's://.*$::' "$f")
   # strip double-quoted string literals "..."
   stripped=$(printf '%s\n' "$stripped" | sed 's/"[^"]*"//g')
   # strip single-quoted string literals '...'
   stripped=$(printf '%s\n' "$stripped" | sed "s/'[^']*'//g")
-  while IFS= read -r ch; do
-    case "$ch" in
-      '{') d=$((d+1)) ;; '}') d=$((d-1)) ;;
-      '(') p=$((p+1)) ;; ')') p=$((p-1)) ;;
-      '[') b=$((b+1)) ;; ']') b=$((b-1)) ;;
-    esac
-  done < <(printf '%s' "$stripped" | tr -cd '{}()\[\]')
+  o1=$(printf '%s' "$stripped" | tr -cd '{' | wc -c); c1=$(printf '%s' "$stripped" | tr -cd '}' | wc -c)
+  o2=$(printf '%s' "$stripped" | tr -cd '(' | wc -c); c2=$(printf '%s' "$stripped" | tr -cd ')' | wc -c)
+  o3=$(printf '%s' "$stripped" | tr -cd '[' | wc -c); c3=$(printf '%s' "$stripped" | tr -cd ']' | wc -c)
+  d=$((o1-c1)); p=$((o2-c2)); b=$((o3-c3))
   if [ "$d" -ne 0 ] || [ "$p" -ne 0 ] || [ "$b" -ne 0 ]; then
     echo "FAIL  bracket imbalance in $f (brace=$d paren=$p bracket=$b)"; fail=1
   fi

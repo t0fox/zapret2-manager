@@ -7,9 +7,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const HERE = new URL('..', import.meta.url).pathname.replace(/^\//, '');
-const TESTS = new URL('.', import.meta.url).pathname.replace(/^\//, '');
+// fileURLToPath is OS-agnostic: the previous `pathname.replace(/^\//,'')`
+// assumed a Windows drive-letter URL (C:/...) and produced a broken RELATIVE
+// path under native Linux node (mnt/g/...), crashing execFileSync with
+// rc=-1/ENOENT.
+const HERE = fileURLToPath(new URL('..', import.meta.url));
+const TESTS = fileURLToPath(new URL('.', import.meta.url));
 const RUNNER = join(HERE, 'tests/mutation-runner.mjs');
 
 test('mutation testing: no holes (every mandatory mutation reddens its target test)', () => {
