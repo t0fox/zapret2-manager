@@ -22,7 +22,7 @@ mechanism), or **stays out** (upstream owns it entirely).
 | Start the daemon | `/etc/init.d/zapret2 start` | control | manager calls upstream's start, never re-implements launch flags |
 | Stop the daemon | `/etc/init.d/zapret2 stop` | control | plus the paused indicator (manager-only, §5 arch) |
 | Pause = upstream start is a no-op | `NFQWS2_ENABLE=0` in the applied config | control | upstream honors its own variable; see REVIEW 1. *confirmed (external source)* that the variable exists; **[VERIFY:ROUTER]** whether it also stops fw rules → smoke.sh `pause_fw_effect`. |
-| Daemon version | `/opt/zapret2/version` (file), else `nfqws2 <flag>`, else null | read | *confirmed (external source)*: read the version file first. The binary flag is **[VERIFY:ROUTER]** → smoke.sh 02 (`status.nfqws2_version` non-null on a device without the version file). |
+| Daemon version | `/opt/zapret2/version` (file), else `nfqws2 --version`, else null | read | *confirmed (external source)*: read the version file first. **confirmed on router (fixtures)**: `/opt/zapret2/version` is ABSENT on this build (rc=1, tests/fixtures/opt-zapret2-version.out); the binary flag is `--version` — `nfqws2 --version` prints `github version 0.9.20260307 (d3b3011…) lua_compat_ver 5` (tests/fixtures/nfqws2-version-long.out). `status.nfqws2_version` non-null → still **[VERIFY:ROUTER]**, smoke.sh 02 (blocked: `status.uc:300` calls `nfqws2` from PATH, but the binary is NOT in PATH — `/opt/zapret2/nfq2/nfqws2`, no symlink; plus the json-module defect; see fix/02 section). |
 
 ## Strategy & rotation
 
@@ -125,6 +125,92 @@ applied config (§3 arch).
 | `/tmp/zapret2-manager/pending-rollback` | marker + expiry for the 90s rollback timer |
 
 All under `/tmp` (volatile) except the DRAFT state under `/etc`.
+
+## Confirmed on router (fixtures) — marker-closing facts
+
+Each fact below is taken from a fixture in `tests/fixtures/` (pre-reset snapshot,
+commit 938e153) or `tests/fixtures-postinstall/` (post-install snapshot, commit
+3917508) and closes a `[VERIFY:ROUTER]` marker or a "confirmed (external
+source)" claim that needed the live device. Markers that the fixtures do NOT
+answer remain, each with the `tools/smoke.sh` check that will answer it.
+
+**Actual upstream paths (fixtures: opt-zapret2-listing, opt-zapret2-nfq2-listing,
+etc-hotplug.d-iface-contents, etc-rc.d-listing, usr-share-rpcd-ucode-listing,
+usr-libexec-rpcd-listing):**
+- Engine binary: `/opt/zapret2/nfq2/nfqws2` (the only file in `/opt/zapret2/nfq2`).
+- Config: `/opt/zapret2/config` (present; shell-style VAR=value).
+- Version file: `/opt/zapret2/version` — **ABSENT** on this build (rc=1).
+- Lua modules: `/opt/zapret2/lua/*.lua` (6 files engine-only; `zapret-lib`,
+  `zapret-antidpi`, `zapret-auto`, `zapret-obfs`, `zapret-pcap`, `zapret-tests`
+  — NO `orchestra-extra/`, orchestra excluded).
+- `blockcheck2.d/`: `/opt/zapret2/blockcheck2.d/{standard,custom}/` (present).
+- Hotplug: `/etc/hotplug.d/iface/90-zapret2` (upstream's; calls `reload_ifsets`
+  for nftables, `restart_fw` for iptables — never a wholesale fw stop).
+- rc.d: upstream `S21zapret2` enabled; our watchdog `S99zapret2-manager`.
+- rpcd ucode plugins load from `/usr/share/rpcd/ucode/` (confirmed: `luci`
+  plugin lives there). `/usr/libexec/rpcd/` does NOT exist (rc=1) — exec-plugins
+  (`.so`) are in `/usr/lib/rpcd/` instead. This closes the rpcd plugin load path.
+
+**Subcommand presence and output (fixtures: init-list_table, init-list_ifsets):**
+- `/etc/init.d/zapret2 list_table` → rc=0, 98 lines: `table inet zapret2 { … }`
+  with sets `zapret`, `ipban`, `nozapret`, `wanif`, `wanif6`, `lanif`,
+  `game_ipset`, `ip_exclude`; chains include `postnat` with
+  `queue flags bypass to 300` (NFQUEUE 300 wired in nft).
+- `/etc/init.d/zapret2 list_ifsets` → rc=0: `wanif={wan}`, `wanif6={}` (empty),
+  `lanif={br-lan}`.
+
+**Way to get the version (fixtures: opt-zapret2-version, nfqws2-version-long,
+apk-info-zapret2):**
+- `/opt/zapret2/version` absent → `nfqws2 --version` (`github version
+  0.9.20260307 (d3b3011…) lua_compat_ver 5`). Package version via
+  `apk info zapret2` → `zapret2-0.9.20260307-r1`.
+- ucode interpreter has NO version flag: `ucode --version` and `ucode -v` both
+  error ("unrecognized option", fixtures ucode-version-long/short). ucode version
+  is obtained via `apk info ucode` → `ucode-2026.01.16~85922056-r1`.
+
+**ucode syntax-check flag (fixture: ucode-help-long):**
+- The interpreter help lists `-c` (compile source to bytecode) and `-p`
+  ("Like -e but print the result of expression" — executes an expression, does
+  NOT parse a file). The working syntax-check flag is therefore `-c`
+  (`ucode -c -o /dev/null FILE` exits non-zero on a syntax error), NOT `-p`.
+- CAVEAT: a direct `ucode -c FILE` returns 255 for ANY file using `export`
+  (even `export const X = 1;`) with "Exports may only appear at top level of a
+  module", because `-c` compiles as a SCRIPT (export illegal there). The backend
+  files are MODULES (they use `export`). The working check for modules is a
+  wrapper that `import`s the target (import loads it as a module) compiled with
+  `-c` — see `tools/smoke.sh ucode_syntax`. `constants.uc` passes this way; the
+  json-import and qlen.uc defects fail it.
+
+**ucode plugin load directory (fixtures: usr-share-rpcd-ucode-listing,
+usr-libexec-rpcd-listing):**
+- ucode plugins load from `/usr/share/rpcd/ucode/` (the `luci` plugin is there).
+  `/usr/libexec/rpcd/` does NOT exist. The Makefile installs
+  `zapret2-manager.uc` into `/usr/share/rpcd/ucode/` — correct path.
+
+**Actual upstream config variable names (fixture: opt-zapret2-config):**
+- `NFQWS2_ENABLE=1`, `NFQWS2_PORTS_TCP=80,443,2053,2083,2087,2096,8443`,
+  `DESYNC_MARK=0x40000000`, `DESYNC_MARK_POSTNAT=0x20000000`, `SET_MAXELEM=522288`,
+  `AUTOHOSTLIST_DEBUGLOG=0` (+ `AUTOHOSTLIST_INCOMING_MAXSEQ`,
+  `AUTOHOSTLIST_RETRANS_MAXSEQ`, `AUTOHOSTLIST_RETRANS_RESET`,
+  `AUTOHOSTLIST_RETRANS_THRESHOLD`, `AUTOHOSTLIST_FAIL_THRESHOLD`,
+  `AUTOHOSTLIST_FAIL_TIME`, `AUTOHOSTLIST_UDP_IN`, `AUTOHOSTLIST_UDP_OUT`),
+  `MDIG_THREADS`, `MDIG_EAGAIN`, `MDIG_EAGAIN_DELAY`, `GZIP_LISTS`, `FWTYPE`,
+  `POSTNAT`, `IP2NET_OPT4/6`, `IPSET_OPT`, `FILTER_MARK`. Confirms `NFQWS2_ENABLE`
+  and `AUTOHOSTLIST_DEBUGLOG` exist verbatim.
+
+## Remaining [VERIFY:ROUTER] markers (fixtures do not answer; smoke.sh will)
+
+- **NFQWS2_ENABLE=0 fw effect** (row "Pause"): does NFQWS2_ENABLE=0 stop only
+  daemons or also clear fw rules? → `tools/smoke.sh pause_fw_effect`.
+- **Config generation number storage** (row "Config generation number"): exact
+  storage location of the generation counter → smoke.sh 03 (Overview shows a
+  generation; if null, locate it and wire `applied.generation`).
+- **Passthrough enforcement** (row "Passthrough"): actual enforcement on the live
+  argv → smoke.sh 05 (argv verification deferred to the config-generation
+  branch).
+- **status.nfqws2_version non-null** (row "Daemon version"): → smoke.sh 02;
+  blocked until the fix/02 json-module + PATH defects are resolved (see the
+  fix/02 section of the infra report).
 
 ## How to use this table
 
