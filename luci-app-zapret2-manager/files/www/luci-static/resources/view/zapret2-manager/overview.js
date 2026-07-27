@@ -5,13 +5,32 @@
 //   RUNTIME  (what is running)   APPLIED (on-disk config)   DRAFT (staged)
 // plus the NFQUEUE-qlen third liveness signal. No mutation buttons here —
 // service control lands in branch 04.
+//
+// LuCI JS API: the installed luci.js (26.187.49110) exports `L.rpc` via
+// `require rpc`; it does NOT export `L.ubus`. Calling `L.ubus.call(...)` (a LuCI
+// 0.x API) throws "Cannot read properties of undefined (reading 'call')" in the
+// browser. `rpc.declare({object,method,...})` is the current API (see working
+// luci apps: firewall/zones.js, attendedsysupgrade/overview.js).
+
+'require rpc';
+
+const callStatus = rpc.declare({ object: 'zapret2-manager', method: 'status' });
+const callStart = rpc.declare({ object: 'zapret2-manager', method: 'start' });
+const callStop = rpc.declare({ object: 'zapret2-manager', method: 'stop' });
+const callRestart = rpc.declare({ object: 'zapret2-manager', method: 'restart' });
+const callRestartDaemons = rpc.declare({ object: 'zapret2-manager', method: 'restart_daemons' });
+const callStartFw = rpc.declare({ object: 'zapret2-manager', method: 'start_fw' });
+const callReloadIfsets = rpc.declare({ object: 'zapret2-manager', method: 'reload_ifsets' });
+const callConfirmAlive = rpc.declare({ object: 'zapret2-manager', method: 'confirm_alive' });
+const callRollback = rpc.declare({ object: 'zapret2-manager', method: 'rollback' });
+const callPassthrough = rpc.declare({ object: 'zapret2-manager', method: 'passthrough' });
 
 return L.view.extend({
 	title: _('Overview'),
 
 	load: function () {
 		// Schema v2 (camelCase) fallback shape — see docs/contracts/status.schema.json.
-		return L.resolveDefault(L.ubus.call('zapret2-manager', 'status'), {
+		return L.resolveDefault(callStatus(), {
 			schema: 2, generatedAt: null, generation: null, serviceState: 'stopped',
 			runtime: { present: false, count: 0, instances: [], rulesPresent: false },
 			applied: {}, draft: {},
@@ -136,7 +155,7 @@ return L.view.extend({
 			b.addEventListener('click', function () {
 				b.disabled = true;
 				status.textContent = _('Working…');
-				L.ubus.call('zapret2-manager', action).then(function (res) {
+				({ start: callStart, stop: callStop, restart: callRestart, restart_daemons: callRestartDaemons, start_fw: callStartFw, reload_ifsets: callReloadIfsets }[action])().then(function (res) {
 					b.disabled = false;
 					res = res || {};
 					if (disruptive && res.rollback_pending) {
@@ -206,7 +225,7 @@ return L.view.extend({
 
 		okBtn.addEventListener('click', function () {
 			clearInterval(timer);
-			L.ubus.call('zapret2-manager', 'confirm_alive').then(function () {
+			callConfirmAlive().then(function () {
 				statusEl.textContent = _('Confirmed. Change kept.');
 			});
 			this.refresh();
@@ -214,7 +233,7 @@ return L.view.extend({
 
 		rbBtn.addEventListener('click', function () {
 			clearInterval(timer);
-			L.ubus.call('zapret2-manager', 'rollback').then(function () {
+			callRollback().then(function () {
 				statusEl.textContent = _('Rolled back to last-good.');
 			});
 			this.refresh();
@@ -224,7 +243,7 @@ return L.view.extend({
 	refresh: function () {
 		// Re-render from a fresh status call after a mutation.
 		var self = this;
-		L.resolveDefault(L.ubus.call('zapret2-manager', 'status'), {})
+		L.resolveDefault(callStatus(), {})
 			.then(function (data) {
 				var old = document.querySelector('.cbi-map');
 				if (old && old.parentNode)
@@ -244,7 +263,7 @@ return L.view.extend({
 			var on = cb.checked;
 			cb.disabled = true;
 			status.textContent = _('Restarting nfqws2 in passthrough mode…');
-			L.ubus.call('zapret2-manager', 'passthrough', { enabled: on }).then(function (res) {
+			callPassthrough({ enabled: on }).then(function (res) {
 				cb.disabled = false;
 				res = res || {};
 				if (res.rollback_pending) {
