@@ -95,18 +95,39 @@ the target commit d3b3011.
 
 | Entry point | Command | Parses CLI | Loads Lua | Binds NFQUEUE | Sends traffic | Changes state | Safe |
 |---|---|---|---|---|---|---|---|
-| dry-run | `nfqws2 --dry-run <options>` | ✓ (all option syntax incl. ranges/ports/lua-desync call shape; unknown options exit 1) | ✗ | ✗ | ✗ | ✗ (exits before `nfq_main`) | **YES** (no root required) |
-| intercept-zero | `nfqws2 --intercept=0 <options>` | ✓ | ✓ (lua-init + compat check + function-existence oracle) | ✗ (`nfq_init` skipped) | ✗ (no packets processed) | transient raw sockets (`rawsend_preinit`), Lua init execution; no firewall, no pidfile unless requested | **YES with caveats**: needs CAP_NET_RAW; executes the config's lua-init (same trust as the daemon); run under a timeout (a lua-init may register timers → `NoInterceptLoop` waits) |
+| dry-run | `nfqws2 --dry-run <options>` | ✓ (all option syntax incl. ranges/ports/lua-desync call shape; unknown options exit 1) | ✗ | ✗ | ✗ | ✗ (exits before `nfq_main`) | **YES — safe for UNTRUSTED options**: argv-only, no Lua, no root required |
+| intercept-zero | `nfqws2 --intercept=0 <options>` | ✓ | ✓ (**executes Lua init code** + compat check + function-existence oracle) | ✗ (`nfq_init` skipped) | ✗ (no packets processed) | transient raw sockets (`rawsend_preinit`), Lua init execution; no firewall, no pidfile unless requested | **CONDITIONAL — safe only for a trusted immutable NativeBundle under an explicit policy; UNSAFE for untrusted candidate `--lua-init`** (arbitrary corpus/config). Also: needs CAP_NET_RAW; run under a timeout (a lua-init may register timers → `NoInterceptLoop` waits) |
 | fuzz | `nfqws2 --fuzz=N <options>` | ✓ | ✓ | ✗ | **✓ — feeds random packets through the real desync path (`processPacketData` → rawsend)** | ✓ | **NO — EXCLUDED** |
 
+**Trusted-Lua execution policy (intercept-zero).** Because `--intercept=0`
+executes Lua init code, the adapter gates it:
+
+```jsonc
+{ "allowTrustedLuaExecution": false, "trustedLuaInitPaths": [] } // DEFAULT: refuses
+```
+
+- default policy → the plan refuses to build (`unavailable`,
+  `NATIVE_UNAVAILABLE`);
+- when allowed, `--lua-init` argv entries come **only** from the selected
+  NativeBundle's `trustedLuaInitPaths` (absolute `/opt/zapret2/lua/*` paths,
+  no `..`, no shell interpolation — argv-array spawn only);
+- a candidate document's own `--lua-init` is **never forwarded as-is** and
+  **never silently dropped**: candidate paths must be a subset of the trusted
+  bundle set, otherwise the adapter returns `unavailable` with
+  `UNTRUSTED_LUA_INIT_REQUIRES_SANDBOX`; inline candidate Lua is always
+  untrusted;
+- dry-run never loads Lua and is safe for untrusted options.
+
 Coverage honestly stated:
-- `--dry-run` validates CLI-level syntax only.
-- `--intercept=0` additionally validates: Lua bundle loads,
-  `NFQWS2_COMPAT_VER` match, and **existence of every lua-desync function**.
-- NOT covered without packets: per-method argument semantics, orchestrator
-  plan semantics, runtime blob resolution (`blob 'x' unavailable` fires at
-  packet time). A native "valid" is always *coverage-limited* and must cite
-  the entry point used.
+- `--dry-run` validates CLI-level syntax only (`coverage.cliSyntax`).
+- `--intercept=0` additionally validates: Lua bundle loads (`luaLoad`),
+  `NFQWS2_COMPAT_VER` match (`luaCompatibility`), and **existence of every
+  lua-desync function** (`functionExistence`).
+- NEVER covered without packets: per-method argument semantics
+  (`runtimeArguments`), orchestrator plan semantics (`executionPlan`),
+  runtime blob resolution. Because runtime semantics is never covered, the
+  vocabulary has **no `valid` status** — the best achievable is `partial`,
+  always citing the entry point used.
 
 Static analysis source: pinned `nfq2/nfqws.c` (`bDry` exit at :3304 @8a0f53f /
 :3202 @d3b3011; intercept flow :455-496), `nfq2/lua.c` (:4619/:4481),
@@ -132,7 +153,11 @@ see `[NATIVE_ORACLE:PENDING]` in the corpus report.
   "originalText": "…",            // input, verbatim
   "normalizedText": "…",          // canonical serialization (computed at parse)
   "tokens": [ /* OptionToken */ ],
-  "trailingTokens": [ /* token indexes of a trailing bare --new */ ]
+  "trailingTokens": [ /* token indexes of a trailing bare --new */ ],
+  "nativeValidation": { /* NativeValidation — DOCUMENT level:
+      a native run's process exit is a document result. Expression-level
+      records (on each luaDesync entry) are changed only when the native
+      output unambiguously identifies the expression. */ }
 }
 ```
 
@@ -214,7 +239,16 @@ keeps the native `\:` escape intact.
     "fragmentCount": 3
   },
   "nativeValidation": {                             // filled ONLY by native.mjs
-    "status": "not_checked",                        // not_checked | valid | invalid | unavailable
+    "status": "not_checked",                        // not_checked | partial | rejected | unavailable
+    "entryPoint": null,                             // "dry-run" | "intercept-zero" | null
+    "coverage": {
+      "cliSyntax": "not_checked",                   // not_checked | passed | failed
+      "luaLoad": "not_checked",
+      "luaCompatibility": "not_checked",
+      "functionExistence": "not_checked",
+      "runtimeArguments": "not_checked",            // always: needs packet context
+      "executionPlan": "not_checked"                // always: needs packet context
+    },
     "diagnostics": [],
     "bundleId": null,
     "nativeVersion": null,
@@ -222,6 +256,20 @@ keeps the native `\:` escape intact.
   }
 }
 ```
+
+There is **no `valid` status**: runtime semantics (method arguments,
+execution plan) is never covered without packets. Result mapping:
+
+- dry-run exit 0 → `partial`, `cliSyntax: passed`, everything else
+  `not_checked`. A nonexistent Lua function CANNOT get
+  `functionExistence: passed` from a dry-run.
+- intercept-zero exit 0 → `partial`, `cliSyntax`/`luaLoad`/
+  `luaCompatibility`/`functionExistence: passed`; runtime stays
+  `not_checked`.
+- exit ≠ 0 → document `rejected`; coverage marks the failing layer;
+  expression-level `rejected` is assigned **only** when stderr names the
+  function (`desync function 'foo' does not exist` → only expressions whose
+  function hint is `foo`; all other expressions stay `not_checked`).
 
 Hint extraction is documented heuristic: `functionName` = text up to the
 first unescaped `:` (mirroring `parse_lua_call`'s `\:` handling);
@@ -241,39 +289,75 @@ Versioned manifest (`tests/strategy/native-bundles/*.json`):
   "binaryVersionFixture": "tests/fixtures-postinstall/nfqws2-version-long.out",
   "luaContentsFixture": "tests/fixtures-postinstall/opt-zapret2-lua-contents.out",
   "binaryVersion": "github version 0.9.20260307 (d3b3011...)",
-  "binaryCommit": "d3b3011000f103c5af161cc4e3167e80fd6928a2",   // null when unknown
-  "binarySha256": null,
+  "binaryCommitSelfReported": "d3b3011...",  // self-report only — NOT hash proof
+  "binarySha256": null,                      // no binary hash on record
+  "binaryHashVerified": false,
   "luaCompatVer": 5,
-  "upstreamCommit": "d3b3011...",
-  "sameReleaseProven": false,             // never computed from co-location
-  "sameReleaseEvidence": { "luaFileMatches": { "zapret-lib.lua": "byte-exact" } },
+  "trustedLuaInitPaths": ["/opt/zapret2/lua/zapret-lib.lua", "…"],
+  "sameReleaseEvidence": {
+    "upstreamCommit": "d3b3011...",
+    "luaCompatVer": 5,
+    "files": { "zapret-lib.lua": "<sha256>", "…": "…" },
+    "evidenceHash": "<sha256 of commit+compat+files>"  // tamper binding
+  },
   "provenance": { "source": "…", "capturedAt": null, "target": "…", "notes": [] },
-  "confidence": "high"
+  "bundleConfidence": "high"
 }
 ```
 
+Machine verification at load time (`loadBundle`):
+
+1. **evidence self-integrity**: `computeEvidenceHash(evidence)` must equal
+   `evidence.evidenceHash` — editing the recorded commit/compat/any file hash
+   is detected (`NATIVE_BUNDLE_EVIDENCE_MISMATCH`).
+2. **fixture byte identity**: SHA-256 of every captured Lua file
+   (LF-normalized, `===END:` markers stripped) must equal the recorded value
+   — a single mutated byte fails (`NATIVE_BUNDLE_EVIDENCE_MISMATCH`).
+3. **compat chain**: fixture's own `NFQWS2_COMPAT_VER_REQUIRED` ==
+   `manifest.luaCompatVer` == `evidence.luaCompatVer`
+   (`NATIVE_LUA_COMPAT_MISMATCH`). **A compat match never substitutes a hash
+   match.**
+4. **binary honesty**: `binaryHashVerified` is true only when a
+   `binarySha256` is recorded; `binaryCommitSelfReported` is kept as a
+   self-report, not proof.
+
+Computed verdicts (never manifest claims):
+
+- `sameLuaReleaseVerified` = 1+2+3 pass;
+- `sameReleaseProven` = `sameLuaReleaseVerified && binaryHashVerified` —
+  with no binary hash on record it stays **false** for both bundles.
+
 Bundles shipped:
 
-| Bundle | lua_compat_ver | sameReleaseProven | Evidence |
-|---|---|---|---|
-| `target-v5-20260307` (current target) | **5** | **true** | binary self-reports commit d3b3011; all six captured Lua files are **byte-exact** to upstream d3b3011 (verified 2026-07-27); `zapret-lib.lua@d3b3011` requires compat 5 |
-| `legacy-v6` | **6** | false | captured Lua is byte-exact to the pinned study commit 8a0f53f (2 of 6 files era-ambiguous); binary is a self-built artifact — its commit is unproven |
+| Bundle | compat | sameLuaReleaseVerified | binaryHashVerified | sameReleaseProven | bundleConfidence |
+|---|---|---|---|---|---|
+| `target-v5-20260307` (current) | 5 | true (SHA-256 vs upstream d3b3011) | false | false | high |
+| `legacy-v6` | 6 | true (SHA-256 vs pinned 8a0f53f; init_vars/custom_funcs are device-local, not upstream) | false | false | medium |
 
 Rules:
 - co-location of a binary fixture and a Lua fixture is **not** proof of same
-  release;
+  release — verification is hash-based;
 - a bundle with `luaContentsFixture: null` → native validation `unavailable`
   ("current target Lua bundle not captured"); never substitute another
   release's Lua;
-- manifest `luaCompatVer` is cross-checked live against the Lua fixture's own
-  `NFQWS2_COMPAT_VER_REQUIRED` (mismatch → `NATIVE_LUA_COMPAT_MISMATCH`);
-- mixing a v6 Lua with the v5 target is refused (`NATIVE_BINARY_LUA_MISMATCH`).
+- mixing a v6 Lua with the v5 target is refused (`NATIVE_BINARY_LUA_MISMATCH`);
+- `trustedLuaInitPaths` of the selected bundle is the only source of
+  `--lua-init` argv for intercept-zero (see §2.2 policy).
 
 ### 3.6 NativeValidation
 
 ```jsonc
 {
-  "status": "not_checked | valid | invalid | unavailable",
+  "status": "not_checked | partial | rejected | unavailable",
+  "entryPoint": "dry-run | intercept-zero | null",
+  "coverage": {
+    "cliSyntax": "not_checked | passed | failed",
+    "luaLoad": "not_checked | passed | failed",
+    "luaCompatibility": "not_checked | passed | failed",
+    "functionExistence": "not_checked | passed | failed",
+    "runtimeArguments": "not_checked",
+    "executionPlan": "not_checked"
+  },
   "diagnostics": [ /* NATIVE_* codes only, sourced from an actual native run */ ],
   "bundleId": "target-v5-20260307",
   "nativeVersion": "github version 0.9.20260307 (d3b3011...)",
@@ -283,9 +367,16 @@ Rules:
 
 - `not_checked` — default; nothing attempted.
 - `unavailable` — no proven side-effect-free native entry point executed
-  (reason recorded). **Never** reported as valid.
-- `valid` / `invalid` — only from an actual native run result
-  (`applyNativeResult`), always coverage-limited by the entry point used.
+  (reason recorded), or a trust-policy refusal. Never reports passed
+  coverage.
+- `partial` — an actual native run exited 0, with the coverage map showing
+  exactly which layers were proven. **Never called `valid`** because runtime
+  semantics is never covered.
+- `rejected` — an actual native run exited non-zero; the coverage map marks
+  the failing layer; the native error is carried in `diagnostics`.
+
+Scope: one process exit = one DOCUMENT result (`StrategyDocument.nativeValidation`).
+Expression-level records change only for unambiguous attribution (§3.4).
 
 ### 3.7 Diagnostic
 
@@ -327,11 +418,13 @@ native run or the bundle layer):
 | Code | Meaning |
 |---|---|
 | `NATIVE_NOT_CHECKED` | default state |
-| `NATIVE_UNAVAILABLE` | no proven side-effect-free oracle executed |
+| `NATIVE_UNAVAILABLE` | no proven side-effect-free oracle executed, or trust-policy refusal |
 | `NATIVE_REJECTED` | native parser rejected the options (message carries the native error) |
-| `NATIVE_FUNCTION_NOT_FOUND` | `desync function '%s' does not exist` (function-existence oracle) |
+| `NATIVE_FUNCTION_NOT_FOUND` | `desync function '%s' does not exist` (function-existence oracle; expression-scoped when the function is named) |
 | `NATIVE_LUA_COMPAT_MISMATCH` | compat mismatch (bundle cross-check or native run) |
 | `NATIVE_BINARY_LUA_MISMATCH` | bundle selected for the wrong target release |
+| `NATIVE_BUNDLE_EVIDENCE_MISMATCH` | bundle hash evidence broken: fixture bytes ≠ recorded SHA-256, or evidence fields tampered |
+| `UNTRUSTED_LUA_INIT_REQUIRES_SANDBOX` | candidate document requires Lua init outside the trusted bundle set (never forwarded, never silently dropped) |
 | `NATIVE_RUNTIME_ARGUMENT_ERROR` | runtime argument error (packet time — reported, never simulated) |
 
 Removed with cause (superseded by the native-authority model):

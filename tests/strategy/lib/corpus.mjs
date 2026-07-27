@@ -35,8 +35,8 @@ export function runCorpus(dir, { bundle = null, readDir, readFile } = {}) {
 		preserveRoundtripSuccess: 0,
 		preserveRoundtripFailure: 0,
 		catalogWarnings: 0,
-		nativeValid: 0,
-		nativeInvalid: 0,
+		nativePartial: 0,
+		nativeRejected: 0,
 		nativeUnavailable: 0,
 		nativeNotChecked: 0,
 		bundleMismatches: bundleDiags.length,
@@ -84,8 +84,8 @@ export function runCorpus(dir, { bundle = null, readDir, readFile } = {}) {
 			if (rec.preserveRoundtrip) totals.preserveRoundtripSuccess++;
 			else totals.preserveRoundtripFailure++;
 			totals.catalogWarnings += rec.catalogWarnings;
-			if (rec.nativeStatus === 'valid') totals.nativeValid++;
-			else if (rec.nativeStatus === 'invalid') totals.nativeInvalid++;
+			if (rec.nativeStatus === 'partial') totals.nativePartial++;
+			else if (rec.nativeStatus === 'rejected') totals.nativeRejected++;
 			else if (rec.nativeStatus === 'unavailable') totals.nativeUnavailable++;
 			else totals.nativeNotChecked++;
 			for (const c of rec.diagnosticCodes) {

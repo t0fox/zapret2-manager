@@ -18,6 +18,7 @@
 import { tokenize } from './tokenize.mjs';
 import { TOP_LEVEL_OPTIONS, OPTIONS_REQUIRED_VALUE } from './catalog.mjs';
 import { serializeCanonical } from './serialize.mjs';
+import { makeNativeValidationShell } from './native.mjs';
 
 const MODEL_VERSION = 1;
 
@@ -153,10 +154,6 @@ function makeCatalogHints(rawValue) {
 	};
 }
 
-export function makeNativeValidationUnchecked() {
-	return { status: 'not_checked', diagnostics: [], bundleId: null, nativeVersion: null, luaCompatVer: null };
-}
-
 function makeLuaDesyncOpaque(value, token, optionRaw) {
 	return {
 		raw: value,
@@ -164,7 +161,7 @@ function makeLuaDesyncOpaque(value, token, optionRaw) {
 		sourceSpan: { start: token.start, end: token.end },
 		tokenIndex: token.index,
 		catalogHints: makeCatalogHints(value),
-		nativeValidation: makeNativeValidationUnchecked(),
+		nativeValidation: makeNativeValidationShell(),
 	};
 }
 
@@ -426,6 +423,10 @@ export function parse(text, options = {}) {
 		tokens,
 		trailingTokens,
 		normalizedText: null,
+		// A native run's process exit is a DOCUMENT-level result; expression-
+		// level records live on each luaDesync entry and are only changed when
+		// the native output unambiguously identifies the expression.
+		nativeValidation: makeNativeValidationShell(),
 	};
 
 	for (const p of profiles) {

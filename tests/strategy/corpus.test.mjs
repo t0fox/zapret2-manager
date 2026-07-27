@@ -42,8 +42,8 @@ test('corpus runner: every fixture matches its expectation manifest', () => {
 	assert.equal(totals.managerParseSuccess + totals.managerParseFailure, 19);
 	assert.equal(totals.preserveRoundtripSuccess, 19);
 	assert.equal(totals.nativeNotChecked, 19);
-	assert.equal(totals.nativeValid, 0);
-	assert.equal(totals.nativeInvalid, 0);
+	assert.equal(totals.nativePartial, 0);
+	assert.equal(totals.nativeRejected, 0);
 });
 
 // Mandatory check #18: one bad fixture does not stop the corpus.

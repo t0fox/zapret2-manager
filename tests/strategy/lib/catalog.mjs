@@ -94,8 +94,10 @@ export const BLOB_C_BUILTIN = Object.freeze([
 	'fake_default_tls', 'fake_default_http', 'fake_default_quic',
 ]);
 
-// (3) Lua-global blob aliases — verified in init_vars.lua of the target
-// bundle (defined via tls_mod(fake_default_tls, ...) / invert_bytes).
+// (3) Lua-global blob aliases — verified in init_vars.lua of the LEGACY (v6)
+// captured bundle (defined via tls_mod(fake_default_tls, ...) / invert_bytes).
+// The current v5 target capture does NOT include init_vars.lua, so their
+// presence on the current target is NOT captured/proven — hints only.
 export const BLOB_LUA_GLOBALS = Object.freeze([
 	'tls_google', 'tls_vk', 'tls_sber', 'tls_yandex', 'tls_mail',
 	'tls_cloudflare', 'tls_discord', 'tls_youtube',

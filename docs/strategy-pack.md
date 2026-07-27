@@ -456,7 +456,9 @@ itself. The definitive check is native: `lua_desync_functions_exist()`
 (`nfq2/lua.c` @d3b3011:3891 / @8a0f53f:4023) resolves every `--lua-desync`
 function against the actually loaded bundle at init time
 (`nfqws2 --intercept=0`, side-effect-free per static analysis —
-`docs/contracts/strategy-model.md` §2.2). The validator's Lua-fixture
+`docs/contracts/strategy-model.md` §2.2; because it executes Lua init code,
+it is gated by a trusted-bundle policy and never runs untrusted candidate
+`--lua-init`). The validator's Lua-fixture
 cross-check remains a drift linter, not an oracle.
 
 ### Derived rule — binary and Lua must be from one release
@@ -486,7 +488,7 @@ cross-check that detects #6. If either fixture is absent, the cross-check is
 > native one — `lua_desync_functions_exist()` in `nfq2/lua.c`
 > (@d3b3011:3891, @8a0f53f:4023), executed via `nfqws2 --intercept=0`
 > (side-effect-free per static analysis, `docs/contracts/strategy-model.md`
-> §2.2).
+> §2.2; allowed only for a trusted immutable bundle under an explicit policy).
 
 ---
 

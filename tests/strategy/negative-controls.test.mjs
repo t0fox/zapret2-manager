@@ -124,14 +124,21 @@ control('C', 'unknown-method-as-fatal breaks the warning contract', () => {
 control('D', 'disabling the compat cross-check lets a mixed bundle through', () => {
 	const { dst, libDst } = copyLib();
 	mutate(libDst, 'native.mjs',
-		'if (result.manifestCompat !== null && result.fixtureCompat !== result.manifestCompat) {',
-		'if (false) { // MUTATED: compat cross-check disabled');
+		'const compatOk = result.fixtureCompat !== null',
+		'const compatOk = true || // MUTATED: compat cross-check disabled\n\t\tresult.fixtureCompat !== null');
+	// tampered manifest: v6 evidence, but claims luaCompatVer=5
+	const v6 = JSON.parse(readFileSync(join(LIB_DIR, '..', 'native-bundles', 'v6-legacy.json'), 'utf8'));
+	v6.luaCompatVer = 5;
+	const manifestJson = JSON.stringify(v6);
 	const probe = (lib) => `
-		import { checkBundleConsistency } from '${lib}';
-		const r = checkBundleConsistency(
-			{ id: 'mixed', luaCompatVer: 5, luaContentsFixture: 'virtual' },
-			{ readFile: () => 'NFQWS2_COMPAT_VER_REQUIRED=6\\n' });
-		if (r.consistent !== false) throw new Error('mixed v5/v6 bundle accepted');
+		import { loadBundle } from '${lib}';
+		import { readFileSync } from 'node:fs';
+		const manifest = JSON.parse(${JSON.stringify(manifestJson)});
+		const r = loadBundle('x.json', {
+			repoRoot: process.cwd(),
+			readFile: (p) => p === 'x.json' ? ${JSON.stringify(manifestJson)} : readFileSync(p, 'utf8'),
+		});
+		if (r.sameLuaReleaseVerified !== false) throw new Error('mixed v5/v6 bundle verified');
 		if (!r.diagnostics.some((d) => d.code === 'NATIVE_LUA_COMPAT_MISMATCH')) throw new Error('no mismatch diagnostic');
 	`;
 	assert.notEqual(runProbe(probe(libUrl(libDst, 'native.mjs'))), 0, 'mutated must be RED');
@@ -201,22 +208,21 @@ control('F', 'injecting eval into the tokenizer trips the safety gate', () => {
 });
 
 // ---------------------------------------------------------------------------
-// G. Declare native valid while the oracle is unavailable → goes red.
-control('G', 'claiming native-valid without an oracle run is caught', () => {
+// G. Claim a check ran while the oracle is unavailable → goes red.
+control('G', 'claiming coverage without an oracle run is caught', () => {
 	const { dst, libDst } = copyLib();
 	mutate(libDst, 'native.mjs',
-		"status: 'unavailable',",
-		"status: 'valid', // MUTATED: lying about the oracle");
+		"rec.status = 'unavailable';",
+		"rec.status = 'partial'; rec.coverage.cliSyntax = 'passed'; // MUTATED: faking a run");
 	const probe = (libParse, libNat) => `
 		import { parse } from '${libParse}';
 		import { unavailableNativeValidation } from '${libNat}';
 		const m = parse('--lua-desync=fake:blob=fake_default_tls');
 		unavailableNativeValidation(m, null);
-		for (const p of m.profiles) {
-			for (const e of p.luaDesync) {
-				if (e.nativeValidation.status === 'valid') throw new Error('valid claimed without oracle');
-				if (e.nativeValidation.status !== 'unavailable') throw new Error('unexpected status');
-			}
+		const recs = [m.nativeValidation, ...m.profiles.flatMap((p) => p.luaDesync.map((e) => e.nativeValidation))];
+		for (const rec of recs) {
+			if (rec.status !== 'unavailable') throw new Error('unavailable masqueraded as ' + rec.status);
+			if (Object.values(rec.coverage).includes('passed')) throw new Error('coverage passed without a run');
 		}
 	`;
 	assert.notEqual(runProbe(probe(libUrl(libDst, 'parse.mjs'), libUrl(libDst, 'native.mjs'))), 0, 'mutated must be RED');
