@@ -75,6 +75,11 @@ Methods:
 | `dns_apply` | `{edit: string}` (`{"mode":"preview"\|"apply"}`) | mutate | Preview: diff + candidate hosts + registration flag, no writes. Apply: snapshot → write the manager-owned addnhosts file → register in `/etc/config/dhcp` once (uci) → dnsmasq reload (HUP, no listener drop) → verify (process, port 53, per-entry nslookup) → rollback on failure. |
 | `dns_check` | `{edit: string}` (`{"domain","ip"}?`) | read | Live per-entry resolution check against 127.0.0.1 (read-only). |
 | `dns_rollback` | none | mutate | Restore the DNS snapshot + reload dnsmasq. |
+| `catalog_list` | none | read | Service Catalog: version/digest (+digestOk), services (id/name/category/mechanisms/stability/limitations/domainCount), categories, stale, overlaps. Fail-closed on invalid catalog. |
+| `catalog_get` | `{edit: string}` (`{"id"}`) | read | One service's full entry. |
+| `catalog_status` | none | read | Ledger (enabled/revision/updatedAt), ownedDomains counts, ownedMissing (drift), userDomains, catalog validity, stale. |
+| `catalog_preview` | `{edit: string}` (`{"enabled":[ids]}`) | read | Exact plan: additions, removals (solely-owned only), keepShared, alreadyUserOwned (never claimed), preservedUser, unsupported mechanisms, unknownIds, target file, precondition {fileSha256, ledgerRevision}. NO writes; invalid catalog or malformed ledger blocks. |
+| `catalog_apply` | `{edit: string}` (`{"enabled":[…],"revision":N,"fileSha256":"…"}`) | mutate | Optimistic revision+hash gates (ECONFLICT) → snapshot → sanctioned list write → ledger save → reread membership verification → rollback on mismatch (critical+explicit). Event recorded. Ownership: only catalog-added domains are ever removed; user entries always survive; shared domains survive while any owner stays enabled. |
 
 Job statuses (closed enum) and allowed transitions:
 

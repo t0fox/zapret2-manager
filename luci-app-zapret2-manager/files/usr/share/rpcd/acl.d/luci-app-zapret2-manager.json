@@ -3,7 +3,7 @@
 		"description": "Zapret 2 Manager — overview + service control + lists",
 		"read": {
 			"ubus": {
-				"zapret2-manager": [ "status", "lists_get", "lists_check_domain", "profiles_list", "profiles_validate", "job_get", "job_list", "blockcheck_status", "versions", "maintenance_status", "events_tail", "diagnostics_export", "backup_list", "backup_restore_preview", "dns_get", "dns_validate", "dns_check" ]
+				"zapret2-manager": [ "status", "lists_get", "lists_check_domain", "profiles_list", "profiles_validate", "job_get", "job_list", "blockcheck_status", "versions", "maintenance_status", "events_tail", "diagnostics_export", "backup_list", "backup_restore_preview", "dns_get", "dns_validate", "dns_check", "catalog_list", "catalog_get", "catalog_status", "catalog_preview" ]
 			},
 			"uci": [ "zapret2" ]
 		},
@@ -18,7 +18,8 @@
 					"profiles_delete", "profiles_import_applied", "profiles_apply",
 					"blockcheck_start", "blockcheck_cancel",
 					"backup_create", "backup_restore", "backup_delete",
-					"dns_set", "dns_apply", "dns_rollback"
+					"dns_set", "dns_apply", "dns_rollback",
+					"catalog_apply"
 				]
 			}
 		}

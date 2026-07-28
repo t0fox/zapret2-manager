@@ -308,6 +308,14 @@ function dns_apply_method(req) {
 function dns_check_method(req) { return cli_edit_action(DNS_CLI, 'check', req, 'dns'); }
 function dns_rollback_method(req) { return cli_action(DNS_CLI, 'rollback'); }
 
+// ---- service catalog (Phase B) -------------------------------------------------
+const CATALOG_CLI = '/usr/libexec/zapret2-manager/catalog-cli.uc';
+function catalog_list_method(req) { return cli_action(CATALOG_CLI, 'list'); }
+function catalog_get_method(req) { return cli_edit_action(CATALOG_CLI, 'get', req, 'catalog'); }
+function catalog_status_method(req) { return cli_action(CATALOG_CLI, 'status'); }
+function catalog_preview_method(req) { return cli_edit_action(CATALOG_CLI, 'preview', req, 'catalog'); }
+function catalog_apply_method(req) { return cli_edit_action(CATALOG_CLI, 'apply', req, 'catalog'); }
+
 // profiles_apply {edit: '{"mode":"preview"|"apply"}'} — preview is read-only
 // (no write, no restart); apply runs the full pipeline (snapshot → write →
 // restart → verify → rollback-on-failure). Mode parsing happens here; the
@@ -373,6 +381,11 @@ return {
 		dns_validate:      { args: { edit: 'string' }, call: function (req) { return dns_validate_method(req); } },
 		dns_apply:         { args: { edit: 'string' }, call: function (req) { return dns_apply_method(req); } },
 		dns_check:         { args: { edit: 'string' }, call: function (req) { return dns_check_method(req); } },
-		dns_rollback:      { call: function (req) { return dns_rollback_method(req); } }
+		dns_rollback:      { call: function (req) { return dns_rollback_method(req); } },
+		catalog_list:      { call: function (req) { return catalog_list_method(req); } },
+		catalog_get:       { args: { edit: 'string' }, call: function (req) { return catalog_get_method(req); } },
+		catalog_status:    { call: function (req) { return catalog_status_method(req); } },
+		catalog_preview:   { args: { edit: 'string' }, call: function (req) { return catalog_preview_method(req); } },
+		catalog_apply:     { args: { edit: 'string' }, call: function (req) { return catalog_apply_method(req); } }
 	}
 };
