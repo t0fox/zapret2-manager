@@ -69,6 +69,7 @@ mkscript() { mkdir -p "$HOME/z2m-build"; f=$(mktemp "$HOME/z2m-build/script.XXXX
 build_one() {
   _name="$1"; _desc="$2"; _deps="$3"; _root="$4"; _postinst="$5"; _postrm="${6:-}"
   _provides="${7:-}"
+  _preinst="${8:-}"
   _out="$OUTDIR/${_name}-${VER}.apk"
   set -- "$FAKE" "$APK" mkpkg
   set -- "$@" --info "name:${_name}"
@@ -80,6 +81,7 @@ build_one() {
   set -- "$@" --info "origin:package/${_name}"
   set -- "$@" --info "depends:${_deps}"
   [ -n "$_provides" ] && set -- "$@" --info "provides:${_provides}"
+  [ -n "$_preinst"  ] && set -- "$@" --script "pre-install:${_preinst}"
   [ -n "$_postinst" ] && set -- "$@" --script "post-install:${_postinst}"
   [ -n "$_postrm"   ] && set -- "$@" --script "post-deinstall:${_postrm}"
   set -- "$@" --files "$_root" --output "$_out"
@@ -104,15 +106,18 @@ mkdir -p "$R/etc/zapret2-manager" "$R/usr/libexec/zapret2-manager" \
          "$R/usr/share/rpcd/ucode" "$R/etc/hotplug.d/iface" "$R/etc/init.d"
 install -m 0644 "$REPO/zapret2-manager/files/etc/zapret2-manager/state.json" \
                 "$R/etc/zapret2-manager/state.json"
-for u in constants qlen status service watchdog apply apply-cli lists lists-cli backup; do
-  install -m 0644 "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/${u}.uc" \
-                  "$R/usr/libexec/zapret2-manager/${u}.uc"
+# Backend ucode is enumerated with a GLOB, not a hardcoded list (a per-file
+# list silently drops new modules — the exact defect class the packaging gate
+# covers for the Makefile; this script had it for the manual build).
+for f in "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager"/*.uc; do
+  install -m 0644 "$f" "$R/usr/libexec/zapret2-manager/"
+done
+for f in "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager"/*.sh; do
+  install -m 0755 "$f" "$R/usr/libexec/zapret2-manager/"
 done
 # the declarative list-path model (router-derived manifest consumed by lists.uc)
 install -m 0644 "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/lists-model.json" \
                 "$R/usr/libexec/zapret2-manager/lists-model.json"
-install -m 0755 "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/log-rotate.sh" \
-                "$R/usr/libexec/zapret2-manager/log-rotate.sh"
 # rpcd ucode plugin: install WITHOUT extension, matching the on-device `luci`
 # plugin (/usr/share/rpcd/ucode/luci, no .uc). rpcd ucode.so scans the dir and
 # loads each file; keeping .uc would diverge from convention.
@@ -122,8 +127,27 @@ install -m 0755 "$REPO/zapret2-manager/files/etc/hotplug.d/iface/90-zapret2-mana
                 "$R/etc/hotplug.d/iface/90-zapret2-manager"
 install -m 0755 "$REPO/zapret2-manager/files/etc/init.d/zapret2-manager" \
                 "$R/etc/init.d/zapret2-manager"
+# state.json preservation across upgrades: apk v3 mkpkg has no conffiles
+# field, and an upgrade REPLACES package-owned files — drafts would be wiped.
+# pre-install snapshots the live state; post-install restores it ONLY when
+# the freshly installed file is the stock skeleton ({}) — a stock install
+# never clobbers operator drafts, a deliberate stock downgrade is still
+# possible by deleting state.json.prepkg first. (.bak rotation also persists,
+# being package-unowned.)
+ZPRE=$(mkscript <<'EOF'
+#!/bin/sh
+[ -f /etc/zapret2-manager/state.json ] && cp -f /etc/zapret2-manager/state.json /etc/zapret2-manager/state.json.prepkg 2>/dev/null
+exit 0
+EOF
+)
 ZPI=$(mkscript <<'EOF'
 #!/bin/sh
+if [ -f /etc/zapret2-manager/state.json.prepkg ]; then
+	if [ "$(cat /etc/zapret2-manager/state.json 2>/dev/null)" = "{}" ]; then
+		cp -f /etc/zapret2-manager/state.json.prepkg /etc/zapret2-manager/state.json 2>/dev/null
+	fi
+	rm -f /etc/zapret2-manager/state.json.prepkg
+fi
 /etc/init.d/rpcd reload
 /etc/init.d/zapret2-manager enable
 exit 0
@@ -132,8 +156,8 @@ EOF
 build_one "zapret2-manager" \
   "Management backend for upstream zapret2" \
   "zapret2 ucode" \
-  "$R" "$ZPI"
-rm -rf "$R" "$ZPI"
+  "$R" "$ZPI" "" "" "$ZPRE"
+rm -rf "$R" "$ZPI" "$ZPRE"
 
 # ---- luci-app-zapret2-manager ------------------------------------------------
 # Stage the package root $R. acl/menu are single files; the view directory is

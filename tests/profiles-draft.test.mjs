@@ -192,10 +192,11 @@ test('nativeDryRunResult: rc=0 → partial with ONLY cliSyntax passed; rc!=0 →
 
 // ---- argv / injection safety -------------------------------------------------------------
 
-test('buildDryRunArgv: tokens become argv ELEMENTS (no shell string)', () => {
+test('buildDryRunArgv: tokens become argv ELEMENTS (no shell string); throwaway qnum present', () => {
 	const argv = buildDryRunArgv(['--filter-tcp=80', '--lua-desync=fake:pattern=a;b`rm -rf /`']);
 	assert.deepEqual(argv[0], '--dry-run');
-	assert.equal(argv[2], '--lua-desync=fake:pattern=a;b`rm -rf /`', 'content is one argv element, verbatim');
+	assert.equal(argv[1], '--qnum=30999', 'the real binary REQUIRES --qnum even for --dry-run (verified on target); a throwaway number is used — dry-run never binds');
+	assert.equal(argv[3], '--lua-desync=fake:pattern=a;b`rm -rf /`', 'content is one argv element, verbatim');
 });
 
 test('shellEscape: POSIX single-quote escaping is injection-proof', () => {

@@ -104,11 +104,50 @@ export const load_state = function() {
 	return parse_state(readfile(STATE));
 };
 
+// save_state(state) — backup rotation (.bak.1/.2/.3) then atomic temp+mv.
+// Returns true on success, false on any write failure (the caller surfaces
+// ETARGET; nothing is left half-written: a failed mv leaves only the temp).
+// Exported (Slice 6): the DNS module writes its draft entries through the
+// SAME disciplined path (lock + backups + atomic), never a second writer.
+export const save_state = function(state) {
+	// marker fallback (flock is the real serializer — see profiles-cli.uc)
+	if (stat(MARKER)) {
+		let mt = trim(readfile(MARKER));
+		let age = time() - (+mt);
+		if (mt && age < 60) return false;
+		try { unlink(MARKER); } catch (e) { }
+	}
+	try { writefile(MARKER, '' + time() + '\n'); } catch (e) { }
+
+	// rotate backups: .bak.2 → .bak.3, .bak.1 → .bak.2, current → .bak.1
+	if (stat(BAK2)) {
+		let p = popen('mv -f ' + BAK2 + ' ' + BAK3 + ' 2>/dev/null', 'r');
+		if (p) p.close();
+	}
+	if (stat(BAK1)) {
+		let p = popen('mv -f ' + BAK1 + ' ' + BAK2 + ' 2>/dev/null', 'r');
+		if (p) p.close();
+	}
+	if (stat(STATE)) {
+		let p = popen('cp -p ' + STATE + ' ' + BAK1 + ' 2>/dev/null', 'r');
+		if (p) p.close();
+	}
+
+	let out = sprintf("%J", state) + '\n';
+	let tmp = STATE + '.tmp.' + time();
+	writefile(tmp, out);
+	let p = popen('mv -f ' + tmp + ' ' + STATE + ' 2>/dev/null', 'r');
+	if (p) p.close();
+	try { unlink(MARKER); } catch (e) { }
+	if (stat(tmp)) { try { unlink(tmp); } catch (e) { } return false; }
+	return true;
+};
+
 // restore_state_raw(content) — the SANCTIONED restore of state.json (Slice 5
 // backup restore). The content is VALIDATED through parse_state (a malformed
 // restore never lands), then written through save_state (rolling backup of
-// the previous draft + atomic temp+mv + lock discipline). Returns the
-// parse_state result on success, { ok:false, reason } on refusal.
+// the previous draft + atomic temp+mv + lock discipline). DECLARED AFTER
+// save_state: ucode does not hoist declarations (proven on target).
 export const restore_state_raw = function(content) {
 	let pr = parse_state(content);
 	if (!pr.ok) return { ok: false, reason: 'restore content is not a valid draft state: ' + pr.reason };
@@ -147,45 +186,6 @@ export const restore_drafts = function(profilesArray) {
 	if (!save_state(ls.state)) return { ok: false, reason: 'failed to write draft state (lock active or disk error)' };
 	return { ok: true, count: length(clean) };
 };
-
-// save_state(state) — backup rotation (.bak.1/.2/.3) then atomic temp+mv.
-// Returns true on success, false on any write failure (the caller surfaces
-// ETARGET; nothing is left half-written: a failed mv leaves only the temp).
-// Exported (Slice 6): the DNS module writes its draft entries through the
-// SAME disciplined path (lock + backups + atomic), never a second writer.
-export const save_state = function(state) {
-	// marker fallback (flock is the real serializer — see profiles-cli.uc)
-	if (stat(MARKER)) {
-		let mt = trim(readfile(MARKER));
-		let age = time() - (+mt);
-		if (mt && age < 60) return false;
-		try { unlink(MARKER); } catch (e) { }
-	}
-	try { writefile(MARKER, '' + time() + '\n'); } catch (e) { }
-
-	// rotate backups: .bak.2 → .bak.3, .bak.1 → .bak.2, current → .bak.1
-	if (stat(BAK2)) {
-		let p = popen('mv -f ' + BAK2 + ' ' + BAK3 + ' 2>/dev/null', 'r');
-		if (p) p.close();
-	}
-	if (stat(BAK1)) {
-		let p = popen('mv -f ' + BAK1 + ' ' + BAK2 + ' 2>/dev/null', 'r');
-		if (p) p.close();
-	}
-	if (stat(STATE)) {
-		let p = popen('cp -p ' + STATE + ' ' + BAK1 + ' 2>/dev/null', 'r');
-		if (p) p.close();
-	}
-
-	let out = sprintf("%J", state) + '\n';
-	let tmp = STATE + '.tmp.' + time();
-	writefile(tmp, out);
-	let p = popen('mv -f ' + tmp + ' ' + STATE + ' 2>/dev/null', 'r');
-	if (p) p.close();
-	try { unlink(MARKER); } catch (e) { }
-	if (stat(tmp)) { try { unlink(tmp); } catch (e) { } return false; }
-	return true;
-}
 
 // ---------------------------------------------------------------------------
 // CRUD (mirrors createProfile/updateProfile/cloneProfile/deleteProfile)
@@ -399,11 +399,13 @@ function native_dry_run_result(rc, out) {
 // options token is ONE argv element, POSIX-single-quote escaped (no shell
 // interpolation of content). --dry-run exits before nfq_main: no Lua, no
 // sockets, no NFQUEUE, no traffic (verified native architecture,
-// strategy-model.md §2.2).
+// strategy-model.md §2.2). --qnum=30999 is a THROWAWAY queue number: the
+// real binary REQUIRES --qnum even for --dry-run (verified on target:
+// "Need queue number (--qnum)"), and dry-run never binds anything.
 function native_dry_run(optText) {
 	if (!stat(NFQWS2_BIN)) return native_unavailable('nfqws2 binary not found at ' + NFQWS2_BIN);
 	let tz = z2m_tokenize(optText);
-	let cmd = shell_escape(NFQWS2_BIN) + ' --dry-run';
+	let cmd = shell_escape(NFQWS2_BIN) + ' --dry-run --qnum=30999';
 	for (let i = 0; i < length(tz.tokens); i++)
 		cmd += ' ' + shell_escape(tz.tokens[i].value);
 	cmd += ' 2>&1';

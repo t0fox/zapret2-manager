@@ -271,7 +271,14 @@ function cli_edit_action(cli, sub, req, tag) {
 
 function versions_method(req) { return cli_action(MAINT_CLI, 'versions'); }
 function maintenance_status_method(req) { return cli_action(MAINT_CLI, 'status'); }
-function events_tail_method(req) { return cli_edit_action(MAINT_CLI, 'events', req, 'events'); }
+function events_tail_method(req) {
+	// edit is OPTIONAL (defaults to the last 50 events)
+	let edit = null;
+	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
+	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
+	if (edit == null) return cli_edit_action(MAINT_CLI, 'events', { edit: '{}' }, 'events');
+	return cli_edit_action(MAINT_CLI, 'events', { edit: edit }, 'events');
+}
 function diagnostics_export_method(req) { return cli_action(MAINT_CLI, 'diagnostics'); }
 function backup_list_method(req) { return cli_action(BACKUP_CLI, 'list'); }
 function backup_create_method(req) { return cli_edit_action(BACKUP_CLI, 'create', req, 'backup'); }

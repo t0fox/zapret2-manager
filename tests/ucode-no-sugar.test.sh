@@ -80,4 +80,143 @@ for f in $(find zapret2-manager/files luci-app-zapret2-manager/files -name '*.uc
 done
 [ "$fail" -eq 0 ] && echo "PASS  shipped ucode brackets balanced (local sanity, comments/strings stripped)"
 
+# 5. every `export const <name> = function(...) { ... }` block CLOSES with
+# `};` — a block closed with a bare `}` parses as a function DECLARATION
+# expression tail and the next statement then fails with "Unexpected token,
+# expecting ';'" AT LOAD TIME on the router (this exact defect shipped in
+# profiles-draft.uc and broke the whole ubus object overnight; local Node
+# tests cannot see it because ucode does not run in the build env).
+# Self-test first (a gate that cannot go red is considered absent).
+_exportclose() { # $1 = file → 0 clean, 1 violation
+  awk '
+    # strip // comments and quoted strings (naive, same as gate 4)
+    {
+      line=$0
+      sub(/\/\/.*$/, "", line)
+      gsub(/"[^"]*"/, "", line)
+      gsub(/'\''[^'\'']*'\''/, "", line)
+      if (inblock == 0 && line ~ /^export[ \t]+const[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*=[ \t]*function/) {
+        inblock=1; depth=0; startline=NR
+      }
+      if (inblock) {
+        n=split(line, chars, "")
+        for (i=1; i<=n; i++) {
+          if (chars[i]=="{") depth++
+          else if (chars[i]=="}") depth--
+        }
+        if (depth<=0) {
+          if (line !~ /^[ \t]*\}[ \t]*;[ \t]*$/ && line !~ /\}[ \t]*;[ \t]*$/) {
+            printf "FAIL  export-const block opened at line %d closes without `};`: %s\n", startline, FILENAME
+            failed=1; exit 1
+          }
+          inblock=0
+        }
+      }
+    }
+    END { if (inblock && !failed) { printf "FAIL  export-const block opened at line %d never closes: %s\n", startline, FILENAME; exit 1 } }
+  ' "$1"
+}
+_tmpbad=$(mktemp)
+printf 'export const broken = function() {\n\treturn 1;\n}\n\nexport const after = function() { return 2; };\n' > "$_tmpbad"
+_tmpgood=$(mktemp)
+printf 'export const fine = function() {\n\treturn 1;\n};\n\nexport const also = 7;\n' > "$_tmpgood"
+if _exportclose "$_tmpbad" 2>/dev/null; then echo "FAIL  self-test: unclosed export-const not flagged"; fail=1; fi
+if ! _exportclose "$_tmpgood" 2>/dev/null; then echo "FAIL  self-test: clean export-const flagged"; fail=1; fi
+rm -f "$_tmpbad" "$_tmpgood"
+[ "$fail" -eq 0 ] && echo "PASS  export-const close self-test (red on bad, green on good)"
+for f in $(find zapret2-manager/files luci-app-zapret2-manager/files -name '*.uc' 2>/dev/null); do
+  if ! _exportclose "$f"; then fail=1; fi
+done
+[ "$fail" -eq 0 ] && echo "PASS  all export-const blocks close with };"
+
+# 6. ucode does NOT hoist function declarations in module mode: a function
+# must be DECLARED before its first call site in the same file, or the call
+# fails at RUNTIME with "access to undeclared variable" (the profile_fragment
+# defect that shipped to the router and broke profiles_list). Mutual
+# recursion would false-positive here — there is none in this tree (helpers
+# precede callers by convention).
+_fnorder() { # $1 = file → 0 clean, 1 violation
+  awk '
+    NR==FNR {
+      line=$0
+      sub(/\/\/.*$/, "", line)
+      gsub(/"[^"]*"/, "", line)
+      gsub(/'\''[^'\'']*'\''/, "", line)
+      if (match(line, /^[ \t]*function[ \t]+[A-Za-z_][A-Za-z0-9_]*/)) {
+        name=line; sub(/^[ \t]*function[ \t]+/, "", name); sub(/[^A-Za-z0-9_].*$/, "", name)
+        if (!(name in decl)) decl[name]=FNR
+      }
+      if (match(line, /^[ \t]*export[ \t]+const[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*=[ \t]*function/)) {
+        name=line; sub(/^[ \t]*export[ \t]+const[ \t]+/, "", name); sub(/[^A-Za-z0-9_].*$/, "", name)
+        if (!(name in decl)) decl[name]=FNR
+      }
+      next
+    }
+    {
+      line=$0
+      sub(/\/\/.*$/, "", line)
+      gsub(/"[^"]*"/, "", line)
+      gsub(/'\''[^'\'']*'\''/, "", line)
+      while (match(line, /[A-Za-z_][A-Za-z0-9_]*[ \t]*\(/)) {
+        cname=substr(line, RSTART, RLENGTH); sub(/[^A-Za-z0-9_].*$/, "", cname)
+        rest=substr(line, RSTART+RLENGTH)
+        if (cname in decl && FNR < decl[cname]) {
+          printf "FAIL  %s called at line %d before its declaration at line %d: %s\n", cname, FNR, decl[cname], FILENAME
+          exit 1
+        }
+        line=rest
+      }
+    }
+  ' "$1" "$1"
+}
+_tmpbad=$(mktemp)
+printf 'function caller() { return helper(); }\nfunction helper() { return 1; }\n' > "$_tmpbad"
+_tmpgood=$(mktemp)
+printf 'function helper() { return 1; }\nfunction caller() { return helper(); }\n' > "$_tmpgood"
+if _fnorder "$_tmpbad" 2>/dev/null; then echo "FAIL  self-test: use-before-declare not flagged"; fail=1; fi
+if ! _fnorder "$_tmpgood" 2>/dev/null; then echo "FAIL  self-test: declare-before-use flagged"; fail=1; fi
+rm -f "$_tmpbad" "$_tmpgood"
+[ "$fail" -eq 0 ] && echo "PASS  function-order self-test (red on bad, green on good)"
+for f in $(find zapret2-manager/files luci-app-zapret2-manager/files -name '*.uc' 2>/dev/null); do
+  if ! _fnorder "$f"; then fail=1; fi
+done
+[ "$fail" -eq 0 ] && echo "PASS  all function declarations precede their call sites"
+
+# 7. no binary tilde: `a ~ b` is NOT XOR — it SEGFAULTS the ucode compiler on
+# the target (proven: backup.uc checksum crashed the whole interpreter at
+# module load, taking backup_list down). XOR is `^`; unary `~x` stays legal.
+_notilde() { # $1 = file → 0 clean, 1 violation (comments stripped first —
+  # the rule documents itself with a `a ~ b` example that must not self-flag)
+  sed 's://.*$::' "$1" | grep -nE '[A-Za-z0-9_)] +~ +' | sed "s|^|FAIL  binary tilde (compiler segfault on target): $1:|"
+  ! sed 's://.*$::' "$1" | grep -qE '[A-Za-z0-9_)] +~ +'
+}
+_tmpbad=$(mktemp); printf 'let h = 1;\nh = h ~ c;\n' > "$_tmpbad"
+_tmpgood=$(mktemp); printf 'let h = 1;\nh = h ^ c;\nlet n = ~mask;\n' > "$_tmpgood"
+if _notilde "$_tmpbad" >/dev/null 2>&1; then echo "FAIL  self-test: binary tilde not flagged"; fail=1; fi
+if ! _notilde "$_tmpgood" >/dev/null 2>&1; then echo "FAIL  self-test: unary tilde flagged"; fail=1; fi
+rm -f "$_tmpbad" "$_tmpgood"
+[ "$fail" -eq 0 ] && echo "PASS  no-tilde self-test (red on bad, green on good)"
+for f in $(find zapret2-manager/files luci-app-zapret2-manager/files -name '*.uc' 2>/dev/null); do
+  if ! _notilde "$f"; then fail=1; fi
+done
+[ "$fail" -eq 0 ] && echo "PASS  no binary tilde in shipped ucode"
+
+# 8. no ord(<identifier>[...]): ucode strings are NOT indexable — ord(s[i])
+# is a runtime "not an array or object" error (backup.uc had it). ord() of a
+# substr()/char variable is the house pattern.
+_noordidx() { # $1 = file → 0 clean, 1 violation
+  grep -nE 'ord\([A-Za-z_][A-Za-z0-9_]*\[' "$1" | sed "s|^|FAIL  ord() of an indexed value (strings are not indexable): $1:|"
+  ! grep -qE 'ord\([A-Za-z_][A-Za-z0-9_]*\[' "$1"
+}
+_tmpbad=$(mktemp); printf 'let c = ord(s[1]);\n' > "$_tmpbad"
+_tmpgood=$(mktemp); printf 'let c = ord(substr(s, 1, 1));\nlet d = ord(ch);\n' > "$_tmpgood"
+if _noordidx "$_tmpbad" >/dev/null 2>&1; then echo "FAIL  self-test: ord(indexed) not flagged"; fail=1; fi
+if ! _noordidx "$_tmpgood" >/dev/null 2>&1; then echo "FAIL  self-test: ord(substr) flagged"; fail=1; fi
+rm -f "$_tmpbad" "$_tmpgood"
+[ "$fail" -eq 0 ] && echo "PASS  no-ord-index self-test (red on bad, green on good)"
+for f in $(find zapret2-manager/files luci-app-zapret2-manager/files -name '*.uc' 2>/dev/null); do
+  if ! _noordidx "$f"; then fail=1; fi
+done
+[ "$fail" -eq 0 ] && echo "PASS  no ord() of indexed values in shipped ucode"
+
 if [ "$fail" = 0 ]; then echo "ucode-no-sugar: ALL PASS"; exit 0; else echo "ucode-no-sugar: FAILED"; exit 1; fi

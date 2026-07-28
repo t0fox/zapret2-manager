@@ -132,6 +132,61 @@ function read_prev_enable() {
 	} catch (e) { return null; }
 }
 
+// ---- shared apply/rollback helpers -----------------------------------------
+// These four were originally defined in the "90s rollback scaffold" section
+// BELOW their call sites — ucode does NOT hoist declarations in either mode
+// (proven on target: script mode fails with "not a function", module mode
+// with "undeclared variable"), so start/stop/restart/pause failed at runtime
+// whenever they reached capture_applied_hash / snapshot_last_good /
+// schedule_rollback. They are declared BEFORE apply_nfqws2_enable now.
+
+function sha256_file(path) {
+	if (!stat(path)) return null;
+	try {
+		let raw = run("sha256sum " + path + " 2>/dev/null | awk '{print $1}'");
+		let h = trim(raw.out);
+		return length(h) ? h : null;
+	} catch (e) { return null; }
+}
+
+// Capture the applied-config hashes at apply time, so the collector's drift
+// check (REVIEW 2) can compare the current hashes to these. Both sources are
+// hashed, never one alone. Written to /tmp/zapret2-manager/applied.sha256.
+function capture_applied_hash() {
+	try {
+		let st = { config: sha256_file(PATHS.applied_conf),
+			uci:    sha256_file(PATHS.uci_conf),
+			captured_at: time() };
+		mkdir('/tmp/zapret2-manager');
+		writefile('/tmp/zapret2-manager/applied.sha256', sprintf("%J", st) + '\n');
+	} catch (e) { }
+}
+
+function snapshot_last_good() {
+	try {
+		run('mkdir -p ' + LASTGOOD_DIR);
+		run('cp -f ' + PATHS.applied_conf + ' ' + LASTGOOD_DIR + '/ 2>/dev/null');
+		run('cp -f ' + PATHS.uci_conf + ' ' + LASTGOOD_DIR + '/ 2>/dev/null');
+		capture_applied_hash();
+	} catch (e) { }
+}
+
+function schedule_rollback() {
+	// The MECHANISM stays (rollback / confirm_alive + the snapshot in
+	// snapshot_last_good), but the AUTOMATIC timer is NOT armed by default —
+	// ROLLBACK_TIMEOUT_ENABLED is false until the timer path is confirmed on
+	// the device. A premature rollback drops the link, and a stale-timer
+	// defect was already found here. When enabled, arm a pending marker with
+	// an expiry timestamp + a detached timer; confirm_alive removes it; if it
+	// survives past the timer, rollback() restores last-good and restarts.
+	if (!ROLLBACK_TIMEOUT_ENABLED) return;
+	try {
+		writefile(PENDING, '' + (time() + ROLLBACK_TTL) + '\n');
+		run('setsid sh -c "sleep ' + ROLLBACK_TTL + '; [ -f ' + PENDING +
+			' ] && /usr/bin/ucode /usr/libexec/zapret2-manager/service.uc rollback" >/dev/null 2>&1 &');
+	} catch (e) { }
+}
+
 function apply_nfqws2_enable(value) {
 	// Write through apply.uc (single writer). Re-capture the applied hash AFTER
 	// the write so drift sees the new config as the applied baseline (a
@@ -242,53 +297,8 @@ function reload_ifsets() {
 }
 
 // ---- 90s rollback scaffold --------------------------------------------------
-
-function sha256_file(path) {
-	if (!stat(path)) return null;
-	try {
-		let raw = run("sha256sum " + path + " 2>/dev/null | awk '{print $1}'");
-		let h = trim(raw.out);
-		return length(h) ? h : null;
-	} catch (e) { return null; }
-}
-
-// Capture the applied-config hashes at apply time, so the collector's drift
-// check (REVIEW 2) can compare the current hashes to these. Both sources are
-// hashed, never one alone. Written to /tmp/zapret2-manager/applied.sha256.
-function capture_applied_hash() {
-	try {
-		let st = { config: sha256_file(PATHS.applied_conf),
-			uci:    sha256_file(PATHS.uci_conf),
-			captured_at: time() };
-		mkdir('/tmp/zapret2-manager');
-		writefile('/tmp/zapret2-manager/applied.sha256', sprintf("%J", st) + '\n');
-	} catch (e) { }
-}
-
-function snapshot_last_good() {
-	try {
-		run('mkdir -p ' + LASTGOOD_DIR);
-		run('cp -f ' + PATHS.applied_conf + ' ' + LASTGOOD_DIR + '/ 2>/dev/null');
-		run('cp -f ' + PATHS.uci_conf + ' ' + LASTGOOD_DIR + '/ 2>/dev/null');
-		capture_applied_hash();
-	} catch (e) { }
-}
-
-function schedule_rollback() {
-	// The MECHANISM stays (rollback / confirm_alive + the snapshot in
-	// snapshot_last_good), but the AUTOMATIC timer is NOT armed by default —
-	// ROLLBACK_TIMEOUT_ENABLED is false until the timer path is confirmed on
-	// the device. A premature rollback drops the link, and a stale-timer
-	// defect was already found here. When enabled, arm a pending marker with
-	// an expiry timestamp + a detached timer; confirm_alive removes it; if it
-	// survives past the timer, rollback() restores last-good and restarts.
-	if (!ROLLBACK_TIMEOUT_ENABLED) return;
-	try {
-		writefile(PENDING, '' + (time() + ROLLBACK_TTL) + '\n');
-		run('setsid sh -c "sleep ' + ROLLBACK_TTL + '; [ -f ' + PENDING +
-			' ] && /usr/bin/ucode /usr/libexec/zapret2-manager/service.uc rollback" >/dev/null 2>&1 &');
-	} catch (e) { }
-}
+// (sha256_file / capture_applied_hash / snapshot_last_good /
+// schedule_rollback moved ABOVE the actions — ucode does not hoist.)
 
 function confirm_alive() {
 	try { unlink(PENDING); } catch (e) { }

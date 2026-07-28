@@ -175,7 +175,10 @@ function native_unavailable(reason) {
 function native_dry_run(candidate) {
 	if (!stat(NFQWS2_BIN)) return native_unavailable('nfqws2 binary not found at ' + NFQWS2_BIN);
 	let tz = z2m_tokenize(candidate);
-	let cmd = shell_escape(NFQWS2_BIN) + ' --dry-run';
+	// --qnum=30999: throwaway queue number — the real binary REQUIRES --qnum
+	// even for --dry-run (verified on target: "Need queue number (--qnum)");
+	// dry-run exits before nfq_main, so nothing is ever bound.
+	let cmd = shell_escape(NFQWS2_BIN) + ' --dry-run --qnum=30999';
 	for (let i = 0; i < length(tz.tokens); i++)
 		cmd += ' ' + shell_escape(tz.tokens[i].value);
 	cmd += ' 2>&1';

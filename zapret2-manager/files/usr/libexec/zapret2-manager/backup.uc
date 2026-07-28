@@ -30,9 +30,19 @@
 // (service.uc, status.uc, watchdog.uc, rpcd plugin) — those are the infra owner's.
 
 import { readfile, writefile, stat, mkdir, unlink, popen } from 'fs';
-import { parse as jparse, stringify as jstringify } from 'json';
+// JSON is the ucode GLOBAL builtin: json(text) parses, sprintf("%J", obj)
+// stringifies. There is NO 'json' module to import — the previous
+// `import { parse, stringify } from 'json'` failed module resolution, and
+// (with the compiler crashing on the tilde in checksum() below) this module
+// segfaulted the whole interpreter at load. ord() takes a STRING (ucode
+// strings are not indexable — s[i] is invalid), and XOR is `^`, never `~`
+// (a bare `a ~ b` SEGFAULTS the compiler — proven on target).
 import { read_var, write_list_file, restore_whole_file } from './apply.uc';
 import { restore_state_raw, restore_drafts, load_state } from './profiles-draft.uc';
+
+// local aliases so the rest of the file reads naturally
+function jparse(t) { return json(t); }
+function jstringify(o) { return sprintf("%J", o); }
 
 const BACKUP_DIR = '/etc/zapret2-manager/backups';
 const PKG_VERSION = 1;   // [VERIFY:ROUTER] package version — apk info or compiled-in
@@ -109,8 +119,8 @@ function run(cmd) {
 function checksum(s) {
 	let h = 0x811c9dc5;
 	for (let i = 0; i < length(s); i++) {
-		let c = ord(s[i]);
-		h = h ~ c;
+		let c = ord(substr(s, i, 1));
+		h = h ^ c;
 		h = h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24));
 	}
 	let hex = '';
@@ -271,7 +281,7 @@ export const backup_scope = function(scope, now) {
 		run('rm -rf ' + hdir + '/' + oldest);
 	}
 	return { ok: true, scope: scope, takenAt: now, manifestSha256: (arc.manifest != null) ? arc.manifest.sha256 : null };
-}
+};
 
 // ---- restore ---------------------------------------------------------------
 

@@ -267,8 +267,13 @@ export function nativeUnavailable(reason) {
 // every options token is ONE argv element, verbatim. The runner must never
 // interpolate these into a shell string without per-element POSIX escaping
 // (shellEscape below is exactly that).
+// --qnum=30999 is a THROWAWAY queue number: the real binary REQUIRES --qnum
+// even for --dry-run (verified on target: "Need queue number (--qnum)"),
+// and dry-run exits before nfq_main, so it never binds anything. It is
+// prepended so a candidate's own --qnum would win (getopt: last wins) —
+// still safe, still no binding.
 export function buildDryRunArgv(tokenValues) {
-	return ['--dry-run', ...tokenValues];
+	return ['--dry-run', '--qnum=30999', ...tokenValues];
 }
 
 // shellEscape(s) — canonical POSIX single-quote escaping: a single-quoted

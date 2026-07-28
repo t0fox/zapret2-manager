@@ -958,6 +958,28 @@ function serialize_preserve(model) {
 // ---------------------------------------------------------------------------
 // wire envelope (mirrors tests/lib/profiles-wire.mjs — schema 1)
 // ---------------------------------------------------------------------------
+
+// profile_fragment(model, profile, optText) — the profile's raw byte-slice:
+// from the end of its --new separator (or its first token, for the implicit
+// first profile) to its sourceSpan end; surrounding whitespace trimmed. All
+// CONTENT bytes (quotes, escapes, placeholders) survive verbatim. Mirrors
+// tests/lib/profiles-draft.mjs profileFragment. DECLARED BEFORE profile_out:
+// ucode does not hoist function declarations in module mode (the undeclared-
+// variable runtime error this caused was found on the target, not locally).
+function profile_fragment(model, p, optText) {
+	let start;
+	if (p.separator != null && p.separator.span != null) start = p.separator.span.end;
+	else if (length(p.originalTokens) > 0) start = model.tokens[p.originalTokens[0]].start;
+	else start = (p.sourceSpan.start != null) ? p.sourceSpan.start : 0;
+	let end = (p.sourceSpan.end != null) ? p.sourceSpan.end : length(optText);
+	let frag = substr(optText, start, end - start);
+	// trim surrounding whitespace only (content bytes preserved)
+	let a = 0;
+	while (a < length(frag) && is_ws(substr(frag, a, 1))) a++;
+	let b = length(frag);
+	while (b > a && is_ws(substr(frag, b - 1, 1))) b--;
+	return substr(frag, a, b - a);
+}
 function option_entry_out(e) {
 	let o = { option: e.option, value: e.value, tokenIndex: e.tokenIndex };
 	if (e.strayWord) o.strayWord = true;
@@ -1036,26 +1058,6 @@ function profile_out(p, model, optText) {
 		unknownOptions: entries_out(p.unknownOptions),
 		sourceSpan: { start: p.sourceSpan.start, end: p.sourceSpan.end }
 	};
-}
-
-// profile_fragment(model, profile, optText) — the profile's raw byte-slice:
-// from the end of its --new separator (or its first token, for the implicit
-// first profile) to its sourceSpan end; surrounding whitespace trimmed. All
-// CONTENT bytes (quotes, escapes, placeholders) survive verbatim. Mirrors
-// tests/lib/profiles-draft.mjs profileFragment.
-function profile_fragment(model, p, optText) {
-	let start;
-	if (p.separator != null && p.separator.span != null) start = p.separator.span.end;
-	else if (length(p.originalTokens) > 0) start = model.tokens[p.originalTokens[0]].start;
-	else start = (p.sourceSpan.start != null) ? p.sourceSpan.start : 0;
-	let end = (p.sourceSpan.end != null) ? p.sourceSpan.end : length(optText);
-	let frag = substr(optText, start, end - start);
-	// trim surrounding whitespace only (content bytes preserved)
-	let a = 0;
-	while (a < length(frag) && is_ws(substr(frag, a, 1))) a++;
-	let b = length(frag);
-	while (b > a && is_ws(substr(frag, b - 1, 1))) b--;
-	return substr(frag, a, b - a);
 }
 
 function sha256_file(path) {	let p = popen("sha256sum " + path + " 2>/dev/null | awk '{print $1}'", 'r');
