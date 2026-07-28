@@ -126,6 +126,24 @@ export function applyDecision(nativeValidation) {
 	return { proceed: false, stage: 'validate' };
 }
 
+// checkIdempotent(lastApply, candidateSha256, now, windowSec) — a SECOND
+// apply with the byte-identical candidate inside the window is a no-op.
+// Motivation (supervised acceptance r10): an apply executed TWICE 21s apart
+// from a single operator call (cause not reproduced — suspected duplicate
+// dispatch); run #2 re-snapshotted the already-applied candidate into
+// last-good, so the subsequent manual rollback restored the candidate, not
+// the baseline. Regardless of the duplicate's source, the pipeline must be
+// idempotent: re-running an identical candidate inside the window returns
+// the previous result instead of re-writing/re-restarting/re-snapshotting.
+export const APPLY_IDEMPOTENCY_WINDOW_SEC = 60;
+export function checkIdempotent(lastApply, candidateSha256, now, windowSec = APPLY_IDEMPOTENCY_WINDOW_SEC) {
+	if (!lastApply || typeof lastApply !== 'object') return { skip: false };
+	if (lastApply.candidateSha256 !== candidateSha256) return { skip: false };
+	const age = now - lastApply.at;
+	if (age < 0 || age > windowSec * 1000) return { skip: false };
+	return { skip: true, secondsAgo: Math.floor(age / 1000) };
+}
+
 // verifyStatus(statusJson, queueInfo) — the five post-restart checks:
 //   processPresent  — runtime.count >= 1
 //   singleInstance  — exactly ONE nfqws2

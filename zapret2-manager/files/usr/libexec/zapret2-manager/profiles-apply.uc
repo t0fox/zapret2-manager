@@ -359,6 +359,30 @@ export const profiles_apply_run = function() {
 		return err('validate', 'ETARGET', 'native validation refused the candidate (status: ' + f.native.status + ') — nothing was written', { native: f.native });
 	}
 
+	// idempotency guard (acceptance r10: an apply executed twice 21s apart
+	// from one operator call — run #2 re-snapshotted the already-applied
+	// candidate into last-good, so rollback restored the candidate, not the
+	// baseline). Re-running an identical candidate inside the window returns
+	// the previous result instead of re-writing/re-restarting/re-snapshotting.
+	let la_raw = readfile('/tmp/zapret2-manager/last-apply.json');
+	if (la_raw) {
+		let la = null;
+		try { la = json(la_raw); } catch (e) { la = null; }
+		if (type(la) == 'object' && la != null && la.candidateSha256 == f.diff.candidateSha256) {
+			let age = time() - (type(la.at) == 'int' ? la.at : 0);
+			if (age >= 0 && age < 60) {
+				return {
+					ok: true,
+					mode: 'apply',
+					idempotent: true,
+					note: 'identical candidate was applied ' + age + 's ago — not re-applying (rollback baseline preserved)',
+					applied: { profiles: f.draftCount, candidateSha256: f.diff.candidateSha256 },
+					rollback: { available: true, armed: false }
+				};
+			}
+		}
+	}
+
 	// snapshot last-good BEFORE the write
 	let snap = snapshot_apply();
 
@@ -406,6 +430,8 @@ export const profiles_apply_run = function() {
 	event_apply('info', 'draft profiles applied (' + f.draftCount + ' profiles) and verified', {
 		profiles: f.draftCount, candidateSha256: f.diff.candidateSha256
 	});
+	writefile('/tmp/zapret2-manager/last-apply.json',
+		sprintf("%J", { candidateSha256: f.diff.candidateSha256, at: time() }) + '\n');
 	return {
 		ok: true,
 		mode: 'apply',

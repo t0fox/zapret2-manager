@@ -22,7 +22,8 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import {
 	renderCandidate, candidateRoundTrip, diffSummary,
-	verifyStatus, applyDecision, sha256hexNode, dqEscape
+	verifyStatus, applyDecision, sha256hexNode, dqEscape,
+	checkIdempotent, APPLY_IDEMPOTENCY_WINDOW_SEC
 } from './lib/profiles-apply.mjs';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -190,4 +191,21 @@ test('verify fixture grounding: ps/proc fixtures really carry pid 6128 owning qu
 	const qFields = Q_FIXTURE.trim().split(/\s+/);
 	assert.equal(qFields[0], '300');
 	assert.equal(qFields[1], '6128', 'queue 300 peer_portid == daemon pid');
+});
+
+// ---- idempotency guard (acceptance r10 double-apply hardening) -----------------
+
+test('checkIdempotent: identical candidate inside the window skips; outside or different sha does not', () => {
+	const sha = 'a'.repeat(64);
+	const now = 1785000000000;
+	assert.deepEqual(checkIdempotent(null, sha, now), { skip: false }, 'no previous apply → run');
+	assert.deepEqual(checkIdempotent({ candidateSha256: sha, at: now - 21000 }, sha, now).skip, true,
+		'EXACTLY the acceptance case: identical candidate 21s later → no-op');
+	assert.equal(checkIdempotent({ candidateSha256: sha, at: now - 21000 }, sha, now).secondsAgo, 21);
+	assert.deepEqual(checkIdempotent({ candidateSha256: sha, at: now - (APPLY_IDEMPOTENCY_WINDOW_SEC + 1) * 1000 }, sha, now), { skip: false },
+		'outside the window → apply again');
+	assert.deepEqual(checkIdempotent({ candidateSha256: 'b'.repeat(64), at: now - 5000 }, sha, now), { skip: false },
+		'different candidate → apply');
+	assert.deepEqual(checkIdempotent({ candidateSha256: sha, at: now + 10000 }, sha, now), { skip: false },
+		'clock skew backwards → do not skip');
 });
