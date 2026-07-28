@@ -1596,6 +1596,94 @@ test('orchestra: backend error renders an honest unavailable panel (no crash)', 
 	assert.ok(text.includes('Capabilities unavailable'), 'error panel renders');
 });
 
+// ---- 6j. dns providers section (Phase E) -------------------------------------------
+
+const DNSPROV_COMPS = {
+	ok: true,
+	components: [
+		{ name: 'dnsmasq', initPresent: true, running: true, enabled: true, listeners: ['127.0.0.1:53', '192.168.1.1:53'], configOwner: 'openwrt-uci' },
+		{ name: 'odhcpd', initPresent: true, running: true, enabled: true, listeners: [], configOwner: 'openwrt-uci' },
+		{ name: 'smartdns', initPresent: false, running: false, enabled: false, listeners: [], configOwner: null }
+	],
+	likelyResolverPath: ['dnsmasq'],
+	conflicts: [],
+	wan: { peerdns: '1', resolvfile: '/tmp/resolv.conf.d/resolv.conf.auto', nameservers: ['195.98.64.65', '195.98.64.66'] },
+	note: 'detected read-only'
+};
+
+const DNSPROV_PROVIDERS = {
+	ok: true, schema: 1, version: '1.0.0',
+	providers: [
+		{ id: 'cloudflare', name: 'Cloudflare DNS', category: 'privacy', reviewed: '2026-07-28', provenance: [{ source: 'cf', url: 'https://x' }], ipv4: ['1.1.1.1', '1.0.0.1'], ipv6: ['2606:4700:4700::1111'], doh: 'https://cloudflare-dns.com/dns-query', notes: 'No-logs claim. Data only.' },
+		{ id: 'quad9', name: 'Quad9', category: 'filtered', reviewed: '2026-07-28', provenance: [{ source: 'q9', url: 'https://x' }], ipv4: ['9.9.9.9'], ipv6: ['2620:fe::fe'], doh: 'https://dns.quad9.net/dns-query', notes: 'Nonprofit. Data only.' }
+	],
+	note: 'DoH endpoints are DATA — nothing here activates DoH'
+};
+
+const DNSPROV_DIAG = {
+	ok: true, domain: 'openwrt.org',
+	localResolver: { ok: true, answers: ['139.59.209.225'] },
+	probes: [
+		{ provider: 'cloudflare', probeIp: '1.1.1.1', reachable: true, answered: true, answer: ['139.59.209.225'], outcome: 'consistent', confidence: 'high', reason: 'provider and local answers agree' },
+		{ provider: 'quad9', probeIp: '9.9.9.9', reachable: true, answered: true, answer: ['45.148.20.13'], outcome: 'divergent', confidence: 'low', reason: 'provider and local answers DIFFER — this is NOT automatically poisoning' }
+	],
+	verdict: { verdict: 'divergent', confidence: 'low', reason: '1 domain(s) resolve differently. Confidence is LOW: legitimate CDN anycast/regional answers produce the same picture.' },
+	note: 'evidence with confidence — divergence is NOT automatically poisoning'
+};
+
+function dnsProvWorld(extra = {}) {
+	return makeWorld({
+		dns_get: { type: 'ok', value: DNS_GET_FIXTURE },
+		dnsprov_components: { type: 'ok', value: DNSPROV_COMPS },
+		dnsprov_providers: { type: 'ok', value: DNSPROV_PROVIDERS },
+		...extra
+	});
+}
+
+test('dns providers: components + catalog render with data-only honesty', async () => {
+	const w = dnsProvWorld();
+	const view = loadView(readViewSource('dns'), 'dns', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	const text = collectText(root).join(' | ');
+	assert.ok(text.includes('dnsmasq'), 'resolver path renders');
+	assert.ok(text.includes('195.98.64.65'), 'WAN nameserver renders');
+	assert.ok(text.includes('Cloudflare'), 'provider renders');
+	assert.ok(text.includes('Data only'), 'data-only notes render');
+	assert.ok(text.includes('never activation'), 'no-activation framing renders');
+});
+
+test('dns providers: diagnostics run + verdict with LOW confidence honesty', async () => {
+	const w = dnsProvWorld({ dnsprov_diagnose: { type: 'ok', value: DNSPROV_DIAG } });
+	const view = loadView(readViewSource('dns'), 'dns', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	const btn = w.created.find((n) => n.attrs.id === 'z2m-dnsprov-diagnose');
+	assert.ok(btn, 'diagnostics button not found');
+	btn.listeners.click();
+	await flush();
+	assert.ok(w.calls.some((c) => c.method === 'dnsprov_diagnose'), 'dnsprov_diagnose was not called');
+	const root2 = view.render(await view.load());
+	const text = collectText(root2).join(' | ');
+	assert.ok(text.includes('divergent'), 'divergent outcome renders');
+	assert.ok(text.includes('confidence: low'), 'LOW confidence renders');
+	assert.ok(text.includes('NOT automatically poisoning'), 'no-poisoning honesty renders');
+	assert.ok(text.includes('Quad9'), 'provider row renders');
+});
+
+test('dns providers: invalid catalog blocks diagnostics button', async () => {
+	const w = dnsProvWorld({
+		dnsprov_providers: { type: 'ok', value: { ok: false, error: { code: 'ETARGET', message: 'provider catalog is invalid' } } }
+	});
+	const view = loadView(readViewSource('dns'), 'dns', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	const text = collectText(root).join(' | ');
+	assert.ok(text.includes('Providers unavailable'), 'invalid catalog renders unavailable');
+	const btn = w.created.find((n) => n.attrs.id === 'z2m-dnsprov-diagnose');
+	assert.equal(btn.disabled, true, 'diagnostics disabled on invalid catalog');
+});
+
 // ---- 7. overview: passthrough wire + reject gate (no longer excluded) --------
 
 test('overview: callPassthrough is declared with params:[enabled] + reject:true (fixed → green)', () => {

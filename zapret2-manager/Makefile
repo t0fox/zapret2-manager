@@ -92,6 +92,10 @@ define Package/zapret2-manager/install
 		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/dns-cli.uc \
 		$(1)/usr/libexec/zapret2-manager/
+	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/dnsprov.uc \
+		$(1)/usr/libexec/zapret2-manager/
+	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/dnsprov-cli.uc \
+		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/orchestra.uc \
 		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/orchestra-cli.uc \
@@ -102,6 +106,8 @@ define Package/zapret2-manager/install
 		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_DIR) $(1)/usr/libexec/zapret2-manager/catalog
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/catalog/services.json \
+		$(1)/usr/libexec/zapret2-manager/catalog/
+	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/catalog/dns-providers.json \
 		$(1)/usr/libexec/zapret2-manager/catalog/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/qlen.uc \
 		$(1)/usr/libexec/zapret2-manager/

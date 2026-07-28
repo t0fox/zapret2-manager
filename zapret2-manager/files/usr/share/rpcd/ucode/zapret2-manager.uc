@@ -299,6 +299,12 @@ function orchestra_capabilities_method(req) { return cli_action(ORCH_CLI, 'capab
 function orchestra_status_method(req) { return cli_action(ORCH_CLI, 'status'); }
 function orchestra_events_method(req) { return cli_action(ORCH_CLI, 'events'); }
 function orchestra_history_method(req) { return cli_action(ORCH_CLI, 'history'); }
+
+// ---- DNS providers + component diagnostics (Phase E) -----------------------------
+const DNSPROV_CLI = '/usr/libexec/zapret2-manager/dnsprov-cli.uc';
+function dnsprov_components_method(req) { return cli_action(DNSPROV_CLI, 'components'); }
+function dnsprov_providers_method(req) { return cli_action(DNSPROV_CLI, 'providers'); }
+function dnsprov_diagnose_method(req) { return cli_edit_action(DNSPROV_CLI, 'diagnose', req, 'dnsprov'); }
 function backup_restore_preview_method(req) { return cli_edit_action(BACKUP_CLI, 'preview', req, 'backup'); }
 function backup_restore_method(req) { return cli_edit_action(BACKUP_CLI, 'restore', req, 'backup'); }
 function backup_delete_method(req) { return cli_edit_action(BACKUP_CLI, 'delete', req, 'backup'); }
@@ -392,6 +398,9 @@ return {
 		orchestra_status:  { call: function (req) { return orchestra_status_method(req); } },
 		orchestra_events:  { call: function (req) { return orchestra_events_method(req); } },
 		orchestra_history: { call: function (req) { return orchestra_history_method(req); } },
+		dnsprov_components: { call: function (req) { return dnsprov_components_method(req); } },
+		dnsprov_providers: { call: function (req) { return dnsprov_providers_method(req); } },
+		dnsprov_diagnose: { args: { edit: 'string' }, call: function (req) { return dnsprov_diagnose_method(req); } },
 		versions:          { call: function (req) { return versions_method(req); } },
 		maintenance_status: { call: function (req) { return maintenance_status_method(req); } },
 		events_tail:       { args: { edit: 'string' }, call: function (req) { return events_tail_method(req); } },

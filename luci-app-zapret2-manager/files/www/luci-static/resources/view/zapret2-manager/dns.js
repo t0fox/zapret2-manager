@@ -18,15 +18,35 @@ const callDnsValidate = rpc.declare({ object: 'zapret2-manager', method: 'dns_va
 const callDnsApply = rpc.declare({ object: 'zapret2-manager', method: 'dns_apply', params: ['edit'], reject: true });
 const callDnsCheck = rpc.declare({ object: 'zapret2-manager', method: 'dns_check', params: ['edit'], reject: true });
 const callDnsRollback = rpc.declare({ object: 'zapret2-manager', method: 'dns_rollback', reject: true });
+const callDnsProvComponents = rpc.declare({ object: 'zapret2-manager', method: 'dnsprov_components', reject: true });
+const callDnsProvProviders = rpc.declare({ object: 'zapret2-manager', method: 'dnsprov_providers', reject: true });
+const callDnsProvDiagnose = rpc.declare({ object: 'zapret2-manager', method: 'dnsprov_diagnose', params: ['edit'], reject: true });
 
 return L.view.extend({
 	title: _('DNS'),
 
 	load: function () {
-		return callDnsGet().then(function (res) {
-			return { loadError: null, data: res || null };
-		}).catch(function (err) {
-			return { loadError: String(err), data: null };
+		function grab(call) {
+			return call().then(function (res) {
+				return { loadError: null, data: res || null };
+			}).catch(function (err) {
+				return { loadError: String(err), data: null };
+			});
+		}
+		return Promise.all([
+			callDnsGet().then(function (res) {
+				return { loadError: null, data: res || null };
+			}).catch(function (err) {
+				return { loadError: String(err), data: null };
+			}),
+			grab(callDnsProvComponents),
+			grab(callDnsProvProviders)
+		]).then(function (r) {
+			return {
+				loadError: r[0].loadError, data: r[0].data,
+				provCompError: r[1].loadError, provComponents: r[1].data,
+				provListError: r[2].loadError, provList: r[2].data
+			};
 		});
 	},
 
@@ -48,6 +68,7 @@ return L.view.extend({
 		}
 
 		container.appendChild(this.resolverSection(data));
+		container.appendChild(this.providersSection(envelope));
 		container.appendChild(this.appliedSection(data));
 		container.appendChild(this.draftSection(data));
 		container.appendChild(this.applySection(data));
@@ -70,6 +91,106 @@ return L.view.extend({
 			node.appendChild(E('div', { 'class': 'alert-message danger' },
 				_('Resolver conflict: ') + c.name + ' — ' + c.role));
 		});
+		return node;
+	},
+
+	// ---- Providers + component diagnostics (Phase E) --------------------------
+	// Read-only intelligence: provider catalog, component detection, bounded
+	// consistency diagnostics with CONFIDENCE. Nothing here activates DoH or
+	// changes the resolver — divergence is never called poisoning.
+	providersSection: function (envelope) {
+		var self = this;
+		var comps = envelope.provComponents || {};
+		var provs = envelope.provList || {};
+		var provUnavailable = envelope.provListError || (provs.ok === false ? ((provs.error && provs.error.message) || 'provider catalog is invalid') : null);
+		var node = E('div', { 'class': 'cbi-section' }, [
+			E('h3', {}, _('DNS providers & diagnostics')),
+			E('div', { 'class': 'cbi-value-description' },
+				_('A versioned provider catalog and read-only diagnostics. DoH endpoints are data, never activation. Diagnostics report evidence with confidence — a divergent answer is NOT automatically poisoning (CDN anycast gives the same picture legitimately).'))
+		]);
+
+		if (envelope.provCompError) {
+			node.appendChild(E('div', { 'class': 'cbi-value-description' }, _('Components unavailable: ') + envelope.provCompError));
+		} else {
+			var cps = comps.components || [];
+			var resolverPath = (comps.likelyResolverPath || []).join(' → ');
+			node.appendChild(this.row(_('Likely resolver path'), resolverPath || _('unknown')));
+			(comps.conflicts || []).forEach(function (c) {
+				node.appendChild(E('div', { 'class': 'alert-message danger' },
+					_('Resolver conflict: ') + c.reason));
+			});
+			var wan = comps.wan || {};
+			node.appendChild(this.row(_('WAN upstreams (resolvfile)'),
+				(wan.nameservers || []).join(', ') || _('Unavailable') +
+				(wan.peerdns ? _(' · peerdns=') + wan.peerdns : '')));
+		}
+
+		if (provUnavailable) {
+			node.appendChild(E('div', { 'class': 'cbi-value-description' }, _('Providers unavailable: ') + provUnavailable));
+		} else {
+			node.appendChild(E('h4', {}, _('Provider catalog (v') + (provs.version || '?') + _(') — data only')));
+			(provs.providers || []).forEach(function (p) {
+				var badges = [E('span', { 'class': 'zonebadge' }, p.category)];
+				if (p.doh) badges.push(E('span', { 'class': 'zonebadge' }, _('DoH on record')));
+				else badges.push(E('span', { 'class': 'zonebadge warn' }, _('no DoH on record')));
+				node.appendChild(E('div', { 'class': 'cbi-value' }, [
+					E('label', { 'class': 'cbi-value-title' }, p.name),
+					E('div', { 'class': 'cbi-value-field' }, [
+						E('div', {}, badges),
+						E('div', { 'class': 'cbi-value-description' },
+							(p.ipv4 || []).join(', ') + (p.doh ? ' · ' + p.doh : '') + ' — ' + p.notes)
+					])
+				]));
+			});
+		}
+
+		var diagBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button', 'id': 'z2m-dnsprov-diagnose' }, _('Run consistency diagnostics'));
+		if (provUnavailable) diagBtn.disabled = true;
+		diagBtn.addEventListener('click', function () {
+			diagBtn.disabled = true;
+			callDnsProvDiagnose('{}').then(function (res) {
+				self._provDiag = res || {};
+				self.refresh();
+			}).catch(function (err) {
+				self._provDiag = { error: String(err) };
+				self.refresh();
+			});
+		});
+		node.appendChild(E('div', { 'class': 'cbi-button-row' }, [diagBtn]));
+
+		var d = this._provDiag;
+		if (d) {
+			this._provDiag = null;
+			if (d.error) {
+				node.appendChild(E('div', { 'class': 'alert-message danger' }, _('Diagnostics failed: ') + d.error));
+			} else {
+				var v = d.verdict || {};
+				var vcls = v.confidence === 'high' ? 'ok' : 'warn';
+				node.appendChild(E('div', { 'class': 'cbi-section', 'id': 'z2m-dnsprov-diag' }, [
+					E('h4', {}, _('Consistency verdict')),
+					E('div', {}, [
+						E('span', { 'class': 'zonebadge ' + vcls }, (v.verdict || _('unknown')) + ' · confidence: ' + (v.confidence || '?')),
+						E('div', { 'class': 'cbi-value-description' }, v.reason || '')
+					]),
+					this.row(_('Local resolver answers'), ((d.localResolver && d.localResolver.answers) || []).join(', ') || _('none'))
+				]));
+				(d.probes || []).forEach(function (p) {
+					var cls = p.outcome === 'consistent' ? 'ok' : (p.outcome === 'divergent' ? 'warn' : 'bad');
+					node.appendChild(E('div', { 'class': 'cbi-value' }, [
+						E('label', { 'class': 'cbi-value-title' }, p.provider),
+						E('div', { 'class': 'cbi-value-field' }, [
+							E('span', { 'class': 'zonebadge ' + cls }, p.outcome),
+							' ',
+							E('span', { 'class': 'zonebadge' }, _('conf: ') + (p.confidence || '?')),
+							E('div', { 'class': 'cbi-value-description' },
+								(p.reachable ? _('reachable') : _('unreachable')) +
+								(p.answer && p.answer.length ? ' · ' + _('answers: ') + p.answer.join(', ') : '') +
+								' — ' + (p.reason || ''))
+						])
+					]));
+				});
+			}
+		}
 		return node;
 	},
 

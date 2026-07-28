@@ -88,6 +88,9 @@ Methods:
 | `orchestra_status` | none | read | Engine in live argv (auto/antidpi/lib), daemon pid, nfqws2 version, lua compat, debug flag, verbatim `AUTOHOSTLIST_*`, autostate model (in-process, not persisted). |
 | `orchestra_events` | none | read | Honest `available:false` with reason+evidence: DLOG is debug-gated (absent) and `AUTOHOSTLIST_DEBUGLOG=0` — no event stream exists. |
 | `orchestra_history` | none | read | Honest `available:false` with reason+evidence: autostate is in-process memory, never persisted, and upstream has no preload API (Zapret2GUI-only). |
+| `dnsprov_components` | none | read | Resolver components (dnsmasq/odhcpd/https-dns-proxy/smartdns/unbound/adguardhome/dnscrypt-proxy): init presence, running, enabled, :53 listeners, config owner; likely resolver path; conflicts (running alternative resolver holding :53); WAN peerdns/resolvfile nameservers verbatim. |
+| `dnsprov_providers` | none | read | Versioned provider catalog (Cloudflare/Google/Quad9/AdGuard/OpenDNS/Dns.SB): IPv4/IPv6/DoH endpoint/category/privacy notes/provenance/reviewed date. DoH is DATA — never activation. |
+| `dnsprov_diagnose` | `{edit: string}` (`{"domain"?,"provider"?}`) | read | Bounded synchronous diagnostics (hard 25s total cap): local resolver answers, per-provider reachability + answers, local-vs-provider comparison with CONFIDENCE (divergence is LOW confidence — CDN anycast produces the same picture), consistency verdict. Domain validated (catalog or tight hostname); no URLs/IPs. |
 
 Job statuses (closed enum) and allowed transitions:
 
