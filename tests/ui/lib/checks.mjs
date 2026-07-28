@@ -22,18 +22,19 @@ export const VIEW_DIR_REL = 'luci-app-zapret2-manager/files/www/luci-static/reso
 export const MENU_REL = 'luci-app-zapret2-manager/files/usr/share/luci/menu.d/luci-app-zapret2-manager.json';
 
 export const EXPECTED_VIEWS = [
-	'overview', 'strategies', 'blockcheck', 'lists', 'dns', 'monitor', 'proxy', 'maintenance'
+	'overview', 'strategies', 'blockcheck', 'catalog', 'lists', 'dns', 'monitor', 'proxy', 'maintenance'
 ];
 
-// The seven pages in the UI agent's zone (overview is the backend agent's).
+// The eight pages in the UI agent's zone (overview is the backend agent's).
 export const ZONE_VIEWS = [
-	'strategies', 'blockcheck', 'lists', 'dns', 'monitor', 'proxy', 'maintenance'
+	'strategies', 'blockcheck', 'catalog', 'lists', 'dns', 'monitor', 'proxy', 'maintenance'
 ];
 
 export const EXPECTED_MENU_KEYS = [
 	'admin/services/zapret2-manager',
 	'admin/services/zapret2-manager/strategies',
 	'admin/services/zapret2-manager/blockcheck',
+	'admin/services/zapret2-manager/catalog',
 	'admin/services/zapret2-manager/lists',
 	'admin/services/zapret2-manager/dns',
 	'admin/services/zapret2-manager/monitor',
@@ -83,6 +84,7 @@ export function stripComments(src) {
 // ---- gate checkers (each returns an array of error strings; [] = pass) -----
 
 export function checkExactlyEightViews(filesOnDisk) {
+	// (name kept for history — the count comes from EXPECTED_VIEWS, currently 9)
 	const errs = [];
 	const actual = [...filesOnDisk].sort();
 	const expected = [...EXPECTED_VIEWS].sort();

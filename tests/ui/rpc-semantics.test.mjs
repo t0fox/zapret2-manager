@@ -1277,6 +1277,134 @@ test('dns: Check resolution calls dns_check and shows matches', async () => {
 	assert.ok(text.includes('match'), 'match result renders');
 });
 
+// ---- 6g. catalog: service catalog page (Phase B) ----------------------------------
+
+const CATALOG_LIST_FIXTURE = {
+	ok: true, schema: 1, catalogVersion: '1.0.0', digest: 'a'.repeat(64), digestOk: true,
+	services: [
+		{ id: 'youtube', name: 'YouTube', category: 'video', mechanisms: ['domainInclude'], stability: 'reviewed', limitations: 'Effectiveness depends on the ACTIVE strategy.', domainCount: 4 },
+		{ id: 'chatgpt-openai', name: 'ChatGPT / OpenAI', category: 'AI', mechanisms: ['domainInclude', 'unsupportedGeo'], stability: 'reviewed', limitations: 'Domain listing does NOT bypass account/GEO restrictions.', domainCount: 4 }
+	],
+	categories: ['video', 'AI'], stale: [], overlaps: []
+};
+
+const CATALOG_STATUS_FIXTURE = {
+	ok: true,
+	ledger: { enabled: ['youtube'], revision: 2, updatedAt: 1785220000, catalogDigest: 'a'.repeat(64) },
+	catalog: { valid: true, errors: [], catalogVersion: '1.0.0', digestOk: true },
+	stale: [], ownedDomains: 4, ownedPresent: 4, ownedMissing: [], userDomains: 1, filePresent: 5,
+	drift: { divergent: false, reason: null }
+};
+
+function catalogWorld(extra = {}) {
+	return makeWorld({
+		catalog_list: { type: 'ok', value: CATALOG_LIST_FIXTURE },
+		catalog_status: { type: 'ok', value: CATALOG_STATUS_FIXTURE },
+		...extra
+	});
+}
+
+test('catalog: renders services with mechanisms + limitations; enabled from ledger', async () => {
+	const w = catalogWorld();
+	const view = loadView(readViewSource('catalog'), 'catalog', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	const text = collectText(root).join(' | ');
+	assert.ok(text.includes('YouTube'), 'service renders');
+	assert.ok(text.includes('GEO-limited'), 'unsupportedGeo badge renders honestly');
+	assert.ok(text.includes('NOT bypass'), 'limitations text renders');
+	assert.ok(text.includes('youtube'), 'ledger-enabled state renders');
+	assert.ok(!/unblocked/i.test(text), 'NEGATIVE: no "unblocked" claims anywhere');
+});
+
+test('catalog: preview sends the full desired enabled set as JSON string', async () => {
+	const pv = {
+		ok: true, additions: [{ domain: 'chatgpt.com', owners: ['chatgpt-openai'] }],
+		removals: [], keepShared: [], alreadyUserOwned: [], preservedUser: ['user-manual.com'],
+		unsupported: [{ service: 'chatgpt-openai', mechanisms: ['unsupportedGeo'] }], unknownIds: [],
+		desiredCount: 8, targetFile: '/opt/zapret2/ipset/zapret-hosts-user.txt',
+		precondition: { fileSha256: 'abcdef0123456789', ledgerRevision: 2 }
+	};
+	const w = catalogWorld({ catalog_preview: { type: 'ok', value: pv } });
+	const view = loadView(readViewSource('catalog'), 'catalog', w);
+	const envelope = await view.load();
+	let root = view.render(envelope);
+	// check the second service first (the desired set is driven by checkboxes)
+	const cb = w.created.find((n) => n.attrs.id === 'z2m-catalog-svc-chatgpt-openai');
+	assert.ok(cb, 'service checkbox not rendered');
+	cb.checked = true;
+	cb.listeners.change();
+	const prevBtn = w.created.find((n) => n.attrs.id === 'z2m-catalog-preview');
+	assert.ok(prevBtn, 'Preview button not found');
+	prevBtn.listeners.click();
+	await flush();
+	const call = w.calls.find((c) => c.method === 'catalog_preview');
+	assert.ok(call, 'catalog_preview was not called');
+	const parsed = JSON.parse(call.params.edit);
+	assert.deepEqual(parsed.enabled.sort(), ['chatgpt-openai', 'youtube'].sort(),
+		'the desired set = ledger-enabled plus checked services');
+	root = view.render(await view.load());
+	const text = collectText(root).join(' | ');
+	assert.ok(text.includes('chatgpt.com'), 'addition renders');
+	assert.ok(text.includes('REPORTED, never applied'), 'unsupported mechanisms are honest');
+	assert.ok(text.includes('user-manual.com'), 'preserved user entry renders');
+});
+
+test('catalog: apply is arm→confirm with precondition revision+hash on the wire', async () => {
+	const pv = {
+		ok: true, additions: [{ domain: 'chatgpt.com', owners: ['chatgpt-openai'] }],
+		removals: [], keepShared: [], alreadyUserOwned: [], preservedUser: ['user-manual.com'],
+		unsupported: [], unknownIds: [], desiredCount: 8, targetFile: '/opt/zapret2/ipset/zapret-hosts-user.txt',
+		precondition: { fileSha256: 'abcdef0123456789', ledgerRevision: 2 }
+	};
+	const applied = {
+		ok: true, applied: { added: 1, removed: 0, keptShared: 0, preservedUser: 1 },
+		unsupported: [], unknownIds: [], verify: { ok: true, mismatches: [] },
+		snapshot: { dir: '/tmp/zapret2-manager/last-good/catalog' },
+		ledger: { enabled: ['youtube', 'chatgpt-openai'], revision: 3, updatedAt: 1785220001 }
+	};
+	const w = catalogWorld({
+		catalog_preview: { type: 'ok', value: pv },
+		catalog_apply: { type: 'ok', value: applied }
+	});
+	const view = loadView(readViewSource('catalog'), 'catalog', w);
+	const envelope = await view.load();
+	let root = view.render(envelope);
+	w.created.find((n) => n.attrs.id === 'z2m-catalog-preview').listeners.click();
+	await flush();
+	root = view.render(await view.load());
+	const applyBtn = w.created.find((n) => n.attrs.id === 'z2m-catalog-apply');
+	assert.ok(applyBtn, 'apply button not found after preview');
+	applyBtn.listeners.click();   // ARM
+	assert.ok(w.calls.every((c) => c.method !== 'catalog_apply'), 'first click only ARMS');
+	root = view.render(await view.load());
+	const confirmBtn = w.created.find((n) => n.attrs.id === 'z2m-catalog-apply');
+	confirmBtn.listeners.click();   // CONFIRM
+	await flush();
+	const call = w.calls.find((c) => c.method === 'catalog_apply');
+	assert.ok(call, 'catalog_apply was not called after confirm');
+	const parsed = JSON.parse(call.params.edit);
+	assert.equal(parsed.revision, 2, 'optimistic ledger revision on the wire');
+	assert.equal(parsed.fileSha256, 'abcdef0123456789', 'optimistic file hash on the wire');
+	root = view.render(await view.load());
+	const text = collectText(root).join(' | ');
+	assert.ok(text.includes('Applied and verified'), 'success renders');
+});
+
+test('catalog: invalid catalog (ETARGET) blocks mutation loudly, no fake services', async () => {
+	const w = makeWorld({
+		catalog_list: { type: 'ok', value: { ok: false, error: { code: 'ETARGET', message: 'catalog is invalid — refusing to serve it', errors: ['duplicate service id: youtube'] } } },
+		catalog_status: { type: 'ok', value: CATALOG_STATUS_FIXTURE }
+	});
+	const view = loadView(readViewSource('catalog'), 'catalog', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	const text = collectText(root).join(' | ');
+	assert.ok(text.includes('Catalog unavailable'), 'invalid catalog is loud');
+	assert.ok(text.includes('BLOCKED'), 'mutation blocked message renders');
+	assert.ok(!text.includes('Apply this plan'), 'no apply path on invalid catalog');
+});
+
 // ---- 7. overview: passthrough wire + reject gate (no longer excluded) --------
 
 test('overview: callPassthrough is declared with params:[enabled] + reject:true (fixed → green)', () => {
