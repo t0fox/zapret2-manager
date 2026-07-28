@@ -56,14 +56,18 @@ const SCOPES = {
 		paths: [ '/opt/zapret2/config' ],
 		syntaxCheck: (path, content) => {
 			if (!content || !length(content)) return 'empty config';
-			let has_active = false;
 			let lines = split(content, '\n');
 			for (let i = 0; i < length(lines); i++) {
 				let t = trim(lines[i]);
 				if (substr(t, 0, 1) == '#') continue;
-				if (substr(t, 0, 14) == 'NFQWS2_ENABLE') { has_active = true; break; }
+				// OFF-BY-ONE fixed: the previous check compared substr(t,0,14)
+				// to the 13-char 'NFQWS2_ENABLE' and could NEVER match — it
+				// refused every valid config (found during the acceptance
+				// baseline restore). startsWith-style: either main assignment.
+				if (substr(t, 0, 13) == 'NFQWS2_ENABLE') return null;
+				if (substr(t, 0, 10) == 'NFQWS2_OPT') return null;
 			}
-			return has_active ? null : 'no NFQWS2_ENABLE assignment';
+			return 'no active NFQWS2_ENABLE/NFQWS2_OPT assignment';
 		},
 		restoreWrite: 'engineConfig'
 	},

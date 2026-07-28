@@ -125,6 +125,25 @@ export function events_parse(text, limit = 50) {
 	return { events, malformed, total: lines.length };
 }
 
+// ---- engineConfig restore syntax check (mirrors backup.uc SCOPES check) -----
+
+// engineConfigSyntaxCheck(content) → null (accept) | reason (refuse).
+// The check guards against garbage/empty engine configs on restore. The
+// pre-existing ucode version had an OFF-BY-ONE: substr(t,0,14) compared to
+// the 13-char prefix 'NFQWS2_ENABLE' can NEVER match ('NFQWS2_ENABLE='
+// ≠ 'NFQWS2_ENABLE'), so it refused EVERY valid config — found during the
+// acceptance baseline restore (100% refusal). Accepts an ACTIVE
+// NFQWS2_ENABLE or NFQWS2_OPT assignment (commented lines are not active).
+export function engineConfigSyntaxCheck(content) {
+	if (!content || !content.length) return 'empty config';
+	for (const line of String(content).split('\n')) {
+		const t = line.trim();
+		if (t.startsWith('#')) continue;
+		if (t.startsWith('NFQWS2_ENABLE') || t.startsWith('NFQWS2_OPT')) return null;
+	}
+	return 'no active NFQWS2_ENABLE/NFQWS2_OPT assignment';
+}
+
 // ---- diagnostics redaction -------------------------------------------------------
 
 const SECRET_KEY_RE = /(token|secret|passw|api[_-]?key|private[_-]?key|session|cookie|authorization)/i;

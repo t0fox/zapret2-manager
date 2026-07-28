@@ -10,9 +10,15 @@ import assert from 'node:assert/strict';
 import {
 	sha256hexNode, make_manifest, verify_manifest, check_archive_limits,
 	restore_path_check, version_gate, restore_preview,
-	events_parse, redact,
+	events_parse, redact, engineConfigSyntaxCheck,
 	BACKUP_MAX_FILE_BYTES, ARCHIVE_FORMAT
 } from './lib/maintenance-logic.mjs';
+import { readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const REAL_CONFIG = readFileSync(join(HERE, 'fixtures-postinstall', 'opt-zapret2-config.out'), 'utf8');
 import { BackupsStore } from './lib/backup-logic.mjs';
 
 // ---- manifest ---------------------------------------------------------------------
@@ -151,4 +157,19 @@ test('NEGATIVE CONTROL: a telegram-shaped token in an innocuous key is still cau
 	const { value, redactedCount } = redact({ webhook: '123456789:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' });
 	assert.equal(redactedCount, 1);
 	assert.ok(String(value.webhook).includes('<redacted>'));
+});
+
+// ---- engineConfig restore syntax check (off-by-one regression, acceptance) ----
+
+test('engineConfigSyntaxCheck: the REAL baseline config passes (off-by-one would refuse it)', () => {
+	assert.equal(engineConfigSyntaxCheck(REAL_CONFIG), null,
+		'the actual baseline fixture (with NFQWS2_ENABLE=1 and NFQWS2_OPT) must be accepted');
+});
+
+test('engineConfigSyntaxCheck: garbage and commented-only configs are refused', () => {
+	assert.match(engineConfigSyntaxCheck(''), /empty/);
+	assert.match(engineConfigSyntaxCheck('# NFQWS2_ENABLE=1\nFOO=bar\n'), /no active/,
+		'a commented NFQWS2_ENABLE is NOT an active assignment');
+	assert.equal(engineConfigSyntaxCheck('NFQWS2_ENABLE=1\n'), null);
+	assert.equal(engineConfigSyntaxCheck('NFQWS2_OPT=" --filter-tcp=80"\n'), null);
 });
