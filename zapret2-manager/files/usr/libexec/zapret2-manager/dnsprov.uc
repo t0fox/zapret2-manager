@@ -294,7 +294,7 @@ export const dnsprov_diagnose = function(input) {
 			}
 		}
 		let cls = classify_probe(reachable, answered, matches);
-		probes.push({
+		let row = {
 			provider: p.id,
 			probeIp: ip,
 			reachable: reachable,
@@ -303,7 +303,8 @@ export const dnsprov_diagnose = function(input) {
 			outcome: cls.outcome,
 			confidence: cls.confidence,
 			reason: cls.reason
-		});
+		};
+		push(probes, row);
 	}
 
 	// consistency verdict
