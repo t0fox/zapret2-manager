@@ -11,6 +11,7 @@ import {
 	render_hosts, parse_hosts, parse_dnsmasq_conf, parse_resolv_auto,
 	component_scan, diff_entries,
 	dnsChecks, dnsVerifyShouldRetry, DNS_VERIFY_MAX_ATTEMPTS, dnsServiceAction,
+	rollbackRestoresAbsentOverride,
 	OVERRIDES_PATH, DHCP_CONF, OVERRIDES_MODE
 } from './lib/dns-logic.mjs';
 
@@ -175,4 +176,10 @@ test('OVERRIDES_MODE is 0644 (dnsmasq runs unprivileged; r14 unreadable-file def
 	assert.equal(OVERRIDES_MODE, 0o644);
 	assert.equal(OVERRIDES_MODE.toString(8), '644',
 		'ucode writefile creates 0600 root-only — the backend must chmod after every write/restore or the daemon cannot read the overrides');
+});
+
+test('rollbackRestoresAbsentOverride: an override absent at snapshot time is REMOVED, not left (r16)', () => {
+	assert.equal(rollbackRestoresAbsentOverride(true), 'restore');
+	assert.equal(rollbackRestoresAbsentOverride(false), 'remove',
+		'first-apply rollback must not leave the applied override behind (cp of an absent source is a silent no-op)');
 });

@@ -342,6 +342,18 @@ function diff_entries(applied, draft) {
 	return { added: added, removed: removed, changed: changed, unchanged: unchanged };
 }
 
+// rollback restore of the overrides file: if the SNAPSHOT has no overrides
+// file, the live one must be REMOVED (cp of an absent source silently keeps
+// the applied file — acceptance r16: the override survived its own rollback)
+function restore_overrides_file() {
+	if (stat(SNAP_DIR + '/overrides.hosts')) {
+		run('cp -f ' + SNAP_DIR + '/overrides.hosts ' + OVERRIDES_PATH + ' 2>/dev/null');
+		run('chmod 644 ' + OVERRIDES_PATH + ' 2>/dev/null');
+	} else {
+		try { unlink(OVERRIDES_PATH); } catch (e) { }
+	}
+}
+
 function apply_front(input) {
 	let draft = load_dns_draft();
 	if (draft.malformed) return { refuse: err('ESTATE', 'draft state is malformed: ' + draft.reason, 'load') };
@@ -449,11 +461,10 @@ export const dns_apply_run = function() {
 	if (!checks.ok) {
 		// immediate rollback: restore snapshot files + restart (a rollback
 		// ALWAYS changes the effective resolution data — stale cached answers
-		// must not survive it). Restored file gets 0644 too (cp of a 0600
-		// writefile copy stays 0600 — daemon cannot read it).
+		// must not survive it). Restored file gets 0644; an override absent
+		// at snapshot time is REMOVED, not left behind.
 		run('cp -f ' + SNAP_DIR + '/dhcp.conf ' + DHCP_CONF + ' 2>/dev/null');
-		run('cp -f ' + SNAP_DIR + '/overrides.hosts ' + OVERRIDES_PATH + ' 2>/dev/null');
-		run('chmod 644 ' + OVERRIDES_PATH + ' 2>/dev/null');
+		restore_overrides_file();
 		run('/etc/init.d/dnsmasq restart');
 		let recheck = verify_dns([]);
 		return err('ETARGET',
@@ -475,8 +486,7 @@ export const dns_rollback = function() {
 	if (!stat(SNAP_DIR + '/dhcp.conf') && !stat(SNAP_DIR + '/overrides.hosts'))
 		return err('ESTATE', 'no DNS snapshot to roll back to');
 	run('cp -f ' + SNAP_DIR + '/dhcp.conf ' + DHCP_CONF + ' 2>/dev/null');
-	run('cp -f ' + SNAP_DIR + '/overrides.hosts ' + OVERRIDES_PATH + ' 2>/dev/null');
-	run('chmod 644 ' + OVERRIDES_PATH + ' 2>/dev/null');
+	restore_overrides_file();
 	// a rollback ALWAYS changes the effective resolution data → full restart
 	// (conf regeneration + cache clear; a cached override answer must not
 	// survive the rollback)

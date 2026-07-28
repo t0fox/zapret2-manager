@@ -198,6 +198,15 @@ export function dnsServiceAction({ registrationChanged = false, contentChanged =
 	return (registrationChanged || contentChanged) ? 'restart' : 'reload';
 }
 
+// rollbackRestoresAbsentOverride(snapshotHasFile) — the rollback restores
+// the overrides file ONLY when the snapshot has one; when the snapshot has
+// none, the live applied file must be REMOVED (acceptance r16: a first
+// apply's rollback silently left the override file behind — cp of an absent
+// source is a silent no-op).
+export function rollbackRestoresAbsentOverride(snapshotHasFile) {
+	return snapshotHasFile ? 'restore' : 'remove';
+}
+
 // ---- apply verification policy -------------------------------------------------
 
 // After `uci commit dhcp`, procd RESTARTS dnsmasq (not just a HUP reload) —
