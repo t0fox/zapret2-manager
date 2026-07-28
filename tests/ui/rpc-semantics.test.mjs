@@ -1684,6 +1684,148 @@ test('dns providers: invalid catalog blocks diagnostics button', async () => {
 	assert.equal(btn.disabled, true, 'diagnostics disabled on invalid catalog');
 });
 
+// ---- 6k. proxy page (Phase F) -------------------------------------------------
+
+const PROXY_CAPS = {
+	ok: true,
+	adapter: { schema: 1, version: '1.0.0' },
+	provider: {
+		id: 'tg-ws-proxy-rs',
+		name: 'tg-ws-proxy-rs (Rust MTProto WebSocket bridge)',
+		upstreamUrl: 'https://github.com/valnesfjord/tg-ws-proxy-rs',
+		license: 'MIT',
+		release: 'v1.6.5',
+		sourceCommit: 'a14a97aee20a1da428eb7dbd5fbe23195eba0b9d',
+		asset: 'tg-ws-proxy-aarch64-unknown-linux-musl.tar.gz',
+		assetSha256: '54803f09f9b4a83b27e7d6fa2dd7bbeb51df04d6365f29b5746086d2830dc45a',
+		abi: 'aarch64-unknown-linux-musl',
+		protocol: 'mtproto',
+		socks5Supported: false,
+		defaultPort: 1443,
+		defaultPortNote: 'provider default — reported as knowledge, never as an active listener',
+		features: ['Telegram MTProto TCP listener (default port 1443)', 'WSS/TLS bridge']
+	},
+	constraints: ['read-only integration in this slice: capabilities + status only'],
+	detection: { binaryCandidates: ['/usr/bin/tg-ws-proxy'], processName: 'tg-ws-proxy' },
+	rejectedAlternatives: [
+		{ id: 'd0mhate-go-unified', release: 'v1.4.1', license: 'MIT', reason: 'dual-mode Go binary — not selected' },
+		{ id: 'spatiumstas-go-openwrt', release: '0.9.2', license: 'unverified', reason: 'trust review pending — not selected' }
+	],
+	methods: { capabilities: true, status: true, install: false, start: false, stop: false, restart: false, config: false, secretRotate: false },
+	adr: 'docs/research/tg-ws-proxy-provider.md',
+	note: 'capabilities are provider knowledge, not installation state'
+};
+
+const PROXY_STATUS_NOTINST = {
+	ok: true,
+	adapter: { schema: 1, version: '1.0.0' },
+	recommendedProvider: { id: 'tg-ws-proxy-rs', release: 'v1.6.5', protocol: 'mtproto', socks5Supported: false, defaultPort: 1443 },
+	detectedProvider: null,
+	installed: false,
+	running: false,
+	state: null,
+	mode: null,
+	binaries: [],
+	selectedBinary: null,
+	packages: [{ name: 'tg-ws-proxy-rs', installed: false, version: null }],
+	packageVersion: null,
+	pids: [],
+	init: { present: false, enabled: false, running: false, stateKnown: true, symlinks: [] },
+	listeners: [],
+	probes: { pidof: 'ok', netstat: 'ok', arch: 'ok' },
+	architecture: { actual: 'aarch64', normalized: 'aarch64', expected: 'aarch64', compatible: true, reason: 'target arch matches the pinned aarch64-unknown-linux-musl asset' },
+	config: { path: '/etc/tg-ws-proxy/config.conf', exists: false, parsed: null },
+	secret: { path: '/etc/tg-ws-proxy/secret.conf', exists: false, securePermissions: null, expectedMode: '0600' },
+	log: { path: '/var/log/tg-ws-proxy.log', exists: false },
+	methods: { capabilities: true, status: true, install: false, start: false, stop: false, restart: false, config: false, secretRotate: false },
+	note: 'Read-only adapter is operational; TG WS Proxy is not installed.',
+	warnings: []
+};
+
+const PROXY_STATUS_RUNNING = {
+	...PROXY_STATUS_NOTINST,
+	recommendedProvider: { id: 'tg-ws-proxy-rs', release: 'v1.6.5', protocol: 'mtproto', socks5Supported: false, defaultPort: 1443 },
+	detectedProvider: { id: 'tg-ws-proxy-rs', basis: 'package', detail: 'APK package "tg-ws-proxy-rs" is installed' },
+	installed: true,
+	running: true,
+	state: 'running',
+	mode: 'mtproto',
+	modeBasis: 'provider-identity',
+	binaries: [{ path: '/usr/bin/tg-ws-proxy', exists: true, regularFile: true, executable: true }],
+	selectedBinary: '/usr/bin/tg-ws-proxy',
+	packages: [{ name: 'tg-ws-proxy-rs', installed: true, version: '1.6.5-r0' }],
+	packageVersion: '1.6.5-r0',
+	pids: [4321],
+	init: { present: true, enabled: true, running: true, stateKnown: true, symlinks: ['/etc/rc.d/S90tg-ws-proxy'] },
+	listeners: [{ protocol: 'tcp', address: '0.0.0.0', port: 1443, pid: 4321, process: 'tg-ws-proxy', classification: 'wildcard' }],
+	// parsed deliberately carries a SECRET key (simulating a backend regression):
+	// the page's second fence must not render it
+	config: { path: '/etc/tg-ws-proxy/config.conf', exists: true, size: 32, readable: true, parsed: { PORT: '1443', HOST: '0.0.0.0', SECRET: 'ddTOPSECRET7f8a9b0c1d2e3f405060708090a0b0c0d' } },
+	secret: { path: '/etc/tg-ws-proxy/secret.conf', exists: true, mode: 384, modeOctal: '0600', securePermissions: true, expectedMode: '0600' },
+	log: { path: '/var/log/tg-ws-proxy.log', exists: true, size: 2048, readable: true, mtime: 1753700000 },
+	note: 'read-only status — no install/start/stop/config/secret operations exist in this slice',
+	warnings: [
+		{ code: 'WILDCARD_LISTENER', message: 'Process listens on all local interfaces (0.0.0.0:1443). WAN-side reachability was not actively tested and depends on firewall policy.' }
+	]
+};
+
+function proxyWorld(extra = {}) {
+	return makeWorld({
+		proxy_capabilities: { type: 'ok', value: PROXY_CAPS },
+		proxy_status: { type: 'ok', value: PROXY_STATUS_NOTINST },
+		...extra
+	});
+}
+
+test('proxy: not-installed renders adapter-operational + recommended provider, no error, no fake port', async () => {
+	const w = proxyWorld();
+	const view = loadView(readViewSource('proxy'), 'proxy', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	const text = collectText(root).join(' | ');
+	assert.ok(text.includes('adapter operational'), 'adapter operational badge renders');
+	assert.ok(text.includes('proxy not installed'), 'not-installed badge renders');
+	assert.ok(text.includes('tg-ws-proxy-rs'), 'recommended provider renders');
+	assert.ok(text.includes('v1.6.5'), 'pinned release renders');
+	assert.ok(text.includes('MTProto'), 'protocol renders');
+	assert.ok(text.includes('SOCKS5: not supported'), 'MTProto-only honesty renders');
+	assert.ok(text.includes('not an active listener'), 'default port is knowledge, not active');
+	assert.ok(!/0\.0\.0\.0:1443/.test(text), 'no fake active listener on the default port');
+	assert.ok(!text.includes('wanExposed'), 'no WAN claim');
+});
+
+test('proxy: running state renders listeners, wildcard honesty, secret metadata, warnings — never the secret value', async () => {
+	const w = proxyWorld({ proxy_status: { type: 'ok', value: PROXY_STATUS_RUNNING } });
+	const view = loadView(readViewSource('proxy'), 'proxy', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	const text = collectText(root).join(' | ');
+	assert.ok(text.includes('running'), 'running state renders');
+	assert.ok(text.includes('0.0.0.0:1443'), 'actual listener renders');
+	assert.ok(text.includes('wildcard'), 'classification renders');
+	assert.ok(text.includes('not actively tested'), 'wildcard/WAN honesty renders');
+	assert.ok(text.includes('WILDCARD_LISTENER'), 'structured warning renders');
+	assert.ok(text.includes('1.6.5-r0'), 'package version renders');
+	assert.ok(text.includes('/usr/bin/tg-ws-proxy'), 'binary path renders');
+	assert.ok(text.includes('permissions 0600'), 'secret permission metadata renders');
+	assert.ok(text.includes('never read, displayed, or transmitted'), 'secret non-disclosure note renders');
+	assert.ok(text.indexOf('TOPSECRET') === -1, 'a secret-shaped config key must NOT render (second fence)');
+	assert.ok(!/SECRET = dd/.test(text), 'no SECRET= line on the page');
+	const buttons = w.created.filter((n) => n.tag === 'button');
+	assert.equal(buttons.length, 0, 'no mutation buttons exist in the read-only slice');
+});
+
+test('proxy: backend error renders an honest unavailable panel (no crash)', async () => {
+	const w = proxyWorld({ proxy_status: { type: 'ubusError', code: 5 } });
+	const view = loadView(readViewSource('proxy'), 'proxy', w);
+	const envelope = await view.load();
+	assert.ok(envelope.statusError !== null, 'ubus error rejects into statusError with reject:true');
+	const root = view.render(envelope);
+	const text = collectText(root).join(' | ');
+	assert.ok(text.includes('Status unavailable'), 'error panel renders');
+	assert.ok(text.includes('Canonical provider'), 'capabilities still render');
+});
+
 // ---- 7. overview: passthrough wire + reject gate (no longer excluded) --------
 
 test('overview: callPassthrough is declared with params:[enabled] + reject:true (fixed → green)', () => {
