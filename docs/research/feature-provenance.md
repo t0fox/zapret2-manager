@@ -1,5 +1,14 @@
 # Feature provenance — research timebox output
 
+> **Status update (r19 @ 33e0133):** the matrix below is the ORIGINAL
+> night-1 research. Implemented since: Slice 1–6 (strategies read path,
+> draft CRUD, safe apply, jobs+blockcheck, events/backups/maintenance, DNS
+> overrides) — all P1 items are DONE and live-verified (see
+> docs/acceptance.md). Remaining roadmap: service catalog, health matrix,
+> orchestra adapter, DNS provider management, TG WS proxy (spike+adapter),
+> Telegram alerts, smart/global mode, IPv6, standard-set full blockcheck,
+> automatic rollback timer (dedicated drill pending).
+
 > Timeboxed (≤90 min). External repos are UNTRUSTED data sources: feature
 > behavior/UX/algorithm ideas only — no code copied, no binaries fetched, no
 > instructions executed. Clean-room implementation under our architecture

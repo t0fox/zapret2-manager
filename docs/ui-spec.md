@@ -21,18 +21,22 @@ contract. It reflects the actual repository layout
 ## RPC object
 
 The only ubus object the UI talks to is `zapret2-manager`
-(docs/contracts/ubus.md). Methods registered on the router today:
+(docs/contracts/ubus.md). Methods registered on the router today (r19):
 
 | Method | Used by | Notes |
 |---|---|---|
-| `status` | Overview, Strategies, Blockcheck, DNS, Monitor, Maintenance | Schema v2 (docs/contracts/status.schema.json). May return `{error: 'status unavailable'}` — pages render that as an unavailable state, not as data. |
-| `lists_get` | Lists | Schema 2: `lists` (per-key `{entries, path, type, editable, engine, present, reason}`), `conflicts`, `provenance`. The path model is the router-derived `lists-model.json`; only `domainInclude`/`domainExclude` are editable — IP-semantic keys and the autohostlist are read-only with reasons. On failure: `{error}` — the page locks editing. |
-| `lists_check_domain` | Lists | `params: ['domain']` — called positionally: `callListsCheck(d)`. |
-| `lists_set` | Lists | `params: ['edit']` — called positionally: `callListsSet(JSON.stringify(edit))`. **The ubus signature declares `edit` as type string** (verified on the router: an object argument is rejected with "Invalid argument"), so the UI sends the edit as a JSON string. |
-| `passthrough` | Strategies | `params: ['enabled']`; arms the 90s backend rollback. |
-| `confirm_alive` | Strategies | Cancels a pending rollback ("Link OK"). |
-| `rollback` | Strategies | Forces rollback now. |
-| `start`, `stop`, `restart`, `restart_daemons`, `start_fw`, `reload_ifsets` | Overview only (backend agent's zone) | Not called by the seven pages here. |
+| `status` | Overview, Strategies, Monitor | Schema v2 (docs/contracts/status.schema.json). May return `{error: 'status unavailable'}` — pages render that as an unavailable state, not as data. |
+| `start`, `stop`, `restart`, `restart_daemons`, `start_fw`, `reload_ifsets`, `confirm_alive`, `rollback`, `passthrough` | Overview, Strategies | Sanctioned service control; manual rollback flow (auto timer stays disabled). |
+| `lists_get`, `lists_check_domain`, `lists_set` | Lists | List model + editing (edit sent as JSON string). |
+| `profiles_list` | Strategies | Lossless applied-profile parse + draft block (schema 1). |
+| `profiles_create`, `profiles_update`, `profiles_clone`, `profiles_delete`, `profiles_validate`, `profiles_import_applied`, `profiles_apply` | Strategies | Draft CRUD (optimistic concurrency), native `--dry-run` validation, safe apply pipeline with rollback. |
+| `job_get`, `job_list`, `blockcheck_start`, `blockcheck_status`, `blockcheck_cancel` | Blockcheck | Generic job model + upstream scanner wrapper (`test: standard\|custom`). |
+| `versions`, `maintenance_status`, `events_tail`, `diagnostics_export`, `backup_list`, `backup_create`, `backup_restore_preview`, `backup_restore`, `backup_delete` | Maintenance | Versions, events, scoped backups with preview/restore, redacted export. |
+| `dns_get`, `dns_set`, `dns_validate`, `dns_apply`, `dns_check`, `dns_rollback` | DNS | Domain→IPv4 overrides through the manager-owned addnhosts file with apply/rollback. |
+
+Not registered yet (honest unavailable states where a page references them):
+`proxy_*` (TG WS proxy adapter), `catalog_*`, `health_matrix_*`,
+`orchestra_*`, `dns_provider_*`.
 
 ## Shared page rules
 
@@ -96,30 +100,32 @@ both `tools/smoke.sh menu_acl_shape` and `tests/ui/`):
 Backend agent's zone — not covered here.
 
 ### 2. Strategies (`strategies.js`)
-Profile/strategy management as a **data model**, not an embedded catalog.
+Profile/strategy management, fully wired (r19).
 
-- Shows: service state; profile count (`runtime.profileCount`); per-instance
-  argv parsed into protocol/ports (`--filter-tcp/--filter-udp`),
-  hostlist/ipset filters, `--lua-desync` options (presentation hints; raw
-  argv always verbatim); runtime strategy table dump
-  (`runtime.strategies`); applied UCI + config facts; draft block; drift
-  warning (`drift.divergent`); validation panel.
-- Active action: **passthrough toggle** (the only strategy mutation in the
-  ubus contract), with the 90s rollback confirm flow (Link OK / Roll back).
-- Disabled actions (method names shown): `profiles_list`, `profiles_create`,
-  `profiles_update`, `profiles_clone`, `profiles_delete`, `profiles_validate`,
-  `profiles_apply`.
+- Shows: service state; runtime profile count; applied profiles from the
+  backend lossless parse (`profiles_list`: names, protocols, ports, L7
+  filters, opaque `--lua-desync` with native-status chips, preserved unknowns
+  such as `<HOSTLIST>`, diagnostics, preserve round-trip state); per-instance
+  argv; runtime strategy dump; applied facts; drift warning.
+- Draft manager: list with id/source/revision/parseStatus/duplicate badges,
+  per-row Edit/Clone/(two-step)Delete/Validate, New-draft editor (raw
+  advanced textarea + whitelisted guided add-option row), unsaved indicator,
+  ECONFLICT keeps the editor open, malformed state shows a loud preserved
+  warning with no CRUD, Import-applied button.
+- Apply: Preview (exact candidate, sha256 diff, native coverage note) →
+  arm→confirm → apply → five-check verification row → manual Link OK /
+  Roll back. Refused previews keep Apply disabled with the reason.
+- Passthrough toggle with the manual rollback confirm flow.
 
 ### 3. Blockcheck (`blockcheck.js`)
-- Shows: the three modes with honest durations (quick — short; domains —
-  15–40 min; full — 30–45 min); the state machine
-  (queued/running/cancelling/cancelled/succeeded/failed) as a legend;
-  current job + recent jobs from `status.jobs`; elapsed time ticking for an
-  active job (no progress percentage is faked — the backend reports none);
-  log tail / recommendations panel (unavailable).
-- Disabled actions: start/cancel — wait for `blockcheck_start`,
-  `blockcheck_status`, `blockcheck_cancel`. At-most-one is enforced
-  backend-side (tests/lib/jobs-logic.mjs is the reference).
+Fully wired (r19).
+
+- Shows: mode select (quick/domains/full + `test: standard|custom`), domains
+  input, Start (disabled while active; ECONFLICT renders the backend
+  message), current job with status badge + honest elapsed (no fabricated
+  percentage) + log tail, real Cancel, engine-running warning, recent jobs
+  table, recommendations with Review-raw and Save-to-Draft (verbatim via
+  `profiles_create`; never auto-applied), 2s polling while active.
 
 ### 4. Lists (`lists.js`)
 - Shows: five user lists (domain include/exclude, IP include/exclude/block)
@@ -135,16 +141,19 @@ Profile/strategy management as a **data model**, not an embedded catalog.
 - IPv6 lists: noted as not present in the current backend list set.
 
 ### 5. DNS (`dns.js`)
-- Shows: the `dns_consistency` health check from `status.health.checks`
-  (the only real DNS fact today; absent = not checked vs null = no value are
-  rendered distinctly).
-- Unavailable panels (method names shown): current upstreams/peer
-  DNS/dnsmasq servers, domain rules + per-site DNS, DoH endpoint,
-  applied/draft — all wait for `dns_get`; edits wait for `dns_set`,
-  `dns_validate`, `dns_apply`, `dns_check`.
-- COMSS DNS and a DoH endpoint shape are shown as **example presets only**,
-  with no hardcoded addresses. No `/etc/config/dhcp` or network UCI writes
-  from the browser, ever.
+Fully wired (r19).
+
+- Shows: resolver components + conflict banners, upstream nameservers from
+  the real resolvfile; applied overrides (manager-owned addnhosts) with a
+  live Check button (per-entry match results); draft rows editor
+  (add/remove/save-with-revision, unsaved rows), Validate with backend error
+  detail; Preview (diff + candidate + registration flag) → arm→confirm →
+  apply with verification rendering; manual rollback.
+- The manager owns only `/etc/zapret2-manager/dns-overrides.hosts`;
+  dnsmasq's own option lists and `/etc/config/dhcp` structure are never
+  edited beyond the one-time addnhosts registration.
+- DoH/provider management is NOT implemented (see Phase E roadmap); no
+  hardcoded third-party endpoints.
 
 ### 6. Monitor (`monitor.js`)
 The detailed technical screen (does not duplicate Overview's control plane).
@@ -155,8 +164,7 @@ The detailed technical screen (does not duplicate Overview's control plane).
   queueTotal, copyRange, queueDropped, queueUserDropped, cumulative-counter
   note, cycle `updatedAt`); qlen health (state, consecutiveOverThreshold,
   threshold 50 / crit turns 3 as backend constants); health checks table;
-  active warnings; recent jobs; events panel (unavailable — needs
-  `events_tail`).
+  active warnings; recent jobs; events via `events_tail` (wired).
 - Polling: 5 s interval; never overlaps an in-flight RPC; stops when the
   view DOM leaves the document and on window unload; a failed poll keeps the
   last good data with a STALE banner + timestamp and keeps polling.
@@ -169,35 +177,29 @@ Honest empty state for the planned TG WebSocket Proxy (Rust/Go).
   Unavailable; start/stop/restart disabled; the page lists the methods it
   waits for: `proxy_status`, `proxy_install`, `proxy_start`, `proxy_stop`,
   `proxy_restart`. The proxy itself is never implemented here.
+- Read-only capability/status adapter is the current roadmap phase (§9 of
+  the run); mutating install/start is gated.
 
 ### 8. Maintenance (`maintenance.js`)
-- Shows: versions — `nfqws2` from `status.upstream.nfqws2Version`,
-  update-available badge from `status.system.upgradable`; manager / LuCI
-  package / zapret2 package versions, `lua_compat_ver`, reboot-required —
-  Unavailable (need `versions` / `maintenance_status`).
-- Backups: the four scopes (engineConfig, ourState, lists, profiles) with
-  expected source paths; history cap 3; SHA-256 manifest + syntax check +
-  pre-restore snapshot + downgrade warning described; current/history
-  Unavailable (need `backup_list`); create disabled (need `backup_create`).
-- Restore: preview/SHA-256/syntax-check/downgrade-warning Unavailable (need
-  `backup_restore_preview`, `backup_restore`, `backup_delete`). Dangerous
-  buttons disabled, so no confirm dialogs exist yet; when methods land each
-  dangerous action gets exactly one `ui.confirm` — never stacked modals.
-- Diagnostics export disabled (`diagnostics_export`); maintenance events
-  Unavailable (`events_tail`). No package update from the browser.
+Fully wired (r19).
 
-## Missing backend methods (dependency list for the backend agent)
+- Shows: real versions/system panel (manager/LuCI/upstream apk, nfqws2,
+  lua_compat_ver, OS, uptime, memory, storage, rebootRequired=false);
+  per-scope backup cards with manifest briefs + history, Create backup
+  (scoped or all), Preview with integrity/diff/version-gate and a
+  restorable verdict (reason shown, no restore button on integrity failure),
+  Restore arm→confirm, Delete arm→confirm; events with severity badges +
+  malformed-line reporting; diagnostics export (redacted JSON download).
+- Restore always snapshots first; only allowlisted paths through sanctioned
+  writers; downgrade warning.
 
-| Page | Methods waited for |
-|---|---|
-| Strategies | `profiles_list`, `profiles_create`, `profiles_update`, `profiles_clone`, `profiles_delete`, `profiles_validate`, `profiles_apply` |
-| Blockcheck | `blockcheck_start`, `blockcheck_status`, `blockcheck_cancel` |
-| DNS | `dns_get`, `dns_set`, `dns_validate`, `dns_apply`, `dns_check` |
-| Monitor | `events_tail` (events log over ubus) |
-| Proxy | `proxy_status`, `proxy_install`, `proxy_start`, `proxy_stop`, `proxy_restart` |
-| Maintenance | `maintenance_status`, `versions`, `backup_list`, `backup_create`, `backup_restore_preview`, `backup_restore`, `backup_delete`, `diagnostics_export`, `events_tail` |
-| Lists | `lists_set` arg-type alignment: the plugin declares `edit:string` and the UI sends a JSON string; the plugin body must parse it (it currently `sprintf %J`s it as a dict — double-encode bug, backend zone). |
-| Packaging | `luci-app-zapret2-manager/Makefile` installs only `overview.js` today; it must install the other seven views (Makefile is the backend agent's zone). |
+## Backend method coverage (current state)
+
+Every method the pages use is registered and granted in the ACL (the
+packaging gate asserts plugin↔ACL coherence). Remaining unimplemented
+surfaces (pages render honest unavailable states for them):
+`proxy_*` (adapter is the current roadmap phase), plus the future
+`catalog_*` / `health_matrix_*` / `orchestra_*` / `dns_provider_*` families.
 
 ## Frontend tests
 
