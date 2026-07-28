@@ -305,6 +305,14 @@ const DNSPROV_CLI = '/usr/libexec/zapret2-manager/dnsprov-cli.uc';
 function dnsprov_components_method(req) { return cli_action(DNSPROV_CLI, 'components'); }
 function dnsprov_providers_method(req) { return cli_action(DNSPROV_CLI, 'providers'); }
 function dnsprov_diagnose_method(req) { return cli_edit_action(DNSPROV_CLI, 'diagnose', req, 'dnsprov'); }
+
+// ---- TG WS Proxy read-only adapter (Phase F) ----------------------------------------
+// READ-ONLY ONLY. There is intentionally NO proxy-install/start/stop/config
+// wrapper here — those methods do not exist in this slice and must not be
+// registered (capabilities.methods advertises exactly that).
+const PROXY_CLI = '/usr/libexec/zapret2-manager/proxy-cli.uc';
+function proxy_capabilities_method(req) { return cli_action(PROXY_CLI, 'capabilities'); }
+function proxy_status_method(req) { return cli_action(PROXY_CLI, 'status'); }
 function backup_restore_preview_method(req) { return cli_edit_action(BACKUP_CLI, 'preview', req, 'backup'); }
 function backup_restore_method(req) { return cli_edit_action(BACKUP_CLI, 'restore', req, 'backup'); }
 function backup_delete_method(req) { return cli_edit_action(BACKUP_CLI, 'delete', req, 'backup'); }
@@ -401,6 +409,8 @@ return {
 		dnsprov_components: { call: function (req) { return dnsprov_components_method(req); } },
 		dnsprov_providers: { call: function (req) { return dnsprov_providers_method(req); } },
 		dnsprov_diagnose: { args: { edit: 'string' }, call: function (req) { return dnsprov_diagnose_method(req); } },
+		proxy_capabilities: { call: function (req) { return proxy_capabilities_method(req); } },
+		proxy_status:      { call: function (req) { return proxy_status_method(req); } },
 		versions:          { call: function (req) { return versions_method(req); } },
 		maintenance_status: { call: function (req) { return maintenance_status_method(req); } },
 		events_tail:       { args: { edit: 'string' }, call: function (req) { return events_tail_method(req); } },
