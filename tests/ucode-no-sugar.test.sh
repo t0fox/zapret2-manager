@@ -219,4 +219,36 @@ for f in $(find zapret2-manager/files luci-app-zapret2-manager/files -name '*.uc
 done
 [ "$fail" -eq 0 ] && echo "PASS  no ord() of indexed values in shipped ucode"
 
+# 9. import completeness: every z2m_* identifier used in a file must have a
+# matching import (the profiles-apply.uc defect: z2m_tokenize used, never
+# imported — runtime "access to undeclared variable" on target; local node
+# tests cannot see it).
+_importsok() { # $1 = file → 0 clean, 1 violation
+  # identifiers this file EXPORTS itself need no import (profiles.uc defines
+  # the z2m_* aliases)
+  exported=$(grep -oE 'export const (z2m_[A-Za-z0-9_]+)' "$1" | awk '{print $3}' | sort -u)
+  used=$(grep -oE 'z2m_[A-Za-z0-9_]+' "$1" | sort -u)
+  bad=0
+  for u in $used; do
+    if echo "$exported" | grep -qx "$u"; then continue; fi
+    if ! grep -q "import .*$u" "$1"; then
+      echo "FAIL  $u used without import in $1"
+      bad=1
+    fi
+  done
+  return $bad
+}
+_tmpbad=$(mktemp)
+printf 'import { z2m_parse } from "./profiles.uc";\nlet m = z2m_parse(x);\nlet t = z2m_tokenize(x);\n' > "$_tmpbad"
+_tmpgood=$(mktemp)
+printf 'import { z2m_parse, z2m_tokenize } from "./profiles.uc";\nlet m = z2m_parse(x);\nlet t = z2m_tokenize(x);\n' > "$_tmpgood"
+if _importsok "$_tmpbad" >/dev/null 2>&1; then echo "FAIL  self-test: missing import not flagged"; fail=1; fi
+if ! _importsok "$_tmpgood" >/dev/null 2>&1; then echo "FAIL  self-test: complete imports flagged"; fail=1; fi
+rm -f "$_tmpbad" "$_tmpgood"
+[ "$fail" -eq 0 ] && echo "PASS  import-completeness self-test (red on bad, green on good)"
+for f in $(find zapret2-manager/files luci-app-zapret2-manager/files -name '*.uc' 2>/dev/null); do
+  if ! _importsok "$f"; then fail=1; fi
+done
+[ "$fail" -eq 0 ] && echo "PASS  all z2m_* uses are imported"
+
 if [ "$fail" = 0 ]; then echo "ucode-no-sugar: ALL PASS"; exit 0; else echo "ucode-no-sugar: FAILED"; exit 1; fi

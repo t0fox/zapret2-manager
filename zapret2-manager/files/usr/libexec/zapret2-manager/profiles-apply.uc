@@ -32,7 +32,7 @@
 import { readfile, writefile, stat, unlink, popen, mkdir } from 'fs';
 import { read_var, set_var } from './apply.uc';
 import { PATHS } from './constants.uc';
-import { z2m_parse, z2m_validate, z2m_fragment } from './profiles.uc';
+import { z2m_tokenize, z2m_parse, z2m_validate, z2m_fragment } from './profiles.uc';
 import { load_state } from './profiles-draft.uc';
 import { parse_queue } from './qlen.uc';
 
