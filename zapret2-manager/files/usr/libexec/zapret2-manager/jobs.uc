@@ -395,6 +395,14 @@ export const blockcheck_start = function(input) {
 	let mode = (type(input) == 'object' && input != null && type(input.mode) == 'string') ? input.mode : 'quick';
 	let env = mode_env(mode);
 	if (env == null) return err('EINPUT', 'unknown mode ' + mode + ' (quick|domains|full)');
+	// upstream TEST set: 'standard' (default) or 'custom' (the operator's
+	// small 10-list.sh set — the bounded drill surface). Whitelist only.
+	let testset = 'standard';
+	if (type(input) == 'object' && input != null && type(input.test) == 'string') {
+		if (input.test != 'standard' && input.test != 'custom')
+			return err('EINPUT', 'unknown test set ' + input.test + ' (standard|custom)');
+		testset = input.test;
+	}
 	let domainsInput = (type(input) == 'object' && input != null) ? input.domains : null;
 	let vd = validate_domains(domainsInput != null ? domainsInput : 'rutracker.org');
 	if (!vd.ok) return err('EINPUT', vd.reason);
@@ -413,7 +421,7 @@ export const blockcheck_start = function(input) {
 	let now = time();
 	let id = 'job-' + now + '-' + next_seq();
 	let job = {
-		version: 2, id: id, kind: 'blockcheck', mode: mode, domains: vd.domains,
+		version: 2, id: id, kind: 'blockcheck', mode: mode, testset: testset, domains: vd.domains,
 		status: 'pending', createdAt: now, startedAt: null, finishedAt: null,
 		runnerPid: null, childPid: null,
 		timeoutSec: env.timeoutSec,
@@ -425,7 +433,7 @@ export const blockcheck_start = function(input) {
 	};
 
 	// the runner's env file (constants + validated domains, single-quote escaped)
-	let envtext = "BATCH='1'\nTEST='standard'\nIPVS='4'\nSCANLEVEL=" + shell_escape('' + env.scanlevel) + '\n'
+	let envtext = "BATCH='1'\nTEST=" + shell_escape(testset) + "\nIPVS='4'\nSCANLEVEL=" + shell_escape('' + env.scanlevel) + '\n'
 		+ 'ENABLE_HTTP=' + shell_escape('' + env.enableHttp) + '\n'
 		+ 'ENABLE_HTTPS_TLS12=' + shell_escape('' + env.enableTls12) + '\n'
 		+ 'ENABLE_HTTPS_TLS13=' + shell_escape('' + env.enableTls13) + '\n'

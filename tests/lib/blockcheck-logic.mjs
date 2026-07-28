@@ -59,6 +59,16 @@ export function validate_domains(input) {
 	return { ok: true, domains: list };
 }
 
+// validate_test_set(test) — the upstream TEST env (strategy set under
+// blockcheck2.d). Whitelist only: 'standard' (full upstream set) or 'custom'
+// (the operator's small 10-list.sh set — the bounded acceptance drill
+// surface: the full standard set takes 15-20+ min with the engine running).
+export function validate_test_set(test) {
+	if (test == null) return 'standard';
+	if (test === 'standard' || test === 'custom') return test;
+	return null;
+}
+
 // truncate_log(text, maxBytes) — tail-preserving truncation: keep the LAST
 // maxBytes bytes, cut at a line boundary, prefix a marker line.
 export function truncate_log(text, maxBytes) {

@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import {
 	BLOCKCHECK_MODES, mode_env, validate_domains,
 	truncate_log, parse_summary, recommendations_with_provenance,
+	validate_test_set,
 	BLOCKCHECK_SCANNER
 } from './lib/blockcheck-logic.mjs';
 
@@ -114,4 +115,12 @@ test('NEGATIVE CONTROL: a doctored success line with shell content is data, neve
 	assert.equal(p.recommendations.length, 1);
 	assert.equal(p.recommendations[0].strategy, '--lua-desync=x$(touch /tmp/pwned)',
 		'the strategy is stored VERBATIM as data — parsing never evaluates it');
+});
+
+test('validate_test_set: standard default, custom allowed, everything else refused', () => {
+	assert.equal(validate_test_set(null), 'standard');
+	assert.equal(validate_test_set('standard'), 'standard');
+	assert.equal(validate_test_set('custom'), 'custom');
+	assert.equal(validate_test_set('../../etc'), null);
+	assert.equal(validate_test_set('standard; rm -rf /'), null);
 });
