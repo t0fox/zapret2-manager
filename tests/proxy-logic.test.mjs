@@ -106,18 +106,19 @@ test('capabilities: canonical provider pin, MTProto-only, no mutation methods (f
 	assert.equal(c.rejectedAlternatives.length, 2);
 	assert.ok(c.rejectedAlternatives.some((a) => a.id === 'd0mhate-go-unified'));
 	assert.ok(c.rejectedAlternatives.some((a) => a.id === 'spatiumstas-go-openwrt'));
-	// mutation methods ALL false — none accidentally enabled
+	// functional methods advertised; install stays false FOREVER (never an RPC)
 	assert.deepEqual(c.methods, {
 		capabilities: true, status: true,
-		install: false, start: false, stop: false, restart: false,
-		config: false, secretRotate: false
+		install: false, start: true, stop: true, restart: true,
+		config: true, secretRotate: true
 	});
 	// constraints carry the safety policy
 	const joined = c.constraints.join('\n');
-	assert.match(joined, /read-only/);
+	assert.match(joined, /functional integration/);
 	assert.match(joined, /--allow-untrusted is forbidden/);
 	assert.match(joined, /LAN-only/);
 	assert.match(joined, /0600/);
+	assert.match(joined, /TG_SECRET env only \(never argv\)/);
 	assert.match(joined, /no SOCKS5 server mode/i);
 	// knowledge, not installation state
 	assert.match(c.note, /not installation state/);
@@ -147,11 +148,11 @@ test('fixture 1: nothing installed → ok:true, installed:false, honest note, NO
 	// the default port is provider knowledge, NOT an active listener
 	assert.equal(st.recommendedProvider.defaultPort, 1443);
 	assert.deepEqual(st.listeners, []);
-	// mutation methods unavailable
+	// install stays unavailable; lifecycle methods are advertised
 	assert.equal(st.methods.install, false);
-	assert.equal(st.methods.start, false);
+	assert.equal(st.methods.start, true);
 	// the exact honest note
-	assert.equal(st.note, 'Read-only adapter is operational; TG WS Proxy is not installed.');
+	assert.equal(st.note, 'TG WS Proxy adapter is operational; the optional proxy package is not installed.');
 });
 
 // ---- fixture 2: Rust package+binary, stopped ----------------------------------------
@@ -366,7 +367,7 @@ test('fixture 15: secret mode 0600 → securePermissions:true, metadata only', (
 
 // ---- fixture 16: secret permissions too broad -------------------------------------------------------
 
-test('fixture 16: secret mode 0644 → SECRET_PERMISSIONS_INSECURE, no chmod', () => {
+test('fixture 16: secret mode 0644 → SECRET_PERMISSIONS_INSECURE with the rotate fix pointer', () => {
 	const ev = withRustInstalled(evEmpty());
 	ev.secret = { exists: true, regularFile: true, size: 33, mode: 0o644, readable: true };
 	const st = assembleProxyStatus(ev);
@@ -375,7 +376,7 @@ test('fixture 16: secret mode 0644 → SECRET_PERMISSIONS_INSECURE, no chmod', (
 	assert.ok(w);
 	assert.match(w.message, /0644/);
 	assert.match(w.message, /0600/);
-	assert.match(w.message, /does not chmod/);
+	assert.match(w.message, /proxy_secret_rotate/);
 });
 
 // ---- fixture 17: secret fixture value never serialized -------------------------------------------------
@@ -595,21 +596,23 @@ test('fixture 29: warnings are deterministic in content AND order across runs', 
 	], 'fixed deterministic warning order');
 });
 
-// ---- fixture 30: no mutation capability accidentally enabled ---------------------------------------------------------------
+// ---- fixture 30: install is never an RPC; lifecycle methods are advertised ----------------------------------------
 
-test('fixture 30: no mutation capability is accidentally enabled anywhere', () => {
+test('fixture 30: install stays false forever; lifecycle/config/secret methods are advertised', () => {
 	const caps = buildProxyCapabilities();
 	const st = assembleProxyStatus(withRustRunning(withRustInstalled(evEmpty()), 4321));
 	const expected = {
 		capabilities: true, status: true,
-		install: false, start: false, stop: false, restart: false,
-		config: false, secretRotate: false
+		install: false, start: true, stop: true, restart: true,
+		config: true, secretRotate: true
 	};
 	assert.deepEqual(caps.methods, expected);
 	assert.deepEqual(st.methods, expected);
+	// install/download must never exist as a method name anywhere — the
+	// optional package arrives only through the signed feed workflow
 	const ser = JSON.stringify(caps) + JSON.stringify(st);
-	for (const m of ['proxy_install', 'proxy_start', 'proxy_stop', 'proxy_restart', 'proxy_config_apply', 'proxy_secret_rotate'])
-		assert.ok(ser.indexOf(m) === -1, m + ' must not exist in this slice');
+	for (const m of ['proxy_install', 'proxy_download', 'proxy_package_install'])
+		assert.ok(ser.indexOf(m) === -1, m + ' must never exist');
 });
 
 // ---- parser / classifier unit tests -------------------------------------------------------------------------------------

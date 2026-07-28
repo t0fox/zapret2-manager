@@ -1,7 +1,9 @@
 'use strict';
-// proxy.uc — READ-ONLY TG WS Proxy adapter (Phase F).
+// proxy.uc — TG WS Proxy adapter: capabilities + status (READ-ONLY half).
 // Mirrors tests/lib/proxy-logic.mjs (the Node reference; fixtures there define
-// the behavior expected here).
+// the behavior expected here). The FUNCTIONAL half (config apply, lifecycle,
+// secret rotation, health, logs, link) lives in proxycfg.uc — this module
+// itself still never mutates.
 //
 // Canonical provider (docs/research/tg-ws-proxy-provider.md):
 //   valnesfjord/tg-ws-proxy-rs v1.6.5 — Rust static musl binary, MIT,
@@ -429,12 +431,14 @@ function method_capabilities() {
 	return {
 		capabilities: true,
 		status: true,
+		// install is NEVER an RPC: the optional package arrives only through
+		// the signed/pinned feed workflow (no runtime download, no LuCI fetch).
 		install: false,
-		start: false,
-		stop: false,
-		restart: false,
-		config: false,
-		secretRotate: false
+		start: true,
+		stop: true,
+		restart: true,
+		config: true,
+		secretRotate: true
 	};
 }
 
@@ -457,10 +461,10 @@ function provider_features() {
 function provider_constraints() {
 	return [
 		'separate optional package — the manager supervises, never embeds the proxy',
-		'read-only integration in this slice: capabilities + status only',
-		'future install requires a signed/pinned package (SHA-256 pinned asset + APK signature) — apk --allow-untrusted is forbidden',
-		'future default exposure policy: LAN-only',
-		'secret file mode must be 0600; content is never returned or previewed',
+		'functional integration: configuration, lifecycle, secret rotation and health via ubus (see docs/contracts/ubus.md)',
+		'install requires the signed/pinned package (SHA-256 pinned asset + APK signature) — it is NEVER an RPC and never a LuCI download; apk --allow-untrusted is forbidden',
+		'default exposure policy: LAN-only — explicit LAN IPv4 bind, wildcard refused, loopback allowed for diagnostics, no firewall mutation in v1',
+		'secret file mode must be 0600; content is never returned or previewed; the secret reaches the provider via TG_SECRET env only (never argv)',
 		'no browser-side shell — LuCI talks to ubus only',
 		'the Rust provider has no SOCKS5 server mode (MTProto only)'
 	];
@@ -566,7 +570,7 @@ function build_warnings(st, meta) {
 		push(out, w);
 	}
 	if (st.secret.exists == true && st.secret.securePermissions == false) {
-		let w = { code: 'SECRET_PERMISSIONS_INSECURE', message: 'secret file ' + SECRET_PATH + ' has mode ' + perm_octal(st.secret.mode) + ' — expected 0600. This read-only adapter does not chmod it.' };
+		let w = { code: 'SECRET_PERMISSIONS_INSECURE', message: 'secret file ' + SECRET_PATH + ' has mode ' + perm_octal(st.secret.mode) + ' — expected 0600. Rotate via proxy_secret_rotate (writes 0600) or fix permissions manually.' };
 		push(out, w);
 	}
 	if (st.architecture.compatible == false) {
@@ -746,8 +750,8 @@ export const proxy_status = function() {
 		log: log,
 		methods: method_capabilities(),
 		note: installed
-			? 'read-only status — no install/start/stop/config/secret operations exist in this slice'
-			: 'Read-only adapter is operational; TG WS Proxy is not installed.'
+			? 'functional adapter — lifecycle/config/secret via ubus; installation happens only through the signed feed workflow'
+			: 'TG WS Proxy adapter is operational; the optional proxy package is not installed.'
 	};
 
 	let meta = {

@@ -58,10 +58,10 @@ export const PROVIDER_FEATURES = Object.freeze([
 
 export const PROVIDER_CONSTRAINTS = Object.freeze([
 	'separate optional package — the manager supervises, never embeds the proxy',
-	'read-only integration in this slice: capabilities + status only',
-	'future install requires a signed/pinned package (SHA-256 pinned asset + APK signature) — apk --allow-untrusted is forbidden',
-	'future default exposure policy: LAN-only',
-	'secret file mode must be 0600; content is never returned or previewed',
+	'functional integration: configuration, lifecycle, secret rotation and health via ubus (see docs/contracts/ubus.md)',
+	'install requires the signed/pinned package (SHA-256 pinned asset + APK signature) — it is NEVER an RPC and never a LuCI download; apk --allow-untrusted is forbidden',
+	'default exposure policy: LAN-only — explicit LAN IPv4 bind, wildcard refused, loopback allowed for diagnostics, no firewall mutation in v1',
+	'secret file mode must be 0600; content is never returned or previewed; the secret reaches the provider via TG_SECRET env only (never argv)',
 	'no browser-side shell — LuCI talks to ubus only',
 	'the Rust provider has no SOCKS5 server mode (MTProto only)'
 ]);
@@ -106,12 +106,14 @@ export function methodCapabilities() {
 	return {
 		capabilities: true,
 		status: true,
+		// install is NEVER an RPC: the optional package arrives only through
+		// the signed/pinned feed workflow (no runtime download, no LuCI fetch).
 		install: false,
-		start: false,
-		stop: false,
-		restart: false,
-		config: false,
-		secretRotate: false
+		start: true,
+		stop: true,
+		restart: true,
+		config: true,
+		secretRotate: true
 	};
 }
 
@@ -408,7 +410,7 @@ export function buildProxyWarnings(evidence, st) {
 			'config file ' + DETECTION.configPath + ' exists but is not readable — settings are not surfaced');
 	if (st.secret.exists === true && st.secret.securePermissions === false)
 		push_warning(out, 'SECRET_PERMISSIONS_INSECURE',
-			'secret file ' + DETECTION.secretPath + ' has mode ' + permOctal(st.secret.mode) + ' — expected 0600. This read-only adapter does not chmod it.');
+			'secret file ' + DETECTION.secretPath + ' has mode ' + permOctal(st.secret.mode) + ' — expected 0600. Rotate via proxy_secret_rotate (writes 0600) or fix permissions manually.');
 	if (st.architecture.compatible === false)
 		push_warning(out, 'ARCH_UNSUPPORTED', st.architecture.reason);
 	if (st.architecture.compatible === 'unknown')
@@ -616,8 +618,8 @@ export function assembleProxyStatus(evidence) {
 		log,
 		methods: methodCapabilities(),
 		note: installed
-			? 'read-only status — no install/start/stop/config/secret operations exist in this slice'
-			: 'Read-only adapter is operational; TG WS Proxy is not installed.'
+			? 'functional adapter — lifecycle/config/secret via ubus; installation happens only through the signed feed workflow'
+			: 'TG WS Proxy adapter is operational; the optional proxy package is not installed.'
 	};
 
 	const evForWarnings = {

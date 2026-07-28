@@ -306,13 +306,47 @@ function dnsprov_components_method(req) { return cli_action(DNSPROV_CLI, 'compon
 function dnsprov_providers_method(req) { return cli_action(DNSPROV_CLI, 'providers'); }
 function dnsprov_diagnose_method(req) { return cli_edit_action(DNSPROV_CLI, 'diagnose', req, 'dnsprov'); }
 
-// ---- TG WS Proxy read-only adapter (Phase F) ----------------------------------------
-// READ-ONLY ONLY. There is intentionally NO proxy-install/start/stop/config
-// wrapper here — those methods do not exist in this slice and must not be
-// registered (capabilities.methods advertises exactly that).
+// ---- TG WS Proxy adapter (Phase F: capabilities/status + functional slice) ------------
+// capabilities/status stay read-only. The functional methods delegate to
+// proxycfg.uc via the same CLI: validate/preview are write-free (registered in
+// the READ ACL like dns_validate/catalog_preview); apply/start/stop/restart/
+// autostart/secret_rotate mutate and belong to the WRITE ACL. There is NO
+// install/download method — the optional package arrives only through the
+// signed feed workflow.
 const PROXY_CLI = '/usr/libexec/zapret2-manager/proxy-cli.uc';
 function proxy_capabilities_method(req) { return cli_action(PROXY_CLI, 'capabilities'); }
 function proxy_status_method(req) { return cli_action(PROXY_CLI, 'status'); }
+function proxy_config_get_method(req) { return cli_action(PROXY_CLI, 'config_get'); }
+function proxy_logs_tail_method(req) {
+	// edit is OPTIONAL (defaults to the last 50 redacted lines)
+	let edit = null;
+	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
+	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
+	if (edit == null) return cli_edit_action(PROXY_CLI, 'logs_tail', { edit: '{}' }, 'proxy');
+	return cli_edit_action(PROXY_CLI, 'logs_tail', { edit: edit }, 'proxy');
+}
+function proxy_health_method(req) {
+	let edit = null;
+	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
+	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
+	if (edit == null) return cli_edit_action(PROXY_CLI, 'health', { edit: '{}' }, 'proxy');
+	return cli_edit_action(PROXY_CLI, 'health', { edit: edit }, 'proxy');
+}
+function proxy_link_info_method(req) {
+	let edit = null;
+	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
+	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
+	if (edit == null) return cli_edit_action(PROXY_CLI, 'link_info', { edit: '{}' }, 'proxy');
+	return cli_edit_action(PROXY_CLI, 'link_info', { edit: edit }, 'proxy');
+}
+function proxy_config_validate_method(req) { return cli_edit_action(PROXY_CLI, 'validate', req, 'proxy'); }
+function proxy_config_preview_method(req) { return cli_edit_action(PROXY_CLI, 'preview', req, 'proxy'); }
+function proxy_config_apply_method(req) { return cli_edit_action(PROXY_CLI, 'apply', req, 'proxy'); }
+function proxy_start_method(req) { return cli_action(PROXY_CLI, 'start'); }
+function proxy_stop_method(req) { return cli_action(PROXY_CLI, 'stop'); }
+function proxy_restart_method(req) { return cli_action(PROXY_CLI, 'restart'); }
+function proxy_autostart_set_method(req) { return cli_edit_action(PROXY_CLI, 'autostart', req, 'proxy'); }
+function proxy_secret_rotate_method(req) { return cli_action(PROXY_CLI, 'secret_rotate'); }
 function backup_restore_preview_method(req) { return cli_edit_action(BACKUP_CLI, 'preview', req, 'backup'); }
 function backup_restore_method(req) { return cli_edit_action(BACKUP_CLI, 'restore', req, 'backup'); }
 function backup_delete_method(req) { return cli_edit_action(BACKUP_CLI, 'delete', req, 'backup'); }
@@ -411,6 +445,18 @@ return {
 		dnsprov_diagnose: { args: { edit: 'string' }, call: function (req) { return dnsprov_diagnose_method(req); } },
 		proxy_capabilities: { call: function (req) { return proxy_capabilities_method(req); } },
 		proxy_status:      { call: function (req) { return proxy_status_method(req); } },
+		proxy_config_get:  { call: function (req) { return proxy_config_get_method(req); } },
+		proxy_logs_tail:   { args: { edit: 'string' }, call: function (req) { return proxy_logs_tail_method(req); } },
+		proxy_health:      { args: { edit: 'string' }, call: function (req) { return proxy_health_method(req); } },
+		proxy_link_info:   { args: { edit: 'string' }, call: function (req) { return proxy_link_info_method(req); } },
+		proxy_config_validate: { args: { edit: 'string' }, call: function (req) { return proxy_config_validate_method(req); } },
+		proxy_config_preview: { args: { edit: 'string' }, call: function (req) { return proxy_config_preview_method(req); } },
+		proxy_config_apply: { args: { edit: 'string' }, call: function (req) { return proxy_config_apply_method(req); } },
+		proxy_start:       { call: function (req) { return proxy_start_method(req); } },
+		proxy_stop:        { call: function (req) { return proxy_stop_method(req); } },
+		proxy_restart:     { call: function (req) { return proxy_restart_method(req); } },
+		proxy_autostart_set: { args: { edit: 'string' }, call: function (req) { return proxy_autostart_set_method(req); } },
+		proxy_secret_rotate: { call: function (req) { return proxy_secret_rotate_method(req); } },
 		versions:          { call: function (req) { return versions_method(req); } },
 		maintenance_status: { call: function (req) { return maintenance_status_method(req); } },
 		events_tail:       { args: { edit: 'string' }, call: function (req) { return events_tail_method(req); } },
