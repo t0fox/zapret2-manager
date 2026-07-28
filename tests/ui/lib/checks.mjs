@@ -22,12 +22,12 @@ export const VIEW_DIR_REL = 'luci-app-zapret2-manager/files/www/luci-static/reso
 export const MENU_REL = 'luci-app-zapret2-manager/files/usr/share/luci/menu.d/luci-app-zapret2-manager.json';
 
 export const EXPECTED_VIEWS = [
-	'overview', 'strategies', 'blockcheck', 'catalog', 'lists', 'dns', 'monitor', 'proxy', 'maintenance'
+	'overview', 'strategies', 'blockcheck', 'catalog', 'orchestra', 'lists', 'dns', 'monitor', 'proxy', 'maintenance'
 ];
 
-// The eight pages in the UI agent's zone (overview is the backend agent's).
+// The nine pages in the UI agent's zone (overview is the backend agent's).
 export const ZONE_VIEWS = [
-	'strategies', 'blockcheck', 'catalog', 'lists', 'dns', 'monitor', 'proxy', 'maintenance'
+	'strategies', 'blockcheck', 'catalog', 'orchestra', 'lists', 'dns', 'monitor', 'proxy', 'maintenance'
 ];
 
 export const EXPECTED_MENU_KEYS = [
@@ -35,6 +35,7 @@ export const EXPECTED_MENU_KEYS = [
 	'admin/services/zapret2-manager/strategies',
 	'admin/services/zapret2-manager/blockcheck',
 	'admin/services/zapret2-manager/catalog',
+	'admin/services/zapret2-manager/orchestra',
 	'admin/services/zapret2-manager/lists',
 	'admin/services/zapret2-manager/dns',
 	'admin/services/zapret2-manager/monitor',

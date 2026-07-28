@@ -236,6 +236,10 @@ function health_matrix_start_method(req) { return jobs_edit_action('hm-start', r
 function health_matrix_job_get_method(req) { return job_get_method(req); }
 function health_matrix_job_cancel_method(req) { return blockcheck_cancel_method(req); }
 
+// ---- orchestra read-only adapter (Phase D) ---------------------------------------
+const ORCH_CLI = '/usr/libexec/zapret2-manager/orchestra-cli.uc';
+// (method wrappers live below cli_action — ucode does not hoist declarations)
+
 // ---- maintenance + backups (SLICE 5) -----------------------------------------
 const BACKUP_CLI = '/usr/libexec/zapret2-manager/backup-cli.uc';
 const MAINT_CLI = '/usr/libexec/zapret2-manager/maintenance-cli.uc';
@@ -289,6 +293,12 @@ function events_tail_method(req) {
 function diagnostics_export_method(req) { return cli_action(MAINT_CLI, 'diagnostics'); }
 function backup_list_method(req) { return cli_action(BACKUP_CLI, 'list'); }
 function backup_create_method(req) { return cli_edit_action(BACKUP_CLI, 'create', req, 'backup'); }
+
+// orchestra method wrappers (after cli_action — ucode does not hoist)
+function orchestra_capabilities_method(req) { return cli_action(ORCH_CLI, 'capabilities'); }
+function orchestra_status_method(req) { return cli_action(ORCH_CLI, 'status'); }
+function orchestra_events_method(req) { return cli_action(ORCH_CLI, 'events'); }
+function orchestra_history_method(req) { return cli_action(ORCH_CLI, 'history'); }
 function backup_restore_preview_method(req) { return cli_edit_action(BACKUP_CLI, 'preview', req, 'backup'); }
 function backup_restore_method(req) { return cli_edit_action(BACKUP_CLI, 'restore', req, 'backup'); }
 function backup_delete_method(req) { return cli_edit_action(BACKUP_CLI, 'delete', req, 'backup'); }
@@ -378,6 +388,10 @@ return {
 		health_matrix_start: { args: { edit: 'string' }, call: function (req) { return health_matrix_start_method(req); } },
 		health_matrix_job_get: { args: { edit: 'string' }, call: function (req) { return health_matrix_job_get_method(req); } },
 		health_matrix_job_cancel: { args: { edit: 'string' }, call: function (req) { return health_matrix_job_cancel_method(req); } },
+		orchestra_capabilities: { call: function (req) { return orchestra_capabilities_method(req); } },
+		orchestra_status:  { call: function (req) { return orchestra_status_method(req); } },
+		orchestra_events:  { call: function (req) { return orchestra_events_method(req); } },
+		orchestra_history: { call: function (req) { return orchestra_history_method(req); } },
 		versions:          { call: function (req) { return versions_method(req); } },
 		maintenance_status: { call: function (req) { return maintenance_status_method(req); } },
 		events_tail:       { args: { edit: 'string' }, call: function (req) { return events_tail_method(req); } },

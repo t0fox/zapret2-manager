@@ -84,6 +84,10 @@ Methods:
 | `health_matrix_start` | `{edit: string}` (`{"services"?}`) | mutate | Start ONE bounded matrix job (ECONFLICT on a second). Targets: requested ids, else ledger-enabled, else the whole catalog (max 16). Probes: catalog presence, local+upstream DNS, TCP 443, TLS, HTTP code — exit/http codes only, no bodies. |
 | `health_matrix_job_get` | `{edit: string}` (`{"id"}`) | read | Generic `job_get` alias for matrix jobs. |
 | `health_matrix_job_cancel` | `{edit: string}` (`{"id"}`) | mutate | Real cancel via the generic cancel flag (checked between probes; current probe bounded by curl timeouts). |
+| `orchestra_capabilities` | none | read | Orchestra capability matrix with evidence per item (engine loaded, lua bundle+hashes, autostate model, and the honestly-unavailable preload APIs / event stream / lock-block-whitelist). Upstream version+commit recorded. |
+| `orchestra_status` | none | read | Engine in live argv (auto/antidpi/lib), daemon pid, nfqws2 version, lua compat, debug flag, verbatim `AUTOHOSTLIST_*`, autostate model (in-process, not persisted). |
+| `orchestra_events` | none | read | Honest `available:false` with reason+evidence: DLOG is debug-gated (absent) and `AUTOHOSTLIST_DEBUGLOG=0` — no event stream exists. |
+| `orchestra_history` | none | read | Honest `available:false` with reason+evidence: autostate is in-process memory, never persisted, and upstream has no preload API (Zapret2GUI-only). |
 
 Job statuses (closed enum) and allowed transitions:
 

@@ -67,6 +67,9 @@ function lua_compat_ver() {
 	return length(num) ? (+num) : null;
 }
 
+// export alias for the orchestra adapter (one compat reader, no duplication)
+export const maint_lua_compat = lua_compat_ver;
+
 export const versions = function() {
 	let os = null;
 	let rel = readfile('/etc/openwrt_release');

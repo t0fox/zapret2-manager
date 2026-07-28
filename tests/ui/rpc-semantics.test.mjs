@@ -1513,6 +1513,89 @@ test('catalog health: ECONFLICT start refusal renders the backend message', asyn
 	assert.ok(text.includes('already running'), 'the backend ECONFLICT detail renders');
 });
 
+// ---- 6i. orchestra page (Phase D) -------------------------------------------------
+
+const ORCH_CAPS = {
+	ok: true, upstreamVersion: '0.9.20260307', upstreamCommit: 'd3b3011000f103c5af161cc4e3167e80fd6928a2',
+	engine: { auto: true, antidpi: true, lib: true },
+	matrix: [
+		{ capability: 'engine-loaded', available: true, reason: null, evidence: ['live process argv (/proc/<pid>/cmdline)'] },
+		{ capability: 'lua-bundle-present', available: true, reason: null, evidence: ['/opt/zapret2/lua/zapret-auto.lua'] },
+		{ capability: 'autostate-model', available: true, reason: 'state records live in the Lua global autostate — IN-PROCESS MEMORY ONLY', evidence: ['zapret-auto.lua:48-57'] },
+		{ capability: 'preload-apis', available: false, reason: 'Zapret2GUI slm_preload_* do NOT exist in the pinned upstream zapret-auto.lua', evidence: ['grep slm_preload → empty'] },
+		{ capability: 'event-stream', available: false, reason: 'no event stream exists: DLOG is gated by b_debug (ABSENT in the live argv)', evidence: ['zapret-auto.lua DLOG usage'] },
+		{ capability: 'lock-block-whitelist-mutation', available: false, reason: 'no upstream interface exists', evidence: ['docs/architecture.md invariants'] },
+		{ capability: 'autohostlist-config', available: true, reason: null, evidence: ['AUTOHOSTLIST_* in /opt/zapret2/config (verbatim)'] }
+	]
+};
+
+const ORCH_STATUS = {
+	ok: true,
+	engineInArgv: { auto: true, antidpi: true, lib: true },
+	daemonPid: 2114, nfqws2Version: '0.9.20260307', luaCompatVer: 5, debugEnabled: false,
+	autohostlist: { AUTOHOSTLIST_FAIL_THRESHOLD: '3', AUTOHOSTLIST_DEBUGLOG: '0' },
+	autostate: { model: 'in-process Lua global autostate', persisted: false, reason: 'no persistence calls exist in zapret-auto.lua' }
+};
+
+const ORCH_UNAVAILABLE = {
+	available: false, what: 'history',
+	reason: 'autostate lives in the running nfqws2 process memory only — never persisted, and the pinned upstream has NO preload API',
+	evidence: ['zapret-auto.lua:48-57 (autostate creation, no save)', 'grep slm_preload → empty'],
+	upstreamVersion: '0.9.20260307', upstreamCommit: 'd3b3011',
+	note: 'returned as unavailable instead of an empty array pretending success'
+};
+
+test('orchestra: engine status + capability matrix render with honest unavailable items', async () => {
+	const w = makeWorld({
+		orchestra_capabilities: { type: 'ok', value: ORCH_CAPS },
+		orchestra_status: { type: 'ok', value: ORCH_STATUS },
+		orchestra_events: { type: 'ok', value: { ...ORCH_UNAVAILABLE, what: 'events', reason: 'no event stream exists: DLOG is debug-gated and AUTOHOSTLIST_DEBUGLOG=0' } },
+		orchestra_history: { type: 'ok', value: ORCH_UNAVAILABLE }
+	});
+	const view = loadView(readViewSource('orchestra'), 'orchestra', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	const text = collectText(root).join(' | ');
+	assert.ok(text.includes('loaded'), 'engine loaded badge renders');
+	assert.ok(text.includes('lua_compat_ver'), 'compat row renders');
+	assert.ok(text.includes('AUTOHOSTLIST_FAIL_THRESHOLD'), 'verbatim autohostlist vars render');
+	assert.ok(text.includes('do NOT exist'), 'preload-apis honesty renders');
+	assert.ok(text.includes('IN-PROCESS MEMORY ONLY'), 'autostate persistence honesty renders');
+	assert.ok(!text.includes('pretending success') || text.includes('unavailable instead'), 'honest unavailable framing');
+});
+
+test('orchestra: history/events unavailable states carry reason + evidence, no fake rows', async () => {
+	const w = makeWorld({
+		orchestra_capabilities: { type: 'ok', value: ORCH_CAPS },
+		orchestra_status: { type: 'ok', value: ORCH_STATUS },
+		orchestra_events: { type: 'ok', value: { ...ORCH_UNAVAILABLE, what: 'events' } },
+		orchestra_history: { type: 'ok', value: ORCH_UNAVAILABLE }
+	});
+	const view = loadView(readViewSource('orchestra'), 'orchestra', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	const text = collectText(root).join(' | ');
+	assert.ok(text.includes('NO preload API') || text.includes('no preload API'), 'history unavailability reason renders');
+	assert.ok(text.includes('autostate creation, no save'), 'evidence renders');
+	assert.ok(text.includes('0.9.20260307'), 'upstream version renders');
+	assert.ok(!/ratings/i.test(text) || text.includes('unavailable'), 'no fabricated ratings/history');
+});
+
+test('orchestra: backend error renders an honest unavailable panel (no crash)', async () => {
+	const w = makeWorld({
+		orchestra_capabilities: { type: 'ubusError', code: 5 },
+		orchestra_status: { type: 'ok', value: ORCH_STATUS },
+		orchestra_events: { type: 'ok', value: ORCH_UNAVAILABLE },
+		orchestra_history: { type: 'ok', value: ORCH_UNAVAILABLE }
+	});
+	const view = loadView(readViewSource('orchestra'), 'orchestra', w);
+	const envelope = await view.load();
+	assert.ok(envelope.capError !== null, 'ubus error rejects into capError with reject:true');
+	const root = view.render(envelope);
+	const text = collectText(root).join(' | ');
+	assert.ok(text.includes('Capabilities unavailable'), 'error panel renders');
+});
+
 // ---- 7. overview: passthrough wire + reject gate (no longer excluded) --------
 
 test('overview: callPassthrough is declared with params:[enabled] + reject:true (fixed → green)', () => {

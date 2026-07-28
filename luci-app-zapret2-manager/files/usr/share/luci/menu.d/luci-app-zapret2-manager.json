@@ -51,9 +51,22 @@
 			]
 		}
 	},
+	"admin/services/zapret2-manager/orchestra": {
+		"title": "Orchestra",
+		"order": 94,
+		"action": {
+			"type": "view",
+			"path": "zapret2-manager/orchestra"
+		},
+		"depends": {
+			"acl": [
+				"zapret2-manager"
+			]
+		}
+	},
 	"admin/services/zapret2-manager/lists": {
 		"title": "Lists",
-		"order": 94,
+		"order": 95,
 		"action": {
 			"type": "view",
 			"path": "zapret2-manager/lists"
@@ -66,7 +79,7 @@
 	},
 	"admin/services/zapret2-manager/dns": {
 		"title": "DNS",
-		"order": 95,
+		"order": 96,
 		"action": {
 			"type": "view",
 			"path": "zapret2-manager/dns"
@@ -79,7 +92,7 @@
 	},
 	"admin/services/zapret2-manager/monitor": {
 		"title": "Monitor",
-		"order": 96,
+		"order": 97,
 		"action": {
 			"type": "view",
 			"path": "zapret2-manager/monitor"
@@ -92,7 +105,7 @@
 	},
 	"admin/services/zapret2-manager/proxy": {
 		"title": "Proxy",
-		"order": 97,
+		"order": 98,
 		"action": {
 			"type": "view",
 			"path": "zapret2-manager/proxy"
@@ -105,7 +118,7 @@
 	},
 	"admin/services/zapret2-manager/maintenance": {
 		"title": "Maintenance",
-		"order": 98,
+		"order": 99,
 		"action": {
 			"type": "view",
 			"path": "zapret2-manager/maintenance"
