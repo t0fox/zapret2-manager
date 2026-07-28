@@ -175,6 +175,35 @@ export function component_scan(presentInits) {
 	return { found, conflicts };
 }
 
+// ---- apply verification policy -------------------------------------------------
+
+// After `uci commit dhcp`, procd RESTARTS dnsmasq (not just a HUP reload) —
+// port 53 and resolution bounce for a few seconds. A single-shot verify read
+// inside that window false-fails (acceptance r12: port53=false at t=0 with
+// 16 listeners before and after). Verification therefore retries within a
+// bounded window and judges only the LAST state — honest, no fake success.
+export const DNS_VERIFY_MAX_ATTEMPTS = 5;
+export const DNS_VERIFY_RETRY_SEC = 2;
+
+// dnsChecks(processAlive, portListening, entryResults) — the three gates:
+// resolver process alive, port 53 listening, every ENABLED override entry
+// resolves to its pinned IP.
+export function dnsChecks(processAlive, portListening, entryResults) {
+	const entriesMatch = entryResults.every((e) => e.matched === true);
+	return {
+		processAlive: processAlive === true,
+		portListening: portListening === true,
+		entriesMatch,
+		ok: processAlive === true && portListening === true && entriesMatch
+	};
+}
+
+// dnsVerifyShouldRetry(checks, attempt, maxAttempts) — retry while any gate
+// is red and attempts remain; judge (fail) only when the window is exhausted.
+export function dnsVerifyShouldRetry(checks, attempt, maxAttempts = DNS_VERIFY_MAX_ATTEMPTS) {
+	return checks.ok !== true && attempt < maxAttempts;
+}
+
 // ---- applied↔draft diff ----------------------------------------------------------------------
 
 export function diff_entries(applied, draft) {

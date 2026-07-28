@@ -9,7 +9,9 @@ import assert from 'node:assert/strict';
 import {
 	validate_domain, validate_ipv4, validate_entries,
 	render_hosts, parse_hosts, parse_dnsmasq_conf, parse_resolv_auto,
-	component_scan, diff_entries, OVERRIDES_PATH, DHCP_CONF
+	component_scan, diff_entries,
+	dnsChecks, dnsVerifyShouldRetry, DNS_VERIFY_MAX_ATTEMPTS,
+	OVERRIDES_PATH, DHCP_CONF
 } from './lib/dns-logic.mjs';
 
 // the REAL dnsmasq section from the target (captured read-only 2026-07-28)
@@ -143,4 +145,19 @@ test('diff_entries: added/removed/changed/unchanged', () => {
 	assert.equal(d.removed.length, 0);
 	const d2 = diff_entries(applied, []);
 	assert.equal(d2.removed.length, 2, 'empty draft removes all applied overrides (explicitly reported, never silent)');
+});
+
+// ---- apply verification policy (r12 acceptance defect) ------------------------------
+
+test('dnsChecks/dnsVerifyShouldRetry: a bounced first read retries, a green window passes', () => {
+	const bounced = dnsChecks(true, false, [{ matched: false }]);
+	assert.equal(bounced.ok, false);
+	assert.equal(dnsVerifyShouldRetry(bounced, 1), true, 'r12 case: port53 bounced at attempt 1 → retry, not fail');
+	assert.equal(dnsVerifyShouldRetry(bounced, DNS_VERIFY_MAX_ATTEMPTS), false, 'window exhausted → judge fail');
+	const green = dnsChecks(true, true, [{ matched: true }, { matched: true }]);
+	assert.equal(green.ok, true);
+	assert.equal(dnsVerifyShouldRetry(green, 1), false, 'green → no retry');
+	const mismatch = dnsChecks(true, true, [{ matched: false }]);
+	assert.equal(mismatch.entriesMatch, false, 'a mismatched override is a REAL failure (not a bounce)');
+	assert.equal(dnsVerifyShouldRetry(mismatch, 5), false);
 });

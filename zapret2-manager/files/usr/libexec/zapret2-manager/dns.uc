@@ -372,22 +372,34 @@ export const dns_apply_preview = function() {
 };
 
 function verify_dns(entries) {
-	let checks = { processAlive: false, portListening: false, entries: [] };
-	let r = run('pidof dnsmasq');
-	checks.processAlive = (trim(r.out) != '');
-	let n = run("netstat -tulpn 2>/dev/null | grep -c ':53 '");
-	checks.portListening = ((+trim(n.out)) > 0);
-	let allMatch = true;
-	for (let i = 0; i < length(entries); i++) {
-		let e = entries[i];
-		if (e.enabled == false) continue;
-		let q = run('nslookup ' + e.domain + ' 127.0.0.1');
-		let found = (index(q.out, e.ip) >= 0);
-		if (!found) allMatch = false;
-		push(checks.entries, { domain: e.domain, expectedIp: e.ip, matched: found });
+	// After `uci commit dhcp`, procd RESTARTS dnsmasq (not just HUP) — port
+	// 53 and resolution bounce for a few seconds. A single-shot read inside
+	// that window false-fails (acceptance r12). Retry within a bounded
+	// window (5 × 2s) and judge only the final state — never a fake success.
+	let attempts = 0;
+	let checks = null;
+	while (attempts < 5) {
+		attempts++;
+		checks = { processAlive: false, portListening: false, entries: [] };
+		let r = run('pidof dnsmasq');
+		checks.processAlive = (trim(r.out) != '');
+		let n = run("netstat -tulpn 2>/dev/null | grep -c ':53 '");
+		checks.portListening = ((+trim(n.out)) > 0);
+		let allMatch = true;
+		for (let i = 0; i < length(entries); i++) {
+			let e = entries[i];
+			if (e.enabled == false) continue;
+			let q = run('nslookup ' + e.domain + ' 127.0.0.1');
+			let found = (index(q.out, e.ip) >= 0);
+			if (!found) allMatch = false;
+			push(checks.entries, { domain: e.domain, expectedIp: e.ip, matched: found });
+		}
+		checks.entriesMatch = allMatch;
+		checks.ok = checks.processAlive && checks.portListening && allMatch;
+		if (checks.ok) break;
+		if (attempts < 5) run('sleep 2');
 	}
-	checks.entriesMatch = allMatch;
-	checks.ok = checks.processAlive && checks.portListening && allMatch;
+	checks.attemptsUsed = attempts;
 	return checks;
 }
 
