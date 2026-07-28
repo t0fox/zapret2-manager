@@ -162,11 +162,13 @@ test('dnsChecks/dnsVerifyShouldRetry: a bounced first read retries, a green wind
 	assert.equal(dnsVerifyShouldRetry(mismatch, 5), false);
 });
 
-test('dnsServiceAction: restart only when registration changes (conf regenerates only on full restart)', () => {
-	assert.equal(dnsServiceAction(true), 'restart',
-		'first registration (or its rollback) must regenerate the conf — reload leaves it without addn-hosts (r13 defect)');
-	assert.equal(dnsServiceAction(false), 'reload',
-		'content-only changes while registered: HUP suffices (addn-hosts files re-read, no listener drop)');
+test('dnsServiceAction: restart on registration OR content change (conf + cache semantics)', () => {
+	assert.equal(dnsServiceAction({ registrationChanged: true, contentChanged: false }), 'restart',
+		'registration change: conf regenerates only on full restart (r13)');
+	assert.equal(dnsServiceAction({ registrationChanged: false, contentChanged: true }), 'restart',
+		'override set change: HUP keeps serving cached NXDOMAIN/stale IP (r15)');
+	assert.equal(dnsServiceAction({ registrationChanged: false, contentChanged: false }), 'reload',
+		'nothing in the resolution data changed → HUP suffices');
 });
 
 test('OVERRIDES_MODE is 0644 (dnsmasq runs unprivileged; r14 unreadable-file defect)', () => {

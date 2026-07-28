@@ -427,68 +427,67 @@ export const dns_apply_run = function() {
 		run('uci commit dhcp');
 	}
 
-	// service action: the generated conf (/var/etc/dnsmasq.conf.*) is built
-	// ONLY by a FULL init restart. A HUP reload re-reads the CURRENT conf and
-	// would leave it WITHOUT the addn-hosts line after a first registration
-	// (acceptance r13: the override never activated). When the registration
-	// changes → restart; content-only while registered → reload (HUP re-reads
-	// addn-hosts file contents, no listener drop).
+	// service action (cache + conf semantics, acceptance r13+r15):
+	//   registration CHANGE → restart (conf regenerates only on full restart);
+	//   override SET change (entries added/removed/IP changed) → restart
+	//     (HUP does NOT clear the cache: a cached NXDOMAIN for a new name, or
+	//     a cached stale IP for a removed one, would keep being served);
+	//   only a literal no-change apply may reload (HUP re-reads hosts files).
+	let contentChanged = (length(f.diff.added) > 0 || length(f.diff.removed) > 0 || length(f.diff.changed) > 0);
+	let needRestart = (!f.registered) || contentChanged;
 	let rl;
-	if (!f.registered) rl = run('/etc/init.d/dnsmasq restart');
+	if (needRestart) rl = run('/etc/init.d/dnsmasq restart');
 	else rl = run('/etc/init.d/dnsmasq reload');
+
 	let checks = verify_dns(f.entries);
+	if (!checks.ok && checks.processAlive && checks.portListening && !checks.entriesMatch && !needRestart) {
+		// escalation: resolution data was supposed to be live but entries do
+		// not resolve — one full restart clears any stale cache, re-verify
+		run('/etc/init.d/dnsmasq restart');
+		checks = verify_dns(f.entries);
+	}
 	if (!checks.ok) {
-		// immediate rollback: restore snapshot files + the SAME service-action
-		// rule (first-apply registration must be un-done by a full restart,
-		// content-only rollback needs only HUP). Restored file gets 0644 too
-		// (cp of a 0600 writefile copy stays 0600 — daemon cannot read it).
+		// immediate rollback: restore snapshot files + restart (a rollback
+		// ALWAYS changes the effective resolution data — stale cached answers
+		// must not survive it). Restored file gets 0644 too (cp of a 0600
+		// writefile copy stays 0600 — daemon cannot read it).
 		run('cp -f ' + SNAP_DIR + '/dhcp.conf ' + DHCP_CONF + ' 2>/dev/null');
 		run('cp -f ' + SNAP_DIR + '/overrides.hosts ' + OVERRIDES_PATH + ' 2>/dev/null');
 		run('chmod 644 ' + OVERRIDES_PATH + ' 2>/dev/null');
-		if (!f.registered) run('/etc/init.d/dnsmasq restart');
-		else run('/etc/init.d/dnsmasq reload');
+		run('/etc/init.d/dnsmasq restart');
 		let recheck = verify_dns([]);
 		return err('ETARGET',
-			'dns apply failed verification (reload/restart rc=' + rl.rc + ') — rolled back; resolver process=' + recheck.processAlive + ' port53=' + recheck.portListening,
+			'dns apply failed verification (service rc=' + rl.rc + ') — rolled back; resolver process=' + recheck.processAlive + ' port53=' + recheck.portListening,
 			'verify');
 	}
 	return {
 		ok: true,
 		mode: 'apply',
 		registered: f.registered,
+		action: needRestart ? 'restart' : 'reload',
 		verify: checks,
 		snapshot: snap,
-		note: 'dnsmasq reloaded; overrides active. Manual rollback via dns_rollback restores ' + SNAP_DIR + '.'
+		note: 'dnsmasq ' + (needRestart ? 'restarted' : 'reloaded') + '; overrides active. Manual rollback via dns_rollback restores ' + SNAP_DIR + '.'
 	};
 };
 
 export const dns_rollback = function() {
 	if (!stat(SNAP_DIR + '/dhcp.conf') && !stat(SNAP_DIR + '/overrides.hosts'))
 		return err('ESTATE', 'no DNS snapshot to roll back to');
-	// registration state the snapshot restores vs the live one: if it CHANGES
-	// (first-apply registration removed), a full restart regenerates the conf;
-	// content-only rollback reloads (HUP).
-	let confBefore = parse_dnsmasq_conf(readfile(DHCP_CONF));
-	let registeredBefore = false;
-	for (let i = 0; i < length(confBefore.addnhosts); i++)
-		if (confBefore.addnhosts[i] == OVERRIDES_PATH) registeredBefore = true;
 	run('cp -f ' + SNAP_DIR + '/dhcp.conf ' + DHCP_CONF + ' 2>/dev/null');
 	run('cp -f ' + SNAP_DIR + '/overrides.hosts ' + OVERRIDES_PATH + ' 2>/dev/null');
 	run('chmod 644 ' + OVERRIDES_PATH + ' 2>/dev/null');
-	let confAfter = parse_dnsmasq_conf(readfile(DHCP_CONF));
-	let registeredAfter = false;
-	for (let i = 0; i < length(confAfter.addnhosts); i++)
-		if (confAfter.addnhosts[i] == OVERRIDES_PATH) registeredAfter = true;
-	let rl;
-	if (registeredBefore != registeredAfter) rl = run('/etc/init.d/dnsmasq restart');
-	else rl = run('/etc/init.d/dnsmasq reload');
+	// a rollback ALWAYS changes the effective resolution data → full restart
+	// (conf regeneration + cache clear; a cached override answer must not
+	// survive the rollback)
+	let rl = run('/etc/init.d/dnsmasq restart');
 	let checks = verify_dns([]);
 	return {
 		ok: checks.processAlive && checks.portListening,
-		action: (registeredBefore != registeredAfter) ? 'restart' : 'reload',
+		action: 'restart',
 		reloadRc: rl.rc,
 		verify: checks,
-		note: 'snapshot restored and dnsmasq ' + ((registeredBefore != registeredAfter) ? 'restarted' : 'reloaded')
+		note: 'snapshot restored and dnsmasq restarted'
 	};
 };
 
