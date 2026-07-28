@@ -18,6 +18,13 @@
 export const OVERRIDES_PATH = '/etc/zapret2-manager/dns-overrides.hosts';
 export const DHCP_CONF = '/etc/config/dhcp';
 
+// dnsmasq runs as the UNPRIVILEGED 'dnsmasq' user: the overrides file must be
+// world-readable. ucode writefile creates 0600 root-only files (acceptance
+// r14: apply succeeded but resolution stayed NXDOMAIN — daemon could not
+// read the file; a shell-written 0644 copy of the same content resolved
+// fine). The backend chmods to this mode after every write/restore.
+export const OVERRIDES_MODE = 0o644;
+
 // ---- entry validation ---------------------------------------------------------
 
 // Domain: LDH labels (letters, digits, hyphen — not leading/trailing hyphen),

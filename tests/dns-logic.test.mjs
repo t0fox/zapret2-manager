@@ -11,7 +11,7 @@ import {
 	render_hosts, parse_hosts, parse_dnsmasq_conf, parse_resolv_auto,
 	component_scan, diff_entries,
 	dnsChecks, dnsVerifyShouldRetry, DNS_VERIFY_MAX_ATTEMPTS, dnsServiceAction,
-	OVERRIDES_PATH, DHCP_CONF
+	OVERRIDES_PATH, DHCP_CONF, OVERRIDES_MODE
 } from './lib/dns-logic.mjs';
 
 // the REAL dnsmasq section from the target (captured read-only 2026-07-28)
@@ -167,4 +167,10 @@ test('dnsServiceAction: restart only when registration changes (conf regenerates
 		'first registration (or its rollback) must regenerate the conf — reload leaves it without addn-hosts (r13 defect)');
 	assert.equal(dnsServiceAction(false), 'reload',
 		'content-only changes while registered: HUP suffices (addn-hosts files re-read, no listener drop)');
+});
+
+test('OVERRIDES_MODE is 0644 (dnsmasq runs unprivileged; r14 unreadable-file defect)', () => {
+	assert.equal(OVERRIDES_MODE, 0o644);
+	assert.equal(OVERRIDES_MODE.toString(8), '644',
+		'ucode writefile creates 0600 root-only — the backend must chmod after every write/restore or the daemon cannot read the overrides');
 });

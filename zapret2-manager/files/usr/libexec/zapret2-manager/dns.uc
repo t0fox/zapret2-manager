@@ -408,7 +408,10 @@ export const dns_apply_run = function() {
 	if (f.refuse) return f.refuse;
 	let snap = snapshot_dns();
 
-	// write the manager-owned hosts file atomically (temp + mv)
+	// write the manager-owned hosts file atomically (temp + mv), then chmod
+	// 0644: dnsmasq runs as the UNPRIVILEGED 'dnsmasq' user and cannot read a
+	// 0600 ucode-writefile file (acceptance r14: apply "succeeded" but the
+	// override stayed NXDOMAIN; a 0644 copy of the same content resolved).
 	let tmp = OVERRIDES_PATH + '.tmp.' + time();
 	writefile(tmp, f.candidate);
 	let mv = run('mv -f ' + tmp + ' ' + OVERRIDES_PATH);
@@ -416,6 +419,7 @@ export const dns_apply_run = function() {
 		try { unlink(tmp); } catch (e) { }
 		return err('ETARGET', 'failed to write ' + OVERRIDES_PATH, 'write');
 	}
+	run('chmod 644 ' + OVERRIDES_PATH);
 
 	// register addnhosts in /etc/config/dhcp if missing (uci, ONCE)
 	if (!f.registered) {
@@ -436,9 +440,11 @@ export const dns_apply_run = function() {
 	if (!checks.ok) {
 		// immediate rollback: restore snapshot files + the SAME service-action
 		// rule (first-apply registration must be un-done by a full restart,
-		// content-only rollback needs only HUP)
+		// content-only rollback needs only HUP). Restored file gets 0644 too
+		// (cp of a 0600 writefile copy stays 0600 — daemon cannot read it).
 		run('cp -f ' + SNAP_DIR + '/dhcp.conf ' + DHCP_CONF + ' 2>/dev/null');
 		run('cp -f ' + SNAP_DIR + '/overrides.hosts ' + OVERRIDES_PATH + ' 2>/dev/null');
+		run('chmod 644 ' + OVERRIDES_PATH + ' 2>/dev/null');
 		if (!f.registered) run('/etc/init.d/dnsmasq restart');
 		else run('/etc/init.d/dnsmasq reload');
 		let recheck = verify_dns([]);
@@ -468,6 +474,7 @@ export const dns_rollback = function() {
 		if (confBefore.addnhosts[i] == OVERRIDES_PATH) registeredBefore = true;
 	run('cp -f ' + SNAP_DIR + '/dhcp.conf ' + DHCP_CONF + ' 2>/dev/null');
 	run('cp -f ' + SNAP_DIR + '/overrides.hosts ' + OVERRIDES_PATH + ' 2>/dev/null');
+	run('chmod 644 ' + OVERRIDES_PATH + ' 2>/dev/null');
 	let confAfter = parse_dnsmasq_conf(readfile(DHCP_CONF));
 	let registeredAfter = false;
 	for (let i = 0; i < length(confAfter.addnhosts); i++)
