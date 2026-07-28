@@ -170,15 +170,31 @@ The detailed technical screen (does not duplicate Overview's control plane).
   last good data with a STALE banner + timestamp and keeps polling.
 
 ### 7. Proxy (`proxy.js`)
-Honest empty state for the planned TG WebSocket Proxy (Rust/Go).
+READ-ONLY TG WS Proxy adapter (Phase F, r31) over `proxy_capabilities` +
+`proxy_status`. The proxy itself is a separate optional package — never
+implemented here.
 
-- All fields (installed, state, implementation, listen address, port,
-  upstream, connections, counters, autostart, last error) render
-  Unavailable; start/stop/restart disabled; the page lists the methods it
-  waits for: `proxy_status`, `proxy_install`, `proxy_start`, `proxy_stop`,
-  `proxy_restart`. The proxy itself is never implemented here.
-- Read-only capability/status adapter is the current roadmap phase (§9 of
-  the run); mutating install/start is gated.
+- Canonical provider panel: tg-ws-proxy-rs v1.6.5 (commit pin, MIT,
+  asset + SHA-256, `aarch64-unknown-linux-musl` ABI), protocol **MTProto**
+  with an explicit "SOCKS5: not supported" badge (the Rust binary has no
+  `--mode` flag), default port 1443 shown as provider knowledge — never as
+  an active listener, rejected alternatives, ADR reference.
+- State: installed / detected provider / package version / binary path /
+  process state (running / stopped / unknown — never a fake "stopped") /
+  PIDs / init presence / enabled / mode; nothing-installed renders
+  "adapter operational + proxy not installed", not an error.
+- Listeners: actual rows with loopback / wildcard / lan / specific
+  classification; wildcard carries the explicit "all local interfaces —
+  WAN reachability not tested, depends on firewall policy" note; probe
+  unavailable is distinguished from "no listeners".
+- Files (metadata only): config presence/size + allowlisted parsed keys
+  (a second fence drops any secret-shaped key even if a backend ever sent
+  one), secret existence + permission verdict (0600 expected, never the
+  value), log metadata.
+- Structured warnings (MULTIPLE_BINARIES … STATUS_PARTIAL) with codes.
+- Control section is an honest read-only statement: install/start/stop/
+  config/secret-rotation methods intentionally do not exist in this slice
+  (no disabled buttons pretending to work, no missing-method load error).
 
 ### 8. Maintenance (`maintenance.js`)
 Fully wired (r19).
@@ -196,10 +212,13 @@ Fully wired (r19).
 ## Backend method coverage (current state)
 
 Every method the pages use is registered and granted in the ACL (the
-packaging gate asserts plugin↔ACL coherence). Remaining unimplemented
-surfaces (pages render honest unavailable states for them):
-`proxy_*` (adapter is the current roadmap phase), plus the future
-`catalog_*` / `health_matrix_*` / `orchestra_*` / `dns_provider_*` families.
+packaging gate asserts plugin↔ACL coherence). Since r30/r31 the
+`catalog_*`, `health_matrix_*`, `orchestra_*`, `dnsprov_*`, and the
+READ-ONLY `proxy_capabilities` / `proxy_status` families are all wired.
+Remaining unimplemented surfaces (pages render honest unavailable states
+or explicit read-only statements for them): TG WS Proxy MUTATIONS
+(install/start/stop/config/secret rotation — future trusted package
+slice), Telegram alerts, automatic rollback timer.
 
 ## Frontend tests
 

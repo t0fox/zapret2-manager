@@ -14,7 +14,9 @@ A clean OpenWrt **feed** providing two packages that manage the upstream
 > real reboot with autostart + watchdog observation). Detailed evidence:
 > [docs/acceptance.md](docs/acceptance.md).
 
-## What is implemented today (r19)
+## What is implemented today (r31)
+
+**Production-accepted with mutating drills (r19 @ 33e0133):**
 
 - **Three-level state** (RUNTIME / APPLIED / DRAFT) with explicit drift.
 - **Service control** with paused flag, passthrough, watchdog, events.
@@ -31,9 +33,40 @@ A clean OpenWrt **feed** providing two packages that manage the upstream
   addnhosts file with apply/rollback.
 - **Lists**: ownership-aware user list editing (domainInclude/domainExclude).
 
-Not implemented yet: service catalog, health matrix, orchestra adapter,
-DNS provider management, TG WS proxy, Telegram alerts, automatic rollback
-timer (pending a dedicated drill).
+**Later slices (r20–r31) — verified on target as noted per slice:**
+
+- **Service Catalog** (r2x): validated versioned catalog (11 services),
+  digest/staleness/overlap checks, ownership-safe domainInclude ledger,
+  list/get/status/preview/apply with optimistic revision + file-hash gates,
+  sanctioned writer, verification and rollback.
+- **Service Health Matrix** (r2x): persistent jobs probing local/upstream
+  DNS, TCP 443, TLS, HTTP with cancellation and structured result classes.
+- **Orchestra adapter** (r2x, READ-ONLY): capabilities/status/events/history
+  over the live nfqws2 argv and Lua bundle evidence; honestly unavailable
+  history/events (autostate proven in-process only; no slm_preload_* APIs
+  in pinned upstream).
+- **DNS Providers** (r30, READ-ONLY + bounded diagnostics): component and
+  conflict detection, six provider profiles, bounded diagnostics with
+  confidence; DoH endpoints are data, never activation. Deployed and
+  live-smoked on target at r30.
+- **TG WS Proxy adapter** (r31, READ-ONLY): `proxy_capabilities` /
+  `proxy_status` for the canonical tg-ws-proxy-rs v1.6.5 provider
+  (MTProto-only; MIT; pinned asset + SHA-256). Honest `installed:false`
+  when absent; package/binary/process/init/listener/config/secret/log/arch
+  detection with structured warnings; secret values never returned; no
+  mutation methods in this slice. See
+  [docs/research/tg-ws-proxy-provider.md](docs/research/tg-ws-proxy-provider.md).
+
+> Acceptance wording is precise: r19 @ 33e0133 remains the fully mutating
+> production-accepted baseline ([docs/acceptance.md](docs/acceptance.md)).
+> The r20+ slices above shipped through the full local gate suite plus
+> target smoke; the read-only slices (Orchestra, DNS Providers, TG WS
+> Proxy) mutate nothing by design, so their target evidence is
+> installation + live read-only calls, not mutating drills.
+
+Not implemented yet: TG WS Proxy **mutations** (trusted package install,
+start/stop, config apply, secret rotation — future slice), Telegram
+alerts, automatic rollback timer (pending a dedicated drill).
 
 ## Target platform
 
@@ -72,8 +105,8 @@ deadline-driven implementation runs on `main`.
 
 ## Verification
 
-- Canonical local runner: `tools/run-all-tests.sh` (409 green / 0 red at
-  baseline; crashes and no-TAP count as RED by design).
+- Canonical local runner: `tools/run-all-tests.sh` (509 green / 0 red at
+  r31; crashes and no-TAP count as RED by design).
 - Live acceptance: [docs/acceptance.md](docs/acceptance.md) — every mutating
   path verified on the router with rollback drills.
 - Mock tests are not proof. See [docs/architecture.md](docs/architecture.md)
