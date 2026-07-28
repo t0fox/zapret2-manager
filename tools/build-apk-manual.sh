@@ -70,16 +70,19 @@ build_one() {
   _name="$1"; _desc="$2"; _deps="$3"; _root="$4"; _postinst="$5"; _postrm="${6:-}"
   _provides="${7:-}"
   _preinst="${8:-}"
-  _out="$OUTDIR/${_name}-${VER}.apk"
+  _ver="${9:-$VER}"
+  _out="$OUTDIR/${_name}-${_ver}.apk"
   set -- "$FAKE" "$APK" mkpkg
   set -- "$@" --info "name:${_name}"
-  set -- "$@" --info "version:${VER}"
+  set -- "$@" --info "version:${_ver}"
   set -- "$@" --info "description:${_desc}"
   set -- "$@" --info "arch:${ARCH:-all}"
   set -- "$@" --info "license:MIT"
   set -- "$@" --info "maintainer:Ásgeir"
   set -- "$@" --info "origin:package/${_name}"
-  set -- "$@" --info "depends:${_deps}"
+  # depends is emitted only when non-empty: the static-musl proxy binary has
+  # NO runtime deps, and an empty `depends:` info line is an untested input.
+  [ -n "$_deps" ] && set -- "$@" --info "depends:${_deps}"
   [ -n "$_provides" ] && set -- "$@" --info "provides:${_provides}"
   [ -n "$_preinst"  ] && set -- "$@" --script "pre-install:${_preinst}"
   [ -n "$_postinst" ] && set -- "$@" --script "post-install:${_postinst}"
@@ -206,10 +209,55 @@ build_one "luci-app-zapret2-manager" \
   "$R" "$LPI" "$LPR"
 rm -rf "$R" "$LPI" "$LPR"
 
+# ---- tg-ws-proxy-rs (optional, pinned upstream binary) ------------------------
+# PIN IS THE TRUST ANCHOR: version + SHA-256 are read from the package Makefile
+# (single source — docs/research/tg-ws-proxy-provider.md records the ADR pin);
+# the URL is the pinned GitHub RELEASE asset (never a "latest" endpoint). The
+# asset is downloaded ON THE BUILD HOST (never on the router, never from LuCI)
+# and the build FAILS CLOSED on any hash mismatch.
+_TGV="$(sed -n 's/^PKG_VERSION:=//p' "$REPO/tg-ws-proxy-rs/Makefile" | head -1)"
+_TGR="$(sed -n 's/^PKG_RELEASE:=//p' "$REPO/tg-ws-proxy-rs/Makefile" | head -1)"
+_TGH="$(sed -n 's/^PKG_HASH:=//p'   "$REPO/tg-ws-proxy-rs/Makefile" | head -1)"
+TGWS_PKG_VER="${_TGV:?PKG_VERSION missing in tg-ws-proxy-rs/Makefile}-r${_TGR:?PKG_RELEASE missing}"
+TGWS_ASSET="tg-ws-proxy-aarch64-unknown-linux-musl.tar.gz"
+TGWS_URL="https://github.com/valnesfjord/tg-ws-proxy-rs/releases/download/v${_TGV}/${TGWS_ASSET}"
+TGWS_SHA256="${_TGH:?PKG_HASH missing in tg-ws-proxy-rs/Makefile}"
+TGWS_DL="$HOME/z2m-build/$TGWS_ASSET"
+if [ ! -f "$TGWS_DL" ]; then
+  echo "downloading pinned asset: $TGWS_URL"
+  curl -fSL -o "$TGWS_DL" "$TGWS_URL"
+fi
+echo "$TGWS_SHA256  $TGWS_DL" | sha256sum -c - \
+  || { echo "FATAL: pinned asset SHA-256 mismatch for $TGWS_ASSET — refusing to package" >&2; exit 1; }
+R="$HOME/z2m-build/root"
+mkdir -p "$R/usr/bin" "$R/etc/init.d" "$R/etc/tg-ws-proxy" \
+         "$R/usr/share/licenses/tg-ws-proxy-rs"
+tar -xzf "$TGWS_DL" -C "$HOME/z2m-build"   # the asset is exactly one file: ./tg-ws-proxy
+install -m 0755 "$HOME/z2m-build/tg-ws-proxy" "$R/usr/bin/tg-ws-proxy"
+install -m 0755 "$REPO/tg-ws-proxy-rs/files/etc/init.d/tg-ws-proxy" \
+                "$R/etc/init.d/tg-ws-proxy"
+install -m 0600 "$REPO/tg-ws-proxy-rs/files/etc/tg-ws-proxy/config.conf" \
+                "$R/etc/tg-ws-proxy/config.conf"
+install -m 0644 "$REPO/tg-ws-proxy-rs/files/usr/share/licenses/tg-ws-proxy-rs/LICENSE" \
+                "$R/usr/share/licenses/tg-ws-proxy-rs/LICENSE"
+TPI=$(mkscript <<'EOF'
+#!/bin/sh
+# no enable, no start: first run is an explicit operator action via
+# zapret2-manager (proxy_config_apply / proxy_start), never an install side
+# effect.
+exit 0
+EOF
+)
+build_one "tg-ws-proxy-rs" \
+  "Telegram MTProto WebSocket bridge proxy (valnesfjord/tg-ws-proxy-rs, pinned+SHA-256-verified; /etc/tg-ws-proxy config+secret are operator state)" \
+  "" \
+  "$R" "$TPI" "" "" "" "$TGWS_PKG_VER"
+rm -rf "$R" "$TPI" "$HOME/z2m-build/tg-ws-proxy"
+
 echo "all done → $OUTDIR"
 ls -l "$OUTDIR"/*.apk
 
-# ---- INSTALL (apk v3 local-repo procedure) -----------------------------------
+# ---- INSTALL (apk v3 local-repo procedure, TRUSTED — no --allow-untrusted) ---
 # `apk add /tmp/file.apk` does NOT work for v3 packages: apk 3.0.5 adds a world
 # pin `name><identity` and the solver refuses the bare local file as
 # "uninstallable" (signing alone does not fix it). A v3 repository INDEX is
@@ -220,8 +268,14 @@ ls -l "$OUTDIR"/*.apk
 #   APK="$SDK/staging_dir/host/bin/apk"
 #   REPODIR=/tmp/z2mrepo/aarch64_cortex-a53
 #   mkdir -p "$REPODIR" && cp "$OUTDIR"/*.apk "$REPODIR"/
-#   "$APK" mkndx --allow-untrusted --sign-key "$SDK/private-key.pem" \
+#   "$APK" mkndx --sign-key "$SDK/private-key.pem" \
 #     -o "$REPODIR/packages.adb" "$REPODIR"/*.apk
-#   # on the device: install the signing public key once, then:
+#
+# TRUSTED INSTALL (the only permitted path — --allow-untrusted is FORBIDDEN for
+# these packages): copy the signing PUBLIC key onto the device once,
+#   scp "$SDK/public-key.pem" root@<router>:/etc/apk/keys/z2m-local.pem
+# then every install is an ordinary signed install:
 #   apk add --repository /tmp/z2mrepo/aarch64_cortex-a53/packages.adb \
-#     --allow-untrusted zapret2-manager luci-app-zapret2-manager
+#     zapret2-manager luci-app-zapret2-manager tg-ws-proxy-rs
+# tg-ws-proxy-rs is OPTIONAL: install it only behind the explicit acceptance
+# gate (docs/acceptance.md — "APPROVE TG PROXY INSTALL").

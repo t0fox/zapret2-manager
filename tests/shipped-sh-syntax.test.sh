@@ -4,7 +4,9 @@
 # `sh -n` is a real parse (the same shell family that runs the scripts on the
 # router). The gate first proves it can go red/green on the gate-samples
 # (a gate that cannot fail is considered absent — architecture §7), then
-# checks every .sh shipped under zapret2-manager/files/.
+# checks every .sh shipped under zapret2-manager/files/ plus the
+# extension-less ash scripts (init.d / hotplug.d) in BOTH packages
+# (zapret2-manager and tg-ws-proxy-rs).
 #
 # Run: sh tests/shipped-sh-syntax.test.sh
 fail=0
@@ -18,7 +20,9 @@ if ! sh -n tests/fixtures/gate-samples/good-syntax.sh 2>/dev/null; then
 fi
 [ "$fail" -eq 0 ] && echo "PASS  sh -n self-test (red on broken, green on good)"
 
-for f in $(find zapret2-manager/files -name '*.sh' 2>/dev/null); do
+for f in $(find zapret2-manager/files -name '*.sh' 2>/dev/null) \
+         $(find zapret2-manager/files/etc/init.d zapret2-manager/files/etc/hotplug.d -type f 2>/dev/null) \
+         $(find tg-ws-proxy-rs/files/etc -type f -path '*/init.d/*' 2>/dev/null); do
   if sh -n "$f" 2>/dev/null; then
     echo "PASS  $f"
   else
