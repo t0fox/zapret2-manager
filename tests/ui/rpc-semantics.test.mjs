@@ -1705,13 +1705,13 @@ const PROXY_CAPS = {
 		defaultPortNote: 'provider default — reported as knowledge, never as an active listener',
 		features: ['Telegram MTProto TCP listener (default port 1443)', 'WSS/TLS bridge']
 	},
-	constraints: ['read-only integration in this slice: capabilities + status only'],
+	constraints: ['functional integration: configuration, lifecycle, secret rotation and health via ubus'],
 	detection: { binaryCandidates: ['/usr/bin/tg-ws-proxy'], processName: 'tg-ws-proxy' },
 	rejectedAlternatives: [
 		{ id: 'd0mhate-go-unified', release: 'v1.4.1', license: 'MIT', reason: 'dual-mode Go binary — not selected' },
 		{ id: 'spatiumstas-go-openwrt', release: '0.9.2', license: 'unverified', reason: 'trust review pending — not selected' }
 	],
-	methods: { capabilities: true, status: true, install: false, start: false, stop: false, restart: false, config: false, secretRotate: false },
+	methods: { capabilities: true, status: true, install: false, start: true, stop: true, restart: true, config: true, secretRotate: true },
 	adr: 'docs/research/tg-ws-proxy-provider.md',
 	note: 'capabilities are provider knowledge, not installation state'
 };
@@ -1737,8 +1737,8 @@ const PROXY_STATUS_NOTINST = {
 	config: { path: '/etc/tg-ws-proxy/config.conf', exists: false, parsed: null },
 	secret: { path: '/etc/tg-ws-proxy/secret.conf', exists: false, securePermissions: null, expectedMode: '0600' },
 	log: { path: '/var/log/tg-ws-proxy.log', exists: false },
-	methods: { capabilities: true, status: true, install: false, start: false, stop: false, restart: false, config: false, secretRotate: false },
-	note: 'Read-only adapter is operational; TG WS Proxy is not installed.',
+	methods: { capabilities: true, status: true, install: false, start: true, stop: true, restart: true, config: true, secretRotate: true },
+	note: 'TG WS Proxy adapter is operational; the optional proxy package is not installed.',
 	warnings: []
 };
 
@@ -1763,16 +1763,55 @@ const PROXY_STATUS_RUNNING = {
 	config: { path: '/etc/tg-ws-proxy/config.conf', exists: true, size: 32, readable: true, parsed: { PORT: '1443', HOST: '0.0.0.0', SECRET: 'ddTOPSECRET7f8a9b0c1d2e3f405060708090a0b0c0d' } },
 	secret: { path: '/etc/tg-ws-proxy/secret.conf', exists: true, mode: 384, modeOctal: '0600', securePermissions: true, expectedMode: '0600' },
 	log: { path: '/var/log/tg-ws-proxy.log', exists: true, size: 2048, readable: true, mtime: 1753700000 },
-	note: 'read-only status — no install/start/stop/config/secret operations exist in this slice',
+	note: 'functional adapter — lifecycle/config/secret via ubus; installation happens only through the signed feed workflow',
 	warnings: [
 		{ code: 'WILDCARD_LISTENER', message: 'Process listens on all local interfaces (0.0.0.0:1443). WAN-side reachability was not actively tested and depends on firewall policy.' }
 	]
+};
+
+const PROXY_DRAFT = {
+	enabled: true, autostart: false, host: '192.168.1.1', port: 1443, linkIp: '',
+	faketlsDomain: '', dcIps: ['2:149.154.167.220'], cfDomains: [], cfWorkerDomains: [],
+	cfPriority: false, cfBalance: false, defaultDomains: false,
+	mtprotoProxies: [{ host: 'ups.example.com', port: 443, hasSecret: true }],
+	outboundProxy: '', noProxy: '', poolSize: 4, bufKb: 256, maxConnections: 0,
+	quiet: false, verbose: false
+};
+
+const PROXY_CONFIG_GET = {
+	ok: true, schema: 1,
+	package: { installed: true, version: '1.6.5-r1' },
+	binary: { present: true, executable: true },
+	configFile: { exists: true, mode: 384, modeOctal: '0600', size: 480, valid: true, error: null },
+	secret: { exists: true, modeOctal: '0600', securePermissions: true, formatValid: true },
+	draft: { ...PROXY_DRAFT },
+	applied: { ...PROXY_DRAFT, revision: 3, appliedAt: 1753700000 },
+	appliedRevision: 3,
+	appliedAt: 1753700000,
+	autostart: { applied: false, rcDEnabled: false, drift: false, message: '' },
+	running: true,
+	state: 'running'
+};
+
+const PROXY_CONFIG_GET_NOTINST = {
+	...PROXY_CONFIG_GET,
+	package: { installed: false, version: null },
+	binary: { present: false, executable: false },
+	configFile: { exists: false, mode: null, modeOctal: null, size: null, valid: null, error: null },
+	secret: { exists: false, modeOctal: null, securePermissions: null, formatValid: null },
+	draft: { ...PROXY_DRAFT, enabled: false, host: '', dcIps: [], mtprotoProxies: [] },
+	applied: null,
+	appliedRevision: 0,
+	appliedAt: null,
+	running: false,
+	state: null
 };
 
 function proxyWorld(extra = {}) {
 	return makeWorld({
 		proxy_capabilities: { type: 'ok', value: PROXY_CAPS },
 		proxy_status: { type: 'ok', value: PROXY_STATUS_NOTINST },
+		proxy_config_get: { type: 'ok', value: PROXY_CONFIG_GET_NOTINST },
 		...extra
 	});
 }
@@ -1792,10 +1831,17 @@ test('proxy: not-installed renders adapter-operational + recommended provider, n
 	assert.ok(text.includes('not an active listener'), 'default port is knowledge, not active');
 	assert.ok(!/0\.0\.0\.0:1443/.test(text), 'no fake active listener on the default port');
 	assert.ok(!text.includes('wanExposed'), 'no WAN claim');
+	// functional slice: control buttons EXIST but are DISABLED while nothing is
+	// installed — never fake buttons that would always fail
+	const buttons = w.created.filter((n) => n.tag === 'button');
+	assert.ok(buttons.length > 0, 'functional page renders control buttons');
+	assert.ok(buttons.every((b) => b.disabled === true || collectText(b).join('').includes('Preview') || collectText(b).join('').includes('Validate') || collectText(b).join('').includes('health') || collectText(b).join('').includes('logs') || collectText(b).join('').includes('link')),
+		'mutation buttons are disabled when nothing is installed (only read probes stay active)');
+	assert.ok(!w.calls.some((c) => c.method === 'proxy_start'), 'no mutation call fires on render');
 });
 
 test('proxy: running state renders listeners, wildcard honesty, secret metadata, warnings — never the secret value', async () => {
-	const w = proxyWorld({ proxy_status: { type: 'ok', value: PROXY_STATUS_RUNNING } });
+	const w = proxyWorld({ proxy_status: { type: 'ok', value: PROXY_STATUS_RUNNING }, proxy_config_get: { type: 'ok', value: PROXY_CONFIG_GET } });
 	const view = loadView(readViewSource('proxy'), 'proxy', w);
 	const envelope = await view.load();
 	const root = view.render(envelope);
@@ -1807,12 +1853,14 @@ test('proxy: running state renders listeners, wildcard honesty, secret metadata,
 	assert.ok(text.includes('WILDCARD_LISTENER'), 'structured warning renders');
 	assert.ok(text.includes('1.6.5-r0'), 'package version renders');
 	assert.ok(text.includes('/usr/bin/tg-ws-proxy'), 'binary path renders');
-	assert.ok(text.includes('permissions 0600'), 'secret permission metadata renders');
-	assert.ok(text.includes('never read, displayed, or transmitted'), 'secret non-disclosure note renders');
+	assert.ok(text.includes('permissions ') && text.includes('0600'), 'secret permission metadata renders');
+	assert.ok(text.includes('never displayed, logged, or backed up'), 'secret non-disclosure note renders');
 	assert.ok(text.indexOf('TOPSECRET') === -1, 'a secret-shaped config key must NOT render (second fence)');
 	assert.ok(!/SECRET = dd/.test(text), 'no SECRET= line on the page');
-	const buttons = w.created.filter((n) => n.tag === 'button');
-	assert.equal(buttons.length, 0, 'no mutation buttons exist in the read-only slice');
+	// functional slice: with the proxy installed the control buttons are ENABLED
+	const startBtn = w.created.find((n) => n.tag === 'button' && collectText(n).join('') === 'Start');
+	assert.ok(startBtn, 'Start button renders');
+	assert.equal(startBtn.disabled, false, 'Start is enabled when installed');
 });
 
 test('proxy: backend error renders an honest unavailable panel (no crash)', async () => {
@@ -1823,7 +1871,207 @@ test('proxy: backend error renders an honest unavailable panel (no crash)', asyn
 	const root = view.render(envelope);
 	const text = collectText(root).join(' | ');
 	assert.ok(text.includes('Status unavailable'), 'error panel renders');
-	assert.ok(text.includes('Canonical provider'), 'capabilities still render');
+	assert.ok(text.includes('Provider / package'), 'capabilities still render');
+});
+
+// ---- 6b. proxy: functional flows (config apply, lifecycle, secret, health, logs, link) ----
+
+function proxyInstalledWorld(extra = {}) {
+	return proxyWorld({ proxy_status: { type: 'ok', value: PROXY_STATUS_RUNNING }, proxy_config_get: { type: 'ok', value: PROXY_CONFIG_GET }, ...extra });
+}
+
+function findButton(w, label) {
+	return w.created.find((n) => n.tag === 'button' && collectText(n).join('').includes(label));
+}
+
+test('proxy: config form prefills from the sanitized draft — the upstream proxy secret is never in the DOM', async () => {
+	const w = proxyInstalledWorld();
+	const view = loadView(readViewSource('proxy'), 'proxy', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	const hostField = w.created.find((n) => n.attrs && n.attrs.id === 'px-host');
+	assert.ok(hostField, 'host field renders');
+	assert.equal(hostField.value, '192.168.1.1', 'host prefilled from draft');
+	const proxiesField = w.created.find((n) => n.attrs && n.attrs.id === 'px-mtprotoProxies');
+	assert.ok(proxiesField, 'mtproto proxies field renders');
+	assert.equal(proxiesField.value, 'ups.example.com:443', 'upstream proxy shows host:port META only');
+	assert.ok(collectText(root).join(' ').indexOf('hasSecret') === -1, 'no meta flags leak into the rendered text');
+});
+
+test('proxy: Apply sends config + optimistic revision as ONE JSON-string edit; busy path works', async () => {
+	const applyRes = { ok: true, revision: 4, secretAction: 'keep', serviceAction: 'restart', autostartAction: 'none', reread: { pids: [4321], listeners: [{ address: '192.168.1.1', port: 1443 }] }, warnings: [] };
+	const w = proxyInstalledWorld({ proxy_config_apply: { type: 'ok', value: applyRes } });
+	const view = loadView(readViewSource('proxy'), 'proxy', w);
+	const envelope = await view.load();
+	view.render(envelope);
+	const applyBtn = findButton(w, 'Apply');
+	assert.ok(applyBtn, 'Apply button renders');
+	applyBtn.listeners.click();
+	assert.equal(applyBtn.disabled, false, 'apply is not disabled while the call is in flight');
+	await flush();
+	const call = w.calls.find((c) => c.method === 'proxy_config_apply');
+	assert.ok(call, 'proxy_config_apply was called');
+	assert.equal(typeof call.params.edit, 'string', 'edit is a JSON STRING (the wire contract)');
+	const payload = JSON.parse(call.params.edit);
+	assert.equal(payload.expectedAppliedRevision, 3, 'optimistic revision from config_get is sent');
+	assert.equal(payload.config.host, '192.168.1.1');
+	assert.equal(payload.config.enabled, true);
+	assert.deepEqual(payload.config.dcIps, ['2:149.154.167.220']);
+	assert.deepEqual(payload.config.mtprotoProxies, [{ host: 'ups.example.com', port: 443, keepSecret: true }],
+		'an unchanged upstream proxy line sends keepSecret meta — the secret never round-trips');
+	assert.ok(!call.params.edit.includes('ddTOPSECRET') && !JSON.stringify(payload).includes('secret":"'),
+		'no secret value travels in the apply payload');
+	// a successful apply refreshes the page data
+	assert.ok(w.calls.some((c) => c.method === 'proxy_config_get'), 'apply success triggers a refresh (config_get re-called)');
+});
+
+test('proxy: Preview sends the config and renders the plan (service/secret/listener/diff/rollback)', async () => {
+	const previewRes = {
+		ok: true, schema: 1, writes: false,
+		diff: [{ field: 'port', from: 1443, to: 1444 }],
+		changed: true, secretAction: 'keep', serviceAction: 'restart', autostartAction: 'none',
+		listenerImpact: { current: { host: '192.168.1.1', port: 1443 }, next: { host: '192.168.1.1', port: 1444 }, change: 'port-change' },
+		precondition: { appliedRevision: 3 },
+		rollbackPlan: ['snapshot', 'restore on failure'],
+		note: 'preview only'
+	};
+	const w = proxyInstalledWorld({ proxy_config_preview: { type: 'ok', value: previewRes } });
+	const view = loadView(readViewSource('proxy'), 'proxy', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	const portField = w.created.find((n) => n.attrs && n.attrs.id === 'px-port');
+	portField.value = '1444';
+	findButton(w, 'Preview').listeners.click();
+	await flush();
+	const call = w.calls.find((c) => c.method === 'proxy_config_preview');
+	assert.ok(call, 'proxy_config_preview was called');
+	const payload = JSON.parse(call.params.edit);
+	assert.equal(payload.config.port, '1444', 'the edited port is sent for preview');
+	assert.ok(payload.expectedAppliedRevision === undefined, 'preview sends NO revision (read-only by construction)');
+	const text = collectText(root).join(' | ');
+	assert.ok(text.includes('no writes'), 'preview honesty renders');
+	assert.ok(text.includes('port-change'), 'listener impact renders');
+	assert.ok(text.includes('rollback'), 'rollback plan renders');
+});
+
+test('proxy: Start/Stop/Restart call the lifecycle RPC and render the reread listener', async () => {
+	const startRes = { ok: true, action: 'start', reread: { pids: [4321], listeners: [{ address: '192.168.1.1', port: 1443 }] } };
+	const w = proxyInstalledWorld({ proxy_start: { type: 'ok', value: startRes } });
+	const view = loadView(readViewSource('proxy'), 'proxy', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	const btn = findButton(w, 'Start');
+	btn.listeners.click();
+	assert.equal(btn.disabled, true, 'button disables while the call is in flight (busy path)');
+	await flush();
+	assert.equal(btn.disabled, false, 'button re-enables after the call');
+	assert.ok(w.calls.some((c) => c.method === 'proxy_start'), 'proxy_start was called');
+	assert.ok(collectText(root).join(' ').includes('listener 192.168.1.1:1443'), 'reread listener renders in the result');
+	// failure honesty: process-without-listener surfaces as a failure, not a fake ok
+	const failRes = { ok: false, error: { code: 'ETARGET', message: 'started but listener verification failed' }, failures: [{ code: 'LISTENER_MISSING', message: 'process exists but the expected listener 192.168.1.1:1443 does not' }], reread: { pids: [4321], listeners: [] } };
+	const w2 = proxyInstalledWorld({ proxy_start: { type: 'ok', value: failRes } });
+	const view2 = loadView(readViewSource('proxy'), 'proxy', w2);
+	view2.render(await view2.load());
+	findButton(w2, 'Start').listeners.click();
+	await flush();
+	assert.ok(collectText(w2.created.find((n) => n.attrs && n.attrs.id === 'px-control-result')).join(' ').includes('LISTENER_MISSING') ||
+		collectText(w2.created.find((n) => n.attrs && n.attrs.id === 'px-control-result')).join(' ').includes('does not'),
+		'process-without-listener renders as an honest failure');
+});
+
+test('proxy: autostart toggle calls proxy_autostart_set with the inverted state', async () => {
+	const w = proxyInstalledWorld({ proxy_autostart_set: { type: 'ok', value: { ok: true, enabled: true, rcDEnabled: true, drift: false } } });
+	const view = loadView(readViewSource('proxy'), 'proxy', w);
+	const envelope = await view.load();
+	view.render(envelope);
+	const btn = findButton(w, 'Enable autostart');
+	assert.ok(btn, 'autostart toggle renders (currently disabled → offers enable)');
+	btn.listeners.click();
+	await flush();
+	const call = w.calls.find((c) => c.method === 'proxy_autostart_set');
+	assert.ok(call, 'proxy_autostart_set was called');
+	assert.deepEqual(JSON.parse(call.params.edit), { enabled: true }, 'toggle sends the inverted current state');
+});
+
+test('proxy: secret rotate is a two-step guarded action; the secret value is never rendered', async () => {
+	const w = proxyInstalledWorld({ proxy_secret_rotate: { type: 'ok', value: { ok: true, rotated: true, restarted: true, reread: { pids: [4321], listeners: [{ address: '192.168.1.1', port: 1443 }] } } } });
+	const view = loadView(readViewSource('proxy'), 'proxy', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	const btn = findButton(w, 'Rotate secret');
+	btn.listeners.click();
+	assert.ok(!w.calls.some((c) => c.method === 'proxy_secret_rotate'), 'first click only arms — no RPC yet');
+	assert.ok(collectText(btn).join('').includes('Confirm'), 'armed state asks for explicit confirmation');
+	btn.listeners.click();
+	await flush();
+	assert.ok(w.calls.some((c) => c.method === 'proxy_secret_rotate'), 'second click calls the rotate RPC');
+	assert.ok(collectText(root).join(' ').includes('never shown'), 'the rotated secret is reported as never-shown');
+	assert.ok(collectText(root).join(' ').indexOf('0123456789abcdef') === -1, 'no secret material anywhere');
+});
+
+test('proxy: health test renders infra checks + both route meanings', async () => {
+	const healthRes = {
+		ok: true,
+		checks: [
+			{ name: 'package', ok: true, detail: 'installed 1.6.5-r1' },
+			{ name: 'listener', ok: true, detail: '192.168.1.1:1443' }
+		],
+		route: {
+			local: { attempted: true, ok: true, detail: 'connected', meaning: 'TCP connect to the configured listener — proves the LOCAL listener answers, nothing more' },
+			upstream: { attempted: true, ok: false, target: 'kws2.web.telegram.org:443', detail: 'tcp refused/timeout (rc 1)', meaning: 'TCP 443 reachability of a Telegram edge — NOT an MTProto handshake; Telegram end-to-end is never claimed from these probes' }
+		},
+		note: 'health'
+	};
+	const w = proxyInstalledWorld({ proxy_health: { type: 'ok', value: healthRes } });
+	const view = loadView(readViewSource('proxy'), 'proxy', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	findButton(w, 'Run health test').listeners.click();
+	await flush();
+	assert.ok(w.calls.some((c) => c.method === 'proxy_health'), 'proxy_health was called');
+	const text = collectText(root).join(' | ');
+	assert.ok(text.includes('installed 1.6.5-r1'), 'check detail renders');
+	assert.ok(text.includes('NOT an MTProto handshake'), 'upstream honesty renders');
+	assert.ok(text.includes('unreachable'), 'upstream failure renders honestly');
+});
+
+test('proxy: logs tail renders redacted lines + the redaction count', async () => {
+	const logsRes = { ok: true, log: { path: '/var/log/tg-ws-proxy.log', size: 2048 }, lines: ['pool refill for dc 2 done', 'link: tg://proxy?«redacted»'], redacted: 1, bounded: { maxLines: 200, maxBytes: 32768 } };
+	const w = proxyInstalledWorld({ proxy_logs_tail: { type: 'ok', value: logsRes } });
+	const view = loadView(readViewSource('proxy'), 'proxy', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	findButton(w, 'Load redacted logs').listeners.click();
+	await flush();
+	const call = w.calls.find((c) => c.method === 'proxy_logs_tail');
+	assert.ok(call, 'proxy_logs_tail was called');
+	assert.deepEqual(JSON.parse(call.params.edit), { n: 50 }, 'bounded tail request');
+	const text = collectText(root).join(' | ');
+	assert.ok(text.includes('pool refill for dc 2 done'), 'log lines render');
+	assert.ok(text.includes('1 redacted') || text.includes('redacted'), 'redaction is surfaced');
+	// scope: the DIAGNOSTICS panel only — the page also renders the public
+	// asset SHA-256 pin (a hash, not a secret), which is hex by design
+	const diagText = collectText(w.created.find((n) => n.attrs && n.attrs.id === 'px-diag-result')).join(' | ');
+	assert.ok(!/dd[0-9a-f]{32}/.test(diagText), 'no secret-shaped material in the rendered logs');
+});
+
+test('proxy: link reveal is two-step guarded; the link appears only after REVEAL', async () => {
+	const linkRes = { ok: true, available: true, scheme: 'tg://proxy', server: '192.168.1.1', port: 1443, transport: 'dd-padded', link: 'tg://proxy?server=192.168.1.1&port=1443&secret=dd0123456789abcdef0123456789abcdef', revealed: true };
+	const w = proxyInstalledWorld({ proxy_link_info: { type: 'ok', value: linkRes } });
+	const view = loadView(readViewSource('proxy'), 'proxy', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	const btn = findButton(w, 'Show connection link');
+	btn.listeners.click();
+	assert.ok(!w.calls.some((c) => c.method === 'proxy_link_info'), 'first click only arms');
+	assert.ok(collectText(root).join(' ').indexOf('tg://proxy?server=') === -1, 'no link before the guarded reveal');
+	btn.listeners.click();
+	await flush();
+	const call = w.calls.find((c) => c.method === 'proxy_link_info');
+	assert.ok(call, 'proxy_link_info was called');
+	assert.deepEqual(JSON.parse(call.params.edit), { reveal: true, confirm: 'REVEAL' }, 'guarded reveal payload');
+	assert.ok(collectText(root).join(' ').includes('tg://proxy?server=192.168.1.1'), 'the link renders after the guarded reveal');
+	assert.ok(collectText(root).join(' ').includes('dd-padded'), 'transport renders');
 });
 
 // ---- 7. overview: passthrough wire + reject gate (no longer excluded) --------
