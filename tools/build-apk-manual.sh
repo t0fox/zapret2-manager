@@ -118,6 +118,10 @@ done
 # the declarative list-path model (router-derived manifest consumed by lists.uc)
 install -m 0644 "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/lists-model.json" \
                 "$R/usr/libexec/zapret2-manager/lists-model.json"
+# the Service Catalog dataset (package-owned; the backend fails closed without it)
+mkdir -p "$R/usr/libexec/zapret2-manager/catalog"
+install -m 0644 "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/catalog/services.json" \
+                "$R/usr/libexec/zapret2-manager/catalog/services.json"
 # rpcd ucode plugin: install WITHOUT extension, matching the on-device `luci`
 # plugin (/usr/share/rpcd/ucode/luci, no .uc). rpcd ucode.so scans the dir and
 # loads each file; keeping .uc would diverge from convention.
