@@ -1,0 +1,307 @@
+{
+	"schema": 1,
+	"catalogVersion": "1.0.0",
+	"digest": "9512ad2f03a4248a7265fb1baa29d89775a98b91bec5c6bdb4ec37770a813a64",
+	"services": [
+		{
+			"id": "youtube",
+			"name": "YouTube",
+			"category": "video",
+			"description": "YouTube video platform (web + embeds).",
+			"reviewed": "2026-07-28",
+			"provenance": [
+				{
+					"source": "StressOzz Zapret-Manager (idea)",
+					"url": "https://github.com/StressOzz/Zapret-Manager/blob/main/Strategies_For_Youtube.md"
+				},
+				{
+					"source": "youtubediscord/zapret (idea)",
+					"url": "https://github.com/youtubediscord/zapret"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "Effectiveness depends on the ACTIVE strategy (zapret2 engine). Listing a domain does not bypass server-side/GEO/account restrictions.",
+			"stability": "reviewed",
+			"domains": [
+				"youtube.com",
+				"googlevideo.com",
+				"ytimg.com",
+				"youtube-nocookie.com"
+			],
+			"strategyRefs": [
+				"applied profiles with tls/quic filters"
+			],
+			"minUpstream": "0.9.20260307",
+			"minManager": "0.1.0-r19"
+		},
+		{
+			"id": "discord",
+			"name": "Discord",
+			"category": "messaging",
+			"description": "Discord app/web gateway, media and CDN domains.",
+			"reviewed": "2026-07-28",
+			"provenance": [
+				{
+					"source": "StressOzz Zapret-Manager (idea)",
+					"url": "https://github.com/StressOzz/Zapret-Manager"
+				},
+				{
+					"source": "youtubediscord/zapret (idea)",
+					"url": "https://github.com/youtubediscord/zapret"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "Voice/UDP calls additionally need working UDP/game strategies in the engine; gateway WSS quality depends on the active strategy.",
+			"stability": "reviewed",
+			"domains": [
+				"discord.com",
+				"discord.gg",
+				"discordapp.com",
+				"discordapp.net",
+				"discord.media",
+				"discordcdn.com"
+			],
+			"strategyRefs": [
+				"udp 443 quic filters"
+			],
+			"minUpstream": "0.9.20260307",
+			"minManager": "0.1.0-r19"
+		},
+		{
+			"id": "telegram-web",
+			"name": "Telegram Web",
+			"category": "messaging",
+			"description": "Telegram Web (web.telegram.org) and link frontends. NOT the desktop MTProto protocol.",
+			"reviewed": "2026-07-28",
+			"provenance": [
+				{
+					"source": "StressOzz Zapret-Manager (idea)",
+					"url": "https://github.com/StressOzz/Zapret-Manager"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "Telegram Desktop/mobile use MTProto, not these web domains — MTProto needs a working strategy or a proxy route (proxyRoute is NOT implemented in v1).",
+			"stability": "reviewed",
+			"domains": [
+				"web.telegram.org",
+				"telegram.org",
+				"t.me"
+			],
+			"proxyRequirement": "MTProto traffic (desktop/mobile apps) is out of scope for domain listing",
+			"minUpstream": "0.9.20260307",
+			"minManager": "0.1.0-r19"
+		},
+		{
+			"id": "twitch",
+			"name": "Twitch",
+			"category": "video",
+			"description": "Twitch streaming (site, API, video CDN).",
+			"reviewed": "2026-07-28",
+			"provenance": [
+				{
+					"source": "StressOzz Zapret-Manager (idea)",
+					"url": "https://github.com/StressOzz/Zapret-Manager"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "Live-edge CDN hostnames rotate; listing the base CDN domains covers typical playback but per-edge names may vary.",
+			"stability": "reviewed",
+			"domains": [
+				"twitch.tv",
+				"ttvnw.net",
+				"jtvnw.net"
+			],
+			"minUpstream": "0.9.20260307",
+			"minManager": "0.1.0-r19"
+		},
+		{
+			"id": "spotify",
+			"name": "Spotify",
+			"category": "music",
+			"description": "Spotify web/player and CDN.",
+			"reviewed": "2026-07-28",
+			"provenance": [
+				{
+					"source": "StressOzz Zapret-Manager (idea)",
+					"url": "https://github.com/StressOzz/Zapret-Manager"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "Audio CDN endpoints vary by region and client; marked experimental pending target evidence.",
+			"stability": "experimental",
+			"domains": [
+				"spotify.com",
+				"scdn.co",
+				"spotifycdn.com"
+			],
+			"minUpstream": "0.9.20260307",
+			"minManager": "0.1.0-r19"
+		},
+		{
+			"id": "supercell",
+			"name": "Supercell games",
+			"category": "games",
+			"description": "Supercell game services (Clash of Clans, Brawl Stars, etc.).",
+			"reviewed": "2026-07-28",
+			"provenance": [
+				{
+					"source": "StressOzz Zapret-Manager (idea)",
+					"url": "https://github.com/StressOzz/Zapret-Manager"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "Matchmaking may use vendor-specific CDNs/UDP; domain listing covers service endpoints only. Experimental pending target evidence.",
+			"stability": "experimental",
+			"domains": [
+				"supercell.com",
+				"supercell.net",
+				"game.supercell.net"
+			],
+			"minUpstream": "0.9.20260307",
+			"minManager": "0.1.0-r19"
+		},
+		{
+			"id": "github",
+			"name": "GitHub",
+			"category": "developer",
+			"description": "GitHub main site and assets.",
+			"reviewed": "2026-07-28",
+			"provenance": [
+				{
+					"source": "StressOzz Zapret-Manager (idea)",
+					"url": "https://github.com/StressOzz/Zapret-Manager"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "API/rate limits and auth restrictions are not DPI matters.",
+			"stability": "reviewed",
+			"domains": [
+				"github.com",
+				"github.githubassets.com"
+			],
+			"minUpstream": "0.9.20260307",
+			"minManager": "0.1.0-r19"
+		},
+		{
+			"id": "githubusercontent",
+			"name": "GitHub raw/user content",
+			"category": "developer",
+			"description": "raw.githubusercontent.com, gist, release/codeload downloads.",
+			"reviewed": "2026-07-28",
+			"provenance": [
+				{
+					"source": "StressOzz Zapret-Manager (idea)",
+					"url": "https://github.com/StressOzz/Zapret-Manager"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "Release asset hosts can move to signed CDN URLs; base domains listed.",
+			"stability": "reviewed",
+			"domains": [
+				"raw.githubusercontent.com",
+				"gist.githubusercontent.com",
+				"objects.githubusercontent.com",
+				"codeload.github.com"
+			],
+			"minUpstream": "0.9.20260307",
+			"minManager": "0.1.0-r19"
+		},
+		{
+			"id": "chatgpt-openai",
+			"name": "ChatGPT / OpenAI",
+			"category": "AI",
+			"description": "ChatGPT and OpenAI platform (web + API frontends).",
+			"reviewed": "2026-07-28",
+			"provenance": [
+				{
+					"source": "StressOzz Zapret-Manager (idea)",
+					"url": "https://github.com/StressOzz/Zapret-Manager"
+				},
+				{
+					"source": "youtubediscord/zapret (idea)",
+					"url": "https://github.com/youtubediscord/zapret"
+				}
+			],
+			"mechanisms": [
+				"domainInclude",
+				"unsupportedGeo"
+			],
+			"limitations": "Domain listing does NOT bypass account/GEO restrictions. OpenAI applies server-side region blocks (unsupportedGeo) — those need a proxy/VPN route, which v1 does NOT implement.",
+			"stability": "reviewed",
+			"domains": [
+				"openai.com",
+				"chatgpt.com",
+				"oaistatic.com",
+				"oaiusercontent.com"
+			],
+			"proxyRequirement": "GEO-restricted regions require a proxy route (not implemented)",
+			"minUpstream": "0.9.20260307",
+			"minManager": "0.1.0-r19"
+		},
+		{
+			"id": "google-gemini",
+			"name": "Google Gemini",
+			"category": "AI",
+			"description": "Google Gemini web app.",
+			"reviewed": "2026-07-28",
+			"provenance": [
+				{
+					"source": "youtubediscord/zapret (idea)",
+					"url": "https://github.com/youtubediscord/zapret"
+				}
+			],
+			"mechanisms": [
+				"domainInclude",
+				"unsupportedGeo"
+			],
+			"limitations": "Domain listing does NOT bypass account/GEO restrictions. Gemini is region-limited server-side (unsupportedGeo) — needs a proxy/VPN route, not implemented in v1.",
+			"stability": "reviewed",
+			"domains": [
+				"gemini.google.com"
+			],
+			"proxyRequirement": "GEO-restricted regions require a proxy route (not implemented)",
+			"minUpstream": "0.9.20260307",
+			"minManager": "0.1.0-r19"
+		},
+		{
+			"id": "notion",
+			"name": "Notion",
+			"category": "other",
+			"description": "Notion workspace (app + public pages).",
+			"reviewed": "2026-07-28",
+			"provenance": [
+				{
+					"source": "youtubediscord/zapret (idea)",
+					"url": "https://github.com/youtubediscord/zapret"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "Workspace availability additionally depends on account access; listing covers app/CDN domains only.",
+			"stability": "reviewed",
+			"domains": [
+				"notion.so",
+				"notion.site"
+			],
+			"minUpstream": "0.9.20260307",
+			"minManager": "0.1.0-r19"
+		}
+	]
+}

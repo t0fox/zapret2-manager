@@ -60,11 +60,13 @@ export function parseState(text) {
 	};
 	// service.uc co-owns two free-form keys in the same file (passthrough /
 	// active_profile — read by status.uc for the serviceState). The DNS slice
-	// adds a third co-owned key (dns — draft DNS entries). They are NOT
+	// adds a third co-owned key (dns — draft DNS entries). The catalog slice
+	// adds a fourth (catalog — the ownership ledger). They are NOT
 	// draft-schema fields, but a draft save must never drop them: preserve.
 	if (obj.passthrough && typeof obj.passthrough === 'object') state.passthrough = obj.passthrough;
 	if (obj.active_profile && typeof obj.active_profile === 'object') state.active_profile = obj.active_profile;
 	if (obj.dns && typeof obj.dns === 'object') state.dns = obj.dns;
+	if (obj.catalog && typeof obj.catalog === 'object') state.catalog = obj.catalog;
 	return { ok: true, state };
 }
 
