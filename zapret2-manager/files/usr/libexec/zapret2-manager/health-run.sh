@@ -60,8 +60,11 @@ for svc in $SERVICES; do
 		if [ -n "$a" ]; then extdns=1; extev="$a"; else extdns=0; fi
 	fi
 
-	# TCP connect 443
-	curl -sS -o /dev/null --connect-timeout 4 "http://$d1:443/" >/dev/null 2>&1
+	# TCP connect 443 (--max-time is a TOTAL cap: --connect-timeout covers
+	# only the connect phase, and a plaintext HTTP probe to a TLS port then
+	# waits forever on the response — the runner hung and crash recovery
+	# fired, found during the r23 acceptance run)
+	curl -sS -o /dev/null --max-time 4 "http://$d1:443/" >/dev/null 2>&1
 	tcp=$?
 
 	# TLS handshake

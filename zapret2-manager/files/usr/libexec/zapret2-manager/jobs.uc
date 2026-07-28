@@ -15,7 +15,7 @@
 // artifacts. No fabricated progress percentage — elapsed seconds only.
 
 import { readfile, writefile, stat, unlink, popen, mkdir, lsdir } from 'fs';
-import { cat_load, cat_ledger } from './catalog.uc';
+import { cat_load, cat_ledger, cat_domain_include_path } from './catalog.uc';
 
 const JDIR = '/tmp/zapret2-manager/jobs';
 const RUNNER = '/usr/libexec/zapret2-manager/blockcheck-run.sh';
@@ -568,8 +568,17 @@ function read_matrix_results(id) {
 		if (substr(l, 0, 4) != 'SVC|') continue;
 		let r = parse_result_line(l);
 		if (r == null) { push(rows, { malformed: true, preview: substr(l, 0, 120) }); continue; }
-		let cls = classify_service(r);
-		rows.push({
+		let cls;
+		try { cls = classify_service(r); }
+		catch (e) {
+			// a classify crash must never kill the matrix — report it as an
+			// honest unavailable row carrying the error text (debugging the
+			// r24 in-module classify crash; the exact same call is clean in
+			// isolation, so capture what the interpreter actually says)
+			push(rows, { id: r.id, domains: r.domains, probes: { catalog: r.catalog, dns: r.dns, extDns: r.extDns, tcp: r.tcp, tls: r.tls, http: r.http }, class: 'unavailable-unknown', reason: 'classify error: ' + e });
+			continue;
+		}
+		let row = {
 			id: r.id,
 			domains: r.domains,
 			probes: {
@@ -578,7 +587,8 @@ function read_matrix_results(id) {
 			},
 			class: cls.class,
 			reason: cls.reason
-		});
+		};
+		push(rows, row);
 	}
 	return rows;
 }
@@ -673,9 +683,9 @@ export const health_matrix_start = function(input) {
 		timeoutSec: timeoutSec,
 		logPath: JDIR + '/' + id + '.log',
 		rc: null, error: null, cancelled: false,
-		engineRunning: null,
+		engineRunning: engine_running(),
 		recommendations: [], summaryParsed: null,
-		provenance: { source: 'service health matrix v1', catalogVersion: lc.doc.catalogVersion, digest: lc.doc.digest }
+		provenance: { source: 'service health matrix v1', catalogVersion: lc.doc.catalogVersion, digest: lc.doc.digest, engineRunning: engine_running() }
 	};
 	ensure_jdir();
 	writefile(JDIR + '/' + id + '.env', envtext);
