@@ -168,6 +168,21 @@ test('verifyStatus: missing nft rules fail rulesPresent', () => {
 	assert.equal(v.checks.rulesPresent, false);
 });
 
+test('verifyStatus: a racing status-collector queue read must NOT spurious-fail (r9 acceptance defect)', () => {
+	// the exact r9 drill situation: the direct /proc parse says registered
+	// with owner match, but the freshly-recollected status.json raced the
+	// daemon's async bind and says not-registered. The direct read is
+	// authoritative for queue registration (it selects the row by queue
+	// number); the check must pass.
+	const raced = statusFixture({
+		runtime: { present: true, count: 1, rulesPresent: true, instances: [{ pid: 4575 }] },
+		health: { queue: { number: 300, registered: false, queueTotal: 0 } }
+	});
+	const v = verifyStatus(raced, { registered: true, peer_portid: 4575 });
+	assert.equal(v.ok, true, 'direct kernel read is authoritative for queue registration');
+	assert.equal(v.checks.queueRegistered, true);
+});
+
 test('verify fixture grounding: ps/proc fixtures really carry pid 6128 owning queue 300', () => {
 	// the fixture pair is the evidence for the ownerMatch rule: queue 300's
 	// peer_portid (6128) equals the nfqws2 PID in ps

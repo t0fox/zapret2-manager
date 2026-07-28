@@ -130,20 +130,27 @@ export function applyDecision(nativeValidation) {
 //   processPresent  — runtime.count >= 1
 //   singleInstance  — exactly ONE nfqws2
 //   rulesPresent    — nft table present
-//   queueRegistered — queue 300 registered in the kernel
+//   queueRegistered — queue 300 registered in the kernel. Derived from
+//                     queueInfo (the DIRECT /proc parse, which selects the
+//                     row by queue number — registration of queue 300 by
+//                     construction), NOT from the status collector: the
+//                     collector races the daemon's asynchronous queue bind
+//                     right after a restart and false-failed exactly this
+//                     way during supervised acceptance (r9 drill: direct
+//                     read registered+owner-match, collector read
+//                     not-yet-registered → spurious rollback).
 //   ownerMatch      — queue peer_portid == daemon PID (fixture-grounded:
 //                     proc-nfnetlink_queue.out field 2 == ps pid)
 export function verifyStatus(statusJson, queueInfo) {
 	const rt = (statusJson && statusJson.runtime) || {};
 	const health = (statusJson && statusJson.health) || {};
-	const queue = health.queue || {};
 	const count = Number.isInteger(rt.count) ? rt.count : (Array.isArray(rt.instances) ? rt.instances.length : 0);
 	const pid = Array.isArray(rt.instances) && rt.instances.length === 1 ? rt.instances[0].pid : null;
 	const checks = {
 		processPresent: count >= 1,
 		singleInstance: count === 1,
 		rulesPresent: rt.rulesPresent === true,
-		queueRegistered: queue.registered === true && queue.number === 300 && !!(queueInfo && queueInfo.registered),
+		queueRegistered: !!(queueInfo && queueInfo.registered),
 		ownerMatch: pid != null && queueInfo && queueInfo.peer_portid != null && queueInfo.peer_portid === pid
 	};
 	const ok = Object.values(checks).every(Boolean);

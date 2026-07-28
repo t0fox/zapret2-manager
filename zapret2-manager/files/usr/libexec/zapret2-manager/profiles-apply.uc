@@ -259,8 +259,6 @@ function snapshot_apply() {
 
 function verify_status(sj, q) {
 	let rt = (type(sj) == 'object' && sj != null && type(sj.runtime) == 'object') ? sj.runtime : {};
-	let health = (type(sj) == 'object' && sj != null && type(sj.health) == 'object') ? sj.health : {};
-	let queue = (type(health.queue) == 'object' && health.queue != null) ? health.queue : {};
 	let count = (type(rt.count) == 'int') ? rt.count
 		: ((type(rt.instances) == 'array') ? length(rt.instances) : 0);
 	let pid = null;
@@ -269,7 +267,12 @@ function verify_status(sj, q) {
 		processPresent: count >= 1,
 		singleInstance: count == 1,
 		rulesPresent: rt.rulesPresent == true,
-		queueRegistered: queue.registered == true && queue.number == 300 && q.registered == true,
+		// the DIRECT /proc parse is authoritative for queue registration: it
+		// selects the row by queue number, so q.registered IS "queue 300
+		// registered". The status collector races the daemon's asynchronous
+		// queue bind right after a restart and false-failed exactly this way
+		// during supervised acceptance (spurious rollback on r9).
+		queueRegistered: q.registered == true,
 		ownerMatch: pid != null && q.peer_portid != null && q.peer_portid == pid
 	};
 	let ok = checks.processPresent && checks.singleInstance && checks.rulesPresent && checks.queueRegistered && checks.ownerMatch;
@@ -368,6 +371,12 @@ export const profiles_apply_run = function() {
 
 	// restart through upstream's own init (never a full firewall restart)
 	let r = run(UPSTREAM_INIT + ' restart');
+
+	// bounded settle: init returns before the daemon has finished binding
+	// the NFQUEUE; the direct queue parse is authoritative for registration,
+	// but the collector-based process/rules reads also benefit from a short
+	// settle window (found during supervised acceptance).
+	run('sleep 2');
 
 	// invalidate + re-collect status, then verify FIVE checks
 	let sj = recollect_status();
