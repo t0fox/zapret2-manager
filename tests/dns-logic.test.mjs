@@ -10,7 +10,7 @@ import {
 	validate_domain, validate_ipv4, validate_entries,
 	render_hosts, parse_hosts, parse_dnsmasq_conf, parse_resolv_auto,
 	component_scan, diff_entries,
-	dnsChecks, dnsVerifyShouldRetry, DNS_VERIFY_MAX_ATTEMPTS,
+	dnsChecks, dnsVerifyShouldRetry, DNS_VERIFY_MAX_ATTEMPTS, dnsServiceAction,
 	OVERRIDES_PATH, DHCP_CONF
 } from './lib/dns-logic.mjs';
 
@@ -160,4 +160,11 @@ test('dnsChecks/dnsVerifyShouldRetry: a bounced first read retries, a green wind
 	const mismatch = dnsChecks(true, true, [{ matched: false }]);
 	assert.equal(mismatch.entriesMatch, false, 'a mismatched override is a REAL failure (not a bounce)');
 	assert.equal(dnsVerifyShouldRetry(mismatch, 5), false);
+});
+
+test('dnsServiceAction: restart only when registration changes (conf regenerates only on full restart)', () => {
+	assert.equal(dnsServiceAction(true), 'restart',
+		'first registration (or its rollback) must regenerate the conf — reload leaves it without addn-hosts (r13 defect)');
+	assert.equal(dnsServiceAction(false), 'reload',
+		'content-only changes while registered: HUP suffices (addn-hosts files re-read, no listener drop)');
 });

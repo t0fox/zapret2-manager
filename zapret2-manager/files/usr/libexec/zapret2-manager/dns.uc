@@ -423,16 +423,27 @@ export const dns_apply_run = function() {
 		run('uci commit dhcp');
 	}
 
-	let rl = run('/etc/init.d/dnsmasq reload');
+	// service action: the generated conf (/var/etc/dnsmasq.conf.*) is built
+	// ONLY by a FULL init restart. A HUP reload re-reads the CURRENT conf and
+	// would leave it WITHOUT the addn-hosts line after a first registration
+	// (acceptance r13: the override never activated). When the registration
+	// changes → restart; content-only while registered → reload (HUP re-reads
+	// addn-hosts file contents, no listener drop).
+	let rl;
+	if (!f.registered) rl = run('/etc/init.d/dnsmasq restart');
+	else rl = run('/etc/init.d/dnsmasq reload');
 	let checks = verify_dns(f.entries);
 	if (!checks.ok) {
-		// immediate rollback: restore snapshot files + reload
+		// immediate rollback: restore snapshot files + the SAME service-action
+		// rule (first-apply registration must be un-done by a full restart,
+		// content-only rollback needs only HUP)
 		run('cp -f ' + SNAP_DIR + '/dhcp.conf ' + DHCP_CONF + ' 2>/dev/null');
 		run('cp -f ' + SNAP_DIR + '/overrides.hosts ' + OVERRIDES_PATH + ' 2>/dev/null');
-		let rb = run('/etc/init.d/dnsmasq reload');
+		if (!f.registered) run('/etc/init.d/dnsmasq restart');
+		else run('/etc/init.d/dnsmasq reload');
 		let recheck = verify_dns([]);
 		return err('ETARGET',
-			'dns apply failed verification (reload rc=' + rl.rc + ') — rolled back; resolver process=' + recheck.processAlive + ' port53=' + recheck.portListening,
+			'dns apply failed verification (reload/restart rc=' + rl.rc + ') — rolled back; resolver process=' + recheck.processAlive + ' port53=' + recheck.portListening,
 			'verify');
 	}
 	return {
@@ -448,15 +459,29 @@ export const dns_apply_run = function() {
 export const dns_rollback = function() {
 	if (!stat(SNAP_DIR + '/dhcp.conf') && !stat(SNAP_DIR + '/overrides.hosts'))
 		return err('ESTATE', 'no DNS snapshot to roll back to');
+	// registration state the snapshot restores vs the live one: if it CHANGES
+	// (first-apply registration removed), a full restart regenerates the conf;
+	// content-only rollback reloads (HUP).
+	let confBefore = parse_dnsmasq_conf(readfile(DHCP_CONF));
+	let registeredBefore = false;
+	for (let i = 0; i < length(confBefore.addnhosts); i++)
+		if (confBefore.addnhosts[i] == OVERRIDES_PATH) registeredBefore = true;
 	run('cp -f ' + SNAP_DIR + '/dhcp.conf ' + DHCP_CONF + ' 2>/dev/null');
 	run('cp -f ' + SNAP_DIR + '/overrides.hosts ' + OVERRIDES_PATH + ' 2>/dev/null');
-	let rl = run('/etc/init.d/dnsmasq reload');
+	let confAfter = parse_dnsmasq_conf(readfile(DHCP_CONF));
+	let registeredAfter = false;
+	for (let i = 0; i < length(confAfter.addnhosts); i++)
+		if (confAfter.addnhosts[i] == OVERRIDES_PATH) registeredAfter = true;
+	let rl;
+	if (registeredBefore != registeredAfter) rl = run('/etc/init.d/dnsmasq restart');
+	else rl = run('/etc/init.d/dnsmasq reload');
 	let checks = verify_dns([]);
 	return {
 		ok: checks.processAlive && checks.portListening,
+		action: (registeredBefore != registeredAfter) ? 'restart' : 'reload',
 		reloadRc: rl.rc,
 		verify: checks,
-		note: 'snapshot restored and dnsmasq reloaded'
+		note: 'snapshot restored and dnsmasq ' + ((registeredBefore != registeredAfter) ? 'restarted' : 'reloaded')
 	};
 };
 

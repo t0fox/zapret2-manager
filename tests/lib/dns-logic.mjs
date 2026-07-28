@@ -175,6 +175,21 @@ export function component_scan(presentInits) {
 	return { found, conflicts };
 }
 
+// ---- apply/rollback service action policy ----------------------------------------
+
+// dnsmasq's generated conf (/var/etc/dnsmasq.conf.*) is built ONLY by a FULL
+// init restart (start_service). A HUP reload re-reads the CURRENT conf and
+// addn-hosts FILES, so:
+//   - when the addnhosts REGISTRATION changes (first apply registers, or a
+//     rollback removes the registration), a full RESTART is required — a
+//     reload would leave the generated conf without the addn-hosts line
+//     (acceptance r13: override never activated, NXDOMAIN for 22+s);
+//   - for content-only changes while registered, a reload (HUP, no listener
+//     drop) suffices — dnsmasq re-reads addn-hosts file contents on HUP.
+export function dnsServiceAction(registrationChanged) {
+	return registrationChanged ? 'restart' : 'reload';
+}
+
 // ---- apply verification policy -------------------------------------------------
 
 // After `uci commit dhcp`, procd RESTARTS dnsmasq (not just a HUP reload) —
