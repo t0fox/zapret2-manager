@@ -482,6 +482,12 @@ function support_status(lc) {
 	return { valid: true, errors: [] };
 }
 
+// ---- export aliases for the health-matrix slice (same catalog reader and
+// ledger — there is no second catalog implementation in the tree) ---------
+export const cat_load = load_catalog;
+export const cat_ledger = load_ledger;
+export const cat_domain_include_path = domain_include_path;
+
 export const catalog_list = function() {
 	let lc = load_catalog();
 	if (!lc.ok) return err('ETARGET', 'catalog is invalid — refusing to serve it', { errors: lc.errors });

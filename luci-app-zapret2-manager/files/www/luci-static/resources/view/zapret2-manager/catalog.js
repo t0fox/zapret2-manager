@@ -18,6 +18,9 @@ const callCatalogList = rpc.declare({ object: 'zapret2-manager', method: 'catalo
 const callCatalogStatus = rpc.declare({ object: 'zapret2-manager', method: 'catalog_status', reject: true });
 const callCatalogPreview = rpc.declare({ object: 'zapret2-manager', method: 'catalog_preview', params: ['edit'], reject: true });
 const callCatalogApply = rpc.declare({ object: 'zapret2-manager', method: 'catalog_apply', params: ['edit'], reject: true });
+const callHealthGet = rpc.declare({ object: 'zapret2-manager', method: 'health_matrix_get', reject: true });
+const callHealthStart = rpc.declare({ object: 'zapret2-manager', method: 'health_matrix_start', params: ['edit'], reject: true });
+const callHealthCancel = rpc.declare({ object: 'zapret2-manager', method: 'health_matrix_job_cancel', params: ['edit'], reject: true });
 
 const MECHANISM_LABELS = {
 	domainInclude: { cls: 'ok', text: _('domain list') },
@@ -42,8 +45,17 @@ return L.view.extend({
 		}).catch(function (err) {
 			return { loadError: String(err), data: null };
 		});
-		return Promise.all([listP, statusP]).then(function (r) {
-			return { listError: r[0].loadError, list: r[0].data, statusError: r[1].loadError, status: r[1].data };
+		var healthP = callHealthGet().then(function (res) {
+			return { loadError: null, data: res || null };
+		}).catch(function (err) {
+			return { loadError: String(err), data: null };
+		});
+		return Promise.all([listP, statusP, healthP]).then(function (r) {
+			return {
+				listError: r[0].loadError, list: r[0].data,
+				statusError: r[1].loadError, status: r[1].data,
+				healthError: r[2].loadError, health: r[2].data
+			};
 		});
 	},
 
@@ -69,6 +81,7 @@ return L.view.extend({
 
 		container.appendChild(this.metaSection(list, st, envelope.statusError));
 		container.appendChild(this.servicesSection(list, st));
+		container.appendChild(this.healthSection(envelope.health, envelope.healthError, st));
 		if (this._preview) container.appendChild(this.previewSection(this._preview));
 		if (this._applyResult) container.appendChild(this.applyResultSection(this._applyResult));
 		if (this._flash) {
@@ -256,6 +269,125 @@ return L.view.extend({
 				? E('div', { 'class': 'alert-message warning' }, _('Unsupported mechanisms were NOT applied: ') + res.unsupported.map(function (u) { return u.service; }).join(', '))
 				: E('span', {})
 		]);
+	},
+
+	// ---- Service Health Matrix (Phase C) ----------------------------------------
+	// Bounded per-layer probes over catalog targets. Diagnostics, never a
+	// service-availability verdict: the best class is 'reachable-http' and
+	// the page says so.
+	healthSection: function (health, healthError, st) {
+		var self = this;
+		var node = E('div', { 'class': 'cbi-section' }, [
+			E('h3', {}, _('Health matrix')),
+			E('div', { 'class': 'cbi-value-description' },
+				_('Per-layer probes (catalog membership, local+upstream DNS, TCP 443, TLS handshake, HTTP code) over catalog targets. Each row shows the exact layer that failed — nothing here says a service "works".'))
+		]);
+		if (healthError) {
+			node.appendChild(E('div', { 'class': 'cbi-value-description' }, _('Unavailable — health_matrix_get: ') + healthError));
+			return node;
+		}
+		var matrix = health && health.matrix;
+		var active = matrix && (matrix.status === 'pending' || matrix.status === 'running');
+
+		var startBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button', 'id': 'z2m-health-start' },
+			active ? _('Matrix running…') : _('Run health matrix'));
+		if (active || healthError) startBtn.disabled = true;
+		startBtn.addEventListener('click', function () {
+			startBtn.disabled = true;
+			var enabled = [];
+			Object.keys(self._checks || {}).forEach(function (id) { if (self._checks[id]) enabled.push(id); });
+			var payload = enabled.length ? { services: enabled } : {};
+			callHealthStart(JSON.stringify(payload)).then(function (res) {
+				res = res || {};
+				if (res.ok !== true) {
+					startBtn.disabled = false;
+					self._flash = _('Matrix start refused: ') + ((res.error && res.error.message) || res.error || _('unknown'));
+				}
+				self.refresh();
+			}).catch(function (err) {
+				startBtn.disabled = false;
+				self._flash = _('Matrix start call failed: ') + String(err);
+				self.refresh();
+			});
+		});
+		var row = E('div', { 'class': 'cbi-button-row', 'style': 'margin:.4em 0' }, [startBtn]);
+
+		if (active) {
+			var cancelBtn = E('button', { 'class': 'cbi-button cbi-button-negative', 'type': 'button', 'id': 'z2m-health-cancel' }, _('Cancel matrix'));
+			cancelBtn.addEventListener('click', function () {
+				cancelBtn.disabled = true;
+				callHealthCancel(JSON.stringify({ id: matrix.id })).then(function () { self.refresh(); })
+					.catch(function (err) {
+						self._flash = _('Cancel call failed: ') + String(err);
+						self.refresh();
+					});
+			});
+			row.appendChild(cancelBtn);
+		}
+		node.appendChild(row);
+
+		if (!matrix) {
+			node.appendChild(E('div', { 'class': 'cbi-value-description' }, _('No health matrix run yet.')));
+			return node;
+		}
+		var badgeCls = matrix.status === 'succeeded' ? 'ok' : (matrix.status === 'failed' || matrix.status === 'cancelled') ? 'bad' : 'warn';
+		node.appendChild(this.row(_('Last matrix'),
+			E('span', {}, [
+				E('span', { 'class': 'zonebadge ' + badgeCls }, matrix.status), ' ',
+				E('span', {}, (matrix.elapsedSec != null ? matrix.elapsedSec + 's' : '?') +
+					(matrix.finishedAt ? _(' (finished)') : _(' (running — polling)')))
+			])));
+		if (matrix.summary && matrix.summary.byClass) {
+			var parts = [];
+			Object.keys(matrix.summary.byClass).forEach(function (k) {
+				parts.push(E('span', { 'class': 'zonebadge' }, k + ': ' + matrix.summary.byClass[k]));
+			});
+			node.appendChild(this.row(_('Classes'), E('span', {}, parts)));
+			if (matrix.summary.malformed > 0)
+				node.appendChild(E('div', { 'class': 'cbi-value-description' },
+					_('Malformed result lines reported: ') + matrix.summary.malformed));
+		}
+		(matrix.rows || []).forEach(function (r) {
+			if (r.malformed) {
+				node.appendChild(E('div', { 'class': 'cbi-value-description' },
+					E('span', { 'class': 'zonebadge bad' }, _('malformed: ') + (r.preview || ''))));
+				return;
+			}
+			var probes = r.probes || {};
+			var badges = [];
+			function probeBadge(name, p, okWhen) {
+				var ok = p ? okWhen(p) : null;
+				badges.push(E('span', { 'class': 'zonebadge ' + (ok === true ? 'ok' : (ok === false ? 'bad' : '')) },
+					name + (p && p.rc != null ? ':' + p.rc : '')));
+			}
+			probeBadge('list', probes.catalog, function (p) { return p.domainsPresent === true; });
+			probeBadge('dns', probes.dns, function (p) { return p.ok === true; });
+			probeBadge('tcp', probes.tcp, function (p) { return p.rc === 0; });
+			probeBadge('tls', probes.tls, function (p) { return p.rc === 0; });
+			probeBadge('http', probes.http, function (p) { return p.rc === 0; });
+			var classCls = r.class === 'reachable-http' ? 'ok'
+				: (r.class === 'skipped' || r.class === 'pending') ? ''
+				: 'warn';
+			node.appendChild(E('div', { 'class': 'cbi-value' }, [
+				E('label', { 'class': 'cbi-value-title' }, r.id),
+				E('div', { 'class': 'cbi-value-field' }, [
+					E('div', {}, badges.concat([E('span', { 'class': 'zonebadge ' + classCls }, r.class)])),
+					E('div', { 'class': 'cbi-value-description' }, r.reason || '')
+				])
+			]));
+		});
+		if (active) this.scheduleHealthPoll();
+		return node;
+	},
+
+	scheduleHealthPoll: function () {
+		var self = this;
+		if (this._healthPolled) return;
+		this._healthPolled = true;
+		setTimeout(function () {
+			self._healthPolled = false;
+			self.refresh();
+		}, 3000);
 	},
 
 	refresh: function () {

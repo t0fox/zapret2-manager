@@ -15,9 +15,11 @@
 // artifacts. No fabricated progress percentage — elapsed seconds only.
 
 import { readfile, writefile, stat, unlink, popen, mkdir, lsdir } from 'fs';
+import { cat_load, cat_ledger } from './catalog.uc';
 
 const JDIR = '/tmp/zapret2-manager/jobs';
 const RUNNER = '/usr/libexec/zapret2-manager/blockcheck-run.sh';
+const HEALTH_RUNNER = '/usr/libexec/zapret2-manager/health-run.sh';
 const SCANNER = '/opt/zapret2/blockcheck2.sh';
 const JOB_TTL_SEC = 600;
 const JOB_MAX_HISTORY = 10;
@@ -481,6 +483,228 @@ export const blockcheck_status = function() {
 	let out = public_job(job);
 	out.logTail = log_tail(job.id, LOG_TAIL_BYTES);
 	return { ok: true, job: out };
+};
+
+// ---------------------------------------------------------------------------
+// health matrix (Phase C) — bounded per-layer probes over catalog services.
+// Diagnostics, never a service-works verdict. Reuses THIS job infrastructure
+// (records, transitions, sweep, crash recovery, cancel flag).
+// ---------------------------------------------------------------------------
+const HEALTH_CLASSES = ['pending', 'dns', 'connect', 'tls', 'http-application',
+	'possible-geo-account', 'reachable-http', 'upstream-error',
+	'unknown-timeout', 'unavailable-unknown', 'skipped'];
+
+function classify_curl_stage(rc, httpCode) {
+	if (rc == 6) return { outcome: 'fail', layer: 'dns' };
+	if (rc == 7) return { outcome: 'fail', layer: 'connect' };
+	if (rc == 28) return { outcome: 'fail', layer: 'timeout' };
+	if (rc == 35 || rc == 60 || rc == 51 || rc == 58 || rc == 59 || rc == 90) return { outcome: 'fail', layer: 'tls' };
+	if (rc == 0) {
+		let code = +httpCode || 0;
+		if (code >= 200 && code < 400) return { outcome: 'ok', layer: 'http', httpCode: code };
+		if (code == 401 || code == 403) return { outcome: 'ok', layer: 'http', httpCode: code, note: 'auth/region class response' };
+		if (code >= 500) return { outcome: 'ok', layer: 'http', httpCode: code, note: 'upstream 5xx' };
+		return { outcome: 'ok', layer: 'http', httpCode: code };
+	}
+	return { outcome: 'fail', layer: 'unknown' };
+}
+
+function classify_service(probes) {
+	if (probes.catalog != null && probes.catalog.domainsPresent == false)
+		return { class: 'skipped', reason: 'service domains are not in the user list (service disabled?)' };
+	if (probes.dns == null || probes.dns.ok != true)
+		return { class: 'dns', reason: 'local resolution failed' };
+	let tcp = (probes.tcp != null) ? classify_curl_stage(probes.tcp.rc, null) : { outcome: 'fail', layer: 'unknown' };
+	if (tcp.outcome != 'ok' && tcp.layer == 'connect') return { class: 'connect', reason: 'TCP 443 connect failed' };
+	if (tcp.outcome != 'ok' && tcp.layer == 'dns') return { class: 'dns', reason: 'curl-side resolution failed' };
+	if (tcp.outcome != 'ok' && tcp.layer == 'timeout') return { class: 'unknown-timeout', reason: 'TCP probe timed out' };
+	let tls = (probes.tls != null) ? classify_curl_stage(probes.tls.rc, null) : { outcome: 'fail', layer: 'unknown' };
+	if (tls.outcome != 'ok') {
+		if (tls.layer == 'tls') return { class: 'tls', reason: 'TLS/SNI handshake failed' };
+		if (tls.layer == 'timeout') return { class: 'unknown-timeout', reason: 'TLS probe timed out' };
+		if (tls.layer == 'connect') return { class: 'connect', reason: 'connect failed at TLS stage' };
+		if (tls.layer == 'dns') return { class: 'dns', reason: 'resolution failed at TLS stage' };
+		return { class: 'unavailable-unknown', reason: 'TLS probe inconclusive' };
+	}
+	let http = (probes.http != null) ? classify_curl_stage(probes.http.rc, probes.http.httpCode) : { outcome: 'fail', layer: 'unknown' };
+	if (http.outcome != 'ok') return { class: 'http-application', reason: 'no HTTP response' };
+	let code = http.httpCode || 0;
+	if (code >= 200 && code < 400) return { class: 'reachable-http', reason: 'HTTP ' + code + ' — host responds at the application layer (NOT a service-availability claim)' };
+	if (code == 401 || code == 403) return { class: 'possible-geo-account', reason: 'HTTP ' + code + ' — auth/region class response; account or GEO restriction is possible (not provable here)' };
+	if (code >= 500) return { class: 'upstream-error', reason: 'HTTP ' + code + ' — upstream/application error' };
+	return { class: 'http-application', reason: 'HTTP ' + code };
+}
+
+// parse_result_line(line) — the runner's raw evidence line:
+// SVC|id|domain1,domain2|catalogPresent=0/1|dns=0/1|extdns=0/1/-|extev=<ip>|tcp=rc|tls=rc|http=rc|httpcode=N
+function parse_result_line(line) {
+	let parts = split(line, '|');
+	if (length(parts) < 10) return null;
+	let r = { id: parts[1], domains: split(parts[2], ',') };
+	for (let i = 3; i < length(parts); i++) {
+		let kv = split(parts[i], '=');
+		if (length(kv) < 2) continue;
+		let k = kv[0]; let v = kv[1];
+		if (k == 'catalogPresent') r.catalog = { domainsPresent: v == '1' };
+		else if (k == 'dns') r.dns = { ok: v == '1' };
+		else if (k == 'extdns') r.extDns = (v == '-') ? null : { ok: v == '1' };
+		else if (k == 'extev') { if (r.extDns != null) r.extDns.evidence = v; }
+		else if (k == 'tcp') r.tcp = { rc: +v };
+		else if (k == 'tls') r.tls = { rc: +v };
+		else if (k == 'http') r.http = { rc: +v };
+		else if (k == 'httpcode') { if (r.http != null) r.http.httpCode = +v; }
+	}
+	return r;
+}
+
+function read_matrix_results(id) {
+	let raw = readfile(JDIR + '/' + id + '.result.jsonl');
+	let rows = [];
+	if (!raw) return rows;
+	let lines = split(raw, '\n');
+	for (let i = 0; i < length(lines); i++) {
+		let l = trim(lines[i]);
+		if (l == '') continue;
+		if (substr(l, 0, 4) != 'SVC|') continue;
+		let r = parse_result_line(l);
+		if (r == null) { push(rows, { malformed: true, preview: substr(l, 0, 120) }); continue; }
+		let cls = classify_service(r);
+		rows.push({
+			id: r.id,
+			domains: r.domains,
+			probes: {
+				catalog: r.catalog, dns: r.dns, extDns: r.extDns,
+				tcp: r.tcp, tls: r.tls, http: r.http
+			},
+			class: cls.class,
+			reason: cls.reason
+		});
+	}
+	return rows;
+}
+
+function matrix_summary(rows) {
+	let byClass = {};
+	let malformed = 0;
+	for (let i = 0; i < length(rows); i++) {
+		if (rows[i].malformed) { malformed++; continue; }
+		let c = rows[i].class;
+		byClass[c] = (byClass[c] != null) ? byClass[c] + 1 : 1;
+	}
+	return { services: length(rows) - malformed, malformed: malformed, byClass: byClass,
+		note: 'diagnostics per layer, not service-availability verdicts' };
+}
+
+export const health_matrix_start = function(input) {
+	crash_recover_all();
+	sweep();
+	let lc = cat_load();
+	if (!lc.ok) return err('ETARGET', 'catalog is invalid — health matrix unavailable', { errors: lc.errors });
+	let ll = cat_ledger(lc.doc.digest);
+	if (!ll.ok) return err('ESTATE', 'catalog ledger is malformed: ' + ll.reason);
+
+	// targets: requested services, else ledger-enabled, else whole catalog
+	let requested = (type(input) == 'object' && input != null && type(input.services) == 'array') ? input.services : null;
+	let ids = [];
+	if (requested != null) ids = requested;
+	else if (length(ll.ledger.enabled) > 0) ids = ll.ledger.enabled;
+	else for (let i = 0; i < length(lc.doc.services); i++) push(ids, lc.doc.services[i].id);
+
+	let targets = [];
+	let unknown = [];
+	for (let i = 0; i < length(ids); i++) {
+		let svc = null;
+		for (let j = 0; j < length(lc.doc.services); j++)
+			if (lc.doc.services[j].id == ids[i]) { svc = lc.doc.services[j]; break; }
+		if (svc == null) push(unknown, ids[i]);
+		else push(targets, svc);
+	}
+	if (length(unknown) > 0) return err('EINPUT', 'unknown service ids: ' + join(', ', unknown));
+	if (length(targets) == 0) return err('EINPUT', 'no services to probe');
+	if (length(targets) > 16) return err('EINPUT', 'too many targets (max 16 per matrix)');
+	if (!stat(HEALTH_RUNNER)) return err('EINTERNAL', 'health runner not installed at ' + HEALTH_RUNNER);
+
+	// at most ONE active healthmatrix job
+	let recs = list_records();
+	for (let i = 0; i < length(recs); i++) {
+		if (!recs[i].parsed) continue;
+		let job = recs[i].record;
+		if (job.kind == 'healthmatrix' && !is_terminal(job.status))
+			return err('ECONFLICT', 'health matrix job ' + job.id + ' is already ' + job.status);
+	}
+
+	let now = time();
+	let id = 'job-' + now + '-' + next_seq();
+	let timeoutSec = (length(targets) <= 4) ? 120 : 300;
+
+	// env: SERVICES + per-service probe domains + upstream dns (evidence base)
+	let upstreamDns = '';
+	let resolvRaw = readfile('/tmp/resolv.conf.d/resolv.conf.auto');
+	if (resolvRaw) {
+		let lines = split(resolvRaw, '\n');
+		for (let i = 0; i < length(lines); i++) {
+			let l = trim(lines[i]);
+			if (substr(l, 0, 11) == 'nameserver ') { upstreamDns = trim(substr(l, 11)); break; }
+		}
+	}
+	let envtext = 'TIMEOUT=' + shell_escape('' + timeoutSec) + '\n'
+		+ 'UPSTREAM_DNS=' + shell_escape(upstreamDns) + '\n'
+		+ 'LISTFILE=' + shell_escape(cat_domain_include_path()) + '\n';
+	let svcNames = '';
+	for (let i = 0; i < length(targets); i++) {
+		if (i > 0) svcNames += ' ';
+		svcNames += targets[i].id;
+		let doms = '';
+		let domsArr = (type(targets[i].domains) == 'array') ? targets[i].domains : [];
+		let maxD = (length(domsArr) > 2) ? 2 : length(domsArr);
+		for (let j = 0; j < maxD; j++) {
+			if (j > 0) doms += ' ';
+			doms += targets[i].domains[j];
+		}
+		envtext += 'DOM_' + targets[i].id + '=' + shell_escape(doms) + '\n';
+	}
+	envtext = 'SERVICES=' + shell_escape(svcNames) + '\n' + envtext;
+
+	let job = {
+		version: 2, id: id, kind: 'healthmatrix', mode: 'matrix',
+		services: ids,
+		status: 'pending', createdAt: now, startedAt: null, finishedAt: null,
+		runnerPid: null, childPid: null,
+		timeoutSec: timeoutSec,
+		logPath: JDIR + '/' + id + '.log',
+		rc: null, error: null, cancelled: false,
+		engineRunning: null,
+		recommendations: [], summaryParsed: null,
+		provenance: { source: 'service health matrix v1', catalogVersion: lc.doc.catalogVersion, digest: lc.doc.digest }
+	};
+	ensure_jdir();
+	writefile(JDIR + '/' + id + '.env', envtext);
+	writefile(JDIR + '/' + id + '.log', '');
+	writefile(JDIR + '/' + id + '.result.jsonl', '');
+	write_record(job);
+
+	let p = popen('setsid ash ' + HEALTH_RUNNER + ' ' + id + ' </dev/null >/dev/null 2>&1 &', 'r');
+	if (p) p.close();
+
+	return { ok: true, job: public_job(job), note: 'bounded probes over catalog targets; classifications are per-layer diagnostics, not service-availability verdicts' };
+};
+
+export const health_matrix_get = function() {
+	crash_recover_all();
+	let kept = sweep();
+	let newest = null;
+	for (let i = 0; i < length(kept); i++) {
+		if (kept[i].kind == 'healthmatrix') {
+			if (newest == null || (kept[i].createdAt || 0) > (newest.createdAt || 0)) newest = kept[i];
+		}
+	}
+	if (newest == null) return { ok: true, matrix: null, note: 'no health matrix run yet' };
+	let rows = read_matrix_results(newest.id);
+	let out = public_job(newest);
+	out.rows = rows;
+	out.summary = matrix_summary(rows);
+	out.logTail = log_tail(newest.id, 2048);
+	return { ok: true, matrix: out };
 };
 
 // ---------------------------------------------------------------------------

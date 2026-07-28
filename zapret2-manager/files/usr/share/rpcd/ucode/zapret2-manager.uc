@@ -229,6 +229,13 @@ function blockcheck_start_method(req) { return jobs_edit_action('start', req); }
 function blockcheck_cancel_method(req) { return jobs_edit_action('cancel', req); }
 function blockcheck_status_method(req) { return jobs_action('status'); }
 
+// health matrix (Phase C) — job_get/cancel are the GENERIC job methods;
+// these aliases give the matrix its own names per the contract.
+function health_matrix_get_method(req) { return jobs_action('hm-get'); }
+function health_matrix_start_method(req) { return jobs_edit_action('hm-start', req, 'health'); }
+function health_matrix_job_get_method(req) { return job_get_method(req); }
+function health_matrix_job_cancel_method(req) { return blockcheck_cancel_method(req); }
+
 // ---- maintenance + backups (SLICE 5) -----------------------------------------
 const BACKUP_CLI = '/usr/libexec/zapret2-manager/backup-cli.uc';
 const MAINT_CLI = '/usr/libexec/zapret2-manager/maintenance-cli.uc';
@@ -367,6 +374,10 @@ return {
 		blockcheck_start:  { args: { edit: 'string' }, call: function (req) { return blockcheck_start_method(req); } },
 		blockcheck_cancel: { args: { edit: 'string' }, call: function (req) { return blockcheck_cancel_method(req); } },
 		blockcheck_status: { call: function (req) { return blockcheck_status_method(req); } },
+		health_matrix_get: { call: function (req) { return health_matrix_get_method(req); } },
+		health_matrix_start: { args: { edit: 'string' }, call: function (req) { return health_matrix_start_method(req); } },
+		health_matrix_job_get: { args: { edit: 'string' }, call: function (req) { return health_matrix_job_get_method(req); } },
+		health_matrix_job_cancel: { args: { edit: 'string' }, call: function (req) { return health_matrix_job_cancel_method(req); } },
 		versions:          { call: function (req) { return versions_method(req); } },
 		maintenance_status: { call: function (req) { return maintenance_status_method(req); } },
 		events_tail:       { args: { edit: 'string' }, call: function (req) { return events_tail_method(req); } },

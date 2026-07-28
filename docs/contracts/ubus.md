@@ -80,6 +80,10 @@ Methods:
 | `catalog_status` | none | read | Ledger (enabled/revision/updatedAt), ownedDomains counts, ownedMissing (drift), userDomains, catalog validity, stale. |
 | `catalog_preview` | `{edit: string}` (`{"enabled":[ids]}`) | read | Exact plan: additions, removals (solely-owned only), keepShared, alreadyUserOwned (never claimed), preservedUser, unsupported mechanisms, unknownIds, target file, precondition {fileSha256, ledgerRevision}. NO writes; invalid catalog or malformed ledger blocks. |
 | `catalog_apply` | `{edit: string}` (`{"enabled":[…],"revision":N,"fileSha256":"…"}`) | mutate | Optimistic revision+hash gates (ECONFLICT) → snapshot → sanctioned list write → ledger save → reread membership verification → rollback on mismatch (critical+explicit). Event recorded. Ownership: only catalog-added domains are ever removed; user entries always survive; shared domains survive while any owner stays enabled. |
+| `health_matrix_get` | none | read | Latest healthmatrix job + per-service probe rows (catalog/dns/extDns/tcp/tls/http layers) + class summary. Diagnostics, never service-availability verdicts; `matrix: null` until the first run. |
+| `health_matrix_start` | `{edit: string}` (`{"services"?}`) | mutate | Start ONE bounded matrix job (ECONFLICT on a second). Targets: requested ids, else ledger-enabled, else the whole catalog (max 16). Probes: catalog presence, local+upstream DNS, TCP 443, TLS, HTTP code — exit/http codes only, no bodies. |
+| `health_matrix_job_get` | `{edit: string}` (`{"id"}`) | read | Generic `job_get` alias for matrix jobs. |
+| `health_matrix_job_cancel` | `{edit: string}` (`{"id"}`) | mutate | Real cancel via the generic cancel flag (checked between probes; current probe bounded by curl timeouts). |
 
 Job statuses (closed enum) and allowed transitions:
 

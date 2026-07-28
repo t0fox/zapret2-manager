@@ -1405,6 +1405,114 @@ test('catalog: invalid catalog (ETARGET) blocks mutation loudly, no fake service
 	assert.ok(!text.includes('Apply this plan'), 'no apply path on invalid catalog');
 });
 
+// ---- 6h. catalog health matrix section (Phase C) -----------------------------------
+
+const HEALTH_MATRIX_RUNNING = {
+	ok: true,
+	matrix: {
+		id: 'job-hm-1', kind: 'healthmatrix', mode: 'matrix', services: ['youtube'],
+		status: 'running', createdAt: 1785220000, startedAt: 1785220001, finishedAt: null,
+		timeoutSec: 300, rc: null, error: null, cancelled: false, elapsedSec: 12,
+		recommendations: [], summary: { services: 0, malformed: 0, byClass: {}, note: 'diagnostics per layer, not service-availability verdicts' },
+		rows: [], logTail: '* health matrix v1 start\n'
+	}
+};
+
+const HEALTH_MATRIX_DONE = {
+	ok: true,
+	matrix: {
+		id: 'job-hm-2', kind: 'healthmatrix', mode: 'matrix', services: ['youtube', 'chatgpt-openai'],
+		status: 'succeeded', createdAt: 1785220000, startedAt: 1785220001, finishedAt: 1785220018,
+		timeoutSec: 300, rc: 0, error: null, cancelled: false, elapsedSec: 17,
+		recommendations: [],
+		summary: { services: 2, malformed: 0, byClass: { 'reachable-http': 1, 'possible-geo-account': 1 }, note: 'diagnostics per layer, not service-availability verdicts' },
+		rows: [
+			{
+				id: 'youtube', domains: ['youtube.com'],
+				probes: { catalog: { domainsPresent: true }, dns: { ok: true }, extDns: { ok: true, evidence: '31.13.72.36' }, tcp: { rc: 0 }, tls: { rc: 0 }, http: { rc: 0, httpCode: 200 } },
+				class: 'reachable-http',
+				reason: 'HTTP 200 — host responds at the application layer (NOT a service-availability claim)'
+			},
+			{
+				id: 'chatgpt-openai', domains: ['openai.com'],
+				probes: { catalog: { domainsPresent: true }, dns: { ok: true }, extDns: { ok: true, evidence: '104.18.33.45' }, tcp: { rc: 0 }, tls: { rc: 0 }, http: { rc: 0, httpCode: 403 } },
+				class: 'possible-geo-account',
+				reason: 'HTTP 403 — auth/region class response; account or GEO restriction is possible (not provable here)'
+			}
+		],
+		logTail: '* matrix done\n'
+	}
+};
+
+test('catalog health: start sends selected services; running matrix shows badge + elapsed + cancel', async () => {
+	const w = makeWorld({
+		catalog_list: { type: 'ok', value: CATALOG_LIST_FIXTURE },
+		catalog_status: { type: 'ok', value: CATALOG_STATUS_FIXTURE },
+		health_matrix_get: { type: 'ok', value: HEALTH_MATRIX_RUNNING },
+		health_matrix_start: { type: 'ok', value: { ok: true, job: HEALTH_MATRIX_RUNNING.matrix } },
+		health_matrix_job_cancel: { type: 'ok', value: { ok: true, cancelling: true, id: 'job-hm-1' } }
+	});
+	const view = loadView(readViewSource('catalog'), 'catalog', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	const text = collectText(root).join(' | ');
+	assert.ok(text.includes('running'), 'matrix status badge renders');
+	assert.ok(text.includes('12s'), 'honest elapsed renders');
+	assert.ok(!/\d+%/.test(text), 'NEGATIVE: no fabricated progress percentage');
+	const startBtn = w.created.find((n) => n.attrs.id === 'z2m-health-start');
+	assert.equal(startBtn.disabled, true, 'start disabled while a matrix is active');
+	const cancelBtn = w.created.find((n) => n.attrs.id === 'z2m-health-cancel');
+	assert.ok(cancelBtn, 'Cancel renders for the active matrix');
+	cancelBtn.listeners.click();
+	await flush();
+	const call = w.calls.find((c) => c.method === 'health_matrix_job_cancel');
+	assert.ok(call, 'health_matrix_job_cancel was not called');
+	assert.deepEqual(JSON.parse(call.params.edit), { id: 'job-hm-1' });
+});
+
+test('catalog health: completed matrix renders per-layer probes + honest classes', async () => {
+	const w = makeWorld({
+		catalog_list: { type: 'ok', value: CATALOG_LIST_FIXTURE },
+		catalog_status: { type: 'ok', value: CATALOG_STATUS_FIXTURE },
+		health_matrix_get: { type: 'ok', value: HEALTH_MATRIX_DONE }
+	});
+	const view = loadView(readViewSource('catalog'), 'catalog', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	const text = collectText(root).join(' | ');
+	assert.ok(text.includes('reachable-http'), 'best class renders');
+	assert.ok(text.includes('NOT a service-availability claim'), 'honest reason renders');
+	assert.ok(text.includes('possible-geo-account'), 'geo-account class renders');
+	assert.ok(text.includes('not provable'), 'geo class is honest about uncertainty');
+	assert.ok(!/unblocked/i.test(text), 'NEGATIVE: no "unblocked" claims');
+	const startBtn = w.created.find((n) => n.attrs.id === 'z2m-health-start');
+	assert.equal(startBtn.disabled, false, 'start enabled with no active matrix');
+	startBtn.listeners.click();
+	await flush();
+	const call = w.calls.find((c) => c.method === 'health_matrix_start');
+	assert.ok(call, 'health_matrix_start was not called');
+	assert.deepEqual(JSON.parse(call.params.edit), { services: ['youtube'] },
+		'enabled services go on the wire (checked set from the ledger)');
+});
+
+test('catalog health: ECONFLICT start refusal renders the backend message', async () => {
+	const w = makeWorld({
+		catalog_list: { type: 'ok', value: CATALOG_LIST_FIXTURE },
+		catalog_status: { type: 'ok', value: CATALOG_STATUS_FIXTURE },
+		health_matrix_get: { type: 'ok', value: { ok: true, matrix: null, note: 'no health matrix run yet' } },
+		health_matrix_start: { type: 'ok', value: { ok: false, error: { code: 'ECONFLICT', message: 'health matrix job job-hm-1 is already running' } } }
+	});
+	const view = loadView(readViewSource('catalog'), 'catalog', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	w.created.find((n) => n.attrs.id === 'z2m-health-start').listeners.click();
+	await flush();
+	const root2 = view.render(await view.load());
+	const text = collectText(root2).join(' | ');
+	assert.ok(text.includes('Matrix start refused'), 'the refusal renders');
+	assert.ok(text.includes('already running'), 'the backend ECONFLICT detail renders');
+});
+
 // ---- 7. overview: passthrough wire + reject gate (no longer excluded) --------
 
 test('overview: callPassthrough is declared with params:[enabled] + reject:true (fixed → green)', () => {
