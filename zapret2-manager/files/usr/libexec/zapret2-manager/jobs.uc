@@ -191,9 +191,11 @@ function sweep() {
 // blockcheck logic mirrors (mode env, domain validation, summary parsing)
 // ---------------------------------------------------------------------------
 function mode_env(mode) {
-	if (mode == 'quick') return { scanlevel: 'quick', enableHttp: 1, enableTls12: 1, enableTls13: 0, enableHttp3: 0, repeats: 1, timeoutSec: 300 };
-	if (mode == 'domains') return { scanlevel: 'standard', enableHttp: 1, enableTls12: 1, enableTls13: 0, enableHttp3: 0, repeats: 1, timeoutSec: 900 };
-	if (mode == 'full') return { scanlevel: 'force', enableHttp: 1, enableTls12: 1, enableTls13: 1, enableHttp3: 1, repeats: 1, timeoutSec: 1800 };
+	// timeouts empirically grounded (acceptance: a real 1-domain quick scan
+	// was still mid-strategy-set at 304s on the target)
+	if (mode == 'quick') return { scanlevel: 'quick', enableHttp: 1, enableTls12: 1, enableTls13: 0, enableHttp3: 0, repeats: 1, timeoutSec: 600 };
+	if (mode == 'domains') return { scanlevel: 'standard', enableHttp: 1, enableTls12: 1, enableTls13: 0, enableHttp3: 0, repeats: 1, timeoutSec: 1200 };
+	if (mode == 'full') return { scanlevel: 'force', enableHttp: 1, enableTls12: 1, enableTls13: 1, enableHttp3: 1, repeats: 1, timeoutSec: 2400 };
 	return null;
 }
 

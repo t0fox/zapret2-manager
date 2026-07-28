@@ -22,6 +22,8 @@ test('mode_env: all three modes map; unknown mode refused', () => {
 	assert.equal(mode_env('full').enableTls13, 1, 'full covers TLS 1.3');
 	assert.equal(mode_env('quick').enableHttp3, 0, 'quick stays short');
 	assert.ok(mode_env('full').timeoutSec > mode_env('quick').timeoutSec);
+	assert.ok(mode_env('quick').timeoutSec >= 600,
+		'empirical floor: a real 1-domain quick scan was still mid-run at 304s on target (r-blockcheck-1 timeout defect)');
 	assert.equal(mode_env('bogus'), null);
 	assert.equal(BLOCKCHECK_SCANNER, '/opt/zapret2/blockcheck2.sh', 'the upstream scanner path (called, never reimplemented)');
 });

@@ -23,14 +23,18 @@ export const BLOCKCHECK_SCANNER = '/opt/zapret2/blockcheck2.sh';
 
 // mode_env(mode) → the fixed env for the runner + timeout. Single source of
 // truth for the mode mapping (ucode writes the .env file from this shape).
+// Timeouts are EMPIRICALLY grounded (acceptance r-blockcheck-1: a real
+// 1-domain quick scan was still mid-strategy-set at 304s on the target —
+// each strategy test has up to 2s curl timeouts plus daemon cycles and the
+// DNS/port-block preamble). quick must fit that reality.
 export function mode_env(mode) {
 	switch (mode) {
 		case 'quick':
-			return { scanlevel: 'quick', enableHttp: 1, enableTls12: 1, enableTls13: 0, enableHttp3: 0, repeats: 1, timeoutSec: 300 };
+			return { scanlevel: 'quick', enableHttp: 1, enableTls12: 1, enableTls13: 0, enableHttp3: 0, repeats: 1, timeoutSec: 600 };
 		case 'domains':
-			return { scanlevel: 'standard', enableHttp: 1, enableTls12: 1, enableTls13: 0, enableHttp3: 0, repeats: 1, timeoutSec: 900 };
+			return { scanlevel: 'standard', enableHttp: 1, enableTls12: 1, enableTls13: 0, enableHttp3: 0, repeats: 1, timeoutSec: 1200 };
 		case 'full':
-			return { scanlevel: 'force', enableHttp: 1, enableTls12: 1, enableTls13: 1, enableHttp3: 1, repeats: 1, timeoutSec: 1800 };
+			return { scanlevel: 'force', enableHttp: 1, enableTls12: 1, enableTls13: 1, enableHttp3: 1, repeats: 1, timeoutSec: 2400 };
 		default:
 			return null;
 	}
