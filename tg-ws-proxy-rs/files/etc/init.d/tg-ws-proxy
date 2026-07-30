@@ -96,8 +96,13 @@ validate_config() {
 	[ "$ENABLED" = "1" ] || { log_refuse "disabled by config (ENABLED != 1) — enable via the manager, not by editing init"; return 1; }
 
 	[ -f "$SECRET_CONF" ] || { log_refuse "secret $SECRET_CONF missing — generate/rotate via zapret2-manager proxy_secret_rotate"; return 1; }
-	local MODE; MODE=$(stat -c %a "$SECRET_CONF" 2>/dev/null)
-	[ "$MODE" = "600" ] || { log_refuse "secret $SECRET_CONF has mode ${MODE:-unknown} — expected 600"; return 1; }
+	local MODE; MODE=$(ls -l "$SECRET_CONF" 2>/dev/null | awk '{print $1}')
+	local OCT
+	case "$MODE" in
+		-rw-------) OCT=600 ;;
+		*)         OCT= ;;
+	esac
+	[ -n "$OCT" ] || { log_refuse "secret $SECRET_CONF has mode ${MODE:-unknown} — expected 600"; return 1; }
 	SECRET=$(sed -n 's/^SECRET=//p' "$SECRET_CONF" 2>/dev/null | head -n 1 | tr -d '\r')
 	if [ "${#SECRET}" -ne 32 ] || ! printf '%s' "$SECRET" | grep -q '^[0-9a-f]*$'; then
 		log_refuse "SECRET in $SECRET_CONF is malformed — expected exactly 32 lowercase hex chars"
@@ -187,31 +192,29 @@ start_service() {
 		IFS=$oldifs
 	fi
 
+	# Build env vars. procd_set_param env OVERWRITES on each call, so
+	# accumulate all in one call.
+	local env
+	env="TG_HOST=$HOST TG_PORT=$PORT TG_SECRET=$SECRET TG_LOG_FILE=$LOG_FILE"
+	[ -n "$LINK_IP" ] && env="$env TG_LINK_IP=$LINK_IP"
+	[ -n "$POOL_SIZE" ] && env="$env TG_POOL_SIZE=$POOL_SIZE"
+	[ -n "$BUF_KB" ] && env="$env TG_BUF_KB=$BUF_KB"
+	[ -n "$MAX_CONNECTIONS" ] && env="$env TG_MAX_CONNECTIONS=$MAX_CONNECTIONS"
+	[ "$QUIET" = "1" ] && env="$env TG_QUIET=true"
+	[ "$VERBOSE" = "1" ] && env="$env TG_VERBOSE=true"
+	[ -n "$FAKETLS_DOMAIN" ] && env="$env TG_LISTEN_FAKETLS_DOMAIN=$FAKETLS_DOMAIN"
+	[ -n "$CF_DOMAINS" ] && env="$env TG_CF_DOMAIN=$CF_DOMAINS"
+	[ -n "$CF_WORKER_DOMAINS" ] && env="$env TG_CF_WORKER_DOMAIN=$CF_WORKER_DOMAINS"
+	[ "$CF_PRIORITY" = "1" ] && env="$env TG_CF_PRIORITY=true"
+	[ "$CF_BALANCE" = "1" ] && env="$env TG_CF_BALANCE=true"
+	[ "$DEFAULT_DOMAINS" = "1" ] && env="$env TG_DEFAULT_DOMAINS=true"
+	[ -n "$MTPROTO_PROXIES" ] && env="$env TG_MTPROTO_PROXY=$MTPROTO_PROXIES"
+	[ -n "$OUTBOUND_PROXY" ] && env="$env TG_OUTBOUND_PROXY=$OUTBOUND_PROXY"
+	[ -n "$NO_PROXY" ] && env="$env TG_NO_PROXY=$NO_PROXY"
+
 	procd_open_instance
 	procd_set_param command "$PROG" "$@"
-
-	# env carries every string/secret value (TG_* aliases at provider v1.6.5) —
-	# the MTProto secret and upstream proxy credentials never touch argv.
-	procd_set_param env \
-		TG_HOST="$HOST" \
-		TG_PORT="$PORT" \
-		TG_SECRET="$SECRET" \
-		TG_LOG_FILE="$LOG_FILE"
-	[ -n "$LINK_IP" ] && procd_set_param env TG_LINK_IP="$LINK_IP"
-	[ -n "$POOL_SIZE" ] && procd_set_param env TG_POOL_SIZE="$POOL_SIZE"
-	[ -n "$BUF_KB" ] && procd_set_param env TG_BUF_KB="$BUF_KB"
-	[ -n "$MAX_CONNECTIONS" ] && procd_set_param env TG_MAX_CONNECTIONS="$MAX_CONNECTIONS"
-	[ "$QUIET" = "1" ] && procd_set_param env TG_QUIET=true
-	[ "$VERBOSE" = "1" ] && procd_set_param env TG_VERBOSE=true
-	[ -n "$FAKETLS_DOMAIN" ] && procd_set_param env TG_LISTEN_FAKETLS_DOMAIN="$FAKETLS_DOMAIN"
-	[ -n "$CF_DOMAINS" ] && procd_set_param env TG_CF_DOMAIN="$CF_DOMAINS"
-	[ -n "$CF_WORKER_DOMAINS" ] && procd_set_param env TG_CF_WORKER_DOMAIN="$CF_WORKER_DOMAINS"
-	[ "$CF_PRIORITY" = "1" ] && procd_set_param env TG_CF_PRIORITY=true
-	[ "$CF_BALANCE" = "1" ] && procd_set_param env TG_CF_BALANCE=true
-	[ "$DEFAULT_DOMAINS" = "1" ] && procd_set_param env TG_DEFAULT_DOMAINS=true
-	[ -n "$MTPROTO_PROXIES" ] && procd_set_param env TG_MTPROTO_PROXY="$MTPROTO_PROXIES"
-	[ -n "$OUTBOUND_PROXY" ] && procd_set_param env TG_OUTBOUND_PROXY="$OUTBOUND_PROXY"
-	[ -n "$NO_PROXY" ] && procd_set_param env TG_NO_PROXY="$NO_PROXY"
+	procd_set_param env $env
 
 	# BOUNDED respawn: procd restarts a crashed instance at most 5 times (5s
 	# apart) when it dies inside a 3600s window, then stops retrying — no
