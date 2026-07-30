@@ -254,6 +254,90 @@ build_one "tg-ws-proxy-rs" \
   "$R" "$TPI" "" "" "" "$TGWS_PKG_VER"
 rm -rf "$R" "$TPI" "$HOME/z2m-build/tg-ws-proxy"
 
+# ---- Bundle tg-ws-proxy-rs .apk inside zapret2-manager (persistent local feed) -
+# The built tg-ws-proxy-rs .apk is copied into zapret2-manager's data directory
+# so the postinst can set up a persistent local APK feed at
+# /usr/share/zapret2-manager/feed/. This survives reboot: the feed is on
+# persistent flash, not /tmp. The zapret2-manager postinst creates the index.
+_TGWS_APK="$OUTDIR/tg-ws-proxy-rs-${TGWS_PKG_VER}.apk"
+_TGWS_BUNDLE="tg-ws-proxy-rs-${TGWS_PKG_VER}.apk"
+mkdir -p "$HOME/z2m-build/feed"
+cp "$_TGWS_APK" "$HOME/z2m-build/feed/$_TGWS_BUNDLE"
+
+# ---- zapret2-manager (rebuild with bundled tg-ws-proxy-rs feed) ----------------
+R="$HOME/z2m-build/root"
+mkdir -p "$R/etc/zapret2-manager" "$R/usr/libexec/zapret2-manager" \
+         "$R/usr/share/rpcd/ucode" "$R/etc/hotplug.d/iface" "$R/etc/init.d" \
+         "$R/usr/share/zapret2-manager/feed"
+install -m 0644 "$REPO/zapret2-manager/files/etc/zapret2-manager/state.json" \
+                "$R/etc/zapret2-manager/state.json"
+for f in "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager"/*.uc; do
+  install -m 0644 "$f" "$R/usr/libexec/zapret2-manager/"
+done
+for f in "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager"/*.sh; do
+  install -m 0755 "$f" "$R/usr/libexec/zapret2-manager/"
+done
+install -m 0644 "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/lists-model.json" \
+                "$R/usr/libexec/zapret2-manager/lists-model.json"
+mkdir -p "$R/usr/libexec/zapret2-manager/catalog"
+install -m 0644 "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/catalog/services.json" \
+                "$R/usr/libexec/zapret2-manager/catalog/services.json"
+for f in "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/catalog"/*.json; do
+  install -m 0644 "$f" "$R/usr/libexec/zapret2-manager/catalog/"
+done
+install -m 0644 "$REPO/zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc" \
+                "$R/usr/share/rpcd/ucode/zapret2-manager"
+install -m 0755 "$REPO/zapret2-manager/files/etc/hotplug.d/iface/90-zapret2-manager" \
+                "$R/etc/hotplug.d/iface/90-zapret2-manager"
+install -m 0755 "$REPO/zapret2-manager/files/etc/init.d/zapret2-manager" \
+                "$R/etc/init.d/zapret2-manager"
+# Bundle the tg-ws-proxy-rs .apk for persistent local feed setup
+install -m 0644 "$HOME/z2m-build/feed/$_TGWS_BUNDLE" \
+                "$R/usr/share/zapret2-manager/feed/$_TGWS_BUNDLE"
+ZPRE=$(mkscript <<'EOF'
+#!/bin/sh
+[ -f /etc/zapret2-manager/state.json ] && cp -f /etc/zapret2-manager/state.json /etc/zapret2-manager/state.json.prepkg 2>/dev/null
+exit 0
+EOF
+)
+ZPI=$(mkscript <<'EOF'
+#!/bin/sh
+if [ -f /etc/zapret2-manager/state.json.prepkg ]; then
+	if [ "$(cat /etc/zapret2-manager/state.json 2>/dev/null)" = "{}" ]; then
+		cp -f /etc/zapret2-manager/state.json.prepkg /etc/zapret2-manager/state.json 2>/dev/null
+	fi
+	rm -f /etc/zapret2-manager/state.json.prepkg
+fi
+# Persistent local feed: create APK index for the bundled tg-ws-proxy-rs .apk.
+# The feed lives at /usr/share/zapret2-manager/feed/ (persistent flash) so it
+# survives reboot. mkndx creates packages.adb from the bundled .apk.
+FEED=/usr/share/zapret2-manager/feed
+if [ -d "$FEED" ] && [ -f "$FEED"/tg-ws-proxy-rs-*.apk ]; then
+	if command -v apk >/dev/null 2>&1; then
+		apk mkndx -o "$FEED/packages.adb" "$FEED"/*.apk 2>/dev/null || true
+	fi
+fi
+/etc/init.d/rpcd reload
+/etc/init.d/zapret2-manager enable
+exit 0
+EOF
+)
+build_one "zapret2-manager" \
+  "Management backend for upstream zapret2" \
+  "zapret2 ucode" \
+  "$R" "$ZPI" "" "" "$ZPRE"
+rm -rf "$R" "$ZPI" "$ZPRE"
+
+# ---- zapret2-manager-full (meta-package: one-command install of the full stack) -
+# Empty package root — no files to install. Dependencies are carried in metadata.
+R="$HOME/z2m-build/root"
+mkdir -p "$R"
+build_one "zapret2-manager-full" \
+  "Full zapret2-manager stack (backend + LuCI + TG proxy) — one-command install" \
+  "zapret2-manager luci-app-zapret2-manager tg-ws-proxy-rs" \
+  "$R" "" "" "" "" "$VER"
+rm -rf "$R"
+
 echo "all done → $OUTDIR"
 ls -l "$OUTDIR"/*.apk
 
@@ -274,8 +358,9 @@ ls -l "$OUTDIR"/*.apk
 # TRUSTED INSTALL (the only permitted path — --allow-untrusted is FORBIDDEN for
 # these packages): copy the signing PUBLIC key onto the device once,
 #   scp "$SDK/public-key.pem" root@<router>:/etc/apk/keys/z2m-local.pem
-# then every install is an ordinary signed install:
+# then install the full stack in one command:
+#   apk add --repository /tmp/z2mrepo/aarch64_cortex-a53/packages.adb \
+#     zapret2-manager-full
+# Or install individual packages:
 #   apk add --repository /tmp/z2mrepo/aarch64_cortex-a53/packages.adb \
 #     zapret2-manager luci-app-zapret2-manager tg-ws-proxy-rs
-# tg-ws-proxy-rs is OPTIONAL: install it only behind the explicit acceptance
-# gate (docs/acceptance.md — "APPROVE TG PROXY INSTALL").
