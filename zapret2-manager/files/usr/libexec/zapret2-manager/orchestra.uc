@@ -124,7 +124,7 @@ function parseIntSafe(s) {
 	if (s == null || s == '') return null;
 	let n = +s;
 	if (n != n) return null;
-	if (abs(n) > 2147483647) return null;
+	if (n > 2147483647 || n < -2147483647) return null;
 	return n;
 }
 
