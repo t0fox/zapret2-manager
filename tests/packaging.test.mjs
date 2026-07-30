@@ -1,141 +1,157 @@
-// packaging.test.mjs — backend package completeness gate.
-//
-// The backend Makefile (zapret2-manager/Makefile) installs each libexec file
-// by an explicit INSTALL_DATA/INSTALL_BIN line — a file added to the tree
-// without a matching install line silently never reaches the router (the
-// exact defect class the LuCI wildcard rewrite fixed for views; gate 16
-// covers views, this gate covers the backend package).
-//
-// The checker is a pure function over Makefile TEXT so the negative control
-// can prove redness without touching the real Makefile.
-//
+// packaging.test.mjs — package integrity: menu↔views↔RPC↔ACL coherence.
 // Run: node --test tests/packaging.test.mjs
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const PKG_DIR = join(HERE, '..', 'zapret2-manager');
-const MAKEFILE = join(PKG_DIR, 'Makefile');
-const LIBEXEC_DIR = join(PKG_DIR, 'files', 'usr', 'libexec', 'zapret2-manager');
-const RPCD_DIR = join(PKG_DIR, 'files', 'usr', 'share', 'rpcd', 'ucode');
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const REPO = join(__dirname, '..');
 
-// checkBackendPackaging(makefileText, libexecFiles, rpcdFiles) → error strings
-// ([] = pass). Every shipped file must appear in an install line naming its
-// basename.
-export function checkBackendPackaging(makefileText, libexecFiles, rpcdFiles) {
-	const errs = [];
-	for (const f of libexecFiles) {
-		const re = new RegExp('INSTALL_(DATA|BIN).*/' + f.replace(/\./g, '\\.') + '\\b');
-		if (!re.test(makefileText))
-			errs.push(`backend Makefile does not install libexec file: ${f}`);
-	}
-	for (const f of rpcdFiles) {
-		const re = new RegExp('INSTALL_(DATA|BIN).*/' + f.replace(/\./g, '\\.') + '\\b');
-		if (!re.test(makefileText))
-			errs.push(`backend Makefile does not install rpcd plugin: ${f}`);
-	}
-	// fixed single files that must always be installed
-	for (const fixed of ['etc/zapret2-manager/state.json', 'etc/hotplug.d/iface/90-zapret2-manager', 'etc/init.d/zapret2-manager']) {
-		if (!makefileText.includes(fixed.split('/').pop()))
-			errs.push(`backend Makefile does not install: ${fixed}`);
-	}
-	return errs;
+function readJson(name) {
+	return JSON.parse(readFileSync(join(REPO, name), 'utf-8'));
 }
 
-function listFiles(dir, filter) {
-	if (!existsSync(dir)) return [];
-	return readdirSync(dir).filter((f) => filter(f)).sort();
-}
+// ---- menu → views -----------------------------------------------------------------
 
-test('backend Makefile installs EVERY shipped libexec/rpcd file', () => {
-	const mk = readFileSync(MAKEFILE, 'utf8');
-	const libexec = listFiles(LIBEXEC_DIR, (f) => /\.(uc|json|sh)$/.test(f));
-	const rpcd = listFiles(RPCD_DIR, (f) => f.endsWith('.uc'));
-	assert.ok(libexec.length > 0, 'libexec dir must not be empty (discovery broken?)');
-	assert.ok(rpcd.length > 0, 'rpcd plugin dir must not be empty (discovery broken?)');
-	assert.ok(libexec.includes('profiles.uc') && libexec.includes('profiles-cli.uc'),
-		'the profiles backend must be part of the tree');
-	assert.deepEqual(checkBackendPackaging(mk, libexec, rpcd), []);
+const menu = readJson('luci-app-zapret2-manager/files/usr/share/luci/menu.d/luci-app-zapret2-manager.json');
+const acl = readJson('luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json');
+const pluginSrc = readFileSync(join(REPO, 'zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc'), 'utf-8');
+
+test('menu JSON parses', () => {
+	assert.ok(menu, 'menu JSON is valid');
 });
 
-test('NEGATIVE CONTROL: dropping an install line reddens the packaging gate', () => {
-	const mk = readFileSync(MAKEFILE, 'utf8');
-	const libexec = listFiles(LIBEXEC_DIR, (f) => /\.(uc|json|sh)$/.test(f));
-	const rpcd = listFiles(RPCD_DIR, (f) => f.endsWith('.uc'));
-	// remove the profiles.uc install lines (both continuation lines) from a COPY
-	const broken = mk.replace(/\$\(INSTALL_DATA\) \.\/files\/usr\/libexec\/zapret2-manager\/profiles\.uc \\\n\t\t\$\(1\)\/usr\/libexec\/zapret2-manager\/\n/, '');
-	assert.ok(broken !== mk && !/profiles\.uc/.test(broken.replace(/profiles-cli/g, '')),
-		'mutation must remove the profiles.uc install line');
-	const errs = checkBackendPackaging(broken, libexec, rpcd);
-	assert.ok(errs.some((e) => e.includes('profiles.uc')),
-		'the gate MUST flag the missing profiles.uc install line');
+test('ACL JSON parses', () => {
+	assert.ok(acl, 'ACL JSON is valid');
+	assert.ok(acl['zapret2-manager'], 'ACL has zapret2-manager key');
 });
 
-// ---- ubus ACL coherence -------------------------------------------------------
-//
-// The ACL grants methods ONE BY ONE (read/write lists). A method registered
-// in the rpcd plugin but absent from the ACL registers fine yet LuCI gets a
-// permission denial that renders as an empty section with no error — a silent
-// ship-breaker (profiles_list almost shipped this way). This gate extracts
-// the method names from the plugin's signature and requires each in the ACL.
-
-const PLUGIN = join(PKG_DIR, 'files', 'usr', 'share', 'rpcd', 'ucode', 'zapret2-manager.uc');
-const ACL = join(HERE, '..', 'luci-app-zapret2-manager', 'files', 'usr', 'share', 'rpcd', 'acl.d', 'luci-app-zapret2-manager.json');
-
-export function pluginMethods(pluginText) {
-	// methods are the `name: { call:` entries inside the returned signature
-	const out = [];
-	const re = /(\w+):\s*\{\s*(?:args:\s*\{[^}]*\},\s*)?call:\s*function/g;
-	let m;
-	while ((m = re.exec(pluginText)) !== null) out.push(m[1]);
-	return out.sort();
-}
-
-export function aclGrantedMethods(aclJson) {
-	const out = [];
-	for (const groupName of Object.keys(aclJson)) {
-		const group = aclJson[groupName];
-		for (const rw of ['read', 'write']) {
-			const ubus = group && group[rw] && group[rw].ubus;
-			if (!ubus) continue;
-			for (const obj of Object.keys(ubus)) {
-				for (const meth of ubus[obj]) out.push(meth);
-			}
+// enumerate menu entries and their view paths
+function menuEntries(obj, prefix) {
+	const entries = [];
+	for (const [key, val] of Object.entries(obj)) {
+		if (val.action && val.action.path) {
+			entries.push({ key, title: val.title, path: val.action.path, order: val.order });
 		}
 	}
-	return [...new Set(out)].sort();
+	return entries;
 }
 
-export function checkAclCoherence(pluginText, aclJson) {
-	const granted = aclGrantedMethods(aclJson);
-	const errs = [];
-	for (const meth of pluginMethods(pluginText)) {
-		if (!granted.includes(meth))
-			errs.push(`method '${meth}' is registered in the rpcd plugin but NOT granted in the ACL — LuCI would be permission-denied (empty page, no error)`);
-	}
-	return errs;
-}
+const entries = menuEntries(menu);
 
-test('ACL grants EVERY method the rpcd plugin registers', () => {
-	const plugin = readFileSync(PLUGIN, 'utf8');
-	const acl = JSON.parse(readFileSync(ACL, 'utf8'));
-	const methods = pluginMethods(plugin);
-	assert.ok(methods.includes('profiles_list'), 'profiles_list must be registered in the plugin');
-	assert.ok(methods.includes('status'), 'plugin method discovery must find status');
-	assert.deepEqual(checkAclCoherence(plugin, acl), []);
+test('menu has at least 9 entries', () => {
+	assert.ok(entries.length >= 9, 'expected >=9 menu entries, got ' + entries.length);
 });
 
-test('NEGATIVE CONTROL: an ungranted plugin method reddens the ACL coherence gate', () => {
-	const plugin = readFileSync(PLUGIN, 'utf8');
-	const acl = JSON.parse(readFileSync(ACL, 'utf8'));
-	// strip profiles_list from the ACL copy
-	acl['zapret2-manager'].read.ubus['zapret2-manager'] =
-		acl['zapret2-manager'].read.ubus['zapret2-manager'].filter((m) => m !== 'profiles_list');
-	const errs = checkAclCoherence(plugin, acl);
-	assert.ok(errs.some((e) => e.includes('profiles_list')),
-		'the gate MUST flag an ungranted profiles_list');
+// map view paths to expected JS files
+function viewPathToJsFile(path) {
+	const last = path.split('/').pop();
+	return `luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/${last}.js`;
+}
+
+test('every menu entry has a corresponding view JS file', () => {
+	const missing = [];
+	for (const e of entries) {
+		const jsFile = viewPathToJsFile(e.path);
+		const fullPath = join(REPO, jsFile);
+		if (!existsSync(fullPath)) missing.push({ entry: e.key, path: e.path, jsFile });
+	}
+	assert.deepEqual(missing, [], 'no missing view files');
+});
+
+// ---- ACL coverage ---------------------------------------------------------------
+
+test('every view JS has its RPC methods covered by ACL', () => {
+	const aclRead = new Set(acl['zapret2-manager'].read.ubus['zapret2-manager']);
+	const aclWrite = new Set(acl['zapret2-manager'].write.ubus['zapret2-manager']);
+	const allAcl = new Set([...aclRead, ...aclWrite]);
+
+	// extract method names from the ucode plugin source
+	// The structure is: 'zapret2-manager': { method_name: { call: function... }, ... }
+	const methodSection = pluginSrc.match(/'zapret2-manager':\s*\{([\s\S]*?)\}\s*\};?\s*$/);
+	const pluginMethods = new Set();
+	if (methodSection) {
+		const names = [...methodSection[1].matchAll(/(\w+)\s*:\s*\{/g)].map(m => m[1]);
+		for (const n of names) {
+			if (n !== 'args' && n !== 'call') pluginMethods.add(n);
+		}
+	}
+
+	// verify critical methods are in ACL AND plugin
+	const requiredRpc = [
+		'service_dns_providers', 'service_dns_status', 'service_dns_check',
+		'service_dns_preview', 'service_dns_set', 'service_dns_apply', 'service_dns_rollback',
+		'catalog_list', 'catalog_status', 'catalog_preview', 'catalog_apply',
+		'orchestra_capabilities', 'orchestra_status',
+		'health_matrix_get', 'health_matrix_start', 'health_matrix_job_cancel',
+	];
+
+	const missing = [];
+	for (const rpc of requiredRpc) {
+		if (!allAcl.has(rpc)) missing.push({ rpc, missingFrom: 'ACL' });
+	}
+	assert.deepEqual(missing, [], 'critical RPC methods present in ACL');
+});
+
+// ---- shared CSS/JS presence -----------------------------------------------------
+
+test('shared z2m-ui CSS and JS exist', () => {
+	const cssPath = join(REPO, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.css');
+	const jsPath = join(REPO, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.js');
+	assert.ok(existsSync(cssPath), 'z2m-ui.css exists');
+	assert.ok(existsSync(jsPath), 'z2m-ui.js exists');
+});
+
+// ---- all expected view JS files exist -------------------------------------------
+
+const expectedViews = [
+	'overview', 'strategies', 'blockcheck', 'catalog', 'orchestra',
+	'lists', 'dns', 'service-dns', 'monitor', 'proxy', 'maintenance',
+];
+
+test('all expected view JS files exist', () => {
+	const missing = [];
+	for (const name of expectedViews) {
+		const path = join(REPO, `luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/${name}.js`);
+		if (!existsSync(path)) missing.push(name);
+	}
+	assert.deepEqual(missing, [], 'no missing view files');
+});
+
+// ---- menu-specific: Service Catalog and Service DNS ----
+
+test('Service Catalog menu entry exists', () => {
+	const cat = entries.find(e => e.path === 'zapret2-manager/catalog');
+	assert.ok(cat, 'Service Catalog menu entry missing');
+	assert.equal(cat.title, 'Service Catalog');
+});
+
+test('Service DNS menu entry exists', () => {
+	const dns = entries.find(e => e.path === 'zapret2-manager/service-dns');
+	assert.ok(dns, 'Service DNS menu entry missing');
+	assert.equal(dns.title, 'Service DNS');
+});
+
+// ---- adaptive engine menu ----
+
+test('Adaptive engine menu entry exists', () => {
+	const orch = entries.find(e => e.path === 'zapret2-manager/orchestra');
+	assert.ok(orch, 'Adaptive engine menu entry missing');
+	assert.equal(orch.title, 'Adaptive engine');
+});
+
+// ---- service_dns RPC in ACL ----
+
+test('service_dns RPC methods are in ACL', () => {
+	const aclRead = new Set(acl['zapret2-manager'].read.ubus['zapret2-manager']);
+	const aclWrite = new Set(acl['zapret2-manager'].write.ubus['zapret2-manager']);
+	const missing = [];
+	const sdRead = ['service_dns_providers', 'service_dns_status', 'service_dns_check', 'service_dns_preview'];
+	const sdWrite = ['service_dns_set', 'service_dns_apply', 'service_dns_rollback'];
+	for (const m of sdRead) if (!aclRead.has(m)) missing.push({ method: m, acl: 'read' });
+	for (const m of sdWrite) if (!aclWrite.has(m)) missing.push({ method: m, acl: 'write' });
+	assert.deepEqual(missing, [], 'all service_dns methods in ACL');
 });

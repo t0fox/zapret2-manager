@@ -11,7 +11,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-zapret2-manager
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=36
+PKG_RELEASE:=37
 PKG_MAINTAINER:=Ásgeir
 PKG_LICENSE:=MIT
 PKGARCH:=all
@@ -65,8 +65,9 @@ define Package/luci-app-zapret2-manager/postinst
 # Reset LuCI caches so the new view is picked up immediately, then reload the
 # daemons that serve it. Without this, a freshly installed page can 404 or
 # render stale until the next cache rebuild.
-rm -f /tmp/luci-indexcache
-rm -rf /tmp/luci-modulecache/* 2>/dev/null || true
+# LuCI uses numbered cache files (e.g. luci-indexcache.<pid>.json) so glob.
+rm -f /tmp/luci-indexcache*
+rm -rf /tmp/luci-modulecache 2>/dev/null || true
 /etc/init.d/rpcd reload
 /etc/init.d/uhttpd reload
 exit 0
@@ -74,8 +75,8 @@ endef
 
 define Package/luci-app-zapret2-manager/postrm
 #!/bin/sh
-rm -f /tmp/luci-indexcache
-rm -rf /tmp/luci-modulecache/* 2>/dev/null || true
+rm -f /tmp/luci-indexcache*
+rm -rf /tmp/luci-modulecache 2>/dev/null || true
 exit 0
 endef
 

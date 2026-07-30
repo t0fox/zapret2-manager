@@ -70,11 +70,11 @@ export const read_var = function(name) {
 					let q = index(lines[j], '"');
 					if (q >= 0) {
 						if (q > 0) push(buf, substr(lines[j], 0, q));
-						return join('\n', buf);
+						return join(buf, '\n');
 					}
 					push(buf, lines[j]);
 				}
-				return join('\n', buf);   // unterminated (should not happen)
+				return join(buf, '\n');   // unterminated (should not happen)
 			}
 			// single-line quoted: closing " is the LAST " in the line (rindex, so
 			// a value with an INNER " like VAR="a "b" c" is still single-line).
@@ -88,11 +88,11 @@ export const read_var = function(name) {
 				let q = index(lines[j], '"');
 				if (q >= 0) {
 					if (q > 0) push(buf, substr(lines[j], 0, q));
-					return join('\n', buf);
+					return join(buf, '\n');
 				}
 				push(buf, lines[j]);
 			}
-			return join('\n', buf);   // unterminated (should not happen)
+			return join(buf, '\n');   // unterminated (should not happen)
 		}
 		return rest;   // unquoted single-line value
 	}
@@ -130,7 +130,7 @@ function render_var(config, name, value) {
 				for (let k = 0; k < i; k++) push(result, lines[k]);
 				push(result, prefix + value);
 				for (let k = i + 1; k < length(lines); k++) push(result, lines[k]);
-				return join('\n', result);
+				return join(result, '\n');
 			}
 			let result = [];
 			for (let k = 0; k < i; k++) push(result, lines[k]);
@@ -143,7 +143,7 @@ function render_var(config, name, value) {
 				push(result, prefix + '"' + value + '"');
 			}
 			for (let k = end + 1; k < length(lines); k++) push(result, lines[k]);
-			return join('\n', result);
+			return join(result, '\n');
 		}
 		// single-line quoted: VAR="value" (closing " is the last " in the line, so
 		// an inner " like in VAR="a "b" c" still counts as single-line). Preserve the
@@ -153,14 +153,14 @@ function render_var(config, name, value) {
 			for (let k = 0; k < i; k++) push(result, lines[k]);
 			push(result, prefix + '"' + value + '"');
 			for (let k = i + 1; k < length(lines); k++) push(result, lines[k]);
-			return join('\n', result);
+			return join(result, '\n');
 		}
 		// single-line unquoted: replace the one line
 		let result = [];
 		for (let k = 0; k < i; k++) push(result, lines[k]);
 		push(result, prefix + value);
 		for (let k = i + 1; k < length(lines); k++) push(result, lines[k]);
-		return join('\n', result);
+		return join(result, '\n');
 	}
 	// not found (or only commented): append a new active assignment
 	let sep = (length(config) == 0 || substr(config, length(config) - 1, 1) == '\n') ? '' : '\n';
