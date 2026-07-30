@@ -332,7 +332,7 @@ function save_service_dns_state(state) {
 		if (mt && age < 60) return false;
 		try { unlink(MARKER); } catch (e) { }
 	}
-	try { writefile(MARKER, '' + time() + '\n'); } catch (e) { }
+	try { writefile(MARKER, '' + time() + "\n"); } catch (e) { }
 	// backup rotation
 	let BAK1 = STATE_PATH + '.bak.1';
 	let BAK2 = STATE_PATH + '.bak.2';
@@ -340,7 +340,7 @@ function save_service_dns_state(state) {
 	if (stat(BAK1)) { let p = popen('mv -f ' + BAK1 + ' ' + BAK2 + ' 2>/dev/null', 'r'); if (p) p.close(); }
 	if (stat(STATE_PATH)) { let p = popen('cp -p ' + STATE_PATH + ' ' + BAK1 + ' 2>/dev/null', 'r'); if (p) p.close(); }
 	// atomic write
-	let out = sprintf("%J", { serviceDns: state }) + '\n';
+	let out = sprintf("%J", { serviceDns: state }) + "\n";
 	let tmp = STATE_PATH + '.tmp.' + time();
 	writefile(tmp, out);
 	let p = popen('mv -f ' + tmp + ' ' + STATE_PATH + ' 2>/dev/null', 'r');
@@ -443,8 +443,8 @@ export const render_hosts_with_ownership = function(records, ownershipMap) {
 	// bound output
 	if (length(arr) > 256) arr = _slice(arr, 0, 256);
 	arr.sort();
-	let out = '# zapret2-manager DNS overrides (manager-owned; edit via the DNS or Service DNS pages)\n';
-	for (let i = 0; i < length(arr); i++) out += arr[i] + '\n';
+	let out = "# zapret2-manager DNS overrides (manager-owned; edit via the DNS or Service DNS pages)\n";
+	for (let i = 0; i < length(arr); i++) out += arr[i] + "\n";
 	// bound bytes
 	if (length(out) > 16384) out = substr(out, 0, 16384);
 	return out;
@@ -454,7 +454,7 @@ export const render_hosts_with_ownership = function(records, ownershipMap) {
 function parse_existing_overrides() {
 	let raw = readfile(OVERRIDES_PATH);
 	if (!raw) return { entries: [], ownership: {} };
-	let lines = split(raw, '\n');
+	let lines = split(raw, "\n");
 	let out = [];
 	let ownership = {};
 	for (let i = 0; i < length(lines); i++) {

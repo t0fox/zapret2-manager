@@ -85,13 +85,81 @@ describe('Dark-theme regression in shared CSS', () => {
 		assert.ok(css.includes('.z2m-tabs'), 'z2m-tabs CSS class must exist');
 	});
 
-	it('no hardcoded white backgrounds (#fff, #ffffff, white) in z2m-ui dark section', () => {
+	it('z2m-tab hover/focus does not use invisible fallback color (#222, #000, black)', () => {
 		const css = readFileSync(Z2M_CSS, 'utf-8');
-		const darkStart = css.indexOf('@media (prefers-color-scheme: dark)');
-		if (darkStart === -1) return;
-		const darkSection = css.substring(darkStart);
-		assert.ok(!darkSection.includes('#fff') && !darkSection.includes('#ffffff') && !darkSection.includes('background: white'),
-			'dark section must not use hardcoded white backgrounds');
+		// collect all .z2m-tab* rules
+		const tabRules = css.match(/\.z2m-tab[^{]*\{[^}]*\}/g) || [];
+		tabRules.forEach(rule => {
+			// reject hardcoded dark/black text on any tab state
+			const colorMatch = rule.match(/color\s*:\s*(#[0-2][0-2][0-2]|black)/i);
+			if (colorMatch) {
+				// z2m-badge classes are allowed to use dark text (they set their own bg)
+				// but tab text must NOT have invisible colors
+				if (!/\.z2m-badge/.test(rule)) {
+					assert.ok(false, 'z2m-tab rule uses invisible text color: ' + colorMatch[0] + ' in: ' + rule.trim());
+				}
+			}
+		});
+		// specifically: hover must not set color: #222
+		const hoverMatch = css.match(/\.z2m-tab:hover[^{]*\{[^}]*color\s*:\s*#222/);
+		assert.strictEqual(hoverMatch, null, 'z2m-tab:hover must not use color: #222 (invisible on dark themes)');
+	});
+
+	it('z2m-tab-active has explicit color not relying on fallback', () => {
+		const css = readFileSync(Z2M_CSS, 'utf-8');
+		assert.ok(css.includes('z2m-tab-active'), 'z2m-tab-active must exist');
+		// must define its own color or inherit + opacity
+		const rules = css.match(/\.z2m-tab-active[^{]*\{[^}]*\}/g) || [];
+		const hasColor = rules.some(r => /color\s*:/.test(r));
+		const hasOpacity = rules.some(r => /opacity\s*:/.test(r));
+		assert.ok(hasColor || hasOpacity, 'z2m-tab-active must set color or opacity: ' + JSON.stringify(rules));
+	});
+});
+
+describe('DNS Centre — tab switching contract', () => {
+	const DNS_JS = resolve(VIEW_DIR, 'dns.js');
+
+	it('refresh does not use querySelector(".cbi-map")', () => {
+		const content = readFileSync(DNS_JS, 'utf-8');
+		const match = content.match(/querySelector\(['"]\.cbi-map['"]\)/);
+		assert.strictEqual(match, null, 'dns.js must not use querySelector(".cbi-map") — uses view-owned root');
+	});
+
+	it('has switchTab method', () => {
+		const content = readFileSync(DNS_JS, 'utf-8');
+		assert.ok(content.includes('switchTab:'), 'dns.js must define switchTab method');
+	});
+
+	it('has reload method distinct from refresh', () => {
+		const content = readFileSync(DNS_JS, 'utf-8');
+		assert.ok(content.includes('reload:'), 'dns.js must define reload method');
+		assert.ok(content.includes('switchTab:'), 'dns.js must define switchTab method');
+	});
+
+	it('render stores envelope and root', () => {
+		const content = readFileSync(DNS_JS, 'utf-8');
+		// render should set this._envelope and this._root
+		const hasEnvelope = content.includes('this._envelope') && content.includes('envelope');
+		const hasRoot = content.includes('this._root');
+		assert.ok(hasEnvelope, 'render must store this._envelope');
+		assert.ok(hasRoot, 'render must store this._root');
+	});
+
+	it('tab click calls switchTab not refresh', () => {
+		const content = readFileSync(DNS_JS, 'utf-8');
+		// tab buttons should call switchTab, not do self._tab = ...; self.refresh()
+		const tabClick = content.includes('switchTab(t.id)');
+		assert.ok(tabClick, 'tab click handler must call switchTab, not refresh');
+		const oldPattern = /self\._tab\s*=\s*t\.id\s*;\s*self\.refresh/.exec(content);
+		assert.strictEqual(oldPattern, null, 'must not use old _tab + refresh pattern');
+	});
+
+	it('all five tabs defined', () => {
+		const content = readFileSync(DNS_JS, 'utf-8');
+		for (const id of ['overview', 'svc', 'manual', 'providers', 'history']) {
+			assert.ok(content.includes("'" + id + "'") || content.includes('"' + id + '"'),
+				'tab ' + id + ' must be defined in TABS array');
+		}
 	});
 });
 

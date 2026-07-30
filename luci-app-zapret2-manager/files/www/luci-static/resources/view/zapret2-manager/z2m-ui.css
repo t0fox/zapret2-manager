@@ -257,17 +257,35 @@
 	border-bottom: 2px solid transparent;
 	margin-bottom: -2px;
 	background: transparent;
-	color: var(--subtle, #666);
+	color: inherit;
+	opacity: 0.72;
 	cursor: pointer;
 	font-size: 0.9em;
 	font-weight: 600;
 	white-space: nowrap;
-	transition: color 0.15s, border-color 0.15s;
+	transition: color 0.15s, opacity 0.15s, border-color 0.15s, background 0.15s;
 }
-.z2m-tab:hover { color: var(--text, #222); }
-.z2m-tab-active {
-	color: var(--accent, #1a73e8);
-	border-bottom-color: var(--accent, #1a73e8);
+.z2m-tab:hover,
+.z2m-tab:focus-visible {
+	color: inherit;
+	opacity: 1;
+	background: rgba(127, 127, 127, 0.12);
+}
+.z2m-tab:focus-visible {
+	outline: 2px solid var(--accent, #4db6e8);
+	outline-offset: -2px;
+}
+.z2m-tab-active,
+.z2m-tab-active:hover,
+.z2m-tab-active:focus-visible {
+	color: var(--z2m-accent, #4db6e8);
+	opacity: 1;
+	border-bottom-color: var(--z2m-accent, #4db6e8);
+	background: transparent;
+}
+.z2m-tab:disabled {
+	opacity: 0.4;
+	cursor: not-allowed;
 }
 
 /* ---- responsive ---- */

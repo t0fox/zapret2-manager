@@ -106,6 +106,15 @@ return L.view.extend({
 
 	render: function (envelope) {
 		injectCSS();
+		this._envelope = envelope || {};
+		if (!this._tab) this._tab = 'overview';
+		var container = this._buildDOM(this._envelope);
+		this._root = container;
+		return container;
+	},
+
+	// ---- DOM builder (shared by initial render and tab switches) --------
+	_buildDOM: function (envelope) {
 		envelope = envelope || {};
 		var dns = envelope.dns || {};
 		var sdnsStatus = envelope.sdnsStatus || {};
@@ -135,7 +144,7 @@ return L.view.extend({
 				'class': 'z2m-tab' + (tab === t.id ? ' z2m-tab-active' : ''),
 				'type': 'button'
 			}, t.label);
-			btn.addEventListener('click', function () { self._tab = t.id; self.refresh(); });
+			btn.addEventListener('click', function () { self.switchTab(t.id); });
 			nav.appendChild(btn);
 		});
 		container.appendChild(nav);
@@ -1044,13 +1053,31 @@ return L.view.extend({
 		]);
 	},
 
-	refresh: function () {
+	// ---- internal tab switch (no RPC reload) ----
+	switchTab: function (tabId) {
+		this._tab = tabId;
+		var oldRoot = this._root;
+		var newRoot = this._buildDOM(this._envelope);
+		if (oldRoot && oldRoot.parentNode)
+			oldRoot.parentNode.replaceChild(newRoot, oldRoot);
+		this._root = newRoot;
+	},
+
+	// ---- full reload (after data mutations) ----
+	reload: function () {
 		var self = this;
 		this.load().then(function (envelope) {
-			var old = document.querySelector('.cbi-map');
-			if (old && old.parentNode)
-				old.parentNode.replaceChild(self.render(envelope), old);
+			self._envelope = envelope;
+			var oldRoot = self._root;
+			var newRoot = self._buildDOM(envelope);
+			if (oldRoot && oldRoot.parentNode)
+				oldRoot.parentNode.replaceChild(newRoot, oldRoot);
+			self._root = newRoot;
 		});
+	},
+
+	refresh: function () {
+		this.reload();
 	},
 
 	handleSaveApply: null,
