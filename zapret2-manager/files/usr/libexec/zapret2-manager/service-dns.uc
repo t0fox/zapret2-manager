@@ -113,7 +113,7 @@ function validate_hostname_ucode(name) {
 	if (type(name) != 'string') return { ok: false, reason: 'hostname must be a string' };
 	let raw = name;
 	// reject whitespace/control chars before trimming (injection vectors)
-	if (match(raw, /[\s\x00-\x1f\x7f]/)) return { ok: false, reason: 'whitespace/control characters in hostname' };
+	if (match(raw, /[\x01-\x09\x0b\x0c\x0e-\x1f\x7f]/)) return { ok: false, reason: 'whitespace/control characters in hostname' };
 	let h = lc(trim(raw));
 	if (h == '') return { ok: false, reason: 'empty hostname' };
 	if (length(h) > 253) return { ok: false, reason: 'hostname too long (>253)' };
