@@ -22,7 +22,8 @@ import { proxy_capabilities, proxy_status } from './proxy.uc';
 import {
 	proxycfg_get, proxycfg_validate, proxycfg_preview, proxycfg_apply,
 	proxycfg_start, proxycfg_stop, proxycfg_restart, proxycfg_autostart,
-	proxycfg_secret_rotate, proxycfg_logs_tail, proxycfg_health, proxycfg_link_info
+	proxycfg_secret_rotate, proxycfg_logs_tail, proxycfg_health, proxycfg_link_info,
+	proxycfg_quick_install
 } from './proxycfg.uc';
 
 function read_args(file) {
@@ -68,7 +69,9 @@ if (mode == 'capabilities') {
 	emit(proxycfg_autostart(read_args(ARGV[1])));
 } else if (mode == 'secret_rotate') {
 	emit(proxycfg_secret_rotate());
+} else if (mode == 'quick_install') {
+	emit(proxycfg_quick_install());
 } else {
-	print('usage: ucode proxy-cli.uc capabilities | status | config_get | logs_tail [f] | health [f] | link_info [f] | validate <f> | preview <f> | apply <f> | start | stop | restart | autostart <f> | secret_rotate\n');
+	print('usage: ucode proxy-cli.uc capabilities | status | config_get | logs_tail [f] | health [f] | link_info [f] | validate <f> | preview <f> | apply <f> | start | stop | restart | autostart <f> | secret_rotate | quick_install\n');
 	exit(1);
 }

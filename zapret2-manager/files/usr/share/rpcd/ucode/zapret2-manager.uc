@@ -347,6 +347,7 @@ function proxy_stop_method(req) { return cli_action(PROXY_CLI, 'stop'); }
 function proxy_restart_method(req) { return cli_action(PROXY_CLI, 'restart'); }
 function proxy_autostart_set_method(req) { return cli_edit_action(PROXY_CLI, 'autostart', req, 'proxy'); }
 function proxy_secret_rotate_method(req) { return cli_action(PROXY_CLI, 'secret_rotate'); }
+function proxy_quick_install_method(req) { return cli_action(PROXY_CLI, 'quick_install'); }
 function backup_restore_preview_method(req) { return cli_edit_action(BACKUP_CLI, 'preview', req, 'backup'); }
 function backup_restore_method(req) { return cli_edit_action(BACKUP_CLI, 'restore', req, 'backup'); }
 function backup_delete_method(req) { return cli_edit_action(BACKUP_CLI, 'delete', req, 'backup'); }
@@ -457,6 +458,7 @@ return {
 		proxy_restart:     { call: function (req) { return proxy_restart_method(req); } },
 		proxy_autostart_set: { args: { edit: 'string' }, call: function (req) { return proxy_autostart_set_method(req); } },
 		proxy_secret_rotate: { call: function (req) { return proxy_secret_rotate_method(req); } },
+		proxy_quick_install: { call: function (req) { return proxy_quick_install_method(req); } },
 		versions:          { call: function (req) { return versions_method(req); } },
 		maintenance_status: { call: function (req) { return maintenance_status_method(req); } },
 		events_tail:       { args: { edit: 'string' }, call: function (req) { return events_tail_method(req); } },

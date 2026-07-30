@@ -22,7 +22,8 @@
 					"catalog_apply",
 					"health_matrix_start", "health_matrix_job_cancel",
 					"proxy_config_apply", "proxy_start", "proxy_stop",
-					"proxy_restart", "proxy_autostart_set", "proxy_secret_rotate"
+					"proxy_restart", "proxy_autostart_set", "proxy_secret_rotate",
+					"proxy_quick_install"
 				]
 			}
 		}

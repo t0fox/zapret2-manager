@@ -1162,7 +1162,7 @@ function load_applied_full() {
 // ---- file writes ---------------------------------------------------------------
 
 function gen_secret() {
-	let r = run('head -c 16 /dev/urandom | od -An -tx1 | tr -d "[:space:]"');
+	let r = run('head -c 16 /dev/urandom | hexdump -v -e \'16/1 "%02x"\'');
 	let s = trim(r.out);
 	if (length(s) == SECRET_LEN && all_hex(s)) return s;
 	return null;
@@ -1703,4 +1703,65 @@ export const proxycfg_link_info = function(input) {
 	base.revealed = true;
 	// NEVER event-log the link
 	return base;
+};
+
+export const proxycfg_quick_install = function () {
+	let pkg = probe_pkg();
+	if (!pkg.installed) return rpc_err('ENOPKG', 'optional package ' + PKG_NAME + ' is not installed');
+	let bin = probe_binary();
+	if (!bin.present) return rpc_err('ENOBIN', 'binary ' + BINARY_PATH + ' is missing');
+	let addrs = probe_lan_addresses();
+	if (length(addrs) == 0) return rpc_err('ENET', 'no LAN IPv4 address found');
+	let host = addrs[0];
+	let sec = probe_secret_read();
+	let generated = false;
+	let secretVal = (sec.exists && sec.mode == 384 && sec.secret != null) ? sec.secret : null;
+	if (secretVal == null) {
+		let gen = gen_secret();
+		if (gen == null) return rpc_err('ETARGET', 'CSPRNG secret generation failed');
+		if (!write_secret_file(gen)) return rpc_err('ETARGET', 'secret.conf write/verify failed');
+		secretVal = gen;
+		generated = true;
+	}
+	let config = {
+		enabled: true, autostart: true, host: host, port: 1443, linkIp: '',
+		faketlsDomain: '', dcIps: [], cfDomains: [], cfWorkerDomains: [],
+		cfPriority: false, cfBalance: false, defaultDomains: false,
+		mtprotoProxies: [], outboundProxy: '', noProxy: '',
+		poolSize: 4, bufKb: 256, maxConnections: 0, quiet: true, verbose: false
+	};
+	let ev0 = build_evidence();
+	let snap = snapshot_apply(ev0.running, ev0.rcDEnabled);
+	let rf = function () { return rollback_apply(snap); };
+	if (!write_config_conf(render_config_conf(config))) {
+		let r = rf(); return { ok: false, error: { code: 'ETARGET', message: 'config.conf write failed' }, rolledBack: true, rollbackFailures: r.failures };
+	}
+	let st = load_state();
+	let state = (st.ok && st.state != null) ? st.state : empty_state();
+	let curRev = (state.applied != null && type(state.applied.revision) == 'int') ? state.applied.revision : 0;
+	state.draft = sanitize_config(config);
+	state.applied = sanitize_config(config);
+	state.applied.revision = curRev + 1;
+	state.applied.appliedAt = time();
+	if (!save_state(state)) { let r = rf(); return { ok: false, error: { code: 'ETARGET', message: 'state write failed' }, rolledBack: true, rollbackFailures: r.failures }; }
+	if (!ev0.rcDEnabled) {
+		let arc = service_do('enable');
+		if (arc != 0) { let r = rf(); return { ok: false, error: { code: 'ETARGET', message: 'init enable failed (rc ' + arc + ')' }, rolledBack: true, rollbackFailures: r.failures }; }
+	}
+	let action = ev0.running ? 'restart' : 'start';
+	let rc = service_do(action);
+	if (rc != 0) { let r = rf(); return { ok: false, error: { code: 'ETARGET', message: 'init ' + action + ' failed (rc ' + rc + ')' }, rolledBack: true, rollbackFailures: r.failures }; }
+	let rr = reread();
+	let v = verify_started(config, rr);
+	if (!v.ok) { let r = rf(); return { ok: false, error: { code: 'ETARGET', message: 'post-install verification failed' }, failures: v.failures, rolledBack: true, rollbackFailures: r.failures }; }
+	let link = build_tg_link(config, secretVal);
+	let rm = popen('rm -rf ' + SNAP_DIR + ' 2>/dev/null', 'r');
+	if (rm) rm.close();
+	event_proxy('info', 'proxy quick-installed on ' + host + ':1443 (secret ' + (generated ? 'generated' : 'existing') + ')', null);
+	return {
+		ok: true, link: link, server: host, port: 1443,
+		secret: (generated ? 'generated' : 'existing'),
+		autostart: true, running: true,
+		reread: { pids: rr.pids, listeners: rr.listeners }
+	};
 };
