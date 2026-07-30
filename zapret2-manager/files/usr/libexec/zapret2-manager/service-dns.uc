@@ -1,0 +1,938 @@
+'use strict';
+// service-dns.uc — Per-Service DNS Mapping backend (Slice 7).
+// Mirrors tests/lib/service-dns-logic.mjs (the node algorithm spec).
+//
+// Product: the operator chooses a provider profile per service (e.g. ChatGPT
+// → malw-link-doh). The manager generates ONLY the hostname/IP mappings
+// required by the selected services. Other domains keep using the router's
+// normal DNS. This is NOT global DNS replacement, WAN DNS switching, DoH,
+// hosts-file replacement, or a service-unblocking guarantee.
+//
+// State ownership: selections, applied state, and the ownership ledger live
+// in a dedicated manager-owned file `/etc/zapret2-manager/service-dns-state.json`
+// with optimistic revision and atomic temp+mv writes. This file is a conffile
+// so upgrades never overwrite selections. Snapshot/rollback uses the existing
+// `/tmp/zapret2-manager/last-good/` infrastructure alongside the DNS
+// override snapshot so both user and service records are restored together.
+//
+// Generated DNS records are appended to the EXISTING manager-owned file
+// `/etc/zapret2-manager/dns-overrides.hosts` (registered once in
+// `/etc/config/dhcp`). User DNS overrides and service-generated records
+// coexist. Ownership is tracked at hostname+family+address granularity; a
+// preexisting user record is NEVER claimed or shared (anti-wipe). The same
+// tuple is removed only when its owner set becomes empty.
+//
+// Target grounding (verified read-only on the Cudy WBR3000UAX, OpenWrt
+// 25.12.5, 2026-07-28 — no guessed paths):
+//   - dnsmasq is the resolver (/etc/config/dhcp); odhcpd does RA; no
+//     https-dns-proxy/unbound/adguard/dnscrypt present;
+//   - upstream DNS comes from the WAN resolvfile;
+//   - the manager owns overrides through ONE addnhosts file.
+//
+// Live DNS apply is a SUPERVISED action. This module never mutates the
+// production router from test code.
+
+import { readfile, writefile, stat, unlink, popen, json } from 'fs';
+import { load_state, save_state } from './profiles-draft.uc';
+import { read_list_file, write_list_file } from './apply.uc';
+
+// ---------------------------------------------------------------------------
+// paths
+// ---------------------------------------------------------------------------
+const DATASET_PATH = '/usr/libexec/zapret2-manager/catalog/service-dns-profiles.json';
+const STATE_PATH = '/etc/zapret2-manager/service-dns-state.json';
+const OVERRIDES_PATH = '/etc/zapret2-manager/dns-overrides.hosts';
+const DHCP_CONF = '/etc/config/dhcp';
+const SNAP_DIR = '/tmp/zapret2-manager/last-good/service-dns';
+const APPLY_FAMILY = 'A'; // IPv4-only target; AAAA preserved in data, not applied
+
+// ---------------------------------------------------------------------------
+// helpers (ucode-safe — no optional chaining, no nullish coalescing)
+// ---------------------------------------------------------------------------
+function run(cmd) {
+	let p = popen(cmd + ' 2>&1', 'r');
+	if (!p) return { out: '', rc: -1 };
+	let out = p.read('all');
+	if (!out) out = '';
+	let rc = p.close();
+	return { out: out, rc: rc };
+}
+
+function err(code, message, extra) {
+	let e = { ok: false, error: { code: code, message: message } };
+	if (extra != null) {
+		let ks = keys(extra);
+		for (let i = 0; i < length(ks); i++) e[ks[i]] = extra[ks[i]];
+	}
+	return e;
+}
+
+function iso_now() {
+	let s = trim(run('date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null').out);
+	return length(s) ? s : null;
+}
+
+// ---------------------------------------------------------------------------
+// dataset load + validation (cached for the request lifetime)
+// ---------------------------------------------------------------------------
+let _dataset_cache = null;
+let _dataset_cache_mtime = 0;
+const DATASET_CACHE_TTL = 5; // seconds
+
+function load_dataset() {
+	let st = stat(DATASET_PATH);
+	if (!st) return { ok: false, error: { code: 'ETARGET', message: 'dataset missing: ' + DATASET_PATH } };
+	if (_dataset_cache && (time() - _dataset_cache_mtime) < DATASET_CACHE_TTL) return _dataset_cache;
+	let raw = readfile(DATASET_PATH);
+	if (!raw) return { ok: false, error: { code: 'ETARGET', message: 'failed to read dataset' } };
+	let ds = null;
+	try { ds = json(raw); } catch (e) { return { ok: false, error: { code: 'ETARGET', message: 'dataset is not valid JSON' } }; }
+	if (!ds || type(ds) != 'object') return { ok: false, error: { code: 'ETARGET', message: 'dataset root must be an object' } };
+	if (type(ds.schemaVersion) != 'int' || ds.schemaVersion != 1)
+		return { ok: false, error: { code: 'EINPUT', message: 'unsupported schemaVersion (expected 1)' } };
+	if (!Array.isArray(ds.providers)) return { ok: false, error: { code: 'EINPUT', message: 'providers must be an array' } };
+	if (!Array.isArray(ds.profiles)) return { ok: false, error: { code: 'EINPUT', message: 'profiles must be an array' } };
+	// validate providers + profiles inline (ucode port of the node logic)
+	let providerIds = {};
+	let profileIds = {};
+	let providers = [];
+	let profiles = [];
+	let errors = [];
+	for (let i = 0; i < length(ds.providers); i++) {
+		let p = ds.providers[i];
+		if (!p || type(p) != 'object') { push(errors, 'provider ' + i + ': not an object'); continue; }
+		if (type(p.id) != 'string' || trim(p.id) == '') { push(errors, 'provider ' + i + ': id required'); continue; }
+		if (providerIds[p.id] != null) { push(errors, 'duplicate provider id: ' + p.id); continue; }
+		providerIds[p.id] = true;
+		providers.push(p);
+	}
+	let knownServiceIds = {
+		'youtube':1,'discord':1,'telegram-web':1,'twitch':1,'spotify':1,
+		'supercell':1,'github':1,'githubusercontent':1,'chatgpt-openai':1,
+		'google-gemini':1,'notion':1
+	};
+	for (let i = 0; i < length(ds.profiles); i++) {
+		let p = ds.profiles[i];
+		if (!p || type(p) != 'object') { push(errors, 'profile ' + i + ': not an object'); continue; }
+		if (type(p.id) != 'string' || trim(p.id) == '') { push(errors, 'profile ' + i + ': id required'); continue; }
+		if (profileIds[p.id] != null) { push(errors, 'duplicate profile id: ' + p.id); continue; }
+		if (type(p.providerId) != 'string' || !providerIds[p.providerId]) { push(errors, 'profile ' + p.id + ': unknown providerId'); continue; }
+		if (type(p.serviceId) != 'string' || !knownServiceIds[p.serviceId]) { push(errors, 'profile ' + p.id + ': unknown serviceId'); continue; }
+		if (!Array.isArray(p.requiredDomains)) { push(errors, 'profile ' + p.id + ': requiredDomains must be an array'); continue; }
+		if (!Array.isArray(p.optionalDomains)) { push(errors, 'profile ' + p.id + ': optionalDomains must be an array'); continue; }
+		if (!Array.isArray(p.diagnosticTargets)) { push(errors, 'profile ' + p.id + ': diagnosticTargets must be an array'); continue; }
+		if (!Array.isArray(p.records)) { push(errors, 'profile ' + p.id + ': records must be an array'); continue; }
+		// validate + normalize records
+		let normRecs = [];
+		let seenHost = {};
+		for (let j = 0; j < length(p.records); j++) {
+			let r = p.records[j];
+			if (!r || type(r) != 'object') { push(errors, 'profile ' + p.id + ' record ' + j + ': not an object'); continue; }
+			let hn = validate_hostname_ucode(r.hostname);
+			if (!hn.ok) { push(errors, 'profile ' + p.id + ' record ' + j + ': ' + hn.reason); continue; }
+			let a = [], aaaa = [];
+			if (Array.isArray(r.A)) {
+				for (let k = 0; k < length(r.A); k++) {
+					let va = validate_ipv4_ucode(r.A[k]);
+					if (!va.ok) { push(errors, 'profile ' + p.id + ' record ' + j + ' A: ' + va.reason); continue; }
+					if (!seenHost[hn.hostname + '|A|' + va.ip]) { a.push(va.ip); seenHost[hn.hostname + '|A|' + va.ip] = true; }
+				}
+			}
+			if (Array.isArray(r.AAAA)) {
+				for (let k = 0; k < length(r.AAAA); k++) {
+					let va = validate_ipv6_ucode(r.AAAA[k]);
+					if (!va.ok) { push(errors, 'profile ' + p.id + ' record ' + j + ' AAAA: ' + va.reason); continue; }
+					if (!seenHost[hn.hostname + '|AAAA|' + va.ip]) { aaaa.push(va.ip); seenHost[hn.hostname + '|AAAA|' + va.ip] = true; }
+				}
+			}
+			normRecs.push({ hostname: hn.hostname, A: a, AAAA: aaaa });
+		}
+		profiles.push({ id: p.id, providerId: p.providerId, serviceId: p.serviceId,
+			requiredDomains: p.requiredDomains, optionalDomains: p.optionalDomains,
+			diagnosticTargets: p.diagnosticTargets, records: normRecs,
+			notes: (type(p.notes) == 'string') ? p.notes : '',
+			limitations: (type(p.limitations) == 'string') ? p.limitations : '' });
+		profileIds[p.id] = true;
+	}
+	if (length(errors)) {
+		_dataset_cache = { ok: false, error: { code: 'EINPUT', message: length(errors) + ' validation error(s)' }, errors: errors };
+		return _dataset_cache;
+	}
+	_dataset_cache = { ok: true, providers: providers, profiles: profiles, dataset: ds };
+	_dataset_cache_mtime = time();
+	return _dataset_cache;
+}
+
+// ---------------------------------------------------------------------------
+// hostname / address validation (ucode port of node logic)
+// ---------------------------------------------------------------------------
+function validate_hostname_ucode(name) {
+	if (type(name) != 'string') return { ok: false, reason: 'hostname must be a string' };
+	let raw = name;
+	// reject whitespace/control chars before trimming (injection vectors)
+	if (/[\s\x00-\x1f\x7f]/.test(raw)) return { ok: false, reason: 'whitespace/control characters in hostname' };
+	let h = trim(raw).toLowerCase();
+	if (h == '') return { ok: false, reason: 'empty hostname' };
+	if (length(h) > 253) return { ok: false, reason: 'hostname too long (>253)' };
+	// URL instead of hostname
+	if (/^[a-z][a-z0-9+.-]*:\/\//.test(h)) return { ok: false, reason: 'URL where a hostname is expected' };
+	if (index(h, '://') >= 0) return { ok: false, reason: 'URL where a hostname is expected' };
+	if (index(h, '/') >= 0) return { ok: false, reason: 'hostname must not contain a path separator' };
+	if (index(h, ':') >= 0) return { ok: false, reason: 'hostname must not contain a port separator' };
+	if (index(h, '*') >= 0) return { ok: false, reason: 'wildcards are not supported' };
+	// shell metacharacters — never reach a file
+	if (/[;|&$`<>(){}\\"'!#]/.test(h)) return { ok: false, reason: 'shell metacharacters in hostname' };
+	if (/[^a-z0-9.-]/.test(h)) return { ok: false, reason: 'invalid characters in hostname (a-z 0-9 . - only)' };
+	let labels = split(h, '.');
+	if (length(labels) < 2) return { ok: false, reason: 'need a full hostname (at least two labels)' };
+	for (let i = 0; i < length(labels); i++) {
+		let l = labels[i];
+		if (length(l) == 0 || length(l) > 63) return { ok: false, reason: 'label length must be 1..63' };
+		if (substr(l, 0, 1) == '-' || substr(l, length(l) - 1, 1) == '-') return { ok: false, reason: 'labels must not start/end with a hyphen' };
+	}
+	return { ok: true, hostname: h };
+}
+
+function octets_private(o) {
+	let a = o[0], b = o[1];
+	if (a == 0) return true;
+	if (a == 10) return true;
+	if (a == 127) return true;
+	if (a == 169 && b == 254) return true;
+	if (a >= 224) return true;
+	if (a == 172 && b >= 16 && b <= 31) return true;
+	if (a == 192 && b == 168) return true;
+	if (a == 192 && b == 0 && o[2] == 2) return true;
+	if (a == 198 && (b == 18 || b == 19)) return true;
+	if (a == 198 && b == 51 && o[2] == 100) return true;
+	if (a == 203 && b == 0 && o[2] == 113) return true;
+	if (a == 100 && b >= 64 && b <= 127) return true;
+	return false;
+}
+
+function validate_ipv4_ucode(ip) {
+	if (type(ip) != 'string') return { ok: false, reason: 'ip must be a string' };
+	let s = trim(ip);
+	let parts = split(s, '.');
+	if (length(parts) != 4) return { ok: false, reason: 'IPv4 must have exactly 4 octets' };
+	let nums = [];
+	for (let i = 0; i < 4; i++) {
+		let p = parts[i];
+		if (length(p) == 0 || length(p) > 3) return { ok: false, reason: 'invalid octet ' + p };
+		for (let j = 0; j < length(p); j++) {
+			let c = ord(substr(p, j, 1));
+			if (c < 48 || c > 57) return { ok: false, reason: 'invalid octet ' + p };
+		}
+		if (length(p) > 1 && substr(p, 0, 1) == '0') return { ok: false, reason: 'leading zeros are not allowed' };
+		let n = +p;
+		if (n > 255) return { ok: false, reason: 'octet > 255' };
+		nums.push(n);
+	}
+	if (octets_private(nums)) return { ok: false, reason: 'non-routable/private/loopback/multicast/documentation IPv4 rejected: ' + nums.join('.') };
+	return { ok: true, ip: nums.join('.') };
+}
+
+function validate_ipv6_ucode(ip) {
+	if (type(ip) != 'string') return { ok: false, reason: 'IPv6 must be a string' };
+	let t = trim(ip);
+	if (t == '') return { ok: false, reason: 'empty IPv6' };
+	if (!/^[0-9a-fA-F:]+$/.test(t)) return { ok: false, reason: 'invalid IPv6 characters' };
+	if (length(split(t, '::')) > 2) return { ok: false, reason: 'IPv6 has multiple ::' };
+	// expand to 8 groups for range checks
+	let groups = null;
+	if (index(t, '::') >= 0) {
+		let [lh, rh] = split(t, '::');
+		let left = lh ? split(lh, ':') : [];
+		let right = rh ? split(rh, ':') : [];
+		let fill = 8 - length(left) - length(right);
+		if (fill < 1) return { ok: false, reason: 'malformed IPv6' };
+		groups = [...left, ...Array(fill).fill('0000'), ...right];
+		if (length(groups) != 8) return { ok: false, reason: 'malformed IPv6' };
+	} else {
+		groups = split(t, ':');
+		if (length(groups) != 8) return { ok: false, reason: 'malformed IPv6' };
+	}
+	for (let i = 0; i < 8; i++) groups[i] = substr('0000' + groups[i], -4);
+	let g0 = parseInt(groups[0], 16);
+	// :: (unspecified)
+	if (groups.every(g => g == '0000')) return { ok: false, reason: 'unspecified IPv6 rejected' };
+	// ::1 (loopback)
+	if (groups[0] == '0000' && groups[7] == '0001' && groups.slice(1,7).every(g => g == '0000'))
+		return { ok: false, reason: 'loopback IPv6 rejected' };
+	// link-local fe80::/10
+	if ((g0 & 0xffc0) == 0xfe80) return { ok: false, reason: 'link-local IPv6 rejected' };
+	// multicast ff00::/8
+	if ((g0 & 0xff00) == 0xff00) return { ok: false, reason: 'multicast IPv6 rejected' };
+	// documentation 2001:db8::/32
+	if (g0 == 0x2001 && parseInt(groups[1], 16) == 0x0db8) return { ok: false, reason: 'documentation IPv6 rejected' };
+	// ULA fc00::/7
+	if ((g0 & 0xfe00) == 0xfc00) return { ok: false, reason: 'unique-local IPv6 rejected' };
+	return { ok: true, ip: t.toLowerCase() };
+}
+
+// ---------------------------------------------------------------------------
+// state load/save (dedicated file, optimistic revision)
+// ---------------------------------------------------------------------------
+function load_service_dns_state() {
+	let raw = readfile(STATE_PATH);
+	if (!raw) return { state: empty_state(), fresh: true };
+	let obj = null;
+	try { obj = json(raw); } catch (e) { return { malformed: true, reason: 'state is not valid JSON' }; }
+	let sd = (type(obj.serviceDns) == 'object' && obj.serviceDns != null) ? obj.serviceDns : null;
+	let state = {
+		selections: (sd && type(sd.selections) == 'object') ? sd.selections : {},
+		applied: (sd && type(sd.applied) == 'object') ? sd.applied : { selections: {}, generatedAt: null, revision: 0, fileHash: null },
+		ownership: (sd && type(sd.ownership) == 'object') ? sd.ownership : {},
+		events: (sd && Array.isArray(sd.events)) ? sd.events.slice(-20) : []
+	};
+	return { state: state, fresh: true };
+}
+
+function save_service_dns_state(state) {
+	// optimistic revision guard (lock marker, mirrors profiles-draft)
+	let MARKER = STATE_PATH + '.lock';
+	if (stat(MARKER)) {
+		let mt = trim(readfile(MARKER));
+		let age = time() - (+mt);
+		if (mt && age < 60) return false;
+		try { unlink(MARKER); } catch (e) { }
+	}
+	try { writefile(MARKER, '' + time() + '\n'); } catch (e) { }
+	// backup rotation
+	let BAK1 = STATE_PATH + '.bak.1';
+	let BAK2 = STATE_PATH + '.bak.2';
+	if (stat(BAK2)) { let p = popen('mv -f ' + BAK2 + ' ' + STATE_PATH + '.bak.3 2>/dev/null', 'r'); if (p) p.close(); }
+	if (stat(BAK1)) { let p = popen('mv -f ' + BAK1 + ' ' + BAK2 + ' 2>/dev/null', 'r'); if (p) p.close(); }
+	if (stat(STATE_PATH)) { let p = popen('cp -p ' + STATE_PATH + ' ' + BAK1 + ' 2>/dev/null', 'r'); if (p) p.close(); }
+	// atomic write
+	let out = sprintf("%J", { serviceDns: state }) + '\n';
+	let tmp = STATE_PATH + '.tmp.' + time();
+	writefile(tmp, out);
+	let p = popen('mv -f ' + tmp + ' ' + STATE_PATH + ' 2>/dev/null', 'r');
+	if (p) p.close();
+	try { unlink(MARKER); } catch (e) { }
+	if (stat(tmp)) { try { unlink(tmp); } catch (e) { } return false; }
+	return true;
+}
+
+function empty_state() {
+	return {
+		selections: {},
+		applied: { selections: {}, generatedAt: null, revision: 0, fileHash: null },
+		ownership: {},
+		events: []
+	};
+}
+
+// ---------------------------------------------------------------------------
+// completeness / trust / status helpers (ucode port of node logic)
+// ---------------------------------------------------------------------------
+function classify_trust_ucode(provider, now) {
+	now = now || iso_now() || '2026-07-30';
+	let trust = provider.trust;
+	let expired = false;
+	if (provider.expiresAt && provider.expiresAt <= now) expired = true;
+	if (expired) return { applicable: false, trust: trust, warning: true, reason: 'profile expired: ' + provider.expiresAt };
+	if (trust == 'untrusted') return { applicable: false, trust: trust, warning: true, reason: 'provider is untrusted' };
+	if (trust == 'expired') return { applicable: false, trust: trust, warning: true, reason: 'provider marked expired' };
+	if (trust == 'experimental') return { applicable: false, trust: trust, warning: true, reason: 'experimental — requires explicit advanced opt-in' };
+	if (trust == 'bundled-reviewed' || trust == 'pinned-hash') return { applicable: true, trust: trust, warning: false, reason: null };
+	return { applicable: false, trust: trust, warning: true, reason: 'unknown trust level' };
+}
+
+function compute_completeness_ucode(profile) {
+	let recsByHost = {};
+	for (let i = 0; i < length(profile.records); i++) recsByHost[profile.records[i].hostname] = profile.records[i];
+	let missingRequired = [];
+	let missingOptional = [];
+	let aCount = 0, aaaaCount = 0;
+	let unsupported = [];
+	for (let i = 0; i < length(profile.requiredDomains); i++) {
+		let d = profile.requiredDomains[i];
+		let r = recsByHost[d];
+		if (!r || length(r.A) == 0) {
+			if (r && length(r.AAAA) > 0) unsupported.push({ hostname: d, reason: 'AAAA-only — unsupported address family on IPv4 target' });
+			missingRequired.push(d);
+		}
+	}
+	for (let i = 0; i < length(profile.optionalDomains); i++) {
+		let d = profile.optionalDomains[i];
+		if (!recsByHost[d]) missingOptional.push(d);
+	}
+	for (let i = 0; i < length(profile.records); i++) {
+		aCount += length(profile.records[i].A);
+		aaaaCount += length(profile.records[i].AAAA);
+	}
+	let status;
+	if (length(profile.records) == 0 && length(profile.requiredDomains) == 0) status = 'empty';
+	else if (length(missingRequired) == 0) status = 'complete';
+	else if (length(unsupported) > 0 && length(missingRequired) == length(unsupported)) status = 'unsupported address family';
+	else status = 'partial';
+	return { status: status, missingRequired: missingRequired, missingOptional: missingOptional,
+		aCount: aCount, aaaaCount: aaaaCount, unsupported: unsupported };
+}
+
+function compute_desired_records_ucode(records, applyFamily) {
+	let out = [];
+	let unsup = [];
+	for (let i = 0; i < length(records); i++) {
+		let r = records[i];
+		if (applyFamily == 'A') {
+			if (length(r.A) > 0) push(out, { hostname: r.hostname, A: r.A, AAAA: [] });
+			for (let k = 0; k < length(r.AAAA); k++) push(unsup, r.AAAA[k]);
+		} else if (applyFamily == 'AAAA') {
+			if (length(r.AAAA) > 0) push(out, { hostname: r.hostname, A: [], AAAA: r.AAAA });
+			for (let k = 0; k < length(r.A); k++) push(unsup, r.A[k]);
+		}
+	}
+	return { records: out, unsupported: unsup };
+}
+
+// ---------------------------------------------------------------------------
+// addnhosts render / parse (mirrors dns-logic render/parse; extends with
+// ownership tagging via comments — '# owner:<profileId>' marker on
+// service-owned lines so the parser can re-derive ownership without a
+// separate ledger file. The ownership is ALSO stored in state for the UI.
+// ---------------------------------------------------------------------------
+export function render_hosts_with_ownership(records, ownershipMap) {
+	// flatten to lines with ownership markers; dedupe, sort, bound
+	let lineSet = {};
+	for (let i = 0; i < length(records); i++) {
+		let r = records[i];
+		let owner = ownershipMap[r.hostname] || 'user';
+		let ownerTag = (owner == 'user') ? '' : ' # owner:' + owner;
+		for (let k = 0; k < length(r.A); k++) lineSet[r.A[k] + ' ' + r.hostname + ownerTag] = true;
+		for (let k = 0; k < length(r.AAAA); k++) lineSet[r.AAAA[k] + ' ' + r.hostname + ownerTag] = true;
+	}
+	let arr = keys(lineSet);
+	// bound output
+	if (length(arr) > 256) arr = arr.slice(0, 256);
+	arr.sort();
+	let out = '# zapret2-manager DNS overrides (manager-owned; edit via the DNS or Service DNS pages)\n';
+	for (let i = 0; i < length(arr); i++) out += arr[i] + '\n';
+	// bound bytes
+	if (length(out) > 16384) out = substr(out, 0, 16384);
+	return out;
+}
+
+// parse existing overrides file, extracting both entries and ownership
+function parse_existing_overrides() {
+	let raw = readfile(OVERRIDES_PATH);
+	if (!raw) return { entries: [], ownership: {} };
+	let lines = split(raw, '\n');
+	let out = [];
+	let ownership = {};
+	for (let i = 0; i < length(lines); i++) {
+		let l = trim(lines[i]);
+		if (l == '') continue;
+		if (substr(l, 0, 1) == '#') continue;
+		let parts = split(l, ' ');
+		if (length(parts) < 2) continue;
+		let vi = validate_ipv4_ucode(parts[0]);
+		if (!vi.ok) continue;
+		let vh = validate_hostname_ucode(parts[1]);
+		if (!vh.ok) continue;
+		let owner = 'user';
+		// check for '# owner:...' marker appended to the line
+		let hashIdx = index(l, '# owner:');
+		if (hashIdx >= 0) {
+			let tag = trim(substr(l, hashIdx + 1));
+			let tagParts = split(tag, ' ');
+			if (length(tagParts) >= 1 && substr(tagParts[0], 0, 7) == 'owner:') owner = substr(tagParts[0], 7);
+		}
+		let fam = (index(vi.ip, ':') >= 0) ? 'AAAA' : 'A';
+		if (fam == 'A') {
+			out.push({ hostname: vh.hostname, A: [vi.ip], AAAA: [], owner: owner });
+			let k = vh.hostname + '|A|' + vi.ip;
+			ownership[k] = owner;
+		}
+		// AAAA from existing file are informational only (never applied)
+	}
+	return { entries: out, ownership: ownership };
+}
+
+// ---------------------------------------------------------------------------
+// snapshot / rollback (covers both DNS and service-DNS state + overrides file)
+// ---------------------------------------------------------------------------
+function snapshot_service_dns() {
+	run('mkdir -p ' + SNAP_DIR);
+	run('cp -f ' + OVERRIDES_PATH + ' ' + SNAP_DIR + '/overrides.hosts 2>/dev/null');
+	run('cp -f ' + STATE_PATH + ' ' + SNAP_DIR + '/service-dns-state.json 2>/dev/null');
+	return { dir: SNAP_DIR };
+}
+
+function restore_overrides_file() {
+	if (stat(SNAP_DIR + '/overrides.hosts')) {
+		run('cp -f ' + SNAP_DIR + '/overrides.hosts ' + OVERRIDES_PATH + ' 2>/dev/null');
+		run('chmod 644 ' + OVERRIDES_PATH + ' 2>/dev/null');
+	} else {
+		try { unlink(OVERRIDES_PATH); } catch (e) { }
+	}
+}
+
+function restore_service_dns_state() {
+	if (stat(SNAP_DIR + '/service-dns-state.json')) {
+		run('cp -f ' + SNAP_DIR + '/service-dns-state.json ' + STATE_PATH + ' 2>/dev/null');
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ownership ledger (hostname + family + address)
+// ---------------------------------------------------------------------------
+function tuple_key(hostname, family, address) {
+	return hostname + '|' + family + '|' + address;
+}
+
+function build_ownership_map(serviceRecords, existingOwnership) {
+	existingOwnership = existingOwnership || {};
+	let ownership = {};
+	// seed existing
+	for (let k in existingOwnership) ownership[k] = existingOwnership[k];
+	for (let i = 0; i < length(serviceRecords); i++) {
+		let r = serviceRecords[i];
+		let fam = (length(r.A) > 0) ? 'A' : 'AAAA';
+		let addrs = (fam == 'A') ? r.A : r.AAAA;
+		let owner = r.owner || 'service:unknown';
+		for (let j = 0; j < length(addrs); j++) {
+			let k = tuple_key(r.hostname, fam, addrs[j]);
+			if (!ownership[k]) ownership[k] = owner;
+			else if (index(ownership[k], owner) < 0 && ownership[k] != 'user') ownership[k] += ',' + owner;
+		}
+	}
+	return ownership;
+}
+
+// ---------------------------------------------------------------------------
+// public API — READ
+// ---------------------------------------------------------------------------
+
+// service_dns_providers — validated dataset + trust/expiry classification
+export const service_dns_providers = function(req) {
+	let ds = load_dataset();
+	if (!ds.ok) return ds;
+	let now = iso_now();
+	let providers = [];
+	for (let i = 0; i < length(ds.providers); i++) {
+		let p = ds.providers[i];
+		let t = classify_trust_ucode(p, now);
+		providers.push({
+			id: p.id, name: p.name, sourceUrl: p.sourceUrl, sourceRevision: p.sourceRevision,
+			sourceHash: p.sourceHash, reviewedAt: p.reviewedAt, expiresAt: p.expiresAt,
+			trust: t.trust, applicable: t.applicable, trustWarning: t.warning, trustReason: t.reason,
+			notes: p.notes
+		});
+	}
+	let profiles = [];
+	for (let i = 0; i < length(ds.profiles); i++) {
+		let p = ds.profiles[i];
+		let prov = providers.find(pr => pr.id == p.providerId) || { applicable: false, trust: 'untrusted' };
+		let comp = compute_completeness_ucode(p);
+		let desired = compute_desired_records_ucode(p.records, APPLY_FAMILY);
+		let applicable = prov.applicable && (length(desired.records) > 0);
+		profiles.push({
+			id: p.id, providerId: p.providerId, serviceId: p.serviceId,
+			requiredDomains: p.requiredDomains, optionalDomains: p.optionalDomains,
+			diagnosticTargets: p.diagnosticTargets, records: p.records,
+			completeness: comp, desiredCount: length(desired.records), unsupported: desired.unsupported,
+			applicable: applicable, providerTrust: prov.trust, providerExpiresAt: prov.expiresAt,
+			notes: p.notes, limitations: p.limitations
+		});
+	}
+	return {
+		ok: true, schemaVersion: 1, datasetVersion: ds.dataset.datasetVersion,
+		generatedAt: ds.dataset.generatedAt, providers: providers, profiles: profiles,
+		now: now
+	};
+};
+
+// service_dns_status — full state + preview of the current selections
+export const service_dns_status = function(req) {
+	let ds = load_dataset();
+	if (!ds.ok) return err('ETARGET', 'dataset unavailable: ' + (ds.error ? ds.error.message : '?'));
+	let sd = load_service_dns_state();
+	if (sd.malformed) return err('ESTATE', 'service DNS state is malformed: ' + sd.reason);
+	let state = sd.state;
+	let selections = state.selections || {};
+	let appliedSel = state.applied.selections || {};
+	let appliedRev = (type(state.applied.revision) == 'int') ? state.applied.revision : 0;
+	// compute desired records from selections
+	let desiredRecords = [];
+	let warnings = [];
+	let profileMap = {};
+	for (let i = 0; i < length(ds.profiles); i++) {
+		let p = ds.profiles[i];
+		profileMap[p.id] = p;
+	}
+	let providerMap = {};
+	for (let i = 0; i < length(ds.providers); i++) providerMap[ds.providers[i].id] = ds.providers[i];
+	for (let svc in selections) {
+		let pid = selections[svc];
+		if (pid == 'off' || pid == null) continue;
+		let p = profileMap[pid];
+		if (!p) { warnings.push({ type: 'unknown-profile', serviceId: svc, profileId: pid }); continue; }
+		let prov = providerMap[p.providerId] || {};
+		let trust = classify_trust_ucode(prov, iso_now());
+		if (!trust.applicable) { warnings.push({ type: 'profile-not-applicable', serviceId: svc, profileId: pid, reason: trust.reason }); continue; }
+		let comp = compute_completeness_ucode(p);
+		let desired = compute_desired_records_ucode(p.records, APPLY_FAMILY);
+		for (let j = 0; j < length(desired.records); j++) {
+			push(desiredRecords, { hostname: desired.records[j].hostname, A: desired.records[j].A, AAAA: desired.records[j].AAAA, owner: 'service:' + pid });
+		}
+		if (comp.status == 'partial') warnings.push({ type: 'partial-profile', serviceId: svc, profileId: pid, missing: comp.missingRequired });
+	}
+	// build ownership map from existing overrides file (read-only)
+	let existing = parse_existing_overrides();
+	// compute ownership with user anti-wipe
+	let ownership = build_ownership_map(desiredRecords, existing.ownership);
+	// drift
+	let drift = null;
+	for (let svc in selections) {
+		if (appliedSel[svc] != selections[svc]) { drift = { serviceId: svc, desired: selections[svc], applied: (appliedSel[svc] || 'off') }; break; }
+	}
+	// parse applied generated records (from overrides file, owner-tagged lines)
+	let appliedRecords = [];
+	for (let k in ownership) {
+		let parts = split(k, '|');
+		if (length(parts) == 3) push(appliedRecords, { hostname: parts[0], family: parts[1], address: parts[2], owner: ownership[k] });
+	}
+	return {
+		ok: true, datasetValid: true, selections: selections, applied: appliedSel, appliedAt: state.applied.generatedAt,
+		appliedRevision: appliedRev, drift: drift, warnings: warnings, events: state.events.slice(-10),
+		desiredRecords: desiredRecords, ownership: ownership, appliedRecords: appliedRecords,
+		overridesPath: OVERRIDES_PATH, registered: (index(readfile(DHCP_CONF) || '', OVERRIDES_PATH) >= 0)
+	};
+};
+
+// service_dns_check — bounded local resolution check (read-only)
+export const service_dns_check = function(req) {
+	let st = load_service_dns_state();
+	if (st.malformed) return err('ESTATE', 'service DNS state is malformed');
+	let state = st.state;
+	if (!state.applied || !state.applied.generatedAt) return { ok: true, note: 'no applied mapping to check', results: [], allMatch: true };
+	// re-read the overrides file and verify the applied tuples are still present
+	let existing = parse_existing_overrides();
+	let appliedTuples = [];
+	for (let k in state.ownership) {
+		let parts = split(k, '|');
+		if (length(parts) == 3) push(appliedTuples, { hostname: parts[0], family: parts[1], address: parts[2] });
+	}
+	let results = [];
+	let allMatch = true;
+	for (let i = 0; i < length(appliedTuples); i++) {
+		let t = appliedTuples[i];
+		if (t.family != 'A') continue; // IPv4 only on current target
+		let q = run('nslookup ' + t.hostname + ' 127.0.0.1');
+		let found = (index(q.out, t.address) >= 0);
+		if (!found) allMatch = false;
+		push(results, { hostname: t.hostname, expectedAddress: t.address, family: t.family, matched: found });
+	}
+	return { ok: true, results: results, allMatch: allMatch };
+};
+
+// service_dns_preview — zero writes; exact diff + ownership + warnings
+export const service_dns_preview = function(req) {
+	let ds = load_dataset();
+	if (!ds.ok) return ds;
+	let sd = load_service_dns_state();
+	if (sd.malformed) return err('ESTATE', 'service DNS state is malformed: ' + sd.reason);
+	let state = sd.state;
+	let selections = state.selections || {};
+	let appliedRev = (type(state.applied.revision) == 'int') ? state.applied.revision : 0;
+	let curFileHash = state.applied.fileHash || null;
+	// build desired records
+	let desiredRecords = [];
+	let warnings = [];
+	let profileMap = {};
+	for (let i = 0; i < length(ds.profiles); i++) profileMap[ds.profiles[i].id] = ds.profiles[i];
+	let providerMap = {};
+	for (let i = 0; i < length(ds.providers); i++) providerMap[ds.providers[i].id] = ds.providers[i];
+	for (let svc in selections) {
+		let pid = selections[svc];
+		if (pid == 'off' || pid == null) continue;
+		let p = profileMap[pid];
+		if (!p) { warnings.push({ type: 'unknown-profile', serviceId: svc, profileId: pid }); continue; }
+		let prov = providerMap[p.providerId] || {};
+		let trust = classify_trust_ucode(prov, iso_now());
+		if (!trust.applicable) { warnings.push({ type: 'profile-not-applicable', serviceId: svc, profileId: pid, reason: trust.reason }); continue; }
+		let desired = compute_desired_records_ucode(p.records, APPLY_FAMILY);
+		for (let j = 0; j < length(desired.records); j++)
+			push(desiredRecords, { hostname: desired.records[j].hostname, A: desired.records[j].A, AAAA: desired.records[j].AAAA, owner: 'service:' + pid });
+		if (desired.unsupported.length > 0)
+			warnings.push({ type: 'unsupported-aaaa', serviceId: svc, profileId: pid, addresses: desired.unsupported });
+	}
+	// build ownership map from existing overrides
+	let existing = parse_existing_overrides();
+	// preview diff
+	let added = [], removed = [], preserved = [], sharedKept = [];
+	let existingByTuple = {};
+	for (let i = 0; i < length(existing.entries); i++) {
+		let e = existing.entries[i];
+		let fams = [['A', e.A || []], ['AAAA', e.AAAA || []]];
+		for (let j = 0; j < length(fams); j++) {
+			let [fam, addrs] = fams[j];
+			for (let k = 0; k < length(addrs); k++) existingByTuple[tuple_key(e.hostname, fam, addrs[k])] = { ...e, family: fam, address: addrs[k], owner: e.owner || 'user' };
+		}
+	}
+	let desiredByTuple = {};
+	for (let i = 0; i < length(desiredRecords); i++) {
+		let r = desiredRecords[i];
+		let fams = [['A', r.A || []], ['AAAA', r.AAAA || []]];
+		for (let j = 0; j < length(fams); j++) {
+			let [fam, addrs] = fams[j];
+			for (let k = 0; k < length(addrs); k++) {
+				let t = tuple_key(r.hostname, fam, addrs[k]);
+				if (!desiredByTuple[t]) desiredByTuple[t] = { ...r, family: fam, address: addrs[k], ownerArr: [r.owner] };
+				else {
+					let arr = desiredByTuple[t].ownerArr || [desiredByTuple[t].owner];
+					if (index(arr, r.owner) < 0) push(arr, r.owner);
+					desiredByTuple[t].ownerArr = arr;
+				}
+			}
+		}
+	}
+	let ownership = {};
+	let userOwned = {};
+	for (let k in existingByTuple) {
+		let e = existingByTuple[k];
+		if (e.owner == 'user') { userOwned[k] = true; ownership[k] = 'user'; continue; }
+		let d = desiredByTuple[k];
+		if (d) { sharedKept.push(e); ownership[k] = d.ownerArr ? d.ownerArr.join(',') : d.owner; }
+		else removed.push(e);
+	}
+	for (let k in desiredByTuple) {
+		if (userOwned[k]) continue; // anti-wipe: service never claims or shares
+		let d = desiredByTuple[k];
+		if (!ownership[k]) ownership[k] = d.ownerArr ? d.ownerArr.join(',') : d.owner;
+	}
+	for (let i = 0; i < length(desiredRecords); i++) {
+		let r = desiredRecords[i];
+		for (let j = 0; j < length(r.A); j++) {
+			let k = tuple_key(r.hostname, 'A', r.A[j]);
+			if (!existingByTuple[k]) added.push({ hostname: r.hostname, A: [r.A[j]], AAAA: [], owner: r.owner });
+		}
+	}
+	// render candidate
+	let candidateRecords = [];
+	for (let i = 0; i < length(added); i++) push(candidateRecords, added[i]);
+	for (let i = 0; i < length(existing.entries); i++) {
+		let e = existing.entries[i];
+		let isRemoved = false;
+		for (let j = 0; j < length(removed); j++) if (removed[j].hostname == e.hostname && removed[j].A[0] == (e.A && e.A[0])) { isRemoved = true; break; }
+		if (!isRemoved) push(candidateRecords, e);
+	}
+	// dedupe candidate
+	let seen = {};
+	let deduped = [];
+	for (let i = 0; i < length(candidateRecords); i++) {
+		let r = candidateRecords[i];
+		let key = r.hostname + '|' + (r.A && length(r.A) ? r.A[0] : (r.AAAA && length(r.AAAA) ? r.AAAA[0] : ''));
+		if (seen[key]) continue;
+		seen[key] = true;
+		deduped.push(r);
+	}
+	let rendered = render_hosts_with_ownership(deduped, ownership);
+	let fileHash = '';
+	let h = popen('echo -n "' + rendered.replace(/"/g, '\\"') + '" | sha256sum 2>/dev/null | awk \'{print $1}\'', 'r');
+	if (h) { fileHash = trim(h.read('all')); h.close(); }
+	return {
+		ok: true, mode: 'preview', zeroWrites: true,
+		diff: { addedCount: length(added), removedCount: length(removed), preservedCount: length(preserved), sharedKeptCount: length(sharedKept) },
+		added: added, removed: removed, preserved: preserved, sharedKept: sharedKept,
+		ownership: ownership, candidate: rendered, warnings: warnings,
+		precondition: { revision: appliedRev, fileHash: curFileHash, expectedFileHash: fileHash }
+	};
+};
+
+// service_dns_set — changes DRAFT selections only, no DNS/file writes
+export const service_dns_set = function(req) {
+	let input = (req && req.args) ? req.args : req;
+	if (!input || type(input) == 'undefined') return err('EINPUT', 'missing edit payload');
+	if (type(input.selections) != 'object') return err('EINPUT', 'selections must be an object');
+	let sd = load_service_dns_state();
+	if (sd.malformed) return err('ESTATE', 'service DNS state is malformed');
+	let state = sd.state;
+	let curRev = (type(state.applied.revision) == 'int') ? state.applied.revision : 0;
+	if (type(input.revision) == 'int' && input.revision != curRev)
+		return err('ECONFLICT', 'service DNS draft changed elsewhere (revision ' + curRev + '); reload and retry');
+	state.selections = input.selections;
+	if (!save_service_dns_state(state)) return err('ETARGET', 'failed to write draft state (lock active or disk error)');
+	return { ok: true, revision: curRev + 1, selections: state.selections };
+};
+
+// service_dns_apply — full apply lifecycle
+export const service_dns_apply = function(req) {
+	let input = (req && req.args) ? req.args : req;
+	// 1. load state and current generated file (fail-closed on errors)
+	let sd = load_service_dns_state();
+	if (sd.malformed) return err('ESTATE', 'service DNS state is malformed: ' + sd.reason);
+	let state = sd.state;
+	let selections = state.selections || {};
+	let appliedRev = (type(state.applied.revision) == 'int') ? state.applied.revision : 0;
+	// optimistic revision check
+	if (type(input.revision) == 'int' && input.revision != appliedRev)
+		return err('ECONFLICT', 'service DNS draft changed elsewhere (revision ' + appliedRev + '); reload and retry');
+	// 2. validate selection/profile/trust/expiry/completeness
+	let ds = load_dataset();
+	if (!ds.ok) return err('ETARGET', 'dataset unavailable');
+	let profileMap = {};
+	let providerMap = {};
+	for (let i = 0; i < length(ds.profiles); i++) profileMap[ds.profiles[i].id] = ds.profiles[i];
+	for (let i = 0; i < length(ds.providers); i++) providerMap[ds.providers[i].id] = ds.providers[i];
+	let desiredRecords = [];
+	let warnings = [];
+	for (let svc in selections) {
+		let pid = selections[svc];
+		if (pid == 'off' || pid == null) continue;
+		let p = profileMap[pid];
+		if (!p) { warnings.push({ type: 'unknown-profile', serviceId: svc, profileId: pid }); continue; }
+		let prov = providerMap[p.providerId] || {};
+		let trust = classify_trust_ucode(prov, iso_now());
+		if (!trust.applicable) return err('EINPUT', 'profile ' + pid + ' is not applicable: ' + trust.reason);
+		let comp = compute_completeness_ucode(p);
+		if (comp.status != 'complete') return err('EINPUT', 'profile ' + pid + ' is ' + comp.status + ' (missing: ' + comp.missingRequired.join(',') + ')');
+		let desired = compute_desired_records_ucode(p.records, APPLY_FAMILY);
+		for (let j = 0; j < length(desired.records); j++)
+			push(desiredRecords, { hostname: desired.records[j].hostname, A: desired.records[j].A, AAAA: desired.records[j].AAAA, owner: 'service:' + pid });
+		if (desired.unsupported.length > 0)
+			warnings.push({ type: 'unsupported-aaaa', serviceId: svc, profileId: pid, addresses: desired.unsupported });
+	}
+	// 3. check expected file hash (manual change detection)
+	let curFileHash = state.applied.fileHash || null;
+	if (type(input.expectedFileHash) == 'string' && input.expectedFileHash != curFileHash)
+		return err('ECONFLICT', 'generated DNS file changed on disk between preview and apply');
+	// 4. snapshot state + overrides
+	let snap = snapshot_service_dns();
+	// 5. compute exact ownership change + render candidate
+	let existing = parse_existing_overrides();
+	let ownership = build_ownership_map(desiredRecords, existing.ownership);
+	let candidateRecords = [];
+	let seen = {};
+	// add desired service records
+	for (let i = 0; i < length(desiredRecords); i++) {
+		let r = desiredRecords[i];
+		for (let j = 0; j < length(r.A); j++) {
+			let key = r.hostname + '|A|' + r.A[j];
+			if (seen[key]) continue;
+			seen[key] = true;
+			push(candidateRecords, { hostname: r.hostname, A: [r.A[j]], AAAA: [], owner: r.owner });
+		}
+	}
+	// preserve existing entries that are not being removed by the ownership change
+	for (let i = 0; i < length(existing.entries); i++) {
+		let e = existing.entries[i];
+		let fams = [['A', e.A || []], ['AAAA', e.AAAA || []]];
+		let keep = false;
+		for (let j = 0; j < length(fams); j++) {
+			let [fam, addrs] = fams[j];
+			for (let k = 0; k < length(addrs); k++) {
+				let kt = tuple_key(e.hostname, fam, addrs[k]);
+				if (ownership[kt] && ownership[kt] != '') { keep = true; break; }
+			}
+			if (keep) break;
+		}
+		if (keep) {
+			let key = e.hostname + '|' + (e.A && length(e.A) ? e.A[0] : '');
+			if (!seen[key]) { seen[key] = true; push(candidateRecords, e); }
+		}
+	}
+	// dedupe candidate
+	let finalRecords = [];
+	let finalSeen = {};
+	for (let i = 0; i < length(candidateRecords); i++) {
+		let r = candidateRecords[i];
+		let key = r.hostname + '|' + (r.A && length(r.A) ? r.A[0] : (r.AAAA && length(r.AAAA) ? r.AAAA[0] : ''));
+		if (finalSeen[key]) continue;
+		finalSeen[key] = true;
+		push(finalRecords, r);
+	}
+	let rendered = render_hosts_with_ownership(finalRecords, ownership);
+	// 6. write atomically
+	let tmp = OVERRIDES_PATH + '.tmp.' + time();
+	writefile(tmp, rendered);
+	let mv = run('mv -f ' + tmp + ' ' + OVERRIDES_PATH + ' 2>/dev/null');
+	if (mv.rc != 0) {
+		try { unlink(tmp); } catch (e) { }
+		restore_overrides_file();
+		restore_service_dns_state();
+		return err('ETARGET', 'failed to write ' + OVERRIDES_PATH, 'write');
+	}
+	run('chmod 644 ' + OVERRIDES_PATH);
+	// register addnhosts in dhcp if missing
+	let conf = readfile(DHCP_CONF) || '';
+	if (index(conf, OVERRIDES_PATH) < 0) {
+		run("uci add_list dhcp.@dnsmasq[0].addnhosts='" + OVERRIDES_PATH + "'");
+		run('uci commit dhcp');
+	}
+	// dnsmasq restart (any content change requires restart; cache would
+	// otherwise serve stale entries for removed/new lines)
+	run('/etc/init.d/dnsmasq restart');
+	// reread + verify membership
+	let reread = parse_existing_overrides();
+	let rereadTuples = {};
+	for (let i = 0; i < length(reread.entries); i++) {
+		let e = reread.entries[i];
+		let fams = [['A', e.A || []], ['AAAA', e.AAAA || []]];
+		for (let j = 0; j < length(fams); j++) {
+			let [fam, addrs] = fams[j];
+			for (let k = 0; k < length(addrs); k++) rereadTuples[tuple_key(e.hostname, fam, addrs[k])] = true;
+		}
+	}
+	let mismatches = [];
+	for (let i = 0; i < length(finalRecords); i++) {
+		let r = finalRecords[i];
+		for (let j = 0; j < length(r.A); j++) if (!rereadTuples[tuple_key(r.hostname, 'A', r.A[j])]) mismatches.push({ tuple: r.hostname + ' A ' + r.A[j], problem: 'missing after apply' });
+	}
+	// verify local resolver for applicable records
+	let resolverResults = [];
+	let resolverOk = true;
+	for (let i = 0; i < length(finalRecords); i++) {
+		let r = finalRecords[i];
+		for (let j = 0; j < length(r.A); j++) {
+			let q = run('nslookup ' + r.hostname + ' 127.0.0.1');
+			let found = (index(q.out, r.A[j]) >= 0);
+			if (!found) resolverOk = false;
+			push(resolverResults, { hostname: r.hostname, expected: r.A[j], matched: found });
+		}
+	}
+	// update applied state
+	let newApplied = {
+		selections: Object.assign({}, selections),
+		generatedAt: iso_now(),
+		revision: appliedRev + 1,
+		fileHash: curFileHash // updated below
+	};
+	let h = popen('echo -n "' + rendered.replace(/"/g, '\\"') + '" | sha256sum 2>/dev/null | awk \'{print $1}\'', 'r');
+	if (h) { newApplied.fileHash = trim(h.read('all')); h.close(); }
+	state.applied = newApplied;
+	push(state.events, { ts: iso_now(), action: 'apply', revision: newApplied.revision, records: length(finalRecords), warnings: warnings });
+	if (length(state.events) > 20) state.events = state.events.slice(-20);
+	if (!save_service_dns_state(state)) {
+		restore_overrides_file();
+		restore_service_dns_state();
+		return err('ESTATE', 'state write failed — rolled back', 'state-write');
+	}
+	if (length(mismatches) > 0 || !resolverOk) {
+		restore_overrides_file();
+		restore_service_dns_state();
+		run('/etc/init.d/dnsmasq restart');
+		return err('ETARGET', 'apply failed verification (mismatches=' + length(mismatches) + ', resolver=' + resolverOk + ') — rolled back', 'verify');
+	}
+	return {
+		ok: true, mode: 'apply', action: 'restart', revision: newApplied.revision,
+		recordsWritten: length(finalRecords), resolverOk: resolverOk, mismatches: mismatches,
+		warnings: warnings, snapshot: snap, ownership: ownership
+	};
+};
+
+// service_dns_rollback — restore snapshot + state + dnsmasq
+export const service_dns_rollback = function(req) {
+	if (!stat(SNAP_DIR + '/overrides.hosts') && !stat(SNAP_DIR + '/service-dns-state.json'))
+		return err('ESTATE', 'no service DNS snapshot to roll back to');
+	restore_overrides_file();
+	restore_service_dns_state();
+	run('/etc/init.d/dnsmasq restart');
+	return {
+		ok: true, mode: 'rollback', action: 'restart',
+		note: 'snapshot restored and dnsmasq restarted'
+	};
+};

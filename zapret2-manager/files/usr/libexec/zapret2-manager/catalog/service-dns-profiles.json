@@ -1,0 +1,493 @@
+{
+  "schemaVersion": 1,
+  "datasetVersion": "1.0.0",
+  "generatedAt": "2026-07-30T00:00:00Z",
+  "providers": [
+    {
+      "id": "malw-link-doh",
+      "name": "dns.malw.link DoH bypass resolver",
+      "sourceUrl": "https://dns.malw.link/dns-query",
+      "sourceRevision": "retrieved 2026-07-30 (live DoH RFC8484)",
+      "sourceHash": "sha256:03b56f9e9600ab77b07df7e4e8efade7b7b2ed549b70c211e0097ab01ce34545",
+      "reviewedAt": "2026-07-30",
+      "expiresAt": "2026-10-28",
+      "trust": "pinned-hash",
+      "notes": "Public DoH resolver returning region-bypass A records for blocked service domains. IPs are anycast/rotating; treat as advisory, refresh before expiry. Captured read-only via RFC8484 wireformat (no script execution)."
+    }
+  ],
+  "profiles": [
+    {
+      "id": "prof-chatgpt-openai",
+      "providerId": "malw-link-doh",
+      "serviceId": "chatgpt-openai",
+      "requiredDomains": [
+        "openai.com",
+        "chatgpt.com",
+        "oaistatic.com",
+        "oaiusercontent.com"
+      ],
+      "optionalDomains": [],
+      "diagnosticTargets": [
+        "openai.com"
+      ],
+      "records": [
+        {
+          "hostname": "openai.com",
+          "A": [
+            "185.246.223.127",
+            "62.133.62.97"
+          ],
+          "AAAA": []
+        },
+        {
+          "hostname": "chatgpt.com",
+          "A": [
+            "185.246.223.127",
+            "62.133.62.97"
+          ],
+          "AAAA": []
+        },
+        {
+          "hostname": "oaistatic.com",
+          "A": [
+            "185.246.223.127",
+            "62.133.62.97"
+          ],
+          "AAAA": []
+        },
+        {
+          "hostname": "oaiusercontent.com",
+          "A": [
+            "185.246.223.127",
+            "62.133.62.97"
+          ],
+          "AAAA": []
+        }
+      ],
+      "notes": "A records resolved live from dns.malw.link. Optional domains are catalog-listed but unserved by this provider (NXDOMAIN).",
+      "limitations": "Mapping pins hostnames to bypass A records; it does NOT bypass server-side GEO/account restrictions or guarantee application-level service. Effectiveness depends on the active zapret2 strategy. Refresh before expiry; IPs rotate."
+    },
+    {
+      "id": "prof-google-gemini",
+      "providerId": "malw-link-doh",
+      "serviceId": "google-gemini",
+      "requiredDomains": [
+        "gemini.google.com"
+      ],
+      "optionalDomains": [],
+      "diagnosticTargets": [
+        "gemini.google.com"
+      ],
+      "records": [
+        {
+          "hostname": "gemini.google.com",
+          "A": [
+            "185.246.223.127",
+            "62.133.62.97"
+          ],
+          "AAAA": []
+        }
+      ],
+      "notes": "A records resolved live from dns.malw.link. Optional domains are catalog-listed but unserved by this provider (NXDOMAIN).",
+      "limitations": "Mapping pins hostnames to bypass A records; it does NOT bypass server-side GEO/account restrictions or guarantee application-level service. Effectiveness depends on the active zapret2 strategy. Refresh before expiry; IPs rotate."
+    },
+    {
+      "id": "prof-discord",
+      "providerId": "malw-link-doh",
+      "serviceId": "discord",
+      "requiredDomains": [
+        "discord.com",
+        "discordapp.com",
+        "discord.media",
+        "discord.gg",
+        "discordcdn.com"
+      ],
+      "optionalDomains": [
+        "discordapp.net"
+      ],
+      "diagnosticTargets": [
+        "discord.com"
+      ],
+      "records": [
+        {
+          "hostname": "discord.com",
+          "A": [
+            "162.159.128.233",
+            "162.159.135.232",
+            "162.159.136.232",
+            "162.159.137.232",
+            "162.159.138.232"
+          ],
+          "AAAA": []
+        },
+        {
+          "hostname": "discordapp.com",
+          "A": [
+            "162.159.129.233",
+            "162.159.130.233",
+            "162.159.133.233",
+            "162.159.134.233",
+            "162.159.135.233"
+          ],
+          "AAAA": []
+        },
+        {
+          "hostname": "discord.media",
+          "A": [
+            "162.159.128.235",
+            "162.159.129.235",
+            "162.159.130.235",
+            "162.159.137.234",
+            "162.159.138.234"
+          ],
+          "AAAA": []
+        },
+        {
+          "hostname": "discord.gg",
+          "A": [
+            "162.159.130.234",
+            "162.159.133.234",
+            "162.159.134.234",
+            "162.159.135.234",
+            "162.159.136.234"
+          ],
+          "AAAA": []
+        },
+        {
+          "hostname": "discordcdn.com",
+          "A": [
+            "162.159.128.234",
+            "162.159.129.234",
+            "162.159.136.233",
+            "162.159.137.233",
+            "162.159.138.233"
+          ],
+          "AAAA": []
+        }
+      ],
+      "notes": "A records resolved live from dns.malw.link. Optional domains are catalog-listed but unserved by this provider (NXDOMAIN).",
+      "limitations": "Mapping pins hostnames to bypass A records; it does NOT bypass server-side GEO/account restrictions or guarantee application-level service. Effectiveness depends on the active zapret2 strategy. Refresh before expiry; IPs rotate."
+    },
+    {
+      "id": "prof-youtube",
+      "providerId": "malw-link-doh",
+      "serviceId": "youtube",
+      "requiredDomains": [
+        "youtube.com",
+        "googlevideo.com",
+        "youtube-nocookie.com"
+      ],
+      "optionalDomains": [
+        "ytimg.com"
+      ],
+      "diagnosticTargets": [
+        "youtube.com"
+      ],
+      "records": [
+        {
+          "hostname": "youtube.com",
+          "A": [
+            "142.251.127.136",
+            "142.251.127.190",
+            "142.251.127.91",
+            "142.251.127.93"
+          ],
+          "AAAA": []
+        },
+        {
+          "hostname": "googlevideo.com",
+          "A": [
+            "142.251.110.103",
+            "142.251.110.104",
+            "142.251.110.105",
+            "142.251.110.106",
+            "142.251.110.147",
+            "142.251.110.99"
+          ],
+          "AAAA": []
+        },
+        {
+          "hostname": "youtube-nocookie.com",
+          "A": [
+            "142.250.154.136",
+            "142.250.154.190",
+            "142.250.154.91",
+            "142.250.154.93"
+          ],
+          "AAAA": []
+        }
+      ],
+      "notes": "A records resolved live from dns.malw.link. Optional domains are catalog-listed but unserved by this provider (NXDOMAIN).",
+      "limitations": "Mapping pins hostnames to bypass A records; it does NOT bypass server-side GEO/account restrictions or guarantee application-level service. Effectiveness depends on the active zapret2 strategy. Refresh before expiry; IPs rotate."
+    },
+    {
+      "id": "prof-twitch",
+      "providerId": "malw-link-doh",
+      "serviceId": "twitch",
+      "requiredDomains": [
+        "twitch.tv"
+      ],
+      "optionalDomains": [
+        "ttvnw.net",
+        "jtvnw.net"
+      ],
+      "diagnosticTargets": [
+        "twitch.tv"
+      ],
+      "records": [
+        {
+          "hostname": "twitch.tv",
+          "A": [
+            "151.101.130.167",
+            "151.101.194.167",
+            "151.101.2.167",
+            "151.101.66.167"
+          ],
+          "AAAA": []
+        }
+      ],
+      "notes": "A records resolved live from dns.malw.link. Optional domains are catalog-listed but unserved by this provider (NXDOMAIN).",
+      "limitations": "Mapping pins hostnames to bypass A records; it does NOT bypass server-side GEO/account restrictions or guarantee application-level service. Effectiveness depends on the active zapret2 strategy. Refresh before expiry; IPs rotate."
+    },
+    {
+      "id": "prof-spotify",
+      "providerId": "malw-link-doh",
+      "serviceId": "spotify",
+      "requiredDomains": [
+        "spotify.com",
+        "scdn.co",
+        "spotifycdn.com"
+      ],
+      "optionalDomains": [],
+      "diagnosticTargets": [
+        "spotify.com"
+      ],
+      "records": [
+        {
+          "hostname": "spotify.com",
+          "A": [
+            "185.246.223.127",
+            "62.133.62.97"
+          ],
+          "AAAA": []
+        },
+        {
+          "hostname": "scdn.co",
+          "A": [
+            "185.246.223.127",
+            "62.133.62.97"
+          ],
+          "AAAA": []
+        },
+        {
+          "hostname": "spotifycdn.com",
+          "A": [
+            "185.246.223.127",
+            "62.133.62.97"
+          ],
+          "AAAA": []
+        }
+      ],
+      "notes": "A records resolved live from dns.malw.link. Optional domains are catalog-listed but unserved by this provider (NXDOMAIN).",
+      "limitations": "Mapping pins hostnames to bypass A records; it does NOT bypass server-side GEO/account restrictions or guarantee application-level service. Effectiveness depends on the active zapret2 strategy. Refresh before expiry; IPs rotate."
+    },
+    {
+      "id": "prof-supercell",
+      "providerId": "malw-link-doh",
+      "serviceId": "supercell",
+      "requiredDomains": [
+        "supercell.com",
+        "supercell.net"
+      ],
+      "optionalDomains": [
+        "game.supercell.net"
+      ],
+      "diagnosticTargets": [
+        "supercell.com"
+      ],
+      "records": [
+        {
+          "hostname": "supercell.com",
+          "A": [
+            "3.174.113.104",
+            "3.174.113.126",
+            "3.174.113.26",
+            "3.174.113.35"
+          ],
+          "AAAA": []
+        },
+        {
+          "hostname": "supercell.net",
+          "A": [
+            "52.216.105.26"
+          ],
+          "AAAA": []
+        }
+      ],
+      "notes": "A records resolved live from dns.malw.link. Optional domains are catalog-listed but unserved by this provider (NXDOMAIN).",
+      "limitations": "Mapping pins hostnames to bypass A records; it does NOT bypass server-side GEO/account restrictions or guarantee application-level service. Effectiveness depends on the active zapret2 strategy. Refresh before expiry; IPs rotate."
+    },
+    {
+      "id": "prof-github",
+      "providerId": "malw-link-doh",
+      "serviceId": "github",
+      "requiredDomains": [
+        "github.com",
+        "github.githubassets.com"
+      ],
+      "optionalDomains": [],
+      "diagnosticTargets": [
+        "github.com"
+      ],
+      "records": [
+        {
+          "hostname": "github.com",
+          "A": [
+            "140.82.121.4"
+          ],
+          "AAAA": []
+        },
+        {
+          "hostname": "github.githubassets.com",
+          "A": [
+            "185.199.108.215",
+            "185.199.109.215",
+            "185.199.110.215",
+            "185.199.111.215"
+          ],
+          "AAAA": []
+        }
+      ],
+      "notes": "A records resolved live from dns.malw.link. Optional domains are catalog-listed but unserved by this provider (NXDOMAIN).",
+      "limitations": "Mapping pins hostnames to bypass A records; it does NOT bypass server-side GEO/account restrictions or guarantee application-level service. Effectiveness depends on the active zapret2 strategy. Refresh before expiry; IPs rotate."
+    },
+    {
+      "id": "prof-githubusercontent",
+      "providerId": "malw-link-doh",
+      "serviceId": "githubusercontent",
+      "requiredDomains": [
+        "raw.githubusercontent.com",
+        "gist.githubusercontent.com",
+        "objects.githubusercontent.com",
+        "codeload.github.com"
+      ],
+      "optionalDomains": [],
+      "diagnosticTargets": [
+        "raw.githubusercontent.com"
+      ],
+      "records": [
+        {
+          "hostname": "raw.githubusercontent.com",
+          "A": [
+            "185.199.108.133",
+            "185.199.109.133",
+            "185.199.110.133",
+            "185.199.111.133"
+          ],
+          "AAAA": []
+        },
+        {
+          "hostname": "gist.githubusercontent.com",
+          "A": [
+            "185.199.108.133",
+            "185.199.109.133",
+            "185.199.110.133",
+            "185.199.111.133"
+          ],
+          "AAAA": []
+        },
+        {
+          "hostname": "objects.githubusercontent.com",
+          "A": [
+            "185.199.108.133",
+            "185.199.109.133",
+            "185.199.110.133",
+            "185.199.111.133"
+          ],
+          "AAAA": []
+        },
+        {
+          "hostname": "codeload.github.com",
+          "A": [
+            "140.82.121.9"
+          ],
+          "AAAA": []
+        }
+      ],
+      "notes": "A records resolved live from dns.malw.link. Optional domains are catalog-listed but unserved by this provider (NXDOMAIN).",
+      "limitations": "Mapping pins hostnames to bypass A records; it does NOT bypass server-side GEO/account restrictions or guarantee application-level service. Effectiveness depends on the active zapret2 strategy. Refresh before expiry; IPs rotate."
+    },
+    {
+      "id": "prof-telegram-web",
+      "providerId": "malw-link-doh",
+      "serviceId": "telegram-web",
+      "requiredDomains": [
+        "web.telegram.org",
+        "telegram.org",
+        "t.me"
+      ],
+      "optionalDomains": [],
+      "diagnosticTargets": [
+        "web.telegram.org"
+      ],
+      "records": [
+        {
+          "hostname": "web.telegram.org",
+          "A": [
+            "149.154.167.99"
+          ],
+          "AAAA": []
+        },
+        {
+          "hostname": "telegram.org",
+          "A": [
+            "149.154.167.99"
+          ],
+          "AAAA": []
+        },
+        {
+          "hostname": "t.me",
+          "A": [
+            "149.154.167.99"
+          ],
+          "AAAA": []
+        }
+      ],
+      "notes": "A records resolved live from dns.malw.link. Optional domains are catalog-listed but unserved by this provider (NXDOMAIN).",
+      "limitations": "Mapping pins hostnames to bypass A records; it does NOT bypass server-side GEO/account restrictions or guarantee application-level service. Effectiveness depends on the active zapret2 strategy. Refresh before expiry; IPs rotate."
+    },
+    {
+      "id": "prof-notion",
+      "providerId": "malw-link-doh",
+      "serviceId": "notion",
+      "requiredDomains": [
+        "notion.so",
+        "notion.site"
+      ],
+      "optionalDomains": [],
+      "diagnosticTargets": [
+        "notion.so"
+      ],
+      "records": [
+        {
+          "hostname": "notion.so",
+          "A": [
+            "185.246.223.127",
+            "62.133.62.97"
+          ],
+          "AAAA": []
+        },
+        {
+          "hostname": "notion.site",
+          "A": [
+            "208.103.161.32",
+            "208.103.161.33"
+          ],
+          "AAAA": []
+        }
+      ],
+      "notes": "A records resolved live from dns.malw.link. Optional domains are catalog-listed but unserved by this provider (NXDOMAIN).",
+      "limitations": "Mapping pins hostnames to bypass A records; it does NOT bypass server-side GEO/account restrictions or guarantee application-level service. Effectiveness depends on the active zapret2 strategy. Refresh before expiry; IPs rotate."
+    }
+  ]
+}

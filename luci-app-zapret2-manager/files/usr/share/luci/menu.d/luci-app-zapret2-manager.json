@@ -128,5 +128,18 @@
 				"zapret2-manager"
 			]
 		}
+	},
+	"admin/services/zapret2-manager/service-dns": {
+		"title": "Service DNS",
+		"order": 95.5,
+		"action": {
+			"type": "view",
+			"path": "zapret2-manager/service-dns"
+		},
+		"depends": {
+			"acl": [
+				"zapret2-manager"
+			]
+		}
 	}
 }

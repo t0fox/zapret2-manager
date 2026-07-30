@@ -1,9 +1,9 @@
 {
 	"zapret2-manager": {
-		"description": "Zapret 2 Manager — overview + service control + lists",
+		"description": "Zapret 2 Manager �?" overview + service control + lists",
 		"read": {
 			"ubus": {
-				"zapret2-manager": [ "status", "lists_get", "lists_check_domain", "profiles_list", "profiles_validate", "job_get", "job_list", "blockcheck_status", "versions", "maintenance_status", "events_tail", "diagnostics_export", "backup_list", "backup_restore_preview", "dns_get", "dns_validate", "dns_check", "catalog_list", "catalog_get", "catalog_status", "catalog_preview", "health_matrix_get", "health_matrix_job_get", "orchestra_capabilities", "orchestra_status", "orchestra_events", "orchestra_history", "dnsprov_components", "dnsprov_providers", "dnsprov_diagnose", "proxy_capabilities", "proxy_status", "proxy_config_get", "proxy_logs_tail", "proxy_health", "proxy_link_info", "proxy_config_validate", "proxy_config_preview" ]
+				"zapret2-manager": [ "status", "lists_get", "lists_check_domain", "profiles_list", "profiles_validate", "job_get", "job_list", "blockcheck_status", "versions", "maintenance_status", "events_tail", "diagnostics_export", "backup_list", "backup_restore_preview", "dns_get", "dns_validate", "dns_check", "catalog_list", "catalog_get", "catalog_status", "catalog_preview", "health_matrix_get", "health_matrix_job_get", "orchestra_capabilities", "orchestra_status", "orchestra_events", "orchestra_history", "dnsprov_components", "dnsprov_providers", "dnsprov_diagnose", "proxy_capabilities", "proxy_status", "proxy_config_get", "proxy_logs_tail", "proxy_health", "proxy_link_info", "proxy_config_validate", "proxy_config_preview", "service_dns_providers", "service_dns_status", "service_dns_preview", "service_dns_check" ]
 			},
 			"uci": [ "zapret2" ]
 		},
@@ -23,9 +23,13 @@
 					"health_matrix_start", "health_matrix_job_cancel",
 					"proxy_config_apply", "proxy_start", "proxy_stop",
 					"proxy_restart", "proxy_autostart_set", "proxy_secret_rotate",
-					"proxy_quick_install"
+					"proxy_quick_install",
+					"service_dns_set", "service_dns_apply", "service_dns_rollback"
 				]
 			}
+		}
+	}
+}
 		}
 	}
 }
