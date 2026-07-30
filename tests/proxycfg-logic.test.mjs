@@ -19,9 +19,10 @@ import {
 	renderConfigConf, parseConfigConf,
 	diffConfigs, planServiceAction, listenerImpact, buildPreview,
 	checkOptimisticRevision,
-	SECRET_RE, secretFormatOk, renderSecretConf, parseSecretConf, hexEncode, buildTgLink,
+	SECRET_RE, secretFormatOk, renderSecretConf, parseSecretConf, hexEncode, buildTgLink, buildTgHttpsLink,
 	redactLogLine, redactLogLines,
 	exactListener, verifyStarted, verifyStopped,
+	rereadUntil, ncProbeCommand, routeLocal, routeUpstream,
 	assembleHealth, autostartDrift
 } from './lib/proxycfg-logic.mjs';
 
@@ -416,12 +417,13 @@ test('exactListener requires exact address+port', () => {
 
 // ---- log redaction -----------------------------------------------------------------------------------------
 
-test('log redaction: exact secret, tg:// links, dd/ee/bare-hex tokens', () => {
+test('log redaction: exact secret, tg:// links, https://t.me/proxy links, dd/ee/bare-hex tokens', () => {
 	const eeSecret = 'ee' + SECRET + '7777772e79616e6465782e7275';
-	const line = 'link: tg://proxy?server=192.168.1.1&port=1443&secret=dd' + SECRET + ' accepted dd' + SECRET + ' and ' + eeSecret + ' bare ' + SECRET;
+	const line = 'link: tg://proxy?server=192.168.1.1&port=1443&secret=dd' + SECRET + ' and https://t.me/proxy?server=192.168.1.1&port=1443&secret=dd' + SECRET + ' accepted dd' + SECRET + ' and ' + eeSecret + ' bare ' + SECRET;
 	const r = redactLogLine(line, [SECRET]);
 	assert.ok(!r.includes(SECRET), 'no secret material survives redaction');
 	assert.ok(r.includes('tg://proxy?«redacted»'));
+	assert.ok(r.includes('https://t.me/proxy?«redacted»'));
 	assert.ok(r.includes('«redacted»'));
 	// a token with dd-prefix is redacted even without the exact-value pass
 	assert.equal(redactLogLine('got dd' + SECRET + ' ok', []), 'got «redacted» ok');
@@ -442,6 +444,20 @@ test('tg link: dd padded form; ee faketls form with hex-encoded domain', () => {
 	assert.equal(
 		buildTgLink({ host: '192.168.1.1', port: 443, linkIp: '10.0.0.1', secret: SECRET, faketlsDomain: 'www.yandex.ru' }),
 		'tg://proxy?server=10.0.0.1&port=443&secret=ee' + SECRET + '7777772e79616e6465782e7275');
+});
+
+// ---- https://t.me/proxy link -----------------------------------------------------------------------------------
+
+test('https link: same format as tg:// but with https://t.me/proxy, secret URL-encoded', () => {
+	const link = buildTgHttpsLink({ host: '192.168.1.1', port: 1443, secret: SECRET, faketlsDomain: '' });
+	assert.ok(link.startsWith('https://t.me/proxy?'));
+	assert.ok(link.includes('secret=dd' + encodeURIComponent(SECRET)));
+	assert.ok(link.includes('server=192.168.1.1'));
+	assert.ok(link.includes('port=1443'));
+	// FakeTLS form also URL-encoded
+	const link2 = buildTgHttpsLink({ host: '192.168.1.1', port: 443, linkIp: '10.0.0.1', secret: SECRET, faketlsDomain: 'www.yandex.ru' });
+	assert.ok(link2.includes('secret=ee' + encodeURIComponent(SECRET + '7777772e79616e6465782e7275')));
+	assert.ok(link2.includes('server=10.0.0.1'));
 });
 
 // ---- health -------------------------------------------------------------------------------------------------
@@ -522,4 +538,102 @@ test('no install RPC: nothing in the proxy backend downloads or installs package
 	assert.ok(!/apk\s+(add|del)/.test(code), 'no apk add/del in proxycfg.uc');
 	assert.ok(!/curl|wget|uclient-fetch/.test(code), 'no downloads in proxycfg.uc');
 	assert.ok(!/allow-untrusted/.test(code), 'no --allow-untrusted anywhere');
+});
+
+// ---- listener readiness + BusyBox nc probe --------------------------------------------------------
+
+test('rereadUntil waits until the listener appears, the process dies, or the budget expires', () => {
+	let calls = 0;
+	const poll = () => {
+		calls++;
+		if (calls < 3) return { pids: [123], ours: [], all: [], running: true };
+		return { pids: [123], ours: [{ address: '192.168.1.1', port: 1443, pid: 123 }], all: [], running: true };
+	};
+	const sleeps = [];
+	const sleep = (n) => sleeps.push(n);
+	let t = 1000;
+	const now = () => { t += 100; return t; };
+	const rr = rereadUntil(5000, poll, sleep, now);
+	assert.equal(rr.running, true);
+	assert.deepStrictEqual(rr.listeners, [{ address: '192.168.1.1', port: 1443, pid: 123 }]);
+	assert.deepStrictEqual(sleeps, [1, 1]);
+});
+
+test('rereadUntil returns immediately when the process is not running', () => {
+	let calls = 0;
+	const poll = () => { calls++; return { pids: [], ours: [], all: [], running: false }; };
+	const sleeps = [];
+	const rr = rereadUntil(5000, poll, (n) => sleeps.push(n), () => 0);
+	assert.equal(rr.running, false);
+	assert.equal(calls, 1);
+	assert.deepStrictEqual(sleeps, []);
+});
+
+test('ncProbeCommand uses a background+kill loop compatible with BusyBox nc', () => {
+	const cmd = ncProbeCommand('192.168.1.1', 1443, 2);
+	assert.match(cmd, /nc 192\.168\.1\.1 1443/);
+	assert.match(cmd, /pid=\$!/);
+	assert.match(cmd, /kill -0 \$pid/);
+	assert.match(cmd, /sleep 1/);
+	assert.match(cmd, /exit 1/);
+	assert.ok(!/-w\s+\d/.test(cmd), 'must not use nc -w (BusyBox nc lacks it)');
+	assert.ok(!/-z/.test(cmd), 'must not use nc -z (not universal)');
+});
+
+test('routeLocal reports nc unavailable when the nc binary is missing', () => {
+	const run = (cmd) => ({ ok: true, out: '', rc: 0 });
+	const r = routeLocal({ host: '192.168.1.1', port: 1443 }, run);
+	assert.equal(r.attempted, false);
+	assert.equal(r.ok, false);
+	assert.match(r.detail, /nc unavailable/);
+});
+
+test('routeLocal attempts a connection when nc is present', () => {
+	const log = [];
+	const run = (cmd) => {
+		log.push(cmd);
+		if (cmd === 'command -v nc') return { ok: true, out: '/usr/bin/nc\n', rc: 0 };
+		return { ok: true, out: '', rc: 0 };
+	};
+	const r = routeLocal({ host: '192.168.1.1', port: 1443 }, run);
+	assert.equal(r.attempted, true);
+	assert.equal(r.ok, true);
+	assert.match(r.detail, /connected/);
+	assert.equal(log.length, 2);
+	assert.match(log[1], /sh -c 'nc 192\.168\.1\.1 1443/);
+});
+
+test('routeUpstream probes the Telegram edge and returns the target', () => {
+	const run = (cmd) => {
+		if (cmd === 'command -v nc') return { ok: true, out: '/usr/bin/nc\n', rc: 0 };
+		return { ok: true, out: '', rc: 1 };
+	};
+	const r = routeUpstream(run, '149.154.167.220', 443);
+	assert.equal(r.attempted, true);
+	assert.equal(r.ok, false);
+	assert.equal(r.target, '149.154.167.220:443');
+	assert.match(r.detail, /refused\/timeout/);
+});
+
+// ---- static regression: shipped ucode contains the listener/nc fixes ------------------------------
+
+test('shipped proxycfg.uc contains the listener readiness reread loop', () => {
+	const proxycfg = readFileSync(join(ROOT, 'zapret2-manager', 'files', 'usr', 'libexec', 'zapret2-manager', 'proxycfg.uc'), 'utf8');
+	const rereadBody = proxycfg.slice(proxycfg.indexOf('function reread('));
+	assert.match(rereadBody, /maxWaitMs/);
+	assert.match(rereadBody, /deadline/);
+	assert.match(rereadBody, /sleep\(1\)/);
+	assert.match(rereadBody, /return \{ pids: pids, listeners: ours, all: all, running: running \}/);
+});
+
+test('shipped proxycfg.uc nc_probe uses BusyBox-compatible background nc', () => {
+	const proxycfg = readFileSync(join(ROOT, 'zapret2-manager', 'files', 'usr', 'libexec', 'zapret2-manager', 'proxycfg.uc'), 'utf8');
+	const code = proxycfg.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+	const body = code.slice(code.indexOf('function nc_probe('));
+	assert.match(body, /nc ' \+ host \+ ' ' \+ port/);
+	assert.match(body, /pid=\$!/);
+	assert.match(body, /kill \$pid/);
+	assert.match(body, /sleep 1/);
+	assert.ok(!/-w\s+\d/.test(body), 'BusyBox nc has no -w flag');
+	assert.ok(!/-z/.test(body), 'do not rely on nc -z');
 });

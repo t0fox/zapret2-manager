@@ -73,6 +73,7 @@ const URL_HTTP = 'http://';
 const URL_S5 = 'socks5://';
 const URL_S5H = 'socks5h://';
 const TG_SCHEME = 'tg://proxy';
+const TG_HTTPS = 'https://t.me/proxy';
 
 // ---- low-level helpers --------------------------------------------------------
 
@@ -763,6 +764,24 @@ function build_tg_link(config, secret) {
 	return TG_SCHEME + '?server=' + server + '&port=' + config.port + '&secret=' + sec;
 }
 
+function build_tg_https_link(config, secret) {
+	let server = (config.linkIp != '') ? config.linkIp : config.host;
+	let sec = (config.faketlsDomain != '')
+		? 'ee' + secret + hex_encode(config.faketlsDomain)
+		: 'dd' + secret;
+	let enc = function (s) {
+		let out = '';
+		for (let i = 0; i < length(s); i++) {
+			let c = ord(substr(s, i, 1));
+			if (c >= 48 && c <= 57 || c >= 65 && c <= 90 || c >= 97 && c <= 122) { out += substr(s, i, 1); }
+			else if (c == 46 || c == 45 || c == 95 || c == 126) { out += substr(s, i, 1); }
+			else { out += '%' + sprintf('%02X', c); }
+		}
+		return out;
+	};
+	return TG_HTTPS + '?server=' + enc(server) + '&port=' + config.port + '&secret=' + enc(sec);
+}
+
 // ---- log redaction -------------------------------------------------------------
 
 function hexlike(t) {
@@ -776,6 +795,8 @@ function hexlike(t) {
 function redact_token(t) {
 	if (t == '') return t;
 	if (substr(t, 0, 10) == TG_SCHEME) return TG_SCHEME + '?«redacted»';
+	let https_prefix = 'https://t.me/proxy?';
+	if (length(t) >= length(https_prefix) && substr(t, 0, length(https_prefix)) == https_prefix) return 'https://t.me/proxy?«redacted»';
 	if (hexlike(t)) return '«redacted»';
 	return t;
 }
@@ -1018,16 +1039,41 @@ function parse_all_listeners(output) {
 
 function probe_lan_addresses() {
 	let out = [];
-	let r = run('ip -o addr show');
-	if (r.rc != 0) return out;
-	let lines = split(r.out, '\n');
-	for (let i = 0; i < length(lines) && length(out) < 32; i++) {
-		let f = split_fields(trim(lines[i]));
-		for (let k = 0; k + 1 < length(f); k++) {
-			if (f[k] == 'inet') {
-				let cut = index(f[k + 1], '/');
-				let addr = (cut > 0) ? substr(f[k + 1], 0, cut) : f[k + 1];
-				if (substr(addr, 0, 4) != '127.') push(out, addr);
+	// Use ubus to get the authoritative LAN interface IPv4 address.
+	// This avoids selecting WAN/VPN/tunnel addresses.
+	let r = run('/bin/ubus call network.interface.lan status');
+	if (r.rc != 0) {
+		// fallback: ip -o addr show on br-lan only
+		let r2 = run('ip -o -4 addr show br-lan | head -1');
+		if (r2.rc == 0 && r2.out != '') {
+			let parts = split_fields(trim(r2.out));
+			for (let k = 0; k + 1 < length(parts); k++) {
+				if (parts[k] == 'inet') {
+					let cut = index(parts[k + 1], '/');
+					let addr = (cut > 0) ? substr(parts[k + 1], 0, cut) : parts[k + 1];
+					if (addr != '' && substr(addr, 0, 4) != '127.') push(out, addr);
+				}
+			}
+		}
+		return out;
+	}
+	// Parse ubus JSON output for the first IPv4 address.
+	// NOTE: ucode index(str, search, pos) IGNORES pos (confirmed bug).
+	// Use substr() + index() on the substring instead.
+	let json = r.out;
+	let ai = index(json, '"ipv4-address"');
+	if (ai >= 0) {
+		let tail = substr(json, ai);
+		let addrStart = index(tail, '"address"');
+		if (addrStart >= 0) {
+			let afterColon = substr(tail, addrStart + 9); // skip '"address":'
+			let q1 = index(afterColon, '"');
+			if (q1 >= 0) {
+				let q2 = index(substr(afterColon, q1 + 1), '"');
+				if (q2 >= 0) {
+					let addr = substr(afterColon, q1 + 1, q2);
+					if (addr != '' && substr(addr, 0, 4) != '127.') push(out, addr);
+				}
 			}
 		}
 	}
@@ -1085,23 +1131,29 @@ function probe_secret_meta() {
 }
 
 // reread(): OUR pids + OUR listeners (matched) + ALL listeners + running
-function reread() {
-	let pid = probe_pidof();
-	let pids = (pid.ok && !pid.malformed) ? pid.pids : [];
-	let running = (pid.ok && !pid.malformed && length(pids) > 0);
-	let nr = run('netstat -tulpn');
-	let all = [];
-	if (nr.rc != 127 && nr.rc != -1) {
-		let pa = parse_all_listeners(nr.out);
-		all = pa.listeners;
+function reread(maxWaitMs) {
+	if (maxWaitMs == null) maxWaitMs = 0;
+	let deadline = time() * 1000 + maxWaitMs;
+	for (;;) {
+		let pid = probe_pidof();
+		let pids = (pid.ok && !pid.malformed) ? pid.pids : [];
+		let running = (pid.ok && !pid.malformed && length(pids) > 0);
+		let nr = run('netstat -tulpn');
+		let all = [];
+		if (nr.rc != 127 && nr.rc != -1) {
+			let pa = parse_all_listeners(nr.out);
+			all = pa.listeners;
+		}
+		let ours = [];
+		for (let i = 0; i < length(all); i++) {
+			let l = all[i];
+			let own = (l.pid != null && pid_in(pids, l.pid)) || l.process == PROC_NAME;
+			if (own) push(ours, l);
+		}
+		if (length(ours) > 0 || !running || time() * 1000 >= deadline)
+			return { pids: pids, listeners: ours, all: all, running: running };
+		sleep(1);
 	}
-	let ours = [];
-	for (let i = 0; i < length(all); i++) {
-		let l = all[i];
-		let own = (l.pid != null && pid_in(pids, l.pid)) || l.process == PROC_NAME;
-		if (own) push(ours, l);
-	}
-	return { pids: pids, listeners: ours, all: all, running: running };
 }
 
 function build_evidence() {
@@ -1288,17 +1340,28 @@ function have_nc() {
 	return (length(trim(r.out)) > 0);
 }
 
+// BusyBox nc has no -w. Wrap with a background+sleep+kill budget so SYN
+// blackholes cannot hang health forever. rc 0 = connected; non-zero = fail/timeout.
+function nc_probe(host, port, budgetSec) {
+	let sec = (budgetSec != null && budgetSec > 0) ? budgetSec : 2;
+	// single-quoted host/port are always manager-validated IPv4 / digits
+	let sh = 'nc ' + host + ' ' + port + ' </dev/null >/dev/null & pid=$!; ' +
+		'i=0; while kill -0 $pid 2>/dev/null; do ' +
+		'i=$((i+1)); [ "$i" -ge ' + sec + ' ] && { kill $pid 2>/dev/null; wait $pid 2>/dev/null; exit 1; }; ' +
+		'sleep 1; done; wait $pid; exit $?';
+	return run('sh -c \'' + sh + '\'');
+}
+
 function route_local(config) {
 	if (!have_nc()) return { attempted: false, ok: false, detail: 'nc unavailable' };
-	let r = run('nc -w 2 ' + config.host + ' ' + config.port + ' < /dev/null > /dev/null 2>&1');
-	// run() already appends 2>/dev/null; the explicit redirects above are belt-and-braces
+	let r = nc_probe(config.host, config.port, 2);
 	if (r.rc == 0) return { attempted: true, ok: true, detail: 'connected' };
 	return { attempted: true, ok: false, detail: 'connect refused/timeout (rc ' + r.rc + ')' };
 }
 
 function route_upstream() {
 	if (!have_nc()) return { attempted: false, ok: false, detail: 'nc unavailable', target: null };
-	let r = run('nc -w 3 ' + UPSTREAM_HOST + ' ' + UPSTREAM_PORT + ' < /dev/null > /dev/null 2>&1');
+	let r = nc_probe(UPSTREAM_HOST, UPSTREAM_PORT, 3);
 	let target = UPSTREAM_HOST + ':' + UPSTREAM_PORT;
 	if (r.rc == 0) return { attempted: true, ok: true, detail: 'tcp connected', target: target };
 	return { attempted: true, ok: false, detail: 'tcp refused/timeout (rc ' + r.rc + ')', target: target };
@@ -1520,7 +1583,7 @@ export const proxycfg_apply = function(input) {
 		if (src2 != 0) return apply_fail(snap, 'ETARGET', 'init ' + serviceAction + ' failed (rc ' + src2 + ')', []);
 	}
 
-	let rr = reread();
+	let rr = reread(5000);
 	let verify = full.enabled ? verify_started(full, rr) : verify_stopped(rr);
 	if (!verify.ok) return apply_fail(snap, 'ETARGET', 'post-apply listener verification failed', verify.failures);
 	let health = quick_infra_health(full, rr);
@@ -1547,7 +1610,7 @@ export const proxycfg_start = function() {
 		return { ok: false, error: { code: 'ECONFLICT', message: 'port ' + cur.config.port + ' is already held' }, conflicts: conflicts };
 	let rc = service_do('start');
 	if (rc != 0) return rpc_err('ETARGET', 'init start failed (rc ' + rc + ') — run /etc/init.d/tg-ws-proxy validate for the gate reason');
-	let rr = reread();
+	let rr = reread(5000);
 	let v = verify_started(cur.config, rr);
 	if (!v.ok)
 		return { ok: false, error: { code: 'ETARGET', message: 'started but listener verification failed' }, failures: v.failures, reread: { pids: rr.pids, listeners: rr.listeners } };
@@ -1575,7 +1638,7 @@ export const proxycfg_restart = function() {
 	if (sec.mode != 384 || sec.secret == null) return rpc_err('ESTATE', 'secret.conf insecure or malformed — rotate via proxy_secret_rotate');
 	let rc = service_do('restart');
 	if (rc != 0) return rpc_err('ETARGET', 'init restart failed (rc ' + rc + ')');
-	let rr = reread();
+	let rr = reread(5000);
 	let v = verify_started(cur.config, rr);
 	if (!v.ok)
 		return { ok: false, error: { code: 'ETARGET', message: 'restarted but listener verification failed' }, failures: v.failures, reread: { pids: rr.pids, listeners: rr.listeners } };
@@ -1617,7 +1680,7 @@ export const proxycfg_secret_rotate = function() {
 		let rc = service_do('restart');
 		if (rc != 0)
 			return { ok: false, error: { code: 'ETARGET', message: 'secret rotated but restart failed (rc ' + rc + ')' }, rotated: true, restarted: false };
-		let rr = reread();
+		let rr = reread(5000);
 		let v = verify_started(cur.config, rr);
 		if (!v.ok)
 			return { ok: false, error: { code: 'ETARGET', message: 'secret rotated and restarted, but listener verification failed' }, failures: v.failures, reread: { pids: rr.pids, listeners: rr.listeners } };
@@ -1700,6 +1763,7 @@ export const proxycfg_link_info = function(input) {
 	if (!reveal) return base;
 	if (input.confirm != 'REVEAL') return rpc_err('EINPUT', 'guarded reveal requires {"reveal": true, "confirm": "REVEAL"}');
 	base.link = build_tg_link(cur.config, sec.secret);
+	base.https_link = build_tg_https_link(cur.config, sec.secret);
 	base.revealed = true;
 	// NEVER event-log the link
 	return base;
@@ -1723,10 +1787,17 @@ export const proxycfg_quick_install = function () {
 		secretVal = gen;
 		generated = true;
 	}
+	// Full DC 1-5 coverage for ordinary chats and media.
+	// Source: Telegram published DC IPs (stable, documented).
+	// defaultDomains enables upstream Cloudflare domain fetch as fallback.
 	let config = {
-		enabled: true, autostart: true, host: host, port: 1443, linkIp: '',
-		faketlsDomain: '', dcIps: [], cfDomains: [], cfWorkerDomains: [],
-		cfPriority: false, cfBalance: false, defaultDomains: false,
+		enabled: true, autostart: true, host: host, port: 1443, linkIp: host,
+		faketlsDomain: '', dcIps: [
+			'1:149.154.175.10', '2:149.154.167.220',
+			'3:149.154.175.100', '4:149.154.167.91',
+			'5:91.108.56.181'
+		], cfDomains: [], cfWorkerDomains: [],
+		cfPriority: false, cfBalance: false, defaultDomains: true,
 		mtprotoProxies: [], outboundProxy: '', noProxy: '',
 		poolSize: 4, bufKb: 256, maxConnections: 0, quiet: true, verbose: false
 	};
@@ -1751,15 +1822,16 @@ export const proxycfg_quick_install = function () {
 	let action = ev0.running ? 'restart' : 'start';
 	let rc = service_do(action);
 	if (rc != 0) { let r = rf(); return { ok: false, error: { code: 'ETARGET', message: 'init ' + action + ' failed (rc ' + rc + ')' }, rolledBack: true, rollbackFailures: r.failures }; }
-	let rr = reread();
+	let rr = reread(5000);
 	let v = verify_started(config, rr);
 	if (!v.ok) { let r = rf(); return { ok: false, error: { code: 'ETARGET', message: 'post-install verification failed' }, failures: v.failures, rolledBack: true, rollbackFailures: r.failures }; }
 	let link = build_tg_link(config, secretVal);
+	let https_link = build_tg_https_link(config, secretVal);
 	let rm = popen('rm -rf ' + SNAP_DIR + ' 2>/dev/null', 'r');
 	if (rm) rm.close();
 	event_proxy('info', 'proxy quick-installed on ' + host + ':1443 (secret ' + (generated ? 'generated' : 'existing') + ')', null);
 	return {
-		ok: true, link: link, server: host, port: 1443,
+		ok: true, link: link, https_link: https_link, server: host, port: 1443,
 		secret: (generated ? 'generated' : 'existing'),
 		autostart: true, running: true,
 		reread: { pids: rr.pids, listeners: rr.listeners }

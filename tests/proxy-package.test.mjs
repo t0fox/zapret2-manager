@@ -106,7 +106,7 @@ export function checkProxyInit(text) {
 	need(/procd_set_param respawn 3600 5 5/, 'respawn must be BOUNDED (procd_set_param respawn 3600 5 5) — no infinite restart loop');
 	need(/procd_set_param stdout 1/, 'stdout must go through the established procd/syslog mechanism');
 	need(/procd_set_param stderr 1/, 'stderr must go through the established procd/syslog mechanism');
-	need(/TG_SECRET=\$SECRET(\s|")/, 'the secret must reach the provider via the TG_SECRET environment variable');
+	need(/TG_SECRET=["]?\$SECRET["]?(\s|$)/, 'the secret must reach the provider via the TG_SECRET environment variable');
 	if (/--secret/.test(text)) errs.push('the secret must NEVER be passed as a --secret argv element (ps exposure)');
 	// hard startup gates
 	need(/binary \$PROG missing or not executable/, 'gate: missing/non-executable binary must refuse start');

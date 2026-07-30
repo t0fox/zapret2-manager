@@ -171,8 +171,9 @@ start_service() {
 	# argv carries ONLY --dc-ip pairs (the one provider option with no env
 	# alias; DC IPs are not secret). procd execs argv without a shell — each
 	# token is exactly one argv element. Every pair is re-gated here.
-	set --
+	# Build dc-ip args FIRST, before repurposing $@ for env vars.
 	local pair dc ip oldifs
+	local dc_args=""
 	if [ -n "$DC_IPS" ]; then
 		oldifs=$IFS; IFS=,
 		for pair in $DC_IPS; do
@@ -187,34 +188,33 @@ start_service() {
 				log_refuse "DC_IPS entry '$pair' is malformed (expected DC:IPv4, e.g. 2:149.154.167.220)"
 				return 1
 			fi
-			set -- "$@" --dc-ip "$pair"
+			dc_args="$dc_args --dc-ip $pair"
 		done
 		IFS=$oldifs
 	fi
 
-	# Build env vars. procd_set_param env OVERWRITES on each call, so
-	# accumulate all in one call.
-	local env
-	env="TG_HOST=$HOST TG_PORT=$PORT TG_SECRET=$SECRET TG_LOG_FILE=$LOG_FILE"
-	[ -n "$LINK_IP" ] && env="$env TG_LINK_IP=$LINK_IP"
-	[ -n "$POOL_SIZE" ] && env="$env TG_POOL_SIZE=$POOL_SIZE"
-	[ -n "$BUF_KB" ] && env="$env TG_BUF_KB=$BUF_KB"
-	[ -n "$MAX_CONNECTIONS" ] && env="$env TG_MAX_CONNECTIONS=$MAX_CONNECTIONS"
-	[ "$QUIET" = "1" ] && env="$env TG_QUIET=true"
-	[ "$VERBOSE" = "1" ] && env="$env TG_VERBOSE=true"
-	[ -n "$FAKETLS_DOMAIN" ] && env="$env TG_LISTEN_FAKETLS_DOMAIN=$FAKETLS_DOMAIN"
-	[ -n "$CF_DOMAINS" ] && env="$env TG_CF_DOMAIN=$CF_DOMAINS"
-	[ -n "$CF_WORKER_DOMAINS" ] && env="$env TG_CF_WORKER_DOMAIN=$CF_WORKER_DOMAINS"
-	[ "$CF_PRIORITY" = "1" ] && env="$env TG_CF_PRIORITY=true"
-	[ "$CF_BALANCE" = "1" ] && env="$env TG_CF_BALANCE=true"
-	[ "$DEFAULT_DOMAINS" = "1" ] && env="$env TG_DEFAULT_DOMAINS=true"
-	[ -n "$MTPROTO_PROXIES" ] && env="$env TG_MTPROTO_PROXY=$MTPROTO_PROXIES"
-	[ -n "$OUTBOUND_PROXY" ] && env="$env TG_OUTBOUND_PROXY=$OUTBOUND_PROXY"
-	[ -n "$NO_PROXY" ] && env="$env TG_NO_PROXY=$NO_PROXY"
+	# Build env vars as separate arguments. procd_set_param env OVERWRITES on
+	# each call, so accumulate all in one call via the positional args.
+	set -- TG_HOST="$HOST" TG_PORT="$PORT" TG_SECRET="$SECRET" TG_LOG_FILE="$LOG_FILE"
+	[ -n "$LINK_IP" ] && set -- "$@" TG_LINK_IP="$LINK_IP"
+	[ -n "$POOL_SIZE" ] && set -- "$@" TG_POOL_SIZE="$POOL_SIZE"
+	[ -n "$BUF_KB" ] && set -- "$@" TG_BUF_KB="$BUF_KB"
+	[ -n "$MAX_CONNECTIONS" ] && set -- "$@" TG_MAX_CONNECTIONS="$MAX_CONNECTIONS"
+	[ "$QUIET" = "1" ] && set -- "$@" TG_QUIET=true
+	[ "$VERBOSE" = "1" ] && set -- "$@" TG_VERBOSE=true
+	[ -n "$FAKETLS_DOMAIN" ] && set -- "$@" TG_LISTEN_FAKETLS_DOMAIN="$FAKETLS_DOMAIN"
+	[ -n "$CF_DOMAINS" ] && set -- "$@" TG_CF_DOMAIN="$CF_DOMAINS"
+	[ -n "$CF_WORKER_DOMAINS" ] && set -- "$@" TG_CF_WORKER_DOMAIN="$CF_WORKER_DOMAINS"
+	[ "$CF_PRIORITY" = "1" ] && set -- "$@" TG_CF_PRIORITY=true
+	[ "$CF_BALANCE" = "1" ] && set -- "$@" TG_CF_BALANCE=true
+	[ "$DEFAULT_DOMAINS" = "1" ] && set -- "$@" TG_DEFAULT_DOMAINS=true
+	[ -n "$MTPROTO_PROXIES" ] && set -- "$@" TG_MTPROTO_PROXY="$MTPROTO_PROXIES"
+	[ -n "$OUTBOUND_PROXY" ] && set -- "$@" TG_OUTBOUND_PROXY="$OUTBOUND_PROXY"
+	[ -n "$NO_PROXY" ] && set -- "$@" TG_NO_PROXY="$NO_PROXY"
 
 	procd_open_instance
-	procd_set_param command "$PROG" "$@"
-	procd_set_param env $env
+	procd_set_param command "$PROG" $dc_args
+	procd_set_param env "$@"
 
 	# BOUNDED respawn: procd restarts a crashed instance at most 5 times (5s
 	# apart) when it dies inside a 3600s window, then stops retrying — no

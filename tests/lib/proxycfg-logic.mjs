@@ -739,6 +739,18 @@ export function buildTgLink({ host, port, linkIp, secret, faketlsDomain }) {
 	return 'tg://proxy?server=' + server + '&port=' + port + '&secret=' + sec;
 }
 
+// buildTgHttpsLink({host, port, linkIp, secret, faketlsDomain}) — the
+// https://t.me/proxy link form. Same secret/dd/ee rules as tg:// form.
+// The secret is URL-encoded for validity in query parameters.
+export function buildTgHttpsLink({ host, port, linkIp, secret, faketlsDomain }) {
+	const server = (linkIp && linkIp !== '') ? linkIp : host;
+	const sec = (faketlsDomain && faketlsDomain !== '')
+		? 'ee' + secret + hexEncode(faketlsDomain)
+		: 'dd' + secret;
+	const encoded = encodeURIComponent(sec);
+	return 'https://t.me/proxy?server=' + server + '&port=' + port + '&secret=' + encoded;
+}
+
 // ---- log redaction --------------------------------------------------------------------------------
 
 const HEXLIKE_RE = /^(dd|ee)?[0-9a-f]{32,}$/;
@@ -755,7 +767,7 @@ export function redactLogLine(line, secretValues) {
 	const tokens = out.split(/(\s+)/);
 	for (let i = 0; i < tokens.length; i++) {
 		const t = tokens[i];
-		if (t.startsWith('tg://proxy')) tokens[i] = 'tg://proxy?«redacted»';
+		if (t.startsWith('tg://proxy') || t.startsWith('https://t.me/proxy')) tokens[i] = t.startsWith('tg://') ? 'tg://proxy?«redacted»' : 'https://t.me/proxy?«redacted»';
 		else if (HEXLIKE_RE.test(t)) tokens[i] = '«redacted»';
 	}
 	return tokens.join('');
@@ -807,6 +819,52 @@ export function verifyStopped(reread) {
 	const pids = (reread && Array.isArray(reread.pids)) ? reread.pids : [];
 	if (pids.length > 0) return { ok: false, failures: [{ code: 'PROCESS_STILL_RUNNING', message: 'tg-ws-proxy still running after stop (pids ' + pids.join(', ') + ')' }] };
 	return { ok: true, failures: [] };
+}
+
+// rereadUntil(maxWaitMs, poll, sleep, now) → { pids, listeners, all, running }
+// Mirrors the ucode reread(maxWaitMs) loop: poll() must return { pids, ours, all, running };
+// loop until ours is non-empty, the process is not running, or the deadline is hit.
+export function rereadUntil(maxWaitMs, poll, sleep, now) {
+	const budget = (maxWaitMs == null ? 0 : Number(maxWaitMs));
+	const deadline = now() + budget;
+	for (;;) {
+		const rr = poll();
+		if (rr.ours.length > 0 || !rr.running || now() >= deadline) {
+			return { pids: rr.pids, listeners: rr.ours, all: rr.all, running: rr.running };
+		}
+		sleep(1);
+	}
+}
+
+// ncProbeCommand(host, port, budgetSec) → the BusyBox-compatible shell command
+// used by proxycfg.uc. BusyBox nc has no -w, so we background nc and enforce a
+// budget with a kill loop. The host/port are concatenated as validated IPv4 / digits.
+export function ncProbeCommand(host, port, budgetSec) {
+	const sec = (budgetSec != null && budgetSec > 0) ? Number(budgetSec) : 2;
+	const inner = 'nc ' + host + ' ' + port + ' </dev/null >/dev/null & pid=$!; ' +
+		'i=0; while kill -0 $pid 2>/dev/null; do ' +
+		'i=$((i+1)); [ "$i" -ge ' + sec + ' ] && { kill $pid 2>/dev/null; wait $pid 2>/dev/null; exit 1; }; ' +
+		'sleep 1; done; wait $pid; exit $?';
+	return 'sh -c \'' + inner + '\'';
+}
+
+// routeLocal(config, run) → { attempted, ok, detail }
+export function routeLocal(config, run) {
+	const have = run('command -v nc');
+	if (!have.ok || String(have.out ?? '').trim() === '') return { attempted: false, ok: false, detail: 'nc unavailable' };
+	const r = run(ncProbeCommand(config.host, config.port, 2));
+	if (r.rc === 0) return { attempted: true, ok: true, detail: 'connected' };
+	return { attempted: true, ok: false, detail: 'connect refused/timeout (rc ' + r.rc + ')' };
+}
+
+// routeUpstream(run, host, port) → { attempted, ok, detail, target }
+export function routeUpstream(run, host, port) {
+	const have = run('command -v nc');
+	const target = host + ':' + port;
+	if (!have.ok || String(have.out ?? '').trim() === '') return { attempted: false, ok: false, detail: 'nc unavailable', target };
+	const r = run(ncProbeCommand(host, port, 3));
+	if (r.rc === 0) return { attempted: true, ok: true, detail: 'tcp connected', target };
+	return { attempted: true, ok: false, detail: 'tcp refused/timeout (rc ' + r.rc + ')', target };
 }
 
 // ---- health ----------------------------------------------------------------------------------------
