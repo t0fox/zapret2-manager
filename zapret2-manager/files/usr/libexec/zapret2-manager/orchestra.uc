@@ -48,7 +48,14 @@ function detect_package_version() {
 		if (length(t) > 0 && length(t) < 128) return t;
 	}
 	let apk = trim(run('apk info zapret2 2>/dev/null'));
-	if (apk != '' && index(apk, '-') >= 0) return apk;
+	if (apk != '' && index(apk, '-') >= 0) {
+		// take first line only (strip description/webpage/size fields)
+		let lines = split(apk, '\n');
+		if (length(lines) > 0) {
+			let first = trim(lines[0]);
+			if (length(first) > 0 && length(first) < 128) return first;
+		}
+	}
 	return null;
 }
 
