@@ -360,8 +360,17 @@ build_one "zapret2-manager-full" \
   "$R" "" "" "" "" "$VER"
 rm -rf "$R"
 
+# ---- Create deploy-level signed index (all packages, for deploy.sh) ------------
+# The index in $FEED_DIR only contains tg-ws-proxy-rs (for the bundled feed).
+# This one indexes ALL built packages so deploy.sh can install the meta-package
+# via apk add --repository <packages.adb> zapret2-manager-full.
+echo "Signing deploy index with $SDK/private-key.pem"
+"$APK" mkndx --keys-dir "$SDK/staging_dir/etc/apk/keys" \
+  --sign-key "$SDK/private-key.pem" -o "$OUTDIR/packages.adb" \
+  "$OUTDIR"/*.apk
+
 echo "all done → $OUTDIR"
-ls -l "$OUTDIR"/*.apk
+ls -l "$OUTDIR"/*.apk "$OUTDIR/packages.adb"
 
 # ---- INSTALL (apk v3 local-repo procedure, TRUSTED — no --allow-untrusted) ---
 # `apk add /tmp/file.apk` does NOT work for v3 packages: apk 3.0.5 adds a world
