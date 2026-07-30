@@ -49,11 +49,14 @@ function detect_package_version() {
 	}
 	let apk = trim(run('apk info zapret2 2>/dev/null'));
 	if (apk != '' && index(apk, '-') >= 0) {
-		// take first line only (strip description/webpage/size fields)
 		let lines = split(apk, '\n');
-		if (length(lines) > 0) {
-			let first = trim(lines[0]);
-			if (length(first) > 0 && length(first) < 128) return first;
+		for (let i = 0; i < length(lines); i++) {
+			let l = trim(lines[i]);
+			if (l == '') continue;
+			// strip " description:" suffix from "pkg-ver description:"
+			let descIdx = index(l, ' description:');
+			if (descIdx >= 0) l = substr(l, 0, descIdx);
+			if (length(l) > 0 && length(l) < 128) return l;
 		}
 	}
 	return null;
