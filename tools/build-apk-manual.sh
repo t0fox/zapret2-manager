@@ -195,6 +195,9 @@ install -m 0644 "$REPO/luci-app-zapret2-manager/files/usr/share/luci/menu.d/luci
 for js in "$VIEW"/*.js; do
   install -m 0644 "$js" "$R/www/luci-static/resources/view/zapret2-manager/"
 done
+for css in "$VIEW"/*.css; do
+  [ -f "$css" ] && install -m 0644 "$css" "$R/www/luci-static/resources/view/zapret2-manager/"
+done
 LPI=$(mkscript <<'EOF'
 #!/bin/sh
 rm -f /var/luci-indexcache
