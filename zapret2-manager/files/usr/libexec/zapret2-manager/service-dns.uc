@@ -104,89 +104,7 @@ let _dataset_cache = null;
 let _dataset_cache_mtime = 0;
 const DATASET_CACHE_TTL = 5; // seconds
 
-function load_dataset() {
-	let st = stat(DATASET_PATH);
-	if (!st) return { ok: false, error: { code: 'ETARGET', message: 'dataset missing: ' + DATASET_PATH } };
-	if (_dataset_cache && (time() - _dataset_cache_mtime) < DATASET_CACHE_TTL) return _dataset_cache;
-	let raw = readfile(DATASET_PATH);
-	if (!raw) return { ok: false, error: { code: 'ETARGET', message: 'failed to read dataset' } };
-	let ds = null;
-	try { ds = json(raw); } catch (e) { return { ok: false, error: { code: 'ETARGET', message: 'dataset is not valid JSON' } }; }
-	if (!ds || type(ds) != 'object') return { ok: false, error: { code: 'ETARGET', message: 'dataset root must be an object' } };
-	if (type(ds.schemaVersion) != 'int' || ds.schemaVersion != 1)
-		return { ok: false, error: { code: 'EINPUT', message: 'unsupported schemaVersion (expected 1)' } };
-	if (type(ds.providers) != 'array') return { ok: false, error: { code: 'EINPUT', message: 'providers must be an array' } };
-	if (type(ds.profiles) != 'array') return { ok: false, error: { code: 'EINPUT', message: 'profiles must be an array' } };
-	// validate providers + profiles inline (ucode port of the node logic)
-	let providerIds = {};
-	let profileIds = {};
-	let providers = [];
-	let profiles = [];
-	let errors = [];
-	for (let i = 0; i < length(ds.providers); i++) {
-		let p = ds.providers[i];
-		if (!p || type(p) != 'object') { push(errors, 'provider ' + i + ': not an object'); continue; }
-		if (type(p.id) != 'string' || trim(p.id) == '') { push(errors, 'provider ' + i + ': id required'); continue; }
-		if (providerIds[p.id] != null) { push(errors, 'duplicate provider id: ' + p.id); continue; }
-		providerIds[p.id] = true;
-		push(providers, p);
-	}
-	let knownServiceIds = {
-		'youtube':1,'discord':1,'telegram-web':1,'twitch':1,'spotify':1,
-		'supercell':1,'github':1,'githubusercontent':1,'chatgpt-openai':1,
-		'google-gemini':1,'notion':1
-	};
-	for (let i = 0; i < length(ds.profiles); i++) {
-		let p = ds.profiles[i];
-		if (!p || type(p) != 'object') { push(errors, 'profile ' + i + ': not an object'); continue; }
-		if (type(p.id) != 'string' || trim(p.id) == '') { push(errors, 'profile ' + i + ': id required'); continue; }
-		if (profileIds[p.id] != null) { push(errors, 'duplicate profile id: ' + p.id); continue; }
-		if (type(p.providerId) != 'string' || !providerIds[p.providerId]) { push(errors, 'profile ' + p.id + ': unknown providerId'); continue; }
-		if (type(p.serviceId) != 'string' || !knownServiceIds[p.serviceId]) { push(errors, 'profile ' + p.id + ': unknown serviceId'); continue; }
-		if (type(p.requiredDomains) != 'array') { push(errors, 'profile ' + p.id + ': requiredDomains must be an array'); continue; }
-		if (type(p.optionalDomains) != 'array') { push(errors, 'profile ' + p.id + ': optionalDomains must be an array'); continue; }
-		if (type(p.diagnosticTargets) != 'array') { push(errors, 'profile ' + p.id + ': diagnosticTargets must be an array'); continue; }
-		if (type(p.records) != 'array') { push(errors, 'profile ' + p.id + ': records must be an array'); continue; }
-		// validate + normalize records
-		let normRecs = [];
-		let seenHost = {};
-		for (let j = 0; j < length(p.records); j++) {
-			let r = p.records[j];
-			if (!r || type(r) != 'object') { push(errors, 'profile ' + p.id + ' record ' + j + ': not an object'); continue; }
-			let hn = validate_hostname_ucode(r.hostname);
-			if (!hn.ok) { push(errors, 'profile ' + p.id + ' record ' + j + ': ' + hn.reason); continue; }
-			let a = [], aaaa = [];
-			if (type(r.A) == 'array') {
-				for (let k = 0; k < length(r.A); k++) {
-					let va = validate_ipv4_ucode(r.A[k]);
-					if (!va.ok) { push(errors, 'profile ' + p.id + ' record ' + j + ' A: ' + va.reason); continue; }
-					if (!seenHost[hn.hostname + '|A|' + va.ip]) { push(a, va.ip); seenHost[hn.hostname + '|A|' + va.ip] = true; }
-				}
-			}
-			if (type(r.AAAA) == 'array') {
-				for (let k = 0; k < length(r.AAAA); k++) {
-					let va = validate_ipv6_ucode(r.AAAA[k]);
-					if (!va.ok) { push(errors, 'profile ' + p.id + ' record ' + j + ' AAAA: ' + va.reason); continue; }
-					if (!seenHost[hn.hostname + '|AAAA|' + va.ip]) { push(aaaa, va.ip); seenHost[hn.hostname + '|AAAA|' + va.ip] = true; }
-				}
-			}
-			push(normRecs, { hostname: hn.hostname, A: a, AAAA: aaaa });
-		}
-		push(profiles, { id: p.id, providerId: p.providerId, serviceId: p.serviceId,
-			requiredDomains: p.requiredDomains, optionalDomains: p.optionalDomains,
-			diagnosticTargets: p.diagnosticTargets, records: normRecs,
-			notes: (type(p.notes) == 'string') ? p.notes : '',
-			limitations: (type(p.limitations) == 'string') ? p.limitations : '' });
-		profileIds[p.id] = true;
-	}
-	if (length(errors)) {
-		_dataset_cache = { ok: false, error: { code: 'EINPUT', message: length(errors) + ' validation error(s)' }, errors: errors };
-		return _dataset_cache;
-	}
-	_dataset_cache = { ok: true, providers: providers, profiles: profiles, dataset: ds };
-	_dataset_cache_mtime = time();
-	return _dataset_cache;
-}
+
 
 // ---------------------------------------------------------------------------
 // hostname / address validation (ucode port of node logic)
@@ -429,7 +347,90 @@ function compute_desired_records_ucode(records, applyFamily) {
 // service-owned lines so the parser can re-derive ownership without a
 // separate ledger file. The ownership is ALSO stored in state for the UI.
 // ---------------------------------------------------------------------------
-export const render_hosts_with_ownership = function(records, ownershipMap) {
+
+function load_dataset() {
+	let st = stat(DATASET_PATH);
+	if (!st) return { ok: false, error: { code: 'ETARGET', message: 'dataset missing: ' + DATASET_PATH } };
+	if (_dataset_cache && (time() - _dataset_cache_mtime) < DATASET_CACHE_TTL) return _dataset_cache;
+	let raw = readfile(DATASET_PATH);
+	if (!raw) return { ok: false, error: { code: 'ETARGET', message: 'failed to read dataset' } };
+	let ds = null;
+	try { ds = json(raw); } catch (e) { return { ok: false, error: { code: 'ETARGET', message: 'dataset is not valid JSON' } }; }
+	if (!ds || type(ds) != 'object') return { ok: false, error: { code: 'ETARGET', message: 'dataset root must be an object' } };
+	if (type(ds.schemaVersion) != 'int' || ds.schemaVersion != 1)
+		return { ok: false, error: { code: 'EINPUT', message: 'unsupported schemaVersion (expected 1)' } };
+	if (type(ds.providers) != 'array') return { ok: false, error: { code: 'EINPUT', message: 'providers must be an array' } };
+	if (type(ds.profiles) != 'array') return { ok: false, error: { code: 'EINPUT', message: 'profiles must be an array' } };
+	// validate providers + profiles inline (ucode port of the node logic)
+	let providerIds = {};
+	let profileIds = {};
+	let providers = [];
+	let profiles = [];
+	let errors = [];
+	for (let i = 0; i < length(ds.providers); i++) {
+		let p = ds.providers[i];
+		if (!p || type(p) != 'object') { push(errors, 'provider ' + i + ': not an object'); continue; }
+		if (type(p.id) != 'string' || trim(p.id) == '') { push(errors, 'provider ' + i + ': id required'); continue; }
+		if (providerIds[p.id] != null) { push(errors, 'duplicate provider id: ' + p.id); continue; }
+		providerIds[p.id] = true;
+		push(providers, p);
+	}
+	let knownServiceIds = {
+		'youtube':1,'discord':1,'telegram-web':1,'twitch':1,'spotify':1,
+		'supercell':1,'github':1,'githubusercontent':1,'chatgpt-openai':1,
+		'google-gemini':1,'notion':1
+	};
+	for (let i = 0; i < length(ds.profiles); i++) {
+		let p = ds.profiles[i];
+		if (!p || type(p) != 'object') { push(errors, 'profile ' + i + ': not an object'); continue; }
+		if (type(p.id) != 'string' || trim(p.id) == '') { push(errors, 'profile ' + i + ': id required'); continue; }
+		if (profileIds[p.id] != null) { push(errors, 'duplicate profile id: ' + p.id); continue; }
+		if (type(p.providerId) != 'string' || !providerIds[p.providerId]) { push(errors, 'profile ' + p.id + ': unknown providerId'); continue; }
+		if (type(p.serviceId) != 'string' || !knownServiceIds[p.serviceId]) { push(errors, 'profile ' + p.id + ': unknown serviceId'); continue; }
+		if (type(p.requiredDomains) != 'array') { push(errors, 'profile ' + p.id + ': requiredDomains must be an array'); continue; }
+		if (type(p.optionalDomains) != 'array') { push(errors, 'profile ' + p.id + ': optionalDomains must be an array'); continue; }
+		if (type(p.diagnosticTargets) != 'array') { push(errors, 'profile ' + p.id + ': diagnosticTargets must be an array'); continue; }
+		if (type(p.records) != 'array') { push(errors, 'profile ' + p.id + ': records must be an array'); continue; }
+		// validate + normalize records
+		let normRecs = [];
+		let seenHost = {};
+		for (let j = 0; j < length(p.records); j++) {
+			let r = p.records[j];
+			if (!r || type(r) != 'object') { push(errors, 'profile ' + p.id + ' record ' + j + ': not an object'); continue; }
+			let hn = validate_hostname_ucode(r.hostname);
+			if (!hn.ok) { push(errors, 'profile ' + p.id + ' record ' + j + ': ' + hn.reason); continue; }
+			let a = [], aaaa = [];
+			if (type(r.A) == 'array') {
+				for (let k = 0; k < length(r.A); k++) {
+					let va = validate_ipv4_ucode(r.A[k]);
+					if (!va.ok) { push(errors, 'profile ' + p.id + ' record ' + j + ' A: ' + va.reason); continue; }
+					if (!seenHost[hn.hostname + '|A|' + va.ip]) { push(a, va.ip); seenHost[hn.hostname + '|A|' + va.ip] = true; }
+				}
+			}
+			if (type(r.AAAA) == 'array') {
+				for (let k = 0; k < length(r.AAAA); k++) {
+					let va = validate_ipv6_ucode(r.AAAA[k]);
+					if (!va.ok) { push(errors, 'profile ' + p.id + ' record ' + j + ' AAAA: ' + va.reason); continue; }
+					if (!seenHost[hn.hostname + '|AAAA|' + va.ip]) { push(aaaa, va.ip); seenHost[hn.hostname + '|AAAA|' + va.ip] = true; }
+				}
+			}
+			push(normRecs, { hostname: hn.hostname, A: a, AAAA: aaaa });
+		}
+		push(profiles, { id: p.id, providerId: p.providerId, serviceId: p.serviceId,
+			requiredDomains: p.requiredDomains, optionalDomains: p.optionalDomains,
+			diagnosticTargets: p.diagnosticTargets, records: normRecs,
+			notes: (type(p.notes) == 'string') ? p.notes : '',
+			limitations: (type(p.limitations) == 'string') ? p.limitations : '' });
+		profileIds[p.id] = true;
+	}
+	if (length(errors)) {
+		_dataset_cache = { ok: false, error: { code: 'EINPUT', message: length(errors) + ' validation error(s)' }, errors: errors };
+		return _dataset_cache;
+	}
+	_dataset_cache = { ok: true, providers: providers, profiles: profiles, dataset: ds };
+	_dataset_cache_mtime = time();
+	return _dataset_cache;
+}export const render_hosts_with_ownership = function(records, ownershipMap) {
 	let lineSet = {};
 	for (let ii = 0; ii < length(records); ii++) {
 		let r = records[ii];
