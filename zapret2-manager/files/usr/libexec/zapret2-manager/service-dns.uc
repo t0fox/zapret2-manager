@@ -129,7 +129,7 @@ function load_dataset() {
 		if (type(p.id) != 'string' || trim(p.id) == '') { push(errors, 'provider ' + i + ': id required'); continue; }
 		if (providerIds[p.id] != null) { push(errors, 'duplicate provider id: ' + p.id); continue; }
 		providerIds[p.id] = true;
-		providers.push(p);
+		push(providers, p);
 	}
 	let knownServiceIds = {
 		'youtube':1,'discord':1,'telegram-web':1,'twitch':1,'spotify':1,
@@ -160,19 +160,19 @@ function load_dataset() {
 				for (let k = 0; k < length(r.A); k++) {
 					let va = validate_ipv4_ucode(r.A[k]);
 					if (!va.ok) { push(errors, 'profile ' + p.id + ' record ' + j + ' A: ' + va.reason); continue; }
-					if (!seenHost[hn.hostname + '|A|' + va.ip]) { a.push(va.ip); seenHost[hn.hostname + '|A|' + va.ip] = true; }
+					if (!seenHost[hn.hostname + '|A|' + va.ip]) { push(a, va.ip); seenHost[hn.hostname + '|A|' + va.ip] = true; }
 				}
 			}
 			if (type(r.AAAA) == 'array') {
 				for (let k = 0; k < length(r.AAAA); k++) {
 					let va = validate_ipv6_ucode(r.AAAA[k]);
 					if (!va.ok) { push(errors, 'profile ' + p.id + ' record ' + j + ' AAAA: ' + va.reason); continue; }
-					if (!seenHost[hn.hostname + '|AAAA|' + va.ip]) { aaaa.push(va.ip); seenHost[hn.hostname + '|AAAA|' + va.ip] = true; }
+					if (!seenHost[hn.hostname + '|AAAA|' + va.ip]) { push(aaaa, va.ip); seenHost[hn.hostname + '|AAAA|' + va.ip] = true; }
 				}
 			}
-			normRecs.push({ hostname: hn.hostname, A: a, AAAA: aaaa });
+			push(normRecs, { hostname: hn.hostname, A: a, AAAA: aaaa });
 		}
-		profiles.push({ id: p.id, providerId: p.providerId, serviceId: p.serviceId,
+		push(profiles, { id: p.id, providerId: p.providerId, serviceId: p.serviceId,
 			requiredDomains: p.requiredDomains, optionalDomains: p.optionalDomains,
 			diagnosticTargets: p.diagnosticTargets, records: normRecs,
 			notes: (type(p.notes) == 'string') ? p.notes : '',
@@ -195,19 +195,19 @@ function validate_hostname_ucode(name) {
 	if (type(name) != 'string') return { ok: false, reason: 'hostname must be a string' };
 	let raw = name;
 	// reject whitespace/control chars before trimming (injection vectors)
-	if (/[\s\x00-\x1f\x7f]/.test(raw)) return { ok: false, reason: 'whitespace/control characters in hostname' };
-	let h = trim(raw).toLowerCase();
+	if (match(raw, /[\s\x00-\x1f\x7f]/)) return { ok: false, reason: 'whitespace/control characters in hostname' };
+	let h = lc(trim(raw));
 	if (h == '') return { ok: false, reason: 'empty hostname' };
 	if (length(h) > 253) return { ok: false, reason: 'hostname too long (>253)' };
 	// URL instead of hostname
-	if (/^[a-z][a-z0-9+.-]*:\/\//.test(h)) return { ok: false, reason: 'URL where a hostname is expected' };
+	if (match(h, /^[a-z][a-z0-9+.-]*:\/\//)) return { ok: false, reason: 'URL where a hostname is expected' };
 	if (index(h, '://') >= 0) return { ok: false, reason: 'URL where a hostname is expected' };
 	if (index(h, '/') >= 0) return { ok: false, reason: 'hostname must not contain a path separator' };
 	if (index(h, ':') >= 0) return { ok: false, reason: 'hostname must not contain a port separator' };
 	if (index(h, '*') >= 0) return { ok: false, reason: 'wildcards are not supported' };
 	// shell metacharacters — never reach a file
-	if (/[;|&$`<>(){}\\"'!#]/.test(h)) return { ok: false, reason: 'shell metacharacters in hostname' };
-	if (/[^a-z0-9.-]/.test(h)) return { ok: false, reason: 'invalid characters in hostname (a-z 0-9 . - only)' };
+	if (match(h, /[;|&$`<>(){}\\"'!#]/)) return { ok: false, reason: 'shell metacharacters in hostname' };
+	if (match(h, /[^a-z0-9.-]/)) return { ok: false, reason: 'invalid characters in hostname (a-z 0-9 . - only)' };
 	let labels = split(h, '.');
 	if (length(labels) < 2) return { ok: false, reason: 'need a full hostname (at least two labels)' };
 	for (let i = 0; i < length(labels); i++) {
@@ -251,7 +251,7 @@ function validate_ipv4_ucode(ip) {
 		if (length(p) > 1 && substr(p, 0, 1) == '0') return { ok: false, reason: 'leading zeros are not allowed' };
 		let n = +p;
 		if (n > 255) return { ok: false, reason: 'octet > 255' };
-		nums.push(n);
+		push(nums, n);
 	}
 	if (octets_private(nums)) return { ok: false, reason: 'non-routable/private/loopback/multicast/documentation IPv4 rejected: ' + nums.join('.') };
 	return { ok: true, ip: nums.join('.') };
@@ -261,7 +261,7 @@ function validate_ipv6_ucode(ip) {
 	if (type(ip) != 'string') return { ok: false, reason: 'IPv6 must be a string' };
 	let t = trim(ip);
 	if (t == '') return { ok: false, reason: 'empty IPv6' };
-	if (!/^[0-9a-fA-F:]+$/.test(t)) return { ok: false, reason: 'invalid IPv6 characters' };
+	if (!match(t, /^[0-9a-fA-F:]+$/)) return { ok: false, reason: 'invalid IPv6 characters' };
 	if (length(split(t, '::')) > 2) return { ok: false, reason: 'IPv6 has multiple ::' };
 	// expand to 8 groups for range checks
 	let groups = null;
@@ -302,7 +302,7 @@ function validate_ipv6_ucode(ip) {
 	if (g0 == 0x2001 && parseInt(groups[1], 16) == 0x0db8) return { ok: false, reason: 'documentation IPv6 rejected' };
 	// ULA fc00::/7
 	if ((g0 & 0xfe00) == 0xfc00) return { ok: false, reason: 'unique-local IPv6 rejected' };
-	return { ok: true, ip: t.toLowerCase() };
+	return { ok: true, ip: lc(t) };
 }
 
 // ---------------------------------------------------------------------------
@@ -386,13 +386,13 @@ function compute_completeness_ucode(profile) {
 		let d = profile.requiredDomains[i];
 		let r = recsByHost[d];
 		if (!r || length(r.A) == 0) {
-			if (r && length(r.AAAA) > 0) unsupported.push({ hostname: d, reason: 'AAAA-only — unsupported address family on IPv4 target' });
-			missingRequired.push(d);
+			if (r && length(r.AAAA) > 0) push(unsupported, { hostname: d, reason: 'AAAA-only — unsupported address family on IPv4 target' });
+			push(missingRequired, d);
 		}
 	}
 	for (let i = 0; i < length(profile.optionalDomains); i++) {
 		let d = profile.optionalDomains[i];
-		if (!recsByHost[d]) missingOptional.push(d);
+		if (!recsByHost[d]) push(missingOptional, d);
 	}
 	for (let i = 0; i < length(profile.records); i++) {
 		aCount += length(profile.records[i].A);
@@ -440,7 +440,7 @@ export const render_hosts_with_ownership = function(records, ownershipMap) {
 	}
 	let arr = keys(lineSet);
 	if (length(arr) > 256) arr = _slice(arr, 0, 256);
-	arr.sort();
+	sort(arr);
 	let out = "# header\n";
 	for (let iz = 0; iz < length(arr); iz++) out += arr[iz] + "\n";
 	if (length(out) > 16384) out = substr(out, 0, 16384);
@@ -474,7 +474,7 @@ function parse_existing_overrides() {
 		}
 		let fam = (index(vi.ip, ':') >= 0) ? 'AAAA' : 'A';
 		if (fam == 'A') {
-			out.push({ hostname: vh.hostname, A: [vi.ip], AAAA: [], owner: owner });
+			push(out, { hostname: vh.hostname, A: [vi.ip], AAAA: [], owner: owner });
 			let k = vh.hostname + '|A|' + vi.ip;
 			ownership[k] = owner;
 		}
@@ -547,7 +547,7 @@ export const service_dns_providers = function(req) {
 	for (let i = 0; i < length(ds.providers); i++) {
 		let p = ds.providers[i];
 		let t = classify_trust_ucode(p, now);
-		providers.push({
+		push(providers, {
 			id: p.id, name: p.name, sourceUrl: p.sourceUrl, sourceRevision: p.sourceRevision,
 			sourceHash: p.sourceHash, reviewedAt: p.reviewedAt, expiresAt: p.expiresAt,
 			trust: t.trust, applicable: t.applicable, trustWarning: t.warning, trustReason: t.reason,
@@ -564,7 +564,7 @@ export const service_dns_providers = function(req) {
 		let comp = compute_completeness_ucode(p);
 		let desired = compute_desired_records_ucode(p.records, APPLY_FAMILY);
 		let applicable = prov.applicable && (length(desired.records) > 0);
-		profiles.push({
+		push(profiles, {
 			id: p.id, providerId: p.providerId, serviceId: p.serviceId,
 			requiredDomains: p.requiredDomains, optionalDomains: p.optionalDomains,
 			diagnosticTargets: p.diagnosticTargets, records: p.records,
@@ -604,16 +604,16 @@ export const service_dns_status = function(req) {
 		let pid = selections[svc];
 		if (pid == 'off' || pid == null) continue;
 		let p = profileMap[pid];
-		if (!p) { warnings.push({ type: 'unknown-profile', serviceId: svc, profileId: pid }); continue; }
+		if (!p) { push(warnings, { type: 'unknown-profile', serviceId: svc, profileId: pid }); continue; }
 		let prov = providerMap[p.providerId] || {};
 		let trust = classify_trust_ucode(prov, iso_now());
-		if (!trust.applicable) { warnings.push({ type: 'profile-not-applicable', serviceId: svc, profileId: pid, reason: trust.reason }); continue; }
+		if (!trust.applicable) { push(warnings, { type: 'profile-not-applicable', serviceId: svc, profileId: pid, reason: trust.reason }); continue; }
 		let comp = compute_completeness_ucode(p);
 		let desired = compute_desired_records_ucode(p.records, APPLY_FAMILY);
 		for (let j = 0; j < length(desired.records); j++) {
 			push(desiredRecords, { hostname: desired.records[j].hostname, A: desired.records[j].A, AAAA: desired.records[j].AAAA, owner: 'service:' + pid });
 		}
-		if (comp.status == 'partial') warnings.push({ type: 'partial-profile', serviceId: svc, profileId: pid, missing: comp.missingRequired });
+		if (comp.status == 'partial') push(warnings, { type: 'partial-profile', serviceId: svc, profileId: pid, missing: comp.missingRequired });
 	}
 	// build ownership map from existing overrides file (read-only)
 	let existing = parse_existing_overrides();
@@ -685,15 +685,15 @@ export const service_dns_preview = function(req) {
 		let pid = selections[svc];
 		if (pid == 'off' || pid == null) continue;
 		let p = profileMap[pid];
-		if (!p) { warnings.push({ type: 'unknown-profile', serviceId: svc, profileId: pid }); continue; }
+		if (!p) { push(warnings, { type: 'unknown-profile', serviceId: svc, profileId: pid }); continue; }
 		let prov = providerMap[p.providerId] || {};
 		let trust = classify_trust_ucode(prov, iso_now());
-		if (!trust.applicable) { warnings.push({ type: 'profile-not-applicable', serviceId: svc, profileId: pid, reason: trust.reason }); continue; }
+		if (!trust.applicable) { push(warnings, { type: 'profile-not-applicable', serviceId: svc, profileId: pid, reason: trust.reason }); continue; }
 		let desired = compute_desired_records_ucode(p.records, APPLY_FAMILY);
 		for (let j = 0; j < length(desired.records); j++)
 			push(desiredRecords, { hostname: desired.records[j].hostname, A: desired.records[j].A, AAAA: desired.records[j].AAAA, owner: 'service:' + pid });
 		if (desired.unsupported.length > 0)
-			warnings.push({ type: 'unsupported-aaaa', serviceId: svc, profileId: pid, addresses: desired.unsupported });
+			push(warnings, { type: 'unsupported-aaaa', serviceId: svc, profileId: pid, addresses: desired.unsupported });
 	}
 	// build ownership map from existing overrides
 	let existing = parse_existing_overrides();
@@ -733,8 +733,8 @@ export const service_dns_preview = function(req) {
 		let e = existingByTuple[k];
 		if (e.owner == 'user') { userOwned[k] = true; ownership[k] = 'user'; continue; }
 		let d = desiredByTuple[k];
-		if (d) { sharedKept.push(e); ownership[k] = d.ownerArr ? d.ownerArr.join(',') : d.owner; }
-		else removed.push(e);
+		if (d) { push(sharedKept, e); ownership[k] = d.ownerArr ? d.ownerArr.join(',') : d.owner; }
+		else push(removed, e);
 	}
 	for (let k in desiredByTuple) {
 		if (userOwned[k]) continue; // anti-wipe: service never claims or shares
@@ -745,7 +745,7 @@ export const service_dns_preview = function(req) {
 		let r = desiredRecords[i];
 		for (let j = 0; j < length(r.A); j++) {
 			let k = tuple_key(r.hostname, 'A', r.A[j]);
-			if (!existingByTuple[k]) added.push({ hostname: r.hostname, A: [r.A[j]], AAAA: [], owner: r.owner });
+			if (!existingByTuple[k]) push(added, { hostname: r.hostname, A: [r.A[j]], AAAA: [], owner: r.owner });
 		}
 	}
 	// render candidate
@@ -765,11 +765,11 @@ export const service_dns_preview = function(req) {
 		let key = r.hostname + '|' + (r.A && length(r.A) ? r.A[0] : (r.AAAA && length(r.AAAA) ? r.AAAA[0] : ''));
 		if (seen[key]) continue;
 		seen[key] = true;
-		deduped.push(r);
+		push(deduped, r);
 	}
 	let rendered = render_hosts_with_ownership(deduped, ownership);
 	let fileHash = '';
-	let h = popen('echo -n "' + rendered.replace(/"/g, '\\"') + '" | sha256sum 2>/dev/null | awk \'{print $1}\'', 'r');
+	let h = popen('echo -n "' + replace(rendered, /"/g, '\\"') + '" | sha256sum 2>/dev/null | awk \'{print $1}\'', 'r');
 	if (h) { fileHash = trim(h.read('all')); h.close(); }
 	return {
 		ok: true, mode: 'preview', zeroWrites: true,
@@ -821,7 +821,7 @@ export const service_dns_apply = function(req) {
 		let pid = selections[svc];
 		if (pid == 'off' || pid == null) continue;
 		let p = profileMap[pid];
-		if (!p) { warnings.push({ type: 'unknown-profile', serviceId: svc, profileId: pid }); continue; }
+		if (!p) { push(warnings, { type: 'unknown-profile', serviceId: svc, profileId: pid }); continue; }
 		let prov = providerMap[p.providerId] || {};
 		let trust = classify_trust_ucode(prov, iso_now());
 		if (!trust.applicable) return err('EINPUT', 'profile ' + pid + ' is not applicable: ' + trust.reason);
@@ -831,7 +831,7 @@ export const service_dns_apply = function(req) {
 		for (let j = 0; j < length(desired.records); j++)
 			push(desiredRecords, { hostname: desired.records[j].hostname, A: desired.records[j].A, AAAA: desired.records[j].AAAA, owner: 'service:' + pid });
 		if (desired.unsupported.length > 0)
-			warnings.push({ type: 'unsupported-aaaa', serviceId: svc, profileId: pid, addresses: desired.unsupported });
+			push(warnings, { type: 'unsupported-aaaa', serviceId: svc, profileId: pid, addresses: desired.unsupported });
 	}
 	// 3. check expected file hash (manual change detection)
 	let curFileHash = state.applied.fileHash || null;
@@ -919,7 +919,7 @@ export const service_dns_apply = function(req) {
 	let mismatches = [];
 	for (let i = 0; i < length(finalRecords); i++) {
 		let r = finalRecords[i];
-		for (let j = 0; j < length(r.A); j++) if (!rereadTuples[tuple_key(r.hostname, 'A', r.A[j])]) mismatches.push({ tuple: r.hostname + ' A ' + r.A[j], problem: 'missing after apply' });
+		for (let j = 0; j < length(r.A); j++) if (!rereadTuples[tuple_key(r.hostname, 'A', r.A[j])]) push(mismatches, { tuple: r.hostname + ' A ' + r.A[j], problem: 'missing after apply' });
 	}
 	// verify local resolver for applicable records
 	let resolverResults = [];
@@ -940,7 +940,7 @@ export const service_dns_apply = function(req) {
 		revision: appliedRev + 1,
 		fileHash: curFileHash // updated below
 	};
-	let h = popen('echo -n "' + rendered.replace(/"/g, '\\"') + '" | sha256sum 2>/dev/null | awk \'{print $1}\'', 'r');
+	let h = popen('echo -n "' + replace(rendered, /"/g, '\\"') + '" | sha256sum 2>/dev/null | awk \'{print $1}\'', 'r');
 	if (h) { newApplied.fileHash = trim(h.read('all')); h.close(); }
 	state.applied = newApplied;
 	push(state.events, { ts: iso_now(), action: 'apply', revision: newApplied.revision, records: length(finalRecords), warnings: warnings });
