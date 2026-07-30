@@ -203,9 +203,33 @@ phase_uninstall() {
 	pidof nfqws2 >/dev/null 2>&1 && ok "nfqws2 alive after proxy uninstall" || bad "nfqws2 down after proxy uninstall"
 }
 
+phase_autostart_enable() {
+	local out; out=$(ub proxy_autostart_set '{"enabled":true}')
+	[ "$(jqok "$out")" = "true" ] && ls /etc/rc.d/S*tg-ws-proxy >/dev/null 2>&1 && ok "autostart enabled (rc.d link present)" || bad "autostart enable failed"
+}
+
+phase_autostart_check() {
+	local ip; ip=$(lan_ip)
+	[ -z "$ip" ] && { bad "LAN address undetectable (no br-lan IPv4)"; return 1; }
+	local p; p=$(proxy_pid)
+	[ -n "$p" ] && ok "proxy pid=$p after reboot" || { bad "proxy not running after reboot"; return 1; }
+	local lis; lis=$(proxy_listeners)
+	printf '%s\n' "$lis" | grep -q "$ip:1443" && ok "LAN-only listener $ip:1443 after reboot" || bad "expected listener not found: $lis"
+	if printf '%s\n' "$lis" | awk '{print $4}' | grep -qE '^(0\.0\.0\.0|\*|::):'; then
+		bad "wildcard listener present after reboot"
+	else
+		ok "no wildcard listener after reboot"
+	fi
+}
+
+phase_autostart_disable() {
+	local out; out=$(ub proxy_autostart_set '{"enabled":false}')
+	[ "$(jqok "$out")" = "true" ] && ! ls /etc/rc.d/S*tg-ws-proxy >/dev/null 2>&1 && ok "autostart disabled (rc.d link removed)" || bad "autostart disable failed"
+}
+
 PHASE="${1:-all}"
 case "$PHASE" in
-	pre|apply|health|lifecycle|independence|rotate|logs|disable|uninstall) "phase_$PHASE" ;;
+	pre|apply|health|lifecycle|independence|rotate|logs|disable|uninstall|autostart_enable|autostart_check|autostart_disable) "phase_$PHASE" ;;
 	all)
 		phase_pre
 		phase_apply

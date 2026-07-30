@@ -50,6 +50,7 @@ log()  { printf '[smoke] %s\n' "$*"; }
 ok()   { printf '[smoke]   PASS  %s\n' "$1"; PASS=$((PASS+1)); }
 bad()  { printf '[smoke]   FAIL  %s\n' "$1" >&2; FAIL=$((FAIL+1)); }
 die()  { printf '[smoke] ERROR: %s\n' "$*" >&2; exit 2; }
+say()  { printf '%s\n' "$*"; }
 
 # ssh_ok DESC CMD... — rc 0 if CMD succeeded on router, 1 if it failed, dies on
 # ssh rc=255 (connection drop is NOT a command result).
@@ -72,15 +73,16 @@ ssh_out() {
 
 want_nz() { [ -n "$1" ] && ok "$2" || bad "$2 (empty)"; }
 
-# ---- tgproxy: APPROVAL-GATED live TG proxy drill ---------------------------
+# ---- tgproxy: APPROVAL-GATED live TG proxy drill (no uninstall, no reboot) --
 gate_tgproxy() {
 	log "gate tgproxy — OPTIONAL TG WS Proxy live acceptance (r32)"
 	say "APPROVE TG PROXY INSTALL"
-	printf '[smoke] This runs the live TG proxy drill on %s (install verify, apply, lifecycle, rotate, logs; optional uninstall). Approved? [y/N] ' "$HOST"
+	printf '[smoke] This runs the TG proxy drill on %s (pre, apply, health, lifecycle, independence, rotate, logs, disable). Approved? [y/N] ' "$HOST"
 	read -r ans
 	[ "$ans" = "y" ] || { log "not approved — skipping live proxy drill (non-live work continues)"; exit 0; }
-
-	# baseline
+	# package MUST be present after explicit approval — missing = non-green
+	ssh_ok "package check post-approval" "apk info -e tg-ws-proxy-rs" || { bad "tg-ws-proxy-rs NOT installed after explicit approval"; return 1; }
+	# baseline capture for independence + cleanup verification
 	ssh_out BASE_CONFIG_SHA "baseline config hash" "sha256sum /opt/zapret2/config | awk '{print \$1}'"
 	ssh_out BASE_NFT_LINES "baseline nft lines" "nft list table inet zapret2 | wc -l"
 	# stage the drill
@@ -93,18 +95,76 @@ gate_tgproxy() {
 		bad "live drill reported failures"
 		return 1
 	fi
-	log "Run the destructive uninstall phase (apk del tg-ws-proxy-rs + baseline verify)? [y/N] "
-	read -r ans2
-	if [ "$ans2" = "y" ]; then
-		if ssh $SSH_OPTS "root@${HOST}" "BASE_CONFIG_SHA='$BASE_CONFIG_SHA' BASE_NFT_LINES='$BASE_NFT_LINES' sh /tmp/tgproxy-drill.sh uninstall" 2>&1 | sed 's/^/[drill] /'; then
-			ok "uninstall/rollback drill GREEN"
-		else
-			bad "uninstall drill reported failures"
-			return 1
-		fi
+	# cleanup the staged drill — package stays installed, router in safe state
+	ssh_ok "rm drill" "rm -f /tmp/tgproxy-drill.sh" || true
+	log "package left installed; router in documented safe state (service disabled, autostart off)"
+}
+
+# ---- tgproxy-reboot: DESTRUCTIVE real-reboot autostart verification (separate approval)
+gate_tgproxy_reboot() {
+	log "gate tgproxy-reboot — REBOOT REQUIRED (separate approval)"
+	say "APPROVE TG PROXY REBOOT"
+	printf '[smoke] This will ENABLE autostart and REBOOT %s. Approved? [y/N] ' "$HOST"
+	read -r ans
+	[ "$ans" = "y" ] || { log "not approved — skipping reboot verification"; exit 0; }
+	# package must be installed
+	ssh_ok "package check post-approval" "apk info -e tg-ws-proxy-rs" || { bad "tg-ws-proxy-rs NOT installed — cannot reboot-verify"; return 1; }
+	# stage the drill and run reboot phase
+	scp $SSH_OPTS "$(dirname "$0")/tgproxy-drill.sh" "root@${HOST}:/tmp/tgproxy-drill.sh" >/dev/null 2>&1 || die "scp drill failed"
+	ssh_ok "chmod drill" "chmod +x /tmp/tgproxy-drill.sh" || die "chmod drill failed"
+	# Enable autostart via the drill (verify rc.d evidence)
+	if ssh_ok "enable autostart" "sh /tmp/tgproxy-drill.sh autostart_enable" 2>&1 | sed 's/^/[drill] /'; then
+		ok "autostart enabled"
 	else
-		log "uninstall phase skipped by operator (package left installed)"
+		bad "autostart enable failed"; return 1
 	fi
+	ssh $SSH_OPTS "root@${HOST}" reboot >/dev/null 2>&1
+	_rc=$?
+	log "reboot sent (ssh rc=$_rc, drop expected). Waiting for router to come back..."
+	i=0
+	while [ "$i" -lt 60 ]; do
+		sleep 5; i=$((i+1))
+		if ssh $SSH_OPTS "root@${HOST}" true >/dev/null 2>&1; then
+			_rc=$?
+			[ "$_rc" -eq 255 ] && { log "still down (rc=255)"; continue; }
+			log "router back after ~$((i*5))s"
+			break
+		fi
+	done
+	[ "$i" -ge 60 ] && die "router did not come back in 300s"
+	# Post-reboot: verify proxy is running with correct listener
+	if ssh $SSH_OPTS "root@${HOST}" "sh /tmp/tgproxy-drill.sh autostart_check" 2>&1 | sed 's/^/[drill] /'; then
+		ok "post-reboot proxy verification GREEN"
+	else
+		bad "post-reboot proxy verification FAILED"
+		return 1
+	fi
+	# Cleanup — disable autostart to leave router in documented safe state
+	ssh_ok "disable autostart" "sh /tmp/tgproxy-drill.sh autostart_disable" || true
+	ssh_ok "rm drill" "rm -f /tmp/tgproxy-drill.sh" || true
+}
+
+# ---- tgproxy-uninstall: DESTRUCTIVE apk del (separate approval) --------------
+gate_tgproxy_uninstall() {
+	log "gate tgproxy-uninstall — DESTRUCTIVE (separate approval)"
+	say "APPROVE TG PROXY UNINSTALL"
+	printf '[smoke] This will UNINSTALL tg-ws-proxy-rs from %s. Approved? [y/N] ' "$HOST"
+	read -r ans
+	[ "$ans" = "y" ] || { log "not approved — skipping uninstall"; exit 0; }
+	# package must be installed, otherwise nothing to do
+	ssh_ok "package check post-approval" "apk info -e tg-ws-proxy-rs" || { log "tg-ws-proxy-rs not installed — nothing to uninstall"; exit 0; }
+	# baseline for preserve checks
+	ssh_out BASE_CONFIG_SHA "baseline config hash" "sha256sum /opt/zapret2/config | awk '{print \$1}'"
+	ssh_out BASE_NFT_LINES "baseline nft lines" "nft list table inet zapret2 | wc -l"
+	scp $SSH_OPTS "$(dirname "$0")/tgproxy-drill.sh" "root@${HOST}:/tmp/tgproxy-drill.sh" >/dev/null 2>&1 || die "scp drill failed"
+	ssh_ok "chmod drill" "chmod +x /tmp/tgproxy-drill.sh" || die "chmod drill failed"
+	if ssh $SSH_OPTS "root@${HOST}" "BASE_CONFIG_SHA='$BASE_CONFIG_SHA' BASE_NFT_LINES='$BASE_NFT_LINES' sh /tmp/tgproxy-drill.sh uninstall" 2>&1 | sed 's/^/[drill] /'; then
+		ok "uninstall/rollback drill GREEN"
+	else
+		bad "uninstall drill reported failures"
+		return 1
+	fi
+	ssh_ok "rm drill" "rm -f /tmp/tgproxy-drill.sh" || true
 }
 # The flag is -c (compile to bytecode), determined factually from the ucode
 # --help fixture (tests/fixtures/ucode-help-long.out): -c compiles files and
@@ -436,9 +496,9 @@ case "$SELECTION" in
     no_fw_stop
     lists_paths
     ;;
-  menu_acl_shape|view_resource_present|ucode_syntax|queue_qlen_match|fw_delegation|no_fw_stop|lists_paths|autostart|tgproxy) "$SELECTION" ;;
+  menu_acl_shape|view_resource_present|ucode_syntax|queue_qlen_match|fw_delegation|no_fw_stop|lists_paths|autostart|tgproxy|tgproxy-reboot|tgproxy-uninstall) "$SELECTION" ;;
   -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
-  *) die "unknown check: $SELECTION (try: all, menu_acl_shape, view_resource_present, ucode_syntax, queue_qlen_match, fw_delegation, no_fw_stop, lists_paths, autostart, tgproxy)" ;;
+  *) die "unknown check: $SELECTION (try: all, menu_acl_shape, view_resource_present, ucode_syntax, queue_qlen_match, fw_delegation, no_fw_stop, lists_paths, autostart, tgproxy, tgproxy-reboot, tgproxy-uninstall)" ;;
 esac
 
 log "result: PASS=$PASS FAIL=$FAIL"
