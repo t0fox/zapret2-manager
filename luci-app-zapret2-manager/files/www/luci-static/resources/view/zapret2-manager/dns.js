@@ -135,11 +135,11 @@ return L.view.extend({
 		container.appendChild(nav);
 
 		switch (sec) {
-			case 'setup':     container.appendChild(setupSection(dns, comps, envelope)); break;
-			case 'providers': container.appendChild(providersSection(provs, comps, envelope)); break;
-			case 'services':  container.appendChild(servicesSection(dns, sdnsStatus, sdnsProv, envelope)); break;
-			case 'advanced':  container.appendChild(advancedSection(dns, envelope)); break;
-			case 'history':   container.appendChild(historySection(dns, sdnsStatus)); break;
+			case 'setup':     container.appendChild(setupSection(self, dns, comps, envelope)); break;
+			case 'providers': container.appendChild(providersSection(self, provs, comps, envelope)); break;
+			case 'services':  container.appendChild(servicesSection(self, dns, sdnsStatus, sdnsProv, envelope)); break;
+			case 'advanced':  container.appendChild(advancedSection(self, dns, envelope)); break;
+			case 'history':   container.appendChild(historySection(self, dns, sdnsStatus)); break;
 		}
 
 		if (this._flash) { container.appendChild(callout('warn', this._flash)); this._flash = null; }
@@ -172,7 +172,7 @@ return L.view.extend({
 // ════════════════════════════════════════════════════════
 // DNS SETUP — current state, primary actions
 // ════════════════════════════════════════════════════════
-function setupSection(dns, comps, envelope) {
+function setupSection(view, dns, comps, envelope) {
 	var node = E('div');
 	var rz = dns.resolver || {};
 
@@ -191,7 +191,7 @@ function setupSection(dns, comps, envelope) {
 	var actions = E('div', { 'class': 'z2m-actions' });
 	var checkBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Check current DNS'));
 	var chooseBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button' }, _('Choose DNS'));
-	chooseBtn.addEventListener('click', function () { this._root._section = 'providers'; /* switch to providers */ });
+	chooseBtn.addEventListener('click', function () { view._section = 'providers'; view.switchSection(); });
 	var restoreBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Restore automatic DNS'));
 	actions.appendChild(checkBtn);
 	actions.appendChild(chooseBtn);
@@ -293,8 +293,7 @@ function buildWarnings(dns, comps, envelope) {
 // ════════════════════════════════════════════════════════
 // CHECK & CHOOSE — provider cards, test, select
 // ════════════════════════════════════════════════════════
-function providersSection(provs, comps, envelope) {
-	var self = this;
+function providersSection(view, provs, comps, envelope) {
 	var node = E('div');
 
 	if (envelope.provListError) {
@@ -323,7 +322,7 @@ function providersSection(provs, comps, envelope) {
 		node.appendChild(E('h4', {}, esc(cat)));
 		var grid = E('div', { 'class': 'z2m-card-grid' });
 		categories[cat].forEach(function (p) {
-			grid.appendChild(providerCard(p));
+			grid.appendChild(providerCard(view, p));
 		});
 		node.appendChild(grid);
 	});
@@ -341,12 +340,28 @@ function groupProviders(providers) {
 	return cats;
 }
 
-function providerCard(p) {
+function providerCard(view, p) {
 	var ipv4 = (p.ipv4 || []).slice(0, 2).join(', ') || _('No IPv4');
 	var ipv6 = (p.ipv6 || []).slice(0, 2).join(', ') || _('None');
 	var badges = [];
 	if (p.doh) badges.push(badge(_('DoH on record'), 'neutral'));
 	badges.push(badge(p.category || '?', 'neutral'));
+
+	var testBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Test'));
+	testBtn.addEventListener('click', function () {
+		testBtn.disabled = true;
+		callProvDiag(JSON.stringify({ target: p.id })).then(function (res) {
+			testBtn.disabled = false;
+			view._flash = _('Test completed for ') + esc(p.name) + ': ' + (res && res.ok ? _('reachable') : _('failed'));
+			view.reload();
+		}).catch(function (err) {
+			testBtn.disabled = false;
+			view._flash = _('Test failed: ') + String(err);
+			view.reload();
+		});
+	});
+	var selectBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button' }, _('Select'));
+	testBtn._provider = p;
 
 	var body = [
 		E('div', {}, badges),
@@ -354,8 +369,8 @@ function providerCard(p) {
 		ipv6 !== _('None') ? kv(_('IPv6'), esc(ipv6)) : null,
 		kv(_('Type'), esc(p.notes || p.name)),
 		E('div', { 'class': 'z2m-actions', 'style': 'margin-top:.4em' }, [
-			E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Test')),
-			E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button' }, _('Select'))
+			testBtn,
+			selectBtn
 		])
 	].filter(Boolean);
 
@@ -397,8 +412,7 @@ function customProviderForm() {
 // ════════════════════════════════════════════════════════
 // SERVICE ACCESS — per-service DNS mappings
 // ════════════════════════════════════════════════════════
-function servicesSection(dns, sdnsStatus, sdnsProv, envelope) {
-	var self = this;
+function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 	var provs = sdnsProv || {};
 	var status = sdnsStatus || {};
 	var node = E('div');
@@ -465,20 +479,20 @@ function servicesSection(dns, sdnsStatus, sdnsProv, envelope) {
 	prevBtn.addEventListener('click', function () {
 		prevBtn.disabled = true;
 		callSdnsPreview().then(function (res) {
-			self._sdnsPreview = res || {};
-			self.reload();
+			view._sdnsPreview = res || {};
+			view.reload();
 		}).catch(function (err) {
-			self._sdnsPreview = { error: String(err) };
-			self.reload();
+			view._sdnsPreview = { error: String(err) };
+			view.reload();
 		});
 	});
 	actions.appendChild(prevBtn);
 	node.appendChild(actions);
 
 	// Preview result if available
-	var pv = self._sdnsPreview;
+	var pv = view._sdnsPreview;
 	if (pv) {
-		self._sdnsPreview = null;
+		view._sdnsPreview = null;
 		var diff = pv.diff || {};
 		var prevCard = card(_('Preview'), [
 			kv(_('Added'), String(diff.addedCount || 0)),
@@ -491,8 +505,8 @@ function servicesSection(dns, sdnsStatus, sdnsProv, envelope) {
 			apBtn.addEventListener('click', function () {
 				apBtn.disabled = true;
 				callSdnsApply(JSON.stringify({})).then(function (res) {
-					self._flash = (res && res.ok === true) ? _('Applied.') : _('Apply failed.');
-					self.reload();
+					view._flash = (res && res.ok === true) ? _('Applied.') : _('Apply failed.');
+					view.reload();
 				});
 			});
 			prevCard.appendChild(E('div', { 'class': 'z2m-actions' }, [apBtn]));
@@ -506,8 +520,7 @@ function servicesSection(dns, sdnsStatus, sdnsProv, envelope) {
 // ════════════════════════════════════════════════════════
 // ADVANCED — manual overrides, force DNS
 // ════════════════════════════════════════════════════════
-function advancedSection(dns, envelope) {
-	var self = this;
+function advancedSection(view, dns, envelope) {
 	var node = E('div');
 	var draft = dns.draft || { entries: [], revision: 0, malformed: false };
 	var applied = dns.applied || [];
@@ -552,8 +565,7 @@ function advancedSection(dns, envelope) {
 // ════════════════════════════════════════════════════════
 // HISTORY — events + safe rollback
 // ════════════════════════════════════════════════════════
-function historySection(dns, sdnsStatus) {
-	var self = this;
+function historySection(view, dns, sdnsStatus) {
 	var node = E('div');
 
 	var dnsEvents = dns.events || [];
@@ -564,7 +576,7 @@ function historySection(dns, sdnsStatus) {
 		(sdnsEvents || []).map(function (e) { return { src: 'sdns', ts: e.ts, action: e.action }; })
 	).filter(function (e) { return e.ts; }).sort(function (a, b) { return (a.ts > b.ts) ? -1 : (a.ts < b.ts) ? 1 : 0; });
 
-	var limit = this._eventLimit || 20;
+	var limit = view._eventLimit || 20;
 	var shown = allEvents.slice(0, limit);
 
 	var hcard = card(_('Events') + ' (' + shown.length + '/' + allEvents.length + ')', []);
@@ -583,8 +595,8 @@ function historySection(dns, sdnsStatus) {
 		var moreBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' },
 			_('Load more (' + (allEvents.length - limit) + ' remaining)'));
 		moreBtn.addEventListener('click', function () {
-			self._eventLimit = (self._eventLimit || 20) + 20;
-			self.switchSection();
+			view._eventLimit = (view._eventLimit || 20) + 20;
+			view.switchSection();
 		});
 		hcard.appendChild(E('div', { 'class': 'z2m-actions' }, [moreBtn]));
 	}
@@ -606,8 +618,8 @@ function historySection(dns, sdnsStatus) {
 	if (dnsRbAvailable) dnsRb.addEventListener('click', function () {
 		dnsRb.disabled = true;
 		callDnsRollback().then(function (res) {
-			self._flash = (res && res.ok === true) ? _('Rolled back.') : _('Rollback failed.');
-			self.reload();
+			view._flash = (res && res.ok === true) ? _('Rolled back.') : _('Rollback failed.');
+			view.reload();
 		});
 	});
 
@@ -621,8 +633,8 @@ function historySection(dns, sdnsStatus) {
 	if (sdnsRbAvailable) sdnsRb.addEventListener('click', function () {
 		sdnsRb.disabled = true;
 		callSdnsRollback().then(function (res) {
-			self._flash = (res && res.ok === true) ? _('Rolled back.') : _('Rollback failed.');
-			self.reload();
+			view._flash = (res && res.ok === true) ? _('Rolled back.') : _('Rollback failed.');
+			view.reload();
 		});
 	});
 
