@@ -171,8 +171,8 @@ function validate_ipv4_ucode(ip) {
 		if (n > 255) return { ok: false, reason: 'octet > 255' };
 		push(nums, n);
 	}
-	if (octets_private(nums)) return { ok: false, reason: 'non-routable/private/loopback/multicast/documentation IPv4 rejected: ' + nums.join('.') };
-	return { ok: true, ip: nums.join('.') };
+	if (octets_private(nums)) return { ok: false, reason: 'non-routable/private/loopback/multicast/documentation IPv4 rejected: ' + join(, ) };
+	return { ok: true, ip: join(, ) };
 }
 
 function validate_ipv6_ucode(ip) {
@@ -734,13 +734,13 @@ export const service_dns_preview = function(req) {
 		let e = existingByTuple[k];
 		if (e.owner == 'user') { userOwned[k] = true; ownership[k] = 'user'; continue; }
 		let d = desiredByTuple[k];
-		if (d) { push(sharedKept, e); ownership[k] = d.ownerArr ? d.ownerArr.join(',') : d.owner; }
+		if (d) { push(sharedKept, e); ownership[k] = d.ownerArr ? join(d.ownerArr, ',') : d.owner; }
 		else push(removed, e);
 	}
 	for (let k in desiredByTuple) {
 		if (userOwned[k]) continue; // anti-wipe: service never claims or shares
 		let d = desiredByTuple[k];
-		if (!ownership[k]) ownership[k] = d.ownerArr ? d.ownerArr.join(',') : d.owner;
+		if (!ownership[k]) ownership[k] = d.ownerArr ? join(, ) : d.owner;
 	}
 	for (let i = 0; i < length(desiredRecords); i++) {
 		let r = desiredRecords[i];
@@ -827,7 +827,7 @@ export const service_dns_apply = function(req) {
 		let trust = classify_trust_ucode(prov, iso_now());
 		if (!trust.applicable) return err('EINPUT', 'profile ' + pid + ' is not applicable: ' + trust.reason);
 		let comp = compute_completeness_ucode(p);
-		if (comp.status != 'complete') return err('EINPUT', 'profile ' + pid + ' is ' + comp.status + ' (missing: ' + comp.missingRequired.join(',') + ')');
+		if (comp.status != 'complete') return err('EINPUT', 'profile ' + pid + ' is ' + comp.status + ' (missing: ' + join(, ) + ')');
 		let desired = compute_desired_records_ucode(p.records, APPLY_FAMILY);
 		for (let j = 0; j < length(desired.records); j++)
 			push(desiredRecords, { hostname: desired.records[j].hostname, A: desired.records[j].A, AAAA: desired.records[j].AAAA, owner: 'service:' + pid });
