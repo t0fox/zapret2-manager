@@ -99,7 +99,7 @@ return L.view.extend({
 				dnsLoadError: r[0].loadError, dns: r[0].data,
 				sdnsStatusErr: r[1].loadError, sdnsStatus: r[1].data,
 				sdnsProvErr: r[2].loadError, sdnsProv: r[2].data,
-				provComp: null, provList: null
+				provComp: null, provCompError: null, provList: null, provListError: null
 			};
 		});
 	},
@@ -142,8 +142,8 @@ return L.view.extend({
 
 		// ---- render active tab ----
 		switch (tab) {
-			case 'overview':  container.appendChild(this.overviewTab(dns, sdnsStatus, sdnsProv)); break;
-			case 'svc':       container.appendChild(this.svcTab(dns, sdnsStatus, sdnsProv)); break;
+			case 'overview':  container.appendChild(this.overviewTab(dns, sdnsStatus, sdnsProv, envelope)); break;
+			case 'svc':       container.appendChild(this.svcTab(dns, sdnsStatus, sdnsProv, envelope)); break;
 			case 'manual':    container.appendChild(this.manualTab(dns, envelope)); break;
 			case 'providers': container.appendChild(this.providersTab(envelope)); break;
 			case 'history':   container.appendChild(this.historyTab(dns, sdnsStatus)); break;
@@ -159,9 +159,23 @@ return L.view.extend({
 	// ════════════════════════════════════════════════════════════
 	// TAB: Overview
 	// ════════════════════════════════════════════════════════════
-	overviewTab: function (dns, sdnsStatus, sdnsProv) {
+	overviewTab: function (dns, sdnsStatus, sdnsProv, envelope) {
 		var rz = dns.resolver || {};
 		var node = E('div');
+
+		// show error callouts when RPC failed
+		if (envelope.dnsLoadError) {
+			node.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-bad' },
+				_('DNS data unavailable: ') + esc(envelope.dnsLoadError)));
+		}
+		if (envelope.sdnsStatusErr) {
+			node.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-warn' },
+				_('Service DNS status unavailable: ') + esc(envelope.sdnsStatusErr)));
+		}
+		if (envelope.sdnsProvErr) {
+			node.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-warn' },
+				_('Service DNS providers unavailable: ') + esc(envelope.sdnsProvErr)));
+		}
 
 		// ---- status cards ----
 		var cards = E('div', { 'class': 'z2m-card-grid' });
@@ -178,16 +192,21 @@ return L.view.extend({
 			]
 		));
 
-		// dnsmasq card
-		var dm = dns.dnsmasq || {};
-		var dmRunning = dm.running ? badge(_('running'), 'ok') : badge(_('stopped'), 'warn');
-		var dmPid = dm.pid ? 'pid ' + dm.pid : _('unknown');
+		// dnsmasq card — truthful: only show running/stopped when confirmed
+		var dm = dns.dnsmasq;
+		if (dm) {
+			var dmRunning = dm.running ? badge(_('running'), 'ok') : badge(_('stopped'), 'warn');
+			var dmPid = dm.pid ? 'pid ' + dm.pid : _('unknown');
+		} else {
+			var dmRunning = badge(_('unknown'), 'neutral');
+			var dmPid = _('unknown');
+		}
 		cards.appendChild(this.statusCard(
 			_('dnsmasq'), _('status'),
 			[
 				this.kvRow(_('State'), dmRunning),
 				this.kvRow(_('PID'), dmPid),
-				this.kvRow(_('Config'), esc(dm.config || dns.resolverFile || _('unknown')))
+				this.kvRow(_('Resolver'), esc((dns.resolver && dns.resolver.components || []).map(function(c){return c.name;}).join(', ') || _('unknown')))
 			]
 		));
 
@@ -212,25 +231,36 @@ return L.view.extend({
 		Object.keys(sdnsSelections).forEach(function (k) { if (sdnsSelections[k] !== 'off') enabledCount++; });
 		Object.keys(sdnsApplied).forEach(function (k) { if (sdnsApplied[k] !== 'off') appliedCount++; });
 		var sdnsHasDrift = sdnsStatus.drift && sdnsStatus.drift.serviceId;
+		var sdnsStatusOk = sdnsStatus.ok;
+		var sdnsOwnershipCount = sdnsStatus.ownership ? Object.keys(sdnsStatus.ownership).length : 0;
 		cards.appendChild(this.statusCard(
 			_('Service mappings'), _('status'),
 			[
+				sdnsStatusOk === undefined ? this.kvRow(_('Selected'), badge(_('unknown'), 'neutral')) :
+				envelope.sdnsStatusErr ? this.kvRow(_('Selected'), badge(_('unavailable'), 'bad')) :
 				this.kvRow(_('Selected'), enabledCount + ' / ' + Object.keys(SERVICE_LABELS).length),
+				sdnsStatusOk === undefined ? this.kvRow(_('Applied'), badge(_('unknown'), 'neutral')) :
 				this.kvRow(_('Applied'), appliedCount + ' / ' + Object.keys(SERVICE_LABELS).length),
-				sdnsHasDrift ? this.kvRow(_('Drift'), badge(_('drift detected'), 'warn')) : this.kvRow(_('Drift'), badge(_('synced'), 'ok')),
-				this.kvRow(_('Ownership records'), sdnsStatus.ownership ? Object.keys(sdnsStatus.ownership).length : '0')
+				sdnsStatusOk === undefined ? this.kvRow(_('Drift'), badge(_('unknown'), 'neutral')) :
+				sdnsHasDrift ? this.kvRow(_('Drift'), badge(_('drift detected'), 'warn')) :
+				this.kvRow(_('Drift'), badge(_('synced'), 'ok')),
+				sdnsStatusOk === undefined ? this.kvRow(_('Ownership'), badge(_('unknown'), 'neutral')) :
+				this.kvRow(_('Ownership records'), String(sdnsOwnershipCount))
 			]
 		));
 
 		// provider card
 		var provCount = sdnsProv.providers ? sdnsProv.providers.length : 0;
 		var provVersion = sdnsProv.datasetVersion || '?';
+		var provOk = sdnsProv.ok;
 		cards.appendChild(this.statusCard(
 			_('Providers'), _('status'),
 			[
-				this.kvRow(_('Catalog'), provCount + _(' providers')),
+				this.kvRow(_('Catalog'), provOk !== undefined && !provOk ? badge(_('unavailable'), 'bad') : (provCount + _(' providers'))),
 				this.kvRow(_('Version'), 'v' + provVersion),
-				sdnsProv.ok === false ? this.kvRow(_('Health'), badge(_('unavailable'), 'bad')) : this.kvRow(_('Health'), badge(_('available'), 'ok'))
+				provOk === undefined ? this.kvRow(_('Health'), badge(_('unknown'), 'neutral')) :
+				provOk !== true ? this.kvRow(_('Health'), badge(_('unavailable'), 'bad')) :
+				this.kvRow(_('Health'), badge(_('available'), 'ok'))
 			]
 		));
 
@@ -259,20 +289,22 @@ return L.view.extend({
 	// ════════════════════════════════════════════════════════════
 	// TAB: Service mappings
 	// ════════════════════════════════════════════════════════════
-	svcTab: function (dns, sdnsStatus, sdnsProv) {
+	svcTab: function (dns, sdnsStatus, sdnsProv, envelope) {
 		var self = this;
 		var provs = sdnsProv || {};
 		var status = sdnsStatus || {};
+		var sdnsProvErr = envelope.sdnsProvErr;
+		var sdnsStatusErr = envelope.sdnsStatusErr;
 		var node = E('div');
 
-		if (sdnsProv._loadErr || provs.ok !== true) {
+		if (sdnsProvErr || (provs.ok !== true && provs.ok !== undefined)) {
 			node.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-bad' },
-				_('Provider dataset unavailable: ') + esc(sdnsProv._loadErr || ((provs.error && provs.error.message) || provs.error || '?'))));
+				_('Provider dataset unavailable: ') + esc(sdnsProvErr || ((provs.error && provs.error.message) || provs.error || '?'))));
 			return node;
 		}
 
-		if (sdnsStatus._loadErr || (status.ok !== true && !sdnsStatus._loadErr)) {
-			var msg = sdnsStatus._loadErr || ((status.error && status.error.message) || status.error || _('status unavailable'));
+		if (sdnsStatusErr || (status.ok !== true && status.ok !== undefined && !sdnsStatusErr)) {
+			var msg = sdnsStatusErr || ((status.error && status.error.message) || status.error || _('status unavailable'));
 			node.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-warn' }, _('State error: ') + esc(msg)));
 		}
 
@@ -784,14 +816,16 @@ return L.view.extend({
 
 		var comps = envelope.provComp || {};
 		var provs = envelope.provList || {};
+		var provCompError = envelope.provCompError;
+		var provListError = envelope.provListError;
 
 		// component intelligence
 		var compCard = E('div', { 'class': 'z2m-card' }, [
 			E('h4', {}, _('Resolver intelligence'))
 		]);
-		if (envelope.provCompError) {
+		if (provCompError) {
 			compCard.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-warn' },
-				_('Components unavailable: ') + esc(envelope.provCompError)));
+				_('Components unavailable: ') + esc(provCompError)));
 		} else {
 			var resolverPath = (comps.likelyResolverPath || []).join(' → ');
 			compCard.appendChild(this.kvRow(_('Likely resolver path'), esc(resolverPath || _('unknown'))));
@@ -812,9 +846,9 @@ return L.view.extend({
 		var provCard = E('div', { 'class': 'z2m-card' }, [
 			E('h4', {}, _('Provider catalog (v') + esc(provs.version || '?') + _(') — data only'))
 		]);
-		if (envelope.provListError || provs.ok === false) {
+		if (provListError || provs.ok === false) {
 			provCard.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-warn' },
-				_('Providers unavailable: ') + esc(envelope.provListError || ((provs.error && provs.error.message) || '?'))));
+				_('Providers unavailable: ') + esc(provListError || ((provs.error && provs.error.message) || '?'))));
 		} else {
 			(provs.providers || []).forEach(function (p) {
 				var badges = [badge(p.category || '?', 'neutral')];
@@ -840,7 +874,7 @@ return L.view.extend({
 		]);
 
 		var diagBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Run diagnostics'));
-		if (envelope.provListError || provs.ok === false) diagBtn.disabled = true;
+		if (provListError || provs.ok === false) diagBtn.disabled = true;
 		diagBtn.addEventListener('click', function () {
 			diagBtn.disabled = true;
 			callProvDiag('{}').then(function (res) { self._provDiag = res || {}; self.refresh(); })

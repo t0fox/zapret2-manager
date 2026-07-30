@@ -1,65 +1,77 @@
 #!/bin/sh
-# tools/verify-deploy-r38.sh — comprehensive post-deploy verification
+# tools/verify-deploy-r38.sh — post-deploy verification (no token exposure)
+# Uses a temporary cookie jar; creates and destroys a short-lived ubus session.
+# Never prints, logs or persists session tokens.
 
-set -e
+set -eu
 
-echo "=== 1. CREATE LUCI SESSION ==="
-SID=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 root@192.168.1.1 \
-  'ubus call session create '"'"'{"username":"root","timeout":600}'"'" 2>/dev/null \
-  | sed -n 's/.*"ubus_rpc_session":"\([^"]*\)".*/\1/p')
-echo "Session: ${SID:-FAILED}"
+ROUTER="${ROUTER:-192.168.1.1}"
+COOKIE_JAR=""
+SESSION_TOKEN=""
 
-if [ -z "$SID" ]; then
-  echo "Cannot create session — checking static resources only"
+cleanup() {
+	if [ -n "${SESSION_TOKEN:-}" ] && [ -n "${COOKIE_JAR:-}" ]; then
+		ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 "root@${ROUTER}" \
+			"ubus call session destroy '{\"ubus_rpc_session\":\"${SESSION_TOKEN}\"}'" \
+			>/dev/null 2>&1 || true
+	fi
+	if [ -n "${COOKIE_JAR:-}" ]; then rm -f "$COOKIE_JAR"; fi
+}
+trap cleanup EXIT HUP INT TERM
+
+# Create cookie jar
+COOKIE_JAR="$(mktemp /tmp/z2m-verify.XXXXXX)"
+chmod 600 "$COOKIE_JAR"
+
+# Establish session
+SESSION_RAW="$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 "root@${ROUTER}" \
+	'ubus call session create '"'"'{"username":"root","password":"","timeout":300}'"'"' 2>/dev/null)" || true
+SESSION_TOKEN="$(echo "$SESSION_RAW" | sed -n 's/.*"ubus_rpc_session":"\([^"]*\)".*/\1/p')"
+if [ -n "$SESSION_TOKEN" ]; then
+	echo "192.168.1.1	FALSE	/	FALSE	0	sysauth	${SESSION_TOKEN}" > "$COOKIE_JAR"
+	echo "=== SESSION: established (token redacted) ==="
+	AUTH_FLAG="-b $COOKIE_JAR"
+else
+	echo "=== SESSION: FAILED — checking static resources only ==="
+	AUTH_FLAG=""
 fi
-
 echo ""
-echo "=== 2. PAGE ROUTE CHECK ==="
+
+echo "=== 1. PAGE ROUTE CHECK ==="
 for path in \
-  overview strategies blockcheck catalog orchestra \
-  lists dns service-dns monitor proxy maintenance
+	overview strategies blockcheck catalog orchestra \
+	lists dns service-dns monitor proxy maintenance
 do
-  url="http://192.168.1.1/cgi-bin/luci/admin/services/zapret2-manager/$path"
-  if [ -n "$SID" ]; then
-    code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 8 --cookie "sysauth=$SID" "$url" 2>/dev/null)
-  else
-    code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 8 "$url" 2>/dev/null)
-  fi
-  printf "  %3s  %s\n" "$code" "$path"
+	url="http://${ROUTER}/cgi-bin/luci/admin/services/zapret2-manager/$path"
+	code="$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 8 $AUTH_FLAG "$url" 2>/dev/null || echo '000')"
+	printf "  %3s  %s\n" "$code" "$path"
 done
 
 echo ""
-echo "=== 3. STATIC RESOURCES ==="
+echo "=== 2. STATIC RESOURCES ==="
 for res in z2m-ui.css z2m-ui.js dns.js service-dns.js overview.js
 do
-  url="http://192.168.1.1/luci-static/resources/view/zapret2-manager/$res"
-  code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 "$url" 2>/dev/null)
-  printf "  %3s  %s\n" "$code" "$res"
+	url="http://${ROUTER}/luci-static/resources/view/zapret2-manager/$res"
+	code="$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 "$url" 2>/dev/null || echo '000')"
+	printf "  %3s  %s\n" "$code" "$res"
 done
 
 echo ""
-echo "=== 4. NON-REGRESSION CHECKS ==="
-echo "TG Proxy (should show LISTEN on 1443):"
-ssh -o StrictHostKeyChecking=no root@192.168.1.1 netstat -tlnp 2>/dev/null | grep 1443 || echo "  NOT FOUND"
-echo ""
-echo "nfqws2 (should show running nfqws2):"
-ssh -o StrictHostKeyChecking=no root@192.168.1.1 'ps | grep nfqws2 | grep -v grep' 2>/dev/null || echo "  NOT FOUND"
-echo ""
-echo "dnsmasq (should be running):"
-ssh -o StrictHostKeyChecking=no root@192.168.1.1 'ps | grep dnsmasq | grep -v grep | head -1' 2>/dev/null || echo "  NOT FOUND"
+echo "=== 3. NON-REGRESSION ==="
+echo "TG Proxy:"
+ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 "root@${ROUTER}" netstat -tlnp 2>/dev/null | grep 1443 || echo "  NOT LISTENING"
+echo "nfqws2:"
+ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 "root@${ROUTER}" 'ps | grep nfqws2 | grep -v grep' 2>/dev/null || echo "  NOT RUNNING"
+echo "dnsmasq:"
+ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 "root@${ROUTER}" 'ps | grep dnsmasq | grep -v grep | head -1' 2>/dev/null || echo "  NOT RUNNING"
 
 echo ""
-echo "=== 5. CONFIG HASHES (must match pre-deploy) ==="
-echo "Pre: dhcp=ce584f6a, zapret2=72d2301a, upstream=6c9f3bc4"
-ssh -o StrictHostKeyChecking=no root@192.168.1.1 'md5sum /etc/config/dhcp /etc/config/zapret2 /opt/zapret2/config 2>/dev/null' 2>/dev/null
+echo "=== 4. CONFIG HASHES ==="
+ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 "root@${ROUTER}" 'md5sum /etc/config/dhcp /etc/config/zapret2 /opt/zapret2/config 2>/dev/null' 2>/dev/null
 
 echo ""
-echo "=== 6. PACKAGE VERSIONS ==="
-ssh -o StrictHostKeyChecking=no root@192.168.1.1 'apk list --installed | grep "^zapret2\|^luci-app-zapret2\|^zapret2-manager "' 2>/dev/null
+echo "=== 5. PACKAGES ==="
+ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 "root@${ROUTER}" 'apk list --installed | grep -E "^zapret2|^luci-app-zapret2|^zapret2-manager "' 2>/dev/null
 
 echo ""
-echo "=== 7. INSTALLED FILES CHECK ==="
-ssh -o StrictHostKeyChecking=no root@192.168.1.1 'ls -la /www/luci-static/resources/view/zapret2-manager/dns.js /www/luci-static/resources/view/zapret2-manager/service-dns.js /etc/zapret2-manager/ 2>/dev/null' 2>/dev/null
-
-echo ""
-echo "=== VERIFICATION COMPLETE ==="
+echo "=== DONE (session destroyed) ==="

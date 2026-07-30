@@ -72,6 +72,31 @@ function iso_now() {
 	return length(s) ? s : null;
 }
 
+// ---- ucode-compatible helpers ----
+function _slice(arr, start, end) {
+	let out = [];
+	let lo = start != null ? start : 0;
+	if (lo < 0) lo = length(arr) + lo;
+	if (lo < 0) lo = 0;
+	let hi = end != null ? end : length(arr);
+	if (hi < 0) hi = length(arr) + hi;
+	if (hi > length(arr)) hi = length(arr);
+	for (let i = lo; i < hi; i++) push(out, arr[i]);
+	return out;
+}
+
+function _clone_extend(base, overrides) {
+	let obj = {};
+	if (base != null) for (let k in base) obj[k] = base[k];
+	if (overrides != null) for (let k in overrides) obj[k] = overrides[k];
+	return obj;
+}
+
+function _obj_assign(target, source) {
+	if (source != null) for (let k in source) target[k] = source[k];
+	return target;
+}
+
 // ---------------------------------------------------------------------------
 // dataset load + validation (cached for the request lifetime)
 // ---------------------------------------------------------------------------
@@ -241,12 +266,17 @@ function validate_ipv6_ucode(ip) {
 	// expand to 8 groups for range checks
 	let groups = null;
 	if (index(t, '::') >= 0) {
-		let [lh, rh] = split(t, '::');
+		let parts = split(t, '::');
+		let lh = parts[0];
+		let rh = parts[1];
 		let left = lh ? split(lh, ':') : [];
 		let right = rh ? split(rh, ':') : [];
 		let fill = 8 - length(left) - length(right);
 		if (fill < 1) return { ok: false, reason: 'malformed IPv6' };
-		groups = [...left, ...Array(fill).fill('0000'), ...right];
+		groups = [];
+		for (let n = 0; n < length(left); n++) push(groups, left[n]);
+		for (let n = 0; n < fill; n++) push(groups, '0000');
+		for (let n = 0; n < length(right); n++) push(groups, right[n]);
 		if (length(groups) != 8) return { ok: false, reason: 'malformed IPv6' };
 	} else {
 		groups = split(t, ':');
@@ -255,10 +285,15 @@ function validate_ipv6_ucode(ip) {
 	for (let i = 0; i < 8; i++) groups[i] = substr('0000' + groups[i], -4);
 	let g0 = parseInt(groups[0], 16);
 	// :: (unspecified)
-	if (groups.every(g => g == '0000')) return { ok: false, reason: 'unspecified IPv6 rejected' };
+	let allZero = true;
+	for (let i = 0; i < length(groups); i++) { if (groups[i] != '0000') { allZero = false; break; } }
+	if (allZero) return { ok: false, reason: 'unspecified IPv6 rejected' };
 	// ::1 (loopback)
-	if (groups[0] == '0000' && groups[7] == '0001' && groups.slice(1,7).every(g => g == '0000'))
-		return { ok: false, reason: 'loopback IPv6 rejected' };
+	if (groups[0] == '0000' && groups[7] == '0001') {
+		let allZeroMid = true;
+		for (let i = 1; i < 7; i++) { if (groups[i] != '0000') { allZeroMid = false; break; } }
+		if (allZeroMid) return { ok: false, reason: 'loopback IPv6 rejected' };
+	}
 	// link-local fe80::/10
 	if ((g0 & 0xffc0) == 0xfe80) return { ok: false, reason: 'link-local IPv6 rejected' };
 	// multicast ff00::/8
@@ -283,7 +318,7 @@ function load_service_dns_state() {
 		selections: (sd && type(sd.selections) == 'object') ? sd.selections : {},
 		applied: (sd && type(sd.applied) == 'object') ? sd.applied : { selections: {}, generatedAt: null, revision: 0, fileHash: null },
 		ownership: (sd && type(sd.ownership) == 'object') ? sd.ownership : {},
-		events: (sd && Array.isArray(sd.events)) ? sd.events.slice(-20) : []
+		events: (sd && Array.isArray(sd.events)) ? _slice(sd.events, -20) : []
 	};
 	return { state: state, fresh: true };
 }
@@ -394,7 +429,7 @@ function compute_desired_records_ucode(records, applyFamily) {
 // service-owned lines so the parser can re-derive ownership without a
 // separate ledger file. The ownership is ALSO stored in state for the UI.
 // ---------------------------------------------------------------------------
-export function render_hosts_with_ownership(records, ownershipMap) {
+export const render_hosts_with_ownership = function(records, ownershipMap) {
 	// flatten to lines with ownership markers; dedupe, sort, bound
 	let lineSet = {};
 	for (let i = 0; i < length(records); i++) {
@@ -406,7 +441,7 @@ export function render_hosts_with_ownership(records, ownershipMap) {
 	}
 	let arr = keys(lineSet);
 	// bound output
-	if (length(arr) > 256) arr = arr.slice(0, 256);
+	if (length(arr) > 256) arr = _slice(arr, 0, 256);
 	arr.sort();
 	let out = '# zapret2-manager DNS overrides (manager-owned; edit via the DNS or Service DNS pages)\n';
 	for (let i = 0; i < length(arr); i++) out += arr[i] + '\n';
@@ -525,7 +560,10 @@ export const service_dns_providers = function(req) {
 	let profiles = [];
 	for (let i = 0; i < length(ds.profiles); i++) {
 		let p = ds.profiles[i];
-		let prov = providers.find(pr => pr.id == p.providerId) || { applicable: false, trust: 'untrusted' };
+		let prov = { applicable: false, trust: 'untrusted' };
+		for (let pi = 0; pi < length(providers); pi++) {
+			if (providers[pi].id == p.providerId) { prov = providers[pi]; break; }
+		}
 		let comp = compute_completeness_ucode(p);
 		let desired = compute_desired_records_ucode(p.records, APPLY_FAMILY);
 		let applicable = prov.applicable && (length(desired.records) > 0);
@@ -597,7 +635,7 @@ export const service_dns_status = function(req) {
 	}
 	return {
 		ok: true, datasetValid: true, selections: selections, applied: appliedSel, appliedAt: state.applied.generatedAt,
-		appliedRevision: appliedRev, drift: drift, warnings: warnings, events: state.events.slice(-10),
+		appliedRevision: appliedRev, drift: drift, warnings: warnings, events: _slice(state.events, -10),
 		desiredRecords: desiredRecords, ownership: ownership, appliedRecords: appliedRecords,
 		overridesPath: OVERRIDES_PATH, registered: (index(readfile(DHCP_CONF) || '', OVERRIDES_PATH) >= 0)
 	};
@@ -669,8 +707,9 @@ export const service_dns_preview = function(req) {
 		let e = existing.entries[i];
 		let fams = [['A', e.A || []], ['AAAA', e.AAAA || []]];
 		for (let j = 0; j < length(fams); j++) {
-			let [fam, addrs] = fams[j];
-			for (let k = 0; k < length(addrs); k++) existingByTuple[tuple_key(e.hostname, fam, addrs[k])] = { ...e, family: fam, address: addrs[k], owner: e.owner || 'user' };
+		let fam = fams[j][0];
+		let addrs = fams[j][1];
+			for (let k = 0; k < length(addrs); k++) existingByTuple[tuple_key(e.hostname, fam, addrs[k])] = _clone_extend(e, { family: fam, address: addrs[k], owner: e.owner || 'user' });
 		}
 	}
 	let desiredByTuple = {};
@@ -678,10 +717,11 @@ export const service_dns_preview = function(req) {
 		let r = desiredRecords[i];
 		let fams = [['A', r.A || []], ['AAAA', r.AAAA || []]];
 		for (let j = 0; j < length(fams); j++) {
-			let [fam, addrs] = fams[j];
+		let fam = fams[j][0];
+		let addrs = fams[j][1];
 			for (let k = 0; k < length(addrs); k++) {
 				let t = tuple_key(r.hostname, fam, addrs[k]);
-				if (!desiredByTuple[t]) desiredByTuple[t] = { ...r, family: fam, address: addrs[k], ownerArr: [r.owner] };
+				if (!desiredByTuple[t]) desiredByTuple[t] = _clone_extend(r, { family: fam, address: addrs[k], ownerArr: [r.owner] });
 				else {
 					let arr = desiredByTuple[t].ownerArr || [desiredByTuple[t].owner];
 					if (index(arr, r.owner) < 0) push(arr, r.owner);
@@ -823,7 +863,8 @@ export const service_dns_apply = function(req) {
 		let fams = [['A', e.A || []], ['AAAA', e.AAAA || []]];
 		let keep = false;
 		for (let j = 0; j < length(fams); j++) {
-			let [fam, addrs] = fams[j];
+		let fam = fams[j][0];
+		let addrs = fams[j][1];
 			for (let k = 0; k < length(addrs); k++) {
 				let kt = tuple_key(e.hostname, fam, addrs[k]);
 				if (ownership[kt] && ownership[kt] != '') { keep = true; break; }
@@ -873,7 +914,8 @@ export const service_dns_apply = function(req) {
 		let e = reread.entries[i];
 		let fams = [['A', e.A || []], ['AAAA', e.AAAA || []]];
 		for (let j = 0; j < length(fams); j++) {
-			let [fam, addrs] = fams[j];
+		let fam = fams[j][0];
+		let addrs = fams[j][1];
 			for (let k = 0; k < length(addrs); k++) rereadTuples[tuple_key(e.hostname, fam, addrs[k])] = true;
 		}
 	}
@@ -896,7 +938,7 @@ export const service_dns_apply = function(req) {
 	}
 	// update applied state
 	let newApplied = {
-		selections: Object.assign({}, selections),
+		selections: _obj_assign({}, selections),
 		generatedAt: iso_now(),
 		revision: appliedRev + 1,
 		fileHash: curFileHash // updated below
@@ -905,7 +947,7 @@ export const service_dns_apply = function(req) {
 	if (h) { newApplied.fileHash = trim(h.read('all')); h.close(); }
 	state.applied = newApplied;
 	push(state.events, { ts: iso_now(), action: 'apply', revision: newApplied.revision, records: length(finalRecords), warnings: warnings });
-	if (length(state.events) > 20) state.events = state.events.slice(-20);
+	if (length(state.events) > 20) state.events = _slice(state.events, -20);
 	if (!save_service_dns_state(state)) {
 		restore_overrides_file();
 		restore_service_dns_state();
