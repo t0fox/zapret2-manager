@@ -430,25 +430,22 @@ function compute_desired_records_ucode(records, applyFamily) {
 // separate ledger file. The ownership is ALSO stored in state for the UI.
 // ---------------------------------------------------------------------------
 export const render_hosts_with_ownership = function(records, ownershipMap) {
-	// flatten to lines with ownership markers; dedupe, sort, bound
 	let lineSet = {};
-	for (let i = 0; i < length(records); i++) {
-		let r = records[i];
+	for (let ii = 0; ii < length(records); ii++) {
+		let r = records[ii];
 		let owner = ownershipMap[r.hostname] || 'user';
 		let ownerTag = (owner == 'user') ? '' : ' # owner:' + owner;
-		for (let k = 0; k < length(r.A); k++) lineSet[r.A[k] + ' ' + r.hostname + ownerTag] = true;
-		for (let k = 0; k < length(r.AAAA); k++) lineSet[r.AAAA[k] + ' ' + r.hostname + ownerTag] = true;
+		for (let ki = 0; ki < length(r.A); ki++) lineSet[r.A[ki] + ' ' + r.hostname + ownerTag] = true;
+		for (let kj = 0; kj < length(r.AAAA); kj++) lineSet[r.AAAA[kj] + ' ' + r.hostname + ownerTag] = true;
 	}
 	let arr = keys(lineSet);
-	// bound output
 	if (length(arr) > 256) arr = _slice(arr, 0, 256);
 	arr.sort();
-	let out = "# zapret2-manager DNS overrides (manager-owned; edit via the DNS or Service DNS pages)\n";
-	for (let i = 0; i < length(arr); i++) out += arr[i] + "\n";
-	// bound bytes
+	let out = "# header\n";
+	for (let iz = 0; iz < length(arr); iz++) out += arr[iz] + "\n";
 	if (length(out) > 16384) out = substr(out, 0, 16384);
 	return out;
-}
+};
 
 // parse existing overrides file, extracting both entries and ownership
 function parse_existing_overrides() {
