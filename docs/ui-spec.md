@@ -170,31 +170,59 @@ The detailed technical screen (does not duplicate Overview's control plane).
   last good data with a STALE banner + timestamp and keeps polling.
 
 ### 7. Proxy (`proxy.js`)
-READ-ONLY TG WS Proxy adapter (Phase F, r31) over `proxy_capabilities` +
-`proxy_status`. The proxy itself is a separate optional package — never
-implemented here.
+FUNCTIONAL TG WS Proxy slice (Phase F, r32) over the live proxy RPC family
+(`proxy_capabilities/status/config_get/config_validate/config_preview/
+config_apply/start/stop/restart/autostart_set/secret_rotate/logs_tail/
+health/link_info`). The proxy itself is a separate optional signed package
+— never implemented here, never downloaded from this page. Six sections:
 
-- Canonical provider panel: tg-ws-proxy-rs v1.6.5 (commit pin, MIT,
-  asset + SHA-256, `aarch64-unknown-linux-musl` ABI), protocol **MTProto**
-  with an explicit "SOCKS5: not supported" badge (the Rust binary has no
-  `--mode` flag), default port 1443 shown as provider knowledge — never as
-  an active listener, rejected alternatives, ADR reference.
-- State: installed / detected provider / package version / binary path /
-  process state (running / stopped / unknown — never a fake "stopped") /
-  PIDs / init presence / enabled / mode; nothing-installed renders
-  "adapter operational + proxy not installed", not an error.
-- Listeners: actual rows with loopback / wildcard / lan / specific
-  classification; wildcard carries the explicit "all local interfaces —
-  WAN reachability not tested, depends on firewall policy" note; probe
-  unavailable is distinguished from "no listeners".
-- Files (metadata only): config presence/size + allowlisted parsed keys
-  (a second fence drops any secret-shaped key even if a backend ever sent
-  one), secret existence + permission verdict (0600 expected, never the
-  value), log metadata.
-- Structured warnings (MULTIPLE_BINARIES … STATUS_PARTIAL) with codes.
-- Control section is an honest read-only statement: install/start/stop/
-  config/secret-rotation methods intentionally do not exist in this slice
-  (no disabled buttons pretending to work, no missing-method load error).
+1. **Provider/package** — canonical provider panel: tg-ws-proxy-rs v1.6.5
+   (commit pin, MIT, asset + SHA-256, `aarch64-unknown-linux-musl` ABI),
+   protocol **MTProto** with an explicit "SOCKS5: not supported" badge,
+   default port 1443 as provider knowledge (never an active listener),
+   package installed+version, architecture compatibility, and the explicit
+   install note (signed feed only — never a LuCI download, never
+   `--allow-untrusted`).
+2. **Runtime** — service state (running / stopped / unknown — never a fake
+   "stopped"), binary path, PID, actual listeners with loopback / wildcard /
+   lan / specific classification (wildcard carries the "all local interfaces
+   — WAN reachability not tested, no firewall rules installed" note),
+   autostart, mode, structured warnings with codes.
+3. **Configuration** — the full manager-owned form (enabled, autostart,
+   LAN IPv4 or 127.x listen bind, port, link IP, FakeTLS SNI, DC mappings,
+   Cloudflare domains/workers/priority/balance/defaults, upstream MTProto
+   fallback, outbound proxy + bypass, pool/buffer/max-connections,
+   quiet/verbose). The upstream proxy list edits against host:port META:
+   an unchanged line keeps its stored secret (keepSecret), never round-
+   tripping a value. Validate / Preview / Apply each send ONE JSON-string
+   `edit` payload; preview renders the exact diff + secretAction
+   (keep/generate — never a value) + service/autostart/listener plan +
+   rollback plan; apply carries the optimistic `expectedAppliedRevision`
+   and reports ECONFLICT honestly. Apply is DISABLED while the package is
+   absent; Preview/Validate stay live (they answer the missing-package
+   finding too).
+4. **Secret** — configured/permissions metadata only (0600 verdict, never
+   the value), the CSPRNG/0600/TG_SECRET-env-only policy note, and a
+   two-step guarded Rotate (first click arms with a client-update warning,
+   second click executes); the rotated value is reported as never-shown.
+5. **Control** — Start/Stop/Restart with busy disable→re-enable and the
+   reread listener in the result (a process-without-listener failure
+   renders as a failure, not a fake ok); autostart enable/disable toggle
+   sending the inverted rc.d state; applied-vs-rc.d drift warning. All
+   disabled while the package is absent.
+6. **Diagnostics** — on-demand bounded probes: the health test renders the
+   seven infra checks plus local/upstream route cards with their exact
+   meanings (local listener TCP connect vs upstream Telegram edge TCP 443 —
+   an MTProto handshake is never claimed); the log tail renders redacted
+   lines with the redaction count (secret-shaped tokens and tg:// links
+   never leave the router); the tg:// connection link reveals only behind
+   a two-step guarded action (`{reveal:true, confirm:"REVEAL"}` — shown
+   once, never logged); a static wildcard/firewall honesty panel when a
+   wildcard listener is active.
+
+The not-installed state renders "adapter operational + proxy not installed"
+with the provider panel intact and every mutation button disabled with the
+reason shown — no fake buttons, no missing-method load errors.
 
 ### 8. Maintenance (`maintenance.js`)
 Fully wired (r19).
@@ -213,12 +241,16 @@ Fully wired (r19).
 
 Every method the pages use is registered and granted in the ACL (the
 packaging gate asserts plugin↔ACL coherence). Since r30/r31 the
-`catalog_*`, `health_matrix_*`, `orchestra_*`, `dnsprov_*`, and the
-READ-ONLY `proxy_capabilities` / `proxy_status` families are all wired.
-Remaining unimplemented surfaces (pages render honest unavailable states
-or explicit read-only statements for them): TG WS Proxy MUTATIONS
-(install/start/stop/config/secret rotation — future trusted package
-slice), Telegram alerts, automatic rollback timer.
+`catalog_*`, `health_matrix_*`, `orchestra_*`, `dnsprov_*` families are
+all wired, and since r32 the full FUNCTIONAL proxy family is wired:
+`proxy_capabilities`, `proxy_status`, `proxy_config_get`,
+`proxy_config_validate`, `proxy_config_preview` (READ ACL) plus
+`proxy_config_apply`, `proxy_start`, `proxy_stop`, `proxy_restart`,
+`proxy_autostart_set`, `proxy_secret_rotate` (WRITE ACL), and the
+read-side `proxy_logs_tail`, `proxy_health`, `proxy_link_info`. There is
+NO install/download method by design (the optional package arrives only
+through the signed feed). Remaining unimplemented surfaces: Telegram
+alerts, automatic rollback timer, per-service DNS mapping (in progress).
 
 ## Frontend tests
 

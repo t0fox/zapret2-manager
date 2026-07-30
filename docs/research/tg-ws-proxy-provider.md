@@ -1,10 +1,18 @@
 # ADR: TG WS Proxy provider selection (Phase F)
 
-> Status: **decided** (2026-07-28). Scope of this ADR: pick the canonical
-> third-party TG WS Proxy implementation the manager will *supervise*
-> (read-only adapter first; trusted install/configure is a later slice).
-> The manager never implements the proxy itself and never shells out from
-> the browser.
+> Status: **decided** (2026-07-28), **implemented** (2026-07-28, r32).
+> Scope of this ADR: pick the canonical third-party TG WS Proxy
+> implementation the manager *supervises* (read-only adapter first, then
+> the functional package/configuration slice). The manager never implements
+> the proxy itself and never shells out from the browser.
+>
+> **Update (r32):** the functional slice is implemented. The packaging
+> layout (previously "remaining unknown #3") is now decided (§Constraints
+> + §Packaging below); the secret mechanism is the environment variable
+> path (§Secret mechanism) — argv carries NO secret, so the `/proc` argv
+> exposure concern is closed with the env-var residual documented. Live
+> install + mutating acceptance remains behind the explicit gate
+> (docs/acceptance.md §TG-proxy).
 
 ## Decision
 
@@ -69,21 +77,76 @@ fabrication.
 1. The proxy is a **separate optional package**; the manager supervises, never
    embeds it. A missing install is a normal state (`installed:false`), not an
    error.
-2. This slice is **read-only**: capabilities + status only. No install, no
-   start/stop, no config apply, no secret generation/rotation, no firewall
-   mutation, no WAN probing.
-3. The future install path must use a **signed/pinned** package (SHA-256 pinned
-   asset, our APK signature). `apk add --allow-untrusted` is forbidden.
-4. Future default exposure policy is **LAN-only**; a wildcard (`0.0.0.0`/`::`)
-   listener is reported with an explicit "all local interfaces" warning and is
-   **never** equated with WAN reachability (that depends on firewall input
-   policy, which this slice does not scan).
-5. Secret file mode must be `0600`; broader permissions produce a warning. The
-   manager never returns secret content, previews, or derived values, and never
-   chmods the file in this slice.
-6. No browser-side shell: LuCI calls only the two ubus methods.
+2. ~~This slice is read-only~~ **(r32)** The adapter is now functional:
+   configuration, lifecycle, secret rotation and health via ubus
+   (docs/contracts/ubus.md). Capabilities/status stay read-only.
+3. The install path uses a **signed/pinned** package (SHA-256 pinned asset at
+   build time, our APK signature). `apk add --allow-untrusted` is forbidden;
+   the trusted-key install procedure is the only permitted one.
+4. Default exposure policy is **LAN-only**: the listener binds the explicit
+   LAN IPv4 (or a 127.x loopback for diagnostics); an empty/wildcard or
+   non-local bind is REFUSED (no wildcard fallback). No firewall rules are
+   installed in v1. A wildcard listener (foreign configs only) is reported
+   with an explicit "all local interfaces" warning and is **never** equated
+   with WAN reachability (that depends on firewall input policy, which the
+   manager does not scan).
+5. Secret file mode must be `0600`; broader permissions refuse startup. The
+   manager never returns secret content, previews, or derived values; it
+   generates/rotates the secret at `0600` and redacts secret-shaped tokens
+   from anything it returns.
+6. No browser-side shell: LuCI calls only ubus methods.
 7. No SOCKS5 is claimed for the Rust provider anywhere
    (`socks5Supported:false` in capabilities).
+
+## Packaging (decided at r32)
+
+- OpenWrt package `tg-ws-proxy-rs` (`tg-ws-proxy-rs/Makefile`): pinned
+  `PKG_SOURCE` + `PKG_HASH` (the download machinery IS the build-time SHA-256
+  gate — a mismatch fails closed), `PKG_FLAGS:=nonshared` (never arch:all),
+  `DEPENDS:=@TARGET_mediatek_filogic` (the only packaged+tested target;
+  others are added only after real packaging+smoke). The same pinned asset is
+  staged by the manual APK pipeline (`tools/build-apk-manual.sh`) with
+  `sha256sum -c` before packaging — version and hash are read from the
+  package Makefile (single pin source).
+- Installed files: `/usr/bin/tg-ws-proxy` (0755), `/etc/init.d/tg-ws-proxy`
+  (procd, hard startup gates), `/etc/tg-ws-proxy/config.conf` (stock,
+  0600, inert: `ENABLED=0` + empty HOST), MIT LICENSE + attribution at
+  `/usr/share/licenses/tg-ws-proxy-rs/LICENSE` (vendored from the pinned
+  source commit — the asset carries no LICENSE). conffiles: config.conf +
+  secret.conf (operator state survives upgrades). postinst is inert: NO
+  enable, NO start — first run is an explicit operator action via the
+  manager.
+- procd service: bounded respawn (3600/5/5 — no infinite restart loop),
+  stdout/stderr through procd/syslog, `reload` = full restart (no
+  live-reload exists). Startup gates refuse on: missing binary/config/
+  secret, `ENABLED != 1`, secret mode != 0600 or malformed, empty/wildcard/
+  non-local HOST (127.x loopback allowed), invalid PORT, or a held port.
+  Fully independent from `/etc/init.d/zapret2` (verified by static gates in
+  both directions).
+
+## Secret mechanism (decided at r32)
+
+- The provider at v1.6.5 has an environment alias for **every** flag except
+  `--dc-ip` (README §Usage). The MTProto secret therefore reaches the process
+  ONLY via `TG_SECRET`; argv carries only `--dc-ip` pairs (IPs are not
+  secret). **The `/proc/<pid>/cmdline` exposure concern is closed.**
+  Residual, accepted and documented: the secret is visible to root via
+  `/proc/<pid>/environ` — on OpenWrt everything privileged is root already;
+  env-only still removes it from `ps` for all users.
+- Generation: CSPRNG (`/dev/urandom` via od), exactly 32 lowercase hex chars
+  (the provider-required format), written atomically to
+  `/etc/tg-ws-proxy/secret.conf` at 0600 with readback verification.
+  Rotation: same path + service restart only when running. The value is never
+  returned by any RPC, never in state.json (state keeps only sanitized
+  config), never in events/logs/diagnostics/backups.
+- Upstream MTProto fallback entries (`host:port:secret`) are secret-bearing:
+  they live only in the 0600 config.conf; state.json and every RPC response
+  carry `{host, port, hasSecret}` meta; a `keepSecret` edit merges the
+  current secret server-side (secrets never round-trip).
+- The provider prints its startup `tg://` link (embedding the secret) into
+  its log: `/var/log/tg-ws-proxy.log` is pre-created 0600 by init, and
+  `proxy_logs_tail` redacts exact secrets, whole `tg://proxy` URLs, and any
+  dd/ee/bare-32+-hex token before returning anything.
 
 ## Detection contract (used by proxy.uc / proxy-logic.mjs)
 
@@ -130,18 +193,19 @@ fabrication.
 
 1. **On-target runtime behavior** of the Rust binary on `aarch64_cortex-a53`
    (memory footprint under load, FD limits with `--max-connections auto`) —
-   unverified until the future install slice runs it.
+   verified only when the gated live acceptance runs it
+   (docs/acceptance.md §TG-proxy).
 2. **Byte-reproducible build** — not proven (see table); the SHA-256 pin +
-   APK signature is the integrity story for now.
-3. **procd/UCI packaging layout** for the future manager-owned package
-   (exact UCI schema, secret file generation flow) — designed in the install
-   slice, not here.
+   APK signature is the integrity story.
+3. ~~procd/UCI packaging layout~~ — **decided at r32** (§Packaging above:
+   manager-owned KEY=value config, no UCI; CSPRNG secret flow).
 4. **DC-IP currency** — the built-in DC2/DC4 defaults and the fetched
    `--default-domains` list are upstream-maintained data; the manager treats
    them as opaque provider behavior.
 5. **License drift** — MIT confirmed at decision time via the repo license
-   API; the future package slice re-checks `LICENSE` at the pinned commit
-   before shipping a wrapper package.
+   API; the r32 package re-verified it by vendoring `LICENSE` verbatim from
+   the pinned source commit `a14a97ae` into the package
+   (`/usr/share/licenses/tg-ws-proxy-rs/LICENSE`).
 
 ## References
 

@@ -22,12 +22,17 @@
 #     connection drop (also 255).
 #   - autostart is verified by a REAL reboot, in a SEPARATE destructive mode,
 #     never run together with the other checks.
+#   - tgproxy is verified by a SEPARATE approval gate, never run together
+#     with the other checks.
 #   - never `service firewall stop` / a wholesale firewall restart. No check
 #     performs either; `no_fw_stop` asserts their absence in shipped code.
 #
 # Usage:
-#   tools/smoke.sh                  # run all infra checks (NOT autostart)
+#   tools/smoke.sh                  # run all infra checks (NOT autostart, NOT tgproxy)
 #   tools/smoke.sh autostart        # DESTRUCTIVE: reboot, verify auto-start
+#   tools/smoke.sh tgproxy          # APPROVAL-GATED: live TG proxy drill (install
+#                                     verify, apply, lifecycle, rotate, logs; optional
+#                                     uninstall)
 #   tools/smoke.sh pause_fw_effect  # informational: NFQWS2_ENABLE=0 fw effect
 #   tools/smoke.sh queue_qlen_match | fw_delegation | no_fw_stop | ucode_syntax
 #   tools/smoke.sh lists_paths
@@ -67,7 +72,40 @@ ssh_out() {
 
 want_nz() { [ -n "$1" ] && ok "$2" || bad "$2 (empty)"; }
 
-# ---- ucode_syntax: parse every shipped ucode file on the target -------------
+# ---- tgproxy: APPROVAL-GATED live TG proxy drill ---------------------------
+gate_tgproxy() {
+	log "gate tgproxy — OPTIONAL TG WS Proxy live acceptance (r32)"
+	say "APPROVE TG PROXY INSTALL"
+	printf '[smoke] This runs the live TG proxy drill on %s (install verify, apply, lifecycle, rotate, logs; optional uninstall). Approved? [y/N] ' "$HOST"
+	read -r ans
+	[ "$ans" = "y" ] || { log "not approved — skipping live proxy drill (non-live work continues)"; exit 0; }
+
+	# baseline
+	ssh_out BASE_CONFIG_SHA "baseline config hash" "sha256sum /opt/zapret2/config | awk '{print \$1}'"
+	ssh_out BASE_NFT_LINES "baseline nft lines" "nft list table inet zapret2 | wc -l"
+	# stage the drill
+	scp $SSH_OPTS "$(dirname "$0")/tgproxy-drill.sh" "root@${HOST}:/tmp/tgproxy-drill.sh" >/dev/null 2>&1 || die "scp drill failed"
+	ssh_ok "chmod drill" "chmod +x /tmp/tgproxy-drill.sh" || die "chmod drill failed"
+	# phases pre..disable (all) — pass env through
+	if ssh $SSH_OPTS "root@${HOST}" "LAN_IP= BASE_CONFIG_SHA='$BASE_CONFIG_SHA' BASE_NFT_LINES='$BASE_NFT_LINES' sh /tmp/tgproxy-drill.sh all" 2>&1 | sed 's/^/[drill] /'; then
+		ok "live drill (pre/apply/health/lifecycle/independence/rotate/logs/disable) GREEN"
+	else
+		bad "live drill reported failures"
+		return 1
+	fi
+	log "Run the destructive uninstall phase (apk del tg-ws-proxy-rs + baseline verify)? [y/N] "
+	read -r ans2
+	if [ "$ans2" = "y" ]; then
+		if ssh $SSH_OPTS "root@${HOST}" "BASE_CONFIG_SHA='$BASE_CONFIG_SHA' BASE_NFT_LINES='$BASE_NFT_LINES' sh /tmp/tgproxy-drill.sh uninstall" 2>&1 | sed 's/^/[drill] /'; then
+			ok "uninstall/rollback drill GREEN"
+		else
+			bad "uninstall drill reported failures"
+			return 1
+		fi
+	else
+		log "uninstall phase skipped by operator (package left installed)"
+	fi
+}
 # The flag is -c (compile to bytecode), determined factually from the ucode
 # --help fixture (tests/fixtures/ucode-help-long.out): -c compiles files and
 # exits non-zero on a syntax error; -p executes an expression (does NOT parse a
@@ -398,11 +436,9 @@ case "$SELECTION" in
     no_fw_stop
     lists_paths
     ;;
-  menu_acl_shape|view_resource_present|ucode_syntax|queue_qlen_match|fw_delegation|no_fw_stop|lists_paths) "$SELECTION" ;;
-  autostart) gate_autostart ;;
-  pause_fw_effect) pause_fw_effect ;;
+  menu_acl_shape|view_resource_present|ucode_syntax|queue_qlen_match|fw_delegation|no_fw_stop|lists_paths|autostart|tgproxy) "$SELECTION" ;;
   -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
-  *) die "unknown check: $SELECTION (try: all, menu_acl_shape, view_resource_present, ucode_syntax, queue_qlen_match, fw_delegation, no_fw_stop, lists_paths, autostart, pause_fw_effect)" ;;
+  *) die "unknown check: $SELECTION (try: all, menu_acl_shape, view_resource_present, ucode_syntax, queue_qlen_match, fw_delegation, no_fw_stop, lists_paths, autostart, tgproxy)" ;;
 esac
 
 log "result: PASS=$PASS FAIL=$FAIL"

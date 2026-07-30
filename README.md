@@ -49,24 +49,36 @@ A clean OpenWrt **feed** providing two packages that manage the upstream
   conflict detection, six provider profiles, bounded diagnostics with
   confidence; DoH endpoints are data, never activation. Deployed and
   live-smoked on target at r30.
-- **TG WS Proxy adapter** (r31, READ-ONLY): `proxy_capabilities` /
-  `proxy_status` for the canonical tg-ws-proxy-rs v1.6.5 provider
-  (MTProto-only; MIT; pinned asset + SHA-256). Honest `installed:false`
-  when absent; package/binary/process/init/listener/config/secret/log/arch
-  detection with structured warnings; secret values never returned; no
-  mutation methods in this slice. See
+- **TG WS Proxy** (r32, FUNCTIONAL, optional): the canonical tg-ws-proxy-rs
+  v1.6.5 provider (MTProto-only; MIT; pinned asset + SHA-256) as a separate
+  optional signed package with a gated procd service. The manager owns the
+  configuration model (DRAFT/APPLIED/RUNTIME), validate/preview/apply with
+  optimistic revision + snapshot + verified rollback, start/stop/restart
+  with reread listener verification, autostart, CSPRNG secret rotation
+  (secret.conf 0600, TG_SECRET env only — never argv), redacted logs,
+  bounded health (local listener vs upstream TCP — never "Telegram works"),
+  and a two-step guarded tg:// link reveal. Bind policy: explicit LAN IPv4
+  or 127.x loopback; wildcard refused; no firewall rules in v1; lifecycle
+  fully independent from zapret2. Install is NEVER an RPC — the package
+  arrives only through the signed feed behind the live acceptance gate
+  ([docs/acceptance.md](docs/acceptance.md) — "APPROVE TG PROXY INSTALL").
+  Read-only capabilities/status remain for absent installs. See
   [docs/research/tg-ws-proxy-provider.md](docs/research/tg-ws-proxy-provider.md).
 
 > Acceptance wording is precise: r19 @ 33e0133 remains the fully mutating
 > production-accepted baseline ([docs/acceptance.md](docs/acceptance.md)).
 > The r20+ slices above shipped through the full local gate suite plus
-> target smoke; the read-only slices (Orchestra, DNS Providers, TG WS
-> Proxy) mutate nothing by design, so their target evidence is
-> installation + live read-only calls, not mutating drills.
+> target smoke; the read-only slices (Orchestra, DNS Providers) mutate
+> nothing by design, so their target evidence is installation + live
+> read-only calls, not mutating drills. The TG WS Proxy functional slice
+> (r32) is implemented, packaged and locally gated; its live install +
+> mutating acceptance awaits the explicit approval gate
+> ([docs/acceptance.md](docs/acceptance.md) §TG-proxy) — until then the
+> production router runs no tg-ws-proxy.
 
-Not implemented yet: TG WS Proxy **mutations** (trusted package install,
-start/stop, config apply, secret rotation — future slice), Telegram
-alerts, automatic rollback timer (pending a dedicated drill).
+Not implemented yet: Telegram alerts, automatic rollback timer (pending a
+dedicated drill). Per-service DNS mapping (service → provider → hostname →
+A/AAAA) is in progress (data model + preview first).
 
 ## Target platform
 
@@ -86,6 +98,11 @@ alerts, automatic rollback timer (pending a dedicated drill).
   profiles/jobs/backup/dns backends.
 - **luci-app-zapret2-manager** — frontend (LuCI JS). Depends on `luci-base`,
   `zapret2-manager`. Menu entry: **Services → Zapret 2 Manager** (8 pages).
+- **tg-ws-proxy-rs** — OPTIONAL proxy (pinned v1.6.5 static-musl binary,
+  hash-verified at build time; arch `aarch64_cortex-a53` only). procd init
+  with hard startup gates; config + CSPRNG secret under `/etc/tg-ws-proxy/`
+  (both 0600). Supervised by zapret2-manager, never embedded; install only
+  behind the acceptance gate.
 
 ## Branch stack (history)
 
@@ -105,8 +122,8 @@ deadline-driven implementation runs on `main`.
 
 ## Verification
 
-- Canonical local runner: `tools/run-all-tests.sh` (509 green / 0 red at
-  r31; crashes and no-TAP count as RED by design).
+- Canonical local runner: `tools/run-all-tests.sh` (563 green / 0 red at
+  r32; crashes and no-TAP count as RED by design).
 - Live acceptance: [docs/acceptance.md](docs/acceptance.md) — every mutating
   path verified on the router with rollback drills.
 - Mock tests are not proof. See [docs/architecture.md](docs/architecture.md)

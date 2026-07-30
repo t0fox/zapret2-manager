@@ -109,3 +109,79 @@ no nft flush, no broad apk upgrade, no automatic rollback timer.
 - Known-good rollback set: `/tmp/z2mrepo-rollback` (r3) on the router.
 - Automatic 90s rollback timer: still DISABLED (no timer drill yet — per
   the rules it is enabled only after a separate successful timer drill).
+
+---
+
+## TG-proxy — functional slice acceptance (r32, PENDING the live gate)
+
+The functional TG WS Proxy vertical slice is implemented, packaged (signed
+APK pipeline), and locally gated (563 green / 0 red). NOTHING of the
+`tg-ws-proxy-rs` package is installed or started on the production router
+without the explicit approval gate. The manager/LuCI packages themselves
+(r32) ride the existing trusted targeted-package workflow as usual.
+
+**Gate.** Live installation starts only after the operator prints exactly:
+
+```
+APPROVE TG PROXY INSTALL
+```
+
+Until then every live step below is PENDING and the production router runs
+no tg-ws-proxy (the read-only adapter keeps reporting `installed:false`).
+
+**After approval, acceptance must verify (in order, each evidence-based):**
+
+1. **Signed install** — `tg-ws-proxy-rs` installs from the signed
+   `packages.adb` with the trusted key in `/etc/apk/keys/` and WITHOUT
+   `--allow-untrusted`; `apk verify` OK; no dependency changes outside the
+   one package.
+2. **Package hash/version** — installed version == pinned `1.6.5-r1`;
+   `/usr/bin/tg-ws-proxy` SHA-256 matches the extracted pinned asset
+   (`54803f09…dc45a` for the tarball).
+3. **Inert on install** — postinst did NOT enable/start anything; no
+   listener, no process after install (stock `ENABLED=0`).
+4. **Generated secret mode 0600** — first `proxy_config_apply` with
+   `enabled:true` generates `/etc/tg-ws-proxy/secret.conf`: exactly 32
+   lowercase hex, root:root 0600; the value appears in NO status/config/
+   logs/events/diagnostics/backup.
+5. **LAN-only listener** — after apply+start the ONLY listener is the
+   configured LAN address:port (`netstat -tulpn` reread by the RPC itself);
+   NO 0.0.0.0/:: listener; nothing on WAN.
+6. **Telegram client connection** — a real Telegram Desktop client connects
+   through `tg://proxy?server=<lan-ip>&port=<port>&secret=dd…` (link from
+   the guarded reveal) and passes traffic; verified with bypass strategy
+   unchanged (the proxy is independent from zapret2).
+7. **Health route** — `proxy_health`: all 7 infra checks ok; `route.local`
+   ok; `route.upstream` reported with its exact meaning (TCP 443 only);
+   no method claims Telegram end-to-end.
+8. **Lifecycle** — start/stop/restart each reread-verified (process +
+   exact listener; stop leaves no pid). `proxy_secret_rotate` rotates
+   (0600 preserved) and restarts only when running; clients re-connect
+   with the new link.
+9. **Reboot persistence** — with `autostart:true`: after a real reboot the
+   service starts (rc.d evidence + running pid + exact listener); with
+   `autostart:false` it stays down.
+10. **Independent zapret2 lifecycle** — `/etc/init.d/zapret2 restart` does
+    not touch the proxy pid; `proxy_restart` does not touch the nfqws2 pid
+    or the zapret2 nft table.
+11. **Secret redaction** — `proxy_logs_tail` returns zero occurrences of
+    the current/former secret, of `tg://proxy?` URLs with parameters, and
+    of 32+-hex tokens (asserted against the raw log file content);
+    `diagnostics_export` and `events_tail` contain no secret material.
+12. **Uninstall/rollback** — `apk del tg-ws-proxy-rs` removes only its own
+    files (binary, init, stock config, license); zapret2-manager +
+    luci-app + zapret2 keep working; proxy status returns to honest
+    `installed:false`; operator state under `/etc/tg-ws-proxy/` (config +
+    secret, conffiles) is reported honestly (kept-or-removed per apk
+    conffile semantics); router baseline (config/dhcp/lists/nft hashes)
+    is byte-identical to pre-install.
+13. **Router baseline preserved** — nfqws2 pid/queue 300/zapret2 table/
+    config hashes unchanged through the whole drill; connectivity monitor
+    never dropped.
+
+**Smoke driver:** `tools/smoke.sh tgproxy` implements the machine-checkable
+subset (install signature, hash, inert-on-install, secret 0600, LAN-only
+listener, lifecycle reread, independence, redaction, uninstall). Steps 6
+(Telegram client) and 9 (reboot) are operator-driven with evidence captured
+into this file. Results land here as a new phase section once the gate is
+approved.
