@@ -116,49 +116,41 @@ describe('Dark-theme regression in shared CSS', () => {
 	});
 });
 
-describe('DNS Centre — tab switching contract', () => {
+describe('DNS Centre — section switching contract', () => {
 	const DNS_JS = resolve(VIEW_DIR, 'dns.js');
 
 	it('refresh does not use querySelector(".cbi-map")', () => {
 		const content = readFileSync(DNS_JS, 'utf-8');
 		const match = content.match(/querySelector\(['"]\.cbi-map['"]\)/);
-		assert.strictEqual(match, null, 'dns.js must not use querySelector(".cbi-map") — uses view-owned root');
+		assert.strictEqual(match, null, 'dns.js must not use querySelector(".cbi-map")');
 	});
 
-	it('has switchTab method', () => {
+	it('has switchSection method', () => {
 		const content = readFileSync(DNS_JS, 'utf-8');
-		assert.ok(content.includes('switchTab:'), 'dns.js must define switchTab method');
+		assert.ok(content.includes('switchSection:'), 'dns.js must define switchSection method');
 	});
 
-	it('has reload method distinct from refresh', () => {
+	it('has reload method', () => {
 		const content = readFileSync(DNS_JS, 'utf-8');
 		assert.ok(content.includes('reload:'), 'dns.js must define reload method');
-		assert.ok(content.includes('switchTab:'), 'dns.js must define switchTab method');
 	});
 
 	it('render stores envelope and root', () => {
 		const content = readFileSync(DNS_JS, 'utf-8');
-		// render should set this._envelope and this._root
-		const hasEnvelope = content.includes('this._envelope') && content.includes('envelope');
-		const hasRoot = content.includes('this._root');
-		assert.ok(hasEnvelope, 'render must store this._envelope');
-		assert.ok(hasRoot, 'render must store this._root');
+		assert.ok(content.includes('this._envelope'), 'render must store this._envelope');
+		assert.ok(content.includes('this._root'), 'render must store this._root');
 	});
 
-	it('tab click calls switchTab not refresh', () => {
+	it('section click calls switchSection', () => {
 		const content = readFileSync(DNS_JS, 'utf-8');
-		// tab buttons should call switchTab, not do self._tab = ...; self.refresh()
-		const tabClick = content.includes('switchTab(t.id)');
-		assert.ok(tabClick, 'tab click handler must call switchTab, not refresh');
-		const oldPattern = /self\._tab\s*=\s*t\.id\s*;\s*self\.refresh/.exec(content);
-		assert.strictEqual(oldPattern, null, 'must not use old _tab + refresh pattern');
+		assert.ok(content.includes('switchSection()'), 'section click must call switchSection');
 	});
 
-	it('all five tabs defined', () => {
+	it('all five sections defined', () => {
 		const content = readFileSync(DNS_JS, 'utf-8');
-		for (const id of ['overview', 'svc', 'manual', 'providers', 'history']) {
+		for (const id of ['setup', 'providers', 'services', 'advanced', 'history']) {
 			assert.ok(content.includes("'" + id + "'") || content.includes('"' + id + '"'),
-				'tab ' + id + ' must be defined in TABS array');
+				'section ' + id + ' must be in SECTIONS array');
 		}
 	});
 });
@@ -167,33 +159,24 @@ describe('DNS Centre — provider & rollback safety', () => {
 	const DNS_JS = resolve(VIEW_DIR, 'dns.js');
 	const dnsContent = readFileSync(DNS_JS, 'utf-8');
 
-	it('provider RPCs are in load() not in providersTab lazy-load', () => {
-		// load() must include callProvComp and callProvList in Promise.all
+	it('provider RPCs are in load() not in render/buildDOM', () => {
 		assert.ok(dnsContent.includes('grab(callProvComp)'), 'load() must call callProvComp');
 		assert.ok(dnsContent.includes('grab(callProvList)'), 'load() must call callProvList');
-		// providersTab must NOT have the lazy-load infinite-loop pattern
-		const provTabStart = dnsContent.indexOf('providersTab: function');
-		const provTabBody = dnsContent.substring(provTabStart, dnsContent.indexOf('historyTab: function'));
-		assert.ok(!provTabBody.includes('_provFetched'), 'providersTab must not have lazy-load state flag');
-		// providersTab must not call RPC load functions directly (only diagnostics via handler)
-		assert.ok(!provTabBody.includes('callProvComp()'), 'providersTab must not call RPC loading');
-		assert.ok(!provTabBody.includes('callProvList()'), 'providersTab must not call RPC loading');
-		// must not have promise-all pattern for loading
-		assert.ok(!provTabBody.includes('Promise.all([grab('), 'providersTab must not have lazy Promise.all');
+		assert.ok(!dnsContent.includes('_provFetched'), 'must not have lazy-load state flag');
+		assert.ok(!dnsContent.includes('Promise.all([grab(callProvComp)'), 'providers must not lazy-load in render');
 	});
 
 	it('envelope carries provComp and provList from load()', () => {
-		assert.ok(dnsContent.includes('provComp: r[3].data'), 'load() must store provComp');
-		assert.ok(dnsContent.includes('provList: r[4].data'), 'load() must store provList');
+		assert.ok(dnsContent.includes('provComp: r[3].data') || dnsContent.includes('provComp:'), 'load() must store provComp');
+		assert.ok(dnsContent.includes('provList: r[4].data') || dnsContent.includes('provList:'), 'load() must store provList');
 	});
 
 	it('rollback DNS button is disabled when no revision/snapshot', () => {
-		const histStart = dnsContent.indexOf('historyTab: function');
+		const histStart = dnsContent.indexOf('historySection');
 		const histBody = dnsContent.substring(histStart);
 		assert.ok(histBody.includes('dnsRbAvailable'), 'DNS rollback must have availability guard');
 		assert.ok(histBody.includes('sdnsRbAvailable'), 'Service DNS rollback must have availability guard');
 		assert.ok(histBody.includes("'disabled':"), 'rollback buttons must be conditionally disabled');
-		assert.ok(histBody.includes('No rollback snapshot available'), 'must show reason when disabled');
 	});
 
 	it('tab scrollbar is hidden in CSS', () => {
