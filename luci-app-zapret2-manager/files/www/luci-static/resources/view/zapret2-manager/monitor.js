@@ -1,33 +1,40 @@
 'use strict';
 
-// Monitor page — the detailed technical screen: instances, NFQUEUE counters,
+// Monitor page — detailed technical screen: instances, NFQUEUE counters,
 // qlen health, checks, jobs, warnings. Read-only (service control lives on
 // Overview; this page deliberately does not duplicate it).
 //
 // Polling discipline:
-//   - one 5s interval per page view; a new RPC is never started while the
-//     previous one is in flight;
-//   - polling stops when the view DOM leaves the document (navigation) and on
-//     window unload;
-//   - a failed poll keeps the last good data on screen, marks it STALE with
-//     the error and the timestamp, and keeps polling;
-//   - null renders as "Unavailable", never as a fabricated 0.
-//
-// Events: /tmp/zapret2-manager/events.ndjson is not exposed over ubus, so the
-// events section is an honest unavailable panel (method events_tail needed).
+//   - 5s interval per page view; non-overlapping RPC calls
+//   - polling stops when the view DOM leaves the document
+//   - failed poll keeps last good data with STALE banner, keeps polling
+//   - null renders as "Unavailable", never fabricated 0
 
 'require rpc';
 
-// reject: true — CRITICAL for the stale path: without it a failed poll would
-// RESOLVE a numeric ubus code, the number would be rendered as if it were
-// status data, and the STALE banner would never appear.
 const callStatus = rpc.declare({ object: 'zapret2-manager', method: 'status', reject: true });
-
 const POLL_MS = 5000;
+const DISPLAY_LIMIT = 20;
+
+function injectCSS() {
+	if (document.getElementById('z2m-ui-css')) return;
+	var link = document.createElement('link');
+	link.id = 'z2m-ui-css';
+	link.rel = 'stylesheet';
+	link.href = L.resource('view/zapret2-manager/z2m-ui.css');
+	document.head.appendChild(link);
+}
 
 function argvQnum(cmdline) {
 	var m = /--qnum=(\d+)/.exec(cmdline || '');
 	return m ? m[1] : null;
+}
+
+function esc(s) { return (s == null) ? '' : String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+function h(c) { return document.createTextNode(c); }
+function badge(label, cls) {
+	var map = { ok: 'z2m-badge z2m-badge-ok', warn: 'z2m-badge z2m-badge-warn', bad: 'z2m-badge z2m-badge-bad', neutral: 'z2m-badge z2m-badge-neutral' };
+	return E('span', { 'class': map[cls] || map.neutral }, esc(label));
 }
 
 return L.view.extend({
@@ -42,9 +49,7 @@ return L.view.extend({
 	},
 
 	render: function (envelope) {
-		// capture ANY good data arrival as the stale fallback — including the
-		// initial load (previously only the poller captured it, so a first
-		// failed poll right after a good load had nothing to fall back to).
+		injectCSS();
 		if (envelope && envelope.loadError == null && envelope.data && !envelope.data.error)
 			this._lastGood = { data: envelope.data, at: new Date() };
 		var container = this.buildContainer(envelope || { loadError: 'no data', data: null }, null);
@@ -52,15 +57,13 @@ return L.view.extend({
 		return container;
 	},
 
-	// ---- polling ------------------------------------------------------------
-
 	startPoller: function () {
 		var self = this;
-		if (this._pollTimer) return;   // one interval per view instance
+		if (this._pollTimer) return;
 		this._pollTimer = setInterval(function () {
 			var root = document.getElementById('z2m-monitor-root');
 			if (!root) { self.stopPoller(); return; }
-			if (self._inflight) return;   // never overlap RPC calls
+			if (self._inflight) return;
 			self._inflight = true;
 			callStatus().then(function (res) {
 				self._lastGood = { data: res || {}, at: new Date() };
@@ -69,7 +72,6 @@ return L.view.extend({
 				self.replaceRoot(self.buildContainer(null, String(err)));
 			}).then(function () { self._inflight = false; });
 		}, POLL_MS);
-		// belt and suspenders: stop on real page unload too
 		if (!this._unloadBound) {
 			this._unloadBound = true;
 			window.addEventListener('pagehide', function () { self.stopPoller(); });
@@ -86,10 +88,7 @@ return L.view.extend({
 		if (old && old.parentNode) old.parentNode.replaceChild(node, old);
 	},
 
-	// ---- view ---------------------------------------------------------------
-
 	buildContainer: function (envelope, pollError) {
-		// stale path: poll failed but we have a last-good snapshot
 		var stale = null;
 		if (pollError && this._lastGood) {
 			stale = { error: pollError, at: this._lastGood.at };
@@ -105,226 +104,234 @@ return L.view.extend({
 		var health = data.health || {};
 		var qh = health.qlenHealth || {};
 		var queue = health.queue || {};
-		var checks = health.checks || [];
-		var jobs = data.jobs || [];
+		var checks = (health.checks || []).slice(0, DISPLAY_LIMIT);
+		var jobs = (data.jobs || []).slice(0, DISPLAY_LIMIT);
 		var warnings = data.warnings || [];
 		var insts = rt.instances || [];
 
-		var container = E('div', { 'class': 'cbi-map', 'id': 'z2m-monitor-root' }, [
-			E('h2', { 'name': 'content' }, _('Zapret 2 Manager — Monitor')),
-			E('div', { 'class': 'cbi-value-description' },
-				_('Live technical state, refreshed every ') + (POLL_MS / 1000) + _(' seconds. Read-only — service control is on Overview.'))
+		var container = E('div', { 'class': 'z2m-page', 'id': 'z2m-monitor-root' }, [
+			E('div', { 'class': 'z2m-page-header' }, [
+				E('h2', {}, _('Monitor')),
+				E('p', {}, _('Live technical state, refreshed every ') + (POLL_MS / 1000) + _('s. Read-only — service control is on Overview.'))
+			])
 		]);
 
 		if (stale) {
-			container.appendChild(E('div', { 'class': 'alert-message warning' }, [
-				E('p', {}, _('Live update failed: ') + stale.error),
-				E('p', {}, _('Showing STALE data collected at ') + stale.at.toLocaleTimeString() + _('. Polling continues.'))
-			]));
+			container.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-warn' },
+				_('Live update failed: ') + esc(stale.error) + ' · ' + _('Showing stale data from ') + stale.at.toLocaleTimeString()));
 		}
 		if (statusError) {
-			container.appendChild(E('div', { 'class': 'alert-message danger' }, [
-				E('p', {}, _('Status unavailable: ') + statusError),
-				E('p', {}, _('All fields below render as "Unavailable" — nothing is fabricated.'))
-			]));
+			container.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-bad' },
+				_('Status unavailable: ') + esc(statusError) + _('. All fields below render as "Unavailable".')));
 		}
 
-		// ---- service ---------------------------------------------------------
-		container.appendChild(E('div', { 'class': 'cbi-section' }, [
-			E('h3', {}, _('Service')),
-			this.row(_('State'), statusError ? _('Unavailable') : this.serviceStateBadge(data.serviceState)),
-			this.row(_('Pause / passthrough'),
-				statusError ? _('Unavailable') : this.pauseBadge(data.serviceState)),
-			this.row(_('Collected at'), data.generatedAt || _('Unavailable')),
-			this.row(_('Config generation'),
-				(data.generation != null) ? data.generation : _('Unavailable')),
-			this.row(_('Profiles (runtime)'),
-				(rt.profileCount != null) ? rt.profileCount : _('Unavailable')),
-			this.row(_('Last local update'), new Date().toLocaleTimeString())
+		// ---- service summary cards ----
+		var cards = E('div', { 'class': 'z2m-card-grid' });
+		cards.appendChild(this.summaryCard(_('Service'), [
+			this.kvRow(_('State'), statusError ? _('Unavailable') : this.serviceStateBadge(data.serviceState)),
+			this.kvRow(_('Pause'), statusError ? _('Unavailable') : this.pauseBadge(data.serviceState)),
+			this.kvRow(_('Collected'), esc(data.generatedAt || _('Unavailable'))),
+			this.kvRow(_('Profiles'), String(rt.profileCount != null ? rt.profileCount : _('?'))),
+			this.kvRow(_('Generation'), String(data.generation != null ? data.generation : '?'))
 		]));
+		cards.appendChild(this.summaryCard(_('NFQUEUE ' + (queue.number != null ? queue.number : 300)), [
+			this.kvRow(_('Registered'), statusError ? _('Unavailable') :
+				(queue.registered ? badge(_('yes'), 'ok') : badge(_('no'), 'bad'))),
+			this.kvRow(_('qlen state'), this.qlenBadge(qh)),
+			this.kvRow(_('Drops (cumul)'), String(queue.queueDropped != null ? queue.queueDropped : '?'))
+		]));
+		cards.appendChild(this.summaryCard(_('Health'), [
+			this.kvRow(_('Checks'), String(health.checks ? health.checks.length : 0)),
+			this.kvRow(_('Warnings'), String(warnings.length)),
+			this.kvRow(_('Jobs'), String(jobs.length))
+		]));
+		container.appendChild(cards);
 
-		// ---- instances ---------------------------------------------------------
+		if (queue.registered === false && !statusError) {
+			container.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-warn' },
+				esc(queue.reason || _('NFQUEUE not registered — nfqws2 is not connected.'))));
+		}
+
+		// ---- instances ----
 		container.appendChild(this.instancesSection(insts, queue, statusError));
 
-		// ---- NFQUEUE ------------------------------------------------------------
-		container.appendChild(this.queueSection(queue, qh, statusError));
+		// ---- checks ----
+		container.appendChild(this.checksSection(checks, statusError, health.checks ? health.checks.length : 0));
 
-		// ---- health checks -------------------------------------------------------
-		container.appendChild(this.checksSection(checks, statusError));
+		// ---- jobs ----
+		container.appendChild(this.jobsSection(jobs, statusError, (data.jobs || []).length));
 
-		// ---- warnings --------------------------------------------------------------
+		// ---- warnings ----
 		if (warnings.length) {
-			var list = warnings.map(function (w) {
-				return E('div', { 'class': 'alert-message ' + (w.severity === 'crit' ? 'danger' : 'warning') },
-					E('p', {}, (w.code || '?') + ': ' + (w.message || '')));
+			var warnCard = E('div', { 'class': 'z2m-card' }, [E('h4', {}, _('Active warnings') + ' (' + warnings.length + ')')]);
+			warnings.slice(0, 10).forEach(function (w) {
+				warnCard.appendChild(E('div', { 'class': (w.severity === 'crit' ? 'z2m-callout z2m-callout-bad' : 'z2m-callout z2m-callout-warn') },
+					esc(w.code || '?') + ': ' + esc(w.message || '')));
 			});
-			container.appendChild(E('div', { 'class': 'cbi-section' },
-				[E('h3', {}, _('Active warnings'))].concat(list)));
+			container.appendChild(warnCard);
 		}
 
-		// ---- jobs --------------------------------------------------------------------
-		container.appendChild(this.jobsSection(jobs, statusError));
-
-		// ---- events --------------------------------------------------------------------
-		container.appendChild(E('div', { 'class': 'cbi-section' }, [
-			E('h3', {}, _('Recent events')),
-			E('div', { 'class': 'cbi-value-description' },
-				_('Unavailable — the telemetry log (/tmp/zapret2-manager/events.ndjson) is not exposed over ubus. Requires backend method events_tail. Active warnings above come from the status contract.'))
+		// ---- events (unavailable) ----
+		container.appendChild(E('div', { 'class': 'z2m-card' }, [
+			E('h4', {}, _('Recent events')),
+			E('div', { 'class': 'z2m-empty' },
+				_('Unavailable — requires backend method events_tail. Active warnings above come from the status contract.'))
 		]));
 
 		return container;
 	},
 
 	instancesSection: function (insts, queue, statusError) {
-		var node = E('div', { 'class': 'cbi-section' }, [
-			E('h3', {}, _('Instances')),
-			this.row(_('CPU'), _('Unavailable — not reported by the backend status schema'))
+		var total = insts.length;
+		var shown = insts.slice(0, DISPLAY_LIMIT);
+		var node = E('div', { 'class': 'z2m-card' }, [
+			E('h4', {}, _('Instances') + (total > 0 ? ' (' + Math.min(shown.length, total) + '/' + total + ')' : ''))
 		]);
+
 		if (statusError) {
-			node.appendChild(E('div', { 'class': 'cbi-value-description' }, _('Unavailable — status not reported.')));
+			node.appendChild(E('div', { 'class': 'z2m-empty' }, _('Unavailable.')));
 			return node;
 		}
-		if (!insts.length) {
-			node.appendChild(E('div', { 'class': 'cbi-value-description' }, _('No nfqws2 instances running.')));
+		if (!shown.length) {
+			node.appendChild(E('div', { 'class': 'z2m-empty' }, _('No nfqws2 instances running.')));
 			return node;
 		}
-		var rows = insts.map(function (p) {
+
+		var rows = shown.map(function (p) {
 			var qn = argvQnum(p.cmdline) || (queue.number != null ? String(queue.number) : null);
 			return E('tr', {}, [
 				E('td', {}, String(p.pid)),
-				E('td', {}, qn || _('Unavailable')),
-				E('td', {}, p.startTime || _('Unavailable')),
-				E('td', {}, (p.rssKb != null) ? (p.rssKb + ' KB') : _('Unavailable')),
-				E('td', { 'style': 'white-space:pre-wrap;word-break:break-all;font-family:monospace;font-size:.85em' }, p.cmdline || _('Unavailable'))
+				E('td', {}, qn || '?'),
+				E('td', {}, esc(p.startTime || '?')),
+				E('td', {}, (p.rssKb != null) ? (p.rssKb + ' KB') : '?'),
+				E('td', {}, E('pre', { 'class': 'z2m-mono' }, esc(p.cmdline || '?')))
 			]);
 		});
-		node.appendChild(E('table', { 'class': 'table' }, [
-			E('tr', {}, [
-				E('th', {}, _('PID')), E('th', {}, _('qnum')), E('th', {}, _('Started')),
-				E('th', {}, _('RSS')), E('th', {}, _('argv'))
-			])
-		].concat(rows)));
-		return node;
-	},
 
-	queueSection: function (queue, qh, statusError) {
-		var num = (queue.number != null) ? queue.number : 300;
-		var node = E('div', { 'class': 'cbi-section' }, [
-			E('h3', {}, _('NFQUEUE ') + num),
-			this.row(_('Registered'), statusError ? _('Unavailable') :
-				(queue.registered
-					? E('span', { 'class': 'zonebadge ok' }, _('yes'))
-					: E('span', { 'class': 'zonebadge bad' }, _('no — queue not in kernel')))),
-			this.row(_('queueTotal (instant length)'),
-				(queue.queueTotal != null) ? queue.queueTotal : _('Unavailable')),
-			this.row(_('copyRange'),
-				(queue.copyRange != null) ? queue.copyRange : _('Unavailable')),
-			this.row(_('queueDropped (cumulative)'),
-				(queue.queueDropped != null) ? queue.queueDropped : _('Unavailable')),
-			this.row(_('queueUserDropped (cumulative)'),
-				(queue.queueUserDropped != null) ? queue.queueUserDropped : _('Unavailable')),
-			this.row(_('Counters note'),
-				_('drop counters are cumulative monotonic — consume as deltas only')),
-			this.row(_('qlen state'), this.qlenBadge(qh)),
-			this.row(_('consecutiveOverThreshold'),
-				(qh.consecutiveOverThreshold != null) ? qh.consecutiveOverThreshold : _('Unavailable')),
-			this.row(_('threshold / crit turns'),
-				(qh.threshold != null ? qh.threshold : 50) + ' / ' + (qh.critTurns != null ? qh.critTurns : 3) +
-				_(' (backend constants)')),
-			this.row(_('Queue cycle updated at'), queue.updatedAt || _('Unavailable'))
-		]);
-		if (queue.registered === false && !statusError) {
-			node.appendChild(E('div', { 'class': 'alert-message warning' },
-				E('p', {}, queue.reason || _('NFQUEUE is not registered — nfqws2 is not connected to it. Distinct from an empty queue.'))));
+		node.appendChild(E('div', { 'class': 'z2m-table-wrap' },
+			E('table', { 'class': 'table' }, [
+				E('tr', {}, [
+					E('th', {}, _('PID')), E('th', {}, _('qnum')), E('th', {}, _('Started')),
+					E('th', {}, _('RSS')), E('th', {}, _('Command'))
+				])
+			].concat(rows))));
+
+		if (total > DISPLAY_LIMIT) {
+			node.appendChild(E('div', { 'class': 'cbi-value-description' },
+				_('Showing ') + DISPLAY_LIMIT + _(' of ') + total + _(' instances.')));
 		}
 		return node;
 	},
 
-	checksSection: function (checks, statusError) {
-		var node = E('div', { 'class': 'cbi-section' }, [E('h3', {}, _('Health checks'))]);
+	checksSection: function (checks, statusError, totalCount) {
+		var node = E('div', { 'class': 'z2m-card' }, [
+			E('h4', {}, _('Health checks') + (totalCount > 0 ? ' (' + checks.length + '/' + totalCount + ')' : ''))
+		]);
+
 		if (statusError) {
-			node.appendChild(E('div', { 'class': 'cbi-value-description' }, _('Unavailable — status not reported.')));
+			node.appendChild(E('div', { 'class': 'z2m-empty' }, _('Unavailable.')));
 			return node;
 		}
 		if (!checks.length) {
-			node.appendChild(E('div', { 'class': 'cbi-value-description' }, _('No checks reported in this collection.')));
+			node.appendChild(E('div', { 'class': 'z2m-empty' }, _('No checks reported.')));
 			return node;
 		}
+
 		var rows = checks.map(function (c) {
 			var fields = [];
 			Object.keys(c || {}).forEach(function (k) {
 				if (k === 'id') return;
 				var v = c[k];
-				fields.push(k + '=' + (v == null ? _('Unavailable') : (typeof v === 'object' ? JSON.stringify(v) : String(v))));
+				fields.push(k + '=' + (v == null ? '?' : (typeof v === 'object' ? JSON.stringify(v) : String(v))));
 			});
 			return E('tr', {}, [
-				E('td', {}, (c && c.id) || _('n/a')),
-				E('td', {}, fields.length ? fields.join(' · ') : _('checked, no result fields (absent = not checked)'))
+				E('td', {}, esc((c && c.id) || '?')),
+				E('td', {}, fields.length ? fields.join(' · ') : _('no results'))
 			]);
 		});
-		node.appendChild(E('table', { 'class': 'table' }, [
-			E('tr', {}, [E('th', {}, _('Check')), E('th', {}, _('Result'))])
-		].concat(rows)));
+
+		node.appendChild(E('div', { 'class': 'z2m-table-wrap' },
+			E('table', { 'class': 'table' }, [
+				E('tr', {}, [E('th', {}, _('Check')), E('th', {}, _('Result'))])
+			].concat(rows))));
+
+		if (totalCount > DISPLAY_LIMIT) {
+			node.appendChild(E('div', { 'class': 'cbi-value-description' },
+				_('Showing ') + DISPLAY_LIMIT + _(' of ') + totalCount + _(' checks.')));
+		}
 		return node;
 	},
 
-	jobsSection: function (jobs, statusError) {
-		var node = E('div', { 'class': 'cbi-section' }, [E('h3', {}, _('Recent jobs'))]);
+	jobsSection: function (jobs, statusError, totalCount) {
+		var node = E('div', { 'class': 'z2m-card' }, [
+			E('h4', {}, _('Recent jobs') + (totalCount > 0 ? ' (' + jobs.length + '/' + totalCount + ')' : ''))
+		]);
+
 		if (statusError) {
-			node.appendChild(E('div', { 'class': 'cbi-value-description' }, _('Unavailable — status not reported.')));
+			node.appendChild(E('div', { 'class': 'z2m-empty' }, _('Unavailable.')));
 			return node;
 		}
 		if (!jobs.length) {
-			node.appendChild(E('div', { 'class': 'cbi-value-description' }, _('No jobs reported (the block is empty until the job model lands).')));
+			node.appendChild(E('div', { 'class': 'z2m-empty' }, _('No jobs reported.')));
 			return node;
 		}
+
 		var rows = jobs.map(function (j) {
 			return E('tr', {}, [
-				E('td', {}, j.id || _('n/a')),
-				E('td', {}, j.status || _('n/a')),
-				E('td', {}, j.createdAt || _('Unavailable')),
-				E('td', {}, j.updatedAt || _('Unavailable'))
+				E('td', {}, esc(j.id || '?')),
+				E('td', {}, esc(j.status || '?')),
+				E('td', {}, esc(j.createdAt || '?')),
+				E('td', {}, esc(j.updatedAt || '?'))
 			]);
 		});
-		node.appendChild(E('table', { 'class': 'table' }, [
-			E('tr', {}, [E('th', {}, _('ID')), E('th', {}, _('Status')),
-				E('th', {}, _('Created')), E('th', {}, _('Updated'))])
-		].concat(rows)));
+
+		node.appendChild(E('div', { 'class': 'z2m-table-wrap' },
+			E('table', { 'class': 'table' }, [
+				E('tr', {}, [E('th', {}, _('ID')), E('th', {}, _('Status')),
+					E('th', {}, _('Created')), E('th', {}, _('Updated'))])
+			].concat(rows))));
+
+		if (totalCount > DISPLAY_LIMIT) {
+			node.appendChild(E('div', { 'class': 'cbi-value-description' },
+				_('Showing ') + DISPLAY_LIMIT + _(' of ') + totalCount + _(' jobs.')));
+		}
 		return node;
 	},
 
-	// ---- helpers -------------------------------------------------------------
+	summaryCard: function (title, rows) {
+		return E('div', { 'class': 'z2m-card' }, [E('h4', {}, title)].concat(rows));
+	},
+
+	kvRow: function (label, value) {
+		return E('div', { 'class': 'z2m-kv' }, [
+			E('span', { 'class': 'z2m-kv-label' }, label),
+			E('span', { 'class': 'z2m-kv-value' }, value)
+		]);
+	},
 
 	serviceStateBadge: function (state) {
 		var map = {
 			running: { label: _('running'), cls: 'ok' },
 			stopped: { label: _('stopped'), cls: 'bad' },
-			partial: { label: _('partial (no rules)'), cls: 'warn' },
+			partial: { label: _('partial'), cls: 'warn' },
 			error: { label: _('error'), cls: 'bad' },
 			paused: { label: _('paused'), cls: 'warn' },
 			passthrough: { label: _('passthrough'), cls: 'ok' }
 		};
-		var m = map[state] || { label: state || _('unknown'), cls: '' };
-		return E('span', { 'class': 'zonebadge ' + m.cls }, m.label);
+		var m = map[state] || { label: state || '?', cls: 'neutral' };
+		return badge(m.label, m.cls);
 	},
 
 	pauseBadge: function (state) {
-		if (state === 'paused') return E('span', { 'class': 'zonebadge warn' }, _('paused (service held down)'));
-		if (state === 'passthrough') return E('span', { 'class': 'zonebadge ok' }, _('passthrough (no fakes)'));
-		return E('span', { 'class': 'zonebadge' }, _('neither'));
+		if (state === 'paused') return badge(_('paused (service held down)'), 'warn');
+		if (state === 'passthrough') return badge(_('passthrough (no fakes)'), 'ok');
+		return badge(_('neither'), 'neutral');
 	},
 
 	qlenBadge: function (qsig) {
-		var map = { nominal: 'ok', warn: 'warn', critical: 'bad', unknown: '' };
+		var map = { nominal: 'ok', warn: 'warn', critical: 'bad', unknown: 'neutral' };
 		var label = (qsig && qsig.state) || 'unknown';
-		return E('span', { 'class': 'zonebadge ' + (map[label] || '') }, label);
-	},
-
-	row: function (label, value) {
-		return E('div', { 'class': 'cbi-value' }, [
-			E('label', { 'class': 'cbi-value-title' }, label),
-			E('div', { 'class': 'cbi-value-field' }, value)
-		]);
+		return badge(label, map[label] || 'neutral');
 	},
 
 	handleSaveApply: null,

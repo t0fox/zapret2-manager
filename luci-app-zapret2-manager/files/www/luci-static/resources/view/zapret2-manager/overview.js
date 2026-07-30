@@ -30,6 +30,15 @@ const callPassthrough = rpc.declare({
 	reject: true
 });
 
+function injectCSS() {
+	if (document.getElementById('z2m-ui-css')) return;
+	var link = document.createElement('link');
+	link.id = 'z2m-ui-css';
+	link.rel = 'stylesheet';
+	link.href = L.resource('view/zapret2-manager/z2m-ui.css');
+	document.head.appendChild(link);
+}
+
 return L.view.extend({
 	title: _('Overview'),
 
@@ -64,6 +73,7 @@ return L.view.extend({
 	},
 
 	render: function (data) {
+		injectCSS();
 		var rt = data.runtime || {};
 		var ap = data.applied || {};
 		var system = data.system || { autostart: { enabled: false, symlinks: [] }, upgradable: null };
@@ -127,7 +137,7 @@ return L.view.extend({
 		]);
 
 		if (queue.registered === false) {
-			qlenNode.appendChild(E('div', { 'class': 'alert-message warning' },
+			qlenNode.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-warn' },
 				E('p', {}, _('NFQUEUE 300 is not registered in the kernel — nfqws2 is not connected to it. This is diagnostically important and is NOT the same as an empty queue.'))));
 		}
 
@@ -208,9 +218,9 @@ return L.view.extend({
 		// the link is alive; otherwise the backend auto-rolls back at 90s.
 		var ttl = res.rollback_ttl || 90;
 		var remaining = ttl;
-		var box = E('div', { 'class': 'alert-message warning', 'style': 'margin-top:.5em' }, [
+		var box = E('div', { 'class': 'z2m-callout z2m-callout-warn', 'style': 'margin-top:.5em' }, [
 			E('p', {}, _('Link still alive after the change?')),
-			E('span', { 'class': 'zonebadge warn', 'id': 'z2m-countdown' }, '' + remaining),
+			E('span', { 'class': 'z2m-badge z2m-badge-warn', 'id': 'z2m-countdown' }, '' + remaining),
 			E('div', { 'style': 'margin-top:.4em' }, [])
 		]);
 		var okBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button' }, _('Link OK'));
@@ -317,7 +327,8 @@ return L.view.extend({
 	},
 
 	badge: function (text, cls) {
-		return E('span', { 'class': 'zonebadge ' + (cls || '') }, text);
+		var map = { ok: 'z2m-badge z2m-badge-ok', warn: 'z2m-badge z2m-badge-warn', bad: 'z2m-badge z2m-badge-bad', neutral: 'z2m-badge z2m-badge-neutral' };
+		return E('span', { 'class': map[cls] || map.neutral }, text);
 	},
 
 	// autohostlist vars are upstream's knobs, shown verbatim — NO manager
@@ -373,13 +384,13 @@ return L.view.extend({
 				_('Applied sha256: ') + JSON.stringify(drift.appliedSha256 || {})),
 			E('div', { 'class': 'cbi-value-description' },
 				_('Current sha256: ') + JSON.stringify(drift.currentSha256 || {})),
-			E('pre', { 'style': 'white-space:pre-wrap;margin:.5em 0' },
+			E('pre', { 'class': 'z2m-mono' },
 				_('RUNTIME cmdline:\n') + (rt.instances || []).map(function (p) {
 					return p.pid + ': ' + (p.cmdline || '');
 				}).join('\n')),
-			E('pre', { 'style': 'white-space:pre-wrap;margin:.5em 0' },
+			E('pre', { 'class': 'z2m-mono' },
 				_('RUNTIME strategies:\n') + (rt.strategies || _('none'))),
-			E('pre', { 'style': 'white-space:pre-wrap;margin:.5em 0' },
+			E('pre', { 'class': 'z2m-mono' },
 				_('APPLIED uci:\n') + (ap.uci || _('none')))
 		]);
 
@@ -393,7 +404,7 @@ return L.view.extend({
 
 		return E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Divergence')),
-			E('div', { 'class': 'alert-message warning' }, [
+			E('div', { 'class': 'z2m-callout z2m-callout-warn' }, [
 				E('p', {}, reason),
 				btn
 			]),

@@ -106,7 +106,7 @@ return L.view.extend({
 		container.appendChild(this.currentJobCard(job, statusError));
 		container.appendChild(this.recentSection(jobs, envelope.listError));
 		container.appendChild(this.recommendationsSection(job));
-		this.schedulePoll(job);
+		this.schedulePoll();
 		return container;
 	},
 
@@ -254,19 +254,21 @@ return L.view.extend({
 
 	// ---- recent jobs (blockcheck only) ----
 	recentSection: function (jobs, listError) {
+		var total = jobs.length;
+		var shown = jobs.slice(0, 20);
 		var node = E('div', { 'class': 'z2m-card' }, [
-			E('h4', {}, _('Recent blockcheck jobs'))
+			E('h4', {}, _('Recent blockcheck jobs') + (total > 0 ? ' (' + Math.min(shown.length, total) + '/' + total + ')' : ''))
 		]);
 
 		if (listError) {
 			node.appendChild(E('div', { 'class': 'z2m-empty' }, _('Unavailable — job_list: ') + esc(listError)));
 			return node;
 		}
-		if (!jobs.length) {
+		if (!shown.length) {
 			node.appendChild(E('div', { 'class': 'z2m-empty' }, _('(none)')));
 			return node;
 		}
-		var rows = jobs.map(function (j) {
+		var rows = shown.map(function (j) {
 			var badgeCls = j.status === 'succeeded' ? 'ok' : (isTerminal(j.status) ? 'bad' : 'warn');
 			return E('tr', {}, [
 				E('td', {}, esc(j.id || 'n/a')),
@@ -342,17 +344,27 @@ return L.view.extend({
 		return node;
 	},
 
-	// poll while a job is active (2s)
-	schedulePoll: function (job) {
+	// poll while a job is active (2s) — DOM-detachment safe
+	schedulePoll: function () {
 		var self = this;
-		if (this._polled || !job || isTerminal(job.status)) return;
-		this._polled = true;
-		setInterval(function () {
+		if (this._pollTimer) return;
+		function poll() {
+			if (!document.querySelector('.cbi-map')) { self.stopPoll(); return; }
 			callBlockcheckStatus().then(function (res) {
 				self._polled = false;
 				self.refresh();
 			}).catch(function () { self._polled = false; });
-		}, 2000);
+		}
+		this._pollTimer = setInterval(poll, 2000);
+		if (!this._unloadBound) {
+			this._unloadBound = true;
+			window.addEventListener('pagehide', function () { self.stopPoll(); });
+			window.addEventListener('unload', function () { self.stopPoll(); });
+		}
+	},
+
+	stopPoll: function () {
+		if (this._pollTimer) { clearInterval(this._pollTimer); this._pollTimer = null; }
 	},
 
 	refresh: function () {
