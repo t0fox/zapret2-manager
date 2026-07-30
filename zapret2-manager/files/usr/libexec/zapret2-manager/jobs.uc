@@ -463,6 +463,7 @@ export const blockcheck_cancel = function(input) {
 	if (type(id) != 'string') return err('EINPUT', 'missing job id');
 	let job = read_record(id);
 	if (job == null) return err('ESTATE', 'no job with id ' + id);
+	if (job.kind != 'blockcheck') return err('ESTATE', 'job ' + id + ' is not a blockcheck job (kind=' + job.kind + ')');
 	if (is_terminal(job.status)) return err('ESTATE', 'job ' + id + ' is already ' + job.status);
 	// the runner polls this flag and INT-signals the scanner (which then
 	// unpreparse its own firewall artifacts) — cancel is REAL, not a flag
@@ -470,16 +471,34 @@ export const blockcheck_cancel = function(input) {
 	return { ok: true, cancelling: true, id: id };
 };
 
+export const hm_cancel = function(input) {
+	crash_recover_all();
+	sweep();
+	let id = (type(input) == 'object' && input != null) ? input.id : null;
+	if (type(id) != 'string') return err('EINPUT', 'missing job id');
+	let job = read_record(id);
+	if (job == null) return err('ESTATE', 'no job with id ' + id);
+	if (job.kind != 'healthmatrix') return err('ESTATE', 'job ' + id + ' is not a health matrix job (kind=' + job.kind + ')');
+	if (is_terminal(job.status)) return err('ESTATE', 'job ' + id + ' is already ' + job.status);
+	writefile(JDIR + '/' + id + '.cancel', '' + time() + '\n');
+	return { ok: true, cancelling: true, id: id };
+};
+
 export const blockcheck_status = function() {
 	crash_recover_all();
 	let kept = sweep();
-	if (length(kept) == 0) return { ok: true, job: null, note: 'no blockcheck jobs yet' };
-	// the active job, else the newest
-	let active = null;
+	// filter to blockcheck-kind jobs only
+	let bcJobs = [];
 	for (let i = 0; i < length(kept); i++) {
-		if (!is_terminal(kept[i].status)) { active = kept[i]; break; }
+		if (kept[i].kind == 'blockcheck') push(bcJobs, kept[i]);
 	}
-	let job = (active != null) ? active : kept[length(kept) - 1];
+	if (length(bcJobs) == 0) return { ok: true, job: null, note: 'no blockcheck jobs yet' };
+	// the active blockcheck job, else the newest blockcheck
+	let active = null;
+	for (let i = 0; i < length(bcJobs); i++) {
+		if (!is_terminal(bcJobs[i].status)) { active = bcJobs[i]; break; }
+	}
+	let job = (active != null) ? active : bcJobs[length(bcJobs) - 1];
 	let out = public_job(job);
 	out.logTail = log_tail(job.id, LOG_TAIL_BYTES);
 	return { ok: true, job: out };

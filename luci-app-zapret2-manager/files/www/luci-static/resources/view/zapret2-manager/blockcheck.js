@@ -12,31 +12,51 @@
 //     actions are Review and Save to Draft (a draft is staged, not applied);
 //   - when the engine runs during a scan the page says results may be
 //     unreliable (upstream warning), it never stops the engine by itself.
+//   - jobs are kind-scoped: only blockcheck jobs appear here.
 
 'require rpc';
 
-const callBlockcheckStart = rpc.declare({ object: 'zapret2-manager', method: 'blockcheck_start', params: ['edit'], reject: true });
-const callBlockcheckCancel = rpc.declare({ object: 'zapret2-manager', method: 'blockcheck_cancel', params: ['edit'], reject: true });
-const callBlockcheckStatus = rpc.declare({ object: 'zapret2-manager', method: 'blockcheck_status', reject: true });
-const callJobList = rpc.declare({ object: 'zapret2-manager', method: 'job_list', reject: true });
-const callProfilesCreate = rpc.declare({ object: 'zapret2-manager', method: 'profiles_create', params: ['edit'], reject: true });
+var callBlockcheckStart = rpc.declare({ object: 'zapret2-manager', method: 'blockcheck_start', params: ['edit'], reject: true });
+var callBlockcheckCancel = rpc.declare({ object: 'zapret2-manager', method: 'blockcheck_cancel', params: ['edit'], reject: true });
+var callBlockcheckStatus = rpc.declare({ object: 'zapret2-manager', method: 'blockcheck_status', reject: true });
+var callJobList = rpc.declare({ object: 'zapret2-manager', method: 'job_list', reject: true });
+var callProfilesCreate = rpc.declare({ object: 'zapret2-manager', method: 'profiles_create', params: ['edit'], reject: true });
 
-const MODES = [
-	{ id: 'quick', label: _('quick'), hint: _('short connectivity probe (up to ~5 min)') },
-	{ id: 'domains', label: _('domains'), hint: _('per-domain scan, your domains (up to ~15 min)') },
-	{ id: 'full', label: _('full'), hint: _('full sweep incl. TLS 1.3 + QUIC (up to ~30 min)') }
+var MODES = [
+	{ id: 'quick', label: _('Quick'), hint: _('short connectivity probe (up to ~5 min)') },
+	{ id: 'domains', label: _('Domains'), hint: _('per-domain scan, your domains (up to ~15 min)') },
+	{ id: 'full', label: _('Full'), hint: _('full sweep incl. TLS 1.3 + QUIC (up to ~30 min)') }
 ];
 
-const TERMINAL = ['succeeded', 'failed', 'cancelled', 'rolled_back', 'expired'];
+var TERMINAL = ['succeeded', 'failed', 'cancelled', 'rolled_back', 'expired'];
 
-function isTerminal(status) {
-	return TERMINAL.indexOf(status) >= 0;
-}
+function isTerminal(status) { return TERMINAL.indexOf(status) >= 0; }
 
 function fmtElapsed(sec) {
 	if (sec == null) return _('n/a');
 	var m = Math.floor(sec / 60);
 	return m > 0 ? (m + 'm ' + (sec % 60) + 's') : (sec + 's');
+}
+
+function h(c) { return document.createTextNode(c); }
+
+function injectCSS() {
+	if (document.getElementById('z2m-ui-css')) return;
+	var link = document.createElement('link');
+	link.id = 'z2m-ui-css';
+	link.rel = 'stylesheet';
+	link.href = L.resource('view/zapret2-manager/z2m-ui.css');
+	document.head.appendChild(link);
+}
+
+function esc(s) {
+	if (s == null) return '';
+	return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function badge(label, cls) {
+	var map = { ok: 'z2m-badge z2m-badge-ok', warn: 'z2m-badge z2m-badge-warn', bad: 'z2m-badge z2m-badge-bad', neutral: 'z2m-badge z2m-badge-neutral' };
+	return E('span', { 'class': map[cls] || map.neutral }, esc(label));
 }
 
 return L.view.extend({
@@ -59,35 +79,43 @@ return L.view.extend({
 	},
 
 	render: function (envelope) {
+		injectCSS();
 		envelope = envelope || {};
 		var st = envelope.status || {};
 		var statusError = envelope.statusError || (st.ok === false ? 'blockcheck_status failed' : null);
-		var jobs = (envelope.list && envelope.list.jobs) || [];
+		var allJobs = (envelope.list && envelope.list.jobs) || [];
+		// filter to blockcheck kind only
+		var jobs = [];
+		for (var i = 0; i < allJobs.length; i++) {
+			if (allJobs[i].kind === 'blockcheck') jobs.push(allJobs[i]);
+		}
 		var job = st.job || null;
 
-		var container = E('div', { 'class': 'cbi-map' }, [
-			E('h2', { 'name': 'content' }, _('Zapret 2 Manager — Blockcheck')),
-			E('div', { 'class': 'cbi-value-description' },
-				_('Runs upstream blockcheck2 against test domains as a managed job and reports which strategies pass. No fabricated progress: elapsed time is the honest signal.'))
+		var container = E('div', { 'class': 'z2m-page' }, [
+			E('div', { 'class': 'z2m-page-header' }, [
+				E('h2', {}, _('Blockcheck')),
+				E('p', {}, _('Runs upstream blockcheck2 against test domains as a managed job and reports which strategies pass. No fabricated progress — elapsed time is the honest signal.'))
+			])
 		]);
 
 		if (statusError) {
-			container.appendChild(E('div', { 'class': 'alert-message warning' },
-				E('p', {}, _('Status unavailable: ') + statusError)));
+			container.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-bad' }, _('Status unavailable: ') + esc(statusError)));
 		}
 
 		container.appendChild(this.startSection(job, statusError));
-		container.appendChild(this.currentJobSection(job, statusError));
+		container.appendChild(this.currentJobCard(job, statusError));
 		container.appendChild(this.recentSection(jobs, envelope.listError));
 		container.appendChild(this.recommendationsSection(job));
 		this.schedulePoll(job);
 		return container;
 	},
 
-	// ---- run control ---------------------------------------------------------
+	// ---- run control (compact) ----
 	startSection: function (job, statusError) {
 		var self = this;
-		var node = E('div', { 'class': 'cbi-section' }, [E('h3', {}, _('Run control'))]);
+		var node = E('div', { 'class': 'z2m-card' }, [
+			E('h4', {}, _('Run control'))
+		]);
 
 		var active = job && !isTerminal(job.status);
 		var sel = E('select', { 'class': 'cbi-input-select', 'id': 'z2m-bc-mode' });
@@ -105,7 +133,7 @@ return L.view.extend({
 		if (active || statusError) startBtn.disabled = true;
 		startBtn.addEventListener('click', function () {
 			startBtn.disabled = true;
-			var mode = sel.value || sel.attrs.value || 'quick';
+			var mode = sel.value || 'quick';
 			var domains = String(domArea.value || '').trim();
 			var payload = { mode: mode };
 			if (domains) payload.domains = domains.split(/\s+/).filter(Boolean);
@@ -125,54 +153,65 @@ return L.view.extend({
 			});
 		});
 
-		node.appendChild(E('div', { 'class': 'cbi-value' }, [
-			E('label', { 'class': 'cbi-value-title' }, _('Mode')),
-			E('div', { 'class': 'cbi-value-field' }, [sel])
+		node.appendChild(E('div', { 'class': 'z2m-kv' }, [
+			E('span', { 'class': 'z2m-kv-label' }, _('Mode')),
+			E('span', { 'class': 'z2m-kv-value' }, [sel])
 		]));
-		node.appendChild(E('div', { 'class': 'cbi-value' }, [
-			E('label', { 'class': 'cbi-value-title' }, _('Domains')),
-			E('div', { 'class': 'cbi-value-field' }, [domArea])
+		node.appendChild(E('div', { 'class': 'z2m-kv' }, [
+			E('span', { 'class': 'z2m-kv-label' }, _('Domains')),
+			E('span', { 'class': 'z2m-kv-value' }, [domArea])
 		]));
-		node.appendChild(E('div', { 'class': 'cbi-button-row', 'style': 'margin:.4em 0' }, [startBtn]));
+		node.appendChild(E('div', { 'class': 'z2m-actions' }, [startBtn]));
 		if (this._flash) {
-			node.appendChild(E('div', { 'class': 'alert-message warning' }, this._flash));
+			node.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-warn' }, this._flash));
 			this._flash = null;
 		}
 		if (active) {
 			node.appendChild(E('div', { 'class': 'cbi-value-description' },
-				_('A job is active — Start is disabled (at most one blockcheck job; the backend refuses a second with ECONFLICT).')));
+				_('A job is active — Start is disabled (at most one blockcheck job).')));
 		}
-		node.appendChild(E('div', { 'class': 'cbi-value-description' },
-			_('The scanner temporarily creates its own firewall table and test instances, and cleans them up on exit or cancel. For reliable results the bypass engine should be stopped first (upstream warning) — this page never stops it for you.')));
 		return node;
 	},
 
-	// ---- current job ---------------------------------------------------------
-	currentJobSection: function (job, statusError) {
+	// ---- current job card (compact) ----
+	currentJobCard: function (job, statusError) {
 		var self = this;
-		var node = E('div', { 'class': 'cbi-section' }, [E('h3', {}, _('Current job'))]);
+		var node = E('div', { 'class': 'z2m-card' }, [
+			E('h4', {}, _('Current job'))
+		]);
+
 		if (statusError) {
-			node.appendChild(E('div', { 'class': 'cbi-value-description' }, _('Unavailable — status not reported.')));
+			node.appendChild(E('div', { 'class': 'z2m-empty' }, _('Unavailable — status not reported.')));
 			return node;
 		}
 		if (!job) {
-			node.appendChild(E('div', { 'class': 'cbi-value-description' }, _('No blockcheck jobs yet.')));
+			node.appendChild(E('div', { 'class': 'z2m-empty' }, _('No blockcheck jobs yet.')));
 			return node;
 		}
+
 		var active = !isTerminal(job.status);
 		var badgeCls = job.status === 'succeeded' ? 'ok' : (isTerminal(job.status) ? 'bad' : 'warn');
-		node.appendChild(E('div', { 'class': 'cbi-value' }, [
-			E('label', { 'class': 'cbi-value-title' }, _('Job ') + job.id),
-			E('div', { 'class': 'cbi-value-field' }, [
-				E('span', { 'class': 'zonebadge ' + badgeCls }, job.status), ' ',
-				E('span', { 'class': 'zonebadge' }, job.mode || '?'), ' ',
-				_('elapsed: ') + fmtElapsed(job.elapsedSec) +
-				(job.error ? _(' · error: ') + job.error : '')
+
+		node.appendChild(E('div', { 'class': 'z2m-kv' }, [
+			E('span', { 'class': 'z2m-kv-label' }, _('Status')),
+			E('span', { 'class': 'z2m-kv-value' }, [
+				badge(job.status, badgeCls), ' ',
+				badge(job.mode || '?', 'neutral'), ' ',
+				h(_('elapsed: ') + fmtElapsed(job.elapsedSec)),
+				job.error ? h(' · error: ' + esc(job.error)) : E('span', {})
 			])
 		]));
-		node.appendChild(this.row(_('Domains'), (job.domains || []).join(' ') || _('Unavailable')));
+		node.appendChild(E('div', { 'class': 'z2m-kv' }, [
+			E('span', { 'class': 'z2m-kv-label' }, _('Job ID')),
+			E('span', { 'class': 'z2m-kv-value' }, esc(job.id || '?'))
+		]));
+		node.appendChild(E('div', { 'class': 'z2m-kv' }, [
+			E('span', { 'class': 'z2m-kv-label' }, _('Domains')),
+			E('span', { 'class': 'z2m-kv-value' }, esc((job.domains || []).join(' ') || 'n/a'))
+		]));
+
 		if (job.engineRunning === true) {
-			node.appendChild(E('div', { 'class': 'alert-message warning' },
+			node.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-warn' },
 				_('The engine was running during this scan — upstream warns results may be unreliable with bypass active.')));
 		}
 
@@ -193,44 +232,58 @@ return L.view.extend({
 					self.refresh();
 				});
 			});
-			node.appendChild(E('div', { 'class': 'cbi-button-row' }, [cancelBtn]));
+			node.appendChild(E('div', { 'class': 'z2m-actions' }, [cancelBtn]));
 		}
 
 		if (job.logTail) {
-			node.appendChild(E('h4', {}, _('Log tail')));
-			node.appendChild(E('pre', {
-				'style': 'white-space:pre-wrap;word-break:break-all;font-family:monospace;font-size:.8em;max-height:220px;overflow:auto'
-			}, job.logTail));
+			// collapsible log
+			var logId = 'z2m-bc-log-' + Date.now();
+			var logToggle = E('div', { 'class': 'z2m-tech-toggle', 'click': function () {
+				var el = document.getElementById(logId);
+				if (el) el.hidden = !el.hidden;
+			}}, '\u25B6 ' + _('Log tail'));
+			var logBody = E('pre', {
+				'class': 'z2m-mono', 'id': logId, 'hidden': true,
+				'style': 'max-height:220px;overflow:auto'
+			}, esc(job.logTail));
+			node.appendChild(logToggle);
+			node.appendChild(logBody);
 		}
 		return node;
 	},
 
+	// ---- recent jobs (blockcheck only) ----
 	recentSection: function (jobs, listError) {
-		var node = E('div', { 'class': 'cbi-section' }, [E('h3', {}, _('Recent jobs'))]);
+		var node = E('div', { 'class': 'z2m-card' }, [
+			E('h4', {}, _('Recent blockcheck jobs'))
+		]);
+
 		if (listError) {
-			node.appendChild(E('div', { 'class': 'cbi-value-description' }, _('Unavailable — job_list: ') + listError));
+			node.appendChild(E('div', { 'class': 'z2m-empty' }, _('Unavailable — job_list: ') + esc(listError)));
 			return node;
 		}
 		if (!jobs.length) {
-			node.appendChild(E('div', { 'class': 'cbi-value-description' }, _('(none)')));
+			node.appendChild(E('div', { 'class': 'z2m-empty' }, _('(none)')));
 			return node;
 		}
 		var rows = jobs.map(function (j) {
+			var badgeCls = j.status === 'succeeded' ? 'ok' : (isTerminal(j.status) ? 'bad' : 'warn');
 			return E('tr', {}, [
-				E('td', {}, j.id || _('n/a')),
-				E('td', {}, j.status || _('n/a')),
-				E('td', {}, j.mode || _('n/a')),
-				E('td', {}, fmtElapsed(j.elapsedSec)),
-				E('td', {}, j.error || '')
+				E('td', {}, esc(j.id || 'n/a')),
+				E('td', {}, badge(j.status || 'n/a', badgeCls)),
+				E('td', {}, esc(j.mode || 'n/a')),
+				E('td', {}, h(fmtElapsed(j.elapsedSec))),
+				E('td', {}, esc(j.error || ''))
 			]);
 		});
-		node.appendChild(E('table', { 'class': 'table' }, [
-			E('tr', {}, [E('th', {}, _('ID')), E('th', {}, _('Status')), E('th', {}, _('Mode')), E('th', {}, _('Elapsed')), E('th', {}, _('Error'))])
-		].concat(rows)));
+		node.appendChild(E('div', { 'class': 'z2m-table-wrap' },
+			E('table', { 'class': 'table' }, [
+				E('tr', {}, [E('th', {}, _('ID')), E('th', {}, _('Status')), E('th', {}, _('Mode')), E('th', {}, _('Elapsed')), E('th', {}, _('Error'))])
+			].concat(rows))));
 		return node;
 	},
 
-	// ---- recommendations (Review / Save to Draft — NEVER auto-applied) --------
+	// ---- recommendations (Review / Save to Draft) ----
 	recommendationsSection: function (job) {
 		var self = this;
 		var node = E('div', { 'class': 'cbi-section' }, [
@@ -238,27 +291,31 @@ return L.view.extend({
 			E('div', { 'class': 'cbi-value-description' },
 				_('Working strategies found by the upstream scanner, with provenance. Actions: Review the raw strategy or Save it to a DRAFT profile — nothing is ever applied automatically.'))
 		]);
+
 		var recs = (job && job.recommendations) || [];
 		if (!recs.length) {
-			node.appendChild(E('div', { 'class': 'cbi-value-description' },
+			node.appendChild(E('div', { 'class': 'z2m-empty' },
 				job && job.status === 'succeeded' ? _('The scan found no working strategies.') : _('Unavailable until a scan finishes.')));
 			return node;
 		}
+
 		recs.forEach(function (r, i) {
-			var card = E('div', { 'class': 'cbi-section', 'data-rec-index': '' + i }, [
-				E('h4', {}, (r.domain || '?') + ' · ' + (r.test || '?') + ' · ' + (r.ipver || '?')),
-				E('pre', { 'style': 'white-space:pre-wrap;word-break:break-all;font-family:monospace;font-size:.85em' }, r.strategy || ''),
+			var card = E('div', { 'class': 'z2m-card', 'data-rec-index': '' + i }, [
+				E('h4', {}, esc(r.domain || '?') + ' · ' + esc(r.test || '?') + ' · ' + esc(r.ipver || '?')),
+				E('pre', { 'class': 'z2m-mono' }, esc(r.strategy || '')),
 				E('div', { 'class': 'cbi-value-description' },
 					_('provenance: ') + ((r.provenance && r.provenance.source) || 'upstream blockcheck2.sh') +
 					' · mode ' + ((r.provenance && r.provenance.mode) || (job && job.mode) || '?'))
 			]);
+
 			var reviewBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Review raw'));
 			var rawBox = null;
 			reviewBtn.addEventListener('click', function () {
 				if (rawBox) { card.removeChild(rawBox); rawBox = null; return; }
-				rawBox = E('pre', { 'style': 'white-space:pre-wrap;font-family:monospace;font-size:.8em;background:#f6f6f6;padding:.4em' }, r.raw || r.strategy || '');
+				rawBox = E('pre', { 'style': 'white-space:pre-wrap;font-family:monospace;font-size:.8em;padding:.4em;background:var(--card-bg,#f6f6f6)' }, esc(r.raw || r.strategy || ''));
 				card.appendChild(rawBox);
 			});
+
 			var saveBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button' }, _('Save to Draft'));
 			saveBtn.addEventListener('click', function () {
 				saveBtn.disabled = true;
@@ -278,13 +335,14 @@ return L.view.extend({
 					self.refresh();
 				});
 			});
-			card.appendChild(E('div', { 'class': 'cbi-button-row' }, [reviewBtn, saveBtn]));
+
+			card.appendChild(E('div', { 'class': 'z2m-actions' }, [reviewBtn, saveBtn]));
 			node.appendChild(card);
 		});
 		return node;
 	},
 
-	// poll while a job is active (2s) — elapsed/log tail stay honest
+	// poll while a job is active (2s)
 	schedulePoll: function (job) {
 		var self = this;
 		if (this._polled || !job || isTerminal(job.status)) return;
@@ -304,13 +362,6 @@ return L.view.extend({
 			if (old && old.parentNode)
 				old.parentNode.replaceChild(self.render(envelope), old);
 		});
-	},
-
-	row: function (label, value) {
-		return E('div', { 'class': 'cbi-value' }, [
-			E('label', { 'class': 'cbi-value-title' }, label),
-			E('div', { 'class': 'cbi-value-field' }, value)
-		]);
 	},
 
 	handleSaveApply: null,

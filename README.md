@@ -14,7 +14,7 @@ A clean OpenWrt **feed** providing two packages that manage the upstream
 > real reboot with autostart + watchdog observation). Detailed evidence:
 > [docs/acceptance.md](docs/acceptance.md).
 
-## What is implemented today (r31)
+## What is implemented today (r36)
 
 **Production-accepted with mutating drills (r19 @ 33e0133):**
 
@@ -41,10 +41,21 @@ A clean OpenWrt **feed** providing two packages that manage the upstream
   sanctioned writer, verification and rollback.
 - **Service Health Matrix** (r2x): persistent jobs probing local/upstream
   DNS, TCP 443, TLS, HTTP with cancellation and structured result classes.
-- **Orchestra adapter** (r2x, READ-ONLY): capabilities/status/events/history
-  over the live nfqws2 argv and Lua bundle evidence; honestly unavailable
-  history/events (autostate proven in-process only; no slm_preload_* APIs
-  in pinned upstream).
+- **Adaptive engine (Orchestra v2)** (r36, READ-ONLY): Simple Mode with
+  adaptive state hero, compact status cards (adaptive behavior, engine
+  capabilities, observability, limitations), manager observation history,
+  diagnostic log tail parsing, semantic AUTOHOSTLIST model with integer/
+  boolean validation, dynamic upstream version detection (package + binary
+  evidence, not hardcoded claims). Capability matrix and raw evidence
+  collapsed under Technical details. Diagnostic draft capability exposed
+  for DRAFT flow (preview → apply only). Tab renamed from "Orchestra" to
+  "Adaptive engine". Backend contracts `orchestra_*` preserved.
+- **Shared UI design system** (r36): z2m-ui.css + z2m-ui.js with styled
+  primitives (hero cards, responsive grids, badges, key/value rows,
+  collapsible Technical details, callouts, mono panels, empty states,
+  action rows, responsive tables). Dark-theme compatible. No external
+  assets/CDN. Applied across Blockcheck, Strategies, Service Catalog and
+  Adaptive engine pages.
 - **DNS Providers** (r30, READ-ONLY + bounded diagnostics): component and
   conflict detection, six provider profiles, bounded diagnostics with
   confidence; DoH endpoints are data, never activation. Deployed and
@@ -76,9 +87,9 @@ A clean OpenWrt **feed** providing two packages that manage the upstream
 > ([docs/acceptance.md](docs/acceptance.md) §TG-proxy) — until then the
 > production router runs no tg-ws-proxy.
 
-Not implemented yet: Telegram alerts, automatic rollback timer (pending a
-dedicated drill). Per-service DNS mapping (service → provider → hostname →
-A/AAAA) is in progress (data model + preview first).
+Not implemented yet: automatic rollback timer (pending a dedicated drill).
+Per-service DNS mapping (service → provider → hostname → A/AAAA) is in a
+separate DNS Cowork branch (not yet merged).
 
 ## Target platform
 
@@ -124,6 +135,7 @@ deadline-driven implementation runs on `main`.
 
 - Canonical local runner: `tools/run-all-tests.sh` (563 green / 0 red at
   r32; crashes and no-TAP count as RED by design).
+  r36 adds orchestration v2 tests (26) and job-kind isolation tests (10).
 - Live acceptance: [docs/acceptance.md](docs/acceptance.md) — every mutating
   path verified on the router with rollback drills.
 - Mock tests are not proof. See [docs/architecture.md](docs/architecture.md)

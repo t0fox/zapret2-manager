@@ -22,7 +22,7 @@
 
 import { readfile, popen } from 'fs';
 import { job_list, job_get, blockcheck_start, blockcheck_cancel, blockcheck_status,
-	health_matrix_start, health_matrix_get,
+	health_matrix_start, health_matrix_get, hm_cancel,
 	mark_running, mark_child, mark_finished, mark_cancelled, mark_failed } from './jobs.uc';
 
 const LOCKFILE = '/tmp/zapret2-manager/jobs.lock';
@@ -64,7 +64,7 @@ if (mode == null) {
 	exit(1);
 }
 
-if ((mode == 'start' || mode == 'cancel' || mode == 'hm-start') && getenv('Z2M_JFLOCKED') == null && have_flock()) {
+if ((mode == 'start' || mode == 'cancel' || mode == 'hm-start' || mode == 'hm-cancel') && getenv('Z2M_JFLOCKED') == null && have_flock()) {
 	if (flock_wrap(mode, ARGV[1])) exit(0);
 }
 
@@ -82,6 +82,8 @@ if (mode == 'list') {
 	print(sprintf("%J", health_matrix_start(read_args(ARGV[1]))) + '\n');
 } else if (mode == 'hm-get') {
 	print(sprintf("%J", health_matrix_get()) + '\n');
+} else if (mode == 'hm-cancel') {
+	print(sprintf("%J", hm_cancel(read_args(ARGV[1]))) + '\n');
 } else if (mode == 'mark-running') {
 	print(sprintf("%J", mark_running(ARGV[1], +ARGV[2])) + '\n');
 } else if (mode == 'mark-child') {

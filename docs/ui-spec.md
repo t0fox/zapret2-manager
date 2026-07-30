@@ -1,6 +1,6 @@
 # UI spec — luci-app-zapret2-manager (LuCI JS frontend)
 
-This document is the source of truth for the LuCI frontend: the eight pages,
+This document is the source of truth for the LuCI frontend: the nine pages,
 their data sources, the RPC methods they call, and the unavailable-state
 contract. It reflects the actual repository layout
 (`luci-app-zapret2-manager/files/…`), not a packaging-idealized one.
@@ -79,7 +79,7 @@ Every page:
 
 `luci-app-zapret2-manager/files/usr/share/luci/menu.d/luci-app-zapret2-manager.json`
 
-Eight entries, tab style (parent + children), `depends.acl` is always a flat
+Nine entries, tab style (parent + children), `depends.acl` is always a flat
 array (an object form previously caused an HTTP 500 — regression-gated by
 both `tools/smoke.sh menu_acl_shape` and `tests/ui/`):
 
@@ -88,11 +88,13 @@ both `tools/smoke.sh menu_acl_shape` and `tests/ui/`):
 | 1 | `admin/services/zapret2-manager` | Zapret 2 Manager (order 90) | `zapret2-manager/overview` |
 | 2 | `…/strategies` | Strategies (91) | `zapret2-manager/strategies` |
 | 3 | `…/blockcheck` | Blockcheck (92) | `zapret2-manager/blockcheck` |
-| 4 | `…/lists` | Lists (93) | `zapret2-manager/lists` |
-| 5 | `…/dns` | DNS (94) | `zapret2-manager/dns` |
-| 6 | `…/monitor` | Monitor (95) | `zapret2-manager/monitor` |
-| 7 | `…/proxy` | Proxy (96) | `zapret2-manager/proxy` |
-| 8 | `…/maintenance` | Maintenance (97) | `zapret2-manager/maintenance` |
+| 4 | `…/catalog` | Service Catalog (93) | `zapret2-manager/catalog` |
+| 5 | `…/orchestra` | Adaptive engine (94) | `zapret2-manager/orchestra` |
+| 6 | `…/lists` | Lists (95) | `zapret2-manager/lists` |
+| 7 | `…/dns` | DNS (96) | `zapret2-manager/dns` |
+| 8 | `…/monitor` | Monitor (97) | `zapret2-manager/monitor` |
+| 9 | `…/proxy` | Proxy (98) | `zapret2-manager/proxy` |
+| 10 | `…/maintenance` | Maintenance (99) | `zapret2-manager/maintenance` |
 
 ## Pages
 
@@ -118,7 +120,10 @@ Profile/strategy management, fully wired (r19).
 - Passthrough toggle with the manual rollback confirm flow.
 
 ### 3. Blockcheck (`blockcheck.js`)
-Fully wired (r19).
+Fully wired (r19). Job kind-isolated (r36): only `kind=blockcheck` jobs appear;
+health matrix jobs never contaminate this page.
+v2 (r36): uses shared z2m-ui design system — compact cards, kind-scoped
+job lists, collapsible log tail, consistent badge styling.
 
 - Shows: mode select (quick/domains/full + `test: standard|custom`), domains
   input, Start (disabled while active; ECONFLICT renders the backend
@@ -249,8 +254,9 @@ all wired, and since r32 the full FUNCTIONAL proxy family is wired:
 `proxy_autostart_set`, `proxy_secret_rotate` (WRITE ACL), and the
 read-side `proxy_logs_tail`, `proxy_health`, `proxy_link_info`. There is
 NO install/download method by design (the optional package arrives only
-through the signed feed). Remaining unimplemented surfaces: Telegram
-alerts, automatic rollback timer, per-service DNS mapping (in progress).
+through the signed feed). Remaining unimplemented surfaces: automatic
+rollback timer. Per-service DNS mapping is in a separate DNS Cowork branch
+(not yet merged).
 
 ## Frontend tests
 

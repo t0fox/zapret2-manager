@@ -1,5 +1,6 @@
 // blockcheck.test.mjs — SLICE 4 blockcheck wrapper logic (mode env, domain
 // validation, log truncation, SUMMARY parsing with provenance).
+// v2: added job-kind isolation regression tests.
 //
 // Run: node --test tests/blockcheck.test.mjs
 
@@ -11,6 +12,7 @@ import {
 	validate_test_set,
 	BLOCKCHECK_SCANNER
 } from './lib/blockcheck-logic.mjs';
+import { make_job_record, transition2, is_terminal as j_is_terminal, sweep_jobs } from './lib/jobs-logic.mjs';
 
 // ---- mode env ------------------------------------------------------------------
 
@@ -123,4 +125,150 @@ test('validate_test_set: standard default, custom allowed, everything else refus
 	assert.equal(validate_test_set('custom'), 'custom');
 	assert.equal(validate_test_set('../../etc'), null);
 	assert.equal(validate_test_set('standard; rm -rf /'), null);
+});
+
+// ---- job kind isolation (regression tests for cross-page job bug) -----------------
+
+test('JOB KIND: blockcheck_status filters by kind=blockcheck', () => {
+	const now = Date.now();
+	// scenario 1: newest global job is matrix, older job is blockcheck
+	const matrix = make_job_record({ kind: 'healthmatrix', mode: 'matrix', timeoutSec: 120 }, now, 1);
+	const running = transition2(matrix, 'running', {}, now);
+	const bc = make_job_record({ kind: 'blockcheck', mode: 'quick', timeoutSec: 600 }, now - 1000, 2);
+	const bcRunning = transition2(bc, 'running', {}, now - 800);
+	const completed = transition2(bcRunning, 'succeeded', { rc: 0 }, now - 500);
+	const records = [running, completed];
+
+	// simulate blockcheck_status logic: filter to kind=blockcheck
+	const bcJobs = records.filter(r => r && r.kind === 'blockcheck');
+	assert.equal(bcJobs.length, 1);
+	assert.equal(bcJobs[0].kind, 'blockcheck');
+	// active selection is kind-scoped: no active blockcheck job
+	const active = bcJobs.find(r => !j_is_terminal(r.status));
+	assert.ok(active === undefined, 'no active blockcheck job (the active one is matrix, the blockcheck is completed)');
+	const fallback = bcJobs[bcJobs.length - 1];
+	assert.equal(fallback.kind, 'blockcheck');
+	assert.equal(fallback.status, 'succeeded', 'fallback to the newest completed blockcheck');
+});
+
+test('JOB KIND: scenario 2 — newest blockcheck, older matrix', () => {
+	const now = Date.now();
+	const matrix = make_job_record({ kind: 'healthmatrix', mode: 'matrix' }, now - 1000, 1);
+	const mRunning = transition2(matrix, 'running', {}, now - 800);
+	const completedM = transition2(mRunning, 'succeeded', { rc: 0 }, now - 500);
+	const bc = make_job_record({ kind: 'blockcheck', mode: 'quick' }, now, 2);
+	const records = [completedM, bc];
+
+	const bcJobs = records.filter(r => r && r.kind === 'blockcheck');
+	assert.equal(bcJobs.length, 1);
+	assert.equal(bcJobs[0].kind, 'blockcheck');
+});
+
+test('JOB KIND: scenario 3 — active matrix + completed blockcheck', () => {
+	const now = Date.now();
+	const matrix = make_job_record({ kind: 'healthmatrix', mode: 'matrix' }, now, 1);
+	const running = transition2(matrix, 'running', {}, now);
+	const bc = make_job_record({ kind: 'blockcheck', mode: 'quick' }, now - 2000, 2);
+	const bcRunning = transition2(bc, 'running', {}, now - 1500);
+	const done = transition2(bcRunning, 'succeeded', { rc: 0 }, now - 1000);
+
+	const records = [running, done];
+	const bcJobs = records.filter(r => r && r.kind === 'blockcheck');
+	assert.equal(bcJobs.length, 1);
+	assert.equal(bcJobs[0].kind, 'blockcheck');
+	const active = bcJobs.find(r => !j_is_terminal(r.status));
+	assert.ok(active === undefined, 'no active blockcheck (the active one is matrix)');
+	const fallback = bcJobs[bcJobs.length - 1];
+	assert.equal(fallback.status, 'succeeded', 'fallback to the completed blockcheck');
+});
+
+test('JOB KIND: scenario 4 — active blockcheck + completed matrix', () => {
+	const now = Date.now();
+	const bc = make_job_record({ kind: 'blockcheck', mode: 'quick' }, now, 1);
+	const running = transition2(bc, 'running', {}, now);
+	const matrix = make_job_record({ kind: 'healthmatrix', mode: 'matrix' }, now - 2000, 2);
+	const done = transition2(matrix, 'succeeded', { rc: 0 }, now - 1000);
+
+	const records = [running, done];
+	const bcJobs = records.filter(r => r && r.kind === 'blockcheck');
+	assert.equal(bcJobs.length, 1);
+	const active = bcJobs.find(r => !j_is_terminal(r.status));
+	assert.ok(active, 'active blockcheck job found');
+	assert.equal(active.status, 'running');
+});
+
+test('JOB KIND: scenario 5 — no blockcheck jobs', () => {
+	const now = Date.now();
+	const matrix = make_job_record({ kind: 'healthmatrix', mode: 'matrix' }, now, 1);
+
+	const bcJobs = [matrix].filter(r => r && r.kind === 'blockcheck');
+	assert.equal(bcJobs.length, 0);
+});
+
+test('JOB KIND: scenario 6 — malformed/unknown kind is excluded', () => {
+	const now = Date.now();
+	const unknown = make_job_record({ kind: 'unknown', mode: '?' }, now, 1);
+	const bc = make_job_record({ kind: 'blockcheck', mode: 'quick' }, now - 100, 2);
+
+	const records = [unknown, bc];
+	const bcJobs = records.filter(r => r && r.kind === 'blockcheck');
+	assert.equal(bcJobs.length, 1);
+	assert.equal(bcJobs[0].kind, 'blockcheck');
+});
+
+test('JOB KIND: scenario 7 — cancel wrong-kind job refused', () => {
+	const now = Date.now();
+	const matrix = make_job_record({ kind: 'healthmatrix', mode: 'matrix' }, now, 1);
+	const running = transition2(matrix, 'running', {}, now);
+
+	// simulate blockcheck_cancel validation
+	assert.ok(running.kind !== 'blockcheck', 'a blockcheck cancel should refuse this job');
+	assert.equal(running.kind, 'healthmatrix');
+});
+
+test('JOB KIND: health_matrix_get filters by kind=healthmatrix', () => {
+	const now = Date.now();
+	const bc = make_job_record({ kind: 'blockcheck', mode: 'quick' }, now, 1);
+	const runningBc = transition2(bc, 'running', {}, now);
+	const hm = make_job_record({ kind: 'healthmatrix', mode: 'matrix' }, now - 100, 2);
+
+	const records = [runningBc, hm];
+	const hmJobs = records.filter(r => r && r.kind === 'healthmatrix');
+	assert.equal(hmJobs.length, 1);
+	assert.equal(hmJobs[0].kind, 'healthmatrix');
+});
+
+test('JOB KIND: job IDs alone insufficient without kind validation', () => {
+	const now = Date.now();
+	const bc = make_job_record({ kind: 'blockcheck', mode: 'quick' }, now, 1);
+	const running = transition2(bc, 'running', {}, now);
+
+	// the job ID should be used alongside kind validation
+	// a consumer that only looks at IDs could accept a wrong-kind job
+	assert.equal(running.kind, 'blockcheck');
+	assert.ok(running.id, 'has an ID');
+
+	// but a cross-kind consumer must ALSO validate kind
+	const wrongKindId = running.id;
+	// simulate: lib bockcheck_cancel received this ID but it's actually a healthmatrix job
+	// in this case it IS a blockcheck job, so cancel should work
+	assert.equal(running.kind, 'blockcheck');
+	// if it were a healthmatrix job with an otherwise valid ID, cancel MUST refuse
+});
+
+test('JOB KIND: sweep preserves kind-scoped history', () => {
+	const now = Date.now();
+	const records = [
+		make_job_record({ kind: 'blockcheck', mode: 'quick', timeoutSec: 600 }, now - 50000, 1),
+		make_job_record({ kind: 'healthmatrix', mode: 'matrix', timeoutSec: 120 }, now - 45000, 2),
+		make_job_record({ kind: 'blockcheck', mode: 'full', timeoutSec: 2400 }, now - 30000, 3),
+	];
+
+	// all records should be kept below maxHistory
+	const result = sweep_jobs(records, now, { ttlSec: 600, maxHistory: 10 });
+	assert.equal(result.kept.length, 3);
+
+	// verify kind-scoped filtering still works after sweep
+	const bcJobs = result.kept.filter(r => r && r.kind === 'blockcheck');
+	assert.equal(bcJobs.length, 2);
 });

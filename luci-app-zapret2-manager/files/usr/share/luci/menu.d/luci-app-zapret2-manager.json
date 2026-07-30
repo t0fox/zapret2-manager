@@ -52,7 +52,7 @@
 		}
 	},
 	"admin/services/zapret2-manager/orchestra": {
-		"title": "Orchestra",
+		"title": "Adaptive engine",
 		"order": 94,
 		"action": {
 			"type": "view",

@@ -11,7 +11,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=zapret2-manager
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=35
+PKG_RELEASE:=36
 PKG_MAINTAINER:=Ásgeir
 PKG_LICENSE:=MIT
 PKGARCH:=all
@@ -41,6 +41,7 @@ endef
 # upgrades never overwrite the operator's drafts (Slice 2).
 define Package/zapret2-manager/conffiles
 /etc/zapret2-manager/state.json
+/etc/zapret2-manager/service-dns-state.json
 endef
 
 define Build/Compile
@@ -96,6 +97,10 @@ define Package/zapret2-manager/install
 		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/dnsprov-cli.uc \
 		$(1)/usr/libexec/zapret2-manager/
+	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/service-dns.uc \
+		$(1)/usr/libexec/zapret2-manager/
+	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/service-dns-cli.uc \
+		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/orchestra.uc \
 		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/orchestra-cli.uc \
@@ -114,6 +119,8 @@ define Package/zapret2-manager/install
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/catalog/services.json \
 		$(1)/usr/libexec/zapret2-manager/catalog/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/catalog/dns-providers.json \
+		$(1)/usr/libexec/zapret2-manager/catalog/
+	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/catalog/service-dns-profiles.json \
 		$(1)/usr/libexec/zapret2-manager/catalog/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/qlen.uc \
 		$(1)/usr/libexec/zapret2-manager/
@@ -138,11 +145,6 @@ define Package/zapret2-manager/install
 	$(INSTALL_DIR) $(1)/etc/hotplug.d/iface
 	$(INSTALL_BIN) ./files/etc/hotplug.d/iface/90-zapret2-manager \
 		$(1)/etc/hotplug.d/iface/
-
-	# Persistent local feed directory — holds the bundled, build-host-signed
-	# tg-ws-proxy-rs .apk + packages.adb. The directory is created by both
-	# Makefile builds (empty) and manual builds (filled with signed artifacts).
-	$(INSTALL_DIR) $(1)/usr/share/zapret2-manager/feed
 
 	# Watchdog init (procd). Starts only the watchdog daemon, never nfqws2.
 	$(INSTALL_DIR) $(1)/etc/init.d

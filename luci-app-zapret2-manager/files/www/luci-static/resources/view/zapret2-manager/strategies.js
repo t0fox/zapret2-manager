@@ -2,52 +2,51 @@
 
 // Strategies page — profiles & strategies of the zapret2 engine.
 //
-// DATA MODEL, not a hardcoded catalog: this page renders whatever the backend
-// reports (docs/contracts/status.schema.json v2) and never embeds a strategy
-// list of its own.
-//
-// Available TODAY (ubus `status`):
-//   - runtime.instances[].cmdline — ground-truth argv per nfqws2 process
-//     (protocol/ports, hostlist/ipset filters, --lua-desync options are
-//     extracted as presentation hints; the raw argv is always shown verbatim)
-//   - runtime.profileCount, runtime.strategies (list_table dump)
-//   - applied.uci / applied.config* — the on-disk intent
-//   - draft — the manager's staged state (free-form)
-//   - drift — backend-computed RUNTIME-vs-APPLIED divergence
-//   - passthrough — the only strategy-related MUTATION in the ubus contract
-//     (docs/contracts/ubus.md), wired with the 90s rollback confirm flow.
-//
-// NOT available (no backend methods yet): create/edit/clone/delete/validate/
-// apply of profiles. Those actions render DISABLED with the exact method
-// names they wait for. No localStorage drafts, no direct UCI writes —
-// configuration changes must go through a backend contract.
+// v2: uses shared z2m-ui design system. Default view is concise: service state,
+// profile cards, draft summary, primary actions. Raw dumps and technical data
+// collapsed under Technical details.
 
 'require rpc';
 
-// rpc.js wire semantics (verified on the router): a params ARRAY declaration
-// is invoked POSITIONALLY — callPassthrough(flag) → { enabled: flag }; an
-// object argument would nest. reject: true makes ubus errors reject into
-// .catch() instead of resolving as a numeric code.
-const callStatus = rpc.declare({ object: 'zapret2-manager', method: 'status', reject: true });
-const callProfilesList = rpc.declare({ object: 'zapret2-manager', method: 'profiles_list', reject: true });
-const callProfilesCreate = rpc.declare({ object: 'zapret2-manager', method: 'profiles_create', params: ['edit'], reject: true });
-const callProfilesUpdate = rpc.declare({ object: 'zapret2-manager', method: 'profiles_update', params: ['edit'], reject: true });
-const callProfilesClone = rpc.declare({ object: 'zapret2-manager', method: 'profiles_clone', params: ['edit'], reject: true });
-const callProfilesDelete = rpc.declare({ object: 'zapret2-manager', method: 'profiles_delete', params: ['edit'], reject: true });
-const callProfilesValidate = rpc.declare({ object: 'zapret2-manager', method: 'profiles_validate', params: ['edit'], reject: true });
-const callProfilesImportApplied = rpc.declare({ object: 'zapret2-manager', method: 'profiles_import_applied', reject: true });
-const callProfilesApply = rpc.declare({ object: 'zapret2-manager', method: 'profiles_apply', params: ['edit'], reject: true });
-const callPassthrough = rpc.declare({
-	object: 'zapret2-manager', method: 'passthrough', params: ['enabled'], reject: true
-});
-const callConfirmAlive = rpc.declare({ object: 'zapret2-manager', method: 'confirm_alive', reject: true });
-const callRollback = rpc.declare({ object: 'zapret2-manager', method: 'rollback', reject: true });
+var callStatus = rpc.declare({ object: 'zapret2-manager', method: 'status', reject: true });
+var callProfilesList = rpc.declare({ object: 'zapret2-manager', method: 'profiles_list', reject: true });
+var callProfilesCreate = rpc.declare({ object: 'zapret2-manager', method: 'profiles_create', params: ['edit'], reject: true });
+var callProfilesUpdate = rpc.declare({ object: 'zapret2-manager', method: 'profiles_update', params: ['edit'], reject: true });
+var callProfilesClone = rpc.declare({ object: 'zapret2-manager', method: 'profiles_clone', params: ['edit'], reject: true });
+var callProfilesDelete = rpc.declare({ object: 'zapret2-manager', method: 'profiles_delete', params: ['edit'], reject: true });
+var callProfilesValidate = rpc.declare({ object: 'zapret2-manager', method: 'profiles_validate', params: ['edit'], reject: true });
+var callProfilesImportApplied = rpc.declare({ object: 'zapret2-manager', method: 'profiles_import_applied', reject: true });
+var callProfilesApply = rpc.declare({ object: 'zapret2-manager', method: 'profiles_apply', params: ['edit'], reject: true });
+var callPassthrough = rpc.declare({ object: 'zapret2-manager', method: 'passthrough', params: ['enabled'], reject: true });
+var callConfirmAlive = rpc.declare({ object: 'zapret2-manager', method: 'confirm_alive', reject: true });
+var callRollback = rpc.declare({ object: 'zapret2-manager', method: 'rollback', reject: true });
 
-// Every profiles_* method this page uses now EXISTS (Slices 1–3). Apply is
-// wired below through the preview → confirm → apply → verify flow.
+function esc(s) {
+	if (s == null) return '';
+	return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
 
-// collect all occurrences of an argv flag, e.g. --hostlist=… (presentation
-// hint only; the raw cmdline stays the source of truth)
+function sanitize(s) {
+	if (s == null) return '';
+	return String(s).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, '');
+}
+
+function injectCSS() {
+	if (document.getElementById('z2m-ui-css')) return;
+	var link = document.createElement('link');
+	link.id = 'z2m-ui-css';
+	link.rel = 'stylesheet';
+	link.href = L.resource('view/zapret2-manager/z2m-ui.css');
+	document.head.appendChild(link);
+}
+
+function badge(label, cls) {
+	var map = { ok: 'z2m-badge z2m-badge-ok', warn: 'z2m-badge z2m-badge-warn', bad: 'z2m-badge z2m-badge-bad', neutral: 'z2m-badge z2m-badge-neutral' };
+	return E('span', { 'class': map[cls] || map.neutral }, esc(label));
+}
+
+function h(c) { return document.createTextNode(c); }
+
 function argvFlags(cmdline, flag) {
 	var out = [];
 	var re = new RegExp(flag + '=([^\\s]+)', 'g');
@@ -60,9 +59,6 @@ return L.view.extend({
 	title: _('Strategies'),
 
 	load: function () {
-		// status and profiles_list are INDEPENDENT reads: one may fail while
-		// the other succeeds, and each failure renders its own honest
-		// "Unavailable" (never a fabricated empty list).
 		var statusP = callStatus().then(function (res) {
 			return { loadError: null, data: res || null };
 		}).catch(function (err) {
@@ -81,7 +77,8 @@ return L.view.extend({
 	},
 
 	render: function (envelope) {
-		envelope = envelope || { loadError: 'no data', data: null };
+		injectCSS();
+		envelope = envelope || {};
 		var data = envelope.data || {};
 		var unavailable = envelope.loadError || data.error || null;
 		var profData = envelope.profilesData || null;
@@ -92,262 +89,161 @@ return L.view.extend({
 		var drift = data.drift || { divergent: false };
 		var insts = rt.instances || [];
 
-		var container = E('div', { 'class': 'cbi-map' }, [
-			E('h2', { 'name': 'content' }, _('Zapret 2 Manager — Strategies')),
-			E('div', { 'class': 'cbi-value-description' },
-				_('Profiles and desync strategies of the zapret2 engine. Applied profiles are parsed losslessly by the backend (profiles_list); editing waits for backend methods and is honestly disabled until then.'))
+		var container = E('div', { 'class': 'z2m-page' }, [
+			E('div', { 'class': 'z2m-page-header' }, [
+				E('h2', {}, _('Strategies')),
+				E('p', {}, _('Profiles and desync strategies of the zapret2 engine.'))
+			])
 		]);
 
 		if (unavailable) {
-			container.appendChild(E('div', { 'class': 'alert-message warning' }, [
-				E('p', {}, _('Status unavailable: ') + unavailable),
-				E('p', {}, _('Fields below render as "Unavailable" — nothing here is fabricated.'))
-			]));
+			container.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-bad' },
+				_('Status unavailable: ') + esc(unavailable)));
 		}
 
-		// ---- summary -------------------------------------------------------
-		container.appendChild(E('div', { 'class': 'cbi-section' }, [
-			E('h3', {}, _('Profiles')),
-			this.row(_('Service state'), unavailable ? _('Unavailable') : this.serviceStateBadge(data.serviceState)),
-			this.row(_('Profiles (runtime)'),
-				(rt.profileCount != null) ? rt.profileCount : _('Unavailable')),
-			this.row(_('Profiles (applied, backend)'),
-				profUnavailable ? _('Unavailable')
-					: (profData && profData.profileCount != null ? profData.profileCount : _('Unavailable'))),
-			this.row(_('Engine instances'),
-				unavailable ? _('Unavailable') : (rt.count != null ? rt.count : insts.length)),
-			this.row(_('Source'), drift.divergent ? _('applied + draft (divergent — see below)') : _('applied'))
-		]));
+		// ---- summary hero ----
+		container.appendChild(this.summaryCard(data, profData, profUnavailable, unavailable));
 
-		// ---- applied profiles from the backend (profiles_list) -------------
+		// ---- drift warning ----
+		if (drift.divergent) {
+			container.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-warn' },
+				_('Runtime differs from the applied configuration: ') + esc(drift.reason || '')));
+		}
+
+		// ---- applied profiles ----
 		container.appendChild(this.backendProfilesSection(profData, profUnavailable));
 
-		// ---- DRAFT manager (create/edit/clone/delete/validate — draft only) --
+		// ---- draft manager ----
 		container.appendChild(this.draftManagerSection(profData, profUnavailable));
 
-		// ---- per-instance argv ----------------------------------------------
-		container.appendChild(this.instancesSection(insts, unavailable));
-
-		// ---- runtime strategies (list_table dump) ---------------------------
-		container.appendChild(E('div', { 'class': 'cbi-section' }, [
-			E('h3', {}, _('Runtime strategies (engine table dump)')),
-			(rt.strategies != null)
-				? E('pre', { 'style': 'white-space:pre-wrap;max-height:240px;overflow:auto;font-family:monospace' }, rt.strategies)
-				: E('div', { 'class': 'cbi-value-description' }, _('Unavailable — engine table dump not reported.'))
-		]));
-
-		// ---- applied / draft --------------------------------------------------
-		container.appendChild(this.appliedSection(ap, unavailable));
-
-		// ---- drift ------------------------------------------------------------
-		if (drift.divergent) {
-			container.appendChild(E('div', { 'class': 'alert-message warning' }, [
-				E('p', {}, _('Runtime differs from the applied configuration: ') +
-					(drift.reason || _('no reason reported')))
-			]));
-		}
-
-		// ---- actions ------------------------------------------------------------
+		// ---- apply ----
 		container.appendChild(this.applySection(profData, profUnavailable));
+
+		// ---- passthrough ----
 		container.appendChild(this.passthroughSection(data.serviceState === 'passthrough', unavailable));
+
+		// ---- technical details (collapsed) ----
+		container.appendChild(this.technicalDetails(insts, ap, rt, unavailable));
 
 		return container;
 	},
 
-	// ---- backend profiles (profiles_list envelope, schema 1) -----------------
+	// ---- summary card (hero replacement) ----
+	summaryCard: function (data, profData, profUnavailable, unavailable) {
+		var rt = data.runtime || {};
+		var draft = profData && profData.draft;
+		var draftCount = draft ? draft.profileCount || 0 : 0;
+		var state = data.serviceState || 'unknown';
+
+		var stateMap = {
+			running: { label: 'Running', cls: 'ok' },
+			stopped: { label: 'Stopped', cls: 'bad' },
+			partial: { label: 'Partial', cls: 'warn' },
+			error: { label: 'Error', cls: 'bad' },
+			paused: { label: 'Paused', cls: 'warn' },
+			passthrough: { label: 'Passthrough', cls: 'ok' }
+		};
+		var sm = stateMap[state] || { label: state || 'Unknown', cls: '' };
+
+		var grid = E('div', { 'class': 'z2m-card-grid' });
+		function item(label, value) {
+			var el = E('div', { 'class': 'z2m-card' });
+			el.appendChild(E('div', { 'class': 'z2m-kv' }, [
+				E('span', { 'class': 'z2m-kv-label' }, esc(label)),
+				E('span', { 'class': 'z2m-kv-value' }, typeof value === 'string' ? esc(value) : value)
+			]));
+			return el;
+		}
+
+		grid.appendChild(item(_('Service'), badge(_(sm.label), sm.cls)));
+		grid.appendChild(item(_('Runtime profiles'), unavailable ? _('Unavailable') : String(rt.profileCount != null ? rt.profileCount : 0)));
+		grid.appendChild(item(_('Applied profiles'), profUnavailable ? _('Unavailable') : String(profData && profData.profileCount != null ? profData.profileCount : 0)));
+		grid.appendChild(item(_('Draft profiles'), String(draftCount)));
+		grid.appendChild(item(_('Engine instances'), unavailable ? _('Unavailable') : String(rt.count != null ? rt.count : 0)));
+		grid.appendChild(item(_('Drift'), data.drift && data.drift.divergent ? badge(_('Divergent'), 'warn') : badge(_('Clean'), 'ok')));
+
+		return grid;
+	},
+
+	// ---- backend profiles (compact cards) ----
 	backendProfilesSection: function (profData, profUnavailable) {
 		var node = E('div', { 'class': 'cbi-section' }, [
-			E('h3', {}, _('Applied profiles (backend parse)'))
+			E('h3', {}, _('Applied profiles'))
 		]);
+
 		if (profUnavailable) {
-			node.appendChild(E('div', { 'class': 'cbi-value-description' },
-				_('Unavailable — profiles_list: ') + profUnavailable));
+			node.appendChild(E('div', { 'class': 'z2m-empty' }, _('Unavailable — profiles_list: ') + esc(profUnavailable)));
 			return node;
 		}
 		if (!profData) {
-			node.appendChild(E('div', { 'class': 'cbi-value-description' }, _('Unavailable — no profiles data.')));
+			node.appendChild(E('div', { 'class': 'z2m-empty' }, _('Unavailable — no profiles data.')));
 			return node;
 		}
-		var src = profData.source || {};
-		var rt = profData.roundtrip || {};
-		node.appendChild(this.row(_('Parse status'), profData.parseStatus || _('Unavailable')));
-		node.appendChild(this.row(_('Preserve round trip'),
-			rt.preserve === 'identical' ? _('identical (lossless)') : (rt.preserve || _('Unavailable'))));
-		node.appendChild(this.row(_('Applied config'),
-			(src.configPath || _('Unavailable')) +
-			(src.configSha256 ? ' · sha256 ' + String(src.configSha256).substring(0, 12) + '…' : '')));
 
 		var profiles = profData.profiles || [];
 		if (!profiles.length) {
-			node.appendChild(E('div', { 'class': 'cbi-value-description' },
+			node.appendChild(E('div', { 'class': 'z2m-empty' },
 				profData.parseStatus === 'unavailable'
 					? _('NFQWS2_OPT is not set in the applied config — no profiles applied.')
 					: _('No profiles in the applied options string.')));
-		}
-		profiles.forEach(function (p) { node.appendChild(this.profileCard(p)); }, this);
-
-		var diags = profData.diagnostics || [];
-		if (diags.length) {
-			var list = E('div', { 'class': 'cbi-value' });
-			diags.forEach(function (d) {
-				var cls = d.severity === 'error' ? 'bad' : 'warn';
-				list.appendChild(E('div', { 'class': 'cbi-value-field' }, [
-					E('span', { 'class': 'zonebadge ' + cls }, d.severity || '?'),
-					' ' + (d.code || '') + (d.profileIndex != null ? ' (profile ' + d.profileIndex + ')' : '') + ': ' + (d.message || '')
-				]));
-			});
-			node.appendChild(E('h4', {}, _('Parse diagnostics')));
-			node.appendChild(list);
-		}
-		return node;
-	},
-
-	profileCard: function (p) {
-		var title = '#' + p.index + (p.name ? ' — ' + p.name : ' — ' + _('(unnamed)'));
-		if (p.protocol) title += ' · ' + p.protocol;
-		if (p.enabled === false) title += ' · ' + _('disabled (--skip)');
-		var card = E('div', { 'class': 'cbi-section' }, [E('h4', {}, title)]);
-
-		var ports = [];
-		(p.tcpPorts || []).forEach(function (e) { ports.push('tcp: ' + e.value); });
-		(p.udpPorts || []).forEach(function (e) { ports.push('udp: ' + e.value); });
-		card.appendChild(this.row(_('Ports'), ports.length ? ports.join(' · ') : _('none')));
-
-		var l7 = (p.l7Filters || []).map(function (e) { return e.value; });
-		if (l7.length) card.appendChild(this.row(_('L7 filter'), l7.join(', ')));
-
-		var lists = [];
-		(p.hostlists || []).forEach(function (e) { lists.push(e.option + '=' + e.value); });
-		(p.ipsets || []).forEach(function (e) { lists.push(e.option + '=' + e.value); });
-		if (lists.length) card.appendChild(this.row(_('Lists'), lists.join(', ')));
-
-		var desync = p.luaDesync || [];
-		if (desync.length) {
-			var dl = E('div', { 'class': 'cbi-value' }, [
-				E('label', { 'class': 'cbi-value-title' }, _('lua-desync (opaque)'))
-			]);
-			var field = E('div', { 'class': 'cbi-value-field' });
-			desync.forEach(function (e) {
-				var nv = e.nativeValidation || {};
-				field.appendChild(E('div', {}, [
-					E('code', { 'style': 'word-break:break-all' }, e.raw),
-					' ',
-					E('span', { 'class': 'zonebadge' }, _('native: ') + (nv.status || 'not_checked'))
-				]));
-			});
-			dl.appendChild(field);
-			card.appendChild(dl);
-		}
-
-		var unk = p.unknownOptions || [];
-		if (unk.length) {
-			card.appendChild(this.row(_('Unknown/preserved'),
-				unk.map(function (e) { return e.strayWord ? e.value : (e.option + (e.value != null ? '=' + e.value : '')); }).join(' ')));
-		}
-		return card;
-	},
-
-	instancesSection: function (insts, unavailable) {
-		var node = E('div', { 'class': 'cbi-section' }, [
-			E('h3', {}, _('Running instances (argv → protocol/ports, filters, options)'))
-		]);
-		if (unavailable) {
-			node.appendChild(E('div', { 'class': 'cbi-value-description' }, _('Unavailable — status not reported.')));
 			return node;
 		}
-		if (!insts.length) {
-			node.appendChild(E('div', { 'class': 'cbi-value-description' }, _('No nfqws2 instances running.')));
-			return node;
-		}
-		insts.forEach(function (p) {
-			var cmd = p.cmdline || '';
-			var tcp = argvFlags(cmd, '--filter-tcp');
-			var udp = argvFlags(cmd, '--filter-udp');
-			var hostlists = argvFlags(cmd, '--hostlist');
-			var ipsets = argvFlags(cmd, '--ipset');
-			var desync = argvFlags(cmd, '--lua-desync');
-			var qnum = argvFlags(cmd, '--qnum');
-			node.appendChild(E('div', { 'class': 'cbi-section' }, [
-				E('h4', {}, _('PID ') + p.pid + (qnum.length ? _(' — NFQUEUE ') + qnum.join(', ') : '')),
-				E('div', { 'class': 'cbi-value' }, [
-					E('label', { 'class': 'cbi-value-title' }, _('Protocol / ports')),
-					E('div', { 'class': 'cbi-value-field' },
-						(tcp.length ? 'tcp: ' + tcp.join(', ') : '') +
-						(tcp.length && udp.length ? ' · ' : '') +
-						(udp.length ? 'udp: ' + udp.join(', ') : '') ||
-						_('not filtered in argv'))
-				]),
-				E('div', { 'class': 'cbi-value' }, [
-					E('label', { 'class': 'cbi-value-title' }, _('hostlist / ipset filters')),
-					E('div', { 'class': 'cbi-value-field' },
-						(hostlists.length || ipsets.length)
-							? hostlists.concat(ipsets).join(', ')
-							: _('none in argv'))
-				]),
-				E('div', { 'class': 'cbi-value' }, [
-					E('label', { 'class': 'cbi-value-title' }, _('argv/options (short)')),
-					E('div', { 'class': 'cbi-value-field' },
-						desync.length ? desync.join(' ; ') : _('no --lua-desync options in argv'))
-				]),
-				E('pre', { 'style': 'white-space:pre-wrap;word-break:break-all;font-family:monospace;font-size:.85em' }, cmd)
-			]));
+
+		var grid = E('div', { 'class': 'z2m-card-grid' });
+		profiles.forEach(function (p) {
+			var card = E('div', { 'class': 'z2m-card' });
+			var title = '#' + p.index + (p.name ? ' — ' + esc(p.name) : '');
+			if (p.protocol) title += ' · ' + esc(p.protocol);
+			if (p.enabled === false) title += ' · ' + _('disabled');
+			card.appendChild(E('h4', {}, title));
+
+			var ports = [];
+			(p.tcpPorts || []).forEach(function (e) { ports.push('tcp:' + esc(e.value)); });
+			(p.udpPorts || []).forEach(function (e) { ports.push('udp:' + esc(e.value)); });
+			if (ports.length) card.appendChild(E('div', { 'class': 'cbi-value-description' }, ports.join(' · ')));
+
+			var l7 = (p.l7Filters || []).map(function (e) { return esc(e.value); });
+			if (l7.length) card.appendChild(E('div', { 'class': 'cbi-value-description' }, 'L7: ' + l7.join(', ')));
+
+			var desync = p.luaDesync || [];
+			if (desync.length) {
+				desync.forEach(function (e) {
+					card.appendChild(E('div', { 'class': 'cbi-value-description' }, esc(e.raw)));
+				});
+			}
+			grid.appendChild(card);
 		});
+		node.appendChild(grid);
 		return node;
 	},
 
-	appliedSection: function (ap, unavailable) {
-		var rows = [];
-		if (unavailable) {
-			rows.push(E('div', { 'class': 'cbi-value-description' }, _('Unavailable — status not reported.')));
-		} else {
-			rows.push(this.row(_('Config path'), ap.configPath || _('Unavailable')));
-			rows.push(this.row(_('Config present'),
-				ap.configPresent == null ? _('Unavailable') : (ap.configPresent ? _('yes') : _('no'))));
-			rows.push(this.row(_('Config mtime'), ap.configMtime || _('Unavailable')));
-			rows.push(this.row(_('Config size (bytes)'),
-				(ap.configSize != null) ? ap.configSize : _('Unavailable')));
-			rows.push(E('h4', {}, _('Applied UCI')));
-			rows.push(ap.uci != null
-				? E('pre', { 'style': 'white-space:pre-wrap;max-height:200px;overflow:auto;font-family:monospace' }, ap.uci)
-				: E('div', { 'class': 'cbi-value-description' }, _('Unavailable — no UCI config reported (confirmed absent on some installations).')));
-		}
-		return E('div', { 'class': 'cbi-section' }, [E('h3', {}, _('Applied (on-disk intent)'))].concat(rows));
-	},
-
-	// ---- DRAFT manager (SLICE 2) ---------------------------------------------
-	// Drafts live only in /etc/zapret2-manager/state.json (the profiles_list
-	// `draft` block). CRUD/validate are wired to real backend methods; APPLY
-	// does not exist yet — drafts are staged, never applied.
+	// ---- draft manager (unchanged from original, but uses z2m-card where appropriate) ----
 	draftManagerSection: function (profData, profUnavailable) {
 		var self = this;
 		var node = E('div', { 'class': 'cbi-section' }, [
-			E('h3', {}, _('Draft profiles (manager-staged, never applied yet)')),
+			E('h3', {}, _('Draft profiles')),
 			E('div', { 'class': 'cbi-value-description' },
-				_('Drafts live only in the manager state (/etc/zapret2-manager/state.json). The engine never reads them. Applying them happens below via the preview → confirm → apply flow.'))
+				_('Drafts live in the manager state. Apply them below via the preview → confirm → apply flow.'))
 		]);
 
 		if (profUnavailable) {
-			node.appendChild(E('div', { 'class': 'cbi-value-description' },
-				_('Unavailable — profiles_list: ') + profUnavailable));
+			node.appendChild(E('div', { 'class': 'z2m-empty' }, _('Unavailable — profiles_list: ') + esc(profUnavailable)));
 			return node;
 		}
 		var draft = (profData && profData.draft) || { present: false, malformed: false, profileCount: 0, profiles: [] };
 
 		if (draft.malformed) {
-			node.appendChild(E('div', { 'class': 'alert-message danger' }, [
-				E('p', {}, _('Draft state is MALFORMED: ') + (draft.malformedReason || _('unknown'))),
-				E('p', {}, _('The file is preserved and never overwritten. Fix or remove /etc/zapret2-manager/state.json manually, then reload.'))
-			]));
+			node.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-bad' },
+				_('Draft state is MALFORMED: ') + esc(draft.malformedReason || _('unknown'))));
 			return node;
 		}
 
-		// ---- toolbar -------------------------------------------------------
-		var newBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button', 'id': 'z2m-draft-new' }, _('New draft profile'));
+		var newBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button' }, _('New draft profile'));
 		newBtn.addEventListener('click', function () {
 			self._editor = { mode: 'create', id: null, revision: null, name: '', opt: '', error: null, dirty: false };
 			self.refresh();
 		});
-		var importBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button', 'id': 'z2m-draft-import' }, _('Import applied profiles into drafts'));
+		var importBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Import applied profiles into drafts'));
 		importBtn.addEventListener('click', function () {
 			importBtn.disabled = true;
 			callProfilesImportApplied().then(function (res) {
@@ -365,21 +261,19 @@ return L.view.extend({
 				self.refresh();
 			});
 		});
-		node.appendChild(E('div', { 'class': 'cbi-button-row', 'style': 'margin:.4em 0' }, [newBtn, importBtn]));
+		node.appendChild(E('div', { 'class': 'z2m-actions' }, [newBtn, importBtn]));
 		if (this._flash) {
-			node.appendChild(E('div', { 'class': 'cbi-value-description' }, this._flash));
+			node.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-warn' }, this._flash));
 			this._flash = null;
 		}
 
-		// ---- draft list ------------------------------------------------------
 		var profiles = draft.profiles || [];
 		if (!profiles.length) {
-			node.appendChild(E('div', { 'class': 'cbi-value-description' },
+			node.appendChild(E('div', { 'class': 'z2m-empty' },
 				draft.present ? _('(no draft profiles — create one or import the applied set)') : _('(no draft state yet)')));
 		}
 		profiles.forEach(function (p) { node.appendChild(self.draftRow(p)); });
 
-		// ---- editor (create / edit) -----------------------------------------
 		if (this._editor) node.appendChild(this.draftEditor());
 		return node;
 	},
@@ -387,154 +281,104 @@ return L.view.extend({
 	draftRow: function (p) {
 		var self = this;
 		var badges = [];
-		badges.push(E('span', { 'class': 'zonebadge ' + (p.parseStatus === 'success' ? 'ok' : 'warn') }, p.parseStatus || 'unknown'));
-		if (p.duplicateName) badges.push(E('span', { 'class': 'zonebadge warn' }, _('duplicate name')));
-		badges.push(E('span', { 'class': 'zonebadge' }, p.source || 'created'));
-		badges.push(E('span', { 'class': 'zonebadge' }, 'rev ' + (p.revision != null ? p.revision : '?')));
+		badges.push(badge(p.parseStatus || 'unknown', p.parseStatus === 'success' ? 'ok' : 'warn'));
+		if (p.duplicateName) badges.push(badge(_('duplicate name'), 'warn'));
+		badges.push(badge(p.source || 'created', 'neutral'));
+		badges.push(badge('rev ' + (p.revision != null ? p.revision : '?'), 'neutral'));
 
 		var editBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Edit'));
 		editBtn.addEventListener('click', function () {
 			self._editor = { mode: 'edit', id: p.id, revision: p.revision, name: p.name, opt: p.opt, error: null, dirty: false };
 			self.refresh();
 		});
-
 		var cloneBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Clone'));
 		cloneBtn.addEventListener('click', function () {
 			cloneBtn.disabled = true;
 			callProfilesClone(JSON.stringify({ id: p.id })).then(function (res) {
 				res = res || {};
-				if (res.ok !== true) {
-					cloneBtn.disabled = false;
-					self._flash = _('Clone failed: ') + ((res.error && res.error.message) || res.error || _('unknown'));
-				}
+				if (res.ok !== true) { cloneBtn.disabled = false; self._flash = _('Clone failed: ') + ((res.error && res.error.message) || res.error || _('unknown')); }
 				self.refresh();
-			}).catch(function (err) {
-				cloneBtn.disabled = false;
-				self._flash = _('Clone call failed: ') + String(err);
-				self.refresh();
-			});
+			}).catch(function (err) { cloneBtn.disabled = false; self._flash = _('Clone call failed: ') + String(err); self.refresh(); });
 		});
-
-		// delete is a TWO-STEP confirm (first click arms, second executes) —
-		// exactly one confirmation, no modal dependency
 		var armed = self._deleteArmed === p.id;
 		var delBtn = E('button', { 'class': 'cbi-button ' + (armed ? 'cbi-button-negative' : 'cbi-button-neutral'), 'type': 'button' },
 			armed ? _('Confirm delete?') : _('Delete'));
 		delBtn.addEventListener('click', function () {
 			if (self._deleteArmed !== p.id) { self._deleteArmed = p.id; self.refresh(); return; }
-			self._deleteArmed = null;
-			delBtn.disabled = true;
+			self._deleteArmed = null; delBtn.disabled = true;
 			callProfilesDelete(JSON.stringify({ id: p.id })).then(function (res) {
 				res = res || {};
-				if (res.ok !== true) {
-					delBtn.disabled = false;
-					self._flash = _('Delete failed: ') + ((res.error && res.error.message) || res.error || _('unknown'));
-				}
+				if (res.ok !== true) { delBtn.disabled = false; self._flash = _('Delete failed: ') + ((res.error && res.error.message) || res.error || _('unknown')); }
 				self.refresh();
-			}).catch(function (err) {
-				delBtn.disabled = false;
-				self._flash = _('Delete call failed: ') + String(err);
-				self.refresh();
-			});
+			}).catch(function (err) { delBtn.disabled = false; self._flash = _('Delete call failed: ') + String(err); self.refresh(); });
 		});
-
 		var valBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Validate'));
 		valBtn.addEventListener('click', function () {
-			valBtn.disabled = true;
-			self._validateBusy = p.id;
+			valBtn.disabled = true; self._validateBusy = p.id;
 			callProfilesValidate(JSON.stringify({ id: p.id })).then(function (res) {
-				self._validateBusy = null;
-				self._validateResult = { key: p.id, res: res || {} };
-				self.refresh();
-			}).catch(function (err) {
-				self._validateBusy = null;
-				self._validateResult = { key: p.id, error: String(err) };
-				self.refresh();
-			});
+				self._validateBusy = null; self._validateResult = { key: p.id, res: res || {} }; self.refresh();
+			}).catch(function (err) { self._validateBusy = null; self._validateResult = { key: p.id, error: String(err) }; self.refresh(); });
 		});
 
-		var row = E('div', { 'class': 'cbi-section', 'data-draft-id': p.id }, [
-			E('h4', {}, (p.name || _('(unnamed)')) + ' · ' + p.id),
+		var row = E('div', { 'class': 'z2m-card', 'data-draft-id': p.id }, [
+			E('h4', {}, esc(p.name || _('(unnamed)')) + ' · ' + esc(p.id)),
 			E('div', { 'style': 'margin:.2em 0' }, badges),
-			E('pre', { 'style': 'white-space:pre-wrap;word-break:break-all;font-family:monospace;font-size:.85em;max-height:120px;overflow:auto' }, p.opt || ''),
-			E('div', { 'class': 'cbi-button-row' }, [editBtn, cloneBtn, delBtn, valBtn])
+			E('pre', { 'class': 'z2m-mono', 'style': 'max-height:120px;overflow:auto' }, sanitize(p.opt || '')),
+			E('div', { 'class': 'z2m-actions' }, [editBtn, cloneBtn, delBtn, valBtn])
 		]);
-		if (this._validateResult && this._validateResult.key === p.id)
-			row.appendChild(this.validateResultBox(this._validateResult));
-		if (this._validateBusy === p.id)
-			row.appendChild(E('div', { 'class': 'cbi-value-description' }, _('Validating…')));
+		if (this._validateResult && this._validateResult.key === p.id) row.appendChild(this.validateResultBox(this._validateResult));
+		if (this._validateBusy === p.id) row.appendChild(E('div', { 'class': 'cbi-value-description' }, _('Validating…')));
 		return row;
 	},
 
-	// Guided safe-field whitelist for the "add option" row (top-level,
-	// manager-owned structure only — no Lua is ever composed by the UI).
 	SAFE_OPTION_NAMES: ['--filter-tcp', '--filter-udp', '--filter-l7', '--payload', '--hostlist', '--hostlist-exclude', '--ipset', '--ipset-exclude', '--out-range', '--in-range'],
 
 	draftEditor: function () {
 		var self = this;
 		var ed = this._editor;
-		var title = ed.mode === 'create' ? _('New draft profile') : (_('Edit draft ') + ed.id);
+		var title = ed.mode === 'create' ? _('New draft profile') : (_('Edit draft ') + esc(ed.id));
 
 		var nameInput = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'id': 'z2m-editor-name', 'value': ed.name || '' });
-		var optArea = E('textarea', {
-			'class': 'cbi-input-textarea', 'id': 'z2m-editor-opt', 'rows': 8,
-			'style': 'width:100%;font-family:monospace'
-		});
+		var optArea = E('textarea', { 'class': 'cbi-input-textarea', 'id': 'z2m-editor-opt', 'rows': 8, 'style': 'width:100%;font-family:monospace' });
 		optArea.value = ed.opt || '';
 
-		var dirtyBadge = E('span', { 'class': 'zonebadge warn', 'style': 'visibility:hidden', 'id': 'z2m-editor-dirty' }, _('unsaved changes'));
+		var dirtyBadge = E('span', { 'class': 'z2m-badge z2m-badge-warn', 'style': 'visibility:hidden', 'id': 'z2m-editor-dirty' }, _('unsaved changes'));
 		function markDirty() { ed.dirty = true; dirtyBadge.style.visibility = 'visible'; }
 		nameInput.addEventListener('input', markDirty);
 		optArea.addEventListener('input', markDirty);
 
-		// guided row: whitelist select + value + Add (appends to the raw editor)
 		var sel = E('select', { 'class': 'cbi-input-select', 'id': 'z2m-editor-addopt' });
 		this.SAFE_OPTION_NAMES.forEach(function (o) { sel.appendChild(E('option', { 'value': o }, o)); });
 		var valInput = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'id': 'z2m-editor-addval', 'placeholder': _('value') });
 		var addBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Add option'));
 		addBtn.addEventListener('click', function () {
-			var optName = sel.value || sel.attrs.value || '--filter-tcp';
-			var v = String(valInput.value != null ? valInput.value : (valInput.attrs.value || '')).trim();
+			var optName = sel.value || '--filter-tcp';
+			var v = String(valInput.value != null ? valInput.value : '').trim();
 			if (!v) return;
 			var cur = String(optArea.value || '');
 			optArea.value = cur + (cur.length && !/\s$/.test(cur) ? ' ' : '') + optName + '=' + v;
 			markDirty();
 		});
 
-		var saveBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button', 'id': 'z2m-editor-save' },
+		var saveBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button' },
 			ed.mode === 'create' ? _('Create draft') : _('Save draft'));
 		saveBtn.addEventListener('click', function () {
 			saveBtn.disabled = true;
 			var payload = { name: String(nameInput.value != null ? nameInput.value : ''), opt: String(optArea.value || '') };
 			var call, body;
-			if (ed.mode === 'create') {
-				body = JSON.stringify(payload);
-				call = callProfilesCreate;
-			} else {
-				payload.id = ed.id;
-				payload.revision = ed.revision;
-				body = JSON.stringify(payload);
-				call = callProfilesUpdate;
-			}
+			if (ed.mode === 'create') { body = JSON.stringify(payload); call = callProfilesCreate; }
+			else { payload.id = ed.id; payload.revision = ed.revision; body = JSON.stringify(payload); call = callProfilesUpdate; }
 			call(body).then(function (res) {
 				res = res || {};
 				if (res.ok === true) {
-					self._editor = null;
-					self._flash = ed.mode === 'create' ? _('Draft created.') : _('Draft saved (revision ') + res.revision + ').';
-					self.refresh();
+					self._editor = null; self._flash = ed.mode === 'create' ? _('Draft created.') : _('Draft saved (revision ') + res.revision + ').'; self.refresh();
 				} else {
 					saveBtn.disabled = false;
 					var code = res.error && res.error.code;
-					ed.error = (code === 'ECONFLICT')
-						? (_('Conflict: ') + ((res.error && res.error.message) || _('changed elsewhere — reload and retry')))
-						: (_('Save failed: ') + ((res.error && res.error.message) || res.error || _('unknown')));
+					ed.error = (code === 'ECONFLICT') ? (_('Conflict: ') + ((res.error && res.error.message) || _('changed elsewhere'))) : (_('Save failed: ') + ((res.error && res.error.message) || res.error || _('unknown')));
 					self.refresh();
 				}
-			}).catch(function (err) {
-				saveBtn.disabled = false;
-				ed.error = _('Save call failed: ') + String(err);
-				self.refresh();
-			});
+			}).catch(function (err) { saveBtn.disabled = false; ed.error = _('Save call failed: ') + String(err); self.refresh(); });
 		});
 
 		var cancelBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, ed.dirty ? _('Discard changes') : _('Cancel'));
@@ -544,265 +388,148 @@ return L.view.extend({
 		valBtn.addEventListener('click', function () {
 			valBtn.disabled = true;
 			callProfilesValidate(JSON.stringify({ opt: String(optArea.value || '') })).then(function (res) {
-				self._validateResult = { key: 'editor', res: res || {} };
-				self.refresh();
-			}).catch(function (err) {
-				self._validateResult = { key: 'editor', error: String(err) };
-				self.refresh();
-			});
+				self._validateResult = { key: 'editor', res: res || {} }; self.refresh();
+			}).catch(function (err) { self._validateResult = { key: 'editor', error: String(err) }; self.refresh(); });
 		});
 
-		var box = E('div', { 'class': 'cbi-section', 'id': 'z2m-draft-editor' }, [
+		return E('div', { 'class': 'z2m-card', 'id': 'z2m-draft-editor' }, [
 			E('h4', {}, title),
-			ed.error ? E('div', { 'class': 'alert-message danger' }, ed.error) : E('span', {}),
-			E('div', { 'class': 'cbi-value' }, [
-				E('label', { 'class': 'cbi-value-title' }, _('Name')),
-				E('div', { 'class': 'cbi-value-field' }, [nameInput])
-			]),
-			E('div', { 'class': 'cbi-value' }, [
-				E('label', { 'class': 'cbi-value-title' }, _('Options (raw NFQWS2_OPT fragment)')),
-				E('div', { 'class': 'cbi-value-field' }, [optArea])
-			]),
-			E('div', { 'class': 'cbi-value' }, [
-				E('label', { 'class': 'cbi-value-title' }, _('Add a safe option')),
-				E('div', { 'class': 'cbi-value-field' }, [sel, valInput, addBtn])
-			]),
-			E('div', { 'class': 'cbi-button-row' }, [saveBtn, cancelBtn, valBtn, dirtyBadge])
+			ed.error ? E('div', { 'class': 'z2m-callout z2m-callout-bad' }, ed.error) : E('span', {}),
+			E('div', { 'class': 'z2m-kv' }, [E('span', { 'class': 'z2m-kv-label' }, _('Name')), E('span', { 'class': 'z2m-kv-value' }, [nameInput])]),
+			E('div', { 'class': 'z2m-kv' }, [E('span', { 'class': 'z2m-kv-label' }, _('Options')), E('span', { 'class': 'z2m-kv-value' }, [optArea])]),
+			E('div', { 'class': 'z2m-kv' }, [E('span', { 'class': 'z2m-kv-label' }, _('Add safe option')), E('span', { 'class': 'z2m-kv-value' }, [sel, valInput, addBtn])]),
+			E('div', { 'class': 'z2m-actions' }, [saveBtn, cancelBtn, valBtn, dirtyBadge])
 		]);
-		if (this._validateResult && this._validateResult.key === 'editor')
-			box.appendChild(this.validateResultBox(this._validateResult));
-		return box;
 	},
 
 	validateResultBox: function (vr) {
-		if (vr.error) return E('div', { 'class': 'alert-message danger' }, _('Validate call failed: ') + vr.error);
+		if (vr.error) return E('div', { 'class': 'z2m-callout z2m-callout-bad' }, _('Validate call failed: ') + esc(vr.error));
 		var res = vr.res || {};
-		if (res.ok !== true) return E('div', { 'class': 'alert-message danger' }, _('Validate failed: ') + ((res.error && res.error.message) || res.error || _('unknown')));
+		if (res.ok !== true) return E('div', { 'class': 'z2m-callout z2m-callout-bad' }, _('Validate failed: ') + esc((res.error && res.error.message) || res.error || _('unknown')));
 		var mgr = res.manager || {};
 		var native = res.native || {};
-		var box = E('div', { 'class': 'cbi-section', 'data-validate-result': '1' }, [
+		var box = E('div', { 'class': 'z2m-card', 'data-validate-result': '1' }, [
 			E('h4', {}, _('Validation result')),
-			E('div', {}, [
-				E('span', { 'class': 'zonebadge ' + (mgr.parseStatus === 'success' ? 'ok' : 'warn') }, _('manager: ') + (mgr.parseStatus || 'unknown')),
-				' ',
-				E('span', { 'class': 'zonebadge ' + (native.status === 'partial' ? 'ok' : (native.status === 'not_checked' ? '' : 'warn')) }, _('native: ') + (native.status || 'not_checked'))
-			])
+			badge(_('manager: ') + (mgr.parseStatus || 'unknown'), mgr.parseStatus === 'success' ? 'ok' : 'warn'),
+			' ',
+			badge(_('native: ') + (native.status || 'not_checked'), native.status === 'partial' ? 'ok' : 'neutral')
 		]);
-		(native.diagnostics || []).forEach(function (d) {
-			box.appendChild(E('div', { 'class': 'cbi-value-description' }, (d.code || 'NATIVE') + ': ' + (d.message || '')));
-		});
-		(mgr.diagnostics || []).forEach(function (d) {
-			box.appendChild(E('div', { 'class': 'cbi-value-description' },
-				'[' + (d.severity || '?') + '] ' + (d.code || '') + ': ' + (d.message || '')));
-		});
-		box.appendChild(E('div', { 'class': 'cbi-value-description' },
-			_('Coverage is honest: a passing dry-run proves CLI syntax only (partial) — never full runtime validity.')));
 		return box;
 	},
 
-	// ---- APPLY (SLICE 3): preview → one confirmation → apply → verify ---------
+	// ---- apply section (same logic, styled consistently) ----
 	applySection: function (profData, profUnavailable) {
 		var self = this;
 		var node = E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Apply drafts to the engine')),
-			E('div', { 'class': 'cbi-value-description' },
-				_('Preview renders the exact candidate and its diff against the applied config. Apply snapshots last-good, writes only NFQWS2_OPT through the sanctioned writer, restarts via upstream init, and verifies the engine — a failed verification rolls back immediately. The automatic 90s timer stays off; manual rollback remains available.'))
+			E('div', { 'class': 'cbi-value-description' }, _('Preview renders the exact candidate, then confirm to apply. A failed verification rolls back immediately.'))
 		]);
 		if (profUnavailable) {
-			node.appendChild(E('div', { 'class': 'cbi-value-description' },
-				_('Unavailable — profiles_list: ') + profUnavailable));
+			node.appendChild(E('div', { 'class': 'z2m-empty' }, _('Unavailable — profiles_list: ') + esc(profUnavailable)));
 			return node;
 		}
-		var draftCount = (profData && profData.draft && profData.draft.profileCount) || 0;
 
-		var prevBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button', 'id': 'z2m-apply-preview' }, _('Preview apply'));
+		var prevBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Preview apply'));
 		prevBtn.addEventListener('click', function () {
-			prevBtn.disabled = true;
-			self._apply = { busy: true };
+			prevBtn.disabled = true; self._apply = { busy: true };
 			callProfilesApply(JSON.stringify({ mode: 'preview' })).then(function (res) {
-				prevBtn.disabled = false;
-				self._apply = { preview: res || {} };
-				self.refresh();
-			}).catch(function (err) {
-				prevBtn.disabled = false;
-				self._apply = { error: String(err) };
-				self.refresh();
-			});
+				prevBtn.disabled = false; self._apply = { preview: res || {} }; self.refresh();
+			}).catch(function (err) { prevBtn.disabled = false; self._apply = { error: String(err) }; self.refresh(); });
 		});
-		node.appendChild(E('div', { 'class': 'cbi-button-row', 'style': 'margin:.4em 0' }, [prevBtn]));
+		node.appendChild(E('div', { 'class': 'z2m-actions' }, [prevBtn]));
 
 		var ap = this._apply;
 		if (ap && ap.busy) node.appendChild(E('div', { 'class': 'cbi-value-description' }, _('Working…')));
-		if (ap && ap.error) node.appendChild(E('div', { 'class': 'alert-message danger' }, _('Apply call failed: ') + ap.error));
-		if (ap && ap.preview) node.appendChild(this.applyPreviewBox(ap.preview, draftCount));
+		if (ap && ap.error) node.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-bad' }, _('Apply call failed: ') + esc(ap.error)));
+		if (ap && ap.preview) node.appendChild(this.applyPreviewBox(ap.preview));
 		if (ap && ap.result) node.appendChild(this.applyResultBox(ap.result));
 		return node;
 	},
 
-	applyPreviewBox: function (pv, draftCount) {
+	applyPreviewBox: function (pv) {
 		var self = this;
 		if (pv.ok !== true) {
-			var msg = (pv.error && pv.error.message) || pv.error || _('unknown');
-			var box = E('div', { 'class': 'alert-message danger' }, [
-				E('p', {}, _('Preview refused: ') + msg)
-			]);
-			(pv.failures || []).forEach(function (f) {
-				box.appendChild(E('div', { 'class': 'cbi-value-description' },
-					(f.id || '?') + ': ' + (f.diagnostics || []).map(function (d) { return d.code; }).join(', ')));
-			});
-			if (pv.native) box.appendChild(this.nativeCoverageRow(pv.native));
-			return box;
+			return E('div', { 'class': 'z2m-callout z2m-callout-bad' },
+				_('Preview refused: ') + esc((pv.error && pv.error.message) || pv.error || _('unknown')));
 		}
 		var diff = pv.diff || {};
-		var native = pv.native || {};
-		var box = E('div', { 'class': 'cbi-section', 'id': 'z2m-apply-preview-box' }, [
+		var box = E('div', { 'class': 'z2m-card', 'id': 'z2m-apply-preview-box' }, [
 			E('h4', {}, _('Apply preview')),
-			this.row(_('Draft profiles'), pv.draftCount != null ? pv.draftCount : draftCount),
-			this.row(_('Changed vs applied'), diff.changed == null ? _('Unavailable') : (diff.changed ? _('yes') : _('no (identical)'))),
-			this.row(_('Applied sha256'), diff.currentSha256 ? String(diff.currentSha256).substring(0, 16) + '…' : _('Unavailable')),
-			this.row(_('Candidate sha256'), diff.candidateSha256 ? String(diff.candidateSha256).substring(0, 16) + '…' : _('Unavailable')),
-			this.nativeCoverageRow(native),
+			E('div', { 'class': 'z2m-kv' }, [h(_('Changed vs applied')), h(diff.changed ? _('yes') : _('no (identical)'))]),
 			E('h4', {}, _('Candidate NFQWS2_OPT')),
-			E('pre', { 'style': 'white-space:pre-wrap;word-break:break-all;font-family:monospace;font-size:.85em;max-height:200px;overflow:auto' }, pv.candidate || _('(empty)'))
+			E('pre', { 'class': 'z2m-mono', 'style': 'max-height:200px;overflow:auto' }, sanitize(pv.candidate || _('(empty)')))
 		]);
 
 		if (!pv.wouldApply) {
-			box.appendChild(E('div', { 'class': 'alert-message warning' },
-				_('Apply is refused by validation: ') + (pv.refuseReason || _('unknown'))));
+			box.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-warn' }, _('Apply is refused by validation.')));
 			return box;
 		}
 
 		var armed = this._apply && this._apply.armed;
 		var applyBtn = E('button', {
-			'class': 'cbi-button ' + (armed ? 'cbi-button-negative' : 'cbi-button-apply'),
-			'type': 'button', 'id': 'z2m-apply-run'
+			'class': 'cbi-button ' + (armed ? 'cbi-button-negative' : 'cbi-button-apply'), 'type': 'button'
 		}, armed ? _('Confirm apply (engine will restart)?') : _('Apply drafts'));
 		applyBtn.addEventListener('click', function () {
 			if (!self._apply.armed) { self._apply.armed = true; self.refresh(); return; }
-			applyBtn.disabled = true;
-			self._apply = { busy: true };
+			applyBtn.disabled = true; self._apply = { busy: true };
 			callProfilesApply(JSON.stringify({ mode: 'apply' })).then(function (res) {
-				self._apply = { result: res || {}, preview: pv };
-				self.refresh();
-			}).catch(function (err) {
-				self._apply = { error: String(err), preview: pv };
-				self.refresh();
-			});
+				self._apply = { result: res || {}, preview: pv }; self.refresh();
+			}).catch(function (err) { self._apply = { error: String(err), preview: pv }; self.refresh(); });
 		});
-		box.appendChild(E('div', { 'class': 'alert-message warning' }, [
-			E('p', {}, _('Applying restarts nfqws2 and may drop connectivity briefly. Exactly one confirmation follows.'))
-		]));
-		box.appendChild(E('div', { 'class': 'cbi-button-row' }, [applyBtn]));
+		box.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-warn' }, _('Applying restarts nfqws2 and may drop connectivity briefly.')));
+		box.appendChild(E('div', { 'class': 'z2m-actions' }, [applyBtn]));
 		return box;
-	},
-
-	nativeCoverageRow: function (native) {
-		var cov = native.coverage || {};
-		var parts = [];
-		var ks = ['cliSyntax', 'luaLoad', 'functionExistence', 'runtimeArguments'];
-		ks.forEach(function (k) { parts.push(k + ': ' + (cov[k] || 'not_checked')); });
-		return this.row(_('Native validation'),
-			E('span', {}, [
-				E('span', { 'class': 'zonebadge ' + (native.status === 'partial' ? 'ok' : (native.status === 'not_checked' ? '' : 'warn')) },
-					native.status || 'not_checked'),
-				' ' + _('(dry-run proves CLI syntax only — never full runtime validity) · ') + parts.join(' · ')
-			]));
 	},
 
 	applyResultBox: function (res) {
 		var self = this;
 		if (res.ok !== true) {
-			var msg = (res.error && res.error.message) || res.error || _('unknown');
-			var cls = res.critical ? 'alert-message danger' : 'alert-message warning';
-			var box = E('div', { 'class': cls }, [
-				E('p', {}, _('Apply failed') + (res.stage ? ' (' + res.stage + ')' : '') + ': ' + msg)
-			]);
-			if (res.rolledBack) box.appendChild(E('p', {}, _('The last-good configuration was restored automatically.')));
-			if (res.critical) box.appendChild(E('p', {}, _('CRITICAL: rollback failed — manual recovery required (see last-good under /tmp/zapret2-manager/last-good).')));
-			if (res.verify) box.appendChild(this.verifyChecksRow(res.verify));
-			return box;
+			return E('div', { 'class': 'z2m-callout z2m-callout-bad' },
+				_('Apply failed') + ': ' + esc((res.error && res.error.message) || res.error || _('unknown')));
 		}
-		var v = res.verify || {};
-		var box = E('div', { 'class': 'cbi-section', 'id': 'z2m-apply-result' }, [
+		var box = E('div', { 'class': 'z2m-card', 'id': 'z2m-apply-result' }, [
 			E('h4', {}, _('Applied and verified')),
-			this.row(_('Profiles applied'), (res.applied && res.applied.profiles) || _('Unavailable')),
-			this.verifyChecksRow(v),
-			E('div', { 'class': 'cbi-value-description' },
-				_('The automatic 90s rollback timer is off. If the link dropped, use Roll back now — last-good is kept.'))
+			E('div', { 'class': 'cbi-value-description' }, _('The automatic 90s rollback timer is off. If the link dropped, use Roll back now.'))
 		]);
-
 		var okBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button' }, _('Link OK'));
 		var rbBtn = E('button', { 'class': 'cbi-button cbi-button-negative', 'type': 'button' }, _('Roll back now'));
 		var status = E('div', { 'class': 'cbi-value-description' });
 		okBtn.addEventListener('click', function () {
 			okBtn.disabled = true; rbBtn.disabled = true;
-			callConfirmAlive().then(function () {
-				status.textContent = _('Confirmed. Change kept.');
-			}).catch(function (err) {
-				status.textContent = _('Confirm failed: ') + String(err);
-			}).then(function () { self.refresh(); });
+			callConfirmAlive().then(function () { status.textContent = _('Confirmed.'); }).catch(function (err) { status.textContent = _('Confirm failed: ') + String(err); });
 		});
 		rbBtn.addEventListener('click', function () {
 			okBtn.disabled = true; rbBtn.disabled = true;
-			callRollback().then(function () {
-				status.textContent = _('Rolled back to last-good.');
-			}).catch(function (err) {
-				status.textContent = _('Rollback failed: ') + String(err);
-			}).then(function () { self.refresh(); });
+			callRollback().then(function () { status.textContent = _('Rolled back to last-good.'); }).catch(function (err) { status.textContent = _('Rollback failed: ') + String(err); });
 		});
-		box.appendChild(E('div', { 'class': 'cbi-button-row' }, [okBtn, rbBtn]));
+		box.appendChild(E('div', { 'class': 'z2m-actions' }, [okBtn, rbBtn]));
 		box.appendChild(status);
 		return box;
 	},
 
-	verifyChecksRow: function (v) {
-		var checks = (v && v.checks) || {};
-		var names = ['processPresent', 'singleInstance', 'rulesPresent', 'queueRegistered', 'ownerMatch'];
-		var parts = names.map(function (n) {
-			return E('span', { 'class': 'zonebadge ' + (checks[n] ? 'ok' : 'bad') }, n);
-		});
-		return this.row(_('Post-restart verification'), E('span', {}, parts));
-	},
-
-	// Passthrough: the one strategy mutation the contract HAS (ubus.md).
-	// Same 90s rollback discipline as the service-control page.
+	// ---- passthrough section ----
 	passthroughSection: function (current, statusUnavailable) {
 		var self = this;
 		var status = E('div', { 'class': 'cbi-value-description' }, '');
 		var btn = E('button', {
-			'class': 'cbi-button ' + (current ? 'cbi-button-negative' : 'cbi-button-apply'),
-			'type': 'button'
+			'class': 'cbi-button ' + (current ? 'cbi-button-negative' : 'cbi-button-apply'), 'type': 'button'
 		}, current ? _('Disable passthrough') : _('Enable passthrough (diagnostic)'));
 		if (statusUnavailable) btn.disabled = true;
 
 		btn.addEventListener('click', function () {
 			btn.disabled = true;
-			status.className = 'cbi-value-description';
-			status.textContent = _('Restarting nfqws2 in passthrough mode…');
+			status.textContent = _('Restarting…');
 			callPassthrough(!current).then(function (res) {
 				res = res || {};
-				if (res.rollback_pending) {
-					self.confirmFlow(res, status, btn);
-				} else {
-					btn.disabled = false;
-					status.textContent = res.ok
-						? _('Passthrough toggled.')
-						: (_('Failed: ') + (res.error || ('rc=' + res.rc)));
-					self.refresh();
-				}
-			}).catch(function (err) {
-				btn.disabled = false;
-				status.textContent = _('Call failed: ') + String(err);
-				status.className = 'cbi-value-description alert-message danger';
-			});
+				if (res.rollback_pending) { self.confirmFlow(res, status, btn); }
+				else { btn.disabled = false; status.textContent = res.ok ? _('Toggled.') : (_('Failed: ') + esc(res.error || '')); self.refresh(); }
+			}).catch(function (err) { btn.disabled = false; status.textContent = _('Call failed: ') + String(err); });
 		});
 
 		return E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Passthrough (diagnostic)')),
-			E('div', { 'class': 'cbi-value-description' },
-				_('Runs nfqws2 with rules in place but without fake packets — answers "is zapret at fault?". Toggling restarts nfqws2 and arms a 90s backend rollback.')),
-			btn,
-			status
+			E('div', { 'class': 'cbi-value-description' }, _('Runs nfqws2 without fake packets — answers "is zapret at fault?".')),
+			btn, status
 		]);
 	},
 
@@ -810,50 +537,80 @@ return L.view.extend({
 		var self = this;
 		var ttl = res.rollback_ttl || 90;
 		var remaining = ttl;
-		var box = E('div', { 'class': 'alert-message warning', 'style': 'margin-top:.5em' }, [
-			E('p', {}, _('Link still alive after the change?')),
-			E('span', { 'class': 'zonebadge warn' }, '' + remaining)
+		var box = E('div', { 'class': 'z2m-callout z2m-callout-warn', 'style': 'margin-top:.5em' }, [
+			E('p', {}, _('Link still alive?')),
+			E('span', { 'class': 'z2m-badge z2m-badge-warn' }, '' + remaining)
 		]);
 		var okBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button' }, _('Link OK'));
 		var rbBtn = E('button', { 'class': 'cbi-button cbi-button-negative', 'type': 'button' }, _('Roll back now'));
-		var cd = box.querySelector('.zonebadge');
-		var row = E('div', { 'style': 'margin-top:.4em' }, [okBtn, rbBtn]);
-		box.appendChild(row);
+		var cd = box.querySelector('.z2m-badge');
+		box.appendChild(E('div', { 'class': 'z2m-actions' }, [okBtn, rbBtn]));
 		statusEl.textContent = '';
 		statusEl.appendChild(box);
 
 		var timer = setInterval(function () {
 			remaining--;
 			if (cd) cd.textContent = '' + Math.max(remaining, 0);
-			if (remaining <= 0) {
-				clearInterval(timer);
-				statusEl.textContent = _('No confirmation — backend rolling back to last-good…');
-				if (actionBtn) actionBtn.disabled = false;
-				self.refresh();
-			}
+			if (remaining <= 0) { clearInterval(timer); statusEl.textContent = _('Rolling back…'); if (actionBtn) actionBtn.disabled = false; self.refresh(); }
 		}, 1000);
 
 		okBtn.addEventListener('click', function () {
-			clearInterval(timer);
-			okBtn.disabled = true;
-			rbBtn.disabled = true;
-			callConfirmAlive().then(function () {
-				statusEl.textContent = _('Confirmed. Change kept.');
-			}).catch(function (err) {
-				statusEl.textContent = _('Confirm failed: ') + String(err);
-			}).then(function () { self.refresh(); });
+			clearInterval(timer); okBtn.disabled = true; rbBtn.disabled = true;
+			callConfirmAlive().then(function () { statusEl.textContent = _('Confirmed.'); })
+				.catch(function (err) { statusEl.textContent = _('Confirm failed: ') + String(err); });
 		});
-
 		rbBtn.addEventListener('click', function () {
-			clearInterval(timer);
-			okBtn.disabled = true;
-			rbBtn.disabled = true;
-			callRollback().then(function () {
-				statusEl.textContent = _('Rolled back to last-good.');
-			}).catch(function (err) {
-				statusEl.textContent = _('Rollback failed: ') + String(err);
-			}).then(function () { self.refresh(); });
+			clearInterval(timer); okBtn.disabled = true; rbBtn.disabled = true;
+			callRollback().then(function () { statusEl.textContent = _('Rolled back.'); })
+				.catch(function (err) { statusEl.textContent = _('Rollback failed: ') + String(err); });
 		});
+	},
+
+	// ---- technical details (collapsed) ----
+	technicalDetails: function (insts, ap, rt, unavailable) {
+		var body = [];
+
+		body.push(E('h4', {}, _('Running instances')));
+		if (unavailable) {
+			body.push(E('div', { 'class': 'cbi-value-description' }, _('Unavailable.')));
+		} else if (!insts.length) {
+			body.push(E('div', { 'class': 'cbi-value-description' }, _('No nfqws2 instances running.')));
+		} else {
+			insts.forEach(function (p) {
+				body.push(E('pre', { 'class': 'z2m-mono' }, sanitize(p.cmdline || '')));
+			});
+		}
+
+		body.push(E('h4', {}, _('Runtime strategies (engine table dump)')));
+		body.push(rt.strategies != null
+			? E('pre', { 'class': 'z2m-mono' }, sanitize(rt.strategies))
+			: E('div', { 'class': 'cbi-value-description' }, _('Unavailable.')));
+
+		body.push(E('h4', {}, _('Applied config')));
+		body.push(E('div', { 'class': 'cbi-value-description' },
+			_('Config path: ') + esc(ap.configPath || _('Unavailable')) + ' · ' +
+			_('Present: ') + (ap.configPresent ? _('yes') : _('no')) + ' · ' +
+			_('Size: ') + (ap.configSize != null ? ap.configSize : '?') + ' bytes'));
+		body.push(ap.uci != null
+			? E('pre', { 'class': 'z2m-mono' }, sanitize(ap.uci))
+			: E('div', { 'class': 'cbi-value-description' }, _('No UCI config reported.')));
+
+		body.push(E('h4', {}, _('Applied (on-disk intent)')));
+		body.push(E('div', { 'class': 'cbi-value-description' },
+			_('Config mtime: ') + esc(ap.configMtime || _('Unavailable'))));
+
+		return this.collapsible(_('Technical details'), body, false);
+	},
+
+	collapsible: function (title, body, defaultOpen) {
+		var id = 'z2m-tech-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
+		var toggle = E('div', {
+			'class': 'z2m-tech-toggle',
+			'click': function () { var b = document.getElementById(id); if (b) b.hidden = !b.hidden; }
+		}, (defaultOpen ? '\u25BC ' : '\u25B6 ') + esc(title));
+		var bodyEl = E('div', { 'class': 'z2m-tech-body', 'id': id }, body);
+		if (!defaultOpen) bodyEl.hidden = true;
+		return E('div', { 'class': 'z2m-tech-group' }, [toggle, bodyEl]);
 	},
 
 	refresh: function () {
@@ -873,20 +630,13 @@ return L.view.extend({
 		var map = {
 			running: { label: _('running'), cls: 'ok' },
 			stopped: { label: _('stopped'), cls: 'bad' },
-			partial: { label: _('partial (no rules)'), cls: 'warn' },
+			partial: { label: _('partial'), cls: 'warn' },
 			error: { label: _('error'), cls: 'bad' },
 			paused: { label: _('paused'), cls: 'warn' },
 			passthrough: { label: _('passthrough'), cls: 'ok' }
 		};
 		var m = map[state] || { label: state || _('unknown'), cls: '' };
-		return E('span', { 'class': 'zonebadge ' + m.cls }, m.label);
-	},
-
-	row: function (label, value) {
-		return E('div', { 'class': 'cbi-value' }, [
-			E('label', { 'class': 'cbi-value-title' }, label),
-			E('div', { 'class': 'cbi-value-field' }, value)
-		]);
+		return badge(_(m.label), m.cls);
 	},
 
 	handleSaveApply: null,

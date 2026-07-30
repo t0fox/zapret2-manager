@@ -382,6 +382,16 @@ function catalog_status_method(req) { return cli_action(CATALOG_CLI, 'status'); 
 function catalog_preview_method(req) { return cli_edit_action(CATALOG_CLI, 'preview', req, 'catalog'); }
 function catalog_apply_method(req) { return cli_edit_action(CATALOG_CLI, 'apply', req, 'catalog'); }
 
+// ---- per-service DNS mapping (Slice 7) -----------------------------------------
+const SERVICE_DNS_CLI = '/usr/libexec/zapret2-manager/service-dns-cli.uc';
+function service_dns_providers_method(req) { return cli_action(SERVICE_DNS_CLI, 'providers'); }
+function service_dns_status_method(req)    { return cli_action(SERVICE_DNS_CLI, 'status'); }
+function service_dns_check_method(req)     { return cli_action(SERVICE_DNS_CLI, 'check'); }
+function service_dns_preview_method(req)   { return cli_action(SERVICE_DNS_CLI, 'preview'); }
+function service_dns_set_method(req)       { return cli_edit_action(SERVICE_DNS_CLI, 'set', req, 'service_dns'); }
+function service_dns_apply_method(req)     { return cli_edit_action(SERVICE_DNS_CLI, 'apply', req, 'service_dns'); }
+function service_dns_rollback_method(req)  { return cli_action(SERVICE_DNS_CLI, 'rollback'); }
+
 // profiles_apply {edit: '{"mode":"preview"|"apply"}'} — preview is read-only
 // (no write, no restart); apply runs the full pipeline (snapshot → write →
 // restart → verify → rollback-on-failure). Mode parsing happens here; the
@@ -459,6 +469,13 @@ return {
 		proxy_autostart_set: { args: { edit: 'string' }, call: function (req) { return proxy_autostart_set_method(req); } },
 		proxy_secret_rotate: { call: function (req) { return proxy_secret_rotate_method(req); } },
 		proxy_quick_install: { call: function (req) { return proxy_quick_install_method(req); } },
+		service_dns_providers: { call: function (req) { return service_dns_providers_method(req); } },
+		service_dns_status:    { call: function (req) { return service_dns_status_method(req); } },
+		service_dns_check:     { call: function (req) { return service_dns_check_method(req); } },
+		service_dns_preview:   { call: function (req) { return service_dns_preview_method(req); } },
+		service_dns_set:       { args: { edit: 'string' }, call: function (req) { return service_dns_set_method(req); } },
+		service_dns_apply:     { args: { edit: 'string' }, call: function (req) { return service_dns_apply_method(req); } },
+		service_dns_rollback:  { call: function (req) { return service_dns_rollback_method(req); } },
 		versions:          { call: function (req) { return versions_method(req); } },
 		maintenance_status: { call: function (req) { return maintenance_status_method(req); } },
 		events_tail:       { args: { edit: 'string' }, call: function (req) { return events_tail_method(req); } },
