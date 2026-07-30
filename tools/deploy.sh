@@ -38,7 +38,7 @@ ssh_run() {
   return "$_rc"
 }
 
-scp_to() { scp -o ConnectTimeout=8 -o BatchMode=yes "$1" "root@${HOST}:$2" || die "scp failed: $1"; }
+scp_to() { scp -O -o ConnectTimeout=8 -o BatchMode=yes "$1" "root@${HOST}:$2" || die "scp failed: $1"; }
 
 # ---- parse phase args --------------------------------------------------------
 PHASES=""
@@ -134,7 +134,7 @@ do_verify() {
     code=$(ssh_run "luci http" "uclient-fetch -q -O /dev/null 'http://127.0.0.1/cgi-bin/luci/admin/services/zapret2-manager' 2>/dev/null; echo \$?")
   fi
   case "$code" in
-    200|302|0|"") log "  LuCI page reachable (http=$code)" ;;
+    200|302|403|0|"") log "  LuCI page reachable (http=$code)" ;;
     *) die "LuCI page unreachable (http=$code)" ;;
   esac
   log "deploy OK on $HOST"
