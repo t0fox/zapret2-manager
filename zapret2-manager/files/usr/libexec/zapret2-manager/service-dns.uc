@@ -115,8 +115,8 @@ function load_dataset() {
 	if (!ds || type(ds) != 'object') return { ok: false, error: { code: 'ETARGET', message: 'dataset root must be an object' } };
 	if (type(ds.schemaVersion) != 'int' || ds.schemaVersion != 1)
 		return { ok: false, error: { code: 'EINPUT', message: 'unsupported schemaVersion (expected 1)' } };
-	if (!Array.isArray(ds.providers)) return { ok: false, error: { code: 'EINPUT', message: 'providers must be an array' } };
-	if (!Array.isArray(ds.profiles)) return { ok: false, error: { code: 'EINPUT', message: 'profiles must be an array' } };
+	if (type(ds.providers) != 'array') return { ok: false, error: { code: 'EINPUT', message: 'providers must be an array' } };
+	if (type(ds.profiles) != 'array') return { ok: false, error: { code: 'EINPUT', message: 'profiles must be an array' } };
 	// validate providers + profiles inline (ucode port of the node logic)
 	let providerIds = {};
 	let profileIds = {};
@@ -143,10 +143,10 @@ function load_dataset() {
 		if (profileIds[p.id] != null) { push(errors, 'duplicate profile id: ' + p.id); continue; }
 		if (type(p.providerId) != 'string' || !providerIds[p.providerId]) { push(errors, 'profile ' + p.id + ': unknown providerId'); continue; }
 		if (type(p.serviceId) != 'string' || !knownServiceIds[p.serviceId]) { push(errors, 'profile ' + p.id + ': unknown serviceId'); continue; }
-		if (!Array.isArray(p.requiredDomains)) { push(errors, 'profile ' + p.id + ': requiredDomains must be an array'); continue; }
-		if (!Array.isArray(p.optionalDomains)) { push(errors, 'profile ' + p.id + ': optionalDomains must be an array'); continue; }
-		if (!Array.isArray(p.diagnosticTargets)) { push(errors, 'profile ' + p.id + ': diagnosticTargets must be an array'); continue; }
-		if (!Array.isArray(p.records)) { push(errors, 'profile ' + p.id + ': records must be an array'); continue; }
+		if (type(p.requiredDomains) != 'array') { push(errors, 'profile ' + p.id + ': requiredDomains must be an array'); continue; }
+		if (type(p.optionalDomains) != 'array') { push(errors, 'profile ' + p.id + ': optionalDomains must be an array'); continue; }
+		if (type(p.diagnosticTargets) != 'array') { push(errors, 'profile ' + p.id + ': diagnosticTargets must be an array'); continue; }
+		if (type(p.records) != 'array') { push(errors, 'profile ' + p.id + ': records must be an array'); continue; }
 		// validate + normalize records
 		let normRecs = [];
 		let seenHost = {};
@@ -156,14 +156,14 @@ function load_dataset() {
 			let hn = validate_hostname_ucode(r.hostname);
 			if (!hn.ok) { push(errors, 'profile ' + p.id + ' record ' + j + ': ' + hn.reason); continue; }
 			let a = [], aaaa = [];
-			if (Array.isArray(r.A)) {
+			if (type(r.A) == 'array') {
 				for (let k = 0; k < length(r.A); k++) {
 					let va = validate_ipv4_ucode(r.A[k]);
 					if (!va.ok) { push(errors, 'profile ' + p.id + ' record ' + j + ' A: ' + va.reason); continue; }
 					if (!seenHost[hn.hostname + '|A|' + va.ip]) { a.push(va.ip); seenHost[hn.hostname + '|A|' + va.ip] = true; }
 				}
 			}
-			if (Array.isArray(r.AAAA)) {
+			if (type(r.AAAA) == 'array') {
 				for (let k = 0; k < length(r.AAAA); k++) {
 					let va = validate_ipv6_ucode(r.AAAA[k]);
 					if (!va.ok) { push(errors, 'profile ' + p.id + ' record ' + j + ' AAAA: ' + va.reason); continue; }
@@ -318,7 +318,7 @@ function load_service_dns_state() {
 		selections: (sd && type(sd.selections) == 'object') ? sd.selections : {},
 		applied: (sd && type(sd.applied) == 'object') ? sd.applied : { selections: {}, generatedAt: null, revision: 0, fileHash: null },
 		ownership: (sd && type(sd.ownership) == 'object') ? sd.ownership : {},
-		events: (sd && Array.isArray(sd.events)) ? _slice(sd.events, -20) : []
+		events: (sd && type(sd.events) == 'array') ? _slice(sd.events, -20) : []
 	};
 	return { state: state, fresh: true };
 }
