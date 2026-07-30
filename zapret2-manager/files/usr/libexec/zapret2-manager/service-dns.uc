@@ -88,7 +88,7 @@ function _slice(arr, start, end) {
 function _clone_extend(base, overrides) {
 	let obj = {};
 	if (base != null) for (let k in base) obj[k] = base[k];
-	if (overrides != null) for (let k in overrides) obj[k] = overrides[k];
+	if (overrides != null) for (let kk in overrides) obj[kk] = overrides[kk];
 	return obj;
 }
 
