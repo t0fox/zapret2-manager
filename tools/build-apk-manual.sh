@@ -50,6 +50,14 @@ export STAGING_DIR_HOST="$SDK/staging_dir/host"
 # `mkdir -p` inside the mktemp dir fails with "Permission denied". Use a
 # TMPDIR inside the user's home (writable) so mktemp creates the build root there.
 export TMPDIR="${TMPDIR:-$HOME/z2m-build}"
+# Sign ALL packages with the project's private key. The router trusts the
+# corresponding public key at /etc/apk/keys/z2m-build.pub (SHA-256
+# c885bf8fa1cb0f0e501bd405ab3af21614f108c8ab2dbb78814656ce34b82998).
+# Install the key into the SDK trust store so mkndx can verify APK signatures.
+APK_SIGN_KEY="$SDK/private-key.pem"
+mkdir -p "$SDK/staging_dir/etc/apk/keys"
+cp "$SDK/public-key.pem" "$SDK/staging_dir/etc/apk/keys/z2m-build.pub"
+
 OUTDIR="$SDK/bin/packages/aarch64_cortex-a53/zapret2-manager"
 mkdir -p "$OUTDIR"
 
@@ -91,8 +99,8 @@ build_one() {
   # Sign if a key is provided. apk v3's solver refuses a bare unsigned local
   # .apk as "uninstallable": `apk add file.apk` adds a world pin `name><identity`
   # and the solver cannot match the unsigned file to it. A signature gives the
-  # package a verifiable identity so the pin resolves. Install with
-  # --allow-untrusted (or trust the public key in /etc/apk/keys/).
+  # package a verifiable identity so the pin resolves. The router trusts this
+  # package via /etc/apk/keys/z2m-build.pub — --allow-untrusted is FORBIDDEN.
   [ -n "${APK_SIGN_KEY:-}" ] && set -- "$@" --sign-key "$APK_SIGN_KEY"
   "$@"
   echo "built: $_out"
@@ -256,13 +264,25 @@ rm -rf "$R" "$TPI" "$HOME/z2m-build/tg-ws-proxy"
 
 # ---- Bundle tg-ws-proxy-rs .apk inside zapret2-manager (persistent local feed) -
 # The built tg-ws-proxy-rs .apk is copied into zapret2-manager's data directory
-# so the postinst can set up a persistent local APK feed at
-# /usr/share/zapret2-manager/feed/. This survives reboot: the feed is on
-# persistent flash, not /tmp. The zapret2-manager postinst creates the index.
+# along with a TRUSTED signed index — both are immutable build artifacts. The
+# index is signed with the build host's private key so that the router (which
+# trusts z2m-build.pub in /etc/apk/keys/) can install from this local feed
+# WITHOUT --allow-untrusted. The postinst MUST NOT rebuild or re-sign the
+# index; the pre-built signed index ships inside the .apk.
 _TGWS_APK="$OUTDIR/tg-ws-proxy-rs-${TGWS_PKG_VER}.apk"
 _TGWS_BUNDLE="tg-ws-proxy-rs-${TGWS_PKG_VER}.apk"
-mkdir -p "$HOME/z2m-build/feed"
-cp "$_TGWS_APK" "$HOME/z2m-build/feed/$_TGWS_BUNDLE"
+_FEED_DIR="$HOME/z2m-build/feed"
+rm -rf "$_FEED_DIR"
+mkdir -p "$_FEED_DIR"
+cp "$_TGWS_APK" "$_FEED_DIR/$_TGWS_BUNDLE"
+# Create the signed index at build time. The SDK trust store already has
+# z2m-build.pub (set up at the top of this script). The index is signed with
+# the private key; the router verifies the index signature at install time
+# using the same public key in /etc/apk/keys/z2m-build.pub.
+echo "Signing feed index with $SDK/private-key.pem"
+"$APK" mkndx --keys-dir "$SDK/staging_dir/etc/apk/keys" \
+  --sign-key "$SDK/private-key.pem" -o "$_FEED_DIR/packages.adb" \
+  "$_FEED_DIR"/*.apk
 
 # ---- zapret2-manager (rebuild with bundled tg-ws-proxy-rs feed) ----------------
 R="$HOME/z2m-build/root"
@@ -291,9 +311,17 @@ install -m 0755 "$REPO/zapret2-manager/files/etc/hotplug.d/iface/90-zapret2-mana
                 "$R/etc/hotplug.d/iface/90-zapret2-manager"
 install -m 0755 "$REPO/zapret2-manager/files/etc/init.d/zapret2-manager" \
                 "$R/etc/init.d/zapret2-manager"
-# Bundle the tg-ws-proxy-rs .apk for persistent local feed setup
+# Bundle the tg-ws-proxy-rs .apk + signed index for persistent local feed
 install -m 0644 "$HOME/z2m-build/feed/$_TGWS_BUNDLE" \
                 "$R/usr/share/zapret2-manager/feed/$_TGWS_BUNDLE"
+install -m 0644 "$HOME/z2m-build/feed/packages.adb" \
+                "$R/usr/share/zapret2-manager/feed/packages.adb"
+# Also bundle the .sig if mkndx produced one (apk 3.0.5+ embeds .sig in
+# packages.adb as a tail section; a standalone .sig is optional)
+if [ -f "$HOME/z2m-build/feed/packages.adb.sig" ]; then
+  install -m 0644 "$HOME/z2m-build/feed/packages.adb.sig" \
+                  "$R/usr/share/zapret2-manager/feed/packages.adb.sig"
+fi
 ZPRE=$(mkscript <<'EOF'
 #!/bin/sh
 [ -f /etc/zapret2-manager/state.json ] && cp -f /etc/zapret2-manager/state.json /etc/zapret2-manager/state.json.prepkg 2>/dev/null
@@ -308,15 +336,9 @@ if [ -f /etc/zapret2-manager/state.json.prepkg ]; then
 	fi
 	rm -f /etc/zapret2-manager/state.json.prepkg
 fi
-# Persistent local feed: create APK index for the bundled tg-ws-proxy-rs .apk.
-# The feed lives at /usr/share/zapret2-manager/feed/ (persistent flash) so it
-# survives reboot. mkndx creates packages.adb from the bundled .apk.
-FEED=/usr/share/zapret2-manager/feed
-if [ -d "$FEED" ] && [ -f "$FEED"/tg-ws-proxy-rs-*.apk ]; then
-	if command -v apk >/dev/null 2>&1; then
-		apk mkndx -o "$FEED/packages.adb" "$FEED"/*.apk 2>/dev/null || true
-	fi
-fi
+# The signed feed was pre-built and bundled at build time (see the build
+# script). The router trusts the index via /etc/apk/keys/z2m-build.pub.
+# No runtime index rebuild is needed — the index is an immutable artifact.
 /etc/init.d/rpcd reload
 /etc/init.d/zapret2-manager enable
 exit 0

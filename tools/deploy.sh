@@ -18,7 +18,6 @@
 # Env:
 #   DEPLOY_HOST     router host (default 192.168.1.1)
 #   OPENWRT_SDK     path to OpenWrt SDK root (only needed for `build`)
-#   APK_SIGN_KEY    optional key for `apk add` (otherwise --allow-untrusted)
 
 set -u   # no -e: we inspect return codes explicitly (rc=255 rule)
 
@@ -70,13 +69,6 @@ do_build() {
   cd "$HERE"
 }
 
-find_apk() {  # $1 = package name → echoes path to newest .apk, or empty
-  _p="$1"
-  if [ -n "$SDK_DIR" ] && [ -d "$SDK_DIR/bin/packages/$ARCH" ]; then
-    find "$SDK_DIR/bin/packages/$ARCH" -name "$_p-*.apk" -type f 2>/dev/null | sort | tail -1
-  fi
-}
-
 # ---- install -----------------------------------------------------------------
 do_install() {
   log "installing on $HOST"
@@ -84,24 +76,37 @@ do_install() {
   APK_MGR=$(ssh_run "detect apk" "command -v apk") || true
   [ -n "$APK_MGR" ] || die "router has no 'apk' binary — wrong package manager (opkg?)"
 
-  for p in zapret2-manager luci-app-zapret2-manager; do
-    ap="$(find_apk "$p")"
-    if [ -z "$ap" ]; then
-      log "  no local .apk for $p — trying already-built router copy"
-      ssh_run "apk add $p" apk add "$p" && log "  $p: installed from feed" \
-        || die "apk add $p failed and no local .apk found"
-      continue
-    fi
-    log "  pushing $ap"
-    scp_to "$ap" "/tmp/$(basename "$ap")"
-    add_flags="--allow-untrusted"
-    [ -n "${APK_SIGN_KEY:-}" ] && add_flags=""
-    if ssh_run "apk add $p" apk add $add_flags "/tmp/$(basename "$ap")"; then
-      log "  $p: installed"
-    else
-      die "apk add failed for $p"
-    fi
+  # Locate the signed build output
+  APKDIR=""
+  if [ -n "$SDK_DIR" ] && [ -d "$SDK_DIR/bin/packages/$ARCH/zapret2-manager" ]; then
+    APKDIR="$SDK_DIR/bin/packages/$ARCH/zapret2-manager"
+  fi
+  [ -z "$APKDIR" ] && die "no signed build output found (set OPENWRT_SDK or run tools/build-apk-manual.sh first)"
+  [ -f "$APKDIR/packages.adb" ] || die "signed packages.adb not found in $APKDIR — build with tools/build-apk-manual.sh (standard make does not produce a signed index)"
+
+  # Create a temporary v3 repository on the router with the signed artifacts.
+  # apk add --repository <file>.adb installs from the signed index — every APK
+  # is verified against the feed index signature, which itself must match
+  # /etc/apk/keys/z2m-build.pub on the router.
+  REPO_DIR="/tmp/z2m-repo"
+  ssh_run "create temp repo" "rm -rf $REPO_DIR && mkdir -p $REPO_DIR" || die "cannot create $REPO_DIR on router"
+
+  for f in "$APKDIR"/*.apk; do
+    [ -f "$f" ] && scp_to "$f" "$REPO_DIR/$(basename "$f")"
   done
+  scp_to "$APKDIR/packages.adb" "$REPO_DIR/packages.adb"
+  # Also copy standalone .sig if present (apk 3.0.5+ embeds .sig in packages.adb)
+  [ -f "$APKDIR/packages.adb.sig" ] && scp_to "$APKDIR/packages.adb.sig" "$REPO_DIR/packages.adb.sig" || true
+
+  # Install the meta-package — solver resolves all deps through the signed index
+  if ssh_run "install zapret2-manager-full" \
+    apk add --repository "$REPO_DIR/packages.adb" zapret2-manager-full; then
+    log "full stack installed from signed index"
+  else
+    ssh_run "cleanup temp repo" "rm -rf $REPO_DIR" || true
+    die "signed install failed"
+  fi
+  ssh_run "cleanup temp repo" "rm -rf $REPO_DIR" || true
 }
 
 # ---- verify ------------------------------------------------------------------

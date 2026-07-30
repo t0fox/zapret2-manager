@@ -11,7 +11,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=zapret2-manager
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=33
+PKG_RELEASE:=34
 PKG_MAINTAINER:=Ásgeir
 PKG_LICENSE:=MIT
 PKGARCH:=all
@@ -138,6 +138,11 @@ define Package/zapret2-manager/install
 	$(INSTALL_DIR) $(1)/etc/hotplug.d/iface
 	$(INSTALL_BIN) ./files/etc/hotplug.d/iface/90-zapret2-manager \
 		$(1)/etc/hotplug.d/iface/
+
+	# Persistent local feed directory — holds the bundled, build-host-signed
+	# tg-ws-proxy-rs .apk + packages.adb. The directory is created by both
+	# Makefile builds (empty) and manual builds (filled with signed artifacts).
+	$(INSTALL_DIR) $(1)/usr/share/zapret2-manager/feed
 
 	# Watchdog init (procd). Starts only the watchdog daemon, never nfqws2.
 	$(INSTALL_DIR) $(1)/etc/init.d
