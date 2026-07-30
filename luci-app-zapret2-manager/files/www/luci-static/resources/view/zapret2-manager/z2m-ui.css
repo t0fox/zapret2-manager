@@ -249,7 +249,13 @@
 	border-bottom: 2px solid var(--border, #ccc);
 	margin-bottom: 1em;
 	overflow-x: auto;
+	overflow-y: hidden;
+	scrollbar-width: none;
+	-ms-overflow-style: none;
 	-webkit-overflow-scrolling: touch;
+}
+.z2m-tabs::-webkit-scrollbar {
+	display: none;
 }
 .z2m-tab {
 	padding: 0.5em 1em;

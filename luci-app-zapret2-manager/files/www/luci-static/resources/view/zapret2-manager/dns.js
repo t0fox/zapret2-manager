@@ -93,13 +93,18 @@ return L.view.extend({
 			// 1: service_dns_status
 			grab(callSdnsStatus),
 			// 2: service_dns_providers
-			grab(callSdnsProv)
+			grab(callSdnsProv),
+			// 3: dnsprov_components
+			grab(callProvComp),
+			// 4: dnsprov_providers
+			grab(callProvList)
 		]).then(function (r) {
 			return {
 				dnsLoadError: r[0].loadError, dns: r[0].data,
 				sdnsStatusErr: r[1].loadError, sdnsStatus: r[1].data,
 				sdnsProvErr: r[2].loadError, sdnsProv: r[2].data,
-				provComp: null, provCompError: null, provList: null, provListError: null
+				provComp: r[3].data, provCompError: r[3].loadError,
+				provList: r[4].data, provListError: r[4].loadError
 			};
 		});
 	},
@@ -805,28 +810,11 @@ return L.view.extend({
 	// ════════════════════════════════════════════════════════════
 	providersTab: function (envelope) {
 		var self = this;
-		var node = E('div');
-
-		// lazy-load provider data if not yet fetched
-		if (!envelope.provComp && !envelope._provFetched) {
-			envelope._provFetched = true;
-			function grab(call) {
-				return call().then(function (res) { return { loadError: null, data: res || null }; })
-					.catch(function (err) { return { loadError: String(err), data: null }; });
-			}
-			Promise.all([grab(callProvComp), grab(callProvList)]).then(function (r) {
-				envelope.provComp = r[0].data; envelope.provCompError = r[0].loadError;
-				envelope.provList = r[1].data; envelope.provListError = r[1].loadError;
-				self.refresh();
-			});
-			node.appendChild(E('div', { 'class': 'z2m-loading' }, _('Loading provider data…')));
-			return node;
-		}
-
 		var comps = envelope.provComp || {};
 		var provs = envelope.provList || {};
 		var provCompError = envelope.provCompError;
 		var provListError = envelope.provListError;
+		var node = E('div');
 
 		// component intelligence
 		var compCard = E('div', { 'class': 'z2m-card' }, [
@@ -998,30 +986,46 @@ return L.view.extend({
 		]));
 
 		// DNS rollback button
-		var dnsRb = E('button', { 'class': 'cbi-button cbi-button-negative', 'type': 'button' }, _('Rollback DNS overrides'));
-		dnsRb.addEventListener('click', function () {
-			dnsRb.disabled = true;
-			callDnsRollback().then(function (res) {
-				res = res || {};
-				self._flash = (res.ok === true) ? _('DNS rolled back.') : (_('Rollback failed: ') + esc((res.error && res.error.message) || res.error));
-				self.refresh();
-			}).catch(function (err) {
-				self._flash = _('Rollback call failed: ') + String(err); self.refresh();
+		var dnsRbAvailable = dns.revision != null || dns.rollbackAvailable;
+		var dnsRb = E('button', {
+			'class': 'cbi-button cbi-button-negative',
+			'type': 'button',
+			'disabled': !dnsRbAvailable,
+			'title': dnsRbAvailable ? '' : _('No rollback snapshot available')
+		}, _('Rollback DNS overrides'));
+		if (dnsRbAvailable) {
+			dnsRb.addEventListener('click', function () {
+				dnsRb.disabled = true;
+				callDnsRollback().then(function (res) {
+					res = res || {};
+					self._flash = (res.ok === true) ? _('DNS rolled back.') : (_('Rollback failed: ') + esc((res.error && res.error.message) || res.error));
+					self.refresh();
+				}).catch(function (err) {
+					self._flash = _('Rollback call failed: ') + String(err); self.refresh();
+				});
 			});
-		});
+		}
 
 		// Service DNS rollback button
-		var sdnsRb = E('button', { 'class': 'cbi-button cbi-button-negative', 'type': 'button' }, _('Rollback service mappings'));
-		sdnsRb.addEventListener('click', function () {
-			sdnsRb.disabled = true;
-			callSdnsRollback().then(function (res) {
-				res = res || {};
-				self._flash = (res.ok === true) ? _('Service DNS rolled back.') : (_('Rollback failed: ') + esc((res.error && res.error.message) || res.error));
-				self.refresh();
-			}).catch(function (err) {
-				self._flash = _('Rollback call failed: ') + String(err); self.refresh();
+		var sdnsRbAvailable = sdnsStatus.applied && sdnsStatus.applied.revision != null;
+		var sdnsRb = E('button', {
+			'class': 'cbi-button cbi-button-negative',
+			'type': 'button',
+			'disabled': !sdnsRbAvailable,
+			'title': sdnsRbAvailable ? '' : _('No rollback snapshot available')
+		}, _('Rollback service mappings'));
+		if (sdnsRbAvailable) {
+			sdnsRb.addEventListener('click', function () {
+				sdnsRb.disabled = true;
+				callSdnsRollback().then(function (res) {
+					res = res || {};
+					self._flash = (res.ok === true) ? _('Service DNS rolled back.') : (_('Rollback failed: ') + esc((res.error && res.error.message) || res.error));
+					self.refresh();
+				}).catch(function (err) {
+					self._flash = _('Rollback call failed: ') + String(err); self.refresh();
+				});
 			});
-		});
+		}
 
 		rbCard.appendChild(E('div', { 'class': 'z2m-actions' }, [dnsRb, sdnsRb]));
 		node.appendChild(rbCard);

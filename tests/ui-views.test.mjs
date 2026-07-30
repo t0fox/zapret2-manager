@@ -163,6 +163,48 @@ describe('DNS Centre — tab switching contract', () => {
 	});
 });
 
+describe('DNS Centre — provider & rollback safety', () => {
+	const DNS_JS = resolve(VIEW_DIR, 'dns.js');
+	const dnsContent = readFileSync(DNS_JS, 'utf-8');
+
+	it('provider RPCs are in load() not in providersTab lazy-load', () => {
+		// load() must include callProvComp and callProvList in Promise.all
+		assert.ok(dnsContent.includes('grab(callProvComp)'), 'load() must call callProvComp');
+		assert.ok(dnsContent.includes('grab(callProvList)'), 'load() must call callProvList');
+		// providersTab must NOT have the lazy-load infinite-loop pattern
+		const provTabStart = dnsContent.indexOf('providersTab: function');
+		const provTabBody = dnsContent.substring(provTabStart, dnsContent.indexOf('historyTab: function'));
+		assert.ok(!provTabBody.includes('_provFetched'), 'providersTab must not have lazy-load state flag');
+		// providersTab must not call RPC load functions directly (only diagnostics via handler)
+		assert.ok(!provTabBody.includes('callProvComp()'), 'providersTab must not call RPC loading');
+		assert.ok(!provTabBody.includes('callProvList()'), 'providersTab must not call RPC loading');
+		// must not have promise-all pattern for loading
+		assert.ok(!provTabBody.includes('Promise.all([grab('), 'providersTab must not have lazy Promise.all');
+	});
+
+	it('envelope carries provComp and provList from load()', () => {
+		assert.ok(dnsContent.includes('provComp: r[3].data'), 'load() must store provComp');
+		assert.ok(dnsContent.includes('provList: r[4].data'), 'load() must store provList');
+	});
+
+	it('rollback DNS button is disabled when no revision/snapshot', () => {
+		const histStart = dnsContent.indexOf('historyTab: function');
+		const histBody = dnsContent.substring(histStart);
+		assert.ok(histBody.includes('dnsRbAvailable'), 'DNS rollback must have availability guard');
+		assert.ok(histBody.includes('sdnsRbAvailable'), 'Service DNS rollback must have availability guard');
+		assert.ok(histBody.includes("'disabled':"), 'rollback buttons must be conditionally disabled');
+		assert.ok(histBody.includes('No rollback snapshot available'), 'must show reason when disabled');
+	});
+
+	it('tab scrollbar is hidden in CSS', () => {
+		const css = readFileSync(Z2M_CSS, 'utf-8');
+		const tabsStart = css.indexOf('.z2m-tabs {');
+		const tabsEnd = css.indexOf('}', tabsStart);
+		const tabsBlock = css.substring(tabsStart, tabsEnd);
+		assert.ok(tabsBlock.includes('scrollbar-width') || tabsBlock.includes('::-webkit-scrollbar'), 'tabs must hide scrollbar');
+	});
+});
+
 describe('LuCI view file coherence', () => {
 	it('all view files return L.view.extend or define a module', () => {
 		const files = readdirSync(VIEW_DIR).filter(f => f.endsWith('.js') && f !== 'z2m-ui.js');
