@@ -74,12 +74,12 @@ end2=$(grep -n "^# ---- dispatch" "$SMOKE" | cut -d: -f1)
 [ -z "$end2" ] && end2=$(wc -l < "$SMOKE")
 uninstall_body=$(sed -n "$((start2+1)),$((end2-1))p" "$SMOKE" 2>/dev/null | tr -d '\000-\010\016-\037')
 echo "$uninstall_body" | grep -q "tgproxy-drill.sh.*uninstall" && ok "gate_tgproxy_uninstall delegates to drill uninstall" || bad "gate_tgproxy_uninstall MISSING uninstall delegation"
-echo "$uninstall_body" | grep -q "APPROVE TG PROXY UNINSTALL" && ok "gate_tgproxy_uninstall has approval prompt" || bad "gate_tgproxy_uninstall MISSING approval prompt"
+echo "$uninstall_body" | grep -q "approve_or_skip \"TG PROXY UNINSTALL\"" && ok "gate_tgproxy_uninstall uses approve_or_skip" || bad "gate_tgproxy_uninstall MISSING approve_or_skip"
 
-# ---- D7: approval prompts ---------------------------------------------------
-echo "[smoke-dispatch] SUITE D7 — approval prompts"
-for prompt in "APPROVE TG PROXY INSTALL" "APPROVE TG PROXY REBOOT" "APPROVE TG PROXY UNINSTALL"; do
-	grep -qF "$prompt" "$SMOKE" && ok "prompt '$prompt'" || bad "prompt '$prompt' MISSING"
+# ---- D7: approve_or_skip calls ---------------------------------------------------
+echo "[smoke-dispatch] SUITE D7 — approve_or_skip calls"
+for label in "TG PROXY INSTALL" "TG PROXY REBOOT" "TG PROXY UNINSTALL"; do
+	grep -qF "approve_or_skip \"$label\"" "$SMOKE" && ok "approve_or_skip '$label'" || bad "approve_or_skip '$label' MISSING"
 done
 
 # ---- D8: drill 'all' excludes uninstall/autostart ---------------------------

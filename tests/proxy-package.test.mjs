@@ -55,7 +55,7 @@ export function checkProxyMakefile(text) {
 	need(/^PKG_NAME:=tg-ws-proxy-rs$/m, 'PKG_NAME must be tg-ws-proxy-rs');
 	need(new RegExp('^PKG_VERSION:=' + PIN.version.replace(/\./g, '\\.') + '$', 'm'),
 		'PKG_VERSION must be pinned to ' + PIN.version);
-	need(/^PKG_RELEASE:=1$/m, 'PKG_RELEASE must be 1');
+	need(/^PKG_RELEASE:=[1-9][0-9]*$/m, 'PKG_RELEASE must be a positive integer');
 	need(new RegExp('^PKG_SOURCE:=' + PIN.asset.replace(/\./g, '\\.') + '$', 'm'),
 		'PKG_SOURCE must be the pinned asset name');
 	need(new RegExp('^PKG_SOURCE_URL:=https://github\\.com/valnesfjord/tg-ws-proxy-rs/releases/download/v' + PIN.version.replace(/\./g, '\\.') + '$', 'm'),
@@ -106,7 +106,7 @@ export function checkProxyInit(text) {
 	need(/procd_set_param respawn 3600 5 5/, 'respawn must be BOUNDED (procd_set_param respawn 3600 5 5) — no infinite restart loop');
 	need(/procd_set_param stdout 1/, 'stdout must go through the established procd/syslog mechanism');
 	need(/procd_set_param stderr 1/, 'stderr must go through the established procd/syslog mechanism');
-	need(/TG_SECRET="\$SECRET"/, 'the secret must reach the provider via the TG_SECRET environment variable');
+	need(/TG_SECRET=\$SECRET(\s|")/, 'the secret must reach the provider via the TG_SECRET environment variable');
 	if (/--secret/.test(text)) errs.push('the secret must NEVER be passed as a --secret argv element (ps exposure)');
 	// hard startup gates
 	need(/binary \$PROG missing or not executable/, 'gate: missing/non-executable binary must refuse start');

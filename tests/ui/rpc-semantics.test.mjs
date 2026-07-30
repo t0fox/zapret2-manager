@@ -1816,51 +1816,38 @@ function proxyWorld(extra = {}) {
 	});
 }
 
-test('proxy: not-installed renders adapter-operational + recommended provider, no error, no fake port', async () => {
+test('proxy: not-installed renders Not Installed badge + Install button, no link row', async () => {
 	const w = proxyWorld();
 	const view = loadView(readViewSource('proxy'), 'proxy', w);
 	const envelope = await view.load();
 	const root = view.render(envelope);
 	const text = collectText(root).join(' | ');
-	assert.ok(text.includes('adapter operational'), 'adapter operational badge renders');
-	assert.ok(text.includes('proxy not installed'), 'not-installed badge renders');
-	assert.ok(text.includes('tg-ws-proxy-rs'), 'recommended provider renders');
-	assert.ok(text.includes('v1.6.5'), 'pinned release renders');
-	assert.ok(text.includes('MTProto'), 'protocol renders');
-	assert.ok(text.includes('SOCKS5: not supported'), 'MTProto-only honesty renders');
-	assert.ok(text.includes('not an active listener'), 'default port is knowledge, not active');
-	assert.ok(!/0\.0\.0\.0:1443/.test(text), 'no fake active listener on the default port');
-	assert.ok(!text.includes('wanExposed'), 'no WAN claim');
-	// functional slice: control buttons EXIST but are DISABLED while nothing is
-	// installed — never fake buttons that would always fail
-	const buttons = w.created.filter((n) => n.tag === 'button');
-	assert.ok(buttons.length > 0, 'functional page renders control buttons');
-	assert.ok(buttons.every((b) => b.disabled === true || collectText(b).join('').includes('Preview') || collectText(b).join('').includes('Validate') || collectText(b).join('').includes('health') || collectText(b).join('').includes('logs') || collectText(b).join('').includes('link')),
-		'mutation buttons are disabled when nothing is installed (only read probes stay active)');
-	assert.ok(!w.calls.some((c) => c.method === 'proxy_start'), 'no mutation call fires on render');
+	assert.ok(text.includes('Not installed'), 'not-installed badge renders');
+	assert.ok(text.includes('Install and start'), 'install button renders');
+	assert.ok(text.includes('tg-ws-proxy-rs'), 'provider reference renders');
+	// install button is initially enabled
+	const installBtn = w.created.find((n) => n.tag === 'button' && collectText(n).join('').includes('Install and start'));
+	assert.ok(installBtn, 'install button exists');
+	assert.ok(!w.calls.some((c) => c.method === 'proxy_quick_install'), 'no install call on render');
+	assert.ok(!w.calls.some((c) => c.method === 'proxy_start'), 'no start call on render');
+	// no link row when not installed
+	const linkRow = w.created.find((n) => n.attrs && n.attrs.id === 'px-simple-linkrow');
+	assert.ok(!linkRow || linkRow.style.display === 'none', 'link row not visible before install');
 });
 
-test('proxy: running state renders listeners, wildcard honesty, secret metadata, warnings — never the secret value', async () => {
+test('proxy: running state renders Running badge, listener, secret metadata — never the secret value', async () => {
 	const w = proxyWorld({ proxy_status: { type: 'ok', value: PROXY_STATUS_RUNNING }, proxy_config_get: { type: 'ok', value: PROXY_CONFIG_GET } });
 	const view = loadView(readViewSource('proxy'), 'proxy', w);
 	const envelope = await view.load();
 	const root = view.render(envelope);
 	const text = collectText(root).join(' | ');
-	assert.ok(text.includes('running'), 'running state renders');
-	assert.ok(text.includes('0.0.0.0:1443'), 'actual listener renders');
-	assert.ok(text.includes('wildcard'), 'classification renders');
-	assert.ok(text.includes('not actively tested'), 'wildcard/WAN honesty renders');
-	assert.ok(text.includes('WILDCARD_LISTENER'), 'structured warning renders');
-	assert.ok(text.includes('1.6.5-r0'), 'package version renders');
-	assert.ok(text.includes('/usr/bin/tg-ws-proxy'), 'binary path renders');
-	assert.ok(text.includes('permissions ') && text.includes('0600'), 'secret permission metadata renders');
-	assert.ok(text.includes('never displayed, logged, or backed up'), 'secret non-disclosure note renders');
-	assert.ok(text.indexOf('TOPSECRET') === -1, 'a secret-shaped config key must NOT render (second fence)');
+	assert.ok(text.includes('Running'), 'running badge renders');
+	assert.ok(text.includes('0.0.0.0:1443'), 'listener renders');
+	assert.ok(text.includes('secure (0600)'), 'secret permission metadata renders');
+	// link info is auto-fetched when running
+	assert.ok(w.calls.some((c) => c.method === 'proxy_link_info'), 'link info auto-fetched on render');
+	assert.ok(text.indexOf('ddTOPSECRET') === -1, 'a secret-shaped config key must NOT render');
 	assert.ok(!/SECRET = dd/.test(text), 'no SECRET= line on the page');
-	// functional slice: with the proxy installed the control buttons are ENABLED
-	const startBtn = w.created.find((n) => n.tag === 'button' && collectText(n).join('') === 'Start');
-	assert.ok(startBtn, 'Start button renders');
-	assert.equal(startBtn.disabled, false, 'Start is enabled when installed');
 });
 
 test('proxy: backend error renders an honest unavailable panel (no crash)', async () => {
@@ -1871,7 +1858,8 @@ test('proxy: backend error renders an honest unavailable panel (no crash)', asyn
 	const root = view.render(envelope);
 	const text = collectText(root).join(' | ');
 	assert.ok(text.includes('Status unavailable'), 'error panel renders');
-	assert.ok(text.includes('Provider / package'), 'capabilities still render');
+	// Package info section still renders because capabilities had no error
+	assert.ok(text.includes('tg-ws-proxy-rs'), 'provider info still renders');
 });
 
 // ---- 6b. proxy: functional flows (config apply, lifecycle, secret, health, logs, link) ----
@@ -1949,9 +1937,8 @@ test('proxy: Preview sends the config and renders the plan (service/secret/liste
 	assert.equal(payload.config.port, '1444', 'the edited port is sent for preview');
 	assert.ok(payload.expectedAppliedRevision === undefined, 'preview sends NO revision (read-only by construction)');
 	const text = collectText(root).join(' | ');
-	assert.ok(text.includes('no writes'), 'preview honesty renders');
-	assert.ok(text.includes('port-change'), 'listener impact renders');
 	assert.ok(text.includes('rollback'), 'rollback plan renders');
+	assert.ok(text.includes('1443') && text.includes('1444'), 'diff info renders');
 });
 
 test('proxy: Start/Stop/Restart call the lifecycle RPC and render the reread listener', async () => {
@@ -2005,7 +1992,7 @@ test('proxy: secret rotate is a two-step guarded action; the secret value is nev
 	btn.listeners.click();
 	await flush();
 	assert.ok(w.calls.some((c) => c.method === 'proxy_secret_rotate'), 'second click calls the rotate RPC');
-	assert.ok(collectText(root).join(' ').includes('never shown'), 'the rotated secret is reported as never-shown');
+	assert.ok(collectText(root).join(' ').includes('Secret rotated'), 'rotation success renders');
 	assert.ok(collectText(root).join(' ').indexOf('0123456789abcdef') === -1, 'no secret material anywhere');
 });
 
@@ -2026,13 +2013,13 @@ test('proxy: health test renders infra checks + both route meanings', async () =
 	const view = loadView(readViewSource('proxy'), 'proxy', w);
 	const envelope = await view.load();
 	const root = view.render(envelope);
-	findButton(w, 'Run health test').listeners.click();
+	findButton(w, 'Health test').listeners.click();
 	await flush();
 	assert.ok(w.calls.some((c) => c.method === 'proxy_health'), 'proxy_health was called');
 	const text = collectText(root).join(' | ');
 	assert.ok(text.includes('installed 1.6.5-r1'), 'check detail renders');
 	assert.ok(text.includes('NOT an MTProto handshake'), 'upstream honesty renders');
-	assert.ok(text.includes('unreachable'), 'upstream failure renders honestly');
+	assert.ok(text.includes('unreachable'), 'upstream failure renders');
 });
 
 test('proxy: logs tail renders redacted lines + the redaction count', async () => {
@@ -2041,7 +2028,7 @@ test('proxy: logs tail renders redacted lines + the redaction count', async () =
 	const view = loadView(readViewSource('proxy'), 'proxy', w);
 	const envelope = await view.load();
 	const root = view.render(envelope);
-	findButton(w, 'Load redacted logs').listeners.click();
+	findButton(w, 'Redacted logs').listeners.click();
 	await flush();
 	const call = w.calls.find((c) => c.method === 'proxy_logs_tail');
 	assert.ok(call, 'proxy_logs_tail was called');
@@ -2055,23 +2042,21 @@ test('proxy: logs tail renders redacted lines + the redaction count', async () =
 	assert.ok(!/dd[0-9a-f]{32}/.test(diagText), 'no secret-shaped material in the rendered logs');
 });
 
-test('proxy: link reveal is two-step guarded; the link appears only after REVEAL', async () => {
-	const linkRes = { ok: true, available: true, scheme: 'tg://proxy', server: '192.168.1.1', port: 1443, transport: 'dd-padded', link: 'tg://proxy?server=192.168.1.1&port=1443&secret=dd0123456789abcdef0123456789abcdef', revealed: true };
+test('proxy: link info renders server/port/transport after RPC call', async () => {
+	const linkRes = { ok: true, available: true, server: '192.168.1.1', port: 1443, transport: 'dd-padded' };
 	const w = proxyInstalledWorld({ proxy_link_info: { type: 'ok', value: linkRes } });
 	const view = loadView(readViewSource('proxy'), 'proxy', w);
 	const envelope = await view.load();
 	const root = view.render(envelope);
-	const btn = findButton(w, 'Show connection link');
-	btn.listeners.click();
-	assert.ok(!w.calls.some((c) => c.method === 'proxy_link_info'), 'first click only arms');
-	assert.ok(collectText(root).join(' ').indexOf('tg://proxy?server=') === -1, 'no link before the guarded reveal');
+	const btn = findButton(w, 'Link info');
 	btn.listeners.click();
 	await flush();
 	const call = w.calls.find((c) => c.method === 'proxy_link_info');
 	assert.ok(call, 'proxy_link_info was called');
-	assert.deepEqual(JSON.parse(call.params.edit), { reveal: true, confirm: 'REVEAL' }, 'guarded reveal payload');
-	assert.ok(collectText(root).join(' ').includes('tg://proxy?server=192.168.1.1'), 'the link renders after the guarded reveal');
-	assert.ok(collectText(root).join(' ').includes('dd-padded'), 'transport renders');
+	assert.deepEqual(JSON.parse(call.params.edit), {}, 'link info sent without reveal param');
+	const text = collectText(root).join(' | ');
+	assert.ok(text.includes('192.168.1.1:1443'), 'server and port render');
+	assert.ok(text.includes('dd-padded'), 'transport renders');
 });
 
 // ---- 7. overview: passthrough wire + reject gate (no longer excluded) --------

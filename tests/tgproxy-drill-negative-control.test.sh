@@ -115,12 +115,37 @@ end2=$(grep -n "^# ---- dispatch" "$SMOKE" | cut -d: -f1)
 [ -z "$end2" ] && end2=$(wc -l < "$SMOKE")
 uninstall_body=$(sed -n "$((start2+1)),$((end2-1))p" "$SMOKE" | tr -d '\000-\010\016-\037')
 echo "$uninstall_body" | grep -q "tgproxy-drill.sh.*uninstall" && ok "gate_tgproxy_uninstall delegates to drill uninstall" || bad "gate_tgproxy_uninstall MISSING uninstall delegation"
+echo "$uninstall_body" | grep -q "approve_or_skip" && ok "gate_tgproxy_uninstall uses approve_or_skip" || bad "gate_tgproxy_uninstall MISSING approve_or_skip"
 
 # F3: all block excludes tgproxy gates
 all_block=$(sed -n '/^  all)/,/^    ;;$/p' "$SMOKE")
 for gate in tgproxy tgproxy-reboot tgproxy-uninstall; do
 	echo "$all_block" | grep -qF "$gate" && bad "'all' includes '$gate'" || ok "'all' excludes '$gate'"
 done
+
+echo "[tgproxy-neg] SUITE G — proxy_quick_install wiring"
+
+# G1: proxycfg_quick_install exported in proxycfg.uc
+PCFG="$HERE/zapret2-manager/files/usr/libexec/zapret2-manager/proxycfg.uc"
+grep -q "export const proxycfg_quick_install = function" "$PCFG" && ok "proxycfg_quick_install exported in proxycfg.uc" || bad "proxycfg_quick_install MISSING from proxycfg.uc"
+
+# G2: proxy_quick_install registered in rpcd plugin
+RPC="$HERE/zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc"
+grep -q "proxy_quick_install:" "$RPC" && ok "proxy_quick_install registered in rpcd plugin" || bad "proxy_quick_install MISSING from rpcd plugin"
+
+# G3: proxy_quick_install in ACL write list
+ACL="$HERE/luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json"
+grep -q "proxy_quick_install" "$ACL" && ok "proxy_quick_install in ACL write list" || bad "proxy_quick_install MISSING from ACL"
+
+# G4: quick_install mode in proxy-cli.uc dispatch
+PCLI="$HERE/zapret2-manager/files/usr/libexec/zapret2-manager/proxy-cli.uc"
+grep -q "quick_install" "$PCLI" && ok "quick_install mode in proxy-cli.uc" || bad "quick_install MISSING from proxy-cli.uc"
+
+# G5: quick_install function in proxycfg.uc has both ok() and bad()-style paths
+# (we check for rollback pattern indicating error handling)
+QI_BODY=$(awk '/^export const proxycfg_quick_install = function /{p=1;next} /^export const proxycfg_/{if(p) p=0} p{print}' "$PCFG")
+echo "$QI_BODY" | grep -q "rollback_apply" && ok "quick_install has rollback (bad path)" || bad "quick_install MISSING rollback paths"
+echo "$QI_BODY" | grep -q "rpc_err" && ok "quick_install has rpc_err (error handling)" || bad "quick_install MISSING rpc_err calls"
 
 echo "----------------------------------------"
 if [ "$fails" -eq 0 ]; then

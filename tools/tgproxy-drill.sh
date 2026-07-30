@@ -37,6 +37,18 @@ PIN_VER='1.6.5-r1'
 # SHA-256-verified tarball (54803f09…dc45a) — the trust anchor, not guessed.
 PIN_BIN_SHA256='f45b6206ddb0fc661c58dd168cecb542dc9afa2bdfc48f38cc3e67fc19079bef'
 
+# file_octal_mode PATH — prints octal mode (e.g. 600) from ls -l output,
+# without requiring the `stat` command (not available in all OpenWrt builds).
+file_octal_mode() {
+	local s; s=$(ls -l "$1" 2>/dev/null | awk '{print $1}')
+	case "$s" in
+		-rw-------) echo 600 ;;
+		-rw-r--r--) echo 644 ;;
+		-rwxr-xr-x) echo 755 ;;
+		*)          echo '' ;;
+	esac
+}
+
 ub() { # ub METHOD [PAYLOAD-JSON] — wraps the payload into the {"edit":"…"}
 	# wire form, escaping the quotes (callers pass RAW single-quoted JSON).
 	if [ $# -ge 2 ]; then
@@ -81,19 +93,22 @@ phase_pre() {
 phase_apply() {
 	local ip; ip=$(lan_ip)
 	[ -n "$ip" ] || { bad "LAN address undetectable (no br-lan IPv4)"; return 1; }
+	local cur; cur=$(ub proxy_config_get)
+	local rev; rev=$(printf '%s' "$cur" | jsonfilter -e '@.appliedRevision' 2>/dev/null)
+	[ -z "$rev" ] && rev=0
 	local cfg; cfg='{"enabled":true,"autostart":false,"host":"'"$ip"'","port":1443}'
-	local out; out=$(ub proxy_config_apply '{"config":'"$cfg"',"expectedAppliedRevision":0}')
+	local out; out=$(ub proxy_config_apply '{"config":'"$cfg"',"expectedAppliedRevision":'"$rev"'}')
 	[ "$(jqok "$out")" = "true" ] && ok "proxy_config_apply ok (enabled, host=$ip)" || { bad "apply failed: $out"; return 1; }
-	local m; m=$(stat -c %a /etc/tg-ws-proxy/secret.conf 2>/dev/null)
-	[ "$m" = "600" ] && ok "secret.conf mode 0600" || bad "secret.conf mode $m != 600"
+	local m; m=$(file_octal_mode /etc/tg-ws-proxy/secret.conf)
+	[ "$m" = "600" ] && ok "secret.conf mode 0600" || bad "secret.conf mode ${m:-unknown} != 600"
 	local s; s=$(sed -n 's/^SECRET=//p' /etc/tg-ws-proxy/secret.conf 2>/dev/null | head -1 | tr -d '\r')
 	if [ "${#s}" -eq 32 ] && ! printf '%s' "$s" | grep -q '[^0-9a-f]'; then
 		ok "secret is exactly 32 lowercase hex (value never printed)"
 	else
 		bad "secret format invalid"
 	fi
-	m=$(stat -c %a /etc/tg-ws-proxy/config.conf 2>/dev/null)
-	[ "$m" = "600" ] && ok "config.conf mode 0600" || bad "config.conf mode $m != 600"
+	m=$(file_octal_mode /etc/tg-ws-proxy/config.conf)
+	[ "$m" = "600" ] && ok "config.conf mode 0600" || bad "config.conf mode ${m:-unknown} != 600"
 	[ -n "$(proxy_pid)" ] && ok "process running after enabled apply" || bad "no process after enabled apply"
 	local lis; lis=$(proxy_listeners)
 	printf '%s\n' "$lis" | grep -q "$ip:1443" && ok "LAN-only listener present ($ip:1443)" || bad "expected listener $ip:1443 not found in reread: $lis"
@@ -149,8 +164,8 @@ phase_rotate() {
 	[ "$(jqok "$out")" = "true" ] && ok "proxy_secret_rotate ok" || bad "rotate failed: $out"
 	local s2; s2=$(sed -n 's/^SECRET=//p' /etc/tg-ws-proxy/secret.conf 2>/dev/null | head -1 | tr -d '\r')
 	[ -n "$s1" ] && [ -n "$s2" ] && [ "$s1" != "$s2" ] && ok "secret value rotated (compared, never printed)" || bad "secret did not change across rotate"
-	local m; m=$(stat -c %a /etc/tg-ws-proxy/secret.conf 2>/dev/null)
-	[ "$m" = "600" ] && ok "rotated secret still 0600" || bad "rotated secret mode $m"
+	local m; m=$(file_octal_mode /etc/tg-ws-proxy/secret.conf)
+	[ "$m" = "600" ] && ok "rotated secret still 0600" || bad "rotated secret mode ${m:-unknown}"
 	printf '%s' "$out" | grep -q '"restarted":true' && ok "rotate restarted the running service" || say "DRILL-NOTE  rotate did not restart (service was stopped)"
 	local ip; ip=$(lan_ip)
 	[ -n "$(proxy_pid)" ] && proxy_listeners | grep -q "$ip:1443" && ok "listener verified after rotate-restart"
