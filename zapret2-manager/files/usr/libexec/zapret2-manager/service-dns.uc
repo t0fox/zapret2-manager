@@ -32,7 +32,7 @@
 // Live DNS apply is a SUPERVISED action. This module never mutates the
 // production router from test code.
 
-import { readfile, writefile, stat, unlink, popen, json } from 'fs';
+import { readfile, writefile, stat, unlink, popen } from 'fs';
 import { load_state, save_state } from './profiles-draft.uc';
 import { read_list_file, write_list_file } from './apply.uc';
 
