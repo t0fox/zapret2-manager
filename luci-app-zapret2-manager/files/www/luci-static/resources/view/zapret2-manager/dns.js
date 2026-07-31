@@ -652,7 +652,7 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 				if (avp[ai].profileId === p.id) { pn = avp[ai].providerName; pc = avp[ai].domainCount; break; }
 			}
 			if (!pc) pc = (p.requiredDomains || []).length;
-			var opt = E('option', { value: p.id }, pn + ' \u2014 ' + pc + 'd');
+			var opt = E('option', { value: p.id }, pn);
 			if (cur === p.id) opt.selected = true;
 			sel.appendChild(opt);
 		});
@@ -807,10 +807,12 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 		var appl = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button', 'disabled': !has }, _('Apply'));
 		appl.addEventListener('click', function () {
 			appl.disabled = true; prev.disabled = true; disc.disabled = true;
-			callSdnsApply(JSON.stringify({})).then(function (r) {
-				view._flash = (r && r.ok) ? _('Applied') : _('Apply failed');
-				view._saDraft = null;
-				view.reload();
+			callSdnsSet(JSON.stringify({ selections: draft.selections })).then(function () {
+				callSdnsApply(JSON.stringify({})).then(function (r) {
+					view._flash = (r && r.ok) ? _('Applied') : _('Apply failed');
+					view._saDraft = null;
+					view.reload();
+				})['catch'](function (e) { appl.disabled = false; prev.disabled = false; disc.disabled = false; view._flash = String(e); view.reload(); });
 			})['catch'](function (e) { appl.disabled = false; prev.disabled = false; disc.disabled = false; view._flash = String(e); view.reload(); });
 		});
 		right.appendChild(appl);

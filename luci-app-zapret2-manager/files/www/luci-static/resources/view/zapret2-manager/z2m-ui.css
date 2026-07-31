@@ -463,6 +463,7 @@
 	.z2m-sa-preview-dlg { background: #1e1e1e; }
 	.z2m-sa-preview-dlg .z2m-sa-pv-added { color: #5b9; }
 	.z2m-sa-preview-dlg .z2m-sa-pv-removed { color: #e77; }
+	select.z2m-sa-sel option { background: #222; color: #ddd; }
 }
 
 @media (max-width: 1099px) {
