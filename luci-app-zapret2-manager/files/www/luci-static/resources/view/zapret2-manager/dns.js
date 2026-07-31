@@ -5,7 +5,7 @@
 // Grounding: dnsmasq + UCI + resolvfile. No Windows APIs, no per-adapter model.
 'require rpc';
 
-const DNS_UI_BUILD = 'r46.6.1';
+const DNS_UI_BUILD = 'r46.7.0';
 
 function formatRpcError(error) {
 	if (error == null) return _('Unknown error');
@@ -26,6 +26,7 @@ const callDnsValidate   = rpc.declare({ object: 'zapret2-manager', method: 'dns_
 const callDnsApply      = rpc.declare({ object: 'zapret2-manager', method: 'dns_apply', params: ['edit'], reject: true });
 const callDnsCheck      = rpc.declare({ object: 'zapret2-manager', method: 'dns_check', params: ['edit'], reject: true });
 const callDnsRollback   = rpc.declare({ object: 'zapret2-manager', method: 'dns_rollback', reject: true });
+const callDnsRestoreAuto = rpc.declare({ object: 'zapret2-manager', method: 'dns_restore_auto', reject: true });
 const callProvComp      = rpc.declare({ object: 'zapret2-manager', method: 'dnsprov_components', reject: true });
 const callProvList      = rpc.declare({ object: 'zapret2-manager', method: 'dnsprov_providers', reject: true });
 const callProvDiag      = rpc.declare({ object: 'zapret2-manager', method: 'dnsprov_diagnose', params: ['edit'], reject: true });
@@ -116,7 +117,7 @@ function card(title, body) {
 	].concat(body));
 }
 function callout(type, text) {
-	var cls = { warn: 'z2m-callout z2m-callout-warn', bad: 'z2m-callout z2m-callout-bad', info: 'z2m-callout z2m-callout-info' };
+	var cls = { success: 'z2m-callout z2m-callout-success', warning: 'z2m-callout z2m-callout-warn', warn: 'z2m-callout z2m-callout-warn', error: 'z2m-callout z2m-callout-bad', bad: 'z2m-callout z2m-callout-bad', info: 'z2m-callout z2m-callout-info' };
 	return E('div', { 'class': cls[type] || cls.warn }, text);
 }
 
@@ -267,16 +268,17 @@ return L.view.extend({
 		this._renderSection();
 	},
 
-	showFlash: function (msg) {
+	showFlash: function (msg, type) {
 		if (!this._flashHost) return;
-		this._flash = msg;
+		this._flash = { message: msg, type: type || 'info' };
 		this._showStoredFlash();
 	},
 
 	_showStoredFlash: function () {
 		if (!this._flashHost || !this._flash) return;
 		this._flashHost.innerHTML = '';
-		this._flashHost.appendChild(callout('warn', this._flash));
+		var flash = typeof this._flash === 'string' ? { message: this._flash, type: 'info' } : this._flash;
+		this._flashHost.appendChild(callout(flash.type, flash.message));
 		this._flash = null;
 	},
 
@@ -333,9 +335,32 @@ function setupSection(view, dns, comps, envelope) {
 	// Actions
 	var actions = E('div', { 'class': 'z2m-actions' });
 	var checkBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Check current DNS'));
+	checkBtn.addEventListener('click', function () {
+		if (checkBtn.disabled) return;
+		checkBtn.disabled = true;
+		callDnsCheck(JSON.stringify({})).then(function (res) {
+			if (!res || res.ok !== true) throw new Error(formatRpcError(res));
+			dns._checkResult = res;
+			view.showFlash(_('DNS check completed.'), 'success');
+			return view.reload();
+		}, function (e) {
+			view.showFlash(_('DNS check failed: ') + formatRpcError(e), 'error');
+		}).then(function () { checkBtn.disabled = false; });
+	});
 	var chooseBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button' }, _('Choose DNS'));
 	chooseBtn.addEventListener('click', function () { view._section = 'providers'; view.switchSection(); });
 	var restoreBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Restore automatic DNS'));
+	restoreBtn.addEventListener('click', function () {
+		if (restoreBtn.disabled || !window.confirm(_('Restore DNS from WAN automatically? This changes the router WAN DNS settings.'))) return;
+		restoreBtn.disabled = true;
+		callDnsRestoreAuto().then(function (res) {
+			if (!res || res.ok !== true) throw new Error(formatRpcError(res));
+			view.showFlash(_('Automatic DNS restored.'), 'success');
+			return view.reload();
+		}, function (e) {
+			view.showFlash(_('Restore failed: ') + formatRpcError(e), 'error');
+		}).then(function () { restoreBtn.disabled = false; });
+	});
 	actions.appendChild(checkBtn);
 	actions.appendChild(chooseBtn);
 	actions.appendChild(restoreBtn);
@@ -369,7 +394,12 @@ function buildSetupRows(dns, comps, envelope) {
 
 	var dm = dns.dnsmasq;
 	if (dm) {
-		rows.push(kv(_('dnsmasq'), dm.running ? badge(_('Running'), 'ok') : badge(_('Stopped'), 'bad')));
+		var dmUnknown = !!dns.diagnosticError;
+		var dmLabel = dmUnknown ? _('Unknown') : (dm.running ? _('Running') : (dm.installed ? _('Stopped') : _('Not installed')));
+		var dmClass = dmUnknown ? 'neutral' : (dm.running ? 'ok' : (dm.installed ? 'bad' : 'neutral'));
+		var dmValue = [badge(dmLabel, dmClass)];
+		if (dm.running && dm.version) dmValue.push(E('span', { 'class': 'z2m-dnsmasq-version' }, ' ' + _('version ') + esc(dm.version)));
+		rows.push(kv(_('dnsmasq'), dmValue));
 	} else {
 		rows.push(kv(_('dnsmasq'), badge(_('Unknown'), 'neutral')));
 	}
@@ -399,7 +429,7 @@ function buildSetupRows(dns, comps, envelope) {
 		rows.push(kv(_('Last check'), esc(dns.latestCheck)));
 	}
 
-	var rbAvailable = dns.revision != null || dns.rollbackAvailable;
+	var rbAvailable = dns.rollbackAvailable === true;
 	rows.push(kv(_('Rollback'), rbAvailable ? badge(_('Available'), 'ok') : _('Not available')));
 
 	return rows;
@@ -450,8 +480,29 @@ function providersSection(view, provs, comps, envelope) {
 
 	// Test all button
 	var testAllBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button' }, _('Test all providers'));
-	testAllBtn.addEventListener('click', function () { /* run diag */ });
-	node.appendChild(E('div', { 'class': 'z2m-actions' }, [testAllBtn]));
+	var allResult = E('span', { 'class': 'z2m-provider-result', 'style': 'margin-left:.6em' });
+	testAllBtn.addEventListener('click', function () {
+		if (testAllBtn.disabled) return;
+		testAllBtn.disabled = true;
+		allResult.textContent = _('Testing 0 of ') + items.length + '\u2026';
+		var results = [], index = 0;
+		function next() {
+			if (index >= items.length) {
+				var good = results.filter(function (r) { return r.ok; }).length;
+				allResult.textContent = _('Completed: ') + good + '/' + items.length + ' ' + _('providers passed');
+				testAllBtn.disabled = false;
+				return;
+			}
+			var p = items[index++];
+			allResult.textContent = _('Testing ') + index + ' of ' + items.length + '\u2026';
+			callProvDiag(JSON.stringify({ provider: p.id })).then(function (res) {
+				var probe = res && res.probes && res.probes[0];
+				results.push({ id: p.id, ok: !!(probe && probe.reachable && probe.answered) });
+			}).catch(function () { results.push({ id: p.id, ok: false }); }).then(next);
+		}
+		next();
+	});
+	node.appendChild(E('div', { 'class': 'z2m-actions' }, [testAllBtn, allResult]));
 
 	// Custom provider link
 	var customBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Add custom provider'));
@@ -1115,17 +1166,17 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 				view._saFilter = null;
 				// Tiered banner: header match verifies configuration origin
 				if (r && r.originVerified && r.headerMatch) {
-					view.showFlash(_('Configuration applied — dnsmasq running'));
+					view.showFlash(_('Configuration applied — dnsmasq running'), 'success');
 				} else if (r && r.verified) {
-					view.showFlash(_('Configuration applied — origin unverified'));
+					view.showFlash(_('Configuration applied — origin unverified'), 'warning');
 				} else {
-					view.showFlash(_('Configuration applied'));
+					view.showFlash(_('Configuration applied'), 'success');
 				}
 				view.reload();
 			}).catch(function (e) {
 				view._sdnsOp = null;
 				var msg = formatRpcError(e);
-				view.showFlash(_('Failed: ') + msg);
+				view.showFlash(_('Failed: ') + msg, 'error');
 				view.reload();
 			});
 		});
@@ -1206,11 +1257,11 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 		}).then(function () {
 			view._sdnsOp = null;
 			view._saDraft = null;
-			view.showFlash(_('Apply completed.'));
+			view.showFlash(_('Apply completed.'), 'success');
 			view.reload();
 		}).catch(function (e) {
 			view._sdnsOp = null;
-			view.showFlash(_('Apply ended: ') + formatRpcError(e).slice(0, 120));
+			view.showFlash(_('Apply ended: ') + formatRpcError(e).slice(0, 120), 'error');
 			view.reload();
 		});
 	}
@@ -1515,27 +1566,56 @@ function advancedSection(view, dns, envelope) {
 	var node = E('div');
 	var draft = dns.draft || { entries: [], revision: 0, malformed: false };
 	var applied = dns.applied || [];
+	if (!view._dnsManualDraft) view._dnsManualDraft = (draft.entries || []).map(function (e) { return { domain: e.domain, ip: e.ip, enabled: e.enabled !== false }; });
+	var entries = view._dnsManualDraft;
+	var errors = E('div', { 'class': 'z2m-callout z2m-callout-bad', 'style': 'display:none' });
 
 	// Manual overrides
 	var mcard = card(_('Manual Host Overrides'), [
 		E('p', { 'class': 'cbi-value-description' },
-			_('Pin specific hostnames to IP addresses through dnsmasq addnhosts. These work alongside service-generated mappings and share the same overrides file.'))
+			_('Manual Host Overrides pin hostnames to IPs through a separate manager-owned addnhosts file. Service Access mappings use native dnsmasq UCI server entries. These mechanisms are independent and no longer share a file.'))
 	]);
+	mcard.appendChild(errors);
 
 	if (draft.malformed) {
 		mcard.appendChild(callout('bad', _('Draft is malformed: ') + esc(draft.malformedReason || '?')));
 	} else {
-		var rows = draft.entries || [];
+		var rows = entries;
 		if (!rows.length) {
-			mcard.appendChild(E('div', { 'class': 'z2m-empty' }, _('No manual overrides. Add entries below.')));
-		} else {
-			rows.forEach(function (r, i) {
-				mcard.appendChild(E('div', { 'class': 'z2m-kv' }, [
-					E('span', { 'class': 'z2m-kv-label', 'style': 'font-family:monospace' }, esc(r.domain)),
-					E('span', { 'class': 'z2m-kv-value' }, esc(r.ip))
-				]));
-			});
 		}
+		var table = E('div', { 'class': 'z2m-manual-override-list' });
+		rows.forEach(function (r, i) {
+			var domain = E('input', { 'type': 'text', 'class': 'cbi-input', 'placeholder': _('domain'), 'value': r.domain });
+			var ip = E('input', { 'type': 'text', 'class': 'cbi-input', 'placeholder': _('IPv4'), 'value': r.ip });
+			var enabled = E('input', { 'type': 'checkbox' }); enabled.checked = r.enabled !== false;
+			var remove = E('button', { 'class': 'cbi-button cbi-button-negative', 'type': 'button' }, _('Delete'));
+			remove.addEventListener('click', function () { entries.splice(i, 1); view.switchSection('advanced'); });
+			table.appendChild(E('div', { 'class': 'z2m-manual-override-row' }, [domain, ip, E('label', {}, [enabled, h(_(' Enabled'))]), remove]));
+			r._domain = domain; r._ip = ip; r._enabled = enabled;
+		});
+		mcard.appendChild(table);
+		var newDomain = E('input', { 'type': 'text', 'class': 'cbi-input', 'placeholder': _('domain') });
+		var newIp = E('input', { 'type': 'text', 'class': 'cbi-input', 'placeholder': _('IPv4') });
+		var add = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Add'));
+		add.addEventListener('click', function () { if (!newDomain.value.trim() || !newIp.value.trim()) { errors.textContent = _('Domain and IPv4 are required.'); errors.style.display = ''; return; } entries.push({ domain: newDomain.value.trim(), ip: newIp.value.trim(), enabled: true }); view.switchSection('advanced'); });
+		mcard.appendChild(E('div', { 'class': 'z2m-actions' }, [newDomain, newIp, add]));
+		var save = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button' }, _('Save & Apply'));
+		var discard = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Discard'));
+		save.addEventListener('click', function () {
+			var payload = rows.map(function (r) { return { domain: r._domain ? r._domain.value : r.domain, ip: r._ip ? r._ip.value : r.ip, enabled: r._enabled ? r._enabled.checked : r.enabled }; });
+			save.disabled = true; discard.disabled = true; errors.style.display = 'none';
+			callDnsValidate(JSON.stringify({ entries: payload })).then(function (v) {
+				if (!v || v.valid !== true) { errors.textContent = (v.errors || []).map(function (e) { return (e.index >= 0 ? '#' + (e.index + 1) + ': ' : '') + e.reason; }).join('; ') || _('Validation failed'); errors.style.display = ''; throw new Error(_('Validation failed')); }
+				return callDnsSet(JSON.stringify({ entries: payload, revision: draft.revision }));
+			}).then(function () { return callDnsApply(JSON.stringify({ mode: 'apply' })); }).then(function (res) {
+				if (!res || res.ok !== true) throw new Error(formatRpcError(res));
+				view.showFlash(_('Manual overrides applied.'), 'success');
+				view._dnsManualDraft = null;
+				return view.reload();
+			}).catch(function (e) { errors.textContent = formatRpcError(e); errors.style.display = ''; view.showFlash(_('Manual overrides failed: ') + formatRpcError(e), 'error'); }).then(function () { save.disabled = false; discard.disabled = false; });
+		});
+		discard.addEventListener('click', function () { view._dnsManualDraft = null; view.showFlash(_('Draft discarded.'), 'info'); view.reload(); });
+		mcard.appendChild(E('div', { 'class': 'z2m-actions' }, [save, discard]));
 	}
 	node.appendChild(mcard);
 
@@ -1543,8 +1623,10 @@ function advancedSection(view, dns, envelope) {
 	var fcard = card(_('Force LAN Clients Through Router DNS'), [
 		E('div', { 'class': 'z2m-callout z2m-callout-info' },
 			_('Redirects LAN client DNS queries (port 53) to the router. Does NOT intercept encrypted DNS (DoH/DoT). Off by default.')),
-		E('p', { 'class': 'cbi-value-description' },
-			_('Status: ') + badge(_('Off'), 'neutral')),
+		E('p', { 'class': 'cbi-value-description' }, [
+			h(_('Status: ')),
+			badge(_('Off'), 'neutral')
+		]),
 		E('p', { 'class': 'cbi-value-description' },
 			_('This feature requires manual firewall rule configuration. It is not activated by opening this page.'))
 	]);
@@ -1563,9 +1645,20 @@ function historySection(view, dns, sdnsStatus) {
 	var sdnsEvents = sdnsStatus.events || [];
 
 	var allEvents = [].concat(
-		(dnsEvents || []).map(function (e) { return { src: 'dns', ts: e.ts, action: e.action }; }),
-		(sdnsEvents || []).map(function (e) { return { src: 'sdns', ts: e.ts, action: e.action }; })
+		(dnsEvents || []).map(function (e) { return Object.assign({ src: 'dns' }, e); }),
+		(sdnsEvents || []).map(function (e) { return Object.assign({ src: 'sdns' }, e); })
 	).filter(function (e) { return e.ts; }).sort(function (a, b) { return (a.ts > b.ts) ? -1 : (a.ts < b.ts) ? 1 : 0; });
+	var operationRows = {};
+	allEvents.forEach(function (ev) {
+		var op = ev.operationId || (ev.ts + ':' + ev.action);
+		var pending = /async|queued|pending|running/i.test(ev.action || '');
+		var final = /success|failed|rollback|rolled/i.test(ev.action || '') || ev.status;
+		var old = operationRows[op];
+		if (!old || (!pending && final) || /async|queued|pending|running/i.test(old.action || '')) {
+			operationRows[op] = Object.assign({}, old, ev, { ts: ev.ts || old.ts });
+		}
+	});
+	allEvents = Object.keys(operationRows).map(function (op) { return operationRows[op]; }).sort(function (a, b) { return (a.ts > b.ts) ? -1 : (a.ts < b.ts) ? 1 : 0; });
 
 	var limit = view._eventLimit || 20;
 	var shown = allEvents.slice(0, limit);
@@ -1575,10 +1668,11 @@ function historySection(view, dns, sdnsStatus) {
 		hcard.appendChild(E('div', { 'class': 'z2m-empty' }, _('No events recorded.')));
 	} else {
 		shown.forEach(function (ev) {
-			var sBadge = ev.src === 'sdns' ? badge(_('Service'), 'ok') : badge(_('DNS'), 'neutral');
+			var evStatus = ev.status || (/failed/i.test(ev.action || '') ? 'failed' : (/rollback|rolled/i.test(ev.action || '') ? 'rolled_back' : 'success'));
+			var sBadge = evStatus === 'failed' ? badge(_('Failed'), 'bad') : (evStatus === 'rolled_back' ? badge(_('Rolled back'), 'warn') : badge(_('Success'), 'ok'));
 			hcard.appendChild(E('div', { 'class': 'z2m-kv' }, [
 				E('span', { 'class': 'z2m-kv-label', 'style': 'font-family:monospace;font-size:.82em' }, esc(ev.ts || '?')),
-				E('span', { 'class': 'z2m-kv-value' }, [sBadge, ' ' + esc(ev.action)])
+				E('span', { 'class': 'z2m-kv-value' }, [sBadge, E('span', {}, ' ' + esc(ev.action || _('DNS operation'))), ev.operationId ? E('span', { 'title': ev.operationId, 'style': 'display:block;font-size:.78em' }, _('operationId: ') + esc(ev.operationId)) : null, ev.revision != null ? E('span', {}, ' ' + _('rev ') + ev.revision) : null, ev.providerCount != null ? E('span', {}, ' ' + ev.providerCount + _(' providers')) : null, ev.routeCount != null ? E('span', {}, ' ' + ev.routeCount + _(' routes')) : null].filter(Boolean))
 			]));
 		});
 	}
@@ -1596,10 +1690,10 @@ function historySection(view, dns, sdnsStatus) {
 	// Rollback
 	var rcard = card(_('Rollback'), [
 		kv(_('DNS overrides'), dns.revision != null ? _('rev ') + dns.revision : _('N/A')),
-		kv(_('Service mappings'), (sdnsStatus.applied && sdnsStatus.applied.revision != null) ? _('rev ') + sdnsStatus.applied.revision : _('N/A'))
+		kv(_('Service mappings'), sdnsStatus.appliedRevision != null ? _('rev ') + sdnsStatus.appliedRevision : _('N/A'))
 	]);
 
-	var dnsRbAvailable = dns.revision != null || dns.rollbackAvailable;
+	var dnsRbAvailable = dns.rollbackAvailable === true;
 	var dnsRb = E('button', {
 		'class': 'cbi-button cbi-button-negative',
 		'type': 'button',
@@ -1607,14 +1701,18 @@ function historySection(view, dns, sdnsStatus) {
 		'title': dnsRbAvailable ? '' : _('No rollback snapshot')
 	}, _('Rollback DNS overrides'));
 	if (dnsRbAvailable) dnsRb.addEventListener('click', function () {
+		if (!window.confirm(_('Rollback DNS overrides to the last valid snapshot?'))) return;
 		dnsRb.disabled = true;
 		callDnsRollback().then(function (res) {
-			view._flash = (res && res.ok === true) ? _('Rolled back.') : _('Rollback failed.');
-			view.reload();
+			if (!res || res.ok !== true) throw new Error(formatRpcError(res));
+			view.showFlash(_('DNS overrides rolled back.'), 'success');
+			return view.reload();
+		}).catch(function (e) {
+			view.showFlash(_('Rollback failed: ') + formatRpcError(e), 'error');
 		});
 	});
 
-	var sdnsRbAvailable = sdnsStatus.applied && sdnsStatus.applied.revision != null;
+	var sdnsRbAvailable = sdnsStatus.rollbackAvailable === true;
 	var sdnsRb = E('button', {
 		'class': 'cbi-button cbi-button-negative',
 		'type': 'button',
@@ -1622,10 +1720,14 @@ function historySection(view, dns, sdnsStatus) {
 		'title': sdnsRbAvailable ? '' : _('No rollback snapshot')
 	}, _('Rollback service mappings'));
 	if (sdnsRbAvailable) sdnsRb.addEventListener('click', function () {
+		if (!window.confirm(_('Rollback Service DNS to the last successful native operation?'))) return;
 		sdnsRb.disabled = true;
 		callSdnsRollback().then(function (res) {
-			view._flash = (res && res.ok === true) ? _('Rolled back.') : _('Rollback failed.');
-			view.reload();
+			if (!res || res.ok !== true) throw new Error(formatRpcError(res));
+			view.showFlash(_('Service mappings rolled back.'), 'success');
+			return view.reload();
+		}).catch(function (e) {
+			view.showFlash(_('Rollback failed: ') + formatRpcError(e), 'error');
 		});
 	});
 

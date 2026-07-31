@@ -18,7 +18,7 @@
 					"profiles_delete", "profiles_import_applied", "profiles_apply",
 					"blockcheck_start", "blockcheck_cancel",
 					"backup_create", "backup_restore", "backup_delete",
-					"dns_set", "dns_apply", "dns_rollback",
+					"dns_set", "dns_apply", "dns_rollback", "dns_restore_auto",
 					"catalog_apply",
 					"health_matrix_start", "health_matrix_job_cancel",
 					"proxy_config_apply", "proxy_start", "proxy_stop",

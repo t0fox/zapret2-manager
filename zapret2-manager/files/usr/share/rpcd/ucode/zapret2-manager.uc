@@ -394,6 +394,7 @@ function dns_apply_method(req) {
 }
 function dns_check_method(req) { return cli_edit_action(DNS_CLI, 'check', req, 'dns'); }
 function dns_rollback_method(req) { return cli_action(DNS_CLI, 'rollback'); }
+function dns_restore_auto_method(req) { return cli_action(DNS_CLI, 'restore-auto'); }
 
 // ---- service catalog (Phase B) -------------------------------------------------
 const CATALOG_CLI = '/usr/libexec/zapret2-manager/catalog-cli.uc';
@@ -524,6 +525,7 @@ return {
 		dns_apply:         { args: { edit: 'string' }, call: function (req) { return dns_apply_method(req); } },
 		dns_check:         { args: { edit: 'string' }, call: function (req) { return dns_check_method(req); } },
 		dns_rollback:      { call: function (req) { return dns_rollback_method(req); } },
+		dns_restore_auto:  { call: function (req) { return dns_restore_auto_method(req); } },
 		catalog_list:      { call: function (req) { return catalog_list_method(req); } },
 		catalog_get:       { args: { edit: 'string' }, call: function (req) { return catalog_get_method(req); } },
 		catalog_status:    { call: function (req) { return catalog_status_method(req); } },

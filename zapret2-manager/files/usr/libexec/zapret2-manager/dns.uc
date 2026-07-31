@@ -35,6 +35,29 @@ function run(cmd) {
 	return { out: out, rc: rc };
 }
 
+function active_dnsmasq() {
+	let r = run("ubus call service list '{\"name\":\"dnsmasq\"}'"), root = null;
+	try { root = json(r.out); } catch (e) { return { diagnosticError: 'invalid ubus dnsmasq response' }; }
+	let instances = root && root.dnsmasq ? root.dnsmasq.instances || {} : {};
+	for (let section in instances) {
+		let inst = instances[section];
+		if (inst && inst.running === true) return { section: section };
+	}
+	return { section: null };
+}
+
+function dnsmasq_version() {
+	let r = run('dnsmasq --version');
+	if (r.rc != 0) return { installed: false, version: null };
+	let m = match(r.out || '', /Dnsmasq version ([0-9][0-9.]*)/i);
+	if (!m) m = match(r.out || '', /version ([0-9][0-9.]*)/i);
+	return { installed: true, version: m ? m[1] : null };
+}
+
+function dns_snapshot_available() {
+	return stat(SNAP_DIR + '/dhcp.conf') != null && stat(SNAP_DIR + '/state.json') != null;
+}
+
 function err(code, message, stage) {
 	return { ok: false, stage: (stage != null) ? stage : null, error: { code: code, message: message } };
 }
@@ -246,6 +269,8 @@ export const dns_get = function() {
 	let registered = false;
 	for (let i = 0; i < length(conf.addnhosts); i++)
 		if (conf.addnhosts[i] == OVERRIDES_PATH) registered = true;
+	let dm = dnsmasq_version();
+	let active = active_dnsmasq();
 	return {
 		ok: true,
 		resolver: {
@@ -255,6 +280,14 @@ export const dns_get = function() {
 			resolvfile: conf.resolvfile,
 			dnsmasqAddressEntries: conf.addressEntries
 		},
+		dnsmasq: {
+			installed: dm.installed,
+			running: active.section != null,
+			version: dm.version
+		},
+		diagnosticError: active.diagnosticError || null,
+		revision: draft.revision,
+		rollbackAvailable: dns_snapshot_available(),
 		overridesPath: OVERRIDES_PATH,
 		registered: registered,
 		applied: applied,
@@ -483,7 +516,7 @@ export const dns_apply_run = function() {
 };
 
 export const dns_rollback = function() {
-	if (!stat(SNAP_DIR + '/dhcp.conf') && !stat(SNAP_DIR + '/overrides.hosts'))
+	if (!dns_snapshot_available())
 		return err('ESTATE', 'no DNS snapshot to roll back to');
 	run('cp -f ' + SNAP_DIR + '/dhcp.conf ' + DHCP_CONF + ' 2>/dev/null');
 	restore_overrides_file();
@@ -492,13 +525,16 @@ export const dns_rollback = function() {
 	// survive the rollback)
 	let rl = run('/etc/init.d/dnsmasq restart');
 	let checks = verify_dns([]);
-	return {
+	let out = {
 		ok: checks.processAlive && checks.portListening,
 		action: 'restart',
 		reloadRc: rl.rc,
 		verify: checks,
 		note: 'snapshot restored and dnsmasq restarted'
 	};
+	let ls = load_state();
+	if (ls.ok && type(ls.state.dns) == 'object') out.revision = ls.state.dns.revision;
+	return out;
 };
 
 export const dns_check = function(input) {
@@ -524,4 +560,21 @@ export const dns_check = function(input) {
 		push(results, { domain: e.domain, expectedIp: e.ip, matched: found });
 	}
 	return { ok: true, results: results, allMatch: allMatch };
+};
+
+export const dns_restore_auto = function() {
+	let snap = '/tmp/zapret2-manager/last-good/dns-auto';
+	run('mkdir -p ' + snap);
+	run('uci export network > ' + snap + '/network.uci');
+	let change = run("uci set network.wan.peerdns='1'; uci delete network.wan.dns; uci commit network; /etc/init.d/network reload");
+	if (change.rc != 0) {
+		if (stat(snap + '/network.uci')) run('uci -q import network < ' + snap + '/network.uci; uci commit network; /etc/init.d/network reload');
+		return err('ETARGET', 'failed to restore automatic WAN DNS', 'apply');
+	}
+	let check = run("ubus call network.interface.wan status");
+	if (check.rc != 0) {
+		if (stat(snap + '/network.uci')) run('uci -q import network < ' + snap + '/network.uci; uci commit network; /etc/init.d/network reload');
+		return err('EVERIFY', 'WAN status unavailable after restoring automatic DNS', 'verify');
+	}
+	return { ok: true, action: 'restore-automatic', snapshot: snap, peerdns: true };
 };

@@ -116,11 +116,38 @@ function fail_and_rollback(code, message) {
 	exit(1);
 }
 
+function rollback_job() {
+	let pre = job.nativeUciPrecondition;
+	if (!pre || type(job.previousState) != 'string') fail_before_write('EJOBSNAPSHOT', 'rollback snapshot is incomplete');
+	let active = active_dnsmasq();
+	if (!active || active.section != pre.activeSection) fail_before_write('ECONFLICT', 'active dnsmasq section changed');
+	let loaded = load_cursor(active.section);
+	if (!loaded) fail_before_write('ETARGET', 'active dnsmasq UCI section unavailable');
+	let current = list_value(loaded.all, 'server');
+	if (!same_list(current, job.expectedCurrentServer || [])) fail_before_write('ECONFLICT', 'dnsmasq server list changed since apply');
+	write_job({ phase: 'mutating', finished: false });
+	if (!restore_uci() || !restore_legacy_files()) fail_before_write('EUCIWRITE', 'cannot restore native dnsmasq snapshot');
+	write_job({ phase: 'reloading' });
+	if (run('/etc/init.d/dnsmasq restart').rc != 0) fail_before_write('ERESTART', 'dnsmasq restart failed');
+	let wait = 0;
+	active = null;
+	while (wait < 10) { active = active_dnsmasq(); if (active && stat(active.config)) break; run('sleep 1'); wait++; }
+	if (!active || !stat(active.config)) fail_before_write('EVERIFY', 'dnsmasq not running after rollback');
+	if (run('dnsmasq --test -C ' + active.config).rc != 0) fail_before_write('ECONFIGTEST', 'effective config test failed after rollback');
+	let q = run("sh -c 'nslookup example.com 127.0.0.1 >/dev/null 2>&1 & p=$!; (sleep 3; kill $p 2>/dev/null) & t=$!; wait $p; r=$?; kill $t 2>/dev/null; exit $r'");
+	if (q.rc != 0) fail_before_write('EVERIFY', 'localhost DNS query failed after rollback');
+	if (!restore_state()) fail_before_write('ESTATE', 'state restore failed');
+	write_job({ phase: 'success', finished: true, verified: true, rolledBack: true, finishedAt: now() });
+	try { unlink(lockFile); } catch (e) {}
+	exit(0);
+}
+
 jobFile = ARGV[0];
 if (!jobFile || !stat(jobFile)) exit(1);
 try { job = json(readfile(jobFile)); } catch (e) {}
 if (!job || type(job) != 'object') exit(1);
 statePath = job.statePath || '/etc/zapret2-manager/service-dns-state.json';
+if (job.kind == 'rollback') rollback_job();
 let pre = job.nativeUciPrecondition;
 if (!pre || type(pre) != 'object') fail_before_write('EJOBPRECONDITION', 'native UCI precondition missing');
 

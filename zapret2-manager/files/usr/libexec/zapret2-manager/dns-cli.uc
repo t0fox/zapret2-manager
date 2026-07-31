@@ -12,7 +12,7 @@
 //   ucode dns-cli.uc check <file>       → {"domain","ip"}? (or all applied)
 
 import { readfile, popen } from 'fs';
-import { dns_get, dns_set, dns_validate, dns_apply_preview, dns_apply_run, dns_rollback, dns_check } from './dns.uc';
+import { dns_get, dns_set, dns_validate, dns_apply_preview, dns_apply_run, dns_rollback, dns_check, dns_restore_auto } from './dns.uc';
 
 const LOCKFILE = '/tmp/zapret2-manager/state.lock';
 
@@ -53,7 +53,7 @@ if (mode == null) {
 	exit(1);
 }
 
-if ((mode == 'set' || mode == 'apply' || mode == 'rollback') && getenv('Z2M_DFLOCKED') == null && have_flock()) {
+if ((mode == 'set' || mode == 'apply' || mode == 'rollback' || mode == 'restore-auto') && getenv('Z2M_DFLOCKED') == null && have_flock()) {
 	if (flock_wrap(mode, ARGV[1])) exit(0);
 }
 
@@ -71,6 +71,8 @@ if (mode == 'get') {
 	print(sprintf("%J", dns_rollback()) + '\n');
 } else if (mode == 'check') {
 	print(sprintf("%J", dns_check(read_args(ARGV[1]))) + '\n');
+} else if (mode == 'restore-auto') {
+	print(sprintf("%J", dns_restore_auto()) + '\n');
 } else {
 	print('usage: ucode dns-cli.uc get | set <f> | validate <f> | preview | apply | rollback | check <f>\n');
 	exit(1);
