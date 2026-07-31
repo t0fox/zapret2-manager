@@ -57,9 +57,6 @@ function service_action(action) {
 	let out = p.read('all');
 	if (!out) out = '';
 	p.close();
-	// explicit null check (no nullish-coalescing — point 6): jparse returns
-	// null on 'null' or nothing-parsable; only null falls back to the
-	// no-output envelope.
 	try {
 		let parsed = json(out);
 		if (parsed != null) return parsed;
@@ -299,6 +296,7 @@ function orchestra_capabilities_method(req) { return cli_action(ORCH_CLI, 'capab
 function orchestra_status_method(req) { return cli_action(ORCH_CLI, 'status'); }
 function orchestra_events_method(req) { return cli_action(ORCH_CLI, 'events'); }
 function orchestra_history_method(req) { return cli_action(ORCH_CLI, 'history'); }
+function orchestra_ratings_get_method(req) { return cli_action(ORCH_CLI, 'ratings_get'); }
 
 // ---- DNS providers + component diagnostics (Phase E) -----------------------------
 const DNSPROV_CLI = '/usr/libexec/zapret2-manager/dnsprov-cli.uc';
@@ -451,6 +449,7 @@ return {
 		orchestra_status:  { call: function (req) { return orchestra_status_method(req); } },
 		orchestra_events:  { call: function (req) { return orchestra_events_method(req); } },
 		orchestra_history: { call: function (req) { return orchestra_history_method(req); } },
+		orchestra_ratings_get: { call: function (req) { return orchestra_ratings_get_method(req); } },
 		dnsprov_components: { call: function (req) { return dnsprov_components_method(req); } },
 		dnsprov_providers: { call: function (req) { return dnsprov_providers_method(req); } },
 		dnsprov_diagnose: { args: { edit: 'string' }, call: function (req) { return dnsprov_diagnose_method(req); } },

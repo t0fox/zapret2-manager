@@ -608,16 +608,18 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 		catMap[groupId].push(svc);
 	});
 
-	// Render each category group
+	// Render each category group (hide empty)
 	CAT_GROUPS.forEach(function (group) {
 		var svcs = catMap[group.id] || [];
 		var catHead = E('div', { 'class': 'z2m-sa-cathead', 'data-cat': group.id,
+			'style': svcs.length === 0 ? 'display:none' : '',
 			'onclick': function () { toggleCollapse(this); } }, [
 			E('span', { 'class': 'z2m-sa-cat-arr' }, '▼'),
-			esc(group.label),
+			E('span', { 'class': 'z2m-sa-cat-title' }, esc(group.label)),
 			E('span', { 'class': 'z2m-sa-cat-count' }, svcs.length + ' ' + _('services'))
 		]);
-		var catBody = E('div', { 'class': 'z2m-sa-catbody', 'data-cat': group.id });
+		var catBody = E('div', { 'class': 'z2m-sa-catbody', 'data-cat': group.id,
+			'style': svcs.length === 0 ? 'display:none' : '' });
 		catalogEl.appendChild(catHead);
 		catalogEl.appendChild(catBody);
 	});
@@ -664,9 +666,10 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 		metaBadges.push(E('span', {}, dc + ' ' + _('domains')));
 
 		var left = E('div', { 'class': 'z2m-sa-name' }, [
-			E('div', {}, [esc(label), sublabel ? E('span', { 'style': 'font-size:.82em;color:var(--cbi-desc);margin-left:4px' }, esc(sublabel)) : null].filter(Boolean)),
+			E('div', { 'class': 'z2m-sa-name-title' }, esc(label)),
+			sublabel ? E('div', { 'class': 'z2m-sa-name-sub' }, esc(sublabel)) : null,
 			E('div', { 'class': 'z2m-sa-meta' }, metaBadges)
-		]);
+		].filter(Boolean));
 
 		// Right: selector + details button
 		var sel = E('select', { 'class': 'z2m-sa-sel', 'data-svc': svc, 'aria-label': _('Provider for ') + label,

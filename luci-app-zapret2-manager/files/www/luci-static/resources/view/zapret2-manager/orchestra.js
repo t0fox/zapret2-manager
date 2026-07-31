@@ -4,12 +4,13 @@
 // adapter over upstream zapret-auto.lua. Simple Mode by default;
 // Technical details collapsed. Honest about what is and isn't available.
 
-'require rpc';
+'use require';
 
 var callOrchCapabilities = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_capabilities', reject: true });
 var callOrchStatus = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_status', reject: true });
 var callOrchEvents = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_events', reject: true });
 var callOrchHistory = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_history', reject: true });
+var callOrchRatings = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_ratings_get', reject: true });
 
 function injectCSS() {
 	if (document.getElementById('z2m-ui-css')) return;
@@ -38,13 +39,14 @@ return L.view.extend({
 			});
 		}
 		return Promise.all([
-			grab(callOrchCapabilities), grab(callOrchStatus), grab(callOrchEvents), grab(callOrchHistory)
+			grab(callOrchCapabilities), grab(callOrchStatus), grab(callOrchEvents), grab(callOrchHistory), grab(callOrchRatings)
 		]).then(function (r) {
 			return {
 				capError: r[0].loadError, capabilities: r[0].data,
 				statusError: r[1].loadError, status: r[1].data,
 				eventsError: r[2].loadError, events: r[2].data,
-				historyError: r[3].loadError, history: r[3].data
+				historyError: r[3].loadError, history: r[3].data,
+				ratingsError: r[4].loadError, ratings: r[4].data
 			};
 		});
 	},
@@ -54,6 +56,7 @@ return L.view.extend({
 		envelope = envelope || {};
 		var st = envelope.status || {};
 		var caps = envelope.capabilities || {};
+		var ratings = envelope.ratings || {};
 
 		if (envelope.statusError) {
 			return E('div', { 'class': 'z2m-page' }, [
@@ -78,6 +81,7 @@ return L.view.extend({
 		container.appendChild(this.limitationsCard(st));
 		container.appendChild(this.diagSection(st, envelope.events, envelope.eventsError));
 		container.appendChild(this.historySection(envelope.history, envelope.historyError));
+		container.appendChild(this.ratingsSection(ratings, envelope.ratingsError));
 		container.appendChild(this.technicalDetails(st, caps));
 		return container;
 	},
@@ -301,6 +305,68 @@ return L.view.extend({
 					E('th', {}, _('Timestamp'))
 				])
 			].concat(rows))));
+
+		return node;
+	},
+
+	// ---- Ratings section (new for Slice 2) ----
+	ratingsSection: function (ratings, ratingsError) {
+		var node = E('div', { 'class': 'cbi-section' }, [
+			E('h3', {}, _('Adaptive engine ratings'))
+		]);
+
+		if (ratingsError) {
+			node.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-warn' },
+				_('Ratings unavailable: ') + htmlesc(ratingsError)));
+			return node;
+		}
+
+		ratings = ratings || {};
+		if (!ratings.available || !ratings.entries || !ratings.entries.length) {
+			node.appendChild(E('div', { 'class': 'z2m-empty' },
+				_(ratings.note || 'Not collecting ratings — no manager observation history available')));
+			return node;
+		}
+
+		node.appendChild(E('div', { 'class': 'cbi-value-description' },
+			htmlesc(ratings.label || '') + ' (' + ratings.total + ' entries)'));
+
+		if (ratings.annotated) {
+			node.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-info' },
+				htmlesc(ratings.note || 'Ratings are a read-only aggregation, not a learning engine.')));
+		}
+
+		var rows = (ratings.entries || []).map(function (e) {
+			// Only show a subset of fields
+			var domain = htmlesc(e.normalizedDomain || e.domain || '?');
+			var askey = htmlesc(e.askey || 'N/A');
+			var strategy = e.strategyId != null ? e.strategyId : '-';
+			var prevStrategy = e.previousStrategyId != null ? e.previousStrategyId : '-';
+			
+			return E('tr', {}, [
+				E('td', {}, domain),
+				E('td', {}, askey),
+				E('td', {}, strategy),
+				E('td', {}, prevStrategy),
+				E('td', {}, e.selectedCount != null ? String(e.selectedCount) : '-')
+			]);
+		});
+
+		node.appendChild(E('div', { 'class': 'z2m-table-wrap' },
+			E('table', { 'class': 'table' }, [
+				E('tr', {}, [
+					E('th', {}, _('Domain')),
+					E('th', {}, _('Protocol')),
+					E('th', {}, _('Strategy')),
+					E('th', {}, _('Previous')),
+					E('th', {}, _('Selections'))
+				])
+			].concat(rows))));
+
+		if (ratings.bounded) {
+			node.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-warn' },
+				_('Showing limited view (bounded at 200 entries). Request full history through API if needed.')));
+		}
 
 		return node;
 	},
