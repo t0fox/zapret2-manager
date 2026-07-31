@@ -628,11 +628,16 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 		catHead.addEventListener('click', function () { toggleCollapse(this); });
 		var catBody = E('div', { 'class': 'z2m-sa-catbody', 'data-cat': group.id,
 			'style': svcs.length === 0 ? 'display:none' : '' });
+		allHeads.push(catHead);
+		allBodies.push(catBody);
 		catalogEl.appendChild(catHead);
 		catalogEl.appendChild(catBody);
 	});
 
 	// ── Render service rows ──
+	var allRows = [];
+	var allHeads = [];
+	var allBodies = [];
 	serviceOrder.forEach(function (svc) {
 		var rawCat = (SERVICE_CATEGORIES[svc] || 'other').toLowerCase();
 		var groupId = 'Other';
@@ -715,18 +720,21 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 
 		// Detail panel
 		var detailPanel = buildDetailPanel(svc, curSel, profiles, providerName, avp);
-		var catBody = catalogEl.querySelector('[data-cat="' + groupId + '"]');
+		var catBody = null;
+		for (var cbi = 0; cbi < allBodies.length; cbi++) {
+			if (allBodies[cbi].getAttribute('data-cat') === groupId) { catBody = allBodies[cbi]; break; }
+		}
 		if (catBody) {
 			catBody.appendChild(row);
 			catBody.appendChild(detailPanel);
 		}
+		allRows.push(row);
 	});
 
 	grid.appendChild(catalogEl);
 
 	// ── Pending changes sidebar ──
 	var sidebar = E('div', { 'class': 'z2m-sa-sidebar', 'id': 'z2m-sa-sidebar' });
-	// Initial population (before DOM insertion)
 	buildPendingPanelContent(sidebar);
 	grid.appendChild(sidebar);
 
@@ -763,24 +771,26 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 	}
 
 	function expandAll(expand) {
-		var heads = node.querySelectorAll('.z2m-sa-cathead');
-		for (var i = 0; i < heads.length; i++) {
-			var h = heads[i];
-			var b = h.nextElementSibling;
-			if (!b || !b.classList.contains('z2m-sa-catbody')) continue;
+		for (var i = 0; i < allHeads.length; i++) {
+			var h = allHeads[i];
+			var b = allBodies[i];
+			if (!b) continue;
 			if (expand) { h.classList.remove('collapsed'); b.classList.remove('collapsed'); }
 			else { h.classList.add('collapsed'); b.classList.add('collapsed'); }
 		}
 	}
 
 	function expandActive() {
-		var rows = node.querySelectorAll('.z2m-sa-row');
-		for (var i = 0; i < rows.length; i++) {
-			var r = rows[i];
+		for (var i = 0; i < allRows.length; i++) {
+			var r = allRows[i];
 			if (r.getAttribute('data-enabled') === '1') {
 				var catId = r.getAttribute('data-cat');
-				var head = node.querySelector('.z2m-sa-cathead[data-cat="' + catId + '"]');
-				if (head && head.classList.contains('collapsed')) toggleCollapse(head);
+				for (var j = 0; j < allHeads.length; j++) {
+					if (allHeads[j].getAttribute('data-cat') === catId && allHeads[j].classList.contains('collapsed')) {
+						toggleCollapse(allHeads[j]);
+						break;
+					}
+				}
 			}
 		}
 	}
@@ -790,54 +800,50 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 		var cf = catFilter.value;
 		var sf = stateFilter.value;
 		var visible = 0;
-		var rows = node.querySelectorAll('.z2m-sa-row');
-		for (var i = 0; i < rows.length; i++) {
-			var r = rows[i];
+		for (var i = 0; i < allRows.length; i++) {
+			var r = allRows[i];
 			var svc = r.getAttribute('data-svc');
-			var label = (SERVICE_LABELS[svc] || svc).toLowerCase();
+			var svcLabel = (SERVICE_LABELS[svc] || svc).toLowerCase();
 			var sub = (SERVICE_SUBLABEL[svc] || '').toLowerCase();
-			var cat = r.getAttribute('data-cat');
+			var cats = r.getAttribute('data-cat');
 			var enabled = r.getAttribute('data-enabled') === '1';
 			var changed = r.getAttribute('data-changed') === '1';
 			var selPv = (draft.selections[svc] || 'off');
 			var pvName = (providerName[selPv] || selPv).toLowerCase();
 
 			var show = true;
-			if (q && label.indexOf(q) < 0 && sub.indexOf(q) < 0 && svc.indexOf(q) < 0 && pvName.indexOf(q) < 0) show = false;
-			if (cf && cat !== cf) show = false;
+			if (q && svcLabel.indexOf(q) < 0 && sub.indexOf(q) < 0 && svc.indexOf(q) < 0 && pvName.indexOf(q) < 0) show = false;
+			if (cf && cats !== cf) show = false;
 			if (sf === 'enabled' && !enabled) show = false;
 			if (sf === 'disabled' && enabled) show = false;
 			if (sf === 'changed' && !changed) show = false;
 
 			r.style.display = show ? '' : 'none';
-			// Also hide sibling detail panel
 			var dp = r.nextElementSibling;
-			if (dp && dp.classList.contains('z2m-sa-detail-panel')) dp.style.display = show ? dp.style.display : 'none';
+			if (dp && dp.classList.contains('z2m-sa-detail-panel')) dp.style.display = show ? (dp.classList.contains('open') ? 'block' : 'none') : 'none';
 			if (show) visible++;
 		}
 		// Auto-expand groups with visible results
 		var groupsSeen = {};
-		for (var i2 = 0; i2 < rows.length; i2++) {
-			if (rows[i2].style.display !== 'none') groupsSeen[rows[i2].getAttribute('data-cat')] = true;
+		for (var i2 = 0; i2 < allRows.length; i2++) {
+			if (allRows[i2].style.display !== 'none') groupsSeen[allRows[i2].getAttribute('data-cat')] = true;
 		}
-		var heads = node.querySelectorAll('.z2m-sa-cathead');
-		for (var i3 = 0; i3 < heads.length; i3++) {
-			var h = heads[i3];
+		for (var i3 = 0; i3 < allHeads.length; i3++) {
+			var h = allHeads[i3];
 			var cid = h.getAttribute('data-cat');
 			if (groupsSeen[cid]) { if (h.classList.contains('collapsed')) toggleCollapse(h); }
 			else h.style.display = 'none';
 		}
 		// Restore hidden group headers when filter is cleared (but not empty groups)
 		if (!q && !cf && !sf) {
-			for (var i4 = 0; i4 < heads.length; i4++) {
-				var head = heads[i4];
-				var body = head.nextElementSibling;
-				// Only restore groups that have visible service rows
+			for (var i4 = 0; i4 < allHeads.length; i4++) {
+				var head = allHeads[i4];
+				var body = allBodies[i4];
 				var hasServices = false;
 				if (body) {
-					var rows = body.querySelectorAll('.z2m-sa-row');
-					for (var ri = 0; ri < rows.length; ri++) {
-						if (rows[ri].style.display !== 'none') { hasServices = true; break; }
+					for (var ri = 0; ri < allRows.length; ri++) {
+						var rr = allRows[ri];
+						if (rr.parentNode === body && rr.style.display !== 'none') { hasServices = true; break; }
 					}
 				}
 				head.style.display = hasServices ? '' : 'none';
@@ -878,8 +884,7 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 	}
 
 	function renderPendingPanel() {
-		var panel = document.getElementById('z2m-sa-sidebar');
-		if (panel) buildPendingPanelContent(panel);
+		buildPendingPanelContent(sidebar);
 	}
 	function buildPendingPanelContent(panel) {
 		if (!panel) return;
@@ -915,8 +920,7 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 	}
 
 	function updateStickyBar() {
-		var bar = document.getElementById('z2m-sa-sticky');
-		if (bar) buildStickyBarContent(bar);
+		buildStickyBarContent(sticky);
 	}
 	function buildStickyBarContent(bar) {
 		if (!bar) return;
@@ -995,9 +999,9 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 	}
 
 	function showPreviewDialog(pv) {
-		// Remove any existing dialog
-		var oldOverlay = document.getElementById('z2m-sa-overlay');
-		if (oldOverlay) oldOverlay.parentNode.removeChild(oldOverlay);
+		var oldOverlay = view._saOverlay;
+		if (oldOverlay && oldOverlay.parentNode) oldOverlay.parentNode.removeChild(oldOverlay);
+		view._saOverlay = null;
 
 		var diff = pv.diff || {};
 		var addedRecords = pv.added || [];
@@ -1092,13 +1096,17 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 		dlg.appendChild(E('div', { 'class': 'z2m-actions', 'style': 'margin-top:12px' }, [cancelBtn]));
 
 		var overlay = E('div', { 'class': 'z2m-sa-preview-overlay', 'id': 'z2m-sa-overlay' }, [dlg]);
-		cancelBtn.addEventListener('click', function () { overlay.parentNode.removeChild(overlay); });
-		overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.parentNode.removeChild(overlay); });
+		cancelBtn.addEventListener('click', function () { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); view._saOverlay = null; });
+		overlay.addEventListener('click', function (e) { if (e.target === overlay) { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); view._saOverlay = null; } });
+		view._saOverlay = overlay;
 		document.body.appendChild(overlay);
 	}
 
 	function toggleDetail(svc) {
-		var row = document.getElementById('z2m-sr-' + svc);
+		var row = null;
+		for (var i = 0; i < allRows.length; i++) {
+			if (allRows[i].getAttribute('data-svc') === svc) { row = allRows[i]; break; }
+		}
 		if (!row) return;
 		var panel = row.nextElementSibling;
 		if (!panel || !panel.classList.contains('z2m-sa-detail-panel')) return;
