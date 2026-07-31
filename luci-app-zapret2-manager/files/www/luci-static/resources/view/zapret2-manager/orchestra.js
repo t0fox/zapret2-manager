@@ -4,7 +4,7 @@
 // adapter over upstream zapret-auto.lua. Simple Mode by default;
 // Technical details collapsed. Honest about what is and isn't available.
 
-'use require';
+'require rpc';
 
 var callOrchCapabilities = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_capabilities', reject: true });
 var callOrchStatus = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_status', reject: true });
