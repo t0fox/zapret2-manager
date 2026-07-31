@@ -5,7 +5,20 @@
 // Grounding: dnsmasq + UCI + resolvfile. No Windows APIs, no per-adapter model.
 'require rpc';
 
-const DNS_UI_BUILD = 'r46.6';
+const DNS_UI_BUILD = 'r46.6.1';
+
+function formatRpcError(error) {
+	if (error == null) return _('Unknown error');
+	if (typeof error === 'string') return error;
+	var value = error.error != null ? error.error : error;
+	if (typeof value === 'string') return value;
+	var code = value.code != null ? value.code : error.code;
+	var message = value.message != null ? value.message : (error.message != null ? error.message : (value.detail != null ? value.detail : error.detail));
+	if (code != null && message != null) return String(code) + ': ' + String(message);
+	if (message != null) return String(message);
+	if (code != null) return String(code);
+	try { return JSON.stringify(value) || _('Unknown error'); } catch (e) { return _('Unknown error'); }
+}
 
 const callDnsGet        = rpc.declare({ object: 'zapret2-manager', method: 'dns_get', reject: true });
 const callDnsSet        = rpc.declare({ object: 'zapret2-manager', method: 'dns_set', params: ['edit'], reject: true });
@@ -590,6 +603,7 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 	var selections = status.selections || {};
 	var appliedSel = status.applied || {};
 	var appliedRev = (typeof status.appliedRevision === 'number') ? status.appliedRevision : 0;
+	var draftRev = (typeof status.draftRevision === 'number') ? status.draftRevision : appliedRev;
 	var pending = status.pending || null;
 
 	// Initialize draft from backend or saved
@@ -1079,13 +1093,14 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 			appl.disabled = true; prev.disabled = true; disc.disabled = true;
 			buildSticky();
 
-			view._sdnsOp.promise = callSdnsSet(JSON.stringify({ selections: snapshot, revision: appliedRev })).then(function (sr) {
-				if (!sr || sr.ok !== true) throw new Error('Set failed');
+			view._sdnsOp.promise = callSdnsSet(JSON.stringify({ selections: snapshot, revision: draftRev })).then(function (sr) {
+				if (!sr || sr.ok !== true) throw new Error(formatRpcError(sr));
+				if (typeof sr.draftRevision !== 'number') throw new Error('Set returned no draft revision');
 				view._sdnsOp.phase = 'submitting';
 				buildSticky();
-				return callSdnsApplyAsync(JSON.stringify({ operationId: opId, revision: appliedRev }));
+				return callSdnsApplyAsync(JSON.stringify({ operationId: opId, draftRevision: sr.draftRevision }));
 			}).then(function (ar) {
-				if (!ar || !ar.accepted) throw new Error(ar && ar.error ? ar.error : 'Apply not accepted');
+				if (!ar || !ar.accepted) throw new Error(formatRpcError(ar || 'Apply not accepted'));
 				view._sdnsOp.phase = 'queued';
 				view._sdnsOp.operationId = ar.operationId;
 				buildSticky();
@@ -1108,10 +1123,8 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 				}
 				view.reload();
 			}).catch(function (e) {
-				view._sdnsOp.phase = 'error';
-				var msg = (e && typeof e === 'object') ? (e.message || e.error || JSON.stringify(e).slice(0, 120)) : String(e);
-				view._sdnsOp.error = msg;
-				view._sdnsOp.promise = null;
+				view._sdnsOp = null;
+				var msg = formatRpcError(e);
 				view.showFlash(_('Failed: ') + msg);
 				view.reload();
 			});
@@ -1147,16 +1160,16 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 				}
 				attempts++;
 				callSdnsApplyStatus(JSON.stringify({ operationId: opId })).then(function (r) {
-					if (!r || r.error) { reject(new Error(r && r.error ? r.error.message : 'Status check failed')); return; }
+					if (!r || r.error) { reject(new Error(formatRpcError(r || 'Status check failed'))); return; }
 					if (r.finished) {
 						if (r.state === 'success') resolve(r);
-						else reject(new Error('Apply ' + (r.state || 'error') + (r.error ? ': ' + (r.error.message || r.error.code || '') : '')));
+						else reject(new Error(formatRpcError(r.error || { message: 'Apply ' + (r.state || 'error'), operationId: opId })));
 						return;
 					}
 					if (onPhase) onPhase(r.state || r.phase);
 					setTimeout(tick, attempts < 3 ? 1000 : attempts < 6 ? 2000 : 5000);
 				}).catch(function (e) {
-					lastError = String(e);
+					lastError = formatRpcError(e);
 					view.showFlash(_('Connection check: ') + lastError.slice(0, 60));
 					setTimeout(tick, 2000);
 				});
@@ -1197,7 +1210,7 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 			view.reload();
 		}).catch(function (e) {
 			view._sdnsOp = null;
-			view.showFlash(_('Apply ended: ') + String(e).slice(0, 120));
+			view.showFlash(_('Apply ended: ') + formatRpcError(e).slice(0, 120));
 			view.reload();
 		});
 	}

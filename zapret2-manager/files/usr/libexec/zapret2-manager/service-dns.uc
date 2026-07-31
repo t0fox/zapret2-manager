@@ -242,6 +242,7 @@ function load_service_dns_state() {
 	let state = {
 		selections: (sd && type(sd.selections) == 'object') ? sd.selections : {},
 		applied: (sd && type(sd.applied) == 'object') ? sd.applied : { selections: {}, revision: 0, fileHash: null, generatedAt: null, verifiedAt: null },
+		draftRevision: (sd && type(sd.draftRevision) == 'int') ? sd.draftRevision : ((sd && sd.applied && type(sd.applied.revision) == 'int') ? sd.applied.revision : 0),
 		pending: (sd && type(sd.pending) == 'object') ? sd.pending : null,
 		lastOperation: (sd && type(sd.lastOperation) == 'object') ? sd.lastOperation : null,
 		ownership: (sd && type(sd.ownership) == 'object') ? sd.ownership : {},
@@ -870,7 +871,7 @@ export const service_dns_status = function(req) {
 
 	return {
 		ok: true, datasetValid: true, selections: selections, applied: appliedSel, appliedAt: (state.applied && state.applied.generatedAt) || null,
-		appliedRevision: appliedRev, drift: drift, warnings: warnings,
+		appliedRevision: appliedRev, draftRevision: state.draftRevision, drift: drift, warnings: warnings,
 		pending: state.pending || null,
 		routing: { desired: gen.rules, applied: appliedGen.rules, conflicts: gen.conflicts },
 		runtime: runtime, diagnostics: diagnostics,
@@ -1031,12 +1032,13 @@ export const service_dns_set = function(req) {
 	let sd = load_service_dns_state();
 	if (sd.malformed) return err('ESTATE', 'service DNS state is malformed');
 	let state = sd.state;
-	let curRev = (type(state.applied.revision) == 'int') ? state.applied.revision : 0;
-	if (type(input.revision) == 'int' && input.revision != curRev)
-		return err('ECONFLICT', 'service DNS draft changed elsewhere (revision ' + curRev + '); reload and retry');
+	let curDraftRev = (type(state.draftRevision) == 'int') ? state.draftRevision : ((type(state.applied.revision) == 'int') ? state.applied.revision : 0);
+	if (type(input.revision) == 'int' && input.revision != curDraftRev)
+		return err('ECONFLICT', 'service DNS draft changed elsewhere (revision ' + curDraftRev + '); reload and retry');
 	state.selections = input.selections;
+	state.draftRevision = curDraftRev + 1;
 	if (!save_service_dns_state(state)) return err('ETARGET', 'failed to write draft state (lock active or disk error)');
-	return { ok: true, revision: curRev + 1, selections: state.selections };
+	return { ok: true, draftRevision: state.draftRevision, selections: state.selections };
 };
 
 // service_dns_apply — full apply lifecycle
@@ -1310,9 +1312,9 @@ function create_op_snapshot(operationId) {
 	if (stat(ROUTING_CONF_IN_DIR)) run('cp -p ' + ROUTING_CONF_IN_DIR + ' ' + dir + '/previous-routing.conf 2>/dev/null');
 	// save current overrides (manual host overrides — separate from service routing)
 	if (stat(OVERRIDES_PATH)) run('cp -p ' + OVERRIDES_PATH + ' ' + dir + '/previous.hosts');
-	// save UCI dnsmasq conf_file entries
-	let uci = run('uci show dhcp.@dnsmasq[0].conf_file 2>/dev/null');
-	writefile(dir + '/previous-uci-conf-file.txt', uci.out || '');
+	// save the effective dnsmasq confdir list used by apply and rollback
+	let uci = run('uci show dhcp.@dnsmasq[0].confdir 2>/dev/null');
+	writefile(dir + '/previous-uci-confdir.txt', uci.out || '');
 	return dir;
 }
 
@@ -1389,11 +1391,12 @@ export const service_dns_apply_async = function(req) {
 	let selections = state.selections || {};
 	let applied = state.applied || {};
 	let appliedRev = (type(applied.revision) == 'int') ? applied.revision : 0;
+	let draftRev = (type(state.draftRevision) == 'int') ? state.draftRevision : appliedRev;
 
 	// 2b. revision check
-	if (type(input.revision) == 'int' && input.revision != appliedRev) {
+	if (type(input.draftRevision) != 'int' || input.draftRevision != draftRev) {
 		release_lock(operationId);
-		return err('ECONFLICT', 'service DNS draft changed elsewhere (revision ' + appliedRev + '); reload and retry');
+		return err('ECONFLICT', 'service DNS draft changed elsewhere (draft revision ' + draftRev + '); reload and retry');
 	}
 
 	// 3. validate selections + generate routing rules
@@ -1433,7 +1436,7 @@ export const service_dns_apply_async = function(req) {
 	for (let dk in gen.rules) { let ru = gen.rules[dk]; if (ru && type(ru) == 'object' && type(ru.upstreams) == 'array') dirCount += length(ru.upstreams); }
 	let selHash = compute_selection_hash(selections);
 	let genAt = iso_now();
-	let meta = { operationId: operationId, revision: appliedRev + 1, selectionHash: selHash, routeCount: routeCount, directiveCount: dirCount, generatedAt: genAt };
+	let meta = { operationId: operationId, revision: draftRev, selectionHash: selHash, routeCount: routeCount, directiveCount: dirCount, generatedAt: genAt };
 
 	let routingConf = generate_dnsmasq_routing_conf(gen.rules, meta);
 	// Validate generated config
@@ -1470,15 +1473,10 @@ export const service_dns_apply_async = function(req) {
 	let routingHash = compute_file_hash(hashTmpf);
 	try { unlink(hashTmpf); } catch (e) {}
 
-	// register confdir in dnsmasq if not already
-	let conf = readfile(DHCP_CONF) || '';
-	if (index(conf, ROUTING_DIR) < 0) {
+	// Register exactly one dnsmasq confdir mechanism; worker verifies it after reload.
+	let confdir = run('uci show dhcp.@dnsmasq[0].confdir 2>/dev/null');
+	if (index(confdir.out || '', ROUTING_DIR) < 0) {
 		run("uci add_list dhcp.@dnsmasq[0].confdir='" + ROUTING_DIR + "'");
-		run('uci commit dhcp');
-	}
-	// also clean up old conf_file entry
-	if (index(conf, 'conf_file') >= 0 && index(conf, ROUTING_DIR) < 0) {
-		run("uci delete dhcp.@dnsmasq[0].conf_file 2>/dev/null");
 		run('uci commit dhcp');
 	}
 	// write desired hash
@@ -1490,7 +1488,7 @@ export const service_dns_apply_async = function(req) {
 	// 6. write job file
 	let job = {
 		operationId: operationId, phase: 'queued',
-		revision: appliedRev + 1, selectionHash: selHash,
+		revision: draftRev, selectionHash: selHash,
 		desiredSelections: _obj_assign({}, selections),
 		routingConf: routingConf, rules: gen.rules,
 		routeCount: routeCount, directiveCount: dirCount,
@@ -1528,7 +1526,7 @@ export const service_dns_apply_async = function(req) {
 
 	return {
 		ok: true, accepted: true, operationId: operationId,
-		revision: appliedRev, state: 'submitted',
+		draftRevision: draftRev, state: 'submitted',
 		routesWritten: length(keys(gen.rules)), warnings: warnings
 	};
 };

@@ -81,22 +81,41 @@ let rdir = jr.routingDir || '/etc/zapret2-manager/service-dns-routing.d';
 let sdp = jr.snapDir || jr.jobDir || '/tmp/zapret2-manager/service-dns-jobs/' + opId;
 let lockf = '/tmp/zapret2-manager/service-dns-apply.lock';
 
+function clear_pending(state, operationId, phase, error) {
+	try {
+		let sdr = readfile(state);
+		if (!sdr) return;
+		let obj = json(sdr);
+		if (!obj || type(obj) != 'object') return;
+		let sd = type(obj.serviceDns) == 'object' ? obj.serviceDns : {};
+		if (!sd.pending || sd.pending.operationId == operationId) sd.pending = null;
+		sd.lastOperation = { operationId: operationId, state: phase, phase: phase, error: error, startedAt: jr.createdAt, finishedAt: now_iso() };
+		let t2 = state + '.wrk.' + operationId;
+		writefile(t2, sprintf("%J", { serviceDns: sd }) + "\n");
+		runcmd('mv -f ' + t2 + ' ' + state);
+	} catch (e) {}
+}
+
+function fail_before_apply(code, message) {
+	let error = { code: code, message: message };
+	write_job(jf, { phase: 'failed', finished: true, finishedAt: now_iso(), error: error });
+	clear_pending(stp, opId, 'failed', error);
+	try { unlink(lockf); } catch (e) {} exit(1);
+}
+
 // Validate job metadata
 let rules = type(jr.rules) == 'object' ? jr.rules : {};
 let routeCount = length(keys(rules));
 if (type(jr.routeCount) != 'int' || jr.routeCount != routeCount) {
-	write_job(jf, { phase: 'failed', finished: true, finishedAt: now_iso(), error: { code: 'EJOB_ROUTECOUNT', message: 'routeCount mismatch' } });
-	try { unlink(lockf); } catch (e) {} exit(1);
+	fail_before_apply('EJOB_ROUTECOUNT', 'routeCount mismatch');
 }
 let expectedDirs = type(jr.directiveCount) == 'int' ? jr.directiveCount : 0;
 if (expectedDirs <= 0 && routeCount > 0) {
-	write_job(jf, { phase: 'failed', finished: true, finishedAt: now_iso(), error: { code: 'EJOB_DIRCOUNT', message: 'directiveCount must be >0 when routes exist' } });
-	try { unlink(lockf); } catch (e) {} exit(1);
+	fail_before_apply('EJOB_DIRCOUNT', 'directiveCount must be >0 when routes exist');
 }
 let desiredHash = jr.desiredHash || '';
 if (!valid_sha256(desiredHash)) {
-	write_job(jf, { phase: 'failed', finished: true, finishedAt: now_iso(), error: { code: 'EJOB_HASH_MISSING', message: 'desiredHash missing or invalid' } });
-	try { unlink(lockf); } catch (e) {} exit(1);
+	fail_before_apply('EJOB_HASH_MISSING', 'desiredHash missing or invalid');
 }
 
 // ====== single rollback for ALL post-write failures ======
@@ -109,27 +128,26 @@ function fail_and_rollback(code, message) {
 		try { unlink(rcp); } catch (e) {}
 	}
 	if (stat(sdp + '/previous-state.json')) runcmd('cp -p ' + sdp + '/previous-state.json ' + stp);
-	// restore previous UCI conf_file if needed
-	if (stat(sdp + '/previous-uci-conf-file.txt')) {
-		let prev = readfile(sdp + '/previous-uci-conf-file.txt') || '';
-		if (prev != readfile('/etc/config/dhcp')) {
-			runcmd('uci delete dhcp.@dnsmasq[0].conf_file');
-			let prevLines = split(prev, '\n');
-			for (let i = 0; i < length(prevLines); i++) {
-				let pl = trim(prevLines[i]);
-				if (pl && substr(pl, 0, 10) == 'conf_file=') {
-					// restore via uci — simplified: just remove our entry
-				}
-			}
-			runcmd('uci commit dhcp');
+	// Restore the same confdir mechanism that apply and verification use.
+	if (stat(sdp + '/previous-uci-confdir.txt')) {
+		let prev = readfile(sdp + '/previous-uci-confdir.txt') || '';
+		runcmd('uci delete dhcp.@dnsmasq[0].confdir');
+		let prevLines = split(prev, '\n');
+		for (let i = 0; i < length(prevLines); i++) {
+			let pl = trim(prevLines[i]);
+			let eq = index(pl, '=');
+			if (eq < 0) continue;
+			let value = trim(substr(pl, eq + 1));
+			if (length(value) >= 2 && substr(value, 0, 1) == "'" && substr(value, length(value) - 1, 1) == "'") value = substr(value, 1, length(value) - 2);
+			if (value) runcmd("uci add_list dhcp.@dnsmasq[0].confdir='" + value + "'");
 		}
+		runcmd('uci commit dhcp');
 	}
 	runcmd('/etc/init.d/dnsmasq restart');
 	write_job(jf, { phase: 'rolled_back', finished: true, finishedAt: now_iso(), rolledBack: true, error: { code: code, message: message } });
 	// clear pending in state
 	try {
-		let sdr = readfile(stp);
-		if (sdr) { let obj = json(sdr); if (obj && type(obj) == 'object') { let sd = type(obj.serviceDns) == 'object' ? obj.serviceDns : {}; sd.pending = null; sd.lastOperation = { operationId: opId, state: 'rolled_back', phase: 'rolled_back', error: { code: code, message: message }, startedAt: jr.createdAt, finishedAt: now_iso() }; let t2 = stp + '.wrk.' + opId; writefile(t2, sprintf("%J", { serviceDns: sd }) + "\n"); runcmd('mv -f ' + t2 + ' ' + stp); } }
+		clear_pending(stp, opId, 'rolled_back', { code: code, message: message });
 	} catch (e) {}
 	try { unlink(lockf); } catch (e) {} exit(1);
 }
@@ -172,10 +190,10 @@ for (let i = 0; i < length(actualKeys); i++) {
 
 let tw = int(time()) - t0;
 
-// Register conf_file in dhcp
+// Register dnsmasq confdir.
 write_job(jf, { phase: 'registering' });
-let dhcpConf = readfile('/etc/config/dhcp') || '';
-	if (index(dhcpConf, rdir) < 0) {
+let confdirBefore = runcmd('uci show dhcp.@dnsmasq[0].confdir 2>/dev/null');
+	if (index(confdirBefore.out || '', rdir) < 0) {
 		if (runcmd("uci add_list dhcp.@dnsmasq[0].confdir='" + rdir + "'").rc != 0) fail_and_rollback('EUCIADD', 'uci add_list failed');
 		if (runcmd('uci commit dhcp').rc != 0) fail_and_rollback('EUCICOMMIT', 'uci commit failed');
 	}
@@ -218,8 +236,8 @@ for (let i = 0; i < length(expectedKeys); i++) {
 }
 
 	// 5. UCI confdir registration
-	let vDhcp = readfile('/etc/config/dhcp') || '';
-	if (index(vDhcp, rdir) < 0) fail_and_rollback('EVERIFY', 'confdir not registered after restart');
+	let confdirAfter = runcmd('uci show dhcp.@dnsmasq[0].confdir 2>/dev/null');
+	if (index(confdirAfter.out || '', rdir) < 0) fail_and_rollback('EVERIFY', 'confdir not registered after restart');
 
 // 6. dnsmasq running
 let ubus = runcmd('ubus call service list \'{"name":"dnsmasq"}\'');
@@ -256,6 +274,6 @@ write_job(jf, { phase: 'success', finished: true, finishedAt: now_iso(), verifie
 
 try {
 	let sdr = readfile(stp);
-	if (sdr) { let obj = json(sdr); if (obj && type(obj) == 'object') { let sd = type(obj.serviceDns) == 'object' && obj.serviceDns != null ? obj.serviceDns : {}; let pn = sd.pending || {}; let ap = type(sd.applied) == 'object' ? sd.applied : {}; sd.applied = { selections: pn.desiredSelections || sd.selections || {}, revision: type(ap.revision) == 'int' ? ap.revision + 1 : 1, routingHash: desiredHash, routeCount: routeCount, directiveCount: dCount, routes: rules, generatedAt: now_iso(), verifiedAt: now_iso(), verification: { config: 'ok', dnsmasq: 'ok', routingRegistered: true, providerRouting: 'unverified' } }; sd.pending = null; sd.lastOperation = { operationId: opId, state: 'success', phase: 'success', error: null, startedAt: jr.createdAt, finishedAt: now_iso() }; let evs = type(sd.events) == 'array' ? sd.events : []; push(evs, { ts: now_iso(), action: 'apply-success', operationId: opId }); if (length(evs) > 20) { let keep = []; for (let ei = length(evs) - 20; ei < length(evs); ei++) push(keep, evs[ei]); evs = keep; } sd.events = evs; let t2 = stp + '.wrk.' + opId; writefile(t2, sprintf("%J", { serviceDns: sd }) + "\n"); runcmd('mv -f ' + t2 + ' ' + stp); } }
+	if (sdr) { let obj = json(sdr); if (obj && type(obj) == 'object') { let sd = type(obj.serviceDns) == 'object' && obj.serviceDns != null ? obj.serviceDns : {}; let pn = sd.pending || {}; sd.applied = { selections: pn.desiredSelections || sd.selections || {}, revision: jr.revision, routingHash: desiredHash, routeCount: routeCount, directiveCount: dCount, routes: rules, generatedAt: now_iso(), verifiedAt: now_iso(), verification: { config: 'ok', dnsmasq: 'ok', routingRegistered: true, providerRouting: 'unverified' } }; sd.pending = null; sd.lastOperation = { operationId: opId, state: 'success', phase: 'success', error: null, startedAt: jr.createdAt, finishedAt: now_iso() }; let evs = type(sd.events) == 'array' ? sd.events : []; push(evs, { ts: now_iso(), action: 'apply-success', operationId: opId }); if (length(evs) > 20) { let keep = []; for (let ei = length(evs) - 20; ei < length(evs); ei++) push(keep, evs[ei]); evs = keep; } sd.events = evs; let t2 = stp + '.wrk.' + opId; writefile(t2, sprintf("%J", { serviceDns: sd }) + "\n"); runcmd('mv -f ' + t2 + ' ' + stp); } }
 } catch (e) {}
 try { unlink(lockf); } catch (e) {} exit(0);
