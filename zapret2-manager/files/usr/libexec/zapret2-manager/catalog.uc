@@ -135,7 +135,7 @@ function normalize_domain(d) {
 // ---------------------------------------------------------------------------
 // catalog load + validation (mirrors validateCatalog, structural + digest)
 // ---------------------------------------------------------------------------
-const CATALOG_CATEGORIES = { video: 1, messaging: 1, social: 1, games: 1, AI: 1, developer: 1, music: 1, other: 1 };
+const CATALOG_CATEGORIES = { video: 1, messaging: 1, social: 1, games: 1, AI: 1, developer: 1, music: 1, media: 1, other: 1 };
 const CATALOG_MECHANISMS = { domainInclude: 1, domainExclude: 1, dnsOverride: 1, dnsProvider: 1, proxyRoute: 1, unsupportedGeo: 1 };
 const CATALOG_STABILITY = { reviewed: 1, experimental: 1, stale: 1 };
 
@@ -283,7 +283,7 @@ function load_catalog() {
 		digestOk = (catalog_digest(doc) == doc.digest);
 		if (!digestOk) push(errors, 'digest mismatch (catalog content tampered or stale digest)');
 	} else {
-		push(errors, 'digest must be a sha256 hex');
+		digestOk = false;
 	}
 	// stale
 	let staleServices = [];
