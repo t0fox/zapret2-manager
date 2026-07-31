@@ -467,8 +467,13 @@ function buildWarnings(dns, comps, envelope) {
 // ════════════════════════════════════════════════════════
 // CHECK & CHOOSE — provider cards, test, select
 // ════════════════════════════════════════════════════════
+var providerCardRefs = {};
 function providersSection(view, provs, comps, envelope) {
 	var node = E('div');
+	// LuCI can reuse the view module across reloads; always create the registry
+	// before cards are constructed, even if a harness invokes this function
+	// before the module's top-level initializers have run.
+	providerCardRefs = {};
 
 	if (envelope.provListError) {
 		node.appendChild(callout('bad', _('Provider catalog unavailable: ') + esc(envelope.provListError)));
@@ -539,7 +544,6 @@ function groupProviders(providers) {
 	return cats;
 }
 
-var providerCardRefs = {};
 function providerCard(view, p, comps) {
 	var ipv4 = (p.ipv4 || []).slice(0, 2).join(', ') || _('No IPv4');
 	var ipv6 = (p.ipv6 || []).slice(0, 2).join(', ') || _('None');

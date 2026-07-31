@@ -33,6 +33,7 @@ test('diagnostic DNS probe is independent of ping and checks every IPv4', () => 
 });
 
 test('UI updates each provider card, has retry handler and no custom CRUD controls', () => {
+	assert.match(ui, /providerCardRefs = \{\};/);
 	assert.match(ui, /updateProviderCard\(p\.id, res, null\)/);
 	assert.match(ui, /updateProviderCard\(p\.id, null, e\)/);
 	assert.match(ui, /view\.reload\(\)\.catch/);
