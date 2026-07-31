@@ -636,13 +636,23 @@ function get_dnsmasq_info() {
 		let ver = run('dnsmasq --version 2>/dev/null');
 		if (ver.rc == 0) { let m = match(ver.out, /Dnsmasq version ([0-9.]+)/); if (m) info.version = m[1]; }
 	}
-	info.routingRegistered = (stat(ROUTING_CONF) && stat(ROUTING_CONF).size > 20);
-	let scfg = run('uci show dhcp 2>/dev/null');
-	if (scfg.rc == 0 && scfg.out) {
-		let lines = split(scfg.out, '\n'); let cnt = 0;
-		for (let i = 0; i < length(lines); i++) { if (index(lines[i], '.server=') >= 0 && index(lines[i], '=/') > 0) cnt++; }
-		info.activeRouteCount = cnt;
+	// Check UCI dhcp for our conf_file registration
+	let dhcpRaw = readfile(DHCP_CONF) || '';
+	info.routingRegistered = (index(dhcpRaw, ROUTING_CONF) >= 0);
+	// Count directives from actual routing fragment
+	if (stat(ROUTING_CONF) && info.routingRegistered) {
+		let frag = readfile(ROUTING_CONF) || '';
+		let flines = split(frag, '\n');
+		let cnt = 0;
+		for (let i = 0; i < length(flines); i++) {
+			if (substr(trim(flines[i]), 0, 8) == 'server=/') cnt++;
+		}
+		info.configuredRouteCount = routeCount;
+		info.configuredDirectiveCount = cnt;
+		info.fragmentHashValid = (compute_file_hash(ROUTING_CONF) == (sd.applied && sd.applied.routingHash));
 	}
+	info.dnsmasqRunning = info.running;
+	info.runtimeForwardingVerified = false; // requires packet evidence
 	return info;
 }
 
@@ -1418,10 +1428,13 @@ export const service_dns_apply_async = function(req) {
 	let desiredHash = compute_file_hash(hashFile);
 
 	// 6. write job file
+	let routeCount = length(keys(gen.rules));
+	let dirCount = actualDirs; // validated above
 	let job = {
 		operationId: operationId, phase: 'queued',
 		desiredSelections: _obj_assign({}, selections),
 		routingConf: routingConf, rules: gen.rules,
+		routeCount: routeCount, directiveCount: dirCount,
 		desiredHash: desiredHash, routingHash: routingHash,
 		statePath: STATE_PATH, routingConfPath: ROUTING_CONF, snapDir: snapDir, jobDir: opDir,
 		createdAt: iso_now(), updatedAt: iso_now(), finished: false,
