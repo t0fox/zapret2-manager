@@ -473,21 +473,16 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 	var status = sdnsStatus || {};
 	var node = E('div');
 
-	// ── Error states ──
 	if (envelope.sdnsProvErr || (provs.ok !== true && provs.ok !== undefined)) {
+		var btn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Retry'));
+		btn.addEventListener('click', function () { view.reload(); });
 		node.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-bad' }, [
 			E('h4', {}, _('Service catalog unavailable')),
-			E('p', {}, _('Existing active mappings were not changed.')),
-			(function () {
-				var btn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Retry'));
-				btn.addEventListener('click', function () { view.reload(); });
-				return btn;
-			})()
+			E('p', {}, _('Existing active mappings were not changed.')), btn
 		]));
 		return node;
 	}
 
-	// ── Build data maps ──
 	var providerName = {};
 	(provs.providers || []).forEach(function (pr) { providerName[pr.id] = pr.name || pr.id; });
 
@@ -501,19 +496,16 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 	var selections = status.selections || {};
 	var appliedSel = status.applied || {};
 
-	// Local draft — initialized on first render
-	if (!view._sdnsDraft) view._sdnsDraft = { selections: {}, dirty: false };
-	var draft = view._sdnsDraft;
-	// Copy server selections into draft if draft is empty
+	if (!view._saDraft) view._saDraft = { selections: {} };
+	var draft = view._saDraft;
 	if (Object.keys(draft.selections).length === 0 && Object.keys(selections).length > 0) {
 		for (var k in selections) draft.selections[k] = selections[k];
 	}
 
-	// ── Compute stats ──
 	var serviceOrder = [];
-	var seen = {};
+	var svcSet = {};
 	(provs.profiles || []).forEach(function (p) {
-		if (!seen[p.serviceId]) { seen[p.serviceId] = true; serviceOrder.push(p.serviceId); }
+		if (!svcSet[p.serviceId]) { svcSet[p.serviceId] = true; serviceOrder.push(p.serviceId); }
 	});
 	serviceOrder.sort();
 
@@ -525,639 +517,326 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 		if (cur !== app) changedCount++;
 	});
 
-	// ── Page introduction ──
+	// ── intro ──
 	node.appendChild(E('div', { 'class': 'z2m-sa-intro' }, [
 		E('h3', {}, _('Service Access')),
-		E('p', {}, _('Choose a DNS answer profile for individual services without changing the global DNS provider.')),
-		E('div', { 'class': 'z2m-callout z2m-callout-info', 'style': 'font-size:.85em' },
-			_('Only selected service domains are overridden. Other DNS requests continue to use the router\'s normal resolver.'))
+		E('p', {}, _('Choose a DNS answer profile for individual services without changing the global DNS provider.'))
 	]));
 
-	// ── Status summary ──
+	// ── summary ──
 	node.appendChild(E('div', { 'class': 'z2m-sa-summary' }, [
-		sumCard(String(serviceOrder.length), _('Services'), 'ok'),
-		sumCard(String((provs.providers || []).length), _('Providers'), 'neutral'),
-		sumCard(String(enabledCount), _('Active'), enabledCount > 0 ? 'ok' : 'neutral'),
-		sumCard(String(changedCount), _('Pending changes'), changedCount > 0 ? 'warn' : 'neutral')
+		sc(serviceOrder.length, _('Services')),
+		sc((provs.providers || []).length, _('Providers')),
+		sc(enabledCount, _('Active')),
+		sc(changedCount, _('Pending'))
 	]));
 
-	// ── Collapsible technical details ──
-	var techId = 'z2m-sa-tech-' + Math.random().toString(36).slice(2, 8);
-	var techHead = E('div', { 'class': 'z2m-sa-cathead collapsed', 'style': 'margin-bottom:10px' }, [
-		E('span', { 'class': 'z2m-sa-cat-arr' }, '▶'),
-		E('span', { 'class': 'z2m-sa-cat-title' }, _('Technical details')),
-		E('span', { 'class': 'z2m-sa-cat-count' }, 'v' + esc(provs.datasetVersion || '?'))
-	]);
-	techHead.addEventListener('click', function () { toggleCollapse(this); });
-	var techBody = E('div', { 'class': 'z2m-sa-catbody collapsed' }, [
-		kv(_('Catalog version'), 'v' + esc(provs.datasetVersion || '?')),
-		kv(_('Generated'), esc(provs.generatedAt || _('Unknown'))),
-		kv(_('Profiles'), String((provs.profiles || []).length))
-	]);
-	node.appendChild(techHead);
-	node.appendChild(techBody);
-
-	// ── Filter toolbar ──
-	var toolbar = E('div', { 'class': 'z2m-sa-toolbar' });
-	var searchInput = E('input', { 'type': 'search', 'placeholder': _('Search services\u2026') });
-	searchInput.addEventListener('input', function () { applyFilters(); });
-	var catFilter = E('select', {}, [
+	// ── toolbar ──
+	var srch = E('input', { 'type': 'search', 'placeholder': _('Search') });
+	var cfSel = E('select', {}, [
 		E('option', { value: '' }, _('All categories')),
 		E('option', { value: 'AI' }, _('AI')),
 		E('option', { value: 'Media' }, _('Media')),
-		E('option', { value: 'Social' }, _('Social & messaging')),
+		E('option', { value: 'Social' }, _('Social')),
 		E('option', { value: 'Games' }, _('Games')),
-		E('option', { value: 'Developer' }, _('Developer tools')),
+		E('option', { value: 'Developer' }, _('Developer')),
 		E('option', { value: 'Other' }, _('Other'))
 	]);
-	catFilter.addEventListener('change', function () { applyFilters(); });
-	var stateFilter = E('select', {}, [
-		E('option', { value: '' }, _('All states')),
-		E('option', { value: 'enabled' }, _('Enabled')),
-		E('option', { value: 'disabled' }, _('Disabled')),
+	var sfSel = E('select', {}, [
+		E('option', { value: '' }, _('All')),
+		E('option', { value: 'enabled' }, _('On')),
+		E('option', { value: 'disabled' }, _('Off')),
 		E('option', { value: 'changed' }, _('Changed'))
 	]);
-	stateFilter.addEventListener('change', function () { applyFilters(); });
-	var expBtn = E('button', { 'type': 'button' }, _('Expand all'));
-	expBtn.addEventListener('click', function () { expandAll(true); });
-	var colBtn = E('button', { 'type': 'button' }, _('Collapse all'));
-	colBtn.addEventListener('click', function () { expandAll(false); });
-	var resLabel = E('span', { 'class': 'z2m-sa-result' });
+	var resLbl = E('span', { 'class': 'z2m-sa-result' });
+	var tb = E('div', { 'class': 'z2m-sa-toolbar' });
+	tb.appendChild(srch);
+	tb.appendChild(cfSel);
+	tb.appendChild(sfSel);
+	tb.appendChild(resLbl);
+	node.appendChild(tb);
 
-	toolbar.appendChild(searchInput);
-	toolbar.appendChild(catFilter);
-	toolbar.appendChild(stateFilter);
-	toolbar.appendChild(expBtn);
-	toolbar.appendChild(colBtn);
-	toolbar.appendChild(resLabel);
-	node.appendChild(toolbar);
-
-	// ── Main grid (catalog + sidebar) ──
+	// ── catalog ──
 	var grid = E('div', { 'class': 'z2m-sa-grid' });
-	var catalogEl = E('div', { 'class': 'z2m-sa-catalog' });
+	var catEl = E('div', { 'class': 'z2m-sa-catalog' });
 
-	// ── Build category groups ──
-	var CAT_GROUPS = [
-		{ id: 'AI', label: _('AI'), catKeys: ['AI'] },
-		{ id: 'Media', label: _('Media'), catKeys: ['music', 'video', 'media'] },
-		{ id: 'Social', label: _('Social & messaging'), catKeys: ['social', 'messaging'] },
-		{ id: 'Games', label: _('Games'), catKeys: ['games'] },
-		{ id: 'Developer', label: _('Developer tools'), catKeys: ['developer'] },
-		{ id: 'Other', label: _('Other'), catKeys: ['other'] }
+	var CAT = [
+		{ id: 'AI', label: _('AI'), keys: ['AI'] },
+		{ id: 'Media', label: _('Media'), keys: ['music','video','media'] },
+		{ id: 'Social', label: _('Social'), keys: ['social','messaging'] },
+		{ id: 'Games', label: _('Games'), keys: ['games'] },
+		{ id: 'Developer', label: _('Developer'), keys: ['developer'] },
+		{ id: 'Other', label: _('Other'), keys: ['other'] }
 	];
+
 	var catMap = {};
 	serviceOrder.forEach(function (svc) {
-		var rawCat = (SERVICE_CATEGORIES[svc] || 'other').toLowerCase();
-		var groupId = 'Other';
-		for (var gi = 0; gi < CAT_GROUPS.length; gi++) {
-			if (CAT_GROUPS[gi].catKeys.indexOf(rawCat) >= 0) { groupId = CAT_GROUPS[gi].id; break; }
+		var rc = (SERVICE_CATEGORIES[svc] || 'other').toLowerCase();
+		var gid = 'Other';
+		for (var gi = 0; gi < CAT.length; gi++) {
+			if (CAT[gi].keys.indexOf(rc) >= 0) { gid = CAT[gi].id; break; }
 		}
-		if (!catMap[groupId]) catMap[groupId] = [];
-		catMap[groupId].push(svc);
+		if (!catMap[gid]) catMap[gid] = [];
+		catMap[gid].push(svc);
 	});
 
-	// Render each category group (hide empty)
-	CAT_GROUPS.forEach(function (group) {
-		var svcs = catMap[group.id] || [];
-		var catHead = E('div', { 'class': 'z2m-sa-cathead', 'data-cat': group.id,
-			'style': svcs.length === 0 ? 'display:none' : '' }, [
-			E('span', { 'class': 'z2m-sa-cat-arr' }, '▼'),
-			E('span', { 'class': 'z2m-sa-cat-title' }, esc(group.label)),
-			E('span', { 'class': 'z2m-sa-cat-count' }, svcs.length + ' ' + _('services'))
-		]);
-		catHead.addEventListener('click', function () { toggleCollapse(this); });
-		var catBody = E('div', { 'class': 'z2m-sa-catbody', 'data-cat': group.id,
-			'style': svcs.length === 0 ? 'display:none' : '' });
-		allHeads.push(catHead);
-		allBodies.push(catBody);
-		catalogEl.appendChild(catHead);
-		catalogEl.appendChild(catBody);
+	var catHeadRefs = [], catBodyRefs = [], allRows = [];
+
+	CAT.forEach(function (grp) {
+		var svcs = catMap[grp.id] || [];
+		var empty = svcs.length === 0;
+		var hd = E('div', { 'class': 'z2m-sa-cathead', 'data-cat': grp.id });
+		var hdArr = E('span', { 'class': 'z2m-sa-cat-arr' }, empty ? '' : '▼');
+		hd._arr = hdArr;
+		hd.appendChild(hdArr);
+		hd.appendChild(E('span', { 'class': 'z2m-sa-cat-title' }, esc(grp.label)));
+		hd.appendChild(E('span', { 'class': 'z2m-sa-cat-count' }, svcs.length + ' ' + _('svc')));
+		hd.addEventListener('click', function () {
+			var bd = this.nextElementSibling;
+			if (bd) { var hide = !bd._hidden; bd._hidden = hide; bd.style.display = hide ? 'none' : ''; this._arr.textContent = hide ? '▶' : '▼'; }
+		});
+		var bd = E('div', { 'class': 'z2m-sa-catbody', 'data-cat': grp.id });
+		if (empty) { bd.style.display = 'none'; bd._hidden = true; hdArr.textContent = ''; }
+		catEl.appendChild(hd);
+		catEl.appendChild(bd);
+		catHeadRefs.push(hd);
+		catBodyRefs.push(bd);
 	});
 
-	// ── Render service rows ──
-	var allRows = [];
-	var allHeads = [];
-	var allBodies = [];
 	serviceOrder.forEach(function (svc) {
-		var rawCat = (SERVICE_CATEGORIES[svc] || 'other').toLowerCase();
-		var groupId = 'Other';
-		for (var gi = 0; gi < CAT_GROUPS.length; gi++) {
-			if (CAT_GROUPS[gi].catKeys.indexOf(rawCat) >= 0) { groupId = CAT_GROUPS[gi].id; break; }
+		var rc = (SERVICE_CATEGORIES[svc] || 'other').toLowerCase();
+		var gid = 'Other';
+		for (var gi = 0; gi < CAT.length; gi++) {
+			if (CAT[gi].keys.indexOf(rc) >= 0) { gid = CAT[gi].id; break; }
 		}
-
 		var label = SERVICE_LABELS[svc] || svc;
-		var sublabel = SERVICE_SUBLABEL[svc] || '';
+		var sub = SERVICE_SUBLABEL[svc] || '';
 		var profiles = profilesBySvc[svc] || [];
-		var curSel = draft.selections[svc] || 'off';
-		var applied = appliedSel[svc] || 'off';
-		var rowId = 'z2m-sr-' + svc;
-
-		// Row container
-		var cls = 'z2m-sa-row';
-		if (curSel !== 'off' && curSel === applied) cls += ' active';
-		if (curSel !== applied) cls += ' changed';
-		var row = E('div', { 'class': cls, 'id': rowId, 'data-svc': svc, 'data-cat': groupId,
-			'data-enabled': curSel !== 'off' ? '1' : '0',
-			'data-changed': curSel !== applied ? '1' : '0' });
-
-		// Left: name + meta
-		var metaBadges = [];
-		if (curSel !== applied) {
-			metaBadges.push(E('span', { 'class': 'z2m-badge z2m-badge-warn' }, _('Changed')));
-			if (applied === 'off' && curSel !== 'off')
-				metaBadges.push(E('span', { 'class': 'z2m-sa-change-arrow' }, _('Off \u2192 ') + esc(providerName[curSel] || curSel)));
-			else if (curSel === 'off' && applied !== 'off')
-				metaBadges.push(E('span', { 'class': 'z2m-sa-change-arrow' }, esc(providerName[applied] || applied) + _(' \u2192 Off')));
-			else
-				metaBadges.push(E('span', { 'class': 'z2m-sa-change-arrow' }, esc(providerName[applied] || applied) + ' \u2192 ' + esc(providerName[curSel] || curSel)));
-		} else if (curSel !== 'off') {
-			metaBadges.push(E('span', { 'class': 'z2m-badge z2m-badge-ok' }, _('Active')));
-		}
-
+		var cur = draft.selections[svc] || 'off';
+		var app = appliedSel[svc] || 'off';
 		var avp = availableByService[svc] || [];
 		var dc = avp.length ? avp[0].domainCount : (profiles.length ? profiles[0].requiredDomains.length : 0);
-		metaBadges.push(E('span', {}, dc + ' ' + _('domains')));
 
-		var left = E('div', { 'class': 'z2m-sa-name' }, [
+		var row = E('div', { 'class': 'z2m-sa-row', 'data-svc': svc, 'data-cat': gid });
+
+		// col 1: name
+		var nameDiv = E('div', { 'class': 'z2m-sa-name' }, [
 			E('div', { 'class': 'z2m-sa-name-title' }, esc(label)),
-			sublabel ? E('div', { 'class': 'z2m-sa-name-sub' }, esc(sublabel)) : null
+			sub ? E('div', { 'class': 'z2m-sa-name-sub' }, esc(sub)) : null
 		].filter(Boolean));
 
-		var metaDiv = E('div', { 'class': 'z2m-sa-meta' }, metaBadges);
+		// col 2: meta
+		var metaDiv = E('div', { 'class': 'z2m-sa-meta' });
+		var rebadge = function () {
+			metaDiv.innerHTML = '';
+			var c2 = draft.selections[svc] || 'off';
+			var a2 = appliedSel[svc] || 'off';
+			if (c2 !== a2) {
+				metaDiv.appendChild(E('span', { 'class': 'z2m-badge z2m-badge-warn' }, _('Changed')));
+				metaDiv.appendChild(h(E('span', {}, 'Off'.substring(0,0)))); // placeholder
+			} else if (c2 !== 'off') {
+				metaDiv.appendChild(E('span', { 'class': 'z2m-badge z2m-badge-ok' }, _('On')));
+			}
+			metaDiv.appendChild(h(E('span', {}, ' ')));
+			metaDiv.appendChild(h(E('span', {}, dc + ' ' + _('domains'))));
+		};
+		rebadge();
 
-		// Right: selector + details button
-		var sel = E('select', { 'class': 'z2m-sa-sel', 'data-svc': svc, 'aria-label': _('Provider for ') + label,
-			'id': 'sel-' + svc });
+		// col 3: selector
+		var sel = E('select', { 'class': 'z2m-sa-sel', 'id': 'sel-' + svc });
+		sel.appendChild(E('option', { value: 'off' }, _('Off')));
+		profiles.forEach(function (p) {
+			var pn = providerName[p.providerId] || p.providerId;
+			var pc = 0;
+			for (var ai = 0; ai < avp.length; ai++) {
+				if (avp[ai].profileId === p.id) { pn = avp[ai].providerName; pc = avp[ai].domainCount; break; }
+			}
+			if (!pc) pc = (p.requiredDomains || []).length;
+			var opt = E('option', { value: p.id }, pn + ' \u2014 ' + pc + 'd');
+			if (cur === p.id) opt.selected = true;
+			sel.appendChild(opt);
+		});
 		sel.addEventListener('change', function () {
 			draft.selections[svc] = sel.value;
 			draft.dirty = true;
-			renderPendingPanel();
-			updateStickyBar();
-			updateRowState(row, svc, sel.value, applied);
-		});
-		sel.appendChild(E('option', { value: 'off' }, _('Off')));
-
-		profiles.forEach(function (p) {
-			var pvName = providerName[p.providerId] || p.providerId;
-			var pvCount = 0;
-			for (var ai = 0; ai < avp.length; ai++) {
-				if (avp[ai].profileId === p.id) { pvName = avp[ai].providerName; pvCount = avp[ai].domainCount; break; }
-			}
-			if (pvCount === 0) pvCount = (p.requiredDomains || []).length;
-			var optLabel = pvName + ' \u2014 ' + pvCount + ' ' + _('domains');
-			var opt = E('option', { value: p.id }, optLabel);
-			if (curSel === p.id) opt.selected = true;
-			sel.appendChild(opt);
+			rebadge();
+			buildSidebar();
+			buildSticky();
 		});
 
-		var detailBtn = E('button', { 'class': 'z2m-sa-detail-btn', 'type': 'button' }, _('Details'));
-		detailBtn.addEventListener('click', function () { toggleDetail(svc); });
+		// col 4: details
+		var dtlBtn = E('button', { 'class': 'z2m-sa-detail-btn', 'type': 'button' }, _('Details'));
+		var dtlPnl = E('div', { 'class': 'z2m-sa-detail-panel', 'id': 'dtl-' + svc });
+		dtlPnl.appendChild(E('h4', { 'style': 'margin:4px 0' }, esc(label)));
+		dtlPnl.appendChild(E('div', { 'class': 'z2m-kv' }, [
+			E('span', { 'class': 'z2m-kv-label' }, _('Provider')),
+			E('span', { 'class': 'z2m-kv-value' }, cur === 'off' ? _('Off') : (providerName[cur] || cur))
+		]));
+		var doms = (profiles.length ? profiles[0].requiredDomains : []);
+		if (doms.length) dtlPnl.appendChild(E('div', { 'class': 'z2m-kv' }, [
+			E('span', { 'class': 'z2m-kv-label' }, _('Domains')),
+			E('span', { 'class': 'z2m-kv-value' }, (function () { return doms.map(function (d) { return E('div', { 'style': 'font-family:monospace;font-size:.82em' }, esc(d)); }); })())
+		]));
+		dtlBtn.addEventListener('click', function () { dtlPnl.classList.toggle('open'); });
 
-		row.appendChild(left);
+		row.appendChild(nameDiv);
 		row.appendChild(metaDiv);
 		row.appendChild(sel);
-		row.appendChild(detailBtn);
+		row.appendChild(dtlBtn);
 
-		// Detail panel
-		var detailPanel = buildDetailPanel(svc, curSel, profiles, providerName, avp);
-		var catBody = null;
-		for (var cbi = 0; cbi < allBodies.length; cbi++) {
-			if (allBodies[cbi].getAttribute('data-cat') === groupId) { catBody = allBodies[cbi]; break; }
-		}
-		if (catBody) {
-			catBody.appendChild(row);
-			catBody.appendChild(detailPanel);
+		// Find correct category body
+		for (var bi = 0; bi < catBodyRefs.length; bi++) {
+			if (catBodyRefs[bi].getAttribute('data-cat') === gid) {
+				catBodyRefs[bi].appendChild(row);
+				catBodyRefs[bi].appendChild(dtlPnl);
+				break;
+			}
 		}
 		allRows.push(row);
 	});
 
-	grid.appendChild(catalogEl);
+	grid.appendChild(catEl);
 
-	// ── Pending changes sidebar ──
-	var sidebar = E('div', { 'class': 'z2m-sa-sidebar', 'id': 'z2m-sa-sidebar' });
-	buildPendingPanelContent(sidebar);
-	grid.appendChild(sidebar);
-
-	// ── Sticky action bar ──
-	var sticky = E('div', { 'class': 'z2m-sa-sticky', 'id': 'z2m-sa-sticky' });
-	buildStickyBarContent(sticky);
-	node.appendChild(grid);
-	node.appendChild(sticky);
-
-	// ── Preview dialog (hidden, created on demand) ──
-	view._saPreviewDialog = null;
-
-	// ── Initial filter pass ──
-	applyFilters();
-	// Expand groups that have active mappings
-	expandActive();
-
-	// ── Helper functions ──
-	function sumCard(num, label, cls) {
-		var c = cls === 'warn' ? 'z2m-sa-sumcard' : 'z2m-sa-sumcard';
-		return E('div', { 'class': c }, [
-			E('span', { 'class': 'z2m-sa-sc-num', 'style': cls === 'warn' ? 'color:#b66' : (cls === 'ok' ? 'color:#4a4' : '') }, num),
-			E('span', { 'class': 'z2m-sa-sc-label' }, label)
-		]);
-	}
-
-	function toggleCollapse(head) {
-		var isCollapsed = head.classList.contains('collapsed');
-		var body = head.nextElementSibling;
-		if (body && body.classList.contains('z2m-sa-catbody')) {
-			if (isCollapsed) { head.classList.remove('collapsed'); body.classList.remove('collapsed'); }
-			else { head.classList.add('collapsed'); body.classList.add('collapsed'); }
-		}
-	}
-
-	function expandAll(expand) {
-		for (var i = 0; i < allHeads.length; i++) {
-			var h = allHeads[i];
-			var b = allBodies[i];
-			if (!b) continue;
-			if (expand) { h.classList.remove('collapsed'); b.classList.remove('collapsed'); }
-			else { h.classList.add('collapsed'); b.classList.add('collapsed'); }
-		}
-	}
-
-	function expandActive() {
-		for (var i = 0; i < allRows.length; i++) {
-			var r = allRows[i];
-			if (r.getAttribute('data-enabled') === '1') {
-				var catId = r.getAttribute('data-cat');
-				for (var j = 0; j < allHeads.length; j++) {
-					if (allHeads[j].getAttribute('data-cat') === catId && allHeads[j].classList.contains('collapsed')) {
-						toggleCollapse(allHeads[j]);
-						break;
-					}
-				}
-			}
-		}
-	}
-
-	function applyFilters() {
-		var q = (searchInput.value || '').toLowerCase();
-		var cf = catFilter.value;
-		var sf = stateFilter.value;
-		var visible = 0;
-		for (var i = 0; i < allRows.length; i++) {
-			var r = allRows[i];
-			var svc = r.getAttribute('data-svc');
-			var svcLabel = (SERVICE_LABELS[svc] || svc).toLowerCase();
-			var sub = (SERVICE_SUBLABEL[svc] || '').toLowerCase();
-			var cats = r.getAttribute('data-cat');
-			var enabled = r.getAttribute('data-enabled') === '1';
-			var changed = r.getAttribute('data-changed') === '1';
-			var selPv = (draft.selections[svc] || 'off');
-			var pvName = (providerName[selPv] || selPv).toLowerCase();
-
-			var show = true;
-			if (q && svcLabel.indexOf(q) < 0 && sub.indexOf(q) < 0 && svc.indexOf(q) < 0 && pvName.indexOf(q) < 0) show = false;
-			if (cf && cats !== cf) show = false;
-			if (sf === 'enabled' && !enabled) show = false;
-			if (sf === 'disabled' && enabled) show = false;
-			if (sf === 'changed' && !changed) show = false;
-
-			r.style.display = show ? '' : 'none';
-			var dp = r.nextElementSibling;
-			if (dp && dp.classList.contains('z2m-sa-detail-panel')) dp.style.display = show ? (dp.classList.contains('open') ? 'block' : 'none') : 'none';
-			if (show) visible++;
-		}
-		// Auto-expand groups with visible results
-		var groupsSeen = {};
-		for (var i2 = 0; i2 < allRows.length; i2++) {
-			if (allRows[i2].style.display !== 'none') groupsSeen[allRows[i2].getAttribute('data-cat')] = true;
-		}
-		for (var i3 = 0; i3 < allHeads.length; i3++) {
-			var h = allHeads[i3];
-			var cid = h.getAttribute('data-cat');
-			if (groupsSeen[cid]) { if (h.classList.contains('collapsed')) toggleCollapse(h); }
-			else h.style.display = 'none';
-		}
-		// Restore hidden group headers when filter is cleared (but not empty groups)
-		if (!q && !cf && !sf) {
-			for (var i4 = 0; i4 < allHeads.length; i4++) {
-				var head = allHeads[i4];
-				var body = allBodies[i4];
-				var hasServices = false;
-				if (body) {
-					for (var ri = 0; ri < allRows.length; ri++) {
-						var rr = allRows[ri];
-						if (rr.parentNode === body && rr.style.display !== 'none') { hasServices = true; break; }
-					}
-				}
-				head.style.display = hasServices ? '' : 'none';
-			}
-		}
-		resLabel.textContent = _('Showing ') + visible + _(' of ') + serviceOrder.length;
-	}
-
-	function updateRowState(row, svc, newSel, applied) {
-		var cls = 'z2m-sa-row';
-		if (newSel !== 'off' && newSel === applied) cls += ' active';
-		if (newSel !== applied) cls += ' changed';
-		row.className = cls;
-		row.setAttribute('data-enabled', newSel !== 'off' ? '1' : '0');
-		row.setAttribute('data-changed', newSel !== applied ? '1' : '0');
-		// Rebuild the meta area
-		var metaEl = row.querySelector('.z2m-sa-meta');
-		if (metaEl) {
-			metaEl.innerHTML = '';
-			var metaBadges = [];
-			if (newSel !== applied) {
-				var appBadge = E('span', { 'class': 'z2m-badge z2m-badge-warn' }, _('Changed'));
-				var arrText = '';
-				if (applied === 'off' && newSel !== 'off') arrText = _('Off \u2192 ') + esc(providerName[newSel] || newSel);
-				else if (newSel === 'off' && applied !== 'off') arrText = esc(providerName[applied] || applied) + _(' \u2192 Off');
-				else arrText = esc(providerName[applied] || applied) + ' \u2192 ' + esc(providerName[newSel] || newSel);
-				metaEl.appendChild(appBadge);
-				metaEl.appendChild(E('span', { 'class': 'z2m-sa-change-arrow' }, arrText));
-			} else if (newSel !== 'off') {
-				var actBadge = E('span', { 'class': 'z2m-badge z2m-badge-ok' }, _('Active'));
-				metaEl.appendChild(actBadge);
-			}
-			var avp2 = availableByService[svc] || [];
-			var profiles2 = profilesBySvc[svc] || [];
-			var dc = avp2.length ? avp2[0].domainCount : (profiles2.length ? profiles2[0].requiredDomains.length : 0);
-			metaEl.appendChild(E('span', {}, dc + ' ' + _('domains')));
-		}
-	}
-
-	function renderPendingPanel() {
-		buildPendingPanelContent(sidebar);
-	}
-	function buildPendingPanelContent(panel) {
-		if (!panel) return;
-		panel.innerHTML = '';
-		panel.appendChild(E('h4', {}, _('Pending changes')));
-
-		var changes = [];
+	// ── sidebar ──
+	var sidebar = E('div', { 'class': 'z2m-sa-sidebar' });
+	function buildSidebar() {
+		sidebar.innerHTML = '';
+		sidebar.appendChild(E('h4', {}, _('Pending changes')));
+		var chgs = [];
 		for (var svc in draft.selections) {
-			var cur = draft.selections[svc];
-			var app = appliedSel[svc] || 'off';
-			if (cur === app) continue;
-			var avp2 = availableByService[svc] || [];
-			var dc = avp2.length ? avp2[0].domainCount : 0;
-			changes.push({ svc: svc, cur: cur, app: app, dc: dc });
+			var c = draft.selections[svc], a = appliedSel[svc] || 'off';
+			if (c === a) continue;
+			chgs.push({ svc: svc, cur: c, app: a });
 		}
-
-		if (changes.length === 0) {
-			panel.appendChild(E('p', { 'style': 'color:var(--cbi-desc);font-size:.85em' }, _('No unapplied changes.')));
-			return;
-		}
-
-		changes.forEach(function (ch) {
-			var label = SERVICE_LABELS[ch.svc] || ch.svc;
-			var pvCur = ch.cur === 'off' ? _('Off') : (providerName[ch.cur] || ch.cur);
-			var pvApp = ch.app === 'off' ? _('Off') : (providerName[ch.app] || ch.app);
-			panel.appendChild(E('div', { 'class': 'z2m-sa-change' }, [
-				E('div', {}, esc(label)),
-				E('div', { 'style': 'font-size:.82em' },
-					esc(pvApp) + E('span', { 'class': 'z2m-sa-change-arrow' }, '\u2192') + esc(pvCur)),
-				E('div', { 'class': 'z2m-sa-recs' }, ch.dc + ' ' + _('domains'))
+		if (!chgs.length) { sidebar.appendChild(E('p', { 'style': 'color:var(--cbi-desc);font-size:.85em' }, _('None.'))); return; }
+		chgs.forEach(function (ch) {
+			var pvC = ch.cur === 'off' ? _('Off') : (providerName[ch.cur] || ch.cur);
+			var pvA = ch.app === 'off' ? _('Off') : (providerName[ch.app] || ch.app);
+			sidebar.appendChild(E('div', { 'class': 'z2m-sa-change' }, [
+				E('div', {}, esc(SERVICE_LABELS[ch.svc] || ch.svc)),
+				E('div', { 'style': 'font-size:.82em;color:var(--cbi-desc)' }, esc(pvA) + ' \u2192 ' + esc(pvC))
 			]));
 		});
 	}
+	buildSidebar();
+	grid.appendChild(sidebar);
+	node.appendChild(grid);
 
-	function updateStickyBar() {
-		buildStickyBarContent(sticky);
+	// ── filter logic ──
+	function doFilter() {
+		var q = (srch.value || '').toLowerCase();
+		var cf = cfSel.value, sf = sfSel.value;
+		var vis = 0;
+		for (var i = 0; i < allRows.length; i++) {
+			var r = allRows[i];
+			var sv = r.getAttribute('data-svc');
+			var sl = (SERVICE_LABELS[sv] || sv).toLowerCase();
+			var sb = (SERVICE_SUBLABEL[sv] || '').toLowerCase();
+			var ct = r.getAttribute('data-cat');
+			var en = draft.selections[sv] !== 'off';
+			var ch = (draft.selections[sv] || 'off') !== (appliedSel[sv] || 'off');
+			var show = true;
+			if (q && sl.indexOf(q) < 0 && sb.indexOf(q) < 0 && sv.indexOf(q) < 0) show = false;
+			if (cf && ct !== cf) show = false;
+			if (sf === 'enabled' && !en) show = false;
+			if (sf === 'disabled' && en) show = false;
+			if (sf === 'changed' && !ch) show = false;
+			r.style.display = show ? '' : 'none';
+			var dp = r.nextElementSibling;
+			if (dp && dp.classList && dp.classList.contains('z2m-sa-detail-panel')) dp.style.display = 'none';
+			if (show) vis++;
+		}
+		// Show/hide category heads
+		var seen = {};
+		for (var i2 = 0; i2 < allRows.length; i2++) { if (allRows[i2].style.display !== 'none') seen[allRows[i2].getAttribute('data-cat')] = true; }
+		for (var i3 = 0; i3 < catHeadRefs.length; i3++) {
+			var hd = catHeadRefs[i3];
+			var cid = hd.getAttribute('data-cat');
+			var bd = catBodyRefs[i3];
+			if (seen[cid]) {
+				hd.style.display = '';
+				if (bd._hidden) { bd._hidden = false; bd.style.display = ''; hd._arr.textContent = '▼'; }
+			} else {
+				hd.style.display = 'none';
+				bd.style.display = 'none';
+			}
+		}
+		resLbl.textContent = _('Showing ') + vis + _(' of ') + serviceOrder.length;
 	}
-	function buildStickyBarContent(bar) {
-		if (!bar) return;
-		bar.innerHTML = '';
+	srch.addEventListener('input', doFilter);
+	cfSel.addEventListener('change', doFilter);
+	sfSel.addEventListener('change', doFilter);
+	doFilter();
 
-		var changes = [];
+	// ── sticky bar ──
+	var sticky = E('div', { 'class': 'z2m-sa-sticky' });
+	function buildSticky() {
+		sticky.innerHTML = '';
+		var chgs = [];
 		for (var svc in draft.selections) {
-			var cur = draft.selections[svc];
-			var app = appliedSel[svc] || 'off';
-			if (cur !== app) changes.push({ svc: svc, cur: cur, app: app });
+			var c = draft.selections[svc], a = appliedSel[svc] || 'off';
+			if (c !== a) chgs.push(1);
 		}
-
+		var has = chgs.length > 0;
 		var left = E('div', { 'class': 'z2m-sa-st-left' });
-		if (changes.length === 0) {
-			left.textContent = _('No unapplied changes');
-		} else {
-			left.textContent = changes.length + ' ' + _('unapplied change(s)');
-		}
-		bar.appendChild(left);
-
+		left.textContent = has ? (chgs.length + ' ' + _('unapplied')) : _('No changes');
+		sticky.appendChild(left);
 		var right = E('div', { 'class': 'z2m-sa-st-right' });
 
-		var discardBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button', 'disabled': changes.length === 0 }, _('Discard'));
-		discardBtn.addEventListener('click', function () {
+		var disc = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button', 'disabled': !has }, _('Discard'));
+		disc.addEventListener('click', function () {
 			draft.selections = {};
 			for (var k in selections) draft.selections[k] = selections[k];
 			draft.dirty = false;
 			view.reload();
 		});
-		right.appendChild(discardBtn);
+		right.appendChild(disc);
 
-		var prevBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button', 'disabled': changes.length === 0 }, _('Preview changes'));
-		prevBtn.addEventListener('click', function () {
-			prevBtn.disabled = true;
+		var prev = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button', 'disabled': !has }, _('Preview'));
+		prev.addEventListener('click', function () {
+			prev.disabled = true;
 			callSdnsSet(JSON.stringify({ selections: draft.selections })).then(function () {
 				callSdnsPreview().then(function (res) {
-					prevBtn.disabled = false;
-					showPreviewDialog(res);
-				}).catch(function (err) {
-					prevBtn.disabled = false;
-					view._flash = _('Preview failed: ') + String(err);
-					view.reload();
-				});
-			}).catch(function (err2) {
-				prevBtn.disabled = false;
-				view._flash = _('Save failed: ') + String(err2);
-				view.reload();
-			});
+					prev.disabled = false;
+					showPreview(res);
+				})['catch'](function (e) { prev.disabled = false; view._flash = String(e); view.reload(); });
+			})['catch'](function (e) { prev.disabled = false; view._flash = String(e); view.reload(); });
 		});
-		right.appendChild(prevBtn);
+		right.appendChild(prev);
 
-		var applyBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button', 'disabled': changes.length === 0 }, _('Apply all'));
-		applyBtn.addEventListener('click', function () {
-			applyBtn.disabled = true;
-			prevBtn.disabled = true;
-			discardBtn.disabled = true;
-			callSdnsApply(JSON.stringify({})).then(function (res) {
-				if (res && res.ok === true) {
-					view._flash = _('Service mappings applied and verified.');
-				} else {
-					view._flash = _('Apply failed: ') + esc((res && res.error && res.error.message) || res.error || '?');
-				}
-				view._sdnsDraft = null;
+		var appl = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button', 'disabled': !has }, _('Apply'));
+		appl.addEventListener('click', function () {
+			appl.disabled = true; prev.disabled = true; disc.disabled = true;
+			callSdnsApply(JSON.stringify({})).then(function (r) {
+				view._flash = (r && r.ok) ? _('Applied') : _('Apply failed');
+				view._saDraft = null;
 				view.reload();
-			}).catch(function (err) {
-				applyBtn.disabled = false;
-				prevBtn.disabled = false;
-				discardBtn.disabled = false;
-				view._flash = _('Apply error: ') + String(err);
-				view.reload();
-			});
+			})['catch'](function (e) { appl.disabled = false; prev.disabled = false; disc.disabled = false; view._flash = String(e); view.reload(); });
 		});
-		right.appendChild(applyBtn);
-
-		bar.appendChild(right);
+		right.appendChild(appl);
+		sticky.appendChild(right);
 	}
+	buildSticky();
+	node.appendChild(sticky);
 
-	function showPreviewDialog(pv) {
-		var oldOverlay = view._saOverlay;
-		if (oldOverlay && oldOverlay.parentNode) oldOverlay.parentNode.removeChild(oldOverlay);
+	function sc(n, l) { return E('div', { 'class': 'z2m-sa-sumcard' }, [E('span', { 'class': 'z2m-sa-sc-num' }, String(n)), E('span', { 'class': 'z2m-sa-sc-label' }, l)]); }
+	function h(el) { return el; }
+
+	function showPreview(pv) {
+		var old = view._saOverlay;
+		if (old && old.parentNode) old.parentNode.removeChild(old);
 		view._saOverlay = null;
-
 		var diff = pv.diff || {};
-		var addedRecords = pv.added || [];
-		var removedRecords = pv.removed || [];
-		var warnings = pv.warnings || [];
-		var hasConflict = pv.ok !== true;
-
-		var body = [];
-
-		// Summary
-		body.push(E('div', { 'class': 'z2m-sa-pv-section' }, [
-			E('h4', {}, _('Summary')),
-			E('div', { 'class': 'z2m-sa-pv-line' }, _('Services changed: ') + (diff.addedCount + diff.removedCount || 0)),
-			E('div', { 'class': 'z2m-sa-pv-line' }, _('Records added: ') + (diff.addedCount || 0)),
-			E('div', { 'class': 'z2m-sa-pv-line' }, _('Records removed: ') + (diff.removedCount || 0)),
-			E('div', { 'class': 'z2m-sa-pv-line' }, _('Action: ') + _('dnsmasq reload'))
-		]));
-
-		// Service changes
-		body.push(E('div', { 'class': 'z2m-sa-pv-section' }, [
-			E('h4', {}, _('Services')),
-			(function () {
-				var lines = [];
-				for (var svc in draft.selections) {
-					var cur = draft.selections[svc];
-					var app = appliedSel[svc] || 'off';
-					if (cur === app) continue;
-					var label = SERVICE_LABELS[svc] || svc;
-					lines.push(E('div', { 'class': 'z2m-sa-pv-line' }, esc(label) + ': ' + (providerName[app] || _('Off')) + ' \u2192 ' + (providerName[cur] || _('Off'))));
-				}
-				return lines.length ? lines : E('div', { 'class': 'z2m-sa-pv-line' }, _('No service changes'));
-			})()
-		]));
-
-		// DNS records
-		if (addedRecords.length > 0 || removedRecords.length > 0) {
-			body.push(E('div', { 'class': 'z2m-sa-pv-section' }, [
-				E('h4', {}, _('DNS records')),
-				(function () {
-					var recs = [];
-					for (var ai = 0; ai < addedRecords.length; ai++) {
-						var r = addedRecords[ai];
-						recs.push(E('div', { 'class': 'z2m-sa-pv-line z2m-sa-pv-added' }, '+ ' + (r.A && r.A[0] || '?') + ' ' + esc(r.hostname)));
-					}
-					for (var ri = 0; ri < removedRecords.length; ri++) {
-						var rr = removedRecords[ri];
-						recs.push(E('div', { 'class': 'z2m-sa-pv-line z2m-sa-pv-removed' }, '\u2212 ' + (rr.A && rr.A[0] || '?') + ' ' + esc(rr.hostname)));
-					}
-					return recs;
-				})()
-			]));
-		}
-
-		// Safety notes
-		body.push(E('div', { 'class': 'z2m-sa-pv-section' }, [
-			E('h4', {}, _('Safety')),
-			E('div', { 'class': 'z2m-sa-pv-line' }, _('\u2022 Manager-owned addnhosts file will be updated')),
-			E('div', { 'class': 'z2m-sa-pv-line' }, _('\u2022 Custom /etc/hosts records will not be removed')),
-			E('div', { 'class': 'z2m-sa-pv-line' }, _('\u2022 dnsmasq will be reloaded')),
-			E('div', { 'class': 'z2m-sa-pv-line' }, _('\u2022 Local resolver will be verified')),
-			E('div', { 'class': 'z2m-sa-pv-line' }, _('\u2022 Previous snapshot will be restored on failure'))
-		]));
-
-		if (warnings.length > 0) {
-			body.push(E('div', { 'class': 'z2m-sa-pv-section' }, [
-				E('h4', {}, _('Warnings')),
-				(function () {
-					return warnings.map(function (w) {
-						return E('div', { 'class': 'z2m-sa-pv-line', 'style': 'color:#b66' }, esc(w.type) + ': ' + esc(w.reason || w.provider || ''));
-					});
-				})()
-			]));
-		}
-
-		if (pv.candidate) {
-			body.push(E('div', { 'class': 'z2m-sa-pv-section' }, [
-				E('h4', {}, _('Generated file')),
-				E('pre', { 'style': 'font-size:.8em;max-height:200px;overflow:auto;background:var(--cbi-row-u);padding:8px;border-radius:4px' }, esc(pv.candidate))
-			]));
-		}
-
-		if (hasConflict) {
-			body.push(E('div', { 'class': 'z2m-callout z2m-callout-bad', 'style': 'margin-top:8px' }, _('Cannot apply: validation errors detected.')));
-		}
-
 		var dlg = E('div', { 'class': 'z2m-sa-preview-dlg' }, [
-			E('h3', {}, _('Review service mapping changes')),
-			(function () { return body; })()
-		]);
-
-		var cancelBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button', 'style': 'margin-top:10px' }, _('Close'));
-		dlg.appendChild(E('div', { 'class': 'z2m-actions', 'style': 'margin-top:12px' }, [cancelBtn]));
-
-		var overlay = E('div', { 'class': 'z2m-sa-preview-overlay', 'id': 'z2m-sa-overlay' }, [dlg]);
-		cancelBtn.addEventListener('click', function () { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); view._saOverlay = null; });
-		overlay.addEventListener('click', function (e) { if (e.target === overlay) { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); view._saOverlay = null; } });
-		view._saOverlay = overlay;
-		document.body.appendChild(overlay);
-	}
-
-	function toggleDetail(svc) {
-		var row = null;
-		for (var i = 0; i < allRows.length; i++) {
-			if (allRows[i].getAttribute('data-svc') === svc) { row = allRows[i]; break; }
-		}
-		if (!row) return;
-		var panel = row.nextElementSibling;
-		if (!panel || !panel.classList.contains('z2m-sa-detail-panel')) return;
-		var isOpen = panel.classList.contains('open');
-		if (isOpen) panel.classList.remove('open');
-		else panel.classList.add('open');
-	}
-
-	function buildDetailPanel(svc, curSel, profiles, providerName, avp) {
-		var panel = E('div', { 'class': 'z2m-sa-detail-panel', 'id': 'z2m-sd-' + svc });
-		var label = SERVICE_LABELS[svc] || svc;
-
-		panel.appendChild(E('h4', { 'style': 'margin:0 0 6px' }, esc(label) + ' ' + _('details')));
-
-		// Selected provider
-		var pvLabel = curSel === 'off' ? _('Off') : (providerName[curSel] || curSel);
-		panel.appendChild(E('div', { 'class': 'z2m-kv' }, [
-			E('span', { 'class': 'z2m-kv-label' }, _('Provider')),
-			E('span', { 'class': 'z2m-kv-value' }, esc(pvLabel))
-		]));
-
-		// Domains
-		var domains = null;
-		for (var pi = 0; pi < profiles.length; pi++) {
-			if (profiles[pi].id === curSel) { domains = profiles[pi].requiredDomains; break; }
-		}
-		if (!domains && profiles.length > 0) domains = profiles[0].requiredDomains;
-		if (domains) {
-			panel.appendChild(E('div', { 'class': 'z2m-kv' }, [
-				E('span', { 'class': 'z2m-kv-label' }, _('Domains')),
-				E('span', { 'class': 'z2m-kv-value' }, (function () {
-					return domains.map(function (d) { return E('div', { 'style': 'font-family:monospace;font-size:.82em' }, esc(d)); });
-				})())
-			]));
-		}
-
-		// Provider IP for this variant
-		var pv = null;
-		for (var ai2 = 0; ai2 < avp.length; ai2++) { if (avp[ai2].profileId === curSel) { pv = avp[ai2]; break; } }
-		if (pv && pv.providerIpv4 && pv.providerIpv4.length) {
-			panel.appendChild(E('div', { 'class': 'z2m-kv' }, [
-				E('span', { 'class': 'z2m-kv-label' }, _('Resolver IP')),
-				E('span', { 'class': 'z2m-kv-value', 'style': 'font-family:monospace' }, esc(pv.providerIpv4.join(', ')))
-			]));
-		}
-
-		// Notes/limitations
-		panel.appendChild(E('div', { 'style': 'margin-top:8px;font-size:.82em;color:var(--cbi-desc)' },
-			_('DNS answers may be cached by clients and browsers. Clear client DNS cache if changes are not immediately visible.')));
-
-		return panel;
+			E('h3', {}, _('Review changes')),
+			E('div', {}, _('Added: ') + (diff.addedCount || 0) + '  ' + _('Removed: ') + (diff.removedCount || 0)),
+			pv.candidate ? E('pre', { 'style': 'font-size:.8em;max-height:200px;overflow:auto;background:var(--cbi-row-u);padding:8px;border-radius:4px' }, esc(pv.candidate)) : null,
+			(function () { var cls = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Close')); cls.addEventListener('click', function () { if (ov.parentNode) ov.parentNode.removeChild(ov); view._saOverlay = null; }); return cls; })()
+		].filter(Boolean));
+		var ov = E('div', { 'class': 'z2m-sa-preview-overlay' }, [dlg]);
+		ov.addEventListener('click', function (e) { if (e.target === ov) { if (ov.parentNode) ov.parentNode.removeChild(ov); view._saOverlay = null; } });
+		view._saOverlay = ov;
+		document.body.appendChild(ov);
 	}
 
 	return node;
