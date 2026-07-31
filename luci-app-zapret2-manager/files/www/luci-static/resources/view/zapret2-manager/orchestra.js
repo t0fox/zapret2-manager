@@ -1,9 +1,7 @@
 'use strict';
-
 // Adaptive engine page (Orchestra v2) — read-only capability/observability
 // adapter over upstream zapret-auto.lua. Simple Mode by default;
 // Technical details collapsed. Honest about what is and isn't available.
-
 'require rpc';
 
 var callOrchCapabilities = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_capabilities', reject: true });
