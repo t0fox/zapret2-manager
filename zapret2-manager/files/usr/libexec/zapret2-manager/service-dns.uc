@@ -72,6 +72,13 @@ function iso_now() {
 	return length(s) ? s : null;
 }
 
+function compute_file_hash(path) {
+	let r = run('sha256sum ' + path + ' 2>/dev/null');
+	if (r.rc != 0 || !r.out) return '';
+	let parts = split(trim(r.out), ' ');
+	return parts[0] || '';
+}
+
 // ---- ucode-compatible helpers ----
 function _slice(arr, start, end) {
 	let out = [];
@@ -577,6 +584,90 @@ function restore_service_dns_state() {
 }
 
 // ---------------------------------------------------------------------------
+// split-DNS routing helpers (r46.5)
+// ---------------------------------------------------------------------------
+const ROUTING_CONF = '/etc/zapret2-manager/service-dns-routing.conf';
+
+function generate_routing_rules(selections, profileMap, providerMap) {
+	let rules = {};
+	let conflicts = [];
+	for (let svc in selections) {
+		let pid = selections[svc];
+		if (pid == 'off' || pid == null) continue;
+		let p = profileMap[pid];
+		if (!p) continue;
+		let prov = providerMap[p.providerId] || {};
+		let ips = prov.ipv4 || [];
+		if (!length(ips)) continue;
+		let domains = p.requiredDomains || [];
+		for (let di = 0; di < length(domains); di++) {
+			let d = lc(trim(domains[di]));
+			if (!d) continue;
+			if (rules[d]) {
+				if (rules[d].providerId != prov.id) {
+					push(conflicts, { domain: d, services: [rules[d].owners[0], svc], providers: [rules[d].providerId, prov.id] });
+				} else {
+					if (index(rules[d].owners, svc) < 0) push(rules[d].owners, svc);
+				}
+			} else {
+				rules[d] = { providerId: prov.id, upstreams: _slice(ips, 0, 2), owners: [svc] };
+			}
+		}
+	}
+	return { rules: rules, conflicts: conflicts };
+}
+
+function get_dnsmasq_info() {
+	let info = { installed: false, running: false, version: '', pid: 0, routingRegistered: false, activeRouteCount: 0 };
+	let ubus = run('ubus call service list \'{"name":"dnsmasq"}\' 2>/dev/null');
+	if (ubus.rc == 0 && ubus.out) {
+		try {
+			let obj = json(ubus.out);
+			if (obj && obj.dnsmasq) {
+				let insts = obj.dnsmasq.instances || {};
+				for (let k in insts) {
+					if (insts[k].running) { info.running = true; info.pid = int(insts[k].pid) || 0; break; }
+				}
+			}
+		} catch (e) {}
+	}
+	if (stat('/usr/sbin/dnsmasq')) info.installed = true;
+	if (info.installed) {
+		let ver = run('dnsmasq --version 2>/dev/null');
+		if (ver.rc == 0) { let m = match(ver.out, /Dnsmasq version ([0-9.]+)/); if (m) info.version = m[1]; }
+	}
+	info.routingRegistered = (stat(ROUTING_CONF) && stat(ROUTING_CONF).size > 20);
+	let scfg = run('uci show dhcp 2>/dev/null');
+	if (scfg.rc == 0 && scfg.out) {
+		let lines = split(scfg.out, '\n'); let cnt = 0;
+		for (let i = 0; i < length(lines); i++) { if (index(lines[i], '.server=') >= 0 && index(lines[i], '=/') > 0) cnt++; }
+		info.activeRouteCount = cnt;
+	}
+	return info;
+}
+
+function generate_dnsmasq_routing_conf(rules) {
+	let lines = ['# Managed by zapret2-manager r46.5', '# Do not edit manually'];
+	let domains = keys(rules); sort(domains);
+	for (let i = 0; i < length(domains); i++) {
+		let d = domains[i];
+		let r = rules[d];
+		for (let j = 0; j < length(r.upstreams); j++) {
+			push(lines, 'server=/' + d + '/' + r.upstreams[j]);
+		}
+	}
+	return join(lines, '\n') + '\n';
+}
+
+function compute_routing_hash(rules) {
+	let tmp = OVERRIDES_PATH + '.rhash.' + time();
+	writefile(tmp, generate_dnsmasq_routing_conf(rules));
+	let h = compute_file_hash(tmp);
+	try { unlink(tmp); } catch (e) { }
+	return h;
+}
+
+// ---------------------------------------------------------------------------
 // ownership ledger (hostname + family + address)
 // ---------------------------------------------------------------------------
 function tuple_key(hostname, family, address) {
@@ -656,7 +747,7 @@ export const service_dns_providers = function(req) {
 	};
 };
 
-// service_dns_status — full state + preview of the current selections
+// service_dns_status — full state + routing preview + runtime diagnostics
 export const service_dns_status = function(req) {
 	let ds = load_dataset();
 	if (!ds.ok) return err('ETARGET', 'dataset unavailable: ' + (ds.error ? ds.error.message : '?'));
@@ -664,18 +755,14 @@ export const service_dns_status = function(req) {
 	if (sd.malformed) return err('ESTATE', 'service DNS state is malformed: ' + sd.reason);
 	let state = sd.state;
 	let selections = state.selections || {};
-	let appliedSel = state.applied.selections || {};
-	let appliedRev = (type(state.applied.revision) == 'int') ? state.applied.revision : 0;
-	// compute desired records from selections
-	let desiredRecords = [];
-	let warnings = [];
+	let appliedSel = type(state.applied) == 'object' ? (state.applied.selections || {}) : {};
+	let appliedRev = (type(state.applied) == 'object' && type(state.applied.revision) == 'int') ? state.applied.revision : 0;
+
 	let profileMap = {};
-	for (let i = 0; i < length(ds.profiles); i++) {
-		let p = ds.profiles[i];
-		profileMap[p.id] = p;
-	}
+	for (let i = 0; i < length(ds.profiles); i++) profileMap[ds.profiles[i].id] = ds.profiles[i];
 	let providerMap = {};
 	for (let i = 0; i < length(ds.providers); i++) providerMap[ds.providers[i].id] = ds.providers[i];
+
 	// build available providers per service
 	let availableByService = {};
 	for (let i = 0; i < length(ds.profiles); i++) {
@@ -685,42 +772,47 @@ export const service_dns_status = function(req) {
 		availableByService[p.serviceId] = availableByService[p.serviceId] || [];
 		push(availableByService[p.serviceId], { profileId: p.id, providerId: p.providerId, providerName: prx.name || p.providerId, providerIpv4: prx.ipv4 || [], domainCount: length(p.requiredDomains) });
 	}
+
+	// generate routing rules from current selections
+	let gen = generate_routing_rules(selections, profileMap, providerMap);
+	let appliedGen = generate_routing_rules(appliedSel, profileMap, providerMap);
+
+	// drift
+	let drift = null;
+	for (let svc in selections) {
+		if (appliedSel[svc] != selections[svc]) { drift = { serviceId: svc, desired: selections[svc], applied: (appliedSel[svc] || 'off') }; break; }
+	}
+
+	// warnings from profile validation
+	let warnings = [];
 	for (let svc in selections) {
 		let pid = selections[svc];
 		if (pid == 'off' || pid == null) continue;
 		let p = profileMap[pid];
 		if (!p) { push(warnings, { type: 'unknown-profile', serviceId: svc, profileId: pid }); continue; }
 		let prov = providerMap[p.providerId] || {};
-		let trust = classify_trust_ucode(prov, iso_now());
-		if (!trust.applicable) { push(warnings, { type: 'profile-not-applicable', serviceId: svc, profileId: pid, reason: trust.reason }); continue; }
-		let comp = compute_completeness_ucode(p);
-		let desired = compute_desired_records_ucode(p.records, APPLY_FAMILY);
-		for (let j = 0; j < length(desired.records); j++) {
-			push(desiredRecords, { hostname: desired.records[j].hostname, A: desired.records[j].A, AAAA: desired.records[j].AAAA, owner: 'service:' + pid });
-		}
-		if (comp.status == 'partial') push(warnings, { type: 'partial-profile', serviceId: svc, profileId: pid, missing: comp.missingRequired });
+		if (!length(prov.ipv4)) { push(warnings, { type: 'no-plain-dns', serviceId: svc, profileId: pid, provider: prov.name }); }
 	}
-	// build ownership map from existing overrides file (read-only)
-	let existing = parse_existing_overrides();
-	// compute ownership with user anti-wipe
-	let ownership = build_ownership_map(desiredRecords, existing.ownership);
-	// drift
-	let drift = null;
-	for (let svc in selections) {
-		if (appliedSel[svc] != selections[svc]) { drift = { serviceId: svc, desired: selections[svc], applied: (appliedSel[svc] || 'off') }; break; }
-	}
-	// parse applied generated records (from overrides file, owner-tagged lines)
-	let appliedRecords = [];
-	for (let k in ownership) {
-		let parts = split(k, '|');
-		if (length(parts) == 3) push(appliedRecords, { hostname: parts[0], family: parts[1], address: parts[2], owner: ownership[k] });
-	}
+
+	// runtime
+	let runtime = get_dnsmasq_info();
+
+	// diagnostics
+	let diagnostics = {
+		clientUsesRouterDns: true,
+		forceDnsEnabled: false,
+		encryptedDnsMayBypass: true,
+		note: 'Browser DoH/DNS-over-TLS may bypass router DNS routing'
+	};
+
 	return {
-		ok: true, datasetValid: true, selections: selections, applied: appliedSel, appliedAt: state.applied.generatedAt,
-		appliedRevision: appliedRev, drift: drift, warnings: warnings, events: _slice(state.events, -10),
-		desiredRecords: desiredRecords, ownership: ownership, appliedRecords: appliedRecords,
+		ok: true, datasetValid: true, selections: selections, applied: appliedSel, appliedAt: (state.applied && state.applied.generatedAt) || null,
+		appliedRevision: appliedRev, drift: drift, warnings: warnings,
+		pending: state.pending || null,
+		routing: { desired: gen.rules, applied: appliedGen.rules, conflicts: gen.conflicts },
+		runtime: runtime, diagnostics: diagnostics,
 		availableByService: availableByService,
-		overridesPath: OVERRIDES_PATH, registered: (index(readfile(DHCP_CONF) || '', OVERRIDES_PATH) >= 0)
+		events: _slice(state.events, -10)
 	};
 };
 
@@ -1148,8 +1240,15 @@ function op_snapshot_dir(operationId) {
 function create_op_snapshot(operationId) {
 	let dir = op_snapshot_dir(operationId);
 	run('mkdir -p ' + dir);
-	run('cp -p ' + OVERRIDES_PATH + ' ' + dir + '/previous.hosts 2>/dev/null');
-	run('cp -p ' + STATE_PATH + ' ' + dir + '/previous-state.json 2>/dev/null');
+	// save current state
+	if (stat(STATE_PATH)) run('cp -p ' + STATE_PATH + ' ' + dir + '/previous-state.json');
+	// save current routing conf
+	if (stat(ROUTING_CONF)) run('cp -p ' + ROUTING_CONF + ' ' + dir + '/previous-routing.conf 2>/dev/null');
+	// save current overrides (manual host overrides — separate from service routing)
+	if (stat(OVERRIDES_PATH)) run('cp -p ' + OVERRIDES_PATH + ' ' + dir + '/previous.hosts');
+	// save UCI dnsmasq conf_file entries
+	let uci = run('uci show dhcp.@dnsmasq[0].conf_file 2>/dev/null');
+	writefile(dir + '/previous-uci-conf-file.txt', uci.out || '');
 	return dir;
 }
 
@@ -1164,16 +1263,6 @@ function restore_op_snapshot(operationId) {
 	if (stat(dir + '/previous-state.json')) {
 		run('cp -p ' + dir + '/previous-state.json ' + STATE_PATH);
 	}
-}
-
-// ---------------------------------------------------------------------------
-// shell-safe hash computation (r46.4 — no string interpolation into shell)
-// ---------------------------------------------------------------------------
-function compute_file_hash(path) {
-	let r = run('sha256sum ' + path + ' 2>/dev/null');
-	if (r.rc != 0 || !r.out) return '';
-	let parts = split(trim(r.out), ' ');
-	return parts[0] || '';
 }
 
 // ---------------------------------------------------------------------------
@@ -1243,81 +1332,79 @@ export const service_dns_apply_async = function(req) {
 		return err('ECONFLICT', 'service DNS draft changed elsewhere (revision ' + appliedRev + '); reload and retry');
 	}
 
-	// 3. validate selections
+	// 3. validate selections + generate routing rules
 	let ds = load_dataset();
 	if (!ds.ok) { release_lock(operationId); return err('ETARGET', 'dataset unavailable'); }
 	let profileMap = {};
 	let providerMap = {};
 	for (let i = 0; i < length(ds.profiles); i++) profileMap[ds.profiles[i].id] = ds.profiles[i];
 	for (let i = 0; i < length(ds.providers); i++) providerMap[ds.providers[i].id] = ds.providers[i];
-	let desiredRecords = [];
+
+	let gen = generate_routing_rules(selections, profileMap, providerMap);
+	if (length(gen.conflicts)) {
+		release_lock(operationId);
+		return err('EDOMAINCONFLICT', 'Domain routing conflict', { conflicts: gen.conflicts });
+	}
+
+	// check providers have usable plain DNS
 	let warnings = [];
 	for (let svc in selections) {
 		let pid = selections[svc];
 		if (pid == 'off' || pid == null) continue;
 		let p = profileMap[pid];
-		if (!p) { push(warnings, { type: 'unknown-profile', serviceId: svc, profileId: pid }); continue; }
+		if (!p) continue;
 		let prov = providerMap[p.providerId] || {};
-		let trust = classify_trust_ucode(prov, iso_now());
-		if (!trust.applicable) { push(warnings, { type: 'profile-not-applicable', serviceId: svc, profileId: pid, reason: trust.reason }); continue; }
-		let comp = compute_completeness_ucode(p);
-		let recs = p.records;
-		if (comp.status != 'complete' && comp.status != 'unresolved') {
-			push(warnings, { type: 'profile-incomplete', serviceId: svc, profileId: pid, status: comp.status }); continue;
-		}
-		let desired = compute_desired_records_ucode(recs, APPLY_FAMILY);
-		for (let j = 0; j < length(desired.records); j++)
-			push(desiredRecords, { hostname: desired.records[j].hostname, A: desired.records[j].A, AAAA: desired.records[j].AAAA, owner: 'service:' + pid });
+		if (!length(prov.ipv4)) push(warnings, { type: 'no-plain-dns', serviceId: svc, profileId: pid, provider: prov.name || p.providerId });
 	}
 
-	// 4. compute candidate + render (always render — All Off yields empty but valid overrides)
-	let existing = parse_existing_overrides();
-	let ownership = build_ownership_map(desiredRecords, existing.ownership);
-	let candidateRecords = [];
-	let seenRec = {};
-	for (let i = 0; i < length(desiredRecords); i++) {
-		let r = desiredRecords[i];
-		for (let j = 0; j < length(r.A); j++) {
-			let key = r.hostname + '|A|' + r.A[j];
-			if (seenRec[key]) continue;
-			seenRec[key] = true;
-			push(candidateRecords, { hostname: r.hostname, A: [r.A[j]], AAAA: [], owner: r.owner });
-		}
-	}
-	// preserve user entries
-	for (let i = 0; i < length(existing.entries); i++) {
-		let e = existing.entries[i];
-		if (e.owner == 'user') {
-			let key = e.hostname + '|' + (e.A && length(e.A) ? e.A[0] : '');
-			if (!seenRec[key]) { seenRec[key] = true; push(candidateRecords, e); }
-		}
-	}
-	let rendered = render_hosts_with_ownership(candidateRecords, ownership);
-
-	// 5. create operation-specific snapshot
+	// 4. snapshot first, then generate + write routing conf
 	let snapDir = create_op_snapshot(operationId);
 	if (!stat(snapDir)) { release_lock(operationId); return err('ETARGET', 'failed to create snapshot directory'); }
+	let prevUci = run('uci show dhcp.@dnsmasq[0].server 2>/dev/null');
+	writefile(snapDir + '/previous-uci-server.txt', prevUci.out || '');
+	if (stat(ROUTING_CONF)) run('cp -p ' + ROUTING_CONF + ' ' + snapDir + '/previous-routing.conf');
 
-	// 6. compute hash safely
+	let routingConf = generate_dnsmasq_routing_conf(gen.rules);
+	if (!routingConf || type(routingConf) != 'string') {
+		let lines = ['# Managed by zapret2-manager r46.5', '# Do not edit manually'];
+		let doms = keys(gen.rules); sort(doms);
+		for (let i2 = 0; i2 < length(doms); i2++) {
+			let d = doms[i2]; let r2 = gen.rules[d];
+			for (let j2 = 0; j2 < length(r2.upstreams); j2++)
+				push(lines, 'server=/' + d + '/' + r2.upstreams[j2]);
+		}
+		routingConf = join(lines, '\n') + '\n';
+	}
+	writefile(ROUTING_CONF, routingConf);
+	run('chmod 644 ' + ROUTING_CONF);
+	let routingHash = compute_routing_hash(gen.rules);
+
+	// register conf_file in dnsmasq if not already
+	let conf = readfile(DHCP_CONF) || '';
+	if (index(conf, ROUTING_CONF) < 0) {
+		run("uci add_list dhcp.@dnsmasq[0].conf_file='" + ROUTING_CONF + "'");
+		run('uci commit dhcp');
+	}
+	// write desired hash
 	run('mkdir -p ' + opDir);
-	let hashFile = opDir + '/desired.hosts';
-	writefile(hashFile, rendered);
+	let hashFile = opDir + '/desired.routing';
+	writefile(hashFile, routingConf);
 	let desiredHash = compute_file_hash(hashFile);
 
-	// 7. write job file
+	// 6. write job file
 	let job = {
 		operationId: operationId, phase: 'queued',
 		desiredSelections: _obj_assign({}, selections),
-		rendered: rendered, records: candidateRecords,
-		desiredHash: desiredHash,
-		statePath: STATE_PATH, overridesPath: OVERRIDES_PATH, snapDir: snapDir, jobDir: opDir,
+		routingConf: routingConf, rules: gen.rules,
+		desiredHash: desiredHash, routingHash: routingHash,
+		statePath: STATE_PATH, routingConfPath: ROUTING_CONF, snapDir: snapDir, jobDir: opDir,
 		createdAt: iso_now(), updatedAt: iso_now(), finished: false,
 		pid: 0, timings: { writeMs: 0, reloadMs: 0, verifyMs: 0, rollbackMs: 0, totalMs: 0 }
 	};
 	writefile(jobFile, sprintf("%J", job) + "\n");
 	if (!stat(jobFile)) { release_lock(operationId); return err('ETARGET', 'failed to write job file'); }
 
-	// 8. update pending state (NOT applied — applied changes only after verification)
+	// 7. update pending state
 	state.pending = {
 		operationId: operationId,
 		desiredSelections: _obj_assign({}, selections),
@@ -1329,11 +1416,11 @@ export const service_dns_apply_async = function(req) {
 		snapshotDir: snapDir
 	};
 	push(state.events, { ts: iso_now(), action: 'apply-async', operationId: operationId,
-		services: length(keys(selections)), records: length(candidateRecords) });
+		services: length(keys(selections)), routes: length(keys(gen.rules)) });
 	if (length(state.events) > 20) state.events = _slice(state.events, -20);
 	if (!save_service_dns_state(state)) { release_lock(operationId); return err('ESTATE', 'state write failed'); }
 
-	// 9. spawn worker
+	// 8. spawn worker
 	let WORKER = '/usr/libexec/zapret2-manager/service-dns-apply-worker.uc';
 	if (!stat(WORKER)) { release_lock(operationId); return err('ETARGET', 'worker script not found: ' + WORKER); }
 	let wp = popen('sh -c "/usr/bin/ucode ' + WORKER + ' ' + jobFile + ' > /dev/null 2>&1 &"', 'r');
@@ -1344,7 +1431,7 @@ export const service_dns_apply_async = function(req) {
 	return {
 		ok: true, accepted: true, operationId: operationId,
 		revision: appliedRev, state: 'submitted',
-		recordsWritten: length(candidateRecords), warnings: warnings
+		routesWritten: length(keys(gen.rules)), warnings: warnings
 	};
 };
 

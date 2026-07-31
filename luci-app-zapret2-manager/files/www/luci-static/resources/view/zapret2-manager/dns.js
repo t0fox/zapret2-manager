@@ -5,7 +5,7 @@
 // Grounding: dnsmasq + UCI + resolvfile. No Windows APIs, no per-adapter model.
 'require rpc';
 
-const DNS_UI_BUILD = 'r46.4.2';
+const DNS_UI_BUILD = 'r46.5';
 
 const callDnsGet        = rpc.declare({ object: 'zapret2-manager', method: 'dns_get', reject: true });
 const callDnsSet        = rpc.declare({ object: 'zapret2-manager', method: 'dns_set', params: ['edit'], reject: true });
