@@ -113,7 +113,6 @@ return L.view.extend({
 			return call().then(function (res) { return { loadError: null, data: res || null }; })
 				.catch(function (err) { return { loadError: String(err), data: null }; });
 		}
-		var gen = ++this._loadGen;
 		return Promise.all([
 			callDnsGet().then(function (res) { return { loadError: null, data: res || null }; })
 				.catch(function (err) { return { loadError: String(err), data: null }; }),
@@ -122,7 +121,6 @@ return L.view.extend({
 			grab(callProvComp),
 			grab(callProvList)
 		]).then(function (r) {
-			if (gen !== this._loadGen) return null;
 			return {
 				dnsLoadError: r[0].loadError, dns: r[0].data,
 				sdnsStatusErr: r[1].loadError, sdnsStatus: r[1].data,
@@ -137,9 +135,8 @@ return L.view.extend({
 		injectCSS();
 		this._envelope = envelope || {};
 		if (!this._section) this._section = 'setup';
-		if (!this._loadGen) this._loadGen = 0;
-		if (!this._renderGen) this._renderGen = 0;
-		if (!this._opGen) this._opGen = 0;
+		if (typeof this._loadGen !== 'number') this._loadGen = 0;
+		if (typeof this._renderGen !== 'number') this._renderGen = 0;
 		if (!this._sdnsOp) this._sdnsOp = null;
 		if (!this._saDraft) this._saDraft = null;
 		var self = this;
@@ -252,18 +249,28 @@ return L.view.extend({
 	reload: function () {
 		var self = this;
 		if (this._reloadActive) return this._reloadActive;
+		if (typeof this._loadGen !== 'number') this._loadGen = 0;
 		var gen = ++this._loadGen;
 		this._reloadActive = this.load().then(function (env) {
-			self._reloadActive = null;
-			if (gen !== self._loadGen || !env) return;
+			if (gen !== self._loadGen) return null;
+			if (!env) throw new Error('DNS reload returned no data');
 			self._envelope = env;
-			var g2 = ++self._renderGen;
+			if (typeof self._renderGen !== 'number') self._renderGen = 0;
+			self._renderGen++;
 			self._buildShellContent();
-		}).catch(function (e) {
-			self._reloadActive = null;
-			self.showFlash('Reload failed: ' + String(e));
+			return env;
+		}, function (err) {
+			if (gen === self._loadGen) self.showFlash(_('Reload failed: ') + String(err));
+			return Promise.reject(err);
+		}).then(function (result) {
+			if (self._reloadActive === wrapped) self._reloadActive = null;
+			return result;
+		}, function (err) {
+			if (self._reloadActive === wrapped) self._reloadActive = null;
+			return Promise.reject(err);
 		});
-		return this._reloadActive;
+		var wrapped = this._reloadActive;
+		return wrapped;
 	},
 
 	refresh: function () { return this.reload(); },
