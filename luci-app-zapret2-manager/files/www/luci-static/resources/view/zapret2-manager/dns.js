@@ -667,7 +667,9 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 			E('span', { 'class': 'z2m-kv-label' }, _('Domains')),
 			E('span', { 'class': 'z2m-kv-value' }, (function () { return doms.map(function (d) { return E('div', { 'style': 'font-family:monospace;font-size:.82em' }, esc(d)); }); })())
 		]));
-		dtlBtn.addEventListener('click', function () { dtlPnl.classList.toggle('open'); });
+		dtlBtn.addEventListener('click', function () {
+			dtlPnl.style.display = (dtlPnl.style.display === 'block') ? 'none' : 'block';
+		});
 
 		row.appendChild(nameDiv);
 		row.appendChild(metaDiv);
@@ -753,7 +755,6 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 		resLbl.textContent = _('Showing ') + vis + _(' of ') + serviceOrder.length;
 	}
 	srch.addEventListener('input', doFilter);
-	cfSel.addEventListener('change', doFilter);
 	sfSel.addEventListener('change', doFilter);
 	doFilter();
 
