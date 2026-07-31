@@ -4,13 +4,15 @@
 // Technical details collapsed. Honest about what is and isn't available.
 'require rpc';
 
-var callOrchCapabilities = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_capabilities', reject: true });
-var callOrchStatus = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_status', reject: true });
-var callOrchEvents = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_events', reject: true });
-var callOrchHistory = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_history', reject: true });
-var callOrchRatings = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_ratings_get', reject: true });
-var callOrchRunId = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_runid', reject: true });
-var callOrchParseWarnings = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_parse_warnings', reject: true });
+const ORCH_UI_BUILD = 'r46.7';
+
+const callOrchCapabilities = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_capabilities', reject: true });
+const callOrchStatus = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_status', reject: true });
+const callOrchEvents = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_events', reject: true });
+const callOrchHistory = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_history', reject: true });
+const callOrchRatings = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_ratings_get', reject: true });
+const callOrchRunId = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_runid', reject: true });
+const callOrchParseWarnings = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_parse_warnings', reject: true });
 
 function injectCSS() {
 	if (document.getElementById('z2m-ui-css')) return;
