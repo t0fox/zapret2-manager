@@ -1,7 +1,7 @@
 'use strict';
-// service-dns-apply-worker.uc — routing apply worker (r46.5.2).
+// service-dns-apply-worker.uc — routing apply worker (r46.6).
 // Single rollback for all post-write failures. Exact count + tuple validation.
-// No undeclared variables.
+// Header provenance verification (operationId in fragment header).
 
 import { readfile, writefile, stat, unlink, popen } from 'fs';
 
@@ -230,7 +230,29 @@ if (!running) fail_and_rollback('EVERIFY', 'dnsmasq not running after restart');
 let vs = int(time()) - tv;
 
 // Success
-write_job(jf, { phase: 'success', finished: true, finishedAt: now_iso(), verified: true, timings: { writeMs: tw * 1000, reloadMs: rs * 1000, verifyMs: vs * 1000, rollbackMs: 0, totalMs: (int(time()) - t0) * 1000 }, directiveCount: dCount, routeCount: routeCount });
+let headerMatch = true;
+let fragContent = readfile(rcp) || '';
+let fragLines = split(fragContent, '\n');
+let fragOpId = '', fragRev = 0, fragSelHash = '', fragRC = 0, fragDC = 0;
+for (let fi = 0; fi < length(fragLines); fi++) {
+	let fl = trim(fragLines[fi]);
+	if (substr(fl, 0, 14) == '# operationId:') fragOpId = trim(substr(fl, 15));
+	else if (substr(fl, 0, 11) == '# revision:') fragRev = int(trim(substr(fl, 12)));
+	else if (substr(fl, 0, 16) == '# selectionHash:') fragSelHash = trim(substr(fl, 17));
+	else if (substr(fl, 0, 13) == '# routeCount:') fragRC = int(trim(substr(fl, 14)));
+	else if (substr(fl, 0, 17) == '# directiveCount:') fragDC = int(trim(substr(fl, 18)));
+}
+if (fragOpId != opId) headerMatch = false;
+if (fragRev != (type(jr.revision) == 'int' ? jr.revision : 0)) headerMatch = false;
+if (fragSelHash != (type(jr.selectionHash) == 'string' ? jr.selectionHash : '')) headerMatch = false;
+if (fragRC != routeCount) headerMatch = false;
+if (fragDC != dCount) headerMatch = false;
+
+write_job(jf, { phase: 'success', finished: true, finishedAt: now_iso(), verified: true,
+	headerMatch: headerMatch, originVerified: headerMatch,
+	fragmentOpId: fragOpId, fragmentRevision: fragRev, fragmentSelHash: fragSelHash, fragmentRouteCount: fragRC, fragmentDirCount: fragDC,
+	timings: { writeMs: tw * 1000, reloadMs: rs * 1000, verifyMs: vs * 1000, rollbackMs: 0, totalMs: (int(time()) - t0) * 1000 },
+	directiveCount: dCount, routeCount: routeCount });
 
 try {
 	let sdr = readfile(stp);

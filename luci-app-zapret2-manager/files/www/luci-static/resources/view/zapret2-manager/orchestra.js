@@ -11,6 +11,8 @@ var callOrchStatus = rpc.declare({ object: 'zapret2-manager', method: 'orchestra
 var callOrchEvents = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_events', reject: true });
 var callOrchHistory = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_history', reject: true });
 var callOrchRatings = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_ratings_get', reject: true });
+var callOrchRunId = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_runid', reject: true });
+var callOrchParseWarnings = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_parse_warnings', reject: true });
 
 function injectCSS() {
 	if (document.getElementById('z2m-ui-css')) return;
@@ -39,14 +41,16 @@ return L.view.extend({
 			});
 		}
 		return Promise.all([
-			grab(callOrchCapabilities), grab(callOrchStatus), grab(callOrchEvents), grab(callOrchHistory), grab(callOrchRatings)
+			grab(callOrchCapabilities), grab(callOrchStatus), grab(callOrchEvents), grab(callOrchHistory), grab(callOrchRatings), grab(callOrchRunId), grab(callOrchParseWarnings)
 		]).then(function (r) {
 			return {
 				capError: r[0].loadError, capabilities: r[0].data,
 				statusError: r[1].loadError, status: r[1].data,
 				eventsError: r[2].loadError, events: r[2].data,
 				historyError: r[3].loadError, history: r[3].data,
-				ratingsError: r[4].loadError, ratings: r[4].data
+				ratingsError: r[4].loadError, ratings: r[4].data,
+				runIdError: r[5].loadError, runId: r[5].data,
+				parseWarningsError: r[6].loadError, parseWarnings: r[6].data
 			};
 		});
 	},
@@ -57,6 +61,8 @@ return L.view.extend({
 		var st = envelope.status || {};
 		var caps = envelope.capabilities || {};
 		var ratings = envelope.ratings || {};
+		var runId = envelope.runId || {};
+		var parseWarnings = envelope.parseWarnings || {};
 
 		if (envelope.statusError) {
 			return E('div', { 'class': 'z2m-page' }, [
@@ -82,6 +88,8 @@ return L.view.extend({
 		container.appendChild(this.diagSection(st, envelope.events, envelope.eventsError));
 		container.appendChild(this.historySection(envelope.history, envelope.historyError));
 		container.appendChild(this.ratingsSection(ratings, envelope.ratingsError));
+		container.appendChild(this.runIdSection(runId, envelope.runIdError));
+		container.appendChild(this.parseWarningsSection(parseWarnings, envelope.parseWarningsError));
 		container.appendChild(this.technicalDetails(st, caps));
 		return container;
 	},
@@ -309,7 +317,7 @@ return L.view.extend({
 		return node;
 	},
 
-	// ---- Ratings section (new for Slice 2) ----
+	// ---- Ratings section ----
 	ratingsSection: function (ratings, ratingsError) {
 		var node = E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Adaptive engine ratings'))
@@ -337,7 +345,6 @@ return L.view.extend({
 		}
 
 		var rows = (ratings.entries || []).map(function (e) {
-			// Only show a subset of fields
 			var domain = htmlesc(e.normalizedDomain || e.domain || '?');
 			var askey = htmlesc(e.askey || 'N/A');
 			var strategy = e.strategyId != null ? e.strategyId : '-';
@@ -371,12 +378,101 @@ return L.view.extend({
 		return node;
 	},
 
+	// ---- runId Section (Slice 3) ----
+	runIdSection: function (runId, runIdError) {
+		var node = E('div', { 'class': 'cbi-section' }, [
+			E('h3', {}, _('Run ID'))
+		]);
+
+		if (runIdError) {
+			node.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-warn' },
+				_('Run ID unavailable: ') + htmlesc(runIdError)));
+			return node;
+		}
+
+		runId = runId || {};
+		if (!runId.available) {
+			node.appendChild(E('div', { 'class': 'z2m-empty' },
+				_('Run ID not detected — zapret-auto.lua may not be loaded.')));
+			return node;
+		}
+
+		node.appendChild(E('div', { 'class': 'z2m-kv' }, [
+			E('span', { 'class': 'z2m-kv-label' }, _('Run ID')),
+			E('span', { 'class': 'z2m-kv-value' }, htmlesc(runId.runId || _('Unknown')))
+		]));
+
+		node.appendChild(E('div', { 'class': 'z2m-kv' }, [
+			E('span', { 'class': 'z2m-kv-label' }, _('Process PID')),
+			E('span', { 'class': 'z2m-kv-value' }, htmlesc(runId.pid || _('Unknown')))
+		]));
+
+		node.appendChild(E('div', { 'class': 'z2m-kv' }, [
+			E('span', { 'class': 'z2m-kv-label' }, _('Detection Method')),
+			E('span', { 'class': 'z2m-kv-value' }, htmlesc(runId.detectionMethod || _('Unknown')))
+		]));
+
+		node.appendChild(E('div', { 'class': 'cbi-value-description' },
+			htmlesc(runId.note || 'Run ID is inferred from the command line and resets on restart.')));
+
+		return node;
+	},
+
+	// ---- Parse Warnings Section (Slice 3) ----
+	parseWarningsSection: function (parseWarnings, parseWarningsError) {
+		var node = E('div', { 'class': 'cbi-section' }, [
+			E('h3', {}, _('Parse Warnings'))
+		]);
+
+		if (parseWarningsError) {
+			node.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-warn' },
+				_('Parse warnings unavailable: ') + htmlesc(parseWarningsError)));
+			return node;
+		}
+
+		parseWarnings = parseWarnings || {};
+		if (!parseWarnings.count) {
+			node.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-info' },
+				_('No parse warnings detected. System is running clean.')));
+			return node;
+		}
+
+		node.appendChild(E('div', { 'class': 'z2m-callout' }, [
+			E('strong', {}, String(parseWarnings.total) + ' warnings/errors detected'),
+			E('br', {}),
+			htmlesc(parseWarnings.note || 'Clear warnings by restarting nfqws2.')
+		]));
+
+		if (length(parseWarnings.warnings) > 0) {
+			node.appendChild(E('div', { 'class': 'z2m-section-block', 'style': 'margin-top: 1em' }, [
+				E('h4', {}, _('Warnings (' + length(parseWarnings.warnings) + ')')),
+				E('div', { 'class': 'z2m-table-wrap' },
+					E('table', { 'class': 'table' },
+						parseWarnings.warnings.map(function (w) {
+							return E('tr', {}, E('td', {}, htmlesc(w)));
+						})))
+			]));
+		}
+
+		if (length(parseWarnings.errors) > 0) {
+			node.appendChild(E('div', { 'class': 'z2m-section-block', 'style': 'margin-top: 1em' }, [
+				E('h4', {}, _('Errors (' + length(parseWarnings.errors) + ')')),
+				E('div', { 'class': 'z2m-table-wrap' },
+					E('table', { 'class': 'table' },
+						parseWarnings.errors.map(function (e) {
+							return E('tr', {}, E('td', {}, htmlesc(e)));
+						})))
+			]));
+		}
+
+		return node;
+	},
+
 	// ---- Technical details (collapsed by default) ----
 	technicalDetails: function (st, caps) {
 		var body = [];
 		var self = this;
 
-		// live process argv evidence
 		body.push(E('h4', {}, _('Live process argv evidence')));
 		if (st.daemonPid) {
 			body.push(self.kv(_('PID'), String(st.daemonPid)));
@@ -386,14 +482,12 @@ return L.view.extend({
 		body.push(self.kv(_('zapret-antidpi.lua'), st.engine && st.engine.antidpi ? _('Loaded') : _('Not loaded')));
 		body.push(self.kv(_('zapret-lib.lua'), st.engine && st.engine.lib ? _('Loaded') : _('Not loaded')));
 
-		// installed Lua bundle
 		body.push(E('h4', {}, _('Installed Lua bundle')));
 		(st.luaFiles || []).forEach(function (f) {
 			body.push(E('div', { 'class': 'cbi-value-description' },
 				htmlesc(f.path) + ' · sha256 ' + htmlesc(String(f.sha256 || '').substring(0, 16) + '\u2026')));
 		});
 
-		// file hashes
 		body.push(E('h4', {}, _('File hashes')));
 		var hashes = [];
 		(st.luaFiles || []).forEach(function (f) {
@@ -402,7 +496,6 @@ return L.view.extend({
 		if (hashes.length) body.push(E('pre', { 'class': 'z2m-mono' }, hashes.join('\n')));
 		else body.push(self.desc(_('No Lua files detected.')));
 
-		// capability matrix
 		body.push(E('h4', {}, _('Capability matrix')));
 		(caps.matrix || []).forEach(function (c) {
 			var cls = c.available === true ? 'z2m-badge z2m-badge-ok' : 'z2m-badge z2m-badge-warn';
@@ -415,7 +508,6 @@ return L.view.extend({
 			]));
 		});
 
-		// raw AUTOHOSTLIST variables
 		body.push(E('h4', {}, _('Raw AUTOHOSTLIST variables')));
 		var rawVars = st.autohostlistRaw || {};
 		var keys = Object.keys(rawVars).sort();
@@ -427,28 +519,24 @@ return L.view.extend({
 			body.push(self.desc(_('None configured.')));
 		}
 
-		// parser diagnostics
+		body.push(E('h4', {}, _('Parser diagnostics')));
 		var sem = st.autohostlistSemantic || {};
 		var parseErr = sem.parseErrors || [];
 		if (parseErr.length) {
-			body.push(E('h4', {}, _('Parser diagnostics')));
 			parseErr.forEach(function (err) {
 				body.push(E('div', { 'class': 'z2m-callout z2m-callout-warn' }, htmlesc(err)));
 			});
 		}
 
-		// unavailable upstream APIs
 		body.push(E('h4', {}, _('Unavailable upstream APIs')));
 		body.push(self.desc(_('slm_preload_blocked, slm_preload_locked, slm_preload_history — do not exist in pinned upstream zapret-auto.lua.')));
 
-		// exact upstream limitations
 		body.push(E('h4', {}, _('Exact upstream limitations')));
 		body.push(self.desc(_('Autostate is in-process Lua global only, never persisted. No external API exists. The manager observes only what is externally readable without mutation.')));
 
 		return self.collapsible(_('Technical details'), body, false);
 	},
 
-	// ---- collapsible ----
 	collapsible: function (title, body, defaultOpen) {
 		var id = 'z2m-tech-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
 		var toggle = E('div', {
@@ -464,7 +552,6 @@ return L.view.extend({
 		return E('div', { 'class': 'z2m-tech-group' }, [toggle, bodyEl]);
 	},
 
-	// ---- kv row ----
 	kv: function (label, value) {
 		return E('div', { 'class': 'z2m-kv' }, [
 			E('span', { 'class': 'z2m-kv-label' }, htmlesc(label)),
@@ -472,7 +559,6 @@ return L.view.extend({
 		]);
 	},
 
-	// ---- description ----
 	desc: function (text) {
 		return E('div', { 'class': 'cbi-value-description' }, htmlesc(text));
 	},

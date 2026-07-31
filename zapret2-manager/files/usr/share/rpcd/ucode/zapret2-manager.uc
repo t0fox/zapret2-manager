@@ -500,4 +500,12 @@ return {
 		catalog_preview:   { args: { edit: 'string' }, call: function (req) { return catalog_preview_method(req); } },
 		catalog_apply:     { args: { edit: 'string' }, call: function (req) { return catalog_apply_method(req); } }
 	}
-};
+};/ /   o r c h e s t r a   m e t h o d   w r a p p e r s   ( a f t e r   c l i _ a c t i o n   2   u c o d e   d o e s   n o t   h o i s t )  
+ f u n c t i o n   o r c h e s t r a _ c a p a b i l i t i e s _ m e t h o d ( r e q )   {   r e t u r n   c l i _ a c t i o n ( O R C H _ C L I ,   ' c a p a b i l i t i e s ' ) ;   }  
+ f u n c t i o n   o r c h e s t r a _ s t a t u s _ m e t h o d ( r e q )   {   r e t u r n   c l i _ a c t i o n ( O R C H _ C L I ,   ' s t a t u s ' ) ;   }  
+ f u n c t i o n   o r c h e s t r a _ e v e n t s _ m e t h o d ( r e q )   {   r e t u r n   c l i _ a c t i o n ( O R C H _ C L I ,   ' e v e n t s ' ) ;   }  
+ f u n c t i o n   o r c h e s t r a _ h i s t o r y _ m e t h o d ( r e q )   {   r e t u r n   c l i _ a c t i o n ( O R C H _ C L I ,   ' h i s t o r y ' ) ;   }  
+ f u n c t i o n   o r c h e s t r a _ r a t i n g s _ g e t _ m e t h o d ( r e q )   {   r e t u r n   c l i _ a c t i o n ( O R C H _ C L I ,   ' r a t i n g s _ g e t ' ) ;   }  
+ f u n c t i o n   o r c h e s t r a _ r u n i d _ m e t h o d ( r e q )   {   r e t u r n   c l i _ a c t i o n ( O R C H _ C L I ,   ' r u n i d ' ) ;   }  
+ f u n c t i o n   o r c h e s t r a _ p a r s e _ w a r n i n g s _ m e t h o d ( r e q )   {   r e t u r n   c l i _ a c t i o n ( O R C H _ C L I ,   ' p a r s e _ w a r n i n g s ' ) ;   }  
+ 

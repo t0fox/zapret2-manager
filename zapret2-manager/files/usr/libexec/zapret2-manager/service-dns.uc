@@ -656,8 +656,17 @@ function get_dnsmasq_info() {
 	return info;
 }
 
-function generate_dnsmasq_routing_conf(rules) {
-	let lines = ['# Managed by zapret2-manager r46.5.1', '# Do not edit manually'];
+function generate_dnsmasq_routing_conf(rules, meta) {
+	let lines = ['# Managed by zapret2-manager'];
+	if (meta && type(meta) == 'object') {
+		if (type(meta.operationId) == 'string') push(lines, '# operationId: ' + meta.operationId);
+		if (type(meta.revision) == 'int') push(lines, '# revision: ' + int(meta.revision));
+		if (type(meta.selectionHash) == 'string') push(lines, '# selectionHash: ' + meta.selectionHash);
+		if (type(meta.routeCount) == 'int') push(lines, '# routeCount: ' + int(meta.routeCount));
+		if (type(meta.directiveCount) == 'int') push(lines, '# directiveCount: ' + int(meta.directiveCount));
+		if (type(meta.generatedAt) == 'string') push(lines, '# generatedAt: ' + meta.generatedAt);
+	}
+	push(lines, '# Do not edit manually');
 	let domains = keys(rules); sort(domains);
 	for (let i = 0; i < length(domains); i++) {
 		let d = domains[i];
@@ -670,9 +679,21 @@ function generate_dnsmasq_routing_conf(rules) {
 	return join('\n', lines) + '\n';
 }
 
-function compute_routing_hash(rules) {
+function compute_selection_hash(selections) {
+	let keys_ = keys(selections); sort(keys_);
+	let parts = [];
+	for (let i = 0; i < length(keys_); i++) parts[i] = keys_[i] + '=' + (selections[keys_[i]] || 'off');
+	let raw = join('|', parts);
+	let tmp = OVERRIDES_PATH + '.selhash.' + time();
+	writefile(tmp, raw + '\n');
+	let h = compute_file_hash(tmp);
+	try { unlink(tmp); } catch (e) { }
+	return h;
+}
+
+function compute_routing_hash(rules, meta) {
 	let tmp = OVERRIDES_PATH + '.rhash.' + time();
-	writefile(tmp, generate_dnsmasq_routing_conf(rules));
+	writefile(tmp, generate_dnsmasq_routing_conf(rules, meta));
 	let h = compute_file_hash(tmp);
 	try { unlink(tmp); } catch (e) { }
 	return h;
@@ -808,6 +829,37 @@ export const service_dns_status = function(req) {
 	// runtime
 	let runtime = get_dnsmasq_info();
 
+	// config origin — validate fragment header matches last operation
+	let configOrigin = { verified: false, reason: 'no fragment' };
+	if (stat(ROUTING_CONF_IN_DIR)) {
+		let frag = readfile(ROUTING_CONF_IN_DIR) || '';
+		let fragLines = split(frag, '\n');
+		let fragOpId = '', fragRev = 0, fragSelHash = '', fragRouteCount = 0, fragDirCount = 0;
+		for (let fi = 0; fi < length(fragLines); fi++) {
+			let fl = trim(fragLines[fi]);
+			if (substr(fl, 0, 14) == '# operationId:') fragOpId = trim(substr(fl, 15));
+			else if (substr(fl, 0, 11) == '# revision:') fragRev = int(trim(substr(fl, 12)));
+			else if (substr(fl, 0, 16) == '# selectionHash:') fragSelHash = trim(substr(fl, 17));
+			else if (substr(fl, 0, 13) == '# routeCount:') fragRouteCount = int(trim(substr(fl, 14)));
+			else if (substr(fl, 0, 17) == '# directiveCount:') fragDirCount = int(trim(substr(fl, 18)));
+		}
+		let lo = (type(state.lastOperation) == 'object' && state.lastOperation != null) ? state.lastOperation : null;
+		if (fragOpId && lo && lo.operationId == fragOpId) {
+			configOrigin = {
+				verified: true,
+				operationId: fragOpId,
+				revision: fragRev,
+				selectionHash: fragSelHash,
+				routeCount: fragRouteCount,
+				directiveCount: fragDirCount
+			};
+		} else if (fragOpId) {
+			configOrigin = { verified: false, reason: 'operationId mismatch', fragmentOpId: fragOpId, lastOpId: lo ? lo.operationId : null };
+		} else {
+			configOrigin = { verified: false, reason: 'no operationId in header' };
+		}
+	}
+
 	// diagnostics
 	let diagnostics = {
 		clientUsesRouterDns: true,
@@ -822,6 +874,7 @@ export const service_dns_status = function(req) {
 		pending: state.pending || null,
 		routing: { desired: gen.rules, applied: appliedGen.rules, conflicts: gen.conflicts },
 		runtime: runtime, diagnostics: diagnostics,
+		configOrigin: configOrigin,
 		availableByService: availableByService,
 		events: _slice(state.events, -10)
 	};
@@ -1375,27 +1428,28 @@ export const service_dns_apply_async = function(req) {
 	writefile(snapDir + '/previous-uci-server.txt', prevUci.out || '');
 	if (stat(ROUTING_CONF_IN_DIR)) run('cp -p ' + ROUTING_CONF_IN_DIR + ' ' + snapDir + '/previous-routing.conf');
 
-	let routingConf = generate_dnsmasq_routing_conf(gen.rules);
+	let routeCount = length(keys(gen.rules));
+	let dirCount = 0;
+	for (let dk in gen.rules) { let ru = gen.rules[dk]; if (ru && type(ru) == 'object' && type(ru.upstreams) == 'array') dirCount += length(ru.upstreams); }
+	let selHash = compute_selection_hash(selections);
+	let genAt = iso_now();
+	let meta = { operationId: operationId, revision: appliedRev + 1, selectionHash: selHash, routeCount: routeCount, directiveCount: dirCount, generatedAt: genAt };
+
+	let routingConf = generate_dnsmasq_routing_conf(gen.rules, meta);
 	// Validate generated config
 	if (type(routingConf) != 'string' || trim(routingConf) == '' || trim(routingConf) == 'null') {
 		release_lock(operationId);
 		return err('EROUTINGCONF', 'generated routing config is invalid');
 	}
 	// Verify directive count
-	let expectedDirs = 0;
-	for (let dk in gen.rules) {
-		let ru = gen.rules[dk];
-		if (ru && type(ru) == 'object' && type(ru.upstreams) == 'array')
-			expectedDirs += length(ru.upstreams);
-	}
-	let actualDirs = 0;
+	let checkDirs = 0;
 	let cl = split(routingConf, '\n');
 	for (let ci = 0; ci < length(cl); ci++) {
-		if (substr(trim(cl[ci]), 0, 8) == 'server=/') actualDirs++;
+		if (substr(trim(cl[ci]), 0, 8) == 'server=/') checkDirs++;
 	}
-	if (actualDirs != expectedDirs) {
+	if (checkDirs != dirCount) {
 		release_lock(operationId);
-		return err('EROUTINGCONF_COUNT', 'generated ' + actualDirs + ' directives, expected ' + expectedDirs);
+		return err('EROUTINGCONF_COUNT', 'generated ' + checkDirs + ' directives, expected ' + dirCount);
 	}
 	// Atomic write to conf-dir
 	run('mkdir -p ' + ROUTING_DIR);
@@ -1434,16 +1488,15 @@ export const service_dns_apply_async = function(req) {
 	let desiredHash = compute_file_hash(hashFile);
 
 	// 6. write job file
-	let routeCount = length(keys(gen.rules));
-	let dirCount = actualDirs; // validated above
 	let job = {
 		operationId: operationId, phase: 'queued',
+		revision: appliedRev + 1, selectionHash: selHash,
 		desiredSelections: _obj_assign({}, selections),
 		routingConf: routingConf, rules: gen.rules,
 		routeCount: routeCount, directiveCount: dirCount,
 		desiredHash: desiredHash, routingHash: routingHash,
 		statePath: STATE_PATH, routingConfPath: ROUTING_CONF_IN_DIR, routingDir: ROUTING_DIR, snapDir: snapDir, jobDir: opDir,
-		createdAt: iso_now(), updatedAt: iso_now(), finished: false,
+		createdAt: genAt, updatedAt: genAt, finished: false,
 		pid: 0, timings: { writeMs: 0, reloadMs: 0, verifyMs: 0, rollbackMs: 0, totalMs: 0 }
 	};
 	writefile(jobFile, sprintf("%J", job) + "\n");
@@ -1529,6 +1582,10 @@ export const service_dns_apply_status = function(req) {
 				error: job.error || null,
 				verified: job.verified === true,
 				rolledBack: job.rolledBack === true,
+				headerMatch: job.headerMatch === true,
+				originVerified: job.originVerified === true,
+				routeCount: job.routeCount || 0,
+				directiveCount: job.directiveCount || 0,
 				timings: job.timings || { writeMs: 0, reloadMs: 0, verifyMs: 0, rollbackMs: 0, totalMs: 0 }
 			};
 		}

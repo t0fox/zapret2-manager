@@ -5,7 +5,7 @@
 // Grounding: dnsmasq + UCI + resolvfile. No Windows APIs, no per-adapter model.
 'require rpc';
 
-const DNS_UI_BUILD = 'r46.5';
+const DNS_UI_BUILD = 'r46.6';
 
 const callDnsGet        = rpc.declare({ object: 'zapret2-manager', method: 'dns_get', reject: true });
 const callDnsSet        = rpc.declare({ object: 'zapret2-manager', method: 'dns_set', params: ['edit'], reject: true });
@@ -845,6 +845,46 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 	updateSummary();
 
 	// ════════════════════════════════════════
+	// Configuration status bar (tiered)
+	// ════════════════════════════════════════
+	var statusBar = E('div', { 'class': 'z2m-sa-status-bar' });
+	function updateStatusBar() {
+		statusBar.innerHTML = '';
+		var co = status.configOrigin || {};
+		var rt = status.runtime || {};
+		var hasFrag = rt.routingRegistered && rt.configuredDirectiveCount > 0;
+		var tier = 0;
+		var items = [];
+		if (co.verified) {
+			tier = 1;
+			items.push({ label: _('Configuration applied'), ok: true, detail: _('by operation ') + esc(co.operationId || '?') });
+			if (hasFrag) {
+				tier = 2;
+				items.push({ label: _('dnsmasq fragment loaded'), ok: true, detail: (co.directiveCount || rt.configuredDirectiveCount || 0) + ' ' + _('directives') });
+			}
+		} else if (hasFrag) {
+			tier = 1;
+			items.push({ label: _('Configuration present'), ok: false, detail: co.reason || _('origin unverified — fragment may be manual') });
+		} else if (Array.isArray(status.warnings) && status.warnings.some(function(w) { return w.type === 'unknown-profile'; })) {
+			items.push({ label: _('Invalid profile selected'), ok: false, detail: _('Set a valid profile and re-apply') });
+		} else if (Object.keys(appliedSel).length === 0 || Object.values(appliedSel).every(function(v) { return v === 'off'; })) {
+			items.push({ label: _('All Off'), ok: true, detail: _('No DNS routing active') });
+		} else {
+			items.push({ label: _('No configuration'), ok: false, detail: _('Select services and press Apply') });
+		}
+		items.forEach(function(item) {
+			var dot = E('span', { 'class': 'z2m-sa-tier-dot' + (item.ok ? ' z2m-sa-tier-dot-ok' : ' z2m-sa-tier-dot-warn') });
+			var lbl = E('span', { 'class': 'z2m-sa-tier-label' }, item.label);
+			var det = item.detail ? E('span', { 'class': 'z2m-sa-tier-detail' }, item.detail) : null;
+			var tierEl = E('div', { 'class': 'z2m-sa-tier-item' }, [dot, lbl]);
+			if (det) tierEl.appendChild(det);
+			statusBar.appendChild(tierEl);
+		});
+	}
+	updateStatusBar();
+	sumDiv.appendChild(statusBar);
+
+	// ════════════════════════════════════════
 	// Filter chips
 	// ════════════════════════════════════════
 	function updateFilterChips() {
@@ -1053,12 +1093,19 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 					view._sdnsOp.phase = phase;
 					buildSticky();
 				});
-			}).then(function () {
+			}).then(function (r) {
 				view._sdnsOp.phase = 'success';
 				view._sdnsOp = null;
 				view._saDraft = null;
 				view._saFilter = null;
-				view.showFlash(_('Applied and verified.'));
+				// Tiered banner: header match verifies configuration origin
+				if (r && r.originVerified && r.headerMatch) {
+					view.showFlash(_('Configuration applied — dnsmasq running'));
+				} else if (r && r.verified) {
+					view.showFlash(_('Configuration applied — origin unverified'));
+				} else {
+					view.showFlash(_('Configuration applied'));
+				}
 				view.reload();
 			}).catch(function (e) {
 				view._sdnsOp.phase = 'error';

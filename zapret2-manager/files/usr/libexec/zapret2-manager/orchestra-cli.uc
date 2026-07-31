@@ -7,9 +7,10 @@
 //   ucode orchestra-cli.uc status         → orchestra_status()
 //   ucode orchestra-cli.uc events         → orchestra_events()
 //   ucode orchestra-cli.uc history        → orchestra_history()
-//   ucode orchestra-cli.uc ratings_get    → orchestra_ratings_get()
+//   ucode orchestra-cli.uc runid          → orchestra_runid()
+//   ucode orchestra-cli.uc parse_warnings → orchestra_parse_warnings()
 
-import { orchestra_capabilities, orchestra_status, orchestra_events, orchestra_history, orchestra_ratings_get } from './orchestra.uc';
+import { orchestra_capabilities, orchestra_status, orchestra_events, orchestra_history, orchestra_runid, orchestra_parse_warnings } from './orchestra.uc';
 
 let mode = ARGV[0];
 
@@ -21,9 +22,11 @@ if (mode == 'capabilities') {
 	print(sprintf("%J", orchestra_events()) + '\n');
 } else if (mode == 'history') {
 	print(sprintf("%J", orchestra_history()) + '\n');
-} else if (mode == 'ratings_get') {
-	print(sprintf("%J", orchestra_ratings_get()) + '\n');
+} else if (mode == 'runid') {
+	print(sprintf("%J", orchestra_runid()) + '\n');
+} else if (mode == 'parse_warnings') {
+	print(sprintf("%J", orchestra_parse_warnings()) + '\n');
 } else {
-	print('usage: ucode orchestra-cli.uc capabilities | status | events | history | ratings_get\n');
+	print('usage: ucode orchestra-cli.uc capabilities | status | events | history | runid | parse_warnings\n');
 	exit(1);
 }

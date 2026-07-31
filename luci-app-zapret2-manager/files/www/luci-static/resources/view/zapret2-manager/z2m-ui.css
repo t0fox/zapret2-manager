@@ -318,6 +318,15 @@
 .z2m-sa-sumcard .z2m-sa-sc-num { font-size: 1.2em; font-weight: 600; display: block; }
 .z2m-sa-sumcard .z2m-sa-sc-label { font-size: .82em; color: var(--cbi-desc, #666); }
 
+.z2m-sa-status-bar { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
+.z2m-sa-tier-item { display: inline-flex; align-items: center; gap: 4px; font-size: .82em; }
+.z2m-sa-tier-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: #ccc; }
+.z2m-sa-tier-dot-ok { background: #2e7d32; }
+.z2m-sa-tier-dot-warn { background: #f57c00; }
+.z2m-sa-tier-dot-bad { background: #c62828; }
+.z2m-sa-tier-label { font-weight: 500; }
+.z2m-sa-tier-detail { color: var(--cbi-desc, #666); font-size: .88em; margin-left: 2px; }
+
 .z2m-sa-toolbar {
 	display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
 	margin-bottom: 10px; padding: 6px 0;
@@ -533,6 +542,8 @@
    ======================================================================== */
 @media (prefers-color-scheme: dark) {
 	.z2m-sa-sumcard { background: #252525; color: #ddd; }
+	.z2m-sa-status-bar .z2m-sa-tier-label { color: #ddd; }
+	.z2m-sa-status-bar .z2m-sa-tier-detail { color: #999; }
 	.z2m-sa-cathead { background: #2a2a2a; color: #ddd; }
 	.z2m-sa-row.active { background: rgba(46,125,50,.2); }
 	.z2m-sa-row.changed { background: rgba(255,160,0,.18); }
