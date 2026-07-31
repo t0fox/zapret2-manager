@@ -478,7 +478,11 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 		node.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-bad' }, [
 			E('h4', {}, _('Service catalog unavailable')),
 			E('p', {}, _('Existing active mappings were not changed.')),
-			E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button', 'onclick': function () { view.reload(); } }, _('Retry'))
+			(function () {
+				var btn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Retry'));
+				btn.addEventListener('click', function () { view.reload(); });
+				return btn;
+			})()
 		]));
 		return node;
 	}
@@ -539,12 +543,12 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 
 	// ── Collapsible technical details ──
 	var techId = 'z2m-sa-tech-' + Math.random().toString(36).slice(2, 8);
-	var techHead = E('div', { 'class': 'z2m-sa-cathead collapsed', 'style': 'margin-bottom:10px',
-		'onclick': function () { toggleCollapse(this); } }, [
+	var techHead = E('div', { 'class': 'z2m-sa-cathead collapsed', 'style': 'margin-bottom:10px' }, [
 		E('span', { 'class': 'z2m-sa-cat-arr' }, '▶'),
-		_('Technical details'),
+		E('span', { 'class': 'z2m-sa-cat-title' }, _('Technical details')),
 		E('span', { 'class': 'z2m-sa-cat-count' }, 'v' + esc(provs.datasetVersion || '?'))
 	]);
+	techHead.addEventListener('click', function () { toggleCollapse(this); });
 	var techBody = E('div', { 'class': 'z2m-sa-catbody collapsed' }, [
 		kv(_('Catalog version'), 'v' + esc(provs.datasetVersion || '?')),
 		kv(_('Generated'), esc(provs.generatedAt || _('Unknown'))),
@@ -555,9 +559,9 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 
 	// ── Filter toolbar ──
 	var toolbar = E('div', { 'class': 'z2m-sa-toolbar' });
-	var searchInput = E('input', { 'type': 'search', 'placeholder': _('Search services\u2026'), 'class': 'z2m-sa-tool-inp',
-		'oninput': function () { applyFilters(); } });
-	var catFilter = E('select', { 'class': 'z2m-sa-tool-sel', 'onchange': function () { applyFilters(); } }, [
+	var searchInput = E('input', { 'type': 'search', 'placeholder': _('Search services\u2026') });
+	searchInput.addEventListener('input', function () { applyFilters(); });
+	var catFilter = E('select', {}, [
 		E('option', { value: '' }, _('All categories')),
 		E('option', { value: 'AI' }, _('AI')),
 		E('option', { value: 'Media' }, _('Media')),
@@ -566,14 +570,18 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 		E('option', { value: 'Developer' }, _('Developer tools')),
 		E('option', { value: 'Other' }, _('Other'))
 	]);
-	var stateFilter = E('select', { 'class': 'z2m-sa-tool-sel', 'onchange': function () { applyFilters(); } }, [
+	catFilter.addEventListener('change', function () { applyFilters(); });
+	var stateFilter = E('select', {}, [
 		E('option', { value: '' }, _('All states')),
 		E('option', { value: 'enabled' }, _('Enabled')),
 		E('option', { value: 'disabled' }, _('Disabled')),
 		E('option', { value: 'changed' }, _('Changed'))
 	]);
-	var expBtn = E('button', { 'type': 'button', 'onclick': function () { expandAll(true); } }, _('Expand all'));
-	var colBtn = E('button', { 'type': 'button', 'onclick': function () { expandAll(false); } }, _('Collapse all'));
+	stateFilter.addEventListener('change', function () { applyFilters(); });
+	var expBtn = E('button', { 'type': 'button' }, _('Expand all'));
+	expBtn.addEventListener('click', function () { expandAll(true); });
+	var colBtn = E('button', { 'type': 'button' }, _('Collapse all'));
+	colBtn.addEventListener('click', function () { expandAll(false); });
 	var resLabel = E('span', { 'class': 'z2m-sa-result' });
 
 	toolbar.appendChild(searchInput);
@@ -612,12 +620,12 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 	CAT_GROUPS.forEach(function (group) {
 		var svcs = catMap[group.id] || [];
 		var catHead = E('div', { 'class': 'z2m-sa-cathead', 'data-cat': group.id,
-			'style': svcs.length === 0 ? 'display:none' : '',
-			'onclick': function () { toggleCollapse(this); } }, [
+			'style': svcs.length === 0 ? 'display:none' : '' }, [
 			E('span', { 'class': 'z2m-sa-cat-arr' }, '▼'),
 			E('span', { 'class': 'z2m-sa-cat-title' }, esc(group.label)),
 			E('span', { 'class': 'z2m-sa-cat-count' }, svcs.length + ' ' + _('services'))
 		]);
+		catHead.addEventListener('click', function () { toggleCollapse(this); });
 		var catBody = E('div', { 'class': 'z2m-sa-catbody', 'data-cat': group.id,
 			'style': svcs.length === 0 ? 'display:none' : '' });
 		catalogEl.appendChild(catHead);
@@ -673,14 +681,14 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 
 		// Right: selector + details button
 		var sel = E('select', { 'class': 'z2m-sa-sel', 'data-svc': svc, 'aria-label': _('Provider for ') + label,
-			'id': 'sel-' + svc,
-			'onchange': function () {
-				draft.selections[svc] = sel.value;
-				draft.dirty = true;
-				renderPendingPanel();
-				updateStickyBar();
-				updateRowState(row, svc, sel.value, applied);
-			} });
+			'id': 'sel-' + svc });
+		sel.addEventListener('change', function () {
+			draft.selections[svc] = sel.value;
+			draft.dirty = true;
+			renderPendingPanel();
+			updateStickyBar();
+			updateRowState(row, svc, sel.value, applied);
+		});
 		sel.appendChild(E('option', { value: 'off' }, _('Off')));
 
 		profiles.forEach(function (p) {
@@ -696,8 +704,8 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 			sel.appendChild(opt);
 		});
 
-		var detailBtn = E('button', { 'class': 'z2m-sa-detail-btn', 'type': 'button',
-			'onclick': function () { toggleDetail(svc); } }, _('Details'));
+		var detailBtn = E('button', { 'class': 'z2m-sa-detail-btn', 'type': 'button' }, _('Details'));
+		detailBtn.addEventListener('click', function () { toggleDetail(svc); });
 		var right = E('div', { 'class': 'z2m-sa-right' }, [sel, detailBtn]);
 
 		row.appendChild(left);
@@ -817,9 +825,21 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 			if (groupsSeen[cid]) { if (h.classList.contains('collapsed')) toggleCollapse(h); }
 			else h.style.display = 'none';
 		}
-		// Restore hidden group headers when filter is cleared
+		// Restore hidden group headers when filter is cleared (but not empty groups)
 		if (!q && !cf && !sf) {
-			for (var i4 = 0; i4 < heads.length; i4++) heads[i4].style.display = '';
+			for (var i4 = 0; i4 < heads.length; i4++) {
+				var head = heads[i4];
+				var body = head.nextElementSibling;
+				// Only restore groups that have visible service rows
+				var hasServices = false;
+				if (body) {
+					var rows = body.querySelectorAll('.z2m-sa-row');
+					for (var ri = 0; ri < rows.length; ri++) {
+						if (rows[ri].style.display !== 'none') { hasServices = true; break; }
+					}
+				}
+				head.style.display = hasServices ? '' : 'none';
+			}
 		}
 		resLabel.textContent = _('Showing ') + visible + _(' of ') + serviceOrder.length;
 	}
@@ -917,56 +937,56 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 
 		var right = E('div', { 'class': 'z2m-sa-st-right' });
 
-		var discardBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button', 'disabled': changes.length === 0,
-			'onclick': function () {
-				draft.selections = {};
-				for (var k in selections) draft.selections[k] = selections[k];
-				draft.dirty = false;
-				view.reload();
-			} }, _('Discard'));
+		var discardBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button', 'disabled': changes.length === 0 }, _('Discard'));
+		discardBtn.addEventListener('click', function () {
+			draft.selections = {};
+			for (var k in selections) draft.selections[k] = selections[k];
+			draft.dirty = false;
+			view.reload();
+		});
 		right.appendChild(discardBtn);
 
-		var prevBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button', 'disabled': changes.length === 0,
-			'onclick': function () {
-				prevBtn.disabled = true;
-				callSdnsSet(JSON.stringify({ selections: draft.selections })).then(function () {
-					callSdnsPreview().then(function (res) {
-						prevBtn.disabled = false;
-						showPreviewDialog(res);
-					}).catch(function (err) {
-						prevBtn.disabled = false;
-						view._flash = _('Preview failed: ') + String(err);
-						view.reload();
-					});
-				}).catch(function (err2) {
+		var prevBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button', 'disabled': changes.length === 0 }, _('Preview changes'));
+		prevBtn.addEventListener('click', function () {
+			prevBtn.disabled = true;
+			callSdnsSet(JSON.stringify({ selections: draft.selections })).then(function () {
+				callSdnsPreview().then(function (res) {
 					prevBtn.disabled = false;
-					view._flash = _('Save failed: ') + String(err2);
+					showPreviewDialog(res);
+				}).catch(function (err) {
+					prevBtn.disabled = false;
+					view._flash = _('Preview failed: ') + String(err);
 					view.reload();
 				});
-			} }, _('Preview changes'));
+			}).catch(function (err2) {
+				prevBtn.disabled = false;
+				view._flash = _('Save failed: ') + String(err2);
+				view.reload();
+			});
+		});
 		right.appendChild(prevBtn);
 
-		var applyBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button', 'disabled': changes.length === 0,
-			'onclick': function () {
-				applyBtn.disabled = true;
-				prevBtn.disabled = true;
-				discardBtn.disabled = true;
-				callSdnsApply(JSON.stringify({})).then(function (res) {
-					if (res && res.ok === true) {
-						view._flash = _('Service mappings applied and verified.');
-					} else {
-						view._flash = _('Apply failed: ') + esc((res && res.error && res.error.message) || res.error || '?');
-					}
-					view._sdnsDraft = null;
-					view.reload();
-				}).catch(function (err) {
-					applyBtn.disabled = false;
-					prevBtn.disabled = false;
-					discardBtn.disabled = false;
-					view._flash = _('Apply error: ') + String(err);
-					view.reload();
-				});
-			} }, _('Apply all'));
+		var applyBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button', 'disabled': changes.length === 0 }, _('Apply all'));
+		applyBtn.addEventListener('click', function () {
+			applyBtn.disabled = true;
+			prevBtn.disabled = true;
+			discardBtn.disabled = true;
+			callSdnsApply(JSON.stringify({})).then(function (res) {
+				if (res && res.ok === true) {
+					view._flash = _('Service mappings applied and verified.');
+				} else {
+					view._flash = _('Apply failed: ') + esc((res && res.error && res.error.message) || res.error || '?');
+				}
+				view._sdnsDraft = null;
+				view.reload();
+			}).catch(function (err) {
+				applyBtn.disabled = false;
+				prevBtn.disabled = false;
+				discardBtn.disabled = false;
+				view._flash = _('Apply error: ') + String(err);
+				view.reload();
+			});
+		});
 		right.appendChild(applyBtn);
 
 		bar.appendChild(right);
@@ -1066,12 +1086,12 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 			(function () { return body; })()
 		]);
 
-		var cancelBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button', 'style': 'margin-top:10px',
-			'onclick': function () { overlay.parentNode.removeChild(overlay); } }, _('Close'));
+		var cancelBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button', 'style': 'margin-top:10px' }, _('Close'));
 		dlg.appendChild(E('div', { 'class': 'z2m-actions', 'style': 'margin-top:12px' }, [cancelBtn]));
 
-		var overlay = E('div', { 'class': 'z2m-sa-preview-overlay', 'id': 'z2m-sa-overlay',
-			'onclick': function (e) { if (e.target === overlay) overlay.parentNode.removeChild(overlay); } }, [dlg]);
+		var overlay = E('div', { 'class': 'z2m-sa-preview-overlay', 'id': 'z2m-sa-overlay' }, [dlg]);
+		cancelBtn.addEventListener('click', function () { overlay.parentNode.removeChild(overlay); });
+		overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.parentNode.removeChild(overlay); });
 		document.body.appendChild(overlay);
 	}
 
