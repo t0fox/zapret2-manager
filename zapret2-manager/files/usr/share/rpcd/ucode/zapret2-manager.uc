@@ -297,6 +297,13 @@ function orchestra_status_method(req) { return cli_action(ORCH_CLI, 'status'); }
 function orchestra_events_method(req) { return cli_action(ORCH_CLI, 'events'); }
 function orchestra_history_method(req) { return cli_action(ORCH_CLI, 'history'); }
 function orchestra_ratings_get_method(req) { return cli_action(ORCH_CLI, 'ratings_get'); }
+function orchestra_runid_method(req) { return cli_action(ORCH_CLI, 'runid'); }
+function orchestra_parse_warnings_method(req) { return cli_action(ORCH_CLI, 'parse_warnings'); }
+function orchestra_history_get_method(req) { return cli_action(ORCH_CLI, 'history_get'); }
+function orchestra_history_paginated_method(req) { return cli_action(ORCH_CLI, 'history_paginated'); }
+function orchestra_history_export_method(req) { return cli_action(ORCH_CLI, 'history_export'); }
+function orchestra_history_clear_method(req) { return cli_action(ORCH_CLI, 'history_clear'); }
+function orchestra_history_stats_method(req) { return cli_action(ORCH_CLI, 'history_stats'); }
 
 // ---- DNS providers + component diagnostics (Phase E) -----------------------------
 const DNSPROV_CLI = '/usr/libexec/zapret2-manager/dnsprov-cli.uc';
@@ -452,6 +459,13 @@ return {
 		orchestra_events:  { call: function (req) { return orchestra_events_method(req); } },
 		orchestra_history: { call: function (req) { return orchestra_history_method(req); } },
 		orchestra_ratings_get: { call: function (req) { return orchestra_ratings_get_method(req); } },
+		orchestra_runid: { call: function (req) { return orchestra_runid_method(req); } },
+		orchestra_parse_warnings: { call: function (req) { return orchestra_parse_warnings_method(req); } },
+		orchestra_history_get: { call: function (req) { return orchestra_history_get_method(req); } },
+		orchestra_history_paginated: { call: function (req) { return orchestra_history_paginated_method(req); } },
+		orchestra_history_export: { call: function (req) { return orchestra_history_export_method(req); } },
+		orchestra_history_clear: { call: function (req) { return orchestra_history_clear_method(req); } },
+		orchestra_history_stats: { call: function (req) { return orchestra_history_stats_method(req); } },
 		dnsprov_components: { call: function (req) { return dnsprov_components_method(req); } },
 		dnsprov_providers: { call: function (req) { return dnsprov_providers_method(req); } },
 		dnsprov_diagnose: { args: { edit: 'string' }, call: function (req) { return dnsprov_diagnose_method(req); } },
