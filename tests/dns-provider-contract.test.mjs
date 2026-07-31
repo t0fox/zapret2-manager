@@ -35,8 +35,8 @@ test('diagnostic DNS probe is independent of ping and checks every IPv4', () => 
 
 test('UI updates each provider card, has retry handler and no custom CRUD controls', () => {
 	assert.match(ui, /providerCardRefs = \{\};/);
-	assert.match(ui, /renderProviderResult\(providerCardRefs\[p\.id\], res, null\)/);
-	assert.match(ui, /renderProviderResult\(providerCardRefs\[p\.id\], null, e\)/);
+	assert.match(ui, /runProviderTest\(providerCardRefs\[p\.id\]\)/);
+	assert.match(ui, /renderProviderResult\(ref, null, err\)/);
 	assert.match(ui, /view\.reload\(\)\.catch/);
 	assert.doesNotMatch(ui, /Add custom provider|customProviderForm|Provider name/);
 	assert.doesNotMatch(ui, /Save.*Test/);
@@ -66,4 +66,23 @@ test('provider controls and statuses have honest state transitions and semantic 
 	assert.match(css, /grid-template-columns:\s*repeat\(auto-fill, minmax\(260px, 1fr\)\)/);
 	assert.match(css, /\.z2m-provider-result-partial/);
 	assert.doesNotMatch(css, /background:\s*(?:white|#fafafa|#f5f5f5|#f0f0f0)/i);
+});
+
+test('provider cards keep idle state empty and expose compact expandable results', () => {
+	assert.match(ui, /'class': 'z2m-provider-progress'.*'hidden': true/);
+	assert.match(ui, /'class': 'z2m-provider-result'.*'type': 'button'.*'aria-expanded': 'false'.*'hidden': true/);
+	assert.match(ui, /ref\.progress\.hidden = false/);
+	assert.match(ui, /ref\.progress\.hidden = true/);
+	assert.match(ui, /ref\.card\.classList\.add\('z2m-provider-testing'\)/);
+	assert.match(ui, /ref\.card\.classList\.remove\('z2m-provider-testing'\)/);
+	assert.match(ui, /aria-expanded/);
+	assert.match(ui, /DNS works · /);
+	assert.match(ui, /Partially working · /);
+	assert.match(ui, /DNS unavailable/);
+	assert.match(ui, /Resolver .*a\.resolverIp/);
+	assert.match(css, /height:\s*3px/);
+	assert.match(css, /\.z2m-provider-result\[hidden\].*display:\s*none\s*!important/);
+	assert.match(css, /z2m-progress-slide/);
+	assert.match(css, /prefers-reduced-motion/);
+	assert.doesNotMatch(css, /\.z2m-provider-card\s*\{[^}]*min-height/i);
 });

@@ -139,14 +139,20 @@
  * backgrounds make the "Testing" state look like a white flash in dark
  * themes and repeat across views that reuse these result classes. */
 .z2m-provider-result {
-	display: block;
+	display: flex;
+	align-items: center;
+	gap: .45em;
+	width: 100%;
 	margin-top: .4em;
 	padding: .45em .6em;
 	border: 1px solid var(--border, #ccc);
 	border-radius: 4px;
 	font-size: .85em;
 	line-height: 1.4;
+	text-align: left;
+	cursor: pointer;
 }
+.z2m-provider-result[hidden], .z2m-provider-progress[hidden], .z2m-provider-status[hidden], .z2m-provider-details[hidden] { display: none !important; }
 .z2m-provider-result-testing { background: var(--z2m-surface-hover); color: var(--z2m-text); border-color: var(--z2m-border); }
 .z2m-provider-result-ok { background: var(--z2m-success-bg); color: var(--z2m-text); border-color: var(--z2m-success); }
 .z2m-provider-result-partial { background: var(--z2m-warning-bg); color: var(--z2m-text); border-color: var(--z2m-warning); }
@@ -163,7 +169,6 @@
 	display: flex;
 	flex-direction: column;
 	min-width: 0;
-	min-height: 300px;
 	padding: 1em;
 	border: 1px solid var(--z2m-border);
 	border-radius: 7px;
@@ -190,7 +195,16 @@
 .z2m-provider-actions { display: flex; gap: .5em; margin-top: auto; padding-top: 1em; }
 .z2m-provider-actions button { min-height: 2.35em; flex: 1 1 0; }
 .z2m-provider-actions button[aria-busy="true"]::before { content: ''; display: inline-block; width: .9em; height: .9em; margin-right: .45em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; vertical-align: -.12em; animation: z2m-spin .7s linear infinite; }
-.z2m-provider-status { min-height: 1.4em; margin-top: .6em; color: var(--z2m-text-muted); font-size: .82em; }
+.z2m-provider-status { margin-top: .6em; color: var(--z2m-text-muted); font-size: .82em; }
+.z2m-provider-testing { border-color: var(--z2m-accent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--z2m-accent) 18%, transparent); }
+.z2m-provider-progress { position: relative; height: 3px; margin-top: .55em; overflow: hidden; border-radius: 2px; background: var(--z2m-surface-hover); }
+.z2m-provider-progress::before { content: ''; position: absolute; inset: 0 auto 0 -35%; width: 35%; background: var(--z2m-accent); animation: z2m-progress-slide 1.1s ease-in-out infinite; }
+.z2m-provider-result-icon { flex: 0 0 auto; font-weight: 700; }
+.z2m-provider-result > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.z2m-provider-details { margin-top: .35em; padding: .45em .6em; border-left: 2px solid var(--z2m-border); color: var(--z2m-text-muted); font-size: .82em; line-height: 1.45; }
+.z2m-provider-detail + .z2m-provider-detail { margin-top: .55em; padding-top: .55em; border-top: 1px solid var(--z2m-border); }
+.z2m-provider-detail strong { display: block; color: var(--z2m-text); }
+.z2m-provider-detail-error { color: var(--z2m-danger); }
 .z2m-provider-toolbar { display: flex; align-items: center; gap: .75em; flex-wrap: wrap; margin: 1em 0 1.25em; }
 .z2m-provider-toolbar .z2m-provider-result { margin: 0; }
 .z2m-provider-intro { margin: .75em 0 1em; color: var(--z2m-text-muted); line-height: 1.5; }
@@ -203,6 +217,12 @@
 .z2m-provider-category h4 { margin: 0; font-size: 1.05em; }
 .z2m-provider-category-count { color: var(--z2m-text-muted); font-size: .85em; }
 @keyframes z2m-spin { to { transform: rotate(360deg); } }
+@keyframes z2m-progress-slide { to { transform: translateX(385%); } }
+
+@media (prefers-reduced-motion: reduce) {
+	.z2m-provider-progress::before { animation: none; left: 0; width: 35%; }
+	.z2m-provider-actions button[aria-busy="true"]::before { animation: none; }
+}
 
 /* Proxy-owned surfaces use the same tokens as DNS and remain readable in
  * both LuCI themes. The QR paper is intentionally white for scanner contrast. */
@@ -214,7 +234,6 @@
 .z2m-proxy-modal-box { background: var(--z2m-surface-raised); color: var(--z2m-text); border: 1px solid var(--z2m-border); border-radius: 10px; text-align: center; max-width: 380px; width: 90vw; padding: 20px 20px 16px; }
 
 @media (max-width: 560px) {
-	.z2m-provider-card { min-height: 0; }
 	.z2m-provider-actions { flex-direction: column; }
 }
 

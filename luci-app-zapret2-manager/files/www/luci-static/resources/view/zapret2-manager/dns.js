@@ -520,15 +520,12 @@ function providersSection(view, provs, comps, envelope) {
 			}
 			var p = items[index++];
 			allResult.textContent = _('Testing ') + index + ' of ' + items.length + '\u2026';
-			callProvDiag(JSON.stringify({ provider: p.id })).then(function (res) {
+			runProviderTest(providerCardRefs[p.id]).then(function (res) {
 				var row = res && res.probes && res.probes[0];
 				var status = row ? (row.outcome === 'working' ? 'Passed' : (row.outcome === 'partial' ? 'Partial' : 'Failed')) : 'Failed';
 				results.push({ id: p.id, status: status });
-				renderProviderResult(providerCardRefs[p.id], res, null);
-			}).catch(function (e) {
-				results.push({ id: p.id, status: 'Failed' });
-				renderProviderResult(providerCardRefs[p.id], null, e);
-			}).then(next);
+				next();
+			});
 		}
 		next();
 	});
@@ -570,35 +567,34 @@ function groupProviders(providers) {
 
 function providerCard(view, p, comps, isSelected) {
 	var ref = { p: p, selected: isSelected, view: view };
-	var resEl = E('div', { 'class': 'z2m-provider-result z2m-provider-result-testing', 'hidden': true });
-	var statusEl = E('div', { 'class': 'z2m-provider-status', 'aria-live': 'polite' });
+	var progressEl = E('div', { 'class': 'z2m-provider-progress', 'role': 'progressbar', 'aria-label': _('Testing DNS provider'), 'hidden': true });
+	var resEl = E('button', { 'class': 'z2m-provider-result', 'type': 'button', 'aria-expanded': 'false', 'hidden': true });
+	var detailsEl = E('div', { 'class': 'z2m-provider-details', 'hidden': true });
+	var statusEl = E('div', { 'class': 'z2m-provider-status', 'aria-live': 'polite', 'hidden': true });
 	var testBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Test'));
 	testBtn.addEventListener('click', function () {
-		setProviderBusy(ref, 'test');
-		resEl.hidden = false;
-		resEl.className = 'z2m-provider-result z2m-provider-result-testing';
-		resEl.textContent = _('Testing…');
-		callProvDiag(JSON.stringify({ provider: p.id })).then(function (res) {
-			renderProviderResult(ref, res, null);
-		}).catch(function (err) {
-			renderProviderResult(ref, null, err);
-		}).then(function () { setProviderBusy(ref, null); });
+		runProviderTest(ref);
 	});
 	var selectBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button' }, isSelected ? _('Selected') : _('Select'));
 	if (isSelected) selectBtn.disabled = true;
 	selectBtn.addEventListener('click', function () {
 		if (selectBtn.disabled || !window.confirm(_('Select ') + p.name + ' (' + (p.ipv4 || []).join(', ') + ')?')) return;
 		setProviderBusy(ref, 'select');
-		statusEl.textContent = _('Updating WAN DNS…');
+		statusEl.hidden = false;
+		statusEl.textContent = _('Applying DNS…');
 		callProvSelect(JSON.stringify({ providerId: p.id })).then(function (res) {
 			if (!res || res.ok !== true) throw new Error(formatRpcError(res));
 			statusEl.textContent = _('Verifying DNS…');
 			view.showFlash(_('Selected ') + p.name, 'success');
 			return view.reload();
 		}).catch(function (e) {
-			resEl.hidden = false; renderProviderResult(ref, null, { message: _('Select failed: ') + formatRpcError(e) });
-			statusEl.textContent = '';
-		}).then(function () { setProviderBusy(ref, null); });
+			statusEl.textContent = _('Select failed: ') + formatRpcError(e);
+		}).then(function () { setProviderBusy(ref, null); if (!ref.selected) statusEl.hidden = true; });
+	});
+	resEl.addEventListener('click', function () {
+		var expanded = resEl.getAttribute('aria-expanded') === 'true';
+		resEl.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+		detailsEl.hidden = expanded;
 	});
 	var badges = [];
 	if (p.doh) badges.push(badge(_('DoH'), 'ok'));
@@ -617,14 +613,37 @@ function providerCard(view, p, comps, isSelected) {
 		E('div', { 'class': 'z2m-provider-description-wrap' }, [desc, more].filter(Boolean)),
 		E('div', { 'class': 'z2m-provider-actions' }, [testBtn, selectBtn]),
 		statusEl,
-		resEl
+		progressEl,
+		resEl,
+		detailsEl
 	].filter(Boolean);
 	var cardNode = E('div', { 'class': 'z2m-provider-card' + (isSelected ? ' z2m-provider-card-selected' : ''), 'data-provider-id': p.id }, [
 		E('div', { 'class': 'z2m-provider-header' }, [E('div', { 'class': 'z2m-provider-heading' }, [E('h4', {}, p.name), E('div', { 'class': 'z2m-provider-badges' }, badges)])])
 	].concat(body));
-	ref.result = resEl; ref.status = statusEl; ref.test = testBtn; ref.select = selectBtn; ref.card = cardNode;
+	ref.result = resEl; ref.details = detailsEl; ref.progress = progressEl; ref.status = statusEl; ref.test = testBtn; ref.select = selectBtn; ref.card = cardNode;
 	providerCardRefs[p.id] = ref;
 	return cardNode;
+}
+
+function runProviderTest(ref) {
+	setProviderBusy(ref, 'test');
+	ref.result.hidden = true;
+	ref.details.hidden = true;
+	ref.result.setAttribute('aria-expanded', 'false');
+	ref.progress.hidden = false;
+	ref.card.classList.add('z2m-provider-testing');
+	return callProvDiag(JSON.stringify({ provider: ref.p.id })).then(function (res) {
+		renderProviderResult(ref, res, null);
+		return res;
+	}).catch(function (err) {
+		renderProviderResult(ref, null, err);
+		return null;
+	}).then(function (res) {
+		ref.progress.hidden = true;
+		ref.card.classList.remove('z2m-provider-testing');
+		setProviderBusy(ref, null);
+		return res;
+	});
 }
 
 function setProviderBusy(ref, mode) {
@@ -641,22 +660,34 @@ function renderProviderResult(ref, res, error) {
 	var el = ref.result;
 	el.hidden = false;
 	while (el.firstChild) el.removeChild(el.firstChild);
+	while (ref.details.firstChild) ref.details.removeChild(ref.details.firstChild);
 	if (error || !res || res.ok !== true) {
 		el.className = 'z2m-provider-result z2m-provider-result-error';
-		el.appendChild(E('strong', {}, _('Status: Error')));
-		el.appendChild(E('div', {}, formatRpcError(error || res)));
+		el.appendChild(E('span', { 'class': 'z2m-provider-result-icon', 'aria-hidden': 'true' }, '✕'));
+		el.appendChild(E('span', {}, _('DNS unavailable')));
+		ref.details.appendChild(E('div', { 'class': 'z2m-provider-detail-error' }, formatRpcError(error || res)));
+		ref.result.setAttribute('aria-expanded', 'true');
+		ref.details.hidden = false;
 		return;
 	}
 	var row = res.probes && res.probes[0], attempts = row && row.attempts || [];
 	var outcome = row && row.outcome || 'failed';
+	var answered = attempts.filter(function (a) { return a.dnsAnswered; }).length;
+	var summary = outcome === 'working' ? _('DNS works · ') + answered + '/' + attempts.length + ' ' + _('resolvers') : (outcome === 'partial' ? _('Partially working · ') + answered + '/' + attempts.length + ' ' + _('resolvers') : _('DNS unavailable'));
 	el.className = 'z2m-provider-result ' + (outcome === 'working' ? 'z2m-provider-result-ok' : (outcome === 'partial' ? 'z2m-provider-result-partial' : 'z2m-provider-result-error'));
-	el.appendChild(E('strong', {}, _('Status: ') + (outcome === 'working' ? _('Working') : (outcome === 'partial' ? _('Partial') : _('Failed')))));
-	el.appendChild(E('div', { 'class': 'z2m-provider-attempts' }, attempts.map(function (a) {
-		return E('div', {}, [_('Resolver: '), E('code', {}, a.resolverIp), ' — DNS ' + (a.dnsAnswered ? _('PASS') : _('FAIL')) + ' · Ping ' + (a.pingAnswered ? _('PASS') : _('FAIL')) + (a.timedOut ? ' · ' + _('timeout') : '')]);
-	})));
-	var answers = [];
-	attempts.forEach(function (a) { (a.answers || []).forEach(function (answer) { if (answers.indexOf(answer) < 0) answers.push(answer); }); });
-	el.appendChild(E('div', {}, _('Answers: ') + (answers.length ? answers.join(', ') : _('none'))));
+	el.appendChild(E('span', { 'class': 'z2m-provider-result-icon', 'aria-hidden': 'true' }, outcome === 'working' ? '✓' : (outcome === 'partial' ? '⚠' : '✕')));
+	el.appendChild(E('span', {}, summary));
+	attempts.forEach(function (a) {
+		var answerText = (a.answers || []).length ? a.answers.join(', ') : _('none');
+		var detail = E('div', { 'class': 'z2m-provider-detail' }, [
+			E('strong', {}, _('Resolver ') + a.resolverIp),
+			E('div', {}, _('DNS: ') + (a.dnsAnswered ? _('PASS') : _('FAIL'))),
+			E('div', {}, _('Ping: ') + (a.pingAnswered ? _('PASS') : _('FAIL'))),
+			E('div', {}, _('Answers: ') + answerText)
+		]);
+		if (a.error || a.timedOut) detail.appendChild(E('div', {}, _('Reason: ') + (a.timedOut ? _('timeout') : a.error)));
+		ref.details.appendChild(detail);
+	});
 }
 
 // ════════════════════════════════════════════════════════
