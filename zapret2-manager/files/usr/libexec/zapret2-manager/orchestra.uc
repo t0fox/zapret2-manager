@@ -5,11 +5,10 @@
 // Upstream zapret-auto.lua already owns packet-time orchestration (autostate
 // in-process). This adapter READS what is genuinely readable without
 // mutation and returns honest available:false with reason+evidence for
-// everything else — never empty arrays pretending success. No second
-// orchestration layer is created here, ever.
+// everything else.
 //
-// v2: dynamic upstream detection, semantic autohostlist model, safe
-//     diagnostic log tail, manager observation history, diagnostic draft.
+// v3 (r46.7.1): functional fixes — atomic NDJSON write, stateless cursor,
+//     proper retention, domain normalization, NUL-separated cmdline parsing.
 
 import { readfile, readlink, stat, lsdir, popen, mkdir, unlink } from 'fs';
 import { maint_lua_compat } from './maintenance.uc';
@@ -24,6 +23,11 @@ const HISTORY_DIR = '/tmp/zapret2-manager/orchestra-history';
 const HISTORY_MAX = 256;
 const HISTORY_ROTATE_AT = 512;
 
+const HISTORY_FILE = '/var/lib/zapret2-manager/orchestra-events.ndjson';
+const HISTORY_MAX_EVENTS = 5000;
+const HISTORY_ROTATE_SIZE = 4 * 1024 * 1024;
+const HISTORY_RETENTION_DAYS = 30;
+
 function run(cmd) {
 	let p = popen(cmd + ' 2>/dev/null', 'r');
 	if (!p) return '';
@@ -31,6 +35,15 @@ function run(cmd) {
 	if (!out) out = '';
 	p.close();
 	return out;
+}
+
+function runcmd(cmd) {
+	let p = popen(cmd + ' 2>/dev/null', 'r');
+	if (!p) return { out: '', rc: -1 };
+	let out = p.read('all');
+	if (!out) out = '';
+	let rc = p.close();
+	return { out: out, rc: rc };
 }
 
 function sha256_file(path) {
@@ -53,7 +66,6 @@ function detect_package_version() {
 		for (let i = 0; i < length(lines); i++) {
 			let l = trim(lines[i]);
 			if (l == '') continue;
-			// strip " description:" suffix from "pkg-ver description:"
 			let descIdx = index(l, ' description:');
 			if (descIdx >= 0) l = substr(l, 0, descIdx);
 			if (length(l) > 0 && length(l) < 128) return l;
@@ -196,10 +208,10 @@ function capability_matrix(engine, luaFiles, debugEnabled) {
 	return [
 		{ capability: 'engine-loaded', available: engineLoaded, reason: engineLoaded ? null : 'zapret-auto.lua is not in the live nfqws2 argv', evidence: ['live process argv (/proc/<pid>/cmdline)'] },
 		{ capability: 'lua-bundle-present', available: length(luaFiles) > 0, reason: null, evidence: (function () { let o = []; for (let i = 0; i < length(luaFiles) && i < 8; i++) push(o, luaFiles[i].path); return o; })() },
-		{ capability: 'autostate-model', available: engineLoaded, reason: 'state records live in the Lua global autostate (autostate.<askey>.<hostkey>), created at packet time — IN-PROCESS MEMORY ONLY (no persistence calls exist in zapret-auto.lua)', evidence: ['zapret-auto.lua:48-57 (autostate creation)'] },
-		unavailable('Zapret2GUI slm_preload_blocked/slm_preload_locked/slm_preload_history do NOT exist in the pinned upstream zapret-auto.lua — there is no way to read autostate from outside the process', ['grep slm_preload zapret-auto.lua @d3b3011 → empty', 'pinned upstream ' + PINNED_UPSTREAM]),
-		unavailable('no event stream exists: DLOG is gated by b_debug (' + (debugEnabled ? 'present' : 'ABSENT') + ' in the live argv) and AUTOHOSTLIST_DEBUGLOG=0 in the applied config', ['zapret-auto.lua DLOG/b_debug usage', 'applied config AUTOHOSTLIST_DEBUGLOG=0']),
-		unavailable('no upstream interface exists for strategy lock/block/whitelist management — implementing one would require a second orchestration layer, which is architecturally forbidden', ['docs/architecture.md invariants (upstream owns packet-time orchestration)'])
+		{ capability: 'autostate-model', available: engineLoaded, reason: 'state records live in the Lua global autostate (autostate.<askey>.<hostkey>), created at packet time', evidence: ['zapret-auto.lua:48-57 (autostate creation)'] },
+		unavailable('preload APIs do NOT exist in the pinned upstream zapret-auto.lua', ['grep slm_preload zapret-auto.lua empty', 'pinned upstream ' + PINNED_UPSTREAM]),
+		unavailable('no event stream exists: DLOG is gated by b_debug (' + (debugEnabled ? 'present' : 'ABSENT') + ' in the live argv)', ['zapret-auto.lua DLOG/b_debug usage']),
+		unavailable('no upstream interface for strategy lock/block/whitelist', ['docs/architecture.md invariants'])
 	];
 }
 
@@ -236,52 +248,44 @@ function safe_diag_tail(path) {
 	let parsed = []; let unknownCount = 0;
 	let warnings = []; let errors = [];
 	let runId = null;
-	
-	// Extract runId from latest timestamp line if available
-	for (let i = 0; i < length(lines); i++) {
-		let line = trim(lines[i]);
-		if (index(line, '[') >= 0 && index(line, ']') > index(line, '[')) {
-			let timestampPart = substr(line, index(line, '[') + 1, index(line, ']') - index(line, '[') - 1);
-			if (match(timestampPart, 'run_id=([0-9a-f]+)')) {
-				runId = match[1];
-			}
-		}
-	}
-	
+
 	for (let li = 0; li < length(lines); li++) {
 		let l = trim(lines[li]); if (l == '') continue;
-		
-		// Check for parse errors
-		if (index(l, 'ERROR:') >= 0 || index(l, 'FATAL:') >= 0 || index(l, 'parse error') >= 0 || index(l, 'invalid') >= 0) {
+
+		if (index(l, 'run_id=') >= 0) {
+			let matched = match(l, /run_id=([0-9a-fA-F_-]+)/);
+			if (matched) runId = matched[1];
+		}
+
+		if (index(l, 'ERROR:') >= 0 || index(l, 'FATAL:') >= 0 || index(l, 'parse error') >= 0) {
 			push(errors, sanitize_string(l, 512));
 			continue;
 		}
-		
+
 		let known = false;
 		for (let pi = 0; pi < length(KNOWN_EVENT_PREFIXES); pi++) {
-			if (substr(l, 0, length(KNOWN_EVENT_PREFIXES[pi])) == KNOWN_EVENT_PREFIXES[pi]) { 
-				known = true; 
+			if (substr(l, 0, length(KNOWN_EVENT_PREFIXES[pi])) == KNOWN_EVENT_PREFIXES[pi]) {
+				known = true;
 				push(parsed, { lineIndex: li, eventClass: KNOWN_EVENT_PREFIXES[pi], rawLineHash: sha256_string(l), runId: runId });
-				break; 
+				break;
 			}
 		}
 		if (!known) {
 			unknownCount++;
-			// Add warning for unknown lines that look structured
 			if (index(l, '{') >= 0 && index(l, '}') > index(l, '{')) {
 				push(warnings, sanitize_string('Unknown structured line: ' + substr(l, 0, 100), 256));
 			}
 		}
 	}
 	try { mkdir('/tmp/zapret2-manager'); writefile(DIAG_LOG_PATH, raw); } catch (e) { }
-	return { 
-		path: path, 
-		linesTotal: length(lines), 
-		parsed: length(parsed), 
-		unknown: unknownCount, 
-		truncated: truncated, 
-		parserVersion: 2, 
-		freshness: time(), 
+	return {
+		path: path,
+		linesTotal: length(lines),
+		parsed: length(parsed),
+		unknown: unknownCount,
+		truncated: truncated,
+		parserVersion: 2,
+		freshness: time(),
 		events: parsed,
 		runId: runId,
 		warnings: warnings,
@@ -289,12 +293,11 @@ function safe_diag_tail(path) {
 	};
 }
 
-function sanitize_string(str, maxLength=256) {
+function sanitize_string(str, maxLength) {
+	if (maxLength == null) maxLength = 256;
 	if (!str || str == '') return null;
 	let s = trim(str);
-	// Remove control characters
-	s = regex_replace(s, '[\\x00-\\x1F\\x7F]', '', 'g');
-	// Truncate if needed
+	if (length(s) == 0) return null;
 	if (length(s) > maxLength) s = substr(s, 0, maxLength);
 	return s;
 }
@@ -305,78 +308,261 @@ function sha256_string(s) {
 	return sprintf('%08x', h);
 }
 
-// ---- manager observation history -----------------------------------------------
+// ---- domain normalization ---------------------------------------------------
 
-function read_history() {
-	let entries = []; let names = lsdir(HISTORY_DIR);
-	if (type(names) != 'array') return entries;
-	for (let i = 0; i < length(names); i++) {
-		if (substr(names[i], length(names[i]) - 5) != '.json') continue;
-		let raw = readfile(HISTORY_DIR + '/' + names[i]);
-		if (!raw) continue;
-		try { let obj = json(raw); if (type(obj) == 'object' && obj != null && type(obj.eventClass) == 'string') push(entries, obj); } catch (e) { }
+function normalize_domain(value) {
+	let domain = tolower(trim(value || ''));
+	while (length(domain) > 0 && substr(domain, length(domain) - 1, 1) == '.') {
+		domain = substr(domain, 0, length(domain) - 1);
 	}
-	return entries;
+	return length(domain) > 0 ? domain : null;
 }
 
-function append_history(events, diagPath) {
-	if (length(events) == 0) return;
-	try { mkdir(HISTORY_DIR); } catch (e) { }
+// ---- canonical NDJSON history store ---------------------------------------
+
+function read_history_events() {
+	try {
+		if (!stat(HISTORY_FILE)) return [];
+		let raw = readfile(HISTORY_FILE);
+		if (!raw) return [];
+		let lines = split(raw, '\n');
+		let events = [];
+		for (let li = 0; li < length(lines); li++) {
+			let line = trim(lines[li]);
+			if (length(line) == 0) continue;
+			try {
+				let event = json(line);
+				if (type(event) == 'object' && event != null) push(events, event);
+			} catch (e) { }
+		}
+		return events;
+	} catch (e) { return []; }
+}
+
+function apply_retention(events) {
 	let now = time();
-	for (let i = 0; i < length(events) && i < 32; i++) {
-		let entry = { timestamp: now, eventClass: events[i].eventClass, source: diagPath || 'unknown', parserVersion: 2, rawLineHash: events[i].rawLineHash, runId: events[i].runId || null, confidence: events[i].confidence || 'exact' };
-		writefile(HISTORY_DIR + '/' + now + '-' + i + '.json', sprintf("%J", entry) + '\n');
+	let cutoff = now - HISTORY_RETENTION_DAYS * 86400;
+
+	// 1) age filter
+	let filtered = [];
+	for (let i = 0; i < length(events); i++) {
+		let ts = events[i].timestamp || 0;
+		if (ts >= cutoff) push(filtered, events[i]);
 	}
-	let names = lsdir(HISTORY_DIR);
-	if (type(names) == 'array' && length(names) > HISTORY_ROTATE_AT) {
-		let sorted = names.slice();
-		for (let i = 1; i < length(sorted); i++) { let v = sorted[i]; let j = i - 1; while (j >= 0 && sorted[j] > v) { sorted[j + 1] = sorted[j]; j--; } sorted[j + 1] = v; }
-		let excess = length(sorted) - HISTORY_MAX;
-		for (let i = 0; i < excess; i++) { try { unlink(HISTORY_DIR + '/' + sorted[i]); } catch (e) { } }
+
+	// 2) count cap: keep last 5000
+	if (length(filtered) > HISTORY_MAX_EVENTS) {
+		let keep = [];
+		let start = length(filtered) - HISTORY_MAX_EVENTS;
+		for (let i = start; i < length(filtered); i++) push(keep, filtered[i]);
+		filtered = keep;
 	}
+
+	// 3) size cap: 4 MB
+	if (length(filtered) > 0) {
+		let body = '';
+		for (let i = 0; i < length(filtered); i++) {
+			body += sprintf("%J", filtered[i]) + '\n';
+		}
+		while (length(body) > HISTORY_ROTATE_SIZE && length(filtered) > 1) {
+			let shorter = [];
+			for (let i = 1; i < length(filtered); i++) push(shorter, filtered[i]);
+			filtered = shorter;
+			body = '';
+			for (let i = 0; i < length(filtered); i++) {
+				body += sprintf("%J", filtered[i]) + '\n';
+			}
+		}
+	}
+
+	return filtered;
 }
 
-// ---- diagnostic draft capability -----------------------------------------------
+function write_history_atomic(events) {
+	let dir = '/var/lib/zapret2-manager';
+	let path = HISTORY_FILE;
+	let tmp = path + '.tmp.' + time();
 
-function diag_draft_capability(authostlistVars) {
-	let current = authostlistVars.AUTOHOSTLIST_DEBUGLOG;
-	return {
-		canDraft: true, current: (current != null) ? current : '0',
-		note: 'A draft to enable/disable AUTOHOSTLIST_DEBUGLOG can be created through the config DRAFT mechanism. Apply requires strategic Preview/Apply flow. Enabling generates flash I/O.',
-		warning: 'Do not edit /opt/zapret2/config directly — use draft → preview → apply only.',
-		suggestedPath: '/tmp/zapret2-autohostlist.log', suggestedRotationKb: 256
-	};
+	try { mkdir(dir); } catch (e) { }
+
+	let lines = [];
+	for (let i = 0; i < length(events); i++) {
+		push(lines, sprintf("%J", events[i]));
+	}
+
+	let content = length(lines) > 0 ? join('\n', lines) + '\n' : '';
+
+	writefile(tmp, content);
+
+	let readBack = readfile(tmp);
+	if (readBack != content) {
+		try { unlink(tmp); } catch (e) { }
+		return { ok: false, error: 'history readback mismatch' };
+	}
+
+	let result = runcmd('mv -f ' + sh_escape(tmp) + ' ' + sh_escape(path));
+	if (result.rc != 0) {
+		try { unlink(tmp); } catch (e) { }
+		return { ok: false, error: 'history atomic rename failed' };
+	}
+
+	return { ok: true };
 }
 
-// ---- enhanced event system with ratings ---------------------------------------
+function append_history_event(event) {
+	if (!event || type(event) != 'object' || !event.eventClass) return { ok: false, error: 'invalid event' };
 
-function parse_normalized_domain(domain, askey) {
-	let d = trim(domain);
-	if (d == '') return null;
-	d = tolower(d);
-	// Remove trailing dot
-	d = substr(d, 0, index(d, '.' == last(d) ? length(d) - 1 : length(d)));
-	return d;
+	if (!event.timestamp) event.timestamp = time();
+
+	let events = read_history_events();
+	push(events, event);
+	let kept = apply_retention(events);
+	return write_history_atomic(kept);
 }
 
-function rating_key(domain, askey) {
-	let norm = parse_normalized_domain(domain, askey);
-	return norm + ':' + askey;
+// ---- stateless pagination -------------------------------------------------
+
+function make_cursor(offset) {
+	return { generation: sha256_file(HISTORY_FILE) || 'none', offset: offset, version: 1 };
 }
 
-function aggregate_ratings(historyEntries, maxCount=200) {
-	let ratings = {}; let count = 0;
-	
-	for (let i = 0; i < length(historyEntries) && count < maxCount; i++) {
-		let e = historyEntries[i];
+function paginate_events(cursor, limit) {
+	if (limit == null) limit = 200;
+	if (limit < 1) limit = 1;
+	if (limit > 500) limit = 500;
+
+	let events = read_history_events();
+	let total = length(events);
+
+	// validate cursor
+	let offset = 0;
+	if (cursor && type(cursor) == 'object') {
+		if (cursor.version != 1) return { ok: false, error: 'unsupported cursor version' };
+		if (cursor.generation && cursor.generation != (sha256_file(HISTORY_FILE) || 'none'))
+			return { ok: false, error: 'stale cursor — history file generation changed' };
+		if (cursor.offset != null) offset = cursor.offset;
+	}
+
+	if (offset < 0) offset = 0;
+	if (offset > total) offset = total;
+
+	let entries = [];
+	for (let i = offset; i < total && length(entries) < limit; i++) {
+		// redact for UI
+		let e = clone_event(events[i]);
+		push(entries, e);
+	}
+
+	let next = null;
+	if (offset + length(entries) < total) {
+		next = make_cursor(offset + length(entries));
+	}
+
+	return { ok: true, entries: entries, total: total, next: next };
+}
+
+function clone_event(e) {
+	let c = {};
+	if (e.timestamp) c.timestamp = e.timestamp;
+	if (e.eventClass) c.eventClass = e.eventClass;
+	if (e.domain) c.domain = e.domain;
+	if (e.askey) c.askey = e.askey;
+	if (e.strategyId) c.strategyId = e.strategyId;
+	if (e.previousStrategyId) c.previousStrategyId = e.previousStrategyId;
+	if (e.confidence) c.confidence = e.confidence;
+	if (e.runId) c.runId = e.runId;
+	return c;
+}
+
+function sh_escape(arg) {
+	return "'" + split(arg, "'") + "'\\''" + "'";
+}
+
+// ---- runId detection -------------------------------------------------
+
+function detect_runid() {
+	let cmd = nfqws2_cmdline();
+	if (!cmd) return null;
+
+	let pid = cmd.pid;
+	if (pid) {
+		let argv = split(cmd.cmdline, '\0');
+		for (let i = 0; i < length(argv); i++) {
+			let part = trim(argv[i]);
+			if (substr(part, 0, 6) == 'tries-') {
+				let runId = substr(part, 6);
+				let matched = match(runId, /^[0-9a-fA-F]+$/);
+				if (matched && length(runId) == 8) return runId;
+			}
+		}
+		// fallback: also try space-separated
+		let parts = split(cmd.cmdline, ' ');
+		for (let i = 0; i < length(parts); i++) {
+			let part = trim(parts[i]);
+			if (substr(part, 0, 6) == 'tries-') {
+				let runId = substr(part, 6);
+				let matched = match(runId, /^[0-9a-fA-F]+$/);
+				if (matched && length(runId) == 8) return runId;
+			}
+		}
+	}
+
+	return null;
+}
+
+function get_parse_warnings() {
+	let result = { count: 0, warnings: [], errors: [] };
+	let cmd = nfqws2_cmdline();
+	if (!cmd) return result;
+
+	let pid = cmd.pid;
+	if (!pid) return result;
+
+	let syslogFile = '/var/log/messages';
+	if (stat(syslogFile)) {
+		let raw = readfile(syslogFile);
+		if (raw) {
+			let lines = split(raw, '\n');
+			let searchOffset = length(lines) - 1000;
+			if (searchOffset < 0) searchOffset = 0;
+
+			for (let i = searchOffset; i < length(lines); i++) {
+				let line = trim(lines[i]);
+				if (index(line, 'nfqws2') >= 0 && (index(line, 'parse') >= 0 || index(line, 'invalid') >= 0)) {
+					let warning = sanitize_string(line, 256);
+					if (length(warning) > 0 && index(warning, 'ERROR:') == 0) {
+						push(result.errors, warning);
+					} else {
+						push(result.warnings, warning);
+					}
+					result.count++;
+				}
+			}
+		}
+	}
+
+	return result;
+}
+
+// ---- ratings read model -------------------------------------------------
+
+function aggregate_ratings(events, maxCount) {
+	if (maxCount == null) maxCount = 200;
+	let ratings = {};
+	let count = 0;
+
+	for (let i = 0; i < length(events) && count < maxCount; i++) {
+		let e = events[i];
 		if (!e.domain || !e.askey || !e.eventClass) continue;
-		
-		let key = rating_key(e.domain, e.askey);
+
+		let key = normalize_domain(e.domain) + ':' + e.askey;
+		if (key == ':') continue;
+
 		if (!ratings[key]) {
 			ratings[key] = {
 				domain: e.domain,
 				askey: e.askey,
-				normalizedDomain: parse_normalized_domain(e.domain, e.askey),
+				normalizedDomain: normalize_domain(e.domain),
 				strategyId: e.strategyId,
 				previousStrategyId: e.previousStrategyId,
 				lastSeenAt: e.timestamp,
@@ -391,531 +577,46 @@ function aggregate_ratings(historyEntries, maxCount=200) {
 				finalReachedCount: 0
 			};
 		}
-		
+
 		let r = ratings[key];
-		r.lastSeenAt = e.timestamp; // update freshness
-		
-		// Only count strategies that actually got selected
-		if (e.eventClass == 'STRATEGY_SELECTED' || e.eventClass == 'STRATEGY_ROTATED') {
-			r.selectedCount++;
-		}
-		if (e.eventClass == 'SUCCESS') {
-			r.successCount++;
-		}
-		if (e.eventClass == 'FAILURE_RETRANS') {
-			r.retransFailureCount++;
-			r.failureCount++;
-		}
-		if (e.eventClass == 'FAILURE_RST') {
-			r.rstFailureCount++;
-			r.failureCount++;
-		}
-		if (e.eventClass == 'FAILURE_HTTP_REDIRECT') {
-			r.redirectFailureCount++;
-			r.failureCount++;
-		}
-		if (e.eventClass == 'FAILURE_UDP_HEURISTIC') {
-			r.udpFailureCount++;
-			r.failureCount++;
-		}
-		if (e.eventClass == 'STRATEGY_ROTATED') {
-			r.rotationAwayCount++;
-		}
-		if (e.eventClass == 'FINAL_STRATEGY_REACHED') {
-			r.finalReachedCount++;
-		}
-		
+		r.lastSeenAt = e.timestamp;
+
+		if (e.eventClass == 'STRATEGY_SELECTED' || e.eventClass == 'STRATEGY_ROTATED') { r.selectedCount++; }
+		if (e.eventClass == 'SUCCESS') { r.successCount++; }
+		if (e.eventClass == 'FAILURE_RETRANS') { r.retransFailureCount++; r.failureCount++; }
+		if (e.eventClass == 'FAILURE_RST') { r.rstFailureCount++; r.failureCount++; }
+		if (e.eventClass == 'FAILURE_HTTP_REDIRECT') { r.redirectFailureCount++; r.failureCount++; }
+		if (e.eventClass == 'FAILURE_UDP_HEURISTIC') { r.udpFailureCount++; r.failureCount++; }
+		if (e.eventClass == 'STRATEGY_ROTATED') { r.rotationAwayCount++; }
+		if (e.eventClass == 'FINAL_STRATEGY_REACHED') { r.finalReachedCount++; }
+
 		count++;
 	}
-	
-	// Convert to array and sort by lastSeenAt (newest first)
+
 	let result = [];
 	for (let k in ratings) {
 		push(result, ratings[k]);
 	}
-	result.sort(function(a, b) {
-		return (b.lastSeenAt || 0) - (a.lastSeenAt || 0);
-	});
-	
+	result.sort(function (a, b) { return (b.lastSeenAt || 0) - (a.lastSeenAt || 0); });
+
 	return { entries: result, total: length(result) };
 }
 
-// ---- runId detection and parse warnings ------------------------------
+// ---- diagnostic draft capability -----------------------------------------------
 
-function detect_runid() {
-	let cmd = nfqws2_cmdline();
-	if (!cmd) return null;
-	
-	// Try to extract runId from PID-based heuristic
-	let pid = cmd.pid;
-	if (pid) {
-		// Common runId format: tries-[runid] on the cmdline
-		let parts = split(cmd.cmdline, ' ');
-		for (let i = 0; i < length(parts); i++) {
-			let part = trim(parts[i]);
-			if (substr(part, 0, 6) == 'tries-') {
-				// tries-[runid] format
-				let runId = substr(part, 6);
-				// Check if it's a valid alphanumeric string
-				if (match(runId, '^[0-9a-f]+$') && length(runId) == 8) {
-					return runId;
-				}
-			}
-		}
-	}
-	
-	return null;
-}
-
-function get_parse_warnings() {
-	let result = { count: 0, warnings: [], errors: [] };
-	let cmd = nfqws2_cmdline();
-	if (!cmd) return result;
-	
-	let pid = cmd.pid;
-	if (!pid) return result;
-	
-	// Check syslog for parse warnings
-	let syslogFile = '/var/log/messages';
-	if (stat(syslogFile)) {
-		let raw = readfile(syslogFile);
-		if (raw) {
-			let lines = split(raw, '\n');
-			let searchOffset = length(lines) - 1000; // Last 1000 lines
-			if (searchOffset < 0) searchOffset = 0;
-			
-			for (let i = searchOffset; i < length(lines); i++) {
-				let line = trim(lines[i]);
-				// Look for parse-related warnings in nfqws2 logs
-				if (index(line, 'nfqws2') >= 0 && (index(line, 'parse') >= 0 || index(line, 'invalid') >= 0)) {
-					let warning = sanitize_string(line, 256);
-					if (length(warning) > 0 && index(warning, 'ERROR:') == 0) {
-						push(result.errors, warning);
-					} else {
-						push(result.warnings, warning);
-					}
-					result.count++;
-				}
-			}
-		}
-	}
-	
-	return result;
-}
-
-// ---- enhanced history with NDJSON format and advanced retention --------------------------
-
-// NDJSON event entry format
-const HISTORY_FILE = '/var/lib/zapret2-manager/orchestra-events.ndjson';
-const HISTORY_MAX_EVENTS = 5000;
-const HISTORY_ROTATE_SIZE = 4 * 1024 * 1024; // 4MB
-const HISTORY_RETENTION_DAYS = 30;
-
-// Event tracking state
-var eventStore = {
-	runId: null,
-	lastSequence: 0,
-	lastWriteTime: 0,
-	lastFileInode: 0,
-	lastFileSize: 0
-};
-
-// Cursor for pagination
-var cursorState = {
-	position: 0,
-	reset: function() { this.position = 0; }
-};
-
-// Initialize cursor state
-function init_cursor() {
-	try {
-		let cursorFile = HISTORY_DIR + '/cursor.txt';
-		if (stat(cursorFile)) {
-			let cursorData = readfile(cursorFile);
-			if (cursorData) {
-				try {
-					let parsed = json(cursorData);
-					if (parsed && parsed.position !== undefined) {
-						cursorState.position = parsed.position;
-					}
-				} catch (e) { }
-			}
-		}
-	} catch (e) { }
-}
-
-// Save cursor state
-function save_cursor() {
-	try {
-		let cursorFile = HISTORY_DIR + '/cursor.txt';
-		mkdir(HISTORY_DIR);
-		writefile(cursorFile, sprintf("%J", { position: cursorState.position }) + '\n');
-	} catch (e) { }
-}
-
-// Append event to history with NDJSON format
-function append_history_event(event, isAutoPersist=true) {
-	if (!event || !event.eventClass) return false;
-	
-	// Auto-persist if enabled (default: true)
-	if (isAutoPersist) {
-		auto_persist_events();
-	}
-	
-	return true;
-}
-
-// Write all buffered events to disk
-function auto_persist_events() {
-	if (!eventStore.lastSequence || eventStore.lastSequence == 0) return;
-	
-	try {
-		mkdir(HISTORY_DIR);
-		
-		// Rotate file if needed
-		if (stat(HISTORY_FILE)) {
-			let st = stat(HISTORY_FILE);
-			if (st.size > HISTORY_ROTATE_SIZE) {
-				rotate_history_file();
-			}
-		}
-		
-		// Append new events
-		let seq = eventStore.lastSequence;
-		let now = time();
-		
-		// Write using atomic method (write to temp, then rename)
-		let tempFile = HISTORY_FILE + '.tmp.' + now;
-		let fd = null;
-		try {
-			// Open file for appending
-			let cmd = 'write > ' + tempFile + ' 2>/dev/null';
-			// Simple append for OpenWrt (no file descriptor API in ucode)
-			let eventsToWrite = get_buffered_events();
-			for (let i = 0; i < length(eventsToWrite); i++) {
-				let e = eventsToWrite[i];
-				try {
-					writefile(HISTORY_FILE + '\n' + sprintf("%J", e) + '\n', sprintf("%J", e) + '\n');
-				} catch (writeErr) { }
-			}
-			
-			// Atomically rename
-			let renameCmd = 'mv ' + tempFile + ' ' + HISTORY_FILE + ' 2>/dev/null';
-			run(renameCmd);
-			
-			// Update sequence and cursor
-			eventStore.lastSequence = 0;
-			cursorState.position = length(get_all_events()) + 1;
-			save_cursor();
-			
-		} catch (e) { }
-	} catch (e) { }
-}
-
-// Get buffered events
-function get_buffered_events() {
-	// In this simple version, we store events in memory and persist them
-	// This is a simplification - production would use a proper buffer system
-	return []; // Placeholder
-}
-
-// Get all events (with cursor support)
-function get_all_events() {
-	try {
-		if (!stat(HISTORY_FILE)) return [];
-		
-		let raw = readfile(HISTORY_FILE);
-		if (!raw) return [];
-		
-		let lines = split(raw, '\n');
-		let events = [];
-		let seen = cursorState.position;
-		
-		for (let i = seen; i < length(lines); i++) {
-			let line = trim(lines[i]);
-			if (length(line) > 0) {
-				try {
-					let event = json(line);
-					if (event && type(event) == 'object') {
-						push(events, event);
-					}
-				} catch (e) { }
-			}
-		}
-		
-		return events;
-	} catch (e) {
-		return [];
-	}
-}
-
-// Get events with pagination (bounded)
-function get_paginated_events(cursor, limit=200) {
-	let all = get_all_events();
-	let start = (cursor && cursor.next) ? cursor.next - 1 : 0;
-	
-	if (start < 0) start = 0;
-	
-	let entries = [];
-	for (let i = start; i < length(all) && length(entries) < limit; i++) {
-		push(entries, all[i]);
-	}
-	
-	let nextCursor = length(entries) >= limit ? { next: start + limit } : null;
-	
+function diag_draft_capability(authostlistVars) {
+	let current = authostlistVars.AUTOHOSTLIST_DEBUGLOG;
 	return {
-		entries: entries,
-		total: length(all),
-		next: nextCursor,
-		bounded: true,
-		limit: limit
+		canDraft: true, current: (current != null) ? current : '0',
+		note: 'A draft to enable/disable AUTOHOSTLIST_DEBUGLOG can be created through the config DRAFT mechanism.',
+		warning: 'Do not edit /opt/zapret2/config directly.',
+		suggestedPath: '/tmp/zapret2-autohostlist.log', suggestedRotationKb: 256
 	};
 }
 
-// Rotate history file
-function rotate_history_file() {
-	try {
-		mkdir(HISTORY_DIR);
-		
-		// Count current files
-		let names = lsdir(HISTORY_DIR);
-		let oldFiles = [];
-		for (let i = 0; i < length(names); i++) {
-			if (substr(names[i], length(names[i]) - 3) == '.ndjson') {
-				push(oldFiles, HISTORY_DIR + '/' + names[i]);
-			}
-		}
-		
-		// Keep only files within retention period
-		let now = time();
-		for (let i = 0; i < length(oldFiles); i++) {
-			try {
-				let st = stat(oldFiles[i]);
-				if (st) {
-					let age = now - st.mtime;
-					let ageDays = age / (60 * 60 * 24);
-					if (ageDays > HISTORY_RETENTION_DAYS) {
-						unlink(oldFiles[i]);
-					}
-				}
-			} catch (e) { }
-		}
-		
-		// Rename current file if count exceeds threshold
-		if (length(oldFiles) > HISTORY_ROTATE_AT) {
-			// Create backup with timestamp
-			let backupFile = HISTORY_DIR + '/history.' + now + '.ndjson';
-			try {
-				run('mv ' + HISTORY_FILE + ' ' + backupFile + ' 2>/dev/null');
-			} catch (e) { }
-		}
-		
-		// Truncate if max events exceeded
-		let truncated = truncate_to_max_events();
-		
-		return { rotated: length(oldFiles) > HISTORY_ROTATE_AT, truncated: truncated };
-	} catch (e) {
-		return { rotated: false, truncated: false, error: e };
-	}
-}
-
-// Truncate history to max events
-function truncate_to_max_events() {
-	try {
-		if (!stat(HISTORY_FILE)) return false;
-		
-		let events = get_all_events();
-		if (length(events) <= HISTORY_MAX_EVENTS) return false;
-		
-		let toKeep = length(events) - HISTORY_MAX_EVENTS;
-		let truncated = [];
-		
-		// Read file
-		let raw = readfile(HISTORY_FILE);
-		let lines = split(raw, '\n');
-		let newLines = [];
-		
-		for (let i = toKeep; i < length(lines); i++) {
-			if (length(lines[i]) > 0) {
-				try {
-					let event = json(lines[i]);
-					if (event && type(event) == 'object') {
-						push(newLines, lines[i]);
-					}
-				} catch (e) { }
-			}
-		}
-		
-		// Write truncated
-		let cmd = 'write > ' + HISTORY_FILE + ' 2>/dev/null';
-		for (let i = 0; i < length(newLines); i++) {
-			writefile(cmd, newLines[i] + '\n');
-		}
-		
-		// Reset cursor
-		cursorState.position = 1;
-		save_cursor();
-		
-		return true;
-	} catch (e) {
-		return false;
-	}
-}
-
-// Get history statistics
-function get_history_stats() {
-	try {
-		if (!stat(HISTORY_FILE)) {
-			return {
-				available: false,
-				total: 0,
-				entries: [],
-				maxSize: 4 * 1024 * 1024,
-				retentionDays: 30,
-				retentionReached: true,
-				error: 'history file does not exist'
-			};
-		}
-		
-		let st = stat(HISTORY_FILE);
-		let raw = readfile(HISTORY_FILE);
-		let lines = split(raw, '\n');
-		
-		let events = [];
-		for (let i = 0; i < length(lines); i++) {
-			if (length(lines[i]) > 0) {
-				try {
-					let event = json(lines[i]);
-					if (event && type(event) == 'object') {
-						push(events, event);
-					}
-				} catch (e) { }
-			}
-		}
-		
-		return {
-			available: true,
-			total: length(events),
-			entries: events,
-			currentSize: st.size,
-			maxSize: HISTORY_ROTATE_SIZE,
-			retentionDays: HISTORY_RETENTION_DAYS,
-			retentionReached: false,
-			OldestEvent: length(events) > 0 ? events[0].timestamp : null,
-			NewestEvent: length(events) > 0 ? events[length(events) - 1].timestamp : null
-		};
-	} catch (e) {
-		return {
-			available: false,
-			total: 0,
-			entries: [],
-			error: e
-		};
-	}
-}
-
-// Clear history by runId (selective)
-function clear_history_by_runid(runId) {
-	try {
-		if (!stat(HISTORY_FILE)) return { ok: true, cleared: 0 };
-		
-		let raw = readfile(HISTORY_FILE);
-		if (!raw) return { ok: true, cleared: 0 };
-		
-		let lines = split(raw, '\n');
-		let kept = [];
-		let cleared = 0;
-		
-		for (let i = 0; i < length(lines); i++) {
-			if (length(lines[i]) > 0) {
-				try {
-					let event = json(lines[i]);
-					if (event && type(event) == 'object') {
-						if (event.runId && event.runId == runId) {
-							cleared++;
-						} else {
-							push(kept, lines[i]);
-						}
-					}
-				} catch (e) { }
-			}
-		}
-		
-		// Write cleaned history
-		let cmd = 'write > ' + HISTORY_FILE + ' 2>/dev/null';
-		for (let i = 0; i < length(kept); i++) {
-			writefile(cmd, kept[i] + '\n');
-		}
-		
-		// Reset cursor
-		cursorState.position = 1;
-		save_cursor();
-		
-		return { ok: true, cleared: cleared, total: length(kept) };
-	} catch (e) {
-		return { ok: false, cleared: 0, error: e };
-	}
-}
-
-// Export history for diagnostics
-function export_history(limit=500) {
-	try {
-		if (!stat(HISTORY_FILE)) return { ok: true, exported: 0 };
-		
-		let raw = readfile(HISTORY_FILE);
-		if (!raw) return { ok: true, exported: 0 };
-		
-		let lines = split(raw, '\n');
-		let events = [];
-		
-		for (let i = 0; i < length(lines); i++) {
-			if (length(lines[i]) > 0) {
-				try {
-					let event = json(lines[i]);
-					if (event && type(event) == 'object') {
-						push(events, event);
-					}
-				} catch (e) { }
-			}
-		}
-		
-		// Sort by timestamp descending
-		events.sort(function(a, b) {
-			return (b.timestamp || 0) - (a.timestamp || 0);
-		});
-		
-		// Redact sensitive data
-		let redacted = [];
-		for (let i = 0; i < length(events) && i < limit; i++) {
-			let e = clone(events[i]);
-			// Redact private fields
-			if (e.rawLineHash) e.rawLineHash = '[REDACTED]';
-			if (e.source && index(e.source, '/tmp/') >= 0) e.source = '[REDACTED]';
-			push(redacted, e);
-		}
-		
-		return { ok: true, exported: length(redacted), entries: redacted };
-	} catch (e) {
-		return { ok: false, exported: 0, error: e };
-	}
-}
-
-// Clone object for redaction
-function clone(obj) {
-	if (obj == null || type(obj) != 'object') return obj;
-	try {
-		return json(sprintf("%J", obj));
-	} catch (e) {
-		return obj;
-	}
-}
-
-// Initialize cursor state on load
-init_cursor();
-
 // ---- public API -----------------------------------------------------------------
 
-export const orchestra_capabilities = function() {
+export const orchestra_capabilities = function () {
 	let cmd = nfqws2_cmdline();
 	let engine = cmd != null ? detect_engine(cmd.cmdline) : { auto: false, antidpi: false, lib: false };
 	let luaFiles = detect_lua_files();
@@ -925,7 +626,7 @@ export const orchestra_capabilities = function() {
 	return { ok: true, detected: { packageVersion: pkgVer, binaryVersion: binVer, pinnedUpstream: PINNED_UPSTREAM, versionMatch: pkgVer != null ? true : null }, engine: engine, luaFiles: luaFiles, matrix: with_ids(capability_matrix(engine, luaFiles, dbg)) };
 };
 
-export const orchestra_status = function() {
+export const orchestra_status = function () {
 	let cmd = nfqws2_cmdline();
 	let engine = cmd != null ? detect_engine(cmd.cmdline) : { auto: false, antidpi: false, lib: false };
 	let pkgVer = detect_package_version();
@@ -941,12 +642,11 @@ export const orchestra_status = function() {
 	else if (dbg && stat('/tmp/zapret2-autohostlist.log')) diagResult = safe_diag_tail('/tmp/zapret2-autohostlist.log');
 
 	let history = null;
-	if (diagResult != null && diagResult.events != null && length(diagResult.events) > 0) append_history(diagResult.events, semantic.debug.path);
-	let rawHistory = read_history();
-	if (length(rawHistory) > 0) {
+	let rawEvents = read_history_events();
+	if (length(rawEvents) > 0) {
 		let recent = [];
-		for (let i = length(rawHistory) - 1; i >= 0 && length(recent) < 50; i--) push(recent, rawHistory[i]);
-		history = { entries: recent, total: length(rawHistory), label: 'Manager observation history — derived from observed upstream diagnostic output' };
+		for (let i = length(rawEvents) - 1; i >= 0 && length(recent) < 50; i--) push(recent, rawEvents[i]);
+		history = { entries: recent, total: length(rawEvents), label: 'Manager observation history' };
 	}
 
 	let adaptiveState = 'inactive';
@@ -966,80 +666,53 @@ export const orchestra_status = function() {
 		luaFiles: luaFiles, debugEnabled: dbg, diagnosticsAvailable: dbg || semantic.debug.enabled,
 		autohostlistRaw: rawVars, autohostlistSemantic: semantic, appliedThresholds: thresholdCount,
 		diagnosticTail: diagResult, managerHistory: history, diagDraft: diag_draft_capability(rawVars),
-		autostate: { model: 'in-process Lua global autostate (autostate.<askey>.<hostkey>)', persisted: false, reason: 'no persistence calls exist in zapret-auto.lua (only an in-memory execution-plan copy)' }
+		autostate: { model: 'in-process Lua global autostate', persisted: false, reason: 'no persistence calls exist in zapret-auto.lua' }
 	};
 };
 
-export const orchestra_events = function() {
+export const orchestra_events = function () {
 	let configText = readfile(PATHS.applied_conf);
 	let rawVars = parse_autohostlist_vars(configText);
 	let semantic = semantic_autohostlist(rawVars);
 	let cmd = nfqws2_cmdline();
 	let dbg = (cmd != null) ? debug_enabled(cmd.cmdline) : false;
 	if (!semantic.debug.enabled && !dbg)
-		return unavailable_result('events', 'no event stream exists: zapret-auto.lua DLOG is gated by b_debug (ABSENT in the live argv) and the applied config has AUTOHOSTLIST_DEBUGLOG=0', ['live argv has no --debug', '/opt/zapret2/config AUTOHOSTLIST_DEBUGLOG=0']);
+		return unavailable_result('events', 'no event stream exists', ['live argv has no --debug']);
 	let path = semantic.debug.path || '/tmp/zapret2-autohostlist.log';
 	let tail = safe_diag_tail(path);
-	if (tail == null || tail.error) return { ok: true, available: false, diagnosticsConfigured: true, reason: 'diagnostics are enabled but the log file is not readable or does not exist: ' + path };
-	return { ok: true, available: true, diagnosticsConfigured: true, path: path, truncated: tail.truncated, freshness: tail.freshness, parsedEvents: tail.events, unknownCount: tail.unknown, parserVersion: tail.parserVersion, note: 'events are derived solely from observed upstream diagnostic output' };
+	if (tail == null || tail.error) return { ok: true, available: false, reason: 'log file is not readable: ' + path };
+	return { ok: true, available: true, path: path, truncated: tail.truncated, freshness: tail.freshness, parsedEvents: tail.events, unknownCount: tail.unknown, parserVersion: tail.parserVersion };
 };
 
-export const orchestra_history = function() {
-	let rawHistory = read_history();
-	if (length(rawHistory) == 0) return { ok: true, available: false, entries: [], note: 'Not collecting — upstream diagnostics are disabled', label: 'Manager observation history' };
+export const orchestra_history = function () {
+	let rawEvents = read_history_events();
+	if (length(rawEvents) == 0) return { ok: true, available: false, entries: [], label: 'Manager observation history' };
 	let recent = [];
-	for (let i = length(rawHistory) - 1; i >= 0 && length(recent) < 50; i--) push(recent, rawHistory[i]);
-	return { ok: true, available: true, total: length(rawHistory), entries: recent, label: 'Manager observation history — derived from observed upstream diagnostic output', bounded: length(rawHistory) >= HISTORY_ROTATE_AT, note: 'entries are derived solely from observed upstream diagnostic output' };
+	for (let i = length(rawEvents) - 1; i >= 0 && length(recent) < 50; i--) push(recent, rawEvents[i]);
+	return { ok: true, available: true, total: length(rawEvents), entries: recent, label: 'Manager observation history' };
 };
 
-// ---- new enhanced methods for Slice 2, 3, 4, 5 ----
-
-export const orchestra_ratings_get = function() {
-	let rawHistory = read_history();
-	if (length(rawHistory) == 0) {
-		return { ok: true, available: false, entries: [], note: 'Not collecting ratings — no manager observation history available', label: 'Ratings (read-only aggregation)' };
-	}
-
-	// Filter and annotate history entries
-	let filtered = [];
-	for (let i = 0; i < length(rawHistory); i++) {
-		let e = rawHistory[i];
-		// Add rating fields if they exist in the event
-		if (!e.rating) e.rating = null;
-		if (!e.samples) e.samples = null;
-		if (!e.confidence) e.confidence = null;
-		push(filtered, e);
-	}
-
-	let ratings = aggregate_ratings(filtered, 200);
-	return {
-		ok: true,
-		available: true,
-		total: ratings.total,
-		entries: ratings.entries,
-		annotated: true,
-		label: 'Ratings — read-only aggregation of observed upstream events (not a learning engine)',
-		bounded: ratings.total >= 200,
-		note: 'Ratings are a read-only aggregation, not a learning engine. No automatic policy decisions are made based on these values.'
-	};
+export const orchestra_ratings_get = function () {
+	let rawEvents = read_history_events();
+	if (length(rawEvents) == 0) return { ok: true, available: false, entries: [], label: 'Ratings' };
+	let ratings = aggregate_ratings(rawEvents, 200);
+	return { ok: true, available: true, total: ratings.total, entries: ratings.entries, label: 'Ratings' };
 };
 
-export const orchestra_runid = function() {
+export const orchestra_runid = function () {
 	let runId = detect_runid();
 	let cmd = nfqws2_cmdline();
-	
 	return {
 		ok: true,
 		available: runId != null || cmd != null,
 		runId: runId,
 		pid: cmd != null ? cmd.pid : null,
-		cmdlineSnapshot: cmd != null ? cmd.cmdline : null,
 		detectionMethod: runId != null ? 'command_line_argument' : (cmd != null ? 'command_line_snapshot' : 'not_detected'),
-		note: 'runId is inferred from nfqws2 command line, not persisted. It resets on restart.'
+		note: 'runId is inferred from nfqws2 command line'
 	};
 };
 
-export const orchestra_parse_warnings = function() {
+export const orchestra_parse_warnings = function () {
 	let warnings = get_parse_warnings();
 	return {
 		ok: true,
@@ -1047,153 +720,96 @@ export const orchestra_parse_warnings = function() {
 		warnings: warnings.warnings,
 		errors: warnings.errors,
 		total: length(warnings.warnings) + length(warnings.errors),
-		note: 'Parse warnings and errors are aggregated from system logs. Clear all warnings by restarting nfqws2.'
+		note: 'Parse warnings and errors are aggregated from system logs'
 	};
 };
 
-// ---- history and retention API ------------------------------
+// ---- history API (stateless pagination) --------------------------------------
 
-export const orchestra_history_get = function() {
-	let stats = get_history_stats();
-	
-	// If no history file, return empty
-	if (!stats.available) {
-		return {
-			ok: true,
-			available: false,
-			entries: [],
-			total: 0,
-			note: 'No history file exists. Events will be collected after first run.'
-		};
-	}
-	
-	// Get limited entries for display
-	let entries = stats.entries;
-	let limited = [];
-	let maxEntries = 200;
-	
-	for (let i = 0; i < length(entries) && i < maxEntries; i++) {
-		let e = entries[i];
-		// Redact sensitive data for UI display
-		let redacted = clone(e);
-		if (redacted.rawLineHash) redacted.rawLineHash = '[REDACTED]';
-		if (redacted.source && index(redacted.source, '/tmp/') >= 0) redacted.source = '[REDACTED]';
-		push(limited, redacted);
-	}
-	
-	return {
-		ok: true,
-		available: true,
-		entries: limited,
-		total: stats.total,
-		currentSize: stats.currentSize,
-		maxSize: stats.maxSize,
-		retentionDays: stats.retentionDays,
-		oldestEvent: stats.OldestEvent,
-		newestEvent: stats.NewestEvent,
-		note: 'Limited view for UI. Full history available via API.',
-		bounded: true
-	};
-};
-
-export const orchestra_history_paginated = function(req) {
-	let cursor = null;
-	let limit = 200;
-	
-	try {
-		if (req && req.args && req.args.cursor) {
-			cursor = req.args.cursor;
-		}
-		if (req && req.args && req.args.limit) {
-			limit = +req.args.limit;
-			if (limit < 1) limit = 1;
-			if (limit > 500) limit = 500;
-		}
-	} catch (e) { }
-	
-	let result = get_paginated_events(cursor, limit);
-	
+export const orchestra_history_get = function () {
+	let rawEvents = read_history_events();
+	if (length(rawEvents) == 0) return { ok: true, available: false, entries: [], total: 0 };
+	let result = paginate_events(null, 200);
 	return {
 		ok: true,
 		available: true,
 		entries: result.entries,
 		total: result.total,
-		next: result.next,
-		bounded: result.bounded,
-		limit: result.limit,
-		note: 'Paginated history view with cursor support'
+		note: 'Limited view for UI'
 	};
 };
 
-export const orchestra_history_export = function(req) {
+export const orchestra_history_paginated = function (req) {
+	let cursor = null;
 	let limit = 200;
-	try {
-		if (req && req.args && req.args.limit) {
-			limit = +req.args.limit;
-			if (limit < 1) limit = 1;
-			if (limit > 5000) limit = 5000;
-		}
-	} catch (e) { }
-	
-	let result = export_history(limit);
-	
-	return {
-		ok: result.ok,
-		available: result.ok,
-		exported: result.exported,
-		entries: result.entries,
-		total: result.exported,
-		limit: limit,
-		note: 'Redacted export of history events'
-	};
+
+	if (req && req.args && req.args.cursor) {
+		try { cursor = json(req.args.cursor); } catch (e) { }
+	}
+	if (req && req.args && req.args.limit) {
+		limit = +req.args.limit;
+		if (limit < 1) limit = 1;
+		if (limit > 500) limit = 500;
+	}
+
+	return paginate_events(cursor, limit);
 };
 
-export const orchestra_history_clear = function(req) {
+export const orchestra_history_export = function (req) {
+	let limit = 200;
+	if (req && req.args && req.args.limit) {
+		limit = +req.args.limit;
+		if (limit < 1) limit = 1;
+		if (limit > 5000) limit = 5000;
+	}
+
+	let rawEvents = read_history_events();
+	let recent = [];
+	for (let i = length(rawEvents) - 1; i >= 0 && length(recent) < limit; i--) {
+		push(recent, clone_event(rawEvents[i]));
+	}
+
+	return { ok: true, available: true, entries: recent, total: length(recent), limit: limit };
+};
+
+export const orchestra_history_clear = function (req) {
 	let runId = null;
-	try {
-		if (req && req.args && req.args.runId) {
-			runId = req.args.runId;
-		}
-	} catch (e) { }
-	
+	if (req && req.args && req.args.runId) {
+		runId = req.args.runId;
+	}
+
 	if (runId) {
-		let result = clear_history_by_runid(runId);
-		return {
-			ok: result.ok,
-			cleared: result.cleared,
-			total: result.total,
-			runId: runId,
-			note: 'Cleared events for specific runId'
-		};
-	} else {
-		// Clear all history
-		try {
-			if (stat(HISTORY_FILE)) {
-				unlink(HISTORY_FILE);
+		let events = read_history_events();
+		let kept = [];
+		let cleared = 0;
+		for (let i = 0; i < length(events); i++) {
+			if (events[i].runId && events[i].runId == runId) {
+				cleared++;
+			} else {
+				push(kept, events[i]);
 			}
-			cursorState.reset();
-			return {
-				ok: true,
-				cleared: true,
-				note: 'All history cleared'
-			};
-		} catch (e) {
-			return {
-				ok: false,
-				cleared: false,
-				error: e
-			};
 		}
+		let result = write_history_atomic(kept);
+		if (!result.ok) return result;
+		return { ok: true, cleared: cleared, total: length(kept), runId: runId };
+	} else {
+		let result = write_history_atomic([]);
+		if (!result.ok) return result;
+		return { ok: true, cleared: true, note: 'All history cleared' };
 	}
 };
 
-export const orchestra_history_stats = function() {
-	let stats = get_history_stats();
-	
+export const orchestra_history_stats = function () {
+	let events = read_history_events();
+	let st = stat(HISTORY_FILE);
 	return {
 		ok: true,
-		available: stats.available,
-		stats: stats,
-		note: 'Detailed history statistics and retention info'
+		available: true,
+		total: length(events),
+		currentSize: st ? st.size : 0,
+		maxSize: HISTORY_ROTATE_SIZE,
+		retentionDays: HISTORY_RETENTION_DAYS,
+		oldestEvent: length(events) > 0 ? events[0].timestamp : null,
+		newestEvent: length(events) > 0 ? events[length(events) - 1].timestamp : null
 	};
 };

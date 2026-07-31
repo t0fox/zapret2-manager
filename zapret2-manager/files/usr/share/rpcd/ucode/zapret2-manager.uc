@@ -300,9 +300,25 @@ function orchestra_ratings_get_method(req) { return cli_action(ORCH_CLI, 'rating
 function orchestra_runid_method(req) { return cli_action(ORCH_CLI, 'runid'); }
 function orchestra_parse_warnings_method(req) { return cli_action(ORCH_CLI, 'parse_warnings'); }
 function orchestra_history_get_method(req) { return cli_action(ORCH_CLI, 'history_get'); }
-function orchestra_history_paginated_method(req) { return cli_action(ORCH_CLI, 'history_paginated'); }
-function orchestra_history_export_method(req) { return cli_action(ORCH_CLI, 'history_export'); }
-function orchestra_history_clear_method(req) { return cli_action(ORCH_CLI, 'history_clear'); }
+function orchestra_reqfile_action(sub, req) {
+	let tmp = '/tmp/z2m-orch-req.' + time();
+	writefile(tmp, sprintf("%J", { args: req.args || {} }) + '\n');
+	let cmd = '/usr/bin/ucode ' + ORCH_CLI + ' ' + sub + ' ' + tmp + ' 2>/dev/null';
+	let p = popen(cmd, 'r');
+	if (!p) { try { unlink(tmp); } catch (e) { } return { ok: false, error: 'popen failed' }; }
+	let out = p.read('all');
+	if (!out) out = '';
+	p.close();
+	try { unlink(tmp); } catch (e) { }
+	try {
+		let parsed = json(out);
+		if (parsed != null) return parsed;
+		return { ok: false, error: 'no output', raw: out };
+	} catch (e) { return { ok: false, error: 'parse failed', raw: out }; }
+}
+function orchestra_history_paginated_method(req) { return orchestra_reqfile_action('history_paginated', req); }
+function orchestra_history_export_method(req) { return orchestra_reqfile_action('history_export', req); }
+function orchestra_history_clear_method(req) { return orchestra_reqfile_action('history_clear', req); }
 function orchestra_history_stats_method(req) { return cli_action(ORCH_CLI, 'history_stats'); }
 
 // ---- DNS providers + component diagnostics (Phase E) -----------------------------
@@ -462,9 +478,9 @@ return {
 		orchestra_runid: { call: function (req) { return orchestra_runid_method(req); } },
 		orchestra_parse_warnings: { call: function (req) { return orchestra_parse_warnings_method(req); } },
 		orchestra_history_get: { call: function (req) { return orchestra_history_get_method(req); } },
-		orchestra_history_paginated: { call: function (req) { return orchestra_history_paginated_method(req); } },
-		orchestra_history_export: { call: function (req) { return orchestra_history_export_method(req); } },
-		orchestra_history_clear: { call: function (req) { return orchestra_history_clear_method(req); } },
+		orchestra_history_paginated: { args: { cursor: 'string', limit: 'integer' }, call: function (req) { return orchestra_history_paginated_method(req); } },
+		orchestra_history_export: { args: { limit: 'integer' }, call: function (req) { return orchestra_history_export_method(req); } },
+		orchestra_history_clear: { args: { runId: 'string' }, call: function (req) { return orchestra_history_clear_method(req); } },
 		orchestra_history_stats: { call: function (req) { return orchestra_history_stats_method(req); } },
 		dnsprov_components: { call: function (req) { return dnsprov_components_method(req); } },
 		dnsprov_providers: { call: function (req) { return dnsprov_providers_method(req); } },
