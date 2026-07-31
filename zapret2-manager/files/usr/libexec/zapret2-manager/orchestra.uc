@@ -10,7 +10,7 @@
 // v3 (r46.7.1): functional fixes — atomic NDJSON write, stateless cursor,
 //     proper retention, domain normalization, NUL-separated cmdline parsing.
 
-import { readfile, readlink, stat, lsdir, popen, mkdir, unlink } from 'fs';
+import { readfile, readlink, stat, lsdir, popen, mkdir, unlink, writefile } from 'fs';
 import { maint_lua_compat } from './maintenance.uc';
 import { PATHS } from './constants.uc';
 
@@ -378,6 +378,10 @@ function apply_retention(events) {
 	return filtered;
 }
 
+function sh_escape(arg) {
+	return "'" + arg + "'";
+}
+
 function write_history_atomic(events) {
 	let dir = '/var/lib/zapret2-manager';
 	let path = HISTORY_FILE;
@@ -426,6 +430,19 @@ function make_cursor(offset) {
 	return { generation: sha256_file(HISTORY_FILE) || 'none', offset: offset, version: 1 };
 }
 
+function clone_event(e) {
+	let c = {};
+	if (e.timestamp) c.timestamp = e.timestamp;
+	if (e.eventClass) c.eventClass = e.eventClass;
+	if (e.domain) c.domain = e.domain;
+	if (e.askey) c.askey = e.askey;
+	if (e.strategyId) c.strategyId = e.strategyId;
+	if (e.previousStrategyId) c.previousStrategyId = e.previousStrategyId;
+	if (e.confidence) c.confidence = e.confidence;
+	if (e.runId) c.runId = e.runId;
+	return c;
+}
+
 function paginate_events(cursor, limit) {
 	if (limit == null) limit = 200;
 	if (limit < 1) limit = 1;
@@ -459,23 +476,6 @@ function paginate_events(cursor, limit) {
 	}
 
 	return { ok: true, entries: entries, total: total, next: next };
-}
-
-function clone_event(e) {
-	let c = {};
-	if (e.timestamp) c.timestamp = e.timestamp;
-	if (e.eventClass) c.eventClass = e.eventClass;
-	if (e.domain) c.domain = e.domain;
-	if (e.askey) c.askey = e.askey;
-	if (e.strategyId) c.strategyId = e.strategyId;
-	if (e.previousStrategyId) c.previousStrategyId = e.previousStrategyId;
-	if (e.confidence) c.confidence = e.confidence;
-	if (e.runId) c.runId = e.runId;
-	return c;
-}
-
-function sh_escape(arg) {
-	return "'" + split(arg, "'") + "'\\''" + "'";
 }
 
 // ---- runId detection -------------------------------------------------
