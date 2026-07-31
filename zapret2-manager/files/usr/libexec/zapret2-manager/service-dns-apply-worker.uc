@@ -1,279 +1,191 @@
 'use strict';
-// service-dns-apply-worker.uc — routing apply worker (r46.6).
-// Single rollback for all post-write failures. Exact count + tuple validation.
-// Header provenance verification (operationId in fragment header).
+// The worker is the only Service DNS production mutator. It owns the native
+// dnsmasq UCI cutover and restores the complete snapshot on every failure.
 
 import { readfile, writefile, stat, unlink, popen } from 'fs';
+let uci = require('uci');
 
-function now_iso() {
-	let s = ''; let p = popen('date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null', 'r');
-	if (p) { s = p.read('all') || ''; p.close(); }
-	return trim(s);
-}
+const MANAGER_CONFDIR = '/etc/zapret2-manager/service-dns-routing.d';
+let jobFile = null;
+let job = null;
+let statePath = null;
+let lockFile = '/tmp/zapret2-manager/service-dns-apply.lock';
 
-function write_job(jf, updates) {
-	let cur = {};
-	try { cur = json(readfile(jf)) || {}; } catch (e) { cur = {}; }
-	for (let k in updates) cur[k] = updates[k];
-	cur.updatedAt = now_iso();
-	let tmp = jf + '.tmp';
-	writefile(tmp, sprintf("%J", cur) + "\n");
-	let p = popen('mv -f ' + tmp + ' ' + jf + ' 2>/dev/null', 'r');
-	if (p) p.close();
-}
-
-function runcmd(cmd) {
+function run(cmd) {
 	let p = popen(cmd + ' 2>&1', 'r');
 	if (!p) return { out: '', rc: -1 };
 	let out = p.read('all') || '';
-	let rc = p.close();
-	return { out: out, rc: rc };
+	return { out: out, rc: p.close() };
 }
 
-function valid_sha256(h) {
-	return type(h) == 'string' && length(h) == 64 && match(h, /^[0-9a-f]{64}$/);
+function now() { return trim(run('date -u +%Y-%m-%dT%H:%M:%SZ').out); }
+function list_hash(values) { let h = 2166136261, raw = join('\n', values || []) + '\n'; for (let i = 0; i < length(raw); i++) h = (h ^ ord(substr(raw, i, 1))) * 16777619; return sprintf('%x', h); }
+function copy_list(values) { let out = []; for (let i = 0; i < length(values || []); i++) push(out, values[i]); return out; }
+function same_list(a, b) { return list_hash(a) == list_hash(b); }
+
+function write_job(updates) {
+	let cur = {}; try { cur = json(readfile(jobFile)) || {}; } catch (e) {}
+	for (let key in updates) cur[key] = updates[key];
+	cur.updatedAt = now();
+	writefile(jobFile + '.tmp', sprintf('%J', cur) + '\n');
+	run('mv -f ' + jobFile + '.tmp ' + jobFile);
 }
 
-function parse_directive_tuples(content) {
-	let tuples = {};
-	let lines = split(content || '', '\n');
-	for (let i = 0; i < length(lines); i++) {
-		let l = trim(lines[i]);
-		if (!l || substr(l, 0, 1) == '#') continue;
-		if (substr(l, 0, 8) != 'server=/') continue;
-		let rest = substr(l, 8);
-		let slash = index(rest, '/');
-		if (slash < 1) continue;
-		let domain = substr(rest, 0, slash);
-		let ip = substr(rest, slash + 1);
-		if (!domain || !ip) continue;
-		// validate domain (basic) and IPv4
-		if (!match(ip, /^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$/)) continue;
-		tuples[domain + '\0' + ip] = true;
-	}
-	return tuples;
+function load_cursor(section) {
+	let c = uci.cursor();
+	if (!c.load('dhcp')) return null;
+	let all = c.get_all('dhcp', section);
+	if (!all || all['.type'] != 'dnsmasq') return null;
+	return { cursor: c, all: all };
 }
+function list_value(all, key) {
+	let raw = all[key];
+	if (type(raw) == 'array') return copy_list(raw);
+	if (type(raw) == 'string' && raw != '') return [raw];
+	return [];
+}
+function set_list(c, section, key, values) {
+	if (!length(values)) return c.delete('dhcp', section, key);
+	return c.set('dhcp', section, key, values);
+}
+function remove_manager_confdir(values) {
+	let out = [];
+	for (let i = 0; i < length(values); i++) if (values[i] != MANAGER_CONFDIR) push(out, values[i]);
+	return out;
+}
+function contains(values, value) { for (let i = 0; i < length(values); i++) if (values[i] == value) return true; return false; }
 
-function expected_tuples(rulesObj) {
-	let tuples = {};
-	for (let dk in rulesObj) {
-		let ru = rulesObj[dk];
-		if (!ru || type(ru) != 'object') continue;
-		let ups = ru.upstreams || [];
-		for (let j = 0; j < length(ups); j++) {
-			tuples[dk + '\0' + ups[j]] = true;
+function active_dnsmasq() {
+	let r = run("ubus call service list '{\"name\":\"dnsmasq\"}'");
+	let root = null; try { root = json(r.out); } catch (e) {}
+	let instances = root && root.dnsmasq ? root.dnsmasq.instances || {} : {};
+	for (let section in instances) {
+		let inst = instances[section];
+		if (!inst.running || !match('' + inst.pid, /^[0-9]+$/)) continue;
+		let pid = int(inst.pid);
+		let pids = [pid];
+		let children = trim(readfile('/proc/' + pid + '/task/' + pid + '/children') || '');
+		let childrenList = split(children, ' ');
+		for (let i = 0; i < length(childrenList); i++) if (match(childrenList[i], /^[0-9]+$/)) push(pids, int(childrenList[i]));
+		for (let i = 0; i < length(pids); i++) {
+			let cmdline = run("tr '\\000' ' ' < /proc/" + pids[i] + '/cmdline').out || '';
+			let m = match(cmdline, /-C ([^ ]+)/);
+			if (m && m[1]) return { section: section, pid: pids[i], config: m[1] };
 		}
 	}
-	return tuples;
+	return null;
 }
 
-// ====== main ======
-let jf = ARGV[0];
-if (!jf) exit(1); if (!stat(jf)) exit(1);
-let jr = null; try { jr = json(readfile(jf)); } catch (e) { exit(1); }
-if (!jr || type(jr) != 'object') exit(1);
-
-let opId = jr.operationId || 'unknown';
-let t0 = int(time());
-let stp = '/etc/zapret2-manager/service-dns-state.json';
-let rcp = jr.routingConfPath || '/etc/zapret2-manager/service-dns-routing.d/10-routing.conf';
-let rdir = jr.routingDir || '/etc/zapret2-manager/service-dns-routing.d';
-let sdp = jr.snapDir || jr.jobDir || '/tmp/zapret2-manager/service-dns-jobs/' + opId;
-let lockf = '/tmp/zapret2-manager/service-dns-apply.lock';
-
-function clear_pending(state, operationId, phase, error) {
-	try {
-		let sdr = readfile(state);
-		if (!sdr) return;
-		let obj = json(sdr);
-		if (!obj || type(obj) != 'object') return;
-		let sd = type(obj.serviceDns) == 'object' ? obj.serviceDns : {};
-		if (!sd.pending || sd.pending.operationId == operationId) sd.pending = null;
-		sd.lastOperation = { operationId: operationId, state: phase, phase: phase, error: error, startedAt: jr.createdAt, finishedAt: now_iso() };
-		let t2 = state + '.wrk.' + operationId;
-		writefile(t2, sprintf("%J", { serviceDns: sd }) + "\n");
-		runcmd('mv -f ' + t2 + ' ' + state);
-	} catch (e) {}
+function fail_before_write(code, message) {
+	write_job({ phase: 'failed', finished: true, error: { code: code, message: message }, finishedAt: now() });
+	try { unlink(lockFile); } catch (e) {}
+	exit(1);
 }
-
-function fail_before_apply(code, message) {
-	let error = { code: code, message: message };
-	write_job(jf, { phase: 'failed', finished: true, finishedAt: now_iso(), error: error });
-	clear_pending(stp, opId, 'failed', error);
-	try { unlink(lockf); } catch (e) {} exit(1);
+function restore_state() {
+	if (type(job.previousState) == 'string') {
+		writefile(statePath + '.rollback', job.previousState);
+		if (run('mv -f ' + statePath + '.rollback ' + statePath).rc != 0) return false;
+	}
+	return true;
 }
-
-// Validate job metadata
-let rules = type(jr.rules) == 'object' ? jr.rules : {};
-let routeCount = length(keys(rules));
-if (type(jr.routeCount) != 'int' || jr.routeCount != routeCount) {
-	fail_before_apply('EJOB_ROUTECOUNT', 'routeCount mismatch');
+function restore_uci() {
+	let lc = load_cursor(job.nativeUciPrecondition.activeSection);
+	if (!lc) return false;
+	if (set_list(lc.cursor, job.nativeUciPrecondition.activeSection, 'server', job.previousUciServerEntries) === false) return false;
+	if (set_list(lc.cursor, job.nativeUciPrecondition.activeSection, 'confdir', job.previousUciConfdirEntries) === false) return false;
+	return lc.cursor.commit('dhcp') !== false;
 }
-let expectedDirs = type(jr.directiveCount) == 'int' ? jr.directiveCount : 0;
-if (expectedDirs <= 0 && routeCount > 0) {
-	fail_before_apply('EJOB_DIRCOUNT', 'directiveCount must be >0 when routes exist');
+function restore_legacy_files() {
+	if (type(job.previousLegacyFragment) == 'string') {
+		run('mkdir -p ' + MANAGER_CONFDIR);
+		writefile(MANAGER_CONFDIR + '/10-routing.conf', job.previousLegacyFragment);
+	} else try { unlink(MANAGER_CONFDIR + '/10-routing.conf'); } catch (e) {}
+	return true;
 }
-let desiredHash = jr.desiredHash || '';
-if (!valid_sha256(desiredHash)) {
-	fail_before_apply('EJOB_HASH_MISSING', 'desiredHash missing or invalid');
-}
-
-// ====== single rollback for ALL post-write failures ======
 function fail_and_rollback(code, message) {
-	write_job(jf, { phase: 'rolling_back', error: { code: code, message: message } });
-	if (stat(sdp + '/previous-routing.conf')) {
-		runcmd('cp -p ' + sdp + '/previous-routing.conf ' + rcp);
-		runcmd('chmod 644 ' + rcp);
-	} else {
-		try { unlink(rcp); } catch (e) {}
+	write_job({ phase: 'rolling_back', error: { code: code, message: message } });
+	let ok = restore_uci() && restore_legacy_files() && restore_state();
+	let restart = run('/etc/init.d/dnsmasq restart').rc == 0;
+	if (!ok || !restart) {
+		write_job({ phase: 'rollback_failed', finished: true, error: { code: 'EROLLBACK', message: 'rollback failed after ' + code }, finishedAt: now() });
+		try { unlink(lockFile); } catch (e) {}
+		exit(1);
 	}
-	if (stat(sdp + '/previous-state.json')) runcmd('cp -p ' + sdp + '/previous-state.json ' + stp);
-	// Restore the same confdir mechanism that apply and verification use.
-	if (stat(sdp + '/previous-uci-confdir.txt')) {
-		let prev = readfile(sdp + '/previous-uci-confdir.txt') || '';
-		runcmd('uci delete dhcp.@dnsmasq[0].confdir');
-		let prevLines = split(prev, '\n');
-		for (let i = 0; i < length(prevLines); i++) {
-			let pl = trim(prevLines[i]);
-			let eq = index(pl, '=');
-			if (eq < 0) continue;
-			let value = trim(substr(pl, eq + 1));
-			if (length(value) >= 2 && substr(value, 0, 1) == "'" && substr(value, length(value) - 1, 1) == "'") value = substr(value, 1, length(value) - 2);
-			if (value) runcmd("uci add_list dhcp.@dnsmasq[0].confdir='" + value + "'");
-		}
-		runcmd('uci commit dhcp');
-	}
-	runcmd('/etc/init.d/dnsmasq restart');
-	write_job(jf, { phase: 'rolled_back', finished: true, finishedAt: now_iso(), rolledBack: true, error: { code: code, message: message } });
-	// clear pending in state
-	try {
-		clear_pending(stp, opId, 'rolled_back', { code: code, message: message });
-	} catch (e) {}
-	try { unlink(lockf); } catch (e) {} exit(1);
+	write_job({ phase: 'rolled_back', finished: true, rolledBack: true, error: { code: code, message: message }, finishedAt: now() });
+	try { unlink(lockFile); } catch (e) {}
+	exit(1);
 }
 
-// Phase: writing — confirm routing conf exists and validate content
-write_job(jf, { phase: 'writing', pid: int(1000 + time() % 64000), finished: false });
+jobFile = ARGV[0];
+if (!jobFile || !stat(jobFile)) exit(1);
+try { job = json(readfile(jobFile)); } catch (e) {}
+if (!job || type(job) != 'object') exit(1);
+statePath = job.statePath || '/etc/zapret2-manager/service-dns-state.json';
+let pre = job.nativeUciPrecondition;
+if (!pre || type(pre) != 'object') fail_before_write('EJOBPRECONDITION', 'native UCI precondition missing');
 
-if (!stat(rcp)) fail_and_rollback('ENOCONF', 'routing conf missing');
+let active = active_dnsmasq();
+if (!active || active.section != pre.activeSection) fail_before_write('ECONFLICT', 'active dnsmasq section changed');
+let loaded = load_cursor(active.section);
+if (!loaded) fail_before_write('ETARGET', 'active dnsmasq UCI section unavailable');
+let currentServer = list_value(loaded.all, 'server');
+let currentConfdir = list_value(loaded.all, 'confdir');
+if (list_hash(currentServer) != pre.serverListHash || list_hash(currentConfdir) != pre.confdirListHash)
+	fail_before_write('ECONFLICT', 'dnsmasq UCI list changed since preview');
 
-let confContent = readfile(rcp) || '';
-let confHash = '';
-let h = popen('sha256sum ' + rcp + ' 2>/dev/null', 'r');
-if (h) { let hout = h.read('all') || ''; h.close(); let parts = split(trim(hout), ' '); if (length(parts)) confHash = parts[0]; }
+write_job({ phase: 'mutating', finished: false });
+// One logical UCI transaction: native routes appear and the legacy confdir is
+// disconnected before any config or runtime verification takes place.
+if (set_list(loaded.cursor, active.section, 'server', job.resultingServerEntries) === false)
+	fail_before_write('EUCIWRITE', 'cannot set native server entries');
+if (set_list(loaded.cursor, active.section, 'confdir', remove_manager_confdir(currentConfdir)) === false)
+	fail_before_write('EUCIWRITE', 'cannot remove manager confdir');
+if (loaded.cursor.commit('dhcp') === false) fail_and_rollback('EUCICOMMIT', 'dhcp commit failed');
 
-// Hash must match exactly
-if (confHash != desiredHash) fail_and_rollback('EHASHMISMATCH', 'conf hash ' + confHash + ' != desired ' + desiredHash);
+loaded = load_cursor(active.section);
+if (!loaded || !same_list(list_value(loaded.all, 'server'), job.resultingServerEntries))
+	fail_and_rollback('EUCIREADBACK', 'server list readback mismatch');
+if (contains(list_value(loaded.all, 'confdir'), MANAGER_CONFDIR))
+	fail_and_rollback('EUCIREADBACK', 'legacy confdir remains registered');
 
-// Count actual directives
-let dCount = 0;
-let confLines = split(confContent, '\n');
-for (let i = 0; i < length(confLines); i++) {
-	if (substr(trim(confLines[i]), 0, 8) == 'server=/') dCount++;
+active = active_dnsmasq();
+if (!active || !stat(active.config)) fail_and_rollback('ECONFIGPATH', 'effective dnsmasq config unavailable');
+if (run('dnsmasq --test -C ' + active.config).rc != 0) fail_and_rollback('ECONFIGTEST', 'effective config test failed');
+write_job({ phase: 'reloading' });
+if (run('/etc/init.d/dnsmasq restart').rc != 0) fail_and_rollback('ERESTART', 'dnsmasq restart failed');
+let restartWait = 0;
+active = null;
+while (restartWait < 10) {
+	active = active_dnsmasq();
+	if (active && stat(active.config)) break;
+	run('sleep 1');
+	restartWait++;
 }
-
-// Exact count match
-if (dCount != expectedDirs) fail_and_rollback('EROUTINGCONF_COUNT', 'actual=' + dCount + ' expected=' + expectedDirs);
-
-// Tuple set validation
-let actualTuples = parse_directive_tuples(confContent);
-let expectedTuples = expected_tuples(rules);
-let actualKeys = keys(actualTuples);
-let expectedKeys = keys(expectedTuples);
-if (length(actualKeys) != length(expectedKeys)) fail_and_rollback('EROUTINGCONF_TUPLES', 'tuple count ' + length(actualKeys) + ' != ' + length(expectedKeys));
-for (let i = 0; i < length(expectedKeys); i++) {
-	if (!actualTuples[expectedKeys[i]]) fail_and_rollback('EROUTINGCONF_TUPLES', 'missing tuple: ' + expectedKeys[i]);
+if (!active || !stat(active.config)) fail_and_rollback('EVERIFY', 'dnsmasq not running after restart');
+let effective = readfile(active.config) || '';
+for (let i = 0; i < length(job.resultingServerEntries); i++) {
+	let entry = job.resultingServerEntries[i];
+	if (substr(entry, 0, 1) == '/' && index(effective, 'server=' + entry) < 0)
+		fail_and_rollback('EVERIFY', 'effective config misses native server entry');
 }
-for (let i = 0; i < length(actualKeys); i++) {
-	if (!expectedTuples[actualKeys[i]]) fail_and_rollback('EROUTINGCONF_TUPLES', 'extra tuple: ' + actualKeys[i]);
-}
+let check = load_cursor(active.section);
+if (!check || contains(list_value(check.all, 'confdir'), MANAGER_CONFDIR))
+	fail_and_rollback('EVERIFY', 'legacy confdir remains registered');
 
-let tw = int(time()) - t0;
+let state = {}; try { state = json(readfile(statePath)) || {}; } catch (e) {}
+let sd = state.serviceDns || {};
+sd.applied = { selections: job.desiredSelections || {}, revision: job.revision, managedServerEntries: job.managedServerEntries || [], externallySatisfiedEntries: job.externallySatisfiedEntries || [], verification: { config: 'ok', dnsmasq: 'ok', routingRegistered: true, providerRouting: 'unverified' }, verifiedAt: now() };
+sd.pending = null;
+sd.lastOperation = { operationId: job.operationId, state: 'success', phase: 'success', error: null, finishedAt: now() };
+state.serviceDns = sd;
+writefile(statePath + '.worker', sprintf('%J', state) + '\n');
+if (run('mv -f ' + statePath + '.worker ' + statePath).rc != 0) fail_and_rollback('ESTATE', 'state write failed');
 
-// Register dnsmasq confdir.
-write_job(jf, { phase: 'registering' });
-let confdirBefore = runcmd('uci show dhcp.@dnsmasq[0].confdir 2>/dev/null');
-	if (index(confdirBefore.out || '', rdir) < 0) {
-		if (runcmd("uci add_list dhcp.@dnsmasq[0].confdir='" + rdir + "'").rc != 0) fail_and_rollback('EUCIADD', 'uci add_list failed');
-		if (runcmd('uci commit dhcp').rc != 0) fail_and_rollback('EUCICOMMIT', 'uci commit failed');
-	}
-
-// Phase: reloading
-write_job(jf, { phase: 'reloading', timings: { writeMs: tw * 1000, reloadMs: 0, verifyMs: 0, rollbackMs: 0, totalMs: 0 } });
-
-// Config test
-if (runcmd('dnsmasq --test 2>&1').rc != 0) fail_and_rollback('ECONFIGTEST', 'dnsmasq --test failed');
-
-// Restart
-let tr = int(time());
-if (runcmd('/etc/init.d/dnsmasq restart').rc != 0) fail_and_rollback('ERESTART', 'dnsmasq restart failed');
-let rs = int(time()) - tr;
-
-// Phase: full post-restart verification
-write_job(jf, { phase: 'verifying', timings: { writeMs: tw * 1000, reloadMs: rs * 1000, verifyMs: 0, rollbackMs: 0, totalMs: (int(time()) - t0) * 1000 } });
-let tv = int(time());
-
-// 1. file exists
-if (!stat(rcp)) fail_and_rollback('EVERIFY', 'routing conf missing after restart');
-
-// 2. exact hash
-let vHash = '';
-let vh = popen('sha256sum ' + rcp + ' 2>/dev/null', 'r');
-if (vh) { let ho = vh.read('all') || ''; vh.close(); let ps = split(trim(ho), ' '); if (length(ps)) vHash = ps[0]; }
-if (vHash != desiredHash) fail_and_rollback('EVERIFY', 'hash mismatch after restart');
-
-// 3. exact directive count
-let vDCount = 0; let vLines = split(readfile(rcp) || '', '\n');
-for (let i = 0; i < length(vLines); i++) { if (substr(trim(vLines[i]), 0, 8) == 'server=/') vDCount++; }
-if (vDCount != expectedDirs) fail_and_rollback('EVERIFY', 'post-restart dCount=' + vDCount + ' expected=' + expectedDirs);
-
-// 4. exact tuple set
-let vTuples = parse_directive_tuples(readfile(rcp) || '');
-let vKeys = keys(vTuples);
-if (length(vKeys) != length(expectedKeys)) fail_and_rollback('EVERIFY', 'post-restart tuple count mismatch');
-for (let i = 0; i < length(expectedKeys); i++) {
-	if (!vTuples[expectedKeys[i]]) fail_and_rollback('EVERIFY', 'missing tuple after restart: ' + expectedKeys[i]);
-}
-
-	// 5. UCI confdir registration
-	let confdirAfter = runcmd('uci show dhcp.@dnsmasq[0].confdir 2>/dev/null');
-	if (index(confdirAfter.out || '', rdir) < 0) fail_and_rollback('EVERIFY', 'confdir not registered after restart');
-
-// 6. dnsmasq running
-let ubus = runcmd('ubus call service list \'{"name":"dnsmasq"}\'');
-let running = false;
-try { let obj = json(ubus.out); if (obj && obj.dnsmasq) { let insts = obj.dnsmasq.instances || {}; for (let k in insts) { if (insts[k].running) { running = true; break; } } } } catch (e) {}
-if (!running) fail_and_rollback('EVERIFY', 'dnsmasq not running after restart');
-
-let vs = int(time()) - tv;
-
-// Success
-let headerMatch = true;
-let fragContent = readfile(rcp) || '';
-let fragLines = split(fragContent, '\n');
-let fragOpId = '', fragRev = 0, fragSelHash = '', fragRC = 0, fragDC = 0;
-for (let fi = 0; fi < length(fragLines); fi++) {
-	let fl = trim(fragLines[fi]);
-	if (substr(fl, 0, 14) == '# operationId:') fragOpId = trim(substr(fl, 15));
-	else if (substr(fl, 0, 11) == '# revision:') fragRev = int(trim(substr(fl, 12)));
-	else if (substr(fl, 0, 16) == '# selectionHash:') fragSelHash = trim(substr(fl, 17));
-	else if (substr(fl, 0, 13) == '# routeCount:') fragRC = int(trim(substr(fl, 14)));
-	else if (substr(fl, 0, 17) == '# directiveCount:') fragDC = int(trim(substr(fl, 18)));
-}
-if (fragOpId != opId) headerMatch = false;
-if (fragRev != (type(jr.revision) == 'int' ? jr.revision : 0)) headerMatch = false;
-if (fragSelHash != (type(jr.selectionHash) == 'string' ? jr.selectionHash : '')) headerMatch = false;
-if (fragRC != routeCount) headerMatch = false;
-if (fragDC != dCount) headerMatch = false;
-
-write_job(jf, { phase: 'success', finished: true, finishedAt: now_iso(), verified: true,
-	headerMatch: headerMatch, originVerified: headerMatch,
-	fragmentOpId: fragOpId, fragmentRevision: fragRev, fragmentSelHash: fragSelHash, fragmentRouteCount: fragRC, fragmentDirCount: fragDC,
-	timings: { writeMs: tw * 1000, reloadMs: rs * 1000, verifyMs: vs * 1000, rollbackMs: 0, totalMs: (int(time()) - t0) * 1000 },
-	directiveCount: dCount, routeCount: routeCount });
-
-try {
-	let sdr = readfile(stp);
-	if (sdr) { let obj = json(sdr); if (obj && type(obj) == 'object') { let sd = type(obj.serviceDns) == 'object' && obj.serviceDns != null ? obj.serviceDns : {}; let pn = sd.pending || {}; sd.applied = { selections: pn.desiredSelections || sd.selections || {}, revision: jr.revision, routingHash: desiredHash, routeCount: routeCount, directiveCount: dCount, routes: rules, generatedAt: now_iso(), verifiedAt: now_iso(), verification: { config: 'ok', dnsmasq: 'ok', routingRegistered: true, providerRouting: 'unverified' } }; sd.pending = null; sd.lastOperation = { operationId: opId, state: 'success', phase: 'success', error: null, startedAt: jr.createdAt, finishedAt: now_iso() }; let evs = type(sd.events) == 'array' ? sd.events : []; push(evs, { ts: now_iso(), action: 'apply-success', operationId: opId }); if (length(evs) > 20) { let keep = []; for (let ei = length(evs) - 20; ei < length(evs); ei++) push(keep, evs[ei]); evs = keep; } sd.events = evs; let t2 = stp + '.wrk.' + opId; writefile(t2, sprintf("%J", { serviceDns: sd }) + "\n"); runcmd('mv -f ' + t2 + ' ' + stp); } }
-} catch (e) {}
-try { unlink(lockf); } catch (e) {} exit(0);
+// Legacy data is no longer live. Delete only the known manager fragment and
+// remove its directory only when it has no other files.
+try { unlink(MANAGER_CONFDIR + '/10-routing.conf'); } catch (e) {}
+let foreign = trim(run("find " + MANAGER_CONFDIR + " -mindepth 1 -maxdepth 1 -type f ! -name 10-routing.conf -print").out);
+if (!foreign) run('rmdir ' + MANAGER_CONFDIR + ' 2>/dev/null');
+write_job({ phase: 'success', finished: true, verified: true, finishedAt: now() });
+try { unlink(lockFile); } catch (e) {}
+exit(0);

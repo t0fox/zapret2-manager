@@ -36,22 +36,26 @@ test('UI clears the pending operation after Access denied or revision conflict',
 	assert.doesNotMatch(catchBlock, /Configuration applied/);
 });
 
-test('async apply snapshots and registers only dnsmasq confdir', () => {
-	const apply = BACKEND.slice(BACKEND.indexOf('function create_op_snapshot'), BACKEND.indexOf('export const service_dns_apply_status'));
-	assert.match(apply, /uci show dhcp\.@dnsmasq\[0\]\.confdir/);
-	assert.match(apply, /uci add_list dhcp\.@dnsmasq\[0\]\.confdir/);
-	assert.doesNotMatch(apply, /conf_file/);
+test('async apply queues a native UCI job without production mutation', () => {
+	const apply = BACKEND.slice(BACKEND.indexOf('function enqueue_native_apply'), BACKEND.indexOf('// service_dns_apply_async'));
+	assert.match(apply, /nativeUciPrecondition/);
+	assert.doesNotMatch(apply, /uci add_list/);
+	assert.doesNotMatch(apply, /writefile\(tmpf, routingConf\)/);
 });
 
-test('rollback restores the confdir registration together with the fragment', () => {
-	assert.match(WORKER, /previous-uci-confdir/);
-	assert.match(WORKER, /uci delete dhcp\.@dnsmasq\[0\]\.confdir/);
-	assert.doesNotMatch(WORKER, /conf_file/);
+test('worker uses native cursor and cuts legacy confdir over before verification', () => {
+	assert.match(WORKER, /require\('uci'\)/);
+	assert.match(WORKER, /cursor\(\)/);
+	assert.match(WORKER, /previousUciServerEntries/);
+	assert.match(WORKER, /remove_manager_confdir/);
+	assert.doesNotMatch(WORKER, /uci show dhcp\.@dnsmasq\[0\]\.server/);
 });
 
-test('effective dnsmasq configuration without the confdir fails verification', () => {
-	assert.match(WORKER, /uci show dhcp\.@dnsmasq\[0\]\.confdir/);
-	assert.match(WORKER, /confdir not registered after restart/);
+test('worker discovers the effective config dynamically and rejects legacy registration', () => {
+	assert.match(WORKER, /\/proc\//);
+	assert.match(WORKER, /cmdline/);
+	assert.match(WORKER, /legacy confdir remains registered/);
+	assert.doesNotMatch(WORKER, /dnsmasq\.conf\.cfg01411c/);
 });
 
 test('fragment presence never promotes runtime forwarding evidence', () => {

@@ -402,6 +402,42 @@ export function computeDesiredRecords(records, applyFamily) {
 	return { records: out, unsupported };
 }
 
+// Native dnsmasq `server` ownership. The manager owns only exact, normalized
+// `/domain/ipv4` values it had to add; every other current list value is an
+// external dnsmasq specification and remains byte-for-byte untouched.
+export function normalizeServerEntry(entry) {
+	if (typeof entry !== 'string') return { ok: false, reason: 'server entry must be a string' };
+	const m = entry.match(/^\/([^/]+)\/([^/]+)$/);
+	if (!m) return { ok: false, reason: 'manager entry must be /domain/ipv4' };
+	const hostname = normalizeHostname(m[1]);
+	const address = normalizeIPv4(m[2]);
+	if (!hostname.ok) return hostname;
+	if (!address.ok) return address;
+	return { ok: true, entry: `/${hostname.hostname}/${address.address}` };
+}
+
+export function calculateServerOwnership(currentEntries, previousManagedEntries, desiredEntries) {
+	const current = Array.isArray(currentEntries) ? currentEntries.filter(v => typeof v === 'string') : [];
+	const previous = new Set((Array.isArray(previousManagedEntries) ? previousManagedEntries : [])
+		.map(v => normalizeServerEntry(v)).filter(v => v.ok).map(v => v.entry));
+	const desired = [];
+	const desiredSet = new Set();
+	for (const raw of Array.isArray(desiredEntries) ? desiredEntries : []) {
+		const value = normalizeServerEntry(raw);
+		if (value.ok && !desiredSet.has(value.entry)) { desiredSet.add(value.entry); desired.push(value.entry); }
+	}
+	const externalEntries = current.filter(value => !previous.has(value));
+	const externalSet = new Set(externalEntries);
+	const managedServerEntries = desired.filter(value => !externalSet.has(value));
+	const externallySatisfiedEntries = desired.filter(value => externalSet.has(value));
+	return {
+		externalEntries,
+		managedServerEntries,
+		externallySatisfiedEntries,
+		resultingEntries: [...externalEntries, ...managedServerEntries]
+	};
+}
+
 // tuple key: hostname + family + address. Ownership is tracked at this
 // granularity so the same hostname with two different addresses (different
 // owners) is not conflated.

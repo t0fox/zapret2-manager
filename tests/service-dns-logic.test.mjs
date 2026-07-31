@@ -8,6 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import * as serviceDnsLogic from './lib/service-dns-logic.mjs';
 import {
 	validateDataset, validateProvider, validateProfile,
 	normalizeHostname, normalizeAddress, normalizeRecord,
@@ -409,4 +410,43 @@ test('55. package contents in final wiring', () => {
 	assert.ok(makefile.includes('service-dns.uc'), 'Makefile missing service-dns.uc');
 	assert.ok(makefile.includes('service-dns-cli.uc'), 'Makefile missing service-dns-cli.uc');
 	assert.ok(makefile.includes('catalog/service-dns-profiles.json'), 'Makefile missing profiles catalog');
+});
+
+test('56. native server ownership preserves external values byte-for-byte', () => {
+	assert.equal(typeof serviceDnsLogic.calculateServerOwnership, 'function');
+	const result = serviceDnsLogic.calculateServerOwnership(
+		['/custom.example/1.1.1.1#53', '/custom.example/2.2.2.2@wan', '//', '/domain/#'],
+		[],
+		['/Gemini.Google.Com/83.220.169.155']
+	);
+	assert.deepEqual(result.resultingEntries, [
+		'/custom.example/1.1.1.1#53', '/custom.example/2.2.2.2@wan', '//', '/domain/#',
+		'/gemini.google.com/83.220.169.155'
+	]);
+	assert.deepEqual(result.managedServerEntries, ['/gemini.google.com/83.220.169.155']);
+});
+
+test('57. matching user route is externally satisfied and never claimed', () => {
+	const result = serviceDnsLogic.calculateServerOwnership(
+		['/gemini.google.com/83.220.169.155'], [], ['/gemini.google.com/83.220.169.155']
+	);
+	assert.deepEqual(result.managedServerEntries, []);
+	assert.deepEqual(result.externallySatisfiedEntries, ['/gemini.google.com/83.220.169.155']);
+	assert.deepEqual(result.resultingEntries, ['/gemini.google.com/83.220.169.155']);
+});
+
+test('58. previous manager routes are removed only when no longer desired', () => {
+	const old = '/chatgpt.com/83.220.169.155';
+	const next = '/chatgpt.com/212.109.195.93';
+	const result = serviceDnsLogic.calculateServerOwnership([old, '/user.example/9.9.9.9#53'], [old], [next]);
+	assert.deepEqual(result.externalEntries, ['/user.example/9.9.9.9#53']);
+	assert.deepEqual(result.managedServerEntries, [next]);
+	assert.deepEqual(result.resultingEntries, ['/user.example/9.9.9.9#53', next]);
+});
+
+test('59. All Off preserves external list and removes exact manager entries', () => {
+	const owned = '/gemini.google.com/83.220.169.155';
+	const result = serviceDnsLogic.calculateServerOwnership(['/user.example/1.1.1.1#5353', owned], [owned], []);
+	assert.deepEqual(result.resultingEntries, ['/user.example/1.1.1.1#5353']);
+	assert.deepEqual(result.managedServerEntries, []);
 });
