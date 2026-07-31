@@ -5,7 +5,7 @@
 // Grounding: dnsmasq + UCI + resolvfile. No Windows APIs, no per-adapter model.
 'require rpc';
 
-const DNS_UI_BUILD = 'r46.4.1';
+const DNS_UI_BUILD = 'r46.4.2';
 
 const callDnsGet        = rpc.declare({ object: 'zapret2-manager', method: 'dns_get', reject: true });
 const callDnsSet        = rpc.declare({ object: 'zapret2-manager', method: 'dns_set', params: ['edit'], reject: true });
@@ -761,10 +761,11 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 		// col 4: details
 		var dtlBtn = E('button', { 'class': 'z2m-sa-detail-btn', 'type': 'button' }, _('Details'));
 		var dtlPnl = E('div', { 'class': 'z2m-sa-detail-panel' });
+		var dtlProvVal = E('span', { 'class': 'z2m-kv-value' }, _('Off'));
 		dtlPnl.appendChild(E('h4', { 'style': 'margin:4px 0' }, esc(label)));
 		dtlPnl.appendChild(E('div', { 'class': 'z2m-kv' }, [
 			E('span', { 'class': 'z2m-kv-label' }, _('Provider')),
-			E('span', { 'class': 'z2m-kv-value' }, _('Off'))
+			dtlProvVal
 		]));
 		var doms = (profiles.length ? profiles[0].requiredDomains : []);
 		if (doms.length) dtlPnl.appendChild(E('div', { 'class': 'z2m-kv' }, [
@@ -786,7 +787,7 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 
 		rowRefs.push({
 			serviceId: svc, row: row, metaDiv: metaDiv,
-			select: customSel, details: dtlPnl, detailsBtn: dtlBtn,
+			select: customSel, details: dtlPnl, detailsBtn: dtlBtn, detailsProvVal: dtlProvVal,
 			searchText: searchIndex[svc], categoryId: gid,
 			profiles: profiles, updateMeta: updateMeta
 		});
@@ -810,9 +811,11 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 	// Unified refresh
 	// ════════════════════════════════════════
 	function refreshServiceAccessUI() {
-		// Update all row meta badges
 		for (var ri = 0; ri < rowRefs.length; ri++) {
 			rowRefs[ri].updateMeta();
+			var svc = rowRefs[ri].serviceId;
+			var cur = draft.selections[svc] || 'off';
+			rowRefs[ri].detailsProvVal.textContent = (cur === 'off' ? _('Off') : (providerName[cur] || cur));
 		}
 		updateSummary();
 		buildSidebar();
@@ -1156,7 +1159,7 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 }
 
 // ════════════════════════════════════════════════════════
-// Custom Service Select (r46.4.1 — portal dropdown)
+// Custom Service Select (r46.4.2 — fixed display + scroll)
 // ════════════════════════════════════════════════════════
 function createOperationId() {
 	var randomPart;
@@ -1170,9 +1173,12 @@ function createOperationId() {
 	return 'sdns-' + Date.now() + '-' + randomPart;
 }
 
+var _raf = window.requestAnimationFrame || function (fn) { return window.setTimeout(fn, 16); };
+var _caf = window.cancelAnimationFrame  || function (id) { window.clearTimeout(id); };
+
 function createServiceSelect(opts) {
 	opts = opts || {};
-	var value = opts.value || 'off';
+	var value = (typeof opts.value === 'string' && opts.value.length > 0) ? opts.value : 'off';
 	var options = opts.options || [{ value: 'off', label: 'Off', desc: '' }];
 	var disabled = opts.disabled === true;
 	var onChange = opts.onChange || function () {};
@@ -1196,7 +1202,6 @@ function createServiceSelect(opts) {
 	trigger.appendChild(chevron);
 	root.appendChild(trigger);
 
-	// Single popup state in closure
 	var popup = null;
 	var searchInput = null;
 	var optionEls = [];
@@ -1204,16 +1209,38 @@ function createServiceSelect(opts) {
 	var opened = false;
 	var destroyed = false;
 	var resizeTimer = null;
+	var positionFrame = null;
 
-	function updateDisplay(val) {
-		if (val === undefined) val = value;
-		var opt = null;
-		for (var i = 0; i < options.length; i++) { if (options[i].value === val) { opt = options[i]; break; } }
-		valueSpan.textContent = opt ? opt.label : val;
+	function getSelectedOption() {
+		for (var i = 0; i < options.length; i++) { if (options[i].value === value) return options[i]; }
+		return null;
+	}
+
+	function updateDisplay() {
+		var sel = getSelectedOption();
+		if (sel) {
+			valueSpan.textContent = sel.label || sel.value;
+			trigger.title = sel.label || sel.value;
+			trigger.setAttribute('aria-label', ariaLabel + ': ' + (sel.label || sel.value));
+		} else {
+			valueSpan.textContent = value === 'off' ? _('Off') : (_('Unknown: ') + value);
+			trigger.title = _('Unknown profile: ') + value;
+			trigger.setAttribute('aria-label', ariaLabel + ': ' + value);
+		}
+	}
+
+	function syncActiveIndexToValue() {
+		activeIdx = -1;
+		for (var i = 0; i < optionEls.length; i++) {
+			if (optionEls[i].getAttribute('aria-selected') === 'true') { activeIdx = i; break; }
+		}
+		if (activeIdx < 0 && optionEls.length > 0) activeIdx = 0;
 	}
 
 	function setValue(newVal, silent) {
-		value = newVal || 'off';
+		var normal = (typeof newVal === 'string' && newVal.length > 0) ? newVal : 'off';
+		if (normal === value) return;
+		value = normal;
 		updateDisplay();
 		if (!silent) onChange(value);
 	}
@@ -1228,20 +1255,27 @@ function createServiceSelect(opts) {
 	function positionPopup() {
 		if (!popup || !trigger) return;
 		var rect = trigger.getBoundingClientRect();
-		var vh = window.innerHeight;
-		var vw = window.innerWidth;
-		var trigW = Math.max(rect.width, 120);
-		var pw = Math.min(Math.max(trigW, 180), Math.min(320, vw - 16));
-		popup.style.width = pw + 'px';
-		popup.style.left = Math.max(8, Math.min(rect.left, vw - pw - 8)) + 'px';
+		var vh = window.innerHeight || document.documentElement.clientHeight;
+		var vw = window.innerWidth || document.documentElement.clientWidth;
+		var gap = 4, edge = 8;
+		var below = vh - rect.bottom - gap - edge;
+		var above = rect.top - gap - edge;
+		var openAbove = below < 180 && above > below;
+		var availH = Math.max(120, Math.min(320, openAbove ? above : below));
+		popup.style.maxHeight = availH + 'px';
 
-		var topBelow = rect.bottom + 4;
-		var topAbove = rect.top - Math.min(320, rect.top - 8) - 4;
-		if (topBelow + 280 <= vh || topAbove < 8) {
-			popup.style.top = topBelow + 'px';
+		if (openAbove) {
+			popup.style.top = 'auto';
+			popup.style.bottom = Math.max(edge, vh - rect.top + gap) + 'px';
 		} else {
-			popup.style.top = Math.max(8, topAbove) + 'px';
+			popup.style.bottom = 'auto';
+			popup.style.top = Math.max(edge, rect.bottom + gap) + 'px';
 		}
+
+		var trigW = Math.max(rect.width, 120);
+		var pw = Math.min(Math.max(trigW, 200), Math.min(320, vw - edge * 2));
+		popup.style.width = pw + 'px';
+		popup.style.left = Math.max(edge, Math.min(rect.left, vw - pw - edge)) + 'px';
 	}
 
 	function onKey(e) {
@@ -1255,14 +1289,32 @@ function createServiceSelect(opts) {
 	}
 
 	function onOutside(e) {
-		if (popup && !popup.contains(e.target) && e.target !== trigger) { closePopup(); }
+		if (!popup || !opened) return;
+		if (popup.contains(e.target) || root.contains(e.target)) return;
+		closePopup(false);
 	}
 
-	function onScroll() { closePopup(); }
+	function onScroll(e) {
+		if (!popup || !opened) return;
+		var t = e.target;
+		if (t === popup || (t && popup.contains(t))) return;
+		schedulePosition();
+	}
 
 	function onResize() {
 		if (resizeTimer) clearTimeout(resizeTimer);
 		resizeTimer = setTimeout(positionPopup, 80);
+		schedulePosition();
+	}
+
+	function schedulePosition() {
+		if (positionFrame !== null) return;
+		positionFrame = _raf(function () {
+			positionFrame = null;
+			if (popup && opened && document.documentElement.contains(trigger)) {
+				positionPopup();
+			}
+		});
 	}
 
 	function removeListeners() {
@@ -1270,10 +1322,10 @@ function createServiceSelect(opts) {
 		window.removeEventListener('resize', onResize);
 		window.removeEventListener('scroll', onScroll, true);
 		if (resizeTimer) { clearTimeout(resizeTimer); resizeTimer = null; }
+		if (positionFrame !== null) { _caf(positionFrame); positionFrame = null; }
 	}
 
 	function closePopup(restoreFocus) {
-		if (destroyed) return;
 		if (restoreFocus === undefined) restoreFocus = true;
 		opened = false;
 		removeListeners();
@@ -1286,17 +1338,15 @@ function createServiceSelect(opts) {
 		searchInput = null;
 		trigger.setAttribute('aria-expanded', 'false');
 		if (viewRef && viewRef._openServiceSelect === api) viewRef._openServiceSelect = null;
-		if (restoreFocus) trigger.focus();
+		if (restoreFocus && !destroyed) trigger.focus();
 	}
 
 	function openPopup() {
 		if (destroyed || trigger.disabled) return;
-		// Close any other open select
 		if (viewRef && viewRef._openServiceSelect && viewRef._openServiceSelect !== api) {
 			viewRef._openServiceSelect.close(false);
 		}
 
-		// Create popup
 		popup = document.createElement('div');
 		popup.className = 'z2m-select-popup';
 		popup.setAttribute('role', 'listbox');
@@ -1347,29 +1397,27 @@ function createServiceSelect(opts) {
 		}
 		renderOptions();
 		popup.appendChild(list);
-
 		document.body.appendChild(popup);
 		positionPopup();
 		trigger.setAttribute('aria-expanded', 'true');
 		opened = true;
 
-		// Register listeners
 		popup.addEventListener('keydown', onKey);
 		setTimeout(function () { document.addEventListener('click', onOutside, true); }, 0);
 		window.addEventListener('resize', onResize);
 		window.addEventListener('scroll', onScroll, true);
 
-		// Set ownership
 		if (viewRef) viewRef._openServiceSelect = api;
 
-		// Focus search or first option
 		if (searchInput) {
 			searchInput.addEventListener('input', function () { renderOptions(searchInput.value); });
 			setTimeout(function () { if (searchInput) searchInput.focus(); }, 50);
 		} else if (optionEls.length > 0) {
-			activeIdx = 0;
-			for (var ai = 0; ai < optionEls.length; ai++) { if (optionEls[ai].getAttribute('aria-selected') === 'true') { activeIdx = ai; break; } }
-			optionEls[activeIdx].focus();
+			syncActiveIndexToValue();
+			if (optionEls[activeIdx]) {
+				optionEls[activeIdx].focus();
+				try { optionEls[activeIdx].scrollIntoView({ block: 'nearest' }); } catch (e) {}
+			}
 		}
 	}
 
@@ -1384,6 +1432,9 @@ function createServiceSelect(opts) {
 		}
 	});
 
+	// Initial display — MUST happen before return
+	updateDisplay();
+
 	var api = {
 		element: root,
 		getValue: function () { return value; },
@@ -1391,7 +1442,7 @@ function createServiceSelect(opts) {
 		setDisabled: function (d) { disabled = !!d; trigger.disabled = disabled; },
 		open: function () { openPopup(); },
 		close: function (restore) { closePopup(restore); },
-		destroy: function () { destroyed = true; closePopup(false); }
+		destroy: function () { closePopup(false); destroyed = true; }
 	};
 
 	return api;
