@@ -289,7 +289,7 @@ function classify_trust_ucode(provider, now) {
 	if (trust == 'untrusted') return { applicable: false, trust: trust, warning: true, reason: 'provider is untrusted' };
 	if (trust == 'expired') return { applicable: false, trust: trust, warning: true, reason: 'provider marked expired' };
 	if (trust == 'experimental') return { applicable: false, trust: trust, warning: true, reason: 'experimental — requires explicit advanced opt-in' };
-	if (trust == 'bundled-reviewed' || trust == 'pinned-hash') return { applicable: true, trust: trust, warning: false, reason: null };
+	if (trust == 'bundled-reviewed' || trust == 'pinned-hash' || trust == 'public') return { applicable: true, trust: trust, warning: false, reason: null };
 	return { applicable: false, trust: trust, warning: true, reason: 'unknown trust level' };
 }
 
@@ -318,6 +318,7 @@ function compute_completeness_ucode(profile) {
 	}
 	let status;
 	if (length(profile.records) == 0 && length(profile.requiredDomains) == 0) status = 'empty';
+	else if (length(profile.records) == 0 && length(profile.requiredDomains) > 0) status = 'unresolved';
 	else if (length(missingRequired) == 0) status = 'complete';
 	else if (length(unsupported) > 0 && length(missingRequired) == length(unsupported)) status = 'unsupported address family';
 	else status = 'partial';
@@ -342,6 +343,60 @@ function compute_desired_records_ucode(records, applyFamily) {
 }
 
 // ---------------------------------------------------------------------------
+// live DNS resolution via provider (nslookup over shell)
+// ---------------------------------------------------------------------------
+function resolve_domain_via_dns(hostname, dns_server, timeout) {
+	if (!hostname || !dns_server) return { A: [], AAAA: [] };
+	let tout = (int(timeout) > 0) ? int(timeout) : 3;
+	let r = run('nslookup ' + hostname + ' ' + dns_server + ' 2>/dev/null');
+	let out = r.out || '';
+	let a = [];
+	let aaaa = [];
+	let lines = split(out, '\n');
+	for (let i = 0; i < length(lines); i++) {
+		let line = trim(lines[i]);
+		let m = match(line, /^Address:?\s*([^\s#]+)/i);
+		if (m) {
+			let ip = m[1];
+			if (ip == dns_server) continue;
+			if (match(ip, /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/)) push(a, ip);
+			else if (match(ip, /^[0-9a-fA-F:]+$/)) push(aaaa, ip);
+		}
+	}
+	if (length(a) == 0) {
+		// fallback: try reading from Address: lines with extra whitespace
+		for (let i = 0; i < length(lines); i++) {
+			let line = lines[i];
+			if (index(line, 'Address') >= 0) {
+				let parts = split(trim(line), /\s+/);
+				for (let j = length(parts) - 1; j >= 0; j--) {
+					let ip = trim(parts[j]);
+					if (match(ip, /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/)) { push(a, ip); break; }
+				}
+			}
+		}
+	}
+	return { A: a, AAAA: aaaa };
+}
+
+function resolve_profile_records(profile, provider) {
+	let dns_server = (provider.ipv4 && length(provider.ipv4)) ? provider.ipv4[0] : '';
+	if (!dns_server) return [];
+	let records = [];
+	let domains = [];
+	for (let i = 0; i < length(profile.requiredDomains); i++) push(domains, profile.requiredDomains[i]);
+	for (let i = 0; i < length(profile.optionalDomains); i++) push(domains, profile.optionalDomains[i]);
+	for (let i = 0; i < length(domains); i++) {
+		let d = domains[i];
+		let res = resolve_domain_via_dns(d, dns_server, 3);
+		if (length(res.A) > 0 || length(res.AAAA) > 0) {
+			push(records, { hostname: d, A: res.A, AAAA: res.AAAA });
+		}
+	}
+	return records;
+}
+
+// ---------------------------------------------------------------------------
 // addnhosts render / parse (mirrors dns-logic render/parse; extends with
 // ownership tagging via comments — '# owner:<profileId>' marker on
 // service-owned lines so the parser can re-derive ownership without a
@@ -357,8 +412,8 @@ function load_dataset() {
 	let ds = null;
 	try { ds = json(raw); } catch (e) { return { ok: false, error: { code: 'ETARGET', message: 'dataset is not valid JSON' } }; }
 	if (!ds || type(ds) != 'object') return { ok: false, error: { code: 'ETARGET', message: 'dataset root must be an object' } };
-	if (type(ds.schemaVersion) != 'int' || ds.schemaVersion != 1)
-		return { ok: false, error: { code: 'EINPUT', message: 'unsupported schemaVersion (expected 1)' } };
+	if (type(ds.schemaVersion) != 'int' || (ds.schemaVersion != 1 && ds.schemaVersion != 2))
+		return { ok: false, error: { code: 'EINPUT', message: 'unsupported schemaVersion (expected 1 or 2)' } };
 	if (type(ds.providers) != 'array') return { ok: false, error: { code: 'EINPUT', message: 'providers must be an array' } };
 	if (type(ds.profiles) != 'array') return { ok: false, error: { code: 'EINPUT', message: 'profiles must be an array' } };
 	// validate providers + profiles inline (ucode port of the node logic)
@@ -378,7 +433,11 @@ function load_dataset() {
 	let knownServiceIds = {
 		'youtube':1,'discord':1,'telegram-web':1,'twitch':1,'spotify':1,
 		'supercell':1,'github':1,'githubusercontent':1,'chatgpt-openai':1,
-		'google-gemini':1,'notion':1
+		'google-gemini':1,'notion':1,
+		'claude':1,'microsoft-copilot':1,'grok':1,'manus':1,'meta-ai':1,
+		'trae-ai':1,'windsurf':1,'tiktok':1,'deepl':1,'canva':1,'elevenlabs':1,
+		'jetbrains':1,'mangalib':1,'parsec':1,'square':1,'whatsapp':1,
+		'x-twitter':1,'rutor':1,'ntc-party':1,'flowseal-discord':1,'instagram':1
 	};
 	for (let i = 0; i < length(ds.profiles); i++) {
 		let p = ds.profiles[i];
@@ -389,8 +448,8 @@ function load_dataset() {
 		if (type(p.serviceId) != 'string' || !knownServiceIds[p.serviceId]) { push(errors, 'profile ' + p.id + ': unknown serviceId'); continue; }
 		if (type(p.requiredDomains) != 'array') { push(errors, 'profile ' + p.id + ': requiredDomains must be an array'); continue; }
 		if (type(p.optionalDomains) != 'array') { push(errors, 'profile ' + p.id + ': optionalDomains must be an array'); continue; }
-		if (type(p.diagnosticTargets) != 'array') { push(errors, 'profile ' + p.id + ': diagnosticTargets must be an array'); continue; }
-		if (type(p.records) != 'array') { push(errors, 'profile ' + p.id + ': records must be an array'); continue; }
+		if (type(p.diagnosticTargets) != 'array' && p.diagnosticTargets != null) { push(errors, 'profile ' + p.id + ': diagnosticTargets must be an array or absent'); continue; }
+		if (type(p.records) != 'array' && p.records != null) { push(errors, 'profile ' + p.id + ': records must be an array or absent'); continue; }
 		// validate + normalize records
 		let normRecs = [];
 		let seenHost = {};
@@ -549,10 +608,15 @@ export const service_dns_providers = function(req) {
 		let p = ds.providers[i];
 		let t = classify_trust_ucode(p, now);
 		push(providers, {
-			id: p.id, name: p.name, sourceUrl: p.sourceUrl, sourceRevision: p.sourceRevision,
-			sourceHash: p.sourceHash, reviewedAt: p.reviewedAt, expiresAt: p.expiresAt,
+			id: p.id, name: p.name, upstreamName: p.upstreamName || p.name,
+			category: p.category || '',
+			sourceUrl: p.sourceUrl || p.doh || null,
+			sourceRevision: p.sourceRevision || '',
+			sourceHash: p.sourceHash || '',
+			reviewedAt: p.reviewedAt || now, expiresAt: p.expiresAt || null,
+			ipv4: p.ipv4 || [], ipv6: p.ipv6 || [], doh: p.doh || null,
 			trust: t.trust, applicable: t.applicable, trustWarning: t.warning, trustReason: t.reason,
-			notes: p.notes
+			notes: p.notes || ''
 		});
 	}
 	let profiles = [];
@@ -564,19 +628,22 @@ export const service_dns_providers = function(req) {
 		}
 		let comp = compute_completeness_ucode(p);
 		let desired = compute_desired_records_ucode(p.records, APPLY_FAMILY);
-		let applicable = prov.applicable && (length(desired.records) > 0);
+		let applicable = prov.applicable;
+		// unresolved profiles are applicable (records resolved at apply-time)
+		if (comp.status == 'unresolved') applicable = prov.applicable;
+		else applicable = prov.applicable && (length(desired.records) > 0);
 		push(profiles, {
 			id: p.id, providerId: p.providerId, serviceId: p.serviceId,
 			requiredDomains: p.requiredDomains, optionalDomains: p.optionalDomains,
-			diagnosticTargets: p.diagnosticTargets, records: p.records,
+			diagnosticTargets: p.diagnosticTargets || [], records: p.records,
 			completeness: comp, desiredCount: length(desired.records), unsupported: desired.unsupported,
 			applicable: applicable, providerTrust: prov.trust, providerExpiresAt: prov.expiresAt,
-			notes: p.notes, limitations: p.limitations
+			notes: p.notes || '', limitations: p.limitations || ''
 		});
 	}
 	return {
-		ok: true, schemaVersion: 1, datasetVersion: ds.dataset.datasetVersion,
-		generatedAt: ds.dataset.generatedAt, providers: providers, profiles: profiles,
+		ok: true, schemaVersion: ds.dataset.schemaVersion || 1, datasetVersion: ds.dataset.datasetVersion || '2.0.0',
+		generatedAt: ds.dataset.generatedAt || now, providers: providers, profiles: profiles,
 		now: now
 	};
 };
@@ -601,6 +668,15 @@ export const service_dns_status = function(req) {
 	}
 	let providerMap = {};
 	for (let i = 0; i < length(ds.providers); i++) providerMap[ds.providers[i].id] = ds.providers[i];
+	// build available providers per service
+	let availableByService = {};
+	for (let i = 0; i < length(ds.profiles); i++) {
+		let p = ds.profiles[i];
+		let prx = providerMap[p.providerId];
+		if (!prx) continue;
+		availableByService[p.serviceId] = availableByService[p.serviceId] || [];
+		push(availableByService[p.serviceId], { profileId: p.id, providerId: p.providerId, providerName: prx.name || p.providerId, providerIpv4: prx.ipv4 || [], domainCount: length(p.requiredDomains) });
+	}
 	for (let svc in selections) {
 		let pid = selections[svc];
 		if (pid == 'off' || pid == null) continue;
@@ -635,6 +711,7 @@ export const service_dns_status = function(req) {
 		ok: true, datasetValid: true, selections: selections, applied: appliedSel, appliedAt: state.applied.generatedAt,
 		appliedRevision: appliedRev, drift: drift, warnings: warnings, events: _slice(state.events, -10),
 		desiredRecords: desiredRecords, ownership: ownership, appliedRecords: appliedRecords,
+		availableByService: availableByService,
 		overridesPath: OVERRIDES_PATH, registered: (index(readfile(DHCP_CONF) || '', OVERRIDES_PATH) >= 0)
 	};
 };
@@ -827,8 +904,19 @@ export const service_dns_apply = function(req) {
 		let trust = classify_trust_ucode(prov, iso_now());
 		if (!trust.applicable) return err('EINPUT', 'profile ' + pid + ' is not applicable: ' + trust.reason);
 		let comp = compute_completeness_ucode(p);
+		// resolve records live if unresolved or partial
+		let recs = p.records;
+		if (comp.status == 'unresolved' || comp.status == 'empty' || (comp.status == 'partial' && length(p.records) == 0)) {
+			push(warnings, { type: 'resolving-live', serviceId: svc, profileId: pid, provider: prov.name });
+			recs = resolve_profile_records(p, prov);
+			if (length(recs) == 0) {
+				push(warnings, { type: 'resolution-failed', serviceId: svc, profileId: pid, reason: 'no A records from ' + (prov.ipv4 && length(prov.ipv4) ? prov.ipv4[0] : 'N/A') });
+				continue;
+			}
+			comp = { status: 'complete', missingRequired: [], missingOptional: [], aCount: length(recs), aaaaCount: 0, unsupported: [] };
+		}
 		if (comp.status != 'complete') return err('EINPUT', 'profile ' + pid + ' is ' + comp.status + ' (missing: ' + join(comp.missingRequired, ', ') + ')');
-		let desired = compute_desired_records_ucode(p.records, APPLY_FAMILY);
+		let desired = compute_desired_records_ucode(recs, APPLY_FAMILY);
 		for (let j = 0; j < length(desired.records); j++)
 			push(desiredRecords, { hostname: desired.records[j].hostname, A: desired.records[j].A, AAAA: desired.records[j].AAAA, owner: 'service:' + pid });
 		if (desired.unsupported.length > 0)

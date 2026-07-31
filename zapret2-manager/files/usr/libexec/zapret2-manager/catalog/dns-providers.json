@@ -1,84 +1,177 @@
 {
 	"schema": 1,
-	"version": "1.0.0",
+	"version": "2.0.0",
+	"upstreamCommit": "41c7fed7fe06774eff01e75d51bbee065c2de206",
+	"upstreamRepo": "youtubediscord/zapret",
+	"upstreamPath": "src/dns/dns_providers.py",
 	"providers": [
 		{
 			"id": "cloudflare",
+			"upstreamName": "Cloudflare",
 			"name": "Cloudflare DNS",
-			"category": "privacy",
-			"reviewed": "2026-07-28",
+			"category": "Популярные",
+			"reviewed": "2026-07-31",
 			"provenance": [
 				{ "source": "Cloudflare public docs", "url": "https://developers.cloudflare.com/1.1.1.1/" }
 			],
 			"ipv4": ["1.1.1.1", "1.0.0.1"],
 			"ipv6": ["2606:4700:4700::1111", "2606:4700:4700::1001"],
 			"doh": "https://cloudflare-dns.com/dns-query",
-			"notes": "No-logs claim by vendor, KPMG-audited. Data only — storing this DoH endpoint does NOT activate DoH on the router."
+			"notes": "No-logs claim by vendor, KPMG-audited."
 		},
 		{
-			"id": "google",
+			"id": "google-dns",
+			"upstreamName": "Google DNS",
 			"name": "Google Public DNS",
-			"category": "anycast",
-			"reviewed": "2026-07-28",
+			"category": "Популярные",
+			"reviewed": "2026-07-31",
 			"provenance": [
 				{ "source": "Google public docs", "url": "https://developers.google.com/speed/public-dns" }
 			],
 			"ipv4": ["8.8.8.8", "8.8.4.4"],
 			"ipv6": ["2001:4860:4860::8888", "2001:4860:4860::8844"],
 			"doh": "https://dns.google/dns-query",
-			"notes": "Large anycast network; vendor telemetry per Google's policy. Data only — no DoH activation."
-		},
-		{
-			"id": "quad9",
-			"name": "Quad9",
-			"category": "filtered",
-			"reviewed": "2026-07-28",
-			"provenance": [
-				{ "source": "Quad9 public docs", "url": "https://quad9.net" }
-			],
-			"ipv4": ["9.9.9.9", "149.112.112.112"],
-			"ipv6": ["2620:fe::fe", "2620:fe::9"],
-			"doh": "https://dns.quad9.net/dns-query",
-			"notes": "Nonprofit, threat-blocklist filtering by default, no personal-data sale. Data only."
-		},
-		{
-			"id": "adguard",
-			"name": "AdGuard DNS",
-			"category": "filtered",
-			"reviewed": "2026-07-28",
-			"provenance": [
-				{ "source": "AdGuard public docs", "url": "https://adguard-dns.io" }
-			],
-			"ipv4": ["94.140.14.14", "94.140.15.15"],
-			"ipv6": ["2a10:50c0::ad1:ff", "2a10:50c0::ad2:ff"],
-			"doh": "https://dns.adguard.com/dns-query",
-			"notes": "Ad/tracker filtering by default; commercial vendor. Data only."
-		},
-		{
-			"id": "opendns",
-			"name": "OpenDNS (Cisco)",
-			"category": "anycast",
-			"reviewed": "2026-07-28",
-			"provenance": [
-				{ "source": "OpenDNS/Cisco public docs", "url": "https://www.opendns.com" }
-			],
-			"ipv4": ["208.67.222.222", "208.67.220.220"],
-			"ipv6": ["2620:119:35::35", "2620:119:53::53"],
-			"doh": null,
-			"notes": "Long-running anycast resolver; optional family shields are account features, not plain DNS. Data only."
+			"notes": "Large anycast network."
 		},
 		{
 			"id": "dnssb",
+			"upstreamName": "Dns.SB",
 			"name": "Dns.SB",
-			"category": "regional",
-			"reviewed": "2026-07-28",
+			"category": "Популярные",
+			"reviewed": "2026-07-31",
 			"provenance": [
 				{ "source": "Dns.SB public docs", "url": "https://dns.sb" }
 			],
 			"ipv4": ["185.222.222.222", "45.11.45.11"],
 			"ipv6": ["2a09::", "2a11::"],
 			"doh": "https://doh.dns.sb/dns-query",
-			"notes": "EU-hosted small resolver, no-logs claim. Data only."
+			"notes": "EU-hosted, no-logs claim."
+		},
+		{
+			"id": "quad9",
+			"upstreamName": "Quad9",
+			"name": "Quad9",
+			"category": "Безопасные",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{ "source": "Quad9 public docs", "url": "https://quad9.net" }
+			],
+			"ipv4": ["9.9.9.9", "149.112.112.112"],
+			"ipv6": ["2620:fe::fe", "2620:fe::9"],
+			"doh": "https://dns.quad9.net/dns-query",
+			"notes": "Nonprofit, threat-blocklist filtering."
+		},
+		{
+			"id": "adguard",
+			"upstreamName": "AdGuard",
+			"name": "AdGuard DNS",
+			"category": "Безопасные",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{ "source": "AdGuard public docs", "url": "https://adguard-dns.io" }
+			],
+			"ipv4": ["94.140.14.14", "94.140.15.15"],
+			"ipv6": ["2a10:50c0::ad1:ff", "2a10:50c0::ad2:ff"],
+			"doh": "https://dns.adguard.com/dns-query",
+			"notes": "Ad/tracker filtering by default."
+		},
+		{
+			"id": "opendns",
+			"upstreamName": "OpenDNS",
+			"name": "OpenDNS (Cisco)",
+			"category": "Безопасные",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{ "source": "OpenDNS/Cisco public docs", "url": "https://www.opendns.com" }
+			],
+			"ipv4": ["208.67.222.222", "208.67.220.220"],
+			"ipv6": ["2620:119:35::35", "2620:119:53::53"],
+			"doh": null,
+			"notes": "Long-running anycast resolver."
+		},
+		{
+			"id": "dnsdoh-art",
+			"upstreamName": "dnsdoh.art",
+			"name": "dnsdoh.art",
+			"category": "Безопасные",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{ "source": "youtubediscord/zapret", "url": "https://github.com/youtubediscord/zapret/blob/41c7fed/src/dns/dns_providers.py" }
+			],
+			"ipv4": ["194.180.189.33", "194.180.189.33"],
+			"ipv6": [],
+			"doh": "https://dnsdoh.art:444/dns-query",
+			"notes": "Small resolver, DoH over port 444."
+		},
+		{
+			"id": "xbox-dns",
+			"upstreamName": "Xbox DNS",
+			"name": "Xbox DNS",
+			"category": "Для ИИ",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{ "source": "youtubediscord/zapret", "url": "https://github.com/youtubediscord/zapret/blob/41c7fed/src/dns/dns_providers.py" }
+			],
+			"ipv4": ["111.88.96.50", "111.88.96.51"],
+			"ipv6": [],
+			"doh": "https://xbox-dns.ru/dns-query",
+			"notes": "AI/blocked services DNS. Returns bypass A records for restricted domains."
+		},
+		{
+			"id": "xbox-dns-v2",
+			"upstreamName": "Xbox DNS v2",
+			"name": "Xbox DNS v2",
+			"category": "Для ИИ",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{ "source": "youtubediscord/zapret", "url": "https://github.com/youtubediscord/zapret/blob/41c7fed/src/dns/dns_providers.py" }
+			],
+			"ipv4": ["87.228.47.200", "87.228.47.201"],
+			"ipv6": [],
+			"doh": "https://xbox-dns.ru/dns-query",
+			"notes": "Second generation Xbox DNS server."
+		},
+		{
+			"id": "xbox-dns-old",
+			"upstreamName": "Xbox DNS (old)",
+			"name": "Xbox DNS (old)",
+			"category": "Для ИИ",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{ "source": "youtubediscord/zapret", "url": "https://github.com/youtubediscord/zapret/blob/41c7fed/src/dns/dns_providers.py" }
+			],
+			"ipv4": ["176.99.11.77", "80.78.247.254"],
+			"ipv6": [],
+			"doh": "https://xbox-dns.ru/dns-query",
+			"notes": "Old/legacy Xbox DNS server."
+		},
+		{
+			"id": "comss-dns",
+			"upstreamName": "Comss DNS",
+			"name": "Comss DNS",
+			"category": "Для ИИ",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{ "source": "youtubediscord/zapret", "url": "https://github.com/youtubediscord/zapret/blob/41c7fed/src/dns/dns_providers.py" }
+			],
+			"ipv4": ["83.220.169.155", "212.109.195.93"],
+			"ipv6": [],
+			"doh": "https://dns.comss.one/dns-query",
+			"notes": "Anti-DPI DNS for blocked AI services."
+		},
+		{
+			"id": "malw-link",
+			"upstreamName": "dns.malw.link",
+			"name": "dns.malw.link",
+			"category": "Для ИИ",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{ "source": "youtubediscord/zapret", "url": "https://github.com/youtubediscord/zapret/blob/41c7fed/src/dns/dns_providers.py" }
+			],
+			"ipv4": ["84.21.189.133", "64.188.98.242"],
+			"ipv6": ["2a12:bec4:1460:d5::2", "2a01:ecc0:2c1:2::2"],
+			"doh": "https://dns.malw.link/dns-query",
+			"notes": "Anti-DPI DNS for blocked AI/services. Returns bypass A records for restricted domains."
 		}
 	]
 }

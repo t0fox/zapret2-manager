@@ -23,11 +23,31 @@ const callSdnsApply     = rpc.declare({ object: 'zapret2-manager', method: 'serv
 const callSdnsRollback  = rpc.declare({ object: 'zapret2-manager', method: 'service_dns_rollback', reject: true });
 
 var SERVICE_LABELS = {
-	'chatgpt-openai': 'ChatGPT / OpenAI', 'google-gemini': 'Google Gemini',
-	'discord': 'Discord', 'youtube': 'YouTube', 'twitch': 'Twitch',
-	'spotify': 'Spotify', 'supercell': 'Supercell', 'github': 'GitHub',
-	'githubusercontent': 'GitHubusercontent', 'telegram-web': 'Telegram Web',
-	'notion': 'Notion'
+	'chatgpt-openai': 'ChatGPT & Sora (OpenAI)', 'google-gemini': 'Gemini AI',
+	'claude': 'Claude', 'microsoft-copilot': 'Microsoft (Copilot, Designer, Xbox)',
+	'grok': 'Grok', 'manus': 'Manus', 'meta-ai': 'Meta AI',
+	'trae-ai': 'Trae.ai', 'windsurf': 'Windsurf', 'tiktok': 'TikTok',
+	'spotify': 'Spotify', 'twitch': 'Twitch', 'notion': 'Notion',
+	'deepl': 'DeepL', 'canva': 'Canva', 'elevenlabs': 'ElevenLabs',
+	'jetbrains': 'JetBrains', 'mangalib': 'MangaLib', 'parsec': 'Parsec',
+	'square': 'Square', 'discord': 'Discord', 'youtube': 'YouTube',
+	'github': 'GitHub', 'githubusercontent': 'GitHubusercontent',
+	'whatsapp': 'WhatsApp', 'x-twitter': 'x.com / Twitter',
+	'rutor': 'Rutor', 'ntc-party': 'ntc.party', 'flowseal-discord': 'Flowseal Discord Voice',
+	'supercell': 'Supercell', 'instagram': 'Instagram',
+	'telegram-web': 'Telegram Web'
+};
+
+var SERVICE_CATEGORIES = {
+	'chatgpt-openai':'AI','google-gemini':'AI','claude':'AI','microsoft-copilot':'AI',
+	'grok':'AI','manus':'AI','meta-ai':'AI','trae-ai':'AI','windsurf':'AI',
+	'elevenlabs':'AI','tiktok':'social','spotify':'music','twitch':'video',
+	'notion':'other','deepl':'other','canva':'other','jetbrains':'developer',
+	'mangalib':'media','parsec':'games','square':'other','discord':'messaging',
+	'youtube':'video','github':'developer','githubusercontent':'developer',
+	'whatsapp':'messaging','x-twitter':'social','rutor':'other','ntc-party':'other',
+	'flowseal-discord':'messaging','supercell':'games','instagram':'social',
+	'telegram-web':'messaging'
 };
 
 var SECTIONS = [
@@ -426,49 +446,97 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 		node.appendChild(callout('warn', _('Service status unavailable: ') + esc(envelope.sdnsStatusErr)));
 	}
 
-	// Provider info
-	var pinfo = card(_('Provider Dataset'), [
+	// Catalog info
+	node.appendChild(card(_('DNS Catalog'), [
 		kv(_('Version'), 'v' + esc(provs.datasetVersion || '?')),
-		kv(_('Generated'), esc(provs.generatedAt || _('Unknown'))),
-		kv(_('Providers'), String((provs.providers || []).length))
-	]);
-	node.appendChild(pinfo);
+		kv(_('Providers'), String((provs.providers || []).length)),
+		kv(_('Profiles'), String((provs.profiles || []).length))
+	]));
 
-	// Service list
-	var profilesByService = {};
-	var serviceOrder = [];
+	// Build provider name map
+	var providerName = {};
+	(provs.providers || []).forEach(function (pr) {
+		providerName[pr.id] = pr.name || pr.id;
+	});
+
+	// Build profiles by service
+	var profilesBySvc = {};
 	(provs.profiles || []).forEach(function (p) {
-		if (!profilesByService[p.serviceId]) { profilesByService[p.serviceId] = []; serviceOrder.push(p.serviceId); }
-		profilesByService[p.serviceId].push(p);
+		if (!profilesBySvc[p.serviceId]) profilesBySvc[p.serviceId] = [];
+		profilesBySvc[p.serviceId].push(p);
 	});
 
 	var selections = status.selections || {};
 	var appliedSel = status.applied || {};
+	var availableByService = status.availableByService || {};
 
-	var svcCard = card(_('Services') + ' (' + serviceOrder.length + ')', []);
+	// Build ordered service list from catalog profiles
+	var serviceOrder = [];
+	var seen = {};
+	(provs.profiles || []).forEach(function (p) {
+		if (!seen[p.serviceId]) { seen[p.serviceId] = true; serviceOrder.push(p.serviceId); }
+	});
+
+	// Service list
+	var svcCard = card(_('Services') + ' (' + serviceOrder.length + ')', [
+		E('p', { 'class': 'cbi-value-description' }, _('Select a DNS variant for each service. Domains will be resolved through the chosen provider and served via dnsmasq to LAN clients.'))
+	]);
+
 	serviceOrder.sort().forEach(function (svc) {
 		var label = SERVICE_LABELS[svc] || svc;
-		var profiles = profilesByService[svc] || [];
+		var cat = SERVICE_CATEGORIES[svc] || 'other';
+		var profiles = profilesBySvc[svc] || [];
 		var curSel = selections[svc] || 'off';
 		var applied = appliedSel[svc] || 'off';
 		var drift = (status.drift && status.drift.serviceId === svc) ? status.drift : null;
 
-		var sel = E('select', { 'class': 'cbi-input-select', 'data-service': svc, 'style': 'margin-right:.4em' });
+		// Build available variant list
+		var availPv = availableByService[svc] || [];
+		var pvNames = {};
+		availPv.forEach(function (a) { pvNames[a.profileId] = a; });
+
+		var sel = E('select', { 'class': 'cbi-input-select', 'data-service': svc });
 		sel.appendChild(E('option', { value: 'off' }, _('Off')));
+
+		var hasOptions = false;
 		profiles.forEach(function (p) {
-			if (!p.applicable) return;
-			var opt = E('option', { value: p.id }, p.id);
+			var pv = pvNames[p.id];
+			var name = pv ? pv.providerName : (providerName[p.providerId] || p.providerId);
+			var domains = pv ? pv.domainCount : length(p.requiredDomains || []);
+			var display = name + ' (' + domains + 'd)';
+			if (!p.applicable && !pv) return;
+			hasOptions = true;
+			var opt = E('option', { value: p.id }, display);
 			if (curSel === p.id) opt.selected = true;
 			sel.appendChild(opt);
 		});
 
+		// Selection save on change
+		sel.addEventListener('change', function () {
+			var newSel = {};
+			var svcId = sel.getAttribute('data-service');
+			var selects = svcCard.querySelectorAll('select[data-service]');
+			for (var si = 0; si < selects.length; si++) {
+				newSel[selects[si].getAttribute('data-service')] = selects[si].value;
+			}
+			callSdnsSet(JSON.stringify({ selections: newSel })).then(function () {
+				view._flash = _('Selection saved.');
+				view.reload();
+			}).catch(function (err) {
+				view._flash = _('Save failed: ') + String(err);
+			});
+		});
+
 		var b = [];
+		if (cat) b.push(E('span', { 'class': 'z2m-badge z2m-badge-neutral', 'style': 'margin-right:.3em' }, cat));
 		if (drift) b.push(E('span', { 'class': 'z2m-badge z2m-badge-warn' }, _('drift')));
 		if (applied !== curSel && curSel !== 'off') b.push(E('span', { 'class': 'z2m-badge z2m-badge-warn' }, _('unapplied')));
+		if (applied !== 'off' && applied !== curSel && curSel === 'off') b.push(E('span', { 'class': 'z2m-badge z2m-badge-bad' }, _('was: ') + esc(applied)));
+		if (!hasOptions) b.push(E('span', { 'class': 'z2m-badge z2m-badge-bad' }, _('no variants')));
 
 		svcCard.appendChild(E('div', { 'class': 'z2m-kv', 'style': 'padding:.2em 0;border-bottom:1px solid var(--border,#ddd)' }, [
-			E('span', { 'class': 'z2m-kv-label' }, esc(label)),
-			E('span', { 'class': 'z2m-kv-value' }, [sel].concat(b))
+			E('span', { 'class': 'z2m-kv-label' }, [esc(label)].concat(b)),
+			E('span', { 'class': 'z2m-kv-value' }, [sel])
 		]));
 	});
 	node.appendChild(svcCard);
@@ -487,6 +555,19 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 		});
 	});
 	actions.appendChild(prevBtn);
+
+	var saveBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button' }, _('Apply All'));
+	saveBtn.addEventListener('click', function () {
+		saveBtn.disabled = true;
+		callSdnsApply(JSON.stringify({})).then(function (res) {
+			view._flash = (res && res.ok === true) ? _('Applied. DNS restarted.') : _('Apply failed: ') + esc((res && res.error && res.error.message) || res.error || '?');
+			view.reload();
+		}).catch(function (err) {
+			view._flash = _('Apply error: ') + String(err);
+			view.reload();
+		});
+	});
+	actions.appendChild(saveBtn);
 	node.appendChild(actions);
 
 	// Preview result if available
@@ -498,18 +579,13 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 			kv(_('Added'), String(diff.addedCount || 0)),
 			kv(_('Removed'), String(diff.removedCount || 0)),
 			kv(_('Preserved'), String(diff.preservedCount || 0)),
+			pv.warnings && pv.warnings.length ? kv(_('Warnings'), String(pv.warnings.length)) : null,
 			pv.candidate ? E('pre', { 'class': 'z2m-mono' }, esc(pv.candidate)) : null
 		].filter(Boolean));
-		if (pv.ok === true && pv.candidate) {
-			var apBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button' }, _('Apply'));
-			apBtn.addEventListener('click', function () {
-				apBtn.disabled = true;
-				callSdnsApply(JSON.stringify({})).then(function (res) {
-					view._flash = (res && res.ok === true) ? _('Applied.') : _('Apply failed.');
-					view.reload();
-				});
+		if (pv.warnings && pv.warnings.length) {
+			pv.warnings.forEach(function (w) {
+				prevCard.appendChild(callout('warn', esc(w.type) + ': ' + esc(w.reason || w.provider || '')));
 			});
-			prevCard.appendChild(E('div', { 'class': 'z2m-actions' }, [apBtn]));
 		}
 		node.appendChild(prevCard);
 	}
