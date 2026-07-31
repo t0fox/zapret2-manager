@@ -451,41 +451,8 @@
 .z2m-sa-preview-dlg .z2m-sa-pv-added { color: #4a9; }
 .z2m-sa-preview-dlg .z2m-sa-pv-removed { color: #d66; }
 
-@media (prefers-color-scheme: dark) {
-	.z2m-sa-sumcard { background: #252525; color: #ddd; }
-	.z2m-sa-cathead { background: #2a2a2a; color: #ddd; }
-	.z2m-sa-row.active { background: rgba(46,125,50,.2); }
-	.z2m-sa-row.changed { background: rgba(255,160,0,.18); }
-	.z2m-sa-row:hover { background: rgba(255,255,255,.05); }
-	.z2m-sa-detail-panel { background: #1e1e1e; }
-	.z2m-sa-sidebar { background: #1a1a1a; border-color: #444; }
-	.z2m-sa-sticky { background: #181818; border-color: #444; }
-	.z2m-sa-preview-dlg { background: #1e1e1e; }
-	.z2m-sa-preview-dlg .z2m-sa-pv-added { color: #5b9; }
-	.z2m-sa-preview-dlg .z2m-sa-pv-removed { color: #e77; }
-	select.z2m-sa-sel option { background: #222; color: #ddd; }
-
-	/* r46.4 dark custom dropdown */
-	.z2m-select-trigger { background: #252525; color: #e8eaed; border-color: #4b4d52; }
-	.z2m-select-trigger:hover { background: #34363b; }
-	.z2m-select-trigger:disabled { opacity: .5; background: #1a1a1a; }
-	.z2m-select-popup { background: #292a2d; border-color: #4b4d52; color: #e8eaed; box-shadow: 0 8px 24px rgba(0,0,0,.5); }
-	.z2m-select-option { color: #e8eaed; }
-	.z2m-select-option:hover { background: #34363b; }
-	.z2m-select-option-active { background: #1f4b70; color: #e8eaed; }
-	.z2m-select-option-selected { background: #1a3a5c; }
-	.z2m-select-search input { background: #1e1e1e; color: #e8eaed; border-color: #4b4d52; }
-	.z2m-select-option-description { color: #9aa0a6; }
-
-	/* r46.4 filter chips */
-	.z2m-sa-filter-chip { background: #252525; color: #9aa0a6; border-color: #444; }
-	.z2m-sa-filter-chip:hover { background: #34363b; color: #ddd; }
-	.z2m-sa-filter-chip-active { background: #1f4b70; color: #5aa7e8; border-color: #5aa7e8; }
-	.z2m-sa-filter-count { background: #333; color: #9aa0a6; }
-}
-
 /* ========================================================================
-   r46.4 — Custom Service Select (portal dropdown, no native <select>)
+   r46.4 — Custom Service Select & Filter Chips (light base)
    ======================================================================== */
 .z2m-select { display: inline-block; position: relative; min-width: 100px; }
 .z2m-select-trigger {
@@ -532,7 +499,7 @@
 	font-size: .85em; box-sizing: border-box;
 }
 
-/* r46.4 filter chips */
+/* r46.4 filter chips (light) */
 .z2m-sa-filterbar { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
 .z2m-sa-filter-chip {
 	display: inline-flex; align-items: center; gap: 4px;
@@ -561,7 +528,103 @@
 /* r46.4 select column */
 .z2m-sa-select-col { min-width: 120px; }
 
+/* ========================================================================
+   Dark theme — basic overrides (prefers-color-scheme media)
+   ======================================================================== */
 @media (prefers-color-scheme: dark) {
+	.z2m-sa-sumcard { background: #252525; color: #ddd; }
+	.z2m-sa-cathead { background: #2a2a2a; color: #ddd; }
+	.z2m-sa-row.active { background: rgba(46,125,50,.2); }
+	.z2m-sa-row.changed { background: rgba(255,160,0,.18); }
+	.z2m-sa-row:hover { background: rgba(255,255,255,.05); }
+	.z2m-sa-detail-panel { background: #1e1e1e; }
+	.z2m-sa-sidebar { background: #1a1a1a; border-color: #444; }
+	.z2m-sa-sticky { background: #181818; border-color: #444; }
+	.z2m-sa-preview-dlg { background: #1e1e1e; }
+	.z2m-sa-preview-dlg .z2m-sa-pv-added { color: #5b9; }
+	.z2m-sa-preview-dlg .z2m-sa-pv-removed { color: #e77; }
+	select.z2m-sa-sel option { background: #222; color: #ddd; }
+}
+
+/* ========================================================================
+   Dark theme — explicit selectors for custom dropdown + filter chips (r46.4.1)
+   Overrides light base rules above by using .z2m-theme-dark class on shell.
+   ======================================================================== */
+#z2m-dns-shell.z2m-theme-dark .z2m-select-trigger {
+	background: #292a2d; color: #e6e8eb; border-color: #55585f;
+}
+#z2m-dns-shell.z2m-theme-dark .z2m-select-trigger:hover {
+	background: #34363b;
+}
+#z2m-dns-shell.z2m-theme-dark .z2m-select-trigger:disabled {
+	opacity: .5; background: #1f1f1f;
+}
+
+.z2m-select-popup.z2m-theme-dark {
+	background: #252629; color: #e6e8eb; border-color: #55585f;
+	box-shadow: 0 12px 32px rgba(0,0,0,.55); color-scheme: dark;
+}
+.z2m-select-popup.z2m-theme-dark .z2m-select-option {
+	background: transparent; color: #e6e8eb;
+}
+.z2m-select-popup.z2m-theme-dark .z2m-select-option:hover,
+.z2m-select-popup.z2m-theme-dark .z2m-select-option:focus {
+	background: #34373c; color: #e6e8eb;
+}
+.z2m-select-popup.z2m-theme-dark .z2m-select-option-selected {
+	background: #253f59; color: #e6e8eb;
+}
+.z2m-select-popup.z2m-theme-dark .z2m-select-option-active {
+	background: #2d5274; color: #e6e8eb;
+}
+.z2m-select-popup.z2m-theme-dark .z2m-select-option-description {
+	color: #a7abb2;
+}
+.z2m-select-popup.z2m-theme-dark .z2m-select-search {
+	background: #252629; border-bottom-color: #55585f;
+}
+.z2m-select-popup.z2m-theme-dark .z2m-select-search input {
+	background: #1f2023; color: #e6e8eb; border-color: #55585f; color-scheme: dark;
+}
+.z2m-select-popup.z2m-theme-dark .z2m-select-search input:focus {
+	border-color: #65a9e8; outline: none; box-shadow: 0 0 0 2px rgba(101,169,232,.22);
+}
+
+/* filter chips dark */
+#z2m-dns-shell.z2m-theme-dark .z2m-sa-filter-chip {
+	background: #292a2d; color: #c3c7cd; border-color: #55585f;
+}
+#z2m-dns-shell.z2m-theme-dark .z2m-sa-filter-chip:hover {
+	background: #34373c; color: #f0f1f3;
+}
+#z2m-dns-shell.z2m-theme-dark .z2m-sa-filter-chip-active {
+	background: #294d6d; color: #d9ecff; border-color: #65a9e8;
+}
+#z2m-dns-shell.z2m-theme-dark .z2m-sa-filter-chip-active:hover {
+	background: #315b80;
+}
+#z2m-dns-shell.z2m-theme-dark .z2m-sa-filter-count {
+	background: #3a3c41; color: #c9ccd1;
+}
+#z2m-dns-shell.z2m-theme-dark .z2m-sa-filter-chip-active .z2m-sa-filter-count {
+	background: rgba(255,255,255,.14); color: #eef7ff;
+}
+
+/* search dark */
+#z2m-dns-shell.z2m-theme-dark .z2m-sa-search {
+	background: #1f2023; color: #e6e8eb; border-color: #55585f; color-scheme: dark;
+}
+#z2m-dns-shell.z2m-theme-dark .z2m-sa-search::placeholder {
+	color: #8f949c; opacity: 1;
+}
+#z2m-dns-shell.z2m-theme-dark .z2m-sa-search:focus {
+	border-color: #65a9e8; outline: none; box-shadow: 0 0 0 2px rgba(101,169,232,.18);
+}
+
+/* ════════════════════════════════════════════════════════
+   Responsive breakpoints
+   ════════════════════════════════════════════════════════ */
+@media (max-width: 1099px) {
 	.z2m-sa-grid { flex-direction: column; }
 	.z2m-sa-sidebar { width: 100%; min-width: 0; position: static; margin-bottom: 10px; }
 }

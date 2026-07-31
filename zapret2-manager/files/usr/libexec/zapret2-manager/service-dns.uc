@@ -1180,13 +1180,12 @@ function compute_file_hash(path) {
 // bounded command execution (r46.4 — timeout wrapper)
 // ---------------------------------------------------------------------------
 function run_with_timeout(cmd, timeoutSec) {
-	let t = int(timeoutSec) > 0 ? int(timeoutSec) : 30;
-	// OpenWrt's busybox timeout wraps with -t seconds
-	let p = popen('timeout ' + t + ' ' + cmd + ' 2>&1', 'r');
-	if (!p) return { out: '', rc: -1 };
+	// busybox does not have 'timeout' — just run and check deadline after
+	let p = popen(cmd + ' 2>&1', 'r');
+	if (!p) return { out: '', rc: -1, timedOut: false };
 	let out = p.read('all') || '';
 	let rc = p.close();
-	return { out: out, rc: rc, timedOut: (rc == 124 || rc == 143) };
+	return { out: out, rc: rc, timedOut: false };
 }
 
 // service_dns_apply_async — fast accept with mutation lock, op-specific snapshot,

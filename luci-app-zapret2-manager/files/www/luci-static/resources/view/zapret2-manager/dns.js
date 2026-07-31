@@ -5,7 +5,7 @@
 // Grounding: dnsmasq + UCI + resolvfile. No Windows APIs, no per-adapter model.
 'require rpc';
 
-const DNS_UI_BUILD = 'r46.4';
+const DNS_UI_BUILD = 'r46.4.1';
 
 const callDnsGet        = rpc.declare({ object: 'zapret2-manager', method: 'dns_get', reject: true });
 const callDnsSet        = rpc.declare({ object: 'zapret2-manager', method: 'dns_set', params: ['edit'], reject: true });
@@ -107,6 +107,21 @@ function callout(type, text) {
 	return E('div', { 'class': cls[type] || cls.warn }, text);
 }
 
+function detectDark() {
+	// Check LuCI theme markers first
+	var main = document.querySelector('.main');
+	var body = document.body;
+	var target = main || body;
+	if (!target) return (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+	var bg = window.getComputedStyle(target).backgroundColor;
+	var m = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+	if (m) {
+		var luminance = 0.2126 * Number(m[1]) + 0.7152 * Number(m[2]) + 0.0722 * Number(m[3]);
+		return luminance < 128;
+	}
+	return (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+}
+
 return L.view.extend({
 	title: _('DNS'),
 
@@ -150,6 +165,10 @@ return L.view.extend({
 				E('p', {}, _('Manage DNS upstream servers, test providers, configure service access mappings.'))
 			])
 		]);
+
+		// theme detection — apply one class to shell
+		if (detectDark()) container.classList.add('z2m-theme-dark');
+		else container.classList.add('z2m-theme-light');
 
 		// persistent tab bar
 		this._tabBar = E('div', { 'class': 'z2m-tabs' });
@@ -727,6 +746,7 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 			options.push({ value: p.id, label: pn, desc: (p.requiredDomains || []).length + ' domains' });
 		});
 		var customSel = createServiceSelect({
+			view: view,
 			value: draft.selections[svc] || 'off',
 			options: options,
 			ariaLabel: label,
@@ -1136,7 +1156,7 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 }
 
 // ════════════════════════════════════════════════════════
-// Custom Service Select (r46.4 — portal dropdown)
+// Custom Service Select (r46.4.1 — portal dropdown)
 // ════════════════════════════════════════════════════════
 function createOperationId() {
 	var randomPart;
@@ -1176,7 +1196,14 @@ function createServiceSelect(opts) {
 	trigger.appendChild(chevron);
 	root.appendChild(trigger);
 
-	updateDisplay();
+	// Single popup state in closure
+	var popup = null;
+	var searchInput = null;
+	var optionEls = [];
+	var activeIdx = -1;
+	var opened = false;
+	var destroyed = false;
+	var resizeTimer = null;
 
 	function updateDisplay(val) {
 		if (val === undefined) val = value;
@@ -1191,45 +1218,107 @@ function createServiceSelect(opts) {
 		if (!silent) onChange(value);
 	}
 
-	function open() {
-		if (trigger.disabled) return;
-		// Close existing
-		if (viewRef && viewRef._openServiceSelect && viewRef._openServiceSelect !== root) {
-			viewRef._openServiceSelect.close();
+	function getThemeClass() {
+		var shell = document.getElementById('z2m-dns-shell');
+		if (shell && shell.classList.contains('z2m-theme-dark')) return 'z2m-theme-dark';
+		if (shell && shell.classList.contains('z2m-theme-light')) return 'z2m-theme-light';
+		return 'z2m-theme-light';
+	}
+
+	function positionPopup() {
+		if (!popup || !trigger) return;
+		var rect = trigger.getBoundingClientRect();
+		var vh = window.innerHeight;
+		var vw = window.innerWidth;
+		var trigW = Math.max(rect.width, 120);
+		var pw = Math.min(Math.max(trigW, 180), Math.min(320, vw - 16));
+		popup.style.width = pw + 'px';
+		popup.style.left = Math.max(8, Math.min(rect.left, vw - pw - 8)) + 'px';
+
+		var topBelow = rect.bottom + 4;
+		var topAbove = rect.top - Math.min(320, rect.top - 8) - 4;
+		if (topBelow + 280 <= vh || topAbove < 8) {
+			popup.style.top = topBelow + 'px';
+		} else {
+			popup.style.top = Math.max(8, topAbove) + 'px';
 		}
+	}
+
+	function onKey(e) {
+		if (e.key === 'Escape') { e.preventDefault(); closePopup(); }
+		else if (e.key === 'ArrowDown') { e.preventDefault(); if (optionEls.length) { activeIdx = (activeIdx + 1) % optionEls.length; optionEls[activeIdx].focus(); } }
+		else if (e.key === 'ArrowUp') { e.preventDefault(); if (optionEls.length) { activeIdx = activeIdx <= 0 ? optionEls.length - 1 : activeIdx - 1; optionEls[activeIdx].focus(); } }
+		else if (e.key === 'Home') { e.preventDefault(); if (optionEls.length) { activeIdx = 0; optionEls[0].focus(); } }
+		else if (e.key === 'End') { e.preventDefault(); if (optionEls.length) { activeIdx = optionEls.length - 1; optionEls[optionEls.length - 1].focus(); } }
+		else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (activeIdx >= 0 && optionEls[activeIdx]) optionEls[activeIdx].click(); }
+		else if (e.key === 'Tab') { closePopup(); }
+	}
+
+	function onOutside(e) {
+		if (popup && !popup.contains(e.target) && e.target !== trigger) { closePopup(); }
+	}
+
+	function onScroll() { closePopup(); }
+
+	function onResize() {
+		if (resizeTimer) clearTimeout(resizeTimer);
+		resizeTimer = setTimeout(positionPopup, 80);
+	}
+
+	function removeListeners() {
+		document.removeEventListener('click', onOutside, true);
+		window.removeEventListener('resize', onResize);
+		window.removeEventListener('scroll', onScroll, true);
+		if (resizeTimer) { clearTimeout(resizeTimer); resizeTimer = null; }
+	}
+
+	function closePopup(restoreFocus) {
+		if (destroyed) return;
+		if (restoreFocus === undefined) restoreFocus = true;
+		opened = false;
+		removeListeners();
+		if (popup) {
+			if (popup.parentNode) popup.parentNode.removeChild(popup);
+			popup = null;
+		}
+		optionEls = [];
+		activeIdx = -1;
+		searchInput = null;
+		trigger.setAttribute('aria-expanded', 'false');
+		if (viewRef && viewRef._openServiceSelect === api) viewRef._openServiceSelect = null;
+		if (restoreFocus) trigger.focus();
+	}
+
+	function openPopup() {
+		if (destroyed || trigger.disabled) return;
+		// Close any other open select
+		if (viewRef && viewRef._openServiceSelect && viewRef._openServiceSelect !== api) {
+			viewRef._openServiceSelect.close(false);
+		}
+
 		// Create popup
-		var popup = document.createElement('div');
+		popup = document.createElement('div');
 		popup.className = 'z2m-select-popup';
 		popup.setAttribute('role', 'listbox');
+		popup.classList.add(getThemeClass());
 
-		// Check shell theme
-		var shell = document.getElementById('z2m-dns-shell');
-		var isDark = false;
-		if (shell) {
-			if (shell.classList.contains('z2m-theme-dark')) isDark = true;
-			else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) isDark = true;
-		}
-		if (isDark) popup.classList.add('z2m-theme-dark');
-
-		var searchWrap = null, searchInput = null;
 		if (options.length > 8) {
-			searchWrap = document.createElement('div');
-			searchWrap.className = 'z2m-select-search';
+			var sw = document.createElement('div');
+			sw.className = 'z2m-select-search';
 			searchInput = document.createElement('input');
 			searchInput.type = 'search';
 			searchInput.placeholder = _('Filter');
-			searchWrap.appendChild(searchInput);
-			popup.appendChild(searchWrap);
+			sw.appendChild(searchInput);
+			popup.appendChild(sw);
 		}
 
 		var list = document.createElement('div');
 		list.className = 'z2m-select-list';
-		var optionEls = [];
-		var activeIdx = -1;
 
 		function renderOptions(filter) {
 			list.innerHTML = '';
 			optionEls = [];
+			activeIdx = -1;
 			var f = (filter || '').toLowerCase();
 			for (var i = 0; i < options.length; i++) {
 				var o = options[i];
@@ -1250,7 +1339,7 @@ function createServiceSelect(opts) {
 					btn.appendChild(desc);
 				}
 				btn.addEventListener('click', (function (val) {
-					return function (e) { e.preventDefault(); e.stopPropagation(); setValue(val); close(); };
+					return function (e) { e.preventDefault(); e.stopPropagation(); setValue(val); closePopup(); };
 				})(o.value));
 				list.appendChild(btn);
 				optionEls.push(btn);
@@ -1262,106 +1351,50 @@ function createServiceSelect(opts) {
 		document.body.appendChild(popup);
 		positionPopup();
 		trigger.setAttribute('aria-expanded', 'true');
+		opened = true;
 
+		// Register listeners
+		popup.addEventListener('keydown', onKey);
+		setTimeout(function () { document.addEventListener('click', onOutside, true); }, 0);
+		window.addEventListener('resize', onResize);
+		window.addEventListener('scroll', onScroll, true);
+
+		// Set ownership
+		if (viewRef) viewRef._openServiceSelect = api;
+
+		// Focus search or first option
 		if (searchInput) {
 			searchInput.addEventListener('input', function () { renderOptions(searchInput.value); });
-			setTimeout(function () { searchInput.focus(); }, 50);
-		}
-
-		if (!searchInput && optionEls.length > 0) {
+			setTimeout(function () { if (searchInput) searchInput.focus(); }, 50);
+		} else if (optionEls.length > 0) {
 			activeIdx = 0;
 			for (var ai = 0; ai < optionEls.length; ai++) { if (optionEls[ai].getAttribute('aria-selected') === 'true') { activeIdx = ai; break; } }
 			optionEls[activeIdx].focus();
 		}
-
-		function positionPopup() {
-			var rect = trigger.getBoundingClientRect();
-			var vh = window.innerHeight;
-			var vw = window.innerWidth;
-			var pw = Math.max(Math.min(360, vw - 16), 200);
-			popup.style.width = pw + 'px';
-			popup.style.left = Math.max(8, Math.min(rect.left, vw - pw - 8)) + 'px';
-
-			var topBelow = rect.bottom + 4;
-			var topAbove = rect.top - Math.min(320, rect.top - 8) - 4;
-			if (topBelow + 320 <= vh || topAbove < 8) {
-				popup.style.top = topBelow + 'px';
-			} else {
-				popup.style.top = Math.max(8, topAbove) + 'px';
-			}
-		}
-
-		function close() {
-			popup.remove();
-			trigger.setAttribute('aria-expanded', 'false');
-			trigger.focus();
-			if (viewRef && viewRef._openServiceSelect === popup) viewRef._openServiceSelect = null;
-			removeListener();
-		}
-
-		function onKey(e) {
-			switch (e.key) {
-			case 'Escape': e.preventDefault(); close(); break;
-			case 'ArrowDown': e.preventDefault();
-				if (optionEls.length) { activeIdx = (activeIdx + 1) % optionEls.length; optionEls[activeIdx].focus(); }
-				break;
-			case 'ArrowUp': e.preventDefault();
-				if (optionEls.length) { activeIdx = activeIdx <= 0 ? optionEls.length - 1 : activeIdx - 1; optionEls[activeIdx].focus(); }
-				break;
-			case 'Home': e.preventDefault(); if (optionEls.length) { activeIdx = 0; optionEls[0].focus(); } break;
-			case 'End': e.preventDefault(); if (optionEls.length) { activeIdx = optionEls.length - 1; optionEls[optionEls.length - 1].focus(); } break;
-			case 'Enter': case ' ': e.preventDefault(); if (activeIdx >= 0 && optionEls[activeIdx]) optionEls[activeIdx].click(); break;
-			case 'Tab': close(); break;
-			}
-		}
-
-		function onOutside(e) {
-			if (!popup.contains(e.target) && e.target !== trigger) { close(); }
-		}
-
-		var resizeTimer;
-		function onResize() { clearTimeout(resizeTimer); resizeTimer = setTimeout(positionPopup, 100); }
-
-		popup.addEventListener('keydown', onKey);
-		setTimeout(function () { document.addEventListener('click', onOutside, true); }, 0);
-		window.addEventListener('resize', onResize);
-		if (viewRef) viewRef._openServiceSelect = root;
-
-		function removeListener() {
-			document.removeEventListener('click', onOutside, true);
-			window.removeEventListener('resize', onResize);
-		}
-	}
-
-	function close() {
-		if (viewRef && viewRef._openServiceSelect === root) {
-			var popup = document.querySelector('.z2m-select-popup');
-			if (popup) popup.remove();
-			trigger.setAttribute('aria-expanded', 'false');
-			viewRef._openServiceSelect = null;
-		}
 	}
 
 	trigger.addEventListener('click', function () {
-		if (viewRef && viewRef._openServiceSelect === root) { close(); } else { open(); }
+		if (opened) { closePopup(); } else { openPopup(); }
 	});
 
 	trigger.addEventListener('keydown', function (e) {
 		if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
 			e.preventDefault();
-			open();
+			openPopup();
 		}
 	});
 
-	return {
+	var api = {
 		element: root,
 		getValue: function () { return value; },
 		setValue: setValue,
-		setDisabled: function (d) { trigger.disabled = !!d; },
-		open: open,
-		close: close,
-		destroy: function () { close(); }
+		setDisabled: function (d) { disabled = !!d; trigger.disabled = disabled; },
+		open: function () { openPopup(); },
+		close: function (restore) { closePopup(restore); },
+		destroy: function () { destroyed = true; closePopup(false); }
 	};
+
+	return api;
 }
 
 // ════════════════════════════════════════════════════════
