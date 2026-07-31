@@ -76,7 +76,8 @@ if (!jr || type(jr) != 'object') exit(1);
 let opId = jr.operationId || 'unknown';
 let t0 = int(time());
 let stp = '/etc/zapret2-manager/service-dns-state.json';
-let rcp = jr.routingConfPath || '/etc/zapret2-manager/service-dns-routing.conf';
+let rcp = jr.routingConfPath || '/etc/zapret2-manager/service-dns-routing.d/10-routing.conf';
+let rdir = jr.routingDir || '/etc/zapret2-manager/service-dns-routing.d';
 let sdp = jr.snapDir || jr.jobDir || '/tmp/zapret2-manager/service-dns-jobs/' + opId;
 let lockf = '/tmp/zapret2-manager/service-dns-apply.lock';
 
@@ -174,10 +175,10 @@ let tw = int(time()) - t0;
 // Register conf_file in dhcp
 write_job(jf, { phase: 'registering' });
 let dhcpConf = readfile('/etc/config/dhcp') || '';
-if (index(dhcpConf, rcp) < 0) {
-	if (runcmd("uci add_list dhcp.@dnsmasq[0].conf_file='" + rcp + "'").rc != 0) fail_and_rollback('EUCIADD', 'uci add_list failed');
-	if (runcmd('uci commit dhcp').rc != 0) fail_and_rollback('EUCICOMMIT', 'uci commit failed');
-}
+	if (index(dhcpConf, rdir) < 0) {
+		if (runcmd("uci add_list dhcp.@dnsmasq[0].confdir='" + rdir + "'").rc != 0) fail_and_rollback('EUCIADD', 'uci add_list failed');
+		if (runcmd('uci commit dhcp').rc != 0) fail_and_rollback('EUCICOMMIT', 'uci commit failed');
+	}
 
 // Phase: reloading
 write_job(jf, { phase: 'reloading', timings: { writeMs: tw * 1000, reloadMs: 0, verifyMs: 0, rollbackMs: 0, totalMs: 0 } });
@@ -216,9 +217,9 @@ for (let i = 0; i < length(expectedKeys); i++) {
 	if (!vTuples[expectedKeys[i]]) fail_and_rollback('EVERIFY', 'missing tuple after restart: ' + expectedKeys[i]);
 }
 
-// 5. UCI conf_file registration
-let vDhcp = readfile('/etc/config/dhcp') || '';
-if (index(vDhcp, rcp) < 0) fail_and_rollback('EVERIFY', 'conf_file not registered after restart');
+	// 5. UCI confdir registration
+	let vDhcp = readfile('/etc/config/dhcp') || '';
+	if (index(vDhcp, rdir) < 0) fail_and_rollback('EVERIFY', 'confdir not registered after restart');
 
 // 6. dnsmasq running
 let ubus = runcmd('ubus call service list \'{"name":"dnsmasq"}\'');

@@ -587,6 +587,8 @@ function restore_service_dns_state() {
 // split-DNS routing helpers (r46.5)
 // ---------------------------------------------------------------------------
 const ROUTING_CONF = '/etc/zapret2-manager/service-dns-routing.conf';
+const ROUTING_DIR = '/etc/zapret2-manager/service-dns-routing.d';
+const ROUTING_CONF_IN_DIR = ROUTING_DIR + '/10-routing.conf';
 
 function generate_routing_rules(selections, profileMap, providerMap) {
 	let rules = {};
@@ -636,12 +638,12 @@ function get_dnsmasq_info() {
 		let ver = run('dnsmasq --version 2>/dev/null');
 		if (ver.rc == 0) { let m = match(ver.out, /Dnsmasq version ([0-9.]+)/); if (m) info.version = m[1]; }
 	}
-	// Check UCI dhcp for our conf_file registration
+	// Check UCI dhcp for our confdir registration
 	let dhcpRaw = readfile(DHCP_CONF) || '';
-	info.routingRegistered = (index(dhcpRaw, ROUTING_CONF) >= 0);
+	info.routingRegistered = (index(dhcpRaw, ROUTING_DIR) >= 0);
 	// Count directives from actual routing fragment
-	if (stat(ROUTING_CONF) && info.routingRegistered) {
-		let frag = readfile(ROUTING_CONF) || '';
+	if (stat(ROUTING_CONF_IN_DIR) && info.routingRegistered) {
+		let frag = readfile(ROUTING_CONF_IN_DIR) || '';
 		let flines = split(frag, '\n');
 		let cnt = 0;
 		for (let i = 0; i < length(flines); i++) {
@@ -1252,7 +1254,7 @@ function create_op_snapshot(operationId) {
 	// save current state
 	if (stat(STATE_PATH)) run('cp -p ' + STATE_PATH + ' ' + dir + '/previous-state.json');
 	// save current routing conf
-	if (stat(ROUTING_CONF)) run('cp -p ' + ROUTING_CONF + ' ' + dir + '/previous-routing.conf 2>/dev/null');
+	if (stat(ROUTING_CONF_IN_DIR)) run('cp -p ' + ROUTING_CONF_IN_DIR + ' ' + dir + '/previous-routing.conf 2>/dev/null');
 	// save current overrides (manual host overrides — separate from service routing)
 	if (stat(OVERRIDES_PATH)) run('cp -p ' + OVERRIDES_PATH + ' ' + dir + '/previous.hosts');
 	// save UCI dnsmasq conf_file entries
@@ -1371,7 +1373,7 @@ export const service_dns_apply_async = function(req) {
 	if (!stat(snapDir)) { release_lock(operationId); return err('ETARGET', 'failed to create snapshot directory'); }
 	let prevUci = run('uci show dhcp.@dnsmasq[0].server 2>/dev/null');
 	writefile(snapDir + '/previous-uci-server.txt', prevUci.out || '');
-	if (stat(ROUTING_CONF)) run('cp -p ' + ROUTING_CONF + ' ' + snapDir + '/previous-routing.conf');
+	if (stat(ROUTING_CONF_IN_DIR)) run('cp -p ' + ROUTING_CONF_IN_DIR + ' ' + snapDir + '/previous-routing.conf');
 
 	let routingConf = generate_dnsmasq_routing_conf(gen.rules);
 	// Validate generated config
@@ -1395,8 +1397,9 @@ export const service_dns_apply_async = function(req) {
 		release_lock(operationId);
 		return err('EROUTINGCONF_COUNT', 'generated ' + actualDirs + ' directives, expected ' + expectedDirs);
 	}
-	// Atomic write + readback
-	let tmpf = ROUTING_CONF + '.tmp.' + time();
+	// Atomic write to conf-dir
+	run('mkdir -p ' + ROUTING_DIR);
+	let tmpf = ROUTING_CONF_IN_DIR + '.tmp.' + time();
 	writefile(tmpf, routingConf);
 	let readBack = readfile(tmpf);
 	if (readBack != routingConf) {
@@ -1404,19 +1407,24 @@ export const service_dns_apply_async = function(req) {
 		release_lock(operationId);
 		return err('EROUTINGCONF', 'readback mismatch — file write failed');
 	}
-	let mv = run('mv -f ' + tmpf + ' ' + ROUTING_CONF);
+	let mv = run('mv -f ' + tmpf + ' ' + ROUTING_CONF_IN_DIR);
 	if (mv.rc != 0) { try { unlink(tmpf); } catch (e) {} release_lock(operationId); return err('ETARGET', 'failed to write routing conf'); }
-	run('chmod 644 ' + ROUTING_CONF);
+	run('chmod 644 ' + ROUTING_CONF_IN_DIR);
 	// Compute hash from actual content
-	let hashTmpf = ROUTING_CONF + '.hash.' + time();
+	let hashTmpf = ROUTING_DIR + '/.hash.' + time();
 	writefile(hashTmpf, routingConf);
 	let routingHash = compute_file_hash(hashTmpf);
 	try { unlink(hashTmpf); } catch (e) {}
 
-	// register conf_file in dnsmasq if not already
+	// register confdir in dnsmasq if not already
 	let conf = readfile(DHCP_CONF) || '';
-	if (index(conf, ROUTING_CONF) < 0) {
-		run("uci add_list dhcp.@dnsmasq[0].conf_file='" + ROUTING_CONF + "'");
+	if (index(conf, ROUTING_DIR) < 0) {
+		run("uci add_list dhcp.@dnsmasq[0].confdir='" + ROUTING_DIR + "'");
+		run('uci commit dhcp');
+	}
+	// also clean up old conf_file entry
+	if (index(conf, 'conf_file') >= 0 && index(conf, ROUTING_DIR) < 0) {
+		run("uci delete dhcp.@dnsmasq[0].conf_file 2>/dev/null");
 		run('uci commit dhcp');
 	}
 	// write desired hash
@@ -1434,7 +1442,7 @@ export const service_dns_apply_async = function(req) {
 		routingConf: routingConf, rules: gen.rules,
 		routeCount: routeCount, directiveCount: dirCount,
 		desiredHash: desiredHash, routingHash: routingHash,
-		statePath: STATE_PATH, routingConfPath: ROUTING_CONF, snapDir: snapDir, jobDir: opDir,
+		statePath: STATE_PATH, routingConfPath: ROUTING_CONF_IN_DIR, routingDir: ROUTING_DIR, snapDir: snapDir, jobDir: opDir,
 		createdAt: iso_now(), updatedAt: iso_now(), finished: false,
 		pid: 0, timings: { writeMs: 0, reloadMs: 0, verifyMs: 0, rollbackMs: 0, totalMs: 0 }
 	};
