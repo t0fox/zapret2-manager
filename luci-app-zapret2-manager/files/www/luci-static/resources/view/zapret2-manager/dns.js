@@ -554,13 +554,13 @@ function providerCard(view, p, comps) {
 	var selected = configured.length === (p.ipv4 || []).length && configured.every(function (x, i) { return x === p.ipv4[i]; });
 	if (selected) badges.push(badge(_('Selected'), 'ok'));
 
-	var resEl = E('div', { 'class': 'z2m-provider-result', 'style': 'display:none;margin-top:.4em;padding:.3em;border-radius:4px;font-size:.85em' });
+	var resEl = E('div', { 'class': 'z2m-provider-result z2m-provider-pending', 'style': 'display:none' });
 
 	var testBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Test'));
 	testBtn.addEventListener('click', function () {
 		testBtn.disabled = true;
 		resEl.style.display = 'block';
-		resEl.style.background = 'var(--bg,#f0f0f0)';
+		resEl.className = 'z2m-provider-result z2m-provider-pending';
 		resEl.textContent = _('Testing...');
 		callProvDiag(JSON.stringify({ provider: p.id })).then(function (res) {
 			testBtn.disabled = false;
@@ -579,7 +579,7 @@ function providerCard(view, p, comps) {
 			view.showFlash(_('Selected ') + p.name, 'success');
 			return view.reload();
 		}).catch(function (e) {
-			resEl.style.display = 'block'; resEl.style.background = '#f8d7da'; resEl.style.color = '#721c24';
+			resEl.style.display = 'block'; resEl.className = 'z2m-provider-result z2m-provider-fail';
 			resEl.textContent = _('Select failed: ') + formatRpcError(e);
 		}).then(function () { selectBtn.disabled = false; });
 	});
@@ -610,13 +610,12 @@ function updateProviderCard(id, res, error) {
 	var el = ref.result;
 	el.style.display = 'block';
 	if (error || !res || res.ok !== true) {
-		el.style.background = '#f8d7da'; el.style.color = '#721c24';
+		el.className = 'z2m-provider-result z2m-provider-fail';
 		el.textContent = _('RPC error: ') + formatRpcError(error || res);
 		return;
 	}
 	var row = res.probes && res.probes[0], attempts = row && row.attempts || [];
-	el.style.background = row && row.outcome === 'working' ? '#d4edda' : (row && row.outcome === 'partial' ? '#fff3cd' : '#f8d7da');
-	el.style.color = row && row.outcome === 'working' ? '#155724' : (row && row.outcome === 'partial' ? '#856404' : '#721c24');
+	el.className = 'z2m-provider-result ' + (row && row.outcome === 'working' ? 'z2m-provider-pass' : (row && row.outcome === 'partial' ? 'z2m-provider-warn' : 'z2m-provider-fail'));
 	var lines = [(row ? row.outcome : 'failed').toUpperCase()];
 	attempts.forEach(function (a) { lines.push(a.resolverIp + ': DNS ' + (a.dnsAnswered ? 'PASS' : 'FAIL') + ', ping ' + (a.pingAnswered ? 'PASS' : 'FAIL') + (a.timedOut ? ', timeout' : '') + (a.error ? ', ' + a.error : '') + (a.answers && a.answers.length ? ', answers: ' + a.answers.join(', ') : '')); });
 	el.textContent = lines.join(' | ');

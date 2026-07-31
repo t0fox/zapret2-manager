@@ -7,6 +7,7 @@ const cli = readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/dnsp
 const rpc = readFileSync('zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc', 'utf8');
 const acl = JSON.parse(readFileSync('luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json', 'utf8'));
 const ui = readFileSync('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/dns.js', 'utf8');
+const css = readFileSync('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.css', 'utf8');
 
 test('provider Select has RPC dispatcher, write ACL and UI handler', () => {
 	assert.match(rpc, /dns_select_provider_method/);
@@ -45,4 +46,11 @@ test('dispatcher CLI exposes provider selection without shell-selected method na
 	assert.match(cli, /mode == 'select'/);
 	assert.match(cli, /dns_select_provider\(read_args/);
 	assert.match(rpc, /cli_edit_action\(DNSPROV_CLI, 'select'/);
+});
+
+test('async provider result state is theme-safe and not an inline white flash', () => {
+	assert.match(ui, /z2m-provider-pending/);
+	assert.doesNotMatch(ui, /var\(--bg,#f0f0f0\)|background = ['"]#d4edda|background = ['"]#f8d7da/);
+	assert.match(css, /\.z2m-provider-pending/);
+	assert.match(css, /var\(--cbi-row-u/);
 });
