@@ -533,15 +533,6 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 
 	// ── toolbar ──
 	var srch = E('input', { 'type': 'search', 'placeholder': _('Search') });
-	var cfSel = E('select', {}, [
-		E('option', { value: '' }, _('All categories')),
-		E('option', { value: 'AI' }, _('AI')),
-		E('option', { value: 'Media' }, _('Media')),
-		E('option', { value: 'Social' }, _('Social')),
-		E('option', { value: 'Games' }, _('Games')),
-		E('option', { value: 'Developer' }, _('Developer')),
-		E('option', { value: 'Other' }, _('Other'))
-	]);
 	var sfSel = E('select', {}, [
 		E('option', { value: '' }, _('All')),
 		E('option', { value: 'enabled' }, _('On')),
@@ -551,7 +542,6 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 	var resLbl = E('span', { 'class': 'z2m-sa-result' });
 	var tb = E('div', { 'class': 'z2m-sa-toolbar' });
 	tb.appendChild(srch);
-	tb.appendChild(cfSel);
 	tb.appendChild(sfSel);
 	tb.appendChild(resLbl);
 	node.appendChild(tb);
@@ -725,7 +715,7 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 	// ── filter logic ──
 	function doFilter() {
 		var q = (srch.value || '').toLowerCase();
-		var cf = cfSel.value, sf = sfSel.value;
+		var sf = sfSel.value;
 		var vis = 0;
 		for (var i = 0; i < allRows.length; i++) {
 			var r = allRows[i];
@@ -737,7 +727,6 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 			var ch = (draft.selections[sv] || 'off') !== (appliedSel[sv] || 'off');
 			var show = true;
 			if (q && sl.indexOf(q) < 0 && sb.indexOf(q) < 0 && sv.indexOf(q) < 0) show = false;
-			if (cf && ct !== cf) show = false;
 			if (sf === 'enabled' && !en) show = false;
 			if (sf === 'disabled' && en) show = false;
 			if (sf === 'changed' && !ch) show = false;
@@ -783,7 +772,8 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 		sticky.appendChild(left);
 		var right = E('div', { 'class': 'z2m-sa-st-right' });
 
-		var disc = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button', 'disabled': !has }, _('Discard'));
+		var disc = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Discard'));
+		disc.disabled = !has;
 		disc.addEventListener('click', function () {
 			draft.selections = {};
 			for (var k in selections) draft.selections[k] = selections[k];
@@ -792,7 +782,8 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 		});
 		right.appendChild(disc);
 
-		var prev = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button', 'disabled': !has }, _('Preview'));
+		var prev = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Preview'));
+		prev.disabled = !has;
 		prev.addEventListener('click', function () {
 			prev.disabled = true;
 			callSdnsSet(JSON.stringify({ selections: draft.selections })).then(function () {
@@ -804,7 +795,8 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 		});
 		right.appendChild(prev);
 
-		var appl = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button', 'disabled': !has }, _('Apply'));
+		var appl = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button' }, _('Apply'));
+		appl.disabled = !has;
 		appl.addEventListener('click', function () {
 			appl.disabled = true; prev.disabled = true; disc.disabled = true;
 			callSdnsSet(JSON.stringify({ selections: draft.selections })).then(function () {
