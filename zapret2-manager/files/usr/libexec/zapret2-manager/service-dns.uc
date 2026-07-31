@@ -178,8 +178,8 @@ function validate_ipv4_ucode(ip) {
 		if (n > 255) return { ok: false, reason: 'octet > 255' };
 		push(nums, n);
 	}
-	if (octets_private(nums)) return { ok: false, reason: 'non-routable/private/loopback/multicast/documentation IPv4 rejected: ' + join(nums, '.') };
-	return { ok: true, ip: join(nums, '.') };
+	if (octets_private(nums)) return { ok: false, reason: 'non-routable/private/loopback/multicast/documentation IPv4 rejected: ' + join('.', nums) };
+	return { ok: true, ip: join('.', nums) };
 }
 
 function validate_ipv6_ucode(ip) {
@@ -647,16 +647,17 @@ function get_dnsmasq_info() {
 }
 
 function generate_dnsmasq_routing_conf(rules) {
-	let lines = ['# Managed by zapret2-manager r46.5', '# Do not edit manually'];
+	let lines = ['# Managed by zapret2-manager r46.5.1', '# Do not edit manually'];
 	let domains = keys(rules); sort(domains);
 	for (let i = 0; i < length(domains); i++) {
 		let d = domains[i];
 		let r = rules[d];
+		if (!r || type(r) != 'object' || type(r.upstreams) != 'array') continue;
 		for (let j = 0; j < length(r.upstreams); j++) {
 			push(lines, 'server=/' + d + '/' + r.upstreams[j]);
 		}
 	}
-	return join(lines, '\n') + '\n';
+	return join('\n', lines) + '\n';
 }
 
 function compute_routing_hash(rules) {
@@ -911,13 +912,13 @@ export const service_dns_preview = function(req) {
 		let e = existingByTuple[k];
 		if (e.owner == 'user') { userOwned[k] = true; ownership[k] = 'user'; continue; }
 		let d = desiredByTuple[k];
-		if (d) { push(sharedKept, e); ownership[k] = d.ownerArr ? join(d.ownerArr, ',') : d.owner; }
+		if (d) { push(sharedKept, e); ownership[k] = d.ownerArr ? join(',', d.ownerArr) : d.owner; }
 		else push(removed, e);
 	}
 	for (let k in desiredByTuple) {
 		if (userOwned[k]) continue; // anti-wipe: service never claims or shares
 		let d = desiredByTuple[k];
-		if (!ownership[k]) ownership[k] = d.ownerArr ? join(d.ownerArr, ',') : d.owner;
+		if (!ownership[k]) ownership[k] = d.ownerArr ? join(',', d.ownerArr) : d.owner;
 	}
 	for (let i = 0; i < length(desiredRecords); i++) {
 		let r = desiredRecords[i];
@@ -1016,7 +1017,7 @@ export const service_dns_apply = function(req) {
 			}
 			comp = { status: 'complete', missingRequired: [], missingOptional: [], aCount: length(recs), aaaaCount: 0, unsupported: [] };
 		}
-		if (comp.status != 'complete') return err('EINPUT', 'profile ' + pid + ' is ' + comp.status + ' (missing: ' + join(comp.missingRequired, ', ') + ')');
+		if (comp.status != 'complete') return err('EINPUT', 'profile ' + pid + ' is ' + comp.status + ' (missing: ' + join(', ', comp.missingRequired) + ')');
 		let desired = compute_desired_records_ucode(recs, APPLY_FAMILY);
 		for (let j = 0; j < length(desired.records); j++)
 			push(desiredRecords, { hostname: desired.records[j].hostname, A: desired.records[j].A, AAAA: desired.records[j].AAAA, owner: 'service:' + pid });
@@ -1365,19 +1366,44 @@ export const service_dns_apply_async = function(req) {
 	if (stat(ROUTING_CONF)) run('cp -p ' + ROUTING_CONF + ' ' + snapDir + '/previous-routing.conf');
 
 	let routingConf = generate_dnsmasq_routing_conf(gen.rules);
-	if (!routingConf || type(routingConf) != 'string') {
-		let lines = ['# Managed by zapret2-manager r46.5', '# Do not edit manually'];
-		let doms = keys(gen.rules); sort(doms);
-		for (let i2 = 0; i2 < length(doms); i2++) {
-			let d = doms[i2]; let r2 = gen.rules[d];
-			for (let j2 = 0; j2 < length(r2.upstreams); j2++)
-				push(lines, 'server=/' + d + '/' + r2.upstreams[j2]);
-		}
-		routingConf = join(lines, '\n') + '\n';
+	// Validate generated config
+	if (type(routingConf) != 'string' || trim(routingConf) == '' || trim(routingConf) == 'null') {
+		release_lock(operationId);
+		return err('EROUTINGCONF', 'generated routing config is invalid');
 	}
-	writefile(ROUTING_CONF, routingConf);
+	// Verify directive count
+	let expectedDirs = 0;
+	for (let dk in gen.rules) {
+		let ru = gen.rules[dk];
+		if (ru && type(ru) == 'object' && type(ru.upstreams) == 'array')
+			expectedDirs += length(ru.upstreams);
+	}
+	let actualDirs = 0;
+	let cl = split(routingConf, '\n');
+	for (let ci = 0; ci < length(cl); ci++) {
+		if (substr(trim(cl[ci]), 0, 8) == 'server=/') actualDirs++;
+	}
+	if (actualDirs != expectedDirs) {
+		release_lock(operationId);
+		return err('EROUTINGCONF_COUNT', 'generated ' + actualDirs + ' directives, expected ' + expectedDirs);
+	}
+	// Atomic write + readback
+	let tmpf = ROUTING_CONF + '.tmp.' + time();
+	writefile(tmpf, routingConf);
+	let readBack = readfile(tmpf);
+	if (readBack != routingConf) {
+		try { unlink(tmpf); } catch (e) {}
+		release_lock(operationId);
+		return err('EROUTINGCONF', 'readback mismatch — file write failed');
+	}
+	let mv = run('mv -f ' + tmpf + ' ' + ROUTING_CONF);
+	if (mv.rc != 0) { try { unlink(tmpf); } catch (e) {} release_lock(operationId); return err('ETARGET', 'failed to write routing conf'); }
 	run('chmod 644 ' + ROUTING_CONF);
-	let routingHash = compute_routing_hash(gen.rules);
+	// Compute hash from actual content
+	let hashTmpf = ROUTING_CONF + '.hash.' + time();
+	writefile(hashTmpf, routingConf);
+	let routingHash = compute_file_hash(hashTmpf);
+	try { unlink(hashTmpf); } catch (e) {}
 
 	// register conf_file in dnsmasq if not already
 	let conf = readfile(DHCP_CONF) || '';
