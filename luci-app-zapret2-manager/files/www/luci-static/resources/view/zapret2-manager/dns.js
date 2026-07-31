@@ -30,6 +30,7 @@ const callDnsRestoreAuto = rpc.declare({ object: 'zapret2-manager', method: 'dns
 const callProvComp      = rpc.declare({ object: 'zapret2-manager', method: 'dnsprov_components', reject: true });
 const callProvList      = rpc.declare({ object: 'zapret2-manager', method: 'dnsprov_providers', reject: true });
 const callProvDiag      = rpc.declare({ object: 'zapret2-manager', method: 'dnsprov_diagnose', params: ['edit'], reject: true });
+const callProvSelect    = rpc.declare({ object: 'zapret2-manager', method: 'dns_select_provider', params: ['edit'], reject: true });
 const callSdnsProv      = rpc.declare({ object: 'zapret2-manager', method: 'service_dns_providers', reject: true });
 const callSdnsStatus    = rpc.declare({ object: 'zapret2-manager', method: 'service_dns_status', reject: true });
 const callSdnsPreview   = rpc.declare({ object: 'zapret2-manager', method: 'service_dns_preview', reject: true });
@@ -471,7 +472,12 @@ function providersSection(view, provs, comps, envelope) {
 
 	if (envelope.provListError) {
 		node.appendChild(callout('bad', _('Provider catalog unavailable: ') + esc(envelope.provListError)));
-		node.appendChild(E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Retry')));
+		var retry = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Retry'));
+		retry.addEventListener('click', function () {
+			retry.disabled = true;
+			view.reload().catch(function (e) { retry.disabled = false; node.appendChild(callout('bad', _('Retry failed: ') + formatRpcError(e))); });
+		});
+		node.appendChild(retry);
 		return node;
 	}
 
@@ -485,38 +491,37 @@ function providersSection(view, provs, comps, envelope) {
 		if (testAllBtn.disabled) return;
 		testAllBtn.disabled = true;
 		allResult.textContent = _('Testing 0 of ') + items.length + '\u2026';
-		var results = [], index = 0;
+		var results = [], index = 0, deadline = Date.now() + 120000;
 		function next() {
-			if (index >= items.length) {
-				var good = results.filter(function (r) { return r.ok; }).length;
-				allResult.textContent = _('Completed: ') + good + '/' + items.length + ' ' + _('providers passed');
+			if (index >= items.length || Date.now() >= deadline) {
+				var passed = results.filter(function (r) { return r.status === 'Passed'; }).length;
+				var partial = results.filter(function (r) { return r.status === 'Partial'; }).length;
+				var failed = items.length - passed - partial;
+				allResult.textContent = _('Passed: ') + passed + ' / ' + _('Partial: ') + partial + ' / ' + _('Failed: ') + failed;
 				testAllBtn.disabled = false;
 				return;
 			}
 			var p = items[index++];
 			allResult.textContent = _('Testing ') + index + ' of ' + items.length + '\u2026';
 			callProvDiag(JSON.stringify({ provider: p.id })).then(function (res) {
-				var probe = res && res.probes && res.probes[0];
-				results.push({ id: p.id, ok: !!(probe && probe.reachable && probe.answered) });
-			}).catch(function () { results.push({ id: p.id, ok: false }); }).then(next);
+				var row = res && res.probes && res.probes[0];
+				var status = row ? (row.outcome === 'working' ? 'Passed' : (row.outcome === 'partial' ? 'Partial' : 'Failed')) : 'Failed';
+				results.push({ id: p.id, status: status });
+				updateProviderCard(p.id, res, null);
+			}).catch(function (e) {
+				results.push({ id: p.id, status: 'Failed' });
+				updateProviderCard(p.id, null, e);
+			}).then(next);
 		}
 		next();
 	});
 	node.appendChild(E('div', { 'class': 'z2m-actions' }, [testAllBtn, allResult]));
 
-	// Custom provider link
-	var customBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Add custom provider'));
-	node.appendChild(E('div', { 'class': 'z2m-actions', 'style': 'margin-left:.4em' }, [customBtn]));
-
-	customBtn.addEventListener('click', function () {
-		node.appendChild(customProviderForm());
-	});
-
 	Object.keys(categories).forEach(function (cat) {
 		node.appendChild(E('h4', {}, esc(cat)));
 		var grid = E('div', { 'class': 'z2m-card-grid' });
 		categories[cat].forEach(function (p) {
-			grid.appendChild(providerCard(view, p));
+			grid.appendChild(providerCard(view, p, comps));
 		});
 		node.appendChild(grid);
 	});
@@ -534,12 +539,16 @@ function groupProviders(providers) {
 	return cats;
 }
 
-function providerCard(view, p) {
+var providerCardRefs = {};
+function providerCard(view, p, comps) {
 	var ipv4 = (p.ipv4 || []).slice(0, 2).join(', ') || _('No IPv4');
 	var ipv6 = (p.ipv6 || []).slice(0, 2).join(', ') || _('None');
 	var badges = [];
 	if (p.doh) badges.push(badge(_('DoH'), 'ok'));
 	badges.push(badge(p.category || '?', 'neutral'));
+	var configured = (comps && comps.wan && comps.wan.dns) || [];
+	var selected = configured.length === (p.ipv4 || []).length && configured.every(function (x, i) { return x === p.ipv4[i]; });
+	if (selected) badges.push(badge(_('Selected'), 'ok'));
 
 	var resEl = E('div', { 'class': 'z2m-provider-result', 'style': 'display:none;margin-top:.4em;padding:.3em;border-radius:4px;font-size:.85em' });
 
@@ -551,29 +560,25 @@ function providerCard(view, p) {
 		resEl.textContent = _('Testing...');
 		callProvDiag(JSON.stringify({ provider: p.id })).then(function (res) {
 			testBtn.disabled = false;
-			var probe = (res && res.probes && res.probes.length) ? res.probes[0] : null;
-			if (probe && probe.reachable && probe.answered) {
-				var ips = (probe.answer || []).slice(0, 3).join(', ');
-				resEl.style.background = '#d4edda';
-				resEl.style.color = '#155724';
-				resEl.textContent = _('OK') + ': ' + ips + ' (via ' + esc(p.ipv4[0] || '?') + ')';
-			} else if (probe && probe.reachable) {
-				resEl.style.background = '#fff3cd';
-				resEl.style.color = '#856404';
-				resEl.textContent = _('Reachable, no DNS (ping OK, port 53 timeout)');
-			} else {
-				resEl.style.background = '#f8d7da';
-				resEl.style.color = '#721c24';
-				resEl.textContent = _('Unreachable') + (probe ? ': ' + esc(probe.reason || '') : '');
-			}
+			updateProviderCard(p.id, res, null);
 		}).catch(function (err) {
 			testBtn.disabled = false;
-			resEl.style.background = '#f8d7da';
-			resEl.style.color = '#721c24';
-			resEl.textContent = _('Error') + ': ' + String(err);
+			updateProviderCard(p.id, null, err);
 		});
 	});
 	var selectBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button' }, _('Select'));
+	selectBtn.addEventListener('click', function () {
+		if (selectBtn.disabled || !window.confirm(_('Select ') + p.name + ' (' + (p.ipv4 || []).join(', ') + ')?')) return;
+		selectBtn.disabled = true;
+		callProvSelect(JSON.stringify({ providerId: p.id })).then(function (res) {
+			if (!res || res.ok !== true) throw new Error(formatRpcError(res));
+			view.showFlash(_('Selected ') + p.name, 'success');
+			return view.reload();
+		}).catch(function (e) {
+			resEl.style.display = 'block'; resEl.style.background = '#f8d7da'; resEl.style.color = '#721c24';
+			resEl.textContent = _('Select failed: ') + formatRpcError(e);
+		}).then(function () { selectBtn.disabled = false; });
+	});
 	testBtn._provider = p;
 
 	var body = [
@@ -588,39 +593,29 @@ function providerCard(view, p) {
 		resEl
 	].filter(Boolean);
 
-	return E('div', { 'class': 'z2m-card' }, [
+	var cardNode = E('div', { 'class': 'z2m-card', 'data-provider-id': p.id }, [
 		E('h4', {}, esc(p.name))
 	].concat(body));
+	providerCardRefs[p.id] = { result: resEl, test: testBtn };
+	return cardNode;
 }
 
-function customProviderForm() {
-	var node = E('div', { 'class': 'z2m-card' }, [
-		E('h4', {}, _('Custom DNS Provider')),
-		E('div', { 'class': 'z2m-callout z2m-callout-info' },
-			_('Enter a custom DNS server. Private and loopback addresses are warned but not blocked. Editing the currently applied provider requires switching first.'))
-	]);
-
-	var name = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'placeholder': _('Provider name'), 'style': 'width:100%' });
-	var ipv4_1 = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'placeholder': _('Primary IPv4'), 'style': 'width:100%' });
-	var ipv4_2 = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'placeholder': _('Secondary IPv4'), 'style': 'width:100%' });
-
-	node.appendChild(kv(_('Name'), name));
-	node.appendChild(kv(_('Primary IPv4'), ipv4_1));
-	node.appendChild(kv(_('Secondary IPv4'), ipv4_2));
-
-	var btns = E('div', { 'class': 'z2m-actions' });
-	var saveBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button' }, _('Save'));
-	var testBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Test'));
-	var cancelBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Cancel'));
-	btns.appendChild(saveBtn);
-	btns.appendChild(testBtn);
-	btns.appendChild(cancelBtn);
-	cancelBtn.addEventListener('click', function () {
-		if (node.parentNode) node.parentNode.removeChild(node);
-	});
-	node.appendChild(btns);
-
-	return node;
+function updateProviderCard(id, res, error) {
+	var ref = providerCardRefs[id];
+	if (!ref) return;
+	var el = ref.result;
+	el.style.display = 'block';
+	if (error || !res || res.ok !== true) {
+		el.style.background = '#f8d7da'; el.style.color = '#721c24';
+		el.textContent = _('RPC error: ') + formatRpcError(error || res);
+		return;
+	}
+	var row = res.probes && res.probes[0], attempts = row && row.attempts || [];
+	el.style.background = row && row.outcome === 'working' ? '#d4edda' : (row && row.outcome === 'partial' ? '#fff3cd' : '#f8d7da');
+	el.style.color = row && row.outcome === 'working' ? '#155724' : (row && row.outcome === 'partial' ? '#856404' : '#721c24');
+	var lines = [(row ? row.outcome : 'failed').toUpperCase()];
+	attempts.forEach(function (a) { lines.push(a.resolverIp + ': DNS ' + (a.dnsAnswered ? 'PASS' : 'FAIL') + ', ping ' + (a.pingAnswered ? 'PASS' : 'FAIL') + (a.timedOut ? ', timeout' : '') + (a.error ? ', ' + a.error : '') + (a.answers && a.answers.length ? ', answers: ' + a.answers.join(', ') : '')); });
+	el.textContent = lines.join(' | ');
 }
 
 // ════════════════════════════════════════════════════════

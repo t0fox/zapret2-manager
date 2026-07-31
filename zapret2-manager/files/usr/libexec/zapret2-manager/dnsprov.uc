@@ -8,11 +8,14 @@
 // different answer is NOT automatically poisoning (CDN anycast produces the
 // same picture legitimately).
 
-import { readfile, stat, popen, lsdir } from 'fs';
+import { readfile, writefile, stat, popen, lsdir } from 'fs';
+let uci = require('uci');
 
 const PROVIDERS_PATH = '/usr/libexec/zapret2-manager/catalog/dns-providers.json';
 const PROVIDER_SCHEMA = 1;
 const TOTAL_BUDGET_SEC = 25;
+const DNS_DEADLINE_SEC = 4;
+const PING_DEADLINE_SEC = 2;
 
 function run(cmd) {
 	let p = popen(cmd + ' 2>&1', 'r');
@@ -23,8 +26,9 @@ function run(cmd) {
 	return { out: out, rc: rc };
 }
 
-function err(code, message, extra) {
-	let e = { ok: false, error: { code: code, message: message } };
+function err(code, message, stage, extra) {
+	if (extra == null && type(stage) == 'object') { extra = stage; stage = null; }
+	let e = { ok: false, stage: (stage != null) ? stage : null, error: { code: code, message: message } };
 	if (extra != null) {
 		let ks = keys(extra);
 		for (let i = 0; i < length(ks); i++) e[ks[i]] = extra[ks[i]];
@@ -143,6 +147,13 @@ function uci_get(path) {
 	return trim(r.out);
 }
 
+function uci_list(all, key) {
+	let v = all ? all[key] : null;
+	if (type(v) == 'array') return v;
+	if (type(v) == 'string' && v != '') return [v];
+	return [];
+}
+
 export const dnsprov_components = function() {
 	let byProc = listeners53();
 	let components = [];
@@ -161,6 +172,9 @@ export const dnsprov_components = function() {
 	}
 	// WAN resolver inputs (verbatim)
 	let peerdns = uci_get('network.wan.peerdns');
+	let wanDns = [];
+	let nc = uci.cursor();
+	if (nc.load('network')) wanDns = uci_list(nc.get_all('network', 'wan'), 'dns');
 	let resolvAuto = [];
 	let raw = readfile('/tmp/resolv.conf.d/resolv.conf.auto');
 	if (raw) {
@@ -188,6 +202,7 @@ export const dnsprov_components = function() {
 		conflicts: conflicts,
 		wan: {
 			peerdns: (peerdns != '') ? peerdns : null,
+			dns: wanDns,
 			resolvfile: '/tmp/resolv.conf.d/resolv.conf.auto',
 			nameservers: resolvAuto
 		},
@@ -224,36 +239,72 @@ function validate_domain(d) {
 	return (index(d, '..') < 0 && index(d, '.') > 0 && index(d, '*') < 0);
 }
 
-function nslookup_ips(domain, server) {
-	let r = run('nslookup ' + domain + ' ' + server + ' 2>&1 | grep "Address: " | head -4');
-	let lines = split(r.out, '\n');
-	let ips = [];
+function now_ms() {
+	let s = trim(run('date +%s').out);
+	return match(s, /^[0-9]+$/) ? (+s * 1000) : 0;
+}
+
+function bounded(cmd, seconds) {
+	return run("sh -c '" + cmd + " & p=$!; (sleep " + seconds + "; kill $p 2>/dev/null) & t=$!; wait $p; r=$?; kill $t 2>/dev/null; exit $r'");
+}
+
+function parse_nslookup(text, resolver) {
+	let lines = split(text || '', '\n'), seenName = false, answers = [];
 	for (let i = 0; i < length(lines); i++) {
 		let l = trim(lines[i]);
-		if (substr(l, 0, 8) == 'Address:') {
-			let a = trim(substr(l, 8));
-			let sp = index(a, ' ');
-			if (sp > 0) a = substr(a, 0, sp);
-			push(ips, a);
+		if (substr(l, 0, 5) == 'Name:' || substr(l, 0, 5) == 'name:') { seenName = true; continue; }
+		// BusyBox prints resolver metadata before Name:, including Address 1:.
+		// Only addresses after the answer section are candidates.
+		if (!seenName || substr(l, 0, 7) != 'Address') continue;
+		let colon = index(l, ':');
+		if (colon < 0) continue;
+		let a = trim(substr(l, colon + 1));
+		let sp = index(a, ' ');
+		if (sp >= 0) a = substr(a, 0, sp);
+		if (ipv4_ok(a) && a != resolver) {
+			let duplicate = false;
+			for (let j = 0; j < length(answers); j++) if (answers[j] == a) duplicate = true;
+			if (!duplicate) push(answers, a);
 		}
 	}
-	return ips;
+	return answers;
 }
 
-function ping_ok(ip, budget) {
-	let r = run('ping -c1 -W' + budget + ' ' + ip + ' >/dev/null 2>&1; echo $?');
-	return (trim(r.out) == '0') ? true : false;
-}
-
-function classify_probe(reachable, answered, matches) {
-	if (reachable !== true) return { outcome: 'unreachable', confidence: 'high', reason: 'no answer within the probe budget' };
-	if (answered !== true) return { outcome: 'no-answer', confidence: 'medium', reason: 'reachable but no DNS answer' };
-	if (matches === true) return { outcome: 'consistent', confidence: 'high', reason: 'provider and local answers agree' };
-	if (matches === false) return {
-		outcome: 'divergent', confidence: 'low',
-		reason: 'provider and local answers DIFFER — this is NOT automatically poisoning: CDN-backed domains legitimately return different IPs by resolver/region'
+function nslookup_probe(domain, resolver) {
+	// Both operands are independently validated (hostname syntax/catalog IPv4),
+	// and the command is bounded by BusyBox timeout. No caller-provided value is
+	// used for provider selection or UCI mutation.
+	let started = now_ms();
+	let r = bounded('nslookup ' + domain + ' ' + resolver, DNS_DEADLINE_SEC);
+	let answers = parse_nslookup(r.out, resolver);
+	let timedOut = (r.rc == 124 || r.rc == 137);
+	let nxdomain = (index((r.out || ''), 'NXDOMAIN') >= 0 || index((r.out || ''), "Can't find") >= 0);
+	return {
+		answers: answers,
+		dnsAnswered: length(answers) > 0,
+		timedOut: timedOut,
+		error: length(answers) ? null : (timedOut ? 'DNS query timeout' : (nxdomain ? 'NXDOMAIN' : (r.rc != 0 ? 'nslookup failed' : 'no valid DNS answer'))),
+		durationMs: now_ms() - started
 	};
-	return { outcome: 'unknown', confidence: 'none', reason: 'insufficient evidence' };
+}
+
+function ping_probe(ip) {
+	let r = bounded('ping -c 1 -W ' + PING_DEADLINE_SEC + ' ' + ip, PING_DEADLINE_SEC);
+	return { answered: r.rc == 0, timedOut: r.rc == 124 || r.rc == 137 };
+}
+
+function provider_attempt(domain, resolver) {
+	let dns = nslookup_probe(domain, resolver);
+	let ping = ping_probe(resolver);
+	return {
+		resolverIp: resolver,
+		dnsAnswered: dns.dnsAnswered,
+		answers: dns.answers,
+		pingAnswered: ping.answered,
+		timedOut: dns.timedOut || ping.timedOut,
+		error: dns.error,
+		durationMs: dns.durationMs
+	};
 }
 
 export const dnsprov_diagnose = function(input) {
@@ -268,71 +319,93 @@ export const dnsprov_diagnose = function(input) {
 	if (!lp.ok) return err('ETARGET', 'provider catalog is invalid', { errors: lp.errors });
 
 	// local resolver first
-	let localIps = nslookup_ips(domain, '127.0.0.1');
+	let localProbe = nslookup_probe(domain, '127.0.0.1');
+	let localIps = localProbe.answers;
 	let localOk = (length(localIps) > 0);
 
 	let probes = [];
 	let providerIds = keys(lp.byId);
-	let budgetLeft = TOTAL_BUDGET_SEC;
+	let started = now_ms();
 	for (let i = 0; i < length(providerIds); i++) {
-		if (budgetLeft < 3) break;
+		if (now_ms() - started >= TOTAL_BUDGET_SEC * 1000) break;
 		let p = lp.byId[providerIds[i]];
 		if (onlyProvider != null && p.id != onlyProvider) continue;
-		let ip = (type(p.ipv4) == 'array' && length(p.ipv4) > 0) ? p.ipv4[0] : null;
-		if (ip == null) { push(probes, { provider: p.id, outcome: 'unavailable', reason: 'no IPv4 on record' }); continue; }
-		let reachable = ping_ok(ip, 2);
-		let providerIps = [];
-		if (reachable) providerIps = nslookup_ips(domain, ip);
-		budgetLeft -= 3;
-		let answered = (length(providerIps) > 0);
-		let matches = null;
-		if (answered && localOk) {
-			matches = false;
-			for (let a = 0; a < length(providerIps); a++) {
-				for (let b = 0; b < length(localIps); b++)
-					if (providerIps[a] == localIps[b]) matches = true;
-			}
+		let attempts = [];
+		for (let j = 0; type(p.ipv4) == 'array' && j < length(p.ipv4); j++) {
+			if (now_ms() - started >= TOTAL_BUDGET_SEC * 1000) break;
+			push(attempts, provider_attempt(domain, p.ipv4[j]));
 		}
-		let cls = classify_probe(reachable, answered, matches);
-		let row = {
-			provider: p.id,
-			probeIp: ip,
-			reachable: reachable,
-			answered: answered,
-			answer: providerIps,
-			outcome: cls.outcome,
-			confidence: cls.confidence,
-			reason: cls.reason
-		};
+		let answeredCount = 0;
+		for (let j = 0; j < length(attempts); j++) if (attempts[j].dnsAnswered) answeredCount++;
+		let outcome = answeredCount > 0 ? (answeredCount == length(attempts) ? 'working' : 'partial') : 'failed';
+		let row = { provider: p.id, attempts: attempts, outcome: outcome, working: outcome == 'working', partial: outcome == 'partial', failed: outcome == 'failed' };
 		push(probes, row);
 	}
-
-	// consistency verdict
-	let divergent = 0, consistent = 0, unreachable = 0;
-	for (let i = 0; i < length(probes); i++) {
-		if (probes[i].outcome == 'divergent') divergent++;
-		else if (probes[i].outcome == 'consistent') consistent++;
-		else if (probes[i].outcome == 'unreachable' || probes[i].outcome == 'no-answer') unreachable++;
-	}
-	let verdict;
-	if (length(probes) == 0) verdict = { verdict: 'unknown', confidence: 'none', reason: 'no probes completed' };
-	else if (divergent == 0 && unreachable == 0)
-		verdict = { verdict: 'consistent', confidence: 'high', reason: 'all provider and local answers agree' };
-	else if (divergent == 0)
-		verdict = { verdict: 'partial', confidence: 'low', reason: unreachable + ' provider(s) unreachable; remaining answers agree' };
-	else
-		verdict = {
-			verdict: 'divergent', confidence: 'low',
-			reason: divergent + ' domain(s) resolve differently via provider vs local resolver. Confidence is LOW: legitimate CDN anycast/regional answers produce the same picture. Suspicion requires more evidence than this probe provides.'
-		};
 
 	return {
 		ok: true,
 		domain: domain,
 		localResolver: { ok: localOk, answers: localIps },
 		probes: probes,
-		verdict: verdict,
-		budget: { totalCapSec: TOTAL_BUDGET_SEC },
-		note: 'evidence with confidence — divergence is NOT automatically poisoning'
+		budget: { totalCapSec: TOTAL_BUDGET_SEC, dnsSec: DNS_DEADLINE_SEC, pingSec: PING_DEADLINE_SEC },
+		note: 'DNS answers determine working state; ICMP is supplementary evidence'
 	};
+};
+
+function provider_snapshot(path, providerId, peerdns, dns) {
+	let snapshot = { providerId: providerId, timestamp: trim(run('date -u +%Y-%m-%dT%H:%M:%SZ').out), peerdns: peerdns, dns: dns };
+	writefile(path, sprintf('%J', snapshot) + '\n');
+	return snapshot;
+}
+
+function rollback_network(snapshot) {
+	let c = uci.cursor();
+	if (!c.load('network')) return false;
+	if (c.set('network', 'wan', 'peerdns', snapshot.peerdns) === false) return false;
+	if (length(snapshot.dns)) { if (c.set('network', 'wan', 'dns', snapshot.dns) === false) return false; }
+	else if (c.delete('network', 'wan', 'dns') === false) return false;
+	if (c.commit('network') === false) return false;
+	return run('/etc/init.d/network reload').rc == 0;
+}
+
+export const dns_select_provider = function(input) {
+	let providerId = (type(input) == 'object' && input != null && type(input.providerId) == 'string') ? input.providerId : null;
+	if (providerId == null || providerId == '') return err('EINPUT', 'providerId is required', 'validate');
+	let lp = load_providers();
+	if (!lp.ok) return err('ETARGET', 'provider catalog is invalid', 'catalog', { errors: lp.errors });
+	let p = lp.byId[providerId];
+	if (!p) return err('ENOENT', 'provider is not in the bundled catalog', 'catalog');
+	if (type(p.ipv4) != 'array' || length(p.ipv4) == 0) return err('EINPUT', 'provider has no IPv4 resolvers', 'validate');
+	let c = uci.cursor();
+	if (!c.load('network')) return err('ETARGET', 'network UCI is unavailable', 'snapshot');
+	let wan = c.get_all('network', 'wan');
+	if (!wan) return err('ETARGET', 'network.wan is unavailable', 'snapshot');
+	let oldDns = uci_list(wan, 'dns');
+	let oldPeer = (type(wan.peerdns) == 'string' && wan.peerdns != '') ? wan.peerdns : '1';
+	let snapPath = '/tmp/zapret2-manager/last-good/dns-provider.json';
+	let snapshot = provider_snapshot(snapPath, providerId, oldPeer, oldDns);
+	let changed = false;
+	if (c.set('network', 'wan', 'peerdns', '0') === false) return err('EUCIWRITE', 'cannot set WAN peerdns', 'mutate');
+	if (c.set('network', 'wan', 'dns', p.ipv4) === false) return err('EUCIWRITE', 'cannot set WAN DNS list', 'mutate');
+	changed = true;
+	if (c.commit('network') === false) { rollback_network(snapshot); return err('EUCICOMMIT', 'network commit failed; snapshot restored', 'mutate'); }
+	if (run('/etc/init.d/network reload').rc != 0) { rollback_network(snapshot); return err('ERELOAD', 'network reload failed; snapshot restored', 'reload'); }
+	let found = false;
+	for (let i = 0; i < 12; i++) {
+		let raw = readfile('/tmp/resolv.conf.d/resolv.conf.auto') || '';
+		let lines = split(raw, '\n'), seen = [];
+		for (let j = 0; j < length(lines); j++) if (substr(trim(lines[j]), 0, 11) == 'nameserver ') push(seen, trim(substr(trim(lines[j]), 11)));
+		found = length(seen) == length(p.ipv4);
+		for (let j = 0; found && j < length(p.ipv4); j++) if (seen[j] != p.ipv4[j]) found = false;
+		if (found) break;
+		run('sleep 1');
+	}
+	let localOk = bounded('nslookup openwrt.org 127.0.0.1', DNS_DEADLINE_SEC).rc == 0;
+	let routerIp = (type(wan.ipaddr) == 'string') ? wan.ipaddr : '192.168.1.1';
+	let routerOk = bounded('nslookup openwrt.org ' + routerIp, DNS_DEADLINE_SEC).rc == 0;
+	if (!found || !localOk || !routerOk) {
+		let rolled = rollback_network(snapshot);
+		return err('EVERIFY', 'DNS verification failed; snapshot rollback ' + (rolled ? 'completed' : 'failed'), 'verify', { rollback: rolled, snapshot: snapshot });
+	}
+	return { ok: true, providerId: providerId, provider: p.name, ipv4: p.ipv4, snapshot: snapshot, verify: { resolvfile: true, localhostDns: true, routerDns: true } };
 };

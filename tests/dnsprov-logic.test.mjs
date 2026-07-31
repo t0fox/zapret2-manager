@@ -8,19 +8,20 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
 	validateProvider, validateProviders, componentReport,
-	classifyProviderProbe, suspicionAssessment
+	classifyProviderProbe, suspicionAssessment, parseBusyboxNslookup, summarizeAttempts
 } from './lib/dnsprov-logic.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PROVIDERS_PATH = join(HERE, '..', 'zapret2-manager', 'files', 'usr', 'libexec', 'zapret2-manager', 'catalog', 'dns-providers.json');
+const NSLOOKUP_FIXTURES = JSON.parse(readFileSync(join(HERE, 'fixtures', 'dnsprov-nslookup-fixtures.json'), 'utf8'));
 
-test('the SHIPPED provider catalog passes validation (6 providers, honest DoH-as-data notes)', () => {
+test('the SHIPPED provider catalog passes validation (bundled providers, honest DoH-as-data notes)', () => {
 	const doc = JSON.parse(readFileSync(PROVIDERS_PATH, 'utf8'));
 	const r = validateProviders(doc);
 	assert.deepEqual(r.errors, [], 'shipped providers must be valid: ' + r.errors.join('; '));
 	assert.equal(r.ok, true);
-	assert.equal(Object.keys(r.byId).length, 6);
-	for (const id of ['cloudflare', 'google', 'quad9', 'adguard', 'opendns', 'dnssb'])
+	assert.equal(Object.keys(r.byId).length, doc.providers.length);
+	for (const id of ['cloudflare', 'google-dns', 'quad9', 'adguard', 'opendns', 'dnssb'])
 		assert.ok(r.byId[id], 'missing provider ' + id);
 	for (const p of doc.providers) {
 		if (p.doh) assert.match(p.doh, /^https:\/\//, 'doh is an https URL (data only)');
@@ -91,4 +92,23 @@ test('suspicionAssessment: divergent answers → LOW confidence verdict, never a
 	assert.equal(suspicionAssessment([{ outcome: 'consistent' }]).verdict, 'consistent');
 	assert.equal(suspicionAssessment([]).verdict, 'unknown');
 	assert.equal(suspicionAssessment([{ outcome: 'unreachable' }]).verdict, 'partial');
+});
+
+test('BusyBox parser ignores resolver header and supports numbered answers', () => {
+	assert.deepEqual(parseBusyboxNslookup(NSLOOKUP_FIXTURES.normalBusybox, '1.1.1.1'), ['93.184.216.34', '93.184.216.35']);
+});
+
+test('BusyBox parser returns no answer for timeout header and NXDOMAIN', () => {
+	assert.deepEqual(parseBusyboxNslookup(NSLOOKUP_FIXTURES.timeoutWithHeader, '1.1.1.1'), []);
+	assert.deepEqual(parseBusyboxNslookup(NSLOOKUP_FIXTURES.nxdomain, '1.1.1.1'), []);
+});
+
+test('provider summary checks secondary after primary failure and ignores ping-only failure', () => {
+	const r = summarizeAttempts([
+		{ resolverIp: '1.1.1.1', dnsAnswered: false, pingAnswered: false, timedOut: true, answers: [] },
+		{ resolverIp: '1.0.0.1', dnsAnswered: true, pingAnswered: false, timedOut: false, answers: ['93.184.216.34'] }
+	]);
+	assert.equal(r.outcome, 'partial');
+	assert.equal(r.working, false);
+	assert.equal(summarizeAttempts([{ dnsAnswered: true, pingAnswered: false }]).outcome, 'working');
 });

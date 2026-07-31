@@ -8,7 +8,7 @@
 // legitimately differ).
 
 export const PROVIDER_SCHEMA = 1;
-export const PROVIDER_CATEGORIES = ['anycast', 'privacy', 'filtered', 'regional', 'isp'];
+export const PROVIDER_CATEGORIES = ['anycast', 'privacy', 'filtered', 'regional', 'isp', 'Популярные', 'Безопасные', 'Для ИИ', 'Другое'];
 
 // validateProvider(p) → errors[]
 export function validateProvider(p) {
@@ -101,4 +101,26 @@ export function suspicionAssessment(probes) {
 		confidence: 'low',
 		reason: divergent.length + ' domain(s) resolve differently via provider vs local resolver. Confidence is LOW: legitimate CDN anycast/regional answers produce the same picture. Suspicion requires more evidence than this probe provides.'
 	};
+}
+
+// BusyBox nslookup prints resolver metadata before `Name:` and answer records
+// afterwards. Only post-Name Address/Address N records are domain answers.
+export function parseBusyboxNslookup(text, resolverIp) {
+	const answers = [];
+	let answerSection = false;
+	for (const raw of String(text || '').split(/\r?\n/)) {
+		const line = raw.trim();
+		if (/^Name:\s*/i.test(line)) { answerSection = true; continue; }
+		if (!answerSection || !/^Address(?:\s+\d+)?\s*:/i.test(line)) continue;
+		const value = line.slice(line.indexOf(':') + 1).trim().split(/\s+/)[0];
+		if (/^(?:\d{1,3}\.){3}\d{1,3}$/.test(value) && value !== resolverIp && !answers.includes(value)) answers.push(value);
+	}
+	return answers;
+}
+
+export function summarizeAttempts(attempts) {
+	const rows = attempts || [];
+	const answered = rows.filter((a) => a.dnsAnswered === true).length;
+	const outcome = answered > 0 ? (answered === rows.length ? 'working' : 'partial') : 'failed';
+	return { outcome, working: outcome === 'working', partial: outcome === 'partial', failed: outcome === 'failed' };
 }

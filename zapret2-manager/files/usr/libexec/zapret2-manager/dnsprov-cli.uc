@@ -8,7 +8,7 @@
 //   ucode dnsprov-cli.uc diagnose <file> → {"domain"?,"provider"?}
 
 import { readfile } from 'fs';
-import { dnsprov_components, dnsprov_providers, dnsprov_diagnose } from './dnsprov.uc';
+import { dnsprov_components, dnsprov_providers, dnsprov_diagnose, dns_select_provider } from './dnsprov.uc';
 
 function read_args(file) {
 	if (!file) return null;
@@ -27,7 +27,9 @@ if (mode == 'components') {
 	print(sprintf("%J", dnsprov_providers()) + '\n');
 } else if (mode == 'diagnose') {
 	print(sprintf("%J", dnsprov_diagnose(read_args(ARGV[1]))) + '\n');
+} else if (mode == 'select') {
+	print(sprintf("%J", dns_select_provider(read_args(ARGV[1]))) + '\n');
 } else {
-	print('usage: ucode dnsprov-cli.uc components | providers | diagnose <f>\n');
+	print('usage: ucode dnsprov-cli.uc components | providers | diagnose <f> | select <f>\n');
 	exit(1);
 }

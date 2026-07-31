@@ -326,6 +326,7 @@ const DNSPROV_CLI = '/usr/libexec/zapret2-manager/dnsprov-cli.uc';
 function dnsprov_components_method(req) { return cli_action(DNSPROV_CLI, 'components'); }
 function dnsprov_providers_method(req) { return cli_action(DNSPROV_CLI, 'providers'); }
 function dnsprov_diagnose_method(req) { return cli_edit_action(DNSPROV_CLI, 'diagnose', req, 'dnsprov'); }
+function dns_select_provider_method(req) { return cli_edit_action(DNSPROV_CLI, 'select', req, 'dnsprov'); }
 
 // ---- TG WS Proxy adapter (Phase F: capabilities/status + functional slice) ------------
 // capabilities/status stay read-only. The functional methods delegate to
@@ -486,6 +487,7 @@ return {
 		dnsprov_components: { call: function (req) { return dnsprov_components_method(req); } },
 		dnsprov_providers: { call: function (req) { return dnsprov_providers_method(req); } },
 		dnsprov_diagnose: { args: { edit: 'string' }, call: function (req) { return dnsprov_diagnose_method(req); } },
+		dns_select_provider: { args: { edit: 'string' }, call: function (req) { return dns_select_provider_method(req); } },
 		proxy_capabilities: { call: function (req) { return proxy_capabilities_method(req); } },
 		proxy_status:      { call: function (req) { return proxy_status_method(req); } },
 		proxy_config_get:  { call: function (req) { return proxy_config_get_method(req); } },

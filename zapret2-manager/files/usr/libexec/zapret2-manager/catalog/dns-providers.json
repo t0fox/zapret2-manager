@@ -17,7 +17,7 @@
 			"ipv4": ["1.1.1.1", "1.0.0.1"],
 			"ipv6": ["2606:4700:4700::1111", "2606:4700:4700::1001"],
 			"doh": "https://cloudflare-dns.com/dns-query",
-			"notes": "No-logs claim by vendor, KPMG-audited."
+			"notes": "No-logs claim by vendor, KPMG-audited. DoH endpoint is data only; never activated."
 		},
 		{
 			"id": "google-dns",
@@ -31,7 +31,7 @@
 			"ipv4": ["8.8.8.8", "8.8.4.4"],
 			"ipv6": ["2001:4860:4860::8888", "2001:4860:4860::8844"],
 			"doh": "https://dns.google/dns-query",
-			"notes": "Large anycast network."
+			"notes": "Large anycast network. DoH endpoint is data only; never activated."
 		},
 		{
 			"id": "dnssb",
@@ -45,7 +45,7 @@
 			"ipv4": ["185.222.222.222", "45.11.45.11"],
 			"ipv6": ["2a09::", "2a11::"],
 			"doh": "https://doh.dns.sb/dns-query",
-			"notes": "EU-hosted, no-logs claim."
+			"notes": "EU-hosted, no-logs claim. DoH endpoint is data only; never activated."
 		},
 		{
 			"id": "quad9",
@@ -59,7 +59,7 @@
 			"ipv4": ["9.9.9.9", "149.112.112.112"],
 			"ipv6": ["2620:fe::fe", "2620:fe::9"],
 			"doh": "https://dns.quad9.net/dns-query",
-			"notes": "Nonprofit, threat-blocklist filtering."
+			"notes": "Nonprofit, threat-blocklist filtering. DoH endpoint is data only; never activated."
 		},
 		{
 			"id": "adguard",
@@ -73,7 +73,7 @@
 			"ipv4": ["94.140.14.14", "94.140.15.15"],
 			"ipv6": ["2a10:50c0::ad1:ff", "2a10:50c0::ad2:ff"],
 			"doh": "https://dns.adguard.com/dns-query",
-			"notes": "Ad/tracker filtering by default."
+			"notes": "Ad/tracker filtering by default. DoH endpoint is data only; never activated."
 		},
 		{
 			"id": "opendns",
@@ -87,7 +87,7 @@
 			"ipv4": ["208.67.222.222", "208.67.220.220"],
 			"ipv6": ["2620:119:35::35", "2620:119:53::53"],
 			"doh": null,
-			"notes": "Long-running anycast resolver."
+			"notes": "Long-running anycast resolver. DoH endpoint is data only; never activated."
 		},
 		{
 			"id": "dnsdoh-art",
@@ -101,7 +101,7 @@
 			"ipv4": ["194.180.189.33", "194.180.189.33"],
 			"ipv6": [],
 			"doh": "https://dnsdoh.art:444/dns-query",
-			"notes": "Small resolver, DoH over port 444."
+			"notes": "Small resolver, DoH over port 444. DoH endpoint is data only; never activated."
 		},
 		{
 			"id": "xbox-dns",
@@ -115,7 +115,7 @@
 			"ipv4": ["111.88.96.50", "111.88.96.51"],
 			"ipv6": [],
 			"doh": "https://xbox-dns.ru/dns-query",
-			"notes": "AI/blocked services DNS. Returns bypass A records for restricted domains."
+			"notes": "AI/blocked services DNS. Returns bypass A records for restricted domains. DoH endpoint is data only; never activated."
 		},
 		{
 			"id": "xbox-dns-v2",
@@ -129,7 +129,7 @@
 			"ipv4": ["87.228.47.200", "87.228.47.201"],
 			"ipv6": [],
 			"doh": "https://xbox-dns.ru/dns-query",
-			"notes": "Second generation Xbox DNS server."
+			"notes": "Second generation Xbox DNS server. DoH endpoint is data only; never activated."
 		},
 		{
 			"id": "xbox-dns-old",
@@ -143,7 +143,7 @@
 			"ipv4": ["176.99.11.77", "80.78.247.254"],
 			"ipv6": [],
 			"doh": "https://xbox-dns.ru/dns-query",
-			"notes": "Old/legacy Xbox DNS server."
+			"notes": "Old/legacy Xbox DNS server. DoH endpoint is data only; never activated."
 		},
 		{
 			"id": "comss-dns",
@@ -157,7 +157,7 @@
 			"ipv4": ["83.220.169.155", "212.109.195.93"],
 			"ipv6": [],
 			"doh": "https://dns.comss.one/dns-query",
-			"notes": "Anti-DPI DNS for blocked AI services."
+			"notes": "Anti-DPI DNS for blocked AI services. DoH endpoint is data only; never activated."
 		},
 		{
 			"id": "malw-link",
@@ -171,7 +171,7 @@
 			"ipv4": ["84.21.189.133", "64.188.98.242"],
 			"ipv6": ["2a12:bec4:1460:d5::2", "2a01:ecc0:2c1:2::2"],
 			"doh": "https://dns.malw.link/dns-query",
-			"notes": "Anti-DPI DNS for blocked AI/services. Returns bypass A records for restricted domains."
+			"notes": "Anti-DPI DNS for blocked AI/services. Returns bypass A records for restricted domains. DoH endpoint is data only; never activated."
 		}
 	]
 }
