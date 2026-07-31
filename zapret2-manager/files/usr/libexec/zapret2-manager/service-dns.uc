@@ -1064,3 +1064,141 @@ export const service_dns_rollback = function(req) {
 		note: 'snapshot restored and dnsmasq restarted'
 	};
 };
+
+const WORK_DIR = '/tmp/zapret2-manager';
+
+// service_dns_apply_async — fast accept, background worker
+export const service_dns_apply_async = function(req) {
+	let input = (req && req.args) ? req.args : req;
+	let sd = load_service_dns_state();
+	if (sd.malformed) return err('ESTATE', 'service DNS state is malformed: ' + sd.reason);
+	let state = sd.state;
+	let selections = state.selections || {};
+	let appliedRev = (type(state.applied.revision) == 'int') ? state.applied.revision : 0;
+	if (type(input.revision) == 'int' && input.revision != appliedRev)
+		return err('ECONFLICT', 'service DNS draft changed elsewhere (revision ' + appliedRev + '); reload and retry');
+	let operationId = 'sdns-' + time() + '-' + (time() * 7919) % 99999;
+
+	let ds = load_dataset();
+	if (!ds.ok) return err('ETARGET', 'dataset unavailable');
+	let profileMap = {};
+	let providerMap = {};
+	for (let i = 0; i < length(ds.profiles); i++) profileMap[ds.profiles[i].id] = ds.profiles[i];
+	for (let i = 0; i < length(ds.providers); i++) providerMap[ds.providers[i].id] = ds.providers[i];
+	let desiredRecords = [];
+	let warnings = [];
+	for (let svc in selections) {
+		let pid = selections[svc];
+		if (pid == 'off' || pid == null) continue;
+		let p = profileMap[pid];
+		if (!p) { push(warnings, { type: 'unknown-profile', serviceId: svc, profileId: pid }); continue; }
+		let prov = providerMap[p.providerId] || {};
+		let trust = classify_trust_ucode(prov, iso_now());
+		if (!trust.applicable) return err('EINPUT', 'profile ' + pid + ' is not applicable: ' + trust.reason);
+		let comp = compute_completeness_ucode(p);
+		let recs = p.records;
+		if (comp.status != 'complete' && comp.status != 'unresolved')
+			return err('EINPUT', 'profile ' + pid + ' is ' + comp.status);
+		// accept both complete and unresolved — worker resolves if needed
+		let desired = compute_desired_records_ucode(recs, APPLY_FAMILY);
+		for (let j = 0; j < length(desired.records); j++)
+			push(desiredRecords, { hostname: desired.records[j].hostname, A: desired.records[j].A, AAAA: desired.records[j].AAAA, owner: 'service:' + pid });
+	}
+
+	let snap = snapshot_service_dns();
+	let existing = parse_existing_overrides();
+	let ownership = build_ownership_map(desiredRecords, existing.ownership);
+	let candidateRecords = [];
+	let seenRec = {};
+	for (let i = 0; i < length(desiredRecords); i++) {
+		let r = desiredRecords[i];
+		for (let j = 0; j < length(r.A); j++) {
+			let key = r.hostname + '|A|' + r.A[j];
+			if (seenRec[key]) continue;
+			seenRec[key] = true;
+			push(candidateRecords, { hostname: r.hostname, A: [r.A[j]], AAAA: [], owner: r.owner });
+		}
+	}
+	for (let i = 0; i < length(existing.entries); i++) {
+		let e = existing.entries[i];
+		let keep = false;
+		let fams = [['A', e.A || []], ['AAAA', e.AAAA || []]];
+		for (let j = 0; j < length(fams); j++) {
+			let fam = fams[j][0], addrs = fams[j][1];
+			for (let k = 0; k < length(addrs); k++) {
+				if (ownership[tuple_key(e.hostname, fam, addrs[k])] && ownership[tuple_key(e.hostname, fam, addrs[k])] != '') { keep = true; break; }
+			}
+			if (keep) break;
+		}
+		if (keep) {
+			let key = e.hostname + '|' + (e.A && length(e.A) ? e.A[0] : '');
+			if (!seenRec[key]) { seenRec[key] = true; push(candidateRecords, e); }
+		}
+	}
+	let rendered = render_hosts_with_ownership(candidateRecords, ownership);
+
+	let newApplied = {
+		selections: _obj_assign({}, selections),
+		generatedAt: iso_now(),
+		revision: appliedRev + 1,
+		fileHash: null,
+		operationId: operationId,
+		operationStatus: 'submitted'
+	};
+	let h = popen('echo -n "' + replace(rendered, /"/g, '\\"') + '" | sha256sum 2>/dev/null | awk \'{print $1}\'', 'r');
+	if (h) { newApplied.fileHash = trim(h.read('all')); h.close(); }
+	state.applied = newApplied;
+	push(state.events, { ts: iso_now(), action: 'apply-async', revision: newApplied.revision, records: length(candidateRecords), operationId: operationId });
+	if (length(state.events) > 20) state.events = _slice(state.events, -20);
+	save_service_dns_state(state);
+
+	let jobFile = WORK_DIR + '/sdns-job-' + operationId + '.json';
+	let job = {
+		operationId: operationId, phase: 'queued',
+		rendered: rendered, records: candidateRecords,
+		statePath: STATE_PATH, overridesPath: OVERRIDES_PATH, snapDir: SNAP_DIR,
+		createdAt: iso_now(), updatedAt: iso_now(), finished: false
+	};
+	writefile(jobFile, sprintf("%J", job) + "\n");
+
+	let WORKER = '/usr/libexec/zapret2-manager/service-dns-apply-worker.uc';
+	let wp = popen('sh -c "/usr/bin/ucode ' + WORKER + ' ' + jobFile + ' > /dev/null 2>&1 &"', 'r');
+	if (wp) wp.close();
+
+	return {
+		ok: true, accepted: true, operationId: operationId,
+		revision: newApplied.revision, state: 'submitted',
+		recordsWritten: length(candidateRecords), warnings: warnings
+	};
+};
+
+export const service_dns_apply_status = function(req) {
+	let input = (req && req.args) ? req.args : req;
+	let operationId = (type(input.operationId) == 'string') ? input.operationId : null;
+	let sd = load_service_dns_state();
+	let state = sd.state || {};
+	let applied = state.applied || {};
+	let checkId = applied.operationId || operationId || '';
+	let jobFile = WORK_DIR + '/sdns-job-' + checkId + '.json';
+	if (stat(jobFile)) {
+		let job = json(readfile(jobFile));
+		if (job) {
+			return {
+				ok: true, operationId: checkId,
+				state: job.phase || 'running',
+				phase: job.phase, error: job.error || null,
+				updatedAt: job.updatedAt, finished: job.finished === true,
+				reloadMs: job.reloadMs || 0
+			};
+		}
+	}
+	if (applied.operationStatus) {
+		return {
+			ok: true, operationId: applied.operationId,
+			state: applied.operationStatus,
+			error: applied.operationError || null,
+			finished: (applied.operationStatus == 'success' || applied.operationStatus == 'rolled_back' || applied.operationStatus == 'failed')
+		};
+	}
+	return { ok: true, state: 'idle' };
+};

@@ -388,6 +388,8 @@ function service_dns_check_method(req)     { return cli_action(SERVICE_DNS_CLI, 
 function service_dns_preview_method(req)   { return cli_action(SERVICE_DNS_CLI, 'preview'); }
 function service_dns_set_method(req)       { return cli_edit_action(SERVICE_DNS_CLI, 'set', req, 'service_dns'); }
 function service_dns_apply_method(req)     { return cli_edit_action(SERVICE_DNS_CLI, 'apply', req, 'service_dns'); }
+function service_dns_apply_async_method(req) { return cli_action(SERVICE_DNS_CLI, 'apply-async'); }
+function service_dns_apply_status_method(req) { return cli_edit_action(SERVICE_DNS_CLI, 'apply-status', req, 'service_dns'); }
 function service_dns_rollback_method(req)  { return cli_action(SERVICE_DNS_CLI, 'rollback'); }
 
 // profiles_apply {edit: '{"mode":"preview"|"apply"}'} — preview is read-only
@@ -474,6 +476,8 @@ return {
 		service_dns_preview:   { call: function (req) { return service_dns_preview_method(req); } },
 		service_dns_set:       { args: { edit: 'string' }, call: function (req) { return service_dns_set_method(req); } },
 		service_dns_apply:     { args: { edit: 'string' }, call: function (req) { return service_dns_apply_method(req); } },
+		service_dns_apply_async: { call: function (req) { return service_dns_apply_async_method(req); } },
+		service_dns_apply_status: { args: { edit: 'string' }, call: function (req) { return service_dns_apply_status_method(req); } },
 		service_dns_rollback:  { call: function (req) { return service_dns_rollback_method(req); } },
 		versions:          { call: function (req) { return versions_method(req); } },
 		maintenance_status: { call: function (req) { return maintenance_status_method(req); } },

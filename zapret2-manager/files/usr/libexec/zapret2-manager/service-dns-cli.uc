@@ -27,7 +27,9 @@ import {
 	service_dns_preview,
 	service_dns_set,
 	service_dns_apply,
-	service_dns_rollback
+	service_dns_rollback,
+	service_dns_apply_async,
+	service_dns_apply_status
 } from './service-dns.uc';
 
 let cmd = ARGV[0];
@@ -51,6 +53,13 @@ if (cmd == 'providers') {
 	print(sprintf("%J", service_dns_set({ args: edit })) + '\n');
 } else if (cmd == 'apply') {
 	print(sprintf("%J", service_dns_apply({ args: { revision: null } })) + '\n');
+} else if (cmd == 'apply-async') {
+	print(sprintf("%J", service_dns_apply_async({ args: { revision: null } })) + '\n');
+} else if (cmd == 'apply-status') {
+	let file = ARGV[1];
+	let obj = null;
+	if (file) { let raw = readfile(file); if (raw) { try { obj = json(raw); } catch (e) {} } }
+	print(sprintf("%J", service_dns_apply_status({ args: obj || {} })) + '\n');
 } else if (cmd == 'rollback') {
 	print(sprintf("%J", service_dns_rollback()) + '\n');
 } else {

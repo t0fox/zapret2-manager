@@ -21,6 +21,8 @@ const callSdnsStatus    = rpc.declare({ object: 'zapret2-manager', method: 'serv
 const callSdnsPreview   = rpc.declare({ object: 'zapret2-manager', method: 'service_dns_preview', reject: true });
 const callSdnsSet       = rpc.declare({ object: 'zapret2-manager', method: 'service_dns_set', params: ['edit'], reject: true });
 const callSdnsApply     = rpc.declare({ object: 'zapret2-manager', method: 'service_dns_apply', params: ['edit'], reject: true });
+const callSdnsApplyAsync = rpc.declare({ object: 'zapret2-manager', method: 'service_dns_apply_async', reject: true });
+const callSdnsApplyStatus = rpc.declare({ object: 'zapret2-manager', method: 'service_dns_apply_status', params: ['edit'], reject: true });
 const callSdnsRollback  = rpc.declare({ object: 'zapret2-manager', method: 'service_dns_rollback', reject: true });
 
 var SERVICE_LABELS = {
@@ -874,22 +876,30 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 		appl.disabled = !has || (view._sdnsOp && view._sdnsOp.promise);
 		appl.addEventListener('click', function () {
 			if (view._sdnsOp && view._sdnsOp.promise) return;
-
+			var opId = 'sdns-' + Date.now();
 			var snapshot = {};
 			for (var k in draft.selections) snapshot[k] = draft.selections[k];
-			var opId = 'sdns-' + Date.now();
 
 			view._sdnsOp = { id: opId, type: 'apply', phase: 'saving', promise: null, error: null };
 			appl.disabled = true; prev.disabled = true; disc.disabled = true;
-			left.textContent = _('Saving draft\u2026');
+			left.textContent = _('Saving\u2026');
 
 			view._sdnsOp.promise = callSdnsSet(JSON.stringify({ selections: snapshot })).then(function (sr) {
-				if (!sr || sr.ok !== true) throw new Error('Set failed: ' + (sr && sr.error && sr.error.message ? sr.error.message : 'unknown'));
-				view._sdnsOp.phase = 'applying';
-				left.textContent = _('Applying\u2026');
-				return callSdnsApply(JSON.stringify({}));
+				if (!sr || sr.ok !== true) throw new Error('Set failed');
+				view._sdnsOp.phase = 'submitting';
+				left.textContent = _('Starting Apply\u2026');
+				return callSdnsApplyAsync();
 			}).then(function (ar) {
-				if (!ar || ar.ok !== true) throw new Error('Apply failed: ' + (ar && ar.error && ar.error.message ? ar.error.message : 'unknown'));
+				if (!ar || !ar.accepted) throw new Error('Apply not accepted');
+				view._sdnsOp.phase = 'queued';
+				view._sdnsOp.operationId = ar.operationId;
+				left.textContent = _('Applying\u2026');
+				return pollApplyStatus(ar.operationId, function (phase) {
+					if (phase === 'reloading') left.textContent = _('Reloading DNS\u2026');
+					else if (phase === 'verifying') left.textContent = _('Verifying\u2026');
+					else if (phase === 'rolling_back') left.textContent = _('Rolling back\u2026');
+				});
+			}).then(function () {
 				view._sdnsOp.phase = 'success';
 				view._sdnsOp = null;
 				view._saDraft = null;
@@ -911,6 +921,27 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 
 	function sc(n, l) { return E('div', { 'class': 'z2m-sa-sumcard' }, [E('span', { 'class': 'z2m-sa-sc-num' }, String(n)), E('span', { 'class': 'z2m-sa-sc-label' }, l)]); }
 	function h(el) { return el; }
+
+	function pollApplyStatus(opId, onPhase) {
+		return new Promise(function (resolve, reject) {
+			var attempts = 0, maxAttempts = 30;
+			function tick() {
+				if (attempts >= maxAttempts) { reject(new Error('Apply status poll timeout')); return; }
+				attempts++;
+				callSdnsApplyStatus(JSON.stringify({ operationId: opId })).then(function (r) {
+					if (!r || !r.ok) { reject(new Error('Status check failed')); return; }
+					if (r.finished) {
+						if (r.state === 'success') resolve(r);
+						else reject(new Error('Apply ' + (r.state || 'error') + ': ' + (r.error || '')));
+						return;
+					}
+					if (onPhase) onPhase(r.state);
+					setTimeout(tick, attempts < 3 ? 1000 : attempts < 8 ? 2000 : 5000);
+				}).catch(function (e) { reject(e); });
+			}
+			tick();
+		});
+	}
 
 	function showPreview(pv) {
 		var old = view._saOverlay;
