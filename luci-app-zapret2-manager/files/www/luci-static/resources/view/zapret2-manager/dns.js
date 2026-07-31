@@ -21,7 +21,7 @@ const callSdnsStatus    = rpc.declare({ object: 'zapret2-manager', method: 'serv
 const callSdnsPreview   = rpc.declare({ object: 'zapret2-manager', method: 'service_dns_preview', reject: true });
 const callSdnsSet       = rpc.declare({ object: 'zapret2-manager', method: 'service_dns_set', params: ['edit'], reject: true });
 const callSdnsApply     = rpc.declare({ object: 'zapret2-manager', method: 'service_dns_apply', params: ['edit'], reject: true });
-const callSdnsApplyAsync = rpc.declare({ object: 'zapret2-manager', method: 'service_dns_apply_async', reject: true });
+const callSdnsApplyAsync = rpc.declare({ object: 'zapret2-manager', method: 'service_dns_apply_async', params: ['edit'], reject: true });
 const callSdnsApplyStatus = rpc.declare({ object: 'zapret2-manager', method: 'service_dns_apply_status', params: ['edit'], reject: true });
 const callSdnsRollback  = rpc.declare({ object: 'zapret2-manager', method: 'service_dns_rollback', reject: true });
 
@@ -1039,9 +1039,10 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 				view.reload();
 			}).catch(function (e) {
 				view._sdnsOp.phase = 'error';
-				view._sdnsOp.error = String(e);
+				var msg = (e && typeof e === 'object') ? (e.message || e.error || JSON.stringify(e).slice(0, 120)) : String(e);
+				view._sdnsOp.error = msg;
 				view._sdnsOp.promise = null;
-				view.showFlash(_('Failed: ') + String(e).slice(0, 120));
+				view.showFlash(_('Failed: ') + msg);
 				view.reload();
 			});
 		});
