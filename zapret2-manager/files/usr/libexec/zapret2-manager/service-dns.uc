@@ -647,9 +647,7 @@ function get_dnsmasq_info() {
 		for (let i = 0; i < length(flines); i++) {
 			if (substr(trim(flines[i]), 0, 8) == 'server=/') cnt++;
 		}
-		info.configuredRouteCount = routeCount;
 		info.configuredDirectiveCount = cnt;
-		info.fragmentHashValid = (compute_file_hash(ROUTING_CONF) == (sd.applied && sd.applied.routingHash));
 	}
 	info.dnsmasqRunning = info.running;
 	info.runtimeForwardingVerified = false; // requires packet evidence
