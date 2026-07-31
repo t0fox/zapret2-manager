@@ -54,7 +54,10 @@ if (cmd == 'providers') {
 } else if (cmd == 'apply') {
 	print(sprintf("%J", service_dns_apply({ args: { revision: null } })) + '\n');
 } else if (cmd == 'apply-async') {
-	print(sprintf("%J", service_dns_apply_async({ args: { revision: null } })) + '\n');
+	let file = ARGV[1];
+	let obj = null;
+	if (file) { let raw = readfile(file); if (raw) { try { obj = json(raw); } catch (e) {} } }
+	print(sprintf("%J", service_dns_apply_async({ args: obj || {} })) + '\n');
 } else if (cmd == 'apply-status') {
 	let file = ARGV[1];
 	let obj = null;

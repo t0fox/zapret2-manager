@@ -234,7 +234,9 @@ function load_service_dns_state() {
 	let sd = (type(obj.serviceDns) == 'object' && obj.serviceDns != null) ? obj.serviceDns : null;
 	let state = {
 		selections: (sd && type(sd.selections) == 'object') ? sd.selections : {},
-		applied: (sd && type(sd.applied) == 'object') ? sd.applied : { selections: {}, generatedAt: null, revision: 0, fileHash: null },
+		applied: (sd && type(sd.applied) == 'object') ? sd.applied : { selections: {}, revision: 0, fileHash: null, generatedAt: null, verifiedAt: null },
+		pending: (sd && type(sd.pending) == 'object') ? sd.pending : null,
+		lastOperation: (sd && type(sd.lastOperation) == 'object') ? sd.lastOperation : null,
 		ownership: (sd && type(sd.ownership) == 'object') ? sd.ownership : {},
 		events: (sd && type(sd.events) == 'array') ? _slice(sd.events, -20) : []
 	};
@@ -271,7 +273,9 @@ function save_service_dns_state(state) {
 function empty_state() {
 	return {
 		selections: {},
-		applied: { selections: {}, generatedAt: null, revision: 0, fileHash: null },
+		applied: { selections: {}, revision: 0, fileHash: null, generatedAt: null, verifiedAt: null },
+		pending: null,
+		lastOperation: null,
 		ownership: {},
 		events: []
 	};
@@ -347,8 +351,12 @@ function compute_desired_records_ucode(records, applyFamily) {
 // ---------------------------------------------------------------------------
 function resolve_domain_via_dns(hostname, dns_server, timeout) {
 	if (!hostname || !dns_server) return { A: [], AAAA: [] };
+	// validate hostname before passing to shell
+	let vh = validate_hostname_ucode(hostname);
+	if (!vh.ok) return { A: [], AAAA: [] };
 	let tout = (int(timeout) > 0) ? int(timeout) : 3;
-	let r = run('nslookup ' + hostname + ' ' + dns_server + ' 2>/dev/null');
+	let cmd = 'nslookup ' + vh.hostname + ' ' + dns_server + ' 2>/dev/null';
+	let r = run_with_timeout(cmd, tout);
 	let out = r.out || '';
 	let a = [];
 	let aaaa = [];
@@ -846,9 +854,10 @@ export const service_dns_preview = function(req) {
 		push(deduped, r);
 	}
 	let rendered = render_hosts_with_ownership(deduped, ownership);
-	let fileHash = '';
-	let h = popen('echo -n "' + replace(rendered, /"/g, '\\"') + '" | sha256sum 2>/dev/null | awk \'{print $1}\'', 'r');
-	if (h) { fileHash = trim(h.read('all')); h.close(); }
+	let hashTmp = OVERRIDES_PATH + '.preview.' + time();
+	writefile(hashTmp, rendered);
+	let fileHash = compute_file_hash(hashTmp);
+	try { unlink(hashTmp); } catch (e) { }
 	return {
 		ok: true, mode: 'preview', zeroWrites: true,
 		diff: { addedCount: length(added), removedCount: length(removed), preservedCount: length(preserved), sharedKeptCount: length(sharedKept) },
@@ -973,7 +982,12 @@ export const service_dns_apply = function(req) {
 		push(finalRecords, r);
 	}
 	let rendered = render_hosts_with_ownership(finalRecords, ownership);
-	// 6. write atomically
+	// 6. compute hash safely — write to file first, then hash the file
+	let hashTmp = OVERRIDES_PATH + '.hash.tmp.' + time();
+	writefile(hashTmp, rendered);
+	let finalHash = compute_file_hash(hashTmp);
+	try { unlink(hashTmp); } catch (e) { }
+	// 7. write atomically — ALWAYS write, even empty (All Off is valid)
 	let tmp = OVERRIDES_PATH + '.tmp.' + time();
 	writefile(tmp, rendered);
 	let mv = run('mv -f ' + tmp + ' ' + OVERRIDES_PATH + ' 2>/dev/null');
@@ -1026,11 +1040,10 @@ export const service_dns_apply = function(req) {
 	let newApplied = {
 		selections: _obj_assign({}, selections),
 		generatedAt: iso_now(),
+		verifiedAt: iso_now(),
 		revision: appliedRev + 1,
-		fileHash: curFileHash // updated below
+		fileHash: finalHash
 	};
-	let h = popen('echo -n "' + replace(rendered, /"/g, '\\"') + '" | sha256sum 2>/dev/null | awk \'{print $1}\'', 'r');
-	if (h) { newApplied.fileHash = trim(h.read('all')); h.close(); }
 	state.applied = newApplied;
 	push(state.events, { ts: iso_now(), action: 'apply', revision: newApplied.revision, records: length(finalRecords), warnings: warnings });
 	if (length(state.events) > 20) state.events = _slice(state.events, -20);
@@ -1066,21 +1079,174 @@ export const service_dns_rollback = function(req) {
 };
 
 const WORK_DIR = '/tmp/zapret2-manager';
+const JOBS_DIR = WORK_DIR + '/service-dns-jobs';
+const LOCK_FILE = WORK_DIR + '/service-dns-apply.lock';
+const LOCK_LEASE = 120; // seconds — stale lock detection
+const JOB_DIR_PREFIX = 'sdns-';
 
-// service_dns_apply_async — fast accept, background worker
+// ---------------------------------------------------------------------------
+// operation ID validation (r46.4 — strict, path-traversal safe)
+// ---------------------------------------------------------------------------
+function validate_operation_id(id) {
+	if (type(id) != 'string') return { ok: false, reason: 'operationId must be a string' };
+	if (length(id) < 5 || length(id) > 96) return { ok: false, reason: 'operationId length must be 5..96' };
+	if (substr(id, 0, 5) != JOB_DIR_PREFIX) return { ok: false, reason: 'operationId must start with ' + JOB_DIR_PREFIX };
+	if (!match(id, /^sdns-[A-Za-z0-9._-]+$/)) return { ok: false, reason: 'operationId must match sdns-[a-zA-Z0-9._-]+' };
+	if (index(id, '/') >= 0 || index(id, '\\') >= 0 || index(id, '..') >= 0) return { ok: false, reason: 'operationId contains path separators' };
+	return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// mutation lock (r46.4 — atomic, stale detection, lease)
+// ---------------------------------------------------------------------------
+function acquire_lock(operationId) {
+	run('mkdir -p ' + WORK_DIR);
+	if (stat(LOCK_FILE)) {
+		try {
+			let current = json(readfile(LOCK_FILE));
+			if (current && type(current) == 'object') {
+				let age = time() - (current.acquiredAt || 0);
+				if (current.operationId == operationId) return current; // idempotent
+				if (age < LOCK_LEASE) return { busy: true, operationId: current.operationId, phase: current.phase, pid: current.pid, age: age };
+				// stale lock — break it
+			}
+		} catch (e) { /* corrupt lock — break it */ }
+		try { unlink(LOCK_FILE); } catch (e) { }
+	}
+	let lock = { operationId: operationId, pid: 0, phase: 'acquiring', acquiredAt: int(time()), updatedAt: int(time()) };
+	writefile(LOCK_FILE, sprintf("%J", lock) + "\n");
+	return lock;
+}
+
+function release_lock(operationId) {
+	if (!stat(LOCK_FILE)) return;
+	try {
+		let current = json(readfile(LOCK_FILE));
+		if (current && current.operationId == operationId) try { unlink(LOCK_FILE); } catch (e) { }
+	} catch (e) { try { unlink(LOCK_FILE); } catch (e) { } }
+}
+
+function update_lock(operationId, phase) {
+	if (!stat(LOCK_FILE)) return;
+	try {
+		let current = json(readfile(LOCK_FILE));
+		if (current && current.operationId == operationId) {
+			current.phase = phase;
+			current.updatedAt = int(time());
+			writefile(LOCK_FILE, sprintf("%J", current) + "\n");
+		}
+	} catch (e) { }
+}
+
+// ---------------------------------------------------------------------------
+// operation-specific snapshot (r46.4 — isolated per operation)
+// ---------------------------------------------------------------------------
+function op_snapshot_dir(operationId) {
+	return JOBS_DIR + '/' + operationId;
+}
+
+function create_op_snapshot(operationId) {
+	let dir = op_snapshot_dir(operationId);
+	run('mkdir -p ' + dir);
+	run('cp -p ' + OVERRIDES_PATH + ' ' + dir + '/previous.hosts 2>/dev/null');
+	run('cp -p ' + STATE_PATH + ' ' + dir + '/previous-state.json 2>/dev/null');
+	return dir;
+}
+
+function restore_op_snapshot(operationId) {
+	let dir = op_snapshot_dir(operationId);
+	if (stat(dir + '/previous.hosts')) {
+		run('cp -p ' + dir + '/previous.hosts ' + OVERRIDES_PATH);
+		run('chmod 644 ' + OVERRIDES_PATH);
+	} else {
+		try { unlink(OVERRIDES_PATH); } catch (e) { }
+	}
+	if (stat(dir + '/previous-state.json')) {
+		run('cp -p ' + dir + '/previous-state.json ' + STATE_PATH);
+	}
+}
+
+// ---------------------------------------------------------------------------
+// shell-safe hash computation (r46.4 — no string interpolation into shell)
+// ---------------------------------------------------------------------------
+function compute_file_hash(path) {
+	let r = run('sha256sum ' + path + ' 2>/dev/null');
+	if (r.rc != 0 || !r.out) return '';
+	let parts = split(trim(r.out), ' ');
+	return parts[0] || '';
+}
+
+// ---------------------------------------------------------------------------
+// bounded command execution (r46.4 — timeout wrapper)
+// ---------------------------------------------------------------------------
+function run_with_timeout(cmd, timeoutSec) {
+	let t = int(timeoutSec) > 0 ? int(timeoutSec) : 30;
+	// OpenWrt's busybox timeout wraps with -t seconds
+	let p = popen('timeout ' + t + ' ' + cmd + ' 2>&1', 'r');
+	if (!p) return { out: '', rc: -1 };
+	let out = p.read('all') || '';
+	let rc = p.close();
+	return { out: out, rc: rc, timedOut: (rc == 124 || rc == 143) };
+}
+
+// service_dns_apply_async — fast accept with mutation lock, op-specific snapshot,
+// frontend-provided operation ID, idempotency, and proper state separation.
 export const service_dns_apply_async = function(req) {
 	let input = (req && req.args) ? req.args : req;
+
+	// 0. validate operationId from frontend
+	let operationId = (type(input.operationId) == 'string') ? trim(input.operationId) : null;
+	if (!operationId) {
+		return err('EINPUT', 'operationId is required');
+	}
+	let vid = validate_operation_id(operationId);
+	if (!vid.ok) return err('EINPUT', vid.reason);
+
+	// 0b. idempotency — check existing job
+	let opDir = op_snapshot_dir(operationId);
+	let jobFile = opDir + '/job.json';
+	if (stat(jobFile)) {
+		try {
+			let ejob = json(readfile(jobFile));
+			if (ejob && type(ejob) == 'object') {
+				if (ejob.finished === true) {
+					return { ok: true, accepted: false, operationId: operationId,
+						state: ejob.phase || 'unknown', finished: true, alreadyCompleted: true,
+						error: ejob.error || null };
+				}
+				// Not finished — reject duplicate
+				return { ok: true, accepted: false, operationId: operationId,
+					state: ejob.phase || 'queued', finished: false, alreadyRunning: true };
+			}
+		} catch (e) { }
+	}
+
+	// 1. acquire mutation lock
+	let lock = acquire_lock(operationId);
+	if (lock.busy) {
+		return err('EAPPLYBUSY', 'Another Service DNS Apply is running', {
+			operationId: lock.operationId, phase: lock.phase,
+			retryAfterMs: 2000
+		});
+	}
+
+	// 2. load state + dataset
 	let sd = load_service_dns_state();
-	if (sd.malformed) return err('ESTATE', 'service DNS state is malformed: ' + sd.reason);
+	if (sd.malformed) { release_lock(operationId); return err('ESTATE', 'service DNS state is malformed: ' + sd.reason); }
 	let state = sd.state;
 	let selections = state.selections || {};
-	let appliedRev = (type(state.applied.revision) == 'int') ? state.applied.revision : 0;
-	if (type(input.revision) == 'int' && input.revision != appliedRev)
-		return err('ECONFLICT', 'service DNS draft changed elsewhere (revision ' + appliedRev + '); reload and retry');
-	let operationId = 'sdns-' + time() + '-' + (time() * 7919) % 99999;
+	let applied = state.applied || {};
+	let appliedRev = (type(applied.revision) == 'int') ? applied.revision : 0;
 
+	// 2b. revision check
+	if (type(input.revision) == 'int' && input.revision != appliedRev) {
+		release_lock(operationId);
+		return err('ECONFLICT', 'service DNS draft changed elsewhere (revision ' + appliedRev + '); reload and retry');
+	}
+
+	// 3. validate selections
 	let ds = load_dataset();
-	if (!ds.ok) return err('ETARGET', 'dataset unavailable');
+	if (!ds.ok) { release_lock(operationId); return err('ETARGET', 'dataset unavailable'); }
 	let profileMap = {};
 	let providerMap = {};
 	for (let i = 0; i < length(ds.profiles); i++) profileMap[ds.profiles[i].id] = ds.profiles[i];
@@ -1094,18 +1260,18 @@ export const service_dns_apply_async = function(req) {
 		if (!p) { push(warnings, { type: 'unknown-profile', serviceId: svc, profileId: pid }); continue; }
 		let prov = providerMap[p.providerId] || {};
 		let trust = classify_trust_ucode(prov, iso_now());
-		if (!trust.applicable) return err('EINPUT', 'profile ' + pid + ' is not applicable: ' + trust.reason);
+		if (!trust.applicable) { push(warnings, { type: 'profile-not-applicable', serviceId: svc, profileId: pid, reason: trust.reason }); continue; }
 		let comp = compute_completeness_ucode(p);
 		let recs = p.records;
-		if (comp.status != 'complete' && comp.status != 'unresolved')
-			return err('EINPUT', 'profile ' + pid + ' is ' + comp.status);
-		// accept both complete and unresolved — worker resolves if needed
+		if (comp.status != 'complete' && comp.status != 'unresolved') {
+			push(warnings, { type: 'profile-incomplete', serviceId: svc, profileId: pid, status: comp.status }); continue;
+		}
 		let desired = compute_desired_records_ucode(recs, APPLY_FAMILY);
 		for (let j = 0; j < length(desired.records); j++)
 			push(desiredRecords, { hostname: desired.records[j].hostname, A: desired.records[j].A, AAAA: desired.records[j].AAAA, owner: 'service:' + pid });
 	}
 
-	let snap = snapshot_service_dns();
+	// 4. compute candidate + render (always render — All Off yields empty but valid overrides)
 	let existing = parse_existing_overrides();
 	let ownership = build_ownership_map(desiredRecords, existing.ownership);
 	let candidateRecords = [];
@@ -1119,86 +1285,135 @@ export const service_dns_apply_async = function(req) {
 			push(candidateRecords, { hostname: r.hostname, A: [r.A[j]], AAAA: [], owner: r.owner });
 		}
 	}
+	// preserve user entries
 	for (let i = 0; i < length(existing.entries); i++) {
 		let e = existing.entries[i];
-		let keep = false;
-		let fams = [['A', e.A || []], ['AAAA', e.AAAA || []]];
-		for (let j = 0; j < length(fams); j++) {
-			let fam = fams[j][0], addrs = fams[j][1];
-			for (let k = 0; k < length(addrs); k++) {
-				if (ownership[tuple_key(e.hostname, fam, addrs[k])] && ownership[tuple_key(e.hostname, fam, addrs[k])] != '') { keep = true; break; }
-			}
-			if (keep) break;
-		}
-		if (keep) {
+		if (e.owner == 'user') {
 			let key = e.hostname + '|' + (e.A && length(e.A) ? e.A[0] : '');
 			if (!seenRec[key]) { seenRec[key] = true; push(candidateRecords, e); }
 		}
 	}
 	let rendered = render_hosts_with_ownership(candidateRecords, ownership);
 
-	let newApplied = {
-		selections: _obj_assign({}, selections),
-		generatedAt: iso_now(),
-		revision: appliedRev + 1,
-		fileHash: null,
-		operationId: operationId,
-		operationStatus: 'submitted'
-	};
-	let h = popen('echo -n "' + replace(rendered, /"/g, '\\"') + '" | sha256sum 2>/dev/null | awk \'{print $1}\'', 'r');
-	if (h) { newApplied.fileHash = trim(h.read('all')); h.close(); }
-	state.applied = newApplied;
-	push(state.events, { ts: iso_now(), action: 'apply-async', revision: newApplied.revision, records: length(candidateRecords), operationId: operationId });
-	if (length(state.events) > 20) state.events = _slice(state.events, -20);
-	save_service_dns_state(state);
+	// 5. create operation-specific snapshot
+	let snapDir = create_op_snapshot(operationId);
+	if (!stat(snapDir)) { release_lock(operationId); return err('ETARGET', 'failed to create snapshot directory'); }
 
-	let jobFile = WORK_DIR + '/sdns-job-' + operationId + '.json';
+	// 6. compute hash safely
+	run('mkdir -p ' + opDir);
+	let hashFile = opDir + '/desired.hosts';
+	writefile(hashFile, rendered);
+	let desiredHash = compute_file_hash(hashFile);
+
+	// 7. write job file
 	let job = {
 		operationId: operationId, phase: 'queued',
+		desiredSelections: _obj_assign({}, selections),
 		rendered: rendered, records: candidateRecords,
-		statePath: STATE_PATH, overridesPath: OVERRIDES_PATH, snapDir: SNAP_DIR,
-		createdAt: iso_now(), updatedAt: iso_now(), finished: false
+		desiredHash: desiredHash,
+		statePath: STATE_PATH, overridesPath: OVERRIDES_PATH, snapDir: snapDir, jobDir: opDir,
+		createdAt: iso_now(), updatedAt: iso_now(), finished: false,
+		pid: 0, timings: { writeMs: 0, reloadMs: 0, verifyMs: 0, rollbackMs: 0, totalMs: 0 }
 	};
 	writefile(jobFile, sprintf("%J", job) + "\n");
+	if (!stat(jobFile)) { release_lock(operationId); return err('ETARGET', 'failed to write job file'); }
 
+	// 8. update pending state (NOT applied — applied changes only after verification)
+	state.pending = {
+		operationId: operationId,
+		desiredSelections: _obj_assign({}, selections),
+		desiredHash: desiredHash,
+		phase: 'queued',
+		createdAt: iso_now(),
+		updatedAt: iso_now(),
+		jobFile: jobFile,
+		snapshotDir: snapDir
+	};
+	push(state.events, { ts: iso_now(), action: 'apply-async', operationId: operationId,
+		services: length(keys(selections)), records: length(candidateRecords) });
+	if (length(state.events) > 20) state.events = _slice(state.events, -20);
+	if (!save_service_dns_state(state)) { release_lock(operationId); return err('ESTATE', 'state write failed'); }
+
+	// 9. spawn worker
 	let WORKER = '/usr/libexec/zapret2-manager/service-dns-apply-worker.uc';
+	if (!stat(WORKER)) { release_lock(operationId); return err('ETARGET', 'worker script not found: ' + WORKER); }
 	let wp = popen('sh -c "/usr/bin/ucode ' + WORKER + ' ' + jobFile + ' > /dev/null 2>&1 &"', 'r');
 	if (wp) wp.close();
 
+	update_lock(operationId, 'queued');
+
 	return {
 		ok: true, accepted: true, operationId: operationId,
-		revision: newApplied.revision, state: 'submitted',
+		revision: appliedRev, state: 'submitted',
 		recordsWritten: length(candidateRecords), warnings: warnings
 	};
 };
 
 export const service_dns_apply_status = function(req) {
 	let input = (req && req.args) ? req.args : req;
-	let operationId = (type(input.operationId) == 'string') ? input.operationId : null;
-	let sd = load_service_dns_state();
-	let state = sd.state || {};
-	let applied = state.applied || {};
-	let checkId = applied.operationId || operationId || '';
-	let jobFile = WORK_DIR + '/sdns-job-' + checkId + '.json';
-	if (stat(jobFile)) {
-		let job = json(readfile(jobFile));
-		if (job) {
+	let operationId = (type(input.operationId) == 'string') ? trim(input.operationId) : null;
+
+	if (!operationId) {
+		// return current pending/active state
+		let sd = load_service_dns_state();
+		let state = sd.state || {};
+		if (state.pending) {
 			return {
-				ok: true, operationId: checkId,
+				ok: true, operationId: state.pending.operationId,
+				state: state.pending.phase, phase: state.pending.phase,
+				finished: false, pending: true
+			};
+		}
+		if (state.lastOperation) {
+			return {
+				ok: true, operationId: state.lastOperation.operationId,
+				state: state.lastOperation.state, phase: state.lastOperation.phase,
+				finished: true, error: state.lastOperation.error || null,
+				finishedAt: state.lastOperation.finishedAt
+			};
+		}
+		return { ok: true, state: 'idle' };
+	}
+
+	let vid = validate_operation_id(operationId);
+	if (!vid.ok) return err('EINPUT', vid.reason);
+
+	let opDir = op_snapshot_dir(operationId);
+	let jobFile = opDir + '/job.json';
+
+	if (stat(jobFile)) {
+		let job = null;
+		try { job = json(readfile(jobFile)); } catch (e) { }
+		if (job && type(job) == 'object') {
+			return {
+				ok: true, operationId: operationId,
 				state: job.phase || 'running',
-				phase: job.phase, error: job.error || null,
-				updatedAt: job.updatedAt, finished: job.finished === true,
-				reloadMs: job.reloadMs || 0
+				phase: job.phase,
+				finished: job.finished === true,
+				createdAt: job.createdAt,
+				updatedAt: job.updatedAt,
+				finishedAt: job.finishedAt || null,
+				desiredHash: job.desiredHash || null,
+				appliedHash: job.appliedHash || null,
+				error: job.error || null,
+				verified: job.verified === true,
+				rolledBack: job.rolledBack === true,
+				timings: job.timings || { writeMs: 0, reloadMs: 0, verifyMs: 0, rollbackMs: 0, totalMs: 0 }
 			};
 		}
 	}
-	if (applied.operationStatus) {
+
+	// check state for this operation
+	let sd = load_service_dns_state();
+	let state = sd.state || {};
+	if (state.lastOperation && state.lastOperation.operationId == operationId) {
 		return {
-			ok: true, operationId: applied.operationId,
-			state: applied.operationStatus,
-			error: applied.operationError || null,
-			finished: (applied.operationStatus == 'success' || applied.operationStatus == 'rolled_back' || applied.operationStatus == 'failed')
+			ok: true, operationId: operationId,
+			state: state.lastOperation.state, phase: state.lastOperation.phase,
+			finished: true, error: state.lastOperation.error || null,
+			finishedAt: state.lastOperation.finishedAt
 		};
 	}
-	return { ok: true, state: 'idle' };
+
+	return { ok: false, error: { code: 'EOPNOTFOUND', message: 'Apply operation was not found' } };
 };

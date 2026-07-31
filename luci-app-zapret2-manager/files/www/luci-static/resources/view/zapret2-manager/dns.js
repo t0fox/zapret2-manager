@@ -5,7 +5,7 @@
 // Grounding: dnsmasq + UCI + resolvfile. No Windows APIs, no per-adapter model.
 'require rpc';
 
-const DNS_UI_BUILD = 'r46';
+const DNS_UI_BUILD = 'r46.4';
 
 const callDnsGet        = rpc.declare({ object: 'zapret2-manager', method: 'dns_get', reject: true });
 const callDnsSet        = rpc.declare({ object: 'zapret2-manager', method: 'dns_set', params: ['edit'], reject: true });
@@ -570,12 +570,17 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 	var availableByService = status.availableByService || {};
 	var selections = status.selections || {};
 	var appliedSel = status.applied || {};
+	var appliedRev = (typeof status.appliedRevision === 'number') ? status.appliedRevision : 0;
+	var pending = status.pending || null;
 
+	// Initialize draft from backend or saved
 	if (!view._saDraft) view._saDraft = { selections: {} };
 	var draft = view._saDraft;
 	if (Object.keys(draft.selections).length === 0 && Object.keys(selections).length > 0) {
 		for (var k in selections) draft.selections[k] = selections[k];
 	}
+
+	if (!view._saFilter) view._saFilter = { query: '', state: 'all' };
 
 	var serviceOrder = [];
 	var svcSet = {};
@@ -584,13 +589,23 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 	});
 	serviceOrder.sort();
 
-	var enabledCount = 0, changedCount = 0;
+	// Pre-build search index per service
+	var searchIndex = {};
 	serviceOrder.forEach(function (svc) {
-		var cur = draft.selections[svc] || 'off';
-		var app = appliedSel[svc] || 'off';
-		if (cur !== 'off') enabledCount++;
-		if (cur !== app) changedCount++;
+		var profiles = profilesBySvc[svc] || [];
+		var pNames = [], pIds = [];
+		profiles.forEach(function (p) {
+			var pn = providerName[p.providerId] || p.providerId;
+			pNames.push(pn); pIds.push(p.id);
+		});
+		var domains = [];
+		if (profiles.length) (profiles[0].requiredDomains || []).forEach(function (d) { domains.push(d); });
+		searchIndex[svc] = nrm(svc + ' ' + (SERVICE_LABELS[svc] || '') + ' ' + (SERVICE_SUBLABEL[svc] || '') +
+			' ' + (SERVICE_CATEGORIES[svc] || '') + ' ' + pNames.join(' ') + ' ' + pIds.join(' ') +
+			' ' + domains.join(' '));
 	});
+
+	function nrm(v) { return String(v || '').trim().toLocaleLowerCase().replace(/\s+/g, ' '); }
 
 	// ── intro ──
 	node.appendChild(E('div', { 'class': 'z2m-sa-intro' }, [
@@ -598,35 +613,28 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 		E('p', {}, _('Choose a DNS answer profile for individual services without changing the global DNS provider.'))
 	]));
 
-	// ── summary ──
-	node.appendChild(E('div', { 'class': 'z2m-sa-summary' }, [
-		sc(serviceOrder.length, _('Services')),
-		sc((provs.providers || []).length, _('Providers')),
-		sc(enabledCount, _('Active')),
-		sc(changedCount, _('Pending'))
-	]));
+	// ── summary cards ──
+	var sumDiv = E('div', { 'class': 'z2m-sa-summary' });
+	node.appendChild(sumDiv);
 
-	// ── toolbar ──
-	var srch = E('input', { 'type': 'search', 'placeholder': _('Search') });
-	var sfSel = E('select', {}, [
-		E('option', { value: '' }, _('All')),
-		E('option', { value: 'enabled' }, _('On')),
-		E('option', { value: 'disabled' }, _('Off')),
-		E('option', { value: 'changed' }, _('Changed'))
-	]);
+	// ── filter toolbar with chips ──
+	var srch = E('input', { 'type': 'search', 'placeholder': _('Search'), 'class': 'z2m-sa-search' });
+	srch.value = view._saFilter.query || '';
+
+	var chips = E('div', { 'class': 'z2m-sa-filterbar' });
 	var resLbl = E('span', { 'class': 'z2m-sa-result' });
 	var tb = E('div', { 'class': 'z2m-sa-toolbar' });
 	tb.appendChild(srch);
-	tb.appendChild(sfSel);
+	tb.appendChild(chips);
 	tb.appendChild(resLbl);
 	node.appendChild(tb);
 
-	// ── catalog ──
+	// ── catalog grid ──
 	var grid = E('div', { 'class': 'z2m-sa-grid' });
 	var catEl = E('div', { 'class': 'z2m-sa-catalog' });
 
 	var CAT = [
-		{ id: 'AI', label: _('AI'), keys: ['AI'] },
+		{ id: 'AI', label: _('AI'), keys: ['ai'] },
 		{ id: 'Media', label: _('Media'), keys: ['music','video','media'] },
 		{ id: 'Social', label: _('Social'), keys: ['social','messaging'] },
 		{ id: 'Games', label: _('Games'), keys: ['games'] },
@@ -645,28 +653,34 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 		catMap[gid].push(svc);
 	});
 
-	var catHeadRefs = [], catBodyRefs = [], allRows = [];
-
-	CAT.forEach(function (grp) {
+	var catRefs = {};
+	CAT.forEach(function (grp, ci) {
 		var svcs = catMap[grp.id] || [];
-		var empty = svcs.length === 0;
 		var hd = E('div', { 'class': 'z2m-sa-cathead', 'data-cat': grp.id });
-		var hdArr = E('span', { 'class': 'z2m-sa-cat-arr' }, empty ? '' : '▼');
-		hd._arr = hdArr;
+		var hdArr = E('span', { 'class': 'z2m-sa-cat-arr' }, '');
 		hd.appendChild(hdArr);
 		hd.appendChild(E('span', { 'class': 'z2m-sa-cat-title' }, esc(grp.label)));
-		hd.appendChild(E('span', { 'class': 'z2m-sa-cat-count' }, svcs.length + ' ' + _('svc')));
-		hd.addEventListener('click', function () {
-			var bd = this.nextElementSibling;
-			if (bd) { var hide = !bd._hidden; bd._hidden = hide; bd.style.display = hide ? 'none' : ''; this._arr.textContent = hide ? '▶' : '▼'; }
-		});
+		hd.appendChild(E('span', { 'class': 'z2m-sa-cat-count' }, ''));
+		hd.addEventListener('click', function (gid, hd, arr) {
+			return function () {
+				var cr = catRefs[gid];
+				if (!cr) return;
+				cr.collapsedByUser = !cr.collapsedByUser;
+				refreshCategoryVisibility(gid);
+			};
+		}(grp.id, hd, hdArr));
 		var bd = E('div', { 'class': 'z2m-sa-catbody', 'data-cat': grp.id });
-		if (empty) { bd.style.display = 'none'; bd._hidden = true; hdArr.textContent = ''; }
 		catEl.appendChild(hd);
 		catEl.appendChild(bd);
-		catHeadRefs.push(hd);
-		catBodyRefs.push(bd);
+		catRefs[grp.id] = {
+			head: hd, body: bd, arr: hdArr,
+			collapsedByUser: svcs.length === 0,
+			count: svcs.length
+		};
 	});
+
+	var rowRefs = [];
+	var allRows = [];
 
 	serviceOrder.forEach(function (svc) {
 		var rc = (SERVICE_CATEGORIES[svc] || 'other').toLowerCase();
@@ -677,8 +691,6 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 		var label = SERVICE_LABELS[svc] || svc;
 		var sub = SERVICE_SUBLABEL[svc] || '';
 		var profiles = profilesBySvc[svc] || [];
-		var cur = draft.selections[svc] || 'off';
-		var app = appliedSel[svc] || 'off';
 		var avp = availableByService[svc] || [];
 		var dc = avp.length ? avp[0].domainCount : (profiles.length ? profiles[0].requiredDomains.length : 0);
 
@@ -690,52 +702,49 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 			sub ? E('div', { 'class': 'z2m-sa-name-sub' }, esc(sub)) : null
 		].filter(Boolean));
 
-		// col 2: meta
+		// col 2: meta badge
 		var metaDiv = E('div', { 'class': 'z2m-sa-meta' });
-		var rebadge = function () {
+		function updateMeta() {
 			metaDiv.innerHTML = '';
 			var c2 = draft.selections[svc] || 'off';
 			var a2 = appliedSel[svc] || 'off';
 			if (c2 !== a2) {
 				metaDiv.appendChild(E('span', { 'class': 'z2m-badge z2m-badge-warn' }, _('Changed')));
-				metaDiv.appendChild(h(E('span', {}, 'Off'.substring(0,0)))); // placeholder
 			} else if (c2 !== 'off') {
 				metaDiv.appendChild(E('span', { 'class': 'z2m-badge z2m-badge-ok' }, _('On')));
 			}
-			metaDiv.appendChild(h(E('span', {}, ' ')));
-			metaDiv.appendChild(h(E('span', {}, dc + ' ' + _('domains'))));
-		};
-		rebadge();
+		}
+		updateMeta();
 
-		// col 3: selector
-		var sel = E('select', { 'class': 'z2m-sa-sel', 'id': 'sel-' + svc });
-		sel.appendChild(E('option', { value: 'off' }, _('Off')));
+		// col 3: custom select (replaces native <select>)
+		var selDiv = E('div', { 'class': 'z2m-sa-select-col' });
+		var options = [{ value: 'off', label: _('Off'), desc: '' }];
 		profiles.forEach(function (p) {
 			var pn = providerName[p.providerId] || p.providerId;
-			var pc = 0;
 			for (var ai = 0; ai < avp.length; ai++) {
-				if (avp[ai].profileId === p.id) { pn = avp[ai].providerName; pc = avp[ai].domainCount; break; }
+				if (avp[ai].profileId === p.id) { pn = avp[ai].providerName; break; }
 			}
-			if (!pc) pc = (p.requiredDomains || []).length;
-			var opt = E('option', { value: p.id }, pn);
-			if (cur === p.id) opt.selected = true;
-			sel.appendChild(opt);
+			options.push({ value: p.id, label: pn, desc: (p.requiredDomains || []).length + ' domains' });
 		});
-		sel.addEventListener('change', function () {
-			draft.selections[svc] = sel.value;
-			draft.dirty = true;
-			rebadge();
-			buildSidebar();
-			buildSticky();
+		var customSel = createServiceSelect({
+			value: draft.selections[svc] || 'off',
+			options: options,
+			ariaLabel: label,
+			onChange: function (value) {
+				draft.selections[svc] = value || 'off';
+				draft.dirty = true;
+				refreshServiceAccessUI();
+			}
 		});
+		selDiv.appendChild(customSel.element);
 
 		// col 4: details
 		var dtlBtn = E('button', { 'class': 'z2m-sa-detail-btn', 'type': 'button' }, _('Details'));
-		var dtlPnl = E('div', { 'class': 'z2m-sa-detail-panel', 'id': 'dtl-' + svc });
+		var dtlPnl = E('div', { 'class': 'z2m-sa-detail-panel' });
 		dtlPnl.appendChild(E('h4', { 'style': 'margin:4px 0' }, esc(label)));
 		dtlPnl.appendChild(E('div', { 'class': 'z2m-kv' }, [
 			E('span', { 'class': 'z2m-kv-label' }, _('Provider')),
-			E('span', { 'class': 'z2m-kv-value' }, cur === 'off' ? _('Off') : (providerName[cur] || cur))
+			E('span', { 'class': 'z2m-kv-value' }, _('Off'))
 		]));
 		var doms = (profiles.length ? profiles[0].requiredDomains : []);
 		if (doms.length) dtlPnl.appendChild(E('div', { 'class': 'z2m-kv' }, [
@@ -748,24 +757,183 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 
 		row.appendChild(nameDiv);
 		row.appendChild(metaDiv);
-		row.appendChild(sel);
+		row.appendChild(selDiv);
 		row.appendChild(dtlBtn);
 
-		// Find correct category body
-		for (var bi = 0; bi < catBodyRefs.length; bi++) {
-			if (catBodyRefs[bi].getAttribute('data-cat') === gid) {
-				catBodyRefs[bi].appendChild(row);
-				catBodyRefs[bi].appendChild(dtlPnl);
-				break;
-			}
-		}
+		var bd = catRefs[gid] && catRefs[gid].body;
+		if (bd) { bd.appendChild(row); bd.appendChild(dtlPnl); }
 		allRows.push(row);
+
+		rowRefs.push({
+			serviceId: svc, row: row, metaDiv: metaDiv,
+			select: customSel, details: dtlPnl, detailsBtn: dtlBtn,
+			searchText: searchIndex[svc], categoryId: gid,
+			profiles: profiles, updateMeta: updateMeta
+		});
 	});
 
 	grid.appendChild(catEl);
 
 	// ── sidebar ──
 	var sidebar = E('div', { 'class': 'z2m-sa-sidebar' });
+	grid.appendChild(sidebar);
+	node.appendChild(grid);
+
+	// ── empty state ──
+	var emptyState = E('div', { 'class': 'z2m-sa-empty', 'style': 'display:none' }, [
+		E('p', {}, _('No services match the current filters.')),
+		E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Clear filters'))
+	]);
+	node.appendChild(emptyState);
+
+	// ════════════════════════════════════════
+	// Unified refresh
+	// ════════════════════════════════════════
+	function refreshServiceAccessUI() {
+		// Update all row meta badges
+		for (var ri = 0; ri < rowRefs.length; ri++) {
+			rowRefs[ri].updateMeta();
+		}
+		updateSummary();
+		buildSidebar();
+		buildSticky();
+		applyFilters();
+	}
+
+	// ════════════════════════════════════════
+	// Summary cards
+	// ════════════════════════════════════════
+	var sumCards = [];
+	function sc(n, l) { return E('div', { 'class': 'z2m-sa-sumcard' }, [E('span', { 'class': 'z2m-sa-sc-num' }, String(n)), E('span', { 'class': 'z2m-sa-sc-label' }, l)]); }
+	function updateSummary() {
+		sumDiv.innerHTML = '';
+		var en = 0, ch = 0;
+		serviceOrder.forEach(function (svc) {
+			var cur = draft.selections[svc] || 'off';
+			var app = appliedSel[svc] || 'off';
+			if (cur !== 'off') en++;
+			if (cur !== app) ch++;
+		});
+		sumDiv.appendChild(sc(serviceOrder.length, _('Services')));
+		sumDiv.appendChild(sc((provs.providers || []).length, _('Providers')));
+		sumDiv.appendChild(sc(en, _('Active')));
+		sumDiv.appendChild(sc(ch, _('Pending')));
+	}
+	updateSummary();
+
+	// ════════════════════════════════════════
+	// Filter chips
+	// ════════════════════════════════════════
+	function updateFilterChips() {
+		chips.innerHTML = '';
+		var total = serviceOrder.length;
+		var en = 0, off = 0, ch = 0;
+		serviceOrder.forEach(function (svc) {
+			var cur = draft.selections[svc] || 'off';
+			var app = appliedSel[svc] || 'off';
+			if (cur !== 'off') en++; else off++;
+			if (cur !== app) ch++;
+		});
+		var chipData = [
+			{ state: 'all', label: _('All'), count: total },
+			{ state: 'enabled', label: _('On'), count: en },
+			{ state: 'disabled', label: _('Off'), count: off },
+			{ state: 'changed', label: _('Changed'), count: ch }
+		];
+		chipData.forEach(function (cd) {
+			var active = view._saFilter.state === cd.state;
+			var chip = E('button', {
+				'class': 'z2m-sa-filter-chip' + (active ? ' z2m-sa-filter-chip-active' : ''),
+				'type': 'button',
+				'aria-pressed': active ? 'true' : 'false'
+			});
+			chip.addEventListener('click', function () {
+				view._saFilter.state = cd.state;
+				applyFilters();
+			});
+			chip.appendChild(h(cd.label));
+			chip.appendChild(E('span', { 'class': 'z2m-sa-filter-count' }, String(cd.count)));
+			chips.appendChild(chip);
+		});
+
+		// Clear button
+		if (view._saFilter.query || view._saFilter.state !== 'all') {
+			var clr = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button', 'style': 'margin-left:8px' }, _('Clear'));
+			clr.addEventListener('click', function () {
+				view._saFilter.query = '';
+				view._saFilter.state = 'all';
+				srch.value = '';
+				refreshServiceAccessUI();
+				srch.focus();
+			});
+			chips.appendChild(clr);
+		}
+	}
+
+	// ════════════════════════════════════════
+	// Filter logic
+	// ════════════════════════════════════════
+	function applyFilters() {
+		updateFilterChips();
+		var q = nrm(srch.value || '');
+		var sf = view._saFilter.state || 'all';
+		view._saFilter.query = srch.value || '';
+		var vis = 0;
+
+		for (var ri = 0; ri < rowRefs.length; ri++) {
+			var ref = rowRefs[ri];
+			var sv = ref.serviceId;
+			var cur = draft.selections[sv] || 'off';
+			var app = appliedSel[sv] || 'off';
+			var enabled = cur !== 'off';
+			var changed = cur !== app;
+			var show = true;
+
+			if (q && ref.searchText.indexOf(q) < 0) show = false;
+			if (sf === 'enabled' && !enabled) show = false;
+			if (sf === 'disabled' && enabled) show = false;
+			if (sf === 'changed' && !changed) show = false;
+
+			if (!show) {
+				ref.row.style.display = 'none';
+				ref.details.style.display = 'none';
+			} else {
+				ref.row.style.display = '';
+				vis++;
+			}
+		}
+
+		// Category visibility
+		var catVis = {};
+		for (var ri2 = 0; ri2 < rowRefs.length; ri2++) {
+			if (rowRefs[ri2].row.style.display !== 'none') catVis[rowRefs[ri2].categoryId] = true;
+		}
+		for (var cvk in catRefs) {
+			var cr = catRefs[cvk];
+			refreshCategoryVisibility(cvk, !!catVis[cvk]);
+		}
+
+		resLbl.textContent = _('Showing ') + vis + _(' of ') + serviceOrder.length;
+		emptyState.style.display = vis === 0 ? '' : 'none';
+	}
+
+	function refreshCategoryVisibility(gid, hasVisible) {
+		var cr = catRefs[gid];
+		if (!cr) return;
+		if (hasVisible === undefined) hasVisible = true;
+		if (!hasVisible) {
+			cr.head.style.display = 'none';
+			cr.body.style.display = 'none';
+			return;
+		}
+		cr.head.style.display = '';
+		cr.body.style.display = cr.collapsedByUser ? 'none' : '';
+		cr.arr.textContent = cr.collapsedByUser ? '▶' : '▼';
+	}
+
+	// ════════════════════════════════════════
+	// Sidebar
+	// ════════════════════════════════════════
 	function buildSidebar() {
 		sidebar.innerHTML = '';
 		sidebar.appendChild(E('h4', {}, _('Pending changes')));
@@ -775,7 +943,7 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 			if (c === a) continue;
 			chgs.push({ svc: svc, cur: c, app: a });
 		}
-		if (!chgs.length) { sidebar.appendChild(E('p', { 'style': 'color:var(--cbi-desc);font-size:.85em' }, _('None.'))); return; }
+		if (!chgs.length) { sidebar.appendChild(E('p', { 'style': 'margin:8px 0;color:var(--cbi-desc);font-size:.85em' }, _('None.'))); return; }
 		chgs.forEach(function (ch) {
 			var pvC = ch.cur === 'off' ? _('Off') : (providerName[ch.cur] || ch.cur);
 			var pvA = ch.app === 'off' ? _('Off') : (providerName[ch.app] || ch.app);
@@ -786,55 +954,12 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 		});
 	}
 	buildSidebar();
-	grid.appendChild(sidebar);
-	node.appendChild(grid);
 
-	// ── filter logic ──
-	function doFilter() {
-		var q = (srch.value || '').toLowerCase();
-		var sf = sfSel.value;
-		var vis = 0;
-		for (var i = 0; i < allRows.length; i++) {
-			var r = allRows[i];
-			var sv = r.getAttribute('data-svc');
-			var sl = (SERVICE_LABELS[sv] || sv).toLowerCase();
-			var sb = (SERVICE_SUBLABEL[sv] || '').toLowerCase();
-			var ct = r.getAttribute('data-cat');
-			var en = draft.selections[sv] !== 'off';
-			var ch = (draft.selections[sv] || 'off') !== (appliedSel[sv] || 'off');
-			var show = true;
-			if (q && sl.indexOf(q) < 0 && sb.indexOf(q) < 0 && sv.indexOf(q) < 0) show = false;
-			if (sf === 'enabled' && !en) show = false;
-			if (sf === 'disabled' && en) show = false;
-			if (sf === 'changed' && !ch) show = false;
-			r.style.display = show ? '' : 'none';
-			var dp = r.nextElementSibling;
-			if (dp && dp.classList && dp.classList.contains('z2m-sa-detail-panel')) dp.style.display = 'none';
-			if (show) vis++;
-		}
-		// Show/hide category heads
-		var seen = {};
-		for (var i2 = 0; i2 < allRows.length; i2++) { if (allRows[i2].style.display !== 'none') seen[allRows[i2].getAttribute('data-cat')] = true; }
-		for (var i3 = 0; i3 < catHeadRefs.length; i3++) {
-			var hd = catHeadRefs[i3];
-			var cid = hd.getAttribute('data-cat');
-			var bd = catBodyRefs[i3];
-			if (seen[cid]) {
-				hd.style.display = '';
-				if (bd._hidden) { bd._hidden = false; bd.style.display = ''; hd._arr.textContent = '▼'; }
-			} else {
-				hd.style.display = 'none';
-				bd.style.display = 'none';
-			}
-		}
-		resLbl.textContent = _('Showing ') + vis + _(' of ') + serviceOrder.length;
-	}
-	srch.addEventListener('input', doFilter);
-	sfSel.addEventListener('change', doFilter);
-	doFilter();
-
-	// ── sticky bar ──
+	// ════════════════════════════════════════
+	// Sticky bar
+	// ════════════════════════════════════════
 	var sticky = E('div', { 'class': 'z2m-sa-sticky' });
+	var stickyLeft, stickyRight;
 	function buildSticky() {
 		sticky.innerHTML = '';
 		var chgs = [];
@@ -843,24 +968,31 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 			if (c !== a) chgs.push(1);
 		}
 		var has = chgs.length > 0;
-		var left = E('div', { 'class': 'z2m-sa-st-left' });
-		left.textContent = has ? (chgs.length + ' ' + _('unapplied')) : _('No changes');
-		sticky.appendChild(left);
-		var right = E('div', { 'class': 'z2m-sa-st-right' });
+		var appRunning = (view._sdnsOp && view._sdnsOp.promise);
+		if (appRunning) {
+			stickyLeft = E('div', { 'class': 'z2m-sa-st-left' });
+			var phaseText = view._sdnsOp.phase || 'processing';
+			stickyLeft.textContent = _('Applying') + ': ' + phaseText + '\u2026';
+			sticky.appendChild(stickyLeft);
+			return;
+		}
+		stickyLeft = E('div', { 'class': 'z2m-sa-st-left' });
+		stickyLeft.textContent = has ? (chgs.length + ' ' + _('unapplied')) : _('No changes');
+		sticky.appendChild(stickyLeft);
+		stickyRight = E('div', { 'class': 'z2m-sa-st-right' });
 
 		var disc = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Discard'));
-		disc.disabled = !has || (view._sdnsOp && view._sdnsOp.promise);
+		disc.disabled = !has || appRunning;
 		disc.addEventListener('click', function () {
 			draft.selections = {};
-			for (var k in selections) draft.selections[k] = selections[k];
 			draft.dirty = false;
 			view.showFlash(_('Draft discarded.'));
 			view.reload();
 		});
-		right.appendChild(disc);
+		stickyRight.appendChild(disc);
 
 		var prev = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Preview'));
-		prev.disabled = !has || (view._sdnsOp && view._sdnsOp.promise);
+		prev.disabled = !has || appRunning;
 		prev.addEventListener('click', function () {
 			prev.disabled = true;
 			callSdnsSet(JSON.stringify({ selections: draft.selections })).then(function () {
@@ -870,39 +1002,39 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 				})['catch'](function (e) { prev.disabled = false; view.showFlash(String(e)); });
 			})['catch'](function (e) { prev.disabled = false; view.showFlash(String(e)); });
 		});
-		right.appendChild(prev);
+		stickyRight.appendChild(prev);
 
 		var appl = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button' }, _('Apply'));
-		appl.disabled = !has || (view._sdnsOp && view._sdnsOp.promise);
+		appl.disabled = !has || appRunning;
 		appl.addEventListener('click', function () {
-			if (view._sdnsOp && view._sdnsOp.promise) return;
-			var opId = 'sdns-' + Date.now();
+			if (appRunning) return;
+			var opId = createOperationId();
 			var snapshot = {};
 			for (var k in draft.selections) snapshot[k] = draft.selections[k];
 
 			view._sdnsOp = { id: opId, type: 'apply', phase: 'saving', promise: null, error: null };
 			appl.disabled = true; prev.disabled = true; disc.disabled = true;
-			left.textContent = _('Saving\u2026');
+			buildSticky();
 
-			view._sdnsOp.promise = callSdnsSet(JSON.stringify({ selections: snapshot })).then(function (sr) {
+			view._sdnsOp.promise = callSdnsSet(JSON.stringify({ selections: snapshot, revision: appliedRev })).then(function (sr) {
 				if (!sr || sr.ok !== true) throw new Error('Set failed');
 				view._sdnsOp.phase = 'submitting';
-				left.textContent = _('Starting Apply\u2026');
-				return callSdnsApplyAsync();
+				buildSticky();
+				return callSdnsApplyAsync(JSON.stringify({ operationId: opId, revision: appliedRev }));
 			}).then(function (ar) {
-				if (!ar || !ar.accepted) throw new Error('Apply not accepted');
+				if (!ar || !ar.accepted) throw new Error(ar && ar.error ? ar.error : 'Apply not accepted');
 				view._sdnsOp.phase = 'queued';
 				view._sdnsOp.operationId = ar.operationId;
-				left.textContent = _('Applying\u2026');
+				buildSticky();
 				return pollApplyStatus(ar.operationId, function (phase) {
-					if (phase === 'reloading') left.textContent = _('Reloading DNS\u2026');
-					else if (phase === 'verifying') left.textContent = _('Verifying\u2026');
-					else if (phase === 'rolling_back') left.textContent = _('Rolling back\u2026');
+					view._sdnsOp.phase = phase;
+					buildSticky();
 				});
 			}).then(function () {
 				view._sdnsOp.phase = 'success';
 				view._sdnsOp = null;
 				view._saDraft = null;
+				view._saFilter = null;
 				view.showFlash(_('Applied and verified.'));
 				view.reload();
 			}).catch(function (e) {
@@ -913,31 +1045,50 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 				view.reload();
 			});
 		});
-		right.appendChild(appl);
-		sticky.appendChild(right);
+		stickyRight.appendChild(appl);
+		sticky.appendChild(stickyRight);
 	}
 	buildSticky();
 	node.appendChild(sticky);
 
-	function sc(n, l) { return E('div', { 'class': 'z2m-sa-sumcard' }, [E('span', { 'class': 'z2m-sa-sc-num' }, String(n)), E('span', { 'class': 'z2m-sa-sc-label' }, l)]); }
-	function h(el) { return el; }
+	// ════════════════════════════════════════
+	// Event handlers
+	// ════════════════════════════════════════
+	srch.addEventListener('input', function () {
+		view._saFilter.query = srch.value;
+		applyFilters();
+	});
+	applyFilters();
 
+	// Polling
 	function pollApplyStatus(opId, onPhase) {
 		return new Promise(function (resolve, reject) {
-			var attempts = 0, maxAttempts = 30;
+			var attempts = 0, maxAttempts = 30, deadline = Date.now() + 120000;
+			var lastError = null;
 			function tick() {
-				if (attempts >= maxAttempts) { reject(new Error('Apply status poll timeout')); return; }
+				if (Date.now() > deadline) {
+					reject(new Error('Apply status deadline exceeded'));
+					return;
+				}
+				if (attempts >= maxAttempts) {
+					reject(new Error('Apply status poll attempts exceeded'));
+					return;
+				}
 				attempts++;
 				callSdnsApplyStatus(JSON.stringify({ operationId: opId })).then(function (r) {
-					if (!r || !r.ok) { reject(new Error('Status check failed')); return; }
+					if (!r || r.error) { reject(new Error(r && r.error ? r.error.message : 'Status check failed')); return; }
 					if (r.finished) {
 						if (r.state === 'success') resolve(r);
-						else reject(new Error('Apply ' + (r.state || 'error') + ': ' + (r.error || '')));
+						else reject(new Error('Apply ' + (r.state || 'error') + (r.error ? ': ' + (r.error.message || r.error.code || '') : '')));
 						return;
 					}
-					if (onPhase) onPhase(r.state);
-					setTimeout(tick, attempts < 3 ? 1000 : attempts < 8 ? 2000 : 5000);
-				}).catch(function (e) { reject(e); });
+					if (onPhase) onPhase(r.state || r.phase);
+					setTimeout(tick, attempts < 3 ? 1000 : attempts < 6 ? 2000 : 5000);
+				}).catch(function (e) {
+					lastError = String(e);
+					view.showFlash(_('Connection check: ') + lastError.slice(0, 60));
+					setTimeout(tick, 2000);
+				});
 			}
 			tick();
 		});
@@ -960,7 +1111,256 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 		document.body.appendChild(ov);
 	}
 
+	function h(el) { return document.createTextNode(el); }
+
+	// Post-reload recovery — check for active operation
+	if (pending && pending.operationId) {
+		view._sdnsOp = { id: pending.operationId, type: 'apply', phase: pending.phase || 'unknown', promise: null };
+		buildSticky();
+		pollApplyStatus(pending.operationId, function (phase) {
+			if (view._sdnsOp) { view._sdnsOp.phase = phase; buildSticky(); }
+		}).then(function () {
+			view._sdnsOp = null;
+			view._saDraft = null;
+			view.showFlash(_('Apply completed.'));
+			view.reload();
+		}).catch(function (e) {
+			view._sdnsOp = null;
+			view.showFlash(_('Apply ended: ') + String(e).slice(0, 120));
+			view.reload();
+		});
+	}
+
 	return node;
+}
+
+// ════════════════════════════════════════════════════════
+// Custom Service Select (r46.4 — portal dropdown)
+// ════════════════════════════════════════════════════════
+function createOperationId() {
+	var randomPart;
+	if (window.crypto && typeof window.crypto.getRandomValues === 'function') {
+		var bytes = new Uint32Array(2);
+		window.crypto.getRandomValues(bytes);
+		randomPart = bytes[0].toString(16) + bytes[1].toString(16);
+	} else {
+		randomPart = Math.floor(Math.random() * 0x7fffffff).toString(16);
+	}
+	return 'sdns-' + Date.now() + '-' + randomPart;
+}
+
+function createServiceSelect(opts) {
+	opts = opts || {};
+	var value = opts.value || 'off';
+	var options = opts.options || [{ value: 'off', label: 'Off', desc: '' }];
+	var disabled = opts.disabled === true;
+	var onChange = opts.onChange || function () {};
+	var ariaLabel = opts.ariaLabel || '';
+	var viewRef = opts.view || null;
+
+	var root = E('div', { 'class': 'z2m-select' });
+	var trigger = E('button', {
+		'class': 'z2m-select-trigger',
+		'type': 'button',
+		'role': 'combobox',
+		'aria-haspopup': 'listbox',
+		'aria-expanded': 'false',
+		'aria-label': ariaLabel
+	});
+	trigger.disabled = disabled;
+
+	var valueSpan = E('span', { 'class': 'z2m-select-value' });
+	var chevron = E('span', { 'class': 'z2m-select-chevron' }, '\u25be');
+	trigger.appendChild(valueSpan);
+	trigger.appendChild(chevron);
+	root.appendChild(trigger);
+
+	updateDisplay();
+
+	function updateDisplay(val) {
+		if (val === undefined) val = value;
+		var opt = null;
+		for (var i = 0; i < options.length; i++) { if (options[i].value === val) { opt = options[i]; break; } }
+		valueSpan.textContent = opt ? opt.label : val;
+	}
+
+	function setValue(newVal, silent) {
+		value = newVal || 'off';
+		updateDisplay();
+		if (!silent) onChange(value);
+	}
+
+	function open() {
+		if (trigger.disabled) return;
+		// Close existing
+		if (viewRef && viewRef._openServiceSelect && viewRef._openServiceSelect !== root) {
+			viewRef._openServiceSelect.close();
+		}
+		// Create popup
+		var popup = document.createElement('div');
+		popup.className = 'z2m-select-popup';
+		popup.setAttribute('role', 'listbox');
+
+		// Check shell theme
+		var shell = document.getElementById('z2m-dns-shell');
+		var isDark = false;
+		if (shell) {
+			if (shell.classList.contains('z2m-theme-dark')) isDark = true;
+			else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) isDark = true;
+		}
+		if (isDark) popup.classList.add('z2m-theme-dark');
+
+		var searchWrap = null, searchInput = null;
+		if (options.length > 8) {
+			searchWrap = document.createElement('div');
+			searchWrap.className = 'z2m-select-search';
+			searchInput = document.createElement('input');
+			searchInput.type = 'search';
+			searchInput.placeholder = _('Filter');
+			searchWrap.appendChild(searchInput);
+			popup.appendChild(searchWrap);
+		}
+
+		var list = document.createElement('div');
+		list.className = 'z2m-select-list';
+		var optionEls = [];
+		var activeIdx = -1;
+
+		function renderOptions(filter) {
+			list.innerHTML = '';
+			optionEls = [];
+			var f = (filter || '').toLowerCase();
+			for (var i = 0; i < options.length; i++) {
+				var o = options[i];
+				if (f && o.label.toLowerCase().indexOf(f) < 0 && o.value.toLowerCase().indexOf(f) < 0) continue;
+				var btn = document.createElement('button');
+				btn.className = 'z2m-select-option' + (o.value === value ? ' z2m-select-option-selected' : '');
+				btn.setAttribute('type', 'button');
+				btn.setAttribute('role', 'option');
+				btn.setAttribute('aria-selected', o.value === value ? 'true' : 'false');
+				var lbl = document.createElement('span');
+				lbl.className = 'z2m-select-option-label';
+				lbl.textContent = o.label;
+				btn.appendChild(lbl);
+				if (o.desc) {
+					var desc = document.createElement('span');
+					desc.className = 'z2m-select-option-description';
+					desc.textContent = o.desc;
+					btn.appendChild(desc);
+				}
+				btn.addEventListener('click', (function (val) {
+					return function (e) { e.preventDefault(); e.stopPropagation(); setValue(val); close(); };
+				})(o.value));
+				list.appendChild(btn);
+				optionEls.push(btn);
+			}
+		}
+		renderOptions();
+		popup.appendChild(list);
+
+		document.body.appendChild(popup);
+		positionPopup();
+		trigger.setAttribute('aria-expanded', 'true');
+
+		if (searchInput) {
+			searchInput.addEventListener('input', function () { renderOptions(searchInput.value); });
+			setTimeout(function () { searchInput.focus(); }, 50);
+		}
+
+		if (!searchInput && optionEls.length > 0) {
+			activeIdx = 0;
+			for (var ai = 0; ai < optionEls.length; ai++) { if (optionEls[ai].getAttribute('aria-selected') === 'true') { activeIdx = ai; break; } }
+			optionEls[activeIdx].focus();
+		}
+
+		function positionPopup() {
+			var rect = trigger.getBoundingClientRect();
+			var vh = window.innerHeight;
+			var vw = window.innerWidth;
+			var pw = Math.max(Math.min(360, vw - 16), 200);
+			popup.style.width = pw + 'px';
+			popup.style.left = Math.max(8, Math.min(rect.left, vw - pw - 8)) + 'px';
+
+			var topBelow = rect.bottom + 4;
+			var topAbove = rect.top - Math.min(320, rect.top - 8) - 4;
+			if (topBelow + 320 <= vh || topAbove < 8) {
+				popup.style.top = topBelow + 'px';
+			} else {
+				popup.style.top = Math.max(8, topAbove) + 'px';
+			}
+		}
+
+		function close() {
+			popup.remove();
+			trigger.setAttribute('aria-expanded', 'false');
+			trigger.focus();
+			if (viewRef && viewRef._openServiceSelect === popup) viewRef._openServiceSelect = null;
+			removeListener();
+		}
+
+		function onKey(e) {
+			switch (e.key) {
+			case 'Escape': e.preventDefault(); close(); break;
+			case 'ArrowDown': e.preventDefault();
+				if (optionEls.length) { activeIdx = (activeIdx + 1) % optionEls.length; optionEls[activeIdx].focus(); }
+				break;
+			case 'ArrowUp': e.preventDefault();
+				if (optionEls.length) { activeIdx = activeIdx <= 0 ? optionEls.length - 1 : activeIdx - 1; optionEls[activeIdx].focus(); }
+				break;
+			case 'Home': e.preventDefault(); if (optionEls.length) { activeIdx = 0; optionEls[0].focus(); } break;
+			case 'End': e.preventDefault(); if (optionEls.length) { activeIdx = optionEls.length - 1; optionEls[optionEls.length - 1].focus(); } break;
+			case 'Enter': case ' ': e.preventDefault(); if (activeIdx >= 0 && optionEls[activeIdx]) optionEls[activeIdx].click(); break;
+			case 'Tab': close(); break;
+			}
+		}
+
+		function onOutside(e) {
+			if (!popup.contains(e.target) && e.target !== trigger) { close(); }
+		}
+
+		var resizeTimer;
+		function onResize() { clearTimeout(resizeTimer); resizeTimer = setTimeout(positionPopup, 100); }
+
+		popup.addEventListener('keydown', onKey);
+		setTimeout(function () { document.addEventListener('click', onOutside, true); }, 0);
+		window.addEventListener('resize', onResize);
+		if (viewRef) viewRef._openServiceSelect = root;
+
+		function removeListener() {
+			document.removeEventListener('click', onOutside, true);
+			window.removeEventListener('resize', onResize);
+		}
+	}
+
+	function close() {
+		if (viewRef && viewRef._openServiceSelect === root) {
+			var popup = document.querySelector('.z2m-select-popup');
+			if (popup) popup.remove();
+			trigger.setAttribute('aria-expanded', 'false');
+			viewRef._openServiceSelect = null;
+		}
+	}
+
+	trigger.addEventListener('click', function () {
+		if (viewRef && viewRef._openServiceSelect === root) { close(); } else { open(); }
+	});
+
+	trigger.addEventListener('keydown', function (e) {
+		if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
+			e.preventDefault();
+			open();
+		}
+	});
+
+	return {
+		element: root,
+		getValue: function () { return value; },
+		setValue: setValue,
+		setDisabled: function (d) { trigger.disabled = !!d; },
+		open: open,
+		close: close,
+		destroy: function () { close(); }
+	};
 }
 
 // ════════════════════════════════════════════════════════
