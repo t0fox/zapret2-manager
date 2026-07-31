@@ -35,8 +35,8 @@ test('diagnostic DNS probe is independent of ping and checks every IPv4', () => 
 
 test('UI updates each provider card, has retry handler and no custom CRUD controls', () => {
 	assert.match(ui, /providerCardRefs = \{\};/);
-	assert.match(ui, /updateProviderCard\(p\.id, res, null\)/);
-	assert.match(ui, /updateProviderCard\(p\.id, null, e\)/);
+	assert.match(ui, /renderProviderResult\(providerCardRefs\[p\.id\], res, null\)/);
+	assert.match(ui, /renderProviderResult\(providerCardRefs\[p\.id\], null, e\)/);
 	assert.match(ui, /view\.reload\(\)\.catch/);
 	assert.doesNotMatch(ui, /Add custom provider|customProviderForm|Provider name/);
 	assert.doesNotMatch(ui, /Save.*Test/);
@@ -49,8 +49,21 @@ test('dispatcher CLI exposes provider selection without shell-selected method na
 });
 
 test('async provider result state is theme-safe and not an inline white flash', () => {
-	assert.match(ui, /z2m-provider-pending/);
+	assert.match(ui, /z2m-provider-result-testing/);
 	assert.doesNotMatch(ui, /var\(--bg,#f0f0f0\)|background = ['"]#d4edda|background = ['"]#f8d7da/);
-	assert.match(css, /\.z2m-provider-pending/);
-	assert.match(css, /var\(--cbi-row-u/);
+	assert.match(css, /\.z2m-provider-result-testing/);
+	assert.match(css, /--z2m-surface-raised/);
+});
+
+test('provider controls and statuses have honest state transitions and semantic classes', () => {
+	assert.match(ui, /setProviderBusy\(ref, 'test'\)/);
+	assert.match(ui, /Testing…/);
+	assert.match(ui, /setProviderBusy\(ref, 'select'\)/);
+	assert.match(ui, /Applying…/);
+	assert.match(ui, /z2m-provider-actions/);
+	assert.match(ui, /z2m-provider-card-selected/);
+	assert.match(css, /\.z2m-provider-actions/);
+	assert.match(css, /grid-template-columns:\s*repeat\(auto-fill, minmax\(260px, 1fr\)\)/);
+	assert.match(css, /\.z2m-provider-result-partial/);
+	assert.doesNotMatch(css, /background:\s*(?:white|#fafafa|#f5f5f5|#f0f0f0)/i);
 });

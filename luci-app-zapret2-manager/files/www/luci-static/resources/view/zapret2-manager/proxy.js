@@ -2453,7 +2453,7 @@ return L.view.extend({
 			card.appendChild(self._f.linkCardUrlWrap);
 			self._f.linkCardUrl = E('code', { style: 'word-break:break-all;font-size:0.85em;display:block;margin-bottom:4px' });
 			self._f.linkCardUrlWrap.appendChild(self._f.linkCardUrl);
-			self._f.linkCardFull = E('code', { style: 'word-break:break-all;font-size:0.85em;display:none;background:#f9f9f9;padding:4px 6px;border-radius:3px;border:1px dashed #aaa;margin-bottom:4px' });
+			self._f.linkCardFull = E('code', { 'class': 'z2m-proxy-link-full', style: 'word-break:break-all;font-size:0.85em;display:none' });
 			self._f.linkCardUrlWrap.appendChild(self._f.linkCardFull);
 			var toggleBtn = E('button', { 'class': 'cbi-button', style: 'font-size:0.8em;padding:2px 8px' }, _('Show full link'));
 			toggleBtn.addEventListener('click', function () {
@@ -2630,16 +2630,16 @@ return L.view.extend({
 
 		var overlay = E('div', {
 			id: 'px-qr-modal',
-			style: 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.65);z-index:9999;display:flex;align-items:center;justify-content:center'
+			'class': 'z2m-proxy-modal-overlay'
 		});
 		var box = E('div', {
-			style: 'background:#2b2b2b;border-radius:10px;text-align:center;max-width:380px;width:90vw;padding:20px 20px 16px 20px;color:#e0e0e0'
+			'class': 'z2m-proxy-modal-box'
 		});
 		var title = E('div', { style: 'margin-bottom:12px;font-size:1.05em' }, _('Scan to open Telegram Proxy'));
 		box.appendChild(title);
 
 		var whiteCard = E('div', {
-			style: 'background:#fff;border-radius:6px;padding:8px;display:inline-block;margin-bottom:8px'
+			'class': 'z2m-proxy-qr-surface', style: 'border-radius:6px;padding:8px;display:inline-block;margin-bottom:8px'
 		});
 		var qrContainer = E('div', {
 			id: 'px-qr-svg',
@@ -2648,7 +2648,7 @@ return L.view.extend({
 		whiteCard.appendChild(qrContainer);
 		box.appendChild(whiteCard);
 
-		var qrMeta = E('div', { style: 'font-size:0.85em;color:#aaa;margin-bottom:10px' });
+		var qrMeta = E('div', { 'class': 'z2m-proxy-muted', style: 'font-size:0.85em;margin-bottom:10px' });
 		if (self._https_link) {
 			var m = self._https_link.match(/server=([^&]+)&port=(\d+)/);
 			qrMeta.textContent = 'Telegram Proxy \u2014 ' + (m ? (m[1] + ':' + m[2]) : '');
@@ -2669,7 +2669,7 @@ return L.view.extend({
 				qrContainer.style.display = 'flex';
 				qrContainer.style.alignItems = 'center';
 				qrContainer.style.justifyContent = 'center';
-				qrContainer.style.background = '#fff';
+				qrContainer.classList.add('z2m-proxy-qr-surface');
 				qrContainer.textContent = _('QR generation error');
 			}
 		}, 50);
@@ -2742,7 +2742,7 @@ return L.view.extend({
 		});
 		var header = E('h4', { style: 'margin:0 0 6px 0;font-size:0.95em' }, _('Recent activity'));
 		section.appendChild(header);
-		var list = E('div', { style: 'font-size:0.85em;color:#aaa' });
+		var list = E('div', { 'class': 'z2m-proxy-muted', style: 'font-size:0.85em' });
 		items.forEach(function (text) {
 			list.appendChild(E('div', { style: 'margin-bottom:2px' }, '\u2022 ' + text));
 		});
@@ -2775,10 +2775,10 @@ return L.view.extend({
 		refreshBtn.addEventListener('click', function () { self._doLiveLogsFetch(); });
 		headerRow.appendChild(refreshBtn);
 		section.appendChild(headerRow);
-		var desc = E('div', { style: 'font-size:0.8em;color:#888;margin-bottom:4px' }, _('The proxy uses quiet mode by default. Logs may remain empty unless an error occurs.'));
+		var desc = E('div', { 'class': 'z2m-proxy-muted', style: 'font-size:0.8em;margin-bottom:4px' }, _('The proxy uses quiet mode by default. Logs may remain empty unless an error occurs.'));
 		section.appendChild(desc);
 		var logPre = E('pre', {
-			style: 'min-height:4em;max-height:12em;overflow:auto;font-size:0.85em;background:#1e1e1e;color:#e0e0e0;border:1px solid #444;padding:8px;border-radius:3px;margin-top:4px;font-family:"Courier New",monospace;line-height:1.4;white-space:pre-wrap'
+			'class': 'z2m-proxy-log', style: 'min-height:4em;max-height:12em;overflow:auto;font-size:0.85em;padding:8px;border-radius:3px;margin-top:4px;font-family:"Courier New",monospace;line-height:1.4;white-space:pre-wrap'
 		});
 		logPre.textContent = _('No recent proxy events');
 		logPre.id = 'px-live-log-output';
