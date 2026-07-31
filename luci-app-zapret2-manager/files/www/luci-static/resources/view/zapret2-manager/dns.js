@@ -675,9 +675,10 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 
 		var left = E('div', { 'class': 'z2m-sa-name' }, [
 			E('div', { 'class': 'z2m-sa-name-title' }, esc(label)),
-			sublabel ? E('div', { 'class': 'z2m-sa-name-sub' }, esc(sublabel)) : null,
-			E('div', { 'class': 'z2m-sa-meta' }, metaBadges)
+			sublabel ? E('div', { 'class': 'z2m-sa-name-sub' }, esc(sublabel)) : null
 		].filter(Boolean));
+
+		var metaDiv = E('div', { 'class': 'z2m-sa-meta' }, metaBadges);
 
 		// Right: selector + details button
 		var sel = E('select', { 'class': 'z2m-sa-sel', 'data-svc': svc, 'aria-label': _('Provider for ') + label,
@@ -706,10 +707,11 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 
 		var detailBtn = E('button', { 'class': 'z2m-sa-detail-btn', 'type': 'button' }, _('Details'));
 		detailBtn.addEventListener('click', function () { toggleDetail(svc); });
-		var right = E('div', { 'class': 'z2m-sa-right' }, [sel, detailBtn]);
 
 		row.appendChild(left);
-		row.appendChild(right);
+		row.appendChild(metaDiv);
+		row.appendChild(sel);
+		row.appendChild(detailBtn);
 
 		// Detail panel
 		var detailPanel = buildDetailPanel(svc, curSel, profiles, providerName, avp);
