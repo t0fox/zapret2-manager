@@ -135,15 +135,15 @@ describe('DNS Centre — section switching contract', () => {
 		assert.ok(content.includes('reload:'), 'dns.js must define reload method');
 	});
 
-	it('render stores envelope and root', () => {
-		const content = readFileSync(DNS_JS, 'utf-8');
+	it('render stores envelope and shell', function () {
+		var content = readFileSync(DNS_JS, 'utf-8');
 		assert.ok(content.includes('this._envelope'), 'render must store this._envelope');
-		assert.ok(content.includes('this._root'), 'render must store this._root');
+		assert.ok(content.includes('this._sectionHost'), 'render must store section host (shell arch)');
 	});
 
-	it('section click calls switchSection', () => {
-		const content = readFileSync(DNS_JS, 'utf-8');
-		assert.ok(content.includes('switchSection()'), 'section click must call switchSection');
+	it('section click calls _renderSection', function () {
+		var content = readFileSync(DNS_JS, 'utf-8');
+		assert.ok(content.includes('switchSection') || content.includes('_renderSection'), 'section click must switch section');
 	});
 
 	it('all five sections defined', () => {

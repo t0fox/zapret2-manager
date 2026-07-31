@@ -1,10 +1,11 @@
 'use strict';
-// DNS — Zapret2GUI-aligned DNS management for OpenWrt (r40).
+// DNS — Zapret2GUI-aligned DNS management for OpenWrt (r46).
 //
 // Sections: Setup | Providers | Service Access | Advanced | History.
 // Grounding: dnsmasq + UCI + resolvfile. No Windows APIs, no per-adapter model.
-
 'require rpc';
+
+const DNS_UI_BUILD = 'r46';
 
 const callDnsGet        = rpc.declare({ object: 'zapret2-manager', method: 'dns_get', reject: true });
 const callDnsSet        = rpc.declare({ object: 'zapret2-manager', method: 'dns_set', params: ['edit'], reject: true });
@@ -112,6 +113,7 @@ return L.view.extend({
 			return call().then(function (res) { return { loadError: null, data: res || null }; })
 				.catch(function (err) { return { loadError: String(err), data: null }; });
 		}
+		var gen = ++this._loadGen;
 		return Promise.all([
 			callDnsGet().then(function (res) { return { loadError: null, data: res || null }; })
 				.catch(function (err) { return { loadError: String(err), data: null }; }),
@@ -120,6 +122,7 @@ return L.view.extend({
 			grab(callProvComp),
 			grab(callProvList)
 		]).then(function (r) {
+			if (gen !== this._loadGen) return null;
 			return {
 				dnsLoadError: r[0].loadError, dns: r[0].data,
 				sdnsStatusErr: r[1].loadError, sdnsStatus: r[1].data,
@@ -134,12 +137,78 @@ return L.view.extend({
 		injectCSS();
 		this._envelope = envelope || {};
 		if (!this._section) this._section = 'setup';
-		var container = this._buildDOM(this._envelope);
-		this._root = container;
+		if (!this._loadGen) this._loadGen = 0;
+		if (!this._renderGen) this._renderGen = 0;
+		if (!this._opGen) this._opGen = 0;
+		if (!this._sdnsOp) this._sdnsOp = null;
+		if (!this._saDraft) this._saDraft = null;
+		var self = this;
+		this._renderGen++;
+
+		var container = E('div', { 'class': 'z2m-page', 'id': 'z2m-dns-shell' }, [
+			E('div', { 'class': 'z2m-page-header' }, [
+				E('h2', {}, _('DNS')),
+				E('p', {}, _('Manage DNS upstream servers, test providers, configure service access mappings.'))
+			])
+		]);
+
+		// persistent tab bar
+		this._tabBar = E('div', { 'class': 'z2m-tabs' });
+		SECTIONS.forEach(function (s) {
+			var btn = E('button', { 'class': 'z2m-tab', 'type': 'button', 'data-section': s.id }, s.label);
+			btn.addEventListener('click', function (ev) {
+				ev.preventDefault();
+				if (self._section === s.id) return;
+				self._section = s.id;
+				self._renderSection();
+				self._updateActiveTab();
+			});
+			self._tabBar.appendChild(btn);
+		});
+		container.appendChild(this._tabBar);
+
+		// flash host
+		this._flashHost = E('div', { 'id': 'z2m-dns-flash' });
+		container.appendChild(this._flashHost);
+
+		// section host
+		this._sectionHost = E('div', { 'id': 'z2m-dns-section' });
+		container.appendChild(this._sectionHost);
+
+		this._buildShellContent();
+		this._updateActiveTab();
 		return container;
 	},
 
-	_buildDOM: function (envelope) {
+	_buildShellContent: function () {
+		this._updateActiveTab();
+		this._showStoredFlash();
+		try {
+			var content = this._buildSection(this._section, this._envelope);
+			this._sectionHost.innerHTML = '';
+			if (content) this._sectionHost.appendChild(content);
+		} catch (e) {
+			this._sectionHost.innerHTML = '';
+			this._sectionHost.appendChild(callout('bad', _('Could not render ') + esc(this._section) + '. ' + _('UI build: ') + DNS_UI_BUILD + ' — ' + esc(String(e))));
+		}
+	},
+
+	_updateActiveTab: function () {
+		if (!this._tabBar) return;
+		var btns = this._tabBar.querySelectorAll('.z2m-tab');
+		for (var i = 0; i < btns.length; i++) {
+			var cls = 'z2m-tab';
+			if (btns[i].getAttribute('data-section') === this._section) cls += ' z2m-tab-active';
+			btns[i].className = cls;
+		}
+	},
+
+	_renderSection: function () {
+		var g = ++this._renderGen;
+		this._buildShellContent();
+	},
+
+	_buildSection: function (sec, envelope) {
 		envelope = envelope || {};
 		var dns = envelope.dns || {};
 		var sdnsStatus = envelope.sdnsStatus || {};
@@ -147,60 +216,57 @@ return L.view.extend({
 		var provs = envelope.provList || {};
 		var comps = envelope.provComp || {};
 		var self = this;
-		var sec = this._section;
 
-		var container = E('div', { 'class': 'z2m-page' }, [
-			E('div', { 'class': 'z2m-page-header' }, [
-				E('h2', {}, _('DNS')),
-				E('p', {}, _('Manage DNS upstream servers, test providers, configure service access mappings.'))
-			])
-		]);
-
-		if (envelope.dnsLoadError && sec !== 'history' && sec !== 'services') {
-			container.appendChild(callout('bad', _('DNS data unavailable: ') + esc(envelope.dnsLoadError)));
+		if (sec === 'setup' && envelope.dnsLoadError && sec === this._section) {
+			// handled inside setupSection
 		}
-
-		// Navigation
-		var nav = E('div', { 'class': 'z2m-tabs' });
-		SECTIONS.forEach(function (s) {
-			var cls = 'z2m-tab' + (sec === s.id ? ' z2m-tab-active' : '');
-			var btn = E('button', { 'class': cls, 'type': 'button' }, s.label);
-			btn.addEventListener('click', function () { self._section = s.id; self.switchSection(); });
-			nav.appendChild(btn);
-		});
-		container.appendChild(nav);
 
 		switch (sec) {
-			case 'setup':     container.appendChild(setupSection(self, dns, comps, envelope)); break;
-			case 'providers': container.appendChild(providersSection(self, provs, comps, envelope)); break;
-			case 'services':  container.appendChild(servicesSection(self, dns, sdnsStatus, sdnsProv, envelope)); break;
-			case 'advanced':  container.appendChild(advancedSection(self, dns, envelope)); break;
-			case 'history':   container.appendChild(historySection(self, dns, sdnsStatus)); break;
+			case 'setup':     return setupSection(self, dns, comps, envelope);
+			case 'providers': return providersSection(self, provs, comps, envelope);
+			case 'services':  return servicesSection(self, dns, sdnsStatus, sdnsProv, envelope);
+			case 'advanced':  return advancedSection(self, dns, envelope);
+			case 'history':   return historySection(self, dns, sdnsStatus);
+			default:          return null;
 		}
-
-		if (this._flash) { container.appendChild(callout('warn', this._flash)); this._flash = null; }
-		return container;
 	},
 
-	switchSection: function () {
-		var oldRoot = this._root;
-		var newRoot = this._buildDOM(this._envelope);
-		if (oldRoot && oldRoot.parentNode) oldRoot.parentNode.replaceChild(newRoot, oldRoot);
-		this._root = newRoot;
+	switchSection: function (sectionId) {
+		if (sectionId) this._section = sectionId;
+		this._renderSection();
+	},
+
+	showFlash: function (msg) {
+		if (!this._flashHost) return;
+		this._flash = msg;
+		this._showStoredFlash();
+	},
+
+	_showStoredFlash: function () {
+		if (!this._flashHost || !this._flash) return;
+		this._flashHost.innerHTML = '';
+		this._flashHost.appendChild(callout('warn', this._flash));
+		this._flash = null;
 	},
 
 	reload: function () {
 		var self = this;
-		this.load().then(function (envelope) {
-			self._envelope = envelope;
-			var oldRoot = self._root;
-			var newRoot = self._buildDOM(envelope);
-			if (oldRoot && oldRoot.parentNode) oldRoot.parentNode.replaceChild(newRoot, oldRoot);
-			self._root = newRoot;
+		if (this._reloadActive) return this._reloadActive;
+		var gen = ++this._loadGen;
+		this._reloadActive = this.load().then(function (env) {
+			self._reloadActive = null;
+			if (gen !== self._loadGen || !env) return;
+			self._envelope = env;
+			var g2 = ++self._renderGen;
+			self._buildShellContent();
+		}).catch(function (e) {
+			self._reloadActive = null;
+			self.showFlash('Reload failed: ' + String(e));
 		});
+		return this._reloadActive;
 	},
 
-	refresh: function () { this.reload(); },
+	refresh: function () { return this.reload(); },
 
 	handleSaveApply: null, handleSave: null, handleReset: null
 });
@@ -774,39 +840,61 @@ function servicesSection(view, dns, sdnsStatus, sdnsProv, envelope) {
 		var right = E('div', { 'class': 'z2m-sa-st-right' });
 
 		var disc = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Discard'));
-		disc.disabled = !has;
+		disc.disabled = !has || (view._sdnsOp && view._sdnsOp.promise);
 		disc.addEventListener('click', function () {
 			draft.selections = {};
 			for (var k in selections) draft.selections[k] = selections[k];
 			draft.dirty = false;
+			view.showFlash(_('Draft discarded.'));
 			view.reload();
 		});
 		right.appendChild(disc);
 
 		var prev = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Preview'));
-		prev.disabled = !has;
+		prev.disabled = !has || (view._sdnsOp && view._sdnsOp.promise);
 		prev.addEventListener('click', function () {
 			prev.disabled = true;
 			callSdnsSet(JSON.stringify({ selections: draft.selections })).then(function () {
 				callSdnsPreview().then(function (res) {
 					prev.disabled = false;
 					showPreview(res);
-				})['catch'](function (e) { prev.disabled = false; view._flash = String(e); view.reload(); });
-			})['catch'](function (e) { prev.disabled = false; view._flash = String(e); view.reload(); });
+				})['catch'](function (e) { prev.disabled = false; view.showFlash(String(e)); });
+			})['catch'](function (e) { prev.disabled = false; view.showFlash(String(e)); });
 		});
 		right.appendChild(prev);
 
 		var appl = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button' }, _('Apply'));
-		appl.disabled = !has;
+		appl.disabled = !has || (view._sdnsOp && view._sdnsOp.promise);
 		appl.addEventListener('click', function () {
+			if (view._sdnsOp && view._sdnsOp.promise) return;
+
+			var snapshot = {};
+			for (var k in draft.selections) snapshot[k] = draft.selections[k];
+			var opId = 'sdns-' + Date.now();
+
+			view._sdnsOp = { id: opId, type: 'apply', phase: 'saving', promise: null, error: null };
 			appl.disabled = true; prev.disabled = true; disc.disabled = true;
-			callSdnsSet(JSON.stringify({ selections: draft.selections })).then(function () {
-				callSdnsApply(JSON.stringify({})).then(function (r) {
-					view._flash = (r && r.ok) ? _('Applied') : _('Apply failed');
-					view._saDraft = null;
-					view.reload();
-				})['catch'](function (e) { appl.disabled = false; prev.disabled = false; disc.disabled = false; view._flash = String(e); view.reload(); });
-			})['catch'](function (e) { appl.disabled = false; prev.disabled = false; disc.disabled = false; view._flash = String(e); view.reload(); });
+			left.textContent = _('Saving draft\u2026');
+
+			view._sdnsOp.promise = callSdnsSet(JSON.stringify({ selections: snapshot })).then(function (sr) {
+				if (!sr || sr.ok !== true) throw new Error('Set failed: ' + (sr && sr.error && sr.error.message ? sr.error.message : 'unknown'));
+				view._sdnsOp.phase = 'applying';
+				left.textContent = _('Applying\u2026');
+				return callSdnsApply(JSON.stringify({}));
+			}).then(function (ar) {
+				if (!ar || ar.ok !== true) throw new Error('Apply failed: ' + (ar && ar.error && ar.error.message ? ar.error.message : 'unknown'));
+				view._sdnsOp.phase = 'success';
+				view._sdnsOp = null;
+				view._saDraft = null;
+				view.showFlash(_('Applied and verified.'));
+				view.reload();
+			}).catch(function (e) {
+				view._sdnsOp.phase = 'error';
+				view._sdnsOp.error = String(e);
+				view._sdnsOp.promise = null;
+				view.showFlash(_('Failed: ') + String(e).slice(0, 120));
+				view.reload();
+			});
 		});
 		right.appendChild(appl);
 		sticky.appendChild(right);
