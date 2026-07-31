@@ -364,20 +364,39 @@ function providerCard(view, p) {
 	var ipv4 = (p.ipv4 || []).slice(0, 2).join(', ') || _('No IPv4');
 	var ipv6 = (p.ipv6 || []).slice(0, 2).join(', ') || _('None');
 	var badges = [];
-	if (p.doh) badges.push(badge(_('DoH on record'), 'neutral'));
+	if (p.doh) badges.push(badge(_('DoH'), 'ok'));
 	badges.push(badge(p.category || '?', 'neutral'));
+
+	var resEl = E('div', { 'class': 'z2m-provider-result', 'style': 'display:none;margin-top:.4em;padding:.3em;border-radius:4px;font-size:.85em' });
 
 	var testBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Test'));
 	testBtn.addEventListener('click', function () {
 		testBtn.disabled = true;
-		callProvDiag(JSON.stringify({ target: p.id })).then(function (res) {
+		resEl.style.display = 'block';
+		resEl.style.background = 'var(--bg,#f0f0f0)';
+		resEl.textContent = _('Testing...');
+		callProvDiag(JSON.stringify({ provider: p.id })).then(function (res) {
 			testBtn.disabled = false;
-			view._flash = _('Test completed for ') + esc(p.name) + ': ' + (res && res.ok ? _('reachable') : _('failed'));
-			view.reload();
+			var probe = (res && res.probes && res.probes.length) ? res.probes[0] : null;
+			if (probe && probe.reachable && probe.answered) {
+				var ips = (probe.answer || []).slice(0, 3).join(', ');
+				resEl.style.background = '#d4edda';
+				resEl.style.color = '#155724';
+				resEl.textContent = _('OK') + ': ' + ips + ' (via ' + esc(p.ipv4[0] || '?') + ')';
+			} else if (probe && probe.reachable) {
+				resEl.style.background = '#fff3cd';
+				resEl.style.color = '#856404';
+				resEl.textContent = _('Reachable, no DNS (ping OK, port 53 timeout)');
+			} else {
+				resEl.style.background = '#f8d7da';
+				resEl.style.color = '#721c24';
+				resEl.textContent = _('Unreachable') + (probe ? ': ' + esc(probe.reason || '') : '');
+			}
 		}).catch(function (err) {
 			testBtn.disabled = false;
-			view._flash = _('Test failed: ') + String(err);
-			view.reload();
+			resEl.style.background = '#f8d7da';
+			resEl.style.color = '#721c24';
+			resEl.textContent = _('Error') + ': ' + String(err);
 		});
 	});
 	var selectBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button' }, _('Select'));
@@ -391,7 +410,8 @@ function providerCard(view, p) {
 		E('div', { 'class': 'z2m-actions', 'style': 'margin-top:.4em' }, [
 			testBtn,
 			selectBtn
-		])
+		]),
+		resEl
 	].filter(Boolean);
 
 	return E('div', { 'class': 'z2m-card' }, [

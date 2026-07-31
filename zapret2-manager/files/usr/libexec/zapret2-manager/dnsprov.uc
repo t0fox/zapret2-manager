@@ -35,7 +35,7 @@ function err(code, message, extra) {
 // ---------------------------------------------------------------------------
 // provider catalog (validated, versioned — data only)
 // ---------------------------------------------------------------------------
-const PROVIDER_CATEGORIES = { anycast: 1, privacy: 1, filtered: 1, regional: 1, isp: 1 };
+const PROVIDER_CATEGORIES = { anycast: 1, privacy: 1, filtered: 1, regional: 1, isp: 1, 'Популярные':1, 'Безопасные':1, 'Для ИИ':1 };
 
 function ipv4_ok(ip) {
 	let parts = split('' + ip, '.');
