@@ -136,6 +136,8 @@ define Package/zapret2-manager/install
 		$(1)/usr/libexec/zapret2-manager/catalog/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/catalog/orchestra-zapret2gui.json \
 		$(1)/usr/libexec/zapret2-manager/catalog/
+	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/catalog/stressozz-corpus.json \
+		$(1)/usr/libexec/zapret2-manager/catalog/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/qlen.uc \
 		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/status.uc \

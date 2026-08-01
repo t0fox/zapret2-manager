@@ -15,6 +15,7 @@ import { maint_lua_compat } from './maintenance.uc';
 import { PATHS } from './constants.uc';
 
 const LUA_DIR = '/opt/zapret2/lua';
+const STRESSOZZ_CORPUS = '/usr/libexec/zapret2-manager/catalog/stressozz-corpus.json';
 const PINNED_UPSTREAM = 'd3b3011000f103c5af161cc4e3167e80fd6928a2';
 const DIAG_LOG_PATH = '/tmp/zapret2-manager/orchestra-diag-tail.log';
 const DIAG_TAIL_BYTES = 8192;
@@ -50,6 +51,17 @@ function sha256_file(path) {
 	if (!stat(path)) return null;
 	let h = trim(run("sha256sum " + path + " 2>/dev/null | awk '{print $1}'"));
 	return (length(h) == 64) ? h : null;
+}
+
+function stressozz_corpus_summary() {
+	let raw = readfile(STRESSOZZ_CORPUS), doc = null;
+	try { if (raw) doc = json(raw); } catch (e) { doc = null; }
+	let counts = { 'discord-media': 0, 'discord-voice': 0, 'discord-finland': 0, 'game-filter': 0 };
+	if (doc && type(doc.records) == 'array') for (let r in doc.records) if (counts[r.feature] != null) counts[r.feature]++;
+	return { sourceRepo: doc && doc.sourceRepo || 'missing', pinnedCommit: doc && doc.sourceCommit || 'missing',
+		totalRecords: doc && type(doc.records) == 'array' ? length(doc.records) : 0,
+		discordMediaCount: counts['discord-media'], discordVoiceCount: counts['discord-voice'],
+		discordFinlandCount: counts['discord-finland'], gameFilterCount: counts['game-filter'], executionStatus: 'not-adapted' };
 }
 
 // ---- dynamic upstream detection -----------------------------------------------
@@ -623,7 +635,7 @@ export const orchestra_capabilities = function () {
 	let dbg = (cmd != null) ? debug_enabled(cmd.cmdline) : false;
 	let pkgVer = detect_package_version();
 	let binVer = detect_nfqws2_binary_version();
-	return { ok: true, detected: { packageVersion: pkgVer, binaryVersion: binVer, pinnedUpstream: PINNED_UPSTREAM, versionMatch: pkgVer != null ? true : null }, engine: engine, luaFiles: luaFiles, matrix: with_ids(capability_matrix(engine, luaFiles, dbg)) };
+	return { ok: true, detected: { packageVersion: pkgVer, binaryVersion: binVer, pinnedUpstream: PINNED_UPSTREAM, versionMatch: pkgVer != null ? true : null }, engine: engine, luaFiles: luaFiles, matrix: with_ids(capability_matrix(engine, luaFiles, dbg)), stressozzCorpus: stressozz_corpus_summary() };
 };
 
 export const orchestra_status = function () {
