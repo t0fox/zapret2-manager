@@ -18,7 +18,7 @@ const Z2GUI = '/usr/libexec/zapret2-manager/catalog/orchestra-zapret2gui.json';
 const SERVICES = '/usr/libexec/zapret2-manager/services';
 const MAX_HISTORY = 20, MAX_EVENTS = 500, LOG_LIMIT = 8192, MAX_SERVICE_DOMAINS = 16, MAX_SERVICE_ATTEMPTS = 600;
 const PROTOCOLS = ['tcp_https', 'quic_udp'];
-const TERMINAL = ['completed', 'applied', 'rolled-back', 'restored', 'timeout', 'timed-out', 'cancelled', 'canceled', 'stopped', 'failed', 'interrupted'];
+const TERMINAL = ['completed', 'applied', 'rolled-back', 'restored', 'timeout', 'timed-out', 'partial', 'cancelled', 'canceled', 'stopped', 'failed', 'interrupted'];
 const APPLY_ROOT = '/var/lib/zapret2-manager/orchestra-operations';
 
 function err(code, message, details, runId, phase) { return { ok:false, error:{ code:code, message:message, details:details || {}, runId:runId || null, phase:phase || null } }; }
@@ -52,6 +52,11 @@ function service_manifest(id) {
 		for(let target in targets)if(target.id==id2)target.required=true;
 	}
 	return {ok:true,manifest:{schema:1,serviceId:id,source:doc.source,requiredTargetIds:doc.requiredTargetIds,targets:targets,dnsChecks:doc.dnsChecks||[]},raw:raw,digest:sha256_text(raw)};
+}
+function service_progress(r, chosen) {
+	if(r.targetType!='service')return;
+	if(!r.targetProgress)r.targetProgress=[];
+	for(let target in r.targets){let p=null;for(let old in r.targetProgress)if(old.targetId==target.id)p=old;if(!p){p={targetId:target.id,domain:target.domain,testedCandidateIds:[],nextCandidateIndex:0,attempts:0,rankedResults:[],winner:null,exhausted:false,failureReason:null};push(r.targetProgress,p);}let tested={};for(let a in r.results)if(a.domain==target.domain){tested[a.candidateId]=true;if(!has(p.testedCandidateIds,a.candidateId))push(p.testedCandidateIds,a.candidateId);}p.attempts=length(p.testedCandidateIds);p.nextCandidateIndex=length(chosen);for(let i=0;i<length(chosen);i++)if(!tested[chosen[i].id]){p.nextCandidateIndex=i;break;}}
 }
 function ctl(id, name) { return ROOT + '/' + id + '.' + name; }
 function request_event(r,t,m) { if(!r.events)r.events=[];let n=length(r.events)?r.events[length(r.events)-1].sequence+1:1;push(r.events,{sequence:n,timestamp:time(),type:t,message:m,details:{}}); }
@@ -107,7 +112,7 @@ export const proc_starttime = function(pid) { let raw=readfile('/proc/'+pid+'/st
 function worker_matches(r) { return r && r.workerPid && r.workerStarttime && pid_alive(r.workerPid) && proc_starttime(r.workerPid)==r.workerStarttime; }
 export const add_event = function(r,type,message,details) { if (!r.events) r.events=[]; let n=length(r.events)?r.events[length(r.events)-1].sequence+1:1; push(r.events,{sequence:n,timestamp:time(),type:type,message:message,details:details||{}}); if(length(r.events)>MAX_EVENTS)r.events=slice(r.events,length(r.events)-MAX_EVENTS); };
 export const save = function(r) {
-	if(r&&r.targetType=='service'&&r.phase=='completed'&&type(r.serviceVerdict)=='object'){r.targetResults=r.serviceResults||[];for(let tg in r.targetResults){for(let mt in r.targets)if(mt.domain==tg.domain)tg.targetId=mt.id;for(let pp in tg.protocols||[])if(pp.winner){pp.winner.positiveEvidenceIds=[];for(let ev in pp.winner.evidence||[])if(ev.positiveEvidence)push(pp.winner.positiveEvidenceIds,r.runId+'-e-'+ev.candidateId+'-'+ev.attempt);}}r.serviceVerdict=(r.serviceVerdict.domainsWithConfirmedWinner==length(r.targets))?'ready':(r.serviceVerdict.domainsWithoutWinner>0?'failed':'indeterminate');}
+	if(r&&r.targetType=='service'&&r.phase=='completed'&&type(r.serviceVerdict)=='object'){r.targetResults=r.serviceResults||[];for(let tp in r.targetProgress||[])if(!tp.winner){tp.exhausted=true;tp.failureReason='no-winner';}r.continuable=false;for(let tg in r.targetResults){for(let mt in r.targets)if(mt.domain==tg.domain)tg.targetId=mt.id;for(let pp in tg.protocols||[])if(pp.winner){pp.winner.positiveEvidenceIds=[];for(let ev in pp.winner.evidence||[])if(ev.positiveEvidence)push(pp.winner.positiveEvidenceIds,r.runId+'-e-'+ev.candidateId+'-'+ev.attempt);}}r.serviceVerdict=(r.serviceVerdict.domainsWithConfirmedWinner==length(r.targets))?'ready':(r.serviceVerdict.domainsWithoutWinner>0?'failed':'indeterminate');}
 	ensure(); let tmp=path(r.runId)+'.tmp.'+time()+'.'+(r.workerPid || 0); writefile(tmp, sprintf('%J',r)+'\n');
 	let mv=run("mv -f '" + tmp + "' '" + path(r.runId) + "'"); if (mv.rc != 0) return false;
 	if (!has(TERMINAL,r.phase) && worker_matches(r)) { let a=ACTIVE+'.tmp.'+time(); writefile(a,sprintf('%J',{runId:r.runId,pid:r.workerPid,workerStarttime:r.workerStarttime})+'\n'); run("mv -f '"+a+"' '"+ACTIVE+"'"); }
@@ -133,6 +138,12 @@ export const profile_set = function(ids,mode) {
 	for(let i=1;i<length(out);i++){let x=out[i],j=i-1,rank=mode=='recommended'?(x.source=='zapret2gui'?(x.recommended?0:1):2):0;while(j>=0){let jr=mode=='recommended'?(out[j].source=='zapret2gui'?(out[j].recommended?0:1):2):0;if(jr<rank||(jr==rank&&out[j].id<=x.id))break;out[j+1]=out[j];j--;}out[j+1]=x;}
 	return {profiles:out,revision:cp.revision+'+z2gui-'+zrevision+'+profiles-'+(s.state.updatedAt||0)};
 };
+function registry_snapshot() {
+	let ps=profile_set(null,'zapret2gui-only'), text='', ids=[];
+	if(!ps)return null;
+	for(let c in ps.profiles)if(c.protocol=='tcp_https'){text+=(text?'\n':'')+c.id+'\t'+c.opt;push(ids,c.id);}
+	return {profiles:ps.profiles,ids:ids,digest:sha256_text(text),revision:ps.revision};
+}
 function hash_text(text) { let p='/tmp/zapret2-manager/orchestra-hash.'+time(); writefile(p,''+text); let h=trim(run("sha256sum '"+p+"' 2>/dev/null | awk '{print $1}'").out); try{unlink(p);}catch(e){} return h||null; }
 export const translate_strategy = function(opt) { let out=[],removed=[]; let raw=''+opt, quote=0; for(let i=0;i<length(raw);i++){let ch=substr(raw,i,1);if(ch==chr(34)||ch=="'")quote=quote?0:1;} if(quote)return{ok:false,reason:'malformed quoting'}; for(let token in split(trim(raw),' ')){ if(!length(token))continue; if(token=='<HOSTLIST>'||token=='<HOSTLIST_NOAUTO>'||substr(token,0,9)=='--filter-'||substr(token,0,10)=='--hostlist'||substr(token,0,10)=='--comment='||token=='--comment'||substr(token,0,6)=='--new='||token=='--new'){if(token!='<HOSTLIST>'&&token!='<HOSTLIST_NOAUTO>')push(removed,token);continue;} if(index(token,'<')>=0||index(token,'>')>=0)return{ok:false,reason:'unresolved placeholder'}; push(out,token); } let line=join(' ',out); if(!length(line)||(index(line,'--payload')<0&&index(line,'--lua-desync')<0))return{ok:false,reason:'no upstream strategy parameters'}; return{ok:true,input:line,removed:removed,hash:hash_text(line)}; };
 export const bounded = function(s) { s=''+(s||''); return length(s)>LOG_LIMIT?substr(s,length(s)-LOG_LIMIT):s; };
@@ -165,7 +176,7 @@ export const orchestra_run_start = function(input) {
 		let sm=service_manifest(x.target);if(!sm.ok)return err(sm.error.code,sm.error.message,sm.error.details);
 		service=sm.manifest;manifestDigest=sm.digest;for(let t in service.targets){t.protocols=[t.protocol];push(targets,t);}
 	}
-	let r={runId:id,createdAt:time(),startedAt:null,heartbeatAt:time(),phase:'queued',target:x.target,targetType:x.targetType,serviceId:service&&service.serviceId||null,manifestDigest:manifestDigest,candidateRegistryDigest:null,candidateIds:x.candidateIds,candidateMode:x.candidateMode,protocols:x.protocols,repeats:x.repeats,perAttemptTimeoutSec:x.perAttemptTimeoutSec,totalTimeoutSec:x.totalTimeoutSec,currentTargetId:null,currentDomain:null,currentProtocol:null,currentCandidate:null,currentAttempt:null,candidatePid:null,candidateStarttime:null,completedCount:0,totalCount:null,totalCandidates:null,totalAttempts:null,progress:0,results:[],rankedResults:[],serviceResults:[],targetResults:[],targets:targets,serviceVerdict:null,selectedWinner:null,events:[],error:null,cleanup:{status:'pending'},control:{runId:id,pauseRequested:false,stopRequested:false,revision:0,updatedAt:time()},workerPid:null,workerStarttime:null,appliedOperationId:null};
+	let r={runId:id,createdAt:time(),startedAt:null,heartbeatAt:time(),phase:'queued',target:x.target,targetType:x.targetType,serviceId:service&&service.serviceId||null,manifestDigest:manifestDigest,candidateRegistryDigest:null,candidateIds:x.candidateIds,candidateMode:x.candidateMode,protocols:x.protocols,repeats:x.repeats,perAttemptTimeoutSec:x.perAttemptTimeoutSec,totalTimeoutSec:x.totalTimeoutSec,currentTargetId:null,currentDomain:null,currentProtocol:null,currentCandidate:null,currentAttempt:null,candidatePid:null,candidateStarttime:null,completedCount:0,totalCount:null,totalCandidates:null,totalAttempts:null,progress:0,results:[],rankedResults:[],serviceResults:[],targetResults:[],targets:targets,targetProgress:[],serviceVerdict:null,selectedWinner:null,continuationCount:0,continuable:false,sessionDeadline:null,events:[],error:null,cleanup:{status:'pending'},control:{runId:id,pauseRequested:false,stopRequested:false,revision:0,updatedAt:time()},workerPid:null,workerStarttime:null,appliedOperationId:null};
 	add_event(r,'queued','Orchestration queued'); ensure(); try { mkdir(ROOT+'/'+id); } catch(e) {} if(!stat(ROOT+'/'+id))return err('EIO','could not create run runtime directory'); if(!control_save(r.control)||!save(r))return err('EIO','could not atomically save run');
 	let spawned=run("sh -c '/usr/bin/ucode "+WORKER+" "+id+" >/dev/null 2>&1 & echo $!'"); let pid=+trim(spawned.out), start=proc_starttime(pid);
 	if(spawned.rc!=0||!pid_alive(pid)||!start){r.phase='failed';r.finishedAt=time();r.error={code:'EIO',message:'could not start orchestration worker',details:{rc:spawned.rc,pid:pid||null}};r.cleanup={status:'completed',reason:'worker spawn failed'};add_event(r,'failed','Could not start orchestration worker',r.error.details);save(r);clear_request_artifacts(id);return err('EIO','could not start orchestration worker',r.error.details,id,r.phase);}
@@ -177,6 +188,20 @@ export const orchestra_run_events = function(input){let r=orchestra_run_load(inp
 export const orchestra_run_pause = function(){let r=active();return r?control_request(r,'pause'):err('ENOENT','no active run');};
 export const orchestra_run_resume = function(){let r=active();return r?control_request(r,'resume'):err('ENOENT','no active run');};
 export const orchestra_run_stop = function(){let r=active();return r?control_request(r,'stop'):err('ENOENT','no active run');};
+export const orchestra_run_continue = function(input){
+	if(type(input)!='object'||!safe_id(input.runId))return err('EINPUT','runId is required');
+	let seconds=+(input.additionalTimeoutSec||0);if(seconds<1||seconds>1800)return err('EINPUT','additionalTimeoutSec must be between 1 and 1800',{},input.runId);
+	let r=orchestra_run_load(input);if(!r)return err('ENOENT','run not found',{},input.runId);
+	if(r.phase!='partial'&&r.phase!='timed-out'&&r.phase!='stopped'&&r.phase!='interrupted')return err('ESTATE','only partial, timed-out, stopped, or interrupted service runs can continue',{},r.runId,r.phase);
+	if(r.targetType!='service')return err('EINPUT','continuation requires a service run',{},r.runId,r.phase);
+	if(worker_matches(r)||active())return err('EBUSY','run already has an active worker',{},r.runId,r.phase);
+	let sm=service_manifest(r.serviceId);if(!sm.ok)return err(sm.error.code,sm.error.message,sm.error.details,r.runId,r.phase);
+	if(sm.digest!=r.manifestDigest)return err('ESTALE','service manifest digest changed',{expected:r.manifestDigest,actual:sm.digest},r.runId,r.phase);
+	let snap=registry_snapshot();if(!snap||snap.digest!=r.candidateRegistryDigest)return err('ESTALE','candidate registry digest changed',{expected:r.candidateRegistryDigest,actual:snap&&snap.digest||null},r.runId,r.phase);
+	r.targets=sm.manifest.targets;for(let t in r.targets)t.protocols=[t.protocol];service_progress(r,snap.profiles);
+	r.phase='queued';r.continuationCount=(r.continuationCount||0)+1;r.continuable=false;r.sessionDeadline=time()+seconds;r.additionalTimeoutSec=seconds;r.finishedAt=null;r.error=null;r.cleanup={status:'pending'};r.workerPid=null;r.workerStarttime=null;r.currentTargetId=null;r.currentDomain=null;r.currentCandidate=null;r.currentAttempt=null;r.control=control_load(r.runId);r.control.pauseRequested=false;r.control.stopRequested=false;r.control.revision=(r.control.revision||0)+1;r.control.updatedAt=time();if(!control_save(r.control))return err('EIO','could not reset continuation controls',{},r.runId,r.phase);add_event(r,'continued','Bounded service scan continued',{additionalTimeoutSec:seconds,continuationCount:r.continuationCount});save(r);
+	let spawned=run("sh -c '/usr/bin/ucode "+WORKER+" "+r.runId+" >/dev/null 2>&1 & echo $!'");let pid=+trim(spawned.out),start=proc_starttime(pid);if(spawned.rc!=0||!pid_alive(pid)||!start){r.phase='partial';r.continuable=true;r.cleanup={status:'completed',reason:'worker spawn failed'};r.error={code:'EIO',message:'could not start continuation worker'};save(r);return err('EIO','could not start continuation worker',{},r.runId,r.phase);}r.workerPid=pid;r.workerStarttime=start;save(r);return{ok:true,run:r};
+};
 function history_summary(r) { let w=r.selectedWinner||null, score=null;for(let x in r.rankedResults||[])if(w&&x.candidateId==w.candidateId){score=x.score;break;}return{runId:r.runId,createdAt:r.createdAt||null,startedAt:r.startedAt||null,finishedAt:r.finishedAt||null,phase:r.phase||null,target:r.target||null,targetType:r.targetType||null,protocols:r.protocols||[],candidateMode:r.candidateMode||null,candidateCount:r.totalCandidates||length(r.candidateIds||[]),completedCount:r.completedCount||0,totalCount:r.totalCount||null,winnerCandidateId:w&&w.candidateId||null,winnerScore:score,appliedOperationId:r.appliedOperationId||null,errorCode:r.error&&r.error.code||null}; }
 export const orchestra_run_history = function(){ensure();active();let out=[];for(let n in (lsdir(ROOT)||[]))if(match(n,/^or-[a-f0-9]{8}-[a-f0-9]{4}\.json$/)){let r=load(ROOT+'/'+n);if(r)push(out,history_summary(r));}for(let i=0;i<length(out);i++)for(let j=i+1;j<length(out);j++)if(out[j].createdAt>out[i].createdAt){let t=out[i];out[i]=out[j];out[j]=t;}return{ok:true,runs:slice(out,0,10),limit:10,maxLimit:20};};
 export const orchestra_run_delete = function(input){let r=orchestra_run_load(input);if(!r)return err('ENOENT','run not found');if(!has(TERMINAL,r.phase))return err('EBUSY','cannot delete active run');try{unlink(path(r.runId));}catch(e){return err('EIO','could not delete run');}return{ok:true,runId:r.runId};};
