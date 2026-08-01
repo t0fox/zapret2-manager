@@ -138,6 +138,17 @@ return L.view.extend({
 	},
 	_servicesSection: function () {
 		var self = this, s = this._state, list = s.catalogList || {}, status = s.catalogStatus || {}, body = E('div', { 'class': 'z2m-orchestra-services' });
+		var discord = (list.services || []).filter(function (service) { return service.id === 'discord'; })[0];
+		if (discord) {
+			var discordButton = btn(_('Find Discord strategies'), function (b) {
+				self._busy(b, _('Starting…'));
+				rpcCall(runStartRpc, pack({ targetType: 'service', targetId: discord.id, repeats: 1, perAttemptTimeoutSec: 15, totalTimeoutSec: 1800 })).then(function (x) {
+					if (!x || x.ok === false) throw new Error(structuredError(x && x.error || x));
+					self._state.activeRun = x.run; self._state.selectedRun = x.run; self._state.selectedRunId = x.run.runId; self._panel = 'orchestra-results'; self._refresh(); self._startPolling();
+				}).catch(function (e) { self._state.catalogError = structuredError(e); self._busy(b, _('Find Discord strategies'), true); self._refresh(); });
+			}, !!(self._state.activeRun && !terminalRun(self._state.activeRun.phase, (self._state.caps || {}).terminalPhases)), 'cbi-button-action');
+			body.appendChild(E('div', { 'class': 'z2m-card z2m-discord-service-card' }, [E('h4', {}, _('Discord TCP/443')), E('p', {}, _('Dynamically test Web, Gateway and CDN against the packaged Zapret2GUI registry.')), E('div', { 'class': 'z2m-actions' }, [discordButton])]));
+		}
 		if (s.catalogError || list.ok === false) { body.appendChild(alertBox(s.catalogError || structuredError(list.error || list))); return section(_('Services'), 'orchestra-services', body, _('Reviewed service domains with ownership-safe changes.')); }
 		var ledger = status.ledger || {}, enabled = {}; (ledger.enabled || []).forEach(function (id) { enabled[id] = true; }); self._catalogChecks = self._catalogChecks || {};
 		(list.services || []).forEach(function (service) { if (self._catalogChecks[service.id] == null) self._catalogChecks[service.id] = !!enabled[service.id]; });
@@ -189,7 +200,7 @@ return L.view.extend({
 	},
 
 	_runDetail: function (run) {
-		if (run.targetType === 'service') return this._serviceRunDetail(run);
+		if (run.targetType === 'service') return E('div', {}, [this._serviceRunDetail(run), this._serviceActions(run), this._state.preview && this._state.preview.runId === run.runId ? this._previewCard() : '']);
 		var self = this, s = this._state, protocol = s.protocol || this._preferredProtocol(run), protocols = run.protocols || [protocol], body = E('div', { 'class': 'z2m-orchestra-run-detail' });
 		var top = E('div', { 'class': 'z2m-orchestra-detail-top' }, [E('div', {}, [E('h4', {}, esc(run.target || _('Unknown target'))), E('p', {}, esc(_('Only this domain and selected protocol are shown.')))]), E('select', { 'class': 'cbi-input-select', 'aria-label': _('Ranking protocol') }, protocols.map(function (p) { return E('option', { 'value': p, 'selected': p === protocol }, esc(self._protocolLabel(p))); }))]);
 		var select = top.querySelector('select'); if (select) select.addEventListener('change', function () { self._state.protocol = select.value; self._state.preview = null; self._refresh(); }); body.appendChild(top);
@@ -201,6 +212,7 @@ return L.view.extend({
 	},
 	_serviceRunDetail: function (run) { var body = E('div', { 'class': 'z2m-orchestra-run-detail' }), verdict = run.serviceVerdict || {}, groups = run.serviceResults || []; body.appendChild(E('div', { 'class': 'z2m-orchestra-detail-top' }, [E('div', {}, [E('h4', {}, esc(run.serviceId || run.target || _('Service'))), E('p', {}, _('Apply is available only for the verified domain workflow.'))]) ])); body.appendChild(E('div', { 'class': 'z2m-orchestra-state-grid' }, [kv(_('Domains'), (verdict.finishedDomains || 0) + ' / ' + (verdict.totalDomains || (run.targets || []).length)), kv(_('Confirmed winners'), verdict.domainsWithConfirmedWinner || 0), kv(_('Without winner'), verdict.domainsWithoutWinner || 0), kv(_('Failed / indeterminate'), (verdict.failedDomains || 0) + ' / ' + (verdict.indeterminateDomains || 0))])); if (!groups.length) body.appendChild(E('div', { 'class': 'z2m-empty' }, terminalRun(run.phase) ? _('No per-domain result was recorded.') : _('Per-domain results will appear while the service run progresses.'))); groups.forEach(function (group) { var box = E('div', { 'class': 'z2m-card' }, [E('h4', {}, esc(group.domain))]); (group.protocols || []).forEach(function (protocol) { var winner = protocol.winner; box.appendChild(E('div', { 'class': 'z2m-orchestra-result-panel' }, [kv(_('Protocol'), protocol.protocol === 'tcp_https' ? _('HTTPS / TCP') : _('QUIC / UDP')), kv(_('Winner'), winner ? winner.candidateId : _('No confirmed winner')), E('pre', { 'class': 'z2m-mono' }, esc((protocol.rankedResults || []).map(function (r) { return (r.candidateId || '—') + ' · ' + (r.successCount || 0) + ' / ' + (r.attemptCount || 0) + ' · ' + (r.verdict || 'unknown'); }).join('\n') || _('No candidate evidence.')))])); }); body.appendChild(box); }); body.appendChild(details(_('Technical details'), E('pre', { 'class': 'z2m-mono' }, esc(pack({ serviceId: run.serviceId, catalogVersion: run.catalogVersion, catalogDigest: run.catalogDigest, targets: run.targets, serviceVerdict: run.serviceVerdict }))))); return body; },
 
+	_serviceActions: function (run) { var self = this, ready = run.phase === 'completed' && run.serviceVerdict === 'ready', box = E('div', { 'class': 'z2m-actions' }); box.appendChild(btn(_('Preview service apply'), function (b) { self._busy(b, _('Preview…')); rpcCall(previewRpc, pack({ runId: run.runId })).then(function (x) { self._state.preview = x; self._state.error = null; self._busy(b, _('Preview service apply'), true); self._refresh(); }).catch(function (e) { self._state.error = structuredError(e); self._busy(b, _('Preview service apply'), true); self._refresh(); }); }, !ready || !!this._state.operation)); if (this._state.preview && this._state.preview.runId === run.runId) box.appendChild(btn(_('Apply service preview'), function () { self._apply(); }, !!self._state.operation, 'cbi-button-action')); return box; },
 	_rankingTable: function (run, protocol) {
 		var self = this, s = this._state, rows = E('tbody', {}), ranked = run.rankedResults || [];
 		if (!ranked.length) return E('div', { 'class': 'z2m-empty' }, terminalRun(run.phase) ? _('No ranked results for this run.') : _('Ranking will appear when the run completes.'));

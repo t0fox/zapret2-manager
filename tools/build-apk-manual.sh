@@ -131,6 +131,9 @@ install -m 0644 "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/lists-m
                 "$R/usr/libexec/zapret2-manager/lists-model.json"
 # the Service Catalog dataset (package-owned; the backend fails closed without it)
 mkdir -p "$R/usr/libexec/zapret2-manager/catalog"
+mkdir -p "$R/usr/libexec/zapret2-manager/services"
+install -m 0644 "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/services/discord.json" \
+                "$R/usr/libexec/zapret2-manager/services/discord.json"
 install -m 0644 "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/catalog/services.json" \
                 "$R/usr/libexec/zapret2-manager/catalog/services.json"
 # every catalog dataset file (dns-providers.json today; glob, not a list —
@@ -303,6 +306,9 @@ done
 install -m 0644 "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/lists-model.json" \
                 "$R/usr/libexec/zapret2-manager/lists-model.json"
 mkdir -p "$R/usr/libexec/zapret2-manager/catalog"
+mkdir -p "$R/usr/libexec/zapret2-manager/services"
+install -m 0644 "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/services/discord.json" \
+                "$R/usr/libexec/zapret2-manager/services/discord.json"
 install -m 0644 "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/catalog/services.json" \
                 "$R/usr/libexec/zapret2-manager/catalog/services.json"
 for f in "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/catalog"/*.json; do

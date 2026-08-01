@@ -11,7 +11,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=zapret2-manager
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=81
+PKG_RELEASE:=89
 PKG_MAINTAINER:=Ásgeir
 PKG_LICENSE:=MIT
 PKGARCH:=all
@@ -126,6 +126,9 @@ define Package/zapret2-manager/install
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/catalog-cli.uc \
 		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_DIR) $(1)/usr/libexec/zapret2-manager/catalog
+	$(INSTALL_DIR) $(1)/usr/libexec/zapret2-manager/services
+	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/services/discord.json \
+		$(1)/usr/libexec/zapret2-manager/services/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/catalog/services.json \
 		$(1)/usr/libexec/zapret2-manager/catalog/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/catalog/dns-providers.json \

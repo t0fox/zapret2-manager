@@ -5,7 +5,7 @@
 set -eu
 ROOT=/tmp/zapret2-manager/orchestra-runs
 SCANNER=/opt/zapret2/blockcheck2.sh
-run_id=${1:-}; candidate_id=${2:-}; protocol=${3:-}; domain=${4:-}; timeout=${5:-20}
+run_id=${1:-}; candidate_id=${2:-}; protocol=${3:-}; domain=${4:-}; probe=${5:-https}; timeout=${6:-20}
 case "$run_id" in or-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;; *) exit 64;; esac
 case "$candidate_id" in
     p[0-9][0-9][0-9][0-9][0-9][0-9]|c-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]|z2gui-*) ;;
@@ -13,6 +13,7 @@ case "$candidate_id" in
 esac
 case "$protocol" in tcp_https|quic_udp) ;; *) exit 64;; esac
 case "$domain" in *[!A-Za-z0-9.-]*|'') exit 64;; esac
+case "$probe" in https|websocket|bounded_download) ;; *) exit 64;; esac
 case "$timeout" in *[!0-9]*|'') exit 64;; esac
 dir="$ROOT/$run_id"; list="$dir/$candidate_id.$protocol"; log="$dir/$candidate_id.$protocol.log"
 pidfile="$dir/$candidate_id.$protocol.pid"; startfile="$dir/$candidate_id.$protocol.starttime"
@@ -63,6 +64,23 @@ while kill -0 "$child" 2>/dev/null; do
 	elapsed=$((elapsed + 1))
 done
 set +e; wait "$child"; rc=$?; set -e
+if [ "$rc" -eq 0 ] && [ "$protocol" = tcp_https ]; then
+	probe_body="$dir/$candidate_id.$protocol.probe-body"
+	probe_headers="$dir/$candidate_id.$protocol.probe-headers"
+	probe_rc=0
+	case "$probe" in
+		https) curl -4 -fsS --connect-timeout 8 --max-time "$timeout" -o "$probe_body" -D "$probe_headers" "https://$domain/" >/dev/null 2>&1 || probe_rc=$? ;;
+		websocket) curl -4 -sS --http1.1 --connect-timeout 8 --max-time "$timeout" -o "$probe_body" -D "$probe_headers" -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' "https://$domain/?v=10&encoding=json" >/dev/null 2>&1 || probe_rc=$? ;;
+		bounded_download) curl -4 -fsS --connect-timeout 8 --max-time "$timeout" -o "$probe_body" -D "$probe_headers" "https://$domain/" >/dev/null 2>&1 || probe_rc=$? ;;
+	esac
+	probe_bytes=$(wc -c < "$probe_body" 2>/dev/null || echo 0)
+	probe_status=$(awk 'NR==1 {print $2}' "$probe_headers" 2>/dev/null || echo 0)
+	if [ "$probe" = websocket ] && [ "$probe_status" != 101 ] && [ "$probe_status" != 200 ]; then probe_rc=1; fi
+	if [ "$probe" = bounded_download ] && [ "$probe_bytes" -le 0 ]; then probe_rc=1; fi
+	if [ "$probe_rc" -ne 0 ]; then printf '\nPROBE_FAIL type=%s status=%s bodyBytes=%s\n' "$probe" "$probe_status" "$probe_bytes" >> "$log"; rc=7
+	else printf '\nPROBE_EVIDENCE type=%s status=%s bodyBytes=%s\n' "$probe" "$probe_status" "$probe_bytes" >> "$log"; fi
+	rm -f "$probe_body" "$probe_headers"
+fi
 child=
 printf '%s\n' "$rc" >"$dir/$candidate_id.$protocol.rc.tmp"
 mv -f "$dir/$candidate_id.$protocol.rc.tmp" "$dir/$candidate_id.$protocol.rc"
