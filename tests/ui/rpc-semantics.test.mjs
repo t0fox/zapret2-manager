@@ -1669,6 +1669,17 @@ test('orchestra: selected detail shows backend error literally and Retry can rec
 	assert.equal(view._state.selectedRun.runId, 'or-00000002-0002', 'Retry restores the selected detail');
 });
 
+test('orchestra: every panel renders a state when a run has a verified winner', () => {
+	const w = makeWorld();
+	const view = loadView(readViewSource('orchestra'), 'orchestra', w);
+	view._state = { runHistory: [], activeRun: null, selectedRun: { runId: 'or-00000001-0001', phase: 'completed', target: 'youtube.com', targetType: 'domain', protocols: ['tcp_https'], selectedWinner: { candidateId: 'candidate' }, rankedResults: [{ candidateId: 'candidate', name: 'Candidate', evidence: [{ protocol: 'tcp_https', passed: true }], compatibilityStatus: 'compatible' }] }, selectedRunId: 'or-00000001-0001', selectedLoading: false, selectedError: null, caps: { terminalPhases: ['completed'] }, catalogList: { ok: true, services: [], categories: [] }, catalogStatus: { ok: true, ledger: { enabled: [] }, catalog: { valid: true }, drift: { divergent: false } }, catalogHealth: {}, catalogError: null, adaptive: {}, preview: null, operation: null, error: null };
+	for (const panel of ['orchestra-services', 'orchestra-find', 'orchestra-results', 'orchestra-adaptive']) {
+		view._panel = panel;
+		const body = panel === 'orchestra-services' ? view._servicesSection() : panel === 'orchestra-find' ? view._findSection() : panel === 'orchestra-results' ? view._resultsSection() : view._adaptiveSection();
+		assert.ok(collectText(body).join(' ').trim(), panel + ' never renders blank');
+	}
+});
+
 // ---- 6j. dns providers section (Phase E) -------------------------------------------
 
 const DNSPROV_COMPS = {

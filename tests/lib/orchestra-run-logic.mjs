@@ -17,9 +17,11 @@ export function validateStart(input = {}) {
 	if (!protocols.length || protocols.some(p => !PROTOCOLS.has(p))) return { ok: false, error: 'protocols must contain supported protocol IDs' };
 	const domain = String(input.domain || '').trim().toLowerCase().replace(/\.$/, '');
 	if (targetType === 'domain' && (!/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(domain))) return { ok: false, error: 'domain must be a hostname' };
+	const targetId = String(input.targetId || '').trim();
+	if (targetType === 'service' && !/^[A-Za-z0-9_.-]{1,128}$/.test(targetId)) return { ok: false, error: 'targetId must be a trusted service id' };
 	const repeats = input.repeats ?? 2, perAttemptTimeoutSec = input.perAttemptTimeoutSec ?? 20, totalTimeoutSec = input.totalTimeoutSec ?? 600;
 	if (!Number.isInteger(repeats) || repeats < 1 || repeats > 3 || !Number.isInteger(perAttemptTimeoutSec) || perAttemptTimeoutSec < 1 || perAttemptTimeoutSec > 120 || !Number.isInteger(totalTimeoutSec) || totalTimeoutSec < perAttemptTimeoutSec || totalTimeoutSec > 1800) return { ok: false, error: 'timeout or repeat bounds invalid' };
-	return { ok: true, value: { targetType, ...(targetType === 'domain' ? { domain } : { targetId: input.targetId }), protocols, candidateMode: input.candidateMode ?? 'recommended', candidateIds: input.candidateIds ?? [], repeats, perAttemptTimeoutSec, totalTimeoutSec } };
+	return { ok: true, value: { targetType, ...(targetType === 'domain' ? { domain } : { targetId }), protocols, candidateMode: input.candidateMode ?? 'recommended', candidateIds: input.candidateIds ?? [], repeats, perAttemptTimeoutSec, totalTimeoutSec } };
 }
 
 export function transition(from, to) { return { ok: !!TRANSITIONS[from]?.includes(to), from, to }; }

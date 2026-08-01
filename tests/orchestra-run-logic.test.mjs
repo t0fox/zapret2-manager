@@ -10,6 +10,12 @@ test('validateStart rejects unsafe domains and accepts a bounded HTTPS run', () 
 	assert.deepEqual(valid, { ok: true, value: { targetType: 'domain', domain: 'example.com', protocols: ['tcp_https'], candidateMode: 'recommended', candidateIds: [], repeats: 2, perAttemptTimeoutSec: 15, totalTimeoutSec: 120 } });
 });
 
+test('validateStart requires a concrete service id while preserving domain runs', () => {
+	assert.equal(validateStart({ targetType: 'service', protocols: ['tcp_https'] }).ok, false);
+	assert.deepEqual(validateStart({ targetType: 'service', targetId: 'youtube', protocols: ['tcp_https'], repeats: 1, perAttemptTimeoutSec: 5, totalTimeoutSec: 60 }).value.targetId, 'youtube');
+	assert.equal(validateStart({ targetType: 'domain', domain: 'youtube.com', protocols: ['tcp_https'], repeats: 1, perAttemptTimeoutSec: 5, totalTimeoutSec: 60 }).value.domain, 'youtube.com');
+});
+
 test('transition only permits explicit orchestration state transitions', () => {
 	assert.equal(transition('queued', 'preparing').ok, true);
 	assert.equal(transition('testing', 'paused').ok, true);
