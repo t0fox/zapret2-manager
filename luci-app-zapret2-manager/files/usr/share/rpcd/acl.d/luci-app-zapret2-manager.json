@@ -3,14 +3,14 @@
 		"description": "Zapret 2 Manager - overview + service control + lists",
 		"read": {
 			"ubus": {
-				"zapret2-manager": [ "status", "lists_get", "lists_check_domain", "profiles_list", "profiles_validate", "job_get", "job_list", "blockcheck_status", "versions", "maintenance_status", "events_tail", "diagnostics_export", "backup_list", "backup_restore_preview", "dns_get", "dns_validate", "dns_check", "catalog_list", "catalog_get", "catalog_status", "catalog_preview", "health_matrix_get", "health_matrix_job_get", "orchestra_capabilities", "orchestra_status", "orchestra_events", "orchestra_history", "orchestra_ratings_get", "orchestra_runid", "orchestra_parse_warnings", "orchestra_history_get", "orchestra_history_paginated", "orchestra_history_export", "orchestra_history_stats", "orchestra_run_status", "orchestra_run_events", "orchestra_run_history", "orchestra_run_load", "orchestra_preview_best", "orchestra_apply_status", "orchestra_apply_events", "dnsprov_components", "dnsprov_providers", "dnsprov_diagnose", "proxy_capabilities", "proxy_status", "proxy_config_get", "proxy_logs_tail", "proxy_health", "proxy_link_info", "proxy_config_validate", "proxy_config_preview", "service_dns_providers", "service_dns_status", "service_dns_preview", "service_dns_check", "service_dns_apply_status" ]
+			"zapret2-manager": [ "status", "lists_get", "lists_check_domain", "profiles_list", "profiles_validate", "job_get", "job_list", "blockcheck_status", "versions", "maintenance_status", "events_tail", "diagnostics_export", "backup_list", "backup_restore_preview", "dns_get", "dns_validate", "dns_check", "catalog_list", "catalog_get", "catalog_status", "catalog_preview", "health_matrix_get", "health_matrix_job_get", "orchestra_capabilities", "discord_profile_preview", "discord_profile_rollback", "discord_profile_restore_previous", "orchestra_status", "orchestra_events", "orchestra_history", "orchestra_ratings_get", "orchestra_runid", "orchestra_parse_warnings", "orchestra_history_get", "orchestra_history_paginated", "orchestra_history_export", "orchestra_history_stats", "orchestra_run_status", "orchestra_run_events", "orchestra_run_history", "orchestra_run_load", "orchestra_preview_best", "orchestra_apply_status", "orchestra_apply_events", "dnsprov_components", "dnsprov_providers", "dnsprov_diagnose", "proxy_capabilities", "proxy_status", "proxy_config_get", "proxy_logs_tail", "proxy_health", "proxy_link_info", "proxy_config_validate", "proxy_config_preview", "service_dns_providers", "service_dns_status", "service_dns_preview", "service_dns_check", "service_dns_apply_status" ]
 			},
 			"uci": [ "zapret2" ]
 		},
 		"write": {
 			"ubus": {
 				"zapret2-manager": [
-					"start", "stop", "restart", "restart_daemons",
+					"start", "stop", "restart", "restart_daemons", "discord_profile_apply",
 					"start_fw", "reload_ifsets",
 					"confirm_alive", "rollback", "passthrough",
 					"lists_set",

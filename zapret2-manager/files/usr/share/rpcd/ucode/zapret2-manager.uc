@@ -235,6 +235,7 @@ function health_matrix_job_cancel_method(req) { return blockcheck_cancel_method(
 
 // ---- orchestra read-only adapter (Phase D) ---------------------------------------
 const ORCH_CLI = '/usr/libexec/zapret2-manager/orchestra-cli.uc';
+const DISCORD_CLI = '/usr/libexec/zapret2-manager/discord-profile-cli.uc';
 // (method wrappers live below cli_action — ucode does not hoist declarations)
 
 // ---- maintenance + backups (SLICE 5) -----------------------------------------
@@ -293,6 +294,10 @@ function backup_create_method(req) { return cli_edit_action(BACKUP_CLI, 'create'
 
 // orchestra method wrappers (after cli_action — ucode does not hoist)
 function orchestra_capabilities_method(req) { return cli_action(ORCH_CLI, 'capabilities'); }
+function discord_profile_preview_method(req) { return cli_action(DISCORD_CLI, 'preview'); }
+function discord_profile_apply_method(req) { return cli_edit_action(DISCORD_CLI, 'apply', req, 'discord-profile'); }
+function discord_profile_rollback_method(req) { return cli_action(DISCORD_CLI, 'rollback'); }
+function discord_profile_restore_previous_method(req) { return cli_action(DISCORD_CLI, 'restore_previous'); }
 function orchestra_status_method(req) { return cli_action(ORCH_CLI, 'status'); }
 function orchestra_events_method(req) { return cli_action(ORCH_CLI, 'events'); }
 function orchestra_history_method(req) { return cli_action(ORCH_CLI, 'history'); }
@@ -497,6 +502,10 @@ return {
 		health_matrix_job_get: { args: { edit: 'string' }, call: function (req) { return health_matrix_job_get_method(req); } },
 		health_matrix_job_cancel: { args: { edit: 'string' }, call: function (req) { return health_matrix_job_cancel_method(req); } },
 		orchestra_capabilities: { call: function (req) { return orchestra_capabilities_method(req); } },
+		discord_profile_preview: { call: function (req) { return discord_profile_preview_method(req); } },
+		discord_profile_apply: { args: { edit: 'string' }, call: function (req) { return discord_profile_apply_method(req); } },
+		discord_profile_rollback: { call: function (req) { return discord_profile_rollback_method(req); } },
+		discord_profile_restore_previous: { call: function (req) { return discord_profile_restore_previous_method(req); } },
 		orchestra_status:  { call: function (req) { return orchestra_status_method(req); } },
 		orchestra_events:  { call: function (req) { return orchestra_events_method(req); } },
 		orchestra_history: { call: function (req) { return orchestra_history_method(req); } },

@@ -1,6 +1,6 @@
 {
 	"schemaVersion": 1,
-	"compilerVersion": "stressozz-zapret2-compiler/1.0.0",
+	"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
 	"sourceRepo": "StressOzz/Zapret-Manager",
 	"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
 	"records": [
@@ -43,20 +43,55 @@
 					"l7": []
 				},
 				"operations": [],
-				"status": "rejected",
-				"compatibilityReasons": [
-					"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+				"profileName": "StressOzz_Discord_Media_Dv1",
+				"fragment": "--blob=blob_stressozz_tls_clienthello_www_google_com:@/opt/zapret2/files/fake/tls_clienthello_www_google_com.bin --filter-tcp=2053,2083,2087,2096,8443 --filter-l7=tls --hostlist-domains=discord.media --payload=tls_client_hello --lua-desync=multisplit:pos=2:seqovl=652:seqovl_pattern=blob_stressozz_tls_clienthello_www_google_com",
+				"nativeLuaChain": [
+					"multisplit:pos=2:seqovl=652:seqovl_pattern=blob_stressozz_tls_clienthello_www_google_com"
+				],
+				"resolvedPayloads": [
+					{
+						"blobName": "blob_stressozz_tls_clienthello_www_google_com",
+						"sourcePath": "/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
+						"targetPath": "/opt/zapret2/files/fake/tls_clienthello_www_google_com.bin"
+					}
+				],
+				"semanticMappingEvidence": [
+					"--filter-tcp + --hostlist-domains → native TCP/domain filter",
+					"--dpi-desync=multisplit → --lua-desync=multisplit",
+					"--dpi-desync-split-seqovl=652 → seqovl=652",
+					"--dpi-desync-split-pos=2 → pos=2",
+					"--dpi-desync-split-seqovl-pattern → --blob + seqovl_pattern"
+				],
+				"argv": [
+					"--blob=blob_stressozz_tls_clienthello_www_google_com:@/opt/zapret2/files/fake/tls_clienthello_www_google_com.bin",
+					"--filter-tcp=2053,2083,2087,2096,8443",
+					"--filter-l7=tls",
+					"--hostlist-domains=discord.media",
+					"--payload=tls_client_hello",
+					"--lua-desync=multisplit:pos=2:seqovl=652:seqovl_pattern=blob_stressozz_tls_clienthello_www_google_com"
 				]
 			},
 			"requiredPayloads": [
 				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
 			],
-			"executionStatus": "unsupported",
-			"compatibilityReasons": [
-				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+			"resolvedPayloads": [
+				{
+					"blobName": "blob_stressozz_tls_clienthello_www_google_com",
+					"sourcePath": "/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
+					"targetPath": "/opt/zapret2/files/fake/tls_clienthello_www_google_com.bin"
+				}
 			],
-			"compilerVersion": "stressozz-zapret2-compiler/1.0.0",
-			"compiledDigest": null
+			"semanticMappingEvidence": [
+				"--filter-tcp + --hostlist-domains → native TCP/domain filter",
+				"--dpi-desync=multisplit → --lua-desync=multisplit",
+				"--dpi-desync-split-seqovl=652 → seqovl=652",
+				"--dpi-desync-split-pos=2 → pos=2",
+				"--dpi-desync-split-seqovl-pattern → --blob + seqovl_pattern"
+			],
+			"executionStatus": "native-adapted",
+			"compatibilityReasons": [],
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
+			"compiledDigest": "73f7cefcb43412c012e32842bb8d8300fb5031b9ada88f200670b2420d819e8c"
 		},
 		{
 			"candidateId": "stressozz-discord-media-dv2",
@@ -109,11 +144,13 @@
 				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
 				"rnd,dupsid,sni"
 			],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
 			"executionStatus": "unsupported",
 			"compatibilityReasons": [
 				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
 			],
-			"compilerVersion": "stressozz-zapret2-compiler/1.0.0",
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
 			"compiledDigest": null
 		},
 		{
@@ -165,11 +202,13 @@
 				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
 				"none"
 			],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
 			"executionStatus": "unsupported",
 			"compatibilityReasons": [
 				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
 			],
-			"compilerVersion": "stressozz-zapret2-compiler/1.0.0",
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
 			"compiledDigest": null
 		},
 		{
@@ -219,11 +258,13 @@
 			"requiredPayloads": [
 				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
 			],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
 			"executionStatus": "unsupported",
 			"compatibilityReasons": [
 				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
 			],
-			"compilerVersion": "stressozz-zapret2-compiler/1.0.0",
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
 			"compiledDigest": null
 		},
 		{
@@ -274,11 +315,13 @@
 			"requiredPayloads": [
 				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
 			],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
 			"executionStatus": "unsupported",
 			"compatibilityReasons": [
 				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
 			],
-			"compilerVersion": "stressozz-zapret2-compiler/1.0.0",
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
 			"compiledDigest": null
 		},
 		{
@@ -328,11 +371,13 @@
 			"requiredPayloads": [
 				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
 			],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
 			"executionStatus": "unsupported",
 			"compatibilityReasons": [
 				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
 			],
-			"compilerVersion": "stressozz-zapret2-compiler/1.0.0",
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
 			"compiledDigest": null
 		},
 		{
@@ -382,11 +427,13 @@
 			"requiredPayloads": [
 				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
 			],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
 			"executionStatus": "unsupported",
 			"compatibilityReasons": [
 				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
 			],
-			"compilerVersion": "stressozz-zapret2-compiler/1.0.0",
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
 			"compiledDigest": null
 		},
 		{
@@ -437,11 +484,13 @@
 			"requiredPayloads": [
 				"none"
 			],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
 			"executionStatus": "unsupported",
 			"compatibilityReasons": [
 				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
 			],
-			"compilerVersion": "stressozz-zapret2-compiler/1.0.0",
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
 			"compiledDigest": null
 		},
 		{
@@ -493,11 +542,13 @@
 			"requiredPayloads": [
 				"rnd,dupsid,sni"
 			],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
 			"executionStatus": "unsupported",
 			"compatibilityReasons": [
 				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
 			],
-			"compilerVersion": "stressozz-zapret2-compiler/1.0.0",
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
 			"compiledDigest": null
 		},
 		{
@@ -552,11 +603,13 @@
 				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
 				"rnd,dupsid,sni"
 			],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
 			"executionStatus": "unsupported",
 			"compatibilityReasons": [
 				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
 			],
-			"compilerVersion": "stressozz-zapret2-compiler/1.0.0",
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
 			"compiledDigest": null
 		},
 		{
@@ -610,11 +663,13 @@
 				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
 				"rnd,dupsid,sni"
 			],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
 			"executionStatus": "unsupported",
 			"compatibilityReasons": [
 				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
 			],
-			"compilerVersion": "stressozz-zapret2-compiler/1.0.0",
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
 			"compiledDigest": null
 		},
 		{
@@ -665,11 +720,13 @@
 			"requiredPayloads": [
 				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
 			],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
 			"executionStatus": "unsupported",
 			"compatibilityReasons": [
 				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
 			],
-			"compilerVersion": "stressozz-zapret2-compiler/1.0.0",
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
 			"compiledDigest": null
 		},
 		{
@@ -719,11 +776,13 @@
 			"requiredPayloads": [
 				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
 			],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
 			"executionStatus": "unsupported",
 			"compatibilityReasons": [
 				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
 			],
-			"compilerVersion": "stressozz-zapret2-compiler/1.0.0",
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
 			"compiledDigest": null
 		},
 		{
@@ -775,11 +834,13 @@
 				"0x00",
 				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
 			],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
 			"executionStatus": "unsupported",
 			"compatibilityReasons": [
 				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
 			],
-			"compilerVersion": "stressozz-zapret2-compiler/1.0.0",
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
 			"compiledDigest": null
 		},
 		{
@@ -834,11 +895,13 @@
 				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
 				"rnd,dupsid,sni"
 			],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
 			"executionStatus": "unsupported",
 			"compatibilityReasons": [
 				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
 			],
-			"compilerVersion": "stressozz-zapret2-compiler/1.0.0",
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
 			"compiledDigest": null
 		},
 		{
@@ -888,11 +951,13 @@
 			"requiredPayloads": [
 				"rnd,dupsid,sni"
 			],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
 			"executionStatus": "unsupported",
 			"compatibilityReasons": [
 				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
 			],
-			"compilerVersion": "stressozz-zapret2-compiler/1.0.0",
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
 			"compiledDigest": null
 		},
 		{
@@ -941,12 +1006,14 @@
 				]
 			},
 			"requiredPayloads": [],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
 			"executionStatus": "unsupported",
 			"compatibilityReasons": [
 				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent",
 				"missing payload: record has no concrete payload reference for its fake operation"
 			],
-			"compilerVersion": "stressozz-zapret2-compiler/1.0.0",
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
 			"compiledDigest": null
 		},
 		{
@@ -990,20 +1057,54 @@
 					]
 				},
 				"operations": [],
-				"status": "rejected",
-				"compatibilityReasons": [
-					"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+				"profileName": "StressOzz_Discord_Voice",
+				"fragment": "--blob=blob_stressozz_stun:@/opt/zapret2/files/fake/stun.bin --filter-udp=19294-19344,50000-50100 --filter-l7=discord,stun --payload=stun,discord_ip_discovery --lua-desync=fake:blob=blob_stressozz_stun:repeats=6",
+				"nativeLuaChain": [
+					"fake:blob=blob_stressozz_stun:repeats=6"
+				],
+				"resolvedPayloads": [
+					{
+						"blobName": "blob_stressozz_stun",
+						"sourcePath": "/opt/zapret/files/fake/stun.bin",
+						"targetPath": "/opt/zapret2/files/fake/stun.bin"
+					}
+				],
+				"semanticMappingEvidence": [
+					"--filter-udp → native UDP filter",
+					"--filter-l7=discord,stun → native L7 filter",
+					"--dpi-desync=fake → --lua-desync=fake",
+					"--dpi-desync-repeats=6 → repeats=6",
+					"Discord/STUN packet selection → payload=stun,discord_ip_discovery"
+				],
+				"argv": [
+					"--blob=blob_stressozz_stun:@/opt/zapret2/files/fake/stun.bin",
+					"--filter-udp=19294-19344,50000-50100",
+					"--filter-l7=discord,stun",
+					"--payload=stun,discord_ip_discovery",
+					"--lua-desync=fake:blob=blob_stressozz_stun:repeats=6"
 				]
 			},
 			"requiredPayloads": [
 				"/opt/zapret/files/fake/stun.bin"
 			],
-			"executionStatus": "unsupported",
-			"compatibilityReasons": [
-				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+			"resolvedPayloads": [
+				{
+					"blobName": "blob_stressozz_stun",
+					"sourcePath": "/opt/zapret/files/fake/stun.bin",
+					"targetPath": "/opt/zapret2/files/fake/stun.bin"
+				}
 			],
-			"compilerVersion": "stressozz-zapret2-compiler/1.0.0",
-			"compiledDigest": null
+			"semanticMappingEvidence": [
+				"--filter-udp → native UDP filter",
+				"--filter-l7=discord,stun → native L7 filter",
+				"--dpi-desync=fake → --lua-desync=fake",
+				"--dpi-desync-repeats=6 → repeats=6",
+				"Discord/STUN packet selection → payload=stun,discord_ip_discovery"
+			],
+			"executionStatus": "native-adapted",
+			"compatibilityReasons": [],
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
+			"compiledDigest": "8baed37c62f11365ea53a17053f8e0451ec885125207fa5a5cd384c360a9bc03"
 		},
 		{
 			"candidateId": "stressozz-discord-finland",
@@ -1049,11 +1150,13 @@
 				]
 			},
 			"requiredPayloads": [],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
 			"executionStatus": "unsupported",
 			"compatibilityReasons": [
 				"semantic mismatch: Finnish Discord scope is an /etc/hosts IP/hostname mapping, not a zapret2 packet profile"
 			],
-			"compilerVersion": "stressozz-zapret2-compiler/1.0.0",
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
 			"compiledDigest": null
 		},
 		{
@@ -1106,11 +1209,13 @@
 			"requiredPayloads": [
 				"/opt/zapret/files/fake/stun.bin"
 			],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
 			"executionStatus": "unsupported",
 			"compatibilityReasons": [
 				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
 			],
-			"compilerVersion": "stressozz-zapret2-compiler/1.0.0",
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
 			"compiledDigest": null
 		}
 	]

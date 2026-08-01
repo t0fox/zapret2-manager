@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-export const COMPILER_VERSION = 'stressozz-zapret2-compiler/1.0.0';
+export const COMPILER_VERSION = 'stressozz-zapret2-compiler/2.0.0';
 
 function digest(value) {
 	return createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -21,6 +21,19 @@ function filtersOf(record) {
 }
 
 function reasonsFor(record) {
+	if (record.id === 'stressozz-discord-media-dv1') {
+		const options = record.originalOptions || [];
+		if (record.filters?.tcpPorts === '2053,2083,2087,2096,8443' && record.filters?.domains?.includes('discord.media')
+			&& options.includes('--dpi-desync=multisplit') && options.includes('--dpi-desync-split-seqovl=652')
+			&& options.includes('--dpi-desync-split-pos=2')) return [];
+		return ['semantic mismatch: Dv1 source semantics are incomplete or altered'];
+	}
+	if (record.feature === 'discord-voice') {
+		const options = record.originalOptions || [];
+		if (record.filters?.udpPorts === '19294-19344,50000-50100' && JSON.stringify(record.filters?.l7) === JSON.stringify(['discord', 'stun'])
+			&& options.includes('--dpi-desync=fake') && options.includes('--dpi-desync-repeats=6')) return [];
+		return ['semantic mismatch: Discord Voice source semantics are incomplete or altered'];
+	}
 	if (record.feature === 'discord-finland') return ['semantic mismatch: Finnish Discord scope is an /etc/hosts IP/hostname mapping, not a zapret2 packet profile'];
 	const reasons = [];
 	const options = record.originalOptions || [];
@@ -31,22 +44,52 @@ function reasonsFor(record) {
 	return reasons;
 }
 
+function nativeMapping(record, filters) {
+	if (record.id === 'stressozz-discord-media-dv1') {
+		const blobName = 'blob_stressozz_tls_clienthello_www_google_com';
+		return {
+			profileName: 'StressOzz_Discord_Media_Dv1',
+			fragment: `--blob=${blobName}:@/opt/zapret2/files/fake/tls_clienthello_www_google_com.bin --filter-tcp=${filters.tcpPorts} --filter-l7=tls --hostlist-domains=discord.media --payload=tls_client_hello --lua-desync=multisplit:pos=2:seqovl=652:seqovl_pattern=${blobName}`,
+			nativeLuaChain: [`multisplit:pos=2:seqovl=652:seqovl_pattern=${blobName}`],
+			resolvedPayloads: [{ blobName, sourcePath: '/opt/zapret/files/fake/tls_clienthello_www_google_com.bin', targetPath: '/opt/zapret2/files/fake/tls_clienthello_www_google_com.bin' }],
+			semanticMappingEvidence: ['--filter-tcp + --hostlist-domains → native TCP/domain filter', '--dpi-desync=multisplit → --lua-desync=multisplit', '--dpi-desync-split-seqovl=652 → seqovl=652', '--dpi-desync-split-pos=2 → pos=2', '--dpi-desync-split-seqovl-pattern → --blob + seqovl_pattern']
+		};
+	}
+	if (record.feature === 'discord-voice') {
+		const blobName = 'blob_stressozz_stun';
+		return {
+			profileName: 'StressOzz_Discord_Voice',
+			fragment: `--blob=${blobName}:@/opt/zapret2/files/fake/stun.bin --filter-udp=${filters.udpPorts} --filter-l7=discord,stun --payload=stun,discord_ip_discovery --lua-desync=fake:blob=${blobName}:repeats=6`,
+			nativeLuaChain: [`fake:blob=${blobName}:repeats=6`],
+			resolvedPayloads: [{ blobName, sourcePath: '/opt/zapret/files/fake/stun.bin', targetPath: '/opt/zapret2/files/fake/stun.bin' }],
+			semanticMappingEvidence: ['--filter-udp → native UDP filter', '--filter-l7=discord,stun → native L7 filter', '--dpi-desync=fake → --lua-desync=fake', '--dpi-desync-repeats=6 → repeats=6', 'Discord/STUN packet selection → payload=stun,discord_ip_discovery']
+		};
+	}
+	return null;
+}
+
 export function compileRecord(record) {
 	const reasons = reasonsFor(record);
-	const adapted = reasons.length === 0;
+	const filters = filtersOf(record);
+	const mapping = reasons.length === 0 ? nativeMapping(record, filters) : null;
+	const adapted = mapping != null;
 	const compiledOptions = {
-		format: 'zapret2/nfqws2-profile-fragment', filters: filtersOf(record), operations: [],
+		format: 'zapret2/nfqws2-profile-fragment', filters, operations: [],
+		...(mapping || {}),
 		...(adapted ? {} : { status: 'rejected', compatibilityReasons: reasons })
 	};
+	if (adapted) compiledOptions.argv = compiledOptions.fragment.split(' ');
 	return {
 		candidateId: record.id,
 		feature: record.feature,
 		sourceCommit: record.sourceCommit,
 		originalOptions: record.originalOptions,
-		filters: filtersOf(record),
+		filters,
 		compiledOptions,
 		requiredPayloads: record.payloadReferences || [],
-		executionStatus: adapted ? 'adapted' : 'unsupported',
+		resolvedPayloads: mapping?.resolvedPayloads || [],
+		semanticMappingEvidence: mapping?.semanticMappingEvidence || [],
+		executionStatus: adapted ? 'native-adapted' : 'unsupported',
 		compatibilityReasons: reasons,
 		compilerVersion: COMPILER_VERSION,
 		compiledDigest: adapted ? digest(compiledOptions) : null

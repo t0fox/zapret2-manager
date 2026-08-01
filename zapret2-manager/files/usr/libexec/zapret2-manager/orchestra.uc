@@ -63,14 +63,14 @@ function stressozz_corpus_summary() {
 	if (doc && type(doc.records) == 'array') for (let r in doc.records) if (counts[r.feature] != null) counts[r.feature]++;
 	let adapted = 0, unsupported = 0, unsupportedRecords = [], adaptedDigests = [];
 	if (compiled && type(compiled.records) == 'array') for (let c in compiled.records) {
-		if (c.executionStatus == 'adapted') { adapted++; push(adaptedDigests, { candidateId: c.candidateId, compiledDigest: c.compiledDigest }); }
+		if (c.executionStatus == 'native-adapted') { adapted++; push(adaptedDigests, { candidateId: c.candidateId, compiledDigest: c.compiledDigest }); }
 		if (c.executionStatus == 'unsupported') { unsupported++; push(unsupportedRecords, { candidateId: c.candidateId, feature: c.feature, reasons: c.compatibilityReasons }); }
 	}
 	return { sourceRepo: doc && doc.sourceRepo || 'missing', pinnedCommit: doc && doc.sourceCommit || 'missing',
 		totalRecords: doc && type(doc.records) == 'array' ? length(doc.records) : 0,
 		discordMediaCount: counts['discord-media'], discordVoiceCount: counts['discord-voice'],
 		discordFinlandCount: counts['discord-finland'], gameFilterCount: counts['game-filter'], executionStatus: compiled ? null : 'not-adapted',
-		compilerVersion: compiled && compiled.compilerVersion || null, adaptedCount: adapted, unsupportedCount: unsupported,
+		compilerVersion: compiled && compiled.compilerVersion || null, adaptedCount: adapted, nativeAdaptedCount: adapted, unsupportedCount: unsupported,
 		unsupportedRecords: unsupportedRecords, adaptedDigests: adaptedDigests };
 }
 
