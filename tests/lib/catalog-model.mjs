@@ -13,7 +13,7 @@
 import { createHash } from 'node:crypto';
 
 export const CATALOG_SCHEMA = 1;
-export const CATALOG_CATEGORIES = ['video', 'messaging', 'social', 'games', 'AI', 'developer', 'music', 'other'];
+export const CATALOG_CATEGORIES = ['video', 'messaging', 'social', 'games', 'AI', 'developer', 'music', 'media', 'other'];
 export const CATALOG_MECHANISMS = ['domainInclude', 'domainExclude', 'dnsOverride', 'dnsProvider', 'proxyRoute', 'unsupportedGeo'];
 export const CATALOG_STABILITY = ['reviewed', 'experimental', 'stale'];
 

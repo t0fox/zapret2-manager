@@ -1653,6 +1653,65 @@ test('orchestra: controls use real boolean-attribute presence and recover after 
 	assert.ok(w.calls.some((c) => c.method === 'catalog_get'), 'enabled Manus prepares a service run');
 });
 
+test('orchestra: domain Start polls queued work through terminal state without duplicate intervals', async () => {
+	const queued = { runId: 'or-queued', phase: 'queued', target: 'youtube.com', protocols: ['tcp_https'], completedCount: 0, totalCount: 1 };
+	const running = { ...queued, phase: 'testing', completedCount: 0, currentCandidate: 'candidate-a', currentAttempt: 1, events: [{ message: 'running' }] };
+	const completed = { ...queued, phase: 'completed', completedCount: 1, progress: 100, events: [{ message: 'completed' }] };
+	let statusCalls = 0;
+	const w = makeWorld({
+		orchestra_run_start: { type: 'ok', value: { ok: true, run: queued } },
+		orchestra_run_status: { type: 'ok', value: () => (++statusCalls === 1 ? { ok: true, run: running } : { ok: true, run: completed }) }
+	});
+	const view = loadView(readViewSource('orchestra'), 'orchestra', w);
+	view._panel = 'orchestra-find';
+	view._state = { runHistory: [], activeRun: null, selectedRun: null, selectedRunId: null, selectedLoading: false, selectedError: null, caps: { terminalPhases: ['completed'] }, catalogList: null, catalogStatus: null, catalogHealth: null, catalogError: null, adaptive: {}, preview: null, operation: null, error: null };
+	view._findSection();
+	findButton(w, 'Start').listeners.click();
+	await flush();
+	assert.equal(w.intervals.length, 1, 'domain Start creates one polling interval');
+	view._startPolling();
+	assert.equal(w.intervals.length, 1, 'repeated polling start does not create a second interval');
+	w.intervals[0]();
+	await flush();
+	assert.equal(view._state.activeRun.phase, 'testing', 'poll updates queued run to running with live details');
+	w.intervals[0]();
+	await flush();
+	assert.equal(view._state.activeRun.phase, 'completed', 'poll updates the terminal run without reload');
+	assert.equal(view._polling, false, 'terminal run stops polling');
+});
+
+test('orchestra: polling RPC failure stops the active interval with a structured error', async () => {
+	const w = makeWorld({ orchestra_run_status: { type: 'ubusError', code: 5 } });
+	const view = loadView(readViewSource('orchestra'), 'orchestra', w);
+	view._panel = 'orchestra-find';
+	view._state = { activeRun: { runId: 'or-live', phase: 'testing' }, selectedRunId: null, caps: { terminalPhases: ['completed'] }, operation: null, error: null };
+	view._startPolling();
+	assert.equal(w.intervals.length, 1, 'active run starts polling');
+	w.intervals[0]();
+	await flush();
+	assert.match(view._state.error, /RPC call failed/, 'polling error stays structured');
+	assert.equal(view._polling, false, 'polling error stops the interval');
+});
+
+test('orchestra: service Start retains its single active-run polling interval', async () => {
+	const catalog = { ok: true, catalogVersion: '2.0.0', digestOk: true, categories: ['AI'], services: [{ id: 'manus', name: 'Manus', category: 'AI', domainCount: 1, mechanisms: ['domainInclude'], stability: 'reviewed', limitations: '' }] };
+	const w = makeWorld({
+		catalog_get: { type: 'ok', value: { ok: true, service: { id: 'manus', domains: ['manus.im'] } } },
+		orchestra_run_start: { type: 'ok', value: { ok: true, run: { runId: 'or-service', phase: 'queued', targetType: 'service', serviceId: 'manus', protocols: ['tcp_https'] } } }
+	});
+	w.windowStub.history = { pushState() {} };
+	const view = loadView(readViewSource('orchestra'), 'orchestra', w);
+	view._panel = 'orchestra-services';
+	view._state = { runHistory: [], activeRun: null, selectedRun: null, selectedRunId: null, selectedLoading: false, selectedError: null, caps: { terminalPhases: ['completed'] }, catalogList: catalog, catalogStatus: { ok: true, ledger: { enabled: ['manus'] }, catalog: { valid: true, digestOk: true }, drift: { divergent: false } }, catalogHealth: {}, catalogError: null, adaptive: {}, preview: null, operation: null, error: null };
+	view._servicesSection();
+	findButton(w, 'Find strategies').listeners.click();
+	await flush();
+	view._servicesSection();
+	findButton(w, 'Start service run').listeners.click();
+	await flush();
+	assert.equal(w.intervals.length, 1, 'service Start still creates exactly one polling interval');
+});
+
 test('orchestra: disabled service explains why and catalog digest verdict cannot say Valid', () => {
 	const service = { id: 'manus', name: 'Manus', category: 'video', domainCount: 1, mechanisms: [], stability: 'reviewed', limitations: '' };
 	const w = makeWorld({ catalog_list: { type: 'ok', value: { ok: true, catalogVersion: '2.0.0', digestOk: false, categories: ['video'], services: [service] }, }, catalog_status: { type: 'ok', value: { ok: true, ledger: { enabled: [] }, catalog: { valid: true, digestOk: false }, drift: { divergent: false } } } });

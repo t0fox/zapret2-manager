@@ -33,7 +33,12 @@ function clear_active_lock(id) {
 	if(!a || a.runId!=id)return;
 	try { unlink(ACTIVE); } catch(e) {}
 }
-function clear_request_artifacts(id) { try{unlink(control_path(id));}catch(e){} try{unlink(ctl(id,'pause'));}catch(e){} try{unlink(ctl(id,'stop'));}catch(e){} }
+export const clear_request_artifacts = function(id) {
+	// Control artifacts are written by both rpcd and the worker.  Use one
+	// id-scoped cleanup command after the terminal state has been saved.
+	let base=ROOT+'/'+id;
+	run("rm -f '"+base+".control' '"+base+".pause' '"+base+".stop'");
+};
 function request_save(r) { let p=path(r.runId),t=p+'.rpc.'+time();writefile(t,sprintf('%J',r)+'\n');let m=popen("mv -f '"+t+"' '"+p+"' 2>&1",'r');if(!m||m.close()!=0)return false;if(!has(TERMINAL,r.phase)&&worker_matches(r)){let a=ACTIVE+'.rpc.'+time();writefile(a,sprintf('%J',{runId:r.runId,pid:r.workerPid,workerStarttime:r.workerStarttime})+'\n');let q=popen("mv -f '"+a+"' '"+ACTIVE+"' 2>&1",'r');if(q)q.close();}else clear_active_lock(r.runId);return true; }
 function control_path(id) { return ROOT + '/' + id + '.control'; }
 export const control_load = function(id) {

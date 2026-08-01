@@ -1,6 +1,7 @@
 {
 	"schema": 1,
 	"catalogVersion": "2.0.0",
+	"digest": "097d97accb52ed80c7c31d21dda8ce17753aa86aea556a8c09e87860a3c99c6d",
 	"upstreamCommit": "41c7fed7fe06774eff01e75d51bbee065c2de206",
 	"upstreamRepo": "youtubediscord/zapret",
 	"upstreamPath": "src/hosts/proxy_domains.py (QUICK_SERVICES)",

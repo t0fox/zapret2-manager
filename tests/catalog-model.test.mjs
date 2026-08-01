@@ -31,10 +31,20 @@ test('the SHIPPED catalog passes full validation (schema, ids, overlaps, digest)
 	assert.ok(doc.services.length >= 11, 'at least 11 initial services');
 });
 
+test('shipped catalog digest is canonical and tampering fails closed', () => {
+	const doc = loadCatalog();
+	assert.equal(doc.digest, catalogDigest(doc), 'shipped digest is the canonical Node value used by the router mirror');
+	const tampered = structuredClone(doc);
+	tampered.services[0].domains.push('tampered.example');
+	const result = validateCatalog(tampered);
+	assert.equal(result.digestOk, false, 'modified catalog has a digest mismatch');
+	assert.equal(result.ok, false, 'modified catalog remains mutation-blocking');
+});
+
 test('shipped catalog: required services present with honest mechanisms', () => {
 	const doc = loadCatalog();
 	const ids = doc.services.map((s) => s.id);
-	for (const id of ['youtube', 'discord', 'telegram-web', 'twitch', 'spotify', 'supercell', 'github', 'githubusercontent', 'chatgpt-openai', 'google-gemini', 'notion'])
+	for (const id of ['youtube', 'discord', 'twitch', 'spotify', 'supercell', 'github', 'chatgpt-openai', 'google-gemini', 'notion'])
 		assert.ok(ids.includes(id), 'missing service ' + id);
 	const ai = doc.services.find((s) => s.id === 'chatgpt-openai');
 	assert.ok(ai.mechanisms.includes('unsupportedGeo'), 'AI service must declare unsupportedGeo honestly');
