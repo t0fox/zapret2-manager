@@ -159,14 +159,15 @@ export function checkIdempotent(lastApply, candidateSha256, now, windowSec = APP
 //                     not-yet-registered → spurious rollback).
 //   ownerMatch      — queue peer_portid == daemon PID (fixture-grounded:
 //                     proc-nfnetlink_queue.out field 2 == ps pid)
-export function verifyStatus(statusJson, queueInfo) {
+export function verifyStatus(statusJson, queueInfo, options = {}) {
 	const rt = (statusJson && statusJson.runtime) || {};
 	const health = (statusJson && statusJson.health) || {};
 	const count = Number.isInteger(rt.count) ? rt.count : (Array.isArray(rt.instances) ? rt.instances.length : 0);
-	const pid = Array.isArray(rt.instances) && rt.instances.length === 1 ? rt.instances[0].pid : null;
+	const instances = Array.isArray(rt.instances) ? rt.instances : [];
+	const pid = instances.length === 1 ? instances[0].pid : (options.allowExternalNfqws ? instances.find(x => x.pid === queueInfo?.peer_portid)?.pid ?? null : null);
 	const checks = {
 		processPresent: count >= 1,
-		singleInstance: count === 1,
+		singleInstance: count === 1 || (options.allowExternalNfqws === true && pid != null),
 		rulesPresent: rt.rulesPresent === true,
 		queueRegistered: !!(queueInfo && queueInfo.registered),
 		ownerMatch: pid != null && queueInfo && queueInfo.peer_portid != null && queueInfo.peer_portid === pid

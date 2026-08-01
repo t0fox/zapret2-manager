@@ -257,15 +257,16 @@ function snapshot_apply() {
 	return { configSha256: st.config, uciSha256: st.uci, generation: gen };
 }
 
-function verify_status(sj, q) {
+function verify_status(sj, q, allow_external_nfqws) {
 	let rt = (type(sj) == 'object' && sj != null && type(sj.runtime) == 'object') ? sj.runtime : {};
 	let count = (type(rt.count) == 'int') ? rt.count
 		: ((type(rt.instances) == 'array') ? length(rt.instances) : 0);
 	let pid = null;
 	if (type(rt.instances) == 'array' && length(rt.instances) == 1) pid = rt.instances[0].pid;
+	else if (allow_external_nfqws && type(rt.instances) == 'array') for (let i = 0; i < length(rt.instances); i++) if (q.peer_portid != null && rt.instances[i].pid == q.peer_portid) { pid = rt.instances[i].pid; break; }
 	let checks = {
 		processPresent: count >= 1,
-		singleInstance: count == 1,
+		singleInstance: count == 1 || (allow_external_nfqws && pid != null),
 		rulesPresent: rt.rulesPresent == true,
 		// the DIRECT /proc parse is authoritative for queue registration: it
 		// selects the row by queue number, so q.registered IS "queue 300
@@ -351,9 +352,7 @@ export const profiles_apply_preview = function() {
 	};
 };
 
-export const profiles_apply_run = function() {
-	let f = pipeline_front();
-	if (f.refuse) return f.refuse;
+function apply_candidate_pipeline(f) {
 	let decision = apply_decision(f.native);
 	if (!decision.proceed) {
 		return err('validate', 'ETARGET', 'native validation refused the candidate (status: ' + f.native.status + ') — nothing was written', { native: f.native });
@@ -405,7 +404,7 @@ export const profiles_apply_run = function() {
 	// invalidate + re-collect status, then verify FIVE checks
 	let sj = recollect_status();
 	let q = parse_queue();
-	let verify = verify_status(sj, q);
+	let verify = verify_status(sj, q, f.allowExternalNfqws == true);
 
 	if (r.rc != 0 || !verify.ok) {
 		// immediate rollback attempt via the existing manual rollback
@@ -440,4 +439,26 @@ export const profiles_apply_run = function() {
 		snapshot: snap,
 		rollback: { available: true, armed: false, note: 'manual rollback via the rollback ubus method remains available; the automatic 90s timer is disabled' }
 	};
+}
+
+// The sole production writer is intentionally shared by every typed caller.
+// Callers provide an already-rendered, validated candidate; this function
+// still performs the native gate, snapshot, sanctioned set_var, restart and
+// rollback-on-verification-failure. It never accepts a shell fragment.
+export const profiles_apply_candidate = function(candidate, expectedHash) {
+	if (type(candidate) != 'string' || !length(candidate) || length(candidate) > MAX_CANDIDATE_BYTES)
+		return err('render', 'EINPUT', 'typed candidate is missing or exceeds the safe size limit');
+	let model = z2m_parse(candidate), diags = z2m_validate(model);
+	for (let d in model.diagnostics) if (d.severity == 'error') return err('render', 'EINPUT', 'typed candidate has parse errors', { diagnostics: model.diagnostics });
+	for (let d in diags) if (d.severity == 'error') return err('render', 'EINPUT', 'typed candidate has validation errors', { diagnostics: diags });
+	let native = native_dry_run(candidate), cur = read_var(OPT_VAR), diff = diff_summary(cur != null ? cur : '', candidate);
+	if (expectedHash != null && diff.candidateSha256 != expectedHash)
+		return err('validate', 'ECONFLICT', 'typed candidate hash changed before mutation', { expected: expectedHash, actual: diff.candidateSha256 });
+	return apply_candidate_pipeline({ candidate: candidate, fragments: [], native: native, diff: diff, draftCount: length(model.profiles), allowExternalNfqws: true });
+};
+
+export const profiles_apply_run = function() {
+	let f = pipeline_front();
+	if (f.refuse) return f.refuse;
+	return apply_candidate_pipeline(f);
 };

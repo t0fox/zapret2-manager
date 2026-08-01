@@ -158,6 +158,13 @@ test('verifyStatus: two daemons fail singleInstance; absent process fails proces
 	assert.equal(v0.checks.queueRegistered, false);
 });
 
+test('verifyStatus: a target-scoped apply accepts an unrelated external nfqws2 when queue 300 identifies the managed daemon', () => {
+	const status = statusFixture({ runtime: { present: true, count: 2, rulesPresent: true, instances: [{ pid: 13862 }, { pid: 6128 }] } });
+	const verified = verifyStatus(status, Q, { allowExternalNfqws: true });
+	assert.equal(verified.ok, true);
+	assert.equal(verified.daemonPid, 6128);
+});
+
 test('verifyStatus: queue owner mismatch is detected (owner != daemon PID)', () => {
 	const v = verifyStatus(statusFixture(), { registered: true, peer_portid: 9999 });
 	assert.equal(v.ok, false);

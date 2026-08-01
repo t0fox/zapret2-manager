@@ -19,7 +19,7 @@
 // containing the request object (avoiding shell injection).
 
 import { orchestra_capabilities, orchestra_status, orchestra_events, orchestra_history, orchestra_runid, orchestra_parse_warnings, orchestra_ratings_get, orchestra_history_get, orchestra_history_paginated, orchestra_history_export, orchestra_history_clear, orchestra_history_stats } from './orchestra.uc';
-import { orchestra_run_start, orchestra_run_status, orchestra_run_events, orchestra_run_pause, orchestra_run_resume, orchestra_run_stop, orchestra_run_history, orchestra_run_load, orchestra_run_delete, orchestra_run_capabilities, orchestra_apply_best, orchestra_preview_best } from './orchestra-run.uc';
+import { orchestra_run_start, orchestra_run_status, orchestra_run_events, orchestra_run_pause, orchestra_run_resume, orchestra_run_stop, orchestra_run_history, orchestra_run_load, orchestra_run_delete, orchestra_run_capabilities, orchestra_apply_best, orchestra_apply_best_test, orchestra_preview_best, orchestra_apply_status, orchestra_apply_events, orchestra_restore_previous, orchestra_apply_record_lan_verification } from './orchestra-run.uc';
 import { readfile } from 'fs';
 
 function read_request(path) {
@@ -89,6 +89,16 @@ if (mode == 'capabilities') {
 	print(sprintf("%J", orchestra_apply_best(read_request(reqFile))) + '\n');
 } else if (mode == 'preview_best') {
 	print(sprintf("%J", orchestra_preview_best(read_request(reqFile))) + '\n');
+} else if (mode == 'apply_status') {
+	print(sprintf("%J", orchestra_apply_status(read_request(reqFile))) + '\n');
+} else if (mode == 'apply_events') {
+	print(sprintf("%J", orchestra_apply_events(read_request(reqFile))) + '\n');
+} else if (mode == 'restore_previous') {
+	print(sprintf("%J", orchestra_restore_previous(read_request(reqFile))) + '\n');
+} else if (mode == 'apply_best_test') {
+	print(sprintf("%J", orchestra_apply_best_test(read_request(reqFile))) + '\n');
+} else if (mode == 'apply_record_lan_verification') {
+	print(sprintf("%J", orchestra_apply_record_lan_verification(read_request(reqFile))) + '\n');
 } else {
 	print('usage: ucode orchestra-cli.uc <mode> [reqfile]\n');
 	exit(1);

@@ -331,6 +331,9 @@ function orchestra_run_load_method(req) { return orchestra_reqfile_action('run_l
 function orchestra_run_delete_method(req) { return orchestra_reqfile_action('run_delete', req); }
 function orchestra_apply_best_method(req) { return orchestra_reqfile_action('apply_best', req); }
 function orchestra_preview_best_method(req) { return orchestra_reqfile_action('preview_best', req); }
+function orchestra_apply_status_method(req) { return orchestra_reqfile_action('apply_status', req); }
+function orchestra_apply_events_method(req) { return orchestra_reqfile_action('apply_events', req); }
+function orchestra_restore_previous_method(req) { return orchestra_reqfile_action('restore_previous', req); }
 
 // ---- DNS providers + component diagnostics (Phase E) -----------------------------
 const DNSPROV_CLI = '/usr/libexec/zapret2-manager/dnsprov-cli.uc';
@@ -506,6 +509,9 @@ return {
 		orchestra_run_delete: { args: { edit: 'string' }, call: function (req) { return orchestra_run_delete_method(req); } },
 		orchestra_apply_best: { args: { edit: 'string' }, call: function (req) { return orchestra_apply_best_method(req); } },
 		orchestra_preview_best: { args: { edit: 'string' }, call: function (req) { return orchestra_preview_best_method(req); } },
+		orchestra_apply_status: { args: { edit: 'string' }, call: function (req) { return orchestra_apply_status_method(req); } },
+		orchestra_apply_events: { args: { edit: 'string' }, call: function (req) { return orchestra_apply_events_method(req); } },
+		orchestra_restore_previous: { args: { edit: 'string' }, call: function (req) { return orchestra_restore_previous_method(req); } },
 		dnsprov_components: { call: function (req) { return dnsprov_components_method(req); } },
 		dnsprov_providers: { call: function (req) { return dnsprov_providers_method(req); } },
 		dnsprov_diagnose: { args: { edit: 'string' }, call: function (req) { return dnsprov_diagnose_method(req); } },

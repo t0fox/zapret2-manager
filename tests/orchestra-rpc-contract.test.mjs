@@ -4,7 +4,7 @@
 import { strict as assert } from 'assert';
 import { readFileSync } from 'fs';
 
-console.log('1..15');
+console.log('1..17');
 
 // --- read ACL ---
 const READ_METHODS = [
@@ -123,7 +123,21 @@ console.log('ok 14 - stale rating detection');
 // 15: source encoding test file exists
 try {
 	readFileSync('tests/source-encoding.test.mjs', 'utf8');
-	console.log('ok 15 - source-encoding test file present');
+console.log('ok 15 - source-encoding test file present');
+
+// 16: production rollback is write-only in the actual shipped ACL
+const acl = JSON.parse(readFileSync('luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json', 'utf8'))['zapret2-manager'];
+const aclRead = acl.read.ubus['zapret2-manager'];
+const aclWrite = acl.write.ubus['zapret2-manager'];
+assert.ok(!aclRead.includes('orchestra_restore_previous'));
+assert.ok(aclWrite.includes('orchestra_restore_previous'));
+console.log('ok 16 - restore_previous is write-only in shipped ACL');
+
+// 17: the public Apply entrypoint cannot consume the CLI-only failure hook
+const runSource = readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/orchestra-run.uc', 'utf8');
+assert.match(runSource, /export const orchestra_apply_best = function\(input\)\{return orchestra_apply_best_with_hook\(input,false\);\};/);
+assert.doesNotMatch(runSource, /internalFailureHook:input\.__internalFailTargetVerification/);
+console.log('ok 17 - public Apply cannot inject the test failure hook');
 } catch (e) {
 	console.log('not ok 15 - source-encoding test file absent');
 }
