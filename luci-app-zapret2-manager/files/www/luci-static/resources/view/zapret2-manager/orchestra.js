@@ -44,6 +44,8 @@ var FALLBACK_TERMINAL_PHASES = ['completed', 'applied', 'rolled-back', 'restored
 function terminalRun(p, phases) { return (phases || FALLBACK_TERMINAL_PHASES).indexOf(p) >= 0; }
 function terminalApply(p) { return ['applied', 'failed', 'rolled-back', 'restored'].indexOf(p) >= 0; }
 function runError(response) { return response && response.ok === false ? structuredError(response.error || response) : null; }
+function authError(e) { var s = structuredError(e).toLowerCase(); return s.indexOf('401') >= 0 || s.indexOf('403') >= 0 || s.indexOf('unauthorized') >= 0 || s.indexOf('forbidden') >= 0 || s.indexOf('session expired') >= 0; }
+function timeoutError(e) { var s = structuredError(e).toLowerCase(); return s.indexOf('timeout') >= 0 || s.indexOf('timed out') >= 0 || s.indexOf('xhr request') >= 0; }
 function runSummary(run) {
 	if (!run || !run.runId) return null;
 	return { runId: run.runId, createdAt: run.createdAt || null, startedAt: run.startedAt || null, finishedAt: run.finishedAt || null, phase: run.phase || null, target: run.target || null, targetType: run.targetType || null, protocols: run.protocols || [], candidateMode: run.candidateMode || null, candidateCount: run.totalCandidates || (run.candidateIds || []).length || 0, completedCount: run.completedCount || 0, totalCount: run.totalCount || null, winnerCandidateId: run.selectedWinner && run.selectedWinner.candidateId || null, winnerScore: run.selectedWinner && run.selectedWinner.score || null, appliedOperationId: run.appliedOperationId || null, errorCode: run.error && run.error.code || null };
@@ -63,22 +65,42 @@ function details(title, body) { return E('details', { 'class': 'z2m-orchestra-de
 return L.view.extend({
 	title: _('Orchestra'),
 	_poll: null,
+	_pollTimer: null,
+	_pollInFlight: false,
+	_pollStopped: true,
+	_pollDisposed: false,
+	_pollAuthStopped: false,
+	_pollFailures: 0,
+	_pollDelay: 2000,
+	_pollRoot: null,
+	_pollObserver: null,
 	_polling: false,
-	_state: { runHistory: [], activeRun: null, selectedRun: null, selectedRunId: null, selectedByUser: false, selectedLoading: false, selectedError: null, protocol: null, adaptive: null, caps: null, legacyEvents: null, legacyHistory: null, legacyRatings: null, catalogList: null, catalogStatus: null, catalogHealth: null, catalogError: null, preview: null, operation: null, error: null },
+	_state: { runHistory: [], activeRun: null, selectedRun: null, selectedRunId: null, selectedByUser: false, selectedLoading: false, selectedError: null, protocol: null, adaptive: null, caps: null, legacyEvents: null, legacyHistory: null, legacyRatings: null, catalogList: null, catalogStatus: null, catalogHealth: null, catalogError: null, preview: null, operation: null, error: null, pollWarning: null },
 	_panel: 'orchestra-services',
 	_panelListenersBound: false,
 
 	load: function () {
 		var self = this;
+		this._pollDisposed = false; this._pollAuthStopped = false;
 		function get(fn, arg) { return rpcCall(fn, arg).then(function (v) { return v || {}; }).catch(function (e) { return { _error: structuredError(e) }; }); }
-		return Promise.all([get(capsRpc), get(adaptiveRpc), get(historyRpc), get(legacyEventsRpc), get(legacyHistoryRpc), get(legacyRatingsRpc), get(runStatusRpc, pack({})), get(catalogListRpc), get(catalogStatusRpc), get(healthGetRpc)]).then(function (a) {
+		var waves = [
+			[function () { return get(capsRpc); }, function () { return get(adaptiveRpc); }, function () { return get(historyRpc); }],
+			[function () { return get(legacyEventsRpc); }, function () { return get(legacyHistoryRpc); }, function () { return get(legacyRatingsRpc); }],
+			[function () { return get(runStatusRpc, pack({})); }, function () { return get(catalogListRpc); }, function () { return get(catalogStatusRpc); }],
+			[function () { return get(healthGetRpc); }]
+		];
+		function loadWave(index, out) { return Promise.all(waves[index].map(function (fn) { return fn(); })).then(function (part) { out.push.apply(out, part); return index + 1 < waves.length ? loadWave(index + 1, out) : out; }); }
+		return loadWave(0, []).then(function (a) {
 			self._state.caps = a[0]._error ? null : a[0]; self._state.adaptive = a[1]._error ? null : a[1];
 			self._state.runHistory = a[2].runs || []; self._state.legacyEvents = a[3]; self._state.legacyHistory = a[4]; self._state.legacyRatings = a[5];
 			self._state.activeRun = a[6].run || null;
 			self._state.selectedRunId = self._state.selectedRunId || (self._state.activeRun && self._state.activeRun.runId) || (self._state.runHistory[0] && self._state.runHistory[0].runId) || null;
 			if (self._state.activeRun) self._acceptRun(self._state.activeRun, true);
 			self._state.protocol = self._preferredProtocol(self._state.selectedRun || self._state.activeRun || self._state.runHistory[0]);
-			self._state.error = a[0]._error ? _('Capabilities unavailable: ') + a[0]._error : null;
+			var authFailure = a.some(function (x) { return x && x._error && authError(x._error); });
+			self._pollAuthStopped = authFailure;
+			self._state.error = a[0]._error && !authFailure ? _('Capabilities unavailable: ') + a[0]._error : null;
+			if (authFailure) self._state.pollWarning = _('Session expired; polling stopped. Please log in again.');
 			if (a[6]._error || runError(a[6])) self._state.selectedError = a[6]._error || runError(a[6]);
 			self._state.catalogList = a[7]._error ? null : a[7]; self._state.catalogStatus = a[8]._error ? null : a[8]; self._state.catalogHealth = a[9]._error ? null : a[9]; self._state.catalogError = (a[7] && (a[7]._error || (a[7].ok === false && structuredError(a[7].error || a[7])))) || (a[8] && (a[8]._error || (a[8].ok === false && structuredError(a[8].error || a[8])))) || (a[9] && (a[9]._error || (a[9].ok === false && structuredError(a[9].error || a[9])))) || null;
 			if (self._state.selectedRunId && (!self._state.selectedRun || self._state.selectedRun.runId !== self._state.selectedRunId)) { self._state.selectedLoading = true; return rpcCall(runStatusRpc, pack({ runId: self._state.selectedRunId })).then(function (x) { if (!x || x.ok === false) throw new Error(structuredError(x && x.error || x)); self._state.selectedRun = x.run || null; self._state.selectedLoading = false; self._state.selectedError = self._state.selectedRun ? null : _('EIO: selected run response did not contain details'); return self._state; }).catch(function (e) { self._state.selectedLoading = false; self._state.selectedError = structuredError(e); return self._state; }); }
@@ -128,6 +150,16 @@ return L.view.extend({
 		window.addEventListener('popstate', this._onPanelNavigation);
 		window.addEventListener('pagehide', this._onPanelPageHide);
 	},
+	_watchRoot: function (root) {
+		var self = this;
+		this._pollRoot = root;
+		if (typeof MutationObserver === 'undefined' || typeof document === 'undefined' || !document.body) return;
+		if (this._pollObserver) this._pollObserver.disconnect();
+		this._pollObserver = new MutationObserver(function () {
+			if (!root.isConnected && !document.documentElement.contains(root)) self._disposePolling();
+		});
+		this._pollObserver.observe(document.body, { childList: true, subtree: true });
+	},
 	_setPanel: function (panel) {
 		if (['orchestra-services', 'orchestra-find', 'orchestra-results', 'orchestra-adaptive'].indexOf(panel) < 0) return;
 		this._stopPolling(); this._panel = panel;
@@ -141,11 +173,11 @@ return L.view.extend({
 	},
 	_discoverActiveRun: function () {
 		var self = this;
-		return rpcCall(runStatusRpc, pack({})).then(function (x) { if (x && x.run) { self._acceptRun(x.run, true); } else if (x && x.ok === false && structuredError(x.error || x).indexOf('ENOENT') < 0) self._state.selectedError = runError(x) || structuredError(x.error || x); return historyRpc().then(function (h) { if (h && h.runs) self._state.runHistory = h.runs; }); }).catch(function (e) { self._state.selectedError = structuredError(e); return null; });
+		return rpcCall(runStatusRpc, pack({})).then(function (x) { if (x && x.run) { self._acceptRun(x.run, true); } else if (x && x.ok === false && structuredError(x.error || x).indexOf('ENOENT') < 0) self._state.selectedError = runError(x) || structuredError(x.error || x); return historyRpc().then(function (h) { if (h && h.runs) self._state.runHistory = h.runs; }); }).catch(function (e) { if (authError(e)) { self._pollAuthStopped = true; self._state.pollWarning = _('Session expired; polling stopped. Please log in again.'); self._stopPolling(); } else self._state.selectedError = structuredError(e); return null; });
 	},
 
 	render: function (state) {
-		injectCSS(); this._state = state || this._state; this._panel = this._panelFromHash(); this._bindPanelNavigation();
+		injectCSS(); this._pollDisposed = false; this._state = state || this._state; this._panel = this._panelFromHash(); this._bindPanelNavigation();
 		if (typeof window !== 'undefined' && window.location && !window.location.hash && window.history && window.history.replaceState) window.history.replaceState({ orchestraPanel: this._panel }, '', '#' + this._panel);
 		var self = this, root = E('div', { 'class': 'z2m-page z2m-orchestra', 'id': 'z2m-orchestra-page' });
 		root.appendChild(E('div', { 'class': 'z2m-page-header z2m-orchestra-header' }, [E('h2', {}, _('Orchestra')), E('p', {}, _('Find, compare and safely apply a verified strategy.'))]));
@@ -155,7 +187,7 @@ return L.view.extend({
 			this._panelLink('orchestra-results', _('Runs & results')),
 			this._panelLink('orchestra-adaptive', _('Adaptive engine'))
 		]));
-		var content = E('div', { 'class': 'z2m-orchestra-content' }); root.appendChild(content); this._renderContent(content);
+		var content = E('div', { 'class': 'z2m-orchestra-content' }); root.appendChild(content); this._renderContent(content); this._watchRoot(root);
 		this._startPolling();
 		return root;
 	},
@@ -172,6 +204,7 @@ return L.view.extend({
 		else if (this._panel === 'orchestra-results') content.appendChild(this._resultsSection());
 		else content.appendChild(this._adaptiveSection());
 		if (this._state.error) content.appendChild(alertBox(this._state.error));
+		if (this._state.pollWarning) content.appendChild(alertBox(this._state.pollWarning, 'info'));
 	},
 	_servicesSection: function () {
 		var self = this, s = this._state, list = s.catalogList || {}, status = s.catalogStatus || {}, body = E('div', { 'class': 'z2m-orchestra-services' });
@@ -293,12 +326,59 @@ return L.view.extend({
 	_pollActiveRun: function () {
 		var self = this, known = this._state.activeRun;
 		return rpcCall(runStatusRpc, pack({})).then(function (x) {
-			if (x && x.run) { self._acceptRun(x.run, false); if (terminalRun(x.run.phase, (self._state.caps || {}).terminalPhases)) return self._refreshSelectedRun(x.run.runId).then(function () { return historyRpc().then(function (h) { self._state.runHistory = h && h.runs || self._state.runHistory; }); }); return x; }
-			if (known && known.runId && !terminalRun(known.phase, (self._state.caps || {}).terminalPhases)) return self._refreshSelectedRun(known.runId).then(function () { return historyRpc().then(function (h) { self._state.runHistory = h && h.runs || self._state.runHistory; self._state.activeRun = null; }); });
+			if (x && x.run) { self._acceptRun(x.run, false); if (terminalRun(x.run.phase, (self._state.caps || {}).terminalPhases)) return historyRpc().then(function (h) { self._state.runHistory = h && h.runs || self._state.runHistory; }); return x; }
+			if (known && known.runId && !terminalRun(known.phase, (self._state.caps || {}).terminalPhases)) return historyRpc().then(function (h) { self._state.runHistory = h && h.runs || self._state.runHistory; self._state.activeRun = null; });
 			return x;
 		});
 	},
-	_startPolling: function () { var self = this; if (this._polling || !this._shouldPoll()) return; this._polling = true; this._poll = setInterval(function () { if (!self._shouldPoll()) { self._stopPolling(); return; } var activePanel = self._panel === 'orchestra-find' || self._panel === 'orchestra-results'; if (activePanel && self._state.activeRun && !terminalRun(self._state.activeRun.phase, (self._state.caps || {}).terminalPhases)) self._pollActiveRun().then(function () { self._refresh(); if (!self._shouldPoll()) self._stopPolling(); }).catch(function (e) { self._state.error = structuredError(e); self._refresh(); self._stopPolling(); }); else if (self._panel === 'orchestra-results' && self._state.operation && !terminalApply(self._state.operation.phase)) rpcCall(applyStatusRpc, pack({ operationId: self._state.operation.operationId })).then(function (x) { if (x.operation) self._state.operation = x.operation; self._refresh(); if (!self._shouldPoll()) self._stopPolling(); }).catch(function (e) { self._state.error = structuredError(e); self._refresh(); self._stopPolling(); }); }, 2000); },
-	_stopPolling: function () { if (this._poll) clearInterval(this._poll); this._poll = null; this._polling = false; },
+	_pollApply: function () {
+		var self = this;
+		return rpcCall(applyStatusRpc, pack({ operationId: this._state.operation.operationId })).then(function (x) { if (x.operation) self._state.operation = x.operation; return x; });
+	},
+	_schedulePoll: function (delay) {
+		var self = this;
+		if (this._pollDisposed || this._pollAuthStopped || this._pollStopped || this._pollTimer || !this._shouldPoll()) return;
+		this._pollDelay = delay || this._pollDelay || 2000;
+		this._pollTimer = setTimeout(function () { self._pollTimer = self._poll = null; self._pollTick(); }, this._pollDelay);
+		this._poll = this._pollTimer;
+	},
+	_pollTick: function () {
+		var self = this, activePanel = this._panel === 'orchestra-find' || this._panel === 'orchestra-results';
+		if (this._pollDisposed || this._pollAuthStopped || this._pollStopped || (this._pollRoot && !this._pollRoot.isConnected && !(typeof document !== 'undefined' && document.documentElement && document.documentElement.contains(this._pollRoot))) || !this._shouldPoll()) { this._stopPolling(); return; }
+		if (this._pollInFlight) return;
+		this._pollInFlight = true;
+		var request = activePanel && this._state.activeRun && !terminalRun(this._state.activeRun.phase, (this._state.caps || {}).terminalPhases) ? this._pollActiveRun() : this._pollApply();
+		request.then(function () {
+			self._pollFailures = 0; self._pollDelay = 2000; self._state.pollWarning = null; self._refresh();
+		}, function (e) {
+			if (authError(e)) { self._pollAuthStopped = true; self._state.pollWarning = _('Session expired; polling stopped. Please log in again.'); self._stopPolling(); self._refresh(); return; }
+			self._pollFailures += 1; self._pollDelay = self._pollFailures === 1 ? 5000 : self._pollFailures === 2 ? 10000 : 30000; self._state.pollWarning = timeoutError(e) ? _('Live run update timed out; showing the last successful state.') : _('Live run update failed; showing the last successful state.'); self._refresh();
+		}).then(function () {
+			self._pollInFlight = false;
+			if (!self._pollAuthStopped && !self._pollDisposed && self._shouldPoll()) self._schedulePoll(self._pollDelay);
+			else self._stopPolling();
+		});
+	},
+	_startPolling: function () {
+		if (this._pollDisposed || this._pollAuthStopped || this._polling || !this._shouldPoll()) return;
+		this._pollStopped = false; this._polling = true; this._schedulePoll(this._pollDelay || 2000);
+	},
+	_stopPolling: function () {
+		if (this._pollTimer) clearTimeout(this._pollTimer);
+		this._pollTimer = this._poll = null; this._pollStopped = true; this._polling = false;
+	},
+	_disposePolling: function () {
+		this._pollDisposed = true; this._stopPolling();
+		if (this._pollObserver) { this._pollObserver.disconnect(); this._pollObserver = null; }
+		this._pollRoot = null;
+	},
+	destroy: function () {
+		this._disposePolling();
+		if (typeof window !== 'undefined' && this._panelListenersBound) {
+			window.removeEventListener('hashchange', this._onPanelNavigation); window.removeEventListener('popstate', this._onPanelNavigation); window.removeEventListener('pagehide', this._onPanelPageHide);
+		}
+		this._panelListenersBound = false;
+	},
+	__destroy__: function () { this.destroy(); },
 	handleSaveApply: null, handleSave: null, handleReset: null
 });

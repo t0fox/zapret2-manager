@@ -62,10 +62,11 @@ function makeWorld(responses) {
 		return node;
 	}
 
-	const intervals = [];
+	const intervals = [], timeouts = [];
 
 	world.created = created;
 	world.intervals = intervals;
+	world.timeouts = timeouts;
 	world.E = E;
 	world.documentStub = {
 		querySelector() { return null; },
@@ -82,6 +83,8 @@ function makeWorld(responses) {
 	world.windowStub = { addEventListener() { } };
 	world.setIntervalStub = (cb) => { intervals.push(cb); return intervals.length; };
 	world.clearIntervalStub = () => { };
+	world.setTimeoutStub = (cb) => { timeouts.push(cb); return timeouts.length; };
+	world.clearTimeoutStub = () => { };
 
 	// rpc.declare honoring the router semantics: positional params mapping and
 	// reject-gated error handling.
@@ -124,7 +127,7 @@ function loadView(src, name, world) {
 		stubs.poll, stubs._, stubs.E,
 		world.documentStub, world.windowStub,
 		world.setIntervalStub, world.clearIntervalStub,
-		() => 1, () => { }
+		world.setTimeoutStub, world.clearTimeoutStub
 	);
 	assert.ok(view && typeof view === 'object', `${name}: module did not export a view`);
 	return view;
@@ -1653,7 +1656,7 @@ test('orchestra: controls use real boolean-attribute presence and recover after 
 	assert.ok(w.calls.some((c) => c.method === 'catalog_get'), 'enabled Manus prepares a service run');
 });
 
-test('orchestra: domain Start polls queued work through terminal state without duplicate intervals', async () => {
+test('orchestra: domain Start polls queued work through terminal state without duplicate timers', async () => {
 	const queued = { runId: 'or-queued', phase: 'queued', target: 'youtube.com', protocols: ['tcp_https'], completedCount: 0, totalCount: 1 };
 	const running = { ...queued, phase: 'testing', completedCount: 0, currentCandidate: 'candidate-a', currentAttempt: 1, events: [{ message: 'running' }] };
 	const completed = { ...queued, phase: 'completed', completedCount: 1, progress: 100, events: [{ message: 'completed' }] };
@@ -1668,29 +1671,29 @@ test('orchestra: domain Start polls queued work through terminal state without d
 	view._findSection();
 	findButton(w, 'Start').listeners.click();
 	await flush();
-	assert.equal(w.intervals.length, 1, 'domain Start creates one polling interval');
+	assert.equal(w.timeouts.length, 1, 'domain Start creates one polling timer');
 	view._startPolling();
-	assert.equal(w.intervals.length, 1, 'repeated polling start does not create a second interval');
-	w.intervals[0]();
+	assert.equal(w.timeouts.length, 1, 'repeated polling start does not create a second timer');
+	w.timeouts[0]();
 	await flush();
 	assert.equal(view._state.activeRun.phase, 'testing', 'poll updates queued run to running with live details');
-	w.intervals[0]();
+	w.timeouts[w.timeouts.length - 1]();
 	await flush();
 	assert.equal(view._state.activeRun.phase, 'completed', 'poll updates the terminal run without reload');
 	assert.equal(view._polling, false, 'terminal run stops polling');
 });
 
-test('orchestra: polling RPC failure stops the active interval with a structured error', async () => {
+test('orchestra: polling RPC failure keeps state and backs off', async () => {
 	const w = makeWorld({ orchestra_run_status: { type: 'ubusError', code: 5 } });
 	const view = loadView(readViewSource('orchestra'), 'orchestra', w);
 	view._panel = 'orchestra-find';
 	view._state = { activeRun: { runId: 'or-live', phase: 'testing' }, selectedRunId: null, caps: { terminalPhases: ['completed'] }, operation: null, error: null };
 	view._startPolling();
-	assert.equal(w.intervals.length, 1, 'active run starts polling');
-	w.intervals[0]();
+	assert.equal(w.timeouts.length, 1, 'active run starts polling');
+	w.timeouts[0]();
 	await flush();
-	assert.match(view._state.error, /RPC call failed/, 'polling error stays structured');
-	assert.equal(view._polling, false, 'polling error stops the interval');
+	assert.match(view._state.pollWarning, /last successful state/, 'polling warning keeps the last state');
+	assert.equal(view._pollDelay, 5000, 'first failure uses bounded backoff');
 });
 
 test('orchestra: service Start retains its single active-run polling interval', async () => {
@@ -1709,7 +1712,7 @@ test('orchestra: service Start retains its single active-run polling interval', 
 	view._servicesSection();
 	findButton(w, 'Start service run').listeners.click();
 	await flush();
-	assert.equal(w.intervals.length, 1, 'service Start still creates exactly one polling interval');
+	assert.equal(w.timeouts.length, 1, 'service Start still creates exactly one polling timer');
 });
 
 test('orchestra: disabled service explains why and catalog digest verdict cannot say Valid', () => {
