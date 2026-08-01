@@ -42,8 +42,8 @@ function menuEntries(obj, prefix) {
 
 const entries = menuEntries(menu);
 
-test('menu has at least 9 entries', () => {
-	assert.ok(entries.length >= 9, 'expected >=9 menu entries, got ' + entries.length);
+test('menu has overview plus seven primary entries', () => {
+	assert.equal(entries.length, 8, 'expected overview plus seven primary entries, got ' + entries.length);
 });
 
 // map view paths to expected JS files
@@ -121,26 +121,25 @@ test('all expected view JS files exist', () => {
 	assert.deepEqual(missing, [], 'no missing view files');
 });
 
-// ---- menu-specific: Service Catalog and Service DNS ----
+// ---- menu-specific: legacy routes remain direct-link only ----
 
-test('Service Catalog menu entry exists', () => {
+test('Service Catalog is not a primary menu entry', () => {
 	const cat = entries.find(e => e.path === 'zapret2-manager/catalog');
-	assert.ok(cat, 'Service Catalog menu entry missing');
-	assert.equal(cat.title, 'Service Catalog');
+	assert.equal(cat, undefined, 'Service Catalog must be available through Maintenance only');
 });
 
-test('Service DNS menu entry exists', () => {
+test('Service DNS is not a primary menu entry', () => {
 	const dns = entries.find(e => e.path === 'zapret2-manager/service-dns');
-	assert.ok(dns, 'Service DNS menu entry missing');
-	assert.equal(dns.title, 'Service DNS');
+	assert.equal(dns, undefined, 'Service DNS remains a compatibility route, not a primary tab');
 });
 
 // ---- adaptive engine menu ----
 
-test('Adaptive engine menu entry exists', () => {
+test('Orchestra is the first primary working entry', () => {
 	const orch = entries.find(e => e.path === 'zapret2-manager/orchestra');
-	assert.ok(orch, 'Adaptive engine menu entry missing');
-	assert.equal(orch.title, 'Adaptive engine');
+	assert.ok(orch, 'Orchestra menu entry missing');
+	assert.equal(orch.title, 'Orchestra');
+	assert.equal(orch.order, 91);
 });
 
 // ---- service_dns RPC in ACL ----

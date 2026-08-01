@@ -56,11 +56,12 @@ describe('DNS consolidation', () => {
 		});
 	});
 
-	it('exactly 9 visible product sub-tabs (overview included)', () => {
+	it('exactly 7 visible primary product tabs', () => {
 		const raw = JSON.parse(readFileSync(MENU_JSON, 'utf-8'));
 		const subKeys = Object.keys(raw).filter(k => k.startsWith('admin/services/zapret2-manager/'));
-		assert.strictEqual(subKeys.length, 9,
-			'expected 9 sub-tabs: ' + JSON.stringify(subKeys.sort()));
+		assert.strictEqual(subKeys.length, 7,
+			'expected 7 primary sub-tabs: ' + JSON.stringify(subKeys.sort()));
+		assert.deepEqual(subKeys.map(k => raw[k]).sort((a, b) => a.order - b.order).map(v => v.title), ['Orchestra', 'Advanced', 'Lists', 'DNS', 'Monitor', 'Proxy', 'Maintenance']);
 	});
 
 	it('old service-dns.js still exists as a JS file (compatibility route)', () => {
@@ -70,6 +71,25 @@ describe('DNS consolidation', () => {
 	it('service-dns.js passes syntax check', () => {
 		const err = syntaxCheck(SERVICE_DNS_JS);
 		assert.strictEqual(err, null, err || 'syntax OK');
+	});
+});
+
+describe('Orchestra panel navigation contract', () => {
+	const ORCHESTRA_JS = readFileSync(join(VIEW_DIR, 'orchestra.js'), 'utf-8');
+	const MAINTENANCE_JS = readFileSync(join(VIEW_DIR, 'maintenance.js'), 'utf-8');
+
+	it('renders only the selected panel and persists it in the hash', () => {
+		assert.ok(ORCHESTRA_JS.includes('_panelFromHash:'), 'hash parser missing');
+		assert.ok(ORCHESTRA_JS.includes('pushState'), 'panel selection must use browser history');
+		assert.ok(ORCHESTRA_JS.includes("if (this._panel === 'orchestra-find')"), 'find panel branch missing');
+		assert.ok(ORCHESTRA_JS.includes("else if (this._panel === 'orchestra-results')"), 'results panel branch missing');
+		assert.ok(ORCHESTRA_JS.includes('_stopPolling(); self._panel = self._panelFromHash()'), 'panel navigation must stop old polling');
+	});
+
+	it('keeps legacy tools accessible from Maintenance', () => {
+		assert.ok(MAINTENANCE_JS.includes("L.url('admin/services/zapret2-manager/blockcheck')"));
+		assert.ok(MAINTENANCE_JS.includes("L.url('admin/services/zapret2-manager/catalog')"));
+		assert.ok(MAINTENANCE_JS.includes("_('Legacy tools')"));
 	});
 });
 

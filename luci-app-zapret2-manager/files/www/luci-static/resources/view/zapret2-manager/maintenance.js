@@ -77,6 +77,7 @@ return L.view.extend({
 			])
 		]);
 
+		container.appendChild(this.legacyToolsSection());
 		container.appendChild(this.versionsCard(envelope));
 		container.appendChild(this.backupSection(envelope));
 		container.appendChild(this.eventsSection(envelope));
@@ -87,6 +88,17 @@ return L.view.extend({
 			this._flash = null;
 		}
 		return container;
+	},
+
+	legacyToolsSection: function () {
+		return E('div', { 'class': 'z2m-card z2m-legacy-tools' }, [
+			E('h4', {}, _('Legacy tools')),
+			E('p', { 'class': 'cbi-value-description' }, _('Older diagnostic workflows remain available here without taking space in the main navigation.')),
+			E('div', { 'class': 'z2m-actions' }, [
+				E('a', { 'class': 'cbi-button cbi-button-neutral', 'href': L.url('admin/services/zapret2-manager/blockcheck') }, _('Blockcheck')),
+				E('a', { 'class': 'cbi-button cbi-button-neutral', 'href': L.url('admin/services/zapret2-manager/catalog') }, _('Service Catalog'))
+			])
+		]);
 	},
 
 	versionsCard: function (envelope) {

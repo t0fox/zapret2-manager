@@ -48,6 +48,8 @@ return L.view.extend({
 	_poll: null,
 	_polling: false,
 	_state: { history: [], run: null, selectedRunId: null, protocol: null, adaptive: null, caps: null, legacyEvents: null, legacyHistory: null, legacyRatings: null, preview: null, operation: null, error: null },
+	_panel: 'orchestra-adaptive',
+	_panelListenersBound: false,
 
 	load: function () {
 		var self = this;
@@ -67,25 +69,57 @@ return L.view.extend({
 	_preferredProtocol: function (run) { var ps = run && run.protocols || []; return ps.indexOf('tcp_https') >= 0 ? 'tcp_https' : ps[0] || 'tcp_https'; },
 	_protocolLabel: function (p) { return p === 'quic_udp' ? 'QUIC / UDP' : p === 'tcp_https' ? 'HTTPS / TCP' : p || _('Unknown protocol'); },
 	_short: function (v, n) { v = String(v || ''); return v.length > (n || 28) ? v.slice(0, n || 28) + '…' : v; },
+	_panelFromHash: function () {
+		var hash = (typeof window !== 'undefined' && window.location && window.location.hash || '').replace(/^#/, '');
+		return ['orchestra-find', 'orchestra-results', 'orchestra-adaptive'].indexOf(hash) >= 0 ? hash : 'orchestra-adaptive';
+	},
+	_bindPanelNavigation: function () {
+		var self = this;
+		if (this._panelListenersBound || typeof window === 'undefined' || !window.addEventListener) return;
+		this._panelListenersBound = true;
+		this._onPanelNavigation = function () { self._stopPolling(); self._panel = self._panelFromHash(); self._refresh(); self._startPolling(); };
+		this._onPanelPageHide = function () { self._stopPolling(); };
+		window.addEventListener('hashchange', this._onPanelNavigation);
+		window.addEventListener('popstate', this._onPanelNavigation);
+		window.addEventListener('pagehide', this._onPanelPageHide, { once: true });
+	},
+	_setPanel: function (panel) {
+		if (['orchestra-find', 'orchestra-results', 'orchestra-adaptive'].indexOf(panel) < 0) return;
+		this._stopPolling(); this._panel = panel;
+		if (typeof window !== 'undefined' && window.history && window.history.pushState) window.history.pushState({ orchestraPanel: panel }, '', '#' + panel);
+		else if (typeof window !== 'undefined' && window.location) window.location.hash = panel;
+		this._refresh(); this._startPolling();
+	},
+	_shouldPoll: function () {
+		var r = this._state.run, o = this._state.operation;
+		return (this._panel === 'orchestra-find' && r && !terminalRun(r.phase)) || (this._panel === 'orchestra-results' && o && !terminalApply(o.phase));
+	},
 
 	render: function (state) {
-		injectCSS(); this._state = state || this._state;
+		injectCSS(); this._state = state || this._state; this._panel = this._panelFromHash(); this._bindPanelNavigation();
+		if (typeof window !== 'undefined' && window.location && !window.location.hash && window.history && window.history.replaceState) window.history.replaceState({ orchestraPanel: this._panel }, '', '#' + this._panel);
 		var self = this, root = E('div', { 'class': 'z2m-page z2m-orchestra', 'id': 'z2m-orchestra-page' });
 		root.appendChild(E('div', { 'class': 'z2m-page-header z2m-orchestra-header' }, [E('h2', {}, _('Orchestra')), E('p', {}, _('Find, compare and safely apply a verified strategy.'))]));
 		root.appendChild(E('nav', { 'class': 'z2m-tabs z2m-orchestra-nav', 'aria-label': _('Orchestra sections') }, [
-			E('a', { 'class': 'z2m-tab z2m-tab-active', 'href': '#orchestra-find' }, _('Find strategy')),
-			E('a', { 'class': 'z2m-tab', 'href': '#orchestra-results' }, _('Runs & results')),
-			E('a', { 'class': 'z2m-tab', 'href': '#orchestra-adaptive' }, _('Adaptive engine'))
+			this._panelLink('orchestra-find', _('Find strategy')),
+			this._panelLink('orchestra-results', _('Runs & results')),
+			this._panelLink('orchestra-adaptive', _('Adaptive engine'))
 		]));
 		var content = E('div', { 'class': 'z2m-orchestra-content' }); root.appendChild(content); this._renderContent(content);
 		this._startPolling();
-		if (typeof window !== 'undefined' && window.addEventListener) window.addEventListener('pagehide', function () { self._stopPolling(); }, { once: true });
 		return root;
+	},
+	_panelLink: function (panel, label) {
+		var self = this, active = this._panel === panel, attrs = { 'class': 'z2m-tab' + (active ? ' z2m-tab-active' : ''), 'href': '#' + panel }; if (active) attrs['aria-current'] = 'page';
+		var link = E('a', attrs, label);
+		link.addEventListener('click', function (event) { if (event && event.preventDefault) event.preventDefault(); self._setPanel(panel); }); return link;
 	},
 
 	_renderContent: function (content) {
 		if (content.replaceChildren) content.replaceChildren(); else if (content.firstChild) while (content.firstChild) content.removeChild(content.firstChild); else content.children.length = 0;
-		content.appendChild(this._findSection()); content.appendChild(this._resultsSection()); content.appendChild(this._adaptiveSection());
+		if (this._panel === 'orchestra-find') content.appendChild(this._findSection());
+		else if (this._panel === 'orchestra-results') content.appendChild(this._resultsSection());
+		else content.appendChild(this._adaptiveSection());
 		if (this._state.error) content.appendChild(alertBox(this._state.error));
 	},
 
@@ -162,8 +196,8 @@ return L.view.extend({
 	_restore: function (b) { var self = this, o = this._state.operation; this._busy(b, _('Restoring…')); rpcCall(restoreRpc, pack({ operationId: o.operationId })).then(function (x) { self._state.operation = Object.assign({}, o, x); self._refresh(); }).catch(function (e) { self._state.error = structuredError(e); self._busy(b, _('Restore previous'), true); self._refresh(); }); },
 	_action: function (b, fn, label) { var self = this; this._busy(b, label + '…'); rpcCall(fn).then(function (x) { if (x && x.run) self._state.run = x.run; self._refresh(); }).catch(function (e) { self._state.error = structuredError(e); self._busy(b, label, true); self._refresh(); }); },
 	_busy: function (b, label, done) { if (!b) return; b.disabled = !done; b.setAttribute('aria-busy', done ? 'false' : 'true'); b.textContent = label; },
-	_refresh: function () { var root = document.getElementById('z2m-orchestra-page'), content = root && root.querySelector('.z2m-orchestra-content'); if (content) this._renderContent(content); },
-	_startPolling: function () { var self = this; if (this._polling) return; this._polling = true; this._poll = setInterval(function () { var r = self._state.run, o = self._state.operation; if (r && !terminalRun(r.phase)) rpcCall(runStatusRpc, pack({ runId: r.runId })).then(function (x) { if (x.run) self._state.run = x.run; self._refresh(); }).catch(function () {}); if (o && !terminalApply(o.phase)) rpcCall(applyStatusRpc, pack({ operationId: o.operationId })).then(function (x) { if (x.operation) self._state.operation = x.operation; self._refresh(); }).catch(function () {}); if ((!r || terminalRun(r.phase)) && (!o || terminalApply(o.phase))) self._stopPolling(); }, 2000); },
+	_refresh: function () { var root = document.getElementById('z2m-orchestra-page'), content = root && root.querySelector('.z2m-orchestra-content'); if (root && root.querySelectorAll) Array.prototype.forEach.call(root.querySelectorAll('.z2m-orchestra-nav .z2m-tab'), function (link) { var active = link.getAttribute('href') === '#' + this._panel; link.classList.toggle('z2m-tab-active', active); if (active) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current'); }, this); if (content) this._renderContent(content); },
+	_startPolling: function () { var self = this; if (this._polling || !this._shouldPoll()) return; this._polling = true; this._poll = setInterval(function () { if (!self._shouldPoll()) { self._stopPolling(); return; } if (self._panel === 'orchestra-find') rpcCall(runStatusRpc, pack({ runId: self._state.run.runId })).then(function (x) { if (x.run) self._state.run = x.run; self._refresh(); if (!self._shouldPoll()) self._stopPolling(); }).catch(function () {}); else if (self._panel === 'orchestra-results') rpcCall(applyStatusRpc, pack({ operationId: self._state.operation.operationId })).then(function (x) { if (x.operation) self._state.operation = x.operation; self._refresh(); if (!self._shouldPoll()) self._stopPolling(); }).catch(function () {}); }, 2000); },
 	_stopPolling: function () { if (this._poll) clearInterval(this._poll); this._poll = null; this._polling = false; },
 	handleSaveApply: null, handleSave: null, handleReset: null
 });
