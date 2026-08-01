@@ -1595,6 +1595,7 @@ test('orchestra: backend error renders an honest unavailable panel (no crash)', 
 		orchestra_events: { type: 'ok', value: ORCH_UNAVAILABLE },
 		orchestra_history: { type: 'ok', value: ORCH_UNAVAILABLE }
 	});
+	w.windowStub.location = { hash: '#orchestra-adaptive' };
 	const view = loadView(readViewSource('orchestra'), 'orchestra', w);
 	const envelope = await view.load();
 	assert.ok(envelope.capError !== null, 'ubus error rejects into capError with reject:true');

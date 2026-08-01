@@ -80,29 +80,33 @@ return L.view.extend({
 	_panelListenersBound: false,
 
 	load: function () {
-		var self = this;
+		var self = this; this._panel = this._panelFromHash();
 		this._pollDisposed = false; this._pollAuthStopped = false;
 		function get(fn, arg) { return rpcCall(fn, arg).then(function (v) { return v || {}; }).catch(function (e) { return { _error: structuredError(e) }; }); }
-		var waves = [
-			[function () { return get(capsRpc); }, function () { return get(adaptiveRpc); }, function () { return get(historyRpc); }],
-			[function () { return get(legacyEventsRpc); }, function () { return get(legacyHistoryRpc); }, function () { return get(legacyRatingsRpc); }],
-			[function () { return get(runStatusRpc, pack({})); }, function () { return get(catalogListRpc); }, function () { return get(catalogStatusRpc); }],
-			[function () { return get(healthGetRpc); }]
+		/* Keep the first paint bounded: capabilities and legacy telemetry are optional
+		 * diagnostics, while these calls provide everything needed to render and act. */
+		var calls = [
+			['adaptive', function () { return get(adaptiveRpc); }], ['history', function () { return get(historyRpc); }],
+			['run', function () { return get(runStatusRpc, pack({})); }], ['catalogList', function () { return get(catalogListRpc); }],
+			['catalogStatus', function () { return get(catalogStatusRpc); }], ['health', function () { return get(healthGetRpc); }]
 		];
-		function loadWave(index, out) { return Promise.all(waves[index].map(function (fn) { return fn(); })).then(function (part) { out.push.apply(out, part); return index + 1 < waves.length ? loadWave(index + 1, out) : out; }); }
-		return loadWave(0, []).then(function (a) {
-			self._state.caps = a[0]._error ? null : a[0]; self._state.adaptive = a[1]._error ? null : a[1];
-			self._state.runHistory = a[2].runs || []; self._state.legacyEvents = a[3]; self._state.legacyHistory = a[4]; self._state.legacyRatings = a[5];
-			self._state.activeRun = a[6].run || null;
+		if (this._panel === 'orchestra-adaptive') calls.push(['caps', function () { return get(capsRpc); }], ['legacyEvents', function () { return get(legacyEventsRpc); }], ['legacyHistory', function () { return get(legacyHistoryRpc); }], ['legacyRatings', function () { return get(legacyRatingsRpc); }]);
+		var waves = [calls.slice(0, 2), calls.slice(2, 5), calls.slice(5)];
+		function loadWave(index, values) { return Promise.all(waves[index].map(function (entry) { return entry[1]().then(function (value) { values[entry[0]] = value; }); })).then(function () { return index + 1 < waves.length ? loadWave(index + 1, values) : values; }); }
+		return loadWave(0, {}).then(function (a) {
+			self._state.caps = a.caps && !a.caps._error ? a.caps : null; self._state.adaptive = a.adaptive._error ? null : a.adaptive;
+			self._state.runHistory = a.history.runs || []; self._state.legacyEvents = a.legacyEvents || null; self._state.legacyHistory = a.legacyHistory || null; self._state.legacyRatings = a.legacyRatings || null;
+			self._state.activeRun = a.run.run || null;
+			self._state.selectedRun = self._state.selectedRun || self._state.activeRun || null;
 			self._state.selectedRunId = self._state.selectedRunId || (self._state.activeRun && self._state.activeRun.runId) || (self._state.runHistory[0] && self._state.runHistory[0].runId) || null;
 			if (self._state.activeRun) self._acceptRun(self._state.activeRun, true);
 			self._state.protocol = self._preferredProtocol(self._state.selectedRun || self._state.activeRun || self._state.runHistory[0]);
-			var authFailure = a.some(function (x) { return x && x._error && authError(x._error); });
+			var authFailure = Object.keys(a).some(function (key) { var x = a[key]; return x && x._error && authError(x._error); });
 			self._pollAuthStopped = authFailure;
-			self._state.error = a[0]._error && !authFailure ? _('Capabilities unavailable: ') + a[0]._error : null;
+			self._state.error = a.caps && a.caps._error && !authFailure ? _('Capabilities unavailable: ') + a.caps._error : null;
 			if (authFailure) self._state.pollWarning = _('Session expired; polling stopped. Please log in again.');
-			if (a[6]._error || runError(a[6])) self._state.selectedError = a[6]._error || runError(a[6]);
-			self._state.catalogList = a[7]._error ? null : a[7]; self._state.catalogStatus = a[8]._error ? null : a[8]; self._state.catalogHealth = a[9]._error ? null : a[9]; self._state.catalogError = (a[7] && (a[7]._error || (a[7].ok === false && structuredError(a[7].error || a[7])))) || (a[8] && (a[8]._error || (a[8].ok === false && structuredError(a[8].error || a[8])))) || (a[9] && (a[9]._error || (a[9].ok === false && structuredError(a[9].error || a[9])))) || null;
+			if (a.run._error || runError(a.run)) self._state.selectedError = a.run._error || runError(a.run);
+			self._state.catalogList = a.catalogList._error ? null : a.catalogList; self._state.catalogStatus = a.catalogStatus._error ? null : a.catalogStatus; self._state.catalogHealth = a.health._error ? null : a.health; self._state.catalogError = (a.catalogList && (a.catalogList._error || (a.catalogList.ok === false && structuredError(a.catalogList.error || a.catalogList)))) || (a.catalogStatus && (a.catalogStatus._error || (a.catalogStatus.ok === false && structuredError(a.catalogStatus.error || a.catalogStatus)))) || (a.health && (a.health._error || (a.health.ok === false && structuredError(a.health.error || a.health)))) || null;
 			if (self._state.selectedRunId && (!self._state.selectedRun || self._state.selectedRun.runId !== self._state.selectedRunId)) { self._state.selectedLoading = true; return rpcCall(runStatusRpc, pack({ runId: self._state.selectedRunId })).then(function (x) { if (!x || x.ok === false) throw new Error(structuredError(x && x.error || x)); self._state.selectedRun = x.run || null; self._state.selectedLoading = false; self._state.selectedError = self._state.selectedRun ? null : _('EIO: selected run response did not contain details'); return self._state; }).catch(function (e) { self._state.selectedLoading = false; self._state.selectedError = structuredError(e); return self._state; }); }
 			return self._state;
 		});

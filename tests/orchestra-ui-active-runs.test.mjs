@@ -60,7 +60,7 @@ test('repeated render cannot create a second poller', () => {
 
 test('structured backend errors remain visible', () => {
 	assert.match(ui, /function runError\(response\)/);
-	assert.match(ui, /self\._state\.selectedError = a\[6\]._error \|\| runError\(a\[6\]\)/);
+	assert.match(ui, /self\._state\.selectedError = a\.run\._error \|\| runError\(a\.run\)/);
 	assert.match(ui, /alertBox\(structuredError\(run\.error\)\)/);
 });
 
@@ -74,7 +74,7 @@ test('load does not start or continue a run', () => {
 	const load = ui.slice(ui.indexOf('\tload: function'), ui.indexOf('\n\t_preferredProtocol:'));
 	assert.doesNotMatch(load, /runStartRpc/);
 	assert.doesNotMatch(load, /runContinueRpc/);
-	assert.match(load, /function loadWave\(index, out\)/);
+	assert.match(load, /function loadWave\(index, values\)/);
 	assert.match(load, /waves\[index\]\.map/);
 });
 
