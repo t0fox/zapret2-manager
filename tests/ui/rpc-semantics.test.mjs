@@ -41,6 +41,7 @@ function makeWorld(responses) {
 			appendChild(c) { node.children.push(c); return c; },
 			addEventListener(t, f) { node.listeners[t] = f; },
 			setAttribute(k, v) { node.attrs[k] = v; },
+			removeAttribute(k) { delete node.attrs[k]; },
 			getAttribute(k) { return node.attrs[k]; },
 			querySelector() { return makeNode(); },
 			querySelectorAll() { return []; }
@@ -1611,7 +1612,7 @@ test('orchestra: default panel, history selection, and controls remain scoped to
 	view.render(view._state);
 	assert.equal(view._panel, 'orchestra-find', 'Find strategy remains reachable by hash');
 	const testingButtons = ['Start', 'Pause', 'Resume', 'Stop'].map((label) => findButton(w, label));
-	assert.deepEqual(testingButtons.map((b) => b.attrs.disabled), [true, false, true, false], 'testing active run controls are exact');
+	assert.deepEqual(testingButtons.map((b) => Object.prototype.hasOwnProperty.call(b.attrs, 'disabled')), [true, false, true, false], 'testing active run controls are exact');
 	view._selectRun(first.runId);
 	assert.equal(view._state.activeRun.runId, active.runId, 'history selection never replaces active run');
 	assert.equal(view._state.selectedLoading, true, 'selected history item renders a loading state');
@@ -1625,7 +1626,45 @@ test('orchestra: default panel, history selection, and controls remain scoped to
 	const appliedButtons = view._findSection();
 	assert.ok(appliedButtons, 'applied history run can render as active-state regression fixture');
 	const latest = ['Start', 'Pause', 'Resume', 'Stop'].map((label) => w.created.filter((n) => n.tag === 'button' && collectText(n).join('').includes(label)).at(-1));
-	assert.deepEqual(latest.map((b) => b.attrs.disabled), [false, true, true, true], 'applied terminal run no longer blocks Start');
+	assert.deepEqual(latest.map((b) => Object.prototype.hasOwnProperty.call(b.attrs, 'disabled')), [false, true, true, true], 'applied terminal run no longer blocks Start');
+});
+
+test('orchestra: controls use real boolean-attribute presence and recover after busy', async () => {
+	const catalog = { ok: true, catalogVersion: '2.0.0', digestOk: true, categories: ['video'], services: [{ id: 'manus', name: 'Manus', category: 'video', domainCount: 1, mechanisms: [], stability: 'reviewed', limitations: '' }] };
+	const w = makeWorld({
+		catalog_list: { type: 'ok', value: catalog }, catalog_status: { type: 'ok', value: { ok: true, ledger: { enabled: ['manus'] }, catalog: { valid: true, digestOk: true }, drift: { divergent: false } } },
+		catalog_get: { type: 'ok', value: { ok: true, service: { id: 'manus', domains: ['manus.im'] } } }, catalog_preview: { type: 'ok', value: { ok: true, additions: [], removals: [], keepShared: [], alreadyUserOwned: [], precondition: {} } }
+	});
+	const view = loadView(readViewSource('orchestra'), 'orchestra', w);
+	view._state = { runHistory: [], activeRun: null, selectedRun: null, selectedRunId: null, selectedLoading: false, selectedError: null, caps: { terminalPhases: ['completed'] }, catalogList: catalog, catalogStatus: { ok: true, ledger: { enabled: ['manus'] }, catalog: { valid: true, digestOk: true }, drift: { divergent: false } }, catalogHealth: {}, catalogError: null, adaptive: {}, preview: null, operation: null, error: null };
+	view._servicesSection();
+	const domains = findButton(w, 'Show domains');
+	const find = findButton(w, 'Find strategies');
+	assert.equal(Object.prototype.hasOwnProperty.call(domains.attrs, 'disabled'), false, 'enabled Show domains has no disabled attribute');
+	assert.equal(Object.prototype.hasOwnProperty.call(find.attrs, 'disabled'), false, 'enabled Find strategies has no disabled attribute');
+	domains.listeners.click(domains);
+	assert.equal(domains.disabled, true, 'busy Show domains is disabled');
+	await flush();
+	assert.equal(domains.disabled, false, 'Show domains is enabled after success');
+	assert.equal(Object.prototype.hasOwnProperty.call(domains.attrs, 'disabled'), false, 'busy completion removes disabled attribute');
+	assert.ok(collectText(view._servicesSection()).join(' ').includes('manus.im'), 'Show domains reveals catalog domains');
+	find.listeners.click(find);
+	await flush();
+	assert.ok(w.calls.some((c) => c.method === 'catalog_get'), 'enabled Manus prepares a service run');
+});
+
+test('orchestra: disabled service explains why and catalog digest verdict cannot say Valid', () => {
+	const service = { id: 'manus', name: 'Manus', category: 'video', domainCount: 1, mechanisms: [], stability: 'reviewed', limitations: '' };
+	const w = makeWorld({ catalog_list: { type: 'ok', value: { ok: true, catalogVersion: '2.0.0', digestOk: false, categories: ['video'], services: [service] }, }, catalog_status: { type: 'ok', value: { ok: true, ledger: { enabled: [] }, catalog: { valid: true, digestOk: false }, drift: { divergent: false } } } });
+	const view = loadView(readViewSource('orchestra'), 'orchestra', w);
+	view._state = { runHistory: [], activeRun: null, selectedRun: null, selectedRunId: null, selectedLoading: false, selectedError: null, caps: { terminalPhases: [] }, catalogList: { ok: true, catalogVersion: '2.0.0', digestOk: false, categories: ['video'], services: [service] }, catalogStatus: { ok: true, ledger: { enabled: [] }, catalog: { valid: true, digestOk: false }, drift: { divergent: false } }, catalogHealth: {}, catalogError: null, adaptive: {}, preview: null, operation: null, error: null };
+	const root = view._servicesSection();
+	const find = findButton(w, 'Find strategies');
+	const text = collectText(root).join(' ');
+	assert.equal(Object.prototype.hasOwnProperty.call(find.attrs, 'disabled'), true, 'disabled service has disabled attribute');
+	assert.ok(String(find.attrs.title).includes('Enable and apply first'), 'disabled service has actionable reason');
+	assert.ok(text.includes('digest mismatch'), 'digest mismatch is explicit');
+	assert.ok(!text.includes('Catalog validity | Valid'), 'digest mismatch is not rendered as Valid');
 });
 
 test('orchestra: Services is default and uses the existing catalog workflow contracts', async () => {
