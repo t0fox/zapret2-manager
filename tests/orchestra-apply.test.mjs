@@ -29,13 +29,25 @@ test('buildWinnerChange exposes a typed target-scoped transaction contract', () 
 		...candidate, source: 'zapret2gui', revision: 'source-r1'
 	}, current);
 	assert.equal(change.targetScope.domain, 'youtube.com');
-	assert.deepEqual(change.targetScope, { domain: 'youtube.com', protocol: 'tcp', port: 443, l7: 'tls' });
+	assert.deepEqual(change.targetScope, { domain: 'youtube.com', protocol: 'tcp_https', port: 443, l7: 'tls' });
 	assert.equal(change.sourceRevision, 'source-r1');
 	assert.equal(change.catalogRevision, 'catalog-r1');
 	assert.equal(change.operations[0].tcpPort, 443);
 	assert.equal(change.operations[0].tlsScope, true);
 	assert.ok(change.currentProfile);
 	assert.ok(change.proposedProfile);
+});
+
+test('non-YouTube preview is immutable, scoped, and collision-safe', () => {
+	const nonYoutube = { ...run, target: 'twitter.com' };
+	const change = buildWinnerChange(nonYoutube, candidate, current);
+	assert.equal(change.target, 'twitter.com');
+	assert.equal(change.proposedProfile.name, 'Orchestra_twitter_com_tcp443');
+	assert.match(change.proposedConfiguration, /--hostlist-domains=twitter\.com/);
+	assert.doesNotMatch(change.proposedConfiguration, /hostlist-domains=youtube\.com/);
+	assert.equal(change.targetScope.protocol, 'tcp_https');
+	assert.throws(() => buildWinnerChange({ ...nonYoutube, targetType: 'service' }, candidate, current), /domain runs only/);
+	assert.throws(() => buildWinnerChange(nonYoutube, { ...candidate, protocol: 'quic_udp' }, current), /tcp_https only/);
 });
 
 test('target verification treats an uncovered router-local probe as not-applicable and requires LAN evidence', () => {
