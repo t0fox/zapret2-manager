@@ -16,6 +16,7 @@ import { PATHS } from './constants.uc';
 
 const LUA_DIR = '/opt/zapret2/lua';
 const STRESSOZZ_CORPUS = '/usr/libexec/zapret2-manager/catalog/stressozz-corpus.json';
+const STRESSOZZ_COMPILED = '/usr/libexec/zapret2-manager/catalog/stressozz-compiled.json';
 const PINNED_UPSTREAM = 'd3b3011000f103c5af161cc4e3167e80fd6928a2';
 const DIAG_LOG_PATH = '/tmp/zapret2-manager/orchestra-diag-tail.log';
 const DIAG_TAIL_BYTES = 8192;
@@ -55,13 +56,22 @@ function sha256_file(path) {
 
 function stressozz_corpus_summary() {
 	let raw = readfile(STRESSOZZ_CORPUS), doc = null;
+	let compiledRaw = readfile(STRESSOZZ_COMPILED), compiled = null;
 	try { if (raw) doc = json(raw); } catch (e) { doc = null; }
+	try { if (compiledRaw) compiled = json(compiledRaw); } catch (e) { compiled = null; }
 	let counts = { 'discord-media': 0, 'discord-voice': 0, 'discord-finland': 0, 'game-filter': 0 };
 	if (doc && type(doc.records) == 'array') for (let r in doc.records) if (counts[r.feature] != null) counts[r.feature]++;
+	let adapted = 0, unsupported = 0, unsupportedRecords = [], adaptedDigests = [];
+	if (compiled && type(compiled.records) == 'array') for (let c in compiled.records) {
+		if (c.executionStatus == 'adapted') { adapted++; push(adaptedDigests, { candidateId: c.candidateId, compiledDigest: c.compiledDigest }); }
+		if (c.executionStatus == 'unsupported') { unsupported++; push(unsupportedRecords, { candidateId: c.candidateId, feature: c.feature, reasons: c.compatibilityReasons }); }
+	}
 	return { sourceRepo: doc && doc.sourceRepo || 'missing', pinnedCommit: doc && doc.sourceCommit || 'missing',
 		totalRecords: doc && type(doc.records) == 'array' ? length(doc.records) : 0,
 		discordMediaCount: counts['discord-media'], discordVoiceCount: counts['discord-voice'],
-		discordFinlandCount: counts['discord-finland'], gameFilterCount: counts['game-filter'], executionStatus: 'not-adapted' };
+		discordFinlandCount: counts['discord-finland'], gameFilterCount: counts['game-filter'], executionStatus: compiled ? null : 'not-adapted',
+		compilerVersion: compiled && compiled.compilerVersion || null, adaptedCount: adapted, unsupportedCount: unsupported,
+		unsupportedRecords: unsupportedRecords, adaptedDigests: adaptedDigests };
 }
 
 // ---- dynamic upstream detection -----------------------------------------------

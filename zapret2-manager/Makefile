@@ -11,7 +11,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=zapret2-manager
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=78
+PKG_RELEASE:=80
 PKG_MAINTAINER:=Ásgeir
 PKG_LICENSE:=MIT
 PKGARCH:=all
@@ -138,6 +138,10 @@ define Package/zapret2-manager/install
 		$(1)/usr/libexec/zapret2-manager/catalog/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/catalog/stressozz-corpus.json \
 		$(1)/usr/libexec/zapret2-manager/catalog/
+	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/catalog/stressozz-compiled.json \
+		$(1)/usr/libexec/zapret2-manager/catalog/
+	$(INSTALL_BIN) ./files/usr/libexec/zapret2-manager/stressozz-validate.uc \
+		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/qlen.uc \
 		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/status.uc \
