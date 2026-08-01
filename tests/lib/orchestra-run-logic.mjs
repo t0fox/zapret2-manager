@@ -26,6 +26,55 @@ export function transition(from, to) { return { ok: !!TRANSITIONS[from]?.include
 
 export function appendBoundedEvent(events, event) { return [...events, event].slice(-500); }
 
+const CONTROL_PHASES = new Set(['queued', 'preparing', 'baseline', 'testing', 'paused', 'stopping', 'stopped']);
+const TERMINAL_PHASES = new Set(['completed', 'applied', 'failed', 'interrupted']);
+
+export function requestControl(run, command) {
+	const phase = run.phase;
+	if (command === 'pause') {
+		if (TERMINAL_PHASES.has(phase)) return { ok: false, error: 'ESTATE' };
+		if (!CONTROL_PHASES.has(phase)) return { ok: false, error: 'ESTATE' };
+		if (run.control?.pauseRequested) return { ok: true, idempotent: true, run };
+		return { ok: true, run: { ...run, control: { ...run.control, pauseRequested: true } } };
+	}
+	if (command === 'resume') {
+		if (phase === 'paused' || run.control?.pauseRequested) return { ok: true, run: { ...run, control: { ...run.control, pauseRequested: false } } };
+		return { ok: false, error: 'ESTATE' };
+	}
+	if (command === 'stop') {
+		if (phase === 'stopped' || phase === 'stopping') return { ok: true, idempotent: true, run };
+		if (TERMINAL_PHASES.has(phase)) return { ok: false, error: 'ESTATE' };
+		return { ok: true, run: { ...run, control: { ...run.control, stopRequested: true } } };
+	}
+	return { ok: false, error: 'EINPUT' };
+}
+
+export function simulateControlledWorker({ attempts, actions = [] }) {
+	const run = { phase: 'testing', completedCount: 0, results: [], heartbeat: 0, control: { pauseRequested: false, stopRequested: false } };
+	const started = [], events = [];
+	for (const action of actions) {
+		if (action.at === 'start') {
+			started.push(action.attempt);
+		} else if (action.at === 'finish') {
+			run.results.push({ attempt: action.attempt, verdict: 'target-fail' });
+			run.completedCount++;
+			if (run.control.pauseRequested) { run.phase = 'paused'; events.push('paused'); }
+		} else if (action.at === 'pause') {
+			run.control.pauseRequested = true;
+		} else if (action.at === 'resume') {
+			run.control.pauseRequested = false;
+			run.phase = 'testing'; events.push('resumed');
+		} else if (action.at === 'heartbeat') {
+			run.heartbeat++;
+		} else if (action.at === 'stop') {
+			run.control.stopRequested = true;
+			run.results.push({ attempt: action.attempt, verdict: 'cancelled' });
+			run.phase = 'stopped';
+		}
+	}
+	return { run, started, events };
+}
+
 export function scoreCandidate(candidate, repeats) {
 	const attempts = candidate.attempts || [], byProtocol = new Map();
 	for (const a of attempts) { if (!byProtocol.has(a.protocol)) byProtocol.set(a.protocol, []); byProtocol.get(a.protocol).push(a); }

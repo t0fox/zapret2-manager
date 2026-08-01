@@ -19,7 +19,7 @@
 // containing the request object (avoiding shell injection).
 
 import { orchestra_capabilities, orchestra_status, orchestra_events, orchestra_history, orchestra_runid, orchestra_parse_warnings, orchestra_ratings_get, orchestra_history_get, orchestra_history_paginated, orchestra_history_export, orchestra_history_clear, orchestra_history_stats } from './orchestra.uc';
-import { orchestra_run_start, orchestra_run_status, orchestra_run_events, orchestra_run_pause, orchestra_run_resume, orchestra_run_stop, orchestra_run_history, orchestra_run_load, orchestra_run_delete, orchestra_apply_best, orchestra_preview_best } from './orchestra-run.uc';
+import { orchestra_run_start, orchestra_run_status, orchestra_run_events, orchestra_run_pause, orchestra_run_resume, orchestra_run_stop, orchestra_run_history, orchestra_run_load, orchestra_run_delete, orchestra_run_capabilities, orchestra_apply_best, orchestra_preview_best } from './orchestra-run.uc';
 import { readfile } from 'fs';
 
 function read_request(path) {
@@ -38,7 +38,7 @@ let mode = ARGV[0];
 let reqFile = length(ARGV) > 1 ? ARGV[1] : null;
 
 if (mode == 'capabilities') {
-	print(sprintf("%J", orchestra_capabilities()) + '\n');
+	let caps=orchestra_capabilities(), corpus=orchestra_run_capabilities(); caps.orchestrationCorpus=corpus; print(sprintf("%J", caps) + '\n');
 } else if (mode == 'status') {
 	print(sprintf("%J", orchestra_status()) + '\n');
 } else if (mode == 'events') {
@@ -81,6 +81,8 @@ if (mode == 'capabilities') {
 	print(sprintf("%J", orchestra_run_history()) + '\n');
 } else if (mode == 'run_load') {
 	print(sprintf("%J", orchestra_run_load(read_request(reqFile)) || { ok: false, error: { code: 'ENOENT', message: 'run not found' } }) + '\n');
+} else if (mode == 'run_capabilities') {
+	print(sprintf("%J", orchestra_run_capabilities()) + '\n');
 } else if (mode == 'run_delete') {
 	print(sprintf("%J", orchestra_run_delete(read_request(reqFile))) + '\n');
 } else if (mode == 'apply_best') {

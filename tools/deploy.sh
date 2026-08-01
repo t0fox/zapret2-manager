@@ -100,7 +100,8 @@ do_install() {
 
   # Install the meta-package — solver resolves all deps through the signed index
   if ssh_run "install zapret2-manager-full" \
-    apk add --repository "$REPO_DIR/packages.adb" zapret2-manager-full; then
+    apk add --upgrade --repository "$REPO_DIR/packages.adb" \
+      zapret2-manager zapret2-manager-full luci-app-zapret2-manager tg-ws-proxy-rs; then
     log "full stack installed from signed index"
   else
     ssh_run "cleanup temp repo" "rm -rf $REPO_DIR" || true

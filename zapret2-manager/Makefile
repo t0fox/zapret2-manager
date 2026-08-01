@@ -11,7 +11,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=zapret2-manager
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=46
+PKG_RELEASE:=74
 PKG_MAINTAINER:=Ásgeir
 PKG_LICENSE:=MIT
 PKGARCH:=all
@@ -107,6 +107,12 @@ define Package/zapret2-manager/install
 		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/orchestra-run.uc \
 		$(1)/usr/libexec/zapret2-manager/
+	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/orchestra-worker.uc \
+		$(1)/usr/libexec/zapret2-manager/
+	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/orchestra-worker-control.uc \
+		$(1)/usr/libexec/zapret2-manager/
+	$(INSTALL_BIN) ./files/usr/libexec/zapret2-manager/orchestra-candidate-run.sh \
+		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/orchestra-cli.uc \
 		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/proxy.uc \
@@ -125,6 +131,10 @@ define Package/zapret2-manager/install
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/catalog/dns-providers.json \
 		$(1)/usr/libexec/zapret2-manager/catalog/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/catalog/service-dns-profiles.json \
+		$(1)/usr/libexec/zapret2-manager/catalog/
+	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/catalog/orchestra-strategies.json \
+		$(1)/usr/libexec/zapret2-manager/catalog/
+	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/catalog/orchestra-zapret2gui.json \
 		$(1)/usr/libexec/zapret2-manager/catalog/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/qlen.uc \
 		$(1)/usr/libexec/zapret2-manager/

@@ -18,3 +18,4 @@ luci-modulecache/
 .DS_Store
 Thumbs.db
 .worktrees/
+.gstack/
