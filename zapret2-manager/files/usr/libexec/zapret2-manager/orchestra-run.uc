@@ -191,7 +191,12 @@ export const orchestra_run_start = function(input) {
 	r.workerPid=pid;r.workerStarttime=start;r.heartbeatAt=time();if(!save(r))return err('EIO','could not publish active worker state',{},id,r.phase);return {ok:true,run:r};
 };
 export const orchestra_run_load = function(input){let id=input&&input.runId;return safe_id(id)?load(path(id)):null;};
-export const orchestra_run_status = function(input){active();let r=input&&input.runId?orchestra_run_load(input):active();return r?{ok:true,run:r}:err('ENOENT','run not found');};
+function run_status_view(r){
+	let v={};for(let k in r)if(k!='results'&&k!='baselineEvidence'&&k!='targetCandidateEvidence'&&k!='diagnosticEvents')v[k]=r[k];
+	if(v.events&&length(v.events)>20)v.events=slice(v.events,length(v.events)-20);
+	return v;
+}
+export const orchestra_run_status = function(input){active();let r=input&&input.runId?orchestra_run_load(input):active();return r?{ok:true,run:run_status_view(r)}:err('ENOENT','run not found');};
 export const orchestra_run_events = function(input){let r=orchestra_run_load(input)||active();if(!r)return err('ENOENT','run not found');let c=+(input&&input.cursor||0),a=[];for(let e in r.events)if(e.sequence>c)push(a,e);return{ok:true,runId:r.runId,events:a,nextCursor:length(r.events)?r.events[length(r.events)-1].sequence:c};};
 export const orchestra_run_pause = function(){let r=active();return r?control_request(r,'pause'):err('ENOENT','no active run');};
 export const orchestra_run_resume = function(){let r=active();return r?control_request(r,'resume'):err('ENOENT','no active run');};
