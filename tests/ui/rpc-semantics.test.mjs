@@ -98,7 +98,8 @@ function makeWorld(responses) {
 						return Promise.reject(new Error('RPC call failed with ubus code ' + r.code));
 					return Promise.resolve(r.code);   // reject:false — the defect form
 				}
-				return Promise.resolve(r && Object.prototype.hasOwnProperty.call(r, 'value') ? r.value : {});
+				const value = r && Object.prototype.hasOwnProperty.call(r, 'value') ? r.value : {};
+				return Promise.resolve(typeof value === 'function' ? value(params) : value);
 			};
 		}
 	};
@@ -1552,6 +1553,7 @@ test('orchestra: engine status + capability matrix render with honest unavailabl
 		orchestra_events: { type: 'ok', value: { ...ORCH_UNAVAILABLE, what: 'events', reason: 'no event stream exists: DLOG is debug-gated and AUTOHOSTLIST_DEBUGLOG=0' } },
 		orchestra_history: { type: 'ok', value: ORCH_UNAVAILABLE }
 	});
+	w.windowStub.location = { hash: '#orchestra-adaptive' };
 	const view = loadView(readViewSource('orchestra'), 'orchestra', w);
 	const envelope = await view.load();
 	const root = view.render(envelope);
@@ -1571,6 +1573,7 @@ test('orchestra: history/events unavailable states carry reason + evidence, no f
 		orchestra_events: { type: 'ok', value: { ...ORCH_UNAVAILABLE, what: 'events' } },
 		orchestra_history: { type: 'ok', value: ORCH_UNAVAILABLE }
 	});
+	w.windowStub.location = { hash: '#orchestra-adaptive' };
 	const view = loadView(readViewSource('orchestra'), 'orchestra', w);
 	const envelope = await view.load();
 	const root = view.render(envelope);
@@ -1594,6 +1597,35 @@ test('orchestra: backend error renders an honest unavailable panel (no crash)', 
 	const root = view.render(envelope);
 	const text = collectText(root).join(' | ');
 	assert.ok(text.includes('Capabilities unavailable'), 'error panel renders');
+});
+
+test('orchestra: default panel, history selection, and controls remain scoped to activeRun', async () => {
+	const active = { runId: 'or-00000001-0001', phase: 'testing', target: 'active.example', protocols: ['tcp_https'] };
+	const first = { runId: 'or-00000002-0002', phase: 'applied', target: 'first.example', protocols: ['tcp_https'] };
+	const second = { runId: 'or-00000003-0003', phase: 'completed', target: 'second.example', protocols: ['quic_udp'] };
+	const w = makeWorld({ orchestra_run_status: { type: 'ok', value: (params) => ({ ok: true, run: JSON.parse(params.edit).runId === first.runId ? first : second }) } });
+	w.windowStub.location = { hash: '' };
+	w.windowStub.history = { replaceState() {}, pushState() {} };
+	const view = loadView(readViewSource('orchestra'), 'orchestra', w);
+	view._state = { runHistory: [first, second], activeRun: active, selectedRun: null, selectedRunId: null, selectedLoading: false, selectedError: null, caps: { terminalPhases: ['completed', 'applied', 'rolled-back', 'restored', 'timeout', 'cancelled', 'interrupted', 'stopped', 'failed'] }, preview: null, operation: null, error: null };
+	view.render(view._state);
+	assert.equal(view._panel, 'orchestra-find', 'no hash opens Find strategy');
+	const testingButtons = ['Start', 'Pause', 'Resume', 'Stop'].map((label) => findButton(w, label));
+	assert.deepEqual(testingButtons.map((b) => b.attrs.disabled), [true, false, true, false], 'testing active run controls are exact');
+	view._selectRun(first.runId);
+	assert.equal(view._state.activeRun.runId, active.runId, 'history selection never replaces active run');
+	assert.equal(view._state.selectedLoading, true, 'selected history item renders a loading state');
+	await flush();
+	assert.equal(view._state.selectedRun.runId, first.runId, 'first history details load');
+	view._selectRun(second.runId);
+	await flush();
+	assert.equal(view._state.selectedRun.runId, second.runId, 'switching history replaces details, not active run');
+	assert.equal(view._state.activeRun.runId, active.runId, 'second history selection still leaves active run intact');
+	view._state.activeRun = { ...first };
+	const appliedButtons = view._findSection();
+	assert.ok(appliedButtons, 'applied history run can render as active-state regression fixture');
+	const latest = ['Start', 'Pause', 'Resume', 'Stop'].map((label) => w.created.filter((n) => n.tag === 'button' && collectText(n).join('').includes(label)).at(-1));
+	assert.deepEqual(latest.map((b) => b.attrs.disabled), [false, true, true, true], 'applied terminal run no longer blocks Start');
 });
 
 // ---- 6j. dns providers section (Phase E) -------------------------------------------

@@ -27,7 +27,7 @@ export function transition(from, to) { return { ok: !!TRANSITIONS[from]?.include
 export function appendBoundedEvent(events, event) { return [...events, event].slice(-500); }
 
 const CONTROL_PHASES = new Set(['queued', 'preparing', 'baseline', 'testing', 'paused', 'stopping', 'stopped']);
-const TERMINAL_PHASES = new Set(['completed', 'applied', 'failed', 'interrupted']);
+const TERMINAL_PHASES = new Set(['completed', 'applied', 'rolled-back', 'restored', 'timeout', 'timed-out', 'cancelled', 'canceled', 'stopped', 'failed', 'interrupted']);
 
 export function requestControl(run, command) {
 	const phase = run.phase;

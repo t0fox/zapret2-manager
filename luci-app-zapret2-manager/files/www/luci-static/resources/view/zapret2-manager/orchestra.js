@@ -29,7 +29,8 @@ function structuredError(e) {
 	try { return JSON.stringify(e); } catch (x) { return String(e); }
 }
 function rpcCall(fn, arg) { return fn(arg).catch(function (e) { throw new Error(structuredError(e)); }); }
-function terminalRun(p) { return ['completed', 'failed', 'stopped', 'interrupted'].indexOf(p) >= 0; }
+var FALLBACK_TERMINAL_PHASES = ['completed', 'applied', 'rolled-back', 'restored', 'timeout', 'timed-out', 'cancelled', 'canceled', 'stopped', 'failed', 'interrupted'];
+function terminalRun(p, phases) { return (phases || FALLBACK_TERMINAL_PHASES).indexOf(p) >= 0; }
 function terminalApply(p) { return ['applied', 'failed', 'rolled-back', 'restored'].indexOf(p) >= 0; }
 function injectCSS() {
 	if (!document || !document.createElement || !document.head || document.getElementById('z2m-ui-css')) return;
@@ -47,8 +48,8 @@ return L.view.extend({
 	title: _('Orchestra'),
 	_poll: null,
 	_polling: false,
-	_state: { history: [], run: null, selectedRunId: null, protocol: null, adaptive: null, caps: null, legacyEvents: null, legacyHistory: null, legacyRatings: null, preview: null, operation: null, error: null },
-	_panel: 'orchestra-adaptive',
+	_state: { runHistory: [], activeRun: null, selectedRun: null, selectedRunId: null, selectedLoading: false, selectedError: null, protocol: null, adaptive: null, caps: null, legacyEvents: null, legacyHistory: null, legacyRatings: null, preview: null, operation: null, error: null },
+	_panel: 'orchestra-find',
 	_panelListenersBound: false,
 
 	load: function () {
@@ -56,12 +57,12 @@ return L.view.extend({
 		function get(fn, arg) { return rpcCall(fn, arg).then(function (v) { return v || {}; }).catch(function (e) { return { _error: structuredError(e) }; }); }
 		return Promise.all([get(capsRpc), get(adaptiveRpc), get(historyRpc), get(legacyEventsRpc), get(legacyHistoryRpc), get(legacyRatingsRpc), get(runStatusRpc, pack({}))]).then(function (a) {
 			self._state.caps = a[0]._error ? null : a[0]; self._state.adaptive = a[1]._error ? null : a[1];
-			self._state.history = a[2].runs || []; self._state.legacyEvents = a[3]; self._state.legacyHistory = a[4]; self._state.legacyRatings = a[5];
-			if (a[6].run) self._state.run = a[6].run;
-			self._state.selectedRunId = self._state.run && self._state.run.runId || (self._state.history[0] && self._state.history[0].runId) || null;
-			self._state.protocol = self._preferredProtocol(self._state.run || self._state.history[0]);
+			self._state.runHistory = a[2].runs || []; self._state.legacyEvents = a[3]; self._state.legacyHistory = a[4]; self._state.legacyRatings = a[5];
+			self._state.activeRun = a[6].run || null;
+			self._state.selectedRunId = self._state.selectedRunId || (self._state.activeRun && self._state.activeRun.runId) || (self._state.runHistory[0] && self._state.runHistory[0].runId) || null;
+			self._state.protocol = self._preferredProtocol(self._state.selectedRun || self._state.activeRun || self._state.runHistory[0]);
 			self._state.error = a[0]._error ? _('Capabilities unavailable: ') + a[0]._error : null;
-			if (self._state.selectedRunId && (!self._state.run || self._state.run.runId !== self._state.selectedRunId)) return rpcCall(runStatusRpc, pack({ runId: self._state.selectedRunId })).then(function (x) { self._state.run = x.run || null; return self._state; }).catch(function () { return self._state; });
+			if (self._state.selectedRunId && (!self._state.selectedRun || self._state.selectedRun.runId !== self._state.selectedRunId)) { self._state.selectedLoading = true; return rpcCall(runStatusRpc, pack({ runId: self._state.selectedRunId })).then(function (x) { self._state.selectedRun = x.run || null; self._state.selectedLoading = false; self._state.selectedError = self._state.selectedRun ? null : _('Selected run is unavailable.'); return self._state; }).catch(function (e) { self._state.selectedLoading = false; self._state.selectedError = structuredError(e); return self._state; }); }
 			return self._state;
 		});
 	},
@@ -71,7 +72,7 @@ return L.view.extend({
 	_short: function (v, n) { v = String(v || ''); return v.length > (n || 28) ? v.slice(0, n || 28) + '…' : v; },
 	_panelFromHash: function () {
 		var hash = (typeof window !== 'undefined' && window.location && window.location.hash || '').replace(/^#/, '');
-		return ['orchestra-find', 'orchestra-results', 'orchestra-adaptive'].indexOf(hash) >= 0 ? hash : 'orchestra-adaptive';
+		return ['orchestra-find', 'orchestra-results', 'orchestra-adaptive'].indexOf(hash) >= 0 ? hash : 'orchestra-find';
 	},
 	_bindPanelNavigation: function () {
 		var self = this;
@@ -91,8 +92,8 @@ return L.view.extend({
 		this._refresh(); this._startPolling();
 	},
 	_shouldPoll: function () {
-		var r = this._state.run, o = this._state.operation;
-		return (this._panel === 'orchestra-find' && r && !terminalRun(r.phase)) || (this._panel === 'orchestra-results' && o && !terminalApply(o.phase));
+		var r = this._state.activeRun, o = this._state.operation;
+		return (this._panel === 'orchestra-find' && r && !terminalRun(r.phase, (this._state.caps || {}).terminalPhases)) || (this._panel === 'orchestra-results' && o && !terminalApply(o.phase));
 	},
 
 	render: function (state) {
@@ -124,7 +125,7 @@ return L.view.extend({
 	},
 
 	_findSection: function () {
-		var self = this, s = this._state, run = s.run || {}, active = !!run && !terminalRun(run.phase), form = E('div', { 'class': 'z2m-orchestra-find-panel' });
+		var self = this, s = this._state, run = s.activeRun || {}, active = !!s.activeRun && !terminalRun(run.phase, (s.caps || {}).terminalPhases), form = E('div', { 'class': 'z2m-orchestra-find-panel' });
 		var fields = E('div', { 'class': 'z2m-orchestra-fields' });
 		function field(label, input, hint) { return E('label', { 'class': 'z2m-orchestra-field' }, [E('span', {}, esc(label)), input, E('small', {}, esc(hint))]); }
 		var domain = E('input', { 'class': 'cbi-input-text', 'id': 'z2m-orchestra-domain', 'type': 'text', 'value': run.target || 'youtube.com', 'placeholder': 'youtube.com' });
@@ -134,7 +135,7 @@ return L.view.extend({
 		var total = E('input', { 'class': 'cbi-input-text', 'type': 'number', 'min': '20', 'max': '1800', 'value': run.totalTimeoutSec || 600 });
 		fields.appendChild(field(_('Target domain'), domain, _('Hostname to test'))); fields.appendChild(field(_('Candidate set'), mode, _('Trusted catalog only'))); fields.appendChild(field(_('Repeats'), repeats, _('1–3 attempts'))); fields.appendChild(field(_('Attempt timeout'), timeout, _('Seconds per attempt'))); fields.appendChild(field(_('Run timeout'), total, _('Maximum total seconds'))); form.appendChild(fields);
 		var actions = E('div', { 'class': 'z2m-actions z2m-orchestra-actions' });
-		function start(b) { var payload = { targetType: 'domain', domain: domain.value.trim(), protocols: ['tcp_https', 'quic_udp'], candidateMode: mode.value, repeats: +repeats.value, perAttemptTimeoutSec: +timeout.value, totalTimeoutSec: +total.value }; self._busy(b, _('Starting…')); rpcCall(runStartRpc, pack(payload)).then(function (x) { self._state.run = x.run; self._state.selectedRunId = x.run && x.run.runId; self._state.protocol = self._preferredProtocol(x.run); self._state.error = null; self._refresh(); }).catch(function (e) { self._state.error = structuredError(e); self._busy(b, _('Start')); self._refresh(); }); }
+		function start(b) { var payload = { targetType: 'domain', domain: domain.value.trim(), protocols: ['tcp_https', 'quic_udp'], candidateMode: mode.value, repeats: +repeats.value, perAttemptTimeoutSec: +timeout.value, totalTimeoutSec: +total.value }; self._busy(b, _('Starting…')); rpcCall(runStartRpc, pack(payload)).then(function (x) { self._state.activeRun = x.run || null; self._state.selectedRun = x.run || null; self._state.selectedRunId = x.run && x.run.runId; self._state.selectedLoading = false; self._state.selectedError = null; self._state.protocol = self._preferredProtocol(x.run); self._state.error = null; self._refresh(); }).catch(function (e) { self._state.error = structuredError(e); self._busy(b, _('Start'), true); self._refresh(); }); }
 		actions.appendChild(btn(_('Start'), start, active, 'cbi-button-action'));
 		actions.appendChild(btn(_('Pause'), function (b) { self._action(b, runPauseRpc, _('Pause')); }, !active || run.phase === 'paused'));
 		actions.appendChild(btn(_('Resume'), function (b) { self._action(b, runResumeRpc, _('Resume')); }, !active || run.phase !== 'paused'));
@@ -146,12 +147,13 @@ return L.view.extend({
 	_liveProgress: function (run) { var p = Math.max(0, Math.min(100, +(run.progress || 0))), live = E('div', { 'class': 'z2m-orchestra-live' }, [E('div', { 'class': 'z2m-orchestra-live-top' }, [badge(run.phase || 'queued', 'warn'), E('span', {}, esc((run.completedCount || 0) + (run.totalCount ? ' / ' + run.totalCount : '') + ' attempts'))]), E('progress', { 'class': 'z2m-orchestra-progress', 'value': String(p), 'max': '100' }), kv(_('Current attempt'), (run.currentCandidate ? this._short(run.currentCandidate, 24) : _('Preparing')) + (run.currentAttempt ? ' · #' + run.currentAttempt : ''))]); if (run.error) live.appendChild(alertBox(structuredError(run.error))); if (run.events && run.events.length) live.appendChild(E('pre', { 'class': 'z2m-mono z2m-orchestra-log' }, run.events.slice(-6).map(function (e) { return (e.phase || '') + ': ' + (e.message || ''); }).join('\n'))); return live; },
 
 	_resultsSection: function () {
-		var self = this, s = this._state, selected = s.run && s.run.runId === s.selectedRunId ? s.run : null, body = E('div', { 'class': 'z2m-orchestra-results-layout' });
+		var self = this, s = this._state, selected = s.selectedRun && s.selectedRun.runId === s.selectedRunId ? s.selectedRun : null, body = E('div', { 'class': 'z2m-orchestra-results-layout' });
 		var list = E('div', { 'class': 'z2m-orchestra-run-list', 'role': 'listbox', 'aria-label': _('Runs') });
-		if (!(s.history || []).length) list.appendChild(E('div', { 'class': 'z2m-empty' }, _('No runs yet.')));
-		(s.history || []).forEach(function (r) { var isSelected = r.runId === s.selectedRunId, item = E('button', { 'type': 'button', 'class': 'z2m-orchestra-run-item' + (isSelected ? ' is-selected' : ''), 'role': 'option', 'aria-selected': String(isSelected) }, [E('strong', {}, esc(r.target || _('Unknown target'))), E('span', {}, [badge(r.phase || 'unknown', r.phase === 'completed' || r.phase === 'applied' ? 'ok' : 'neutral'), E('small', {}, esc(r.winnerCandidateId ? _('Winner confirmed') : _('No winner')))])]); item.addEventListener('click', function () { self._selectRun(r.runId); }); list.appendChild(item); });
-		body.appendChild(E('aside', { 'class': 'z2m-orchestra-master' }, [E('div', { 'class': 'z2m-orchestra-master-title' }, [E('strong', {}, _('Runs')), E('span', {}, esc(String((s.history || []).length))) ]), list]));
-		body.appendChild(E('div', { 'class': 'z2m-orchestra-detail' }, selected ? this._runDetail(selected) : E('div', { 'class': 'z2m-empty' }, _('Select a run to inspect its ranking.'))));
+		if (!(s.runHistory || []).length) list.appendChild(E('div', { 'class': 'z2m-empty' }, _('No runs yet.')));
+		(s.runHistory || []).forEach(function (r) { var isSelected = r.runId === s.selectedRunId, item = E('button', { 'type': 'button', 'class': 'z2m-orchestra-run-item' + (isSelected ? ' is-selected' : ''), 'role': 'option', 'aria-selected': String(isSelected) }, [E('strong', {}, esc(r.target || _('Unknown target'))), E('span', {}, [badge(r.phase || 'unknown', terminalRun(r.phase, (s.caps || {}).terminalPhases) ? 'ok' : 'neutral'), E('small', {}, esc(r.winnerCandidateId ? _('Winner confirmed') : _('No winner')))])]); item.addEventListener('click', function () { self._selectRun(r.runId); }); list.appendChild(item); });
+		body.appendChild(E('aside', { 'class': 'z2m-orchestra-master' }, [E('div', { 'class': 'z2m-orchestra-master-title' }, [E('strong', {}, _('Runs')), E('span', {}, esc(String((s.runHistory || []).length))) ]), list]));
+		var detail = s.selectedLoading ? E('div', { 'class': 'z2m-empty', 'aria-live': 'polite' }, _('Loading selected run…')) : s.selectedError ? E('div', { 'class': 'z2m-orchestra-detail-error' }, [alertBox(s.selectedError), btn(_('Retry'), function () { self._selectRun(s.selectedRunId); }, false)]) : selected ? this._runDetail(selected) : E('div', { 'class': 'z2m-empty' }, _('Select a run to inspect its ranking.'));
+		body.appendChild(E('div', { 'class': 'z2m-orchestra-detail' }, detail));
 		return section(_('Runs & results'), 'orchestra-results', body, _('Select one run; details and ranking stay scoped to its target.'));
 	},
 
@@ -187,17 +189,17 @@ return L.view.extend({
 		if (s.legacyEvents && s.legacyEvents.available === false) body.appendChild(alertBox(s.legacyEvents.reason || _('Events unavailable'), 'info'));
 		return section(_('Adaptive engine'), 'orchestra-adaptive', body, _('Live state and confirmed winners only; no synthetic controls.'));
 	},
-	_confirmedWinners: function () { var rows = (this._state.history || []).filter(function (r) { return r.winnerCandidateId; }).map(function (r) { return E('tr', {}, [E('td', {}, esc(r.target || '—')), E('td', {}, esc((r.protocols || []).map(function (p) { return p === 'tcp_https' ? 'HTTPS' : 'QUIC'; }).join(' · '))), E('td', {}, esc(r.winnerCandidateId)), E('td', {}, badge(_('Confirmed'), 'ok'))]); }); if (!rows.length) return E('div', { 'class': 'z2m-empty' }, _('No confirmed winner per domain and protocol yet.')); return E('div', { 'class': 'z2m-orchestra-confirmed' }, [E('h4', {}, _('Best confirmed strategies')), E('div', { 'class': 'z2m-table-wrap' }, E('table', { 'class': 'table' }, [E('thead', {}, E('tr', {}, ['Domain', 'Protocol', 'Strategy', 'Status'].map(function (h) { return E('th', {}, esc(_(h))); }))), E('tbody', {}, rows)]))]); },
+	_confirmedWinners: function () { var rows = (this._state.runHistory || []).filter(function (r) { return r.winnerCandidateId; }).map(function (r) { return E('tr', {}, [E('td', {}, esc(r.target || '—')), E('td', {}, esc((r.protocols || []).map(function (p) { return p === 'tcp_https' ? 'HTTPS' : 'QUIC'; }).join(' · '))), E('td', {}, esc(r.winnerCandidateId)), E('td', {}, badge(_('Confirmed'), 'ok'))]); }); if (!rows.length) return E('div', { 'class': 'z2m-empty' }, _('No confirmed winner per domain and protocol yet.')); return E('div', { 'class': 'z2m-orchestra-confirmed' }, [E('h4', {}, _('Best confirmed strategies')), E('div', { 'class': 'z2m-table-wrap' }, E('table', { 'class': 'table' }, [E('thead', {}, E('tr', {}, ['Domain', 'Protocol', 'Strategy', 'Status'].map(function (h) { return E('th', {}, esc(_(h))); }))), E('tbody', {}, rows)]))]); },
 
-	_selectRun: function (id) { var self = this; this._state.selectedRunId = id; this._state.preview = null; this._state.operation = null; this._state.error = null; this._refresh(); rpcCall(runStatusRpc, pack({ runId: id })).then(function (x) { self._state.run = x.run || null; self._state.protocol = self._preferredProtocol(self._state.run); self._refresh(); }).catch(function (e) { self._state.error = structuredError(e); self._refresh(); }); },
+	_selectRun: function (id) { var self = this; this._state.selectedRunId = id; this._state.selectedRun = null; this._state.selectedLoading = true; this._state.selectedError = null; this._state.preview = null; this._state.operation = null; this._refresh(); rpcCall(runStatusRpc, pack({ runId: id })).then(function (x) { if (self._state.selectedRunId !== id) return; self._state.selectedRun = x.run || null; self._state.selectedLoading = false; self._state.selectedError = self._state.selectedRun ? null : _('Selected run is unavailable.'); self._state.protocol = self._preferredProtocol(self._state.selectedRun); self._refresh(); }).catch(function (e) { if (self._state.selectedRunId !== id) return; self._state.selectedLoading = false; self._state.selectedError = structuredError(e); self._refresh(); }); },
 	_preview: function (run, candidateId, b) { var self = this; this._busy(b, _('Preview…')); rpcCall(previewRpc, pack({ runId: run.runId, candidateId: candidateId })).then(function (x) { self._state.preview = x; self._state.error = null; self._refresh(); }).catch(function (e) { self._state.error = structuredError(e); self._busy(b, _('Preview'), true); self._refresh(); }); },
 	_previewThenApply: function (run, candidateId, b) { var self = this; this._busy(b, _('Preview…')); rpcCall(previewRpc, pack({ runId: run.runId, candidateId: candidateId })).then(function (x) { self._state.preview = x; self._apply(); }).catch(function (e) { self._state.error = structuredError(e); self._busy(b, _('Apply'), true); self._refresh(); }); },
 	_apply: function () { var self = this, p = this._state.preview; if (!p) return; rpcCall(applyRpc, pack({ runId: p.runId, candidateId: p.candidateId, changeHash: p.changeHash, idempotencyToken: 'ui-' + Date.now().toString(36) })).then(function (x) { self._state.operation = { operationId: x.operationId, runId: x.runId || p.runId, phase: x.phase, events: [] }; self._state.error = null; self._refresh(); }).catch(function (e) { self._state.error = structuredError(e); self._refresh(); }); },
 	_restore: function (b) { var self = this, o = this._state.operation; this._busy(b, _('Restoring…')); rpcCall(restoreRpc, pack({ operationId: o.operationId })).then(function (x) { self._state.operation = Object.assign({}, o, x); self._refresh(); }).catch(function (e) { self._state.error = structuredError(e); self._busy(b, _('Restore previous'), true); self._refresh(); }); },
-	_action: function (b, fn, label) { var self = this; this._busy(b, label + '…'); rpcCall(fn).then(function (x) { if (x && x.run) self._state.run = x.run; self._refresh(); }).catch(function (e) { self._state.error = structuredError(e); self._busy(b, label, true); self._refresh(); }); },
+	_action: function (b, fn, label) { var self = this; this._busy(b, label + '…'); rpcCall(fn).then(function (x) { if (x && x.run) { self._state.activeRun = x.run; if (self._state.selectedRunId === x.run.runId) self._state.selectedRun = x.run; } self._refresh(); }).catch(function (e) { self._state.error = structuredError(e); self._busy(b, label, true); self._refresh(); }); },
 	_busy: function (b, label, done) { if (!b) return; b.disabled = !done; b.setAttribute('aria-busy', done ? 'false' : 'true'); b.textContent = label; },
 	_refresh: function () { var root = document.getElementById('z2m-orchestra-page'), content = root && root.querySelector('.z2m-orchestra-content'); if (root && root.querySelectorAll) Array.prototype.forEach.call(root.querySelectorAll('.z2m-orchestra-nav .z2m-tab'), function (link) { var active = link.getAttribute('href') === '#' + this._panel; link.classList.toggle('z2m-tab-active', active); if (active) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current'); }, this); if (content) this._renderContent(content); },
-	_startPolling: function () { var self = this; if (this._polling || !this._shouldPoll()) return; this._polling = true; this._poll = setInterval(function () { if (!self._shouldPoll()) { self._stopPolling(); return; } if (self._panel === 'orchestra-find') rpcCall(runStatusRpc, pack({ runId: self._state.run.runId })).then(function (x) { if (x.run) self._state.run = x.run; self._refresh(); if (!self._shouldPoll()) self._stopPolling(); }).catch(function () {}); else if (self._panel === 'orchestra-results') rpcCall(applyStatusRpc, pack({ operationId: self._state.operation.operationId })).then(function (x) { if (x.operation) self._state.operation = x.operation; self._refresh(); if (!self._shouldPoll()) self._stopPolling(); }).catch(function () {}); }, 2000); },
+	_startPolling: function () { var self = this; if (this._polling || !this._shouldPoll()) return; this._polling = true; this._poll = setInterval(function () { if (!self._shouldPoll()) { self._stopPolling(); return; } if (self._panel === 'orchestra-find') { var id=self._state.activeRun.runId; rpcCall(runStatusRpc, pack({ runId: id })).then(function (x) { if (x.run) { self._state.activeRun = x.run; if (self._state.selectedRunId === id) self._state.selectedRun = x.run; } self._refresh(); if (!self._shouldPoll()) self._stopPolling(); }).catch(function (e) { self._state.error = structuredError(e); self._refresh(); self._stopPolling(); }); } else if (self._panel === 'orchestra-results') rpcCall(applyStatusRpc, pack({ operationId: self._state.operation.operationId })).then(function (x) { if (x.operation) self._state.operation = x.operation; self._refresh(); if (!self._shouldPoll()) self._stopPolling(); }).catch(function (e) { self._state.error = structuredError(e); self._refresh(); self._stopPolling(); }); }, 2000); },
 	_stopPolling: function () { if (this._poll) clearInterval(this._poll); this._poll = null; this._polling = false; },
 	handleSaveApply: null, handleSave: null, handleReset: null
 });

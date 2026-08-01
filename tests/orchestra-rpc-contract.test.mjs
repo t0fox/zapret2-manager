@@ -4,7 +4,7 @@
 import { strict as assert } from 'assert';
 import { readFileSync } from 'fs';
 
-console.log('1..17');
+console.log('1..18');
 
 // --- read ACL ---
 const READ_METHODS = [
@@ -138,6 +138,13 @@ const runSource = readFileSync('zapret2-manager/files/usr/libexec/zapret2-manage
 assert.match(runSource, /export const orchestra_apply_best = function\(input\)\{return orchestra_apply_best_with_hook\(input,false\);\};/);
 assert.doesNotMatch(runSource, /internalFailureHook:input\.__internalFailTargetVerification/);
 console.log('ok 17 - public Apply cannot inject the test failure hook');
+
+// 18: stale active records are reconciled by their owned PID/starttime, not age.
+assert.match(runSource, /const TERMINAL = \['completed', 'applied', 'rolled-back', 'restored', 'timeout', 'timed-out', 'cancelled', 'canceled', 'stopped', 'failed', 'interrupted'\]/);
+assert.match(runSource, /function reconcile_active\(r\)/);
+assert.match(runSource, /worker process is no longer alive or no longer matches its recorded starttime/);
+assert.doesNotMatch(runSource, /HEARTBEAT_MARGIN/);
+console.log('ok 18 - stale active run reconciliation is PID-bound');
 } catch (e) {
 	console.log('not ok 15 - source-encoding test file absent');
 }

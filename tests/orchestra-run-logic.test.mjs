@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-	validateStart, transition, scoreCandidate, appendBoundedEvent
+	validateStart, transition, scoreCandidate, appendBoundedEvent, requestControl
 } from './lib/orchestra-run-logic.mjs';
 
 test('validateStart rejects unsafe domains and accepts a bounded HTTPS run', () => {
@@ -35,4 +35,11 @@ test('bounded event retention keeps only the newest 500 events', () => {
 	for (let i = 0; i < 501; i++) events = appendBoundedEvent(events, { sequence: i });
 	assert.equal(events.length, 500);
 	assert.equal(events[0].sequence, 1);
+});
+
+test('all persisted terminal phases reject controls, including Apply and recovery history', () => {
+	for (const phase of ['completed', 'applied', 'rolled-back', 'restored', 'timeout', 'timed-out', 'cancelled', 'canceled', 'stopped', 'failed', 'interrupted']) {
+		if (phase !== 'stopped') assert.equal(requestControl({ phase }, 'stop').ok, false, phase + ' must not accept Stop');
+		assert.equal(requestControl({ phase }, 'pause').ok, false, phase + ' must not accept Pause');
+	}
 });

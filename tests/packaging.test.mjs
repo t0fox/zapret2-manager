@@ -136,10 +136,16 @@ test('Service DNS is not a primary menu entry', () => {
 // ---- adaptive engine menu ----
 
 test('Orchestra is the first primary working entry', () => {
-	const orch = entries.find(e => e.path === 'zapret2-manager/orchestra');
+	const orch = entries.find(e => e.title === 'Orchestra' && e.path === 'zapret2-manager/orchestra');
 	assert.ok(orch, 'Orchestra menu entry missing');
 	assert.equal(orch.title, 'Orchestra');
 	assert.equal(orch.order, 91);
+});
+
+test('manager root opens Orchestra instead of the hidden Overview compatibility view', () => {
+	const root = menu['admin/services/zapret2-manager'];
+	assert.equal(root.action.type, 'view');
+	assert.equal(root.action.path, 'zapret2-manager/orchestra');
 });
 
 // ---- service_dns RPC in ACL ----
