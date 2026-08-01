@@ -1604,12 +1604,12 @@ test('orchestra: default panel, history selection, and controls remain scoped to
 	const first = { runId: 'or-00000002-0002', phase: 'applied', target: 'first.example', protocols: ['tcp_https'] };
 	const second = { runId: 'or-00000003-0003', phase: 'completed', target: 'second.example', protocols: ['quic_udp'] };
 	const w = makeWorld({ orchestra_run_status: { type: 'ok', value: (params) => ({ ok: true, run: JSON.parse(params.edit).runId === first.runId ? first : second }) } });
-	w.windowStub.location = { hash: '' };
+	w.windowStub.location = { hash: '#orchestra-find' };
 	w.windowStub.history = { replaceState() {}, pushState() {} };
 	const view = loadView(readViewSource('orchestra'), 'orchestra', w);
 	view._state = { runHistory: [first, second], activeRun: active, selectedRun: null, selectedRunId: null, selectedLoading: false, selectedError: null, caps: { terminalPhases: ['completed', 'applied', 'rolled-back', 'restored', 'timeout', 'cancelled', 'interrupted', 'stopped', 'failed'] }, preview: null, operation: null, error: null };
 	view.render(view._state);
-	assert.equal(view._panel, 'orchestra-find', 'no hash opens Find strategy');
+	assert.equal(view._panel, 'orchestra-find', 'Find strategy remains reachable by hash');
 	const testingButtons = ['Start', 'Pause', 'Resume', 'Stop'].map((label) => findButton(w, label));
 	assert.deepEqual(testingButtons.map((b) => b.attrs.disabled), [true, false, true, false], 'testing active run controls are exact');
 	view._selectRun(first.runId);
@@ -1626,6 +1626,47 @@ test('orchestra: default panel, history selection, and controls remain scoped to
 	assert.ok(appliedButtons, 'applied history run can render as active-state regression fixture');
 	const latest = ['Start', 'Pause', 'Resume', 'Stop'].map((label) => w.created.filter((n) => n.tag === 'button' && collectText(n).join('').includes(label)).at(-1));
 	assert.deepEqual(latest.map((b) => b.attrs.disabled), [false, true, true, true], 'applied terminal run no longer blocks Start');
+});
+
+test('orchestra: Services is default and uses the existing catalog workflow contracts', async () => {
+	const catalog = { ok: true, catalogVersion: '2.0.0', digestOk: true, categories: ['video'], services: [{ id: 'youtube', name: 'YouTube', category: 'video', domainCount: 2, mechanisms: ['domainInclude'], stability: 'reviewed', limitations: 'strategy dependent' }] };
+	const status = { ok: true, ledger: { enabled: ['youtube'], revision: 7 }, ownedDomains: 2, drift: { divergent: false } };
+	const w = makeWorld({
+		orchestra_capabilities: { type: 'ok', value: ORCH_CAPS }, orchestra_status: { type: 'ok', value: ORCH_STATUS }, orchestra_run_history: { type: 'ok', value: { ok: true, runs: [] } }, orchestra_events: { type: 'ok', value: ORCH_UNAVAILABLE }, orchestra_history: { type: 'ok', value: ORCH_UNAVAILABLE }, orchestra_ratings_get: { type: 'ok', value: ORCH_UNAVAILABLE }, orchestra_run_status: { type: 'ok', value: { ok: false, error: { code: 'ENOENT', message: 'run not found' } } },
+		catalog_list: { type: 'ok', value: catalog }, catalog_status: { type: 'ok', value: status }, health_matrix_get: { type: 'ok', value: { ok: true, matrix: null } }, catalog_get: { type: 'ok', value: { ok: true, service: { id: 'youtube', domains: ['youtube.com', 'youtu.be'] } } }, catalog_preview: { type: 'ok', value: { ok: true, additions: [], removals: [], keepShared: [], alreadyUserOwned: [], precondition: { ledgerRevision: 7, fileSha256: 'abc' } } }
+	});
+	w.windowStub.location = { hash: '' };
+	w.windowStub.history = { replaceState() {}, pushState() {} };
+	const view = loadView(readViewSource('orchestra'), 'orchestra', w);
+	const envelope = await view.load();
+	const root = view.render(envelope);
+	assert.equal(view._panel, 'orchestra-services', 'empty hash opens Services');
+	assert.ok(collectText(root).join(' | ').includes('Catalog version'), 'catalog state renders inside Orchestra');
+	const domains = findButton(w, 'Show domains');
+	assert.ok(domains, 'catalog domains are lazy-loaded');
+	domains.listeners.click();
+	await flush();
+	assert.ok(w.calls.some((c) => c.method === 'catalog_get' && JSON.parse(c.params.edit).id === 'youtube'), 'catalog_get loads domains by service id');
+	findButton(w, 'Preview changes').listeners.click();
+	await flush();
+	const preview = w.calls.find((c) => c.method === 'catalog_preview');
+	assert.deepEqual(JSON.parse(preview.params.edit), { enabled: ['youtube'] }, 'preview preserves the catalog RPC contract');
+});
+
+test('orchestra: selected detail shows backend error literally and Retry can recover it', async () => {
+	let attempts = 0;
+	const w = makeWorld({ orchestra_run_status: { type: 'ok', value: () => (++attempts === 1 ? { ok: false, error: { code: 'ENOENT', message: 'journal parse failed', details: { runId: 'or-00000002-0002' } } } : { ok: true, run: { runId: 'or-00000002-0002', phase: 'completed', target: 'youtube.com', protocols: ['tcp_https'], rankedResults: [] } }) } });
+	const view = loadView(readViewSource('orchestra'), 'orchestra', w);
+	view._state = { runHistory: [{ runId: 'or-00000002-0002', phase: 'completed', target: 'youtube.com' }], activeRun: { runId: 'or-00000001-0001', phase: 'testing' }, selectedRun: null, selectedRunId: null, selectedLoading: false, selectedError: null, caps: { terminalPhases: ['completed'] }, preview: null, operation: null, error: null };
+	view._selectRun('or-00000002-0002');
+	await flush();
+	assert.equal(view._state.activeRun.runId, 'or-00000001-0001', 'selected error cannot replace activeRun');
+	assert.match(view._state.selectedError, /ENOENT: journal parse failed/, 'backend error is not replaced by a generic message');
+	view._panel = 'orchestra-results';
+	view._resultsSection();
+	findButton(w, 'Retry').listeners.click();
+	await flush();
+	assert.equal(view._state.selectedRun.runId, 'or-00000002-0002', 'Retry restores the selected detail');
 });
 
 // ---- 6j. dns providers section (Phase E) -------------------------------------------

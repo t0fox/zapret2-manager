@@ -300,9 +300,19 @@ function orchestra_ratings_get_method(req) { return cli_action(ORCH_CLI, 'rating
 function orchestra_runid_method(req) { return cli_action(ORCH_CLI, 'runid'); }
 function orchestra_parse_warnings_method(req) { return cli_action(ORCH_CLI, 'parse_warnings'); }
 function orchestra_history_get_method(req) { return cli_action(ORCH_CLI, 'history_get'); }
+function orchestra_request_args(req) {
+	let edit = null;
+	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
+	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
+	if (type(edit) == 'string') {
+		try { let decoded = json(edit); if (type(decoded) == 'object' && decoded != null) return decoded; } catch (e) { }
+	}
+	try { if (req && req.args && type(req.args) == 'object') return req.args; } catch (e) { }
+	return {};
+}
 function orchestra_reqfile_action(sub, req) {
 	let tmp = '/tmp/z2m-orch-req.' + time();
-	writefile(tmp, sprintf("%J", { args: req.args || {} }) + '\n');
+	writefile(tmp, sprintf("%J", { args: orchestra_request_args(req) }) + '\n');
 	let cmd = '/usr/bin/ucode ' + ORCH_CLI + ' ' + sub + ' ' + tmp + ' 2>/dev/null';
 	let p = popen(cmd, 'r');
 	if (!p) { try { unlink(tmp); } catch (e) { } return { ok: false, error: 'popen failed' }; }

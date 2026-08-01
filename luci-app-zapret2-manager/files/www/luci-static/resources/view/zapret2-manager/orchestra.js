@@ -17,6 +17,12 @@ const previewRpc = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_p
 const applyRpc = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_apply_best', params: ['edit'], reject: true });
 const applyStatusRpc = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_apply_status', params: ['edit'], reject: true });
 const restoreRpc = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_restore_previous', params: ['edit'], reject: true });
+const catalogListRpc = rpc.declare({ object: 'zapret2-manager', method: 'catalog_list', reject: true });
+const catalogStatusRpc = rpc.declare({ object: 'zapret2-manager', method: 'catalog_status', reject: true });
+const catalogGetRpc = rpc.declare({ object: 'zapret2-manager', method: 'catalog_get', params: ['edit'], reject: true });
+const catalogPreviewRpc = rpc.declare({ object: 'zapret2-manager', method: 'catalog_preview', params: ['edit'], reject: true });
+const catalogApplyRpc = rpc.declare({ object: 'zapret2-manager', method: 'catalog_apply', params: ['edit'], reject: true });
+const healthGetRpc = rpc.declare({ object: 'zapret2-manager', method: 'health_matrix_get', reject: true });
 
 function esc(v) { return v == null ? '' : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 function pack(v) { try { return JSON.stringify(v || {}); } catch (e) { return '{}'; } }
@@ -24,7 +30,11 @@ function structuredError(e) {
 	if (!e) return _('Unknown error');
 	if (typeof e === 'string') return e;
 	if (e.error) return structuredError(e.error);
-	if (e.code && e.message) return e.code + ': ' + e.message;
+	if (e.code && e.message) {
+		var details = '';
+		try { if (e.details && Object.keys(e.details).length) details = ' · ' + JSON.stringify(e.details); } catch (err) {}
+		return e.code + ': ' + e.message + details;
+	}
 	if (e.message) return e.message;
 	try { return JSON.stringify(e); } catch (x) { return String(e); }
 }
@@ -48,21 +58,22 @@ return L.view.extend({
 	title: _('Orchestra'),
 	_poll: null,
 	_polling: false,
-	_state: { runHistory: [], activeRun: null, selectedRun: null, selectedRunId: null, selectedLoading: false, selectedError: null, protocol: null, adaptive: null, caps: null, legacyEvents: null, legacyHistory: null, legacyRatings: null, preview: null, operation: null, error: null },
-	_panel: 'orchestra-find',
+	_state: { runHistory: [], activeRun: null, selectedRun: null, selectedRunId: null, selectedLoading: false, selectedError: null, protocol: null, adaptive: null, caps: null, legacyEvents: null, legacyHistory: null, legacyRatings: null, catalogList: null, catalogStatus: null, catalogHealth: null, catalogError: null, preview: null, operation: null, error: null },
+	_panel: 'orchestra-services',
 	_panelListenersBound: false,
 
 	load: function () {
 		var self = this;
 		function get(fn, arg) { return rpcCall(fn, arg).then(function (v) { return v || {}; }).catch(function (e) { return { _error: structuredError(e) }; }); }
-		return Promise.all([get(capsRpc), get(adaptiveRpc), get(historyRpc), get(legacyEventsRpc), get(legacyHistoryRpc), get(legacyRatingsRpc), get(runStatusRpc, pack({}))]).then(function (a) {
+		return Promise.all([get(capsRpc), get(adaptiveRpc), get(historyRpc), get(legacyEventsRpc), get(legacyHistoryRpc), get(legacyRatingsRpc), get(runStatusRpc, pack({})), get(catalogListRpc), get(catalogStatusRpc), get(healthGetRpc)]).then(function (a) {
 			self._state.caps = a[0]._error ? null : a[0]; self._state.adaptive = a[1]._error ? null : a[1];
 			self._state.runHistory = a[2].runs || []; self._state.legacyEvents = a[3]; self._state.legacyHistory = a[4]; self._state.legacyRatings = a[5];
 			self._state.activeRun = a[6].run || null;
 			self._state.selectedRunId = self._state.selectedRunId || (self._state.activeRun && self._state.activeRun.runId) || (self._state.runHistory[0] && self._state.runHistory[0].runId) || null;
 			self._state.protocol = self._preferredProtocol(self._state.selectedRun || self._state.activeRun || self._state.runHistory[0]);
 			self._state.error = a[0]._error ? _('Capabilities unavailable: ') + a[0]._error : null;
-			if (self._state.selectedRunId && (!self._state.selectedRun || self._state.selectedRun.runId !== self._state.selectedRunId)) { self._state.selectedLoading = true; return rpcCall(runStatusRpc, pack({ runId: self._state.selectedRunId })).then(function (x) { self._state.selectedRun = x.run || null; self._state.selectedLoading = false; self._state.selectedError = self._state.selectedRun ? null : _('Selected run is unavailable.'); return self._state; }).catch(function (e) { self._state.selectedLoading = false; self._state.selectedError = structuredError(e); return self._state; }); }
+			self._state.catalogList = a[7]._error ? null : a[7]; self._state.catalogStatus = a[8]._error ? null : a[8]; self._state.catalogHealth = a[9]._error ? null : a[9]; self._state.catalogError = (a[7] && (a[7]._error || (a[7].ok === false && structuredError(a[7].error || a[7])))) || (a[8] && (a[8]._error || (a[8].ok === false && structuredError(a[8].error || a[8])))) || (a[9] && (a[9]._error || (a[9].ok === false && structuredError(a[9].error || a[9])))) || null;
+			if (self._state.selectedRunId && (!self._state.selectedRun || self._state.selectedRun.runId !== self._state.selectedRunId)) { self._state.selectedLoading = true; return rpcCall(runStatusRpc, pack({ runId: self._state.selectedRunId })).then(function (x) { if (!x || x.ok === false) throw new Error(structuredError(x && x.error || x)); self._state.selectedRun = x.run || null; self._state.selectedLoading = false; self._state.selectedError = self._state.selectedRun ? null : _('EIO: selected run response did not contain details'); return self._state; }).catch(function (e) { self._state.selectedLoading = false; self._state.selectedError = structuredError(e); return self._state; }); }
 			return self._state;
 		});
 	},
@@ -72,7 +83,7 @@ return L.view.extend({
 	_short: function (v, n) { v = String(v || ''); return v.length > (n || 28) ? v.slice(0, n || 28) + '…' : v; },
 	_panelFromHash: function () {
 		var hash = (typeof window !== 'undefined' && window.location && window.location.hash || '').replace(/^#/, '');
-		return ['orchestra-find', 'orchestra-results', 'orchestra-adaptive'].indexOf(hash) >= 0 ? hash : 'orchestra-find';
+		return ['orchestra-services', 'orchestra-find', 'orchestra-results', 'orchestra-adaptive'].indexOf(hash) >= 0 ? hash : 'orchestra-services';
 	},
 	_bindPanelNavigation: function () {
 		var self = this;
@@ -85,7 +96,7 @@ return L.view.extend({
 		window.addEventListener('pagehide', this._onPanelPageHide, { once: true });
 	},
 	_setPanel: function (panel) {
-		if (['orchestra-find', 'orchestra-results', 'orchestra-adaptive'].indexOf(panel) < 0) return;
+		if (['orchestra-services', 'orchestra-find', 'orchestra-results', 'orchestra-adaptive'].indexOf(panel) < 0) return;
 		this._stopPolling(); this._panel = panel;
 		if (typeof window !== 'undefined' && window.history && window.history.pushState) window.history.pushState({ orchestraPanel: panel }, '', '#' + panel);
 		else if (typeof window !== 'undefined' && window.location) window.location.hash = panel;
@@ -102,6 +113,7 @@ return L.view.extend({
 		var self = this, root = E('div', { 'class': 'z2m-page z2m-orchestra', 'id': 'z2m-orchestra-page' });
 		root.appendChild(E('div', { 'class': 'z2m-page-header z2m-orchestra-header' }, [E('h2', {}, _('Orchestra')), E('p', {}, _('Find, compare and safely apply a verified strategy.'))]));
 		root.appendChild(E('nav', { 'class': 'z2m-tabs z2m-orchestra-nav', 'aria-label': _('Orchestra sections') }, [
+			this._panelLink('orchestra-services', _('Services')),
 			this._panelLink('orchestra-find', _('Find strategy')),
 			this._panelLink('orchestra-results', _('Runs & results')),
 			this._panelLink('orchestra-adaptive', _('Adaptive engine'))
@@ -118,11 +130,27 @@ return L.view.extend({
 
 	_renderContent: function (content) {
 		if (content.replaceChildren) content.replaceChildren(); else if (content.firstChild) while (content.firstChild) content.removeChild(content.firstChild); else content.children.length = 0;
-		if (this._panel === 'orchestra-find') content.appendChild(this._findSection());
+		if (this._panel === 'orchestra-services') content.appendChild(this._servicesSection());
+		else if (this._panel === 'orchestra-find') content.appendChild(this._findSection());
 		else if (this._panel === 'orchestra-results') content.appendChild(this._resultsSection());
 		else content.appendChild(this._adaptiveSection());
 		if (this._state.error) content.appendChild(alertBox(this._state.error));
 	},
+	_servicesSection: function () {
+		var self = this, s = this._state, list = s.catalogList || {}, status = s.catalogStatus || {}, body = E('div', { 'class': 'z2m-orchestra-services' });
+		if (s.catalogError || list.ok === false) { body.appendChild(alertBox(s.catalogError || structuredError(list.error || list))); return section(_('Services'), 'orchestra-services', body, _('Reviewed service domains with ownership-safe changes.')); }
+		var ledger = status.ledger || {}, enabled = {}; (ledger.enabled || []).forEach(function (id) { enabled[id] = true; }); self._catalogChecks = self._catalogChecks || {};
+		(list.services || []).forEach(function (service) { if (self._catalogChecks[service.id] == null) self._catalogChecks[service.id] = !!enabled[service.id]; });
+		var state = E('div', { 'class': 'z2m-orchestra-state-grid' }, [kv(_('Catalog version'), (list.catalogVersion || _('Unavailable')) + (list.digestOk === false ? ' · ' + _('digest mismatch') : '')), kv(_('Catalog validity'), badge(status.catalog && status.catalog.valid ? _('Valid') : _('Unavailable'), status.catalog && status.catalog.valid ? 'ok' : 'bad')), kv(_('Enabled services'), (ledger.enabled || []).join(', ') || _('None')), kv(_('Catalog-owned domains'), status.ownedDomains == null ? '—' : status.ownedDomains), kv(_('Ownership / drift'), status.drift && status.drift.divergent ? badge(status.drift.reason || _('Drift detected'), 'warn') : badge(_('In sync'), 'ok'))]); body.appendChild(state);
+		var byCategory = {}; (list.services || []).forEach(function (service) { (byCategory[service.category] = byCategory[service.category] || []).push(service); });
+		(list.categories || Object.keys(byCategory)).forEach(function (category) { var grid = E('div', { 'class': 'z2m-card-grid' }); (byCategory[category] || []).forEach(function (service) { var check = E('input', { 'type': 'checkbox', 'id': 'z2m-orchestra-catalog-' + service.id }); check.checked = !!self._catalogChecks[service.id]; check.addEventListener('change', function () { self._catalogChecks[service.id] = !!check.checked; }); var card = E('div', { 'class': 'z2m-card' }, [E('h4', {}, [check, ' ' + esc(service.name)]), kv(_('Domains'), (service.domainCount == null ? '—' : service.domainCount) + ' ' + _('domains')), kv(_('Mechanisms'), (service.mechanisms || []).join(', ') || '—'), kv(_('Stability'), badge(service.stability || _('Unknown'), service.stability === 'reviewed' ? 'ok' : 'warn')), E('div', { 'class': 'cbi-value-description' }, esc(service.limitations || ''))]); var expanded = self._catalogDomains && self._catalogDomains[service.id]; var domainButton = btn(expanded ? _('Hide domains') : _('Show domains'), function (b) { if (expanded) { delete self._catalogDomains[service.id]; self._refresh(); return; } self._busy(b, _('Loading…')); rpcCall(catalogGetRpc, pack({ id: service.id })).then(function (res) { if (!res || res.ok === false) throw new Error(structuredError(res && res.error || res)); self._catalogDomains = self._catalogDomains || {}; self._catalogDomains[service.id] = res.service && res.service.domains || []; self._refresh(); }).catch(function (e) { self._state.catalogError = structuredError(e); self._refresh(); }); }, false); card.appendChild(E('div', { 'class': 'z2m-actions' }, [domainButton])); if (expanded) card.appendChild(E('pre', { 'class': 'z2m-mono' }, esc(expanded.join('\n')))); grid.appendChild(card); }); body.appendChild(E('section', { 'class': 'z2m-orchestra-section' }, [E('h4', {}, esc(category)), grid])); });
+		var health = s.catalogHealth && s.catalogHealth.matrix; body.appendChild(E('div', { 'class': 'z2m-card' }, [E('h4', {}, _('Latest Health Matrix')), health ? kv(_('State'), badge(health.status || _('Unknown'), health.status === 'succeeded' ? 'ok' : health.status === 'failed' ? 'bad' : 'warn')) : E('div', { 'class': 'z2m-empty' }, _('No health matrix run yet.'))]));
+		var previewButton = btn(_('Preview changes'), function (b) { var desired = self._catalogEnabled(); self._busy(b, _('Previewing…')); rpcCall(catalogPreviewRpc, pack({ enabled: desired })).then(function (res) { if (!res || res.ok === false) throw new Error(structuredError(res && res.error || res)); self._catalogPreview = res; self._catalogApplyArmed = false; self._state.catalogError = null; self._refresh(); }).catch(function (e) { self._state.catalogError = structuredError(e); self._busy(b, _('Preview changes'), true); self._refresh(); }); }, false, 'cbi-button-action'); body.appendChild(E('div', { 'class': 'z2m-actions' }, [previewButton]));
+		if (self._catalogPreview) body.appendChild(self._catalogPreviewCard());
+		return section(_('Services'), 'orchestra-services', body, _('Reviewed service domains with ownership-safe changes.'));
+	},
+	_catalogEnabled: function () { var out = [], checks = this._catalogChecks || {}; Object.keys(checks).forEach(function (id) { if (checks[id]) out.push(id); }); return out; },
+	_catalogPreviewCard: function () { var self = this, p = this._catalogPreview, body = E('div', { 'class': 'z2m-orchestra-result-panel' }, [E('h4', {}, _('Exact change preview'))]); function lines(title, rows, render) { rows = rows || []; body.appendChild(E('h5', {}, esc(title + ' (' + rows.length + ')'))); body.appendChild(E('pre', { 'class': 'z2m-mono' }, esc(rows.length ? rows.map(render).join('\n') : _('None')))); } lines(_('Additions'), p.additions, function (x) { return '+ ' + x.domain + ' [' + (x.owners || []).join(', ') + ']'; }); lines(_('Removals (solely catalog-owned)'), p.removals, function (x) { return '- ' + x.domain + ' [' + (x.previousOwners || []).join(', ') + ']'; }); lines(_('Shared domains kept'), p.keepShared, function (x) { return '= ' + x.domain; }); lines(_('User-owned entries kept'), p.alreadyUserOwned, function (x) { return '= ' + x.domain; }); var pre = p.precondition || {}; var apply = btn(self._catalogApplyArmed ? _('Confirm apply') : _('Apply this plan'), function (b) { if (!self._catalogApplyArmed) { self._catalogApplyArmed = true; self._refresh(); return; } self._busy(b, _('Applying…')); rpcCall(catalogApplyRpc, pack({ enabled: self._catalogEnabled(), revision: pre.ledgerRevision, fileSha256: pre.fileSha256 })).then(function (res) { if (!res || res.ok === false) throw new Error(structuredError(res && res.error || res)); self._catalogPreview = null; self._catalogApplyArmed = false; self.load().then(function () { self._refresh(); }); }).catch(function (e) { self._state.catalogError = structuredError(e); self._busy(b, _('Confirm apply'), true); self._refresh(); }); }, false, self._catalogApplyArmed ? 'cbi-button-negative' : 'cbi-button-action'); body.appendChild(E('div', { 'class': 'z2m-actions' }, [apply])); return body; },
 
 	_findSection: function () {
 		var self = this, s = this._state, run = s.activeRun || {}, active = !!s.activeRun && !terminalRun(run.phase, (s.caps || {}).terminalPhases), form = E('div', { 'class': 'z2m-orchestra-find-panel' });
@@ -191,7 +219,7 @@ return L.view.extend({
 	},
 	_confirmedWinners: function () { var rows = (this._state.runHistory || []).filter(function (r) { return r.winnerCandidateId; }).map(function (r) { return E('tr', {}, [E('td', {}, esc(r.target || '—')), E('td', {}, esc((r.protocols || []).map(function (p) { return p === 'tcp_https' ? 'HTTPS' : 'QUIC'; }).join(' · '))), E('td', {}, esc(r.winnerCandidateId)), E('td', {}, badge(_('Confirmed'), 'ok'))]); }); if (!rows.length) return E('div', { 'class': 'z2m-empty' }, _('No confirmed winner per domain and protocol yet.')); return E('div', { 'class': 'z2m-orchestra-confirmed' }, [E('h4', {}, _('Best confirmed strategies')), E('div', { 'class': 'z2m-table-wrap' }, E('table', { 'class': 'table' }, [E('thead', {}, E('tr', {}, ['Domain', 'Protocol', 'Strategy', 'Status'].map(function (h) { return E('th', {}, esc(_(h))); }))), E('tbody', {}, rows)]))]); },
 
-	_selectRun: function (id) { var self = this; this._state.selectedRunId = id; this._state.selectedRun = null; this._state.selectedLoading = true; this._state.selectedError = null; this._state.preview = null; this._state.operation = null; this._refresh(); rpcCall(runStatusRpc, pack({ runId: id })).then(function (x) { if (self._state.selectedRunId !== id) return; self._state.selectedRun = x.run || null; self._state.selectedLoading = false; self._state.selectedError = self._state.selectedRun ? null : _('Selected run is unavailable.'); self._state.protocol = self._preferredProtocol(self._state.selectedRun); self._refresh(); }).catch(function (e) { if (self._state.selectedRunId !== id) return; self._state.selectedLoading = false; self._state.selectedError = structuredError(e); self._refresh(); }); },
+	_selectRun: function (id) { var self = this; this._state.selectedRunId = id; this._state.selectedRun = null; this._state.selectedLoading = true; this._state.selectedError = null; this._state.preview = null; this._state.operation = null; this._refresh(); rpcCall(runStatusRpc, pack({ runId: id })).then(function (x) { if (self._state.selectedRunId !== id) return; if (!x || x.ok === false) throw new Error(structuredError(x && x.error || x)); self._state.selectedRun = x.run || null; self._state.selectedLoading = false; self._state.selectedError = self._state.selectedRun ? null : _('EIO: selected run response did not contain details'); self._state.protocol = self._preferredProtocol(self._state.selectedRun); self._refresh(); }).catch(function (e) { if (self._state.selectedRunId !== id) return; self._state.selectedLoading = false; self._state.selectedError = structuredError(e); self._refresh(); }); },
 	_preview: function (run, candidateId, b) { var self = this; this._busy(b, _('Preview…')); rpcCall(previewRpc, pack({ runId: run.runId, candidateId: candidateId })).then(function (x) { self._state.preview = x; self._state.error = null; self._refresh(); }).catch(function (e) { self._state.error = structuredError(e); self._busy(b, _('Preview'), true); self._refresh(); }); },
 	_previewThenApply: function (run, candidateId, b) { var self = this; this._busy(b, _('Preview…')); rpcCall(previewRpc, pack({ runId: run.runId, candidateId: candidateId })).then(function (x) { self._state.preview = x; self._apply(); }).catch(function (e) { self._state.error = structuredError(e); self._busy(b, _('Apply'), true); self._refresh(); }); },
 	_apply: function () { var self = this, p = this._state.preview; if (!p) return; rpcCall(applyRpc, pack({ runId: p.runId, candidateId: p.candidateId, changeHash: p.changeHash, idempotencyToken: 'ui-' + Date.now().toString(36) })).then(function (x) { self._state.operation = { operationId: x.operationId, runId: x.runId || p.runId, phase: x.phase, events: [] }; self._state.error = null; self._refresh(); }).catch(function (e) { self._state.error = structuredError(e); self._refresh(); }); },

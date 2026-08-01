@@ -88,7 +88,7 @@ describe('Orchestra panel navigation contract', () => {
 
 	it('keeps legacy tools accessible from Maintenance', () => {
 		assert.ok(MAINTENANCE_JS.includes("L.url('admin/services/zapret2-manager/blockcheck')"));
-		assert.ok(MAINTENANCE_JS.includes("L.url('admin/services/zapret2-manager/catalog')"));
+		assert.ok(!MAINTENANCE_JS.includes("L.url('admin/services/zapret2-manager/catalog')"));
 		assert.ok(MAINTENANCE_JS.includes("_('Legacy tools')"));
 	});
 });
