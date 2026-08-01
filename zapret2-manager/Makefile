@@ -11,7 +11,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=zapret2-manager
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=96
+PKG_RELEASE:=99
 PKG_MAINTAINER:=Ásgeir
 PKG_LICENSE:=MIT
 PKGARCH:=all
@@ -24,7 +24,7 @@ define Package/zapret2-manager
   CATEGORY:=Network
   SUBMENU:=DPI bypass
   TITLE:=Management backend for upstream zapret2
-  DEPENDS:=zapret2 ucode
+  DEPENDS:=zapret2 ucode ncat
 endef
 
 define Package/zapret2-manager/description
@@ -112,6 +112,8 @@ define Package/zapret2-manager/install
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/orchestra-worker-control.uc \
 		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_BIN) ./files/usr/libexec/zapret2-manager/orchestra-candidate-run.sh \
+		$(1)/usr/libexec/zapret2-manager/
+	$(INSTALL_BIN) ./files/usr/libexec/zapret2-manager/orchestra-probe-preflight.sh \
 		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/orchestra-cli.uc \
 		$(1)/usr/libexec/zapret2-manager/

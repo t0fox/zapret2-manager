@@ -1,0 +1,30 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+
+const makefile = fs.readFileSync('zapret2-manager/Makefile', 'utf8');
+const preflight = fs.readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/orchestra-probe-preflight.sh', 'utf8');
+const runner = fs.readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/orchestra-candidate-run.sh', 'utf8');
+const run = fs.readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/orchestra-run.uc', 'utf8');
+const worker = fs.readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/orchestra-worker-control.uc', 'utf8');
+
+test('missing transport is EPROBEDEPENDENCY', () => { assert.match(preflight, /EPROBEDEPENDENCY/); assert.match(preflight, /\/usr\/bin\/ncat/); });
+test('unsupported transport flags fail preflight', () => { assert.match(preflight, /-z -w 1/); assert.match(preflight, /does not support required/); });
+test('preflight runs before candidate resolution', () => { assert.match(worker, /r\.preflight=orchestra_probe_preflight\(\)/); });
+test('failed preflight does not enter candidate loop', () => { assert.match(worker, /finish_infrastructure\(r,id,'EPROBEDEPENDENCY'/); });
+test('failed preflight does not exhaust corpus', () => { assert.match(worker, /r\.phase='infrastructure-error'/); assert.doesNotMatch(worker, /r\.phase='failed'.*preflight/); });
+test('wrapper has typed infrastructure exit path', () => { assert.match(worker, /rc==66\|\|rc==69\|\|index\(log,'INFRA_ERROR'\)/); });
+test('zero exit still requires exact positive marker', () => { assert.match(run, /positive_marker/); assert.match(run, /positiveEvidence:positive/); });
+test('valid candidate failure remains candidate evidence', () => { assert.match(run, /verdict='target-fail'/); assert.match(worker, /targetCandidateEvidence/); });
+test('valid pass is rankable', () => { assert.match(run, /serviceResults=grouped/); assert.match(run, /domainsWithConfirmedWinner/); });
+test('baseline evidence is separate', () => { assert.match(run, /baselineEvidence/); assert.match(run, /let raw=r\.results/); });
+test('target evidence has typed target/candidate/attempt key', () => { assert.match(worker, /a\.targetId=scope\.id\|\|null;a\.attemptNumber=attempt/); });
+test('maximum pair count remains 504 for three targets', () => { assert.match(run, /totalAttempts=length\(chosen\)\*r\.repeats\*length\(r\.protocols\)\*length\(scopes\)/); });
+test('invalidated diagnostic records do not remain ranked evidence', () => { assert.match(run, /r\.results=\[\]/); assert.match(run, /candidateEvidenceUsable=false/); });
+test('old run invalidation blocks Apply', () => { assert.match(run, /r\.applyAllowed=false/); assert.match(run, /r\.invalidationReason='EPROBEDEPENDENCY/); });
+test('retry run starts with a fresh evidence set', () => { assert.match(run, /results:\[\],baselineEvidence:\[\],targetCandidateEvidence:\[\]/); });
+test('retry lineage is persisted', () => { assert.match(run, /retryOfRunId:x\.retryOfRunId/); });
+test('package declares ncat dependency', () => { assert.match(makefile, /DEPENDS:=zapret2 ucode ncat/); });
+test('package installs preflight helper', () => { assert.match(makefile, /orchestra-probe-preflight\.sh/); });
+test('probe uses upstream required netcat command', () => { assert.match(preflight, /-z -w 1 192\.0\.2\.1 9/); });
+test('runner keeps timeout and cleanup contract', () => { assert.match(runner, /timeout/); assert.match(runner, /trap 'cleanup; exit 130' INT TERM/); });

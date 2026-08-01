@@ -17,7 +17,11 @@ case "$probe" in https|websocket|bounded_download) ;; *) exit 64;; esac
 case "$timeout" in *[!0-9]*|'') exit 64;; esac
 dir="$ROOT/$run_id"; list="$dir/$candidate_id.$protocol"; log="$dir/$candidate_id.$protocol.log"
 pidfile="$dir/$candidate_id.$protocol.pid"; startfile="$dir/$candidate_id.$protocol.starttime"
-[ -f "$list" ] && [ -x "$SCANNER" ] || exit 66
+infra_marker() { printf '\nINFRA_ERROR code=%s\n' "$1" >> "$log"; }
+if [ ! -f "$list" ] || [ ! -x "$SCANNER" ]; then
+	infra_marker EPROBEDEPENDENCY
+	exit 66
+fi
 child=
 cleanup() {
 	# This runner owns only its own scanner.  Never use a name-based pkill:

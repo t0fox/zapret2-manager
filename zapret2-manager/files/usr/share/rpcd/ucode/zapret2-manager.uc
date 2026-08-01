@@ -342,6 +342,8 @@ function orchestra_run_pause_method(req) { return orchestra_reqfile_action('run_
 function orchestra_run_resume_method(req) { return orchestra_reqfile_action('run_resume', req); }
 function orchestra_run_stop_method(req) { return orchestra_reqfile_action('run_stop', req); }
 function orchestra_run_continue_method(req) { return orchestra_reqfile_action('run_continue', req); }
+function orchestra_probe_preflight_method(req) { return cli_action(ORCH_CLI, 'probe_preflight'); }
+function orchestra_run_invalidate_method(req) { return orchestra_reqfile_action('run_invalidate', req); }
 function orchestra_run_history_method(req) { return cli_action(ORCH_CLI, 'run_history'); }
 function orchestra_run_load_method(req) { return orchestra_reqfile_action('run_load', req); }
 function orchestra_run_delete_method(req) { return orchestra_reqfile_action('run_delete', req); }
@@ -525,6 +527,8 @@ return {
 		orchestra_run_resume: { call: function (req) { return orchestra_run_resume_method(req); } },
 		orchestra_run_stop: { call: function (req) { return orchestra_run_stop_method(req); } },
 		orchestra_run_continue: { args: { edit: 'string' }, call: function (req) { return orchestra_run_continue_method(req); } },
+		orchestra_probe_preflight: { call: function (req) { return orchestra_probe_preflight_method(req); } },
+		orchestra_run_invalidate: { args: { edit: 'string' }, call: function (req) { return orchestra_run_invalidate_method(req); } },
 		orchestra_run_history: { call: function (req) { return orchestra_run_history_method(req); } },
 		orchestra_run_load: { args: { edit: 'string' }, call: function (req) { return orchestra_run_load_method(req); } },
 		orchestra_run_delete: { args: { edit: 'string' }, call: function (req) { return orchestra_run_delete_method(req); } },

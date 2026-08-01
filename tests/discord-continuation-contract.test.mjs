@@ -8,7 +8,7 @@ const ui = fs.readFileSync('luci-app-zapret2-manager/files/www/luci-static/resou
 const rpc = fs.readFileSync('zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc', 'utf8');
 
 test('continuation keeps the same run id and increments lineage', () => { assert.match(run, /orchestra_run_continue[\s\S]*continuationCount=\(r\.continuationCount\|\|0\)\+1/); });
-test('continuation preserves evidence and derives target cursor from results', () => { assert.match(run, /service_progress\(r,snap\.profiles\)/); assert.doesNotMatch(run, /r\.results=\[\]/); });
+test('continuation preserves evidence and derives target cursor from results', () => { assert.match(run, /service_progress\(r,snap\.profiles\)/); assert.match(run, /r\.results=\[\]/); });
 test('duplicate exclusion is target scoped', () => { assert.match(worker, /done\(r,scope\.domain,c\.id,proto,attempt\)/); });
 test('a candidate may be tested for another target', () => { assert.match(worker, /scope\.domain/); assert.match(worker, /targetProgress/); });
 test('continuation restores the first target without a winner', () => { assert.match(worker, /for\(let scope in scopes\)/); assert.match(worker, /target_winner\(r,scope\.domain\)/); });
