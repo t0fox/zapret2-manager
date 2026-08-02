@@ -14,8 +14,8 @@ function port443(v) { let a = split(v, ','); for (let i = 0; i < length(a); i++)
 function covers(target, entry) { entry = lc(entry); target = lc(target); if (substr(entry, 0, 2) == '*.') entry = substr(entry, 2); return target == entry || substr(target, length(target) - length(entry) - 1) == '.' + entry; }
 function hostfile_covers(path, target) { let t = readfile(path); if (!t) return false; for (let l in split(t, '\n')) { l = trim(split(l, '#')[0]); if (length(l) && covers(target, split(l, ' ')[0])) return true; } return false; }
 function profile_for_tcp(text, target) { let ps = split(text, '--new'); for (let i = 0; i < length(ps); i++) { let tcp = values(ps[i], '--filter-tcp'), dom = values(ps[i], '--hostlist-domains'), files = values(ps[i], '--hostlist'), matchit = false; for (let y = 0; y < length(dom); y++) if (covers(target, dom[y])) matchit = true; for (let y = 0; y < length(files); y++) if (hostfile_covers(files[y], target)) matchit = true; for (let x = 0; x < length(tcp); x++) if (port443(tcp[x]) && matchit) return i; } return -1; }
-function is_match_option(token) { let p = ['--filter-tcp=', '--filter-udp=', '--hostlist-domains=', '--hostlist=', '--ipset=', '--wf-udp-out=', '--filter-l7=', '--payload=', '--out-range=', '--in-range=']; for (let i = 0; i < length(p); i++) if (substr(token, 0, length(p[i])) == p[i]) return true; return false; }
-function replace_strategy(profile, strategy) { let kept = []; for (let token in split(trim(profile), ' ')) if (is_match_option(token)) push(kept, token); return join(' ', kept) + ' ' + trim(strategy) + '\n'; }
+function is_match_option(token) { let p = ['--filter-tcp=', '--filter-udp=', '--hostlist-domains=', '--hostlist=', '--ipset=']; for (let i = 0; i < length(p); i++) if (substr(token, 0, length(p[i])) == p[i]) return true; return false; }
+function replace_strategy(profile, replacement) { let kept = [], strategy = []; for (let token in split(trim(profile), ' ')) if (is_match_option(token)) push(kept, token); for (let token in split(trim(replacement), ' ')) if (!is_match_option(token)) push(strategy, token); return join(' ', kept) + ' ' + join(' ', strategy) + ' '; }
 function main(req) {
 	if (type(req) != 'object') return err('EINPUT', 'request is required');
 	let protocol = req.protocol || 'tcp_https'; let name = type(req.fileName) == 'string' ? req.fileName : protocol + '.txt';
@@ -37,7 +37,7 @@ function main(req) {
 	else line = '--filter-tcp=443 --hostlist-domains=' + target + ' --out-range=-d8 ' + trim(req.strategy);
 	let index = protocol == 'tcp_https' ? profile_for_tcp(before, target) : -1, after, op;
 	if (index < 0) { after = line + ' --new\n' + before; op = 'created'; }
-	else { let ps = split(before, '--new'); ps[index] = replace_strategy(ps[index], req.strategy); after = join('--new', ps); op = 'updated'; }
+	else { let ps = split(before, '--new'); ps[index] = replace_strategy(ps[index], line); after = join('--new', ps); op = 'updated'; }
 	let preview = { added: op == 'created' ? [line] : [], changed: op == 'updated' ? [line] : [] };
 	if (req.mode == 'preview') return { ok: true, mode: 'preview', strategyName: req.strategy, appliedProfile: protocol == 'tcp_https' ? target : protocol, fileName: name, operation: op, preview: preview, before: before, after: after };
 	if (run('mkdir -p ' + q(USER)).rc != 0) return err('EWRITE', 'cannot create user preset directory');
