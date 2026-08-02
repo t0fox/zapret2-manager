@@ -338,7 +338,15 @@ function Invoke-Patch {
 
     $python = if (Get-Command python3 -ErrorAction SilentlyContinue) { 'python3' } else { 'python' }
     $wiring = 'tools/apply-orchestra-wiring.py'
-    if (-not (Test-Path -LiteralPath (Join-Path $RepoPath $wiring))) { Fail "$wiring is missing; apply the patch first" }
+    if (-not (Test-Path -LiteralPath (Join-Path $RepoPath $wiring))) {
+        if ($WhatIfPreference) {
+            Write-Warn2 "$wiring is not in the tree yet; the patch that delivers it was not really applied under -WhatIf"
+            Write-Step 'would run the wiring script in --check mode, then for real'
+            Write-Step "would git rm the dead $DeadFile if present"
+            return
+        }
+        Fail "$wiring is missing; apply the patch first"
+    }
 
     $dry = Invoke-Native -File $python -Arguments @($wiring, '--check') -WorkingDirectory $RepoPath -AllowFailure
     Write-Host $dry.Output -ForegroundColor DarkGray
