@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "release": "r120",
+  "source": {
+    "gitHeadAtBuild": "98881c6ec7290be87b060e115ea17ad98bc47c39",
+    "worktreeStateAtBuild": "clean",
+    "buildTimestamp": "2026-08-02T18:49:11+03:00"
+  },
+  "build": {
+    "command": "wsl.exe -d Ubuntu -- bash /mnt/g/zapret2-manager/tools/build-apk-manual.sh",
+    "architecture": "aarch64_cortex-a53",
+    "signatureVerification": "SDK apk verify with staging_dir/etc/apk/keys: PASS",
+    "contentAudit": "backend extraction confirmed orchestra-run.uc, auto-strategy.uc, rpcd Ucode registration, watchdog.uc, init hook, and target-safe proc_starttime export"
+  },
+  "packages": [
+    {
+      "path": "/home/kirill/openwrt-sdk-25.12.5-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64/bin/packages/aarch64_cortex-a53/zapret2-manager/zapret2-manager-0.1.0-r120.apk",
+      "packageName": "zapret2-manager",
+      "versionRelease": "0.1.0-r120",
+      "architecture": "aarch64_cortex-a53",
+      "sizeBytes": 2234741,
+      "sha256": "a4236a5ba5c1dc4702e91b220a812b78c4c37740e804116b11e0955d0a3f0fb7"
+    },
+    {
+      "path": "/home/kirill/openwrt-sdk-25.12.5-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64/bin/packages/aarch64_cortex-a53/zapret2-manager/luci-app-zapret2-manager-0.1.0-r120.apk",
+      "packageName": "luci-app-zapret2-manager",
+      "versionRelease": "0.1.0-r120",
+      "architecture": "aarch64_cortex-a53",
+      "sizeBytes": 96515,
+      "sha256": "51e5046f713c11e3f37a1b9b4b8f7a46db0b204587be4dd460fefd937fbde80f"
+    },
+    {
+      "path": "/home/kirill/openwrt-sdk-25.12.5-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64/bin/packages/aarch64_cortex-a53/zapret2-manager/zapret2-manager-full-0.1.0-r120.apk",
+      "packageName": "zapret2-manager-full",
+      "versionRelease": "0.1.0-r120",
+      "architecture": "aarch64_cortex-a53",
+      "sizeBytes": 413,
+      "sha256": "412fe9f0b01d9438e6c70a994f84dd082e517c50f6c3bd5a1981bf639f339c3a"
+    }
+  ],
+  "repositoryIndex": {
+    "path": "/home/kirill/openwrt-sdk-25.12.5-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64/bin/packages/aarch64_cortex-a53/zapret2-manager/packages.adb",
+    "sizeBytes": 18380,
+    "sha256": "574efcecb561228e0d7fd0d3445f06e7dfaae2511c4f2e42cf606b6cae488f8f"
+  }
+}
