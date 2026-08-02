@@ -24,6 +24,12 @@ const catalogGetRpc = rpc.declare({ object: 'zapret2-manager', method: 'catalog_
 const catalogPreviewRpc = rpc.declare({ object: 'zapret2-manager', method: 'catalog_preview', params: ['edit'], reject: true });
 const catalogApplyRpc = rpc.declare({ object: 'zapret2-manager', method: 'catalog_apply', params: ['edit'], reject: true });
 const healthGetRpc = rpc.declare({ object: 'zapret2-manager', method: 'health_matrix_get', reject: true });
+const autoStatusRpc = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_auto_status', reject: true });
+const autoEnableRpc = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_auto_enable', params: ['edit'], reject: true });
+const autoDisableRpc = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_auto_disable', params: ['edit'], reject: true });
+const autoRunRpc = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_auto_run', params: ['edit'], reject: true });
+const autoStopRpc = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_auto_stop', params: ['edit'], reject: true });
+const autoRestoreRpc = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_auto_restore', params: ['edit'], reject: true });
 
 function esc(v) { return v == null ? '' : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 function pack(v) { try { return JSON.stringify(v || {}); } catch (e) { return '{}'; } }
@@ -46,6 +52,9 @@ function terminalApply(p) { return ['applied', 'failed', 'rolled-back', 'restore
 function runError(response) { return response && response.ok === false ? structuredError(response.error || response) : null; }
 function authError(e) { var s = structuredError(e).toLowerCase(); return s.indexOf('401') >= 0 || s.indexOf('403') >= 0 || s.indexOf('unauthorized') >= 0 || s.indexOf('forbidden') >= 0 || s.indexOf('session expired') >= 0; }
 function timeoutError(e) { var s = structuredError(e).toLowerCase(); return s.indexOf('timeout') >= 0 || s.indexOf('timed out') >= 0 || s.indexOf('xhr request') >= 0; }
+function autoText(value, limit) { var text = String(value == null ? '' : value).replace(/[\r\n\t]+/g, ' ').replace(/\/[A-Za-z0-9_./-]+/g, '[path]').replace(/\s+/g, ' ').trim(); limit = limit || 96; return text.length > limit ? text.slice(0, limit) + '…' : text; }
+function knownAutoPhase(phase) { return ['disabled', 'waiting-network', 'healthy', 'degraded', 'scanning', 'applying', 'verifying', 'recovering', 'rollback', 'rolling-back', 'cooldown', 'failed'].indexOf(phase) >= 0; }
+function autoPhaseKind(phase) { if (phase === 'healthy') return 'ok'; if (phase === 'disabled') return 'neutral'; if (phase === 'failed' || phase === 'recovering' || phase === 'rollback' || phase === 'rolling-back') return 'bad'; return 'warn'; }
 function runSummary(run) {
 	if (!run || !run.runId) return null;
 	return { runId: run.runId, createdAt: run.createdAt || null, startedAt: run.startedAt || null, finishedAt: run.finishedAt || null, phase: run.phase || null, target: run.target || null, targetType: run.targetType || null, protocols: run.protocols || [], candidateMode: run.candidateMode || null, candidateCount: run.totalCandidates || (run.candidateIds || []).length || 0, completedCount: run.completedCount || 0, totalCount: run.totalCount || null, winnerCandidateId: run.selectedWinner && run.selectedWinner.candidateId || null, winnerScore: run.selectedWinner && run.selectedWinner.score || null, appliedOperationId: run.appliedOperationId || null, errorCode: run.error && run.error.code || null };
@@ -75,7 +84,7 @@ return L.view.extend({
 	_pollRoot: null,
 	_pollObserver: null,
 	_polling: false,
-	_state: { runHistory: [], activeRun: null, selectedRun: null, selectedRunId: null, selectedByUser: false, selectedLoading: false, selectedError: null, protocol: null, adaptive: null, caps: null, legacyEvents: null, legacyHistory: null, legacyRatings: null, catalogList: null, catalogStatus: null, catalogHealth: null, catalogError: null, preview: null, operation: null, error: null, pollWarning: null },
+	_state: { runHistory: [], activeRun: null, selectedRun: null, selectedRunId: null, selectedByUser: false, selectedLoading: false, selectedError: null, protocol: null, adaptive: null, caps: null, legacyEvents: null, legacyHistory: null, legacyRatings: null, catalogList: null, catalogStatus: null, catalogHealth: null, catalogError: null, preview: null, operation: null, error: null, pollWarning: null, auto: null, autoLoading: true, autoError: null, autoPending: null, autoOutcome: null, autoReadOnly: false, autoPoll: false },
 	_panel: 'orchestra-services',
 	_panelListenersBound: false,
 
@@ -86,7 +95,7 @@ return L.view.extend({
 		/* Keep the first paint bounded: capabilities and legacy telemetry are optional
 		 * diagnostics, while these calls provide everything needed to render and act. */
 		var calls = [
-			['adaptive', function () { return get(adaptiveRpc); }], ['history', function () { return get(historyRpc); }],
+			['auto', function () { return get(autoStatusRpc); }], ['adaptive', function () { return get(adaptiveRpc); }], ['history', function () { return get(historyRpc); }],
 			['run', function () { return get(runStatusRpc, pack({})); }], ['catalogList', function () { return get(catalogListRpc); }],
 			['catalogStatus', function () { return get(catalogStatusRpc); }], ['health', function () { return get(healthGetRpc); }]
 		];
@@ -95,6 +104,7 @@ return L.view.extend({
 		function loadWave(index, values) { return Promise.all(waves[index].map(function (entry) { return entry[1]().then(function (value) { values[entry[0]] = value; }); })).then(function () { return index + 1 < waves.length ? loadWave(index + 1, values) : values; }); }
 		return loadWave(0, {}).then(function (a) {
 			self._state.caps = a.caps && !a.caps._error ? a.caps : null; self._state.adaptive = a.adaptive._error ? null : a.adaptive;
+			self._acceptAutoStatus(a.auto);
 			self._state.runHistory = a.history.runs || []; self._state.legacyEvents = a.legacyEvents || null; self._state.legacyHistory = a.legacyHistory || null; self._state.legacyRatings = a.legacyRatings || null;
 			self._state.activeRun = a.run.run || null;
 			self._state.selectedRun = self._state.selectedRun || self._state.activeRun || null;
@@ -173,7 +183,7 @@ return L.view.extend({
 	},
 	_shouldPoll: function () {
 		var r = this._state.activeRun, o = this._state.operation, activePanel = this._panel === 'orchestra-find' || this._panel === 'orchestra-results';
-		return (activePanel && r && !terminalRun(r.phase, (this._state.caps || {}).terminalPhases)) || (this._panel === 'orchestra-results' && o && !terminalApply(o.phase));
+		return this._autoShouldPoll() || (activePanel && r && !terminalRun(r.phase, (this._state.caps || {}).terminalPhases)) || (this._panel === 'orchestra-results' && o && !terminalApply(o.phase));
 	},
 	_discoverActiveRun: function () {
 		var self = this;
@@ -309,8 +319,104 @@ return L.view.extend({
 
 	_previewCard: function () { var self = this, p = this._state.preview, box = E('div', { 'class': 'z2m-orchestra-result-panel' }, [E('div', { 'class': 'z2m-orchestra-panel-title' }, [E('h4', {}, _('Preview')), badge(_('Read-only'), 'neutral')]), kv(_('Scope'), (p.target || '') + ' · ' + this._protocolLabel(p.protocol)), kv(_('Positive evidence'), p.positiveEvidenceCount), kv(_('Change hash'), this._short(p.changeHash, 18)), E('pre', { 'class': 'z2m-mono' }, esc(p.proposedConfiguration || ''))]); box.appendChild(E('div', { 'class': 'z2m-actions' }, [btn(_('Apply this preview'), function () { self._apply(); }, !!self._state.operation, 'cbi-button-action')])); return box; },
 	_operationCard: function () { var self = this, o = this._state.operation, box = E('div', { 'class': 'z2m-orchestra-result-panel' }, [E('div', { 'class': 'z2m-orchestra-panel-title' }, [E('h4', {}, _('Apply / rollback status')), badge(o.phase || 'unknown', o.phase === 'applied' ? 'ok' : terminalApply(o.phase) ? 'bad' : 'warn')]), kv(_('State'), o.phase || _('Unknown'))]); if (o.events && o.events.length) box.appendChild(E('pre', { 'class': 'z2m-mono z2m-orchestra-log' }, o.events.map(function (e) { return e.phase + ': ' + e.message; }).join('\n'))); if (o.error) box.appendChild(alertBox(structuredError(o.error))); if (o.phase === 'applied') box.appendChild(E('div', { 'class': 'z2m-actions' }, [btn(_('Restore previous'), function (b) { self._restore(b); }, false, 'cbi-button-negative')])); box.appendChild(details(_('Operation details'), E('pre', { 'class': 'z2m-mono' }, esc(pack(o))))); return box; },
+	_acceptAutoStatus: function (response) {
+		this._state.autoLoading = false;
+		if (!response || response._error || response.ok === false) { this._state.auto = null; this._state.autoError = autoText(response && (response._error || structuredError(response.error || response)) || _('Auto Strategy status is unavailable'), 240); this._state.autoPoll = false; return null; }
+		this._state.auto = response; this._state.autoError = null; this._state.autoPoll = this._autoRunActive(response); return response;
+	},
+	_autoRunActive: function (auto) { return !!(auto && auto.activeRun && auto.activeRun.runId); },
+	_autoShouldPoll: function () { return this._state.autoPoll === true && this._autoRunActive(this._state.auto); },
+	_autoAccessDenied: function (error) { var text = structuredError(error).toLowerCase(); return text.indexOf('403') >= 0 || text.indexOf('forbidden') >= 0 || text.indexOf('access denied') >= 0 || text.indexOf('permission denied') >= 0; },
+	_autoRefresh: function () {
+		var self = this; this._state.autoLoading = true;
+		return rpcCall(autoStatusRpc).then(function (response) { self._acceptAutoStatus(response); return response; }).catch(function (error) { self._state.autoLoading = false; self._state.auto = null; self._state.autoError = autoText(structuredError(error), 240); if (self._autoAccessDenied(error)) self._state.autoReadOnly = true; self._state.autoPoll = false; return null; }).then(function (response) { self._refresh(); return response; });
+	},
+	_autoServices: function () { return ((this._state.catalogList || {}).services || []).filter(function (service) { return service && typeof service.id === 'string' && service.id.length > 0; }); },
+	_autoServiceIds: function () {
+		var checks = this._autoChecks || {}, configured = (this._state.auto && this._state.auto.serviceIds || []), ids = [];
+		this._autoServices().forEach(function (service) { if (checks[service.id] === true || (checks[service.id] == null && configured.indexOf(service.id) >= 0)) ids.push(service.id); });
+		return ids.slice(0, 16);
+	},
+	_autoRequestId: function () { this._autoRequestSequence = (this._autoRequestSequence || 0) + 1; return ('auto-ui-' + Date.now().toString(36) + '-' + this._autoRequestSequence.toString(36)).slice(0, 128); },
+	_autoSection: function () {
+		var self = this, s = this._state, auto = s.auto, body = E('div', { 'class': 'z2m-orchestra-adaptive' });
+		if (s.autoLoading && !auto) { body.appendChild(E('div', { 'class': 'z2m-empty' }, _('Auto Strategy status is loading…'))); return section(_('Auto Strategy'), 'orchestra-auto-strategy', body, _('Server-side controller status and bounded controls.')); }
+		if (!auto) { body.appendChild(alertBox(s.autoError || _('Auto Strategy status is unavailable'))); body.appendChild(E('div', { 'class': 'z2m-actions' }, [btn(_('Refresh'), function () { self._autoRefresh(); }, false)])); return section(_('Auto Strategy'), 'orchestra-auto-strategy', body, _('Server-side controller status and bounded controls.')); }
+		var phase = autoText(auto.phase || 'unknown', 48), known = knownAutoPhase(phase), caps = auto.capabilities || {}, lastGood = auto.lastGood || {}, active = auto.activeRun || {}, hasActive = this._autoRunActive(auto), verification = lastGood.available ? _('Verified by backend') : _('Partial or unknown'), locked = !!s.autoPending || !!s.autoReadOnly || !known;
+		body.appendChild(E('div', { 'class': 'z2m-orchestra-state-grid' }, [
+			kv(_('Auto mode'), badge(auto.enabled ? _('Enabled') : _('Disabled'), auto.enabled ? 'ok' : 'neutral')),
+			kv(_('Phase'), badge(phase, known ? autoPhaseKind(phase) : 'bad')),
+			kv(_('Services'), (auto.serviceIds || []).map(function (id) { return autoText(id, 48); }).join(', ') || _('None')),
+			kv(_('Applied revision'), autoText((auto.currentApplied || {}).revision, 64) || '—'), kv(_('Applied hash'), autoText((auto.currentApplied || {}).hash, 48) || '—'),
+			kv(_('Last-good'), lastGood.available ? _('Available') : _('Unavailable')), kv(_('Last-good revision'), autoText(lastGood.profileRevision, 64) || '—'), kv(_('Last-good hash'), autoText(lastGood.profileHash, 48) || '—'),
+			kv(_('Health'), badge(autoText((auto.health || {}).status || 'unknown', 48), (auto.health || {}).status === 'healthy' ? 'ok' : 'warn')),
+			kv(_('Infrastructure'), badge(autoText((auto.infrastructure || {}).status || 'unknown', 48), (auto.infrastructure || {}).status === 'ready' ? 'ok' : 'warn')),
+			kv(_('Consecutive failures'), auto.consecutiveFailures == null ? '—' : auto.consecutiveFailures), kv(_('Cooldown'), auto.cooldownUntil == null ? _('None') : autoText(auto.cooldownUntil, 64)), kv(_('Verification'), badge(verification, lastGood.available ? 'ok' : 'warn'))
+		]));
+		if (!known) body.appendChild(alertBox(_('Unknown Auto Strategy phase; mutations are disabled until the router reports a recognized state.')));
+		if (s.autoReadOnly) body.appendChild(alertBox(_('Auto Strategy is read-only for this session. Refresh remains available.'), 'info'));
+		if (s.autoPending) body.appendChild(alertBox(_('Auto Strategy action pending: ') + autoText(s.autoPending, 64), 'info'));
+		if (s.autoOutcome) body.appendChild(alertBox(autoText(s.autoOutcome, 240), 'info'));
+		if (auto.lastError) body.appendChild(alertBox(autoText(auto.lastError, 240)));
+		if (phase === 'recovering' || phase === 'rollback' || phase === 'rolling-back') body.appendChild(alertBox(_('Recovery is in progress; wait for backend status before changing controls.'), 'warn'));
+		if (!lastGood.available) body.appendChild(alertBox(_('No verified last-good strategy is available.'), 'info'));
+		if ((auto.verifyRouter || []).length || !lastGood.available) body.appendChild(alertBox('[VERIFY:ROUTER] ' + autoText((auto.verifyRouter || []).join(' '), 200), 'info'));
+		if (hasActive) { var progress = Math.max(0, Math.min(100, +(active.progress || 0))); body.appendChild(E('div', { 'class': 'z2m-orchestra-live' }, [kv(_('Active run'), autoText(active.runId, 64)), kv(_('Generation'), active.generation == null ? '—' : active.generation), kv(_('Started'), autoText(active.startedAt, 64) || '—'), E('progress', { 'class': 'z2m-orchestra-progress', 'value': String(progress), 'max': '100', 'aria-label': _('Auto Strategy run progress') })])); }
+		var services = this._autoServices(), select = E('div', { 'class': 'z2m-actions' }); this._autoChecks = this._autoChecks || {};
+		services.forEach(function (service) { if (self._autoChecks[service.id] == null) self._autoChecks[service.id] = (auto.serviceIds || []).indexOf(service.id) >= 0; var input = E('input', { 'type': 'checkbox', 'id': 'z2m-auto-service-' + service.id }); input.checked = !!self._autoChecks[service.id]; input.disabled = locked; input.addEventListener('change', function () { self._autoChecks[service.id] = !!input.checked; }); select.appendChild(E('label', { 'class': 'cbi-value-field' }, [input, ' ' + esc(autoText(service.name || service.id, 64))])); });
+		if (services.length) body.appendChild(E('div', { 'class': 'z2m-card' }, [E('h4', {}, _('Services for Enable / Run now')), select])); else body.appendChild(alertBox(_('Service catalog is unavailable; Enable and Run now are disabled.'), 'info'));
+		var noServices = !this._autoServiceIds().length, actions = E('div', { 'class': 'z2m-actions' });
+		actions.appendChild(btn(_('Enable'), function (b) { self._autoEnable(b); }, locked || auto.enabled || noServices, 'cbi-button-action', noServices ? _('Select a service from the catalog') : null));
+		actions.appendChild(btn(_('Disable'), function (b) { self._autoDisable(b); }, locked || !auto.enabled, 'cbi-button-negative'));
+		actions.appendChild(btn(_('Run now'), function (b) { self._autoRun(b); }, locked || !caps.runNow || noServices, 'cbi-button-action'));
+		actions.appendChild(btn(_('Stop'), function (b) { self._autoStop(b); }, locked || !caps.stop));
+		actions.appendChild(btn(_('Restore last-good'), function (b) { self._autoRestore(b); }, locked || !caps.restoreLastGood || !lastGood.available, 'cbi-button-negative'));
+		actions.appendChild(btn(s.autoLoading ? _('Refreshing…') : _('Refresh'), function () { self._autoRefresh(); }, false)); body.appendChild(actions);
+		return section(_('Auto Strategy'), 'orchestra-auto-strategy', body, _('Server-side controller status and bounded controls.'));
+	},
+	_autoEnable: function (b) {
+		if (this._state.autoPending) return;
+		var self = this, auto = this._state.auto || {}; this._autoMutation(b, autoEnableRpc, _('Enable'), { expectedRevision: auto.revision, requestId: self._autoRequestId(), serviceIds: self._autoServiceIds() });
+	},
+	_autoDisable: function (b) {
+		if (this._state.autoPending) return;
+		var self = this, auto = this._state.auto || {}; this._autoMutation(b, autoDisableRpc, _('Disable'), { expectedRevision: auto.revision, requestId: self._autoRequestId() });
+	},
+	_autoRun: function (b) {
+		if (this._state.autoPending) return;
+		var self = this, auto = this._state.auto || {}; this._autoMutation(b, autoRunRpc, _('Run now'), { expectedRevision: auto.revision, requestId: self._autoRequestId(), serviceIds: self._autoServiceIds() });
+	},
+	_autoStop: function (b) {
+		if (this._state.autoPending) return;
+		var self = this, auto = this._state.auto || {}; this._autoMutation(b, autoStopRpc, _('Stop'), { expectedRevision: auto.revision, requestId: self._autoRequestId() });
+	},
+	_autoRestore: function (b) {
+		if (this._state.autoPending || !window.confirm(_('Restore the verified last-good strategy? This uses the sanctioned apply path and may roll back if verification fails.'))) return;
+		var self = this, auto = this._state.auto || {}; this._autoMutation(b, autoRestoreRpc, _('Restore last-good'), { expectedRevision: auto.revision, requestId: self._autoRequestId() });
+	},
+	_autoMutation: function (b, method, label, payload) {
+		var self = this; if (this._state.autoPending) return; this._state.autoPending = label; this._state.autoOutcome = null; this._busy(b, label + '…'); this._refresh();
+		rpcCall(method, pack(payload)).then(function (response) {
+			if (!response || response.ok === false) throw new Error(structuredError(response && response.error || response));
+			self._state.autoPending = null; self._state.autoOutcome = response.status || (response.accepted ? _('Accepted') : _('Completed'));
+			if (response.status === 'disabled') self._state.autoOutcome = _('Auto Strategy disabled.');
+			if (response.status === 'disable-pending-safe-completion') self._state.autoOutcome = _('Disable pending safe completion.');
+			if (response.status === 'cancellation-requested') self._state.autoOutcome = _('Cancellation requested; waiting for terminal status.');
+			if (response.status === 'stopped-pending-candidate' || response.status === 'not-running') self._state.autoOutcome = _('No active scan remains to stop.');
+			if (response.status === 'already-current') self._state.autoOutcome = _('Last-good is already current.');
+			if (label === _('Run now') && response.accepted) { self._state.autoOutcome = _('Run accepted: ') + autoText(response.runId, 64) + ' · ' + _('generation') + ' ' + autoText(response.generation, 32); self._state.autoPoll = true; self._startPolling(); }
+			return self._autoRefresh().then(function () { self._busy(b, label, true); self._startPolling(); });
+		}).catch(function (error) {
+			self._state.autoPending = null; var text = structuredError(error);
+			if (self._autoAccessDenied(error)) { self._state.autoReadOnly = true; self._state.autoOutcome = _('Auto Strategy is read-only for this session.'); }
+			else if (text.indexOf('ECONFLICT') >= 0) self._state.autoOutcome = _('The Auto Strategy state changed on the router; re-read the current status before trying again.');
+			else self._state.autoOutcome = _('The Auto Strategy action could not be confirmed; refresh status.');
+			self._busy(b, label, true); return self._autoRefresh();
+		});
+	},
 
 	_adaptiveSection: function () { var s = this._state, a = s.adaptive || {}, caps = s.caps || {}, body = E('div', { 'class': 'z2m-orchestra-adaptive' });
+		body.appendChild(this._autoSection());
 		if (a._error) body.appendChild(alertBox(a._error)); else { var engine = a.engine || a.engineInArgv || {}, raw = a.autohostlistRaw || a.autohostlist || {}; body.appendChild(E('div', { 'class': 'z2m-orchestra-state-grid' }, [kv(_('State'), badge(a.adaptiveState || _('Unknown'), a.adaptiveState === 'active' ? 'ok' : 'neutral')), kv(_('nfqws2'), a.daemonRunning ? _('Running') + (a.daemonPid ? ' · PID ' + a.daemonPid : '') : _('Not running')), kv(_('zapret-auto.lua'), engine.auto ? _('loaded') : _('not loaded')), kv(_('lua_compat_ver'), a.luaCompatVer == null ? _('Unavailable') : a.luaCompatVer), kv(_('Diagnostics'), a.diagnosticsAvailable ? _('Available') : _('Off'))]));
 			var rows = []; Object.keys(raw).forEach(function (k) { rows.push(kv(k, raw[k])); }); if (caps.totalCandidates != null) rows.push(kv(_('Trusted candidates'), caps.totalCandidates)); (caps.matrix || []).forEach(function (v) { rows.push(kv(v.capability || _('Capability'), v.available === true ? _('available') : _('unavailable'))); if (v.reason) rows.push(E('div', { 'class': 'cbi-value-description' }, esc(v.reason))); }); if (rows.length) body.appendChild(details(_('Applied adaptive configuration'), E('div', {}, rows))); if (caps.matrix && caps.matrix.length) body.appendChild(E('div', { 'class': 'cbi-value-description' }, _('IN-PROCESS MEMORY ONLY; preload APIs do NOT exist in the pinned upstream.'))); body.appendChild(this._confirmedWinners()); }
 		if (s.legacyHistory && s.legacyHistory.available === false) body.appendChild(alertBox((s.legacyHistory.reason || '') + ' ' + ((s.legacyHistory.evidence || []).join('; ')) + ' ' + (s.legacyHistory.upstreamVersion || ''), 'info'));
@@ -339,6 +445,15 @@ return L.view.extend({
 		var self = this;
 		return rpcCall(applyStatusRpc, pack({ operationId: this._state.operation.operationId })).then(function (x) { if (x.operation) self._state.operation = x.operation; return x; });
 	},
+	_pollAutoStrategy: function () {
+		var self = this;
+		return rpcCall(autoStatusRpc).then(function (response) {
+			if (!response || response.ok === false) throw new Error(structuredError(response && response.error || response));
+			self._acceptAutoStatus(response);
+			if (!self._autoRunActive(response)) { self._state.autoPoll = false; return self._autoRefresh(); }
+			return response;
+		});
+	},
 	_schedulePoll: function (delay) {
 		var self = this;
 		if (this._pollDisposed || this._pollAuthStopped || this._pollStopped || this._pollTimer || !this._shouldPoll()) return;
@@ -351,7 +466,7 @@ return L.view.extend({
 		if (this._pollDisposed || this._pollAuthStopped || this._pollStopped || (this._pollRoot && !this._pollRoot.isConnected && !(typeof document !== 'undefined' && document.documentElement && document.documentElement.contains(this._pollRoot))) || !this._shouldPoll()) { this._stopPolling(); return; }
 		if (this._pollInFlight) return;
 		this._pollInFlight = true;
-		var request = activePanel && this._state.activeRun && !terminalRun(this._state.activeRun.phase, (this._state.caps || {}).terminalPhases) ? this._pollActiveRun() : this._pollApply();
+		var request = this._autoShouldPoll() ? this._pollAutoStrategy() : activePanel && this._state.activeRun && !terminalRun(this._state.activeRun.phase, (this._state.caps || {}).terminalPhases) ? this._pollActiveRun() : this._pollApply();
 		request.then(function () {
 			self._pollFailures = 0; self._pollDelay = 2000; self._state.pollWarning = null; self._refresh();
 		}, function (e) {

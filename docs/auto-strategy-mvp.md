@@ -123,7 +123,30 @@ positive evidence IDs, current run/generation evidence, and a better baseline.
    response marks that fact rather than pretending a background job exists.
    rpcd request shape, live ACL enforcement, PID/NFQUEUE proof and rollback
    evidence remain **[VERIFY:ROUTER]**.
-8. M7: minimal LuCI block.
+8. M7: minimal LuCI block. **Implemented:** the existing Orchestra view at
+   `luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/orchestra.js`
+   now contains an Auto Strategy block in the Adaptive engine tab.  It reads
+   `orchestra_auto_status` on page load and presents enabled state, phase,
+   catalog-backed selected services, applied and last-good identifiers,
+   health/infrastructure, failure streak, cooldown, bounded/redacted error,
+   verification and active-run progress.  It uses the backend-provided
+   `runNow`, `stop` and `restoreLastGood` capabilities as the source of truth;
+   unknown phases disable mutations rather than being treated as healthy.
+
+   Controls are Enable, Disable, Run now, Stop, Restore last-good and Refresh.
+   Enable/Run can submit only IDs from the existing service catalog.  Every
+   mutation carries the current revision and a fresh bounded request ID over
+   the existing `{ edit: "<JSON>" }` RPC transport; it does not retry an
+   unknown outcome.  Revision conflicts and access-denied responses re-read
+   status, with the latter leaving the block read-only while Refresh remains
+   available.  Restore requires confirmation and sends neither profile nor
+   candidate data.  Status is polled only for an active Auto run through the
+   existing non-overlapping Orchestra poller; terminal observation performs
+   one final status refresh and page lifecycle stops polling.
+
+   rpcd/ACL enforcement remains authoritative: status is read-only and the
+   five actions are write methods.  Router-side PID/start-time, NFQUEUE,
+   rollback and runtime-verification evidence remain **[VERIFY:ROUTER]**.
 9. M8: lifecycle regressions, package build, and router acceptance protocol.
 
 ## Router acceptance
