@@ -30,7 +30,7 @@ test('only a current ready service run becomes an apply candidate', () => {
 });
 
 test('source delegates ranking and cancellation to existing orchestra contracts', () => {
-	assert.match(SOURCE, /import \{ orchestra_run_start, orchestra_run_status \} from '\.\/orchestra-run\.uc';/);
+	assert.match(SOURCE, /orchestra_run_start, orchestra_run_status/);
 	assert.match(SOURCE, /candidateMode: 'zapret2gui-only'/);
 	assert.match(SOURCE, /perAttemptTimeoutSec: 20/);
 	assert.match(SOURCE, /totalTimeoutSec: 600/);

@@ -72,6 +72,17 @@ positive evidence IDs, current run/generation evidence, and a better baseline.
    authoritative.  A non-ready/infrastructure/terminal run preserves APPLIED
    and enters cooldown; only a ready evidenced run becomes a pending apply.
 5. M4: sanctioned apply, verification, rollback and last-good commit.
+   **Implemented:** Auto accepts only the immutable current service-run with a
+   valid registry digest, every required target winner, and two positive
+   evidence IDs per winner.  It calls `orchestra_preview_best()` then the
+   existing `orchestra_apply_best()` service transaction, whose writer already
+   snapshots, native-validates, restarts, verifies runtime/NFQUEUE ownership,
+   probes required targets and rolls back on failure.  Auto repeats typed
+   target verification before atomically writing
+   `/etc/zapret2-manager/auto-strategy-last-good.json`.  Last-good contains
+   bounded IDs/hashes/evidence and is committed only when the sanctioned
+   runtime verification is `ok`; missing runtime proof requests rollback and
+   enters cooldown.  PID start-time provenance remains **[VERIFY:ROUTER]**.
 6. M5: boot/recovery path.
 7. M6: compatible RPC controls.
 8. M7: minimal LuCI block.

@@ -5,10 +5,12 @@
 // later milestones so this module remains the single, auditable state owner.
 import { readfile, writefile, mkdir, unlink, popen } from 'fs';
 import { health_matrix_start, health_matrix_get } from './jobs.uc';
-import { orchestra_run_start, orchestra_run_status } from './orchestra-run.uc';
+import { orchestra_run_start, orchestra_run_status, orchestra_run_load, orchestra_preview_best, orchestra_apply_best, run } from './orchestra-run.uc';
+import { verify_service_targets } from './orchestra-evidence.uc';
 
 const AUTO_STATE_PATH = '/etc/zapret2-manager/auto-strategy.json';
 const AUTO_STATE_DIR = '/etc/zapret2-manager';
+const AUTO_LAST_GOOD_PATH = '/etc/zapret2-manager/auto-strategy-last-good.json';
 const MAX_SERVICES = 16;
 const MAX_FAILURES = 99;
 const BOOT_DELAY_SEC = 90;
@@ -79,6 +81,16 @@ function state_path_safe() {
 	return command("[ ! -L '" + AUTO_STATE_DIR + "' ] && { [ ! -e '" + AUTO_STATE_PATH + "' ] || { [ -f '" + AUTO_STATE_PATH + "' ] && [ ! -L '" + AUTO_STATE_PATH + "' ]; }; }").rc == 0;
 }
 
+function last_good_path_safe() { return command("[ ! -L '" + AUTO_LAST_GOOD_PATH + "' ] && { [ ! -e '" + AUTO_LAST_GOOD_PATH + "' ] || [ -f '" + AUTO_LAST_GOOD_PATH + "' ]; }").rc == 0; }
+function last_good_load() { if (!last_good_path_safe()) return null; try { let raw = json(readfile(AUTO_LAST_GOOD_PATH)); return type(raw) == 'object' && raw.schema == 1 ? raw : null; } catch (e) { return null; } }
+function last_good_save(value) { if (!last_good_path_safe()) return false; let tmp = AUTO_LAST_GOOD_PATH + '.tmp.' + time(); try { writefile(tmp, sprintf('%J', value) + '\n'); } catch (e) { return false; } let moved = command("mv -f '" + tmp + "' '" + AUTO_LAST_GOOD_PATH + "'"); if (moved.rc != 0) { try { unlink(tmp); } catch (e) { } return false; } return true; }
+
+function run_winners(runRecord) {
+	let winners = [];
+	for (let i = 0; i < length(runRecord.targetResults || []); i++) for (let j = 0; j < length(runRecord.targetResults[i].protocols || []); j++) { let w = runRecord.targetResults[i].protocols[j].winner; if (!w || type(w.positiveEvidenceIds) != 'array' || length(w.positiveEvidenceIds) < 2) return null; push(winners, w); }
+	return length(winners) == length(runRecord.targets || []) ? winners : null;
+}
+
 export const auto_state_load = function() {
 	if (!state_path_safe()) return { ok: false, error: { code: 'EPATH', message: 'auto strategy state path is not a regular manager-owned file' } };
 	let raw = null;
@@ -100,6 +112,20 @@ export const auto_state_save = function(input, expectedRevision) {
 	let moved = command("mv -f '" + tmp + "' '" + AUTO_STATE_PATH + "'");
 	if (moved.rc != 0) { try { unlink(tmp); } catch (e) { } return { ok: false, error: { code: 'EIO', message: 'could not atomically publish auto strategy state' } }; }
 	return { ok: true, state: state };
+};
+
+export const auto_apply_pending = function(expectedRevision) {
+	let loaded = auto_state_load(); if (!loaded.ok) return loaded; let state = loaded.state;
+	if (expectedRevision != null && expectedRevision != state.revision) return { ok: false, error: { code: 'ECONFLICT', message: 'auto strategy revision mismatch' } };
+	if (!state.enabled || !run_ok(state.pendingApplyRunId) || state.activeRunId != null) return { ok: false, error: { code: 'ESTATE', message: 'no eligible pending Auto Strategy apply' } };
+	let record = orchestra_run_load({ runId: state.pendingApplyRunId }), winners = record ? run_winners(record) : null;
+	if (!record || record.runId != state.pendingApplyRunId || record.phase != 'completed' || record.targetType != 'service' || record.serviceVerdict != 'ready' || record.validity != 'valid' || record.candidateEvidenceUsable != true || !record.candidateRegistryDigest || !winners) return { ok: false, error: { code: 'ESTALE', message: 'pending winner is not a current evidenced service run' } };
+	state.phase = 'applying'; let preview = orchestra_preview_best({ runId: record.runId }); if (!preview.ok) { state.phase = 'cooldown'; state.lastError = 'preview failed'; auto_state_save(state, state.revision); return preview; }
+	let applied = orchestra_apply_best({ runId: record.runId, changeHash: preview.changeHash, idempotencyToken: 'auto-' + record.runId + '-' + state.revision }); if (!applied.ok || !applied.runtimeVerification || applied.runtimeVerification.ok != true) { if (applied.ok) run('/usr/bin/ucode /usr/libexec/zapret2-manager/service.uc rollback'); state.phase = 'cooldown'; state.pendingApplyRunId = null; state.lastError = 'sanctioned apply failed, rolled back, or lacks runtime verification'; auto_state_save(state, state.revision); return applied.ok ? { ok: false, error: { code: 'EVERIFY', message: state.lastError } } : applied; }
+	state.phase = 'verifying'; let confirmation = verify_service_targets(record.targets, run); if (!confirmation.ok) { let rb = run('/usr/bin/ucode /usr/libexec/zapret2-manager/service.uc rollback'); state.phase = 'cooldown'; state.pendingApplyRunId = null; state.lastError = rb.rc == 0 ? 'post-apply confirmation failed; rollback requested' : 'post-apply confirmation failed; rollback failed'; auto_state_save(state, state.revision); return { ok: false, error: { code: rb.rc == 0 ? 'ETARGET' : 'EROLLBACK', message: state.lastError }, rollback: { requested: true, rc: rb.rc } }; }
+	let evidence = []; for (let i = 0; i < length(winners); i++) for (let j = 0; j < length(winners[i].positiveEvidenceIds); j++) push(evidence, winners[i].positiveEvidenceIds[j]); let rt = applied.runtimeVerification, previous = last_good_load(), first = winners[0], lastGood = { schema: 1, generation: '' + time(), candidateId: first.candidateId, corpusDigest: record.candidateRegistryDigest, profileRevision: applied.operationId || null, profileHash: preview.changeHash, serviceIds: [record.serviceId], runId: record.runId, evidenceIds: slice(evidence, 0, 32), runtimeVerification: { status: 'verified', pid: rt.daemonPid || null, processStarttime: null, queue: rt.queueOwner || null, queueOwnerMatches: rt.checks && rt.checks.ownerMatch == true }, healthVerification: { requiredTargetsPassed: true, confirmationPassed: true }, appliedAt: time(), previousLastGoodGeneration: previous && previous.generation || null };
+	if (!last_good_save(lastGood)) { state.phase = 'failed'; state.lastError = 'verified apply succeeded but persistent last-good commit failed'; auto_state_save(state, state.revision); return { ok: false, error: { code: 'EIO', message: state.lastError } }; }
+	state.phase = 'healthy'; state.pendingApplyRunId = null; state.lastGoodCandidateId = first.candidateId; state.lastGoodProfileRevision = applied.operationId || null; state.lastGoodEvidenceId = evidence[0] || null; state.lastSuccessAt = time(); state.lastError = null; let saved = auto_state_save(state, state.revision); return saved.ok ? { ok: true, state: saved.state, lastGood: lastGood, apply: applied } : saved;
 };
 
 export const auto_state_transition = function(raw, kind, at) {
@@ -171,6 +197,7 @@ export const auto_controller_tick = function() {
 	let loaded = auto_state_load(); if (!loaded.ok) return loaded;
 	let state = loaded.state, now = time();
 	if (!state.enabled) { state.phase = 'disabled'; return auto_state_save(state, state.revision); }
+	if (state.pendingApplyRunId != null) return auto_apply_pending(state.revision);
 	if (state.activeRunId != null) { let action = reconcile_scan(state, now); let saved = auto_state_save(state, state.revision); if (saved.ok) saved.action = action; return saved; }
 	if (uptime_seconds() < BOOT_DELAY_SEC) { state.phase = 'waiting-network'; return auto_state_save(state, state.revision); }
 	if (!wan_ready() || !dns_ready() || !engine_ready() || !queue_ready()) { infrastructure_backoff(state, now, 'WAN, DNS, nfqws2, or NFQUEUE is unavailable'); return auto_state_save(state, state.revision); }
