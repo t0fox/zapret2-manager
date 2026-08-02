@@ -1,6 +1,6 @@
 'use strict';
 
-import { readfile, writefile, stat, popen, mkdir } from 'fs';
+import { readfile, writefile, stat, popen, mkdir, unlink } from 'fs';
 import { read_var, set_var, restore_whole_file } from './apply.uc';
 import { PATHS } from './constants.uc';
 import { z2m_tokenize } from './profiles.uc';
@@ -10,6 +10,7 @@ const CATALOG = '/usr/libexec/zapret2-manager/catalog/flowseal-combos.json';
 const NFQWS2 = '/opt/zapret2/nfq2/nfqws2';
 const UPSTREAM_INIT = '/etc/init.d/zapret2';
 const LASTGOOD_CONFIG = '/tmp/zapret2-manager/last-good/config';
+const LAST_APPLY = '/tmp/zapret2-manager/last-apply.json';
 const JOURNAL = '/tmp/zapret2-manager/flowseal-combo-operation.json';
 const USER_HOSTLIST = '/opt/zapret2/ipset/zapret-hosts-user.txt';
 const DISCORD = 'discord.com,discord.gg,discordapp.com,discordapp.net,discord.media,discordcdn.com';
@@ -153,6 +154,7 @@ function native_check(candidate) {
 
 function restore_original(original) {
 	let restored = restore_whole_file(PATHS.applied_conf, original);
+	try { unlink(LAST_APPLY); } catch (e) { }
 	let r = run(UPSTREAM_INIT + ' restart');
 	return { ok: restored != null && r.rc == 0, restored: restored != null, restartRc: r.rc };
 }
@@ -199,7 +201,7 @@ export const flowseal_combo_apply = function(req) {
 	}
 
 	let applied = profiles_apply_candidate(c.opt, candidateSha256);
-	if (!applied.ok || read_var('NFQWS2_PORTS_TCP') != c.tcpPorts || read_var('NFQWS2_PORTS_UDP') != c.udpPorts) {
+	if (!applied.ok || read_var('NFQWS2_PORTS_TCP') != c.tcpPorts || read_var('NFQWS2_PORTS_UDP') != c.udpPorts || read_var('NFQWS2_OPT') != c.opt) {
 		let rollback = restore_original(original);
 		return { ok: false, stage: 'apply', operation: applied, rolledBack: rollback.ok, rollback: rollback };
 	}
