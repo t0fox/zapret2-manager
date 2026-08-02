@@ -10,6 +10,8 @@ test('production combo path uses sanctioned writers and existing verified apply'
   assert.match(backend, /profiles_apply_candidate\(c\.opt, candidateSha256\)/);
   assert.match(backend, /set_var\('NFQWS2_PORTS_TCP', c\.tcpPorts\)/);
   assert.match(backend, /set_var\('NFQWS2_PORTS_UDP', c\.udpPorts\)/);
+  assert.match(backend, /read_var\('NFQWS2_OPT'\) != c\.opt/);
+  assert.match(backend, /unlink\(LAST_APPLY\)/);
   assert.match(backend, /writefile\(LASTGOOD_CONFIG, original\)/);
   assert.doesNotMatch(backend, /writefile\(PATHS\.applied_conf/);
   assert.doesNotMatch(backend, /firewall restart|\/etc\/init\.d\/firewall|nft flush/);
