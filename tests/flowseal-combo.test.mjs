@@ -22,6 +22,7 @@ test('generates four native seven-profile combos deterministically', () => {
     const first = buildCandidate(def, runtime.source, runtime.capture);
     const second = buildCandidate(def, runtime.source, runtime.capture);
     assert.deepEqual(first, second);
+    assert.equal(first.managerId, def.id);
     assert.equal(first.captureMode, 'wide');
     assert.equal(first.profileCount, 7);
     assert.equal(first.opt.split(' --new ').length, 7);
