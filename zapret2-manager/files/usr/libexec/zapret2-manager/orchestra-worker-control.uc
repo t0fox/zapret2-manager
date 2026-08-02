@@ -1,12 +1,12 @@
 'use strict';
 
 import { stat, readfile, writefile, unlink, popen } from 'fs';
-import { orchestra_run_load, profile_set, corpus_translate, classify_attempt, control_load, proc_starttime, run, save, add_event, orchestra_finish_service_run, orchestra_probe_preflight } from './orchestra-run.uc';
+import { orchestra_run_load, profile_set, corpus_translate, classify_attempt, control_load, proc_starttime, run, save, add_event, orchestra_finish_service_run, orchestra_probe_preflight, remaining_seconds } from './orchestra-run.uc';
 import { confirmation_state, winner_record, distinct_positive_evidence_ids } from './orchestra-evidence.uc';
 
 const ROOT='/tmp/zapret2-manager/orchestra-runs';
 const ADAPTER='/usr/libexec/zapret2-manager/orchestra-candidate-run.sh';
-const TERMINAL=['completed','applied','stopped','failed','interrupted'];
+const TERMINAL=['completed','applied','stopped','failed','interrupted','timed-out','partial','infrastructure-error','cancelled','canceled'];
 
 function path(id) { return ROOT+'/'+id+'.json'; }
 function has(a,value) { for(let x in a||[])if(x==value)return true;return false; }
@@ -44,11 +44,13 @@ function stop_owned(runState,id,candidate,protocol,adapter) {
 	wait_adapter(adapter,3);
 	return !pid || !start || !identity(pid,start);
 }
+function attempt_timeout(r) { let left=remaining_seconds(r);if(left<=0)return 0;let t=r.perAttemptTimeoutSec;if(left<t)t=left;let rounded=+sprintf('%.0f',t);if(rounded>t)rounded--;return rounded<1?0:rounded; }
 function cancelled_result(r,c,proto,attempt,started,finished,rc,reference,resolved,meta) {
 	return {candidateId:c.id,canonicalStrategyId:c.canonicalStrategyId,protocol:proto,attempt:attempt,startedAt:started,finishedAt:finished,durationMs:(finished-started)*1000,supported:true,passed:false,timedOut:false,executionRc:rc,exitCode:rc,verdict:'cancelled',reason:'stopped by user',upstreamResult:null,positiveEvidence:false,errorMarkers:['stop requested'],candidateResolved:true,resolvedStrategyReference:reference,upstreamCustomInput:resolved,evidence:{source:'upstream blockcheck2.sh',candidateName:c.name},testStarted:true,upstreamSummary:'cancelled',sanitizedParameterHash:meta.hash,removedManagerOnlyOptions:meta.removed,catalogRevision:c.revision,boundedLog:'',cleanup:{status:'completed'}};
 }
 function done(r,domain,candidate,protocol,attempt) { for(let x in r.results)if(x.domain==domain&&x.candidateId==candidate&&x.protocol==protocol&&x.attempt==attempt)return true; return false; }
 function protocol_allowed(c,protocols) { for(let p in protocols)if(c.protocol==p)return true; return false; }
+function cap_profiles(profiles,limit,protocols) { let out=[];for(let i=0;i<length(profiles)&&length(out)<limit;i++)if(protocol_allowed(profiles[i],protocols))push(out,profiles[i]);return out; }
 function target_winner(r,domain) { for(let t in r.targetProgress||[])if(t.domain==domain&&t.winner&&t.winner.confirmed)return true;return false; }
 function note_progress(r,scope,chosen) {
   if(!r.targetProgress)r.targetProgress=[];
@@ -70,10 +72,11 @@ function perform_attempt(id,scope,c,proto,attempt) {
   r.currentTargetId=scope.id||null;r.currentDomain=scope.domain;r.currentProtocol=proto;r.currentCandidate=c.id;r.currentAttempt=attempt;r.candidatePid=null;r.candidateStarttime=null;r.heartbeatAt=started;save(r);
   if(!meta.ok){let a=classify_attempt(r,c,proto,attempt,started,time(),-1,'',false,c.upstreamStrategyReference,'',meta,scope.domain);a.targetId=scope.id||null;a.attemptNumber=attempt;a.confirmation=attempt>r.repeats;push(r.results,a);r.completedCount++;r.progress=r.totalCount?r.completedCount*100/r.totalCount:0;save(r);return {status:'ok',r:r,a:a};}
   if(!write_list(id,c.id,proto,meta.input))return {status:'infra',code:'EWRITELIST',message:'could not create custom list',details:{candidateId:c.id,domain:scope.domain}};
-  let adapter=adapter_start(id,c.id,proto,scope.domain,scope.probe||'https',r.perAttemptTimeoutSec);
+  let timeoutSec=attempt_timeout(r);if(timeoutSec<1)return {status:'timeout',r:r};
+  let adapter=adapter_start(id,c.id,proto,scope.domain,scope.probe||'https',timeoutSec);
   if(!adapter)return {status:'infra',code:'EWRAPPERSTART',message:'could not start candidate wrapper',details:{candidateId:c.id,domain:scope.domain}};
   let activeAttempt={c:c,proto:proto,attempt:attempt,started:started,meta:meta,resolved:meta.input,adapter:adapter};
-  while(identity(adapter.pid,adapter.start)) { r=orchestra_run_load({runId:id});let ctrl=control_load(id);r.control=ctrl;r.heartbeatAt=time();let pid=read_num(pid_file(id,c.id,proto));let st=trim(readfile(start_file(id,c.id,proto))||'');if(pid){r.candidatePid=pid;r.candidateStarttime=st||null;}save(r);if(ctrl.stopRequested){stop_owned(r,id,c.id,proto,adapter);return {status:'stop',r:r,activeAttempt:activeAttempt};}run('sleep 1'); }
+  while(identity(adapter.pid,adapter.start)) { r=orchestra_run_load({runId:id});let ctrl=control_load(id);r.control=ctrl;r.heartbeatAt=time();let pid=read_num(pid_file(id,c.id,proto));let st=trim(readfile(start_file(id,c.id,proto))||'');if(pid){r.candidatePid=pid;r.candidateStarttime=st||null;}save(r);if(ctrl.stopRequested){stop_owned(r,id,c.id,proto,adapter);return {status:'stop',r:r,activeAttempt:activeAttempt};}if(remaining_seconds(r)<=0){stop_owned(r,id,c.id,proto,adapter);return {status:'timeout',r:r,activeAttempt:activeAttempt};}run('sleep 1'); }
   r=orchestra_run_load({runId:id});
   let raw=trim(readfile(rc_file(id,c.id,proto))||''),rc=raw==''?-1:+raw,log=readfile(log_file(id,c.id,proto))||'';
   if(rc==66||rc==69||index(log,'INFRA_ERROR')>=0)return {status:'infra',code:'EPROBEDEPENDENCY',message:'candidate probe infrastructure failed',details:{candidateId:c.id,domain:scope.domain,protocol:proto,rc:rc,marker:index(log,'INFRA_ERROR')>=0}};
@@ -91,22 +94,27 @@ function finish_stop(r,id,activeAttempt) {
 	if(activeAttempt) { let c=activeAttempt.c, meta=activeAttempt.meta, f=time(), raw=trim(readfile(rc_file(id,c.id,activeAttempt.proto))||''); let rc=raw==''?-1:+raw; push(r.results,cancelled_result(r,c,activeAttempt.proto,activeAttempt.attempt,activeAttempt.started,f,rc,c.upstreamStrategyReference,activeAttempt.resolved,meta)); r.completedCount++; r.progress=r.totalCount?r.completedCount*100/r.totalCount:0; }
 	r.currentCandidate=null;r.currentAttempt=null;r.candidatePid=null;r.candidateStarttime=null;r.cleanup={status:'completed',checkedAt:time(),ownedChildrenStopped:true};r.phase='stopped';r.finishedAt=time();add_event(r,'cleanup','Cleanup completed; owned candidate resources stopped');save(r);clear_controls(id);return true;
 }
+function finish_timeout(r,id,activeAttempt) {
+  if(activeAttempt)stop_owned(r,id,activeAttempt.c.id,activeAttempt.proto,activeAttempt.adapter);
+  r.phase='timed-out';r.continuable=false;r.finishedAt=time();r.currentCandidate=null;r.currentAttempt=null;r.candidatePid=null;r.candidateStarttime=null;r.cleanup={status:'completed',checkedAt:time(),ownedChildrenStopped:true,reason:'immutable run deadline reached'};r.error={code:'ETIMEOUT',message:'immutable orchestration deadline reached',details:{deadlineAt:r.deadlineAt,deadlineMonoSec:r.deadlineMonoSec}};add_event(r,'timed-out','Immutable orchestration deadline reached',r.error.details);save(r);clear_controls(id);return true;
+}
 
 export const orchestra_worker_control_run = function(id) {
 	let r=orchestra_run_load({runId:id}); if(!r)return false;
-	let self=+(split(trim(readfile('/proc/self/stat')||''),' ')[0]); r.workerPid=self;r.workerStarttime=proc_starttime(self);r.startedAt=time();r.heartbeatAt=time();save(r);
+	let self=+(split(trim(readfile('/proc/self/stat')||''),' ')[0]); r.workerPid=self;r.workerStarttime=proc_starttime(self);r.heartbeatAt=time();save(r);
 	r.preflight=orchestra_probe_preflight();if(!r.preflight||r.preflight.ok!==true)return finish_infrastructure(r,id,'EPROBEDEPENDENCY',r.preflight&&r.preflight.error&&r.preflight.error.message||'probe preflight failed',r.preflight&&r.preflight.error&&r.preflight.error.details||{});save(r);
 	let poolMode=r.targetType=='service'?'zapret2gui-only':r.candidateMode;let ps=profile_set(null,poolMode);if(!ps||!length(ps.profiles)){r.phase='failed';r.error={code:'ESTATE',message:'no compatible trusted registry strategies for mode'};r.cleanup={status:'completed'};save(r);return false;}
 	let chosen=[];
-	if(r.candidateMode=='selected'){let wanted={};for(let id2 in r.candidateIds)wanted[id2]=true;let q=profile_set(wanted,'selected');if(!q||length(q.profiles)!=length(r.candidateIds)){r.phase='failed';r.error={code:'EINPUT',message:'unknown candidate id'};r.cleanup={status:'completed'};save(r);return false;}chosen=q.profiles;} else chosen=r.targetType=='service'?ps.profiles:(r.candidateMode=='all'?ps.profiles:slice(ps.profiles,0,20));
+	if(r.candidateMode=='selected'){let wanted={};for(let id2 in r.candidateIds)wanted[id2]=true;let q=profile_set(wanted,'selected');if(!q||length(q.profiles)!=length(r.candidateIds)){r.phase='failed';r.error={code:'EINPUT',message:'unknown candidate id'};r.cleanup={status:'completed'};save(r);return false;}chosen=q.profiles;} else chosen=cap_profiles(ps.profiles,r.maxCandidates||20,r.protocols);
 	let compatible=[];for(let c2 in chosen)if(protocol_allowed(c2,r.protocols))push(compatible,c2);if(r.candidateMode=='selected'&&length(compatible)!=length(chosen)){r.phase='failed';r.error={code:'EINPUT',message:'selected candidate is incompatible with requested protocol'};r.cleanup={status:'completed'};save(r);return false;}chosen=compatible;let registryText='';for(let c3 in chosen)registryText+=(registryText?'\n':'')+c3.id+'\t'+c3.opt;let hp='/tmp/z2m-orchestra-registry.'+id;writefile(hp,registryText);r.candidateRegistryDigest=trim(run("sha256sum '"+hp+"' 2>/dev/null | awk '{print $1}'").out);try{unlink(hp);}catch(e){}r.candidateIds=[];for(let c4 in chosen)push(r.candidateIds,c4.id);
-	let scopes=r.targetType=='service'?r.targets:[{domain:r.target,protocols:r.protocols}];r.catalogRevision=ps.revision;r.catalogHash='draft-'+ps.revision;r.totalCandidates=length(chosen);r.totalAttempts=length(chosen)*r.repeats*length(r.protocols)*length(scopes);r.totalCount=r.totalAttempts;r.phase='preparing';r.heartbeatAt=time();add_event(r,'preparing','Trusted candidates resolved',{count:length(chosen),domains:length(scopes),attempts:r.totalAttempts,compatible:true});save(r);
+	let scopes=r.targetType=='service'?r.targets:[{domain:r.target,protocols:r.protocols}];r.catalogRevision=ps.revision;r.catalogHash='draft-'+ps.revision;r.totalCandidates=length(chosen);r.totalAttempts=length(chosen)*r.repeats*length(r.protocols)*length(scopes);if(r.totalAttempts>r.maxAttempts){r.phase='failed';r.error={code:'EBOUND',message:'service work exceeds the bounded attempt limit',details:{attempts:r.totalAttempts,maxAttempts:r.maxAttempts}};r.cleanup={status:'completed'};save(r);return false;}r.totalCount=r.totalAttempts;r.phase='preparing';r.heartbeatAt=time();add_event(r,'preparing','Trusted candidates resolved',{count:length(chosen),domains:length(scopes),attempts:r.totalAttempts,compatible:true});save(r);
 	let ctrl=control_load(id);if(ctrl.stopRequested)return finish_stop(r,id,null);
 	r.phase='baseline';r.heartbeatAt=time();add_event(r,'baseline','Baseline complete');save(r);
 	r.phase='testing';r.heartbeatAt=time();save(r);
 	for(let scope in scopes) { if(target_winner(r,scope.domain))continue; for(let c in chosen) for(let proto in scope.protocols) for(let attempt=1;attempt<=r.repeats;attempt++) {
 		r=orchestra_run_load({runId:id});if(!r)return false;ctrl=control_load(id);r.control=ctrl;
 		if(timeout(r,id))return true;
+		if(remaining_seconds(r)<=0)return finish_timeout(r,id,null);
 		if(target_winner(r,scope.domain))continue;
 		if(ctrl.stopRequested)return finish_stop(r,id,null);
 		while(ctrl.pauseRequested){if(r.phase!='paused'){r.phase='paused';r.heartbeatAt=time();add_event(r,'paused','Paused after current bounded attempt');save(r);}run('sleep 1');r=orchestra_run_load({runId:id});ctrl=control_load(id);r.control=ctrl;r.heartbeatAt=time();save(r);if(ctrl.stopRequested)return finish_stop(r,id,null);}
@@ -116,6 +124,7 @@ export const orchestra_worker_control_run = function(id) {
     if(first.status=='gone')return false;
     if(first.status=='infra'){r=orchestra_run_load({runId:id});r.currentDomain=scope.domain;r.currentCandidate=c.id;return finish_infrastructure(r,id,first.code,first.message,first.details);}
     if(first.status=='stop')return finish_stop(first.r,id,first.activeAttempt);
+    if(first.status=='timeout')return finish_timeout(first.r,id,first.activeAttempt);
     r=first.r;note_progress(r,scope,chosen);
     if(first.a.passed) {
       // A first PASS is provisional only. Run the second live attempt for the
@@ -124,6 +133,7 @@ export const orchestra_worker_control_run = function(id) {
       if(confirm.status=='gone')return false;
       if(confirm.status=='infra'){r=orchestra_run_load({runId:id});r.currentDomain=scope.domain;r.currentCandidate=c.id;return finish_infrastructure(r,id,confirm.code,confirm.message,confirm.details);}
       if(confirm.status=='stop')return finish_stop(confirm.r,id,confirm.activeAttempt);
+      if(confirm.status=='timeout')return finish_timeout(confirm.r,id,confirm.activeAttempt);
       r=confirm.r;note_progress(r,scope,chosen);
       let ids=distinct_positive_evidence_ids(r.results,scope.domain,c.id,proto);
       add_event(r,length(ids)>=2?'winner-confirmed':'confirmation-failed',length(ids)>=2?'Second live attempt confirmed the provisional winner':'Second live attempt did not confirm the provisional winner; continuing with the next candidate',{domain:scope.domain,candidateId:c.id,protocol:proto,positiveEvidenceIds:ids});

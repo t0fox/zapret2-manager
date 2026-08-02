@@ -1,0 +1,56 @@
+{
+  "schema": "zapret2-manager.a3-2.v1",
+  "startingHead": "df5fc0271190d272764d0aff44d62c7ea99af47d",
+  "package": {
+    "release": "0.1.0-r130",
+    "arch": "aarch64_cortex-a53",
+    "signed": true,
+    "apks": {
+      "luci-app-zapret2-manager-0.1.0-r130.apk": "5acb3835e4c6116f83a7982a6f23af49493ff980ff352d8a9c7e046075684eef",
+      "zapret2-manager-0.1.0-r130.apk": "e0d5da55b3b9fb1b3b742739c622353f1fb6b3d32f8ef71f745141b9bf3c5302",
+      "zapret2-manager-full-0.1.0-r130.apk": "f28ed56a975d27490bd0aa241375e1e8950f1891dac3dfedc8630caf9afc121f"
+    }
+  },
+  "tests": {
+    "focused": { "passed": 14, "failed": 0, "skipped": 0 },
+    "full": { "passed": 1087, "failed": 0, "skipped": 0 }
+  },
+  "router": {
+    "reconciledOldRun": "or-6a6f92af-c683",
+    "stopRun": {
+      "runId": "or-6a6f9c2a-49e2",
+      "requestStatus": "stopping",
+      "finalPhase": "stopped",
+      "completed": 2,
+      "total": 6,
+      "cleanup": "completed",
+      "activeLock": "absent"
+    },
+    "timeoutRun": {
+      "runId": "or-6a6f9c56-c49e",
+      "configuredSeconds": 20,
+      "finalPhase": "timed-out",
+      "cleanup": "completed",
+      "activeLock": "absent"
+    },
+    "completeRun": {
+      "runId": "or-6a6f9c84-dc34",
+      "candidates": 2,
+      "plannedAttempts": 6,
+      "completedAttempts": 2,
+      "finalPhase": "infrastructure-error",
+      "errorCode": "EPROBEDEPENDENCY",
+      "winner": null,
+      "apply": "not attempted"
+    },
+    "runtime": {
+      "appliedConfigSha256": "75fa2ee28b278b9814d11b8dd22b8957c90e20bcf53bedf0cbce0a442c52f97f",
+      "nfqws2Pids": [2116, 17025],
+      "activeLock": "absent",
+      "lastGood": null,
+      "rebootPerformed": false,
+      "manualKillUsed": false
+    }
+  },
+  "verdict": "PARTIAL"
+}

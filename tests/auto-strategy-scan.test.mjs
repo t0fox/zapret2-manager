@@ -8,7 +8,7 @@ const SOURCE = readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/a
 test('auto scan submits only a bounded registry-backed service run', () => {
 	assert.deepEqual(boundedRunRequest('youtube'), {
 		targetType: 'service', targetId: 'youtube', candidateMode: 'zapret2gui-only',
-		repeats: 2, perAttemptTimeoutSec: 20, totalTimeoutSec: 600
+		repeats: 1, perAttemptTimeoutSec: 10, totalTimeoutSec: 120, maxCandidates: 8, maxAttempts: 48
 	});
 });
 
@@ -32,7 +32,9 @@ test('only a current ready service run becomes an apply candidate', () => {
 test('source delegates ranking and cancellation to existing orchestra contracts', () => {
 	assert.match(SOURCE, /orchestra_run_start, orchestra_run_status/);
 	assert.match(SOURCE, /candidateMode: 'zapret2gui-only'/);
-	assert.match(SOURCE, /perAttemptTimeoutSec: 20/);
-	assert.match(SOURCE, /totalTimeoutSec: 600/);
+	assert.match(SOURCE, /perAttemptTimeoutSec: 10/);
+	assert.match(SOURCE, /totalTimeoutSec: 120/);
+	assert.match(SOURCE, /maxCandidates: 8/);
+	assert.match(SOURCE, /maxAttempts: 48/);
 	assert.doesNotMatch(SOURCE, /blockcheck2\.sh.*--payload/);
 });

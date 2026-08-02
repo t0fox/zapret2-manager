@@ -18,7 +18,7 @@ const PREFLIGHT = '/usr/libexec/zapret2-manager/orchestra-probe-preflight.sh';
 const CORPUS = '/usr/libexec/zapret2-manager/catalog/orchestra-strategies.json';
 const Z2GUI = '/usr/libexec/zapret2-manager/catalog/orchestra-zapret2gui.json';
 const SERVICES = '/usr/libexec/zapret2-manager/services';
-const MAX_HISTORY = 20, MAX_EVENTS = 500, LOG_LIMIT = 8192, MAX_SERVICE_DOMAINS = 16, MAX_SERVICE_ATTEMPTS = 600;
+const MAX_HISTORY = 20, MAX_EVENTS = 500, LOG_LIMIT = 8192, MAX_SERVICE_DOMAINS = 16, MAX_SERVICE_CANDIDATES = 8, MAX_SERVICE_ATTEMPTS = 48;
 const PROTOCOLS = ['tcp_https', 'quic_udp'];
 const TERMINAL = ['completed', 'applied', 'rolled-back', 'restored', 'timeout', 'timed-out', 'partial', 'infrastructure-error', 'cancelled', 'canceled', 'stopped', 'failed', 'interrupted'];
 const APPLY_ROOT = '/var/lib/zapret2-manager/orchestra-operations';
@@ -70,6 +70,9 @@ function clear_active_lock(id) {
 	try { unlink(ACTIVE); } catch(e) {}
 }
 function proc_starttime(pid) { let raw=readfile('/proc/'+pid+'/stat'); if(!raw)return null; let f=split(trim(raw),' '); return length(f)>21 ? f[21] : null; }
+function monotonic_seconds() { let raw=readfile('/proc/uptime')||'', first=split(trim(raw),' '); return length(first)?+first[0]:0; }
+function remaining_seconds(r) { let now=monotonic_seconds(), left=r&&r.deadlineMonoSec? r.deadlineMonoSec-now : (r&&r.deadlineAt ? r.deadlineAt-time() : 0); return left>0?left:0; }
+export { monotonic_seconds, remaining_seconds };
 function pid_alive(pid) { return type(pid) == 'int' && pid > 1 && run('kill -0 ' + pid + ' 2>/dev/null').rc == 0; }
 function worker_matches(r) { return r && r.workerPid && r.workerStarttime && pid_alive(r.workerPid) && proc_starttime(r.workerPid)==r.workerStarttime; }
 export { run, proc_starttime };
@@ -90,7 +93,11 @@ function control_save(c) {
 	writefile(tmp,sprintf('%J',c)+'\n');
 	let m=popen("mv -f '"+tmp+"' '"+p+"' 2>&1",'r'); return m && m.close()==0;
 }
-function control_request(r, command) {
+function control_request(r, command, input) {
+	input=input||{};
+	if(input.runId!=null&&input.runId!=r.runId)return err('ESTALE','runId does not identify the active run',{},r.runId,r.phase);
+	if(input.generation!=null&&r.generation!=null&&input.generation!=r.generation)return err('ESTALE','run generation is stale',{},r.runId,r.phase);
+	if(input.expectedRevision!=null&&r.autoRevision!=null&&input.expectedRevision!=r.autoRevision)return err('ECONFLICT','run revision is stale',{expected:r.autoRevision,actual:input.expectedRevision},r.runId,r.phase);
 	let terminal=has(TERMINAL,r.phase);
 	if(command=='pause') {
 		if(terminal || r.phase=='ranking' || r.phase=='applying' || r.phase=='stopping' || r.phase=='stopped') return err('ESTATE','pause is not valid in the current phase',{},r.runId,r.phase);
@@ -103,7 +110,7 @@ function control_request(r, command) {
 	let c=control_load(r.runId);
 	if(command=='pause' && c.pauseRequested) return {ok:true,run:r,idempotent:true};
 	if(command=='resume' && !c.pauseRequested && r.phase=='paused') return err('ESTATE','resume request is not pending',{},r.runId,r.phase);
-	if(command=='stop' && c.stopRequested) return {ok:true,run:r,idempotent:true};
+	if(command=='stop' && c.stopRequested) return {ok:true,run:r,idempotent:true,status:r.phase=='stopped'?'stopped':'stopping',requestId:input.requestId||null};
 	if(command=='pause') c.pauseRequested=true;
 	if(command=='resume') c.pauseRequested=false;
 	if(command=='stop') c.stopRequested=true;
@@ -112,7 +119,7 @@ function control_request(r, command) {
 	r.control=c;
 	request_event(r,command=='pause'?'pause-requested':command=='resume'?'resume-requested':'stop-requested',command=='pause'?'Pause requested':command=='resume'?'Resume requested':'Stop requested; worker cleanup pending');
 	request_save(r);
-	return {ok:true,run:r};
+return {ok:true,run:r,status:command=='stop'?'stopping':'accepted',requestId:input.requestId||null};
 }
 export const orchestra_probe_preflight = function() {
 	let x=run("'"+PREFLIGHT+"'");
@@ -173,11 +180,11 @@ export const orchestra_run_validate = function(input) {
 	let target=input.targetType=='domain'?hostname(input.domain):trim(input.targetId||''); if(!target||(input.targetType=='service'&&!match(target,/^[A-Za-z0-9_.-]{1,128}$/)))return err('EINPUT','target must be a hostname or trusted service id');
 	let protocols=input.targetType=='service'?['tcp_https']:input.protocols;
 	if(type(protocols)!='array'||!length(protocols))return err('EINPUT','at least one protocol is required'); for(let p in protocols)if(!has(PROTOCOLS,p))return err('EINPUT','protocols contain an unsupported value');
-	let mode=input.candidateMode||(input.targetType=='service'?'zapret2gui-only':'recommended'), repeats=+(input.repeats||2), timeout=+(input.perAttemptTimeoutSec||20), total=+(input.totalTimeoutSec||600); if(!has(['recommended','all','selected','zapret2gui-only'],mode)||repeats<1||repeats>3||timeout<1||timeout>120||total<timeout||total>1800)return err('EINPUT','candidate selection or timeout is outside safe bounds');
+	let mode=input.candidateMode||(input.targetType=='service'?'zapret2gui-only':'recommended'), repeats=+(input.repeats||2), timeout=+(input.perAttemptTimeoutSec||20), total=+(input.totalTimeoutSec||600), maxCandidates=input.maxCandidates==null?(input.targetType=='service'?MAX_SERVICE_CANDIDATES:20):+input.maxCandidates, maxAttempts=input.maxAttempts==null?(input.targetType=='service'?MAX_SERVICE_ATTEMPTS:60):+input.maxAttempts; if(!has(['recommended','all','selected','zapret2gui-only'],mode)||repeats<1||repeats>3||timeout<1||timeout>120||total<timeout||total>1800||maxCandidates<1||maxCandidates>(input.targetType=='service'?MAX_SERVICE_CANDIDATES:20)||maxAttempts<1||maxAttempts>(input.targetType=='service'?MAX_SERVICE_ATTEMPTS:600))return err('EINPUT','candidate selection, attempt, or timeout is outside safe bounds');
 	if(input.targetType=='service'&&(mode!='zapret2gui-only'||(type(input.candidateIds)=='array'&&length(input.candidateIds))))return err('EINPUT','service runs require registry-backed zapret2gui-only selection without candidateIds');
 	if(mode=='selected'&&(type(input.candidateIds)!='array'||!length(input.candidateIds)))return err('EINPUT','selected mode needs candidateIds');
 	let retryOf=input.retryOfRunId||null;if(retryOf&&!safe_id(retryOf))return err('EINPUT','retryOfRunId is invalid');
-	return {ok:true,value:{targetType:input.targetType,target:target,protocols:protocols,candidateMode:mode,candidateIds:input.candidateIds||[],repeats:repeats,perAttemptTimeoutSec:timeout,totalTimeoutSec:total,retryOfRunId:retryOf}};
+	return {ok:true,value:{targetType:input.targetType,target:target,protocols:protocols,candidateMode:mode,candidateIds:input.candidateIds||[],repeats:repeats,perAttemptTimeoutSec:timeout,totalTimeoutSec:total,maxCandidates:maxCandidates,maxAttempts:maxAttempts,generation:input.generation==null?null:+input.generation,autoRevision:input.autoRevision==null?null:+input.autoRevision,retryOfRunId:retryOf}};
 };
 export const orchestra_run_start = function(input) {
 	let v=orchestra_run_validate(input); if(!v.ok)return v; if(active())return err('EBUSY','an orchestration run is already active');
@@ -188,7 +195,7 @@ export const orchestra_run_start = function(input) {
 		let sm=service_manifest(x.target);if(!sm.ok)return err(sm.error.code,sm.error.message,sm.error.details);
 		service=sm.manifest;manifestDigest=sm.digest;for(let t in service.targets){t.protocols=[t.protocol];push(targets,t);}
 	}
-	let r={runId:id,createdAt:time(),startedAt:null,heartbeatAt:time(),phase:'queued',target:x.target,targetType:x.targetType,serviceId:service&&service.serviceId||null,retryOfRunId:x.retryOfRunId||null,validity:'valid',candidateEvidenceUsable:true,applyAllowed:false,invalidationReason:null,manifestDigest:manifestDigest,candidateRegistryDigest:null,candidateIds:x.candidateIds,candidateMode:x.candidateMode,protocols:x.protocols,repeats:x.repeats,perAttemptTimeoutSec:x.perAttemptTimeoutSec,totalTimeoutSec:x.totalTimeoutSec,currentTargetId:null,currentDomain:null,currentProtocol:null,currentCandidate:null,currentAttempt:null,candidatePid:null,candidateStarttime:null,completedCount:0,totalCount:null,totalCandidates:null,totalAttempts:null,progress:0,results:[],baselineEvidence:[],targetCandidateEvidence:[],diagnosticEvents:[],infrastructureErrorCount:0,rankedResults:[],serviceResults:[],targetResults:[],targets:targets,targetProgress:[],serviceVerdict:null,selectedWinner:null,continuationCount:0,continuable:false,sessionDeadline:null,preflight:null,events:[],error:null,cleanup:{status:'pending'},control:{runId:id,pauseRequested:false,stopRequested:false,revision:0,updatedAt:time()},workerPid:null,workerStarttime:null,appliedOperationId:null};
+	let created=time(),mono=monotonic_seconds(),r={runId:id,generation:x.generation,autoRevision:x.autoRevision,createdAt:created,startedAt:created,deadlineAt:created+x.totalTimeoutSec,startedMonoSec:mono,deadlineMonoSec:mono+x.totalTimeoutSec,runTimeoutSec:x.totalTimeoutSec,maxCandidates:x.maxCandidates,maxAttempts:x.maxAttempts,heartbeatAt:created,phase:'queued',target:x.target,targetType:x.targetType,serviceId:service&&service.serviceId||null,retryOfRunId:x.retryOfRunId||null,validity:'valid',candidateEvidenceUsable:true,applyAllowed:false,invalidationReason:null,manifestDigest:manifestDigest,candidateRegistryDigest:null,candidateIds:x.candidateIds,candidateMode:x.candidateMode,protocols:x.protocols,repeats:x.repeats,perAttemptTimeoutSec:x.perAttemptTimeoutSec,totalTimeoutSec:x.totalTimeoutSec,currentTargetId:null,currentDomain:null,currentProtocol:null,currentCandidate:null,currentAttempt:null,candidatePid:null,candidateStarttime:null,completedCount:0,totalCount:null,totalCandidates:null,totalAttempts:null,progress:0,results:[],baselineEvidence:[],targetCandidateEvidence:[],diagnosticEvents:[],infrastructureErrorCount:0,rankedResults:[],serviceResults:[],targetResults:[],targets:targets,targetProgress:[],serviceVerdict:null,selectedWinner:null,continuationCount:0,continuable:false,sessionDeadline:null,preflight:null,events:[],error:null,cleanup:{status:'pending'},control:{runId:id,pauseRequested:false,stopRequested:false,revision:0,updatedAt:created},workerPid:null,workerStarttime:null,appliedOperationId:null};
 	add_event(r,'queued','Orchestration queued'); ensure(); try { mkdir(ROOT+'/'+id); } catch(e) {} if(!stat(ROOT+'/'+id))return err('EIO','could not create run runtime directory'); if(!control_save(r.control)||!save(r))return err('EIO','could not atomically save run');
 	let spawned=run("sh -c '/usr/bin/ucode "+WORKER+" "+id+" >/dev/null 2>&1 & echo $!'"); let pid=+trim(spawned.out), start=proc_starttime(pid);
 	if(spawned.rc!=0||!pid_alive(pid)||!start){r.phase='failed';r.finishedAt=time();r.error={code:'EIO',message:'could not start orchestration worker',details:{rc:spawned.rc,pid:pid||null}};r.cleanup={status:'completed',reason:'worker spawn failed'};add_event(r,'failed','Could not start orchestration worker',r.error.details);save(r);clear_request_artifacts(id);return err('EIO','could not start orchestration worker',r.error.details,id,r.phase);}
@@ -208,7 +215,7 @@ export const orchestra_run_status = function(input){active();let r=input&&input.
 export const orchestra_run_events = function(input){let r=orchestra_run_load(input)||active();if(!r)return err('ENOENT','run not found');let c=+(input&&input.cursor||0),a=[];for(let e in r.events)if(e.sequence>c)push(a,e);return{ok:true,runId:r.runId,events:a,nextCursor:length(r.events)?r.events[length(r.events)-1].sequence:c};};
 export const orchestra_run_pause = function(){let r=active();return r?control_request(r,'pause'):err('ENOENT','no active run');};
 export const orchestra_run_resume = function(){let r=active();return r?control_request(r,'resume'):err('ENOENT','no active run');};
-export const orchestra_run_stop = function(){let r=active();return r?control_request(r,'stop'):err('ENOENT','no active run');};
+export const orchestra_run_stop = function(input){input=input||{};let r=input.runId?orchestra_run_load(input):active();return r?control_request(r,'stop',input):err('ENOENT','no active run');};
 export const orchestra_run_continue = function(input){
 	if(type(input)!='object'||!safe_id(input.runId))return err('EINPUT','runId is required');
 	let seconds=+(input.additionalTimeoutSec||0);if(seconds<1||seconds>1800)return err('EINPUT','additionalTimeoutSec must be between 1 and 1800',{},input.runId);

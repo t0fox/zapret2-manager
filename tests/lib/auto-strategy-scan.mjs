@@ -1,5 +1,5 @@
 export function boundedRunRequest(serviceId) {
-	return { targetType: 'service', targetId: serviceId, candidateMode: 'zapret2gui-only', repeats: 2, perAttemptTimeoutSec: 20, totalTimeoutSec: 600 };
+	return { targetType: 'service', targetId: serviceId, candidateMode: 'zapret2gui-only', repeats: 1, perAttemptTimeoutSec: 10, totalTimeoutSec: 120, maxCandidates: 8, maxAttempts: 48 };
 }
 
 export function reconcileScanResult(state, run, now) {

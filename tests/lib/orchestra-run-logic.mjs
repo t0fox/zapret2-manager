@@ -20,8 +20,14 @@ export function validateStart(input = {}) {
 	const targetId = String(input.targetId || '').trim();
 	if (targetType === 'service' && !/^[A-Za-z0-9_.-]{1,128}$/.test(targetId)) return { ok: false, error: 'targetId must be a trusted service id' };
 	const repeats = input.repeats ?? 2, perAttemptTimeoutSec = input.perAttemptTimeoutSec ?? 20, totalTimeoutSec = input.totalTimeoutSec ?? 600;
+	const maxCandidates = input.maxCandidates ?? null, maxAttempts = input.maxAttempts ?? null;
 	if (!Number.isInteger(repeats) || repeats < 1 || repeats > 3 || !Number.isInteger(perAttemptTimeoutSec) || perAttemptTimeoutSec < 1 || perAttemptTimeoutSec > 120 || !Number.isInteger(totalTimeoutSec) || totalTimeoutSec < perAttemptTimeoutSec || totalTimeoutSec > 1800) return { ok: false, error: 'timeout or repeat bounds invalid' };
-	return { ok: true, value: { targetType, ...(targetType === 'domain' ? { domain } : { targetId }), protocols, candidateMode: input.candidateMode ?? 'recommended', candidateIds: input.candidateIds ?? [], repeats, perAttemptTimeoutSec, totalTimeoutSec } };
+	if (targetType === 'service' && maxCandidates != null && (!Number.isInteger(maxCandidates) || maxCandidates < 1 || maxCandidates > 8)) return { ok: false, error: 'maxCandidates exceeds service bound' };
+	if (maxAttempts != null && (!Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 48)) return { ok: false, error: 'maxAttempts exceeds bound' };
+	const value = { targetType, ...(targetType === 'domain' ? { domain } : { targetId }), protocols, candidateMode: input.candidateMode ?? 'recommended', candidateIds: input.candidateIds ?? [], repeats, perAttemptTimeoutSec, totalTimeoutSec };
+	if (maxCandidates != null) value.maxCandidates = maxCandidates;
+	if (maxAttempts != null) value.maxAttempts = maxAttempts;
+	return { ok: true, value };
 }
 
 export function transition(from, to) { return { ok: !!TRANSITIONS[from]?.includes(to), from, to }; }
@@ -31,7 +37,10 @@ export function appendBoundedEvent(events, event) { return [...events, event].sl
 const CONTROL_PHASES = new Set(['queued', 'preparing', 'baseline', 'testing', 'paused', 'stopping', 'stopped']);
 const TERMINAL_PHASES = new Set(['completed', 'applied', 'rolled-back', 'restored', 'timeout', 'timed-out', 'cancelled', 'canceled', 'stopped', 'failed', 'interrupted']);
 
-export function requestControl(run, command) {
+export function requestControl(run, command, request = {}) {
+	if (request.runId != null && request.runId !== run.runId) return { ok: false, error: 'ESTALE' };
+	if (request.generation != null && request.generation !== run.generation) return { ok: false, error: 'ESTALE' };
+	if (request.expectedRevision != null && request.expectedRevision !== (run.control?.revision ?? 0)) return { ok: false, error: 'ECONFLICT' };
 	const phase = run.phase;
 	if (command === 'pause') {
 		if (TERMINAL_PHASES.has(phase)) return { ok: false, error: 'ESTATE' };
@@ -44,11 +53,21 @@ export function requestControl(run, command) {
 		return { ok: false, error: 'ESTATE' };
 	}
 	if (command === 'stop') {
-		if (phase === 'stopped' || phase === 'stopping') return { ok: true, idempotent: true, run };
+		if (phase === 'stopped' || phase === 'stopping') return { ok: true, idempotent: true, status: 'stopping', run };
 		if (TERMINAL_PHASES.has(phase)) return { ok: false, error: 'ESTATE' };
-		return { ok: true, run: { ...run, control: { ...run.control, stopRequested: true } } };
+		return { ok: true, status: 'stopping', run: { ...run, phase: 'stopping', control: { ...run.control, revision: (run.control?.revision ?? 0) + 1, stopRequested: true } } };
 	}
 	return { ok: false, error: 'EINPUT' };
+}
+
+export function deadlineState(run, now) {
+	const remainingSec = Math.max(0, (run.deadlineAt ?? (run.startedAt + run.runTimeoutSec)) - now);
+	return { remainingSec, attemptTimeoutSec: Math.min(run.perAttemptTimeoutSec, remainingSec), expired: remainingSec <= 0 };
+}
+
+export function childTermination(expected, observed) {
+	if (!expected || expected.pid !== observed?.pid || expected.starttime !== observed?.starttime) return { signals: [], owned: false };
+	return { signals: ['TERM', 'KILL'], owned: true };
 }
 
 export function simulateControlledWorker({ attempts, actions = [] }) {

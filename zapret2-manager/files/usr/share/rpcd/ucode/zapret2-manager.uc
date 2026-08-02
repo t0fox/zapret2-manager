@@ -570,7 +570,7 @@ return {
 		orchestra_run_events: { args: { edit: 'string' }, call: function (req) { return orchestra_run_events_method(req); } },
 		orchestra_run_pause: { call: function (req) { return orchestra_run_pause_method(req); } },
 		orchestra_run_resume: { call: function (req) { return orchestra_run_resume_method(req); } },
-		orchestra_run_stop: { call: function (req) { return orchestra_run_stop_method(req); } },
+		orchestra_run_stop: { args: { edit: 'string' }, call: function (req) { return orchestra_run_stop_method(req); } },
 		orchestra_run_continue: { args: { edit: 'string' }, call: function (req) { return orchestra_run_continue_method(req); } },
 		orchestra_probe_preflight: { call: function (req) { return orchestra_probe_preflight_method(req); } },
 		orchestra_run_invalidate: { args: { edit: 'string' }, call: function (req) { return orchestra_run_invalidate_method(req); } },

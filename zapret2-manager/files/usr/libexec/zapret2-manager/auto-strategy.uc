@@ -198,13 +198,13 @@ function observe_health(state, verdict, now) {
 	return 'none';
 }
 
-function auto_run_request(serviceId) {
-	return { targetType: 'service', targetId: serviceId, candidateMode: 'zapret2gui-only', repeats: 2, perAttemptTimeoutSec: 20, totalTimeoutSec: 600 };
+function auto_run_request(serviceId, generation, autoRevision) {
+	return { targetType: 'service', targetId: serviceId, candidateMode: 'zapret2gui-only', repeats: 1, perAttemptTimeoutSec: 10, totalTimeoutSec: 120, maxCandidates: 8, maxAttempts: 48, generation: generation, autoRevision: autoRevision };
 }
 
 function start_scan(state, now) {
 	if (!length(state.serviceIds)) { infrastructure_backoff(state, now, 'no Auto Strategy service is selected'); return { ok: false, action: 'none' }; }
-	let started = orchestra_run_start(auto_run_request(state.serviceIds[0]));
+	let started = orchestra_run_start(auto_run_request(state.serviceIds[0], state.generation + 1, state.revision));
 	if (!started.ok || !started.run || !run_ok(started.run.runId)) { infrastructure_backoff(state, now, started.error && started.error.message || 'orchestra scan could not start'); return { ok: false, action: 'none' }; }
 	state.phase = 'scanning'; state.activeRunId = started.run.runId; state.scanRequestedAt = null; state.lastRunAt = now; state.lastError = null;
 	return { ok: true, action: 'scan' };
@@ -243,7 +243,7 @@ function auto_boot_reconcile(state, now) {
 	state.lastBootCheckAt = now;
 	let lastGood = auto_last_good_load();
 	if (!lastGood.ok && !lastGood.absent) { state.phase = 'failed'; state.recoveryStatus = 'manual-required'; state.lastError = 'last-good rejected: ' + lastGood.error; return { blocked: true, action: 'none' }; }
-	if (lastGood.ok) { state.lastGoodCandidateId = lastGood.record.candidateId; state.lastGoodProfileRevision = lastGood.record.profileRevision; state.lastGoodRevision = lastGood.record.profileRevision; state.lastGoodHash = lastGood.record.profileHash; }
+	if (lastGood.ok && lastGood.record) { state.lastGoodCandidateId = lastGood.record.candidateId; state.lastGoodProfileRevision = lastGood.record.profileRevision; state.lastGoodRevision = lastGood.record.profileRevision; state.lastGoodHash = lastGood.record.profileHash; }
 	else { state.lastGoodRevision = null; state.lastGoodHash = null; }
 	// A persisted M3 winner is an apply request, not an interrupted writer.  It
 	// remains eligible for M4's preview/apply transaction after boot; only an
@@ -255,11 +255,11 @@ function auto_boot_reconcile(state, now) {
 		if (!runRecord || (!live && runRecord.phase != 'completed')) { state.interruptedOperation = { phase: 'scanning', reason: 'stale worker PID/starttime lock', at: now }; state.activeRunId = null; state.scanRequestedAt = null; state.phase = 'cooldown'; state.cooldownUntil = now + SCAN_COOLDOWN_SEC; state.lastError = 'interrupted scan did not produce an accepted winner'; return { blocked: true, action: 'none' }; }
 	}
 	let current = current_applied_state();
-	if (lastGood.ok && current.hash == lastGood.record.profileHash) current.revision = lastGood.record.profileRevision;
+	if (lastGood.ok && lastGood.record && current.hash == lastGood.record.profileHash) current.revision = lastGood.record.profileRevision;
 	state.currentAppliedHash = current.hash; state.currentAppliedRevision = current.revision;
 	if (!current.present) { state.divergenceStatus = 'current-missing'; state.recoveryStatus = lastGood.ok ? 'manual-sanctioned-apply-required' : 'manual-required'; state.phase = 'failed'; state.lastError = 'current applied configuration is unavailable; automatic direct restore is forbidden'; return { blocked: true, action: 'none' }; }
-	if (lastGood.ok && current.hash == lastGood.record.profileHash) { state.divergenceStatus = 'matching'; state.recoveryStatus = 'not-needed'; }
-	else if (lastGood.ok) { state.divergenceStatus = 'divergent'; state.recoveryStatus = 'not-needed'; }
+	if (lastGood.ok && lastGood.record && current.hash == lastGood.record.profileHash) { state.divergenceStatus = 'matching'; state.recoveryStatus = 'not-needed'; }
+	else if (lastGood.ok && lastGood.record) { state.divergenceStatus = 'divergent'; state.recoveryStatus = 'not-needed'; }
 	else { state.divergenceStatus = 'no-last-good'; state.recoveryStatus = 'not-needed'; }
 	return { blocked: false, action: 'none' };
 }
@@ -326,7 +326,7 @@ function auto_rpc_disable(input) {
 	let loaded = auto_state_load(); if (!loaded.ok) return loaded; let state = loaded.state, admission = rpc_admit(state, input, 'disable'); if (!admission.ok) return admission.response;
 	if (!state.enabled && state.activeRunId == null && state.pendingApplyRunId == null && state.phase != 'applying' && state.phase != 'verifying' && state.phase != 'recovering') return { ok: true, status: 'already-disabled', revision: state.revision };
 	let cancellation = false, pending = state.phase == 'applying' || state.phase == 'verifying' || state.phase == 'recovering';
-	if (state.activeRunId != null && state.phase == 'scanning') { let stopped = orchestra_run_stop({ runId: state.activeRunId }); if (!stopped.ok) return rpc_error('EINTERNAL', 'could not request scan cancellation'); cancellation = true; }
+	if (state.activeRunId != null && state.phase == 'scanning') { let current=orchestra_run_load({ runId: state.activeRunId }); if (current && (current.phase == 'completed' || current.phase == 'failed' || current.phase == 'stopped' || current.phase == 'timed-out' || current.phase == 'interrupted' || current.phase == 'infrastructure-error')) { state.activeRunId=null; state.phase='cooldown'; state.cooldownUntil=time()+SCAN_COOLDOWN_SEC; } else { let stopped = orchestra_run_stop({ runId: state.activeRunId, generation: current&&current.generation||state.generation, expectedRevision: state.revision, requestId: input.requestId }); if (!stopped.ok) return rpc_error(stopped.error&&stopped.error.code||'EINTERNAL', stopped.error&&stopped.error.message||'could not request scan cancellation'); cancellation = true; } }
 	state.enabled = false; state.disableRequested = pending; if (!pending && state.activeRunId == null) state.phase = 'disabled';
 	admission.requestId = input.requestId; return rpc_save(state, admission, 'disable', { accepted: true, status: pending ? 'disable-pending-safe-completion' : 'disabled', cancellationRequested: cancellation, disablePendingSafeCompletion: pending });
 }
@@ -349,8 +349,10 @@ function auto_rpc_stop(input) {
 	let loaded = auto_state_load(); if (!loaded.ok) return loaded; let state = loaded.state, admission = rpc_admit(state, input, 'stop'); if (!admission.ok) return admission.response;
 	if (state.phase == 'recovering' || state.recoveryStatus == 'required') return rpc_error('ERECOVERY', 'recovery cannot be interrupted');
 	if (state.activeRunId == null) { if (state.pendingApplyRunId != null) { state.pendingApplyRunId = null; state.phase = 'degraded'; admission.requestId = input.requestId; return rpc_save(state, admission, 'stop', { accepted: true, status: 'stopped-pending-candidate' }); } return { ok: true, status: 'not-running', revision: state.revision }; }
-	let stopped = orchestra_run_stop({ runId: state.activeRunId }); if (!stopped.ok) return rpc_error('EINTERNAL', 'scan cancellation could not be requested');
-	admission.requestId = input.requestId; return rpc_save(state, admission, 'stop', { accepted: true, status: 'cancellation-requested', runId: state.activeRunId, cancellationRequested: true });
+	let current=orchestra_run_load({ runId: state.activeRunId });
+	if (current && (current.phase == 'completed' || current.phase == 'failed' || current.phase == 'stopped' || current.phase == 'timed-out' || current.phase == 'interrupted' || current.phase == 'infrastructure-error')) { state.activeRunId=null; state.phase='cooldown'; state.cooldownUntil=time()+SCAN_COOLDOWN_SEC; admission.requestId=input.requestId; return rpc_save(state, admission, 'stop', { accepted: true, status: 'already-finished', runId: current.runId }); }
+	let stopped = orchestra_run_stop({ runId: state.activeRunId, generation: current&&current.generation||state.generation, expectedRevision: state.revision, requestId: input.requestId }); if (!stopped.ok) return rpc_error(stopped.error&&stopped.error.code||'EINTERNAL', stopped.error&&stopped.error.message||'scan cancellation could not be requested');
+	admission.requestId = input.requestId; return rpc_save(state, admission, 'stop', { accepted: true, status: 'stopping', runId: state.activeRunId, cancellationRequested: true });
 }
 
 function auto_rpc_restore(input) {
@@ -370,7 +372,7 @@ function auto_rpc_restore(input) {
 function auto_controller_tick() {
 	let loaded = auto_state_load(); if (!loaded.ok) return loaded;
 	let state = loaded.state, now = time();
-	if (!state.enabled) { state.phase = 'disabled'; return auto_state_save(state, state.revision); }
+	if (!state.enabled) { state.phase = 'disabled'; return { ok: true, state: state, action: 'none' }; }
 	if (uptime_seconds() < BOOT_DELAY_SEC) { state.phase = 'waiting-network'; return auto_state_save(state, state.revision); }
 	let boot = auto_boot_reconcile(state, now);
 	if (boot.blocked) { let blocked = auto_state_save(state, state.revision); if (blocked.ok) blocked.action = boot.action; return blocked; }

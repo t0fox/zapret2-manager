@@ -5,12 +5,19 @@ import { AUTO_POLICY, decideAutoTick, classifyHealthMatrix } from './lib/auto-st
 
 const SOURCE = readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/auto-strategy.uc', 'utf8');
 const WATCHDOG = readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/watchdog.uc', 'utf8');
+const REVISION_DRIFT = JSON.parse(readFileSync('tests/fixtures/auto-strategy-revision-drift.json', 'utf8'));
 const base = { schema: 1, revision: 1, enabled: true, serviceIds: ['youtube'], phase: 'healthy', consecutiveFailures: 0, activeRunId: null, lastCheckAt: 0, lastRunAt: 0, cooldownUntil: null };
 
 test('disabled auto mode never starts a health job or scan', () => {
 	const out = decideAutoTick({ ...base, enabled: false, phase: 'disabled' }, { now: 1000, uptime: 1000, wan: true, dns: true, engine: true, queue: true });
 	assert.equal(out.action, 'none');
 	assert.equal(out.state.phase, 'disabled');
+});
+
+test('disabled controller tick does not persist a heartbeat revision', () => {
+	assert.equal(REVISION_DRIFT.enabled, false);
+	assert.ok(REVISION_DRIFT.afterRevision > REVISION_DRIFT.beforeRevision);
+	assert.match(SOURCE, /if \(!state\.enabled\) \{ state\.phase = 'disabled'; return \{ ok: true, state: state, action: 'none' \}; \}/);
 });
 
 test('three strategy failures request exactly one bounded scan', () => {
