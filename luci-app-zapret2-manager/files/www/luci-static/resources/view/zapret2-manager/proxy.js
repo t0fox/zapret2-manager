@@ -2316,6 +2316,11 @@ var callProxyHealth = rpc.declare({ object: 'zapret2-manager', method: 'proxy_he
 var callProxyLinkInfo = rpc.declare({ object: 'zapret2-manager', method: 'proxy_link_info', params: ['edit'], reject: true });
 var callProxyQuickInstall = rpc.declare({ object: 'zapret2-manager', method: 'proxy_quick_install', reject: true });
 
+function clearNode(node) {
+	while (node && node.firstChild)
+		node.removeChild(node.firstChild);
+}
+
 function collapsibleSection(summary, content) {
 	var details = E('details', { 'class': 'cbi-section' });
 	var sum = E('summary', { 'class': 'cbi-section-node' }, summary);
@@ -2530,7 +2535,7 @@ return L.view.extend({
 		btn.disabled = true;
 		btn.textContent = _('Installing\u2026');
 		var panel = self._f.simpleLinkResult;
-		if (panel) panel.children.length = 0;
+		clearNode(panel);
 		callProxyQuickInstall().then(function (res) {
 			res = res || {};
 			if (res.ok === true) {
@@ -2568,7 +2573,7 @@ return L.view.extend({
 			res = res || {};
 			if (res.ok === true) {
 				if (panel) {
-					panel.children.length = 0;
+					clearNode(panel);
 					panel.appendChild(E('div', { 'class': 'alert-message' }, E('p', {}, _('Proxy started.'))));
 				}
 				self.refresh();
@@ -2576,7 +2581,7 @@ return L.view.extend({
 				btn.disabled = false;
 				btn.textContent = _('Start');
 				if (panel) {
-					panel.children.length = 0;
+					clearNode(panel);
 					panel.appendChild(E('div', { 'class': 'alert-message warning' }, E('p', {},
 						_('Start failed: ') + ((res.error && res.error.message) || res.error || _('unknown error')))));
 				}
@@ -2585,7 +2590,7 @@ return L.view.extend({
 			btn.disabled = false;
 			btn.textContent = _('Start');
 			if (panel) {
-				panel.children.length = 0;
+				clearNode(panel);
 				panel.appendChild(E('div', { 'class': 'alert-message warning' }, E('p', {},
 					_('Start RPC failed: ') + String(err))));
 			}
@@ -2873,7 +2878,7 @@ return L.view.extend({
 		btn.disabled = true;
 		btn.textContent = _('Generating\u2026');
 		var panel = self._f.simpleLinkResult;
-		if (panel) panel.children.length = 0;
+		clearNode(panel);
 		callProxySecretRotate().then(function (res) {
 			res = res || {};
 			if (res.ok || res.rotated === true) {
@@ -3023,10 +3028,10 @@ return L.view.extend({
 		var self = this;
 		var panel = self._f.configResult;
 		if (!panel) return;
-		panel.children.length = 0;
+		clearNode(panel);
 		var cfg = self.readConfig();
 		callProxyConfigValidate(JSON.stringify({ config: cfg })).then(function (res) {
-			panel.children.length = 0;
+			clearNode(panel);
 			res = res || {};
 			if (res.error && typeof res.error === 'object') {
 				self.renderIssueList(panel, _('Validate'), false, [res.error], []);
@@ -3034,7 +3039,7 @@ return L.view.extend({
 			}
 			self.renderIssueList(panel, _('Validate'), res.ok === true, res.errors, res.warnings);
 		}).catch(function (err) {
-			panel.children.length = 0;
+			clearNode(panel);
 			panel.appendChild(E('div', { 'class': 'alert-message warning' }, E('p', {}, _('Validate RPC failed: ') + String(err))));
 		});
 	},
@@ -3043,10 +3048,10 @@ return L.view.extend({
 		var self = this;
 		var panel = self._f.configResult;
 		if (!panel) return;
-		panel.children.length = 0;
+		clearNode(panel);
 		var cfg = self.readConfig();
 		callProxyConfigPreview(JSON.stringify({ config: cfg })).then(function (res) {
-			panel.children.length = 0;
+			clearNode(panel);
 			res = res || {};
 			if (res.error && typeof res.error === 'object') {
 				self.renderIssueList(panel, _('Preview'), false, [res.error].concat(res.errors || []), res.warnings);
@@ -3069,7 +3074,7 @@ return L.view.extend({
 				panel.appendChild(E('div', { 'class': 'cbi-value-description' }, _('rollback ') + (i + 1) + ': ' + step));
 			});
 		}).catch(function (err) {
-			panel.children.length = 0;
+			clearNode(panel);
 			panel.appendChild(E('div', { 'class': 'alert-message warning' }, E('p', {}, _('Preview RPC failed: ') + String(err))));
 		});
 	},
@@ -3078,11 +3083,11 @@ return L.view.extend({
 		var self = this;
 		var panel = self._f.configResult;
 		if (!panel) return;
-		panel.children.length = 0;
+		clearNode(panel);
 		var cfg = self.readConfig();
 		var rev = (((self._env || {}).configGet || {}).appliedRevision);
 		callProxyConfigApply(JSON.stringify({ config: cfg, expectedAppliedRevision: (rev != null ? rev : 0) })).then(function (res) {
-			panel.children.length = 0;
+			clearNode(panel);
 			res = res || {};
 			if (res.ok === true) {
 				panel.appendChild(E('div', { 'class': 'alert-message' }, E('p', {}, [
@@ -3101,7 +3106,7 @@ return L.view.extend({
 			errs = errs.concat(res.errors || []).concat(res.failures || []);
 			self.renderIssueList(panel, _('Apply') + (res.rolledBack ? _(' (rolled back)') : ''), false, errs, []);
 		}).catch(function (err) {
-			panel.children.length = 0;
+			clearNode(panel);
 			panel.appendChild(E('div', { 'class': 'alert-message warning' }, E('p', {}, _('Apply RPC failed: ') + String(err))));
 		});
 	},
@@ -3207,7 +3212,7 @@ return L.view.extend({
 		btn.disabled = true;
 		call().then(function (res) {
 			btn.disabled = false;
-			panel.children.length = 0;
+			clearNode(panel);
 			res = res || {};
 			if (res.ok === true) {
 				var lis = (res.reread && res.reread.listeners) || [];
@@ -3221,7 +3226,7 @@ return L.view.extend({
 			self.refresh();
 		}).catch(function (err) {
 			btn.disabled = false;
-			panel.children.length = 0;
+			clearNode(panel);
 			panel.appendChild(E('div', { 'class': 'alert-message warning' }, E('p', {}, label + ' RPC failed: ' + String(err))));
 		});
 	},
@@ -3233,7 +3238,7 @@ return L.view.extend({
 		btn.disabled = true;
 		callProxyAutostartSet(JSON.stringify({ enabled: enable })).then(function (res) {
 			btn.disabled = false;
-			panel.children.length = 0;
+			clearNode(panel);
 			res = res || {};
 			if (res.ok === true)
 				panel.appendChild(E('div', { 'class': 'alert-message' }, E('p', {},
@@ -3244,7 +3249,7 @@ return L.view.extend({
 			self.refresh();
 		}).catch(function (err) {
 			btn.disabled = false;
-			panel.children.length = 0;
+			clearNode(panel);
 			panel.appendChild(E('div', { 'class': 'alert-message warning' }, E('p', {}, 'Autostart RPC failed: ' + String(err))));
 		});
 	},
@@ -3254,11 +3259,11 @@ return L.view.extend({
 		var panel = self._f.diagResult;
 		if (!panel) return;
 		btn.disabled = true;
-		panel.children.length = 0;
+		clearNode(panel);
 		panel.appendChild(E('div', { 'class': 'cbi-value-description' }, _('running probes\u2026')));
 		callProxyHealth(JSON.stringify({})).then(function (res) {
 			btn.disabled = false;
-			panel.children.length = 0;
+			clearNode(panel);
 			res = res || {};
 			if (res.error && typeof res.error === 'object') {
 				panel.appendChild(E('div', { 'class': 'alert-message warning' }, E('p', {}, _('Health failed: ') + (res.error.message || ''))));
@@ -3291,7 +3296,7 @@ return L.view.extend({
 			});
 		}).catch(function (err) {
 			btn.disabled = false;
-			panel.children.length = 0;
+			clearNode(panel);
 			panel.appendChild(E('div', { 'class': 'alert-message warning' }, E('p', {}, 'Health RPC failed: ' + String(err))));
 		});
 	},
@@ -3303,7 +3308,7 @@ return L.view.extend({
 		btn.disabled = true;
 		callProxyLogsTail(JSON.stringify({ n: 50 })).then(function (res) {
 			btn.disabled = false;
-			panel.children.length = 0;
+			clearNode(panel);
 			res = res || {};
 			if (res.ok !== true) {
 				panel.appendChild(E('div', { 'class': 'alert-message warning' }, E('p', {},
@@ -3317,7 +3322,7 @@ return L.view.extend({
 			panel.appendChild(pre);
 		}).catch(function (err) {
 			btn.disabled = false;
-			panel.children.length = 0;
+			clearNode(panel);
 			panel.appendChild(E('div', { 'class': 'alert-message warning' }, E('p', {}, 'Logs RPC failed: ' + String(err))));
 		});
 	},
@@ -3336,7 +3341,7 @@ return L.view.extend({
 		callProxySecretRotate().then(function (res) {
 			btn.disabled = false;
 			btn.textContent = _('Rotate secret');
-			panel.children.length = 0;
+			clearNode(panel);
 			res = res || {};
 			if (res.ok === true)
 				panel.appendChild(E('div', { 'class': 'alert-message' }, E('p', {},
@@ -3348,7 +3353,7 @@ return L.view.extend({
 		}).catch(function (err) {
 			btn.disabled = false;
 			btn.textContent = _('Rotate secret');
-			panel.children.length = 0;
+			clearNode(panel);
 			panel.appendChild(E('div', { 'class': 'alert-message warning' }, E('p', {}, 'Rotate RPC failed: ' + String(err))));
 		});
 	},
@@ -3357,7 +3362,7 @@ return L.view.extend({
 		var self = this;
 		var panel = self._f.linkResult;
 		if (!panel) return;
-		panel.children.length = 0;
+		clearNode(panel);
 		callProxyLinkInfo(JSON.stringify({})).then(function (res) {
 			res = res || {};
 			if (res.ok !== true || !res.available) {
@@ -3376,7 +3381,7 @@ return L.view.extend({
 			panel.appendChild(E('div', { 'class': 'cbi-value-description' },
 				_('Full link requires a guarded reveal (never logged).')));
 		}).catch(function (err) {
-			panel.children.length = 0;
+			clearNode(panel);
 			panel.appendChild(E('div', { 'class': 'alert-message warning' }, E('p', {}, 'Link info RPC failed: ' + String(err))));
 		});
 	},
@@ -3431,7 +3436,7 @@ return L.view.extend({
 			self._env = envelope;
 			var fresh = self.render(envelope);
 			if (self._root && fresh && fresh.children) {
-				self._root.children.length = 0;
+				clearNode(self._root);
 				fresh.children.forEach(function (c) { self._root.appendChild(c); });
 			}
 		});
