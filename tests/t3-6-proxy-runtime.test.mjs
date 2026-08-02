@@ -1,0 +1,34 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+
+const root = path.resolve(import.meta.dirname, '..');
+const ui = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/proxy.js'), 'utf8');
+const rpc = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc'), 'utf8');
+const cfg = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/proxycfg.uc'), 'utf8');
+const acl = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json'), 'utf8');
+
+test('proxy 01: Start handler is registered', () => assert.match(ui, /doSimpleStart\(startBtn2\)/));
+test('proxy 02: Start calls proxy_start', () => assert.match(ui, /method: 'proxy_start'/));
+test('proxy 03: Start has no browser-supplied arguments', () => assert.match(ui, /callProxyStart\(\)/));
+test('proxy 04: disabled config is rejected before service start', () => assert.match(cfg, /applied config is disabled/));
+test('proxy 05: admission reason is returned by the backend', () => assert.match(cfg, /rpc_err\('ESTATE'/));
+test('proxy 06: read-only ACL does not grant proxy_start', () => assert.doesNotMatch(acl.match(/"read"[\s\S]*?"write"/)[0], /"proxy_start"/));
+test('proxy 07: the UI disables a control while its RPC is pending', () => assert.match(ui, /btn\.disabled = true/));
+test('proxy 08: accepted is not rendered as running', () => assert.match(ui, /res\.ok === true/));
+test('proxy 09: starting copy is distinct', () => assert.match(ui, /Starting/));
+test('proxy 10: runtime proof requires a listener', () => assert.match(cfg, /verify_started/));
+test('proxy 11: a missing PID fails runtime verification', () => assert.match(cfg, /PROCESS_NOT_RUNNING/));
+test('proxy 12: executable identity is read from proc on status', () => assert.match(fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/proxy.uc'), 'utf8'), /read_cmdline/));
+test('proxy 13: missing listener fails runtime verification', () => assert.match(cfg, /listener verification failed/));
+test('proxy 14: invalid config does not start the service', () => assert.match(cfg, /pre-apply validation failed/));
+test('proxy 15: ACL denial remains distinct from transport errors', () => assert.match(ui, /RPC failed/));
+test('proxy 16: bounded backend failures are presented', () => assert.match(ui, /Start failed:/));
+test('proxy 17: timeout does not replay Start automatically', () => assert.doesNotMatch(ui, /setInterval\([^\n]*callProxyStart/));
+test('proxy 18: already-running is idempotent through the owner service', () => assert.match(cfg, /service_do\('start'\)/));
+test('proxy 19: Stop keeps the existing RPC contract', () => assert.match(rpc, /proxy_stop_method/));
+test('proxy 20: Refresh only reloads status', () => assert.match(ui, /refresh: function/));
+test('proxy 21: backend result strings use text nodes', () => assert.match(ui, /textContent =/));
+test('proxy 22: all UI result panels clear through a writable DOM API', () => assert.doesNotMatch(ui, /\.children\.length\s*=\s*0/));
+test('proxy 23: legacy Proxy route and ACL names are preserved', () => assert.match(acl, /"proxy_start", "proxy_stop"/));
