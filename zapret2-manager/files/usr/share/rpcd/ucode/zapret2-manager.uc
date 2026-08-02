@@ -179,6 +179,15 @@ function profiles_delete_method(req) { return profiles_edit_action('delete', req
 function profiles_validate_method(req) { return profiles_edit_action('validate', req); }
 function profiles_import_applied_method(req) { return profiles_action('import_applied'); }
 
+const BLOCKCHECK_APPLY_CLI = '/usr/libexec/zapret2-manager/blockcheck-apply-cli.uc';
+function blockcheck_apply_method(req) {
+	let edit = null; try { if (req && req.args) edit = req.args.edit; } catch (e) {} if (edit == null) try { edit = req.edit; } catch (e) {}
+	if (type(edit) != 'string') return { ok: false, error: { code: 'EINPUT', message: 'edit must be JSON' } };
+	let tmp = '/tmp/z2m-blockcheck-apply.' + time(); writefile(tmp, edit);
+	let p = popen('/usr/bin/ucode ' + BLOCKCHECK_APPLY_CLI + ' ' + tmp + ' 2>/dev/null', 'r'); if (!p) return { ok: false, error: { code: 'ETARGET', message: 'apply runner unavailable' } };
+	let out = p.read('all'); p.close(); try { unlink(tmp); } catch (e) {} try { return json(out); } catch (e) { return { ok: false, error: { code: 'EINTERNAL', message: 'apply response parse failed' } }; }
+}
+
 // ---- jobs + blockcheck (SLICE 4) --------------------------------------------
 const JOBS_CLI = '/usr/libexec/zapret2-manager/jobs-cli.uc';
 
@@ -500,6 +509,7 @@ return {
 		blockcheck_start:  { args: { edit: 'string' }, call: function (req) { return blockcheck_start_method(req); } },
 		blockcheck_cancel: { args: { edit: 'string' }, call: function (req) { return blockcheck_cancel_method(req); } },
 		blockcheck_status: { call: function (req) { return blockcheck_status_method(req); } },
+		blockcheck_apply: { args: { edit: 'string' }, call: function (req) { return blockcheck_apply_method(req); } },
 		health_matrix_get: { call: function (req) { return health_matrix_get_method(req); } },
 		health_matrix_start: { args: { edit: 'string' }, call: function (req) { return health_matrix_start_method(req); } },
 		health_matrix_job_get: { args: { edit: 'string' }, call: function (req) { return health_matrix_job_get_method(req); } },

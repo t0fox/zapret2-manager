@@ -79,6 +79,8 @@ define Package/zapret2-manager/install
 		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/jobs-cli.uc \
 		$(1)/usr/libexec/zapret2-manager/
+	$(INSTALL_BIN) ./files/usr/libexec/zapret2-manager/blockcheck-apply-cli.uc \
+		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_BIN) ./files/usr/libexec/zapret2-manager/blockcheck-run.sh \
 		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_BIN) ./files/usr/libexec/zapret2-manager/health-run.sh \

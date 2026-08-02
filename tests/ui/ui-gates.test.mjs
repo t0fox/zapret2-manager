@@ -176,7 +176,7 @@ test('gate 16: luci Makefile auto-installs every .js view (no hardcoded list)', 
 		'luci Makefile must NOT hardcode overview.js (drops the other views)');
 	// the glob covers exactly the shipped views
 	const dir = viewDirAbs();
-	const shipped = readdirSync(dir).filter((f) => f.endsWith('.js'));
+	const shipped = listViewFiles(dir);
 	assert.equal(shipped.length, EXPECTED_VIEWS.length, 'shipped view count matches EXPECTED_VIEWS');
 });
 
@@ -185,10 +185,10 @@ test('gate 16: luci Makefile auto-installs every .js view (no hardcoded list)', 
 test('gate 16 control: a 9th fixture view is auto-covered by the Makefile glob', () => {
 	const dir = viewDirAbs();
 	const fixture = join(dir, 'zz-fixture-gate16.js');
-	const before = readdirSync(dir).filter((f) => f.endsWith('.js')).length;
+	const before = listViewFiles(dir).length;
 	try {
 		writeFileSync(fixture, "/* fixture for gate 16: the Makefile glob must cover me */\n");
-		const after = readdirSync(dir).filter((f) => f.endsWith('.js')).length;
+		const after = listViewFiles(dir).length;
 		assert.equal(after, before + 1, 'fixture view added');
 		// the Makefile glob pattern matches the fixture (it ends in .js under the dir)
 		assert.ok(/\$\(wildcard [^)]*view\/zapret2-manager\/\*\.js\)/.test(readFileSync(LUCI_MAKEFILE, 'utf8')),
@@ -197,6 +197,6 @@ test('gate 16 control: a 9th fixture view is auto-covered by the Makefile glob',
 		try { unlinkSync(fixture); } catch {}
 	}
 	assert.ok(!existsSync(fixture), 'fixture removed after the control');
-	assert.equal(readdirSync(dir).filter((f) => f.endsWith('.js')).length, before,
+	assert.equal(listViewFiles(dir).length, before,
 		'view count restored after fixture removal');
 });

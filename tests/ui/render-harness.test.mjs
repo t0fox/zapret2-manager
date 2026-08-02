@@ -24,6 +24,7 @@ function makeNode(tag) {
 		attrs: {},
 		children: [],
 		style: {},
+		classList: { add() { }, remove() { }, toggle() { } },
 		_tc: '',
 		appendChild(c) { node.children.push(c); return c; },
 		addEventListener() { },
@@ -41,7 +42,7 @@ function makeNode(tag) {
 
 function E(tag, attrs, children) {
 	const node = makeNode(tag);
-	if (attrs && typeof attrs === 'object') Object.assign(node.attrs, attrs);
+	if (attrs && typeof attrs === 'object') { Object.assign(node.attrs, attrs); Object.assign(node, attrs); }
 	const kids = Array.isArray(children) ? children : (children !== undefined ? [children] : []);
 	for (const c of kids) if (c && typeof c === 'object') node.children.push(c);
 	return node;
@@ -154,7 +155,7 @@ function loadModule(src, name) {
 		}
 	};
 	const stubs = {
-		L: { view: { extend: (o) => o }, resolveDefault: (p, d) => Promise.resolve(d) },
+		L: { view: { extend: (o) => o }, resolveDefault: (p, d) => Promise.resolve(d), resource: (p) => p, url: (p) => p },
 		view: {},
 		rpc: rpcStub,
 		ui: {},
@@ -165,12 +166,18 @@ function loadModule(src, name) {
 		E: E
 	};
 	const documentStub = {
+		// injectCSS() runs at the top of every render(): it looks for its
+		// <style> node by id and creates one when missing.
+		createElement(tag) { return E(tag); },
+		createTextNode(text) { return E('span', {}, text); },
+		head: { appendChild(n) { return n; }, contains() { return false; } },
 		querySelector() { return null; },
 		querySelectorAll() { return []; },
 		getElementById() { return null; },
+		documentElement: { classList: { add() { }, remove() { } } },
 		body: { contains() { return false; } }
 	};
-	const windowStub = { addEventListener() { } };
+	const windowStub = { addEventListener() { }, getComputedStyle() { return { backgroundColor: 'rgb(255, 255, 255)' }; } };
 	const fn = new Function(
 		'L', 'view', 'rpc', 'ui', 'dom', 'form', 'poll', '_', 'E',
 		'document', 'window', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout',

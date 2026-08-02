@@ -21,6 +21,7 @@ var callBlockcheckCancel = rpc.declare({ object: 'zapret2-manager', method: 'blo
 var callBlockcheckStatus = rpc.declare({ object: 'zapret2-manager', method: 'blockcheck_status', reject: true });
 var callJobList = rpc.declare({ object: 'zapret2-manager', method: 'job_list', reject: true });
 var callProfilesCreate = rpc.declare({ object: 'zapret2-manager', method: 'profiles_create', params: ['edit'], reject: true });
+var callBlockcheckApply = rpc.declare({ object: 'zapret2-manager', method: 'blockcheck_apply', params: ['edit'], reject: true });
 
 var MODES = [
 	{ id: 'quick', label: _('Quick'), hint: _('short connectivity probe (up to ~5 min)') },
@@ -41,7 +42,7 @@ function fmtElapsed(sec) {
 function h(c) { return document.createTextNode(c); }
 
 function injectCSS() {
-	if (document.getElementById('z2m-ui-css')) return;
+	if (!document || !document.createElement || !document.head || !L || typeof L.resource !== 'function' || document.getElementById('z2m-ui-css')) return;
 	var link = document.createElement('link');
 	link.id = 'z2m-ui-css';
 	link.rel = 'stylesheet';
@@ -285,13 +286,13 @@ return L.view.extend({
 		return node;
 	},
 
-	// ---- recommendations (Review / Save to Draft) ----
+	// ---- recommendations (Review / Apply to preset) ----
 	recommendationsSection: function (job) {
 		var self = this;
 		var node = E('div', { 'class': 'cbi-section' }, [
 			E('h3', {}, _('Recommendations')),
 			E('div', { 'class': 'cbi-value-description' },
-				_('Working strategies found by the upstream scanner, with provenance. Actions: Review the raw strategy or Save it to a DRAFT profile — nothing is ever applied automatically.'))
+				_('Working strategies found by the upstream scanner. Apply writes the selected preset atomically and does not restart rpcd.'))
 		]);
 
 		var recs = (job && job.recommendations) || [];
@@ -318,27 +319,20 @@ return L.view.extend({
 				card.appendChild(rawBox);
 			});
 
-			var saveBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button' }, _('Save to Draft'));
-			saveBtn.addEventListener('click', function () {
-				saveBtn.disabled = true;
-				var name = 'blockcheck ' + (r.domain || '?') + ' ' + (r.test || '').replace('curl_test_', '');
-				callProfilesCreate(JSON.stringify({ name: name, opt: r.strategy || '' })).then(function (res) {
-					res = res || {};
-					if (res.ok === true) {
-						saveBtn.textContent = _('Saved as ') + res.id;
-					} else {
-						saveBtn.disabled = false;
-						self._flash = _('Save to Draft failed: ') + ((res.error && res.error.message) || res.error || _('unknown'));
-						self.refresh();
-					}
-				}).catch(function (err) {
-					saveBtn.disabled = false;
-					self._flash = _('Save call failed: ') + String(err);
-					self.refresh();
-				});
+			var applyBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button' }, _('Apply strategy'));
+			var resultBox = E('div', { 'class': 'z2m-callout', 'hidden': true });
+			applyBtn.addEventListener('click', function () {
+				applyBtn.disabled = true;
+				var proto = String(r.test || '').indexOf('stun') >= 0 ? 'stun_voice' : (String(r.test || '').indexOf('udp') >= 0 || String(r.test || '').indexOf('quic') >= 0 ? 'udp_games' : 'tcp_https');
+				callBlockcheckApply(JSON.stringify({ strategy: r.strategy || '', target: r.domain || '', protocol: proto })).then(function (res) {
+					res = res || {}; resultBox.hidden = false;
+					if (res.ok === true) { resultBox.className = 'z2m-callout z2m-callout-ok'; resultBox.textContent = _('Applied to ') + res.fileName + ': ' + res.operation + ' (' + res.appliedProfile + ')'; applyBtn.textContent = _('Applied'); }
+					else { applyBtn.disabled = false; resultBox.className = 'z2m-callout z2m-callout-bad'; resultBox.textContent = _('Apply failed: ') + ((res.error && res.error.message) || res.error || _('unknown')); }
+				}).catch(function (err) { applyBtn.disabled = false; resultBox.hidden = false; resultBox.className = 'z2m-callout z2m-callout-bad'; resultBox.textContent = _('Apply call failed: ') + String(err); });
 			});
 
-			card.appendChild(E('div', { 'class': 'z2m-actions' }, [reviewBtn, saveBtn]));
+			card.appendChild(E('div', { 'class': 'z2m-actions' }, [reviewBtn, applyBtn]));
+			card.appendChild(resultBox);
 			node.appendChild(card);
 		});
 		return node;

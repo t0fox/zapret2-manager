@@ -25,6 +25,10 @@ export const EXPECTED_VIEWS = [
 	'overview', 'strategies', 'blockcheck', 'catalog', 'orchestra', 'lists', 'dns', 'monitor', 'proxy', 'maintenance'
 ];
 
+// These are shipped JavaScript modules, not LuCI menu views. Keep them in the
+// directory and package glob, but exclude them from the ten-page view contract.
+export const VIEW_SUPPORT_MODULES = ['z2m-ui', 'service-dns'];
+
 // The nine pages in the UI agent's zone (overview is the backend agent's).
 export const ZONE_VIEWS = [
 	'strategies', 'blockcheck', 'catalog', 'orchestra', 'lists', 'dns', 'monitor', 'proxy', 'maintenance'
@@ -33,8 +37,6 @@ export const ZONE_VIEWS = [
 export const EXPECTED_MENU_KEYS = [
 	'admin/services/zapret2-manager',
 	'admin/services/zapret2-manager/strategies',
-	'admin/services/zapret2-manager/blockcheck',
-	'admin/services/zapret2-manager/catalog',
 	'admin/services/zapret2-manager/orchestra',
 	'admin/services/zapret2-manager/lists',
 	'admin/services/zapret2-manager/dns',
@@ -58,6 +60,7 @@ export function listViewFiles(dirAbs) {
 	return fs.readdirSync(dirAbs)
 		.filter((f) => f.endsWith('.js'))
 		.map((f) => f.replace(/\.js$/, ''))
+		.filter((name) => !VIEW_SUPPORT_MODULES.includes(name))
 		.sort();
 }
 
@@ -108,7 +111,7 @@ export function checkMenuEntries(menu) {
 		const node = menu[k];
 		if (!node) { errs.push(`missing menu entry: ${k}`); continue; }
 		const leaf = k.split('/').pop();
-		const expectedView = leaf === 'zapret2-manager' ? 'overview' : leaf;
+		const expectedView = leaf === 'zapret2-manager' ? 'orchestra' : leaf;
 		if (!node.action || node.action.type !== 'view')
 			errs.push(`menu ${k}: action.type is not "view"`);
 		if (!node.action || node.action.path !== `zapret2-manager/${expectedView}`)

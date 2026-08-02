@@ -35,7 +35,7 @@ function badge(label, cls) {
 }
 
 function injectCSS() {
-	if (document.getElementById('z2m-ui-css')) return;
+	if (!document || !document.createElement || !document.head || !L || typeof L.resource !== 'function' || document.getElementById('z2m-ui-css')) return;
 	var link = document.createElement('link');
 	link.id = 'z2m-ui-css';
 	link.rel = 'stylesheet';

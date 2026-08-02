@@ -51,7 +51,7 @@ function runSummary(run) {
 	return { runId: run.runId, createdAt: run.createdAt || null, startedAt: run.startedAt || null, finishedAt: run.finishedAt || null, phase: run.phase || null, target: run.target || null, targetType: run.targetType || null, protocols: run.protocols || [], candidateMode: run.candidateMode || null, candidateCount: run.totalCandidates || (run.candidateIds || []).length || 0, completedCount: run.completedCount || 0, totalCount: run.totalCount || null, winnerCandidateId: run.selectedWinner && run.selectedWinner.candidateId || null, winnerScore: run.selectedWinner && run.selectedWinner.score || null, appliedOperationId: run.appliedOperationId || null, errorCode: run.error && run.error.code || null };
 }
 function injectCSS() {
-	if (!document || !document.createElement || !document.head || document.getElementById('z2m-ui-css')) return;
+	if (!document || !document.createElement || !document.head || !L || typeof L.resource !== 'function' || document.getElementById('z2m-ui-css')) return;
 	var link = document.createElement('link'); link.id = 'z2m-ui-css'; link.rel = 'stylesheet'; link.href = L.resource('view/zapret2-manager/z2m-ui.css'); document.head.appendChild(link);
 }
 function badge(value, kind) { return E('span', { 'class': 'z2m-badge z2m-badge-' + (kind || 'neutral') }, esc(value)); }

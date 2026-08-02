@@ -33,7 +33,8 @@ function makeWorld(responses) {
 			attrs: {},
 			children: [],
 			listeners: {},
-			style: {},
+		style: {},
+		classList: { add() { }, remove() { }, toggle() { } },
 			value: '',
 			readOnly: false,
 			disabled: false,
@@ -56,7 +57,7 @@ function makeWorld(responses) {
 
 	function E(tag, attrs, children) {
 		const node = makeNode(tag);
-		if (attrs && typeof attrs === 'object') Object.assign(node.attrs, attrs);
+		if (attrs && typeof attrs === 'object') { Object.assign(node.attrs, attrs); Object.assign(node, attrs); }
 		const kids = Array.isArray(children) ? children : (children !== undefined ? [children] : []);
 		for (const c of kids) node.children.push(c);
 		return node;
@@ -69,6 +70,11 @@ function makeWorld(responses) {
 	world.timeouts = timeouts;
 	world.E = E;
 	world.documentStub = {
+		// injectCSS() runs at the top of every render(): it looks for its
+		// <style> node by id and creates one when missing.
+		createElement(tag) { return E(tag); },
+		createTextNode(text) { return E('span', {}, text); },
+		head: { appendChild(n) { return n; }, contains() { return false; } },
 		querySelector() { return null; },
 		querySelectorAll(sel) {
 			if (sel === 'textarea[data-list-key]')
@@ -78,9 +84,10 @@ function makeWorld(responses) {
 		getElementById(id) {
 			return created.find((n) => n.attrs && n.attrs.id === id) || null;
 		},
+		documentElement: { classList: { add() { }, remove() { } } },
 		body: { contains() { return true; } }
 	};
-	world.windowStub = { addEventListener() { } };
+	world.windowStub = { addEventListener() { }, getComputedStyle() { return { backgroundColor: 'rgb(255, 255, 255)' }; } };
 	world.setIntervalStub = (cb) => { intervals.push(cb); return intervals.length; };
 	world.clearIntervalStub = () => { };
 	world.setTimeoutStub = (cb) => { timeouts.push(cb); return timeouts.length; };
@@ -112,7 +119,7 @@ function makeWorld(responses) {
 
 function loadView(src, name, world) {
 	const stubs = {
-		L: { view: { extend: (o) => o }, resolveDefault: (p, d) => Promise.resolve(d) },
+		L: { view: { extend: (o) => o }, resolveDefault: (p, d) => Promise.resolve(d), resource: (p) => p, url: (p) => p },
 		view: {}, rpc: world.rpcStub, ui: {}, dom: {}, form: {},
 		poll: { add: () => { }, remove: () => { }, start: () => { }, stop: () => { } },
 		_: (s) => s, E: world.E
@@ -958,11 +965,11 @@ test('blockcheck: ECONFLICT start refusal renders the backend message', async ()
 	assert.ok(text.includes('already running'), 'the backend ECONFLICT detail renders');
 });
 
-test('blockcheck: recommendations render with provenance; Save to Draft sends the strategy VERBATIM', async () => {
+test('blockcheck: recommendations render with provenance; Apply sends the strategy VERBATIM', async () => {
 	const w = makeWorld({
 		blockcheck_status: { type: 'ok', value: BC_JOB_DONE },
 		job_list: { type: 'ok', value: { ok: true, jobs: [BC_JOB_DONE.job] } },
-		profiles_create: { type: 'ok', value: { ok: true, id: 'p000007', revision: 1 } }
+		blockcheck_apply: { type: 'ok', value: { ok: true, fileName: 'default.txt', operation: 'created', appliedProfile: 'rutracker.org' } }
 	});
 	const view = loadView(readViewSource('blockcheck'), 'blockcheck', w);
 	const envelope = await view.load();
@@ -970,16 +977,16 @@ test('blockcheck: recommendations render with provenance; Save to Draft sends th
 	const text = collectText(root).join(' | ');
 	assert.ok(text.includes('fake:blob=fake_default_tls:tcp_md5:tcp_seq=-10000'), 'strategy renders verbatim');
 	assert.ok(text.includes('upstream blockcheck2.sh'), 'provenance renders');
-	const saveBtn = findBtn(root.children, 'Save to Draft');
-	assert.ok(saveBtn, 'Save to Draft button not found');
-	saveBtn.listeners.click();
+	const applyBtn = findBtn(root.children, 'Apply strategy');
+	assert.ok(applyBtn, 'Apply strategy button not found');
+	applyBtn.listeners.click();
 	await flush();
-	const call = w.calls.find((c) => c.method === 'profiles_create');
-	assert.ok(call, 'profiles_create was not called');
+	const call = w.calls.find((c) => c.method === 'blockcheck_apply');
+	assert.ok(call, 'blockcheck_apply was not called');
 	const parsed = JSON.parse(call.params.edit);
-	assert.equal(parsed.opt, '--lua-desync=fake:blob=fake_default_tls:tcp_md5:tcp_seq=-10000',
-		'the strategy is stored VERBATIM — never mutated on its way to a draft');
-	assert.ok(parsed.name.includes('rutracker.org'));
+	assert.equal(parsed.strategy, '--lua-desync=fake:blob=fake_default_tls:tcp_md5:tcp_seq=-10000',
+		'the strategy is stored VERBATIM — never mutated on its way to the preset');
+	assert.equal(parsed.target, 'rutracker.org');
 });
 
 // ---- 6e. maintenance: versions/backups/events/diagnostics (SLICE 5) ---------------
