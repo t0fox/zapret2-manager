@@ -35,7 +35,7 @@
       "voice": [
         "--lua-desync=fake:blob=quic_vk:repeats=6"
       ],
-      "managerId": "flowseal-flowseal-alt10-combo",
+      "managerId": "flowseal-alt10-combo",
       "sourcePath": "Services/PresetService.cs",
       "sourceRevision": "1d9bff25bace8d06ff29c7659322108e1f3f0ac1"
     },
@@ -61,7 +61,7 @@
       "voice": [
         "--lua-desync=fake:blob=quic_vk:repeats=6"
       ],
-      "managerId": "flowseal-flowseal-alt11-combo",
+      "managerId": "flowseal-alt11-combo",
       "sourcePath": "Services/PresetService.cs",
       "sourceRevision": "1d9bff25bace8d06ff29c7659322108e1f3f0ac1"
     },
@@ -84,7 +84,7 @@
       "voice": [
         "--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:repeats=2"
       ],
-      "managerId": "flowseal-flowseal-multisplit-combo",
+      "managerId": "flowseal-multisplit-combo",
       "sourcePath": "Services/PresetService.cs",
       "sourceRevision": "1d9bff25bace8d06ff29c7659322108e1f3f0ac1"
     },
@@ -110,7 +110,7 @@
       "voice": [
         "--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:repeats=2"
       ],
-      "managerId": "flowseal-flowseal-alt-fakedsplit-combo",
+      "managerId": "flowseal-alt-fakedsplit-combo",
       "sourcePath": "Services/PresetService.cs",
       "sourceRevision": "1d9bff25bace8d06ff29c7659322108e1f3f0ac1"
     }
