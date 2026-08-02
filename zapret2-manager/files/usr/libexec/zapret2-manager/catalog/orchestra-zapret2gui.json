@@ -15,13 +15,11 @@
   "candidates": [
     {
       "id": "flowseal-alt10-combo",
-      "legacyId": "z2gui-flowseal-alt10-combo",
       "name": "Flowseal ALT10 Combo",
-      "aliases": ["flowseal.alt10", "combo.flowseal.alt10"],
-      "compatibilityStatus": "incompatible",
-      "rejectionReason": "multi-profile combo; apply from the Combo presets page",
-      "sourcePath": "Services/PresetService.cs",
-      "sourceRevision": "1d9bff25bace8d06ff29c7659322108e1f3f0ac1",
+      "aliases": [
+        "flowseal.alt10",
+        "combo.flowseal.alt10"
+      ],
       "discordTls": [
         "--lua-desync=fake:blob=tls_google:tcp_ts=-1000:repeats=6",
         "--lua-desync=fake:blob=tls_vk:tcp_ts=-1000:repeats=6"
@@ -33,17 +31,22 @@
         "--lua-desync=fake:blob=tls_google:tcp_ts=-1000:repeats=6",
         "--lua-desync=fake:blob=tls_vk:tcp_ts=-1000:repeats=6"
       ],
-      "voice": ["--lua-desync=fake:blob=quic_vk:repeats=6"]
-    },
-    {
-      "id": "flowseal-alt11-combo",
-      "legacyId": "z2gui-flowseal-alt11-combo",
-      "name": "Flowseal ALT11 Combo",
-      "aliases": ["flowseal.alt11", "combo.flowseal.alt11"],
+      "voice": [
+        "--lua-desync=fake:blob=quic_vk:repeats=6"
+      ],
+      "legacyId": "z2gui-flowseal-alt10-combo",
       "compatibilityStatus": "incompatible",
       "rejectionReason": "multi-profile combo; apply from the Combo presets page",
       "sourcePath": "Services/PresetService.cs",
-      "sourceRevision": "1d9bff25bace8d06ff29c7659322108e1f3f0ac1",
+      "sourceRevision": "1d9bff25bace8d06ff29c7659322108e1f3f0ac1"
+    },
+    {
+      "id": "flowseal-alt11-combo",
+      "name": "Flowseal ALT11 Combo",
+      "aliases": [
+        "flowseal.alt11",
+        "combo.flowseal.alt11"
+      ],
       "discordTls": [
         "--lua-desync=fake:blob=tls_google:tcp_ts=-1000:repeats=6",
         "--lua-desync=multisplit:pos=1,midsld:seqovl=681:seqovl_pattern=tls_google:optional"
@@ -56,17 +59,22 @@
         "--lua-desync=fake:blob=tls_google:tcp_ts=-1000:repeats=6",
         "--lua-desync=multisplit:pos=1,midsld:seqovl=664:seqovl_pattern=tls_google:optional"
       ],
-      "voice": ["--lua-desync=fake:blob=quic_vk:repeats=6"]
-    },
-    {
-      "id": "flowseal-multisplit-combo",
-      "legacyId": "z2gui-flowseal-multisplit-combo",
-      "name": "Flowseal Multisplit Combo",
-      "aliases": ["flowseal.multisplit", "combo.flowseal.multisplit"],
+      "voice": [
+        "--lua-desync=fake:blob=quic_vk:repeats=6"
+      ],
+      "legacyId": "z2gui-flowseal-alt11-combo",
       "compatibilityStatus": "incompatible",
       "rejectionReason": "multi-profile combo; apply from the Combo presets page",
       "sourcePath": "Services/PresetService.cs",
-      "sourceRevision": "1d9bff25bace8d06ff29c7659322108e1f3f0ac1",
+      "sourceRevision": "1d9bff25bace8d06ff29c7659322108e1f3f0ac1"
+    },
+    {
+      "id": "flowseal-multisplit-combo",
+      "name": "Flowseal Multisplit Combo",
+      "aliases": [
+        "flowseal.multisplit",
+        "combo.flowseal.multisplit"
+      ],
       "discordTls": [
         "--lua-desync=multisplit:pos=2:seqovl=681:seqovl_pattern=tls_google:optional"
       ],
@@ -78,17 +86,20 @@
       ],
       "voice": [
         "--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:repeats=2"
-      ]
-    },
-    {
-      "id": "flowseal-alt-fakedsplit-combo",
-      "legacyId": "z2gui-flowseal-alt-fakedsplit-combo",
-      "name": "Flowseal ALT Fakedsplit Combo",
-      "aliases": ["flowseal.alt", "combo.flowseal.alt"],
+      ],
+      "legacyId": "z2gui-flowseal-multisplit-combo",
       "compatibilityStatus": "incompatible",
       "rejectionReason": "multi-profile combo; apply from the Combo presets page",
       "sourcePath": "Services/PresetService.cs",
-      "sourceRevision": "1d9bff25bace8d06ff29c7659322108e1f3f0ac1",
+      "sourceRevision": "1d9bff25bace8d06ff29c7659322108e1f3f0ac1"
+    },
+    {
+      "id": "flowseal-alt-fakedsplit-combo",
+      "name": "Flowseal ALT Fakedsplit Combo",
+      "aliases": [
+        "flowseal.alt",
+        "combo.flowseal.alt"
+      ],
       "discordTls": [
         "--lua-desync=fake:blob=tls_google:tcp_ts=-1000:repeats=6",
         "--lua-desync=fakedsplit:tcp_ts=-1000"
@@ -103,7 +114,12 @@
       ],
       "voice": [
         "--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:repeats=2"
-      ]
+      ],
+      "legacyId": "z2gui-flowseal-alt-fakedsplit-combo",
+      "compatibilityStatus": "incompatible",
+      "rejectionReason": "multi-profile combo; apply from the Combo presets page",
+      "sourcePath": "Services/PresetService.cs",
+      "sourceRevision": "1d9bff25bace8d06ff29c7659322108e1f3f0ac1"
     }
   ]
 }
