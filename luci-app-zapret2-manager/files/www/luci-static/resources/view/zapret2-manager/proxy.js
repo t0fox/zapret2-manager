@@ -2561,19 +2561,34 @@ return L.view.extend({
 
 	doSimpleStart: function (btn) {
 		var self = this;
+		var panel = self._f.simpleLinkResult || self._f.controlResult;
 		btn.disabled = true;
 		btn.textContent = _('Starting\u2026');
 		callProxyStart().then(function (res) {
 			res = res || {};
 			if (res.ok === true) {
+				if (panel) {
+					panel.children.length = 0;
+					panel.appendChild(E('div', { 'class': 'alert-message' }, E('p', {}, _('Proxy started.'))));
+				}
 				self.refresh();
 			} else {
 				btn.disabled = false;
 				btn.textContent = _('Start');
+				if (panel) {
+					panel.children.length = 0;
+					panel.appendChild(E('div', { 'class': 'alert-message warning' }, E('p', {},
+						_('Start failed: ') + ((res.error && res.error.message) || res.error || _('unknown error')))));
+				}
 			}
-		}).catch(function () {
+		}).catch(function (err) {
 			btn.disabled = false;
 			btn.textContent = _('Start');
+			if (panel) {
+				panel.children.length = 0;
+				panel.appendChild(E('div', { 'class': 'alert-message warning' }, E('p', {},
+					_('Start RPC failed: ') + String(err))));
+			}
 		});
 	},
 
