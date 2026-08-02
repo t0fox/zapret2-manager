@@ -15,10 +15,19 @@ function covers(target, entry) { entry = lc(entry); target = lc(target); if (sub
 function hostfile_covers(path, target) { let t = readfile(path); if (!t) return false; for (let l in split(t, '\n')) { l = trim(split(l, '#')[0]); if (length(l) && covers(target, split(l, ' ')[0])) return true; } return false; }
 function profile_for_tcp(text, target) { let ps = split(text, '--new'); for (let i = 0; i < length(ps); i++) { let tcp = values(ps[i], '--filter-tcp'), dom = values(ps[i], '--hostlist-domains'), files = values(ps[i], '--hostlist'), matchit = false; for (let y = 0; y < length(dom); y++) if (covers(target, dom[y])) matchit = true; for (let y = 0; y < length(files); y++) if (hostfile_covers(files[y], target)) matchit = true; for (let x = 0; x < length(tcp); x++) if (port443(tcp[x]) && matchit) return i; } return -1; }
 function main(req) {
-	if (type(req) != 'object' || type(req.strategy) != 'string' || !length(trim(req.strategy))) return err('EINPUT', 'strategy is required');
+	if (type(req) != 'object') return err('EINPUT', 'request is required');
 	let protocol = req.protocol || 'tcp_https'; let name = type(req.fileName) == 'string' ? req.fileName : protocol + '.txt';
 	if (!match(name, /^[A-Za-z0-9._-]+\.txt$/)) return err('EINPUT', 'invalid preset file name');
-	let up = USER + '/' + name, bp = BUILTIN + '/' + name, source = stat(up) ? up : bp, before = readfile(source);
+	let up = USER + '/' + name, bp = BUILTIN + '/' + name;
+	if (req.mode == 'rollback') {
+		let snapshot = up + '.rollback', beforeRollback = readfile(up), original = readfile(snapshot);
+		if (original == null) return err('ESTATE', 'no preset rollback snapshot for ' + name);
+		let tmpRollback = up + '.tmp.rollback.' + time(); writefile(tmpRollback, original);
+		if (run('mv -f ' + q(tmpRollback) + ' ' + q(up)).rc != 0) return err('EWRITE', 'rollback rename failed');
+		return { ok: true, mode: 'rollback', fileName: name, before: beforeRollback, after: original };
+	}
+	if (type(req.strategy) != 'string' || !length(trim(req.strategy))) return err('EINPUT', 'strategy is required');
+	let source = stat(up) ? up : bp, before = readfile(source);
 	if (before == null) return err('ETARGET', 'preset not found: ' + name);
 	let target = lc(trim(req.target || 'discord.com')), line;
 	if (protocol == 'stun_voice') line = '--wf-udp-out=443-65535 --filter-l7=stun,discord --payload=stun,discord_ip_discovery ' + trim(req.strategy);
@@ -30,8 +39,9 @@ function main(req) {
 	let preview = { added: op == 'created' ? [line] : [], changed: op == 'updated' ? [line] : [] };
 	if (req.mode == 'preview') return { ok: true, mode: 'preview', strategyName: req.strategy, appliedProfile: protocol == 'tcp_https' ? target : protocol, fileName: name, operation: op, preview: preview, before: before, after: after };
 	if (run('mkdir -p ' + q(USER)).rc != 0) return err('EWRITE', 'cannot create user preset directory');
-	let snapshot = up + '.snapshot.' + time(), tmp = up + '.tmp.' + time();
-	if (stat(up) && run('cp ' + q(up) + ' ' + q(snapshot)).rc != 0) return err('EWRITE', 'snapshot failed');
+	let snapshot = up + '.rollback', tmp = up + '.tmp.' + time();
+	writefile(snapshot, before);
+	if (readfile(snapshot) != before) return err('EWRITE', 'snapshot failed');
 	writefile(tmp, after);
 	if (run('mv -f ' + q(tmp) + ' ' + q(up)).rc != 0) { if (stat(snapshot)) run('mv -f ' + q(snapshot) + ' ' + q(up)); return err('EWRITE', 'atomic rename failed; snapshot restored'); }
 	return { ok: true, strategyName: req.strategy, appliedProfile: protocol == 'tcp_https' ? target : protocol, fileName: name, operation: op, preview: preview, before: before, after: after };
