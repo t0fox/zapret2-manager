@@ -180,14 +180,14 @@ test('NEGATIVE CONTROL: postinst with mkndx reddens R1', () => {
 });
 
 test('NEGATIVE CONTROL: deploy bare APK reddens R16', () => {
-  const deployCode = read(DEPLOY);
-  // Replace the signed-index install command with a bare APK install.
-  const broken = deployCode.replace(
-    'apk add --repository "$REPO_DIR/packages.adb" zapret2-manager-full',
-    'apk add /tmp/zapret2-manager-full.apk'
-  );
-  assert.ok(!broken.includes('--repository "$REPO_DIR/packages.adb" zapret2-manager-full'),
-    'mutation must have removed the original --repository install command');
+	const deployCode = read(DEPLOY);
+	// Replace the signed-index install command with a bare APK install.
+	const broken = deployCode.replace(
+		'apk add --upgrade --repository "$REPO_DIR/packages.adb"',
+		'apk add /tmp/zapret2-manager-full.apk'
+	);
+	assert.ok(!broken.includes('apk add --upgrade --repository "$REPO_DIR/packages.adb"'),
+		'mutation must have removed the original --repository install command');
   assert.ok(broken.includes('/tmp/zapret2-manager-full.apk'), 'mutation must inject bare APK path');
 });
 
