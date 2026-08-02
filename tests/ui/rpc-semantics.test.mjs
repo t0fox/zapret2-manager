@@ -1745,19 +1745,19 @@ test('orchestra: disabled service explains why and catalog digest verdict cannot
 	assert.ok(!text.includes('Catalog validity | Valid'), 'digest mismatch is not rendered as Valid');
 });
 
-test('orchestra: Services is default and uses the existing catalog workflow contracts', async () => {
+test('orchestra: legacy Services deep link keeps the existing catalog workflow contracts', async () => {
 	const catalog = { ok: true, catalogVersion: '2.0.0', digestOk: true, categories: ['video'], services: [{ id: 'youtube', name: 'YouTube', category: 'video', domainCount: 2, mechanisms: ['domainInclude'], stability: 'reviewed', limitations: 'strategy dependent' }] };
 	const status = { ok: true, ledger: { enabled: ['youtube'], revision: 7 }, ownedDomains: 2, drift: { divergent: false } };
 	const w = makeWorld({
 		orchestra_capabilities: { type: 'ok', value: ORCH_CAPS }, orchestra_status: { type: 'ok', value: ORCH_STATUS }, orchestra_run_history: { type: 'ok', value: { ok: true, runs: [] } }, orchestra_events: { type: 'ok', value: ORCH_UNAVAILABLE }, orchestra_history: { type: 'ok', value: ORCH_UNAVAILABLE }, orchestra_ratings_get: { type: 'ok', value: ORCH_UNAVAILABLE }, orchestra_run_status: { type: 'ok', value: { ok: false, error: { code: 'ENOENT', message: 'run not found' } } },
 		catalog_list: { type: 'ok', value: catalog }, catalog_status: { type: 'ok', value: status }, health_matrix_get: { type: 'ok', value: { ok: true, matrix: null } }, catalog_get: { type: 'ok', value: { ok: true, service: { id: 'youtube', domains: ['youtube.com', 'youtu.be'] } } }, catalog_preview: { type: 'ok', value: { ok: true, additions: [], removals: [], keepShared: [], alreadyUserOwned: [], precondition: { ledgerRevision: 7, fileSha256: 'abc' } } }
 	});
-	w.windowStub.location = { hash: '' };
+	w.windowStub.location = { hash: '#orchestra-services' };
 	w.windowStub.history = { replaceState() {}, pushState() {} };
 	const view = loadView(readViewSource('orchestra'), 'orchestra', w);
 	const envelope = await view.load();
 	const root = view.render(envelope);
-	assert.equal(view._panel, 'orchestra-services', 'empty hash opens Services');
+	assert.equal(view._panel, 'orchestra-services', 'legacy Services hash opens Services');
 	assert.ok(collectText(root).join(' | ').includes('Catalog version'), 'catalog state renders inside Orchestra');
 	const domains = findButton(w, 'Show domains');
 	assert.ok(domains, 'catalog domains are lazy-loaded');
