@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "stage": "T3.5",
+  "date": "2026-08-02",
+  "verdict": "FAIL",
+  "failure": "reboot smoke did not retain nfqws2; UI truthfully reported stopped",
+  "target": {
+    "model": "Cudy WBR3000UAX v1",
+    "openwrt": "25.12.5",
+    "architecture": "aarch64_cortex-a53"
+  },
+  "source": {
+    "startingHead": "2f90f94ca5d296e1724f64ce597a7c133b8b3093",
+    "finalHead": "97a5aed99e007f916a93a0259a03174faaa111cd",
+    "branch": "fix/zero-red-r120",
+    "fullGate": { "green": 1039, "red": 0 }
+  },
+  "release": {
+    "versionRelease": "0.1.0-r123",
+    "managerApk": {
+      "path": "/home/kirill/openwrt-sdk-25.12.5-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64/bin/packages/aarch64_cortex-a53/zapret2-manager/zapret2-manager-0.1.0-r123.apk",
+      "size": 2237187,
+      "sha256": "0a15e51d0c70ab2fdc05e6bb72698d14b98485e80a78005e6ca7c17015fb614e"
+    },
+    "luciApk": {
+      "size": 105869,
+      "sha256": "fde02407ca8baa216b4ccc6d733166e42bf87a369749bd9d286d67f2d81e621f"
+    },
+    "signed": true,
+    "installed": true
+  },
+  "acceptance": {
+    "overviewDefault": "PASS",
+    "navigationAndLegacyLinks": "PASS_PRE_REBOOT",
+    "runsCanonicalEmptyState": "PASS",
+    "refreshReadOnly": "PASS",
+    "runtimeTruthPreReboot": "PASS",
+    "responsiveDesktop": "PASS",
+    "responsive1024Narrow80": "VERIFY",
+    "readOnlyAcl": "VERIFY",
+    "autoLifecycle": "NOT_RUN_SAFE_FIXTURE_ABSENT",
+    "rebootSmoke": "FAIL"
+  },
+  "targetOnlyFixes": [
+    "r122 LuCI shared-module baseclass contract",
+    "r123 unavailable BusyBox timeout wrapper in Orchestra RPC"
+  ]
+}
