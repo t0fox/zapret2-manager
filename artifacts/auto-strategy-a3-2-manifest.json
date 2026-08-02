@@ -1,6 +1,7 @@
 {
   "schema": "zapret2-manager.a3-2.v1",
   "startingHead": "df5fc0271190d272764d0aff44d62c7ea99af47d",
+  "finalHead": "9dfb8cc",
   "package": {
     "release": "0.1.0-r130",
     "arch": "aarch64_cortex-a53",
