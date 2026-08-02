@@ -63,7 +63,7 @@ export function buildCandidate(def, source, capture) {
   if (opt.split(' --new ').length !== 7) throw new Error(`${def.id}: expected seven profiles`);
   const canonical = JSON.stringify({ def, source, capture, opt });
   return {
-    managerId: `flowseal-${def.id}`,
+    managerId: def.id,
     canonicalStrategyId: def.id,
     aliases: def.aliases,
     name: def.name,
@@ -92,7 +92,7 @@ export function buildRuntimeCatalog(sourceDoc) {
     capture: sourceDoc.capture,
     candidates: sourceDoc.candidates.map((def) => ({
       ...def,
-      managerId: `flowseal-${def.id}`,
+      managerId: def.id,
       sourcePath: sourceDoc.source.path,
       sourceRevision: sourceDoc.source.commit
     }))
