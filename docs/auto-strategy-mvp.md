@@ -60,6 +60,11 @@ positive evidence IDs, current run/generation evidence, and a better baseline.
    rename, and regular-file/symlink protections.  It is packaged but has no
    autonomous trigger yet.
 3. M2: health checks, watchdog/manual triggers, lock and cooldown.
+   **Implemented:** the procd-owned watchdog invokes the controller after its
+   normal runtime checks.  The controller applies boot delay, 30-second health
+   interval, WAN/DNS/nfqws2/NFQUEUE infrastructure classification, exponential
+   backoff, 15-minute scan cooldown, and exactly-three strategy failures before
+   requesting a scan.  It starts only the existing bounded health-matrix job.
 4. M3: bounded orchestration and deterministic winner/no-winner selection.
 5. M4: sanctioned apply, verification, rollback and last-good commit.
 6. M5: boot/recovery path.

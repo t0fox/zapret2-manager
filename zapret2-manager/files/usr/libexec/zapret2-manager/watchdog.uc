@@ -28,6 +28,7 @@ import { readfile, writefile, stat, mkdir, unlink, popen } from 'fs';
 import { NFQUEUE, QLEN_WARN, QLEN_CRIT_CONSECUTIVE,
 	DAEMON, NFT_TABLE, PATHS } from './constants.uc';
 import { parse_queue } from './qlen.uc';
+import { auto_controller_tick } from './auto-strategy.uc';
 
 const CYCLE_SEC    = 60;
 const CPU_WARN_PCT = 70;
@@ -358,8 +359,15 @@ function check_cycle() {
 		run('/usr/libexec/zapret2-manager/log-rotate.sh');
 	} catch (e) { }
 
+	// Auto Strategy shares this procd-owned lifecycle; the controller itself
+	// owns its persistent state and may only start the existing bounded health
+	// matrix.  It never changes firewall state from the watchdog.
+	let auto = null;
+	try { auto = auto_controller_tick(); }
+	catch (e) { event('watchdog', 'auto-strategy', 'error', 'auto controller tick failed: ' + e); }
+
 	write_state(st);
-	return { skipped: false, pids: length(pids), cpu: cpu_pct, ram: ram, overlay: ov, qlen: qlen };
+	return { skipped: false, pids: length(pids), cpu: cpu_pct, ram: ram, overlay: ov, qlen: qlen, auto: auto };
 }
 
 // ---- entry ------------------------------------------------------------------

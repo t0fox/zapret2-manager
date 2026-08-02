@@ -4,11 +4,18 @@
 // Persistent state only.  Triggers and orchestration are deliberately kept in
 // later milestones so this module remains the single, auditable state owner.
 import { readfile, writefile, mkdir, unlink, popen } from 'fs';
+import { health_matrix_start, health_matrix_get } from './jobs.uc';
 
 const AUTO_STATE_PATH = '/etc/zapret2-manager/auto-strategy.json';
 const AUTO_STATE_DIR = '/etc/zapret2-manager';
 const MAX_SERVICES = 16;
 const MAX_FAILURES = 99;
+const BOOT_DELAY_SEC = 90;
+const HEALTH_INTERVAL_SEC = 30;
+const SCAN_COOLDOWN_SEC = 900;
+const INFRA_BACKOFF_BASE_SEC = 15;
+const INFRA_BACKOFF_MAX_SEC = 300;
+const STRATEGY_FAILURES_TO_SCAN = 3;
 const PHASES = ['disabled', 'waiting-network', 'healthy', 'degraded', 'scanning', 'applying', 'verifying', 'cooldown', 'failed'];
 
 function command(cmd) {
@@ -19,7 +26,7 @@ function command(cmd) {
 }
 
 function default_state() {
-	return { schema: 1, revision: 0, enabled: false, serviceIds: [], phase: 'disabled', consecutiveFailures: 0, activeRunId: null, lastGoodCandidateId: null, lastGoodProfileRevision: null, lastGoodEvidenceId: null, lastCheckAt: null, lastSuccessAt: null, lastFailureAt: null, lastRunAt: null, cooldownUntil: null, lastError: null };
+	return { schema: 1, revision: 0, enabled: false, serviceIds: [], phase: 'disabled', consecutiveFailures: 0, activeRunId: null, lastGoodCandidateId: null, lastGoodProfileRevision: null, lastGoodEvidenceId: null, lastCheckAt: null, lastSuccessAt: null, lastFailureAt: null, lastRunAt: null, cooldownUntil: null, lastHealthJobId: null, infrastructureFailures: 0, scanRequestedAt: null, lastError: null };
 }
 
 function phase_ok(value) {
@@ -57,6 +64,9 @@ export const auto_state_normalize = function(raw) {
 	out.lastGoodProfileRevision = opaque_ok(raw.lastGoodProfileRevision, 128) ? raw.lastGoodProfileRevision : null;
 	out.lastGoodEvidenceId = opaque_ok(raw.lastGoodEvidenceId, 160) ? raw.lastGoodEvidenceId : null;
 	out.lastCheckAt = number_or_null(raw.lastCheckAt); out.lastSuccessAt = number_or_null(raw.lastSuccessAt); out.lastFailureAt = number_or_null(raw.lastFailureAt); out.lastRunAt = number_or_null(raw.lastRunAt); out.cooldownUntil = number_or_null(raw.cooldownUntil);
+	out.lastHealthJobId = opaque_ok(raw.lastHealthJobId, 128) && substr(raw.lastHealthJobId, 0, 4) == 'job-' ? raw.lastHealthJobId : null;
+	out.infrastructureFailures = type(raw.infrastructureFailures) == 'int' ? (raw.infrastructureFailures < 0 ? 0 : (raw.infrastructureFailures > MAX_FAILURES ? MAX_FAILURES : raw.infrastructureFailures)) : 0;
+	out.scanRequestedAt = number_or_null(raw.scanRequestedAt);
 	out.lastError = type(raw.lastError) == 'string' ? substr(raw.lastError, 0, 240) : null;
 	return out;
 };
@@ -95,4 +105,55 @@ export const auto_state_transition = function(raw, kind, at) {
 	if (kind == 'healthy') { state.phase = state.enabled ? 'healthy' : 'disabled'; state.consecutiveFailures = 0; state.lastCheckAt = at; state.lastSuccessAt = at; state.lastError = null; }
 	else if (kind == 'strategy-failure') { state.phase = 'degraded'; state.consecutiveFailures = state.consecutiveFailures < MAX_FAILURES ? state.consecutiveFailures + 1 : MAX_FAILURES; state.lastCheckAt = at; state.lastFailureAt = at; }
 	return state;
+};
+
+function uptime_seconds() { let raw = readfile('/proc/uptime') || ''; let bits = split(raw, ' '); return length(bits) ? +bits[0] : 0; }
+function wan_ready() { let r = command("ubus call network.interface.wan status"); try { let x = json(r.out); return r.rc == 0 && x && x.up == true; } catch (e) { return false; } }
+function dns_ready() { let raw = readfile('/tmp/resolv.conf.d/resolv.conf.auto') || ''; return match(raw, /^[ ]*nameserver[ ]+/m) != null; }
+function engine_ready() { return command("pgrep -f '(^|/)nfqws2( |$)' >/dev/null 2>&1").rc == 0; }
+function queue_ready() { let raw = readfile('/proc/net/netfilter/nfnetlink_queue') || ''; return match(raw, /^[ ]*300[ ]/m) != null; }
+
+function health_class(matrix) {
+	if (!matrix || matrix.status != 'completed' || type(matrix.rows) != 'array' || !length(matrix.rows)) return { class: 'infrastructure', reason: 'health matrix unavailable or empty' };
+	let allHealthy = true;
+	for (let i = 0; i < length(matrix.rows); i++) {
+		let c = matrix.rows[i].class || '';
+		if (c == 'dns' || c == 'skipped' || c == 'unavailable-unknown') return { class: 'infrastructure', reason: 'health matrix reports ' + c };
+		if (c != 'reachable-http') allHealthy = false;
+		if (c == 'connect' || c == 'tls' || c == 'http-application' || c == 'unknown-timeout') return { class: 'strategy-failure', reason: 'health matrix reports ' + c };
+	}
+	return allHealthy ? { class: 'healthy', reason: 'all selected service probes reached HTTP' } : { class: 'infrastructure', reason: 'health matrix is inconclusive' };
+}
+
+function infrastructure_backoff(state, now, reason) {
+	state.infrastructureFailures = state.infrastructureFailures < MAX_FAILURES ? state.infrastructureFailures + 1 : MAX_FAILURES;
+	let wait = INFRA_BACKOFF_BASE_SEC;
+	for (let i = 1; i < state.infrastructureFailures && wait < INFRA_BACKOFF_MAX_SEC; i++) wait *= 2;
+	if (wait > INFRA_BACKOFF_MAX_SEC) wait = INFRA_BACKOFF_MAX_SEC;
+	state.phase = 'waiting-network'; state.consecutiveFailures = 0; state.cooldownUntil = now + wait; state.lastFailureAt = now; state.lastError = reason;
+}
+
+function observe_health(state, verdict, now) {
+	state.lastCheckAt = now;
+	if (verdict.class == 'healthy') { state.phase = 'healthy'; state.consecutiveFailures = 0; state.infrastructureFailures = 0; state.lastSuccessAt = now; state.lastError = null; return 'none'; }
+	if (verdict.class == 'infrastructure') { infrastructure_backoff(state, now, verdict.reason); return 'none'; }
+	state.phase = 'degraded'; state.infrastructureFailures = 0; state.consecutiveFailures = state.consecutiveFailures < MAX_FAILURES ? state.consecutiveFailures + 1 : MAX_FAILURES; state.lastFailureAt = now; state.lastError = verdict.reason;
+	if (state.consecutiveFailures >= STRATEGY_FAILURES_TO_SCAN && state.activeRunId == null && state.scanRequestedAt == null && (state.lastRunAt == null || now - state.lastRunAt >= SCAN_COOLDOWN_SEC)) { state.scanRequestedAt = now; return 'scan'; }
+	return 'none';
+}
+
+export const auto_controller_tick = function() {
+	let loaded = auto_state_load(); if (!loaded.ok) return loaded;
+	let state = loaded.state, now = time();
+	if (!state.enabled) { state.phase = 'disabled'; return auto_state_save(state, state.revision); }
+	if (uptime_seconds() < BOOT_DELAY_SEC) { state.phase = 'waiting-network'; return auto_state_save(state, state.revision); }
+	if (!wan_ready() || !dns_ready() || !engine_ready() || !queue_ready()) { infrastructure_backoff(state, now, 'WAN, DNS, nfqws2, or NFQUEUE is unavailable'); return auto_state_save(state, state.revision); }
+	if (state.cooldownUntil != null && now < state.cooldownUntil) return { ok: true, state: state, action: 'none' };
+	let health = health_matrix_get(), matrix = health.ok ? health.matrix : null;
+	if (matrix && matrix.status == 'completed' && matrix.id != state.lastHealthJobId) { state.lastHealthJobId = matrix.id; let action = observe_health(state, health_class(matrix), now); let saved = auto_state_save(state, state.revision); if (saved.ok) saved.action = action; return saved; }
+	if (matrix && (matrix.status == 'pending' || matrix.status == 'running')) return { ok: true, state: state, action: 'none' };
+	if (state.lastCheckAt != null && now - state.lastCheckAt < HEALTH_INTERVAL_SEC) return { ok: true, state: state, action: 'none' };
+	let started = health_matrix_start({ services: state.serviceIds });
+	if (!started.ok) { infrastructure_backoff(state, now, started.error && started.error.message || 'health matrix unavailable'); return auto_state_save(state, state.revision); }
+	state.lastCheckAt = now; let saved = auto_state_save(state, state.revision); if (saved.ok) saved.action = 'health-check'; return saved;
 };

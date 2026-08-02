@@ -3,7 +3,7 @@ export const DEFAULT_AUTO_STATE = Object.freeze({
 	consecutiveFailures: 0, activeRunId: null, lastGoodCandidateId: null,
 	lastGoodProfileRevision: null, lastGoodEvidenceId: null, lastCheckAt: null,
 	lastSuccessAt: null, lastFailureAt: null, lastRunAt: null, cooldownUntil: null,
-	lastError: null
+	lastHealthJobId: null, infrastructureFailures: 0, scanRequestedAt: null, lastError: null
 });
 
 const PHASES = new Set(['disabled', 'waiting-network', 'healthy', 'degraded', 'scanning', 'applying', 'verifying', 'cooldown', 'failed']);
@@ -29,6 +29,9 @@ export function normalizeAutoState(value) {
 		lastFailureAt: Number.isFinite(value.lastFailureAt) ? value.lastFailureAt : null,
 		lastRunAt: Number.isFinite(value.lastRunAt) ? value.lastRunAt : null,
 		cooldownUntil: Number.isFinite(value.cooldownUntil) ? value.cooldownUntil : null,
+		lastHealthJobId: nullableString(value.lastHealthJobId, /^job-[a-zA-Z0-9._-]{1,128}$/),
+		infrastructureFailures: Number.isInteger(value.infrastructureFailures) ? Math.max(0, Math.min(value.infrastructureFailures, 99)) : 0,
+		scanRequestedAt: Number.isFinite(value.scanRequestedAt) ? value.scanRequestedAt : null,
 		lastError: nullableString(value.lastError)
 	};
 }
