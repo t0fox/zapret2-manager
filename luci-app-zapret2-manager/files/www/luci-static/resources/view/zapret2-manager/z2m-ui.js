@@ -169,3 +169,84 @@ var Z2M = {
 		return E('div', { 'class': 'cbi-value-description' }, Z2M.escapeHtml(text));
 	}
 };
+
+// Remastered foundation (T2). Kept under Z2M.ui so every pre-existing Z2M
+// method and call site remains byte-for-byte compatible.
+(function () {
+	var STATUS_LABELS = {
+		healthy: 'Работает', running: 'Выполняется', waiting: 'Ожидание', degraded: 'Работает с ограничениями', failed: 'Ошибка', disabled: 'Отключено', unknown: 'Проверка ещё не выполнялась', verified: 'Подтверждено', partial: 'Состояние подтверждено не полностью', divergent: 'Обнаружено расхождение',
+		'waiting-network': 'Ожидание подключения', 'infrastructure-not-ready': 'Система ещё не готова к проверке', 'no-last-good': 'Последняя рабочая стратегия отсутствует', 'operation-active': 'Уже выполняется другая операция', 'cooldown-active': 'Повторная проверка временно отложена', 'runtime-not-confirmed': 'Состояние runtime не подтверждено', 'revision-conflict': 'Состояние изменилось, обновите страницу', 'recovery-required': 'Требуется завершить восстановление'
+	};
+	var STATUS_KIND = { healthy: 'ok', running: 'ok', verified: 'ok', waiting: 'warn', degraded: 'warn', partial: 'warn', divergent: 'warn', failed: 'bad', disabled: 'neutral', unknown: 'neutral' };
+	var ADMISSION_LABELS = {
+		'no-services-selected': 'Сначала выберите сервис', 'operation-active': STATUS_LABELS['operation-active'], 'cooldown-active': STATUS_LABELS['cooldown-active'], 'runtime-not-confirmed': STATUS_LABELS['runtime-not-confirmed'], 'recovery-required': STATUS_LABELS['recovery-required'], 'no-last-good': STATUS_LABELS['no-last-good'], 'auto-disabled': 'Автоматическая стратегия отключена', 'already-enabled': 'Автоматическая стратегия уже включена', 'already-disabled': 'Автоматическая стратегия уже отключена', 'no-active-operation': 'Нет активной операции', 'state-corrupt': 'Состояние требует повторной проверки'
+	};
+	function tr(text) { return typeof _ === 'function' ? _(text) : text; }
+	var NAVIGATION = [
+		{ key: 'overview', label: 'Overview', route: 'orchestra-overview', aliases: [], capability: 'read', stage: 'T3', available: false, implemented: false },
+		{ key: 'auto', label: 'Auto Strategy', route: 'orchestra-auto', aliases: ['orchestra-adaptive'], capability: 'read', stage: 'T4', available: true, implemented: false, legacyRoute: 'orchestra-adaptive' },
+		{ key: 'services', label: 'Services', route: 'orchestra-services', aliases: [], capability: 'read', stage: 'T5', available: true, implemented: false, legacyRoute: 'orchestra-services' },
+		{ key: 'rating', label: 'Strategy Rating', route: 'orchestra-rating', aliases: [], capability: 'read', stage: 'T6', available: false, implemented: false },
+		{ key: 'strategies', label: 'Strategies', route: 'orchestra-strategies', aliases: ['orchestra-find'], capability: 'read', stage: 'T7', available: true, implemented: false, legacyRoute: 'orchestra-find' },
+		{ key: 'runs', label: 'Runs', route: 'orchestra-runs', aliases: ['orchestra-results'], capability: 'read', stage: 'T8', available: true, implemented: false, legacyRoute: 'orchestra-results' },
+		{ key: 'diagnostics', label: 'Diagnostics', route: 'orchestra-diagnostics', aliases: [], capability: 'read', stage: 'T9', available: false, implemented: false }
+	];
+	function safe_text(value, limit, fallback) {
+		if (value === null) return fallback && fallback.null != null ? fallback.null : '—';
+		if (value === undefined) return fallback && fallback.missing != null ? fallback.missing : 'Не указано';
+		var text = Z2M.sanitize(value), max = limit == null ? 160 : limit;
+		return text.length > max ? text.slice(0, Math.max(0, max - 1)) + '…' : text;
+	}
+	function status_label(status) { return tr(STATUS_LABELS[status] || STATUS_LABELS.unknown); }
+	function status_kind(status) { return STATUS_KIND[status] || 'neutral'; }
+	function error_code(value) { var text = safe_text(value, 64, { null: 'unknown-error', missing: 'unknown-error' }); return /^[A-Za-z0-9._-]+$/.test(text) ? text : 'unknown-error'; }
+	function action_button(options) {
+		options = options || {}; var disabled = options.disabled === true, pending = false, attrs = { 'type': 'button', 'class': 'cbi-button ' + (options.kind === 'danger' ? 'cbi-button-negative z2m-remastered-danger' : options.kind === 'primary' ? 'cbi-button-action' : 'cbi-button-neutral') };
+		var reason = options.reason && options.reason.reasonCode ? admission_text(options.reason.reasonCode) : safe_text(options.disabledReason, 120, { null: null, missing: null });
+		if (disabled) { attrs.disabled = true; attrs['aria-disabled'] = 'true'; if (reason) attrs.title = reason; }
+		var button = E('button', attrs, safe_text(options.label, 80));
+		button.addEventListener('click', function () {
+			if (disabled || pending || typeof options.onClick != 'function') return;
+			pending = true; button.disabled = true; button.setAttribute('aria-busy', 'true');
+			var result = options.onClick(button);
+			if (!result || typeof result.then != 'function') { pending = false; button.disabled = false; button.setAttribute('aria-busy', 'false'); return; }
+			result.then(function () {}, function () {}).then(function () { pending = false; button.disabled = false; button.setAttribute('aria-busy', 'false'); });
+		});
+		return button;
+	}
+	function admission_text(code) { return tr(ADMISSION_LABELS[code] || 'Недоступно: требуется повторная проверка состояния'); }
+	function navigation_for(route) { for (var i = 0; i < NAVIGATION.length; i++) { var entry = NAVIGATION[i]; if (entry.route === route || entry.aliases.indexOf(route) >= 0) return entry; } return null; }
+	function visible_navigation() { return NAVIGATION.filter(function (entry) { return entry.available === true; }); }
+
+	Z2M.ui = {
+		orchestraNavigation: NAVIGATION,
+		activeNavigation: navigation_for,
+		visibleNavigation: visible_navigation,
+		SafeText: safe_text,
+		formatStatusLabel: status_label,
+		formatErrorCode: error_code,
+		formatRelativeTime: function (value) { if (value == null) return tr('Время не указано'); var date = new Date(value); if (isNaN(date.getTime())) return tr('Время неизвестно'); var seconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000)); return seconds < 60 ? tr('только что') : seconds < 3600 ? Math.floor(seconds / 60) + tr(' мин назад') : Math.floor(seconds / 3600) + tr(' ч назад'); },
+		PageHeader: function (options) { options = options || {}; var actions = []; if (options.primaryAction) actions.push(options.primaryAction); (options.secondaryActions || []).forEach(function (item) { actions.push(item); }); return E('header', { 'class': 'z2m-remastered-header' }, [E('div', { 'class': 'z2m-remastered-header-copy' }, [E('h2', {}, safe_text(options.title, 120)), options.description ? E('p', {}, safe_text(options.description, 240)) : E('span', {})]), options.status ? Z2M.ui.StatusBadge(options.status) : E('span', {}), actions.length ? E('div', { 'class': 'z2m-remastered-header-actions' }, actions) : E('span', {})]); },
+		PageShell: function (options) { options = options || {}; var children = []; if (options.header) children.push(options.header); if (options.navigation) children.push(E('nav', { 'class': 'z2m-remastered-nav z2m-orchestra-nav', 'aria-label': options.navigationLabel || tr('Orchestra navigation') }, options.navigation)); if (options.notice) children.push(E('div', { 'class': 'z2m-remastered-notice' }, options.notice)); if (options.actions) children.push(E('div', { 'class': 'z2m-remastered-actionbar' }, options.actions)); children.push(E('main', { 'class': 'z2m-remastered-content' }, options.content || E('div', {}))); return E('div', { 'class': 'z2m-page z2m-remastered ' + (options.className || ''), 'id': options.id || null }, children); },
+		SectionHeader: function (options) { options = options || {}; return E('div', { 'class': 'z2m-remastered-section-header' }, [E('h3', {}, safe_text(options.title, 120)), options.description ? E('p', {}, safe_text(options.description, 240)) : E('span', {})]); },
+		StatusBadge: function (options) { options = options || {}; var status = options.status || 'unknown', label = options.label || status_label(status); return E('span', { 'class': 'z2m-badge z2m-badge-' + status_kind(status), 'aria-label': label }, safe_text(label, 120)); },
+		SummaryPanel: function (options) { options = options || {}; return E('section', { 'class': 'z2m-remastered-summary' }, [options.title ? E('h3', {}, safe_text(options.title, 120)) : E('span', {}), options.children || E('div', {})]); },
+		NoticeBanner: function (options) { options = options || {}; var level = ['info', 'warning', 'error', 'success', 'action-required'].indexOf(options.level) >= 0 ? options.level : 'info'; return E('div', { 'class': 'z2m-remastered-notice z2m-remastered-notice-' + level, 'role': level === 'error' ? 'alert' : 'status' }, safe_text(options.message, 240)); },
+		EmptyState: function (options) { options = options || {}; return E('section', { 'class': 'z2m-remastered-empty' }, [E('h3', {}, safe_text(options.title, 120)), E('p', {}, safe_text(options.explanation, 240)), options.action || E('span', {})]); },
+		ErrorPanel: function (options) { options = options || {}; var rows = [E('h3', {}, safe_text(options.message, 180)), E('span', { 'class': 'z2m-remastered-error-code' }, error_code(options.code))]; if (typeof options.retry == 'function') rows.push(action_button({ label: tr('Retry'), kind: 'secondary', onClick: options.retry })); return E('section', { 'class': 'z2m-remastered-error', 'role': 'alert' }, rows); },
+		SkeletonLoader: function () { return E('div', { 'class': 'z2m-remastered-skeleton', 'aria-hidden': 'true' }, ''); },
+		LoadingPanel: function (options) { options = options || {}; return E('section', { 'class': 'z2m-remastered-loading', 'aria-live': 'polite' }, [Z2M.ui.SkeletonLoader(), E('span', {}, safe_text(options.label || tr('Загрузка…'), 120))]); },
+		DetailsDisclosure: function (options) { options = options || {}; return E('details', { 'class': 'z2m-remastered-details' }, [E('summary', {}, safe_text(options.title || tr('Details'), 120)), options.content || E('div', {})]); },
+		TechnicalDetails: function (options) { return Z2M.ui.DetailsDisclosure(options || {}); },
+		AdmissionReason: function (options) { options = options || {}; return E('span', { 'class': 'z2m-remastered-admission' }, admission_text(options.reasonCode)); },
+		ActionButton: action_button,
+		ActionBar: function (actions) { return E('div', { 'class': 'z2m-remastered-actions' }, actions || []); },
+		ConfirmationDialog: function (options) { options = options || {}; return E('div', { 'class': 'z2m-remastered-dialog', 'role': 'dialog', 'aria-modal': 'true', 'aria-label': safe_text(options.title, 120) }, [E('h3', {}, safe_text(options.title, 120)), E('p', {}, safe_text(options.message, 240)), action_button({ label: options.confirmLabel || tr('Confirm'), kind: 'danger', onClick: options.onConfirm }), action_button({ label: options.cancelLabel || tr('Cancel'), onClick: options.onCancel })]); },
+		ProgressPanel: function (options) { options = options || {}; var value = Math.max(0, Math.min(100, +options.value || 0)); return E('section', { 'class': 'z2m-remastered-progress' }, [E('progress', { 'value': String(value), 'max': '100', 'aria-label': safe_text(options.label || tr('Progress'), 120) }), E('span', {}, safe_text(options.label || '', 120))]); },
+		FilterBar: function (children) { return E('div', { 'class': 'z2m-remastered-filterbar' }, children || []); },
+		SearchInput: function (options) { options = options || {}; return E('input', { 'class': 'cbi-input-text z2m-remastered-search', 'type': 'search', 'aria-label': safe_text(options.label || tr('Search'), 120), 'placeholder': safe_text(options.placeholder || '', 120) }); },
+		NavigationTabs: function (options) { options = options || {}; return visible_navigation().map(function (entry) { var active = navigation_for(options.route) === entry, attrs = { 'class': 'z2m-tab' + (active ? ' z2m-tab-active' : ''), 'href': '#' + (entry.legacyRoute || entry.route) }; if (active) attrs['aria-current'] = 'page'; var link = E('a', attrs, tr(entry.label)); if (typeof options.onSelect == 'function') link.addEventListener('click', function (event) { if (event && event.preventDefault) event.preventDefault(); options.onSelect(entry); }); return link; }); }
+	};
+})();
+
+return Z2M;
