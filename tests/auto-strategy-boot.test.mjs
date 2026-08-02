@@ -113,8 +113,8 @@ test('missing current applied configuration requires a sanctioned manual restore
 
 test('production boot recovery validates last-good, uses persistent operation identity, and never creates a daemon', () => {
 	assert.match(SOURCE, /const AUTO_LAST_GOOD_MAX_BYTES = 16384;/);
-	assert.match(SOURCE, /export const auto_last_good_load = function/);
-	assert.match(SOURCE, /export const auto_boot_reconcile = function/);
+	assert.match(SOURCE, /export \{[\s\S]*auto_last_good_load/);
+	assert.match(SOURCE, /export \{[\s\S]*auto_boot_reconcile/);
 	assert.match(SOURCE, /proc_starttime/);
 	assert.match(SOURCE, /orchestra_apply_status/);
 	assert.match(SOURCE, /service\.uc rollback/);

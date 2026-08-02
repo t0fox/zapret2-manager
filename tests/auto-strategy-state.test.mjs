@@ -41,5 +41,5 @@ test('controller source persists only through an atomic regular-file path', () =
 	assert.match(SOURCE, /-L/);
 	assert.match(SOURCE, /mv -f/);
 	assert.match(SOURCE, /\.tmp\./);
-	assert.match(SOURCE, /export const auto_state_save = function/);
+	assert.match(SOURCE, /export \{[\s\S]*auto_state_save/);
 });

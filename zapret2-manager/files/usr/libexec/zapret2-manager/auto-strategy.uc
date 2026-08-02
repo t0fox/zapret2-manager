@@ -1,4 +1,3 @@
-#!/usr/bin/ucode
 'use strict';
 
 // Persistent state only.  Triggers and orchestration are deliberately kept in
@@ -60,7 +59,7 @@ function unique_services(value) {
 	return out;
 }
 
-export const auto_state_normalize = function(raw) {
+function auto_state_normalize(raw) {
 	let out = default_state();
 	if (type(raw) != 'object' || raw.schema != 1) return out;
 	out.revision = type(raw.revision) == 'int' && raw.revision >= 0 ? raw.revision : 0;
@@ -91,7 +90,7 @@ export const auto_state_normalize = function(raw) {
 	out.rpcRequests = bounded_rpc_requests(raw.rpcRequests);
 	out.lastError = type(raw.lastError) == 'string' ? substr(raw.lastError, 0, 240) : null;
 	return out;
-};
+}
 
 function state_path_safe() {
 	// The fixed parent and file path are never derived from RPC input.  Refuse a
@@ -103,7 +102,7 @@ function last_good_path_safe() { return command("[ ! -L '" + AUTO_LAST_GOOD_PATH
 function applied_config_hash() { let digest = command("sha256sum /opt/zapret2/config 2>/dev/null"); let bits = split(trim(digest.out), /[ ]+/); return digest.rc == 0 && length(bits) && hex_ok(bits[0]) ? bits[0] : null; }
 function last_good_metadata() { if (!last_good_path_safe()) return { ok: false, error: 'not a regular non-symlink file' }; if (command("[ -e '" + AUTO_LAST_GOOD_PATH + "' ]").rc != 0) return { ok: true, absent: true }; let meta = command("stat -c '%U %a %s' '" + AUTO_LAST_GOOD_PATH + "'"); let bits = split(trim(meta.out), /[ ]+/); if (meta.rc != 0 || length(bits) != 3 || bits[0] != 'root' || !match(bits[1], /^[0-6][0-5][0-5]$/) || !match(bits[2], /^[0-9]+$/) || +bits[2] > AUTO_LAST_GOOD_MAX_BYTES) return { ok: false, error: 'unsafe owner, mode, or size' }; return { ok: true, size: +bits[2] }; }
 function last_good_record_ok(raw) { if (type(raw) != 'object' || raw.schema != 1 || !opaque_ok(raw.generation, 64) || !opaque_ok(raw.candidateId, 128) || !hex_ok(raw.corpusDigest) || !opaque_ok(raw.profileRevision, 128) || !hex_ok(raw.profileHash) || !run_ok(raw.runId) || type(raw.serviceIds) != 'array' || !length(raw.serviceIds) || length(raw.serviceIds) > MAX_SERVICES || type(raw.evidenceIds) != 'array' || length(raw.evidenceIds) < 2 || length(raw.evidenceIds) > 32 || type(raw.runtimeVerification) != 'object' || raw.runtimeVerification.status != 'verified' || raw.runtimeVerification.queueOwnerMatches != true || type(raw.healthVerification) != 'object' || raw.healthVerification.requiredTargetsPassed != true || raw.healthVerification.confirmationPassed != true) return false; for (let i = 0; i < length(raw.serviceIds); i++) if (!service_ok(raw.serviceIds[i])) return false; for (let j = 0; j < length(raw.evidenceIds); j++) if (!opaque_ok(raw.evidenceIds[j], 160)) return false; return true; }
-export const auto_last_good_load = function() { let meta = last_good_metadata(); if (!meta.ok || meta.absent) return meta; try { let raw = json(readfile(AUTO_LAST_GOOD_PATH)); return last_good_record_ok(raw) ? { ok: true, record: raw } : { ok: false, error: 'invalid last-good record' }; } catch (e) { return { ok: false, error: 'invalid last-good JSON' }; } };
+function auto_last_good_load() { let meta = last_good_metadata(); if (!meta.ok || meta.absent) return meta; try { let raw = json(readfile(AUTO_LAST_GOOD_PATH)); return last_good_record_ok(raw) ? { ok: true, record: raw } : { ok: false, error: 'invalid last-good record' }; } catch (e) { return { ok: false, error: 'invalid last-good JSON' }; } }
 function last_good_load() { let loaded = auto_last_good_load(); return loaded.ok ? loaded.record : null; }
 function last_good_save(value) { if (!last_good_record_ok(value) || !last_good_path_safe()) return false; let tmp = AUTO_LAST_GOOD_PATH + '.tmp.' + time(); try { writefile(tmp, sprintf('%J', value) + '\n'); } catch (e) { return false; } if (command("chmod 600 '" + tmp + "'").rc != 0) { try { unlink(tmp); } catch (e) { } return false; } let moved = command("mv -f '" + tmp + "' '" + AUTO_LAST_GOOD_PATH + "'"); if (moved.rc != 0) { try { unlink(tmp); } catch (e) { } return false; } return true; }
 
@@ -113,12 +112,12 @@ function run_winners(runRecord) {
 	return length(winners) == length(runRecord.targets || []) ? winners : null;
 }
 
-export const auto_state_load = function() {
+function auto_state_load() {
 	if (!state_path_safe()) return { ok: false, error: { code: 'EPATH', message: 'auto strategy state path is not a regular manager-owned file' } };
 	let raw = null;
 	try { let text = readfile(AUTO_STATE_PATH); raw = text ? json(text) : null; } catch (e) { raw = null; }
 	return { ok: true, state: auto_state_normalize(raw) };
-};
+}
 
 function auto_state_corrupt() {
 	if (!state_path_safe()) return true;
@@ -126,7 +125,7 @@ function auto_state_corrupt() {
 	catch (e) { return true; }
 }
 
-export const auto_state_save = function(input, expectedRevision) {
+function auto_state_save(input, expectedRevision) {
 	let current = auto_state_load();
 	if (!current.ok) return current;
 	if (expectedRevision != null && expectedRevision != current.state.revision)
@@ -140,9 +139,9 @@ export const auto_state_save = function(input, expectedRevision) {
 	let moved = command("mv -f '" + tmp + "' '" + AUTO_STATE_PATH + "'");
 	if (moved.rc != 0) { try { unlink(tmp); } catch (e) { } return { ok: false, error: { code: 'EIO', message: 'could not atomically publish auto strategy state' } }; }
 	return { ok: true, state: state };
-};
+}
 
-export const auto_apply_pending = function(expectedRevision) {
+function auto_apply_pending(expectedRevision) {
 	let loaded = auto_state_load(); if (!loaded.ok) return loaded; let state = loaded.state;
 	if (expectedRevision != null && expectedRevision != state.revision) return { ok: false, error: { code: 'ECONFLICT', message: 'auto strategy revision mismatch' } };
 	if (!state.enabled || !run_ok(state.pendingApplyRunId) || state.activeRunId != null) return { ok: false, error: { code: 'ESTATE', message: 'no eligible pending Auto Strategy apply' } };
@@ -154,20 +153,20 @@ export const auto_apply_pending = function(expectedRevision) {
 	let evidence = []; for (let i = 0; i < length(winners); i++) for (let j = 0; j < length(winners[i].positiveEvidenceIds); j++) push(evidence, winners[i].positiveEvidenceIds[j]); let rt = applied.runtimeVerification, previous = last_good_load(), first = winners[0], lastGood = { schema: 1, generation: '' + time(), candidateId: first.candidateId, corpusDigest: record.candidateRegistryDigest, profileRevision: applied.operationId || null, profileHash: applied_config_hash() || preview.changeHash, serviceIds: [record.serviceId], runId: record.runId, evidenceIds: slice(evidence, 0, 32), runtimeVerification: { status: 'verified', pid: rt.daemonPid || null, processStarttime: null, queue: rt.queueOwner || null, queueOwnerMatches: rt.checks && rt.checks.ownerMatch == true }, healthVerification: { requiredTargetsPassed: true, confirmationPassed: true }, appliedAt: time(), previousLastGoodGeneration: previous && previous.generation || null };
 	if (!last_good_save(lastGood)) { state.phase = 'failed'; state.lastError = 'verified apply succeeded but persistent last-good commit failed'; auto_state_save(state, state.revision); return { ok: false, error: { code: 'EIO', message: state.lastError } }; }
 	state.phase = 'healthy'; state.pendingApplyRunId = null; state.lastGoodCandidateId = first.candidateId; state.lastGoodProfileRevision = applied.operationId || null; state.lastGoodEvidenceId = evidence[0] || null; state.lastSuccessAt = time(); state.lastError = null; let saved = auto_state_save(state, state.revision); return saved.ok ? { ok: true, state: saved.state, lastGood: lastGood, apply: applied } : saved;
-};
+}
 
-export const auto_state_transition = function(raw, kind, at) {
+function auto_state_transition(raw, kind, at) {
 	let state = auto_state_normalize(raw);
 	if (kind == 'healthy') { state.phase = state.enabled ? 'healthy' : 'disabled'; state.consecutiveFailures = 0; state.lastCheckAt = at; state.lastSuccessAt = at; state.lastError = null; }
 	else if (kind == 'strategy-failure') { state.phase = 'degraded'; state.consecutiveFailures = state.consecutiveFailures < MAX_FAILURES ? state.consecutiveFailures + 1 : MAX_FAILURES; state.lastCheckAt = at; state.lastFailureAt = at; }
 	return state;
-};
+}
 
 function uptime_seconds() { let raw = readfile('/proc/uptime') || ''; let bits = split(raw, ' '); return length(bits) ? +bits[0] : 0; }
 function wan_ready() { let r = command("ubus call network.interface.wan status"); try { let x = json(r.out); return r.rc == 0 && x && x.up == true; } catch (e) { return false; } }
-function dns_ready() { let raw = readfile('/tmp/resolv.conf.d/resolv.conf.auto') || ''; return match(raw, /^[ ]*nameserver[ ]+/m) != null; }
+function dns_ready() { let raw = readfile('/tmp/resolv.conf.d/resolv.conf.auto') || ''; return match(raw, /(^|\n)[ ]*nameserver[ ]+/) != null; }
 function engine_ready() { return command("pgrep -f '(^|/)nfqws2( |$)' >/dev/null 2>&1").rc == 0; }
-function queue_ready() { let raw = readfile('/proc/net/netfilter/nfnetlink_queue') || ''; return match(raw, /^[ ]*300[ ]/m) != null; }
+function queue_ready() { let raw = readfile('/proc/net/netfilter/nfnetlink_queue') || ''; return match(raw, /(^|\n)[ ]*300[ ]/) != null; }
 
 function health_class(matrix) {
 	if (!matrix || matrix.status != 'completed' || type(matrix.rows) != 'array' || !length(matrix.rows)) return { class: 'infrastructure', reason: 'health matrix unavailable or empty' };
@@ -239,7 +238,7 @@ function interrupted_apply_recovery(state, now) {
 	return true;
 }
 
-export const auto_boot_reconcile = function(state, now) {
+function auto_boot_reconcile(state, now) {
 	state.lastBootCheckAt = now;
 	let lastGood = auto_last_good_load();
 	if (!lastGood.ok && !lastGood.absent) { state.phase = 'failed'; state.recoveryStatus = 'manual-required'; state.lastError = 'last-good rejected: ' + lastGood.error; return { blocked: true, action: 'none' }; }
@@ -262,7 +261,7 @@ export const auto_boot_reconcile = function(state, now) {
 	else if (lastGood.ok) { state.divergenceStatus = 'divergent'; state.recoveryStatus = 'not-needed'; }
 	else { state.divergenceStatus = 'no-last-good'; state.recoveryStatus = 'not-needed'; }
 	return { blocked: false, action: 'none' };
-};
+}
 
 function rpc_error(code, message) { return { ok: false, error: { code: code, message: substr(message, 0, 160) } }; }
 function rpc_payload(op, input) { let ids = type(input) == 'object' && type(input.serviceIds) == 'array' ? join(input.serviceIds, '.') : ''; return op + ':' + ids + ':' + (input && input.overrideCooldown == true ? '1' : '0'); }
@@ -290,34 +289,34 @@ function rpc_save(state, admission, op, response) {
 	response.ok = true; response.revision = saved.state.revision; response.state = saved.state; return response;
 }
 
-export const auto_rpc_status = function() {
+function auto_rpc_status() {
 	let loaded = auto_state_load();
 	if (!loaded.ok) return rpc_error('ESTATE', 'auto strategy state path is unavailable');
 	if (auto_state_corrupt()) return { ok: true, schemaVersion: 1, revision: 0, enabled: false, phase: 'failed', serviceIds: [], consecutiveFailures: 0, activeRun: { runId: null, generation: null, startedAt: null, progress: null, cancellable: false }, currentApplied: { revision: null, hash: null }, lastGood: { available: false, candidateId: null, profileRevision: null, profileHash: null, appliedAt: null }, health: { status: 'unknown', lastCheckAt: null, lastSuccessAt: null, lastFailureAt: null }, infrastructure: { status: 'failed', reason: 'state-corrupt' }, cooldownUntil: null, lastError: 'state-corrupt', capabilities: { runNow: false, stop: false, restoreLastGood: false }, verifyRouter: [] };
 	let state = loaded.state, lastGood = auto_last_good_load(), active = state.activeRunId ? orchestra_run_status({ runId: state.activeRunId }) : null;
 	let activeRun = active && active.ok && active.run ? active.run : null;
-	let verified = lastGood.ok && lastGood.record.runtimeVerification && lastGood.record.runtimeVerification.status == 'verified';
+	let verified = lastGood.ok == true && lastGood.record != null && lastGood.record.runtimeVerification != null && lastGood.record.runtimeVerification.status == 'verified';
 	let recovery = state.phase == 'recovering' || state.recoveryStatus == 'required';
 	return { ok: true, schemaVersion: 1, revision: state.revision, enabled: state.enabled, phase: state.phase, serviceIds: state.serviceIds, consecutiveFailures: state.consecutiveFailures, activeRun: { runId: activeRun && activeRun.runId || null, generation: state.generation, startedAt: activeRun && activeRun.startedAt || null, progress: activeRun && activeRun.progress || null, cancellable: activeRun && activeRun.phase != 'applied' && activeRun.phase != 'completed' && !recovery || false }, currentApplied: { revision: state.currentAppliedRevision, hash: state.currentAppliedHash }, lastGood: { available: verified, candidateId: verified ? lastGood.record.candidateId : null, profileRevision: verified ? lastGood.record.profileRevision : null, profileHash: verified ? lastGood.record.profileHash : null, appliedAt: verified ? lastGood.record.appliedAt : null }, health: { status: state.phase == 'healthy' ? 'healthy' : state.phase == 'degraded' ? 'degraded' : state.infrastructureStatus == 'waiting' ? 'infrastructure-failure' : 'unknown', lastCheckAt: state.lastCheckAt, lastSuccessAt: state.lastSuccessAt, lastFailureAt: state.lastFailureAt }, infrastructure: { status: state.infrastructureStatus || 'unknown', reason: state.infrastructureStatus == 'waiting' ? state.lastError : null }, cooldownUntil: state.cooldownUntil, lastError: state.lastError, capabilities: { runNow: state.enabled && !state.activeRunId && !recovery && state.pendingApplyRunId == null, stop: state.activeRunId != null && !recovery, restoreLastGood: verified && !state.activeRunId && !recovery }, verifyRouter: verified ? ['PID/starttime, NFQUEUE ownership and rollback evidence require router verification'] : [] };
-};
+}
 
-export const auto_rpc_enable = function(input) {
+function auto_rpc_enable(input) {
 	let loaded = auto_state_load(); if (!loaded.ok) return loaded; let state = loaded.state, admission = rpc_admit(state, input, 'enable'); if (!admission.ok) return admission.response;
 	let services = rpc_services(input); if (!services.ok) return services.error;
 	state.enabled = true; state.serviceIds = services.serviceIds; state.phase = 'waiting-network'; state.scanRequestedAt = null; state.disableRequested = false;
 	admission.requestId = input.requestId; return rpc_save(state, admission, 'enable', { accepted: true, status: 'health-first' });
-};
+}
 
-export const auto_rpc_disable = function(input) {
+function auto_rpc_disable(input) {
 	let loaded = auto_state_load(); if (!loaded.ok) return loaded; let state = loaded.state, admission = rpc_admit(state, input, 'disable'); if (!admission.ok) return admission.response;
 	if (!state.enabled && state.activeRunId == null && state.pendingApplyRunId == null && state.phase != 'applying' && state.phase != 'verifying' && state.phase != 'recovering') return { ok: true, status: 'already-disabled', revision: state.revision };
 	let cancellation = false, pending = state.phase == 'applying' || state.phase == 'verifying' || state.phase == 'recovering';
 	if (state.activeRunId != null && state.phase == 'scanning') { let stopped = orchestra_run_stop({ runId: state.activeRunId }); if (!stopped.ok) return rpc_error('EINTERNAL', 'could not request scan cancellation'); cancellation = true; }
 	state.enabled = false; state.disableRequested = pending; if (!pending && state.activeRunId == null) state.phase = 'disabled';
 	admission.requestId = input.requestId; return rpc_save(state, admission, 'disable', { accepted: true, status: pending ? 'disable-pending-safe-completion' : 'disabled', cancellationRequested: cancellation, disablePendingSafeCompletion: pending });
-};
+}
 
-export const auto_rpc_run = function(input) {
+function auto_rpc_run(input) {
 	let loaded = auto_state_load(); if (!loaded.ok) return loaded; let state = loaded.state, admission = rpc_admit(state, input, 'run'); if (!admission.ok) return admission.response;
 	let services = rpc_services(input); if (!services.ok) return services.error;
 	if (!state.enabled) return rpc_error('EDISABLED', 'Auto Strategy is disabled');
@@ -329,17 +328,17 @@ export const auto_rpc_run = function(input) {
 	let lastGood = auto_last_good_load(), current = current_applied_state(); if (!lastGood.ok || !current.present) return rpc_error('ENOLASTGOOD', 'verified rollback baseline is unavailable');
 	state.serviceIds = services.serviceIds; let started = start_scan(state, time()); if (!started.ok) return rpc_error('EINTERNAL', 'existing bounded orchestra scan could not start'); state.generation++;
 	admission.requestId = input.requestId; return rpc_save(state, admission, 'run', { accepted: true, status: 'accepted', runId: state.activeRunId, generation: state.generation, asynchronous: true, statusMethod: 'orchestra_auto_status' });
-};
+}
 
-export const auto_rpc_stop = function(input) {
+function auto_rpc_stop(input) {
 	let loaded = auto_state_load(); if (!loaded.ok) return loaded; let state = loaded.state, admission = rpc_admit(state, input, 'stop'); if (!admission.ok) return admission.response;
 	if (state.phase == 'recovering' || state.recoveryStatus == 'required') return rpc_error('ERECOVERY', 'recovery cannot be interrupted');
 	if (state.activeRunId == null) { if (state.pendingApplyRunId != null) { state.pendingApplyRunId = null; state.phase = 'degraded'; admission.requestId = input.requestId; return rpc_save(state, admission, 'stop', { accepted: true, status: 'stopped-pending-candidate' }); } return { ok: true, status: 'not-running', revision: state.revision }; }
 	let stopped = orchestra_run_stop({ runId: state.activeRunId }); if (!stopped.ok) return rpc_error('EINTERNAL', 'scan cancellation could not be requested');
 	admission.requestId = input.requestId; return rpc_save(state, admission, 'stop', { accepted: true, status: 'cancellation-requested', runId: state.activeRunId, cancellationRequested: true });
-};
+}
 
-export const auto_rpc_restore = function(input) {
+function auto_rpc_restore(input) {
 	let loaded = auto_state_load(); if (!loaded.ok) return loaded; let state = loaded.state, admission = rpc_admit(state, input, 'restore'); if (!admission.ok) return admission.response;
 	if (state.activeRunId != null || state.pendingApplyRunId != null || state.phase == 'applying' || state.phase == 'verifying' || state.phase == 'recovering') return rpc_error('EBUSY', 'another operation is active');
 	let lastGood = auto_last_good_load(); if (!lastGood.ok) return rpc_error('ENOLASTGOOD', 'verified last-good record is unavailable');
@@ -351,9 +350,9 @@ export const auto_rpc_restore = function(input) {
 	if (!confirmed || !confirmed.ok) { run('/usr/bin/ucode /usr/libexec/zapret2-manager/service.uc rollback'); return rpc_error('EVERIFY', 'restored target confirmation failed and rollback was requested'); }
 	state.phase = 'healthy'; state.currentAppliedHash = lastGood.record.profileHash; state.currentAppliedRevision = lastGood.record.profileRevision; state.lastSuccessAt = time(); state.lastError = null;
 	admission.requestId = input.requestId; return rpc_save(state, admission, 'restore', { accepted: true, status: 'restored', operationId: applied.operationId, asynchronous: false, verificationStatus: 'verified' });
-};
+}
 
-export const auto_controller_tick = function() {
+function auto_controller_tick() {
 	let loaded = auto_state_load(); if (!loaded.ok) return loaded;
 	let state = loaded.state, now = time();
 	if (!state.enabled) { state.phase = 'disabled'; return auto_state_save(state, state.revision); }
@@ -371,4 +370,9 @@ export const auto_controller_tick = function() {
 	let started = health_matrix_start({ services: state.serviceIds });
 	if (!started.ok) { infrastructure_backoff(state, now, started.error && started.error.message || 'health matrix unavailable'); return auto_state_save(state, state.revision); }
 	state.lastCheckAt = now; let saved = auto_state_save(state, state.revision); if (saved.ok) saved.action = 'health-check'; return saved;
-};
+}
+
+export { auto_state_normalize, auto_last_good_load, auto_state_load, auto_state_save,
+	auto_apply_pending, auto_state_transition, auto_boot_reconcile, auto_rpc_status,
+	auto_rpc_enable, auto_rpc_disable, auto_rpc_run, auto_rpc_stop, auto_rpc_restore,
+	auto_controller_tick };

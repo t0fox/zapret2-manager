@@ -21,6 +21,12 @@ test('status never upgrades partial runtime verification to verified', () => {
 	assert.equal(out.lastGood.available, false); assert.equal(out.verifyRouter.includes('runtime verification remains router evidence'), true);
 });
 
+test('target ucode status guards an absent last-good record before reading nested verification', () => {
+	assert.match(SOURCE, /lastGood\.ok == true && lastGood\.record != null && lastGood\.record\.runtimeVerification != null/);
+	const out = autoStatus({ ...base, lastGoodHash: null }, { lastGood: false });
+	assert.equal(out.ok, true); assert.equal(out.lastGood.available, false); assert.equal(out.revision, base.revision);
+});
+
 test('enable validates revision, service list, idempotency, and preserves last-good', () => {
 	const ok = autoRequest(base, request('enable'));
 	assert.equal(ok.ok, true); assert.equal(ok.state.enabled, true); assert.equal(ok.state.phase, 'waiting-network'); assert.equal(ok.action, 'health-first');
@@ -102,9 +108,9 @@ test('production exposes one compatible RPC namespace with narrow read/write ACL
 	assert.ok(ACL.read.ubus['zapret2-manager'].includes('orchestra_auto_status'));
 	for (const method of ['orchestra_auto_enable', 'orchestra_auto_disable', 'orchestra_auto_run', 'orchestra_auto_stop', 'orchestra_auto_restore']) assert.ok(ACL.write.ubus['zapret2-manager'].includes(method));
 	assert.equal(ACL.read.ubus['zapret2-manager'].includes('orchestra_auto_run'), false);
-	assert.match(SOURCE, /export const auto_rpc_status = function/);
-	assert.match(SOURCE, /export const auto_rpc_enable = function/);
-	assert.match(SOURCE, /export const auto_rpc_restore = function/);
+	assert.match(SOURCE, /export \{[\s\S]*auto_rpc_status/);
+	assert.match(SOURCE, /export \{[\s\S]*auto_rpc_enable/);
+	assert.match(SOURCE, /export \{[\s\S]*auto_rpc_restore/);
 	assert.match(SOURCE, /orchestra_run_stop/);
 	assert.match(SOURCE, /orchestra_preview_best/);
 	assert.doesNotMatch(SOURCE, /writefile\('\/opt\/zapret2\/config/);

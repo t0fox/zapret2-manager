@@ -61,12 +61,20 @@ cp "$SDK/public-key.pem" "$SDK/staging_dir/etc/apk/keys/z2m-build.pub"
 OUTDIR="$SDK/bin/packages/aarch64_cortex-a53/zapret2-manager"
 mkdir -p "$OUTDIR"
 
-# Version comes from the package Makefiles (single source), never a stale
-# hardcode: PKG_VERSION + PKG_RELEASE of zapret2-manager (both packages bump
-# together in this project). Override with VER=.
-_PV="$(sed -n 's/^PKG_VERSION:=//p' "$REPO/zapret2-manager/Makefile" | head -1)"
-_PR="$(sed -n 's/^PKG_RELEASE:=//p' "$REPO/zapret2-manager/Makefile" | head -1)"
-VER="${VER:-${_PV:-0.1.0}-r${_PR:-1}}"
+# Package metadata is the version authority. M8 keeps the backend, LuCI and
+# full-stack release synchronized, but the manual builder still reads each
+# package's own Makefile so an accidental divergence cannot mislabel an APK.
+# VER= remains an explicit reproducible-build override for all three.
+package_version() {
+  _pkg="$1"
+  _pv="$(sed -n 's/^PKG_VERSION:=//p' "$REPO/$_pkg/Makefile" | head -1)"
+  _pr="$(sed -n 's/^PKG_RELEASE:=//p' "$REPO/$_pkg/Makefile" | head -1)"
+  [ -n "$_pv" ] && [ -n "$_pr" ] || { echo "FATAL: package version missing for $_pkg" >&2; exit 1; }
+  printf '%s-r%s' "$_pv" "$_pr"
+}
+MGR_VER="${VER:-$(package_version zapret2-manager)}"
+LUCI_VER="${VER:-$(package_version luci-app-zapret2-manager)}"
+FULL_VER="${VER:-$(package_version zapret2-manager-full)}"
 
 # mkfile <path> — write a postinst/postrm body from stdin to a temp file.
 # Use a unique file in a writable home dir: mktemp in WSL defaults to root-owned
@@ -180,7 +188,7 @@ EOF
 build_one "zapret2-manager" \
   "Management backend for upstream zapret2" \
   "zapret2 ucode" \
-  "$R" "$ZPI" "" "" "$ZPRE"
+  "$R" "$ZPI" "" "" "$ZPRE" "$MGR_VER"
 rm -rf "$R" "$ZPI" "$ZPRE"
 
 # ---- luci-app-zapret2-manager ------------------------------------------------
@@ -221,7 +229,7 @@ EOF
 build_one "luci-app-zapret2-manager" \
   "LuCI frontend for zapret2-manager" \
   "luci-base zapret2-manager" \
-  "$R" "$LPI" "$LPR"
+  "$R" "$LPI" "$LPR" "" "" "$LUCI_VER"
 rm -rf "$R" "$LPI" "$LPR"
 
 # ---- tg-ws-proxy-rs (optional, pinned upstream binary) ------------------------
@@ -358,7 +366,7 @@ EOF
 build_one "zapret2-manager" \
   "Management backend for upstream zapret2" \
   "zapret2 ucode" \
-  "$R" "$ZPI" "" "" "$ZPRE"
+  "$R" "$ZPI" "" "" "$ZPRE" "$MGR_VER"
 rm -rf "$R" "$ZPI" "$ZPRE"
 
 # ---- zapret2-manager-full (meta-package: one-command install of the full stack) -
@@ -368,7 +376,7 @@ mkdir -p "$R"
 build_one "zapret2-manager-full" \
   "Full zapret2-manager stack (backend + LuCI + TG proxy) — one-command install" \
   "zapret2-manager luci-app-zapret2-manager tg-ws-proxy-rs" \
-  "$R" "" "" "" "" "$VER"
+  "$R" "" "" "" "" "$FULL_VER"
 rm -rf "$R"
 
 # ---- Create deploy-level signed index (all packages, for deploy.sh) ------------

@@ -26,7 +26,7 @@ test('production delegates apply and rollback to sanctioned Orchestra path', () 
 	assert.match(SOURCE, /orchestra_preview_best/);
 	assert.match(SOURCE, /orchestra_apply_best/);
 	assert.match(SOURCE, /verify_service_targets/);
-	assert.match(SOURCE, /export const auto_apply_pending = function/);
+	assert.match(SOURCE, /export \{[\s\S]*auto_apply_pending/);
 	assert.match(SOURCE, /service\.uc rollback/);
 	assert.match(SOURCE, /runtimeVerification\.ok != true/);
 });

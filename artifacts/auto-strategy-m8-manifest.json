@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "milestone": "M8",
+  "source": {
+    "gitHead": "6c901c33a2bb52829d0e5104b620cca34a2a193e",
+    "worktreeState": "dirty: M8 package-release and build-version consistency changes",
+    "buildTimestamp": "2026-08-02T18:13:01+03:00"
+  },
+  "build": {
+    "command": "wsl.exe -d Ubuntu -- bash /mnt/g/zapret2-manager/tools/build-apk-manual.sh",
+    "sdk": "OpenWrt SDK 25.12.5 mediatek_filogic",
+    "architecture": "aarch64_cortex-a53",
+    "signatureVerification": "apk verify with the SDK trust store: PASS"
+  },
+  "packages": [
+    {
+      "fileName": "zapret2-manager-0.1.0-r119.apk",
+      "packageName": "zapret2-manager",
+      "version": "0.1.0-r119",
+      "architecture": "aarch64_cortex-a53",
+      "dependencies": ["ucode", "zapret2"],
+      "sizeBytes": 2234696,
+      "sha256": "a48f09ab6ea0b76c248163ce47efd1c47d41b777d218476c0002c8251fdb2eef"
+    },
+    {
+      "fileName": "luci-app-zapret2-manager-0.1.0-r119.apk",
+      "packageName": "luci-app-zapret2-manager",
+      "version": "0.1.0-r119",
+      "architecture": "aarch64_cortex-a53",
+      "dependencies": ["luci-base", "zapret2-manager"],
+      "sizeBytes": 95778,
+      "sha256": "2d06b4e7e3c7d6cc6963f292c3631b5513c4fd6539fe7d67e3473634cb302fd8"
+    },
+    {
+      "fileName": "zapret2-manager-full-0.1.0-r119.apk",
+      "packageName": "zapret2-manager-full",
+      "version": "0.1.0-r119",
+      "architecture": "aarch64_cortex-a53",
+      "dependencies": ["zapret2-manager", "luci-app-zapret2-manager", "tg-ws-proxy-rs"],
+      "sizeBytes": 412,
+      "sha256": "a1f405e77782b4c225ef20eecd14a607dec31f26c01117f5144a00ce8c244fe0"
+    },
+    {
+      "fileName": "tg-ws-proxy-rs-1.6.5-r2.apk",
+      "packageName": "tg-ws-proxy-rs",
+      "version": "1.6.5-r2",
+      "architecture": "aarch64_cortex-a53",
+      "dependencies": [],
+      "sizeBytes": 1930792,
+      "sha256": "df427741e10548ed9553c0a0977681fe75120c0cdd102c1a05cdcd34d31f7f33"
+    }
+  ],
+  "repositoryIndex": {
+    "fileName": "packages.adb",
+    "sizeBytes": 18199,
+    "sha256": "f024126dcf3f946f4e10d00179ce72798ca25e39146bc065382d3817082ba6c2"
+  }
+}

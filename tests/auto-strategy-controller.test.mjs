@@ -41,7 +41,7 @@ test('controller source centralizes minimum intervals and starts only existing h
 	assert.match(SOURCE, /const HEALTH_INTERVAL_SEC = 30;/);
 	assert.match(SOURCE, /const SCAN_COOLDOWN_SEC = 900;/);
 	assert.match(SOURCE, /health_matrix_start/);
-	assert.match(SOURCE, /export const auto_controller_tick = function/);
+	assert.match(SOURCE, /export \{[\s\S]*auto_controller_tick/);
 	assert.doesNotMatch(SOURCE, /nft add|iptables/);
 });
 
