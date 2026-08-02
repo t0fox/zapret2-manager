@@ -101,7 +101,7 @@ function Invoke-Git {
 
 function Get-SshArgs {
     $a = @('-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new', '-o', 'ConnectTimeout=8', '-p', "$RouterPort")
-    if ($SshKey) { $a += @('-i', $SshKey) }
+    if ($SshKey -and (Test-Path -LiteralPath $SshKey)) { $a += @('-i', $SshKey) }
     $a
 }
 
@@ -115,7 +115,7 @@ function Invoke-Router {
 function Copy-ToRouter {
     param([Parameter(Mandatory)] [string] $LocalPath, [Parameter(Mandatory)] [string] $RemotePath)
     $scpArgs = @('-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new', '-o', 'ConnectTimeout=8', '-P', "$RouterPort")
-    if ($SshKey) { $scpArgs += @('-i', $SshKey) }
+    if ($SshKey -and (Test-Path -LiteralPath $SshKey)) { $scpArgs += @('-i', $SshKey) }
     $scpArgs += @($LocalPath, "$RouterUser@${Router}:$RemotePath")
     Invoke-Native -File 'scp' -Arguments $scpArgs | Out-Null
 }
@@ -305,7 +305,10 @@ LuCI -> System -> Administration -> SSH-Keys.
         Write-Good "router reachable: $(($probe.Output -split "`n" | Select-Object -Skip 1) -join ' | ')"
         if ($probe.Output -match 'ucode-missing') { Write-Warn2 'ucode not found on the router; the remote syntax check will be skipped' }
 
-        $free = [int]((Invoke-Router "df -k /tmp | awk 'NR==2{print `$4}'").Output.Trim())
+        $dfOut = (Invoke-Router "df -k /tmp | awk 'NR==2{print `$4}'").Output
+        $freeLine = $dfOut -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '^\d+$' } | Select-Object -Last 1
+        if (-not $freeLine) { Fail "could not read /tmp free space from the router; df returned: $dfOut" }
+        $free = [int]$freeLine
         if ($free -lt $MinTmpKb) { Fail "/tmp free space is ${free}K, below the ${MinTmpKb}K floor; clean /tmp before deploying" }
         Write-Good "/tmp free space ${free}K"
     }
@@ -493,7 +496,8 @@ function Invoke-Verify {
         $local = Join-Path $RepoPath "$PkgDir/$name"
         if (-not (Test-Path -LiteralPath $local)) { continue }
         $localHash = (Get-FileHash -LiteralPath $local -Algorithm SHA256).Hash.ToLower()
-        $remoteOut = (Invoke-Router "sha256sum '$RemoteDir/$name' 2>/dev/null | awk '{print `$1}'" -AllowFailure).Output.Trim()
+        $remoteRaw = (Invoke-Router "sha256sum '$RemoteDir/$name' 2>/dev/null | awk '{print `$1}'" -AllowFailure).Output
+        $remoteOut = $remoteRaw -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '^[0-9a-f]{64}$' } | Select-Object -Last 1
         if ($remoteOut -ne $localHash) {
             $bad += "$name  local=$localHash  router=$($remoteOut ? $remoteOut : '<missing>')"
         }
