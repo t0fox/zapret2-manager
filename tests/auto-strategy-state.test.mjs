@@ -11,7 +11,7 @@ test('auto state defaults are disabled and complete', () => {
 		consecutiveFailures: 0, activeRunId: null, lastGoodCandidateId: null,
 		lastGoodProfileRevision: null, lastGoodEvidenceId: null, lastCheckAt: null,
 		lastSuccessAt: null, lastFailureAt: null, lastRunAt: null, cooldownUntil: null,
-		lastHealthJobId: null, infrastructureFailures: 0, scanRequestedAt: null, lastError: null
+		lastHealthJobId: null, infrastructureFailures: 0, scanRequestedAt: null, pendingApplyRunId: null, lastError: null
 	});
 });
 

@@ -5,6 +5,7 @@
 // later milestones so this module remains the single, auditable state owner.
 import { readfile, writefile, mkdir, unlink, popen } from 'fs';
 import { health_matrix_start, health_matrix_get } from './jobs.uc';
+import { orchestra_run_start, orchestra_run_status } from './orchestra-run.uc';
 
 const AUTO_STATE_PATH = '/etc/zapret2-manager/auto-strategy.json';
 const AUTO_STATE_DIR = '/etc/zapret2-manager';
@@ -26,7 +27,7 @@ function command(cmd) {
 }
 
 function default_state() {
-	return { schema: 1, revision: 0, enabled: false, serviceIds: [], phase: 'disabled', consecutiveFailures: 0, activeRunId: null, lastGoodCandidateId: null, lastGoodProfileRevision: null, lastGoodEvidenceId: null, lastCheckAt: null, lastSuccessAt: null, lastFailureAt: null, lastRunAt: null, cooldownUntil: null, lastHealthJobId: null, infrastructureFailures: 0, scanRequestedAt: null, lastError: null };
+	return { schema: 1, revision: 0, enabled: false, serviceIds: [], phase: 'disabled', consecutiveFailures: 0, activeRunId: null, lastGoodCandidateId: null, lastGoodProfileRevision: null, lastGoodEvidenceId: null, lastCheckAt: null, lastSuccessAt: null, lastFailureAt: null, lastRunAt: null, cooldownUntil: null, lastHealthJobId: null, infrastructureFailures: 0, scanRequestedAt: null, pendingApplyRunId: null, lastError: null };
 }
 
 function phase_ok(value) {
@@ -67,6 +68,7 @@ export const auto_state_normalize = function(raw) {
 	out.lastHealthJobId = opaque_ok(raw.lastHealthJobId, 128) && substr(raw.lastHealthJobId, 0, 4) == 'job-' ? raw.lastHealthJobId : null;
 	out.infrastructureFailures = type(raw.infrastructureFailures) == 'int' ? (raw.infrastructureFailures < 0 ? 0 : (raw.infrastructureFailures > MAX_FAILURES ? MAX_FAILURES : raw.infrastructureFailures)) : 0;
 	out.scanRequestedAt = number_or_null(raw.scanRequestedAt);
+	out.pendingApplyRunId = run_ok(raw.pendingApplyRunId) ? raw.pendingApplyRunId : null;
 	out.lastError = type(raw.lastError) == 'string' ? substr(raw.lastError, 0, 240) : null;
 	return out;
 };
@@ -142,15 +144,39 @@ function observe_health(state, verdict, now) {
 	return 'none';
 }
 
+function auto_run_request(serviceId) {
+	return { targetType: 'service', targetId: serviceId, candidateMode: 'zapret2gui-only', repeats: 2, perAttemptTimeoutSec: 20, totalTimeoutSec: 600 };
+}
+
+function start_scan(state, now) {
+	if (!length(state.serviceIds)) { infrastructure_backoff(state, now, 'no Auto Strategy service is selected'); return { ok: false, action: 'none' }; }
+	let started = orchestra_run_start(auto_run_request(state.serviceIds[0]));
+	if (!started.ok || !started.run || !run_ok(started.run.runId)) { infrastructure_backoff(state, now, started.error && started.error.message || 'orchestra scan could not start'); return { ok: false, action: 'none' }; }
+	state.phase = 'scanning'; state.activeRunId = started.run.runId; state.scanRequestedAt = null; state.lastRunAt = now; state.lastError = null;
+	return { ok: true, action: 'scan' };
+}
+
+function reconcile_scan(state, now) {
+	let status = orchestra_run_status({ runId: state.activeRunId });
+	if (!status.ok || !status.run) { infrastructure_backoff(state, now, 'active orchestra run is unavailable'); state.activeRunId = null; return 'none'; }
+	let run = status.run;
+	if (run.phase != 'completed' && run.phase != 'failed' && run.phase != 'stopped' && run.phase != 'timed-out' && run.phase != 'interrupted' && run.phase != 'infrastructure-error') return 'none';
+	state.activeRunId = null; state.scanRequestedAt = null; state.lastRunAt = now;
+	if (run.phase == 'completed' && run.serviceVerdict == 'ready' && run.candidateEvidenceUsable == true) { state.phase = 'applying'; state.pendingApplyRunId = run.runId; state.lastError = null; return 'apply'; }
+	state.phase = 'cooldown'; state.cooldownUntil = now + SCAN_COOLDOWN_SEC; state.lastError = 'no confirmed winner from run ' + run.runId;
+	return 'no-winner';
+}
+
 export const auto_controller_tick = function() {
 	let loaded = auto_state_load(); if (!loaded.ok) return loaded;
 	let state = loaded.state, now = time();
 	if (!state.enabled) { state.phase = 'disabled'; return auto_state_save(state, state.revision); }
+	if (state.activeRunId != null) { let action = reconcile_scan(state, now); let saved = auto_state_save(state, state.revision); if (saved.ok) saved.action = action; return saved; }
 	if (uptime_seconds() < BOOT_DELAY_SEC) { state.phase = 'waiting-network'; return auto_state_save(state, state.revision); }
 	if (!wan_ready() || !dns_ready() || !engine_ready() || !queue_ready()) { infrastructure_backoff(state, now, 'WAN, DNS, nfqws2, or NFQUEUE is unavailable'); return auto_state_save(state, state.revision); }
 	if (state.cooldownUntil != null && now < state.cooldownUntil) return { ok: true, state: state, action: 'none' };
 	let health = health_matrix_get(), matrix = health.ok ? health.matrix : null;
-	if (matrix && matrix.status == 'completed' && matrix.id != state.lastHealthJobId) { state.lastHealthJobId = matrix.id; let action = observe_health(state, health_class(matrix), now); let saved = auto_state_save(state, state.revision); if (saved.ok) saved.action = action; return saved; }
+	if (matrix && matrix.status == 'completed' && matrix.id != state.lastHealthJobId) { state.lastHealthJobId = matrix.id; let action = observe_health(state, health_class(matrix), now); if (action == 'scan') action = start_scan(state, now).action; let saved = auto_state_save(state, state.revision); if (saved.ok) saved.action = action; return saved; }
 	if (matrix && (matrix.status == 'pending' || matrix.status == 'running')) return { ok: true, state: state, action: 'none' };
 	if (state.lastCheckAt != null && now - state.lastCheckAt < HEALTH_INTERVAL_SEC) return { ok: true, state: state, action: 'none' };
 	let started = health_matrix_start({ services: state.serviceIds });

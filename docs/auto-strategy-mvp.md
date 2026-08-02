@@ -66,6 +66,11 @@ positive evidence IDs, current run/generation evidence, and a better baseline.
    backoff, 15-minute scan cooldown, and exactly-three strategy failures before
    requesting a scan.  It starts only the existing bounded health-matrix job.
 4. M3: bounded orchestration and deterministic winner/no-winner selection.
+   **Implemented:** a scan request delegates to one existing registry-backed
+   service run with two attempts, 20-second probes and a 10-minute deadline.
+   Existing orchestra ranking, evidence IDs, confirmation and cancellation stay
+   authoritative.  A non-ready/infrastructure/terminal run preserves APPLIED
+   and enters cooldown; only a ready evidenced run becomes a pending apply.
 5. M4: sanctioned apply, verification, rollback and last-good commit.
 6. M5: boot/recovery path.
 7. M6: compatible RPC controls.
