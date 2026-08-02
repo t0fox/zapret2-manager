@@ -7,6 +7,7 @@ const root = path.resolve(import.meta.dirname, '..');
 const managerInit = fs.readFileSync(path.join(root, 'zapret2-manager/files/etc/init.d/zapret2-manager'), 'utf8');
 const watchdog = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/watchdog.uc'), 'utf8');
 const makefile = fs.readFileSync(path.join(root, 'zapret2-manager/Makefile'), 'utf8');
+const manualBuild = fs.readFileSync(path.join(root, 'tools/build-apk-manual.sh'), 'utf8');
 const games = path.join(root, 'zapret2-manager/files/etc/zapret2-manager/ipset/games.txt');
 const steam = path.join(root, 'zapret2-manager/files/etc/zapret2-manager/ipset/steam.txt');
 
@@ -30,3 +31,7 @@ test('boot 17: paused state blocks recovery', () => assert.match(watchdog, /stat
 test('boot 18: a process-only result is not the NFQUEUE proof', () => assert.match(watchdog, /NFQUEUE .* not registered/));
 test('boot 19: repeated watchdog cycles retain one upstream service owner', () => assert.match(watchdog, /\/etc\/init\.d\/zapret2 start/));
 test('boot 20: manual sanctioned check path remains available', () => assert.match(managerInit, /extra_command "check"/));
+test('boot 21: manual APK staging preserves argv-referenced ipset inputs', () => {
+  assert.match(manualBuild, /ipset\/games\.txt/);
+  assert.match(manualBuild, /ipset\/steam\.txt/);
+});

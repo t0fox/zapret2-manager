@@ -121,10 +121,16 @@ build_one() {
 # failed with "failed to load script: Is a directory" — that was an arg-shift
 # bug (the postinst slot received $R), NOT `--files <dir>`, which works fine.
 R="$HOME/z2m-build/root"
-mkdir -p "$R/etc/zapret2-manager" "$R/usr/libexec/zapret2-manager" \
+mkdir -p "$R/etc/zapret2-manager/ipset" "$R/usr/libexec/zapret2-manager" \
          "$R/usr/share/rpcd/ucode" "$R/etc/hotplug.d/iface" "$R/etc/init.d" "$R/etc/zapret2-manager/presets" "$R/usr/share/zapret2-manager/presets"
 install -m 0644 "$REPO/zapret2-manager/files/etc/zapret2-manager/state.json" \
                 "$R/etc/zapret2-manager/state.json"
+# Keep the manual package tree faithful to Package/zapret2-manager/install:
+# upstream owns nfqws2 but its persisted argv references these two inputs.
+install -m 0644 "$REPO/zapret2-manager/files/etc/zapret2-manager/ipset/games.txt" \
+                "$R/etc/zapret2-manager/ipset/games.txt"
+install -m 0644 "$REPO/zapret2-manager/files/etc/zapret2-manager/ipset/steam.txt" \
+                "$R/etc/zapret2-manager/ipset/steam.txt"
 for f in "$REPO/zapret2-manager/files/usr/share/zapret2-manager/presets"/*.txt; do install -m 0644 "$f" "$R/usr/share/zapret2-manager/presets/"; done
 # Backend ucode is enumerated with a GLOB, not a hardcoded list (a per-file
 # list silently drops new modules — the exact defect class the packaging gate
@@ -301,11 +307,15 @@ echo "Signing feed index with $SDK/private-key.pem"
 
 # ---- zapret2-manager (rebuild with bundled tg-ws-proxy-rs feed) ----------------
 R="$HOME/z2m-build/root"
-mkdir -p "$R/etc/zapret2-manager" "$R/usr/libexec/zapret2-manager" \
+mkdir -p "$R/etc/zapret2-manager/ipset" "$R/usr/libexec/zapret2-manager" \
          "$R/usr/share/rpcd/ucode" "$R/etc/hotplug.d/iface" "$R/etc/init.d" \
          "$R/usr/share/zapret2-manager/feed" "$R/etc/zapret2-manager/presets" "$R/usr/share/zapret2-manager/presets"
 install -m 0644 "$REPO/zapret2-manager/files/etc/zapret2-manager/state.json" \
                 "$R/etc/zapret2-manager/state.json"
+install -m 0644 "$REPO/zapret2-manager/files/etc/zapret2-manager/ipset/games.txt" \
+                "$R/etc/zapret2-manager/ipset/games.txt"
+install -m 0644 "$REPO/zapret2-manager/files/etc/zapret2-manager/ipset/steam.txt" \
+                "$R/etc/zapret2-manager/ipset/steam.txt"
 for f in "$REPO/zapret2-manager/files/usr/share/zapret2-manager/presets"/*.txt; do install -m 0644 "$f" "$R/usr/share/zapret2-manager/presets/"; done
 for f in "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager"/*.uc; do
   install -m 0644 "$f" "$R/usr/libexec/zapret2-manager/"
