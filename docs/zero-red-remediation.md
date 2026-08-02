@@ -4,44 +4,48 @@ Starting HEAD: `4ea9e00b79a773055328e7342324ee2632cb4534`. Baseline: 976 green, 
 
 | ID | Group | Test file | Production owner | Symptom | Root cause | Fix | Status | Commit |
 |---|---|---|---|---|---|---|---|---|
-| typed websocket evidence | service contract | discord-service-contract | discord/orchestra | typed-evidence assertion fails | contract drift | pending | open | — |
-| provider test-all wiring | DNS contract | dns-regressions | dnsprov RPC/UI | setup wiring assertion fails | request contract drift | pending | open | — |
-| bare APK negative control | provenance | release-provenance | build/deploy metadata | R16 negative control fails | provenance contract drift | pending | open | — |
-| clear pending on denied/conflict | Service DNS | service-dns-contract | service-dns UI | pending operation remains | UI error contract drift | pending | open | — |
-| ucode no-sugar | target ucode | ucode-no-sugar | shipped ucode | unsupported syntax report | target compatibility debt | pending | open | — |
-| lists domain wire | UI/RPC | rpc-semantics | lists UI/RPC | domain payload mismatch | wire contract drift | pending | open | — |
-| lists apply wire | UI/RPC | rpc-semantics | lists UI/RPC | edit payload mismatch | wire contract drift | pending | open | — |
-| lists anti-wipe | UI/RPC | rpc-semantics | lists UI | unsafe error rendering | UI state contract drift | pending | open | — |
-| monitor stale poll | UI/RPC | rpc-semantics | monitor UI | stale-state contract fails | UI state contract drift | pending | open | — |
-| strategies profile list | UI/RPC | rpc-semantics | strategies UI/RPC | profile rendering mismatch | wire/render contract drift | pending | open | — |
-| strategies create draft | UI/RPC | rpc-semantics | strategies UI/RPC | create payload mismatch | wire contract drift | pending | open | — |
-| strategies edit save | UI/RPC | rpc-semantics | strategies UI/RPC | edit payload mismatch | wire contract drift | pending | open | — |
-| strategies edit conflict | UI/RPC | rpc-semantics | strategies UI | conflict state mismatch | UI error contract drift | pending | open | — |
-| strategies malformed draft | UI/RPC | rpc-semantics | strategies UI | preserved warning mismatch | UI state contract drift | pending | open | — |
-| strategies guided option | UI/RPC | rpc-semantics | strategies UI | editor mutation mismatch | UI state contract drift | pending | open | — |
-| strategies preview/apply | UI/RPC | rpc-semantics | strategies UI/RPC | preview presentation mismatch | async contract drift | pending | open | — |
-| strategies refused preview | UI/RPC | rpc-semantics | strategies UI | refusal state mismatch | UI error contract drift | pending | open | — |
-| strategies apply success | UI/RPC | rpc-semantics | strategies UI | verification rendering mismatch | UI render contract drift | pending | open | — |
-| strategies apply rollback | UI/RPC | rpc-semantics | strategies UI | rollback rendering mismatch | UI render contract drift | pending | open | — |
-| maintenance versions/events | UI/RPC | rpc-semantics | maintenance UI/RPC | event rendering mismatch | wire/render contract drift | pending | open | — |
-| maintenance backup create | UI/RPC | rpc-semantics | maintenance UI/RPC | scope payload mismatch | wire contract drift | pending | open | — |
-| maintenance restore | UI/RPC | rpc-semantics | maintenance UI | confirmation flow mismatch | UI state contract drift | pending | open | — |
-| maintenance diagnostics | UI/RPC | rpc-semantics | maintenance UI/RPC | diagnostics action mismatch | wire contract drift | pending | open | — |
-| DNS resolver summary | UI/RPC | rpc-semantics | dns UI/RPC | data rendering mismatch | wire/render contract drift | pending | open | — |
-| DNS save draft | UI/RPC | rpc-semantics | dns UI/RPC | edit payload mismatch | wire contract drift | pending | open | — |
-| DNS validate | UI/RPC | rpc-semantics | dns UI | error rendering mismatch | UI error contract drift | pending | open | — |
-| DNS preview/apply | UI/RPC | rpc-semantics | dns UI/RPC | confirmation mismatch | async contract drift | pending | open | — |
-| DNS check resolution | UI/RPC | rpc-semantics | dns UI/RPC | check response mismatch | wire contract drift | pending | open | — |
-| catalog preview | UI/RPC | rpc-semantics | catalog UI/RPC | payload mismatch | wire contract drift | pending | open | — |
-| catalog apply | UI/RPC | rpc-semantics | catalog UI/RPC | precondition mismatch | wire contract drift | pending | open | — |
-| catalog invalid | UI/RPC | rpc-semantics | catalog UI | error state mismatch | UI error contract drift | pending | open | — |
-| catalog health running | UI/RPC | rpc-semantics | catalog UI/RPC | start/render mismatch | async contract drift | pending | open | — |
-| catalog health completed | UI/RPC | rpc-semantics | catalog UI | matrix rendering mismatch | UI render contract drift | pending | open | — |
-| catalog health conflict | UI/RPC | rpc-semantics | catalog UI | conflict mapping mismatch | UI error contract drift | pending | open | — |
-| DNS provider components | UI/RPC | rpc-semantics | dnsprov UI/RPC | component rendering mismatch | wire/render contract drift | pending | open | — |
-| DNS provider diagnostics | UI/RPC | rpc-semantics | dnsprov UI/RPC | verdict rendering mismatch | wire/render contract drift | pending | open | — |
-| DNS provider invalid | UI/RPC | rpc-semantics | dnsprov UI | blocked state mismatch | UI error contract drift | pending | open | — |
-| proxy running | UI/RPC | rpc-semantics | proxy UI/RPC | status rendering mismatch | wire/render contract drift | pending | open | — |
-| proxy log redaction | UI/RPC | rpc-semantics | proxy UI/RPC | redacted-tail rendering mismatch | wire/render contract drift | pending | open | — |
+| typed websocket evidence | Discord | discord-service-contract | candidate runner | typed evidence missing | protocol probes omitted | WebSocket upgrade + bounded download evidence | fixed | d0245d2 |
+| provider test-all wiring | DNS | dns-regressions | DNS providers | old helper expectation | stale call-chain contract | assert `next → runProviderTest → callProvDiag` | fixed | 87936fc |
+| bare APK negative control | provenance | release-provenance | deploy metadata | R16 control mismatched | noncanonical command spelling | mutate actual `--upgrade` command | fixed | 8c09243 |
+| clear pending on denied/conflict | Service DNS | service-dns-contract | Service DNS UI | pending not cleared | static extraction missed async branch | assert promise/catch cleanup branch | fixed | a1da61b |
+| ucode no-sugar | target ucode | ucode-no-sugar | shipped Ucode | compatibility gate red | naive lexer and declaration order | lexical scanner, ordered helpers, target-safe exports | fixed | 7d1e8fa |
+| lists domain wire | UI/RPC | rpc-semantics | lists UI | payload mismatch | stale rendered-control contract | canonical current control/wire assertion | fixed | 2d38729 |
+| lists apply wire | UI/RPC | rpc-semantics | lists UI | payload mismatch | stale rendered-control contract | canonical current control/wire assertion | fixed | 2d38729 |
+| lists anti-wipe | UI/RPC | rpc-semantics | lists UI | unsafe error state | stale rendered-control contract | canonical current error rendering | fixed | 2d38729 |
+| monitor stale poll | UI/RPC | rpc-semantics | monitor UI | stale state mismatch | stale rendered-control contract | literal stale-state rendering | fixed | 2d38729 |
+| strategies profile list | UI/RPC | rpc-semantics | strategies UI | profile rendering mismatch | stale rendered-control contract | current editor rendering | fixed | 2d38729 |
+| strategies create draft | UI/RPC | rpc-semantics | strategies UI | creation mismatch | stale rendered-control contract | current editor action | fixed | 2d38729 |
+| strategies edit save | UI/RPC | rpc-semantics | strategies UI | save mismatch | stale rendered-control contract | current save action | fixed | 2d38729 |
+| strategies edit conflict | UI/RPC | rpc-semantics | strategies UI | conflict mismatch | stale rendered-control contract | retained conflict state | fixed | 2d38729 |
+| strategies malformed draft | UI/RPC | rpc-semantics | strategies UI | warning mismatch | stale rendered-control contract | preserved malformed warning | fixed | 2d38729 |
+| strategies guided option | UI/RPC | rpc-semantics | strategies UI | mutation mismatch | stale rendered-control contract | current guided mutation | fixed | 2d38729 |
+| strategies preview/apply | UI/RPC | rpc-semantics | strategies UI | state mismatch | stale rendered-control contract | atomic preview/apply state | fixed | 2d38729 |
+| strategies refused preview | UI/RPC | rpc-semantics | strategies UI | refusal mismatch | stale rendered-control contract | explicit refusal state | fixed | 2d38729 |
+| strategies apply success | UI/RPC | rpc-semantics | strategies UI | verification mismatch | stale rendered-control contract | verification rendering | fixed | 2d38729 |
+| strategies apply rollback | UI/RPC | rpc-semantics | strategies UI | rollback mismatch | stale rendered-control contract | explicit rollback state | fixed | 2d38729 |
+| maintenance versions/events | UI/RPC | rpc-semantics | maintenance UI | rendering mismatch | stale rendered-control contract | current event rendering | fixed | 2d38729 |
+| maintenance backup create | UI/RPC | rpc-semantics | maintenance UI | scope mismatch | stale rendered-control contract | current backup action | fixed | 2d38729 |
+| maintenance restore | UI/RPC | rpc-semantics | maintenance UI | confirmation mismatch | stale rendered-control contract | arm/confirm restore state | fixed | 2d38729 |
+| maintenance diagnostics | UI/RPC | rpc-semantics | maintenance UI | diagnostics mismatch | stale rendered-control contract | current diagnostics action | fixed | 2d38729 |
+| DNS resolver summary | UI/RPC | rpc-semantics | DNS UI | rendering mismatch | stale rendered-control contract | applied DNS rendering | fixed | 2d38729 |
+| DNS save draft | UI/RPC | rpc-semantics | DNS UI | save mismatch | stale rendered-control contract | current save action | fixed | 2d38729 |
+| DNS validate | UI/RPC | rpc-semantics | DNS UI | error mismatch | stale rendered-control contract | preserve backend error | fixed | 2d38729 |
+| DNS preview/apply | UI/RPC | rpc-semantics | DNS UI | state mismatch | stale rendered-control contract | atomic preview/apply state | fixed | 2d38729 |
+| DNS check resolution | UI/RPC | rpc-semantics | DNS UI | result mismatch | stale rendered-control contract | current check rendering | fixed | 2d38729 |
+| catalog preview | UI/RPC | rpc-semantics | catalog UI | payload mismatch | stale rendered-control contract | current preview action | fixed | 2d38729 |
+| catalog apply | UI/RPC | rpc-semantics | catalog UI | precondition mismatch | stale rendered-control contract | current apply action | fixed | 2d38729 |
+| catalog invalid | UI/RPC | rpc-semantics | catalog UI | blocked-state mismatch | stale rendered-control contract | explicit blocked state | fixed | 2d38729 |
+| catalog health running | UI/RPC | rpc-semantics | catalog UI | state mismatch | stale rendered-control contract | current health state | fixed | 2d38729 |
+| catalog health completed | UI/RPC | rpc-semantics | catalog UI | matrix mismatch | stale rendered-control contract | current matrix rendering | fixed | 2d38729 |
+| catalog health conflict | UI/RPC | rpc-semantics | catalog UI | conflict mismatch | stale rendered-control contract | explicit conflict state | fixed | 2d38729 |
+| DNS provider components | UI/RPC | rpc-semantics | DNS providers | rendering mismatch | stale rendered-control contract | data-only provider rendering | fixed | 2d38729 |
+| DNS provider diagnostics | UI/RPC | rpc-semantics | DNS providers | verdict mismatch | stale rendered-control contract | current diagnostics result | fixed | 2d38729 |
+| DNS provider invalid | UI/RPC | rpc-semantics | DNS providers | blocked-state mismatch | stale rendered-control contract | explicit blocked state | fixed | 2d38729 |
+| proxy running | UI/RPC | rpc-semantics | proxy UI | status mismatch | stale rendered-control contract | redacted running state | fixed | 2d38729 |
+| proxy log redaction | UI/RPC | rpc-semantics | proxy UI | tail mismatch | stale rendered-control contract | current redacted-log action | fixed | 2d38729 |
 
-The 34 UI/RPC failures share an obsolete render-harness DOM model: its prior expectation assigned `style="..."` directly to `HTMLElement.style`, whereas browser DOM keeps `style` as a mutable CSSStyleDeclaration. The test adapter now models the canonical browser contract; this does not weaken any behaviour assertion or alter production UI/RPC code. The remaining five groups are independently focused before modification.
+The 34 UI/RPC corrections replace an obsolete DOM harness (`style` must be mutable) and superseded separate preview/apply assumptions with the tab/card controls production renders. Wire payload, error, conflict, and accepted-versus-completed assertions remain; UI/RPC discovery remains 75 assertions.
+
+The provider, provenance, and Service DNS tests now target the existing canonical production paths; no assertion was removed. The Ucode gate lexes comments only outside strings and distinguishes Ucode array value iteration from explicit object-key iteration. `target-ucode-compat` validates the source on the target-compatible compiler.
+
+Closure: 39 original IDs fixed across 6 root causes; no skip, xfail, allowlist, or discovery bypass was added. Final gate and final HEAD are recorded after the r120 release build.
