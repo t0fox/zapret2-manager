@@ -14,7 +14,10 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { ZONE_VIEWS, readViewSource } from './lib/checks.mjs';
+
+const SHARED_UI_SOURCE = readFileSync('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.js', 'utf8');
 
 // ---- minimal DOM/LuCI stubs -------------------------------------------------
 
@@ -178,16 +181,17 @@ function loadModule(src, name) {
 		body: { contains() { return false; } }
 	};
 	const windowStub = { addEventListener() { }, getComputedStyle() { return { backgroundColor: 'rgb(255, 255, 255)' }; } };
+	const sharedUi = new Function('E', '_', SHARED_UI_SOURCE + '\nreturn Z2M;')(stubs.E, stubs._);
 	const fn = new Function(
 		'L', 'view', 'rpc', 'ui', 'dom', 'form', 'poll', '_', 'E',
-		'document', 'window', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout',
+		'document', 'window', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout', 'Z2M',
 		'"use strict";' + src
 	);
 	const noopTimer = () => 1;
 	const exported = fn(
 		stubs.L, stubs.view, stubs.rpc, stubs.ui, stubs.dom, stubs.form,
 		stubs.poll, stubs._, stubs.E,
-		documentStub, windowStub, noopTimer, () => { }, noopTimer, () => { }
+		documentStub, windowStub, noopTimer, () => { }, noopTimer, () => { }, sharedUi
 	);
 	assert.ok(exported && typeof exported === 'object', `${name}: module did not export a view object`);
 	return { view: exported, declared };

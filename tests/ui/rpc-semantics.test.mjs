@@ -14,7 +14,10 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { ZONE_VIEWS, readViewSource, stripComments, checkPositionalCalls, checkRejectTrue } from './lib/checks.mjs';
+
+const SHARED_UI_SOURCE = readFileSync('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.js', 'utf8');
 
 // ---- the rpc.js model (positional params + reject semantics) ----------------
 
@@ -132,9 +135,10 @@ function loadView(src, name, world) {
 		poll: { add: () => { }, remove: () => { }, start: () => { }, stop: () => { } },
 		_: (s) => s, E: world.E
 	};
+	const sharedUi = new Function('E', '_', SHARED_UI_SOURCE + '\nreturn Z2M;')(stubs.E, stubs._);
 	const fn = new Function(
 		'L', 'view', 'rpc', 'ui', 'dom', 'form', 'poll', '_', 'E',
-		'document', 'window', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout',
+		'document', 'window', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout', 'Z2M',
 		'"use strict";' + src
 	);
 	const view = fn(
@@ -142,7 +146,7 @@ function loadView(src, name, world) {
 		stubs.poll, stubs._, stubs.E,
 		world.documentStub, world.windowStub,
 		world.setIntervalStub, world.clearIntervalStub,
-		world.setTimeoutStub, world.clearTimeoutStub
+		world.setTimeoutStub, world.clearTimeoutStub, sharedUi
 	);
 	assert.ok(view && typeof view === 'object', `${name}: module did not export a view`);
 	return view;
