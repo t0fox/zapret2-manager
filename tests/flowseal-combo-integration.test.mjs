@@ -2,27 +2,28 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const backend = readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/discord-profile.uc', 'utf8');
+const cli = readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/discord-profile-cli.uc', 'utf8');
 const catalog = JSON.parse(readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/catalog/orchestra-zapret2gui.json', 'utf8'));
 
 test('production combo path uses sanctioned writers and existing verified apply', () => {
-  assert.match(backend, /import \{ read_var, set_var, restore_whole_file \} from '\.\/apply\.uc'/);
-  assert.match(backend, /profiles_apply_candidate\(c\.opt, candidateSha256\)/);
-  assert.match(backend, /set_var\(TCP_VAR, c\.tcpPorts\)/);
-  assert.match(backend, /set_var\(UDP_VAR, c\.udpPorts\)/);
-  assert.match(backend, /writefile\(LASTGOOD_CONFIG, original\)/);
-  assert.doesNotMatch(backend, /writefile\(PATHS\.applied_conf/);
-  assert.doesNotMatch(backend, /firewall restart|\/etc\/init\.d\/firewall|nft flush/);
+  assert.match(cli, /import \{ read_var, set_var, restore_whole_file \} from '\.\/apply\.uc'/);
+  assert.match(cli, /profiles_apply_candidate\(c\.opt, candidateSha256\)/);
+  assert.match(cli, /set_var\('NFQWS2_PORTS_TCP', c\.tcpPorts\)/);
+  assert.match(cli, /set_var\('NFQWS2_PORTS_UDP', c\.udpPorts\)/);
+  assert.match(cli, /writefile\(LASTGOOD_CONFIG, original\)/);
+  assert.doesNotMatch(cli, /writefile\(PATHS\.applied_conf/);
+  assert.doesNotMatch(cli, /firewall restart|\/etc\/init\.d\/firewall|nft flush/);
 });
 
-test('catalog is native-only and legacy Orchestra cannot run a full combo as one probe', () => {
+test('packaged definitions stay out of the single-probe Orchestra path', () => {
   assert.equal(catalog.schema, 'orchestra-zapret2gui/2');
   assert.equal(catalog.candidates.length, 4);
   for (const candidate of catalog.candidates) {
-    assert.equal(candidate.status, 'native-conformant');
     assert.equal(candidate.compatibilityStatus, 'incompatible');
-    assert.equal(candidate.opt.includes('--wf-'), false);
-    assert.equal(candidate.opt.includes('<'), false);
-    assert.equal(candidate.opt.split(' --new ').length, 7);
+    assert.match(candidate.rejectionReason, /multi-profile combo/);
+    for (const group of ['discordTls', 'youtubeTls', 'fallbackTls', 'voice']) {
+      assert.ok(Array.isArray(candidate[group]) && candidate[group].length > 0);
+      assert.ok(candidate[group].every((arg) => !arg.startsWith('--wf-')));
+    }
   }
 });
