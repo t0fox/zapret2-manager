@@ -29,7 +29,8 @@ test('dnsmasq status contract is explicit and ubus-backed', () => {
 test('Setup actions are wired and provider test-all is bounded sequential', () => {
 	assert.match(ui, /callDnsCheck\(JSON\.stringify\(\{\}\)\)/);
 	assert.match(ui, /callDnsRestoreAuto\(\)/);
-	assert.match(ui, /function next\(\)[\s\S]*callProvDiag\(JSON\.stringify\(\{ provider: p\.id \}\)\)/);
+	assert.match(ui, /function next\(\)[\s\S]*runProviderTest\(providerCardRefs\[p\.id\]\)\.then/);
+	assert.match(ui, /function runProviderTest\(ref\)[\s\S]*callProvDiag\(JSON\.stringify\(\{ provider: ref\.p\.id \}\)\)/);
 });
 
 test('success flash uses the green typed variant', () => {
