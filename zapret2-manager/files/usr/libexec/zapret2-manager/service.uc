@@ -35,6 +35,36 @@ const UPSTREAM_INIT = '/etc/init.d/zapret2';
 const LASTGOOD_DIR  = '/tmp/zapret2-manager/last-good';
 const PREV_ENABLE   = LASTGOOD_DIR + '/nfqws2_enable.prev';
 const PENDING       = '/tmp/zapret2-manager/pending-rollback';
+const USER_PRESETS = '/etc/zapret2-manager/presets';
+const FACTORY_PRESETS = '/usr/share/zapret2-manager/presets';
+const PRESET_FILES = [ 'tcp_https.txt', 'stun_voice.txt', 'udp_games.txt' ];
+
+function preset_token(token) {
+	let prefixes = [ '--filter-tcp=', '--filter-udp=', '--hostlist-domains=', '--hostlist=', '--ipset=', '--wf-udp-out=', '--filter-l7=', '--payload=', '--out-range=', '--in-range=', '--lua-desync=', '--dpi-desync=', '--tamper=', '--fooling=', '--split-pos=', '--new' ];
+	for (let i = 0; i < length(prefixes); i++) if (token == prefixes[i] || substr(token, 0, length(prefixes[i])) == prefixes[i]) return true;
+	return false;
+}
+
+// Render the effective preset set into the upstream's NFQWS2_OPT. A user
+// file wins by name; factory files are only the fallback. Preamble comments
+// and manager-only unknown options never become nfqws2 argv tokens.
+function sync_effective_presets() {
+	let tokens = [];
+	for (let i = 0; i < length(PRESET_FILES); i++) {
+		let user = USER_PRESETS + '/' + PRESET_FILES[i], factory = FACTORY_PRESETS + '/' + PRESET_FILES[i];
+		let text = readfile(stat(user) ? user : factory);
+		if (!text) continue;
+		for (let line in split(text, '\n')) {
+			line = trim(line);
+			if (!length(line) || substr(line, 0, 1) == '#') continue;
+			for (let token in split(line, ' ')) if (preset_token(token)) push(tokens, token);
+		}
+	}
+	if (!length(tokens)) return null;
+	let rendered = join(' ', tokens);
+	set_var('NFQWS2_OPT', rendered);
+	return rendered;
+}
 
 function run(cmd) {
 	let p = popen(cmd + ' 2>&1', 'r');
@@ -213,6 +243,7 @@ function start() {
 	let prev = read_prev_enable();
 	let restored = (prev == null) ? 1 : prev;
 	apply_nfqws2_enable(restored);
+	sync_effective_presets();
 	let r = run(UPSTREAM_INIT + ' start');
 	event('ui', 'pause', 'info',
 		'start rc=' + r.rc + ' (resumed; NFQWS2_ENABLE=' + restored + ')',
@@ -249,6 +280,7 @@ function stop() {
 function restart() {
 	set_paused(false);
 	snapshot_last_good();
+	sync_effective_presets();
 	let r = run(UPSTREAM_INIT + ' restart');
 	schedule_rollback();
 	event('ui', 'restart', 'info', 'restart rc=' + r.rc + (ROLLBACK_TIMEOUT_ENABLED ? ' (rollback armed ' + ROLLBACK_TTL + 's)' : ' (snapshot taken; auto-rollback off by default)'),
@@ -260,6 +292,7 @@ function restart() {
 function restart_daemons() {
 	set_paused(false);
 	snapshot_last_good();
+	sync_effective_presets();
 	// [VERIFY] upstream daemon-only restart; fall back to full restart.
 	let r = run(UPSTREAM_INIT + ' restart_daemons 2>/dev/null || ' + UPSTREAM_INIT + ' restart');
 	schedule_rollback();
