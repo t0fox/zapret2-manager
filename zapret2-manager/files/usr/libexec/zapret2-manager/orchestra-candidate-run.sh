@@ -68,8 +68,26 @@ while kill -0 "$child" 2>/dev/null; do
 	elapsed=$((elapsed + 1))
 done
 set +e; wait "$child"; rc=$?; set -e
-# Remove the post-blockcheck curl verification to prevent false negatives
-# The candidate verdict should be determined entirely by blockcheck2.sh
+if [ "$rc" -eq 0 ]; then
+	case "$probe" in
+		websocket)
+			# A successful TLS probe alone is not evidence that the gateway accepts
+			# a WebSocket upgrade. Record bounded upgrade evidence beside blockcheck.
+			if ! curl -ksS --max-time "$timeout" -D - -o /dev/null \
+				-H 'Connection: Upgrade' -H 'Upgrade: websocket' "https://$domain/" >>"$log" 2>&1; then
+				infra_marker EWEBSOCKET
+				rc=65
+			fi
+			;;
+		bounded_download)
+			# Download at most 64 KiB. The byte count is evidence, not a claim that
+			# the complete CDN object is reachable.
+			probe_bytes=$(curl -ksS --max-time "$timeout" --range 0-65535 -o /dev/null -w '%{size_download}' "https://$domain/" 2>>"$log" || true)
+			printf '\nprobe_bytes=%s\n' "$probe_bytes" >>"$log"
+			case "$probe_bytes" in ''|0|*[!0-9]*) infra_marker EBOUNDEDDOWNLOAD; rc=65;; esac
+			;;
+	esac
+fi
 child=
 printf '%s\n' "$rc" >"$dir/$candidate_id.$protocol.rc.tmp"
 mv -f "$dir/$candidate_id.$protocol.rc.tmp" "$dir/$candidate_id.$protocol.rc"
