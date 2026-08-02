@@ -31,7 +31,9 @@ test('UI applies the draft revision returned by service_dns_set', () => {
 });
 
 test('UI clears the pending operation after Access denied or revision conflict', () => {
-	const catchBlock = UI.slice(UI.indexOf("}).catch(function (e) {"), UI.indexOf("\n\t\t});\n\t\t});", UI.indexOf("}).catch(function (e) {")));
+	const asyncCall = UI.indexOf('view._sdnsOp.promise = callSdnsSet');
+	const catchStart = UI.indexOf('}).catch(function (e) {', asyncCall);
+	const catchBlock = UI.slice(catchStart, UI.indexOf('\n\t\t});', catchStart));
 	assert.match(catchBlock, /view\._sdnsOp = null;/);
 	assert.doesNotMatch(catchBlock, /Configuration applied/);
 });
