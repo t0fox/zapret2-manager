@@ -6,6 +6,7 @@ const run = readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/orch
 const orchestra = readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/orchestra.uc', 'utf8');
 const status = readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/status.uc', 'utf8');
 const auto = readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/auto-strategy.uc', 'utf8');
+const rpcd = readFileSync('zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc', 'utf8');
 const ui = readFileSync('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/orchestra.js', 'utf8');
 const runs = JSON.parse(readFileSync('tests/fixtures/remastered-t1-runs.json', 'utf8'));
 const runtime = JSON.parse(readFileSync('tests/fixtures/remastered-t1-runtime.json', 'utf8'));
@@ -53,4 +54,10 @@ test('Runs UI normalizes the actual parse-failed envelope without exposing raw o
 	assert.match(ui, /invalid-run-response/);
 	assert.match(ui, /Could not load run results/);
 	assert.doesNotMatch(ui, /selectedError.*journal parse failed/);
+});
+
+test('run-history adapter remains executable on the target BusyBox image', () => {
+	assert.match(rpcd, /function orchestra_cmd\(sub, arg\)/);
+	assert.doesNotMatch(rpcd, /timeout ' \+ ORCH_TIMEOUT_SEC/);
+	assert.match(rpcd, /head -c ' \+ ORCH_MAX_OUTPUT/);
 });

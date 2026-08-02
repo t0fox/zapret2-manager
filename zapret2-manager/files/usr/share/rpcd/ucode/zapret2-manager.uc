@@ -254,7 +254,6 @@ const DISCORD_CLI = '/usr/libexec/zapret2-manager/discord-profile-cli.uc';
 const BACKUP_CLI = '/usr/libexec/zapret2-manager/backup-cli.uc';
 const MAINT_CLI = '/usr/libexec/zapret2-manager/maintenance-cli.uc';
 
-const ORCH_TIMEOUT_SEC = 3;
 const ORCH_MAX_OUTPUT = 131072;
 function orch_tmpfile() {
 	let p = popen('mktemp /tmp/z2m-orch-req.XXXXXX 2>/dev/null', 'r');
@@ -262,7 +261,9 @@ function orch_tmpfile() {
 	return length(out) ? out : null;
 }
 function orchestra_cmd(sub, arg) {
-	return 'timeout ' + ORCH_TIMEOUT_SEC + ' /usr/bin/ucode ' + ORCH_CLI + ' ' + sub + (arg ? ' ' + arg : '') + ' 2>/dev/null | head -c ' + ORCH_MAX_OUTPUT;
+	// The target BusyBox image has no `timeout` applet. Keep the response bounded
+	// without turning every Orchestra RPC into an empty parse-failed envelope.
+	return '/usr/bin/ucode ' + ORCH_CLI + ' ' + sub + (arg ? ' ' + arg : '') + ' 2>/dev/null | head -c ' + ORCH_MAX_OUTPUT;
 }
 function cli_action(cli, sub) {
 	let cmd = cli == ORCH_CLI ? orchestra_cmd(sub, null) : '/usr/bin/ucode ' + cli + ' ' + sub + ' 2>/dev/null';
