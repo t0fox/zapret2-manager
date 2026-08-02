@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "source": "target-router",
+  "release": "0.1.0-r121",
+  "route": "admin/services/zapret2-manager/orchestra",
+  "error": "view.zapret2-manager.z2m-ui factory yields invalid constructor"
+}

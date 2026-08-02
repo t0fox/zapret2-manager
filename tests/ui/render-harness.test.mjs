@@ -181,7 +181,9 @@ function loadModule(src, name) {
 		body: { contains() { return false; } }
 	};
 	const windowStub = { addEventListener() { }, getComputedStyle() { return { backgroundColor: 'rgb(255, 255, 255)' }; } };
-	const sharedUi = new Function('E', '_', SHARED_UI_SOURCE + '\nreturn Z2M;')(stubs.E, stubs._);
+	const baseclass = { extend(properties) { function SharedUiModule() {} SharedUiModule.prototype = Object.assign({}, properties); return SharedUiModule; } };
+	const SharedUiModule = new Function('E', '_', 'baseclass', SHARED_UI_SOURCE)(stubs.E, stubs._, baseclass);
+	const sharedUi = new SharedUiModule();
 	const fn = new Function(
 		'L', 'view', 'rpc', 'ui', 'dom', 'form', 'poll', '_', 'E',
 		'document', 'window', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout', 'Z2M',

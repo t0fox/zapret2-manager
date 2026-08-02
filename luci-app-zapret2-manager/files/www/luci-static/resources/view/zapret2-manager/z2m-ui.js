@@ -1,4 +1,5 @@
 'use strict';
+'require baseclass';
 
 // zapret2-manager — shared UI library (v1)
 //
@@ -249,4 +250,7 @@ var Z2M = {
 	};
 })();
 
-return Z2M;
+// LuCI's loader accepts only Class subclasses. Returning the plain object
+// works in local function harnesses but fails on the target before Orchestra
+// can render. The created instance retains every public Z2M method.
+return baseclass.extend(Z2M);

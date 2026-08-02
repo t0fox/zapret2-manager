@@ -9,7 +9,9 @@ function node(tag, attrs, children) {
 	return { tag, attrs: attrs || {}, children: Array.isArray(children) ? children : children == null ? [] : [children], appendChild(child) { this.children.push(child); return child; }, addEventListener(type, listener) { this.attrs['on' + type] = listener; }, setAttribute(key, value) { this.attrs[key] = value; }, removeAttribute(key) { delete this.attrs[key]; } };
 }
 function loadView() {
-	const ui = new Function('E', '_', readFileSync(UI_PATH, 'utf8') + '\nreturn Z2M;')(node, value => value);
+	const baseclass = { extend(properties) { function SharedUiModule() {} SharedUiModule.prototype = Object.assign({}, properties); return SharedUiModule; } };
+	const SharedUiModule = new Function('E', '_', 'baseclass', readFileSync(UI_PATH, 'utf8'))(node, value => value, baseclass);
+	const ui = new SharedUiModule();
 	const rpc = { declare() { return () => Promise.resolve({ ok: true }); } };
 	return new Function('L', 'rpc', '_', 'E', 'Z2M', readFileSync(ORCHESTRA_PATH, 'utf8'))({ view: { extend: value => value }, resource: value => value }, rpc, value => value, node, ui);
 }
@@ -34,7 +36,9 @@ function state(overrides) {
 }
 
 test('T3 registry exposes Overview while later remastered destinations remain hidden', () => {
-	const ui = new Function('E', '_', readFileSync(UI_PATH, 'utf8') + '\nreturn Z2M;')(node, value => value);
+	const baseclass = { extend(properties) { function SharedUiModule() {} SharedUiModule.prototype = Object.assign({}, properties); return SharedUiModule; } };
+	const SharedUiModule = new Function('E', '_', 'baseclass', readFileSync(UI_PATH, 'utf8'))(node, value => value, baseclass);
+	const ui = new SharedUiModule();
 	const overview = ui.ui.activeNavigation('orchestra-overview');
 	assert.equal(overview.available, true);
 	assert.equal(overview.implemented, true);

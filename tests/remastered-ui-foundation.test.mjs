@@ -9,10 +9,21 @@ const ORCHESTRA_PATH = 'luci-app-zapret2-manager/files/www/luci-static/resources
 function node(tag, attrs, children) {
 	return { tag: tag, attrs: attrs || {}, children: Array.isArray(children) ? children : children == null ? [] : [children], appendChild(child) { this.children.push(child); return child; }, addEventListener(type, listener) { this.attrs['on' + type] = listener; }, setAttribute(key, value) { this.attrs[key] = value; } };
 }
+const baseclass = { extend(properties) { function SharedUiModule() {} SharedUiModule.prototype = Object.assign({}, properties); return SharedUiModule; } };
 function loadUi() {
 	const source = readFileSync(UI_PATH, 'utf8');
-	return new Function('E', '_', source + '\nreturn Z2M;')(node, value => value);
+	const SharedUiModule = new Function('E', '_', 'baseclass', source)(node, value => value, baseclass);
+	return new SharedUiModule();
 }
+
+test('shared UI is a LuCI module constructor, not a plain factory object', () => {
+	const source = readFileSync(UI_PATH, 'utf8');
+	const fixture = JSON.parse(readFileSync('tests/fixtures/t3-target-luci-module-error.json', 'utf8'));
+	assert.match(fixture.error, /factory yields invalid constructor/);
+	assert.match(source, /^'require baseclass';$/m);
+	assert.match(source, /return baseclass\.extend\(Z2M\);/);
+	assert.equal(typeof loadUi().ui.PageShell, 'function');
+});
 function textTree(value) {
 	if (value == null) return '';
 	if (typeof value !== 'object') return String(value);
