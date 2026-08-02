@@ -31,6 +31,7 @@ const autoDisableRpc = rpc.declare({ object: 'zapret2-manager', method: 'orchest
 const autoRunRpc = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_auto_run', params: ['edit'], reject: true });
 const autoStopRpc = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_auto_stop', params: ['edit'], reject: true });
 const autoRestoreRpc = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_auto_restore', params: ['edit'], reject: true });
+const managerStatusRpc = rpc.declare({ object: 'zapret2-manager', method: 'status', reject: true });
 
 function esc(v) { return v == null ? '' : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 function pack(v) { try { return JSON.stringify(v || {}); } catch (e) { return '{}'; } }
@@ -80,6 +81,54 @@ function btn(label, onClick, disabled, cls, reason) { var attrs = { 'type': 'but
 function heading(title, id, note) { return E('div', { 'class': 'z2m-orchestra-heading' }, [E('h3', { 'id': id }, esc(title)), note ? E('p', {}, esc(note)) : E('span', {})]); }
 function section(title, id, body, note) { return E('section', { 'class': 'z2m-orchestra-section', 'aria-labelledby': id }, [heading(title, id, note), body]); }
 function details(title, body) { return E('details', { 'class': 'z2m-orchestra-details' }, [E('summary', {}, esc(title)), body]); }
+function overview_text(value, limit) { return Z2M.ui.SafeText(value, limit || 120); }
+function overview_phase_label(phase) {
+	var labels = { disabled: _('Отключён'), waiting: _('Ожидание'), 'waiting-network': _('Ожидание подключения'), healthy: _('Работает'), degraded: _('Работает с ограничениями'), scanning: _('Выполняется проверка'), applying: _('Применяется стратегия'), verifying: _('Проверяется конфигурация'), recovering: _('Требуется восстановление'), rollback: _('Выполняется восстановление'), 'rolling-back': _('Выполняется восстановление'), cooldown: _('Повторная проверка отложена'), failed: _('Ошибка') };
+	return labels[phase] || _('Проверка ещё не выполнялась');
+}
+function overview_runtime(runtime, available) {
+	runtime = runtime || {}; var process = runtime.process || {}, queue = runtime.nfqueue || {}, current = runtime.runtime || {};
+	var nfqws2 = !available || process.found == null ? { label: _('Состояние не подтверждено'), status: 'unknown' } : process.found === false ? { label: _('Не работает'), status: 'failed' } : runtime.status === 'starting' || process.identityVerified !== true ? { label: _('Запускается'), status: 'running' } : { label: _('Работает'), status: 'healthy' };
+	var nfqueue = !available || queue.registered == null ? { label: _('Состояние не подтверждено'), status: 'unknown' } : queue.registered === false ? { label: _('Не обнаружена'), status: 'failed' } : queue.ownerMatches !== true ? { label: _('Подтверждена частично'), status: 'partial' } : { label: _('Подключена'), status: 'healthy' };
+	var configuration = !available || current.appliedMatch == null ? { label: _('Проверка недоступна'), status: 'unknown' } : current.appliedMatch === false ? { label: _('Обнаружено расхождение'), status: 'divergent' } : { label: _('Runtime совпадает с сохранённой'), status: 'healthy' };
+	var verification = !available || current.verification == null || current.verification === 'unknown' ? { label: _('Состояние не подтверждено'), status: 'unknown' } : current.verification === 'verified' ? { label: _('Подтверждено'), status: 'verified' } : { label: _('Состояние подтверждено не полностью'), status: 'partial' };
+	return { status: available ? runtime.status || 'unknown' : 'unknown', reasonCode: available ? runtime.reasonCode || null : 'runtime-not-confirmed', nfqws2: nfqws2, nfqueue: nfqueue, configuration: configuration, verification: verification };
+}
+function overview_model(state) {
+	state = state || {}; var manager = state.managerStatus, available = !!manager, runtime = overview_runtime(manager && manager.runtimeSummary, available), auto = state.auto || null, catalog = state.catalogList || {}, services = catalog.services || [], serviceIds = auto && auto.serviceIds || [], names = {}, selected = [], i;
+	for (i = 0; i < services.length; i++) if (services[i] && services[i].id && services[i].name) names[services[i].id] = services[i].name;
+	for (i = 0; i < serviceIds.length; i++) if (names[serviceIds[i]]) selected.push(overview_text(names[serviceIds[i]], 64));
+	var selectedLabel = selected.slice(0, 3).join(', '); if (!selectedLabel && serviceIds.length) selectedLabel = _('Выбраны сервисы без доступных названий'); if (!selectedLabel) selectedLabel = _('Сервисы не выбраны'); if (serviceIds.length > 3) selectedLabel += ' ' + _('и ещё ') + (serviceIds.length - 3);
+	var active = auto && auto.activeRun && auto.activeRun.runId ? auto.activeRun : state.activeRun && state.activeRun.runId ? state.activeRun : null;
+	var pendingOperation = state.operation && !terminalApply(state.operation.phase) ? state.operation : null;
+	var recovery = !!(auto && (auto.phase === 'recovering' || (auto.infrastructure || {}).reason === 'recovery-required'));
+	var corrupt = !!(auto && (auto.infrastructure || {}).reason === 'state-corrupt');
+	var failedOperation = !!(state.operation && (state.operation.phase === 'failed' || state.operation.phase === 'rolled-back'));
+	var warnings = [], overall = { status: 'unknown', label: _('Состояние системы не подтверждено') }, drift = !!(manager && ((manager.drift || {}).divergent || runtime.configuration.status === 'divergent'));
+	if (recovery || corrupt || runtime.status === 'stopped' || runtime.nfqws2.status === 'failed') overall = { status: 'failed', label: recovery ? _('Требуется завершить восстановление') : corrupt ? _('Состояние требует проверки') : _('Требуется действие пользователя') };
+	else if (runtime.status === 'mismatch' || runtime.status === 'degraded' || drift || runtime.nfqueue.status === 'failed' || runtime.nfqueue.status === 'partial') overall = { status: 'degraded', label: _('Работает с ограничениями') };
+	else if (active || pendingOperation) overall = { status: 'running', label: _('Выполняется операция') };
+	else if (runtime.status === 'running' && runtime.nfqueue.status === 'healthy' && runtime.verification.status === 'verified' && runtime.configuration.status === 'healthy') overall = { status: 'healthy', label: _('Работает') };
+	else if (runtime.status === 'disabled') overall = { status: 'disabled', label: _('Отключено') };
+	if (runtime.nfqws2.status === 'failed') warnings.push({ title: _('nfqws2 не работает'), message: _('Работающий процесс подтверждённо не обнаружен.'), panel: 'orchestra-adaptive', reasonCode: runtime.reasonCode });
+	if (runtime.nfqueue.status === 'failed') warnings.push({ title: _('NFQUEUE не обнаружена'), message: _('nfqws2 не подключён к ожидаемой очереди.'), panel: 'orchestra-adaptive', reasonCode: runtime.reasonCode });
+	if (runtime.configuration.status === 'divergent') warnings.push({ title: _('Обнаружено расхождение'), message: _('Работающая конфигурация отличается от сохранённой.'), panel: 'orchestra-adaptive', reasonCode: runtime.reasonCode });
+	if (recovery) warnings.push({ title: _('Требуется восстановление'), message: _('Перед следующей проверкой завершите восстановление в существующем workflow.'), panel: 'orchestra-adaptive', reasonCode: 'recovery-required' });
+	if (corrupt) warnings.push({ title: _('Состояние требует проверки'), message: _('Backend сообщил о повреждённом состоянии контроллера.'), panel: 'orchestra-adaptive', reasonCode: 'state-corrupt' });
+	if (failedOperation) warnings.push({ title: _('Операция завершилась с ошибкой'), message: _('Проверьте результат в существующем workflow перед следующей попыткой.'), panel: 'orchestra-results', reasonCode: state.operation.error && state.operation.error.code || 'operation-failed' });
+	if (auto && auto.enabled && !serviceIds.length) warnings.push({ title: _('Сервисы не выбраны'), message: _('Выберите хотя бы один сервис перед запуском проверки.'), panel: 'orchestra-services', reasonCode: 'no-services-selected' });
+	if (!available) warnings.push({ title: _('Состояние системы не подтверждено'), message: _('Основной runtime status сейчас недоступен.'), panel: null, reasonCode: 'runtime-not-confirmed' });
+	var primary = null, admissionReason = null, admission = auto && auto.admissionReasons || {};
+	if (state.autoReadOnly) admissionReason = 'access-denied';
+	else if (recovery || corrupt) admissionReason = (admission.restoreLastGood || {}).reasonCode || (corrupt ? 'state-corrupt' : 'recovery-required');
+	else if (active || pendingOperation) primary = { kind: 'open-run', label: _('Открыть текущий подбор'), panel: 'orchestra-results' };
+	else if (auto && auto.enabled === false && (admission.enable || {}).allowed === true) primary = { kind: 'enable-auto', label: _('Включить автоподбор'), panel: 'orchestra-adaptive' };
+	else if (auto && (admission.runNow || {}).allowed === true) primary = { kind: 'run-now', label: _('Проверить сейчас'), panel: 'orchestra-adaptive' };
+	else if (auto && (admission.runNow || {}).reasonCode) admissionReason = admission.runNow.reasonCode;
+	var currentOperation = active || pendingOperation;
+	var operation = currentOperation ? { phase: overview_phase_label(auto && active && auto.phase || currentOperation.phase), progress: Math.max(0, Math.min(100, +(currentOperation.progress || 0))), startedAt: currentOperation.startedAt || null, target: currentOperation.target || currentOperation.serviceId || null } : null;
+	return { overall: overall, runtime: runtime, auto: auto ? { enabled: auto.enabled === true, phase: overview_phase_label(auto.phase), lastGood: !!(auto.lastGood || {}).available, cooldownUntil: auto.cooldownUntil || null, lastCheckAt: (auto.health || {}).lastCheckAt || null } : null, services: { selectedCount: serviceIds.length, selectedLabel: selectedLabel, healthLabel: null }, strategy: { applied: !!(manager && (manager.applied || {}).configPresent), runtime: !!(manager && (manager.runtime || {}).present), profileCount: manager && (manager.runtime || {}).profileCount, match: runtime.configuration.status === 'healthy', lastGood: !!(auto && (auto.lastGood || {}).available) }, operation: operation, warnings: warnings, primary: primary, admissionReason: admissionReason, technical: { runtimeReasonCode: runtime.reasonCode, autoRevision: auto && auto.revision || null, activeRunId: active && active.runId || null, partialErrorCode: state.managerStatusError ? 'status-unavailable' : state.autoError ? 'auto-status-unavailable' : null } };
+}
 
 return L.view.extend({
 	title: _('Orchestra'),
@@ -94,8 +143,8 @@ return L.view.extend({
 	_pollRoot: null,
 	_pollObserver: null,
 	_polling: false,
-	_state: { runHistory: [], activeRun: null, selectedRun: null, selectedRunId: null, selectedByUser: false, selectedLoading: false, selectedError: null, protocol: null, adaptive: null, caps: null, legacyEvents: null, legacyHistory: null, legacyRatings: null, catalogList: null, catalogStatus: null, catalogHealth: null, catalogError: null, preview: null, operation: null, error: null, pollWarning: null, auto: null, autoLoading: true, autoError: null, autoPending: null, autoOutcome: null, autoReadOnly: false, autoPoll: false },
-	_panel: 'orchestra-services',
+	_state: { runHistory: [], activeRun: null, selectedRun: null, selectedRunId: null, selectedByUser: false, selectedLoading: false, selectedError: null, protocol: null, adaptive: null, caps: null, legacyEvents: null, legacyHistory: null, legacyRatings: null, catalogList: null, catalogStatus: null, catalogHealth: null, catalogError: null, preview: null, operation: null, error: null, pollWarning: null, auto: null, autoLoading: true, autoError: null, autoPending: null, autoOutcome: null, autoReadOnly: false, autoPoll: false, managerStatus: null, managerStatusError: null, overviewRefreshing: false },
+	_panel: 'orchestra-overview',
 	_panelListenersBound: false,
 
 	load: function () {
@@ -109,6 +158,7 @@ return L.view.extend({
 			['run', function () { return get(runStatusRpc, pack({})); }], ['catalogList', function () { return get(catalogListRpc); }],
 			['catalogStatus', function () { return get(catalogStatusRpc); }], ['health', function () { return get(healthGetRpc); }]
 		];
+		if (this._panel === 'orchestra-overview') calls.unshift(['managerStatus', function () { return get(managerStatusRpc); }]);
 		if (this._panel === 'orchestra-adaptive') calls.push(['caps', function () { return get(capsRpc); }], ['legacyEvents', function () { return get(legacyEventsRpc); }], ['legacyHistory', function () { return get(legacyHistoryRpc); }], ['legacyRatings', function () { return get(legacyRatingsRpc); }]);
 		var waves = [calls.slice(0, 2), calls.slice(2, 5), calls.slice(5)];
 		function loadWave(index, values) { return Promise.all(waves[index].map(function (entry) { return entry[1]().then(function (value) { values[entry[0]] = value; }); })).then(function () { return index + 1 < waves.length ? loadWave(index + 1, values) : values; }); }
@@ -127,6 +177,7 @@ return L.view.extend({
 			if (authFailure) self._state.pollWarning = _('Session expired; polling stopped. Please log in again.');
 			if (a.run._error || !active.ok) self._state.selectedError = friendlyRunError(a.run);
 			self._state.catalogList = a.catalogList._error ? null : a.catalogList; self._state.catalogStatus = a.catalogStatus._error ? null : a.catalogStatus; self._state.catalogHealth = a.health._error ? null : a.health; self._state.catalogError = (a.catalogList && (a.catalogList._error || (a.catalogList.ok === false && structuredError(a.catalogList.error || a.catalogList)))) || (a.catalogStatus && (a.catalogStatus._error || (a.catalogStatus.ok === false && structuredError(a.catalogStatus.error || a.catalogStatus)))) || (a.health && (a.health._error || (a.health.ok === false && structuredError(a.health.error || a.health)))) || null;
+			self._state.managerStatus = a.managerStatus && !a.managerStatus._error && a.managerStatus.ok !== false ? a.managerStatus : null; self._state.managerStatusError = a.managerStatus && (a.managerStatus._error || (a.managerStatus.ok === false && structuredError(a.managerStatus.error || a.managerStatus))) || null;
 			if (self._state.selectedRunId && (!self._state.selectedRun || self._state.selectedRun.runId !== self._state.selectedRunId)) { self._state.selectedLoading = true; return rpcCall(runStatusRpc, pack({ runId: self._state.selectedRunId })).then(function (x) { var normalized = normalizeRunResponse(x, 'status'); if (!normalized.ok) throw new Error(friendlyRunError(x)); self._state.selectedRun = normalized.run; self._state.selectedLoading = false; self._state.selectedError = null; return self._state; }).catch(function () { self._state.selectedLoading = false; self._state.selectedError = _('Не удалось загрузить результаты запуска.'); return self._state; }); }
 			return self._state;
 		});
@@ -159,7 +210,7 @@ return L.view.extend({
 	_panelFromHash: function () {
 		var hash = (typeof window !== 'undefined' && window.location && window.location.hash || '').replace(/^#/, '');
 		var entry = Z2M.ui.activeNavigation(hash);
-		return entry && entry.available === true && entry.legacyRoute ? entry.legacyRoute : 'orchestra-services';
+		return entry && entry.legacyRoute ? entry.legacyRoute : 'orchestra-overview';
 	},
 	_bindPanelNavigation: function () {
 		var self = this;
@@ -187,7 +238,7 @@ return L.view.extend({
 	},
 	_setPanel: function (panel) {
 		var entry = Z2M.ui.activeNavigation(panel);
-		if (!entry || entry.available !== true || !entry.legacyRoute) return;
+		if (!entry || !entry.legacyRoute) return;
 		panel = entry.legacyRoute;
 		this._stopPolling(); this._panel = panel;
 		if (typeof window !== 'undefined' && window.history && window.history.pushState) window.history.pushState({ orchestraPanel: panel }, '', '#' + panel);
@@ -206,10 +257,10 @@ return L.view.extend({
 	render: function (state) {
 		injectCSS(); this._pollDisposed = false; this._state = state || this._state; this._panel = this._panelFromHash(); this._bindPanelNavigation();
 		if (typeof window !== 'undefined' && window.location && !window.location.hash && window.history && window.history.replaceState) window.history.replaceState({ orchestraPanel: this._panel }, '', '#' + this._panel);
-		var self = this, content = E('div', { 'class': 'z2m-orchestra-content' });
+		var self = this, content = E('div', { 'class': 'z2m-orchestra-content' }), overview = this._overviewModel(this._state);
 		var root = Z2M.ui.PageShell({
 			id: 'z2m-orchestra-page', className: 'z2m-orchestra-shell z2m-orchestra',
-			header: Z2M.ui.PageHeader({ title: _('Orchestra'), description: _('Find, compare and safely apply a verified strategy.') }),
+			header: this._panel === 'orchestra-overview' ? this._overviewHeader(overview) : Z2M.ui.PageHeader({ title: _('Orchestra'), description: _('Find, compare and safely apply a verified strategy.') }),
 			navigationLabel: _('Orchestra sections'),
 			navigation: Z2M.ui.NavigationTabs({ route: this._panel, onSelect: function (entry) { self._setPanel(entry.legacyRoute || entry.route); } }),
 			content: content
@@ -221,12 +272,54 @@ return L.view.extend({
 
 	_renderContent: function (content) {
 		if (content.replaceChildren) content.replaceChildren(); else if (content.firstChild) while (content.firstChild) content.removeChild(content.firstChild); else content.children.length = 0;
-		if (this._panel === 'orchestra-services') content.appendChild(this._servicesSection());
+		if (this._panel === 'orchestra-overview') content.appendChild(this._overviewSection());
+		else if (this._panel === 'orchestra-services') content.appendChild(this._servicesSection());
 		else if (this._panel === 'orchestra-find') content.appendChild(this._findSection());
 		else if (this._panel === 'orchestra-results') content.appendChild(this._resultsSection());
 		else content.appendChild(this._adaptiveSection());
 		if (this._state.error) content.appendChild(alertBox(this._state.error));
 		if (this._state.pollWarning) content.appendChild(alertBox(this._state.pollWarning, 'info'));
+	},
+	_overviewModel: function (state) { return overview_model(state || this._state); },
+	_overviewNavigate: function (panel) { if (panel) this._setPanel(panel); },
+	_overviewHeader: function (model) {
+		var self = this, primary = model.primary && !this._state.overviewRefreshing ? Z2M.ui.ActionButton({ label: model.primary.label, kind: 'primary', onClick: function () { self._overviewNavigate(model.primary.panel); } }) : null;
+		return Z2M.ui.PageHeader({
+			title: _('Zapret2 Manager'), description: _('Управление обходом блокировок и автоматическим подбором стратегий.'),
+			status: { status: model.overall.status, label: model.overall.label }, primaryAction: primary,
+			secondaryActions: [Z2M.ui.ActionButton({ label: this._state.overviewRefreshing ? _('Обновление…') : _('Обновить'), onClick: function () { return self._overviewRefresh(); }, disabled: this._state.overviewRefreshing })]
+		});
+	},
+	_overviewRow: function (label, item) {
+		item = item || { label: _('Проверка недоступна'), status: 'unknown' };
+		return E('div', { 'class': 'z2m-overview-row' }, [E('span', { 'class': 'z2m-overview-row-label' }, label), Z2M.ui.StatusBadge({ status: item.status, label: item.label })]);
+	},
+	_overviewSummary: function (title, rows) {
+		return Z2M.ui.SummaryPanel({ title: title, children: E('div', { 'class': 'z2m-overview-rows' }, rows) });
+	},
+	_overviewRefresh: function () {
+		var self = this;
+		if (this._state.overviewRefreshing) return null;
+		this._state.overviewRefreshing = true; this._refresh();
+		return this.load().then(function () { self._state.overviewRefreshing = false; self._refresh(); var root = document.getElementById('z2m-orchestra-page'), oldHeader = root && root.querySelector && root.querySelector('.z2m-remastered-header'); if (oldHeader && oldHeader.parentNode && oldHeader.parentNode.replaceChild) oldHeader.parentNode.replaceChild(self._overviewHeader(self._overviewModel()), oldHeader); }).catch(function () { self._state.overviewRefreshing = false; self._refresh(); });
+	},
+	_overviewSection: function () {
+		var self = this, model = this._overviewModel(), s = this._state, body = E('div', { 'class': 'z2m-overview' }), runtime = model.runtime;
+		if (s.overviewRefreshing) body.appendChild(Z2M.ui.NoticeBanner({ level: 'info', message: _('Обновление статуса выполняется. Показанные данные могут быть неактуальны.') }));
+		if (s.managerStatusError) body.appendChild(Z2M.ui.ErrorPanel({ message: _('Не удалось подтвердить состояние системы.'), code: 'status-unavailable', retry: function () { return self._overviewRefresh(); } }));
+		body.appendChild(E('div', { 'class': 'z2m-overview-grid' }, [
+			this._overviewSummary(_('Состояние системы'), [this._overviewRow(_('nfqws2'), runtime.nfqws2), this._overviewRow(_('NFQUEUE'), runtime.nfqueue), this._overviewRow(_('Проверка runtime'), runtime.verification), this._overviewRow(_('Конфигурация'), runtime.configuration)]),
+			this._overviewSummary(_('Автоматический подбор'), !model.auto ? [E('span', {}, _('Статус автоподбора недоступен.'))] : [this._overviewRow(_('Состояние'), { label: model.auto.enabled ? _('Включён') : _('Отключён'), status: model.auto.enabled ? 'healthy' : 'disabled' }), this._overviewRow(_('Фаза'), { label: model.auto.phase, status: model.operation ? 'running' : model.auto.enabled ? 'healthy' : 'disabled' }), E('div', { 'class': 'z2m-overview-row' }, [E('span', { 'class': 'z2m-overview-row-label' }, _('Последняя проверка')), E('span', {}, model.auto.lastCheckAt ? Z2M.ui.formatRelativeTime(model.auto.lastCheckAt) : _('Проверка ещё не выполнялась'))]), model.auto.cooldownUntil ? E('div', { 'class': 'z2m-overview-row' }, [E('span', { 'class': 'z2m-overview-row-label' }, _('Повторная проверка')), E('span', {}, _('Повторная проверка отложена'))]) : E('span', {}), this._overviewRow(_('Последняя рабочая стратегия'), { label: model.auto.lastGood ? _('Доступна') : _('Последняя рабочая стратегия отсутствует'), status: model.auto.lastGood ? 'verified' : 'unknown' })]),
+			this._overviewSummary(_('Сервисы'), [E('div', { 'class': 'z2m-overview-row' }, [E('span', { 'class': 'z2m-overview-row-label' }, _('Выбрано')), E('span', {}, String(model.services.selectedCount))]), E('div', { 'class': 'z2m-overview-service-list' }, model.services.selectedLabel), model.services.healthLabel ? E('div', { 'class': 'z2m-overview-row' }, [E('span', { 'class': 'z2m-overview-row-label' }, _('Состояние сервисов')), E('span', {}, model.services.healthLabel)]) : E('span', {})]),
+			this._overviewSummary(_('Текущая стратегия'), [this._overviewRow(_('Сохранённая конфигурация'), { label: model.strategy.applied ? _('Присутствует') : _('Отсутствует'), status: model.strategy.applied ? 'healthy' : 'unknown' }), this._overviewRow(_('Работающая конфигурация'), { label: model.strategy.runtime ? _('Присутствует') : _('Отсутствует'), status: model.strategy.runtime ? 'healthy' : 'unknown' }), E('div', { 'class': 'z2m-overview-row' }, [E('span', { 'class': 'z2m-overview-row-label' }, _('Профили')), E('span', {}, model.strategy.profileCount == null ? _('Проверка недоступна') : String(model.strategy.profileCount))]), this._overviewRow(_('Совпадение'), { label: model.strategy.match ? _('Подтверждено') : _('Проверка недоступна'), status: model.strategy.match ? 'verified' : 'unknown' })])
+		]));
+		if (!model.strategy.applied) body.appendChild(Z2M.ui.EmptyState({ title: _('Сохранённая стратегия отсутствует'), explanation: _('Сначала завершите существующий безопасный workflow настройки стратегии.') }));
+		if (model.operation) body.appendChild(E('div', { 'class': 'z2m-overview-operation' }, [Z2M.ui.SectionHeader({ title: _('Текущая операция'), description: model.operation.target ? overview_text(model.operation.target, 96) : _('Операция выполняется в существующем workflow.') }), Z2M.ui.ProgressPanel({ value: model.operation.progress, label: model.operation.phase }), model.operation.startedAt ? E('p', {}, _('Начато: ') + Z2M.ui.formatRelativeTime(model.operation.startedAt)) : E('span', {})]));
+		if (model.warnings.length) { var warnings = E('div', { 'class': 'z2m-overview-warnings' }); model.warnings.forEach(function (warning) { var items = [Z2M.ui.NoticeBanner({ level: 'action-required', message: warning.title + ': ' + warning.message })]; if (warning.panel) items.push(Z2M.ui.ActionButton({ label: _('Открыть workflow'), onClick: function () { self._overviewNavigate(warning.panel); } })); warnings.appendChild(E('div', { 'class': 'z2m-overview-warning' }, items)); }); body.appendChild(warnings); }
+		if (s.autoReadOnly) body.appendChild(Z2M.ui.NoticeBanner({ level: 'info', message: _('Недостаточно прав для изменения состояния. Обновление и просмотр остаются доступны.') }));
+		if (model.admissionReason) body.appendChild(E('div', { 'class': 'z2m-overview-admission' }, [Z2M.ui.AdmissionReason({ reasonCode: model.admissionReason })]));
+		body.appendChild(Z2M.ui.TechnicalDetails({ title: _('Технические сведения'), content: E('div', { 'class': 'z2m-overview-technical' }, [E('div', {}, _('Код причины runtime: ') + (model.technical.runtimeReasonCode || _('нет'))), E('div', {}, _('Код допуска: ') + (model.admissionReason || _('нет'))), E('div', {}, _('Частичная ошибка: ') + (model.technical.partialErrorCode || _('нет')))]) }));
+		return body;
 	},
 	_servicesSection: function () {
 		var self = this, s = this._state, list = s.catalogList || {}, status = s.catalogStatus || {}, body = E('div', { 'class': 'z2m-orchestra-services' });

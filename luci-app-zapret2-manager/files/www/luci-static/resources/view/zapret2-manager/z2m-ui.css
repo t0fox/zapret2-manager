@@ -898,3 +898,29 @@
 	.z2m-orchestra-shell .z2m-remastered-summary { grid-template-columns: 1fr; }
 	.z2m-orchestra-shell .z2m-remastered-search { width: 100%; max-width: none; }
 }
+
+/* T3 Overview stays inside the existing Orchestra shell. */
+.z2m-orchestra-shell .z2m-overview { min-width: 0; }
+.z2m-orchestra-shell .z2m-overview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.z2m-orchestra-shell .z2m-overview-grid .z2m-remastered-summary { min-width: 0; margin: 0; }
+.z2m-orchestra-shell .z2m-overview-rows { display: grid; gap: 8px; }
+.z2m-orchestra-shell .z2m-overview-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
+.z2m-orchestra-shell .z2m-overview-row-label { color: var(--z2m-muted, #6b7280); }
+.z2m-orchestra-shell .z2m-overview-service-list { overflow-wrap: anywhere; }
+.z2m-orchestra-shell .z2m-overview-operation,
+.z2m-orchestra-shell .z2m-overview-warning,
+.z2m-orchestra-shell .z2m-overview-admission { margin-top: 16px; }
+.z2m-orchestra-shell .z2m-overview-warning .z2m-remastered-notice { margin-bottom: 8px; }
+.z2m-orchestra-shell .z2m-overview-technical { overflow-wrap: anywhere; color: var(--z2m-muted, #6b7280); }
+
+@media (min-width: 1366px) {
+	.z2m-orchestra-shell .z2m-overview-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (min-width: 768px) and (max-width: 1023px) {
+	.z2m-orchestra-shell .z2m-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 767px) {
+	.z2m-orchestra-shell .z2m-overview-grid { grid-template-columns: 1fr; }
+	.z2m-orchestra-shell .z2m-overview-row { align-items: flex-start; flex-direction: column; gap: 4px; }
+	.z2m-orchestra-shell .z2m-remastered-header-actions .cbi-button-action { width: 100%; }
+}

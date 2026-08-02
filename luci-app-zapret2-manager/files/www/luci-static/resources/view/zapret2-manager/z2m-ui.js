@@ -183,12 +183,12 @@ var Z2M = {
 	};
 	function tr(text) { return typeof _ === 'function' ? _(text) : text; }
 	var NAVIGATION = [
-		{ key: 'overview', label: 'Overview', route: 'orchestra-overview', aliases: [], capability: 'read', stage: 'T3', available: false, implemented: false },
-		{ key: 'auto', label: 'Auto Strategy', route: 'orchestra-auto', aliases: ['orchestra-adaptive'], capability: 'read', stage: 'T4', available: true, implemented: false, legacyRoute: 'orchestra-adaptive' },
-		{ key: 'services', label: 'Services', route: 'orchestra-services', aliases: [], capability: 'read', stage: 'T5', available: true, implemented: false, legacyRoute: 'orchestra-services' },
+		{ key: 'overview', label: 'Overview', route: 'orchestra-overview', aliases: [], capability: 'read', stage: 'T3', available: true, implemented: true, legacyRoute: 'orchestra-overview' },
+		{ key: 'auto', label: 'Auto Strategy', route: 'orchestra-auto', aliases: ['orchestra-adaptive'], capability: 'read', stage: 'T4', available: false, implemented: false, legacyRoute: 'orchestra-adaptive' },
+		{ key: 'services', label: 'Services', route: 'orchestra-services', aliases: [], capability: 'read', stage: 'T5', available: false, implemented: false, legacyRoute: 'orchestra-services' },
 		{ key: 'rating', label: 'Strategy Rating', route: 'orchestra-rating', aliases: [], capability: 'read', stage: 'T6', available: false, implemented: false },
-		{ key: 'strategies', label: 'Strategies', route: 'orchestra-strategies', aliases: ['orchestra-find'], capability: 'read', stage: 'T7', available: true, implemented: false, legacyRoute: 'orchestra-find' },
-		{ key: 'runs', label: 'Runs', route: 'orchestra-runs', aliases: ['orchestra-results'], capability: 'read', stage: 'T8', available: true, implemented: false, legacyRoute: 'orchestra-results' },
+		{ key: 'strategies', label: 'Strategies', route: 'orchestra-strategies', aliases: ['orchestra-find'], capability: 'read', stage: 'T7', available: false, implemented: false, legacyRoute: 'orchestra-find' },
+		{ key: 'runs', label: 'Runs', route: 'orchestra-runs', aliases: ['orchestra-results'], capability: 'read', stage: 'T8', available: false, implemented: false, legacyRoute: 'orchestra-results' },
 		{ key: 'diagnostics', label: 'Diagnostics', route: 'orchestra-diagnostics', aliases: [], capability: 'read', stage: 'T9', available: false, implemented: false }
 	];
 	function safe_text(value, limit, fallback) {
