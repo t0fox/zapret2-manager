@@ -3,15 +3,14 @@
 # Client-side views (no Python, no Lua in the UI — flash-constrained). Calls
 # the zapret2-manager ubus object over rpcd; does no state collection itself.
 #
-# postinst MUST reset the LuCI cache or the new page will not render after
-# install: remove /tmp/luci-indexcache and the contents of
-# /tmp/luci-modulecache, then reload rpcd and uhttpd.
+# postinst resets only LuCI caches. The deploy workflow performs one explicit
+# rpcd reload after all packages are installed; it never reloads uhttpd.
 
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-zapret2-manager
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=130
+PKG_RELEASE:=133
 PKG_MAINTAINER:=Ásgeir
 PKG_LICENSE:=MIT
 PKGARCH:=all
@@ -62,14 +61,11 @@ endef
 
 define Package/luci-app-zapret2-manager/postinst
 #!/bin/sh
-# Reset LuCI caches so the new view is picked up immediately, then reload the
-# daemons that serve it. Without this, a freshly installed page can 404 or
-# render stale until the next cache rebuild.
+# Reset LuCI caches so the new view is picked up immediately. The deploy
+# workflow reloads rpcd once after the complete package set is installed.
 # LuCI uses numbered cache files (e.g. luci-indexcache.<pid>.json) so glob.
 rm -f /tmp/luci-indexcache*
 rm -rf /tmp/luci-modulecache 2>/dev/null || true
-/etc/init.d/rpcd reload
-/etc/init.d/uhttpd reload
 exit 0
 endef
 

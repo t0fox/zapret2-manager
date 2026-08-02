@@ -16,6 +16,7 @@ test('failed preflight does not exhaust corpus', () => { assert.match(worker, /r
 test('wrapper has typed infrastructure exit path', () => { assert.match(worker, /rc==66\|\|rc==69\|\|index\(log,'INFRA_ERROR'\)/); });
 test('zero exit still requires exact positive marker', () => { assert.match(run, /positive_marker/); assert.match(run, /positiveEvidence:positive/); });
 test('valid candidate failure remains candidate evidence', () => { assert.match(run, /verdict='target-fail'/); assert.match(worker, /targetCandidateEvidence/); });
+test('candidate journal iterates candidate values and preserves target failures', () => { assert.match(run, /for\(let cid in ids\)/); assert.doesNotMatch(run, /let cid=ids\[id\]/); assert.match(run, /infra\?'infrastructure-error':failed\?'failed':timed/); });
 test('valid pass is rankable', () => { assert.match(run, /serviceResults=grouped/); assert.match(run, /domainsWithConfirmedWinner/); });
 test('baseline evidence is separate', () => { assert.match(run, /baselineEvidence/); assert.match(run, /let raw=r\.results/); });
 test('target evidence has typed target/candidate/attempt key', () => { assert.match(worker, /a\.targetId=scope\.id\|\|null;a\.attemptNumber=attempt/); });
@@ -27,4 +28,4 @@ test('retry lineage is persisted', () => { assert.match(run, /retryOfRunId:x\.re
 test('package declares ncat dependency', () => { assert.match(makefile, /DEPENDS:=zapret2 ucode ncat/); });
 test('package installs preflight helper', () => { assert.match(makefile, /orchestra-probe-preflight\.sh/); });
 test('probe uses upstream required netcat command', () => { assert.match(preflight, /-z -w 1 192\.0\.2\.1 9/); });
-test('runner keeps timeout and cleanup contract', () => { assert.match(runner, /timeout/); assert.match(runner, /trap 'cleanup; exit 130' INT TERM/); });
+test('runner keeps timeout, cleanup, and target-failure markers', () => { assert.match(runner, /timeout/); assert.match(runner, /trap 'cleanup; exit 130' INT TERM/); assert.match(runner, /PROBE_FAIL code=EWEBSOCKET/); assert.match(runner, /PROBE_FAIL code=EBOUNDEDDOWNLOAD/); assert.doesNotMatch(runner, /infra_marker EWEBSOCKET/); assert.doesNotMatch(runner, /infra_marker EBOUNDEDDOWNLOAD/); });

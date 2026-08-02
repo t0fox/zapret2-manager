@@ -1,0 +1,65 @@
+{
+  "schema": 1,
+  "task": "A3.3",
+  "verdict": "PARTIAL",
+  "reason": "probe pipeline restored; no trusted Discord service winner within bounded scan",
+  "startingHead": "8295f1e8f1149368064e730cf51b57fb2de457bf",
+  "finalHead": "d41cf69",
+  "packageRelease": 133,
+  "packages": {
+    "zapret2-manager-0.1.0-r133.apk": "a119ca955b581efb3f5c8e2368a84eb857e8ffc9a6fd3e9308b24f54fead75f7",
+    "luci-app-zapret2-manager-0.1.0-r133.apk": "97fd863a741291b4d634579bfedef17ae9c393212c74d4ecb0addc505a3f8b0e",
+    "zapret2-manager-full-0.1.0-r133.apk": "53389e05e106e1c1317cc631ceb4bcbd193554e880f7e1d93d58e4243de29528"
+  },
+  "readiness": {
+    "status": "ready",
+    "reasonCode": null,
+    "createsRun": false,
+    "dependencyIds": ["transport", "scanner", "curl", "service-catalog"],
+    "targetProbes": {
+      "web": "https",
+      "gateway": "websocket",
+      "cdn": "bounded_download"
+    },
+    "adapter": "orchestra-candidate-run.sh",
+    "routerRevisionAtReadinessProbe": 12720
+  },
+  "run": {
+    "runId": "or-6a6fa561-f84d",
+    "generation": null,
+    "phase": "timed-out",
+    "maxCandidates": 4,
+    "maxAttempts": 12,
+    "perAttemptTimeoutSec": 10,
+    "totalTimeoutSec": 180,
+    "completedAttempts": 10,
+    "infrastructureErrorCount": 0,
+    "candidateIds": [
+      "z2gui-tcp_https-008b8317eb34a2da77365cffa81a5dfd8b0ac2884d64ea938bcd380a5c108400",
+      "z2gui-tcp_https-0171ac856136365c2b04fee6e04ad89d271006b5d9be0e503612eb171d3b1b89",
+      "z2gui-tcp_https-02ab1507298effb4ece3d55a2a362236d6a5e5193a085955b057c12db678b99d",
+      "z2gui-tcp_https-04b786b52fd07ecdfa6614a54da35be34a0b6e908799c9d519c43ee60390fa6e"
+    ],
+    "candidateStatuses": ["failed", "failed", "failed", "failed"],
+    "targetEvidence": {
+      "discord.com": "timeout rc=124",
+      "gateway.discord.gg": "target-fail rc=65",
+      "cdn.discordapp.com": "target-fail rc=65"
+    },
+    "ranking": [],
+    "winner": null,
+    "apply": "not-run",
+    "lastGood": null
+  },
+  "runtime": {
+    "nfqws2Pids": [17025, 2116],
+    "uhttpdPid": 2588,
+    "appliedHash": "75fa2ee28b278b9814d11b8dd22b8957c90e20bcf53bedf0cbce0a442c52f97f",
+    "activeLock": false,
+    "reboot": false,
+    "nfqws2Restart": false,
+    "uhttpdRestart": false,
+    "firewallRestart": false
+  },
+  "tests": {"node": 1082, "shell": 10, "red": 0, "skipped": 0}
+}
