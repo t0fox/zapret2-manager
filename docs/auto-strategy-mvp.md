@@ -55,7 +55,10 @@ positive evidence IDs, current run/generation evidence, and a better baseline.
 ## Atomic milestones
 
 1. M0: baseline manifest and audit.
-2. M1: persistent controller state.
+2. M1: persistent controller state. **Implemented:** `auto-strategy.uc` owns
+   schema-1 normalization, bounded service IDs, optimistic revision, atomic
+   rename, and regular-file/symlink protections.  It is packaged but has no
+   autonomous trigger yet.
 3. M2: health checks, watchdog/manual triggers, lock and cooldown.
 4. M3: bounded orchestration and deterministic winner/no-winner selection.
 5. M4: sanctioned apply, verification, rollback and last-good commit.
