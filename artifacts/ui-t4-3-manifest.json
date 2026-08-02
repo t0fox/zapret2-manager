@@ -1,0 +1,44 @@
+{
+  "task": "T4.3",
+  "sourceHead": "936184574d2dcd2b6203698f1700dd89e7ebbbf9",
+  "release": "r135",
+  "verdict": "PARTIAL",
+  "targetBrowserBlocker": "HTTP 403 Authorization Required; authenticated LuCI DOM unavailable",
+  "reboot": false,
+  "tests": {
+    "focused": { "pass": 111, "fail": 0 },
+    "full": { "nodePass": 1107, "shellPass": 10, "fail": 0 }
+  },
+  "browser": {
+    "fixture": "artifacts/t4-3-browser-fixture.html",
+    "screenshots": [
+      "artifacts/t4-3-browser-1366-768.png",
+      "artifacts/t4-3-browser-1920-1080.png",
+      "artifacts/t4-3-browser-1024-768.png",
+      "artifacts/t4-3-browser-390-844.png"
+    ],
+    "matrix": {
+      "1366x768": { "overflow": false, "summaryFields": 4, "selectorOpen": false, "summaryColumns": "2" },
+      "1920x1080": { "overflow": false, "summaryFields": 4, "selectorOpen": false, "summaryColumns": "2" },
+      "1024x768": { "overflow": false, "summaryFields": 4, "selectorOpen": false, "summaryColumns": "2" },
+      "390x844": { "overflow": false, "summaryFields": 4, "selectorOpen": false, "summaryColumns": "1" }
+    },
+    "consoleErrors": 0,
+    "targetBlockedScreenshot": "artifacts/t4-3-target-browser-auth-blocked.png"
+  },
+  "packages": {
+    "zapret2-manager-0.1.0-r135.apk": "ce826a7c520ffb1bbf37510325fd9dbbc3e5f3911a3bbd6c24c3d9c08b6d41ee",
+    "luci-app-zapret2-manager-0.1.0-r135.apk": "39046c47dd346b415621e52a3a05130162013f6590d087d398ded30ff328f63b",
+    "zapret2-manager-full-0.1.0-r135.apk": "2ab97dbaa4c2bbb1aa05a48aa613d015c662c4b4afea907d441739cd9f572e62"
+  },
+  "target": {
+    "uptimeBefore": 12089,
+    "uptimeAfter": 12216,
+    "nfqws2": [{ "pid": 2116, "starttime": 1363 }, { "pid": 17025, "starttime": 324438 }],
+    "uhttpdPid": 2588,
+    "nfqueueOwners": { "300": 2116, "15695": 17025 },
+    "statusSchema": 3,
+    "queueHealth": "nominal",
+    "autoPhase": "cooldown"
+  }
+}

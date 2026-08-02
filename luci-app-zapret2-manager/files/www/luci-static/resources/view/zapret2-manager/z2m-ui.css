@@ -905,7 +905,7 @@
 .z2m-orchestra-shell .z2m-overview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .z2m-orchestra-shell .z2m-overview-grid .z2m-remastered-summary { min-width: 0; margin: 0; }
 .z2m-orchestra-shell .z2m-overview-rows { display: grid; gap: 8px; }
-.z2m-orchestra-shell .z2m-overview-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
+.z2m-orchestra-shell .z2m-overview-row { display: grid; grid-template-columns: minmax(9rem, auto) minmax(0, 1fr); align-items: start; justify-content: start; gap: 8px; min-width: 0; }
 .z2m-orchestra-shell .z2m-overview-row-label { color: var(--z2m-muted, #6b7280); }
 .z2m-orchestra-shell .z2m-overview-service-list { overflow-wrap: anywhere; }
 .z2m-orchestra-shell .z2m-overview-operation,
@@ -929,9 +929,14 @@
 /* T4 Auto Strategy presentation. The backend remains the sole source of
  * catalog, admission, active-run and candidate-journal truth. */
 .z2m-orchestra-shell .z2m-auto-page { min-width: 0; }
-.z2m-orchestra-shell .z2m-auto-status-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
-.z2m-orchestra-shell .z2m-auto-status-grid .z2m-kv { min-width: 0; margin: 0; }
-.z2m-orchestra-shell .z2m-auto-service-selector { display: grid; gap: 12px; padding: 12px 0; }
+.z2m-orchestra-shell .z2m-auto-status-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; margin-bottom: 16px; }
+.z2m-orchestra-shell .z2m-auto-status-grid .z2m-kv { display: grid; grid-template-columns: minmax(0, 1fr); gap: 3px; min-width: 0; margin: 0; padding: 9px 10px; border: 1px solid var(--z2m-border, #d1d5db); border-radius: 6px; background: var(--z2m-surface, #fff); }
+.z2m-orchestra-shell .z2m-auto-status-grid .z2m-kv-label { min-width: 0; font-size: .82em; }
+.z2m-orchestra-shell .z2m-auto-status-grid .z2m-kv-value { min-width: 0; }
+.z2m-orchestra-shell .z2m-auto-summary-value { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.z2m-orchestra-shell .z2m-auto-service-selector { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 12px 0; }
+.z2m-orchestra-shell .z2m-auto-service-selector > .z2m-auto-selected-services,
+.z2m-orchestra-shell .z2m-auto-service-selector > .z2m-auto-service-search { grid-column: 1 / -1; }
 .z2m-orchestra-shell .z2m-auto-selected-services { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; padding: 10px 12px; border: 1px solid var(--z2m-border, #d1d5db); border-radius: 6px; background: var(--z2m-surface-soft, #f8fafc); }
 .z2m-orchestra-shell .z2m-auto-service-category { display: grid; gap: 8px; min-width: 0; }
 .z2m-orchestra-shell .z2m-auto-service-category h4 { margin: 0; }
@@ -941,19 +946,47 @@
 .z2m-orchestra-shell .z2m-auto-tested-strategies { grid-column: 1 / -1; }
 .z2m-orchestra-shell .z2m-auto-operation-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
 .z2m-orchestra-shell .z2m-auto-diagnostics { display: grid; gap: 8px; overflow-wrap: anywhere; }
-.z2m-orchestra-shell .z2m-auto-tested-strategies .z2m-table-wrap { overflow-x: auto; }
+.z2m-orchestra-shell .z2m-auto-tested-strategies .z2m-table-wrap { overflow-x: visible; }
 .z2m-orchestra-shell .z2m-orchestra-candidate-journal { width: 100%; }
 .z2m-orchestra-shell .z2m-candidate-details { display: grid; gap: 8px; }
 .z2m-orchestra-shell .z2m-candidate-techniques { display: block; margin-top: 4px; color: var(--z2m-muted, #6b7280); }
 .z2m-orchestra-shell .z2m-orchestra-ranking-table th,
 .z2m-orchestra-shell .z2m-orchestra-ranking-table td { vertical-align: top; }
+.z2m-orchestra-shell .z2m-orchestra-ranking-table { width: 100%; table-layout: fixed; }
+.z2m-orchestra-shell .z2m-orchestra-ranking-table th:nth-child(1),
+.z2m-orchestra-shell .z2m-orchestra-ranking-table td:nth-child(1) { width: 4%; }
+.z2m-orchestra-shell .z2m-orchestra-ranking-table th:nth-child(2),
+.z2m-orchestra-shell .z2m-orchestra-ranking-table td:nth-child(2) { width: 30%; min-width: 0; overflow-wrap: anywhere; }
+.z2m-orchestra-shell .z2m-orchestra-ranking-table th:nth-child(3),
+.z2m-orchestra-shell .z2m-orchestra-ranking-table td:nth-child(3) { width: 16%; }
+.z2m-orchestra-shell .z2m-orchestra-ranking-table th:nth-child(4),
+.z2m-orchestra-shell .z2m-orchestra-ranking-table td:nth-child(4),
+.z2m-orchestra-shell .z2m-orchestra-ranking-table th:nth-child(5),
+.z2m-orchestra-shell .z2m-orchestra-ranking-table td:nth-child(5) { width: 11%; }
+.z2m-orchestra-shell .z2m-orchestra-ranking-table th:nth-child(6),
+.z2m-orchestra-shell .z2m-orchestra-ranking-table td:nth-child(6) { width: 12%; }
+.z2m-orchestra-shell .z2m-orchestra-ranking-table th:nth-child(7),
+.z2m-orchestra-shell .z2m-orchestra-ranking-table td:nth-child(7) { width: 16%; }
+.z2m-orchestra-shell .z2m-orchestra-ranking-table td > details { max-width: 100%; }
+.z2m-orchestra-shell .z2m-auto-operation-actions { display: flex; justify-content: flex-start; margin-top: 10px; }
 .z2m-orchestra-shell .z2m-auto-admission { margin-top: 12px; }
 @media (max-width: 1023px) {
-	.z2m-orchestra-shell .z2m-auto-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+	.z2m-orchestra-shell .z2m-auto-service-selector { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 767px) {
 	.z2m-orchestra-shell .z2m-auto-status-grid,
 	.z2m-orchestra-shell .z2m-auto-operation-meta { grid-template-columns: 1fr; }
+	.z2m-orchestra-shell .z2m-auto-service-selector { grid-template-columns: 1fr; }
 	.z2m-orchestra-shell .z2m-auto-page,
 	.z2m-orchestra-shell .z2m-auto-page * { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
-}
+	.z2m-orchestra-shell .z2m-auto-tested-strategies .z2m-table-wrap { overflow-x: visible; }
+	.z2m-orchestra-shell .z2m-auto-tested-strategies table,
+	.z2m-orchestra-shell .z2m-auto-tested-strategies thead,
+	.z2m-orchestra-shell .z2m-auto-tested-strategies tbody,
+	.z2m-orchestra-shell .z2m-auto-tested-strategies tr,
+	.z2m-orchestra-shell .z2m-auto-tested-strategies td { display: block; width: 100%; }
+	.z2m-orchestra-shell .z2m-auto-tested-strategies thead { display: none; }
+	.z2m-orchestra-shell .z2m-auto-tested-strategies tr { margin-bottom: 10px; padding: 10px; border: 1px solid var(--z2m-border, #d1d5db); border-radius: 6px; }
+	.z2m-orchestra-shell .z2m-auto-tested-strategies td { padding: 4px 0; border: 0; }
+	.z2m-orchestra-shell .z2m-auto-tested-strategies td:first-child { font-weight: 700; }
+	}
