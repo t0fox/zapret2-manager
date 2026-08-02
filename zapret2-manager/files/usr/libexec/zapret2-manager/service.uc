@@ -38,6 +38,7 @@ const PENDING       = '/tmp/zapret2-manager/pending-rollback';
 const USER_PRESETS = '/etc/zapret2-manager/presets';
 const FACTORY_PRESETS = '/usr/share/zapret2-manager/presets';
 const PRESET_FILES = [ 'tcp_https.txt', 'stun_voice.txt', 'udp_games.txt' ];
+const DAEMON_LOG_ENABLE = 'DAEMON_LOG_ENABLE';
 
 function preset_token(token) {
 	// Keep this list to options accepted by the installed nfqws2. In particular,
@@ -317,6 +318,17 @@ function restart_daemons() {
 		rollback_pending: ROLLBACK_TIMEOUT_ENABLED, rollback_ttl: ROLLBACK_TTL };
 }
 
+// CLI-only diagnostic switch. Upstream maps DAEMON_LOG_ENABLE=1 to
+// --debug=@/tmp/zapret2+nfqws2+1+main.log, so the exact nfqws2 decisions are
+// retained without adding a UI or changing RPC contracts.
+function debug(enabled) {
+	let on = enabled == '1' || enabled == 'true';
+	set_var(DAEMON_LOG_ENABLE, on ? '1' : '0');
+	sync_effective_presets();
+	let r = run(UPSTREAM_INIT + ' restart_daemons 2>/dev/null || ' + UPSTREAM_INIT + ' restart');
+	return { ok: r.rc == 0, action: 'debug', enabled: on, rc: r.rc, out: r.out };
+}
+
 // start_fw — INSTALL the zapret2 nft rules (use when the rules are missing,
 // e.g. after the table was cleared). Delegates to upstream's own start_fw,
 // which touches only the zapret2 table. NEVER a full firewall restart — see
@@ -536,6 +548,8 @@ if (arg == 'passthrough') {
 	// CLI/ubus 'rollback' = MANUAL (force=true): restore last-good
 	// unconditionally (the automatic timer path passes no arg = not forced).
 	print(sprintf("%J", rollback(true)) + '\n');
+} else if (arg == 'debug') {
+	print(sprintf("%J", debug(ARGV[1])) + '\n');
 } else if (arg == 'start' || arg == 'stop' || arg == 'restart' ||
            arg == 'restart_daemons' || arg == 'start_fw' || arg == 'reload_ifsets' ||
            arg == 'confirm_alive') {
