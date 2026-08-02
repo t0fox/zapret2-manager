@@ -4,7 +4,7 @@
   "verdict": "PARTIAL",
   "reason": "probe pipeline restored; no trusted Discord service winner within bounded scan",
   "startingHead": "8295f1e8f1149368064e730cf51b57fb2de457bf",
-  "finalHead": "d41cf69",
+  "finalHead": "1ce0eaa",
   "packageRelease": 133,
   "packages": {
     "zapret2-manager-0.1.0-r133.apk": "a119ca955b581efb3f5c8e2368a84eb857e8ffc9a6fd3e9308b24f54fead75f7",
