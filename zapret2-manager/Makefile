@@ -51,6 +51,13 @@ define Package/zapret2-manager/install
 	$(INSTALL_DIR) $(1)/etc/zapret2-manager
 	$(INSTALL_DATA) ./files/etc/zapret2-manager/state.json \
 		$(1)/etc/zapret2-manager/state.json
+	# These are argv-referenced upstream nfqws2 inputs, not runtime cache.
+	# Ship empty files so a cold boot cannot fail before the owner service starts.
+	$(INSTALL_DIR) $(1)/etc/zapret2-manager/ipset
+	$(INSTALL_DATA) ./files/etc/zapret2-manager/ipset/games.txt \
+		$(1)/etc/zapret2-manager/ipset/games.txt
+	$(INSTALL_DATA) ./files/etc/zapret2-manager/ipset/steam.txt \
+		$(1)/etc/zapret2-manager/ipset/steam.txt
 	$(INSTALL_DIR) $(1)/etc/zapret2-manager/presets
 	$(INSTALL_DIR) $(1)/usr/share/zapret2-manager/presets
 	$(INSTALL_DATA) ./files/usr/share/zapret2-manager/presets/tcp_https.txt \
