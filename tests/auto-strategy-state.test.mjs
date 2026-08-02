@@ -11,7 +11,10 @@ test('auto state defaults are disabled and complete', () => {
 		consecutiveFailures: 0, activeRunId: null, lastGoodCandidateId: null,
 		lastGoodProfileRevision: null, lastGoodEvidenceId: null, lastCheckAt: null,
 		lastSuccessAt: null, lastFailureAt: null, lastRunAt: null, cooldownUntil: null,
-		lastHealthJobId: null, infrastructureFailures: 0, scanRequestedAt: null, pendingApplyRunId: null, lastError: null
+		lastHealthJobId: null, infrastructureFailures: 0, scanRequestedAt: null, pendingApplyRunId: null,
+		lastBootCheckAt: null, infrastructureStatus: null, currentAppliedRevision: null, currentAppliedHash: null,
+		lastGoodRevision: null, lastGoodHash: null, divergenceStatus: null, interruptedOperation: null,
+		recoveryStatus: null, lastError: null
 	});
 });
 

@@ -83,7 +83,25 @@ positive evidence IDs, current run/generation evidence, and a better baseline.
    bounded IDs/hashes/evidence and is committed only when the sanctioned
    runtime verification is `ok`; missing runtime proof requests rollback and
    enters cooldown.  PID start-time provenance remains **[VERIFY:ROUTER]**.
-6. M5: boot/recovery path.
+6. M5: boot/recovery path. **Implemented:** the existing procd watchdog loads
+   the persistent controller and validates the bounded, root-owned,
+   non-symlink last-good record before taking any automatic action.  It waits
+   for the M2 boot delay and infrastructure gates, then starts a health check
+   against the current APPLIED configuration; it never starts a scan directly
+   from boot.  Matching current/last-good records remain untouched.  A healthy
+   divergent APPLIED configuration is recorded as divergence and is likewise
+   untouched; an unhealthy divergence follows the existing three-failure
+   hysteresis.  Missing current state is failed closed and requires a manual
+   sanctioned apply rather than a direct upstream write.
+
+   Interrupted scans are rejected unless their existing Orchestra worker still
+   proves matching PID/start-time identity; stale work enters cooldown without
+   accepting a winner.  Interrupted apply/verification invokes the existing
+   snapshot rollback path and blocks further scans until recovery records a
+   result.  Boot state persists bounded infrastructure, applied/last-good,
+   divergence, interrupted-operation and recovery fields atomically.  Live
+   process identity, recovery markers, NFQUEUE ownership and rollback outcome
+   remain **[VERIFY:ROUTER]**.
 7. M6: compatible RPC controls.
 8. M7: minimal LuCI block.
 9. M8: lifecycle regressions, package build, and router acceptance protocol.

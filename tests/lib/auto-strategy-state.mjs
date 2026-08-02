@@ -3,7 +3,10 @@ export const DEFAULT_AUTO_STATE = Object.freeze({
 	consecutiveFailures: 0, activeRunId: null, lastGoodCandidateId: null,
 	lastGoodProfileRevision: null, lastGoodEvidenceId: null, lastCheckAt: null,
 	lastSuccessAt: null, lastFailureAt: null, lastRunAt: null, cooldownUntil: null,
-	lastHealthJobId: null, infrastructureFailures: 0, scanRequestedAt: null, pendingApplyRunId: null, lastError: null
+	lastHealthJobId: null, infrastructureFailures: 0, scanRequestedAt: null, pendingApplyRunId: null,
+	lastBootCheckAt: null, infrastructureStatus: null, currentAppliedRevision: null, currentAppliedHash: null,
+	lastGoodRevision: null, lastGoodHash: null, divergenceStatus: null, interruptedOperation: null,
+	recoveryStatus: null, lastError: null
 });
 
 const PHASES = new Set(['disabled', 'waiting-network', 'healthy', 'degraded', 'scanning', 'applying', 'verifying', 'cooldown', 'failed']);
@@ -33,6 +36,15 @@ export function normalizeAutoState(value) {
 		infrastructureFailures: Number.isInteger(value.infrastructureFailures) ? Math.max(0, Math.min(value.infrastructureFailures, 99)) : 0,
 		scanRequestedAt: Number.isFinite(value.scanRequestedAt) ? value.scanRequestedAt : null,
 		pendingApplyRunId: nullableString(value.pendingApplyRunId, /^or-[a-f0-9]{8}-[a-f0-9]{4}$/),
+		lastBootCheckAt: Number.isFinite(value.lastBootCheckAt) ? value.lastBootCheckAt : null,
+		infrastructureStatus: nullableString(value.infrastructureStatus),
+		currentAppliedRevision: nullableString(value.currentAppliedRevision, /^[a-zA-Z0-9._:@-]{1,128}$/),
+		currentAppliedHash: nullableString(value.currentAppliedHash, /^[a-f0-9]{64}$/),
+		lastGoodRevision: nullableString(value.lastGoodRevision, /^[a-zA-Z0-9._:@-]{1,128}$/),
+		lastGoodHash: nullableString(value.lastGoodHash, /^[a-f0-9]{64}$/),
+		divergenceStatus: nullableString(value.divergenceStatus),
+		interruptedOperation: value.interruptedOperation && typeof value.interruptedOperation === 'object' ? { phase: nullableString(value.interruptedOperation.phase), reason: nullableString(value.interruptedOperation.reason), at: Number.isFinite(value.interruptedOperation.at) ? value.interruptedOperation.at : null } : null,
+		recoveryStatus: nullableString(value.recoveryStatus),
 		lastError: nullableString(value.lastError)
 	};
 }
