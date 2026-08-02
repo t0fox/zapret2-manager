@@ -104,7 +104,7 @@ function build_candidate(def, source, capture) {
 		join_tokens(['--filter-udp=443-65535', '--filter-l7=quic', '--hostlist=' + USER_HOSTLIST, '--payload=quic_initial', '--lua-desync=fake:blob=fake_default_quic:repeats=6']),
 		join_tokens(p7)
 	];
-	let opt = join(profiles, ' --new ');
+	let opt = join(' --new ', profiles);
 	let digest = sha_text(sprintf('%J', { source: source, capture: capture, def: def, opt: opt }), '/tmp/z2m-flowseal-definition.sha');
 	return {
 		managerId: def.managerId || def.id, name: def.name, aliases: def.aliases || [],
