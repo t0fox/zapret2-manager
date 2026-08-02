@@ -35,14 +35,15 @@ function state(overrides) {
 	}, overrides || {});
 }
 
-test('T3 registry exposes Overview while later remastered destinations remain hidden', () => {
+test('T4 registry exposes Overview and Auto while later remastered destinations remain hidden', () => {
 	const baseclass = { extend(properties) { function SharedUiModule() {} SharedUiModule.prototype = Object.assign({}, properties); return SharedUiModule; } };
 	const SharedUiModule = new Function('E', '_', 'baseclass', readFileSync(UI_PATH, 'utf8'))(node, value => value, baseclass);
 	const ui = new SharedUiModule();
 	const overview = ui.ui.activeNavigation('orchestra-overview');
 	assert.equal(overview.available, true);
 	assert.equal(overview.implemented, true);
-	assert.deepEqual(ui.ui.visibleNavigation().map(entry => entry.key), ['overview']);
+	assert.deepEqual(ui.ui.visibleNavigation().map(entry => entry.key), ['overview', 'auto']);
+	assert.equal(ui.ui.activeNavigation('orchestra-adaptive').route, 'orchestra-auto');
 	assert.equal(ui.ui.activeNavigation('orchestra-services').legacyRoute, 'orchestra-services');
 	assert.equal(ui.ui.activeNavigation('orchestra-results').legacyRoute, 'orchestra-results');
 });
@@ -84,7 +85,7 @@ test('Overview uses backend catalog labels, bounds service lists, and never deri
 
 test('Overview prioritizes recovery and active work over normal Auto navigation without mutation', () => {
 	const view = loadView();
-	const active = view._overviewModel(state({ auto: Object.assign({}, state().auto, { phase: 'scanning', activeRun: { runId: 'or-123', progress: 45, startedAt: '2026-08-02T09:00:00Z' } }) }));
+	const active = view._overviewModel(state({ auto: Object.assign({}, state().auto, { phase: 'scanning', activeRun: { runId: 'or-123', generation: 1, phase: 'scanning', progress: 45, startedAt: '2030-08-02T09:00:00Z', heartbeatAt: '2030-08-02T09:30:00Z', deadlineAt: '2030-08-02T10:00:00Z' } }) }));
 	assert.equal(active.overall.status, 'running');
 	assert.equal(active.primary.kind, 'open-run');
 	assert.equal(active.operation.progress, 45);

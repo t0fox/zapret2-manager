@@ -100,7 +100,9 @@ function overview_model(state) {
 	for (i = 0; i < services.length; i++) if (services[i] && services[i].id && services[i].name) names[services[i].id] = services[i].name;
 	for (i = 0; i < serviceIds.length; i++) if (names[serviceIds[i]]) selected.push(overview_text(names[serviceIds[i]], 64));
 	var selectedLabel = selected.slice(0, 3).join(', '); if (!selectedLabel && serviceIds.length) selectedLabel = _('Выбраны сервисы без доступных названий'); if (!selectedLabel) selectedLabel = _('Сервисы не выбраны'); if (serviceIds.length > 3) selectedLabel += ' ' + _('и ещё ') + (serviceIds.length - 3);
-	var active = auto && auto.activeRun && auto.activeRun.runId ? auto.activeRun : state.activeRun && state.activeRun.runId ? state.activeRun : null;
+	var autoTruth = Z2M.ui.activeRunTruth(auto), stateTruth = Z2M.ui.activeRunTruth({ phase: state.activeRun && state.activeRun.phase, activeRun: state.activeRun });
+	var activeTruth = autoTruth.active ? autoTruth : stateTruth.active ? stateTruth : { active: false, stale: autoTruth.stale || stateTruth.stale, reasonCode: autoTruth.stale ? autoTruth.reasonCode : stateTruth.reasonCode, run: null };
+	var active = activeTruth.active ? activeTruth.run : null;
 	var pendingOperation = state.operation && !terminalApply(state.operation.phase) ? state.operation : null;
 	var recovery = !!(auto && (auto.phase === 'recovering' || (auto.infrastructure || {}).reason === 'recovery-required'));
 	var corrupt = !!(auto && (auto.infrastructure || {}).reason === 'state-corrupt');
@@ -118,17 +120,18 @@ function overview_model(state) {
 	if (corrupt) warnings.push({ title: _('Состояние требует проверки'), message: _('Backend сообщил о повреждённом состоянии контроллера.'), panel: 'orchestra-adaptive', reasonCode: 'state-corrupt' });
 	if (failedOperation) warnings.push({ title: _('Операция завершилась с ошибкой'), message: _('Проверьте результат в существующем workflow перед следующей попыткой.'), panel: 'orchestra-results', reasonCode: state.operation.error && state.operation.error.code || 'operation-failed' });
 	if (auto && auto.enabled && !serviceIds.length) warnings.push({ title: _('Сервисы не выбраны'), message: _('Выберите хотя бы один сервис перед запуском проверки.'), panel: 'orchestra-services', reasonCode: 'no-services-selected' });
+	if (activeTruth.stale) warnings.push({ title: _('Предыдущая проверка не была корректно завершена'), message: _('Сохранённое состояние запуска устарело; обновите статус перед новой проверкой.'), panel: 'orchestra-auto', reasonCode: 'stale-run' });
 	if (!available) warnings.push({ title: _('Состояние системы не подтверждено'), message: _('Основной runtime status сейчас недоступен.'), panel: null, reasonCode: 'runtime-not-confirmed' });
 	var primary = null, admissionReason = null, admission = auto && auto.admissionReasons || {};
 	if (state.autoReadOnly) admissionReason = 'access-denied';
 	else if (recovery || corrupt) admissionReason = (admission.restoreLastGood || {}).reasonCode || (corrupt ? 'state-corrupt' : 'recovery-required');
-	else if (active || pendingOperation) primary = { kind: 'open-run', label: _('Открыть текущий подбор'), panel: 'orchestra-results' };
-	else if (auto && auto.enabled === false && (admission.enable || {}).allowed === true) primary = { kind: 'enable-auto', label: _('Включить автоподбор'), panel: 'orchestra-adaptive' };
-	else if (auto && (admission.runNow || {}).allowed === true) primary = { kind: 'run-now', label: _('Проверить сейчас'), panel: 'orchestra-adaptive' };
+	else if (active) primary = { kind: 'open-run', label: _('Открыть текущий подбор'), panel: 'orchestra-auto' };
+	else if (auto && auto.enabled === false && (admission.enable || {}).allowed === true) primary = { kind: 'enable-auto', label: _('Включить автоподбор'), panel: 'orchestra-auto' };
+	else if (auto && (admission.runNow || {}).allowed === true) primary = { kind: 'run-now', label: _('Проверить сейчас'), panel: 'orchestra-auto' };
 	else if (auto && (admission.runNow || {}).reasonCode) admissionReason = admission.runNow.reasonCode;
 	var currentOperation = active || pendingOperation;
 	var operation = currentOperation ? { phase: overview_phase_label(auto && active && auto.phase || currentOperation.phase), progress: Math.max(0, Math.min(100, +(currentOperation.progress || 0))), startedAt: currentOperation.startedAt || null, target: currentOperation.target || currentOperation.serviceId || null } : null;
-	return { overall: overall, runtime: runtime, auto: auto ? { enabled: auto.enabled === true, phase: overview_phase_label(auto.phase), lastGood: !!(auto.lastGood || {}).available, cooldownUntil: auto.cooldownUntil || null, lastCheckAt: (auto.health || {}).lastCheckAt || null } : null, services: { selectedCount: serviceIds.length, selectedLabel: selectedLabel, healthLabel: null }, strategy: { applied: !!(manager && (manager.applied || {}).configPresent), runtime: !!(manager && (manager.runtime || {}).present), profileCount: manager && (manager.runtime || {}).profileCount, match: runtime.configuration.status === 'healthy', lastGood: !!(auto && (auto.lastGood || {}).available) }, operation: operation, warnings: warnings, primary: primary, admissionReason: admissionReason, technical: { runtimeReasonCode: runtime.reasonCode, autoRevision: auto && auto.revision || null, activeRunId: active && active.runId || null, partialErrorCode: state.managerStatusError ? 'status-unavailable' : state.autoError ? 'auto-status-unavailable' : null } };
+	return { overall: overall, runtime: runtime, auto: auto ? { enabled: auto.enabled === true, phase: overview_phase_label(auto.phase), lastGood: !!(auto.lastGood || {}).available, cooldownUntil: auto.cooldownUntil || null, lastCheckAt: (auto.health || {}).lastCheckAt || null } : null, services: { selectedCount: serviceIds.length, selectedLabel: selectedLabel, healthLabel: null }, strategy: { applied: !!(manager && (manager.applied || {}).configPresent), runtime: !!(manager && (manager.runtime || {}).present), profileCount: manager && (manager.runtime || {}).profileCount, match: runtime.configuration.status === 'healthy', lastGood: !!(auto && (auto.lastGood || {}).available) }, operation: operation, warnings: warnings, primary: primary, admissionReason: admissionReason, activeTruth: activeTruth, interrupted: activeTruth.stale === true, technical: { runtimeReasonCode: runtime.reasonCode, autoRevision: auto && auto.revision || null, activeRunId: active && active.runId || null, partialErrorCode: state.managerStatusError ? 'status-unavailable' : state.autoError ? 'auto-status-unavailable' : null } };
 }
 
 return L.view.extend({
@@ -160,7 +163,7 @@ return L.view.extend({
 			['catalogStatus', function () { return get(catalogStatusRpc); }], ['health', function () { return get(healthGetRpc); }], ['readiness', function () { return get(probePreflightRpc); }]
 		];
 		if (this._panel === 'orchestra-overview') calls.unshift(['managerStatus', function () { return get(managerStatusRpc); }]);
-		if (this._panel === 'orchestra-adaptive') calls.push(['caps', function () { return get(capsRpc); }], ['legacyEvents', function () { return get(legacyEventsRpc); }], ['legacyHistory', function () { return get(legacyHistoryRpc); }], ['legacyRatings', function () { return get(legacyRatingsRpc); }]);
+		if (this._panel === 'orchestra-auto' || this._panel === 'orchestra-adaptive') calls.push(['caps', function () { return get(capsRpc); }], ['legacyEvents', function () { return get(legacyEventsRpc); }], ['legacyHistory', function () { return get(legacyHistoryRpc); }], ['legacyRatings', function () { return get(legacyRatingsRpc); }]);
 		var waves = [calls.slice(0, 2), calls.slice(2, 5), calls.slice(5)];
 		function loadWave(index, values) { return Promise.all(waves[index].map(function (entry) { return entry[1]().then(function (value) { values[entry[0]] = value; }); })).then(function () { return index + 1 < waves.length ? loadWave(index + 1, values) : values; }); }
 		return loadWave(0, {}).then(function (a) {
@@ -211,7 +214,7 @@ return L.view.extend({
 	_panelFromHash: function () {
 		var hash = (typeof window !== 'undefined' && window.location && window.location.hash || '').replace(/^#/, '');
 		var entry = Z2M.ui.activeNavigation(hash);
-		return entry && entry.legacyRoute ? entry.legacyRoute : 'orchestra-overview';
+		return entry ? (entry.key === 'auto' ? entry.route : entry.legacyRoute || entry.route) : 'orchestra-overview';
 	},
 	_bindPanelNavigation: function () {
 		var self = this;
@@ -240,7 +243,7 @@ return L.view.extend({
 	_setPanel: function (panel) {
 		var entry = Z2M.ui.activeNavigation(panel);
 		if (!entry || !entry.legacyRoute) return;
-		panel = entry.legacyRoute;
+		panel = entry.key === 'auto' ? entry.route : entry.legacyRoute || entry.route;
 		this._stopPolling(); this._panel = panel;
 		if (typeof window !== 'undefined' && window.history && window.history.pushState) window.history.pushState({ orchestraPanel: panel }, '', '#' + panel);
 		else if (typeof window !== 'undefined' && window.location) window.location.hash = panel;
@@ -258,10 +261,10 @@ return L.view.extend({
 	render: function (state) {
 		injectCSS(); this._pollDisposed = false; this._state = state || this._state; this._panel = this._panelFromHash(); this._bindPanelNavigation();
 		if (typeof window !== 'undefined' && window.location && !window.location.hash && window.history && window.history.replaceState) window.history.replaceState({ orchestraPanel: this._panel }, '', '#' + this._panel);
-		var self = this, content = E('div', { 'class': 'z2m-orchestra-content' }), overview = this._overviewModel(this._state);
+		var self = this, content = E('div', { 'class': 'z2m-orchestra-content' }), overview = this._overviewModel(this._state), autoHeader = this._panel === 'orchestra-auto' ? this._autoHeader() : null;
 		var root = Z2M.ui.PageShell({
 			id: 'z2m-orchestra-page', className: 'z2m-orchestra-shell z2m-orchestra',
-			header: this._panel === 'orchestra-overview' ? this._overviewHeader(overview) : Z2M.ui.PageHeader({ title: _('Orchestra'), description: _('Find, compare and safely apply a verified strategy.') }),
+			header: this._panel === 'orchestra-overview' ? this._overviewHeader(overview) : autoHeader || Z2M.ui.PageHeader({ title: _('Orchestra'), description: _('Find, compare and safely apply a verified strategy.') }),
 			navigationLabel: _('Orchestra sections'),
 			navigation: Z2M.ui.NavigationTabs({ route: this._panel, onSelect: function (entry) { self._setPanel(entry.legacyRoute || entry.route); } }),
 			content: content
@@ -277,6 +280,7 @@ return L.view.extend({
 		else if (this._panel === 'orchestra-services') content.appendChild(this._servicesSection());
 		else if (this._panel === 'orchestra-find') content.appendChild(this._findSection());
 		else if (this._panel === 'orchestra-results') content.appendChild(this._resultsSection());
+		else if (this._panel === 'orchestra-auto') content.appendChild(this._autoStrategySection());
 		else content.appendChild(this._adaptiveSection());
 		if (this._state.error) content.appendChild(alertBox(this._state.error));
 		if (this._state.pollWarning) content.appendChild(alertBox(this._state.pollWarning, 'info'));
@@ -310,7 +314,7 @@ return L.view.extend({
 		if (s.managerStatusError) body.appendChild(Z2M.ui.ErrorPanel({ message: _('Не удалось подтвердить состояние системы.'), code: 'status-unavailable', retry: function () { return self._overviewRefresh(); } }));
 		body.appendChild(E('div', { 'class': 'z2m-overview-grid' }, [
 			this._overviewSummary(_('Состояние системы'), [this._overviewRow(_('nfqws2'), runtime.nfqws2), this._overviewRow(_('NFQUEUE'), runtime.nfqueue), this._overviewRow(_('Проверка runtime'), runtime.verification), this._overviewRow(_('Конфигурация'), runtime.configuration)]),
-			this._overviewSummary(_('Автоматический подбор'), !model.auto ? [E('span', {}, _('Статус автоподбора недоступен.'))] : [this._overviewRow(_('Состояние'), { label: model.auto.enabled ? _('Включён') : _('Отключён'), status: model.auto.enabled ? 'healthy' : 'disabled' }), this._overviewRow(_('Фаза'), { label: model.auto.phase, status: model.operation ? 'running' : model.auto.enabled ? 'healthy' : 'disabled' }), E('div', { 'class': 'z2m-overview-row' }, [E('span', { 'class': 'z2m-overview-row-label' }, _('Последняя проверка')), E('span', {}, model.auto.lastCheckAt ? Z2M.ui.formatRelativeTime(model.auto.lastCheckAt) : _('Проверка ещё не выполнялась'))]), model.auto.cooldownUntil ? E('div', { 'class': 'z2m-overview-row' }, [E('span', { 'class': 'z2m-overview-row-label' }, _('Повторная проверка')), E('span', {}, _('Повторная проверка отложена'))]) : E('span', {}), this._overviewRow(_('Последняя рабочая стратегия'), { label: model.auto.lastGood ? _('Доступна') : _('Последняя рабочая стратегия отсутствует'), status: model.auto.lastGood ? 'verified' : 'unknown' })]),
+			this._overviewSummary(_('Автоматический подбор'), !model.auto ? [E('span', {}, _('Статус автоподбора недоступен.'))] : [this._overviewRow(_('Состояние'), { label: model.auto.enabled ? _('Включён') : _('Отключён'), status: model.auto.enabled ? 'healthy' : 'disabled' }), this._overviewRow(_('Фаза'), { label: model.auto.phase, status: model.operation ? 'running' : model.auto.enabled ? 'healthy' : 'disabled' }), E('div', { 'class': 'z2m-overview-row' }, [E('span', { 'class': 'z2m-overview-row-label' }, _('Последняя проверка')), E('span', {}, Z2M.ui.formatTimestamp(model.auto.lastCheckAt))]), model.auto.cooldownUntil ? E('div', { 'class': 'z2m-overview-row' }, [E('span', { 'class': 'z2m-overview-row-label' }, _('Повторная проверка')), E('span', {}, _('Повторная проверка отложена'))]) : E('span', {}), this._overviewRow(_('Последняя рабочая стратегия'), { label: model.auto.lastGood ? _('Доступна') : _('Последняя рабочая стратегия отсутствует'), status: model.auto.lastGood ? 'verified' : 'unknown' })]),
 			this._overviewSummary(_('Сервисы'), [E('div', { 'class': 'z2m-overview-row' }, [E('span', { 'class': 'z2m-overview-row-label' }, _('Выбрано')), E('span', {}, String(model.services.selectedCount))]), E('div', { 'class': 'z2m-overview-service-list' }, model.services.selectedLabel), model.services.healthLabel ? E('div', { 'class': 'z2m-overview-row' }, [E('span', { 'class': 'z2m-overview-row-label' }, _('Состояние сервисов')), E('span', {}, model.services.healthLabel)]) : E('span', {})]),
 			this._overviewSummary(_('Текущая стратегия'), [this._overviewRow(_('Сохранённая конфигурация'), { label: model.strategy.applied ? _('Присутствует') : _('Отсутствует'), status: model.strategy.applied ? 'healthy' : 'unknown' }), this._overviewRow(_('Работающая конфигурация'), { label: model.strategy.runtime ? _('Присутствует') : _('Отсутствует'), status: model.strategy.runtime ? 'healthy' : 'unknown' }), E('div', { 'class': 'z2m-overview-row' }, [E('span', { 'class': 'z2m-overview-row-label' }, _('Профили')), E('span', {}, model.strategy.profileCount == null ? _('Проверка недоступна') : String(model.strategy.profileCount))]), this._overviewRow(_('Совпадение'), { label: model.strategy.match ? _('Подтверждено') : _('Проверка недоступна'), status: model.strategy.match ? 'verified' : 'unknown' })])
 		]));
@@ -428,7 +432,7 @@ return L.view.extend({
 		if (!response || response._error || response.ok === false) { this._state.auto = null; this._state.autoError = autoText(response && (response._error || structuredError(response.error || response)) || _('Auto Strategy status is unavailable'), 240); this._state.autoPoll = false; return null; }
 		this._state.auto = response; this._state.autoError = null; this._state.autoPoll = this._autoRunActive(response); return response;
 	},
-	_autoRunActive: function (auto) { return !!(auto && auto.activeRun && auto.activeRun.runId); },
+	_autoRunActive: function (auto) { return !!Z2M.ui.activeRunTruth(auto).active; },
 	_autoShouldPoll: function () { return this._state.autoPoll === true && this._autoRunActive(this._state.auto); },
 	_autoAccessDenied: function (error) { var text = structuredError(error).toLowerCase(); return text.indexOf('403') >= 0 || text.indexOf('forbidden') >= 0 || text.indexOf('access denied') >= 0 || text.indexOf('permission denied') >= 0; },
 	_autoRefresh: function () {
@@ -442,42 +446,69 @@ return L.view.extend({
 		return ids.slice(0, 16);
 	},
 	_autoRequestId: function () { this._autoRequestSequence = (this._autoRequestSequence || 0) + 1; return ('auto-ui-' + Date.now().toString(36) + '-' + this._autoRequestSequence.toString(36)).slice(0, 128); },
-	_autoSection: function () {
-		var self = this, s = this._state, auto = s.auto, body = E('div', { 'class': 'z2m-orchestra-adaptive' });
-		if (s.autoLoading && !auto) { body.appendChild(E('div', { 'class': 'z2m-empty' }, _('Auto Strategy status is loading…'))); return section(_('Auto Strategy'), 'orchestra-auto-strategy', body, _('Server-side controller status and bounded controls.')); }
-		if (!auto) { body.appendChild(alertBox(s.autoError || _('Auto Strategy status is unavailable'))); body.appendChild(E('div', { 'class': 'z2m-actions' }, [btn(_('Refresh'), function () { self._autoRefresh(); }, false)])); return section(_('Auto Strategy'), 'orchestra-auto-strategy', body, _('Server-side controller status and bounded controls.')); }
-		var phase = autoText(auto.phase || 'unknown', 48), known = knownAutoPhase(phase), caps = auto.capabilities || {}, lastGood = auto.lastGood || {}, active = auto.activeRun || {}, hasActive = this._autoRunActive(auto), verification = lastGood.available ? _('Verified by backend') : _('Partial or unknown'), locked = !!s.autoPending || !!s.autoReadOnly || !known;
-		body.appendChild(E('div', { 'class': 'z2m-orchestra-state-grid' }, [
-			kv(_('Auto mode'), badge(auto.enabled ? _('Enabled') : _('Disabled'), auto.enabled ? 'ok' : 'neutral')),
-			kv(_('Phase'), badge(phase, known ? autoPhaseKind(phase) : 'bad')),
-			kv(_('Services'), (auto.serviceIds || []).map(function (id) { return autoText(id, 48); }).join(', ') || _('None')),
-			kv(_('Applied revision'), autoText((auto.currentApplied || {}).revision, 64) || '—'), kv(_('Applied hash'), autoText((auto.currentApplied || {}).hash, 48) || '—'),
-			kv(_('Last-good'), lastGood.available ? _('Available') : _('Unavailable')), kv(_('Last-good revision'), autoText(lastGood.profileRevision, 64) || '—'), kv(_('Last-good hash'), autoText(lastGood.profileHash, 48) || '—'),
-			kv(_('Health'), badge(autoText((auto.health || {}).status || 'unknown', 48), (auto.health || {}).status === 'healthy' ? 'ok' : 'warn')),
-			kv(_('Infrastructure'), badge(autoText((auto.infrastructure || {}).status || 'unknown', 48), (auto.infrastructure || {}).status === 'ready' ? 'ok' : 'warn')),
-			kv(_('Consecutive failures'), auto.consecutiveFailures == null ? '—' : auto.consecutiveFailures), kv(_('Cooldown'), auto.cooldownUntil == null ? _('None') : autoText(auto.cooldownUntil, 64)), kv(_('Verification'), badge(verification, lastGood.available ? 'ok' : 'warn'))
-		]));
-		if (!known) body.appendChild(alertBox(_('Unknown Auto Strategy phase; mutations are disabled until the router reports a recognized state.')));
-		if (s.autoReadOnly) body.appendChild(alertBox(_('Auto Strategy is read-only for this session. Refresh remains available.'), 'info'));
-		if (s.autoPending) body.appendChild(alertBox(_('Auto Strategy action pending: ') + autoText(s.autoPending, 64), 'info'));
-		if (s.autoOutcome) body.appendChild(alertBox(autoText(s.autoOutcome, 240), 'info'));
-		if (auto.lastError) body.appendChild(alertBox(autoText(auto.lastError, 240)));
-		if (phase === 'recovering' || phase === 'rollback' || phase === 'rolling-back') body.appendChild(alertBox(_('Recovery is in progress; wait for backend status before changing controls.'), 'warn'));
-		if (!lastGood.available) body.appendChild(alertBox(_('No verified last-good strategy is available.'), 'info'));
-		if ((auto.verifyRouter || []).length || !lastGood.available) body.appendChild(alertBox('[VERIFY:ROUTER] ' + autoText((auto.verifyRouter || []).join(' '), 200), 'info'));
-		if (hasActive) { var progress = Math.max(0, Math.min(100, +(active.progress || 0))); body.appendChild(E('div', { 'class': 'z2m-orchestra-live' }, [kv(_('Active run'), autoText(active.runId, 64)), kv(_('Generation'), active.generation == null ? '—' : active.generation), kv(_('Started'), autoText(active.startedAt, 64) || '—'), E('progress', { 'class': 'z2m-orchestra-progress', 'value': String(progress), 'max': '100', 'aria-label': _('Auto Strategy run progress') })])); }
-		var services = this._autoServices(), select = E('div', { 'class': 'z2m-actions' }); this._autoChecks = this._autoChecks || {};
-		services.forEach(function (service) { if (self._autoChecks[service.id] == null) self._autoChecks[service.id] = (auto.serviceIds || []).indexOf(service.id) >= 0; var input = E('input', { 'type': 'checkbox', 'id': 'z2m-auto-service-' + service.id }); input.checked = !!self._autoChecks[service.id]; input.disabled = locked; input.addEventListener('change', function () { self._autoChecks[service.id] = !!input.checked; }); select.appendChild(E('label', { 'class': 'cbi-value-field' }, [input, ' ' + esc(autoText(service.name || service.id, 64))])); });
-		if (services.length) body.appendChild(E('div', { 'class': 'z2m-card' }, [E('h4', {}, _('Services for Enable / Run now')), select])); else body.appendChild(alertBox(_('Service catalog is unavailable; Enable and Run now are disabled.'), 'info'));
-		var noServices = !this._autoServiceIds().length, actions = E('div', { 'class': 'z2m-actions' });
-		actions.appendChild(btn(_('Enable'), function (b) { self._autoEnable(b); }, locked || auto.enabled || noServices, 'cbi-button-action', noServices ? _('Select a service from the catalog') : null));
-		actions.appendChild(btn(_('Disable'), function (b) { self._autoDisable(b); }, locked || !auto.enabled, 'cbi-button-negative'));
-		actions.appendChild(btn(_('Run now'), function (b) { self._autoRun(b); }, locked || !caps.runNow || noServices, 'cbi-button-action'));
-		actions.appendChild(btn(_('Stop'), function (b) { self._autoStop(b); }, locked || !caps.stop));
-		actions.appendChild(btn(_('Restore last-good'), function (b) { self._autoRestore(b); }, locked || !caps.restoreLastGood || !lastGood.available, 'cbi-button-negative'));
-		actions.appendChild(btn(s.autoLoading ? _('Refreshing…') : _('Refresh'), function () { self._autoRefresh(); }, false)); body.appendChild(actions);
-		return section(_('Auto Strategy'), 'orchestra-auto-strategy', body, _('Server-side controller status and bounded controls.'));
+	_autoHeader: function () {
+		var self = this, auto = this._state.auto || {}, truth = Z2M.ui.activeRunTruth(auto), admission = auto.admissionReasons || {}, primary = null;
+		if (truth.active && (auto.capabilities || {}).stop) primary = { label: _('Остановить'), run: function (b) { self._autoStop(b); } };
+		else if (auto.enabled === false && (admission.enable || {}).allowed === true) primary = { label: _('Включить автоподбор'), run: function (b) { self._autoEnable(b); } };
+		else if ((admission.runNow || {}).allowed === true) primary = { label: _('Проверить сейчас'), run: function (b) { self._autoRun(b); } };
+		else if ((admission.runNow || {}).reasonCode) primary = { label: _('Проверить снова'), disabled: true, reason: { reasonCode: admission.runNow.reasonCode } };
+		var actions = primary && !this._state.autoReadOnly ? [Z2M.ui.ActionButton({ label: primary.label, kind: 'primary', disabled: primary.disabled, reason: primary.reason, onClick: primary.run })] : [], secondary = [Z2M.ui.ActionButton({ label: this._state.autoLoading ? _('Обновление…') : _('Обновить'), onClick: function () { return self._autoRefresh(); }, disabled: this._state.autoLoading })];
+		if (!this._state.autoReadOnly && auto.enabled && (admission.disable || {}).allowed === true) secondary.unshift(Z2M.ui.ActionButton({ label: _('Отключить'), kind: 'danger', onClick: function (b) { self._autoDisable(b); } }));
+		if (!this._state.autoReadOnly && auto.lastGood && auto.lastGood.available && (auto.capabilities || {}).restoreLastGood) secondary.unshift(Z2M.ui.ActionButton({ label: _('Восстановить последнюю рабочую'), kind: 'danger', onClick: function (b) { self._autoRestore(b); } }));
+		return Z2M.ui.PageHeader({ title: _('Автоматический подбор стратегий'), description: _('Подбирает и проверяет стратегии для выбранных сервисов, сохраняя текущую конфигурацию до подтверждения.'), status: { status: truth.active ? 'running' : auto.enabled ? 'healthy' : 'disabled' }, primaryAction: actions[0], secondaryActions: secondary });
 	},
+	_autoServiceSelector: function (auto) {
+		var self = this, services = this._autoServices(), query = String(this._autoFilter || '').toLowerCase(), groups = {}, list = services.filter(function (service) { return !query || String(service.name || service.id).toLowerCase().indexOf(query) >= 0; });
+		this._autoChecks = this._autoChecks || {};
+		list.forEach(function (service) { if (self._autoChecks[service.id] == null) self._autoChecks[service.id] = (auto.serviceIds || []).indexOf(service.id) >= 0; (groups[service.category || _('Другие')] = groups[service.category || _('Другие')] || []).push(service); });
+		var search = E('input', { 'class': 'cbi-input-text z2m-auto-service-search', 'type': 'search', 'placeholder': _('Поиск сервиса'), 'aria-label': _('Поиск сервиса'), 'value': this._autoFilter || '' });
+		search.addEventListener('input', function () { self._autoFilter = search.value || ''; self._refresh(); });
+		var body = E('div', { 'class': 'z2m-auto-service-selector' }, [search]);
+		Object.keys(groups).forEach(function (category) { var grid = E('div', { 'class': 'z2m-auto-service-category' }, [E('h4', {}, esc(category))]); groups[category].forEach(function (service) { var input = E('input', { 'type': 'checkbox', 'id': 'z2m-auto-service-' + service.id }); input.checked = !!self._autoChecks[service.id]; input.disabled = !!self._state.autoReadOnly; input.addEventListener('change', function () { self._autoChecks[service.id] = !!input.checked; }); grid.appendChild(E('label', {}, [input, ' ' + esc(autoText(service.name || service.id, 80))])); }); body.appendChild(grid); });
+		if (!list.length) body.appendChild(Z2M.ui.EmptyState({ title: _('Сервисы не найдены'), explanation: services.length ? _('Измените фильтр или обновите каталог.') : _('Каталог сервисов пока недоступен.') }));
+		return Z2M.ui.DetailsDisclosure({ title: _('Изменить выбор сервисов'), content: body });
+	},
+	_autoCurrentOperation: function (auto) {
+		var truth = Z2M.ui.activeRunTruth(auto), run = truth.run || {}, progress = Math.max(0, Math.min(100, +(run.progress == null ? 0 : run.progress))); if (!truth.active) return truth.stale ? Z2M.ui.NoticeBanner({ level: 'warning', message: _('Предыдущая проверка не была корректно завершена') }) : E('span', {});
+		return E('section', { 'class': 'z2m-auto-current-operation' }, [Z2M.ui.SectionHeader({ title: _('Текущая операция'), description: run.serviceId ? autoText(run.serviceId, 80) : _('Подбор выполняется в существующем workflow.') }), Z2M.ui.ProgressPanel({ value: progress, label: overview_phase_label(run.phase || auto.phase) }), E('div', { 'class': 'z2m-auto-operation-meta' }, [kv(_('Проверено'), run.completedCount == null || run.totalCount == null ? '—' : run.completedCount + ' / ' + run.totalCount), kv(_('Стратегия'), run.currentCandidateName || _('Текущая стратегия уточняется')), kv(_('Осталось'), run.remainingCount == null ? '—' : run.remainingCount)]), details(_('Технические сведения запуска'), E('div', {}, [kv(_('Идентификатор запуска'), autoText(run.runId, 80)), kv(_('Поколение'), run.generation == null ? '—' : run.generation)]))]);
+	},
+	_testedStrategies: function (run) {
+		if (!run) return Z2M.ui.EmptyState({ title: _('Проверенные стратегии'), explanation: _('Результаты появятся после запуска проверки.') });
+		return E('section', { 'class': 'z2m-auto-tested-strategies' }, [Z2M.ui.SectionHeader({ title: _('Проверенные стратегии'), description: _('Журнал текущего запуска; порядок и статусы пришли от backend.') }), this._candidateJournal(run)]);
+	},
+	_autoResultState: function (run) {
+		if (!run) return E('span', {}); var phase = String(run.phase || '').toLowerCase(), winner = run.selectedWinner || (run.serviceVerdict || {}).winner;
+		if (winner || run.applyAllowed === true) return Z2M.ui.NoticeBanner({ level: 'success', message: _('Найдена подтверждённая стратегия') });
+		if (phase === 'stopped' || phase === 'cancelled' || phase === 'canceled') return Z2M.ui.NoticeBanner({ level: 'warning', message: _('Проверка остановлена. Текущая конфигурация не изменена.') });
+		if (phase === 'timed-out' || phase === 'timeout') return Z2M.ui.NoticeBanner({ level: 'warning', message: _('Время проверки истекло. Текущая конфигурация не изменена.') });
+		if (phase === 'infrastructure-error' || phase === 'failed' && run.error && String(run.error.code || '').toLowerCase().indexOf('infra') >= 0) return Z2M.ui.NoticeBanner({ level: 'error', message: _('Инфраструктура недоступна. Текущая конфигурация не изменена.') });
+		if (terminalRun(phase)) return Z2M.ui.NoticeBanner({ level: 'warning', message: _('Подтверждённая рабочая стратегия не найдена. Текущая конфигурация не изменена.') });
+		return E('span', {});
+	},
+	_advancedDiagnostics: function () {
+		var s = this._state, a = s.adaptive || {}, caps = s.caps || {}, runtime = a.runtimeSummary || {}, engine = a.engine || a.engineInArgv || {}, raw = a.autohostlistRaw || a.autohostlist || {}, rows = [kv(_('Состояние runtime'), runtime.status || _('Неизвестно')), kv(_('Движок zapret-auto.lua'), engine.auto ? _('загружен (loaded)') : _('не загружен (not loaded)')), kv(_('lua_compat_ver'), a.luaCompatVer == null ? _('Недоступна') : a.luaCompatVer), kv(_('Доступность матрицы'), caps.matrix ? _('Получена') : _('Не получена')), kv(_('История событий'), s.legacyEvents && s.legacyEvents.available === false ? _('Недоступна') : _('Доступна')), kv(_('История запусков'), s.legacyHistory && s.legacyHistory.available === false ? _('Недоступна') : _('Доступна'))];
+		Object.keys(raw).forEach(function (key) { rows.push(kv(key, raw[key])); });
+		(caps.matrix || []).forEach(function (item) { if (item.reason) rows.push(kv(item.capability || _('Возможность'), autoText(item.reason, 180))); (item.evidence || []).forEach(function (evidence) { rows.push(kv(_('Доказательство'), autoText(evidence, 180))); }); });
+		if (caps.matrix && caps.matrix.length) rows.push(kv(_('Ограничение upstream'), _('IN-PROCESS MEMORY ONLY; preload APIs do NOT exist in the pinned upstream.')));
+		if (s.legacyHistory && s.legacyHistory.available === false) rows.push(kv(_('Причина недоступности истории'), autoText(s.legacyHistory.reason, 120)), kv(_('Доказательства'), autoText((s.legacyHistory.evidence || []).join('; '), 180)), kv(_('Версия upstream'), autoText(s.legacyHistory.upstreamVersion, 64)));
+		if (s.legacyEvents && s.legacyEvents.available === false) rows.push(kv(_('Причина недоступности событий'), autoText(s.legacyEvents.reason, 120)));
+		return details(_('Расширенная Диагностика'), E('div', { 'class': 'z2m-auto-diagnostics' }, rows));
+	},
+	_autoStrategySection: function () {
+		var self = this, s = this._state, auto = s.auto, body = E('div', { 'class': 'z2m-auto-page' });
+		if (s.autoLoading && !auto) return section(_('Автоматический подбор стратегий'), 'orchestra-auto-strategy', Z2M.ui.LoadingPanel({ label: _('Загрузка состояния автоподбора…') }), _('Подбор и проверка стратегий на роутере.'));
+		if (!auto) return section(_('Автоматический подбор стратегий'), 'orchestra-auto-strategy', E('div', {}, [alertBox(s.autoError || _('Состояние автоподбора недоступно.')), btn(_('Обновить'), function () { self._autoRefresh(); }, false)]), _('Подбор и проверка стратегий на роутере.'));
+		var truth = Z2M.ui.activeRunTruth(auto), run = this._state.selectedRun || truth.run || (this._state.runHistory || [])[0] || null, admission = auto.admissionReasons || {};
+		body.appendChild(E('div', { 'class': 'z2m-auto-status-grid' }, [kv(_('Режим'), badge(auto.enabled ? _('Включён') : _('Отключён'), auto.enabled ? 'ok' : 'neutral')), kv(_('Фаза'), badge(overview_phase_label(auto.phase), truth.active ? 'ok' : autoPhaseKind(auto.phase))), kv(_('Сервисы'), (auto.serviceIds || []).length ? (auto.serviceIds || []).length : _('Не выбраны')), kv(_('Последняя проверка'), Z2M.ui.formatTimestamp((auto.health || {}).lastCheckAt)), kv(_('Последняя рабочая стратегия'), auto.lastGood && auto.lastGood.available ? _('Доступна') : _('Отсутствует'))]));
+		if (truth.stale) body.appendChild(Z2M.ui.NoticeBanner({ level: 'warning', message: _('Предыдущая проверка не была корректно завершена') }));
+		if (s.autoReadOnly) body.appendChild(Z2M.ui.NoticeBanner({ level: 'info', message: _('Недостаточно прав для изменения состояния. Просмотр и обновление доступны.') }));
+		if (s.autoPending) body.appendChild(Z2M.ui.NoticeBanner({ level: 'info', message: _('Запрос принят; ожидается подтверждение роутера.') }));
+		if (s.autoOutcome) body.appendChild(Z2M.ui.NoticeBanner({ level: 'info', message: autoText(s.autoOutcome, 200) }));
+		body.appendChild(this._autoServiceSelector(auto)); body.appendChild(this._autoCurrentOperation(auto)); body.appendChild(this._autoResultState(run)); body.appendChild(this._testedStrategies(run)); body.appendChild(this._advancedDiagnostics());
+		if (admission.runNow && admission.runNow.allowed === false) body.appendChild(E('div', { 'class': 'z2m-auto-admission' }, [Z2M.ui.AdmissionReason({ reasonCode: admission.runNow.reasonCode })]));
+		return section(_('Автоматический подбор стратегий'), 'orchestra-auto-strategy', body, _('Подбор и проверка стратегий на роутере.'));
+	},
+	_autoSection: function () { return this._autoStrategySection(); },
 	_autoEnable: function (b) {
 		if (this._state.autoPending) return;
 		var self = this, auto = this._state.auto || {}; this._autoMutation(b, autoEnableRpc, _('Enable'), { expectedRevision: auto.revision, requestId: self._autoRequestId(), serviceIds: self._autoServiceIds() });
@@ -502,13 +533,13 @@ return L.view.extend({
 		var self = this; if (this._state.autoPending) return; this._state.autoPending = label; this._state.autoOutcome = null; this._busy(b, label + '…'); this._refresh();
 		rpcCall(method, pack(payload)).then(function (response) {
 			if (!response || response.ok === false) throw new Error(structuredError(response && response.error || response));
-			self._state.autoPending = null; self._state.autoOutcome = response.status || (response.accepted ? _('Accepted') : _('Completed'));
+			self._state.autoPending = null; self._state.autoOutcome = response.accepted ? _('Запрос принят; ожидается подтверждение роутера.') : response.status === 'disabled' ? _('Автоподбор отключён.') : response.status === 'already-current' ? _('Последняя рабочая стратегия уже применена.') : response.status ? _('Состояние обновлено; подтвердите результат обновлением.') : _('Операция завершена; статус обновляется.');
 			if (response.status === 'disabled') self._state.autoOutcome = _('Auto Strategy disabled.');
 			if (response.status === 'disable-pending-safe-completion') self._state.autoOutcome = _('Disable pending safe completion.');
 			if (response.status === 'cancellation-requested') self._state.autoOutcome = _('Cancellation requested; waiting for terminal status.');
 			if (response.status === 'stopped-pending-candidate' || response.status === 'not-running') self._state.autoOutcome = _('No active scan remains to stop.');
 			if (response.status === 'already-current') self._state.autoOutcome = _('Last-good is already current.');
-			if (label === _('Run now') && response.accepted) { self._state.autoOutcome = _('Run accepted: ') + autoText(response.runId, 64) + ' · ' + _('generation') + ' ' + autoText(response.generation, 32); self._state.autoPoll = true; self._startPolling(); }
+			if (label === _('Run now') && response.accepted) { self._state.autoOutcome = _('Запрос принят; ожидается подтверждение роутера.'); self._state.autoPoll = true; self._startPolling(); }
 			return self._autoRefresh().then(function () { self._busy(b, label, true); self._startPolling(); });
 		}).catch(function (error) {
 			self._state.autoPending = null; var text = structuredError(error);
@@ -519,14 +550,7 @@ return L.view.extend({
 		});
 	},
 
-	_adaptiveSection: function () { var s = this._state, a = s.adaptive || {}, caps = s.caps || {}, runtime = a.runtimeSummary || {}, body = E('div', { 'class': 'z2m-orchestra-adaptive' });
-		body.appendChild(this._autoSection());
-		if (a._error) body.appendChild(alertBox(a._error)); else { var engine = a.engine || a.engineInArgv || {}, raw = a.autohostlistRaw || a.autohostlist || {}, runtimeLabel = runtime.status === 'running' ? _('Running') : runtime.status === 'stopped' ? _('Not running') : _('Unknown'); body.appendChild(E('div', { 'class': 'z2m-orchestra-state-grid' }, [kv(_('State'), badge(a.adaptiveState || _('Unknown'), a.adaptiveState === 'active' ? 'ok' : 'neutral')), kv(_('nfqws2'), runtimeLabel + (runtime.process && runtime.process.pid ? ' · PID ' + runtime.process.pid : '')), kv(_('zapret-auto.lua'), engine.auto ? _('loaded') : _('not loaded')), kv(_('lua_compat_ver'), a.luaCompatVer == null ? _('Unavailable') : a.luaCompatVer), kv(_('Diagnostics'), a.diagnosticsAvailable ? _('Available') : _('Off'))]));
-			var rows = []; Object.keys(raw).forEach(function (k) { rows.push(kv(k, raw[k])); }); if (caps.totalCandidates != null) rows.push(kv(_('Trusted candidates'), caps.totalCandidates)); (caps.matrix || []).forEach(function (v) { rows.push(kv(v.capability || _('Capability'), v.available === true ? _('available') : _('unavailable'))); if (v.reason) rows.push(E('div', { 'class': 'cbi-value-description' }, esc(v.reason))); }); if (rows.length) body.appendChild(details(_('Applied adaptive configuration'), E('div', {}, rows))); if (caps.matrix && caps.matrix.length) body.appendChild(E('div', { 'class': 'cbi-value-description' }, _('IN-PROCESS MEMORY ONLY; preload APIs do NOT exist in the pinned upstream.'))); body.appendChild(this._confirmedWinners()); }
-		if (s.legacyHistory && s.legacyHistory.available === false) body.appendChild(alertBox((s.legacyHistory.reason || '') + ' ' + ((s.legacyHistory.evidence || []).join('; ')) + ' ' + (s.legacyHistory.upstreamVersion || ''), 'info'));
-		if (s.legacyEvents && s.legacyEvents.available === false) body.appendChild(alertBox(s.legacyEvents.reason || _('Events unavailable'), 'info'));
-		return section(_('Adaptive engine'), 'orchestra-adaptive', body, _('Runtime status (read-only); adaptive controls are not available in this workflow.'));
-	},
+	_adaptiveSection: function () { return section(_('Расширенная диагностика'), 'orchestra-adaptive', this._advancedDiagnostics(), _('Только чтение; действия выполняются на странице автоподбора.')); },
 	_confirmedWinners: function () { var rows = (this._state.runHistory || []).filter(function (r) { return r.winnerCandidateId; }).map(function (r) { return E('tr', {}, [E('td', {}, esc(r.target || '—')), E('td', {}, esc((r.protocols || []).map(function (p) { return p === 'tcp_https' ? 'HTTPS' : 'QUIC'; }).join(' · '))), E('td', {}, esc(r.winnerCandidateId)), E('td', {}, badge(_('Confirmed'), 'ok'))]); }); if (!rows.length) return E('div', { 'class': 'z2m-empty' }, _('No confirmed winner per domain and protocol yet.')); return E('div', { 'class': 'z2m-orchestra-confirmed' }, [E('h4', {}, _('Best confirmed strategies')), E('div', { 'class': 'z2m-table-wrap' }, E('table', { 'class': 'table' }, [E('thead', {}, E('tr', {}, ['Domain', 'Protocol', 'Strategy', 'Status'].map(function (h) { return E('th', {}, esc(_(h))); }))), E('tbody', {}, rows)]))]); },
 
 	_selectRun: function (id) { var self = this; this._state.selectedByUser = true; this._state.selectedRunId = id; this._state.selectedRun = null; this._state.selectedLoading = true; this._state.selectedError = null; this._state.preview = null; this._state.operation = null; this._refresh(); rpcCall(runStatusRpc, pack({ runId: id })).then(function (x) { if (self._state.selectedRunId !== id) return; if (!x || x.ok === false) throw new Error(structuredError(x && x.error || x)); self._state.selectedRun = x.run || null; self._state.selectedLoading = false; self._state.selectedError = self._state.selectedRun ? null : _('EIO: selected run response did not contain details'); self._state.protocol = self._preferredProtocol(self._state.selectedRun); if (self._state.selectedRun) self._upsertRunHistory(self._state.selectedRun); self._refresh(); }).catch(function (e) { if (self._state.selectedRunId !== id) return; self._state.selectedLoading = false; self._state.selectedError = structuredError(e); self._refresh(); }); },

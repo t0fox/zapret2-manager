@@ -914,7 +914,7 @@
 .z2m-orchestra-shell .z2m-overview-technical { overflow-wrap: anywhere; color: var(--z2m-muted, #6b7280); }
 
 @media (min-width: 1366px) {
-	.z2m-orchestra-shell .z2m-overview-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+	.z2m-orchestra-shell .z2m-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (min-width: 768px) and (max-width: 1023px) {
 	.z2m-orchestra-shell .z2m-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -923,4 +923,29 @@
 	.z2m-orchestra-shell .z2m-overview-grid { grid-template-columns: 1fr; }
 	.z2m-orchestra-shell .z2m-overview-row { align-items: flex-start; flex-direction: column; gap: 4px; }
 	.z2m-orchestra-shell .z2m-remastered-header-actions .cbi-button-action { width: 100%; }
+}
+
+/* T4 Auto Strategy presentation. The backend remains the sole source of
+ * catalog, admission, active-run and candidate-journal truth. */
+.z2m-orchestra-shell .z2m-auto-page { min-width: 0; }
+.z2m-orchestra-shell .z2m-auto-status-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.z2m-orchestra-shell .z2m-auto-status-grid .z2m-kv { min-width: 0; margin: 0; }
+.z2m-orchestra-shell .z2m-auto-service-selector { display: grid; gap: 12px; padding: 12px 0; }
+.z2m-orchestra-shell .z2m-auto-service-category { display: grid; gap: 8px; min-width: 0; }
+.z2m-orchestra-shell .z2m-auto-service-category h4 { margin: 0; }
+.z2m-orchestra-shell .z2m-auto-service-category label { overflow-wrap: anywhere; }
+.z2m-orchestra-shell .z2m-auto-current-operation,
+.z2m-orchestra-shell .z2m-auto-tested-strategies { margin-top: 16px; min-width: 0; }
+.z2m-orchestra-shell .z2m-auto-operation-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.z2m-orchestra-shell .z2m-auto-diagnostics { display: grid; gap: 8px; overflow-wrap: anywhere; }
+.z2m-orchestra-shell .z2m-auto-tested-strategies .z2m-table-wrap { overflow-x: auto; }
+.z2m-orchestra-shell .z2m-auto-admission { margin-top: 12px; }
+@media (max-width: 1023px) {
+	.z2m-orchestra-shell .z2m-auto-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 767px) {
+	.z2m-orchestra-shell .z2m-auto-status-grid,
+	.z2m-orchestra-shell .z2m-auto-operation-meta { grid-template-columns: 1fr; }
+	.z2m-orchestra-shell .z2m-auto-page,
+	.z2m-orchestra-shell .z2m-auto-page * { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 }

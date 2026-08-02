@@ -44,8 +44,10 @@ test('navigation registry is ordered, unique, keeps legacy aliases, and hides un
 	assert.equal(new Set(entries.map(entry => entry.route)).size, entries.length);
 	assert.equal(ui.ui.activeNavigation('orchestra-results').key, 'runs');
 	assert.equal(ui.ui.activeNavigation('orchestra-adaptive').key, 'auto');
-	assert.deepEqual(ui.ui.visibleNavigation().map(entry => entry.key), ['overview']);
-	assert.ok(entries.filter(entry => entry.key !== 'overview').every(entry => entry.available === false && entry.implemented === false));
+	assert.deepEqual(ui.ui.visibleNavigation().map(entry => entry.key), ['overview', 'auto']);
+	assert.equal(entries.find(entry => entry.key === 'auto').available, true);
+	assert.equal(entries.find(entry => entry.key === 'auto').implemented, true);
+	assert.ok(entries.filter(entry => entry.key !== 'overview' && entry.key !== 'auto').every(entry => entry.available === false && entry.implemented === false));
 });
 
 test('shared presentation primitives preserve unknown and partial semantics and bound untrusted data', () => {

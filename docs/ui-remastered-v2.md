@@ -526,7 +526,7 @@ A failed `status` response makes the overall state unconfirmed while other
 sections continue; its error panel exposes only a stable code and Retry.
 Technical details are collapsed and bounded, with reason/admission/error codes
 but no secrets, raw RPC payloads, shell output, profile arguments or hashes.
-The Overview grid uses four columns at 1366+, two at tablet/compact desktop and
+The Overview grid uses two columns at 1366+ and tablet/compact desktop, and
 one below 768px; service and technical text wrap safely and navigation remains
 scroll-safe.
 
@@ -536,3 +536,14 @@ T3 has source/render and contract evidence only.  It does not claim browser,
 APK, install or router acceptance.  T4 may expose Auto Strategy as a dedicated
 workflow only after preserving this read-only summary, server admission reasons,
 existing mutation handlers and legacy deep links.
+## T4 — Auto Strategy presentation (completed)
+
+The remastered shell now exposes the internal `orchestra-auto` route while preserving `#orchestra-adaptive` as a legacy alias. Auto Strategy is presentation-only: the existing `orchestra_auto_*` RPCs, backend catalog, admission reasons, and production writer remain unchanged.
+
+- Overview remains the default route and uses a responsive 2×2 desktop grid; mobile content wraps without horizontal page overflow.
+- Unix seconds, Unix milliseconds, ISO timestamps, missing/epoch/future values are normalized centrally and rendered with bounded relative labels.
+- A run is shown as active only when the backend supplies a run id, positive generation, active phase, valid ownership, and an unexpired/fresh lease or heartbeat. Stale/incomplete state is presented as “Предыдущая проверка не была корректно завершена” and is never promoted to “Выполняется операция”.
+- Auto page hierarchy is status → one primary action → service selector → current operation → tested-strategies journal → final result → collapsed read-only diagnostics. Services and categories come only from the backend catalog; candidate ordering/ranking is never recomputed in the browser.
+- Candidate rows are scoped by run/generation and expose display names, status, target/attempt counters, and bounded technical details. Winner, no-winner, stopped, timed-out, and infrastructure outcomes have explicit user-facing messages; raw hashes and backend error text stay in technical disclosures or are omitted.
+
+Remaining verification is target-router evidence for the real catalog/active-run payloads and browser visual QA. No router reboot, APK build, or APK installation is part of T4 source work.

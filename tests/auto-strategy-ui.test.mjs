@@ -11,10 +11,10 @@ test('view loads Auto Strategy status without a mutation', () => {
 	assert.match(load, /autoStatusRpc/);
 	assert.doesNotMatch(load, /autoEnableRpc|autoDisableRpc|autoRunRpc|autoStopRpc|autoRestoreRpc/);
 });
-test('initial Auto Strategy state is rendered as loading', () => assert.match(UI, /Auto Strategy status is loading/));
+test('initial Auto Strategy state is rendered as loading', () => assert.match(UI, /Загрузка состояния автоподбора/));
 test('Auto Strategy status RPC errors are rendered', () => assert.match(UI, /autoError/));
 test('damaged Auto Strategy state is presented as failed', () => assert.match(UI, /autoPhaseKind\(phase\).*'bad'/s));
-test('enabled and disabled modes are both rendered', () => assert.match(UI, /auto\.enabled \? _\('Enabled'\) : _\('Disabled'\)/));
+test('enabled and disabled modes are both rendered', () => assert.match(UI, /auto\.enabled \? _\('Включён'\) : _\('Отключён'\)/));
 test('known backend phases are classified explicitly', () => assert.match(UI, /disabled.*waiting-network.*healthy.*degraded.*scanning.*applying.*verifying.*recovering.*cooldown.*failed/s));
 test('unknown phase is never classified as healthy', () => assert.match(UI, /knownAutoPhase\(phase\)/));
 test('backend capabilities control Auto Strategy action buttons', () => assert.match(UI, /auto\.capabilities \|\| \{\}/));
@@ -41,9 +41,9 @@ test('Restore no-op result remains visible', () => assert.match(UI, /already-cur
 test('revision conflict refreshes status and gives a friendly error', () => assert.match(UI, /ECONFLICT.*re-read the current status/s));
 test('unknown mutation result is not retried automatically', () => assert.match(UI, /could not be confirmed; refresh status/));
 test('backend strings pass through escaping helpers rather than innerHTML', () => { assert.match(UI, /function esc\(v\)/); assert.doesNotMatch(UI, /innerHTML/); });
-test('long Auto Strategy errors are bounded', () => assert.match(UI, /autoText\(auto\.lastError, 240\)/));
-test('partial or unknown verification never renders as verified', () => assert.match(UI, /verifyRouter.*VERIFY:ROUTER/));
-test('no last-good disables Restore', () => assert.match(UI, /!lastGood\.available/));
+test('long Auto Strategy errors are bounded', () => assert.match(UI, /autoText\([^,]+, 200\)/));
+test('partial or unknown verification never renders as verified', () => assert.doesNotMatch(UI, /\[VERIFY:ROUTER\]/));
+test('no last-good is presented without exposing restore as a primary action', () => assert.match(UI, /auto\.lastGood && auto\.lastGood\.available/));
 test('existing LuCI render harness continues to exercise Orchestra', () => assert.match(readFileSync('tests/ui/render-harness.test.mjs', 'utf8'), /ZONE_VIEWS/));
 test('existing Auto Strategy RPC method names are used unchanged', () => ['orchestra_auto_status', 'orchestra_auto_enable', 'orchestra_auto_disable', 'orchestra_auto_run', 'orchestra_auto_stop', 'orchestra_auto_restore'].forEach((name) => assert.match(UI, new RegExp(name))));
 test('menu stays on the existing Orchestra view and ACL keeps status read-only', () => {
