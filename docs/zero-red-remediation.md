@@ -48,4 +48,4 @@ The 34 UI/RPC corrections replace an obsolete DOM harness (`style` must be mutab
 
 The provider, provenance, and Service DNS tests now target the existing canonical production paths; no assertion was removed. The Ucode gate lexes comments only outside strings and distinguishes Ucode array value iteration from explicit object-key iteration. `target-ucode-compat` validates the source on the target-compatible compiler.
 
-Closure: 39 original IDs fixed across 6 root causes; no skip, xfail, allowlist, or discovery bypass was added. Final gate and final HEAD are recorded after the r120 release build.
+Closure: 39 original IDs fixed across 6 root causes; no skip, xfail, allowlist, or discovery bypass was added. The r120 source gate at `98881c6ec7290be87b060e115ea17ad98bc47c39` finished `1015 green / 0 red`; the release artifact is recorded separately without committing binaries.
