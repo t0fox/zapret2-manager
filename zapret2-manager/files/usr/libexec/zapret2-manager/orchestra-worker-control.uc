@@ -2,6 +2,7 @@
 
 import { stat, readfile, writefile, unlink, popen } from 'fs';
 import { orchestra_run_load, profile_set, corpus_translate, classify_attempt, control_load, proc_starttime, run, save, add_event, orchestra_finish_service_run, orchestra_probe_preflight } from './orchestra-run.uc';
+import { confirmation_state, winner_record, distinct_positive_evidence_ids } from './orchestra-evidence.uc';
 
 const ROOT='/tmp/zapret2-manager/orchestra-runs';
 const ADAPTER='/usr/libexec/zapret2-manager/orchestra-candidate-run.sh';
@@ -48,8 +49,41 @@ function cancelled_result(r,c,proto,attempt,started,finished,rc,reference,resolv
 }
 function done(r,domain,candidate,protocol,attempt) { for(let x in r.results)if(x.domain==domain&&x.candidateId==candidate&&x.protocol==protocol&&x.attempt==attempt)return true; return false; }
 function protocol_allowed(c,protocols) { for(let p in protocols)if(c.protocol==p)return true; return false; }
-function target_winner(r,domain) { for(let t in r.targetProgress||[])if(t.domain==domain&&t.winner)return true;return false; }
-function note_progress(r,scope,chosen) { if(!r.targetProgress)r.targetProgress=[];let p=null;for(let t in r.targetProgress)if(t.targetId==scope.id||t.domain==scope.domain)p=t;if(!p){p={targetId:scope.id||null,domain:scope.domain,testedCandidateIds:[],nextCandidateIndex:0,attempts:0,rankedResults:[],winner:null,exhausted:false,failureReason:null};push(r.targetProgress,p);}if(!has(p.testedCandidateIds,r.currentCandidate))push(p.testedCandidateIds,r.currentCandidate);p.attempts=length(p.testedCandidateIds);p.nextCandidateIndex=length(chosen);for(let i=0;i<length(chosen);i++)if(!has(p.testedCandidateIds,chosen[i].id)){p.nextCandidateIndex=i;break;}for(let a in r.results)if(a.domain==scope.domain&&a.candidateId==r.currentCandidate&&a.passed){p.winner={candidateId:a.candidateId,strategyId:a.candidateId,domain:scope.domain,protocol:a.protocol,evidence:[a]};break;}save(r); }
+function target_winner(r,domain) { for(let t in r.targetProgress||[])if(t.domain==domain&&t.winner&&t.winner.confirmed)return true;return false; }
+function note_progress(r,scope,chosen) {
+  if(!r.targetProgress)r.targetProgress=[];
+  let p=null;for(let t in r.targetProgress)if(t.targetId==scope.id||t.domain==scope.domain)p=t;
+  if(!p){p={targetId:scope.id||null,domain:scope.domain,testedCandidateIds:[],nextCandidateIndex:0,attempts:0,rankedResults:[],provisionalWinner:null,winner:null,exhausted:false,failureReason:null};push(r.targetProgress,p);}
+  if(!has(p.testedCandidateIds,r.currentCandidate))push(p.testedCandidateIds,r.currentCandidate);
+  p.attempts=length(p.testedCandidateIds);p.nextCandidateIndex=length(chosen);
+  for(let i=0;i<length(chosen);i++)if(!has(p.testedCandidateIds,chosen[i].id)){p.nextCandidateIndex=i;break;}
+  // One PASS is provisional. Only two distinct positive evidence ids from two
+  // separate live attempts may set a confirmed winner.
+  let state=confirmation_state(r.results,scope.domain,r.currentCandidate,r.currentProtocol);
+  p.provisionalWinner=state.provisional?{candidateId:r.currentCandidate,strategyId:r.currentCandidate,domain:scope.domain,protocol:r.currentProtocol,confirmed:false,positiveEvidenceIds:state.positiveEvidenceIds}:null;
+  if(state.confirmed){let w=winner_record(r.results,scope.domain,r.currentCandidate,r.currentProtocol);if(w){p.winner=w;p.provisionalWinner=null;}}
+  save(r);
+}
+function perform_attempt(id,scope,c,proto,attempt) {
+  let r=orchestra_run_load({runId:id}); if(!r)return {status:'gone'};
+  let meta=corpus_translate(c.opt),started=time();
+  r.currentTargetId=scope.id||null;r.currentDomain=scope.domain;r.currentProtocol=proto;r.currentCandidate=c.id;r.currentAttempt=attempt;r.candidatePid=null;r.candidateStarttime=null;r.heartbeatAt=started;save(r);
+  if(!meta.ok){let a=classify_attempt(r,c,proto,attempt,started,time(),-1,'',false,c.upstreamStrategyReference,'',meta,scope.domain);a.targetId=scope.id||null;a.attemptNumber=attempt;a.confirmation=attempt>r.repeats;push(r.results,a);r.completedCount++;r.progress=r.totalCount?r.completedCount*100/r.totalCount:0;save(r);return {status:'ok',r:r,a:a};}
+  if(!write_list(id,c.id,proto,meta.input))return {status:'infra',code:'EWRITELIST',message:'could not create custom list',details:{candidateId:c.id,domain:scope.domain}};
+  let adapter=adapter_start(id,c.id,proto,scope.domain,scope.probe||'https',r.perAttemptTimeoutSec);
+  if(!adapter)return {status:'infra',code:'EWRAPPERSTART',message:'could not start candidate wrapper',details:{candidateId:c.id,domain:scope.domain}};
+  let activeAttempt={c:c,proto:proto,attempt:attempt,started:started,meta:meta,resolved:meta.input,adapter:adapter};
+  while(identity(adapter.pid,adapter.start)) { r=orchestra_run_load({runId:id});let ctrl=control_load(id);r.control=ctrl;r.heartbeatAt=time();let pid=read_num(pid_file(id,c.id,proto));let st=trim(readfile(start_file(id,c.id,proto))||'');if(pid){r.candidatePid=pid;r.candidateStarttime=st||null;}save(r);if(ctrl.stopRequested){stop_owned(r,id,c.id,proto,adapter);return {status:'stop',r:r,activeAttempt:activeAttempt};}run('sleep 1'); }
+  r=orchestra_run_load({runId:id});
+  let raw=trim(readfile(rc_file(id,c.id,proto))||''),rc=raw==''?-1:+raw,log=readfile(log_file(id,c.id,proto))||'';
+  if(rc==66||rc==69||index(log,'INFRA_ERROR')>=0)return {status:'infra',code:'EPROBEDEPENDENCY',message:'candidate probe infrastructure failed',details:{candidateId:c.id,domain:scope.domain,protocol:proto,rc:rc,marker:index(log,'INFRA_ERROR')>=0}};
+  let a=classify_attempt(r,c,proto,attempt,started,time(),rc,log,rc==124,c.upstreamStrategyReference,meta.input,meta,scope.domain);
+  a.targetId=scope.id||null;a.attemptNumber=attempt;a.confirmation=attempt>r.repeats;
+  push(r.results,a);push(r.targetCandidateEvidence,a);r.completedCount++;r.progress=r.totalCount?r.completedCount*100/r.totalCount:0;r.candidatePid=null;r.candidateStarttime=null;r.heartbeatAt=time();
+  add_event(r,'attempt','Candidate attempt finished',{domain:scope.domain,candidateId:c.id,protocol:proto,attempt:attempt,confirmation:a.confirmation,verdict:a.verdict,evidenceId:a.evidenceId});
+  save(r);
+  return {status:'ok',r:r,a:a};
+}
 function timeout(r,id) { if(!r.sessionDeadline||time()<r.sessionDeadline)return false;r.phase='partial';r.continuable=true;r.finishedAt=time();r.currentCandidate=null;r.currentAttempt=null;r.candidatePid=null;r.candidateStarttime=null;r.cleanup={status:'completed',checkedAt:time(),ownedChildrenStopped:true,reason:'bounded continuation timeout'};add_event(r,'partial','Bounded continuation timeout; run is continuable');save(r);clear_controls(id);return true; }
 function finish_infrastructure(r,id,code,message,details) { r.phase='infrastructure-error';r.continuable=false;r.infrastructureErrorCount=(r.infrastructureErrorCount||0)+1;r.error={code:code,message:message,details:details||{}};if(!r.diagnosticEvents)r.diagnosticEvents=[];push(r.diagnosticEvents,{timestamp:time(),code:code,message:message,details:details||{},domain:r.currentDomain||null,candidateId:r.currentCandidate||null});add_event(r,'infrastructure-error',message,r.error.details);r.currentCandidate=null;r.currentAttempt=null;r.candidatePid=null;r.candidateStarttime=null;r.cleanup={status:'completed',checkedAt:time(),ownedChildrenStopped:true};save(r);clear_controls(id);return true; }
 function finish_stop(r,id,activeAttempt) {
@@ -78,14 +112,24 @@ export const orchestra_worker_control_run = function(id) {
 		while(ctrl.pauseRequested){if(r.phase!='paused'){r.phase='paused';r.heartbeatAt=time();add_event(r,'paused','Paused after current bounded attempt');save(r);}run('sleep 1');r=orchestra_run_load({runId:id});ctrl=control_load(id);r.control=ctrl;r.heartbeatAt=time();save(r);if(ctrl.stopRequested)return finish_stop(r,id,null);}
 		if(r.phase=='paused'){r.phase='testing';r.heartbeatAt=time();add_event(r,'resumed','Resume acknowledged by worker');save(r);}
 		if(done(r,scope.domain,c.id,proto,attempt))continue;
-		let meta=corpus_translate(c.opt),started=time();r.currentTargetId=scope.id||null;r.currentDomain=scope.domain;r.currentProtocol=proto;r.currentCandidate=c.id;r.currentAttempt=attempt;r.candidatePid=null;r.candidateStarttime=null;r.heartbeatAt=started;save(r);
-		if(!meta.ok){let a=classify_attempt(r,c,proto,attempt,started,time(),-1,'',false,c.upstreamStrategyReference,'',meta,scope.domain);push(r.results,a);r.completedCount++;r.progress=r.totalCount?r.completedCount*100/r.totalCount:0;save(r);continue;}
-		if(!write_list(id,c.id,proto,meta.input)){r=orchestra_run_load({runId:id});r.currentDomain=scope.domain;r.currentCandidate=c.id;return finish_infrastructure(r,id,'EWRITELIST','could not create custom list',{candidateId:c.id,domain:scope.domain});}
-		let adapter=adapter_start(id,c.id,proto,scope.domain,scope.probe||'https',r.perAttemptTimeoutSec);if(!adapter){r=orchestra_run_load({runId:id});r.currentDomain=scope.domain;r.currentCandidate=c.id;return finish_infrastructure(r,id,'EWRAPPERSTART','could not start candidate wrapper',{candidateId:c.id,domain:scope.domain});}
-		let activeAttempt={c:c,proto:proto,attempt:attempt,started:started,meta:meta,resolved:meta.input,adapter:adapter};
-		while(identity(adapter.pid,adapter.start)) { r=orchestra_run_load({runId:id});ctrl=control_load(id);r.control=ctrl;r.heartbeatAt=time();let pid=read_num(pid_file(id,c.id,proto));let st=trim(readfile(start_file(id,c.id,proto))||'');if(pid){r.candidatePid=pid;r.candidateStarttime=st||null;}save(r);if(ctrl.stopRequested){stop_owned(r,id,c.id,proto,adapter);return finish_stop(r,id,activeAttempt);}run('sleep 1'); }
-		r=orchestra_run_load({runId:id});let raw=trim(readfile(rc_file(id,c.id,proto))||''),rc=raw==''?-1:+raw,log=readfile(log_file(id,c.id,proto))||'';if(rc==66||rc==69||index(log,'INFRA_ERROR')>=0){r.currentDomain=scope.domain;r.currentCandidate=c.id;return finish_infrastructure(r,id,'EPROBEDEPENDENCY','candidate probe infrastructure failed',{candidateId:c.id,domain:scope.domain,protocol:proto,rc:rc,marker:index(log,'INFRA_ERROR')>=0});}let a=classify_attempt(r,c,proto,attempt,started,time(),rc,log,rc==124,c.upstreamStrategyReference,meta.input,meta,scope.domain);a.targetId=scope.id||null;a.attemptNumber=attempt;push(r.results,a);push(r.targetCandidateEvidence,a);r.completedCount++;r.progress=r.totalCount?r.completedCount*100/r.totalCount:0;r.candidatePid=null;r.candidateStarttime=null;r.heartbeatAt=time();add_event(r,'attempt','Candidate attempt finished',{domain:scope.domain,candidateId:c.id,protocol:proto,attempt:attempt,verdict:a.verdict});note_progress(r,scope,chosen);
+    let first=perform_attempt(id,scope,c,proto,attempt);
+    if(first.status=='gone')return false;
+    if(first.status=='infra'){r=orchestra_run_load({runId:id});r.currentDomain=scope.domain;r.currentCandidate=c.id;return finish_infrastructure(r,id,first.code,first.message,first.details);}
+    if(first.status=='stop')return finish_stop(first.r,id,first.activeAttempt);
+    r=first.r;note_progress(r,scope,chosen);
+    if(first.a.passed) {
+      // A first PASS is provisional only. Run the second live attempt for the
+      // same candidate/target/protocol immediately, before moving on.
+      let confirm=perform_attempt(id,scope,c,proto,r.repeats+attempt);
+      if(confirm.status=='gone')return false;
+      if(confirm.status=='infra'){r=orchestra_run_load({runId:id});r.currentDomain=scope.domain;r.currentCandidate=c.id;return finish_infrastructure(r,id,confirm.code,confirm.message,confirm.details);}
+      if(confirm.status=='stop')return finish_stop(confirm.r,id,confirm.activeAttempt);
+      r=confirm.r;note_progress(r,scope,chosen);
+      let ids=distinct_positive_evidence_ids(r.results,scope.domain,c.id,proto);
+      add_event(r,length(ids)>=2?'winner-confirmed':'confirmation-failed',length(ids)>=2?'Second live attempt confirmed the provisional winner':'Second live attempt did not confirm the provisional winner; continuing with the next candidate',{domain:scope.domain,candidateId:c.id,protocol:proto,positiveEvidenceIds:ids});
+      save(r);
+    }
 	}
 	}
-	r=orchestra_run_load({runId:id});if(!r)return false;r.phase='ranking';if(r.targetType=='service')return orchestra_finish_service_run(r,chosen);let ranks=[];for(let c in chosen){let rs=[],pass=0,timeouts=0,durs=[],passedProtocols=[];for(let a in r.results)if(a.candidateId==c.id){push(rs,a);if(a.passed)pass++;if(a.timedOut)timeouts++;if(a.passed)push(durs,a.durationMs);}let https=false,quic=false;for(let a in rs){if(a.passed&&a.protocol=='tcp_https')https=true;if(a.passed&&a.protocol=='quic_udp')quic=true;}if(https)push(passedProtocols,'tcp_https');if(quic)push(passedProtocols,'quic_udp');let stability=length(rs)?pass/length(rs):0,median=length(durs)?durs[0]:null,score=(https?1000:0)+(quic?200:0)+(stability*100)-timeouts*50;push(ranks,{candidateId:c.id,strategyId:c.id,name:c.name,successCount:pass,attemptCount:length(rs),supportedProtocols:r.protocols,passedProtocols:passedProtocols,stability:stability,medianDurationMs:median,timeoutCount:timeouts,score:score,verdict:pass>=r.repeats?'pass':'fail',reason:pass>=r.repeats?'repeatable real passing attempts':'no repeatable passing attempts',evidence:rs});}for(let i=0;i<length(ranks);i++)for(let j=i+1;j<length(ranks);j++)if(ranks[j].score>ranks[i].score){let t=ranks[i];ranks[i]=ranks[j];ranks[j]=t;}r.rankedResults=ranks;if(length(ranks)&&ranks[0].successCount>=r.repeats)r.selectedWinner={candidateId:ranks[0].candidateId,strategyId:ranks[0].strategyId,catalogRevision:r.catalogRevision,catalogHash:r.catalogHash,target:r.target,protocols:r.protocols,evidence:ranks[0].evidence};r.phase='completed';r.finishedAt=time();r.cleanup={status:'completed',checkedAt:time(),ownedChildrenStopped:true};add_event(r,'completed','Ranking completed',{winner:r.selectedWinner?r.selectedWinner.candidateId:null});save(r);clear_controls(id);return true;
+	r=orchestra_run_load({runId:id});if(!r)return false;r.phase='ranking';if(r.targetType=='service')return orchestra_finish_service_run(r,chosen);let ranks=[];for(let c in chosen){let rs=[],pass=0,timeouts=0,durs=[],passedProtocols=[];for(let a in r.results)if(a.candidateId==c.id){push(rs,a);if(a.passed)pass++;if(a.timedOut)timeouts++;if(a.passed)push(durs,a.durationMs);}let https=false,quic=false;for(let a in rs){if(a.passed&&a.protocol=='tcp_https')https=true;if(a.passed&&a.protocol=='quic_udp')quic=true;}if(https)push(passedProtocols,'tcp_https');if(quic)push(passedProtocols,'quic_udp');let stability=length(rs)?pass/length(rs):0,median=length(durs)?durs[0]:null,score=(https?1000:0)+(quic?200:0)+(stability*100)-timeouts*50;push(ranks,{candidateId:c.id,strategyId:c.id,name:c.name,successCount:pass,attemptCount:length(rs),supportedProtocols:r.protocols,passedProtocols:passedProtocols,stability:stability,medianDurationMs:median,timeoutCount:timeouts,score:score,verdict:pass>=r.repeats?'pass':'fail',reason:pass>=r.repeats?'repeatable real passing attempts':'no repeatable passing attempts',evidence:rs});}for(let i=0;i<length(ranks);i++)for(let j=i+1;j<length(ranks);j++)if(ranks[j].score>ranks[i].score){let t=ranks[i];ranks[i]=ranks[j];ranks[j]=t;}r.rankedResults=ranks;if(length(ranks)&&length(distinct_positive_evidence_ids(r.results,r.target,ranks[0].candidateId,null))>=2)r.selectedWinner={candidateId:ranks[0].candidateId,strategyId:ranks[0].strategyId,catalogRevision:r.catalogRevision,catalogHash:r.catalogHash,target:r.target,protocols:r.protocols,evidence:ranks[0].evidence};r.phase='completed';r.finishedAt=time();r.cleanup={status:'completed',checkedAt:time(),ownedChildrenStopped:true};add_event(r,'completed','Ranking completed',{winner:r.selectedWinner?r.selectedWinner.candidateId:null});save(r);clear_controls(id);return true;
 };
