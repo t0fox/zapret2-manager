@@ -253,8 +253,18 @@ const DISCORD_CLI = '/usr/libexec/zapret2-manager/discord-profile-cli.uc';
 const BACKUP_CLI = '/usr/libexec/zapret2-manager/backup-cli.uc';
 const MAINT_CLI = '/usr/libexec/zapret2-manager/maintenance-cli.uc';
 
+const ORCH_TIMEOUT_SEC = 3;
+const ORCH_MAX_OUTPUT = 131072;
+function orch_tmpfile() {
+	let p = popen('mktemp /tmp/z2m-orch-req.XXXXXX 2>/dev/null', 'r');
+	if (!p) return null; let out = trim(p.read('all')); p.close();
+	return length(out) ? out : null;
+}
+function orchestra_cmd(sub, arg) {
+	return 'timeout ' + ORCH_TIMEOUT_SEC + ' /usr/bin/ucode ' + ORCH_CLI + ' ' + sub + (arg ? ' ' + arg : '') + ' 2>/dev/null | head -c ' + ORCH_MAX_OUTPUT;
+}
 function cli_action(cli, sub) {
-	let cmd = '/usr/bin/ucode ' + cli + ' ' + sub + ' 2>/dev/null';
+	let cmd = cli == ORCH_CLI ? orchestra_cmd(sub, null) : '/usr/bin/ucode ' + cli + ' ' + sub + ' 2>/dev/null';
 	let p = popen(cmd, 'r');
 	if (!p) return { ok: false, error: 'popen failed' };
 	let out = p.read('all');
@@ -327,9 +337,10 @@ function orchestra_request_args(req) {
 	return {};
 }
 function orchestra_reqfile_action(sub, req) {
-	let tmp = '/tmp/z2m-orch-req.' + time();
+	let tmp = orch_tmpfile();
+	if (tmp == null) return { ok: false, error: { code: 'ETARGET', message: 'request temp file unavailable' } };
 	writefile(tmp, sprintf("%J", { args: orchestra_request_args(req) }) + '\n');
-	let cmd = '/usr/bin/ucode ' + ORCH_CLI + ' ' + sub + ' ' + tmp + ' 2>/dev/null';
+	let cmd = orchestra_cmd(sub, tmp);
 	let p = popen(cmd, 'r');
 	if (!p) { try { unlink(tmp); } catch (e) { } return { ok: false, error: 'popen failed' }; }
 	let out = p.read('all');
