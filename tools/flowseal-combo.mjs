@@ -13,9 +13,7 @@ const STOCK_BLOBS = Object.freeze({
   quic_vk: '/opt/zapret2/files/fake/quic_initial_vk_com.bin'
 });
 
-function sha(value) {
-  return createHash('sha256').update(value).digest('hex');
-}
+function sha(value) { return createHash('sha256').update(value).digest('hex'); }
 
 export function validatePorts(value) {
   if (typeof value !== 'string' || !value) return false;
@@ -28,23 +26,14 @@ export function validatePorts(value) {
   });
 }
 
-function profile(tokens) {
-  return tokens.filter(Boolean).join(' ');
-}
-
+function profile(tokens) { return tokens.filter(Boolean).join(' '); }
 function extractBlobNames(opt) {
   const names = new Set();
   for (const m of opt.matchAll(/(?:blob|seqovl_pattern)=([A-Za-z0-9_]+)/g)) names.add(m[1]);
   return [...names].sort();
 }
-
 function globalArgs(requiredBlobs) {
-  const args = [
-    '--ctrack-disable=0',
-    '--ipcache-lifetime=8400',
-    '--ipcache-hostname=1',
-    "--lua-init=fake_default_tls=tls_mod(fake_default_tls,'rnd,rndsni')"
-  ];
+  const args = ['--ctrack-disable=0', '--ipcache-lifetime=8400', '--ipcache-hostname=1', "--lua-init=fake_default_tls=tls_mod(fake_default_tls,'rnd,rndsni')"];
   for (const name of requiredBlobs) {
     const path = STOCK_BLOBS[name];
     if (!path) throw new Error(`unknown stock blob: ${name}`);
@@ -58,7 +47,6 @@ export function buildCandidate(def, source, capture) {
   for (const key of ['discordTls', 'youtubeTls', 'fallbackTls', 'voice']) {
     if (!Array.isArray(def[key]) || !def[key].length) throw new Error(`${def.id}: missing ${key}`);
   }
-
   const bodyProfiles = [
     profile(['--filter-tcp=443-65535', '--filter-l7=tls', `--hostlist-domains=${DISCORD_DOMAINS}`, '--out-range=-d10', '--payload=tls_client_hello', ...def.discordTls]),
     profile(['--filter-tcp=443-65535', '--filter-l7=tls', `--hostlist-domains=${YOUTUBE_DOMAINS}`, '--out-range=-d10', '--payload=tls_client_hello', ...def.youtubeTls]),
@@ -68,13 +56,11 @@ export function buildCandidate(def, source, capture) {
     profile(['--filter-udp=443-65535', '--filter-l7=quic', `--hostlist=${USER_HOSTLIST}`, '--payload=quic_initial', '--lua-desync=fake:blob=fake_default_quic:repeats=6']),
     profile(['--filter-udp=19294-19344,50000-65535', '--filter-l7=discord,stun', ...def.voice])
   ];
-
   const provisional = bodyProfiles.join(' --new ');
   const requiredBlobs = extractBlobNames(provisional).filter((name) => name !== 'fake_default_quic');
   const opt = profile([...globalArgs(requiredBlobs), bodyProfiles[0]]) + ' --new ' + bodyProfiles.slice(1).join(' --new ');
   if (/--wf-/.test(opt) || /@\{/.test(opt) || /\\/.test(opt) || /</.test(opt)) throw new Error(`${def.id}: unresolved Windows option/path or placeholder`);
   if (opt.split(' --new ').length !== 7) throw new Error(`${def.id}: expected seven profiles`);
-
   const canonical = JSON.stringify({ def, source, capture, opt });
   return {
     managerId: `z2gui-${def.id}`,
@@ -92,11 +78,7 @@ export function buildCandidate(def, source, capture) {
       blobs: requiredBlobs.map((name) => ({ name, path: STOCK_BLOBS[name] }))
     },
     source: { ...source, strategy: def.name },
-    conversion: {
-      converter: 'z2m-flowseal-combo/1.0.0',
-      removedWindowsOptions: ['--wf-tcp-out', '--wf-udp-out', '--wf-raw-part'],
-      nativeReplacement: 'OpenWrt NFQUEUE capture + native L7/payload filters'
-    },
+    conversion: { converter: 'z2m-flowseal-combo/1.0.0', removedWindowsOptions: ['--wf-tcp-out', '--wf-udp-out', '--wf-raw-part'], nativeReplacement: 'OpenWrt NFQUEUE capture + native L7/payload filters' },
     status: 'native-conformant',
     compatibilityStatus: 'incompatible',
     rejectionReason: 'multi-profile combo; apply from the Combo presets page',
@@ -109,16 +91,27 @@ export function buildCandidate(def, source, capture) {
 export function buildCatalog(sourceDoc) {
   const candidates = sourceDoc.candidates.map((def) => buildCandidate(def, sourceDoc.source, sourceDoc.capture));
   candidates.sort((a, b) => a.managerId.localeCompare(b.managerId));
-  const catalog = {
+  const catalog = { schema: 'orchestra-zapret2gui/2', generatedBy: 'z2m-flowseal-combo/1.0.0', source: sourceDoc.source, sourceRevision: sourceDoc.source.commit, rawDefinitionCount: sourceDoc.candidates.length, candidates };
+  catalog.digest = sha(JSON.stringify(catalog));
+  return catalog;
+}
+
+export function buildRuntimeCatalog(sourceDoc) {
+  return {
     schema: 'orchestra-zapret2gui/2',
-    generatedBy: 'z2m-flowseal-combo/1.0.0',
     source: sourceDoc.source,
     sourceRevision: sourceDoc.source.commit,
     rawDefinitionCount: sourceDoc.candidates.length,
-    candidates
+    capture: sourceDoc.capture,
+    candidates: sourceDoc.candidates.map((def) => ({
+      ...def,
+      legacyId: `z2gui-${def.id}`,
+      compatibilityStatus: 'incompatible',
+      rejectionReason: 'multi-profile combo; apply from the Combo presets page',
+      sourcePath: sourceDoc.source.path,
+      sourceRevision: sourceDoc.source.commit
+    }))
   };
-  catalog.digest = sha(JSON.stringify(catalog));
-  return catalog;
 }
 
 function main() {
@@ -127,17 +120,11 @@ function main() {
   const sourcePath = resolve(here, 'data/asterlike-flowseal-combos.json');
   const outPath = resolve(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/catalog/orchestra-zapret2gui.json');
   const doc = JSON.parse(readFileSync(sourcePath, 'utf8'));
-  const rendered = JSON.stringify(buildCatalog(doc), null, 2) + '\n';
-  if (process.argv.includes('--write')) {
-    writeFileSync(outPath, rendered);
-    return;
-  }
-  if (process.argv.includes('--check')) {
-    const current = readFileSync(outPath, 'utf8');
-    if (current !== rendered) {
-      console.error('orchestra-zapret2gui.json is stale');
-      process.exitCode = 1;
-    }
+  const rendered = JSON.stringify(buildRuntimeCatalog(doc), null, 2) + '\n';
+  if (process.argv.includes('--write')) writeFileSync(outPath, rendered);
+  if (process.argv.includes('--check') && readFileSync(outPath, 'utf8') !== rendered) {
+    console.error('orchestra-zapret2gui.json is stale');
+    process.exitCode = 1;
   }
 }
 
