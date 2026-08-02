@@ -413,3 +413,68 @@ The remastered program is complete only when all of the following are true:
 ### T1 canonical source decision
 
 `status.uc` remains the sole collector of process, argv, APPLIED/drift, NFQUEUE and watchdog evidence. T1 adds an additive canonical `runtimeSummary` projected from that collected status. Orchestra and Auto Strategy consume that projection; an absent projection is `unknown`/`runtime-not-confirmed`, never `stopped`. Existing status, Auto, run, ACL and legacy boolean fields remain present for compatibility.
+
+## T2 — shared UI foundation and Orchestra shell (2026-08-02)
+
+### Public API and scope
+
+`z2m-ui.js` remains the only shared UI API.  The existing public `Z2M` object
+and its v1 methods are unchanged; T2 adds the backwards-compatible `Z2M.ui`
+namespace.  It provides `PageShell`, `PageHeader`, `SectionHeader`, status,
+summary, notice, empty/error/loading, details, admission, action, confirmation,
+progress, filter/search and safe-text/time/error-formatting primitives.  These
+are presentation-only helpers: they make no RPC calls and hold no workflow
+state.  `z2m-ui.css` remains the only shared stylesheet; all T2 selectors are
+under `.z2m-orchestra-shell`.
+
+### Registry and legacy routes
+
+`Z2M.ui.orchestraNavigation` is the sole registry.  Every item has a unique
+`key` and canonical `route`, its aliases, `capability: 'read'`, planned stage,
+and `available`/`implemented` flags.  `activeNavigation()` is the one alias
+resolver used by the shell only to select an active tab and to retain old deep
+links; it does not redirect or alter query parameters.
+
+| Key | Canonical route | Legacy alias/content route | Stage | T2 visibility |
+|---|---|---|---|---|
+| overview | `orchestra-overview` | — | T3 | hidden |
+| auto | `orchestra-auto` | `orchestra-adaptive` | T4 | existing legacy panel |
+| services | `orchestra-services` | `orchestra-services` | T5 | existing legacy panel |
+| rating | `orchestra-rating` | — | T6 | hidden |
+| strategies | `orchestra-strategies` | `orchestra-find` | T7 | existing legacy panel |
+| runs | `orchestra-runs` | `orchestra-results` | T8 | existing legacy panel |
+| diagnostics | `orchestra-diagnostics` | — | T9 | hidden |
+
+The visible transitional items have `implemented: false`: they expose only an
+already-existing legacy panel so navigation and old hashes continue to work.
+The T3/T6/T9 destinations are unavailable and therefore create neither a tab,
+an empty page nor a dead link.  Canonical future routes are registry facts for
+gradual migration, not new LuCI menu paths.
+
+### Orchestra integration and responsive contract
+
+Only the existing Orchestra view uses `PageShell` in T2.  It supplies the
+header, registry-derived navigation and existing content node; all current
+RPC declarations, arguments, mutations, ranking, service selection,
+Auto-Strategy state and apply/rollback handlers remain in place.  The existing
+default landing and `history.pushState` behavior are retained.
+
+The shell has labelled navigation, native buttons/inputs/progress/details,
+`aria-current` for the active tab, polite loading and alert errors.  Unknown
+and partial statuses remain explicit rather than being painted healthy.
+The scoped layout has 1366+, 1024–1365, 768–1023 and `<768px` breakpoints;
+the navigation scrolls horizontally on small screens and controls wrap instead
+of overlapping.
+
+### Migration example and next-stage prerequisites
+
+Future views should compose primitives rather than add another shared module:
+`Z2M.ui.PageShell({ header: Z2M.ui.PageHeader(...), content: ... })` and
+`Z2M.ui.StatusBadge({ status: ... })`.  A T3–T9 page becomes visible only when
+its existing backend/capability contract is sufficient and it has focused
+render, unknown/error/empty, keyboard and viewport tests.  T2 intentionally
+adds no backend field, ACL/menu change, RPC change, package bump or APK.
+
+Remaining risks are the inherited legacy-panel semantics and unverified visual
+browser evidence; neither is represented as a successful remastered workflow
+until its dedicated stage validates it.
