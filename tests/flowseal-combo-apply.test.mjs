@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { applyComboTransaction, preflightCombo } from '../tools/flowseal-combo-apply.mjs';
 
 const candidate = {
-  managerId: 'flowseal-flowseal-alt10-combo',
+  managerId: 'flowseal-alt10-combo',
   captureMode: 'wide',
   tcpPorts: '80,443-65535',
   udpPorts: '443,19294-19344,50000-65535',
