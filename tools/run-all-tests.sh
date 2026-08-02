@@ -112,7 +112,7 @@ while IFS= read -r f; do
 			printf '  FILE %-52s cat=%-8s pass=%s fail=%s%s\n' "$rel" "$cat" "$p" "$fa" "$note"
 			;;
 		*.test.sh)
-			if sh "$f" >/dev/null 2>&1; then
+			if sh "$f" </dev/null >/dev/null 2>&1; then
 				add_counts "$cat" 1 0
 				printf '  FILE %-52s cat=%-8s PASS\n' "$rel" "$cat"
 			else
