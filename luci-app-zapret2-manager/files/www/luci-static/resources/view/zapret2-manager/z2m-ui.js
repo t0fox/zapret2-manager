@@ -266,6 +266,11 @@ var Z2M = {
 		normalizeTimestamp: timestamp_value,
 		formatTimestamp: function (value, options) { return timestamp_value(value, options).label; },
 		formatRelativeTime: function (value, options) { return timestamp_value(value, options).label; },
+		formatRunTimestamp: function (run, field, fallback) {
+			fallback = fallback || tr(field === 'startedAt' ? 'Время запуска неизвестно' : field === 'finishedAt' ? 'Время завершения неизвестно' : 'Время не указано');
+			if (!run || run[field] == null || run[field] === '' || ['interrupted', 'stale'].indexOf(String(run.phase || '').toLowerCase()) >= 0) return fallback;
+			return timestamp_value(run[field]).label;
+		},
 		activeRunTruth: active_run_truth,
 		PageHeader: function (options) { options = options || {}; var actions = []; if (options.primaryAction) actions.push(options.primaryAction); (options.secondaryActions || []).forEach(function (item) { actions.push(item); }); return E('header', { 'class': 'z2m-remastered-header' }, [E('div', { 'class': 'z2m-remastered-header-copy' }, [E('h2', {}, safe_text(options.title, 120)), options.description ? E('p', {}, safe_text(options.description, 240)) : E('span', {})]), options.status ? Z2M.ui.StatusBadge(options.status) : E('span', {}), actions.length ? E('div', { 'class': 'z2m-remastered-header-actions' }, actions) : E('span', {})]); },
 		PageShell: function (options) { options = options || {}; var children = []; if (options.header) children.push(options.header); if (options.navigation) children.push(E('nav', { 'class': 'z2m-remastered-nav z2m-orchestra-nav', 'aria-label': options.navigationLabel || tr('Orchestra navigation') }, options.navigation)); if (options.notice) children.push(E('div', { 'class': 'z2m-remastered-notice' }, options.notice)); if (options.actions) children.push(E('div', { 'class': 'z2m-remastered-actionbar' }, options.actions)); children.push(E('main', { 'class': 'z2m-remastered-content' }, options.content || E('div', {}))); return E('div', { 'class': 'z2m-page z2m-remastered ' + (options.className || ''), 'id': options.id || null }, children); },

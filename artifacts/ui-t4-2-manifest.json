@@ -1,0 +1,41 @@
+{
+  "schema": 1,
+  "task": "T4.2",
+  "verdict": "PARTIAL",
+  "reason": "production UI deployed and target runtime verified; authenticated browser DOM blocked by LuCI login (HTTP 403)",
+  "startingHead": "c7eb12e56b2d0c13659bfea5f21622e736a0835d",
+  "packageRelease": 134,
+  "packages": {
+    "zapret2-manager-0.1.0-r134.apk": "87ba860fac50d6c5fa7d054bea14cbfb9b30a9555b91d675c1fc4a42b9804fd7",
+    "luci-app-zapret2-manager-0.1.0-r134.apk": "479a8955e9d1fd19f22dcfff806a539918387a0b9ae14ac8906812c4b0c9cee0",
+    "zapret2-manager-full-0.1.0-r134.apk": "4f00b5a01cc81dd8f86d567c285017138e649855b0244d1c840732402f876939"
+  },
+  "tests": { "node": 1102, "shell": 10, "red": 0, "skipped": 0 },
+  "target": {
+    "host": "192.168.1.1",
+    "packagesInstalled": ["zapret2-manager", "luci-app-zapret2-manager", "zapret2-manager-full"],
+    "nfqws2Pids": [2116, 17025],
+    "nfqueue": [{ "number": 300, "ownerPid": 2116 }, { "number": 15695, "ownerPid": 17025 }],
+    "uhttpdPid": 2588,
+    "staticAssetsHttp": 200,
+    "sourceTargetMd5": "matched",
+    "reboot": false,
+    "nfqws2Restart": false,
+    "firewallRestart": false,
+    "uhttpdRestart": false,
+    "apply": false,
+    "rollback": false,
+    "newScan": false
+  },
+  "browser": {
+    "status": "blocked",
+    "http": 403,
+    "reason": "LuCI login required; no authenticated DOM claim",
+    "viewports": ["1366x768", "1920x1080", "390x844"],
+    "screenshots": [
+      "artifacts/t4-2-browser-1366x768.png",
+      "artifacts/t4-2-browser-1920x1080.png",
+      "artifacts/t4-2-browser-390x844.png"
+    ]
+  }
+}
