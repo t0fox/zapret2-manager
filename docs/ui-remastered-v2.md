@@ -478,3 +478,61 @@ adds no backend field, ACL/menu change, RPC change, package bump or APK.
 Remaining risks are the inherited legacy-panel semantics and unverified visual
 browser evidence; neither is represented as a successful remastered workflow
 until its dedicated stage validates it.
+
+## T3 — remastered Overview (2026-08-02)
+
+### Route, data and access contract
+
+`#orchestra-overview` is now the default Orchestra landing and the only visible
+internal remastered destination.  The existing Services, Find, Results and
+Adaptive hashes remain valid legacy deep links, but T4–T9 registry entries are
+not shown until their own implementation stages.  No LuCI menu path, ACL or
+redirect was added; a fragment-only history update preserves existing query
+parameters.
+
+Overview reads the existing `status`, `orchestra_auto_status`, `catalog_list`
+and `catalog_status` responses already allowed by the current ACL.  It renders
+the canonical `runtimeSummary`, APPLIED/runtime presence and drift, Auto
+Strategy status/admission/last-good, and catalog-supplied service display
+names.  It creates no mutation, state machine, ranking, service-health
+classification or second catalog.  Refresh repeats only this bounded read
+snapshot and marks previous content as potentially stale while pending.
+
+### Overall-state presentation adapter
+
+The adapter is deliberately presentation-only and has this fixed priority:
+
+1. `recovery-required`, `state-corrupt`, confirmed stopped process, or failed runtime;
+2. backend runtime mismatch/degraded verdict, drift, absent NFQUEUE, or owner mismatch;
+3. active scan, apply or verification operation;
+4. verified running process, owned NFQUEUE and matching APPLIED/runtime;
+5. backend-disabled runtime;
+6. unknown or unavailable evidence.
+
+It never calls an unavailable runtime `stopped`, never upgrades unknown NFQUEUE
+to healthy, and does not treat disabled Auto Strategy or an absent last-good
+record as a system failure.  Partial status remains explicitly partial.
+
+### Actions, partial failure and responsive behavior
+
+At most one primary action is displayed.  Its deterministic order is recovery
+admission (shown as its backend reason when unavailable), active-operation
+navigation, allowed Auto enable, then allowed Auto run.  Every such action only
+opens an existing workflow; T3 moves no Enable/Run/Stop/Restore handler.
+Refresh is a secondary read-only action.  A read-only session sees all status
+and Refresh, no mutation control, and a bounded insufficient-rights message.
+
+A failed `status` response makes the overall state unconfirmed while other
+sections continue; its error panel exposes only a stable code and Retry.
+Technical details are collapsed and bounded, with reason/admission/error codes
+but no secrets, raw RPC payloads, shell output, profile arguments or hashes.
+The Overview grid uses four columns at 1366+, two at tablet/compact desktop and
+one below 768px; service and technical text wrap safely and navigation remains
+scroll-safe.
+
+### Verification boundary and T4 prerequisites
+
+T3 has source/render and contract evidence only.  It does not claim browser,
+APK, install or router acceptance.  T4 may expose Auto Strategy as a dedicated
+workflow only after preserving this read-only summary, server admission reasons,
+existing mutation handlers and legacy deep links.
