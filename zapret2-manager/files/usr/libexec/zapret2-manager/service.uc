@@ -40,7 +40,14 @@ const FACTORY_PRESETS = '/usr/share/zapret2-manager/presets';
 const PRESET_FILES = [ 'tcp_https.txt', 'stun_voice.txt', 'udp_games.txt' ];
 
 function preset_token(token) {
-	let prefixes = [ '--filter-tcp=', '--filter-udp=', '--hostlist-domains=', '--hostlist=', '--ipset=', '--wf-udp-out=', '--filter-l7=', '--payload=', '--out-range=', '--in-range=', '--lua-desync=', '--dpi-desync=', '--tamper=', '--fooling=', '--split-pos=', '--new' ];
+	// Keep this list to options accepted by the installed nfqws2. In particular,
+	// `--wf-udp-out` is a legacy nfqws1 option: passing it makes nfqws2 exit
+	// before it reaches any profile. Preset preambles and unrecognized options
+	// are intentionally retained in the files, but never reach the daemon.
+	// `old` is a fixture placeholder in the shipped factory documents, not a
+	// function provided by the target Lua bundle. It must not reach nfqws2.
+	if (token == '--lua-desync=old') return false;
+	let prefixes = [ '--filter-tcp=', '--filter-udp=', '--hostlist-domains=', '--hostlist=', '--ipset=', '--filter-l7=', '--payload=', '--out-range=', '--in-range=', '--lua-desync=', '--new' ];
 	for (let i = 0; i < length(prefixes); i++) if (token == prefixes[i] || substr(token, 0, length(prefixes[i])) == prefixes[i]) return true;
 	return false;
 }
@@ -61,6 +68,14 @@ function sync_effective_presets() {
 		}
 	}
 	if (!length(tokens)) return null;
+	// Factory UDP profiles name these two optional lists. They must exist even
+	// before the operator has populated them; nfqws2 otherwise exits at init.
+	// Never overwrite an existing operator-managed list.
+	try {
+		mkdir('/etc/zapret2-manager/ipset');
+		if (!stat('/etc/zapret2-manager/ipset/games.txt')) writefile('/etc/zapret2-manager/ipset/games.txt', '');
+		if (!stat('/etc/zapret2-manager/ipset/steam.txt')) writefile('/etc/zapret2-manager/ipset/steam.txt', '');
+	} catch (e) { }
 	let rendered = join(' ', tokens);
 	set_var('NFQWS2_OPT', rendered);
 	return rendered;
