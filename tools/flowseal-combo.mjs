@@ -27,18 +27,9 @@ export function validatePorts(value) {
 }
 
 function profile(tokens) { return tokens.filter(Boolean).join(' '); }
-function extractBlobNames(opt) {
-  const names = new Set();
-  for (const m of opt.matchAll(/(?:blob|seqovl_pattern)=([A-Za-z0-9_]+)/g)) names.add(m[1]);
-  return [...names].sort();
-}
-function globalArgs(requiredBlobs) {
+function globalArgs() {
   const args = ['--ctrack-disable=0', '--ipcache-lifetime=8400', '--ipcache-hostname=1', "--lua-init=fake_default_tls=tls_mod(fake_default_tls,'rnd,rndsni')"];
-  for (const name of requiredBlobs) {
-    const path = STOCK_BLOBS[name];
-    if (!path) throw new Error(`unknown stock blob: ${name}`);
-    args.push(`--blob=${name}:@${path}`);
-  }
+  for (const [name, path] of Object.entries(STOCK_BLOBS)) args.push(`--blob=${name}:@${path}`);
   return args;
 }
 
@@ -56,9 +47,7 @@ export function buildCandidate(def, source, capture) {
     profile(['--filter-udp=443-65535', '--filter-l7=quic', `--hostlist=${USER_HOSTLIST}`, '--payload=quic_initial', '--lua-desync=fake:blob=fake_default_quic:repeats=6']),
     profile(['--filter-udp=19294-19344,50000-65535', '--filter-l7=discord,stun', ...def.voice])
   ];
-  const provisional = bodyProfiles.join(' --new ');
-  const requiredBlobs = extractBlobNames(provisional).filter((name) => name !== 'fake_default_quic');
-  const opt = profile([...globalArgs(requiredBlobs), bodyProfiles[0]]) + ' --new ' + bodyProfiles.slice(1).join(' --new ');
+  const opt = profile([...globalArgs(), bodyProfiles[0]]) + ' --new ' + bodyProfiles.slice(1).join(' --new ');
   if (/--wf-/.test(opt) || /@\{/.test(opt) || /\\/.test(opt) || /</.test(opt)) throw new Error(`${def.id}: unresolved Windows option/path or placeholder`);
   if (opt.split(' --new ').length !== 7) throw new Error(`${def.id}: expected seven profiles`);
   const canonical = JSON.stringify({ def, source, capture, opt });
@@ -74,7 +63,7 @@ export function buildCandidate(def, source, capture) {
     dependencies: {
       lua: ['zapret-lib.lua', 'zapret-antidpi.lua'],
       hostlists: [USER_HOSTLIST],
-      blobs: requiredBlobs.map((name) => ({ name, path: STOCK_BLOBS[name] }))
+      blobs: Object.entries(STOCK_BLOBS).map(([name, path]) => ({ name, path }))
     },
     source: { ...source, strategy: def.name },
     profileCount: 7,
