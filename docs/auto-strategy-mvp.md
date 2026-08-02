@@ -102,7 +102,27 @@ positive evidence IDs, current run/generation evidence, and a better baseline.
    divergence, interrupted-operation and recovery fields atomically.  Live
    process identity, recovery markers, NFQUEUE ownership and rollback outcome
    remain **[VERIFY:ROUTER]**.
-7. M6: compatible RPC controls.
+7. M6: compatible RPC controls. **Implemented:** the existing
+   `zapret2-manager` rpcd object now exposes `orchestra_auto_status`,
+   `orchestra_auto_enable`, `orchestra_auto_disable`,
+   `orchestra_auto_run`, `orchestra_auto_stop`, and
+   `orchestra_auto_restore`.  Complex write requests use the project's
+   existing `{ edit: "<JSON>" }` transport and contain a bounded
+   `expectedRevision`, `requestId`, and (where required) `serviceIds`.
+   Status is read-only, bounded, redacted, and derives server-side operation
+   capabilities.  Its ACL is read-only; the five mutations are write-only.
+
+   Mutations use optimistic revision checks plus a bounded 16-entry persisted
+   request ring.  A matching requestId is replayed without repeating its side
+   effect, while reuse with a different payload is rejected.  Run now starts
+   only the existing bounded Orchestra worker; stop requests its existing
+   id-scoped cancellation.  Restore accepts only a fully verified last-good
+   record and reuses Orchestra preview/apply, snapshot, runtime verification,
+   target confirmation and rollback; it never writes upstream configuration
+   directly.  Existing service apply is transactional and synchronous, so the
+   response marks that fact rather than pretending a background job exists.
+   rpcd request shape, live ACL enforcement, PID/NFQUEUE proof and rollback
+   evidence remain **[VERIFY:ROUTER]**.
 8. M7: minimal LuCI block.
 9. M8: lifecycle regressions, package build, and router acceptance protocol.
 

@@ -246,6 +246,7 @@ function health_matrix_job_cancel_method(req) { return blockcheck_cancel_method(
 
 // ---- orchestra read-only adapter (Phase D) ---------------------------------------
 const ORCH_CLI = '/usr/libexec/zapret2-manager/orchestra-cli.uc';
+const AUTO_STRATEGY_CLI = '/usr/libexec/zapret2-manager/auto-strategy-cli.uc';
 const DISCORD_CLI = '/usr/libexec/zapret2-manager/discord-profile-cli.uc';
 // (method wrappers live below cli_action — ucode does not hoist declarations)
 
@@ -353,6 +354,18 @@ function orchestra_reqfile_action(sub, req) {
 		return { ok: false, error: 'no output', raw: out };
 	} catch (e) { return { ok: false, error: 'parse failed', raw: out }; }
 }
+function auto_strategy_reqfile_action(sub, req) {
+	let tmp = orch_tmpfile();
+	if (tmp == null) return { ok: false, error: { code: 'ETARGET', message: 'request temp file unavailable' } };
+	writefile(tmp, sprintf("%J", { args: orchestra_request_args(req) }) + '\n');
+	// Do not put a kill timeout around restore: its existing sanctioned apply is
+	// transactional and must be allowed to finish or roll back safely.
+	let p = popen('/usr/bin/ucode ' + AUTO_STRATEGY_CLI + ' ' + sub + ' ' + tmp + ' 2>/dev/null | head -c ' + ORCH_MAX_OUTPUT, 'r');
+	if (!p) { try { unlink(tmp); } catch (e) { } return { ok: false, error: { code: 'ETARGET', message: 'Auto Strategy controller is unavailable' } }; }
+	let out = p.read('all') || ''; p.close(); try { unlink(tmp); } catch (e) { }
+	try { let parsed = json(out); return parsed != null ? parsed : { ok: false, error: { code: 'EINTERNAL', message: 'Auto Strategy returned no response' } }; }
+	catch (e) { return { ok: false, error: { code: 'EINTERNAL', message: 'Auto Strategy response was invalid' } }; }
+}
 function orchestra_history_paginated_method(req) { return orchestra_reqfile_action('history_paginated', req); }
 function orchestra_history_export_method(req) { return orchestra_reqfile_action('history_export', req); }
 function orchestra_history_clear_method(req) { return orchestra_reqfile_action('history_clear', req); }
@@ -374,6 +387,12 @@ function orchestra_preview_best_method(req) { return orchestra_reqfile_action('p
 function orchestra_apply_status_method(req) { return orchestra_reqfile_action('apply_status', req); }
 function orchestra_apply_events_method(req) { return orchestra_reqfile_action('apply_events', req); }
 function orchestra_restore_previous_method(req) { return orchestra_reqfile_action('restore_previous', req); }
+function orchestra_auto_status_method(req) { return auto_strategy_reqfile_action('status', req); }
+function orchestra_auto_enable_method(req) { return auto_strategy_reqfile_action('enable', req); }
+function orchestra_auto_disable_method(req) { return auto_strategy_reqfile_action('disable', req); }
+function orchestra_auto_run_method(req) { return auto_strategy_reqfile_action('run', req); }
+function orchestra_auto_stop_method(req) { return auto_strategy_reqfile_action('stop', req); }
+function orchestra_auto_restore_method(req) { return auto_strategy_reqfile_action('restore', req); }
 
 // ---- DNS providers + component diagnostics (Phase E) -----------------------------
 const DNSPROV_CLI = '/usr/libexec/zapret2-manager/dnsprov-cli.uc';
@@ -562,6 +581,12 @@ return {
 		orchestra_apply_status: { args: { edit: 'string' }, call: function (req) { return orchestra_apply_status_method(req); } },
 		orchestra_apply_events: { args: { edit: 'string' }, call: function (req) { return orchestra_apply_events_method(req); } },
 		orchestra_restore_previous: { args: { edit: 'string' }, call: function (req) { return orchestra_restore_previous_method(req); } },
+		orchestra_auto_status: { call: function (req) { return orchestra_auto_status_method(req); } },
+		orchestra_auto_enable: { args: { edit: 'string' }, call: function (req) { return orchestra_auto_enable_method(req); } },
+		orchestra_auto_disable: { args: { edit: 'string' }, call: function (req) { return orchestra_auto_disable_method(req); } },
+		orchestra_auto_run: { args: { edit: 'string' }, call: function (req) { return orchestra_auto_run_method(req); } },
+		orchestra_auto_stop: { args: { edit: 'string' }, call: function (req) { return orchestra_auto_stop_method(req); } },
+		orchestra_auto_restore: { args: { edit: 'string' }, call: function (req) { return orchestra_auto_restore_method(req); } },
 		dnsprov_components: { call: function (req) { return dnsprov_components_method(req); } },
 		dnsprov_providers: { call: function (req) { return dnsprov_providers_method(req); } },
 		dnsprov_diagnose: { args: { edit: 'string' }, call: function (req) { return dnsprov_diagnose_method(req); } },

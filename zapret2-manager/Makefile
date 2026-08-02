@@ -169,6 +169,7 @@ define Package/zapret2-manager/install
 		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/watchdog.uc \
 		./files/usr/libexec/zapret2-manager/auto-strategy.uc \
+		./files/usr/libexec/zapret2-manager/auto-strategy-cli.uc \
 		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_BIN) ./files/usr/libexec/zapret2-manager/log-rotate.sh \
 		$(1)/usr/libexec/zapret2-manager/

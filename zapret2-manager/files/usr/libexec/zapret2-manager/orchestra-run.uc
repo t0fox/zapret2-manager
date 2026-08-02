@@ -55,6 +55,7 @@ function service_manifest(id) {
 	}
 	return {ok:true,manifest:{schema:1,serviceId:id,source:doc.source,requiredTargetIds:doc.requiredTargetIds,targets:targets,dnsChecks:doc.dnsChecks||[]},raw:raw,digest:sha256_text(raw)};
 }
+export const orchestra_service_manifest = function(id) { return service_manifest(id); };
 function service_progress(r, chosen) {
 	if(r.targetType!='service')return;
 	if(!r.targetProgress)r.targetProgress=[];
@@ -236,7 +237,7 @@ export const buildWinnerChange = function(r,c,current,domain) { let safe=replace
 export const orchestra_preview_best = function(input){
 	let r=orchestra_run_load(input);
 	if(r&&r.targetType=='service'){
-		if(r.phase!='completed'||r.serviceVerdict!='ready')return err('ESTATE','service run is not ready to preview',{},r&&r.runId,r&&r.phase);
+		if((r.phase!='completed'&&r.phase!='applied')||r.serviceVerdict!='ready')return err('ESTATE','service run is not ready to preview',{},r&&r.runId,r&&r.phase);
 		let cur=read_var('NFQWS2_OPT');if(cur==null)return err('ETARGET','active NFQWS2_OPT is unavailable',{},r.runId,r.phase);
 		let profiles=[],seen={};for(let group in r.targetResults||r.serviceResults||[])for(let pr in group.protocols||[])if(pr.winner&&pr.winner.candidateId&&!seen[group.targetId||group.domain]){let id=pr.winner.candidateId,wanted={};wanted[id]=true;let ps=profile_set(wanted,'zapret2gui-only');if(!ps||length(ps.profiles)!=1)return err('ESTALE','confirmed candidate is no longer in the registry',{candidateId:id},r.runId,r.phase);let t=group.domain,tid=group.targetId||null;for(let mt in r.targets)if(mt.domain==t)tid=mt.id;let change=buildWinnerChange(r,ps.profiles[0],cur,t);push(profiles,{targetId:tid,domain:t,protocol:'tcp_https',candidateId:id,action:change.currentProfile.present?'update':'create',profileName:change.proposedProfile.name,profileLines:['--filter-tcp=443','--hostlist-domains='+t,'--out-range=-d8',ps.profiles[0].opt],positiveEvidenceIds:(pr.winner.positiveEvidenceIds||[])});seen[tid||t]=true;}
 		if(length(profiles)!=length(r.targets))return err('EEVIDENCE','every required target needs a confirmed winner',{profiles:length(profiles),targets:length(r.targets)},r.runId,r.phase);

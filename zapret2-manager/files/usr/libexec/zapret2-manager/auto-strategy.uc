@@ -5,7 +5,7 @@
 // later milestones so this module remains the single, auditable state owner.
 import { readfile, writefile, mkdir, unlink, popen } from 'fs';
 import { health_matrix_start, health_matrix_get } from './jobs.uc';
-import { orchestra_run_start, orchestra_run_status, orchestra_run_load, orchestra_preview_best, orchestra_apply_best, orchestra_apply_status, proc_starttime, run } from './orchestra-run.uc';
+import { orchestra_run_start, orchestra_run_status, orchestra_run_load, orchestra_run_stop, orchestra_service_manifest, orchestra_preview_best, orchestra_apply_best, orchestra_apply_status, proc_starttime, run } from './orchestra-run.uc';
 import { verify_service_targets } from './orchestra-evidence.uc';
 
 const AUTO_STATE_PATH = '/etc/zapret2-manager/auto-strategy.json';
@@ -20,6 +20,7 @@ const SCAN_COOLDOWN_SEC = 900;
 const INFRA_BACKOFF_BASE_SEC = 15;
 const INFRA_BACKOFF_MAX_SEC = 300;
 const STRATEGY_FAILURES_TO_SCAN = 3;
+const AUTO_RPC_REQUEST_LIMIT = 16;
 const PHASES = ['disabled', 'waiting-network', 'healthy', 'degraded', 'scanning', 'applying', 'verifying', 'recovering', 'cooldown', 'failed'];
 
 function command(cmd) {
@@ -30,7 +31,7 @@ function command(cmd) {
 }
 
 function default_state() {
-	return { schema: 1, revision: 0, generation: 0, enabled: false, serviceIds: [], phase: 'disabled', consecutiveFailures: 0, activeRunId: null, lastGoodCandidateId: null, lastGoodProfileRevision: null, lastGoodEvidenceId: null, lastCheckAt: null, lastSuccessAt: null, lastFailureAt: null, lastRunAt: null, cooldownUntil: null, lastHealthJobId: null, infrastructureFailures: 0, scanRequestedAt: null, pendingApplyRunId: null, lastBootCheckAt: null, infrastructureStatus: null, currentAppliedRevision: null, currentAppliedHash: null, lastGoodRevision: null, lastGoodHash: null, divergenceStatus: null, interruptedOperation: null, recoveryStatus: null, lastError: null };
+	return { schema: 1, revision: 0, generation: 0, enabled: false, serviceIds: [], phase: 'disabled', consecutiveFailures: 0, activeRunId: null, lastGoodCandidateId: null, lastGoodProfileRevision: null, lastGoodEvidenceId: null, lastCheckAt: null, lastSuccessAt: null, lastFailureAt: null, lastRunAt: null, cooldownUntil: null, lastHealthJobId: null, infrastructureFailures: 0, scanRequestedAt: null, pendingApplyRunId: null, lastBootCheckAt: null, infrastructureStatus: null, currentAppliedRevision: null, currentAppliedHash: null, lastGoodRevision: null, lastGoodHash: null, divergenceStatus: null, interruptedOperation: null, recoveryStatus: null, disableRequested: false, rpcRequests: [], lastError: null };
 }
 
 function phase_ok(value) {
@@ -44,6 +45,8 @@ function opaque_ok(value, limit) { return type(value) == 'string' && length(valu
 function number_or_null(value) { return type(value) == 'int' || type(value) == 'double' ? value : null; }
 function hex_ok(value) { return type(value) == 'string' && match(value, /^[a-f0-9]{64}$/); }
 function bounded_summary(value) { if (type(value) != 'object') return null; let phase = type(value.phase) == 'string' ? substr(value.phase, 0, 32) : null, reason = type(value.reason) == 'string' ? substr(value.reason, 0, 160) : null; return phase || reason ? { phase: phase, reason: reason, at: number_or_null(value.at) } : null; }
+function request_id_ok(value) { return type(value) == 'string' && match(value, /^[A-Za-z0-9._-]{8,128}$/); }
+function bounded_rpc_requests(value) { let out = []; if (type(value) != 'array') return out; for (let i = 0; i < length(value) && length(out) < AUTO_RPC_REQUEST_LIMIT; i++) { let x = value[i]; if (type(x) != 'object' || !request_id_ok(x.id) || !opaque_ok(x.payload, 512) || !opaque_ok(x.op, 32)) continue; push(out, { id: x.id, payload: x.payload, op: x.op, revision: type(x.revision) == 'int' ? x.revision : 0, accepted: x.accepted == true, status: opaque_ok(x.status, 64) ? x.status : null, runId: run_ok(x.runId) ? x.runId : null }); } return out; }
 
 function unique_services(value) {
 	let out = [];
@@ -84,6 +87,8 @@ export const auto_state_normalize = function(raw) {
 	out.divergenceStatus = opaque_ok(raw.divergenceStatus, 96) ? raw.divergenceStatus : null;
 	out.interruptedOperation = bounded_summary(raw.interruptedOperation);
 	out.recoveryStatus = opaque_ok(raw.recoveryStatus, 96) ? raw.recoveryStatus : null;
+	out.disableRequested = raw.disableRequested == true;
+	out.rpcRequests = bounded_rpc_requests(raw.rpcRequests);
 	out.lastError = type(raw.lastError) == 'string' ? substr(raw.lastError, 0, 240) : null;
 	return out;
 };
@@ -114,6 +119,12 @@ export const auto_state_load = function() {
 	try { let text = readfile(AUTO_STATE_PATH); raw = text ? json(text) : null; } catch (e) { raw = null; }
 	return { ok: true, state: auto_state_normalize(raw) };
 };
+
+function auto_state_corrupt() {
+	if (!state_path_safe()) return true;
+	try { let raw = readfile(AUTO_STATE_PATH); if (!raw) return false; let value = json(raw); return type(value) != 'object' || value.schema != 1; }
+	catch (e) { return true; }
+}
 
 export const auto_state_save = function(input, expectedRevision) {
 	let current = auto_state_load();
@@ -175,12 +186,12 @@ function infrastructure_backoff(state, now, reason) {
 	let wait = INFRA_BACKOFF_BASE_SEC;
 	for (let i = 1; i < state.infrastructureFailures && wait < INFRA_BACKOFF_MAX_SEC; i++) wait *= 2;
 	if (wait > INFRA_BACKOFF_MAX_SEC) wait = INFRA_BACKOFF_MAX_SEC;
-	state.phase = 'waiting-network'; state.consecutiveFailures = 0; state.cooldownUntil = now + wait; state.lastFailureAt = now; state.lastError = reason;
+	state.phase = 'waiting-network'; state.infrastructureStatus = 'waiting'; state.consecutiveFailures = 0; state.cooldownUntil = now + wait; state.lastFailureAt = now; state.lastError = reason;
 }
 
 function observe_health(state, verdict, now) {
 	state.lastCheckAt = now;
-	if (verdict.class == 'healthy') { state.phase = 'healthy'; state.consecutiveFailures = 0; state.infrastructureFailures = 0; state.lastSuccessAt = now; state.lastError = null; return 'none'; }
+	if (verdict.class == 'healthy') { state.phase = 'healthy'; state.infrastructureStatus = 'ready'; state.consecutiveFailures = 0; state.infrastructureFailures = 0; state.lastSuccessAt = now; state.lastError = null; return 'none'; }
 	if (verdict.class == 'infrastructure') { infrastructure_backoff(state, now, verdict.reason); return 'none'; }
 	state.phase = 'degraded'; state.infrastructureFailures = 0; state.consecutiveFailures = state.consecutiveFailures < MAX_FAILURES ? state.consecutiveFailures + 1 : MAX_FAILURES; state.lastFailureAt = now; state.lastError = verdict.reason;
 	if (state.consecutiveFailures >= STRATEGY_FAILURES_TO_SCAN && state.activeRunId == null && state.scanRequestedAt == null && (state.lastRunAt == null || now - state.lastRunAt >= SCAN_COOLDOWN_SEC)) { state.scanRequestedAt = now; return 'scan'; }
@@ -251,6 +262,95 @@ export const auto_boot_reconcile = function(state, now) {
 	else if (lastGood.ok) { state.divergenceStatus = 'divergent'; state.recoveryStatus = 'not-needed'; }
 	else { state.divergenceStatus = 'no-last-good'; state.recoveryStatus = 'not-needed'; }
 	return { blocked: false, action: 'none' };
+};
+
+function rpc_error(code, message) { return { ok: false, error: { code: code, message: substr(message, 0, 160) } }; }
+function rpc_payload(op, input) { let ids = type(input) == 'object' && type(input.serviceIds) == 'array' ? join(input.serviceIds, '.') : ''; return op + ':' + ids + ':' + (input && input.overrideCooldown == true ? '1' : '0'); }
+function rpc_admit(state, input, op) {
+	if (type(input) != 'object' || type(input.expectedRevision) != 'int' || !request_id_ok(input.requestId)) return { ok: false, response: rpc_error('EINPUT', 'expectedRevision and bounded requestId are required') };
+	let payload = rpc_payload(op, input);
+	for (let i = 0; i < length(state.rpcRequests); i++) if (state.rpcRequests[i].id == input.requestId) {
+		if (state.rpcRequests[i].op != op || state.rpcRequests[i].payload != payload) return { ok: false, response: rpc_error('EIDEMPOTENCY', 'requestId was already used for another request') };
+		return { ok: false, response: { ok: true, idempotent: true, revision: state.rpcRequests[i].revision, accepted: state.rpcRequests[i].accepted, status: state.rpcRequests[i].status, runId: state.rpcRequests[i].runId } };
+	}
+	if (input.expectedRevision != state.revision) return { ok: false, response: rpc_error('ECONFLICT', 'auto strategy revision mismatch') };
+	return { ok: true, payload: payload };
+}
+function rpc_services(input) {
+	if (type(input) != 'object' || type(input.serviceIds) != 'array' || !length(input.serviceIds) || length(input.serviceIds) > MAX_SERVICES) return { ok: false, error: rpc_error('EINPUT', 'a bounded non-empty serviceIds list is required') };
+	let ids = unique_services(input.serviceIds);
+	if (!length(ids)) return { ok: false, error: rpc_error('EINPUT', 'no valid service IDs were supplied') };
+	for (let i = 0; i < length(ids); i++) { let manifest = orchestra_service_manifest(ids[i]); if (!manifest.ok) return { ok: false, error: rpc_error('EINPUT', 'service manifest is unavailable or invalid') }; }
+	return { ok: true, serviceIds: ids };
+}
+function rpc_save(state, admission, op, response) {
+	let record = { id: admission.requestId, payload: admission.payload, op: op, revision: state.revision + 1, accepted: response.accepted == true, status: type(response.status) == 'string' ? response.status : null, runId: run_ok(response.runId) ? response.runId : null };
+	push(state.rpcRequests, record); if (length(state.rpcRequests) > AUTO_RPC_REQUEST_LIMIT) state.rpcRequests = slice(state.rpcRequests, length(state.rpcRequests) - AUTO_RPC_REQUEST_LIMIT);
+	let saved = auto_state_save(state, state.revision); if (!saved.ok) return saved;
+	response.ok = true; response.revision = saved.state.revision; response.state = saved.state; return response;
+}
+
+export const auto_rpc_status = function() {
+	let loaded = auto_state_load();
+	if (!loaded.ok) return rpc_error('ESTATE', 'auto strategy state path is unavailable');
+	if (auto_state_corrupt()) return { ok: true, schemaVersion: 1, revision: 0, enabled: false, phase: 'failed', serviceIds: [], consecutiveFailures: 0, activeRun: { runId: null, generation: null, startedAt: null, progress: null, cancellable: false }, currentApplied: { revision: null, hash: null }, lastGood: { available: false, candidateId: null, profileRevision: null, profileHash: null, appliedAt: null }, health: { status: 'unknown', lastCheckAt: null, lastSuccessAt: null, lastFailureAt: null }, infrastructure: { status: 'failed', reason: 'state-corrupt' }, cooldownUntil: null, lastError: 'state-corrupt', capabilities: { runNow: false, stop: false, restoreLastGood: false }, verifyRouter: [] };
+	let state = loaded.state, lastGood = auto_last_good_load(), active = state.activeRunId ? orchestra_run_status({ runId: state.activeRunId }) : null;
+	let activeRun = active && active.ok && active.run ? active.run : null;
+	let verified = lastGood.ok && lastGood.record.runtimeVerification && lastGood.record.runtimeVerification.status == 'verified';
+	let recovery = state.phase == 'recovering' || state.recoveryStatus == 'required';
+	return { ok: true, schemaVersion: 1, revision: state.revision, enabled: state.enabled, phase: state.phase, serviceIds: state.serviceIds, consecutiveFailures: state.consecutiveFailures, activeRun: { runId: activeRun && activeRun.runId || null, generation: state.generation, startedAt: activeRun && activeRun.startedAt || null, progress: activeRun && activeRun.progress || null, cancellable: activeRun && activeRun.phase != 'applied' && activeRun.phase != 'completed' && !recovery || false }, currentApplied: { revision: state.currentAppliedRevision, hash: state.currentAppliedHash }, lastGood: { available: verified, candidateId: verified ? lastGood.record.candidateId : null, profileRevision: verified ? lastGood.record.profileRevision : null, profileHash: verified ? lastGood.record.profileHash : null, appliedAt: verified ? lastGood.record.appliedAt : null }, health: { status: state.phase == 'healthy' ? 'healthy' : state.phase == 'degraded' ? 'degraded' : state.infrastructureStatus == 'waiting' ? 'infrastructure-failure' : 'unknown', lastCheckAt: state.lastCheckAt, lastSuccessAt: state.lastSuccessAt, lastFailureAt: state.lastFailureAt }, infrastructure: { status: state.infrastructureStatus || 'unknown', reason: state.infrastructureStatus == 'waiting' ? state.lastError : null }, cooldownUntil: state.cooldownUntil, lastError: state.lastError, capabilities: { runNow: state.enabled && !state.activeRunId && !recovery && state.pendingApplyRunId == null, stop: state.activeRunId != null && !recovery, restoreLastGood: verified && !state.activeRunId && !recovery }, verifyRouter: verified ? ['PID/starttime, NFQUEUE ownership and rollback evidence require router verification'] : [] };
+};
+
+export const auto_rpc_enable = function(input) {
+	let loaded = auto_state_load(); if (!loaded.ok) return loaded; let state = loaded.state, admission = rpc_admit(state, input, 'enable'); if (!admission.ok) return admission.response;
+	let services = rpc_services(input); if (!services.ok) return services.error;
+	state.enabled = true; state.serviceIds = services.serviceIds; state.phase = 'waiting-network'; state.scanRequestedAt = null; state.disableRequested = false;
+	admission.requestId = input.requestId; return rpc_save(state, admission, 'enable', { accepted: true, status: 'health-first' });
+};
+
+export const auto_rpc_disable = function(input) {
+	let loaded = auto_state_load(); if (!loaded.ok) return loaded; let state = loaded.state, admission = rpc_admit(state, input, 'disable'); if (!admission.ok) return admission.response;
+	if (!state.enabled && state.activeRunId == null && state.pendingApplyRunId == null && state.phase != 'applying' && state.phase != 'verifying' && state.phase != 'recovering') return { ok: true, status: 'already-disabled', revision: state.revision };
+	let cancellation = false, pending = state.phase == 'applying' || state.phase == 'verifying' || state.phase == 'recovering';
+	if (state.activeRunId != null && state.phase == 'scanning') { let stopped = orchestra_run_stop({ runId: state.activeRunId }); if (!stopped.ok) return rpc_error('EINTERNAL', 'could not request scan cancellation'); cancellation = true; }
+	state.enabled = false; state.disableRequested = pending; if (!pending && state.activeRunId == null) state.phase = 'disabled';
+	admission.requestId = input.requestId; return rpc_save(state, admission, 'disable', { accepted: true, status: pending ? 'disable-pending-safe-completion' : 'disabled', cancellationRequested: cancellation, disablePendingSafeCompletion: pending });
+};
+
+export const auto_rpc_run = function(input) {
+	let loaded = auto_state_load(); if (!loaded.ok) return loaded; let state = loaded.state, admission = rpc_admit(state, input, 'run'); if (!admission.ok) return admission.response;
+	let services = rpc_services(input); if (!services.ok) return services.error;
+	if (!state.enabled) return rpc_error('EDISABLED', 'Auto Strategy is disabled');
+	if (state.activeRunId != null) return rpc_error('EALREADY', 'a bounded scan is already active');
+	if (state.pendingApplyRunId != null || state.phase == 'applying' || state.phase == 'verifying') return rpc_error('EBUSY', 'apply or verification is active');
+	if (state.phase == 'recovering' || state.recoveryStatus == 'required') return rpc_error('ERECOVERY', 'recovery must complete before a scan');
+	if (!wan_ready() || !dns_ready() || !engine_ready() || !queue_ready()) return rpc_error('EINFRA', 'infrastructure is not ready');
+	if (state.cooldownUntil != null && time() < state.cooldownUntil) return rpc_error('ECOOLDOWN', 'scan cooldown is active');
+	let lastGood = auto_last_good_load(), current = current_applied_state(); if (!lastGood.ok || !current.present) return rpc_error('ENOLASTGOOD', 'verified rollback baseline is unavailable');
+	state.serviceIds = services.serviceIds; let started = start_scan(state, time()); if (!started.ok) return rpc_error('EINTERNAL', 'existing bounded orchestra scan could not start'); state.generation++;
+	admission.requestId = input.requestId; return rpc_save(state, admission, 'run', { accepted: true, status: 'accepted', runId: state.activeRunId, generation: state.generation, asynchronous: true, statusMethod: 'orchestra_auto_status' });
+};
+
+export const auto_rpc_stop = function(input) {
+	let loaded = auto_state_load(); if (!loaded.ok) return loaded; let state = loaded.state, admission = rpc_admit(state, input, 'stop'); if (!admission.ok) return admission.response;
+	if (state.phase == 'recovering' || state.recoveryStatus == 'required') return rpc_error('ERECOVERY', 'recovery cannot be interrupted');
+	if (state.activeRunId == null) { if (state.pendingApplyRunId != null) { state.pendingApplyRunId = null; state.phase = 'degraded'; admission.requestId = input.requestId; return rpc_save(state, admission, 'stop', { accepted: true, status: 'stopped-pending-candidate' }); } return { ok: true, status: 'not-running', revision: state.revision }; }
+	let stopped = orchestra_run_stop({ runId: state.activeRunId }); if (!stopped.ok) return rpc_error('EINTERNAL', 'scan cancellation could not be requested');
+	admission.requestId = input.requestId; return rpc_save(state, admission, 'stop', { accepted: true, status: 'cancellation-requested', runId: state.activeRunId, cancellationRequested: true });
+};
+
+export const auto_rpc_restore = function(input) {
+	let loaded = auto_state_load(); if (!loaded.ok) return loaded; let state = loaded.state, admission = rpc_admit(state, input, 'restore'); if (!admission.ok) return admission.response;
+	if (state.activeRunId != null || state.pendingApplyRunId != null || state.phase == 'applying' || state.phase == 'verifying' || state.phase == 'recovering') return rpc_error('EBUSY', 'another operation is active');
+	let lastGood = auto_last_good_load(); if (!lastGood.ok) return rpc_error('ENOLASTGOOD', 'verified last-good record is unavailable');
+	let current = current_applied_state(); if (current.present && current.hash == lastGood.record.profileHash && state.phase == 'healthy') return { ok: true, status: 'already-current', revision: state.revision };
+	let preview = orchestra_preview_best({ runId: lastGood.record.runId }); if (!preview.ok) return rpc_error('ESTATE', 'last-good run cannot be previewed through the sanctioned path');
+	let applied = orchestra_apply_best({ runId: lastGood.record.runId, changeHash: preview.changeHash, idempotencyToken: 'auto-restore-' + input.requestId });
+	if (!applied.ok || !applied.runtimeVerification || applied.runtimeVerification.ok != true) { if (applied.ok) run('/usr/bin/ucode /usr/libexec/zapret2-manager/service.uc rollback'); return rpc_error('EVERIFY', 'sanctioned restore failed verification and rollback was requested'); }
+	let record = orchestra_run_load({ runId: lastGood.record.runId }), confirmed = record ? verify_service_targets(record.targets, run) : null;
+	if (!confirmed || !confirmed.ok) { run('/usr/bin/ucode /usr/libexec/zapret2-manager/service.uc rollback'); return rpc_error('EVERIFY', 'restored target confirmation failed and rollback was requested'); }
+	state.phase = 'healthy'; state.currentAppliedHash = lastGood.record.profileHash; state.currentAppliedRevision = lastGood.record.profileRevision; state.lastSuccessAt = time(); state.lastError = null;
+	admission.requestId = input.requestId; return rpc_save(state, admission, 'restore', { accepted: true, status: 'restored', operationId: applied.operationId, asynchronous: false, verificationStatus: 'verified' });
 };
 
 export const auto_controller_tick = function() {
