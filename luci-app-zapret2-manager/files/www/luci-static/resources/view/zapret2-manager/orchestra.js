@@ -1,5 +1,6 @@
 'use strict';
 'require rpc';
+'require view.zapret2-manager.z2m-ui as Z2M';
 
 /* Orchestra UI only. Transactional run/apply semantics remain in the backend. */
 const capsRpc = rpc.declare({ object: 'zapret2-manager', method: 'orchestra_capabilities', reject: true });
@@ -157,7 +158,8 @@ return L.view.extend({
 	_short: function (v, n) { v = String(v || ''); return v.length > (n || 28) ? v.slice(0, n || 28) + '…' : v; },
 	_panelFromHash: function () {
 		var hash = (typeof window !== 'undefined' && window.location && window.location.hash || '').replace(/^#/, '');
-		return ['orchestra-services', 'orchestra-find', 'orchestra-results', 'orchestra-adaptive'].indexOf(hash) >= 0 ? hash : 'orchestra-services';
+		var entry = Z2M.ui.activeNavigation(hash);
+		return entry && entry.available === true && entry.legacyRoute ? entry.legacyRoute : 'orchestra-services';
 	},
 	_bindPanelNavigation: function () {
 		var self = this;
@@ -184,7 +186,9 @@ return L.view.extend({
 		this._pollObserver.observe(document.body, { childList: true, subtree: true });
 	},
 	_setPanel: function (panel) {
-		if (['orchestra-services', 'orchestra-find', 'orchestra-results', 'orchestra-adaptive'].indexOf(panel) < 0) return;
+		var entry = Z2M.ui.activeNavigation(panel);
+		if (!entry || entry.available !== true || !entry.legacyRoute) return;
+		panel = entry.legacyRoute;
 		this._stopPolling(); this._panel = panel;
 		if (typeof window !== 'undefined' && window.history && window.history.pushState) window.history.pushState({ orchestraPanel: panel }, '', '#' + panel);
 		else if (typeof window !== 'undefined' && window.location) window.location.hash = panel;
@@ -202,22 +206,17 @@ return L.view.extend({
 	render: function (state) {
 		injectCSS(); this._pollDisposed = false; this._state = state || this._state; this._panel = this._panelFromHash(); this._bindPanelNavigation();
 		if (typeof window !== 'undefined' && window.location && !window.location.hash && window.history && window.history.replaceState) window.history.replaceState({ orchestraPanel: this._panel }, '', '#' + this._panel);
-		var self = this, root = E('div', { 'class': 'z2m-page z2m-orchestra', 'id': 'z2m-orchestra-page' });
-		root.appendChild(E('div', { 'class': 'z2m-page-header z2m-orchestra-header' }, [E('h2', {}, _('Orchestra')), E('p', {}, _('Find, compare and safely apply a verified strategy.'))]));
-		root.appendChild(E('nav', { 'class': 'z2m-tabs z2m-orchestra-nav', 'aria-label': _('Orchestra sections') }, [
-			this._panelLink('orchestra-services', _('Services')),
-			this._panelLink('orchestra-find', _('Find strategy')),
-			this._panelLink('orchestra-results', _('Runs & results')),
-			this._panelLink('orchestra-adaptive', _('Adaptive engine'))
-		]));
-		var content = E('div', { 'class': 'z2m-orchestra-content' }); root.appendChild(content); this._renderContent(content); this._watchRoot(root);
+		var self = this, content = E('div', { 'class': 'z2m-orchestra-content' });
+		var root = Z2M.ui.PageShell({
+			id: 'z2m-orchestra-page', className: 'z2m-orchestra-shell z2m-orchestra',
+			header: Z2M.ui.PageHeader({ title: _('Orchestra'), description: _('Find, compare and safely apply a verified strategy.') }),
+			navigationLabel: _('Orchestra sections'),
+			navigation: Z2M.ui.NavigationTabs({ route: this._panel, onSelect: function (entry) { self._setPanel(entry.legacyRoute || entry.route); } }),
+			content: content
+		});
+		this._renderContent(content); this._watchRoot(root);
 		this._startPolling();
 		return root;
-	},
-	_panelLink: function (panel, label) {
-		var self = this, active = this._panel === panel, attrs = { 'class': 'z2m-tab' + (active ? ' z2m-tab-active' : ''), 'href': '#' + panel }; if (active) attrs['aria-current'] = 'page';
-		var link = E('a', attrs, label);
-		link.addEventListener('click', function (event) { if (event && event.preventDefault) event.preventDefault(); self._setPanel(panel); }); return link;
 	},
 
 	_renderContent: function (content) {
@@ -441,7 +440,7 @@ return L.view.extend({
 	_restore: function (b) { var self = this, o = this._state.operation; this._busy(b, _('Restoring…')); rpcCall(restoreRpc, pack({ operationId: o.operationId })).then(function (x) { self._state.operation = Object.assign({}, o, x); self._busy(b, _('Restore previous'), true); self._refresh(); }).catch(function (e) { self._state.error = structuredError(e); self._busy(b, _('Restore previous'), true); self._refresh(); }); },
 	_action: function (b, fn, label) { var self = this; this._busy(b, label + '…'); rpcCall(fn).then(function (x) { if (x && x.run) { self._state.activeRun = x.run; if (self._state.selectedRunId === x.run.runId) self._state.selectedRun = x.run; } self._busy(b, label, true); self._refresh(); }).catch(function (e) { self._state.error = structuredError(e); self._busy(b, label, true); self._refresh(); }); },
 	_busy: function (b, label, done) { if (!b) return; if (done) { b.disabled = false; if (b.removeAttribute) b.removeAttribute('disabled'); if (b.removeAttribute) b.removeAttribute('aria-disabled'); } else { b.disabled = true; if (b.setAttribute) b.setAttribute('disabled', 'disabled'); if (b.setAttribute) b.setAttribute('aria-disabled', 'true'); } b.setAttribute('aria-busy', done ? 'false' : 'true'); b.textContent = label; },
-	_refresh: function () { var root = document.getElementById('z2m-orchestra-page'), content = root && root.querySelector('.z2m-orchestra-content'); if (root && root.querySelectorAll) Array.prototype.forEach.call(root.querySelectorAll('.z2m-orchestra-nav .z2m-tab'), function (link) { var active = link.getAttribute('href') === '#' + this._panel; link.classList.toggle('z2m-tab-active', active); if (active) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current'); }, this); if (content) this._renderContent(content); },
+	_refresh: function () { var root = document.getElementById('z2m-orchestra-page'), content = root && root.querySelector('.z2m-orchestra-content'); if (root && root.querySelectorAll) Array.prototype.forEach.call(root.querySelectorAll('.z2m-remastered-nav .z2m-tab'), function (link) { var active = link.getAttribute('href') === '#' + this._panel; link.classList.toggle('z2m-tab-active', active); if (active) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current'); }, this); if (content) this._renderContent(content); },
 	_pollActiveRun: function () {
 		var self = this, known = this._state.activeRun;
 		return rpcCall(runStatusRpc, pack({})).then(function (x) {
