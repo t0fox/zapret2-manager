@@ -13,6 +13,7 @@
 import { readfile, readlink, stat, lsdir, popen, mkdir, unlink, writefile } from 'fs';
 import { maint_lua_compat } from './maintenance.uc';
 import { PATHS } from './constants.uc';
+import { runtime_summary_cached } from './runtime-summary.uc';
 
 const LUA_DIR = '/opt/zapret2/lua';
 const STRESSOZZ_CORPUS = '/usr/libexec/zapret2-manager/catalog/stressozz-corpus.json';
@@ -106,10 +107,9 @@ function detect_nfqws2_binary_version() {
 // ---- engine detection ---------------------------------------------------------
 
 function nfqws2_cmdline() {
-	let pid = trim(run('pidof nfqws2'));
-	if (pid == '') return null;
-	let parts = split(pid, ' ');
-	pid = parts[0];
+	let summary = runtime_summary_cached();
+	let pid = summary && summary.process && summary.process.found === true ? summary.process.pid : null;
+	if (type(pid) != 'int' || pid < 2) return null;
 	let raw = readfile('/proc/' + pid + '/cmdline');
 	if (!raw) return null;
 	return { pid: +pid, cmdline: raw };
@@ -649,6 +649,7 @@ export const orchestra_capabilities = function () {
 };
 
 export const orchestra_status = function () {
+	let runtimeSummary = runtime_summary_cached();
 	let cmd = nfqws2_cmdline();
 	let engine = cmd != null ? detect_engine(cmd.cmdline) : { auto: false, antidpi: false, lib: false };
 	let pkgVer = detect_package_version();
@@ -683,7 +684,7 @@ export const orchestra_status = function () {
 		ok: true, adaptiveState: adaptiveState, pinnedUpstream: PINNED_UPSTREAM,
 		engine: engine,
 		luaLoaded: { auto: engine.auto ? 'Loaded' : 'Not loaded', antidpi: engine.antidpi ? 'Loaded' : 'Not loaded', lib: engine.lib ? 'Loaded' : 'Not loaded' },
-		daemonPid: (cmd != null) ? cmd.pid : null, daemonRunning: cmd != null,
+		daemonPid: runtimeSummary.process ? runtimeSummary.process.pid : null, daemonRunning: runtimeSummary.process && runtimeSummary.process.found === true, runtimeSummary: runtimeSummary,
 		detected: { packageVersion: pkgVer, binaryVersion: binVer, pinnedUpstream: PINNED_UPSTREAM, versionMatch: pkgVer != null ? true : null },
 		luaFiles: luaFiles, debugEnabled: dbg, diagnosticsAvailable: dbg || semantic.debug.enabled,
 		autohostlistRaw: rawVars, autohostlistSemantic: semantic, appliedThresholds: thresholdCount,

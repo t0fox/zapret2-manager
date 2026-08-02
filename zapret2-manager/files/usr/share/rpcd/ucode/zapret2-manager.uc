@@ -351,8 +351,8 @@ function orchestra_reqfile_action(sub, req) {
 	try {
 		let parsed = json(out);
 		if (parsed != null) return parsed;
-		return { ok: false, error: 'no output', raw: out };
-	} catch (e) { return { ok: false, error: 'parse failed', raw: out }; }
+		return { ok: false, error: { code: 'invalid-run-response', message: 'Orchestra returned no response' } };
+	} catch (e) { return { ok: false, error: { code: 'invalid-run-response', message: 'Orchestra response was invalid' } }; }
 }
 function auto_strategy_reqfile_action(sub, req) {
 	let tmp = orch_tmpfile();

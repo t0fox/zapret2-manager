@@ -164,6 +164,7 @@ define Package/zapret2-manager/install
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/qlen.uc \
 		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/status.uc \
+		./files/usr/libexec/zapret2-manager/runtime-summary.uc \
 		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/service.uc \
 		$(1)/usr/libexec/zapret2-manager/

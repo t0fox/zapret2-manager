@@ -27,6 +27,7 @@ import {
 } from './constants.uc';
 import { parse_queue } from './qlen.uc';
 import { read_var } from './apply.uc';   // applied NFQWS2_OPT for profile_count (followup 5)
+import { runtime_summary } from './runtime-summary.uc';
 
 // ---- helpers ----------------------------------------------------------------
 
@@ -543,7 +544,7 @@ function collect() {
 	if (ownerWarn) push(warnings, ownerWarn);
 
 	let status = {
-		schema: 2,
+		schema: 3,
 		generatedAt: iso_now(),
 		generation: generation,
 		serviceState: svc_state,
@@ -555,8 +556,10 @@ function collect() {
 		system: system,
 		upstream: upstream,
 		jobs: [],
-		warnings: warnings
+		warnings: warnings,
+		runtimeSummary: null
 	};
+	status.runtimeSummary = runtime_summary(status);
 
 	try { writefile(PATHS.status_json, sprintf("%J", status) + '\n'); } catch (e) { }
 	return status;
