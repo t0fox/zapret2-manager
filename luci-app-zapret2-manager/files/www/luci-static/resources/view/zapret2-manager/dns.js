@@ -337,13 +337,13 @@ function setupSection(view, dns, comps, envelope) {
 
 	// Actions
 	var actions = E('div', { 'class': 'z2m-actions' });
-	var checkBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Check current DNS'));
+	var checkBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button', 'id': 'z2m-dns-check' }, _('Check current DNS'));
 	checkBtn.addEventListener('click', function () {
 		if (checkBtn.disabled) return;
 		checkBtn.disabled = true;
 		callDnsCheck(JSON.stringify({})).then(function (res) {
 			if (!res || res.ok !== true) throw new Error(formatRpcError(res));
-			dns._checkResult = res;
+			view._dnsCheckResult = res;
 			view.showFlash(_('DNS check completed.'), 'success');
 			return view.reload();
 		}, function (e) {
@@ -370,8 +370,8 @@ function setupSection(view, dns, comps, envelope) {
 	node.appendChild(actions);
 
 	// Check result
-	if (dns._checkResult) {
-		var cr = dns._checkResult;
+	if (view._dnsCheckResult) {
+		var cr = view._dnsCheckResult;
 		if (cr.error) {
 			node.appendChild(callout('bad', _('Check failed: ') + esc(cr.error)));
 		} else {
@@ -474,8 +474,9 @@ function providersSection(view, provs, comps, envelope) {
 	var node = E('div');
 	providerCardRefs = {};
 
-	if (envelope.provListError) {
-		node.appendChild(callout('bad', _('Provider catalog unavailable: ') + esc(envelope.provListError)));
+	if (envelope.provListError || provs.ok === false) {
+		var providerError = envelope.provListError || (provs.error && provs.error.message) || provs.error || _('backend rejected the provider catalog');
+		node.appendChild(callout('bad', _('Providers unavailable: ') + esc(providerError)));
 		var retry = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Retry'));
 		retry.addEventListener('click', function () {
 			retry.disabled = true;
@@ -491,7 +492,7 @@ function providersSection(view, provs, comps, envelope) {
 	var wanDns = (comps && comps.wan && comps.wan.dns) || [];
 	var globalLabel = selected ? selected.name : ((comps && comps.wan && comps.wan.peerdns === '0') ? _('Custom / unmanaged WAN DNS') : _('Automatic from WAN'));
 	node.appendChild(E('div', { 'class': 'z2m-provider-intro' }, [
-		E('p', {}, _('Test checks one provider and changes nothing. Select installs it as the global WAN DNS. Service Access mappings are not changed.')),
+		E('p', {}, _('Test checks one provider and changes nothing. Provider metadata is data only and never activation. Select installs it as the global WAN DNS. Service Access mappings are not changed.')),
 		E('div', { 'class': 'z2m-provider-global' }, [
 			E('strong', {}, _('Current global DNS: ')),
 			E('span', {}, globalLabel + (wanDns.length ? ' — ' + wanDns.join(' · ') : ''))
@@ -1645,6 +1646,10 @@ function advancedSection(view, dns, envelope) {
 			_('Manual Host Overrides pin hostnames to IPs through a separate manager-owned addnhosts file. Service Access mappings use native dnsmasq UCI server entries. These mechanisms are independent and no longer share a file.'))
 	]);
 	mcard.appendChild(errors);
+	if (applied.length) {
+		mcard.appendChild(E('div', { 'class': 'cbi-value-description' },
+			_('Applied overrides: ') + applied.map(function (e) { return esc(e.domain) + ' → ' + esc(e.ip); }).join(', ')));
+	}
 
 	if (draft.malformed) {
 		mcard.appendChild(callout('bad', _('Draft is malformed: ') + esc(draft.malformedReason || '?')));
@@ -1668,16 +1673,17 @@ function advancedSection(view, dns, envelope) {
 		var add = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Add'));
 		add.addEventListener('click', function () { if (!newDomain.value.trim() || !newIp.value.trim()) { errors.textContent = _('Domain and IPv4 are required.'); errors.style.display = ''; return; } entries.push({ domain: newDomain.value.trim(), ip: newIp.value.trim(), enabled: true }); view.switchSection('advanced'); });
 		mcard.appendChild(E('div', { 'class': 'z2m-actions' }, [newDomain, newIp, add]));
-		var save = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button' }, _('Save & Apply'));
+		var save = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button', 'id': 'z2m-dns-save' }, _('Save & Apply'));
 		var discard = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Discard'));
 		save.addEventListener('click', function () {
 			var payload = rows.map(function (r) { return { domain: r._domain ? r._domain.value : r.domain, ip: r._ip ? r._ip.value : r.ip, enabled: r._enabled ? r._enabled.checked : r.enabled }; });
 			save.disabled = true; discard.disabled = true; errors.style.display = 'none';
 			callDnsValidate(JSON.stringify({ entries: payload })).then(function (v) {
-				if (!v || v.valid !== true) { errors.textContent = (v.errors || []).map(function (e) { return (e.index >= 0 ? '#' + (e.index + 1) + ': ' : '') + e.reason; }).join('; ') || _('Validation failed'); errors.style.display = ''; throw new Error(_('Validation failed')); }
+				if (!v || v.valid !== true) { errors.textContent = (v.errors || []).map(function (e) { return (e.index >= 0 ? '#' + (e.index + 1) + ': ' : '') + e.reason; }).join('; ') || _('Validation failed'); errors.style.display = ''; throw new Error(errors.textContent); }
 				return callDnsSet(JSON.stringify({ entries: payload, revision: draft.revision }));
 			}).then(function () { return callDnsApply(JSON.stringify({ mode: 'apply' })); }).then(function (res) {
 				if (!res || res.ok !== true) throw new Error(formatRpcError(res));
+				view._dnsApplyResult = res;
 				view.showFlash(_('Manual overrides applied.'), 'success');
 				view._dnsManualDraft = null;
 				return view.reload();
@@ -1685,6 +1691,13 @@ function advancedSection(view, dns, envelope) {
 		});
 		discard.addEventListener('click', function () { view._dnsManualDraft = null; view.showFlash(_('Draft discarded.'), 'info'); view.reload(); });
 		mcard.appendChild(E('div', { 'class': 'z2m-actions' }, [save, discard]));
+		if (view._dnsApplyResult) {
+			var verify = view._dnsApplyResult.verify || {};
+			mcard.appendChild(callout('success', _('Applied and verified: ') +
+				(verify.processAlive ? _('resolver process alive') : _('resolver process unavailable')) + ', ' +
+				(verify.portListening ? _('port listening') : _('port not listening')) + ', ' +
+				(verify.entriesMatch ? _('entries match') : _('entries mismatch'))));
+		}
 	}
 	node.appendChild(mcard);
 

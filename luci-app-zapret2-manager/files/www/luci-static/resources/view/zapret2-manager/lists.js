@@ -103,7 +103,7 @@ return L.view.extend({
 
 	domainCheckSection: function (readOnly) {
 		var result = E('div', { 'class': 'cbi-value-description' }, '');
-		var input = E('input', { 'type': 'text', 'class': 'cbi-input-text',
+		var input = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'id': 'z2m-domain-check',
 			'placeholder': _('enter a domain to check') });
 		var btn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button' }, _('Check'));
 		btn.addEventListener('click', function () {

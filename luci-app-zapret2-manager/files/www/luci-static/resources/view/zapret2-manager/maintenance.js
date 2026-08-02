@@ -148,11 +148,11 @@ return L.view.extend({
 		}
 
 		// create row
-		var sel = E('select', { 'class': 'cbi-input-select' });
+		var sel = E('select', { 'class': 'cbi-input-select', 'id': 'z2m-backup-scope' });
 		['all', 'engineConfig', 'ourState', 'lists', 'profiles'].forEach(function (s) {
 			sel.appendChild(E('option', { value: s }, s));
 		});
-		var createBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button' }, _('Create backup'));
+		var createBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button', 'id': 'z2m-backup-create' }, _('Create backup'));
 		createBtn.addEventListener('click', function () {
 			createBtn.disabled = true;
 			callBackupCreate(JSON.stringify({ scope: sel.value || 'all' })).then(function (res) {
@@ -229,7 +229,7 @@ return L.view.extend({
 		var box = E('div', { 'class': 'z2m-card', 'id': 'z2m-backup-preview' }, [
 			E('h4', {}, _('Restore preview — ') + esc(pv.scope) + ' @ ' + fmtTime(pv.takenAt)),
 			this.kvRow(_('Integrity'), res.integrity && res.integrity.ok
-				? badge(_('SHA-256 OK'), 'ok')
+				? badge(_('sha256 manifest OK'), 'ok')
 				: badge((res.integrity && res.integrity.reason) || _('failed'), 'bad')),
 			this.kvRow(_('Version gate'),
 				res.versionGate === 'ok' ? badge(_('ok'), 'ok') :
@@ -238,7 +238,7 @@ return L.view.extend({
 		]);
 
 		(res.diffs || []).forEach(function (d) {
-			box.appendChild(this.kvRow(esc(d.path),
+			box.appendChild(self.kvRow(esc(d.path),
 				(d.presentNow ? (d.changed ? _('changed') : _('identical')) : _('not present')) +
 				' · ' + (d.currentSize != null ? d.currentSize : '—') + 'B → ' + d.archiveSize + 'B'));
 		});
@@ -251,7 +251,7 @@ return L.view.extend({
 			var armed = this._restoreArmed === pv.scope + ':' + pv.takenAt;
 			var restoreBtn = E('button', {
 				'class': 'cbi-button ' + (armed ? 'cbi-button-negative' : 'cbi-button-apply'), 'type': 'button'
-			}, armed ? _('Confirm restore (current state snapshotted first)?') : _('Restore'));
+			}, armed ? _('Confirm restore (current state is snapshotted first)?') : _('Restore this archive'));
 			restoreBtn.addEventListener('click', function () {
 				var key = pv.scope + ':' + pv.takenAt;
 				if (self._restoreArmed !== key) { self._restoreArmed = key; self.refresh(); return; }
@@ -311,7 +311,7 @@ return L.view.extend({
 
 		malformed.forEach(function (m) {
 			node.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-bad' },
-				_('Malformed: ') + esc(m.preview || '')));
+				_('malformed line: ') + esc(m.preview || '')));
 		});
 
 		if (allEvents.length > limit) {
@@ -328,7 +328,7 @@ return L.view.extend({
 
 	diagnosticsSection: function () {
 		var self = this;
-		var btn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Export diagnostics'));
+		var btn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button', 'id': 'z2m-diagnostics' }, _('Export diagnostics'));
 		btn.addEventListener('click', function () {
 			btn.disabled = true;
 			callDiagnostics().then(function (res) {

@@ -118,7 +118,7 @@ return L.view.extend({
 
 		if (stale) {
 			container.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-warn' },
-				_('Live update failed: ') + esc(stale.error) + ' · ' + _('Showing stale data from ') + stale.at.toLocaleTimeString()));
+				_('STALE — live update failed: ') + esc(stale.error) + ' · ' + _('Showing stale data from ') + stale.at.toLocaleTimeString()));
 		}
 		if (statusError) {
 			container.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-bad' },

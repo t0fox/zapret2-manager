@@ -214,6 +214,11 @@ return L.view.extend({
 			grid.appendChild(card);
 		});
 		node.appendChild(grid);
+		var roundtrip = profData.roundtrip || {};
+		if (roundtrip.preserve) {
+			node.appendChild(E('div', { 'class': 'cbi-value-description' },
+				_('Round-trip preservation: ') + esc(roundtrip.preserve) + ' · ' + _('upstream placeholders such as <HOSTLIST> are retained verbatim.')));
+		}
 		return node;
 	},
 
@@ -234,7 +239,8 @@ return L.view.extend({
 
 		if (draft.malformed) {
 			node.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-bad' },
-				_('Draft state is MALFORMED: ') + esc(draft.malformedReason || _('unknown'))));
+				_('Draft state is MALFORMED: ') + esc(draft.malformedReason || _('unknown')) + '. ' +
+				_('It is never overwritten until the state is repaired.')));
 			return node;
 		}
 
@@ -360,7 +366,7 @@ return L.view.extend({
 			markDirty();
 		});
 
-		var saveBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button' },
+		var saveBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button', 'id': 'z2m-editor-save' },
 			ed.mode === 'create' ? _('Create draft') : _('Save draft'));
 		saveBtn.addEventListener('click', function () {
 			saveBtn.disabled = true;
@@ -429,7 +435,7 @@ return L.view.extend({
 			return node;
 		}
 
-		var prevBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button' }, _('Preview apply'));
+		var prevBtn = E('button', { 'class': 'cbi-button cbi-button-neutral', 'type': 'button', 'id': 'z2m-apply-preview' }, _('Preview apply'));
 		prevBtn.addEventListener('click', function () {
 			prevBtn.disabled = true; self._apply = { busy: true };
 			callProfilesApply(JSON.stringify({ mode: 'preview' })).then(function (res) {
@@ -459,6 +465,11 @@ return L.view.extend({
 			E('h4', {}, _('Candidate NFQWS2_OPT')),
 			E('pre', { 'class': 'z2m-mono', 'style': 'max-height:200px;overflow:auto' }, sanitize(pv.candidate || _('(empty)')))
 		]);
+		var native = pv.native || {};
+		box.appendChild(E('div', { 'class': 'cbi-value-description' },
+			_('dry-run proves CLI syntax only; Lua compatibility and runtime execution remain unverified.')));
+		box.appendChild(E('div', { 'class': 'z2m-kv' }, [h(_('Applied SHA-256')), h(String(diff.currentSha256 || '?').substring(0, 16))]));
+		box.appendChild(E('div', { 'class': 'z2m-kv' }, [h(_('Native validation')), h(native.status || 'not_checked') ]));
 
 		if (!pv.wouldApply) {
 			box.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-warn' }, _('Apply is refused by validation.')));
@@ -467,7 +478,7 @@ return L.view.extend({
 
 		var armed = this._apply && this._apply.armed;
 		var applyBtn = E('button', {
-			'class': 'cbi-button ' + (armed ? 'cbi-button-negative' : 'cbi-button-apply'), 'type': 'button'
+			'class': 'cbi-button ' + (armed ? 'cbi-button-negative' : 'cbi-button-apply'), 'type': 'button', 'id': 'z2m-apply-run'
 		}, armed ? _('Confirm apply (engine will restart)?') : _('Apply drafts'));
 		applyBtn.addEventListener('click', function () {
 			if (!self._apply.armed) { self._apply.armed = true; self.refresh(); return; }
@@ -485,12 +496,16 @@ return L.view.extend({
 		var self = this;
 		if (res.ok !== true) {
 			return E('div', { 'class': 'z2m-callout z2m-callout-bad' },
-				_('Apply failed') + ': ' + esc((res.error && res.error.message) || res.error || _('unknown')));
+				_('Apply failed') + ': ' + esc((res.error && res.error.message) || res.error || _('unknown')) +
+				(res.rolledBack ? ' · ' + _('Previous configuration restored automatically.') : ''));
 		}
 		var box = E('div', { 'class': 'z2m-card', 'id': 'z2m-apply-result' }, [
 			E('h4', {}, _('Applied and verified')),
 			E('div', { 'class': 'cbi-value-description' }, _('The automatic 90s rollback timer is off. If the link dropped, use Roll back now.'))
 		]);
+		Object.keys((res.verify && res.verify.checks) || {}).forEach(function (name) {
+			box.appendChild(E('div', { 'class': 'z2m-kv' }, [h(name), h(res.verify.checks[name] ? _('passed') : _('failed'))]));
+		});
 		var okBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button' }, _('Link OK'));
 		var rbBtn = E('button', { 'class': 'cbi-button cbi-button-negative', 'type': 'button' }, _('Roll back now'));
 		var status = E('div', { 'class': 'cbi-value-description' });

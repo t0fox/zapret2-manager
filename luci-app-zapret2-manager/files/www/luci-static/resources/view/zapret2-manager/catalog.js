@@ -81,7 +81,7 @@ return L.view.extend({
 
 		if (unavailable) {
 			container.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-bad' },
-				_('Catalog unavailable: ') + esc(unavailable)));
+				_('Catalog unavailable — mutation BLOCKED: ') + esc(unavailable)));
 			return container;
 		}
 
@@ -167,7 +167,7 @@ return L.view.extend({
 			node.appendChild(grid);
 		});
 
-		var prevBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button' }, _('Preview changes'));
+		var prevBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button', 'id': 'z2m-catalog-preview' }, _('Preview changes'));
 		prevBtn.addEventListener('click', function () {
 			prevBtn.disabled = true;
 			var enabled = [];
@@ -202,9 +202,10 @@ return L.view.extend({
 		card.appendChild(listBlock(_('Removals (solely catalog-owned)'), pv.removals, function (r) { return '- ' + r.domain + '  [was: ' + (r.previousOwners || []).join(',') + ']'; }));
 		card.appendChild(listBlock(_('Shared domains kept'), pv.keepShared, function (k) { return '= ' + k.domain; }));
 		card.appendChild(listBlock(_('Already user-owned (never claimed)'), pv.alreadyUserOwned, function (u) { return '= ' + u.domain; }));
+		card.appendChild(listBlock(_('Preserved user entries'), pv.preservedUser, function (u) { return '= ' + u; }));
 		if (pv.unsupported && pv.unsupported.length) {
 			card.appendChild(E('div', { 'class': 'z2m-callout z2m-callout-warn' },
-				_('Unsupported mechanisms: ') + pv.unsupported.map(function (u) { return u.service; }).join(', ')));
+				_('Unsupported mechanisms are REPORTED, never applied: ') + pv.unsupported.map(function (u) { return u.service; }).join(', ')));
 		}
 
 		var pre = pv.precondition || {};
@@ -215,7 +216,7 @@ return L.view.extend({
 
 		var armed = this._applyArmed;
 		var applyBtn = E('button', {
-			'class': 'cbi-button ' + (armed ? 'cbi-button-negative' : 'cbi-button-apply'), 'type': 'button'
+			'class': 'cbi-button ' + (armed ? 'cbi-button-negative' : 'cbi-button-apply'), 'type': 'button', 'id': 'z2m-catalog-apply'
 		}, armed ? _('Confirm apply (list file will be rewritten)?') : _('Apply this plan'));
 		applyBtn.addEventListener('click', function () {
 			if (!self._applyArmed) { self._applyArmed = true; self.refresh(); return; }
@@ -260,7 +261,7 @@ return L.view.extend({
 		var matrix = health && health.matrix;
 		var active = matrix && (matrix.status === 'pending' || matrix.status === 'running');
 
-		var startBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button' },
+		var startBtn = E('button', { 'class': 'cbi-button cbi-button-apply', 'type': 'button', 'id': 'z2m-health-start' },
 			active ? _('Matrix running…') : _('Run health matrix'));
 		if (active || healthError) startBtn.disabled = true;
 		startBtn.addEventListener('click', function () {
@@ -276,7 +277,7 @@ return L.view.extend({
 		var row = E('div', { 'class': 'z2m-actions' }, [startBtn]);
 
 		if (active) {
-			var cancelBtn = E('button', { 'class': 'cbi-button cbi-button-negative', 'type': 'button' }, _('Cancel matrix'));
+			var cancelBtn = E('button', { 'class': 'cbi-button cbi-button-negative', 'type': 'button', 'id': 'z2m-health-cancel' }, _('Cancel matrix'));
 			cancelBtn.addEventListener('click', function () {
 				cancelBtn.disabled = true;
 				callHealthCancel(JSON.stringify({ id: matrix.id })).then(function () { self.refresh(); })

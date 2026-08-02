@@ -57,7 +57,15 @@ function makeWorld(responses) {
 
 	function E(tag, attrs, children) {
 		const node = makeNode(tag);
-		if (attrs && typeof attrs === 'object') { Object.assign(node.attrs, attrs); Object.assign(node, attrs); }
+		if (attrs && typeof attrs === 'object') {
+			Object.assign(node.attrs, attrs);
+			for (const [key, value] of Object.entries(attrs)) {
+				// HTML style="..." populates CSSStyleDeclaration; it never replaces
+				// HTMLElement.style with a string. Views mutate style.display later.
+				if (key === 'style' && typeof value === 'string') continue;
+				node[key] = value;
+			}
+		}
 		const kids = Array.isArray(children) ? children : (children !== undefined ? [children] : []);
 		for (const c of kids) node.children.push(c);
 		return node;
@@ -151,7 +159,7 @@ function findSection(rootChildren, title) {
 		while (stack.length) {
 			const n = stack.pop();
 			if (!n || typeof n !== 'object') continue;
-			if (n.tag === 'h3' && n.children.includes(title)) return c;
+			if ((n.tag === 'h3' || n.tag === 'h4') && n.children.includes(title)) return c;
 			for (const k of n.children) if (k && typeof k === 'object') stack.push(k);
 		}
 	}
@@ -1181,31 +1189,42 @@ function dnsWorld(extra = {}) {
 	});
 }
 
+function renderDnsSection(view, envelope, section) {
+	view._section = section;
+	return view.render(envelope);
+}
+
 test('dns: resolver summary + applied overrides render real target data', async () => {
 	const w = dnsWorld();
 	const view = loadView(readViewSource('dns'), 'dns', w);
 	const envelope = await view.load();
-	const root = view.render(envelope);
-	const text = collectText(root).join(' | ');
+	const root = renderDnsSection(view, envelope, 'setup');
+	const advanced = renderDnsSection(view, envelope, 'advanced');
+	const text = collectText(root).concat(collectText(advanced)).join(' | ');
 	assert.ok(text.includes('dnsmasq'), 'resolver component renders');
 	assert.ok(text.includes('195.98.64.65'), 'upstream nameserver renders');
 	assert.ok(text.includes('rutracker.org'), 'applied override renders');
 	assert.ok(text.includes('195.82.146.214'), 'pinned ip renders');
 });
 
-test('dns: Save draft sends { entries, revision } as JSON string', async () => {
-	const w = dnsWorld({ dns_set: { type: 'ok', value: { ok: true, revision: 2, count: 1 } } });
+test('dns: Save & Apply validates, saves and applies entries as JSON strings', async () => {
+	const w = dnsWorld({
+		dns_validate: { type: 'ok', value: { ok: true, valid: true, errors: [] } },
+		dns_set: { type: 'ok', value: { ok: true, revision: 2, count: 1 } },
+		dns_apply: { type: 'ok', value: { ok: true, verify: { processAlive: true, portListening: true, entriesMatch: true } } }
+	});
 	const view = loadView(readViewSource('dns'), 'dns', w);
 	const envelope = await view.load();
-	const root = view.render(envelope);
+	const root = renderDnsSection(view, envelope, 'advanced');
 	const saveBtn = w.created.find((n) => n.attrs.id === 'z2m-dns-save');
-	assert.ok(saveBtn, 'Save draft button not found');
+	assert.ok(saveBtn, 'Save & Apply button not found');
 	saveBtn.listeners.click();
 	await flush();
 	const call = w.calls.find((c) => c.method === 'dns_set');
 	assert.ok(call, 'dns_set was not called');
 	const parsed = JSON.parse(call.params.edit);
-	assert.deepEqual(parsed, { entries: [{ domain: 'rutracker.org', ip: '195.82.146.214' }], revision: 1 });
+	assert.deepEqual(parsed, { entries: [{ domain: 'rutracker.org', ip: '195.82.146.214', enabled: true }], revision: 1 });
+	assert.ok(w.calls.some((c) => c.method === 'dns_apply' && JSON.parse(c.params.edit).mode === 'apply'), 'validated entries are applied through the manager worker');
 });
 
 test('dns: Validate renders backend errors (no fake valid state)', async () => {
@@ -1221,22 +1240,15 @@ test('dns: Validate renders backend errors (no fake valid state)', async () => {
 	});
 	const view = loadView(readViewSource('dns'), 'dns', w);
 	const envelope = await view.load();
-	const root = view.render(envelope);
-	w.created.find((n) => n.attrs.id === 'z2m-dns-validate').listeners.click();
+	const root = renderDnsSection(view, envelope, 'advanced');
+	w.created.find((n) => n.attrs.id === 'z2m-dns-save').listeners.click();
 	await flush();
-	const root2 = view.render(await view.load());
-	const text = collectText(root2).join(' | ');
-	assert.ok(text.includes('invalid'), 'invalid verdict renders');
+	const text = collectText(root).concat(w.created.flatMap((n) => collectText(n))).join(' | ');
+	assert.ok(text.includes('conflict:'), 'invalid verdict renders');
 	assert.ok(text.includes('two different IPs'), 'the backend conflict detail renders');
 });
 
-test('dns: preview → apply is arm→confirm; result shows verification', async () => {
-	const previewOk = {
-		ok: true, mode: 'preview', registered: true, registrationNeeded: false,
-		diff: { added: [{ domain: 'ntc.party', ip: '104.21.5.19' }], removed: [], changed: [], unchangedCount: 1 },
-		candidate: '# zapret2-manager DNS overrides\n195.82.146.214 rutracker.org\n104.21.5.19 ntc.party\n',
-		note: 'n'
-	};
+test('dns: Save & Apply result renders manager verification', async () => {
 	const applyOk = {
 		ok: true, mode: 'apply', registered: true,
 		verify: {
@@ -1245,27 +1257,19 @@ test('dns: preview → apply is arm→confirm; result shows verification', async
 		},
 		snapshot: { dir: '/tmp/zapret2-manager/last-good/dns' }, note: 'n'
 	};
-	const w = dnsWorld({ dns_apply: { type: 'ok', value: previewOk } });
+	const w = dnsWorld({
+		dns_validate: { type: 'ok', value: { ok: true, valid: true, errors: [] } },
+		dns_set: { type: 'ok', value: { ok: true, revision: 2 } },
+		dns_apply: { type: 'ok', value: applyOk }
+	});
 	const view = loadView(readViewSource('dns'), 'dns', w);
 	const envelope = await view.load();
-	let root = view.render(envelope);
-	w.created.find((n) => n.attrs.id === 'z2m-dns-preview').listeners.click();
-	await flush();
-	const prevCall = w.calls.find((c) => c.method === 'dns_apply');
-	assert.deepEqual(JSON.parse(prevCall.params.edit), { mode: 'preview' });
-	root = view.render(await view.load());
-	const text = collectText(root).join(' | ');
-	assert.ok(text.includes('Added'), 'diff renders');
-	const applyBtn = w.created.find((n) => n.attrs.id === 'z2m-dns-apply-run');
-	assert.ok(applyBtn, 'apply button renders');
-	applyBtn.listeners.click();   // ARM
-	assert.ok(w.calls.filter((c) => c.method === 'dns_apply').length === 1, 'first click only ARMS');
-	w.responses.dns_apply = { type: 'ok', value: applyOk };
-	applyBtn.listeners.click();   // CONFIRM
+	let root = renderDnsSection(view, envelope, 'advanced');
+	w.created.find((n) => n.attrs.id === 'z2m-dns-save').listeners.click();
 	await flush();
 	const applyCalls = w.calls.filter((c) => c.method === 'dns_apply' && JSON.parse(c.params.edit).mode === 'apply');
 	assert.equal(applyCalls.length, 1, 'exactly one apply call after arm+confirm');
-	root = view.render(await view.load());
+	root = renderDnsSection(view, await view.load(), 'advanced');
 	const text2 = collectText(root).join(' | ');
 	assert.ok(text2.includes('Applied and verified'), 'verification renders');
 	assert.ok(text2.includes('listening'), 'port check renders');
@@ -1280,13 +1284,13 @@ test('dns: Check resolution calls dns_check and shows matches', async () => {
 	});
 	const view = loadView(readViewSource('dns'), 'dns', w);
 	const envelope = await view.load();
-	const root = view.render(envelope);
+	const root = renderDnsSection(view, envelope, 'setup');
 	w.created.find((n) => n.attrs.id === 'z2m-dns-check').listeners.click();
 	await flush();
 	assert.ok(w.calls.some((c) => c.method === 'dns_check'), 'dns_check was not called');
 	const root2 = view.render(await view.load());
 	const text = collectText(root2).join(' | ');
-	assert.ok(text.includes('match'), 'match result renders');
+	assert.ok(text.includes('resolved'), 'match result renders');
 });
 
 // ---- 6g. catalog: service catalog page (Phase B) ----------------------------------
@@ -1837,8 +1841,9 @@ test('dns providers: components + catalog render with data-only honesty', async 
 	const w = dnsProvWorld();
 	const view = loadView(readViewSource('dns'), 'dns', w);
 	const envelope = await view.load();
-	const root = view.render(envelope);
-	const text = collectText(root).join(' | ');
+	const root = renderDnsSection(view, envelope, 'setup');
+	const providers = renderDnsSection(view, envelope, 'providers');
+	const text = collectText(root).concat(collectText(providers)).join(' | ');
 	assert.ok(text.includes('dnsmasq'), 'resolver path renders');
 	assert.ok(text.includes('195.98.64.65'), 'WAN nameserver renders');
 	assert.ok(text.includes('Cloudflare'), 'provider renders');
@@ -1846,22 +1851,23 @@ test('dns providers: components + catalog render with data-only honesty', async 
 	assert.ok(text.includes('never activation'), 'no-activation framing renders');
 });
 
-test('dns providers: diagnostics run + verdict with LOW confidence honesty', async () => {
-	const w = dnsProvWorld({ dnsprov_diagnose: { type: 'ok', value: DNSPROV_DIAG } });
+test('dns providers: per-provider diagnostics render bounded evidence', async () => {
+	const w = dnsProvWorld({
+		dnsprov_diagnose: { type: 'ok', value: { ok: true, probes: [{ outcome: 'partial', attempts: [{ resolverIp: '1.1.1.1', dnsAnswered: true, pingAnswered: false, answers: ['139.59.209.225'] }] }] } }
+	});
 	const view = loadView(readViewSource('dns'), 'dns', w);
 	const envelope = await view.load();
-	const root = view.render(envelope);
-	const btn = w.created.find((n) => n.attrs.id === 'z2m-dnsprov-diagnose');
+	const root = renderDnsSection(view, envelope, 'providers');
+	const btn = w.created.find((n) => n.tag === 'button' && n.children.includes('Test'));
 	assert.ok(btn, 'diagnostics button not found');
 	btn.listeners.click();
 	await flush();
-	assert.ok(w.calls.some((c) => c.method === 'dnsprov_diagnose'), 'dnsprov_diagnose was not called');
-	const root2 = view.render(await view.load());
-	const text = collectText(root2).join(' | ');
-	assert.ok(text.includes('divergent'), 'divergent outcome renders');
-	assert.ok(text.includes('confidence: low'), 'LOW confidence renders');
-	assert.ok(text.includes('NOT automatically poisoning'), 'no-poisoning honesty renders');
-	assert.ok(text.includes('Quad9'), 'provider row renders');
+	const call = w.calls.find((c) => c.method === 'dnsprov_diagnose');
+	assert.deepEqual(JSON.parse(call.params.edit), { provider: 'cloudflare' }, 'diagnostics stay scoped to the selected provider');
+	const text = collectText(root).concat(w.created.flatMap((n) => collectText(n))).join(' | ');
+	assert.ok(text.includes('Partially working'), 'partial evidence renders without a success claim');
+	assert.ok(text.includes('DNS: PASS'), 'DNS evidence renders');
+	assert.ok(text.includes('Ping: FAIL'), 'failed probe evidence renders');
 });
 
 test('dns providers: invalid catalog blocks diagnostics button', async () => {
@@ -1870,11 +1876,11 @@ test('dns providers: invalid catalog blocks diagnostics button', async () => {
 	});
 	const view = loadView(readViewSource('dns'), 'dns', w);
 	const envelope = await view.load();
-	const root = view.render(envelope);
+	const root = renderDnsSection(view, envelope, 'providers');
 	const text = collectText(root).join(' | ');
 	assert.ok(text.includes('Providers unavailable'), 'invalid catalog renders unavailable');
-	const btn = w.created.find((n) => n.attrs.id === 'z2m-dnsprov-diagnose');
-	assert.equal(btn.disabled, true, 'diagnostics disabled on invalid catalog');
+	const btn = w.created.find((n) => n.tag === 'button' && n.children.includes('Test'));
+	assert.equal(btn, undefined, 'diagnostics controls are absent while the catalog is invalid');
 });
 
 // ---- 6k. proxy page (Phase F) -------------------------------------------------

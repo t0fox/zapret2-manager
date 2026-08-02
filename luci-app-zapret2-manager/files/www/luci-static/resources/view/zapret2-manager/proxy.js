@@ -3119,7 +3119,9 @@ return L.view.extend({
 
 		var healthBtn = E('button', { 'class': 'cbi-button' }, _('Health test'));
 		healthBtn.addEventListener('click', function () { self.doHealth(healthBtn); });
-		body.appendChild(self.row(_('Diagnostics'), [healthBtn]));
+		var logsBtn = E('button', { 'class': 'cbi-button' }, _('Redacted logs'));
+		logsBtn.addEventListener('click', function () { self.doLogs(logsBtn); });
+		body.appendChild(self.row(_('Diagnostics'), [healthBtn, ' ', logsBtn]));
 
 		var diagPanel = E('div', { id: 'px-diag-result' });
 		self._f.diagResult = diagPanel;
@@ -3166,7 +3168,7 @@ return L.view.extend({
 			var secText;
 			if (sec.exists === true) {
 				secText = (sec.securePermissions === true)
-					? _('configured \u2014 permissions ') + (sec.modeOctal || '?') + ' (secure)'
+					? _('configured — secure (') + (sec.modeOctal || '?') + ')'
 					: _('configured \u2014 ') + (sec.modeOctal || '?') + ' (0600 expected)';
 			} else secText = _('not configured');
 			body.appendChild(self.row(_('Secret'), secText));
