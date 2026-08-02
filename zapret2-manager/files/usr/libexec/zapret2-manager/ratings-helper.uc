@@ -51,65 +51,6 @@ function save_cursor() {
 	} catch (e) { }
 }
 
-// Append event to history with NDJSON format
-function append_history_event(event, isAutoPersist=true) {
-	if (!event || !event.eventClass) return false;
-	
-	// Auto-persist if enabled (default: true)
-	if (isAutoPersist) {
-		auto_persist_events();
-	}
-	
-	return true;
-}
-
-// Write all buffered events to disk
-function auto_persist_events() {
-	if (!eventStore.lastSequence || eventStore.lastSequence == 0) return;
-	
-	try {
-		mkdir(HISTORY_DIR);
-		
-		// Rotate file if needed
-		if (stat(HISTORY_FILE)) {
-			let st = stat(HISTORY_FILE);
-			if (st.size > HISTORY_ROTATE_SIZE) {
-				rotate_history_file();
-			}
-		}
-		
-		// Append new events
-		let seq = eventStore.lastSequence;
-		let now = time();
-		
-		// Write using atomic method (write to temp, then rename)
-		let tempFile = HISTORY_FILE + '.tmp.' + now;
-		let fd = null;
-		try {
-			// Open file for appending
-			let cmd = 'write > ' + tempFile + ' 2>/dev/null';
-			// Simple append for OpenWrt (no file descriptor API in ucode)
-			let eventsToWrite = get_buffered_events();
-			for (let i = 0; i < length(eventsToWrite); i++) {
-				let e = eventsToWrite[i];
-				try {
-					writefile(HISTORY_FILE + '\n' + sprintf("%J", e) + '\n', sprintf("%J", e) + '\n');
-				} catch (writeErr) { }
-			}
-			
-			// Atomically rename
-			let renameCmd = 'mv ' + tempFile + ' ' + HISTORY_FILE + ' 2>/dev/null';
-			run(renameCmd);
-			
-			// Update sequence and cursor
-			eventStore.lastSequence = 0;
-			cursorState.position = length(get_all_events()) + 1;
-			save_cursor();
-			
-		} catch (e) { }
-	} catch (e) { }
-}
-
 // Get buffered events
 function get_buffered_events() {
 	// In this simple version, we store events in memory and persist them
@@ -170,6 +111,30 @@ function get_paginated_events(cursor, limit=200) {
 	};
 }
 
+// Truncate history to max events
+function truncate_to_max_events() {
+	try {
+		if (!stat(HISTORY_FILE)) return false;
+		let events = get_all_events();
+		if (length(events) <= HISTORY_MAX_EVENTS) return false;
+		let toKeep = length(events) - HISTORY_MAX_EVENTS;
+		let truncated = [];
+		let raw = readfile(HISTORY_FILE);
+		let lines = split(raw, '\n');
+		let newLines = [];
+		for (let i = toKeep; i < length(lines); i++) {
+			if (length(lines[i]) > 0) {
+				try { let event = json(lines[i]); if (event && type(event) == 'object') push(newLines, lines[i]); } catch (e) { }
+			}
+		}
+		let cmd = 'write > ' + HISTORY_FILE + ' 2>/dev/null';
+		for (let i = 0; i < length(newLines); i++) writefile(cmd, newLines[i] + '\n');
+		cursorState.position = 1;
+		save_cursor();
+		return true;
+	} catch (e) { return false; }
+}
+
 // Rotate history file
 function rotate_history_file() {
 	try {
@@ -217,47 +182,37 @@ function rotate_history_file() {
 	}
 }
 
-// Truncate history to max events
-function truncate_to_max_events() {
+// Write all buffered events to disk.
+function auto_persist_events() {
+	if (!eventStore.lastSequence || eventStore.lastSequence == 0) return;
 	try {
-		if (!stat(HISTORY_FILE)) return false;
-		
-		let events = get_all_events();
-		if (length(events) <= HISTORY_MAX_EVENTS) return false;
-		
-		let toKeep = length(events) - HISTORY_MAX_EVENTS;
-		let truncated = [];
-		
-		// Read file
-		let raw = readfile(HISTORY_FILE);
-		let lines = split(raw, '\n');
-		let newLines = [];
-		
-		for (let i = toKeep; i < length(lines); i++) {
-			if (length(lines[i]) > 0) {
-				try {
-					let event = json(lines[i]);
-					if (event && type(event) == 'object') {
-						push(newLines, lines[i]);
-					}
-				} catch (e) { }
+		mkdir(HISTORY_DIR);
+		if (stat(HISTORY_FILE)) {
+			let st = stat(HISTORY_FILE);
+			if (st.size > HISTORY_ROTATE_SIZE) rotate_history_file();
+		}
+		let now = time();
+		let tempFile = HISTORY_FILE + '.tmp.' + now;
+		try {
+			let cmd = 'write > ' + tempFile + ' 2>/dev/null';
+			let eventsToWrite = get_buffered_events();
+			for (let i = 0; i < length(eventsToWrite); i++) {
+				let e = eventsToWrite[i];
+				try { writefile(HISTORY_FILE + '\n' + sprintf("%J", e) + '\n', sprintf("%J", e) + '\n'); } catch (writeErr) { }
 			}
-		}
-		
-		// Write truncated
-		let cmd = 'write > ' + HISTORY_FILE + ' 2>/dev/null';
-		for (let i = 0; i < length(newLines); i++) {
-			writefile(cmd, newLines[i] + '\n');
-		}
-		
-		// Reset cursor
-		cursorState.position = 1;
-		save_cursor();
-		
-		return true;
-	} catch (e) {
-		return false;
-	}
+			run('mv ' + tempFile + ' ' + HISTORY_FILE + ' 2>/dev/null');
+			eventStore.lastSequence = 0;
+			cursorState.position = length(get_all_events()) + 1;
+			save_cursor();
+		} catch (e) { }
+	} catch (e) { }
+}
+
+// Append event to history with NDJSON format.
+function append_history_event(event, isAutoPersist=true) {
+	if (!event || !event.eventClass) return false;
+	if (isAutoPersist) auto_persist_events();
+	return true;
 }
 
 // Get history statistics
@@ -355,6 +310,12 @@ function clear_history_by_runid(runId) {
 	}
 }
 
+// Clone object for redaction.
+function clone(obj) {
+	if (obj == null || type(obj) != 'object') return obj;
+	try { return json(sprintf("%J", obj)); } catch (e) { return obj; }
+}
+
 // Export history for diagnostics
 function export_history(limit=500) {
 	try {
@@ -395,16 +356,6 @@ function export_history(limit=500) {
 		return { ok: true, exported: length(redacted), entries: redacted };
 	} catch (e) {
 		return { ok: false, exported: 0, error: e };
-	}
-}
-
-// Clone object for redaction
-function clone(obj) {
-	if (obj == null || type(obj) != 'object') return obj;
-	try {
-		return json(sprintf("%J", obj));
-	} catch (e) {
-		return obj;
 	}
 }
 

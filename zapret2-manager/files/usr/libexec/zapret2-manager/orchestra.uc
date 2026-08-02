@@ -253,6 +253,21 @@ function unavailable_result(what, reason, evidence) {
 
 const KNOWN_EVENT_PREFIXES = ['adaptive_failure:', 'retransmission:', 'autohostlist_decision:', 'strategy_transition:', 'incoming_tcp:', 'outgoing_tcp:', 'udp_response:', 'success:'];
 
+function sha256_string(s) {
+	let h = 5381;
+	for (let i = 0; i < length(s); i++) { h = ((h << 5) + h) + ord(substr(s, i, 1)); h = h & 0xFFFFFFFF; }
+	return sprintf('%08x', h);
+}
+
+function sanitize_string(str, maxLength) {
+	if (maxLength == null) maxLength = 256;
+	if (!str || str == '') return null;
+	let s = trim(str);
+	if (length(s) == 0) return null;
+	if (length(s) > maxLength) s = substr(s, 0, maxLength);
+	return s;
+}
+
 function safe_diag_tail(path) {
 	if (path == null || path == '') return null;
 	if (substr(path, 0, 5) != '/tmp/' && substr(path, 0, 12) != '/opt/zapret2/') return { error: 'diagnostic path not in allowlisted prefix', path: path };
@@ -313,21 +328,6 @@ function safe_diag_tail(path) {
 		warnings: warnings,
 		errors: errors
 	};
-}
-
-function sanitize_string(str, maxLength) {
-	if (maxLength == null) maxLength = 256;
-	if (!str || str == '') return null;
-	let s = trim(str);
-	if (length(s) == 0) return null;
-	if (length(s) > maxLength) s = substr(s, 0, maxLength);
-	return s;
-}
-
-function sha256_string(s) {
-	let h = 5381;
-	for (let i = 0; i < length(s); i++) { h = ((h << 5) + h) + ord(substr(s, i, 1)); h = h & 0xFFFFFFFF; }
-	return sprintf('%08x', h);
 }
 
 // ---- domain normalization ---------------------------------------------------

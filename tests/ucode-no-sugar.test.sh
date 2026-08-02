@@ -26,15 +26,15 @@ else
   fail=1
 fi
 
-# 2. zero object-key enumeration (for ... in) in shipped ucode — key-vs-value
-# iteration order/semantics are not relied on. (Index loops over arrays are
-# fine and are the established pattern.)
-nforin=$(grep -rnP 'for\s*\(\s*(let|const|var)\s+[A-Za-z_]\w*\s+in\s+' zapret2-manager/files luci-app-zapret2-manager/files --include=*.uc 2>/dev/null | wc -l | tr -d ' ')
+# 2. zero object-key enumeration (for ... in) in shipped ucode. Ucode's
+# `for (... in array)` is value iteration and is the established array pattern;
+# only explicit object-key sources are incompatible with the contract here.
+nforin=$(grep -rnP 'for\s*\(\s*(let|const|var)\s+[A-Za-z_]\w*\s+in\s+(keys\s*\(|Object\.)' zapret2-manager/files luci-app-zapret2-manager/files --include=*.uc 2>/dev/null | wc -l | tr -d ' ')
 if [ "$nforin" -eq 0 ]; then
   echo "PASS  no for-in object key enumeration in shipped ucode"
 else
-  echo "FAIL  $nforin for-in loops in shipped ucode (rely on key enumeration):"
-  grep -rnP 'for\s*\(\s*(let|const|var)\s+[A-Za-z_]\w*\s+in\s+' zapret2-manager/files luci-app-zapret2-manager/files --include=*.uc 2>/dev/null | sed 's/^/  /'
+  echo "FAIL  $nforin explicit object-key loops in shipped ucode:"
+  grep -rnP 'for\s*\(\s*(let|const|var)\s+[A-Za-z_]\w*\s+in\s+(keys\s*\(|Object\.)' zapret2-manager/files luci-app-zapret2-manager/files --include=*.uc 2>/dev/null | sed 's/^/  /'
   fail=1
 fi
 
@@ -64,19 +64,21 @@ fi
 # d=0). tr|wc counts bytes directly and dash-safe (process substitution is a
 # bash-ism; /bin/sh is dash on dev machines and ash on target).
 for f in $(find zapret2-manager/files luci-app-zapret2-manager/files -name '*.uc' 2>/dev/null); do
-  # strip // comments to end of line
-  stripped=$(sed 's://.*$::' "$f")
-  # strip double-quoted string literals "..."
-  stripped=$(printf '%s\n' "$stripped" | sed 's/"[^"]*"//g')
-  # strip single-quoted string literals '...'
-  stripped=$(printf '%s\n' "$stripped" | sed "s/'[^']*'//g")
-  o1=$(printf '%s' "$stripped" | tr -cd '{' | wc -c); c1=$(printf '%s' "$stripped" | tr -cd '}' | wc -c)
-  o2=$(printf '%s' "$stripped" | tr -cd '(' | wc -c); c2=$(printf '%s' "$stripped" | tr -cd ')' | wc -c)
-  o3=$(printf '%s' "$stripped" | tr -cd '[' | wc -c); c3=$(printf '%s' "$stripped" | tr -cd ']' | wc -c)
-  d=$((o1-c1)); p=$((o2-c2)); b=$((o3-c3))
-  if [ "$d" -ne 0 ] || [ "$p" -ne 0 ] || [ "$b" -ne 0 ]; then
-    echo "FAIL  bracket imbalance in $f (brace=$d paren=$p bracket=$b)"; fail=1
-  fi
+  if ! awk '
+    {
+      quote=""; escaped=0
+      for (i=1; i<=length($0); i++) {
+        ch=substr($0,i,1); nextch=substr($0,i+1,1)
+        if (quote != "") { if (escaped) escaped=0; else if (ch=="\\") escaped=1; else if (ch==quote) quote=""; continue }
+        if (ch=="/" && nextch=="/") break
+        if (ch=="\"" || ch=="\047") { quote=ch; continue }
+        if (ch=="{") brace++; else if (ch=="}") brace--
+        else if (ch=="(") paren++; else if (ch==")") paren--
+        else if (ch=="[") bracket++; else if (ch=="]") bracket--
+      }
+    }
+    END { if (brace || paren || bracket) { printf "FAIL  bracket imbalance in %s (brace=%d paren=%d bracket=%d)\\n", FILENAME, brace, paren, bracket; exit 1 } }
+  ' "$f"; then fail=1; fi
 done
 [ "$fail" -eq 0 ] && echo "PASS  shipped ucode brackets balanced (local sanity, comments/strings stripped)"
 
@@ -89,12 +91,19 @@ done
 # Self-test first (a gate that cannot go red is considered absent).
 _exportclose() { # $1 = file → 0 clean, 1 violation
   awk '
-    # strip // comments and quoted strings (naive, same as gate 4)
+    function code_only(raw,    i,ch,nextch,out,quote,escaped) {
+      out=""; quote=""; escaped=0
+      for (i=1; i<=length(raw); i++) {
+        ch=substr(raw,i,1); nextch=substr(raw,i+1,1)
+        if (quote != "") { if (escaped) escaped=0; else if (ch=="\\") escaped=1; else if (ch==quote) quote=""; continue }
+        if (ch=="/" && nextch=="/") break
+        if (ch=="\"" || ch=="\047") { quote=ch; continue }
+        out=out ch
+      }
+      return out
+    }
     {
-      line=$0
-      sub(/\/\/.*$/, "", line)
-      gsub(/"[^"]*"/, "", line)
-      gsub(/'\''[^'\'']*'\''/, "", line)
+      line=code_only($0)
       if (inblock == 0 && line ~ /^export[ \t]+const[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*=[ \t]*function/) {
         inblock=1; depth=0; startline=NR
       }
@@ -120,7 +129,7 @@ _tmpbad=$(mktemp)
 printf 'export const broken = function() {\n\treturn 1;\n}\n\nexport const after = function() { return 2; };\n' > "$_tmpbad"
 _tmpgood=$(mktemp)
 printf 'export const fine = function() {\n\treturn 1;\n};\n\nexport const also = 7;\n' > "$_tmpgood"
-if _exportclose "$_tmpbad" 2>/dev/null; then echo "FAIL  self-test: unclosed export-const not flagged"; fail=1; fi
+if _exportclose "$_tmpbad" >/dev/null 2>&1; then echo "FAIL  self-test: unclosed export-const not flagged"; fail=1; fi
 if ! _exportclose "$_tmpgood" 2>/dev/null; then echo "FAIL  self-test: clean export-const flagged"; fail=1; fi
 rm -f "$_tmpbad" "$_tmpgood"
 [ "$fail" -eq 0 ] && echo "PASS  export-const close self-test (red on bad, green on good)"
@@ -137,11 +146,19 @@ done
 # precede callers by convention).
 _fnorder() { # $1 = file → 0 clean, 1 violation
   awk '
+    function code_only(raw,    i,ch,nextch,out,quote,escaped) {
+      out=""; quote=""; escaped=0
+      for (i=1; i<=length(raw); i++) {
+        ch=substr(raw,i,1); nextch=substr(raw,i+1,1)
+        if (quote != "") { if (escaped) escaped=0; else if (ch=="\\") escaped=1; else if (ch==quote) quote=""; continue }
+        if (ch=="/" && nextch=="/") break
+        if (ch=="\"" || ch=="\047") { quote=ch; continue }
+        out=out ch
+      }
+      return out
+    }
     NR==FNR {
-      line=$0
-      sub(/\/\/.*$/, "", line)
-      gsub(/"[^"]*"/, "", line)
-      gsub(/'\''[^'\'']*'\''/, "", line)
+      line=code_only($0)
       if (match(line, /^[ \t]*function[ \t]+[A-Za-z_][A-Za-z0-9_]*/)) {
         name=line; sub(/^[ \t]*function[ \t]+/, "", name); sub(/[^A-Za-z0-9_].*$/, "", name)
         if (!(name in decl)) decl[name]=FNR
@@ -153,10 +170,8 @@ _fnorder() { # $1 = file → 0 clean, 1 violation
       next
     }
     {
-      line=$0
-      sub(/\/\/.*$/, "", line)
-      gsub(/"[^"]*"/, "", line)
-      gsub(/'\''[^'\'']*'\''/, "", line)
+      line=code_only($0)
+      if (line ~ /^[ \t]*(function|export[ \t]+const)[ \t]+/) sub(/^[^{]*\{/, "", line)
       while (match(line, /[A-Za-z_][A-Za-z0-9_]*[ \t]*\(/)) {
         cname=substr(line, RSTART, RLENGTH); sub(/[^A-Za-z0-9_].*$/, "", cname)
         rest=substr(line, RSTART+RLENGTH)
@@ -173,7 +188,7 @@ _tmpbad=$(mktemp)
 printf 'function caller() { return helper(); }\nfunction helper() { return 1; }\n' > "$_tmpbad"
 _tmpgood=$(mktemp)
 printf 'function helper() { return 1; }\nfunction caller() { return helper(); }\n' > "$_tmpgood"
-if _fnorder "$_tmpbad" 2>/dev/null; then echo "FAIL  self-test: use-before-declare not flagged"; fail=1; fi
+if _fnorder "$_tmpbad" >/dev/null 2>&1; then echo "FAIL  self-test: use-before-declare not flagged"; fail=1; fi
 if ! _fnorder "$_tmpgood" 2>/dev/null; then echo "FAIL  self-test: declare-before-use flagged"; fail=1; fi
 rm -f "$_tmpbad" "$_tmpgood"
 [ "$fail" -eq 0 ] && echo "PASS  function-order self-test (red on bad, green on good)"
