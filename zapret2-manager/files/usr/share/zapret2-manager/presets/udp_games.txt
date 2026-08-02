@@ -1,0 +1,7 @@
+# Factory UDP games preset
+--daemon-opt=factory-games
+
+--wf-udp-out=443,50000-65535 --filter-udp=443,50000-65535 --ipset=/etc/zapret2-manager/ipset/games.txt --lua-desync=old --new
+
+# Secondary UDP profile
+--filter-udp=27015-27030 --ipset=/etc/zapret2-manager/ipset/steam.txt --lua-desync=fake --new

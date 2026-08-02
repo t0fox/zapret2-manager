@@ -187,6 +187,7 @@ function blockcheck_apply_method(req) {
 	let p = popen('/usr/bin/ucode ' + BLOCKCHECK_APPLY_CLI + ' ' + tmp + ' 2>/dev/null', 'r'); if (!p) return { ok: false, error: { code: 'ETARGET', message: 'apply runner unavailable' } };
 	let out = p.read('all'); p.close(); try { unlink(tmp); } catch (e) {} try { return json(out); } catch (e) { return { ok: false, error: { code: 'EINTERNAL', message: 'apply response parse failed' } }; }
 }
+function blockcheck_preview_method(req) { return blockcheck_apply_method(req); }
 
 // ---- jobs + blockcheck (SLICE 4) --------------------------------------------
 const JOBS_CLI = '/usr/libexec/zapret2-manager/jobs-cli.uc';
@@ -510,6 +511,7 @@ return {
 		blockcheck_cancel: { args: { edit: 'string' }, call: function (req) { return blockcheck_cancel_method(req); } },
 		blockcheck_status: { call: function (req) { return blockcheck_status_method(req); } },
 		blockcheck_apply: { args: { edit: 'string' }, call: function (req) { return blockcheck_apply_method(req); } },
+		blockcheck_preview: { args: { edit: 'string' }, call: function (req) { return blockcheck_preview_method(req); } },
 		health_matrix_get: { call: function (req) { return health_matrix_get_method(req); } },
 		health_matrix_start: { args: { edit: 'string' }, call: function (req) { return health_matrix_start_method(req); } },
 		health_matrix_job_get: { args: { edit: 'string' }, call: function (req) { return health_matrix_job_get_method(req); } },

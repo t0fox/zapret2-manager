@@ -1,0 +1,7 @@
+# Factory STUN/voice preset
+--daemon-opt=factory-voice
+
+--wf-udp-out=443-65535 --filter-l7=stun,discord --payload=stun,discord_ip_discovery --lua-desync=old --new
+
+# Unrelated profile remains untouched
+--filter-udp=3478 --filter-l7=stun --lua-desync=fake --new

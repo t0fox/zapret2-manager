@@ -51,6 +51,14 @@ define Package/zapret2-manager/install
 	$(INSTALL_DIR) $(1)/etc/zapret2-manager
 	$(INSTALL_DATA) ./files/etc/zapret2-manager/state.json \
 		$(1)/etc/zapret2-manager/state.json
+	$(INSTALL_DIR) $(1)/etc/zapret2-manager/presets
+	$(INSTALL_DIR) $(1)/usr/share/zapret2-manager/presets
+	$(INSTALL_DATA) ./files/usr/share/zapret2-manager/presets/tcp_https.txt \
+		$(1)/usr/share/zapret2-manager/presets/
+	$(INSTALL_DATA) ./files/usr/share/zapret2-manager/presets/stun_voice.txt \
+		$(1)/usr/share/zapret2-manager/presets/
+	$(INSTALL_DATA) ./files/usr/share/zapret2-manager/presets/udp_games.txt \
+		$(1)/usr/share/zapret2-manager/presets/
 	# Backend logic (ucode). Runtime /tmp dirs are created on demand.
 	$(INSTALL_DIR) $(1)/usr/libexec/zapret2-manager
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/constants.uc \
