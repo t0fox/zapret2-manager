@@ -43,13 +43,14 @@ param(
     [string] $Branch = 'main',
     [string] $Remote = 'origin',
     [string] $CommitMessage = 'orchestra: gate PASS on real markers, confirm winners twice, verify Discord targets for real',
-    [ValidateSet('preflight', 'patch', 'test', 'push', 'deploy', 'verify')]
+    [ValidateSet('key', 'preflight', 'patch', 'test', 'push', 'deploy', 'verify')]
     [string[]] $Stage = @('preflight', 'patch', 'test', 'push', 'deploy', 'verify'),
     [string] $Router = '192.168.1.1',
     [string] $RouterUser = 'root',
     [int] $RouterPort = 22,
     [string] $SshKey,
     [int] $MinTmpKb = 20480,
+    [string] $RouterPassword = '',
     [switch] $RestartRpcd,
     [switch] $AllowDirtyTree
 )
@@ -121,6 +122,122 @@ function Copy-ToRouter {
 
 function Test-Stage { param([string] $Name) $Stage -contains $Name }
 
+function Get-DefaultKeyPath {
+    if ($SshKey) { return $SshKey }
+    $ed = Join-Path $HOME '.ssh\id_ed25519'
+    $rsa = Join-Path $HOME '.ssh\id_rsa'
+    if (Test-Path -LiteralPath $ed) { return $ed }
+    if (Test-Path -LiteralPath $rsa) { return $rsa }
+    $ed
+}
+
+function Test-RouterSsh {
+    $probe = Invoke-Router 'echo z2m-ok' -AllowFailure
+    ($probe.ExitCode -eq 0 -and $probe.Output -match 'z2m-ok')
+}
+
+# --------------------------------------------------------------------------
+# stage: key
+#
+# A router with no root password cannot accept an ssh password login: dropbear
+# rejects blank-password logins outright. Key authentication is the only way in,
+# and this stage installs the key over the LuCI ubus endpoint, which does accept
+# the empty root password. No password is ever set on the router.
+# --------------------------------------------------------------------------
+
+function Invoke-Ubus {
+    param(
+        [Parameter(Mandatory)] [string] $Session,
+        [Parameter(Mandatory)] [string] $Object,
+        [Parameter(Mandatory)] [string] $Method,
+        [hashtable] $Arguments = @{}
+    )
+    $body = @{
+        jsonrpc = '2.0'
+        id      = 1
+        method  = 'call'
+        params  = @($Session, $Object, $Method, $Arguments)
+    } | ConvertTo-Json -Depth 8 -Compress
+
+    try {
+        $resp = Invoke-RestMethod -Uri "http://$Router/ubus" -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 15
+    }
+    catch {
+        $code = $null
+        if ($_.Exception.Response) { $code = [int]$_.Exception.Response.StatusCode }
+        if ($code -in 401, 403) { Fail "ubus refused the request with HTTP $code; stopping instead of retrying" }
+        if ($code -eq 404) { Fail "http://$Router/ubus is not available (HTTP 404). Install the key by hand: LuCI -> System -> Administration -> SSH-Keys, paste your public key, then rerun." }
+        Fail "ubus call $Object.$Method failed: $($_.Exception.Message)"
+    }
+
+    if ($resp.PSObject.Properties.Name -contains 'error' -and $resp.error) {
+        Fail "ubus call $Object.$Method returned error: $($resp.error | ConvertTo-Json -Compress)"
+    }
+    $status = $resp.result[0]
+    if ($status -ne 0) {
+        if ($status -in 5, 6) { Fail "ubus denied $Object.$Method (status $status). The empty-password session has no rights for this call; paste the key via LuCI instead." }
+        Fail "ubus call $Object.$Method returned status $status"
+    }
+    if ($resp.result.Count -gt 1) { return $resp.result[1] }
+    $null
+}
+
+function Invoke-KeyBootstrap {
+    Write-Stage 'key (ssh bootstrap for a passwordless router)'
+
+    $keyPath = Get-DefaultKeyPath
+    $pubPath = "$keyPath.pub"
+
+    if (-not (Test-Path -LiteralPath $keyPath)) {
+        if (-not (Get-Command ssh-keygen -ErrorAction SilentlyContinue)) { Fail 'ssh-keygen is not on PATH (install the OpenSSH client feature)' }
+        if ($PSCmdlet.ShouldProcess($keyPath, 'generate ssh key')) {
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $keyPath) | Out-Null
+            Invoke-Native -File 'ssh-keygen' -Arguments @('-t', 'ed25519', '-N', '', '-C', "z2m-ship@$env:COMPUTERNAME", '-f', $keyPath) | Out-Null
+            Write-Good "generated $keyPath"
+        }
+    }
+    else { Write-Good "using existing key $keyPath" }
+
+    if (-not (Test-Path -LiteralPath $pubPath)) { Fail "public key not found: $pubPath" }
+    $pub = (Get-Content -LiteralPath $pubPath -Raw).Trim()
+    $script:SshKey = $keyPath
+    Set-Variable -Name SshKey -Value $keyPath -Scope 1 -ErrorAction SilentlyContinue
+
+    if (Test-RouterSsh) { Write-Good 'key authentication already works; nothing to bootstrap'; return }
+
+    Write-Step "logging into http://$Router/ubus as $RouterUser with the empty password"
+    $nullSession = '00000000000000000000000000000000'
+    $login = Invoke-Ubus -Session $nullSession -Object 'session' -Method 'login' -Arguments @{ username = $RouterUser; password = $RouterPassword }
+    $sid = $login.ubus_rpc_session
+    if (-not $sid) { Fail 'ubus login returned no session id' }
+    Write-Good 'ubus session established (no password was set on the router)'
+
+    $authFile = '/etc/dropbear/authorized_keys'
+    $existing = ''
+    try {
+        $read = Invoke-Ubus -Session $sid -Object 'file' -Method 'read' -Arguments @{ path = $authFile }
+        if ($read -and $read.data) { $existing = $read.data }
+    }
+    catch { Write-Step "$authFile does not exist yet; it will be created" }
+
+    if ($existing -match [regex]::Escape(($pub -split '\s+')[1])) {
+        Write-Good 'public key is already present in authorized_keys'
+    }
+    elseif ($PSCmdlet.ShouldProcess("${Router}:$authFile", 'append public key')) {
+        $content = if ($existing.Trim()) { $existing.TrimEnd() + "`n" + $pub + "`n" } else { $pub + "`n" }
+        Invoke-Ubus -Session $sid -Object 'file' -Method 'write' -Arguments @{ path = $authFile; data = $content; mode = 384 } | Out-Null
+        Write-Good "appended the public key to $authFile (mode 0600)"
+    }
+
+    Invoke-Ubus -Session $sid -Object 'session' -Method 'destroy' -Arguments @{ ubus_rpc_session = $sid } | Out-Null
+
+    Start-Sleep -Seconds 1
+    if (-not (Test-RouterSsh)) {
+        Fail "the key was written but ssh still refuses the login. Check LuCI -> System -> Administration -> SSH-Keys, and that dropbear is running on port $RouterPort."
+    }
+    Write-Good "ssh key authentication to $RouterUser@$Router works"
+}
+
 # --------------------------------------------------------------------------
 # constants
 # --------------------------------------------------------------------------
@@ -173,14 +290,22 @@ function Invoke-Preflight {
         foreach ($tool in 'ssh', 'scp') {
             if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { Fail "$tool is not on PATH (install OpenSSH client)" }
         }
+        if (-not $SshKey) { $SshKey = Get-DefaultKeyPath }
         $probe = Invoke-Router 'echo z2m-ok; . /etc/openwrt_release 2>/dev/null; echo "$DISTRIB_RELEASE $DISTRIB_ARCH"; command -v ucode >/dev/null && echo ucode-present || echo ucode-missing' -AllowFailure
         if ($probe.ExitCode -ne 0 -or $probe.Output -notmatch 'z2m-ok') {
-            Fail "cannot reach $RouterUser@${Router}:$RouterPort over ssh with key auth. Set up a key or pass -SshKey."
+            Fail @"
+cannot reach $RouterUser@${Router}:$RouterPort over ssh with key auth.
+A router with no root password cannot log in by password at all: dropbear rejects
+blank-password logins. Install your key once, then rerun:
+    pwsh -File tools/ship-orchestra.ps1 -Stage key
+Or paste the contents of $((Get-DefaultKeyPath) + '.pub') into
+LuCI -> System -> Administration -> SSH-Keys.
+"@
         }
         Write-Good "router reachable: $(($probe.Output -split "`n" | Select-Object -Skip 1) -join ' | ')"
         if ($probe.Output -match 'ucode-missing') { Write-Warn2 'ucode not found on the router; the remote syntax check will be skipped' }
 
-        $free = [int]((Invoke-Router "df -k /tmp | awk 'NR==2{print \$4}'").Output.Trim())
+        $free = [int]((Invoke-Router "df -k /tmp | awk 'NR==2{print `$4}'").Output.Trim())
         if ($free -lt $MinTmpKb) { Fail "/tmp free space is ${free}K, below the ${MinTmpKb}K floor; clean /tmp before deploying" }
         Write-Good "/tmp free space ${free}K"
     }
@@ -368,7 +493,7 @@ function Invoke-Verify {
         $local = Join-Path $RepoPath "$PkgDir/$name"
         if (-not (Test-Path -LiteralPath $local)) { continue }
         $localHash = (Get-FileHash -LiteralPath $local -Algorithm SHA256).Hash.ToLower()
-        $remoteOut = (Invoke-Router "sha256sum '$RemoteDir/$name' 2>/dev/null | awk '{print \$1}'" -AllowFailure).Output.Trim()
+        $remoteOut = (Invoke-Router "sha256sum '$RemoteDir/$name' 2>/dev/null | awk '{print `$1}'" -AllowFailure).Output.Trim()
         if ($remoteOut -ne $localHash) {
             $bad += "$name  local=$localHash  router=$($remoteOut ? $remoteOut : '<missing>')"
         }
@@ -395,6 +520,7 @@ function Invoke-Verify {
 try {
     Write-Host "ship-orchestra  repo=$RepoPath  router=$RouterUser@${Router}:$RouterPort  stages=$($Stage -join ',')" -ForegroundColor White
 
+    if (Test-Stage 'key') { Invoke-KeyBootstrap }
     if (Test-Stage 'preflight') { Invoke-Preflight }
     if (Test-Stage 'patch') { Invoke-Patch }
     if (Test-Stage 'test') { Invoke-Tests }
