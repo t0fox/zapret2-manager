@@ -1,0 +1,27 @@
+{
+  "emptyList": { "ok": true, "runs": [] },
+  "oneRunLegacy": {
+    "ok": true,
+    "runs": [{ "runId": "or-00000001-0001", "target": "video.example", "phase": "completed", "protocols": ["tcp_https"], "rankedResults": [] }]
+  },
+  "oneRunCanonical": {
+    "ok": true,
+    "schemaVersion": 1,
+    "revision": 0,
+    "runs": [{ "runId": "or-00000001-0001", "generation": "1", "serviceId": null, "target": "video.example", "protocol": "tcp_https", "transport": "tcp", "profileId": null, "phase": "completed", "status": "completed", "startedAt": 1, "finishedAt": 2, "candidateCount": 2, "confirmedCount": 1, "winnerCandidateId": "candidate-a", "applyStatus": null, "rollbackStatus": null, "errorCode": null }],
+    "capabilities": {},
+    "warnings": []
+  },
+  "detailsCanonical": {
+    "ok": true,
+    "schemaVersion": 1,
+    "run": { "runId": "or-00000001-0001", "summary": {}, "scope": {}, "progress": {}, "candidates": [], "ranking": [], "winner": null, "apply": null, "verification": null, "rollback": null, "warnings": [], "capabilities": {} }
+  },
+  "malformedEntry": {
+    "ok": true,
+    "runs": [{ "runId": "or-00000001-0001", "target": "video.example", "phase": "completed" }, { "runId": 7, "phase": [] }]
+  },
+  "staleSchema": { "ok": true, "schemaVersion": 99, "runs": [] },
+  "rpcError": { "ok": false, "error": { "code": "rpc-unavailable", "message": "redacted" } },
+  "routerParseFailedResponse": { "ok": false, "error": "parse failed", "raw": "" }
+}

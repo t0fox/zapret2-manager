@@ -2,12 +2,12 @@
 	"$schema": "https://json-schema.org/draft/2020-12/schema",
 	"$id": "https://zapret2-manager.local/contracts/status.schema.json",
 	"title": "zapret2-manager status.json",
-	"description": "Shape of /tmp/zapret2-manager/status.json produced by usr/libexec/zapret2-manager/status.uc and served (3s cached) by the ubus `status` method. The collector populates every block; the UI renders, never recomputes. Drift, serviceState, and qlenHealth are backend-computed so the watchdog (no UI) sees the same picture a human sees. camelCase, schema v2: fix/02-04 is the LAST permitted rename (renames break parallel agents); extend only by ADDING fields and bumping the `schema` number.",
+	"description": "Shape of /tmp/zapret2-manager/status.json produced by usr/libexec/zapret2-manager/status.uc and served (3s cached) by the ubus `status` method. The collector populates every block; the UI renders, never recomputes. Drift, serviceState, and qlenHealth are backend-computed so the watchdog (no UI) sees the same picture a human sees. Schema v3 adds the canonical runtimeSummary projection; extend only by ADDING fields and bumping the `schema` number.",
 	"type": "object",
 	"additionalProperties": true,
-	"required": ["schema", "generatedAt", "generation", "serviceState", "runtime", "applied", "draft", "drift", "health", "system", "upstream", "jobs", "warnings"],
+	"required": ["schema", "generatedAt", "generation", "serviceState", "runtime", "runtimeSummary", "applied", "draft", "drift", "health", "system", "upstream", "jobs", "warnings"],
 	"properties": {
-		"schema": { "type": "integer", "const": 2, "description": "Schema version. v2 = the camelCase rename (fix/02-04). Extend only by adding fields and bumping this number; renames after v2 are forbidden." },
+		"schema": { "type": "integer", "const": 3, "description": "Schema version. v3 adds runtimeSummary; extend only by adding fields and bumping this number." },
 		"generatedAt": { "type": ["string", "null"], "format": "date-time", "description": "ISO-8601 with timezone (e.g. 2026-07-27T00:07:00Z). null = not collected. All timestamps in this document are ISO-8601 with timezone." },
 		"generation": { "type": ["integer", "null"], "description": "Config generation number read from the applied config. null = not present / not checked. The manager does not bump it; upstream does on its own apply." },
 		"serviceState": { "type": "string", "enum": ["running", "stopped", "partial", "error", "paused", "passthrough"], "description": "Backend-computed, single closed-enum value. paused and passthrough are self-standing states, NOT flags layered on running. paused = the paused indicator is set; passthrough = the no-strategy passthrough profile is active. partial = process up but nft table missing; error = queue not registered / queue jammed / collector failed. The UI maps a value to a badge (presentation only — no threshold/state logic in the UI)." },
@@ -36,6 +36,12 @@
 				"psSummary": { "type": "string" },
 				"rulesPresent": { "type": "boolean", "description": "nft table `zapret2` is present and non-empty. Distinct from process presence." }
 			}
+		},
+		"runtimeSummary": {
+			"type": "object",
+			"description": "Canonical additive runtime truth projection consumed by Orchestra and Auto Strategy. unknown means evidence is unavailable; stopped is emitted only for confirmed absence of both process and NFQUEUE.",
+			"required": ["schemaVersion", "source", "status", "process", "runtime", "nfqueue"],
+			"additionalProperties": true
 		},
 		"applied": {
 			"type": "object",

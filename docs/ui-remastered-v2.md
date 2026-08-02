@@ -394,3 +394,22 @@ The remastered program is complete only when all of the following are true:
 8. Diagnostics contains technical facts and guarded danger actions without contaminating normal workflow.
 9. Focused, syntax, render, package-content (when applicable), full-gate and authorized target acceptance evidence all pass without weakened tests.
 10. No prohibited backend rewrite, duplicate state/catalog, ACL wildcard, raw direct write, copied external asset/code, Windows logic or unrelated refactor is introduced.
+
+## T1 — factual contract baseline (2026-08-02)
+
+### Run and results boundary
+
+- The existing Runs & results panel calls `orchestra_run_history` without an argument for its list, `orchestra_run_status` with `edit: '{"runId":"…"}'` for a selected detail (and `{}` for the active run), and `orchestra_preview_best` / `orchestra_apply_best` / `orchestra_apply_status` / `orchestra_restore_previous` for the sanctioned transaction result.
+- `orchestra_run_history()` currently returns `{ ok, runs, limit, maxLimit }`; an empty list is success. `orchestra_run_status()` returns `{ ok:true, run }` or a structured `ENOENT` envelope. The run loader turns invalid JSON into `null`, so a corrupt journal is skipped from history but is not reported as a bounded per-entry warning.
+- The rpcd CLI/request-file adapter parses CLI output once. If a runner emits no valid JSON it currently returns a string-shaped `parse failed` error plus raw output. The UI then presents `structuredError()` literally. This is the concrete error-shape boundary that permits the user-visible symptom; no browser double-`JSON.parse` of a successful object was found.
+- Existing run ranking is stored in `run.rankedResults`, but the view derives stability, latency and score again. T1 must add canonical, additive list/detail/ranking fields and leave the legacy fields intact; T2/T6 consume the new fields.
+
+### Runtime boundary and false-negative evidence
+
+- `status.uc` is the existing broad runtime collector: it scans `/proc`, parses NUL-separated argv with `split(chr(0))`, records PID, binary and start-time proxy, reconciles NFQUEUE 300 registration/owner, compares runtime and APPLIED state, and derives `serviceState`.
+- `orchestra_status()` independently used `pidof nfqws2` and mapped its null result directly to `daemonRunning:false`. `auto-strategy.uc` independently used `pgrep` and a raw queue regexp. `watchdog.uc` has its own liveness collector. These are the independent sources to converge on a canonical runtime summary.
+- The redacted target capture in `tests/fixtures/ps-full.out` has `/opt/zapret2/nfq2/nfqws2` at PID 19820 and `tests/fixtures/proc-nfnetlink_queue.out` has queue 300 owned by PID 19820, while the older `nfqws2-cmdline.out` capture says `NFQWS2_NOT_RUNNING`. Therefore an optional/failed `pidof` observation is insufficient evidence for `stopped`.
+
+### T1 canonical source decision
+
+`status.uc` remains the sole collector of process, argv, APPLIED/drift, NFQUEUE and watchdog evidence. T1 adds an additive canonical `runtimeSummary` projected from that collected status. Orchestra and Auto Strategy consume that projection; an absent projection is `unknown`/`runtime-not-confirmed`, never `stopped`. Existing status, Auto, run, ACL and legacy boolean fields remain present for compatibility.

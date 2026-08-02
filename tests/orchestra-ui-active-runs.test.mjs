@@ -60,7 +60,8 @@ test('repeated render cannot create a second poller', () => {
 
 test('structured backend errors remain visible', () => {
 	assert.match(ui, /function runError\(response\)/);
-	assert.match(ui, /self\._state\.selectedError = a\.run\._error \|\| runError\(a\.run\)/);
+	assert.match(ui, /self\._state\.selectedError = friendlyRunError\(a\.run\)/);
+	assert.match(ui, /Не удалось загрузить результаты запуска/);
 	assert.match(ui, /alertBox\(structuredError\(run\.error\)\)/);
 });
 
