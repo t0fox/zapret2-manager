@@ -12,19 +12,20 @@
     "depends": { "acl": ["zapret2-manager"] }
   },
   "admin/services/zapret2-manager/advanced": {
-    "title": "Advanced",
+    "title": "Orchestra · расширенный",
     "order": 92,
+    "hidden": true,
     "action": { "type": "view", "path": "zapret2-manager/orchestra" },
     "depends": { "acl": ["zapret2-manager"] }
   },
   "admin/services/zapret2-manager/strategies": {
-    "title": "Profiles",
+    "title": "Профили",
     "order": 93,
     "action": { "type": "view", "path": "zapret2-manager/strategies" },
     "depends": { "acl": ["zapret2-manager"] }
   },
   "admin/services/zapret2-manager/lists": {
-    "title": "Lists",
+    "title": "Списки",
     "order": 94,
     "action": { "type": "view", "path": "zapret2-manager/lists" },
     "depends": { "acl": ["zapret2-manager"] }
@@ -36,19 +37,19 @@
     "depends": { "acl": ["zapret2-manager"] }
   },
   "admin/services/zapret2-manager/monitor": {
-    "title": "Monitor",
+    "title": "Мониторинг",
     "order": 96,
     "action": { "type": "view", "path": "zapret2-manager/monitor" },
     "depends": { "acl": ["zapret2-manager"] }
   },
   "admin/services/zapret2-manager/proxy": {
-    "title": "Proxy",
+    "title": "TG PROXY",
     "order": 97,
     "action": { "type": "view", "path": "zapret2-manager/proxy" },
     "depends": { "acl": ["zapret2-manager"] }
   },
   "admin/services/zapret2-manager/maintenance": {
-    "title": "Maintenance",
+    "title": "Обслуживание",
     "order": 98,
     "action": { "type": "view", "path": "zapret2-manager/maintenance" },
     "depends": { "acl": ["zapret2-manager"] }
