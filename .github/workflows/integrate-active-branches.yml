@@ -1,0 +1,140 @@
+name: Integrate active branches
+
+on:
+  push:
+    branches:
+      - integration/all-active-branches
+    paths:
+      - .github/workflows/integrate-active-branches.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: integrate-active-branches
+  cancel-in-progress: false
+
+jobs:
+  merge-test-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out integration base
+        uses: actions/checkout@v4
+        with:
+          ref: integration/all-active-branches
+          fetch-depth: 0
+
+      - name: Merge all active branches semantically
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin \
+            feat/openwrt-flowseal-combos \
+            feat/strategy-first-integration \
+            fix/backend-core-hardening \
+            main
+
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/feat/strategy-first-integration)"
+
+          set +e
+          git merge --no-ff --no-commit origin/feat/openwrt-flowseal-combos
+          merge_rc=$?
+          set -e
+
+          if [ "$merge_rc" -ne 0 ]; then
+            mapfile -t conflicts < <(git diff --name-only --diff-filter=U)
+            test "${#conflicts[@]}" -gt 0
+            printf 'Resolving superseded conflicts with strategy-first versions:\n'
+            printf ' - %s\n' "${conflicts[@]}"
+            for path in "${conflicts[@]}"; do
+              git checkout --ours -- "$path"
+              git add "$path"
+            done
+          fi
+
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          backend = Path('zapret2-manager/Makefile')
+          text = backend.read_text()
+          text = re.sub(r'PKG_RELEASE:=\d+', 'PKG_RELEASE:=137', text, count=1)
+
+          flowseal_install = "\t$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/flowseal-combo.uc \\\n\t\t$(1)/usr/libexec/zapret2-manager/\n"
+          profile_anchor = "\t$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/profiles-apply.uc \\\n\t\t$(1)/usr/libexec/zapret2-manager/\n"
+          if 'flowseal-combo.uc' not in text:
+              if profile_anchor not in text:
+                  raise SystemExit('profiles-apply install anchor missing')
+              text = text.replace(profile_anchor, profile_anchor + flowseal_install, 1)
+
+          catalog_install = "\t$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/catalog/flowseal-combos.json \\\n\t\t$(1)/usr/libexec/zapret2-manager/catalog/\n"
+          catalog_anchor = "\t$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/catalog/orchestra-zapret2gui.json \\\n\t\t$(1)/usr/libexec/zapret2-manager/catalog/\n"
+          if 'catalog/flowseal-combos.json' not in text:
+              if catalog_anchor not in text:
+                  raise SystemExit('orchestra catalog install anchor missing')
+              text = text.replace(catalog_anchor, catalog_anchor + catalog_install, 1)
+
+          backend.write_text(text)
+
+          luci = Path('luci-app-zapret2-manager/Makefile')
+          luci_text = luci.read_text()
+          luci_text = re.sub(r'PKG_RELEASE:=\d+', 'PKG_RELEASE:=137', luci_text, count=1)
+          luci.write_text(luci_text)
+          PY
+
+          git add -A
+          test -z "$(git diff --name-only --diff-filter=U)"
+          git commit -m "merge: combine strategy-first and Flowseal branches"
+          git merge --no-ff origin/fix/backend-core-hardening \
+            -m "merge: add backend hardening design and implementation plan"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Verify integration invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'flowseal-combo.uc' zapret2-manager/Makefile
+          grep -q 'catalog/flowseal-combos.json' zapret2-manager/Makefile
+          test -f zapret2-manager/files/usr/libexec/zapret2-manager/flowseal-combo.uc
+          test -f zapret2-manager/files/usr/libexec/zapret2-manager/catalog/flowseal-combos.json
+          test -f luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/app.js
+          test -f docs/superpowers/specs/2026-08-03-backend-core-hardening-design.md
+          grep -q "req.candidateId!=null?combo_apply" \
+            zapret2-manager/files/usr/libexec/zapret2-manager/discord-profile-cli.uc
+          ! grep -q "import { flowseal_combo_list" \
+            zapret2-manager/files/usr/libexec/zapret2-manager/discord-profile-cli.uc
+
+      - name: Run complete repository test suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tools/run-all-tests.sh
+
+      - name: Run branch-specific integration tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test \
+            tests/flowseal-combo.test.mjs \
+            tests/flowseal-combo-apply.test.mjs \
+            tests/flowseal-combo-integration.test.mjs \
+            tests/frontend-backend-contract.test.mjs \
+            tests/orchestra-strategy-ui.test.mjs \
+            tests/ui/combo-presets.test.mjs \
+            tests/ui/single-view-manager.test.mjs \
+            tests/ui/single-view-overview-strategy.test.mjs
+
+      - name: Remove one-shot workflow and publish verified merge
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/integrate-active-branches.yml
+          git commit -m "chore: remove one-shot branch integration workflow"
+          git push origin HEAD:integration/all-active-branches
