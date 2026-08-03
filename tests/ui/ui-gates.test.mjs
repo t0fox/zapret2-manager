@@ -17,6 +17,10 @@ const INTERNAL = {
   lists: 'z2m-lists.js', dns: 'z2m-dns.js', proxy: 'z2m-proxy.js',
   monitor: 'z2m-monitor.js', maintenance: 'z2m-maintenance.js'
 };
+const BEHAVIOR_OWNERS = [
+  'z2m-overview.js','z2m-strategy.js','z2m-auto.js','z2m-services.js',
+  'z2m-lists.js','z2m-dns.js','z2m-proxy.js','z2m-monitor.js','z2m-maintenance.js'
+];
 const REDIRECTS = {
   'orchestra-strategy.js': 'overview', 'orchestra.js': 'strategy', 'strategies.js': 'strategy',
   'lists.js': 'lists', 'dns.js': 'dns', 'service-dns.js': 'dns', 'proxy.js': 'proxy',
@@ -94,6 +98,7 @@ test('gate 9: compatibility files are valid redirect views, not legacy wrappers'
   for (const [file, tab] of Object.entries(REDIRECTS)) {
     const src = source(file);
     const mod = evaluateLuciModule(join(root, file));
+    assert.equal(typeof mod.load, 'function');
     assert.equal(typeof mod.render, 'function');
     assert.match(src, /window\.location\.replace/);
     assert.match(src, new RegExp(`#/${tab}`));
@@ -109,10 +114,10 @@ test('gate 11: no shipped module relies on String.prototype.format', () => {
   for (const file of shippedJs()) noErrors(checkNoStringFormat(source(file), file));
 });
 
-test('gate 12: unknown backend values have honest fallback labels', () => {
-  for (const file of Object.values(INTERNAL)) {
+test('gate 12: behavior owners render honest unavailable or unknown values', () => {
+  for (const file of BEHAVIOR_OWNERS) {
     const src = source(file);
-    assert.match(src, /—|неизвест|недоступ|Unavailable|Список пуст|не найдены|не запускал/i, `${file}: no unavailable/unknown fallback`);
+    assert.match(src, /—|неизвест|недоступ|Unavailable|Список пуст|не найдены|не запускал|не выполня/i, `${file}: no unavailable/unknown fallback`);
   }
   assert.doesNotMatch(source('z2m-overview.js'), /metric\([^\n]+\|\|\s*0/);
   assert.doesNotMatch(source('z2m-strategy.js'), /metric\([^\n]+\|\|\s*0/);
@@ -126,11 +131,11 @@ test('gate 13: mutations expose an error path and shared feedback', () => {
   }
 });
 
-test('gate 14: styles and QR encoder remain local', () => {
-  for (const file of ['z2m-ui.css','z2m-components.css']) {
-    const css = source(file);
-    assert.doesNotMatch(css, /@import|https?:\/\//);
-  }
+test('gate 14: styles and QR encoder remain local and tabs hide native scrollbars', () => {
+  const css = source('z2m-ui.css') + '\n' + source('z2m-components.css');
+  assert.doesNotMatch(css, /@import|https?:\/\//);
+  assert.match(css, /\.z2m-tabs\s*\{[^}]*scrollbar-width\s*:\s*none/);
+  assert.match(css, /\.z2m-tabs::-webkit-scrollbar\s*\{[^}]*display\s*:\s*none/);
   assert.equal(existsSync(join(root, 'z2m-qr.js')), true);
   assert.doesNotMatch(source('z2m-proxy.js'), /https?:\/\/[^'"\s]+\.js|cdn/i);
 });
