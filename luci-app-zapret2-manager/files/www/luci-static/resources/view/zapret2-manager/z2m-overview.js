@@ -97,7 +97,7 @@ function render(ctx) {
   var pendingOverride = pending.pendingOverride || null;
   var activeId = active && (active.candidateId || active.managerId);
   var selectedOverrideId = runtime.overrideStrategyId || pending.pendingStrategyId || activeId || (catalog[0] && candidateId(catalog[0])) || '';
-  var rules = preview.overrides && asArray(preview.overrides.rules);
+  var rules = preview.overrides ? asArray(preview.overrides.rules) : [];
   var running = isRunning(status);
   var advanced = !!(snapshot.ui && snapshot.ui.advanced);
 
