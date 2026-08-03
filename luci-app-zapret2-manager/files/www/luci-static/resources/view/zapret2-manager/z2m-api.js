@@ -1,5 +1,6 @@
 'use strict';
 'require rpc';
+'require baseclass';
 
 var calls = {
   status: rpc.declare({ object: 'zapret2-manager', method: 'status', reject: true }),
@@ -108,7 +109,7 @@ function normalizeError(error) {
   };
 }
 
-return {
+return baseclass.extend({
   normalizeError: normalizeError,
   all: calls,
   service: { status: calls.status, start: calls.start, stop: calls.stop },
@@ -214,4 +215,4 @@ return {
     eventsTail: calls.eventsTail,
     diagnosticsExport: calls.diagnosticsExport
   }
-};
+});

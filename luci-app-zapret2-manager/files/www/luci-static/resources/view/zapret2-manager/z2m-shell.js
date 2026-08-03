@@ -1,4 +1,5 @@
 'use strict';
+'require baseclass';
 
 function injectStylesheet(id, filename) {
   if (!document || !document.head || document.getElementById(id)) return;
@@ -101,7 +102,7 @@ function renderConfirmBar() {
   );
 }
 
-return {
+return baseclass.extend({
   injectCss: injectCss,
   button: button,
   chip: chip,
@@ -112,4 +113,4 @@ return {
   closeModal: closeModal,
   renderApplyBar: renderApplyBar,
   renderConfirmBar: renderConfirmBar
-};
+});

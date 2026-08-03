@@ -8,8 +8,29 @@ function aliasFor(moduleName, explicitAlias) {
   return alias;
 }
 
+function createBaseclass() {
+  function Baseclass() {}
+  Baseclass.extend = function (methods) {
+    const Parent = this;
+    function Child(...args) {
+      if (typeof this.__init__ === 'function') this.__init__(...args);
+    }
+    Child.prototype = Object.create(Parent.prototype);
+    Object.assign(Child.prototype, methods || {});
+    Child.prototype.constructor = Child;
+    Child.extend = Parent.extend;
+    Child.__luciClass = true;
+    return Child;
+  };
+  Baseclass.__luciClass = true;
+  return Baseclass;
+}
+
+const baseclass = createBaseclass();
+
 function builtin(name, overrides) {
   if (Object.prototype.hasOwnProperty.call(overrides, name)) return overrides[name];
+  if (name === 'baseclass') return baseclass;
   if (name === 'rpc') return { declare: (spec) => Object.assign(function () { return Promise.resolve({}); }, { spec }) };
   if (name === 'ui') return { addNotification() {} };
   if (name === 'view') return { extend: (value) => value };
@@ -58,6 +79,7 @@ export function evaluateLuciModule(file, overrides = {}, cache = new Map()) {
   const exported = Function('L', 'E', 'document', 'window', '_', ...names, stripped)(
     L, E, document, window, translate, ...values
   );
-  cache.set(absolute, exported);
-  return exported;
+  const result = exported && exported.__luciClass ? new exported() : exported;
+  cache.set(absolute, result);
+  return result;
 }

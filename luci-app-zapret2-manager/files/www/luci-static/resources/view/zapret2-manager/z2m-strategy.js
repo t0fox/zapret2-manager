@@ -1,4 +1,5 @@
 'use strict';
+'require baseclass';
 
 var state = {
   timer: null, runId: null, subtab: 'list', target: '',
@@ -561,7 +562,7 @@ function unmount() {
   state.timer = null;
   state.runId = null;
 }
-return {
+return baseclass.extend({
   id: 'strategy', title: _('Стратегия'), subtitle: _('Выбор и проверка способа обхода DPI'),
   load: load, render: render, mount: mount, unmount: unmount
-};
+});

@@ -22,6 +22,20 @@ test('core modules never return a legacy view', () => {
   }
 });
 
+test('all internal modules satisfy LuCI baseclass loader contract', () => {
+  const support = [
+    'z2m-api.js', 'z2m-store.js', 'z2m-shell.js', 'z2m-qr.js',
+    'z2m-auto.js', 'z2m-runs.js', 'z2m-strategy.js', 'z2m-strategy-page.js',
+    'z2m-overview.js', 'z2m-services.js', 'z2m-lists.js', 'z2m-dns.js',
+    'z2m-proxy.js', 'z2m-monitor.js', 'z2m-maintenance.js'
+  ];
+  for (const file of support) {
+    const src = readFileSync(`${root}/${file}`, 'utf8');
+    assert.match(src, /'require baseclass';/, `${file} must require LuCI baseclass`);
+    assert.match(src, /return baseclass\.extend\(/, `${file} must export a baseclass subclass`);
+  }
+});
+
 test('single API facade preserves the frozen RPC contract', () => {
   assert.deepEqual(collectUiContract(), expected);
   const flattened = [...new Set(Object.values(expected).flat())].sort();

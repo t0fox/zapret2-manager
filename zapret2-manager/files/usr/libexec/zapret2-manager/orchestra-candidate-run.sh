@@ -8,8 +8,7 @@ SCANNER=/opt/zapret2/blockcheck2.sh
 run_id=${1:-}; candidate_id=${2:-}; protocol=${3:-}; domain=${4:-}; probe=${5:-https}; timeout=${6:-20}
 case "$run_id" in or-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;; *) exit 64;; esac
 case "$candidate_id" in
-    p[0-9][0-9][0-9][0-9][0-9][0-9]|c-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]|z2gui-*) ;;
-    *) exit 64 ;;
+    ''|.|..|*[!A-Za-z0-9._-]*) exit 64 ;;
 esac
 case "$protocol" in tcp_https|quic_udp) ;; *) exit 64;; esac
 case "$domain" in *[!A-Za-z0-9.-]*|'') exit 64;; esac

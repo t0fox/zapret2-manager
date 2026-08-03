@@ -1,11 +1,6 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
 
-export const ALLOWED_BACKEND_FAILURES = new Map([
-  ['flowseal-combo-integration.test.mjs', 2],
-  ['stressozz-corpus.test.mjs', 2]
-]);
-
 export function parseFailures(text) {
   const failures = new Map();
   for (const line of String(text || '').split(/\r?\n/)) {
@@ -20,17 +15,10 @@ export function parseFailures(text) {
 export function classify(text) {
   const failures = parseFailures(text);
   const unexpected = [];
-  const missing = [];
-  const mismatched = [];
   for (const [file, count] of failures) {
-    if (!ALLOWED_BACKEND_FAILURES.has(file)) unexpected.push({ file, count });
-    else if (ALLOWED_BACKEND_FAILURES.get(file) !== count)
-      mismatched.push({ file, expected: ALLOWED_BACKEND_FAILURES.get(file), actual: count });
+    unexpected.push({ file, count });
   }
-  for (const [file, count] of ALLOWED_BACKEND_FAILURES) {
-    if (!failures.has(file)) missing.push({ file, count });
-  }
-  return { failures, unexpected, missing, mismatched, ok: unexpected.length === 0 && missing.length === 0 && mismatched.length === 0 };
+  return { failures, unexpected, missing: [], mismatched: [], ok: unexpected.length === 0 };
 }
 
 function main() {
@@ -43,12 +31,9 @@ function main() {
   if (!result.ok) {
     console.error('Frontend completion classification failed.');
     if (result.unexpected.length) console.error('Unexpected failures:', JSON.stringify(result.unexpected));
-    if (result.missing.length) console.error('Expected backend failures missing:', JSON.stringify(result.missing));
-    if (result.mismatched.length) console.error('Failure counts changed:', JSON.stringify(result.mismatched));
     process.exit(1);
   }
-  console.log('Frontend gate PASS: all non-green suites are explicitly classified backend handoff failures.');
-  for (const [file, count] of result.failures) console.log(`  BACKEND-HANDOFF ${file}: ${count} failing tests`);
+  console.log('Frontend gate PASS: all parsed suites are green.');
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) main();

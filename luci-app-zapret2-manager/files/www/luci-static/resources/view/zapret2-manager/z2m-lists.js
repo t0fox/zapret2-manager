@@ -1,4 +1,5 @@
 'use strict';
+'require baseclass';
 
 var LIST_KEYS = ['domainInclude', 'domainExclude', 'ipInclude', 'ipExclude', 'ipBlock'];
 var state = { draft: null, check: null, busy: false };
@@ -146,4 +147,4 @@ function render(ctx) {
 }
 function mount() {}
 function unmount() {}
-return { id: 'lists', title: _('Списки'), subtitle: _('Пользовательские и engine-owned списки'), load: load, render: render, mount: mount, unmount: unmount };
+return baseclass.extend({ id: 'lists', title: _('Списки'), subtitle: _('Пользовательские и engine-owned списки'), load: load, render: render, mount: mount, unmount: unmount });

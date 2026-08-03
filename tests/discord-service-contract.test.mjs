@@ -70,3 +70,15 @@ test('probe verdicts require typed evidence for websocket and bounded downloads'
   assert.match(runSource, /bounded_download/);
   assert.match(runSource, /probe_bytes|bodyBytes/);
 });
+
+test('candidate runner accepts trusted catalog ids while rejecting path-like ids', () => {
+  const runner = readFileSync(runnerSourcePath, 'utf8');
+  assert.match(runner, /''\|\.\|\.\./);
+  assert.match(runner, /\*\[!A-Za-z0-9\._-\]\*/);
+  for (const id of ['combo-recommended', 'flowseal-alt11-combo', 'combo-wssize']) {
+    assert.doesNotMatch(id, /[^A-Za-z0-9._-]/);
+  }
+  for (const id of ['../escape', 'combo/rejected', 'combo rejected']) {
+    assert.match(id, /[^A-Za-z0-9._-]/);
+  }
+});

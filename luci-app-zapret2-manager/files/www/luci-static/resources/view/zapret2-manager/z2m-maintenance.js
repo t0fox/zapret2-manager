@@ -1,4 +1,5 @@
 'use strict';
+'require baseclass';
 
 var SCOPES = ['engineConfig', 'ourState', 'lists', 'profiles'];
 var state = { preview: null, busy: false };
@@ -202,7 +203,7 @@ function render(ctx) {
 }
 function mount() {}
 function unmount() {}
-return {
+return baseclass.extend({
   id: 'maintenance',
   title: _('Обслуживание'),
   subtitle: _('Backups, versions, events и diagnostics'),
@@ -210,4 +211,4 @@ return {
   render: render,
   mount: mount,
   unmount: unmount
-};
+});
