@@ -23,6 +23,7 @@ test('overview uses real data, exposes overrides and controls advanced mode', ()
   assert.match(src, /ui:\s*Object\.assign\([^\n]*advanced/);
   assert.match(src, /type:\s*['"]checkbox['"]/);
   assert.match(src, /value == null \? '—'/);
+  assert.match(src, /preview\.overrides\s*\?\s*asArray\(preview\.overrides\.rules\)\s*:\s*\[\]/);
   assert.doesNotMatch(src, /metric\([^\n]+\|\| 0/);
 });
 
