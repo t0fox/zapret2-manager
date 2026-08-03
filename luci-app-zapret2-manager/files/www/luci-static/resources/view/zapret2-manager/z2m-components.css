@@ -3,6 +3,8 @@
 .z2m-app-placeholder,.z2m-redirect{padding:28px;color:var(--tx2)}
 .z2m-active-name{font-size:22px;font-weight:650;margin:3px 0 5px}
 .z2m-table-wrap{overflow-x:auto}
+.z2m-tabs{scrollbar-width:none}
+.z2m-tabs::-webkit-scrollbar{display:none}
 .z2m-fieldline{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:9px 0}
 .z2m-fieldline>input,.z2m-fieldline>select{flex:1 1 220px}
 .z2m-page-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;flex-wrap:wrap}
