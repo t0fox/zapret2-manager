@@ -1,5 +1,6 @@
 // rpc.js wire-semantics for the single-view architecture. z2m-api.js is the
-// only rpc.declare owner; tab modules consume its grouped facade.
+// only rpc.declare owner among the app and z2m-* modules; retired standalone
+// pages are tested separately until their compatibility cleanup is complete.
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -49,8 +50,9 @@ test('frozen RPC contract and grouped facade remain complete', () => {
   assert.deepEqual(collectFacadeMethods(), [...new Set(Object.values(expected).flat())].sort());
 });
 
-test('z2m-api is the only rpc.declare owner in the shipped frontend', () => {
-  const owners = readdirSync(root).filter((file) => file.endsWith('.js') && /rpc\.declare\s*\(/.test(readFileSync(`${root}/${file}`, 'utf8'))).sort();
+test('z2m-api is the only rpc.declare owner in the single-view module graph', () => {
+  const files = readdirSync(root).filter((file) => file === 'app.js' || file.startsWith('z2m-'));
+  const owners = files.filter((file) => file.endsWith('.js') && /rpc\.declare\s*\(/.test(readFileSync(`${root}/${file}`, 'utf8'))).sort();
   assert.deepEqual(owners, ['z2m-api.js']);
 });
 
