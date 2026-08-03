@@ -131,6 +131,10 @@ const aclRead = acl.read.ubus['zapret2-manager'];
 const aclWrite = acl.write.ubus['zapret2-manager'];
 assert.ok(!aclRead.includes('orchestra_restore_previous'));
 assert.ok(aclWrite.includes('orchestra_restore_previous'));
+for (const method of ['discord_profile_rollback', 'discord_profile_restore_previous']) {
+	assert.ok(!aclRead.includes(method));
+	assert.ok(aclWrite.includes(method));
+}
 console.log('ok 16 - restore_previous is write-only in shipped ACL');
 
 // 17: the public Apply entrypoint cannot consume the CLI-only failure hook

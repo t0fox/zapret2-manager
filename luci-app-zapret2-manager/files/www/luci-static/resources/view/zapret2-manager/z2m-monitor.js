@@ -1,4 +1,5 @@
 'use strict';
+'require baseclass';
 
 var POLL_MS = 5000;
 var state = { pane: 'connections', timer: null, inflight: false, lastGood: null, eventsUnsupported: false };
@@ -126,7 +127,7 @@ function unmount() {
   state.timer = null;
   state.inflight = false;
 }
-return {
+return baseclass.extend({
   id: 'monitor',
   title: _('Мониторинг'),
   subtitle: _('Соединения, диагностика и журнал'),
@@ -134,4 +135,4 @@ return {
   render: render,
   mount: mount,
   unmount: unmount
-};
+});

@@ -11,7 +11,8 @@ let cachedQr = null;
 function loadQrModule() {
   if (cachedQr) return cachedQr;
   const source = readFileSync(QR_JS, 'utf8');
-  cachedQr = new Function('"use strict";\n' + source)();
+  const baseclass = { extend: (definition) => definition };
+  cachedQr = new Function('baseclass', '"use strict";\n' + source)(baseclass);
   if (!cachedQr || typeof cachedQr.matrix !== 'function' || typeof cachedQr.render !== 'function')
     throw new Error('z2m-qr.js did not export matrix/render');
   return cachedQr;

@@ -1,4 +1,5 @@
 'use strict';
+'require baseclass';
 
 function create(initial) {
   var state = Object.assign({
@@ -35,4 +36,4 @@ function create(initial) {
   };
 }
 
-return { create: create };
+return baseclass.extend({ create: create });

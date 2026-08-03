@@ -1,4 +1,5 @@
 'use strict';
+'require baseclass';
 
 var RS_M = [
   [1,26,16],
@@ -320,4 +321,4 @@ function render(text, size) {
   dark.setAttribute('d', path.join('')); dark.setAttribute('fill', '#000'); svg.appendChild(dark);
   return svg;
 }
-return { matrix: matrix, render: render };
+return baseclass.extend({ matrix: matrix, render: render });

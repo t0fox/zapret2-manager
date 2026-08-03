@@ -1,4 +1,5 @@
 'use strict';
+'require baseclass';
 
 var ACTIVE_PHASES = ['scanning','applying','verifying','recovering','rollback','rolling-back','cancellation-requested'];
 var TERMINAL_PHASES = ['disabled','waiting-network','healthy','degraded','cooldown','failed'];
@@ -186,11 +187,11 @@ function unmount() {
   state.pollInFlight = false;
 }
 
-return {
+return baseclass.extend({
   load: load,
   render: render,
   unmount: unmount,
   knownPhase: knownPhase,
   phaseKind: phaseKind,
   boundedText: boundedText
-};
+});

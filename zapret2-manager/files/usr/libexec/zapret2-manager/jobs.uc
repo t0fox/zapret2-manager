@@ -146,8 +146,10 @@ function crash_recover_all() {
 		if (!recs[i].parsed) continue;
 		let job = recs[i].record;
 		if (is_terminal(job.status)) continue;
-		if (proc_alive(job.runnerPid, 'blockcheck-run.sh')) continue;
-		if (proc_alive(job.childPid, 'blockcheck2.sh')) {
+		let runnerFingerprint = job.runnerFingerprint || (job.kind == 'healthmatrix' ? 'health-run.sh' : 'blockcheck-run.sh');
+		let childFingerprint = job.childFingerprint || 'blockcheck2.sh';
+		if (proc_alive(job.runnerPid, runnerFingerprint)) continue;
+		if (proc_alive(job.childPid, childFingerprint)) {
 			run('kill -INT -' + job.childPid + ' 2>/dev/null || kill -INT ' + job.childPid + ' 2>/dev/null');
 		}
 		let t = transition2(job, 'failed', { error: 'runner died (crash recovery)' });
@@ -742,7 +744,8 @@ export const health_matrix_get = function() {
 export const mark_running = function(id, runnerPid) {
 	let job = read_record(id);
 	if (job == null) return err('ESTATE', 'no job with id ' + id);
-	let t = transition2(job, 'running', { runnerPid: runnerPid, runnerFingerprint: 'blockcheck-run.sh' });
+	let fingerprint = job.kind == 'healthmatrix' ? 'health-run.sh' : 'blockcheck-run.sh';
+	let t = transition2(job, 'running', { runnerPid: runnerPid, runnerFingerprint: fingerprint });
 	if (t == null) return err('ESTATE', 'invalid transition to running');
 	write_record(t);
 	return { ok: true };

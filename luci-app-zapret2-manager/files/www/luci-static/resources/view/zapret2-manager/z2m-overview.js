@@ -1,4 +1,5 @@
 'use strict';
+'require baseclass';
 
 var runtime = { timer: null, runId: null, target: '', overrideStrategyId: null };
 
@@ -297,7 +298,7 @@ function unmount() {
   runtime.runId = null;
 }
 
-return {
+return baseclass.extend({
   id: 'overview', title: _('Обзор'), subtitle: _('Состояние обхода блокировок на этом роутере'),
   load: load, render: render, mount: mount, unmount: unmount
-};
+});

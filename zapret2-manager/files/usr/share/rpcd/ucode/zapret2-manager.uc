@@ -79,6 +79,14 @@ function passthrough_method(req) {
 
 // ---- lists methods (ЦЕЛЬ ДВА — ui/07-lists-page) ---------------------------
 const LISTS_CLI = '/usr/libexec/zapret2-manager/lists-cli.uc';
+function shell_escape(value) {
+	let s = '' + (value == null ? '' : value), out = "'";
+	for (let i = 0; i < length(s); i++) {
+		let c = substr(s, i, 1);
+		out += c == "'" ? "'\\''" : c;
+	}
+	return out + "'";
+}
 function lists_action(sub) {
 	let cmd = '/usr/bin/ucode ' + LISTS_CLI + ' ' + sub + ' 2>/dev/null';
 	let p = popen(cmd, 'r');
@@ -99,7 +107,7 @@ function lists_check_domain_method(req) {
 	try { if (req && req.args && req.args.domain != null) d = req.args.domain; } catch (e) { }
 	if (d == null) { try { if (req && req.domain != null) d = req.domain; } catch (e) { } }
 	if (d == null) return { ok: false, error: 'missing domain param' };
-	return lists_action('check ' + d);
+	return lists_action('check ' + shell_escape(d));
 }
 // lists_set: the frontend sends `edit` as a JSON STRING (rpcd params are
 // strings). We check it IS a string, write it VERBATIM to a temp file (NO

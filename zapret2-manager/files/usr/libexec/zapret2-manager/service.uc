@@ -387,10 +387,13 @@ function rollback(force) {
 				return { ok: true, action: 'rollback', skipped: true,
 					reason: 'marker expiry in the future (a newer action re-armed it)' };
 		}
-		if (stat(LASTGOOD_DIR + '/' + basename(PATHS.applied_conf)))
-			run('cp -f ' + LASTGOOD_DIR + '/' + basename(PATHS.applied_conf) + ' ' + PATHS.applied_conf);
-		if (stat(LASTGOOD_DIR + '/' + basename(PATHS.uci_conf)))
-			run('cp -f ' + LASTGOOD_DIR + '/' + basename(PATHS.uci_conf) + ' ' + PATHS.uci_conf);
+		let configSnapshot = LASTGOOD_DIR + '/' + basename(PATHS.applied_conf);
+		let uciSnapshot = LASTGOOD_DIR + '/' + basename(PATHS.uci_conf);
+		if (!stat(configSnapshot) || !stat(uciSnapshot))
+			return { ok: false, action: 'rollback', code: 'ENOLASTGOOD',
+				error: 'no last-good snapshot' };
+		run('cp -f ' + configSnapshot + ' ' + PATHS.applied_conf);
+		run('cp -f ' + uciSnapshot + ' ' + PATHS.uci_conf);
 		try { unlink(PENDING); } catch (e) { }
 		// Re-capture the applied hash for the RESTORED config so drift does not
 		// false-positive against the pre-rollback (changed) baseline.

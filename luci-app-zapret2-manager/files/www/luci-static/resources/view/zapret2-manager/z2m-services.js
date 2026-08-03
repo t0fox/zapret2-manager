@@ -1,4 +1,5 @@
 'use strict';
+'require baseclass';
 
 var state = {
   query: '', filter: 'all', enabled: null, dnsSelections: null,
@@ -265,7 +266,7 @@ function render(ctx) {
 }
 function mount() {}
 function unmount() { state.runBusy = false; }
-return {
+return baseclass.extend({
   id: 'services', title: _('Сервисы'), subtitle: _('Обход и DNS-профиль для каждого сервиса'),
   load: load, render: render, mount: mount, unmount: unmount
-};
+});
