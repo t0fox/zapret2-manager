@@ -27,6 +27,13 @@ LegacyLists.render = function (envelope) {
 	var lists = data.lists || {};
 	var conflicts = data.conflicts || [];
 	var header = root.querySelector('.z2m-page-header');
+	if (header) {
+		var heading = header.querySelector('h2');
+		var description = header.querySelector('p');
+		if (heading) heading.textContent = _('Списки');
+		if (description) description.textContent = _('Домены, IP-адреса и системные списки маршрутизации.');
+	}
+
 	var hero = E('section', { 'class': 'z2m-hero z2m-lists-hero' }, [
 		E('div', { 'class': 'z2m-hero-icon', 'aria-hidden': 'true' }, '↕'),
 		E('div', { 'class': 'z2m-hero-body' }, [
