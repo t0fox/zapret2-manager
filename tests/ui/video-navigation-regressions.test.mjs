@@ -15,6 +15,16 @@ test('visited tabs preserve visible data while a single background refresh runs'
   assert.match(app, /Показано последнее успешное состояние/);
 });
 
+test('successful refresh unmounts the old module before rendering timer-owning replacement state', () => {
+  const match = app.match(/function\s+renderTabData\s*\([^)]*\)\s*\{([\s\S]*?)\n\s*}\n\s*function\s+navigateTo/);
+  assert.ok(match, 'renderTabData() must exist');
+  const unmountAt = match[1].indexOf('activeModule.unmount(activeContext)');
+  const renderAt = match[1].indexOf('module.render(ctx)');
+  assert.ok(unmountAt >= 0, 'old mounted module is unmounted');
+  assert.ok(renderAt >= 0, 'replacement module is rendered');
+  assert.ok(unmountAt < renderAt, 'unmount must happen before replacement render schedules timers');
+});
+
 test('same-tab navigation and draft cancellation do not reload the document', () => {
   assert.match(app, /if\s*\(activeModule\s*===\s*MODULES\[tab\]\s*&&\s*activeContext\)\s*return\s+Promise\.resolve\(\)/);
   assert.doesNotMatch(app, /window\.location\.reload\s*\(/);
