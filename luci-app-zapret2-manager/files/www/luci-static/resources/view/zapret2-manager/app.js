@@ -17,6 +17,14 @@ var TAB_LABELS = {
   overview: _('Обзор'), strategy: _('Стратегия'), services: _('Сервисы'), lists: _('Списки'),
   dns: _('DNS'), proxy: _('Telegram Proxy'), monitor: _('Мониторинг'), maintenance: _('Обслуживание')
 };
+var DRAFT_TAB = {
+  strategy: 'strategy', services: 'services', lists: 'lists', dns: 'dns',
+  proxy: 'proxy', monitor: 'monitor', maintenance: 'maintenance'
+};
+var DRAFT_LABEL = {
+  strategy: _('Стратегия'), services: _('Сервисы'), lists: _('Списки'), dns: _('DNS'),
+  proxy: _('Telegram Proxy'), monitor: _('Мониторинг'), maintenance: _('Обслуживание')
+};
 var MODULES = {
   overview: Overview, strategy: Strategy, services: Services, lists: Lists,
   dns: Dns, proxy: Proxy, monitor: Monitor, maintenance: Maintenance
@@ -26,6 +34,8 @@ var hashHandler = null;
 var activeModule = null;
 var activeContext = null;
 var activationToken = 0;
+var storeUnsubscribe = null;
+var confirmationTimer = null;
 
 function tabFromHash() {
   var match = String(window.location.hash || '').match(/^#\/(overview|strategy|services|lists|dns|proxy|monitor|maintenance)$/);
@@ -61,6 +71,14 @@ function statusState(initial) {
   if (state === 'stopped') return { label: _('остановлена'), kind: 'r' };
   return { label: state || _('неизвестно'), kind: 'o' };
 }
+function draftScopes() { return Object.keys(store.get().draft || {}); }
+function draftTab(scope) { return DRAFT_TAB[scope] || store.get().ui.tab || 'overview'; }
+function draftLabel(scope) { return DRAFT_LABEL[scope] || scope; }
+function redactedDraft(value) {
+  return JSON.stringify(value, function (key, item) {
+    return /secret|token|password/i.test(key) ? '••••••••' : item;
+  }, 2);
+}
 
 return L.view.extend({
   load: function () {
@@ -74,8 +92,27 @@ return L.view.extend({
     var content = E('main', { 'class': 'z2m-content', id: 'z2m-content' });
     var tabs = E('nav', { 'class': 'z2m-tabs', id: 'z2m-tabs', 'aria-label': _('Разделы Zapret 2 Manager') });
     var applyBar = Shell.renderApplyBar(store);
+    var confirmBar = Shell.renderConfirmBar();
     var appRoot = null;
 
+    function setConfirmation(response) {
+      if (!response || response.rollback_ttl == null) return false;
+      var ttl = Number(response.rollback_ttl);
+      if (!isFinite(ttl) || ttl <= 0) return false;
+      var snapshot = store.get();
+      store.update({
+        pending: Object.assign({}, snapshot.pending, {
+          confirmation: { deadline: Date.now() + ttl * 1000, rollback_ttl: ttl }
+        })
+      });
+      return true;
+    }
+    function clearConfirmation() {
+      var snapshot = store.get();
+      var pending = Object.assign({}, snapshot.pending);
+      delete pending.confirmation;
+      store.update({ pending: pending });
+    }
     function context(tab, module, data, node) {
       return {
         api: Api,
@@ -87,7 +124,8 @@ return L.view.extend({
         navigate: function (next) { return navigateTo(next); },
         refresh: function (next) { return activate(next || tab, true); },
         setDraft: function (scope, value) { store.setDraft(scope, value); },
-        clearDraft: function (scope) { store.clearDraft(scope); }
+        clearDraft: function (scope) { store.clearDraft(scope); },
+        setConfirmation: setConfirmation
       };
     }
     function navigateTo(tab) {
@@ -107,10 +145,10 @@ return L.view.extend({
       activeModule = module;
       activeContext = null;
       store.update({ ui: Object.assign({}, store.get().ui, { tab: tab }) });
-      Array.from(tabs.querySelectorAll('button[data-tab]')).forEach(function (button) {
-        var selected = button.getAttribute('data-tab') === tab;
-        button.classList.toggle('on', selected);
-        button.setAttribute('aria-selected', selected ? 'true' : 'false');
+      Array.from(tabs.querySelectorAll('button[data-tab]')).forEach(function (tabButton) {
+        var selected = tabButton.getAttribute('data-tab') === tab;
+        tabButton.classList.toggle('on', selected);
+        tabButton.setAttribute('aria-selected', selected ? 'true' : 'false');
       });
       content.replaceChildren(E('div', { 'class': 'z2m-app-placeholder' }, _('Загрузка данных…')));
       return Promise.resolve(module.load(context(tab, module))).then(function (data) {
@@ -128,6 +166,77 @@ return L.view.extend({
         activeContext = null;
         content.replaceChildren(E('div', { 'class': 'warnbar' }, Api.normalizeError(error).message));
       });
+    }
+    function updateApplyBar() {
+      var scopes = draftScopes();
+      var confirmation = store.get().pending && store.get().pending.confirmation;
+      applyBar.classList.toggle('hidden', !scopes.length || !!confirmation);
+      var text = applyBar.querySelector('#z2m-apply-text');
+      if (text && scopes.length) {
+        text.textContent = scopes.length + ' ' + (scopes.length === 1 ? _('изменение') : _('изменения')) + ': ' +
+          scopes.map(draftLabel).join(', ') + '. ' + _('На работу роутера пока не влияет.');
+      }
+    }
+    function updateConfirmBar() {
+      var confirmation = store.get().pending && store.get().pending.confirmation;
+      if (confirmationTimer) {
+        window.clearInterval(confirmationTimer);
+        confirmationTimer = null;
+      }
+      if (!confirmation) {
+        confirmBar.classList.add('hidden');
+        updateApplyBar();
+        return;
+      }
+      confirmBar.classList.remove('hidden');
+      applyBar.classList.add('hidden');
+      var text = confirmBar.querySelector('#z2m-confirm-text');
+      function tick() {
+        var current = store.get().pending && store.get().pending.confirmation;
+        if (!current) return;
+        var remaining = Math.max(0, Math.ceil((current.deadline - Date.now()) / 1000));
+        if (text) text.textContent = _('Проверьте связь. Автооткат через ') + remaining + _(' с.');
+        if (remaining <= 0) {
+          window.clearInterval(confirmationTimer);
+          confirmationTimer = null;
+          clearConfirmation();
+          Shell.showToast(_('Срок подтверждения истёк; backend должен выполнить автооткат.'), 'warn');
+          if (activeContext) activate(store.get().ui.tab, true);
+        }
+      }
+      tick();
+      confirmationTimer = window.setInterval(tick, 1000);
+    }
+    function renderBars() {
+      updateApplyBar();
+      updateConfirmBar();
+    }
+    function previewDrafts() {
+      var draft = store.get().draft || {};
+      var scopes = Object.keys(draft);
+      var body = E('div', {}, scopes.map(function (scope) {
+        return E('section', { 'class': 'z2m-draft-preview' }, [
+          E('h4', {}, draftLabel(scope)),
+          E('pre', { 'class': 'z2m-diff' }, redactedDraft(draft[scope]))
+        ]);
+      }));
+      Shell.openModal(_('Что именно изменится'), body);
+    }
+    function discardDrafts() {
+      Shell.openModal(
+        _('Отменить все изменения?'),
+        E('p', {}, _('Черновики существуют только в браузере. Backend и runtime изменены не будут.')),
+        [
+          Shell.button(_('Не отменять'), '', Shell.closeModal),
+          Shell.button(_('Отменить черновики'), 'danger', function () {
+            Shell.closeModal();
+            store.clearAllDrafts();
+            var snapshot = store.get();
+            store.update({ pending: Object.assign({}, snapshot.pending, { pendingStrategyId: null, pendingOverride: null }) });
+            window.location.reload();
+          })
+        ]
+      );
     }
 
     TAB_IDS.forEach(function (tab) {
@@ -160,12 +269,46 @@ return L.view.extend({
       ])),
       E('div', { 'class': 'z2m-wrap' }, [tabs, content]),
       applyBar,
+      confirmBar,
       E('div', { id: 'z2m-modal', 'class': 'z2m-scrim' }),
       E('div', { id: 'z2m-toasts', 'class': 'z2m-toasts' })
     ]);
-    store.subscribe(function () {
-      applyBar.classList.toggle('hidden', !store.hasDraft());
+
+    applyBar.querySelector('#z2m-discard-drafts').addEventListener('click', discardDrafts);
+    applyBar.querySelector('#z2m-preview-drafts').addEventListener('click', previewDrafts);
+    applyBar.querySelector('#z2m-open-drafts').addEventListener('click', function () {
+      var scopes = draftScopes();
+      if (scopes.length) navigateTo(draftTab(scopes[0]));
     });
+    confirmBar.querySelector('#z2m-confirm-alive').addEventListener('click', function () {
+      var keep = confirmBar.querySelector('#z2m-confirm-alive');
+      var rollback = confirmBar.querySelector('#z2m-rollback-now');
+      keep.disabled = true; rollback.disabled = true;
+      Api.strategy.confirmAlive().then(function () {
+        clearConfirmation();
+        Shell.showToast(_('Изменения подтверждены.'), 'ok');
+      }).catch(function (error) {
+        keep.disabled = false; rollback.disabled = false;
+        Shell.showToast(Api.normalizeError(error).message, 'err');
+      });
+    });
+    confirmBar.querySelector('#z2m-rollback-now').addEventListener('click', function () {
+      var keep = confirmBar.querySelector('#z2m-confirm-alive');
+      var rollback = confirmBar.querySelector('#z2m-rollback-now');
+      keep.disabled = true; rollback.disabled = true;
+      Api.strategy.rollbackManager().then(function () {
+        clearConfirmation();
+        Shell.showToast(_('Выполнен откат к last-good.'), 'ok');
+        return activate(store.get().ui.tab, true);
+      }).catch(function (error) {
+        keep.disabled = false; rollback.disabled = false;
+        Shell.showToast(Api.normalizeError(error).message, 'err');
+      });
+    });
+
+    if (storeUnsubscribe) storeUnsubscribe();
+    storeUnsubscribe = store.subscribe(renderBars);
+    renderBars();
     Promise.resolve().then(function () { activate(active); });
     return appRoot;
   },
