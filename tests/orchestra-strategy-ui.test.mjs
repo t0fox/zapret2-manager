@@ -24,7 +24,8 @@ test('single-view strategy UI wires explicit global apply and bounded targeted r
   assert.match(strategy, /ctx\.setDraft\(['"]strategy['"]/);
   assert.match(strategy, /ctx\.api\.strategy\.apply/);
   assert.match(strategy, /ctx\.api\.strategy\.rollback/);
-  assert.match(strategy, /targetType:\s*['"]domain['"]/);
+  assert.match(strategy, /targetType:\s*domain\s*\?\s*['"]domain['"]\s*:\s*['"]corpus['"]/);
+  assert.match(strategy, /if\s*\(domain\)\s*payload\.domain\s*=\s*domain/);
   assert.match(strategy, /totalTimeoutSec:\s*all\s*\?\s*600\s*:\s*90/);
   assert.match(strategy, /Применить/);
   assert.match(strategy, /Проверить ресурс/);
