@@ -5,10 +5,12 @@ import { collectUiContract } from '../../tools/ui-rpc-contract.mjs';
 
 const root = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager';
 const expectedRpc = JSON.parse(readFileSync('tests/fixtures/ui-rpc-contract.json', 'utf8'));
+const shellCss = readFileSync(`${root}/z2m-shell.css`, 'utf8');
 const css = [
   readFileSync(`${root}/z2m-ui.css`, 'utf8'),
   readFileSync(`${root}/z2m-ui-core.css`, 'utf8'),
-  readFileSync(`${root}/z2m-orchestra.css`, 'utf8')
+  readFileSync(`${root}/z2m-orchestra.css`, 'utf8'),
+  shellCss
 ].join('\n');
 const menu = JSON.parse(readFileSync('luci-app-zapret2-manager/files/usr/share/luci/menu.d/luci-app-zapret2-manager.json', 'utf8'));
 
@@ -26,6 +28,7 @@ test('shared design system exposes approved tokens and primitives', () => {
     '.z2m-button-danger', '.z2m-table', '.z2m-field', '.z2m-switch',
     '.z2m-progress', '.z2m-console', '.z2m-empty-state', '.z2m-sticky-actions'
   ]) assert.match(css, new RegExp(cls.replace('.', '\\.')));
+  assert.match(shellCss, /background:\s*var\(--z2m-canvas/);
 });
 
 test('navigation keeps seven product pages and hides advanced Orchestra', () => {
@@ -93,6 +96,8 @@ test('obsolete standalone UI artifacts are not shipped', () => {
   assert.equal(existsSync(`${root}/combo-presets.js`), false);
   assert.equal(existsSync(`${root}/orchestra-strategy.css`), false);
   assert.equal(existsSync('tests/ui/combo-presets.test.mjs'), false);
-  assert.match(readFileSync(`${root}/z2m-ui.css`, 'utf8'), /z2m-orchestra\.css/);
+  const imports = readFileSync(`${root}/z2m-ui.css`, 'utf8');
+  assert.match(imports, /z2m-orchestra\.css/);
+  assert.match(imports, /z2m-shell\.css/);
   assert.equal(Object.values(menu).some((entry) => entry.action && /combo-presets/.test(entry.action.path || '')), false);
 });
