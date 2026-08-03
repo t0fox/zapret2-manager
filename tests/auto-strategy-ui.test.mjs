@@ -5,25 +5,25 @@ import { evaluateLuciModule } from '../tools/luci-module-smoke.mjs';
 
 const root = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager';
 const autoPath = `${root}/z2m-auto.js`;
-const strategyPath = `${root}/z2m-strategy.js`;
+const strategyPagePath = `${root}/z2m-strategy-page.js`;
 const apiPath = `${root}/z2m-api.js`;
 const RPC = readFileSync('zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc', 'utf8');
 const ACL = JSON.parse(readFileSync('luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json', 'utf8'))['zapret2-manager'];
 
-test('Auto Strategy is a valid helper module mounted inside Strategy', () => {
+test('Auto Strategy is a valid helper module mounted inside the composed Strategy page', () => {
   assert.equal(existsSync(autoPath), true);
   const mod = evaluateLuciModule(autoPath);
   for (const method of ['load','render','unmount']) assert.equal(typeof mod[method], 'function');
-  const strategy = readFileSync(strategyPath, 'utf8');
-  assert.match(strategy, /z2m-auto as Auto/);
-  assert.match(strategy, /Auto\.load\(ctx\)/);
-  assert.match(strategy, /Auto\.render\(ctx/);
-  assert.match(strategy, /Auto\.unmount\(\)/);
+  const strategyPage = readFileSync(strategyPagePath, 'utf8');
+  assert.match(strategyPage, /z2m-auto as Auto/);
+  assert.match(strategyPage, /Auto\.load\(ctx\)/);
+  assert.match(strategyPage, /Auto\.render\(ctx/);
+  assert.match(strategyPage, /Auto\.unmount\(\)/);
 });
 
 test('Auto Strategy load is read-only and mutations are explicit', () => {
   const src = readFileSync(autoPath, 'utf8');
-  const load = src.slice(src.indexOf('function load('), src.indexOf('function render('));
+  const load = src.slice(src.indexOf('function load('), src.indexOf('function shouldPoll('));
   assert.match(load, /api\.orchestra\.autoStatus/);
   assert.doesNotMatch(load, /autoEnable|autoDisable|autoRun|autoStop|autoRestore/);
   for (const token of ['api.orchestra.autoEnable','api.orchestra.autoDisable','api.orchestra.autoRun','api.orchestra.autoStop','api.orchestra.autoRestore'])
