@@ -27,3 +27,47 @@ test('single API facade preserves the frozen RPC contract', () => {
   const flattened = [...new Set(Object.values(expected).flat())].sort();
   assert.deepEqual(collectFacadeMethods(), flattened);
 });
+
+const menuPath = 'luci-app-zapret2-manager/files/usr/share/luci/menu.d/luci-app-zapret2-manager.json';
+const redirectMap = {
+  'orchestra-strategy.js': 'overview',
+  'orchestra.js': 'strategy',
+  'strategies.js': 'strategy',
+  'lists.js': 'lists',
+  'dns.js': 'dns',
+  'service-dns.js': 'dns',
+  'proxy.js': 'proxy',
+  'monitor.js': 'monitor',
+  'maintenance.js': 'maintenance'
+};
+
+test('reference shell exposes eight hash tabs and exact visual tokens', () => {
+  const app = readFileSync(`${root}/app.js`, 'utf8');
+  const css = readFileSync(`${root}/z2m-ui.css`, 'utf8');
+  for (const id of ['overview','strategy','services','lists','dns','proxy','monitor','maintenance'])
+    assert.match(app, new RegExp(`['"]${id}['"]`));
+  for (const token of ['#17181a','#1f2124','#25282c','#2c3035','#4b9fd5','#5cb98b','#e0a33b','#e2695a'])
+    assert.match(css.toLowerCase(), new RegExp(token));
+  for (const selector of ['.z2m-apptop','.z2m-tabs','.z2m-applybar','.z2m-modal','.z2m-toasts'])
+    assert.match(css, new RegExp(selector.replace('.', '\\.')));
+  assert.doesNotMatch(css, /@import/);
+});
+
+test('menu exposes one app entry and hidden compatibility routes', () => {
+  const menu = JSON.parse(readFileSync(menuPath, 'utf8'));
+  assert.equal(menu['admin/services/zapret2-manager'].action.path, 'zapret2-manager/app');
+  assert.equal(Object.values(menu).filter((entry) => entry.hidden !== true && entry.action).length, 1);
+  for (const entry of Object.values(menu).filter((item) => item.hidden === true))
+    assert.deepEqual(entry.depends.acl, ['zapret2-manager']);
+});
+
+test('compatibility routes are standalone valid redirect views', () => {
+  for (const [file, tab] of Object.entries(redirectMap)) {
+    const source = readFileSync(`${root}/${file}`, 'utf8');
+    const exported = evaluateLuciModule(`${root}/${file}`);
+    assert.equal(typeof exported.load, 'function');
+    assert.match(source, /window\.location\.replace/);
+    assert.match(source, new RegExp(`#/${tab}`));
+    assert.doesNotMatch(source, /return\s+Legacy/);
+  }
+});
