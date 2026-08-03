@@ -37,7 +37,7 @@ test('success feedback uses the typed success path', () => {
 
 test('DNS rollback availability is snapshot-backed and enforced in UI', () => {
   assert.match(dns, /rollbackAvailable: dns_snapshot_available\(\)/);
-  assert.match(ui, /dns\.rollbackAvailable\s*===\s*true/);
+  assert.match(ui, /dns\.rollbackAvailable\s*!==\s*true/);
   assert.match(ui, /Откатить DNS/);
 });
 
