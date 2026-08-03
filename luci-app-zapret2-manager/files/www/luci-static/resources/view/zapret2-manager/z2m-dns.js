@@ -1,4 +1,5 @@
 'use strict';
+'require baseclass';
 
 var PANES = [
   ['setup', _('DNS Setup')], ['check', _('Check & Choose')], ['access', _('Service Access')],
@@ -447,4 +448,4 @@ function unmount() {
   state.serviceOperationTimer = null;
   state.serviceOperationInFlight = false;
 }
-return { id: 'dns', title: _('DNS'), subtitle: _('DNS setup, provider checks и Service Access'), load: load, render: render, mount: mount, unmount: unmount };
+return baseclass.extend({ id: 'dns', title: _('DNS'), subtitle: _('DNS setup, provider checks и Service Access'), load: load, render: render, mount: mount, unmount: unmount });

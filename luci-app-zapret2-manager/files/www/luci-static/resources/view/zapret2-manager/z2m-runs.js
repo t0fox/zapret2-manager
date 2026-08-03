@@ -1,4 +1,5 @@
 'use strict';
+'require baseclass';
 
 var TERMINAL_PHASES = [
   'completed','applied','rolled-back','restored','timeout','timed-out','partial',
@@ -424,11 +425,11 @@ function unmount() {
   state.root = null;
 }
 
-return {
+return baseclass.extend({
   load: load,
   render: render,
   unmount: unmount,
   normalizeRunResponse: normalizeRunResponse,
   terminalRun: terminalRun,
   candidateJournal: candidateJournal
-};
+});

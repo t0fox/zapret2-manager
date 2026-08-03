@@ -1,4 +1,5 @@
 'use strict';
+'require baseclass';
 'require view.zapret2-manager.z2m-qr as Qr';
 
 var state = { busy: false, preview: null, health: null, logs: null };
@@ -399,7 +400,7 @@ function render(ctx) {
 function mount() {}
 function unmount() {}
 
-return {
+return baseclass.extend({
   id: 'proxy',
   title: _('Telegram Proxy'),
   subtitle: _('Ссылка, QR, настройки и lifecycle'),
@@ -407,4 +408,4 @@ return {
   render: render,
   mount: mount,
   unmount: unmount
-};
+});

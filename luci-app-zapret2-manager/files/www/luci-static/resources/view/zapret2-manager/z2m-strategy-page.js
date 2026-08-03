@@ -1,4 +1,5 @@
 'use strict';
+'require baseclass';
 'require view.zapret2-manager.z2m-strategy as Strategy';
 'require view.zapret2-manager.z2m-auto as Auto';
 'require view.zapret2-manager.z2m-runs as Runs';
@@ -39,7 +40,7 @@ function unmount(ctx) {
   Runs.unmount();
 }
 
-return {
+return baseclass.extend({
   id: 'strategy',
   title: _('Стратегия'),
   subtitle: _('Выбор, автоматический подбор и проверка способа обхода DPI'),
@@ -47,4 +48,4 @@ return {
   render: render,
   mount: mount,
   unmount: unmount
-};
+});

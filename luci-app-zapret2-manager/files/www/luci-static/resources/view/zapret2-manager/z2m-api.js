@@ -1,4 +1,5 @@
 'use strict';
+'require baseclass';
 'require rpc';
 
 var calls = {
@@ -108,7 +109,7 @@ function normalizeError(error) {
   };
 }
 
-return {
+return baseclass.extend({
   normalizeError: normalizeError,
   all: calls,
   service: { status: calls.status, start: calls.start, stop: calls.stop },
@@ -214,4 +215,4 @@ return {
     eventsTail: calls.eventsTail,
     diagnosticsExport: calls.diagnosticsExport
   }
-};
+});
