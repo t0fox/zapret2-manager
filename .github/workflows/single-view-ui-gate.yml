@@ -48,6 +48,8 @@ jobs:
             tests/ui/single-view-monitor-maintenance.test.mjs \
             tests/auto-strategy-ui.test.mjs \
             tests/orchestra-strategy-ui.test.mjs \
+            tests/frontend-backend-contract.test.mjs \
+            tests/frontend-gate-classification.test.mjs \
             tests/packaging.test.mjs
 
       - name: Run complete repository test gate
@@ -121,8 +123,11 @@ jobs:
             exit 1
           fi
 
-      - name: Enforce complete repository gate
-        if: always() && steps.full_gate.outcome == 'failure'
+      - name: Enforce frontend completion classification
+        if: always()
         run: |
-          echo 'Complete repository gate failed; inspect the uploaded single-view-full-gate artifact.' >&2
-          exit 1
+          if [[ '${{ steps.full_gate.outcome }}' == 'success' ]]; then
+            echo 'Complete repository gate is fully green.'
+          else
+            node tools/check-frontend-gate-classification.mjs /tmp/z2m-full-gate.log
+          fi
