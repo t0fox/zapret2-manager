@@ -42,19 +42,12 @@ test('gate 1: one app entry owns eight internal tabs', () => {
   }
 });
 
-test('gate 2: menu exposes one app route and hidden compatibility routes', () => {
+test('gate 2: menu publishes only the single app route', () => {
   const menu = readMenu();
-  const visible = Object.entries(menu).filter(([, entry]) => entry.action && entry.hidden !== true);
-  assert.equal(visible.length, 1);
-  assert.equal(visible[0][0], 'admin/services/zapret2-manager');
-  assert.equal(visible[0][1].action.path, 'zapret2-manager/app');
-  for (const file of Object.keys(REDIRECTS)) {
-    const leaf = file.replace(/\.js$/, '');
-    const entry = menu[`admin/services/zapret2-manager/${leaf}`];
-    assert.ok(entry, `${leaf} compatibility route missing`);
-    assert.equal(entry.hidden, true);
-    assert.equal(entry.action.path, `zapret2-manager/${leaf}`);
-  }
+  assert.deepEqual(Object.keys(menu), ['admin/services/zapret2-manager']);
+  const entry = menu['admin/services/zapret2-manager'];
+  assert.equal(entry.action.path, 'zapret2-manager/app');
+  assert.notEqual(entry.hidden, true);
 });
 
 test('gate 3: every menu ACL is an iterable array', () => {
