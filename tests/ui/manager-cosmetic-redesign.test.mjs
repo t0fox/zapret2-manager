@@ -69,3 +69,18 @@ test('Monitor and Maintenance use responsive shared presentation', () => {
   assert.match(readFileSync(`${root}/monitor.js`, 'utf8'), /buildContainer/);
   assert.match(readFileSync(`${root}/maintenance.js`, 'utf8'), /z2m-danger-zone/);
 });
+
+test('TG PROXY keeps existing actions and QR implementation behind a new shell', () => {
+  const proxy = readFileSync(`${root}/proxy.js`, 'utf8');
+  const legacy = readFileSync(`${root}/proxy-legacy.js`, 'utf8');
+  assert.match(proxy, /TG PROXY/);
+  assert.match(proxy, /z2m-proxy-hero/);
+  assert.match(proxy, /z2m-proxy-connection/);
+  assert.match(proxy, /z2m-proxy-advanced/);
+  assert.match(proxy, /callProxyStart/);
+  assert.match(proxy, /callProxyStop/);
+  assert.match(proxy, /callProxyLinkInfo/);
+  assert.match(proxy, /view\.zapret2-manager\.proxy-legacy/);
+  assert.match(legacy, /qrcode/);
+  assert.match(legacy, /doQRCode/);
+});
