@@ -42,19 +42,13 @@ test('gate 1: one app entry owns eight internal tabs', () => {
   }
 });
 
-test('gate 2: menu exposes one app route and hidden compatibility routes', () => {
+test('gate 2: menu publishes only the single application route', () => {
   const menu = readMenu();
-  const visible = Object.entries(menu).filter(([, entry]) => entry.action && entry.hidden !== true);
-  assert.equal(visible.length, 1);
-  assert.equal(visible[0][0], 'admin/services/zapret2-manager');
-  assert.equal(visible[0][1].action.path, 'zapret2-manager/app');
-  for (const file of Object.keys(REDIRECTS)) {
-    const leaf = file.replace(/\.js$/, '');
-    const entry = menu[`admin/services/zapret2-manager/${leaf}`];
-    assert.ok(entry, `${leaf} compatibility route missing`);
-    assert.equal(entry.hidden, true);
-    assert.equal(entry.action.path, `zapret2-manager/${leaf}`);
-  }
+  assert.deepEqual(Object.keys(menu), ['admin/services/zapret2-manager']);
+  assert.deepEqual(menu['admin/services/zapret2-manager'].action, {
+    type: 'view',
+    path: 'zapret2-manager/app'
+  });
 });
 
 test('gate 3: every menu ACL is an iterable array', () => {
@@ -95,15 +89,18 @@ test('gate 8: app and internal modules load under the LuCI smoke loader', () => 
   }
 });
 
-test('gate 9: compatibility files are valid redirect views, not legacy wrappers', () => {
+test('gate 9: compatibility files are valid redirect views but are not menu entries', () => {
+  const menu = readMenu();
   for (const [file, tab] of Object.entries(REDIRECTS)) {
     const src = source(file);
     const mod = evaluateLuciModule(join(root, file));
+    const leaf = file.replace(/\.js$/, '');
     assert.equal(typeof mod.load, 'function');
     assert.equal(typeof mod.render, 'function');
     assert.match(src, /window\.location\.replace/);
     assert.match(src, new RegExp(`#/${tab}`));
     assert.doesNotMatch(src, /-legacy|return\s+Legacy/);
+    assert.equal(menu[`admin/services/zapret2-manager/${leaf}`], undefined);
   }
 });
 
