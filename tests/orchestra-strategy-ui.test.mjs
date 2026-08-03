@@ -9,7 +9,7 @@ const uiPath = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/za
 const backendPath = 'zapret2-manager/files/usr/libexec/zapret2-manager/discord-profile-cli.uc';
 const menuPath = 'luci-app-zapret2-manager/files/usr/share/luci/menu.d/luci-app-zapret2-manager.json';
 
-test('strategy-first UI wires explicit apply, targeted runs, overrides and advanced route', () => {
+test('strategy-first UI wires explicit apply, targeted runs, overrides and advanced mode', () => {
   const ui = read(uiPath);
   assert.match(ui, /discord_profile_preview/);
   assert.match(ui, /discord_profile_apply/);
@@ -23,7 +23,11 @@ test('strategy-first UI wires explicit apply, targeted runs, overrides and advan
   assert.match(ui, /pendingStrategyId/);
   assert.match(ui, /Применить глобально/);
   assert.match(ui, /Применить только к ресурсу/);
-  assert.match(ui, /zapret2-manager\/orchestra/);
+  assert.match(ui, /z2m-page/);
+  assert.match(ui, /z2m-segmented/);
+  assert.match(ui, /Простой режим/);
+  assert.match(ui, /Расширенный режим/);
+  assert.match(ui, /zapret2-manager\/advanced/);
   assert.doesNotMatch(ui, /autoApply/);
 });
 
@@ -36,10 +40,25 @@ test('combo backend persists and applies override operations', () => {
   assert.match(backend, /mv -f/);
 });
 
-test('menu routes product root to new page and removes combo presets', () => {
+test('menu exposes seven product pages and keeps advanced Orchestra hidden', () => {
   const menu = JSON.parse(read(menuPath));
   assert.equal(menu['admin/services/zapret2-manager'].action.path, 'zapret2-manager/orchestra-strategy');
   assert.equal(menu['admin/services/zapret2-manager/orchestra'].action.path, 'zapret2-manager/orchestra-strategy');
   assert.ok(!menu['admin/services/zapret2-manager/combo-presets']);
-  assert.equal(menu['admin/services/zapret2-manager/advanced'].action.path, 'zapret2-manager/orchestra');
+
+  const advanced = menu['admin/services/zapret2-manager/advanced'];
+  assert.equal(advanced.action.path, 'zapret2-manager/orchestra');
+  assert.equal(advanced.hidden, true);
+
+  const visible = Object.values(menu).filter((entry) => entry.hidden !== true && entry.action);
+  assert.deepEqual(visible.map((entry) => entry.title), [
+    'Zapret 2 Manager',
+    'Orchestra',
+    'Профили',
+    'Списки',
+    'DNS',
+    'Мониторинг',
+    'TG PROXY',
+    'Обслуживание'
+  ]);
 });
