@@ -1,0 +1,22 @@
+/* Theme-independent app canvas: keeps the approved dark manager readable
+ * inside both light and dark LuCI themes without touching pages outside z2m. */
+.z2m-page {
+  background: var(--z2m-canvas, #191919);
+  border: 1px solid var(--z2m-border, rgba(255,255,255,.14));
+  border-radius: 14px;
+  box-shadow: 0 20px 48px rgba(0,0,0,.16);
+}
+
+.z2m-page input,
+.z2m-page select,
+.z2m-page textarea,
+.z2m-page button {
+  color-scheme: dark;
+}
+
+@media (max-width: 760px) {
+  .z2m-page {
+    border-radius: 10px;
+    box-shadow: none;
+  }
+}
