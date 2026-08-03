@@ -17,7 +17,9 @@ test('run controller is composed into the Strategy page', () => {
 
 test('external active run and history are discovered during read-only load', () => {
   const ui = fs.readFileSync(runsPath, 'utf8');
-  const load = ui.slice(ui.indexOf('function load('), ui.indexOf('\nfunction render('));
+  const start = ui.indexOf('function load(');
+  const end = ui.indexOf('\nfunction refreshHistory(', start);
+  const load = ui.slice(start, end);
   assert.match(load, /api\.orchestra\.runStatus/);
   assert.match(load, /api\.orchestra\.runHistory/);
   assert.doesNotMatch(load, /runStart|runContinue|runPause|runResume|runStop|applyBest/);
