@@ -38,13 +38,14 @@ def convert_helper(path: Path) -> None:
         source = source.replace(marker, marker + "'require baseclass';\n", 1)
 
     if "return baseclass.extend({" not in source:
-        marker = "\nreturn {"
-        offset = source.rfind(marker)
-        if offset < 0:
+        matches = list(re.finditer(r"\nreturn\s+\{", source))
+        if not matches:
             raise RuntimeError(f"{path}: final plain-object module return not found")
-        source = source[:offset] + "\nreturn baseclass.extend({" + source[offset + len(marker):]
 
-        source, replacements = re.subn(r"\n};\s*$", "\n});\n", source, count=1)
+        match = matches[-1]
+        source = source[: match.start()] + "\nreturn baseclass.extend({" + source[match.end() :]
+
+        source, replacements = re.subn(r"};\s*$", "});\n", source, count=1)
         if replacements != 1:
             raise RuntimeError(f"{path}: final module terminator not found")
 
