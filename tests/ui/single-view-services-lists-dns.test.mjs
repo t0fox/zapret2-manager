@@ -27,6 +27,20 @@ test('services tab preserves catalog preview/apply preconditions and local filte
   assert.doesNotMatch(src, /var\s+enabledIds\s*=\s*enabledIds\(/);
 });
 
+test('services tab starts bounded backend-owned service checks only after preflight', () => {
+  const src = source('z2m-services.js');
+  assert.match(src, /api\.orchestra\.probePreflight/);
+  assert.match(src, /api\.orchestra\.runStart/);
+  assert.match(src, /targetType:\s*['"]service['"]/);
+  assert.match(src, /candidateMode:\s*['"]zapret2gui-only['"]/);
+  assert.match(src, /candidateIds:\s*\[\]/);
+  assert.match(src, /maxCandidates:\s*4/);
+  assert.match(src, /maxAttempts:\s*12/);
+  assert.match(src, /totalTimeoutSec:\s*180/);
+  assert.match(src, /preflightReady/);
+  assert.match(src, /ctx\.navigate\(['"]strategy['"]\)/);
+});
+
 test('lists tab keeps exact list keys, domain check and conflict blocking', () => {
   const src = source('z2m-lists.js');
   for (const key of ['domainInclude','domainExclude','ipInclude','ipExclude','ipBlock','autohostlist'])
