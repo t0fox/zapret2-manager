@@ -51,10 +51,30 @@ jobs:
             tests/packaging.test.mjs
 
       - name: Run complete repository test gate
+        id: full_gate
+        continue-on-error: true
         shell: bash
         run: |
+          set -o pipefail
           chmod +x tools/run-all-tests.sh
-          tools/run-all-tests.sh
+          tools/run-all-tests.sh 2>&1 | tee /tmp/z2m-full-gate.log
+          status=${PIPESTATUS[0]}
+          {
+            grep -E '^[[:space:]]*FILE .*fail=[1-9][0-9]*|^[[:space:]]*FILE .* FAIL' /tmp/z2m-full-gate.log || true
+            grep -E '^SUBTOTAL |^TOTAL ' /tmp/z2m-full-gate.log || true
+          } > /tmp/z2m-full-gate-failures.txt
+          exit "$status"
+
+      - name: Upload complete gate diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: single-view-full-gate-${{ github.sha }}
+          path: |
+            /tmp/z2m-full-gate.log
+            /tmp/z2m-full-gate-failures.txt
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Check LuCI JavaScript syntax
         shell: bash
@@ -100,3 +120,9 @@ jobs:
             echo 'External UI asset detected' >&2
             exit 1
           fi
+
+      - name: Enforce complete repository gate
+        if: always() && steps.full_gate.outcome == 'failure'
+        run: |
+          echo 'Complete repository gate failed; inspect the uploaded single-view-full-gate artifact.' >&2
+          exit 1
