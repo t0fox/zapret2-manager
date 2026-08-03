@@ -74,9 +74,26 @@ function renderApplyBar(store) {
     id: 'z2m-applybar'
   }, E('div', { 'class': 'in' }, [
     E('span', { 'class': 'z2m-chip o' }, _('Черновик')),
-    E('span', { 'class': 'txt' }, _('Есть несохранённые изменения')),
-    E('div', { 'class': 'sp' })
+    E('span', { 'class': 'txt', id: 'z2m-apply-text' }, _('Есть несохранённые изменения. На работу роутера пока не влияет.')),
+    E('div', { 'class': 'sp' }, [
+      button(_('Отменить'), '', null, false, { id: 'z2m-discard-drafts' }),
+      button(_('Показать различия'), '', null, false, { id: 'z2m-preview-drafts' }),
+      button(_('Открыть изменения'), 'primary', null, false, { id: 'z2m-open-drafts' })
+    ])
   ]));
+}
+
+function renderConfirmBar() {
+  return E('div', { 'class': 'z2m-applybar confirm hidden', id: 'z2m-confirm-bar' },
+    E('div', { 'class': 'in' }, [
+      E('span', { 'class': 'z2m-chip g' }, _('Применено')),
+      E('span', { 'class': 'txt', id: 'z2m-confirm-text' }, _('Если связь работает — подтвердите.')),
+      E('div', { 'class': 'sp' }, [
+        button(_('Откатить сейчас'), 'danger', null, false, { id: 'z2m-rollback-now' }),
+        button(_('Всё работает, оставить'), 'primary', null, false, { id: 'z2m-confirm-alive' })
+      ])
+    ])
+  );
 }
 
 return {
@@ -88,5 +105,6 @@ return {
   showToast: showToast,
   openModal: openModal,
   closeModal: closeModal,
-  renderApplyBar: renderApplyBar
+  renderApplyBar: renderApplyBar,
+  renderConfirmBar: renderConfirmBar
 };
