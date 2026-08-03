@@ -208,7 +208,8 @@ test('compatibility redirects are excluded from render ownership', () => {
   const redirects = ['orchestra-strategy.js','orchestra.js','strategies.js','lists.js','dns.js','service-dns.js','proxy.js','monitor.js','maintenance.js'];
   for (const file of redirects) {
     const mod = evaluateLuciModule(`${root}/${file}`, overrides, cache);
+    assert.equal(typeof mod.load, 'function');
     assert.equal(typeof mod.render, 'function');
-    assert.match(String(mod.render), /location\.replace/);
+    assert.match(String(mod.load), /location\.replace/);
   }
 });
