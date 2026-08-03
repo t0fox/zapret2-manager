@@ -10,7 +10,7 @@ const worker = readFileSync(new URL('../zapret2-manager/files/usr/libexec/zapret
 test('Manual overrides have editable controls, discard and explicit validation/apply', () => {
   assert.match(ui, /placeholder:\s*['"]example\.com['"]/);
   assert.match(ui, /placeholder:\s*['"]1\.1\.1\.1['"]/);
-  assert.match(ui, /Добавить override/);
+  assert.match(ui, /Добавить переопределение/);
   assert.match(ui, /Отменить изменения/);
   assert.match(ui, /Проверить и применить/);
   assert.match(ui, /api\.dns\.validate[\s\S]*api\.dns\.set[\s\S]*api\.dns\.apply/);
@@ -57,5 +57,5 @@ test('History renders applied revision and operation details without raw object 
 
 test('manager-owned addnhosts warning is explicit', () => {
   assert.doesNotMatch(ui, /share the same overrides file/);
-  assert.match(ui, /manager-owned addnhosts|Manager overrides file is not registered in dnsmasq/i);
+  assert.match(ui, /Файл DNS-переопределений менеджера не подключён к dnsmasq/);
 });
