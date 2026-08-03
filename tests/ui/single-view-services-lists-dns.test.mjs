@@ -21,7 +21,7 @@ test('services tab preserves catalog preview/apply preconditions and local filte
   const src = source('z2m-services.js');
   for (const token of ['api.services.catalogList','api.services.catalogStatus','api.services.catalogPreview','api.services.catalogApply','svcSearch','svcFilters','ledgerRevision','fileSha256'])
     assert.match(src, new RegExp(token.replaceAll('.', '\\.')));
-  assert.match(src, /enabled:\s*selectedIds/);
+  assert.match(src, /enabled:\s*(?:selectedIds|enabledIds\(\))/);
   assert.match(src, /setDraft\(['"]services/);
   assert.doesNotMatch(src, /const\s+SERVICES\s*=|let\s+SERVICES\s*=/);
   assert.doesNotMatch(src, /var\s+enabledIds\s*=\s*enabledIds\(/);
