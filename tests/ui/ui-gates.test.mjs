@@ -1,202 +1,161 @@
-// UI gates — static guarantees for the LuCI frontend of zapret2-manager.
-//
-// Run: node --test tests/ui/
-//
-// Gates 1-8, 12 apply to ALL views (global safety invariants). The RPC-
-// semantics gates 9 (catch), 14 (positional params), 15 (reject:true) also
-// apply to ALL views including overview.js (it is no longer excluded from the
-// RPC gate — its service/passthrough calls must reject+catch too). Gates 10-11
-// (busy/unavailable rendering) apply to the seven UI-agent zone views.
+// Static gates for the current single-view LuCI frontend.
 
-import { test } from 'node:test';
+import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync, unlinkSync, existsSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
+import { evaluateLuciModule } from '../../tools/luci-module-smoke.mjs';
 import {
-	EXPECTED_VIEWS, ZONE_VIEWS,
-	listViewFiles, readViewSource, readMenu, viewDirAbs,
-	checkExactlyEightViews, checkMenuEntries, checkMenuAclIsArray,
-	checkNoLubus, checkRpcDeclare, checkExportsView, checkMenuViewFilesMatch,
-	checkRpcObjects, checkCatchPath, checkBusyPath, checkUnavailableLabel,
-	checkSyntax, moduleLoadHarness, checkNoStringFormat,
-	checkPositionalCalls, checkRejectTrue
+  REPO_ROOT, readMenu, checkMenuAclIsArray, checkNoLubus,
+  checkRpcObjects, checkRejectTrue, checkSyntax, checkNoStringFormat
 } from './lib/checks.mjs';
-import { REPO_ROOT } from './lib/checks.mjs';
 
-const LUCI_MAKEFILE = join(REPO_ROOT, 'luci-app-zapret2-manager/Makefile');
+const root = join(REPO_ROOT, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager');
+const makefilePath = join(REPO_ROOT, 'luci-app-zapret2-manager/Makefile');
+const INTERNAL = {
+  overview: 'z2m-overview.js', strategy: 'z2m-strategy-page.js', services: 'z2m-services.js',
+  lists: 'z2m-lists.js', dns: 'z2m-dns.js', proxy: 'z2m-proxy.js',
+  monitor: 'z2m-monitor.js', maintenance: 'z2m-maintenance.js'
+};
+const REDIRECTS = {
+  'orchestra-strategy.js': 'overview', 'orchestra.js': 'strategy', 'strategies.js': 'strategy',
+  'lists.js': 'lists', 'dns.js': 'dns', 'service-dns.js': 'dns', 'proxy.js': 'proxy',
+  'monitor.js': 'monitor', 'maintenance.js': 'maintenance'
+};
+const SUPPORT = ['z2m-api.js','z2m-store.js','z2m-shell.js','z2m-ui.js','z2m-qr.js','z2m-auto.js','z2m-strategy.js','z2m-strategy-page.js'];
+const source = (file) => readFileSync(join(root, file), 'utf8');
+const shippedJs = () => readdirSync(root).filter((file) => file.endsWith('.js')).sort();
 
-function assertNoErrors(errs) {
-	assert.deepEqual(errs, [], errs.join('\n'));
-}
+function noErrors(errors) { assert.deepEqual(errors, [], errors.join('\n')); }
 
-// Gate 1 — exactly eight view files exist.
-test('gate 1: exactly eight view files exist', () => {
-	assertNoErrors(checkExactlyEightViews(listViewFiles(viewDirAbs())));
+test('gate 1: one app entry owns eight internal tabs', () => {
+  const app = source('app.js');
+  assert.equal((app.match(/L\.view\.extend/g) || []).length, 1);
+  for (const [id, file] of Object.entries(INTERNAL)) {
+    assert.equal(existsSync(join(root, file)), true, `${file} missing`);
+    assert.match(app, new RegExp(`['"]${id}['"]`));
+  }
 });
 
-// Gate 2 — menu contains exactly the eight expected pages.
-test('gate 2: menu contains exactly the eight expected entries', () => {
-	assertNoErrors(checkMenuEntries(readMenu()));
+test('gate 2: menu exposes one app route and hidden compatibility routes', () => {
+  const menu = readMenu();
+  const visible = Object.entries(menu).filter(([, entry]) => entry.action && entry.hidden !== true);
+  assert.equal(visible.length, 1);
+  assert.equal(visible[0][0], 'admin/services/zapret2-manager');
+  assert.equal(visible[0][1].action.path, 'zapret2-manager/app');
+  for (const file of Object.keys(REDIRECTS)) {
+    const leaf = file.replace(/\.js$/, '');
+    const entry = menu[`admin/services/zapret2-manager/${leaf}`];
+    assert.ok(entry, `${leaf} compatibility route missing`);
+    assert.equal(entry.hidden, true);
+    assert.equal(entry.action.path, `zapret2-manager/${leaf}`);
+  }
 });
 
-// Gate 3 — depends.acl is an array in every entry (the HTTP-500 defect).
-test('gate 3: depends.acl is an array in every menu entry', () => {
-	assertNoErrors(checkMenuAclIsArray(readMenu()));
+test('gate 3: every menu ACL is an iterable array', () => {
+  noErrors(checkMenuAclIsArray(readMenu()));
 });
 
-// Gate 4 — no view uses L.ubus (absent in luci.js 26.x).
-test('gate 4: no view contains L.ubus', () => {
-	for (const v of EXPECTED_VIEWS) {
-		const src = readViewSource(v);
-		assert.ok(src !== null, `${v}.js missing`);
-		assertNoErrors(checkNoLubus(src, v));
-	}
+test('gate 4: every menu view path resolves to a shipped JavaScript file', () => {
+  for (const entry of Object.values(readMenu())) {
+    if (!entry.action?.path) continue;
+    const leaf = entry.action.path.split('/').pop();
+    assert.equal(existsSync(join(root, `${leaf}.js`)), true, `${entry.action.path} missing`);
+  }
 });
 
-// Gate 5 — RPC calls use rpc.declare.
-test('gate 5: RPC access goes through rpc.declare', () => {
-	for (const v of EXPECTED_VIEWS) {
-		const src = readViewSource(v);
-		assert.ok(src !== null, `${v}.js missing`);
-		assertNoErrors(checkRpcDeclare(src, v));
-	}
+test('gate 5: direct ubus access is forbidden in all shipped JavaScript', () => {
+  for (const file of shippedJs()) noErrors(checkNoLubus(source(file), file));
 });
 
-// Gate 6 — every view exports an L.view.
-test('gate 6: every view exports L.view.extend', () => {
-	for (const v of EXPECTED_VIEWS) {
-		const src = readViewSource(v);
-		assert.ok(src !== null, `${v}.js missing`);
-		assertNoErrors(checkExportsView(src, v));
-	}
+test('gate 6: z2m-api is the only rpc.declare owner', () => {
+  const owners = shippedJs().filter((file) => /rpc\.declare\s*\(/.test(source(file)));
+  assert.deepEqual(owners, ['z2m-api.js']);
 });
 
-// Gate 7 — no menu entry references a missing JS file (and shape matches).
-test('gate 7: menu action paths map to existing view files', () => {
-	assertNoErrors(checkMenuViewFilesMatch(readMenu(), listViewFiles(viewDirAbs())));
+test('gate 7: central RPC facade uses only zapret2-manager and rejects ubus errors', () => {
+  const api = source('z2m-api.js');
+  noErrors(checkRpcObjects(api, 'z2m-api'));
+  noErrors(checkRejectTrue(api, 'z2m-api'));
 });
 
-// Gate 8 — only the zapret2-manager RPC object is declared.
-test('gate 8: only the zapret2-manager RPC object is used', () => {
-	for (const v of EXPECTED_VIEWS) {
-		const src = readViewSource(v);
-		assert.ok(src !== null, `${v}.js missing`);
-		assertNoErrors(checkRpcObjects(src, v));
-	}
+test('gate 8: app and internal modules load under the LuCI smoke loader', () => {
+  const app = evaluateLuciModule(join(root, 'app.js'));
+  assert.equal(typeof app.load, 'function');
+  assert.equal(typeof app.render, 'function');
+  for (const [id, file] of Object.entries(INTERNAL)) {
+    const mod = evaluateLuciModule(join(root, file));
+    assert.equal(mod.id, id, `${file}: wrong id`);
+    for (const method of ['load','render','mount','unmount']) assert.equal(typeof mod[method], 'function', `${file}: ${method}`);
+  }
 });
 
-// Gate 9 — promise rejection has a visible error path (ALL views, incl overview).
-test('gate 9: rejected promises are caught (all views)', () => {
-	for (const v of EXPECTED_VIEWS) {
-		const src = readViewSource(v);
-		assert.ok(src !== null, `${v}.js missing`);
-		assertNoErrors(checkCatchPath(src, v));
-	}
+test('gate 9: compatibility files are valid redirect views, not legacy wrappers', () => {
+  for (const [file, tab] of Object.entries(REDIRECTS)) {
+    const src = source(file);
+    const mod = evaluateLuciModule(join(root, file));
+    assert.equal(typeof mod.render, 'function');
+    assert.match(src, /window\.location\.replace/);
+    assert.match(src, new RegExp(`#/${tab}`));
+    assert.doesNotMatch(src, /-legacy|return\s+Legacy/);
+  }
 });
 
-// Gate 10 — action buttons have a disabled/busy path (zone views).
-test('gate 10: action buttons disable while busy and re-enable (zone views)', () => {
-	for (const v of ZONE_VIEWS) {
-		const src = readViewSource(v);
-		assert.ok(src !== null, `${v}.js missing`);
-		assertNoErrors(checkBusyPath(src, v));
-	}
+test('gate 10: every shipped LuCI module parses as a function body', () => {
+  for (const file of shippedJs()) noErrors(checkSyntax(source(file), file));
 });
 
-// Gate 11 — null/unavailable is rendered, never faked as 0 (zone views).
-test('gate 11: an "Unavailable" rendering path exists (zone views)', () => {
-	for (const v of ZONE_VIEWS) {
-		const src = readViewSource(v);
-		assert.ok(src !== null, `${v}.js missing`);
-		assertNoErrors(checkUnavailableLabel(src, v));
-	}
+test('gate 11: no shipped module relies on String.prototype.format', () => {
+  for (const file of shippedJs()) noErrors(checkNoStringFormat(source(file), file));
 });
 
-// Gate 12 — every view passes the static syntax gate (LuCI function-body
-// semantics: top-level return is legal).
-test('gate 12: all views parse as LuCI view modules', () => {
-	for (const v of EXPECTED_VIEWS) {
-		const src = readViewSource(v);
-		assert.ok(src !== null, `${v}.js missing`);
-		assertNoErrors(checkSyntax(src, v));
-	}
+test('gate 12: unknown backend values have honest fallback labels', () => {
+  for (const file of Object.values(INTERNAL)) {
+    const src = source(file);
+    assert.match(src, /—|неизвест|недоступ|Unavailable|Список пуст|не найдены|не запускал/i, `${file}: no unavailable/unknown fallback`);
+  }
+  assert.doesNotMatch(source('z2m-overview.js'), /metric\([^\n]+\|\|\s*0/);
+  assert.doesNotMatch(source('z2m-strategy.js'), /metric\([^\n]+\|\|\s*0/);
 });
 
-// Gate 13 — no view relies on String.prototype.format (it lives in cbi.js,
-// which these views do not require; overview.js concatenates).
-test('gate 13: no String.prototype.format reliance', () => {
-	for (const v of EXPECTED_VIEWS) {
-		const src = readViewSource(v);
-		assert.ok(src !== null, `${v}.js missing`);
-		assertNoErrors(checkNoStringFormat(src, v));
-	}
+test('gate 13: mutations expose an error path and shared feedback', () => {
+  for (const file of ['z2m-overview.js','z2m-strategy.js','z2m-auto.js','z2m-services.js','z2m-lists.js','z2m-dns.js','z2m-proxy.js','z2m-maintenance.js']) {
+    const src = source(file);
+    assert.match(src, /\.catch\s*\(/, `${file}: rejected mutation has no catch path`);
+    assert.match(src, /showToast|warnbar|openModal/, `${file}: no visible feedback path`);
+  }
 });
 
-// Gate 14 — rpc.declare with a params ARRAY is invoked positionally, never
-// with an object (router rpc.js: params[i] = args[i]; an object nests).
-test('gate 14: params-array declarations are called positionally (all views)', () => {
-	for (const v of EXPECTED_VIEWS) {
-		const src = readViewSource(v);
-		assert.ok(src !== null, `${v}.js missing`);
-		assertNoErrors(checkPositionalCalls(src, v));
-	}
+test('gate 14: styles and QR encoder remain local', () => {
+  for (const file of ['z2m-ui.css','z2m-components.css']) {
+    const css = source(file);
+    assert.doesNotMatch(css, /@import|https?:\/\//);
+  }
+  assert.equal(existsSync(join(root, 'z2m-qr.js')), true);
+  assert.doesNotMatch(source('z2m-proxy.js'), /https?:\/\/[^'"\s]+\.js|cdn/i);
 });
 
-// Gate 15 — every rpc.declare in ALL views (incl overview) has reject: true,
-// so ubus errors reject into .catch() instead of resolving as numeric codes.
-test('gate 15: all rpc.declare have reject: true (all views)', () => {
-	for (const v of EXPECTED_VIEWS) {
-		const src = readViewSource(v);
-		assert.ok(src !== null, `${v}.js missing`);
-		assertNoErrors(checkRejectTrue(src, v));
-	}
+test('gate 15: package Makefile auto-installs every shipped JS and CSS file', () => {
+  const makefile = readFileSync(makefilePath, 'utf8');
+  assert.match(makefile, /\$\(wildcard [^)]*view\/zapret2-manager\/\*\.js\)/);
+  assert.match(makefile, /\$\(wildcard [^)]*view\/zapret2-manager\/\*\.css\)/);
+  assert.doesNotMatch(makefile, /INSTALL_DATA.*view\/zapret2-manager\/overview\.js/);
 });
 
-// Bonus gate — module-load harness: every zone view executes at module scope
-// against stubbed LuCI modules without throwing (catches the blank-page
-// console-exception class without a browser) and declares only allowed
-// RPC objects.
-test('module harness: zone views load under stubbed LuCI modules', () => {
-	for (const v of ZONE_VIEWS) {
-		const src = readViewSource(v);
-		assert.ok(src !== null, `${v}.js missing`);
-		assertNoErrors(moduleLoadHarness(src, v));
-	}
+test('gate 15 control: package globs cover a new fixture module', () => {
+  const fixture = join(root, 'zz-fixture-gate.js');
+  const before = shippedJs().length;
+  try {
+    writeFileSync(fixture, "'use strict';\nreturn {};\n");
+    assert.equal(shippedJs().length, before + 1);
+    assert.match(readFileSync(makefilePath, 'utf8'), /view\/zapret2-manager\/\*\.js/);
+  } finally {
+    try { unlinkSync(fixture); } catch {}
+  }
+  assert.equal(shippedJs().length, before);
 });
 
-// Gate 16 — the official luci-app Makefile installs ALL shipped views
-// automatically (no hardcoded per-file list that silently drops pages).
-test('gate 16: luci Makefile auto-installs every .js view (no hardcoded list)', () => {
-	const mk = readFileSync(LUCI_MAKEFILE, 'utf8');
-	// MUST glob the view dir, NOT hardcode overview.js (the old defect installed
-	// only overview.js while 8 views shipped).
-	assert.ok(/\$\(wildcard [^)]*view\/zapret2-manager\/\*\.js\)/.test(mk),
-		'luci Makefile must use $(wildcard .../view/zapret2-manager/*.js) to install views');
-	assert.ok(!/INSTALL_DATA.*view\/zapret2-manager\/overview\.js/.test(mk),
-		'luci Makefile must NOT hardcode overview.js (drops the other views)');
-	// the glob covers exactly the shipped views
-	const dir = viewDirAbs();
-	const shipped = listViewFiles(dir);
-	assert.equal(shipped.length, EXPECTED_VIEWS.length, 'shipped view count matches EXPECTED_VIEWS');
-});
-
-// Gate 16 negative/positive control: a 9th fixture view is automatically
-// picked up by the glob (positive), then removed (no leftover).
-test('gate 16 control: a 9th fixture view is auto-covered by the Makefile glob', () => {
-	const dir = viewDirAbs();
-	const fixture = join(dir, 'zz-fixture-gate16.js');
-	const before = listViewFiles(dir).length;
-	try {
-		writeFileSync(fixture, "/* fixture for gate 16: the Makefile glob must cover me */\n");
-		const after = listViewFiles(dir).length;
-		assert.equal(after, before + 1, 'fixture view added');
-		// the Makefile glob pattern matches the fixture (it ends in .js under the dir)
-		assert.ok(/\$\(wildcard [^)]*view\/zapret2-manager\/\*\.js\)/.test(readFileSync(LUCI_MAKEFILE, 'utf8')),
-			'glob covers any .js in the dir, including the fixture');
-	} finally {
-		try { unlinkSync(fixture); } catch {}
-	}
-	assert.ok(!existsSync(fixture), 'fixture removed after the control');
-	assert.equal(listViewFiles(dir).length, before,
-		'view count restored after fixture removal');
+test('gate 16: support modules are shipped and runtime legacy files are absent', () => {
+  for (const file of SUPPORT) assert.equal(existsSync(join(root, file)), true, `${file} missing`);
+  assert.deepEqual(shippedJs().filter((file) => file.endsWith('-legacy.js')), []);
 });
