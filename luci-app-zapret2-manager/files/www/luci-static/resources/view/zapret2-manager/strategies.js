@@ -25,6 +25,11 @@ LegacyProfiles.render = function (envelope) {
 
 	var header = root.querySelector('.z2m-page-header');
 	if (header) {
+		var heading = header.querySelector('h2');
+		var description = header.querySelector('p');
+		if (heading) heading.textContent = _('Профили');
+		if (description) description.textContent = _('Ручные профили и состав текущей конфигурации zapret2.');
+
 		var data = envelope && envelope.data || {};
 		var profiles = envelope && envelope.profilesData || {};
 		var draft = profiles.draft || {};
