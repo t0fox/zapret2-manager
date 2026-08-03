@@ -121,14 +121,24 @@ return L.view.extend({
     }
     function renderTabData(tab, module, data, token, force) {
       if (token !== activationToken) return false;
-      var ctx = context(tab, module, data);
-      var node = module.render(ctx);
-      if (token !== activationToken) return false;
       if (activeModule && activeContext && activeModule.unmount)
         activeModule.unmount(activeContext);
+      activeModule = module;
+      activeContext = null;
+      var ctx = context(tab, module, data);
+      var node;
+      try {
+        node = module.render(ctx);
+      } catch (error) {
+        content.replaceChildren(E('div', { 'class': 'warnbar' }, Api.normalizeError(error).message));
+        return false;
+      }
+      if (token !== activationToken) {
+        if (module.unmount) module.unmount(ctx);
+        return false;
+      }
       ctx.root = node;
       content.replaceChildren(node);
-      activeModule = module;
       activeContext = ctx;
       if (module.mount) module.mount(ctx);
       if (appRoot && appRoot.scrollIntoView && !force)
