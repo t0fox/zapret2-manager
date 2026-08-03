@@ -22,6 +22,10 @@ function create(initial) {
       delete state.draft[scope];
       emit();
     },
+    clearAllDrafts: function () {
+      state = Object.assign({}, state, { draft: {} });
+      emit();
+    },
     hasDraft: function () { return Object.keys(state.draft || {}).length > 0; },
     subscribe: function (fn) {
       if (typeof fn !== 'function') throw new TypeError('subscriber must be a function');
