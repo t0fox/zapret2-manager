@@ -19,20 +19,23 @@ function viewFile(path) {
   return join(viewRoot, path.split('/').pop() + '.js');
 }
 const entries = entriesOf(menu);
+const compatibilityRedirects = [
+  'orchestra-strategy','orchestra','strategies','lists','dns',
+  'service-dns','proxy','monitor','maintenance'
+];
 
 test('menu and ACL JSON parse', () => {
   assert.ok(menu['admin/services/zapret2-manager']);
   assert.ok(acl['zapret2-manager']);
 });
 
-test('one visible menu entry opens the single app view', () => {
-  const visible = entries.filter((entry) => !entry.hidden);
-  assert.equal(visible.length, 1);
-  assert.equal(visible[0].key, 'admin/services/zapret2-manager');
-  assert.equal(visible[0].path, 'zapret2-manager/app');
+test('menu publishes exactly one single-view application route', () => {
+  assert.deepEqual(Object.keys(menu), ['admin/services/zapret2-manager']);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].path, 'zapret2-manager/app');
 });
 
-test('all menu routes resolve to shipped view modules', () => {
+test('all published menu routes resolve to shipped view modules', () => {
   const missing = entries.filter((entry) => !existsSync(viewFile(entry.path)));
   assert.deepEqual(missing, []);
 });
@@ -45,9 +48,9 @@ test('single-view runtime modules and local stylesheets exist', () => {
   ]) assert.ok(existsSync(join(viewRoot, name)), `${name} exists`);
 });
 
-test('r137 package ships no legacy runtime and only the two authoritative local stylesheets', () => {
+test('r138 package ships no legacy runtime and only the two authoritative local stylesheets', () => {
   const makefile = readFileSync(join(REPO, 'luci-app-zapret2-manager/Makefile'), 'utf8');
-  assert.match(makefile, /^PKG_RELEASE:=137$/m);
+  assert.match(makefile, /^PKG_RELEASE:=138$/m);
   const files = readdirSync(viewRoot).sort();
   assert.deepEqual(files.filter((name) => name.endsWith('.css')), ['z2m-components.css', 'z2m-ui.css']);
   assert.deepEqual(files.filter((name) => name.endsWith('-legacy.js')), []);
@@ -59,13 +62,10 @@ test('r137 package ships no legacy runtime and only the two authoritative local 
   }
 });
 
-test('compatibility routes remain hidden', () => {
-  const expected = ['orchestra-strategy','orchestra','strategies','lists','dns','service-dns','proxy','monitor','maintenance'];
-  for (const name of expected) {
-    const route = menu[`admin/services/zapret2-manager/${name}`];
-    assert.ok(route, `${name} route exists`);
-    assert.equal(route.hidden, true, `${name} route is hidden`);
-    assert.equal(route.action.path, `zapret2-manager/${name}`);
+test('compatibility redirects remain shipped but are not registered as LuCI child tabs', () => {
+  for (const name of compatibilityRedirects) {
+    assert.ok(existsSync(join(viewRoot, `${name}.js`)), `${name}.js redirect exists`);
+    assert.equal(menu[`admin/services/zapret2-manager/${name}`], undefined, `${name} menu route is absent`);
   }
 });
 
