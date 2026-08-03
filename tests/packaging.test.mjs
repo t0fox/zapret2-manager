@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -9,13 +9,14 @@ const REPO = join(__dirname, '..');
 const readJson = (name) => JSON.parse(readFileSync(join(REPO, name), 'utf8'));
 const menu = readJson('luci-app-zapret2-manager/files/usr/share/luci/menu.d/luci-app-zapret2-manager.json');
 const acl = readJson('luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json');
+const viewRoot = join(REPO, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager');
 
 function entriesOf(obj) {
   return Object.entries(obj).filter(([, value]) => value.action && value.action.path)
     .map(([key, value]) => ({ key, title: value.title, path: value.action.path, order: value.order, hidden: value.hidden === true }));
 }
 function viewFile(path) {
-  return join(REPO, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager', path.split('/').pop() + '.js');
+  return join(viewRoot, path.split('/').pop() + '.js');
 }
 const entries = entriesOf(menu);
 
@@ -37,9 +38,21 @@ test('all menu routes resolve to shipped view modules', () => {
 });
 
 test('single-view runtime modules and stylesheet exist', () => {
-  const base = join(REPO, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager');
-  for (const name of ['app.js','z2m-api.js','z2m-store.js','z2m-shell.js','z2m-ui.css'])
-    assert.ok(existsSync(join(base, name)), `${name} exists`);
+  for (const name of [
+    'app.js','z2m-api.js','z2m-store.js','z2m-shell.js','z2m-ui.css',
+    'z2m-overview.js','z2m-strategy.js','z2m-services.js','z2m-lists.js','z2m-dns.js',
+    'z2m-proxy.js','z2m-qr.js','z2m-monitor.js','z2m-maintenance.js'
+  ]) assert.ok(existsSync(join(viewRoot, name)), `${name} exists`);
+});
+
+test('r137 package ships no legacy runtime and only the authoritative stylesheet', () => {
+  const makefile = readFileSync(join(REPO, 'luci-app-zapret2-manager/Makefile'), 'utf8');
+  assert.match(makefile, /^PKG_RELEASE:=137$/m);
+  const files = readdirSync(viewRoot).sort();
+  assert.deepEqual(files.filter((name) => name.endsWith('.css')), ['z2m-ui.css']);
+  assert.deepEqual(files.filter((name) => name.endsWith('-legacy.js')), []);
+  for (const obsolete of ['z2m-ui-core.css','z2m-ui-v1.css','z2m-shell.css','z2m-orchestra.css'])
+    assert.equal(files.includes(obsolete), false, `${obsolete} is not shipped`);
 });
 
 test('compatibility routes remain hidden', () => {
