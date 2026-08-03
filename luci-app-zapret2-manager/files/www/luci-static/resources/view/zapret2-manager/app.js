@@ -5,13 +5,16 @@
 'require view.zapret2-manager.z2m-shell as Shell';
 'require view.zapret2-manager.z2m-overview as Overview';
 'require view.zapret2-manager.z2m-strategy as Strategy';
+'require view.zapret2-manager.z2m-services as Services';
+'require view.zapret2-manager.z2m-lists as Lists';
+'require view.zapret2-manager.z2m-dns as Dns';
 
 var TAB_IDS = ['overview', 'strategy', 'services', 'lists', 'dns', 'proxy', 'monitor', 'maintenance'];
 var TAB_LABELS = {
   overview: _('Обзор'), strategy: _('Стратегия'), services: _('Сервисы'), lists: _('Списки'),
   dns: _('DNS'), proxy: _('Telegram Proxy'), monitor: _('Мониторинг'), maintenance: _('Обслуживание')
 };
-var MODULES = { overview: Overview, strategy: Strategy };
+var MODULES = { overview: Overview, strategy: Strategy, services: Services, lists: Lists, dns: Dns };
 var store = StoreModule.create();
 var hashHandler = null;
 var activeModule = null;
