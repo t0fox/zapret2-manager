@@ -21,7 +21,7 @@ test('single-view strategy UI wires explicit global apply and bounded targeted r
   assert.match(api, /orchestra_run_start/);
   assert.match(api, /orchestra_run_status/);
   assert.match(strategy, /pendingStrategyId/);
-  assert.match(strategy, /ctx\.store\.setDraft\(['"]strategy['"]/);
+  assert.match(strategy, /ctx\.setDraft\(['"]strategy['"]/);
   assert.match(strategy, /ctx\.api\.strategy\.apply/);
   assert.match(strategy, /ctx\.api\.strategy\.rollback/);
   assert.match(strategy, /targetType:\s*['"]domain['"]/);
