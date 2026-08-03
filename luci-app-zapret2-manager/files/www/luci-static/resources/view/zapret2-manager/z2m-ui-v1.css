@@ -1,0 +1,6 @@
+/* Compatibility layer retained during the manager-wide cosmetic migration.
+ * This file is generated from the pre-redesign z2m-ui.css at commit f279f744.
+ * New visual primitives live in z2m-ui.css and override this layer.
+ */
+
+@import url("z2m-ui.css?legacy-copy-unavailable");
