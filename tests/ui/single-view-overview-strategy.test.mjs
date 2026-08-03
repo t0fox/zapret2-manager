@@ -16,10 +16,12 @@ for (const name of ['z2m-overview.js', 'z2m-strategy.js']) {
   });
 }
 
-test('overview uses real data and exposes service, resource check and overrides', () => {
+test('overview uses real data, exposes overrides and controls advanced mode', () => {
   const src = source('z2m-overview.js');
-  for (const token of ['api.service.status','api.strategy.preview','api.orchestra.runHistory','Проверить ресурс','Точечные правила','Все стратегии'])
+  for (const token of ['api.service.status','api.strategy.preview','api.orchestra.runHistory','Проверить ресурс','Точечные правила','Все стратегии','Расширенный режим'])
     assert.match(src, new RegExp(token.replaceAll('.', '\\.')));
+  assert.match(src, /ui:\s*Object\.assign\([^\n]*advanced/);
+  assert.match(src, /type:\s*['"]checkbox['"]/);
   assert.match(src, /value == null \? '—'/);
   assert.doesNotMatch(src, /metric\([^\n]+\|\| 0/);
 });
@@ -34,6 +36,15 @@ test('strategy selection is pending until explicit apply and empty runs are erro
   assert.match(src, /Выбор стратегии не меняет runtime/);
   assert.match(src, /0 targets|не получил целей/);
   assert.match(src, /targetCount[^\n]*=== 0|candidateCount[^\n]*=== 0/);
+});
+
+test('advanced Strategy panes are hidden unless the shared advanced mode is enabled', () => {
+  const app = source('app.js');
+  const strategy = source('z2m-strategy.js');
+  assert.match(app, /classList\.toggle\(['"]adv['"],\s*[^\n]*advanced/);
+  assert.match(strategy, /z2m-adv-only/);
+  assert.match(strategy, /advanced/);
+  assert.match(strategy, /state\.subtab\s*=\s*['"]list['"]/);
 });
 
 test('app registers overview and strategy modules instead of placeholders', () => {
