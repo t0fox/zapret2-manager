@@ -53,6 +53,15 @@ test('reference shell exposes eight hash tabs and exact visual tokens', () => {
   assert.doesNotMatch(css, /@import/);
 });
 
+test('hash navigation has one activation owner and unmount receives the active context', () => {
+  const app = readFileSync(`${root}/app.js`, 'utf8');
+  assert.match(app, /function\s+navigateTo\s*\(/);
+  assert.match(app, /activeContext/);
+  assert.match(app, /activeModule\.unmount\(activeContext\)/);
+  assert.doesNotMatch(app, /setHash\(next\);\s*activate\(next\)/);
+  assert.doesNotMatch(app, /setHash\(tab\);\s*activate\(tab\)/);
+});
+
 test('menu exposes one app entry and hidden compatibility routes', () => {
   const menu = JSON.parse(readFileSync(menuPath, 'utf8'));
   assert.equal(menu['admin/services/zapret2-manager'].action.path, 'zapret2-manager/app');
