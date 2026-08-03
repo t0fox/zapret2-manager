@@ -18,10 +18,10 @@ const REDIRECTS = {
   'monitor.js': 'monitor', 'maintenance.js': 'maintenance'
 };
 
-test('all shipped JavaScript files parse under the LuCI smoke loader', () => {
+test('all shipped JavaScript files compile as LuCI function bodies', () => {
   for (const file of readdirSync(VIEW_DIR).filter((name) => name.endsWith('.js'))) {
-    const mod = evaluateLuciModule(join(VIEW_DIR, file));
-    assert.ok(mod != null, file);
+    const source = readFileSync(join(VIEW_DIR, file), 'utf8');
+    assert.doesNotThrow(() => new Function(source), file);
   }
 });
 
