@@ -17,13 +17,15 @@ var TAB_LABELS = {
   overview: _('Обзор'), strategy: _('Стратегия'), services: _('Сервисы'), lists: _('Списки'),
   dns: _('DNS'), proxy: _('Telegram Proxy'), monitor: _('Мониторинг'), maintenance: _('Обслуживание')
 };
-var DRAFT_TAB = {
-  strategy: 'strategy', services: 'services', lists: 'lists', dns: 'dns',
-  proxy: 'proxy', monitor: 'monitor', maintenance: 'maintenance'
-};
-var DRAFT_LABEL = {
-  strategy: _('Стратегия'), services: _('Сервисы'), lists: _('Списки'), dns: _('DNS'),
-  proxy: _('Telegram Proxy'), monitor: _('Мониторинг'), maintenance: _('Обслуживание')
+var DRAFT_META = {
+  strategy: { label: _('Стратегия'), tab: 'strategy' },
+  services: { label: _('Сервисы'), tab: 'services' },
+  lists: { label: _('Списки'), tab: 'lists' },
+  dns: { label: _('DNS'), tab: 'dns', pane: 'setup' },
+  'service-dns': { label: _('DNS: доступ сервисов'), tab: 'dns', pane: 'access' },
+  proxy: { label: _('Telegram Proxy'), tab: 'proxy' },
+  monitor: { label: _('Мониторинг'), tab: 'monitor' },
+  maintenance: { label: _('Обслуживание'), tab: 'maintenance' }
 };
 var MODULES = {
   overview: Overview, strategy: Strategy, services: Services, lists: Lists,
@@ -38,6 +40,7 @@ var storeUnsubscribe = null;
 var confirmationTimer = null;
 var tabDataCache = {};
 var tabLoadPromises = {};
+var pendingDraftFocus = null;
 
 function tabFromHash() {
   var match = String(window.location.hash || '').match(/^#\/(overview|strategy|services|lists|dns|proxy|monitor|maintenance)$/);
@@ -55,12 +58,44 @@ function statusState(initial) {
   return { label: value || _('неизвестно'), kind: 'o' };
 }
 function draftScopes() { return Object.keys(store.get().draft || {}); }
-function draftLabel(scope) { return DRAFT_LABEL[scope] || scope; }
-function draftTab(scope) { return DRAFT_TAB[scope] || 'overview'; }
+function draftMeta(scope) { return DRAFT_META[scope] || { label: scope, tab: 'overview' }; }
+function draftLabel(scope) { return draftMeta(scope).label; }
 function safeDraft(value) {
   return JSON.stringify(value, function (key, item) {
     return /secret|token|password/i.test(key) ? '••••••••' : item;
   }, 2);
+}
+function humanDraftValue(value) {
+  if (value === true) return _('Включено');
+  if (value === false) return _('Выключено');
+  if (value == null || value === '') return _('Отключено');
+  return String(value);
+}
+function renderDraftDiff(scope, value) {
+  var changes = value && value.changes || {};
+  var ids = Object.keys(changes);
+  if (ids.length) {
+    return E('section', { 'class': 'z2m-draft-preview' }, [
+      E('h4', {}, draftLabel(scope)),
+      E('div', { 'class': 'z2m-change-list' }, ids.map(function (id) {
+        var change = changes[id] || {};
+        var before = humanDraftValue(change.before);
+        var after = humanDraftValue(change.after);
+        return E('div', { 'class': 'z2m-svcrow z2m-single-row', 'data-draft-change-id': id }, [
+          E('div', {}, [
+            E('div', { 'class': 'nm' }, change.label || id),
+            E('div', { 'class': 'co' }, before + ' → ' + after)
+          ]),
+          E('span', { 'class': 'z2m-chip o' }, _('изменено'))
+        ]);
+      }))
+    ]);
+  }
+  return E('section', { 'class': 'z2m-draft-preview' }, [
+    E('h4', {}, draftLabel(scope)),
+    E('div', { 'class': 'z2m-dim' }, _('Технические данные старого формата:')),
+    E('pre', { 'class': 'z2m-diff' }, safeDraft(value))
+  ]);
 }
 
 return L.view.extend({
@@ -119,6 +154,13 @@ return L.view.extend({
       });
       return tabLoadPromises[tab];
     }
+    function focusPendingDraft(tab, module, ctx) {
+      if (!pendingDraftFocus || pendingDraftFocus.tab !== tab) return;
+      var focus = pendingDraftFocus;
+      pendingDraftFocus = null;
+      if (module.openDraft) module.openDraft(focus.scope, ctx);
+      if (module.focusDraft) window.setTimeout(function () { module.focusDraft(ctx, focus.scope); }, 0);
+    }
     function renderTabData(tab, module, data, token, force) {
       if (token !== activationToken) return false;
       if (activeModule && activeContext && activeModule.unmount)
@@ -141,6 +183,7 @@ return L.view.extend({
       content.replaceChildren(node);
       activeContext = ctx;
       if (module.mount) module.mount(ctx);
+      focusPendingDraft(tab, module, ctx);
       if (appRoot && appRoot.scrollIntoView && !force)
         appRoot.scrollIntoView({ block: 'start' });
       return true;
@@ -153,6 +196,20 @@ return L.view.extend({
         return Promise.resolve();
       }
       return activate(tab);
+    }
+    function openDraftScope(scope) {
+      var meta = draftMeta(scope);
+      var module = MODULES[meta.tab];
+      if (!module) return Promise.resolve();
+      if (module.openDraft) module.openDraft(scope, activeContext);
+      pendingDraftFocus = { scope: scope, tab: meta.tab };
+      if (activeModule === module && activeContext) {
+        var focus = pendingDraftFocus;
+        pendingDraftFocus = null;
+        if (module.focusDraft) window.setTimeout(function () { module.focusDraft(activeContext, focus.scope); }, 0);
+        return Promise.resolve();
+      }
+      return navigateTo(meta.tab);
     }
     function activate(tab, force) {
       if (TAB_IDS.indexOf(tab) < 0) tab = 'overview';
@@ -200,9 +257,16 @@ return L.view.extend({
       var confirmation = store.get().pending && store.get().pending.confirmation;
       applyBar.classList.toggle('hidden', !scopes.length || !!confirmation);
       var text = applyBar.querySelector('#z2m-apply-text');
+      var open = applyBar.querySelector('#z2m-open-drafts');
       if (text && scopes.length) {
         text.textContent = scopes.length + ' ' + (scopes.length === 1 ? _('изменение') : _('изменения')) + ': ' +
           scopes.map(draftLabel).join(', ') + '. ' + _('На работу роутера пока не влияет.');
+      }
+      if (open && scopes.length) {
+        var target = draftMeta(scopes[0]);
+        open.textContent = activeModule === MODULES[target.tab]
+          ? _('Показать на странице')
+          : _('Перейти к изменениям');
       }
     }
     function updateConfirmBar() {
@@ -244,12 +308,9 @@ return L.view.extend({
     function previewDrafts() {
       var draft = store.get().draft || {};
       var body = E('div', {}, Object.keys(draft).map(function (scope) {
-        return E('section', { 'class': 'z2m-draft-preview' }, [
-          E('h4', {}, draftLabel(scope)),
-          E('pre', { 'class': 'z2m-diff' }, safeDraft(draft[scope]))
-        ]);
+        return renderDraftDiff(scope, draft[scope]);
       }));
-      Shell.openModal(_('Что именно изменится'), body);
+      Shell.openModal(_('Что изменено'), body);
     }
     function discardDrafts() {
       Shell.openModal(
@@ -259,10 +320,15 @@ return L.view.extend({
           Shell.button(_('Не отменять'), '', Shell.closeModal),
           Shell.button(_('Отменить черновики'), 'danger', function () {
             Shell.closeModal();
+            Object.keys(MODULES).forEach(function (tab) {
+              var module = MODULES[tab];
+              if (module.resetDraft) module.resetDraft();
+            });
             store.clearAllDrafts();
             var snapshot = store.get();
             store.update({ pending: Object.assign({}, snapshot.pending, { pendingStrategyId: null, pendingOverride: null }) });
             tabDataCache = {};
+            pendingDraftFocus = null;
             renderState();
             activate(store.get().ui.tab || 'overview', true);
           })
@@ -308,7 +374,7 @@ return L.view.extend({
     applyBar.querySelector('#z2m-preview-drafts').addEventListener('click', previewDrafts);
     applyBar.querySelector('#z2m-open-drafts').addEventListener('click', function () {
       var scopes = draftScopes();
-      if (scopes.length) navigateTo(draftTab(scopes[0]));
+      if (scopes.length) openDraftScope(scopes[0]);
     });
     confirmBar.querySelector('#z2m-confirm-alive').addEventListener('click', function () {
       var keep = confirmBar.querySelector('#z2m-confirm-alive');
