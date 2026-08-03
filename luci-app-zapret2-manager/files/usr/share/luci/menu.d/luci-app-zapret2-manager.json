@@ -2,55 +2,51 @@
   "admin/services/zapret2-manager": {
     "title": "Zapret 2 Manager",
     "order": 90,
+    "action": { "type": "view", "path": "zapret2-manager/app" },
+    "depends": { "acl": ["zapret2-manager"] }
+  },
+  "admin/services/zapret2-manager/orchestra-strategy": {
+    "title": "Overview compatibility", "order": 91, "hidden": true,
     "action": { "type": "view", "path": "zapret2-manager/orchestra-strategy" },
     "depends": { "acl": ["zapret2-manager"] }
   },
   "admin/services/zapret2-manager/orchestra": {
-    "title": "Orchestra",
-    "order": 91,
-    "action": { "type": "view", "path": "zapret2-manager/orchestra-strategy" },
-    "depends": { "acl": ["zapret2-manager"] }
-  },
-  "admin/services/zapret2-manager/advanced": {
-    "title": "Orchestra · расширенный",
-    "order": 92,
-    "hidden": true,
+    "title": "Strategy compatibility", "order": 92, "hidden": true,
     "action": { "type": "view", "path": "zapret2-manager/orchestra" },
     "depends": { "acl": ["zapret2-manager"] }
   },
   "admin/services/zapret2-manager/strategies": {
-    "title": "Профили",
-    "order": 93,
+    "title": "Profiles compatibility", "order": 93, "hidden": true,
     "action": { "type": "view", "path": "zapret2-manager/strategies" },
     "depends": { "acl": ["zapret2-manager"] }
   },
   "admin/services/zapret2-manager/lists": {
-    "title": "Списки",
-    "order": 94,
+    "title": "Lists compatibility", "order": 94, "hidden": true,
     "action": { "type": "view", "path": "zapret2-manager/lists" },
     "depends": { "acl": ["zapret2-manager"] }
   },
   "admin/services/zapret2-manager/dns": {
-    "title": "DNS",
-    "order": 95,
+    "title": "DNS compatibility", "order": 95, "hidden": true,
     "action": { "type": "view", "path": "zapret2-manager/dns" },
     "depends": { "acl": ["zapret2-manager"] }
   },
-  "admin/services/zapret2-manager/monitor": {
-    "title": "Мониторинг",
-    "order": 96,
-    "action": { "type": "view", "path": "zapret2-manager/monitor" },
+  "admin/services/zapret2-manager/service-dns": {
+    "title": "Service DNS compatibility", "order": 96, "hidden": true,
+    "action": { "type": "view", "path": "zapret2-manager/service-dns" },
     "depends": { "acl": ["zapret2-manager"] }
   },
   "admin/services/zapret2-manager/proxy": {
-    "title": "TG PROXY",
-    "order": 97,
+    "title": "Proxy compatibility", "order": 97, "hidden": true,
     "action": { "type": "view", "path": "zapret2-manager/proxy" },
     "depends": { "acl": ["zapret2-manager"] }
   },
+  "admin/services/zapret2-manager/monitor": {
+    "title": "Monitor compatibility", "order": 98, "hidden": true,
+    "action": { "type": "view", "path": "zapret2-manager/monitor" },
+    "depends": { "acl": ["zapret2-manager"] }
+  },
   "admin/services/zapret2-manager/maintenance": {
-    "title": "Обслуживание",
-    "order": 98,
+    "title": "Maintenance compatibility", "order": 99, "hidden": true,
     "action": { "type": "view", "path": "zapret2-manager/maintenance" },
     "depends": { "acl": ["zapret2-manager"] }
   }
