@@ -36,6 +36,8 @@ var activeContext = null;
 var activationToken = 0;
 var storeUnsubscribe = null;
 var confirmationTimer = null;
+var tabDataCache = {};
+var tabLoadPromises = {};
 
 function tabFromHash() {
   var match = String(window.location.hash || '').match(/^#\/(overview|strategy|services|lists|dns|proxy|monitor|maintenance)$/);
@@ -103,8 +105,39 @@ return L.view.extend({
         setConfirmation: setConfirmation
       };
     }
+    function loadTabData(tab, module) {
+      if (tabLoadPromises[tab]) return tabLoadPromises[tab];
+      tabLoadPromises[tab] = Promise.resolve().then(function () {
+        return module.load(context(tab, module, tabDataCache[tab]));
+      }).then(function (data) {
+        tabDataCache[tab] = data || {};
+        delete tabLoadPromises[tab];
+        return tabDataCache[tab];
+      }, function (error) {
+        delete tabLoadPromises[tab];
+        throw error;
+      });
+      return tabLoadPromises[tab];
+    }
+    function renderTabData(tab, module, data, token, force) {
+      if (token !== activationToken) return false;
+      var ctx = context(tab, module, data);
+      var node = module.render(ctx);
+      if (token !== activationToken) return false;
+      if (activeModule && activeContext && activeModule.unmount)
+        activeModule.unmount(activeContext);
+      ctx.root = node;
+      content.replaceChildren(node);
+      activeModule = module;
+      activeContext = ctx;
+      if (module.mount) module.mount(ctx);
+      if (appRoot && appRoot.scrollIntoView && !force)
+        appRoot.scrollIntoView({ block: 'start' });
+      return true;
+    }
     function navigateTo(tab) {
       if (TAB_IDS.indexOf(tab) < 0) tab = 'overview';
+      if (activeModule === MODULES[tab] && activeContext) return Promise.resolve();
       if (window.location.hash !== '#/' + tab) {
         setHash(tab);
         return Promise.resolve();
@@ -115,30 +148,40 @@ return L.view.extend({
       if (TAB_IDS.indexOf(tab) < 0) tab = 'overview';
       var token = ++activationToken;
       var module = MODULES[tab];
-      if (activeModule && activeContext && activeModule.unmount)
-        activeModule.unmount(activeContext);
-      activeModule = module;
-      activeContext = null;
+      var sameTab = activeModule === module && !!activeContext;
+      var keepCurrent = sameTab && force === true;
+      var cachedData = tabDataCache[tab];
+
       store.update({ ui: Object.assign({}, store.get().ui, { tab: tab }) });
       Array.from(tabs.querySelectorAll('button[data-tab]')).forEach(function (button) {
         var selected = button.getAttribute('data-tab') === tab;
         button.classList.toggle('on', selected);
         button.setAttribute('aria-selected', selected ? 'true' : 'false');
       });
-      content.replaceChildren(E('div', { 'class': 'z2m-app-placeholder' }, _('Загрузка данных…')));
-      return Promise.resolve(module.load(context(tab, module))).then(function (data) {
+
+      if (cachedData && !sameTab) {
+        renderTabData(tab, module, cachedData, token, force);
+      } else if (!cachedData && !keepCurrent) {
+        if (activeModule && activeContext && activeModule.unmount)
+          activeModule.unmount(activeContext);
+        activeModule = module;
+        activeContext = null;
+        content.replaceChildren(E('div', { 'class': 'z2m-app-placeholder' }, _('Загрузка данных…')));
+      }
+
+      return loadTabData(tab, module).then(function (data) {
         if (token !== activationToken) return;
-        var ctx = context(tab, module, data);
-        var node = module.render(ctx);
-        ctx.root = node;
-        activeContext = ctx;
-        content.replaceChildren(node);
-        if (module.mount) module.mount(ctx);
-        if (appRoot && appRoot.scrollIntoView && !force) appRoot.scrollIntoView({ block: 'start' });
+        renderTabData(tab, module, data, token, force);
       }).catch(function (error) {
         if (token !== activationToken) return;
+        var message = Api.normalizeError(error).message;
+        if ((activeModule === module && activeContext) || cachedData) {
+          Shell.showToast(_('Не удалось обновить данные. Показано последнее успешное состояние: ') + message, 'warn');
+          return;
+        }
+        activeModule = module;
         activeContext = null;
-        content.replaceChildren(E('div', { 'class': 'warnbar' }, Api.normalizeError(error).message));
+        content.replaceChildren(E('div', { 'class': 'warnbar' }, message));
       });
     }
 
@@ -209,7 +252,9 @@ return L.view.extend({
             store.clearAllDrafts();
             var snapshot = store.get();
             store.update({ pending: Object.assign({}, snapshot.pending, { pendingStrategyId: null, pendingOverride: null }) });
-            window.location.reload();
+            tabDataCache = {};
+            renderState();
+            activate(store.get().ui.tab || 'overview', true);
           })
         ]
       );
