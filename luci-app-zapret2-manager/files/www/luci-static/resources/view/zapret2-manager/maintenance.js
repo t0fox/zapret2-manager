@@ -57,15 +57,22 @@ LegacyMaintenance.render = function (envelope) {
 		header.parentNode.insertBefore(hero, header.nextSibling);
 	}
 
-	var cards = Array.prototype.slice.call(root.querySelectorAll('.z2m-card'));
+	Array.prototype.forEach.call(root.querySelectorAll('.cbi-section'), function (section) {
+		section.classList.add('z2m-card');
+	});
+	var cards = Array.prototype.slice.call(root.children).filter(function (node) {
+		return node.classList && node.classList.contains('z2m-card');
+	});
 	cards.forEach(function (card) {
 		var title = card.querySelector('h4');
 		if (title && /delete|restore|удал|восстанов/i.test(title.textContent || ''))
 			card.classList.add('z2m-danger-zone');
 	});
-	Array.prototype.forEach.call(root.querySelectorAll('.cbi-section'), function (section) {
-		section.classList.add('z2m-card');
-	});
+	if (cards.length) {
+		var grid = E('div', { 'class': 'z2m-card-grid z2m-maintenance-grid' });
+		cards[0].parentNode.insertBefore(grid, cards[0]);
+		cards.forEach(function (card) { grid.appendChild(card); });
+	}
 	Array.prototype.forEach.call(root.querySelectorAll('table'), function (table) {
 		table.classList.add('z2m-table');
 		if (table.parentNode && !table.parentNode.classList.contains('z2m-table-wrap'))
