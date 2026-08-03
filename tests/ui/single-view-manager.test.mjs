@@ -62,6 +62,22 @@ test('hash navigation has one activation owner and unmount receives the active c
   assert.doesNotMatch(app, /setHash\(tab\);\s*activate\(tab\)/);
 });
 
+test('draft and confirmation bars expose safe scope-aware actions', () => {
+  const app = readFileSync(`${root}/app.js`, 'utf8');
+  const shell = readFileSync(`${root}/z2m-shell.js`, 'utf8');
+  const store = readFileSync(`${root}/z2m-store.js`, 'utf8');
+  for (const id of ['z2m-discard-drafts','z2m-preview-drafts','z2m-open-drafts','z2m-rollback-now','z2m-confirm-alive'])
+    assert.match(shell, new RegExp(id));
+  assert.match(shell, /renderConfirmBar/);
+  assert.match(store, /clearAllDrafts/);
+  assert.match(app, /DRAFT_TAB/);
+  assert.match(app, /Api\.strategy\.confirmAlive/);
+  assert.match(app, /Api\.strategy\.rollbackManager/);
+  assert.match(app, /rollback_ttl/);
+  assert.match(app, /setConfirmation/);
+  assert.doesNotMatch(app, /rollback_ttl\s*\|\|\s*(?:60|90)/);
+});
+
 test('menu exposes one app entry and hidden compatibility routes', () => {
   const menu = JSON.parse(readFileSync(menuPath, 'utf8'));
   assert.equal(menu['admin/services/zapret2-manager'].action.path, 'zapret2-manager/app');
