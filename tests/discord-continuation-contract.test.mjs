@@ -4,7 +4,7 @@ import fs from 'node:fs';
 
 const run = fs.readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/orchestra-run.uc', 'utf8');
 const worker = fs.readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/orchestra-worker-control.uc', 'utf8');
-const ui = fs.readFileSync('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/orchestra.js', 'utf8');
+const ui = fs.readFileSync('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-runs.js', 'utf8');
 const rpc = fs.readFileSync('zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc', 'utf8');
 
 test('continuation keeps the same run id and increments lineage', () => { assert.match(run, /orchestra_run_continue[\s\S]*continuationCount=\(r\.continuationCount\|\|0\)\+1/); });
@@ -21,5 +21,18 @@ test('registry digest mismatch is ESTALE', () => { assert.match(run, /snap\.dige
 test('active worker blocks double continuation', () => { assert.match(run, /worker_matches\(r\)\|\|active\(\)/); });
 test('interruption cursor is persisted atomically', () => { assert.match(worker, /note_progress\(r,scope,chosen\)/); assert.match(run, /save\(r\)/); });
 test('bounded cleanup removes controls', () => { assert.match(worker, /clear_controls\(id\)/); });
-test('UI sends only run id and timeout', () => { assert.match(ui, /runContinueRpc/); assert.match(ui, /pack\(\{ runId: run\.runId, additionalTimeoutSec: 900 \}\)/); assert.doesNotMatch(ui, /runContinueRpc[\s\S]{0,300}candidate/); });
-test('RPC is registered and existing service Apply remains gated by ready', () => { assert.match(rpc, /orchestra_run_continue/); assert.match(ui, /run\.phase === 'completed' && run\.serviceVerdict === 'ready'/); });
+
+test('single-view UI sends only run id and bounded timeout', () => {
+  assert.match(ui, /api\.orchestra\.runContinue/);
+  assert.match(ui, /runId:\s*run\.runId/);
+  assert.match(ui, /additionalTimeoutSec:\s*900/);
+  const block = ui.slice(ui.indexOf('function continueRun('), ui.indexOf('\nfunction pauseRun('));
+  assert.doesNotMatch(block, /candidateIds?|profile|targetId|generation/);
+});
+
+test('RPC is registered and service Apply remains gated by ready backend verdict', () => {
+  assert.match(rpc, /orchestra_run_continue/);
+  assert.match(ui, /run\.phase\s*===\s*['"]completed['"]\s*&&\s*serviceReady\(run\)/);
+  assert.match(ui, /api\.orchestra\.previewBest/);
+  assert.match(ui, /api\.orchestra\.applyBest/);
+});
