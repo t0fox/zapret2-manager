@@ -9,6 +9,14 @@ on:
       - 'tests/**'
       - 'tools/**'
       - '.github/workflows/single-view-ui-gate.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'luci-app-zapret2-manager/**'
+      - 'tests/**'
+      - 'tools/**'
+      - '.github/workflows/single-view-ui-gate.yml'
   workflow_dispatch:
 
 permissions:
@@ -57,7 +65,20 @@ jobs:
         shell: bash
         run: |
           node -e "JSON.parse(require('fs').readFileSync('luci-app-zapret2-manager/files/usr/share/luci/menu.d/luci-app-zapret2-manager.json','utf8'))"
-          node -e "const fs=require('fs');const s=fs.readFileSync('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.css','utf8');let n=0;for(const c of s){if(c==='{')n++;if(c==='}')n--;if(n<0)process.exit(1)}if(n!==0)process.exit(1)"
+          node - <<'NODE'
+          const fs = require('fs');
+          for (const file of ['z2m-ui.css', 'z2m-components.css']) {
+            const path = `luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/${file}`;
+            const source = fs.readFileSync(path, 'utf8');
+            let depth = 0;
+            for (const char of source) {
+              if (char === '{') depth++;
+              if (char === '}') depth--;
+              if (depth < 0) process.exit(1);
+            }
+            if (depth !== 0) process.exit(1);
+          }
+          NODE
 
       - name: Reject runtime legacy wrappers and external UI assets
         shell: bash
