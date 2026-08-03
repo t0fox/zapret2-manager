@@ -230,8 +230,9 @@ All defects below were fixed in this validation branch and covered by host regre
 ## Fix commits and PRs
 
 - Working branch: `codex/router-validation-luci-baseclass`.
-- The final commit and push status are reported with the delivery response after the report and source changes are committed.
-- No PR URL is claimed until a remote push and PR creation actually succeed.
+- Fix commit: `a5495d4a01caa9c772d01698ae98c9da61a1643d` (`fix: validate router integration regressions`).
+- Report-link commit: recorded after the fix commit; both commits are pushed to the branch.
+- Pull request: [#17 — fix: close router validation integration regressions](https://github.com/t0fox/zapret2-manager/pull/17), open and not draft at report finalization.
 
 ## Remaining target-only limitations
 
