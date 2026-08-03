@@ -8,6 +8,7 @@ on:
       - 'luci-app-zapret2-manager/**'
       - 'tests/**'
       - 'tools/**'
+      - 'docs/frontend-backend-contract.md'
       - '.github/workflows/single-view-ui-gate.yml'
   pull_request:
     branches:
@@ -16,6 +17,7 @@ on:
       - 'luci-app-zapret2-manager/**'
       - 'tests/**'
       - 'tools/**'
+      - 'docs/frontend-backend-contract.md'
       - '.github/workflows/single-view-ui-gate.yml'
   workflow_dispatch:
 
@@ -44,6 +46,7 @@ jobs:
             tests/ui/single-view-services-lists-dns.test.mjs \
             tests/ui/single-view-proxy.test.mjs \
             tests/ui/single-view-monitor-maintenance.test.mjs \
+            tests/auto-strategy-ui.test.mjs \
             tests/orchestra-strategy-ui.test.mjs \
             tests/packaging.test.mjs
 
@@ -65,6 +68,7 @@ jobs:
         shell: bash
         run: |
           node -e "JSON.parse(require('fs').readFileSync('luci-app-zapret2-manager/files/usr/share/luci/menu.d/luci-app-zapret2-manager.json','utf8'))"
+          node -e "JSON.parse(require('fs').readFileSync('luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json','utf8'))"
           node - <<'NODE'
           const fs = require('fs');
           for (const file of ['z2m-ui.css', 'z2m-components.css']) {
