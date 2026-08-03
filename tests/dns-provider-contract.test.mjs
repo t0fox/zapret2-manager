@@ -10,13 +10,11 @@ const backend = fs.readFileSync('zapret2-manager/files/usr/libexec/zapret2-manag
 const rpc = fs.readFileSync('zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc', 'utf8');
 const acl = JSON.parse(fs.readFileSync('luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json', 'utf8'))['zapret2-manager'];
 
-test('DNS tab uses the established provider facade and backend contract', () => {
+test('DNS tab uses the established provider facade and backend exports', () => {
   for (const method of ['dnsprov_components','dnsprov_providers','dnsprov_diagnose','dns_select_provider']) assert.match(api, new RegExp(method));
   for (const call of ['api.dns.components','api.dns.providers','api.dns.diagnose','api.dns.selectProvider']) assert.match(ui, new RegExp(call.replaceAll('.', '\\.')));
-  assert.match(backend, /export \{[\s\S]*provider_components/);
-  assert.match(backend, /export \{[\s\S]*provider_catalog/);
-  assert.match(backend, /export \{[\s\S]*diagnose_provider/);
-  assert.match(backend, /export \{[\s\S]*select_provider/);
+  for (const exported of ['dnsprov_components','dnsprov_providers','dnsprov_diagnose','dns_select_provider'])
+    assert.match(backend, new RegExp(`export const ${exported}`));
   assert.match(rpc, /dns_select_provider_method/);
 });
 
@@ -59,10 +57,10 @@ test('selected provider is derived from backend state and selection is explicit'
   assert.match(ui, /shell\.button\(_\(['"]Выбрать['"]\)/);
 });
 
-test('provider diagnostics and selection stay in narrow ACL scopes', () => {
-  assert.ok(acl.read.ubus['zapret2-manager'].includes('dnsprov_components'));
-  assert.ok(acl.read.ubus['zapret2-manager'].includes('dnsprov_providers'));
-  assert.ok(acl.write.ubus['zapret2-manager'].includes('dnsprov_diagnose'));
+test('provider diagnostics are read-only while selection stays write-only', () => {
+  for (const method of ['dnsprov_components','dnsprov_providers','dnsprov_diagnose'])
+    assert.ok(acl.read.ubus['zapret2-manager'].includes(method), method);
+  assert.equal(acl.write.ubus['zapret2-manager'].includes('dnsprov_diagnose'), false);
   assert.ok(acl.write.ubus['zapret2-manager'].includes('dns_select_provider'));
   assert.equal(acl.read.ubus['zapret2-manager'].includes('dns_select_provider'), false);
 });
