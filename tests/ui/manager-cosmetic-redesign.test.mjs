@@ -3,13 +3,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { collectUiContract } from '../../tools/ui-rpc-contract.mjs';
 
-const expectedRpc = JSON.parse(
-  readFileSync('tests/fixtures/ui-rpc-contract.json', 'utf8')
-);
-const css = readFileSync(
-  'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.css',
-  'utf8'
-);
+const root = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager';
+const expectedRpc = JSON.parse(readFileSync('tests/fixtures/ui-rpc-contract.json', 'utf8'));
+const css = readFileSync(`${root}/z2m-ui.css`, 'utf8');
 const menu = JSON.parse(
   readFileSync('luci-app-zapret2-manager/files/usr/share/luci/menu.d/luci-app-zapret2-manager.json', 'utf8')
 );
@@ -27,17 +23,9 @@ test('shared design system exposes approved tokens and primitives', () => {
   }
 
   for (const cls of [
-    '.z2m-segmented',
-    '.z2m-button-primary',
-    '.z2m-button-secondary',
-    '.z2m-button-danger',
-    '.z2m-table',
-    '.z2m-field',
-    '.z2m-switch',
-    '.z2m-progress',
-    '.z2m-console',
-    '.z2m-empty-state',
-    '.z2m-sticky-actions'
+    '.z2m-segmented', '.z2m-button-primary', '.z2m-button-secondary',
+    '.z2m-button-danger', '.z2m-table', '.z2m-field', '.z2m-switch',
+    '.z2m-progress', '.z2m-console', '.z2m-empty-state', '.z2m-sticky-actions'
   ]) {
     assert.match(css, new RegExp(cls.replace('.', '\\.')));
   }
@@ -54,4 +42,18 @@ test('navigation keeps seven product pages and hides advanced Orchestra', () => 
   const advanced = menu['admin/services/zapret2-manager/advanced'];
   assert.equal(advanced.hidden, true);
   assert.equal(advanced.action.path, 'zapret2-manager/orchestra');
+});
+
+test('Profiles and Lists use the shared shell without replacing legacy handlers', () => {
+  for (const name of ['strategies.js', 'lists.js']) {
+    const page = readFileSync(`${root}/${name}`, 'utf8');
+    assert.match(page, /z2m-page/);
+    assert.match(page, /z2m-hero/);
+    assert.match(page, /z2m-card/);
+    assert.match(page, new RegExp(`view\\.zapret2-manager\\.${name.replace('.js', '-legacy')}`));
+  }
+
+  const lists = readFileSync(`${root}/lists.js`, 'utf8');
+  assert.match(lists, /z2m-tabs/);
+  assert.match(lists, /data-list-group/);
 });
