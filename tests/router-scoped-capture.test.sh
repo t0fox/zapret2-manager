@@ -24,18 +24,18 @@ stale="$TMP/z2m-capture-stale"
 foreign_dir="$TMP/foreign-dir"
 mkdir "$stale" "$foreign_dir"
 touch -d '2 hours ago' "$stale"
-output="$(TCPDUMP_BIN="$TMP/tcpdump" TMPDIR="$TMP" MAX_BYTES=1048576 "$HELPER" 192.168.1.203 1)" || fail "bounded capture failed: $output"
+output="$(TCPDUMP_BIN="$TMP/tcpdump" TMPDIR="$TMP" MAX_BYTES=1048576 sh "$HELPER" 192.168.1.203 1)" || fail "bounded capture failed: $output"
 echo "$output" | grep -q 'bytes=4 ' || fail "byte summary missing: $output"
 echo "$output" | grep -q 'cleanup=ok' || fail "cleanup summary missing: $output"
 [ ! -e "$stale" ] || fail 'stale helper directory survived'
 [ -d "$foreign_dir" ] || fail 'foreign directory was removed'
 foreign="$TMP/foreign.pcap"
 printf foreign >"$foreign"
-if TCPDUMP_BIN="$TMP/tcpdump" TMPDIR="$TMP/does-not-exist" "$HELPER" 192.168.1.203 1 >/dev/null 2>&1; then fail 'low-space path succeeded'; fi
+if TCPDUMP_BIN="$TMP/tcpdump" TMPDIR="$TMP/does-not-exist" sh "$HELPER" 192.168.1.203 1 >/dev/null 2>&1; then fail 'low-space path succeeded'; fi
 [ "$(cat "$foreign")" = foreign ] || fail 'foreign file changed'
 
 set +e
-TCPDUMP_BIN="$TMP/tcpdump" TMPDIR="$TMP" "$HELPER" 192.168.1.203 30 >"$TMP/signal.out" 2>&1 &
+TCPDUMP_BIN="$TMP/tcpdump" TMPDIR="$TMP" sh "$HELPER" 192.168.1.203 30 >"$TMP/signal.out" 2>&1 &
 pid=$!
 sleep 1
 kill -TERM "$pid"
