@@ -1,11 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { collectUiContract } from '../../tools/ui-rpc-contract.mjs';
 
 const root = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager';
 const expectedRpc = JSON.parse(readFileSync('tests/fixtures/ui-rpc-contract.json', 'utf8'));
-const css = readFileSync(`${root}/z2m-ui.css`, 'utf8');
+const css = [
+  readFileSync(`${root}/z2m-ui.css`, 'utf8'),
+  readFileSync(`${root}/z2m-ui-core.css`, 'utf8'),
+  readFileSync(`${root}/z2m-orchestra.css`, 'utf8')
+].join('\n');
 const menu = JSON.parse(readFileSync('luci-app-zapret2-manager/files/usr/share/luci/menu.d/luci-app-zapret2-manager.json', 'utf8'));
 
 test('frontend RPC method sets remain unchanged', () => {
@@ -83,4 +87,12 @@ test('TG PROXY keeps existing actions and QR implementation behind a new shell',
   assert.match(proxy, /view\.zapret2-manager\.proxy-legacy/);
   assert.match(legacy, /qrcode/);
   assert.match(legacy, /doQRCode/);
+});
+
+test('obsolete standalone UI artifacts are not shipped', () => {
+  assert.equal(existsSync(`${root}/combo-presets.js`), false);
+  assert.equal(existsSync(`${root}/orchestra-strategy.css`), false);
+  assert.equal(existsSync('tests/ui/combo-presets.test.mjs'), false);
+  assert.match(readFileSync(`${root}/z2m-ui.css`, 'utf8'), /z2m-orchestra\.css/);
+  assert.equal(Object.values(menu).some((entry) => entry.action && /combo-presets/.test(entry.action.path || '')), false);
 });
