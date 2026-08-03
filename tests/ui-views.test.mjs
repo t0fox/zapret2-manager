@@ -1,239 +1,82 @@
-// tests/ui-views.test.mjs — JS syntax check + menu coherence for all Z2M views (r38)
-
-import { describe, it } from 'node:test';
-import { strict as assert } from 'node:assert';
-import { execSync } from 'node:child_process';
+import test from 'node:test';
+import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { evaluateLuciModule } from '../tools/luci-module-smoke.mjs';
 
-const __dirname = resolve(fileURLToPath(import.meta.url), '..');
-const VIEW_DIR = resolve(__dirname, '..', 'luci-app-zapret2-manager', 'files', 'www', 'luci-static', 'resources', 'view', 'zapret2-manager');
-const MENU_JSON = resolve(__dirname, '..', 'luci-app-zapret2-manager', 'files', 'usr', 'share', 'luci', 'menu.d', 'luci-app-zapret2-manager.json');
-const Z2M_CSS = resolve(VIEW_DIR, 'z2m-ui.css');
-const SERVICE_DNS_JS = resolve(VIEW_DIR, 'service-dns.js');
+const VIEW_DIR = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager';
+const MENU = JSON.parse(readFileSync('luci-app-zapret2-manager/files/usr/share/luci/menu.d/luci-app-zapret2-manager.json', 'utf8'));
+const ACL = JSON.parse(readFileSync('luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json', 'utf8'))['zapret2-manager'];
+const INTERNAL = {
+  overview: 'z2m-overview.js', strategy: 'z2m-strategy-page.js', services: 'z2m-services.js',
+  lists: 'z2m-lists.js', dns: 'z2m-dns.js', proxy: 'z2m-proxy.js',
+  monitor: 'z2m-monitor.js', maintenance: 'z2m-maintenance.js'
+};
+const REDIRECTS = {
+  'orchestra-strategy.js': 'overview', 'orchestra.js': 'strategy', 'strategies.js': 'strategy',
+  'lists.js': 'lists', 'dns.js': 'dns', 'service-dns.js': 'dns', 'proxy.js': 'proxy',
+  'monitor.js': 'monitor', 'maintenance.js': 'maintenance'
+};
 
-function syntaxCheck(filePath) {
-	try { execSync('node --check ' + JSON.stringify(filePath), { stdio: 'pipe' }); return null; }
-	catch (e) { return String(e.stderr || e.message); }
-}
-
-describe('View JS syntax checks', () => {
-	const files = readdirSync(VIEW_DIR).filter(f => f.endsWith('.js'));
-	files.forEach(f => {
-		const path = join(VIEW_DIR, f);
-		it(f + ' passes node --check', () => {
-			const err = syntaxCheck(path);
-			assert.strictEqual(err, null, err || 'syntax OK');
-		});
-	});
+test('all shipped JavaScript files parse under the LuCI smoke loader', () => {
+  for (const file of readdirSync(VIEW_DIR).filter((name) => name.endsWith('.js'))) {
+    const mod = evaluateLuciModule(join(VIEW_DIR, file));
+    assert.ok(mod != null, file);
+  }
 });
 
-describe('DNS consolidation', () => {
-	it('menu JSON has exactly one DNS menu entry among sub-pages', () => {
-		const raw = JSON.parse(readFileSync(MENU_JSON, 'utf-8'));
-		const subKeys = Object.keys(raw).filter(k => k.startsWith('admin/services/zapret2-manager/'));
-		const dnsKeys = subKeys.filter(k => k === 'admin/services/zapret2-manager/dns');
-		assert.strictEqual(dnsKeys.length, 1, 'exactly one DNS tab: ' + JSON.stringify(dnsKeys));
-	});
-
-	it('no Service DNS menu entry remains', () => {
-		const raw = JSON.parse(readFileSync(MENU_JSON, 'utf-8'));
-		const subKeys = Object.keys(raw).filter(k => k.startsWith('admin/services/zapret2-manager/'));
-		assert.ok(!subKeys.includes('admin/services/zapret2-manager/service-dns'),
-			'service-dns menu entry must be absent');
-	});
-
-	it('all menu orders are integers', () => {
-		const raw = JSON.parse(readFileSync(MENU_JSON, 'utf-8'));
-		const subKeys = Object.keys(raw).filter(k => k.startsWith('admin/services/zapret2-manager/'));
-		subKeys.forEach(k => {
-			const entry = raw[k];
-			if (entry.order != null) {
-				assert.ok(Number.isInteger(entry.order),
-					k + ' has non-integer order: ' + entry.order);
-			}
-		});
-	});
-
-	it('exactly 7 visible primary product tabs', () => {
-		const raw = JSON.parse(readFileSync(MENU_JSON, 'utf-8'));
-		const subKeys = Object.keys(raw).filter(k => k.startsWith('admin/services/zapret2-manager/'));
-		assert.strictEqual(subKeys.length, 7,
-			'expected 7 primary sub-tabs: ' + JSON.stringify(subKeys.sort()));
-		assert.deepEqual(subKeys.map(k => raw[k]).sort((a, b) => a.order - b.order).map(v => v.title), ['Orchestra', 'Advanced', 'Lists', 'DNS', 'Monitor', 'Proxy', 'Maintenance']);
-	});
-
-	it('old service-dns.js still exists as a JS file (compatibility route)', () => {
-		assert.ok(existsSync(SERVICE_DNS_JS), 'service-dns.js must exist as a compatibility route');
-	});
-
-	it('service-dns.js passes syntax check', () => {
-		const err = syntaxCheck(SERVICE_DNS_JS);
-		assert.strictEqual(err, null, err || 'syntax OK');
-	});
+test('app is the only visible LuCI entry and owns eight internal tabs', () => {
+  const visible = Object.entries(MENU).filter(([, entry]) => entry.action && entry.hidden !== true);
+  assert.equal(visible.length, 1);
+  assert.equal(visible[0][1].action.path, 'zapret2-manager/app');
+  const app = readFileSync(join(VIEW_DIR, 'app.js'), 'utf8');
+  assert.equal((app.match(/L\.view\.extend/g) || []).length, 1);
+  for (const id of Object.keys(INTERNAL)) assert.match(app, new RegExp(`['"]${id}['"]`));
 });
 
-describe('Orchestra panel navigation contract', () => {
-	const ORCHESTRA_JS = readFileSync(join(VIEW_DIR, 'orchestra.js'), 'utf-8');
-	const MAINTENANCE_JS = readFileSync(join(VIEW_DIR, 'maintenance.js'), 'utf-8');
-
-	it('renders only the selected panel and persists it in the hash', () => {
-		assert.ok(ORCHESTRA_JS.includes('_panelFromHash:'), 'hash parser missing');
-		assert.ok(ORCHESTRA_JS.includes('pushState'), 'panel selection must use browser history');
-		assert.ok(ORCHESTRA_JS.includes("if (this._panel === 'orchestra-find')"), 'find panel branch missing');
-		assert.ok(ORCHESTRA_JS.includes("else if (this._panel === 'orchestra-results')"), 'results panel branch missing');
-		assert.ok(ORCHESTRA_JS.includes('_stopPolling(); self._panel = self._panelFromHash()'), 'panel navigation must stop old polling');
-	});
-
-	it('keeps legacy tools accessible from Maintenance', () => {
-		assert.ok(MAINTENANCE_JS.includes("L.url('admin/services/zapret2-manager/blockcheck')"));
-		assert.ok(!MAINTENANCE_JS.includes("L.url('admin/services/zapret2-manager/catalog')"));
-		assert.ok(MAINTENANCE_JS.includes("_('Legacy tools')"));
-	});
+test('all internal tab modules expose the lifecycle contract', () => {
+  for (const [id, file] of Object.entries(INTERNAL)) {
+    const mod = evaluateLuciModule(join(VIEW_DIR, file));
+    assert.equal(mod.id, id);
+    for (const method of ['load','render','mount','unmount']) assert.equal(typeof mod[method], 'function', `${file}: ${method}`);
+  }
 });
 
-describe('Dark-theme regression in shared CSS', () => {
-	it('z2m-ui.css contains dark mode z2m-mono override', () => {
-		const css = readFileSync(Z2M_CSS, 'utf-8');
-		assert.ok(css.includes('.z2m-mono') && css.includes('background'),
-			'z2m-mono must have a background in dark mode');
-	});
-
-	it('z2m-ui.css contains z2m-tabs styles', () => {
-		const css = readFileSync(Z2M_CSS, 'utf-8');
-		assert.ok(css.includes('.z2m-tabs'), 'z2m-tabs CSS class must exist');
-	});
-
-	it('z2m-tab hover/focus does not use invisible fallback color (#222, #000, black)', () => {
-		const css = readFileSync(Z2M_CSS, 'utf-8');
-		// collect all .z2m-tab* rules
-		const tabRules = css.match(/\.z2m-tab[^{]*\{[^}]*\}/g) || [];
-		tabRules.forEach(rule => {
-			// reject hardcoded dark/black text on any tab state
-			const colorMatch = rule.match(/color\s*:\s*(#[0-2][0-2][0-2]|black)/i);
-			if (colorMatch) {
-				// z2m-badge classes are allowed to use dark text (they set their own bg)
-				// but tab text must NOT have invisible colors
-				if (!/\.z2m-badge/.test(rule)) {
-					assert.ok(false, 'z2m-tab rule uses invisible text color: ' + colorMatch[0] + ' in: ' + rule.trim());
-				}
-			}
-		});
-		// specifically: hover must not set color: #222
-		const hoverMatch = css.match(/\.z2m-tab:hover[^{]*\{[^}]*color\s*:\s*#222/);
-		assert.strictEqual(hoverMatch, null, 'z2m-tab:hover must not use color: #222 (invisible on dark themes)');
-	});
-
-	it('z2m-tab-active has explicit color not relying on fallback', () => {
-		const css = readFileSync(Z2M_CSS, 'utf-8');
-		assert.ok(css.includes('z2m-tab-active'), 'z2m-tab-active must exist');
-		// must define its own color or inherit + opacity
-		const rules = css.match(/\.z2m-tab-active[^{]*\{[^}]*\}/g) || [];
-		const hasColor = rules.some(r => /color\s*:/.test(r));
-		const hasOpacity = rules.some(r => /opacity\s*:/.test(r));
-		assert.ok(hasColor || hasOpacity, 'z2m-tab-active must set color or opacity: ' + JSON.stringify(rules));
-	});
+test('hidden compatibility routes resolve to standalone redirects', () => {
+  for (const [file, tab] of Object.entries(REDIRECTS)) {
+    assert.equal(existsSync(join(VIEW_DIR, file)), true);
+    const source = readFileSync(join(VIEW_DIR, file), 'utf8');
+    assert.match(source, /window\.location\.replace/);
+    assert.match(source, new RegExp(`#/${tab}`));
+    assert.doesNotMatch(source, /-legacy|return\s+Legacy/);
+  }
 });
 
-describe('DNS Centre — section switching contract', () => {
-	const DNS_JS = resolve(VIEW_DIR, 'dns.js');
-
-	it('refresh does not use querySelector(".cbi-map")', () => {
-		const content = readFileSync(DNS_JS, 'utf-8');
-		const match = content.match(/querySelector\(['"]\.cbi-map['"]\)/);
-		assert.strictEqual(match, null, 'dns.js must not use querySelector(".cbi-map")');
-	});
-
-	it('has switchSection method', () => {
-		const content = readFileSync(DNS_JS, 'utf-8');
-		assert.ok(content.includes('switchSection:'), 'dns.js must define switchSection method');
-	});
-
-	it('has reload method', () => {
-		const content = readFileSync(DNS_JS, 'utf-8');
-		assert.ok(content.includes('reload:'), 'dns.js must define reload method');
-	});
-
-	it('render stores envelope and shell', function () {
-		var content = readFileSync(DNS_JS, 'utf-8');
-		assert.ok(content.includes('this._envelope'), 'render must store this._envelope');
-		assert.ok(content.includes('this._sectionHost'), 'render must store section host (shell arch)');
-	});
-
-	it('section click calls _renderSection', function () {
-		var content = readFileSync(DNS_JS, 'utf-8');
-		assert.ok(content.includes('switchSection') || content.includes('_renderSection'), 'section click must switch section');
-	});
-
-	it('all five sections defined', () => {
-		const content = readFileSync(DNS_JS, 'utf-8');
-		for (const id of ['setup', 'providers', 'services', 'advanced', 'history']) {
-			assert.ok(content.includes("'" + id + "'") || content.includes('"' + id + '"'),
-				'section ' + id + ' must be in SECTIONS array');
-		}
-	});
+test('every menu action resolves to a shipped view and has iterable ACL', () => {
+  for (const entry of Object.values(MENU)) {
+    if (!entry.action?.path) continue;
+    const leaf = entry.action.path.split('/').pop();
+    assert.equal(existsSync(join(VIEW_DIR, `${leaf}.js`)), true, entry.action.path);
+    assert.equal(Array.isArray(entry.depends?.acl), true, entry.action.path);
+  }
 });
 
-describe('DNS Centre — provider & rollback safety', () => {
-	const DNS_JS = resolve(VIEW_DIR, 'dns.js');
-	const dnsContent = readFileSync(DNS_JS, 'utf-8');
-
-	it('provider RPCs are in load() not in render/buildDOM', () => {
-		assert.ok(dnsContent.includes('grab(callProvComp)'), 'load() must call callProvComp');
-		assert.ok(dnsContent.includes('grab(callProvList)'), 'load() must call callProvList');
-		assert.ok(!dnsContent.includes('_provFetched'), 'must not have lazy-load state flag');
-		assert.ok(!dnsContent.includes('Promise.all([grab(callProvComp)'), 'providers must not lazy-load in render');
-	});
-
-	it('envelope carries provComp and provList from load()', () => {
-		assert.ok(dnsContent.includes('provComp: r[3].data') || dnsContent.includes('provComp:'), 'load() must store provComp');
-		assert.ok(dnsContent.includes('provList: r[4].data') || dnsContent.includes('provList:'), 'load() must store provList');
-	});
-
-	it('rollback DNS button is disabled when no revision/snapshot', () => {
-		const histStart = dnsContent.indexOf('historySection');
-		const histBody = dnsContent.substring(histStart);
-		assert.ok(histBody.includes('dnsRbAvailable'), 'DNS rollback must have availability guard');
-		assert.ok(histBody.includes('sdnsRbAvailable'), 'Service DNS rollback must have availability guard');
-		assert.ok(histBody.includes("'disabled':"), 'rollback buttons must be conditionally disabled');
-	});
-
-	it('tab scrollbar is hidden in CSS', () => {
-		const css = readFileSync(Z2M_CSS, 'utf-8');
-		const tabsStart = css.indexOf('.z2m-tabs {');
-		const tabsEnd = css.indexOf('}', tabsStart);
-		const tabsBlock = css.substring(tabsStart, tabsEnd);
-		assert.ok(tabsBlock.includes('scrollbar-width') || tabsBlock.includes('::-webkit-scrollbar'), 'tabs must hide scrollbar');
-	});
+test('central ACL covers critical read and write actions', () => {
+  const read = new Set(ACL.read.ubus['zapret2-manager']);
+  const write = new Set(ACL.write.ubus['zapret2-manager']);
+  for (const method of ['status','orchestra_run_status','orchestra_run_history','dns_get','proxy_status','backup_list']) assert.ok(read.has(method), method);
+  for (const method of ['discord_profile_apply','orchestra_run_start','dns_apply','proxy_restart','backup_create']) assert.ok(write.has(method), method);
 });
 
-describe('LuCI view file coherence', () => {
-	it('all view files return L.view.extend or define a module', () => {
-		const files = readdirSync(VIEW_DIR).filter(f => f.endsWith('.js') && f !== 'z2m-ui.js');
-		files.forEach(f => {
-			const content = readFileSync(join(VIEW_DIR, f), 'utf-8');
-			assert.ok(content.includes('.extend({') || content.includes('return {'),
-				f + ' does not appear to define a view module');
-		});
-	});
+test('single-view module graph has no runtime legacy imports', () => {
+  for (const file of ['app.js', ...Object.values(INTERNAL), 'z2m-api.js','z2m-store.js','z2m-shell.js','z2m-auto.js','z2m-runs.js','z2m-strategy.js']) {
+    const source = readFileSync(join(VIEW_DIR, file), 'utf8');
+    assert.doesNotMatch(source, /-legacy|return\s+Legacy/);
+  }
+});
 
-	it('no ucode-style type() calls remain in any view', () => {
-		const files = readdirSync(VIEW_DIR).filter(f => f.endsWith('.js'));
-		files.forEach(f => {
-			const content = readFileSync(join(VIEW_DIR, f), 'utf-8');
-			// should NOT have bare type(...) == 'int'
-			const matches = content.match(/type\([^)]+\)\s*==\s*'int'/g);
-			assert.strictEqual(matches, null, f + ' contains ucode-style type() type-check');
-		});
-	});
-
-	it('no ucode-style length() calls remain in any view', () => {
-		const files = readdirSync(VIEW_DIR).filter(f => f.endsWith('.js'));
-		files.forEach(f => {
-			const content = readFileSync(join(VIEW_DIR, f), 'utf-8');
-			const matches = content.match(/length\(Object\.keys/g);
-			assert.strictEqual(matches, null, f + ' contains ucode-style length()');
-		});
-	});
+test('local styles and QR encoder are shipped', () => {
+  for (const file of ['z2m-ui.css','z2m-components.css','z2m-qr.js']) assert.equal(existsSync(join(VIEW_DIR, file)), true, file);
+  const css = readFileSync(join(VIEW_DIR, 'z2m-ui.css'), 'utf8') + readFileSync(join(VIEW_DIR, 'z2m-components.css'), 'utf8');
+  assert.doesNotMatch(css, /@import|https?:\/\//);
 });
