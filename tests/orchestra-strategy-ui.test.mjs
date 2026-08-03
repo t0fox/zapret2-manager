@@ -6,11 +6,12 @@ import path from 'node:path';
 const root = path.resolve('.');
 const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
 const uiPath = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/orchestra-strategy.js';
+const legacyUiPath = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/orchestra-strategy-legacy.js';
 const backendPath = 'zapret2-manager/files/usr/libexec/zapret2-manager/discord-profile-cli.uc';
 const menuPath = 'luci-app-zapret2-manager/files/usr/share/luci/menu.d/luci-app-zapret2-manager.json';
 
 test('strategy-first UI wires explicit apply, targeted runs, overrides and advanced mode', () => {
-  const ui = read(uiPath);
+  const ui = read(uiPath) + '\n' + read(legacyUiPath);
   assert.match(ui, /discord_profile_preview/);
   assert.match(ui, /discord_profile_apply/);
   assert.match(ui, /discord_profile_rollback/);
