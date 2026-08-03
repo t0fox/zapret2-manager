@@ -101,11 +101,11 @@ function selectedId(ctx, list, preview) {
   var activeId = active(preview) && (active(preview).candidateId || active(preview).managerId);
   return current || activeId || (list[0] && candidateId(list[0])) || null;
 }
-function select(ctx, id) {
+function select(ctx, id, redraw) {
   var snapshot = ctx.store.get();
   ctx.store.update({ pending: Object.assign({}, snapshot.pending, { pendingStrategyId: id }) });
   setStrategyDraft(ctx, { candidateId: id });
-  ctx.refresh('strategy');
+  if (typeof redraw === 'function') redraw();
 }
 function renderRun(run, shell) {
   if (!run) return E('div', { 'class': 'z2m-dim' }, _('Проверка не запускалась.'));
@@ -188,6 +188,9 @@ function render(ctx) {
   var detailsHost = E('div', { id: 'z2m-strategy-details' });
   var runHost = E('div', { id: 'z2m-strategy-run-result' }, renderRun(recent, shell));
   var targetInput = E('input', { type: 'text', value: state.target, placeholder: 'discord.com', 'aria-label': _('Цель проверки') });
+  var panes = null;
+  var paneHost = null;
+  var subtabs = null;
   targetInput.addEventListener('input', function () { state.target = targetInput.value; });
 
   function showError(error) { shell.showToast(ctx.api.normalizeError(error).message, 'err'); }
@@ -378,40 +381,49 @@ function render(ctx) {
     return E('div', {}, nodes);
   }
 
-  list.forEach(function (candidate) {
-    var id = candidateId(candidate);
-    var isSelected = id === pendingStrategyId;
-    var isActive = activeItem && (activeItem.candidateId === id || activeItem.managerId === id);
-    var row = E('button', { type: 'button', 'class': 'z2m-srow' + (isSelected ? ' sel' : ''), 'aria-pressed': isSelected ? 'true' : 'false' }, [
-      E('div', {}, [
-        E('div', { 'class': 'nm' }, [candidateName(candidate), isActive ? shell.chip(_('применена'), 'g') : candidate.recommended ? shell.chip(_('рекомендуем'), 'b') : E('span')]),
-        E('div', { 'class': 'ds' }, candidate.description || _('Встроенная стратегия')),
-        E('div', { 'class': 'z2m-tech' }, candidate.digest || id)
-      ]),
-      E('div', { 'class': 'z2m-num' }, candidate.successCount == null ? '—' : String(candidate.successCount)),
-      E('div', { 'class': 'z2m-num' }, candidate.latencyMs == null ? '—' : String(candidate.latencyMs) + ' мс'),
-      E('div', {}, isSelected ? shell.chip(_('выбрана'), 'b') : _('Выбрать'))
-    ]);
-    row.addEventListener('click', function () { select(ctx, id); });
-    listHost.appendChild(row);
-  });
-  if (!list.length) listHost.appendChild(shell.empty(_('Каталог стратегий недоступен.')));
+  function renderCandidateSelection() {
+    pendingStrategyId = selectedId(ctx, list, preview);
+    selected = list.find(function (item) { return candidateId(item) === pendingStrategyId; }) || null;
+    activeItem = active(preview);
+    listHost.replaceChildren();
+    detailsHost.replaceChildren();
 
-  if (selected) detailsHost.appendChild(E('div', {}, [
-    E('h3', {}, candidateName(selected)),
-    E('p', { 'class': 'z2m-muted' }, selected.description || _('Описание не предоставлено backend.')),
-    E('div', { 'class': 'z2m-kpis' }, [
-      metric(selected.profileCount, _('профилей')), metric(selected.tcpPorts, _('TCP')),
-      metric(selected.udpPorts, _('UDP')), metric(selected.confidence, _('confidence'))
-    ]),
-    E('div', { 'class': 'z2m-btnrow' }, [
-      shell.button(_('Применить'), 'primary', applySelected),
-      shell.button(_('Откатить'), '', function () {
-        ctx.api.strategy.rollback().then(function () { reload(); }).catch(showError);
-      }, !activeItem)
-    ])
-  ]));
-  else detailsHost.appendChild(shell.empty(_('Выберите стратегию.')));
+    list.forEach(function (candidate) {
+      var id = candidateId(candidate);
+      var isSelected = id === pendingStrategyId;
+      var isActive = activeItem && (activeItem.candidateId === id || activeItem.managerId === id);
+      var row = E('button', { type: 'button', 'class': 'z2m-srow' + (isSelected ? ' sel' : ''), 'aria-pressed': isSelected ? 'true' : 'false' }, [
+        E('div', {}, [
+          E('div', { 'class': 'nm' }, [candidateName(candidate), isActive ? shell.chip(_('применена'), 'g') : candidate.recommended ? shell.chip(_('рекомендуем'), 'b') : E('span')]),
+          E('div', { 'class': 'ds' }, candidate.description || _('Встроенная стратегия')),
+          E('div', { 'class': 'z2m-tech' }, candidate.digest || id)
+        ]),
+        E('div', { 'class': 'z2m-num' }, candidate.successCount == null ? '—' : String(candidate.successCount)),
+        E('div', { 'class': 'z2m-num' }, candidate.latencyMs == null ? '—' : String(candidate.latencyMs) + ' мс'),
+        E('div', {}, isSelected ? shell.chip(_('выбрана'), 'b') : _('Выбрать'))
+      ]);
+      row.addEventListener('click', function () { select(ctx, id, renderCandidateSelection); });
+      listHost.appendChild(row);
+    });
+    if (!list.length) listHost.appendChild(shell.empty(_('Каталог стратегий недоступен.')));
+
+    if (selected) detailsHost.appendChild(E('div', {}, [
+      E('h3', {}, candidateName(selected)),
+      E('p', { 'class': 'z2m-muted' }, selected.description || _('Описание не предоставлено backend.')),
+      E('div', { 'class': 'z2m-kpis' }, [
+        metric(selected.profileCount, _('профилей')), metric(selected.tcpPorts, _('TCP')),
+        metric(selected.udpPorts, _('UDP')), metric(selected.confidence, _('confidence'))
+      ]),
+      E('div', { 'class': 'z2m-btnrow' }, [
+        shell.button(_('Применить'), 'primary', applySelected),
+        shell.button(_('Откатить'), '', function () {
+          ctx.api.strategy.rollback().then(function () { reload(); }).catch(showError);
+        }, !activeItem)
+      ])
+    ]));
+    else detailsHost.appendChild(shell.empty(_('Выберите стратегию.')));
+  }
+  renderCandidateSelection();
 
   function renderProfileChain() {
     var drafts = draftProfiles(profileData);
@@ -491,6 +503,14 @@ function render(ctx) {
     ]);
   }
 
+  function showSubtab(id) {
+    state.subtab = id;
+    if (paneHost && panes && panes[id]) paneHost.replaceChildren(panes[id]);
+    if (subtabs) Array.from(subtabs.children).forEach(function (node) {
+      node.classList.toggle('on', node.getAttribute('data-subtab') === id);
+    });
+  }
+
   function renderHistoryPane() {
     var runs = asArray(history.runs);
     var rows = runs.map(function (run) {
@@ -502,7 +522,10 @@ function render(ctx) {
         E('td', {}, candidate ? candidateName(candidate) : display(winner.displayName || winner.name || id)),
         E('td', { 'class': 'z2m-dim' }, display(run.source || run.trigger || run.mode)),
         E('td', {}, shell.chip(display(run.phase || run.status), run.phase === 'completed' || run.status === 'applied' ? 'g' : 'o')),
-        E('td', {}, candidate ? shell.button(_('Вернуть'), 'sm', function () { select(ctx, candidateId(candidate)); state.subtab = 'list'; }) : E('span'))
+        E('td', {}, candidate ? shell.button(_('Вернуть'), 'sm', function () {
+          select(ctx, candidateId(candidate), renderCandidateSelection);
+          showSubtab('list');
+        }) : E('span'))
       ]);
     });
     return shell.panel(_('История применений'), runs.length ? E('div', { 'class': 'z2m-table-wrap' }, E('table', { 'class': 't' }, [
@@ -511,7 +534,7 @@ function render(ctx) {
     ])) : shell.empty(_('История пока пуста.')));
   }
 
-  var panes = {
+  panes = {
     list: E('div', { 'class': 'z2m-strategy-pane' }, [
       shell.panel(_('Доступные стратегии'), listHost, _('выбор попадает в черновик')),
       E('div', { 'class': 'z2m-row2' }, [
@@ -527,18 +550,14 @@ function render(ctx) {
     hist: renderHistoryPane()
   };
 
-  var paneHost = E('div', { id: 'z2m-strategy-pane' }, panes[state.subtab]);
-  var subtabs = E('div', { 'class': 'z2m-subtabs', role: 'tablist' });
+  paneHost = E('div', { id: 'z2m-strategy-pane' }, panes[state.subtab]);
+  subtabs = E('div', { 'class': 'z2m-subtabs', role: 'tablist' });
   [['list',_('Стратегии'),false],['chain',_('Цепочка профилей'),true],['check',_('Проверка конфига'),true],['hist',_('История'),false]].forEach(function (item) {
     var btn = E('button', {
       type: 'button', 'data-subtab': item[0],
       'class': (state.subtab === item[0] ? 'on' : '') + (item[2] ? ' z2m-adv-only' : '')
     }, item[1]);
-    btn.addEventListener('click', function () {
-      state.subtab = item[0];
-      paneHost.replaceChildren(panes[item[0]]);
-      Array.from(subtabs.children).forEach(function (node) { node.classList.toggle('on', node === btn); });
-    });
+    btn.addEventListener('click', function () { showSubtab(item[0]); });
     subtabs.appendChild(btn);
   });
 
