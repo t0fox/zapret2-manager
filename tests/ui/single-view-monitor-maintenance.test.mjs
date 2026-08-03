@@ -14,7 +14,7 @@ for (const name of ['z2m-monitor.js', 'z2m-maintenance.js']) {
   });
 }
 
-test('monitor polls only while mounted and capability-gates events_tail', () => {
+test('monitor polls only while mounted and capability-gates events_tail after the first unsupported response', () => {
   const src = source('z2m-monitor.js');
   assert.match(src, /api\.monitor\.status/);
   assert.match(src, /api\.monitor\.eventsTail/);
@@ -23,10 +23,11 @@ test('monitor polls only while mounted and capability-gates events_tail', () => 
   assert.match(src, /function\s+unmount[\s\S]*clearInterval/);
   assert.match(src, /События недоступны: установленный backend не предоставляет events_tail\./);
   assert.match(src, /eventsUnsupported/);
+  assert.match(src, /eventsUnsupported\s*\?\s*Promise\.resolve/);
   assert.doesNotMatch(src, /\|\|\s*0/);
 });
 
-test('maintenance preserves every backup workflow and visible preview host', () => {
+test('maintenance preserves every backup workflow, visible preview host and shared modal confirmations', () => {
   const src = source('z2m-maintenance.js');
   for (const token of [
     'api.maintenance.versions','api.maintenance.status','api.maintenance.backupList',
@@ -36,7 +37,9 @@ test('maintenance preserves every backup workflow and visible preview host', () 
   for (const scope of ['engineConfig','ourState','lists','profiles']) assert.match(src, new RegExp(scope));
   assert.match(src, /id:\s*['"]z2m-backup-preview['"]/);
   assert.match(src, /ctx\.root\.replaceChildren/);
-  assert.match(src, /window\.confirm/);
+  assert.match(src, /shell\.openModal/);
+  assert.match(src, /shell\.closeModal/);
+  assert.doesNotMatch(src, /window\.confirm/);
   assert.doesNotMatch(src, /\.cbi-map/);
 });
 
