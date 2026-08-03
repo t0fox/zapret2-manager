@@ -84,7 +84,9 @@ test('draft and confirmation bars expose safe scope-aware actions', () => {
     assert.match(shell, new RegExp(id));
   assert.match(shell, /renderConfirmBar/);
   assert.match(store, /clearAllDrafts/);
-  assert.match(app, /DRAFT_TAB/);
+  assert.match(app, /DRAFT_META/);
+  assert.match(app, /renderDraftDiff/);
+  assert.match(app, /openDraftScope/);
   assert.match(app, /Api\.strategy\.confirmAlive/);
   assert.match(app, /Api\.strategy\.rollbackManager/);
   assert.match(app, /rollback_ttl/);
