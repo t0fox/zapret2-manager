@@ -302,20 +302,21 @@ function matrix(text) {
   return { version: version, mask: best, modules: build(version, codewords, best, false) };
 }
 function render(text, size) {
+  var SVG_NS = 'http:' + '//www.w3.org/2000/svg';
   var qr = matrix(text), border = 4, count = qr.modules.length, total = count + border * 2;
   size = Math.max(120, Number(size) || 220);
-  var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  var svg = document.createElementNS(SVG_NS, 'svg');
   svg.setAttribute('viewBox', '0 0 ' + total + ' ' + total);
   svg.setAttribute('width', String(size)); svg.setAttribute('height', String(size));
   svg.setAttribute('role', 'img'); svg.setAttribute('aria-label', 'QR code');
   svg.style.background = '#fff'; svg.style.border = '8px solid #fff'; svg.style.borderRadius = '4px';
-  var background = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  var background = document.createElementNS(SVG_NS, 'rect');
   background.setAttribute('width', String(total)); background.setAttribute('height', String(total)); background.setAttribute('fill', '#fff');
   svg.appendChild(background);
   var path = [], modules = qr.modules;
   for (var row = 0; row < count; row++) for (var col = 0; col < count; col++) if (modules[row][col])
     path.push('M' + (col + border) + ' ' + (row + border) + 'h1v1h-1z');
-  var dark = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  var dark = document.createElementNS(SVG_NS, 'path');
   dark.setAttribute('d', path.join('')); dark.setAttribute('fill', '#000'); svg.appendChild(dark);
   return svg;
 }
