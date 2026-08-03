@@ -16,6 +16,8 @@
 #     recorded as fail=1, never as pass=0/fail=0 "success".
 #   - a file whose output carries NO TAP summary at all (and rc=0) is also
 #     red: the runner does not trust silent success.
+#   - Node's TAP summary changed from "ℹ pass N" to "# pass N" in newer
+#     releases; both forms are accepted, without weakening crash detection.
 #   - a shell gate exit != 0 reddens the run.
 #   - an expected suite category that discovers ZERO files is an ERROR
 #     (exit 2), not a silent success.
@@ -83,8 +85,12 @@ while IFS= read -r f; do
 		*.test.mjs)
 			out="$("$NODE" --test "$f" 2>&1)"
 			rc=$?
-			p="$(printf '%s\n' "$out" | sed -n 's/.*ℹ pass \([0-9][0-9]*\).*/\1/p' | tail -1)"
-			fa="$(printf '%s\n' "$out" | sed -n 's/.*ℹ fail \([0-9][0-9]*\).*/\1/p' | tail -1)"
+			p="$(printf '%s\n' "$out" | sed -n \
+				-e 's/.*ℹ pass \([0-9][0-9]*\).*/\1/p' \
+				-e 's/^[[:space:]]*# pass \([0-9][0-9]*\).*/\1/p' | tail -1)"
+			fa="$(printf '%s\n' "$out" | sed -n \
+				-e 's/.*ℹ fail \([0-9][0-9]*\).*/\1/p' \
+				-e 's/^[[:space:]]*# fail \([0-9][0-9]*\).*/\1/p' | tail -1)"
 			note=""
 			if [ "$rc" -ne 0 ]; then
 				# process failure (syntax crash, loader error, failing tests):
