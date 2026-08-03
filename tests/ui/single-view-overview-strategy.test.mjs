@@ -6,7 +6,7 @@ import { evaluateLuciModule } from '../../tools/luci-module-smoke.mjs';
 const root = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager';
 const source = (name) => readFileSync(`${root}/${name}`, 'utf8');
 
-for (const name of ['z2m-overview.js', 'z2m-strategy.js']) {
+for (const name of ['z2m-overview.js', 'z2m-strategy.js', 'z2m-strategy-page.js']) {
   test(`${name} exposes the internal tab lifecycle`, () => {
     const mod = evaluateLuciModule(`${root}/${name}`);
     for (const key of ['id','title','subtitle','load','render','mount','unmount'])
@@ -65,10 +65,16 @@ test('advanced Strategy restores profile draft workflows with exact existing API
   assert.doesNotMatch(src, /JSON\.stringify\(data\.(?:profiles|preflight)|JSON\.stringify\(history/);
 });
 
-test('app registers overview and strategy modules instead of placeholders', () => {
+test('app registers Overview and the composed Strategy page instead of placeholders', () => {
   const app = source('app.js');
+  const page = source('z2m-strategy-page.js');
   assert.match(app, /z2m-overview as Overview/);
-  assert.match(app, /z2m-strategy as Strategy/);
+  assert.match(app, /z2m-strategy-page as Strategy/);
   assert.match(app, /overview:\s*Overview/);
   assert.match(app, /strategy:\s*Strategy/);
+  assert.match(page, /z2m-strategy as Strategy/);
+  assert.match(page, /z2m-auto as Auto/);
+  assert.match(page, /Auto\.load\(ctx\)/);
+  assert.match(page, /Auto\.render\(ctx/);
+  assert.match(page, /Auto\.unmount\(\)/);
 });
