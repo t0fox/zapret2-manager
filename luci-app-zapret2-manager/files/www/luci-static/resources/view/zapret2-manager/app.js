@@ -17,10 +17,14 @@ var TAB_LABELS = {
   overview: _('Обзор'), strategy: _('Стратегия'), services: _('Сервисы'), lists: _('Списки'),
   dns: _('DNS'), proxy: _('Telegram Proxy'), monitor: _('Мониторинг'), maintenance: _('Обслуживание')
 };
-var MODULES = { overview: Overview, strategy: Strategy, services: Services, lists: Lists, dns: Dns, proxy: Proxy, monitor: Monitor, maintenance: Maintenance };
+var MODULES = {
+  overview: Overview, strategy: Strategy, services: Services, lists: Lists,
+  dns: Dns, proxy: Proxy, monitor: Monitor, maintenance: Maintenance
+};
 var store = StoreModule.create();
 var hashHandler = null;
 var activeModule = null;
+var activeContext = null;
 var activationToken = 0;
 
 function tabFromHash() {
@@ -33,7 +37,9 @@ function setHash(tab) {
 }
 function placeholderModule(tab) {
   return {
-    id: tab, title: TAB_LABELS[tab], subtitle: _('Раздел подключается к существующему RPC backend.'),
+    id: tab,
+    title: TAB_LABELS[tab],
+    subtitle: _('Раздел подключается к существующему RPC backend.'),
     load: function () { return Promise.resolve({}); },
     render: function () {
       return E('section', { 'class': 'z2m-view on', 'data-view': tab }, [
@@ -43,7 +49,8 @@ function placeholderModule(tab) {
         Shell.panel(TAB_LABELS[tab], Shell.empty(_('Раздел будет перенесён на следующих шагах.')))
       ]);
     },
-    mount: function () {}, unmount: function () {}
+    mount: function () {},
+    unmount: function () {}
   };
 }
 function moduleFor(tab) { return MODULES[tab] || placeholderModule(tab); }
@@ -57,7 +64,9 @@ function statusState(initial) {
 
 return L.view.extend({
   load: function () {
-    return Api.service.status().catch(function (error) { return { error: Api.normalizeError(error) }; });
+    return Api.service.status().catch(function (error) {
+      return { error: Api.normalizeError(error) };
+    });
   },
   render: function (initial) {
     Shell.injectCss();
@@ -69,19 +78,34 @@ return L.view.extend({
 
     function context(tab, module, data, node) {
       return {
-        api: Api, store: store, shell: Shell, root: node || content, data: data || {}, initial: initial || {},
-        navigate: function (next) { setHash(next); activate(next); },
+        api: Api,
+        store: store,
+        shell: Shell,
+        root: node || content,
+        data: data || {},
+        initial: initial || {},
+        navigate: function (next) { return navigateTo(next); },
         refresh: function (next) { return activate(next || tab, true); },
         setDraft: function (scope, value) { store.setDraft(scope, value); },
         clearDraft: function (scope) { store.clearDraft(scope); }
       };
     }
+    function navigateTo(tab) {
+      if (TAB_IDS.indexOf(tab) < 0) tab = 'overview';
+      if (window.location.hash !== '#/' + tab) {
+        setHash(tab);
+        return Promise.resolve();
+      }
+      return activate(tab);
+    }
     function activate(tab, force) {
       if (TAB_IDS.indexOf(tab) < 0) tab = 'overview';
       var token = ++activationToken;
       var module = moduleFor(tab);
-      if (activeModule && activeModule.unmount) activeModule.unmount(context(tab, activeModule));
+      if (activeModule && activeContext && activeModule.unmount)
+        activeModule.unmount(activeContext);
       activeModule = module;
+      activeContext = null;
       store.update({ ui: Object.assign({}, store.get().ui, { tab: tab }) });
       Array.from(tabs.querySelectorAll('button[data-tab]')).forEach(function (button) {
         var selected = button.getAttribute('data-tab') === tab;
@@ -94,22 +118,28 @@ return L.view.extend({
         var ctx = context(tab, module, data);
         var node = module.render(ctx);
         ctx.root = node;
+        activeContext = ctx;
         content.replaceChildren(node);
         if (module.mount) module.mount(ctx);
-        if (appRoot && appRoot.scrollIntoView && !force) appRoot.scrollIntoView({ block: 'start' });
+        if (appRoot && appRoot.scrollIntoView && !force)
+          appRoot.scrollIntoView({ block: 'start' });
       }).catch(function (error) {
         if (token !== activationToken) return;
+        activeContext = null;
         content.replaceChildren(E('div', { 'class': 'warnbar' }, Api.normalizeError(error).message));
       });
     }
 
     TAB_IDS.forEach(function (tab) {
-      var button = E('button', {
-        type: 'button', 'data-tab': tab, 'class': tab === active ? 'on' : '', role: 'tab',
+      var tabButton = E('button', {
+        type: 'button',
+        'data-tab': tab,
+        'class': tab === active ? 'on' : '',
+        role: 'tab',
         'aria-selected': tab === active ? 'true' : 'false'
       }, TAB_LABELS[tab]);
-      button.addEventListener('click', function () { setHash(tab); activate(tab); });
-      tabs.appendChild(button);
+      tabButton.addEventListener('click', function () { navigateTo(tab); });
+      tabs.appendChild(tabButton);
     });
     if (hashHandler) window.removeEventListener('hashchange', hashHandler);
     hashHandler = function () { activate(tabFromHash()); };
@@ -133,9 +163,13 @@ return L.view.extend({
       E('div', { id: 'z2m-modal', 'class': 'z2m-scrim' }),
       E('div', { id: 'z2m-toasts', 'class': 'z2m-toasts' })
     ]);
-    store.subscribe(function () { applyBar.classList.toggle('hidden', !store.hasDraft()); });
+    store.subscribe(function () {
+      applyBar.classList.toggle('hidden', !store.hasDraft());
+    });
     Promise.resolve().then(function () { activate(active); });
     return appRoot;
   },
-  handleSaveApply: null, handleSave: null, handleReset: null
+  handleSaveApply: null,
+  handleSave: null,
+  handleReset: null
 });
