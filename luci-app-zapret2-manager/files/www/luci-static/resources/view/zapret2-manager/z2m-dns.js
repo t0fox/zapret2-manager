@@ -2,14 +2,19 @@
 'require baseclass';
 
 var PANES = [
-  ['setup', _('DNS Setup')], ['check', _('Check & Choose')], ['access', _('Service Access')],
-  ['adv', _('Advanced')], ['hist', _('History')]
+  ['setup', _('Настройка DNS')],
+  ['check', _('Проверка и выбор')],
+  ['access', _('Доступ сервисов')],
+  ['adv', _('Дополнительно')],
+  ['hist', _('История')]
 ];
 var SERVICE_TERMINAL = ['completed','applied','failed','rolled-back','cancelled','canceled','stopped'];
 var state = {
   pane: 'setup',
   manual: null,
   selections: null,
+  serviceBaseline: null,
+  serviceLabels: {},
   providerBusy: {},
   providerResults: {},
   providerErrors: {},
@@ -19,6 +24,7 @@ var state = {
   lastOperation: null,
   serviceOperationTimer: null,
   serviceOperationInFlight: false,
+  openPane: null,
   disposed: false
 };
 
@@ -62,6 +68,61 @@ function selectionMap(status) {
   });
   return result;
 }
+function serviceLabelMap(status) {
+  var source = status && (status.services || status.mappings || status.availableServices) || {};
+  var result = {};
+  if (Array.isArray(source)) source.forEach(function (item) {
+    var id = item && (item.serviceId || item.id);
+    if (id) result[id] = item.name || item.label || item.displayName || id;
+  });
+  else Object.keys(source || {}).forEach(function (id) {
+    var item = source[id];
+    result[id] = item && typeof item === 'object' ? item.name || item.label || item.displayName || id : id;
+  });
+  return result;
+}
+function serviceDnsChanges() {
+  var changes = {};
+  var seen = {};
+  Object.keys(state.serviceBaseline || {}).concat(Object.keys(state.selections || {})).forEach(function (id) {
+    if (seen[id]) return;
+    seen[id] = true;
+    var before = state.serviceBaseline && state.serviceBaseline[id] || '';
+    var after = state.selections && state.selections[id] || '';
+    if (before !== after) changes[id] = {
+      label: state.serviceLabels[id] || id,
+      before: before,
+      after: after
+    };
+  });
+  return changes;
+}
+function updateServiceDnsDraft(ctx) {
+  var changes = serviceDnsChanges();
+  if (Object.keys(changes).length) ctx.setDraft('service-dns', { changes: changes });
+  else ctx.clearDraft('service-dns');
+}
+function openDraft(scope) {
+  if (scope !== 'service-dns') return;
+  state.pane = 'access';
+  if (typeof state.openPane === 'function') state.openPane('access');
+}
+function focusDraft(ctx, scope) {
+  if (scope !== 'service-dns' || !ctx || !ctx.root || !ctx.root.querySelector) return;
+  var target = ctx.root.querySelector('[data-service-dns-id].changed') || ctx.root.querySelector('#z2m-service-dns-grid');
+  if (!target) return;
+  target.classList.add('focus');
+  if (target.scrollIntoView) target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  window.setTimeout(function () { target.classList.remove('focus'); }, 1800);
+}
+function resetDraft(scope) {
+  if (!scope || scope === 'service-dns') {
+    state.selections = null;
+    state.serviceBaseline = null;
+    state.serviceLabels = {};
+  }
+  if (!scope || scope === 'dns') state.manual = null;
+}
 function collectMessages(value, out, depth) {
   if (depth > 5 || value == null) return out;
   if (typeof value === 'string') { out.push(value); return out; }
@@ -97,18 +158,29 @@ function render(ctx) {
   var providers = providerRows(data.providers && data.providers.value || {});
   var serviceProviders = providerRows(data.serviceProviders && data.serviceProviders.value || {});
   var currentProviderId = selectedProviderId(dns, providers);
+  var loadedSelections = selectionMap(serviceStatus);
   if (state.manual == null) state.manual = cloneEntries(dns);
-  if (state.selections == null) state.selections = selectionMap(serviceStatus);
+  if (state.serviceBaseline == null) state.serviceBaseline = Object.assign({}, loadedSelections);
+  if (state.selections == null) state.selections = Object.assign({}, state.serviceBaseline);
+  if (!Object.keys(state.serviceLabels).length) state.serviceLabels = serviceLabelMap(serviceStatus);
   var root = E('section', { 'class': 'z2m-view on', id: 'z2m-view-dns' });
   var host = E('div', { id: 'z2m-dns-pane' });
   var tabs = E('div', { 'class': 'z2m-subtabs', role: 'tablist' });
 
   function showError(error) { shell.showToast(ctx.api.normalizeError(error).message, 'err'); }
-  function setPane(id) { state.pane = id; renderTabs(); renderPane(); }
+  function setPane(id) {
+    state.pane = id;
+    renderTabs();
+    renderPane();
+  }
+  state.openPane = setPane;
   function renderTabs() {
     tabs.replaceChildren();
     PANES.forEach(function (item) {
-      var button = E('button', { type: 'button', 'class': state.pane === item[0] ? 'on' : '', 'aria-selected': state.pane === item[0] ? 'true' : 'false' }, item[1]);
+      var button = E('button', {
+        type: 'button', 'class': state.pane === item[0] ? 'on' : '',
+        'aria-selected': state.pane === item[0] ? 'true' : 'false'
+      }, item[1]);
       button.addEventListener('click', function () { setPane(item[0]); });
       tabs.appendChild(button);
     });
@@ -138,7 +210,7 @@ function render(ctx) {
       if (answer && answer.ok === false) throw answer;
       state.manual = null;
       ctx.clearDraft('dns');
-      shell.showToast(_('Automatic DNS восстановлен.'), 'ok');
+      shell.showToast(_('Автоматический DNS восстановлен.'), 'ok');
       return ctx.refresh('dns');
     }).catch(showError);
   }
@@ -148,7 +220,7 @@ function render(ctx) {
     var checkResult = E('div', { 'class': 'z2m-dns-check-result' }, state.dnsCheck ? renderDnsCheck(state.dnsCheck) : E('div', { 'class': 'z2m-dim' }, _('DNS ещё не проверялся.')));
     function redraw() {
       rows.replaceChildren();
-      if (!entries.length) rows.appendChild(shell.empty(_('Ручных DNS override пока нет.')));
+      if (!entries.length) rows.appendChild(shell.empty(_('Ручных DNS-переопределений пока нет.')));
       entries.forEach(function (entry, index) {
         var domain = E('input', { type: 'text', value: entry.domain, placeholder: 'example.com', 'aria-label': _('Домен') });
         var ip = E('input', { type: 'text', value: entry.ip, placeholder: '1.1.1.1', 'aria-label': _('IP-адрес') });
@@ -164,7 +236,7 @@ function render(ctx) {
       state.manual = cloneEntries(dns);
       entries = state.manual;
       ctx.clearDraft('dns');
-      shell.showToast(_('DNS-черновик отменён.'), 'ok');
+      shell.showToast(_('Изменения DNS отменены.'), 'ok');
       redraw();
     }
     function save(button) {
@@ -180,15 +252,19 @@ function render(ctx) {
         state.manual = null;
         ctx.clearDraft('dns');
         if (ctx.setConfirmation) ctx.setConfirmation(answer);
-        shell.showToast(_('DNS overrides применены.'), 'ok');
+        shell.showToast(_('DNS-переопределения применены.'), 'ok');
         return ctx.refresh('dns');
       }).catch(function (error) { button.disabled = false; showError(error); });
     }
     redraw();
-    var add = shell.button(_('Добавить override'), 'sm', function () { entries.push({ domain: '', ip: '', enabled: true }); ctx.setDraft('dns', { entries: entries }); redraw(); });
+    var add = shell.button(_('Добавить переопределение'), 'sm', function () {
+      entries.push({ domain: '', ip: '', enabled: true });
+      ctx.setDraft('dns', { entries: entries });
+      redraw();
+    });
     var discardButton = shell.button(_('Отменить изменения'), 'sm', discard);
     var checkButton = shell.button(_('Проверить DNS'), 'sm', function () { checkDns(checkButton, checkResult); });
-    var restoreButton = shell.button(_('Вернуть automatic DNS'), 'sm', restoreAutomaticDns);
+    var restoreButton = shell.button(_('Вернуть автоматический DNS'), 'sm', restoreAutomaticDns);
     var apply = shell.button(_('Проверить и применить'), 'primary', function () { save(apply); });
     var rollback = shell.button(_('Откатить DNS'), 'danger sm', function () {
       ctx.api.dns.rollback().then(function (answer) {
@@ -198,7 +274,7 @@ function render(ctx) {
       }).catch(showError);
     }, dns.rollbackAvailable !== true);
     return E('div', {}, [
-      shell.panel(_('Ручные DNS overrides'), E('div', {}, [rows, E('div', { 'class': 'z2m-page-actions' }, [add, discardButton, checkButton, restoreButton, rollback, apply])]), _('manager-owned addnhosts file · dns_validate → dns_set → dns_apply')),
+      shell.panel(_('Ручные DNS-переопределения'), E('div', {}, [rows, E('div', { 'class': 'z2m-page-actions' }, [add, discardButton, checkButton, restoreButton, rollback, apply])]), _('Изменения хранятся в отдельном файле менеджера.')),
       shell.panel(_('Проверка DNS'), checkResult)
     ]);
   }
@@ -213,7 +289,7 @@ function render(ctx) {
     var id = providerId(provider);
     var error = state.providerErrors[id];
     var result = state.providerResults[id];
-    if (error) return E('div', { 'class': 'z2m-provider-result z2m-provider-result-error' }, [shell.chip(_('RPC error'), 'r'), E('div', { 'class': 'z2m-dim' }, error)]);
+    if (error) return E('div', { 'class': 'z2m-provider-result z2m-provider-result-error' }, [shell.chip(_('Ошибка RPC'), 'r'), E('div', { 'class': 'z2m-dim' }, error)]);
     if (!result) return E('div', { 'class': 'z2m-provider-result z2m-dim' }, _('Не проверялось'));
     var ok = providerResultClass(id) === 'z2m-provider-result-success';
     var details = collectMessages(result, [], 0).filter(Boolean).slice(0, 10).join(' · ');
@@ -287,7 +363,7 @@ function render(ctx) {
         ]));
       });
       var checkAll = shell.button(state.allProvidersBusy ? _('Проверка выполняется…') : _('Проверить все'), 'sm', function () { checkAllProviders(redraw); }, state.allProvidersBusy || !providers.length);
-      wrapper.replaceChildren(shell.panel(_('Проверка и выбор провайдера'), E('div', {}, [E('div', { 'class': 'z2m-page-actions' }, [checkAll]), list]), _('Результаты приходят от dnsprov_diagnose')));
+      wrapper.replaceChildren(shell.panel(_('Проверка и выбор провайдера'), E('div', {}, [E('div', { 'class': 'z2m-page-actions' }, [checkAll]), list]), _('Результаты проверки получены от backend.')));
     }
     redraw();
     return wrapper;
@@ -319,9 +395,10 @@ function render(ctx) {
         var success = serviceOperationSucceeded(state.operation);
         clearServiceOperation();
         if (success) {
+          resetDraft('service-dns');
           ctx.clearDraft('service-dns');
-          shell.showToast(_('Service DNS применён.'), 'ok');
-        } else shell.showToast(_('Service DNS завершён с ошибкой.'), 'err');
+          shell.showToast(_('DNS для сервисов применён.'), 'ok');
+        } else shell.showToast(_('Применение DNS для сервисов завершилось с ошибкой.'), 'err');
         return ctx.refresh('dns');
       }
       return ctx.refresh('dns');
@@ -336,27 +413,42 @@ function render(ctx) {
   }
   function renderAccess() {
     var services = serviceStatus.services || serviceStatus.mappings || serviceStatus.availableServices || {};
-    var ids = Array.isArray(services) ? services.map(function (item) { return item.id || item.serviceId; }).filter(Boolean) : Object.keys(services || {});
-    Object.keys(state.selections).forEach(function (id) { if (ids.indexOf(id) < 0) ids.push(id); });
-    var rows = E('div', { 'class': 'z2m-service-dns-grid' });
-    if (!ids.length) rows.appendChild(shell.empty(_('Сервисные DNS mappings отсутствуют.')));
+    var ids = Array.isArray(services)
+      ? services.map(function (item) { return item.id || item.serviceId; }).filter(Boolean)
+      : Object.keys(services || {});
+    Object.keys(state.serviceBaseline || {}).concat(Object.keys(state.selections || {})).forEach(function (id) {
+      if (ids.indexOf(id) < 0) ids.push(id);
+    });
+    var rows = E('div', { 'class': 'z2m-service-dns-grid', id: 'z2m-service-dns-grid' });
+    if (!ids.length) rows.appendChild(shell.empty(_('Сопоставления DNS для сервисов отсутствуют.')));
     ids.sort().forEach(function (id) {
-      var select = E('select', { 'aria-label': _('DNS-профиль для ') + id });
+      var before = state.serviceBaseline[id] || '';
+      var after = state.selections[id] || '';
+      var select = E('select', { 'aria-label': _('DNS-профиль для ') + (state.serviceLabels[id] || id) });
       select.appendChild(E('option', { value: '' }, _('Отключён')));
       serviceProviders.forEach(function (provider) {
         var pid = provider.id || provider.providerId;
         select.appendChild(E('option', { value: pid }, provider.name || provider.label || pid));
       });
-      select.value = state.selections[id] || '';
-      select.addEventListener('change', function () { state.selections[id] = select.value; ctx.setDraft('service-dns', { selections: state.selections }); });
-      rows.appendChild(E('div', { 'class': 'z2m-service-dns-row' }, [E('span', {}, id), select]));
+      select.value = after;
+      var row = E('div', {
+        'class': 'z2m-service-dns-row' + (before !== after ? ' changed' : ''),
+        'data-service-dns-id': id
+      }, [E('span', {}, state.serviceLabels[id] || id), select]);
+      select.addEventListener('change', function () {
+        state.selections[id] = select.value;
+        updateServiceDnsDraft(ctx);
+        row.classList.toggle('changed', (state.serviceBaseline[id] || '') !== select.value);
+      });
+      rows.appendChild(row);
     });
     var operationHost = E('div', { 'class': 'z2m-service-operation' });
     if (state.operation) operationHost.appendChild(E('div', { 'class': 'warnbar' }, [
-      E('b', {}, _('Service DNS operation')), E('div', { 'class': 'z2m-dim' }, display(state.operation.phase || state.operation.status || state.operation.operationId))
+      E('b', {}, _('Применение DNS для сервисов')),
+      E('div', { 'class': 'z2m-dim' }, display(state.operation.phase || state.operation.status || state.operation.operationId))
     ]));
     else if (state.lastOperation) operationHost.appendChild(E('div', { 'class': 'z2m-dim' }, _('Последняя операция: ') + display(state.lastOperation.phase || state.lastOperation.status)));
-    var apply = shell.button(_('Применить Service DNS'), 'primary', function () {
+    var apply = shell.button(_('Применить DNS для сервисов'), 'primary', function () {
       apply.disabled = true;
       var selections = Object.assign({}, state.selections);
       var operationId = 'dns-ui-' + Date.now().toString(36);
@@ -365,8 +457,10 @@ function render(ctx) {
         return edit(ctx.api.dns.serviceApplyAsync, { operationId: operationId, draftRevision: setResult.draftRevision });
       }).then(function (answer) {
         if (!answer || answer.ok === false) throw answer || new Error('service_dns_apply_async failed');
-        state.operation = Object.assign({}, answer.operation || answer, { operationId: answer.operationId || answer.operation && answer.operation.operationId || operationId });
-        shell.showToast(_('Service DNS apply запущен.'), 'ok');
+        state.operation = Object.assign({}, answer.operation || answer, {
+          operationId: answer.operationId || answer.operation && answer.operation.operationId || operationId
+        });
+        shell.showToast(_('Применение DNS для сервисов запущено.'), 'ok');
         scheduleServiceOperationPoll();
         return ctx.refresh('dns');
       }).catch(function (error) {
@@ -374,28 +468,35 @@ function render(ctx) {
         apply.disabled = false;
         showError(error);
       });
-    }, !!state.operation);
-    var rollback = shell.button(_('Откатить Service DNS'), 'danger', function () {
+    }, !!state.operation || !Object.keys(serviceDnsChanges()).length);
+    var rollback = shell.button(_('Откатить DNS сервисов'), 'danger', function () {
       ctx.api.dns.serviceRollback().then(function (answer) {
         if (!answer || answer.ok === false) throw answer || new Error('service_dns_rollback failed');
         state.operation = answer.operation || answer;
         scheduleServiceOperationPoll();
-        shell.showToast(_('Откат Service DNS запущен.'), 'ok');
+        shell.showToast(_('Откат DNS для сервисов запущен.'), 'ok');
         return ctx.refresh('dns');
       }).catch(function (error) { clearServiceOperation(); showError(error); });
     }, serviceStatus.rollbackAvailable !== true || !!state.operation);
-    return shell.panel(_('Service Access'), E('div', {}, [rows, operationHost, E('div', { 'class': 'z2m-page-actions' }, [rollback, apply])]), _('service_dns_set → service_dns_apply_async → service_dns_apply_status'));
+    return shell.panel(
+      _('Доступ сервисов'),
+      E('div', {}, [rows, operationHost, E('div', { 'class': 'z2m-page-actions' }, [rollback, apply])]),
+      _('Выберите DNS-провайдера отдельно для нужных сервисов.')
+    );
   }
   function renderAdvanced() {
     var components = data.components && data.components.value || {};
     var rows = asArray(components.components || components.items);
     var body = rows.length ? E('div', {}, rows.map(function (item) {
       return E('div', { 'class': 'z2m-svcrow z2m-single-row' }, [
-        E('div', {}, [E('div', { 'class': 'nm' }, display(item.name || item.id)), E('div', { 'class': 'co' }, display(item.message || item.status || item.path))]),
+        E('div', {}, [
+          E('div', { 'class': 'nm' }, display(item.name || item.id)),
+          E('div', { 'class': 'co' }, display(item.message || item.status || item.path))
+        ]),
         shell.chip(item.ok === true ? _('готово') : item.ok === false ? _('ошибка') : _('неизвестно'), item.ok === true ? 'g' : item.ok === false ? 'r' : 'o')
       ]);
     })) : E('div', { 'class': 'z2m-dim' }, _('Backend не вернул список компонентов.'));
-    return shell.panel(_('Компоненты DNS'), body, _('runtime evidence from backend'));
+    return shell.panel(_('Компоненты DNS'), body, _('Состояние компонентов по данным backend.'));
   }
   function historyRows() {
     var history = asArray(dns.history || serviceStatus.history);
@@ -404,11 +505,11 @@ function render(ctx) {
     return E('div', { 'class': 'z2m-history-list' }, history.slice(0, 30).map(function (event) {
       return E('div', { 'class': 'z2m-backup-row' }, [
         E('div', {}, [
-          E('div', { 'class': 'nm' }, display(event.phase || event.status || event.action || _('DNS operation'))),
+          E('div', { 'class': 'nm' }, display(event.phase || event.status || event.action || _('Операция DNS'))),
           E('div', { 'class': 'co' }, [
-            _('appliedRevision: ') + display(event.appliedRevision),
-            ' · operationId: ' + display(event.operationId),
-            ' · routeCount: ' + display(event.routeCount)
+            _('Ревизия: ') + display(event.appliedRevision),
+            ' · ID: ' + display(event.operationId),
+            ' · ' + _('маршрутов: ') + display(event.routeCount)
           ].join(''))
         ]),
         shell.chip(event.ok === false || event.phase === 'failed' ? _('ошибка') : _('запись'), event.ok === false || event.phase === 'failed' ? 'r' : 'b')
@@ -416,7 +517,7 @@ function render(ctx) {
     }));
   }
   function renderHistory() {
-    return shell.panel(_('История DNS'), historyRows(), state.operation ? _('Активная операция: ') + display(state.operation.operationId) : _('Backend history'));
+    return shell.panel(_('История DNS'), historyRows(), state.operation ? _('Активная операция: ') + display(state.operation.operationId) : _('История операций backend'));
   }
   function renderPane() {
     host.replaceChildren(
@@ -427,12 +528,16 @@ function render(ctx) {
     );
   }
 
-  root.appendChild(E('div', { 'class': 'z2m-phead' }, [E('div', {}, [E('h1', {}, _('DNS')), E('p', {}, _('Upstream DNS, provider checks и доступ сервисов'))])]));
-  Object.keys(data).forEach(function (key) { if (data[key] && data[key].error) root.appendChild(E('div', { 'class': 'warnbar' }, data[key].error.message)); });
+  root.appendChild(E('div', { 'class': 'z2m-phead' }, [
+    E('div', {}, [E('h1', {}, _('DNS')), E('p', {}, _('Основной DNS, проверка провайдеров и доступ сервисов'))])
+  ]));
+  Object.keys(data).forEach(function (key) {
+    if (data[key] && data[key].error) root.appendChild(E('div', { 'class': 'warnbar' }, data[key].error.message));
+  });
   var messages = collectMessages(data, [], 0);
   var overrideWarning = messages.filter(function (message) { return /manager overrides|dnsmasq/i.test(message); })[0];
   if (overrideWarning || dns.overridesRegistered === false || dns.dnsmasqRegistered === false) {
-    root.appendChild(E('div', { 'class': 'warnbar' }, overrideWarning || 'Manager overrides file is not registered in dnsmasq; manager-owned addnhosts file is inactive'));
+    root.appendChild(E('div', { 'class': 'warnbar' }, overrideWarning || _('Файл DNS-переопределений менеджера не подключён к dnsmasq.')));
   }
   root.appendChild(tabs);
   root.appendChild(host);
@@ -444,8 +549,13 @@ function render(ctx) {
 function mount() {}
 function unmount() {
   state.disposed = true;
+  state.openPane = null;
   if (state.serviceOperationTimer) window.clearTimeout(state.serviceOperationTimer);
   state.serviceOperationTimer = null;
   state.serviceOperationInFlight = false;
 }
-return baseclass.extend({ id: 'dns', title: _('DNS'), subtitle: _('DNS setup, provider checks и Service Access'), load: load, render: render, mount: mount, unmount: unmount });
+return baseclass.extend({
+  id: 'dns', title: _('DNS'), subtitle: _('Настройка DNS, проверки провайдеров и доступ сервисов'),
+  load: load, render: render, mount: mount, unmount: unmount,
+  openDraft: openDraft, focusDraft: focusDraft, resetDraft: resetDraft
+});
