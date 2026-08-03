@@ -46,9 +46,9 @@ test('UI clears pending operation and timer after Access denied, conflict or ter
   assert.doesNotMatch(UI, /Configuration applied/);
 });
 
-test('Service DNS rollback is explicit and capability-gated', () => {
+test('Service DNS rollback is explicit and disabled without backend capability', () => {
   assert.match(UI, /api\.dns\.serviceRollback/);
-  assert.match(UI, /serviceStatus\.rollbackAvailable\s*===\s*true/);
+  assert.match(UI, /serviceStatus\.rollbackAvailable\s*!==\s*true/);
   assert.match(UI, /Откатить Service DNS/);
 });
 
