@@ -49,6 +49,15 @@ print_failure_output() {
 	printf '  ---- END FAILURE OUTPUT: %s ----\n' "$_label"
 }
 
+run_shell_test() {
+	_script="$1"
+	_first_line="$(sed -n '1p' "$_script")"
+	case "$_first_line" in
+		*bash*) bash "$_script" </dev/null ;;
+		*)      sh "$_script" </dev/null ;;
+	esac
+}
+
 while IFS= read -r f; do
 	[ -n "$f" ] || continue
 	rel="${f#$TEST_ROOT/}"
@@ -84,7 +93,7 @@ while IFS= read -r f; do
 			if [ "$fa" -gt 0 ] || [ "$rc" -ne 0 ]; then print_failure_output "$rel" "$out"; fi
 			;;
 		*.test.sh)
-			out="$(sh "$f" </dev/null 2>&1)"
+			out="$(run_shell_test "$f" 2>&1)"
 			rc=$?
 			if [ "$rc" -eq 0 ]; then
 				add_counts "$cat" 1 0
