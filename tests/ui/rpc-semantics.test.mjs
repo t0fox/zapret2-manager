@@ -37,6 +37,12 @@ function loadFacade(responses = {}) {
   const api = evaluateLuciModule(`${root}/z2m-api.js`, { rpc: world.rpc });
   return { api, world };
 }
+function namedFunction(source, name) {
+  const start = source.indexOf(`function ${name}(`);
+  assert.ok(start >= 0, `function ${name} missing`);
+  const next = source.indexOf('\nfunction ', start + 1);
+  return source.slice(start, next >= 0 ? next : undefined);
+}
 
 test('frozen RPC contract and grouped facade remain complete', () => {
   assert.deepEqual(collectUiContract(), expected);
@@ -125,9 +131,7 @@ test('read-only load paths do not invoke mutation facade methods', () => {
   };
   for (const [file, mutations] of Object.entries(checks)) {
     const source = readFileSync(`${root}/${file}`, 'utf8');
-    const start = source.indexOf('function load(');
-    const end = source.indexOf('function render(', start);
-    const load = source.slice(start, end > start ? end : undefined);
+    const load = namedFunction(source, 'load');
     for (const mutation of mutations) assert.doesNotMatch(load, new RegExp(mutation.replaceAll('.', '\\.')),
       `${file}: load invokes mutation ${mutation}`);
   }
