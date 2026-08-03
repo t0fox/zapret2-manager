@@ -47,6 +47,22 @@ test('advanced Strategy panes are hidden unless the shared advanced mode is enab
   assert.match(strategy, /state\.subtab\s*=\s*['"]list['"]/);
 });
 
+test('advanced Strategy restores profile draft workflows with exact existing API groups', () => {
+  const src = source('z2m-strategy.js');
+  for (const token of [
+    'api.profiles.create','api.profiles.update','api.profiles.clone','api.profiles.delete',
+    'api.profiles.validate','api.profiles.importApplied','api.profiles.apply'
+  ]) assert.match(src, new RegExp(token.replaceAll('.', '\\.')));
+  for (const label of [
+    'Глобальная часть','Профили','Итоговая команда','Новый профиль','Импортировать применённые',
+    'Проверить черновики','Применить черновики','Проверка конфига','Среда','История применений'
+  ]) assert.match(src, new RegExp(label));
+  assert.match(src, /mode:\s*['"]preview['"]/);
+  assert.match(src, /mode:\s*['"]apply['"]/);
+  assert.match(src, /revision:\s*profile\.revision/);
+  assert.doesNotMatch(src, /JSON\.stringify\(data\.(?:profiles|preflight)|JSON\.stringify\(history/);
+});
+
 test('app registers overview and strategy modules instead of placeholders', () => {
   const app = source('app.js');
   assert.match(app, /z2m-overview as Overview/);
