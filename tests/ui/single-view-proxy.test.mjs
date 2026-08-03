@@ -25,7 +25,7 @@ test('proxy tab exposes lifecycle and every existing proxy workflow', () => {
     'api.proxy.autostartSet','api.proxy.secretRotate','api.proxy.logsTail','api.proxy.health',
     'api.proxy.linkInfo','api.proxy.quickInstall'
   ]) assert.match(src, new RegExp(token.replaceAll('.', '\\.')));
-  for (const label of ['Open in Telegram','Copy link','QR','Rotate secret','Settings','Technical']) assert.match(src, new RegExp(label));
+  for (const label of ['Open in Telegram','Copy link','QR','Rotate secret','Recent activity','Settings','Technical']) assert.match(src, new RegExp(label));
   assert.match(src, /reveal:\s*true[\s\S]*confirm:\s*['"]REVEAL['"]/);
   assert.match(src, /expectedAppliedRevision/);
   assert.match(src, /ctx\.root\.replaceChildren/);
