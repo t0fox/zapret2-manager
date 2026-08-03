@@ -1,12 +1,17 @@
 'use strict';
 
-function injectCss() {
-  if (!document || !document.head || document.getElementById('z2m-ui-css')) return;
+function injectStylesheet(id, filename) {
+  if (!document || !document.head || document.getElementById(id)) return;
   var link = document.createElement('link');
-  link.id = 'z2m-ui-css';
+  link.id = id;
   link.rel = 'stylesheet';
-  link.href = L.resource('view/zapret2-manager/z2m-ui.css');
+  link.href = L.resource('view/zapret2-manager/' + filename);
   document.head.appendChild(link);
+}
+
+function injectCss() {
+  injectStylesheet('z2m-ui-css', 'z2m-ui.css');
+  injectStylesheet('z2m-components-css', 'z2m-components.css');
 }
 
 function button(label, kind, handler, disabled, attrs) {
