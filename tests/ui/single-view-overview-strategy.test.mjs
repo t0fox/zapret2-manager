@@ -60,7 +60,8 @@ test('advanced Strategy restores profile draft workflows with exact existing API
   ]) assert.match(src, new RegExp(label));
   assert.match(src, /mode:\s*['"]preview['"]/);
   assert.match(src, /mode:\s*['"]apply['"]/);
-  assert.match(src, /revision:\s*profile\.revision/);
+  assert.match(src, /payload\.revision\s*=\s*profile\.revision/);
+  assert.match(src, /payload\.id\s*=\s*profile\.id/);
   assert.doesNotMatch(src, /JSON\.stringify\(data\.(?:profiles|preflight)|JSON\.stringify\(history/);
 });
 
