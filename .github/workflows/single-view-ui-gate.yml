@@ -48,6 +48,7 @@ jobs:
           node --test \
             tests/ui/single-view-manager.test.mjs \
             tests/ui/video-navigation-regressions.test.mjs \
+            tests/ui/video-drafts-service-dns-regressions.test.mjs \
             tests/ui/manager-cosmetic-redesign.test.mjs \
             tests/ui/single-view-overview-strategy.test.mjs \
             tests/ui/single-view-services-lists-dns.test.mjs \
