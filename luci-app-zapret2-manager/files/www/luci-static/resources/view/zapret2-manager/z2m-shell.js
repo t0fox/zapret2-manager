@@ -9,44 +9,54 @@ function injectCss() {
   document.head.appendChild(link);
 }
 
-function button(label, kind, handler, disabled) {
-  var node = E('button', {
+function button(label, kind, handler, disabled, attrs) {
+  var properties = Object.assign({
     type: 'button',
-    'class': 'z2m-btn' + (kind ? ' z2m-btn-' + kind : ''),
+    'class': 'z2m-btn' + (kind ? ' ' + kind : ''),
     disabled: disabled === true ? 'disabled' : null
-  }, label);
+  }, attrs || {});
+  var node = E('button', properties, label);
   if (typeof handler === 'function' && node.addEventListener) node.addEventListener('click', handler);
   return node;
 }
 
-function chip(label, kind) {
-  return E('span', { 'class': 'z2m-chip' + (kind ? ' z2m-chip-' + kind : '') }, label);
+function chip(label, kind, withDot) {
+  var children = [];
+  if (withDot) children.push(E('span', { 'class': 'z2m-dot ' + (kind || '') }));
+  children.push(label);
+  return E('span', { 'class': 'z2m-chip ' + (kind || '') }, children);
 }
 
-function panel(title, body) {
+function panel(title, body, subtitle, actions) {
+  var head = [E('h2', {}, title)];
+  if (subtitle) head.push(E('span', { 'class': 'sub' }, subtitle));
+  if (actions) head.push(E('div', { 'class': 'sp' }, actions));
   return E('section', { 'class': 'z2m-panel' }, [
-    E('div', { 'class': 'z2m-panel-hd' }, E('h2', {}, title)),
-    E('div', { 'class': 'z2m-panel-bd' }, body)
+    E('div', { 'class': 'hd' }, head),
+    E('div', { 'class': 'bd' }, body)
   ]);
 }
 
-function empty(message) { return E('div', { 'class': 'z2m-empty' }, message); }
+function empty(message) { return E('div', { 'class': 'z2m-dim' }, message); }
 
 function showToast(message, kind) {
   var host = document.getElementById('z2m-toasts');
   if (!host) return;
-  var toast = E('div', { 'class': 'z2m-toast' + (kind ? ' z2m-toast-' + kind : '') }, message);
+  var toast = E('div', { 'class': 'z2m-toast ' + (kind || '') }, message);
   host.appendChild(toast);
-  window.setTimeout(function () { if (toast.parentNode) toast.parentNode.removeChild(toast); }, 3600);
+  window.setTimeout(function () {
+    if (toast.parentNode) toast.parentNode.removeChild(toast);
+  }, 3600);
 }
 
 function openModal(title, body, footer) {
   var host = document.getElementById('z2m-modal');
   if (!host) return;
-  host.replaceChildren(E('div', { 'class': 'z2m-modal-card' }, [
-    E('div', { 'class': 'z2m-modal-hd' }, E('h3', {}, title)),
-    E('div', { 'class': 'z2m-modal-bd' }, body),
-    E('div', { 'class': 'z2m-modal-ft' }, footer || button(_('Закрыть'), '', closeModal))
+  var close = button('×', '', closeModal, false, { 'aria-label': _('Закрыть') });
+  host.replaceChildren(E('div', { 'class': 'z2m-modal', role: 'dialog', 'aria-modal': 'true' }, [
+    E('div', { 'class': 'mh' }, [E('h3', {}, title), close]),
+    E('div', { 'class': 'mb' }, body),
+    E('div', { 'class': 'mf' }, footer || button(_('Закрыть'), 'primary', closeModal))
   ]));
   host.classList.add('on');
 }
@@ -62,7 +72,11 @@ function renderApplyBar(store) {
   return E('div', {
     'class': 'z2m-applybar' + (store && store.hasDraft && store.hasDraft() ? '' : ' hidden'),
     id: 'z2m-applybar'
-  }, E('span', { 'class': 'z2m-applybar-text' }, _('Есть несохранённые изменения')));
+  }, E('div', { 'class': 'in' }, [
+    E('span', { 'class': 'z2m-chip o' }, _('Черновик')),
+    E('span', { 'class': 'txt' }, _('Есть несохранённые изменения')),
+    E('div', { 'class': 'sp' })
+  ]));
 }
 
 return {
