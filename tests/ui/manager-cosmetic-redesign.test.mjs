@@ -18,27 +18,21 @@ test('shared design system exposes approved tokens and primitives', () => {
   for (const token of [
     '#191919', '#202020', '#282827', '#383836',
     '#5E9FE8', '#72BC8F', '#DE9255', '#E97366'
-  ]) {
-    assert.match(css.toUpperCase(), new RegExp(token.toUpperCase()));
-  }
+  ]) assert.match(css.toUpperCase(), new RegExp(token.toUpperCase()));
 
   for (const cls of [
     '.z2m-segmented', '.z2m-button-primary', '.z2m-button-secondary',
     '.z2m-button-danger', '.z2m-table', '.z2m-field', '.z2m-switch',
     '.z2m-progress', '.z2m-console', '.z2m-empty-state', '.z2m-sticky-actions'
-  ]) {
-    assert.match(css, new RegExp(cls.replace('.', '\\.')));
-  }
+  ]) assert.match(css, new RegExp(cls.replace('.', '\\.')));
 });
 
 test('navigation keeps seven product pages and hides advanced Orchestra', () => {
   const entries = Object.values(menu);
   assert.equal(entries.some((entry) => entry.title === 'Advanced'), false);
   assert.equal(entries.some((entry) => entry.title === 'Combo presets'), false);
-
   const proxy = entries.find((entry) => entry.action && entry.action.path === 'zapret2-manager/proxy');
   assert.equal(proxy.title, 'TG PROXY');
-
   const advanced = menu['admin/services/zapret2-manager/advanced'];
   assert.equal(advanced.hidden, true);
   assert.equal(advanced.action.path, 'zapret2-manager/orchestra');
@@ -52,8 +46,16 @@ test('Profiles and Lists use the shared shell without replacing legacy handlers'
     assert.match(page, /z2m-card/);
     assert.match(page, new RegExp(`view\\.zapret2-manager\\.${name.replace('.js', '-legacy')}`));
   }
-
   const lists = readFileSync(`${root}/lists.js`, 'utf8');
   assert.match(lists, /z2m-tabs/);
   assert.match(lists, /data-list-group/);
+});
+
+test('DNS keeps all five workspaces inside the shared shell', () => {
+  const dns = readFileSync(`${root}/dns.js`, 'utf8');
+  for (const id of ['setup', 'providers', 'services', 'advanced', 'history'])
+    assert.match(dns, new RegExp(`id:\\s*['"]${id}['"]`));
+  for (const cls of ['z2m-page', 'z2m-hero', 'z2m-tabs', 'z2m-provider-grid', 'z2m-table'])
+    assert.match(dns, new RegExp(cls));
+  assert.match(dns, /view\.zapret2-manager\.dns-legacy/);
 });
