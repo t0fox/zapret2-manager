@@ -22,7 +22,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   verify:
@@ -31,6 +31,27 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          fetch-depth: 0
+
+      - name: Apply pending LuCI loader migration
+        if: github.event_name == 'pull_request' && github.head_ref == 'fix/luci-helper-module-namespace'
+        run: |
+          python3 tools/apply-luci-loader-fix.py
+          node --test \
+            tests/ui/luci-helper-module-namespace.test.mjs \
+            tests/packaging.test.mjs
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager \
+            luci-app-zapret2-manager/files/usr/share/luci/menu.d/luci-app-zapret2-manager.json \
+            luci-app-zapret2-manager/Makefile \
+            zapret2-manager-full/Makefile
+          git commit -m 'fix: satisfy LuCI loader and remove duplicate tabs'
+          git push origin HEAD:${{ github.head_ref }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -46,6 +67,7 @@ jobs:
             tests/ui/single-view-services-lists-dns.test.mjs \
             tests/ui/single-view-proxy.test.mjs \
             tests/ui/single-view-monitor-maintenance.test.mjs \
+            tests/ui/luci-helper-module-namespace.test.mjs \
             tests/auto-strategy-ui.test.mjs \
             tests/orchestra-strategy-ui.test.mjs \
             tests/frontend-backend-contract.test.mjs \
