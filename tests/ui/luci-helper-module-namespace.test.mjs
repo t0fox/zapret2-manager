@@ -43,7 +43,7 @@ test('every helper loaded by LuCI returns a baseclass constructor', () => {
   }
 });
 
-test('app.js is the only public view owner and keeps internal helpers as dependencies', () => {
+test('app.js remains the single view owner and imports its helper classes', () => {
   const app = readFileSync(appPath, 'utf8');
   assert.match(app, /return\s+L\.view\.extend\s*\(/);
 
@@ -52,7 +52,10 @@ test('app.js is the only public view owner and keeps internal helpers as depende
     'z2m-strategy-page', 'z2m-services', 'z2m-lists', 'z2m-dns',
     'z2m-proxy', 'z2m-monitor', 'z2m-maintenance'
   ]) {
-    assert.match(app, new RegExp(`require view\\.zapret2-manager\\.${name}(?: as [A-Za-z]+)?;`));
+    assert.match(
+      app,
+      new RegExp(`['"]require view\\.zapret2-manager\\.${name}(?: as [A-Za-z]+)?['"]\\s*;`)
+    );
   }
 });
 
