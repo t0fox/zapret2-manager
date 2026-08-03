@@ -1,103 +1,87 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { collectUiContract } from '../../tools/ui-rpc-contract.mjs';
+import { evaluateLuciModule } from '../../tools/luci-module-smoke.mjs';
 
 const root = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager';
 const expectedRpc = JSON.parse(readFileSync('tests/fixtures/ui-rpc-contract.json', 'utf8'));
-const shellCss = readFileSync(`${root}/z2m-shell.css`, 'utf8');
-const css = [
-  readFileSync(`${root}/z2m-ui.css`, 'utf8'),
-  readFileSync(`${root}/z2m-ui-core.css`, 'utf8'),
-  readFileSync(`${root}/z2m-orchestra.css`, 'utf8'),
-  shellCss
-].join('\n');
+const css = readFileSync(`${root}/z2m-ui.css`, 'utf8');
+const app = readFileSync(`${root}/app.js`, 'utf8');
 const menu = JSON.parse(readFileSync('luci-app-zapret2-manager/files/usr/share/luci/menu.d/luci-app-zapret2-manager.json', 'utf8'));
+
+const tabs = {
+  overview: 'z2m-overview.js',
+  strategy: 'z2m-strategy.js',
+  services: 'z2m-services.js',
+  lists: 'z2m-lists.js',
+  dns: 'z2m-dns.js',
+  proxy: 'z2m-proxy.js',
+  monitor: 'z2m-monitor.js',
+  maintenance: 'z2m-maintenance.js'
+};
 
 test('frontend RPC method sets remain unchanged', () => {
   assert.deepEqual(collectUiContract(), expectedRpc);
 });
 
-test('shared design system exposes approved tokens and primitives', () => {
-  for (const token of [
-    '#191919', '#202020', '#282827', '#383836',
-    '#5E9FE8', '#72BC8F', '#DE9255', '#E97366'
-  ]) assert.match(css.toUpperCase(), new RegExp(token.toUpperCase()));
+test('single-view app owns all eight reference tabs', () => {
+  const exported = evaluateLuciModule(`${root}/app.js`);
+  assert.equal(typeof exported.load, 'function');
+  assert.equal(typeof exported.render, 'function');
+  assert.equal((app.match(/L\.view\.extend/g) || []).length, 1);
+  for (const [id, file] of Object.entries(tabs)) {
+    assert.equal(existsSync(`${root}/${file}`), true, `${id} module missing`);
+    assert.match(app, new RegExp(`['"]${id}['"]`));
+    const mod = evaluateLuciModule(`${root}/${file}`);
+    assert.equal(mod.id, id);
+    for (const method of ['load','render','mount','unmount'])
+      assert.equal(typeof mod[method], 'function', `${file}: ${method}`);
+  }
+});
+
+test('approved visual system is self-contained in z2m-ui.css', () => {
+  for (const token of ['#17181a','#1f2124','#25282c','#2c3035','#4b9fd5','#5cb98b','#e0a33b','#e2695a'])
+    assert.match(css.toLowerCase(), new RegExp(token));
   for (const cls of [
-    '.z2m-segmented', '.z2m-button-primary', '.z2m-button-secondary',
-    '.z2m-button-danger', '.z2m-table', '.z2m-field', '.z2m-switch',
-    '.z2m-progress', '.z2m-console', '.z2m-empty-state', '.z2m-sticky-actions'
+    '.z2m-apptop','.z2m-tabs','.z2m-subtabs','.z2m-panel','.z2m-btn',
+    '.z2m-kpis','.z2m-applybar','.z2m-modal','.z2m-toasts','.z2m-qr'
   ]) assert.match(css, new RegExp(cls.replace('.', '\\.')));
-  assert.match(shellCss, /background:\s*var\(--z2m-canvas/);
+  assert.doesNotMatch(css, /@import|https?:\/\//);
 });
 
-test('navigation keeps seven product pages and hides advanced Orchestra', () => {
-  const entries = Object.values(menu);
-  assert.equal(entries.some((entry) => entry.title === 'Advanced'), false);
-  assert.equal(entries.some((entry) => entry.title === 'Combo presets'), false);
-  const proxy = entries.find((entry) => entry.action && entry.action.path === 'zapret2-manager/proxy');
-  assert.equal(proxy.title, 'TG PROXY');
-  const advanced = menu['admin/services/zapret2-manager/advanced'];
-  assert.equal(advanced.hidden, true);
-  assert.equal(advanced.action.path, 'zapret2-manager/orchestra');
-});
-
-test('Profiles and Lists use the shared shell without replacing legacy handlers', () => {
-  for (const name of ['strategies.js', 'lists.js']) {
-    const page = readFileSync(`${root}/${name}`, 'utf8');
-    assert.match(page, /z2m-page/);
-    assert.match(page, /z2m-hero/);
-    assert.match(page, /z2m-card/);
-    assert.match(page, new RegExp(`view\\.zapret2-manager\\.${name.replace('.js', '-legacy')}`));
+test('LuCI menu exposes one app entry and only hidden compatibility routes', () => {
+  assert.equal(menu['admin/services/zapret2-manager'].action.path, 'zapret2-manager/app');
+  const actionable = Object.values(menu).filter((entry) => entry.action);
+  assert.equal(actionable.filter((entry) => entry.hidden !== true).length, 1);
+  for (const entry of actionable.filter((item) => item.hidden === true)) {
+    assert.deepEqual(entry.depends.acl, ['zapret2-manager']);
+    assert.match(entry.action.path, /^zapret2-manager\//);
   }
-  const lists = readFileSync(`${root}/lists.js`, 'utf8');
-  assert.match(lists, /z2m-tabs/);
-  assert.match(lists, /data-list-group/);
 });
 
-test('DNS keeps all five workspaces inside the shared shell', () => {
-  const dns = readFileSync(`${root}/dns.js`, 'utf8');
-  for (const id of ['setup', 'providers', 'services', 'advanced', 'history'])
-    assert.match(dns, new RegExp(`id:\\s*['"]${id}['"]`));
-  for (const cls of ['z2m-page', 'z2m-hero', 'z2m-tabs', 'z2m-provider-grid', 'z2m-table'])
-    assert.match(dns, new RegExp(cls));
-  assert.match(dns, /view\.zapret2-manager\.dns-legacy/);
+test('reference-critical Proxy, DNS and Backup Preview features are present', () => {
+  const proxy = readFileSync(`${root}/z2m-proxy.js`, 'utf8');
+  for (const label of ['Открыть в Telegram','Копировать ссылку','QR-код','Новая ссылка','Самопроверка','Собрать диагностику'])
+    assert.match(proxy, new RegExp(label));
+  assert.match(proxy, /ctx\.setDraft\(['"]proxy/);
+  assert.doesNotMatch(proxy, /children\.forEach|window\.confirm/);
+
+  const dns = readFileSync(`${root}/z2m-dns.js`, 'utf8');
+  for (const pane of ['setup','check','access','adv','hist'])
+    assert.match(dns, new RegExp(`['"]${pane}['"]`));
+
+  const maintenance = readFileSync(`${root}/z2m-maintenance.js`, 'utf8');
+  assert.match(maintenance, /id:\s*['"]z2m-backup-preview['"]/);
+  assert.match(maintenance, /shell\.openModal/);
+  assert.doesNotMatch(maintenance, /\.cbi-map|window\.confirm/);
 });
 
-test('Monitor and Maintenance use responsive shared presentation', () => {
-  for (const name of ['monitor.js', 'maintenance.js']) {
-    const page = readFileSync(`${root}/${name}`, 'utf8');
-    assert.match(page, /z2m-page/);
-    assert.match(page, /z2m-hero/);
-    assert.match(page, /z2m-card-grid/);
-    assert.match(page, /z2m-table/);
-    assert.match(page, new RegExp(`view\\.zapret2-manager\\.${name.replace('.js', '-legacy')}`));
-  }
-  assert.match(readFileSync(`${root}/monitor.js`, 'utf8'), /buildContainer/);
-  assert.match(readFileSync(`${root}/maintenance.js`, 'utf8'), /z2m-danger-zone/);
-});
-
-test('TG PROXY keeps existing actions and QR implementation behind a new shell', () => {
-  const proxy = readFileSync(`${root}/proxy.js`, 'utf8');
-  const legacy = readFileSync(`${root}/proxy-legacy.js`, 'utf8');
-  assert.match(proxy, /TG PROXY/);
-  assert.match(proxy, /z2m-proxy-hero/);
-  assert.match(proxy, /z2m-proxy-connection/);
-  assert.match(proxy, /z2m-proxy-advanced/);
-  assert.match(proxy, /callProxyStart/);
-  assert.match(proxy, /callProxyStop/);
-  assert.match(proxy, /callProxyLinkInfo/);
-  assert.match(proxy, /view\.zapret2-manager\.proxy-legacy/);
-  assert.match(legacy, /qrcode/);
-  assert.match(legacy, /doQRCode/);
-});
-
-test('obsolete standalone UI artifacts are not shipped', () => {
+test('legacy runtime and obsolete style fragments are not shipped', () => {
+  for (const file of readdirSync(root))
+    assert.equal(file.endsWith('-legacy.js'), false, `legacy runtime file shipped: ${file}`);
+  for (const file of ['z2m-ui-core.css','z2m-ui-v1.css','z2m-shell.css','z2m-orchestra.css','orchestra-strategy.css'])
+    assert.equal(existsSync(`${root}/${file}`), false, `obsolete CSS shipped: ${file}`);
   assert.equal(existsSync(`${root}/combo-presets.js`), false);
-  assert.equal(existsSync(`${root}/orchestra-strategy.css`), false);
   assert.equal(existsSync('tests/ui/combo-presets.test.mjs'), false);
-  const imports = readFileSync(`${root}/z2m-ui.css`, 'utf8');
-  assert.match(imports, /z2m-orchestra\.css/);
-  assert.match(imports, /z2m-shell\.css/);
-  assert.equal(Object.values(menu).some((entry) => entry.action && /combo-presets/.test(entry.action.path || '')), false);
 });
