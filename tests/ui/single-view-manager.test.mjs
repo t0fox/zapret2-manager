@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { evaluateLuciModule } from '../../tools/luci-module-smoke.mjs';
 import { collectFacadeMethods, collectUiContract } from '../../tools/ui-rpc-contract.mjs';
 
@@ -70,4 +70,13 @@ test('compatibility routes are standalone valid redirect views', () => {
     assert.match(source, new RegExp(`#/${tab}`));
     assert.doesNotMatch(source, /return\s+Legacy/);
   }
+});
+
+test('packaged frontend contains no legacy runtime or obsolete stylesheet', () => {
+  for (const file of readdirSync(root))
+    assert.equal(file.endsWith('-legacy.js'), false, `legacy runtime file shipped: ${file}`);
+  for (const file of ['z2m-ui-core.css','z2m-ui-v1.css','z2m-shell.css','z2m-orchestra.css'])
+    assert.equal(existsSync(`${root}/${file}`), false, `obsolete CSS shipped: ${file}`);
+  const app = readFileSync(`${root}/app.js`, 'utf8');
+  assert.equal((app.match(/L\.view\.extend/g) || []).length, 1);
 });
