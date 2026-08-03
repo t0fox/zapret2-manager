@@ -6,11 +6,8 @@ on:
       - feat/strategy-first-integration
     paths:
       - 'luci-app-zapret2-manager/**'
-      - 'tests/ui/**'
-      - 'tests/*.test.mjs'
-      - 'tests/fixtures/ui-rpc-contract.json'
-      - 'tools/luci-module-smoke.mjs'
-      - 'tools/ui-rpc-contract.mjs'
+      - 'tests/**'
+      - 'tools/**'
       - '.github/workflows/single-view-ui-gate.yml'
   workflow_dispatch:
 
@@ -20,7 +17,7 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -41,6 +38,12 @@ jobs:
             tests/ui/single-view-monitor-maintenance.test.mjs \
             tests/orchestra-strategy-ui.test.mjs \
             tests/packaging.test.mjs
+
+      - name: Run complete repository test gate
+        shell: bash
+        run: |
+          chmod +x tools/run-all-tests.sh
+          tools/run-all-tests.sh
 
       - name: Check LuCI JavaScript syntax
         shell: bash
