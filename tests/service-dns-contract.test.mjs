@@ -49,7 +49,7 @@ test('UI clears pending operation and timer after Access denied, conflict or ter
 test('Service DNS rollback is explicit and disabled without backend capability', () => {
   assert.match(UI, /api\.dns\.serviceRollback/);
   assert.match(UI, /serviceStatus\.rollbackAvailable\s*!==\s*true/);
-  assert.match(UI, /Откатить Service DNS/);
+  assert.match(UI, /Откатить DNS сервисов/);
 });
 
 test('async apply queues a native UCI job without production mutation', () => {

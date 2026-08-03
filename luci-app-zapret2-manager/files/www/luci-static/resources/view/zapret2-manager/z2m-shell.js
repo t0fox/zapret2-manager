@@ -82,9 +82,9 @@ function renderApplyBar(store) {
     E('span', { 'class': 'z2m-chip o' }, _('Черновик')),
     E('span', { 'class': 'txt', id: 'z2m-apply-text' }, _('Есть несохранённые изменения. На работу роутера пока не влияет.')),
     E('div', { 'class': 'sp' }, [
-      button(_('Отменить'), '', null, false, { id: 'z2m-discard-drafts' }),
-      button(_('Показать различия'), '', null, false, { id: 'z2m-preview-drafts' }),
-      button(_('Открыть изменения'), 'primary', null, false, { id: 'z2m-open-drafts' })
+      button(_('Отменить все'), '', null, false, { id: 'z2m-discard-drafts' }),
+      button(_('Что изменено'), '', null, false, { id: 'z2m-preview-drafts' }),
+      button(_('Перейти к изменениям'), 'primary', null, false, { id: 'z2m-open-drafts' })
     ])
   ]));
 }

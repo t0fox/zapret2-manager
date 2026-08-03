@@ -48,9 +48,9 @@ test('single-view runtime modules and local stylesheets exist', () => {
   ]) assert.ok(existsSync(join(viewRoot, name)), `${name} exists`);
 });
 
-test('r139 package ships no legacy runtime and only the two authoritative local stylesheets', () => {
+test('r140 package ships no legacy runtime and only the two authoritative local stylesheets', () => {
   const makefile = readFileSync(join(REPO, 'luci-app-zapret2-manager/Makefile'), 'utf8');
-  assert.match(makefile, /^PKG_RELEASE:=139$/m);
+  assert.match(makefile, /^PKG_RELEASE:=140$/m);
   const files = readdirSync(viewRoot).sort();
   assert.deepEqual(files.filter((name) => name.endsWith('.css')), ['z2m-components.css', 'z2m-ui.css']);
   assert.deepEqual(files.filter((name) => name.endsWith('-legacy.js')), []);
