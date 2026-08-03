@@ -34,6 +34,10 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Fetch pinned StressOzz source
+        shell: bash
+        run: git fetch --no-tags https://github.com/StressOzz/Zapret-Manager.git b3269f852ed2d70b4c24918750c6b5b46b8b6a69
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:

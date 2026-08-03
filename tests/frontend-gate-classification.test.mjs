@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { classify, parseFailures } from '../tools/check-frontend-gate-classification.mjs';
+
+const WORKFLOW = readFileSync('.github/workflows/single-view-ui-gate.yml', 'utf8');
 
 const greenLog = `
 TOTAL one-line: 1036 green, 0 red
@@ -28,6 +31,8 @@ test('StressOzz failure is rejected when the pinned corpus is unavailable', () =
   const result = classify('  FILE stressozz-corpus.test.mjs cat=backend pass=0 fail=2 rc=1\n');
   assert.equal(result.ok, false);
   assert.deepEqual(result.unexpected, [{ file: 'stressozz-corpus.test.mjs', count: 2 }]);
+  assert.match(WORKFLOW, /fetch-depth:\s*0/);
+  assert.match(WORKFLOW, /git fetch --no-tags https:\/\/github\.com\/StressOzz\/Zapret-Manager\.git b3269f852ed2d70b4c24918750c6b5b46b8b6a69/);
 });
 
 test('shell failures are parsed as one failure', () => {
