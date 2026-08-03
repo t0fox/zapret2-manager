@@ -7,6 +7,8 @@ import { evaluateLuciModule } from '../../tools/luci-module-smoke.mjs';
 const root = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager';
 const expectedRpc = JSON.parse(readFileSync('tests/fixtures/ui-rpc-contract.json', 'utf8'));
 const css = readFileSync(`${root}/z2m-ui.css`, 'utf8');
+const components = readFileSync(`${root}/z2m-components.css`, 'utf8');
+const shell = readFileSync(`${root}/z2m-shell.js`, 'utf8');
 const app = readFileSync(`${root}/app.js`, 'utf8');
 const menu = JSON.parse(readFileSync('luci-app-zapret2-manager/files/usr/share/luci/menu.d/luci-app-zapret2-manager.json', 'utf8'));
 
@@ -40,14 +42,19 @@ test('single-view app owns all eight reference tabs', () => {
   }
 });
 
-test('approved visual system is self-contained in z2m-ui.css', () => {
+test('approved visual system stays local and covers the new application components', () => {
   for (const token of ['#17181a','#1f2124','#25282c','#2c3035','#4b9fd5','#5cb98b','#e0a33b','#e2695a'])
     assert.match(css.toLowerCase(), new RegExp(token));
   for (const cls of [
     '.z2m-apptop','.z2m-tabs','.z2m-subtabs','.z2m-panel','.z2m-btn',
     '.z2m-kpis','.z2m-applybar','.z2m-modal','.z2m-toasts','.z2m-qr'
   ]) assert.match(css, new RegExp(cls.replace('.', '\\.')));
-  assert.doesNotMatch(css, /@import|https?:\/\//);
+  for (const cls of [
+    '.z2m-advanced-toggle','.z2m-fieldline','.z2m-rule','.z2m-profile-row',
+    '.z2m-proxy-hero','.z2m-backup-row','.z2m-draft-preview'
+  ]) assert.match(components, new RegExp(cls.replace('.', '\\.')));
+  assert.match(shell, /z2m-components\.css/);
+  assert.doesNotMatch(css + components, /@import|https?:\/\//);
 });
 
 test('LuCI menu exposes one app entry and only hidden compatibility routes', () => {
