@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-host="${DEPLOY_HOST:-192.168.1.1}"
+if [[ -z "${DEPLOY_HOST:-}" ]]; then
+  echo 'SKIP: DEPLOY_HOST is not set; target UCode compatibility runs on the OpenWrt acceptance host'
+  exit 0
+fi
+
+host="$DEPLOY_HOST"
 root="/tmp/z2m-target-compat.$$"
 cleanup() { ssh root@"$host" "rm -rf '$root'" >/dev/null 2>&1 || true; }
 trap cleanup EXIT

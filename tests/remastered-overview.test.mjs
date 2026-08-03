@@ -2,131 +2,66 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const UI_PATH = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.js';
-const ORCHESTRA_PATH = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/orchestra.js';
+const root = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager';
+const app = readFileSync(`${root}/app.js`, 'utf8');
+const overview = readFileSync(`${root}/z2m-overview.js`, 'utf8');
+const auto = readFileSync(`${root}/z2m-auto.js`, 'utf8');
+const runs = readFileSync(`${root}/z2m-runs.js`, 'utf8');
+const page = readFileSync(`${root}/z2m-strategy-page.js`, 'utf8');
 
-function node(tag, attrs, children) {
-	return { tag, attrs: attrs || {}, children: Array.isArray(children) ? children : children == null ? [] : [children], appendChild(child) { this.children.push(child); return child; }, addEventListener(type, listener) { this.attrs['on' + type] = listener; }, setAttribute(key, value) { this.attrs[key] = value; }, removeAttribute(key) { delete this.attrs[key]; } };
-}
-function loadView() {
-	const baseclass = { extend(properties) { function SharedUiModule() {} SharedUiModule.prototype = Object.assign({}, properties); return SharedUiModule; } };
-	const SharedUiModule = new Function('E', '_', 'baseclass', readFileSync(UI_PATH, 'utf8'))(node, value => value, baseclass);
-	const ui = new SharedUiModule();
-	const rpc = { declare() { return () => Promise.resolve({ ok: true }); } };
-	return new Function('L', 'rpc', '_', 'E', 'Z2M', readFileSync(ORCHESTRA_PATH, 'utf8'))({ view: { extend: value => value }, resource: value => value }, rpc, value => value, node, ui);
-}
-function textTree(value) {
-	if (value == null) return '';
-	if (typeof value !== 'object') return String(value);
-	return (value.children || []).map(textTree).join(' ');
-}
-function state(overrides) {
-	return Object.assign({
-		managerStatus: { runtimeSummary: { status: 'running', reasonCode: null, serviceRunning: true, process: { found: true, identityVerified: true }, runtime: { verification: 'verified', appliedMatch: true }, nfqueue: { registered: true, ownerMatches: true, inboundRule: true, outboundRule: true } }, runtime: { present: true, profileCount: 3 }, applied: { configPresent: true }, drift: { divergent: false } },
-		managerStatusError: null,
-		auto: { ok: true, enabled: true, phase: 'healthy', serviceIds: ['youtube', 'discord'], activeRun: { runId: null, progress: null, startedAt: null }, health: { status: 'healthy', lastCheckAt: '2026-08-02T09:00:00Z' }, lastGood: { available: true }, cooldownUntil: null, infrastructure: { status: 'ready' }, capabilities: { runNow: true }, admissionReasons: { runNow: { allowed: true, reasonCode: null }, enable: { allowed: false, reasonCode: 'already-enabled' } } },
-		autoError: null,
-		catalogList: { ok: true, services: [{ id: 'youtube', name: 'YouTube' }, { id: 'discord', name: 'Discord' }, { id: 'chatgpt', name: 'ChatGPT' }] },
-		catalogStatus: { ok: true, ledger: { enabled: ['youtube', 'discord'] } },
-		activeRun: null,
-		operation: null,
-		autoReadOnly: false,
-		overviewRefreshing: false
-	}, overrides || {});
-}
-
-test('T4 registry exposes Overview and Auto while later remastered destinations remain hidden', () => {
-	const baseclass = { extend(properties) { function SharedUiModule() {} SharedUiModule.prototype = Object.assign({}, properties); return SharedUiModule; } };
-	const SharedUiModule = new Function('E', '_', 'baseclass', readFileSync(UI_PATH, 'utf8'))(node, value => value, baseclass);
-	const ui = new SharedUiModule();
-	const overview = ui.ui.activeNavigation('orchestra-overview');
-	assert.equal(overview.available, true);
-	assert.equal(overview.implemented, true);
-	assert.deepEqual(ui.ui.visibleNavigation().map(entry => entry.key), ['overview', 'auto']);
-	assert.equal(ui.ui.activeNavigation('orchestra-adaptive').route, 'orchestra-auto');
-	assert.equal(ui.ui.activeNavigation('orchestra-services').legacyRoute, 'orchestra-services');
-	assert.equal(ui.ui.activeNavigation('orchestra-results').legacyRoute, 'orchestra-results');
+test('single-view registry exposes the approved eight internal destinations', () => {
+  for (const tab of ['overview','strategy','services','lists','dns','proxy','monitor','maintenance'])
+    assert.match(app, new RegExp(`['"]${tab}['"]`));
+  assert.equal((app.match(/L\.view\.extend/g) || []).length, 1);
 });
 
-test('Overview presentation model reports verified runtime without inventing a health score', () => {
-	const view = loadView();
-	assert.equal(typeof view._overviewModel, 'function');
-	const model = view._overviewModel(state());
-	assert.equal(model.overall.status, 'healthy');
-	assert.equal(model.runtime.nfqws2.label, 'Работает');
-	assert.equal(model.runtime.nfqueue.label, 'Подключена');
-	assert.equal(model.runtime.configuration.label, 'Runtime совпадает с сохранённой');
-	assert.equal(model.services.selectedLabel, 'YouTube, Discord');
-	assert.doesNotMatch(model.warnings.join(' '), /Не работает/);
+test('Overview reads backend status, strategy, run history and service DNS without mutations in load', () => {
+  const load = overview.slice(overview.indexOf('function load('), overview.indexOf('\nfunction render('));
+  for (const call of ['api.service.status','api.strategy.preview','api.orchestra.runHistory','api.orchestra.status','api.dns.serviceStatus'])
+    assert.match(load, new RegExp(call.replaceAll('.', '\\.')));
+  assert.doesNotMatch(load, /\.apply\(|\.start\(|\.stop\(/);
 });
 
-test('Overview preserves stopped, unknown, partial, and divergent runtime truth', () => {
-	const view = loadView();
-	const stopped = view._overviewModel(state({ managerStatus: { runtimeSummary: { status: 'stopped', reasonCode: 'process-absent', serviceRunning: false, process: { found: false }, runtime: { verification: 'failed', appliedMatch: null }, nfqueue: { registered: false, ownerMatches: false } }, runtime: {}, applied: {}, drift: { divergent: false } } }));
-	assert.equal(stopped.overall.status, 'failed');
-	assert.equal(stopped.runtime.nfqws2.label, 'Не работает');
-	assert.match(stopped.warnings.map(warning => warning.title).join(' '), /NFQUEUE/);
-	const unknown = view._overviewModel(state({ managerStatus: null, managerStatusError: 'rpc: secret stderr that must not leak', auto: { runtimeSummary: { status: 'running' } } }));
-	assert.equal(unknown.overall.status, 'unknown');
-	assert.equal(unknown.runtime.nfqws2.label, 'Состояние не подтверждено');
-	assert.doesNotMatch(JSON.stringify(unknown), /secret stderr/);
-	const divergent = view._overviewModel(state({ managerStatus: { runtimeSummary: { status: 'mismatch', reasonCode: 'runtime-applied-mismatch', process: { found: true }, runtime: { verification: 'failed', appliedMatch: false }, nfqueue: { registered: true, ownerMatches: true } }, runtime: {}, applied: {}, drift: { divergent: true } } }));
-	assert.equal(divergent.overall.status, 'degraded');
-	assert.equal(divergent.runtime.configuration.label, 'Обнаружено расхождение');
+test('Overview preserves unknown and missing backend values instead of inventing health', () => {
+  assert.match(overview, /value == null \|\| value === '' \? '—'/);
+  assert.match(overview, /Backend не сообщил/);
+  assert.doesNotMatch(overview, /metric\([^\n]+\|\|\s*0/);
 });
 
-test('Overview uses backend catalog labels, bounds service lists, and never derives missing health', () => {
-	const view = loadView();
-	const model = view._overviewModel(state({ auto: Object.assign({}, state().auto, { serviceIds: ['youtube', 'discord', 'chatgpt', 'unknown-id', 'other'] }) }));
-	assert.equal(model.services.selectedLabel, 'YouTube, Discord, ChatGPT и ещё 2');
-	assert.equal(model.services.healthLabel, null);
-	assert.doesNotMatch(model.services.selectedLabel, /unknown-id/);
+test('Overview exposes runtime status, active strategy and explicit service actions', () => {
+  assert.match(overview, /Обход работает|Обход остановлен/);
+  assert.match(overview, /Активная стратегия/);
+  assert.match(overview, /api\.service\.start/);
+  assert.match(overview, /api\.service\.stop/);
+  assert.match(overview, /Подобрать лучшую стратегию/);
 });
 
-test('Overview prioritizes recovery and active work over normal Auto navigation without mutation', () => {
-	const view = loadView();
-	const active = view._overviewModel(state({ auto: Object.assign({}, state().auto, { phase: 'scanning', activeRun: { runId: 'or-123', generation: 1, phase: 'scanning', progress: 45, startedAt: '2030-08-02T09:00:00Z', heartbeatAt: '2030-08-02T09:30:00Z', deadlineAt: '2030-08-02T10:00:00Z' } }) }));
-	assert.equal(active.overall.status, 'running');
-	assert.equal(active.primary.kind, 'open-run');
-	assert.equal(active.operation.progress, 45);
-	const recovery = view._overviewModel(state({ auto: Object.assign({}, state().auto, { phase: 'recovering', infrastructure: { status: 'failed', reason: 'recovery-required' }, admissionReasons: { restoreLastGood: { allowed: false, reasonCode: 'recovery-required' } } }) }));
-	assert.equal(recovery.overall.status, 'failed');
-	assert.equal(recovery.primary, null);
-	assert.equal(recovery.admissionReason, 'recovery-required');
+test('Overview stages point overrides before explicit apply', () => {
+  assert.match(overview, /pendingOverride/);
+  assert.match(overview, /action:\s*['"]override_set['"]/);
+  assert.match(overview, /action:\s*['"]override_delete['"]/);
+  assert.match(overview, /Применить изменение/);
+  assert.match(overview, /applyNow:\s*true/);
 });
 
-test('Overview presents an applying transaction as active instead of completed', () => {
-	const view = loadView();
-	const model = view._overviewModel(state({ operation: { operationId: 'op-123', phase: 'applying', startedAt: '2026-08-02T09:00:00Z', progress: 35 } }));
-	assert.equal(model.overall.status, 'running');
-	assert.equal(model.operation.phase, 'Применяется стратегия');
-	assert.equal(model.operation.progress, 35);
+test('Auto Strategy preserves recovery, cooldown and unknown phase truth', () => {
+  for (const phase of ['healthy','degraded','scanning','applying','verifying','recovering','cooldown','failed'])
+    assert.match(auto, new RegExp(`['"]${phase}['"]`));
+  assert.match(auto, /unknown|Неизвестное состояние/i);
+  assert.match(auto, /lastGood[^\n]*available/);
 });
 
-test('Overview keeps cooldown informational and surfaces backend recovery or failed-operation reasons', () => {
-	const view = loadView();
-	const cooldownState = state({ auto: Object.assign({}, state().auto, { cooldownUntil: '2026-08-02T11:00:00Z', phase: 'cooldown' }) });
-	assert.equal(view._overviewModel(cooldownState).overall.status, 'healthy');
-	view._state = cooldownState;
-	assert.match(textTree(view._overviewSection()), /Повторная проверка отложена/);
-	const corrupt = view._overviewModel(state({ auto: Object.assign({}, state().auto, { phase: 'failed', infrastructure: { status: 'failed', reason: 'state-corrupt' } }) }));
-	assert.equal(corrupt.overall.status, 'failed');
-	assert.match(corrupt.warnings.map(warning => warning.title).join(' '), /состояние/i);
-	const failed = view._overviewModel(state({ operation: { operationId: 'op-456', phase: 'failed', error: { code: 'EVERIFY' } } }));
-	assert.match(failed.warnings.map(warning => warning.title).join(' '), /операция/i);
+test('active and historical work is composed into Strategy without raw hashes', () => {
+  assert.match(page, /z2m-auto as Auto/);
+  assert.match(page, /z2m-runs as Runs/);
+  assert.match(runs, /selectedRunId/);
+  assert.match(runs, /activeRun/);
+  assert.doesNotMatch(overview + auto + runs, /innerHTML/);
 });
 
-test('Overview renders a read-only shell with one navigation action, refresh, disclosures, and no raw hashes', () => {
-	const view = loadView();
-	view._state = state({ autoReadOnly: true });
-	view._panel = 'orchestra-overview';
-	const page = view._overviewSection();
-	const rendered = textTree(page);
-	const header = view._overviewHeader(view._overviewModel());
-	assert.match(rendered, /Состояние системы/);
-	assert.match(rendered, /Автоматический подбор/);
-	assert.match(rendered, /Текущая стратегия/);
-	assert.match(rendered, /Недостаточно прав/);
-	assert.doesNotMatch(rendered, /[a-f0-9]{32}/);
-	assert.match(textTree(header), /Refresh|Обновить/);
+test('Overview remains read-only until an explicit user action', () => {
+  assert.match(overview, /shell\.button/);
+  assert.match(overview, /ctx\.navigate\(['"]strategy['"]\)/);
+  assert.match(overview, /Расширенный режим/);
+  assert.doesNotMatch(overview, /autoApply|onload[^\n]*apply/i);
 });

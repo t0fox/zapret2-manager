@@ -1,56 +1,81 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { evaluateLuciModule } from '../tools/luci-module-smoke.mjs';
 
-const UI = readFileSync('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/orchestra.js', 'utf8');
+const root = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager';
+const autoPath = `${root}/z2m-auto.js`;
+const strategyPagePath = `${root}/z2m-strategy-page.js`;
+const apiPath = `${root}/z2m-api.js`;
 const RPC = readFileSync('zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc', 'utf8');
 const ACL = JSON.parse(readFileSync('luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json', 'utf8'))['zapret2-manager'];
 
-test('view loads Auto Strategy status without a mutation', () => {
-	const load = UI.slice(UI.indexOf('\tload: function'), UI.indexOf('\n\t_upsertRunHistory:'));
-	assert.match(load, /autoStatusRpc/);
-	assert.doesNotMatch(load, /autoEnableRpc|autoDisableRpc|autoRunRpc|autoStopRpc|autoRestoreRpc/);
+test('Auto Strategy is a valid helper module mounted inside the composed Strategy page', () => {
+  assert.equal(existsSync(autoPath), true);
+  const mod = evaluateLuciModule(autoPath);
+  for (const method of ['load','render','unmount']) assert.equal(typeof mod[method], 'function');
+  const strategyPage = readFileSync(strategyPagePath, 'utf8');
+  assert.match(strategyPage, /z2m-auto as Auto/);
+  assert.match(strategyPage, /Auto\.load\(ctx\)/);
+  assert.match(strategyPage, /Auto\.render\(ctx/);
+  assert.match(strategyPage, /Auto\.unmount\(\)/);
 });
-test('initial Auto Strategy state is rendered as loading', () => assert.match(UI, /Загрузка состояния автоподбора/));
-test('Auto Strategy status RPC errors are rendered', () => assert.match(UI, /autoError/));
-test('damaged Auto Strategy state is presented as failed', () => assert.match(UI, /autoPhaseKind\(phase\).*'bad'/s));
-test('enabled and disabled modes are both rendered', () => assert.match(UI, /auto\.enabled \? _\('Включён'\) : _\('Отключён'\)/));
-test('known backend phases are classified explicitly', () => assert.match(UI, /disabled.*waiting-network.*healthy.*degraded.*scanning.*applying.*verifying.*recovering.*cooldown.*failed/s));
-test('unknown phase is never classified as healthy', () => assert.match(UI, /knownAutoPhase\(phase\)/));
-test('backend capabilities control Auto Strategy action buttons', () => assert.match(UI, /auto\.capabilities \|\| \{\}/));
-test('read-only status leaves mutations unavailable', () => assert.match(UI, /autoReadOnly/));
-test('Enable submits revision request id and catalog service ids', () => assert.match(UI, /expectedRevision: auto\.revision, requestId: self\._autoRequestId\(\), serviceIds: self\._autoServiceIds\(\)/));
-test('Enable does not start a scan', () => {
-	const method = UI.slice(UI.indexOf('\t_autoEnable:'), UI.indexOf('\n\t_autoDisable:'));
-	assert.doesNotMatch(method, /autoRunRpc|runStartRpc/);
+
+test('Auto Strategy load is read-only and mutations are explicit', () => {
+  const src = readFileSync(autoPath, 'utf8');
+  const load = src.slice(src.indexOf('function load('), src.indexOf('function shouldPoll('));
+  assert.match(load, /api\.orchestra\.autoStatus/);
+  assert.doesNotMatch(load, /autoEnable|autoDisable|autoRun|autoStop|autoRestore/);
+  for (const token of ['api.orchestra.autoEnable','api.orchestra.autoDisable','api.orchestra.autoRun','api.orchestra.autoStop','api.orchestra.autoRestore'])
+    assert.match(src, new RegExp(token.replaceAll('.', '\\.')));
 });
-test('Disable outcome is retained for display until status confirms it', () => assert.match(UI, /autoOutcome/));
-test('Run now uses the existing Auto Strategy RPC', () => assert.match(UI, /autoRunRpc, _\('Run now'\)/));
-test('a pending mutation prevents a second Run now request', () => assert.match(UI, /if \(this\._state\.autoPending\) return/));
-test('an accepted run enables bounded polling', () => assert.match(UI, /self\._state\.autoPoll = true; self\._startPolling\(\)/));
-test('Auto Strategy polling shares the non-overlapping poll guard', () => assert.match(UI, /if \(this\._pollInFlight\) return/));
-test('Auto Strategy polling stops after terminal status refresh', () => assert.match(UI, /self\._state\.autoPoll = false/));
-test('Stop uses the sanctioned Auto Strategy RPC', () => assert.match(UI, /autoStopRpc, _\('Stop'\)/));
-test('cancellation pending has a distinct presentation', () => assert.match(UI, /cancellation-requested/));
-test('Restore last-good requires a confirmation dialog', () => assert.match(UI, /window\.confirm\(/));
-test('Restore sends no candidate or profile payload', () => {
-	const method = UI.slice(UI.indexOf('\t_autoRestore:'), UI.indexOf('\n\t_autoMutation:'));
-	assert.doesNotMatch(method, /candidateId|profileHash|profileRevision|proposedConfiguration/);
+
+test('known backend phases are classified explicitly and unknown is never healthy', () => {
+  const src = readFileSync(autoPath, 'utf8');
+  for (const phase of ['disabled','waiting-network','healthy','degraded','scanning','applying','verifying','recovering','cooldown','failed'])
+    assert.match(src, new RegExp(`['"]${phase}['"]`));
+  assert.match(src, /knownPhase/);
+  assert.match(src, /phaseKind/);
+  assert.doesNotMatch(src, /default[^\n]*['"]g['"]/);
 });
-test('Restore no-op result remains visible', () => assert.match(UI, /already-current/));
-test('revision conflict refreshes status and gives a friendly error', () => assert.match(UI, /ECONFLICT.*re-read the current status/s));
-test('unknown mutation result is not retried automatically', () => assert.match(UI, /could not be confirmed; refresh status/));
-test('backend strings pass through escaping helpers rather than innerHTML', () => { assert.match(UI, /function esc\(v\)/); assert.doesNotMatch(UI, /innerHTML/); });
-test('long Auto Strategy errors are bounded', () => assert.match(UI, /autoText\([^,]+, 200\)/));
-test('partial or unknown verification never renders as verified', () => assert.doesNotMatch(UI, /\[VERIFY:ROUTER\]/));
-test('no last-good is presented without exposing restore as a primary action', () => assert.match(UI, /auto\.lastGood && auto\.lastGood\.available/));
-test('existing LuCI render harness continues to exercise Orchestra', () => assert.match(readFileSync('tests/ui/render-harness.test.mjs', 'utf8'), /ZONE_VIEWS/));
-test('existing Auto Strategy RPC method names are used unchanged', () => ['orchestra_auto_status', 'orchestra_auto_enable', 'orchestra_auto_disable', 'orchestra_auto_run', 'orchestra_auto_stop', 'orchestra_auto_restore'].forEach((name) => assert.match(UI, new RegExp(name))));
-test('menu stays on the existing Orchestra view and ACL keeps status read-only', () => {
-	assert.match(readFileSync('luci-app-zapret2-manager/files/usr/share/luci/menu.d/luci-app-zapret2-manager.json', 'utf8'), /zapret2-manager\/orchestra/);
-	assert.ok(ACL.read.ubus['zapret2-manager'].includes('orchestra_auto_status'));
-	assert.equal(ACL.read.ubus['zapret2-manager'].includes('orchestra_auto_enable'), false);
-	assert.ok(ACL.write.ubus['zapret2-manager'].includes('orchestra_auto_enable'));
+
+test('every mutation carries revision request id and bounded service ids', () => {
+  const src = readFileSync(autoPath, 'utf8');
+  assert.match(src, /expectedRevision:\s*auto\.revision/);
+  assert.match(src, /requestId:\s*requestId\(\)/);
+  assert.match(src, /serviceIds:\s*serviceIds\(auto\)/);
+  assert.match(src, /slice\(0,\s*16\)/);
+  assert.doesNotMatch(src, /candidateId|profileHash|profileRevision|proposedConfiguration/);
 });
-test('the rpc plugin still exposes the established Auto Strategy methods', () => assert.match(RPC, /orchestra_auto_restore/));
-test('UI RPC semantics preserve JSON edit transport', () => assert.match(UI, /params: \['edit'\]/));
+
+test('capabilities, pending guard, polling and terminal phases are enforced', () => {
+  const src = readFileSync(autoPath, 'utf8');
+  assert.match(src, /auto\.capabilities\s*\|\|\s*\{\}/);
+  assert.match(src, /if\s*\(state\.pending\)\s*return/);
+  assert.match(src, /pollInFlight/);
+  assert.match(src, /setTimeout/);
+  assert.match(src, /clearTimeout/);
+  assert.match(src, /cancellation-requested/);
+  assert.match(src, /already-current/);
+});
+
+test('errors are bounded and restore uses the shared modal', () => {
+  const src = readFileSync(autoPath, 'utf8');
+  assert.match(src, /boundedText\([^,]+,\s*200\)/);
+  assert.match(src, /ECONFLICT/);
+  assert.match(src, /shell\.openModal/);
+  assert.match(src, /lastGood[^\n]*available/);
+  assert.doesNotMatch(src, /window\.confirm|innerHTML/);
+});
+
+test('existing Auto Strategy RPC method names and ACL remain unchanged', () => {
+  const api = readFileSync(apiPath, 'utf8');
+  for (const name of ['orchestra_auto_status','orchestra_auto_enable','orchestra_auto_disable','orchestra_auto_run','orchestra_auto_stop','orchestra_auto_restore']) {
+    assert.match(api, new RegExp(name));
+    assert.match(RPC, new RegExp(name));
+  }
+  assert.ok(ACL.read.ubus['zapret2-manager'].includes('orchestra_auto_status'));
+  assert.equal(ACL.read.ubus['zapret2-manager'].includes('orchestra_auto_enable'), false);
+  for (const name of ['orchestra_auto_enable','orchestra_auto_disable','orchestra_auto_run','orchestra_auto_stop','orchestra_auto_restore'])
+    assert.ok(ACL.write.ubus['zapret2-manager'].includes(name));
+});

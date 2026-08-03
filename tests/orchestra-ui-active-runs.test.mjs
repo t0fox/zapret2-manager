@@ -2,127 +2,108 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
-const ui = fs.readFileSync('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/orchestra.js', 'utf8');
+const root = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager';
+const runsPath = `${root}/z2m-runs.js`;
+const pagePath = `${root}/z2m-strategy-page.js`;
 
-test('external active run is discovered during initial load', () => {
-	assert.match(ui, /runStatusRpc, pack\(\{\}\)/);
-	assert.match(ui, /self\._acceptRun\(self\._state\.activeRun, true\)/);
+test('run controller is composed into the Strategy page', () => {
+  assert.equal(fs.existsSync(runsPath), true);
+  const page = fs.readFileSync(pagePath, 'utf8');
+  assert.match(page, /z2m-runs as Runs/);
+  assert.match(page, /Runs\.load\(ctx\)/);
+  assert.match(page, /Runs\.render\(ctx/);
+  assert.match(page, /Runs\.unmount\(\)/);
 });
 
-test('Results polling does not require an Apply operation', () => {
-	assert.match(ui, /_pollActiveRun: function/);
-	assert.match(ui, /activePanel && this\._state\.activeRun && !terminalRun/);
+test('external active run and history are discovered during read-only load', () => {
+  const ui = fs.readFileSync(runsPath, 'utf8');
+  const start = ui.indexOf('function load(');
+  const end = ui.indexOf('\nfunction refreshHistory(', start);
+  const load = ui.slice(start, end);
+  assert.match(load, /api\.orchestra\.runStatus/);
+  assert.match(load, /api\.orchestra\.runHistory/);
+  assert.doesNotMatch(load, /runStart|runContinue|runPause|runResume|runStop|applyBest/);
 });
 
-test('selected active detail is updated from each active status response', () => {
-	assert.match(ui, /if \(this\._state\.selectedRunId === run\.runId\) this\._state\.selectedRun = run/);
-	assert.match(ui, /self\._acceptRun\(x\.run, false\)/);
+test('run envelopes are normalized and invalid responses remain visible', () => {
+  const ui = fs.readFileSync(runsPath, 'utf8');
+  assert.match(ui, /function normalizeRunResponse/);
+  assert.match(ui, /invalid-run-response/);
+  assert.match(ui, /Не удалось загрузить результаты запуска/);
+  assert.match(ui, /structuredError/);
 });
 
-test('historical selection is not hijacked by an external active run', () => {
-	assert.match(ui, /if \(discover && !this\._state\.selectedByUser\) this\._state\.selectedRunId = run\.runId/);
+test('active detail, history selection and upsert are keyed by run id', () => {
+  const ui = fs.readFileSync(runsPath, 'utf8');
+  assert.match(ui, /selectedRunId/);
+  assert.match(ui, /selectedByUser/);
+  assert.match(ui, /row\.runId\s*!==\s*summary\.runId/);
+  assert.match(ui, /rows\.unshift\(summary\)/);
 });
 
-test('history upsert is keyed by run id and avoids duplicates', () => {
-	assert.match(ui, /row\.runId !== summary\.runId/);
-	assert.match(ui, /if \(!found\) rows\.unshift\(summary\)/);
+test('candidate journal renders bounded technical details without local ranking', () => {
+  const ui = fs.readFileSync(runsPath, 'utf8');
+  assert.match(ui, /candidateJournal/);
+  assert.match(ui, /Проверено/);
+  assert.match(ui, /Ошибка инфраструктуры/);
+  assert.match(ui, /candidateId/);
+  assert.match(ui, /boundedText/);
+  assert.doesNotMatch(ui, /\.sort\s*\([^)]*score|ranked\.sort/);
 });
 
-test('Discord target progress renders Web Gateway and CDN rows', () => {
-	assert.match(ui, /run\.targetProgress/);
-	assert.match(ui, /run\.targets/);
-	assert.match(ui, /tested \+ ' \/ ' \+ total/);
+test('target progress renders tested totals and winner or no-winner state', () => {
+  const ui = fs.readFileSync(runsPath, 'utf8');
+  assert.match(ui, /targetProgress/);
+  assert.match(ui, /testedCandidateIds/);
+  assert.match(ui, /tested\s*\+\s*['"] \/ ['"]\s*\+\s*total/);
+  assert.match(ui, /winner|no-winner/);
 });
 
-test('terminal phase stops polling after final detail/history refresh', () => {
-	assert.match(ui, /terminalRun\(x\.run\.phase/);
-	assert.match(ui, /historyRpc\(\)\.then/);
-	assert.match(ui, /!self\._pollAuthStopped && !self\._pollDisposed && self\._shouldPoll\(\)/);
+test('continue sends only run id and bounded additional timeout', () => {
+  const ui = fs.readFileSync(runsPath, 'utf8');
+  assert.match(ui, /api\.orchestra\.runContinue/);
+  assert.match(ui, /runId:\s*run\.runId/);
+  assert.match(ui, /additionalTimeoutSec:\s*900/);
+  const continueBlock = ui.slice(ui.indexOf('function continueRun('), ui.indexOf('\nfunction pauseRun('));
+  assert.doesNotMatch(continueBlock, /candidateId|profile|configuration/);
 });
 
-test('terminal detail remains selected', () => {
-	assert.match(ui, /if \(known && known\.runId && !terminalRun\(known\.phase/);
-	assert.match(ui, /self\._state\.activeRun = null/);
+test('pause resume stop and service apply are capability and state gated', () => {
+  const ui = fs.readFileSync(runsPath, 'utf8');
+  assert.match(ui, /api\.orchestra\.runPause/);
+  assert.match(ui, /api\.orchestra\.runResume/);
+  assert.match(ui, /api\.orchestra\.runStop/);
+  assert.match(ui, /api\.orchestra\.previewBest/);
+  assert.match(ui, /api\.orchestra\.applyBest/);
+  assert.match(ui, /run\.phase\s*===\s*['"]completed['"]\s*&&\s*serviceReady\(run\)/);
 });
 
-test('navigation stops and restarts Results polling', () => {
-	assert.match(ui, /self\._stopPolling\(\); self\._panel = self\._panelFromHash\(\)/);
-	assert.match(ui, /self\._refresh\(\); self\._startPolling\(\)/);
+test('polling is non-overlapping, timeout-aware and uses bounded backoff', () => {
+  const ui = fs.readFileSync(runsPath, 'utf8');
+  assert.match(ui, /pollInFlight/);
+  assert.match(ui, /if\s*\(state\.pollInFlight\)\s*return/);
+  assert.match(ui, /setTimeout/);
+  assert.doesNotMatch(ui, /setInterval/);
+  assert.match(ui, /5000\s*:\s*state\.pollFailures\s*===\s*2\s*\?\s*10000\s*:\s*30000/);
+  assert.match(ui, /последнее успешное состояние|last successful state/i);
 });
 
-test('repeated render cannot create a second poller', () => {
-	assert.match(ui, /if \(this\._pollDisposed \|\| this\._pollAuthStopped \|\| this\._polling \|\| !this\._shouldPoll\(\)\) return/);
-	assert.match(ui, /this\._polling = true/);
-	assert.match(ui, /this\._pollInFlight = true/);
-	assert.match(ui, /setTimeout/);
-	assert.doesNotMatch(ui, /setInterval/);
+test('successful polling resets delay, auth errors stop retries and terminal state refreshes history once', () => {
+  const ui = fs.readFileSync(runsPath, 'utf8');
+  assert.match(ui, /state\.pollFailures\s*=\s*0/);
+  assert.match(ui, /state\.pollDelay\s*=\s*2000/);
+  assert.match(ui, /authError/);
+  assert.match(ui, /pollAuthStopped\s*=\s*true/);
+  assert.match(ui, /Сессия истекла/);
+  assert.match(ui, /terminalRun/);
+  assert.match(ui, /refreshHistory/);
+  assert.match(ui, /terminalHistoryRefreshed/);
 });
 
-test('structured backend errors remain visible', () => {
-	assert.match(ui, /function runError\(response\)/);
-	assert.match(ui, /self\._state\.selectedError = friendlyRunError\(a\.run\)/);
-	assert.match(ui, /Не удалось загрузить результаты запуска/);
-	assert.match(ui, /alertBox\(structuredError\(run\.error\)\)/);
-});
-
-test('Apply operation polling remains present', () => {
-	assert.match(ui, /_pollApply: function/);
-	assert.match(ui, /applyStatusRpc, pack\(\{ operationId: this\._state\.operation\.operationId \}\)/);
-	assert.match(ui, /terminalApply\(o\.phase\)/);
-});
-
-test('load does not start or continue a run', () => {
-	const load = ui.slice(ui.indexOf('\tload: function'), ui.indexOf('\n\t_preferredProtocol:'));
-	assert.doesNotMatch(load, /runStartRpc/);
-	assert.doesNotMatch(load, /runContinueRpc/);
-	assert.match(load, /function loadWave\(index, values\)/);
-	assert.match(load, /waves\[index\]\.map/);
-});
-
-test('pagehide clears polling without one-shot lifecycle loss', () => {
-	assert.match(ui, /this\._onPanelPageHide = function \(\) \{ self\._stopPolling\(\); \}/);
-	assert.match(ui, /window\.addEventListener\('pagehide', this\._onPanelPageHide\);/);
-});
-
-test('slow status RPC cannot overlap the next poll', () => {
-	assert.match(ui, /if \(this\._pollInFlight\) return/);
-	assert.match(ui, /self\._pollInFlight = false/);
-});
-
-test('navigation and detached root stop polling', () => {
-	assert.match(ui, /self\._stopPolling\(\); self\._panel = self\._panelFromHash\(\)/);
-	assert.match(ui, /self\._disposePolling\(\)/);
-	assert.match(ui, /new MutationObserver/);
-	assert.match(ui, /!root\.isConnected/);
-});
-
-test('timeouts keep the last state and use bounded backoff', () => {
-	assert.match(ui, /showing the last successful state/);
-	assert.match(ui, /self\._pollDelay = self\._pollFailures === 1 \? 5000 : self\._pollFailures === 2 \? 10000 : 30000/);
-});
-
-test('successful status resets polling delay', () => {
-	assert.match(ui, /self\._pollFailures = 0; self\._pollDelay = 2000; self\._state\.pollWarning = null/);
-});
-
-test('auth errors stop polling without retry', () => {
-	assert.match(ui, /function authError\(e\)/);
-	assert.match(ui, /self\._pollAuthStopped = true/);
-	assert.match(ui, /Session expired; polling stopped/);
-});
-
-test('terminal transition refreshes history once and stops', () => {
-	assert.match(ui, /if \(terminalRun\(x\.run\.phase/);
-	assert.match(ui, /return historyRpc\(\)\.then/);
-	assert.match(ui, /if \(!self\._pollAuthStopped && !self\._pollDisposed && self\._shouldPoll\(\)\)/);
-});
-
-test('poll warning renders as one stable block', () => {
-	assert.match(ui, /if \(this\._state\.pollWarning\) content\.appendChild\(alertBox\(this\._state\.pollWarning, 'info'\)\)/);
-});
-
-test('dispose removes route listeners and observer', () => {
-	assert.match(ui, /destroy: function \(\)/);
-	assert.match(ui, /window\.removeEventListener\('hashchange'/);
-	assert.match(ui, /this\._pollObserver\.disconnect\(\)/);
+test('unmount clears timer and prevents detached polling', () => {
+  const ui = fs.readFileSync(runsPath, 'utf8');
+  assert.match(ui, /function unmount/);
+  assert.match(ui, /clearTimeout/);
+  assert.match(ui, /disposed\s*=\s*true/);
+  assert.match(ui, /root\.isConnected\s*===\s*false/);
 });

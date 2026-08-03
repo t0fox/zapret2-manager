@@ -4,87 +4,50 @@ import { dirname, join } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..', '..');
-const PROXY_JS = join(ROOT, 'luci-app-zapret2-manager', 'files', 'www', 'luci-static', 'resources', 'view', 'zapret2-manager', 'proxy.js');
+const QR_JS = join(ROOT, 'luci-app-zapret2-manager', 'files', 'www', 'luci-static', 'resources', 'view', 'zapret2-manager', 'z2m-qr.js');
 
-let _cachedView = null;
+let cachedQr = null;
 
-function loadProxyView() {
-	if (_cachedView) return _cachedView;
-	const src = readFileSync(PROXY_JS, 'utf8');
-	const rpcStub = {
-		declare: () => () => Promise.resolve({})
-	};
-	const stubs = {
-		L: {
-			view: { extend: (o) => o },
-			resolveDefault: (p, d) => Promise.resolve(d)
-		},
-		view: {},
-		rpc: rpcStub,
-		ui: {},
-		dom: {},
-		form: {},
-		poll: { add: () => {}, remove: () => {}, start: () => {}, stop: () => {} },
-		_: (s) => s,
-		E: (tag, attrs, children) => {
-			return {
-				tag,
-				attrs: attrs || {},
-				children: children || [],
-				appendChild() {},
-				addEventListener() {},
-				querySelector() { return null; },
-				style: {},
-				getContext() { return null; }
-			};
-		}
-	};
-	const fn = new Function(
-		'L', 'view', 'rpc', 'ui', 'dom', 'form', 'poll', '_', 'E',
-		'"use strict";' + src
-	);
-	_cachedView = fn(
-		stubs.L, stubs.view, stubs.rpc, stubs.ui, stubs.dom, stubs.form,
-		stubs.poll, stubs._, stubs.E
-	);
-	return _cachedView;
+function loadQrModule() {
+  if (cachedQr) return cachedQr;
+  const source = readFileSync(QR_JS, 'utf8');
+  cachedQr = new Function('"use strict";\n' + source)();
+  if (!cachedQr || typeof cachedQr.matrix !== 'function' || typeof cachedQr.render !== 'function')
+    throw new Error('z2m-qr.js did not export matrix/render');
+  return cachedQr;
+}
+
+function element(name) {
+  const attrs = {};
+  return {
+    name, attrs, style: {}, children: [],
+    setAttribute(key, value) { attrs[key] = String(value); },
+    appendChild(child) { this.children.push(child); return child; }
+  };
+}
+function escapeAttribute(value) {
+  return String(value).replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;');
+}
+function serialize(node) {
+  const style = Object.entries(node.style || {}).map(([key, value]) => `${key}:${value}`).join(';');
+  const attrs = Object.entries(node.attrs || {});
+  if (style) attrs.push(['style', style]);
+  const attributes = attrs.map(([key, value]) => ` ${key}="${escapeAttribute(value)}"`).join('');
+  return `<${node.name}${attributes}>${(node.children || []).map(serialize).join('')}</${node.name}>`;
 }
 
 export function encodeQrMatrix(link) {
-	const view = loadProxyView();
-	if (!view || typeof view._qrMakeObj !== 'function') {
-		throw new Error('proxy.js did not export _qrMakeObj under stubs');
-	}
-	const qrobj = view._qrMakeObj(link);
-	const size = qrobj.getModuleCount();
-	const matrix = Array.from({ length: size }, () => Array(size).fill(0));
-	for (let r = 0; r < size; r++) {
-		for (let c = 0; c < size; c++) {
-			matrix[r][c] = qrobj.isDark(r, c) ? 1 : 0;
-		}
-	}
-	return { size, matrix, link };
+  const qr = loadQrModule().matrix(link);
+  const matrix = qr.modules.map((row) => row.map((value) => value ? 1 : 0));
+  return { size: matrix.length, matrix, link, version: qr.version, mask: qr.mask };
 }
 
-export function qrSvg(link) {
-	const view = loadProxyView();
-	if (!view || typeof view._qrEncodeSVG !== 'function') {
-		throw new Error('proxy.js did not export _qrEncodeSVG under stubs');
-	}
-	const svgStub = {
-		setAttribute() {},
-		style: {}
-	};
-	const containerStub = {
-		innerHTML: '',
-		querySelector: () => svgStub
-	};
-	const origDoc = globalThis.document;
-	globalThis.document = { getElementById: () => containerStub };
-	try {
-		view._qrEncodeSVG(link);
-	} finally {
-		globalThis.document = origDoc;
-	}
-	return containerStub.innerHTML;
+export function qrSvg(link, size = 320) {
+  const originalDocument = globalThis.document;
+  globalThis.document = { createElementNS: (_namespace, name) => element(name) };
+  try {
+    return serialize(loadQrModule().render(link, size));
+  } finally {
+    globalThis.document = originalDocument;
+  }
 }

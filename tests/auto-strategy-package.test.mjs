@@ -9,15 +9,18 @@ const build = readFileSync('tools/build-apk-manual.sh', 'utf8');
 const plugin = readFileSync('zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc', 'utf8');
 const acl = JSON.parse(readFileSync('luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json', 'utf8'))['zapret2-manager'];
 
-function version(source) {
-	const v = source.match(/^PKG_VERSION:=(.+)$/m)?.[1];
-	const r = source.match(/^PKG_RELEASE:=(\d+)$/m)?.[1];
-	return `${v}-r${r}`;
+function packageVersion(source) {
+	return source.match(/^PKG_VERSION:=(.+)$/m)?.[1];
+}
+function packageRelease(source) {
+	return Number(source.match(/^PKG_RELEASE:=(\d+)$/m)?.[1]);
 }
 
-test('M8 release is coherent for the supported manager, LuCI, and full-stack install', () => {
-	assert.equal(version(manager), version(luci));
-	assert.equal(version(manager), version(full));
+test('M8 package versions are coherent while frontend release may advance independently', () => {
+	assert.equal(packageVersion(manager), packageVersion(luci));
+	assert.equal(packageVersion(manager), packageVersion(full));
+	assert.equal(packageRelease(luci), 137);
+	assert.equal(packageRelease(manager), packageRelease(full));
 });
 
 test('manual APK build derives each manager release from package metadata', () => {

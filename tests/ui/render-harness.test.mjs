@@ -1,237 +1,215 @@
-// Render harness — execute every zone page's render() against fixtures with a
-// minimal DOM stub. Catches render-time ReferenceErrors/TypeErrors (bad E()
-// usage, wrong variable refs) that the module-load harness cannot, for the
-// three envelopes a page must survive:
-//   a) healthy fixture data
-//   b) a rejected RPC  ({ loadError })
-//   c) an error payload ({ data: { error: 'status unavailable' } } and
-//      { data: { ok: false, error: '…' } })
-//
-// This is NOT a browser substitute: layout, CSS, and real event dispatch are
-// out of scope. It proves the render path executes and produces a node tree.
-//
-// Run: node --test tests/ui/
+// Single-view render harness. Executes every internal tab render() against a
+// minimal DOM and both healthy and unavailable envelopes. Compatibility route
+// files are redirects and are intentionally not treated as render owners.
 
-import { test } from 'node:test';
+import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { ZONE_VIEWS, readViewSource } from './lib/checks.mjs';
+import { evaluateLuciModule } from '../../tools/luci-module-smoke.mjs';
 
-const SHARED_UI_SOURCE = readFileSync('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.js', 'utf8');
+const root = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager';
+const MODULES = [
+  'z2m-overview.js', 'z2m-strategy-page.js', 'z2m-services.js', 'z2m-lists.js',
+  'z2m-dns.js', 'z2m-proxy.js', 'z2m-monitor.js', 'z2m-maintenance.js'
+];
 
-// ---- minimal DOM/LuCI stubs -------------------------------------------------
-
-function makeNode(tag) {
-	const node = {
-		tag: tag || 'div',
-		attrs: {},
-		children: [],
-		style: {},
-		classList: { add() { }, remove() { }, toggle() { } },
-		_tc: '',
-		appendChild(c) { node.children.push(c); return c; },
-		addEventListener() { },
-		setAttribute(k, v) { node.attrs[k] = v; },
-		getAttribute(k) { return node.attrs[k]; },
-		querySelector() { return makeNode(); },
-		querySelectorAll() { return []; }
-	};
-	Object.defineProperty(node, 'textContent', {
-		get() { return node._tc; },
-		set(v) { node._tc = String(v); }
-	});
-	return node;
+function makeNode(tag = 'div', attrs = {}, children = []) {
+  const classes = new Set(String(attrs.class || '').split(/\s+/).filter(Boolean));
+  const node = {
+    tag, tagName: String(tag).toUpperCase(), nodeType: 1, attrs: { ...attrs }, children: [],
+    style: {}, parentNode: null, value: attrs.value ?? '', checked: attrs.checked != null,
+    hidden: attrs.hidden === true, disabled: attrs.disabled != null, _text: '',
+    classList: {
+      add(...names) { names.forEach((name) => classes.add(name)); },
+      remove(...names) { names.forEach((name) => classes.delete(name)); },
+      toggle(name, force) {
+        const enabled = force === undefined ? !classes.has(name) : !!force;
+        if (enabled) classes.add(name); else classes.delete(name);
+        return enabled;
+      },
+      contains(name) { return classes.has(name); }
+    },
+    appendChild(child) {
+      if (child == null) return child;
+      if (typeof child === 'string' || typeof child === 'number') child = makeText(String(child));
+      child.parentNode = node; node.children.push(child); return child;
+    },
+    removeChild(child) {
+      const index = node.children.indexOf(child);
+      if (index >= 0) node.children.splice(index, 1);
+      child.parentNode = null; return child;
+    },
+    replaceChildren(...next) {
+      node.children.forEach((child) => { if (child && typeof child === 'object') child.parentNode = null; });
+      node.children = [];
+      next.flat().forEach((child) => node.appendChild(child));
+    },
+    insertBefore(child, before) {
+      if (child == null) return child;
+      child.parentNode = node;
+      const index = before ? node.children.indexOf(before) : -1;
+      if (index < 0) node.children.push(child); else node.children.splice(index, 0, child);
+      return child;
+    },
+    addEventListener() {}, removeEventListener() {}, focus() {}, select() {}, scrollIntoView() {},
+    setAttribute(key, value) { node.attrs[key] = value; if (key === 'value') node.value = value; },
+    getAttribute(key) { return node.attrs[key]; },
+    querySelector(selector) { return find(node, selector, true); },
+    querySelectorAll(selector) { return find(node, selector, false); },
+    getContext() { return { fillRect() {}, clearRect() {}, drawImage() {}, putImageData() {} }; },
+    toDataURL() { return 'data:image/png;base64,'; }
+  };
+  Object.defineProperty(node, 'textContent', {
+    get() { return node._text || node.children.map((child) => child.textContent || '').join(''); },
+    set(value) { node._text = String(value ?? ''); node.children = []; }
+  });
+  Object.defineProperty(node, 'firstChild', { get() { return node.children[0] || null; } });
+  Object.defineProperty(node, 'className', {
+    get() { return [...classes].join(' '); },
+    set(value) { classes.clear(); String(value || '').split(/\s+/).filter(Boolean).forEach((name) => classes.add(name)); }
+  });
+  const initial = Array.isArray(children) ? children : [children];
+  initial.forEach((child) => node.appendChild(child));
+  return node;
 }
-
+function makeText(text) {
+  return { nodeType: 3, textContent: text, parentNode: null };
+}
+function matches(node, selector) {
+  if (!node || node.nodeType !== 1) return false;
+  if (selector.startsWith('#')) return node.attrs.id === selector.slice(1);
+  if (selector.startsWith('.')) return node.classList.contains(selector.slice(1));
+  const dataTab = selector.match(/^button\[data-tab(?:=['"]?([^'"\]]+)['"]?)?\]$/);
+  if (dataTab) return node.tag === 'button' && node.attrs['data-tab'] != null && (!dataTab[1] || node.attrs['data-tab'] === dataTab[1]);
+  return node.tag === selector.toLowerCase();
+}
+function find(rootNode, selector, first) {
+  const found = [];
+  function visit(node) {
+    for (const child of node.children || []) {
+      if (matches(child, selector)) { found.push(child); if (first) return true; }
+      if (child && child.children && visit(child) && first) return true;
+    }
+    return false;
+  }
+  visit(rootNode);
+  return first ? found[0] || null : found;
+}
 function E(tag, attrs, children) {
-	const node = makeNode(tag);
-	if (attrs && typeof attrs === 'object') { Object.assign(node.attrs, attrs); Object.assign(node, attrs); }
-	const kids = Array.isArray(children) ? children : (children !== undefined ? [children] : []);
-	for (const c of kids) if (c && typeof c === 'object') node.children.push(c);
-	return node;
+  if (attrs == null || Array.isArray(attrs) || typeof attrs !== 'object' || attrs.nodeType) {
+    children = attrs; attrs = {};
+  }
+  return makeNode(tag, attrs, children === undefined ? [] : children);
 }
 
-const STATUS_FIXTURE = {
-	schema: 2,
-	generatedAt: '2026-07-27T12:00:00Z',
-	generation: 7,
-	serviceState: 'running',
-	runtime: {
-		present: true,
-		count: 1,
-		profileCount: 2,
-		strategies: 'table inet zapret2 {\n}\n',
-		rulesPresent: true,
-		instances: [{
-			pid: 1234,
-			cmdline: '/opt/zapret2/nfqws2 --qnum=300 --filter-tcp=443 --hostlist=/opt/zapret2/ipset/zapret-hosts-user.txt --lua-desync=fake:blob=fake1',
-			startTime: '2026-07-27T11:00:00Z',
-			rssKb: 2048
-		}]
-	},
-	applied: {
-		configPath: '/opt/zapret2/config', configPresent: true,
-		configMtime: '2026-07-27T10:00:00Z', configSize: 4321,
-		uci: "zapret2.main.enabled='1'"
-	},
-	draft: { passthrough: false },
-	drift: { divergent: false },
-	health: {
-		qlenHealth: { state: 'nominal', threshold: 50, consecutiveOverThreshold: 0, critTurns: 3 },
-		queue: {
-			number: 300, registered: true, reason: null, queueTotal: 0,
-			copyRange: 65535, queueDropped: 3, queueUserDropped: 1,
-			updatedAt: '2026-07-27T11:59:00Z'
-		},
-		checks: [
-			{ id: 'dns_consistency', result: 'ok', detail: 'system==dhcp' },
-			{ id: 'queue_health', result: null }
-		]
-	},
-	system: { autostart: { enabled: true, symlinks: ['/etc/rc.d/S99zapret2-manager'] }, upgradable: false },
-	upstream: { nfqws2Version: '2.0.0-test', autohostlist: null },
-	jobs: [
-		{ id: 'job-1', status: 'running', createdAt: '2026-07-27T11:50:00Z', updatedAt: '2026-07-27T11:55:00Z' },
-		{ id: 'job-0', status: 'succeeded', createdAt: '2026-07-27T10:00:00Z', updatedAt: '2026-07-27T10:05:00Z' }
-	],
-	warnings: [{ code: 'DRIFT', message: 'example warning', severity: 'warn' }]
+const documentStub = {
+  head: makeNode('head'), body: makeNode('body'),
+  createElement: (tag) => makeNode(tag), createTextNode: makeText,
+  getElementById: () => null, querySelector: () => null, querySelectorAll: () => [],
+  execCommand: () => true
 };
-
-const LISTS_FIXTURE = {
-	schema: 2,
-	lists: {
-		domainInclude: {
-			entries: ['example.com', 'conflict.com'],
-			path: '/opt/zapret2/ipset/zapret-hosts-user.txt',
-			type: 'domain', editable: true, engine: false, present: true, reason: null
-		},
-		domainExclude: {
-			entries: ['conflict.com'],
-			path: '/opt/zapret2/ipset/zapret-hosts-user-exclude.txt',
-			type: 'domain', editable: true, engine: false, present: true, reason: null
-		},
-		ipInclude: {
-			entries: [],
-			path: '/opt/zapret2/ipset/zapret-ip-user.txt',
-			type: 'ip', editable: false, engine: false, present: true,
-			reason: 'generated by getuser() from the domain include list'
-		},
-		ipExclude: {
-			entries: null,
-			path: null,
-			type: 'ip', editable: false, engine: false, present: false,
-			reason: 'no user-maintained IP-exclude entity exists on this engine'
-		},
-		ipBlock: {
-			entries: [],
-			path: '/opt/zapret2/ipset/zapret-ip-user-ipban.txt',
-			type: 'ip', editable: false, engine: false, present: true,
-			reason: 'generated by _get_ipban() from the hostname ipban list'
-		},
-		autohostlist: {
-			entries: ['auto.example.com'],
-			path: '/opt/zapret2/ipset/zapret-hosts-auto.txt',
-			type: 'domain', editable: false, engine: true, present: true,
-			reason: 'engine-owned: maintained by nfqws2 itself'
-		}
-	},
-	provenance: 'fixture provenance',
-	conflicts: ['conflict.com']
+const windowStub = {
+  location: { hash: '', hostname: 'router.test', replace() {}, reload() {} },
+  isSecureContext: false, addEventListener() {}, removeEventListener() {},
+  setTimeout: () => 1, clearTimeout() {}, setInterval: () => 1, clearInterval() {}
 };
-
-const RPC_FIXTURES = {
-	status: STATUS_FIXTURE,
-	lists_get: LISTS_FIXTURE,
-	lists_check_domain: { domain: 'example.com', userInclude: true, userExclude: false, autohostlist: false, conflict: false },
-	lists_set: { ok: true, written: ['domainInclude'] },
-	passthrough: { ok: true },
-	confirm_alive: { ok: true },
-	rollback: { ok: true }
+const overrides = {
+  E, document: documentStub, window: windowStub,
+  L: { view: { extend: (value) => value }, resource: (value) => value, url: (...parts) => '/' + parts.join('/') },
+  rpc: { declare: (spec) => Object.assign(() => Promise.resolve({}), { spec }) }
 };
+const cache = new Map();
+const shell = evaluateLuciModule(`${root}/z2m-shell.js`, overrides, cache);
 
-function loadModule(src, name) {
-	const declared = [];
-	const rpcStub = {
-		declare: (spec) => {
-			declared.push(spec);
-			return (args) => Promise.resolve(RPC_FIXTURES[spec.method] || { ok: true });
-		}
-	};
-	const stubs = {
-		L: { view: { extend: (o) => o }, resolveDefault: (p, d) => Promise.resolve(d), resource: (p) => p, url: (p) => p },
-		view: {},
-		rpc: rpcStub,
-		ui: {},
-		dom: {},
-		form: {},
-		poll: { add: () => { }, remove: () => { }, start: () => { }, stop: () => { } },
-		_: (s) => s,
-		E: E
-	};
-	const documentStub = {
-		// injectCSS() runs at the top of every render(): it looks for its
-		// <style> node by id and creates one when missing.
-		createElement(tag) { return E(tag); },
-		createTextNode(text) { return E('span', {}, text); },
-		head: { appendChild(n) { return n; }, contains() { return false; } },
-		querySelector() { return null; },
-		querySelectorAll() { return []; },
-		getElementById() { return null; },
-		documentElement: { classList: { add() { }, remove() { } } },
-		body: { contains() { return false; } }
-	};
-	const windowStub = { addEventListener() { }, getComputedStyle() { return { backgroundColor: 'rgb(255, 255, 255)' }; } };
-	const baseclass = { extend(properties) { function SharedUiModule() {} SharedUiModule.prototype = Object.assign({}, properties); return SharedUiModule; } };
-	const SharedUiModule = new Function('E', '_', 'baseclass', SHARED_UI_SOURCE)(stubs.E, stubs._, baseclass);
-	const sharedUi = new SharedUiModule();
-	const fn = new Function(
-		'L', 'view', 'rpc', 'ui', 'dom', 'form', 'poll', '_', 'E',
-		'document', 'window', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout', 'Z2M',
-		'"use strict";' + src
-	);
-	const noopTimer = () => 1;
-	const exported = fn(
-		stubs.L, stubs.view, stubs.rpc, stubs.ui, stubs.dom, stubs.form,
-		stubs.poll, stubs._, stubs.E,
-		documentStub, windowStub, noopTimer, () => { }, noopTimer, () => { }, sharedUi
-	);
-	assert.ok(exported && typeof exported === 'object', `${name}: module did not export a view object`);
-	return { view: exported, declared };
+function apiTree() {
+  const callable = () => Promise.resolve({});
+  const group = new Proxy({}, { get: () => callable });
+  return {
+    normalizeError(error) { return { code: error?.code || 'EUNAVAILABLE', message: error?.message || String(error || 'Unavailable') }; },
+    service: group, strategy: group, orchestra: group, profiles: group, services: group,
+    lists: group, dns: group, proxy: group, maintenance: group, monitor: group
+  };
+}
+function store() {
+  let state = { draft: {}, pending: {}, ui: { tab: 'overview', advanced: true } };
+  return {
+    get: () => state,
+    update(patch) { state = { ...state, ...(patch || {}) }; return state; },
+    setDraft(scope, value) { state.draft = { ...state.draft, [scope]: value }; },
+    clearDraft(scope) { const next = { ...state.draft }; delete next[scope]; state.draft = next; },
+    hasDraft: () => Object.keys(state.draft).length > 0
+  };
 }
 
-function assertNodeTree(node, name) {
-	assert.ok(node && typeof node === 'object', `${name}: render() did not return a node`);
-	assert.ok(Array.isArray(node.children), `${name}: rendered root has no children array`);
-	assert.ok(node.children.length > 0, `${name}: rendered root is empty`);
+const healthyData = {
+  'z2m-overview.js': {
+    status: { value: { serviceState: 'running', runtime: { process: { found: true } } } },
+    preview: { value: { comboCatalog: { candidates: [] }, strategyState: {}, overrides: { rules: [] } } },
+    history: { value: { runs: [] } }, orchestra: { value: {} }, serviceDns: { value: {} }
+  },
+  'z2m-strategy-page.js': {
+    strategy: {
+      status: { value: { serviceState: 'running' } },
+      preview: { value: { comboCatalog: { candidates: [] }, strategyState: {}, overrides: { rules: [] } } },
+      history: { value: { runs: [] } }, ratings: { value: {} }, capabilities: { value: {} },
+      profiles: { value: { draft: { profiles: [] }, profiles: [] } }, preflight: { value: { ok: true } }
+    },
+    auto: { value: { ok: true, enabled: false, phase: 'disabled', revision: 1, serviceIds: [], capabilities: {} } }
+  },
+  'z2m-services.js': {
+    catalog: { value: { services: [] } }, status: { value: {} }, health: { value: {} },
+    serviceDns: { value: {} }, providers: { value: { providers: [] } }
+  },
+  'z2m-lists.js': { lists: { value: { lists: {}, conflicts: [] } } },
+  'z2m-dns.js': {
+    config: { value: {} }, components: { value: {} }, providers: { value: { providers: [] } },
+    serviceProviders: { value: { providers: [] } }, serviceStatus: { value: {} }
+  },
+  'z2m-proxy.js': {
+    capabilities: { value: {} }, status: { value: { running: false } }, config: { value: {} },
+    link: { value: {} }, health: { value: {} }, logs: { value: { lines: [] } }
+  },
+  'z2m-monitor.js': { status: { value: {} }, orchestra: { value: {} }, events: { value: { events: [] } } },
+  'z2m-maintenance.js': {
+    status: { value: {} }, versions: { value: {} }, backups: { value: { backups: [] } }
+  }
+};
+
+function context(data) {
+  const state = store();
+  return {
+    api: apiTree(), shell, store: state, data, root: makeNode('main'), initial: {},
+    navigate() {}, refresh() { return Promise.resolve(); },
+    setDraft(scope, value) { state.setDraft(scope, value); },
+    clearDraft(scope) { state.clearDraft(scope); }, setConfirmation() { return false; }
+  };
+}
+function assertTree(node, name) {
+  assert.ok(node && node.nodeType === 1, `${name}: render did not return an element`);
+  assert.ok((node.children || []).length > 0, `${name}: rendered root is empty`);
 }
 
-// ---- the harness ------------------------------------------------------------
-
-test('render harness: healthy fixture renders a node tree (zone views)', async () => {
-	for (const v of ZONE_VIEWS) {
-		const { view } = loadModule(readViewSource(v), v);
-		// pages build their envelope in load(); feed render() the same shape.
-		const method = v === 'lists' ? 'lists_get' : 'status';
-		const envelope = { loadError: null, data: RPC_FIXTURES[method] };
-		const node = view.render(envelope);
-		assertNodeTree(node, v);
-	}
+test('single-view render harness: every internal tab renders healthy data', () => {
+  for (const file of MODULES) {
+    const mod = evaluateLuciModule(`${root}/${file}`, overrides, cache);
+    assert.equal(typeof mod.render, 'function', `${file}: render missing`);
+    assertTree(mod.render(context(healthyData[file])), file);
+  }
 });
 
-test('render harness: rejected-RPC envelope renders, never throws', () => {
-	for (const v of ZONE_VIEWS) {
-		const { view } = loadModule(readViewSource(v), v);
-		const node = view.render({ loadError: 'Error: connection reset', data: null });
-		assertNodeTree(node, v);
-	}
+test('single-view render harness: every internal tab survives unavailable envelopes', () => {
+  for (const file of MODULES) {
+    const mod = evaluateLuciModule(`${root}/${file}`, overrides, cache);
+    const unavailable = Object.fromEntries(Object.keys(healthyData[file]).map((key) => [key, { error: { code: 'EUNAVAILABLE', message: 'Unavailable' } }]));
+    assertTree(mod.render(context(unavailable)), file);
+  }
 });
 
-test('render harness: error-payload envelopes render unavailable, never throw', () => {
-	for (const v of ZONE_VIEWS) {
-		const { view } = loadModule(readViewSource(v), v);
-		const a = view.render({ loadError: null, data: { error: 'status unavailable', generatedAt: null } });
-		assertNodeTree(a, v);
-		const b = view.render({ loadError: null, data: { ok: false, error: 'parse failed', raw: '' } });
-		assertNodeTree(b, v);
-	}
+test('compatibility redirects are excluded from render ownership', () => {
+  const redirects = ['orchestra-strategy.js','orchestra.js','strategies.js','lists.js','dns.js','service-dns.js','proxy.js','monitor.js','maintenance.js'];
+  for (const file of redirects) {
+    const mod = evaluateLuciModule(`${root}/${file}`, overrides, cache);
+    assert.equal(typeof mod.load, 'function');
+    assert.equal(typeof mod.render, 'function');
+    assert.match(String(mod.load), /location\.replace/);
+  }
 });
