@@ -18,6 +18,12 @@ function entriesOf(obj) {
 function viewFile(path) {
   return join(viewRoot, path.split('/').pop() + '.js');
 }
+function packageRelease(path) {
+  const source = readFileSync(join(REPO, path), 'utf8');
+  const match = source.match(/^PKG_RELEASE:=(\d+)$/m);
+  assert.ok(match, `${path} declares PKG_RELEASE`);
+  return Number(match[1]);
+}
 const entries = entriesOf(menu);
 
 test('menu and ACL JSON parse', () => {
@@ -25,11 +31,10 @@ test('menu and ACL JSON parse', () => {
   assert.ok(acl['zapret2-manager']);
 });
 
-test('one visible menu entry opens the single app view', () => {
-  const visible = entries.filter((entry) => !entry.hidden);
-  assert.equal(visible.length, 1);
-  assert.equal(visible[0].key, 'admin/services/zapret2-manager');
-  assert.equal(visible[0].path, 'zapret2-manager/app');
+test('exactly one menu entry opens the single app view', () => {
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].key, 'admin/services/zapret2-manager');
+  assert.equal(entries[0].path, 'zapret2-manager/app');
 });
 
 test('all menu routes resolve to shipped view modules', () => {
@@ -45,9 +50,9 @@ test('single-view runtime modules and local stylesheets exist', () => {
   ]) assert.ok(existsSync(join(viewRoot, name)), `${name} exists`);
 });
 
-test('r137 package ships no legacy runtime and only the two authoritative local stylesheets', () => {
+test('r138 package ships no legacy runtime and only the two authoritative local stylesheets', () => {
   const makefile = readFileSync(join(REPO, 'luci-app-zapret2-manager/Makefile'), 'utf8');
-  assert.match(makefile, /^PKG_RELEASE:=137$/m);
+  assert.match(makefile, /^PKG_RELEASE:=138$/m);
   const files = readdirSync(viewRoot).sort();
   assert.deepEqual(files.filter((name) => name.endsWith('.css')), ['z2m-components.css', 'z2m-ui.css']);
   assert.deepEqual(files.filter((name) => name.endsWith('-legacy.js')), []);
@@ -59,14 +64,14 @@ test('r137 package ships no legacy runtime and only the two authoritative local 
   }
 });
 
-test('compatibility routes remain hidden', () => {
-  const expected = ['orchestra-strategy','orchestra','strategies','lists','dns','service-dns','proxy','monitor','maintenance'];
-  for (const name of expected) {
-    const route = menu[`admin/services/zapret2-manager/${name}`];
-    assert.ok(route, `${name} route exists`);
-    assert.equal(route.hidden, true, `${name} route is hidden`);
-    assert.equal(route.action.path, `zapret2-manager/${name}`);
-  }
+test('meta-package release is not older than the LuCI package release', () => {
+  const luciRelease = packageRelease('luci-app-zapret2-manager/Makefile');
+  const fullRelease = packageRelease('zapret2-manager-full/Makefile');
+  assert.ok(fullRelease >= luciRelease, `full r${fullRelease} must cover LuCI r${luciRelease}`);
+});
+
+test('legacy compatibility routes are not published as LuCI child tabs', () => {
+  assert.deepEqual(Object.keys(menu), ['admin/services/zapret2-manager']);
 });
 
 test('critical RPC methods remain covered by ACL', () => {
