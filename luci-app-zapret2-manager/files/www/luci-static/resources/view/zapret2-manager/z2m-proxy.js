@@ -27,7 +27,7 @@ function copyText(text) {
     document.body.appendChild(area); area.select();
     try { if (!document.execCommand('copy')) throw new Error('copy failed'); resolve(); }
     catch (error) { reject(error); }
-    finally { if (area.parentNode) area.parentNode.removeChild(area); }
+    if (area.parentNode) area.parentNode.removeChild(area);
   });
 }
 function splitList(value) {
@@ -131,6 +131,11 @@ function renderProxy(ctx) {
         ])
       ]), _('полная ссылка получена через guarded reveal'))
     ]));
+    var activity = asArray(status.recentActivity || status.activity || status.events).map(function (item) {
+      return typeof item === 'string' ? item : item && (item.message || item.event || item.type) || '';
+    }).filter(Boolean);
+    if (running(status) && listen.address) activity.unshift(_('Listener ready on ') + listen.address + ':' + display(listen.port));
+    nodes.push(shell.panel(_('Recent activity'), activity.length ? E('ul', { 'class': 'z2m-proxy-activity' }, activity.slice(0, 8).map(function (item) { return E('li', {}, item); })) : shell.empty(_('Нет недавних событий; redacted logs доступны в Technical.'))));
   }
 
   function textField(parent, fields, key, label, value, placeholder) {
