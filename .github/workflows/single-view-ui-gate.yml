@@ -1,0 +1,62 @@
+name: Single-view UI gate
+
+on:
+  push:
+    branches:
+      - feat/strategy-first-integration
+    paths:
+      - 'luci-app-zapret2-manager/**'
+      - 'tests/ui/**'
+      - 'tests/packaging.test.mjs'
+      - 'tools/luci-module-smoke.mjs'
+      - 'tools/ui-rpc-contract.mjs'
+      - '.github/workflows/single-view-ui-gate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run single-view contract tests
+        run: |
+          node --test \
+            tests/ui/single-view-manager.test.mjs \
+            tests/ui/single-view-overview-strategy.test.mjs \
+            tests/ui/single-view-services-lists-dns.test.mjs \
+            tests/ui/single-view-proxy.test.mjs \
+            tests/ui/single-view-monitor-maintenance.test.mjs \
+            tests/packaging.test.mjs
+
+      - name: Check LuCI JavaScript syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' file; do
+            node --check "$file"
+          done < <(find luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager -maxdepth 1 -name '*.js' -print0)
+
+      - name: Validate menu JSON
+        run: node -e "JSON.parse(require('fs').readFileSync('luci-app-zapret2-manager/files/usr/share/luci/menu.d/luci-app-zapret2-manager.json','utf8'))"
+
+      - name: Reject runtime legacy wrappers
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -R -nE "require view\.zapret2-manager\..*-legacy|return Legacy|children\.forEach" \
+            luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager \
+            --include='*.js'; then
+            echo 'Legacy wrapper or live HTMLCollection iteration detected' >&2
+            exit 1
+          fi
