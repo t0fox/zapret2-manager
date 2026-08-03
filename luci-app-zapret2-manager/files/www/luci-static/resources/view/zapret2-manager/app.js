@@ -9,13 +9,15 @@
 'require view.zapret2-manager.z2m-lists as Lists';
 'require view.zapret2-manager.z2m-dns as Dns';
 'require view.zapret2-manager.z2m-proxy as Proxy';
+'require view.zapret2-manager.z2m-monitor as Monitor';
+'require view.zapret2-manager.z2m-maintenance as Maintenance';
 
 var TAB_IDS = ['overview', 'strategy', 'services', 'lists', 'dns', 'proxy', 'monitor', 'maintenance'];
 var TAB_LABELS = {
   overview: _('Обзор'), strategy: _('Стратегия'), services: _('Сервисы'), lists: _('Списки'),
   dns: _('DNS'), proxy: _('Telegram Proxy'), monitor: _('Мониторинг'), maintenance: _('Обслуживание')
 };
-var MODULES = { overview: Overview, strategy: Strategy, services: Services, lists: Lists, dns: Dns, proxy: Proxy };
+var MODULES = { overview: Overview, strategy: Strategy, services: Services, lists: Lists, dns: Dns, proxy: Proxy, monitor: Monitor, maintenance: Maintenance };
 var store = StoreModule.create();
 var hashHandler = null;
 var activeModule = null;
