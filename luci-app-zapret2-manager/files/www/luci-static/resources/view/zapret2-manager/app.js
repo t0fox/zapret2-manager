@@ -12,7 +12,7 @@
 'require view.zapret2-manager.z2m-monitor as Monitor';
 'require view.zapret2-manager.z2m-maintenance as Maintenance';
 
-var TAB_IDS = ['overview', 'strategy', 'services', 'lists', 'dns', 'proxy', 'monitor', 'maintenance'];
+var TAB_IDS = ['overview','strategy','services','lists','dns','proxy','monitor','maintenance'];
 var TAB_LABELS = {
   overview: _('Обзор'), strategy: _('Стратегия'), services: _('Сервисы'), lists: _('Списки'),
   dns: _('DNS'), proxy: _('Telegram Proxy'), monitor: _('Мониторинг'), maintenance: _('Обслуживание')
@@ -45,36 +45,17 @@ function setHash(tab) {
   if (TAB_IDS.indexOf(tab) < 0) tab = 'overview';
   if (window.location.hash !== '#/' + tab) window.location.hash = '#/' + tab;
 }
-function placeholderModule(tab) {
-  return {
-    id: tab,
-    title: TAB_LABELS[tab],
-    subtitle: _('Раздел подключается к существующему RPC backend.'),
-    load: function () { return Promise.resolve({}); },
-    render: function () {
-      return E('section', { 'class': 'z2m-view on', 'data-view': tab }, [
-        E('div', { 'class': 'z2m-phead' }, [
-          E('div', {}, [E('h1', {}, TAB_LABELS[tab]), E('p', {}, _('Раздел подключается к существующему RPC backend.'))])
-        ]),
-        Shell.panel(TAB_LABELS[tab], Shell.empty(_('Раздел будет перенесён на следующих шагах.')))
-      ]);
-    },
-    mount: function () {},
-    unmount: function () {}
-  };
-}
-function moduleFor(tab) { return MODULES[tab] || placeholderModule(tab); }
 function statusState(initial) {
   if (initial && initial.error) return { label: _('недоступно'), kind: 'r' };
-  var state = initial && (initial.serviceState || initial.state || (initial.runtime && initial.runtime.state));
-  if (state === 'running') return { label: _('работает'), kind: 'g' };
-  if (state === 'stopped') return { label: _('остановлена'), kind: 'r' };
-  return { label: state || _('неизвестно'), kind: 'o' };
+  var value = initial && (initial.serviceState || initial.state || initial.runtime && initial.runtime.state);
+  if (value === 'running') return { label: _('работает'), kind: 'g' };
+  if (value === 'stopped') return { label: _('остановлена'), kind: 'r' };
+  return { label: value || _('неизвестно'), kind: 'o' };
 }
 function draftScopes() { return Object.keys(store.get().draft || {}); }
-function draftTab(scope) { return DRAFT_TAB[scope] || store.get().ui.tab || 'overview'; }
 function draftLabel(scope) { return DRAFT_LABEL[scope] || scope; }
-function redactedDraft(value) {
+function draftTab(scope) { return DRAFT_TAB[scope] || 'overview'; }
+function safeDraft(value) {
   return JSON.stringify(value, function (key, item) {
     return /secret|token|password/i.test(key) ? '••••••••' : item;
   }, 2);
@@ -86,11 +67,11 @@ return L.view.extend({
       return { error: Api.normalizeError(error) };
     });
   },
+
   render: function (initial) {
     Shell.injectCss();
-    var active = tabFromHash();
     var content = E('main', { 'class': 'z2m-content', id: 'z2m-content' });
-    var tabs = E('nav', { 'class': 'z2m-tabs', id: 'z2m-tabs', 'aria-label': _('Разделы Zapret 2 Manager') });
+    var tabs = E('nav', { 'class': 'z2m-tabs', id: 'z2m-tabs', role: 'tablist', 'aria-label': _('Разделы Zapret 2 Manager') });
     var applyBar = Shell.renderApplyBar(store);
     var confirmBar = Shell.renderConfirmBar();
     var appRoot = null;
@@ -100,11 +81,9 @@ return L.view.extend({
       var ttl = Number(response.rollback_ttl);
       if (!isFinite(ttl) || ttl <= 0) return false;
       var snapshot = store.get();
-      store.update({
-        pending: Object.assign({}, snapshot.pending, {
-          confirmation: { deadline: Date.now() + ttl * 1000, rollback_ttl: ttl }
-        })
-      });
+      store.update({ pending: Object.assign({}, snapshot.pending, {
+        confirmation: { rollback_ttl: ttl, deadline: Date.now() + ttl * 1000 }
+      }) });
       return true;
     }
     function clearConfirmation() {
@@ -115,12 +94,8 @@ return L.view.extend({
     }
     function context(tab, module, data, node) {
       return {
-        api: Api,
-        store: store,
-        shell: Shell,
-        root: node || content,
-        data: data || {},
-        initial: initial || {},
+        api: Api, store: store, shell: Shell, root: node || content,
+        data: data || {}, initial: initial || {},
         navigate: function (next) { return navigateTo(next); },
         refresh: function (next) { return activate(next || tab, true); },
         setDraft: function (scope, value) { store.setDraft(scope, value); },
@@ -139,16 +114,16 @@ return L.view.extend({
     function activate(tab, force) {
       if (TAB_IDS.indexOf(tab) < 0) tab = 'overview';
       var token = ++activationToken;
-      var module = moduleFor(tab);
+      var module = MODULES[tab];
       if (activeModule && activeContext && activeModule.unmount)
         activeModule.unmount(activeContext);
       activeModule = module;
       activeContext = null;
       store.update({ ui: Object.assign({}, store.get().ui, { tab: tab }) });
-      Array.from(tabs.querySelectorAll('button[data-tab]')).forEach(function (tabButton) {
-        var selected = tabButton.getAttribute('data-tab') === tab;
-        tabButton.classList.toggle('on', selected);
-        tabButton.setAttribute('aria-selected', selected ? 'true' : 'false');
+      Array.from(tabs.querySelectorAll('button[data-tab]')).forEach(function (button) {
+        var selected = button.getAttribute('data-tab') === tab;
+        button.classList.toggle('on', selected);
+        button.setAttribute('aria-selected', selected ? 'true' : 'false');
       });
       content.replaceChildren(E('div', { 'class': 'z2m-app-placeholder' }, _('Загрузка данных…')));
       return Promise.resolve(module.load(context(tab, module))).then(function (data) {
@@ -159,15 +134,15 @@ return L.view.extend({
         activeContext = ctx;
         content.replaceChildren(node);
         if (module.mount) module.mount(ctx);
-        if (appRoot && appRoot.scrollIntoView && !force)
-          appRoot.scrollIntoView({ block: 'start' });
+        if (appRoot && appRoot.scrollIntoView && !force) appRoot.scrollIntoView({ block: 'start' });
       }).catch(function (error) {
         if (token !== activationToken) return;
         activeContext = null;
         content.replaceChildren(E('div', { 'class': 'warnbar' }, Api.normalizeError(error).message));
       });
     }
-    function updateApplyBar() {
+
+    function updateDraftBar() {
       var scopes = draftScopes();
       var confirmation = store.get().pending && store.get().pending.confirmation;
       applyBar.classList.toggle('hidden', !scopes.length || !!confirmation);
@@ -185,7 +160,7 @@ return L.view.extend({
       }
       if (!confirmation) {
         confirmBar.classList.add('hidden');
-        updateApplyBar();
+        updateDraftBar();
         return;
       }
       confirmBar.classList.remove('hidden');
@@ -201,23 +176,24 @@ return L.view.extend({
           confirmationTimer = null;
           clearConfirmation();
           Shell.showToast(_('Срок подтверждения истёк; backend должен выполнить автооткат.'), 'warn');
-          if (activeContext) activate(store.get().ui.tab, true);
+          activate(store.get().ui.tab, true);
         }
       }
       tick();
       confirmationTimer = window.setInterval(tick, 1000);
     }
-    function renderBars() {
-      updateApplyBar();
+    function renderState() {
+      if (appRoot)
+        appRoot.classList.toggle('adv', !!(store.get().ui && store.get().ui.advanced));
+      updateDraftBar();
       updateConfirmBar();
     }
     function previewDrafts() {
       var draft = store.get().draft || {};
-      var scopes = Object.keys(draft);
-      var body = E('div', {}, scopes.map(function (scope) {
+      var body = E('div', {}, Object.keys(draft).map(function (scope) {
         return E('section', { 'class': 'z2m-draft-preview' }, [
           E('h4', {}, draftLabel(scope)),
-          E('pre', { 'class': 'z2m-diff' }, redactedDraft(draft[scope]))
+          E('pre', { 'class': 'z2m-diff' }, safeDraft(draft[scope]))
         ]);
       }));
       Shell.openModal(_('Что именно изменится'), body);
@@ -239,16 +215,15 @@ return L.view.extend({
       );
     }
 
+    var initialTab = tabFromHash();
     TAB_IDS.forEach(function (tab) {
-      var tabButton = E('button', {
-        type: 'button',
-        'data-tab': tab,
-        'class': tab === active ? 'on' : '',
-        role: 'tab',
-        'aria-selected': tab === active ? 'true' : 'false'
+      var button = E('button', {
+        type: 'button', 'data-tab': tab,
+        'class': tab === initialTab ? 'on' : '', role: 'tab',
+        'aria-selected': tab === initialTab ? 'true' : 'false'
       }, TAB_LABELS[tab]);
-      tabButton.addEventListener('click', function () { navigateTo(tab); });
-      tabs.appendChild(tabButton);
+      button.addEventListener('click', function () { navigateTo(tab); });
+      tabs.appendChild(button);
     });
     if (hashHandler) window.removeEventListener('hashchange', hashHandler);
     hashHandler = function () { activate(tabFromHash()); };
@@ -283,35 +258,40 @@ return L.view.extend({
     confirmBar.querySelector('#z2m-confirm-alive').addEventListener('click', function () {
       var keep = confirmBar.querySelector('#z2m-confirm-alive');
       var rollback = confirmBar.querySelector('#z2m-rollback-now');
-      keep.disabled = true; rollback.disabled = true;
+      keep.disabled = true;
+      rollback.disabled = true;
       Api.strategy.confirmAlive().then(function () {
         clearConfirmation();
         Shell.showToast(_('Изменения подтверждены.'), 'ok');
       }).catch(function (error) {
-        keep.disabled = false; rollback.disabled = false;
+        keep.disabled = false;
+        rollback.disabled = false;
         Shell.showToast(Api.normalizeError(error).message, 'err');
       });
     });
     confirmBar.querySelector('#z2m-rollback-now').addEventListener('click', function () {
       var keep = confirmBar.querySelector('#z2m-confirm-alive');
       var rollback = confirmBar.querySelector('#z2m-rollback-now');
-      keep.disabled = true; rollback.disabled = true;
+      keep.disabled = true;
+      rollback.disabled = true;
       Api.strategy.rollbackManager().then(function () {
         clearConfirmation();
         Shell.showToast(_('Выполнен откат к last-good.'), 'ok');
         return activate(store.get().ui.tab, true);
       }).catch(function (error) {
-        keep.disabled = false; rollback.disabled = false;
+        keep.disabled = false;
+        rollback.disabled = false;
         Shell.showToast(Api.normalizeError(error).message, 'err');
       });
     });
 
     if (storeUnsubscribe) storeUnsubscribe();
-    storeUnsubscribe = store.subscribe(renderBars);
-    renderBars();
-    Promise.resolve().then(function () { activate(active); });
+    storeUnsubscribe = store.subscribe(renderState);
+    renderState();
+    Promise.resolve().then(function () { activate(initialTab); });
     return appRoot;
   },
+
   handleSaveApply: null,
   handleSave: null,
   handleReset: null
