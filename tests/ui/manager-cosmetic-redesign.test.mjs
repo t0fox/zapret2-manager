@@ -57,14 +57,13 @@ test('approved visual system stays local and covers the new application componen
   assert.doesNotMatch(css + components, /@import|https?:\/\//);
 });
 
-test('LuCI menu exposes one app entry and only hidden compatibility routes', () => {
-  assert.equal(menu['admin/services/zapret2-manager'].action.path, 'zapret2-manager/app');
-  const actionable = Object.values(menu).filter((entry) => entry.action);
-  assert.equal(actionable.filter((entry) => entry.hidden !== true).length, 1);
-  for (const entry of actionable.filter((item) => item.hidden === true)) {
-    assert.deepEqual(entry.depends.acl, ['zapret2-manager']);
-    assert.match(entry.action.path, /^zapret2-manager\//);
-  }
+test('LuCI menu publishes only the single application route', () => {
+  assert.deepEqual(Object.keys(menu), ['admin/services/zapret2-manager']);
+  assert.deepEqual(menu['admin/services/zapret2-manager'].action, {
+    type: 'view',
+    path: 'zapret2-manager/app'
+  });
+  assert.deepEqual(menu['admin/services/zapret2-manager'].depends.acl, ['zapret2-manager']);
 });
 
 test('reference-critical Proxy, DNS and Backup Preview features are present', () => {

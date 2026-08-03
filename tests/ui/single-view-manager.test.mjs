@@ -92,22 +92,26 @@ test('draft and confirmation bars expose safe scope-aware actions', () => {
   assert.doesNotMatch(app, /rollback_ttl\s*\|\|\s*(?:60|90)/);
 });
 
-test('menu exposes one app entry and hidden compatibility routes', () => {
+test('menu publishes exactly one application entry', () => {
   const menu = JSON.parse(readFileSync(menuPath, 'utf8'));
-  assert.equal(menu['admin/services/zapret2-manager'].action.path, 'zapret2-manager/app');
-  assert.equal(Object.values(menu).filter((entry) => entry.hidden !== true && entry.action).length, 1);
-  for (const entry of Object.values(menu).filter((item) => item.hidden === true))
-    assert.deepEqual(entry.depends.acl, ['zapret2-manager']);
+  assert.deepEqual(Object.keys(menu), ['admin/services/zapret2-manager']);
+  assert.deepEqual(menu['admin/services/zapret2-manager'].action, {
+    type: 'view',
+    path: 'zapret2-manager/app'
+  });
 });
 
-test('compatibility routes are standalone valid redirect views', () => {
+test('compatibility redirects are standalone valid views without menu registration', () => {
+  const menu = JSON.parse(readFileSync(menuPath, 'utf8'));
   for (const [file, tab] of Object.entries(redirectMap)) {
     const source = readFileSync(`${root}/${file}`, 'utf8');
     const exported = evaluateLuciModule(`${root}/${file}`);
+    const leaf = file.replace(/\.js$/, '');
     assert.equal(typeof exported.load, 'function');
     assert.match(source, /window\.location\.replace/);
     assert.match(source, new RegExp(`#/${tab}`));
     assert.doesNotMatch(source, /return\s+Legacy/);
+    assert.equal(menu[`admin/services/zapret2-manager/${leaf}`], undefined);
   }
 });
 

@@ -59,14 +59,12 @@ test('override backend persists both operations and applies runtime only when re
   assert.match(backend, /mv -f/);
 });
 
-test('menu exposes one single-view app entry and hidden compatibility routes', () => {
+test('menu exposes only the single-view application route', () => {
   const menu = JSON.parse(read(menuPath));
-  assert.equal(menu['admin/services/zapret2-manager'].action.path, 'zapret2-manager/app');
+  assert.deepEqual(Object.keys(menu), ['admin/services/zapret2-manager']);
+  assert.deepEqual(menu['admin/services/zapret2-manager'].action, {
+    type: 'view',
+    path: 'zapret2-manager/app'
+  });
   assert.ok(!menu['admin/services/zapret2-manager/combo-presets']);
-  const actionable = Object.values(menu).filter((entry) => entry.action);
-  assert.equal(actionable.filter((entry) => entry.hidden !== true).length, 1);
-  for (const entry of actionable.filter((item) => item.hidden === true)) {
-    assert.deepEqual(entry.depends.acl, ['zapret2-manager']);
-    assert.match(entry.action.path, /^zapret2-manager\//);
-  }
 });
