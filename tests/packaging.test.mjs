@@ -64,10 +64,12 @@ test('r138 package ships no legacy runtime and only the two authoritative local 
   }
 });
 
-test('meta-package release is not older than the LuCI package release', () => {
+test('frontend release advances independently while full stays aligned with backend', () => {
+  const managerRelease = packageRelease('zapret2-manager/Makefile');
   const luciRelease = packageRelease('luci-app-zapret2-manager/Makefile');
   const fullRelease = packageRelease('zapret2-manager-full/Makefile');
-  assert.ok(fullRelease >= luciRelease, `full r${fullRelease} must cover LuCI r${luciRelease}`);
+  assert.equal(fullRelease, managerRelease);
+  assert.ok(luciRelease > managerRelease, `LuCI r${luciRelease} should carry the frontend-only fix over backend r${managerRelease}`);
 });
 
 test('legacy compatibility routes are not published as LuCI child tabs', () => {
