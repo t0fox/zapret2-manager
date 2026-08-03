@@ -10,6 +10,9 @@ const css = readFileSync(
   'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.css',
   'utf8'
 );
+const menu = JSON.parse(
+  readFileSync('luci-app-zapret2-manager/files/usr/share/luci/menu.d/luci-app-zapret2-manager.json', 'utf8')
+);
 
 test('frontend RPC method sets remain unchanged', () => {
   assert.deepEqual(collectUiContract(), expectedRpc);
@@ -38,4 +41,17 @@ test('shared design system exposes approved tokens and primitives', () => {
   ]) {
     assert.match(css, new RegExp(cls.replace('.', '\\.')));
   }
+});
+
+test('navigation keeps seven product pages and hides advanced Orchestra', () => {
+  const entries = Object.values(menu);
+  assert.equal(entries.some((entry) => entry.title === 'Advanced'), false);
+  assert.equal(entries.some((entry) => entry.title === 'Combo presets'), false);
+
+  const proxy = entries.find((entry) => entry.action && entry.action.path === 'zapret2-manager/proxy');
+  assert.equal(proxy.title, 'TG PROXY');
+
+  const advanced = menu['admin/services/zapret2-manager/advanced'];
+  assert.equal(advanced.hidden, true);
+  assert.equal(advanced.action.path, 'zapret2-manager/orchestra');
 });
