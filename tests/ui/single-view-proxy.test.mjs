@@ -25,11 +25,31 @@ test('proxy tab exposes lifecycle and every existing proxy workflow', () => {
     'api.proxy.autostartSet','api.proxy.secretRotate','api.proxy.logsTail','api.proxy.health',
     'api.proxy.linkInfo','api.proxy.quickInstall'
   ]) assert.match(src, new RegExp(token.replaceAll('.', '\\.')));
-  for (const label of ['Open in Telegram','Copy link','QR','Rotate secret','Recent activity','Settings','Technical']) assert.match(src, new RegExp(label));
+  for (const label of [
+    'Открыть в Telegram','Копировать ссылку','QR-код','Новая ссылка','Недавняя активность',
+    'Настройки','Техническое','Перезапустить','Самопроверка','Собрать диагностику','Остановить службу'
+  ]) assert.match(src, new RegExp(label));
   assert.match(src, /reveal:\s*true[\s\S]*confirm:\s*['"]REVEAL['"]/);
   assert.match(src, /expectedAppliedRevision/);
   assert.match(src, /ctx\.root\.replaceChildren/);
   assert.doesNotMatch(src, /children\.forEach/);
+  assert.doesNotMatch(src, /-legacy/);
+});
+
+test('proxy settings participate in shared draft state and apply clears it', () => {
+  const src = source('z2m-proxy.js');
+  assert.match(src, /ctx\.setDraft\(['"]proxy['"]/);
+  assert.match(src, /ctx\.clearDraft\(['"]proxy['"]/);
+  assert.match(src, /config:\s*config\(\)[\s\S]*expectedAppliedRevision/);
+});
+
+test('proxy rotation uses shared modal and activity uses redacted backend logs', () => {
+  const src = source('z2m-proxy.js');
+  assert.match(src, /shell\.openModal/);
+  assert.doesNotMatch(src, /window\.confirm/);
+  assert.match(src, /data\.logs/);
+  assert.match(src, /api\.proxy\.logsTail/);
+  assert.match(src, /redacted/i);
 });
 
 test('QR encoder matches deterministic Telegram link oracle and keeps a four-module quiet zone', () => {
