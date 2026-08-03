@@ -91,9 +91,10 @@ function render(ctx) {
       idempotencyToken: 'luci-global-' + Date.now()
     }).then(function (response) {
       if (!response || response.ok !== true) throw response || new Error('apply failed');
+      var confirmationRequired = ctx.setConfirmation(response);
       ctx.store.clearDraft('strategy');
       ctx.store.update({ pending: Object.assign({}, ctx.store.get().pending, { pendingStrategyId: null }) });
-      shell.showToast(_('Стратегия применена. Подтвердите работу или выполните откат.'), 'ok');
+      shell.showToast(confirmationRequired ? _('Стратегия применена. Подтвердите работу или выполните откат.') : _('Стратегия применена.'), 'ok');
       ctx.refresh('strategy');
     }).catch(function (error) { shell.showToast(ctx.api.normalizeError(error).message, 'err'); });
   }
