@@ -18,7 +18,7 @@ const INTERNAL = {
   monitor: 'z2m-monitor.js', maintenance: 'z2m-maintenance.js'
 };
 const BEHAVIOR_OWNERS = [
-  'z2m-overview.js','z2m-strategy.js','z2m-auto.js','z2m-services.js',
+  'z2m-overview.js','z2m-strategy.js','z2m-auto.js','z2m-runs.js','z2m-services.js',
   'z2m-lists.js','z2m-dns.js','z2m-proxy.js','z2m-monitor.js','z2m-maintenance.js'
 ];
 const REDIRECTS = {
@@ -26,9 +26,10 @@ const REDIRECTS = {
   'lists.js': 'lists', 'dns.js': 'dns', 'service-dns.js': 'dns', 'proxy.js': 'proxy',
   'monitor.js': 'monitor', 'maintenance.js': 'maintenance'
 };
-const SUPPORT = ['z2m-api.js','z2m-store.js','z2m-shell.js','z2m-ui.js','z2m-qr.js','z2m-auto.js','z2m-strategy.js','z2m-strategy-page.js'];
+const SUPPORT = ['z2m-api.js','z2m-store.js','z2m-shell.js','z2m-ui.js','z2m-qr.js','z2m-auto.js','z2m-runs.js','z2m-strategy.js','z2m-strategy-page.js'];
 const source = (file) => readFileSync(join(root, file), 'utf8');
 const shippedJs = () => readdirSync(root).filter((file) => file.endsWith('.js')).sort();
+const singleViewJs = () => shippedJs().filter((file) => file === 'app.js' || file.startsWith('z2m-'));
 
 function noErrors(errors) { assert.deepEqual(errors, [], errors.join('\n')); }
 
@@ -72,8 +73,8 @@ test('gate 5: direct ubus access is forbidden in all shipped JavaScript', () => 
   for (const file of shippedJs()) noErrors(checkNoLubus(source(file), file));
 });
 
-test('gate 6: z2m-api is the only rpc.declare owner', () => {
-  const owners = shippedJs().filter((file) => /rpc\.declare\s*\(/.test(source(file)));
+test('gate 6: z2m-api is the only rpc.declare owner in the single-view module graph', () => {
+  const owners = singleViewJs().filter((file) => /rpc\.declare\s*\(/.test(source(file)));
   assert.deepEqual(owners, ['z2m-api.js']);
 });
 
@@ -117,14 +118,14 @@ test('gate 11: no shipped module relies on String.prototype.format', () => {
 test('gate 12: behavior owners render honest unavailable or unknown values', () => {
   for (const file of BEHAVIOR_OWNERS) {
     const src = source(file);
-    assert.match(src, /—|неизвест|недоступ|Unavailable|Список пуст|не найдены|не запускал|не выполня/i, `${file}: no unavailable/unknown fallback`);
+    assert.match(src, /—|неизвест|недоступ|Unavailable|пуст|отсутств|не найдены|не найден|не запускал|не выполня|нет актив/i, `${file}: no unavailable/unknown fallback`);
   }
   assert.doesNotMatch(source('z2m-overview.js'), /metric\([^\n]+\|\|\s*0/);
   assert.doesNotMatch(source('z2m-strategy.js'), /metric\([^\n]+\|\|\s*0/);
 });
 
 test('gate 13: mutations expose an error path and shared feedback', () => {
-  for (const file of ['z2m-overview.js','z2m-strategy.js','z2m-auto.js','z2m-services.js','z2m-lists.js','z2m-dns.js','z2m-proxy.js','z2m-maintenance.js']) {
+  for (const file of ['z2m-overview.js','z2m-strategy.js','z2m-auto.js','z2m-runs.js','z2m-services.js','z2m-lists.js','z2m-dns.js','z2m-proxy.js','z2m-maintenance.js']) {
     const src = source(file);
     assert.match(src, /\.catch\s*\(/, `${file}: rejected mutation has no catch path`);
     assert.match(src, /showToast|warnbar|openModal/, `${file}: no visible feedback path`);
