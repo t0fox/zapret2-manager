@@ -10,8 +10,20 @@ let cachedQr = null;
 
 function loadQrModule() {
   if (cachedQr) return cachedQr;
-  const source = readFileSync(QR_JS, 'utf8');
-  cachedQr = new Function('"use strict";\n' + source)();
+
+  const source = readFileSync(QR_JS, 'utf8')
+    .replace(/'use strict';\s*/, '')
+    .replace(/'require baseclass';\s*/, '');
+  const baseclass = {
+    extend(properties) {
+      function LuCIClass() {}
+      Object.assign(LuCIClass.prototype, properties || {});
+      return LuCIClass;
+    }
+  };
+  const Constructor = new Function('baseclass', '"use strict";\n' + source)(baseclass);
+  cachedQr = typeof Constructor === 'function' ? new Constructor() : Constructor;
+
   if (!cachedQr || typeof cachedQr.matrix !== 'function' || typeof cachedQr.render !== 'function')
     throw new Error('z2m-qr.js did not export matrix/render');
   return cachedQr;
