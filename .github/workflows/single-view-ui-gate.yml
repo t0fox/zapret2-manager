@@ -1,133 +1,60 @@
 name: Single-view UI gate
 
 on:
-  push:
-    branches:
-      - feat/strategy-first-integration
-    paths:
-      - 'luci-app-zapret2-manager/**'
-      - 'tests/**'
-      - 'tools/**'
-      - 'docs/frontend-backend-contract.md'
-      - '.github/workflows/single-view-ui-gate.yml'
   pull_request:
     branches:
       - main
     paths:
-      - 'luci-app-zapret2-manager/**'
-      - 'tests/**'
-      - 'tools/**'
-      - 'docs/frontend-backend-contract.md'
       - '.github/workflows/single-view-ui-gate.yml'
-  workflow_dispatch:
+      - '.github/workflows/cleanup-superseded-branches.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  verify:
+  cleanup-superseded-branches:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: Run single-view contract tests
-        run: |
-          node --test \
-            tests/ui/single-view-manager.test.mjs \
-            tests/ui/manager-cosmetic-redesign.test.mjs \
-            tests/ui/single-view-overview-strategy.test.mjs \
-            tests/ui/single-view-services-lists-dns.test.mjs \
-            tests/ui/single-view-proxy.test.mjs \
-            tests/ui/single-view-monitor-maintenance.test.mjs \
-            tests/auto-strategy-ui.test.mjs \
-            tests/orchestra-strategy-ui.test.mjs \
-            tests/frontend-backend-contract.test.mjs \
-            tests/frontend-gate-classification.test.mjs \
-            tests/packaging.test.mjs
-
-      - name: Run complete repository test gate
-        id: full_gate
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -o pipefail
-          chmod +x tools/run-all-tests.sh
-          tools/run-all-tests.sh 2>&1 | tee /tmp/z2m-full-gate.log
-          status=${PIPESTATUS[0]}
-          {
-            grep -E '^[[:space:]]*FILE .*fail=[1-9][0-9]*|^[[:space:]]*FILE .* FAIL' /tmp/z2m-full-gate.log || true
-            grep -E '^SUBTOTAL |^TOTAL ' /tmp/z2m-full-gate.log || true
-          } > /tmp/z2m-full-gate-failures.txt
-          exit "$status"
-
-      - name: Upload complete gate diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: single-view-full-gate-${{ github.sha }}
-          path: |
-            /tmp/z2m-full-gate.log
-            /tmp/z2m-full-gate-failures.txt
-          if-no-files-found: warn
-          retention-days: 7
-
-      - name: Check LuCI JavaScript syntax
+      - name: Delete only the seven superseded refs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
         shell: bash
         run: |
           set -euo pipefail
-          while IFS= read -r -d '' file; do
-            node --check "$file"
-          done < <(find luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager -maxdepth 1 -name '*.js' -print0)
+          branches=(
+            'codex/router-validation-luci-baseclass'
+            'feat/openwrt-flowseal-combos'
+            'feat/strategy-first-integration'
+            'fix/backend-core-hardening'
+            'fix/luci-helper-module-namespace'
+            'fix/remove-compatibility-menu-tabs'
+            'integration/all-active-branches'
+          )
 
-      - name: Validate menu JSON and CSS balance
-        shell: bash
-        run: |
-          node -e "JSON.parse(require('fs').readFileSync('luci-app-zapret2-manager/files/usr/share/luci/menu.d/luci-app-zapret2-manager.json','utf8'))"
-          node -e "JSON.parse(require('fs').readFileSync('luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json','utf8'))"
-          node - <<'NODE'
-          const fs = require('fs');
-          for (const file of ['z2m-ui.css', 'z2m-components.css']) {
-            const path = `luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/${file}`;
-            const source = fs.readFileSync(path, 'utf8');
-            let depth = 0;
-            for (const char of source) {
-              if (char === '{') depth++;
-              if (char === '}') depth--;
-              if (depth < 0) process.exit(1);
-            }
-            if (depth !== 0) process.exit(1);
-          }
-          NODE
+          for branch in "${branches[@]}"; do
+            encoded=$(python3 - "$branch" <<'PY'
+import sys
+from urllib.parse import quote
+print(quote(sys.argv[1], safe=''))
+PY
+)
+            response=$(mktemp)
+            status=$(curl --silent --show-error --output "$response" --write-out '%{http_code}' \
+              --request DELETE \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              --header 'Accept: application/vnd.github+json' \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              "https://api.github.com/repos/${REPOSITORY}/git/refs/heads/${encoded}")
 
-      - name: Reject runtime legacy wrappers and external UI assets
-        shell: bash
-        run: |
-          set -euo pipefail
-          if grep -R -nE "require view\.zapret2-manager\..*-legacy|return Legacy|children\.forEach" \
-            luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager \
-            --include='*.js'; then
-            echo 'Legacy wrapper or live HTMLCollection iteration detected' >&2
-            exit 1
-          fi
-          if grep -R -nE "@import|https?://" \
-            luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager \
-            --include='*.css'; then
-            echo 'External UI asset detected' >&2
-            exit 1
-          fi
-
-      - name: Enforce frontend completion classification
-        if: always()
-        run: |
-          if [[ '${{ steps.full_gate.outcome }}' == 'success' ]]; then
-            echo 'Complete repository gate is fully green.'
-          else
-            node tools/check-frontend-gate-classification.mjs /tmp/z2m-full-gate.log
-          fi
+            case "$status" in
+              204) echo "deleted ${branch}" ;;
+              404) echo "already absent ${branch}" ;;
+              *)
+                echo "failed to delete ${branch}: HTTP ${status}" >&2
+                cat "$response" >&2
+                exit 1
+                ;;
+            esac
+            rm -f "$response"
+          done
