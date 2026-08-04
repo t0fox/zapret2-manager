@@ -1,6 +1,11 @@
 name: Export PR21 source
 
 on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/export-pr21-source.yml'
   push:
     branches:
       - docs/video-found-ui-correctness-design
