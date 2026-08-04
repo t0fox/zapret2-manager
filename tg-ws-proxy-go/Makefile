@@ -13,7 +13,7 @@ PKG_LICENSE:=MIT
 
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/spatiumstas/tg-ws-proxy-go.git
-PKG_SOURCE_VERSION:=bac4620e069225abde9ed68ba3f62c41f17f90a4
+PKG_SOURCE_VERSION:=a334786d528615b18e002c1286373098ac6e46a2
 PKG_SOURCE_DATE:=2026-08-02
 # Exact compatible source commit is pinned. Replace `skip` with the generated
 # mirror hash during the verification/build wave before this PR leaves draft.
