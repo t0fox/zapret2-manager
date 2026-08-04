@@ -1,16 +1,16 @@
 'use strict';
 // Optional TG Proxy provider manager.
 //
-// The browser never supplies package names, URLs or shell fragments. It sends
-// only an allow-listed provider id and version id. Installation uses the
-// router's configured signed APK feeds, exact package versions and no custom
-// trust bypass. Missing providers are a normal state: zapret2-manager remains
-// fully usable without either package.
+// The browser sends only allow-listed provider/version ids. URLs, package
+// names and shell fragments are never accepted over RPC. Exact package
+// versions come from the router's configured signed APK feeds. No provider is
+// required for the rest of Zapret2 Manager to operate.
 
 import { readfile, writefile, stat, unlink, popen } from 'fs';
 
 const STATE_FILE = '/etc/zapret2-manager/proxy-provider.json';
 const LOCK_DIR = '/tmp/zapret2-manager-proxy-provider.lock';
+const SNAP_DIR = '/tmp/zapret2-manager-proxy-provider-snapshot';
 const INIT_PATH = '/etc/init.d/tg-ws-proxy';
 const CONFIG_DIR = '/etc/tg-ws-proxy';
 const BINARY_PATH = '/usr/bin/tg-ws-proxy';
@@ -145,6 +145,27 @@ function release_lock() {
 	run('rmdir ' + LOCK_DIR);
 }
 
+function snapshot_settings() {
+	run('rm -rf ' + SNAP_DIR);
+	let hadConfig = stat(CONFIG_DIR) != null;
+	if (!hadConfig) return { ok: true, hadConfig: false };
+	if (run('mkdir -p ' + SNAP_DIR + '/config').rc != 0)
+		return { ok: false, hadConfig: true };
+	let copied = run('cp -a ' + CONFIG_DIR + '/. ' + SNAP_DIR + '/config/');
+	return { ok: copied.rc == 0, hadConfig: true };
+}
+
+function restore_settings(snapshot) {
+	if (snapshot == null || snapshot.hadConfig !== true) return true;
+	if (stat(SNAP_DIR + '/config') == null) return false;
+	if (run('mkdir -p ' + CONFIG_DIR).rc != 0) return false;
+	return run('cp -a ' + SNAP_DIR + '/config/. ' + CONFIG_DIR + '/').rc == 0;
+}
+
+function clear_snapshot() {
+	run('rm -rf ' + SNAP_DIR);
+}
+
 function installed_rows() {
 	let rows = [];
 	for (let i = 0; i < length(PROVIDERS); i++) {
@@ -211,7 +232,7 @@ function remove_packages() {
 	return failures;
 }
 
-function restore_previous(previous, wasRunning) {
+function restore_previous(previous, wasRunning, settingsSnapshot) {
 	let failures = remove_packages();
 	if (previous.activeProvider != null && previous.activeVersion != null) {
 		let provider = provider_by_id(previous.activeProvider);
@@ -223,6 +244,7 @@ function restore_previous(previous, wasRunning) {
 			else if (!save_state(provider.id, version.id)) push(failures, 'previous-state-restore');
 		}
 	} else if (!save_state(null, null)) push(failures, 'empty-state-restore');
+	if (!restore_settings(settingsSnapshot)) push(failures, 'settings-restore');
 	if (wasRunning && length(failures) == 0 && service('start') != 0) push(failures, 'previous-service-restore');
 	return failures;
 }
@@ -235,51 +257,55 @@ export const proxy_provider_install = function (input) {
 	if (!acquire_lock()) return error('EBUSY', 'Установка TG Proxy уже выполняется.');
 
 	let previousStatus = proxy_provider_status();
-	let previous = {
-		activeProvider: previousStatus.activeProvider,
-		activeVersion: previousStatus.activeVersion
-	};
+	let previous = { activeProvider: previousStatus.activeProvider, activeVersion: previousStatus.activeVersion };
 	let wasRunning = previousStatus.running === true;
+	let settingsSnapshot = snapshot_settings();
 	let result = null;
 	try {
-		if (previousStatus.installed && previous.activeProvider == provider.id && previous.activeVersion == version.id) {
+		if (!settingsSnapshot.ok) {
+			result = error('ESTATE', 'Настройки не удалось сохранить; установка не начата.');
+		} else if (previousStatus.installed && previous.activeProvider == provider.id && previous.activeVersion == version.id) {
 			result = { ok: true, changed: false, status: previousStatus };
+		} else if (wasRunning && service('stop') != 0) {
+			result = error('ETARGET', 'Не удалось остановить текущий TG Proxy.');
 		} else {
-			if (wasRunning && service('stop') != 0) {
-				result = error('ETARGET', 'Не удалось остановить текущий TG Proxy.');
+			let removeFailures = remove_packages();
+			if (length(removeFailures) > 0) {
+				let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
+				result = { ok: false, error: { code: 'ETARGET', message: 'Не удалось удалить текущую реализацию.' }, rollbackFailures: rollbackFailures };
 			} else {
-				let removeFailures = remove_packages();
-				if (length(removeFailures) > 0) {
-					let rollbackFailures = restore_previous(previous, wasRunning);
-					result = { ok: false, error: { code: 'ETARGET', message: 'Не удалось удалить текущую реализацию.' }, rollbackFailures: rollbackFailures };
+				let add = run('apk add --no-interactive ' + provider.package + '=' + version.packageVersion);
+				if (add.rc != 0 || !package_present(provider.package) || stat(BINARY_PATH) == null) {
+					let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
+					result = { ok: false, error: { code: 'ETARGET', message: 'Пакет выбранной версии недоступен в доверенном feed.' }, rollbackFailures: rollbackFailures };
+				} else if (!restore_settings(settingsSnapshot)) {
+					let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
+					result = { ok: false, error: { code: 'ETARGET', message: 'Не удалось восстановить настройки после установки.' }, rollbackFailures: rollbackFailures };
+				} else if (!save_state(provider.id, version.id)) {
+					let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
+					result = { ok: false, error: { code: 'ETARGET', message: 'Не удалось сохранить выбранную реализацию.' }, rollbackFailures: rollbackFailures };
+				} else if (wasRunning && service('start') != 0) {
+					let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
+					result = { ok: false, error: { code: 'ETARGET', message: 'Новая реализация установлена, но не прошла запуск.' }, rollbackFailures: rollbackFailures };
 				} else {
-					let add = run('apk add --no-interactive ' + provider.package + '=' + version.packageVersion);
-					if (add.rc != 0 || !package_present(provider.package) || stat(BINARY_PATH) == null) {
-						let rollbackFailures = restore_previous(previous, wasRunning);
-						result = { ok: false, error: { code: 'ETARGET', message: 'Пакет выбранной версии недоступен в доверенном feed.' }, rollbackFailures: rollbackFailures };
-					} else if (!save_state(provider.id, version.id)) {
-						let rollbackFailures = restore_previous(previous, wasRunning);
-						result = { ok: false, error: { code: 'ETARGET', message: 'Не удалось сохранить выбранную реализацию.' }, rollbackFailures: rollbackFailures };
-					} else if (wasRunning && service('start') != 0) {
-						let rollbackFailures = restore_previous(previous, wasRunning);
-						result = { ok: false, error: { code: 'ETARGET', message: 'Новая реализация установлена, но не прошла запуск.' }, rollbackFailures: rollbackFailures };
-					} else {
-						let reread = proxy_provider_status();
-						result = {
-							ok: reread.installed && reread.activeProvider == provider.id,
-							changed: true,
-							provider: provider.id,
-							version: version.id,
-							status: reread
-						};
-						if (!result.ok) result.error = { code: 'EVERIFY', message: 'Установка не подтверждена повторным чтением.' };
-					}
+					let reread = proxy_provider_status();
+					result = {
+						ok: reread.installed && reread.activeProvider == provider.id && reread.activeVersion == version.id,
+						changed: true,
+						provider: provider.id,
+						version: version.id,
+						status: reread,
+						settingsPreserved: settingsSnapshot.hadConfig === true
+					};
+					if (!result.ok) result.error = { code: 'EVERIFY', message: 'Установка не подтверждена повторным чтением.' };
+				}
 			}
 		}
 	} catch (e) {
-		let rollbackFailures = restore_previous(previous, wasRunning);
+		let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
 		result = { ok: false, error: { code: 'EINTERNAL', message: 'Сбой транзакции установки.' }, rollbackFailures: rollbackFailures };
 	}
+	clear_snapshot();
 	release_lock();
 	return result;
 };
@@ -289,18 +315,22 @@ export const proxy_provider_remove = function (input) {
 		return error('EINPUT', 'Удаление требует подтверждение REMOVE.');
 	if (!acquire_lock()) return error('EBUSY', 'Другая операция TG Proxy уже выполняется.');
 	let wasRunning = running();
+	let settingsSnapshot = snapshot_settings();
 	let result = null;
 	try {
-		if (wasRunning && service('stop') != 0) result = error('ETARGET', 'Не удалось остановить TG Proxy.');
+		if (!settingsSnapshot.ok) result = error('ESTATE', 'Настройки не удалось сохранить; удаление не начато.');
+		else if (wasRunning && service('stop') != 0) result = error('ETARGET', 'Не удалось остановить TG Proxy.');
 		else {
 			let failures = remove_packages();
 			if (length(failures) > 0) result = { ok: false, error: { code: 'ETARGET', message: 'Не удалось удалить пакет TG Proxy.' }, failures: failures };
+			else if (!restore_settings(settingsSnapshot)) result = error('ETARGET', 'Пакет удалён, но настройки восстановить не удалось.');
 			else if (!save_state(null, null)) result = error('ETARGET', 'Не удалось обновить состояние после удаления.');
-			else result = { ok: true, installed: false, settingsPreserved: stat(CONFIG_DIR) != null, running: false };
+			else result = { ok: true, installed: false, settingsPreserved: settingsSnapshot.hadConfig === true, running: false };
 		}
 	} catch (e) {
 		result = error('EINTERNAL', 'Сбой удаления TG Proxy.');
 	}
+	clear_snapshot();
 	release_lock();
 	return result;
 };
