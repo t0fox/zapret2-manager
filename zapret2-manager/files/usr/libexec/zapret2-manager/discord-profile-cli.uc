@@ -93,18 +93,61 @@ function build_candidate(def, source, capture, includeOverrides) {
 	let opt = join(rendered, ' --new '), digest = sha_text(sprintf('%J', { source: source, capture: capture, def: def }), '/tmp/z2m-flowseal-definition.sha');
 	return { managerId: 'z2gui-' + def.id, name: def.name, description: def.description || '', recommended: def.recommended === true, aliases: def.aliases || [], opt: opt, tcpPorts: capture.tcp, udpPorts: capture.udp, captureMode: 'wide', digest: digest, composedDigest: sha_text(opt, '/tmp/z2m-flowseal-composed.sha'), source: source, profileCount: length(profiles), overrideCount: length(profiles) - 7 };
 }
-function all_candidates() { let loaded = load_catalog(), out = []; if (loaded.error) return { ok: false, error: loaded.error, candidates: [] }; for (let def in loaded.doc.candidates) { let c = build_candidate(def, loaded.doc.source, loaded.doc.capture, false); if (c) { delete c.opt; push(out, c); } } return { ok: true, schema: loaded.doc.schema, source: loaded.doc.source, capture: loaded.doc.capture, candidates: out }; }
 function find_candidate(id, includeOverrides) { let loaded = load_catalog(); if (loaded.error) return { ok:false,error:loaded.error }; for (let def in loaded.doc.candidates) if ('z2gui-' + def.id == id || def.legacyId == id) return { ok:true,candidate:build_candidate(def, loaded.doc.source, loaded.doc.capture, includeOverrides) }; return { ok:false,error:'unknown combo candidate' }; }
 function required_files() { let files = [], ok = true, paths = ['/opt/zapret2/lua/zapret-lib.lua', '/opt/zapret2/lua/zapret-antidpi.lua', EXCLUDE_HOSTLIST]; for (let p in paths) { let present = !!stat(p); push(files, { path:p,present:present }); if (!present) ok = false; } for (let blob in BLOBS) { let present = !!stat(blob.path); push(files, { path:blob.path,name:blob.name,present:present }); if (!present) ok = false; } return { ok:ok,files:files }; }
 function native_check(candidate) { if (!stat(NFQWS2)) return { status:'unavailable',rc:-1,output:'nfqws2 missing' }; let model=z2m_tokenize(candidate),cmd=shell_escape(NFQWS2)+' --dry-run --qnum=30999'; for(let t in model.tokens)cmd+=' '+shell_escape(t.value);let r=run(cmd);return{status:r.rc==0?'passed':'rejected',rc:r.rc,output:trim(r.out||'')}; }
+function candidate_syntax_errors(candidate) {
+	let errors = [];
+	if (candidate == null || type(candidate.opt) != 'string' || !length(trim(candidate.opt))) push(errors, { code: 'ESYNTAX', message: 'candidate options are missing' });
+	if (!port_expr_valid(candidate != null ? candidate.tcpPorts : null)) push(errors, { code: 'ESYNTAX', message: 'candidate TCP capture is invalid' });
+	if (!port_expr_valid(candidate != null ? candidate.udpPorts : null)) push(errors, { code: 'ESYNTAX', message: 'candidate UDP capture is invalid' });
+	let opt = candidate != null && type(candidate.opt) == 'string' ? candidate.opt : '';
+	if (index(opt, '--wf-') >= 0 || index(opt, '@{') >= 0 || index(opt, '\\') >= 0 || index(opt, '<') >= 0)
+		push(errors, { code: 'ESYNTAX', message: 'candidate options contain unsupported syntax' });
+	return errors;
+}
+function candidate_preflight(candidate, input, checkRuntime) {
+	let req = type(input) == 'object' && input != null ? input : {};
+	let syntax = candidate_syntax_errors(candidate);
+	if (length(syntax) > 0) return { ok: false, applicable: false, validationCode: syntax[0].code, validationMessage: syntax[0].message };
+	if (candidate.captureMode == 'wide' && req.wideAcknowledged !== true)
+		return { ok: false, applicable: false, validationCode: 'EACK', validationMessage: 'wide capture acknowledgement is required' };
+	if (checkRuntime !== true)
+		return { ok: true, applicable: true, validationCode: 'OK', validationMessage: 'candidate preflight passed' };
+	let files = required_files();
+	if (!files.ok) {
+		let missing = 0; for (let file in files.files) if (!file.present) missing++;
+		return { ok: false, applicable: false, validationCode: 'EFILES', validationMessage: 'required runtime files are missing', requiredFiles: { ok: false, missingCount: missing } };
+	}
+	let native = native_check(candidate.opt);
+	if (native.status != 'passed')
+		return { ok: false, applicable: false, validationCode: 'ENATIVE', validationMessage: native.status == 'unavailable' ? 'native validation is unavailable' : 'native validation rejected candidate', requiredFiles: { ok: true, missingCount: 0 }, native: { status: native.status, rc: native.rc } };
+	return { ok: true, applicable: true, validationCode: 'OK', validationMessage: 'candidate preflight passed', requiredFiles: { ok: true, missingCount: 0 }, native: { status: native.status, rc: native.rc } };
+}
+function all_candidates(input) {
+	let loaded = load_catalog(), out = [];
+	if (loaded.error) return { ok: false, error: loaded.error, candidates: [] };
+	for (let def in loaded.doc.candidates) {
+		let c = build_candidate(def, loaded.doc.source, loaded.doc.capture, true);
+		if (c) {
+			let check = candidate_preflight(c, input, true);
+			c.applicable = check.applicable === true;
+			c.validationCode = check.validationCode;
+			c.validationMessage = check.validationMessage;
+			if (c.applicable !== true) c.recommended = false;
+			delete c.opt;
+			push(out, c);
+		}
+	}
+	return { ok: true, schema: loaded.doc.schema, source: loaded.doc.source, capture: loaded.doc.capture, candidates: out };
+}
 function restore_original(original) { let restored=restore_whole_file(PATHS.applied_conf,original),r=run(UPSTREAM_INIT+' restart');return{ok:restored!=null&&r.rc==0,restored:restored!=null,restartRc:r.rc}; }
 function combo_apply(req) {
 	let state = strategy_state(); if (req.idempotencyToken && state.lastToken == req.idempotencyToken && state.lastResult) return state.lastResult;
 	let found=find_candidate(req.candidateId,true);if(!found.ok)return{ok:false,stage:'catalog',error:found.error};let c=found.candidate;
 	if(req.expectedDigest!=null&&req.expectedDigest!=c.digest)return{ok:false,stage:'catalog',error:'candidate digest changed',expected:req.expectedDigest,actual:c.digest};
-	if(req.wideAcknowledged!==true)return{ok:false,stage:'preflight',error:'wide capture acknowledgement is required'};
-	if(!port_expr_valid(c.tcpPorts)||!port_expr_valid(c.udpPorts)||index(c.opt,'--wf-')>=0||index(c.opt,'@{')>=0||index(c.opt,'\\')>=0||index(c.opt,'<')>=0)return{ok:false,stage:'preflight',error:'candidate syntax rejected'};
-	let files=required_files(),native=native_check(c.opt);if(!files.ok||native.status!='passed')return{ok:false,stage:'preflight',error:'dependencies or native validation failed',requiredFiles:files,native:native};
+	let preflight=candidate_preflight(c,req,true);if(!preflight.ok)return{ok:false,stage:'preflight',applicable:false,error:{code:preflight.validationCode,message:preflight.validationMessage},requiredFiles:preflight.requiredFiles||null,native:preflight.native||null};
+	let files=preflight.requiredFiles,native=preflight.native;
 	let original=readfile(PATHS.applied_conf);if(original==null)return{ok:false,stage:'snapshot',error:'applied config unavailable'};let candidateSha256=sha_text(c.opt,'/tmp/z2m-flowseal-candidate.sha');
 	if(set_var('NFQWS2_PORTS_TCP',c.tcpPorts)==null||read_var('NFQWS2_PORTS_TCP')!=c.tcpPorts){let rb=restore_original(original);return{ok:false,stage:'write-tcp',rolledBack:rb.ok,rollback:rb};}
 	if(set_var('NFQWS2_PORTS_UDP',c.udpPorts)==null||read_var('NFQWS2_PORTS_UDP')!=c.udpPorts){let rb=restore_original(original);return{ok:false,stage:'write-udp',rolledBack:rb.ok,rollback:rb};}
@@ -132,7 +175,7 @@ function override_delete(req) {
 }
 
 let mode=ARGV[0],req=length(ARGV)>1?request(ARGV[1]):{},result;
-if(mode=='preview'){result=discord_preview();result.comboCatalog=all_candidates();result.strategyState=strategy_state();result.overrides=override_list();}
+if(mode=='preview'){result=discord_preview();result.comboCatalog=all_candidates({wideAcknowledged:true});result.strategyState=strategy_state();result.overrides=override_list();}
 else if(mode=='apply'){
 	if(req.action=='override_list')result=override_list();
 	else if(req.action=='override_set')result=override_set(req);

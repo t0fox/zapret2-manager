@@ -2,7 +2,7 @@
 'require baseclass';
 'require view.zapret2-manager.z2m-qr as Qr';
 
-var state = { busy: false, preview: null, health: null, logs: null };
+var state = { busy: false, preview: null, health: null, logs: null, rotationResult: null };
 
 function edit(fn, value) { return fn(JSON.stringify(value || {})); }
 function asArray(value) { return Array.isArray(value) ? value : []; }
@@ -22,6 +22,18 @@ function fullLink(link) { return link && (link.https_link || link.link) || ''; }
 function maskedSecret(config, link) {
   var secret = config && config.secret || {};
   return link && (link.maskedSecret || link.secretMasked) || secret.masked || (secret.exists ? '••••••••••••' : '—');
+}
+function safeRotationResult(answer) {
+  var value = answer || {};
+  var error = value.error || {};
+  return {
+    ok: value.ok === true,
+    stage: String(value.stage || ''),
+    verified: value.verified === true,
+    rolledBack: value.rolledBack === true,
+    rollbackFailed: value.rollbackFailed === true,
+    message: String(error.message || value.message || '').slice(0, 180)
+  };
 }
 function splitList(value) {
   return String(value || '').split(/[\n,]/).map(function (item) { return item.trim(); }).filter(Boolean);
@@ -53,6 +65,46 @@ function copyText(text) {
   });
 }
 
+function revealLink(ctx) {
+  var shell = ctx.shell;
+  var cancel = shell.button(_('Отмена'), '', shell.closeModal);
+  var confirm = shell.button(_('Показать'), 'primary', function () {
+    shell.closeModal();
+    if (state.busy) return;
+    state.busy = true;
+    edit(ctx.api.proxy.linkInfo, { reveal: true, confirm: 'REVEAL' }).then(function (revealed) {
+      var url = fullLink(revealed || {});
+      if (!url) throw new Error('proxy link unavailable');
+      function openLink() { window.open(url, '_blank', 'noopener'); }
+      function copyLink() {
+        copyText(url).then(function () {
+          shell.showToast(_('Ссылка скопирована.'), 'ok');
+        }).catch(function (error) {
+          shell.showToast(ctx.api.normalizeError(error).message, 'err');
+        });
+      }
+      shell.openModal(_('QR-код прокси'), E('div', { 'class': 'z2m-proxy-qr-card' }, [
+        E('code', { 'class': 'z2m-proxy-link' }, url),
+        Qr.render(url, 240),
+        E('div', { 'class': 'z2m-dim' }, _('Наведите камеру телефона. Белая quiet zone сохранена.')),
+        E('div', { 'class': 'z2m-btnrow z2m-proxy-actions' }, [
+          shell.button(_('Открыть в Telegram'), 'primary', openLink),
+          shell.button(_('Копировать ссылку'), '', copyLink)
+        ])
+      ]));
+    }).catch(function (error) {
+      shell.showToast(ctx.api.normalizeError(error).message, 'err');
+    }).then(function () {
+      state.busy = false;
+    });
+  });
+  shell.openModal(
+    _('Показать секретную ссылку?'),
+    E('p', {}, _('Ссылка содержит proxy secret. Не сохраняйте её в логах, скриншотах или общих буферах обмена.')),
+    [cancel, confirm]
+  );
+}
+
 function load(ctx) {
   return Promise.allSettled([
     ctx.api.proxy.capabilities(),
@@ -62,7 +114,7 @@ function load(ctx) {
     edit(ctx.api.proxy.health, {}),
     edit(ctx.api.proxy.logsTail, { n: 50 })
   ]).then(function (results) {
-    var data = {
+    return {
       capabilities: settled(results[0], ctx.api),
       status: settled(results[1], ctx.api),
       config: settled(results[2], ctx.api),
@@ -70,15 +122,6 @@ function load(ctx) {
       health: settled(results[4], ctx.api),
       logs: settled(results[5], ctx.api)
     };
-    var info = data.link.value || {};
-    if (info.available !== true) return data;
-    return edit(ctx.api.proxy.linkInfo, { reveal: true, confirm: 'REVEAL' }).then(function (revealed) {
-      data.link = { value: revealed || info };
-      return data;
-    }).catch(function (error) {
-      data.linkRevealError = ctx.api.normalizeError(error);
-      return data;
-    });
   });
 }
 
@@ -92,7 +135,6 @@ function renderProxy(ctx) {
   var caps = data.capabilities && data.capabilities.value || {};
   var logs = data.logs && data.logs.value || {};
   var listen = listener(status);
-  var url = fullLink(link);
   var nodes = [];
 
   function showError(error) { shell.showToast(ctx.api.normalizeError(error).message, 'err'); }
@@ -111,29 +153,38 @@ function renderProxy(ctx) {
       return refresh();
     }).catch(showError).then(function () { state.busy = false; });
   }
-  function showQr() {
-    if (!url) return;
-    shell.openModal(_('QR-код прокси'), E('div', { 'class': 'z2m-proxy-qr-card' }, [
-      Qr.render(url, 240),
-      E('div', { 'class': 'z2m-dim' }, _('Наведите камеру телефона. Белая quiet zone сохранена.'))
-    ]));
-  }
   function rotate() {
     var cancel = shell.button(_('Отмена'), '', shell.closeModal);
     var confirm = shell.button(_('Создать новую'), 'danger', function () {
       shell.closeModal();
-      control(ctx.api.proxy.secretRotate, _('Секрет обновлён. Новая ссылка загружена.'));
+      if (state.busy) return;
+      state.busy = true;
+      ctx.api.proxy.secretRotate().then(function (answer) {
+        state.rotationResult = safeRotationResult(answer);
+        var rotationResult = state.rotationResult;
+        if (rotationResult.ok === true && rotationResult.verified === true) {
+          shell.showToast(_('Проверка listener прошла'), 'ok');
+        } else if (rotationResult.rollbackFailed === true) {
+          shell.showToast(_('Автооткат secret не удался'), 'err');
+        } else if (rotationResult.rolledBack === true) {
+          shell.showToast(_('Предыдущий secret восстановлен'), 'err');
+        } else {
+          throw answer && answer.error || answer || new Error('proxy_secret_rotate failed');
+        }
+        state.busy = false;
+        return refresh();
+      }).catch(function (error) {
+        state.rotationResult = { ok: false, stage: 'request', verified: false, rolledBack: false, rollbackFailed: false, message: ctx.api.normalizeError(error).message.slice(0, 180) };
+        state.busy = false;
+        showError(error);
+        return refresh();
+      });
     });
     shell.openModal(
       _('Создать новую ссылку?'),
       E('p', {}, _('Старая ссылка перестанет работать у всех устройств, где она уже добавлена.')),
       [cancel, confirm]
     );
-  }
-  function openLink() { if (url) window.open(url, '_blank', 'noopener'); }
-  function copyLink() {
-    if (!url) return;
-    copyText(url).then(function () { shell.showToast(_('Ссылка скопирована.'), 'ok'); }).catch(showError);
   }
   function install() { control(ctx.api.proxy.quickInstall, _('Прокси установлен и запущен.')); }
 
@@ -152,7 +203,17 @@ function renderProxy(ctx) {
   Object.keys(data).forEach(function (key) {
     if (data[key] && data[key].error) nodes.push(E('div', { 'class': 'warnbar' }, data[key].error.message));
   });
-  if (data.linkRevealError) nodes.push(E('div', { 'class': 'warnbar' }, data.linkRevealError.message));
+  if (state.rotationResult) {
+    var rotationResult = state.rotationResult;
+    if (rotationResult.ok === true && rotationResult.verified === true)
+      nodes.push(E('div', { 'class': 'z2m-dim' }, _('Проверка listener прошла')));
+    else if (rotationResult.rollbackFailed === true)
+      nodes.push(E('div', { 'class': 'warnbar' }, _('Автооткат secret не удался — требуется ручное восстановление.')));
+    else if (rotationResult.rolledBack === true)
+      nodes.push(E('div', { 'class': 'warnbar' }, _('Предыдущий secret восстановлен; новая ссылка не применена.')));
+    else if (rotationResult.ok === false)
+      nodes.push(E('div', { 'class': 'warnbar' }, display(rotationResult.message || rotationResult.stage || _('Ротация secret завершилась ошибкой.'))));
+  }
 
   if (!installed(status)) {
     nodes.push(shell.panel(_('Прокси не установлен'), E('div', {}, [
@@ -160,7 +221,8 @@ function renderProxy(ctx) {
       shell.button(_('Установить и запустить'), 'primary', install, state.busy)
     ])));
   } else {
-    var linkCode = E('code', { 'class': 'z2m-proxy-link' }, url || _('Ссылка недоступна'));
+    var linkAvailable = link.available === true || link.hasLink === true || link.configured === true;
+    var linkCode = E('code', { 'class': 'z2m-proxy-link' }, linkAvailable ? _('Скрыта до подтверждения') : _('Ссылка недоступна'));
     nodes.push(shell.panel(
       running(status) ? _('Прокси готов к работе') : _('Прокси остановлен'),
       E('div', { 'class': 'z2m-row2 z2m-proxy-hero' }, [
@@ -174,9 +236,7 @@ function renderProxy(ctx) {
             E('div', {}, linkCode)
           ]),
           E('div', { 'class': 'z2m-btnrow z2m-proxy-actions' }, [
-            shell.button(_('Открыть в Telegram'), 'primary', openLink, !url),
-            shell.button(_('Копировать ссылку'), '', copyLink, !url),
-            shell.button(_('QR-код'), '', showQr, !url),
+            shell.button(_('Показать ссылку / QR-код'), 'primary', function () { revealLink(ctx); }, !linkAvailable || state.busy),
             shell.button(_('Новая ссылка'), 'danger', rotate, state.busy)
           ])
         ]),

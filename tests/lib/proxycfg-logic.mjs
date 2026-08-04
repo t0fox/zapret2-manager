@@ -926,3 +926,60 @@ export function autostartDrift(appliedAutostart, rcDEnabled) {
 		? { drift: true, message: 'applied autostart=' + appliedAutostart + ' but the rc.d symlink says ' + rcDEnabled + ' — reconcile via proxy_autostart_set' }
 		: { drift: false, message: '' };
 }
+
+// planSecretRotationOutcome() models the transactional secret-rotation state
+// machine without carrying either the previous or generated secret value.
+export function planSecretRotationOutcome(input = {}) {
+	const wasRunning = input.wasRunning === true;
+	if (input.writeOk !== true) {
+		const rolledBack = input.rollbackOk === true;
+		return {
+			ok: false,
+			stage: 'write-secret',
+			rotated: false,
+			restarted: false,
+			verified: false,
+			rolledBack,
+			rollbackFailed: !rolledBack,
+			message: rolledBack
+				? 'secret write failed; previous secret and service state restored'
+				: 'secret write failed and rollback failed; manual recovery required'
+		};
+	}
+	if (!wasRunning) {
+		return {
+			ok: true,
+			stage: 'complete',
+			rotated: true,
+			restarted: false,
+			verified: true,
+			rolledBack: false,
+			rollbackFailed: false
+		};
+	}
+	const stage = input.restartOk !== true ? 'restart' : input.verificationOk !== true ? 'verify-listener' : 'complete';
+	if (stage === 'complete') {
+		return {
+			ok: true,
+			stage,
+			rotated: true,
+			restarted: true,
+			verified: true,
+			rolledBack: false,
+			rollbackFailed: false
+		};
+	}
+	const rolledBack = input.rollbackOk === true;
+	return {
+		ok: false,
+		stage,
+		rotated: true,
+		restarted: input.restartOk === true,
+		verified: false,
+		rolledBack,
+		rollbackFailed: !rolledBack,
+		message: rolledBack
+			? 'rotation failed; previous secret and service state restored'
+			: 'rotation failed and rollback failed; manual recovery required'
+	};
+}

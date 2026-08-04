@@ -38,7 +38,7 @@ test('running service succeeds only after restart and listener verification', ()
 });
 
 for (const scenario of [
-  { name: 'write', input: { wasRunning: true, writeOk: false }, stage: 'write-secret' },
+  { name: 'write', input: { wasRunning: true, writeOk: false, rollbackOk: true }, stage: 'write-secret' },
   { name: 'restart', input: { wasRunning: true, writeOk: true, restartOk: false, rollbackOk: true }, stage: 'restart' },
   { name: 'verify', input: { wasRunning: true, writeOk: true, restartOk: true, verificationOk: false, rollbackOk: true }, stage: 'verify-listener' }
 ]) {
@@ -46,7 +46,7 @@ for (const scenario of [
     const result = planSecretRotationOutcome(scenario.input);
     assert.equal(result.ok, false);
     assert.equal(result.stage, scenario.stage);
-    assert.equal(result.rolledBack, scenario.name === 'write' ? false : true);
+    assert.equal(result.rolledBack, true);
     assert.equal(result.rollbackFailed, false);
     assert.deepEqual(secretKeys(result), []);
   });

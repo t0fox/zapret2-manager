@@ -1,9 +1,43 @@
+function portExpressionValid(value) {
+  if (typeof value !== 'string' || value.length === 0) return false;
+  return value.split(',').every((part) => {
+    const match = /^(\d+)(?:-(\d+))?$/.exec(part);
+    if (!match) return false;
+    const start = Number(match[1]);
+    const end = match[2] == null ? start : Number(match[2]);
+    return Number.isInteger(start) && Number.isInteger(end) && start >= 1 && end <= 65535 && start <= end;
+  });
+}
+
+export function candidateSyntaxErrors(candidate) {
+  const errors = [];
+  if (!candidate || typeof candidate.opt !== 'string' || !candidate.opt.trim())
+    errors.push('candidate options are missing');
+  if (!portExpressionValid(candidate && candidate.tcpPorts))
+    errors.push('candidate TCP capture is invalid');
+  if (!portExpressionValid(candidate && candidate.udpPorts))
+    errors.push('candidate UDP capture is invalid');
+  const opt = String(candidate && candidate.opt || '');
+  if (opt.includes('--wf-') || opt.includes('@{') || opt.includes('\\') || opt.includes('<'))
+    errors.push('candidate options contain unsupported syntax');
+  return errors;
+}
+
+function rejected(code, message) {
+  const bounded = String(message || 'candidate preflight failed').slice(0, 160);
+  return { ok: false, code, message: bounded, error: bounded };
+}
+
 export function preflightCombo(candidate, options = {}) {
-  if (!candidate || typeof candidate.opt !== 'string' || !candidate.opt.trim()) return { ok: false, error: 'candidate missing' };
-  if (candidate.captureMode === 'wide' && options.wideAcknowledged !== true) return { ok: false, error: 'wide capture acknowledgement is required' };
-  if (options.filesPresent === false) return { ok: false, error: 'required files are missing' };
-  if (options.nativePassed === false) return { ok: false, error: 'native validation rejected candidate' };
-  return { ok: true };
+  const syntaxErrors = candidateSyntaxErrors(candidate);
+  if (syntaxErrors.length) return rejected('ESYNTAX', syntaxErrors[0]);
+  if (candidate.captureMode === 'wide' && options.wideAcknowledged !== true)
+    return rejected('EACK', 'wide capture acknowledgement is required');
+  if (options.filesPresent === false)
+    return rejected('EFILES', 'required files are missing');
+  if (options.nativePassed === false)
+    return rejected('ENATIVE', 'native validation rejected candidate');
+  return { ok: true, code: 'OK', message: 'candidate preflight passed' };
 }
 
 export function applyComboTransaction(candidate, io) {

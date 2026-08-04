@@ -61,3 +61,33 @@ test('any partial failure restores the complete original config', () => {
     assert.deepEqual(state, original, failAt);
   }
 });
+
+test('single candidate preflight rejects malformed capture and unsafe syntax before runtime checks', () => {
+  for (const invalid of [
+    { ...candidate, tcpPorts: '0,443' },
+    { ...candidate, udpPorts: '65536' },
+    { ...candidate, opt: '--wf-tcp=443' },
+    { ...candidate, opt: '--lua-desync=@{unsafe}' },
+    { ...candidate, opt: '--payload=<unsafe' },
+    { ...candidate, opt: '--lua-desync=fake\\unsafe' }
+  ]) {
+    const result = preflightCombo(invalid, { wideAcknowledged: true, filesPresent: true, nativePassed: true });
+    assert.equal(result.ok, false);
+    assert.equal(result.code, 'ESYNTAX');
+    assert.match(result.message, /candidate/i);
+  }
+});
+
+test('single candidate preflight reports bounded acknowledgement dependency and native stages', () => {
+  const cases = [
+    [{ wideAcknowledged: false, filesPresent: true, nativePassed: true }, 'EACK'],
+    [{ wideAcknowledged: true, filesPresent: false, nativePassed: true }, 'EFILES'],
+    [{ wideAcknowledged: true, filesPresent: true, nativePassed: false }, 'ENATIVE']
+  ];
+  for (const [options, code] of cases) {
+    const result = preflightCombo(candidate, options);
+    assert.equal(result.ok, false);
+    assert.equal(result.code, code);
+    assert.ok(result.message.length <= 160);
+  }
+});

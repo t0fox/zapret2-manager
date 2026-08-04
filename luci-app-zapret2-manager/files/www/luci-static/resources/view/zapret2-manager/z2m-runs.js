@@ -57,6 +57,36 @@ function timeoutError(error) {
   var text = structuredError(error).toLowerCase();
   return text.indexOf('timeout') >= 0 || text.indexOf('timed out') >= 0 || text.indexOf('xhr request') >= 0;
 }
+function missingRunError(error) {
+  var value = error && error.error ? error.error : error || {};
+  var code = String(value.code || '').toLowerCase();
+  var text = structuredError(value).toLowerCase();
+  return code === 'enoent' || code === 'run-not-found' || code === 'run_not_found' ||
+    text.indexOf('run not found') >= 0 || text.indexOf('запуск не найден') >= 0 || text.indexOf('enoent') >= 0;
+}
+function terminalizeMissingRun(error) {
+  var last = state.activeRun || state.selectedRun;
+  var snapshot = last && last.runId ? Object.assign({}, last, {
+    phase: 'stale',
+    historical: true,
+    finishedAt: last.finishedAt || Date.now(),
+    error: { code: 'ENOENT', message: _('Запуск больше не найден') }
+  }) : null;
+  if (state.pollTimer && typeof window !== 'undefined') window.clearTimeout(state.pollTimer);
+  state.pollTimer = null;
+  state.pollInFlight = false;
+  state.pollFailures = 0;
+  state.pollDelay = 2000;
+  state.pollWarning = _('Запуск больше не найден; показан исторический снимок.');
+  state.activeRun = null;
+  if (snapshot) {
+    state.selectedRun = snapshot;
+    state.selectedRunId = snapshot.runId;
+    upsertHistory(snapshot);
+  }
+  state.error = structuredError(error);
+  return snapshot;
+}
 function terminalRun(phase) { return TERMINAL_PHASES.indexOf(String(phase || '').toLowerCase()) >= 0; }
 function terminalApply(phase) { return APPLY_TERMINAL.indexOf(String(phase || '').toLowerCase()) >= 0; }
 function normalizeRunResponse(response, kind) {
@@ -170,6 +200,7 @@ function poll(ctx) {
     }
     return ctx.refresh('strategy');
   }).catch(function (error) {
+    if (missingRunError(error)) { terminalizeMissingRun(error); return ctx.refresh('strategy'); }
     if (authError(error)) {
       state.pollAuthStopped = true;
       state.pollWarning = _('Сессия истекла; polling остановлен.');
@@ -370,7 +401,10 @@ function render(ctx, envelope) {
   if (envelope.history && envelope.history.ok) state.historyRows = envelope.history.runs.map(runSummary).filter(Boolean);
   else if (envelope.history && !envelope.history.ok) state.error = structuredError(envelope.history.error);
   if (envelope.status && envelope.status.ok && envelope.status.run) acceptRun(envelope.status.run, true);
-  else if (envelope.status && !envelope.status.ok) state.error = structuredError(envelope.status.error);
+  else if (envelope.status && !envelope.status.ok) {
+    if (missingRunError(envelope.status.error)) terminalizeMissingRun(envelope.status.error);
+    else state.error = structuredError(envelope.status.error);
+  }
   if (!state.selectedRun && state.historyRows.length) {
     state.selectedRun = state.historyRows[0];
     state.selectedRunId = state.selectedRun.runId;
@@ -386,6 +420,8 @@ function render(ctx, envelope) {
   else {
     var active = state.activeRun && state.activeRun.runId === run.runId;
     var paused = String(run.phase || '').toLowerCase() === 'paused';
+    if (String(run.phase || '').toLowerCase() === 'stale')
+      body.appendChild(E('div', { 'class': 'warnbar' }, _('Исторический снимок: запуск больше не найден и не считается активным.')));
     var ready = run.phase === 'completed' && serviceReady(run);
     body.appendChild(E('div', { 'class': 'z2m-kpis' }, [
       E('div', { 'class': 'z2m-kpi' }, [E('div', { 'class': 'v' }, boundedText(run.phase || '—', 42)), E('div', { 'class': 'l' }, _('фаза'))]),

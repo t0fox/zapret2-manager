@@ -31,9 +31,12 @@ test('refresh reloads all read-only proxy state without replaying mutations', ()
 });
 
 test('revealed link requires explicit backend reveal confirmation', () => {
+  const load = ui.slice(ui.indexOf('function load('), ui.indexOf('\nfunction renderProxy('));
+  assert.match(ui, /function\s+revealLink\s*\(/);
   assert.match(ui, /reveal:\s*true/);
   assert.match(ui, /confirm:\s*['"]REVEAL['"]/);
-  assert.match(ui, /linkRevealError/);
+  assert.doesNotMatch(load, /reveal:\s*true|confirm:\s*['"]REVEAL['"]/);
+  assert.doesNotMatch(ui, /linkRevealError/);
 });
 
 test('link, QR and rotation workflows are user initiated', () => {

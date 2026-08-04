@@ -58,10 +58,13 @@ test('proxy rotation reports verified success rollback success and rollback fail
   assert.match(proxy, /Проверка listener прошла/);
   assert.match(proxy, /Предыдущий secret восстановлен/);
   assert.match(proxy, /Автооткат secret не удался/);
+  assert.doesNotMatch(proxy, /state\.rotationResult\s*=\s*(?:answer|rotationResult)/);
+  assert.match(proxy, /state\.busy\s*=\s*false;\s*return refresh\(\)/);
 });
 
 test('backend secret rotation snapshots and restores previous secret and service state', () => {
   assert.match(proxycfg, /function\s+snapshot_secret_rotation\s*\(/);
+  assert.match(proxycfg, /snapshotOk/);
   assert.match(proxycfg, /function\s+rollback_secret_rotation\s*\(/);
   assert.match(proxycfg, /remove_secret_file/);
   assert.match(proxycfg, /rolledBack:/);
