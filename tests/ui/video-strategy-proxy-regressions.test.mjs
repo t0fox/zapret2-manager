@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
+// Keep the router-video correctness regressions in the exact-head focused gate.
 const root = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager';
 const strategy = readFileSync(`${root}/z2m-strategy.js`, 'utf8');
 const runs = readFileSync(`${root}/z2m-runs.js`, 'utf8');
