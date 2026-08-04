@@ -21,6 +21,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Trigger diff on top of the trusted workflow from current main.
           branches=(
             'codex/router-validation-luci-baseclass'
             'feat/openwrt-flowseal-combos'
