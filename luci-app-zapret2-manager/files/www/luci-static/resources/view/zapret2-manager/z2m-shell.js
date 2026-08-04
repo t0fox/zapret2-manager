@@ -1,5 +1,8 @@
 'use strict';
 'require baseclass';
+'require view.zapret2-manager.z2m-format as Format';
+
+var modalKeyHandler = null;
 
 function injectStylesheet(id, filename) {
   if (!document || !document.head || document.getElementById(id)) return;
@@ -15,6 +18,11 @@ function injectCss() {
   injectStylesheet('z2m-components-css', 'z2m-components.css');
 }
 
+function optional(factory, value) {
+  if (value === null || value === undefined) return null;
+  return typeof factory === 'function' ? factory(value) : value;
+}
+
 function button(label, kind, handler, disabled, attrs) {
   var properties = Object.assign({
     type: 'button',
@@ -27,10 +35,77 @@ function button(label, kind, handler, disabled, attrs) {
 }
 
 function chip(label, kind, withDot) {
+  var value = label && label.nodeType ? label : Format.text(label);
+  if (value === null) return null;
   var children = [];
-  if (withDot) children.push(E('span', { 'class': 'z2m-dot ' + (kind || '') }));
-  children.push(label);
+  if (withDot) children.push(E('span', { 'class': 'z2m-dot ' + (kind || ''), 'aria-hidden': 'true' }));
+  children.push(value);
   return E('span', { 'class': 'z2m-chip ' + (kind || '') }, children);
+}
+
+function tabStrip(className, dataName, items, activeId, onSelect, attrs) {
+  var host = E('div', Object.assign({
+    'class': className,
+    role: 'tablist'
+  }, attrs || {}));
+
+  function select(id) {
+    Array.from(host.querySelectorAll('button[data-' + dataName + ']')).forEach(function (node) {
+      var selected = node.getAttribute('data-' + dataName) === id;
+      node.classList.toggle('on', selected);
+      node.setAttribute('aria-selected', selected ? 'true' : 'false');
+      node.setAttribute('tabindex', selected ? '0' : '-1');
+    });
+  }
+
+  (items || []).forEach(function (item) {
+    if (!item || item.hidden === true) return;
+    var label = Format.text(item.label);
+    if (label === null) return;
+    var selected = item.id === activeId;
+    var children = [label];
+    var badge = Format.text(item.badge);
+    if (badge !== null) children.push(E('span', { 'class': 'badge' }, badge));
+    var properties = {
+      type: 'button',
+      role: 'tab',
+      'class': selected ? 'on' : '',
+      'data-' + dataName: item.id,
+      'aria-selected': selected ? 'true' : 'false',
+      tabindex: selected ? '0' : '-1',
+      disabled: item.disabled === true ? 'disabled' : null
+    };
+    var node = E('button', properties, children);
+    node.addEventListener('click', function () {
+      if (item.disabled === true) return;
+      select(item.id);
+      if (typeof onSelect === 'function') onSelect(item.id, item);
+    });
+    node.addEventListener('keydown', function (event) {
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight' && event.key !== 'Home' && event.key !== 'End') return;
+      var tabs = Array.from(host.querySelectorAll('button[role="tab"]:not([disabled])'));
+      var index = tabs.indexOf(node);
+      if (event.key === 'Home') index = 0;
+      else if (event.key === 'End') index = tabs.length - 1;
+      else index = (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+      event.preventDefault();
+      tabs[index].focus();
+      tabs[index].click();
+    });
+    host.appendChild(node);
+  });
+
+  return host;
+}
+
+function primaryTabs(items, activeId, onSelect, attrs) {
+  return tabStrip('z2m-tabs', 'tab', items, activeId, onSelect, Object.assign({
+    'aria-label': _('Разделы Zapret 2 Manager')
+  }, attrs || {}));
+}
+
+function subTabs(items, activeId, onSelect, attrs) {
+  return tabStrip('z2m-subtabs', 'pane', items, activeId, onSelect, attrs);
 }
 
 function segmented(items, activeId, onSelect, attrs) {
@@ -57,6 +132,47 @@ function segmented(items, activeId, onSelect, attrs) {
   return host;
 }
 
+function switchControl(options) {
+  options = options || {};
+  var state = options.state === 'mixed' ? 'mixed' : options.checked === true ? 'on' : 'off';
+  var node = E('button', Object.assign({
+    type: 'button',
+    role: 'switch',
+    'class': 'z2m-sw' + (options.small ? ' sm' : '') + (state === 'on' ? ' on' : ''),
+    'data-state': state,
+    'aria-checked': state === 'mixed' ? 'mixed' : state === 'on' ? 'true' : 'false',
+    'aria-label': Format.text(options.label) || _('Переключатель'),
+    disabled: options.disabled === true ? 'disabled' : null
+  }, options.attrs || {}), E('i', { 'aria-hidden': 'true' }));
+  node.addEventListener('click', function () {
+    if (options.disabled === true) return;
+    var current = node.getAttribute('data-state');
+    var next = current === 'on' ? 'off' : 'on';
+    node.setAttribute('data-state', next);
+    node.setAttribute('aria-checked', next === 'on' ? 'true' : 'false');
+    node.classList.toggle('on', next === 'on');
+    if (typeof options.onChange === 'function') options.onChange(next === 'on', next, node);
+  });
+  return node;
+}
+
+function statePanel(options) {
+  options = options || {};
+  var title = Format.text(options.title);
+  var message = Format.text(options.message);
+  var actions = Array.isArray(options.actions) ? options.actions.filter(Boolean) : [];
+  if (title === null && message === null && !actions.length) return null;
+  var body = [];
+  if (title !== null) body.push(E('strong', { 'class': 'z2m-state-title' }, title));
+  if (message !== null) body.push(E('div', { 'class': 'z2m-state-message' }, message));
+  if (actions.length) body.push(E('div', { 'class': 'z2m-state-actions' }, actions));
+  return E('div', {
+    'class': 'z2m-state-panel ' + (options.kind || 'info'),
+    role: options.kind === 'error' ? 'alert' : 'status',
+    'aria-live': options.kind === 'error' ? 'assertive' : 'polite'
+  }, body);
+}
+
 function renderLoadingState(label) {
   return E('section', {
     'class': 'z2m-view on z2m-loading-view',
@@ -67,7 +183,7 @@ function renderLoadingState(label) {
         E('div', { 'class': 'z2m-skeleton line title' }),
         E('div', { 'class': 'z2m-skeleton line subtitle' })
       ]),
-      E('span', { 'class': 'z2m-dim' }, _('Загрузка: ') + label)
+      optional(function (value) { return E('span', { 'class': 'z2m-dim' }, _('Загрузка: ') + value); }, Format.text(label))
     ]),
     E('div', { 'class': 'z2m-panel z2m-skeleton-panel' }, [
       E('div', { 'class': 'hd' }, E('div', { 'class': 'z2m-skeleton line heading' })),
@@ -81,7 +197,8 @@ function renderLoadingState(label) {
 
 function panel(title, body, subtitle, actions) {
   var head = [E('h2', {}, title)];
-  if (subtitle) head.push(E('span', { 'class': 'sub' }, subtitle));
+  var subtitleText = Format.text(subtitle);
+  if (subtitleText !== null) head.push(E('span', { 'class': 'sub' }, subtitleText));
   if (actions) head.push(E('div', { 'class': 'sp' }, actions));
   return E('section', { 'class': 'z2m-panel' }, [
     E('div', { 'class': 'hd' }, head),
@@ -89,12 +206,16 @@ function panel(title, body, subtitle, actions) {
   ]);
 }
 
-function empty(message) { return E('div', { 'class': 'z2m-dim' }, message); }
+function empty(message) {
+  var value = Format.text(message);
+  return value === null ? null : E('div', { 'class': 'z2m-dim' }, value);
+}
 
 function showToast(message, kind) {
   var host = document.getElementById('z2m-toasts');
-  if (!host) return;
-  var toast = E('div', { 'class': 'z2m-toast ' + (kind || '') }, message);
+  var value = Format.text(message);
+  if (!host || value === null) return;
+  var toast = E('div', { 'class': 'z2m-toast ' + (kind || ''), role: kind === 'err' ? 'alert' : 'status' }, value);
   host.appendChild(toast);
   window.setTimeout(function () {
     if (toast.parentNode) toast.parentNode.removeChild(toast);
@@ -104,17 +225,31 @@ function showToast(message, kind) {
 function openModal(title, body, footer) {
   var host = document.getElementById('z2m-modal');
   if (!host) return;
-  var close = button('×', '', closeModal, false, { 'aria-label': _('Закрыть') });
-  host.replaceChildren(E('div', { 'class': 'z2m-modal', role: 'dialog', 'aria-modal': 'true' }, [
-    E('div', { 'class': 'mh' }, [E('h3', {}, title), close]),
+  closeModal();
+  var titleText = Format.text(title);
+  if (titleText === null) return;
+  var close = button('×', 'z2m-modal-close', closeModal, false, { 'aria-label': _('Закрыть') });
+  var dialog = E('div', { 'class': 'z2m-modal', role: 'dialog', 'aria-modal': 'true', tabindex: '-1' }, [
+    E('div', { 'class': 'mh' }, [E('h3', {}, titleText), close]),
     E('div', { 'class': 'mb' }, body),
     E('div', { 'class': 'mf' }, footer || button(_('Закрыть'), 'primary', closeModal))
-  ]));
+  ]);
+  host.replaceChildren(dialog);
   host.classList.add('on');
+  host.addEventListener('click', function onScrim(event) {
+    if (event.target === host) closeModal();
+  }, { once: true });
+  modalKeyHandler = function (event) {
+    if (event.key === 'Escape') closeModal();
+  };
+  document.addEventListener('keydown', modalKeyHandler);
+  window.setTimeout(function () { dialog.focus(); }, 0);
 }
 
 function closeModal() {
   var host = document.getElementById('z2m-modal');
+  if (modalKeyHandler) document.removeEventListener('keydown', modalKeyHandler);
+  modalKeyHandler = null;
   if (!host) return;
   host.classList.remove('on');
   host.replaceChildren();
@@ -122,16 +257,18 @@ function closeModal() {
 
 function renderApplyBar(store, availability) {
   availability = availability || {};
-  var reason = availability.reason || '';
+  var reason = Format.text(availability.reason);
   var disabled = availability.enabled !== true;
   return E('div', {
     'class': 'z2m-applybar' + (store && store.hasDraft && store.hasDraft() ? '' : ' hidden'),
     id: 'z2m-applybar'
   }, E('div', { 'class': 'in' }, [
-    E('span', { 'class': 'z2m-chip o' }, _('Черновик')),
+    chip(_('Черновик'), 'o'),
     E('span', { 'class': 'txt', id: 'z2m-apply-text' }, _('Есть несохранённые изменения. На работу роутера пока не влияет.')),
-    E('span', { 'class': 'z2m-apply-reason z2m-dim', id: 'z2m-apply-reason' },
-      disabled && reason ? _('Применение заблокировано: ') + reason : ''),
+    optional(function (value) {
+      return E('span', { 'class': 'z2m-apply-reason z2m-dim', id: 'z2m-apply-reason' },
+        disabled ? _('Применение заблокировано: ') + value : '');
+    }, reason) || E('span', { 'class': 'z2m-apply-reason z2m-dim', id: 'z2m-apply-reason' }),
     E('div', { 'class': 'sp' }, [
       button(_('Отменить все'), '', null, false, { id: 'z2m-discard-drafts' }),
       button(_('Показать различия'), '', null, false, { id: 'z2m-preview-drafts' }),
@@ -141,10 +278,16 @@ function renderApplyBar(store, availability) {
 }
 
 return baseclass.extend({
+  format: Format,
   injectCss: injectCss,
+  optional: optional,
   button: button,
   chip: chip,
+  primaryTabs: primaryTabs,
+  subTabs: subTabs,
   segmented: segmented,
+  switchControl: switchControl,
+  statePanel: statePanel,
   renderLoadingState: renderLoadingState,
   panel: panel,
   empty: empty,
