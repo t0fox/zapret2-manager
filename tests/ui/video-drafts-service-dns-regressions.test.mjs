@@ -44,12 +44,13 @@ test('DNS is the navigable owner of the Service DNS draft', () => {
 
 test('apply bar labels routes and previews Service DNS changes semantically', () => {
   assert.match(app, /['"]service-dns['"]\s*:\s*\{[\s\S]{0,180}label:\s*_\(['"]DNS: доступ сервисов['"]\)[\s\S]{0,180}tab:\s*['"]dns['"][\s\S]{0,180}pane:\s*['"]access['"]/);
-  assert.match(app, /function\s+renderDraftDiff\s*\(/);
-  assert.match(app, /function\s+openDraftScope\s*\(/);
-  assert.match(app, /module\.openDraft/);
-  assert.match(app, /module\.focusDraft/);
-  assert.match(app, /module\.resetDraft/);
+  assert.match(app, /function\s+renderSemanticDiff\s*\(/);
+  assert.match(app, /openSemanticDiff/);
+  assert.match(app, /coordinator:\s*\{/);
+  assert.match(app, /resetDraft/);
   assert.match(app, /before[\s\S]{0,120}after/);
-  assert.match(shell, /Что изменено/);
-  assert.match(shell, /Перейти к изменениям/);
+  assert.match(shell, /Показать различия/);
+  assert.match(shell, /Применить/);
+  assert.doesNotMatch(shell, /Перейти к изменениям|Показать на странице|renderConfirmBar/);
+  assert.doesNotMatch(app, /rollback_ttl|confirmationTimer|setInterval/);
 });

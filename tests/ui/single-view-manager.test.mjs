@@ -76,22 +76,19 @@ test('hash navigation has one activation owner and unmount receives the active c
   assert.doesNotMatch(app, /setHash\(tab\);\s*activate\(tab\)/);
 });
 
-test('draft and confirmation bars expose safe scope-aware actions', () => {
+test('global draft bar exposes exactly three safe actions', () => {
   const app = readFileSync(`${root}/app.js`, 'utf8');
   const shell = readFileSync(`${root}/z2m-shell.js`, 'utf8');
   const store = readFileSync(`${root}/z2m-store.js`, 'utf8');
-  for (const id of ['z2m-discard-drafts','z2m-preview-drafts','z2m-open-drafts','z2m-rollback-now','z2m-confirm-alive'])
+  for (const id of ['z2m-discard-drafts','z2m-preview-drafts','z2m-apply-drafts'])
     assert.match(shell, new RegExp(id));
-  assert.match(shell, /renderConfirmBar/);
+  for (const id of ['z2m-open-drafts','z2m-rollback-now','z2m-confirm-alive'])
+    assert.doesNotMatch(shell, new RegExp(id));
+  assert.doesNotMatch(shell, /renderConfirmBar/);
   assert.match(store, /clearAllDrafts/);
   assert.match(app, /DRAFT_META/);
-  assert.match(app, /renderDraftDiff/);
-  assert.match(app, /openDraftScope/);
-  assert.match(app, /Api\.strategy\.confirmAlive/);
-  assert.match(app, /Api\.strategy\.rollbackManager/);
-  assert.match(app, /rollback_ttl/);
-  assert.match(app, /setConfirmation/);
-  assert.doesNotMatch(app, /rollback_ttl\s*\|\|\s*(?:60|90)/);
+  assert.match(app, /openSemanticDiff/);
+  assert.doesNotMatch(app, /confirmationTimer|rollback_ttl|confirm_alive|setInterval/);
 });
 
 test('menu publishes exactly one application entry', () => {

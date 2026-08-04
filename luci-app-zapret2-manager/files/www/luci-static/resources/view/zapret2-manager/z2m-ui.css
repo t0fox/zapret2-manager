@@ -147,7 +147,11 @@
 .z2m-applybar .txt{font-size:13px;color:var(--tx2)}
 .z2m-applybar .sp{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
 .z2m-applybar.hidden{display:none}
-.z2m-applybar.confirm{background:#1f3325;border-top-color:#3f6f57}
+.z2m-apply-reason{color:var(--orange);max-width:360px}
+.z2m-draft-preview{border-bottom:1px solid var(--border);padding:0 0 14px;margin:0 0 14px}
+.z2m-draft-preview:last-child{border-bottom:0;margin-bottom:0}
+.z2m-draft-preview h4{margin:0 0 9px;font-size:14px}
+.z2m-draft-preview .warnbar{margin:0 0 10px}
 .z2m-scrim{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:80;padding:24px}
 .z2m-scrim.on{display:flex}
 .z2m-modal{background:var(--panel);border:1px solid var(--border2);border-radius:6px;width:min(700px,100%);max-height:84vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.55)}

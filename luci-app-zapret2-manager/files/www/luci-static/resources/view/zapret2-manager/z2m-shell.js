@@ -120,32 +120,24 @@ function closeModal() {
   host.replaceChildren();
 }
 
-function renderApplyBar(store) {
+function renderApplyBar(store, availability) {
+  availability = availability || {};
+  var reason = availability.reason || '';
+  var disabled = availability.enabled !== true;
   return E('div', {
     'class': 'z2m-applybar' + (store && store.hasDraft && store.hasDraft() ? '' : ' hidden'),
     id: 'z2m-applybar'
   }, E('div', { 'class': 'in' }, [
     E('span', { 'class': 'z2m-chip o' }, _('Черновик')),
     E('span', { 'class': 'txt', id: 'z2m-apply-text' }, _('Есть несохранённые изменения. На работу роутера пока не влияет.')),
+    E('span', { 'class': 'z2m-apply-reason z2m-dim', id: 'z2m-apply-reason' },
+      disabled && reason ? _('Применение заблокировано: ') + reason : ''),
     E('div', { 'class': 'sp' }, [
       button(_('Отменить все'), '', null, false, { id: 'z2m-discard-drafts' }),
-      button(_('Что изменено'), '', null, false, { id: 'z2m-preview-drafts' }),
-      button(_('Перейти к изменениям'), 'primary', null, false, { id: 'z2m-open-drafts' })
+      button(_('Показать различия'), '', null, false, { id: 'z2m-preview-drafts' }),
+      button(_('Применить'), 'primary', null, disabled, { id: 'z2m-apply-drafts' })
     ])
   ]));
-}
-
-function renderConfirmBar() {
-  return E('div', { 'class': 'z2m-applybar confirm hidden', id: 'z2m-confirm-bar' },
-    E('div', { 'class': 'in' }, [
-      E('span', { 'class': 'z2m-chip g' }, _('Применено')),
-      E('span', { 'class': 'txt', id: 'z2m-confirm-text' }, _('Если связь работает — подтвердите.')),
-      E('div', { 'class': 'sp' }, [
-        button(_('Откатить сейчас'), 'danger', null, false, { id: 'z2m-rollback-now' }),
-        button(_('Всё работает, оставить'), 'primary', null, false, { id: 'z2m-confirm-alive' })
-      ])
-    ])
-  );
 }
 
 return baseclass.extend({
@@ -159,6 +151,5 @@ return baseclass.extend({
   showToast: showToast,
   openModal: openModal,
   closeModal: closeModal,
-  renderApplyBar: renderApplyBar,
-  renderConfirmBar: renderConfirmBar
+  renderApplyBar: renderApplyBar
 });

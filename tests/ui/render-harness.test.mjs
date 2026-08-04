@@ -265,3 +265,12 @@ test('compatibility redirects are excluded from render ownership', () => {
     assert.match(String(mod.load), /location\.replace/);
   }
 });
+
+test('render harness exposes the coordinator bar without confirmation controls', () => {
+  const bar = shell.renderApplyBar({ hasDraft: () => true }, { enabled: false, reason: 'unsupported' });
+  assert.ok(bar.querySelector('#z2m-discard-drafts'));
+  assert.ok(bar.querySelector('#z2m-preview-drafts'));
+  assert.ok(bar.querySelector('#z2m-apply-drafts'));
+  assert.match(bar.textContent, /unsupported/);
+  assert.equal(bar.querySelector('#z2m-open-drafts'), null);
+});
