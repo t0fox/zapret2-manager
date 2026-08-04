@@ -31,9 +31,11 @@ test('smoke checks current imported modules instead of removed overview.js', () 
   assert.match(smoke, /app\.js/);
 });
 
-test('smoke compiles rpcd ucode plugins through module context', () => {
-  assert.match(smoke, /\/usr\/share\/rpcd\/ucode\/\*\)/);
-  assert.match(smoke, /compile_as_module=1/);
+test('smoke validates the no-extension rpcd plugin through the actual loader', () => {
+  assert.doesNotMatch(smoke, /\/usr\/share\/rpcd\/ucode\/zapret2-manager;\s*do/);
+  assert.match(smoke, /rpcd_plugin_loaded\(\)/);
+  assert.match(smoke, /ubus -v list zapret2-manager/);
+  assert.match(smoke, /ubus call zapret2-manager status/);
 });
 
 test('list-path gate accepts multiple exact flags while requiring the managed path', () => {
