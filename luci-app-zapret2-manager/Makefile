@@ -1,16 +1,10 @@
-# luci-app-zapret2-manager — LuCI JS frontend for zapret2-manager
-#
-# Client-side views (no Python, no Lua in the UI — flash-constrained). Calls
-# the zapret2-manager ubus object over rpcd; does no state collection itself.
-#
-# postinst resets only LuCI caches. The deploy workflow performs one explicit
-# rpcd reload after all packages are installed; it never reloads uhttpd.
+# luci-app-zapret2-manager — modular LuCI JavaScript frontend
 
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-zapret2-manager
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=143
+PKG_RELEASE:=144
 PKG_MAINTAINER:=Ásgeir
 PKG_LICENSE:=MIT
 PKGARCH:=all
@@ -27,8 +21,8 @@ define Package/luci-app-zapret2-manager
 endef
 
 define Package/luci-app-zapret2-manager/description
-  Read-only LuCI status page for zapret2-manager. Menu:
-  Services -> Zapret 2 Manager.
+  Single-root modular LuCI interface for zapret2-manager with semantic drafts,
+  verified backend actions, monitoring and maintenance workflows.
 endef
 
 define Build/Prepare
@@ -48,22 +42,16 @@ define Package/luci-app-zapret2-manager/install
 		$(1)/usr/share/luci/menu.d/
 
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/zapret2-manager
-	# Install EVERY shipped view (.js) in the view directory — automatically, not
-	# a hardcoded list. A per-file enumeration silently drops pages when the UI
-	# grows (this Makefile used to install only overview.js while 8 views ship).
-	# $(wildcard) globs the source dir at expand time; $(foreach) installs each.
+	# Wildcards are intentional: every focused frontend module and every local
+	# stylesheet in the runtime directory must ship without a fragile list.
 	$(foreach js,$(wildcard ./files/www/luci-static/resources/view/zapret2-manager/*.js), \
 		$(INSTALL_DATA) $(js) $(1)/www/luci-static/resources/view/zapret2-manager/;)
-	# Install shared CSS
 	$(foreach css,$(wildcard ./files/www/luci-static/resources/view/zapret2-manager/*.css), \
 		$(INSTALL_DATA) $(css) $(1)/www/luci-static/resources/view/zapret2-manager/;)
 endef
 
 define Package/luci-app-zapret2-manager/postinst
 #!/bin/sh
-# Reset LuCI caches so the new view is picked up immediately. The deploy
-# workflow reloads rpcd once after the complete package set is installed.
-# LuCI uses numbered cache files (e.g. luci-indexcache.<pid>.json) so glob.
 rm -f /tmp/luci-indexcache*
 rm -rf /tmp/luci-modulecache 2>/dev/null || true
 exit 0
