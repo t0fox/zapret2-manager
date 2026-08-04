@@ -27,6 +27,9 @@ load_manager_config() {
 		????????????????????????????????) ;;
 		*) echo "SECRET must be 32 hex characters"; return 1 ;;
 	esac
+	case "$SECRET" in
+		*[!0-9a-f]*) echo "SECRET contains non-hex characters"; return 1 ;;
+	esac
 
 	[ -z "$MTPROTO_PROXIES" ] || { echo "Go provider does not support upstream MTProto proxies"; return 1; }
 	[ -z "$OUTBOUND_PROXY" ] || { echo "Go provider does not support outbound proxy"; return 1; }
@@ -84,8 +87,4 @@ start_service() {
 reload_service() {
 	stop
 	start
-}
-
-service_triggers() {
-	procd_add_raw_trigger "config.change" 1000 /etc/init.d/tg-ws-proxy reload
 }
