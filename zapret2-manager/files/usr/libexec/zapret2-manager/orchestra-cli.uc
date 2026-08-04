@@ -3,6 +3,7 @@
 // orchestra-cli.uc — CLI wrapper for orchestra.uc
 //
 //   ucode orchestra-cli.uc capabilities
+//   ucode orchestra-cli.uc catalog
 //   ucode orchestra-cli.uc corpus_get
 //   ucode orchestra-cli.uc status
 //   ucode orchestra-cli.uc events
@@ -21,7 +22,7 @@
 
 import { orchestra_capabilities, orchestra_status, orchestra_events, orchestra_history, orchestra_runid, orchestra_parse_warnings, orchestra_ratings_get, orchestra_history_get, orchestra_history_paginated, orchestra_history_export, orchestra_history_clear, orchestra_history_stats } from './orchestra.uc';
 import { orchestra_run_start, orchestra_run_status, orchestra_run_events, orchestra_run_pause, orchestra_run_resume, orchestra_run_stop, orchestra_run_continue, orchestra_probe_preflight, orchestra_run_invalidate, orchestra_run_history, orchestra_run_load, orchestra_run_delete, orchestra_run_capabilities, orchestra_apply_best, orchestra_apply_best_test, orchestra_preview_best, orchestra_apply_status, orchestra_apply_events, orchestra_restore_previous, orchestra_apply_record_lan_verification } from './orchestra-run.uc';
-import { orchestra_corpus_get } from './orchestra-corpus.uc';
+import { orchestra_corpus_get, orchestra_catalog_get } from './orchestra-corpus.uc';
 import { orchestra_corpus_run_start } from './orchestra-corpus-run.uc';
 import { readfile } from 'fs';
 
@@ -44,8 +45,11 @@ if (mode == 'capabilities') {
 	let caps = orchestra_capabilities();
 	let corpus = orchestra_run_capabilities();
 	corpus.domainCorpus = orchestra_corpus_get();
+	corpus.strategyCatalog = orchestra_catalog_get();
 	caps.orchestrationCorpus = corpus;
 	print(sprintf("%J", caps) + '\n');
+} else if (mode == 'catalog') {
+	print(sprintf("%J", orchestra_catalog_get()) + '\n');
 } else if (mode == 'corpus_get') {
 	print(sprintf("%J", orchestra_corpus_get()) + '\n');
 } else if (mode == 'status') {
@@ -75,7 +79,8 @@ if (mode == 'capabilities') {
 	print(sprintf("%J", orchestra_history_stats()) + '\n');
 } else if (mode == 'run_start') {
 	let request = read_request(reqFile);
-	print(sprintf("%J", request.targetType == 'corpus' ? orchestra_corpus_run_start(request) : orchestra_run_start(request)) + '\n');
+	let fullCorpus = request.mode == 'full-corpus' || request.targetType == 'corpus';
+	print(sprintf("%J", fullCorpus ? orchestra_corpus_run_start(request) : orchestra_run_start(request)) + '\n');
 } else if (mode == 'run_status') {
 	print(sprintf("%J", orchestra_run_status(read_request(reqFile))) + '\n');
 } else if (mode == 'run_events') {
@@ -99,6 +104,7 @@ if (mode == 'capabilities') {
 } else if (mode == 'run_capabilities') {
 	let response = orchestra_run_capabilities();
 	response.domainCorpus = orchestra_corpus_get();
+	response.strategyCatalog = orchestra_catalog_get();
 	print(sprintf("%J", response) + '\n');
 } else if (mode == 'run_delete') {
 	print(sprintf("%J", orchestra_run_delete(read_request(reqFile))) + '\n');
