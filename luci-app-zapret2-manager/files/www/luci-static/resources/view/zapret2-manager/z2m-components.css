@@ -1,5 +1,4 @@
 /* Single-view component styles layered over the reference design system. */
-.z2m-content{min-height:360px}
 .z2m-app-placeholder,.z2m-redirect{padding:28px;color:var(--tx2)}
 .z2m-active-name{font-size:22px;font-weight:650;margin:3px 0 5px}
 .z2m-table-wrap{overflow-x:auto}
@@ -76,14 +75,44 @@
 .z2m-proxy-details[open]>summary:before{content:"▾ "}
 .z2m-proxy-qr-card{display:flex;flex-direction:column;align-items:center;gap:12px}
 .z2m-proxy-qr-card canvas,.z2m-proxy-qr-card svg{max-width:100%;height:auto;background:#fff}
+
+.z2m-overview-status>.bd{padding:0}
+.z2m-hero{display:grid;grid-template-columns:1.32fr 1fr;padding:0!important}
+.z2m-hero-left{padding:20px 20px 22px;min-width:0}
+.z2m-hero-right{padding:20px;border-left:1px solid var(--border);background:#22252a;min-width:0}
+.z2m-kick{display:flex;align-items:center;gap:8px;color:var(--tx3);font-size:12.5px;margin-bottom:10px}
+.z2m-hero-left h3{font-size:22px;line-height:1.2;margin:0 0 8px}
+.z2m-strategy-description{color:var(--tx2);max-width:720px}
+.z2m-strategy-meta{margin-top:8px}
+.z2m-overview-argv{margin-top:12px;padding:10px 12px;background:#151719;border:1px solid var(--border);border-radius:5px;overflow-wrap:anywhere}
+.z2m-hero-actions{margin-top:18px}
+.z2m-overview-kpis{grid-template-columns:1fr 1fr}
+.z2m-overview-progress{margin-top:14px}
+.z2m-failure-title{margin:14px 0 7px}
+.z2m-overview-failures{display:flex;gap:6px;flex-wrap:wrap;min-height:22px}
+.z2m-report-actions{margin-top:14px}
+.z2m-advice-row{display:flex;gap:14px;align-items:flex-start;padding:13px 18px;border-bottom:1px solid #292c30}
+.z2m-advice-row:last-child{border-bottom:0}
+.z2m-advice-copy{min-width:0}
+.z2m-advice-copy .tt{font-size:13.5px;font-weight:500}
+.z2m-advice-copy .dd{color:var(--tx3);font-size:12px;margin-top:2px}
+.z2m-advice-row .sp{margin-left:auto}
 @media (prefers-reduced-motion:reduce){.z2m-provider-progress.on:after{animation:none;transform:none;width:100%;opacity:.55}}
 @media (max-width:900px){
-  .z2m-proxy-hero,.z2m-list-grid{grid-template-columns:1fr}
+  .z2m-proxy-hero,.z2m-list-grid,.z2m-hero{grid-template-columns:1fr}
+  .z2m-hero-right{border-left:0;border-top:1px solid var(--border)}
   .z2m-profile-row{grid-template-columns:28px minmax(0,1fr)}
   .z2m-profile-actions{grid-column:2;justify-content:flex-start;max-width:none}
 }
 @media (max-width:560px){
   .z2m-phead{flex-direction:column}
+  .z2m-overview-head .sp{width:100%;display:flex;align-items:stretch;flex-wrap:wrap}
+  .z2m-overview-head .z2m-seg{width:100%}
+  .z2m-overview-head .z2m-seg .z2m-btn{flex:1}
+  .z2m-hero-left,.z2m-hero-right{padding:16px}
+  .z2m-overview-kpis{grid-template-columns:1fr 1fr}
+  .z2m-advice-row{flex-wrap:wrap}
+  .z2m-advice-row .sp{width:100%;margin-left:22px}
   .z2m-phead .sp{margin-left:0}
   .z2m-rule{grid-template-columns:minmax(0,1fr) auto}
   .z2m-rule>.z2m-btn{grid-column:2}

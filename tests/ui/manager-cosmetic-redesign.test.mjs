@@ -47,11 +47,14 @@ test('approved visual system stays local and covers the new application componen
     assert.match(css.toLowerCase(), new RegExp(token));
   for (const cls of [
     '.z2m-apptop','.z2m-tabs','.z2m-subtabs','.z2m-panel','.z2m-btn',
-    '.z2m-kpis','.z2m-applybar','.z2m-modal','.z2m-toasts','.z2m-qr'
+    '.z2m-kpis','.z2m-applybar','.z2m-modal','.z2m-toasts','.z2m-qr',
+    '.z2m-seg','.z2m-skeleton','.z2m-refreshing'
   ]) assert.match(css, new RegExp(cls.replace('.', '\\.')));
   for (const cls of [
     '.z2m-advanced-toggle','.z2m-fieldline','.z2m-rule','.z2m-profile-row',
-    '.z2m-proxy-hero','.z2m-backup-row','.z2m-draft-preview'
+    '.z2m-proxy-hero','.z2m-backup-row','.z2m-draft-preview',
+    '.z2m-hero','.z2m-hero-left','.z2m-hero-right',
+    '.z2m-overview-failures','.z2m-advice','.z2m-advice-row'
   ]) assert.match(components, new RegExp(cls.replace('.', '\\.')));
   assert.match(shell, /z2m-components\.css/);
   assert.doesNotMatch(css + components, /@import|https?:\/\//);

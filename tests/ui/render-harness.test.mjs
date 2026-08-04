@@ -142,9 +142,32 @@ function store() {
 
 const healthyData = {
   'z2m-overview.js': {
-    status: { value: { serviceState: 'running', runtime: { process: { found: true } } } },
-    preview: { value: { comboCatalog: { candidates: [] }, strategyState: {}, overrides: { rules: [] } } },
-    history: { value: { runs: [] } }, orchestra: { value: {} }, serviceDns: { value: {} }
+    status: { value: {
+      serviceState: 'running',
+      runtime: { process: { found: true }, connectivity: { verified: true } }
+    } },
+    preview: { value: {
+      comboCatalog: { candidates: [{ candidateId: 'real-candidate', name: 'Backend candidate' }] },
+      strategyState: {
+        active: {
+          candidateId: 'real-candidate', name: 'Backend candidate',
+          description: 'Returned by backend', source: 'manual',
+          appliedAt: '2026-08-04T09:00:00Z', revision: 12
+        },
+        rollback: { available: true, snapshotId: 'snap-11', label: 'rev11' }
+      },
+      overrides: { rules: [] }
+    } },
+    history: { value: { runs: [{
+      runId: 'corpus-1', phase: 'completed', targetType: 'corpus',
+      targetCount: 61, completedAt: '2026-08-04T09:30:00Z',
+      selectedWinner: {
+        successCount: 57, medianLatencyMs: 312,
+        failedDomains: ['gog.com']
+      }
+    }] } },
+    orchestra: { value: {} },
+    serviceDns: { value: { activeCount: 9 } }
   },
   'z2m-strategy-page.js': {
     strategy: {
@@ -202,6 +225,35 @@ test('single-view render harness: every internal tab survives unavailable envelo
     const unavailable = Object.fromEntries(Object.keys(healthyData[file]).map((key) => [key, { error: { code: 'EUNAVAILABLE', message: 'Unavailable' } }]));
     assertTree(mod.render(context(unavailable)), file);
   }
+});
+
+
+test('Overview follows the holyversion structure with backend fixture data', () => {
+  const mod = evaluateLuciModule(`${root}/z2m-overview.js`, overrides, cache);
+  const tree = mod.render(context(healthyData['z2m-overview.js']));
+  for (const selector of [
+    '.z2m-overview-head', '.z2m-overview-status', '.z2m-hero',
+    '.z2m-hero-left', '.z2m-hero-right',
+    '.z2m-overview-failures', '.z2m-advice'
+  ]) assert.ok(tree.querySelector(selector), selector);
+  assert.match(tree.textContent, /Backend candidate/);
+  assert.match(tree.textContent, /57 \/ 61/);
+  assert.match(tree.textContent, /312 мс/);
+});
+
+test('Overview unavailable state does not fabricate strategy or metrics', () => {
+  const mod = evaluateLuciModule(`${root}/z2m-overview.js`, overrides, cache);
+  const unavailable = {
+    status: { error: { code: 'EUNAVAILABLE', message: 'status unavailable' } },
+    preview: { error: { code: 'EUNAVAILABLE', message: 'preview unavailable' } },
+    history: { error: { code: 'EUNAVAILABLE', message: 'history unavailable' } },
+    orchestra: { error: { code: 'EUNAVAILABLE', message: 'orchestra unavailable' } },
+    serviceDns: { error: { code: 'EUNAVAILABLE', message: 'dns unavailable' } }
+  };
+  const tree = mod.render(context(unavailable));
+  assert.match(tree.textContent, /Состояние неизвестно/);
+  assert.match(tree.textContent, /Не определена/);
+  assert.doesNotMatch(tree.textContent, /Flowseal ALT11|57 \/ 61|312 мс/);
 });
 
 test('compatibility redirects are excluded from render ownership', () => {

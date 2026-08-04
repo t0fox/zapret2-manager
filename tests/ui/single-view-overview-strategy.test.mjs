@@ -21,10 +21,20 @@ test('overview uses real data, exposes overrides and controls advanced mode', ()
   for (const token of ['api.service.status','api.strategy.preview','api.orchestra.runHistory','Проверить ресурс','Точечные правила','Все стратегии','Расширенный режим'])
     assert.match(src, new RegExp(token.replaceAll('.', '\\.')));
   assert.match(src, /ui:\s*Object\.assign\([^\n]*advanced/);
-  assert.match(src, /type:\s*['"]checkbox['"]/);
-  assert.match(src, /value == null \? '—'/);
+  assert.match(src, /shell\.segmented\(/);
+  assert.doesNotMatch(src, /type:\s*['"]checkbox['"]/);
+  assert.match(src, /value == null \|\| value === '' \? '—'/);
   assert.match(src, /preview\.overrides\s*\?\s*asArray\(preview\.overrides\.rules\)\s*:\s*\[\]/);
   assert.doesNotMatch(src, /metric\([^\n]+\|\| 0/);
+  assert.match(src, /z2m-overview-model as OverviewModel/);
+  assert.match(src, /OverviewModel\.normalize\(ctx\.data\s*\|\|\s*\{\}\)/);
+  for (const label of [
+    'Простой', 'Расширенный', 'Как это работает',
+    'Отчёт проверки', 'Что стоит сделать'
+  ]) assert.match(src, new RegExp(label));
+  assert.match(src, /z2m-hero/);
+  assert.doesNotMatch(src, /Flowseal ALT11|57\s*\/\s*61|312\s*мс/);
+  assert.doesNotMatch(src, /rollback\(\)[\s\S]{0,250}!active/);
 });
 
 test('strategy selection is pending until explicit apply and empty runs are errors', () => {

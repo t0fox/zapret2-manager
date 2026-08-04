@@ -43,14 +43,14 @@ test('all published menu routes resolve to shipped view modules', () => {
 test('single-view runtime modules and local stylesheets exist', () => {
   for (const name of [
     'app.js','z2m-api.js','z2m-store.js','z2m-shell.js','z2m-ui.css','z2m-components.css',
-    'z2m-overview.js','z2m-strategy.js','z2m-services.js','z2m-lists.js','z2m-dns.js',
+    'z2m-overview.js','z2m-overview-model.js','z2m-strategy.js','z2m-services.js','z2m-lists.js','z2m-dns.js',
     'z2m-proxy.js','z2m-qr.js','z2m-monitor.js','z2m-maintenance.js'
   ]) assert.ok(existsSync(join(viewRoot, name)), `${name} exists`);
 });
 
-test('r141 package ships no legacy runtime and only the two authoritative local stylesheets', () => {
+test('r142 package ships no legacy runtime and only the two authoritative local stylesheets', () => {
   const makefile = readFileSync(join(REPO, 'luci-app-zapret2-manager/Makefile'), 'utf8');
-  assert.match(makefile, /^PKG_RELEASE:=141$/m);
+  assert.match(makefile, /^PKG_RELEASE:=142$/m);
   const files = readdirSync(viewRoot).sort();
   assert.deepEqual(files.filter((name) => name.endsWith('.css')), ['z2m-components.css', 'z2m-ui.css']);
   assert.deepEqual(files.filter((name) => name.endsWith('-legacy.js')), []);

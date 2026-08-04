@@ -33,6 +33,52 @@ function chip(label, kind, withDot) {
   return E('span', { 'class': 'z2m-chip ' + (kind || '') }, children);
 }
 
+function segmented(items, activeId, onSelect, attrs) {
+  var host = E('div', Object.assign({ 'class': 'z2m-seg', role: 'group' }, attrs || {}));
+
+  function select(id) {
+    Array.from(host.querySelectorAll('button[data-segment]')).forEach(function (node) {
+      var selected = node.getAttribute('data-segment') === id;
+      node.classList.toggle('on', selected);
+      node.setAttribute('aria-pressed', selected ? 'true' : 'false');
+    });
+  }
+
+  (items || []).forEach(function (item) {
+    var selected = item.id === activeId;
+    host.appendChild(button(item.label, selected ? 'on' : '', function () {
+      select(item.id);
+      if (typeof onSelect === 'function') onSelect(item.id);
+    }, item.disabled === true, {
+      'data-segment': item.id,
+      'aria-pressed': selected ? 'true' : 'false'
+    }));
+  });
+  return host;
+}
+
+function renderLoadingState(label) {
+  return E('section', {
+    'class': 'z2m-view on z2m-loading-view',
+    'aria-live': 'polite'
+  }, [
+    E('div', { 'class': 'z2m-phead z2m-skeleton-head' }, [
+      E('div', {}, [
+        E('div', { 'class': 'z2m-skeleton line title' }),
+        E('div', { 'class': 'z2m-skeleton line subtitle' })
+      ]),
+      E('span', { 'class': 'z2m-dim' }, _('Загрузка: ') + label)
+    ]),
+    E('div', { 'class': 'z2m-panel z2m-skeleton-panel' }, [
+      E('div', { 'class': 'hd' }, E('div', { 'class': 'z2m-skeleton line heading' })),
+      E('div', { 'class': 'bd z2m-skeleton-grid' }, [
+        E('div', { 'class': 'z2m-skeleton block' }),
+        E('div', { 'class': 'z2m-skeleton block' })
+      ])
+    ])
+  ]);
+}
+
 function panel(title, body, subtitle, actions) {
   var head = [E('h2', {}, title)];
   if (subtitle) head.push(E('span', { 'class': 'sub' }, subtitle));
@@ -106,6 +152,8 @@ return baseclass.extend({
   injectCss: injectCss,
   button: button,
   chip: chip,
+  segmented: segmented,
+  renderLoadingState: renderLoadingState,
   panel: panel,
   empty: empty,
   showToast: showToast,
