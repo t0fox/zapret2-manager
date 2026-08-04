@@ -122,7 +122,21 @@ test('Services apply preserves the full baseline enabled set', async () => {
   const result = await coordinator.applyDrafts(store.snapshotDraft());
   const apply = calls.find((item) => Array.isArray(item) && item[0] === 'apply');
   assert.deepEqual(apply[1].enabled, ['alpha', 'beta', 'gamma']);
+  assert.deepEqual(apply[1], { enabled: ['alpha', 'beta', 'gamma'], revision: 3, fileSha256: 'sha-3' });
   assert.deepEqual(result.clearedScopes, ['services']);
+});
+
+test('Services malformed precondition blocks catalogApply', async () => {
+  const calls = [];
+  const api = fakeApi(calls, { ok: true, precondition: { ledgerRevision: 3, fileSha256: '' } });
+  const store = coordinatorStore({ services: { changes: { beta: { before: false, after: true } } } });
+  const coordinator = appView.createCoordinator({
+    api, store, shell: noShell(),
+    adapters: { services: appView.createServicesAdapter(api, { resetDraft() {} }) }
+  });
+  const result = await coordinator.applyDrafts(store.snapshotDraft());
+  assert.equal(calls.some((item) => Array.isArray(item) && item[0] === 'apply'), false);
+  assert.match(result.errors[0].message, /precondition|fileSha256/i);
 });
 
 test('malformed preview blocks mutation and preserves the draft', async () => {
@@ -323,6 +337,91 @@ test('DNS apply uses set then apply and verifies the reread', async () => {
   assert.deepEqual(Object.keys(store.get().draft), []);
 });
 
+test('DNS accepts valid/set success envelopes without ok:true', async () => {
+  const calls = [];
+  let readCount = 0;
+  const entries = [{ domain: 'shape.example', ip: '1.2.3.4', enabled: true }];
+  const api = {
+    normalizeError(error) { return { code: error?.code || 'E_TEST', message: error?.message || String(error) }; },
+    dns: {
+      get: () => { readCount += 1; return Promise.resolve({ revision: readCount, entries: readCount === 1 ? [] : entries }); },
+      validate: (payload) => { calls.push(['validate', JSON.parse(payload)]); return Promise.resolve({ valid: true }); },
+      set: (payload) => { calls.push(['set', JSON.parse(payload)]); return Promise.resolve({ revision: 2 }); },
+      apply: (payload) => { calls.push(['apply', JSON.parse(payload)]); return Promise.resolve({ ok: true }); }
+    }
+  };
+  const store = coordinatorStore({ dns: { entries, changes: { entries: { before: [], after: entries } } } });
+  const coordinator = appView.createCoordinator({ api, store, shell: noShell(), adapters: { dns: appView.createDnsAdapter(api) } });
+  const result = await coordinator.applyDrafts(store.snapshotDraft());
+  assert.deepEqual(calls.slice(-2), [['set', { entries, revision: 1 }], ['apply', { mode: 'apply' }]]);
+  assert.deepEqual(result.clearedScopes, ['dns']);
+});
+
+test('DNS explicit set failure blocks dns.apply', async () => {
+  const calls = [];
+  const api = {
+    normalizeError(error) { return { code: error?.code || 'E_TEST', message: error?.message || String(error) }; },
+    dns: {
+      get: () => Promise.resolve({ revision: 1, entries: [] }),
+      validate: () => Promise.resolve({ valid: true }),
+      set: () => { calls.push('set'); return Promise.resolve({ ok: false, message: 'exact set failure' }); },
+      apply: () => { calls.push('apply'); return Promise.resolve({ ok: true }); }
+    }
+  };
+  const store = coordinatorStore({ dns: { entries: [{ domain: 'set-error.example', ip: '1.2.3.4' }], changes: { entries: { before: [], after: ['set-error.example'] } } } });
+  const coordinator = appView.createCoordinator({ api, store, shell: noShell(), adapters: { dns: appView.createDnsAdapter(api) } });
+  const result = await coordinator.applyDrafts(store.snapshotDraft());
+  assert.deepEqual(calls, ['set']);
+  assert.match(result.errors[0].message, /exact set failure/);
+});
+
+test('DNS explicit validation error blocks mutation even with valid:true', async () => {
+  const calls = [];
+  const api = {
+    normalizeError(error) { return { code: error?.code || 'E_TEST', message: error?.message || String(error) }; },
+    dns: {
+      get: () => Promise.resolve({ revision: 1, entries: [] }),
+      validate: () => Promise.resolve({ ok: true, valid: true, error: { message: 'exact resolver error' } }),
+      set: () => { calls.push('set'); return Promise.resolve({}); },
+      apply: () => { calls.push('apply'); return Promise.resolve({ ok: true }); }
+    }
+  };
+  const store = coordinatorStore({ dns: { entries: [{ domain: 'error.example', ip: '1.2.3.4' }], changes: { entries: { before: [], after: ['error.example'] } } } });
+  const coordinator = appView.createCoordinator({ api, store, shell: noShell(), adapters: { dns: appView.createDnsAdapter(api) } });
+  const result = await coordinator.applyDrafts(store.snapshotDraft());
+  assert.deepEqual(calls, []);
+  assert.match(result.errors[0].message, /exact resolver error/);
+});
+
+test('DNS verification normalizes manualEntries in the reread envelope', () => {
+  const entries = [{ domain: 'manual.example', ip: '1.2.3.4', enabled: true }];
+  const adapter = appView.createDnsAdapter({});
+  assert.equal(adapter.verifyApplied(
+    { entries }, {}, { value: { manualEntries: entries } }
+  ), true);
+});
+
+test('registered DNS adapter resets the real module state after verified apply', async () => {
+  let resetCount = 0;
+  let readCount = 0;
+  const entries = [{ domain: 'reset.example', ip: '1.2.3.4', enabled: true }];
+  const api = {
+    normalizeError(error) { return { code: error?.code || 'E_TEST', message: error?.message || String(error) }; },
+    dns: {
+      get: () => { readCount += 1; return Promise.resolve({ revision: readCount, entries: readCount === 1 ? [] : entries }); },
+      validate: () => Promise.resolve({ valid: true }),
+      set: () => Promise.resolve({}),
+      apply: () => Promise.resolve({ ok: true })
+    }
+  };
+  const module = { resetDraft() { resetCount += 1; } };
+  const store = coordinatorStore({ dns: { entries, changes: { entries: { before: [], after: entries } } } });
+  const coordinator = appView.createCoordinator({ api, store, shell: noShell(), adapters: { dns: appView.createDnsAdapter(api, module) } });
+  const result = await coordinator.applyDrafts(store.snapshotDraft());
+  assert.deepEqual(result.clearedScopes, ['dns']);
+  assert.equal(resetCount, 1);
+});
+
 test('strategy preflight blocker prevents profiles apply for an inapplicable candidate', async () => {
   const calls = [];
   const api = {
@@ -343,13 +442,69 @@ test('strategy preflight blocker prevents profiles apply for an inapplicable can
   assert.match(result.errors[0].message, /exact candidate blocker/);
 });
 
+test('profile drafts block when candidateId is missing or absent from the catalog', async () => {
+  for (const value of [
+    { profiles: true, changes: { profiles: { before: false, after: true } } },
+    { candidateId: 'missing', profiles: true, changes: { profiles: { before: false, after: true } } }
+  ]) {
+    const calls = [];
+    const api = {
+      normalizeError(error) { return { code: error?.code || 'E_TEST', message: error?.message || String(error) }; },
+      strategy: { preview: () => Promise.resolve({ revision: 8, comboCatalog: { candidates: [] }, strategyState: {} }) },
+      profiles: {
+        list: () => Promise.resolve({ revision: 8, profiles: [] }),
+        apply: (payload) => { calls.push(JSON.parse(payload)); return Promise.resolve({ ok: true }); }
+      }
+    };
+    const store = coordinatorStore({ strategy: value });
+    const coordinator = appView.createCoordinator({ api, store, shell: noShell(), adapters: { strategy: appView.createStrategyAdapter(api) } });
+    const result = await coordinator.applyDrafts(store.snapshotDraft());
+    assert.deepEqual(calls, []);
+    assert.match(result.errors[0].message, /candidate|стратег/i);
+  }
+});
+
+test('applicable candidate permits the existing profile preview/apply pipeline', async () => {
+  const calls = [];
+  let profileReads = 0;
+  const candidate = { candidateId: 'good', applicable: true, digest: 'digest-good' };
+  const api = {
+    normalizeError(error) { return { code: error?.code || 'E_TEST', message: error?.message || String(error) }; },
+    strategy: { preview: () => Promise.resolve({ revision: 8, comboCatalog: { candidates: [candidate] }, strategyState: { active: candidate } }) },
+    profiles: {
+      list: () => { profileReads += 1; return Promise.resolve({ revision: 8, profiles: [], draft: { profiles: profileReads === 1 ? [{ id: 'p1' }] : [] } }); },
+      apply: (payload) => { calls.push(JSON.parse(payload)); return Promise.resolve({ ok: true }); }
+    }
+  };
+  const store = coordinatorStore({ strategy: { candidateId: 'good', profiles: true, changes: { profiles: { before: false, after: true } } } });
+  const coordinator = appView.createCoordinator({ api, store, shell: noShell(), adapters: { strategy: appView.createStrategyAdapter(api) } });
+  const result = await coordinator.applyDrafts(store.snapshotDraft());
+  assert.deepEqual(calls, [{ mode: 'preview' }, { mode: 'apply' }], JSON.stringify(result));
+  assert.deepEqual(result.clearedScopes, ['strategy']);
+});
+
 test('proxy and lists scopes remain explicitly blocked by semantic diff', () => {
   const diff = appView.renderSemanticDiff({
     lists: { changes: { domainInclude: { before: [], after: ['example.com'] } } },
-    proxy: { changes: { enabled: { before: false, after: true } } }
+    proxy: { changes: { enabled: { before: false, after: true } } },
+    'service-dns': { changes: { alpha: { before: '', after: 'cloudflare' } } }
   }, {});
   assert.match(diff.textContent, /Unsupported scope: lists/);
   assert.match(diff.textContent, /Unsupported scope: proxy/);
+  assert.match(diff.textContent, /Unsupported scope: service-dns/);
+});
+
+test('point override remains visible with an exact coordinator blocker', async () => {
+  const api = {
+    normalizeError(error) { return { code: error?.code || 'E_TEST', message: error?.message || String(error) }; },
+    strategy: { preview: () => Promise.resolve({ revision: 1, comboCatalog: { candidates: [] }, strategyState: {} }) },
+    profiles: { list: () => Promise.resolve({ revision: 1, profiles: [] }) }
+  };
+  const store = coordinatorStore({ strategy: { override: { action: 'override_set' }, changes: { override: { before: null, after: 'change' } } } });
+  const coordinator = appView.createCoordinator({ api, store, shell: noShell(), adapters: { strategy: appView.createStrategyAdapter(api) } });
+  await coordinator.preflightDraft(store.snapshotDraft());
+  const diff = appView.renderSemanticDiff(store.snapshotDraft(), {}, coordinator.semanticBlockers());
+  assert.match(diff.textContent, /Точечные правила не поддерживаются/);
 });
 
 test('proxy links remain masked in the semantic diff', () => {

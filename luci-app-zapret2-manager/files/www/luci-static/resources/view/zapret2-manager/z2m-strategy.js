@@ -17,7 +17,7 @@ function revisionOf(value) {
 }
 function strategyRevision(preview, profiles) {
   var activeCandidate = active(preview) || {};
-  var source = object(profiles).source;
+  var source = object(object(profiles).source);
   return activeCandidate.digest || revisionOf(profiles) || source.configSha256 || revisionOf(preview) || null;
 }
 function settled(result, api) { return result.status === 'fulfilled' ? { value: result.value || {} } : { error: api.normalizeError(result.reason) }; }
@@ -57,7 +57,7 @@ function createAdapter(api) {
   }
   function candidateGate(value, preview) {
     var id = object(value).candidateId;
-    if (id == null) return { ok: true, candidate: null };
+    if (id == null) return { ok: false, message: _('Для применения профилей требуется идентификатор стратегии-кандидата.') };
     var candidate = strategyCandidate(preview, id);
     if (!candidate) return { ok: false, message: _('Выбранная стратегия больше не найдена в каталоге.') };
     if (!candidateApplicable(candidate)) return { ok: false, message: candidateValidationMessage(candidate), candidate: candidate };
@@ -84,7 +84,8 @@ function createAdapter(api) {
         var gate = candidateGate(value, preview);
         if (!gate.ok) return { ok: false, message: gate.message, candidate: gate.candidate };
         var read = context && context.applied && context.applied.strategy || {};
-        var revision = strategyRevision(read.raw && read.raw.preview, read.raw && read.raw.profiles) || revisionOf(read);
+        var revision = read.candidate && read.candidate.digest ||
+          strategyRevision(read.raw && read.raw.preview, read.raw && read.raw.profiles) || revisionOf(read);
         var runProfilesPreview = hasProfileDraft(value) && api.profiles && typeof api.profiles.apply === 'function'
           ? edit(api.profiles.apply, { mode: 'preview' }) : Promise.resolve({ ok: true });
         return runProfilesPreview.then(function (answer) {
@@ -97,11 +98,13 @@ function createAdapter(api) {
     previewValid: previewValid,
     applyDraft: function (scope, value, expectedRevision, context) {
       var draft = object(value);
-      if (hasProfileDraft(draft) && api.profiles && typeof api.profiles.apply === 'function')
-        return edit(api.profiles.apply, { mode: 'apply' });
       var previews = context && context.previews || {};
       var preview = previews.strategy || context && context.preview || {};
       var candidate = object(preview.candidate);
+      if (draft.candidateId == null || candidate.applicable !== true)
+        return Promise.reject({ code: 'candidate-blocked', message: candidate.validationMessage || _('Применение заблокировано: стратегия-кандидат отсутствует или неприменима.') });
+      if (hasProfileDraft(draft) && api.profiles && typeof api.profiles.apply === 'function')
+        return edit(api.profiles.apply, { mode: 'apply' });
       return edit(api.strategy.apply, {
         candidateId: draft.candidateId,
         expectedDigest: candidate.digest,

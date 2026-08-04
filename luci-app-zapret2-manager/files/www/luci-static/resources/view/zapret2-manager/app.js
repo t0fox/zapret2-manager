@@ -109,7 +109,7 @@ function unsupportedAdapter(scope) {
 var ADAPTERS = {
   strategy: Strategy.createAdapter(Api),
   services: Services.createAdapter(Api, Services),
-  dns: Dns.createAdapter(Api)
+  dns: Dns.createAdapter(Api, Dns)
 };
 Object.keys(DRAFT_META).forEach(function (scope) {
   if (!ADAPTERS[scope]) ADAPTERS[scope] = unsupportedAdapter(scope);

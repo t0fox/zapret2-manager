@@ -16,6 +16,8 @@ function revisionOf(value) {
   return value.revision != null ? value.revision : ledger.revision != null ? ledger.revision :
     value.appliedRevision != null ? value.appliedRevision : null;
 }
+function integer(value) { return typeof value === 'number' && isFinite(value) && Math.floor(value) === value; }
+function validFileSha(value) { return typeof value === 'string' && value.length > 0; }
 function serviceIds(value) {
   if (Array.isArray(value)) return value.map(String);
   return Object.keys(object(value)).filter(function (id) { return value[id] === true; }).sort();
@@ -59,7 +61,7 @@ function createAdapter(api, servicesModule) {
   function validPreview(answer) {
     var precondition = answer && answer.precondition;
     return !!(answer && typeof answer === 'object' && answer.ok === true && precondition &&
-      precondition.ledgerRevision != null && Object.prototype.hasOwnProperty.call(precondition, 'fileSha256'));
+      integer(precondition.ledgerRevision) && validFileSha(precondition.fileSha256));
   }
   return {
     supported: true,
@@ -78,9 +80,12 @@ function createAdapter(api, servicesModule) {
       var previews = context && context.previews || {};
       var preview = previews.services || context && context.preview || {};
       var precondition = object(preview.precondition);
+      var revision = expectedRevision != null ? expectedRevision : precondition.ledgerRevision;
+      if (!integer(revision) || !validFileSha(precondition.fileSha256))
+        return Promise.reject({ code: 'preview-blocked', message: _('Предпросмотр каталога не содержит допустимых revision/fileSha256 preconditions.') });
       return edit(api.services.catalogApply, {
         enabled: serviceIds(expected(value, context)),
-        revision: expectedRevision != null ? expectedRevision : precondition.ledgerRevision,
+        revision: revision,
         fileSha256: precondition.fileSha256
       });
     },

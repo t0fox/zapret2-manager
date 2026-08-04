@@ -33,17 +33,21 @@ function asArray(value) { return Array.isArray(value) ? value : []; }
 function object(value) { return value && typeof value === 'object' ? value : {}; }
 function dnsEntries(value) {
   value = object(value);
-  return asArray(value.applied || value.entries || value.overrides || value.draft && value.draft.entries).map(function (entry) {
+  return asArray(value.entries || value.manualEntries || value.overrides || value.applied || value.draft && value.draft.entries).map(function (entry) {
     return { domain: entry.domain || '', ip: entry.ip || entry.address || '', enabled: entry.enabled !== false };
   });
 }
-function sameEntries(left, right) { return JSON.stringify(dnsEntries({ entries: left })) === JSON.stringify(dnsEntries({ entries: right })); }
+function sameEntries(left, right) {
+  var actual = Array.isArray(right) ? { entries: right } : right;
+  return JSON.stringify(dnsEntries({ entries: left })) === JSON.stringify(dnsEntries(actual));
+}
 function dnsRevision(value) {
   value = object(value);
   return value.revision != null ? value.revision : object(value.draft).revision != null ? object(value.draft).revision : null;
 }
-function createAdapter(api) {
+function createAdapter(api, dnsModule) {
   api = api || {};
+  dnsModule = dnsModule || {};
   function expected(value) { return dnsEntries({ entries: object(value).entries }); }
   function reloadAppliedState() {
     return api.dns.get().then(function (answer) {
@@ -52,9 +56,10 @@ function createAdapter(api) {
   }
   function validate(value) {
     return edit(api.dns.validate, { entries: expected(value) }).then(function (answer) {
-      if (!answer || answer.ok !== true || answer.valid !== true)
-        return { ok: false, message: answer && answer.errors && answer.errors[0] && answer.errors[0].message || _('Проверка DNS не пройдена.') };
-      return answer;
+      var errors = asArray(answer && answer.errors);
+      if (!answer || answer.ok === false || answer.error || errors.length || answer.valid !== true)
+        return { ok: false, message: answer && answer.error && (answer.error.message || answer.error) || errors[0] && (errors[0].message || errors[0]) || _('Проверка DNS не пройдена.') };
+      return Object.assign({}, answer, { ok: true });
     });
   }
   function previewValid(answer) {
@@ -75,15 +80,15 @@ function createAdapter(api) {
     previewValid: previewValid,
     applyDraft: function (scope, value, expectedRevision) {
       return edit(api.dns.set, { entries: expected(value), revision: expectedRevision }).then(function (setResult) {
-        if (!setResult || setResult.ok !== true) throw setResult || { code: 'dns-set-rejected', message: _('DNS черновик не сохранён.') };
+        if (setResult && setResult.ok === false) throw setResult;
         return edit(api.dns.apply, { mode: 'apply' });
       });
     },
     reloadAppliedState: reloadAppliedState,
     verifyApplied: function (value, context, read) {
-      return sameEntries(expected(value), read && read.value && read.value.entries);
+      return sameEntries(expected(value), read && read.value);
     },
-    resetDraft: function () {}
+    resetDraft: function () { if (dnsModule.resetDraft) dnsModule.resetDraft(); }
   };
 }
 function settled(result, api) { return result.status === 'fulfilled' ? { value: result.value || {} } : { error: api.normalizeError(result.reason) }; }
