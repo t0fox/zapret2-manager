@@ -1,7 +1,9 @@
 'use strict';
 'require baseclass';
 'require view.zapret2-manager.z2m-services as Services';
+'require view.zapret2-manager.z2m-domain-hub-api as DomainHubApi';
 
+function edit(fn, value) { return fn(JSON.stringify(value || {})); }
 function cloneTop(value) {
   var result = {};
   Object.keys(value || {}).forEach(function (key) { result[key] = value[key]; });
@@ -36,7 +38,24 @@ function wrap(ctx) {
   });
 }
 function createAdapter(api, module) {
-  return Services.createAdapter(api, module || Services);
+  var core = Services.createAdapter(api, module || Services);
+  core.rollbackProof = function (answer) {
+    var rollback = answer && answer.rollback || {};
+    if (rollback.available !== true || !rollback.snapshotId) return null;
+    return {
+      available: true,
+      snapshot: rollback.snapshotId,
+      revision: rollback.expectedRevision
+    };
+  };
+  core.rollbackResult = function (result) {
+    return edit(DomainHubApi.apply, {
+      rollbackSnapshotId: result.snapshot,
+      expectedRevision: result.revision,
+      requestId: 'domain-hub-rollback-' + String(Date.now())
+    });
+  };
+  return core;
 }
 
 return baseclass.extend({
