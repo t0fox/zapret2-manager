@@ -21,15 +21,26 @@ function serviceCategory(service) {
 function serviceLabel(service) {
   return service && (service.label || service.name || service.displayName || serviceId(service));
 }
+function activeIds(services) {
+  var result = {};
+  array(services).forEach(function (service) {
+    var id = serviceId(service);
+    if (id != null) result[String(id)] = true;
+  });
+  return result;
+}
 function enabledMap(value, services) {
   value = value && value.enabled !== undefined ? value.enabled : value;
+  var ids = activeIds(services);
   var result = {};
   if (Array.isArray(value)) {
-    value.forEach(function (id) { result[String(id)] = true; });
+    value.forEach(function (id) {
+      if (ids[String(id)]) result[String(id)] = true;
+    });
     return result;
   }
   Object.keys(object(value)).forEach(function (id) {
-    if (typeof value[id] === 'boolean') result[String(id)] = value[id];
+    if (ids[String(id)] && typeof value[id] === 'boolean') result[String(id)] = value[id];
   });
   if (value == null) array(services).forEach(function (service) {
     var id = serviceId(service);
@@ -63,16 +74,21 @@ function catalog(catalogValue, status) {
     if (serviceCategory(service) != null) normalized.category = serviceCategory(service);
     return normalized;
   }).filter(function (service) { return service.id != null && service.id !== ''; });
+  var ledger = object(statusValue.ledger);
+  var revision = ledger.revision !== undefined && ledger.revision !== null
+    ? ledger.revision : source.revision !== undefined && source.revision !== null
+      ? source.revision : null;
   return {
     services: services,
     categories: catalogCategories(source, services),
     modes: clone(array(source.modes || statusValue.modes)),
     activeMode: statusValue.activeMode || source.activeMode || null,
-    revision: statusValue.revision || source.revision || null
+    revision: revision
   };
 }
 function draftEnabled(services, baseline, draft) {
   var result = enabledMap(baseline, services);
+  var ids = activeIds(services);
   if (baseline == null) result = enabledMap(null, services);
   draft = object(draft);
   if (draft.enabled !== undefined) {
@@ -84,13 +100,15 @@ function draftEnabled(services, baseline, draft) {
   }
   var changes = object(draft.changes);
   Object.keys(changes).forEach(function (id) {
+    if (!Object.prototype.hasOwnProperty.call(ids, String(id))) return;
     var change = changes[id];
     result[String(id)] = change && typeof change === 'object' && change.after !== undefined
       ? change.after === true : change === true;
   });
   if (draft.enabled === undefined && !Object.keys(changes).length) {
     Object.keys(draft).forEach(function (id) {
-      if (id !== 'mode' && id !== 'baseline' && id !== 'precondition' && typeof draft[id] === 'boolean')
+      if (Object.prototype.hasOwnProperty.call(ids, id) && id !== 'mode' &&
+        id !== 'baseline' && id !== 'precondition' && typeof draft[id] === 'boolean')
         result[id] = draft[id];
     });
   }
@@ -130,16 +148,20 @@ function selectors(services, baseline, draft, query, filter, category) {
     kpis: { total: all, enabled: on, changed: changedCount }
   };
 }
-function categoryState(services, enabled, category) {
+function categoryState(services, enabled) {
   var map = enabledMap(enabled, services);
-  var members = array(services).filter(function (service) { return serviceCategory(service) === category; });
-  var total = members.length;
-  var on = members.filter(function (service) { return !!map[String(serviceId(service))]; }).length;
+  var total = array(services).length;
+  var on = array(services).filter(function (service) { return !!map[String(serviceId(service))]; }).length;
   return { state: on === 0 ? 'off' : on === total ? 'on' : 'mixed', enabled: on, total: total };
+}
+function categoryStateFor(services, enabled, category) {
+  return categoryState(array(services).filter(function (service) {
+    return serviceCategory(service) === category;
+  }), enabled);
 }
 function toggleCategory(services, enabled, category) {
   var result = enabledMap(enabled, services);
-  var state = categoryState(services, result, category).state;
+  var state = categoryStateFor(services, result, category).state;
   var next = state !== 'on';
   array(services).forEach(function (service) {
     if (serviceCategory(service) === category) result[String(serviceId(service))] = next;

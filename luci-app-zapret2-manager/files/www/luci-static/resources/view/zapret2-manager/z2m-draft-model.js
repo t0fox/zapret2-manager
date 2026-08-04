@@ -30,6 +30,9 @@ function redact(value) {
   }
   return value;
 }
+function redactField(key, value) {
+  return SECRET_KEY.test(String(key)) ? '••••••' : redact(value);
+}
 function hasChanges(changes) {
   return Array.isArray(changes) ? changes.length > 0 : Object.keys(object(changes)).length > 0;
 }
@@ -86,7 +89,7 @@ function orderedScopes(entries) {
   return result;
 }
 function equal(left, right) {
-  return JSON.stringify(redact(left)) === JSON.stringify(redact(right));
+  return JSON.stringify(clone(left)) === JSON.stringify(clone(right));
 }
 function appliedValue(applied, key) {
   if (Object.prototype.hasOwnProperty.call(object(applied), key)) return applied[key];
@@ -106,7 +109,7 @@ function semanticRows(entry, applied) {
       if (Object.prototype.hasOwnProperty.call(change, 'after')) after = change.after;
     }
     if (!equal(before, after)) rows.push({
-      key: key, label: label, before: redact(before), after: redact(after)
+      key: key, label: label, before: redactField(key, before), after: redactField(key, after)
     });
   });
   return rows;
@@ -131,7 +134,8 @@ function applyAvailability(scopes) {
   var blockers = [];
   var active = false;
   values.forEach(function (scope) {
-    var entry = scope && scope.scope ? scope : normalizeScope(scope, {});
+    var entry = scope && typeof scope === 'object'
+      ? normalizeScope(scope.scope, scope) : normalizeScope(scope, {});
     if (hasChanges(entry.changes)) active = true;
     if (!entry.applicable || entry.blocker) {
       if (entry.blocker) blockers.push(String(entry.blocker));
