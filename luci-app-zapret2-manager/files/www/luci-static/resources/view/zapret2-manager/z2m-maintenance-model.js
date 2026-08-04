@@ -98,24 +98,46 @@ function semanticItems(value) {
     return null;
   }).filter(Boolean);
 }
+function fileDiffSections(value) {
+  var changed = [], unchanged = [];
+  array(value).forEach(function (row) {
+    row = object(row);
+    var path = text(row.path);
+    if (path === null) return;
+    var size = row.currentSize !== undefined && row.archiveSize !== undefined
+      ? ' (' + String(row.currentSize) + ' → ' + String(row.archiveSize) + ' байт)' : '';
+    if (row.changed === true) changed.push(path + size);
+    else unchanged.push(path);
+  });
+  var sections = [];
+  if (changed.length) sections.push({ id: 'changed', label: 'Будет изменено', items: changed });
+  if (unchanged.length) sections.push({ id: 'unchanged', label: 'Без изменений', items: unchanged });
+  return sections;
+}
 function restorePreview(value) {
   value = object(value);
   var integrity = object(value.integrity);
   var gate = text(value.versionGate);
-  var diffs = object(value.diffs);
-  var definitions = [
-    { id: 'added', label: 'Будет добавлено', items: semanticItems(diffs.added) },
-    { id: 'removed', label: 'Будет удалено', items: semanticItems(diffs.removed) },
-    { id: 'changed', label: 'Будет изменено', items: semanticItems(diffs.changed) }
-  ];
-  var sections = definitions.filter(function (section) { return section.items.length > 0; });
+  var rawDiffs = value.diffs;
+  var sections;
+  if (Array.isArray(rawDiffs)) {
+    sections = fileDiffSections(rawDiffs);
+  } else {
+    var diffs = object(rawDiffs);
+    var definitions = [
+      { id: 'added', label: 'Будет добавлено', items: semanticItems(diffs.added) },
+      { id: 'removed', label: 'Будет удалено', items: semanticItems(diffs.removed) },
+      { id: 'changed', label: 'Будет изменено', items: semanticItems(diffs.changed) }
+    ];
+    sections = definitions.filter(function (section) { return section.items.length > 0; });
+  }
   var primary = sections.map(function (section) {
     return section.label + ': ' + section.items.join('; ');
   }).join('\n');
   if (!primary) primary = 'Семантических изменений не найдено.';
   return {
     ok: value.ok === true,
-    allowed: value.ok === true && integrity.ok === true && gate !== 'refuse',
+    allowed: value.ok === true && integrity.ok === true && gate !== 'refuse' && value.restorable !== false,
     scope: text(value.scope),
     takenAt: value.takenAt !== undefined ? value.takenAt : null,
     previewId: text(value.previewId || value.id),
@@ -126,7 +148,8 @@ function restorePreview(value) {
     primaryText: primary,
     blocker: value.ok !== true ? text(object(value.error).message || value.error) || 'preview rejected' :
       integrity.ok !== true ? text(integrity.reason) || 'integrity failed' :
-      gate === 'refuse' ? 'version gate refused restore' : null
+      gate === 'refuse' ? 'version gate refused restore' :
+      value.restorable === false ? 'backend marked archive as not restorable' : null
   };
 }
 function restoreRequest(preview, confirmed) {
