@@ -56,7 +56,7 @@ test('restore preview is semantic and never exposes raw JSON as primary output',
   });
   assert.equal(preview.allowed, true);
   assert.deepEqual(preview.sections.map((section) => section.id), ['added', 'removed', 'changed']);
-  assert.equal(JSON.stringify(preview).includes('{"'), false);
+  assert.equal(preview.primaryText.includes('{"'), false);
   assert.equal(JSON.stringify(preview).includes('hidden'), false);
 });
 
