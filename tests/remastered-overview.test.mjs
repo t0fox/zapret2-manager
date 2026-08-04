@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 const root = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager';
 const app = readFileSync(`${root}/app.js`, 'utf8');
 const overview = readFileSync(`${root}/z2m-overview.js`, 'utf8');
+const overviewModel = readFileSync(`${root}/z2m-overview-model.js`, 'utf8');
 const auto = readFileSync(`${root}/z2m-auto.js`, 'utf8');
 const runs = readFileSync(`${root}/z2m-runs.js`, 'utf8');
 const page = readFileSync(`${root}/z2m-strategy-page.js`, 'utf8');
@@ -29,8 +30,8 @@ test('Overview preserves unknown and missing backend values instead of inventing
 });
 
 test('Overview exposes runtime status, active strategy and explicit service actions', () => {
-  assert.match(overview, /Обход работает|Обход остановлен/);
-  assert.match(overview, /Активная стратегия/);
+  assert.match(overviewModel, /Обход работает|Обход остановлен/);
+  assert.match(overview, /активная стратегия/i);
   assert.match(overview, /api\.service\.start/);
   assert.match(overview, /api\.service\.stop/);
   assert.match(overview, /Подобрать лучшую стратегию/);

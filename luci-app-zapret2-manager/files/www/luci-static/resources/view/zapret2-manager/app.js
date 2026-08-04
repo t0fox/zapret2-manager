@@ -57,6 +57,12 @@ function statusState(initial) {
   if (value === 'stopped') return { label: _('остановлена'), kind: 'r' };
   return { label: value || _('неизвестно'), kind: 'o' };
 }
+function detectedVersion(initial) {
+  var meta = initial && initial.meta || {};
+  var value = meta.managerVersion || meta.packageVersion ||
+    initial && initial.packageVersion;
+  return value == null || value === '' ? null : String(value);
+}
 function draftScopes() { return Object.keys(store.get().draft || {}); }
 function draftMeta(scope) { return DRAFT_META[scope] || { label: scope, tab: 'overview' }; }
 function draftLabel(scope) { return draftMeta(scope).label; }
@@ -112,6 +118,11 @@ return L.view.extend({
     var applyBar = Shell.renderApplyBar(store);
     var confirmBar = Shell.renderConfirmBar();
     var appRoot = null;
+
+    function setContentBusy(busy) {
+      content.classList.toggle('z2m-refreshing', busy === true);
+      content.setAttribute('aria-busy', busy === true ? 'true' : 'false');
+    }
 
     function setConfirmation(response) {
       if (!response || response.rollback_ttl == null) return false;
@@ -233,14 +244,17 @@ return L.view.extend({
           activeModule.unmount(activeContext);
         activeModule = module;
         activeContext = null;
-        content.replaceChildren(E('div', { 'class': 'z2m-app-placeholder' }, _('Загрузка данных…')));
+        content.replaceChildren(Shell.renderLoadingState(TAB_LABELS[tab]));
       }
 
+      setContentBusy(true);
       return loadTabData(tab, module).then(function (data) {
         if (token !== activationToken) return;
         renderTabData(tab, module, data, token, force);
+        setContentBusy(false);
       }).catch(function (error) {
         if (token !== activationToken) return;
+        setContentBusy(false);
         var message = Api.normalizeError(error).message;
         if ((activeModule === module && activeContext) || cachedData) {
           Shell.showToast(_('Не удалось обновить данные. Показано последнее успешное состояние: ') + message, 'warn');
@@ -351,13 +365,15 @@ return L.view.extend({
     window.addEventListener('hashchange', hashHandler);
 
     var service = statusState(initial);
+    var version = detectedVersion(initial);
+    var brand = [
+      E('span', { 'class': 'mark', 'aria-hidden': 'true' }, 'z2'),
+      E('span', { 'class': 'nm' }, ['zapret2', E('span', { 'class': 'mgr' }, '·manager')])
+    ];
+    if (version) brand.push(E('span', { 'class': 'ver' }, version));
     appRoot = E('div', { 'class': 'z2m-app', id: 'z2m-app' }, [
       E('header', { 'class': 'z2m-apptop' }, E('div', { 'class': 'in' }, [
-        E('div', { 'class': 'z2m-brand' }, [
-          E('span', { 'class': 'mark', 'aria-hidden': 'true' }, 'z2'),
-          E('span', { 'class': 'nm' }, ['zapret2', E('span', { 'class': 'mgr' }, '·manager')]),
-          E('span', { 'class': 'ver' }, 'v0.1.0')
-        ]),
+        E('div', { 'class': 'z2m-brand' }, brand),
         E('div', { 'class': 'z2m-apptop-right' }, [
           E('span', { 'class': 'host' }, window.location.hostname || 'OpenWrt'),
           Shell.chip(service.label, service.kind, true)
