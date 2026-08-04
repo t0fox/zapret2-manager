@@ -274,3 +274,11 @@ test('render harness exposes the coordinator bar without confirmation controls',
   assert.match(bar.textContent, /unsupported/);
   assert.equal(bar.querySelector('#z2m-open-drafts'), null);
 });
+
+test('render harness exposes adapter-owned coordinator boundaries', () => {
+  const app = evaluateLuciModule(`${root}/app.js`, overrides, cache);
+  assert.equal(typeof app.createDnsAdapter, 'function');
+  assert.equal(typeof app.createStrategyAdapter, 'function');
+  assert.equal(typeof app.createServicesAdapter, 'function');
+  assert.match(app.renderSemanticDiff({ proxy: { changes: { enabled: { before: false, after: true } } } }, {}).textContent, /Unsupported scope: proxy/);
+});

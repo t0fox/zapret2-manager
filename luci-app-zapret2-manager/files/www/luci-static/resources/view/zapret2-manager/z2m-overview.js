@@ -189,7 +189,12 @@ function render(ctx) {
   function stageOverride(operation) {
     var current = ctx.store.get();
     ctx.store.update({ pending: Object.assign({}, current.pending, { pendingOverride: operation }) });
-    setStrategyDraft(ctx, { override: operation });
+    setStrategyDraft(ctx, {
+      override: operation,
+      changes: Object.assign({}, strategyDraft(ctx).changes || {}, {
+        override: { label: _('Точечное правило'), before: null, after: _('изменение') }
+      })
+    });
     reload();
   }
   function stageOverrideSet() {
@@ -216,16 +221,8 @@ function render(ctx) {
       shell.showToast(_('Сначала примените глобальную стратегию.'), 'err');
       return;
     }
-    edit(ctx.api.strategy.apply, Object.assign({}, pendingOverride, {
-      applyNow: true,
-      idempotencyToken: 'luci-override-' + Date.now()
-    })).then(function (answer) {
-      if (!answer || answer.ok !== true) throw answer || new Error('override apply failed');
-      ctx.setConfirmation(answer);
-      clearPendingOverride(false);
-      shell.showToast(_('Точечное правило применено.'), 'ok');
-      reload();
-    }).catch(showError);
+    shell.showToast(_('Точечные правила нельзя применить через общий координатор в этом срезе.'), 'err');
+    if (ctx.openSemanticDiff) ctx.openSemanticDiff();
   }
 
   var warnings = [];

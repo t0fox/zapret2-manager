@@ -6,7 +6,7 @@ var SCOPE_LABELS = {
   strategy: 'Стратегия', services: 'Сервисы', dns: 'DNS', lists: 'Списки',
   proxy: 'Прокси', 'service-dns': 'DNS сервисов', maintenance: 'Обслуживание'
 };
-var SECRET_KEY = /secret|token|password/i;
+var SECRET_KEY = /secret|token|password|link|url/i;
 
 function object(value) { return value && typeof value === 'object' ? value : {}; }
 function array(value) { return Array.isArray(value) ? value : []; }

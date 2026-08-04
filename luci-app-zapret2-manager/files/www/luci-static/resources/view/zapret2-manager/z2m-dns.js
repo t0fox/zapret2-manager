@@ -30,6 +30,62 @@ var state = {
 
 function edit(fn, value) { return fn(JSON.stringify(value || {})); }
 function asArray(value) { return Array.isArray(value) ? value : []; }
+function object(value) { return value && typeof value === 'object' ? value : {}; }
+function dnsEntries(value) {
+  value = object(value);
+  return asArray(value.applied || value.entries || value.overrides || value.draft && value.draft.entries).map(function (entry) {
+    return { domain: entry.domain || '', ip: entry.ip || entry.address || '', enabled: entry.enabled !== false };
+  });
+}
+function sameEntries(left, right) { return JSON.stringify(dnsEntries({ entries: left })) === JSON.stringify(dnsEntries({ entries: right })); }
+function dnsRevision(value) {
+  value = object(value);
+  return value.revision != null ? value.revision : object(value.draft).revision != null ? object(value.draft).revision : null;
+}
+function createAdapter(api) {
+  api = api || {};
+  function expected(value) { return dnsEntries({ entries: object(value).entries }); }
+  function reloadAppliedState() {
+    return api.dns.get().then(function (answer) {
+      return { value: { entries: dnsEntries(answer), raw: answer || {} }, revision: dnsRevision(answer), raw: answer || {} };
+    });
+  }
+  function validate(value) {
+    return edit(api.dns.validate, { entries: expected(value) }).then(function (answer) {
+      if (!answer || answer.ok !== true || answer.valid !== true)
+        return { ok: false, message: answer && answer.errors && answer.errors[0] && answer.errors[0].message || _('Проверка DNS не пройдена.') };
+      return answer;
+    });
+  }
+  function previewValid(answer) {
+    return !!(answer && answer.ok === true && answer.valid === true && answer.precondition &&
+      answer.precondition.revision != null);
+  }
+  return {
+    supported: true,
+    validateDraft: function (scope, value) { return validate(value); },
+    previewDraft: function (scope, value, context) {
+      return validate(value).then(function (answer) {
+        if (!answer || answer.ok !== true) return answer;
+        var read = context && context.applied && context.applied.dns || {};
+        var revision = dnsRevision(read.raw || read);
+        return Object.assign({}, answer, { precondition: { revision: revision } });
+      });
+    },
+    previewValid: previewValid,
+    applyDraft: function (scope, value, expectedRevision) {
+      return edit(api.dns.set, { entries: expected(value), revision: expectedRevision }).then(function (setResult) {
+        if (!setResult || setResult.ok !== true) throw setResult || { code: 'dns-set-rejected', message: _('DNS черновик не сохранён.') };
+        return edit(api.dns.apply, { mode: 'apply' });
+      });
+    },
+    reloadAppliedState: reloadAppliedState,
+    verifyApplied: function (value, context, read) {
+      return sameEntries(expected(value), read && read.value && read.value.entries);
+    },
+    resetDraft: function () {}
+  };
+}
 function settled(result, api) { return result.status === 'fulfilled' ? { value: result.value || {} } : { error: api.normalizeError(result.reason) }; }
 function display(value) { return value == null || value === '' ? '—' : String(value); }
 function cloneEntries(dns) {
@@ -240,21 +296,8 @@ function render(ctx) {
       redraw();
     }
     function save(button) {
-      button.disabled = true;
-      edit(ctx.api.dns.validate, { entries: entries }).then(function (validation) {
-        if (!validation || validation.valid !== true) throw validation || new Error('DNS validation failed');
-        return edit(ctx.api.dns.set, { entries: entries, revision: dns.revision });
-      }).then(function (setResult) {
-        if (setResult && setResult.ok === false) throw setResult;
-        return edit(ctx.api.dns.apply, { mode: 'apply' });
-      }).then(function (answer) {
-        if (!answer || answer.ok !== true) throw answer || new Error('dns_apply failed');
-        state.manual = null;
-        ctx.clearDraft('dns');
-        if (ctx.setConfirmation) ctx.setConfirmation(answer);
-        shell.showToast(_('DNS-переопределения применены.'), 'ok');
-        return ctx.refresh('dns');
-      }).catch(function (error) { button.disabled = false; showError(error); });
+      if (ctx.openSemanticDiff) ctx.openSemanticDiff();
+      else shell.showToast(_('DNS применяется только через общий координатор.'), 'err');
     }
     redraw();
     var add = shell.button(_('Добавить переопределение'), 'sm', function () {
@@ -449,25 +492,8 @@ function render(ctx) {
     ]));
     else if (state.lastOperation) operationHost.appendChild(E('div', { 'class': 'z2m-dim' }, _('Последняя операция: ') + display(state.lastOperation.phase || state.lastOperation.status)));
     var apply = shell.button(_('Применить DNS для сервисов'), 'primary', function () {
-      apply.disabled = true;
-      var selections = Object.assign({}, state.selections);
-      var operationId = 'dns-ui-' + Date.now().toString(36);
-      edit(ctx.api.dns.serviceSet, { selections: selections }).then(function (setResult) {
-        if (!setResult || setResult.ok !== true) throw setResult || new Error('service_dns_set failed');
-        return edit(ctx.api.dns.serviceApplyAsync, { operationId: operationId, draftRevision: setResult.draftRevision });
-      }).then(function (answer) {
-        if (!answer || answer.ok === false) throw answer || new Error('service_dns_apply_async failed');
-        state.operation = Object.assign({}, answer.operation || answer, {
-          operationId: answer.operationId || answer.operation && answer.operation.operationId || operationId
-        });
-        shell.showToast(_('Применение DNS для сервисов запущено.'), 'ok');
-        scheduleServiceOperationPoll();
-        return ctx.refresh('dns');
-      }).catch(function (error) {
-        clearServiceOperation();
-        apply.disabled = false;
-        showError(error);
-      });
+      shell.showToast(_('DNS для сервисов пока нельзя применить через общий координатор: безопасный синхронный preview/apply путь отсутствует.'), 'err');
+      if (ctx.openSemanticDiff) ctx.openSemanticDiff();
     }, !!state.operation || !Object.keys(serviceDnsChanges()).length);
     var rollback = shell.button(_('Откатить DNS сервисов'), 'danger', function () {
       ctx.api.dns.serviceRollback().then(function (answer) {
@@ -557,5 +583,5 @@ function unmount() {
 return baseclass.extend({
   id: 'dns', title: _('DNS'), subtitle: _('Настройка DNS, проверки провайдеров и доступ сервисов'),
   load: load, render: render, mount: mount, unmount: unmount,
-  openDraft: openDraft, focusDraft: focusDraft, resetDraft: resetDraft
+  openDraft: openDraft, focusDraft: focusDraft, resetDraft: resetDraft, createAdapter: createAdapter
 });

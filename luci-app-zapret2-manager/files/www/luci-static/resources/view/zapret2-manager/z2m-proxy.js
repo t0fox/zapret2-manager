@@ -351,7 +351,15 @@ function renderProxy(ctx) {
         })
       };
     }
-    function markDraft() { ctx.setDraft('proxy', config()); }
+    function markDraft() {
+      // Proxy configuration is intentionally not copied into the global draft:
+      // this scope has no safe coordinator revision/reread contract and may
+      // contain secret-bearing upstream settings.
+      ctx.setDraft('proxy', {
+        changes: { settings: { label: _('Настройки Proxy'), before: _('применённые'), after: _('изменения') } },
+        blocker: _('Прокси нельзя применить через общий координатор: безопасный preview/apply/revision путь отсутствует.')
+      });
+    }
     Object.keys(fields).forEach(function (key) {
       fields[key].addEventListener(fields[key].type === 'checkbox' ? 'change' : 'input', markDraft);
     });
@@ -369,15 +377,8 @@ function renderProxy(ctx) {
       }).catch(showError);
     }
     function apply() {
-      edit(ctx.api.proxy.configApply, {
-        config: config(),
-        expectedAppliedRevision: configGet.appliedRevision != null ? configGet.appliedRevision : 0
-      }).then(function (answer) {
-        if (!answer || answer.ok !== true) throw answer || new Error('proxy_config_apply failed');
-        ctx.clearDraft('proxy');
-        shell.showToast(_('Настройки Proxy применены.'), 'ok');
-        return refresh();
-      }).catch(showError);
+      shell.showToast(_('Прокси применяется только через общий координатор, но безопасный adapter отсутствует.'), 'err');
+      if (ctx.openSemanticDiff) ctx.openSemanticDiff();
     }
 
     return E('details', { 'class': 'z2m-panel z2m-proxy-details' }, [

@@ -9,6 +9,92 @@ var state = {
 function edit(fn, value) { return fn(JSON.stringify(value || {})); }
 function settled(result, api) { return result.status === 'fulfilled' ? { value: result.value || {} } : { error: api.normalizeError(result.reason) }; }
 function asArray(value) { return Array.isArray(value) ? value : []; }
+function object(value) { return value && typeof value === 'object' ? value : {}; }
+function revisionOf(value) {
+  value = object(value);
+  var ledger = object(value.ledger);
+  return value.revision != null ? value.revision : ledger.revision != null ? ledger.revision :
+    value.appliedRevision != null ? value.appliedRevision : null;
+}
+function serviceIds(value) {
+  if (Array.isArray(value)) return value.map(String);
+  return Object.keys(object(value)).filter(function (id) { return value[id] === true; }).sort();
+}
+function serviceEnabled(value, applied) {
+  var current = object(applied && applied.enabled);
+  var draft = object(value);
+  var enabled = draft.enabled != null ? draft.enabled : current;
+  var result = {};
+  if (Array.isArray(enabled)) enabled.forEach(function (id) { result[String(id)] = true; });
+  else Object.keys(object(enabled)).forEach(function (id) { result[String(id)] = enabled[id] === true; });
+  Object.keys(object(draft.changes)).forEach(function (id) {
+    var change = draft.changes[id];
+    result[String(id)] = change && typeof change === 'object' && change.after !== undefined
+      ? change.after === true : change === true;
+  });
+  return result;
+}
+
+function createAdapter(api, servicesModule) {
+  api = api || {};
+  servicesModule = servicesModule || {};
+  function reloadAppliedState() {
+    return Promise.all([api.services.catalogStatus(), api.services.catalogList()]).then(function (values) {
+      var status = object(values[0]);
+      var catalog = object(values[1]);
+      var ledger = object(status.ledger);
+      var enabled = ledger.enabled != null ? ledger.enabled : status.enabled;
+      return {
+        value: { enabled: serviceEnabled({ enabled: enabled }, {}), status: status, catalog: catalog },
+        revision: revisionOf(status) != null ? revisionOf(status) : revisionOf(catalog),
+        raw: { status: status, catalog: catalog }
+      };
+    });
+  }
+  function expected(value, context) {
+    var applied = context && context.applied || {};
+    applied = applied.services && applied.services.enabled !== undefined ? applied.services : applied;
+    return serviceEnabled(value, applied);
+  }
+  function validPreview(answer) {
+    var precondition = answer && answer.precondition;
+    return !!(answer && typeof answer === 'object' && answer.ok === true && precondition &&
+      precondition.ledgerRevision != null && Object.prototype.hasOwnProperty.call(precondition, 'fileSha256'));
+  }
+  return {
+    supported: true,
+    validateDraft: function (scope, value) {
+      var changes = object(value).changes;
+      return Promise.resolve(Object.keys(changes).length ? { ok: true } : { ok: false, message: _('Нет изменений') });
+    },
+    previewDraft: function (scope, value, context) {
+      return edit(api.services.catalogPreview, { enabled: serviceIds(expected(value, context)) }).then(function (answer) {
+        var blocker = validPreview(answer) ? null : _('Предпросмотр каталога не содержит допустимой precondition.');
+        if (blocker) throw { code: 'preview-blocked', message: blocker };
+        return answer;
+      });
+    },
+    applyDraft: function (scope, value, expectedRevision, context) {
+      var previews = context && context.previews || {};
+      var preview = previews.services || context && context.preview || {};
+      var precondition = object(preview.precondition);
+      return edit(api.services.catalogApply, {
+        enabled: serviceIds(expected(value, context)),
+        revision: expectedRevision != null ? expectedRevision : precondition.ledgerRevision,
+        fileSha256: precondition.fileSha256
+      });
+    },
+    previewValid: validPreview,
+    reloadAppliedState: reloadAppliedState,
+    verifyApplied: function (value, context, read) {
+      var wanted = expected(value, context);
+      var actual = object(read && read.value && read.value.enabled);
+      return serviceIds(wanted).join(',') === serviceIds(actual).join(',');
+    },
+    resetDraft: function () { if (servicesModule.resetDraft) servicesModule.resetDraft(); }
+  };
+
+}
 function serviceId(service) { return service && (service.id || service.serviceId || service.key); }
 function serviceName(service) { return service && (service.name || service.label || service.displayName || serviceId(service)) || '—'; }
 function category(service) { return service && (service.category || service.group || _('Другое')) || _('Другое'); }
@@ -246,5 +332,6 @@ function mount() {}
 function unmount() { state.runBusy = false; }
 return baseclass.extend({
   id: 'services', title: _('Сервисы'), subtitle: _('Каталог сервисов, домены и проверки доступности'),
-  load: load, render: render, mount: mount, unmount: unmount, resetDraft: resetDraft
+  load: load, render: render, mount: mount, unmount: unmount, resetDraft: resetDraft,
+  createAdapter: createAdapter
 });

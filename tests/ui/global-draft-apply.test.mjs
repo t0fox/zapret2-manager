@@ -260,7 +260,102 @@ test('failed backend reasons remain visible in availability, bar, and semantic d
 });
 
 test('known unsupported scopes render a blocker group in the semantic diff', () => {
-  const diff = appView.renderSemanticDiff({ dns: { changes: { mode: { before: 'auto', after: 'strict' } } } }, {});
-  assert.match(diff.textContent, /DNS/);
-  assert.match(diff.textContent, /Unsupported scope: dns/);
+  const diff = appView.renderSemanticDiff({ lists: { changes: { mode: { before: 'auto', after: 'strict' } } } }, {});
+  assert.match(diff.textContent, /Списки/);
+  assert.match(diff.textContent, /Unsupported scope: lists/);
+});
+
+test('supported coordinator adapters expose the full contract', () => {
+  for (const name of ['createServicesAdapter', 'createDnsAdapter', 'createStrategyAdapter'])
+    assert.equal(typeof appView[name], 'function', `${name} must be exported by the root view`);
+  const api = { normalizeError(error) { return { code: 'E_TEST', message: String(error || 'test') }; } };
+  for (const adapter of [
+    appView.createServicesAdapter(api, { resetDraft() {} }),
+    appView.createDnsAdapter(api),
+    appView.createStrategyAdapter(api)
+  ]) {
+    for (const method of ['validateDraft', 'previewDraft', 'applyDraft', 'reloadAppliedState'])
+      assert.equal(typeof adapter[method], 'function', `${method} must be an adapter method`);
+  }
+});
+
+test('DNS preflight blocker prevents set/apply mutation', async () => {
+  const calls = [];
+  const api = {
+    normalizeError(error) { return { code: error?.code || 'E_TEST', message: error?.message || String(error) }; },
+    dns: {
+      get: () => Promise.resolve({ revision: 4, applied: [] }),
+      validate: (payload) => { calls.push(['validate', JSON.parse(payload)]); return Promise.resolve({ ok: true, valid: false, errors: [{ message: 'exact DNS blocker' }] }); },
+      set: (payload) => { calls.push(['set', JSON.parse(payload)]); return Promise.resolve({ ok: true }); },
+      apply: (payload) => { calls.push(['apply', JSON.parse(payload)]); return Promise.resolve({ ok: true }); }
+    }
+  };
+  const store = coordinatorStore({ dns: { entries: [{ domain: 'bad.example', ip: '1.2.3.4', enabled: true }], changes: { entries: { before: [], after: ['bad.example'] } } } });
+  const coordinator = appView.createCoordinator({ api, store, shell: noShell(), adapters: { dns: appView.createDnsAdapter(api) } });
+  const result = await coordinator.applyDrafts(store.snapshotDraft());
+  assert.equal(calls.some((item) => item[0] === 'set' || item[0] === 'apply'), false);
+  assert.deepEqual(Object.keys(store.get().draft), ['dns']);
+  assert.match(result.errors[0].message, /exact DNS blocker/);
+});
+
+test('DNS apply uses set then apply and verifies the reread', async () => {
+  const calls = [];
+  let readCount = 0;
+  const entries = [{ domain: 'ok.example', ip: '1.2.3.4', enabled: true }];
+  const api = {
+    normalizeError(error) { return { code: error?.code || 'E_TEST', message: error?.message || String(error) }; },
+    dns: {
+      get: () => {
+        calls.push('get');
+        readCount += 1;
+        return Promise.resolve({ revision: readCount === 1 ? 4 : 5, applied: readCount === 1 ? [] : entries });
+      },
+      validate: () => { calls.push('validate'); return Promise.resolve({ ok: true, valid: true }); },
+      set: (payload) => { calls.push(['set', JSON.parse(payload)]); return Promise.resolve({ ok: true, revision: 5 }); },
+      apply: (payload) => { calls.push(['apply', JSON.parse(payload)]); return Promise.resolve({ ok: true }); }
+    }
+  };
+  const store = coordinatorStore({ dns: { entries, changes: { entries: { before: [], after: entries } } } });
+  const coordinator = appView.createCoordinator({ api, store, shell: noShell(), adapters: { dns: appView.createDnsAdapter(api) } });
+  const result = await coordinator.applyDrafts(store.snapshotDraft());
+  assert.deepEqual(calls.slice(-3), [['set', { entries, revision: 4 }], ['apply', { mode: 'apply' }], 'get']);
+  assert.deepEqual(result.clearedScopes, ['dns']);
+  assert.deepEqual(Object.keys(store.get().draft), []);
+});
+
+test('strategy preflight blocker prevents profiles apply for an inapplicable candidate', async () => {
+  const calls = [];
+  const api = {
+    normalizeError(error) { return { code: error?.code || 'E_TEST', message: error?.message || String(error) }; },
+    strategy: {
+      preview: () => Promise.resolve({ revision: 8, comboCatalog: { candidates: [{ candidateId: 'blocked', applicable: false, validationMessage: 'exact candidate blocker' }] }, strategyState: {} })
+    },
+    profiles: {
+      list: () => Promise.resolve({ revision: 8, profiles: [] }),
+      apply: (payload) => { calls.push(['apply', JSON.parse(payload)]); return Promise.resolve({ ok: true }); }
+    }
+  };
+  const store = coordinatorStore({ strategy: { candidateId: 'blocked', changes: { candidateId: { before: 'old', after: 'blocked' } } } });
+  const coordinator = appView.createCoordinator({ api, store, shell: noShell(), adapters: { strategy: appView.createStrategyAdapter(api) } });
+  const result = await coordinator.applyDrafts(store.snapshotDraft());
+  assert.equal(calls.length, 0);
+  assert.deepEqual(Object.keys(store.get().draft), ['strategy']);
+  assert.match(result.errors[0].message, /exact candidate blocker/);
+});
+
+test('proxy and lists scopes remain explicitly blocked by semantic diff', () => {
+  const diff = appView.renderSemanticDiff({
+    lists: { changes: { domainInclude: { before: [], after: ['example.com'] } } },
+    proxy: { changes: { enabled: { before: false, after: true } } }
+  }, {});
+  assert.match(diff.textContent, /Unsupported scope: lists/);
+  assert.match(diff.textContent, /Unsupported scope: proxy/);
+});
+
+test('proxy links remain masked in the semantic diff', () => {
+  const diff = appView.renderSemanticDiff({
+    proxy: { changes: { link: { before: 'tg://proxy?secret=old', after: 'tg://proxy?secret=new' } } }
+  }, {});
+  assert.doesNotMatch(diff.textContent, /tg:\/\/proxy|secret=old|secret=new/);
+  assert.match(diff.textContent, /••••••/);
 });

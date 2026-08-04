@@ -54,3 +54,15 @@ test('apply bar labels routes and previews Service DNS changes semantically', ()
   assert.doesNotMatch(shell, /Перейти к изменениям|Показать на странице|renderConfirmBar/);
   assert.doesNotMatch(app, /rollback_ttl|confirmationTimer|setInterval/);
 });
+
+test('page-local apply controls route through the coordinator or stay blocked', () => {
+  assert.doesNotMatch(readFileSync(`${root}/z2m-overview.js`, 'utf8'), /ctx\.api\.strategy\.apply/);
+  assert.doesNotMatch(readFileSync(`${root}/z2m-strategy.js`, 'utf8'), /ctx\.api\.strategy\.apply/);
+  assert.doesNotMatch(readFileSync(`${root}/z2m-strategy.js`, 'utf8'), /ctx\.api\.profiles\.apply,\s*\{\s*mode:\s*['"]apply/);
+  assert.doesNotMatch(readFileSync(`${root}/z2m-dns.js`, 'utf8'), /ctx\.api\.dns\.(?:set|apply)\b/);
+  assert.doesNotMatch(readFileSync(`${root}/z2m-lists.js`, 'utf8'), /ctx\.api\.lists\.set/);
+  assert.doesNotMatch(readFileSync(`${root}/z2m-proxy.js`, 'utf8'), /ctx\.api\.proxy\.configApply/);
+  assert.match(readFileSync(`${root}/z2m-strategy-page.js`, 'utf8'), /createAdapter/);
+  assert.match(readFileSync(`${root}/z2m-dns.js`, 'utf8'), /createAdapter/);
+  assert.match(readFileSync(`${root}/z2m-services.js`, 'utf8'), /createAdapter/);
+});
