@@ -9,7 +9,6 @@ PKG_VERSION:=0.9.3
 PKG_RELEASE:=2
 PKG_MAINTAINER:=Ásgeir
 PKG_LICENSE:=MIT
-PKG_LICENSE_FILES:=LICENSE
 
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/spatiumstas/tg-ws-proxy-go.git
