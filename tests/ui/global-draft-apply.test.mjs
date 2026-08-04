@@ -233,3 +233,34 @@ test('unsupported scopes render as semantic diff blockers and pending availabili
     enabled: false, reason: 'Ожидается предварительная проверка.', blockers: []
   });
 });
+
+test('failed backend reasons remain visible in availability, bar, and semantic diff', async () => {
+  const store = coordinatorStore({ services: { changes: { beta: { before: false, after: true } } } });
+  const adapter = {
+    supported: true,
+    reloadAppliedState: () => Promise.resolve({ value: {}, revision: 1 }),
+    validateDraft: () => Promise.resolve({ ok: true }),
+    previewDraft: () => Promise.reject({ code: 'E_PREVIEW', message: 'backend preview exact reason' }),
+    applyDraft: () => Promise.resolve({ ok: true }),
+    verifyApplied: () => true,
+    resetDraft() {}
+  };
+  const coordinator = appView.createCoordinator({
+    api: { normalizeError(error) { return { code: error?.code || 'E_TEST', message: error?.message || String(error) }; } },
+    store, shell: noShell(), adapters: { services: adapter }
+  });
+  await coordinator.preflightDraft(store.snapshotDraft());
+  const availability = coordinator.availability();
+  assert.match(availability.reason, /E_PREVIEW.*backend preview exact reason/);
+  const shell = evaluateLuciModule(`${root}/z2m-shell.js`, { E, _: (value) => value });
+  const bar = shell.renderApplyBar(store, availability);
+  assert.match(bar.textContent, /E_PREVIEW.*backend preview exact reason/);
+  const diff = appView.renderSemanticDiff(store.snapshotDraft(), {}, coordinator.semanticBlockers());
+  assert.match(diff.textContent, /backend preview exact reason/);
+});
+
+test('known unsupported scopes render a blocker group in the semantic diff', () => {
+  const diff = appView.renderSemanticDiff({ dns: { changes: { mode: { before: 'auto', after: 'strict' } } } }, {});
+  assert.match(diff.textContent, /DNS/);
+  assert.match(diff.textContent, /Unsupported scope: dns/);
+});

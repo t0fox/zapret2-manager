@@ -193,8 +193,20 @@ var ADAPTERS = { services: serviceAdapter(Api, Services) };
 Object.keys(DRAFT_META).forEach(function (scope) {
   if (!ADAPTERS[scope]) ADAPTERS[scope] = unsupportedAdapter(scope);
 });
-function renderSemanticDiff(draft, applied) {
+function renderSemanticDiff(draft, applied, extraBlockers) {
   var groups = DraftModel.semanticDiff(draft, applied);
+  var byScope = {};
+  groups.forEach(function (group) { byScope[group.scope] = group; });
+  Object.keys(object(draft)).forEach(function (scope) {
+    var adapter = ADAPTERS[scope];
+    var blocker = extraBlockers && extraBlockers[scope];
+    if (adapter && adapter.supported !== true) blocker = blocker || 'Unsupported scope: ' + scope;
+    if (!blocker) return;
+    if (!byScope[scope]) {
+      byScope[scope] = { scope: scope, label: draftLabel(scope), rows: [], applicable: false, blocker: blocker };
+      groups.push(byScope[scope]);
+    } else if (!byScope[scope].blocker) byScope[scope].blocker = blocker;
+  });
   if (!groups.length) return E('div', { 'class': 'z2m-dim' }, _('Нет семантических изменений.'));
   return E('div', {}, groups.map(function (group) {
     var children = [E('h4', {}, group.label)];
@@ -245,9 +257,11 @@ function createCoordinator(options) {
     });
     var coordinator = targetStore.get().coordinator || {};
     var ready = coordinator.status === 'ready' && coordinator.preflight && same(coordinator.preflight.snapshot, draft);
+    var preflightReason = ready ? null : coordinator.preflight && same(coordinator.preflight.snapshot, draft) &&
+      coordinator.preflight.blockers && coordinator.preflight.blockers[0];
     return {
       enabled: ready && scopes.length > 0 && blockers.length === 0,
-      reason: blockers[0] || (ready ? normalized.reason : _('Ожидается предварительная проверка.')),
+      reason: blockers[0] || preflightReason || (ready ? normalized.reason : _('Ожидается предварительная проверка.')),
       blockers: blockers
     };
   }
@@ -264,7 +278,8 @@ function createCoordinator(options) {
   function stageError(states, scope, error) {
     var normalized = normalize(error);
     states[scope] = states[scope] || {};
-    states[scope].blocker = normalized.message;
+    states[scope].blocker = normalized.code && normalized.code !== 'error'
+      ? normalized.code + ': ' + normalized.message : normalized.message;
     states[scope].error = normalized;
   }
   function previewError(answer, scope, adapter) {
@@ -398,6 +413,15 @@ function createCoordinator(options) {
   }
   return {
     availability: availability,
+    semanticBlockers: function (draft) {
+      var preflight = targetStore.get().coordinator && targetStore.get().coordinator.preflight;
+      if (!preflight || !same(preflight.snapshot, draft || targetStore.get().draft || {})) return {};
+      var result = {};
+      Object.keys(preflight.states || {}).forEach(function (scope) {
+        if (preflight.states[scope].blocker) result[scope] = preflight.states[scope].blocker;
+      });
+      return result;
+    },
     preflightDraft: preflightDraft,
     applyDrafts: applyDrafts,
     handleApplyResult: handleApplyResult,
@@ -457,7 +481,7 @@ return L.view.extend({
             Shell.showToast(Api.normalizeError(error).message, 'err');
           });
         }, !availability.enabled);
-        var body = [renderSemanticDiff(draft, store.get().applied || {})];
+        var body = [renderSemanticDiff(draft, store.get().applied || {}, coordinator.semanticBlockers(draft))];
         if (!availability.enabled) body.push(E('div', { 'class': 'z2m-apply-reason' }, _('Применение заблокировано: ') + availability.reason));
         Shell.openModal(_('Семантические изменения'), body, [Shell.button(_('Закрыть'), '', Shell.closeModal), apply]);
       }
