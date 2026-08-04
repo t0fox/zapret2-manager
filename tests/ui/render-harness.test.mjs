@@ -203,7 +203,7 @@ function context(data) {
     api: apiTree(), shell, store: state, data, root: makeNode('main'), initial: {},
     navigate() {}, refresh() { return Promise.resolve(); },
     setDraft(scope, value) { state.setDraft(scope, value); },
-    clearDraft(scope) { state.clearDraft(scope); }, setConfirmation() { return false; }
+    clearDraft(scope) { state.clearDraft(scope); }, openSemanticDiff() {}
   };
 }
 function assertTree(node, name) {

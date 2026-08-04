@@ -3,7 +3,7 @@
 
 var state = {
   query: '', filter: 'all', enabled: null, enabledBaseline: null,
-  preview: null, busy: false, runBusy: false, runError: null
+  runBusy: false, runError: null
 };
 
 function edit(fn, value) { return fn(JSON.stringify(value || {})); }
@@ -33,7 +33,6 @@ function enabledChanges(services) {
 function resetDraft() {
   state.enabled = null;
   state.enabledBaseline = null;
-  state.preview = null;
   state.runError = null;
 }
 function serviceProtocols(service) {
@@ -207,31 +206,6 @@ function render(ctx) {
   }
   search.addEventListener('input', function () { state.query = search.value; renderCards(); });
 
-  function preview() {
-    state.busy = true;
-    edit(ctx.api.services.catalogPreview, { enabled: enabledIds() }).then(function (response) {
-      if (!response || response.ok === false) throw response || new Error('preview failed');
-      state.preview = response;
-      state.busy = false;
-      ctx.refresh('services');
-    }).catch(function (error) {
-      state.busy = false;
-      shell.showToast(ctx.api.normalizeError(error).message, 'err');
-    });
-  }
-  function applyCatalog() {
-    var pre = state.preview && state.preview.precondition || {};
-    edit(ctx.api.services.catalogApply, {
-      enabled: enabledIds(), revision: pre.ledgerRevision, fileSha256: pre.fileSha256
-    }).then(function (response) {
-      if (!response || response.ok === false) throw response || new Error('apply failed');
-      resetDraft();
-      ctx.clearDraft('services');
-      shell.showToast(_('Каталог сервисов применён.'), 'ok');
-      return ctx.refresh('services');
-    }).catch(function (error) { shell.showToast(ctx.api.normalizeError(error).message, 'err'); });
-  }
-
   var errors = [];
   Object.keys(data).forEach(function (key) {
     if (data[key] && data[key].error) errors.push(E('div', { 'class': 'warnbar' }, data[key].error.message));
@@ -255,14 +229,10 @@ function render(ctx) {
     E('div', { 'class': 'z2m-service-toolbar' }, [search, svcFilters, showing]),
     cardsHost
   ]), catalog.catalogVersion ? _('каталог ') + catalog.catalogVersion : _('данные backend'), [
-    shell.button(_('Предпросмотр'), 'sm', preview, state.busy || digestMismatch),
-    shell.button(_('Применить каталог'), 'primary sm', applyCatalog, !state.preview || digestMismatch)
+    shell.button(_('Показать различия'), 'primary sm', function () {
+      if (ctx.openSemanticDiff) ctx.openSemanticDiff();
+    }, digestMismatch)
   ]));
-  if (state.preview) root.appendChild(shell.panel(
-    _('Предпросмотр изменений'),
-    E('pre', { 'class': 'z2m-diff' }, JSON.stringify(state.preview, null, 2)),
-    _('только чтение')
-  ));
   var health = data.health && data.health.value || {};
   root.appendChild(E('div', { 'class': 'z2m-row3' }, [
     shell.panel(_('Источник hosts'), E('pre', { 'class': 'z2m-console' }, JSON.stringify(status.ledger || status.source || {}, null, 2))),

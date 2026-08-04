@@ -75,6 +75,15 @@ function humanDraftValue(value) {
 function edit(fn, value) { return fn(JSON.stringify(value || {})); }
 function asArray(value) { return Array.isArray(value) ? value : []; }
 function object(value) { return value && typeof value === 'object' ? value : {}; }
+function cloneValue(value) {
+  if (Array.isArray(value)) return value.map(cloneValue);
+  if (value && typeof value === 'object') {
+    var result = {};
+    Object.keys(value).forEach(function (key) { result[key] = cloneValue(value[key]); });
+    return result;
+  }
+  return value;
+}
 function responseMessage(value, fallback) {
   var error = value && value.error !== undefined ? value.error : value;
   if (error && typeof error === 'object') return error.message || error.detail || error.code || fallback;
@@ -110,9 +119,11 @@ function serviceEnabled(value, applied) {
   });
   return result;
 }
-function serviceAdapter() {
+function serviceAdapter(api, servicesModule) {
+  api = api || Api;
+  servicesModule = servicesModule || Services;
   function reloadAppliedState() {
-    return Promise.all([Api.services.catalogStatus(), Api.services.catalogList()]).then(function (values) {
+    return Promise.all([api.services.catalogStatus(), api.services.catalogList()]).then(function (values) {
       var status = object(values[0]);
       var catalog = object(values[1]);
       var ledger = object(status.ledger);
@@ -126,7 +137,13 @@ function serviceAdapter() {
   }
   function expected(value, context) {
     var applied = context && context.applied || {};
+    applied = applied.services && applied.services.enabled !== undefined ? applied.services : applied;
     return serviceEnabled(value, applied);
+  }
+  function validPreview(answer) {
+    var precondition = answer && answer.precondition;
+    return !!(answer && typeof answer === 'object' && answer.ok === true && precondition &&
+      precondition.ledgerRevision != null && Object.prototype.hasOwnProperty.call(precondition, 'fileSha256'));
   }
   return {
     supported: true,
@@ -135,27 +152,30 @@ function serviceAdapter() {
       return Promise.resolve(Object.keys(changes).length ? { ok: true } : { ok: false, message: _('Нет изменений') });
     },
     previewDraft: function (scope, value, context) {
-      return edit(Api.services.catalogPreview, { enabled: serviceIds(expected(value, context)) }).then(function (answer) {
-        var blocker = responseBlocker(answer, _('Предпросмотр каталога недоступен.'));
+      return edit(api.services.catalogPreview, { enabled: serviceIds(expected(value, context)) }).then(function (answer) {
+        var blocker = validPreview(answer) ? null : _('Предпросмотр каталога не содержит допустимой precondition.');
         if (blocker) throw { code: 'preview-blocked', message: blocker };
         return answer;
       });
     },
     applyDraft: function (scope, value, expectedRevision, context) {
-      var precondition = object(context && context.preview && context.preview.precondition);
-      return edit(Api.services.catalogApply, {
+      var previews = context && context.previews || {};
+      var preview = previews.services || context && context.preview || {};
+      var precondition = object(preview.precondition);
+      return edit(api.services.catalogApply, {
         enabled: serviceIds(expected(value, context)),
         revision: expectedRevision != null ? expectedRevision : precondition.ledgerRevision,
         fileSha256: precondition.fileSha256
       });
     },
+    previewValid: validPreview,
     reloadAppliedState: reloadAppliedState,
     verifyApplied: function (value, context, read) {
       var wanted = expected(value, context);
       var actual = object(read && read.value && read.value.enabled);
       return serviceIds(wanted).join(',') === serviceIds(actual).join(',');
     },
-    resetDraft: function () { if (Services.resetDraft) Services.resetDraft(); }
+    resetDraft: function () { if (servicesModule.resetDraft) servicesModule.resetDraft(); }
   };
 }
 function unsupportedAdapter(scope) {
@@ -169,7 +189,7 @@ function unsupportedAdapter(scope) {
     resetDraft: function () {}
   };
 }
-var ADAPTERS = { services: serviceAdapter() };
+var ADAPTERS = { services: serviceAdapter(Api, Services) };
 Object.keys(DRAFT_META).forEach(function (scope) {
   if (!ADAPTERS[scope]) ADAPTERS[scope] = unsupportedAdapter(scope);
 });
@@ -193,6 +213,197 @@ function renderSemanticDiff(draft, applied) {
     return E('section', { 'class': 'z2m-draft-preview' }, children);
   }));
 }
+function createCoordinator(options) {
+  options = options || {};
+  var api = options.api || Api;
+  var targetStore = options.store || StoreModule.create();
+  var shell = options.shell || Shell;
+  var adapters = options.adapters || ADAPTERS;
+  var root = options.root || null;
+
+  function normalize(error) {
+    if (api && typeof api.normalizeError === 'function') return api.normalizeError(error);
+    return { code: error && error.code || 'error', message: error && error.message || String(error || 'Unknown error') };
+  }
+  function sequence(scopes, fn) {
+    return scopes.reduce(function (chain, scope) {
+      return chain.then(function () { return fn(scope); });
+    }, Promise.resolve());
+  }
+  function same(left, right) { return JSON.stringify(left || {}) === JSON.stringify(right || {}); }
+  function availability(draft) {
+    draft = draft || targetStore.get().draft || {};
+    var scopes = Object.keys(draft);
+    var normalized = DraftModel.applyAvailability(scopes.map(function (scope) {
+      return Object.assign({ scope: scope }, draft[scope] || {});
+    }));
+    var blockers = normalized.blockers.slice();
+    scopes.forEach(function (scope) {
+      if (!adapters[scope]) blockers.push('Unsupported scope: ' + scope);
+      else if (adapters[scope].supported !== true && blockers.indexOf('Unsupported scope: ' + scope) < 0)
+        blockers.push('Unsupported scope: ' + scope);
+    });
+    var coordinator = targetStore.get().coordinator || {};
+    var ready = coordinator.status === 'ready' && coordinator.preflight && same(coordinator.preflight.snapshot, draft);
+    return {
+      enabled: ready && scopes.length > 0 && blockers.length === 0,
+      reason: blockers[0] || (ready ? normalized.reason : _('Ожидается предварительная проверка.')),
+      blockers: blockers
+    };
+  }
+  function contextFor(context) {
+    context = context || {};
+    context.api = context.api || api;
+    context.store = context.store || targetStore;
+    context.shell = context.shell || shell;
+    context.applied = context.applied || cloneValue(targetStore.get().applied || {});
+    context.root = context.root || root;
+    context.previews = context.previews || {};
+    return context;
+  }
+  function stageError(states, scope, error) {
+    var normalized = normalize(error);
+    states[scope] = states[scope] || {};
+    states[scope].blocker = normalized.message;
+    states[scope].error = normalized;
+  }
+  function previewError(answer, scope, adapter) {
+    if (!answer || typeof answer !== 'object' || answer.ok !== true)
+      return responseMessage(answer, _('Предпросмотр недоступен.'));
+    if (adapter && typeof adapter.previewValid === 'function')
+      return adapter.previewValid(answer) === true ? null : _('Предпросмотр не содержит допустимой precondition.');
+    var precondition = answer.precondition;
+    if (!precondition || typeof precondition !== 'object') return _('Предпросмотр не содержит допустимой precondition.');
+    if (precondition.ledgerRevision == null && precondition.revision == null && precondition.appliedRevision == null)
+      return _('Предпросмотр не содержит ревизию precondition.');
+    if (scope === 'services' && !Object.prototype.hasOwnProperty.call(precondition, 'fileSha256'))
+      return _('Предпросмотр каталога не содержит fileSha256 precondition.');
+    return null;
+  }
+  function mutationError(answer) {
+    if (!answer || typeof answer !== 'object' || answer.ok !== true)
+      return responseMessage(answer, _('Backend не подтвердил применение.'));
+    return null;
+  }
+  function preflightDraft(snapshot, context) {
+    snapshot = snapshot || targetStore.snapshotDraft();
+    context = contextFor(context);
+    var scopes = Object.keys(snapshot);
+    var states = {};
+    var normalized = {};
+    scopes.forEach(function (scope) {
+      normalized[scope] = DraftModel.normalizeScope(scope, snapshot[scope]);
+      states[scope] = { value: snapshot[scope], entry: normalized[scope] };
+      if (normalized[scope].blocker) states[scope].blocker = normalized[scope].blocker;
+      if (!adapters[scope]) states[scope].blocker = 'Unsupported scope: ' + scope;
+      else if (adapters[scope].supported !== true) states[scope].blocker = 'Unsupported scope: ' + scope;
+    });
+    var pendingAvailability = availability(snapshot);
+    pendingAvailability.enabled = false;
+    if (!pendingAvailability.reason) pendingAvailability.reason = _('Ожидается предварительная проверка.');
+    targetStore.setCoordinator({ status: 'preflighting', availability: pendingAvailability, preflight: null });
+    return sequence(scopes, function (scope) {
+      var adapter = adapters[scope];
+      if (!adapter) return Promise.resolve();
+      return Promise.resolve().then(function () { return adapter.reloadAppliedState(context); }).then(function (read) {
+        states[scope].read = read || {};
+        context.applied[scope] = read && read.value || {};
+        if (read == null || read.revision == null) states[scope].blocker = _('Ревизия backend недоступна.');
+        else if (normalized[scope].revision != null && String(normalized[scope].revision) !== String(read.revision))
+          states[scope].blocker = _('Конфликт ревизий: черновик устарел.');
+      }).catch(function (error) { stageError(states, scope, error); });
+    }).then(function () {
+      return sequence(scopes, function (scope) {
+        var adapter = adapters[scope];
+        if (!adapter) return Promise.resolve();
+        return Promise.resolve().then(function () { return adapter.validateDraft(scope, snapshot[scope], context); }).then(function (answer) {
+          var blocker = responseBlocker(answer, _('Локальная проверка не пройдена.'));
+          if (blocker) states[scope].blocker = states[scope].blocker || blocker;
+        }).catch(function (error) { stageError(states, scope, error); });
+      });
+    }).then(function () {
+      return sequence(scopes, function (scope) {
+        var adapter = adapters[scope];
+        if (!adapter) return Promise.resolve();
+        return Promise.resolve().then(function () { return adapter.previewDraft(scope, snapshot[scope], context); }).then(function (answer) {
+          var blocker = previewError(answer, scope, adapter);
+          if (blocker) states[scope].blocker = states[scope].blocker || blocker;
+          states[scope].preview = answer || {};
+          context.previews[scope] = states[scope].preview;
+        }).catch(function (error) { stageError(states, scope, error); });
+      });
+    }).then(function () {
+      var blockers = scopes.map(function (scope) { return states[scope].blocker ? scope + ': ' + states[scope].blocker : null; }).filter(Boolean);
+      var result = {
+        ok: scopes.length > 0 && blockers.length === 0,
+        snapshot: snapshot, scopes: scopes, states: states, blockers: blockers,
+        availability: { enabled: scopes.length > 0 && blockers.length === 0, reason: blockers[0] || null, blockers: blockers }
+      };
+      targetStore.setCoordinator({ status: result.ok ? 'ready' : 'blocked', availability: result.availability, preflight: result });
+      return result;
+    });
+  }
+  function handleApplyResult(result) {
+    var bookkeeping = DraftModel.recordApplyResult(targetStore.get().draft || {}, result || {});
+    targetStore.update({ draft: bookkeeping.draft });
+    (bookkeeping.clearedScopes || []).forEach(function (scope) {
+      if (adapters[scope] && adapters[scope].resetDraft) adapters[scope].resetDraft();
+    });
+    targetStore.setCoordinator({ status: bookkeeping.failedScopes.length ? 'failed' : 'applied', result: bookkeeping });
+    bookkeeping.errors.forEach(function (error) { if (shell && shell.showToast) shell.showToast(error.scope + ': ' + error.message, 'err'); });
+    if (!bookkeeping.errors.length && bookkeeping.clearedScopes.length && shell && shell.showToast)
+      shell.showToast(_('Изменения применены и проверены.'), 'ok');
+    return bookkeeping;
+  }
+  function applyDrafts(snapshot, context) {
+    snapshot = snapshot || targetStore.snapshotDraft();
+    context = contextFor(context);
+    return preflightDraft(snapshot, context).then(function (preflight) {
+      if (!preflight.ok) {
+        return handleApplyResult({ successes: [], failures: preflight.scopes.filter(function (scope) {
+          return preflight.states[scope].blocker;
+        }).map(function (scope) {
+          return { scope: scope, error: { code: 'preflight-blocked', message: preflight.states[scope].blocker } };
+        }) });
+      }
+      var outcomes = { successes: [], failures: [], rollback: null };
+      return sequence(preflight.scopes, function (scope) {
+        var state = preflight.states[scope];
+        var adapter = adapters[scope];
+        context.previews[scope] = state.preview;
+        context.preview = state.preview;
+        return Promise.resolve().then(function () {
+          return adapter.applyDraft(scope, snapshot[scope], state.read && state.read.revision, context);
+        }).then(function (answer) {
+          var blocker = mutationError(answer);
+          if (blocker) throw { code: 'apply-rejected', message: blocker };
+          var rollback = answer && (answer.rollback || answer.snapshot || answer);
+          if (rollback && rollback.available === true && (rollback.snapshotId != null || rollback.revision != null)) outcomes.rollback = rollback;
+          return Promise.resolve().then(function () { return adapter.reloadAppliedState(context); }).then(function (read) {
+            if (!read || read.revision == null) throw { code: 'verification-failed', message: _('Проверка ревизии применённого состояния не пройдена.') };
+            if (adapter.verifyApplied && adapter.verifyApplied(snapshot[scope], context, read) !== true)
+              throw { code: 'verification-failed', message: _('Проверка применённого состояния не пройдена.') };
+            context.applied[scope] = read.value || {};
+            targetStore.setApplied(scope, context.applied[scope]);
+            outcomes.successes.push(scope);
+          });
+        }).catch(function (error) { outcomes.failures.push({ scope: scope, error: normalize(error) }); });
+      }).then(function () {
+        outcomes.snapshot = snapshot;
+        var applied = handleApplyResult(outcomes);
+        if (outcomes.rollback) applied.rollback = outcomes.rollback;
+        return applied;
+      });
+    });
+  }
+  return {
+    availability: availability,
+    preflightDraft: preflightDraft,
+    applyDrafts: applyDrafts,
+    handleApplyResult: handleApplyResult,
+    openSemanticDiff: options.openSemanticDiff || function () {}
+  };
+}
 
 return L.view.extend({
   load: function () {
@@ -205,7 +416,8 @@ return L.view.extend({
     Shell.injectCss();
     var content = E('main', { 'class': 'z2m-content', id: 'z2m-content' });
     var tabs = E('nav', { 'class': 'z2m-tabs', id: 'z2m-tabs', role: 'tablist', 'aria-label': _('Разделы Zapret 2 Manager') });
-    var applyBar = Shell.renderApplyBar(store, coordinatorAvailability(store.get().draft));
+    var coordinator = createCoordinator({ api: Api, store: store, shell: Shell, adapters: ADAPTERS, root: content });
+    var applyBar = Shell.renderApplyBar(store, coordinator.availability());
     var appRoot = null;
 
     function setContentBusy(busy) {
@@ -213,104 +425,6 @@ return L.view.extend({
       content.setAttribute('aria-busy', busy === true ? 'true' : 'false');
     }
 
-    function coordinatorContext() {
-      return { api: Api, store: store, shell: Shell, applied: store.get().applied || {}, root: content };
-    }
-    function sequence(scopes, fn) {
-      var values = {};
-      return scopes.reduce(function (chain, scope) {
-        return chain.then(function () { return Promise.resolve(fn(scope)).then(function (value) { values[scope] = value; }); });
-      }, Promise.resolve()).then(function () { return values; });
-    }
-    function coordinatorAvailability(draft) {
-      draft = draft || {};
-      var scopes = Object.keys(draft);
-      var normalized = DraftModel.applyAvailability(scopes.map(function (scope) {
-        return Object.assign({ scope: scope }, draft[scope] || {});
-      }));
-      var blockers = normalized.blockers.slice();
-      scopes.forEach(function (scope) {
-        if (!ADAPTERS[scope]) blockers.push('Unsupported scope: ' + scope);
-        else if (ADAPTERS[scope].supported !== true && blockers.indexOf('Unsupported scope: ' + scope) < 0)
-          blockers.push('Unsupported scope: ' + scope);
-      });
-      return { enabled: scopes.length > 0 && blockers.length === 0, reason: blockers[0] || normalized.reason, blockers: blockers };
-    }
-    function recordStageError(states, scope, error) {
-      states[scope] = states[scope] || {};
-      states[scope].blocker = Api.normalizeError(error).message;
-      states[scope].error = Api.normalizeError(error);
-    }
-    function preflightDraft(snapshot, context) {
-      snapshot = snapshot || store.snapshotDraft();
-      context = context || coordinatorContext();
-      var scopes = Object.keys(snapshot);
-      var states = {};
-      var normalized = {};
-      scopes.forEach(function (scope) {
-        normalized[scope] = DraftModel.normalizeScope(scope, snapshot[scope]);
-        states[scope] = { value: snapshot[scope], entry: normalized[scope] };
-        if (!ADAPTERS[scope]) states[scope].blocker = 'Unsupported scope: ' + scope;
-        else if (ADAPTERS[scope].supported !== true) states[scope].blocker = 'Unsupported scope: ' + scope;
-      });
-      store.setCoordinator({ status: 'preflighting', availability: coordinatorAvailability(snapshot), preflight: null });
-      return sequence(scopes, function (scope) {
-        var adapter = ADAPTERS[scope];
-        if (!adapter) return null;
-        return adapter.reloadAppliedState(context).then(function (read) {
-          states[scope].read = read || {};
-          context.applied[scope] = read && read.value || {};
-          store.setApplied(scope, context.applied[scope]);
-          if (read == null || read.revision == null)
-            states[scope].blocker = _('Ревизия backend недоступна.');
-          else if (normalized[scope].revision != null && String(normalized[scope].revision) !== String(read.revision))
-            states[scope].blocker = _('Конфликт ревизий: черновик устарел.');
-        }).catch(function (error) { recordStageError(states, scope, error); });
-      }).then(function () {
-        return sequence(scopes, function (scope) {
-          var adapter = ADAPTERS[scope];
-          if (!adapter || states[scope].blocker) return null;
-          return adapter.validateDraft(scope, snapshot[scope], context).then(function (answer) {
-            var blocker = responseBlocker(answer, _('Локальная проверка не пройдена.'));
-            if (blocker) states[scope].blocker = blocker;
-          }).catch(function (error) { recordStageError(states, scope, error); });
-        });
-      }).then(function () {
-        return sequence(scopes, function (scope) {
-          var adapter = ADAPTERS[scope];
-          if (!adapter) return null;
-          context.applied = context.applied || {};
-          return adapter.previewDraft(scope, snapshot[scope], context).then(function (answer) {
-            var blocker = responseBlocker(answer, _('Предпросмотр недоступен.'));
-            if (blocker) states[scope].blocker = states[scope].blocker || blocker;
-            states[scope].preview = answer || {};
-            context.preview = states[scope].preview;
-          }).catch(function (error) { recordStageError(states, scope, error); });
-        });
-      }).then(function () {
-        var blockers = scopes.map(function (scope) {
-          return states[scope].blocker ? scope + ': ' + states[scope].blocker : null;
-        }).filter(Boolean);
-        var result = {
-          ok: blockers.length === 0 && scopes.length > 0,
-          snapshot: snapshot, scopes: scopes, states: states, blockers: blockers,
-          availability: { enabled: blockers.length === 0 && scopes.length > 0, reason: blockers[0] || null, blockers: blockers }
-        };
-        store.setCoordinator({ status: result.ok ? 'ready' : 'blocked', availability: result.availability, preflight: result });
-        return result;
-      });
-    }
-    function handleApplyResult(result) {
-      var bookkeeping = DraftModel.recordApplyResult(store.get().draft || {}, result || {});
-      store.update({ draft: bookkeeping.draft });
-      (bookkeeping.clearedScopes || []).forEach(function (scope) {
-        if (ADAPTERS[scope] && ADAPTERS[scope].resetDraft) ADAPTERS[scope].resetDraft();
-      });
-      store.setCoordinator({ status: bookkeeping.failedScopes.length ? 'failed' : 'applied', result: bookkeeping });
-      bookkeeping.errors.forEach(function (error) { Shell.showToast(error.scope + ': ' + error.message, 'err'); });
-      if (!bookkeeping.errors.length && bookkeeping.clearedScopes.length) Shell.showToast(_('Изменения применены и проверены.'), 'ok');
-      return bookkeeping;
-    }
     function openApplyResult(result) {
       if (!result || !result.rollback) return;
       var rollback = Shell.button(_('Откатить результат'), 'danger', function () {
@@ -328,55 +442,29 @@ return L.view.extend({
         Shell.button(_('Закрыть'), '', Shell.closeModal), rollback
       ]);
     }
-    function applyDrafts(snapshot, context) {
-      snapshot = snapshot || store.snapshotDraft();
-      context = context || coordinatorContext();
-      return preflightDraft(snapshot, context).then(function (preflight) {
-        if (!preflight.ok) {
-          return handleApplyResult({ successes: [], failures: preflight.blockers.map(function (message) {
-            return { scope: message.split(': ')[0], error: { code: 'preflight-blocked', message: message } };
-          }) });
-        }
-        var outcomes = { successes: [], failures: [], rollback: null };
-        return sequence(preflight.scopes, function (scope) {
-          var state = preflight.states[scope];
-          var adapter = ADAPTERS[scope];
-          context.applied = context.applied || {};
-          context.preview = state.preview;
-          return adapter.applyDraft(scope, snapshot[scope], state.read && state.read.revision, context).then(function (answer) {
-            var blocker = responseBlocker(answer, _('Применение не подтверждено backend.'));
-            if (blocker) throw { code: 'apply-rejected', message: blocker };
-            var rollback = answer && (answer.rollback || answer.snapshot || answer);
-            if (rollback && rollback.available === true && (rollback.snapshotId != null || rollback.revision != null)) outcomes.rollback = rollback;
-            return adapter.reloadAppliedState(context).then(function (read) {
-              context.applied[scope] = read && read.value || {};
-              store.setApplied(scope, context.applied[scope]);
-              if (adapter.verifyApplied && adapter.verifyApplied(snapshot[scope], context, read) !== true)
-                throw { code: 'verification-failed', message: _('Проверка применённого состояния не пройдена.') };
-              outcomes.successes.push(scope);
-            });
-          }).catch(function (error) {
-            outcomes.failures.push({ scope: scope, error: Api.normalizeError(error) });
-          });
-        }).then(function () {
-          outcomes.snapshot = snapshot;
-          var applied = handleApplyResult(outcomes);
-          if (outcomes.rollback) applied.rollback = outcomes.rollback;
-          return applied;
-        });
-      });
-    }
     function openSemanticDiff() {
-      var draft = store.get().draft || {};
-      var availability = coordinatorAvailability(draft);
-      var apply = Shell.button(_('Применить'), 'primary', function () {
-        apply.disabled = true;
-        applyDrafts(store.snapshotDraft(), coordinatorContext()).then(function (result) { Shell.closeModal(); renderState(); activate(store.get().ui.tab || 'overview', true); openApplyResult(result); })
-          .catch(function (error) { apply.disabled = false; Shell.showToast(Api.normalizeError(error).message, 'err'); });
-      }, !availability.enabled);
-      Shell.openModal(_('Семантические изменения'), renderSemanticDiff(draft, store.get().applied || {}), [
-        Shell.button(_('Закрыть'), '', Shell.closeModal), apply
-      ]);
+      var draft = store.snapshotDraft();
+      function renderModal(availability) {
+        var apply = Shell.button(_('Применить'), 'primary', function () {
+          apply.disabled = true;
+          coordinator.applyDrafts(store.snapshotDraft(), { root: content }).then(function (result) {
+            Shell.closeModal();
+            renderState();
+            activate(store.get().ui.tab || 'overview', true);
+            openApplyResult(result);
+          }).catch(function (error) {
+            apply.disabled = false;
+            Shell.showToast(Api.normalizeError(error).message, 'err');
+          });
+        }, !availability.enabled);
+        var body = [renderSemanticDiff(draft, store.get().applied || {})];
+        if (!availability.enabled) body.push(E('div', { 'class': 'z2m-apply-reason' }, _('Применение заблокировано: ') + availability.reason));
+        Shell.openModal(_('Семантические изменения'), body, [Shell.button(_('Закрыть'), '', Shell.closeModal), apply]);
+      }
+      renderModal(coordinator.availability(draft));
+      coordinator.preflightDraft(draft, { root: content }).then(function () {
+        renderModal(coordinator.availability(draft));
+      });
     }
     function context(tab, module, data, node) {
       return {
@@ -387,11 +475,11 @@ return L.view.extend({
         setDraft: function (scope, value) { store.setDraft(scope, value); },
         clearDraft: function (scope) { store.clearDraft(scope); },
         openSemanticDiff: openSemanticDiff,
-        applyDrafts: function () { return applyDrafts(store.snapshotDraft(), coordinatorContext()); },
+        applyDrafts: function () { return coordinator.applyDrafts(store.snapshotDraft(), { root: content }); },
         coordinator: {
-          preflightDraft: preflightDraft,
-          applyDrafts: applyDrafts,
-          handleApplyResult: handleApplyResult,
+          preflightDraft: coordinator.preflightDraft,
+          applyDrafts: coordinator.applyDrafts,
+          handleApplyResult: coordinator.handleApplyResult,
           openSemanticDiff: openSemanticDiff
         }
       };
@@ -491,7 +579,7 @@ return L.view.extend({
 
     function updateDraftBar() {
       var scopes = draftScopes();
-      var availability = coordinatorAvailability(store.get().draft || {});
+      var availability = coordinator.availability();
       applyBar.classList.toggle('hidden', !scopes.length);
       var text = applyBar.querySelector('#z2m-apply-text');
       var apply = applyBar.querySelector('#z2m-apply-drafts');
@@ -579,5 +667,8 @@ return L.view.extend({
 
   handleSaveApply: null,
   handleSave: null,
-  handleReset: null
+  handleReset: null,
+  createCoordinator: createCoordinator,
+  createServicesAdapter: serviceAdapter,
+  renderSemanticDiff: renderSemanticDiff
 });

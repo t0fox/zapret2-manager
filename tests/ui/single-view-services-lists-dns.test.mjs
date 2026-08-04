@@ -17,12 +17,13 @@ for (const name of ['z2m-services.js', 'z2m-lists.js', 'z2m-dns.js']) {
   });
 }
 
-test('services tab preserves catalog preview/apply preconditions and local filtering', () => {
+test('services tab delegates preview/apply to the global coordinator and keeps local filtering', () => {
   const src = source('z2m-services.js');
-  for (const token of ['api.services.catalogList','api.services.catalogStatus','api.services.catalogPreview','api.services.catalogApply','svcSearch','svcFilters','ledgerRevision','fileSha256'])
+  for (const token of ['api.services.catalogList','api.services.catalogStatus','svcSearch','svcFilters','ctx.openSemanticDiff'])
     assert.match(src, new RegExp(token.replaceAll('.', '\\.')));
-  assert.match(src, /enabled:\s*(?:selectedIds|enabledIds\(\))/);
   assert.match(src, /setDraft\(['"]services/);
+  assert.doesNotMatch(src, /catalogPreview|catalogApply|function\s+preview\s*\(|function\s+applyCatalog\s*\(/);
+  assert.doesNotMatch(src, /state\.preview|Предпросмотр изменений/);
   assert.doesNotMatch(src, /const\s+SERVICES\s*=|let\s+SERVICES\s*=/);
   assert.doesNotMatch(src, /var\s+enabledIds\s*=\s*enabledIds\(/);
 });
