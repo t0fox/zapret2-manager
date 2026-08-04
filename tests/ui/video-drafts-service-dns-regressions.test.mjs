@@ -18,6 +18,7 @@ test('Services owns catalog state and no longer duplicates Service DNS controls'
   assert.match(services, /ctx\.setDraft\(['"]services['"],\s*\{\s*changes:/);
   assert.match(services, /ctx\.clearDraft\(['"]services['"]\)/);
   assert.match(services, /resetDraft:\s*resetDraft/);
+  assert.match(app, /Services\.createAdapter\(Api,\s*Services\)/);
 });
 
 test('DNS stores only semantic Service DNS changes against a baseline', () => {
@@ -40,16 +41,31 @@ test('DNS is the navigable owner of the Service DNS draft', () => {
   assert.match(dns, /openDraft:\s*openDraft/);
   assert.match(dns, /focusDraft:\s*focusDraft/);
   assert.match(dns, /resetDraft:\s*resetDraft/);
+  assert.match(app, /Dns\.createAdapter\(Api,\s*Dns\)/);
 });
 
 test('apply bar labels routes and previews Service DNS changes semantically', () => {
   assert.match(app, /['"]service-dns['"]\s*:\s*\{[\s\S]{0,180}label:\s*_\(['"]DNS: доступ сервисов['"]\)[\s\S]{0,180}tab:\s*['"]dns['"][\s\S]{0,180}pane:\s*['"]access['"]/);
-  assert.match(app, /function\s+renderDraftDiff\s*\(/);
-  assert.match(app, /function\s+openDraftScope\s*\(/);
-  assert.match(app, /module\.openDraft/);
-  assert.match(app, /module\.focusDraft/);
-  assert.match(app, /module\.resetDraft/);
+  assert.match(app, /function\s+renderSemanticDiff\s*\(/);
+  assert.match(app, /openSemanticDiff/);
+  assert.match(app, /coordinator:\s*\{/);
+  assert.match(app, /resetDraft/);
   assert.match(app, /before[\s\S]{0,120}after/);
-  assert.match(shell, /Что изменено/);
-  assert.match(shell, /Перейти к изменениям/);
+  assert.match(shell, /Показать различия/);
+  assert.match(shell, /Применить/);
+  assert.doesNotMatch(shell, /Перейти к изменениям|Показать на странице|renderConfirmBar/);
+  assert.doesNotMatch(app, /rollback_ttl|confirmationTimer|setInterval/);
+});
+
+test('page-local apply controls route through the coordinator or stay blocked', () => {
+  assert.doesNotMatch(readFileSync(`${root}/z2m-overview.js`, 'utf8'), /ctx\.api\.strategy\.apply/);
+  assert.doesNotMatch(readFileSync(`${root}/z2m-strategy.js`, 'utf8'), /ctx\.api\.strategy\.apply/);
+  assert.doesNotMatch(readFileSync(`${root}/z2m-strategy.js`, 'utf8'), /ctx\.api\.profiles\.apply,\s*\{\s*mode:\s*['"]apply/);
+  assert.doesNotMatch(readFileSync(`${root}/z2m-dns.js`, 'utf8'), /ctx\.api\.dns\.(?:set|apply)\b/);
+  assert.doesNotMatch(readFileSync(`${root}/z2m-lists.js`, 'utf8'), /ctx\.api\.lists\.set/);
+  assert.doesNotMatch(readFileSync(`${root}/z2m-proxy.js`, 'utf8'), /ctx\.api\.proxy\.configApply/);
+  assert.doesNotMatch(readFileSync(`${root}/z2m-proxy.js`, 'utf8'), /setDraft\(['"]proxy['"][\s\S]{0,240}config\(\)/);
+  assert.match(readFileSync(`${root}/z2m-strategy-page.js`, 'utf8'), /createAdapter/);
+  assert.match(readFileSync(`${root}/z2m-dns.js`, 'utf8'), /createAdapter/);
+  assert.match(readFileSync(`${root}/z2m-services.js`, 'utf8'), /createAdapter/);
 });

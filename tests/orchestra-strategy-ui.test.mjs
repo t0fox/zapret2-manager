@@ -22,7 +22,7 @@ test('single-view strategy UI wires explicit global apply and bounded targeted r
   assert.match(api, /orchestra_run_status/);
   assert.match(strategy, /pendingStrategyId/);
   assert.match(strategy, /ctx\.setDraft\(['"]strategy['"]/);
-  assert.match(strategy, /ctx\.api\.strategy\.apply/);
+  assert.match(strategy, /api\.strategy\.apply/);
   assert.match(strategy, /ctx\.api\.strategy\.rollback/);
   assert.match(strategy, /targetType:\s*domain\s*\?\s*['"]domain['"]\s*:\s*['"]corpus['"]/);
   assert.match(strategy, /if\s*\(domain\)\s*payload\.domain\s*=\s*domain/);
@@ -33,14 +33,15 @@ test('single-view strategy UI wires explicit global apply and bounded targeted r
   assert.doesNotMatch(strategy, /autoApply|applyNow:\s*true/);
 });
 
-test('Overview stages one override in shared draft state and applies it only explicitly', () => {
+test('Overview stages one override in shared draft state and routes unsupported apply to the coordinator', () => {
   const overview = read(overviewPath);
   assert.match(overview, /pendingOverride/);
   assert.match(overview, /action:\s*['"]override_set['"]/);
   assert.match(overview, /action:\s*['"]override_delete['"]/);
   assert.match(overview, /ctx\.setDraft\(['"]strategy['"]/);
-  assert.match(overview, /ctx\.api\.strategy\.apply/);
-  assert.match(overview, /applyNow:\s*true/);
+  assert.match(overview, /Точечные правила нельзя применить через общий координатор/);
+  assert.match(overview, /ctx\.openSemanticDiff/);
+  assert.doesNotMatch(overview, /applyNow:\s*true/);
   assert.match(overview, /Применить только к ресурсу/);
   assert.match(overview, /Применить изменение/);
   assert.match(overview, /Отменить изменение/);

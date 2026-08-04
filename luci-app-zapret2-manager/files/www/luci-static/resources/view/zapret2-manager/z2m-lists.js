@@ -50,7 +50,10 @@ function render(ctx) {
     return conflicts;
   }
   function markDraft() {
-    ctx.setDraft('lists', Object.assign({}, edit));
+    ctx.setDraft('lists', {
+      changes: { entries: { label: _('Списки'), before: null, after: true } },
+      entries: Object.assign({}, edit)
+    });
     updateConflictHost();
   }
   function checkDomain(input, result, button) {
@@ -80,19 +83,9 @@ function render(ctx) {
       status.className = 'warnbar';
       return;
     }
-    button.disabled = true;
-    status.textContent = _('Применение…');
-    ctx.api.lists.set(JSON.stringify(edit)).then(function (answer) {
-      if (!answer || answer.ok !== true) throw answer || new Error('lists_set failed');
-      state.draft = null;
-      ctx.clearDraft('lists');
-      shell.showToast(_('Списки применены.'), 'ok');
-      return ctx.refresh('lists');
-    }).catch(function (error) {
-      status.textContent = ctx.api.normalizeError(error).message;
-      status.className = 'warnbar';
-      button.disabled = false;
-    });
+    status.textContent = _('Списки нельзя применить через общий координатор: безопасный preview/apply/revision путь отсутствует.');
+    status.className = 'warnbar';
+    if (ctx.openSemanticDiff) ctx.openSemanticDiff();
   }
 
   root.appendChild(E('div', { 'class': 'z2m-phead' }, [

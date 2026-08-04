@@ -39,6 +39,7 @@ function unmount(ctx) {
   Auto.unmount();
   Runs.unmount();
 }
+function createAdapter(api) { return Strategy.createAdapter ? Strategy.createAdapter(api) : null; }
 
 return baseclass.extend({
   id: 'strategy',
@@ -47,5 +48,6 @@ return baseclass.extend({
   load: load,
   render: render,
   mount: mount,
-  unmount: unmount
+  unmount: unmount,
+  createAdapter: createAdapter
 });

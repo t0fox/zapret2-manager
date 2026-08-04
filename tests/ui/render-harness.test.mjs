@@ -18,6 +18,7 @@ function makeNode(tag = 'div', attrs = {}, children = []) {
     tag, tagName: String(tag).toUpperCase(), nodeType: 1, attrs: { ...attrs }, children: [],
     style: {}, parentNode: null, value: attrs.value ?? '', checked: attrs.checked != null,
     hidden: attrs.hidden === true, disabled: attrs.disabled != null, _text: '',
+    listeners: {},
     classList: {
       add(...names) { names.forEach((name) => classes.add(name)); },
       remove(...names) { names.forEach((name) => classes.delete(name)); },
@@ -50,7 +51,7 @@ function makeNode(tag = 'div', attrs = {}, children = []) {
       if (index < 0) node.children.push(child); else node.children.splice(index, 0, child);
       return child;
     },
-    addEventListener() {}, removeEventListener() {}, focus() {}, select() {}, scrollIntoView() {},
+    addEventListener(type, handler) { node.listeners[type] = handler; }, removeEventListener() {}, focus() {}, select() {}, scrollIntoView() {},
     setAttribute(key, value) { node.attrs[key] = value; if (key === 'value') node.value = value; },
     getAttribute(key) { return node.attrs[key]; },
     querySelector(selector) { return find(node, selector, true); },
@@ -179,8 +180,25 @@ const healthyData = {
     auto: { value: { ok: true, enabled: false, phase: 'disabled', revision: 1, serviceIds: [], capabilities: {} } }
   },
   'z2m-services.js': {
-    catalog: { value: { services: [] } }, status: { value: {} }, health: { value: {} },
-    serviceDns: { value: {} }, providers: { value: { providers: [] } }
+    catalog: { value: {
+      ok: true, catalogVersion: 'backend-catalog',
+      digest: 'catalog-digest-8', digestOk: true,
+      services: [
+        { id: 'alpha', name: 'Backend Alpha', category: 'video', domainCount: 2 },
+        { id: 'beta', name: 'Backend Beta', category: 'video', domainCount: 1 }
+      ],
+      categories: [{ id: 'video', label: 'Video services' }],
+      modes: [{ id: 'services' }, { id: 'hosts' }],
+      sources: [{ id: 'ready-1', label: 'Backend ready hosts', revision: 8,
+        date: '2026-08-04', validationStatus: 'valid' }]
+    } },
+    status: { value: { ok: true, activeMode: 'services', ledger: {
+      revision: 8, enabled: ['alpha'], updatedAt: '2026-08-04T10:00:00Z',
+      catalogDigest: 'catalog-digest-8'
+    }, catalog: { valid: true, digestOk: true, catalogVersion: 'backend-catalog' }, ownedDomains: 2 } },
+    preview: { value: { ok: true, precondition: { ledgerRevision: 8, fileSha256: 'backend-file-sha' } } },
+    health: { value: { ok: true, matrix: { status: 'completed' } } },
+    preflight: { value: { ok: true, ready: true } }
   },
   'z2m-lists.js': { lists: { value: { lists: {}, conflicts: [] } } },
   'z2m-dns.js': {
@@ -197,13 +215,13 @@ const healthyData = {
   }
 };
 
-function context(data) {
+function context(data, hooks = {}) {
   const state = store();
   return {
     api: apiTree(), shell, store: state, data, root: makeNode('main'), initial: {},
     navigate() {}, refresh() { return Promise.resolve(); },
     setDraft(scope, value) { state.setDraft(scope, value); },
-    clearDraft(scope) { state.clearDraft(scope); }, setConfirmation() { return false; }
+    clearDraft(scope) { state.clearDraft(scope); }, openSemanticDiff() { hooks.openSemanticDiff?.(); }
   };
 }
 function assertTree(node, name) {
@@ -256,6 +274,117 @@ test('Overview unavailable state does not fabricate strategy or metrics', () => 
   assert.doesNotMatch(tree.textContent, /Flowseal ALT11|57 \/ 61|312 мс/);
 });
 
+test('Services render harness uses backend catalogue data in both modes', () => {
+  const mod = evaluateLuciModule(`${root}/z2m-services.js`, overrides, cache);
+  mod.resetDraft();
+  const servicesContext = context(healthyData['z2m-services.js']);
+  const servicesTree = mod.render(servicesContext);
+  for (const selector of ['.z2m-services-modes', '.z2m-services-kpis', '.z2m-service-category', '.z2m-service-row'])
+    assert.ok(servicesTree.querySelector(selector), selector);
+  assert.match(servicesTree.textContent, /Backend Alpha/);
+  assert.match(servicesTree.textContent, /1 из 2 включено/);
+  assert.match(servicesTree.textContent, /Backend ready hosts|Готовый hosts/);
+  assert.doesNotMatch(servicesTree.textContent, /demo|Flowseal ALT11/i);
+
+  const betaRow = servicesTree.querySelectorAll('div').find((node) => node.attrs['data-service-id'] === 'beta');
+  const betaSwitch = betaRow && betaRow.querySelector('button');
+  assert.ok(betaSwitch && betaSwitch.listeners.click);
+  betaSwitch.listeners.click({ type: 'click', preventDefault() {} });
+  assert.ok(servicesContext.store.get().draft.services);
+  assert.equal(servicesContext.store.get().draft.services.mode, 'services');
+  const hostsModeButton = servicesTree.querySelectorAll('button').find((node) => node.attrs['data-mode'] === 'hosts');
+  assert.ok(hostsModeButton && hostsModeButton.listeners.click);
+  hostsModeButton.listeners.click({ type: 'click', preventDefault() {} });
+  assert.ok(servicesContext.store.get().draft.services.modeDrafts.services);
+
+  const retainedApply = servicesTree.querySelectorAll('button').find((node) => node.textContent === 'Применить');
+  assert.ok(retainedApply && retainedApply.disabled === false);
+  let coordinatorOpens = 0;
+  const aliasContext = context(healthyData['z2m-services.js'], { openSemanticDiff() { coordinatorOpens += 1; } });
+  mod.resetDraft();
+  const aliasTree = mod.render(aliasContext);
+  const aliasRow = aliasTree.querySelectorAll('div').find((node) => node.attrs['data-service-id'] === 'beta');
+  aliasRow.querySelector('button').listeners.click({ type: 'click', preventDefault() {} });
+  const aliasHosts = aliasTree.querySelectorAll('button').find((node) => node.attrs['data-mode'] === 'hosts');
+  aliasHosts.listeners.click({ type: 'click', preventDefault() {} });
+  aliasTree.querySelectorAll('button').find((node) => node.textContent === 'Применить').listeners.click({ type: 'click' });
+  assert.equal(coordinatorOpens, 1);
+
+  const hostsData = structuredClone(healthyData['z2m-services.js']);
+  hostsData.status.value = { ...hostsData.status.value, activeMode: 'hosts' };
+  mod.resetDraft();
+  const hostsTree = mod.render(context(hostsData));
+  assert.ok(hostsTree.querySelector('.z2m-hosts-mode'));
+  assert.match(hostsTree.textContent, /Backend ready hosts/);
+  assert.match(hostsTree.textContent, /ready-1/);
+  assert.match(hostsTree.textContent, /ревизия: 8/);
+});
+
+test('Services render uses a successful backend reread as the applied baseline', () => {
+  const mod = evaluateLuciModule(`${root}/z2m-services.js`, overrides, cache);
+  mod.resetDraft();
+  const data = structuredClone(healthyData['z2m-services.js']);
+  data.status.value.ledger = {
+    ...data.status.value.ledger,
+    revision: 9,
+    enabled: ['alpha', 'beta']
+  };
+  const tree = mod.render(context(data));
+  assert.match(tree.textContent, /2 из 2 включено/);
+  assert.match(tree.textContent, /0изменено в черновике/);
+  assert.doesNotMatch(tree.textContent, /будет включено|будет выключено/);
+});
+
+test('Services switches use one native click path for click and keyboard activation', () => {
+  const mod = evaluateLuciModule(`${root}/z2m-services.js`, overrides, cache);
+  mod.resetDraft();
+  const tree = mod.render(context(healthyData['z2m-services.js']));
+  const categoryButton = () => tree.querySelectorAll('button').find((node) => node.attrs['data-state'] != null);
+  const nativeKeyboardClick = (key) => {
+    const button = categoryButton();
+    button.listeners.keydown?.({ type: 'keydown', key, preventDefault() {} });
+    button.listeners.click({ type: 'click', detail: 0, preventDefault() {} });
+  };
+  assert.equal(categoryButton().attrs['data-state'], 'mixed');
+  nativeKeyboardClick('Enter');
+  assert.equal(categoryButton().attrs['data-state'], 'on');
+  nativeKeyboardClick(' ');
+  assert.equal(categoryButton().attrs['data-state'], 'off');
+  categoryButton().listeners.click({ type: 'click', detail: 1, preventDefault() {} });
+  assert.equal(categoryButton().attrs['data-state'], 'on');
+});
+
+test('Services fails closed when status precondition is unavailable', () => {
+  const mod = evaluateLuciModule(`${root}/z2m-services.js`, overrides, cache);
+  mod.resetDraft();
+  const unavailable = structuredClone(healthyData['z2m-services.js']);
+  delete unavailable.preview;
+  const ctx = context(unavailable);
+  const tree = mod.render(ctx);
+  assert.match(tree.textContent, /предусловия каталога недоступны/i);
+  const switches = tree.querySelectorAll('button').filter((node) => node.attrs.role === 'switch');
+  assert.ok(switches.length > 0);
+  assert.ok(switches.every((node) => node.disabled === true));
+  const bulk = tree.querySelectorAll('button').filter((node) => /Включить все|Выключить все/.test(node.textContent));
+  assert.ok(bulk.length === 2 && bulk.every((node) => node.disabled === true));
+  switches[0].listeners.click({ type: 'click', preventDefault() {} });
+  assert.equal(ctx.store.get().draft.services, undefined);
+});
+
+test('Services mode tabs refresh on class and aria-selected state', () => {
+  const mod = evaluateLuciModule(`${root}/z2m-services.js`, overrides, cache);
+  mod.resetDraft();
+  const tree = mod.render(context(healthyData['z2m-services.js']));
+  const mode = (id) => tree.querySelectorAll('button').find((node) => node.attrs['data-mode'] === id);
+  assert.equal(mode('services').classList.contains('on'), true);
+  assert.equal(mode('services').attrs['aria-selected'], 'true');
+  mode('hosts').listeners.click({ type: 'click', preventDefault() {} });
+  assert.equal(mode('hosts').classList.contains('on'), true);
+  assert.equal(mode('hosts').attrs['aria-selected'], 'true');
+  assert.equal(mode('services').classList.contains('on'), false);
+  assert.equal(mode('services').attrs['aria-selected'], 'false');
+});
+
 test('compatibility redirects are excluded from render ownership', () => {
   const redirects = ['orchestra-strategy.js','orchestra.js','strategies.js','lists.js','dns.js','service-dns.js','proxy.js','monitor.js','maintenance.js'];
   for (const file of redirects) {
@@ -264,4 +393,21 @@ test('compatibility redirects are excluded from render ownership', () => {
     assert.equal(typeof mod.render, 'function');
     assert.match(String(mod.load), /location\.replace/);
   }
+});
+
+test('render harness exposes the coordinator bar without confirmation controls', () => {
+  const bar = shell.renderApplyBar({ hasDraft: () => true }, { enabled: false, reason: 'unsupported' });
+  assert.ok(bar.querySelector('#z2m-discard-drafts'));
+  assert.ok(bar.querySelector('#z2m-preview-drafts'));
+  assert.ok(bar.querySelector('#z2m-apply-drafts'));
+  assert.match(bar.textContent, /unsupported/);
+  assert.equal(bar.querySelector('#z2m-open-drafts'), null);
+});
+
+test('render harness exposes adapter-owned coordinator boundaries', () => {
+  const app = evaluateLuciModule(`${root}/app.js`, overrides, cache);
+  assert.equal(typeof app.createDnsAdapter, 'function');
+  assert.equal(typeof app.createStrategyAdapter, 'function');
+  assert.equal(typeof app.createServicesAdapter, 'function');
+  assert.match(app.renderSemanticDiff({ proxy: { changes: { enabled: { before: false, after: true } } } }, {}).textContent, /Unsupported scope: proxy/);
 });

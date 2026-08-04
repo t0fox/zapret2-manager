@@ -17,14 +17,22 @@ for (const name of ['z2m-services.js', 'z2m-lists.js', 'z2m-dns.js']) {
   });
 }
 
-test('services tab preserves catalog preview/apply preconditions and local filtering', () => {
+test('services tab delegates preview/apply to the global coordinator and keeps local filtering', () => {
   const src = source('z2m-services.js');
-  for (const token of ['api.services.catalogList','api.services.catalogStatus','api.services.catalogPreview','api.services.catalogApply','svcSearch','svcFilters','ledgerRevision','fileSha256'])
+  for (const token of ['api.services.catalogList','api.services.catalogStatus','svcSearch','svcFilters','ctx.openSemanticDiff','createAdapter','catalogPreview','catalogApply'])
     assert.match(src, new RegExp(token.replaceAll('.', '\\.')));
-  assert.match(src, /enabled:\s*(?:selectedIds|enabledIds\(\))/);
   assert.match(src, /setDraft\(['"]services/);
+  assert.doesNotMatch(src, /function\s+preview\s*\(|function\s+applyCatalog\s*\(/);
+  assert.doesNotMatch(src, /state\.preview|Предпросмотр изменений/);
   assert.doesNotMatch(src, /const\s+SERVICES\s*=|let\s+SERVICES\s*=/);
   assert.doesNotMatch(src, /var\s+enabledIds\s*=\s*enabledIds\(/);
+});
+
+test('services adapter retains backend-authoritative baseline and verification hooks', () => {
+  const src = source('z2m-services.js');
+  for (const token of ['reloadAppliedState', 'verifyApplied', 'context.applied', 'read.value.enabled'])
+    assert.match(src, new RegExp(token.replaceAll('.', '\\.')));
+  assert.match(src, /catalogApply[\s\S]*fileSha256/);
 });
 
 test('services tab starts bounded backend-owned service checks only after preflight', () => {
@@ -46,22 +54,24 @@ test('lists tab keeps exact list keys, domain check and conflict blocking', () =
   for (const key of ['domainInclude','domainExclude','ipInclude','ipExclude','ipBlock','autohostlist'])
     assert.match(src, new RegExp(key));
   assert.match(src, /api\.lists\.checkDomain/);
-  assert.match(src, /api\.lists\.set/);
+  assert.doesNotMatch(src, /api\.lists\.set/);
+  assert.match(src, /ctx\.openSemanticDiff/);
   assert.match(src, /CONFLICT|конфликт/i);
   assert.match(src, /readOnly|editable === false/);
-  assert.match(src, /JSON\.stringify\(edit\)/);
+  assert.match(src, /безопасный preview\/apply\/revision путь отсутствует/);
 });
 
 test('DNS tab contains all five reference panes and exact existing payloads', () => {
   const src = source('z2m-dns.js');
   for (const pane of ['setup','check','access','adv','hist'])
     assert.match(src, new RegExp(`['"]${pane}['"]`));
-  for (const token of ['api.dns.get','api.dns.validate','api.dns.set','api.dns.apply','api.dns.diagnose','api.dns.selectProvider','api.dns.serviceSet','api.dns.serviceApplyAsync'])
+  for (const token of ['api.dns.get','api.dns.validate','api.dns.set','api.dns.apply','api.dns.diagnose','api.dns.selectProvider'])
     assert.match(src, new RegExp(token.replaceAll('.', '\\.')));
+  assert.doesNotMatch(src, /api\.dns\.serviceSet|api\.dns\.serviceApplyAsync/);
   assert.match(src, /providerId:\s*provider\.id/);
   assert.match(src, /entries:\s*entries/);
   assert.match(src, /mode:\s*['"]apply['"]/);
-  assert.match(src, /selections:\s*selections/);
+  assert.match(src, /setDraft\(['"]service-dns['"],\s*\{\s*changes/);
   assert.match(src, /Manager overrides|dnsmasq/i);
 });
 

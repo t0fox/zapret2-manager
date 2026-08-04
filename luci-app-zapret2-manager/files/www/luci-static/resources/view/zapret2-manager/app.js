@@ -3,6 +3,7 @@
 'require view.zapret2-manager.z2m-api as Api';
 'require view.zapret2-manager.z2m-store as StoreModule';
 'require view.zapret2-manager.z2m-shell as Shell';
+'require view.zapret2-manager.z2m-draft-model as DraftModel';
 'require view.zapret2-manager.z2m-overview as Overview';
 'require view.zapret2-manager.z2m-strategy-page as Strategy';
 'require view.zapret2-manager.z2m-services as Services';
@@ -37,10 +38,8 @@ var activeModule = null;
 var activeContext = null;
 var activationToken = 0;
 var storeUnsubscribe = null;
-var confirmationTimer = null;
 var tabDataCache = {};
 var tabLoadPromises = {};
-var pendingDraftFocus = null;
 
 function tabFromHash() {
   var match = String(window.location.hash || '').match(/^#\/(overview|strategy|services|lists|dns|proxy|monitor|maintenance)$/);
@@ -66,42 +65,341 @@ function detectedVersion(initial) {
 function draftScopes() { return Object.keys(store.get().draft || {}); }
 function draftMeta(scope) { return DRAFT_META[scope] || { label: scope, tab: 'overview' }; }
 function draftLabel(scope) { return draftMeta(scope).label; }
-function safeDraft(value) {
-  return JSON.stringify(value, function (key, item) {
-    return /secret|token|password/i.test(key) ? '••••••••' : item;
-  }, 2);
-}
 function humanDraftValue(value) {
   if (value === true) return _('Включено');
   if (value === false) return _('Выключено');
   if (value == null || value === '') return _('Отключено');
+  if (Array.isArray(value)) return value.join(', ') || _('Отключено');
   return String(value);
 }
-function renderDraftDiff(scope, value) {
-  var changes = value && value.changes || {};
-  var ids = Object.keys(changes);
-  if (ids.length) {
-    return E('section', { 'class': 'z2m-draft-preview' }, [
-      E('h4', {}, draftLabel(scope)),
-      E('div', { 'class': 'z2m-change-list' }, ids.map(function (id) {
-        var change = changes[id] || {};
-        var before = humanDraftValue(change.before);
-        var after = humanDraftValue(change.after);
-        return E('div', { 'class': 'z2m-svcrow z2m-single-row', 'data-draft-change-id': id }, [
-          E('div', {}, [
-            E('div', { 'class': 'nm' }, change.label || id),
-            E('div', { 'class': 'co' }, before + ' → ' + after)
-          ]),
-          E('span', { 'class': 'z2m-chip o' }, _('изменено'))
-        ]);
-      }))
-    ]);
+function edit(fn, value) { return fn(JSON.stringify(value || {})); }
+function asArray(value) { return Array.isArray(value) ? value : []; }
+function object(value) { return value && typeof value === 'object' ? value : {}; }
+function cloneValue(value) {
+  if (Array.isArray(value)) return value.map(cloneValue);
+  if (value && typeof value === 'object') {
+    var result = {};
+    Object.keys(value).forEach(function (key) { result[key] = cloneValue(value[key]); });
+    return result;
   }
-  return E('section', { 'class': 'z2m-draft-preview' }, [
-    E('h4', {}, draftLabel(scope)),
-    E('div', { 'class': 'z2m-dim' }, _('Технические данные старого формата:')),
-    E('pre', { 'class': 'z2m-diff' }, safeDraft(value))
-  ]);
+  return value;
+}
+function responseMessage(value, fallback) {
+  var error = value && value.error !== undefined ? value.error : value;
+  if (error && typeof error === 'object') return error.message || error.detail || error.code || fallback;
+  return error ? String(error) : fallback;
+}
+function responseBlocker(value, fallback) {
+  if (!value || value.ok === false) return responseMessage(value, fallback);
+  var errors = asArray(value.errors).concat(asArray(value.blockers));
+  if (errors.length) return responseMessage(errors[0], fallback);
+  return null;
+}
+function unsupportedAdapter(scope) {
+  var reason = 'Unsupported scope: ' + String(scope);
+  return {
+    supported: false,
+    validateDraft: function () { return Promise.resolve({ ok: false, message: reason }); },
+    previewDraft: function () { return Promise.reject({ code: 'unsupported-scope', message: reason }); },
+    applyDraft: function () { return Promise.reject({ code: 'unsupported-scope', message: reason }); },
+    reloadAppliedState: function () { return Promise.resolve({ value: {}, revision: null }); },
+    resetDraft: function () {}
+  };
+}
+var ADAPTERS = {
+  strategy: Strategy.createAdapter(Api),
+  services: Services.createAdapter(Api, Services),
+  dns: Dns.createAdapter(Api, Dns)
+};
+Object.keys(DRAFT_META).forEach(function (scope) {
+  if (!ADAPTERS[scope]) ADAPTERS[scope] = unsupportedAdapter(scope);
+});
+function renderSemanticDiff(draft, applied, extraBlockers) {
+  var groups = DraftModel.semanticDiff(draft, applied);
+  var byScope = {};
+  groups.forEach(function (group) { byScope[group.scope] = group; });
+  Object.keys(object(draft)).forEach(function (scope) {
+    var adapter = ADAPTERS[scope];
+    var blocker = extraBlockers && extraBlockers[scope];
+    if (adapter && adapter.supported !== true) blocker = blocker || 'Unsupported scope: ' + scope;
+    if (!blocker) return;
+    if (!byScope[scope]) {
+      byScope[scope] = { scope: scope, label: draftLabel(scope), rows: [], applicable: false, blocker: blocker };
+      groups.push(byScope[scope]);
+    } else if (!byScope[scope].blocker) byScope[scope].blocker = blocker;
+  });
+  if (!groups.length) return E('div', { 'class': 'z2m-dim' }, _('Нет семантических изменений.'));
+  return E('div', {}, groups.map(function (group) {
+    var children = [E('h4', {}, group.label)];
+    if (group.blocker) children.push(E('div', { 'class': 'warnbar' }, group.blocker));
+    if (group.rows.length) children.push(E('div', { 'class': 'z2m-change-list' }, group.rows.map(function (row) {
+      return E('div', { 'class': 'z2m-svcrow z2m-single-row' }, [
+        E('div', {}, [E('div', { 'class': 'nm' }, row.label), E('div', { 'class': 'co' }, humanDraftValue(row.before) + ' → ' + humanDraftValue(row.after))]),
+        E('span', { 'class': 'z2m-chip o' }, _('изменено'))
+      ]);
+    })));
+    var advanced = object((draft[group.scope] || {}).advanced);
+    if (Object.keys(advanced).length) children.push(E('details', { 'class': 'z2m-acc' }, [
+      E('summary', {}, _('Технические детали')),
+      E('pre', { 'class': 'z2m-diff' }, JSON.stringify(DraftModel.redact(advanced), null, 2))
+    ]));
+    return E('section', { 'class': 'z2m-draft-preview' }, children);
+  }));
+}
+function createCoordinator(options) {
+  options = options || {};
+  var api = options.api || Api;
+  var targetStore = options.store || StoreModule.create();
+  var shell = options.shell || Shell;
+  var adapters = options.adapters || ADAPTERS;
+  var root = options.root || null;
+
+  function normalize(error) {
+    if (api && typeof api.normalizeError === 'function') return api.normalizeError(error);
+    return { code: error && error.code || 'error', message: error && error.message || String(error || 'Unknown error') };
+  }
+  function sequence(scopes, fn) {
+    return scopes.reduce(function (chain, scope) {
+      return chain.then(function () { return fn(scope); });
+    }, Promise.resolve());
+  }
+  function same(left, right) { return JSON.stringify(left || {}) === JSON.stringify(right || {}); }
+  function availability(draft) {
+    draft = draft || targetStore.get().draft || {};
+    var scopes = Object.keys(draft);
+    var normalized = DraftModel.applyAvailability(scopes.map(function (scope) {
+      return Object.assign({ scope: scope }, draft[scope] || {});
+    }));
+    var blockers = normalized.blockers.slice();
+    scopes.forEach(function (scope) {
+      if (!adapters[scope]) blockers.push('Unsupported scope: ' + scope);
+      else if (adapters[scope].supported !== true && blockers.indexOf('Unsupported scope: ' + scope) < 0)
+        blockers.push('Unsupported scope: ' + scope);
+    });
+    var coordinator = targetStore.get().coordinator || {};
+    var ready = coordinator.status === 'ready' && coordinator.preflight && same(coordinator.preflight.snapshot, draft);
+    var preflightReason = ready ? null : coordinator.preflight && same(coordinator.preflight.snapshot, draft) &&
+      coordinator.preflight.blockers && coordinator.preflight.blockers[0];
+    return {
+      enabled: ready && scopes.length > 0 && blockers.length === 0,
+      reason: blockers[0] || preflightReason || (ready ? normalized.reason : _('Ожидается предварительная проверка.')),
+      blockers: blockers
+    };
+  }
+  function contextFor(context) {
+    context = context || {};
+    context.api = context.api || api;
+    context.store = context.store || targetStore;
+    context.shell = context.shell || shell;
+    context.applied = context.applied || cloneValue(targetStore.get().applied || {});
+    context.root = context.root || root;
+    context.previews = context.previews || {};
+    return context;
+  }
+  function stageError(states, scope, error) {
+    var normalized = normalize(error);
+    states[scope] = states[scope] || {};
+    states[scope].blocker = normalized.code && normalized.code !== 'error'
+      ? normalized.code + ': ' + normalized.message : normalized.message;
+    states[scope].error = normalized;
+  }
+  function previewError(answer, scope, adapter) {
+    if (!answer || typeof answer !== 'object' || answer.ok !== true)
+      return responseMessage(answer, _('Предпросмотр недоступен.'));
+    if (adapter && typeof adapter.previewValid === 'function')
+      return adapter.previewValid(answer) === true ? null : _('Предпросмотр не содержит допустимой precondition.');
+    var precondition = answer.precondition;
+    if (!precondition || typeof precondition !== 'object') return _('Предпросмотр не содержит допустимой precondition.');
+    if (precondition.ledgerRevision == null && precondition.revision == null && precondition.appliedRevision == null)
+      return _('Предпросмотр не содержит ревизию precondition.');
+    if (scope === 'services' && !Object.prototype.hasOwnProperty.call(precondition, 'fileSha256'))
+      return _('Предпросмотр каталога не содержит fileSha256 precondition.');
+    return null;
+  }
+  function preconditionParity(scope, draft, read, preview) {
+    if (scope !== 'services') return null;
+    var expected = object(object(draft).precondition);
+    var actual = object(object(preview).precondition);
+    var baseline = object(read && read.precondition);
+    var previewRevision = actual.ledgerRevision != null ? actual.ledgerRevision : actual.revision;
+    var draftRevision = expected.ledgerRevision != null ? expected.ledgerRevision : expected.revision;
+    var baselineRevision = read && read.revision != null ? read.revision :
+      baseline.ledgerRevision != null ? baseline.ledgerRevision : baseline.revision;
+    if (previewRevision != null && draftRevision != null && String(previewRevision) !== String(draftRevision))
+      return { code: 'E_PRECONDITION_MISMATCH', message: _('Предпросмотр каталога содержит другую revision, чем черновик.') };
+    if (previewRevision != null && baselineRevision != null && String(previewRevision) !== String(baselineRevision))
+      return { code: 'E_PRECONDITION_MISMATCH', message: _('Предпросмотр каталога содержит другую revision, чем reread backend.') };
+    if (actual.fileSha256 != null && expected.fileSha256 != null && actual.fileSha256 !== expected.fileSha256)
+      return { code: 'E_PRECONDITION_MISMATCH', message: _('Предпросмотр каталога содержит другой fileSha256, чем черновик.') };
+    if (actual.fileSha256 != null && baseline.fileSha256 != null && actual.fileSha256 !== baseline.fileSha256)
+      return { code: 'E_PRECONDITION_MISMATCH', message: _('Предпросмотр каталога содержит другой fileSha256, чем reread backend.') };
+    return null;
+  }
+  function mutationError(answer) {
+    if (!answer || typeof answer !== 'object' || answer.ok !== true)
+      return {
+        code: answer && answer.error && answer.error.code || answer && answer.code || 'apply-rejected',
+        message: responseMessage(answer, _('Backend не подтвердил применение.'))
+      };
+    return null;
+  }
+  function preflightDraft(snapshot, context) {
+    snapshot = snapshot || targetStore.snapshotDraft();
+    context = contextFor(context);
+    var scopes = Object.keys(snapshot);
+    var states = {};
+    var normalized = {};
+    scopes.forEach(function (scope) {
+      normalized[scope] = DraftModel.normalizeScope(scope, snapshot[scope]);
+      states[scope] = { value: snapshot[scope], entry: normalized[scope] };
+      if (normalized[scope].blocker) states[scope].blocker = normalized[scope].blocker;
+      else if (!normalized[scope].applicable) states[scope].blocker = _('Нет применимых изменений.');
+      if (!adapters[scope]) states[scope].blocker = 'Unsupported scope: ' + scope;
+      else if (adapters[scope].supported !== true) states[scope].blocker = 'Unsupported scope: ' + scope;
+    });
+    var pendingAvailability = availability(snapshot);
+    pendingAvailability.enabled = false;
+    if (!pendingAvailability.reason) pendingAvailability.reason = _('Ожидается предварительная проверка.');
+    targetStore.setCoordinator({ status: 'preflighting', availability: pendingAvailability, preflight: null });
+    return sequence(scopes, function (scope) {
+      var adapter = adapters[scope];
+      if (!adapter) return Promise.resolve();
+      return Promise.resolve().then(function () { return adapter.reloadAppliedState(context); }).then(function (read) {
+        states[scope].read = read || {};
+        context.applied[scope] = read && read.value || {};
+        if (read == null || read.revision == null) states[scope].blocker = _('Ревизия backend недоступна.');
+        else if (normalized[scope].revision != null && String(normalized[scope].revision) !== String(read.revision))
+          states[scope].blocker = _('Конфликт ревизий: черновик устарел.');
+      }).catch(function (error) { stageError(states, scope, error); });
+    }).then(function () {
+      return sequence(scopes, function (scope) {
+        var adapter = adapters[scope];
+        if (!adapter) return Promise.resolve();
+        return Promise.resolve().then(function () { return adapter.validateDraft(scope, snapshot[scope], context); }).then(function (answer) {
+          var blocker = responseBlocker(answer, _('Локальная проверка не пройдена.'));
+          if (blocker) states[scope].blocker = states[scope].blocker || blocker;
+        }).catch(function (error) { stageError(states, scope, error); });
+      });
+    }).then(function () {
+      return sequence(scopes, function (scope) {
+        var adapter = adapters[scope];
+        if (!adapter) return Promise.resolve();
+        return Promise.resolve().then(function () { return adapter.previewDraft(scope, snapshot[scope], context); }).then(function (answer) {
+          var blocker = previewError(answer, scope, adapter);
+          if (blocker) states[scope].blocker = states[scope].blocker || blocker;
+          if (!blocker) {
+            var parity = preconditionParity(scope, snapshot[scope], states[scope].read, answer);
+            if (parity) {
+              states[scope].blocker = parity.code + ': ' + parity.message;
+              states[scope].error = parity;
+            }
+          }
+          states[scope].preview = answer || {};
+          context.previews[scope] = states[scope].preview;
+        }).catch(function (error) { stageError(states, scope, error); });
+      });
+    }).then(function () {
+      var blockers = scopes.map(function (scope) { return states[scope].blocker ? scope + ': ' + states[scope].blocker : null; }).filter(Boolean);
+      var result = {
+        ok: scopes.length > 0 && blockers.length === 0,
+        snapshot: snapshot, scopes: scopes, states: states, blockers: blockers,
+        availability: { enabled: scopes.length > 0 && blockers.length === 0, reason: blockers[0] || null, blockers: blockers }
+      };
+      targetStore.setCoordinator({ status: result.ok ? 'ready' : 'blocked', availability: result.availability, preflight: result });
+      return result;
+    });
+  }
+  function handleApplyResult(result) {
+    var bookkeeping = DraftModel.recordApplyResult(targetStore.get().draft || {}, result || {});
+    targetStore.update({ draft: bookkeeping.draft });
+    (bookkeeping.clearedScopes || []).forEach(function (scope) {
+      if (adapters[scope] && adapters[scope].resetDraft) adapters[scope].resetDraft();
+    });
+    targetStore.setCoordinator({ status: bookkeeping.failedScopes.length ? 'failed' : 'applied', result: bookkeeping });
+    bookkeeping.errors.forEach(function (error) { if (shell && shell.showToast) shell.showToast(error.scope + ': ' + error.message, 'err'); });
+    if (!bookkeeping.errors.length && bookkeeping.clearedScopes.length && shell && shell.showToast)
+      shell.showToast(_('Изменения применены и проверены.'), 'ok');
+    return bookkeeping;
+  }
+  function applyDrafts(snapshot, context) {
+    snapshot = snapshot || targetStore.snapshotDraft();
+    context = contextFor(context);
+    return preflightDraft(snapshot, context).then(function (preflight) {
+      if (!preflight.ok) {
+        return handleApplyResult({ successes: [], failures: preflight.scopes.filter(function (scope) {
+          return preflight.states[scope].blocker;
+        }).map(function (scope) {
+          return { scope: scope, error: preflight.states[scope].error || {
+            code: 'preflight-blocked', message: preflight.states[scope].blocker
+          } };
+        }) });
+      }
+      var outcomes = { successes: [], failures: [], rollbacks: [] };
+      function rollbackProof(scope, adapter, answer) {
+        if (!adapter || typeof adapter.rollbackResult !== 'function' || !answer || answer.ok !== true) return null;
+        var nested = object(answer.rollback);
+        var snapshotValue = answer.snapshot != null ? answer.snapshot : nested.snapshot;
+        var revision = answer.revision != null ? answer.revision :
+          answer.appliedRevision != null ? answer.appliedRevision : nested.revision;
+        if (snapshotValue == null && revision == null) return null;
+        return {
+          scope: scope, available: true,
+          snapshot: snapshotValue == null ? null : cloneValue(snapshotValue),
+          revision: revision == null ? null : revision
+        };
+      }
+      return sequence(preflight.scopes, function (scope) {
+        var state = preflight.states[scope];
+        var adapter = adapters[scope];
+        context.previews[scope] = state.preview;
+        context.preview = state.preview;
+        return Promise.resolve().then(function () {
+          return adapter.applyDraft(scope, snapshot[scope], state.read && state.read.revision, context);
+        }).then(function (answer) {
+          var blocker = mutationError(answer);
+          if (blocker) throw blocker;
+          var rollback = rollbackProof(scope, adapter, answer);
+          if (rollback) outcomes.rollbacks.push(rollback);
+          return Promise.resolve().then(function () { return adapter.reloadAppliedState(context); }).then(function (read) {
+            if (!read || read.revision == null) throw { code: 'verification-failed', message: _('Проверка ревизии применённого состояния не пройдена.') };
+            if (adapter.verifyApplied && adapter.verifyApplied(snapshot[scope], context, read) !== true)
+              throw { code: 'verification-failed', message: _('Проверка применённого состояния не пройдена.') };
+            context.applied[scope] = read.value || {};
+            targetStore.setApplied(scope, context.applied[scope]);
+            outcomes.successes.push(scope);
+          });
+        }).catch(function (error) { outcomes.failures.push({ scope: scope, error: normalize(error) }); });
+      }).then(function () {
+        outcomes.snapshot = snapshot;
+        var applied = handleApplyResult(outcomes);
+        return applied;
+      });
+    });
+  }
+  function rollbackResult(result, context) {
+    result = result || {};
+    var adapter = adapters[result.scope];
+    if (!adapter || typeof adapter.rollbackResult !== 'function' || result.available !== true)
+      return Promise.reject({ code: 'rollback-unavailable', message: _('Для этого результата нет безопасного отката.') });
+    return adapter.rollbackResult(result, contextFor(context));
+  }
+  return {
+    availability: availability,
+    semanticBlockers: function (draft) {
+      var preflight = targetStore.get().coordinator && targetStore.get().coordinator.preflight;
+      if (!preflight || !same(preflight.snapshot, draft || targetStore.get().draft || {})) return {};
+      var result = {};
+      Object.keys(preflight.states || {}).forEach(function (scope) {
+        if (preflight.states[scope].blocker) result[scope] = preflight.states[scope].blocker;
+      });
+      return result;
+    },
+    preflightDraft: preflightDraft,
+    applyDrafts: applyDrafts,
+    rollbackResult: rollbackResult,
+    handleApplyResult: handleApplyResult,
+    openSemanticDiff: options.openSemanticDiff || function () {}
+  };
 }
 
 return L.view.extend({
@@ -115,8 +413,8 @@ return L.view.extend({
     Shell.injectCss();
     var content = E('main', { 'class': 'z2m-content', id: 'z2m-content' });
     var tabs = E('nav', { 'class': 'z2m-tabs', id: 'z2m-tabs', role: 'tablist', 'aria-label': _('Разделы Zapret 2 Manager') });
-    var applyBar = Shell.renderApplyBar(store);
-    var confirmBar = Shell.renderConfirmBar();
+    var coordinator = createCoordinator({ api: Api, store: store, shell: Shell, adapters: ADAPTERS, root: content });
+    var applyBar = Shell.renderApplyBar(store, coordinator.availability());
     var appRoot = null;
 
     function setContentBusy(busy) {
@@ -124,21 +422,50 @@ return L.view.extend({
       content.setAttribute('aria-busy', busy === true ? 'true' : 'false');
     }
 
-    function setConfirmation(response) {
-      if (!response || response.rollback_ttl == null) return false;
-      var ttl = Number(response.rollback_ttl);
-      if (!isFinite(ttl) || ttl <= 0) return false;
-      var snapshot = store.get();
-      store.update({ pending: Object.assign({}, snapshot.pending, {
-        confirmation: { rollback_ttl: ttl, deadline: Date.now() + ttl * 1000 }
-      }) });
-      return true;
+    function openApplyResult(result) {
+      var rollbacks = result && (result.rollbacks || (result.rollback ? [result.rollback] : []));
+      if (!rollbacks || !rollbacks.length) return;
+      var actions = rollbacks.map(function (entry) {
+        var rollback = Shell.button(_('Откатить: ') + draftLabel(entry.scope), 'danger', function () {
+          rollback.disabled = true;
+          coordinator.rollbackResult(entry, { root: content }).then(function () {
+            Shell.closeModal();
+            Shell.showToast(_('Результат применения отменён.'), 'ok');
+            return activate(store.get().ui.tab || 'overview', true);
+          }).catch(function (error) {
+            rollback.disabled = false;
+            Shell.showToast(Api.normalizeError(error).message, 'err');
+          });
+        });
+        return rollback;
+      });
+      Shell.openModal(_('Результат применения'), E('p', {}, _('Backend сообщил доступный снимок результата. Откат выполняется только вручную.')), [
+        Shell.button(_('Закрыть'), '', Shell.closeModal)
+      ].concat(actions));
     }
-    function clearConfirmation() {
-      var snapshot = store.get();
-      var pending = Object.assign({}, snapshot.pending);
-      delete pending.confirmation;
-      store.update({ pending: pending });
+    function openSemanticDiff() {
+      var draft = store.snapshotDraft();
+      function renderModal(availability) {
+        var apply = Shell.button(_('Применить'), 'primary', function () {
+          apply.disabled = true;
+          coordinator.applyDrafts(store.snapshotDraft(), { root: content }).then(function (result) {
+            Shell.closeModal();
+            renderState();
+            activate(store.get().ui.tab || 'overview', true);
+            openApplyResult(result);
+          }).catch(function (error) {
+            apply.disabled = false;
+            Shell.showToast(Api.normalizeError(error).message, 'err');
+          });
+        }, !availability.enabled);
+        var body = [renderSemanticDiff(draft, store.get().applied || {}, coordinator.semanticBlockers(draft))];
+        if (!availability.enabled) body.push(E('div', { 'class': 'z2m-apply-reason' }, _('Применение заблокировано: ') + availability.reason));
+        Shell.openModal(_('Семантические изменения'), body, [Shell.button(_('Закрыть'), '', Shell.closeModal), apply]);
+      }
+      renderModal(coordinator.availability(draft));
+      coordinator.preflightDraft(draft, { root: content }).then(function () {
+        renderModal(coordinator.availability(draft));
+      });
     }
     function context(tab, module, data, node) {
       return {
@@ -148,7 +475,14 @@ return L.view.extend({
         refresh: function (next) { return activate(next || tab, true); },
         setDraft: function (scope, value) { store.setDraft(scope, value); },
         clearDraft: function (scope) { store.clearDraft(scope); },
-        setConfirmation: setConfirmation
+        openSemanticDiff: openSemanticDiff,
+        applyDrafts: function () { return coordinator.applyDrafts(store.snapshotDraft(), { root: content }); },
+        coordinator: {
+          preflightDraft: coordinator.preflightDraft,
+          applyDrafts: coordinator.applyDrafts,
+          handleApplyResult: coordinator.handleApplyResult,
+          openSemanticDiff: openSemanticDiff
+        }
       };
     }
     function loadTabData(tab, module) {
@@ -164,13 +498,6 @@ return L.view.extend({
         throw error;
       });
       return tabLoadPromises[tab];
-    }
-    function focusPendingDraft(tab, module, ctx) {
-      if (!pendingDraftFocus || pendingDraftFocus.tab !== tab) return;
-      var focus = pendingDraftFocus;
-      pendingDraftFocus = null;
-      if (module.openDraft) module.openDraft(focus.scope, ctx);
-      if (module.focusDraft) window.setTimeout(function () { module.focusDraft(ctx, focus.scope); }, 0);
     }
     function renderTabData(tab, module, data, token, force) {
       if (token !== activationToken) return false;
@@ -194,7 +521,6 @@ return L.view.extend({
       content.replaceChildren(node);
       activeContext = ctx;
       if (module.mount) module.mount(ctx);
-      focusPendingDraft(tab, module, ctx);
       if (appRoot && appRoot.scrollIntoView && !force)
         appRoot.scrollIntoView({ block: 'start' });
       return true;
@@ -207,20 +533,6 @@ return L.view.extend({
         return Promise.resolve();
       }
       return activate(tab);
-    }
-    function openDraftScope(scope) {
-      var meta = draftMeta(scope);
-      var module = MODULES[meta.tab];
-      if (!module) return Promise.resolve();
-      if (module.openDraft) module.openDraft(scope, activeContext);
-      pendingDraftFocus = { scope: scope, tab: meta.tab };
-      if (activeModule === module && activeContext) {
-        var focus = pendingDraftFocus;
-        pendingDraftFocus = null;
-        if (module.focusDraft) window.setTimeout(function () { module.focusDraft(activeContext, focus.scope); }, 0);
-        return Promise.resolve();
-      }
-      return navigateTo(meta.tab);
     }
     function activate(tab, force) {
       if (TAB_IDS.indexOf(tab) < 0) tab = 'overview';
@@ -268,63 +580,22 @@ return L.view.extend({
 
     function updateDraftBar() {
       var scopes = draftScopes();
-      var confirmation = store.get().pending && store.get().pending.confirmation;
-      applyBar.classList.toggle('hidden', !scopes.length || !!confirmation);
+      var availability = coordinator.availability();
+      applyBar.classList.toggle('hidden', !scopes.length);
       var text = applyBar.querySelector('#z2m-apply-text');
-      var open = applyBar.querySelector('#z2m-open-drafts');
+      var apply = applyBar.querySelector('#z2m-apply-drafts');
+      var reason = applyBar.querySelector('#z2m-apply-reason');
       if (text && scopes.length) {
         text.textContent = scopes.length + ' ' + (scopes.length === 1 ? _('изменение') : _('изменения')) + ': ' +
           scopes.map(draftLabel).join(', ') + '. ' + _('На работу роутера пока не влияет.');
       }
-      if (open && scopes.length) {
-        var target = draftMeta(scopes[0]);
-        open.textContent = activeModule === MODULES[target.tab]
-          ? _('Показать на странице')
-          : _('Перейти к изменениям');
-      }
-    }
-    function updateConfirmBar() {
-      var confirmation = store.get().pending && store.get().pending.confirmation;
-      if (confirmationTimer) {
-        window.clearInterval(confirmationTimer);
-        confirmationTimer = null;
-      }
-      if (!confirmation) {
-        confirmBar.classList.add('hidden');
-        updateDraftBar();
-        return;
-      }
-      confirmBar.classList.remove('hidden');
-      applyBar.classList.add('hidden');
-      var text = confirmBar.querySelector('#z2m-confirm-text');
-      function tick() {
-        var current = store.get().pending && store.get().pending.confirmation;
-        if (!current) return;
-        var remaining = Math.max(0, Math.ceil((current.deadline - Date.now()) / 1000));
-        if (text) text.textContent = _('Проверьте связь. Автооткат через ') + remaining + _(' с.');
-        if (remaining <= 0) {
-          window.clearInterval(confirmationTimer);
-          confirmationTimer = null;
-          clearConfirmation();
-          Shell.showToast(_('Срок подтверждения истёк; backend должен выполнить автооткат.'), 'warn');
-          activate(store.get().ui.tab, true);
-        }
-      }
-      tick();
-      confirmationTimer = window.setInterval(tick, 1000);
+      if (apply) apply.disabled = availability.enabled !== true;
+      if (reason) reason.textContent = availability.enabled || !scopes.length ? '' : _('Применение заблокировано: ') + availability.reason;
     }
     function renderState() {
       if (appRoot)
         appRoot.classList.toggle('adv', !!(store.get().ui && store.get().ui.advanced));
       updateDraftBar();
-      updateConfirmBar();
-    }
-    function previewDrafts() {
-      var draft = store.get().draft || {};
-      var body = E('div', {}, Object.keys(draft).map(function (scope) {
-        return renderDraftDiff(scope, draft[scope]);
-      }));
-      Shell.openModal(_('Что изменено'), body);
     }
     function discardDrafts() {
       Shell.openModal(
@@ -342,7 +613,6 @@ return L.view.extend({
             var snapshot = store.get();
             store.update({ pending: Object.assign({}, snapshot.pending, { pendingStrategyId: null, pendingOverride: null }) });
             tabDataCache = {};
-            pendingDraftFocus = null;
             renderState();
             activate(store.get().ui.tab || 'overview', true);
           })
@@ -381,46 +651,13 @@ return L.view.extend({
       ])),
       E('div', { 'class': 'z2m-wrap' }, [tabs, content]),
       applyBar,
-      confirmBar,
       E('div', { id: 'z2m-modal', 'class': 'z2m-scrim' }),
       E('div', { id: 'z2m-toasts', 'class': 'z2m-toasts' })
     ]);
 
     applyBar.querySelector('#z2m-discard-drafts').addEventListener('click', discardDrafts);
-    applyBar.querySelector('#z2m-preview-drafts').addEventListener('click', previewDrafts);
-    applyBar.querySelector('#z2m-open-drafts').addEventListener('click', function () {
-      var scopes = draftScopes();
-      if (scopes.length) openDraftScope(scopes[0]);
-    });
-    confirmBar.querySelector('#z2m-confirm-alive').addEventListener('click', function () {
-      var keep = confirmBar.querySelector('#z2m-confirm-alive');
-      var rollback = confirmBar.querySelector('#z2m-rollback-now');
-      keep.disabled = true;
-      rollback.disabled = true;
-      Api.strategy.confirmAlive().then(function () {
-        clearConfirmation();
-        Shell.showToast(_('Изменения подтверждены.'), 'ok');
-      }).catch(function (error) {
-        keep.disabled = false;
-        rollback.disabled = false;
-        Shell.showToast(Api.normalizeError(error).message, 'err');
-      });
-    });
-    confirmBar.querySelector('#z2m-rollback-now').addEventListener('click', function () {
-      var keep = confirmBar.querySelector('#z2m-confirm-alive');
-      var rollback = confirmBar.querySelector('#z2m-rollback-now');
-      keep.disabled = true;
-      rollback.disabled = true;
-      Api.strategy.rollbackManager().then(function () {
-        clearConfirmation();
-        Shell.showToast(_('Выполнен откат к last-good.'), 'ok');
-        return activate(store.get().ui.tab, true);
-      }).catch(function (error) {
-        keep.disabled = false;
-        rollback.disabled = false;
-        Shell.showToast(Api.normalizeError(error).message, 'err');
-      });
-    });
+    applyBar.querySelector('#z2m-preview-drafts').addEventListener('click', openSemanticDiff);
+    applyBar.querySelector('#z2m-apply-drafts').addEventListener('click', openSemanticDiff);
 
     if (storeUnsubscribe) storeUnsubscribe();
     storeUnsubscribe = store.subscribe(renderState);
@@ -431,5 +668,10 @@ return L.view.extend({
 
   handleSaveApply: null,
   handleSave: null,
-  handleReset: null
+  handleReset: null,
+  createCoordinator: createCoordinator,
+  createServicesAdapter: Services.createAdapter,
+  createDnsAdapter: Dns.createAdapter,
+  createStrategyAdapter: Strategy.createAdapter,
+  renderSemanticDiff: renderSemanticDiff
 });

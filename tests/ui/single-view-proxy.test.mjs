@@ -21,7 +21,7 @@ test('proxy tab exposes lifecycle and every existing proxy workflow', () => {
   const src = source('z2m-proxy.js');
   for (const token of [
     'api.proxy.capabilities','api.proxy.status','api.proxy.configGet','api.proxy.configValidate',
-    'api.proxy.configPreview','api.proxy.configApply','api.proxy.start','api.proxy.stop','api.proxy.restart',
+    'api.proxy.configPreview','api.proxy.start','api.proxy.stop','api.proxy.restart',
     'api.proxy.autostartSet','api.proxy.secretRotate','api.proxy.logsTail','api.proxy.health',
     'api.proxy.linkInfo','api.proxy.quickInstall'
   ]) assert.match(src, new RegExp(token.replaceAll('.', '\\.')));
@@ -30,17 +30,19 @@ test('proxy tab exposes lifecycle and every existing proxy workflow', () => {
     'Настройки','Техническое','Перезапустить','Самопроверка','Собрать диагностику','Остановить службу'
   ]) assert.match(src, new RegExp(label));
   assert.match(src, /reveal:\s*true[\s\S]*confirm:\s*['"]REVEAL['"]/);
-  assert.match(src, /expectedAppliedRevision/);
+  assert.match(src, /ctx\.openSemanticDiff/);
+  assert.match(src, /безопасный adapter отсутствует/);
   assert.match(src, /ctx\.root\.replaceChildren/);
   assert.doesNotMatch(src, /children\.forEach/);
   assert.doesNotMatch(src, /-legacy/);
 });
 
-test('proxy settings participate in shared draft state and apply clears it', () => {
+test('proxy settings participate in shared draft state and remain blocked without a safe adapter', () => {
   const src = source('z2m-proxy.js');
   assert.match(src, /ctx\.setDraft\(['"]proxy['"]/);
-  assert.match(src, /ctx\.clearDraft\(['"]proxy['"]/);
-  assert.match(src, /config:\s*config\(\)[\s\S]*expectedAppliedRevision/);
+  assert.doesNotMatch(src, /ctx\.clearDraft\(['"]proxy['"]/);
+  assert.match(src, /changes:\s*\{\s*settings/);
+  assert.doesNotMatch(src, /ctx\.api\.proxy\.configApply/);
 });
 
 test('proxy rotation uses shared modal and activity uses redacted backend logs', () => {

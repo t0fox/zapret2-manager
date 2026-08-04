@@ -11,6 +11,7 @@ import { collectFacadeMethods, collectUiContract } from '../../tools/ui-rpc-cont
 
 const root = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager';
 const apiSource = readFileSync(`${root}/z2m-api.js`, 'utf8');
+const draftModelSource = readFileSync(`${root}/z2m-draft-model.js`, 'utf8');
 const expected = JSON.parse(readFileSync('tests/fixtures/ui-rpc-contract.json', 'utf8'));
 
 function makeRpcWorld(responses = {}) {
@@ -142,7 +143,8 @@ test('read-only load paths do not invoke mutation facade methods', () => {
 test('secrets are redacted or guarded before display', () => {
   const app = readFileSync(`${root}/app.js`, 'utf8');
   const proxy = readFileSync(`${root}/z2m-proxy.js`, 'utf8');
-  assert.match(app, /secret\|token\|password/i);
+  assert.match(app, /DraftModel\.redact/);
+  assert.match(draftModelSource, /secret\|token\|password/i);
   assert.match(proxy, /redact|reveal|secret/i);
   assert.doesNotMatch(proxy, /innerHTML/);
 });

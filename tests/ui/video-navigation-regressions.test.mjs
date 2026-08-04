@@ -32,7 +32,7 @@ test('same-tab navigation and draft cancellation do not reload the document', ()
 
 test('strategy candidate selection updates locally without a backend refresh', () => {
   assert.match(strategy, /function\s+renderCandidateSelection\s*\(/);
-  assert.match(strategy, /select\(ctx,\s*id,\s*renderCandidateSelection\)/);
+  assert.match(strategy, /select\(ctx,\s*id,\s*renderCandidateSelection,\s*candidate\)/);
   const match = strategy.match(/function\s+select\s*\([^)]*\)\s*\{([\s\S]*?)\n\}/);
   assert.ok(match, 'select() must exist');
   assert.doesNotMatch(match[1], /ctx\.refresh\s*\(/);

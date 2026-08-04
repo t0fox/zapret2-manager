@@ -164,6 +164,12 @@ return baseclass.extend({
     catalogApply: calls.catalogApply,
     healthMatrixGet: calls.healthMatrixGet
   },
+  coordinator: {
+    catalogList: calls.catalogList,
+    catalogStatus: calls.catalogStatus,
+    catalogPreview: calls.catalogPreview,
+    catalogApply: calls.catalogApply
+  },
   lists: { get: calls.listsGet, checkDomain: calls.listsCheckDomain, set: calls.listsSet },
   dns: {
     get: calls.dnsGet,

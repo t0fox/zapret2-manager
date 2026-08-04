@@ -43,23 +43,39 @@ test('all published menu routes resolve to shipped view modules', () => {
 test('single-view runtime modules and local stylesheets exist', () => {
   for (const name of [
     'app.js','z2m-api.js','z2m-store.js','z2m-shell.js','z2m-ui.css','z2m-components.css',
-    'z2m-overview.js','z2m-overview-model.js','z2m-strategy.js','z2m-services.js','z2m-lists.js','z2m-dns.js',
+    'z2m-overview.js','z2m-overview-model.js','z2m-draft-model.js','z2m-strategy.js','z2m-services.js',
+    'z2m-services-model.js','z2m-lists.js','z2m-dns.js',
     'z2m-proxy.js','z2m-qr.js','z2m-monitor.js','z2m-maintenance.js'
   ]) assert.ok(existsSync(join(viewRoot, name)), `${name} exists`);
 });
 
-test('r142 package ships no legacy runtime and only the two authoritative local stylesheets', () => {
+test('r143 package ships no legacy runtime and only the two authoritative local stylesheets', () => {
   const makefile = readFileSync(join(REPO, 'luci-app-zapret2-manager/Makefile'), 'utf8');
-  assert.match(makefile, /^PKG_RELEASE:=142$/m);
+  assert.match(makefile, /^PKG_RELEASE:=143$/m);
   const files = readdirSync(viewRoot).sort();
   assert.deepEqual(files.filter((name) => name.endsWith('.css')), ['z2m-components.css', 'z2m-ui.css']);
   assert.deepEqual(files.filter((name) => name.endsWith('-legacy.js')), []);
+  for (const obsolete of ['overview.js', 'catalog.js', 'blockcheck.js'])
+    assert.equal(files.includes(obsolete), false, `${obsolete} is not shipped`);
   for (const obsolete of ['z2m-ui-core.css','z2m-ui-v1.css','z2m-shell.css','z2m-orchestra.css'])
     assert.equal(files.includes(obsolete), false, `${obsolete} is not shipped`);
   for (const stylesheet of ['z2m-components.css', 'z2m-ui.css']) {
     const source = readFileSync(join(viewRoot, stylesheet), 'utf8');
     assert.doesNotMatch(source, /@import|https?:\/\//, `${stylesheet} stays self-contained`);
   }
+  for (const name of ['tools/deploy-verify.sh', 'tools/session-check.sh', 'tools/verify-deploy-r38.sh']) {
+    const source = readFileSync(join(REPO, name), 'utf8');
+    assert.match(source, /zapret2-manager\/app|\bapp\b/, `${name} checks the app route`);
+    assert.doesNotMatch(source, /\b(?:overview|blockcheck|catalog)(?:\.js)?\b/, `${name} has no removed standalone route`);
+  }
+});
+
+test('shipped LuCI sources contain no countdown, fake catalogue or demo secrets', () => {
+  const source = readdirSync(viewRoot).filter((name) => name.endsWith('.js'))
+    .map((name) => readFileSync(join(viewRoot, name), 'utf8')).join('\n');
+  assert.doesNotMatch(source, /rollback_ttl|z2m-countdown|automatic[- ]rollback/i);
+  assert.doesNotMatch(source, /Flowseal ALT11|\bdemo\b/i);
+  assert.doesNotMatch(source, /(?:api[_-]?key|access[_-]?token|password)\s*[:=]\s*['"][^'"]+['"]/i);
 });
 
 test('backend and full-stack meta-package releases advance together to r137', () => {

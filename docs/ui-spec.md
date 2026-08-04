@@ -1,8 +1,9 @@
 # UI spec — luci-app-zapret2-manager (LuCI JS frontend)
 
-This document is the source of truth for the LuCI frontend: the nine pages,
-their data sources, the RPC methods they call, and the unavailable-state
-contract. It reflects the actual repository layout
+This document is the source of truth for the LuCI frontend: one visible
+single-view application with eight internal destinations, hidden compatibility
+redirects, their data sources, the RPC methods they call, and the
+unavailable-state contract. It reflects the actual repository layout
 (`luci-app-zapret2-manager/files/…`), not a packaging-idealized one.
 
 ## Platform facts
@@ -26,17 +27,17 @@ The only ubus object the UI talks to is `zapret2-manager`
 | Method | Used by | Notes |
 |---|---|---|
 | `status` | Overview, Strategies, Monitor | Schema v2 (docs/contracts/status.schema.json). May return `{error: 'status unavailable'}` — pages render that as an unavailable state, not as data. |
-| `start`, `stop`, `restart`, `restart_daemons`, `start_fw`, `reload_ifsets`, `confirm_alive`, `rollback`, `passthrough` | Overview, Strategies | Sanctioned service control; manual rollback flow (auto timer stays disabled). |
+| `start`, `stop`, `restart`, `restart_daemons`, `start_fw`, `reload_ifsets`, `confirm_alive`, `rollback`, `passthrough` | Overview, Strategies | Backend methods remain available; the primary draft/apply workflow uses the global coordinator and renders no countdown or `confirm_alive` UI. |
 | `lists_get`, `lists_check_domain`, `lists_set` | Lists | List model + editing (edit sent as JSON string). |
 | `profiles_list` | Strategies | Lossless applied-profile parse + draft block (schema 1). |
 | `profiles_create`, `profiles_update`, `profiles_clone`, `profiles_delete`, `profiles_validate`, `profiles_import_applied`, `profiles_apply` | Strategies | Draft CRUD (optimistic concurrency), native `--dry-run` validation, safe apply pipeline with rollback. |
-| `job_get`, `job_list`, `blockcheck_start`, `blockcheck_status`, `blockcheck_cancel` | Blockcheck | Generic job model + upstream scanner wrapper (`test: standard\|custom`). |
+| `job_get`, `job_list`, `blockcheck_start`, `blockcheck_status`, `blockcheck_cancel` | Strategy diagnostics | Generic job model + upstream scanner wrapper (`test: standard\|custom`); no standalone Blockcheck page is shipped. |
 | `versions`, `maintenance_status`, `events_tail`, `diagnostics_export`, `backup_list`, `backup_create`, `backup_restore_preview`, `backup_restore`, `backup_delete` | Maintenance | Versions, events, scoped backups with preview/restore, redacted export. |
 | `dns_get`, `dns_set`, `dns_validate`, `dns_apply`, `dns_check`, `dns_rollback` | DNS | Domain→IPv4 overrides through the manager-owned addnhosts file with apply/rollback. |
 
-Not registered yet (honest unavailable states where a page references them):
-`proxy_*` (TG WS proxy adapter), `catalog_*`, `health_matrix_*`,
-`orchestra_*`, `dns_provider_*`.
+All currently used RPC families are exposed through the central facade. Missing
+backend data renders an unavailable state; the UI does not synthesize catalog
+records, runtime status, or apply success.
 
 ## Shared page rules
 
@@ -60,7 +61,7 @@ Every page:
    truly needs them (none do today).
 9. Standard LuCI `cbi-*` classes only, so narrow screens reflow the same way
    as the rest of LuCI.
-10. Strings are built by **plain concatenation** (overview.js style).
+10. Strings are built by **plain concatenation** (single-view UI style).
     `String.prototype.format` lives in `cbi.js`, which these views do not
     require — calling `.format()` would throw at render time.
 11. **rpc.js wire semantics** (verified against
@@ -75,33 +76,31 @@ Every page:
     `.catch()` error paths, the lists anti-wipe lock, and the monitor stale
     fallback all depend on real rejections.
 
-## Menu
+## Menu and Redirects
 
 `luci-app-zapret2-manager/files/usr/share/luci/menu.d/luci-app-zapret2-manager.json`
 
-Nine entries, tab style (parent + children), `depends.acl` is always a flat
-array (an object form previously caused an HTTP 500 — regression-gated by
-both `tools/smoke.sh menu_acl_shape` and `tests/ui/`):
+The menu publishes exactly one visible application route. `depends.acl` is a
+flat array (an object form previously caused an HTTP 500):
 
-| # | Menu key | Tab | View |
+| Menu key | View |
 |---|---|---|---|
-| 1 | `admin/services/zapret2-manager` | Zapret 2 Manager (order 90) | `zapret2-manager/overview` |
-| 2 | `…/strategies` | Strategies (91) | `zapret2-manager/strategies` |
-| 3 | `…/blockcheck` | Blockcheck (92) | `zapret2-manager/blockcheck` |
-| 4 | `…/catalog` | Service Catalog (93) | `zapret2-manager/catalog` |
-| 5 | `…/orchestra` | Adaptive engine (94) | `zapret2-manager/orchestra` |
-| 6 | `…/lists` | Lists (95) | `zapret2-manager/lists` |
-| 7 | `…/dns` | DNS (96) | `zapret2-manager/dns` |
-| 8 | `…/monitor` | Monitor (97) | `zapret2-manager/monitor` |
-| 9 | `…/proxy` | Proxy (98) | `zapret2-manager/proxy` |
-| 10 | `…/maintenance` | Maintenance (99) | `zapret2-manager/maintenance` |
+| `admin/services/zapret2-manager` | `zapret2-manager/app` |
+
+The application owns these hash destinations: `overview`, `strategy`,
+`services`, `lists`, `dns`, `proxy`, `monitor`, and `maintenance`.
+
+Shipped hidden redirects preserve existing deep links for
+`orchestra-strategy`, `orchestra`, `strategies`, `lists`, `dns`, `service-dns`,
+`proxy`, `monitor`, and `maintenance`. No standalone legacy runtime files are
+shipped.
 
 ## Pages
 
 ### 1. Overview
 Backend agent's zone — not covered here.
 
-### 2. Strategies (`strategies.js`)
+### 2. Strategies (`z2m-strategy-page.js`)
 Profile/strategy management, fully wired (r19).
 
 - Shows: service state; runtime profile count; applied profiles from the
@@ -114,25 +113,14 @@ Profile/strategy management, fully wired (r19).
   advanced textarea + whitelisted guided add-option row), unsaved indicator,
   ECONFLICT keeps the editor open, malformed state shows a loud preserved
   warning with no CRUD, Import-applied button.
-- Apply: Preview (exact candidate, sha256 diff, native coverage note) →
-  arm→confirm → apply → five-check verification row → manual Link OK /
-  Roll back. Refused previews keep Apply disabled with the reason.
-- Passthrough toggle with the manual rollback confirm flow.
+- Apply: select a candidate into the shared draft → semantic diff and backend
+  preflight → apply → reread/verification. Refused previews keep Apply
+  disabled with the reason; manual rollback is shown only for a backend-
+  confirmed result snapshot.
+- Passthrough remains an explicit backend action and is not part of the
+  primary draft/apply bar.
 
-### 3. Blockcheck (`blockcheck.js`)
-Fully wired (r19). Job kind-isolated (r36): only `kind=blockcheck` jobs appear;
-health matrix jobs never contaminate this page.
-v2 (r36): uses shared z2m-ui design system — compact cards, kind-scoped
-job lists, collapsible log tail, consistent badge styling.
-
-- Shows: mode select (quick/domains/full + `test: standard|custom`), domains
-  input, Start (disabled while active; ECONFLICT renders the backend
-  message), current job with status badge + honest elapsed (no fabricated
-  percentage) + log tail, real Cancel, engine-running warning, recent jobs
-  table, recommendations with Review-raw and Save-to-Draft (verbatim via
-  `profiles_create`; never auto-applied), 2s polling while active.
-
-### 4. Lists (`lists.js`)
+### 3. Lists (`z2m-lists.js`)
 - Shows: five user lists (domain include/exclude, IP include/exclude/block)
   as editable textareas with entry counts, per-list client-side filter,
   source file paths; engine-owned autohostlist as read-only with source
@@ -145,22 +133,22 @@ job lists, collapsible log tail, consistent badge styling.
   by applying empty textareas.
 - IPv6 lists: noted as not present in the current backend list set.
 
-### 5. DNS (`dns.js`)
+### 4. DNS (`z2m-dns.js`)
 Fully wired (r19).
 
 - Shows: resolver components + conflict banners, upstream nameservers from
   the real resolvfile; applied overrides (manager-owned addnhosts) with a
   live Check button (per-entry match results); draft rows editor
   (add/remove/save-with-revision, unsaved rows), Validate with backend error
-  detail; Preview (diff + candidate + registration flag) → arm→confirm →
-  apply with verification rendering; manual rollback.
+  detail; semantic diff → backend preflight → apply with verification
+  rendering; manual rollback remains capability-gated.
 - The manager owns only `/etc/zapret2-manager/dns-overrides.hosts`;
   dnsmasq's own option lists and `/etc/config/dhcp` structure are never
   edited beyond the one-time addnhosts registration.
 - DoH/provider management is NOT implemented (see Phase E roadmap); no
   hardcoded third-party endpoints.
 
-### 6. Monitor (`monitor.js`)
+### 5. Monitor (`z2m-monitor.js`)
 The detailed technical screen (does not duplicate Overview's control plane).
 
 - Shows: service state + pause/passthrough; `generatedAt`, `generation`,
@@ -174,7 +162,7 @@ The detailed technical screen (does not duplicate Overview's control plane).
   view DOM leaves the document and on window unload; a failed poll keeps the
   last good data with a STALE banner + timestamp and keeps polling.
 
-### 7. Proxy (`proxy.js`)
+### 6. Proxy (`z2m-proxy.js`)
 FUNCTIONAL TG WS Proxy slice (Phase F, r32) over the live proxy RPC family
 (`proxy_capabilities/status/config_get/config_validate/config_preview/
 config_apply/start/stop/restart/autostart_set/secret_rotate/logs_tail/
@@ -229,7 +217,7 @@ The not-installed state renders "adapter operational + proxy not installed"
 with the provider panel intact and every mutation button disabled with the
 reason shown — no fake buttons, no missing-method load errors.
 
-### 8. Maintenance (`maintenance.js`)
+### 7. Maintenance (`z2m-maintenance.js`)
 Fully wired (r19).
 
 - Shows: real versions/system panel (manager/LuCI/upstream apk, nfqws2,

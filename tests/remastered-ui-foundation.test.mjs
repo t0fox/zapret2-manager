@@ -11,8 +11,9 @@ const css = readFileSync(`${root}/z2m-ui.css`, 'utf8') + '\n' + readFileSync(`${
 
 test('shared shell is a valid presentation-only LuCI helper', () => {
   const mod = evaluateLuciModule(`${root}/z2m-shell.js`);
-  for (const name of ['button','chip','panel','empty','showToast','openModal','closeModal','renderApplyBar','renderConfirmBar'])
+  for (const name of ['button','chip','panel','empty','showToast','openModal','closeModal','renderApplyBar'])
     assert.equal(typeof mod[name], 'function', name);
+  assert.doesNotMatch(shell, /renderConfirmBar/);
   assert.doesNotMatch(shell, /rpc\.declare|L\.ubus|fetch\s*\(/);
 });
 
@@ -23,8 +24,9 @@ test('shared store owns draft state without backend access', () => {
   assert.doesNotMatch(store, /rpc\.declare|L\.ubus|fetch\s*\(/);
 });
 
-test('one app shell owns navigation, modal, toasts and both sticky bars', () => {
-  for (const token of ['z2m-tabs','z2m-modal','z2m-toasts','z2m-applybar','z2m-confirm-bar']) assert.match(app + shell, new RegExp(token));
+test('one app shell owns navigation, modal, toasts and the global draft bar', () => {
+  for (const token of ['z2m-tabs','z2m-modal','z2m-toasts','z2m-applybar']) assert.match(app + shell, new RegExp(token));
+  assert.doesNotMatch(app + shell, /z2m-confirm-bar|renderConfirmBar/);
   assert.equal((app.match(/L\.view\.extend/g) || []).length, 1);
 });
 

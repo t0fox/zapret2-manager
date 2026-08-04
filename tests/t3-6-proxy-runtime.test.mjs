@@ -50,8 +50,10 @@ test('settings stay draft-first before validate preview apply', () => {
   assert.match(ui, /ctx\.setDraft\(['"]proxy/);
   assert.match(ui, /api\.proxy\.configValidate/);
   assert.match(ui, /api\.proxy\.configPreview/);
-  assert.match(ui, /api\.proxy\.configApply/);
-  assert.match(ui, /ctx\.clearDraft\(['"]proxy/);
+  assert.match(ui, /Прокси применяется только через общий координатор/);
+  assert.match(ui, /ctx\.openSemanticDiff/);
+  assert.doesNotMatch(ui, /ctx\.api\.proxy\.configApply/);
+  assert.match(ui, /blocker:\s*_/);
 });
 
 test('backend log strings are rendered as text and remain redacted', () => {

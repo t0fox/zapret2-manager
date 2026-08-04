@@ -43,7 +43,8 @@ test('strategy selection is pending until explicit apply and empty runs are erro
   assert.match(src, /pendingStrategyId/);
   assert.match(src, /setDraft\(['"]strategy/);
   assert.match(src, /api\.strategy\.apply/);
-  assert.match(src, /ctx\.setConfirmation\(response\)/);
+  assert.match(src, /ctx\.openSemanticDiff/);
+  assert.doesNotMatch(src, /ctx\.setConfirmation\(response\)/);
   assert.match(src, /Выбор стратегии не меняет runtime/);
   assert.match(src, /0 targets|не получил целей/);
   assert.match(src, /targetCount[^\n]*=== 0|candidateCount[^\n]*=== 0/);

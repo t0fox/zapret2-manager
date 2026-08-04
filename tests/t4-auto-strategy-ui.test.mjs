@@ -47,10 +47,10 @@ test('technical data is bounded and raw HTML is forbidden', () => {
   assert.doesNotMatch(auto + runs + strategy, /innerHTML/);
 });
 
-test('rollback confirmation is backend TTL driven', () => {
-  assert.match(strategy, /ctx\.setConfirmation\(response\)/);
-  assert.match(app, /rollback_ttl/);
-  assert.doesNotMatch(app, /rollback_ttl\s*\|\|\s*(60|90)/);
+test('strategy apply routes through the global coordinator without confirmation or TTL UI', () => {
+  assert.match(strategy, /ctx\.openSemanticDiff/);
+  assert.doesNotMatch(strategy, /ctx\.setConfirmation\(response\)/);
+  assert.doesNotMatch(app, /rollback_ttl|confirm_alive|confirmationTimer/);
 });
 
 test('advanced profile controls use shared advanced mode', () => {

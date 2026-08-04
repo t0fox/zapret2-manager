@@ -9,6 +9,17 @@ var state = {
 
 function edit(fn, value) { return fn(JSON.stringify(value || {})); }
 function asArray(value) { return Array.isArray(value) ? value : []; }
+function object(value) { return value && typeof value === 'object' ? value : {}; }
+function revisionOf(value) {
+  value = object(value);
+  return value.revision != null ? value.revision : value.catalogRevision != null ? value.catalogRevision :
+    value.appliedRevision != null ? value.appliedRevision : null;
+}
+function strategyRevision(preview, profiles) {
+  var activeCandidate = active(preview) || {};
+  var source = object(object(profiles).source);
+  return activeCandidate.digest || revisionOf(profiles) || source.configSha256 || revisionOf(preview) || null;
+}
 function settled(result, api) { return result.status === 'fulfilled' ? { value: result.value || {} } : { error: api.normalizeError(result.reason) }; }
 function candidates(preview) { return preview && preview.comboCatalog && Array.isArray(preview.comboCatalog.candidates) ? preview.comboCatalog.candidates : []; }
 function active(preview) { return preview && preview.strategyState && preview.strategyState.active || null; }
@@ -16,6 +27,106 @@ function candidateId(candidate) { return candidate && (candidate.managerId || ca
 function candidateName(candidate) { return candidate && (candidate.name || candidate.displayName || candidateId(candidate)) || '—'; }
 function candidateApplicable(candidate) { return !!(candidate && candidate.applicable === true); }
 function candidateValidationMessage(candidate) { return candidate && candidate.validationMessage ? String(candidate.validationMessage).slice(0, 180) : _('Backend не подтвердил применимость стратегии.'); }
+function strategyCandidate(preview, id) {
+  return candidates(preview).filter(function (candidate) { return String(candidateId(candidate)) === String(id); })[0] || null;
+}
+function hasProfileDraft(value) {
+  return object(value).profiles === true || object(value).changes && object(value).changes.profiles !== undefined;
+}
+function createAdapter(api) {
+  api = api || {};
+  function readProfiles() {
+    return api.profiles && typeof api.profiles.list === 'function' ? api.profiles.list() : Promise.resolve({});
+  }
+  function reloadAppliedState() {
+    return Promise.all([api.strategy.preview(), readProfiles()]).then(function (values) {
+      var preview = object(values[0]);
+      var profiles = object(values[1]);
+      var activeCandidate = active(preview) || {};
+      return {
+        value: {
+          candidateId: activeCandidate.candidateId || activeCandidate.managerId || null,
+          candidate: activeCandidate,
+          profiles: profiles.profiles || profiles.appliedProfiles || [],
+          profileState: profiles
+        },
+        revision: strategyRevision(preview, profiles),
+        raw: { preview: preview, profiles: profiles }
+      };
+    });
+  }
+  function candidateGate(value, preview) {
+    var id = object(value).candidateId;
+    if (id == null) return { ok: false, message: _('Для применения профилей требуется идентификатор стратегии-кандидата.') };
+    var candidate = strategyCandidate(preview, id);
+    if (!candidate) return { ok: false, message: _('Выбранная стратегия больше не найдена в каталоге.') };
+    if (!candidateApplicable(candidate)) return { ok: false, message: candidateValidationMessage(candidate), candidate: candidate };
+    return { ok: true, candidate: candidate };
+  }
+  function validateCandidate(value) {
+    if (object(value).override) return Promise.resolve({ ok: false, message: _('Точечные правила не поддерживаются общим координатором.') });
+    if (object(value).blocker) return Promise.resolve({ ok: false, message: value.blocker });
+    return api.strategy.preview().then(function (preview) {
+      var gate = candidateGate(value, preview);
+      return gate.ok ? { ok: true, candidate: gate.candidate } : { ok: false, message: gate.message, candidate: gate.candidate };
+    });
+  }
+  function previewValid(answer) {
+    return !!(answer && answer.ok === true && (!answer.candidate || answer.candidate.applicable !== false) &&
+      answer.precondition && answer.precondition.revision != null);
+  }
+  return {
+    supported: true,
+    validateDraft: function (scope, value) { return validateCandidate(value); },
+    previewDraft: function (scope, value, context) {
+      if (object(value).override) return Promise.resolve({ ok: false, message: _('Точечные правила не поддерживаются общим координатором.') });
+      return api.strategy.preview().then(function (preview) {
+        var gate = candidateGate(value, preview);
+        if (!gate.ok) return { ok: false, message: gate.message, candidate: gate.candidate };
+        var read = context && context.applied && context.applied.strategy || {};
+        var revision = read.candidate && read.candidate.digest ||
+          strategyRevision(read.raw && read.raw.preview, read.raw && read.raw.profiles) || revisionOf(read);
+        var runProfilesPreview = hasProfileDraft(value) && api.profiles && typeof api.profiles.apply === 'function'
+          ? edit(api.profiles.apply, { mode: 'preview' }) : Promise.resolve({ ok: true });
+        return runProfilesPreview.then(function (answer) {
+          if (!answer || answer.ok !== true || answer.wouldApply === false)
+            return { ok: false, message: answer && (answer.refuseReason || answer.message) || _('Предпросмотр профилей заблокирован.') };
+          return Object.assign({}, answer, { candidate: gate.candidate, precondition: { revision: revision } });
+        });
+      });
+    },
+    previewValid: previewValid,
+    applyDraft: function (scope, value, expectedRevision, context) {
+      var draft = object(value);
+      var previews = context && context.previews || {};
+      var preview = previews.strategy || context && context.preview || {};
+      var candidate = object(preview.candidate);
+      if (draft.candidateId == null || candidate.applicable !== true)
+        return Promise.reject({ code: 'candidate-blocked', message: candidate.validationMessage || _('Применение заблокировано: стратегия-кандидат отсутствует или неприменима.') });
+      if (hasProfileDraft(draft) && api.profiles && typeof api.profiles.apply === 'function')
+        return edit(api.profiles.apply, { mode: 'apply' });
+      return edit(api.strategy.apply, {
+        candidateId: draft.candidateId,
+        expectedDigest: candidate.digest,
+        wideAcknowledged: true,
+        includeOverrides: true,
+        idempotencyToken: 'luci-global-' + Date.now()
+      });
+    },
+    reloadAppliedState: reloadAppliedState,
+    verifyApplied: function (value, context, read) {
+      var draft = object(value);
+      var actual = object(read && read.value);
+      if (draft.candidateId != null && String(actual.candidateId || '') !== String(draft.candidateId)) return false;
+      if (hasProfileDraft(draft)) {
+        var raw = object(read && read.raw && read.raw.profiles);
+        return !object(raw.draft).profiles || object(raw.draft).profiles.length === 0;
+      }
+      return true;
+    },
+    resetDraft: function () {}
+  };
+}
 function missingRunError(error) {
   var value = error && error.error ? error.error : error || {};
   var code = String(value.code || '').toLowerCase();
@@ -110,10 +221,19 @@ function selectedId(ctx, list, preview) {
   var activeId = active(preview) && (active(preview).candidateId || active(preview).managerId);
   return current || activeId || (list[0] && candidateId(list[0])) || null;
 }
-function select(ctx, id, redraw) {
+function select(ctx, id, redraw, candidate) {
   var snapshot = ctx.store.get();
   ctx.store.update({ pending: Object.assign({}, snapshot.pending, { pendingStrategyId: id }) });
-  setStrategyDraft(ctx, { candidateId: id });
+  var current = currentStrategyDraft(ctx);
+  var appliedId = current.appliedCandidateId || null;
+  var changes = Object.assign({}, current.changes || {}, {
+    candidateId: { label: _('Стратегия'), before: appliedId, after: id }
+  });
+  setStrategyDraft(ctx, {
+    candidateId: id, changes: changes,
+    applicable: candidate ? candidateApplicable(candidate) : undefined,
+    blocker: candidate && !candidateApplicable(candidate) ? candidateValidationMessage(candidate) : null
+  });
   if (typeof redraw === 'function') redraw();
 }
 function renderRun(run, shell) {
@@ -204,7 +324,15 @@ function render(ctx) {
 
   function showError(error) { shell.showToast(ctx.api.normalizeError(error).message, 'err'); }
   function reload() { return ctx.refresh('strategy'); }
-  function markProfileDraft() { setStrategyDraft(ctx, { profiles: true }); }
+  function markProfileDraft() {
+    var current = currentStrategyDraft(ctx);
+    setStrategyDraft(ctx, {
+      profiles: true,
+      changes: Object.assign({}, current.changes || {}, {
+        profiles: { label: _('Профили'), before: false, after: true }
+      })
+    });
+  }
 
   function applySelected() {
     if (!selected) return;
@@ -212,20 +340,7 @@ function render(ctx) {
       shell.showToast(candidateValidationMessage(selected), 'err');
       return;
     }
-    edit(ctx.api.strategy.apply, {
-      candidateId: candidateId(selected), expectedDigest: selected.digest,
-      wideAcknowledged: true, includeOverrides: true,
-      idempotencyToken: 'luci-global-' + Date.now()
-    }).then(function (response) {
-      if (!response || response.ok !== true) throw response || new Error('apply failed');
-      var confirmationRequired = ctx.setConfirmation(response);
-      clearStrategyDraftField(ctx, 'candidateId');
-      var pending = Object.assign({}, ctx.store.get().pending);
-      pending.pendingStrategyId = null;
-      ctx.store.update({ pending: pending });
-      shell.showToast(confirmationRequired ? _('Стратегия применена. Подтвердите работу или выполните откат.') : _('Стратегия применена.'), 'ok');
-      reload();
-    }).catch(showError);
+    if (ctx.openSemanticDiff) ctx.openSemanticDiff();
   }
 
   function poll() {
@@ -357,30 +472,9 @@ function render(ctx) {
       return reload();
     }).catch(showError);
   }
-  function previewProfileApply(host) {
-    edit(ctx.api.profiles.apply, { mode: 'preview' }).then(function (answer) {
-      state.applyPreview = answer || {};
-      host.replaceChildren(renderApplyPreview(state.applyPreview, shell));
-    }).catch(showError);
-  }
+  function previewProfileApply() { if (ctx.openSemanticDiff) ctx.openSemanticDiff(); }
   function applyProfileDrafts() {
-    shell.openModal(
-      _('Применить черновики?'),
-      E('p', {}, _('nfqws2 будет перезапущен. Связь может кратковременно прерваться.')),
-      [
-        shell.button(_('Отмена'), '', shell.closeModal),
-        shell.button(_('Применить'), 'danger', function () {
-          shell.closeModal();
-          edit(ctx.api.profiles.apply, { mode: 'apply' }).then(function (answer) {
-            if (!answer || answer.ok !== true) throw answer || new Error('profiles apply failed');
-            ctx.setConfirmation(answer);
-            clearStrategyDraftField(ctx, 'profiles');
-            shell.showToast(_('Черновики профилей применены.'), 'ok');
-            return reload();
-          }).catch(showError);
-        })
-      ]
-    );
+    if (ctx.openSemanticDiff) ctx.openSemanticDiff();
   }
   function renderApplyPreview(answer, shellRef) {
     var errors = asArray(answer && answer.errors);
@@ -426,7 +520,7 @@ function render(ctx) {
         E('div', { 'class': 'z2m-num' }, candidate.latencyMs == null ? '—' : String(candidate.latencyMs) + ' мс'),
         E('div', {}, isSelected ? shell.chip(_('выбрана'), 'b') : _('Выбрать'))
       ]);
-      row.addEventListener('click', function () { select(ctx, id, renderCandidateSelection); });
+      row.addEventListener('click', function () { select(ctx, id, renderCandidateSelection, candidate); });
       listHost.appendChild(row);
     });
     if (!list.length) listHost.appendChild(shell.empty(_('Каталог стратегий недоступен.')));
@@ -608,5 +702,5 @@ function unmount() {
 }
 return baseclass.extend({
   id: 'strategy', title: _('Стратегия'), subtitle: _('Выбор и проверка способа обхода DPI'),
-  load: load, render: render, mount: mount, unmount: unmount
+  load: load, render: render, mount: mount, unmount: unmount, createAdapter: createAdapter
 });

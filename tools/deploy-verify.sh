@@ -1,10 +1,9 @@
 #!/bin/sh
 echo "=== HTTP ROUTE CHECK ==="
 for p in \
-  admin/services/zapret2-manager/overview \
+  admin/services/zapret2-manager/app \
+  admin/services/zapret2-manager/orchestra-strategy \
   admin/services/zapret2-manager/strategies \
-  admin/services/zapret2-manager/blockcheck \
-  admin/services/zapret2-manager/catalog \
   admin/services/zapret2-manager/orchestra \
   admin/services/zapret2-manager/lists \
   admin/services/zapret2-manager/dns \
@@ -13,7 +12,8 @@ for p in \
   admin/services/zapret2-manager/proxy \
   admin/services/zapret2-manager/maintenance \
   view/zapret2-manager/z2m-ui.css \
-  view/zapret2-manager/z2m-ui.js
+  view/zapret2-manager/z2m-ui.js \
+  view/zapret2-manager/app.js
 do
   code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 "http://192.168.1.1/cgi-bin/luci/$p" 2>/dev/null)
   echo "  $code $p"

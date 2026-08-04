@@ -201,8 +201,7 @@ rm -rf "$R" "$ZPI" "$ZPRE"
 # Stage the package root $R. acl/menu are single files; the view directory is
 # enumerated with a glob (NOT a hardcoded list) so every shipped page is
 # included automatically — a per-file list silently drops pages when the UI
-# grows (the luci-app Makefile has that bug today: it lists only overview.js
-# while 8 pages ship). Recursive enumeration = no dropped pages.
+# grows). Recursive enumeration = no dropped pages.
 R="$HOME/z2m-build/root"
 VIEW="$REPO/luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager"
 mkdir -p "$R/usr/share/rpcd/acl.d" "$R/usr/share/luci/menu.d" "$R/www/luci-static/resources/view/zapret2-manager"

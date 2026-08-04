@@ -13,28 +13,37 @@ Non-negotiable implementation rules for T1–T9:
 - Do not add a second catalog, browser persistence for controller state, upstream direct writes, broad ACL grants, external frontend frameworks, Zapret2GUI source/assets, or Windows-specific logic.
 - An accepted asynchronous mutation is not completed. Unknown outcomes are refreshed once and are never retried automatically. `ECONFLICT` refreshes status and does not replay a mutation.
 
+The shipped UI now uses a **single-view app contract**: the menu opens
+`zapret2-manager/app`, `app.js` owns the sole `L.view.extend()` root, and the
+`z2m-*` modules own the internal hash tabs. Legacy top-level view files remain
+only as redirects to `/app#/...`; they are not render owners.
+
 ## 1. Current UI inventory
 
 ### Published routes and source views
 
-The current menu has **8 registered routes** and **7 distinct view targets**.  It maps the root Manager route and the `/orchestra` child to the same `orchestra` module.  There are **11 page view modules** in the package, plus the shared `z2m-ui.js` helper and `z2m-ui.css` stylesheet.
+The current menu has **1 registered route** and **1 view target**: the Manager
+route opens `app.js`.  The app exposes eight internal hash tabs and uses the
+shared shell/component helpers.  Legacy entrypoints are redirect shims.
 
 | Current menu route | Title | Current target | T0 finding |
 |---|---|---|---|
-| `admin/services/zapret2-manager` | Zapret 2 Manager | `orchestra` | Root opens Orchestra, not `overview.js`. |
-| `…/strategies` | Advanced | `strategies` | Advanced profile editor is user-visible. |
-| `…/orchestra` | Orchestra | `orchestra` | Duplicate target of root route. |
-| `…/lists` | Lists | `lists` | Existing list workflow. |
-| `…/dns` | DNS | `dns` | DNS and Service DNS/provider workflows share this page. |
-| `…/monitor` | Monitor | `monitor` | Technical runtime screen. |
-| `…/proxy` | Proxy | `proxy` | Separate optional proxy slice. |
-| `…/maintenance` | Maintenance | `maintenance` | Backup/event/diagnostic workflow. |
+| `admin/services/zapret2-manager` | Zapret 2 Manager | `app` | Single-view root; default hash is `#/overview`. |
+| legacy view entrypoints | Compatibility redirects | `app#/...` | Redirect only; no duplicate render owner. |
 
-Source view modules not currently reached by the menu are `overview.js`, `blockcheck.js`, `catalog.js`, and `service-dns.js`.  This conflicts with `docs/ui-spec.md`, which describes a ten-entry historical menu.  The mismatch is a migration risk, not a T0 code-fix.
+The `z2m-*` modules are reached through the app's internal tabs.  Legacy
+entrypoints such as `orchestra.js`, `strategies.js`, `dns.js`, and
+`service-dns.js` redirect to the matching app hash and are intentionally not
+render owners.
 
-### Current Orchestra UI
+### Current App UI
 
-`orchestra.js` is one large view with four hash panels: **Services**, **Find strategy**, **Runs & results**, and **Adaptive engine**.  It owns local tabs, local panel state, run polling, catalog selection, manual run form, ranking rendering, preview/apply display, and the Auto Strategy block.  The UI has useful safety behavior already: JSON-string RPC transport, busy controls, selected-run scoping, bounded polling, backend capability checks for Auto Strategy, confirmation before last-good restore, and a refresh-after-`ECONFLICT` message.
+The single-view app composes the **Overview**, **Strategy**, **Services**,
+**Lists**, **DNS**, **Proxy**, **Monitor**, and **Maintenance** tabs.  Each tab
+owns local presentation and state while the app owns navigation, draft
+coordination, and the global apply workflow.  Legacy Orchestra entrypoints
+redirect to the app's Strategy or Overview hash and do not duplicate this
+workflow.
 
 Observed UX and contract defects:
 
@@ -49,7 +58,10 @@ Observed UX and contract defects:
 
 ### Current strategies and shared UI
 
-`strategies.js` already has applied/draft separation, import-applied, preview → confirm → apply, confirmation/rollback controls, and a drift warning.  Its default content still centers profile indexes, raw option strings, protocol filters, revision-oriented draft management, and a passthrough diagnostic adjacent to normal actions.  The shared `z2m-ui.js` already provides `page`, `hero`, `cardGrid`, `card`, `badge`, `kvRow`, `callout`, `collapsible`, `empty`, `actions`, `tableWrap`, `mono`, `loading`, `error`, and section helpers; Orchestra duplicates its own `badge`, key/value, alert, details, button, heading and section functions.
+The Strategy tab keeps applied/draft separation and backend-gated preview/apply
+through the global coordinator.  The legacy Advanced entrypoint redirects to
+that tab; it is not a second editor or apply engine.  Shared presentation stays
+in the current shell/component helpers.
 
 ## 2. Current route/view and RPC mapping
 
@@ -65,7 +77,9 @@ Static inspection finds **99 unique RPC methods declared by the 11 page modules*
 | Monitor | `status`, `events_tail`, `job_list` | none | Runtime/NFQUEUE facts → Overview summary and Diagnostics detail. |
 | Catalog / Blockcheck source views | `catalog_list`, `catalog_status`, `catalog_get`, `health_matrix_get`, `job_list`, `blockcheck_status` | `catalog_preview`, `catalog_apply`, `health_matrix_start`, `health_matrix_job_cancel`, `blockcheck_start`, `blockcheck_cancel`, `blockcheck_apply` | Preserve workflows; only reuse catalog data, never clone it in JavaScript. |
 
-The RPC plugin exports the above Orchestra/Auto Strategy methods and keeps their current JSON-string `edit` envelope where declared.  The ACL grants `orchestra_auto_status` as read and the five Auto mutations as write.  T0 also found a compatibility issue: `orchestra.js` declares `orchestra_run_continue`, but the current ACL list does not grant that method.  T1 must decide whether the declared control is still intended; it must not widen ACL access without an evidence-backed contract and focused test.
+The RPC plugin keeps the existing JSON-string `edit` envelope where declared.
+The app and its redirect shims consume only the existing RPC/ACL contract; no
+redirect adds a method or widens access.
 
 ## 3. State and phase matrix
 
@@ -114,7 +128,10 @@ The present ACL exposes one `zapret2-manager` ACL with read/write method groups,
 
 ## 5. Target navigation specification
 
-The new internal Orchestra navigation has exactly seven entries, rendered through LuCI localization conventions: **Overview**, **Auto Strategy**, **Services**, **Strategy Rating**, **Strategies**, **Runs**, and **Diagnostics**.  The shell is internal navigation first; legacy top-level routes remain backward compatible in T2 and are redirected/mapped only after their existing controls remain reachable.
+The app internal navigation has exactly eight entries, rendered through LuCI
+localization conventions: **Overview**, **Strategy**, **Services**, **Lists**,
+**DNS**, **Telegram Proxy**, **Мониторинг**, and **Обслуживание**.  Legacy
+top-level routes remain reachable through redirect shims to these hashes.
 
 There is one primary action per screen.  Refresh, View details, Edit and Compare are secondary.  Disable, Stop, Restore and Passthrough are danger actions and use confirmation where mutation risk requires it.  Internal hashes/routes must be deep-linkable, keyboard reachable, and safe to horizontally scroll on a narrow viewport.
 
@@ -305,15 +322,10 @@ All additions are additive and backwards compatible.  Existing response fields, 
 
 | Current screen/panel | Target remastered screen | Migration rule |
 |---|---|---|
-| Root Manager / Orchestra Services | Overview + Services | Root becomes Overview only after legacy route compatibility is retained; catalog remains single source. |
-| Orchestra Find strategy | Auto Strategy + Runs | Simple operation uses controller actions; expert run configuration is guarded/secondary. |
-| Orchestra Runs & results | Runs + Strategy Rating | History/progress stays in Runs; scoped evidence/ranking/apply moves to Rating. |
-| Orchestra Adaptive engine | Diagnostics | Read-only engine/capability evidence moves out of normal workflow. |
-| Embedded Auto Strategy block | Auto Strategy | Keep exact existing controller RPCs and polling semantics. |
-| Strategies applied/draft editor | Strategies | Keep draft CRUD and sanctioned apply; simplify cards and move raw fields to details. |
-| Strategies passthrough | Diagnostics danger zone | Preserve method/ACL; add confirmation and remove it from normal workflow. |
-| Monitor | Overview summary + Diagnostics | Overview shows only health; Monitor-level raw facts stay diagnostic. |
-| Catalog / Blockcheck source views | Services / Diagnostics links as applicable | Do not delete or clone during remaster; reconcile route reachability first. |
+| Single-view app root | Overview + internal tabs | `app.js` owns navigation and the global coordinator; the catalog remains single source. |
+| Legacy route entrypoints | Matching app hash | Redirect only; no deleted-view consumer or duplicate render owner remains. |
+| Strategy applied/draft editor | Strategy tab | Keep draft CRUD and sanctioned apply; simplify cards and move raw fields to details. |
+| DNS, Lists, Proxy, Monitor, Maintenance | Matching internal tab | Existing backend contracts remain behind the app-owned tab modules. |
 
 ## 12. T1–T9 implementation plan
 
@@ -323,7 +335,10 @@ Fix valid Run responses that become `parse failed`; create canonical run fixture
 
 ### T2 — Shared UI foundation and navigation
 
-Extract the component inventory from `z2m-ui.js`/Orchestra duplication; add the seven-item internal shell, loading/error primitives, capability/admission rendering and responsive base.  Preserve legacy pages/routes and exact RPC transport.  Do not deliver a page-specific workflow redesign beyond wiring the shell.
+Use the current shell/component inventory and the eight-item internal app
+navigation, loading/error primitives, capability/admission rendering and
+responsive base. Preserve redirect compatibility and exact RPC transport. Do
+not deliver a page-specific workflow redesign beyond wiring the shell.
 
 ### T3 — Overview
 
@@ -371,7 +386,7 @@ All stages retain syntax/render tests and `git diff --check`.  No skip, xfail, k
 
 ## 14. Known risks and compatibility controls
 
-1. **Route drift:** actual menu (8 routes/7 targets) differs from historical UI documentation and has orphaned source views.  T2 inventories and protects every legacy deep link before changing menu behavior.
+1. **Route drift:** the menu is now one `app` route and legacy entrypoints are redirect shims. Focused redirect tests protect every supported deep link.
 2. **ACL drift:** `orchestra_run_continue` is declared in the view but absent from the current ACL.  Treat it as unavailable until deliberate contract resolution; never broaden access incidentally.
 3. **Truth drift:** `daemonRunning`, legacy Adaptive telemetry and process/NFQUEUE evidence can disagree.  T1 defines a canonical status response before presentation changes.
 4. **Ranking safety:** the current browser score conflicts with trusted-backend ranking.  T6 cannot ship until backend ranking scope, ordering and stale/admission semantics are testable.
@@ -384,7 +399,7 @@ All stages retain syntax/render tests and `git diff --check`.  No skip, xfail, k
 
 The remastered program is complete only when all of the following are true:
 
-1. The seven-page internal navigation is reachable, localized, keyboard usable, responsive and backward compatible with protected legacy routes.
+1. The eight-tab internal navigation is reachable, localized, keyboard usable, responsive and backward compatible with protected redirect routes.
 2. Overview and Auto Strategy expose only truthful, actionable state; raw hashes, IDs, paths and `[VERIFY:ROUTER]` are hidden in Technical details/Diagnostics.
 3. All control availability and admission messages come from backend capability/admission responses; unknown is never painted healthy/failed; accepted is never painted complete.
 4. Services use the existing catalog as their sole source and work at the stated viewport/zoom targets without horizontal overflow.
