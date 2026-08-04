@@ -16,7 +16,7 @@ const goPatch = read('tg-ws-proxy-go/patches/010-secret-from-env.patch');
 const goInit = read('tg-ws-proxy-go/files/etc/init.d/tg-ws-proxy');
 const fullPackage = read('zapret2-manager-full/Makefile');
 
-test('TG Proxy is optional and installs only the latest compatible provider build', () => {
+test('TG Proxy is optional and exposes only the latest repository-compatible build', () => {
   assert.match(backend, /optional:\s*true/);
   assert.match(backend, /installed:\s*activeInstalled/);
   assert.match(backend, /latestOnly:\s*true/);
