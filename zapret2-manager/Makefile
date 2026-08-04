@@ -193,11 +193,12 @@ define Package/zapret2-manager/install
 	$(INSTALL_BIN) ./files/usr/libexec/zapret2-manager/log-rotate.sh \
 		$(1)/usr/libexec/zapret2-manager/
 
-	# rpcd ucode plugin → ubus object zapret2-manager. ucode plugins that
-	# return a signature object load from /usr/share/rpcd/ucode/ (NOT
-	# /usr/libexec/rpcd/, which is for exec-plugins — a different contract).
+	# rpcd ucode plugins. The Orchestra companion object is read-only and
+	# delegates to the same existing Orchestra owner; it is not a scheduler.
 	$(INSTALL_DIR) $(1)/usr/share/rpcd/ucode
 	$(INSTALL_DATA) ./files/usr/share/rpcd/ucode/zapret2-manager.uc \
+		$(1)/usr/share/rpcd/ucode/
+	$(INSTALL_DATA) ./files/usr/share/rpcd/ucode/zapret2-manager-orchestra.uc \
 		$(1)/usr/share/rpcd/ucode/
 
 	# Paused-flag enforcer on interface hotplug (branch 04). Runs after
