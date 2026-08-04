@@ -1,0 +1,25 @@
+name: Export Holyversion Source
+on:
+  push:
+    branches:
+      - feat/holyversion-reference-parity
+    paths:
+      - .github/workflows/export-holyversion-source.yml
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Archive exact branch source
+        run: |
+          git archive --format=tar.gz --output=holyversion-source.tgz HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: holyversion-source
+          path: holyversion-source.tgz
+          if-no-files-found: error
+          retention-days: 1
