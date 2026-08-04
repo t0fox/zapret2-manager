@@ -1,10 +1,10 @@
 'use strict';
 // Optional TG Proxy provider manager.
 //
-// The browser sends only allow-listed provider/version ids. URLs, package
-// names and shell fragments are never accepted over RPC. Exact package
-// versions come from the router's configured signed APK feeds. No provider is
-// required for the rest of Zapret2 Manager to operate.
+// The browser sends only an allow-listed provider id. It cannot choose an old
+// version, package name, URL or shell fragment. The backend always installs
+// the single latest router-compatible package published in the configured
+// signed APK feed. Missing providers are a normal state.
 
 import { readfile, writefile, stat, unlink, popen } from 'fs';
 
@@ -22,22 +22,15 @@ const PROVIDERS = [
 		short: 'Легче и экономнее',
 		feature: 'Низкое потребление RAM',
 		package: 'tg-ws-proxy-rs',
-		recommended: '1.7.1',
-		versions: [
-			{ id: '1.7.1', label: '1.7.1', packageVersion: '1.7.1-r1', recommended: true },
-			{ id: '1.6.5', label: '1.6.5', packageVersion: '1.6.5-r2', recommended: false }
-		]
+		latest: { id: '1.7.1', label: '1.7.1', packageVersion: '1.7.1-r1' }
 	},
 	{
 		id: 'go',
 		title: 'Go',
 		short: 'Больше совместимости',
-		feature: 'Проверенная Go-версия',
+		feature: 'Совместимая OpenWrt-линия',
 		package: 'tg-ws-proxy-go',
-		recommended: '0.9.3-2',
-		versions: [
-			{ id: '0.9.3-2', label: '0.9.3-2', packageVersion: '0.9.3-r2', recommended: true }
-		]
+		latest: { id: '0.9.3-2', label: '0.9.3-2', packageVersion: '0.9.3-r2' }
 	}
 ];
 
@@ -54,36 +47,33 @@ function error(code, message) {
 	return { ok: false, error: { code: code, message: message } };
 }
 
-function clone_public(provider) {
-	let versions = [];
-	for (let i = 0; i < length(provider.versions); i++) {
-		let item = provider.versions[i];
-		push(versions, {
-			id: item.id,
-			label: item.label,
-			recommended: item.recommended === true
-		});
+function safe_package_version(value) {
+	let s = '' + (value != null ? value : '');
+	if (s == '' || length(s) > 96) return false;
+	for (let i = 0; i < length(s); i++) {
+		let c = ord(substr(s, i, 1));
+		let ok = (c >= 48 && c <= 57) || (c >= 65 && c <= 90) ||
+			(c >= 97 && c <= 122) || c == 43 || c == 45 || c == 46 ||
+			c == 95 || c == 126;
+		if (!ok) return false;
 	}
+	return true;
+}
+
+function clone_public(provider) {
 	return {
 		id: provider.id,
 		title: provider.title,
 		short: provider.short,
 		feature: provider.feature,
-		recommended: provider.recommended,
-		versions: versions
+		latestVersion: provider.latest.id,
+		latestLabel: provider.latest.label
 	};
 }
 
 function provider_by_id(id) {
 	for (let i = 0; i < length(PROVIDERS); i++)
 		if (PROVIDERS[i].id == id) return PROVIDERS[i];
-	return null;
-}
-
-function version_by_id(provider, id) {
-	if (provider == null) return null;
-	for (let i = 0; i < length(provider.versions); i++)
-		if (provider.versions[i].id == id) return provider.versions[i];
 	return null;
 }
 
@@ -100,7 +90,7 @@ function load_state() {
 function save_state(providerId, versionId) {
 	let tmp = STATE_FILE + '.tmp.' + time();
 	let payload = {
-		schema: 'proxy-provider.v1',
+		schema: 'proxy-provider.v2',
 		activeProvider: providerId,
 		activeVersion: versionId,
 		changedAt: time()
@@ -124,8 +114,8 @@ function installed_package_version(packageName) {
 	let line = trim(r.out);
 	let prefix = packageName + '-';
 	if (substr(line, 0, length(prefix)) == prefix)
-		return substr(line, length(prefix));
-	return line != '' ? line : null;
+		line = substr(line, length(prefix));
+	return safe_package_version(line) ? line : null;
 }
 
 function running() {
@@ -177,11 +167,9 @@ function installed_rows() {
 	return rows;
 }
 
-function infer_version(provider, packageVersion) {
+function display_version(provider, packageVersion) {
 	if (provider == null || packageVersion == null) return null;
-	for (let i = 0; i < length(provider.versions); i++)
-		if (provider.versions[i].packageVersion == packageVersion) return provider.versions[i].id;
-	return packageVersion;
+	return packageVersion == provider.latest.packageVersion ? provider.latest.id : packageVersion;
 }
 
 export const proxy_provider_catalog = function () {
@@ -190,8 +178,9 @@ export const proxy_provider_catalog = function () {
 	return {
 		ok: true,
 		optional: true,
+		latestOnly: true,
 		providers: out,
-		note: 'Компонент необязателен; установка и удаление выполняются из вкладки TG Proxy.'
+		note: 'Для каждой реализации предлагается только последний совместимый пакет из доверенного feed.'
 	};
 };
 
@@ -199,20 +188,34 @@ export const proxy_provider_status = function () {
 	let state = load_state();
 	let installed = installed_rows();
 	let activeProvider = state.activeProvider;
-	let activeVersion = state.activeVersion;
-	if (activeProvider == null && length(installed) == 1) {
+	if (activeProvider == null && length(installed) == 1)
 		activeProvider = installed[0].provider;
-		activeVersion = infer_version(provider_by_id(activeProvider), installed[0].packageVersion);
-	}
+
 	let activeInstalled = false;
-	for (let i = 0; i < length(installed); i++)
-		if (installed[i].provider == activeProvider) activeInstalled = true;
+	let activePackageVersion = null;
+	for (let i = 0; i < length(installed); i++) {
+		if (installed[i].provider == activeProvider) {
+			activeInstalled = true;
+			activePackageVersion = installed[i].packageVersion;
+		}
+	}
+
+	let provider = provider_by_id(activeProvider);
+	let activeVersion = activeInstalled ? display_version(provider, activePackageVersion) : null;
+	let latestVersion = provider != null ? provider.latest.id : null;
+	let updateAvailable = activeInstalled && provider != null &&
+		activePackageVersion != provider.latest.packageVersion;
+
 	return {
 		ok: true,
 		optional: true,
+		latestOnly: true,
 		installed: activeInstalled,
 		activeProvider: activeInstalled ? activeProvider : null,
-		activeVersion: activeInstalled ? activeVersion : null,
+		activeVersion: activeVersion,
+		activePackageVersion: activeInstalled ? activePackageVersion : null,
+		latestVersion: latestVersion,
+		updateAvailable: updateAvailable,
 		packages: installed,
 		binaryPresent: stat(BINARY_PATH) != null,
 		running: running(),
@@ -234,14 +237,14 @@ function remove_packages() {
 
 function restore_previous(previous, wasRunning, settingsSnapshot) {
 	let failures = remove_packages();
-	if (previous.activeProvider != null && previous.activeVersion != null) {
+	if (previous.activeProvider != null && previous.packageVersion != null) {
 		let provider = provider_by_id(previous.activeProvider);
-		let version = version_by_id(provider, previous.activeVersion);
-		if (provider == null || version == null) push(failures, 'previous-provider-unknown');
-		else {
-			let add = run('apk add --no-interactive ' + provider.package + '=' + version.packageVersion);
+		if (provider == null || !safe_package_version(previous.packageVersion)) {
+			push(failures, 'previous-provider-unknown');
+		} else {
+			let add = run('apk add --no-interactive ' + provider.package + '=' + previous.packageVersion);
 			if (add.rc != 0 || !package_present(provider.package)) push(failures, 'previous-package-restore');
-			else if (!save_state(provider.id, version.id)) push(failures, 'previous-state-restore');
+			else if (!save_state(provider.id, previous.activeVersion)) push(failures, 'previous-state-restore');
 		}
 	} else if (!save_state(null, null)) push(failures, 'empty-state-restore');
 	if (!restore_settings(settingsSnapshot)) push(failures, 'settings-restore');
@@ -249,22 +252,37 @@ function restore_previous(previous, wasRunning, settingsSnapshot) {
 	return failures;
 }
 
+function input_provider_only(value) {
+	if (type(value) != 'object' || value == null) return false;
+	let ks = keys(value);
+	if (length(ks) != 1 || ks[0] != 'provider') return false;
+	return type(value.provider) == 'string';
+}
+
 export const proxy_provider_install = function (input) {
-	if (type(input) != 'object' || input == null) return error('EINPUT', 'Нужны provider и version.');
+	if (!input_provider_only(input))
+		return error('EINPUT', 'Передайте только provider; версия всегда выбирается автоматически.');
 	let provider = provider_by_id(input.provider);
-	let version = version_by_id(provider, input.version);
-	if (provider == null || version == null) return error('EINPUT', 'Неизвестная реализация или версия.');
+	if (provider == null) return error('EINPUT', 'Неизвестная реализация TG Proxy.');
+	let latest = provider.latest;
 	if (!acquire_lock()) return error('EBUSY', 'Установка TG Proxy уже выполняется.');
 
 	let previousStatus = proxy_provider_status();
-	let previous = { activeProvider: previousStatus.activeProvider, activeVersion: previousStatus.activeVersion };
+	let previous = {
+		activeProvider: previousStatus.activeProvider,
+		activeVersion: previousStatus.activeVersion,
+		packageVersion: previousStatus.activePackageVersion
+	};
 	let wasRunning = previousStatus.running === true;
 	let settingsSnapshot = snapshot_settings();
 	let result = null;
 	try {
+		let alreadyLatest = previousStatus.installed &&
+			previous.activeProvider == provider.id &&
+			previous.packageVersion == latest.packageVersion;
 		if (!settingsSnapshot.ok) {
 			result = error('ESTATE', 'Настройки не удалось сохранить; установка не начата.');
-		} else if (previousStatus.installed && previous.activeProvider == provider.id && previous.activeVersion == version.id) {
+		} else if (alreadyLatest) {
 			result = { ok: true, changed: false, status: previousStatus };
 		} else if (wasRunning && service('stop') != 0) {
 			result = error('ETARGET', 'Не удалось остановить текущий TG Proxy.');
@@ -274,14 +292,14 @@ export const proxy_provider_install = function (input) {
 				let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
 				result = { ok: false, error: { code: 'ETARGET', message: 'Не удалось удалить текущую реализацию.' }, rollbackFailures: rollbackFailures };
 			} else {
-				let add = run('apk add --no-interactive ' + provider.package + '=' + version.packageVersion);
+				let add = run('apk add --no-interactive ' + provider.package + '=' + latest.packageVersion);
 				if (add.rc != 0 || !package_present(provider.package) || stat(BINARY_PATH) == null) {
 					let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
-					result = { ok: false, error: { code: 'ETARGET', message: 'Пакет выбранной версии недоступен в доверенном feed.' }, rollbackFailures: rollbackFailures };
+					result = { ok: false, error: { code: 'ETARGET', message: 'Последний совместимый пакет недоступен в доверенном feed.' }, rollbackFailures: rollbackFailures };
 				} else if (!restore_settings(settingsSnapshot)) {
 					let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
 					result = { ok: false, error: { code: 'ETARGET', message: 'Не удалось восстановить настройки после установки.' }, rollbackFailures: rollbackFailures };
-				} else if (!save_state(provider.id, version.id)) {
+				} else if (!save_state(provider.id, latest.id)) {
 					let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
 					result = { ok: false, error: { code: 'ETARGET', message: 'Не удалось сохранить выбранную реализацию.' }, rollbackFailures: rollbackFailures };
 				} else if (wasRunning && service('start') != 0) {
@@ -290,10 +308,10 @@ export const proxy_provider_install = function (input) {
 				} else {
 					let reread = proxy_provider_status();
 					result = {
-						ok: reread.installed && reread.activeProvider == provider.id && reread.activeVersion == version.id,
+						ok: reread.installed && reread.activeProvider == provider.id && !reread.updateAvailable,
 						changed: true,
 						provider: provider.id,
-						version: version.id,
+						version: latest.id,
 						status: reread,
 						settingsPreserved: settingsSnapshot.hadConfig === true
 					};
