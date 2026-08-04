@@ -235,3 +235,11 @@
 .z2m-service-dns-row:last-child{border-bottom:0}
 @media (max-width:900px){.z2m-service-toolbar{grid-template-columns:1fr}.z2m-list-grid,.z2m-provider-grid{grid-template-columns:1fr}}
 @media (max-width:560px){.z2m-dns-entry,.z2m-service-dns-row{grid-template-columns:1fr}.z2m-dns-entry input,.z2m-service-dns-row select{max-width:none}}
+
+/* Services keeps the mode switch and draft actions usable on narrow LuCI viewports. */
+.z2m-services-page .z2m-page-actions .z2m-btn[disabled]{opacity:.55}
+@media (max-width:560px){
+  .z2m-services-page .z2m-services-mode-head .z2m-seg{width:100%;display:flex}
+  .z2m-services-page .z2m-services-mode-head .z2m-seg .z2m-btn{flex:1}
+  .z2m-services-page .z2m-service-bulk .z2m-btn{flex:1}
+}

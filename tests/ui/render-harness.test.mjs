@@ -18,6 +18,7 @@ function makeNode(tag = 'div', attrs = {}, children = []) {
     tag, tagName: String(tag).toUpperCase(), nodeType: 1, attrs: { ...attrs }, children: [],
     style: {}, parentNode: null, value: attrs.value ?? '', checked: attrs.checked != null,
     hidden: attrs.hidden === true, disabled: attrs.disabled != null, _text: '',
+    listeners: {},
     classList: {
       add(...names) { names.forEach((name) => classes.add(name)); },
       remove(...names) { names.forEach((name) => classes.delete(name)); },
@@ -50,7 +51,7 @@ function makeNode(tag = 'div', attrs = {}, children = []) {
       if (index < 0) node.children.push(child); else node.children.splice(index, 0, child);
       return child;
     },
-    addEventListener() {}, removeEventListener() {}, focus() {}, select() {}, scrollIntoView() {},
+    addEventListener(type, handler) { node.listeners[type] = handler; }, removeEventListener() {}, focus() {}, select() {}, scrollIntoView() {},
     setAttribute(key, value) { node.attrs[key] = value; if (key === 'value') node.value = value; },
     getAttribute(key) { return node.attrs[key]; },
     querySelector(selector) { return find(node, selector, true); },
@@ -179,8 +180,22 @@ const healthyData = {
     auto: { value: { ok: true, enabled: false, phase: 'disabled', revision: 1, serviceIds: [], capabilities: {} } }
   },
   'z2m-services.js': {
-    catalog: { value: { services: [] } }, status: { value: {} }, health: { value: {} },
-    serviceDns: { value: {} }, providers: { value: { providers: [] } }
+    catalog: { value: {
+      ok: true, catalogVersion: 'backend-catalog',
+      services: [
+        { id: 'alpha', name: 'Backend Alpha', category: 'video', domainCount: 2 },
+        { id: 'beta', name: 'Backend Beta', category: 'video', domainCount: 1 }
+      ],
+      categories: [{ id: 'video', label: 'Video services' }],
+      modes: [{ id: 'services' }, { id: 'hosts' }],
+      sources: [{ id: 'ready-1', label: 'Backend ready hosts', revision: 8,
+        date: '2026-08-04', validationStatus: 'valid' }]
+    } },
+    status: { value: { ok: true, activeMode: 'services', ledger: {
+      revision: 8, enabled: ['alpha'], updatedAt: '2026-08-04T10:00:00Z'
+    }, ownedDomains: 2 } },
+    health: { value: { ok: true, matrix: { status: 'completed' } } },
+    preflight: { value: { ok: true, ready: true } }
   },
   'z2m-lists.js': { lists: { value: { lists: {}, conflicts: [] } } },
   'z2m-dns.js': {
@@ -254,6 +269,39 @@ test('Overview unavailable state does not fabricate strategy or metrics', () => 
   assert.match(tree.textContent, /Состояние неизвестно/);
   assert.match(tree.textContent, /Не определена/);
   assert.doesNotMatch(tree.textContent, /Flowseal ALT11|57 \/ 61|312 мс/);
+});
+
+test('Services render harness uses backend catalogue data in both modes', () => {
+  const mod = evaluateLuciModule(`${root}/z2m-services.js`, overrides, cache);
+  mod.resetDraft();
+  const servicesContext = context(healthyData['z2m-services.js']);
+  const servicesTree = mod.render(servicesContext);
+  for (const selector of ['.z2m-services-modes', '.z2m-services-kpis', '.z2m-service-category', '.z2m-service-row'])
+    assert.ok(servicesTree.querySelector(selector), selector);
+  assert.match(servicesTree.textContent, /Backend Alpha/);
+  assert.match(servicesTree.textContent, /1 из 2 включено/);
+  assert.match(servicesTree.textContent, /Backend ready hosts|Готовый hosts/);
+  assert.doesNotMatch(servicesTree.textContent, /demo|Flowseal ALT11/i);
+
+  const betaRow = servicesTree.querySelectorAll('div').find((node) => node.attrs['data-service-id'] === 'beta');
+  const betaSwitch = betaRow && betaRow.querySelector('button');
+  assert.ok(betaSwitch && betaSwitch.listeners.click);
+  betaSwitch.listeners.click({ type: 'click', preventDefault() {} });
+  assert.ok(servicesContext.store.get().draft.services);
+  assert.equal(servicesContext.store.get().draft.services.mode, 'services');
+  const hostsModeButton = servicesTree.querySelectorAll('button').find((node) => node.attrs['data-mode'] === 'hosts');
+  assert.ok(hostsModeButton && hostsModeButton.listeners.click);
+  hostsModeButton.listeners.click({ type: 'click', preventDefault() {} });
+  assert.ok(servicesContext.store.get().draft.services.modeDrafts.services);
+
+  const hostsData = structuredClone(healthyData['z2m-services.js']);
+  hostsData.status.value = { ...hostsData.status.value, activeMode: 'hosts' };
+  mod.resetDraft();
+  const hostsTree = mod.render(context(hostsData));
+  assert.ok(hostsTree.querySelector('.z2m-hosts-mode'));
+  assert.match(hostsTree.textContent, /Backend ready hosts/);
+  assert.match(hostsTree.textContent, /ready-1/);
+  assert.match(hostsTree.textContent, /ревизия: 8/);
 });
 
 test('compatibility redirects are excluded from render ownership', () => {

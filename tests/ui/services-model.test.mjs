@@ -28,6 +28,23 @@ test('catalog normalizes only backend records and preserves mode metadata', () =
   assert.equal(result.services.some((service) => service.id === 'demo'), false);
 });
 
+test('catalog normalizes backend source metadata and category fallback labels', () => {
+  const result = model.catalog({
+    services: [{ id: 'uncategorized', name: 'Uncategorized service' }],
+    categories: [{ id: 'misc' }],
+    sources: [{ sourceId: 'ready-1', name: 'Backend ready hosts', revision: 7,
+      updatedAt: '2026-08-04T10:00:00Z', validation: { status: 'valid' } }],
+    modes: [{ id: 'services' }, { id: 'hosts' }]
+  }, {});
+  assert.equal(result.categories[0].label, 'misc');
+  assert.equal(result.services[0].label, 'Uncategorized service');
+  assert.deepEqual(result.sources, [{
+    sourceId: 'ready-1', id: 'ready-1', name: 'Backend ready hosts',
+    label: 'Backend ready hosts', revision: 7,
+    updatedAt: '2026-08-04T10:00:00Z', validation: { status: 'valid' }
+  }]);
+});
+
 test('selectors share draft-aware visible rows, counts, and KPIs', () => {
   const result = model.selectors(catalog.services,
     { alpha: true, beta: false, gamma: true },

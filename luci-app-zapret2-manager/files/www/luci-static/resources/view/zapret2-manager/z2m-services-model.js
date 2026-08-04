@@ -16,10 +16,16 @@ function serviceId(service) {
   return service && (service.id || service.serviceId || service.key);
 }
 function serviceCategory(service) {
-  return service && (service.category || service.group || service.categoryId);
+  return service && (service.category || service.group || service.categoryId) || 'uncategorized';
 }
 function serviceLabel(service) {
   return service && (service.label || service.name || service.displayName || serviceId(service));
+}
+function sourceId(source) {
+  return source && (source.id || source.sourceId || source.key || source.name);
+}
+function sourceLabel(source) {
+  return source && (source.label || source.name || source.title || source.displayName || sourceId(source));
 }
 function activeIds(services) {
   var result = {};
@@ -59,9 +65,37 @@ function catalogCategories(catalog, services) {
     });
   }
   return source.map(function (category) {
-    if (category && typeof category === 'object') return clone(category);
-    return { id: String(category), label: String(category) };
+    if (category && typeof category === 'object') {
+      var normalized = clone(category);
+      var id = normalized.id || normalized.categoryId || normalized.key || normalized.name;
+      if (id != null) normalized.id = String(id);
+      if (normalized.label == null) normalized.label = normalized.id === 'uncategorized' ? 'Другое' : normalized.name || normalized.id;
+      return normalized;
+    }
+    return { id: String(category), label: String(category) === 'uncategorized' ? 'Другое' : String(category) };
   });
+}
+function catalogSources(catalogValue, statusValue) {
+  var catalog = object(catalogValue);
+  var status = object(statusValue);
+  var candidates = catalog.sources || catalog.hostSources || catalog.readyHosts || catalog.readySources ||
+    catalog.hosts || catalog.hostlists || status.sources || status.hostSources || status.readyHosts ||
+    status.readySources || status.hosts || status.hostlists || [];
+  if (!Array.isArray(candidates) && candidates && typeof candidates === 'object') {
+    candidates = Object.keys(candidates).map(function (id) {
+      var value = candidates[id];
+      if (value && typeof value === 'object') return Object.assign({ id: id }, value);
+      return { id: id, label: value };
+    });
+  }
+  return array(candidates).map(function (source) {
+    var normalized = clone(object(source));
+    var id = sourceId(normalized);
+    if (id == null || id === '') return null;
+    normalized.id = String(id);
+    if (sourceLabel(normalized) != null) normalized.label = String(sourceLabel(normalized));
+    return normalized;
+  }).filter(Boolean);
 }
 function catalog(catalogValue, status) {
   var source = object(catalogValue);
@@ -82,6 +116,7 @@ function catalog(catalogValue, status) {
     services: services,
     categories: catalogCategories(source, services),
     modes: clone(array(source.modes || statusValue.modes)),
+    sources: catalogSources(source, statusValue),
     activeMode: statusValue.activeMode || source.activeMode || null,
     revision: revision
   };
