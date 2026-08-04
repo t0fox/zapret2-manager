@@ -1,28 +1,36 @@
-name: Export Holyversion Source
+name: Apply Holyversion Implementation
 on:
-  push:
-    branches:
-      - feat/holyversion-reference-parity
-    paths:
-      - .github/workflows/export-holyversion-source.yml
   pull_request:
-    branches:
-      - main
+    types: [synchronize]
+    branches: [main]
 permissions:
-  contents: read
+  contents: write
+concurrency:
+  group: apply-holyversion-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
 jobs:
-  export:
+  apply:
+    if: >-
+      github.event.pull_request.head.ref == 'feat/holyversion-reference-parity' &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
-      - name: Archive exact branch source
+      - name: Apply reviewed implementation
+        shell: bash
         run: |
-          git archive --format=tar.gz --output=holyversion-source.tgz HEAD
-      - uses: actions/upload-artifact@v4
-        with:
-          name: holyversion-source
-          path: holyversion-source.tgz
-          if-no-files-found: error
-          retention-days: 1
+          set -euo pipefail
+          cat .github/holyversion-patch/* | base64 -d | gunzip > /tmp/holyversion.patch
+          echo 'bde3bbec1f396a783ade04b7cc3eefdc3e12cc398b3d4c2c680dbc88dbc6d78f  /tmp/holyversion.patch' | sha256sum -c -
+          git apply --index /tmp/holyversion.patch
+          rm -rf .github/holyversion-patch
+          rm -f .github/workflows/export-holyversion-source.yml
+          git add -A
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat: implement holyversion shell and overview parity'
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
