@@ -23,11 +23,13 @@ function err(code, message, details, runId, phase) {
 }
 function safe_id(id) { return type(id) == 'string' && match(id, /^or-[a-f0-9]{8}-[a-f0-9]{4}$/); }
 function request_id(value) { return type(value) == 'string' && match(value, /^[A-Za-z0-9._-]{8,128}$/) ? value : null; }
-function integer(value) { let number = +value; return number == value && number >= 0 && number == floor(number) ? number : null; }
+function integer(value) {
+	let text = '' + (value == null ? '' : value);
+	return match(text, /^[0-9]+$/) ? +text : null;
+}
 function alive(pid) { return type(pid) == 'int' && pid > 1 && run('kill -0 ' + pid + ' 2>/dev/null').rc == 0; }
 function identity(pid, start) { return alive(pid) && start && proc_starttime(pid) == start; }
 function control_path(id) { return ROOT + '/' + id + '.control'; }
-function run_path(id) { return ROOT + '/' + id + '.json'; }
 function candidate_file(id, candidate) { return ROOT + '/' + id + '/' + candidate + '.' + PROTOCOL; }
 function pid_file(id, candidate) { return candidate_file(id, candidate) + '.pid'; }
 function start_file(id, candidate) { return candidate_file(id, candidate) + '.starttime'; }
@@ -61,18 +63,25 @@ function current_active() {
 	let response = orchestra_run_status({});
 	return response && response.ok === true && response.run ? response.run : null;
 }
-function request_ref_path(id) { return ROOT + '/request-' + hash_text(id, 'request') + '.json'; }
+function request_ref_path(id) {
+	let digest = hash_text(id, 'request');
+	return digest ? ROOT + '/request-' + digest + '.json' : null;
+}
 function request_ref(id) {
-	let path = request_ref_path(id), reference = load_json(path);
+	let path = request_ref_path(id);
+	if (!path) return null;
+	let reference = load_json(path);
 	if (!reference || !safe_id(reference.runId) || reference.requestId != id) return null;
-	let runState = orchestra_run_load({ runId: reference.runId });
-	return runState || null;
+	return orchestra_run_load({ runId: reference.runId }) || null;
 }
 function save_request_ref(id, runId) {
-	return atomic_write(request_ref_path(id), sprintf('%J', { requestId: id, runId: runId }) + '\n');
+	let path = request_ref_path(id);
+	return path ? atomic_write(path, sprintf('%J', { requestId: id, runId: runId }) + '\n') : false;
 }
 function acquire_start_lock() {
 	try { mkdir('/tmp/zapret2-manager'); mkdir(ROOT); } catch (e) { }
+	let lock = stat(START_LOCK);
+	if (lock && time() - lock.mtime > 30) run("rmdir '" + START_LOCK + "' 2>/dev/null");
 	return run("mkdir '" + START_LOCK + "' 2>/dev/null").rc == 0;
 }
 function release_start_lock() { run("rmdir '" + START_LOCK + "' 2>/dev/null"); }
@@ -85,7 +94,7 @@ function make_targets(domains) {
 function initial_control(id, timestamp) {
 	return { runId: id, pauseRequested: false, stopRequested: false, revision: 0, updatedAt: timestamp };
 }
-function normalized_input(input, corpus, catalog) {
+function normalize_input(input, corpus, catalog) {
 	input = input || {};
 	let mode = input.mode || (input.targetType == 'corpus' ? 'full-corpus' : null);
 	if (mode != 'full-corpus') return err('EINPUT', 'mode must be full-corpus');
@@ -107,18 +116,15 @@ function normalized_input(input, corpus, catalog) {
 		return err('EINPUT', 'requestId must match [A-Za-z0-9._-]{8,128}');
 	let generation = input.generation == null ? time() : integer(input.generation);
 	if (generation == null) return err('EINPUT', 'generation must be a non-negative integer');
-	return {
-		ok: true,
-		value: {
-			mode: mode,
-			candidateIds: ids,
-			attempts: attempts,
-			perAttemptTimeoutSec: perAttemptTimeoutSec,
-			totalTimeoutSec: totalTimeoutSec,
-			requestId: suppliedRequestId,
-			generation: generation
-		}
-	};
+	return { ok: true, value: {
+		mode: mode,
+		candidateIds: ids,
+		attempts: attempts,
+		perAttemptTimeoutSec: perAttemptTimeoutSec,
+		totalTimeoutSec: totalTimeoutSec,
+		requestId: suppliedRequestId,
+		generation: generation
+	} };
 }
 
 export const orchestra_corpus_run_start = function(input) {
@@ -128,7 +134,7 @@ export const orchestra_corpus_run_start = function(input) {
 	if (!catalog || catalog.ok !== true) return catalog || err('ECATALOG', 'applicable strategy catalog is unavailable');
 	if (catalog.count < 1 || catalog.count > MAX_CANDIDATES)
 		return err('EBOUND', 'applicable candidate count is outside the supported bound', { count: catalog.count, maxCandidates: MAX_CANDIDATES });
-	let normalized = normalized_input(input, corpus, catalog);
+	let normalized = normalize_input(input, corpus, catalog);
 	if (!normalized.ok) return normalized;
 	let request = normalized.value;
 	if (request.requestId) {
@@ -136,8 +142,8 @@ export const orchestra_corpus_run_start = function(input) {
 		if (previous) return { ok: true, idempotent: true, run: previous };
 	}
 	if (!acquire_start_lock()) {
-		let lockedActive = current_active();
-		return err('EBUSY', 'an orchestration run or start is already active', { runId: lockedActive && lockedActive.runId || null });
+		let locked = current_active();
+		return err('EBUSY', 'an orchestration run or start is already active', { runId: locked && locked.runId || null });
 	}
 	let active = current_active();
 	if (active) {
@@ -155,13 +161,12 @@ export const orchestra_corpus_run_start = function(input) {
 	let created = time();
 	let nonce = sprintf('%04x', (created * 1103515245) & 0xffff);
 	let id = 'or-' + sprintf('%08x', created) + '-' + nonce;
-	let targets = make_targets(corpus.domains);
+	let requestId = request.requestId || ('full-corpus-' + sprintf('%08x', created) + '-' + nonce);
 	let control = initial_control(id, created);
-	let generatedRequestId = request.requestId || ('full-corpus-' + sprintf('%08x', created) + '-' + nonce);
 	let runState = {
 		schema: 1,
 		runId: id,
-		requestId: generatedRequestId,
+		requestId: requestId,
 		generation: request.generation,
 		createdAt: created,
 		startedAt: created,
@@ -176,7 +181,7 @@ export const orchestra_corpus_run_start = function(input) {
 		corpusVersion: corpus.version,
 		corpusDigest: corpus.digest,
 		targetCount: corpus.count,
-		targets: targets,
+		targets: make_targets(corpus.domains),
 		candidateMode: 'all',
 		candidateIds: request.candidateIds,
 		candidateRegistryDigest: catalog.digest,
@@ -222,13 +227,9 @@ export const orchestra_corpus_run_start = function(input) {
 	};
 
 	try { mkdir(ROOT + '/' + id); } catch (e) { }
-	if (!stat(ROOT + '/' + id)) {
+	if (!stat(ROOT + '/' + id) || !atomic_write(control_path(id), sprintf('%J', control) + '\n') || !save(runState) || !save_request_ref(requestId, id)) {
 		release_start_lock();
-		return err('EIO', 'could not create full-corpus run directory');
-	}
-	if (!atomic_write(control_path(id), sprintf('%J', control) + '\n') || !save(runState)) {
-		release_start_lock();
-		return err('EIO', 'could not create full-corpus run journal');
+		return err('EIO', 'could not create the full-corpus run journal');
 	}
 	add_event(runState, 'queued', 'Full 61-domain corpus run queued', {
 		domains: corpus.count,
@@ -236,7 +237,7 @@ export const orchestra_corpus_run_start = function(input) {
 		attempts: attemptCount,
 		corpusDigest: corpus.digest,
 		catalogDigest: catalog.digest,
-		requestId: generatedRequestId,
+		requestId: requestId,
 		generation: request.generation
 	});
 	save(runState);
@@ -260,17 +261,11 @@ export const orchestra_corpus_run_start = function(input) {
 		release_start_lock();
 		return err('EIO', 'could not publish full-corpus worker state', {}, id, runState.phase);
 	}
-	if (!save_request_ref(generatedRequestId, id)) {
-		release_start_lock();
-		return err('EIO', 'could not save full-corpus request identity', {}, id, runState.phase);
-	}
 	release_start_lock();
 	return { ok: true, run: runState };
 };
 
-function write_candidate(id, candidate, line) {
-	return atomic_write(candidate_file(id, candidate), line + '\n');
-}
+function write_candidate(id, candidate, line) { return atomic_write(candidate_file(id, candidate), line + '\n'); }
 function adapter_start(id, candidate, domain, timeout) {
 	let command = "'" + ADAPTER + "' '" + id + "' '" + candidate + "' '" + PROTOCOL + "' '" + domain + "' 'https' '" + timeout + "' >/dev/null 2>&1 & echo $!";
 	let response = run(command), pid = +trim(response.out || '');
@@ -287,8 +282,7 @@ function stop_owned(id, candidate, adapter) {
 function attempt_timeout(runState) {
 	let remaining = remaining_seconds(runState);
 	if (remaining <= 0) return 0;
-	let value = runState.perAttemptTimeoutSec;
-	if (remaining < value) value = remaining;
+	let value = remaining < runState.perAttemptTimeoutSec ? remaining : runState.perAttemptTimeoutSec;
 	let rounded = +sprintf('%.0f', value);
 	if (rounded > value) rounded--;
 	return rounded < 1 ? 0 : rounded;
@@ -311,8 +305,7 @@ function terminal(runState, phase, code, message, details) {
 }
 function registry_for_run(runState) {
 	let catalog = orchestra_catalog_get();
-	if (!catalog || catalog.ok !== true || catalog.digest != runState.candidateRegistryDigest || !arrays_equal(catalog.candidateIds, runState.candidateIds))
-		return null;
+	if (!catalog || catalog.ok !== true || catalog.digest != runState.candidateRegistryDigest || !arrays_equal(catalog.candidateIds, runState.candidateIds)) return null;
 	let set = profile_set(null, 'all');
 	if (!set || type(set.profiles) != 'array') return null;
 	let map = {}, selected = [];
@@ -332,7 +325,7 @@ function median(values) {
 	return length(values) % 2 ? values[+sprintf('%.0f', middle - 0.5)] : (values[middle - 1] + values[middle]) / 2;
 }
 function retain_evidence(runState, result) {
-	let compact = {
+	push(runState.results, {
 		evidenceId: result.evidenceId || null,
 		candidateId: result.candidateId,
 		domain: result.domain,
@@ -344,8 +337,7 @@ function retain_evidence(runState, result) {
 		durationMs: result.durationMs,
 		exitCode: result.exitCode,
 		reason: result.reason
-	};
-	push(runState.results, compact);
+	});
 	runState.evidenceTotal = (runState.evidenceTotal || 0) + 1;
 	while (length(runState.results) > runState.evidenceLimit) {
 		shift(runState.results);
