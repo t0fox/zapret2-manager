@@ -17,12 +17,14 @@ const catalog = {
 };
 
 test('catalog normalizes only backend records and preserves mode metadata', () => {
-  const result = model.catalog(catalog, { enabled: ['alpha'], activeMode: 'hosts' });
+  const result = model.catalog(catalog, {
+    ledger: { revision: 0, enabled: ['alpha'] }, activeMode: 'hosts'
+  });
   assert.deepEqual(result.services.map((service) => service.id), ['alpha', 'beta', 'gamma']);
   assert.deepEqual(result.categories.map((category) => category.id), ['video', 'chat']);
   assert.deepEqual(result.modes, catalog.modes);
   assert.equal(result.activeMode, 'hosts');
-  assert.equal(result.revision, 'r1');
+  assert.equal(result.revision, 0);
   assert.equal(result.services.some((service) => service.id === 'demo'), false);
 });
 
@@ -47,13 +49,14 @@ test('selectors apply query, state, and category filters to the same data', () =
 });
 
 test('category state reports off, on, and mixed with counts', () => {
-  assert.deepEqual(model.categoryState(catalog.services, {}, 'video'), {
+  const video = catalog.services.filter((service) => service.category === 'video');
+  assert.deepEqual(model.categoryState(video, {}), {
     state: 'off', enabled: 0, total: 2
   });
-  assert.deepEqual(model.categoryState(catalog.services, { alpha: true, beta: true }, 'video'), {
+  assert.deepEqual(model.categoryState(video, { alpha: true, beta: true }), {
     state: 'on', enabled: 2, total: 2
   });
-  assert.deepEqual(model.categoryState(catalog.services, { alpha: true }, 'video'), {
+  assert.deepEqual(model.categoryState(video, { alpha: true }), {
     state: 'mixed', enabled: 1, total: 2
   });
 });
@@ -68,7 +71,7 @@ test('category toggles use mixed to on and on to off for every category service'
 });
 
 test('bulk all and none ignore search visibility and individual overrides are deterministic', () => {
-  const enabled = model.toggleAll(catalog.services, { alpha: false }, true);
+  const enabled = model.toggleAll(catalog.services, { alpha: false, stale: true }, true);
   enabled.gamma = false;
   assert.deepEqual(enabled, { alpha: true, beta: true, gamma: false });
   assert.deepEqual(model.toggleAll(catalog.services, enabled, false), {

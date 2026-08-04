@@ -73,6 +73,30 @@ test('redaction masks secret, token, and password values recursively', () => {
   });
 });
 
+test('secret-only changes remain visible while semantic values are masked', () => {
+  const groups = model.semanticDiff({
+    proxy: {
+      changes: {
+        password: { before: 'old-secret', after: 'new-secret' }
+      },
+      applicable: true
+    }
+  }, { proxy: { password: 'old-secret' } });
+  assert.equal(groups.length, 1);
+  assert.deepEqual(groups[0].rows, [{
+    key: 'password', label: 'password', before: '••••••', after: '••••••'
+  }]);
+});
+
+test('apply availability revalidates unknown scopes from array entries', () => {
+  const availability = model.applyAvailability([{
+    scope: 'unknown', changes: { value: { before: 1, after: 2 } },
+    applicable: true, blocker: null
+  }]);
+  assert.equal(availability.enabled, false);
+  assert.match(availability.blockers.join(' '), /unsupported/i);
+});
+
 test('partial apply clears verified scopes but retains failed scopes and errors', () => {
   const result = model.recordApplyResult({
     services: { changes: { alpha: { before: false, after: true } } },
