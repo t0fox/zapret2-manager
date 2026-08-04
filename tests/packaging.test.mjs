@@ -63,6 +63,11 @@ test('r143 package ships no legacy runtime and only the two authoritative local 
     const source = readFileSync(join(viewRoot, stylesheet), 'utf8');
     assert.doesNotMatch(source, /@import|https?:\/\//, `${stylesheet} stays self-contained`);
   }
+  for (const name of ['tools/deploy-verify.sh', 'tools/session-check.sh', 'tools/verify-deploy-r38.sh']) {
+    const source = readFileSync(join(REPO, name), 'utf8');
+    assert.match(source, /zapret2-manager\/app|\bapp\b/, `${name} checks the app route`);
+    assert.doesNotMatch(source, /\b(?:overview|blockcheck|catalog)(?:\.js)?\b/, `${name} has no removed standalone route`);
+  }
 });
 
 test('shipped LuCI sources contain no countdown, fake catalogue or demo secrets', () => {

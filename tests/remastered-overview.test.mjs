@@ -37,12 +37,14 @@ test('Overview exposes runtime status, active strategy and explicit service acti
   assert.match(overview, /Подобрать лучшую стратегию/);
 });
 
-test('Overview stages point overrides before explicit apply', () => {
+test('Overview stages point overrides and blocks them from the unsupported coordinator path', () => {
   assert.match(overview, /pendingOverride/);
   assert.match(overview, /action:\s*['"]override_set['"]/);
   assert.match(overview, /action:\s*['"]override_delete['"]/);
   assert.match(overview, /Применить изменение/);
-  assert.match(overview, /applyNow:\s*true/);
+  assert.match(overview, /Точечные правила нельзя применить через общий координатор/);
+  assert.match(overview, /ctx\.openSemanticDiff/);
+  assert.doesNotMatch(overview, /applyNow:\s*true/);
 });
 
 test('Auto Strategy preserves recovery, cooldown and unknown phase truth', () => {

@@ -273,7 +273,6 @@ function applyPreview(ctx, run) {
     if (!response || response.ok === false) throw response && response.error || response;
     state.operation = response.operation || response;
     state.busyAction = null;
-    if (ctx.setConfirmation) ctx.setConfirmation(response);
     pollApply(ctx);
     ctx.refresh('strategy');
   }).catch(function (error) {
@@ -292,7 +291,6 @@ function pollApply(ctx) {
       var operation = response && (response.operation || response);
       if (!operation || response.ok === false) throw response && response.error || response;
       state.operation = operation;
-      if (ctx.setConfirmation) ctx.setConfirmation(response);
       if (!terminalApply(operation.phase)) pollApply(ctx);
       return ctx.refresh('strategy');
     }).catch(function (error) {

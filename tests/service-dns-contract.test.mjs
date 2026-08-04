@@ -21,11 +21,12 @@ test('all Service DNS RPC methods remain in the central facade and narrow ACL', 
   assert.equal(ACL.read.ubus['zapret2-manager'].includes('service_dns_set'), false);
 });
 
-test('UI applies the exact draft revision returned by service_dns_set', () => {
-  assert.match(BACKEND, /return \{ ok: true, draftRevision: [^}]+ \}/);
-  assert.match(UI, /draftRevision:\s*setResult\.draftRevision/);
-  assert.match(UI, /operationId:\s*operationId/);
-  assert.match(UI, /api\.dns\.serviceApplyAsync/);
+test('Service DNS changes remain semantic drafts when no safe coordinator path exists', () => {
+  assert.match(UI, /ctx\.setDraft\(['"]service-dns['"]/);
+  assert.match(UI, /безопасный синхронный preview\/apply путь отсутствует/);
+  assert.match(UI, /ctx\.openSemanticDiff/);
+  assert.doesNotMatch(UI, /draftRevision:\s*setResult\.draftRevision/);
+  assert.doesNotMatch(UI, /api\.dns\.serviceApplyAsync/);
 });
 
 test('UI polls async operation status without overlapping intervals', () => {

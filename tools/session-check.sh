@@ -48,7 +48,7 @@ echo ""
 # Verify routes
 echo "=== ROUTE VERIFICATION ==="
 for path in \
-	dns service-dns overview strategies blockcheck catalog orchestra \
+	app orchestra-strategy orchestra strategies dns service-dns \
 	lists monitor proxy maintenance
 do
 	url="http://${ROUTER}/cgi-bin/luci/admin/services/zapret2-manager/${path}"
@@ -59,7 +59,7 @@ done
 # Verify static resources
 echo ""
 echo "=== STATIC RESOURCES ==="
-for res in z2m-ui.css z2m-ui.js dns.js service-dns.js overview.js
+for res in app.js z2m-ui.css z2m-ui.js z2m-draft-model.js z2m-services-model.js z2m-services.js
 do
 	url="http://${ROUTER}/luci-static/resources/view/zapret2-manager/${res}"
 	code="$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 "$url" 2>/dev/null || echo '000')"

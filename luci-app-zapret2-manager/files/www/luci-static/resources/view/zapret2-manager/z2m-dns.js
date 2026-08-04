@@ -385,7 +385,6 @@ function render(ctx) {
   function selectProvider(provider) {
     edit(ctx.api.dns.selectProvider, { providerId: provider.id, apply: true }).then(function (answer) {
       if (!answer || answer.ok !== true) throw answer || new Error('dns_select_provider failed');
-      if (ctx.setConfirmation) ctx.setConfirmation(answer);
       shell.showToast(_('DNS-провайдер выбран.'), 'ok');
       return ctx.refresh('dns');
     }).catch(showError);
