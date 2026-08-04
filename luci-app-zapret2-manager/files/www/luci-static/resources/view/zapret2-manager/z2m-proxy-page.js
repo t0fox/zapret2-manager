@@ -1,6 +1,7 @@
 'use strict';
 'require baseclass';
 'require view.zapret2-manager.z2m-proxy-model as ProxyModel';
+'require view.zapret2-manager.z2m-proxy-provider-api as ProviderApi';
 'require view.zapret2-manager.z2m-qr as Qr';
 
 var FIELDS = [
@@ -24,7 +25,14 @@ var FIELDS = [
   { id: 'quiet', label: _('Тихое логирование'), type: 'bool' },
   { id: 'verbose', label: _('Отладочный лог'), type: 'bool' }
 ];
-var state = { pane: 'status', busy: null, revealed: null, preview: null };
+
+var state = {
+  pane: null,
+  busy: null,
+  revealed: null,
+  preview: null,
+  providerVersions: {}
+};
 
 function edit(fn, value) { return fn(JSON.stringify(value || {})); }
 function array(value) { return Array.isArray(value) ? value : []; }
@@ -49,14 +57,18 @@ function load(ctx) {
     ctx.api.proxy.status(),
     ctx.api.proxy.configGet(),
     edit(ctx.api.proxy.health, {}),
-    edit(ctx.api.proxy.logsTail, { n: 50 })
+    edit(ctx.api.proxy.logsTail, { n: 50 }),
+    ProviderApi.catalog(),
+    ProviderApi.status()
   ]).then(function (results) {
     return {
       capabilities: settled(results[0], ctx.api),
       status: settled(results[1], ctx.api),
       config: settled(results[2], ctx.api),
       health: settled(results[3], ctx.api),
-      logs: settled(results[4], ctx.api)
+      logs: settled(results[4], ctx.api),
+      providerCatalog: settled(results[5], ctx.api),
+      providerStatus: settled(results[6], ctx.api)
     };
   });
 }
@@ -102,17 +114,17 @@ function stage(ctx, data, settings) {
 function truthLabel(truth) {
   var labels = {
     stopped: _('Остановлен'), starting: _('Запускается'), healthy: _('Работает'),
-    degraded: _('Деградация'), unsupported: _('Недоступен'), error: _('Ошибка')
+    degraded: _('Деградация'), unsupported: _('Не установлен'), error: _('Ошибка')
   };
   return labels[truth] || truth;
 }
 function truthKind(truth) {
   return truth === 'healthy' ? 'g' : truth === 'stopped' || truth === 'starting' ? 'o' : 'r';
 }
-function confirm(ctx, title, message, label, action) {
+function confirm(ctx, title, message, label, action, danger) {
   ctx.shell.openModal(title, E('p', {}, message), [
     ctx.shell.button(_('Отмена'), '', ctx.shell.closeModal),
-    ctx.shell.button(label, 'danger', function () {
+    ctx.shell.button(label, danger === false ? 'primary' : 'danger', function () {
       ctx.shell.closeModal();
       action();
     })
@@ -135,16 +147,111 @@ function reveal(ctx) {
           ctx.shell.closeModal();
         })]);
       }).catch(showError.bind(null, ctx));
-    });
+    }, false);
 }
 function lifecycle(ctx, method, label, message) {
   confirm(ctx, label + '?', message, label, function () {
     mutation(ctx, label, method());
   });
 }
+function providerStatus(data) {
+  return object(data.providerStatus && data.providerStatus.value);
+}
+function providerCatalog(data) {
+  return array(object(data.providerCatalog && data.providerCatalog.value).providers);
+}
+function selectedVersion(provider, status) {
+  if (state.providerVersions[provider.id]) return state.providerVersions[provider.id];
+  if (status.activeProvider === provider.id && status.activeVersion) return status.activeVersion;
+  return provider.recommended || (array(provider.versions)[0] || {}).id || '';
+}
+function providerCard(ctx, data, provider, status) {
+  var shell = ctx.shell;
+  var selected = selectedVersion(provider, status);
+  var select = E('select', { 'aria-label': _('Версия ') + provider.title }, array(provider.versions).map(function (version) {
+    return E('option', {
+      value: version.id,
+      selected: version.id === selected ? 'selected' : null
+    }, version.label + (version.recommended ? ' · ' + _('рекомендуется') : ''));
+  }));
+  select.value = selected;
+  select.addEventListener('change', function () {
+    state.providerVersions[provider.id] = select.value;
+  });
+
+  var isActive = status.installed === true && status.activeProvider === provider.id;
+  var sameVersion = isActive && status.activeVersion === selected;
+  var actionLabel = sameVersion ? _('Установлено') : status.installed ? _('Переключить') : _('Установить');
+  var action = shell.button(actionLabel, sameVersion ? 'sm' : 'primary sm', function () {
+    var version = select.value;
+    var switching = status.installed === true;
+    confirm(ctx,
+      switching ? _('Переключить реализацию?') : _('Установить TG Proxy?'),
+      switching
+        ? _('Сервис будет остановлен, пакет заменён и запущен снова только после повторной проверки.')
+        : _('Будет установлен только выбранный пакет из доверенного feed. Остальной менеджер от него не зависит.'),
+      switching ? _('Переключить') : _('Установить'),
+      function () { mutation(ctx, 'provider-install', ProviderApi.install({ provider: provider.id, version: version })); },
+      false);
+  }, !!state.busy || sameVersion);
+
+  return shell.panel(provider.title, E('div', {}, [
+    E('div', { 'class': 'z2m-row' }, [
+      E('strong', {}, provider.short || ''),
+      isActive ? shell.chip(_('Активна'), 'g') : null
+    ]),
+    E('p', { 'class': 'z2m-dim' }, provider.feature || ''),
+    E('label', {}, [_('Версия'), select]),
+    E('div', { 'class': 'z2m-btnrow' }, [action])
+  ]));
+}
+function installPane(ctx, data) {
+  var shell = ctx.shell;
+  var status = providerStatus(data);
+  var providers = providerCatalog(data);
+  var cards = providers.map(function (provider) { return providerCard(ctx, data, provider, status); });
+  var footer = [];
+
+  if (status.installed) {
+    footer.push(shell.button(_('Удалить'), 'danger sm', function () {
+      confirm(ctx, _('Удалить TG Proxy?'),
+        _('Пакет и сервис будут удалены. Настройки и secret сохранятся для быстрой переустановки.'),
+        _('Удалить'), function () { mutation(ctx, 'provider-remove', ProviderApi.remove()); });
+    }, !!state.busy));
+    footer.push(shell.button(_('Удалить полностью'), 'sm', function () {
+      confirm(ctx, _('Удалить настройки и secret?'),
+        _('Это удалит пакет, конфигурацию и текущую Telegram Proxy ссылку без возможности восстановления.'),
+        _('Удалить полностью'), function () { mutation(ctx, 'provider-purge', ProviderApi.purge()); });
+    }, !!state.busy));
+  }
+
+  return E('div', {}, [
+    shell.statePanel({
+      title: status.installed ? _('Компонент установлен') : _('Компонент не установлен'),
+      message: status.installed
+        ? _('Выбрано: ') + String(status.activeProvider || '—') + ' ' + String(status.activeVersion || '')
+        : _('Это нормально: TG Proxy полностью опционален и не влияет на остальные функции Zapret2 Manager.'),
+      kind: status.installed ? 'success' : 'info'
+    }),
+    data.providerCatalog && data.providerCatalog.error ? shell.statePanel({
+      title: _('Каталог недоступен'), message: data.providerCatalog.error.message, kind: 'error'
+    }) : null,
+    E('div', { 'class': 'z2m-grid z2m-grid-2' }, cards),
+    footer.length ? shell.panel(_('Удаление'), E('div', { 'class': 'z2m-btnrow' }, footer),
+      _('Обычное удаление сохраняет настройки. Полная очистка удаляет и secret.')) : null
+  ]);
+}
 function statusPane(ctx, data, normalized) {
   var shell = ctx.shell;
+  var pstatus = providerStatus(data);
+  if (!pstatus.installed) return shell.statePanel({
+    title: _('TG Proxy не установлен'),
+    message: _('Выберите Rust или Go во вкладке «Установка». Остальной менеджер продолжает работать без TG Proxy.'),
+    kind: 'info'
+  });
+
   var rows = [
+    { label: _('Реализация'), value: String(pstatus.activeProvider || '—') + ' ' + String(pstatus.activeVersion || '') },
     { label: _('Процесс'), value: normalized.process ? _('запущен') : _('остановлен') },
     { label: _('Listener'), value: normalized.listener ? _('готов') : _('не подтверждён') },
     { label: _('Связь с Telegram DC'), value: normalized.outbound ? _('готова') : _('не подтверждена') }
@@ -152,31 +259,23 @@ function statusPane(ctx, data, normalized) {
   if (normalized.activeConnections !== null)
     rows.push({ label: _('Активные подключения'), value: String(normalized.activeConnections) });
   var actions = [];
-  if (normalized.installed) {
-    if (!normalized.process) actions.push(shell.button(_('Запустить'), 'primary sm', function () {
-      lifecycle(ctx, ctx.api.proxy.start, _('Запустить'), _('Backend проверит процесс и точный listener после запуска.'));
-    }, !!state.busy));
-    if (normalized.process) actions.push(shell.button(_('Перезапустить'), 'sm', function () {
-      lifecycle(ctx, ctx.api.proxy.restart, _('Перезапустить'), _('Текущие подключения будут прерваны.'));
-    }, !!state.busy));
-    if (normalized.process) actions.push(shell.button(_('Остановить'), 'danger sm', function () {
-      lifecycle(ctx, ctx.api.proxy.stop, _('Остановить'), _('Telegram Proxy перестанет принимать подключения.'));
-    }, !!state.busy));
-    actions.push(shell.button(_('Новая ссылка'), 'danger sm', function () {
-      lifecycle(ctx, ctx.api.proxy.secretRotate, _('Создать новую ссылку'), _('Старая ссылка перестанет работать; backend выполнит listener verification и rollback при ошибке.'));
-    }, !!state.busy));
-    actions.push(shell.button(_('Показать ссылку / QR'), 'primary sm', reveal.bind(null, ctx), !!state.busy));
-  }
-  return E('div', {}, [
-    shell.panel(_('Состояние Telegram Proxy'), E('div', { 'class': 'z2m-proxy-kv' }, rows.map(function (row) {
-      return E('div', {}, [E('span', {}, row.label), E('strong', {}, row.value)]);
-    })), null, E('div', { 'class': 'z2m-btnrow' }, actions)),
-    !normalized.installed ? shell.statePanel({
-      title: _('Пакет не установлен'),
-      message: _('Установка выполняется только через подписанный package feed вне этой страницы.'),
-      kind: 'warning'
-    }) : null
-  ]);
+  if (!normalized.process) actions.push(shell.button(_('Запустить'), 'primary sm', function () {
+    lifecycle(ctx, ctx.api.proxy.start, _('Запустить'), _('Backend проверит процесс и точный listener после запуска.'));
+  }, !!state.busy));
+  if (normalized.process) actions.push(shell.button(_('Перезапустить'), 'sm', function () {
+    lifecycle(ctx, ctx.api.proxy.restart, _('Перезапустить'), _('Текущие подключения будут прерваны.'));
+  }, !!state.busy));
+  if (normalized.process) actions.push(shell.button(_('Остановить'), 'danger sm', function () {
+    lifecycle(ctx, ctx.api.proxy.stop, _('Остановить'), _('Telegram Proxy перестанет принимать подключения.'));
+  }, !!state.busy));
+  actions.push(shell.button(_('Новая ссылка'), 'danger sm', function () {
+    lifecycle(ctx, ctx.api.proxy.secretRotate, _('Создать новую ссылку'), _('Старая ссылка перестанет работать; backend выполнит listener verification и rollback при ошибке.'));
+  }, !!state.busy));
+  actions.push(shell.button(_('Показать ссылку / QR'), 'primary sm', reveal.bind(null, ctx), !!state.busy));
+
+  return shell.panel(_('Состояние Telegram Proxy'), E('div', { 'class': 'z2m-proxy-kv' }, rows.map(function (row) {
+    return E('div', {}, [E('span', {}, row.label), E('strong', {}, row.value)]);
+  })), null, E('div', { 'class': 'z2m-btnrow' }, actions));
 }
 function fieldNode(field, value, onChange) {
   var input;
@@ -201,6 +300,7 @@ function fieldNode(field, value, onChange) {
 }
 function settingsPane(ctx, data) {
   var shell = ctx.shell;
+  var pstatus = providerStatus(data);
   var settings = workingConfig(ctx, data);
   var form = E('div', { 'class': 'z2m-cbi' });
   FIELDS.forEach(function (field) {
@@ -214,6 +314,10 @@ function settingsPane(ctx, data) {
   });
   var draft = currentDraft(ctx);
   return E('div', {}, [
+    !pstatus.installed ? shell.statePanel({
+      message: _('Настройки можно подготовить заранее, но применить их получится только после установки Rust или Go.'),
+      kind: 'info'
+    }) : null,
     shell.panel(_('Настройки'), form, _('Secret-bearing upstream entries хранятся backend-side и не round-trip через браузер.'),
       draft.settings ? shell.button(_('Показать различия'), 'primary sm', ctx.openSemanticDiff, false) : null),
     state.preview ? shell.statePanel({ message: _('Backend preview готов; применение выполняется общим coordinator.'), kind: 'success' }) : null
@@ -232,20 +336,24 @@ function activityPane(ctx, data) {
 }
 function render(ctx) {
   var data = ctx.data || {};
+  var pstatus = providerStatus(data);
   var merged = Object.assign({}, object(data.status && data.status.value), object(data.health && data.health.value), {
     capabilities: object(data.capabilities && data.capabilities.value),
     supported: object(data.capabilities && data.capabilities.value).supported,
-    installed: object(data.status && data.status.value).installed
+    installed: pstatus.installed === true
   });
   var normalized = ProxyModel.normalize(merged);
+  if (state.pane == null) state.pane = pstatus.installed ? 'status' : 'install';
   var panes = {
+    install: installPane(ctx, data),
     status: statusPane(ctx, data, normalized),
     settings: settingsPane(ctx, data),
     activity: activityPane(ctx, data)
   };
-  if (!panes[state.pane]) state.pane = 'status';
+  if (!panes[state.pane]) state.pane = 'install';
   var paneHost = E('div', { id: 'z2m-proxy-pane' }, panes[state.pane]);
   var tabs = ctx.shell.subTabs([
+    { id: 'install', label: _('Установка') },
     { id: 'status', label: _('Состояние') },
     { id: 'settings', label: _('Настройки') },
     { id: 'activity', label: _('Активность') }
@@ -254,13 +362,13 @@ function render(ctx) {
     paneHost.replaceChildren(panes[id]);
   }, { 'aria-label': _('Разделы Telegram Proxy') });
   var errors = [];
-  Object.keys(data).forEach(function (key) {
+  ['providerStatus', 'capabilities', 'status', 'config', 'health', 'logs'].forEach(function (key) {
     if (data[key] && data[key].error)
       errors.push(ctx.shell.statePanel({ title: _('Ошибка backend'), message: data[key].error.message, kind: 'error' }));
   });
   return E('section', { 'class': 'z2m-view on', id: 'z2m-view-proxy' }, [
     E('div', { 'class': 'z2m-phead' }, [
-      E('div', {}, [E('h1', {}, _('Telegram Proxy')), E('p', {}, _('Truthful listener/DC health, safe settings и explicit lifecycle'))]),
+      E('div', {}, [E('h1', {}, _('Telegram Proxy')), E('p', {}, _('Опциональная установка, выбор Rust / Go и безопасный lifecycle'))]),
       E('div', { 'class': 'sp' }, ctx.shell.chip(truthLabel(normalized.truth), truthKind(normalized.truth), true))
     ]),
     errors.length ? E('div', {}, errors) : null,
@@ -281,22 +389,26 @@ function createAdapter(api) {
     return Promise.all([api.proxy.configGet(), api.proxy.status()]).then(function (values) {
       var config = object(values[0]);
       var applied = ProxyModel.safeSettings(config.applied || config.config || config.draft || {});
-      var revision = config.appliedRevision !== undefined ? config.appliedRevision : config.revision;
-      return { value: { settings: applied, revision: revision, status: values[1] || {} }, revision: revision };
+      var appliedRevision = config.appliedRevision !== undefined ? config.appliedRevision : config.revision;
+      return { value: { settings: applied, revision: appliedRevision, status: values[1] || {} }, revision: appliedRevision };
     });
   }
   return {
     supported: true,
     validateDraft: function (scope, value) {
       if (!value || !value.settings) return Promise.resolve({ ok: false, message: _('Proxy draft не содержит safe settings.') });
-      return edit(api.proxy.configValidate, { config: value.settings });
+      return ProviderApi.status().then(function (status) {
+        if (!status || status.installed !== true)
+          return { ok: false, error: { code: 'ENOPROVIDER', message: _('Сначала установите Rust или Go во вкладке TG Proxy.') } };
+        return edit(api.proxy.configValidate, { config: value.settings });
+      });
     },
     previewDraft: function (scope, value, context) {
       return edit(api.proxy.configPreview, { config: value.settings }).then(function (answer) {
         var read = context && context.applied && context.applied.proxy || {};
-        var revision = object(answer && answer.precondition).appliedRevision;
-        if (revision === undefined || revision === null) revision = read.revision;
-        return Object.assign({}, answer || {}, { precondition: { revision: revision } });
+        var expected = object(answer && answer.precondition).appliedRevision;
+        if (expected === undefined || expected === null) expected = read.revision;
+        return Object.assign({}, answer || {}, { precondition: { revision: expected } });
       });
     },
     previewValid: function (answer) {
@@ -321,7 +433,7 @@ function unmount() { state.revealed = null; }
 return baseclass.extend({
   id: 'proxy',
   title: _('Telegram Proxy'),
-  subtitle: _('Truthful health, safe settings и lifecycle'),
+  subtitle: _('Опциональная установка, Rust / Go и lifecycle'),
   load: load,
   render: render,
   mount: function () {},
