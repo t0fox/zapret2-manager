@@ -22,6 +22,7 @@
 import { orchestra_capabilities, orchestra_status, orchestra_events, orchestra_history, orchestra_runid, orchestra_parse_warnings, orchestra_ratings_get, orchestra_history_get, orchestra_history_paginated, orchestra_history_export, orchestra_history_clear, orchestra_history_stats } from './orchestra.uc';
 import { orchestra_run_start, orchestra_run_status, orchestra_run_events, orchestra_run_pause, orchestra_run_resume, orchestra_run_stop, orchestra_run_continue, orchestra_probe_preflight, orchestra_run_invalidate, orchestra_run_history, orchestra_run_load, orchestra_run_delete, orchestra_run_capabilities, orchestra_apply_best, orchestra_apply_best_test, orchestra_preview_best, orchestra_apply_status, orchestra_apply_events, orchestra_restore_previous, orchestra_apply_record_lan_verification } from './orchestra-run.uc';
 import { orchestra_corpus_get } from './orchestra-corpus.uc';
+import { orchestra_corpus_run_start } from './orchestra-corpus-run.uc';
 import { readfile } from 'fs';
 
 function read_request(path) {
@@ -73,7 +74,8 @@ if (mode == 'capabilities') {
 } else if (mode == 'history_stats') {
 	print(sprintf("%J", orchestra_history_stats()) + '\n');
 } else if (mode == 'run_start') {
-	print(sprintf("%J", orchestra_run_start(read_request(reqFile))) + '\n');
+	let request = read_request(reqFile);
+	print(sprintf("%J", request.targetType == 'corpus' ? orchestra_corpus_run_start(request) : orchestra_run_start(request)) + '\n');
 } else if (mode == 'run_status') {
 	print(sprintf("%J", orchestra_run_status(read_request(reqFile))) + '\n');
 } else if (mode == 'run_events') {
