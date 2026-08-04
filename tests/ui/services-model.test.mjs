@@ -45,6 +45,18 @@ test('catalog normalizes backend source metadata and category fallback labels', 
   }]);
 });
 
+test('catalog omits malformed sources and never synthesizes an ID from a source name', () => {
+  const result = model.catalog({
+    sources: [
+      { name: 'name-only source', label: 'Malformed' },
+      { id: 'ready-1', label: 'Ready hosts' },
+      { key: 'ready-key', label: 'Keyed hosts' }
+    ]
+  }, {});
+  assert.deepEqual(result.sources.map((source) => source.id), ['ready-1', 'ready-key']);
+  assert.equal(result.sources.some((source) => source.id === 'name-only source'), false);
+});
+
 test('selectors share draft-aware visible rows, counts, and KPIs', () => {
   const result = model.selectors(catalog.services,
     { alpha: true, beta: false, gamma: true },

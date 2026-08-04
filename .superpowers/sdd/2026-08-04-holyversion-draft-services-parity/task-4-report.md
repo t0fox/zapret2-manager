@@ -49,9 +49,10 @@ Result: 76 tests, 76 passed, 0 failed.
 ```text
 node --check luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-services.js
 node --check luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-services-model.js
+git diff --check
 ```
 
-All three checks passed with no output/errors.
+Both `node --check` commands and `git diff --check` passed with no output/errors.
 
 ## Changed Files
 
@@ -74,3 +75,47 @@ The pre-existing untracked plan file was not modified.
 ## Commit
 
 Required commit title: `feat: match holyversion services controls`
+
+## Fix Round 1 Report
+
+### Findings Fixed
+
+- Switches now use one native `click` path. The page no longer mutates from both `keydown` and the browser-generated click, preventing double activation for Enter/Space. The executable harness covers `mixed -> on -> off -> on` using Enter, Space, and click.
+- Editing fails closed when catalog, status, digest, or a valid `{ledgerRevision, fileSha256}` precondition is unavailable. Category/individual switches and both bulk buttons are disabled, a visible blocker is rendered, and guarded callbacks cannot create a draft. An unavailable applied status does not create an empty-baseline draft.
+- Mode tab rerenders update the `on` class and `aria-selected` for both `services` and `hosts`.
+- Page Apply now checks every retained mode draft, so a Services draft remains actionable after switching to hosts and still calls `ctx.openSemanticDiff()`.
+- Source normalization accepts only backend-provided `id`, `sourceId`, or `key` fields. Name-only source records are omitted; valid records remain available.
+- The static-check wording now accurately counts two `node --check` commands plus `git diff --check`.
+
+### Fix Round RED
+
+```text
+node --test tests/ui/services-model.test.mjs tests/ui/services-parity.test.mjs tests/ui/single-view-services-lists-dns.test.mjs tests/ui/render-harness.test.mjs
+```
+
+Result: 31 tests, 26 passed, 5 failed. Failures were the intended keyboard double-activation, retained-draft Apply alias, unavailable-precondition edit gate, mode-tab state, and name-only source ID regressions.
+
+### Fix Round GREEN
+
+```text
+node --test tests/ui/services-model.test.mjs tests/ui/services-parity.test.mjs tests/ui/single-view-services-lists-dns.test.mjs tests/ui/render-harness.test.mjs
+```
+
+Result: 31 tests, 31 passed, 0 failed.
+
+Reviewed UI set:
+
+```text
+node --test tests/ui/draft-model.test.mjs tests/ui/services-model.test.mjs tests/ui/global-draft-apply.test.mjs tests/ui/services-parity.test.mjs tests/ui/single-view-manager.test.mjs tests/ui/single-view-services-lists-dns.test.mjs tests/ui/video-drafts-service-dns-regressions.test.mjs tests/ui/render-harness.test.mjs
+```
+
+Result: 80 tests, 80 passed, 0 failed.
+
+### Fix Round Static Checks
+
+```text
+node --check luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-services.js
+node --check luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-services-model.js
+```
+
+All checks passed with no output/errors. No backend files, branches, or external assets were added.

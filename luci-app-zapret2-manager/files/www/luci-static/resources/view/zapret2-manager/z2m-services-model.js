@@ -22,7 +22,8 @@ function serviceLabel(service) {
   return service && (service.label || service.name || service.displayName || serviceId(service));
 }
 function sourceId(source) {
-  return source && (source.id || source.sourceId || source.key || source.name);
+  if (!source) return null;
+  return source.id != null ? source.id : source.sourceId != null ? source.sourceId : source.key;
 }
 function sourceLabel(source) {
   return source && (source.label || source.name || source.title || source.displayName || sourceId(source));

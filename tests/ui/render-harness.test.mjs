@@ -192,7 +192,8 @@ const healthyData = {
         date: '2026-08-04', validationStatus: 'valid' }]
     } },
     status: { value: { ok: true, activeMode: 'services', ledger: {
-      revision: 8, enabled: ['alpha'], updatedAt: '2026-08-04T10:00:00Z'
+      revision: 8, enabled: ['alpha'], updatedAt: '2026-08-04T10:00:00Z',
+      precondition: { ledgerRevision: 8, fileSha256: 'backend-file-sha' }
     }, ownedDomains: 2 } },
     health: { value: { ok: true, matrix: { status: 'completed' } } },
     preflight: { value: { ok: true, ready: true } }
@@ -212,13 +213,13 @@ const healthyData = {
   }
 };
 
-function context(data) {
+function context(data, hooks = {}) {
   const state = store();
   return {
     api: apiTree(), shell, store: state, data, root: makeNode('main'), initial: {},
     navigate() {}, refresh() { return Promise.resolve(); },
     setDraft(scope, value) { state.setDraft(scope, value); },
-    clearDraft(scope) { state.clearDraft(scope); }, openSemanticDiff() {}
+    clearDraft(scope) { state.clearDraft(scope); }, openSemanticDiff() { hooks.openSemanticDiff?.(); }
   };
 }
 function assertTree(node, name) {
@@ -294,6 +295,19 @@ test('Services render harness uses backend catalogue data in both modes', () => 
   hostsModeButton.listeners.click({ type: 'click', preventDefault() {} });
   assert.ok(servicesContext.store.get().draft.services.modeDrafts.services);
 
+  const retainedApply = servicesTree.querySelectorAll('button').find((node) => node.textContent === 'Применить');
+  assert.ok(retainedApply && retainedApply.disabled === false);
+  let coordinatorOpens = 0;
+  const aliasContext = context(healthyData['z2m-services.js'], { openSemanticDiff() { coordinatorOpens += 1; } });
+  mod.resetDraft();
+  const aliasTree = mod.render(aliasContext);
+  const aliasRow = aliasTree.querySelectorAll('div').find((node) => node.attrs['data-service-id'] === 'beta');
+  aliasRow.querySelector('button').listeners.click({ type: 'click', preventDefault() {} });
+  const aliasHosts = aliasTree.querySelectorAll('button').find((node) => node.attrs['data-mode'] === 'hosts');
+  aliasHosts.listeners.click({ type: 'click', preventDefault() {} });
+  aliasTree.querySelectorAll('button').find((node) => node.textContent === 'Применить').listeners.click({ type: 'click' });
+  assert.equal(coordinatorOpens, 1);
+
   const hostsData = structuredClone(healthyData['z2m-services.js']);
   hostsData.status.value = { ...hostsData.status.value, activeMode: 'hosts' };
   mod.resetDraft();
@@ -302,6 +316,56 @@ test('Services render harness uses backend catalogue data in both modes', () => 
   assert.match(hostsTree.textContent, /Backend ready hosts/);
   assert.match(hostsTree.textContent, /ready-1/);
   assert.match(hostsTree.textContent, /ревизия: 8/);
+});
+
+test('Services switches use one native click path for click and keyboard activation', () => {
+  const mod = evaluateLuciModule(`${root}/z2m-services.js`, overrides, cache);
+  mod.resetDraft();
+  const tree = mod.render(context(healthyData['z2m-services.js']));
+  const categoryButton = () => tree.querySelectorAll('button').find((node) => node.attrs['data-state'] != null);
+  const nativeKeyboardClick = (key) => {
+    const button = categoryButton();
+    button.listeners.keydown?.({ type: 'keydown', key, preventDefault() {} });
+    button.listeners.click({ type: 'click', detail: 0, preventDefault() {} });
+  };
+  assert.equal(categoryButton().attrs['data-state'], 'mixed');
+  nativeKeyboardClick('Enter');
+  assert.equal(categoryButton().attrs['data-state'], 'on');
+  nativeKeyboardClick(' ');
+  assert.equal(categoryButton().attrs['data-state'], 'off');
+  categoryButton().listeners.click({ type: 'click', detail: 1, preventDefault() {} });
+  assert.equal(categoryButton().attrs['data-state'], 'on');
+});
+
+test('Services fails closed when status precondition is unavailable', () => {
+  const mod = evaluateLuciModule(`${root}/z2m-services.js`, overrides, cache);
+  mod.resetDraft();
+  const unavailable = structuredClone(healthyData['z2m-services.js']);
+  delete unavailable.status.value.ledger.precondition;
+  const ctx = context(unavailable);
+  const tree = mod.render(ctx);
+  assert.match(tree.textContent, /предусловия каталога недоступны/i);
+  const switches = tree.querySelectorAll('button').filter((node) => node.attrs.role === 'switch');
+  assert.ok(switches.length > 0);
+  assert.ok(switches.every((node) => node.disabled === true));
+  const bulk = tree.querySelectorAll('button').filter((node) => /Включить все|Выключить все/.test(node.textContent));
+  assert.ok(bulk.length === 2 && bulk.every((node) => node.disabled === true));
+  switches[0].listeners.click({ type: 'click', preventDefault() {} });
+  assert.equal(ctx.store.get().draft.services, undefined);
+});
+
+test('Services mode tabs refresh on class and aria-selected state', () => {
+  const mod = evaluateLuciModule(`${root}/z2m-services.js`, overrides, cache);
+  mod.resetDraft();
+  const tree = mod.render(context(healthyData['z2m-services.js']));
+  const mode = (id) => tree.querySelectorAll('button').find((node) => node.attrs['data-mode'] === id);
+  assert.equal(mode('services').classList.contains('on'), true);
+  assert.equal(mode('services').attrs['aria-selected'], 'true');
+  mode('hosts').listeners.click({ type: 'click', preventDefault() {} });
+  assert.equal(mode('hosts').classList.contains('on'), true);
+  assert.equal(mode('hosts').attrs['aria-selected'], 'true');
+  assert.equal(mode('services').classList.contains('on'), false);
+  assert.equal(mode('services').attrs['aria-selected'], 'false');
 });
 
 test('compatibility redirects are excluded from render ownership', () => {

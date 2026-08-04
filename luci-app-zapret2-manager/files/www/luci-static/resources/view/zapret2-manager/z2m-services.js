@@ -31,6 +31,10 @@ function revisionOf(value) {
 }
 function integer(value) { return typeof value === 'number' && isFinite(value) && Math.floor(value) === value; }
 function validFileSha(value) { return typeof value === 'string' && value.length > 0; }
+function validPrecondition(value) {
+  value = object(value);
+  return integer(value.ledgerRevision) && validFileSha(value.fileSha256);
+}
 function serviceIds(value) {
   if (Array.isArray(value)) return value.map(String).sort();
   return Object.keys(object(value)).filter(function (id) { return value[id] === true; }).sort();
@@ -135,7 +139,8 @@ function modeDraft(value) {
 function hasChanges(value) { return Object.keys(object(object(value).changes)).length > 0; }
 function preconditionOf(catalog, status) {
   var direct = status && (status.precondition || status.catalogPrecondition) ||
-    catalog && (catalog.precondition || catalog.catalogPrecondition);
+    catalog && (catalog.precondition || catalog.catalogPrecondition) ||
+    status && status.ledger && status.ledger.precondition;
   if (direct) return clone(direct);
   var ledger = status && status.ledger;
   if (ledger && (ledger.revision != null || ledger.fileSha256))
@@ -155,7 +160,9 @@ function sourceRows(catalog, status, health) {
   var sources = array(catalog.sources);
   if (!sources.length) sources = array(status.sources || status.hostSources || status.readyHosts || status.readySources || status.hostlists);
   if (!sources.length && health && health.sources) sources = array(health.sources);
-  return sources;
+  return sources.filter(function (source) {
+    return source && (source.id != null || source.sourceId != null || source.key != null);
+  });
 }
 function activeSourceId(status) {
   var source = status && (status.source || status.activeSource);
@@ -211,17 +218,17 @@ function render(ctx) {
   var catalogAvailable = !(data.catalog && data.catalog.error) && rawCatalog.ok !== false;
   var statusAvailable = !(data.status && data.status.error) && status.ok !== false;
   var digestMismatch = rawCatalog.digestOk === false || status.catalog && status.catalog.digestOk === false;
-  var canEdit = catalogAvailable && statusAvailable && !digestMismatch;
+  var canEdit = false;
   var canRunService = preflightReady(preflight);
   var stored = ctx.store && ctx.store.get && ctx.store.get().draft && ctx.store.get().draft.services || {};
   var statusBaseline = enabledFrom(status);
   var statusRevision = revisionOf(status);
   if (state.baseline == null || state.revision !== statusRevision) {
-    state.baseline = statusAvailable ? statusBaseline : {};
+    state.baseline = statusAvailable ? statusBaseline : null;
     state.enabledBaseline = state.baseline;
     state.revision = statusRevision;
-    state.precondition = preconditionOf(rawCatalog, status);
   }
+  state.precondition = catalogAvailable && statusAvailable ? preconditionOf(rawCatalog, status) : null;
   if (stored.modeDrafts) {
     Object.keys(stored.modeDrafts).forEach(function (mode) {
       if (hasChanges(stored.modeDrafts[mode])) state.modeDrafts[modeId(mode)] = modeDraft(stored.modeDrafts[mode]);
@@ -229,6 +236,11 @@ function render(ctx) {
   }
   if (hasChanges(stored)) state.modeDrafts[modeId(stored.mode)] = modeDraft(stored);
   state.activeMode = modeId(stored.mode || status.activeMode || catalog.activeMode || state.activeMode);
+  canEdit = catalogAvailable && statusAvailable && !digestMismatch && validPrecondition(state.precondition);
+  var editBlockReason = !catalogAvailable ? _('Каталог сервисов недоступен. Изменения заблокированы.') :
+    !statusAvailable ? _('Статус каталога недоступен. Изменения заблокированы.') :
+      digestMismatch ? _('Контрольная сумма каталога не совпадает: изменения заблокированы.') :
+        !validPrecondition(state.precondition) ? _('Предусловия каталога недоступны. Изменения заблокированы.') : null;
 
   var root = E('section', { 'class': 'z2m-view on z2m-services-page', id: 'z2m-view-services' });
   var errors = [];
@@ -236,7 +248,10 @@ function render(ctx) {
     if (data[key] && data[key].error) errors.push(E('div', { 'class': 'warnbar' }, data[key].error.message));
   });
   if (!catalogAvailable) errors.push(E('div', { 'class': 'warnbar' }, _('Каталог сервисов недоступен. Изменения заблокированы.')));
+  if (!statusAvailable) errors.push(E('div', { 'class': 'warnbar' }, _('Статус каталога недоступен. Изменения заблокированы.')));
   if (digestMismatch) errors.push(E('div', { 'class': 'warnbar' }, _('Контрольная сумма каталога не совпадает: изменения заблокированы.')));
+  if (editBlockReason && catalogAvailable && statusAvailable && !digestMismatch)
+    errors.push(E('div', { 'class': 'warnbar' }, editBlockReason));
   if (!canRunService) errors.push(E('div', { 'class': 'warnbar' }, preflightMessage(preflight)));
   if (state.runError) errors.push(E('div', { 'class': 'warnbar' }, state.runError));
   errors.forEach(function (node) { root.appendChild(node); });
@@ -279,6 +294,10 @@ function render(ctx) {
     return draftChanges(mode || state.activeMode, enabled || enabledMap(mode || state.activeMode));
   }
   function persistDraft(mode, enabled) {
+    if (!canEdit) {
+      if (shell.showToast) shell.showToast(editBlockReason || _('Изменения заблокированы.'), 'err');
+      return;
+    }
     var changes = enabledChanges(mode, enabled);
     if (Object.keys(changes).length) {
       state.modeDrafts[mode] = {
@@ -304,6 +323,7 @@ function render(ctx) {
     } else ctx.clearDraft('services');
   }
   function setEnabled(mode, enabled) {
+    if (!canEdit) return;
     persistDraft(mode, enabled);
     renderMode();
   }
@@ -313,20 +333,20 @@ function render(ctx) {
     var change = draftChanges(mode, enabledMap(mode))[id];
     return change || null;
   }
-  function switchButton(enabled, applied, label, stateName, activate, extraClass) {
+  function switchButton(enabled, applied, label, stateName, activate, disabled, extraClass) {
     var button = E('button', {
       type: 'button', role: 'switch', 'class': 'z2m-sw' + (enabled ? ' on' : '') + (extraClass ? ' ' + extraClass : ''),
       'aria-label': label, 'aria-checked': stateName === 'mixed' ? 'mixed' : enabled ? 'true' : 'false',
-      'data-state': stateName
+      'data-state': stateName, disabled: disabled === true ? 'disabled' : null,
+      'aria-disabled': disabled === true ? 'true' : 'false'
     }, E('i'));
     if (applied !== null) button.setAttribute('data-applied', applied ? 'true' : 'false');
     function action(event) {
-      if (event && event.type === 'keydown' && event.key !== 'Enter' && event.key !== ' ') return;
+      if (disabled === true) return;
       if (event && event.preventDefault) event.preventDefault();
       activate();
     }
     button.addEventListener('click', action);
-    button.addEventListener('keydown', action);
     return button;
   }
   function serviceProtocols(service) {
@@ -383,7 +403,7 @@ function render(ctx) {
       var category = categoryRecord(catalog.categories, group);
       var master = switchButton(stateInfo.state === 'on', null, _('Включить категорию'), stateInfo.state, function () {
         setEnabled('services', ServicesModel.toggleCategory(services, enabledMap('services'), group));
-      }, 'z2m-category-switch');
+      }, !canEdit, 'z2m-category-switch');
       cards.appendChild(E('div', { 'class': 'z2m-catbar z2m-service-category', 'data-category': group }, [
         E('span', { 'class': 'car' }, '▾'), E('strong', {}, category.label),
         E('span', { 'class': 'z2m-category-count' }, metrics(stateInfo.enabled, stateInfo.total)), master
@@ -391,11 +411,12 @@ function render(ctx) {
       groups[group].forEach(function (service) {
         var id = String(serviceId(service));
         var change = changedState(service, 'services');
-        var applied = full.visible.filter(function (item) { return String(serviceId(item)) === id; })[0].appliedEnabled;
+        var appliedItem = full.visible.filter(function (item) { return String(serviceId(item)) === id; })[0];
+        var applied = statusAvailable ? appliedItem.appliedEnabled : null;
         var statusLabel = change ? _('изменено · ') + (change.after ? _('будет включено') : _('будет выключено')) : _('изменено');
         var toggle = switchButton(service.enabled, applied, _('Включить сервис'), service.enabled ? 'on' : 'off', function () {
           var next = enabledMap('services'); next[id] = !next[id]; setEnabled('services', next);
-        });
+        }, !canEdit);
         var details = shell.button(_('Домены'), 'sm', function () {
           edit(ctx.api.services.catalogGet, { id: id }).then(function (response) {
             var domains = response && response.service && response.service.domains || response && response.domains || [];
@@ -409,8 +430,8 @@ function render(ctx) {
           E('div', {}, [E('div', { 'class': 'nm' }, serviceName(service)),
             E('div', { 'class': 'co' }, (service.domainCount == null ? _('Нет данных') : service.domainCount) + ' ' + _('доменов')),
             change ? E('span', { 'class': 'z2m-chip o z2m-service-change' }, statusLabel) : null,
-            E('span', { 'class': 'z2m-chip ' + (applied ? 'g' : '') + ' z2m-service-applied' },
-              applied ? _('применено: включено') : _('применено: выключено'))
+            E('span', { 'class': 'z2m-chip ' + (applied === true ? 'g' : '') + ' z2m-service-applied' },
+              applied === null ? _('применено: нет данных') : applied ? _('применено: включено') : _('применено: выключено'))
           ]), toggle, E('div', { 'class': 'z2m-btnrow z2m-service-actions' }, [details, check])
         ]));
       });
@@ -428,7 +449,7 @@ function render(ctx) {
     var sources = sourceRows(catalog, status, health);
     var selected = activeSourceId(status);
     var rows = sources.map(function (source) {
-      var id = source.id || source.sourceId || source.key;
+      var id = source.id != null ? source.id : source.sourceId != null ? source.sourceId : source.key;
       var validation = sourceValidation(source);
       return E('div', { 'class': 'z2m-source-row' + (selected != null && String(selected) === String(id) ? ' selected' : ''), 'data-source-id': id }, [
         E('div', { 'class': 'z2m-source-main' }, [E('strong', {}, source.label || source.name || id),
@@ -447,13 +468,23 @@ function render(ctx) {
       E('div', { 'class': 'z2m-source-list' }, rows)
     ]);
   }
+  function updateModeButtons() {
+    Array.prototype.forEach.call(modeButtons.querySelectorAll('button'), function (button) {
+      var selected = button.getAttribute('data-mode') === state.activeMode;
+      button.classList.toggle('on', selected);
+      button.setAttribute('aria-selected', selected ? 'true' : 'false');
+    });
+  }
+  function hasAnyDraft() {
+    return Object.keys(state.modeDrafts).some(function (mode) { return hasChanges(state.modeDrafts[mode]); });
+  }
   function renderMode() {
-    var enabled = enabledMap(state.activeMode);
+    updateModeButtons();
     var result = fullSelection(state.activeMode);
     var controls = E('div', { 'class': 'z2m-services-controls' }, [modeButtons]);
     var pageActions = E('div', { 'class': 'z2m-page-actions' }, [
       shell.button(_('Показать различия'), 'sm', function () { if (ctx.openSemanticDiff) ctx.openSemanticDiff(); }),
-      shell.button(_('Применить'), 'primary sm', function () { if (ctx.openSemanticDiff) ctx.openSemanticDiff(); }, !hasChanges(state.modeDrafts[state.activeMode]))
+      shell.button(_('Применить'), 'primary sm', function () { if (ctx.openSemanticDiff) ctx.openSemanticDiff(); }, !hasAnyDraft())
     ]);
     var modeContent = state.activeMode === 'hosts' ? renderHostsMode() : renderServicesMode();
     content.replaceChildren(E('div', { 'class': 'z2m-services-mode-head' }, [controls, pageActions]), modeContent);
