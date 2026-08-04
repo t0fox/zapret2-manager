@@ -69,7 +69,7 @@ test('TG Proxy is optional and installs only the latest compatible provider buil
 
   assert.match(rustPackage, /PKG_VERSION:=1\.7\.1/);
   assert.match(rustPackage, /CONFLICTS:=tg-ws-proxy-go/);
-  assert.match(goPackage, /PKG_SOURCE_VERSION:=bac4620e069225abde9ed68ba3f62c41f17f90a4/);
+  assert.match(goPackage, /PKG_SOURCE_VERSION:=a334786d528615b18e002c1286373098ac6e46a2/);
   assert.match(goPackage, /PROVIDES:=tg-ws-proxy-provider/);
   assert.match(goPatch, /os\.Getenv\("TG_SECRET"\)/);
   assert.match(goInit, /procd_set_param env TG_SECRET=/);
