@@ -12,7 +12,8 @@ const api = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/
 const page = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-proxy-page.js');
 
  test('TG Proxy remains optional and supports install, switch and remove from our UI', () => {
-  assert.match(backend, /installed:\s*false|installed = false/);
+  assert.match(backend, /optional:\s*true/);
+  assert.match(backend, /installed:\s*activeInstalled/);
   assert.match(backend, /proxy_provider_install/);
   assert.match(backend, /proxy_provider_remove/);
   assert.match(backend, /proxy_provider_purge/);
