@@ -13,6 +13,8 @@ var calls = {
   orchestraRunStatus: rpc.declare({ object: 'zapret2-manager', method: 'orchestra_run_status', params: ['edit'], reject: true }),
   orchestraRunHistory: rpc.declare({ object: 'zapret2-manager', method: 'orchestra_run_history', reject: true }),
   orchestraCapabilities: rpc.declare({ object: 'zapret2-manager', method: 'orchestra_capabilities', reject: true }),
+  orchestraCatalog: rpc.declare({ object: 'zapret2-manager-orchestra', method: 'orchestra_catalog', reject: true }),
+  orchestraCorpus: rpc.declare({ object: 'zapret2-manager-orchestra', method: 'orchestra_corpus_get', reject: true }),
   orchestraStatus: rpc.declare({ object: 'zapret2-manager', method: 'orchestra_status', reject: true }),
   orchestraEvents: rpc.declare({ object: 'zapret2-manager', method: 'orchestra_events', reject: true }),
   orchestraHistory: rpc.declare({ object: 'zapret2-manager', method: 'orchestra_history', reject: true }),
@@ -122,6 +124,8 @@ return baseclass.extend({
   },
   orchestra: {
     capabilities: calls.orchestraCapabilities,
+    catalog: calls.orchestraCatalog,
+    corpus: calls.orchestraCorpus,
     status: calls.orchestraStatus,
     events: calls.orchestraEvents,
     history: calls.orchestraHistory,
