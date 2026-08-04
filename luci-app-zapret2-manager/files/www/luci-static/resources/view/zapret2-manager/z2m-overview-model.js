@@ -5,7 +5,7 @@ var COMPLETED_PHASES = ['completed', 'applied'];
 var ACTIVE_PHASES = ['queued', 'pending', 'running', 'testing', 'scanning', 'applying', 'verifying'];
 
 function asArray(value) { return Array.isArray(value) ? value : []; }
-function object(value) { return value && typeof value === 'object' ? value : {}; }
+function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
 function finite(value) {
   if (value == null || value === '') return null;
   var number = Number(value);
@@ -16,11 +16,18 @@ function firstDefined(values) {
     if (values[i] != null && values[i] !== '') return values[i];
   return null;
 }
-function timestamp(run) {
+function timestampValue(run) {
   run = object(run);
   var value = firstDefined([run.completedAt, run.finishedAt, run.updatedAt, run.startedAt]);
   var parsed = value ? Date.parse(value) : NaN;
   return isFinite(parsed) ? parsed : 0;
+}
+function hasValue(value) { return value !== null && value !== undefined && value !== ''; }
+function hasAny(objectValue, keys) {
+  objectValue = object(objectValue);
+  for (var i = 0; i < keys.length; i++)
+    if (hasValue(objectValue[keys[i]])) return true;
+  return false;
 }
 
 function runtimeHealth(status) {
@@ -39,55 +46,48 @@ function runtimeHealth(status) {
   if (verified)
     return { label: 'Обход работает', detail: 'Backend подтвердил runtime и связность', kind: 'g', verified: true };
   if (state === 'running' || process.found === true)
-    return { label: 'Служба запущена', detail: 'Связность ещё не подтверждена backend', kind: 'o', verified: false };
-  return { label: 'Состояние неизвестно', detail: 'Backend не сообщил достаточных runtime-данных', kind: 'o', verified: false };
+    return { label: 'Служба запущена', detail: 'Связность backend не подтверждена', kind: 'o', verified: false };
+  return null;
 }
 
 function latestCompletedRun(history) {
   var runs = asArray(object(history).runs).filter(function (run) {
     run = object(run);
-    return COMPLETED_PHASES.indexOf(String(run.phase || '')) >= 0 &&
-      run.targetType === 'corpus';
+    return COMPLETED_PHASES.indexOf(String(run.phase || '')) >= 0 && run.targetType === 'corpus';
   });
-  runs.sort(function (a, b) { return timestamp(b) - timestamp(a); });
+  runs.sort(function (a, b) { return timestampValue(b) - timestampValue(a); });
   return runs[0] || null;
 }
 
 function activeRun(orchestra, history) {
   var envelope = object(orchestra);
   var direct = envelope.run || envelope.activeRun || null;
-  if (direct && ACTIVE_PHASES.indexOf(String(object(direct).phase || '')) >= 0)
-    return direct;
+  if (direct && ACTIVE_PHASES.indexOf(String(object(direct).phase || '')) >= 0) return direct;
   var runs = asArray(object(history).runs);
   for (var i = 0; i < runs.length; i++)
-    if (ACTIVE_PHASES.indexOf(String(object(runs[i]).phase || '')) >= 0)
-      return runs[i];
+    if (ACTIVE_PHASES.indexOf(String(object(runs[i]).phase || '')) >= 0) return runs[i];
   return null;
 }
 
 function corpusMetrics(run) {
+  if (!run) return { opened: null, total: null, medianLatencyMs: null, failedDomains: [], percent: null };
   run = object(run);
   var canonical = object(run.canonical);
   var winner = object(run.selectedWinner || canonical.winner);
   var targetLength = asArray(run.targets).length;
-  var total = finite(firstDefined([
-    run.targetCount, run.totalTargets, targetLength > 0 ? targetLength : null
-  ]));
+  var total = finite(firstDefined([run.targetCount, run.totalTargets, targetLength > 0 ? targetLength : null]));
   var opened = finite(firstDefined([
     winner.successCount, winner.openedCount, winner.passedDomains,
     run.successCount, run.openedCount
   ]));
   var latency = finite(firstDefined([winner.medianLatencyMs, winner.latencyMs]));
-  var failed = asArray(winner.failedDomains).length
-    ? asArray(winner.failedDomains)
-    : asArray(run.failedDomains);
+  var failed = asArray(winner.failedDomains).length ? asArray(winner.failedDomains) : asArray(run.failedDomains);
   return {
     opened: opened,
     total: total,
     medianLatencyMs: latency,
-    failedDomains: failed.map(String),
-    percent: opened != null && total != null && total > 0
-      ? Math.round(opened / total * 100) : null
+    failedDomains: failed.filter(function (value) { return typeof value === 'string' && value.trim(); }).map(function (value) { return value.trim(); }),
+    percent: opened != null && total != null && total > 0 ? Math.round(opened / total * 100) : null
   };
 }
 
@@ -122,16 +122,22 @@ function rollbackInfo(preview, status) {
 
 function adviceFor(view) {
   var advice = [];
-  if (!view.strategy.id)
-    advice.push({ kind: 'o', title: 'Активная стратегия не определена', detail: 'Откройте раздел «Стратегия» и выполните реальную проверку.', action: 'strategy' });
-  if (!view.lastRun)
-    advice.push({ kind: 'o', title: 'Корпус ещё не проверялся', detail: 'Без завершённого corpus-run нельзя сравнить доступность и задержку.', action: 'strategy' });
-  else if (view.corpus.failedDomains.length)
-    advice.push({ kind: 'o', title: 'Есть домены, которые не открылись', detail: view.corpus.failedDomains.length + ' доменов требуют разбора.', action: 'report' });
-  if (view.errors.length)
-    advice.push({ kind: 'r', title: 'Часть данных недоступна', detail: view.errors.map(function (error) { return error.message; }).join(' · '), action: 'refresh' });
-  if (!advice.length)
-    advice.push({ kind: 'g', title: 'Критичных рекомендаций нет', detail: 'Последние доступные backend-данные не содержат явных проблем.', action: null });
+  if (view.lastRun && view.corpus.failedDomains.length) {
+    advice.push({
+      kind: 'o',
+      title: 'Есть домены, которые не открылись',
+      detail: view.corpus.failedDomains.length + ' доменов требуют разбора.',
+      action: 'report'
+    });
+  }
+  if (view.errors.length) {
+    advice.push({
+      kind: 'r',
+      title: 'Часть данных недоступна',
+      detail: view.errors.map(function (error) { return error.message; }).filter(Boolean).join(' · '),
+      action: 'refresh'
+    });
+  }
   return advice;
 }
 
@@ -148,25 +154,42 @@ function normalize(data) {
 
   Object.keys(data).forEach(function (key) {
     var error = object(data[key]).error;
-    if (error) errors.push({
-      code: error.code || 'EUNAVAILABLE',
-      message: error.message || String(error)
-    });
+    if (!error) return;
+    var message = firstDefined([error.message, error.detail, error.code]);
+    errors.push({ code: error.code || 'EUNAVAILABLE', message: message ? String(message) : 'Backend request failed' });
   });
 
+  var health = runtimeHealth(status);
+  var strategy = strategyInfo(preview);
+  var corpus = corpusMetrics(lastRun);
+  var operation = activeRun(orchestra, history);
+  var rollback = rollbackInfo(preview, status);
+  var serviceDnsCount = finite(firstDefined([serviceDns.activeCount, serviceDns.enabledCount]));
   var view = {
-    health: runtimeHealth(status),
-    strategy: strategyInfo(preview),
-    corpus: corpusMetrics(lastRun),
+    health: health,
+    strategy: strategy,
+    corpus: corpus,
     lastRun: lastRun,
-    activeRun: activeRun(orchestra, history),
-    serviceDnsCount: finite(firstDefined([serviceDns.activeCount, serviceDns.enabledCount])),
+    activeRun: operation,
+    serviceDnsCount: serviceDnsCount,
     enabledRuleCount: rules.filter(function (rule) { return object(rule).enabled !== false; }).length,
-    rollback: rollbackInfo(preview, status),
+    rollback: rollback,
     errors: errors,
-    advice: []
+    advice: [],
+    visible: {
+      health: health !== null,
+      strategy: hasAny(strategy, ['id', 'name', 'description', 'source', 'appliedAt', 'argv', 'revision']),
+      corpus: lastRun !== null && (corpus.opened !== null || corpus.total !== null || corpus.medianLatencyMs !== null || corpus.failedDomains.length > 0),
+      operation: operation !== null,
+      serviceDns: serviceDnsCount !== null,
+      rules: rules.length > 0,
+      rollback: rollback.available === true,
+      errors: errors.length > 0,
+      advice: false
+    }
   };
   view.advice = adviceFor(view);
+  view.visible.advice = view.advice.length > 0;
   return view;
 }
 
