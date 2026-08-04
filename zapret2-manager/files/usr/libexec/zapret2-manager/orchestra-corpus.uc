@@ -1,10 +1,12 @@
 'use strict';
 
 import { readfile, writefile, unlink, popen } from 'fs';
+import { profile_set } from './orchestra-run.uc';
 
 const CORPUS_PATH = '/usr/share/zapret2-manager/corpus/domains-61.json';
 const EXPECTED_SCHEMA = 'zapret2-manager.corpus.v1';
 const EXPECTED_COUNT = 61;
+const CATALOG_SCHEMA = 'zapret2-manager.orchestra-catalog.v1';
 
 function error(code, message, details) {
 	return { ok: false, error: { code: code, message: message, details: details || {} } };
@@ -39,8 +41,8 @@ function hostname(value) {
 	return domain;
 }
 
-function sha256_text(text) {
-	let path = '/tmp/z2m-domain-corpus.' + time();
+function sha256_text(text, tag) {
+	let path = '/tmp/z2m-' + (tag || 'digest') + '.' + time() + '.' + length(text);
 	writefile(path, text);
 	let process = popen("sha256sum '" + path + "' 2>/dev/null | awk '{print $1}'", 'r');
 	let digest = process ? trim(process.read('all') || '') : '';
@@ -49,7 +51,7 @@ function sha256_text(text) {
 	return length(digest) == 64 ? digest : null;
 }
 
-export const orchestra_corpus_get = function() {
+function corpus_get() {
 	let raw = readfile(CORPUS_PATH);
 	if (!raw) return error('ENOENT', '61-domain corpus is not installed', { path: CORPUS_PATH });
 	let document = null;
@@ -58,7 +60,11 @@ export const orchestra_corpus_get = function() {
 	if (type(document) != 'object' || document == null || document.schema != EXPECTED_SCHEMA)
 		return error('ESCHEMA', '61-domain corpus schema is unsupported', { expected: EXPECTED_SCHEMA });
 	if (type(document.domains) != 'array' || length(document.domains) != EXPECTED_COUNT || document.count != EXPECTED_COUNT)
-		return error('ECOUNT', '61-domain corpus count is invalid', { expected: EXPECTED_COUNT, declared: document.count, actual: type(document.domains) == 'array' ? length(document.domains) : null });
+		return error('ECOUNT', '61-domain corpus count is invalid', {
+			expected: EXPECTED_COUNT,
+			declared: document.count,
+			actual: type(document.domains) == 'array' ? length(document.domains) : null
+		});
 
 	let seen = {}, normalized = [], canonical = '';
 	for (let value in document.domains) {
@@ -69,10 +75,13 @@ export const orchestra_corpus_get = function() {
 		push(normalized, domain);
 		canonical += domain + '\n';
 	}
-	let actualDigest = sha256_text(canonical);
+	let actualDigest = sha256_text(canonical, 'domain-corpus');
 	if (!actualDigest) return error('EDIGEST', '61-domain corpus digest could not be calculated');
 	if (type(document.digest) != 'string' || document.digest != actualDigest)
-		return error('EDIGEST', '61-domain corpus digest does not match its contents', { expected: document.digest, actual: actualDigest });
+		return error('EDIGEST', '61-domain corpus digest does not match its contents', {
+			expected: document.digest,
+			actual: actualDigest
+		});
 
 	return {
 		ok: true,
@@ -84,4 +93,51 @@ export const orchestra_corpus_get = function() {
 		provenance: document.provenance,
 		domains: normalized
 	};
-};
+}
+
+function catalog_get() {
+	let set = profile_set(null, 'all');
+	if (!set || type(set.profiles) != 'array')
+		return error('ESTATE', 'trusted Orchestra strategy registry is unavailable');
+	let rows = [], ids = [], canonical = '';
+	for (let candidate in set.profiles) {
+		if (type(candidate) != 'object' || candidate == null) continue;
+		if (candidate.compatibilityStatus == 'unsupported' || candidate.protocol != 'tcp_https') continue;
+		if (type(candidate.id) != 'string' || !length(candidate.id) || type(candidate.opt) != 'string' || !length(candidate.opt)) continue;
+		push(ids, candidate.id);
+		push(rows, {
+			id: candidate.id,
+			candidateId: candidate.id,
+			strategyId: candidate.canonicalStrategyId || candidate.id,
+			name: candidate.displayName || candidate.name || candidate.id,
+			source: candidate.source || null,
+			sourcePath: candidate.sourcePath || null,
+			sourceRevision: candidate.revision || null,
+			protocol: candidate.protocol,
+			protocols: candidate.protocols || [candidate.protocol],
+			recommended: candidate.recommended === true,
+			applicable: true,
+			requiredLuaFunctions: candidate.requiredLuaFunctions || [],
+			requiredBlobs: candidate.requiredBlobs || []
+		});
+		canonical += candidate.id + '\t' + candidate.opt + '\n';
+	}
+	if (!length(rows)) return error('ESTATE', 'no applicable TCP HTTPS strategies are available');
+	let digest = sha256_text(canonical, 'orchestra-catalog');
+	if (!digest) return error('EDIGEST', 'Orchestra strategy catalog digest could not be calculated');
+	let corpus = corpus_get();
+	return {
+		ok: true,
+		schema: CATALOG_SCHEMA,
+		revision: set.revision,
+		digest: digest,
+		count: length(rows),
+		candidateIds: ids,
+		candidates: rows,
+		corpusVersion: corpus && corpus.ok === true ? corpus.version : null,
+		corpusDigest: corpus && corpus.ok === true ? corpus.digest : null
+	};
+}
+
+export const orchestra_corpus_get = function() { return corpus_get(); };
+export const orchestra_catalog_get = function() { return catalog_get(); };
