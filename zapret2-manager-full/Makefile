@@ -1,25 +1,10 @@
-# zapret2-manager-full — meta-package: one-command install of the full stack
-#
-# Single apk add zapret2-manager-full that pulls in all three packages:
-#   - zapret2-manager         (backend: ubus object, ucode helpers, init)
-#   - luci-app-zapret2-manager (LuCI JS frontend)
-#   - tg-ws-proxy-rs          (Telegram MTProto WebSocket bridge binary + init)
-#
-# Architecture constraint: tg-ws-proxy-rs ships an aarch64 static-musl binary
-# tested only on mediatek_filogic (Cudy WBR3000UAX v1). This meta-package
-# inherits that constraint via its DEPENDS — it is only buildable and
-# installable on that target.
-#
-# PKG_FLAGS:=nonshared ensures per-target build, never arch:all, matching
-# tg-ws-proxy-rs. This means the meta-package is built fresh for each target
-# (in practice only mediatek_filogic), and its .apk is only published for that
-# target — honest about the arch restriction.
+# zapret2-manager-full — target-specific meta-package
 
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=zapret2-manager-full
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=137
+PKG_RELEASE:=138
 PKG_MAINTAINER:=Ásgeir
 PKG_LICENSE:=MIT
 PKG_FLAGS:=nonshared
@@ -37,10 +22,8 @@ define Package/zapret2-manager-full
 endef
 
 define Package/zapret2-manager-full/description
-  Meta-package. Installs the complete zapret2-manager stack in one command:
-  management backend, LuCI web frontend, and the Telegram MTProto WebSocket
-  bridge proxy. Architecture-restricted to mediatek_filogic (the only target
-  tg-ws-proxy-rs has been packaged and tested on).
+  Installs the complete target-specific stack: management backend, LuCI
+  frontend and the Telegram MTProto WebSocket bridge dependency.
 endef
 
 define Build/Prepare
@@ -51,9 +34,7 @@ define Build/Compile
 endef
 
 define Package/zapret2-manager-full/install
-	# Meta-package — no files to install. All functionality comes from
-	# runtime dependencies (zapret2-manager, luci-app-zapret2-manager,
-	# tg-ws-proxy-rs). An empty install section is correct.
+	# Meta-package: runtime files are owned by dependencies.
 endef
 
 $(eval $(call BuildPackage,zapret2-manager-full))
