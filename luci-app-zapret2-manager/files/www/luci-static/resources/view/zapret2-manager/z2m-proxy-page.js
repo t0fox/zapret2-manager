@@ -30,8 +30,7 @@ var state = {
   pane: null,
   busy: null,
   revealed: null,
-  preview: null,
-  providerVersions: {}
+  preview: null
 };
 
 function edit(fn, value) { return fn(JSON.stringify(value || {})); }
@@ -160,48 +159,40 @@ function providerStatus(data) {
 function providerCatalog(data) {
   return array(object(data.providerCatalog && data.providerCatalog.value).providers);
 }
-function selectedVersion(provider, status) {
-  if (state.providerVersions[provider.id]) return state.providerVersions[provider.id];
-  if (status.activeProvider === provider.id && status.activeVersion) return status.activeVersion;
-  return provider.recommended || (array(provider.versions)[0] || {}).id || '';
-}
 function providerCard(ctx, data, provider, status) {
   var shell = ctx.shell;
-  var selected = selectedVersion(provider, status);
-  var select = E('select', { 'aria-label': _('Версия ') + provider.title }, array(provider.versions).map(function (version) {
-    return E('option', {
-      value: version.id,
-      selected: version.id === selected ? 'selected' : null
-    }, version.label + (version.recommended ? ' · ' + _('рекомендуется') : ''));
-  }));
-  select.value = selected;
-  select.addEventListener('change', function () {
-    state.providerVersions[provider.id] = select.value;
-  });
-
   var isActive = status.installed === true && status.activeProvider === provider.id;
-  var sameVersion = isActive && status.activeVersion === selected;
-  var actionLabel = sameVersion ? _('Установлено') : status.installed ? _('Переключить') : _('Установить');
-  var action = shell.button(actionLabel, sameVersion ? 'sm' : 'primary sm', function () {
-    var version = select.value;
-    var switching = status.installed === true;
-    confirm(ctx,
-      switching ? _('Переключить реализацию?') : _('Установить TG Proxy?'),
-      switching
-        ? _('Сервис будет остановлен, пакет заменён и запущен снова только после повторной проверки.')
-        : _('Будет установлен только выбранный пакет из доверенного feed. Остальной менеджер от него не зависит.'),
-      switching ? _('Переключить') : _('Установить'),
-      function () { mutation(ctx, 'provider-install', ProviderApi.install({ provider: provider.id, version: version })); },
-      false);
-  }, !!state.busy || sameVersion);
+  var needsUpdate = isActive && status.updateAvailable === true;
+  var installedLatest = isActive && !needsUpdate;
+  var switching = status.installed === true && !isActive;
+  var actionLabel = installedLatest ? _('Установлено') :
+    needsUpdate ? _('Обновить') :
+    switching ? _('Переключить') : _('Установить');
+  var action = shell.button(actionLabel, installedLatest ? 'sm' : 'primary sm', function () {
+    var title = needsUpdate ? _('Обновить TG Proxy?') :
+      switching ? _('Переключить реализацию?') : _('Установить TG Proxy?');
+    var message = needsUpdate
+      ? _('Будет установлен последний совместимый пакет из доверенного feed. Настройки и secret сохранятся.')
+      : switching
+        ? _('Сервис будет остановлен, реализация заменена последней совместимой версией и запущена снова только после проверки.')
+        : _('Будет установлен последний совместимый пакет из доверенного feed. Остальной менеджер от него не зависит.');
+    confirm(ctx, title, message, actionLabel, function () {
+      mutation(ctx, 'provider-install', ProviderApi.install({ provider: provider.id }));
+    }, false);
+  }, !!state.busy || installedLatest);
 
   return shell.panel(provider.title, E('div', {}, [
     E('div', { 'class': 'z2m-row' }, [
       E('strong', {}, provider.short || ''),
-      isActive ? shell.chip(_('Активна'), 'g') : null
+      isActive ? shell.chip(needsUpdate ? _('Доступно обновление') : _('Активна'), needsUpdate ? 'o' : 'g') : null
     ]),
     E('p', { 'class': 'z2m-dim' }, provider.feature || ''),
-    E('label', {}, [_('Версия'), select]),
+    E('div', { 'class': 'z2m-proxy-kv' }, [
+      E('div', {}, [
+        E('span', {}, _('Последняя версия')),
+        E('strong', {}, String(provider.latestLabel || provider.latestVersion || '—'))
+      ])
+    ]),
     E('div', { 'class': 'z2m-btnrow' }, [action])
   ]));
 }
@@ -252,6 +243,7 @@ function statusPane(ctx, data, normalized) {
 
   var rows = [
     { label: _('Реализация'), value: String(pstatus.activeProvider || '—') + ' ' + String(pstatus.activeVersion || '') },
+    { label: _('Версия'), value: pstatus.updateAvailable ? _('Требуется обновление') : _('Последняя') },
     { label: _('Процесс'), value: normalized.process ? _('запущен') : _('остановлен') },
     { label: _('Listener'), value: normalized.listener ? _('готов') : _('не подтверждён') },
     { label: _('Связь с Telegram DC'), value: normalized.outbound ? _('готова') : _('не подтверждена') }
@@ -368,7 +360,7 @@ function render(ctx) {
   });
   return E('section', { 'class': 'z2m-view on', id: 'z2m-view-proxy' }, [
     E('div', { 'class': 'z2m-phead' }, [
-      E('div', {}, [E('h1', {}, _('Telegram Proxy')), E('p', {}, _('Опциональная установка, выбор Rust / Go и безопасный lifecycle'))]),
+      E('div', {}, [E('h1', {}, _('Telegram Proxy')), E('p', {}, _('Опциональная установка последней версии Rust / Go и безопасный lifecycle'))]),
       E('div', { 'class': 'sp' }, ctx.shell.chip(truthLabel(normalized.truth), truthKind(normalized.truth), true))
     ]),
     errors.length ? E('div', {}, errors) : null,
@@ -433,7 +425,7 @@ function unmount() { state.revealed = null; }
 return baseclass.extend({
   id: 'proxy',
   title: _('Telegram Proxy'),
-  subtitle: _('Опциональная установка, Rust / Go и lifecycle'),
+  subtitle: _('Опциональная установка последней версии Rust / Go'),
   load: load,
   render: render,
   mount: function () {},
