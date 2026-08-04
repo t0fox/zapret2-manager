@@ -216,6 +216,25 @@ function createCoordinator(options) {
       return _('Предпросмотр каталога не содержит fileSha256 precondition.');
     return null;
   }
+  function preconditionParity(scope, draft, read, preview) {
+    if (scope !== 'services') return null;
+    var expected = object(object(draft).precondition);
+    var actual = object(object(preview).precondition);
+    var baseline = object(read && read.precondition);
+    var previewRevision = actual.ledgerRevision != null ? actual.ledgerRevision : actual.revision;
+    var draftRevision = expected.ledgerRevision != null ? expected.ledgerRevision : expected.revision;
+    var baselineRevision = read && read.revision != null ? read.revision :
+      baseline.ledgerRevision != null ? baseline.ledgerRevision : baseline.revision;
+    if (previewRevision != null && draftRevision != null && String(previewRevision) !== String(draftRevision))
+      return { code: 'E_PRECONDITION_MISMATCH', message: _('Предпросмотр каталога содержит другую revision, чем черновик.') };
+    if (previewRevision != null && baselineRevision != null && String(previewRevision) !== String(baselineRevision))
+      return { code: 'E_PRECONDITION_MISMATCH', message: _('Предпросмотр каталога содержит другую revision, чем reread backend.') };
+    if (actual.fileSha256 != null && expected.fileSha256 != null && actual.fileSha256 !== expected.fileSha256)
+      return { code: 'E_PRECONDITION_MISMATCH', message: _('Предпросмотр каталога содержит другой fileSha256, чем черновик.') };
+    if (actual.fileSha256 != null && baseline.fileSha256 != null && actual.fileSha256 !== baseline.fileSha256)
+      return { code: 'E_PRECONDITION_MISMATCH', message: _('Предпросмотр каталога содержит другой fileSha256, чем reread backend.') };
+    return null;
+  }
   function mutationError(answer) {
     if (!answer || typeof answer !== 'object' || answer.ok !== true)
       return {
@@ -267,6 +286,13 @@ function createCoordinator(options) {
         return Promise.resolve().then(function () { return adapter.previewDraft(scope, snapshot[scope], context); }).then(function (answer) {
           var blocker = previewError(answer, scope, adapter);
           if (blocker) states[scope].blocker = states[scope].blocker || blocker;
+          if (!blocker) {
+            var parity = preconditionParity(scope, snapshot[scope], states[scope].read, answer);
+            if (parity) {
+              states[scope].blocker = parity.code + ': ' + parity.message;
+              states[scope].error = parity;
+            }
+          }
           states[scope].preview = answer || {};
           context.previews[scope] = states[scope].preview;
         }).catch(function (error) { stageError(states, scope, error); });

@@ -95,7 +95,10 @@ function catalogScenario(options = {}) {
         const current = statusReads === 1 ? before : backend;
         return Promise.resolve(read('catalogStatus', {
           ok: true,
-          ledger: { revision: current.revision, enabled: current.enabled, fileSha256: current.fileSha256 }
+          ledger: {
+            revision: current.revision, enabled: current.enabled, fileSha256: current.fileSha256,
+            precondition: { ledgerRevision: current.revision, fileSha256: current.fileSha256 }
+          }
         }));
       },
       catalogList: () => Promise.resolve(read('catalogList', {
@@ -197,6 +200,11 @@ test('successful Services apply rereads backend state, replaces baseline, and cl
     'catalogStatus', 'catalogList', 'catalogPreview', 'catalogApply',
     'catalogStatus', 'catalogList'
   ]);
+  assert.deepEqual(scenario.snapshots[2], {
+    name: 'catalogPreview',
+    payload: { enabled: ['alpha', 'beta', 'gamma'] },
+    state: { enabled: ['alpha', 'gamma'], revision: 3, fileSha256: 'sha-3' }
+  });
   assert.deepEqual(scenario.snapshots[3], {
     name: 'catalogApply',
     payload: { enabled: ['alpha', 'beta', 'gamma'], revision: 3, fileSha256: 'sha-3' },
@@ -211,6 +219,40 @@ test('successful Services apply rereads backend state, replaces baseline, and cl
     [{ id: 'alpha' }, { id: 'beta' }, { id: 'gamma' }],
     store.get().applied.services.enabled, {}, '', 'all', 'all'
   ).kpis.changed, 0);
+});
+
+async function assertServicesPreconditionMismatch(precondition, expectedMessage) {
+  const scenario = catalogScenario({ preview: { ok: true, precondition } });
+  const store = coordinatorStore({ services: {
+    changes: { beta: { before: false, after: true } },
+    enabled: { alpha: true, beta: true },
+    precondition: { ledgerRevision: 3, fileSha256: 'sha-3' }
+  } }, { services: { enabled: { alpha: true } } });
+  const coordinator = appView.createCoordinator({
+    api: scenario.api, store, shell: noShell(),
+    adapters: { services: appView.createServicesAdapter(scenario.api, { resetDraft() {} }) }
+  });
+
+  const result = await coordinator.applyDrafts(store.snapshotDraft());
+
+  assert.deepEqual(scenario.snapshots[2].payload, { enabled: ['alpha', 'beta'] });
+  assert.equal(scenario.calls.includes('catalogApply'), false);
+  assert.deepEqual(store.get().applied, { services: { enabled: { alpha: true } } });
+  assert.deepEqual(Object.keys(store.get().draft), ['services']);
+  assert.equal(result.errors[0].code, 'E_PRECONDITION_MISMATCH');
+  assert.match(result.errors[0].message, expectedMessage);
+}
+
+test('Services preview revision mismatch blocks catalogApply before mutation', async () => {
+  await assertServicesPreconditionMismatch(
+    { ledgerRevision: 4, fileSha256: 'sha-3' }, /revision/i
+  );
+});
+
+test('Services preview fileSha256 mismatch blocks catalogApply before mutation', async () => {
+  await assertServicesPreconditionMismatch(
+    { ledgerRevision: 3, fileSha256: 'sha-other' }, /fileSha256|hash/i
+  );
 });
 
 test('Services backend failure preserves baseline and retains the exact normalized error', async () => {

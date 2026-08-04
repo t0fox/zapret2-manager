@@ -66,6 +66,7 @@ function createAdapter(api, servicesModule) {
       return {
         value: { enabled: serviceEnabled({ enabled: enabled }, {}), status: status, catalog: catalog },
         revision: revisionOf(status) != null ? revisionOf(status) : revisionOf(catalog),
+        precondition: preconditionOf(catalog, status),
         raw: { status: status, catalog: catalog }
       };
     });
