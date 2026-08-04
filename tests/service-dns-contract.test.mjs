@@ -21,6 +21,12 @@ test('all Service DNS RPC methods remain in the central facade and narrow ACL', 
   assert.equal(ACL.read.ubus['zapret2-manager'].includes('service_dns_set'), false);
 });
 
+test('backend service_dns_set advances and returns the authoritative draft revision', () => {
+  const serviceSet = BACKEND.slice(BACKEND.indexOf('export const service_dns_set'), BACKEND.indexOf('export const service_dns_apply_async'));
+  assert.match(serviceSet, /state\.draftRevision\s*=\s*\(state\.draftRevision\s*\|\|\s*0\)\s*\+\s*1/);
+  assert.match(serviceSet, /return \{ ok: true, draftRevision: state\.draftRevision/);
+});
+
 test('Service DNS changes remain semantic drafts when no safe coordinator path exists', () => {
   assert.match(UI, /ctx\.setDraft\(['"]service-dns['"]/);
   assert.match(UI, /безопасный синхронный preview\/apply путь отсутствует/);
