@@ -1,17 +1,16 @@
 name: Cleanup superseded branches
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - '.github/workflows/cleanup-superseded-branches.yml'
+  issue_comment:
+    types:
+      - created
 
 permissions:
   contents: write
 
 jobs:
   cleanup:
+    if: github.event.issue.number == 23 && github.event.comment.body == '/cleanup-superseded-branches'
     runs-on: ubuntu-latest
     steps:
       - name: Delete superseded refs
@@ -21,7 +20,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Preserve only main and docs/video-found-ui-correctness-design.
           branches=(
             'codex/router-validation-luci-baseclass'
             'feat/openwrt-flowseal-combos'
