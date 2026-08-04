@@ -1,10 +1,10 @@
-# zapret2-manager-full — target-specific meta-package
+# zapret2-manager-full — target-specific manager meta-package
 
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=zapret2-manager-full
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=138
+PKG_RELEASE:=139
 PKG_MAINTAINER:=Ásgeir
 PKG_LICENSE:=MIT
 PKG_FLAGS:=nonshared
@@ -16,14 +16,15 @@ define Package/zapret2-manager-full
   SECTION:=net
   CATEGORY:=Network
   SUBMENU:=DPI bypass
-  TITLE:=Full zapret2-manager stack (backend + LuCI + TG proxy)
-  DEPENDS:=@TARGET_mediatek_filogic +zapret2-manager +luci-app-zapret2-manager +tg-ws-proxy-rs
+  TITLE:=Full Zapret2 Manager (TG Proxy remains optional)
+  DEPENDS:=@TARGET_mediatek_filogic +zapret2-manager +luci-app-zapret2-manager
   PKG_FLAGS:=nonshared
 endef
 
 define Package/zapret2-manager-full/description
-  Installs the complete target-specific stack: management backend, LuCI
-  frontend and the Telegram MTProto WebSocket bridge dependency.
+  Installs the management backend and LuCI interface. Telegram Proxy is not a
+  dependency: Rust or Go can be installed, switched or removed later from the
+  TG Proxy tab without affecting the rest of Zapret2 Manager.
 endef
 
 define Build/Prepare
