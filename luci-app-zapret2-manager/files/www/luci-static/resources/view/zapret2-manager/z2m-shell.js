@@ -3,6 +3,7 @@
 'require view.zapret2-manager.z2m-format as Format';
 
 var modalKeyHandler = null;
+var navigationObserver = null;
 
 function injectStylesheet(id, filename) {
   if (!document || !document.head || document.getElementById(id)) return;
@@ -13,9 +14,45 @@ function injectStylesheet(id, filename) {
   document.head.appendChild(link);
 }
 
+function normalizePrimaryNavigation() {
+  var host = document && document.getElementById('z2m-tabs');
+  if (!host) return false;
+  var services = host.querySelector('button[data-tab="services"]');
+  var lists = host.querySelector('button[data-tab="lists"]');
+  if (services && services.getAttribute('data-z2m-label') !== 'services-domains') {
+    services.replaceChildren(_('Сервисы и домены'));
+    services.setAttribute('data-z2m-label', 'services-domains');
+    services.setAttribute('aria-label', _('Сервисы и домены'));
+  }
+  if (lists) {
+    lists.hidden = true;
+    lists.setAttribute('aria-hidden', 'true');
+    lists.setAttribute('tabindex', '-1');
+    if (lists.classList.contains('on') && services) {
+      services.classList.add('on');
+      services.setAttribute('aria-selected', 'true');
+      lists.setAttribute('aria-selected', 'false');
+    }
+  }
+  return true;
+}
+
+function observePrimaryNavigation() {
+  if (typeof MutationObserver !== 'function' || navigationObserver) return;
+  navigationObserver = new MutationObserver(function () { normalizePrimaryNavigation(); });
+  navigationObserver.observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['class']
+  });
+  normalizePrimaryNavigation();
+}
+
 function injectCss() {
   injectStylesheet('z2m-ui-css', 'z2m-ui.css');
   injectStylesheet('z2m-components-css', 'z2m-components.css');
+  observePrimaryNavigation();
 }
 
 function optional(factory, value) {
@@ -281,6 +318,7 @@ function renderApplyBar(store, availability) {
 return baseclass.extend({
   format: Format,
   injectCss: injectCss,
+  normalizePrimaryNavigation: normalizePrimaryNavigation,
   optional: optional,
   button: button,
   chip: chip,
