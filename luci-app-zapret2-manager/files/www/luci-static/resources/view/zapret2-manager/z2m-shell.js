@@ -70,11 +70,11 @@ function tabStrip(className, dataName, items, activeId, onSelect, attrs) {
       type: 'button',
       role: 'tab',
       'class': selected ? 'on' : '',
-      'data-' + dataName: item.id,
       'aria-selected': selected ? 'true' : 'false',
       tabindex: selected ? '0' : '-1',
       disabled: item.disabled === true ? 'disabled' : null
     };
+    properties['data-' + dataName] = item.id;
     var node = E('button', properties, children);
     node.addEventListener('click', function () {
       if (item.disabled === true) return;
@@ -236,9 +236,9 @@ function openModal(title, body, footer) {
   ]);
   host.replaceChildren(dialog);
   host.classList.add('on');
-  host.addEventListener('click', function onScrim(event) {
+  host.onclick = function (event) {
     if (event.target === host) closeModal();
-  }, { once: true });
+  };
   modalKeyHandler = function (event) {
     if (event.key === 'Escape') closeModal();
   };
@@ -251,6 +251,7 @@ function closeModal() {
   if (modalKeyHandler) document.removeEventListener('keydown', modalKeyHandler);
   modalKeyHandler = null;
   if (!host) return;
+  host.onclick = null;
   host.classList.remove('on');
   host.replaceChildren();
 }
