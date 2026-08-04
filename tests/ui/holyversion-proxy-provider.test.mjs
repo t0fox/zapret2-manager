@@ -10,6 +10,11 @@ const rpc = read('zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager-pro
 const acl = read('luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json');
 const api = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-proxy-provider-api.js');
 const page = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-proxy-page.js');
+const rustPackage = read('tg-ws-proxy-rs/Makefile');
+const goPackage = read('tg-ws-proxy-go/Makefile');
+const goPatch = read('tg-ws-proxy-go/patches/010-secret-from-env.patch');
+const goInit = read('tg-ws-proxy-go/files/etc/init.d/tg-ws-proxy');
+const fullPackage = read('zapret2-manager-full/Makefile');
 
  test('TG Proxy remains optional and supports install, switch and remove from our UI', () => {
   assert.match(backend, /optional:\s*true/);
@@ -17,6 +22,8 @@ const page = read('luci-app-zapret2-manager/files/www/luci-static/resources/view
   assert.match(backend, /proxy_provider_install/);
   assert.match(backend, /proxy_provider_remove/);
   assert.match(backend, /proxy_provider_purge/);
+  assert.match(backend, /snapshot_settings/);
+  assert.match(backend, /restore_settings/);
   assert.match(backend, /tg-ws-proxy-rs/);
   assert.match(backend, /tg-ws-proxy-go/);
   assert.match(backend, /apk add/);
@@ -51,4 +58,13 @@ const page = read('luci-app-zapret2-manager/files/www/luci-static/resources/view
   assert.match(page, /Легче и экономнее/);
   assert.match(page, /Больше совместимости/);
   assert.match(page, /select/);
+
+  assert.match(rustPackage, /PKG_VERSION:=1\.7\.1/);
+  assert.match(rustPackage, /CONFLICTS:=tg-ws-proxy-go/);
+  assert.match(goPackage, /PKG_SOURCE_VERSION:=a334786d528615b18e002c1286373098ac6e46a2/);
+  assert.match(goPackage, /PROVIDES:=tg-ws-proxy-provider/);
+  assert.match(goPatch, /os\.Getenv\("TG_SECRET"\)/);
+  assert.match(goInit, /procd_set_param env TG_SECRET=/);
+  assert.doesNotMatch(goInit, /--secret/);
+  assert.doesNotMatch(fullPackage, /\+tg-ws-proxy-rs/);
 });
