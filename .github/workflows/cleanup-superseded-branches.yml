@@ -1,16 +1,15 @@
 name: Cleanup superseded branches
 
 on:
-  issue_comment:
-    types:
-      - created
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
   cleanup:
-    if: github.event.issue.number == 23 && github.event.comment.body == '/cleanup-superseded-branches'
     runs-on: ubuntu-latest
     steps:
       - name: Delete superseded refs
