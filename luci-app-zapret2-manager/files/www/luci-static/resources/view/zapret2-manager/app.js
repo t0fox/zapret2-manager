@@ -253,6 +253,7 @@ function createCoordinator(options) {
       normalized[scope] = DraftModel.normalizeScope(scope, snapshot[scope]);
       states[scope] = { value: snapshot[scope], entry: normalized[scope] };
       if (normalized[scope].blocker) states[scope].blocker = normalized[scope].blocker;
+      else if (!normalized[scope].applicable) states[scope].blocker = _('Нет применимых изменений.');
       if (!adapters[scope]) states[scope].blocker = 'Unsupported scope: ' + scope;
       else if (adapters[scope].supported !== true) states[scope].blocker = 'Unsupported scope: ' + scope;
     });
@@ -333,7 +334,20 @@ function createCoordinator(options) {
           } };
         }) });
       }
-      var outcomes = { successes: [], failures: [], rollback: null };
+      var outcomes = { successes: [], failures: [], rollbacks: [] };
+      function rollbackProof(scope, adapter, answer) {
+        if (!adapter || typeof adapter.rollbackResult !== 'function' || !answer || answer.ok !== true) return null;
+        var nested = object(answer.rollback);
+        var snapshotValue = answer.snapshot != null ? answer.snapshot : nested.snapshot;
+        var revision = answer.revision != null ? answer.revision :
+          answer.appliedRevision != null ? answer.appliedRevision : nested.revision;
+        if (snapshotValue == null && revision == null) return null;
+        return {
+          scope: scope, available: true,
+          snapshot: snapshotValue == null ? null : cloneValue(snapshotValue),
+          revision: revision == null ? null : revision
+        };
+      }
       return sequence(preflight.scopes, function (scope) {
         var state = preflight.states[scope];
         var adapter = adapters[scope];
@@ -344,8 +358,8 @@ function createCoordinator(options) {
         }).then(function (answer) {
           var blocker = mutationError(answer);
           if (blocker) throw blocker;
-          var rollback = answer && (answer.rollback || answer.snapshot || answer);
-          if (rollback && rollback.available === true && (rollback.snapshotId != null || rollback.revision != null)) outcomes.rollback = rollback;
+          var rollback = rollbackProof(scope, adapter, answer);
+          if (rollback) outcomes.rollbacks.push(rollback);
           return Promise.resolve().then(function () { return adapter.reloadAppliedState(context); }).then(function (read) {
             if (!read || read.revision == null) throw { code: 'verification-failed', message: _('Проверка ревизии применённого состояния не пройдена.') };
             if (adapter.verifyApplied && adapter.verifyApplied(snapshot[scope], context, read) !== true)
@@ -358,10 +372,16 @@ function createCoordinator(options) {
       }).then(function () {
         outcomes.snapshot = snapshot;
         var applied = handleApplyResult(outcomes);
-        if (outcomes.rollback) applied.rollback = outcomes.rollback;
         return applied;
       });
     });
+  }
+  function rollbackResult(result, context) {
+    result = result || {};
+    var adapter = adapters[result.scope];
+    if (!adapter || typeof adapter.rollbackResult !== 'function' || result.available !== true)
+      return Promise.reject({ code: 'rollback-unavailable', message: _('Для этого результата нет безопасного отката.') });
+    return adapter.rollbackResult(result, contextFor(context));
   }
   return {
     availability: availability,
@@ -376,6 +396,7 @@ function createCoordinator(options) {
     },
     preflightDraft: preflightDraft,
     applyDrafts: applyDrafts,
+    rollbackResult: rollbackResult,
     handleApplyResult: handleApplyResult,
     openSemanticDiff: options.openSemanticDiff || function () {}
   };
@@ -402,21 +423,25 @@ return L.view.extend({
     }
 
     function openApplyResult(result) {
-      if (!result || !result.rollback) return;
-      var rollback = Shell.button(_('Откатить результат'), 'danger', function () {
-        rollback.disabled = true;
-        Api.strategy.rollbackManager().then(function () {
-          Shell.closeModal();
-          Shell.showToast(_('Результат применения отменён.'), 'ok');
-          return activate(store.get().ui.tab || 'overview', true);
-        }).catch(function (error) {
-          rollback.disabled = false;
-          Shell.showToast(Api.normalizeError(error).message, 'err');
+      var rollbacks = result && (result.rollbacks || (result.rollback ? [result.rollback] : []));
+      if (!rollbacks || !rollbacks.length) return;
+      var actions = rollbacks.map(function (entry) {
+        var rollback = Shell.button(_('Откатить: ') + draftLabel(entry.scope), 'danger', function () {
+          rollback.disabled = true;
+          coordinator.rollbackResult(entry, { root: content }).then(function () {
+            Shell.closeModal();
+            Shell.showToast(_('Результат применения отменён.'), 'ok');
+            return activate(store.get().ui.tab || 'overview', true);
+          }).catch(function (error) {
+            rollback.disabled = false;
+            Shell.showToast(Api.normalizeError(error).message, 'err');
+          });
         });
+        return rollback;
       });
       Shell.openModal(_('Результат применения'), E('p', {}, _('Backend сообщил доступный снимок результата. Откат выполняется только вручную.')), [
-        Shell.button(_('Закрыть'), '', Shell.closeModal), rollback
-      ]);
+        Shell.button(_('Закрыть'), '', Shell.closeModal)
+      ].concat(actions));
     }
     function openSemanticDiff() {
       var draft = store.snapshotDraft();

@@ -174,7 +174,17 @@ function recordApplyResult(draft, result) {
       message: error.message || String(item && item.error || error || 'Apply failed')
     };
   });
-  return { draft: nextDraft, clearedScopes: successes, failedScopes: failedScopes, errors: errors };
+  var bookkeeping = { draft: nextDraft, clearedScopes: successes, failedScopes: failedScopes, errors: errors };
+  var rollbacks = array(result.rollbacks).filter(function (item) {
+    return item && item.scope && item.available === true;
+  }).map(clone);
+  if (!rollbacks.length && result.rollback && result.rollback.scope && result.rollback.available === true)
+    rollbacks = [clone(result.rollback)];
+  if (rollbacks.length) {
+    bookkeeping.rollbacks = rollbacks;
+    if (rollbacks.length === 1) bookkeeping.rollback = rollbacks[0];
+  }
+  return bookkeeping;
 }
 
 return baseclass.extend({

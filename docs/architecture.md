@@ -298,7 +298,7 @@ zapret2-manager/                       (feed root)
         ├── usr/share/rpcd/acl.d/      (ACL)
         ├── usr/share/luci/menu.d/     (menu entry)
         └── www/luci-static/resources/view/zapret2-manager/
-            └── overview.js            (LuCI JS view)
+            └── app.js                 (single-view LuCI root; internal tabs/modules)
 ```
 
 Paths marked with a verify-marker in [upstream-mapping.md](upstream-mapping.md)

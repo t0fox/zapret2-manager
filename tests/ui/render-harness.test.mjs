@@ -182,6 +182,7 @@ const healthyData = {
   'z2m-services.js': {
     catalog: { value: {
       ok: true, catalogVersion: 'backend-catalog',
+      digest: 'catalog-digest-8', digestOk: true,
       services: [
         { id: 'alpha', name: 'Backend Alpha', category: 'video', domainCount: 2 },
         { id: 'beta', name: 'Backend Beta', category: 'video', domainCount: 1 }
@@ -193,8 +194,9 @@ const healthyData = {
     } },
     status: { value: { ok: true, activeMode: 'services', ledger: {
       revision: 8, enabled: ['alpha'], updatedAt: '2026-08-04T10:00:00Z',
-      precondition: { ledgerRevision: 8, fileSha256: 'backend-file-sha' }
-    }, ownedDomains: 2 } },
+      catalogDigest: 'catalog-digest-8'
+    }, catalog: { valid: true, digestOk: true, catalogVersion: 'backend-catalog' }, ownedDomains: 2 } },
+    preview: { value: { ok: true, precondition: { ledgerRevision: 8, fileSha256: 'backend-file-sha' } } },
     health: { value: { ok: true, matrix: { status: 'completed' } } },
     preflight: { value: { ok: true, ready: true } }
   },
@@ -356,7 +358,7 @@ test('Services fails closed when status precondition is unavailable', () => {
   const mod = evaluateLuciModule(`${root}/z2m-services.js`, overrides, cache);
   mod.resetDraft();
   const unavailable = structuredClone(healthyData['z2m-services.js']);
-  delete unavailable.status.value.ledger.precondition;
+  delete unavailable.preview;
   const ctx = context(unavailable);
   const tree = mod.render(ctx);
   assert.match(tree.textContent, /предусловия каталога недоступны/i);

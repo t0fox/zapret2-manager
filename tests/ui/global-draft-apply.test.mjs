@@ -58,9 +58,12 @@ function fakeApi(calls, preview) {
       catalogStatus: () => {
         calls.push('status');
         readCount += 1;
-        return Promise.resolve({ ledger: { revision: 3, enabled: readCount > 1 ? ['alpha', 'beta', 'gamma'] : ['alpha', 'gamma'] } });
+        return Promise.resolve({
+          ledger: { revision: 3, enabled: readCount > 1 ? ['alpha', 'beta', 'gamma'] : ['alpha', 'gamma'], catalogDigest: 'catalog-digest-3' },
+          catalog: { valid: true, digestOk: true }
+        });
       },
-      catalogList: () => { calls.push('list'); return Promise.resolve({ services: [] }); },
+      catalogList: () => { calls.push('list'); return Promise.resolve({ ok: true, digest: 'catalog-digest-3', digestOk: true, services: [] }); },
       catalogPreview: (payload) => { calls.push(['preview', JSON.parse(payload)]); return Promise.resolve(preview); },
       catalogApply: (payload) => { calls.push(['apply', JSON.parse(payload)]); return Promise.resolve({ ok: true }); }
     }
@@ -96,13 +99,14 @@ function catalogScenario(options = {}) {
         return Promise.resolve(read('catalogStatus', {
           ok: true,
           ledger: {
-            revision: current.revision, enabled: current.enabled, fileSha256: current.fileSha256,
-            precondition: { ledgerRevision: current.revision, fileSha256: current.fileSha256 }
-          }
+            revision: current.revision, enabled: current.enabled, catalogDigest: 'catalog-digest-' + current.revision
+          },
+          catalog: { valid: true, digestOk: true, catalogVersion: 'backend-catalog' }
         }));
       },
       catalogList: () => Promise.resolve(read('catalogList', {
-        ok: true, services: [{ id: 'alpha' }, { id: 'beta' }, { id: 'gamma' }]
+        ok: true, digest: 'catalog-digest-3', digestOk: true,
+        services: [{ id: 'alpha' }, { id: 'beta' }, { id: 'gamma' }]
       })),
       catalogPreview: (payload) => {
         calls.push('catalogPreview');
@@ -580,6 +584,91 @@ test('DNS verification normalizes manualEntries in the reread envelope', () => {
   assert.equal(adapter.verifyApplied(
     { entries }, {}, { value: { manualEntries: entries } }
   ), true);
+});
+
+test('DNS semantic no-op never reaches set or apply', async () => {
+  const calls = [];
+  const api = {
+    normalizeError(error) { return { code: error?.code || 'E_TEST', message: error?.message || String(error) }; },
+    dns: {
+      get: () => Promise.resolve({ revision: 4, applied: [] }),
+      validate: () => { calls.push('validate'); return Promise.resolve({ ok: true, valid: true }); },
+      set: () => { calls.push('set'); return Promise.resolve({ ok: true }); },
+      apply: () => { calls.push('apply'); return Promise.resolve({ ok: true }); }
+    }
+  };
+  const store = coordinatorStore({ dns: { entries: [] } });
+  const coordinator = appView.createCoordinator({ api, store, shell: noShell(), adapters: { dns: appView.createDnsAdapter(api) } });
+
+  const result = await coordinator.applyDrafts(store.snapshotDraft());
+
+  assert.equal(calls.includes('set'), false);
+  assert.equal(calls.includes('apply'), false);
+  assert.deepEqual(result.failedScopes, ['dns']);
+  assert.match(result.errors[0].message, /изменений|no.?op/i);
+});
+
+test('rollback result routes through the originating adapter and carries backend proof', async () => {
+  const calls = [];
+  const store = coordinatorStore({ dns: { changes: { entries: { before: [], after: [{ domain: 'a.example' }] } } } });
+  const adapter = {
+    supported: true,
+    reloadAppliedState: () => Promise.resolve({ value: {}, revision: 1 }),
+    validateDraft: () => Promise.resolve({ ok: true }),
+    previewDraft: () => Promise.resolve({ ok: true, precondition: { revision: 1 } }),
+    applyDraft: () => Promise.resolve({ ok: true, snapshot: { id: 'dns-snapshot-1' }, revision: 2 }),
+    verifyApplied: () => true,
+    rollbackResult: (rollback) => {
+      calls.push(rollback);
+      return Promise.resolve({ ok: true, revision: 1 });
+    },
+    resetDraft() {}
+  };
+  const coordinator = appView.createCoordinator({
+    api: { normalizeError(error) { return { code: error?.code || 'E_TEST', message: error?.message || String(error) }; } },
+    store, shell: noShell(), adapters: { dns: adapter }
+  });
+
+  const result = await coordinator.applyDrafts(store.snapshotDraft());
+
+  assert.deepEqual(result.rollback, {
+    scope: 'dns', available: true, snapshot: { id: 'dns-snapshot-1' }, revision: 2
+  });
+  await coordinator.rollbackResult(result.rollback);
+  assert.deepEqual(calls, [result.rollback]);
+});
+
+test('successful scope without an adapter rollback contract exposes no generic rollback', async () => {
+  const store = coordinatorStore({ services: { changes: { alpha: { before: false, after: true } } } });
+  const adapter = {
+    supported: true,
+    reloadAppliedState: () => Promise.resolve({ value: {}, revision: 1 }),
+    validateDraft: () => Promise.resolve({ ok: true }),
+    previewDraft: () => Promise.resolve({ ok: true, precondition: { revision: 1 } }),
+    applyDraft: () => Promise.resolve({ ok: true, snapshot: { id: 'catalog-snapshot-1' }, revision: 2 }),
+    verifyApplied: () => true,
+    resetDraft() {}
+  };
+  const coordinator = appView.createCoordinator({
+    api: { normalizeError(error) { return { code: error?.code || 'E_TEST', message: error?.message || String(error) }; } },
+    store, shell: noShell(), adapters: { services: adapter }
+  });
+
+  const result = await coordinator.applyDrafts(store.snapshotDraft());
+
+  assert.equal(result.rollback, undefined);
+  assert.equal(typeof coordinator.rollbackResult, 'function');
+});
+
+test('registered adapters do not expose a result rollback without a targetable backend contract', () => {
+  const api = {
+    strategy: { rollback() {} },
+    dns: { rollback() {} }
+  };
+
+  assert.equal(appView.createDnsAdapter(api).rollbackResult, undefined);
+  assert.equal(appView.createStrategyAdapter(api).rollbackResult, undefined);
+  assert.doesNotMatch(app, /Api\.strategy\.rollbackManager\(/);
 });
 
 test('registered DNS adapter resets the real module state after verified apply', async () => {

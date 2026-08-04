@@ -145,7 +145,8 @@ function modeDraft(value) {
   return result;
 }
 function hasChanges(value) { return Object.keys(object(object(value).changes)).length > 0; }
-function preconditionOf(catalog, status) {
+function preconditionOf(catalog, status, preview) {
+  if (preview && preview.precondition) return clone(preview.precondition);
   var direct = status && (status.precondition || status.catalogPrecondition) ||
     catalog && (catalog.precondition || catalog.catalogPrecondition) ||
     status && status.ledger && status.ledger.precondition;
@@ -154,6 +155,19 @@ function preconditionOf(catalog, status) {
   if (ledger && (ledger.revision != null || ledger.fileSha256))
     return { ledgerRevision: ledger.revision, fileSha256: ledger.fileSha256 };
   return null;
+}
+function previewForStatus(ctx, result) {
+  if (!result || result.status !== 'fulfilled')
+    return Promise.resolve({ error: ctx.api.normalizeError(result && result.reason) });
+  var status = object(result.value);
+  var ledger = object(status.ledger);
+  if (ledger.enabled == null)
+    return Promise.resolve({ error: { code: 'E_PRECONDITION', message: _('Статус каталога не содержит полный набор enabled.') } });
+  return edit(ctx.api.services.catalogPreview, { enabled: serviceIds(ledger.enabled) }).then(function (value) {
+    return { value: value || {} };
+  }, function (error) {
+    return { error: ctx.api.normalizeError(error) };
+  });
 }
 function sourceValue(value, fallback) {
   return value == null || value === '' ? fallback : String(value);
@@ -208,10 +222,10 @@ function load(ctx) {
     ctx.api.services.catalogList(), ctx.api.services.catalogStatus(),
     ctx.api.services.healthMatrixGet(), ctx.api.orchestra.probePreflight()
   ]).then(function (results) {
-    return {
+    return previewForStatus(ctx, results[1]).then(function (preview) { return {
       catalog: settled(results[0], ctx.api), status: settled(results[1], ctx.api),
-      health: settled(results[2], ctx.api), preflight: settled(results[3], ctx.api)
-    };
+      health: settled(results[2], ctx.api), preflight: settled(results[3], ctx.api), preview: preview
+    }; });
   });
 }
 
@@ -221,6 +235,7 @@ function render(ctx) {
   var status = data.status && data.status.value || {};
   var health = data.health && data.health.value || {};
   var preflight = data.preflight && data.preflight.value || null;
+  var preview = data.preview && data.preview.value || {};
   var catalog = ServicesModel.catalog(rawCatalog, status);
   var services = catalog.services;
   var catalogAvailable = !(data.catalog && data.catalog.error) && rawCatalog.ok !== false;
@@ -236,7 +251,8 @@ function render(ctx) {
     state.enabledBaseline = state.baseline;
     state.revision = statusRevision;
   }
-  state.precondition = catalogAvailable && statusAvailable ? preconditionOf(rawCatalog, status) : null;
+  state.precondition = catalogAvailable && statusAvailable && preview.ok === true ?
+    preconditionOf(rawCatalog, status, preview) : null;
   if (stored.modeDrafts) {
     Object.keys(stored.modeDrafts).forEach(function (mode) {
       if (hasChanges(stored.modeDrafts[mode])) state.modeDrafts[modeId(mode)] = modeDraft(stored.modeDrafts[mode]);
@@ -244,10 +260,15 @@ function render(ctx) {
   }
   if (hasChanges(stored)) state.modeDrafts[modeId(stored.mode)] = modeDraft(stored);
   state.activeMode = modeId(stored.mode || status.activeMode || catalog.activeMode || state.activeMode);
-  canEdit = catalogAvailable && statusAvailable && !digestMismatch && validPrecondition(state.precondition);
+  var digestValid = rawCatalog.digestOk === true && validFileSha(rawCatalog.digest) &&
+    status.catalog && status.catalog.digestOk === true &&
+    validFileSha(status.ledger && status.ledger.catalogDigest) &&
+    status.ledger.catalogDigest === rawCatalog.digest;
+  digestMismatch = !digestValid;
+  canEdit = catalogAvailable && statusAvailable && digestValid && validPrecondition(state.precondition);
   var editBlockReason = !catalogAvailable ? _('Каталог сервисов недоступен. Изменения заблокированы.') :
     !statusAvailable ? _('Статус каталога недоступен. Изменения заблокированы.') :
-      digestMismatch ? _('Контрольная сумма каталога не совпадает: изменения заблокированы.') :
+      !digestValid ? _('Контрольная сумма каталога не подтверждена backend: изменения заблокированы.') :
         !validPrecondition(state.precondition) ? _('Предусловия каталога недоступны. Изменения заблокированы.') : null;
 
   var root = E('section', { 'class': 'z2m-view on z2m-services-page', id: 'z2m-view-services' });
@@ -257,8 +278,8 @@ function render(ctx) {
   });
   if (!catalogAvailable) errors.push(E('div', { 'class': 'warnbar' }, _('Каталог сервисов недоступен. Изменения заблокированы.')));
   if (!statusAvailable) errors.push(E('div', { 'class': 'warnbar' }, _('Статус каталога недоступен. Изменения заблокированы.')));
-  if (digestMismatch) errors.push(E('div', { 'class': 'warnbar' }, _('Контрольная сумма каталога не совпадает: изменения заблокированы.')));
-  if (editBlockReason && catalogAvailable && statusAvailable && !digestMismatch)
+  if (!digestValid) errors.push(E('div', { 'class': 'warnbar' }, _('Контрольная сумма каталога не подтверждена backend: изменения заблокированы.')));
+  if (editBlockReason && catalogAvailable && statusAvailable && digestValid)
     errors.push(E('div', { 'class': 'warnbar' }, editBlockReason));
   if (!canRunService) errors.push(E('div', { 'class': 'warnbar' }, preflightMessage(preflight)));
   if (state.runError) errors.push(E('div', { 'class': 'warnbar' }, state.runError));
