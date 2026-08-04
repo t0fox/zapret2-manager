@@ -88,6 +88,13 @@ function createAdapter(api, servicesModule) {
     },
     previewDraft: function (scope, value, context) {
       return edit(api.services.catalogPreview, { enabled: serviceIds(expected(value, context)) }).then(function (answer) {
+        if (answer && answer.ok === false) {
+          var failure = answer.error && typeof answer.error === 'object' ? answer.error : answer;
+          throw {
+            code: failure.code || 'preview-blocked',
+            message: failure.message || failure.detail || _('Предпросмотр каталога не прошёл.')
+          };
+        }
         var blocker = validPreview(answer) ? null : _('Предпросмотр каталога не содержит допустимой precondition.');
         if (blocker) throw { code: 'preview-blocked', message: blocker };
         return answer;

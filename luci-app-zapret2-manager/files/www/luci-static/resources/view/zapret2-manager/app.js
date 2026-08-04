@@ -218,7 +218,10 @@ function createCoordinator(options) {
   }
   function mutationError(answer) {
     if (!answer || typeof answer !== 'object' || answer.ok !== true)
-      return responseMessage(answer, _('Backend не подтвердил применение.'));
+      return {
+        code: answer && answer.error && answer.error.code || answer && answer.code || 'apply-rejected',
+        message: responseMessage(answer, _('Backend не подтвердил применение.'))
+      };
     return null;
   }
   function preflightDraft(snapshot, context) {
@@ -299,7 +302,9 @@ function createCoordinator(options) {
         return handleApplyResult({ successes: [], failures: preflight.scopes.filter(function (scope) {
           return preflight.states[scope].blocker;
         }).map(function (scope) {
-          return { scope: scope, error: { code: 'preflight-blocked', message: preflight.states[scope].blocker } };
+          return { scope: scope, error: preflight.states[scope].error || {
+            code: 'preflight-blocked', message: preflight.states[scope].blocker
+          } };
         }) });
       }
       var outcomes = { successes: [], failures: [], rollback: null };
@@ -312,7 +317,7 @@ function createCoordinator(options) {
           return adapter.applyDraft(scope, snapshot[scope], state.read && state.read.revision, context);
         }).then(function (answer) {
           var blocker = mutationError(answer);
-          if (blocker) throw { code: 'apply-rejected', message: blocker };
+          if (blocker) throw blocker;
           var rollback = answer && (answer.rollback || answer.snapshot || answer);
           if (rollback && rollback.available === true && (rollback.snapshotId != null || rollback.revision != null)) outcomes.rollback = rollback;
           return Promise.resolve().then(function () { return adapter.reloadAppliedState(context); }).then(function (read) {
