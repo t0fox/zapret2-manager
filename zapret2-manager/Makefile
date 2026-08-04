@@ -126,6 +126,10 @@ define Package/zapret2-manager/install
 		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/orchestra-run.uc \
 		$(1)/usr/libexec/zapret2-manager/
+	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/orchestra-corpus.uc \
+		$(1)/usr/libexec/zapret2-manager/
+	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/orchestra-corpus-run.uc \
+		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/orchestra-worker.uc \
 		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/orchestra-worker-control.uc \
@@ -166,6 +170,9 @@ define Package/zapret2-manager/install
 		$(1)/usr/libexec/zapret2-manager/catalog/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/catalog/stressozz-compiled.json \
 		$(1)/usr/libexec/zapret2-manager/catalog/
+	$(INSTALL_DIR) $(1)/usr/share/zapret2-manager/corpus
+	$(INSTALL_DATA) ./files/usr/share/zapret2-manager/corpus/domains-61.json \
+		$(1)/usr/share/zapret2-manager/corpus/
 	$(INSTALL_BIN) ./files/usr/libexec/zapret2-manager/stressozz-validate.uc \
 		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_BIN) ./files/usr/libexec/zapret2-manager/discord-profile.uc \
