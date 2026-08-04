@@ -48,9 +48,9 @@ test('single-view runtime modules and local stylesheets exist', () => {
   ]) assert.ok(existsSync(join(viewRoot, name)), `${name} exists`);
 });
 
-test('r140 package ships no legacy runtime and only the two authoritative local stylesheets', () => {
+test('r141 package ships no legacy runtime and only the two authoritative local stylesheets', () => {
   const makefile = readFileSync(join(REPO, 'luci-app-zapret2-manager/Makefile'), 'utf8');
-  assert.match(makefile, /^PKG_RELEASE:=140$/m);
+  assert.match(makefile, /^PKG_RELEASE:=141$/m);
   const files = readdirSync(viewRoot).sort();
   assert.deepEqual(files.filter((name) => name.endsWith('.css')), ['z2m-components.css', 'z2m-ui.css']);
   assert.deepEqual(files.filter((name) => name.endsWith('-legacy.js')), []);
@@ -60,6 +60,13 @@ test('r140 package ships no legacy runtime and only the two authoritative local 
     const source = readFileSync(join(viewRoot, stylesheet), 'utf8');
     assert.doesNotMatch(source, /@import|https?:\/\//, `${stylesheet} stays self-contained`);
   }
+});
+
+test('backend and full-stack meta-package releases advance together to r137', () => {
+  const backend = readFileSync(join(REPO, 'zapret2-manager/Makefile'), 'utf8');
+  const full = readFileSync(join(REPO, 'zapret2-manager-full/Makefile'), 'utf8');
+  assert.match(backend, /^PKG_RELEASE:=137$/m);
+  assert.match(full, /^PKG_RELEASE:=137$/m);
 });
 
 test('compatibility redirects remain shipped but are not registered as LuCI child tabs', () => {

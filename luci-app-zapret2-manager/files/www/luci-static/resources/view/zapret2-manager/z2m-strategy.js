@@ -14,6 +14,15 @@ function candidates(preview) { return preview && preview.comboCatalog && Array.i
 function active(preview) { return preview && preview.strategyState && preview.strategyState.active || null; }
 function candidateId(candidate) { return candidate && (candidate.managerId || candidate.candidateId || candidate.id); }
 function candidateName(candidate) { return candidate && (candidate.name || candidate.displayName || candidateId(candidate)) || '—'; }
+function candidateApplicable(candidate) { return !!(candidate && candidate.applicable === true); }
+function candidateValidationMessage(candidate) { return candidate && candidate.validationMessage ? String(candidate.validationMessage).slice(0, 180) : _('Backend не подтвердил применимость стратегии.'); }
+function missingRunError(error) {
+  var value = error && error.error ? error.error : error || {};
+  var code = String(value.code || '').toLowerCase();
+  var text = String(value.message || value.detail || value || '').toLowerCase();
+  return code === 'enoent' || code === 'run-not-found' || code === 'run_not_found' ||
+    text.indexOf('run not found') >= 0 || text.indexOf('запуск не найден') >= 0 || text.indexOf('enoent') >= 0;
+}
 function display(value) { return value == null || value === '' ? '—' : String(value); }
 function normalizeTarget(value) {
   var raw = String(value || '').trim().toLowerCase();
@@ -199,6 +208,10 @@ function render(ctx) {
 
   function applySelected() {
     if (!selected) return;
+    if (!candidateApplicable(selected)) {
+      shell.showToast(candidateValidationMessage(selected), 'err');
+      return;
+    }
     edit(ctx.api.strategy.apply, {
       candidateId: candidateId(selected), expectedDigest: selected.digest,
       wideAcknowledged: true, includeOverrides: true,
@@ -224,7 +237,18 @@ function render(ctx) {
       var phase = String(run.phase || '');
       if (['completed','partial','failed','stopped','timed-out','timeout','interrupted','infrastructure-error'].indexOf(phase) < 0)
         state.timer = window.setTimeout(poll, 1800);
+      else {
+        state.runId = null;
+        state.timer = null;
+      }
     }).catch(function (error) {
+      if (missingRunError(error)) {
+        if (state.timer) window.clearTimeout(state.timer);
+        state.timer = null;
+        state.runId = null;
+        runHost.replaceChildren(E('div', { 'class': 'warnbar' }, _('Запуск больше не найден')));
+        return;
+      }
       runHost.replaceChildren(E('div', { 'class': 'warnbar' }, ctx.api.normalizeError(error).message));
     });
   }
@@ -394,8 +418,8 @@ function render(ctx) {
       var isActive = activeItem && (activeItem.candidateId === id || activeItem.managerId === id);
       var row = E('button', { type: 'button', 'class': 'z2m-srow' + (isSelected ? ' sel' : ''), 'aria-pressed': isSelected ? 'true' : 'false' }, [
         E('div', {}, [
-          E('div', { 'class': 'nm' }, [candidateName(candidate), isActive ? shell.chip(_('применена'), 'g') : candidate.recommended ? shell.chip(_('рекомендуем'), 'b') : E('span')]),
-          E('div', { 'class': 'ds' }, candidate.description || _('Встроенная стратегия')),
+          E('div', { 'class': 'nm' }, [candidateName(candidate), isActive ? shell.chip(_('применена'), 'g') : !candidateApplicable(candidate) ? shell.chip(_('нельзя применить'), 'r') : candidate.recommended ? shell.chip(_('рекомендуем'), 'b') : E('span')]),
+          E('div', { 'class': 'ds' }, candidateApplicable(candidate) ? (candidate.description || _('Встроенная стратегия')) : candidateValidationMessage(candidate)),
           E('div', { 'class': 'z2m-tech' }, candidate.digest || id)
         ]),
         E('div', { 'class': 'z2m-num' }, candidate.successCount == null ? '—' : String(candidate.successCount)),
@@ -414,8 +438,9 @@ function render(ctx) {
         metric(selected.profileCount, _('профилей')), metric(selected.tcpPorts, _('TCP')),
         metric(selected.udpPorts, _('UDP')), metric(selected.confidence, _('confidence'))
       ]),
+      candidateApplicable(selected) ? E('span') : E('div', { 'class': 'warnbar' }, _('нельзя применить: ') + candidateValidationMessage(selected)),
       E('div', { 'class': 'z2m-btnrow' }, [
-        shell.button(_('Применить'), 'primary', applySelected),
+        shell.button(_('Применить'), 'primary', applySelected, !candidateApplicable(selected)),
         shell.button(_('Откатить'), '', function () {
           ctx.api.strategy.rollback().then(function () { reload(); }).catch(showError);
         }, !activeItem)

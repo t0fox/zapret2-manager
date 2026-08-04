@@ -1236,25 +1236,6 @@ function write_secret_file(secret) {
 	return (back == secret);
 }
 
-function write_config_conf(text) {
-	let tmp = CONFIG_CONF + '.tmp.' + time();
-	writefile(tmp, text);
-	let p = popen('mv -f ' + tmp + ' ' + CONFIG_CONF + ' 2>/dev/null', 'r');
-	if (p) p.close();
-	let cm = popen('chmod 0600 ' + CONFIG_CONF + ' 2>/dev/null', 'r');
-	if (cm) cm.close();
-	let st = stat(CONFIG_CONF);
-	if (st == null) return false;
-	let mode = (st.mode != null) ? (st.mode % 512) : null;
-	if (mode != 384) return false;
-	// readback: render of parsed must equal the written text (modulo header)
-	let r = run('head -c ' + (MAX_CONFIG_BYTES + 1) + ' ' + CONFIG_CONF);
-	if (r.rc != 0) return false;
-	let p2 = parse_config_conf(r.out);
-	if (!p2.ok) return false;
-	return true;
-}
-
 // ---- service / events ---------------------------------------------------------
 
 function service_do(action) {
@@ -1277,6 +1258,98 @@ function event_proxy(severity, msg, extra) {
 		ev.msg = msg;
 		writefile(EVENTS_NDJSON, prev + sprintf("%J", ev) + '\n');
 	} catch (e) { }
+}
+
+function remove_secret_file() {
+	try { unlink(SECRET_CONF); } catch (e) { }
+	return stat(SECRET_CONF) == null;
+}
+
+function snapshot_secret_rotation() {
+	let st = stat(SECRET_CONF);
+	let secretText = st != null ? readfile(SECRET_CONF) : null;
+	let rr = reread();
+	let cur = load_applied_full();
+	return {
+		snapshotOk: st == null || secretText != null,
+		hadSecret: st != null,
+		secretText: secretText,
+		secretMode: st != null && st.mode != null ? st.mode % 512 : null,
+		running: length(rr.pids) > 0,
+		config: cur.ok ? cur.config : null
+	};
+}
+
+function restore_secret_file_snapshot(snap, failures) {
+	if (snap.hadSecret) {
+		let tmp = SECRET_CONF + '.rollback.' + time();
+		writefile(tmp, snap.secretText != null ? snap.secretText : '');
+		let mv = run('mv -f ' + tmp + ' ' + SECRET_CONF);
+		if (mv.rc != 0) { push(failures, 'secret restore move failed'); return; }
+		let mode = snap.secretMode != null ? snap.secretMode : 384;
+		let cm = run('chmod ' + sprintf('%04o', mode) + ' ' + SECRET_CONF);
+		if (cm.rc != 0) push(failures, 'secret restore mode failed');
+		let back = readfile(SECRET_CONF);
+		if (back != snap.secretText) push(failures, 'secret restore readback failed');
+	} else if (!remove_secret_file()) push(failures, 'new secret removal failed');
+}
+
+function rollback_secret_rotation(snap) {
+	let failures = [];
+	restore_secret_file_snapshot(snap, failures);
+	let action = snap.running ? 'restart' : 'stop';
+	let rc = service_do(action);
+	if (rc != 0) push(failures, 'service state restore failed');
+	let rr = reread(snap.running ? 5000 : 1000);
+	if (snap.running) {
+		if (snap.config == null) push(failures, 'previous listener config unavailable');
+		else {
+			let verified = verify_started(snap.config, rr);
+			if (!verified.ok) push(failures, 'previous listener verification failed');
+		}
+	} else {
+		let stopped = verify_stopped(rr);
+		if (!stopped.ok) push(failures, 'previous stopped state verification failed');
+	}
+	return { ok: length(failures) == 0, failures: failures, reread: rr };
+}
+
+function secret_rotation_failure(snap, stage, message, extraFailures) {
+	let rb = rollback_secret_rotation(snap);
+	let result = {
+		ok: false,
+		stage: stage,
+		rotated: stage != 'write-secret',
+		restarted: false,
+		verified: false,
+		rolledBack: rb.ok,
+		rollbackFailed: !rb.ok,
+		rollbackFailures: rb.failures,
+		error: { code: 'ETARGET', message: message },
+		reread: { pids: rb.reread.pids, listeners: rb.reread.listeners }
+	};
+	if (extraFailures != null && length(extraFailures) > 0) result.failures = extraFailures;
+	event_proxy(rb.ok ? 'err' : 'crit', 'proxy secret rotation failed at ' + stage, { stage: stage, rolledBack: rb.ok, rollbackFailed: !rb.ok });
+	return result;
+}
+
+function write_config_conf(text) {
+	let tmp = CONFIG_CONF + '.tmp.' + time();
+	writefile(tmp, text);
+	let p = popen('mv -f ' + tmp + ' ' + CONFIG_CONF + ' 2>/dev/null', 'r');
+	if (p) p.close();
+	let cm = popen('chmod 0600 ' + CONFIG_CONF + ' 2>/dev/null', 'r');
+	if (cm) cm.close();
+	let st = stat(CONFIG_CONF);
+	if (st == null) return false;
+	let mode = (st.mode != null) ? (st.mode % 512) : null;
+	if (mode != 384) return false;
+	// readback: render of parsed must equal the written text (modulo header)
+	let r = run('head -c ' + (MAX_CONFIG_BYTES + 1) + ' ' + CONFIG_CONF);
+	if (r.rc != 0) return false;
+	let p2 = parse_config_conf(r.out);
+	if (!p2.ok) return false;
+	return true;
 }
 
 // ---- snapshot / rollback -------------------------------------------------------
@@ -1670,25 +1743,23 @@ export const proxycfg_autostart = function(input) {
 export const proxycfg_secret_rotate = function() {
 	let bin = probe_binary();
 	if (!bin.present) return rpc_err('ETARGET', 'binary missing — package not installed');
-	let gen = gen_secret();
-	if (gen == null) return rpc_err('ETARGET', 'CSPRNG secret generation failed');
-	if (!write_secret_file(gen)) return rpc_err('ETARGET', 'failed to write secret.conf at 0600');
-	let rr0 = reread();
-	if (length(rr0.pids) > 0) {
-		let cur = load_applied_full();
-		if (!cur.ok) return rpc_err('ESTATE', 'running but config unreadable — secret rotated, restart skipped; manual restart required');
-		let rc = service_do('restart');
-		if (rc != 0)
-			return { ok: false, error: { code: 'ETARGET', message: 'secret rotated but restart failed (rc ' + rc + ')' }, rotated: true, restarted: false };
-		let rr = reread(5000);
-		let v = verify_started(cur.config, rr);
-		if (!v.ok)
-			return { ok: false, error: { code: 'ETARGET', message: 'secret rotated and restarted, but listener verification failed' }, failures: v.failures, reread: { pids: rr.pids, listeners: rr.listeners } };
-		event_proxy('info', 'proxy secret rotated (service restarted)', null);
-		return { ok: true, rotated: true, restarted: true, reread: { pids: rr.pids, listeners: rr.listeners } };
+	let snap = snapshot_secret_rotation();
+	if (!snap.snapshotOk) return rpc_err('ESTATE', 'previous secret could not be snapshotted; rotation was not started');
+	if (snap.running && snap.config == null) return rpc_err('ESTATE', 'running proxy config is unreadable; rotation was not started');
+	let generated = gen_secret();
+	if (generated == null) return rpc_err('ETARGET', 'CSPRNG secret generation failed');
+	if (!write_secret_file(generated)) return secret_rotation_failure(snap, 'write-secret', 'failed to write and verify secret.conf', []);
+	if (!snap.running) {
+		event_proxy('info', 'proxy secret rotation completed', { stage: 'complete', restarted: false, verified: true });
+		return { ok: true, stage: 'complete', rotated: true, restarted: false, verified: true, rolledBack: false, rollbackFailed: false, rollbackFailures: [] };
 	}
-	event_proxy('info', 'proxy secret rotated (service was stopped)', null);
-	return { ok: true, rotated: true, restarted: false };
+	let rc = service_do('restart');
+	if (rc != 0) return secret_rotation_failure(snap, 'restart', 'proxy restart failed after secret rotation', []);
+	let rr = reread(5000);
+	let verification = verify_started(snap.config, rr);
+	if (!verification.ok) return secret_rotation_failure(snap, 'verify-listener', 'listener verification failed after secret rotation', verification.failures);
+	event_proxy('info', 'proxy secret rotation completed', { stage: 'complete', restarted: true, verified: true });
+	return { ok: true, stage: 'complete', rotated: true, restarted: true, verified: true, rolledBack: false, rollbackFailed: false, rollbackFailures: [], reread: { pids: rr.pids, listeners: rr.listeners } };
 };
 
 export const proxycfg_logs_tail = function(input) {

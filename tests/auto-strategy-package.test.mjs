@@ -19,7 +19,7 @@ function packageRelease(source) {
 test('M8 package versions are coherent while frontend release may advance independently', () => {
 	assert.equal(packageVersion(manager), packageVersion(luci));
 	assert.equal(packageVersion(manager), packageVersion(full));
-	assert.equal(packageRelease(luci), 140);
+	assert.equal(packageRelease(luci), 141);
 	assert.equal(packageRelease(manager), packageRelease(full));
 });
 
