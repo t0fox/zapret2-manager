@@ -1,0 +1,31 @@
+name: Export PR21 source
+
+on:
+  push:
+    branches:
+      - docs/video-found-ui-correctness-design
+    paths:
+      - '.github/workflows/export-pr21-source.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Pack source tree
+        run: tar --exclude=.git -czf /tmp/pr21-source.tgz .
+
+      - name: Upload source artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr21-source
+          path: /tmp/pr21-source.tgz
+          if-no-files-found: error
+          retention-days: 1
