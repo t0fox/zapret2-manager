@@ -19,6 +19,7 @@ const fullPackage = read('zapret2-manager-full/Makefile');
 test('TG Proxy is optional and installs only the latest compatible provider build', () => {
   assert.match(backend, /optional:\s*true/);
   assert.match(backend, /installed:\s*activeInstalled/);
+  assert.match(backend, /latestOnly:\s*true/);
   assert.match(backend, /proxy_provider_install/);
   assert.match(backend, /proxy_provider_remove/);
   assert.match(backend, /proxy_provider_purge/);
