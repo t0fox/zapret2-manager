@@ -16,7 +16,7 @@ const goPatch = read('tg-ws-proxy-go/patches/010-secret-from-env.patch');
 const goInit = read('tg-ws-proxy-go/files/etc/init.d/tg-ws-proxy');
 const fullPackage = read('zapret2-manager-full/Makefile');
 
- test('TG Proxy remains optional and supports install, switch and remove from our UI', () => {
+test('TG Proxy is optional and installs only the latest compatible provider build', () => {
   assert.match(backend, /optional:\s*true/);
   assert.match(backend, /installed:\s*activeInstalled/);
   assert.match(backend, /proxy_provider_install/);
@@ -24,12 +24,16 @@ const fullPackage = read('zapret2-manager-full/Makefile');
   assert.match(backend, /proxy_provider_purge/);
   assert.match(backend, /snapshot_settings/);
   assert.match(backend, /restore_settings/);
+  assert.match(backend, /latestVersion/);
+  assert.match(backend, /updateAvailable/);
   assert.match(backend, /tg-ws-proxy-rs/);
   assert.match(backend, /tg-ws-proxy-go/);
   assert.match(backend, /apk add/);
   assert.match(backend, /apk del/);
   assert.doesNotMatch(backend, /allow-untrusted/);
-  assert.doesNotMatch(backend, /input\.(url|package)/);
+  assert.doesNotMatch(backend, /input\.(url|package|version)/);
+  assert.doesNotMatch(backend, /1\.6\.5/);
+  assert.doesNotMatch(backend, /versions:\s*\[/);
 
   assert.match(cli, /catalog/);
   assert.match(cli, /status/);
@@ -50,18 +54,22 @@ const fullPackage = read('zapret2-manager-full/Makefile');
   assert.match(api, /proxy_provider_remove/);
 
   assert.match(page, /Установка/);
+  assert.match(page, /Последняя версия/);
   assert.match(page, /Установить/);
+  assert.match(page, /Обновить/);
   assert.match(page, /Переключить/);
   assert.match(page, /Удалить/);
   assert.match(page, /Rust/);
   assert.match(page, /Go/);
   assert.match(page, /Легче и экономнее/);
   assert.match(page, /Больше совместимости/);
-  assert.match(page, /select/);
+  assert.doesNotMatch(page, /E\('select'/);
+  assert.doesNotMatch(page, /providerVersions/);
+  assert.doesNotMatch(page, /version:\s*version/);
 
   assert.match(rustPackage, /PKG_VERSION:=1\.7\.1/);
   assert.match(rustPackage, /CONFLICTS:=tg-ws-proxy-go/);
-  assert.match(goPackage, /PKG_SOURCE_VERSION:=a334786d528615b18e002c1286373098ac6e46a2/);
+  assert.match(goPackage, /PKG_SOURCE_VERSION:=bac4620e069225abde9ed68ba3f62c41f17f90a4/);
   assert.match(goPackage, /PROVIDES:=tg-ws-proxy-provider/);
   assert.match(goPatch, /os\.Getenv\("TG_SECRET"\)/);
   assert.match(goInit, /procd_set_param env TG_SECRET=/);
