@@ -21,6 +21,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Keep only main and docs/video-found-ui-correctness-design.
           branches=(
             'codex/router-validation-luci-baseclass'
             'feat/openwrt-flowseal-combos'
