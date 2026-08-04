@@ -48,6 +48,7 @@ const appView = evaluateLuciModule(`${root}/app.js`, {
   window: { location: { hash: '', hostname: 'test' }, addEventListener() {}, removeEventListener() {} }
 }, new Map());
 const storeModule = evaluateLuciModule(`${root}/z2m-store.js`);
+const servicesModel = evaluateLuciModule(`${root}/z2m-services-model.js`);
 
 function fakeApi(calls, preview) {
   let readCount = 0;
@@ -69,6 +70,53 @@ function coordinatorStore(draft, applied) {
   return storeModule.create({ draft, applied: applied || {} });
 }
 function noShell() { return { showToast() {} }; }
+
+function catalogScenario(options = {}) {
+  const calls = [];
+  const snapshots = [];
+  const before = { enabled: ['alpha', 'gamma'], revision: 3, fileSha256: 'sha-3' };
+  const after = { enabled: ['alpha', 'beta', 'gamma'], revision: 4, fileSha256: 'sha-4' };
+  let backend = options.initial || before;
+  let statusReads = 0;
+  function clone(value) { return JSON.parse(JSON.stringify(value)); }
+  function read(name, value) {
+    calls.push(name);
+    snapshots.push({ name, state: clone(value) });
+    return value;
+  }
+  const api = {
+    normalizeError(error) {
+      const value = error?.error && typeof error.error === 'object' ? error.error : error;
+      return { code: value?.code || error?.code || 'E_TEST', message: value?.message || error?.message || String(error || 'test error') };
+    },
+    services: {
+      catalogStatus: () => {
+        statusReads += 1;
+        const current = statusReads === 1 ? before : backend;
+        return Promise.resolve(read('catalogStatus', {
+          ok: true,
+          ledger: { revision: current.revision, enabled: current.enabled, fileSha256: current.fileSha256 }
+        }));
+      },
+      catalogList: () => Promise.resolve(read('catalogList', {
+        ok: true, services: [{ id: 'alpha' }, { id: 'beta' }, { id: 'gamma' }]
+      })),
+      catalogPreview: (payload) => {
+        calls.push('catalogPreview');
+        snapshots.push({ name: 'catalogPreview', payload: JSON.parse(payload), state: clone(backend) });
+        return Promise.resolve(options.preview || { ok: true, precondition: { ledgerRevision: 3, fileSha256: 'sha-3' } });
+      },
+      catalogApply: (payload) => {
+        calls.push('catalogApply');
+        snapshots.push({ name: 'catalogApply', payload: JSON.parse(payload), stateBefore: clone(backend) });
+        if (options.apply) return Promise.resolve(options.apply);
+        backend = after;
+        return Promise.resolve({ ok: true });
+      }
+    }
+  };
+  return { api, calls, snapshots, baseline: before, applied: after };
+}
 
 test('global apply bar has exactly three actions and a disabled reason', () => {
   const shell = evaluateLuciModule(`${root}/z2m-shell.js`, { E, _: (value) => value });
@@ -124,6 +172,97 @@ test('Services apply preserves the full baseline enabled set', async () => {
   assert.deepEqual(apply[1].enabled, ['alpha', 'beta', 'gamma']);
   assert.deepEqual(apply[1], { enabled: ['alpha', 'beta', 'gamma'], revision: 3, fileSha256: 'sha-3' });
   assert.deepEqual(result.clearedScopes, ['services']);
+});
+
+test('successful Services apply rereads backend state, replaces baseline, and clears changed count', async () => {
+  const scenario = catalogScenario();
+  const store = coordinatorStore({ services: {
+    changes: {
+      beta: { before: false, after: true },
+      gamma: { before: true, after: true }
+    },
+    enabled: { alpha: true, beta: true, gamma: true },
+    precondition: { ledgerRevision: 3, fileSha256: 'sha-3' }
+  } }, {
+    services: { enabled: { alpha: true, gamma: true } }
+  });
+  const coordinator = appView.createCoordinator({
+    api: scenario.api, store, shell: noShell(),
+    adapters: { services: appView.createServicesAdapter(scenario.api, { resetDraft() {} }) }
+  });
+
+  const result = await coordinator.applyDrafts(store.snapshotDraft());
+
+  assert.deepEqual(scenario.calls, [
+    'catalogStatus', 'catalogList', 'catalogPreview', 'catalogApply',
+    'catalogStatus', 'catalogList'
+  ]);
+  assert.deepEqual(scenario.snapshots[3], {
+    name: 'catalogApply',
+    payload: { enabled: ['alpha', 'beta', 'gamma'], revision: 3, fileSha256: 'sha-3' },
+    stateBefore: { enabled: ['alpha', 'gamma'], revision: 3, fileSha256: 'sha-3' }
+  });
+  assert.deepEqual(store.get().applied.services.enabled, {
+    alpha: true, beta: true, gamma: true
+  });
+  assert.deepEqual(store.get().draft, {});
+  assert.deepEqual(result.clearedScopes, ['services']);
+  assert.equal(servicesModel.selectors(
+    [{ id: 'alpha' }, { id: 'beta' }, { id: 'gamma' }],
+    store.get().applied.services.enabled, {}, '', 'all', 'all'
+  ).kpis.changed, 0);
+});
+
+test('Services backend failure preserves baseline and retains the exact normalized error', async () => {
+  const scenario = catalogScenario({
+    apply: { ok: false, error: { code: 'E_CATALOG_CONFLICT', message: 'catalog revision/hash conflict' } }
+  });
+  const store = coordinatorStore({ services: {
+    changes: { beta: { before: false, after: true } },
+    enabled: { alpha: true, beta: true },
+    precondition: { ledgerRevision: 3, fileSha256: 'sha-3' }
+  } }, { services: { enabled: { alpha: true } } });
+  const toasts = [];
+  const coordinator = appView.createCoordinator({
+    api: scenario.api, store, shell: { showToast(message, kind) { toasts.push({ message, kind }); } },
+    adapters: { services: appView.createServicesAdapter(scenario.api, { resetDraft() {} }) }
+  });
+
+  const result = await coordinator.applyDrafts(store.snapshotDraft());
+
+  assert.deepEqual(store.get().applied, { services: { enabled: { alpha: true } } });
+  assert.deepEqual(Object.keys(store.get().draft), ['services']);
+  assert.deepEqual(result.errors, [{
+    scope: 'services', code: 'E_CATALOG_CONFLICT', message: 'catalog revision/hash conflict'
+  }]);
+  assert.deepEqual(toasts, [{ message: 'services: catalog revision/hash conflict', kind: 'err' }]);
+  assert.equal(scenario.calls.includes('catalogStatus'), true);
+  assert.equal(scenario.calls.includes('catalogList'), true);
+  assert.equal(scenario.calls.filter((call) => call === 'catalogStatus').length, 1);
+});
+
+test('invalid source and stale precondition are explicit Services blockers before mutation', async () => {
+  for (const failure of [
+    { code: 'E_INVALID_SOURCE', message: 'invalid hosts source' },
+    { code: 'E_REVISION_CONFLICT', message: 'stale catalog revision' }
+  ]) {
+    const scenario = catalogScenario({ preview: { ok: false, error: failure } });
+    const store = coordinatorStore({ services: {
+      changes: { beta: { before: false, after: true } },
+      precondition: { ledgerRevision: 3, fileSha256: 'sha-3' }
+    } }, { services: { enabled: { alpha: true } } });
+    const coordinator = appView.createCoordinator({
+      api: scenario.api, store, shell: noShell(),
+      adapters: { services: appView.createServicesAdapter(scenario.api, { resetDraft() {} }) }
+    });
+
+    const result = await coordinator.applyDrafts(store.snapshotDraft());
+
+    assert.equal(scenario.calls.includes('catalogApply'), false, failure.code);
+    assert.deepEqual(store.get().applied, { services: { enabled: { alpha: true } } }, failure.code);
+    assert.equal(result.errors[0].code, failure.code);
+    assert.equal(result.errors[0].message, failure.message);
+  }
 });
 
 test('Services malformed precondition blocks catalogApply', async () => {

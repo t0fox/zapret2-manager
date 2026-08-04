@@ -318,6 +318,21 @@ test('Services render harness uses backend catalogue data in both modes', () => 
   assert.match(hostsTree.textContent, /ревизия: 8/);
 });
 
+test('Services render uses a successful backend reread as the applied baseline', () => {
+  const mod = evaluateLuciModule(`${root}/z2m-services.js`, overrides, cache);
+  mod.resetDraft();
+  const data = structuredClone(healthyData['z2m-services.js']);
+  data.status.value.ledger = {
+    ...data.status.value.ledger,
+    revision: 9,
+    enabled: ['alpha', 'beta']
+  };
+  const tree = mod.render(context(data));
+  assert.match(tree.textContent, /2 из 2 включено/);
+  assert.match(tree.textContent, /0изменено в черновике/);
+  assert.doesNotMatch(tree.textContent, /будет включено|будет выключено/);
+});
+
 test('Services switches use one native click path for click and keyboard activation', () => {
   const mod = evaluateLuciModule(`${root}/z2m-services.js`, overrides, cache);
   mod.resetDraft();

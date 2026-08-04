@@ -36,3 +36,11 @@ test('Services page aliases page preview/apply to the global coordinator', () =>
   assert.doesNotMatch(source, /function\s+(preview|applyCatalog|applyServices)\s*\(/);
   assert.doesNotMatch(source, /catalogApply\s*\(/);
 });
+
+test('Services adapter owns backend reread and verification boundaries', () => {
+  assert.match(source, /catalogStatus\(\)/);
+  assert.match(source, /catalogList\(\)/);
+  assert.match(source, /verifyApplied/);
+  assert.match(source, /serviceIds\(wanted\).*serviceIds\(actual\)/s);
+  assert.match(source, /return \{\s*value: \{ enabled:/s);
+});

@@ -28,6 +28,13 @@ test('services tab delegates preview/apply to the global coordinator and keeps l
   assert.doesNotMatch(src, /var\s+enabledIds\s*=\s*enabledIds\(/);
 });
 
+test('services adapter retains backend-authoritative baseline and verification hooks', () => {
+  const src = source('z2m-services.js');
+  for (const token of ['reloadAppliedState', 'verifyApplied', 'context.applied', 'read.value.enabled'])
+    assert.match(src, new RegExp(token.replaceAll('.', '\\.')));
+  assert.match(src, /catalogApply[\s\S]*fileSha256/);
+});
+
 test('services tab starts bounded backend-owned service checks only after preflight', () => {
   const src = source('z2m-services.js');
   assert.match(src, /api\.orchestra\.probePreflight/);
