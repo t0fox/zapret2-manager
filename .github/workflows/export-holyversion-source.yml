@@ -5,6 +5,9 @@ on:
       - feat/holyversion-reference-parity
     paths:
       - .github/workflows/export-holyversion-source.yml
+  pull_request:
+    branches:
+      - main
 permissions:
   contents: read
 jobs:
