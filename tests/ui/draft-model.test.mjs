@@ -6,8 +6,8 @@ const root = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapr
 const model = evaluateLuciModule(`${root}/z2m-draft-model.js`);
 
 test('empty scope drafts are normalized without claiming applicability', () => {
-  assert.deepEqual(model.normalizeScope('services', {}), {
-    scope: 'services', changes: {}, applicable: false, blocker: null,
+  assert.deepEqual(model.normalizeScope('domainHub', {}), {
+    scope: 'domainHub', changes: {}, applicable: false, blocker: null,
     revision: null, advanced: {}
   });
 });
@@ -25,7 +25,7 @@ test('unavailable strategy and revision conflicts are preserved as blockers', ()
     changes: { candidate: { before: 'old', after: 'new' } },
     applicable: false, blocker: 'strategy candidate unavailable', revision: 7
   });
-  const conflict = model.normalizeScope('services', {
+  const conflict = model.normalizeScope('domainHub', {
     changes: { alpha: { before: false, after: true } },
     applicable: true, blocker: 'revision conflict', revision: 8
   });
@@ -42,7 +42,7 @@ test('unavailable strategy and revision conflicts are preserved as blockers', ()
 
 test('semantic diff groups scopes in stable order and uses human rows by default', () => {
   const groups = model.semanticDiff({
-    services: {
+    domainHub: {
       changes: { alpha: { label: 'Alpha', before: false, after: true } },
       applicable: true
     },
@@ -51,10 +51,10 @@ test('semantic diff groups scopes in stable order and uses human rows by default
       applicable: false, blocker: 'candidate unavailable'
     }
   }, {
-    services: { alpha: false },
+    domainHub: { alpha: false },
     strategy: { candidate: 'old' }
   });
-  assert.deepEqual(groups.map((group) => group.scope), ['strategy', 'services']);
+  assert.deepEqual(groups.map((group) => group.scope), ['strategy', 'domainHub']);
   assert.equal(groups[0].label, 'Стратегия');
   assert.equal(groups[0].blocker, 'candidate unavailable');
   assert.deepEqual(groups[1].rows, [{
@@ -99,13 +99,13 @@ test('apply availability revalidates unknown scopes from array entries', () => {
 
 test('partial apply clears verified scopes but retains failed scopes and errors', () => {
   const result = model.recordApplyResult({
-    services: { changes: { alpha: { before: false, after: true } } },
+    domainHub: { changes: { alpha: { before: false, after: true } } },
     dns: { changes: { mode: { before: 'auto', after: 'strict' } } }
   }, {
-    successes: ['services'],
+    successes: ['domainHub'],
     failures: [{ scope: 'dns', error: { code: 'E_CONFLICT', message: 'stale revision' } }]
   });
-  assert.deepEqual(result.clearedScopes, ['services']);
+  assert.deepEqual(result.clearedScopes, ['domainHub']);
   assert.deepEqual(result.failedScopes, ['dns']);
   assert.deepEqual(result.draft, {
     dns: { changes: { mode: { before: 'auto', after: 'strict' } } }

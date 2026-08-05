@@ -1,24 +1,8 @@
 #!/usr/bin/ucode
 'use strict';
-// status.uc — three-level status collector for zapret2-manager (schema v2,
-// camelCase — see docs/contracts/status.schema.json).
-//
-// Collects, never mixes, three independent levels (docs/architecture.md §3):
-//   RUNTIME  — ps + list_table + actual /proc/<pid>/cmdline of nfqws2
-//   APPLIED  — /opt/zapret2/config + /etc/config/zapret2 (on-disk intent)
-//   DRAFT    — /etc/zapret2-manager/state.json (manager's staged edits)
-//
-// Plus the third liveness signal: NFQUEUE qlen for queue 300, with a
-// consecutive-exceedance counter (warn >50, critical after 3 in a row).
-//
-// Run as a CLI it writes PATHS.status_json and prints it. The rpcd plugin
-// (usr/libexec/rpcd/zapret2-manager.uc) re-runs this on cache miss.
-//
-// The collector computes the backend conclusions (serviceState, drift,
-// qlenHealth, checks) so the UI and the watchdog see the same picture; the UI
-// only renders. [VERIFY] markers note upstream integration points to confirm
-// on the target device — see docs/upstream-mapping.md. The collection
-// *structure* does not depend on those; only the exact source paths/commands.
+// Three-level status collector: runtime, applied and draft. The optional
+// zapret2 engine is reported independently so its absence is not mislabeled
+// as a cleanly stopped runtime.
 
 import { readfile, writefile, stat, mkdir, lsdir, popen } from 'fs';
 import {
@@ -26,10 +10,8 @@ import {
 	DAEMON, NFT_TABLE, PATHS
 } from './constants.uc';
 import { parse_queue } from './qlen.uc';
-import { read_var } from './apply.uc';   // applied NFQWS2_OPT for profile_count (followup 5)
+import { read_var } from './apply.uc';
 import { runtime_summary } from './runtime-summary.uc';
-
-// ---- helpers ----------------------------------------------------------------
 
 function sh(cmd) {
 	let p = popen(cmd + ' 2>/dev/null', 'r');
@@ -39,17 +21,11 @@ function sh(cmd) {
 	return out ? out : '';
 }
 
-// ISO-8601 UTC with timezone. Wall-clock, not monotonic. [VERIFY] date -u
-// format on target — smoke.sh 02 reads status.generatedAt as an ISO string.
 function iso_now() {
 	let s = trim(sh('date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null'));
 	return length(s) ? s : null;
 }
 
-// Convert a unix-seconds value to ISO-8601 UTC, or null if the input is null.
-// [VERIFY:ROUTER] busybox date support: try GNU `date -u -d @N` first, then
-// busybox `date -u -r N` (busybox -r takes unix seconds), then give up (null
-// = "checked, no value", which the schema allows and the UI renders as such).
 function iso_from_unix(sec) {
 	if (sec == null) return null;
 	let s = trim(sh("date -u -d @" + sec + " +%Y-%m-%dT%H:%M:%SZ 2>/dev/null"));
@@ -57,11 +33,6 @@ function iso_from_unix(sec) {
 	s = trim(sh("date -u -r " + sec + " +%Y-%m-%dT%H:%M:%SZ 2>/dev/null"));
 	if (length(s) && index(s, 'T') >= 0) return s;
 	return null;
-}
-
-function mtime_of(path) {
-	let st = stat(path);
-	return st ? st.mtime : null;   // [VERIFY] stat().mtime in seconds
 }
 
 function read_json(path, fallback) {
@@ -73,7 +44,19 @@ function read_json(path, fallback) {
 	}
 }
 
-// ---- RUNTIME: process + strategies + actual cmdline -------------------------
+function engine_level() {
+	let packagePresent = false;
+	try { packagePresent = length(trim(sh('apk info -e zapret2'))) > 0; }
+	catch (e) { packagePresent = false; }
+	let binaryPresent = !!stat(PATHS.nfqws_bin);
+	let servicePresent = !!stat(PATHS.upstream_init);
+	return {
+		installed: packagePresent && binaryPresent && servicePresent,
+		packagePresent: packagePresent,
+		binaryPresent: binaryPresent,
+		servicePresent: servicePresent
+	};
+}
 
 function find_pids() {
 	let pids = [];
@@ -84,26 +67,12 @@ function find_pids() {
 		if (!match(name, /^[0-9]+$/)) continue;
 		let cl = readfile('/proc/' + name + '/cmdline');
 		if (!cl || !length(cl)) continue;
-		// /proc/<pid>/cmdline is NUL-separated argv. ucode's replace() with a
-		// NUL search string misbehaves (it inserts a space between every byte,
-		// so 'nfqws2' is never a contiguous substring and the daemon is never
-		// detected → runtime.present=false while the process is alive). Split
-		// on chr(0) into argv and re-join with spaces; index() on the raw cl
-		// works too, but join gives a clean human-readable cmdline AND a stable
-		// argv[0] (the absolute binary path) for the owner/path match.
 		let argv = split(cl, chr(0));
 		let human = join(' ', argv);
-		// Match the BINARY (argv[0]), not the whole cmdline. A substring match on
-		// the full human cmdline also matches shells running scripts that merely
-		// MENTION nfqws2 (e.g. 'ash -c ... pgrep nfqws2 ...') → false count.
-		// argv[0] for the daemon is '/opt/zapret2/nfq2/nfqws2' (contains
-		// '/nfqws2'); for an ash shell it is 'ash' (no '/nfqws2'). Match the
-		// absolute-path tail '/nfqws2' OR the bare name 'nfqws2'.
 		let bin = (length(argv) && length(argv[0])) ? argv[0] : '';
 		if (index(bin, '/' + DAEMON) < 0 && bin != DAEMON) continue;
 		let pst = stat('/proc/' + name);
 		let pid = +name;
-		// RSS in KB from /proc/<pid>/status (VmRSS line). null if unreadable.
 		let rss = null;
 		try {
 			let st_raw = readfile('/proc/' + name + '/status');
@@ -135,13 +104,11 @@ function runtime_level(rules) {
 				push(hit, trim(lines[i]));
 		ps_summary = join('\n', hit);
 	} catch (e) { ps_summary = ''; }
-
 	let strategies = null;
 	try {
 		let raw = sh('list_table');
 		strategies = length(raw) ? trim(raw) : null;
 	} catch (e) { strategies = null; }
-
 	return {
 		present: length(pids) > 0,
 		instances: pids,
@@ -152,94 +119,64 @@ function runtime_level(rules) {
 	};
 }
 
-// ---- APPLIED: on-disk config + uci ------------------------------------------
-
 function applied_level() {
 	let conf = stat(PATHS.applied_conf);
 	let uci_dump = null;
 	try {
 		let raw = sh('uci show zapret2');
-		uci_dump = length(raw) ? trim(raw) : null;   // null if /etc/config/zapret2 absent
+		uci_dump = length(raw) ? trim(raw) : null;
 	} catch (e) { uci_dump = null; }
-
-	// generation marker: best-effort. [VERIFY] where upstream stores it.
 	let generation = null;
 	try {
 		let raw = sh('uci -q get zapret2.@general[0].generation 2>/dev/null');
 		if (length(raw)) generation = +trim(raw);
 	} catch (e) { }
-
 	return {
 		configPath: PATHS.applied_conf,
 		configPresent: !!conf,
 		configMtime: conf ? iso_from_unix(conf.mtime) : null,
 		configSize: conf ? conf.size : null,
 		uci: uci_dump,
-		// generation is hoisted to the top-level `generation` field in collect()
 		generation: generation
 	};
 }
-
-// ---- DRAFT: manager's own staged state --------------------------------------
 
 function draft_level() {
 	return read_json(PATHS.draft_state, {});
 }
 
-// ---- health: qlen signal + checks -------------------------------------------
-//
-// qlenHealth (state, threshold, consecutiveOverThreshold, critTurns) is
-// backend-computed from the watchdog's persisted qlen.state.json; the UI only
-// renders it. Raw queue values live in health.queue; the discrete checks in
-// health.checks[] carry id from a closed set. A null result field = "checked,
-// no value"; an absent field = "not checked" (the UI renders these differently).
-
 function health_block() {
 	let q = parse_queue();
 	let sig = read_json(PATHS.qlen_state, null);
-
 	let qstate = sig ? (sig.last_state ? sig.last_state : 'unknown') : 'unknown';
 	let consec = sig ? (sig.consecutive ? sig.consecutive : 0) : 0;
-
 	let qlenHealth = {
 		state: qstate,
-		threshold: QLEN_WARN,                 // 50
+		threshold: QLEN_WARN,
 		consecutiveOverThreshold: consec,
-		critTurns: QLEN_CRIT_CONSECUTIVE      // 3
+		critTurns: QLEN_CRIT_CONSECUTIVE
 	};
-
 	let checks = [];
-	// queue_health is always emitted (we always read the queue). Other checks
-	// (dns_consistency, tls12_reachable, udp443_quic, lua_version_match) are
-	// future; they are ABSENT here = "not checked" until wired.
 	push(checks, { id: 'queue_health', state: qstate, registered: q.registered,
 		queueTotal: q.queue_total });
-
 	let queue = {
 		number: NFQUEUE,
 		registered: q.registered,
 		reason: q.reason ? q.reason : null,
-		peerPortid: q.peer_portid,           // PID that bound the queue (field 2)
-		ownerPid: null,                      // filled by reconcile_queue_owner
-		ownerConflict: false,                // filled: queue bound by non-nfqws2
-		queueTotal: q.queue_total,           // instantaneous; threshold 50 applies
+		peerPortid: q.peer_portid,
+		ownerPid: null,
+		ownerConflict: false,
+		queueTotal: q.queue_total,
 		copyRange: q.copy_range,
-		queueDropped: q.queue_dropped,       // cumulative raw; delta-only downstream
+		queueDropped: q.queue_dropped,
 		queueUserDropped: q.queue_user_dropped,
 		updatedAt: sig ? iso_from_unix(sig.updated_at ? sig.updated_at : null) : null
 	};
-
 	return { qlenHealth: qlenHealth, checks: checks, queue: queue };
 }
 
-// ---- rules present (nft table zapret2) --------------------------------------
-
 function rules_present() {
 	try {
-		// The zapret2 rules live in the inet family — upstream installs them
-		// under `table inet zapret2` (fw4 is inet). `nft list table zapret2`
-		// with no family defaults to ip and does NOT find the inet table, so
-		// rulesPresent was always false despite live rules. Specify inet.
 		let raw = sh('nft list table inet ' + NFT_TABLE);
 		return length(raw) && index(raw, 'chain ') >= 0;
 	} catch (e) {
@@ -247,14 +184,6 @@ function rules_present() {
 	}
 }
 
-// ---- drift (RUNTIME vs APPLIED), backend-computed ---------------------------
-//
-// Ground truth is: does the running argv match what the applied state would
-// generate? The full argv-render basis is the target; until that renderer
-// exists we use the sha256-INTERMEDIATE basis: hashes of BOTH applied sources
-// captured at apply time into /tmp/zapret2-manager/applied.sha256, compared
-// each collection. Both sources are hashed, never one alone. If there is no
-// stored apply hash, drift is unknown, not divergent — the UI must not cry wolf.
 function sha256_file(path) {
 	if (!stat(path)) return null;
 	try {
@@ -266,31 +195,25 @@ function sha256_file(path) {
 
 function drift_block(runtime, rules) {
 	let cur_config = sha256_file(PATHS.applied_conf);
-	let cur_uci    = sha256_file(PATHS.uci_conf);
+	let cur_uci = sha256_file(PATHS.uci_conf);
 	let stored = read_json('/tmp/zapret2-manager/applied.sha256', null);
-
 	let norm = null;
 	try {
 		let parts = [];
 		let pids = runtime.instances || [];
-		for (let i = 0; i < length(pids); i++)
-			push(parts, trim(pids[i].cmdline || ''));
+		for (let i = 0; i < length(pids); i++) push(parts, trim(pids[i].cmdline || ''));
 		parts.sort();
 		norm = join('\n', parts);
 	} catch (e) { norm = null; }
-
 	if (!runtime.present) {
 		return { divergent: false, reason: 'process absent (nothing to compare)',
-			basis: 'sha256-intermediate',
-			appliedSha256: stored,
-			currentSha256: { config: cur_config, uci: cur_uci },
-			normalizedRuntime: norm };
+			basis: 'sha256-intermediate', appliedSha256: stored,
+			currentSha256: { config: cur_config, uci: cur_uci }, normalizedRuntime: norm };
 	}
 	if (!stored) {
 		return { divergent: false, reason: 'no stored apply hash (run an apply first)',
 			basis: 'sha256-intermediate', appliedSha256: null,
-			currentSha256: { config: cur_config, uci: cur_uci },
-			normalizedRuntime: norm };
+			currentSha256: { config: cur_config, uci: cur_uci }, normalizedRuntime: norm };
 	}
 	let stored_config = stored.config ? stored.config : null;
 	let stored_uci = stored.uci ? stored.uci : null;
@@ -298,29 +221,10 @@ function drift_block(runtime, rules) {
 		(stored_uci != null && cur_uci != null && stored_uci != cur_uci);
 	return { divergent: divergent,
 		reason: divergent ? 'applied sha256 mismatch (config or uci changed since last apply)' : 'applied hash matches',
-		basis: 'sha256-intermediate',
-		appliedSha256: stored,
-		currentSha256: { config: cur_config, uci: cur_uci },
-		normalizedRuntime: norm };
+		basis: 'sha256-intermediate', appliedSha256: stored,
+		currentSha256: { config: cur_config, uci: cur_uci }, normalizedRuntime: norm };
 }
 
-// ---- serviceState (backend-computed; UI only renders) -----------------------
-//
-// Closed enum: running, stopped, partial, error, paused, passthrough. paused
-// and passthrough are self-standing states. The indicator is the INTENT; the
-// process is the REALITY. If the indicator says paused/passthrough but the
-// process disagrees, that is an ERROR (the primary mechanism did not hold),
-// not the intended state — surfacing it is exactly what the guard hook's crit
-// event is for. qlen warn does NOT change serviceState away from running (it
-// is carried in health.qlenHealth.state).
-
-// Reconcile the queue owner: peer_portid (field 2 — the PID that bound QNUM
-// NFQUEUE) must match one of the nfqws2 PIDs found by find_pids(). Mutates
-// health.queue in place to set ownerPid / ownerConflict. Returns a warning
-// string when the queue is bound by a non-nfqws2 process (or by an unknown
-// process while nfqws2 is down), else null. This is what closes the
-// runtime-vs-NFQUEUE contradiction: the queue being registered is only proof
-// OUR engine owns it when peer_portid matches a detected nfqws2 PID.
 function join_pids(pids) {
 	let s = [];
 	for (let i = 0; i < length(pids); i++) push(s, '' + pids[i].pid);
@@ -348,48 +252,25 @@ function reconcile_queue_owner(runtime, health) {
 	return null;
 }
 
-function service_state(runtime, rules, health, draft) {
+function service_state(runtime, rules, health, draft, engine) {
 	let qh = (health && health.qlenHealth) ? health.qlenHealth : null;
 	let q = (health && health.queue) ? health.queue : null;
 	let present = runtime && runtime.present;
-	// paused indicator (manager-only, /tmp) — the intended pause stance.
-	if (stat(PATHS.paused_flag)) {
-		// pause HELD: process is down as intended. NOT held: process is up
-		// despite NFQWS2_ENABLE=0 → primary mechanism failed → error.
-		return present ? 'error' : 'paused';
-	}
-	// passthrough profile active in draft — the instance should be UP.
-	if (draft && draft.passthrough && draft.passthrough.enabled) {
+	if (!engine || engine.installed !== true) return 'engine_missing';
+	if (stat(PATHS.paused_flag)) return present ? 'error' : 'paused';
+	if (draft && draft.passthrough && draft.passthrough.enabled)
 		return present ? 'passthrough' : 'error';
-	}
-	// Process ABSENT. Two sub-states:
-	//   - queue also absent → genuinely stopped (clean shutdown).
-	//   - queue still registered → the owner is unknown (stale/zombie/other
-	//     engine occupying QNUM NFQUEUE) → ERROR, not 'stopped'. This is the
-	//     runtime-vs-NFQUEUE contradiction: present=false + registered=true is
-	//     not a coherent 'stopped' state.
 	if (!present) {
 		if (q && q.registered) return 'error';
 		return 'stopped';
 	}
-	// Process PRESENT. The queue must be bound by THIS nfqws2 (ownerConflict
-	// is reconciled in collect() before service_state runs).
 	if (!rules) return 'partial';
-	if (q && q.registered === false) return 'error';          // up but queue not bound
-	if (q && q.registered && q.ownerConflict) return 'error'; // bound by non-nfqws2
+	if (q && q.registered === false) return 'error';
+	if (q && q.registered && q.ownerConflict) return 'error';
 	if (qh && qh.state === 'critical') return 'error';
 	return 'running';
 }
 
-// profile count from the APPLIED options string (ПУНКТ ЧЕТВЁРТОЕ), NOT from the
-// list_table dump. The real options string splits profiles with the `--new`
-// SEPARATOR (not the ':strategy=N' marker the pre-reset sample used — the
-// real default config has no :strategy=). The number of profiles = the number
-// of `--new` separators + 1 (the first profile has no --new before it). A
-// profile with a separator but no --comment= name still counts as a profile
-// (profiles are counted, not names). A string with NO --new is ONE profile;
-// profile_count is null ONLY when the value itself is null. Mirrors
-// tests/lib/profile-count.mjs. Backend-computed; UI only renders.
 const PROFILE_SEP = '--new';
 function profile_count(opt_value) {
 	if (opt_value == null) return null;
@@ -403,31 +284,17 @@ function profile_count(opt_value) {
 		n++;
 		i = i + p + mlen;
 	}
-	return n + 1;   // profiles = separators + 1 (first profile has no --new before it)
+	return n + 1;
 }
 
-// ---- system + upstream (split from the old meta block) ----------------------
-
-// nfqws2 version, resolved in a fixed order: read /opt/zapret2/version first;
-// if absent, ask the binary; if that yields nothing, return null. null means
-// "checked, no value" (distinct from the key being absent = "not checked") —
-// the UI renders the two differently.
 function nfqws2_version() {
 	try {
 		let raw = readfile(PATHS.applied_version);
 		if (raw) { let v = trim(raw); if (length(v)) return v; }
 	} catch (e) { }
-	// Binary fallback: the exact version flag is unconfirmed, so try the common
-	// forms and take the first non-empty line. [VERIFY:ROUTER] closed: --version is
-	// the working flag (tests/fixtures/nfqws2-version-long.out); status.nfqws2Version
-	// is a string on a device where /opt/zapret2/version is absent. The binary
-	// is NOT in PATH on this device (no /usr/bin symlink; lives at
-	// /opt/zapret2/nfq2/nfqws2 — verified). Resolve the path: try `command -v`
-	// first (honors PATH if a future build adds a symlink), fall back to the known
-	// full path. The full path is the FALLBACK, never the only option.
 	let flags = ['--version', '-V', 'version'];
 	let bin = trim(sh('command -v nfqws2 2>/dev/null'));
-	if (!length(bin)) bin = '/opt/zapret2/nfq2/nfqws2';
+	if (!length(bin)) bin = PATHS.nfqws_bin;
 	for (let i = 0; i < length(flags); i++) {
 		try {
 			let raw = sh(bin + ' ' + flags[i] + ' 2>/dev/null | head -n 1');
@@ -438,9 +305,6 @@ function nfqws2_version() {
 	return null;
 }
 
-// AUTOHOSTLIST* vars from /opt/zapret2/config, read verbatim and shown as-is.
-// The manager applies NO thresholds of its own here — these are upstream's
-// knobs, displayed for the operator. Values are null when unset.
 function autohostlist_vars() {
 	let out = {};
 	try {
@@ -449,8 +313,7 @@ function autohostlist_vars() {
 		let lines = split(raw, '\n');
 		for (let i = 0; i < length(lines); i++) {
 			let line = trim(lines[i]);
-			if (!length(line)) continue;
-			if (substr(line, 0, 12) != 'AUTOHOSTLIST') continue;
+			if (!length(line) || substr(line, 0, 12) != 'AUTOHOSTLIST') continue;
 			let eq = index(line, '=');
 			if (eq < 0) continue;
 			let k = trim(substr(line, 0, eq));
@@ -475,29 +338,23 @@ function system_info() {
 		for (let i = 0; i < length(links); i++)
 			if (substr(links[i], 0, 1) == 'S') { autostart.enabled = true; break; }
 	} catch (e) { }
-
 	let upgradable = null;
 	try {
 		let raw = sh('apk version -c 2>/dev/null');
 		if (length(raw)) upgradable = index(raw, 'nfqws2') >= 0;
 	} catch (e) { }
-
 	return { autostart: autostart, upgradable: upgradable };
 }
 
 function upstream_info() {
-	return {
-		nfqws2Version: nfqws2_version(),
-		autohostlist: autohostlist_vars()
-	};
+	return { nfqws2Version: nfqws2_version(), autohostlist: autohostlist_vars() };
 }
-
-// ---- assemble ----------------------------------------------------------------
 
 function collect() {
 	try { mkdir('/tmp/zapret2-manager'); } catch (e) { }
-
-	let runtime, applied, draft, health, rules, system, upstream;
+	let engine, runtime, applied, draft, health, rules, system, upstream;
+	try { engine = engine_level(); }
+	catch (e) { engine = { installed: false, packagePresent: false, binaryPresent: false, servicePresent: false }; }
 	try { rules = rules_present(); } catch (e) { rules = false; }
 	try { runtime = runtime_level(rules); } catch (e) { runtime = { error: 'runtime collect failed: ' + e }; }
 	try { applied = applied_level(); } catch (e) { applied = { error: 'applied collect failed: ' + e }; }
@@ -505,20 +362,14 @@ function collect() {
 	try { health = health_block(); } catch (e) { health = { error: 'health collect failed: ' + e }; }
 	try { system = system_info(); } catch (e) { system = { error: 'system collect failed: ' + e }; }
 	try { upstream = upstream_info(); } catch (e) { upstream = { error: 'upstream collect failed: ' + e }; }
-
-	// Backend-computed conclusions (the UI renders these, it does not recompute).
-	// Reconcile the queue owner BEFORE the service-state call — service_state
-	// reads health.queue.ownerConflict, which reconcile sets from peer_portid
-	// vs the detected nfqws2 PIDs.
 	let ownerWarn = null;
 	try { ownerWarn = reconcile_queue_owner(runtime, health); } catch (e) { ownerWarn = null; }
 	let drift, svc_state, prof_count;
-	try { drift = drift_block(runtime, rules); } catch (e) { drift = { divergent: false, reason: 'drift compute failed: ' + e, basis: 'sha256-intermediate' }; }
-	try { svc_state = service_state(runtime, rules, health, draft); } catch (e) { svc_state = 'error'; }
-	// profile_count from the APPLIED NFQWS2_OPT (followup 5), not list_table.
+	try { drift = drift_block(runtime, rules); }
+	catch (e) { drift = { divergent: false, reason: 'drift compute failed: ' + e, basis: 'sha256-intermediate' }; }
+	try { svc_state = service_state(runtime, rules, health, draft, engine); }
+	catch (e) { svc_state = 'error'; }
 	try { prof_count = profile_count(read_var('NFQWS2_OPT')); } catch (e) { prof_count = null; }
-
-	// runtime already carries camelCase fields; pass them straight through.
 	let instances = runtime.instances || [];
 	let runtime_out = {
 		present: runtime.present ? true : false,
@@ -529,8 +380,6 @@ function collect() {
 		psSummary: runtime.psSummary ? runtime.psSummary : '',
 		rulesPresent: runtime.rulesPresent ? true : false
 	};
-
-	// generation hoisted to top-level (from applied.generation).
 	let generation = (applied && applied.generation != null) ? applied.generation : null;
 	let applied_out = {
 		configPath: applied.configPath ? applied.configPath : PATHS.applied_conf,
@@ -539,15 +388,17 @@ function collect() {
 		configSize: applied.configSize ? applied.configSize : null,
 		uci: applied.uci ? applied.uci : null
 	};
-
 	let warnings = [];
 	if (ownerWarn) push(warnings, ownerWarn);
-
+	if (!engine.installed) push(warnings, {
+		code: 'engine_missing', message: 'Optional zapret2 engine is not installed or its runtime contract is incomplete.', severity: 'warn'
+	});
 	let status = {
 		schema: 3,
 		generatedAt: iso_now(),
 		generation: generation,
 		serviceState: svc_state,
+		engine: engine,
 		runtime: runtime_out,
 		applied: applied_out,
 		draft: draft,
@@ -560,12 +411,9 @@ function collect() {
 		runtimeSummary: null
 	};
 	status.runtimeSummary = runtime_summary(status);
-
 	try { writefile(PATHS.status_json, sprintf("%J", status) + '\n'); } catch (e) { }
 	return status;
 }
-
-// ---- CLI entry ---------------------------------------------------------------
 
 if (length(ARGV) == 0 || ARGV[0] != '--no-print') {
 	let s = collect();

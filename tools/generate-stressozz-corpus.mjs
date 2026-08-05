@@ -1,14 +1,11 @@
 #!/usr/bin/env node
-import { execFileSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 export const SOURCE_REPO = 'StressOzz/Zapret-Manager';
 export const SOURCE_COMMIT = 'b3269f852ed2d70b4c24918750c6b5b46b8b6a69';
-
-function sourceFile(repo, path) {
-	return execFileSync('git', ['show', `${SOURCE_COMMIT}:${path}`], { cwd: repo, encoding: 'utf8' });
-}
+const SOURCE_FIXTURE = resolve(import.meta.dirname, 'sources/stressozz-b326-source.json');
 
 function shellOptions(text, name) {
 	const match = text.match(new RegExp(`^${name}=\\$'([\\s\\S]*?)'`, 'm'));
@@ -25,13 +22,44 @@ function record(id, feature, sourceName, originalOptions, filters, payloadRefere
 		originalOptions, filters, payloadReferences, executionStatus: 'not-adapted' };
 }
 
+function readFixture() {
+	const fixture = JSON.parse(readFileSync(SOURCE_FIXTURE, 'utf8'));
+	if (fixture.schemaVersion !== 1 || fixture.sourceRepo !== SOURCE_REPO || fixture.sourceCommit !== SOURCE_COMMIT)
+		throw new Error('pinned StressOzz source fixture metadata mismatch');
+	return fixture;
+}
+
+function sourceFromGit(repo) {
+	if (!existsSync(resolve(repo, '.git'))) return null;
+	const probe = spawnSync('git', ['cat-file', '-e', `${SOURCE_COMMIT}^{commit}`], { cwd: repo, stdio: 'ignore' });
+	if (probe.status !== 0) return null;
+	const resolved = execFileSync('git', ['rev-parse', `${SOURCE_COMMIT}^{commit}`], { cwd: repo, encoding: 'utf8' }).trim();
+	if (resolved !== SOURCE_COMMIT) throw new Error(`resolved unexpected StressOzz commit ${resolved}`);
+	const script = execFileSync('git', ['show', `${SOURCE_COMMIT}:Zapret-Manager.sh`], { cwd: repo, encoding: 'utf8' });
+	const dv = {};
+	for (let i = 1; i <= 17; i++) dv[`Dv${i}`] = shellOptions(script, `Dv${i}`);
+	const portsUdp = script.match(/PORTS_UDP="([^"]+)"/)?.[1];
+	const portsTcp = script.match(/PORTS_TCP="([^"]+)"/)?.[1];
+	if (!portsUdp || !portsTcp) throw new Error('missing game port sets');
+	return { schemaVersion: 1, sourceRepo: SOURCE_REPO, sourceCommit: SOURCE_COMMIT, dv, portsUdp, portsTcp };
+}
+
+function pinnedSource(repo) {
+	const fixture = readFixture();
+	const live = sourceFromGit(repo);
+	if (live && JSON.stringify(live) !== JSON.stringify(fixture))
+		throw new Error('vendored StressOzz source fixture differs from exact pinned commit');
+	return fixture;
+}
+
 export function generateCorpus(repo = resolve(import.meta.dirname, '..')) {
-	const script = sourceFile(repo, 'Zapret-Manager.sh');
-	const strategy = sourceFile(repo, 'Strategies.md');
+	const source = pinnedSource(repo);
 	const records = [];
 	for (let i = 1; i <= 17; i++) {
-		const options = shellOptions(script, `Dv${i}`);
-		records.push(record(`stressozz-discord-media-dv${i}`, 'discord-media', `Dv${i}`, options, {
+		const sourceName = `Dv${i}`;
+		const options = source.dv[sourceName];
+		if (!Array.isArray(options) || !options.length) throw new Error(`missing ${sourceName} in pinned source fixture`);
+		records.push(record(`stressozz-discord-media-dv${i}`, 'discord-media', sourceName, options, {
 			tcpPorts: optionValue(options, '--filter-tcp='), domains: optionValue(options, '--hostlist-domains=')?.split(',') ?? []
 		}, options.filter((option) => option.includes('pattern') || option.includes('--dpi-desync-fake-'))
 			.map((option) => option.split('=', 2)[1])));
@@ -44,10 +72,9 @@ export function generateCorpus(repo = resolve(import.meta.dirname, '..')) {
 	records.push(record('stressozz-discord-finland', 'discord-finland', 'Finnish Discord media scope',
 		['104\\.25\\.158\\.178 finland[0-9]\\{5\\}\\.discord\\.media'], {
 			hostnames: ['finland[0-9]{5}.discord.media'], ips: ['104.25.158.178']
-	}, []));
-	const udp = script.match(/PORTS_UDP="([^"]+)"/)?.[1];
-	const tcp = script.match(/PORTS_TCP="([^"]+)"/)?.[1];
-	if (!udp || !tcp) throw new Error('missing game port sets');
+		}, []));
+	const udp = source.portsUdp;
+	const tcp = source.portsTcp;
 	const gameOptions = ['--filter-udp=' + udp, '--dpi-desync=fake', '--dpi-desync-cutoff=d2', '--dpi-desync-any-protocol=1',
 		'--dpi-desync-fake-unknown-udp=/opt/zapret/files/fake/stun.bin', '--new', '--filter-tcp=' + tcp,
 		'--dpi-desync-any-protocol=1', '--dpi-desync-cutoff=n5', '--dpi-desync=multisplit', '--dpi-desync-split-seqovl=582',

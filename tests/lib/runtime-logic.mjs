@@ -1,9 +1,9 @@
 // Node reference implementation of the status.uc runtime/queue/owner logic.
 //
 // ucode does not run in the build env, so this mirrors the shipped ucode so the
-// four-state serviceState, the NUL-cmdline parse, and the queue-owner
-// reconciliation are unit-testable locally. The runtime shape is re-confirmed
-// on the target via smoke.sh (status.uc --no-print + ubus call).
+// serviceState, the NUL-cmdline parse, and the queue-owner reconciliation are
+// unit-testable locally. The runtime shape is re-confirmed on the target via
+// smoke.sh (status.uc --no-print + ubus call).
 //
 // Mirrors: status.uc find_pids(), reconcile_queue_owner(), service_state(),
 // qlen.uc parse_queue() peer_portid. Keep in sync with those.
@@ -70,13 +70,14 @@ export function reconcile_queue_owner(runtime, queue) {
 }
 
 // service_state(runtime, rules, health, draft, opts) → one of
-//   running | stopped | partial | error | paused | passthrough
-// Mirrors status.uc service_state (the four core states + paused/passthrough).
-//   opts: { pausedFlag?: bool }  (stat(PATHS.paused_flag) on device)
+//   engine_missing | running | stopped | partial | error | paused | passthrough
+// Mirrors status.uc service_state (engine availability + runtime states).
+//   opts: { pausedFlag?: bool, engineInstalled?: bool }
 export function service_state(runtime, rules, health, draft, opts = {}) {
 	const qh = (health && health.qlenHealth) ? health.qlenHealth : null;
 	const q = (health && health.queue) ? health.queue : null;
 	const present = !!(runtime && runtime.present);
+	if (opts.engineInstalled === false) return 'engine_missing';
 	if (opts.pausedFlag) {
 		// pause HELD (process down as intended); NOT held (up despite intent) → error.
 		return present ? 'error' : 'paused';

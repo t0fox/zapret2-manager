@@ -38,7 +38,7 @@ test('service run uses the backend service contract and bounded client limits', 
   assert.match(ui, /maxAttempts:\s*12/);
   assert.match(ui, /totalTimeoutSec:\s*180/);
   assert.match(runSource, /targetType=='service'.*zapret2gui-only/);
-  const start = ui.slice(ui.indexOf('function startServiceRun('), ui.indexOf('\n  function renderCards('));
+  const start = ui.slice(ui.indexOf('function startServiceRun('), ui.indexOf('\nfunction renderCatalog('));
   assert.doesNotMatch(start, /domains?\s*:/i);
   assert.deepEqual([...start.matchAll(/candidateIds\s*:\s*\[\]/g)].length, 1);
 });

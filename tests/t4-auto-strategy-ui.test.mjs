@@ -33,7 +33,8 @@ test('Auto and run polling are bounded and non-overlapping', () => {
 test('strategy selection stays draft-first', () => {
   assert.match(strategy, /pendingStrategyId/);
   assert.match(strategy, /setDraft\(['"]strategy/);
-  assert.match(strategy, /Выбор стратегии не меняет runtime/);
+  assert.match(strategy, /function\s+select\(ctx, id, candidate\)[\s\S]*setStrategyDraft\(ctx/);
+  assert.match(strategy, /в черновике|выбрана/);
 });
 
 test('unknown and failure states are not promoted to healthy', () => {
@@ -54,7 +55,8 @@ test('strategy apply routes through the global coordinator without confirmation 
 });
 
 test('advanced profile controls use shared advanced mode', () => {
-  assert.match(strategy, /z2m-adv-only/);
+  assert.match(strategy, /hidden:\s*!advanced/);
+  assert.match(strategy, /state\.subtab === ['"]chain['"] \|\| state\.subtab === ['"]check['"]/);
   assert.match(app, /classList\.toggle\(['"]adv['"]/);
 });
 

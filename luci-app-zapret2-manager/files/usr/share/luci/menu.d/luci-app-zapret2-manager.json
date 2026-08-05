@@ -2,14 +2,7 @@
   "admin/services/zapret2-manager": {
     "title": "Zapret 2 Manager",
     "order": 90,
-    "action": {
-      "type": "view",
-      "path": "zapret2-manager/app"
-    },
-    "depends": {
-      "acl": [
-        "zapret2-manager"
-      ]
-    }
+    "action": { "type": "view", "path": "zapret2-manager/app" },
+    "depends": { "acl": [ "zapret2-manager" ] }
   }
 }

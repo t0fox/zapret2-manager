@@ -43,6 +43,25 @@ test('maintenance preserves every backup workflow, visible preview host and shar
   assert.doesNotMatch(src, /\.cbi-map/);
 });
 
+test('Maintenance embeds the engine installer as an internal pane', () => {
+  const src = source('z2m-maintenance.js');
+  const panel = evaluateLuciModule(`${root}/z2m-engine-panel.js`);
+  assert.match(src, /z2m-engine-panel as EnginePanel/);
+  assert.match(src, /id:\s*['"]engine['"]/);
+  assert.match(src, /label:\s*_\(['"]Движок['"]\)/);
+  assert.match(src, /EnginePanel\.load\(ctx\)/);
+  assert.match(src, /EnginePanel\.render\(ctx/);
+  assert.match(src, /EnginePanel\.mount\(ctx\)/);
+  assert.match(src, /EnginePanel\.unmount\(\)/);
+  for (const key of ['load','render','mount','unmount','missing']) assert.equal(typeof panel[key], 'function');
+  const engine = source('z2m-engine-panel.js');
+  for (const method of ['providers','status','checkUpdates','install','remove','operationStatus','operationCancel'])
+    assert.match(engine, new RegExp('api\\.engine\\.' + method));
+  assert.match(engine, /luci-app-zapret2 никогда не устанавливается/);
+  assert.match(engine, /zapret2-manager и luci-app-zapret2-manager останутся/);
+  assert.match(engine, /checkToken/);
+});
+
 test('app registers monitor and maintenance modules', () => {
   const app = source('app.js');
   assert.match(app, /z2m-monitor as Monitor/);

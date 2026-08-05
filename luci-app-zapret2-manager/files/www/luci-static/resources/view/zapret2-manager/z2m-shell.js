@@ -296,8 +296,7 @@ function closeModal() {
 function renderApplyBar(store, availability) {
   availability = availability || {};
   var reason = Format.text(availability.reason);
-  var pending = reason === _('Ожидается предварительная проверка.');
-  var disabled = !pending && availability.enabled !== true;
+  var disabled = availability.enabled !== true;
   return E('div', {
     'class': 'z2m-applybar' + (store && store.hasDraft && store.hasDraft() ? '' : ' hidden'),
     id: 'z2m-applybar'

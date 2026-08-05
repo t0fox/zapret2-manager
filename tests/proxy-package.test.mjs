@@ -28,11 +28,11 @@ const LICENSE = join(PKG, 'files', 'usr', 'share', 'licenses', 'tg-ws-proxy-rs',
 const PIPELINE = join(ROOT, 'tools', 'build-apk-manual.sh');
 
 const PIN = {
-	version: '2.0.0',
-	release: 'v2.0.0',
-	sha256: '4ccb0d3216edfc9a9a85a215eae5a817b6fe368fd12a796d793880a0055b3602',
+  version: '1.7.1',
+  release: 'v1.7.1',
+  sha256: 'ad23cdd6e89476fa135d04c4706d85e4c793c2a3cd430fd7e4b5179d525eeedb',
   asset: 'tg-ws-proxy-aarch64-unknown-linux-musl.tar.gz',
-	commit: '1ce7fb0541642c72886dd42cda4291d483ab515c'
+  commit: '742db2649c18d11f82fee928d45a1c33efb4ee0c'
 };
 
 // ---- pure checkers -------------------------------------------------------------
@@ -210,7 +210,7 @@ test('the SHA-256 pin is identical across the package and vendoring note', () =>
 // ---- negative controls ----------------------------------------------------------
 
 test('NEGATIVE CONTROL: a wrong PKG_HASH reddens the Makefile gate', () => {
-  const broken = readFileSync(MAKEFILE, 'utf8').replace(PIN.sha256, PIN.sha256.replace('4ccb0d', 'ffffff'));
+  const broken = readFileSync(MAKEFILE, 'utf8').replace(PIN.sha256, PIN.sha256.replace('ad23cd', 'ffffff'));
   const errs = checkProxyMakefile(broken);
   assert.ok(errs.some((e) => e.includes('PKG_HASH')), 'the gate MUST flag a tampered hash');
 });

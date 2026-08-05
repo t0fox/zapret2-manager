@@ -9,6 +9,16 @@ import { generateCorpus, SOURCE_COMMIT, SOURCE_REPO } from '../tools/generate-st
 const root = new URL('..', import.meta.url).pathname.replace(/^\/(?:[A-Za-z]:)/, (m) => m.slice(1));
 const packagedPath = join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/catalog/stressozz-corpus.json');
 
+test('git checkout without the pinned object falls back to the verified vendored fixture', () => {
+	const dir = mkdtempSync(join(tmpdir(), 'stressozz-empty-git-'));
+	try {
+		execFileSync('git', ['init', '-q'], { cwd: dir });
+		const corpus = generateCorpus(dir);
+		assert.equal(corpus.sourceCommit, SOURCE_COMMIT);
+		assert.equal(corpus.records.length, 20);
+	} finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('StressOzz corpus is pinned, complete, lossless and not adapted', () => {
 	const corpus = generateCorpus(root);
 	assert.equal(corpus.records.length, 20);

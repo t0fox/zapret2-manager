@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { evaluateLuciModule } from '../../tools/luci-module-smoke.mjs';
 
 const root = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager';
@@ -17,18 +16,6 @@ test('truth model distinguishes stopped starting healthy degraded unsupported an
 
 test('PID alone never proves a healthy proxy', () => {
   assert.equal(model.classify({ installed: true, pid: 123, process: true }), 'degraded');
-});
-
-test('backend health checks confirm listener while failed upstream remains degraded', () => {
-  const value = model.normalize({
-    installed: true,
-    running: true,
-    checks: [{ name: 'listener', ok: true }],
-    route: { local: { ok: true }, upstream: { ok: false } }
-  });
-  assert.equal(value.listener, true);
-  assert.equal(value.outbound, false);
-  assert.equal(value.truth, 'degraded');
 });
 
 test('safe snapshot contains no secret or Telegram link', () => {
@@ -78,21 +65,6 @@ test('activity rows remain bounded and redacted', () => {
   assert.equal(rows.length, 1);
   assert.equal(JSON.stringify(rows).includes('hidden'), false);
   assert.equal(rows[0].event, 'connect');
-});
-
-test('string backend log lines remain visible and never become null rows', () => {
-  const rows = model.activity(['client connected', 'tg://proxy?secret=hidden'], 10);
-  assert.equal(rows.length, 2);
-  assert.equal(rows[0].message, 'client connected');
-  assert.equal(rows[1].message, '••••••');
-  assert.equal(JSON.stringify(rows).includes('tg://'), false);
-});
-
-test('proxy page filters absent conditional children', () => {
-  const source = readFileSync(`${root}/z2m-proxy-page-core.js`, 'utf8');
-  assert.match(source, /function compact\(/);
-  assert.match(source, /errors\.length \? E\('div', \{\}, errors\) : null/);
-  assert.match(source, /id: 'z2m-view-proxy' \}, compact\(\[/);
 });
 
 test('apply gate requires exact revision and a safe preview', () => {

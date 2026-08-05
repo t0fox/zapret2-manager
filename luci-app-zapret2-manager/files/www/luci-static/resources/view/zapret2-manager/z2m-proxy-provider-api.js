@@ -17,11 +17,6 @@ var preflight = rpc.declare({
   method: 'proxy_provider_preflight',
   reject: true
 });
-var checkUpdates = rpc.declare({
-  object: 'zapret2-manager-proxy-provider',
-  method: 'proxy_provider_check_updates',
-  reject: true
-});
 var install = rpc.declare({
   object: 'zapret2-manager-proxy-provider',
   method: 'proxy_provider_install',
@@ -49,7 +44,6 @@ return baseclass.extend({
   catalog: catalog,
   status: status,
   preflight: preflight,
-  checkUpdates: checkUpdates,
   install: function (value) { return send(install, value); },
   remove: function () { return send(remove, { confirm: 'REMOVE' }); },
   purge: function () { return send(purge, { confirm: 'PURGE' }); }

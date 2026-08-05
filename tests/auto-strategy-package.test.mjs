@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 const manager = readFileSync('zapret2-manager/Makefile', 'utf8');
 const luci = readFileSync('luci-app-zapret2-manager/Makefile', 'utf8');
@@ -19,7 +19,7 @@ function packageRelease(source) {
 test('M8 package versions are coherent while frontend release may advance independently', () => {
 	assert.equal(packageVersion(manager), packageVersion(luci));
 	assert.equal(packageVersion(manager), packageVersion(full));
-	assert.equal(packageRelease(luci), 143);
+	assert.equal(packageRelease(manager), packageRelease(luci));
 	assert.equal(packageRelease(manager), packageRelease(full));
 });
 
@@ -32,7 +32,14 @@ test('manual APK build derives each manager release from package metadata', () =
 });
 
 test('backend package stages controller, RPC plugin, lifecycle hooks, and only safe install actions', () => {
-	for (const file of ['auto-strategy.uc', 'auto-strategy-cli.uc', 'watchdog.uc', 'zapret2-manager.uc', '90-zapret2-manager', 'etc/init.d/zapret2-manager']) assert.match(manager, new RegExp(file.replace('.', '\\.')));
+	assert.match(manager, /\$\(CP\) \.\/files\/\* \$\(1\)\//);
+	for (const file of [
+		'zapret2-manager/files/usr/libexec/zapret2-manager/auto-strategy.uc',
+		'zapret2-manager/files/usr/libexec/zapret2-manager/auto-strategy-cli.uc',
+		'zapret2-manager/files/usr/libexec/zapret2-manager/watchdog.uc',
+		'zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc',
+		'zapret2-manager/files/etc/init.d/zapret2-manager'
+	]) assert.equal(existsSync(file), true, `missing packaged runtime file: ${file}`);
 	assert.match(build, /files\/usr\/libexec\/zapret2-manager"\/\*\.uc/);
 	assert.match(build, /\/etc\/init\.d\/rpcd reload/);
 	assert.match(build, /\/etc\/init\.d\/zapret2-manager enable/);

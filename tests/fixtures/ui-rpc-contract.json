@@ -26,6 +26,8 @@
     "orchestra_auto_status",
     "orchestra_auto_stop",
     "orchestra_capabilities",
+    "orchestra_catalog",
+    "orchestra_corpus_get",
     "orchestra_events",
     "orchestra_history",
     "orchestra_preview_best",
@@ -41,6 +43,11 @@
     "orchestra_run_stop",
     "orchestra_status",
     "status"
+  ],
+  "services.js": [
+    "domain_hub_apply",
+    "domain_hub_get",
+    "domain_hub_preview"
   ],
   "strategies.js": [
     "confirm_alive",
@@ -83,6 +90,7 @@
     "service_dns_status"
   ],
   "monitor.js": [
+    "monitor_snapshot",
     "status"
   ],
   "proxy.js": [
@@ -109,6 +117,13 @@
     "backup_restore",
     "backup_restore_preview",
     "diagnostics_export",
+    "engine_check_updates",
+    "engine_install",
+    "engine_operation_cancel",
+    "engine_operation_status",
+    "engine_providers",
+    "engine_remove",
+    "engine_status",
     "events_tail",
     "maintenance_status",
     "versions"

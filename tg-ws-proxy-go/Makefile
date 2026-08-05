@@ -34,7 +34,7 @@ define Package/tg-ws-proxy-go
   SECTION:=net
   CATEGORY:=Network
   SUBMENU:=DPI bypass
-  TITLE:=TG WS Proxy Go (optional, spatiumstas 0.9.3 MTProto)
+  TITLE:=TG WS Proxy Go (optional, latest compatible main-go)
   DEPENDS:=@TARGET_mediatek_filogic $(GO_ARCH_DEPENDS)
   PROVIDES:=tg-ws-proxy-provider tg-ws-proxy-rs=0.9.3-r2
   CONFLICTS:=tg-ws-proxy-rs

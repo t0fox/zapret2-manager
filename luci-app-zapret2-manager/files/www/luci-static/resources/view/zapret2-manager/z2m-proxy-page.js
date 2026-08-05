@@ -28,13 +28,11 @@ function settled(result, ctx) {
 function load(ctx) {
   return Promise.allSettled([
     Core.load(ctx),
-    Guards.withTimeout(ProviderApi.preflight(), 20000, 'proxy_provider_preflight'),
-    Guards.withTimeout(ProviderApi.checkUpdates(), 25000, 'proxy_provider_check_updates')
+    Guards.withTimeout(ProviderApi.preflight(), 20000, 'proxy_provider_preflight')
   ]).then(function (results) {
     var core = results[0].status === 'fulfilled' ? results[0].value || {} : {};
     if (results[0].status === 'rejected') throw results[0].reason;
     core.providerPreflight = settled(results[1], ctx);
-    core.providerUpdates = settled(results[2], ctx);
     return core;
   });
 }
@@ -57,31 +55,6 @@ function applyAvailability(ctx, root, data) {
   var availability = preflightMap(data);
   var grid = root.querySelector('.z2m-grid.z2m-grid-2');
   var cards = grid && grid.children ? Array.from(grid.children) : [];
-  var updates = object(data.providerUpdates && data.providerUpdates.value);
-
-  function updateMessage(value) {
-    var rows = array(value && value.providers);
-    return rows.map(function (row) {
-      var name = row.provider === 'rust' ? 'Rust' : 'Go';
-      if (row.error && !row.upstreamVersion) return name + ': ' + row.error;
-      if (row.updateAvailable) return name + ': ' + _('доступна версия ') + String(row.upstreamVersion || '').replace(/^v/, '');
-      if (row.installable) return name + ': ' + _('установлена актуальная версия');
-      return name + ': ' + (row.error || _('обновление недоступно'));
-    }).join('\n');
-  }
-  if (grid) {
-    var message = E('pre', { 'class': 'z2m-console z2m-provider-update-result' }, updateMessage(updates) || _('Проверка обновлений ещё не выполнена.'));
-    var check = ctx.shell.button(_('Проверить обновления'), 'sm', function () {
-      check.disabled = true;
-      Guards.withTimeout(ProviderApi.checkUpdates(), 25000, 'proxy_provider_check_updates').then(function (answer) {
-        message.textContent = updateMessage(answer) || _('Backend не вернул сведения об обновлениях.');
-      }).catch(function (error) {
-        message.textContent = ctx.api.normalizeError(error).message;
-      }).then(function () { check.disabled = false; });
-    });
-    insertBefore(ctx.shell.panel(_('Обновления'), E('div', {}, [message, E('div', { 'class': 'z2m-btnrow' }, [check])]),
-      _('Проверка новых версий Rust и Go.')), grid, grid.parentNode);
-  }
 
   catalog.forEach(function (provider, index) {
     providerPresentation(provider);

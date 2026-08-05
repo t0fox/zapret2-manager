@@ -26,23 +26,6 @@ function redact(value) {
 function boolean(value, fallback) {
   return value === true ? true : value === false ? false : fallback;
 }
-function checkOk(value, name) {
-  return array(object(value).checks).some(function (item) {
-    return item && item.name === name && item.ok === true;
-  });
-}
-function listenerOk(value) {
-  value = object(value);
-  return value.listener === true || object(value.listener).ready === true ||
-    checkOk(value, 'listener') || object(object(value.route).local).ok === true ||
-    array(value.listeners).some(function (item) { return item && (item.ready === true || item.listening === true); });
-}
-function outboundOk(value) {
-  value = object(value);
-  return value.outbound === true || object(value.outbound).ready === true ||
-    object(object(value.route).upstream).ok === true || object(value.health).outbound === true ||
-    object(value.health).dcConnectivity === true;
-}
 function classify(value) {
   value = object(value);
   if (value.supported === false || value.capable === false) return 'unsupported';
@@ -52,8 +35,10 @@ function classify(value) {
   if (!installed) return 'unsupported';
   var process = value.process === true || value.running === true || value.state === 'running';
   if (!process) return 'stopped';
-  var listener = listenerOk(value);
-  var outbound = outboundOk(value);
+  var listener = value.listener === true || object(value.listener).ready === true ||
+    array(value.listeners).some(function (item) { return item && (item.ready === true || item.listening === true); });
+  var outbound = value.outbound === true || object(value.outbound).ready === true ||
+    object(value.health).outbound === true || object(value.health).dcConnectivity === true;
   return listener && outbound ? 'healthy' : 'degraded';
 }
 function normalize(value) {
@@ -64,8 +49,8 @@ function normalize(value) {
     supported: value.supported !== false,
     installed: value.installed === true,
     process: value.process === true || value.running === true || value.state === 'running',
-    listener: listenerOk(value),
-    outbound: outboundOk(value),
+    listener: value.listener === true || object(value.listener).ready === true,
+    outbound: value.outbound === true || object(value.outbound).ready === true || object(value.health).outbound === true,
     activeConnections: Number.isFinite(Number(value.activeConnections)) ? Number(value.activeConnections) : null,
     revision: value.revision !== undefined ? value.revision : object(value.config).revision,
     settings: redact(object(value.settings || value.config)),
@@ -112,13 +97,6 @@ function linkGate(value) {
 function activity(rows, limit) {
   limit = Number.isFinite(Number(limit)) ? Math.max(0, Math.floor(Number(limit))) : 100;
   return array(rows).slice(0, limit).map(function (row) {
-    if (typeof row === 'string' || typeof row === 'number') return {
-      ts: null,
-      event: null,
-      message: text(redact(String(row))),
-      severity: null,
-      details: {}
-    };
     row = object(row);
     return {
       ts: row.ts !== undefined ? row.ts : row.timestamp,
@@ -127,7 +105,7 @@ function activity(rows, limit) {
       severity: text(row.severity || row.level),
       details: redact(object(row.details))
     };
-  }).filter(function (row) { return row.event !== null || row.message !== null; });
+  });
 }
 function applyGate(draftValue, appliedValue, previewValue) {
   var draft = object(draftValue);

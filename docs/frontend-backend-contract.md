@@ -259,7 +259,17 @@ Catalog apply receives the selected IDs plus the preview precondition:
 
 Digest/precondition mismatch blocks application.
 
-## Lists
+## Domain Hub and legacy list compatibility
+
+Canonical central-facade methods:
+
+- `domain_hub_get`
+- `domain_hub_preview`
+- `domain_hub_apply`
+
+The Domain Hub owns the combined service catalogue, editable domain lists, autohost settings, and source evidence. Preview returns the exact revision/file digest precondition that apply must consume. Missing or mismatched revision, `fileSha256`, or catalogue digest blocks mutation.
+
+Legacy list compatibility methods remain documented while older pages are shipped:
 
 - `lists_get`
 - `lists_check_domain`
@@ -343,6 +353,7 @@ Config mutation is draft-first and follows validate → preview → apply. The e
 
 ## Monitoring and maintenance
 
+- `monitor_snapshot`
 - `status`
 - `events_tail`
 - `maintenance_status`
@@ -371,3 +382,10 @@ These are not frontend-success conditions and must not be hidden as green:
 7. Some old standalone remastered pages remain shipped but are not part of the single-view module graph. The active app must not import them.
 
 The backend rewrite should address these gaps while preserving the method and payload contract above, or introduce an explicitly versioned replacement contract together with frontend changes.
+
+### Dedicated Orchestra catalogue reads
+
+The central facade also exposes the read-only dedicated Orchestra methods
+`orchestra_catalog` and `orchestra_corpus_get`. They are backed by the packaged
+`zapret2-manager-orchestra` rpcd companion and retain rejected ubus error
+semantics; absence of that companion is an unavailable backend, never success.

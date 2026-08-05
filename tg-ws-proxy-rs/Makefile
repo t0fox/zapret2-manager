@@ -6,14 +6,14 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=tg-ws-proxy-rs
-PKG_VERSION:=2.0.0
+PKG_VERSION:=1.7.1
 PKG_RELEASE:=1
 PKG_MAINTAINER:=Ásgeir
 PKG_LICENSE:=MIT
 
 PKG_SOURCE:=tg-ws-proxy-aarch64-unknown-linux-musl.tar.gz
-PKG_SOURCE_URL:=https://github.com/valnesfjord/tg-ws-proxy-rs/releases/download/v2.0.0
-PKG_HASH:=4ccb0d3216edfc9a9a85a215eae5a817b6fe368fd12a796d793880a0055b3602
+PKG_SOURCE_URL:=https://github.com/valnesfjord/tg-ws-proxy-rs/releases/download/v1.7.1
+PKG_HASH:=ad23cdd6e89476fa135d04c4706d85e4c793c2a3cd430fd7e4b5179d525eeedb
 
 PKG_FLAGS:=nonshared
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)
@@ -24,7 +24,7 @@ define Package/tg-ws-proxy-rs
   SECTION:=net
   CATEGORY:=Network
   SUBMENU:=DPI bypass
-  TITLE:=TG WS Proxy Rust (optional, pinned v2.0.0)
+  TITLE:=TG WS Proxy Rust (optional, pinned v1.7.1)
   DEPENDS:=@TARGET_mediatek_filogic
   PROVIDES:=tg-ws-proxy-provider
   CONFLICTS:=tg-ws-proxy-go

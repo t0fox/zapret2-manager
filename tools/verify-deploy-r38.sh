@@ -19,14 +19,15 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
-# Create cookie jar
 COOKIE_JAR="$(mktemp /tmp/z2m-verify.XXXXXX)"
 chmod 600 "$COOKIE_JAR"
 
-# Establish session
+# The JSON is a single remote-shell argument. Keep it inside the double-quoted
+# remote command so POSIX sh parses the local command without quote splicing.
 SESSION_RAW="$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 "root@${ROUTER}" \
-	'ubus call session create '"'"'{"username":"root","password":"","timeout":300}'"'"' 2>/dev/null)" || true
-SESSION_TOKEN="$(echo "$SESSION_RAW" | sed -n 's/.*"ubus_rpc_session":"\([^"]*\)".*/\1/p')"
+	"ubus call session create '{\"username\":\"root\",\"password\":\"\",\"timeout\":300}'" \
+	2>/dev/null || true)"
+SESSION_TOKEN="$(printf '%s\n' "$SESSION_RAW" | sed -n 's/.*"ubus_rpc_session":"\([^"]*\)".*/\1/p')"
 if [ -n "$SESSION_TOKEN" ]; then
 	echo "192.168.1.1	FALSE	/	FALSE	0	sysauth	${SESSION_TOKEN}" > "$COOKIE_JAR"
 	echo "=== SESSION: established (token redacted) ==="

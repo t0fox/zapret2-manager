@@ -45,7 +45,7 @@ export const EXPECTED_MENU_KEYS = [
 	'admin/services/zapret2-manager/maintenance'
 ];
 
-export const ALLOWED_RPC_OBJECTS = ['zapret2-manager'];
+export const ALLOWED_RPC_OBJECTS = ['zapret2-manager','zapret2-manager-orchestra','zapret2-manager-domain-hub','zapret2-manager-monitor'];
 
 export function viewDirAbs() {
 	return path.join(REPO_ROOT, VIEW_DIR_REL);

@@ -1,5 +1,5 @@
 'use strict';
-// Single, additive runtime projection.  It consumes the status collector
+// Single, additive runtime projection. It consumes the status collector
 // payload; consumers must treat missing evidence as unknown, never stopped.
 
 import { readfile } from 'fs';
@@ -23,7 +23,8 @@ export const runtime_summary = function(status) {
 	if (drift && drift.reason != 'process absent (nothing to compare)' && drift.reason != 'no stored apply hash (run an apply first)' && drift.divergent != null)
 		appliedMatch = drift.divergent === true ? false : drift.divergent === false ? true : null;
 	let state = 'unknown', reason = 'runtime-not-confirmed';
-	if (found === false && registered === false) { state = 'stopped'; reason = 'process-confirmed-absent'; }
+	if (status && status.serviceState == 'engine_missing') { state = 'engine_missing'; reason = 'engine-runtime-missing'; }
+	else if (found === false && registered === false) { state = 'stopped'; reason = 'process-confirmed-absent'; }
 	else if (found === true && registered === true && ownerMatches === true && appliedMatch !== false) { state = 'running'; reason = 'process-and-nfqueue-confirmed'; }
 	else if (found === true && appliedMatch === false) { state = 'mismatch'; reason = 'applied-mismatch'; }
 	else if (found === true || registered === true) { state = 'degraded'; reason = 'runtime-evidence-incomplete'; }

@@ -35,9 +35,7 @@ var state = {
 
 function edit(fn, value) { return fn(JSON.stringify(value || {})); }
 function array(value) { return Array.isArray(value) ? value : []; }
-function compact(value) { return array(value).filter(function (item) { return item !== null && item !== undefined; }); }
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
-function display(value) { return value === null || value === undefined || value === '' ? '—' : String(value); }
 function clone(value) {
   if (Array.isArray(value)) return value.map(clone);
   if (value && typeof value === 'object') {
@@ -132,28 +130,17 @@ function confirm(ctx, title, message, label, action, danger) {
   ]);
 }
 function reveal(ctx) {
-  confirm(ctx, _('Показать ссылку?'),
-    _('Ссылка станет видна до закрытия окна.'),
+  confirm(ctx, _('Показать секретную ссылку?'),
+    _('Ссылка содержит proxy secret. Она не будет сохранена в store, журнале или coordinator draft.'),
     _('Показать'), function () {
       edit(ctx.api.proxy.linkInfo, { reveal: true, confirm: 'REVEAL' }).then(function (answer) {
         var url = answer && (answer.https_link || answer.link);
         if (!url) throw answer || new Error('proxy link unavailable');
         state.revealed = url;
-        function copyLink() {
-          var promise = navigator.clipboard && navigator.clipboard.writeText
-            ? navigator.clipboard.writeText(url)
-            : Promise.reject(new Error('clipboard unavailable'));
-          promise.then(function () { ctx.shell.showToast(_('Ссылка скопирована.'), 'ok'); })
-            .catch(function () { ctx.shell.showToast(_('Не удалось скопировать ссылку.'), 'err'); });
-        }
         ctx.shell.openModal(_('QR-код Telegram Proxy'), E('div', { 'class': 'z2m-proxy-qr-card' }, [
           E('code', { 'class': 'z2m-proxy-link' }, url),
           Qr.render(url, 240),
-          E('div', { 'class': 'z2m-dim' }, _('После закрытия окна ссылка снова будет скрыта.')),
-          E('div', { 'class': 'z2m-btnrow' }, [
-            ctx.shell.button(_('Открыть в Telegram'), 'primary', function () { window.open(url, '_blank', 'noopener'); }),
-            ctx.shell.button(_('Копировать ссылку'), '', copyLink)
-          ])
+          E('div', { 'class': 'z2m-dim' }, _('Закрытие окна удалит ссылку из UI state.'))
         ]), [ctx.shell.button(_('Закрыть'), '', function () {
           state.revealed = null;
           ctx.shell.closeModal();
@@ -194,21 +181,20 @@ function providerCard(ctx, data, provider, status) {
     }, false);
   }, !!state.busy || installedLatest);
 
-  return E('article', { 'class': 'z2m-proxy-install-option' + (isActive ? ' selected' : '') }, [
-    E('div', { 'class': 'z2m-proxy-option-top' }, [
+  return shell.panel(provider.title, E('div', {}, [
+    E('div', { 'class': 'z2m-row' }, [
+      E('strong', {}, provider.short || ''),
+      isActive ? shell.chip(needsUpdate ? _('Доступно обновление') : _('Активна'), needsUpdate ? 'o' : 'g') : null
+    ]),
+    E('p', { 'class': 'z2m-dim' }, provider.feature || ''),
+    E('div', { 'class': 'z2m-proxy-kv' }, [
       E('div', {}, [
-        E('strong', { 'class': 'z2m-proxy-option-title' }, provider.title + ' · MTProto'),
-        E('div', { 'class': 'z2m-proxy-option-sub' }, provider.short || '')
-      ]),
-      shell.chip(isActive ? (needsUpdate ? _('Обновление') : _('Активна')) : _('Доступна'), isActive && !needsUpdate ? 'g' : 'o')
+        E('span', {}, _('Последняя версия')),
+        E('strong', {}, String(provider.latestLabel || provider.latestVersion || '—'))
+      ])
     ]),
-    E('p', { 'class': 'z2m-proxy-option-text' }, provider.feature || ''),
-    E('div', { 'class': 'z2m-proxy-option-version' }, [
-      E('span', {}, _('Последняя версия')),
-      E('strong', {}, String(provider.latestLabel || provider.latestVersion || '—'))
-    ]),
-    E('div', { 'class': 'z2m-btnrow z2m-proxy-option-actions' }, [action])
-  ]);
+    E('div', { 'class': 'z2m-btnrow' }, [action])
+  ]));
 }
 function installPane(ctx, data) {
   var shell = ctx.shell;
@@ -230,26 +216,21 @@ function installPane(ctx, data) {
     }, !!state.busy));
   }
 
-  var current = status.installed ? [
-    E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Реализация')), E('strong', {}, display(status.activeProvider))]),
-    E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Версия')), E('strong', {}, display(status.activeVersion))]),
-    E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Состояние')), E('strong', { 'class': 'z2m-proxy-ok' }, status.running ? _('Запущен') : _('Остановлен'))]),
-    E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Настройки')), E('strong', {}, status.configPreserved ? _('Сохранены') : _('Не созданы'))])
-  ] : [shell.statePanel({ message: _('Выберите реализацию MTProto Proxy.'), kind: 'info' })];
-  return E('div', { 'class': 'z2m-proxy-pane' }, compact([
-    data.providerCatalog && data.providerCatalog.error ? shell.statePanel({ title: _('Каталог недоступен'), message: data.providerCatalog.error.message, kind: 'error' }) : null,
-    E('div', { 'class': 'z2m-proxy-layout-main' }, [
-      shell.panel(_('Способ установки'), E('div', {}, [
-        E('div', { 'class': 'z2m-grid z2m-grid-2 z2m-proxy-install-options' }, cards),
-        E('div', { 'class': 'z2m-proxy-notice' }, _('Переключение сохраняет настройки и перезапускает сервис только после проверки.'))
-      ]), status.installed ? _('Компонент установлен') : _('Компонент не установлен')),
-      shell.panel(_('Установленный компонент'), E('div', { 'class': 'z2m-proxy-info-list' }, current))
-    ]),
-    footer.length ? E('section', { 'class': 'z2m-panel z2m-proxy-danger' }, [
-      E('div', { 'class': 'hd' }, [E('h2', {}, _('Удаление компонента')), E('div', { 'class': 'sp z2m-btnrow' }, footer)]),
-      E('div', { 'class': 'bd z2m-dim' }, _('Обычное удаление сохраняет настройки. Полная очистка удаляет настройки и текущую ссылку.'))
-    ]) : null
-  ]));
+  return E('div', {}, [
+    shell.statePanel({
+      title: status.installed ? _('Компонент установлен') : _('Компонент не установлен'),
+      message: status.installed
+        ? _('Выбрано: ') + String(status.activeProvider || '—') + ' ' + String(status.activeVersion || '')
+        : _('Это нормально: TG Proxy полностью опционален и не влияет на остальные функции Zapret2 Manager.'),
+      kind: status.installed ? 'success' : 'info'
+    }),
+    data.providerCatalog && data.providerCatalog.error ? shell.statePanel({
+      title: _('Каталог недоступен'), message: data.providerCatalog.error.message, kind: 'error'
+    }) : null,
+    E('div', { 'class': 'z2m-grid z2m-grid-2' }, cards),
+    footer.length ? shell.panel(_('Удаление'), E('div', { 'class': 'z2m-btnrow' }, footer),
+      _('Обычное удаление сохраняет настройки. Полная очистка удаляет и secret.')) : null
+  ]);
 }
 function statusPane(ctx, data, normalized) {
   var shell = ctx.shell;
@@ -260,12 +241,15 @@ function statusPane(ctx, data, normalized) {
     kind: 'info'
   });
 
-  var rawStatus = object(data.status && data.status.value);
-  var config = object(data.config && data.config.value);
-  var applied = object(config.applied || config.draft);
-  var listener = array(rawStatus.listeners)[0] || {};
-  var checks = array(object(data.health && data.health.value).checks);
-  function check(name) { return checks.some(function (item) { return item && item.name === name && item.ok === true; }); }
+  var rows = [
+    { label: _('Реализация'), value: String(pstatus.activeProvider || '—') + ' ' + String(pstatus.activeVersion || '') },
+    { label: _('Версия'), value: pstatus.updateAvailable ? _('Требуется обновление') : _('Последняя') },
+    { label: _('Процесс'), value: normalized.process ? _('запущен') : _('остановлен') },
+    { label: _('Listener'), value: normalized.listener ? _('готов') : _('не подтверждён') },
+    { label: _('Связь с Telegram DC'), value: normalized.outbound ? _('готова') : _('не подтверждена') }
+  ];
+  if (normalized.activeConnections !== null)
+    rows.push({ label: _('Активные подключения'), value: String(normalized.activeConnections) });
   var actions = [];
   if (!normalized.process) actions.push(shell.button(_('Запустить'), 'primary sm', function () {
     lifecycle(ctx, ctx.api.proxy.start, _('Запустить'), _('Backend проверит процесс и точный listener после запуска.'));
@@ -281,44 +265,9 @@ function statusPane(ctx, data, normalized) {
   }, !!state.busy));
   actions.push(shell.button(_('Показать ссылку / QR'), 'primary sm', reveal.bind(null, ctx), !!state.busy));
 
-  var metrics = [
-    { label: _('Реализация'), value: display(pstatus.activeProvider) },
-    { label: _('Версия'), value: display(pstatus.activeVersion) },
-    { label: _('Порт listener'), value: display(listener.port || applied.port) },
-    { label: _('Активные сессии'), value: normalized.activeConnections === null ? '—' : String(normalized.activeConnections) }
-  ];
-  var connectionRows = [
-    { label: _('Сервер'), value: display(applied.linkIp || listener.address || applied.host) },
-    { label: _('Порт'), value: display(applied.port || listener.port) },
-    { label: _('Секрет'), value: _('Скрыт') },
-    { label: _('Ссылка'), value: _('Показывается после подтверждения') }
-  ];
-  return E('div', { 'class': 'z2m-proxy-pane' }, [
-    E('section', { 'class': 'z2m-panel z2m-proxy-status-card' }, [
-      E('div', { 'class': 'z2m-proxy-status-hero' }, [
-        E('div', { 'class': 'z2m-proxy-telegram-mark', 'aria-hidden': 'true' }, '➤'),
-        E('div', { 'class': 'z2m-proxy-status-copy' }, [
-          E('strong', {}, normalized.process ? _('Telegram Proxy активен') : _('Telegram Proxy остановлен')),
-          E('span', {}, _('PID ') + display(array(rawStatus.pids)[0]) + ' · ' + (object(config.autostart).rcDEnabled ? _('автозапуск включён') : _('автозапуск выключен')))
-        ]),
-        E('div', { 'class': 'z2m-btnrow z2m-proxy-lifecycle' }, actions)
-      ]),
-      E('div', { 'class': 'z2m-proxy-metrics' }, metrics.map(function (item) {
-        return E('div', { 'class': 'z2m-proxy-metric' }, [E('span', {}, item.label), E('strong', {}, item.value)]);
-      }))
-    ]),
-    E('div', { 'class': 'z2m-proxy-layout-main' }, [
-      shell.panel(_('Данные подключения'), E('div', { 'class': 'z2m-proxy-info-list' }, connectionRows.map(function (row) {
-        return E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, row.label), E('strong', {}, row.value)]);
-      })), _('Параметры для Telegram-клиента'), shell.button(_('Показать QR'), 'primary sm', reveal.bind(null, ctx), !!state.busy)),
-      shell.panel(_('Сеть и доступность'), E('div', { 'class': 'z2m-proxy-info-list' }, [
-        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Процесс')), E('strong', { 'class': normalized.process ? 'z2m-proxy-ok' : '' }, normalized.process ? _('Запущен') : _('Остановлен'))]),
-        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Listener')), E('strong', { 'class': normalized.listener ? 'z2m-proxy-ok' : '' }, normalized.listener ? _('Подтверждён') : _('Не подтверждён'))]),
-        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Telegram DC')), E('strong', { 'class': normalized.outbound ? 'z2m-proxy-ok' : '' }, normalized.outbound ? _('Связь подтверждена') : _('Не подтверждена'))]),
-        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Конфигурация')), E('strong', { 'class': check('config') ? 'z2m-proxy-ok' : '' }, check('config') ? _('Исправна') : _('Требует проверки'))])
-      ]))
-    ])
-  ]);
+  return shell.panel(_('Состояние Telegram Proxy'), E('div', { 'class': 'z2m-proxy-kv' }, rows.map(function (row) {
+    return E('div', {}, [E('span', {}, row.label), E('strong', {}, row.value)]);
+  })), null, E('div', { 'class': 'z2m-btnrow' }, actions));
 }
 function fieldNode(field, value, onChange) {
   var input;
@@ -345,56 +294,37 @@ function settingsPane(ctx, data) {
   var shell = ctx.shell;
   var pstatus = providerStatus(data);
   var settings = workingConfig(ctx, data);
-  var basic = E('div', { 'class': 'z2m-cbi z2m-proxy-settings-form' });
-  var advanced = E('div', { 'class': 'z2m-cbi z2m-proxy-settings-form' });
-  var basicIds = ['enabled','autostart','host','port','linkIp','faketlsDomain','poolSize','maxConnections','quiet','verbose'];
+  var form = E('div', { 'class': 'z2m-cbi' });
   FIELDS.forEach(function (field) {
     var nodes = fieldNode(field, settings[field.id], function (value) {
       var next = clone(settings);
       next[field.id] = value;
       stage(ctx, data, next);
     });
-    var target = basicIds.indexOf(field.id) >= 0 ? basic : advanced;
-    target.appendChild(nodes[0]);
-    target.appendChild(nodes[1]);
+    form.appendChild(nodes[0]);
+    form.appendChild(nodes[1]);
   });
   var draft = currentDraft(ctx);
-  return E('div', { 'class': 'z2m-proxy-pane' }, compact([
+  return E('div', {}, [
     !pstatus.installed ? shell.statePanel({
       message: _('Настройки можно подготовить заранее, но применить их получится только после установки Rust или Go.'),
       kind: 'info'
     }) : null,
-    E('div', { 'class': 'z2m-proxy-layout-main' }, [
-      shell.panel(_('Основные параметры'), basic, _('Настройки MTProto Proxy'),
-        draft.settings ? shell.button(_('Показать различия'), 'primary sm', ctx.openSemanticDiff, false) : null),
-      shell.panel(_('Маршруты и резервные подключения'), advanced, _('Telegram DC, Cloudflare и исходящие подключения'))
-    ]),
-    E('div', { 'class': 'z2m-proxy-notice' }, _('Изменения не применяются сразу. Используйте общую нижнюю панель после проверки различий.')),
+    shell.panel(_('Настройки'), form, _('Secret-bearing upstream entries хранятся backend-side и не round-trip через браузер.'),
+      draft.settings ? shell.button(_('Показать различия'), 'primary sm', ctx.openSemanticDiff, false) : null),
     state.preview ? shell.statePanel({ message: _('Backend preview готов; применение выполняется общим coordinator.'), kind: 'success' }) : null
-  ]));
+  ]);
 }
 function activityPane(ctx, data) {
   var shell = ctx.shell;
   var logs = object(data.logs && data.logs.value);
   var rows = ProxyModel.activity(array(logs.lines || logs.items), 50);
-  var status = object(data.status && data.status.value);
-  var active = status.activeConnections !== undefined ? status.activeConnections : status.connections;
-  var events = rows.length ? rows.map(function (row) {
-    var textNodes = [];
-    if (row.event) textNodes.push(E('div', { 'class': 'nm' }, row.event));
-    if (row.message) textNodes.push(E('div', { 'class': row.event ? 'co' : 'nm' }, row.message));
-    var children = [E('div', {}, textNodes)];
-    if (row.severity) children.push(shell.chip(row.severity, row.severity === 'error' ? 'r' : 'o'));
-    return E('div', { 'class': 'z2m-proxy-log-row' }, children);
-  }) : [E('div', { 'class': 'z2m-proxy-log-empty' }, _('Событий пока нет.'))];
-  return E('div', { 'class': 'z2m-proxy-pane' }, [
-    E('div', { 'class': 'z2m-proxy-activity-stats' }, [
-      E('div', {}, [E('strong', {}, active === undefined || active === null ? '—' : String(active)), E('span', {}, _('активных сессий'))]),
-      E('div', {}, [E('strong', {}, String(rows.length)), E('span', {}, _('последних событий'))]),
-      E('div', {}, [E('strong', {}, status.running === true || status.state === 'running' ? _('Да') : _('Нет')), E('span', {}, _('процесс запущен'))])
-    ]),
-    shell.panel(_('Журнал Telegram Proxy'), E('div', { 'class': 'z2m-proxy-logs' }, events), _('Последние события и подключения'))
-  ]);
+  return shell.panel(_('Активность и redacted logs'), E('div', {}, rows.length ? rows.map(function (row) {
+    return E('div', { 'class': 'z2m-svcrow z2m-single-row' }, [
+      E('div', {}, [E('div', { 'class': 'nm' }, row.event || _('Событие')), row.message ? E('div', { 'class': 'co' }, row.message) : null]),
+      row.severity ? shell.chip(row.severity, row.severity === 'error' ? 'r' : 'o') : null
+    ]);
+  }) : [shell.statePanel({ message: _('Событий нет.'), kind: 'info' })]), _('Secret и Telegram links редактируются backend и моделью.'));
 }
 function render(ctx) {
   var data = ctx.data || {};
@@ -428,15 +358,15 @@ function render(ctx) {
     if (data[key] && data[key].error)
       errors.push(ctx.shell.statePanel({ title: _('Ошибка backend'), message: data[key].error.message, kind: 'error' }));
   });
-  return E('section', { 'class': 'z2m-view on z2m-proxy-page', id: 'z2m-view-proxy' }, compact([
+  return E('section', { 'class': 'z2m-view on', id: 'z2m-view-proxy' }, [
     E('div', { 'class': 'z2m-phead' }, [
-      E('div', {}, [E('div', { 'class': 'z2m-proxy-eyebrow' }, _('Сервисы / Telegram Proxy')), E('h1', {}, _('Telegram Proxy')), E('p', {}, _('Установка, управление и мониторинг MTProto-прокси на роутере.'))]),
+      E('div', {}, [E('h1', {}, _('Telegram Proxy')), E('p', {}, _('Опциональная установка последней версии Rust / Go и безопасный lifecycle'))]),
       E('div', { 'class': 'sp' }, ctx.shell.chip(truthLabel(normalized.truth), truthKind(normalized.truth), true))
     ]),
     errors.length ? E('div', {}, errors) : null,
     tabs,
     paneHost
-  ]));
+  ]);
 }
 function sameSettings(expected, actual) {
   expected = ProxyModel.safeSettings(expected);
