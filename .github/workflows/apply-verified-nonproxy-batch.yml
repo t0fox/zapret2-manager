@@ -1,0 +1,72 @@
+name: Apply verified non-proxy batch
+
+on:
+  push:
+    branches:
+      - feat/holyversion-reference-parity
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout triggering exact HEAD
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: feat/holyversion-reference-parity
+          fetch-depth: 0
+
+      - name: Verify and extract bounded payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          base64 -d .github/z2m-verified-batch.tar.gz.b64 > /tmp/z2m-verified-batch.tar.gz
+          echo 'ecff6e064aa6a3f75ee2b31fa7e9eb98d4f0e25b1ba15a57c8618d2c9ac642fe  /tmp/z2m-verified-batch.tar.gz' | sha256sum -c -
+          tar -tzf /tmp/z2m-verified-batch.tar.gz | tee /tmp/z2m-batch-files.txt
+          if grep -E '(^|/)(tg-ws-proxy|z2m-proxy|proxy\.uc|zapret2-manager-proxy-provider)' /tmp/z2m-batch-files.txt; then
+            echo 'Refusing payload: TG Proxy path present.' >&2
+            exit 1
+          fi
+          tar -xzf /tmp/z2m-verified-batch.tar.gz
+
+      - name: Verify non-proxy runtime and contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check tools/generate-stressozz-corpus.mjs
+          node --check luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-services.js
+          sh -n tools/verify-deploy-r38.sh
+          bash tests/ucode-no-sugar.test.sh
+          node --test \
+            tests/auto-strategy-package.test.mjs \
+            tests/discord-probe-preflight-contract.test.mjs \
+            tests/discord-service-contract.test.mjs \
+            tests/frontend-gate-classification.test.mjs \
+            tests/holyversion-dns-contract.test.mjs \
+            tests/orchestra-rpc-contract.test.mjs \
+            tests/release-provenance.test.mjs \
+            tests/remastered-overview.test.mjs \
+            tests/service-dns-logic.test.mjs \
+            tests/source-encoding.test.mjs \
+            tests/t3-6-boot-recovery.test.mjs
+
+      - name: Commit only verified non-proxy changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/z2m-verified-batch.tar.gz.b64
+          rm -f .github/workflows/apply-verified-nonproxy-batch.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          if git diff --cached --name-only | grep -E '(^|/)(tg-ws-proxy|z2m-proxy|proxy\.uc|zapret2-manager-proxy-provider)'; then
+            echo 'Refusing commit: TG Proxy path changed.' >&2
+            exit 1
+          fi
+          git commit -m 'fix: close non-proxy backend production contracts'
+          git push origin HEAD:feat/holyversion-reference-parity
