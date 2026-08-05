@@ -1,10 +1,7 @@
 #!/usr/bin/ucode
 'use strict';
-// service.uc — service control for zapret2-manager. CLI-first: invoked as
-//   ucode service.uc <action>
-// by the rpcd plugin and by the detached rollback timer.
-// Calls upstream's init for every daemon/firewall action. Never restart or
-// flush fw4 as a whole; upstream zapret2 owns its own runtime and nft table.
+// Service control for zapret2-manager. Every engine-dependent action is
+// rejected before config writes or upstream init calls when zapret2 is absent.
 
 import { readfile, writefile, stat, mkdir, unlink, popen } from 'fs';
 import { PATHS, PASSTHROUGH_PROFILE_NAME,
@@ -13,9 +10,9 @@ import { PATHS, PASSTHROUGH_PROFILE_NAME,
 import { read_var, set_var, restore_whole_file, config_sha256 } from './apply.uc';
 
 const UPSTREAM_INIT = '/etc/init.d/zapret2';
-const LASTGOOD_DIR  = '/tmp/zapret2-manager/last-good';
-const PREV_ENABLE   = LASTGOOD_DIR + '/nfqws2_enable.prev';
-const PENDING       = '/tmp/zapret2-manager/pending-rollback';
+const LASTGOOD_DIR = '/tmp/zapret2-manager/last-good';
+const PREV_ENABLE = LASTGOOD_DIR + '/nfqws2_enable.prev';
+const PENDING = '/tmp/zapret2-manager/pending-rollback';
 const USER_PRESETS = '/etc/zapret2-manager/presets';
 const FACTORY_PRESETS = '/usr/share/zapret2-manager/presets';
 const PRESET_FILES = [ 'tcp_https.txt', 'stun_voice.txt', 'udp_games.txt' ];
@@ -24,14 +21,16 @@ const DAEMON_LOG_ENABLE = 'DAEMON_LOG_ENABLE';
 function preset_token(token) {
 	if (token == '--lua-desync=old') return false;
 	let prefixes = [ '--filter-tcp=', '--filter-udp=', '--hostlist-domains=', '--hostlist=', '--ipset=', '--filter-l7=', '--payload=', '--out-range=', '--in-range=', '--lua-desync=', '--new' ];
-	for (let i = 0; i < length(prefixes); i++) if (token == prefixes[i] || substr(token, 0, length(prefixes[i])) == prefixes[i]) return true;
+	for (let i = 0; i < length(prefixes); i++)
+		if (token == prefixes[i] || substr(token, 0, length(prefixes[i])) == prefixes[i]) return true;
 	return false;
 }
 
 function sync_effective_presets() {
 	let tokens = [];
 	for (let i = 0; i < length(PRESET_FILES); i++) {
-		let user = USER_PRESETS + '/' + PRESET_FILES[i], factory = FACTORY_PRESETS + '/' + PRESET_FILES[i];
+		let user = USER_PRESETS + '/' + PRESET_FILES[i];
+		let factory = FACTORY_PRESETS + '/' + PRESET_FILES[i];
 		let text = readfile(stat(user) ? user : factory);
 		if (!text) continue;
 		for (let line in split(text, '\n')) {
@@ -66,6 +65,27 @@ function sh(cmd) {
 	let out = p.read('all');
 	p.close();
 	return out ? out : '';
+}
+
+function engine_available() {
+	return !!stat(PATHS.nfqws_bin) && !!stat(PATHS.upstream_init);
+}
+
+function engine_missing(action) {
+	return {
+		ok: false,
+		action: action,
+		code: 'EENGINE_MISSING',
+		state: 'engine_missing',
+		error: 'zapret2 engine is not installed'
+	};
+}
+
+function requires_engine(action) {
+	let actions = [ 'passthrough', 'rollback', 'debug', 'start', 'stop', 'restart',
+		'restart_daemons', 'start_fw', 'reload_ifsets' ];
+	for (let i = 0; i < length(actions); i++) if (actions[i] == action) return true;
+	return false;
 }
 
 function event(source, category, severity, msg, extra) {
@@ -200,7 +220,8 @@ function restart() {
 	sync_effective_presets();
 	let r = run(UPSTREAM_INIT + ' restart');
 	schedule_rollback();
-	event('ui', 'restart', 'info', 'restart rc=' + r.rc + (ROLLBACK_TIMEOUT_ENABLED ? ' (rollback armed ' + ROLLBACK_TTL + 's)' : ' (snapshot taken; auto-rollback off by default)'),
+	event('ui', 'restart', 'info', 'restart rc=' + r.rc +
+		(ROLLBACK_TIMEOUT_ENABLED ? ' (rollback armed ' + ROLLBACK_TTL + 's)' : ' (snapshot taken; auto-rollback off by default)'),
 		{ reason: 'manual_ui', rc: r.rc, rollback_ttl: ROLLBACK_TTL });
 	return { ok: r.rc == 0, action: 'restart', rc: r.rc, out: r.out,
 		rollback_pending: ROLLBACK_TIMEOUT_ENABLED, rollback_ttl: ROLLBACK_TTL };
@@ -287,6 +308,7 @@ function rollback(force) {
 	}
 }
 
+// ---- passthrough -------------------------------------------------------------
 const PREV_OPT = LASTGOOD_DIR + '/nfqws2_opt.orig';
 
 function save_orig_opt(v) {
@@ -379,6 +401,10 @@ function passthrough(enabled) {
 }
 
 let arg = ARGV[0];
+if (requires_engine(arg) && !engine_available()) {
+	print(sprintf("%J", engine_missing(arg ? arg : '')) + '\n');
+	exit(0);
+}
 if (arg == 'passthrough') {
 	let on = ARGV[1];
 	print(sprintf("%J", passthrough(on == 'true' || on == '1')) + '\n');
@@ -387,8 +413,8 @@ if (arg == 'passthrough') {
 } else if (arg == 'debug') {
 	print(sprintf("%J", debug(ARGV[1])) + '\n');
 } else if (arg == 'start' || arg == 'stop' || arg == 'restart' ||
-           arg == 'restart_daemons' || arg == 'start_fw' || arg == 'reload_ifsets' ||
-           arg == 'confirm_alive') {
+	arg == 'restart_daemons' || arg == 'start_fw' || arg == 'reload_ifsets' ||
+	arg == 'confirm_alive') {
 	let m = { start: start, stop: stop, restart: restart, restart_daemons: restart_daemons,
 		start_fw: start_fw, reload_ifsets: reload_ifsets, confirm_alive: confirm_alive };
 	print(sprintf("%J", m[arg]()) + '\n');
