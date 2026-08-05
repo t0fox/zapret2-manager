@@ -54,6 +54,7 @@ return {
 	'zapret2-manager-proxy-provider': {
 		proxy_provider_catalog: { call: function (req) { return action('catalog', null); } },
 		proxy_provider_status: { call: function (req) { return action('status', null); } },
+		proxy_provider_preflight: { call: function (req) { return action('preflight', null); } },
 		proxy_provider_install: { args: { edit: 'string' }, call: function (req) { return edit_action('install', req); } },
 		proxy_provider_remove: { args: { edit: 'string' }, call: function (req) { return edit_action('remove', req); } },
 		proxy_provider_purge: { args: { edit: 'string' }, call: function (req) { return edit_action('purge', req); } }
