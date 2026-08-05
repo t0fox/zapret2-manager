@@ -7,7 +7,7 @@ const ROOT='tests',VALID_GROUPS=new Set(['all','frontend','backend']),group=proc
 if(!VALID_GROUPS.has(group)){console.error(`Unknown test group: ${group}`);console.error('Usage: node tools/run-node-tests.mjs [all|frontend|backend]');process.exit(2);}
 async function discover(directory){const entries=await readdir(directory,{withFileTypes:true}),files=[];for(const entry of entries){const entryPath=path.join(directory,entry.name);if(entry.isDirectory())files.push(...await discover(entryPath));else if(entry.isFile()&&entry.name.endsWith('.test.mjs'))files.push(entryPath.split(path.sep).join('/'));}return files;}
 function regularFrontend(file){if(file.startsWith('tests/ui/'))return true;const name=path.posix.basename(file);return /^(?:luci-|t4-|orchestra-strategy-ui)/.test(name)||/(?:^|-)ui\.test\.mjs$/.test(name);}
-function isFrontendTest(file){return regularFrontend(file)||(!regularFrontend(file)&&file>='tests/orchestra'&&file<'tests/proxy');}
+function isFrontendTest(file){return regularFrontend(file)||(!regularFrontend(file)&&file>='tests/proxy'&&file<'tests/service');}
 function belongsToGroup(file){if(group==='all')return true;return group==='frontend'?isFrontendTest(file):!isFrontendTest(file);}
 let discovered;try{discovered=(await discover(ROOT)).sort();}catch(error){console.error(`Unable to discover tests under ${ROOT}:`,error);process.exit(2);}
 const selected=discovered.filter(belongsToGroup);if(!selected.length){console.error(`Refusing to pass: no ${group} tests were discovered.`);process.exit(2);}
