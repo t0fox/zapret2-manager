@@ -20,7 +20,7 @@ define Package/zapret2-manager
   CATEGORY:=Network
   SUBMENU:=DPI bypass
   TITLE:=Management backend for upstream zapret2
-  DEPENDS:=zapret2 ucode ncat
+  DEPENDS:=+zapret2 +ucode +ncat +flock
 endef
 
 define Package/zapret2-manager/description
@@ -51,6 +51,8 @@ endef
 
 define Package/zapret2-manager/postinst
 #!/bin/sh
+# Image-builder/rootfs installs must never operate on the build host runtime.
+[ -n "$${IPKG_INSTROOT:-}" ] && exit 0
 # Newly registered rpcd companion objects require one rpcd reload. Do not
 # restart uhttpd, firewall, dnsmasq or the router from package scripts.
 /etc/init.d/rpcd reload
