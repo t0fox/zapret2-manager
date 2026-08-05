@@ -1,5 +1,6 @@
 'use strict';
 'require baseclass';
+'require view.zapret2-manager.z2m-engine-gate as EngineGate';
 'require view.zapret2-manager.z2m-dns as Dns';
 
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
@@ -109,7 +110,7 @@ function createAdapter(api, module) {
   return core;
 }
 
-return baseclass.extend({
+return EngineGate.wrap(baseclass.extend({
   id: 'dns',
   title: _('DNS'),
   subtitle: _('Основной DNS, проверки провайдеров и DNS сервисов'),
@@ -121,4 +122,4 @@ return baseclass.extend({
   focusDraft: Dns.focusDraft,
   resetDraft: Dns.resetDraft,
   createAdapter: createAdapter
-});
+}));

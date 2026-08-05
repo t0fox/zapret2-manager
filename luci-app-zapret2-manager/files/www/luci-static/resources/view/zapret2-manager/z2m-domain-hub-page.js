@@ -1,5 +1,6 @@
 'use strict';
 'require baseclass';
+'require view.zapret2-manager.z2m-engine-gate as EngineGate';
 'require view.zapret2-manager.z2m-services as Services';
 
 function edit(fn, value) { return fn(JSON.stringify(value || {})); }
@@ -61,7 +62,7 @@ function createAdapter(api, module) {
   return core;
 }
 
-return baseclass.extend({
+return EngineGate.wrap(baseclass.extend({
   id: 'services',
   title: _('Сервисы и домены'),
   subtitle: _('Каталог, пользовательские домены, Autohostlist и источники'),
@@ -71,4 +72,4 @@ return baseclass.extend({
   unmount: function (ctx) { if (Services.unmount) Services.unmount(wrap(ctx || {})); },
   resetDraft: function () { if (Services.resetDraft) Services.resetDraft(); },
   createAdapter: createAdapter
-});
+}));
