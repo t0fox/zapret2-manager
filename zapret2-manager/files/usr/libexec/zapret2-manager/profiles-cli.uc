@@ -10,7 +10,8 @@ import { draft_block, profiles_create, profiles_update, profiles_clone, profiles
 import { profiles_apply_preview, profiles_apply_run } from './profiles-apply.uc';
 import { native_preflight } from './native-preflight.uc';
 
-const LOCKFILE = '/tmp/zapret2-manager/state.lock';
+const STATE_LOCK = '/tmp/zapret2-manager/state.lock';
+const CONFIG_LOCK = '/opt/zapret2/config.lock';
 
 function print_json(value) {
 	print(sprintf("%J", value) + '\n');
@@ -29,7 +30,9 @@ function is_mutating(mode) {
 
 function flock_wrap(mode, argfile) {
 	let self = '/usr/libexec/zapret2-manager/profiles-cli.uc';
-	let cmd = 'Z2M_FLOCKED=1 flock -x ' + LOCKFILE + " -c 'ucode " + self + ' ' + mode;
+	let lock = mode == 'apply' ? CONFIG_LOCK : STATE_LOCK;
+	let env = mode == 'apply' ? 'Z2M_FLOCKED=1 Z2M_CONFIG_LOCKED=1 ' : 'Z2M_FLOCKED=1 ';
+	let cmd = env + 'flock -x ' + lock + " -c 'ucode " + self + ' ' + mode;
 	if (argfile != null) cmd += ' ' + argfile;
 	cmd += "'";
 	let p = popen(cmd, 'r');
@@ -104,9 +107,8 @@ if (mode == 'list') {
 	print_json(profiles_apply_preview());
 } else if (mode == 'apply') {
 	// Preview and independent pinned verification both execute inside the same
-	// exclusive transaction lock. The existing profiles_apply_run still owns
-	// snapshot/write/restart/rollback; this gate prevents partial validation
-	// from reaching that sanctioned writer.
+	// exclusive transaction lock. The profiles writer then snapshots, performs
+	// whole-config CAS, restarts, verifies and rolls back without releasing it.
 	let preview = profiles_apply_preview();
 	let native = (preview.ok == true && type(preview.candidate) == 'string')
 		? native_preflight(preview.candidate)
