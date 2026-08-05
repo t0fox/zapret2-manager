@@ -1,5 +1,5 @@
 # zapret2-manager-full — target-specific manager meta-package
-
+# TG Proxy remains optional; the zapret2 engine is optional as well.
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=zapret2-manager-full
@@ -16,15 +16,14 @@ define Package/zapret2-manager-full
   SECTION:=net
   CATEGORY:=Network
   SUBMENU:=DPI bypass
-  TITLE:=Full Zapret2 Manager (TG Proxy remains optional)
+  TITLE:=Full Zapret2 Manager (engine and TG Proxy remain optional)
   DEPENDS:=@TARGET_mediatek_filogic +zapret2-manager +luci-app-zapret2-manager
   PKG_FLAGS:=nonshared
 endef
 
 define Package/zapret2-manager-full/description
-  Installs the management backend and LuCI interface. Telegram Proxy is not a
-  dependency: Rust or Go can be installed, switched or removed later from the
-  TG Proxy tab without affecting the rest of Zapret2 Manager.
+  Installs manager backend and LuCI. The zapret2 engine and Telegram Proxy are
+  managed independently and are intentionally not package dependencies.
 endef
 
 define Build/Prepare
@@ -35,7 +34,6 @@ define Build/Compile
 endef
 
 define Package/zapret2-manager-full/install
-	# Meta-package: runtime files are owned by dependencies.
 endef
 
 $(eval $(call BuildPackage,zapret2-manager-full))

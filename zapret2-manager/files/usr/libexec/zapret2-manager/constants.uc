@@ -72,6 +72,8 @@ export const PATHS = {
 	applied_conf:   '/opt/zapret2/config',
 	uci_conf:       '/etc/config/zapret2',
 	applied_version:'/opt/zapret2/version',
+	nfqws_bin:      '/opt/zapret2/nfq2/nfqws2',
+	upstream_init:  '/etc/init.d/zapret2',
 	draft_state:    '/etc/zapret2-manager/state.json',
 	status_json:    '/tmp/zapret2-manager/status.json',
 	qlen_state:     '/tmp/zapret2-manager/qlen.state.json',

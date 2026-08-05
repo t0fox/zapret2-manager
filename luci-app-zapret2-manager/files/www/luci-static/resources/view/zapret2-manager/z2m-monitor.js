@@ -1,5 +1,6 @@
 'use strict';
 'require baseclass';
+'require view.zapret2-manager.z2m-engine-gate as EngineGate';
 'require view.zapret2-manager.z2m-monitor-model as MonitorModel';
 
 var POLL_MS = 5000;
@@ -219,7 +220,7 @@ function unmount() {
   state.timer = null;
 }
 
-return baseclass.extend({
+return EngineGate.wrap(baseclass.extend({
   id: 'monitor',
   title: _('Мониторинг'),
   subtitle: _('Read-only решения, очереди и диагностика'),
@@ -227,4 +228,4 @@ return baseclass.extend({
   render: render,
   mount: mount,
   unmount: unmount
-});
+}));
