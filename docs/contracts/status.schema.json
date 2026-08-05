@@ -9,7 +9,7 @@
   "properties": {
     "schema": { "type": "integer", "const": 3 },
     "generatedAt": { "type": ["string", "null"], "format": "date-time" },
-    "generation": { "type": ["integer", "null" },
+    "generation": { "type": ["integer", "null"] },
     "serviceState": {
       "type": "string",
       "enum": ["engine_missing", "running", "stopped", "partial", "error", "paused", "passthrough"],
