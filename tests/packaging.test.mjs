@@ -54,17 +54,17 @@ test('single-view runtime modules and local stylesheets exist', () => {
   ]) assert.ok(existsSync(join(viewRoot, name)), `${name} exists`);
 });
 
-test('LuCI package ships no legacy runtime and only the two authoritative local stylesheets', () => {
+test('LuCI package ships no legacy runtime and only authoritative local stylesheets', () => {
   const makefile = readFileSync(join(REPO, 'luci-app-zapret2-manager/Makefile'), 'utf8');
   assert.ok(packageRelease(makefile) > 0);
   const files = readdirSync(viewRoot).sort();
-  assert.deepEqual(files.filter((name) => name.endsWith('.css')), ['z2m-components.css', 'z2m-ui.css']);
+  assert.deepEqual(files.filter((name) => name.endsWith('.css')), ['z2m-components.css', 'z2m-holyversion.css', 'z2m-ui.css']);
   assert.deepEqual(files.filter((name) => name.endsWith('-legacy.js')), []);
   for (const obsolete of ['overview.js', 'catalog.js', 'blockcheck.js'])
     assert.equal(files.includes(obsolete), false, `${obsolete} is not shipped`);
   for (const obsolete of ['z2m-ui-core.css','z2m-ui-v1.css','z2m-shell.css','z2m-orchestra.css'])
     assert.equal(files.includes(obsolete), false, `${obsolete} is not shipped`);
-  for (const stylesheet of ['z2m-components.css', 'z2m-ui.css']) {
+  for (const stylesheet of ['z2m-components.css', 'z2m-holyversion.css', 'z2m-ui.css']) {
     const source = readFileSync(join(viewRoot, stylesheet), 'utf8');
     assert.doesNotMatch(source, /@import|https?:\/\//, `${stylesheet} stays self-contained`);
   }
