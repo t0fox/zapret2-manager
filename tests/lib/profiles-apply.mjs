@@ -4,8 +4,9 @@
 // The pipeline (ucode side, with real I/O — this module is the pure logic):
 //   1. load drafts → renderCandidate (this module)
 //   2. round-trip proof → candidateRoundTrip
-//   3. native --dry-run → applyDecision (rejected/unavailable/not_checked
-//      REFUSE before any write; a fabricated 'valid' is NOT a proceed)
+//   3. full native/Lua preflight → applyDecision. Only status=verified with
+//      every required coverage field passed may proceed; partial, unknown,
+//      unavailable and not_checked REFUSE before any write
 //   4. snapshot last-good (config + UCI + draft + hashes + generation)
 //   5. set_var('NFQWS2_OPT', candidate) via the sanctioned apply.uc writer
 //   6. /etc/init.d/zapret2 restart (upstream's own init; never a full
@@ -22,6 +23,15 @@ import { profileFragment } from './profiles-draft.mjs';
 import { createHash } from 'node:crypto';
 
 export const MAX_CANDIDATE_BYTES = 262144;
+export const REQUIRED_NATIVE_COVERAGE = Object.freeze([
+	'cliSyntax',
+	'luaLoad',
+	'luaCompatibility',
+	'functionExistence',
+	'blobExistence',
+	'runtimeArguments',
+	'executionPlan'
+]);
 
 export function sha256hexNode(text) {
 	return createHash('sha256').update(text, 'utf8').digest('hex');
@@ -115,15 +125,21 @@ export function diffSummary(currentOpt, candidate, sha256hexFn = sha256hexNode) 
 	};
 }
 
-// applyDecision(nativeValidation) — the native gate. Only a REAL dry-run pass
-// (status 'partial', cliSyntax passed) proceeds. rejected / unavailable /
-// not_checked refuse; any out-of-vocabulary status (incl. a fabricated
-// 'valid') refuses.
+// applyDecision(nativeValidation) — fail closed. A preflight is complete only
+// when the backend reports the exact verified vocabulary and every required
+// coverage dimension passed. Missing, partial, unknown, skipped, timeout and
+// any future unrecognised status all refuse mutation.
 export function applyDecision(nativeValidation) {
-	const st = nativeValidation && nativeValidation.status;
-	if (st === 'partial' && nativeValidation.coverage && nativeValidation.coverage.cliSyntax === 'passed')
-		return { proceed: true };
-	return { proceed: false, stage: 'validate' };
+	if (!nativeValidation || nativeValidation.status !== 'verified')
+		return { proceed: false, stage: 'validate' };
+	const coverage = nativeValidation.coverage;
+	if (!coverage || typeof coverage !== 'object')
+		return { proceed: false, stage: 'validate' };
+	for (const key of REQUIRED_NATIVE_COVERAGE) {
+		if (coverage[key] !== 'passed')
+			return { proceed: false, stage: 'validate' };
+	}
+	return { proceed: true };
 }
 
 // checkIdempotent(lastApply, candidateSha256, now, windowSec) — a SECOND
@@ -161,7 +177,6 @@ export function checkIdempotent(lastApply, candidateSha256, now, windowSec = APP
 //                     proc-nfnetlink_queue.out field 2 == ps pid)
 export function verifyStatus(statusJson, queueInfo, options = {}) {
 	const rt = (statusJson && statusJson.runtime) || {};
-	const health = (statusJson && statusJson.health) || {};
 	const count = Number.isInteger(rt.count) ? rt.count : (Array.isArray(rt.instances) ? rt.instances.length : 0);
 	const instances = Array.isArray(rt.instances) ? rt.instances : [];
 	const pid = instances.length === 1 ? instances[0].pid : (options.allowExternalNfqws ? instances.find(x => x.pid === queueInfo?.peer_portid)?.pid ?? null : null);
