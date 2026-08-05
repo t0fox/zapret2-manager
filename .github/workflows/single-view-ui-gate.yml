@@ -14,6 +14,72 @@ permissions:
   contents: read
 
 jobs:
+  provenance:
+    name: Exact-head provenance
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact HEAD
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+
+      - name: Verify immutable clean source and archive it
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_head="$(git rev-parse HEAD)"
+          actual_tree="$(git rev-parse HEAD^{tree})"
+          if [[ "$actual_head" != "$GITHUB_SHA" ]]; then
+            echo "checkout mismatch: expected $GITHUB_SHA, got $actual_head" >&2
+            exit 1
+          fi
+          if [[ -n "$(git status --porcelain=v1 --untracked-files=all)" ]]; then
+            echo 'Refusing provenance: checkout is dirty.' >&2
+            git status --short >&2
+            exit 1
+          fi
+          mkdir -p provenance
+          SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+          export SOURCE_DATE_EPOCH
+          git archive \
+            --format=tar.gz \
+            --prefix="zapret2-manager-${GITHUB_SHA}/" \
+            --output="provenance/source-${GITHUB_SHA}.tar.gz" \
+            "$GITHUB_SHA"
+          node - <<'NODE'
+          const fs = require('fs');
+          const { execFileSync } = require('child_process');
+          const sha = process.env.GITHUB_SHA;
+          const tree = execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { encoding: 'utf8' }).trim();
+          const commitEpoch = Number(execFileSync('git', ['show', '-s', '--format=%ct', 'HEAD'], { encoding: 'utf8' }).trim());
+          const manifest = {
+            schema: 'z2m.provenance.v1',
+            repository: process.env.GITHUB_REPOSITORY,
+            commitSha: sha,
+            treeSha: tree,
+            ref: process.env.GITHUB_REF,
+            event: process.env.GITHUB_EVENT_NAME,
+            workflow: process.env.GITHUB_WORKFLOW,
+            workflowRunId: process.env.GITHUB_RUN_ID,
+            workflowRunAttempt: process.env.GITHUB_RUN_ATTEMPT,
+            sourceDateEpoch: commitEpoch,
+            cleanCheckout: true,
+            sourceArchive: `source-${sha}.tar.gz`
+          };
+          fs.writeFileSync('provenance/provenance.json', JSON.stringify(manifest, null, 2) + '\n');
+          NODE
+          (cd provenance && sha256sum "source-${GITHUB_SHA}.tar.gz" provenance.json > SHA256SUMS)
+          sha256sum -c provenance/SHA256SUMS --ignore-missing
+
+      - name: Upload exact-head provenance
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: provenance-${{ github.sha }}
+          path: provenance/
+          if-no-files-found: error
+          retention-days: 30
+
   frontend_tests:
     name: Frontend unit and contract tests
     runs-on: ubuntu-latest
@@ -210,6 +276,7 @@ jobs:
     name: Exact-head CI verdict
     if: always()
     needs:
+      - provenance
       - frontend_tests
       - backend_tests
       - repository_gate
@@ -222,6 +289,7 @@ jobs:
         run: |
           set -euo pipefail
           declare -A results=(
+            [provenance]='${{ needs.provenance.result }}'
             [frontend_tests]='${{ needs.frontend_tests.result }}'
             [backend_tests]='${{ needs.backend_tests.result }}'
             [repository_gate]='${{ needs.repository_gate.result }}'
