@@ -5,10 +5,7 @@
 // find_pids() used replace(cl, '\x00', ' ') which misbehaves (inserts a space
 // between every byte), so 'nfqws2' was never a contiguous substring and the
 // running process was never detected. Fix: split on chr(0) + join(sep, array).
-// Plus: rules_present() queried `nft list table zapret2` (no family → defaults
-// to ip) but the table lives in inet → rulesPresent was always false. Fix:
-// `nft list table inet zapret2`. Plus: queue owner (peer_portid field 2) was
-// never reconciled with the detected nfqws2 PID. These tests pin all three.
+// Plus: rules_present() queries the inet family, and queue owner is reconciled.
 //
 // Run: node --test tests/runtime.test.mjs
 import { test } from 'node:test';
@@ -40,16 +37,10 @@ test('split+join parse makes nfqws2 a contiguous substring (the find_pids fix)',
 });
 
 test('NEGATIVE CONTROL: the broken replace(NUL→space) path does NOT match', () => {
-	// This is the bug: emulating ucode replace(cl, '\x00', ' ') by replacing
-	// every NUL with a space WOULD work in JS, but ucode's replace with a NUL
-	// search inserts a space between EVERY byte. We emulate the ucode misbehavior
-	// (space between every byte) and assert the daemon is NOT found — proving the
-	// test catches the regression if anyone reverts find_pids to replace().
 	const bytes = Buffer.from(REAL_CMDLINE);
 	let spaceEveryByte = '';
 	for (let i = 0; i < bytes.length; i++) {
 		spaceEveryByte += (bytes[i] === 0 ? ' ' : String.fromCharCode(bytes[i]));
-		// ucode misbehavior: a space between every byte, not just at NULs.
 		spaceEveryByte += ' ';
 	}
 	assert.equal(spaceEveryByte.indexOf(DAEMON), -1,
@@ -58,7 +49,6 @@ test('NEGATIVE CONTROL: the broken replace(NUL→space) path does NOT match', ()
 });
 
 test('find_pids detects only the nfqws2 process, not unrelated procs', () => {
-	// /proc snapshot: PID 2131 = nfqws2 (real cmdline), PID 1 = procd, PID 42 = ash.
 	const procs = [
 		{ pid: 1, cmdline: Buffer.concat([Buffer.from('/sbin/procd'), Buffer.from([0])]) },
 		{ pid: 42, cmdline: Buffer.concat([Buffer.from('-ash'), Buffer.from([0])]) },
@@ -71,24 +61,18 @@ test('find_pids detects only the nfqws2 process, not unrelated procs', () => {
 });
 
 test('find_pids does NOT match a shell whose cmdline merely MENTIONS nfqws2', () => {
-	// The false-positive that produced count=2 on the device: an ash shell
-	// running a diagnostic script that contains the word 'nfqws2' (in a
-	// pgrep/echo). Its argv[0] is 'ash', NOT '/nfqws2' — the binary match
-	// rejects it; the old full-cmdline substring match accepted it.
 	const shellCmd = Buffer.concat([
 		Buffer.from('ash'), Buffer.from([0]),
 		Buffer.from('-c pgrep -af nfqws2; echo done'), Buffer.from([0]),
 	]);
 	const procs = [
-		{ pid: 20701, cmdline: shellCmd },          // the false positive
-		{ pid: 2131, cmdline: REAL_CMDLINE },        // the real daemon
+		{ pid: 20701, cmdline: shellCmd },
+		{ pid: 2131, cmdline: REAL_CMDLINE },
 	];
 	const instances = find_pids(procs);
 	assert.equal(instances.length, 1, 'the ash shell must NOT be counted');
 	assert.equal(instances[0].pid, 2131);
 });
-
-// ---- the four serviceState core states ----
 
 function queue(registered, peerPortid) {
 	return { registered, peerPortid, ownerPid: null, ownerConflict: false };
@@ -100,16 +84,20 @@ test('state 1: process absent + queue absent → stopped', () => {
 	assert.equal(service_state(runtime, false, health, {}), 'stopped');
 });
 
+test('missing engine overrides clean stopped evidence', () => {
+	const runtime = { present: false, instances: [] };
+	const health = { queue: queue(false, null) };
+	assert.equal(service_state(runtime, false, health, {}, { engineInstalled: false }), 'engine_missing');
+});
+
 test('state 2: process present + rules absent → partial', () => {
 	const runtime = { present: true, instances: [{ pid: 2131 }] };
 	const health = { queue: queue(true, 2131) };
-	// rules absent (nft table not found). Owner matches (2131) so not error.
 	reconcile_queue_owner(runtime, health.queue);
 	assert.equal(service_state(runtime, false, health, {}), 'partial');
 });
 
 test('state 3: process absent + queue registered by unknown owner → error (NOT stopped)', () => {
-	// The contradiction case: present=false but QNUM 300 is still registered.
 	const runtime = { present: false, instances: [] };
 	const health = { queue: queue(true, 9999) };
 	const warn = reconcile_queue_owner(runtime, health.queue);
@@ -129,7 +117,7 @@ test('state 4: process + rules + queue-owned-by-nfqws2 → running', () => {
 
 test('owner conflict (queue bound by a non-nfqws2 PID) → error even with process present', () => {
 	const runtime = { present: true, instances: [{ pid: 2131 }] };
-	const health = { queue: queue(true, 5555) };   // bound by some other PID
+	const health = { queue: queue(true, 5555) };
 	const warn = reconcile_queue_owner(runtime, health.queue);
 	assert.equal(health.queue.ownerConflict, true);
 	assert.ok(warn && warn.indexOf('not to the detected nfqws2') >= 0);
@@ -138,7 +126,7 @@ test('owner conflict (queue bound by a non-nfqws2 PID) → error even with proce
 
 test('process present but queue not bound at all → error', () => {
 	const runtime = { present: true, instances: [{ pid: 2131 }] };
-	const health = { queue: queue(false, null) };   // registered === false
+	const health = { queue: queue(false, null) };
 	assert.equal(service_state(runtime, true, health, {}), 'error');
 });
 
