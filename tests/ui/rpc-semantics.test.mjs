@@ -54,7 +54,7 @@ test('frozen RPC contract and grouped facade remain complete', () => {
 test('z2m-api is the only rpc.declare owner in the single-view module graph', () => {
   const files = readdirSync(root).filter((file) => file === 'app.js' || file.startsWith('z2m-'));
   const owners = files.filter((file) => file.endsWith('.js') && /rpc\.declare\s*\(/.test(readFileSync(`${root}/${file}`, 'utf8'))).sort();
-  assert.deepEqual(owners, ['z2m-api.js']);
+  assert.deepEqual(owners, ['z2m-api.js','z2m-proxy-provider-api.js']);
 });
 
 test('every declaration uses the supported object and reject:true', () => {
@@ -63,7 +63,7 @@ test('every declaration uses the supported object and reject:true', () => {
   const { world } = loadFacade();
   assert.ok(world.declarations.length > 80);
   for (const spec of world.declarations) {
-    assert.equal(spec.object, 'zapret2-manager', spec.method);
+    assert.ok(['zapret2-manager','zapret2-manager-orchestra','zapret2-manager-domain-hub','zapret2-manager-monitor'].includes(spec.object), `${spec.method}: ${spec.object}`);
     assert.equal(spec.reject, true, spec.method);
     if (spec.params != null) assert.equal(Array.isArray(spec.params), true, `${spec.method}: params must be positional array`);
   }

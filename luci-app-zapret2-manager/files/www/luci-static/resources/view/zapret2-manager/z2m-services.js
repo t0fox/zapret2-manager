@@ -1,6 +1,5 @@
 'use strict';
 'require baseclass';
-'require view.zapret2-manager.z2m-domain-hub-api as DomainHubApi';
 'require view.zapret2-manager.z2m-domain-hub-model as DomainHubModel';
 
 var state = {
@@ -55,7 +54,7 @@ function hydrate(snapshot, draft) {
 }
 
 function load(ctx) {
-  return DomainHubApi.get().then(function (value) {
+  return ctx.api.domainHub.get().then(function (value) {
     return { hub: { value: value || {} } };
   }).catch(function (error) {
     return { hub: { error: normalizeError(ctx.api, error) } };
@@ -291,7 +290,7 @@ function renderAutohost(ctx) {
       message: working.autohost.reason || _('Backend не предоставляет санкционированный writer для engine-owned списка.'),
       kind: 'warning'
     })
-  ]), working.autohost.counts.total != null ? working.autohost.counts.total + ' ' + _('записей') : null);
+  ]), object(working.autohost.counts).total != null ? object(working.autohost.counts).total + ' ' + _('записей') : null);
 }
 
 function renderSources(ctx) {
@@ -368,8 +367,9 @@ function resetDraft() {
   state.error = null;
 }
 function createAdapter(api, module) {
+  var hub = api && api.domainHub || {};
   function reloadAppliedState() {
-    return DomainHubApi.get().then(function (value) {
+    return hub.get().then(function (value) {
       return {
         value: value || {},
         revision: value && value.revision,
@@ -389,7 +389,7 @@ function createAdapter(api, module) {
     return Promise.resolve({ ok: true });
   }
   function previewDraft(scope, value) {
-    return edit(DomainHubApi.preview, value).then(function (answer) {
+    return edit(hub.preview, value).then(function (answer) {
       if (answer && answer.precondition) {
         answer.precondition = {
           revision: answer.precondition.revision,
@@ -406,12 +406,13 @@ function createAdapter(api, module) {
     previewDraft: previewDraft,
     previewValid: function (answer) {
       return !!(answer && answer.ok === true && answer.mutated === false && answer.precondition &&
-        answer.precondition.revision && Object.prototype.hasOwnProperty.call(answer.precondition, 'fileSha256'));
+        answer.precondition.revision && typeof answer.precondition.fileSha256 === 'string' && answer.precondition.fileSha256.length > 0 &&
+        typeof answer.precondition.catalogDigest === 'string' && answer.precondition.catalogDigest.length > 0);
     },
     applyDraft: function (scope, value) {
       var payload = clone(value);
       payload.requestId = requestId();
-      return edit(DomainHubApi.apply, payload);
+      return edit(hub.apply, payload);
     },
     reloadAppliedState: reloadAppliedState,
     verifyApplied: function (value, context, read) {

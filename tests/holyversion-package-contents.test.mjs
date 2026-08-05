@@ -14,9 +14,9 @@ const backendRuntime = [
 ];
 const frontendRuntime = [
   'z2m-format.js', 'z2m-overview-model.js', 'z2m-strategy-model.js',
-  'z2m-domain-hub-model.js', 'z2m-domain-hub-api.js', 'z2m-domain-hub-page.js',
+  'z2m-domain-hub-model.js', 'z2m-domain-hub-page.js',
   'z2m-dns-model.js', 'z2m-dns-page.js', 'z2m-proxy-model.js', 'z2m-proxy-page.js',
-  'z2m-monitor-model.js', 'z2m-monitor-api.js', 'z2m-maintenance-model.js',
+  'z2m-monitor-model.js', 'z2m-maintenance-model.js',
   'z2m-coordinator.js', 'z2m-holyversion.css'
 ];
 

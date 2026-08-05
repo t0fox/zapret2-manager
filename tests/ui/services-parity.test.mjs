@@ -6,41 +6,44 @@ import { evaluateLuciModule } from '../../tools/luci-module-smoke.mjs';
 const root = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager';
 const source = readFileSync(`${root}/z2m-services.js`, 'utf8');
 
-test('Services source defines the two real-data modes and shared draft controls', () => {
+test('Services exposes the canonical Domain Hub panes, filters and shared draft controls', () => {
   for (const token of [
-    'Собрать по сервисам', 'Готовый hosts', 'Включить все', 'Выключить все',
-    'Массовые действия применяются ко всему каталогу, включая скрытые поиском сервисы',
-    'aria-checked', 'toggleCategory', 'toggleAll', 'selectors', 'modeDrafts',
-    'будет включено', 'будет выключено', 'изменено', 'ctx.openSemanticDiff'
+    "id: 'catalog'", "id: 'domains'", "id: 'autohost'", "id: 'sources'",
+    'Найти сервис', 'Фильтр состояния', 'Фильтр категории', 'Включить все', 'Выключить все',
+    'toggleCategory', 'togglePackage', 'Показать различия', 'ctx.openSemanticDiff',
+    'Применение заблокировано', 'include/exclude'
   ]) assert.match(source, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.doesNotMatch(source, /const\s+SERVICES\s*=|let\s+SERVICES\s*=/);
   assert.doesNotMatch(source, /setInterval|rollback_ttl|confirmationTimer/);
 });
 
-test('Services render consumes backend category/source metadata without demo records', () => {
+test('Domain Hub model consumes backend package/category/source metadata without demo records', () => {
   const services = evaluateLuciModule(`${root}/z2m-services.js`);
-  const model = evaluateLuciModule(`${root}/z2m-services-model.js`);
-  const catalog = model.catalog({
-    services: [{ id: 'alpha', name: 'Alpha', category: 'video' }],
-    categories: [{ id: 'video', label: 'Video' }],
-    sources: [{ id: 'ready-1', label: 'Ready hosts', revision: 3, date: '2026-08-04', validationStatus: 'valid' }]
-  }, { activeMode: 'hosts' });
-  assert.deepEqual(catalog.services.map((service) => service.id), ['alpha']);
-  assert.deepEqual(catalog.sources.map((source) => source.id), ['ready-1']);
-  assert.equal(catalog.services.some((service) => service.id === 'demo'), false);
+  const model = evaluateLuciModule(`${root}/z2m-domain-hub-model.js`);
+  const snapshot = model.normalize({
+    revision: 3,
+    catalog: { digest: 'digest-3', version: 'backend-catalog', enabled: ['alpha'],
+      packages: [{ id: 'alpha', name: 'Alpha', category: 'video' }], categories: ['video'] },
+    userDomains: { include: [], exclude: [] },
+    sources: { items: [{ id: 'ready-1', label: 'Ready hosts', revision: 3 }], writable: false }
+  });
+  assert.deepEqual(snapshot.packages.map((item) => item.id), ['alpha']);
+  assert.deepEqual(snapshot.sources.items.map((item) => item.id), ['ready-1']);
+  assert.equal(snapshot.packages.some((item) => item.id === 'demo'), false);
   assert.equal(typeof services.render, 'function');
 });
 
-test('Services page aliases page preview/apply to the global coordinator', () => {
+test('Services page routes apply through the global coordinator', () => {
   assert.match(source, /ctx\.openSemanticDiff\(\)/);
-  assert.doesNotMatch(source, /function\s+(preview|applyCatalog|applyServices)\s*\(/);
-  assert.doesNotMatch(source, /catalogApply\s*\(/);
+  assert.doesNotMatch(source, /function\s+(applyCatalog|applyServices)\s*\(/);
+  assert.doesNotMatch(source, /hub\.apply\([^)]*\)(?![\s\S]*applyDraft)/);
 });
 
-test('Services adapter owns backend reread and verification boundaries', () => {
-  assert.match(source, /catalogStatus\(\)/);
-  assert.match(source, /catalogList\(\)/);
-  assert.match(source, /verifyApplied/);
-  assert.match(source, /serviceIds\(wanted\).*serviceIds\(actual\)/s);
-  assert.match(source, /return \{\s*value: \{ enabled:/s);
+test('Services adapter owns exact Domain Hub reread, preview, apply and verification boundaries', () => {
+  for (const token of ['hub.get()', 'hub.preview', 'hub.apply', 'reloadAppliedState', 'verifyApplied',
+    'expectedRevision', 'expectedCatalogDigest', 'fileSha256', 'catalogDigest', 'requestId'])
+    assert.match(source, new RegExp(token.replaceAll('.', '\\.')));
+  assert.match(source, /same\(object\(actual\.catalog\)\.enabled,\s*object\(value\.catalog\)\.enabled\)/);
+  assert.match(source, /same\(object\(actual\.userDomains\)\.include,\s*object\(value\.lists\)\.include\)/);
+  assert.match(source, /same\(object\(actual\.userDomains\)\.exclude,\s*object\(value\.lists\)\.exclude\)/);
 });

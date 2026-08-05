@@ -76,11 +76,11 @@ test('autohost promote and ignore stage semantic operations', () => {
   const state = model.normalize(snapshot);
   const promoted = model.promoteAutohost(state, 'learned.example');
   assert.deepEqual(promoted.userDomains.include, ['custom.example', 'learned.example']);
-  assert.deepEqual(promoted.autohost.promote, ['learned.example']);
+  assert.deepEqual(promoted.autohostOps.promote, ['learned.example']);
 
   const ignored = model.ignoreAutohost(state, 'noise.example');
   assert.deepEqual(ignored.userDomains.exclude, ['blocked.example', 'noise.example']);
-  assert.deepEqual(ignored.autohost.ignore, ['noise.example']);
+  assert.deepEqual(ignored.autohostOps.ignore, ['noise.example']);
 });
 
 test('source operations remain blocked when backend owner is unavailable', () => {

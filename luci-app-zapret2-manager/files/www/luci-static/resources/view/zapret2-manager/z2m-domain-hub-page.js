@@ -1,7 +1,6 @@
 'use strict';
 'require baseclass';
 'require view.zapret2-manager.z2m-services as Services';
-'require view.zapret2-manager.z2m-domain-hub-api as DomainHubApi';
 
 function edit(fn, value) { return fn(JSON.stringify(value || {})); }
 function cloneTop(value) {
@@ -49,7 +48,7 @@ function createAdapter(api, module) {
     };
   };
   core.rollbackResult = function (result) {
-    return edit(DomainHubApi.apply, {
+    return edit(api.domainHub.apply, {
       rollbackSnapshotId: result.snapshot,
       expectedRevision: result.revision,
       requestId: 'domain-hub-rollback-' + String(Date.now())

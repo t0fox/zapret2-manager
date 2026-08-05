@@ -193,7 +193,8 @@ function render(ctx) {
       candidateMode: 'zapret2gui-only', candidateIds: [], repeats: 2,
       perAttemptTimeoutSec: 20, totalTimeoutSec: 600, maxCandidates: 20, maxAttempts: 60
     }).then(function (answer) {
-      if (!answer || answer.ok !== true || !answer.run || !answer.run.runId) throw answer || new Error('run start failed');
+      if (!answer || answer.ok !== true || !answer.run || !answer.run.runId || answer.run.targetCount === 0 || answer.run.totalCandidates === 0)
+        throw answer || new Error('run start failed: 0 targets');
       runtime.runId = answer.run.runId;
       renderRunResult(answer.run);
       pollRun();

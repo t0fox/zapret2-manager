@@ -46,8 +46,8 @@ function runtimeHealth(status) {
   if (verified)
     return { label: 'Обход работает', detail: 'Backend подтвердил runtime и связность', kind: 'g', verified: true };
   if (state === 'running' || process.found === true)
-    return { label: 'Служба запущена', detail: 'Связность backend не подтверждена', kind: 'o', verified: false };
-  return null;
+    return { label: 'Служба запущена', detail: 'Связность ещё не подтверждена backend', kind: 'o', verified: false };
+  return { label: 'Состояние неизвестно', detail: 'Backend не предоставил runtime evidence', kind: 'o', verified: false };
 }
 
 function latestCompletedRun(history) {

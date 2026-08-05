@@ -1,6 +1,5 @@
 'use strict';
 'require baseclass';
-'require view.zapret2-manager.z2m-monitor-api as MonitorApi';
 'require view.zapret2-manager.z2m-monitor-model as MonitorModel';
 
 var POLL_MS = 5000;
@@ -41,8 +40,8 @@ function fallbackRows(status, events) {
       decision: 'runtime',
       profile: instance.profile || instance.name,
       queue: instance.queue !== undefined ? instance.queue : queue.number,
-      drops: queue.queueDropped || 0,
-      errors: instance.errors || 0,
+      drops: queue.queueDropped === null || queue.queueDropped === undefined ? null : queue.queueDropped,
+      errors: instance.errors === null || instance.errors === undefined ? null : instance.errors,
       message: instance.state || status.serviceState,
       details: { pid: instance.pid, rssKb: instance.rssKb, cmdline: instance.cmdline }
     });
@@ -76,7 +75,7 @@ function compatibilityLoad(ctx) {
   });
 }
 function load(ctx) {
-  return edit(MonitorApi.snapshot, {
+  return edit(ctx.api.monitor.snapshot, {
     limit: 200,
     filter: {}
   }).then(function (answer) {
@@ -116,8 +115,8 @@ function activityTable(ctx, view, advanced) {
       E('td', {}, row.decision ? shell.chip(row.decision, decisionKind(row.decision)) : null),
       E('td', {}, [row.profile || '', row.rule ? E('div', { 'class': 'z2m-dim' }, row.rule) : null, details]),
       E('td', { 'class': 'z2m-num' }, row.queue === null || row.queue === undefined ? '' : String(row.queue)),
-      E('td', { 'class': 'z2m-num' }, String(row.drops || 0)),
-      E('td', { 'class': 'z2m-num' }, String(row.errors || 0))
+      E('td', { 'class': 'z2m-num' }, row.drops === null || row.drops === undefined ? '—' : String(row.drops)),
+      E('td', { 'class': 'z2m-num' }, row.errors === null || row.errors === undefined ? '—' : String(row.errors))
     ]);
   });
   return rows.length ? table([

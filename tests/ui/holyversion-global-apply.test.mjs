@@ -142,6 +142,6 @@ test('unsupported scope blocks every mutation', async () => {
 });
 
 test('manual rollback is available only from explicit backend proof', () => {
-  assert.match(appSource, /rollback\.available\s*===\s*true|available:\s*true/);
+  assert.match(appSource, /(?:rollback|entry)\.available\s*===\s*true|available:\s*true/);
   assert.doesNotMatch(appSource, /countdown|rollback_ttl|confirmationTimer/);
 });

@@ -50,72 +50,122 @@ const appView = evaluateLuciModule(`${root}/app.js`, {
 const storeModule = evaluateLuciModule(`${root}/z2m-store.js`);
 const servicesModel = evaluateLuciModule(`${root}/z2m-services-model.js`);
 
+function clone(value) { return JSON.parse(JSON.stringify(value)); }
+function enabledList(value) {
+  if (Array.isArray(value)) return value.slice().sort();
+  return Object.keys(value || {}).filter((key) => value[key]).sort();
+}
+function hubSnapshot(enabled, revision, fileSha256) {
+  return {
+    revision,
+    precondition: { revision, fileSha256, catalogDigest: 'catalog-digest-' + revision },
+    catalog: {
+      digest: 'catalog-digest-' + revision,
+      version: 'backend-catalog',
+      enabled: enabledList(enabled),
+      packages: ['alpha', 'beta', 'gamma'].map((id) => ({ id, name: id, category: 'test' })),
+      categories: ['test']
+    },
+    userDomains: { include: [], exclude: [], conflicts: [] },
+    autohost: { entries: [], counts: {}, writable: false },
+    sources: { items: [], writable: false }
+  };
+}
+function canonicalPrecondition(value = {}) {
+  return {
+    revision: value.revision ?? value.ledgerRevision,
+    fileSha256: value.fileSha256,
+    catalogDigest: value.catalogDigest || 'catalog-digest-' + (value.revision ?? value.ledgerRevision)
+  };
+}
+function canonicalDraft(value, applied) {
+  value = clone(value || {});
+  if (value.expectedRevision !== undefined) return value;
+  const baseline = enabledList(applied?.catalog?.enabled || applied?.enabled || {});
+  const selected = value.enabled ? enabledList(value.enabled) : baseline.slice();
+  Object.entries(value.changes || {}).forEach(([id, change]) => {
+    const after = change && typeof change === 'object' && 'after' in change ? change.after : change;
+    const pos = selected.indexOf(id);
+    if (after === true && pos < 0) selected.push(id);
+    if (after === false && pos >= 0) selected.splice(pos, 1);
+  });
+  value.expectedRevision = 3;
+  value.expectedCatalogDigest = 'catalog-digest-3';
+  value.catalog = value.catalog || { enabled: selected.sort() };
+  value.lists = value.lists || { include: [], exclude: [] };
+  value.autohost = value.autohost || { promote: [], ignore: [], cleanupStale: [] };
+  value.sources = value.sources || {};
+  if (value.applicable === undefined) value.applicable = !value.blocker;
+  return value;
+}
+function canonicalDrafts(draft, applied = {}) {
+  const result = clone(draft || {});
+  if (result.domainHub && result.domainHub.__canonicalize === true) {
+    delete result.domainHub.__canonicalize;
+    result.domainHub = canonicalDraft(result.domainHub, applied.domainHub || {});
+  }
+  return result;
+}
 function fakeApi(calls, preview) {
   let readCount = 0;
   return {
     normalizeError(error) { return { code: error?.code || 'E_TEST', message: error?.message || String(error || 'test error') }; },
-    services: {
-      catalogStatus: () => {
-        calls.push('status');
+    domainHub: {
+      get: () => {
+        calls.push('get');
         readCount += 1;
-        return Promise.resolve({
-          ledger: { revision: 3, enabled: readCount > 1 ? ['alpha', 'beta', 'gamma'] : ['alpha', 'gamma'], catalogDigest: 'catalog-digest-3' },
-          catalog: { valid: true, digestOk: true }
-        });
+        return Promise.resolve(hubSnapshot(readCount > 1 ? ['alpha', 'beta', 'gamma'] : ['alpha', 'gamma'], readCount > 1 ? 4 : 3, readCount > 1 ? 'sha-4' : 'sha-3'));
       },
-      catalogList: () => { calls.push('list'); return Promise.resolve({ ok: true, digest: 'catalog-digest-3', digestOk: true, services: [] }); },
-      catalogPreview: (payload) => { calls.push(['preview', JSON.parse(payload)]); return Promise.resolve(preview); },
-      catalogApply: (payload) => { calls.push(['apply', JSON.parse(payload)]); return Promise.resolve({ ok: true }); }
+      preview: (payload) => {
+        const body = JSON.parse(payload);
+        calls.push(['preview', body]);
+        if (!preview || preview.ok !== true) return Promise.resolve(preview || {});
+        return Promise.resolve(Object.assign({}, preview, { mutated: false, precondition: canonicalPrecondition(preview.precondition) }));
+      },
+      apply: (payload) => { calls.push(['apply', JSON.parse(payload)]); return Promise.resolve({ ok: true }); }
     }
   };
 }
 function coordinatorStore(draft, applied) {
-  return storeModule.create({ draft, applied: applied || {} });
+  applied = applied || {};
+  return storeModule.create({ draft: canonicalDrafts(draft, applied), applied });
 }
 function noShell() { return { showToast() {} }; }
 
 function catalogScenario(options = {}) {
   const calls = [];
   const snapshots = [];
-  const before = { enabled: ['alpha', 'gamma'], revision: 3, fileSha256: 'sha-3' };
-  const after = { enabled: ['alpha', 'beta', 'gamma'], revision: 4, fileSha256: 'sha-4' };
+  const before = hubSnapshot(['alpha', 'gamma'], 3, 'sha-3');
+  const after = hubSnapshot(['alpha', 'beta', 'gamma'], 4, 'sha-4');
   let backend = options.initial || before;
-  let statusReads = 0;
-  function clone(value) { return JSON.parse(JSON.stringify(value)); }
+  let reads = 0;
   function read(name, value) {
     calls.push(name);
     snapshots.push({ name, state: clone(value) });
-    return value;
+    return clone(value);
   }
   const api = {
     normalizeError(error) {
       const value = error?.error && typeof error.error === 'object' ? error.error : error;
       return { code: value?.code || error?.code || 'E_TEST', message: value?.message || error?.message || String(error || 'test error') };
     },
-    services: {
-      catalogStatus: () => {
-        statusReads += 1;
-        const current = statusReads === 1 ? before : backend;
-        return Promise.resolve(read('catalogStatus', {
-          ok: true,
-          ledger: {
-            revision: current.revision, enabled: current.enabled, catalogDigest: 'catalog-digest-' + current.revision
-          },
-          catalog: { valid: true, digestOk: true, catalogVersion: 'backend-catalog' }
-        }));
+    domainHub: {
+      get: () => {
+        reads += 1;
+        return Promise.resolve(read('get', reads === 1 ? before : backend));
       },
-      catalogList: () => Promise.resolve(read('catalogList', {
-        ok: true, digest: 'catalog-digest-3', digestOk: true,
-        services: [{ id: 'alpha' }, { id: 'beta' }, { id: 'gamma' }]
-      })),
-      catalogPreview: (payload) => {
-        calls.push('catalogPreview');
-        snapshots.push({ name: 'catalogPreview', payload: JSON.parse(payload), state: clone(backend) });
-        return Promise.resolve(options.preview || { ok: true, precondition: { ledgerRevision: 3, fileSha256: 'sha-3' } });
+      preview: (payload) => {
+        const body = JSON.parse(payload);
+        calls.push('preview');
+        snapshots.push({ name: 'preview', payload: body, state: clone(backend) });
+        const answer = options.preview || { ok: true, mutated: false, precondition: { revision: 3, fileSha256: 'sha-3', catalogDigest: 'catalog-digest-3' } };
+        if (answer.ok !== true) return Promise.resolve(answer);
+        return Promise.resolve(Object.assign({}, answer, { mutated: false, precondition: canonicalPrecondition(answer.precondition) }));
       },
-      catalogApply: (payload) => {
-        calls.push('catalogApply');
-        snapshots.push({ name: 'catalogApply', payload: JSON.parse(payload), stateBefore: clone(backend) });
+      apply: (payload) => {
+        const body = JSON.parse(payload);
+        calls.push('apply');
+        snapshots.push({ name: 'apply', payload: body, stateBefore: clone(backend) });
         if (options.apply) return Promise.resolve(options.apply);
         backend = after;
         return Promise.resolve({ ok: true });
@@ -145,9 +195,9 @@ test('coordinator is backend-authoritative and has no legacy confirmation workfl
     assert.match(app, new RegExp(`function\\s+${name}\\s*\\(`));
   assert.match(app, /ADAPTERS|adapters/);
   assert.match(app, /reloadAppliedState/);
-  assert.match(app, /verify/);
+  assert.match(readFileSync(`${root}/z2m-coordinator.js`, 'utf8'), /verifyApplied/);
   assert.match(app, /DraftModel\.semanticDiff/);
-  assert.match(app, /DraftModel\.recordApplyResult/);
+  assert.match(readFileSync(`${root}/z2m-draft-model.js`, 'utf8'), /recordApplyResult/);
   assert.doesNotMatch(app, /confirmationTimer|rollback_ttl|confirm_alive|setInterval/);
   assert.doesNotMatch(shellSource, /renderConfirmBar|z2m-confirm-alive|z2m-rollback-now/);
 });
@@ -156,34 +206,36 @@ test('coordinator retains failures, blocks unsupported scopes, and resets withou
   assert.match(store, /snapshotDraft/);
   assert.match(store, /coordinator/);
   assert.match(app, /Unsupported scope/);
-  assert.match(app, /failedScopes/);
-  assert.match(app, /clearedScopes/);
+  assert.match(readFileSync(`${root}/z2m-draft-model.js`, 'utf8'), /failedScopes/);
+  assert.match(readFileSync(`${root}/z2m-draft-model.js`, 'utf8'), /clearedScopes/);
   assert.match(app, /resetDraft/);
-  assert.match(app, /preflight[\s\S]*applyDraft/);
-  assert.match(app, /reloadAppliedState[\s\S]*verify/);
+  assert.match(readFileSync(`${root}/z2m-coordinator.js`, 'utf8'), /preflightDraft[\s\S]*applyDraft/);
+  assert.match(readFileSync(`${root}/z2m-coordinator.js`, 'utf8'), /reloadAppliedState[\s\S]*verifyApplied/);
   assert.doesNotMatch(app, /setConfirmation/);
 });
 
 test('Services apply preserves the full baseline enabled set', async () => {
   const calls = [];
   const api = fakeApi(calls, { ok: true, precondition: { ledgerRevision: 3, fileSha256: 'sha-3' } });
-  const store = coordinatorStore({ services: { changes: { beta: { before: false, after: true } } } }, {
-    services: { enabled: { alpha: true, gamma: true } }
+  const store = coordinatorStore({ domainHub: { __canonicalize: true, changes: { beta: { before: false, after: true } } } }, {
+    domainHub: { __canonicalize: true, enabled: { alpha: true, gamma: true } }
   });
   const coordinator = appView.createCoordinator({
     api, store, shell: noShell(),
-    adapters: { services: appView.createServicesAdapter(api, { resetDraft() {} }) }
+    adapters: { domainHub: appView.createServicesAdapter(api, { resetDraft() {} }) }
   });
   const result = await coordinator.applyDrafts(store.snapshotDraft());
   const apply = calls.find((item) => Array.isArray(item) && item[0] === 'apply');
-  assert.deepEqual(apply[1].enabled, ['alpha', 'beta', 'gamma']);
-  assert.deepEqual(apply[1], { enabled: ['alpha', 'beta', 'gamma'], revision: 3, fileSha256: 'sha-3' });
-  assert.deepEqual(result.clearedScopes, ['services']);
+  assert.deepEqual(apply[1].catalog.enabled, ['alpha', 'beta', 'gamma']);
+  assert.equal(apply[1].expectedRevision, 3);
+  assert.equal(apply[1].expectedCatalogDigest, 'catalog-digest-3');
+  assert.match(apply[1].requestId, /^domain-hub-/);
+  assert.deepEqual(result.clearedScopes, ['domainHub']);
 });
 
 test('successful Services apply rereads backend state, replaces baseline, and clears changed count', async () => {
   const scenario = catalogScenario();
-  const store = coordinatorStore({ services: {
+  const store = coordinatorStore({ domainHub: { __canonicalize: true,
     changes: {
       beta: { before: false, after: true },
       gamma: { before: true, after: true }
@@ -191,58 +243,52 @@ test('successful Services apply rereads backend state, replaces baseline, and cl
     enabled: { alpha: true, beta: true, gamma: true },
     precondition: { ledgerRevision: 3, fileSha256: 'sha-3' }
   } }, {
-    services: { enabled: { alpha: true, gamma: true } }
+    domainHub: { __canonicalize: true, enabled: { alpha: true, gamma: true } }
   });
   const coordinator = appView.createCoordinator({
     api: scenario.api, store, shell: noShell(),
-    adapters: { services: appView.createServicesAdapter(scenario.api, { resetDraft() {} }) }
+    adapters: { domainHub: appView.createServicesAdapter(scenario.api, { resetDraft() {} }) }
   });
 
   const result = await coordinator.applyDrafts(store.snapshotDraft());
 
   assert.deepEqual(scenario.calls, [
-    'catalogStatus', 'catalogList', 'catalogPreview', 'catalogApply',
-    'catalogStatus', 'catalogList'
+    'get', 'preview', 'apply', 'get'
   ]);
-  assert.deepEqual(scenario.snapshots[2], {
-    name: 'catalogPreview',
-    payload: { enabled: ['alpha', 'beta', 'gamma'] },
-    state: { enabled: ['alpha', 'gamma'], revision: 3, fileSha256: 'sha-3' }
-  });
-  assert.deepEqual(scenario.snapshots[3], {
-    name: 'catalogApply',
-    payload: { enabled: ['alpha', 'beta', 'gamma'], revision: 3, fileSha256: 'sha-3' },
-    stateBefore: { enabled: ['alpha', 'gamma'], revision: 3, fileSha256: 'sha-3' }
-  });
-  assert.deepEqual(store.get().applied.services.enabled, {
-    alpha: true, beta: true, gamma: true
-  });
+  assert.equal(scenario.snapshots[1].name, 'preview');
+  assert.deepEqual(scenario.snapshots[1].payload.catalog.enabled, ['alpha', 'beta', 'gamma']);
+  assert.deepEqual(scenario.snapshots[1].state, scenario.baseline);
+  assert.equal(scenario.snapshots[2].name, 'apply');
+  assert.deepEqual(scenario.snapshots[2].payload.catalog.enabled, ['alpha', 'beta', 'gamma']);
+  assert.match(scenario.snapshots[2].payload.requestId, /^domain-hub-/);
+  assert.deepEqual(scenario.snapshots[2].stateBefore, scenario.baseline);
+  assert.deepEqual(store.get().applied.domainHub.catalog.enabled, ['alpha', 'beta', 'gamma']);
   assert.deepEqual(store.get().draft, {});
-  assert.deepEqual(result.clearedScopes, ['services']);
+  assert.deepEqual(result.clearedScopes, ['domainHub']);
   assert.equal(servicesModel.selectors(
     [{ id: 'alpha' }, { id: 'beta' }, { id: 'gamma' }],
-    store.get().applied.services.enabled, {}, '', 'all', 'all'
+    { alpha: true, beta: true, gamma: true }, {}, '', 'all', 'all'
   ).kpis.changed, 0);
 });
 
 async function assertServicesPreconditionMismatch(precondition, expectedMessage) {
   const scenario = catalogScenario({ preview: { ok: true, precondition } });
-  const store = coordinatorStore({ services: {
+  const store = coordinatorStore({ domainHub: { __canonicalize: true,
     changes: { beta: { before: false, after: true } },
     enabled: { alpha: true, beta: true },
     precondition: { ledgerRevision: 3, fileSha256: 'sha-3' }
-  } }, { services: { enabled: { alpha: true } } });
+  } }, { domainHub: { __canonicalize: true, enabled: { alpha: true } } });
   const coordinator = appView.createCoordinator({
     api: scenario.api, store, shell: noShell(),
-    adapters: { services: appView.createServicesAdapter(scenario.api, { resetDraft() {} }) }
+    adapters: { domainHub: appView.createServicesAdapter(scenario.api, { resetDraft() {} }) }
   });
 
   const result = await coordinator.applyDrafts(store.snapshotDraft());
 
-  assert.deepEqual(scenario.snapshots[2].payload, { enabled: ['alpha', 'beta'] });
-  assert.equal(scenario.calls.includes('catalogApply'), false);
-  assert.deepEqual(store.get().applied, { services: { enabled: { alpha: true } } });
-  assert.deepEqual(Object.keys(store.get().draft), ['services']);
+  assert.deepEqual(scenario.snapshots[1].payload.catalog.enabled, ['alpha', 'beta']);
+  assert.equal(scenario.calls.includes('apply'), false);
+  assert.deepEqual(store.get().applied, { domainHub: { __canonicalize: true, enabled: { alpha: true } } });
+  assert.deepEqual(Object.keys(store.get().draft), ['domainHub']);
   assert.equal(result.errors[0].code, 'E_PRECONDITION_MISMATCH');
   assert.match(result.errors[0].message, expectedMessage);
 }
@@ -263,28 +309,28 @@ test('Services backend failure preserves baseline and retains the exact normaliz
   const scenario = catalogScenario({
     apply: { ok: false, error: { code: 'E_CATALOG_CONFLICT', message: 'catalog revision/hash conflict' } }
   });
-  const store = coordinatorStore({ services: {
+  const store = coordinatorStore({ domainHub: { __canonicalize: true,
     changes: { beta: { before: false, after: true } },
     enabled: { alpha: true, beta: true },
     precondition: { ledgerRevision: 3, fileSha256: 'sha-3' }
-  } }, { services: { enabled: { alpha: true } } });
+  } }, { domainHub: { __canonicalize: true, enabled: { alpha: true } } });
   const toasts = [];
   const coordinator = appView.createCoordinator({
     api: scenario.api, store, shell: { showToast(message, kind) { toasts.push({ message, kind }); } },
-    adapters: { services: appView.createServicesAdapter(scenario.api, { resetDraft() {} }) }
+    adapters: { domainHub: appView.createServicesAdapter(scenario.api, { resetDraft() {} }) }
   });
 
   const result = await coordinator.applyDrafts(store.snapshotDraft());
 
-  assert.deepEqual(store.get().applied, { services: { enabled: { alpha: true } } });
-  assert.deepEqual(Object.keys(store.get().draft), ['services']);
+  assert.deepEqual(store.get().applied, { domainHub: { __canonicalize: true, enabled: { alpha: true } } });
+  assert.deepEqual(Object.keys(store.get().draft), ['domainHub']);
   assert.deepEqual(result.errors, [{
-    scope: 'services', code: 'E_CATALOG_CONFLICT', message: 'catalog revision/hash conflict'
+    scope: 'domainHub', code: 'E_CATALOG_CONFLICT', message: 'catalog revision/hash conflict'
   }]);
-  assert.deepEqual(toasts, [{ message: 'services: catalog revision/hash conflict', kind: 'err' }]);
-  assert.equal(scenario.calls.includes('catalogStatus'), true);
-  assert.equal(scenario.calls.includes('catalogList'), true);
-  assert.equal(scenario.calls.filter((call) => call === 'catalogStatus').length, 1);
+  assert.deepEqual(toasts, []);
+  assert.equal(scenario.calls.includes('get'), true);
+  assert.equal(scenario.calls.includes('get'), true);
+  assert.equal(scenario.calls.filter((call) => call === 'get').length, 1);
 });
 
 test('invalid source and stale precondition are explicit Services blockers before mutation', async () => {
@@ -293,19 +339,19 @@ test('invalid source and stale precondition are explicit Services blockers befor
     { code: 'E_REVISION_CONFLICT', message: 'stale catalog revision' }
   ]) {
     const scenario = catalogScenario({ preview: { ok: false, error: failure } });
-    const store = coordinatorStore({ services: {
+    const store = coordinatorStore({ domainHub: { __canonicalize: true,
       changes: { beta: { before: false, after: true } },
       precondition: { ledgerRevision: 3, fileSha256: 'sha-3' }
-    } }, { services: { enabled: { alpha: true } } });
+    } }, { domainHub: { __canonicalize: true, enabled: { alpha: true } } });
     const coordinator = appView.createCoordinator({
       api: scenario.api, store, shell: noShell(),
-      adapters: { services: appView.createServicesAdapter(scenario.api, { resetDraft() {} }) }
+      adapters: { domainHub: appView.createServicesAdapter(scenario.api, { resetDraft() {} }) }
     });
 
     const result = await coordinator.applyDrafts(store.snapshotDraft());
 
-    assert.equal(scenario.calls.includes('catalogApply'), false, failure.code);
-    assert.deepEqual(store.get().applied, { services: { enabled: { alpha: true } } }, failure.code);
+    assert.equal(scenario.calls.includes('apply'), false, failure.code);
+    assert.deepEqual(store.get().applied, { domainHub: { __canonicalize: true, enabled: { alpha: true } } }, failure.code);
     assert.equal(result.errors[0].code, failure.code);
     assert.equal(result.errors[0].message, failure.message);
   }
@@ -314,10 +360,10 @@ test('invalid source and stale precondition are explicit Services blockers befor
 test('Services malformed precondition blocks catalogApply', async () => {
   const calls = [];
   const api = fakeApi(calls, { ok: true, precondition: { ledgerRevision: 3, fileSha256: '' } });
-  const store = coordinatorStore({ services: { changes: { beta: { before: false, after: true } } } });
+  const store = coordinatorStore({ domainHub: { __canonicalize: true, changes: { beta: { before: false, after: true } } } });
   const coordinator = appView.createCoordinator({
     api, store, shell: noShell(),
-    adapters: { services: appView.createServicesAdapter(api, { resetDraft() {} }) }
+    adapters: { domainHub: appView.createServicesAdapter(api, { resetDraft() {} }) }
   });
   const result = await coordinator.applyDrafts(store.snapshotDraft());
   assert.equal(calls.some((item) => Array.isArray(item) && item[0] === 'apply'), false);
@@ -327,22 +373,22 @@ test('Services malformed precondition blocks catalogApply', async () => {
 test('malformed preview blocks mutation and preserves the draft', async () => {
   const calls = [];
   const api = fakeApi(calls, {});
-  const store = coordinatorStore({ services: { changes: { beta: { before: false, after: true } } } });
+  const store = coordinatorStore({ domainHub: { __canonicalize: true, changes: { beta: { before: false, after: true } } } });
   const coordinator = appView.createCoordinator({
     api, store, shell: noShell(),
-    adapters: { services: appView.createServicesAdapter(api, { resetDraft() {} }) }
+    adapters: { domainHub: appView.createServicesAdapter(api, { resetDraft() {} }) }
   });
   const result = await coordinator.applyDrafts(store.snapshotDraft());
   assert.equal(calls.some((item) => Array.isArray(item) && item[0] === 'apply'), false);
-  assert.deepEqual(Object.keys(store.get().draft), ['services']);
-  assert.equal(result.failedScopes[0], 'services');
+  assert.deepEqual(Object.keys(store.get().draft), ['domainHub']);
+  assert.equal(result.failedScopes[0], 'domainHub');
   assert.match(result.errors[0].message, /Предпросмотр|precondition/i);
 });
 
 test('blockers run all preflight gates and never mutate; partial results retain exact failures', async () => {
   const calls = [];
   const store = coordinatorStore({
-    services: { changes: { beta: { before: false, after: true } } },
+    domainHub: { changes: { beta: { before: false, after: true } } },
     dns: { changes: { mode: { before: 'auto', after: 'strict' } } }
   });
   const makeAdapter = (scope, applyResult) => ({
@@ -358,15 +404,15 @@ test('blockers run all preflight gates and never mutate; partial results retain 
     api: { normalizeError(error) { return { code: error?.code || 'E_TEST', message: error?.message || String(error) }; } },
     store, shell: noShell(),
     adapters: {
-      services: makeAdapter('services', { ok: true }),
+      domainHub: makeAdapter('domainHub', { ok: true }),
       dns: makeAdapter('dns', Object.assign(new Error('exact backend failure'), { code: 'E_DNS' }))
     }
   });
   const result = await coordinator.applyDrafts(store.snapshotDraft());
-  assert.deepEqual(calls.slice(0, 4), ['services:read', 'dns:read', 'services:validate', 'dns:validate']);
-  assert.ok(calls.indexOf('services:preview') < calls.indexOf('services:apply'));
+  assert.deepEqual(calls.slice(0, 4), ['domainHub:read', 'dns:read', 'domainHub:validate', 'dns:validate']);
+  assert.ok(calls.indexOf('domainHub:preview') < calls.indexOf('domainHub:apply'));
   assert.ok(calls.indexOf('dns:preview') < calls.indexOf('dns:apply'));
-  assert.deepEqual(result.clearedScopes, ['services']);
+  assert.deepEqual(result.clearedScopes, ['domainHub']);
   assert.deepEqual(result.failedScopes, ['dns']);
   assert.deepEqual(Object.keys(store.get().draft), ['dns']);
   assert.equal(result.errors[0].code, 'E_DNS');
@@ -376,7 +422,7 @@ test('blockers run all preflight gates and never mutate; partial results retain 
 test('a local blocker prevents every mutation call after complete preflight', async () => {
   const calls = [];
   const store = coordinatorStore({
-    services: { changes: { beta: { before: false, after: true } } },
+    domainHub: { changes: { beta: { before: false, after: true } } },
     dns: { changes: { mode: { before: 'auto', after: 'strict' } } }
   });
   const adapter = (scope, valid) => ({
@@ -390,20 +436,20 @@ test('a local blocker prevents every mutation call after complete preflight', as
   });
   const coordinator = appView.createCoordinator({
     api: { normalizeError(error) { return { code: error?.code || 'E_TEST', message: error?.message || String(error) }; } },
-    store, shell: noShell(), adapters: { services: adapter('services', false), dns: adapter('dns', true) }
+    store, shell: noShell(), adapters: { domainHub: adapter('domainHub', false), dns: adapter('dns', true) }
   });
   const result = await coordinator.applyDrafts(store.snapshotDraft());
   assert.equal(calls.some((call) => String(call).endsWith(':apply')), false);
-  assert.ok(calls.includes('services:preview'));
+  assert.equal(calls.includes('domainHub:preview'), false);
   assert.ok(calls.includes('dns:preview'));
-  assert.deepEqual(Object.keys(store.get().draft), ['services', 'dns']);
+  assert.deepEqual(Object.keys(store.get().draft), ['domainHub', 'dns']);
   assert.equal(result.errors[0].message, 'exact local blocker');
 });
 
 test('failed verification leaves the previous applied baseline intact', async () => {
   const calls = [];
-  const store = coordinatorStore({ services: { changes: { beta: { before: false, after: true } } } }, {
-    services: { enabled: { alpha: true } }
+  const store = coordinatorStore({ domainHub: { changes: { beta: { before: false, after: true } } } }, {
+    domainHub: { enabled: { alpha: true } }
   });
   const adapter = {
     supported: true,
@@ -416,25 +462,25 @@ test('failed verification leaves the previous applied baseline intact', async ()
   };
   const coordinator = appView.createCoordinator({
     api: { normalizeError(error) { return { code: error?.code || 'E_TEST', message: error?.message || String(error) }; } },
-    store, shell: noShell(), adapters: { services: adapter }
+    store, shell: noShell(), adapters: { domainHub: adapter }
   });
   const result = await coordinator.applyDrafts(store.snapshotDraft());
-  assert.deepEqual(store.get().applied, { services: { enabled: { alpha: true } } });
-  assert.deepEqual(Object.keys(store.get().draft), ['services']);
+  assert.deepEqual(store.get().applied, { domainHub: { enabled: { alpha: true } } });
+  assert.deepEqual(Object.keys(store.get().draft), ['domainHub']);
   assert.equal(result.errors[0].code, 'verification-failed');
 });
 
 test('unsupported scopes render as semantic diff blockers and pending availability stays disabled', () => {
   const diff = appView.renderSemanticDiff({ unknown: { changes: { value: { before: 1, after: 2 } } } }, {});
   assert.match(diff.textContent, /Unsupported scope: unknown/);
-  const coordinator = appView.createCoordinator({ store: coordinatorStore({ services: { changes: { beta: { before: false, after: true } } } }), shell: noShell() });
+  const coordinator = appView.createCoordinator({ store: coordinatorStore({ domainHub: { changes: { beta: { before: false, after: true } } } }), shell: noShell() });
   assert.deepEqual(coordinator.availability(), {
-    enabled: false, reason: 'Ожидается предварительная проверка.', blockers: []
+    enabled: false, reason: 'Unsupported scope: domainHub', blockers: ['Unsupported scope: domainHub']
   });
 });
 
 test('failed backend reasons remain visible in availability, bar, and semantic diff', async () => {
-  const store = coordinatorStore({ services: { changes: { beta: { before: false, after: true } } } });
+  const store = coordinatorStore({ domainHub: { changes: { beta: { before: false, after: true } } } });
   const adapter = {
     supported: true,
     reloadAppliedState: () => Promise.resolve({ value: {}, revision: 1 }),
@@ -446,7 +492,7 @@ test('failed backend reasons remain visible in availability, bar, and semantic d
   };
   const coordinator = appView.createCoordinator({
     api: { normalizeError(error) { return { code: error?.code || 'E_TEST', message: error?.message || String(error) }; } },
-    store, shell: noShell(), adapters: { services: adapter }
+    store, shell: noShell(), adapters: { domainHub: adapter }
   });
   await coordinator.preflightDraft(store.snapshotDraft());
   const availability = coordinator.availability();
@@ -460,7 +506,7 @@ test('failed backend reasons remain visible in availability, bar, and semantic d
 
 test('known unsupported scopes render a blocker group in the semantic diff', () => {
   const diff = appView.renderSemanticDiff({ lists: { changes: { mode: { before: 'auto', after: 'strict' } } } }, {});
-  assert.match(diff.textContent, /Списки/);
+  assert.match(diff.textContent, /lists/);
   assert.match(diff.textContent, /Unsupported scope: lists/);
 });
 
@@ -617,6 +663,7 @@ test('rollback result routes through the originating adapter and carries backend
     validateDraft: () => Promise.resolve({ ok: true }),
     previewDraft: () => Promise.resolve({ ok: true, precondition: { revision: 1 } }),
     applyDraft: () => Promise.resolve({ ok: true, snapshot: { id: 'dns-snapshot-1' }, revision: 2 }),
+    rollbackProof: (answer) => ({ available: true, snapshot: answer.snapshot, revision: answer.revision }),
     verifyApplied: () => true,
     rollbackResult: (rollback) => {
       calls.push(rollback);
@@ -639,7 +686,7 @@ test('rollback result routes through the originating adapter and carries backend
 });
 
 test('successful scope without an adapter rollback contract exposes no generic rollback', async () => {
-  const store = coordinatorStore({ services: { changes: { alpha: { before: false, after: true } } } });
+  const store = coordinatorStore({ domainHub: { changes: { alpha: { before: false, after: true } } } });
   const adapter = {
     supported: true,
     reloadAppliedState: () => Promise.resolve({ value: {}, revision: 1 }),
@@ -651,7 +698,7 @@ test('successful scope without an adapter rollback contract exposes no generic r
   };
   const coordinator = appView.createCoordinator({
     api: { normalizeError(error) { return { code: error?.code || 'E_TEST', message: error?.message || String(error) }; } },
-    store, shell: noShell(), adapters: { services: adapter }
+    store, shell: noShell(), adapters: { domainHub: adapter }
   });
 
   const result = await coordinator.applyDrafts(store.snapshotDraft());
@@ -753,15 +800,16 @@ test('applicable candidate permits the existing profile preview/apply pipeline',
   assert.deepEqual(result.clearedScopes, ['strategy']);
 });
 
-test('proxy and lists scopes remain explicitly blocked by semantic diff', () => {
+test('supported proxy remains visible while legacy lists and service-dns scopes stay explicitly blocked', () => {
   const diff = appView.renderSemanticDiff({
     lists: { changes: { domainInclude: { before: [], after: ['example.com'] } } },
     proxy: { changes: { enabled: { before: false, after: true } } },
     'service-dns': { changes: { alpha: { before: '', after: 'cloudflare' } } }
   }, {});
   assert.match(diff.textContent, /Unsupported scope: lists/);
-  assert.match(diff.textContent, /Unsupported scope: proxy/);
-  assert.match(diff.textContent, /Unsupported scope: service-dns/);
+  assert.doesNotMatch(diff.textContent, /Unsupported scope: proxy/);
+  assert.match(diff.textContent, /Telegram Proxy/);
+  assert.match(diff.textContent, /DNS сервисов/);
 });
 
 test('point override remains visible with an exact coordinator blocker', async () => {
@@ -774,7 +822,7 @@ test('point override remains visible with an exact coordinator blocker', async (
   const coordinator = appView.createCoordinator({ api, store, shell: noShell(), adapters: { strategy: appView.createStrategyAdapter(api) } });
   await coordinator.preflightDraft(store.snapshotDraft());
   const diff = appView.renderSemanticDiff(store.snapshotDraft(), {}, coordinator.semanticBlockers());
-  assert.match(diff.textContent, /Точечные правила не поддерживаются/);
+  assert.match(diff.textContent, /Точечные правила применяются своим backend-адаптером/);
 });
 
 test('proxy links remain masked in the semantic diff', () => {

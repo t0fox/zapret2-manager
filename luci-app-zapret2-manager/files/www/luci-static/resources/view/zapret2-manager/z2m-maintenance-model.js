@@ -12,6 +12,7 @@ function text(value) {
   return result || null;
 }
 function number(value) {
+  if (value === null || value === undefined || value === '') return null;
   var result = Number(value);
   return isFinite(result) ? result : null;
 }

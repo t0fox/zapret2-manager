@@ -33,6 +33,9 @@ var calls = {
   catalogGet: rpc.declare({ object: 'zapret2-manager', method: 'catalog_get', params: ['edit'], reject: true }),
   catalogPreview: rpc.declare({ object: 'zapret2-manager', method: 'catalog_preview', params: ['edit'], reject: true }),
   catalogApply: rpc.declare({ object: 'zapret2-manager', method: 'catalog_apply', params: ['edit'], reject: true }),
+  domainHubGet: rpc.declare({ object: 'zapret2-manager-domain-hub', method: 'domain_hub_get', reject: true }),
+  domainHubPreview: rpc.declare({ object: 'zapret2-manager-domain-hub', method: 'domain_hub_preview', params: ['edit'], reject: true }),
+  domainHubApply: rpc.declare({ object: 'zapret2-manager-domain-hub', method: 'domain_hub_apply', params: ['edit'], reject: true }),
   healthMatrixGet: rpc.declare({ object: 'zapret2-manager', method: 'health_matrix_get', reject: true }),
   orchestraAutoStatus: rpc.declare({ object: 'zapret2-manager', method: 'orchestra_auto_status', reject: true }),
   orchestraAutoEnable: rpc.declare({ object: 'zapret2-manager', method: 'orchestra_auto_enable', params: ['edit'], reject: true }),
@@ -96,6 +99,7 @@ var calls = {
   backupRestore: rpc.declare({ object: 'zapret2-manager', method: 'backup_restore', params: ['edit'], reject: true }),
   backupDelete: rpc.declare({ object: 'zapret2-manager', method: 'backup_delete', params: ['edit'], reject: true }),
   eventsTail: rpc.declare({ object: 'zapret2-manager', method: 'events_tail', params: ['edit'], reject: true }),
+  monitorSnapshot: rpc.declare({ object: 'zapret2-manager-monitor', method: 'monitor_snapshot', params: ['edit'], reject: true }),
   diagnosticsExport: rpc.declare({ object: 'zapret2-manager', method: 'diagnostics_export', reject: true })
 };
 
@@ -160,6 +164,11 @@ return baseclass.extend({
     apply: calls.profilesApply,
     passthrough: calls.passthrough
   },
+  domainHub: {
+    get: calls.domainHubGet,
+    preview: calls.domainHubPreview,
+    apply: calls.domainHubApply
+  },
   services: {
     catalogList: calls.catalogList,
     catalogStatus: calls.catalogStatus,
@@ -213,7 +222,7 @@ return baseclass.extend({
     linkInfo: calls.proxyLinkInfo,
     quickInstall: calls.proxyQuickInstall
   },
-  monitor: { status: calls.status, eventsTail: calls.eventsTail },
+  monitor: { snapshot: calls.monitorSnapshot, status: calls.status, eventsTail: calls.eventsTail },
   maintenance: {
     versions: calls.versions,
     status: calls.maintenanceStatus,

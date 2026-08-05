@@ -32,10 +32,22 @@ function responseMessage(value, fallback) {
   if (error && typeof error === 'object') return error.message || error.detail || error.code || fallback;
   return error ? String(error) : fallback;
 }
+function responseFailure(value, fallbackCode, fallbackMessage) {
+  if (value && value.ok === true) {
+    var errors = array(value.errors).concat(array(value.blockers));
+    if (!errors.length) return null;
+    value = errors[0];
+  }
+  var error = value && value.error !== undefined ? value.error : value;
+  if (error && typeof error === 'object') return {
+    code: error.code || value && value.code || fallbackCode,
+    message: error.message || error.detail || error.code || fallbackMessage
+  };
+  return { code: value && value.code || fallbackCode, message: error ? String(error) : fallbackMessage };
+}
 function responseBlocker(value, fallback) {
-  if (!value || value.ok === false) return responseMessage(value, fallback);
-  var errors = array(value.errors).concat(array(value.blockers));
-  return errors.length ? responseMessage(errors[0], fallback) : null;
+  var failure = responseFailure(value, 'preflight-blocked', fallback);
+  return failure ? failure.message : null;
 }
 function previewRevision(preview) {
   var precondition = object(preview && preview.precondition);
@@ -83,12 +95,12 @@ function create(options) {
     });
     var coordinator = object(store.get().coordinator);
     var preflight = object(coordinator.preflight);
-    var current = coordinator.status === 'ready' && same(preflight.snapshot, draft);
+    var current = (coordinator.status === 'ready' || coordinator.status === 'blocked') && same(preflight.snapshot, draft);
     if (current) array(preflight.blockers).forEach(function (blocker) {
       if (blockers.indexOf(blocker) < 0) blockers.push(blocker);
     });
     return {
-      enabled: current && scopes.length > 0 && blockers.length === 0,
+      enabled: coordinator.status === 'ready' && current && scopes.length > 0 && blockers.length === 0,
       reason: blockers[0] || (current ? model.reason : 'Ожидается предварительная проверка.'),
       blockers: blockers
     };
@@ -101,20 +113,27 @@ function create(options) {
       ? normalized.code + ': ' + normalized.message : normalized.message;
   }
   function checkPreview(scope, draft, read, preview, adapter) {
-    if (!preview || preview.ok !== true) return responseMessage(preview, 'Предпросмотр недоступен.');
+    if (!preview || preview.ok !== true)
+      return responseFailure(preview, 'E_PREVIEW', 'Предпросмотр недоступен.');
     if (adapter && typeof adapter.previewValid === 'function' && adapter.previewValid(preview) !== true)
-      return 'Предпросмотр не содержит допустимой precondition.';
+      return { code: 'E_PRECONDITION_MISMATCH', message: 'Предпросмотр не содержит допустимой precondition.' };
     var revision = previewRevision(preview);
-    if (revision === null) return 'Предпросмотр не содержит ревизию precondition.';
+    if (revision === null)
+      return { code: 'E_PRECONDITION_MISMATCH', message: 'Предпросмотр не содержит ревизию precondition.' };
     var expected = DraftModel.normalizeScope(scope, draft).revision;
     if (read && read.revision !== null && read.revision !== undefined && String(revision) !== String(read.revision))
-      return 'Preview revision отличается от backend reread.';
+      return { code: 'E_PRECONDITION_MISMATCH', message: 'Preview revision отличается от backend reread.' };
     if (expected !== null && expected !== undefined && String(revision) !== String(expected))
-      return 'Preview revision отличается от revision черновика.';
+      return { code: 'E_PRECONDITION_MISMATCH', message: 'Preview revision отличается от revision черновика.' };
     if (scope === 'domainHub') {
-      var actualDigest = object(preview.precondition).catalogDigest;
-      if (draft.expectedCatalogDigest && actualDigest && draft.expectedCatalogDigest !== actualDigest)
-        return 'Preview catalog digest отличается от черновика.';
+      var precondition = object(preview.precondition);
+      var actualDigest = precondition.catalogDigest;
+      var expectedDigest = draft.expectedCatalogDigest;
+      if (expectedDigest && actualDigest !== expectedDigest)
+        return { code: 'E_PRECONDITION_MISMATCH', message: 'Preview catalog digest отличается от черновика.' };
+      var expectedFile = object(draft.precondition).fileSha256;
+      if (expectedFile && precondition.fileSha256 !== expectedFile)
+        return { code: 'E_PRECONDITION_MISMATCH', message: 'Preview fileSha256 отличается от черновика.' };
     }
     return null;
   }
@@ -138,21 +157,28 @@ function create(options) {
       return Promise.resolve(adapter.reloadAppliedState(context)).then(function (read) {
         states[scope].read = read || {};
         context.applied[scope] = read && read.value || {};
-        if (!read || read.revision === null || read.revision === undefined)
-          states[scope].blocker = states[scope].blocker || 'Ревизия backend недоступна.';
+        if (!read || read.revision === null || read.revision === undefined) {
+          var missingRevision = { code: 'E_REVISION_UNAVAILABLE', message: 'Ревизия backend недоступна.' };
+          states[scope].error = states[scope].error || missingRevision;
+          states[scope].blocker = states[scope].blocker || missingRevision.code + ': ' + missingRevision.message;
+        }
         var expected = states[scope].entry.revision;
         if (expected !== null && expected !== undefined && read && read.revision !== null && read.revision !== undefined &&
-            String(expected) !== String(read.revision))
-          states[scope].blocker = 'Revision conflict: backend state изменился.';
+            String(expected) !== String(read.revision)) {
+          states[scope].error = { code: 'E_REVISION_CONFLICT', message: 'Revision conflict: backend state изменился.' };
+          states[scope].blocker = states[scope].error.code + ': ' + states[scope].error.message;
+        }
       }).catch(function (error) { stageError(states, scope, error); });
     }).then(function () {
       return sequence(scopes, function (scope) {
         var adapter = adapters[scope];
         if (!adapter || adapter.supported !== true || states[scope].blocker) return;
         return Promise.resolve(adapter.validateDraft(scope, snapshot[scope], context)).then(function (answer) {
-          var blocker = responseBlocker(answer, 'Локальная проверка не пройдена.');
-          if (blocker) states[scope].blocker = blocker;
-          else states[scope].validation = answer;
+          var failure = responseFailure(answer, 'E_VALIDATION', 'Локальная проверка не пройдена.');
+          if (failure) {
+            states[scope].error = failure;
+            states[scope].blocker = failure.code + ': ' + failure.message;
+          } else states[scope].validation = answer;
         }).catch(function (error) { stageError(states, scope, error); });
       });
     }).then(function () {
@@ -160,9 +186,11 @@ function create(options) {
         var adapter = adapters[scope];
         if (!adapter || adapter.supported !== true || states[scope].blocker) return;
         return Promise.resolve(adapter.previewDraft(scope, snapshot[scope], context)).then(function (answer) {
-          var blocker = checkPreview(scope, snapshot[scope], states[scope].read, answer, adapter);
-          if (blocker) states[scope].blocker = blocker;
-          else {
+          var failure = checkPreview(scope, snapshot[scope], states[scope].read, answer, adapter);
+          if (failure) {
+            states[scope].error = failure;
+            states[scope].blocker = failure.code + ': ' + failure.message;
+          } else {
             states[scope].preview = answer;
             context.previews[scope] = answer;
           }

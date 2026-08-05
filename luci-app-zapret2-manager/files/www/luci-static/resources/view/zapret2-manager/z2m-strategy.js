@@ -551,7 +551,8 @@ function render(ctx) {
       perAttemptTimeoutSec: 15,
       totalTimeoutSec: 86400
     }).then(function (answer) {
-      if (!answer || answer.ok !== true || !answer.run || !answer.run.runId) throw answer || new Error('corpus run start failed');
+      if (!answer || answer.ok !== true || !answer.run || !answer.run.runId || answer.run.targetCount === 0 || answer.run.totalCandidates === 0)
+        throw answer || new Error('corpus run start failed: 0 targets');
       state.runId = answer.run.runId;
       state.busy = false;
       renderRun(answer.run);
