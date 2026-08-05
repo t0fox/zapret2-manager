@@ -12,7 +12,7 @@ function isMissing(value) {
   return value.installed === false || state === 'engine_missing' || state === 'eengine_missing';
 }
 function normalizeError(ctx, error) {
-  return ctx.api && typeof ctx.api.normalizeError === 'function'
+  return ctx && ctx.api && typeof ctx.api.normalizeError === 'function'
     ? ctx.api.normalizeError(error)
     : { code: error && error.code || 'engine-status-unavailable', message: error && error.message || String(error || _('Состояние движка недоступно.')) };
 }
@@ -32,8 +32,15 @@ function materialize(module) {
   }
   return module || {};
 }
+function loadCore(module, ctx, status) {
+  return Promise.resolve(module.load ? module.load(ctx) : {}).then(function (data) {
+    return envelope(true, status || { installed: true, compatibilityMode: true }, data || {}, null);
+  });
+}
 function loadGuarded(module, ctx) {
-  return Promise.resolve(ctx.api.engine.status()).then(function (status) {
+  var statusCall = ctx && ctx.api && ctx.api.engine && ctx.api.engine.status;
+  if (typeof statusCall !== 'function') return loadCore(module, ctx, null);
+  return Promise.resolve(statusCall()).then(function (status) {
     if (!status || status.ok === false) {
       var backendError = status && status.error || { code: 'engine-status-unavailable', message: _('Backend не вернул состояние движка.') };
       return envelope(false, status, null, normalizeError(ctx, backendError));
@@ -41,9 +48,7 @@ function loadGuarded(module, ctx) {
     if (isMissing(status)) return envelope(false, status, null, null);
     if (status.installed !== true)
       return envelope(false, status, null, normalizeError(ctx, { code: 'engine-status-unavailable', message: _('Наличие движка не подтверждено backend.') }));
-    return Promise.resolve(module.load ? module.load(ctx) : {}).then(function (data) {
-      return envelope(true, status, data || {}, null);
-    });
+    return loadCore(module, ctx, status);
   }, function (error) {
     return envelope(false, null, null, normalizeError(ctx, error));
   });
