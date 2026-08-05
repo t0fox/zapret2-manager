@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   apply:
+    if: ${{ github.event.head_commit.message == 'ci apply chunked verified batch' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -24,7 +25,8 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          base64 -d .github/z2m-verified-batch.tar.gz.b64 > /tmp/z2m-verified-batch.tar.gz
+          cat .github/z2m-batch.chunk-* > /tmp/z2m-verified-batch.b64
+          base64 -d /tmp/z2m-verified-batch.b64 > /tmp/z2m-verified-batch.tar.gz
           echo 'ecff6e064aa6a3f75ee2b31fa7e9eb98d4f0e25b1ba15a57c8618d2c9ac642fe  /tmp/z2m-verified-batch.tar.gz' | sha256sum -c -
           tar -tzf /tmp/z2m-verified-batch.tar.gz | tee /tmp/z2m-batch-files.txt
           if grep -E '(^|/)(tg-ws-proxy|z2m-proxy|proxy\.uc|zapret2-manager-proxy-provider)' /tmp/z2m-batch-files.txt; then
@@ -59,6 +61,8 @@ jobs:
         run: |
           set -euo pipefail
           rm -f .github/z2m-verified-batch.tar.gz.b64
+          rm -f .github/z2m-batch.chunk-*
+          rm -f .github/z2m-batch.trigger
           rm -f .github/workflows/apply-verified-nonproxy-batch.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
