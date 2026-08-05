@@ -24,6 +24,7 @@ test('profiles apply requires complete verified native and Lua coverage', () => 
     'executionPlan'
   ]) assert.match(source, new RegExp(`coverage\\.${field} == 'passed'`));
 
-  assert.match(source, /preview\.native\.status != 'verified'/);
+  assert.match(source, /let native = [\s\S]*native_preflight\(preview\.candidate\)/);
+  assert.match(source, /!full_native_verified\(native\)/);
   assert.match(source, /profiles_apply_preview\(\)[\s\S]*profiles_apply_run\(\)/);
 });
