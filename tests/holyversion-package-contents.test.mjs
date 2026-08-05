@@ -43,7 +43,7 @@ test('LuCI package wildcard installs all JS and CSS modules', () => {
 });
 
 test('changed packages share one release candidate number', () => {
-  assert.deepEqual([release(backend), release(luci), release(meta)], [145, 145, 145]);
+  assert.deepEqual([release(backend), release(luci), release(meta)], [146, 146, 146]);
 });
 
 test('package source trees do not ship tests, reference HTML or external assets', () => {

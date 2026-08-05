@@ -88,7 +88,7 @@ test('backend, LuCI and full-stack package releases are synchronized', () => {
   const luci = readFileSync(join(REPO, 'luci-app-zapret2-manager/Makefile'), 'utf8');
   const full = readFileSync(join(REPO, 'zapret2-manager-full/Makefile'), 'utf8');
   const releases = [packageRelease(backend), packageRelease(luci), packageRelease(full)];
-  assert.deepEqual(releases, [145, 145, 145]);
+  assert.deepEqual(releases, [146, 146, 146]);
 });
 
 test('compatibility redirects remain shipped but are not registered as LuCI child tabs', () => {
