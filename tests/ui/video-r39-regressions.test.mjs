@@ -16,7 +16,7 @@ const dnsPage = [
   local(`${ui}/z2m-dns-service-model.js`),
   local(`${ui}/z2m-dns-service-adapter.js`)
 ].join('\n');
-const proxyPage = local(`${ui}/z2m-proxy-page.js`);
+const proxyPage = local(`${ui}/z2m-proxy-page.js`) + local(`${ui}/z2m-proxy-page-core.js`);
 const proxyApi = local(`${ui}/z2m-proxy-provider-api.js`);
 const proxyCli = local(`${backend}/proxy-provider-cli.uc`);
 const proxyPreflight = local(`${backend}/proxy-provider-preflight.uc`);
@@ -50,15 +50,15 @@ test('Service DNS is unblocked without legacy wrappers', () => {
 });
 
 test('TG Proxy impossible installs are disabled before mutation', () => {
-  assert.match(proxyPreflight, /apk add --simulate --no-interactive/);
+  assert.match(proxyPreflight, /command -v apk/);
   assert.match(proxyPreflight, /available:/);
   assert.doesNotMatch(proxyPreflight, /allow-untrusted/);
   assert.match(proxyCli, /proxy_provider_preflight/);
   assert.match(proxyRpc, /proxy_provider_preflight/);
   assert.match(proxyApi, /proxy_provider_preflight/);
-  assert.match(proxyPage, /row\.available === true/);
-  assert.match(proxyPage, /action\.disabled = true/);
-  assert.match(proxyPage, /aria-disabled/);
+  assert.match(proxyPage, /preflight\.available === false/);
+  assert.match(proxyPage, /update\.installable === false/);
+  assert.match(proxyPage, /checkToken/);
   assert.match(acl, /proxy_provider_preflight/);
 });
 

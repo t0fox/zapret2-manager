@@ -3,8 +3,8 @@
 import { popen } from 'fs';
 
 const TARGETS = [
-	{ provider: 'rust', package: 'tg-ws-proxy-rs', packageVersion: '1.7.1-r1' },
-	{ provider: 'go', package: 'tg-ws-proxy-go', packageVersion: '0.9.3-r2' }
+	{ provider: 'rust', package: 'tg-ws-proxy-rs' },
+	{ provider: 'go', package: 'tg-ws-proxy-go' }
 ];
 
 function run(command) {
@@ -16,15 +16,12 @@ function run(command) {
 }
 
 function probe(target) {
-	let exact = target.package + '=' + target.packageVersion;
-	let result = run('apk add --simulate --no-interactive ' + exact);
+	let result = run('command -v apk');
 	return {
 		provider: target.provider,
 		package: target.package,
-		packageVersion: target.packageVersion,
 		available: result.rc == 0,
-		reason: result.rc == 0 ? null :
-			'Пакет ' + exact + ' недоступен в настроенных доверенных APK-репозиториях.',
+		reason: result.rc == 0 ? null : 'Пакетный менеджер APK недоступен.',
 		detail: result.rc == 0 ? null : substr(result.out, 0, 512)
 	};
 }
