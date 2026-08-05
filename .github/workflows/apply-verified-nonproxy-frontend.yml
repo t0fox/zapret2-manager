@@ -13,7 +13,7 @@ env:
 
 jobs:
   apply:
-    if: ${{ github.event.head_commit.message == 'ci: arm verified non-proxy frontend patch' }}
+    if: "${{ github.event.head_commit.message == 'ci arm verified non-proxy frontend patch' }}"
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
