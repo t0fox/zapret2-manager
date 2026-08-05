@@ -2,7 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { collectFacadeMethods } from '../tools/ui-rpc-contract.mjs';
-const contract=readFileSync('docs/frontend-backend-contract.md','utf8');
+const contract=[
+  readFileSync('docs/frontend-backend-contract.md','utf8'),
+  readFileSync('docs/engine-providers.md','utf8')
+].join('\n');
 const api=readFileSync('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js','utf8');
 test('every central facade RPC method is named in the frozen contract',()=>{const missing=collectFacadeMethods().filter(method=>!contract.includes('`'+method+'`')&&!contract.includes(method));assert.deepEqual(missing,[]);});
 test('contract documents positional JSON edit transport and rejected ubus errors',()=>{assert.match(contract,/params: \['edit'\]/);assert.match(contract,/one positional JSON string/i);assert.match(contract,/reject: true/);assert.match(api,/params\s*:\s*\['edit'\]/);});

@@ -117,6 +117,13 @@
     "backup_restore",
     "backup_restore_preview",
     "diagnostics_export",
+    "engine_check_updates",
+    "engine_install",
+    "engine_operation_cancel",
+    "engine_operation_status",
+    "engine_providers",
+    "engine_remove",
+    "engine_status",
     "events_tail",
     "maintenance_status",
     "versions"
