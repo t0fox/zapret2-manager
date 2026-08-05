@@ -4,6 +4,33 @@ import { readFileSync } from 'node:fs';
 
 const source = readFileSync('zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager-engine.uc', 'utf8');
 
+function bracketDepth(input) {
+  let depth = 0, quote = null, escaped = false;
+  for (let i = 0; i < input.length; i++) {
+    const char = input[i], next = input[i + 1];
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '/' && next === '/') {
+      i = input.indexOf('\n', i);
+      if (i < 0) break;
+      continue;
+    }
+    if (char === "'" || char === '"') quote = char;
+    else if (char === '{') depth++;
+    else if (char === '}') depth--;
+    assert.ok(depth >= 0, 'closing brace appears before an opening brace');
+  }
+  return depth;
+}
+
+test('engine RPC source is lexically balanced', () => {
+  assert.equal(bracketDepth(source), 0);
+});
+
 test('engine RPC stages bounded edits in private collision-resistant files', () => {
   assert.match(source, /MAX_EDIT=16384/);
   assert.match(source, /umask 077; mktemp \/tmp\/z2m-engine-edit\.XXXXXX/);
