@@ -3,22 +3,26 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const root = process.env.PATCH_ROOT || '/mnt/data/patch-r39';
-const read = (name) => fs.readFileSync(path.join(root, name), 'utf8');
+const patchRoot = process.env.PATCH_ROOT || null;
+const ui = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager';
+const backend = 'zapret2-manager/files/usr/libexec/zapret2-manager';
+const rpcd = 'zapret2-manager/files/usr/share/rpcd/ucode';
+const local = (repoPath, patchName = path.basename(repoPath)) =>
+  fs.readFileSync(patchRoot ? path.join(patchRoot, patchName) : repoPath, 'utf8');
 
-const guards = read('z2m-runtime-guards.js');
+const guards = local(`${ui}/z2m-runtime-guards.js`);
 const dnsPage = [
-  read('z2m-dns-page.js'),
-  read('z2m-dns-service-model.js'),
-  read('z2m-dns-service-adapter.js')
+  local(`${ui}/z2m-dns-page.js`),
+  local(`${ui}/z2m-dns-service-model.js`),
+  local(`${ui}/z2m-dns-service-adapter.js`)
 ].join('\n');
-const proxyPage = read('z2m-proxy-page.js');
-const proxyApi = read('z2m-proxy-provider-api.js');
-const proxyCli = read('proxy-provider-cli.uc');
-const proxyPreflight = read('proxy-provider-preflight.uc');
-const proxyRpc = read('zapret2-manager-proxy-provider.uc');
-const acl = read('luci-app-zapret2-manager.json');
-const workflow = read('z2m-strategy-workflow.js');
+const proxyPage = local(`${ui}/z2m-proxy-page.js`);
+const proxyApi = local(`${ui}/z2m-proxy-provider-api.js`);
+const proxyCli = local(`${backend}/proxy-provider-cli.uc`);
+const proxyPreflight = local(`${backend}/proxy-provider-preflight.uc`);
+const proxyRpc = local(`${rpcd}/zapret2-manager-proxy-provider.uc`);
+const acl = local('luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json');
+const workflow = local(`${ui}/z2m-strategy-workflow.js`);
 
 test('video regression: literal null nodes are removed and status is dataplane-aware', () => {
   assert.match(guards, /MutationObserver/);
@@ -34,7 +38,7 @@ test('video regression: literal null nodes are removed and status is dataplane-a
 
 test('Service DNS is unblocked without legacy wrappers', () => {
   assert.doesNotMatch(dnsPage, /-legacy|return Legacy/);
-  assert.match(dnsPage, /profilesFrom|value\.profiles|providers: options/);
+  assert.match(dnsPage, /value\.profiles|providers: options/);
   assert.match(dnsPage, /applicable:\s*true/);
   assert.match(dnsPage, /serviceSet/);
   assert.match(dnsPage, /servicePreview/);
