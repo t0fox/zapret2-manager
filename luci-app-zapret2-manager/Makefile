@@ -17,7 +17,7 @@ define Package/luci-app-zapret2-manager
   CATEGORY:=LuCI
   SUBMENU:=3. Applications
   TITLE:=LuCI frontend for zapret2-manager
-  DEPENDS:=luci-base zapret2-manager
+  DEPENDS:=+luci-base +zapret2-manager
 endef
 
 define Package/luci-app-zapret2-manager/description
@@ -48,17 +48,11 @@ define Package/luci-app-zapret2-manager/install
 		$(INSTALL_DATA) $(js) $(1)/www/luci-static/resources/view/zapret2-manager/;)
 	$(foreach css,$(wildcard ./files/www/luci-static/resources/view/zapret2-manager/*.css), \
 		$(INSTALL_DATA) $(css) $(1)/www/luci-static/resources/view/zapret2-manager/;)
-	# Load the final local responsive guardrails before the base rules. The
-	# imported file ships in the same package and contains no external assets.
-	( printf '%s\n' '@import url("z2m-holyversion.css");'; \
-	  cat $(1)/www/luci-static/resources/view/zapret2-manager/z2m-ui.css; ) \
-	  > $(1)/www/luci-static/resources/view/zapret2-manager/z2m-ui.css.tmp
-	mv $(1)/www/luci-static/resources/view/zapret2-manager/z2m-ui.css.tmp \
-	  $(1)/www/luci-static/resources/view/zapret2-manager/z2m-ui.css
 endef
 
 define Package/luci-app-zapret2-manager/postinst
 #!/bin/sh
+[ -n "$${IPKG_INSTROOT:-}" ] && exit 0
 rm -f /tmp/luci-indexcache*
 rm -rf /tmp/luci-modulecache 2>/dev/null || true
 exit 0
@@ -66,6 +60,7 @@ endef
 
 define Package/luci-app-zapret2-manager/postrm
 #!/bin/sh
+[ -n "$${IPKG_INSTROOT:-}" ] && exit 0
 rm -f /tmp/luci-indexcache*
 rm -rf /tmp/luci-modulecache 2>/dev/null || true
 exit 0
