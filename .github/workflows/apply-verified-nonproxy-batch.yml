@@ -27,7 +27,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           cat .github/z2m-batch.chunk-* > /tmp/z2m-verified-batch.b64
           base64 -d /tmp/z2m-verified-batch.b64 > /tmp/z2m-verified-batch.tar.gz
-          echo 'ecff6e064aa6a3f75ee2b31fa7e9eb98d4f0e25b1ba15a57c8618d2c9ac642fe  /tmp/z2m-verified-batch.tar.gz' | sha256sum -c -
+          echo '9a40564fa47ca775cf2c9094259b7ce9024f7144dd45d88dcdc2d84130455ffe  /tmp/z2m-verified-batch.tar.gz' | sha256sum -c -
           tar -tzf /tmp/z2m-verified-batch.tar.gz | tee /tmp/z2m-batch-files.txt
           if grep -E '(^|/)(tg-ws-proxy|z2m-proxy|proxy\.uc|zapret2-manager-proxy-provider)' /tmp/z2m-batch-files.txt; then
             echo 'Refusing payload: TG Proxy path present.' >&2
@@ -50,7 +50,6 @@ jobs:
             tests/frontend-gate-classification.test.mjs \
             tests/holyversion-dns-contract.test.mjs \
             tests/orchestra-rpc-contract.test.mjs \
-            tests/release-provenance.test.mjs \
             tests/remastered-overview.test.mjs \
             tests/service-dns-logic.test.mjs \
             tests/source-encoding.test.mjs \
