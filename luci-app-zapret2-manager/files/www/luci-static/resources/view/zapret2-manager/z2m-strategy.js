@@ -159,14 +159,14 @@ function createAdapter(api) {
       var draft = object(value);
       var previews = context && context.previews || {};
       var preview = previews.strategy || context && context.preview || {};
-      var candidate = object(preview.candidate);
-      if (draft.candidateId === null || draft.candidateId === undefined || candidate.applicable !== true)
-        return Promise.reject({ code: 'candidate-blocked', message: candidate.validationMessage || _('Применение стратегии заблокировано backend.') });
+      var selected = object(preview.candidate);
+      if (draft.candidateId === null || draft.candidateId === undefined || !candidateApplicable(selected))
+        return Promise.reject({ code: 'candidate-blocked', message: selected.validationMessage || _('Применение стратегии заблокировано backend.') });
       if (hasProfileDraft(draft) && api.profiles && typeof api.profiles.apply === 'function')
         return edit(api.profiles.apply, { mode: 'apply' });
       return edit(api.strategy.apply, {
         candidateId: draft.candidateId,
-        expectedDigest: candidate.digest,
+        expectedDigest: selected.digest,
         wideAcknowledged: true,
         includeOverrides: true,
         idempotencyToken: 'luci-global-' + Date.now()
@@ -405,6 +405,7 @@ function render(ctx) {
   var appliedItem = active(preview);
   var appliedId = candidateId(appliedItem);
   var pendingId = selectedId(ctx, list, preview);
+  var selected = strategyCandidate(preview, pendingId);
   var advanced = !!(ctx.store.get().ui && ctx.store.get().ui.advanced);
   if (!advanced && (state.subtab === 'chain' || state.subtab === 'check')) state.subtab = 'list';
   if (run.runId && activePhase(run.phase)) state.runId = run.runId;
@@ -426,7 +427,8 @@ function render(ctx) {
     } else {
       select(ctx, id, candidate);
     }
-    reload();
+    if (ctx.rerender) ctx.rerender();
+    else reload();
   }
   function openApply() {
     if (ctx.openSemanticDiff) ctx.openSemanticDiff();
@@ -536,7 +538,10 @@ function render(ctx) {
       if (state.timer) window.clearTimeout(state.timer);
       state.timer = null;
       state.runId = null;
-      if (!missingRunError(error)) showError(error);
+      if (missingRunError(error)) {
+        shell.showToast(_('Запуск больше не найден. Активное состояние очищено.'), 'warn');
+        reload();
+      } else showError(error);
     });
   }
   function startCorpus() {
@@ -549,10 +554,16 @@ function render(ctx) {
       protocols: ['tcp_https'],
       repeats: 1,
       perAttemptTimeoutSec: 15,
-      totalTimeoutSec: 86400
+      totalTimeoutSec: 600
     }).then(function (answer) {
-      if (!answer || answer.ok !== true || !answer.run || !answer.run.runId || answer.run.targetCount === 0 || answer.run.totalCandidates === 0)
-        throw answer || new Error('corpus run start failed: 0 targets');
+      if (!answer || answer.ok !== true || !answer.run || !answer.run.runId)
+        throw answer || new Error('corpus run start failed');
+      if (Number(answer.run.targetCount) === 0 || Number(answer.run.candidateCount || answer.run.totalCandidates) === 0)
+        throw {
+          code: 'empty-run',
+          message: _('Backend не получил целей или применимых стратегий для запуска.'),
+          detail: 'corpus run start failed: 0 targets or candidates'
+        };
       state.runId = answer.run.runId;
       state.busy = false;
       renderRun(answer.run);
@@ -608,7 +619,7 @@ function render(ctx) {
         ? format.decimal(ranking.medianDurationMs, 0) + ' мс' : null;
       var action = isApplied ? shell.chip(_('активна'), 'g') :
         isPending ? shell.chip(_('выбрана'), 'o') :
-        candidateApplicable(candidate) ? E('span', { 'class': 'z2m-btn sm' }, _('Выбрать')) : null;
+        candidateApplicable(candidate) ? E('span', { 'class': 'z2m-btn sm' }, _('Выбрать')) : shell.chip(_('нельзя применить'), 'r');
       var row = E(candidateApplicable(candidate) ? 'button' : 'div', {
         type: candidateApplicable(candidate) ? 'button' : null,
         'class': 'z2m-srow' + (isApplied || isPending ? ' sel' : '') + (!candidateApplicable(candidate) ? ' z2m-readonly-row' : ''),
@@ -857,11 +868,12 @@ function render(ctx) {
 
   var headActions = [];
   if (corpus) headActions.push(shell.button(_('Перепроверить все'), 'sm', startCorpus, state.busy || !!state.runId));
-  if (pendingId && pendingId !== appliedId) headActions.push(shell.button(_('Показать различия'), 'primary sm', openApply));
+  if (pendingId && pendingId !== appliedId)
+    headActions.push(shell.button(_('Применить'), 'primary sm', openApply, !candidateApplicable(selected)));
 
   return E('section', { 'class': 'z2m-view on', id: 'z2m-view-strategy' }, compact([
     E('div', { 'class': 'z2m-phead' }, [
-      E('div', {}, [E('h1', {}, _('Стратегия')), E('p', {}, _('Выбор и проверка способа обхода DPI'))]),
+      E('div', {}, [E('h1', {}, _('Стратегия')), E('p', {}, _('Выбор и проверка способа обхода DPI. Выбор стратегии не меняет runtime до общего применения.'))]),
       headActions.length ? E('div', { 'class': 'sp z2m-btnrow' }, headActions) : null
     ]),
     pageWarnings.length ? pageWarnings : null,
@@ -885,9 +897,13 @@ function mount(ctx) {
             return;
           }
           state.timer = window.setTimeout(tick, 1800);
-        }).catch(function () {
+        }).catch(function (error) {
           state.timer = null;
           state.runId = null;
+          if (missingRunError(error)) {
+            ctx.shell.showToast(_('Запуск больше не найден. Активное состояние очищено.'), 'warn');
+            ctx.refresh('strategy');
+          }
         });
       }, 1800);
     }

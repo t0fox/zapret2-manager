@@ -61,12 +61,15 @@ function load(ctx) {
   });
 }
 
+function rerender(ctx) {
+  return typeof ctx.rerender === 'function' ? ctx.rerender() : ctx.refresh('services');
+}
 function stage(ctx, next) {
   state.working = next;
   var draft = DomainHubModel.draft(state.baseline, next);
   if (draft) ctx.setDraft('services', draft);
   else ctx.clearDraft('services');
-  return ctx.refresh('services');
+  return rerender(ctx);
 }
 function currentDraft(ctx) {
   return ctx.store.get().draft && ctx.store.get().draft.services || null;
@@ -137,7 +140,7 @@ function renderCatalog(ctx) {
   });
   search.addEventListener('input', function () {
     state.query = search.value;
-    ctx.refresh('services');
+    rerender(ctx);
   });
   var filter = E('select', { 'aria-label': _('Фильтр состояния') }, [
     E('option', { value: 'all' }, _('Все')),
@@ -145,14 +148,14 @@ function renderCatalog(ctx) {
     E('option', { value: 'off' }, _('Выключенные'))
   ]);
   filter.value = state.filter;
-  filter.addEventListener('change', function () { state.filter = filter.value; ctx.refresh('services'); });
+  filter.addEventListener('change', function () { state.filter = filter.value; rerender(ctx); });
   var categoryFilter = E('select', { 'aria-label': _('Фильтр категории') }, [
     E('option', { value: 'all' }, _('Все категории'))
   ].concat(array(working.categories).map(function (category) {
     return E('option', { value: category }, categoryLabel(category));
   })));
   categoryFilter.value = state.category;
-  categoryFilter.addEventListener('change', function () { state.category = categoryFilter.value; ctx.refresh('services'); });
+  categoryFilter.addEventListener('change', function () { state.category = categoryFilter.value; rerender(ctx); });
 
   var categoryControls = array(working.categories).map(function (category) {
     var rows = working.packages.filter(function (item) { return item.category === category; });

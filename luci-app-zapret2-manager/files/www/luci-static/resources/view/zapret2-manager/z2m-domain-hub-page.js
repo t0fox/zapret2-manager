@@ -40,7 +40,9 @@ function createAdapter(api, module) {
   var core = Services.createAdapter(api, module || Services);
   core.rollbackProof = function (answer) {
     var rollback = answer && answer.rollback || {};
-    if (rollback.available !== true || !rollback.snapshotId) return null;
+    if (!answer || answer.ok !== true || answer.verified !== true ||
+        rollback.available !== true || rollback.verified !== true ||
+        !rollback.snapshotId || !rollback.expectedRevision) return null;
     return {
       available: true,
       snapshot: rollback.snapshotId,
@@ -48,6 +50,8 @@ function createAdapter(api, module) {
     };
   };
   core.rollbackResult = function (result) {
+    if (!result || result.available !== true || !result.snapshot || !result.revision)
+      return Promise.reject({ code: 'rollback-unavailable', message: 'Domain Hub rollback proof is incomplete.' });
     return edit(api.domainHub.apply, {
       rollbackSnapshotId: result.snapshot,
       expectedRevision: result.revision,

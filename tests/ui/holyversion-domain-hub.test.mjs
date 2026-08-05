@@ -4,6 +4,7 @@ import { evaluateLuciModule } from '../../tools/luci-module-smoke.mjs';
 
 const root = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager';
 const model = evaluateLuciModule(`${root}/z2m-domain-hub-model.js`);
+const page = evaluateLuciModule(`${root}/z2m-domain-hub-page.js`);
 
 const snapshot = {
   revision: 'rev-1',
@@ -111,4 +112,42 @@ test('draft payload carries exact revision digest and semantic changes', () => {
 test('empty semantic delta produces no draft', () => {
   const state = model.normalize(snapshot);
   assert.equal(model.draft(state, state), null);
+});
+
+
+test('rollback proof requires a verified targetable backend snapshot', () => {
+  const api = { domainHub: {
+    get: () => Promise.resolve({}),
+    preview: () => Promise.resolve({}),
+    apply: () => Promise.resolve({})
+  } };
+  const adapter = page.createAdapter(api, { resetDraft() {} });
+  const rollback = { available: true, verified: true, snapshotId: 'snap-1', expectedRevision: 'rev-2' };
+  assert.equal(adapter.rollbackProof({ ok: false, verified: true, rollback }), null);
+  assert.equal(adapter.rollbackProof({ ok: true, verified: false, rollback }), null);
+  assert.equal(adapter.rollbackProof({ ok: true, verified: true, rollback: { ...rollback, verified: false } }), null);
+  assert.equal(adapter.rollbackProof({ ok: true, verified: true, rollback: { ...rollback, expectedRevision: null } }), null);
+  assert.deepEqual(adapter.rollbackProof({ ok: true, verified: true, rollback }), {
+    available: true, snapshot: 'snap-1', revision: 'rev-2'
+  });
+});
+
+test('rollback apply rejects incomplete proof before any RPC mutation', async () => {
+  const calls = [];
+  const api = { domainHub: {
+    get: () => Promise.resolve({}),
+    preview: () => Promise.resolve({}),
+    apply: (payload) => { calls.push(JSON.parse(payload)); return Promise.resolve({ ok: true }); }
+  } };
+  const adapter = page.createAdapter(api, { resetDraft() {} });
+  await assert.rejects(adapter.rollbackResult({ available: true, snapshot: 'snap-1' }), (error) => {
+    assert.equal(error.code, 'rollback-unavailable');
+    assert.match(error.message, /rollback proof is incomplete/i);
+    return true;
+  });
+  assert.equal(calls.length, 0);
+  await adapter.rollbackResult({ available: true, snapshot: 'snap-1', revision: 'rev-2' });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].rollbackSnapshotId, 'snap-1');
+  assert.equal(calls[0].expectedRevision, 'rev-2');
 });

@@ -8,7 +8,7 @@ import { evaluateLuciModule } from '../../tools/luci-module-smoke.mjs';
 
 const root = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager';
 const MODULES = [
-  'z2m-overview.js', 'z2m-strategy-page.js', 'z2m-services.js', 'z2m-lists.js',
+  'z2m-overview.js', 'z2m-strategy-page.js', 'z2m-domain-hub-page.js', 'z2m-lists.js',
   'z2m-dns.js', 'z2m-proxy.js', 'z2m-monitor.js', 'z2m-maintenance.js'
 ];
 
@@ -182,7 +182,7 @@ const healthyData = {
     },
     auto: { value: { ok: true, enabled: false, phase: 'disabled', revision: 1, serviceIds: [], capabilities: {} } }
   },
-  'z2m-services.js': {
+  'z2m-domain-hub-page.js': {
     hub: { value: {
       ok: true,
       revision: '8',
@@ -222,7 +222,9 @@ function context(data, hooks = {}) {
   const state = store();
   return {
     api: apiTree(), shell, store: state, data, root: makeNode('main'), initial: {},
-    navigate() {}, refresh() { return Promise.resolve(); },
+    navigate() {},
+    refresh(scope) { hooks.onRefresh?.(scope); return Promise.resolve(); },
+    rerender() { hooks.onRerender?.(); return Promise.resolve(); },
     setDraft(scope, value) { state.setDraft(scope, value); },
     clearDraft(scope) { state.clearDraft(scope); }, openSemanticDiff() { hooks.openSemanticDiff?.(); }
   };
@@ -277,10 +279,15 @@ test('Overview unavailable state does not fabricate strategy or metrics', () => 
   assert.doesNotMatch(tree.textContent, /Flowseal ALT11|57 \/ 61|312 мс/);
 });
 
-test('Services render harness uses the canonical Domain Hub catalogue', () => {
-  const mod = evaluateLuciModule(`${root}/z2m-services.js`, overrides, cache);
+test('Domain Hub render harness uses the canonical backend snapshot and cached rerender', () => {
+  const mod = evaluateLuciModule(`${root}/z2m-domain-hub-page.js`, overrides, cache);
   mod.resetDraft();
-  const ctx = context(healthyData['z2m-services.js']);
+  let refreshes = 0;
+  let rerenders = 0;
+  const ctx = context(healthyData['z2m-domain-hub-page.js'], {
+    onRefresh() { refreshes += 1; },
+    onRerender() { rerenders += 1; }
+  });
   const tree = mod.render(ctx);
   for (const selector of ['.z2m-service-toolbar', '.z2m-service-categories', '.z2m-service-category', '.z2m-service-row'])
     assert.ok(tree.querySelector(selector), selector);
@@ -292,17 +299,20 @@ test('Services render harness uses the canonical Domain Hub catalogue', () => {
   const betaSwitch = betaRow && betaRow.querySelectorAll('button').find((node) => node.attrs.role === 'switch');
   assert.ok(betaSwitch && betaSwitch.listeners.click);
   betaSwitch.listeners.click({ type: 'click', preventDefault() {} });
-  const draft = ctx.store.get().draft.services;
+  const draft = ctx.store.get().draft.domainHub;
   assert.ok(draft);
   assert.equal(draft.expectedRevision, '8');
   assert.equal(draft.expectedCatalogDigest, 'catalog-digest-8');
   assert.deepEqual(draft.catalog.enabled, ['alpha', 'beta']);
+  assert.equal(ctx.store.get().draft.services, undefined);
+  assert.equal(rerenders, 1, 'local Domain Hub edits must rerender cached data');
+  assert.equal(refreshes, 0, 'local Domain Hub edits must not refetch backend state');
 });
 
-test('Services renders backend reread as the applied Domain Hub baseline', () => {
-  const mod = evaluateLuciModule(`${root}/z2m-services.js`, overrides, cache);
+test('Domain Hub renders backend reread as the applied baseline', () => {
+  const mod = evaluateLuciModule(`${root}/z2m-domain-hub-page.js`, overrides, cache);
   mod.resetDraft();
-  const data = structuredClone(healthyData['z2m-services.js']);
+  const data = structuredClone(healthyData['z2m-domain-hub-page.js']);
   data.hub.value.catalog.enabled = ['alpha', 'beta'];
   data.hub.value.revision = '9';
   data.hub.value.precondition.revision = '9';
@@ -311,10 +321,10 @@ test('Services renders backend reread as the applied Domain Hub baseline', () =>
   assert.doesNotMatch(tree.textContent, /будет включено|будет выключено/);
 });
 
-test('Services category switch uses one native click path', () => {
-  const mod = evaluateLuciModule(`${root}/z2m-services.js`, overrides, cache);
+test('Domain Hub category switch uses one native click path', () => {
+  const mod = evaluateLuciModule(`${root}/z2m-domain-hub-page.js`, overrides, cache);
   mod.resetDraft();
-  const tree = mod.render(context(healthyData['z2m-services.js']));
+  const tree = mod.render(context(healthyData['z2m-domain-hub-page.js']));
   const categorySwitch = tree.querySelectorAll('button').find((node) => node.attrs.role === 'switch' && node.attrs['aria-label'] === 'Видео');
   assert.ok(categorySwitch);
   assert.equal(categorySwitch.attrs['data-state'], 'mixed');
@@ -324,21 +334,21 @@ test('Services category switch uses one native click path', () => {
   assert.equal(categorySwitch.attrs['data-state'], 'off');
 });
 
-test('Services fails closed when the Domain Hub envelope is unavailable', () => {
-  const mod = evaluateLuciModule(`${root}/z2m-services.js`, overrides, cache);
+test('Domain Hub fails closed when the backend envelope is unavailable', () => {
+  const mod = evaluateLuciModule(`${root}/z2m-domain-hub-page.js`, overrides, cache);
   mod.resetDraft();
   const ctx = context({ hub: { error: { code: 'EUNAVAILABLE', message: 'Domain Hub unavailable' } } });
   const tree = mod.render(ctx);
   assert.match(tree.textContent, /Domain hub недоступен/i);
   assert.match(tree.textContent, /Domain Hub unavailable/);
   assert.equal(tree.querySelectorAll('button').some((node) => node.attrs.role === 'switch'), false);
-  assert.equal(ctx.store.get().draft.services, undefined);
+  assert.equal(ctx.store.get().draft.domainHub, undefined);
 });
 
-test('Services canonical subtabs update class and aria-selected state', () => {
-  const mod = evaluateLuciModule(`${root}/z2m-services.js`, overrides, cache);
+test('Domain Hub canonical subtabs update class and aria-selected state', () => {
+  const mod = evaluateLuciModule(`${root}/z2m-domain-hub-page.js`, overrides, cache);
   mod.resetDraft();
-  const tree = mod.render(context(healthyData['z2m-services.js']));
+  const tree = mod.render(context(healthyData['z2m-domain-hub-page.js']));
   const tab = (id) => tree.querySelectorAll('button').find((node) => node.attrs['data-pane'] === id);
   assert.ok(tab('catalog') && tab('domains') && tab('autohost') && tab('sources'));
   assert.equal(tab('catalog').classList.contains('on'), true);

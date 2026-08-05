@@ -158,6 +158,12 @@ return L.view.extend({
         data: data || {}, initial: initial || {},
         navigate: navigateTo,
         refresh: function (next) { return activate(next || tab, true); },
+        rerender: function () {
+          var token = ++activationToken;
+          renderTabData(tab, module, tabDataCache[tab] || data || {}, token, true);
+          setContentBusy(false);
+          return Promise.resolve();
+        },
         setDraft: function (scope, value) { store.setDraft(scope, value); },
         clearDraft: function (scope) { store.clearDraft(scope); },
         openSemanticDiff: openSemanticDiff,
