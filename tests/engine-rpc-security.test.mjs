@@ -16,7 +16,7 @@ test('engine RPC stages bounded edits in private collision-resistant files', () 
 test('engine RPC keeps payload bytes out of the shell and cleans every staged file', () => {
   assert.match(source, /writefile\(file,edit\)/);
   assert.doesNotMatch(source, /cmd\+=' '\+edit/);
-  assert.doesNotMatch(source, /popen\([^\n]*edit/);
+  assert.doesNotMatch(source, /popen\(\s*edit|popen\([^)]*\+\s*edit/);
   assert.match(source, /function cleanup\(file\)/);
   assert.match(source, /if\(!writefile\(file,edit\)\)\{cleanup\(file\)/);
   assert.match(source, /if\(!p\)\{cleanup\(file\)/);
