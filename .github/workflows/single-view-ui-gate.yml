@@ -153,7 +153,10 @@ jobs:
 
       - name: Fetch pinned StressOzz reference
         shell: bash
-        run: git fetch --no-tags https://github.com/StressOzz/Zapret-Manager.git b3269f852ed2d70b4c24918750c6b5b46b8b6a69
+        run: |
+          set -euo pipefail
+          git fetch --no-tags https://github.com/StressOzz/Zapret-Manager.git b3269f852ed2d70b4c24918750c6b5b46b8b6a69:refs/z2m-pins/stressozz
+          test "$(git rev-parse refs/z2m-pins/stressozz^{commit})" = "b3269f852ed2d70b4c24918750c6b5b46b8b6a69"
 
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
