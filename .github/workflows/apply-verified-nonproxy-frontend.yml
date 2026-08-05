@@ -1,0 +1,79 @@
+name: Apply verified non-proxy frontend patch
+
+on:
+  push:
+    branches:
+      - feat/holyversion-reference-parity
+
+permissions:
+  contents: write
+
+env:
+  PATCH_SHA256: 2bb5e7e72dc8e458163a8dc4b319cf1f16343a14be4c2d1ba76c600fc2d65c61
+
+jobs:
+  apply:
+    if: ${{ github.event.head_commit.message == 'ci: arm verified non-proxy frontend patch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout triggering exact HEAD
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: feat/holyversion-reference-parity
+          fetch-depth: 0
+
+      - name: Verify bounded patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          base64 -d .github/z2m-nonproxy-frontend.patch.b64 > /tmp/z2m.patch.gz
+          echo "$PATCH_SHA256  /tmp/z2m.patch.gz" | sha256sum -c -
+          gzip -dc /tmp/z2m.patch.gz > /tmp/z2m.patch
+          mapfile -t paths < <(grep '^diff --git ' /tmp/z2m.patch | sed -E 's#^diff --git a/([^ ]+) b/.*#\1#')
+          test "${#paths[@]}" -eq 6
+          allowed='^(luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/(app|z2m-domain-hub-page|z2m-services|z2m-strategy)\.js|tests/ui/(holyversion-domain-hub|render-harness)\.test\.mjs)$'
+          printf '%s\n' "${paths[@]}" | tee /tmp/paths
+          if grep -Ev "$allowed" /tmp/paths; then
+            echo 'Refusing patch: path outside non-proxy allow-list.' >&2
+            exit 1
+          fi
+          if grep -E '(^|/)(tg-ws-proxy|z2m-proxy|proxycfg|proxy-package)' /tmp/paths; then
+            echo 'Refusing patch: TG Proxy path present.' >&2
+            exit 1
+          fi
+          git apply --check /tmp/z2m.patch
+          git apply /tmp/z2m.patch
+          git diff --check
+
+      - name: Verify focused non-proxy contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test \
+            tests/ui/render-harness.test.mjs \
+            tests/ui/holyversion-domain-hub.test.mjs \
+            tests/ui/services-parity.test.mjs \
+            tests/ui/single-view-services-lists-dns.test.mjs \
+            tests/ui/global-draft-apply.test.mjs \
+            tests/orchestra-strategy-ui.test.mjs \
+            tests/t4-auto-strategy-ui.test.mjs \
+            tests/ui/video-navigation-regressions.test.mjs \
+            tests/ui/video-strategy-proxy-regressions.test.mjs
+
+      - name: Commit verified changes and remove staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/z2m-nonproxy-frontend.patch.b64 .github/workflows/apply-verified-nonproxy-frontend.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          if git diff --cached --name-only | grep -E '(^|/)(tg-ws-proxy|z2m-proxy|proxycfg|proxy-package)'; then
+            echo 'Refusing commit: TG Proxy path changed.' >&2
+            exit 1
+          fi
+          git commit -m 'fix: finish non-proxy frontend lifecycle'
+          git push origin HEAD:feat/holyversion-reference-parity
