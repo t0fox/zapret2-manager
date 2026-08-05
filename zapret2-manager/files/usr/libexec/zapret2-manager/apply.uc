@@ -61,9 +61,8 @@ export const read_var = function(name) {
 		let line = lines[i];
 		if (substr(line, 0, length(prefix)) != prefix) continue;
 		if (is_comment(line)) continue;
-		let rest = substr(line, length(prefix));   // after NAME=
+		let rest = substr(line, length(prefix));
 		if (substr(rest, 0, 1) == '"') {
-			// opening " alone → multi-line quoted (closing " on a later line)
 			if (rest == '"') {
 				let buf = [];
 				for (let j = i + 1; j < length(lines); j++) {
@@ -74,16 +73,13 @@ export const read_var = function(name) {
 					}
 					push(buf, lines[j]);
 				}
-				return join('\n', buf);   // unterminated (should not happen)
+				return join('\n', buf);
 			}
-			// single-line quoted: closing " is the LAST " in the line (rindex, so
-			// a value with an INNER " like VAR="a "b" c" is still single-line).
 			let cp = closing_quote_pos(rest);
 			if (cp >= 0 && cp == length(rest) - 1)
 				return substr(rest, 1, length(rest) - 2);
-			// multi-line quoted: closing " not on this line → collect later lines
 			let buf = [];
-			push(buf, substr(rest, 1));   // content after opening "
+			push(buf, substr(rest, 1));
 			for (let j = i + 1; j < length(lines); j++) {
 				let q = index(lines[j], '"');
 				if (q >= 0) {
@@ -92,16 +88,13 @@ export const read_var = function(name) {
 				}
 				push(buf, lines[j]);
 			}
-			return join('\n', buf);   // unterminated (should not happen)
+			return join('\n', buf);
 		}
-		return rest;   // unquoted single-line value
+		return rest;
 	}
 	return null;
 };
 
-// Render a new config text with `name` set to `value`. Pure (no file I/O);
-// mirrors tests/lib/apply-writer.mjs write_var. Surgical: only the named
-// assignment changes. APPENDS if there is no active assignment.
 function render_var(config, name, value) {
 	let lines = split(config, '\n');
 	let prefix = name + '=';
@@ -111,8 +104,6 @@ function render_var(config, name, value) {
 		if (is_comment(line)) continue;
 		let rest = substr(line, length(prefix));
 		let cp = closing_quote_pos(rest);
-		// multi-line iff: opening " alone (rest == '"'), OR the closing " is not the
-		// last char of this line (a value with an inner " stays single-line).
 		let is_multi = (substr(rest, 0, 1) == '"') && (rest == '"' || !(cp >= 0 && cp == length(rest) - 1));
 		if (is_multi) {
 			let end = i;
@@ -120,11 +111,6 @@ function render_var(config, name, value) {
 			for (let j = i + 1; j < length(lines); j++) {
 				if (index(lines[j], '"') >= 0) { end = j; found = true; break; }
 			}
-			// Unterminated quoted value (no closing " on any later line): do
-			// NOT rewrite — that would silently drop the trailing content.
-			// Treat as a single-line replace of the opening line only, leaving
-			// the rest of the file untouched. (The real NFQWS2_OPT is always
-			// terminated; this guards against a hand-corrupted config.)
 			if (!found) {
 				let result = [];
 				for (let k = 0; k < i; k++) push(result, lines[k]);
@@ -145,9 +131,6 @@ function render_var(config, name, value) {
 			for (let k = end + 1; k < length(lines); k++) push(result, lines[k]);
 			return join('\n', result);
 		}
-		// single-line quoted: VAR="value" (closing " is the last " in the line, so
-		// an inner " like in VAR="a "b" c" still counts as single-line). Preserve the
-		// quotes — writing VAR=value (no quotes) would change the format the engine reads.
 		if (substr(rest, 0, 1) == '"' && rest != '"' && cp >= 0 && cp == length(rest) - 1) {
 			let result = [];
 			for (let k = 0; k < i; k++) push(result, lines[k]);
@@ -155,189 +138,181 @@ function render_var(config, name, value) {
 			for (let k = i + 1; k < length(lines); k++) push(result, lines[k]);
 			return join('\n', result);
 		}
-		// single-line unquoted: replace the one line
 		let result = [];
 		for (let k = 0; k < i; k++) push(result, lines[k]);
 		push(result, prefix + value);
 		for (let k = i + 1; k < length(lines); k++) push(result, lines[k]);
 		return join('\n', result);
 	}
-	// not found (or only commented): append a new active assignment
 	let sep = (length(config) == 0 || substr(config, length(config) - 1, 1) == '\n') ? '' : '\n';
 	return config + sep + prefix + value;
 }
 
-const LOCKFILE = CONFIG + '.lock';     // /opt/zapret2/config.lock  (flock)
-const MARKER   = CONFIG + '.writing';  // /opt/zapret2/config.writing (fallback)
+const LOCKFILE = CONFIG + '.lock';
+const APPLY_CLI = '/usr/libexec/zapret2-manager/apply-cli.uc';
 
-// flock is the right serializer and is USUALLY present in this firmware build
-// (util-linux / util-linux-flock). [VERIFY:ROUTER] confirmed on device — until
-// then we PROBE at runtime and fall back to a marker file if it is absent.
+function shell_escape(value) {
+	let s = '' + value, out = "'";
+	for (let i = 0; i < length(s); i++) {
+		let c = substr(s, i, 1);
+		out += c == "'" ? "'\\''" : c;
+	}
+	return out + "'";
+}
+
+function command(cmd) {
+	let p = popen(cmd + ' 2>&1', 'r');
+	if (!p) return { rc: -1, out: '' };
+	let out = p.read('all');
+	if (!out) out = '';
+	let rc = p.close();
+	return { rc: rc, out: out };
+}
+
 let _have_flock = null;
 function have_flock() {
 	if (_have_flock != null) return _have_flock;
-	let r = popen('command -v flock 2>/dev/null', 'r');
-	let out = r ? r.read('all') : '';
-	if (r) r.close();
-	_have_flock = (out && length(trim(out)) > 0) ? true : false;
+	let r = command('command -v flock');
+	_have_flock = r.rc == 0 && length(trim(r.out)) > 0;
 	return _have_flock;
 }
 
-// mktemp helper for set_var's name/value temp files. Declared BEFORE set_var:
-// ucode does not hoist `function` declarations in module mode, so a helper
-// must precede its first caller (set_var below) or it is an undeclared var.
-function _mktemp() {
-	let p = popen('mktemp 2>/dev/null', 'r');
-	if (!p) return '/tmp/z2m-set.' + time();
-	let out = trim(p.read('all'));
-	p.close();
-	return length(out) ? out : ('/tmp/z2m-set.' + time());
+function locked() {
+	return getenv('Z2M_CONFIG_LOCKED') == '1';
 }
 
-// Set `name` to `value` in /opt/zapret2/config. Returns the new config text.
-// Preserves a trailing newline if the original had one. The atomic phase
-// (temp file + mv) is wrapped in flock when flock is present, so two writers
-// never race the rename. The read-modify-write read phase is serialized the
-// same way: when flock is present the WHOLE RMW is delegated to a ucode
-// subprocess run under `flock <lockfile> -c 'ucode ... do_set'`, because ucode
-// fs has no fd-lock to hold across an in-process RMW.
-//
-// REMAINING RACE (flock absent): the marker-file fallback has a check-then-
-// create window — two writers can both see no marker, both create it, both
-// RMW; the second mv wins and the first writer's change is LOST (lost update).
-// The marker only narrows the window; it does NOT serialize. flock removes
-// the race. [VERIFY:ROUTER] flock presence decides which path is live.
-export const set_var = function(name, value) {
-	if (have_flock()) {
-		// Delegate the RMW to a subprocess under an exclusive flock. Use mktemp
-		// for the name/value temp files so concurrent set_var calls do not
-		// clobber each other's temp files before flock is taken.
-		let name_f = _mktemp();
-		let val_f  = _mktemp();
-		writefile(name_f, name + '\n');
-		writefile(val_f, '' + value);
-		let cmd = "flock " + LOCKFILE + " -c 'ucode /usr/libexec/zapret2-manager/apply-cli.uc do_set " + name_f + " " + val_f + " 2>/dev/null'";
-		let p = popen(cmd, 'r');
-		if (p) p.close();
-		try { unlink(name_f); } catch (e) { }
-		try { unlink(val_f); } catch (e) { }
-		// Verify the write: read back and compare. read_var returns null for
-		// absent/empty; an empty value is a valid write (returns '' from
-		// read_var only if the var exists with an empty quoted value, which is
-		// rare). For a normal value, read_var must equal the written value.
-		let rb = read_var(name);
-		if (rb == ('' + value)) return '' + value;
-		if (('' + value) == '' && rb != null) return '' + value;  // empty-ish edge
-		return null;   // write did not take
+function secure_temp(template) {
+	let r = command('umask 077; mktemp ' + shell_escape(template));
+	let path = trim(r.out);
+	if (r.rc != 0 || !length(path)) return null;
+	let v = command('[ -f ' + shell_escape(path) + ' ] && [ ! -L ' + shell_escape(path) + ' ] && chmod 600 ' + shell_escape(path));
+	if (v.rc != 0) {
+		try { unlink(path); } catch (e) { }
+		return null;
 	}
-	// Fallback: marker file. A stale marker (crash between create and unlink)
-	// is detected by timestamp: if older than 60s, ignore and proceed.
-	if (stat(MARKER)) {
-		try {
-			let mtime = trim(readfile(MARKER));
-			let age = time() - (+mtime);
-			if (mtime && age < 60) return null;   // another writer is active
-		} catch (e) { }
-		// stale marker → remove and proceed
-		try { unlink(MARKER); } catch (e) { }
-	}
-	try { writefile(MARKER, '' + time() + '\n'); } catch (e) { }
+	return path;
+}
+
+function cleanup(path) {
+	if (path == null) return;
+	try { unlink(path); } catch (e) { }
+}
+
+export const read_config_bytes = function() {
 	let raw = readfile(CONFIG);
-	if (!raw) raw = '';
-	let out = render_var(raw, name, value);
-	if (length(raw) > 0 && substr(raw, length(raw) - 1, 1) == '\n' &&
-	    (length(out) == 0 || substr(out, length(out) - 1, 1) != '\n'))
-		out += '\n';
-	let tmp = CONFIG + '.tmp.' + time();
-	writefile(tmp, out);
-	let p = popen('mv -f ' + tmp + ' ' + CONFIG + ' 2>/dev/null', 'r');
-	if (p) p.close();
-	try { unlink(MARKER); } catch (e) { }
-	return out;
+	return raw == null ? '' : raw;
 };
 
-// do_set <namefile> <valuefile> — runs UNDER flock (invoked by set_var above).
-// Reads the config, renders name=value, atomically renames. Single entry point
-// so the whole RMW is inside the locked subprocess.
+export const config_sha256 = function() {
+	if (!stat(CONFIG)) return null;
+	let r = command("sha256sum " + shell_escape(CONFIG) + " | awk '{print $1}'");
+	let digest = trim(r.out);
+	return r.rc == 0 && length(digest) == 64 ? digest : null;
+};
+
+function preserve_trailing_newline(raw, rendered) {
+	if (length(raw) > 0 && substr(raw, length(raw) - 1, 1) == '\n' &&
+	    (length(rendered) == 0 || substr(rendered, length(rendered) - 1, 1) != '\n'))
+		return rendered + '\n';
+	return rendered;
+}
+
+function atomic_replace_locked(path, content) {
+	if (!locked() || path != CONFIG) return null;
+	let tmp = secure_temp(path + '.tmp.XXXXXX');
+	if (tmp == null) return null;
+	writefile(tmp, content);
+	let prepared = command('[ -f ' + shell_escape(tmp) + ' ] && [ ! -L ' + shell_escape(tmp) +
+		' ] && chmod 600 ' + shell_escape(tmp) + ' && (sync -f ' + shell_escape(tmp) + ' 2>/dev/null || sync)');
+	if (prepared.rc != 0) { cleanup(tmp); return null; }
+	let moved = command('mv -f ' + shell_escape(tmp) + ' ' + shell_escape(path));
+	if (moved.rc != 0) { cleanup(tmp); return null; }
+	let durable = command('(sync -f ' + shell_escape(path) + ' 2>/dev/null || sync); (sync -f /opt/zapret2 2>/dev/null || sync)');
+	if (durable.rc != 0) return null;
+	let rb = readfile(path);
+	return rb == content ? content : null;
+}
+
+function set_locked(name, value) {
+	if (!locked()) return null;
+	let raw = read_config_bytes();
+	let out = preserve_trailing_newline(raw, render_var(raw, name, '' + value));
+	return atomic_replace_locked(CONFIG, out);
+}
+
 export const do_set = function(name_f, val_f) {
+	if (!locked()) return false;
 	let name = trim(readfile(name_f));
 	let value = readfile(val_f);
-	// set_var writes value with NO trailing newline (writefile(val_f, value)),
-	// so readfile(val_f) returns exactly the value. Do NOT strip a trailing
-	// newline — that would remove a legitimate one from a multi-line value
-	// (data loss). The name file gets name+'\n', so trim(name) is correct.
-	let raw = readfile(CONFIG);
-	if (!raw) raw = '';
-	let out = render_var(raw, name, value);
-	if (length(raw) > 0 && substr(raw, length(raw) - 1, 1) == '\n' &&
-	    (length(out) == 0 || substr(out, length(out) - 1, 1) != '\n'))
-		out += '\n';
-	let tmp = CONFIG + '.tmp.do.' + time();
-	writefile(tmp, out);
-	let p = popen('mv -f ' + tmp + ' ' + CONFIG + ' 2>/dev/null', 'r');
-	if (p) p.close();
+	if (!length(name) || value == null) return false;
+	return set_locked(name, value) != null;
 };
 
-// do_restore <path> <contentfile> — runs UNDER flock (invoked by
-// restore_whole_file below). Whole-file atomic replace + readback verify.
 export const do_restore = function(path, content_f) {
+	if (!locked() || path != CONFIG) return false;
 	let content = readfile(content_f);
 	if (content == null) content = '';
-	let tmp = path + '.tmp.rst.' + time();
-	writefile(tmp, content);
-	let p = popen('mv -f ' + tmp + ' ' + path + ' 2>/dev/null', 'r');
-	if (p) p.close();
+	return atomic_replace_locked(path, content) != null;
 };
 
-// restore_whole_file(path, content) — the SANCTIONED whole-file restore for
-// the applied config (Slice 5). Before this existed, backup restore wrote
-// /opt/zapret2/config through its own atomic_write — a SECOND writer, which
-// the single-writer rule forbids. Restrictions:
-//   - path allowlist: ONLY the applied config (PATHS.applied_conf);
-//   - same serialization as set_var: flock subprocess when flock is present
-//     (marker fallback otherwise, same remaining-race caveat);
-//   - readback verify: the restored bytes must read back exactly.
-// The caller (backup restore) is responsible for its own pre-restore
-// snapshot, manifest/syntax verification and version gate — this function is
-// the WRITE primitive only.
-export const restore_whole_file = function(path, content) {
-	if (path != CONFIG) return null;   // allowlist: the applied config only
-	if (content == null) content = '';
-	if (have_flock()) {
-		let val_f = _mktemp();
-		writefile(val_f, '' + content);
-		let cmd = "flock " + LOCKFILE + " -c 'ucode /usr/libexec/zapret2-manager/apply-cli.uc do_restore " + path + " " + val_f + " 2>/dev/null'";
-		let p = popen(cmd, 'r');
-		if (p) p.close();
-		try { unlink(val_f); } catch (e) { }
-	} else {
-		// marker fallback (same 60s stale window as set_var)
-		if (stat(MARKER)) {
-			let mtime = trim(readfile(MARKER));
-			let age = time() - (+mtime);
-			if (mtime && age < 60) return null;   // another writer is active
-			try { unlink(MARKER); } catch (e) { }
-		}
-		try { writefile(MARKER, '' + time() + '\n'); } catch (e) { }
-		let f = _mktemp();
-		writefile(f, '' + content);
-		do_restore(path, f);
-		try { unlink(f); } catch (e) { }
-		try { unlink(MARKER); } catch (e) { }
+function invoke_locked(mode, name, value) {
+	if (!have_flock()) return null;
+	let name_f = secure_temp('/tmp/z2m-apply-name.XXXXXX');
+	let value_f = secure_temp('/tmp/z2m-apply-value.XXXXXX');
+	if (name_f == null || value_f == null) {
+		cleanup(name_f); cleanup(value_f);
+		return null;
 	}
-	// readback verify
-	let rb = readfile(path);
-	if (rb == content) return content;
+	writefile(name_f, name + '\n');
+	writefile(value_f, '' + value);
+	let inner = '/usr/bin/ucode ' + APPLY_CLI + ' ' + mode + ' ' + shell_escape(name_f) + ' ' + shell_escape(value_f);
+	let cmd = 'Z2M_CONFIG_LOCKED=1 flock -x ' + shell_escape(LOCKFILE) + ' -c ' + shell_escape(inner);
+	let r = command(cmd);
+	cleanup(name_f); cleanup(value_f);
+	return r.rc == 0 ? true : null;
+}
+
+export const set_var = function(name, value) {
+	if (locked()) return set_locked(name, value);
+	if (!have_flock()) return null;
+	if (invoke_locked('do_set', name, value) == null) return null;
+	let rb = read_var(name);
+	if (rb == ('' + value)) return '' + value;
+	if (('' + value) == '' && rb != null) return '' + value;
 	return null;
 };
 
-// ---- list file I/O (single writer, same module as set_var) ------------------
-// lists.uc imports these — there is no second write path. List files are the
-// user-editable text lists under /opt/zapret2/ipset/ (one entry per line).
+export const set_var_cas = function(name, value, expected_sha) {
+	if (!locked()) return { ok: false, code: 'ELOCK', message: 'config transaction lock is not held' };
+	let actual = config_sha256();
+	if (expected_sha == null || actual == null || actual != expected_sha)
+		return { ok: false, code: 'ECONFLICT', expectedSha256: expected_sha, actualSha256: actual };
+	let written = set_locked(name, value);
+	if (written == null) return { ok: false, code: 'EWRITE', message: 'durable atomic replace failed' };
+	return { ok: true, previousSha256: actual, configSha256: config_sha256(), content: written };
+};
 
-// Read a list file into an array of trimmed, NON-empty lines (one entry per
-// line). Missing file → empty list. Order preserved; no invented entries.
-// Mirrors tests/lib/list-io.mjs read_list_file.
+export const restore_whole_file = function(path, content) {
+	if (path != CONFIG || content == null) return null;
+	if (locked()) return atomic_replace_locked(path, '' + content);
+	if (!have_flock()) return null;
+	let path_f = secure_temp('/tmp/z2m-restore-path.XXXXXX');
+	let content_f = secure_temp('/tmp/z2m-restore-content.XXXXXX');
+	if (path_f == null || content_f == null) {
+		cleanup(path_f); cleanup(content_f);
+		return null;
+	}
+	writefile(path_f, path + '\n');
+	writefile(content_f, '' + content);
+	let inner = '/usr/bin/ucode ' + APPLY_CLI + ' do_restore_file ' + shell_escape(path_f) + ' ' + shell_escape(content_f);
+	let cmd = 'Z2M_CONFIG_LOCKED=1 flock -x ' + shell_escape(LOCKFILE) + ' -c ' + shell_escape(inner);
+	let r = command(cmd);
+	cleanup(path_f); cleanup(content_f);
+	if (r.rc != 0) return null;
+	let rb = readfile(path);
+	return rb == content ? content : null;
+};
+
 export const read_list_file = function(path) {
 	let raw = readfile(path);
 	if (!raw) return [];
@@ -350,34 +325,22 @@ export const read_list_file = function(path) {
 	return out;
 };
 
-// Write a list file atomically: temp file in the SAME directory + mv -f rename
-// (same-FS rename is atomic, so a concurrent writer never sees a partial file
-// and a crash leaves only the temp — the target is untouched). One entry per
-// line, LF-separated, with a trailing LF. Parent dir is created if missing.
-// Returns the written content on success; returns null on write/rename failure
-// so the caller (lists_set) surfaces the error rather than silently dropping it
-// (ucode has no throw, so the error is returned, not raised). Engine-owned
-// lists are NOT written here — the caller enforces that; this function is
-// path-agnostic by design. Mirrors tests/lib/list-io.mjs write_list_file.
 export const write_list_file = function(path, entries) {
 	let out = '';
 	for (let i = 0; i < length(entries); i++) {
 		let line = trim('' + entries[i]);
-		if (!length(line)) continue;        // drop empty lines
-		out += line + '\n';                 // LF-separated, trailing LF
+		if (!length(line)) continue;
+		out += line + '\n';
 	}
-	// Ensure the parent directory exists (mkdir -p). rindex finds the last '/'.
 	let slash = rindex(path, '/');
 	let parent = (slash > 0) ? substr(path, 0, slash) : null;
 	if (parent) {
-		try { mkdir(parent); } catch (e) { }   // exists is fine; other errors surface at writefile
+		try { mkdir(parent); } catch (e) { }
 	}
 	let tmp = path + '.tmp.' + time();
 	writefile(tmp, out);
 	let p = popen('mv -f ' + tmp + ' ' + path + ' 2>/dev/null', 'r');
 	if (p) p.close();
-	// Verify the rename took: the temp must be gone and the target present.
-	// On failure, best-effort clean up the orphan temp so no partial is left.
 	if (stat(tmp) || !stat(path)) {
 		try { unlink(tmp); } catch (e) { }
 		return null;

@@ -11,7 +11,8 @@ test('visited tabs preserve visible data while a single background refresh runs'
   assert.match(app, /var\s+tabLoadPromises\s*=\s*\{\}/);
   assert.match(app, /function\s+loadTabData\s*\(/);
   assert.match(app, /function\s+renderTabData\s*\(/);
-  assert.match(app, /if\s*\(!cachedData\s*&&\s*!keepCurrent\)/);
+  assert.match(app, /if\s*\(cached\s*&&\s*!sameTab\)\s*renderTabData/);
+  assert.match(app, /else if\s*\(!cached\s*&&\s*!\(sameTab\s*&&\s*force\)\)/);
   assert.match(app, /Показано последнее успешное состояние/);
 });
 
@@ -31,8 +32,9 @@ test('same-tab navigation and draft cancellation do not reload the document', ()
 });
 
 test('strategy candidate selection updates locally without a backend refresh', () => {
-  assert.match(strategy, /function\s+renderCandidateSelection\s*\(/);
-  assert.match(strategy, /select\(ctx,\s*id,\s*renderCandidateSelection,\s*candidate\)/);
+  assert.match(strategy, /function\s+renderCandidates\s*\(/);
+  assert.match(strategy, /stageCandidate\(candidate\)/);
+  assert.match(strategy, /select\(ctx,\s*id,\s*candidate\)/);
   const match = strategy.match(/function\s+select\s*\([^)]*\)\s*\{([\s\S]*?)\n\}/);
   assert.ok(match, 'select() must exist');
   assert.doesNotMatch(match[1], /ctx\.refresh\s*\(/);

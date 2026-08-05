@@ -7,7 +7,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import * as serviceDnsLogic from './lib/service-dns-logic.mjs';
 import {
 	validateDataset, validateProvider, validateProfile,
@@ -407,9 +407,12 @@ test('54. read/write ACL separation in final wiring', () => {
 });
 test('55. package contents in final wiring', () => {
 	const makefile = readFileSync('zapret2-manager/Makefile', 'utf-8');
-	assert.ok(makefile.includes('service-dns.uc'), 'Makefile missing service-dns.uc');
-	assert.ok(makefile.includes('service-dns-cli.uc'), 'Makefile missing service-dns-cli.uc');
-	assert.ok(makefile.includes('catalog/service-dns-profiles.json'), 'Makefile missing profiles catalog');
+	assert.match(makefile, /\$\(CP\) \.\/files\/\* \$\(1\)\//);
+	for (const path of [
+		'zapret2-manager/files/usr/libexec/zapret2-manager/service-dns.uc',
+		'zapret2-manager/files/usr/libexec/zapret2-manager/service-dns-cli.uc',
+		'zapret2-manager/files/usr/libexec/zapret2-manager/catalog/service-dns-profiles.json'
+	]) assert.equal(existsSync(path), true, `missing packaged runtime file: ${path}`);
 });
 
 test('56. native server ownership preserves external values byte-for-byte', () => {

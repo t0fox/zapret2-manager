@@ -13,6 +13,8 @@ var calls = {
   orchestraRunStatus: rpc.declare({ object: 'zapret2-manager', method: 'orchestra_run_status', params: ['edit'], reject: true }),
   orchestraRunHistory: rpc.declare({ object: 'zapret2-manager', method: 'orchestra_run_history', reject: true }),
   orchestraCapabilities: rpc.declare({ object: 'zapret2-manager', method: 'orchestra_capabilities', reject: true }),
+  orchestraCatalog: rpc.declare({ object: 'zapret2-manager-orchestra', method: 'orchestra_catalog', reject: true }),
+  orchestraCorpus: rpc.declare({ object: 'zapret2-manager-orchestra', method: 'orchestra_corpus_get', reject: true }),
   orchestraStatus: rpc.declare({ object: 'zapret2-manager', method: 'orchestra_status', reject: true }),
   orchestraEvents: rpc.declare({ object: 'zapret2-manager', method: 'orchestra_events', reject: true }),
   orchestraHistory: rpc.declare({ object: 'zapret2-manager', method: 'orchestra_history', reject: true }),
@@ -31,6 +33,9 @@ var calls = {
   catalogGet: rpc.declare({ object: 'zapret2-manager', method: 'catalog_get', params: ['edit'], reject: true }),
   catalogPreview: rpc.declare({ object: 'zapret2-manager', method: 'catalog_preview', params: ['edit'], reject: true }),
   catalogApply: rpc.declare({ object: 'zapret2-manager', method: 'catalog_apply', params: ['edit'], reject: true }),
+  domainHubGet: rpc.declare({ object: 'zapret2-manager-domain-hub', method: 'domain_hub_get', reject: true }),
+  domainHubPreview: rpc.declare({ object: 'zapret2-manager-domain-hub', method: 'domain_hub_preview', params: ['edit'], reject: true }),
+  domainHubApply: rpc.declare({ object: 'zapret2-manager-domain-hub', method: 'domain_hub_apply', params: ['edit'], reject: true }),
   healthMatrixGet: rpc.declare({ object: 'zapret2-manager', method: 'health_matrix_get', reject: true }),
   orchestraAutoStatus: rpc.declare({ object: 'zapret2-manager', method: 'orchestra_auto_status', reject: true }),
   orchestraAutoEnable: rpc.declare({ object: 'zapret2-manager', method: 'orchestra_auto_enable', params: ['edit'], reject: true }),
@@ -94,6 +99,7 @@ var calls = {
   backupRestore: rpc.declare({ object: 'zapret2-manager', method: 'backup_restore', params: ['edit'], reject: true }),
   backupDelete: rpc.declare({ object: 'zapret2-manager', method: 'backup_delete', params: ['edit'], reject: true }),
   eventsTail: rpc.declare({ object: 'zapret2-manager', method: 'events_tail', params: ['edit'], reject: true }),
+  monitorSnapshot: rpc.declare({ object: 'zapret2-manager-monitor', method: 'monitor_snapshot', params: ['edit'], reject: true }),
   diagnosticsExport: rpc.declare({ object: 'zapret2-manager', method: 'diagnostics_export', reject: true })
 };
 
@@ -122,6 +128,8 @@ return baseclass.extend({
   },
   orchestra: {
     capabilities: calls.orchestraCapabilities,
+    catalog: calls.orchestraCatalog,
+    corpus: calls.orchestraCorpus,
     status: calls.orchestraStatus,
     events: calls.orchestraEvents,
     history: calls.orchestraHistory,
@@ -155,6 +163,11 @@ return baseclass.extend({
     importApplied: calls.profilesImportApplied,
     apply: calls.profilesApply,
     passthrough: calls.passthrough
+  },
+  domainHub: {
+    get: calls.domainHubGet,
+    preview: calls.domainHubPreview,
+    apply: calls.domainHubApply
   },
   services: {
     catalogList: calls.catalogList,
@@ -209,7 +222,7 @@ return baseclass.extend({
     linkInfo: calls.proxyLinkInfo,
     quickInstall: calls.proxyQuickInstall
   },
-  monitor: { status: calls.status, eventsTail: calls.eventsTail },
+  monitor: { snapshot: calls.monitorSnapshot, status: calls.status, eventsTail: calls.eventsTail },
   maintenance: {
     versions: calls.versions,
     status: calls.maintenanceStatus,

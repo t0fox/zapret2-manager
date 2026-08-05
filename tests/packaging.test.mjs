@@ -18,6 +18,11 @@ function entriesOf(obj) {
 function viewFile(path) {
   return join(viewRoot, path.split('/').pop() + '.js');
 }
+function packageRelease(source) {
+  const match = source.match(/^PKG_RELEASE:=(\d+)$/m);
+  assert.ok(match, 'PKG_RELEASE exists');
+  return Number(match[1]);
+}
 const entries = entriesOf(menu);
 const compatibilityRedirects = [
   'orchestra-strategy','orchestra','strategies','lists','dns',
@@ -49,17 +54,17 @@ test('single-view runtime modules and local stylesheets exist', () => {
   ]) assert.ok(existsSync(join(viewRoot, name)), `${name} exists`);
 });
 
-test('r143 package ships no legacy runtime and only the two authoritative local stylesheets', () => {
+test('LuCI package ships no legacy runtime and only authoritative local stylesheets', () => {
   const makefile = readFileSync(join(REPO, 'luci-app-zapret2-manager/Makefile'), 'utf8');
-  assert.match(makefile, /^PKG_RELEASE:=143$/m);
+  assert.ok(packageRelease(makefile) > 0);
   const files = readdirSync(viewRoot).sort();
-  assert.deepEqual(files.filter((name) => name.endsWith('.css')), ['z2m-components.css', 'z2m-ui.css']);
+  assert.deepEqual(files.filter((name) => name.endsWith('.css')), ['z2m-components.css', 'z2m-holyversion.css', 'z2m-ui.css']);
   assert.deepEqual(files.filter((name) => name.endsWith('-legacy.js')), []);
   for (const obsolete of ['overview.js', 'catalog.js', 'blockcheck.js'])
     assert.equal(files.includes(obsolete), false, `${obsolete} is not shipped`);
   for (const obsolete of ['z2m-ui-core.css','z2m-ui-v1.css','z2m-shell.css','z2m-orchestra.css'])
     assert.equal(files.includes(obsolete), false, `${obsolete} is not shipped`);
-  for (const stylesheet of ['z2m-components.css', 'z2m-ui.css']) {
+  for (const stylesheet of ['z2m-components.css', 'z2m-holyversion.css', 'z2m-ui.css']) {
     const source = readFileSync(join(viewRoot, stylesheet), 'utf8');
     assert.doesNotMatch(source, /@import|https?:\/\//, `${stylesheet} stays self-contained`);
   }
@@ -78,11 +83,12 @@ test('shipped LuCI sources contain no countdown, fake catalogue or demo secrets'
   assert.doesNotMatch(source, /(?:api[_-]?key|access[_-]?token|password)\s*[:=]\s*['"][^'"]+['"]/i);
 });
 
-test('backend and full-stack meta-package releases advance together to r137', () => {
+test('backend, LuCI and full-stack package releases are synchronized', () => {
   const backend = readFileSync(join(REPO, 'zapret2-manager/Makefile'), 'utf8');
+  const luci = readFileSync(join(REPO, 'luci-app-zapret2-manager/Makefile'), 'utf8');
   const full = readFileSync(join(REPO, 'zapret2-manager-full/Makefile'), 'utf8');
-  assert.match(backend, /^PKG_RELEASE:=137$/m);
-  assert.match(full, /^PKG_RELEASE:=137$/m);
+  const releases = [packageRelease(backend), packageRelease(luci), packageRelease(full)];
+  assert.deepEqual(releases, [145, 145, 145]);
 });
 
 test('compatibility redirects remain shipped but are not registered as LuCI child tabs', () => {

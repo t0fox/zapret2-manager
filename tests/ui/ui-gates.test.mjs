@@ -67,12 +67,12 @@ test('gate 5: direct ubus access is forbidden in all shipped JavaScript', () => 
   for (const file of shippedJs()) noErrors(checkNoLubus(source(file), file));
 });
 
-test('gate 6: z2m-api is the only rpc.declare owner in the single-view module graph', () => {
+test('gate 6: central facade owns non-proxy RPC; frozen TG provider remains isolated', () => {
   const owners = singleViewJs().filter((file) => /rpc\.declare\s*\(/.test(source(file)));
-  assert.deepEqual(owners, ['z2m-api.js']);
+  assert.deepEqual(owners, ['z2m-api.js','z2m-proxy-provider-api.js']);
 });
 
-test('gate 7: central RPC facade uses only zapret2-manager and rejects ubus errors', () => {
+test('gate 7: central RPC facade uses only frozen supported objects and rejects ubus errors', () => {
   const api = source('z2m-api.js');
   noErrors(checkRpcObjects(api, 'z2m-api'));
   noErrors(checkRejectTrue(api, 'z2m-api'));

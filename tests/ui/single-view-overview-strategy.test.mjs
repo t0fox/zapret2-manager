@@ -24,10 +24,10 @@ test('overview uses real data, exposes overrides and controls advanced mode', ()
   assert.match(src, /shell\.segmented\(/);
   assert.doesNotMatch(src, /type:\s*['"]checkbox['"]/);
   assert.match(src, /value == null \|\| value === '' \? '—'/);
-  assert.match(src, /preview\.overrides\s*\?\s*asArray\(preview\.overrides\.rules\)\s*:\s*\[\]/);
+  assert.match(src, /asArray\(object\(preview\.overrides\)\.rules\)/);
   assert.doesNotMatch(src, /metric\([^\n]+\|\| 0/);
   assert.match(src, /z2m-overview-model as OverviewModel/);
-  assert.match(src, /OverviewModel\.normalize\(ctx\.data\s*\|\|\s*\{\}\)/);
+  assert.match(src, /var data = ctx\.data \|\| \{\};[\s\S]*OverviewModel\.normalize\(data\)/);
   for (const label of [
     'Простой', 'Расширенный', 'Как это работает',
     'Отчёт проверки', 'Что стоит сделать'
@@ -45,7 +45,8 @@ test('strategy selection is pending until explicit apply and empty runs are erro
   assert.match(src, /api\.strategy\.apply/);
   assert.match(src, /ctx\.openSemanticDiff/);
   assert.doesNotMatch(src, /ctx\.setConfirmation\(response\)/);
-  assert.match(src, /Выбор стратегии не меняет runtime/);
+  assert.match(src, /function\s+select\(ctx, id, candidate\)[\s\S]*setStrategyDraft\(ctx/);
+  assert.match(src, /в черновике|выбрана/);
   assert.match(src, /0 targets|не получил целей/);
   assert.match(src, /targetCount[^\n]*=== 0|candidateCount[^\n]*=== 0/);
 });
@@ -54,7 +55,7 @@ test('advanced Strategy panes are hidden unless the shared advanced mode is enab
   const app = source('app.js');
   const strategy = source('z2m-strategy.js');
   assert.match(app, /classList\.toggle\(['"]adv['"],\s*[^\n]*advanced/);
-  assert.match(strategy, /z2m-adv-only/);
+  assert.match(strategy, /hidden:\s*!advanced/);
   assert.match(strategy, /advanced/);
   assert.match(strategy, /state\.subtab\s*=\s*['"]list['"]/);
 });
@@ -67,7 +68,7 @@ test('advanced Strategy restores profile draft workflows with exact existing API
   ]) assert.match(src, new RegExp(token.replaceAll('.', '\\.')));
   for (const label of [
     'Глобальная часть','Профили','Итоговая команда','Новый профиль','Импортировать применённые',
-    'Проверить черновики','Применить черновики','Проверка конфига','Среда','История применений'
+    'Показать различия','Проверка конфига','Среда','История применений'
   ]) assert.match(src, new RegExp(label));
   assert.match(src, /mode:\s*['"]preview['"]/);
   assert.match(src, /mode:\s*['"]apply['"]/);

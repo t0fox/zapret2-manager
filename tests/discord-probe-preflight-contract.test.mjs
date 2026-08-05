@@ -25,7 +25,7 @@ test('invalidated diagnostic records do not remain ranked evidence', () => { ass
 test('old run invalidation blocks Apply', () => { assert.match(run, /r\.applyAllowed=false/); assert.match(run, /r\.invalidationReason='EPROBEDEPENDENCY/); });
 test('retry run starts with a fresh evidence set', () => { assert.match(run, /results:\[\],baselineEvidence:\[\],targetCandidateEvidence:\[\]/); });
 test('retry lineage is persisted', () => { assert.match(run, /retryOfRunId:x\.retryOfRunId/); });
-test('package declares ncat dependency', () => { assert.match(makefile, /DEPENDS:=zapret2 ucode ncat/); });
-test('package installs preflight helper', () => { assert.match(makefile, /orchestra-probe-preflight\.sh/); });
+test('package declares ncat dependency', () => { assert.match(makefile, /^\s*DEPENDS:=.*(?:^|\s)\+ncat(?:\s|$)/m); });
+test('package installs preflight helper', () => { assert.match(makefile, /\$\(CP\) \.\/files\/\* \$\(1\)\//); assert.equal(fs.existsSync('zapret2-manager/files/usr/libexec/zapret2-manager/orchestra-probe-preflight.sh'), true); });
 test('probe uses upstream required netcat command', () => { assert.match(preflight, /-z -w 1 192\.0\.2\.1 9/); });
 test('runner keeps timeout, cleanup, and target-failure markers', () => { assert.match(runner, /timeout/); assert.match(runner, /trap 'cleanup; exit 130' INT TERM/); assert.match(runner, /PROBE_FAIL code=EWEBSOCKET/); assert.match(runner, /PROBE_FAIL code=EBOUNDEDDOWNLOAD/); assert.doesNotMatch(runner, /infra_marker EWEBSOCKET/); assert.doesNotMatch(runner, /infra_marker EBOUNDEDDOWNLOAD/); });

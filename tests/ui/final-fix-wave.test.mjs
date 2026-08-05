@@ -5,28 +5,26 @@ import { evaluateLuciModule } from '../../tools/luci-module-smoke.mjs';
 
 const root = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager';
 
-test('Services load obtains the real catalog precondition from a read-only preview', async () => {
+test('Services load obtains the canonical Domain Hub snapshot through the central facade', async () => {
   const calls = [];
   const services = evaluateLuciModule(`${root}/z2m-services.js`);
+  const snapshot = {
+    revision: 7,
+    precondition: { revision: 7, fileSha256: 'backend-file-sha-7', catalogDigest: 'catalog-digest-7' },
+    catalog: { digest: 'catalog-digest-7', version: 'backend-catalog', enabled: ['alpha'], packages: [], categories: [] },
+    userDomains: { include: [], exclude: [], conflicts: [] },
+    autohost: { entries: [], counts: {}, writable: false },
+    sources: { items: [], writable: false }
+  };
   const api = {
     normalizeError(error) { return { code: error?.code || 'E_TEST', message: error?.message || String(error) }; },
-    services: {
-      catalogList: () => Promise.resolve({ ok: true, digest: 'catalog-digest-7', digestOk: true, services: [] }),
-      catalogStatus: () => Promise.resolve({ ok: true, ledger: { enabled: ['alpha', 'gamma'], revision: 7, catalogDigest: 'catalog-digest-7' }, catalog: { valid: true, digestOk: true } }),
-      catalogPreview: (payload) => {
-        calls.push(JSON.parse(payload));
-        return Promise.resolve({ ok: true, precondition: { ledgerRevision: 7, fileSha256: 'backend-file-sha-7' } });
-      },
-      healthMatrixGet: () => Promise.resolve({ ok: true }),
-      catalogGet: () => Promise.resolve({ ok: true })
-    },
-    orchestra: { probePreflight: () => Promise.resolve({ ok: true, ready: true }) }
+    domainHub: { get: () => { calls.push('get'); return Promise.resolve(snapshot); } }
   };
 
   const data = await services.load({ api });
 
-  assert.deepEqual(calls, [{ enabled: ['alpha', 'gamma'] }]);
-  assert.deepEqual(data.preview.value.precondition, { ledgerRevision: 7, fileSha256: 'backend-file-sha-7' });
+  assert.deepEqual(calls, ['get']);
+  assert.deepEqual(data.hub.value.precondition, snapshot.precondition);
 });
 
 test('final docs describe the single app view and temporary review reports are absent', () => {

@@ -147,7 +147,7 @@ test('R16: deploy uses --repository with .adb, not bare APK', () => {
 });
 
 // 17. meta-package dependency closure
-test('R17: zapret2-manager-full DEPENDS is complete and target-locked', () => {
+test('R17: zapret2-manager-full keeps TG Proxy optional and remains target-locked', () => {
   const mkFull = read(MK_FULL);
   const depMatch = /DEPENDS:=[^\n]*/.exec(mkFull);
   assert.ok(depMatch, 'DEPENDS line must exist');
@@ -155,7 +155,9 @@ test('R17: zapret2-manager-full DEPENDS is complete and target-locked', () => {
   assert.ok(deps.includes('@TARGET_mediatek_filogic'), 'meta-package must be restricted to mediatek_filogic');
   assert.ok(deps.includes('+zapret2-manager'), 'meta-package must depend on zapret2-manager');
   assert.ok(deps.includes('+luci-app-zapret2-manager'), 'meta-package must depend on luci-app-zapret2-manager');
-  assert.ok(deps.includes('+tg-ws-proxy-rs'), 'meta-package must depend on tg-ws-proxy-rs');
+  assert.ok(!deps.includes('+tg-ws-proxy-rs'), 'Rust TG Proxy must remain an optional tab-managed package');
+  assert.ok(!deps.includes('+tg-ws-proxy-go'), 'Go TG Proxy must remain an optional tab-managed package');
+  assert.match(mkFull, /TG Proxy remains optional/);
   // Nonshared flag present
   assert.ok(mkFull.includes('PKG_FLAGS:=nonshared'), 'meta-package must be nonshared (target-specific)');
 });
@@ -180,14 +182,14 @@ test('NEGATIVE CONTROL: postinst with mkndx reddens R1', () => {
 });
 
 test('NEGATIVE CONTROL: deploy bare APK reddens R16', () => {
-	const deployCode = read(DEPLOY);
-	// Replace the signed-index install command with a bare APK install.
-	const broken = deployCode.replace(
-		'apk add --upgrade --repository "$REPO_DIR/packages.adb"',
-		'apk add /tmp/zapret2-manager-full.apk'
-	);
-	assert.ok(!broken.includes('apk add --upgrade --repository "$REPO_DIR/packages.adb"'),
-		'mutation must have removed the original --repository install command');
+  const deployCode = read(DEPLOY);
+  // Replace the signed-index install command with a bare APK install.
+  const broken = deployCode.replace(
+    'apk add --upgrade --repository "$REPO_DIR/packages.adb"',
+    'apk add /tmp/zapret2-manager-full.apk'
+  );
+  assert.ok(!broken.includes('apk add --upgrade --repository "$REPO_DIR/packages.adb"'),
+    'mutation must have removed the original --repository install command');
   assert.ok(broken.includes('/tmp/zapret2-manager-full.apk'), 'mutation must inject bare APK path');
 });
 

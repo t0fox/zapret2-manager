@@ -121,8 +121,7 @@ assert.strictEqual(checkStale(now, now - 100000), false);
 console.log('ok 14 - stale rating detection');
 
 // 15: source encoding test file exists
-try {
-	readFileSync('tests/source-encoding.test.mjs', 'utf8');
+readFileSync('tests/source-encoding.test.mjs', 'utf8');
 console.log('ok 15 - source-encoding test file present');
 
 // 16: production rollback is write-only in the actual shipped ACL
@@ -139,18 +138,16 @@ console.log('ok 16 - restore_previous is write-only in shipped ACL');
 
 // 17: the public Apply entrypoint cannot consume the CLI-only failure hook
 const runSource = readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/orchestra-run.uc', 'utf8');
-assert.match(runSource, /export const orchestra_apply_best = function\(input\)\{return orchestra_apply_best_with_hook\(input,false\);\};/);
+assert.match(runSource, /export const orchestra_apply_best = function\(input\)\{let r=orchestra_run_load\(input\);return r&&r\.targetType=='service'\?orchestra_apply_service\(input\):orchestra_apply_best_with_hook\(input,false\);\};/);
 assert.doesNotMatch(runSource, /internalFailureHook:input\.__internalFailTargetVerification/);
 console.log('ok 17 - public Apply cannot inject the test failure hook');
 
-// 18: stale active records are reconciled by their owned PID/starttime, not age.
-assert.match(runSource, /const TERMINAL = \['completed', 'applied', 'rolled-back', 'restored', 'timeout', 'timed-out', 'cancelled', 'canceled', 'stopped', 'failed', 'interrupted'\]/);
+// 18: stale active records are reconciled by owned PID/starttime and every
+// honest terminal phase, including partial/infrastructure-error, is terminal.
+assert.match(runSource, /const TERMINAL = \['completed', 'applied', 'rolled-back', 'restored', 'timeout', 'timed-out', 'partial', 'infrastructure-error', 'cancelled', 'canceled', 'stopped', 'failed', 'interrupted'\]/);
 assert.match(runSource, /function reconcile_active\(r\)/);
 assert.match(runSource, /worker process is no longer alive or no longer matches its recorded starttime/);
 assert.doesNotMatch(runSource, /HEARTBEAT_MARGIN/);
 console.log('ok 18 - stale active run reconciliation is PID-bound');
-} catch (e) {
-	console.log('not ok 15 - source-encoding test file absent');
-}
 
 console.log('\nAll RPC contract tests passed.');

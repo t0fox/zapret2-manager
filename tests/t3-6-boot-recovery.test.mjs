@@ -17,8 +17,8 @@ test('boot 03: manager recovery uses the sanctioned upstream init path', () => a
 test('boot 04: recovery does not execute the upstream binary directly', () => assert.doesNotMatch(watchdog, /\/opt\/zapret2\/nfq2\/nfqws2/));
 test('boot 05: required games ipset input is packaged persistently', () => assert.equal(fs.existsSync(games), true));
 test('boot 06: required steam ipset input is packaged persistently', () => assert.equal(fs.existsSync(steam), true));
-test('boot 07: packaged games input is installed at its argv path', () => assert.match(makefile, /ipset\/games\.txt/));
-test('boot 08: packaged steam input is installed at its argv path', () => assert.match(makefile, /ipset\/steam\.txt/));
+test('boot 07: packaged games input is installed at its argv path', () => { assert.match(makefile, /\$\(CP\) \.\/files\/\* \$\(1\)\//); assert.equal(fs.existsSync(games), true); });
+test('boot 08: packaged steam input is installed at its argv path', () => { assert.match(makefile, /\$\(CP\) \.\/files\/\* \$\(1\)\//); assert.equal(fs.existsSync(steam), true); });
 test('boot 09: watchdog is procd-owned', () => assert.match(managerInit, /USE_PROCD=1/));
 test('boot 10: watchdog restart attempts are bounded by procd', () => assert.match(managerInit, /procd_set_param respawn 60 5 5/));
 test('boot 11: watchdog keeps a cooldown for repeated alerts', () => assert.match(watchdog, /COOLDOWN_SEC/));

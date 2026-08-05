@@ -7,10 +7,10 @@ carries NO license file, so this text is vendored verbatim from the pinned
 upstream source commit:
 
   project : https://github.com/valnesfjord/tg-ws-proxy-rs
-  release : v1.6.5
-  commit  : a14a97aee20a1da428eb7dbd5fbe23195eba0b9d
+  release : v1.7.1
+  commit  : 742db2649c18d11f82fee928d45a1c33efb4ee0c
   asset   : tg-ws-proxy-aarch64-unknown-linux-musl.tar.gz
-  SHA-256 : 54803f09f9b4a83b27e7d6fa2dd7bbeb51df04d6365f29b5746086d2830dc45a
+  SHA-256 : ad23cdd6e89476fa135d04c4706d85e4c793c2a3cd430fd7e4b5179d525eeedb
 
 The license text below is unmodified.
 

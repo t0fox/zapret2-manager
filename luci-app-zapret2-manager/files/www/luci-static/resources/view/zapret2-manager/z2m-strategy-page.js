@@ -1,50 +1,90 @@
 'use strict';
 'require baseclass';
 'require view.zapret2-manager.z2m-strategy as Strategy';
+'require view.zapret2-manager.z2m-strategy-workflow as Workflow';
 'require view.zapret2-manager.z2m-auto as Auto';
 'require view.zapret2-manager.z2m-runs as Runs';
 
-function strategyContext(ctx, data, root) {
-  return Object.assign({}, ctx, { data: data || {}, root: root || ctx.root });
+function object(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
+function advanced(ctx) {
+  var ui = ctx && ctx.store && ctx.store.get && ctx.store.get().ui;
+  return !!(ui && ui.advanced);
+}
+function settled(result, api) {
+  return result.status === 'fulfilled'
+    ? { value: result.value || {} }
+    : { error: api.normalizeError(result.reason) };
+}
+function primaryModule(mode) {
+  return mode === 'workflow' ? Workflow : Strategy;
+}
+function primaryContext(ctx, envelope) {
+  return Object.assign({}, ctx, { data: object(envelope && envelope.value) });
+}
+function primaryFailure(ctx, error) {
+  var message = error && error.message || _('Не удалось загрузить основной интерфейс Strategy.');
+  return E('section', { 'class': 'z2m-view on', id: 'z2m-view-strategy' }, [
+    E('div', { 'class': 'z2m-phead' }, E('div', {}, [
+      E('h1', {}, _('Стратегия')),
+      E('p', {}, _('Выбор, проверка и автоматический подбор способа обхода DPI'))
+    ])),
+    ctx.shell.statePanel({ title: _('Ошибка загрузки'), message: message, kind: 'error' })
+  ]);
+}
+
 function load(ctx) {
-  return Promise.all([
-    Strategy.load(ctx),
+  var mode = advanced(ctx) ? 'workflow' : 'manual';
+  var primary = primaryModule(mode);
+  return Promise.allSettled([
+    primary.load(ctx),
     Auto.load(ctx),
     Runs.load(ctx)
   ]).then(function (results) {
-    return { strategy: results[0] || {}, auto: results[1] || {}, runs: results[2] || {} };
+    return {
+      mode: mode,
+      primary: settled(results[0], ctx.api),
+      auto: settled(results[1], ctx.api),
+      runs: settled(results[2], ctx.api)
+    };
   });
 }
+
 function render(ctx) {
-  var coreCtx = strategyContext(ctx, ctx.data && ctx.data.strategy);
-  var node = Strategy.render(coreCtx);
-  var autoPanel = Auto.render(ctx, ctx.data && ctx.data.auto);
-  var runsPanel = Runs.render(ctx, ctx.data && ctx.data.runs);
-  if (node && node.insertBefore) {
-    var before = node.querySelector && node.querySelector('.z2m-subtabs');
-    node.insertBefore(autoPanel, before || null);
-    node.insertBefore(runsPanel, before || null);
-  } else if (node && node.appendChild) {
-    node.appendChild(autoPanel);
-    node.appendChild(runsPanel);
-  }
-  return node;
+  var data = object(ctx.data);
+  var primary = primaryModule(data.mode);
+  var root = data.primary && data.primary.error
+    ? primaryFailure(ctx, data.primary.error)
+    : primary.render(primaryContext(ctx, data.primary));
+
+  root.appendChild(Auto.render(ctx, data.auto));
+  root.appendChild(Runs.render(ctx, data.runs));
+  return root;
 }
+
 function mount(ctx) {
-  Strategy.mount(strategyContext(ctx, ctx.data && ctx.data.strategy, ctx.root));
+  var data = object(ctx.data);
+  var primary = primaryModule(data.mode);
+  if (!data.primary || !data.primary.error)
+    primary.mount(primaryContext(ctx, data.primary));
 }
-function unmount(ctx) {
-  Strategy.unmount(strategyContext(ctx, ctx && ctx.data && ctx.data.strategy, ctx && ctx.root));
+
+function unmount() {
+  Strategy.unmount();
+  Workflow.unmount();
   Auto.unmount();
   Runs.unmount();
 }
-function createAdapter(api) { return Strategy.createAdapter ? Strategy.createAdapter(api) : null; }
+
+function createAdapter(api) {
+  return Strategy.createAdapter ? Strategy.createAdapter(api) : null;
+}
 
 return baseclass.extend({
   id: 'strategy',
   title: _('Стратегия'),
-  subtitle: _('Выбор, автоматический подбор и проверка способа обхода DPI'),
+  subtitle: _('Выбор и проверка способа обхода DPI'),
   load: load,
   render: render,
   mount: mount,

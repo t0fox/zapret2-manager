@@ -62,6 +62,32 @@ function err(code, message, stage) {
 	return { ok: false, stage: (stage != null) ? stage : null, error: { code: code, message: message } };
 }
 
+function dns_operation_id(kind, revision) {
+	return kind + '-' + trim(run('date +%s').out) + '-' + revision;
+}
+
+function bounded_operation(value) {
+	if (type(value) != 'object' || value == null) return null;
+	return {
+		operationId: value.operationId || null,
+		kind: value.kind || null,
+		state: value.state || null,
+		phase: value.phase || null,
+		revision: (type(value.revision) == 'int') ? value.revision : null,
+		routeCount: (type(value.routeCount) == 'int') ? value.routeCount : null,
+		verified: value.verified === true,
+		startedAt: value.startedAt || null,
+		finishedAt: value.finishedAt || null,
+		error: value.error || null
+	};
+}
+
+function persist_dns_operation(state, operation) {
+	if (type(state.dns) != 'object' || state.dns == null) state.dns = { entries: [], revision: 0 };
+	state.dns.lastOperation = bounded_operation(operation);
+	return save_state(state);
+}
+
 // ---------------------------------------------------------------------------
 // validation (mirrors validate_domain/validate_ipv4/validate_entries)
 // ---------------------------------------------------------------------------
@@ -263,6 +289,8 @@ function load_dns_draft() {
 export const dns_get = function() {
 	let conf = parse_dnsmasq_conf(readfile(DHCP_CONF));
 	let draft = load_dns_draft();
+	let loaded = load_state();
+	let dnsState = loaded.ok && type(loaded.state.dns) == 'object' && loaded.state.dns != null ? loaded.state.dns : {};
 	let scan = component_scan();
 	let resolv = (conf.resolvfile != null) ? parse_resolv_auto(readfile(conf.resolvfile)) : [];
 	let applied = parse_hosts(readfile(OVERRIDES_PATH));
@@ -287,6 +315,8 @@ export const dns_get = function() {
 		},
 		diagnosticError: active.diagnosticError || null,
 		revision: draft.revision,
+		appliedRevision: (type(dnsState.appliedRevision) == 'int') ? dnsState.appliedRevision : 0,
+		lastOperation: bounded_operation(dnsState.lastOperation),
 		rollbackAvailable: dns_snapshot_available(),
 		overridesPath: OVERRIDES_PATH,
 		registered: registered,
@@ -348,11 +378,11 @@ export const dns_validate = function(input) {
 // ---------------------------------------------------------------------------
 // apply (preview → snapshot → write → register → reload → verify → rollback)
 // ---------------------------------------------------------------------------
-function snapshot_dns() {
+function snapshot_dns(stateText) {
 	run('mkdir -p ' + SNAP_DIR);
 	run('cp -f ' + DHCP_CONF + ' ' + SNAP_DIR + '/dhcp.conf 2>/dev/null');
 	run('cp -f ' + OVERRIDES_PATH + ' ' + SNAP_DIR + '/overrides.hosts 2>/dev/null');
-	run('cp -f /etc/zapret2-manager/state.json ' + SNAP_DIR + '/state.json 2>/dev/null');
+	if (type(stateText) == 'string') writefile(SNAP_DIR + '/state.json', stateText);
 	return { dir: SNAP_DIR };
 }
 
@@ -451,89 +481,92 @@ function verify_dns(entries) {
 export const dns_apply_run = function() {
 	let f = apply_front({});
 	if (f.refuse) return f.refuse;
-	let snap = snapshot_dns();
+	let loaded = load_state();
+	if (!loaded.ok) return err('ESTATE', 'draft state is malformed — refusing DNS Apply', 'journal');
+	let stateBefore = readfile('/etc/zapret2-manager/state.json');
+	if (stateBefore == null) stateBefore = sprintf('%J', loaded.state) + '\n';
+	let revision = (type(loaded.state.dns) == 'object' && loaded.state.dns != null && type(loaded.state.dns.revision) == 'int') ? loaded.state.dns.revision : 0;
+	let operationId = dns_operation_id('dns-apply', revision);
+	let operation = { operationId: operationId, kind: 'apply', state: 'running', phase: 'snapshot', revision: revision, routeCount: length(f.entries), verified: false, startedAt: trim(run('date -Iseconds').out), finishedAt: null, error: null };
+	let snap = snapshot_dns(stateBefore);
+	if (!dns_snapshot_available()) return err('ESTATE', 'DNS snapshot could not be verified; nothing was written', 'snapshot');
+	if (!persist_dns_operation(loaded.state, operation)) return err('ESTATE', 'DNS operation journal could not be persisted; nothing was written', 'journal');
 
-	// write the manager-owned hosts file atomically (temp + mv), then chmod
-	// 0644: dnsmasq runs as the UNPRIVILEGED 'dnsmasq' user and cannot read a
-	// 0600 ucode-writefile file (acceptance r14: apply "succeeded" but the
-	// override stayed NXDOMAIN; a 0644 copy of the same content resolved).
 	let tmp = OVERRIDES_PATH + '.tmp.' + time();
 	writefile(tmp, f.candidate);
 	let mv = run('mv -f ' + tmp + ' ' + OVERRIDES_PATH);
 	if (mv.rc != 0) {
 		try { unlink(tmp); } catch (e) { }
+		operation.state = 'failed'; operation.phase = 'write'; operation.error = { code: 'ETARGET', message: 'failed to write ' + OVERRIDES_PATH }; operation.finishedAt = trim(run('date -Iseconds').out);
+		persist_dns_operation(loaded.state, operation);
 		return err('ETARGET', 'failed to write ' + OVERRIDES_PATH, 'write');
 	}
 	run('chmod 644 ' + OVERRIDES_PATH);
 
-	// register addnhosts in /etc/config/dhcp if missing (uci, ONCE)
 	if (!f.registered) {
 		run("uci add_list dhcp.@dnsmasq[0].addnhosts='" + OVERRIDES_PATH + "'");
 		run('uci commit dhcp');
 	}
 
-	// service action (cache + conf semantics, acceptance r13+r15):
-	//   registration CHANGE → restart (conf regenerates only on full restart);
-	//   override SET change (entries added/removed/IP changed) → restart
-	//     (HUP does NOT clear the cache: a cached NXDOMAIN for a new name, or
-	//     a cached stale IP for a removed one, would keep being served);
-	//   only a literal no-change apply may reload (HUP re-reads hosts files).
 	let contentChanged = (length(f.diff.added) > 0 || length(f.diff.removed) > 0 || length(f.diff.changed) > 0);
 	let needRestart = (!f.registered) || contentChanged;
-	let rl;
-	if (needRestart) rl = run('/etc/init.d/dnsmasq restart');
-	else rl = run('/etc/init.d/dnsmasq reload');
+	operation.phase = 'restart'; persist_dns_operation(loaded.state, operation);
+	let rl = needRestart ? run('/etc/init.d/dnsmasq restart') : run('/etc/init.d/dnsmasq reload');
 
+	operation.phase = 'verify'; persist_dns_operation(loaded.state, operation);
 	let checks = verify_dns(f.entries);
 	if (!checks.ok && checks.processAlive && checks.portListening && !checks.entriesMatch && !needRestart) {
-		// escalation: resolution data was supposed to be live but entries do
-		// not resolve — one full restart clears any stale cache, re-verify
 		run('/etc/init.d/dnsmasq restart');
 		checks = verify_dns(f.entries);
 	}
 	if (!checks.ok) {
-		// immediate rollback: restore snapshot files + restart (a rollback
-		// ALWAYS changes the effective resolution data — stale cached answers
-		// must not survive it). Restored file gets 0644; an override absent
-		// at snapshot time is REMOVED, not left behind.
 		run('cp -f ' + SNAP_DIR + '/dhcp.conf ' + DHCP_CONF + ' 2>/dev/null');
 		restore_overrides_file();
 		run('/etc/init.d/dnsmasq restart');
 		let recheck = verify_dns([]);
-		return err('ETARGET',
-			'dns apply failed verification (service rc=' + rl.rc + ') — rolled back; resolver process=' + recheck.processAlive + ' port53=' + recheck.portListening,
-			'verify');
+		operation.state = 'failed'; operation.phase = 'verify'; operation.error = { code: 'ETARGET', message: 'verification failed; snapshot restored' }; operation.finishedAt = trim(run('date -Iseconds').out);
+		let restored = load_state();
+		if (restored.ok) persist_dns_operation(restored.state, operation);
+		return err('ETARGET', 'dns apply failed verification (service rc=' + rl.rc + ') — rolled back; resolver process=' + recheck.processAlive + ' port53=' + recheck.portListening, 'verify');
 	}
-	return {
-		ok: true,
-		mode: 'apply',
-		registered: f.registered,
-		action: needRestart ? 'restart' : 'reload',
-		verify: checks,
-		snapshot: snap,
-		note: 'dnsmasq ' + (needRestart ? 'restarted' : 'reloaded') + '; overrides active. Manual rollback via dns_rollback restores ' + SNAP_DIR + '.'
-	};
+
+	let finalState = load_state();
+	if (!finalState.ok) {
+		run('cp -f ' + SNAP_DIR + '/dhcp.conf ' + DHCP_CONF + ' 2>/dev/null'); restore_overrides_file(); run('/etc/init.d/dnsmasq restart');
+		return err('ESTATE', 'DNS verification passed but state reread failed; snapshot restored', 'journal');
+	}
+	if (type(finalState.state.dns) != 'object' || finalState.state.dns == null) finalState.state.dns = { entries: f.entries, revision: revision };
+	finalState.state.dns.appliedRevision = ((type(finalState.state.dns.appliedRevision) == 'int') ? finalState.state.dns.appliedRevision : 0) + 1;
+	operation.state = 'success'; operation.phase = 'success'; operation.verified = true; operation.finishedAt = trim(run('date -Iseconds').out); operation.error = null;
+	finalState.state.dns.lastOperation = bounded_operation(operation);
+	if (!save_state(finalState.state)) {
+		run('cp -f ' + SNAP_DIR + '/dhcp.conf ' + DHCP_CONF + ' 2>/dev/null'); restore_overrides_file(); run('/etc/init.d/dnsmasq restart');
+		return err('ESTATE', 'DNS success evidence could not be persisted; snapshot restored', 'journal');
+	}
+	return { ok: true, mode: 'apply', operationId: operationId, appliedRevision: finalState.state.dns.appliedRevision, registered: f.registered, action: needRestart ? 'restart' : 'reload', verify: checks, snapshot: snap, lastOperation: bounded_operation(operation), note: 'dnsmasq ' + (needRestart ? 'restarted' : 'reloaded') + '; overrides active. Manual rollback via dns_rollback restores ' + SNAP_DIR + '.' };
 };
 
 export const dns_rollback = function() {
-	if (!dns_snapshot_available())
-		return err('ESTATE', 'no DNS snapshot to roll back to');
+	if (!dns_snapshot_available()) return err('ESTATE', 'no DNS snapshot to roll back to');
+	let loaded = load_state();
+	if (!loaded.ok) return err('ESTATE', 'DNS state is malformed — refusing rollback', 'journal');
+	let revision = (type(loaded.state.dns) == 'object' && loaded.state.dns != null && type(loaded.state.dns.revision) == 'int') ? loaded.state.dns.revision : 0;
+	let operationId = dns_operation_id('dns-rollback', revision);
+	let operation = { operationId: operationId, kind: 'rollback', state: 'running', phase: 'restore', revision: revision, routeCount: null, verified: false, startedAt: trim(run('date -Iseconds').out), finishedAt: null, error: null };
+	if (!persist_dns_operation(loaded.state, operation)) return err('ESTATE', 'DNS rollback journal could not be persisted; nothing was written', 'journal');
 	run('cp -f ' + SNAP_DIR + '/dhcp.conf ' + DHCP_CONF + ' 2>/dev/null');
 	restore_overrides_file();
-	// a rollback ALWAYS changes the effective resolution data → full restart
-	// (conf regeneration + cache clear; a cached override answer must not
-	// survive the rollback)
 	let rl = run('/etc/init.d/dnsmasq restart');
 	let checks = verify_dns([]);
-	let out = {
-		ok: checks.processAlive && checks.portListening,
-		action: 'restart',
-		reloadRc: rl.rc,
-		verify: checks,
-		note: 'snapshot restored and dnsmasq restarted'
-	};
-	let ls = load_state();
-	if (ls.ok && type(ls.state.dns) == 'object') out.revision = ls.state.dns.revision;
+	let finalState = load_state();
+	operation.state = checks.processAlive && checks.portListening ? 'success' : 'failed';
+	operation.phase = operation.state == 'success' ? 'success' : 'verify';
+	operation.verified = operation.state == 'success';
+	operation.error = operation.verified ? null : { code: 'EVERIFY', message: 'resolver verification failed after rollback' };
+	operation.finishedAt = trim(run('date -Iseconds').out);
+	if (!finalState.ok || !persist_dns_operation(finalState.state, operation)) return err('ESTATE', 'DNS rollback result could not be persisted', 'journal');
+	let out = { ok: operation.verified, operationId: operationId, action: 'restart', reloadRc: rl.rc, verify: checks, lastOperation: bounded_operation(operation), note: 'snapshot restored and dnsmasq restarted' };
+	if (type(finalState.state.dns) == 'object') { out.revision = finalState.state.dns.revision; out.appliedRevision = (type(finalState.state.dns.appliedRevision) == 'int') ? finalState.state.dns.appliedRevision : 0; }
 	return out;
 };
 
