@@ -1,27 +1,16 @@
 #!/usr/bin/ucode
 'use strict';
 // profiles-cli.uc — CLI wrapper for the profiles backend (read path + draft CRUD).
-//
-// profiles.uc / profiles-draft.uc are PURE importable libraries (export const
-// ..., no shebang, no ARGV). This file is the executable entry point.
 // Production mutations are fail-closed: a real flock is mandatory and apply
-// is allowed only after complete native/Lua verification.
+// is allowed only after complete pinned native/Lua verification.
 
 import { readfile, popen } from 'fs';
 import { profiles_list } from './profiles.uc';
 import { draft_block, profiles_create, profiles_update, profiles_clone, profiles_delete, profiles_validate, profiles_import_applied } from './profiles-draft.uc';
 import { profiles_apply_preview, profiles_apply_run } from './profiles-apply.uc';
+import { native_preflight } from './native-preflight.uc';
 
 const LOCKFILE = '/tmp/zapret2-manager/state.lock';
-const REQUIRED_COVERAGE = [
-	'cliSyntax',
-	'luaLoad',
-	'luaCompatibility',
-	'functionExistence',
-	'blobExistence',
-	'runtimeArguments',
-	'executionPlan'
-];
 
 function print_json(value) {
 	print(sprintf("%J", value) + '\n');
@@ -114,16 +103,21 @@ if (mode == 'list') {
 } else if (mode == 'preview') {
 	print_json(profiles_apply_preview());
 } else if (mode == 'apply') {
-	// Re-run preview inside the same exclusive lock. This prevents a CLI-only
-	// partial preflight from reaching the writer and makes stale validation
-	// impossible at this entry point.
+	// Preview and independent pinned verification both execute inside the same
+	// exclusive transaction lock. The existing profiles_apply_run still owns
+	// snapshot/write/restart/rollback; this gate prevents partial validation
+	// from reaching that sanctioned writer.
 	let preview = profiles_apply_preview();
-	if (preview.ok != true || type(preview.native) != 'object' || preview.native == null || preview.native.status != 'verified' || !full_native_verified(preview.native)) {
+	let native = (preview.ok == true && type(preview.candidate) == 'string')
+		? native_preflight(preview.candidate)
+		: null;
+	if (preview.ok != true || !full_native_verified(native)) {
 		print_json({
 			ok: false,
 			stage: 'validate',
-			error: { code: 'EPREFLIGHT', message: 'complete native/Lua preflight is required; nothing was written' },
-			native: preview.native != null ? preview.native : null
+			error: { code: 'EPREFLIGHT', message: 'complete pinned native/Lua preflight is required; nothing was written' },
+			native: native,
+			preview: preview
 		});
 		exit(1);
 	}
