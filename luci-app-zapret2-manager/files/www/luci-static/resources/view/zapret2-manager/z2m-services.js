@@ -10,7 +10,9 @@ var state = {
   category: 'all',
   baseline: null,
   working: null,
-  error: null
+  error: null,
+  runBusy: false,
+  preflightReady: false
 };
 
 function edit(fn, value) { return fn(JSON.stringify(value || {})); }
@@ -84,6 +86,47 @@ function categoryLabel(category) {
   return labels[category] || category;
 }
 
+function serviceProtocols(service) {
+  var protocols = array(service && service.protocols);
+  return protocols.length ? protocols : ['tcp_https'];
+}
+
+function startServiceRun(ctx, service) {
+  if (state.runBusy) return Promise.resolve(null);
+  var id = service && service.id;
+  if (!id) return Promise.resolve(null);
+  state.runBusy = true;
+  state.preflightReady = false;
+  return ctx.api.orchestra.probePreflight().then(function (preflight) {
+    state.preflightReady = !!(preflight && preflight.ok === true && preflight.status !== 'missing-dependency');
+    if (!state.preflightReady) throw preflight || { code: 'EPROBEDEPENDENCY', message: _('Проверка зависимостей не пройдена.') };
+    return edit(ctx.api.orchestra.runStart, {
+      targetType: 'service',
+      targetId: id,
+      protocols: serviceProtocols(service),
+      candidateMode: 'zapret2gui-only',
+      candidateIds: [],
+      repeats: 1,
+      perAttemptTimeoutSec: 15,
+      totalTimeoutSec: 180,
+      maxCandidates: 4,
+      maxAttempts: 12
+    });
+  }).then(function (answer) {
+    if (!answer || answer.ok !== true || !answer.run || !answer.run.runId)
+      throw answer || { code: 'ETARGET', message: _('Backend не принял запуск проверки.') };
+    ctx.navigate('strategy');
+    return answer;
+  }).catch(function (error) {
+    var normalized = normalizeError(ctx.api, error);
+    ctx.shell.showToast(normalized.message, 'err');
+    return null;
+  }).finally(function () {
+    state.runBusy = false;
+    ctx.refresh('services');
+  });
+}
+
 function renderCatalog(ctx) {
   var shell = ctx.shell;
   var working = state.working;
@@ -145,15 +188,18 @@ function renderCatalog(ctx) {
           item.domainCount ? ' · ' + item.domainCount + ' ' + _('доменов') : ''
         ])
       ]),
-      shell.switchControl({
-        checked: on,
-        label: item.name || item.id,
-        onChange: function () {
-          var next = clone(working);
-          next.enabled = DomainHubModel.togglePackage(working.enabled, item.id);
-          stage(ctx, next);
-        }
-      })
+      E('div', { 'class': 'z2m-btnrow' }, [
+        shell.button(_('Проверить'), 'sm', function () { startServiceRun(ctx, item); }, state.runBusy),
+        shell.switchControl({
+          checked: on,
+          label: item.name || item.id,
+          onChange: function () {
+            var next = clone(working);
+            next.enabled = DomainHubModel.togglePackage(working.enabled, item.id);
+            stage(ctx, next);
+          }
+        })
+      ])
     ]);
   });
 

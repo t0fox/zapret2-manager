@@ -7,6 +7,7 @@ var runtime = { timer: null, runId: null, target: '', overrideStrategyId: null }
 function edit(fn, value) { return fn(JSON.stringify(value || {})); }
 function asArray(value) { return Array.isArray(value) ? value : []; }
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
+function displayValue(value) { return value == null || value === '' ? '—' : String(value); }
 function settled(result, api) {
   return result.status === 'fulfilled'
     ? { value: result.value || {} }
@@ -236,7 +237,7 @@ function render(ctx) {
 
   var warnings = Object.keys(data).map(function (key) {
     var message = format.text(data[key] && data[key].error && data[key].error.message);
-    return message === null ? null : shell.statePanel({ title: _('Ошибка backend'), message: message, kind: 'error' });
+    return message === null ? null : shell.statePanel({ title: _('Backend не сообщил данные'), message: message, kind: 'error' });
   }).filter(Boolean);
 
   var pageHead = E('div', { 'class': 'z2m-phead z2m-overview-head' }, [
@@ -251,7 +252,7 @@ function render(ctx) {
     var revision = format.text(view.strategy.revision);
     if (source !== null) parts.push(_('источник: ') + source);
     if (appliedAt !== null) parts.push(appliedAt);
-    if (revision !== null) parts.push(_('ревизия: ') + revision);
+    if (revision !== null) parts.push(_('ревизия: ') + displayValue(revision));
     return parts.length ? E('div', { 'class': 'z2m-dim z2m-strategy-meta' }, parts.join(' · ')) : null;
   }
 
@@ -407,9 +408,13 @@ function render(ctx) {
         ])),
         E('div', { 'class': 'sp z2m-btnrow' }, [
           shell.button(_('Отменить изменение'), '', function () { clearPendingOverride(true); }),
-          shell.button(_('Показать различия'), 'primary', applyPendingOverride, activeId === null)
+          shell.button(_('Применить изменение'), 'primary', applyPendingOverride, activeId === null)
         ])
       ]));
+      rulesBody.push(shell.statePanel({
+        message: _('Точечные правила нельзя применить через общий координатор: откройте семантическое сравнение и используйте strategy-owned adapter.'),
+        kind: 'warning'
+      }));
     }
     if (ruleRows.length) rulesBody.push(E('div', { 'class': 'z2m-rule-list' }, ruleRows));
     rulesPanel = shell.panel(_('Точечные правила'), E('div', {}, rulesBody), _('важнее глобальной стратегии'));

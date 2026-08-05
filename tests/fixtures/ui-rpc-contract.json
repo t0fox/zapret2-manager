@@ -26,6 +26,8 @@
     "orchestra_auto_status",
     "orchestra_auto_stop",
     "orchestra_capabilities",
+    "orchestra_catalog",
+    "orchestra_corpus_get",
     "orchestra_events",
     "orchestra_history",
     "orchestra_preview_best",

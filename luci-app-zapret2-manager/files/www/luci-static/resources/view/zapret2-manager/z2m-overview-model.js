@@ -134,7 +134,7 @@ function adviceFor(view) {
     advice.push({
       kind: 'r',
       title: 'Часть данных недоступна',
-      detail: view.errors.map(function (error) { return error.message; }).filter(Boolean).join(' · '),
+      detail: 'Backend не сообщил: ' + view.errors.map(function (error) { return error.message; }).filter(Boolean).join(' · '),
       action: 'refresh'
     });
   }

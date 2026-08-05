@@ -371,3 +371,10 @@ These are not frontend-success conditions and must not be hidden as green:
 7. Some old standalone remastered pages remain shipped but are not part of the single-view module graph. The active app must not import them.
 
 The backend rewrite should address these gaps while preserving the method and payload contract above, or introduce an explicitly versioned replacement contract together with frontend changes.
+
+### Dedicated Orchestra catalogue reads
+
+The central facade also exposes the read-only dedicated Orchestra methods
+`orchestra_catalog` and `orchestra_corpus_get`. They are backed by the packaged
+`zapret2-manager-orchestra` rpcd companion and retain rejected ubus error
+semantics; absence of that companion is an unavailable backend, never success.
