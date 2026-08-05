@@ -6,8 +6,8 @@
 //      parse to EXACTLY one native profile with NO error-severity diagnostics;
 //   2. the candidate is REFUSED (never written) when: the draft set is empty
 //      (never wipe applied to empty), a fragment is malformed, a fragment
-//      holds several profiles, the round trip loses content, or the native
-//      --dry-run rejects it;
+//      holds several profiles, the round trip loses content, or full native/Lua
+//      preflight is not verified;
 //   3. opaque Lua survives the render byte-verbatim (round-trip check);
 //   4. preview diff is honest (sha256 of current vs candidate);
 //   5. post-restart verification: process present, exactly ONE nfqws2, rules
@@ -23,7 +23,8 @@ import { createHash } from 'node:crypto';
 import {
 	renderCandidate, candidateRoundTrip, diffSummary,
 	verifyStatus, applyDecision, sha256hexNode, dqEscape,
-	checkIdempotent, APPLY_IDEMPOTENCY_WINDOW_SEC
+	checkIdempotent, APPLY_IDEMPOTENCY_WINDOW_SEC,
+	REQUIRED_NATIVE_COVERAGE
 } from './lib/profiles-apply.mjs';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -36,6 +37,10 @@ const Q_FIXTURE = readFileSync(join(HERE, 'fixtures-postinstall', 'proc-nfnetlin
 const D1 = { id: 'p000001', name: 'Web', opt: '--filter-tcp=80 --filter-l7=http <HOSTLIST> --lua-desync=fake:blob=fake_default_http:tcp_md5' };
 const D2 = { id: 'p000002', name: 'Video', opt: '--filter-tcp=443 --filter-l7=tls <HOSTLIST> --lua-desync=multisplit:pos=method+2 --lua-desync=fake:blob=fake_default_tls:tcp_md5:tcp_seq=-10000' };
 const D3 = { id: 'p000003', name: 'QUIC', opt: '--filter-udp=443 --filter-l7=quic <HOSTLIST_NOAUTO> --lua-desync=fake:blob=fake_default_quic:repeats=6' };
+
+function verifiedCoverage(overrides = {}) {
+	return Object.assign(Object.fromEntries(REQUIRED_NATIVE_COVERAGE.map((key) => [key, 'passed'])), overrides);
+}
 
 // ---- render -------------------------------------------------------------------
 
@@ -92,8 +97,6 @@ test('dqEscape: shell double-quote specials are escaped, engine bytes preserved 
 	assert.equal(dqEscape('a"b'), 'a\\"b', 'a literal " is backslash-escaped for the double-quoted assignment');
 	assert.equal(dqEscape('a\\:b'), 'a\\\\:b', 'an existing backslash doubles (sourcing restores it exactly)');
 	assert.equal(dqEscape('$HOME`id`'), '\\$HOME\\`id\\`', 'no variable/command substitution on source');
-	// round-trip through the escape: a config written escaped and read back
-	// per shell double-quote rules yields the ORIGINAL candidate
 	const candidate = '--lua-desync=fake:pattern=a\\:b --name="Quoted"';
 	const escaped = dqEscape(candidate);
 	assert.ok(escaped.includes('\\"Quoted\\"'));
@@ -115,16 +118,22 @@ test('diffSummary: honest sha256 diff of current vs candidate', () => {
 
 // ---- native gate decision -------------------------------------------------------------
 
-test('applyDecision: native rejection refuses BEFORE any write', () => {
+test('applyDecision: only complete verified native/Lua coverage proceeds', () => {
+	assert.deepEqual(applyDecision({ status: 'verified', coverage: verifiedCoverage() }), { proceed: true });
 	assert.deepEqual(applyDecision({ status: 'rejected' }), { proceed: false, stage: 'validate' });
 	assert.deepEqual(applyDecision({ status: 'unavailable' }), { proceed: false, stage: 'validate' });
-	assert.deepEqual(applyDecision({ status: 'partial', coverage: { cliSyntax: 'passed' } }), { proceed: true });
-	assert.deepEqual(applyDecision({ status: 'partial', coverage: { cliSyntax: 'not_checked' } }), { proceed: false, stage: 'validate' },
-		'a partial WITHOUT cliSyntax passed is not a proceed signal');
-	assert.deepEqual(applyDecision({ status: 'not_checked' }), { proceed: false, stage: 'validate' },
-		'a candidate that was never natively checked must not be applied');
-	assert.deepEqual(applyDecision({ status: 'valid' }), { proceed: false, stage: 'validate' },
-		'NEGATIVE CONTROL: a fabricated "valid" status is not a proceed signal');
+	assert.deepEqual(applyDecision({ status: 'partial', coverage: { cliSyntax: 'passed' } }), { proceed: false, stage: 'validate' },
+		'CLI-only partial verification must never authorize a production apply');
+	assert.deepEqual(applyDecision({ status: 'verified', coverage: verifiedCoverage({ luaLoad: 'not_checked' }) }), { proceed: false, stage: 'validate' },
+		'a single unchecked coverage field blocks mutation');
+	const missingBlob = verifiedCoverage();
+	delete missingBlob.blobExistence;
+	assert.deepEqual(applyDecision({ status: 'verified', coverage: missingBlob }), { proceed: false, stage: 'validate' },
+		'missing coverage is not inferred as passed');
+	assert.deepEqual(applyDecision({ status: 'not_checked' }), { proceed: false, stage: 'validate' });
+	assert.deepEqual(applyDecision({ status: 'unknown' }), { proceed: false, stage: 'validate' });
+	assert.deepEqual(applyDecision({ status: 'valid', coverage: verifiedCoverage() }), { proceed: false, stage: 'validate' },
+		'out-of-vocabulary status is rejected');
 });
 
 // ---- verify ---------------------------------------------------------------------------
@@ -177,11 +186,6 @@ test('verifyStatus: missing nft rules fail rulesPresent', () => {
 });
 
 test('verifyStatus: a racing status-collector queue read must NOT spurious-fail (r9 acceptance defect)', () => {
-	// the exact r9 drill situation: the direct /proc parse says registered
-	// with owner match, but the freshly-recollected status.json raced the
-	// daemon's async bind and says not-registered. The direct read is
-	// authoritative for queue registration (it selects the row by queue
-	// number); the check must pass.
 	const raced = statusFixture({
 		runtime: { present: true, count: 1, rulesPresent: true, instances: [{ pid: 4575 }] },
 		health: { queue: { number: 300, registered: false, queueTotal: 0 } }
@@ -192,8 +196,6 @@ test('verifyStatus: a racing status-collector queue read must NOT spurious-fail 
 });
 
 test('verify fixture grounding: ps/proc fixtures really carry pid 6128 owning queue 300', () => {
-	// the fixture pair is the evidence for the ownerMatch rule: queue 300's
-	// peer_portid (6128) equals the nfqws2 PID in ps
 	assert.ok(PS_FIXTURE.includes(' 6128 daemon'), 'ps fixture: nfqws2 pid 6128');
 	const qFields = Q_FIXTURE.trim().split(/\s+/);
 	assert.equal(qFields[0], '300');
