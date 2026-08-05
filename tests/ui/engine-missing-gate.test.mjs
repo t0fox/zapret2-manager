@@ -57,6 +57,7 @@ test('blocker has the exact installer CTA and keeps safe surfaces documented', (
   assert.match(gateSource, /Установить движок/);
   assert.match(gateSource, /ctx\.navigate\(['"]maintenance['"]\)/);
   assert.match(gateSource, /Maintenance, backups, diagnostics и Telegram Proxy остаются доступны/);
-  assert.match(gateSource, /ctx\.api\.engine\.status\(\)/);
+  assert.match(gateSource, /ctx\.api\.engine\.status/);
+  assert.match(gateSource, /statusCall\(\)/);
   assert.doesNotMatch(gateSource, /rpc\.declare|L\.ubus|fs\.exec/);
 });
