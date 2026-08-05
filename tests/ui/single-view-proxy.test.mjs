@@ -76,6 +76,6 @@ test('QR encoder matches deterministic Telegram link oracle and keeps a four-mod
 
 test('app registers Telegram Proxy as the proxy tab', () => {
   const app = source('app.js');
-  assert.match(app, /z2m-proxy as Proxy/);
+  assert.match(app, /z2m-proxy-page as Proxy/);
   assert.match(app, /proxy:\s*Proxy/);
 });

@@ -479,6 +479,14 @@ function dns_check_method(req) { return cli_edit_action(DNS_CLI, 'check', req, '
 function dns_rollback_method(req) { return cli_action(DNS_CLI, 'rollback'); }
 function dns_restore_auto_method(req) { return cli_action(DNS_CLI, 'restore-auto'); }
 
+// ---- DNS global configuration (Slice 8) ----------------------------------------
+const DNSGLOBAL_CLI = '/usr/libexec/zapret2-manager/dns-global-cli.uc';
+function dns_global_get_method(req) { return cli_action(DNSGLOBAL_CLI, 'get'); }
+function dns_global_set_method(req) { return cli_edit_action(DNSGLOBAL_CLI, 'set', req, 'dnsglobal'); }
+function dns_global_preview_method(req) { return cli_action(DNSGLOBAL_CLI, 'preview'); }
+function dns_global_apply_method(req) { return cli_action(DNSGLOBAL_CLI, 'apply'); }
+function dns_global_rollback_method(req) { return cli_action(DNSGLOBAL_CLI, 'rollback'); }
+
 // ---- service catalog (Phase B) -------------------------------------------------
 const CATALOG_CLI = '/usr/libexec/zapret2-manager/catalog-cli.uc';
 function catalog_list_method(req) { return cli_action(CATALOG_CLI, 'list'); }
@@ -640,6 +648,11 @@ return {
 		dns_check:         { args: { edit: 'string' }, call: function (req) { return dns_check_method(req); } },
 		dns_rollback:      { call: function (req) { return dns_rollback_method(req); } },
 		dns_restore_auto:  { call: function (req) { return dns_restore_auto_method(req); } },
+		dns_global_get:    { call: function (req) { return dns_global_get_method(req); } },
+		dns_global_set:    { args: { edit: 'string' }, call: function (req) { return dns_global_set_method(req); } },
+		dns_global_preview:{ call: function (req) { return dns_global_preview_method(req); } },
+		dns_global_apply:  { call: function (req) { return dns_global_apply_method(req); } },
+		dns_global_rollback: { call: function (req) { return dns_global_rollback_method(req); } },
 		catalog_list:      { call: function (req) { return catalog_list_method(req); } },
 		catalog_get:       { args: { edit: 'string' }, call: function (req) { return catalog_get_method(req); } },
 		catalog_status:    { call: function (req) { return catalog_status_method(req); } },

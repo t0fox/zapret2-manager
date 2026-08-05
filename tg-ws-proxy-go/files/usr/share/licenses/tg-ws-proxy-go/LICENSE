@@ -1,24 +1,6 @@
-VENDORING NOTE (not part of the license text)
-
-This license file is shipped inside the tg-ws-proxy-rs OpenWrt package by the
-zapret2-manager project. The pinned upstream release asset
-(tg-ws-proxy-aarch64-unknown-linux-musl.tar.gz) contains only the binary and
-carries NO license file, so this text is vendored verbatim from the pinned
-upstream source commit:
-
-  project : https://github.com/valnesfjord/tg-ws-proxy-rs
-  release : v2.0.0
-  commit  : 1ce7fb0541642c72886dd42cda4291d483ab515c
-  asset   : tg-ws-proxy-aarch64-unknown-linux-musl.tar.gz
-  SHA-256 : 4ccb0d3216edfc9a9a85a215eae5a817b6fe368fd12a796d793880a0055b3602
-
-The license text below is unmodified.
-
------------------------------------------------------------------------
-
 MIT License
 
-Copyright (c) 2026 valnesfjord
+Copyright (c) 2026 Flowseal
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

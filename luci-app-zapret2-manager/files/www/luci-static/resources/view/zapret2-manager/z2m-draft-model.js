@@ -1,9 +1,9 @@
 'use strict';
 'require baseclass';
 
-var SCOPE_ORDER = ['strategy', 'services', 'dns', 'lists', 'proxy', 'service-dns', 'maintenance'];
+var SCOPE_ORDER = ['strategy', 'services', 'dns', 'dns-global', 'lists', 'proxy', 'service-dns', 'maintenance'];
 var SCOPE_LABELS = {
-  strategy: 'Стратегия', services: 'Сервисы', dns: 'DNS', lists: 'Списки',
+  strategy: 'Стратегия', services: 'Сервисы', dns: 'DNS', 'dns-global': 'DNS настройки', lists: 'Списки',
   proxy: 'Прокси', 'service-dns': 'DNS сервисов', maintenance: 'Обслуживание'
 };
 var SECRET_KEY = /secret|token|password|link|url/i;

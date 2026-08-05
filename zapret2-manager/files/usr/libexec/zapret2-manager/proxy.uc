@@ -25,11 +25,11 @@ const PROVIDER_ID = 'tg-ws-proxy-rs';
 const PROVIDER_NAME = 'tg-ws-proxy-rs (Rust MTProto WebSocket bridge)';
 const PROVIDER_URL = 'https://github.com/valnesfjord/tg-ws-proxy-rs';
 const PROVIDER_LICENSE = 'MIT';
-const PROVIDER_RELEASE = 'v1.6.5';
-const PROVIDER_COMMIT = 'a14a97aee20a1da428eb7dbd5fbe23195eba0b9d';
+const PROVIDER_RELEASE = 'v2.0.0';
+const PROVIDER_COMMIT = '1ce7fb0541642c72886dd42cda4291d483ab515c';
 const PROVIDER_ASSET = 'tg-ws-proxy-aarch64-unknown-linux-musl.tar.gz';
-const PROVIDER_ASSET_SHA256 = '54803f09f9b4a83b27e7d6fa2dd7bbeb51df04d6365f29b5746086d2830dc45a';
-const PROVIDER_ASSET_SIZE = 1929556;
+const PROVIDER_ASSET_SHA256 = '4ccb0d3216edfc9a9a85a215eae5a817b6fe368fd12a796d793880a0055b3602';
+const PROVIDER_ASSET_SIZE = 1985685;
 const PROVIDER_ABI = 'aarch64-unknown-linux-musl';
 const PROVIDER_ARCH = 'aarch64';
 const PROVIDER_PORT = 1443;
@@ -42,6 +42,7 @@ const INIT_PATH = '/etc/init.d/tg-ws-proxy';
 const CONFIG_PATH = '/etc/tg-ws-proxy/config.conf';
 const SECRET_PATH = '/etc/tg-ws-proxy/secret.conf';
 const LOG_PATH = '/var/log/tg-ws-proxy.log';
+const PROVIDER_STATE_PATH = '/etc/zapret2-manager/proxy-provider.json';
 
 const MAX_CONFIG_BYTES = 4096;
 const MAX_NETSTAT_LINES = 512;
@@ -120,7 +121,7 @@ function probe_packages() {
 		let name = PACKAGE_CANDIDATES[i];
 		// constant argv per candidate (APK, not opkg); a missing package is a
 		// normal result. No --allow-untrusted anywhere, ever.
-		let r = run('apk info -v ' + name);
+		let r = run("apk list --installed '" + name + "' | head -n 1 | awk '{print $1}'");
 		let line = trim(r.out);
 		let row = { name: name, installed: false, version: null };
 		if (r.rc == 0 && line != '') {
@@ -147,6 +148,12 @@ function probe_netstat() {
 	// constant bounded listener probe — parsed below, never grepped for a
 	// dynamic value.
 	let r = run('netstat -tulpn');
+	if (r.rc == 127 || r.rc == -1) return { ok: false, output: '' };
+	return { ok: true, output: r.out };
+}
+
+function probe_connections() {
+	let r = run('netstat -tnp');
 	if (r.rc == 127 || r.rc == -1) return { ok: false, output: '' };
 	return { ok: true, output: r.out };
 }
@@ -311,6 +318,39 @@ function parse_netstat_listeners(output, pids) {
 	return { listeners: listeners, malformed: malformed, truncated: truncated };
 }
 
+function count_active_connections(output, pids, listeners) {
+	let ports = [];
+	for (let i = 0; i < length(listeners); i++) push(ports, listeners[i].port);
+	let lines = split(output != null ? '' + output : '', '\n');
+	let count = 0;
+	let parsed = 0;
+	for (let i = 0; i < length(lines); i++) {
+		let line = trim(lines[i]);
+		if (line == '' || substr(line, 0, 6) == 'Active' || substr(line, 0, 5) == 'Proto') continue;
+		if (parsed++ >= MAX_NETSTAT_LINES) break;
+		let f = split_fields(line);
+		if (length(f) < 7 || f[0] != 'tcp' || f[5] != 'ESTABLISHED') continue;
+		let local = f[3];
+		let cut = rindex(local, ':');
+		if (cut < 1) continue;
+		let portText = substr(local, cut + 1);
+		if (!all_digits(portText)) continue;
+		let port = +portText;
+		let listenerPort = false;
+		for (let j = 0; j < length(ports); j++) if (ports[j] == port) { listenerPort = true; break; }
+		if (!listenerPort) continue;
+		let owner = f[length(f) - 1];
+		let slash = rindex(owner, '/');
+		if (slash < 1) continue;
+		let pidText = substr(owner, 0, slash);
+		if (!all_digits(pidText)) continue;
+		let ownPid = false;
+		for (let j = 0; j < length(pids); j++) if (pids[j] == +pidText) { ownPid = true; break; }
+		if (ownPid) count++;
+	}
+	return count;
+}
+
 function parse_config_text(text) {
 	let raw = '' + (text != null ? text : '');
 	let truncated = length(raw) > MAX_CONFIG_BYTES;
@@ -360,11 +400,13 @@ function classify_listener_address(address, lanAddresses) {
 
 function determine_detected_provider(packages, binaries, init, pids) {
 	let rsInstalled = false;
+	let goInstalled = false;
 	let anyPackage = false;
 	for (let i = 0; i < length(packages); i++) {
 		if (packages[i].installed == true) {
 			anyPackage = true;
 			if (packages[i].name == 'tg-ws-proxy-rs') rsInstalled = true;
+			if (packages[i].name == 'tg-ws-proxy') goInstalled = true;
 		}
 	}
 	if (rsInstalled) return {
@@ -372,9 +414,27 @@ function determine_detected_provider(packages, binaries, init, pids) {
 		basis: 'package',
 		detail: 'APK package "tg-ws-proxy-rs" is installed — identity proven by package metadata'
 	};
+	if (goInstalled) return {
+		id: 'tg-ws-proxy-go',
+		basis: 'package',
+		detail: 'APK package "tg-ws-proxy" is installed — Go provider identity proven by package metadata'
+	};
 	let anyBinary = false;
 	for (let i = 0; i < length(binaries); i++)
 		if (binaries[i].exists == true) anyBinary = true;
+	if (!anyPackage && anyBinary && init.present == true) {
+		let raw = readfile(PROVIDER_STATE_PATH);
+		if (raw) {
+			try {
+				let state = json(raw);
+				if (state != null && type(state) == 'object' && state.activeProvider == 'rust') return {
+					id: PROVIDER_ID,
+					basis: 'manager-state',
+					detail: 'pinned Rust release installed by zapret2-manager and recorded in proxy-provider state'
+				};
+			} catch (e) { }
+		}
+	}
 	if (!anyPackage && !anyBinary && init.present != true && length(pids) == 0) return null;
 	return {
 		id: 'unknown',
@@ -389,6 +449,7 @@ function determine_detected_provider(packages, binaries, init, pids) {
 // trustworthy evidence is unknown — NEVER defaulted to socks5.
 function determine_mode(providerId, configParsed, cmdline) {
 	if (providerId == PROVIDER_ID) return { mode: 'mtproto', basis: 'provider-identity' };
+	if (providerId == 'tg-ws-proxy-go') return { mode: 'mtproto', basis: 'provider-identity' };
 	let flag = extract_mode_evidence(cmdline);
 	if (flag == 'mtproto' || flag == 'socks5') return { mode: flag, basis: 'argv' };
 	let cfg = null;
@@ -542,7 +603,7 @@ function build_warnings(st, meta) {
 		let w = { code: 'PACKAGE_WITHOUT_BINARY', message: 'an APK package is installed but none of the known binary candidates exists (' + join(', ', BINARY_CANDIDATES) + ')' };
 		push(out, w);
 	}
-	if (anyBin && !anyPkg) {
+	if (anyBin && !anyPkg && !(st.detectedProvider != null && st.detectedProvider.basis == 'manager-state')) {
 		let w = { code: 'BINARY_WITHOUT_PACKAGE', message: 'a tg-ws-proxy binary exists at ' + st.selectedBinary + ' but no known APK package is installed — provenance is unmanaged' };
 		push(out, w);
 	}
@@ -550,7 +611,7 @@ function build_warnings(st, meta) {
 		let w = { code: 'INIT_WITHOUT_BINARY', message: 'init script ' + INIT_PATH + ' exists but no binary candidate does — a partial install/removal is likely' };
 		push(out, w);
 	}
-	if (st.running == true && !anyPkg) {
+	if (st.running == true && !anyPkg && !(st.detectedProvider != null && st.detectedProvider.basis == 'manager-state')) {
 		let w = { code: 'PROCESS_WITHOUT_PACKAGE', message: 'a tg-ws-proxy process is running but no known APK package is installed' };
 		push(out, w);
 	}
@@ -651,8 +712,13 @@ export const proxy_status = function() {
 			}
 		}
 	}
+	let connectionsProbe = probe_connections();
+	let activeConnections = connectionsProbe.ok == true
+		? count_active_connections(connectionsProbe.output, pids, listeners) : null;
 
 	let detectedProvider = determine_detected_provider(packages, existingBinaries, init, pids);
+	if (packageVersion == null && detectedProvider != null && detectedProvider.basis == 'manager-state')
+		packageVersion = '2.0.0-r1';
 
 	let cfg = probe_config();
 	let configParsed = null;
@@ -743,6 +809,7 @@ export const proxy_status = function() {
 		pids: pids,
 		init: { present: init.present, enabled: init.enabled, running: running, stateKnown: init.probeOk, symlinks: init.symlinks },
 		listeners: listeners,
+		activeConnections: activeConnections,
 		probes: probes,
 		architecture: architecture,
 		config: config,

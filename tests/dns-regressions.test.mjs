@@ -4,17 +4,14 @@ import { readFileSync } from 'node:fs';
 
 const ui = readFileSync(new URL('../luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-dns.js', import.meta.url), 'utf8');
 const dns = readFileSync(new URL('../zapret2-manager/files/usr/libexec/zapret2-manager/dns.uc', import.meta.url), 'utf8');
+const globalDns = readFileSync(new URL('../zapret2-manager/files/usr/libexec/zapret2-manager/dns-global.uc', import.meta.url), 'utf8');
 const service = readFileSync(new URL('../zapret2-manager/files/usr/libexec/zapret2-manager/service-dns.uc', import.meta.url), 'utf8');
 const worker = readFileSync(new URL('../zapret2-manager/files/usr/libexec/zapret2-manager/service-dns-apply-worker.uc', import.meta.url), 'utf8');
 
-test('Manual overrides have editable controls, discard and explicit validation/apply', () => {
-  assert.match(ui, /placeholder:\s*['"]example\.com['"]/);
-  assert.match(ui, /placeholder:\s*['"]1\.1\.1\.1['"]/);
-  assert.match(ui, /Добавить переопределение/);
-  assert.match(ui, /Отменить изменения/);
-  assert.match(ui, /Проверить и применить/);
-  assert.match(ui, /api\.dns\.validate[\s\S]*api\.dns\.set[\s\S]*api\.dns\.apply/);
-  assert.match(ui, /ctx\.clearDraft\(['"]dns['"]\)/);
+test('Advanced DNS controls remain editable semantic drafts', () => {
+  assert.match(ui, /id: 'z2m-dns-custom-rules'/);
+  assert.match(ui, /function globalPayload\(revision\)/);
+  assert.match(ui, /ctx\.clearDraft\(['"]dns-global['"]\)/);
 });
 
 test('dnsmasq status contract is explicit and ubus-backed', () => {
@@ -22,12 +19,11 @@ test('dnsmasq status contract is explicit and ubus-backed', () => {
   assert.match(dns, /ubus call service list/);
 });
 
-test('Setup actions include check, restore automatic DNS and sequential provider checks', () => {
+test('DNS setup and provider checks use backend diagnostics', () => {
   assert.match(ui, /api\.dns\.check/);
-  assert.match(ui, /api\.dns\.restoreAuto/);
+  assert.match(ui, /function diagnoseProvider/);
   assert.match(ui, /function checkAllProviders/);
-  assert.match(ui, /reduce\s*\(/);
-  assert.doesNotMatch(ui, /Promise\.all\([^\n]*diagnose/);
+  assert.match(ui, /providerLatency/);
 });
 
 test('success feedback uses the typed success path', () => {
@@ -58,4 +54,28 @@ test('History renders applied revision and operation details without raw object 
 test('manager-owned addnhosts warning is explicit', () => {
   assert.doesNotMatch(ui, /share the same overrides file/);
   assert.match(ui, /Файл DNS-переопределений менеджера не подключён к dnsmasq/);
+});
+
+test('DNS component status uses the backend running and initPresent fields', () => {
+  assert.match(ui, /item\.running === true/);
+  assert.match(ui, /item\.initPresent === false/);
+  assert.match(ui, /Инициализационный скрипт отсутствует/);
+});
+
+test('Service DNS access derives services from provider profiles', () => {
+  assert.match(ui, /serviceCatalogRows/);
+  assert.match(ui, /profile\.serviceId/);
+  assert.match(ui, /serviceCatalogData\.items/);
+});
+
+test('System DNS status states when latency has not been measured', () => {
+  assert.match(ui, /Системный DNS[\s\S]*не измерялся/);
+  assert.match(ui, /function responseText\(provider\)/);
+});
+
+test('Advanced DNS controls submit their draft fields and clear custom rules', () => {
+  assert.match(ui, /'class': 'z2m-sw'/);
+  assert.match(ui, /function globalPayload\(revision\)/);
+  assert.match(ui, /customRules: draft\.customRules/);
+  assert.match(globalDns, /rm -f \/etc\/zapret2-manager\/dns-routing\.d\/99-custom\.conf/);
 });

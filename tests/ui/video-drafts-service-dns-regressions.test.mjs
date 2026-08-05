@@ -32,6 +32,30 @@ test('DNS stores only semantic Service DNS changes against a baseline', () => {
   assert.match(dns, /data-service-dns-id/);
 });
 
+test('DNS service access follows the upstream catalog shape', () => {
+  assert.match(dns, /ctx\.api\.services\.catalogList\(\)/);
+  assert.match(dns, /function\s+serviceCategoryLabel\s*\(/);
+  assert.match(dns, /z2m-service-dns-groups/);
+  assert.match(dns, /profile\.id/);
+  assert.match(dns, /profile\.providerId/);
+  assert.match(dns, /serviceCategoryLabel\(category\)/);
+});
+
+test('DNS service access has per-service icon data with a fallback', () => {
+  assert.match(dns, /SERVICE_ICON_DATA/);
+  assert.match(dns, /chatgpt-openai/);
+  assert.match(dns, /function\s+serviceIconData\s*\(/);
+  assert.match(dns, /serviceIconData\(item\)/);
+});
+
+test('DNS provider checks render backend probe latency and resolver counts', () => {
+  assert.match(dns, /function\s+providerLatency\(result, id\)/);
+  assert.match(dns, /attempt\.durationMs/);
+  assert.match(dns, /Задержка:/);
+  assert.match(dns, /резолверов ответили/);
+  assert.match(dns, /z2m-provider-groups/);
+});
+
 test('DNS is the navigable owner of the Service DNS draft', () => {
   for (const label of ['Настройка DNS', 'Проверка и выбор', 'Доступ сервисов', 'Дополнительно', 'История'])
     assert.match(dns, new RegExp(label));

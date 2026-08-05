@@ -26,34 +26,34 @@ trap cleanup EXIT HUP INT TERM
 COOKIE_JAR="$(mktemp /tmp/z2m-session.XXXXXX)"
 chmod 600 "$COOKIE_JAR"
 
-# Create a short-lived ubus session (5 min)
-SESSION_RAW="$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 "root@${ROUTER}" \
-	'ubus call session create '"'"'{"username":"root","password":"","timeout":300}'"'"' 2>/dev/null)" || {
-	echo "SESSION: FAILED (cannot create ubus session)"
-	exit 1
-}
-
-SESSION_TOKEN="$(echo "$SESSION_RAW" | sed -n 's/.*"ubus_rpc_session":"\([^"]*\)".*/\1/p')"
-if [ -z "$SESSION_TOKEN" ]; then
-	echo "SESSION: FAILED (no token in response)"
+# Authenticate through LuCI itself. A raw ubus session token is not sufficient
+# for LuCI's sysauth_http cookie contract on OpenWrt 25.12.
+if ! curl -s -o /dev/null -c "$COOKIE_JAR" --connect-timeout 8 \
+	-d 'luci_username=root&luci_password=' \
+	"http://${ROUTER}/cgi-bin/luci/"; then
+	echo "SESSION: FAILED (LuCI login request failed)"
 	exit 1
 fi
 
-# Write token to cookie jar (secure, never printed)
-echo "192.168.1.1	FALSE	/	FALSE	0	sysauth	${SESSION_TOKEN}" > "$COOKIE_JAR"
+SESSION_TOKEN="$(awk '$6 == "sysauth_http" { print $7; exit }' "$COOKIE_JAR")"
+if [ -z "$SESSION_TOKEN" ]; then
+	echo "SESSION: FAILED (no sysauth_http cookie)"
+	exit 1
+fi
 
 echo "SESSION: established (token redacted)"
 echo ""
 
-# Verify routes
+# Verify the one published single-view route. Internal tabs are hash navigation,
+# not independent LuCI menu routes.
+FAIL=0
 echo "=== ROUTE VERIFICATION ==="
-for path in \
-	app orchestra-strategy orchestra strategies dns service-dns \
-	lists monitor proxy maintenance
+for path in admin/services/zapret2-manager
 do
-	url="http://${ROUTER}/cgi-bin/luci/admin/services/zapret2-manager/${path}"
+	url="http://${ROUTER}/cgi-bin/luci/${path}"
 	code="$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 8 -b "$COOKIE_JAR" "$url" 2>/dev/null || echo '000')"
 	printf "  %3s  %s\n" "$code" "$path"
+	[ "$code" = "200" ] || { echo "  FAIL authenticated route must return 200"; FAIL=$((FAIL+1)); }
 done
 
 # Verify static resources
@@ -64,7 +64,9 @@ do
 	url="http://${ROUTER}/luci-static/resources/view/zapret2-manager/${res}"
 	code="$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 "$url" 2>/dev/null || echo '000')"
 	printf "  %3s  %s\n" "$code" "$res"
+	[ "$code" = "200" ] || { echo "  FAIL static resource must return 200"; FAIL=$((FAIL+1)); }
 done
 
 echo ""
 echo "DONE (session destroyed)"
+exit "$FAIL"

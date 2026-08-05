@@ -4,7 +4,7 @@
 // ucode probes) and never executes router commands.
 //
 // Canonical provider (docs/research/tg-ws-proxy-provider.md):
-//   valnesfjord/tg-ws-proxy-rs v1.6.5 — Rust static musl binary, MIT,
+//   valnesfjord/tg-ws-proxy-rs v2.0.0 — Rust static musl binary, MIT,
 //   MTProto bridge ONLY (the CLI has no --mode flag and no SOCKS5 server
 //   mode; --secret is optional and its absence changes nothing).
 //
@@ -30,10 +30,10 @@ export const PROVIDER_PROFILE = Object.freeze({
 	name: 'tg-ws-proxy-rs (Rust MTProto WebSocket bridge)',
 	upstreamUrl: 'https://github.com/valnesfjord/tg-ws-proxy-rs',
 	license: 'MIT',
-	release: 'v1.6.5',
-	sourceCommit: 'a14a97aee20a1da428eb7dbd5fbe23195eba0b9d',
+	release: 'v2.0.0',
+	sourceCommit: '1ce7fb0541642c72886dd42cda4291d483ab515c',
 	asset: 'tg-ws-proxy-aarch64-unknown-linux-musl.tar.gz',
-	assetSha256: '54803f09f9b4a83b27e7d6fa2dd7bbeb51df04d6365f29b5746086d2830dc45a',
+	assetSha256: '4ccb0d3216edfc9a9a85a215eae5a817b6fe368fd12a796d793880a0055b3602',
 	assetSize: 1929556,
 	abi: 'aarch64-unknown-linux-musl',
 	supportedArch: 'aarch64',

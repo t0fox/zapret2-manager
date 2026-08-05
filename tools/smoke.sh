@@ -90,6 +90,13 @@ ssh_out() {
 
 want_nz() { [ -n "$1" ] && ok "$2" || bad "$2 (empty)"; }
 
+# Print values for exactly OPTION=..., without confusing --hostlist with
+# --hostlist-exclude or --hostlist-domains.
+exact_option_values() {
+  _option="$1"
+  awk -v prefix="${_option}=" 'index($0, prefix) == 1 { print substr($0, length(prefix) + 1) }'
+}
+
 # ---- tgproxy: APPROVAL-GATED live TG proxy drill (no uninstall, no reboot) --
 gate_tgproxy() {
 	log "gate tgproxy — OPTIONAL TG WS Proxy live acceptance (r32)"
@@ -230,8 +237,10 @@ ucode_syntax() {
     else
       bad "cannot stage temp for $f"; continue
     fi
-    # module (has export) → wrapper-import on the temp; script (no export) → direct -c
-    if ssh_ok "has export $f" "grep -q -- export '$f'"; then
+    # module (an actual export statement) → wrapper-import; scripts and the
+    # no-extension rpcd plugin → direct -c. Words such as history_export in the
+    # plugin must not be mistaken for module exports.
+    if ssh_ok "has export $f" "grep -Eq '^[[:space:]]*export[[:space:]]' '$f'"; then
       if ssh_ok "import $f" "printf 'import * as m from \"%s\";' '$tmp' > '$tmp.wrap'; ucode -c -o /dev/null '$tmp.wrap' >/dev/null 2>&1; rc=\$?; rm -f '$tmp.wrap' '$tmp'; [ \$rc -eq 0 ] && exit 0 || exit 1"; then
         ok "parse OK: $f"
       else
@@ -376,13 +385,14 @@ view_resource_present() {
   log "view_resource_present — every view resource is in the built package"
   # DEVICE path (not the repo layout path) — the check runs on the device via ssh.
   VIEWS=/www/luci-static/resources/view/zapret2-manager
-  for v in overview lists; do
-    f="$VIEWS/${v}.js"
+  for v in app.js z2m-api.js z2m-store.js z2m-shell.js z2m-draft-model.js \
+           z2m-services-model.js z2m-services.js z2m-ui.css z2m-components.css; do
+    f="$VIEWS/${v}"
     # JS file must be installed by the luci-app package (on the device)
     if ssh_ok "view js $v" test -f "$f"; then
-      ok "view JS file present: ${v}.js"
+      ok "runtime resource present: ${v}"
     else
-      bad "view JS file MISSING: ${v}.js — luci-app package does not install it (browser will 404/no-resource)"
+      bad "runtime resource MISSING: ${v} — luci-app package does not install it (browser will 404/no-resource)"
     fi
   done
   # ubus methods the views call must be registered on the bus
@@ -411,17 +421,27 @@ lists_paths() {
     return
   fi
   ssh_out argv "nfqws2 argv" "tr '\0' '\n' < /proc/$pid/cmdline"
-  live_di=$(printf '%s\n' "$argv" | sed -n 's/^--hostlist=//p' | sort -u)
-  live_de=$(printf '%s\n' "$argv" | sed -n 's/^--hostlist-exclude=//p' | sort -u)
-  if [ "$(printf '%s\n' "$live_di" | grep -c .)" -ne 1 ]; then
+  live_di=$(printf '%s\n' "$argv" | exact_option_values --hostlist | sort -u)
+  live_de=$(printf '%s\n' "$argv" | exact_option_values --hostlist-exclude | sort -u)
+  count_di=$(printf '%s\n' "$live_di" | grep -c .)
+  count_de=$(printf '%s\n' "$live_de" | grep -c .)
+  if [ "$count_di" -gt 1 ]; then
     bad "--hostlist resolves to several DISTINCT paths (ambiguity — manifest stale): $(printf '%s ' $live_di)"
+  elif [ "$count_di" -eq 0 ]; then
+    ssh_ok "manifest domainInclude file" test -f "$mp_di" \
+      && ok "--hostlist file option inactive; manifest domainInclude exists ($mp_di)" \
+      || bad "--hostlist inactive and manifest domainInclude missing ($mp_di)"
   elif [ "$live_di" = "$mp_di" ]; then
     ok "domainInclude path == live --hostlist ($mp_di)"
   else
     bad "domainInclude: manifest $mp_di != live --hostlist $live_di"
   fi
-  if [ "$(printf '%s\n' "$live_de" | grep -c .)" -ne 1 ]; then
+  if [ "$count_de" -gt 1 ]; then
     bad "--hostlist-exclude resolves to several DISTINCT paths (ambiguity — manifest stale): $(printf '%s ' $live_de)"
+  elif [ "$count_de" -eq 0 ]; then
+    ssh_ok "manifest domainExclude file" test -f "$mp_de" \
+      && ok "--hostlist-exclude file option inactive; manifest domainExclude exists ($mp_de)" \
+      || bad "--hostlist-exclude inactive and manifest domainExclude missing ($mp_de)"
   elif [ "$live_de" = "$mp_de" ]; then
     ok "domainExclude path == live --hostlist-exclude ($mp_de)"
   else
@@ -493,6 +513,7 @@ gate_autostart() {
 }
 
 # ---- dispatch ----------------------------------------------------------------
+[ "${SMOKE_LIB_ONLY:-0}" = "1" ] && return 0 2>/dev/null
 SELECTION="${1:-all}"
 case "$SELECTION" in
   all)

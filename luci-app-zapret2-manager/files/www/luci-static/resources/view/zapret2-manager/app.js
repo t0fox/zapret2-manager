@@ -9,7 +9,7 @@
 'require view.zapret2-manager.z2m-services as Services';
 'require view.zapret2-manager.z2m-lists as Lists';
 'require view.zapret2-manager.z2m-dns as Dns';
-'require view.zapret2-manager.z2m-proxy as Proxy';
+'require view.zapret2-manager.z2m-proxy-page as Proxy';
 'require view.zapret2-manager.z2m-monitor as Monitor';
 'require view.zapret2-manager.z2m-maintenance as Maintenance';
 
@@ -23,6 +23,7 @@ var DRAFT_META = {
   services: { label: _('Сервисы'), tab: 'services' },
   lists: { label: _('Списки'), tab: 'lists' },
   dns: { label: _('DNS'), tab: 'dns', pane: 'setup' },
+  'dns-global': { label: _('DNS: настройка'), tab: 'dns', pane: 'setup' },
   'service-dns': { label: _('DNS: доступ сервисов'), tab: 'dns', pane: 'access' },
   proxy: { label: _('Telegram Proxy'), tab: 'proxy' },
   monitor: { label: _('Мониторинг'), tab: 'monitor' },
@@ -65,11 +66,34 @@ function detectedVersion(initial) {
 function draftScopes() { return Object.keys(store.get().draft || {}); }
 function draftMeta(scope) { return DRAFT_META[scope] || { label: scope, tab: 'overview' }; }
 function draftLabel(scope) { return draftMeta(scope).label; }
-function humanDraftValue(value) {
+function humanDraftValue(value, compare) {
   if (value === true) return _('Включено');
   if (value === false) return _('Выключено');
   if (value == null || value === '') return _('Отключено');
   if (Array.isArray(value)) return value.join(', ') || _('Отключено');
+  if (typeof value === 'object') {
+    var labels = {
+      mode: _('режим'), primary: _('основной'), secondary: _('запасной'),
+      hijack: _('перехват 53'), cache: _('кэш'), cacheSize: _('размер кэша'),
+      edns: _('EDNS'), minTtl: _('минимальный TTL'), strictOrder: _('строгий порядок'),
+      blockAaaa: _('блокировка AAAA'), customRules: _('свои правила')
+    };
+    var modes = { system: _('системный'), doh: 'DoH', dot: 'DoT', udp: 'UDP/53' };
+    var keys = Object.keys(value).filter(function (key) { return labels[key] && value[key] !== undefined; });
+    if (compare && typeof compare === 'object' && !Array.isArray(compare)) {
+      keys = keys.filter(function (key) { return JSON.stringify(value[key]) !== JSON.stringify(compare[key]); });
+    }
+    return keys.map(function (key) {
+      var item = value[key], text;
+      if (key === 'mode') text = modes[item] || item;
+      else if (key === 'primary' || key === 'secondary') text = item || _('нет');
+      else if (key === 'customRules') text = item ? item.split('\n').filter(Boolean).length + ' ' + _('строк') : _('нет');
+      else if (key === 'cacheSize' || key === 'minTtl') text = String(item);
+      else if (typeof item === 'boolean') text = item ? _('включено') : _('выключено');
+      else text = String(item);
+      return labels[key] + ': ' + text;
+    }).join(' · ') || _('без изменений');
+  }
   return String(value);
 }
 function edit(fn, value) { return fn(JSON.stringify(value || {})); }
@@ -109,7 +133,10 @@ function unsupportedAdapter(scope) {
 var ADAPTERS = {
   strategy: Strategy.createAdapter(Api),
   services: Services.createAdapter(Api, Services),
-  dns: Dns.createAdapter(Api, Dns)
+  dns: Dns.createAdapter(Api, Dns),
+  'dns-global': Dns.createGlobalAdapter(Api),
+  'service-dns': Dns.createServiceDnsAdapter(Api),
+  proxy: Proxy.createAdapter(Api, Proxy)
 };
 Object.keys(DRAFT_META).forEach(function (scope) {
   if (!ADAPTERS[scope]) ADAPTERS[scope] = unsupportedAdapter(scope);
@@ -134,7 +161,7 @@ function renderSemanticDiff(draft, applied, extraBlockers) {
     if (group.blocker) children.push(E('div', { 'class': 'warnbar' }, group.blocker));
     if (group.rows.length) children.push(E('div', { 'class': 'z2m-change-list' }, group.rows.map(function (row) {
       return E('div', { 'class': 'z2m-svcrow z2m-single-row' }, [
-        E('div', {}, [E('div', { 'class': 'nm' }, row.label), E('div', { 'class': 'co' }, humanDraftValue(row.before) + ' → ' + humanDraftValue(row.after))]),
+        E('div', {}, [E('div', { 'class': 'nm' }, row.label), E('div', { 'class': 'co' }, humanDraftValue(row.before, row.after) + ' → ' + humanDraftValue(row.after, row.before))]),
         E('span', { 'class': 'z2m-chip o' }, _('изменено'))
       ]);
     })));
@@ -589,8 +616,9 @@ return L.view.extend({
         text.textContent = scopes.length + ' ' + (scopes.length === 1 ? _('изменение') : _('изменения')) + ': ' +
           scopes.map(draftLabel).join(', ') + '. ' + _('На работу роутера пока не влияет.');
       }
-      if (apply) apply.disabled = availability.enabled !== true;
-      if (reason) reason.textContent = availability.enabled || !scopes.length ? '' : _('Применение заблокировано: ') + availability.reason;
+      var pending = availability.reason === _('Ожидается предварительная проверка.');
+      if (apply) apply.disabled = !pending && availability.enabled !== true;
+      if (reason) reason.textContent = availability.enabled || pending || !scopes.length ? '' : _('Применение заблокировано: ') + availability.reason;
     }
     function renderState() {
       if (appRoot)

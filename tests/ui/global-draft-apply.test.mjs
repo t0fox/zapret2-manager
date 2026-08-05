@@ -140,6 +140,13 @@ test('global apply bar has exactly three actions and a disabled reason', () => {
   assert.match(bar.textContent, /Стратегия: недоступно/);
 });
 
+test('pending preflight keeps Apply available to start the check', () => {
+  const shell = evaluateLuciModule(`${root}/z2m-shell.js`, { E, _: (value) => value });
+  const bar = shell.renderApplyBar({ hasDraft: () => true }, { enabled: false, reason: 'Ожидается предварительная проверка.' });
+  assert.equal(bar.querySelector('#z2m-apply-drafts').disabled, false);
+  assert.doesNotMatch(bar.textContent, /Применение заблокировано/);
+});
+
 test('coordinator is backend-authoritative and has no legacy confirmation workflow', () => {
   for (const name of ['preflightDraft', 'applyDrafts', 'handleApplyResult', 'openSemanticDiff'])
     assert.match(app, new RegExp(`function\\s+${name}\\s*\\(`));
@@ -150,6 +157,13 @@ test('coordinator is backend-authoritative and has no legacy confirmation workfl
   assert.match(app, /DraftModel\.recordApplyResult/);
   assert.doesNotMatch(app, /confirmationTimer|rollback_ttl|confirm_alive|setInterval/);
   assert.doesNotMatch(shellSource, /renderConfirmBar|z2m-confirm-alive|z2m-rollback-now/);
+});
+
+test('global DNS semantic diff renders object values as readable text', () => {
+  assert.match(app, /function humanDraftValue\(value, compare\)/);
+  assert.match(app, /typeof value === 'object'/);
+  assert.match(app, /режим/);
+  assert.match(app, /customRules/);
 });
 
 test('coordinator retains failures, blocks unsupported scopes, and resets without RPC mutation', () => {
@@ -753,15 +767,15 @@ test('applicable candidate permits the existing profile preview/apply pipeline',
   assert.deepEqual(result.clearedScopes, ['strategy']);
 });
 
-test('proxy and lists scopes remain explicitly blocked by semantic diff', () => {
+test('lists remain blocked while proxy and Service DNS are coordinator scopes', () => {
   const diff = appView.renderSemanticDiff({
     lists: { changes: { domainInclude: { before: [], after: ['example.com'] } } },
     proxy: { changes: { enabled: { before: false, after: true } } },
     'service-dns': { changes: { alpha: { before: '', after: 'cloudflare' } } }
   }, {});
   assert.match(diff.textContent, /Unsupported scope: lists/);
-  assert.match(diff.textContent, /Unsupported scope: proxy/);
-  assert.match(diff.textContent, /Unsupported scope: service-dns/);
+  assert.doesNotMatch(diff.textContent, /Unsupported scope: proxy/);
+  assert.doesNotMatch(diff.textContent, /Unsupported scope: service-dns/);
 });
 
 test('point override remains visible with an exact coordinator blocker', async () => {

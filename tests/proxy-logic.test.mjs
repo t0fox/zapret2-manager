@@ -16,7 +16,7 @@ import {
 	parseConfigText, extractModeEvidence, methodCapabilities
 } from './lib/proxy-logic.mjs';
 
-const SHA = '54803f09f9b4a83b27e7d6fa2dd7bbeb51df04d6365f29b5746086d2830dc45a';
+const SHA = '4ccb0d3216edfc9a9a85a215eae5a817b6fe368fd12a796d793880a0055b3602';
 const FIXTURE_SECRET = 'ddTOPSECRET7f8a9b0c1d2e3f405060708090a0b0c0d';
 
 // busybox `netstat -tulpn` with only UNRELATED listeners — proves filtering.
@@ -83,8 +83,8 @@ test('capabilities: canonical provider pin, MTProto-only, no mutation methods (f
 	assert.equal(c.adapter.schema, PROXY_ADAPTER_SCHEMA);
 	assert.equal(c.provider.id, 'tg-ws-proxy-rs');
 	assert.equal(c.provider.license, 'MIT');
-	assert.equal(c.provider.release, 'v1.6.5');
-	assert.equal(c.provider.sourceCommit, 'a14a97aee20a1da428eb7dbd5fbe23195eba0b9d');
+	assert.equal(c.provider.release, 'v2.0.0');
+	assert.equal(c.provider.sourceCommit, '1ce7fb0541642c72886dd42cda4291d483ab515c');
 	assert.equal(c.provider.asset, 'tg-ws-proxy-aarch64-unknown-linux-musl.tar.gz');
 	assert.equal(c.provider.assetSha256, SHA);
 	assert.equal(c.provider.abi, 'aarch64-unknown-linux-musl');

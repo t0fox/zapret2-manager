@@ -29,6 +29,7 @@ import { readfile, writefile, stat, popen, unlink, mkdir } from 'fs';
 const CFG_SCHEMA = 1;
 
 const STATE_JSON = '/etc/zapret2-manager/proxy-state.json';
+const PROVIDER_STATE_JSON = '/etc/zapret2-manager/proxy-provider.json';
 const CONFIG_CONF = '/etc/tg-ws-proxy/config.conf';
 const SECRET_CONF = '/etc/tg-ws-proxy/secret.conf';
 const LOG_FILE = '/var/log/tg-ws-proxy.log';
@@ -952,13 +953,21 @@ function save_state(state) {
 // ---- probes -------------------------------------------------------------------
 
 function probe_pkg() {
-	let r = run('apk info -v ' + PKG_NAME);
+	let r = run("apk list --installed '" + PKG_NAME + "' | head -n 1 | awk '{print $1}'");
 	let line = trim(r.out);
 	if (r.rc == 0 && line != '') {
 		let first = split(line, '\n')[0];
 		let prefix = PKG_NAME + '-';
 		let ver = (substr(first, 0, length(prefix)) == prefix) ? substr(first, length(prefix)) : first;
 		return { installed: true, version: ver };
+	}
+	let providerState = readfile(PROVIDER_STATE_JSON);
+	if (providerState && stat(BINARY_PATH) != null && stat(INIT_PATH) != null) {
+		try {
+			let state = json(providerState);
+			if (state != null && type(state) == 'object' && state.activeProvider == 'rust')
+				return { installed: true, version: state.activeVersion != null ? '' + state.activeVersion : 'manager-release' };
+		} catch (e) { }
 	}
 	return { installed: false, version: null };
 }
@@ -1432,10 +1441,21 @@ function route_local(config) {
 	return { attempted: true, ok: false, detail: 'connect refused/timeout (rc ' + r.rc + ')' };
 }
 
-function route_upstream() {
+function route_upstream(config) {
+	let active = run("netstat -tnp | awk '$6 == \"ESTABLISHED\" && $7 ~ /tg-ws-proxy/ && $5 ~ /:443$/ { print $5; exit }'");
+	let activeTarget = trim(active.out);
+	if (active.rc == 0 && activeTarget != '') return {
+		attempted: true, ok: true, target: activeTarget, detail: 'established upstream socket owned by tg-ws-proxy'
+	};
 	if (!have_nc()) return { attempted: false, ok: false, detail: 'nc unavailable', target: null };
-	let r = nc_probe(UPSTREAM_HOST, UPSTREAM_PORT, 3);
-	let target = UPSTREAM_HOST + ':' + UPSTREAM_PORT;
+	let host = UPSTREAM_HOST;
+	if (config != null && type(config.dcIps) == 'array' && length(config.dcIps) > 0) {
+		let first = '' + config.dcIps[0];
+		let cut = index(first, ':');
+		if (cut > 0 && cut + 1 < length(first)) host = substr(first, cut + 1);
+	}
+	let r = nc_probe(host, UPSTREAM_PORT, 3);
+	let target = host + ':' + UPSTREAM_PORT;
 	if (r.rc == 0) return { attempted: true, ok: true, detail: 'tcp connected', target: target };
 	return { attempted: true, ok: false, detail: 'tcp refused/timeout (rc ' + r.rc + ')', target: target };
 }
@@ -1809,7 +1829,7 @@ export const proxycfg_health = function(input) {
 	};
 	let rt = {};
 	if (cur.ok && rr.running) rt.local = route_local(cur.config); else rt.local = { attempted: false, ok: false, detail: 'not running or no valid config' };
-	if (doUpstream) rt.upstream = route_upstream(); else rt.upstream = { attempted: false, ok: false, detail: 'skipped (upstream:false)' };
+	if (doUpstream) rt.upstream = route_upstream(cur.ok ? cur.config : null); else rt.upstream = { attempted: false, ok: false, detail: 'skipped (upstream:false)' };
 	return assemble_health(ev, rt);
 };
 
@@ -1896,13 +1916,11 @@ export const proxycfg_quick_install = function () {
 	let rr = reread(5000);
 	let v = verify_started(config, rr);
 	if (!v.ok) { let r = rf(); return { ok: false, error: { code: 'ETARGET', message: 'post-install verification failed' }, failures: v.failures, rolledBack: true, rollbackFailures: r.failures }; }
-	let link = build_tg_link(config, secretVal);
-	let https_link = build_tg_https_link(config, secretVal);
 	let rm = popen('rm -rf ' + SNAP_DIR + ' 2>/dev/null', 'r');
 	if (rm) rm.close();
 	event_proxy('info', 'proxy quick-installed on ' + host + ':1443 (secret ' + (generated ? 'generated' : 'existing') + ')', null);
 	return {
-		ok: true, link: link, https_link: https_link, server: host, port: 1443,
+		ok: true, server: host, port: 1443,
 		secret: (generated ? 'generated' : 'existing'),
 		autostart: true, running: true,
 		reread: { pids: rr.pids, listeners: rr.listeners }

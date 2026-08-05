@@ -27,10 +27,10 @@ test('backend service_dns_set advances and returns the authoritative draft revis
   assert.match(serviceSet, /return \{ ok: true, draftRevision: state\.draftRevision/);
 });
 
-test('Service DNS changes remain semantic drafts when no safe coordinator path exists', () => {
+test('Service DNS changes remain semantic drafts with a coordinator adapter', () => {
   assert.match(UI, /ctx\.setDraft\(['"]service-dns['"]/);
-  assert.match(UI, /безопасный синхронный preview\/apply путь отсутствует/);
-  assert.match(UI, /ctx\.openSemanticDiff/);
+  assert.match(UI, /createServiceDnsAdapter/);
+  assert.match(UI, /api\.dns\.serviceApply/);
   assert.doesNotMatch(UI, /draftRevision:\s*setResult\.draftRevision/);
   assert.doesNotMatch(UI, /api\.dns\.serviceApplyAsync/);
 });

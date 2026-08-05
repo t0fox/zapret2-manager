@@ -49,11 +49,11 @@ test('single-view runtime modules and local stylesheets exist', () => {
   ]) assert.ok(existsSync(join(viewRoot, name)), `${name} exists`);
 });
 
-test('r143 package ships no legacy runtime and only the two authoritative local stylesheets', () => {
+test('r146 package ships no legacy runtime and only the two authoritative local stylesheets', () => {
   const makefile = readFileSync(join(REPO, 'luci-app-zapret2-manager/Makefile'), 'utf8');
-  assert.match(makefile, /^PKG_RELEASE:=143$/m);
+  assert.match(makefile, /^PKG_RELEASE:=146$/m);
   const files = readdirSync(viewRoot).sort();
-  assert.deepEqual(files.filter((name) => name.endsWith('.css')), ['z2m-components.css', 'z2m-ui.css']);
+  assert.deepEqual(files.filter((name) => name.endsWith('.css')), ['z2m-components.css', 'z2m-holyversion.css', 'z2m-ui.css']);
   assert.deepEqual(files.filter((name) => name.endsWith('-legacy.js')), []);
   for (const obsolete of ['overview.js', 'catalog.js', 'blockcheck.js'])
     assert.equal(files.includes(obsolete), false, `${obsolete} is not shipped`);
@@ -78,11 +78,11 @@ test('shipped LuCI sources contain no countdown, fake catalogue or demo secrets'
   assert.doesNotMatch(source, /(?:api[_-]?key|access[_-]?token|password)\s*[:=]\s*['"][^'"]+['"]/i);
 });
 
-test('backend and full-stack meta-package releases advance together to r137', () => {
+test('backend and full-stack meta-package releases advance together to r146', () => {
   const backend = readFileSync(join(REPO, 'zapret2-manager/Makefile'), 'utf8');
   const full = readFileSync(join(REPO, 'zapret2-manager-full/Makefile'), 'utf8');
-  assert.match(backend, /^PKG_RELEASE:=137$/m);
-  assert.match(full, /^PKG_RELEASE:=137$/m);
+  assert.match(backend, /^PKG_RELEASE:=146$/m);
+  assert.match(full, /^PKG_RELEASE:=146$/m);
 });
 
 test('compatibility redirects remain shipped but are not registered as LuCI child tabs', () => {

@@ -11,7 +11,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=zapret2-manager
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=137
+PKG_RELEASE:=146
 PKG_MAINTAINER:=Ásgeir
 PKG_LICENSE:=MIT
 PKGARCH:=all
@@ -142,6 +142,14 @@ define Package/zapret2-manager/install
 		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/proxy-cli.uc \
 		$(1)/usr/libexec/zapret2-manager/
+	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/proxy-provider.uc \
+		$(1)/usr/libexec/zapret2-manager/
+	$(INSTALL_BIN) ./files/usr/libexec/zapret2-manager/proxy-provider-cli.uc \
+		$(1)/usr/libexec/zapret2-manager/
+	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/proxy-provider-preflight.uc \
+		$(1)/usr/libexec/zapret2-manager/
+	$(INSTALL_BIN) ./files/usr/libexec/zapret2-manager/proxy-provider-go-init.sh \
+		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/catalog.uc \
 		$(1)/usr/libexec/zapret2-manager/
 	$(INSTALL_DATA) ./files/usr/libexec/zapret2-manager/catalog-cli.uc \
@@ -191,6 +199,8 @@ define Package/zapret2-manager/install
 	# /usr/libexec/rpcd/, which is for exec-plugins — a different contract).
 	$(INSTALL_DIR) $(1)/usr/share/rpcd/ucode
 	$(INSTALL_DATA) ./files/usr/share/rpcd/ucode/zapret2-manager.uc \
+		$(1)/usr/share/rpcd/ucode/
+	$(INSTALL_DATA) ./files/usr/share/rpcd/ucode/zapret2-manager-proxy-provider.uc \
 		$(1)/usr/share/rpcd/ucode/
 
 	# Paused-flag enforcer on interface hotplug (branch 04). Runs after

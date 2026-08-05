@@ -1,5 +1,15 @@
 #!/bin/sh
-echo "=== HTTP ROUTE CHECK ==="
+set -u
+
+HOST="${DEPLOY_HOST:-192.168.1.1}"
+ROUTE_BASE="http://${HOST}/cgi-bin/luci"
+STATIC_BASE="http://${HOST}/luci-static/resources/view/zapret2-manager"
+FAIL=0
+
+echo "=== AUTHENTICATED ROUTE CHECK ==="
+ROUTER="$HOST" "$(dirname "$0")/session-check.sh" || FAIL=$((FAIL+1))
+
+echo "=== UNAUTHENTICATED ROUTE EVIDENCE (403 is expected) ==="
 for p in \
   admin/services/zapret2-manager/app \
   admin/services/zapret2-manager/orchestra-strategy \
@@ -10,24 +20,30 @@ for p in \
   admin/services/zapret2-manager/service-dns \
   admin/services/zapret2-manager/monitor \
   admin/services/zapret2-manager/proxy \
-  admin/services/zapret2-manager/maintenance \
-  view/zapret2-manager/z2m-ui.css \
-  view/zapret2-manager/z2m-ui.js \
-  view/zapret2-manager/app.js
+  admin/services/zapret2-manager/maintenance
 do
-  code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 "http://192.168.1.1/cgi-bin/luci/$p" 2>/dev/null)
+  code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 "${ROUTE_BASE}/$p" 2>/dev/null)
   echo "  $code $p"
+done
+
+echo "=== STATIC RESOURCE CHECK (canonical URL, exact 200 required) ==="
+for res in app.js z2m-ui.css z2m-components.css z2m-draft-model.js z2m-services-model.js z2m-services.js
+do
+  code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 "${STATIC_BASE}/${res}" 2>/dev/null)
+  echo "  $code asset ${res}"
+  [ "$code" = "200" ] || FAIL=$((FAIL+1))
 done
 
 echo "=== POST-DEPLOY VERIFICATION ==="
 echo "TG Proxy:"
-ssh -o StrictHostKeyChecking=no root@192.168.1.1 netstat -tlnp 2>/dev/null | grep 1443
+ssh -o StrictHostKeyChecking=no "root@${HOST}" netstat -tlnp 2>/dev/null | grep 1443
 echo "nfqws2:"
-ssh -o StrictHostKeyChecking=no root@192.168.1.1 'ps | grep nfqws2 | grep -v grep | head -2' 2>/dev/null
+ssh -o StrictHostKeyChecking=no "root@${HOST}" 'ps | grep nfqws2 | grep -v grep | head -2' 2>/dev/null
 echo "dnsmasq:"
-ssh -o StrictHostKeyChecking=no root@192.168.1.1 'ps | grep dnsmasq | grep -v grep' 2>/dev/null
+ssh -o StrictHostKeyChecking=no "root@${HOST}" 'ps | grep dnsmasq | grep -v grep' 2>/dev/null
 echo "=== INSTALLED VERSIONS ==="
-ssh -o StrictHostKeyChecking=no root@192.168.1.1 'apk list --installed | grep zapret2' 2>/dev/null
+ssh -o StrictHostKeyChecking=no "root@${HOST}" 'apk list --installed | grep zapret2' 2>/dev/null
 echo "=== CONFIG HASHES ==="
-ssh -o StrictHostKeyChecking=no root@192.168.1.1 'md5sum /etc/config/dhcp /etc/config/zapret2 /opt/zapret2/config 2>/dev/null' 2>/dev/null
+ssh -o StrictHostKeyChecking=no "root@${HOST}" 'md5sum /etc/config/dhcp /etc/config/zapret2 /opt/zapret2/config 2>/dev/null' 2>/dev/null
 echo "=== DONE ==="
+exit "$FAIL"
