@@ -1,4 +1,5 @@
 # zapret2-manager-full — target-specific manager meta-package
+# TG Proxy remains optional; the zapret2 engine is optional as well.
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=zapret2-manager-full
