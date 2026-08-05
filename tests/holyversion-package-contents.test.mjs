@@ -20,6 +20,12 @@ const frontendRuntime = [
   'z2m-coordinator.js', 'z2m-holyversion.css'
 ];
 
+function release(source) {
+  const match = source.match(/^PKG_RELEASE:=(\d+)$/m);
+  assert.ok(match, 'package release is declared');
+  return Number(match[1]);
+}
+
 test('backend package copies only its runtime files tree and includes every new owner/adapter', () => {
   assert.match(backend, /\$\(CP\)\s+\.\/files\/\*\s+\$\(1\)\//);
   for (const file of backendRuntime) {
@@ -36,10 +42,8 @@ test('LuCI package wildcard installs all JS and CSS modules', () => {
     assert.equal(fs.existsSync(`luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/${file}`), true, file);
 });
 
-test('new release numbers are unique for changed packages', () => {
-  assert.match(backend, /PKG_RELEASE:=138\b/);
-  assert.match(luci, /PKG_RELEASE:=144\b/);
-  assert.match(meta, /PKG_RELEASE:=138\b/);
+test('changed packages share one release candidate number', () => {
+  assert.deepEqual([release(backend), release(luci), release(meta)], [145, 145, 145]);
 });
 
 test('package source trees do not ship tests, reference HTML or external assets', () => {
