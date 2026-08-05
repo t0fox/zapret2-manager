@@ -306,7 +306,7 @@ function renderProgress(ctx, catalog, corpus, run) {
       }, E('i', { 'class': progress.complete ? 'g' : '', style: 'width:' + progress.percent + '%' })),
       current ? E('div', { 'class': 'z2m-dim' }, current) : null,
       controls.length ? E('div', { 'class': 'z2m-btnrow' }, controls) : null
-    ])),
+    ]))),
     candidateRows.length ? shell.panel(_('Состояние кандидатов'), E('div', {}, candidateRows)) : null
   ]));
 }
