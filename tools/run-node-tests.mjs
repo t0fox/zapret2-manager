@@ -4,7 +4,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { spawnSync } from 'node:child_process';
 const ROOT='tests',VALID_GROUPS=new Set(['all','frontend','backend']),group=process.argv[2]||'all';
-const DEBUG_FRONTEND=new Set(['tests/engine-providers.test.mjs']);
+const DEBUG_FRONTEND=new Set(['tests/engine-state-machine.test.mjs']);
 if(!VALID_GROUPS.has(group)){console.error(`Unknown test group: ${group}`);console.error('Usage: node tools/run-node-tests.mjs [all|frontend|backend]');process.exit(2);}
 async function discover(directory){const entries=await readdir(directory,{withFileTypes:true}),files=[];for(const entry of entries){const entryPath=path.join(directory,entry.name);if(entry.isDirectory())files.push(...await discover(entryPath));else if(entry.isFile()&&entry.name.endsWith('.test.mjs'))files.push(entryPath.split(path.sep).join('/'));}return files;}
 function regularFrontend(file){if(file.startsWith('tests/ui/'))return true;const name=path.posix.basename(file);return /^(?:luci-|t4-|orchestra-strategy-ui)/.test(name)||/(?:^|-)ui\.test\.mjs$/.test(name);}
