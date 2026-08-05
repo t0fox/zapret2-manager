@@ -70,9 +70,10 @@ jobs:
           fs.writeFileSync('provenance/provenance.json', JSON.stringify(manifest, null, 2) + '\n');
           NODE
           (cd provenance && sha256sum "source-${GITHUB_SHA}.tar.gz" provenance.json > SHA256SUMS)
-          sha256sum -c provenance/SHA256SUMS --ignore-missing
+          (cd provenance && sha256sum -c SHA256SUMS)
 
       - name: Upload exact-head provenance
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: provenance-${{ github.sha }}
