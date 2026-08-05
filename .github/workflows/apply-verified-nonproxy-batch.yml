@@ -59,6 +59,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Actions tokens without workflows scope may not update the permanent CI file.
+          # Keep the verified CI candidate out of this push; publish it separately via
+          # the GitHub connector after this source commit succeeds.
+          git checkout -- .github/workflows/single-view-ui-gate.yml
           rm -f .github/z2m-verified-batch.tar.gz.b64
           rm -f .github/z2m-batch.chunk-*
           rm -f .github/z2m-batch.trigger
