@@ -32,7 +32,8 @@ test('all internal modules satisfy LuCI baseclass loader contract', () => {
   for (const file of support) {
     const src = readFileSync(`${root}/${file}`, 'utf8');
     assert.match(src, /'require baseclass';/, `${file} must require LuCI baseclass`);
-    assert.match(src, /return baseclass\.extend\(/, `${file} must export a baseclass subclass`);
+    assert.match(src, /return (?:baseclass\.extend|EngineGate\.wrap\(baseclass\.extend)\(/,
+      `${file} must export a baseclass subclass or the tested engine-gated equivalent`);
   }
 });
 

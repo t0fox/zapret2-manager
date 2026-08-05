@@ -22,6 +22,9 @@ function envelope(allowed, status, data, error) {
   result.data = data;
   return result;
 }
+function hasEnvelope(ctx) {
+  return !!(ctx && ctx.data && Object.prototype.hasOwnProperty.call(ctx.data, KEY));
+}
 function childContext(ctx) {
   return Object.assign({}, ctx, { data: ctx && ctx.data ? ctx.data.data || {} : {} });
 }
@@ -83,15 +86,18 @@ function wrap(module) {
   for (var key in core) wrapped[key] = core[key];
   wrapped.load = function (ctx) { return loadGuarded(core, ctx); };
   wrapped.render = function (ctx) {
-    var gate = object(ctx.data && ctx.data[KEY]);
+    if (!hasEnvelope(ctx)) return core.render ? core.render(ctx) : E('div');
+    var gate = object(ctx.data[KEY]);
     return gate.allowed === true && core.render ? core.render(childContext(ctx)) : blocker(core, ctx);
   };
   wrapped.mount = function (ctx) {
-    var gate = object(ctx && ctx.data && ctx.data[KEY]);
+    if (!hasEnvelope(ctx)) { if (core.mount) core.mount(ctx); return; }
+    var gate = object(ctx.data[KEY]);
     if (gate.allowed === true && core.mount) core.mount(childContext(ctx));
   };
   wrapped.unmount = function (ctx) {
-    var gate = object(ctx && ctx.data && ctx.data[KEY]);
+    if (!hasEnvelope(ctx)) { if (core.unmount) core.unmount(ctx); return; }
+    var gate = object(ctx.data[KEY]);
     if (gate.allowed === true && core.unmount) core.unmount(childContext(ctx));
   };
   return wrapped;
