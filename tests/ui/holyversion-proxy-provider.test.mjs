@@ -60,10 +60,13 @@ test('TG Proxy is optional and exposes only the latest repository-compatible bui
   assert.match(page, /Обновить/);
   assert.match(page, /Переключить/);
   assert.match(page, /Удалить/);
-  assert.match(page, /Rust/);
-  assert.match(page, /Go/);
-  assert.match(page, /Легче и экономнее/);
-  assert.match(page, /Больше совместимости/);
+  assert.match(backend, /title:\s*'Rust'/);
+  assert.match(backend, /title:\s*'Go'/);
+  assert.match(backend, /short:\s*'Легче и экономнее'/);
+  assert.match(backend, /short:\s*'Больше совместимости'/);
+  assert.match(page, /provider\.title/);
+  assert.match(page, /provider\.short/);
+  assert.match(page, /provider\.feature/);
   assert.doesNotMatch(page, /E\('select'/);
   assert.doesNotMatch(page, /providerVersions/);
   assert.doesNotMatch(page, /version:\s*version/);
