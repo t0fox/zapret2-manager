@@ -1,6 +1,7 @@
 'use strict';
 'require baseclass';
 'require view.zapret2-manager.z2m-maintenance-model as MaintenanceModel';
+'require view.zapret2-manager.z2m-engine-panel as EnginePanel';
 
 var SCOPES = ['engineConfig', 'ourState', 'lists', 'profiles'];
 var SCOPE_LABELS = {
@@ -11,6 +12,7 @@ var SCOPE_LABELS = {
 };
 var state = {
   pane: 'system',
+  paneInitialized: false,
   preview: null,
   previewModel: null,
   verification: null,
@@ -31,13 +33,15 @@ function load(ctx) {
     ctx.api.maintenance.versions(),
     ctx.api.maintenance.status(),
     ctx.api.maintenance.backupList(),
-    edit(ctx.api.maintenance.eventsTail, { limit: 100 })
+    edit(ctx.api.maintenance.eventsTail, { limit: 100 }),
+    EnginePanel.load(ctx)
   ]).then(function (results) {
     return {
       versions: settled(results[0], ctx.api),
       status: settled(results[1], ctx.api),
       backups: settled(results[2], ctx.api),
-      events: settled(results[3], ctx.api)
+      events: settled(results[3], ctx.api),
+      engine: settled(results[4], ctx.api)
     };
   });
 }
@@ -125,6 +129,16 @@ function renderSystem(ctx, data) {
       ? kvPanel(shell, systemRows)
       : shell.statePanel({ message: _('Системные данные недоступны.'), kind: 'info' }))
   ]);
+}
+
+function renderEngine(ctx, data) {
+  var envelope = data.engine || {};
+  if (envelope.error) return ctx.shell.statePanel({
+    title: _('Установщик движка недоступен'),
+    message: envelope.error.message,
+    kind: 'error'
+  });
+  return EnginePanel.render(ctx, envelope.value || {});
 }
 
 function previewBackup(ctx, record) {
@@ -301,8 +315,13 @@ function renderDiagnostics(ctx) {
 
 function render(ctx) {
   var data = ctx.data || {};
+  if (!state.paneInitialized) {
+    state.pane = data.engine && data.engine.value && EnginePanel.missing(data.engine.value) ? 'engine' : 'system';
+    state.paneInitialized = true;
+  }
   var panes = {
     system: renderSystem(ctx, data),
+    engine: renderEngine(ctx, data),
     backups: renderBackups(ctx, data),
     events: renderEvents(ctx, data),
     diagnostics: renderDiagnostics(ctx)
@@ -311,6 +330,7 @@ function render(ctx) {
   var paneHost = E('div', { id: 'z2m-maintenance-pane' }, panes[state.pane]);
   var tabs = ctx.shell.subTabs([
     { id: 'system', label: _('Система') },
+    { id: 'engine', label: _('Движок') },
     { id: 'backups', label: _('Backups') },
     { id: 'events', label: _('События') },
     { id: 'diagnostics', label: _('Диагностика') }
@@ -320,25 +340,25 @@ function render(ctx) {
   }, { 'aria-label': _('Разделы обслуживания') });
   var errors = [];
   Object.keys(data).forEach(function (key) {
-    if (data[key] && data[key].error)
+    if (key !== 'engine' && data[key] && data[key].error)
       errors.push(ctx.shell.statePanel({ title: _('Ошибка backend'), message: data[key].error.message, kind: 'error' }));
   });
   return E('section', { 'class': 'z2m-view on', id: 'z2m-view-maintenance' }, [
     E('div', { 'class': 'z2m-phead' }, [
-      E('div', {}, [E('h1', {}, _('Обслуживание')), E('p', {}, _('Версии, безопасные backups, события и diagnostics export'))])
+      E('div', {}, [E('h1', {}, _('Обслуживание')), E('p', {}, _('Движок, версии, безопасные backups, события и diagnostics export'))])
     ]),
     errors.length ? E('div', {}, errors) : null,
     tabs,
     paneHost
   ]);
 }
-function mount() {}
-function unmount() {}
+function mount(ctx) { EnginePanel.mount(ctx); }
+function unmount() { EnginePanel.unmount(); }
 
 return baseclass.extend({
   id: 'maintenance',
   title: _('Обслуживание'),
-  subtitle: _('Backups, versions, events и diagnostics'),
+  subtitle: _('Engine installer, backups, versions, events и diagnostics'),
   load: load,
   render: render,
   mount: mount,
