@@ -3,20 +3,22 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const ui = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager';
-const backend = 'zapret2-manager/files/usr/libexec/zapret2-manager';
-const rpcd = 'zapret2-manager/files/usr/share/rpcd/ucode';
-const read = (name) => fs.readFileSync(name, 'utf8');
+const root = process.env.PATCH_ROOT || '/mnt/data/patch-r39';
+const read = (name) => fs.readFileSync(path.join(root, name), 'utf8');
 
-const guards = read(`${ui}/z2m-runtime-guards.js`);
-const dnsPage = read(`${ui}/z2m-dns-page.js`);
-const proxyPage = read(`${ui}/z2m-proxy-page.js`);
-const proxyApi = read(`${ui}/z2m-proxy-provider-api.js`);
-const proxyCli = read(`${backend}/proxy-provider-cli.uc`);
-const proxyPreflight = read(`${backend}/proxy-provider-preflight.uc`);
-const proxyRpc = read(`${rpcd}/zapret2-manager-proxy-provider.uc`);
-const acl = read('luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json');
-const workflow = read(`${ui}/z2m-strategy-workflow.js`);
+const guards = read('z2m-runtime-guards.js');
+const dnsPage = [
+  read('z2m-dns-page.js'),
+  read('z2m-dns-service-model.js'),
+  read('z2m-dns-service-adapter.js')
+].join('\n');
+const proxyPage = read('z2m-proxy-page.js');
+const proxyApi = read('z2m-proxy-provider-api.js');
+const proxyCli = read('proxy-provider-cli.uc');
+const proxyPreflight = read('proxy-provider-preflight.uc');
+const proxyRpc = read('zapret2-manager-proxy-provider.uc');
+const acl = read('luci-app-zapret2-manager.json');
+const workflow = read('z2m-strategy-workflow.js');
 
 test('video regression: literal null nodes are removed and status is dataplane-aware', () => {
   assert.match(guards, /MutationObserver/);
