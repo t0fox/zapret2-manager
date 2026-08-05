@@ -25,6 +25,13 @@ function envelope(allowed, status, data, error) {
 function childContext(ctx) {
   return Object.assign({}, ctx, { data: ctx && ctx.data ? ctx.data.data || {} : {} });
 }
+function materialize(module) {
+  if (typeof module === 'function' && module.prototype) {
+    try { return new module(); }
+    catch (error) { return module; }
+  }
+  return module || {};
+}
 function loadGuarded(module, ctx) {
   return Promise.resolve(ctx.api.engine.status()).then(function (status) {
     if (!status || status.ok === false) {
@@ -66,20 +73,21 @@ function blocker(module, ctx) {
   ]);
 }
 function wrap(module) {
+  var core = materialize(module);
   var wrapped = {};
-  Object.keys(module || {}).forEach(function (key) { wrapped[key] = module[key]; });
-  wrapped.load = function (ctx) { return loadGuarded(module, ctx); };
+  for (var key in core) wrapped[key] = core[key];
+  wrapped.load = function (ctx) { return loadGuarded(core, ctx); };
   wrapped.render = function (ctx) {
     var gate = object(ctx.data && ctx.data[KEY]);
-    return gate.allowed === true && module.render ? module.render(childContext(ctx)) : blocker(module, ctx);
+    return gate.allowed === true && core.render ? core.render(childContext(ctx)) : blocker(core, ctx);
   };
   wrapped.mount = function (ctx) {
     var gate = object(ctx && ctx.data && ctx.data[KEY]);
-    if (gate.allowed === true && module.mount) module.mount(childContext(ctx));
+    if (gate.allowed === true && core.mount) core.mount(childContext(ctx));
   };
   wrapped.unmount = function (ctx) {
     var gate = object(ctx && ctx.data && ctx.data[KEY]);
-    if (gate.allowed === true && module.unmount) module.unmount(childContext(ctx));
+    if (gate.allowed === true && core.unmount) core.unmount(childContext(ctx));
   };
   return wrapped;
 }
