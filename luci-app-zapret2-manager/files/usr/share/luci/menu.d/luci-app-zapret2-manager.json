@@ -4,11 +4,5 @@
     "order": 90,
     "action": { "type": "view", "path": "zapret2-manager/app" },
     "depends": { "acl": [ "zapret2-manager" ] }
-  },
-  "admin/services/zapret2-manager/engine": {
-    "title": "Движок",
-    "order": 90,
-    "action": { "type": "view", "path": "zapret2-manager/z2m-engine" },
-    "depends": { "acl": [ "zapret2-manager" ] }
   }
 }
