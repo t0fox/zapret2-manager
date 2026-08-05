@@ -7,7 +7,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=zapret2-manager
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=138
+PKG_RELEASE:=145
 PKG_MAINTAINER:=Ásgeir
 PKG_LICENSE:=MIT
 PKGARCH:=all
