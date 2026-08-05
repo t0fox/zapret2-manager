@@ -15,7 +15,7 @@ test('backend package requires a real flock implementation', () => {
 test('package lifecycle scripts are image-builder safe', () => {
   for (const [name, source] of [['backend', backend], ['luci', luci]]) {
     assert.match(source, /IPKG_INSTROOT/, `${name} checks IPKG_INSTROOT`);
-    assert.match(source, /\[\s*-n\s+["']?\$\{?IPKG_INSTROOT\}?/,
+    assert.match(source, /\[\s+-n\s+"\$\$\{IPKG_INSTROOT:-\}"\s+\]\s+&&\s+exit\s+0/,
       `${name} exits before target runtime actions`);
   }
 });
