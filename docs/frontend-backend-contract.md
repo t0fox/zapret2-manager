@@ -259,7 +259,17 @@ Catalog apply receives the selected IDs plus the preview precondition:
 
 Digest/precondition mismatch blocks application.
 
-## Lists
+## Domain Hub and legacy list compatibility
+
+Canonical central-facade methods:
+
+- `domain_hub_get`
+- `domain_hub_preview`
+- `domain_hub_apply`
+
+The Domain Hub owns the combined service catalogue, editable domain lists, autohost settings, and source evidence. Preview returns the exact revision/file digest precondition that apply must consume. Missing or mismatched revision, `fileSha256`, or catalogue digest blocks mutation.
+
+Legacy list compatibility methods remain documented while older pages are shipped:
 
 - `lists_get`
 - `lists_check_domain`
@@ -343,6 +353,7 @@ Config mutation is draft-first and follows validate → preview → apply. The e
 
 ## Monitoring and maintenance
 
+- `monitor_snapshot`
 - `status`
 - `events_tail`
 - `maintenance_status`
