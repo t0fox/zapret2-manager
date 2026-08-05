@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -31,19 +31,17 @@ function readFixture() {
 
 function sourceFromGit(repo) {
 	if (!existsSync(resolve(repo, '.git'))) return null;
-	try {
-		const resolved = execFileSync('git', ['rev-parse', `${SOURCE_COMMIT}^{commit}`], { cwd: repo, encoding: 'utf8' }).trim();
-		if (resolved !== SOURCE_COMMIT) throw new Error(`resolved unexpected StressOzz commit ${resolved}`);
-		const script = execFileSync('git', ['show', `${SOURCE_COMMIT}:Zapret-Manager.sh`], { cwd: repo, encoding: 'utf8' });
-		const dv = {};
-		for (let i = 1; i <= 17; i++) dv[`Dv${i}`] = shellOptions(script, `Dv${i}`);
-		const portsUdp = script.match(/PORTS_UDP="([^"]+)"/)?.[1];
-		const portsTcp = script.match(/PORTS_TCP="([^"]+)"/)?.[1];
-		if (!portsUdp || !portsTcp) throw new Error('missing game port sets');
-		return { schemaVersion: 1, sourceRepo: SOURCE_REPO, sourceCommit: SOURCE_COMMIT, dv, portsUdp, portsTcp };
-	} catch (error) {
-		throw error;
-	}
+	const probe = spawnSync('git', ['cat-file', '-e', `${SOURCE_COMMIT}^{commit}`], { cwd: repo, stdio: 'ignore' });
+	if (probe.status !== 0) return null;
+	const resolved = execFileSync('git', ['rev-parse', `${SOURCE_COMMIT}^{commit}`], { cwd: repo, encoding: 'utf8' }).trim();
+	if (resolved !== SOURCE_COMMIT) throw new Error(`resolved unexpected StressOzz commit ${resolved}`);
+	const script = execFileSync('git', ['show', `${SOURCE_COMMIT}:Zapret-Manager.sh`], { cwd: repo, encoding: 'utf8' });
+	const dv = {};
+	for (let i = 1; i <= 17; i++) dv[`Dv${i}`] = shellOptions(script, `Dv${i}`);
+	const portsUdp = script.match(/PORTS_UDP="([^"]+)"/)?.[1];
+	const portsTcp = script.match(/PORTS_TCP="([^"]+)"/)?.[1];
+	if (!portsUdp || !portsTcp) throw new Error('missing game port sets');
+	return { schemaVersion: 1, sourceRepo: SOURCE_REPO, sourceCommit: SOURCE_COMMIT, dv, portsUdp, portsTcp };
 }
 
 function pinnedSource(repo) {
