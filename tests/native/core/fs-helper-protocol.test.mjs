@@ -349,24 +349,23 @@ test('errors are stable, bounded, and map to one exit category', () => {
 test('reserved atomic write decoded input limit fits the bounded request wire independently', () => {
   const value = manifest();
   const operation = value.operations.atomic_write;
-  assert.equal(operation.requestSchema.properties.content.maxDecodedBytes, 3139000);
-  assert.equal(operation.limits.effectiveMaxDecodedInputBytes, 3139000);
-  const longestAllowedPath = Array(16).fill('a'.repeat(255)).join('/');
-  assert.equal(Buffer.byteLength(longestAllowedPath), 4095);
+  assert.equal(operation.requestSchema.properties.content.maxDecodedBytes, 521028);
+  assert.equal(operation.limits.effectiveMaxDecodedInputBytes, 521028);
+  const longestAllowedPath = [...Array(15).fill('a'.repeat(255)), 'a'.repeat(254), 'a'].join('/');
+  assert.equal(Buffer.byteLength(longestAllowedPath), 4096);
   assert.match(longestAllowedPath, /^(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]+$/);
-  const worstCaseRequest = JSON.stringify({
-    protocolVersion: 1,
-    requestId: 'r'.repeat(128),
-    operation: 'atomic_write',
-    arguments: {
-      root: 'persistent_state',
-      path: longestAllowedPath,
-      content: Buffer.alloc(3139000).toString('base64'),
-      mode: '0600', uid: 0, gid: 0, allowCreate: true
-    }
-  });
-  assert.ok(Buffer.byteLength(worstCaseRequest) <= value.transport.requestMaxBytes);
-  assert.ok(Buffer.byteLength(worstCaseRequest) > value.transport.requestMaxBytes - 16384);
+  const worstCaseRequest = '{"\\u0070\\u0072\\u006f\\u0074\\u006f\\u0063\\u006f\\u006c\\u0056\\u0065\\u0072\\u0073\\u0069\\u006f\\u006e":1,'
+    + `"\\u0072\\u0065\\u0071\\u0075\\u0065\\u0073\\u0074\\u0049\\u0064":"${'\\u0072'.repeat(128)}",`
+    + '"\\u006f\\u0070\\u0065\\u0072\\u0061\\u0074\\u0069\\u006f\\u006e":"\\u0061\\u0074\\u006f\\u006d\\u0069\\u0063\\u005f\\u0077\\u0072\\u0069\\u0074\\u0065",'
+    + '"\\u0061\\u0072\\u0067\\u0075\\u006d\\u0065\\u006e\\u0074\\u0073":{'
+    + '"\\u0072\\u006f\\u006f\\u0074":"\\u0070\\u0065\\u0072\\u0073\\u0069\\u0073\\u0074\\u0065\\u006e\\u0074\\u005f\\u0073\\u0074\\u0061\\u0074\\u0065",'
+    + `"\\u0070\\u0061\\u0074\\u0068":"${`${'\\u0061'.repeat(255)}\\u002f`.repeat(15)}${'\\u0061'.repeat(254)}\\u002f\\u0061",`
+    + `"\\u0063\\u006f\\u006e\\u0074\\u0065\\u006e\\u0074":"${'\\u0041'.repeat(694704)}",`
+    + '"\\u006d\\u006f\\u0064\\u0065":"\\u0030\\u0036\\u0030\\u0030",'
+    + '"\\u0075\\u0069\\u0064":0,"\\u0067\\u0069\\u0064":0,"\\u0061\\u006c\\u006c\\u006f\\u0077\\u0043\\u0072\\u0065\\u0061\\u0074\\u0065":true}}';
+  assert.ok(Buffer.byteLength(worstCaseRequest) <= value.transport.requestMaxBytes,
+    String(Buffer.byteLength(worstCaseRequest)));
+  assert.equal(Buffer.byteLength(worstCaseRequest), 4194293);
 });
 
 test('ucode mapping supplies generation and closes helper and transport failures', () => {

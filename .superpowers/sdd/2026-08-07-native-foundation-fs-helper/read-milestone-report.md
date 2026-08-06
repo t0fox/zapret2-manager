@@ -155,6 +155,39 @@ stage mismatch for the injected unknown-error path.
 - Ratings target compile, compile-gate self-test, full compile gate, scope API
   scan, and `git diff --check` passed.
 
+## Round 4 Hardening
+
+### RED
+
+Against `8527620`, focused tests proved four contract gaps: the global maximum
+path fixture stopped at 4095 bytes instead of the legal 4096; the atomic-write
+wire proof ignored legal six-byte JSON escapes; five reserved filesystem
+schemas (and both rename paths) skipped canonical path validation; and protocol
+character classes depended on the process locale through `isalnum()`.
+
+### Fixes
+
+- The maximum path fixture now uses 17 components totaling 4080 bytes plus 16
+  separators, and exercises the reserved global 32-component path contract.
+- The atomic-write effective decoded content limit is 521028 bytes. An
+  independently constructed maximum-escape request covers escaped envelope
+  keys and values, a 4096-byte escaped path, and escaped canonical base64 while
+  remaining within the 4 MiB transport bound.
+- Every path-bearing filesystem schema calls `z2m_path_valid()` before reserved
+  dispatch: atomic writes, mkdir, SHA, unlink, and both rename names.
+- Request IDs, lock names, paths, and canonical base64 use explicit unsigned
+  ASCII ranges rather than locale-dependent character classification.
+
+### Evidence
+
+- Focused helper/protocol: 38 passed, 0 failed.
+- Full native glob: 46 passed, 0 failed.
+- Normal and forced no-statx warning-clean builds passed.
+- Separate ASan and UBSan builds executed reserved-operation requests with no
+  sanitizer diagnostics.
+- Ratings target compile, compile-gate self-test, full shipped-ucode compile
+  gate, scope API scan, and `git diff --check` passed.
+
 ## Round 3 Hardening
 
 ### RED

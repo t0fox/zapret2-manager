@@ -24,9 +24,12 @@ bool z2m_base64_canonical(const char *input, size_t length, size_t max_decoded)
 		return false;
 	if (input[length - 1] == '=') padding++;
 	if (input[length - 2] == '=') padding++;
-	for (size_t i = 0; i < length - padding; i++)
-		if (!(isalnum((unsigned char)input[i]) || input[i] == '+' || input[i] == '/'))
+	for (size_t i = 0; i < length - padding; i++) {
+		unsigned char c = (unsigned char)input[i];
+		if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+			(c >= '0' && c <= '9') || c == '+' || c == '/'))
 			return false;
+	}
 	for (size_t i = length - padding; i < length; i++)
 		if (input[i] != '=') return false;
 	decoded = length / 4 * 3 - padding;

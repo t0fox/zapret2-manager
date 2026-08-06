@@ -176,6 +176,11 @@ test('canonical relative path rejects every forbidden form and enforces byte/com
   const depth12 = Array(12).fill('a').join('/');
   const allowed = invoke(request('stat_regular', { root: 'runtime', path: depth12 }));
   expectFailure(allowed, 4, 'ENOENT');
+  const maximum = [...Array(15).fill('a'.repeat(255)), 'a'.repeat(254), 'a'].join('/');
+  assert.equal(Buffer.byteLength(maximum), 4096);
+  expectFailure(invoke(request('atomic_write_json', {
+    root: 'persistent_state', path: maximum, value: {}, mode: '0600', uid: 0, gid: 0, allowCreate: true
+  })), 3, 'EUNSUPPORTED');
 });
 
 test('root opening rejects missing, symlinked, non-directory, and insecure roots', () => {
@@ -310,6 +315,32 @@ test('reserved operations validate their complete closed schemas before EUNSUPPO
     request('lock_status', { name: 'x'.repeat(257) })
   ];
   for (const value of invalid) expectFailure(invoke(value), 2, 'ESCHEMA');
+});
+
+test('every path-bearing reserved schema applies the canonical path contract before EUNSUPPORTED', () => {
+  const token = 'a'.repeat(64);
+  const operations = {
+    atomic_write: { root: 'runtime', path: 'x', content: '', mode: '0600', uid: 0, gid: 0, allowCreate: true },
+    atomic_write_json: { root: 'runtime', path: 'x', value: {}, mode: '0600', uid: 0, gid: 0, allowCreate: true },
+    mkdir_private: { root: 'runtime', path: 'x', mode: '0700', uid: 0, gid: 0, existOk: false },
+    sha256_regular: { root: 'runtime', path: 'x', maxBytes: 1 },
+    rename_owned: { root: 'runtime', fromPath: 'x', toPath: 'y', ownershipToken: token, replace: false },
+    unlink_owned: { root: 'runtime', path: 'x', ownershipToken: token, missingOk: false }
+  };
+  const invalidPaths = ['/absolute', 'a/../b', 'bad\tpath', 'nonascii-é'];
+  for (const [operation, base] of Object.entries(operations)) {
+    const fields = operation === 'rename_owned' ? ['fromPath', 'toPath'] : ['path'];
+    for (const field of fields) {
+      for (const invalidPath of invalidPaths) {
+        const value = request(operation, { ...base, [field]: invalidPath });
+        const wire = invalidPath === 'nonascii-é'
+          ? JSON.stringify(value).replace('nonascii-é', 'nonascii-\\u00e9')
+          : value;
+        const run = invoke(wire);
+        expectFailure(run, 2, 'ESCHEMA', 'req-1', `${operation}.${field}=${JSON.stringify(invalidPath)}`);
+      }
+    }
+  }
 });
 
 test('atomic_write reserved schema accepts only canonical bounded base64', () => {
