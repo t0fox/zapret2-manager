@@ -10,7 +10,7 @@ const HISTORY_RETENTION_DAYS = 30;
 const HISTORY_MAX_EVENTS = 2000;
 
 // Event tracking state
-var eventStore = {
+let eventStore = {
 	runId: null,
 	lastSequence: 0,
 	lastWriteTime: 0,
@@ -19,9 +19,13 @@ var eventStore = {
 };
 
 // Cursor for pagination
-var cursorState = {
+function reset_cursor() {
+	cursorState.position = 0;
+}
+
+let cursorState = {
 	position: 0,
-	reset: function() { this.position = 0; }
+	reset: reset_cursor
 };
 
 // Initialize cursor state
@@ -89,7 +93,8 @@ function get_all_events() {
 }
 
 // Get events with pagination (bounded)
-function get_paginated_events(cursor, limit=200) {
+function get_paginated_events(cursor, limit) {
+	if (limit == null) limit = 200;
 	let all = get_all_events();
 	let start = (cursor && cursor.next) ? cursor.next - 1 : 0;
 	
@@ -209,7 +214,8 @@ function auto_persist_events() {
 }
 
 // Append event to history with NDJSON format.
-function append_history_event(event, isAutoPersist=true) {
+function append_history_event(event, isAutoPersist) {
+	if (isAutoPersist == null) isAutoPersist = true;
 	if (!event || !event.eventClass) return false;
 	if (isAutoPersist) auto_persist_events();
 	return true;
@@ -317,7 +323,8 @@ function clone(obj) {
 }
 
 // Export history for diagnostics
-function export_history(limit=500) {
+function export_history(limit) {
+	if (limit == null) limit = 500;
 	try {
 		if (!stat(HISTORY_FILE)) return { ok: true, exported: 0 };
 		
