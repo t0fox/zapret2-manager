@@ -48,25 +48,49 @@ test('public error codes are closed and unknown codes normalize to EINTERNAL', (
       errors.EDEPENDENCY, errors.EOWNERSHIP, errors.EPREFLIGHT, errors.EAPPLY,
       errors.EVERIFY, errors.EROLLBACK, errors.ECANCELLED, errors.EINTERNAL
     ],
-    unknown: result.normalize_error({ code: 'ENOENT', message: 'not found' })
+    accepted: [
+      result.normalize_error({ code: 'EINPUT', message: 'failure' }).code,
+      result.normalize_error({ code: 'ESCHEMA', message: 'failure' }).code,
+      result.normalize_error({ code: 'ECONFLICT', message: 'failure' }).code,
+      result.normalize_error({ code: 'ELOCKED', message: 'failure' }).code,
+      result.normalize_error({ code: 'EDEPENDENCY', message: 'failure' }).code,
+      result.normalize_error({ code: 'EOWNERSHIP', message: 'failure' }).code,
+      result.normalize_error({ code: 'EPREFLIGHT', message: 'failure' }).code,
+      result.normalize_error({ code: 'EAPPLY', message: 'failure' }).code,
+      result.normalize_error({ code: 'EVERIFY', message: 'failure' }).code,
+      result.normalize_error({ code: 'EROLLBACK', message: 'failure' }).code,
+      result.normalize_error({ code: 'ECANCELLED', message: 'failure' }).code,
+      result.normalize_error({ code: 'EINTERNAL', message: 'failure' }).code
+    ],
+    rejected: [
+      result.normalize_error({ code: 'ENOENT', message: 'failure' }).code,
+      result.normalize_error({ code: 'constructor', message: 'failure' }).code,
+      result.normalize_error({ code: '__proto__', message: 'failure' }).code,
+      result.normalize_error({ code: 'toString', message: 'failure' }).code
+    ]
   }`, imports);
 
-  assert.deepEqual(value.constants, [
+  const publicCodes = [
     'EINPUT', 'ESCHEMA', 'ECONFLICT', 'ELOCKED', 'EDEPENDENCY', 'EOWNERSHIP',
     'EPREFLIGHT', 'EAPPLY', 'EVERIFY', 'EROLLBACK', 'ECANCELLED', 'EINTERNAL'
-  ]);
-  assert.equal(value.unknown.code, 'EINTERNAL');
+  ];
+  assert.deepEqual(value.constants, publicCodes);
+  assert.deepEqual(value.accepted, publicCodes);
+  assert.deepEqual(value.rejected, Array(4).fill('EINTERNAL'));
 });
 
-test('normalization bounds messages by UTF-8 bytes without corrupting text', () => {
-  const message = 'é'.repeat(300);
-  const value = evaluate(`result.normalize_error({
-    code: 'EINPUT',
-    message: '${message}'
-  })`);
+test('normalization truncates before split 2-, 3-, and 4-byte UTF-8 code points', () => {
+  const prefix = 'a'.repeat(511);
+  const value = evaluate(`[
+    result.normalize_error({ code: 'EINPUT', message: '${prefix}é' }),
+    result.normalize_error({ code: 'EINPUT', message: '${prefix}€' }),
+    result.normalize_error({ code: 'EINPUT', message: '${prefix}😀' })
+  ]`);
 
-  assert.ok(Buffer.byteLength(value.message, 'utf8') <= 512);
-  assert.match(value.message, /^é+$/u);
+  for (const error of value) {
+    assert.equal(error.message, prefix);
+    assert.equal(Buffer.byteLength(error.message, 'utf8'), 511);
+  }
 });
 
 test('details are omitted when absent and bounded safely when invalid or oversized', () => {
@@ -75,7 +99,7 @@ test('details are omitted when absent and bounded safely when invalid or oversiz
     let cyclic = {};
     cyclic.self = cyclic;
     return [
-      result.fail('EINPUT', 'bad input', null, false),
+      result.fail('EINPUT', 'bad input'),
       result.normalize_error({ code: 'EINPUT', message: 'bad', details: cyclic }),
       result.normalize_error({
         code: 'EINPUT',
@@ -90,6 +114,17 @@ test('details are omitted when absent and bounded safely when invalid or oversiz
     if ('details' in error)
       assert.ok(Buffer.byteLength(JSON.stringify(error.details), 'utf8') <= 4096);
   }
+});
+
+test('raw thrown values normalize to a bounded internal error', () => {
+  const value = evaluate(`result.normalize_error('raw failure')`);
+
+  assert.deepEqual(value, {
+    code: 'EINTERNAL',
+    message: 'Native backend operation failed.',
+    retryable: false
+  });
+  assert.ok(Buffer.byteLength(value.message, 'utf8') <= 512);
 });
 
 test('compatibility exports retain canonical generation-aware envelopes', () => {
