@@ -10,7 +10,8 @@ helper while preserving a narrow, reviewable privilege boundary.
 JSON request on stdin and emits one bounded JSON response plus newline on
 stdout, redacted diagnostics on stderr, and a stable exit category. Thin ucode
 adapters later map this internal `protocolVersion` envelope to the frozen native
-backend RPC envelope. There is no daemon, socket, service, or broker in the
+backend RPC envelope. The calling state layer supplies backend generation; the
+helper never assigns it. There is no daemon, socket, service, or broker in the
 approved implementation.
 
 **Protocol source of truth:**
@@ -24,6 +25,9 @@ approved implementation.
   absolute path, generic filesystem primitive, or unsafe pathname fallback.
 - Traverse with `openat2` or a safe descriptor walk; fail capability if neither
   is available.
+- Open fixed roots as no-follow directories, verify secure ancestors and root
+  descriptor type/owner/mode, and allow only root-owned sticky `/tmp` as the
+  writable ancestor exception.
 - Every implementation change starts with a failing executable test.
 - Mutations later use only operation-scoped internal `flock`; no fake lease.
 - SDK and router-only evidence remains explicitly classified.
@@ -44,7 +48,8 @@ descriptors/policy, canonical relative path validation, `stat_regular`, and
 the selected root. `secrets` permits stat metadata only, not read or hash.
 
 All reserved operations parse their complete future schemas and return
-`EUNSUPPORTED` before side effects: `atomic_write`, `atomic_write_json`,
+`EUNSUPPORTED` in a complete exit-3 failure before dispatch and side effects:
+`atomic_write`, `atomic_write_json`,
 `mkdir_private`, `sha256_regular`, `rename_owned`, `unlink_owned`,
 `lock_acquire`, `lock_release`, and `lock_status`.
 
@@ -55,6 +60,8 @@ All reserved operations parse their complete future schemas and return
   keys, trailing data, integer typing, embedded NUL, request bounds, and every
   reserved operation returning `EUNSUPPORTED`.
 - [ ] Implement the minimal short-lived parser and exactly one complete response.
+- [ ] Enforce exact `requestId` echo after validation and `null` before ID
+  validation, including malformed requests.
 - [ ] Add failing root/path/stat/read tests: root security, traversal variants,
   symlink/magic-link/mount refusal, FIFO/socket/directory refusal without
   blocking, exact/oversize reads, canonical base64, and secret non-disclosure.
@@ -102,9 +109,14 @@ short-lived helper exits.
 
 Add thin adapters that invoke only the fixed helper path, write one request,
 read one response, verify `protocolVersion`/request identity/exit consistency,
-and map to the backend `schemaVersion`/`generation` envelope. Never fall back to
-shell filesystem code. Package a target-specific executable; no procd service
-is installed for the short-lived helper.
+and map to the backend `schemaVersion`/`generation` envelope. The calling state
+layer provides generation; valid success data becomes RPC data. Valid helper
+errors map through the manifest table and preserve helper evidence in details.
+Caller argument failures are `EINPUT`; unavailability, transport, and missing or
+incomplete responses are `EDEPENDENCY`; malformed/version/request-ID-invalid
+responses are `EINTERNAL`. Never fall back to shell filesystem code. Package a
+target-specific executable; no procd service is installed for the short-lived
+helper.
 
 - [ ] Add real-ucode tests for every public mapping and unavailable/malformed/
   incomplete helper response.

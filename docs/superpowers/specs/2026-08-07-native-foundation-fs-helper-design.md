@@ -22,8 +22,14 @@ primitive, plugin loading, or caller-selected executable.
 
 The internal envelope uses integer `protocolVersion: 1`, a bounded `requestId`,
 a closed operation name, and closed arguments. It deliberately has no backend
-`generation`; the later ucode adapter maps helper results into the frozen RPC
-envelope in `docs/contracts/native-backend-v1.md`.
+`generation`; the calling state layer supplies the current backend generation.
+The later ucode adapter maps helper results into the frozen RPC envelope in
+`docs/contracts/native-backend-v1.md`; the helper never assigns generation.
+
+Once `requestId` passes schema validation, every response echoes it byte for
+byte. Failures before request-ID validation, including malformed input, use
+JSON `null`; success always requires a validated ID. Missing or mismatched IDs
+in helper output are adapter integrity failures, never accepted responses.
 
 Input is strict UTF-8. Invalid UTF-8, embedded NUL, duplicate JSON object keys,
 unknown keys, invalid integer types, more than one JSON value, and non-whitespace
@@ -67,6 +73,14 @@ base64 output below the 6 MiB response limit. Lower per-root limits constrain
 high-churn runtime data. Depth 16 supports structured manager state without
 allowing unbounded traversal; runtime/staging use 12, secrets 8, and locks 1.
 
+Every root policy requires `objectType: directory` and `noFollowRoot: true`.
+The helper alone opens each fixed absolute base with
+`O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC`, then verifies type, UID, GID, and mode on
+the descriptor. Every ancestor must be a root-owned directory and not a
+symlink. The sole writable-ancestor exception is root-owned sticky `/tmp`;
+`/tmp/zapret2-manager` itself must be root-owned mode `0700`. Any insecure
+ancestor/root is `EROOT`; if safe root opening is unavailable, capability fails.
+
 `secrets` permits regular-file metadata but denies content read and hashing, so
 `stat_regular` never contains payload bytes. `locks` permits only lock lifecycle
 operations. `staging` is temporary workspace and is not an atomic rename source
@@ -97,8 +111,9 @@ subject to root policy. Base64 and envelope overhead remain under the separate
 6 MiB response-wire cap.
 
 Every other operation is present with its complete future request/success
-schema and returns `EUNSUPPORTED`. Milestone 1 does not implement SHA, writes,
-mkdir, rename, unlink, lock behavior, a daemon, socket, or broker.
+schema and explicitly returns a complete `EUNSUPPORTED` failure at exit 3
+before operation dispatch with no side effects. Milestone 1 does not implement
+SHA, writes, mkdir, rename, unlink, lock behavior, a daemon, socket, or broker.
 
 ## Future Mutation And Lock Semantics
 
@@ -118,7 +133,10 @@ renewal, or persisted lock authority in this helper.
 ## Errors And Exits
 
 Failures contain stable code, bounded human message, retryability, committed
-state, and durability; callers branch only on code. Messages/details and stderr
+state, durability, and stage. The manifest freezes each code's allowed exits,
+stages, and mutation certainty; `EPATH` and `EUNSUPPORTED` are always
+`committed:false` with `durability:unchanged`. Callers branch only on code.
+Messages/details and stderr
 must redact paths and content. Stable exits are: 0 success; 2 malformed,
 schema, framing, or request-size failure; 3 denied operation/root/path/policy;
 4 filesystem/object failure with a complete response; 5 lock contention or
@@ -128,6 +146,21 @@ The manifest defines stable codes including malformed/schema/size, denied root
 and path, unsupported operation, object/type/link/device failures, lock and
 ownership failures, commit uncertainty, internal failure, and incomplete
 response. Reserved operations fail before side effects.
+
+## Helper To RPC Mapping
+
+The calling state layer supplies `generation`; the adapter must never derive it
+from helper output. A valid helper success maps `data` to RPC `data`. A valid
+helper failure maps through the manifest's closed `canonicalCodeByHelperCode`
+table and preserves helper code, retryability, committed state, durability, and
+stage in bounded RPC `error.details`.
+
+Caller arguments rejected before helper invocation map to `EINPUT`. Helper
+absence or transport failure and missing/incomplete output map to `EDEPENDENCY`.
+Malformed output, protocol-version mismatch, and missing or mismatched
+`requestId` after request validation map to `EINTERNAL`. No malformed helper
+output is trusted as a helper-declared error, and no adapter path reports
+success when transport or identity validation failed.
 
 ## Verification And Packaging
 

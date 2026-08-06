@@ -52,18 +52,25 @@
         "error": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["code", "message", "retryable", "committed", "durability"],
+          "required": ["code", "message", "retryable", "committed", "durability", "stage"],
           "properties": {
-            "code": { "type": "string" },
+            "code": { "type": "string", "enum": ["EMALFORMED", "ESCHEMA", "EREQUESTTOOBIG", "EDENIED", "EROOT", "EPATH", "EUNSUPPORTED", "ENOENT", "ENOTREG", "ESYMLINK", "EXDEV", "ETOOBIG", "EIO", "ELOCKED", "ETIMEOUT", "EOWNERSHIP", "ECOMMITUNKNOWN", "EINTERNAL", "EINCOMPLETE"] },
             "message": { "type": "string", "maxLength": 512 },
             "retryable": { "type": "boolean" },
             "committed": { "type": ["boolean", "null"] },
             "durability": { "enum": ["unchanged", "durable", "unknown", "not_applicable"] },
+            "stage": { "type": "string", "minLength": 1, "maxLength": 64 },
             "details": { "type": "object" }
           }
         }
       }
     }
+  },
+  "requestIdentity": {
+    "beforeRequestIdValidation": "null",
+    "afterRequestIdValidation": "echo_exactly",
+    "successRequiresValidatedRequestId": true,
+    "failureRequiresValidatedRequestIdOrNull": true
   },
   "exitCategories": {
     "success": 0,
@@ -82,25 +89,25 @@
     "callersBranchOn": "code"
   },
   "errors": {
-    "EMALFORMED": { "exitCategory": "request_invalid", "message": "Request is not one valid JSON object.", "retryable": false },
-    "ESCHEMA": { "exitCategory": "request_invalid", "message": "Request does not match protocol v1.", "retryable": false },
-    "EREQUESTTOOBIG": { "exitCategory": "request_invalid", "message": "Request exceeds the wire limit.", "retryable": false },
-    "EDENIED": { "exitCategory": "policy_denied", "message": "Operation is denied by root policy.", "retryable": false },
-    "EROOT": { "exitCategory": "policy_denied", "message": "Root is unknown or insecure.", "retryable": false },
-    "EPATH": { "exitCategory": "policy_denied", "message": "Path is not an allowed canonical relative path.", "retryable": false },
-    "EUNSUPPORTED": { "exitCategory": "policy_denied", "message": "Operation is reserved but not implemented in this milestone.", "retryable": false },
-    "ENOENT": { "exitCategory": "filesystem_failure", "message": "Managed object does not exist.", "retryable": false },
-    "ENOTREG": { "exitCategory": "filesystem_failure", "message": "Managed object is not a regular file.", "retryable": false },
-    "ESYMLINK": { "exitCategory": "filesystem_failure", "message": "Symbolic or magic link traversal was refused.", "retryable": false },
-    "EXDEV": { "exitCategory": "filesystem_failure", "message": "Mount or root boundary crossing was refused.", "retryable": false },
-    "ETOOBIG": { "exitCategory": "filesystem_failure", "message": "Managed object exceeds the operation or root limit.", "retryable": false },
-    "EIO": { "exitCategory": "filesystem_failure", "message": "Filesystem operation failed.", "retryable": false },
-    "ELOCKED": { "exitCategory": "lock_unavailable", "message": "Lock is held by another operation.", "retryable": true },
-    "ETIMEOUT": { "exitCategory": "lock_unavailable", "message": "Lock acquisition timed out.", "retryable": true },
-    "EOWNERSHIP": { "exitCategory": "policy_denied", "message": "Manager ownership evidence did not match.", "retryable": false },
-    "ECOMMITUNKNOWN": { "exitCategory": "commit_uncertain", "message": "Commit may be visible but durability is unknown.", "retryable": false },
-    "EINTERNAL": { "exitCategory": "internal", "message": "Helper failed internally.", "retryable": false },
-    "EINCOMPLETE": { "exitCategory": "response_incomplete", "message": "Helper could not emit one complete response.", "retryable": false }
+    "EMALFORMED": { "message": "Request is not one valid JSON object.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["request_invalid"], "allowedStages": ["framing", "utf8", "json_decode", "trailing_data"] },
+    "ESCHEMA": { "message": "Request does not match protocol v1.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["request_invalid"], "allowedStages": ["schema", "request_id"] },
+    "EREQUESTTOOBIG": { "message": "Request exceeds the wire limit.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["request_invalid"], "allowedStages": ["request_size"] },
+    "EDENIED": { "message": "Operation is denied by root policy.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["policy_denied"], "allowedStages": ["policy"] },
+    "EROOT": { "message": "Root is unknown or insecure.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["policy_denied"], "allowedStages": ["root_select", "root_ancestor", "root_open", "root_verify"] },
+    "EPATH": { "message": "Path is not an allowed canonical relative path.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["policy_denied"], "allowedStages": ["path_validate", "path_resolve"] },
+    "EUNSUPPORTED": { "message": "Operation is reserved but not implemented in this milestone.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["policy_denied"], "allowedStages": ["operation_dispatch"] },
+    "ENOENT": { "message": "Managed object does not exist.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["filesystem_failure"], "allowedStages": ["path_resolve", "object_open"] },
+    "ENOTREG": { "message": "Managed object is not a regular file.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["filesystem_failure"], "allowedStages": ["object_verify"] },
+    "ESYMLINK": { "message": "Symbolic or magic link traversal was refused.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["filesystem_failure"], "allowedStages": ["path_resolve", "object_open"] },
+    "EXDEV": { "message": "Mount or root boundary crossing was refused.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["filesystem_failure"], "allowedStages": ["path_resolve"] },
+    "ETOOBIG": { "message": "Managed object exceeds the operation or root limit.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["filesystem_failure"], "allowedStages": ["object_verify", "read"] },
+    "EIO": { "message": "Filesystem operation failed.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["filesystem_failure"], "allowedStages": ["root_open", "object_open", "stat", "read", "write", "file_fsync", "rename"] },
+    "ELOCKED": { "message": "Lock is held by another operation.", "retryable": true, "committed": false, "durability": "unchanged", "allowedExitCategories": ["lock_unavailable"], "allowedStages": ["lock_acquire"] },
+    "ETIMEOUT": { "message": "Lock acquisition timed out.", "retryable": true, "committed": false, "durability": "unchanged", "allowedExitCategories": ["lock_unavailable"], "allowedStages": ["lock_acquire"] },
+    "EOWNERSHIP": { "message": "Manager ownership evidence did not match.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["policy_denied"], "allowedStages": ["ownership_verify"] },
+    "ECOMMITUNKNOWN": { "message": "Commit may be visible but durability is unknown.", "retryable": false, "committed": true, "durability": "unknown", "allowedExitCategories": ["commit_uncertain"], "allowedStages": ["directory_fsync"] },
+    "EINTERNAL": { "message": "Helper failed internally.", "retryable": false, "committed": null, "durability": "not_applicable", "allowedExitCategories": ["internal"], "allowedStages": ["internal"] },
+    "EINCOMPLETE": { "message": "Helper could not emit one complete response.", "retryable": false, "committed": null, "durability": "not_applicable", "allowedExitCategories": ["response_incomplete"], "allowedStages": ["response_encode", "response_write"] }
   },
   "pathPolicy": {
     "form": "canonical_relative",
@@ -129,15 +136,28 @@
     "crossRootRename": "denied",
     "stagingAsPersistentAtomicSource": "denied"
   },
+  "rootOpenPolicy": {
+    "absoluteBaseOpenedByHelperOnly": true,
+    "ancestorPolicy": {
+      "required": "root_owned_directory_no_symlink",
+      "writableException": "/tmp_must_be_root_owned_sticky_directory",
+      "managedTmpParent": "/tmp/zapret2-manager_must_be_root_owned_0700_directory"
+    },
+    "rejectSymlinkAncestors": true,
+    "openFlags": ["O_DIRECTORY", "O_NOFOLLOW", "O_CLOEXEC"],
+    "verifyAfterOpen": ["object_type", "owner_uid", "owner_gid", "mode"],
+    "insecureRoot": "EROOT",
+    "unsafeRootOpen": "fail_capability"
+  },
   "roots": {
-    "persistent_state": { "base": "/etc/zapret2-manager/state", "storage": "persistent", "persistence": "survives_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 4194304, "maxDepth": 16, "mkdirPolicy": "private_only", "deletePolicy": "owned_token_only", "directoryFsync": "required", "allowedOperations": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "mkdir_private", "sha256_regular", "rename_owned", "unlink_owned"] },
-    "snapshots": { "base": "/etc/zapret2-manager/snapshots", "storage": "persistent", "persistence": "survives_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 4194304, "maxDepth": 16, "mkdirPolicy": "private_only", "deletePolicy": "owned_token_only", "directoryFsync": "required", "allowedOperations": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "mkdir_private", "sha256_regular", "rename_owned", "unlink_owned"] },
-    "registry": { "base": "/etc/zapret2-manager/registry", "storage": "persistent", "persistence": "survives_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 4194304, "maxDepth": 16, "mkdirPolicy": "private_only", "deletePolicy": "owned_token_only", "directoryFsync": "required", "allowedOperations": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "mkdir_private", "sha256_regular", "rename_owned", "unlink_owned"] },
-    "secrets": { "base": "/etc/zapret2-manager/secrets", "storage": "persistent", "persistence": "survives_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 0, "maxDepth": 8, "mkdirPolicy": "private_only", "deletePolicy": "owned_token_only", "directoryFsync": "required", "allowedOperations": ["stat_regular", "atomic_write", "atomic_write_json", "mkdir_private", "rename_owned", "unlink_owned"] },
-    "runtime": { "base": "/tmp/zapret2-manager/runtime", "storage": "tmpfs", "persistence": "cleared_on_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 1048576, "maxDepth": 12, "mkdirPolicy": "private_only", "deletePolicy": "owned_token_only", "directoryFsync": "not_required", "allowedOperations": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "mkdir_private", "sha256_regular", "rename_owned", "unlink_owned"] },
-    "jobs": { "base": "/tmp/zapret2-manager/jobs", "storage": "tmpfs", "persistence": "cleared_on_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 4194304, "maxDepth": 16, "mkdirPolicy": "private_only", "deletePolicy": "owned_token_only", "directoryFsync": "not_required", "allowedOperations": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "mkdir_private", "sha256_regular", "rename_owned", "unlink_owned"] },
-    "locks": { "base": "/tmp/zapret2-manager/locks", "storage": "tmpfs", "persistence": "cleared_on_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 0, "maxDepth": 1, "mkdirPolicy": "denied", "deletePolicy": "denied", "directoryFsync": "not_required", "allowedOperations": ["lock_acquire", "lock_release", "lock_status"] },
-    "staging": { "base": "/tmp/zapret2-manager/staging", "storage": "tmpfs", "persistence": "cleared_on_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 4194304, "maxDepth": 12, "mkdirPolicy": "private_only", "deletePolicy": "owned_token_only", "directoryFsync": "not_required", "allowedOperations": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "mkdir_private", "sha256_regular", "rename_owned", "unlink_owned"] }
+    "persistent_state": { "base": "/etc/zapret2-manager/state", "storage": "persistent", "persistence": "survives_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 4194304, "maxDepth": 16, "mkdirPolicy": "private_only", "deletePolicy": "owned_token_only", "directoryFsync": "required", "objectType": "directory", "noFollowRoot": true, "allowedOperations": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "mkdir_private", "sha256_regular", "rename_owned", "unlink_owned"] },
+    "snapshots": { "base": "/etc/zapret2-manager/snapshots", "storage": "persistent", "persistence": "survives_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 4194304, "maxDepth": 16, "mkdirPolicy": "private_only", "deletePolicy": "owned_token_only", "directoryFsync": "required", "objectType": "directory", "noFollowRoot": true, "allowedOperations": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "mkdir_private", "sha256_regular", "rename_owned", "unlink_owned"] },
+    "registry": { "base": "/etc/zapret2-manager/registry", "storage": "persistent", "persistence": "survives_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 4194304, "maxDepth": 16, "mkdirPolicy": "private_only", "deletePolicy": "owned_token_only", "directoryFsync": "required", "objectType": "directory", "noFollowRoot": true, "allowedOperations": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "mkdir_private", "sha256_regular", "rename_owned", "unlink_owned"] },
+    "secrets": { "base": "/etc/zapret2-manager/secrets", "storage": "persistent", "persistence": "survives_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 0, "maxDepth": 8, "mkdirPolicy": "private_only", "deletePolicy": "owned_token_only", "directoryFsync": "required", "objectType": "directory", "noFollowRoot": true, "allowedOperations": ["stat_regular", "atomic_write", "atomic_write_json", "mkdir_private", "rename_owned", "unlink_owned"] },
+    "runtime": { "base": "/tmp/zapret2-manager/runtime", "storage": "tmpfs", "persistence": "cleared_on_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 1048576, "maxDepth": 12, "mkdirPolicy": "private_only", "deletePolicy": "owned_token_only", "directoryFsync": "not_required", "objectType": "directory", "noFollowRoot": true, "allowedOperations": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "mkdir_private", "sha256_regular", "rename_owned", "unlink_owned"] },
+    "jobs": { "base": "/tmp/zapret2-manager/jobs", "storage": "tmpfs", "persistence": "cleared_on_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 4194304, "maxDepth": 16, "mkdirPolicy": "private_only", "deletePolicy": "owned_token_only", "directoryFsync": "not_required", "objectType": "directory", "noFollowRoot": true, "allowedOperations": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "mkdir_private", "sha256_regular", "rename_owned", "unlink_owned"] },
+    "locks": { "base": "/tmp/zapret2-manager/locks", "storage": "tmpfs", "persistence": "cleared_on_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 0, "maxDepth": 1, "mkdirPolicy": "denied", "deletePolicy": "denied", "directoryFsync": "not_required", "objectType": "directory", "noFollowRoot": true, "allowedOperations": ["lock_acquire", "lock_release", "lock_status"] },
+    "staging": { "base": "/tmp/zapret2-manager/staging", "storage": "tmpfs", "persistence": "cleared_on_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 4194304, "maxDepth": 12, "mkdirPolicy": "private_only", "deletePolicy": "owned_token_only", "directoryFsync": "not_required", "objectType": "directory", "noFollowRoot": true, "allowedOperations": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "mkdir_private", "sha256_regular", "rename_owned", "unlink_owned"] }
   },
   "operations": {
     "stat_regular": {
@@ -156,6 +176,7 @@
     },
     "atomic_write": {
       "milestone": 2, "status": "reserved_unsupported", "roots": ["persistent_state", "snapshots", "registry", "secrets", "runtime", "jobs", "staging"],
+      "unsupportedBehavior": { "errorCode": "EUNSUPPORTED", "dispatch": "reject_before_operation_dispatch", "sideEffects": "none", "response": "complete_failure_envelope", "exitCategory": "policy_denied", "exitCode": 3 },
       "requestSchema": { "type": "object", "additionalProperties": false, "required": ["root", "path", "content", "mode", "uid", "gid", "allowCreate"], "properties": { "root": { "type": "string" }, "path": { "type": "string" }, "content": { "type": "string", "encoding": "canonical_base64" }, "mode": { "const": "0600" }, "uid": { "const": 0 }, "gid": { "const": 0 }, "allowCreate": { "type": "boolean" } } },
       "successSchema": { "type": "object", "additionalProperties": false, "required": ["byteLength", "committed", "durability"], "properties": { "byteLength": { "type": "integer", "minimum": 0, "maximum": 4194304 }, "committed": { "const": true }, "durability": { "enum": ["durable", "tmpfs_visible"] } } },
       "limits": { "maxInputBytes": 4194304, "maxOutputBytes": 1024, "timeoutMsMax": 30000 },
@@ -163,6 +184,7 @@
     },
     "atomic_write_json": {
       "milestone": 2, "status": "reserved_unsupported", "roots": ["persistent_state", "snapshots", "registry", "secrets", "runtime", "jobs", "staging"],
+      "unsupportedBehavior": { "errorCode": "EUNSUPPORTED", "dispatch": "reject_before_operation_dispatch", "sideEffects": "none", "response": "complete_failure_envelope", "exitCategory": "policy_denied", "exitCode": 3 },
       "requestSchema": { "type": "object", "additionalProperties": false, "required": ["root", "path", "value", "mode", "uid", "gid", "allowCreate"], "properties": { "root": { "type": "string" }, "path": { "type": "string" }, "value": {}, "mode": { "const": "0600" }, "uid": { "const": 0 }, "gid": { "const": 0 }, "allowCreate": { "type": "boolean" } } },
       "successSchema": { "type": "object", "additionalProperties": false, "required": ["byteLength", "committed", "durability"], "properties": { "byteLength": { "type": "integer", "minimum": 0, "maximum": 4194304 }, "committed": { "const": true }, "durability": { "enum": ["durable", "tmpfs_visible"] } } },
       "limits": { "maxInputBytes": 4194304, "maxOutputBytes": 1024, "timeoutMsMax": 30000 },
@@ -170,6 +192,7 @@
     },
     "mkdir_private": {
       "milestone": 2, "status": "reserved_unsupported", "roots": ["persistent_state", "snapshots", "registry", "secrets", "runtime", "jobs", "staging"],
+      "unsupportedBehavior": { "errorCode": "EUNSUPPORTED", "dispatch": "reject_before_operation_dispatch", "sideEffects": "none", "response": "complete_failure_envelope", "exitCategory": "policy_denied", "exitCode": 3 },
       "requestSchema": { "type": "object", "additionalProperties": false, "required": ["root", "path", "mode", "uid", "gid", "existOk"], "properties": { "root": { "type": "string" }, "path": { "type": "string" }, "mode": { "const": "0700" }, "uid": { "const": 0 }, "gid": { "const": 0 }, "existOk": { "type": "boolean" } } },
       "successSchema": { "type": "object", "additionalProperties": false, "required": ["created"], "properties": { "created": { "type": "boolean" } } },
       "limits": { "maxInputBytes": 4096, "maxOutputBytes": 1024, "timeoutMsMax": 10000 },
@@ -177,6 +200,7 @@
     },
     "sha256_regular": {
       "milestone": 2, "status": "reserved_unsupported", "roots": ["persistent_state", "snapshots", "registry", "runtime", "jobs", "staging"],
+      "unsupportedBehavior": { "errorCode": "EUNSUPPORTED", "dispatch": "reject_before_operation_dispatch", "sideEffects": "none", "response": "complete_failure_envelope", "exitCategory": "policy_denied", "exitCode": 3 },
       "requestSchema": { "type": "object", "additionalProperties": false, "required": ["root", "path", "maxBytes"], "properties": { "root": { "type": "string" }, "path": { "type": "string" }, "maxBytes": { "type": "integer", "minimum": 0, "maximum": 4194304 } } },
       "successSchema": { "type": "object", "additionalProperties": false, "required": ["sha256", "byteLength"], "properties": { "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "byteLength": { "type": "integer", "minimum": 0, "maximum": 4194304 } } },
       "limits": { "maxInputBytes": 4096, "maxOutputBytes": 1024, "timeoutMsMax": 10000 },
@@ -184,6 +208,7 @@
     },
     "rename_owned": {
       "milestone": 3, "status": "reserved_unsupported", "roots": ["persistent_state", "snapshots", "registry", "secrets", "runtime", "jobs", "staging"],
+      "unsupportedBehavior": { "errorCode": "EUNSUPPORTED", "dispatch": "reject_before_operation_dispatch", "sideEffects": "none", "response": "complete_failure_envelope", "exitCategory": "policy_denied", "exitCode": 3 },
       "requestSchema": { "type": "object", "additionalProperties": false, "required": ["root", "fromPath", "toPath", "ownershipToken", "replace"], "properties": { "root": { "type": "string" }, "fromPath": { "type": "string" }, "toPath": { "type": "string" }, "ownershipToken": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "replace": { "type": "boolean" } } },
       "successSchema": { "type": "object", "additionalProperties": false, "required": ["renamed", "committed", "durability"], "properties": { "renamed": { "const": true }, "committed": { "const": true }, "durability": { "enum": ["durable", "tmpfs_visible"] } } },
       "limits": { "maxInputBytes": 8192, "maxOutputBytes": 1024, "timeoutMsMax": 30000 },
@@ -191,6 +216,7 @@
     },
     "unlink_owned": {
       "milestone": 3, "status": "reserved_unsupported", "roots": ["persistent_state", "snapshots", "registry", "secrets", "runtime", "jobs", "staging"],
+      "unsupportedBehavior": { "errorCode": "EUNSUPPORTED", "dispatch": "reject_before_operation_dispatch", "sideEffects": "none", "response": "complete_failure_envelope", "exitCategory": "policy_denied", "exitCode": 3 },
       "requestSchema": { "type": "object", "additionalProperties": false, "required": ["root", "path", "ownershipToken", "missingOk"], "properties": { "root": { "type": "string" }, "path": { "type": "string" }, "ownershipToken": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "missingOk": { "type": "boolean" } } },
       "successSchema": { "type": "object", "additionalProperties": false, "required": ["removed", "durability"], "properties": { "removed": { "type": "boolean" }, "durability": { "enum": ["durable", "tmpfs_visible"] } } },
       "limits": { "maxInputBytes": 4096, "maxOutputBytes": 1024, "timeoutMsMax": 30000 },
@@ -198,6 +224,7 @@
     },
     "lock_acquire": {
       "milestone": 4, "status": "reserved_unsupported", "roots": ["locks"],
+      "unsupportedBehavior": { "errorCode": "EUNSUPPORTED", "dispatch": "reject_before_operation_dispatch", "sideEffects": "none", "response": "complete_failure_envelope", "exitCategory": "policy_denied", "exitCode": 3 },
       "requestSchema": { "type": "object", "additionalProperties": false, "required": ["name", "owner", "timeoutMs"], "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9._/-]+$" }, "owner": { "type": "string", "minLength": 1, "maxLength": 128 }, "timeoutMs": { "type": "integer", "minimum": 0, "maximum": 30000 } } },
       "successSchema": { "type": "object", "additionalProperties": false, "required": ["name", "owner", "token"], "properties": { "name": { "type": "string" }, "owner": { "type": "string" }, "token": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } },
       "limits": { "maxInputBytes": 4096, "maxOutputBytes": 1024, "timeoutMsMax": 30000 },
@@ -205,6 +232,7 @@
     },
     "lock_release": {
       "milestone": 4, "status": "reserved_unsupported", "roots": ["locks"],
+      "unsupportedBehavior": { "errorCode": "EUNSUPPORTED", "dispatch": "reject_before_operation_dispatch", "sideEffects": "none", "response": "complete_failure_envelope", "exitCategory": "policy_denied", "exitCode": 3 },
       "requestSchema": { "type": "object", "additionalProperties": false, "required": ["name", "owner", "token"], "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 256 }, "owner": { "type": "string", "minLength": 1, "maxLength": 128 }, "token": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } },
       "successSchema": { "type": "object", "additionalProperties": false, "required": ["released"], "properties": { "released": { "const": true } } },
       "limits": { "maxInputBytes": 4096, "maxOutputBytes": 1024, "timeoutMsMax": 5000 },
@@ -212,10 +240,42 @@
     },
     "lock_status": {
       "milestone": 4, "status": "reserved_unsupported", "roots": ["locks"],
+      "unsupportedBehavior": { "errorCode": "EUNSUPPORTED", "dispatch": "reject_before_operation_dispatch", "sideEffects": "none", "response": "complete_failure_envelope", "exitCategory": "policy_denied", "exitCode": 3 },
       "requestSchema": { "type": "object", "additionalProperties": false, "required": ["name"], "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 256 } } },
       "successSchema": { "type": "object", "additionalProperties": false, "required": ["held", "owner"], "properties": { "held": { "type": "boolean" }, "owner": { "type": ["string", "null"] } } },
       "limits": { "maxInputBytes": 4096, "maxOutputBytes": 1024, "timeoutMsMax": 5000 },
       "ownership": "Broker-only diagnostic metadata; token is never disclosed.", "crashSemantics": "Returns EUNSUPPORTED until a retained broker is proven necessary and separately designed.", "idempotency": "Idempotent observation of future broker state."
+    }
+  },
+  "rpcMapping": {
+    "backendContract": "docs/contracts/native-backend-v1.md",
+    "generationSource": "calling_state_layer",
+    "helperMayAssignGeneration": false,
+    "success": { "helperData": "rpc.data" },
+    "validHelperFailure": {
+      "canonicalCodeByHelperCode": {
+        "EMALFORMED": "EINTERNAL", "ESCHEMA": "EINTERNAL", "EREQUESTTOOBIG": "EINTERNAL",
+        "EDENIED": "EINPUT", "EROOT": "EDEPENDENCY", "EPATH": "EINPUT",
+        "EUNSUPPORTED": "EDEPENDENCY", "ENOENT": "EDEPENDENCY", "ENOTREG": "EDEPENDENCY",
+        "ESYMLINK": "EDEPENDENCY", "EXDEV": "EDEPENDENCY", "ETOOBIG": "EINPUT",
+        "EIO": "EDEPENDENCY", "ELOCKED": "ELOCKED", "ETIMEOUT": "ELOCKED",
+        "EOWNERSHIP": "EOWNERSHIP", "ECOMMITUNKNOWN": "EAPPLY",
+        "EINTERNAL": "EINTERNAL", "EINCOMPLETE": "EDEPENDENCY"
+      },
+      "details": {
+        "helperCode": "preserve", "helperRetryable": "preserve",
+        "helperCommitted": "preserve", "helperDurability": "preserve",
+        "helperStage": "preserve_if_present"
+      }
+    },
+    "adapterFailures": {
+      "callerArgumentsRejectedBeforeInvocation": "EINPUT",
+      "helperUnavailableOrTransportFailure": "EDEPENDENCY",
+      "missingOrIncompleteResponse": "EDEPENDENCY",
+      "malformedResponse": "EINTERNAL",
+      "protocolVersionMismatch": "EINTERNAL",
+      "missingRequestIdAfterValidation": "EINTERNAL",
+      "mismatchedRequestId": "EINTERNAL"
     }
   }
 }

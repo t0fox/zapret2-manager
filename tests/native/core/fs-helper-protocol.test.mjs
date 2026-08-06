@@ -25,6 +25,85 @@ const exits = {
   internal: 70,
   response_incomplete: 74
 };
+const expectedRoots = {
+  persistent_state: {
+    base: '/etc/zapret2-manager/state', storage: 'persistent', persistence: 'survives_reboot',
+    ownerUid: 0, ownerGid: 0, rootMode: '0700', fileMode: '0600', directoryMode: '0700',
+    maxReadBytes: 4194304, maxDepth: 16, mkdirPolicy: 'private_only',
+    deletePolicy: 'owned_token_only', directoryFsync: 'required',
+    objectType: 'directory', noFollowRoot: true, allowedOperations: [
+      'stat_regular', 'read_regular', 'atomic_write', 'atomic_write_json',
+      'mkdir_private', 'sha256_regular', 'rename_owned', 'unlink_owned'
+    ]
+  },
+  snapshots: {
+    base: '/etc/zapret2-manager/snapshots', storage: 'persistent', persistence: 'survives_reboot',
+    ownerUid: 0, ownerGid: 0, rootMode: '0700', fileMode: '0600', directoryMode: '0700',
+    maxReadBytes: 4194304, maxDepth: 16, mkdirPolicy: 'private_only',
+    deletePolicy: 'owned_token_only', directoryFsync: 'required',
+    objectType: 'directory', noFollowRoot: true, allowedOperations: [
+      'stat_regular', 'read_regular', 'atomic_write', 'atomic_write_json',
+      'mkdir_private', 'sha256_regular', 'rename_owned', 'unlink_owned'
+    ]
+  },
+  registry: {
+    base: '/etc/zapret2-manager/registry', storage: 'persistent', persistence: 'survives_reboot',
+    ownerUid: 0, ownerGid: 0, rootMode: '0700', fileMode: '0600', directoryMode: '0700',
+    maxReadBytes: 4194304, maxDepth: 16, mkdirPolicy: 'private_only',
+    deletePolicy: 'owned_token_only', directoryFsync: 'required',
+    objectType: 'directory', noFollowRoot: true, allowedOperations: [
+      'stat_regular', 'read_regular', 'atomic_write', 'atomic_write_json',
+      'mkdir_private', 'sha256_regular', 'rename_owned', 'unlink_owned'
+    ]
+  },
+  secrets: {
+    base: '/etc/zapret2-manager/secrets', storage: 'persistent', persistence: 'survives_reboot',
+    ownerUid: 0, ownerGid: 0, rootMode: '0700', fileMode: '0600', directoryMode: '0700',
+    maxReadBytes: 0, maxDepth: 8, mkdirPolicy: 'private_only',
+    deletePolicy: 'owned_token_only', directoryFsync: 'required',
+    objectType: 'directory', noFollowRoot: true, allowedOperations: [
+      'stat_regular', 'atomic_write', 'atomic_write_json', 'mkdir_private',
+      'rename_owned', 'unlink_owned'
+    ]
+  },
+  runtime: {
+    base: '/tmp/zapret2-manager/runtime', storage: 'tmpfs', persistence: 'cleared_on_reboot',
+    ownerUid: 0, ownerGid: 0, rootMode: '0700', fileMode: '0600', directoryMode: '0700',
+    maxReadBytes: 1048576, maxDepth: 12, mkdirPolicy: 'private_only',
+    deletePolicy: 'owned_token_only', directoryFsync: 'not_required',
+    objectType: 'directory', noFollowRoot: true, allowedOperations: [
+      'stat_regular', 'read_regular', 'atomic_write', 'atomic_write_json',
+      'mkdir_private', 'sha256_regular', 'rename_owned', 'unlink_owned'
+    ]
+  },
+  jobs: {
+    base: '/tmp/zapret2-manager/jobs', storage: 'tmpfs', persistence: 'cleared_on_reboot',
+    ownerUid: 0, ownerGid: 0, rootMode: '0700', fileMode: '0600', directoryMode: '0700',
+    maxReadBytes: 4194304, maxDepth: 16, mkdirPolicy: 'private_only',
+    deletePolicy: 'owned_token_only', directoryFsync: 'not_required',
+    objectType: 'directory', noFollowRoot: true, allowedOperations: [
+      'stat_regular', 'read_regular', 'atomic_write', 'atomic_write_json',
+      'mkdir_private', 'sha256_regular', 'rename_owned', 'unlink_owned'
+    ]
+  },
+  locks: {
+    base: '/tmp/zapret2-manager/locks', storage: 'tmpfs', persistence: 'cleared_on_reboot',
+    ownerUid: 0, ownerGid: 0, rootMode: '0700', fileMode: '0600', directoryMode: '0700',
+    maxReadBytes: 0, maxDepth: 1, mkdirPolicy: 'denied', deletePolicy: 'denied',
+    directoryFsync: 'not_required', objectType: 'directory', noFollowRoot: true,
+    allowedOperations: ['lock_acquire', 'lock_release', 'lock_status']
+  },
+  staging: {
+    base: '/tmp/zapret2-manager/staging', storage: 'tmpfs', persistence: 'cleared_on_reboot',
+    ownerUid: 0, ownerGid: 0, rootMode: '0700', fileMode: '0600', directoryMode: '0700',
+    maxReadBytes: 4194304, maxDepth: 12, mkdirPolicy: 'private_only',
+    deletePolicy: 'owned_token_only', directoryFsync: 'not_required',
+    objectType: 'directory', noFollowRoot: true, allowedOperations: [
+      'stat_regular', 'read_regular', 'atomic_write', 'atomic_write_json',
+      'mkdir_private', 'sha256_regular', 'rename_owned', 'unlink_owned'
+    ]
+  }
+};
 
 function manifest() {
   return JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
@@ -68,36 +147,30 @@ test('protocol v1 is a bounded one-request process with strict JSON framing', ()
     ['protocolVersion', 'requestId', 'ok', 'error']);
   for (const envelope of Object.values(value.envelopes))
     assert.equal(envelope.additionalProperties, false);
+  assert.deepEqual(value.requestIdentity, {
+    beforeRequestIdValidation: 'null',
+    afterRequestIdValidation: 'echo_exactly',
+    successRequiresValidatedRequestId: true,
+    failureRequiresValidatedRequestIdOrNull: true
+  });
 });
 
 test('root policy is closed, complete, and isolates secrets, locks, and staging', () => {
   const value = manifest();
-  assert.deepEqual(sorted(Object.keys(value.roots)), sorted(roots));
-
-  const requiredPolicy = [
-    'base', 'storage', 'persistence', 'ownerUid', 'ownerGid', 'rootMode',
-    'fileMode', 'directoryMode', 'maxReadBytes', 'maxDepth',
-    'mkdirPolicy', 'deletePolicy', 'directoryFsync', 'allowedOperations'
-  ];
-  for (const [name, policy] of Object.entries(value.roots)) {
-    assert.deepEqual(sorted(Object.keys(policy)), sorted(requiredPolicy), name);
-    assert.match(policy.base, name === 'persistent_state'
-      ? /^\/etc\/zapret2-manager\/state$/
-      : new RegExp(`^/(etc|tmp)/zapret2-manager/${name}$`));
-    assert.ok(['persistent', 'tmpfs'].includes(policy.storage));
-    assert.ok(['survives_reboot', 'cleared_on_reboot'].includes(policy.persistence));
-    assert.equal(policy.ownerUid, 0);
-    assert.equal(policy.ownerGid, 0);
-    assert.match(policy.rootMode, /^0[0-7]{3}$/);
-    assert.match(policy.fileMode, /^0[0-7]{3}$/);
-    assert.match(policy.directoryMode, /^0[0-7]{3}$/);
-    assert.ok(Number.isInteger(policy.maxReadBytes));
-    assert.ok(Number.isInteger(policy.maxDepth) && policy.maxDepth > 0);
-    assert.ok(['denied', 'private_only'].includes(policy.mkdirPolicy));
-    assert.ok(['denied', 'owned_token_only'].includes(policy.deletePolicy));
-    assert.ok(['required', 'not_required'].includes(policy.directoryFsync));
-    assert.ok(policy.allowedOperations.every((operation) => operations.includes(operation)));
-  }
+  assert.deepEqual(value.roots, expectedRoots);
+  assert.deepEqual(value.rootOpenPolicy, {
+    absoluteBaseOpenedByHelperOnly: true,
+    ancestorPolicy: {
+      required: 'root_owned_directory_no_symlink',
+      writableException: '/tmp_must_be_root_owned_sticky_directory',
+      managedTmpParent: '/tmp/zapret2-manager_must_be_root_owned_0700_directory'
+    },
+    rejectSymlinkAncestors: true,
+    openFlags: ['O_DIRECTORY', 'O_NOFOLLOW', 'O_CLOEXEC'],
+    verifyAfterOpen: ['object_type', 'owner_uid', 'owner_gid', 'mode'],
+    insecureRoot: 'EROOT',
+    unsafeRootOpen: 'fail_capability'
+  });
 
   assert.deepEqual(value.roots.secrets.allowedOperations,
     ['stat_regular', 'atomic_write', 'atomic_write_json', 'mkdir_private', 'rename_owned', 'unlink_owned']);
@@ -108,6 +181,20 @@ test('root policy is closed, complete, and isolates secrets, locks, and staging'
   assert.equal(value.roots.locks.deletePolicy, 'denied');
   assert.equal(value.constraints.crossRootRename, 'denied');
   assert.equal(value.constraints.stagingAsPersistentAtomicSource, 'denied');
+});
+
+test('root and operation authorization is bidirectionally consistent', () => {
+  const value = manifest();
+  for (const root of roots) {
+    const fromOperations = operations.filter((operation) =>
+      value.operations[operation].roots.includes(root));
+    assert.deepEqual(sorted(value.roots[root].allowedOperations), sorted(fromOperations), root);
+  }
+  for (const operation of operations) {
+    const fromRoots = roots.filter((root) =>
+      value.roots[root].allowedOperations.includes(operation));
+    assert.deepEqual(sorted(value.operations[operation].roots), sorted(fromRoots), operation);
+  }
 });
 
 test('paths are canonical relative names without generic or absolute capability', () => {
@@ -143,10 +230,13 @@ test('operation registry is closed and specifies schemas, limits, ownership, cra
   assert.deepEqual(sorted(Object.keys(value.operations)), sorted(operations));
 
   for (const [name, operation] of Object.entries(value.operations)) {
-    assert.deepEqual(sorted(Object.keys(operation)), sorted([
+    const requiredKeys = [
       'milestone', 'status', 'roots', 'requestSchema', 'successSchema',
       'limits', 'ownership', 'crashSemantics', 'idempotency'
-    ]), name);
+    ];
+    if (operation.status === 'reserved_unsupported')
+      requiredKeys.push('unsupportedBehavior');
+    assert.deepEqual(sorted(Object.keys(operation)), sorted(requiredKeys), name);
     assert.ok(Number.isInteger(operation.milestone) && operation.milestone > 0, name);
     assert.ok(['milestone_1', 'reserved_unsupported'].includes(operation.status), name);
     assert.ok(operation.roots.length > 0, name);
@@ -167,6 +257,16 @@ test('operation registry is closed and specifies schemas, limits, ownership, cra
   assert.equal(value.operations.read_regular.status, 'milestone_1');
   for (const name of operations.slice(2))
     assert.equal(value.operations[name].status, 'reserved_unsupported', name);
+  for (const name of operations.slice(2)) {
+    assert.deepEqual(value.operations[name].unsupportedBehavior, {
+      errorCode: 'EUNSUPPORTED',
+      dispatch: 'reject_before_operation_dispatch',
+      sideEffects: 'none',
+      response: 'complete_failure_envelope',
+      exitCategory: 'policy_denied',
+      exitCode: 3
+    }, name);
+  }
   assert.equal(value.operations.read_regular.limits.maxOutputBytes, 6 * 1024 * 1024);
   assert.equal(value.operations.read_regular.requestSchema.properties.maxBytes.maximum,
     4 * 1024 * 1024);
@@ -205,19 +305,73 @@ test('errors are stable, bounded, and map to one exit category', () => {
     'EINCOMPLETE'
   ];
   assert.deepEqual(sorted(Object.keys(value.errors)), sorted(expectedCodes));
+  assert.deepEqual(sorted(value.envelopes.failure.properties.error.properties.code.enum),
+    sorted(expectedCodes));
   for (const [code, error] of Object.entries(value.errors)) {
     assert.deepEqual(sorted(Object.keys(error)),
-      ['exitCategory', 'message', 'retryable'], code);
-    assert.ok(Object.hasOwn(exits, error.exitCategory), code);
+      ['allowedExitCategories', 'allowedStages', 'committed', 'durability', 'message', 'retryable'], code);
+    assert.ok(error.allowedExitCategories.length > 0, code);
+    assert.ok(error.allowedExitCategories.every((category) => Object.hasOwn(exits, category)), code);
+    assert.ok(error.allowedStages.length > 0, code);
     assert.equal(typeof error.message, 'string', code);
     assert.ok(Buffer.byteLength(error.message, 'utf8') <= value.errorPolicy.maxMessageBytes, code);
     assert.equal(typeof error.retryable, 'boolean', code);
   }
+  for (const code of ['EMALFORMED', 'ESCHEMA', 'EREQUESTTOOBIG', 'EDENIED',
+    'EROOT', 'EPATH', 'EUNSUPPORTED', 'ENOENT', 'ENOTREG', 'ESYMLINK',
+    'EXDEV', 'ETOOBIG', 'EIO', 'ELOCKED', 'ETIMEOUT', 'EOWNERSHIP']) {
+    assert.equal(value.errors[code].committed, false, code);
+    assert.equal(value.errors[code].durability, 'unchanged', code);
+  }
+  assert.deepEqual(value.errors.ECOMMITUNKNOWN, {
+    message: 'Commit may be visible but durability is unknown.',
+    retryable: false,
+    committed: true,
+    durability: 'unknown',
+    allowedExitCategories: ['commit_uncertain'],
+    allowedStages: ['directory_fsync']
+  });
+  assert.ok(value.envelopes.failure.properties.error.required.includes('stage'));
+  assert.deepEqual(value.envelopes.failure.properties.error.properties.stage,
+    { type: 'string', minLength: 1, maxLength: 64 });
   assert.deepEqual(value.errorPolicy, {
     maxMessageBytes: 512,
     maxDetailsBytes: 4096,
     pathsInMessages: 'redacted',
     callersBranchOn: 'code'
+  });
+});
+
+test('ucode mapping supplies generation and closes helper and transport failures', () => {
+  const value = manifest();
+  assert.deepEqual(value.rpcMapping, {
+    backendContract: 'docs/contracts/native-backend-v1.md',
+    generationSource: 'calling_state_layer',
+    helperMayAssignGeneration: false,
+    success: { helperData: 'rpc.data' },
+    validHelperFailure: {
+      canonicalCodeByHelperCode: {
+        EMALFORMED: 'EINTERNAL', ESCHEMA: 'EINTERNAL', EREQUESTTOOBIG: 'EINTERNAL',
+        EDENIED: 'EINPUT', EROOT: 'EDEPENDENCY', EPATH: 'EINPUT',
+        EUNSUPPORTED: 'EDEPENDENCY', ENOENT: 'EDEPENDENCY', ENOTREG: 'EDEPENDENCY',
+        ESYMLINK: 'EDEPENDENCY', EXDEV: 'EDEPENDENCY', ETOOBIG: 'EINPUT', EIO: 'EDEPENDENCY',
+        ELOCKED: 'ELOCKED', ETIMEOUT: 'ELOCKED', EOWNERSHIP: 'EOWNERSHIP',
+        ECOMMITUNKNOWN: 'EAPPLY', EINTERNAL: 'EINTERNAL', EINCOMPLETE: 'EDEPENDENCY'
+      },
+      details: {
+        helperCode: 'preserve', helperRetryable: 'preserve',
+        helperCommitted: 'preserve', helperDurability: 'preserve', helperStage: 'preserve_if_present'
+      }
+    },
+    adapterFailures: {
+      callerArgumentsRejectedBeforeInvocation: 'EINPUT',
+      helperUnavailableOrTransportFailure: 'EDEPENDENCY',
+      missingOrIncompleteResponse: 'EDEPENDENCY',
+      malformedResponse: 'EINTERNAL',
+      protocolVersionMismatch: 'EINTERNAL',
+      missingRequestIdAfterValidation: 'EINTERNAL',
+      mismatchedRequestId: 'EINTERNAL'
+    }
   });
 });
 
@@ -228,6 +382,8 @@ test('design and plan describe only the manifest architecture and milestone 1 sc
     assert.match(body, /short-lived/i);
     assert.match(body, /one\s+bounded\s+JSON\s+request/i);
     assert.match(body, /one\s+bounded\s+JSON\s+response/i);
+    assert.match(body, /calling state layer/i);
+    assert.match(body, /requestId/i);
     assert.match(body, /Milestone 1[\s\S]{0,1200}stat_regular[\s\S]{0,1200}read_regular/i);
     assert.doesNotMatch(body, /runs as a root-owned procd service|listens on[^.]*socket|daemon retains|implement retained[^.]*broker|install[^.]*procd service/i);
   }
