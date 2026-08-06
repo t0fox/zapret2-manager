@@ -33,14 +33,14 @@ export const normalize_error = function(value) {
 	return normalize_error_value(value);
 };
 
-export const result_ok = function(generation, data) {
-	if (type(generation) != 'int' || generation < 0)
-		return result_error(0, 'EINTERNAL', 'Invalid result generation.');
-	return ok(data, { generation });
-};
-
 export const result_error = function(generation, code, message, details, retryable) {
 	let result = fail(code, message, details, retryable);
 	result.generation = type(generation) == 'int' && generation >= 0 ? generation : 0;
 	return result;
+};
+
+export const result_ok = function(generation, data) {
+	if (type(generation) != 'int' || generation < 0)
+		return result_error(0, 'EINTERNAL', 'Invalid result generation.');
+	return ok(data, { generation });
 };
