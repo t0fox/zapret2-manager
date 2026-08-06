@@ -1,161 +1,122 @@
 # Native Foundation Filesystem Helper Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** Use superpowers:subagent-driven-development or
+> superpowers:executing-plans task by task, and follow test-driven development.
 
-**Goal:** Unblock Foundation Task 3 with a fixed-operation native filesystem helper and retained-descriptor lock broker while preserving the planned ucode API.
+**Goal:** Unblock Foundation Task 3 with a fixed-operation native filesystem
+helper while preserving a narrow, reviewable privilege boundary.
 
-**Architecture:** A target-native C daemon performs descriptor-safe filesystem operations and retains lock descriptors across rpcd calls. Thin ucode adapters map approved paths and canonical results to a closed JSON protocol. No shell or generic process execution is added.
+**Architecture:** A short-lived target-native C executable consumes one bounded
+JSON request on stdin and emits one bounded JSON response plus newline on
+stdout, redacted diagnostics on stderr, and a stable exit category. Thin ucode
+adapters later map this internal `protocolVersion` envelope to the frozen native
+backend RPC envelope. There is no daemon, socket, service, or broker in the
+approved implementation.
 
-**Tech Stack:** C11, Linux `openat2`/`openat`, Unix `SOCK_SEQPACKET`, `flock`, procd, libjson-c, ucode, Node.js tests, OpenWrt package make.
+**Protocol source of truth:**
+`zapret2-manager/src/z2m-core-helper/protocol-v1.json`.
 
 ## Global Constraints
 
-- Follow `docs/superpowers/specs/2026-08-07-native-foundation-fs-helper-design.md` exactly.
-- No `system`, `popen`, `exec*`, shell command, generic command runner, arbitrary absolute path, or generic filesystem operation.
-- Production requests use only allowlisted root IDs and canonical relative paths.
-- Every production change starts with a failing executable test against the real C or ucode artifact.
-- WSL proves Linux behavior only; package compilation is `SDK_REQUIRED`, and overlay/reboot/power-loss acceptance is `ROUTER_REQUIRED`.
-- Do not modify or include unrelated dirty worktree paths.
+- Follow the protocol manifest and companion design exactly; prose cannot add
+  roots, operations, fields, or capabilities.
+- No shell execution, generic command runner, caller-selected executable,
+  absolute path, generic filesystem primitive, or unsafe pathname fallback.
+- Traverse with `openat2` or a safe descriptor walk; fail capability if neither
+  is available.
+- Every implementation change starts with a failing executable test.
+- Mutations later use only operation-scoped internal `flock`; no fake lease.
+- SDK and router-only evidence remains explicitly classified.
+- Do not modify unrelated worktree changes.
 
----
-
-### Task 1: Protocol, Root Policy, and Test Harness
-
-**Files:**
-- Create: `zapret2-manager/src/z2m-core-helper/protocol.h`
-- Create: `zapret2-manager/src/z2m-core-helper/protocol.c`
-- Create: `zapret2-manager/src/z2m-core-helper/roots.h`
-- Create: `zapret2-manager/src/z2m-core-helper/roots.c`
-- Create: `zapret2-manager/src/z2m-core-helper/main.c`
-- Create: `tests/native/helper/build-helper.sh`
-- Create: `tests/native/helper/helper-fixture.mjs`
-- Create: `tests/native/core/fs-helper.test.mjs`
-
-**Interfaces:**
-- Produces strict schema-1 request parsing, response serialization, test daemon startup, and root/path validation.
-- Accepts only the operations and roots listed in the approved design.
-
-- [ ] Write executable tests for unknown/duplicate keys, trailing JSON, payload bounds, absolute/traversal paths, unknown roots, insecure roots, production rejection of `--root-prefix`, and socket peer permissions.
-- [ ] Run `node --test tests/native/core/fs-helper.test.mjs`; confirm RED because the helper is absent.
-- [ ] Implement the minimal closed parser, root descriptor table, socket server, client mode, and test-only root prefix.
-- [ ] Compile with `-std=c11 -Wall -Wextra -Werror -D_GNU_SOURCE` and run the tests GREEN.
-- [ ] Run ASan/UBSan when available and commit `feat(core): add native helper protocol`.
-
----
-
-### Task 2: Descriptor-Safe Read and SHA-256
+## Milestone 1: Protocol, Parser, Root/Path Validation, Stat And Read
 
 **Files:**
-- Create: `zapret2-manager/src/z2m-core-helper/fs_ops.h`
-- Create: `zapret2-manager/src/z2m-core-helper/fs_ops.c`
-- Create: `zapret2-manager/src/z2m-core-helper/sha256.h`
-- Create: `zapret2-manager/src/z2m-core-helper/sha256.c`
-- Modify: `zapret2-manager/src/z2m-core-helper/protocol.c`
-- Modify: `tests/native/core/fs-helper.test.mjs`
 
-**Interfaces:**
-- Produces `fs.read` and `fs.sha256` over one verified regular-file descriptor.
-- Returns `ENOENT`, `ENOTREG`, `ESYMLINK`, `ETOOBIG`, or bounded `EIO` evidence.
+- Create `zapret2-manager/src/z2m-core-helper/protocol-v1.json`.
+- Create parser/root/path/read C files only after this documentation task.
+- Create `tests/native/core/fs-helper-protocol.test.mjs` now; later add real C
+  behavior tests.
 
-- [ ] Add failing tests for final/parent symlinks, FIFO non-blocking refusal, directory/socket refusal, exact and over-size reads, mount crossing, NIST SHA-256 vectors, and randomized Node crypto comparison.
-- [ ] Run the focused suite and preserve RED.
-- [ ] Implement `openat2` traversal with descriptor-walk fallback, `fstat` regular-file proof, bounded streaming read, and embedded streaming SHA-256.
-- [ ] Run focused tests, sanitizer tests, and protocol regressions GREEN.
-- [ ] Commit `feat(core): add descriptor-safe native reads`.
+**Scope:** Implement strict one-request framing and schema parsing, fixed root
+descriptors/policy, canonical relative path validation, `stat_regular`, and
+`read_regular`. Read uses canonical base64 and is limited to 4 MiB subject to
+the selected root. `secrets` permits stat metadata only, not read or hash.
 
----
+All reserved operations parse their complete future schemas and return
+`EUNSUPPORTED` before side effects: `atomic_write`, `atomic_write_json`,
+`mkdir_private`, `sha256_regular`, `rename_owned`, `unlink_owned`,
+`lock_acquire`, `lock_release`, and `lock_status`.
 
-### Task 3: Atomic Write, Durability, and Backups
+- [x] Add a manifest contract test and observe RED against the absent manifest
+  and superseded documents.
+- [x] Define the closed protocol manifest and align design/plan documentation.
+- [ ] Add failing strict parser tests: invalid UTF-8, duplicate keys, unknown
+  keys, trailing data, integer typing, embedded NUL, request bounds, and every
+  reserved operation returning `EUNSUPPORTED`.
+- [ ] Implement the minimal short-lived parser and exactly one complete response.
+- [ ] Add failing root/path/stat/read tests: root security, traversal variants,
+  symlink/magic-link/mount refusal, FIFO/socket/directory refusal without
+  blocking, exact/oversize reads, canonical base64, and secret non-disclosure.
+- [ ] Implement root descriptors, `openat2` plus descriptor-walk fallback,
+  descriptor `fstat`, and bounded read. Do not implement SHA or mutation.
+- [ ] Run focused, sanitizer, baseline/result/native regression, SDK, and router
+  gates at their applicable evidence levels.
 
-**Files:**
-- Modify: `zapret2-manager/src/z2m-core-helper/fs_ops.c`
-- Create: `tests/native/helper/syscall-shim.c`
-- Modify: `tests/native/helper/build-helper.sh`
-- Modify: `tests/native/core/fs-helper.test.mjs`
+## Milestone 2: Operation-Scoped Mutations And SHA
 
-**Interfaces:**
-- Produces `fs.atomic_write` and `fs.mkdir_private` with Task 3 options and mutation-certainty responses.
+Implement `atomic_write`, `atomic_write_json`, `mkdir_private`, and
+`sha256_regular` only after failing behavior tests. Mutations acquire an internal
+`flock` for one invocation, use same-directory candidates, checked writes,
+owner-before-mode, file fsync, rename, and root-policy directory fsync. Emit
+`ECOMMITUNKNOWN` after uncertain post-rename durability. Never use staging as an
+atomic source into persistent roots. SHA remains denied for `secrets`.
 
-- [ ] Add failing real-kernel tests for symlink/FIFO refusal, `allowCreate`, mode/owner preservation, three rolling backups, cleanup, and race attempts.
-- [ ] Add failing instrumented tests proving `fchown -> fchmod -> fsync(file) -> rename -> fsync(directory)` and each pre/post-rename failure result.
-- [ ] Implement checked writes, same-directory exclusive temp files, descriptor ownership/mode, durable backup rotation, atomic commit, parent sync, and cleanup.
-- [ ] Run focused, race-loop, sanitizer, and protocol regression suites GREEN.
-- [ ] Commit `feat(core): add durable native atomic writes`.
+- [ ] Test schema, bounds, modes/UID/GID, create policy, object refusal,
+  ordering, short writes, cleanup, concurrency, crash points, and idempotency.
+- [ ] Implement only the tested closed operations and rerun all regressions.
 
----
+## Milestone 3: Manager-Owned Rename And Delete
 
-### Task 4: Retained-Descriptor Lock Broker
+Design durable manager ownership evidence before implementation. Operations
+remain same-root and token-bound. `rename_owned` and `unlink_owned` must not
+become generic editors and remain `EUNSUPPORTED` until ownership tests prove
+foreign files cannot be moved or removed.
 
-**Files:**
-- Create: `zapret2-manager/src/z2m-core-helper/lock_broker.h`
-- Create: `zapret2-manager/src/z2m-core-helper/lock_broker.c`
-- Modify: `zapret2-manager/src/z2m-core-helper/protocol.c`
-- Create: `tests/native/core/lock-helper.test.mjs`
+- [ ] Review and approve the ownership evidence lifecycle and crash recovery.
+- [ ] Test stale/wrong/replayed token, replacement, missing object, directory
+  durability, concurrent mutation, and uncertainty before implementation.
 
-**Interfaces:**
-- Produces `lock.acquire`, `lock.renew`, `lock.release`, and `lock.inspect`.
-- Lock names hash to `/tmp/zapret2-manager/locks/<sha256(name)>.lock`.
+## Milestone 4: Lock Decision Gate
 
-- [ ] Add failing tests for same-name contention, different-name concurrency, monotonic timeout, client exit, renew, expiry, wrong owner/token/instance, double release, daemon crash/restart, stale metadata, PID reuse evidence, in-flight mutation pinning, and waiter fairness.
-- [ ] Run focused tests and preserve RED.
-- [ ] Implement retained `flock` descriptors, `getrandom` identities, daemon instance, FIFO waiter queue, monotonic expiry, exact release/renew identity, and operation pinning.
-- [ ] Run focused, sanitizer, and filesystem regression suites GREEN.
-- [ ] Commit `feat(core): add native lock broker`.
+`lock_acquire`, `lock_release`, and `lock_status` are broker-only reserved
+operations and return `EUNSUPPORTED`. Operation-scoped mutation locking is the
+default. Do not build persistent metadata leases or claim authority after the
+short-lived helper exits.
 
----
+- [ ] Gather evidence that cross-invocation retained locks are truly required.
+- [ ] If proven, write and approve a separate retained-broker threat/design
+  review before changing status or implementing any lock operation.
 
-### Task 5: Ucode Filesystem and Lock Adapters
+## Milestone 5: Ucode Adapters And Packaging
 
-**Files:**
-- Replace: `zapret2-manager/files/usr/libexec/zapret2-manager/core/fs.uc`
-- Replace: `zapret2-manager/files/usr/libexec/zapret2-manager/core/lock.uc`
-- Delete after reference check: `zapret2-manager/files/usr/libexec/zapret2-manager/core/lock-run.uc`
-- Create: `tests/native/core/fs.test.mjs`
-- Modify: `tests/native/foundation.test.mjs`
+Add thin adapters that invoke only the fixed helper path, write one request,
+read one response, verify `protocolVersion`/request identity/exit consistency,
+and map to the backend `schemaVersion`/`generation` envelope. Never fall back to
+shell filesystem code. Package a target-specific executable; no procd service
+is installed for the short-lived helper.
 
-**Interfaces:**
-- Produces the original Foundation Task 3 ucode interfaces unchanged.
-- Maps only approved legacy absolute paths to helper root/path pairs.
+- [ ] Add real-ucode tests for every public mapping and unavailable/malformed/
+  incomplete helper response.
+- [ ] Add package tests for target compilation, dependencies, binary path/mode,
+  and absence of service/socket/shell fallback.
+- [ ] Run SDK compilation or record `SDK_REQUIRED`; run router ownership,
+  overlay, reboot, and power-loss acceptance or record `ROUTER_REQUIRED`.
 
-- [ ] Add failing real-ucode tests for every public API, option, error mapping, lease lifecycle, and helper-unavailable fail-closed behavior.
-- [ ] Prove the old source assertions cannot detect an unsafe implementation, then replace them with behavioral coverage.
-- [ ] Implement thin request creation, fixed helper invocation, response parsing, canonical envelopes, and JSON serialization.
-- [ ] Verify no `popen`, shell command, `system`, `eval`, `sh -c`, or fallback path remains; remove `lock-run.uc` only after grep proves no references.
-- [ ] Run helper, ucode, compile, and native regression suites GREEN and commit `feat(core): add atomic files and identity locks`.
+## Completion Gate
 
----
-
-### Task 6: Package and procd Integration
-
-**Files:**
-- Modify: `zapret2-manager/Makefile`
-- Create: `zapret2-manager/files/etc/init.d/z2m-core-helper`
-- Modify: `tests/packaging.test.mjs`
-- Create: `tests/native/core/helper-service.test.mjs`
-
-**Interfaces:**
-- Builds and installs the target helper and starts it before canonical mutation RPC is enabled.
-
-- [ ] Add failing package tests for target-specific build, compiler flags, libjson-c dependency, binary path/mode, service path/mode, socket policy, and absence of shell fallback.
-- [ ] Implement OpenWrt `Build/Prepare`, `Build/Compile`, install, dependency, and procd service wiring; remove `PKGARCH:=all`.
-- [ ] Run local package-shape and service tests GREEN.
-- [ ] Run OpenWrt package compilation when SDK is available; otherwise record `SDK_REQUIRED` without claiming package success.
-- [ ] Commit `build(core): package native safety helper`.
-
----
-
-### Task 7: Task 3 Integration and Router Acceptance
-
-**Files:**
-- Modify: `tests/native/core/fs.test.mjs`
-- Modify: `docs/superpowers/plans/2026-08-06-native-backend-foundation.md`
-- Create: `docs/acceptance/native-core-fs-helper.md`
-
-**Interfaces:**
-- Produces reviewed evidence that the original Foundation Task 3 contract is satisfied.
-
-- [ ] Run all helper, ucode, native, compile, and repository gates and preserve exact output.
-- [ ] Verify package compilation on every supported architecture (`SDK_REQUIRED`).
-- [ ] Verify overlay durability, permissions, helper/rpcd restart, lock expiry, reboot, and power-loss before/after rename (`ROUTER_REQUIRED`).
-- [ ] Mark Foundation Task 3 complete only when local gates pass and external gates are explicitly classified.
-- [ ] Commit `test(core): gate native filesystem safety`.
+Run focused protocol/helper tests, `tests/native/baseline.test.mjs`,
+`tests/native/core/result.test.mjs`, all native regressions, and
+`git diff --check`. Foundation Task 3 is complete only when implementation and
+applicable external gates have evidence; this protocol-only milestone does not
+claim C behavior or router acceptance.

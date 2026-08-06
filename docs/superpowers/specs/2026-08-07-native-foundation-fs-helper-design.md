@@ -2,254 +2,138 @@
 
 ## Status
 
-Approved design for unblocking Task 3 of
-`docs/superpowers/plans/2026-08-06-native-backend-foundation.md`.
+Approved protocol-v1 design for unblocking Foundation Task 3. This document
+supersedes the daemon, socket, and broker-first proposal. The machine-readable
+source of truth is
+`zapret2-manager/src/z2m-core-helper/protocol-v1.json`; prose must not widen it.
 
-The target ucode capability audit is recorded in
-`.superpowers/sdd/2026-08-06-native-backend-foundation/task-3-report.md`.
-The audited runtime cannot provide descriptor-safe traversal, descriptor
-metadata mutation, file and directory `fsync`, race-safe rename, or SHA-256.
-The existing shell-based `core/fs.uc` and `core/lock.uc` scaffolds therefore
-cannot satisfy Task 3 and must not ship.
-
-## Goal
-
-Provide the exact Task 3 ucode APIs through a narrowly scoped native helper
-without adding a generic command runner, arbitrary filesystem access, or
-pathname-check races.
+The target ucode audit found no descriptor-safe traversal, file/directory
+`fsync`, race-safe rename, or SHA-256. Shell-backed filesystem and lock
+scaffolds therefore remain forbidden.
 
 ## Architecture
 
-Add one target-native C executable:
+`/usr/libexec/zapret2-manager/z2m-core-helper` is a fixed, short-lived helper.
+Each invocation consumes one bounded JSON request from stdin and emits one
+bounded JSON response plus one newline on stdout. Redacted diagnostics may go
+to stderr; the process also returns a stable exit category. It has no daemon,
+Unix socket, service lifecycle, generic command runner, arbitrary filesystem
+primitive, plugin loading, or caller-selected executable.
+
+The internal envelope uses integer `protocolVersion: 1`, a bounded `requestId`,
+a closed operation name, and closed arguments. It deliberately has no backend
+`generation`; the later ucode adapter maps helper results into the frozen RPC
+envelope in `docs/contracts/native-backend-v1.md`.
+
+Input is strict UTF-8. Invalid UTF-8, embedded NUL, duplicate JSON object keys,
+unknown keys, invalid integer types, more than one JSON value, and non-whitespace
+trailing data are rejected. Trailing JSON whitespace is accepted. Request wire
+size is at most 4 MiB and response wire size is at most 6 MiB. A response that
+cannot be completed is never presented as success.
+
+## Closed Surface
+
+The exact roots are `persistent_state`, `snapshots`, `registry`, `secrets`,
+`runtime`, `jobs`, `locks`, and `staging`. The exact operations are:
 
 ```text
-/usr/libexec/zapret2-manager/z2m-core-helper
+stat_regular read_regular atomic_write atomic_write_json mkdir_private
+sha256_regular rename_owned unlink_owned lock_acquire lock_release lock_status
 ```
 
-It runs as a root-owned procd service and listens on a mode `0600`
-`SOCK_SEQPACKET` Unix socket. It accepts only UID 0 peers verified with
-`SO_PEERCRED`. The daemon retains lock file descriptors across independent
-rpcd calls and performs filesystem mutations while validating the same live
-lease in one process.
+Filesystem operations accept a root ID and canonical relative path, never an
+absolute path. The protocol has no generic rename, unlink, read, write, or
+command capability. Same-root `rename_owned` and `unlink_owned` are reserved
+for a manager-owned 256-bit token evidence model; they return `EUNSUPPORTED`
+until that model is implemented. They must not become generic editors.
 
-The helper has a closed operation set:
+## Root Policy
 
-```text
-fs.read
-fs.atomic_write
-fs.mkdir_private
-fs.sha256
-lock.acquire
-lock.renew
-lock.release
-lock.inspect
-```
+| Root | Base | Storage | Max read | Depth | mkdir/delete | Directory fsync |
+|---|---|---|---:|---:|---|---|
+| `persistent_state` | `/etc/zapret2-manager/state` | persistent | 4 MiB | 16 | private/token | required |
+| `snapshots` | `/etc/zapret2-manager/snapshots` | persistent | 4 MiB | 16 | private/token | required |
+| `registry` | `/etc/zapret2-manager/registry` | persistent | 4 MiB | 16 | private/token | required |
+| `secrets` | `/etc/zapret2-manager/secrets` | persistent | 0 | 8 | private/token | required |
+| `runtime` | `/tmp/zapret2-manager/runtime` | tmpfs | 1 MiB | 12 | private/token | not required |
+| `jobs` | `/tmp/zapret2-manager/jobs` | tmpfs | 4 MiB | 16 | private/token | not required |
+| `locks` | `/tmp/zapret2-manager/locks` | tmpfs | 0 | 1 | denied/denied | not required |
+| `staging` | `/tmp/zapret2-manager/staging` | tmpfs | 4 MiB | 12 | private/token | not required |
 
-It has no `system()`, `popen()`, `exec*()`, shell syntax, generic rename,
-generic unlink, plugin loading, or caller-selected executable.
+All roots are root-owned UID/GID 0 directories with mode `0700`; managed files
+are `0600` and managed directories `0700`. Persistent roots survive reboot;
+tmpfs roots are cleared on reboot. A 4 MiB first-milestone read ceiling keeps
+base64 output below the 6 MiB response limit. Lower per-root limits constrain
+high-churn runtime data. Depth 16 supports structured manager state without
+allowing unbounded traversal; runtime/staging use 12, secrets 8, and locks 1.
 
-`core/fs.uc` and `core/lock.uc` remain the public adapters. Their exported
-interfaces remain:
+`secrets` permits regular-file metadata but denies content read and hashing, so
+`stat_regular` never contains payload bytes. `locks` permits only lock lifecycle
+operations. `staging` is temporary workspace and is not an atomic rename source
+into persistent roots; all cross-root rename is denied.
 
-```text
-read_regular(path, max_bytes)
-atomic_write(path, content, opts)
-atomic_json(path, value, opts)
-mkdir_private(path)
-sha256_file(path)
-acquire(name, timeout_ms, owner)
-renew(lease)
-release(lease)
-```
+## Path Safety
 
-## Request Boundary
+Paths are non-empty canonical UTF-8 relative paths, at most 4096 bytes, 255
+bytes per component, and 32 components globally before the lower root depth is
+applied. Leading/trailing/repeated slash, `.`, `..`, NUL, symlink, magic-link,
+and mount crossing are rejected.
 
-Requests use schema version 1 and a closed JSON shape. Unknown keys, duplicate
-keys, trailing input, embedded NUL, invalid integer types, and payloads above
-4 MiB are rejected.
+Traversal first uses `openat2()` with `RESOLVE_BENEATH`,
+`RESOLVE_NO_SYMLINKS`, and `RESOLVE_NO_MAGICLINKS`. The fallback walks from an
+opened root descriptor with `openat()` and `O_NOFOLLOW`, validating every
+descriptor. If neither route is safe on the target, the helper fails the
+capability instead of using pathname checks or concatenated absolute paths.
 
-Filesystem requests select an allowlisted root ID and a relative path. They
-never contain an arbitrary absolute path. Initial roots are:
+## Milestone 1
 
-| Root ID | Production path |
-|---|---|
-| `state` | `/etc/zapret2-manager/state` |
-| `snapshots` | `/etc/zapret2-manager/snapshots` |
-| `secrets` | `/etc/zapret2-manager/secrets` |
-| `runtime` | `/tmp/zapret2-manager/runtime` |
-| `jobs` | `/tmp/zapret2-manager/jobs` |
-| `leases` | `/tmp/zapret2-manager/leases` |
-| `logs` | `/tmp/zapret2-manager/logs` |
-| `staging` | `/tmp/zapret2-manager/staging` |
+Milestone 1 implements only strict framing/schema parsing, root validation,
+path validation, `stat_regular`, and `read_regular`. The stat success data is
+exactly regular type, size, mode, uid, gid, and mtime seconds/nanoseconds. Read
+success data is exact byte length plus strict canonical base64 content; no
+alternate alphabet, whitespace, or omitted padding is accepted. Reads fail
+rather than truncate with `ETOOBIG` and are capped at 4 MiB of decoded content
+subject to root policy. Base64 and envelope overhead remain under the separate
+6 MiB response-wire cap.
 
-Paths must be relative and canonical. Empty components, `.`, `..`, repeated
-slashes, leading/trailing slashes, NUL, oversized components, and oversized
-paths are rejected.
+Every other operation is present with its complete future request/success
+schema and returns `EUNSUPPORTED`. Milestone 1 does not implement SHA, writes,
+mkdir, rename, unlink, lock behavior, a daemon, socket, or broker.
 
-The daemon opens each root as a directory descriptor and verifies root owner,
-mode, and type. Production roots are root-owned, mode `0700`, and not
-symlinks. An insecure root prevents readiness.
+## Future Mutation And Lock Semantics
 
-## Filesystem Semantics
+Future mutations use an operation-scoped internal `flock` held only for that
+invocation. This serializes helper writers without pretending a short-lived
+process can provide a persistent lease. Persistent atomic writes use a
+same-directory candidate, checked writes, `fchown` then `fchmod`, file `fsync`,
+descriptor-relative rename, and parent-directory `fsync`. A post-rename fsync
+failure is `ECOMMITUNKNOWN`; callers reread before retrying. Tmpfs operations
+require visibility but not a false persistence claim.
 
-Traversal uses `openat2()` with `RESOLVE_BENEATH`, `RESOLVE_NO_SYMLINKS`, and
-`RESOLVE_NO_MAGICLINKS` when available. The fallback walks every component
-with descriptor-relative `openat()` and `O_NOFOLLOW`; it never concatenates an
-absolute path. Mount crossing is rejected.
+Broker-only `lock_acquire`, `lock_release`, and `lock_status` return
+`EUNSUPPORTED` unless evidence later proves that a retained broker is necessary.
+Any broker would require a separate reviewed design. There is no fake lease,
+renewal, or persisted lock authority in this helper.
 
-Reads and hashing open the final component with `O_NOFOLLOW`, verify the same
-descriptor using `fstat()`, and require a regular file. `O_NONBLOCK` prevents
-a FIFO from blocking before type verification. Over-size reads fail rather
-than return truncated content.
+## Errors And Exits
 
-Atomic writes:
+Failures contain stable code, bounded human message, retryability, committed
+state, and durability; callers branch only on code. Messages/details and stderr
+must redact paths and content. Stable exits are: 0 success; 2 malformed,
+schema, framing, or request-size failure; 3 denied operation/root/path/policy;
+4 filesystem/object failure with a complete response; 5 lock contention or
+timeout; 6 commit uncertainty; 70 internal failure; 74 incomplete response.
 
-1. Resolve and retain the parent directory descriptor.
-2. Verify the destination is absent or a regular file, never a symlink, FIFO,
-   socket, directory, or device.
-3. Create a same-directory temporary file with `O_CREAT|O_EXCL|O_NOFOLLOW`.
-4. Write all bytes with checked short-write handling.
-5. Apply owner with `fchown()`, then mode with `fchmod()`.
-6. `fsync()` the temporary file.
-7. Build and `fsync()` requested rolling backups from verified descriptors.
-8. Commit with descriptor-relative `renameat()` or
-   `renameat2(RENAME_NOREPLACE)` when creation must remain exclusive.
-9. `fsync()` the parent directory.
-10. Remove uncommitted temporary files on every pre-rename failure.
+The manifest defines stable codes including malformed/schema/size, denied root
+and path, unsupported operation, object/type/link/device failures, lock and
+ownership failures, commit uncertainty, internal failure, and incomplete
+response. Reserved operations fail before side effects.
 
-Backups are `<name>.bak.1` through `<name>.bak.3`. The old destination remains
-active until the candidate and backup are durable. A crash can leave fewer
-backup generations, but never a partial active file.
+## Verification And Packaging
 
-SHA-256 is a small embedded streaming implementation with NIST vectors and
-randomized cross-checks against Node `crypto`. The helper does not invoke
-`sha256sum` or require OpenSSL.
-
-## Lock Semantics
-
-Lock files are:
-
-```text
-/tmp/zapret2-manager/locks/<sha256(name)>.lock
-```
-
-The daemon opens the lock inode safely, verifies regular type, root ownership,
-mode `0600`, and one hard link, then retains an exclusive `flock()` descriptor.
-The visible metadata is diagnostic; authority is the daemon's live lease
-table plus retained descriptor.
-
-A lease contains:
-
-```json
-{
-  "name": "state/routing",
-  "owner": "routing",
-  "token": "lk-<64 lowercase hex>",
-  "instance": "<32 lowercase hex>",
-  "helperPid": 123,
-  "helperStartTime": "4567",
-  "acquiredAt": "RFC3339",
-  "leaseMs": 30000,
-  "expiresMonotonicMs": 987654321
-}
-```
-
-Timeout and expiry use `CLOCK_MONOTONIC`. Wall-clock time is diagnostic only.
-Token and daemon instance are generated with `getrandom()`. Release and renew
-require exact name, owner, token, and daemon instance. Wrong identity returns
-`EOWNERSHIP`; a released or expired token returns `ENOLEASE`; double release
-fails. Daemon restart changes instance identity and automatically releases
-kernel locks. PID/start time are evidence, never sole authority.
-
-An in-flight helper mutation pins its validated lease until that operation
-returns. Multi-step transactions renew before half of the lease duration and
-must revalidate persisted generation after reacquisition.
-
-## Error Model
-
-Responses use a versioned JSON envelope and bounded messages. Failures report
-the operation stage, retryability, and mutation certainty.
-
-Pre-rename failure:
-
-```json
-{
-  "ok": false,
-  "error": {
-    "code": "EIO",
-    "stage": "file-fsync",
-    "committed": false,
-    "durability": "unchanged",
-    "retryable": false
-  }
-}
-```
-
-Parent-directory fsync failure after rename:
-
-```json
-{
-  "ok": false,
-  "error": {
-    "code": "ECOMMITUNKNOWN",
-    "stage": "directory-fsync",
-    "committed": true,
-    "durability": "unknown",
-    "retryable": false
-  }
-}
-```
-
-Callers must reread and compare digest after `ECOMMITUNKNOWN`; blind retry is
-forbidden.
-
-## Threat Boundary
-
-The design is race-safe against unprivileged processes and all manager
-writers. Managed roots are root-owned `0700`, and all canonical manager writes
-must use this daemon. Linux does not offer conditional replace-by-previous-
-inode for a hostile root process; concurrent malicious root modification is
-outside this package's enforceable boundary and must not be described as
-solved by pathname checks or pidfd.
-
-## Packaging
-
-The helper remains in the `zapret2-manager` package. The package becomes
-target-specific by removing `PKGARCH:=all`. It compiles with `$(TARGET_CC)` and
-links `libjson-c`. A dedicated `/etc/init.d/z2m-core-helper` procd service is
-installed and started before canonical mutation RPC becomes available.
-
-The backend reports `EDEPENDENCY` when the helper is unavailable. It never
-falls back to shell-based filesystem or lock code.
-
-## Verification
-
-WSL tests compile and execute the production C sources against sandbox roots.
-A test-only compile flag permits `--root-prefix`; production builds reject it.
-Tests cover:
-
-- symlinks in final and parent components;
-- FIFO/socket/directory refusal without blocking;
-- bounded reads;
-- traversal and destination replacement races;
-- short writes and temporary cleanup;
-- `fchown` before `fchmod`;
-- file fsync before rename and directory fsync after rename;
-- post-rename commit uncertainty;
-- three rolling backups;
-- mode/owner preservation and `allow_create`;
-- SHA-256 vectors and randomized cross-checks;
-- lock contention, timeout, renewal, expiry, wrong identity, double release,
-  daemon restart, PID reuse evidence, and client-process churn;
-- ucode adapters invoking only the fixed helper protocol.
-
-OpenWrt SDK compilation is `SDK_REQUIRED`. Overlay durability, package
-permissions, procd ordering, reboot, and power-loss checks are
-`ROUTER_REQUIRED`. WSL tests do not substitute for those gates.
-
-## Migration
-
-The unsafe untracked `core/fs.uc` and `core/lock.uc` scaffolds are replaced
-only after the helper behavior is green. `core/lock-run.uc` is removed only
-after all references are gone. Existing legacy code is not migrated or deleted
-as part of Task 3.
+Protocol tests parse the manifest and enforce exact sets, policy fields,
+schemas, status, limits, ownership, crash/idempotency text, envelopes, exits,
+errors, and absence of generic or absolute capability. Later Linux tests will
+compile production C and exercise actual descriptors, races, object types, and
+base64 boundaries. OpenWrt SDK compilation is `SDK_REQUIRED`; package modes,
+overlay durability, reboot, and power-loss behavior are `ROUTER_REQUIRED`.
