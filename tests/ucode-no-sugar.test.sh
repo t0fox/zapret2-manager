@@ -171,15 +171,7 @@ _notilde() {
         word == "delete" || word == "typeof" || word == "void" || word == "new" ||
         word == "else" || word == "in"
     }
-    function flush_lex_word() {
-      if (lex_word != "") {
-        lex_can_end = lex_property || !prefix_keyword(lex_word)
-        lex_word = ""
-        lex_property = 0
-      }
-    }
-    function code_only(raw,    i,ch,nextch,out) {
-      out=""
+    function scan(raw,    i,ch,nextch,word) {
       for (i=1; i<=length(raw); i++) {
         ch=substr(raw,i,1); nextch=substr(raw,i+1,1)
         if (in_block) {
@@ -192,61 +184,68 @@ _notilde() {
           if (literal=="/" && ch=="[") { regex_class=1; continue }
           if (literal=="/" && ch=="]" && regex_class) { regex_class=0; continue }
           if (ch==literal && !regex_class) {
-            literal=""; out=out "x"; lex_can_end=1
+            literal=""; can_end=1; pending_property=0
           }
-          continue
-        }
-        if (ch ~ /[A-Za-z0-9_]/) {
-          lex_word=lex_word ch; out=out ch
-          continue
-        }
-        flush_lex_word()
-        if (ch=="/" && nextch=="/") break
-        if (ch=="/" && nextch=="*") { in_block=1; i++; continue }
-        if (ch=="\"" || ch=="\047") { literal=ch; escaped=0; continue }
-        if (ch=="/" && !lex_can_end) { literal="/"; escaped=0; regex_class=0; continue }
-        if ((ch=="+" || ch=="-") && nextch==ch) { out=out ch nextch; i++; continue }
-        if (ch=="." && lex_can_end && nextch ~ /[A-Za-z_]/) lex_property=1
-        out=out ch
-        if (ch !~ /[ \t]/) {
-          if (ch==")" || ch=="]" || ch=="}") lex_can_end=1
-          else lex_can_end=0
-        }
-      }
-      flush_lex_word()
-      if (literal=="\"" || literal=="\047") escaped=0
-      return out
-    }
-    function has_binary_tilde(line,    i,ch,word) {
-      for (i=1; i<=length(line); i++) {
-        ch=substr(line,i,1)
-        if (ch ~ /[A-Za-z0-9_]/) {
-          word=""
-          while (i<=length(line) && substr(line,i,1) ~ /[A-Za-z0-9_]/) {
-            word=word substr(line,i,1); i++
-          }
-          detector_can_end = detector_property || !prefix_keyword(word)
-          detector_property=0
-          i--
           continue
         }
         if (ch ~ /[ \t]/) continue
-        if ((ch=="+" || ch=="-") && substr(line,i+1,1)==ch) { i++; continue }
-        if (ch=="." && detector_can_end && substr(line,i+1,1) ~ /[A-Za-z_]/) detector_property=1
-        if (ch=="~") {
-          if (detector_can_end) return 1
-          detector_can_end=0
+        if (ch=="/" && nextch=="/") break
+        if (ch=="/" && nextch=="*") { in_block=1; i++; continue }
+        if (ch=="\"" || ch=="\047") {
+          literal=ch; escaped=0; pending_property=0
+          continue
         }
-        else if (ch ~ /[]A-Za-z0-9_)}]/) detector_can_end=1
-        else detector_can_end=0
+        if (ch ~ /[A-Za-z_]/) {
+          word=""
+          while (i<=length(raw) && substr(raw,i,1) ~ /[A-Za-z0-9_]/) {
+            word=word substr(raw,i,1); i++
+          }
+          can_end = pending_property || !prefix_keyword(word)
+          pending_property=0
+          i--
+          continue
+        }
+        if (ch ~ /[0-9]/) {
+          while (i<=length(raw) && substr(raw,i,1) ~ /[0-9]/) i++
+          if (substr(raw,i,1)==".") {
+            i++
+            while (i<=length(raw) && substr(raw,i,1) ~ /[0-9]/) i++
+          }
+          if (substr(raw,i,1) ~ /[eE]/) {
+            i++
+            if (substr(raw,i,1) ~ /[+-]/) i++
+            while (i<=length(raw) && substr(raw,i,1) ~ /[0-9]/) i++
+          }
+          can_end=1; pending_property=0
+          i--
+          continue
+        }
+        if (ch=="/" && !can_end) {
+          literal="/"; escaped=0; regex_class=0; pending_property=0
+          continue
+        }
+        if ((ch=="+" || ch=="-") && nextch==ch) {
+          pending_property=0; i++
+          continue
+        }
+        if (ch=="." && can_end) {
+          pending_property=1; can_end=0
+          continue
+        }
+        if (ch=="~") {
+          if (can_end) {
+            printf "FAIL  binary tilde (compiler segfault on target): %s:%d:%s\n", FILENAME, FNR, raw
+            failed=1
+          }
+          can_end=0; pending_property=0
+        }
+        else if (ch==")" || ch=="]" || ch=="}") { can_end=1; pending_property=0 }
+        else { can_end=0; pending_property=0 }
       }
-      return 0
     }
     {
-      if (has_binary_tilde(code_only($0))) {
-        printf "FAIL  binary tilde (compiler segfault on target): %s:%d:%s\n", FILENAME, FNR, $0
-        failed=1
-      }
+      scan($0)
+      if (literal=="\"" || literal=="\047") escaped=0
     }
     END { exit failed }
   ' "$1"
@@ -258,6 +257,10 @@ if _notilde "$_tilde_samples/tilde-regex-binary-broken.uc" >/dev/null 2>&1; then
 if _notilde "$_tilde_samples/tilde-postfix-binary-broken.uc" >/dev/null 2>&1; then echo "FAIL  self-test: binary tilde after postfix division not flagged"; fail=1; fi
 if _notilde "$_tilde_samples/tilde-property-in-binary-broken.uc" >/dev/null 2>&1; then echo "FAIL  self-test: binary tilde after .in property division not flagged"; fail=1; fi
 if _notilde "$_tilde_samples/tilde-property-else-binary-broken.uc" >/dev/null 2>&1; then echo "FAIL  self-test: binary tilde after .else property division not flagged"; fail=1; fi
+if _notilde "$_tilde_samples/tilde-property-space-binary-broken.uc" >/dev/null 2>&1; then echo "FAIL  self-test: binary tilde after spaced property division not flagged"; fail=1; fi
+if _notilde "$_tilde_samples/tilde-property-newline-binary-broken.uc" >/dev/null 2>&1; then echo "FAIL  self-test: binary tilde after multiline property division not flagged"; fail=1; fi
+if _notilde "$_tilde_samples/tilde-property-comment-binary-broken.uc" >/dev/null 2>&1; then echo "FAIL  self-test: binary tilde after commented property division not flagged"; fail=1; fi
+if _notilde "$_tilde_samples/tilde-trailing-decimal-binary-broken.uc" >/dev/null 2>&1; then echo "FAIL  self-test: binary tilde after trailing-dot decimal division not flagged"; fail=1; fi
 if ! _notilde "$_tilde_samples/tilde-unary-valid.uc" >/dev/null 2>&1; then echo "FAIL  self-test: unary tilde flagged"; fail=1; fi
 if ! _notilde "$_tilde_samples/tilde-string-valid.uc" >/dev/null 2>&1; then echo "FAIL  self-test: tilde inside quoted string flagged"; fail=1; fi
 if ! _notilde "$_tilde_samples/tilde-comment-valid.uc" >/dev/null 2>&1; then echo "FAIL  self-test: tilde inside block or line comment flagged"; fail=1; fi
