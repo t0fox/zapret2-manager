@@ -99,6 +99,27 @@ test('request schema is closed and validates version, ID, operation, aliases, fi
     expectFailure(invoke(request('stat_regular', { root, path: 'x' })), 3, 'EROOT');
 });
 
+test('decoded NUL is rejected in every request identity without truncated echo', () => {
+  const cases = [
+    ['{"protocolVersion":1,"requestId":"safe\\u0000suffix","operation":"stat_regular","arguments":{"root":"runtime","path":"x"}}', null],
+    ['{"protocolVersion":1,"requestId":"echo-safe","operation":"stat_regular\\u0000suffix","arguments":{"root":"runtime","path":"x"}}', 'echo-safe'],
+    ['{"protocolVersion":1,"requestId":"echo-root","operation":"stat_regular","arguments":{"root":"runtime\\u0000suffix","path":"x"}}', 'echo-root'],
+    ['{"protocolVersion":1,"requestId":"echo-path","operation":"stat_regular","arguments":{"root":"runtime","path":"x\\u0000suffix"}}', 'echo-path']
+  ];
+  for (const [wire, id] of cases) {
+    const run = invoke(wire);
+    expectFailure(run, id === 'echo-path' ? 3 : 2, id === 'echo-path' ? 'EPATH' : 'ESCHEMA', id);
+    if (id !== null) assert.equal(run.response.requestId, id);
+  }
+});
+
+test('duplicate scanner rejects excessive nesting and key work with a complete response', () => {
+  const deep = `${'{"a":'.repeat(80)}0${'}'.repeat(80)}`;
+  expectFailure(invoke(deep), 2, 'ESCHEMA', null);
+  const keys = Array.from({ length: 5000 }, (_, i) => `"k${i}":0`).join(',');
+  expectFailure(invoke(`{${keys}}`), 2, 'ESCHEMA', null);
+});
+
 test('all eight exact root aliases are recognized and policy authorization remains closed', () => {
   for (const root of Object.keys(roots)) {
     const run = invoke(request('stat_regular', { root, path: 'missing' }, `root-${root}`));
@@ -145,8 +166,16 @@ test('stat_regular returns exact descriptor metadata for a regular file', () => 
 test('object opening refuses final/parent symlinks and non-regular objects without blocking', () => {
   const base = `${testRoot}/${roots.runtime}`;
   shell(`mkdir -m 0700 '${base}/real'; printf x > '${base}/real/file'; chmod 0600 '${base}/real/file'; ln -s real/file '${base}/final-link'; ln -s real '${base}/parent-link'; mkdir -m 0700 '${base}/dir'; mkfifo '${base}/fifo'; python3 -c "import socket; s=socket.socket(socket.AF_UNIX); s.bind('${base}/socket')"; mknod '${base}/device' c 1 3`);
-  for (const [name, code] of [['final-link', 'ESYMLINK'], ['parent-link/file', 'ESYMLINK'], ['dir', 'ENOTREG'], ['fifo', 'ENOTREG'], ['socket', 'ENOTREG'], ['device', 'ENOTREG']])
-    expectFailure(invoke(request('stat_regular', { root: 'runtime', path: name }), { timeout: 1000 }), 4, code, 'req-1', name);
+  for (const [name, code, status = 4] of [['final-link', 'ESYMLINK'], ['parent-link/file', 'ESYMLINK'], ['dir', 'ENOTREG'], ['fifo', 'ENOTREG'], ['socket', 'ENOTREG'], ['device', 'EDENIED', 3]])
+    expectFailure(invoke(request('stat_regular', { root: 'runtime', path: name }), { timeout: 1000 }), status, code, 'req-1', name);
+});
+
+test('descendant directories and final files must match private owner and mode policy', () => {
+  const base = `${testRoot}/${roots.jobs}`;
+  shell(`mkdir -m 0755 '${base}/wide'; printf secret > '${base}/wide/file'; chmod 0600 '${base}/wide/file'; printf secret > '${base}/wide-file'; chmod 0644 '${base}/wide-file'; printf secret > '${base}/foreign'; chmod 0600 '${base}/foreign'; chown 65534:65534 '${base}/foreign'`);
+  expectFailure(invoke(request('read_regular', { root: 'jobs', path: 'wide/file', maxBytes: 32 })), 3, 'EDENIED');
+  expectFailure(invoke(request('read_regular', { root: 'jobs', path: 'wide-file', maxBytes: 32 })), 3, 'EDENIED');
+  expectFailure(invoke(request('read_regular', { root: 'jobs', path: 'foreign', maxBytes: 32 })), 3, 'EDENIED');
 });
 
 test('read_regular returns strict canonical base64 for empty, binary, and invalid UTF-8 bytes', () => {
@@ -189,6 +218,25 @@ test('read loop retries EINTR and accumulates injected short reads', () => {
   assert.equal(Buffer.from(run.response.data.content, 'base64').toString(), 'short-read-proof');
 });
 
+test('transport retries stdin and stdout EINTR and short writes without corrupting response', () => {
+  write('jobs', 'transport.bin', 'transport');
+  const run = invoke(request('read_regular', { root: 'jobs', path: 'transport.bin', maxBytes: 32 }), {
+    env: { Z2M_TEST_STDIN_SHIM: '1', Z2M_TEST_STDOUT_SHIM: '1' }
+  });
+  assert.equal(run.status, 0, run.stderr || run.stdout);
+  assert.equal(run.stdout.split('\n').length, 2);
+  assert.equal(Buffer.from(run.response.data.content, 'base64').toString(), 'transport');
+});
+
+test('unrecoverable partial stdout exits response-incomplete category', () => {
+  const run = invoke(request('stat_regular', { root: 'jobs', path: 'missing' }), {
+    env: { Z2M_TEST_STDOUT_FAIL_AFTER: '8' }
+  });
+  assert.equal(run.status, 74);
+  assert.equal(run.response, null);
+  assert.ok(run.stdout.length > 0 && run.stdout.length <= 8);
+});
+
 test('reserved operations return EUNSUPPORTED before filesystem access and have no side effects', () => {
   const marker = `${testRoot}/${roots.runtime}/must-not-exist`;
   const operations = {
@@ -224,6 +272,30 @@ test('reserved operations validate their complete closed schemas before EUNSUPPO
   for (const value of invalid) expectFailure(invoke(value), 2, 'ESCHEMA');
 });
 
+test('atomic_write reserved schema accepts only canonical bounded base64', () => {
+  const base = { root: 'runtime', path: 'x', mode: '0600', uid: 0, gid: 0, allowCreate: true };
+  for (const content of ['YQ', 'YQ===', 'Y Q==', 'YQ=/', '****', 'YR=='])
+    expectFailure(invoke(request('atomic_write', { ...base, content })), 2, 'ESCHEMA');
+  expectFailure(invoke(request('atomic_write', { ...base, content: 'A'.repeat(4 * 1024 * 1024 + 4) })), 2, 'EREQUESTTOOBIG', null);
+  for (const content of ['', 'YQ==', 'YWJj'])
+    expectFailure(invoke(request('atomic_write', { ...base, content })), 3, 'EUNSUPPORTED');
+});
+
+test('allocation failures and unknown internal codes fail closed with stable exits', () => {
+  for (let failAfter = 1; failAfter <= 16; failAfter++) {
+    const allocation = invoke(request('stat_regular', { root: 'jobs', path: 'missing' }), {
+      env: { Z2M_TEST_ALLOC_FAIL_AFTER: String(failAfter) }
+    });
+    assert.ok([4, 70, 74].includes(allocation.status), `allocation ${failAfter}: ${allocation.stderr || allocation.stdout}`);
+    if (allocation.stdout.length > 0) assert.doesNotThrow(() => JSON.parse(allocation.stdout));
+  }
+  const unknown = invoke(request('stat_regular', { root: 'jobs', path: 'missing' }), {
+    env: { Z2M_TEST_UNKNOWN_ERROR: '1' }
+  });
+  assert.equal(unknown.status, 70);
+  assert.equal(unknown.response?.error?.code, 'EINTERNAL');
+});
+
 test('production binary ignores and rejects test root substitution', () => {
   const run = invoke(request('stat_regular', { root: 'runtime', path: 'meta.bin' }), { binary: prodBin });
   expectFailure(run, 3, 'EROOT');
@@ -245,6 +317,34 @@ test('descriptor fallback refuses mounted descendants when mounting is available
   } finally {
     shell(`umount '${mountpoint}'`);
   }
+});
+
+test('descriptor fallback refuses same-device bind mounts when mounting is available', (t) => {
+  const source = `${testRoot}/bind-source`;
+  const mountpoint = `${testRoot}/${roots.runtime}/bind-mounted`;
+  shell(`mkdir -m 0700 '${source}' '${mountpoint}'; printf escape > '${source}/file'; chmod 0600 '${source}/file'`);
+  const mounted = wsl(['mount', '--bind', source, mountpoint]);
+  if (mounted.status !== 0) {
+    t.skip(`bind mount unavailable: ${mounted.stderr.trim()}`);
+    return;
+  }
+  try {
+    expectFailure(invoke(request('read_regular', { root: 'runtime', path: 'bind-mounted/file', maxBytes: 32 }), {
+      env: { Z2M_TEST_FORCE_FALLBACK: '1' }
+    }), 4, 'EXDEV');
+  } finally {
+    shell(`umount '${mountpoint}'`);
+  }
+});
+
+test('descriptor fallback rejects changed mount identity and fails when mount identity is unavailable', () => {
+  write('runtime', 'mount-id/file', 'inside');
+  expectFailure(invoke(request('read_regular', { root: 'runtime', path: 'mount-id/file', maxBytes: 32 }), {
+    env: { Z2M_TEST_FORCE_FALLBACK: '1', Z2M_TEST_MNT_ID_CHANGE: '1' }
+  }), 4, 'EXDEV');
+  expectFailure(invoke(request('read_regular', { root: 'runtime', path: 'mount-id/file', maxBytes: 32 }), {
+    env: { Z2M_TEST_FORCE_FALLBACK: '1', Z2M_TEST_MNT_ID_UNAVAILABLE: '1' }
+  }), 3, 'ECAPABILITY');
 });
 
 test('symlink replacement race never reads outside the selected root', () => {

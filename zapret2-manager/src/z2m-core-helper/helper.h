@@ -4,10 +4,13 @@
 #include <json-c/json.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <sys/stat.h>
 
 #define Z2M_REQUEST_MAX (4U * 1024U * 1024U)
 #define Z2M_RESPONSE_MAX (6U * 1024U * 1024U)
+#define Z2M_JSON_MAX_DEPTH 64U
+#define Z2M_JSON_MAX_KEYS 1024U
 
 struct z2m_root {
 	const char *name;
@@ -37,5 +40,12 @@ int z2m_open_regular(int root_fd, const char *path, struct stat *st, const char 
 int z2m_stat_regular(const struct z2m_request *request, const struct z2m_root *root, int root_fd);
 int z2m_read_regular(const struct z2m_request *request, const struct z2m_root *root, int root_fd);
 char *z2m_base64(const unsigned char *input, size_t length);
+bool z2m_base64_canonical(const char *input, size_t length, size_t max_decoded);
+void *z2m_alloc(size_t size);
+json_object *z2m_json_object(void);
+json_object *z2m_json_string(const char *value);
+json_object *z2m_json_int(int64_t value);
+json_object *z2m_json_bool(bool value);
+bool z2m_json_add(json_object *object, const char *name, json_object *value);
 
 #endif

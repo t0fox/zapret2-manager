@@ -54,7 +54,7 @@
           "additionalProperties": false,
           "required": ["code", "message", "retryable", "committed", "durability", "stage"],
           "properties": {
-            "code": { "type": "string", "enum": ["EMALFORMED", "ESCHEMA", "EREQUESTTOOBIG", "EDENIED", "EROOT", "EPATH", "EUNSUPPORTED", "ENOENT", "ENOTREG", "ESYMLINK", "EXDEV", "ETOOBIG", "EIO", "ELOCKED", "ETIMEOUT", "EOWNERSHIP", "ECOMMITUNKNOWN", "EINTERNAL", "EINCOMPLETE"] },
+            "code": { "type": "string", "enum": ["EMALFORMED", "ESCHEMA", "EREQUESTTOOBIG", "EDENIED", "EROOT", "EPATH", "EUNSUPPORTED", "ECAPABILITY", "ENOENT", "ENOTREG", "ESYMLINK", "EXDEV", "ETOOBIG", "EIO", "ELOCKED", "ETIMEOUT", "EOWNERSHIP", "ECOMMITUNKNOWN", "EINTERNAL", "EINCOMPLETE"] },
             "message": { "type": "string", "maxLength": 512 },
             "retryable": { "type": "boolean" },
             "committed": { "type": ["boolean", "null"] },
@@ -96,6 +96,7 @@
     "EROOT": { "message": "Root is unknown or insecure.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["policy_denied"], "allowedStages": ["root_select", "root_ancestor", "root_open", "root_verify"] },
     "EPATH": { "message": "Path is not an allowed canonical relative path.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["policy_denied"], "allowedStages": ["path_validate", "path_resolve"] },
     "EUNSUPPORTED": { "message": "Operation is reserved but not implemented in this milestone.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["policy_denied"], "allowedStages": ["operation_dispatch"] },
+    "ECAPABILITY": { "message": "Required safe filesystem capability is unavailable.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["policy_denied"], "allowedStages": ["path_resolve"] },
     "ENOENT": { "message": "Managed object does not exist.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["filesystem_failure"], "allowedStages": ["path_resolve", "object_open"] },
     "ENOTREG": { "message": "Managed object is not a regular file.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["filesystem_failure"], "allowedStages": ["object_verify"] },
     "ESYMLINK": { "message": "Symbolic or magic link traversal was refused.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["filesystem_failure"], "allowedStages": ["path_resolve", "object_open"] },
@@ -256,7 +257,7 @@
       "canonicalCodeByHelperCode": {
         "EMALFORMED": "EINTERNAL", "ESCHEMA": "EINTERNAL", "EREQUESTTOOBIG": "EINTERNAL",
         "EDENIED": "EINPUT", "EROOT": "EDEPENDENCY", "EPATH": "EINPUT",
-        "EUNSUPPORTED": "EDEPENDENCY", "ENOENT": "EDEPENDENCY", "ENOTREG": "EDEPENDENCY",
+        "EUNSUPPORTED": "EDEPENDENCY", "ECAPABILITY": "EDEPENDENCY", "ENOENT": "EDEPENDENCY", "ENOTREG": "EDEPENDENCY",
         "ESYMLINK": "EDEPENDENCY", "EXDEV": "EDEPENDENCY", "ETOOBIG": "EINPUT",
         "EIO": "EDEPENDENCY", "ELOCKED": "ELOCKED", "ETIMEOUT": "ELOCKED",
         "EOWNERSHIP": "EOWNERSHIP", "ECOMMITUNKNOWN": "EAPPLY",

@@ -77,3 +77,45 @@ future schemas were not yet validated before unsupported dispatch.
 - `SDK_REQUIRED`: OpenWrt SDK compilation and package linkage were not in scope.
 - `ROUTER_REQUIRED`: target root ownership, overlay, reboot, and power behavior
   require router hardware/integration testing.
+
+## Round 1 Hardening
+
+### RED
+
+Against `10347f7`, the focused helper/protocol run had 9 failures: escaped NUL
+identity truncation, unbounded scanner limits, insecure descendant reads,
+single-write response handling, non-canonical reserved base64, missing allocation
+fault handling, `st_dev` mount identity, unknown-error fallback, and the absent
+`ECAPABILITY` manifest contract.
+
+### Fixes
+
+- All decoded request strings used as identities or enums require json-c length
+  equality with `strlen`; escaped NUL is rejected and validated IDs echo exactly.
+- Duplicate pre-scan is bounded to 64 levels and 1024 object keys before descent.
+- Descriptor fallback compares `STATX_MNT_ID` for every opened component and
+  returns `ECAPABILITY` when mount identity cannot be established.
+- Intermediate directories require root UID/GID and mode `0700`; final regular
+  files require root UID/GID and mode `0600` before stat or read succeeds.
+- Reserved `atomic_write.content` requires canonical padded base64 within the
+  4 MiB decoded bound before returning `EUNSUPPORTED`.
+- Stdin retries `EINTR`; stdout uses bounded write-all with `EINTR` and short
+  write handling, and exits 74 after an unrecoverable partial response.
+- Checked json-c response constructors and test-only allocation faults fail
+  closed; unknown internal codes normalize to `EINTERNAL` exit 70.
+
+### Evidence
+
+- Focused helper/protocol: 32 passed, 0 failed.
+- Full native glob after round-1 fixes: 40 passed, 0 failed.
+- Real tmpfs mount crossing: `EXDEV`.
+- Real same-device bind mount crossing: `EXDEV` via changed mount ID.
+- Forced unavailable mount ID: `ECAPABILITY` exit 3.
+- Test-only stdin/stdout EINTR, short-write, partial-write, allocation, and mount
+  identity faults exercised only in the `Z2M_TESTING` binary.
+- ASan allocation-fault sweep across injected failure points 1 through 16: no
+  AddressSanitizer or LeakSanitizer diagnostics.
+- Separate final ASan and UBSan builds emitted no sanitizer diagnostics; normal
+  `-std=c11 -Wall -Wextra -Werror -D_GNU_SOURCE` build passed.
+- Ratings compile, compile-gate self-test, full compile gate, scope API scan, and
+  `git diff --check` passed.

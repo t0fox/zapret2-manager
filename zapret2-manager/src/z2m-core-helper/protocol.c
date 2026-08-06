@@ -12,6 +12,9 @@ struct scan {
 	const unsigned char *data;
 	size_t length;
 	size_t offset;
+	unsigned int depth;
+	size_t keys;
+	bool limited;
 };
 
 static void ws(struct scan *s) { while (s->offset < s->length && isspace(s->data[s->offset])) s->offset++; }
@@ -46,13 +49,15 @@ static bool scan_object(struct scan *s, bool *duplicate)
 {
 	char **keys = NULL;
 	size_t count = 0;
+	if (++s->depth > Z2M_JSON_MAX_DEPTH) { s->limited = true; return false; }
 	if (s->data[s->offset++] != '{') return false;
 	ws(s);
-	if (s->offset < s->length && s->data[s->offset] == '}') { s->offset++; return true; }
+	if (s->offset < s->length && s->data[s->offset] == '}') { s->offset++; s->depth--; return true; }
 	for (;;) {
 		char *key = NULL;
 		size_t i;
 		if (!scan_string(s, &key)) goto fail;
+		if (++s->keys > Z2M_JSON_MAX_KEYS) { s->limited = true; free(key); goto fail; }
 		for (i = 0; i < count; i++) if (strcmp(keys[i], key) == 0) *duplicate = true;
 		char **grown = realloc(keys, (count + 1) * sizeof(*keys));
 		if (grown == NULL) { free(key); goto fail; }
@@ -67,23 +72,26 @@ static bool scan_object(struct scan *s, bool *duplicate)
 	for (size_t i = 0; i < count; i++)
 		free(keys[i]);
 	free(keys);
+	s->depth--;
 	return true;
 fail:
 	for (size_t i = 0; i < count; i++)
 		free(keys[i]);
 	free(keys);
+	s->depth--;
 	return false;
 }
 
 static bool scan_array(struct scan *s, bool *duplicate)
 {
+	if (++s->depth > Z2M_JSON_MAX_DEPTH) { s->limited = true; return false; }
 	s->offset++; ws(s);
-	if (s->offset < s->length && s->data[s->offset] == ']') { s->offset++; return true; }
+	if (s->offset < s->length && s->data[s->offset] == ']') { s->offset++; s->depth--; return true; }
 	for (;;) {
-		if (!scan_value(s, duplicate)) return false;
-		ws(s); if (s->offset >= s->length) return false;
-		if (s->data[s->offset++] == ']') return true;
-		if (s->data[s->offset - 1] != ',') return false;
+		if (!scan_value(s, duplicate)) { s->depth--; return false; }
+		ws(s); if (s->offset >= s->length) { s->depth--; return false; }
+		if (s->data[s->offset++] == ']') { s->depth--; return true; }
+		if (s->data[s->offset - 1] != ',') { s->depth--; return false; }
 		ws(s);
 	}
 }
@@ -131,9 +139,11 @@ static bool exact_fields(json_object *object, const char *const *fields, size_t 
 	return seen == count;
 }
 
-static bool valid_id(const char *id)
+static bool valid_id(json_object *value)
 {
-	size_t n = strlen(id); if (n < 1 || n > 128) return false;
+	const char *id = json_object_get_string(value);
+	size_t n = (size_t)json_object_get_string_len(value);
+	if (n < 1 || n > 128 || strlen(id) != n) return false;
 	for (size_t i = 0; i < n; i++) if (!(isalnum((unsigned char)id[i]) || strchr("._:-", id[i]))) return false;
 	return true;
 }
@@ -145,30 +155,58 @@ static bool known_operation(const char *op)
 	return false;
 }
 
+static bool exact_json_string(json_object *value, const char **text)
+{
+	if (!json_object_is_type(value, json_type_string)) return false;
+	*text = json_object_get_string(value);
+	return strlen(*text) == (size_t)json_object_get_string_len(value);
+}
+
+#ifdef Z2M_TESTING
+static ssize_t input_read(void *buffer, size_t length)
+{
+	static bool interrupted;
+	if (getenv("Z2M_TEST_STDIN_SHIM") != NULL && !interrupted) {
+		interrupted = true; errno = EINTR; return -1;
+	}
+	return read(STDIN_FILENO, buffer, length);
+}
+#else
+static ssize_t input_read(void *buffer, size_t length) { return read(STDIN_FILENO, buffer, length); }
+#endif
+
 int z2m_read_request(struct z2m_request *request)
 {
-	unsigned char *buffer = malloc(Z2M_REQUEST_MAX + 1); size_t used = 0; ssize_t got;
+	unsigned char *buffer = z2m_alloc(Z2M_REQUEST_MAX + 1); size_t used = 0; ssize_t got;
 	json_tokener *tokener; enum json_tokener_error error; json_object *id, *op, *args, *version;
 	static const char *const envelope[] = {"protocolVersion","requestId","operation","arguments"};
 	struct scan scan; bool duplicate = false;
 	if (buffer == NULL) return z2m_fail(NULL, "EINTERNAL", "internal");
-	while ((got = read(STDIN_FILENO, buffer + used, Z2M_REQUEST_MAX + 1 - used)) > 0) { used += (size_t)got; if (used > Z2M_REQUEST_MAX) { free(buffer); return z2m_fail(NULL, "EREQUESTTOOBIG", "request_size"); } }
+	for (;;) {
+		got = input_read(buffer + used, Z2M_REQUEST_MAX + 1 - used);
+		if (got < 0 && errno == EINTR) continue;
+		if (got <= 0) break;
+		used += (size_t)got;
+		if (used > Z2M_REQUEST_MAX) { free(buffer); return z2m_fail(NULL, "EREQUESTTOOBIG", "request_size"); }
+	}
 	if (got < 0) { free(buffer); return z2m_fail(NULL, "EMALFORMED", "framing"); }
 	if (used == 0 || !valid_utf8(buffer, used)) { free(buffer); return z2m_fail(NULL, "EMALFORMED", "utf8"); }
-	scan = (struct scan){buffer, used, 0};
-	if (!scan_value(&scan, &duplicate)) { free(buffer); return z2m_fail(NULL, "EMALFORMED", "json_decode"); }
+	scan = (struct scan){.data=buffer,.length=used};
+	if (!scan_value(&scan, &duplicate)) { free(buffer); return z2m_fail(NULL, scan.limited ? "ESCHEMA" : "EMALFORMED", scan.limited ? "schema" : "json_decode"); }
 	ws(&scan);
 	if (scan.offset != used || duplicate) { free(buffer); return z2m_fail(NULL, "EMALFORMED", duplicate ? "json_decode" : "trailing_data"); }
-	tokener = json_tokener_new(); json_tokener_set_flags(tokener, JSON_TOKENER_STRICT);
+	tokener = json_tokener_new();
+	if (tokener == NULL) { free(buffer); return z2m_fail(NULL,"EINTERNAL","internal"); }
+	json_tokener_set_flags(tokener, JSON_TOKENER_STRICT);
 	request->document = json_tokener_parse_ex(tokener, (const char *)buffer, (int)used); error = json_tokener_get_error(tokener);
 	json_tokener_free(tokener); free(buffer);
 	if (error != json_tokener_success || request->document == NULL || !json_object_is_type(request->document, json_type_object)) return z2m_fail(NULL, "EMALFORMED", "json_decode");
-	if (!json_object_object_get_ex(request->document,"requestId",&id) || !json_object_is_type(id,json_type_string) || !valid_id(json_object_get_string(id))) return z2m_fail(NULL,"ESCHEMA","request_id");
+	if (!json_object_object_get_ex(request->document,"requestId",&id) || !valid_id(id)) return z2m_fail(NULL,"ESCHEMA","request_id");
 	request->request_id = strdup(json_object_get_string(id));
 	if (request->request_id == NULL) return z2m_fail(NULL,"EINTERNAL","internal");
 	if (!exact_fields(request->document, envelope, 4) || !json_object_object_get_ex(request->document,"protocolVersion",&version) || !json_object_is_type(version,json_type_int) || json_object_get_int(version)!=1) return z2m_fail(request->request_id,"ESCHEMA","schema");
-	if (!json_object_object_get_ex(request->document,"operation",&op) || !json_object_is_type(op,json_type_string) || !known_operation(json_object_get_string(op)) || !json_object_object_get_ex(request->document,"arguments",&args) || !json_object_is_type(args,json_type_object)) return z2m_fail(request->request_id,"ESCHEMA","schema");
-	request->operation = json_object_get_string(op); request->arguments = args;
+	if (!json_object_object_get_ex(request->document,"operation",&op) || !exact_json_string(op,&request->operation) || !known_operation(request->operation) || !json_object_object_get_ex(request->document,"arguments",&args) || !json_object_is_type(args,json_type_object)) return z2m_fail(request->request_id,"ESCHEMA","schema");
+	request->arguments = args;
 	return -1;
 }
 
@@ -207,7 +245,7 @@ bool z2m_reserved_schema_valid(const struct z2m_request *request)
 	static const char *const release_fields[]={"name","owner","token"};
 	static const char *const status_fields[]={"name"};
 	if(strcmp(request->operation,"atomic_write")==0)
-		return exact_fields(args,write_fields,7)&&string_value(args,"root",0,SIZE_MAX,&s)&&string_value(args,"path",0,SIZE_MAX,&s)&&string_value(args,"content",0,SIZE_MAX,&s)&&string_value(args,"mode",4,4,&s)&&strcmp(s,"0600")==0&&integer_value(args,"uid",0,0,&number)&&integer_value(args,"gid",0,0,&number)&&boolean_value(args,"allowCreate");
+		return exact_fields(args,write_fields,7)&&string_value(args,"root",0,SIZE_MAX,&s)&&string_value(args,"path",0,SIZE_MAX,&s)&&string_value(args,"content",0,5592408,&s)&&z2m_base64_canonical(s,strlen(s),4194304)&&string_value(args,"mode",4,4,&s)&&strcmp(s,"0600")==0&&integer_value(args,"uid",0,0,&number)&&integer_value(args,"gid",0,0,&number)&&boolean_value(args,"allowCreate");
 	if(strcmp(request->operation,"atomic_write_json")==0)
 		return exact_fields(args,write_json_fields,7)&&string_value(args,"root",0,SIZE_MAX,&s)&&string_value(args,"path",0,SIZE_MAX,&s)&&json_object_object_get_ex(args,"value",&value)&&string_value(args,"mode",4,4,&s)&&strcmp(s,"0600")==0&&integer_value(args,"uid",0,0,&number)&&integer_value(args,"gid",0,0,&number)&&boolean_value(args,"allowCreate");
 	if(strcmp(request->operation,"mkdir_private")==0)

@@ -300,7 +300,7 @@ test('errors are stable, bounded, and map to one exit category', () => {
   const value = manifest();
   const expectedCodes = [
     'EMALFORMED', 'ESCHEMA', 'EREQUESTTOOBIG', 'EDENIED', 'EROOT', 'EPATH',
-    'EUNSUPPORTED', 'ENOENT', 'ENOTREG', 'ESYMLINK', 'EXDEV', 'ETOOBIG', 'EIO',
+    'EUNSUPPORTED', 'ECAPABILITY', 'ENOENT', 'ENOTREG', 'ESYMLINK', 'EXDEV', 'ETOOBIG', 'EIO',
     'ELOCKED', 'ETIMEOUT', 'EOWNERSHIP', 'ECOMMITUNKNOWN', 'EINTERNAL',
     'EINCOMPLETE'
   ];
@@ -318,7 +318,7 @@ test('errors are stable, bounded, and map to one exit category', () => {
     assert.equal(typeof error.retryable, 'boolean', code);
   }
   for (const code of ['EMALFORMED', 'ESCHEMA', 'EREQUESTTOOBIG', 'EDENIED',
-    'EROOT', 'EPATH', 'EUNSUPPORTED', 'ENOENT', 'ENOTREG', 'ESYMLINK',
+    'EROOT', 'EPATH', 'EUNSUPPORTED', 'ECAPABILITY', 'ENOENT', 'ENOTREG', 'ESYMLINK',
     'EXDEV', 'ETOOBIG', 'EIO', 'ELOCKED', 'ETIMEOUT', 'EOWNERSHIP']) {
     assert.equal(value.errors[code].committed, false, code);
     assert.equal(value.errors[code].durability, 'unchanged', code);
@@ -353,7 +353,7 @@ test('ucode mapping supplies generation and closes helper and transport failures
       canonicalCodeByHelperCode: {
         EMALFORMED: 'EINTERNAL', ESCHEMA: 'EINTERNAL', EREQUESTTOOBIG: 'EINTERNAL',
         EDENIED: 'EINPUT', EROOT: 'EDEPENDENCY', EPATH: 'EINPUT',
-        EUNSUPPORTED: 'EDEPENDENCY', ENOENT: 'EDEPENDENCY', ENOTREG: 'EDEPENDENCY',
+        EUNSUPPORTED: 'EDEPENDENCY', ECAPABILITY: 'EDEPENDENCY', ENOENT: 'EDEPENDENCY', ENOTREG: 'EDEPENDENCY',
         ESYMLINK: 'EDEPENDENCY', EXDEV: 'EDEPENDENCY', ETOOBIG: 'EINPUT', EIO: 'EDEPENDENCY',
         ELOCKED: 'ELOCKED', ETIMEOUT: 'ELOCKED', EOWNERSHIP: 'EOWNERSHIP',
         ECOMMITUNKNOWN: 'EAPPLY', EINTERNAL: 'EINTERNAL', EINCOMPLETE: 'EDEPENDENCY'
