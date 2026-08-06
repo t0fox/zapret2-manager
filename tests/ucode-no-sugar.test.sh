@@ -166,26 +166,72 @@ done
 
 _notilde() {
   awk '
-    function code_only(raw,    i,ch,nextch,out,quote,escaped) {
-      out=""; quote=""; escaped=0
+    function prefix_keyword(word) {
+      return word == "return" || word == "throw" || word == "case" ||
+        word == "delete" || word == "typeof" || word == "void" || word == "new"
+    }
+    function flush_lex_word() {
+      if (lex_word != "") {
+        lex_can_end = !prefix_keyword(lex_word)
+        lex_word = ""
+      }
+    }
+    function code_only(raw,    i,ch,nextch,out) {
+      out=""
       for (i=1; i<=length(raw); i++) {
         ch=substr(raw,i,1); nextch=substr(raw,i+1,1)
-        if (quote != "") { if (escaped) escaped=0; else if (ch=="\\") escaped=1; else if (ch==quote) quote=""; continue }
+        if (in_block) {
+          if (ch=="*" && nextch=="/") { in_block=0; i++ }
+          continue
+        }
+        if (literal != "") {
+          if (escaped) { escaped=0; continue }
+          if (ch=="\\") { escaped=1; continue }
+          if (literal=="/" && ch=="[") { regex_class=1; continue }
+          if (literal=="/" && ch=="]" && regex_class) { regex_class=0; continue }
+          if (ch==literal && !regex_class) {
+            literal=""; out=out "x"; lex_can_end=1
+          }
+          continue
+        }
+        if (ch ~ /[A-Za-z0-9_]/) {
+          lex_word=lex_word ch; out=out ch
+          continue
+        }
+        flush_lex_word()
         if (ch=="/" && nextch=="/") break
-        if (ch=="\"" || ch=="\047") { quote=ch; continue }
+        if (ch=="/" && nextch=="*") { in_block=1; i++; continue }
+        if (ch=="\"" || ch=="\047") { literal=ch; escaped=0; continue }
+        if (ch=="/" && !lex_can_end) { literal="/"; escaped=0; regex_class=0; continue }
         out=out ch
+        if (ch !~ /[ \t]/) {
+          if (ch==")" || ch=="]" || ch=="}") lex_can_end=1
+          else lex_can_end=0
+        }
       }
+      flush_lex_word()
+      if (literal=="\"" || literal=="\047") escaped=0
       return out
     }
-    function has_binary_tilde(line,    i,j,ch,prev) {
+    function has_binary_tilde(line,    i,ch,word) {
       for (i=1; i<=length(line); i++) {
-        if (substr(line,i,1) != "~") continue
-        prev=""
-        for (j=i-1; j>=1; j--) {
-          ch=substr(line,j,1)
-          if (ch !~ /[ \t]/) { prev=ch; break }
+        ch=substr(line,i,1)
+        if (ch ~ /[A-Za-z0-9_]/) {
+          word=""
+          while (i<=length(line) && substr(line,i,1) ~ /[A-Za-z0-9_]/) {
+            word=word substr(line,i,1); i++
+          }
+          detector_can_end = !prefix_keyword(word)
+          i--
+          continue
         }
-        if (prev ~ /[A-Za-z0-9_)}\]]/) return 1
+        if (ch ~ /[ \t]/) continue
+        if (ch=="~") {
+          if (detector_can_end) return 1
+          detector_can_end=0
+        }
+        else if (ch ~ /[]A-Za-z0-9_)}]/) detector_can_end=1
+        else detector_can_end=0
       }
       return 0
     }
@@ -200,9 +246,13 @@ _notilde() {
 }
 _tilde_samples=tests/fixtures/gate-samples
 if _notilde "$_tilde_samples/tilde-binary-broken.uc" >/dev/null 2>&1; then echo "FAIL  self-test: binary tilde not flagged"; fail=1; fi
+if _notilde "$_tilde_samples/tilde-string-binary-broken.uc" >/dev/null 2>&1; then echo "FAIL  self-test: binary tilde after string literal not flagged"; fail=1; fi
+if _notilde "$_tilde_samples/tilde-regex-binary-broken.uc" >/dev/null 2>&1; then echo "FAIL  self-test: binary tilde after regex literal not flagged"; fail=1; fi
 if ! _notilde "$_tilde_samples/tilde-unary-valid.uc" >/dev/null 2>&1; then echo "FAIL  self-test: unary tilde flagged"; fail=1; fi
 if ! _notilde "$_tilde_samples/tilde-string-valid.uc" >/dev/null 2>&1; then echo "FAIL  self-test: tilde inside quoted string flagged"; fail=1; fi
-[ "$fail" -eq 0 ] && echo "PASS  no-tilde self-test (red on binary, green on unary and strings)"
+if ! _notilde "$_tilde_samples/tilde-comment-valid.uc" >/dev/null 2>&1; then echo "FAIL  self-test: tilde inside block or line comment flagged"; fail=1; fi
+if ! _notilde "$_tilde_samples/tilde-multiline-valid.uc" >/dev/null 2>&1; then echo "FAIL  self-test: tilde inside continued string flagged"; fail=1; fi
+[ "$fail" -eq 0 ] && echo "PASS  no-tilde self-test (binary rejected; unary, literals, and comments accepted)"
 for f in $(find zapret2-manager/files luci-app-zapret2-manager/files -name '*.uc' 2>/dev/null); do
   if ! _notilde "$f"; then fail=1; fi
 done
