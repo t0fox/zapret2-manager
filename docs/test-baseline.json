@@ -1,6 +1,6 @@
 {
-  "head": "89f46fb3db7b272d9fa6c1d3b54182d76e8dd7a5",
-  "green": 887,
+  "head": "304728c4fb5e49252247d9f80c27becec89cfe41",
+  "green": 888,
   "red": 39,
   "knownFailures": [
     "tests/discord-service-contract.test.mjs::probe verdicts require typed evidence for websocket and bounded downloads",

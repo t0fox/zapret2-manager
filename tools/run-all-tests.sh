@@ -11,6 +11,22 @@ FAIL_LOG_LINES="${FAIL_LOG_LINES:-120}"
 
 [ -d "$TEST_ROOT" ] || { echo "ERROR: TEST_ROOT not found: $TEST_ROOT" >&2; exit 2; }
 
+# Keep the rewrite contract as one explicit gate. Bash globstar makes the
+# canonical `node --test tests/native/**/*.test.mjs` command include tests both
+# directly under tests/native and in future nested native suites.
+if [ -d "$TEST_ROOT/native" ]; then
+	if ! command -v bash >/dev/null 2>&1; then
+		echo "ERROR: bash is required to run tests/native/**/*.test.mjs" >&2
+		exit 2
+	fi
+	native_out="$(cd "$HERE" && bash -O globstar -c '"$1" --test tests/native/**/*.test.mjs' _ "$NODE" 2>&1)"
+	native_rc=$?
+	if [ "$native_rc" -ne 0 ]; then
+		printf '%s\n' "$native_out" >&2
+		exit "$native_rc"
+	fi
+fi
+
 LIST_TMP="$(mktemp)" || { echo "ERROR: mktemp failed" >&2; exit 2; }
 trap 'rm -f "$LIST_TMP"' EXIT HUP INT TERM
 
