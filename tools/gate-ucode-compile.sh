@@ -13,6 +13,7 @@ TMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/gate-ucode-compile.XXXXXX") || {
 }
 FILES="$TMP_ROOT/files"
 WRAPPER="$TMP_ROOT/import-wrapper.uc"
+UNSAFE_PATH="$TMP_ROOT/unsupported-path"
 
 cleanup() {
 	rm -rf "$TMP_ROOT"
@@ -22,6 +23,27 @@ trap cleanup EXIT HUP INT TERM
 UCODE_PATH=$(command -v "$UCODE" 2>/dev/null || true)
 if [ -z "$UCODE_PATH" ] || [ ! -x "$UCODE_PATH" ]; then
 	printf '[gate-ucode-compile] FAIL  compiler is not available or executable: %s\n' "$UCODE" >&2
+	exit 1
+fi
+
+# The sorted manifest is line-based, so reject newline paths while find still
+# supplies each complete pathname as one argument.
+for root in "$SRC_ROOT" "$RPCD_ROOT"; do
+	[ -d "$root" ] || continue
+	find "$root" -type f -name '*.uc' -exec sh -c '
+		marker=$1
+		shift
+		newline="
+"
+		for file do
+			case "$file" in
+				*"$newline"*) : >"$marker"; exit 0 ;;
+			esac
+		done
+	' sh "$UNSAFE_PATH" {} \;
+done
+if [ -e "$UNSAFE_PATH" ]; then
+	printf '[gate-ucode-compile] FAIL  unsupported newline in shipped ucode path\n' >&2
 	exit 1
 fi
 
@@ -46,8 +68,12 @@ while IFS= read -r file; do
 	fi
 
 	printf '[gate-ucode-compile] FAIL  %s (ucode -c non-zero)\n' "$file"
-	[ -n "$direct_output" ] && printf '%s\n' "$direct_output"
-	[ -n "$wrapper_output" ] && printf '%s\n' "$wrapper_output"
+	if [ -n "$direct_output" ]; then
+		printf '[gate-ucode-compile] direct compile diagnostics:\n%s\n' "$direct_output"
+	fi
+	if [ -n "$wrapper_output" ]; then
+		printf '[gate-ucode-compile] import wrapper diagnostics:\n%s\n' "$wrapper_output"
+	fi
 	rc=1
 done <"$FILES"
 

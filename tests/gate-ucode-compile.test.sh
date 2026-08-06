@@ -105,7 +105,9 @@ EOF
 if run_gate; then
 	report_fail 'broken standalone script did not red the gate'
 elif grep -F 'broken.uc' "$CASE_ROOT/output" >/dev/null &&
-	grep -F 'Syntax error' "$CASE_ROOT/output" >/dev/null; then
+	grep -F 'Syntax error' "$CASE_ROOT/output" >/dev/null &&
+	grep -F '[gate-ucode-compile] direct compile diagnostics:' "$CASE_ROOT/output" >/dev/null &&
+	grep -F '[gate-ucode-compile] import wrapper diagnostics:' "$CASE_ROOT/output" >/dev/null; then
 	report_ok 'broken standalone script reds with compiler stderr'
 else
 	report_fail 'broken standalone script failure omitted compiler stderr'
@@ -118,6 +120,17 @@ elif [ "$(grep -c 'compiler.*not.*available' "$CASE_ROOT/output")" -eq 1 ]; then
 	report_ok 'missing compiler fails once before enumeration'
 else
 	report_fail 'missing compiler did not produce one availability failure'
+fi
+
+new_case newline-source-path
+newline_file=$(printf '%s/line\nbreak.uc' "$SRC_ROOT")
+printf 'return true;\n' >"$newline_file"
+if run_gate; then
+	report_fail 'newline-containing source path did not red the gate'
+elif [ "$(grep -c 'unsupported newline in shipped ucode path' "$CASE_ROOT/output")" -eq 1 ]; then
+	report_ok 'newline-containing source path fails closed before manifest use'
+else
+	report_fail 'newline-containing source path lacked one clear diagnostic'
 fi
 
 new_case sorted-enumeration
