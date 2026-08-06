@@ -15,7 +15,64 @@ struct scan {
 	unsigned int depth;
 	size_t keys;
 	bool limited;
+	size_t probes;
 };
+
+#define KEY_BUCKETS 2048U
+#define Z2M_JSON_MAX_PROBES 8192U
+
+struct key_entry {
+	struct key_entry *next;
+	char *value;
+	size_t length;
+};
+
+static uint64_t key_hash(const char *value, size_t length)
+{
+	uint64_t hash = UINT64_C(1469598103934665603);
+	for (size_t i = 0; i < length; i++) {
+		hash ^= (unsigned char)value[i];
+		hash *= UINT64_C(1099511628211);
+	}
+	return hash;
+}
+
+static void free_keys(struct key_entry **buckets)
+{
+	for (size_t i = 0; i < KEY_BUCKETS; i++) {
+		struct key_entry *entry = buckets[i];
+		while (entry != NULL) {
+			struct key_entry *next = entry->next;
+			free(entry->value);
+			free(entry);
+			entry = next;
+		}
+	}
+	free(buckets);
+}
+
+static bool add_key(struct scan *s, struct key_entry **buckets, char *key,
+	bool *duplicate)
+{
+	size_t length = strlen(key);
+	size_t bucket = (size_t)(key_hash(key, length) % KEY_BUCKETS);
+	struct key_entry *entry;
+	for (entry = buckets[bucket]; entry != NULL; entry = entry->next) {
+		if (++s->probes > Z2M_JSON_MAX_PROBES) { s->limited = true; free(key); return false; }
+		if (entry->length == length && memcmp(entry->value, key, length) == 0) {
+			*duplicate = true;
+			free(key);
+			return true;
+		}
+	}
+	entry = malloc(sizeof(*entry));
+	if (entry == NULL) { free(key); return false; }
+	entry->value = key;
+	entry->length = length;
+	entry->next = buckets[bucket];
+	buckets[bucket] = entry;
+	return true;
+}
 
 static void ws(struct scan *s) { while (s->offset < s->length && isspace(s->data[s->offset])) s->offset++; }
 
@@ -47,21 +104,17 @@ static bool scan_value(struct scan *s, bool *duplicate);
 
 static bool scan_object(struct scan *s, bool *duplicate)
 {
-	char **keys = NULL;
-	size_t count = 0;
-	if (++s->depth > Z2M_JSON_MAX_DEPTH) { s->limited = true; return false; }
+	struct key_entry **keys = calloc(KEY_BUCKETS, sizeof(*keys));
+	if (keys == NULL) return false;
+	if (++s->depth > Z2M_JSON_MAX_DEPTH) { s->limited = true; free(keys); return false; }
 	if (s->data[s->offset++] != '{') return false;
 	ws(s);
-	if (s->offset < s->length && s->data[s->offset] == '}') { s->offset++; s->depth--; return true; }
+	if (s->offset < s->length && s->data[s->offset] == '}') { s->offset++; s->depth--; free(keys); return true; }
 	for (;;) {
 		char *key = NULL;
-		size_t i;
 		if (!scan_string(s, &key)) goto fail;
 		if (++s->keys > Z2M_JSON_MAX_KEYS) { s->limited = true; free(key); goto fail; }
-		for (i = 0; i < count; i++) if (strcmp(keys[i], key) == 0) *duplicate = true;
-		char **grown = realloc(keys, (count + 1) * sizeof(*keys));
-		if (grown == NULL) { free(key); goto fail; }
-		keys = grown; keys[count++] = key;
+		if (!add_key(s, keys, key, duplicate)) goto fail;
 		ws(s); if (s->offset >= s->length || s->data[s->offset++] != ':') goto fail;
 		ws(s); if (!scan_value(s, duplicate)) goto fail;
 		ws(s); if (s->offset >= s->length) goto fail;
@@ -69,15 +122,11 @@ static bool scan_object(struct scan *s, bool *duplicate)
 		if (s->data[s->offset - 1] != ',') goto fail;
 		ws(s);
 	}
-	for (size_t i = 0; i < count; i++)
-		free(keys[i]);
-	free(keys);
+	free_keys(keys);
 	s->depth--;
 	return true;
 fail:
-	for (size_t i = 0; i < count; i++)
-		free(keys[i]);
-	free(keys);
+	free_keys(keys);
 	s->depth--;
 	return false;
 }
@@ -194,6 +243,9 @@ int z2m_read_request(struct z2m_request *request)
 	scan = (struct scan){.data=buffer,.length=used};
 	if (!scan_value(&scan, &duplicate)) { free(buffer); return z2m_fail(NULL, scan.limited ? "ESCHEMA" : "EMALFORMED", scan.limited ? "schema" : "json_decode"); }
 	ws(&scan);
+#ifdef Z2M_TESTING
+	if (getenv("Z2M_TEST_SCAN_STATS") != NULL) fprintf(stderr,"z2m-core-helper: scan-probes=%zu\n",scan.probes);
+#endif
 	if (scan.offset != used || duplicate) { free(buffer); return z2m_fail(NULL, "EMALFORMED", duplicate ? "json_decode" : "trailing_data"); }
 	tokener = json_tokener_new();
 	if (tokener == NULL) { free(buffer); return z2m_fail(NULL,"EINTERNAL","internal"); }
@@ -245,7 +297,7 @@ bool z2m_reserved_schema_valid(const struct z2m_request *request)
 	static const char *const release_fields[]={"name","owner","token"};
 	static const char *const status_fields[]={"name"};
 	if(strcmp(request->operation,"atomic_write")==0)
-		return exact_fields(args,write_fields,7)&&string_value(args,"root",0,SIZE_MAX,&s)&&string_value(args,"path",0,SIZE_MAX,&s)&&string_value(args,"content",0,5592408,&s)&&z2m_base64_canonical(s,strlen(s),4194304)&&string_value(args,"mode",4,4,&s)&&strcmp(s,"0600")==0&&integer_value(args,"uid",0,0,&number)&&integer_value(args,"gid",0,0,&number)&&boolean_value(args,"allowCreate");
+		return exact_fields(args,write_fields,7)&&string_value(args,"root",0,SIZE_MAX,&s)&&string_value(args,"path",0,SIZE_MAX,&s)&&string_value(args,"content",0,4185336,&s)&&z2m_base64_canonical(s,strlen(s),3139000)&&string_value(args,"mode",4,4,&s)&&strcmp(s,"0600")==0&&integer_value(args,"uid",0,0,&number)&&integer_value(args,"gid",0,0,&number)&&boolean_value(args,"allowCreate");
 	if(strcmp(request->operation,"atomic_write_json")==0)
 		return exact_fields(args,write_json_fields,7)&&string_value(args,"root",0,SIZE_MAX,&s)&&string_value(args,"path",0,SIZE_MAX,&s)&&json_object_object_get_ex(args,"value",&value)&&string_value(args,"mode",4,4,&s)&&strcmp(s,"0600")==0&&integer_value(args,"uid",0,0,&number)&&integer_value(args,"gid",0,0,&number)&&boolean_value(args,"allowCreate");
 	if(strcmp(request->operation,"mkdir_private")==0)

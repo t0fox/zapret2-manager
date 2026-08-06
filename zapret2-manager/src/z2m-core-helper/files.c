@@ -38,13 +38,17 @@ static const char *open_error(int error)
 
 static int mount_id(int fd, uint64_t *id)
 {
+#if defined(SYS_statx) && defined(STATX_MNT_ID) && !defined(Z2M_NO_STATX)
 	struct statx value;
 #ifdef Z2M_TESTING
 	if(getenv("Z2M_TEST_MNT_ID_UNAVAILABLE")!=NULL){errno=ENOSYS;return -1;}
 #endif
-	if(statx(fd,"",AT_EMPTY_PATH|AT_STATX_SYNC_AS_STAT,STATX_MNT_ID,&value)<0 || !(value.stx_mask&STATX_MNT_ID)){errno=ENOTSUP;return -1;}
+	if(syscall(SYS_statx,fd,"",AT_EMPTY_PATH|AT_STATX_SYNC_AS_STAT,STATX_MNT_ID,&value)<0 || !(value.stx_mask&STATX_MNT_ID)){errno=ENOTSUP;return -1;}
 	*id=value.stx_mnt_id;
 	return 0;
+#else
+	(void)fd; (void)id; errno=ENOTSUP; return -1;
+#endif
 }
 
 static int fallback_open(int root_fd,const char *path)

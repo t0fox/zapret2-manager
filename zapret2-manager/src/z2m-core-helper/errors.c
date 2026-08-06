@@ -123,7 +123,7 @@ int z2m_fail(const char *request_id, const char *code, const char *stage)
 			info = &errors[i];
 	if (info == NULL) info = &errors[14];
 #ifdef Z2M_TESTING
-	if (getenv("Z2M_TEST_UNKNOWN_ERROR") != NULL) info = &errors[14];
+	if (getenv("Z2M_TEST_UNKNOWN_ERROR") != NULL) { info = &errors[14]; stage = "response_encode"; }
 #endif
 	response=z2m_json_object(); error=z2m_json_object();
 	if (!z2m_json_add(response,"protocolVersion",z2m_json_int(1)) ||

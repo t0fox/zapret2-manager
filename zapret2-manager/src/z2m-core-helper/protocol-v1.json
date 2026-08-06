@@ -107,7 +107,7 @@
     "ETIMEOUT": { "message": "Lock acquisition timed out.", "retryable": true, "committed": false, "durability": "unchanged", "allowedExitCategories": ["lock_unavailable"], "allowedStages": ["lock_acquire"] },
     "EOWNERSHIP": { "message": "Manager ownership evidence did not match.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["policy_denied"], "allowedStages": ["ownership_verify"] },
     "ECOMMITUNKNOWN": { "message": "Commit may be visible but durability is unknown.", "retryable": false, "committed": true, "durability": "unknown", "allowedExitCategories": ["commit_uncertain"], "allowedStages": ["directory_fsync"] },
-    "EINTERNAL": { "message": "Helper failed internally.", "retryable": false, "committed": null, "durability": "not_applicable", "allowedExitCategories": ["internal"], "allowedStages": ["internal"] },
+    "EINTERNAL": { "message": "Helper failed internally.", "retryable": false, "committed": null, "durability": "not_applicable", "allowedExitCategories": ["internal"], "allowedStages": ["internal", "response_encode"] },
     "EINCOMPLETE": { "message": "Helper could not emit one complete response.", "retryable": false, "committed": null, "durability": "not_applicable", "allowedExitCategories": ["response_incomplete"], "allowedStages": ["response_encode", "response_write"] }
   },
   "pathPolicy": {
@@ -178,9 +178,9 @@
     "atomic_write": {
       "milestone": 2, "status": "reserved_unsupported", "roots": ["persistent_state", "snapshots", "registry", "secrets", "runtime", "jobs", "staging"],
       "unsupportedBehavior": { "errorCode": "EUNSUPPORTED", "dispatch": "reject_before_operation_dispatch", "sideEffects": "none", "response": "complete_failure_envelope", "exitCategory": "policy_denied", "exitCode": 3 },
-      "requestSchema": { "type": "object", "additionalProperties": false, "required": ["root", "path", "content", "mode", "uid", "gid", "allowCreate"], "properties": { "root": { "type": "string" }, "path": { "type": "string" }, "content": { "type": "string", "encoding": "canonical_base64" }, "mode": { "const": "0600" }, "uid": { "const": 0 }, "gid": { "const": 0 }, "allowCreate": { "type": "boolean" } } },
+      "requestSchema": { "type": "object", "additionalProperties": false, "required": ["root", "path", "content", "mode", "uid", "gid", "allowCreate"], "properties": { "root": { "type": "string" }, "path": { "type": "string" }, "content": { "type": "string", "encoding": "canonical_base64", "maxDecodedBytes": 3139000 }, "mode": { "const": "0600" }, "uid": { "const": 0 }, "gid": { "const": 0 }, "allowCreate": { "type": "boolean" } } },
       "successSchema": { "type": "object", "additionalProperties": false, "required": ["byteLength", "committed", "durability"], "properties": { "byteLength": { "type": "integer", "minimum": 0, "maximum": 4194304 }, "committed": { "const": true }, "durability": { "enum": ["durable", "tmpfs_visible"] } } },
-      "limits": { "maxInputBytes": 4194304, "maxOutputBytes": 1024, "timeoutMsMax": 30000 },
+      "limits": { "maxInputBytes": 4194304, "maxOutputBytes": 1024, "timeoutMsMax": 30000, "effectiveMaxDecodedInputBytes": 3139000 },
       "ownership": "Fixed root policy plus requested mode/uid/gid; mutation holds an operation-scoped internal flock.", "crashSemantics": "Same-directory candidate, file fsync, rename, then required persistent-root directory fsync; post-rename uncertainty is ECOMMITUNKNOWN.", "idempotency": "Repeating identical bytes converges, but callers must reread after ECOMMITUNKNOWN before retry."
     },
     "atomic_write_json": {

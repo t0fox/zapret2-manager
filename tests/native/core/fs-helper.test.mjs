@@ -11,6 +11,7 @@ const tag = `z2m-fs-helper-${process.pid}-${crypto.randomBytes(4).toString('hex'
 const testRoot = `/tmp/${tag}`;
 const testBin = `/tmp/${tag}-test`;
 const prodBin = `/tmp/${tag}-prod`;
+const noStatxBin = `/tmp/${tag}-no-statx`;
 const roots = {
   persistent_state: 'etc/zapret2-manager/state', snapshots: 'etc/zapret2-manager/snapshots',
   registry: 'etc/zapret2-manager/registry', secrets: 'etc/zapret2-manager/secrets',
@@ -68,11 +69,13 @@ before(() => {
   assert.equal(build.status, 0, build.stderr || build.stdout);
   build = wsl(['sh', 'tests/native/core/build-fs-helper.sh', prodBin]);
   assert.equal(build.status, 0, build.stderr || build.stdout);
+  build = wsl(['sh', 'tests/native/core/build-fs-helper.sh', noStatxBin, '-DZ2M_TESTING', '-DZ2M_NO_STATX']);
+  assert.equal(build.status, 0, build.stderr || build.stdout);
   const dirs = Object.values(roots).map((entry) => `'${testRoot}/${entry}'`).join(' ');
   shell(`umask 077; mkdir -p ${dirs}; chmod 0700 '${testRoot}' '${testRoot}/etc' '${testRoot}/etc/zapret2-manager' '${testRoot}/tmp' '${testRoot}/tmp/zapret2-manager' ${dirs}`);
 });
 
-after(() => shell(`rm -rf '${testRoot}' '${testBin}' '${prodBin}'`));
+after(() => shell(`rm -rf '${testRoot}' '${testBin}' '${prodBin}' '${noStatxBin}'`));
 
 test('strict framing rejects empty, truncated, malformed, duplicate, trailing, NUL, UTF-8, and oversized input', () => {
   const cases = [
@@ -118,6 +121,21 @@ test('duplicate scanner rejects excessive nesting and key work with a complete r
   expectFailure(invoke(deep), 2, 'ESCHEMA', null);
   const keys = Array.from({ length: 5000 }, (_, i) => `"k${i}":0`).join(',');
   expectFailure(invoke(`{${keys}}`), 2, 'ESCHEMA', null);
+});
+
+test('duplicate scanner has bounded hash probes for adversarial common-prefix keys and catches a final duplicate', () => {
+  const prefix = 'p'.repeat(3000);
+  const fields = Array.from({ length: 1024 }, (_, i) => `"${prefix}${i.toString().padStart(4, '0')}":0`);
+  const unique = invoke(`{${fields.join(',')}}`, { env: { Z2M_TEST_SCAN_STATS: '1' } });
+  expectFailure(unique, 2, 'ESCHEMA', null);
+  const probes = Number(unique.stderr.match(/scan-probes=(\d+)/)?.[1]);
+  assert.ok(Number.isInteger(probes) && probes <= 4096, unique.stderr);
+
+  fields[1023] = fields[0];
+  const duplicate = invoke(`{${fields.join(',')}}`, { env: { Z2M_TEST_SCAN_STATS: '1' } });
+  expectFailure(duplicate, 2, 'EMALFORMED', null);
+  const duplicateProbes = Number(duplicate.stderr.match(/scan-probes=(\d+)/)?.[1]);
+  assert.ok(Number.isInteger(duplicateProbes) && duplicateProbes <= 4096, duplicate.stderr);
 });
 
 test('all eight exact root aliases are recognized and policy authorization remains closed', () => {
@@ -294,6 +312,7 @@ test('allocation failures and unknown internal codes fail closed with stable exi
   });
   assert.equal(unknown.status, 70);
   assert.equal(unknown.response?.error?.code, 'EINTERNAL');
+  assert.equal(unknown.response?.error?.stage, 'response_encode');
 });
 
 test('production binary ignores and rejects test root substitution', () => {
@@ -344,6 +363,14 @@ test('descriptor fallback rejects changed mount identity and fails when mount id
   }), 4, 'EXDEV');
   expectFailure(invoke(request('read_regular', { root: 'runtime', path: 'mount-id/file', maxBytes: 32 }), {
     env: { Z2M_TEST_FORCE_FALLBACK: '1', Z2M_TEST_MNT_ID_UNAVAILABLE: '1' }
+  }), 3, 'ECAPABILITY');
+});
+
+test('build without statx constants compiles and fails fallback with ECAPABILITY', () => {
+  write('runtime', 'no-statx/file', 'inside');
+  expectFailure(invoke(request('read_regular', { root: 'runtime', path: 'no-statx/file', maxBytes: 32 }), {
+    binary: noStatxBin,
+    env: { Z2M_TEST_FORCE_FALLBACK: '1' }
   }), 3, 'ECAPABILITY');
 });
 

@@ -119,3 +119,38 @@ fault handling, `st_dev` mount identity, unknown-error fallback, and the absent
   `-std=c11 -Wall -Wextra -Werror -D_GNU_SOURCE` build passed.
 - Ratings compile, compile-gate self-test, full compile gate, scope API scan, and
   `git diff --check` passed.
+
+## Round 2 Hardening
+
+### RED
+
+Against `4567908`, five targeted checks failed: no bounded hash-probe evidence
+for 1024 adversarial common-prefix keys, missing `response_encode` in the
+`EINTERNAL` stage contract, absent machine-readable atomic-write effective
+decoded limit, successful fallback in a forced no-statx build, and runtime
+stage mismatch for the injected unknown-error path.
+
+### Fixes
+
+- Duplicate detection now uses 2048 deterministic FNV-1a hash buckets with
+  exact length plus `memcmp` collision checks. Global limits remain 64 nesting
+  levels and 1024 keys, with an additional deterministic 8192 chain-probe cap.
+- `EINTERNAL.allowedStages` now includes the emitted `response_encode` stage,
+  with protocol and runtime consistency assertions.
+- Mount identity uses guarded `syscall(SYS_statx, ...)`; builds without
+  `SYS_statx`/`STATX_MNT_ID`, or with `Z2M_NO_STATX`, compile and fail closed as
+  `ECAPABILITY`.
+- Reserved `atomic_write` records and enforces
+  `effectiveMaxDecodedInputBytes: 3139000`; an independent worst-case JSON/base64
+  request assertion proves the encoded request remains within 4 MiB.
+
+### Evidence
+
+- Focused helper/protocol: 35 passed, 0 failed.
+- Full native glob: 43 passed, 0 failed.
+- Adversarial unique and duplicate-at-end key sets stayed below 4096 measured
+  hash-chain probes, without wall-clock assertions.
+- Normal and forced no-statx warning-clean builds passed.
+- Separate ASan and UBSan builds emitted no sanitizer diagnostics.
+- Ratings target compile, compile-gate self-test, full compile gate, scope API
+  scan, and `git diff --check` passed.

@@ -246,8 +246,9 @@ test('operation registry is closed and specifies schemas, limits, ownership, cra
     assert.ok(Array.isArray(operation.requestSchema.required), name);
     assert.equal(operation.successSchema.type, 'object', name);
     assert.equal(operation.successSchema.additionalProperties, false, name);
-    assert.deepEqual(sorted(Object.keys(operation.limits)),
-      ['maxInputBytes', 'maxOutputBytes', 'timeoutMsMax'], name);
+    const limitKeys = ['maxInputBytes', 'maxOutputBytes', 'timeoutMsMax'];
+    if (name === 'atomic_write') limitKeys.push('effectiveMaxDecodedInputBytes');
+    assert.deepEqual(sorted(Object.keys(operation.limits)), sorted(limitKeys), name);
     assert.equal(typeof operation.ownership, 'string', name);
     assert.equal(typeof operation.crashSemantics, 'string', name);
     assert.equal(typeof operation.idempotency, 'string', name);
@@ -340,6 +341,27 @@ test('errors are stable, bounded, and map to one exit category', () => {
     pathsInMessages: 'redacted',
     callersBranchOn: 'code'
   });
+  assert.deepEqual(value.errors.EINTERNAL.allowedStages, ['internal', 'response_encode']);
+});
+
+test('reserved atomic write decoded input limit fits the bounded request wire independently', () => {
+  const value = manifest();
+  const operation = value.operations.atomic_write;
+  assert.equal(operation.requestSchema.properties.content.maxDecodedBytes, 3139000);
+  assert.equal(operation.limits.effectiveMaxDecodedInputBytes, 3139000);
+  const worstCaseRequest = JSON.stringify({
+    protocolVersion: 1,
+    requestId: 'r'.repeat(128),
+    operation: 'atomic_write',
+    arguments: {
+      root: 'persistent_state',
+      path: '"'.repeat(4096),
+      content: Buffer.alloc(3139000).toString('base64'),
+      mode: '0600', uid: 0, gid: 0, allowCreate: true
+    }
+  });
+  assert.ok(Buffer.byteLength(worstCaseRequest) <= value.transport.requestMaxBytes);
+  assert.ok(Buffer.byteLength(worstCaseRequest) > value.transport.requestMaxBytes - 16384);
 });
 
 test('ucode mapping supplies generation and closes helper and transport failures', () => {
