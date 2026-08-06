@@ -35,8 +35,8 @@ future schemas were not yet validated before unsupported dispatch.
 ## GREEN
 
 - Focused helper and protocol: 23 tests passed, 0 failed.
-- Combined protocol/helper/baseline/result/ratings: 29 tests passed, 0 failed.
-- Full native glob: 29 tests passed, 0 failed.
+- Combined protocol/helper/baseline/result/ratings: 31 tests passed, 0 failed.
+- Full native glob: 31 tests passed, 0 failed.
 - Normal production build: clean under `-std=c11 -Wall -Wextra -Werror
   -D_GNU_SOURCE`.
 - Mount escape: WSL mount was available; forced descriptor fallback returned
