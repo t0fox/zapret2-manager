@@ -205,6 +205,7 @@ test('paths are canonical relative names without generic or absolute capability'
     maxBytes: 4096,
     maxComponentBytes: 255,
     maxDepth: 32,
+    allowedComponentPattern: '^[A-Za-z0-9._-]+$',
     emptyPath: 'reject',
     leadingSlash: 'reject',
     trailingSlash: 'reject',
@@ -212,6 +213,7 @@ test('paths are canonical relative names without generic or absolute capability'
     dotComponent: 'reject',
     dotDotComponent: 'reject',
     embeddedNul: 'reject',
+    embeddedNulObjectKeys: 'reject_schema',
     symlinks: 'reject',
     magicLinks: 'reject',
     mountCrossing: 'reject',
@@ -349,13 +351,16 @@ test('reserved atomic write decoded input limit fits the bounded request wire in
   const operation = value.operations.atomic_write;
   assert.equal(operation.requestSchema.properties.content.maxDecodedBytes, 3139000);
   assert.equal(operation.limits.effectiveMaxDecodedInputBytes, 3139000);
+  const longestAllowedPath = Array(16).fill('a'.repeat(255)).join('/');
+  assert.equal(Buffer.byteLength(longestAllowedPath), 4095);
+  assert.match(longestAllowedPath, /^(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]+$/);
   const worstCaseRequest = JSON.stringify({
     protocolVersion: 1,
     requestId: 'r'.repeat(128),
     operation: 'atomic_write',
     arguments: {
       root: 'persistent_state',
-      path: '"'.repeat(4096),
+      path: longestAllowedPath,
       content: Buffer.alloc(3139000).toString('base64'),
       mode: '0600', uid: 0, gid: 0, allowCreate: true
     }

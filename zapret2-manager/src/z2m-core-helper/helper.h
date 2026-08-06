@@ -11,6 +11,7 @@
 #define Z2M_RESPONSE_MAX (6U * 1024U * 1024U)
 #define Z2M_JSON_MAX_DEPTH 64U
 #define Z2M_JSON_MAX_KEYS 1024U
+#define Z2M_JSON_MAX_CONTAINERS 1024U
 
 struct z2m_root {
 	const char *name;

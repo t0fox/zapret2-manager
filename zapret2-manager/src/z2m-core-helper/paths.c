@@ -1,5 +1,6 @@
 #include "helper.h"
 
+#include <ctype.h>
 #include <string.h>
 
 bool z2m_path_valid(const char *path, unsigned int max_depth)
@@ -11,7 +12,11 @@ bool z2m_path_valid(const char *path, unsigned int max_depth)
 			if(component==0 || component>255) return false;
 			if((component==1 && path[i-component]=='.') || (component==2 && path[i-component]=='.' && path[i-component+1]=='.')) return false;
 			component=0; if(i<length && ++depth>max_depth) return false;
-		}else component++;
+		}else{
+			unsigned char c=(unsigned char)path[i];
+			if(!(isalnum(c)||c=='.'||c=='_'||c=='-')) return false;
+			component++;
+		}
 	}
 	return depth<=32;
 }

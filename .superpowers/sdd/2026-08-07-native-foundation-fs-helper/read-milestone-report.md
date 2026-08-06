@@ -154,3 +154,40 @@ stage mismatch for the injected unknown-error path.
 - Separate ASan and UBSan builds emitted no sanitizer diagnostics.
 - Ratings target compile, compile-gate self-test, full compile gate, scope API
   scan, and `git diff --check` passed.
+
+## Round 3 Hardening
+
+### RED
+
+Against `a8f7f7f`, focused tests showed three resource/policy failures: 1100 empty
+objects were not stopped by a global container budget and each object eagerly
+allocated a 2048-bucket table; escaped-NUL object keys reached truncated
+`strlen`/`strdup` semantics; and unsafe path characters reached filesystem
+resolution instead of `EPATH`. A separate reserved atomic-write test proved its
+path was not yet constrained by the path policy used in the wire calculation.
+
+### Fixes
+
+- Hash buckets are allocated lazily on the first key, never for empty objects.
+- A global 1024-container budget joins the existing 64-depth, 1024-key, and
+  8192-probe limits. Test-only counters report containers, bucket allocations,
+  and probes deterministically.
+- Decoded object keys retain their json-c byte length; embedded NUL keys are
+  rejected as `ESCHEMA` before hashing/copying at every nesting level.
+- Canonical path components now allow only `[A-Za-z0-9._-]+`, while retaining
+  slash, depth, component, `.`, and `..` rules. Reserved `atomic_write.path`
+  uses the same validator before `EUNSUPPORTED`.
+- The manifest records the safe component pattern and escaped-NUL-key rejection;
+  the wire proof now uses the true longest allowed 4095-byte path, which has no
+  JSON expansion.
+
+### Evidence
+
+- Focused helper/protocol: 37 passed, 0 failed.
+- Full native glob: 45 passed, 0 failed.
+- The 1100-empty-object test stopped at exactly 1024 containers with zero bucket
+  allocations; escaped-NUL keys were rejected top-level and nested.
+- Normal and no-statx warning-clean builds passed.
+- Separate ASan and UBSan builds emitted no sanitizer diagnostics.
+- Ratings target compile, compile-gate self-test, full compile gate, scope API
+  scan, and `git diff --check` passed.

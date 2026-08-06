@@ -47,7 +47,7 @@ function request(operation, args, requestId = 'req-1') {
 }
 
 function expectFailure(run, status, code, requestId = 'req-1', context = '') {
-  assert.equal(run.status, status, run.stderr || run.stdout);
+  assert.equal(run.status, status, `${context}: ${run.stderr || run.stdout}`);
   assert.ok(run.stdout.endsWith('\n'));
   assert.equal(run.response?.protocolVersion, 1);
   assert.equal(run.response?.requestId, requestId);
@@ -138,6 +138,26 @@ test('duplicate scanner has bounded hash probes for adversarial common-prefix ke
   assert.ok(Number.isInteger(duplicateProbes) && duplicateProbes <= 4096, duplicate.stderr);
 });
 
+test('scanner bounds empty-container work before bucket allocation amplification', () => {
+  const wire = `[${Array(1100).fill('{}').join(',')}]`;
+  const run = invoke(wire, { env: { Z2M_TEST_SCAN_STATS: '1' } });
+  expectFailure(run, 2, 'ESCHEMA', null);
+  const match = run.stderr.match(/scan-containers=(\d+) scan-bucket-allocs=(\d+)/);
+  assert.ok(match, run.stderr);
+  assert.ok(Number(match[1]) <= 1024, run.stderr);
+  assert.equal(Number(match[2]), 0, run.stderr);
+});
+
+test('scanner rejects escaped NUL object keys at top-level and nested levels', () => {
+  const wires = [
+    '{"a\\u0000x":1,"a\\u0000y":2}',
+    '{"a\\u0000x":1,"a\\u0000x":2}',
+    '{"outer":{"a\\u0000x":1}}',
+    '{"outer":{"deeper":{"a\\u0000x":1}}}'
+  ];
+  for (const wire of wires) expectFailure(invoke(wire), 2, 'ESCHEMA', null);
+});
+
 test('all eight exact root aliases are recognized and policy authorization remains closed', () => {
   for (const root of Object.keys(roots)) {
     const run = invoke(request('stat_regular', { root, path: 'missing' }, `root-${root}`));
@@ -147,10 +167,12 @@ test('all eight exact root aliases are recognized and policy authorization remai
 });
 
 test('canonical relative path rejects every forbidden form and enforces byte/component/depth limits', () => {
-  const bad = ['', '/x', '.', '..', 'a/./b', 'a/../b', 'a//b', 'a/', `a\0b`,
+  const bad = ['', '/x', '.', '..', 'a/./b', 'a/../b', 'a//b', 'a/', `a\0b`, 'a b', 'a"b',
+    'a\\b', 'a:b', 'a\tb',
     'a'.repeat(256), `${'a/'.repeat(16)}a`, 'a'.repeat(4097)];
   for (const pathValue of bad)
-    expectFailure(invoke(request('stat_regular', { root: 'runtime', path: pathValue })), 3, 'EPATH');
+    expectFailure(invoke(request('stat_regular', { root: 'runtime', path: pathValue })), 3, 'EPATH', 'req-1', JSON.stringify(pathValue));
+  expectFailure(invoke(request('stat_regular', { root: 'runtime', path: 'aéb' })), 2, 'EMALFORMED', null, 'non-ASCII path');
   const depth12 = Array(12).fill('a').join('/');
   const allowed = invoke(request('stat_regular', { root: 'runtime', path: depth12 }));
   expectFailure(allowed, 4, 'ENOENT');
@@ -297,6 +319,7 @@ test('atomic_write reserved schema accepts only canonical bounded base64', () =>
   expectFailure(invoke(request('atomic_write', { ...base, content: 'A'.repeat(4 * 1024 * 1024 + 4) })), 2, 'EREQUESTTOOBIG', null);
   for (const content of ['', 'YQ==', 'YWJj'])
     expectFailure(invoke(request('atomic_write', { ...base, content })), 3, 'EUNSUPPORTED');
+  expectFailure(invoke(request('atomic_write', { ...base, path: 'bad path', content: '' })), 2, 'ESCHEMA');
 });
 
 test('allocation failures and unknown internal codes fail closed with stable exits', () => {
