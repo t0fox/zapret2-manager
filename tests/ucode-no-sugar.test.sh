@@ -165,15 +165,44 @@ done
 [ "$fail" -eq 0 ] && echo "PASS  all function declarations precede their call sites"
 
 _notilde() {
-  sed 's://.*$::' "$1" | grep -nE '[A-Za-z0-9_)] +~ +' | sed "s|^|FAIL  binary tilde (compiler segfault on target): $1:|"
-  ! sed 's://.*$::' "$1" | grep -qE '[A-Za-z0-9_)] +~ +'
+  awk '
+    function code_only(raw,    i,ch,nextch,out,quote,escaped) {
+      out=""; quote=""; escaped=0
+      for (i=1; i<=length(raw); i++) {
+        ch=substr(raw,i,1); nextch=substr(raw,i+1,1)
+        if (quote != "") { if (escaped) escaped=0; else if (ch=="\\") escaped=1; else if (ch==quote) quote=""; continue }
+        if (ch=="/" && nextch=="/") break
+        if (ch=="\"" || ch=="\047") { quote=ch; continue }
+        out=out ch
+      }
+      return out
+    }
+    function has_binary_tilde(line,    i,j,ch,prev) {
+      for (i=1; i<=length(line); i++) {
+        if (substr(line,i,1) != "~") continue
+        prev=""
+        for (j=i-1; j>=1; j--) {
+          ch=substr(line,j,1)
+          if (ch !~ /[ \t]/) { prev=ch; break }
+        }
+        if (prev ~ /[A-Za-z0-9_)}\]]/) return 1
+      }
+      return 0
+    }
+    {
+      if (has_binary_tilde(code_only($0))) {
+        printf "FAIL  binary tilde (compiler segfault on target): %s:%d:%s\n", FILENAME, FNR, $0
+        failed=1
+      }
+    }
+    END { exit failed }
+  ' "$1"
 }
-_tmpbad=$(mktemp); printf 'let h = 1;\nh = h ~ c;\n' > "$_tmpbad"
-_tmpgood=$(mktemp); printf 'let h = 1;\nh = h ^ c;\nlet n = ~mask;\n' > "$_tmpgood"
-if _notilde "$_tmpbad" >/dev/null 2>&1; then echo "FAIL  self-test: binary tilde not flagged"; fail=1; fi
-if ! _notilde "$_tmpgood" >/dev/null 2>&1; then echo "FAIL  self-test: unary tilde flagged"; fail=1; fi
-rm -f "$_tmpbad" "$_tmpgood"
-[ "$fail" -eq 0 ] && echo "PASS  no-tilde self-test (red on bad, green on good)"
+_tilde_samples=tests/fixtures/gate-samples
+if _notilde "$_tilde_samples/tilde-binary-broken.uc" >/dev/null 2>&1; then echo "FAIL  self-test: binary tilde not flagged"; fail=1; fi
+if ! _notilde "$_tilde_samples/tilde-unary-valid.uc" >/dev/null 2>&1; then echo "FAIL  self-test: unary tilde flagged"; fail=1; fi
+if ! _notilde "$_tilde_samples/tilde-string-valid.uc" >/dev/null 2>&1; then echo "FAIL  self-test: tilde inside quoted string flagged"; fail=1; fi
+[ "$fail" -eq 0 ] && echo "PASS  no-tilde self-test (red on binary, green on unary and strings)"
 for f in $(find zapret2-manager/files luci-app-zapret2-manager/files -name '*.uc' 2>/dev/null); do
   if ! _notilde "$f"; then fail=1; fi
 done
