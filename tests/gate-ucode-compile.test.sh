@@ -6,14 +6,16 @@ set -u
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 GATE="$HERE/tools/gate-ucode-compile.sh"
 UCODE=${UCODE:-ucode}
-TMP_ROOT=${TMPDIR:-/tmp}/gate-ucode-compile-test.$$
+TMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/gate-ucode-compile-test.XXXXXX") || {
+	printf '[gate-ucode-compile selftest] FAIL: unable to create private temporary directory\n' >&2
+	exit 1
+}
 
 cleanup() {
 	rm -rf "$TMP_ROOT"
 }
 trap cleanup EXIT HUP INT TERM
 
-mkdir -p "$TMP_ROOT"
 fail=0
 
 new_case() {
@@ -72,6 +74,30 @@ else
 	report_fail 'valid standalone rpcd return signature was not compiled successfully'
 fi
 
+new_case export-in-comment
+cat >"$SRC_ROOT/comment.uc" <<'EOF'
+/*
+export const not_a_module = true;
+*/
+return { valid: true };
+EOF
+if run_gate && grep -F 'comment.uc' "$CASE_ROOT/output" >/dev/null; then
+	report_ok 'export text in a block comment does not misclassify a script'
+else
+	report_fail 'export text in a block comment misclassified a valid script'
+fi
+
+new_case quoted-module-path
+mkdir -p "$SRC_ROOT/quote'path"
+cat >"$SRC_ROOT/quote'path/valid.uc" <<'EOF'
+export const answer = 42;
+EOF
+if run_gate && grep -F "quote'path/valid.uc" "$CASE_ROOT/output" >/dev/null; then
+	report_ok 'module path containing a quote is encoded safely'
+else
+	report_fail 'module path containing a quote broke the import wrapper'
+fi
+
 new_case broken-standalone-script
 cat >"$SRC_ROOT/broken.uc" <<'EOF'
 return { broken: ; };
@@ -83,6 +109,26 @@ elif grep -F 'broken.uc' "$CASE_ROOT/output" >/dev/null &&
 	report_ok 'broken standalone script reds with compiler stderr'
 else
 	report_fail 'broken standalone script failure omitted compiler stderr'
+fi
+
+new_case missing-compiler
+if UCODE="$CASE_ROOT/does-not-exist" run_gate; then
+	report_fail 'missing compiler with empty roots did not red the gate'
+elif [ "$(grep -c 'compiler.*not.*available' "$CASE_ROOT/output")" -eq 1 ]; then
+	report_ok 'missing compiler fails once before enumeration'
+else
+	report_fail 'missing compiler did not produce one availability failure'
+fi
+
+new_case sorted-enumeration
+printf 'return true;\n' >"$SRC_ROOT/z-last.uc"
+printf 'return true;\n' >"$SRC_ROOT/a-first.uc"
+if run_gate &&
+	[ "$(grep '\[gate-ucode-compile\] ok' "$CASE_ROOT/output" | sed -n '1s|.*/||p')" = 'a-first.uc' ] &&
+	[ "$(grep '\[gate-ucode-compile\] ok' "$CASE_ROOT/output" | sed -n '2s|.*/||p')" = 'z-last.uc' ]; then
+	report_ok 'recursive enumeration is sorted in C locale'
+else
+	report_fail 'recursive enumeration was not sorted in C locale'
 fi
 
 exit "$fail"
