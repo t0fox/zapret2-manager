@@ -1,32 +1,26 @@
 # zapret2-manager
 
-OpenWrt management stack for zapret2 with a LuCI frontend and a native helper foundation.
+OpenWrt-native management stack for zapret2 with LuCI, optional Telegram proxy providers, and a narrow native filesystem helper.
 
-## Current repository scope
+## Repository layout
 
-The repository is intentionally kept small and current. Historical implementation notes, generated artifacts, legacy test suites, ad-hoc debug tools, and obsolete build helpers are not part of `main`.
+- `zapret2-manager/` — production backend package: ucode/shell OpenWrt integration plus `src/z2m-core-helper/`.
+- `luci-app-zapret2-manager/` — LuCI JavaScript frontend and ACL/menu data.
+- `zapret2-manager-full/` — target meta-package.
+- `tg-ws-proxy-rs/`, `tg-ws-proxy-go/` — optional Telegram proxy provider packages.
+- `tests/` — preserved repository test coverage, including the current `tests/native/` helper suite.
+- `scripts/` — reusable repository tooling. One-off debugging, generated output and historical agent state do not belong in `main`.
+- `docs/contracts/` — current frozen compatibility contracts. Architecture documentation is being rebuilt to match the real modular layout.
 
-### Packages
+## Runtime rules
 
-- `zapret2-manager` — backend package. It contains the ucode/shell runtime and builds the native `z2m-core-helper` with the OpenWrt target toolchain.
-- `luci-app-zapret2-manager` — LuCI JavaScript frontend.
-- `zapret2-manager-full` — target-specific meta-package for backend + LuCI. The zapret2 engine and Telegram proxy remain optional.
-- `tg-ws-proxy-rs` / `tg-ws-proxy-go` — optional Telegram proxy providers.
+Production runtime remains OpenWrt-native: ucode, C, procd, ubus/rpcd, UCI, fw4/nftables, dnsmasq and native binaries. Python is not a production runtime dependency.
 
-## Native foundation
-
-`zapret2-manager/src/z2m-core-helper/` contains the current native filesystem/helper foundation and protocol manifest. The implemented foundation includes bounded protocol parsing, descriptor-relative filesystem access, private directory creation, SHA-256 reads, and atomic writes.
-
-The current compatibility contracts are:
-
-- `docs/contracts/native-backend-v1.md`
-- `docs/contracts/z2m-canonical-json-v1.md`
+The C helper under `zapret2-manager/src/z2m-core-helper/` is a narrow privileged primitive layer. DNS, Telegram, routing, strategy and UI business logic stay outside the helper.
 
 ## Build
 
-Use the normal OpenWrt package build flow. `zapret2-manager/Makefile` compiles `z2m-core-helper` with `TARGET_CC` and links `libjson-c`; no repository-local manual APK builder is required.
-
-Typical SDK target:
+Use the normal OpenWrt package build flow. `zapret2-manager/Makefile` builds `z2m-core-helper` with `TARGET_CC` and links `libjson-c`.
 
 ```sh
 make package/zapret2-manager/compile V=s
@@ -34,23 +28,38 @@ make package/luci-app-zapret2-manager/compile V=s
 make package/zapret2-manager-full/compile V=s
 ```
 
+The historical repository-local manual APK builder is not required by the current package Makefile.
+
 ## Tests
 
-Only tests for the current native foundation are kept in `tests/native/`.
-
-On Linux with Node.js, a C compiler, `pkg-config`, and json-c development files installed:
+Canonical repository runner:
 
 ```sh
-node --test tests/native/**/*.test.mjs
+sh scripts/test/run-all-tests.sh
 ```
 
-These source tests are not a substitute for OpenWrt SDK compilation or router validation.
+Focused native helper suite:
+
+```sh
+node --test "tests/native/**/*.test.mjs"
+```
+
+Ucode compile gate on a host/target with `ucode` installed:
+
+```sh
+sh scripts/test/gate-ucode-compile.sh
+```
+
+Source tests are not a substitute for OpenWrt SDK compilation or real-router validation.
+
+## Contracts
+
+- `docs/contracts/native-backend-v1.md`
+- `docs/contracts/z2m-canonical-json-v1.md`
 
 ## Repository policy
 
-Do not commit generated APK/IPK files, build directories, screenshots, agent state, temporary audit output, one-off debugging scripts, or historical task plans. `.gitignore` covers the common generated paths.
-
-Large implementation experiments and recovery history belong on dedicated backup/feature branches, not in `main`.
+Do not commit generated APK/IPK files, build directories, screenshots, agent state, temporary audit output or one-off debugging scripts. Structural refactors should preserve public RPC behavior and prefer `move + compatibility` over rewriting working subsystems.
 
 ## License
 
