@@ -2,8 +2,6 @@
 set -eu
 
 MODE=${1:?mode required}
-PID_FILE=${2:?PID file required}
-printf '%s\n' "$$" > "$PID_FILE"
 
 case "$MODE" in
 	child)

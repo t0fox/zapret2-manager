@@ -115,13 +115,14 @@ function compilerCommand(executable, argv) {
   return executable.endsWith('.sh') ? ['/bin/sh', executable, ...argv] : [executable, ...argv];
 }
 
-function runControlled(command, env, input, timeoutMs, pidFile) {
+function runControlled(command, env, input, timeoutMs, pidFile, cleanupToken) {
   const args = [
     '/usr/bin/setsid', '--wait', '/bin/sh', `${fixtureRoot}/sanitizer-process-wrapper.sh`, pidFile,
+    cleanupToken, command[0],
     '/usr/bin/env', ...Object.entries(env).map(([key, value]) => `${key}=${value}`), ...command
   ];
   const run = wsl(args, { input, timeout: timeoutMs });
-  const cleanup = run.timedOut ? cleanupProcessGroup(pidFile, command[0]) : {
+  const cleanup = run.timedOut ? cleanupProcessGroup(pidFile, cleanupToken, command[0]) : {
     pid: null, terminated: false, reaped: true, processGone: true, evidence: 'process exited before cleanup'
   };
   return { run, cleanup };
@@ -135,6 +136,7 @@ function emit(report) {
 const options = parseArgs(process.argv.slice(2));
 wslExecutable = options.wslExecutable;
 const tag = `z2m-sanitizer-${process.pid}-${crypto.randomBytes(6).toString('hex')}`;
+const cleanupToken = crypto.randomBytes(24).toString('hex');
 const tempRoot = `/tmp/${tag}`;
 let binaryPath = `${tempRoot}/${options.scenario}`;
 const probePath = `${tempRoot}/probe`;
@@ -175,7 +177,7 @@ try {
     } else {
       const probeTimeoutMs = options.probeBehavior === 'normal' ? Math.max(options.timeoutMs, 3000) : options.timeoutMs;
       const probeExecution = runControlled([probePath], sanitizerEnvironment, undefined,
-        probeTimeoutMs, `${tempRoot}/probe.pid`);
+        probeTimeoutMs, `${tempRoot}/probe.pid`, cleanupToken);
       report.probe = { ...report.probe, runtime: probeExecution.run, cleanup: probeExecution.cleanup };
       if (probeExecution.run.timedOut) {
         report.timeout.timedOut = true;
@@ -241,7 +243,8 @@ try {
                 arguments: { root: 'runtime', path: 'sanitizer.txt' }
               });
             }
-            const execution = runControlled([binaryPath], runEnv, input, options.timeoutMs, `${tempRoot}/run.pid`);
+            const execution = runControlled([binaryPath], runEnv, input, options.timeoutMs,
+              `${tempRoot}/run.pid`, cleanupToken);
             report.run = execution.run;
             report.cleanup = execution.cleanup;
             report.timeout.timedOut = report.run.timedOut;

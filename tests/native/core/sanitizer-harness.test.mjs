@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 
 const projectRoot = path.resolve('.');
@@ -218,14 +219,19 @@ test('repeated runs leave no sanitizer artifacts in the worktree', () => {
   assert.equal(leftovers.stdout, '');
 });
 
-function wsl(args) {
-  return spawnSync('wsl.exe', ['-d', 'Ubuntu', '-u', 'root', '--', ...args], { encoding: 'utf8' });
+function wsl(args, options = {}) {
+  return spawnSync('wsl.exe', ['-d', 'Ubuntu', '-u', 'root', '--', ...args], {
+    encoding: 'utf8', input: options.input
+  });
 }
 
 async function waitForPid(pidFile) {
   for (let attempt = 0; attempt < 200; attempt++) {
     const read = wsl(['/bin/cat', pidFile]);
-    if (/^\d+\s*$/.test(read.stdout)) return read.stdout.trim();
+    try {
+      const marker = JSON.parse(read.stdout);
+      if (Number.isInteger(marker.pid)) return marker;
+    } catch {}
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   throw new Error(`PID marker not created: ${pidFile}`);
@@ -240,12 +246,14 @@ async function waitForExit(pid) {
 }
 
 async function startGroup(mode) {
-  const token = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const token = crypto.randomBytes(24).toString('hex');
   const pidFile = `/tmp/z2m-cleanup-${token}.pid`;
+  const scenarioPath = `${fixtures}/sanitizer-process-group.sh`;
   const child = spawn('wsl.exe', ['-d', 'Ubuntu', '-u', 'root', '--', '/usr/bin/setsid',
-    '/bin/sh', `${fixtures}/sanitizer-process-group.sh`, mode, pidFile], { stdio: 'ignore' });
-  const pid = await waitForPid(pidFile);
-  return { child, pid, pidFile };
+    '/bin/sh', `${fixtures}/sanitizer-process-wrapper.sh`, pidFile, token, scenarioPath,
+    '/bin/sh', scenarioPath, mode], { stdio: 'ignore' });
+  const marker = await waitForPid(pidFile);
+  return { child, pid: String(marker.pid), marker, pidFile, token, scenarioPath };
 }
 
 function forceCleanup(group) {
@@ -259,7 +267,7 @@ test('timeout cleanup verifies identity and removes every process-group member',
   const group = await startGroup('child');
   try {
     const { cleanupProcessGroup } = await import(`${cleanupModuleUrl}?child=${Date.now()}`);
-    const cleanup = cleanupProcessGroup(group.pidFile, `${fixtures}/sanitizer-process-group.sh`);
+    const cleanup = cleanupProcessGroup(group.pidFile, group.token, group.scenarioPath);
     assert.equal(cleanup.identityVerified, true, cleanup.evidence);
     assert.ok(cleanup.membersBefore.length >= 2, cleanup.evidence);
     assert.deepEqual(cleanup.membersAfter, []);
@@ -273,7 +281,7 @@ test('forged PID marker never signals an unrelated process group', async () => {
   const unrelated = await startGroup('unrelated');
   try {
     const { cleanupProcessGroup } = await import(`${cleanupModuleUrl}?forged=${Date.now()}`);
-    const cleanup = cleanupProcessGroup(unrelated.pidFile, `${fixtures}/sanitizer-process-group.sh`);
+    const cleanup = cleanupProcessGroup(unrelated.pidFile, crypto.randomBytes(24).toString('hex'), unrelated.scenarioPath);
     assert.equal(cleanup.identityVerified, false);
     assert.equal(cleanup.signalSent, false);
     assert.equal(wsl(['/bin/kill', '-0', unrelated.pid]).status, 0, 'unrelated process was signalled');
@@ -287,11 +295,45 @@ test('leader exit with child survivor is detected without signalling an unverifi
   try {
     await waitForExit(group.pid);
     const { cleanupProcessGroup } = await import(`${cleanupModuleUrl}?survivor=${Date.now()}`);
-    const cleanup = cleanupProcessGroup(group.pidFile, `${fixtures}/sanitizer-process-group.sh`);
+    const cleanup = cleanupProcessGroup(group.pidFile, group.token, group.scenarioPath);
     assert.equal(cleanup.identityVerified, false);
     assert.equal(cleanup.signalSent, false);
     assert.ok(cleanup.membersAfter.length >= 1, cleanup.evidence);
     assert.equal(cleanup.processGone, false);
+  } finally {
+    forceCleanup(group);
+  }
+});
+
+test('stale start time with matching token and cmdline never signals the group', async () => {
+  const group = await startGroup('unrelated');
+  try {
+    const forged = { ...group.marker, startTime: String(BigInt(group.marker.startTime) + 1n) };
+    const written = wsl(['/usr/bin/tee', group.pidFile], { input: JSON.stringify(forged) });
+    assert.equal(written.status, 0, written.stderr);
+    const { cleanupProcessGroup } = await import(`${cleanupModuleUrl}?stale=${Date.now()}`);
+    const cleanup = cleanupProcessGroup(group.pidFile, group.token, group.scenarioPath);
+    assert.equal(cleanup.identityVerified, false);
+    assert.equal(cleanup.signalSent, false);
+    assert.match(cleanup.evidence, /start-time-mismatch/);
+    assert.equal(wsl(['/bin/kill', '-0', group.pid]).status, 0);
+  } finally {
+    forceCleanup(group);
+  }
+});
+
+test('enumeration tool failure is cleanup failure and never means group gone', async () => {
+  const group = await startGroup('child');
+  try {
+    const { cleanupProcessGroup } = await import(`${cleanupModuleUrl}?enumeration=${Date.now()}`);
+    const cleanup = cleanupProcessGroup(group.pidFile, group.token, group.scenarioPath, {
+      procListCommand: '/definitely/missing/proc-list'
+    });
+    assert.equal(cleanup.identityVerified, false);
+    assert.equal(cleanup.signalSent, false);
+    assert.equal(cleanup.processGone, false);
+    assert.match(cleanup.evidence, /enumeration-failed/);
+    assert.equal(wsl(['/bin/kill', '-0', group.pid]).status, 0);
   } finally {
     forceCleanup(group);
   }
