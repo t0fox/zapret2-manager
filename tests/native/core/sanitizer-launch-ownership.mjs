@@ -51,14 +51,17 @@ export function launchGroup(spec) {
 export async function observeOwnership(context, options = {}) {
   try {
     const observed = await observeOwnedMarker(context, options);
-    if (observed.ok) {
-      context.marker = observed.marker;
-      if (context.state === 'SPAWNED' || context.state === 'IDENTITY_PARTIAL') transition(context, 'IDENTITY_VERIFIED');
-    } else if (observed.partial?.length) {
-      context.partialEvidence = [...new Set([...context.partialEvidence, ...observed.partial])];
-      if (context.state === 'SPAWNED') transition(context, 'IDENTITY_PARTIAL');
-    }
-    return observed;
+    const commit = options.commit ?? ((write) => { write(); return true; });
+    const committed = commit(() => {
+      if (observed.ok) {
+        context.marker = observed.marker;
+        if (context.state === 'SPAWNED' || context.state === 'IDENTITY_PARTIAL') transition(context, 'IDENTITY_VERIFIED');
+      } else if (observed.partial?.length) {
+        context.partialEvidence = [...new Set([...context.partialEvidence, ...observed.partial])];
+        if (context.state === 'SPAWNED') transition(context, 'IDENTITY_PARTIAL');
+      }
+    });
+    return { ...observed, committed };
   } catch (error) {
     return { ok: false, error: `ownership-observation-failed: ${error?.message ?? String(error)}`, partial: [] };
   }
@@ -76,7 +79,20 @@ export function awaitReadiness(context, options) {
     const launcher = context.launcher;
     let stdout = Buffer.alloc(0);
     let stderr = Buffer.alloc(0);
-    let primaryKind = null;
+    const authority = {
+      kind: null,
+      commitWhileOpen(write) {
+        if (this.kind !== null) return false;
+        write();
+        return true;
+      },
+      reserve(kind, write) {
+        if (this.kind !== null) return false;
+        this.kind = kind;
+        write?.();
+        return true;
+      }
+    };
     let completed = false;
     let readyObservedAt = null;
     let reapTimer = null;
@@ -104,9 +120,8 @@ export function awaitReadiness(context, options) {
       }
       resolve({ kind, context, deadlineAt, readyObservedAt, settledAt: context.now(), cleanup });
     };
-    const reserve = async (kind) => {
-      if (primaryKind) return false;
-      primaryKind = kind;
+    const reserve = async (kind, write) => {
+      if (!authority.reserve(kind, write)) return false;
       if (launcher.exitCode !== null || launcher.signalCode !== null) {
         await complete(kind, true);
       } else {
@@ -116,13 +131,14 @@ export function awaitReadiness(context, options) {
       return true;
     };
     const fail = (kind, error) => {
-      context.failure = failureOf(error);
-      if (['SPAWNED', 'IDENTITY_PARTIAL', 'IDENTITY_VERIFIED'].includes(context.state)) transition(context, 'FAILED');
-      void reserve(kind);
+      void reserve(kind, () => {
+        context.failure = failureOf(error);
+        if (['SPAWNED', 'IDENTITY_PARTIAL', 'IDENTITY_VERIFIED'].includes(context.state)) transition(context, 'FAILED');
+      });
     };
     const onStdout = async (chunk) => {
       try {
-        if (completed || primaryKind || context.state === 'CLEANING' || context.state === 'CLEANUP_UNCERTAIN') return;
+        if (completed || authority.kind || context.state === 'CLEANING' || context.state === 'CLEANUP_UNCERTAIN') return;
         stdout = Buffer.concat([stdout, Buffer.from(chunk)]);
         if (stdout.length > streamLimit) return fail('protocol-error', new Error('launcher readiness marker too large'));
         if (context.readyMode === 'silent') return;
@@ -134,17 +150,16 @@ export function awaitReadiness(context, options) {
         catch { return fail('protocol-error', new Error('launcher readiness marker malformed')); }
         if (!validMarker(value, context)) return fail('protocol-error', new Error('launcher readiness marker invalid'));
         await options.gates?.afterMarkerRename?.();
-        if (completed || primaryKind) return;
+        if (completed || authority.kind) return;
         const observed = await observeOwnership(context, { readMarker: options.readMarker,
-          listTempMarkers: options.listTempMarkers });
-        if (completed || primaryKind) return;
+          listTempMarkers: options.listTempMarkers, commit: (write) => authority.commitWhileOpen(write) });
+        if (completed || authority.kind || !observed.committed) return;
         if (!observed.ok || JSON.stringify(observed.marker) !== JSON.stringify(value))
           return fail('protocol-error', new Error(`launcher ownership marker mismatch: ${observed.error ?? 'identity-mismatch'}`));
         await options.gates?.beforeReadySettle?.();
-        if (completed || primaryKind) return;
+        if (completed || authority.kind) return;
         if (readyObservedAt > deadlineAt) return void reserve('timeout');
-        primaryKind = 'ready';
-        transition(context, 'READY');
+        if (!authority.reserve('ready', () => transition(context, 'READY'))) return;
         await complete('ready', false);
       } catch (error) { fail('protocol-error', error); }
     };
@@ -153,11 +168,11 @@ export function awaitReadiness(context, options) {
     };
     const onError = (error) => fail('launch-error', error);
     const onExit = (code, signal) => {
-      context.launcherExit = { code, signal, at: context.now() };
-      if (primaryKind) void complete(primaryKind, true);
-      else {
+      if (authority.kind) void complete(authority.kind, true);
+      else if (authority.reserve('launcher-exit', () => {
+        context.launcherExit = { code, signal, at: context.now() };
         if (['SPAWNED', 'IDENTITY_PARTIAL', 'IDENTITY_VERIFIED'].includes(context.state)) transition(context, 'FAILED');
-        primaryKind = 'launcher-exit';
+      })) {
         void complete('launcher-exit', true);
       }
     };

@@ -51,8 +51,9 @@ function fakeChild() {
 
 function deferred() {
   let resolve;
-  const promise = new Promise((done) => { resolve = done; });
-  return { promise, resolve };
+  let reject;
+  const promise = new Promise((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
 }
 
 function marker(token = 'a'.repeat(48)) {
@@ -66,6 +67,11 @@ function contextForCleanup(overrides = {}) {
     scenarioPath: '/fixture', launcher: null, marker: marker(), partialEvidence: [],
     launcherExit: null, failure: null, now: () => 10, ...overrides
   };
+}
+
+function terminalSnapshot(context) {
+  return { state: context.state, marker: context.marker,
+    partialEvidence: [...context.partialEvidence], failure: context.failure };
 }
 
 test('1 real silent readiness timeout retains context through the actual WSL boundary', async () => {
@@ -287,6 +293,55 @@ test('suspended readiness cannot mutate READY after timeout reserves settlement'
   assert.equal(context.state, settledState);
   assert.notEqual(context.state, 'READY');
   assert.equal(cleanupCalls, 1);
+});
+
+test('marker observer suspended in read cannot mutate context after timeout settlement', async () => {
+  const child = fakeChild();
+  const readStarted = deferred();
+  const markerRead = deferred();
+  const value = marker();
+  let cleanupCalls = 0;
+  let resultCount = 0;
+  const context = launchGroup({ readyMode: 'ready', command: ['fixture'], scenarioPath: '/fixture',
+    pidFile: '/tmp/marker', token: value.token, spawnImpl: () => child });
+  const pending = awaitReadiness(context, { timeoutMs: 0,
+    readMarker: async () => { readStarted.resolve(); return markerRead.promise; },
+    cleanup: async () => { cleanupCalls += 1; return { status: 'uncertain', windowsReaped: true }; } });
+  pending.then(() => { resultCount += 1; });
+  child.stdout.write(`${JSON.stringify(value)}\n`);
+  await readStarted.promise;
+  const result = await pending;
+  assert.equal(result.kind, 'timeout');
+  const settled = terminalSnapshot(context);
+  markerRead.resolve({ ok: true, marker: value });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(terminalSnapshot(context), settled);
+  assert.equal(cleanupCalls, 1);
+  assert.equal(resultCount, 1);
+});
+
+test('protocol failure after timeout reservation cannot mutate terminal context', async () => {
+  const child = fakeChild();
+  const gateStarted = deferred();
+  const gate = deferred();
+  let cleanupCalls = 0;
+  let resultCount = 0;
+  const context = launchGroup({ readyMode: 'ready', command: ['fixture'], scenarioPath: '/fixture',
+    pidFile: '/tmp/marker', token: 'a'.repeat(48), spawnImpl: () => child });
+  const pending = awaitReadiness(context, { timeoutMs: 0,
+    gates: { afterMarkerRename: async () => { gateStarted.resolve(); await gate.promise; } },
+    cleanup: async () => { cleanupCalls += 1; return { status: 'uncertain', windowsReaped: true }; } });
+  pending.then(() => { resultCount += 1; });
+  child.stdout.write(`${JSON.stringify(marker())}\n`);
+  await gateStarted.promise;
+  const result = await pending;
+  assert.equal(result.kind, 'timeout');
+  const settled = terminalSnapshot(context);
+  gate.reject(new Error('late protocol failure'));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(terminalSnapshot(context), settled);
+  assert.equal(cleanupCalls, 1);
+  assert.equal(resultCount, 1);
 });
 
 test('PID reuse immediately before TERM forbids every signal and marker deletion', async () => {
