@@ -169,6 +169,23 @@ export async function cleanupOwnedGroup(context, options = {}) {
     const observed = await observeOwnedMarker(context, options);
     if (!observed.ok) {
       context.partialEvidence = [...new Set([...context.partialEvidence, ...(observed.partial ?? [])])];
+      if (observed.error?.startsWith('marker-unavailable') && context.marker && context.partialEvidence.length === 0) {
+        const scan = await (options.enumerateGroup ?? enumerateGroup)(context.marker.pgid, context.marker.sid, options);
+        result.identityVerified = true;
+        result.scanOk = scan.ok;
+        result.membersAfter = scan.members.map(({ pid }) => pid);
+        if (!scan.ok || scan.members.length !== 0)
+          return finish(context, result, 'uncertain', { reason: scan.error ?? 'retained-group-survived',
+            membersAfter: result.membersAfter });
+        const confirmed = await observeOwnedMarker(context, options);
+        if (confirmed.ok || confirmed.partial?.length || !confirmed.error?.startsWith('marker-unavailable'))
+          return finish(context, result, 'uncertain', { reason: 'marker-absence-not-stable', markerError: confirmed.error,
+            partialEvidence: confirmed.partial ?? [] });
+        result.groupGone = true;
+        result.markerDeleted = true;
+        return finish(context, result, result.windowsReaped ? 'verified-gone' : 'uncertain',
+          result.windowsReaped ? 'retained-identity-group-empty' : 'windows-not-reaped');
+      }
       if (context.launcher === null && context.failure) {
         result.groupGone = true;
         result.scanOk = true;

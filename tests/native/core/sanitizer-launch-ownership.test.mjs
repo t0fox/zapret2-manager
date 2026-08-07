@@ -271,6 +271,21 @@ test('marker deletion failure turns verified absence into uncertainty', async ()
   assert.equal(result.status, 'uncertain');
 });
 
+test('retained identity proves natural disappearance after the marker is removed', async () => {
+  let signalled = false;
+  const result = await cleanupOwnedGroup(contextForCleanup(), {
+    readMarker: () => ({ ok: false, error: 'marker-unavailable: ENOENT' }),
+    listTempMarkers: () => [],
+    enumerateGroup: () => ({ ok: true, members: [] }),
+    signalGroup: () => { signalled = true; return true; }
+  });
+  assert.equal(signalled, false);
+  assert.equal(result.identityVerified, true);
+  assert.equal(result.groupGone, true);
+  assert.equal(result.markerDeleted, true);
+  assert.equal(result.status, 'verified-gone');
+});
+
 test('suspended readiness cannot mutate READY after timeout reserves settlement', async () => {
   const child = fakeChild();
   const gate = deferred();

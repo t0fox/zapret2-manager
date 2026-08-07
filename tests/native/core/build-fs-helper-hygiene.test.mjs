@@ -12,17 +12,19 @@ const rootOutputArtifact = path.join(projectRoot, 'fs-helper-test');
 const tag = `z2m-build-hygiene-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
 const tempRoot = `/tmp/${tag}`;
 const tempDir = `${tempRoot}/build`;
-const sourceExtensions = /\.(?:c|h|mjs|js|sh|py|md|json)$/i;
+const tracked = new Set(spawnSync('git', ['ls-files', '-z'], {
+  cwd: projectRoot, encoding: 'buffer', windowsHide: true
+}).stdout.toString().split('\0').filter(Boolean).map((entry) => path.normalize(entry)));
 const executableEvidence = (fullPath) => {
   const header = fs.readFileSync(fullPath).subarray(0, 4);
   return { script: header.subarray(0, 2).toString() === '#!',
     binary: header.subarray(0, 4).equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46])) || header.subarray(0, 2).toString() === 'MZ' };
 };
-const forbiddenRootNames = (name, fullPath) => {
+const forbiddenRootNames = (name, fullPath, relativePath) => {
   if (name === '-DZ2M_TESTING' || name === 'a.out' || name.endsWith('.o') || name === 'core' || name.startsWith('core.')) return true;
   if (!/(?:^|[-_.])(?:(?:a|ub)san|saniti[sz]er)(?:[-_.]|$)/i.test(name)) return false;
   const evidence = executableEvidence(fullPath);
-  return evidence.binary || evidence.script && !sourceExtensions.test(name);
+  return evidence.binary || !tracked.has(path.normalize(relativePath));
 };
 
 function wsl(args, options = {}) {
@@ -40,7 +42,7 @@ function assertCleanRepositoryRoot() {
       const childRelative = path.join(relative, entry.name);
       if (childRelative === '.git' || childRelative === path.join('.superpowers', 'sdd')) continue;
       if (entry.isDirectory()) visit(path.join(directory, entry.name), childRelative);
-      else if (forbiddenRootNames(entry.name, path.join(directory, entry.name))) artifacts.push(childRelative);
+      else if (forbiddenRootNames(entry.name, path.join(directory, entry.name), childRelative)) artifacts.push(childRelative);
     }
   }
   visit(projectRoot);
@@ -148,14 +150,18 @@ test('artifact scan detects a real sanitizer ELF even when its name has a docume
   }
 });
 
-test('artifact scan distinguishes ASan UBSan and combined docs from generated binaries', () => {
+test('artifact scan rejects untracked sanitizer reports and allows tracked sanitizer docs', () => {
   const names = ['asan.md', 'ubsan.md', 'asan-ubsan.md'];
   const fixtures = names.map((name) => path.join(projectRoot, name));
   try {
-    for (const fixture of fixtures) fs.writeFileSync(fixture, `# ${path.basename(fixture, '.md')} notes\n`);
+    assert.ok(fs.existsSync(path.join(projectRoot, 'tests', 'native', 'core', 'fixtures', 'sanitizer-tracked-notes.md')));
     assert.doesNotThrow(() => assertCleanRepositoryRoot());
     for (let index = 0; index < names.length; index++) {
+      fs.writeFileSync(fixtures[index], `# ${path.basename(fixtures[index], '.md')} report\n`);
+      assert.throws(() => assertCleanRepositoryRoot(), new RegExp(names[index].replace('.', '\\.')));
       fs.rmSync(fixtures[index], { force: true });
+    }
+    for (let index = 0; index < names.length; index++) {
       const compiled = wsl(['/usr/bin/cc', 'tests/native/core/fixtures/sanitizer-scenarios.c', '-o',
         `${wslRoot}/${names[index]}`]);
       assert.equal(compiled.status, 0, compiled.stderr);
