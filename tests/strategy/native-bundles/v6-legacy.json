@@ -1,0 +1,39 @@
+{
+	"id": "legacy-v6",
+	"role": "legacy",
+	"binaryVersionFixture": "tests/fixtures/nfqws2-version-long.out",
+	"luaContentsFixture": "tests/fixtures/opt-zapret2-lua-contents.out",
+	"binaryVersion": "self-built version Jun 29 2026 12:59:20",
+	"binaryCommitSelfReported": null,
+	"binarySha256": null,
+	"binaryHashVerified": false,
+	"luaCompatVer": 6,
+	"trustedLuaInitPaths": [],
+	"sameReleaseEvidence": {
+		"upstreamCommit": "8a0f53f3cf2c92ddeaa66995ee63a35c1210c410",
+		"luaCompatVer": 6,
+		"files": {
+			"zapret-antidpi.lua": "7eb372ada449a10ca89f095dcf540bc46c5ba84fd577c9a338f0e38c5edbb752",
+			"zapret-auto.lua": "eed81c8cf1b4ab2a4b7f150c37e405e76fd86f02dad83e601faf45991c4cb268",
+			"zapret-lib.lua": "da3a620b32bcd6bcc29aacb4a84929aa75c43ac8292b67f1ea22bb6d4bdb9ec4",
+			"zapret-obfs.lua": "2a2da8f3912045c949e4df9e63a792d1496cc362736cbd729eb48e280e19dd9a",
+			"zapret-pcap.lua": "bf71374d0e8933441f65b0ff223edcae6d30d5cdf738c5942c517b3a912bf651",
+			"zapret-tests.lua": "c027f99f9d366515f4f22878c936ce75d6ca3f12fcc20555dfd1dd633a9e50bc",
+			"init_vars.lua": "35e84fb7c7466fe4b96213d260755b18f012bc4723a7d0ba48410e7f340ba8ac",
+			"custom_funcs.lua": "9366289303f8dcf182e18cdb9c7226e1a5d83d215e2632ff431ef5edcffd9b0c"
+		},
+		"evidenceHash": "648654620311932cbe1ed5937e08ccafede2c250ac3aaffe478fee9b3b6ee123",
+		"method": "SHA-256 of each captured Lua file (LF-normalized, ===END: markers stripped) must equal the recorded values; the six zapret-*.lua files were proven byte-exact to upstream 8a0f53f on 2026-07-27 (zapret-auto/zapret-obfs are unchanged across 8e76197..8a0f53f and thus era-ambiguous); init_vars.lua and custom_funcs.lua do NOT exist in the upstream tree (checked at 8a0f53f and d3b3011) — they are device-local additions; evidenceHash binds commit+compat+files against tampering"
+	},
+	"provenance": {
+		"source": "pre-reset router capture (legacy fixture set)",
+		"capturedAt": null,
+		"target": "same device family, earlier state",
+		"notes": [
+			"do NOT use this bundle to validate strategies for the current target (lua_compat_ver 5)",
+			"the binary is a self-built artifact ('self-built version Jun 29 2026'); its source commit and hash are unknown — same-release with the Lua bundle stays unproven",
+			"trustedLuaInitPaths is empty: this legacy bundle is not a trusted execution base for intercept-zero"
+		]
+	},
+	"bundleConfidence": "medium"
+}

@@ -1,0 +1,74 @@
+BIN=/opt/zapret2/nfq2/nfqws2
+github version 0.9.20260307 (d3b3011000f103c5af161cc4e3167e80fd6928a2) lua_compat_ver 5
+
+/opt/zapret2/nfq2/nfqws2: unrecognized option: V
+ @<config_file>|$<config_file>				; read file for options. must be the only argument. other options are ignored.
+
+ --debug=0|1|syslog|@<filename>
+ --version						; print version and exit
+ --dry-run						; verify parameters and exit with code 0 if successful
+ --comment=any_text
+ --intercept=0|1					; enable interception. if disabled - run lua-init and exit
+ --qnum=<nfqueue_number>
+ --daemon						; daemonize
+ --chdir[=path]						; change current directory. if no path specified use EXEDIR
+ --pidfile=<filename>					; write pid to file
+ --user=<username>					; drop root privs
+ --uid=uid[:gid1,gid2,...]				; drop root privs
+ --bind-fix4						; apply outgoing interface selection fix for generated ipv4 packets
+ --bind-fix6						; apply outgoing interface selection fix for generated ipv6 packets
+ --fwmark=<int|0xHEX>					; override fwmark for generated packets. default = 0x40000000 (1073741824)
+ --ctrack-timeouts=S:E:F[:U]				; internal conntrack timeouts for TCP SYN, ESTABLISHED, FIN stages, UDP timeout. default 60:300:60:60
+ --ctrack-disable=[0|1]					; 1 or no argument disables conntrack
+ --payload-disable=[type[,type]]			; do not discover these payload types. for available payload types see '--payload'. disable all if no argument.
+ --server=[0|1]						; change multiple aspects of src/dst ip/port handling for incoming connections
+ --ipcache-lifetime=<int>				; time in seconds to keep cached hop count and domain name (default 7200). 0 = no expiration
+ --ipcache-hostname=[0|1]				; 1 or no argument enables ip->hostname caching
+ --reasm-disable=[type[,type]]				; disable reasm for these L7 payloads : tls_client_hello quic_initial . if no argument - disable all reasm.
+
+DESYNC ENGINE INIT:
+ --writeable[=<dir_name>]				; create writeable dir for LUA scripts and pass it in WRITEABLE env variable (only one dir possible)
+ --blob=<item_name>:[+ofs]@<filename>|0xHEX		; load blob to LUA var <item_name>
+ --lua-init=@<filename>|<lua_text>			; load LUA program from a file or string. if multiple parameters present order of execution is preserved. gzipped files are supported.
+ --lua-gc=<int>						; forced garbage collection every N sec. default 60 sec. triggers only when a packet arrives. 0 = disable.
+
+MULTI-STRATEGY:
+ --new[=<name>]						; begin new profile. optionally set name
+ --skip							; do not use this profile
+ --name=<name>						; set profile name
+ --template[=<name>]					; use this profile as template (must be named or will be useless)
+ --cookie[=<string>]					; pass this profile-bound string to LUA
+ --import=<name>					; populate current profile with template data
+ --filter-l3=ipv4|ipv6					; L3 protocol filter. multiple comma separated values allowed.
+ --filter-tcp=[~]port1[-port2]|*			; TCP port filter. ~ means negation. setting tcp filter and not setting others denies others. comma separated list allowed.
+ --filter-udp=[~]port1[-port2]|*			; UDP port filter. ~ means negation. setting udp filter and not setting others denies others. comma separated list allowed.
+ --filter-icmp=type[:code]|*				; ICMP type+code filter. setting icmp filter and not setting others denies others. comma separated list allowed.
+ --filter-ipp=proto					; IP protocol filter. setting up ipp filter and not setting others denies others. comma separated list allowed.
+ --filter-l7=proto[,proto]				; L6-L7 protocol filter : all unknown known http tls dtls quic wireguard dht discord stun xmpp dns mtproto bt utp_bt
+ --filter-ssid=ssid1[,ssid2,ssid3,...]			; per profile wifi SSID filter
+ --ipset=<filename>					; ipset include filter (one ip/CIDR per line, ipv4 and ipv6 accepted, gzip supported, multiple ipsets allowed)
+ --ipset-ip=<ip_list>					; comma separated fixed subnet list
+ --ipset-exclude=<filename>				; ipset exclude filter (one ip/CIDR per line, ipv4 and ipv6 accepted, gzip supported, multiple ipsets allowed)
+ --ipset-exclude-ip=<ip_list>				; comma separated fixed subnet list
+ --hostlist=<filename>					; apply dpi desync only to the listed hosts (one host per line, subdomains auto apply, gzip supported, multiple hostlists allowed)
+ --hostlist-domains=<domain_list>			; comma separated fixed domain list
+ --hostlist-exclude=<filename>				; do not apply dpi desync to the listed hosts (one host per line, subdomains auto apply, gzip supported, multiple hostlists allowed)
+ --hostlist-exclude-domains=<domain_list>		; comma separated fixed domain list
+ --hostlist-auto=<filename>				; detect DPI blocks and build hostlist automatically
+ --hostlist-auto-fail-threshold=<int>			; how many failed attempts cause hostname to be added to auto hostlist (default : 3)
+ --hostlist-auto-fail-time=<int>			; all failed attemps must be within these seconds (default : 60)
+ --hostlist-auto-retrans-threshold=<int>		; how many request retransmissions cause attempt to fail (default : 3)
+ --hostlist-auto-retrans-maxseq=<int>			; count retransmissions only within this relative sequence (default : 32768)
+ --hostlist-auto-retrans-reset=[0|1]			; send RST to retransmitter to break long wait (default: 1)
+ --hostlist-auto-incoming-maxseq=<int>			; treat tcp connection as successful if incoming relative sequence exceedes this threshold (default : 4096)
+ --hostlist-auto-udp-out=<int>				; udp failure condition : sent at least `udp_out` packets (default : 4)
+ --hostlist-auto-udp-in=<int>				; udp failure condition : received not more than `udp_in` packets (default : 1)
+ --hostlist-auto-debug=<logfile>			; debug auto hostlist positives (global parameter)
+
+LUA PACKET PASS MODE:
+ --payload=type[,type]					; set payload types following LUA functions should process : all unknown empty known ipv4 ipv6 icmp http_req http_reply tls_client_hello tls_server_hello dtls_client_hello dtls_server_hello quic_initial wireguard_initiation wireguard_response wireguard_cookie wireguard_keepalive wireguard_data dht discord_ip_discovery stun xmpp_stream xmpp_starttls xmpp_proceed xmpp_features dns_query dns_response mtproto_initial bt_handshake utp_bt_handshake
+ --out-range=[(n|a|d|s|p)<int>](-|<)[(n|a|d|s|p)<int>]	; set outgoing packet range for following LUA functions. '-' - include end pos, '<' - not include. prefix meaning : n - packet number, d - data packet number, s - relative sequence, p - data position relative sequence, b - byte count, x - never, a - always
+ --in-range=[(n|a|d|s|p)<int>](-|<)[(n|a|d|s|p)<int>]	; set incoming packet range for following LUA functions. '-' - include end pos, '<' - not include. prefix meaning : n - packet number, d - data packet number, s - relative sequence, p - data position relative sequence, b - byte count, x - never, a - always
+
+LUA DESYNC ACTION:
+ --lua-desync=<functon>[:param1=val1[:param2=val2]]	; call LUA function when packet received

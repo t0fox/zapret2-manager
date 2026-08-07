@@ -1,0 +1,165 @@
+{
+	"$schema-note": "Expectation manifest for tests/fixtures/strategies/*.txt. Classification is split per correction: 'historicalClass' records the legacy filename-based label (NOT a verdict); manager/catalog/native sections are independent. native.status is 'not_checked' for every fixture because no native oracle result has been executed on the target yet ([NATIVE_ORACLE:PENDING]). Manager diagnostics cover shell/profile structure and top-level grammar only; catalog warnings cover hint misses; --lua-desync expressions are opaque.",
+	"bundleId": "target-v5-20260307",
+	"fixtures": {
+		"selftest-good.txt": {
+			"historicalClass": "historically-good",
+			"manager": { "parse": "success", "preserveRoundtrip": true, "diagnostics": [] },
+			"catalog": { "warnings": [] },
+			"native": { "bundleId": "target-v5-20260307", "status": "not_checked", "diagnostics": [] },
+			"profiles": 1,
+			"luaFunctionHints": ["fake"]
+		},
+		"g01-universal-web.txt": {
+			"historicalClass": "historically-good",
+			"manager": { "parse": "success", "preserveRoundtrip": true, "diagnostics": [] },
+			"catalog": { "warnings": [] },
+			"native": { "bundleId": "target-v5-20260307", "status": "not_checked", "diagnostics": [] },
+			"profiles": 1,
+			"luaFunctionHints": ["fake", "multisplit"]
+		},
+		"g02-video-circular.txt": {
+			"historicalClass": "historically-good",
+			"manager": { "parse": "success", "preserveRoundtrip": true, "diagnostics": [] },
+			"catalog": { "warnings": [] },
+			"native": { "bundleId": "target-v5-20260307", "status": "not_checked", "diagnostics": [] },
+			"profiles": 1,
+			"luaFunctionHints": ["circular", "fake", "multisplit", "multidisorder"]
+		},
+		"g03-video-aggressive.txt": {
+			"historicalClass": "historically-good",
+			"manager": { "parse": "success", "preserveRoundtrip": true, "diagnostics": [] },
+			"catalog": { "warnings": [] },
+			"native": { "bundleId": "target-v5-20260307", "status": "not_checked", "diagnostics": [] },
+			"profiles": 1,
+			"luaFunctionHints": ["circular", "multisplit"]
+		},
+		"g04-udp-repeats.txt": {
+			"historicalClass": "historically-good",
+			"manager": { "parse": "success", "preserveRoundtrip": true, "diagnostics": [] },
+			"catalog": { "warnings": [] },
+			"native": { "bundleId": "target-v5-20260307", "status": "not_checked", "diagnostics": [] },
+			"profiles": 1,
+			"luaFunctionHints": ["fake"]
+		},
+		"g05-messenger-voice.txt": {
+			"historicalClass": "historically-good",
+			"manager": { "parse": "success", "preserveRoundtrip": true, "diagnostics": [] },
+			"catalog": { "warnings": [] },
+			"native": { "bundleId": "target-v5-20260307", "status": "not_checked", "diagnostics": [] },
+			"profiles": 1,
+			"luaFunctionHints": ["udplen", "fake"]
+		},
+		"g06-hostlist-ranges.txt": {
+			"historicalClass": "historically-good",
+			"manager": { "parse": "success", "preserveRoundtrip": true, "diagnostics": [] },
+			"catalog": { "warnings": [] },
+			"native": { "bundleId": "target-v5-20260307", "status": "not_checked", "diagnostics": [] },
+			"profiles": 1,
+			"luaFunctionHints": ["fake"]
+		},
+		"g07-game-tcp.txt": {
+			"historicalClass": "historically-good",
+			"manager": { "parse": "success", "preserveRoundtrip": true, "diagnostics": [] },
+			"catalog": { "warnings": [] },
+			"native": { "bundleId": "target-v5-20260307", "status": "not_checked", "diagnostics": [] },
+			"profiles": 1,
+			"luaFunctionHints": ["fake"]
+		},
+		"g08-game-udp.txt": {
+			"historicalClass": "historically-good",
+			"manager": { "parse": "success", "preserveRoundtrip": true, "diagnostics": [] },
+			"catalog": { "warnings": [] },
+			"native": { "bundleId": "target-v5-20260307", "status": "not_checked", "diagnostics": [] },
+			"profiles": 1,
+			"luaFunctionHints": ["udplen"]
+		},
+		"selftest-bad.txt": {
+			"historicalClass": "historically-bad",
+			"manager": { "parse": "partial", "preserveRoundtrip": true, "diagnostics": ["MANAGER_INVALID_TOP_LEVEL_PORT", "MANAGER_INVALID_TOP_LEVEL_RANGE"] },
+			"catalog": { "warnings": ["MANAGER_NOT_IN_CATALOG"] },
+			"native": { "bundleId": "target-v5-20260307", "status": "not_checked", "diagnostics": [] },
+			"profiles": 1,
+			"luaFunctionHints": ["zzz_nonexistent_method"]
+		},
+		"b01-rotation-maxtime.txt": {
+			"historicalClass": "historically-bad",
+			"manager": { "parse": "success", "preserveRoundtrip": true, "diagnostics": [] },
+			"catalog": { "warnings": [] },
+			"native": { "bundleId": "target-v5-20260307", "status": "not_checked", "diagnostics": [] },
+			"profiles": 1,
+			"luaFunctionHints": ["circular", "fake"],
+			"note": "the 'maxtime' parameter lives INSIDE the opaque lua-desync expression; only native validation can judge it (docs/strategy-pack.md §9 #1)"
+		},
+		"b02-hostkey-as-rotation.txt": {
+			"historicalClass": "historically-bad",
+			"manager": { "parse": "success", "preserveRoundtrip": true, "diagnostics": [] },
+			"catalog": { "warnings": [] },
+			"native": { "bundleId": "target-v5-20260307", "status": "not_checked", "diagnostics": [] },
+			"profiles": 1,
+			"luaFunctionHints": ["circular", "fake"],
+			"note": "hostkey/nld on the orchestrator is an opaque-expression matter (docs/strategy-pack.md §9 #2); native decides"
+		},
+		"b03-repeat-singular.txt": {
+			"historicalClass": "historically-bad",
+			"manager": { "parse": "success", "preserveRoundtrip": true, "diagnostics": [] },
+			"catalog": { "warnings": [] },
+			"native": { "bundleId": "target-v5-20260307", "status": "not_checked", "diagnostics": [] },
+			"profiles": 1,
+			"luaFunctionHints": ["repeater", "fake"],
+			"note": "'repeat' vs 'repeats' is an opaque-expression matter (docs/strategy-pack.md §9 #3); native decides"
+		},
+		"b04-old-fooling-syntax.txt": {
+			"historicalClass": "historically-bad",
+			"manager": { "parse": "success", "preserveRoundtrip": true, "diagnostics": ["MANAGER_UNKNOWN_OPTION"] },
+			"catalog": { "warnings": [] },
+			"native": { "bundleId": "target-v5-20260307", "status": "not_checked", "diagnostics": [] },
+			"profiles": 1,
+			"luaFunctionHints": ["fake"],
+			"note": "--dpi-desync-fooling is an nfqws1-generation TOP-LEVEL option: absent from the nfqws2 option table → manager-level unknown-option warning (native getopt would reject it at parse time)"
+		},
+		"b05-undeclared-blob.txt": {
+			"historicalClass": "historically-bad",
+			"manager": { "parse": "success", "preserveRoundtrip": true, "diagnostics": [] },
+			"catalog": { "warnings": ["MANAGER_NOT_IN_CATALOG"] },
+			"native": { "bundleId": "target-v5-20260307", "status": "not_checked", "diagnostics": [] },
+			"profiles": 1,
+			"luaFunctionHints": ["fake"],
+			"note": "blob hint is neither declared nor in the manager catalog: warning only — runtime blob resolution happens at packet time in Lua"
+		},
+		"b06-unknown-method.txt": {
+			"historicalClass": "historically-bad",
+			"manager": { "parse": "success", "preserveRoundtrip": true, "diagnostics": [] },
+			"catalog": { "warnings": ["MANAGER_NOT_IN_CATALOG"] },
+			"native": { "bundleId": "target-v5-20260307", "status": "not_checked", "diagnostics": [] },
+			"profiles": 1,
+			"luaFunctionHints": ["zzz_nonexistent_desync"],
+			"note": "unknown to the manager catalog = warning; the native function-existence oracle (lua_desync_functions_exist) is the authoritative check"
+		},
+		"b07-wide-ports-no-exclude.txt": {
+			"historicalClass": "historically-bad",
+			"manager": { "parse": "success", "preserveRoundtrip": true, "diagnostics": [] },
+			"catalog": { "warnings": [] },
+			"native": { "bundleId": "target-v5-20260307", "status": "not_checked", "diagnostics": [] },
+			"profiles": 1,
+			"luaFunctionHints": ["fake"],
+			"note": "the wide-range-without-exclusion rule is a community heuristic (docs/strategy-pack.md §6), not native grammar; the new manager model does not diagnose it"
+		},
+		"b08-invalid-port-range.txt": {
+			"historicalClass": "historically-bad",
+			"manager": { "parse": "partial", "preserveRoundtrip": true, "diagnostics": ["MANAGER_INVALID_TOP_LEVEL_PORT"] },
+			"catalog": { "warnings": [] },
+			"native": { "bundleId": "target-v5-20260307", "status": "not_checked", "diagnostics": [] },
+			"profiles": 1,
+			"luaFunctionHints": ["fake"]
+		},
+		"b09-invalid-range-expr.txt": {
+			"historicalClass": "historically-bad",
+			"manager": { "parse": "partial", "preserveRoundtrip": true, "diagnostics": ["MANAGER_INVALID_TOP_LEVEL_RANGE"] },
+			"catalog": { "warnings": [] },
+			"native": { "bundleId": "target-v5-20260307", "status": "not_checked", "diagnostics": [] },
+			"profiles": 1,
+			"luaFunctionHints": ["fake"]
+		}
+	}
+}

@@ -1,0 +1,5 @@
+--filter-tcp=1024-65535
+--hostlist-exclude=/opt/zapret2/hostlist/game-exclude.txt
+--payload=unknown
+--out-range=-n20
+--lua-desync=fake:blob=fake_default_tls:repeats=2

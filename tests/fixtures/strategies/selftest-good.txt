@@ -1,0 +1,5 @@
+--filter-tcp=443
+--hostlist-domains=example.com
+--payload=tls_client_hello
+--blob=mytls:@/opt/zapret2/bin/tls_clienthello_1.bin
+--lua-desync=fake:blob=mytls:repeats=4

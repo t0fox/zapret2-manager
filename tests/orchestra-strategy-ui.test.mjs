@@ -1,0 +1,74 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+
+const root = path.resolve('.');
+const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
+const viewRoot = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager';
+const overviewPath = `${viewRoot}/z2m-overview.js`;
+const strategyPath = `${viewRoot}/z2m-strategy.js`;
+const apiPath = `${viewRoot}/z2m-api.js`;
+const backendPath = 'zapret2-manager/files/usr/libexec/zapret2-manager/discord-profile-cli.uc';
+const menuPath = 'luci-app-zapret2-manager/files/usr/share/luci/menu.d/luci-app-zapret2-manager.json';
+
+test('single-view strategy UI wires explicit global apply and bounded targeted runs', () => {
+  const strategy = read(strategyPath);
+  const api = read(apiPath);
+  assert.match(api, /discord_profile_preview/);
+  assert.match(api, /discord_profile_apply/);
+  assert.match(api, /discord_profile_rollback/);
+  assert.match(api, /orchestra_run_start/);
+  assert.match(api, /orchestra_run_status/);
+  assert.match(strategy, /pendingStrategyId/);
+  assert.match(strategy, /ctx\.setDraft\(['"]strategy['"]/);
+  assert.match(strategy, /api\.strategy\.apply/);
+  assert.doesNotMatch(strategy, /ctx\.api\.strategy\.rollback/);
+  assert.match(read(`${viewRoot}/app.js`), /coordinator\.rollbackResult\(proof/);
+  const overview = read(overviewPath);
+  assert.match(overview, /targetType:\s*['"]domain['"]/);
+  assert.match(overview, /domain:\s*domain/);
+  assert.match(overview, /totalTimeoutSec:\s*600/);
+  assert.match(strategy, /targetType:\s*['"]corpus['"]/);
+  assert.match(strategy, /Показать различия/);
+  assert.match(overview, /Проверить ресурс/);
+  assert.match(strategy, /0 targets/);
+  assert.doesNotMatch(strategy, /autoApply|applyNow:\s*true/);
+});
+
+test('Overview stages one override in shared draft state and routes unsupported apply to the coordinator', () => {
+  const overview = read(overviewPath);
+  assert.match(overview, /pendingOverride/);
+  assert.match(overview, /action:\s*['"]override_set['"]/);
+  assert.match(overview, /action:\s*['"]override_delete['"]/);
+  assert.match(overview, /ctx\.setDraft\(['"]strategy['"]/);
+  assert.match(overview, /Точечные правила нельзя применить через общий координатор/);
+  assert.match(overview, /ctx\.openSemanticDiff/);
+  assert.doesNotMatch(overview, /applyNow:\s*true/);
+  assert.match(overview, /Применить только к ресурсу/);
+  assert.match(overview, /Применить изменение/);
+  assert.match(overview, /Отменить изменение/);
+  assert.match(overview, /Точечные правила/);
+  assert.doesNotMatch(overview, /action:\s*['"]override_(?:set|delete)['"][\s\S]{0,180}applyNow:\s*true[\s\S]{0,180}setDraft/);
+});
+
+test('override backend persists both operations and applies runtime only when requested', () => {
+  const backend = read(backendPath);
+  for (const name of ['override_list', 'override_set', 'override_delete', 'reapply_after_override'])
+    assert.match(backend, new RegExp(name));
+  assert.match(backend, /orchestra-overrides\.json/);
+  assert.match(backend, /req\.applyNow\s*!==\s*true/);
+  assert.match(backend, /applied:\s*false/);
+  assert.match(backend, /idempotencyToken/);
+  assert.match(backend, /mv -f/);
+});
+
+test('menu exposes only the single-view application route', () => {
+  const menu = JSON.parse(read(menuPath));
+  assert.deepEqual(Object.keys(menu), ['admin/services/zapret2-manager']);
+  assert.deepEqual(menu['admin/services/zapret2-manager'].action, {
+    type: 'view',
+    path: 'zapret2-manager/app'
+  });
+  assert.ok(!menu['admin/services/zapret2-manager/combo-presets']);
+});

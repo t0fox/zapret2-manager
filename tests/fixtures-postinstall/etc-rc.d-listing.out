@@ -1,0 +1,36 @@
+drwxr-xr-x    1 root     root           232 Jul 26 22:21 .
+drwxr-xr-x    1 root     root          1064 Jun 29 12:59 ..
+lrwxrwxrwx    1 root     root            21 Jun 29 12:59 K10gpio_switch -> ../init.d/gpio_switch
+lrwxrwxrwx    1 root     root            14 Jun 29 12:59 K21wpad -> ../init.d/wpad
+lrwxrwxrwx    1 root     root            18 Jun 29 12:59 K50dropbear -> ../init.d/dropbear
+lrwxrwxrwx    1 root     root            16 Jun 29 12:59 K85odhcpd -> ../init.d/odhcpd
+lrwxrwxrwx    1 root     root            13 Jun 29 12:59 K89log -> ../init.d/log
+lrwxrwxrwx    1 root     root            14 Jun 29 12:59 K90boot -> ../init.d/boot
+lrwxrwxrwx    1 root     root            17 Jun 29 12:59 K90network -> ../init.d/network
+lrwxrwxrwx    1 root     root            20 Jun 29 12:59 K90sysfixtime -> ../init.d/sysfixtime
+lrwxrwxrwx    1 root     root            16 Jun 29 12:59 K90umount -> ../init.d/umount
+lrwxrwxrwx    1 root     root            20 Jun 29 12:59 S00sysfixtime -> ../init.d/sysfixtime
+lrwxrwxrwx    1 root     root            15 Jun 29 12:59 S00urngd -> ../init.d/urngd
+lrwxrwxrwx    1 root     root            14 Jun 29 12:59 S10boot -> ../init.d/boot
+lrwxrwxrwx    1 root     root            16 Jun 29 12:59 S10system -> ../init.d/system
+lrwxrwxrwx    1 root     root            16 Jun 29 12:59 S11sysctl -> ../init.d/sysctl
+lrwxrwxrwx    1 root     root            13 Jun 29 12:59 S12log -> ../init.d/log
+lrwxrwxrwx    1 root     root            14 Jun 29 12:59 S12rpcd -> ../init.d/rpcd
+lrwxrwxrwx    1 root     root            17 Jun 29 12:59 S19dnsmasq -> ../init.d/dnsmasq
+lrwxrwxrwx    1 root     root            18 Jun 29 12:59 S19dropbear -> ../init.d/dropbear
+lrwxrwxrwx    1 root     root            18 Jun 29 12:59 S19firewall -> ../init.d/firewall
+lrwxrwxrwx    1 root     root            14 Jun 29 12:59 S19wpad -> ../init.d/wpad
+lrwxrwxrwx    1 root     root            17 Jun 29 12:59 S20network -> ../init.d/network
+lrwxrwxrwx    1 root     root            17 Jul 26 22:21 S21zapret2 -> ../init.d/zapret2
+lrwxrwxrwx    1 root     root            25 Jun 29 12:59 S25packet_steering -> ../init.d/packet_steering
+lrwxrwxrwx    1 root     root            16 Jun 29 12:59 S35odhcpd -> ../init.d/odhcpd
+lrwxrwxrwx    1 root     root            14 Jun 29 12:59 S50cron -> ../init.d/cron
+lrwxrwxrwx    1 root     root            16 Jun 29 12:59 S50uhttpd -> ../init.d/uhttpd
+lrwxrwxrwx    1 root     root            18 Jun 29 12:59 S80ucitrack -> ../init.d/ucitrack
+lrwxrwxrwx    1 root     root            21 Jun 29 12:59 S94gpio_switch -> ../init.d/gpio_switch
+lrwxrwxrwx    1 root     root            14 Jun 29 12:59 S95done -> ../init.d/done
+lrwxrwxrwx    1 root     root            13 Jun 29 12:59 S96led -> ../init.d/led
+lrwxrwxrwx    1 root     root            17 Jun 29 12:59 S98sysntpd -> ../init.d/sysntpd
+lrwxrwxrwx    1 root     root            19 Jun 29 12:59 S99bootcount -> ../init.d/bootcount
+lrwxrwxrwx    1 root     root            20 Jun 29 12:59 S99ubihealthd -> ../init.d/ubihealthd
+lrwxrwxrwx    1 root     root            22 Jun 29 12:59 S99urandom_seed -> ../init.d/urandom_seed

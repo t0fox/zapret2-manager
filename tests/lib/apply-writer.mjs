@@ -1,0 +1,131 @@
+// Node reference implementation of the apply.uc writer algorithm.
+//
+// This is the ALGORITHM SPEC for the shipped ucode apply.uc. ucode does not
+// run in this build environment, so this node module is what the local
+// self-test exercises; the ucode apply.uc implements the same logic and is
+// run on the target router via tools/smoke.sh. Keep the two in lockstep.
+//
+// Operates on the config TEXT (a string), not on a file, so it is pure and
+// testable. The ucode apply.uc wraps the same parse/replace with file I/O on
+// /opt/zapret2/config.
+//
+// Shell-style config rules handled (see tests/apply-writer.test.mjs):
+//   simple  VAR=value            (e.g. NFQWS2_ENABLE=1)
+//   quoted  VAR="value"          (single-line, e.g. IPSET_OPT="...")
+//   multi   VAR="                (opening quote alone; closing " on a later
+//                                    line alone — e.g. NFQWS2_OPT)
+//   commented  #VAR=value        (NOT matched; a write appends a new active
+//                                    assignment instead of rewriting the
+//                                    comment)
+//   - value may contain "=" (split on the FIRST "=" after the var name only)
+//   - value may contain an INNER " (VAR="a "b" c") — the closing " is the
+//     LAST " in the line (lastIndexOf), so an inner " is not mistaken for closing
+
+function isComment(line) {
+	return /^\s*#/.test(line);
+}
+
+export function read_var(config, name) {
+	const lines = config.split('\n');
+	const prefix = name + '=';
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i];
+		if (!line.startsWith(prefix) || isComment(line)) continue;
+		const rest = line.slice(prefix.length); // after "NAME="
+		if (rest.startsWith('"')) {
+			// opening " alone → multi-line quoted (closing " on a later line)
+			if (rest === '"') {
+				const buf = [];
+				for (let j = i + 1; j < lines.length; j++) {
+					const q = lines[j].indexOf('"');
+					if (q >= 0) {
+						if (q > 0) buf.push(lines[j].slice(0, q));
+						return buf.join('\n');
+					}
+					buf.push(lines[j]);
+				}
+				return buf.join('\n'); // unterminated quote (should not happen)
+			}
+			// single-line quoted: closing " is the LAST " in the line (lastIndexOf, so
+			// a value with an INNER " like VAR="a "b" c" is still single-line — the
+			// inner " is not mistaken for the closing one).
+			const closeAt = rest.lastIndexOf('"');
+			if (closeAt === rest.length - 1) {
+				return rest.slice(1, closeAt); // content between the quotes
+			}
+			// multi-line quoted: closing " not on this line → collect later lines
+			const buf = [];
+			buf.push(rest.slice(1)); // content after opening "
+			for (let j = i + 1; j < lines.length; j++) {
+				const q = lines[j].indexOf('"');
+				if (q >= 0) {
+					if (q > 0) buf.push(lines[j].slice(0, q));
+					return buf.join('\n');
+				}
+				buf.push(lines[j]);
+			}
+			return buf.join('\n'); // unterminated quote (should not happen)
+		}
+		return rest; // unquoted single-line value
+	}
+	return null;
+}
+
+export function write_var(config, name, value) {
+	const lines = config.split('\n');
+	const prefix = name + '=';
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i];
+		if (!line.startsWith(prefix) || isComment(line)) continue;
+		const rest = line.slice(prefix.length);
+		// opening " alone → multi-line; otherwise the closing " is the LAST " in
+		// the line (lastIndexOf, so an inner " like in VAR="a "b" c" does not make it
+		// multi-line).
+		const closeAt = rest.startsWith('"') ? rest.lastIndexOf('"') : -1;
+		// multi-line iff: opening " alone (rest === '"'), OR the closing " is not the
+		// last char of this line (a value with an inner " stays single-line).
+		const isMultiQuoted = rest.startsWith('"') && (rest === '"' || closeAt !== rest.length - 1);
+		if (isMultiQuoted) {
+			// find the line carrying the closing "
+			let end = i;
+			let found = false;
+			for (let j = i + 1; j < lines.length; j++) {
+				if (lines[j].indexOf('"') >= 0) { end = j; found = true; break; }
+			}
+			// Unterminated quoted value (no closing " on any later line): do
+			// NOT rewrite the block (would silently drop trailing content).
+			// Fall back to a single-line replace of the opening line only.
+			if (!found) {
+				const before = lines.slice(0, i);
+				const after = lines.slice(i + 1);
+				return [...before, prefix + value, ...after].join('\n');
+			}
+			const before = lines.slice(0, i);
+			const after = lines.slice(end + 1);
+			// preserve the original opening style: " alone, or "content...
+			const openAlone = (rest === '"');
+			let block;
+			if (openAlone) {
+				block = [name + '="', value, '"'];
+			} else {
+				block = [name + '="' + value + '"'];
+			}
+			return [...before, ...block, ...after].join('\n');
+		}
+		// single-line quoted: VAR="value" (the only inner " is the closing one).
+		// Preserve the quotes — writing VAR=value (no quotes) would change the
+		// format the engine reads.
+		if (rest.startsWith('"') && rest !== '"' && closeAt === rest.length - 1) {
+			const before = lines.slice(0, i);
+			const after = lines.slice(i + 1);
+			return [...before, name + '="' + value + '"', ...after].join('\n');
+		}
+		// single-line unquoted: replace the one line
+		const before = lines.slice(0, i);
+		const after = lines.slice(i + 1);
+		return [...before, name + '=' + value, ...after].join('\n');
+	}
+	// not found (or only commented): append a new active assignment
+	const sep = (config.length === 0 || config.endsWith('\n')) ? '' : '\n';
+	return config + sep + name + '=' + value;
+}

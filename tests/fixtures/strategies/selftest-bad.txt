@@ -1,0 +1,3 @@
+--filter-tcp=abc-xyz
+--lua-desync=zzz_nonexistent_method:blob=undeclared_blob_xyz
+--out-range=!!!bad

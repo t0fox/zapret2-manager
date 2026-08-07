@@ -1,0 +1,5 @@
+{
+  "normalBusybox": "Server: 1.1.1.1\nAddress 1: 1.1.1.1\nName: example.com\nAddress 1: 93.184.216.34\nAddress 2: 93.184.216.35\n",
+  "timeoutWithHeader": "Server: 1.1.1.1\nAddress 1: 1.1.1.1\n;; connection timed out; no servers could be reached\n",
+  "nxdomain": "Server: 1.1.1.1\nAddress 1: 1.1.1.1\n** server can't find missing.example: NXDOMAIN\n"
+}

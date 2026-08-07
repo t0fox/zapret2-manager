@@ -1,0 +1,4 @@
+--filter-tcp=443
+--hostlist-domains=example.com
+--payload=tls_client_hello
+--lua-desync=zzz_nonexistent_desync:pos=2

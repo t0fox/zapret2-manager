@@ -1,0 +1,5 @@
+--filter-udp=3478-3481,50000-50100
+--payload=unknown
+--blob=myquic:@/opt/zapret2/bin/quic_initial.bin
+--lua-desync=udplen:increment=2
+--lua-desync=fake:blob=myquic:repeats=3

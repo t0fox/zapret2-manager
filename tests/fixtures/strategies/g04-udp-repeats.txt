@@ -1,0 +1,7 @@
+--filter-udp=443,3478-3481
+--payload=quic_initial
+--blob=myquic:@/opt/zapret2/bin/quic_initial.bin
+--lua-desync=fake:blob=myquic:repeats=6
+--lua-desync=fake:blob=myquic:repeats=11
+--lua-desync=fake:blob=myquic:repeats=12
+--lua-desync=fake:blob=myquic:repeats=15:ip_autottl=2,3-20
