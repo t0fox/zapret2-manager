@@ -29,7 +29,7 @@ test('package target-builds the complete production helper with json-c', () => {
   }
   assert.ok(fs.existsSync(`${helperDir}/helper.h`), 'helper.h must be present');
   assert.ok(fs.existsSync(`${helperDir}/protocol-v1.json`), 'protocol-v1.json must be present');
-  assert.equal(fs.existsSync(`${helperDir}/test-audit.c`), false, 'test-audit.c is deferred to Task 3');
+  assert.ok(fs.existsSync(`${helperDir}/test-audit.c`), 'Task 3 test audit source must be present');
 
   const compile = block('Build/Compile');
   for (const source of productionSources) {
@@ -66,6 +66,8 @@ test('package prepares sources separately and installs only the executable', () 
     'install must place the helper executable at its fixed path');
   assert.doesNotMatch(install, /src\/z2m-core-helper|protocol-v1\.json|helper\.h|\.c(?:\s|$)/,
     'install must not copy helper sources or protocol development files');
+  assert.doesNotMatch(install, /test-audit\.c|Z2M_TESTING/i,
+    'install must exclude test instrumentation');
   assert.match(install, /\$\(CP\)\s+\.\/files\/\*\s+\$\(1\)\//,
     'existing runtime files must remain installed');
 });

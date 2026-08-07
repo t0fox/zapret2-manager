@@ -150,7 +150,27 @@ Task 2 imports these exact donor production blobs:
 | `zapret2-manager/src/z2m-core-helper/roots.c` | `bbf8814f02f119d1fe4ae30de26dc97ea160c16d` |
 | `zapret2-manager/src/z2m-core-helper/sha256.c` | `9081cf1960ffd549187f9b158a3637b3875ef8a1` |
 
-`test-audit.c` remains absent: it is test-only, production compilation excludes
-`Z2M_TESTING`, and Task 3 owns its import with the native test harness. No donor
-test, Makefile, DNS/TG/UI path, artifact, or generated output is imported by
-Task 2.
+Task 2 left `test-audit.c` absent: it is test-only, production compilation
+excludes `Z2M_TESTING`, and Task 3 owns its import with the native test harness.
+No donor test, Makefile, DNS/TG/UI path, artifact, or generated output was
+imported by Task 2.
+
+## Task 3 Import Ledger
+
+Task 3 imports 23 exact donor blobs: `tests/native/baseline.test.mjs`, every
+manifest-approved path under `tests/native/core/` except
+`tests/native/core/result.test.mjs`, and test-only
+`zapret2-manager/src/z2m-core-helper/test-audit.c`. Their individual donor blob
+IDs are recorded in the path-decision table above and all 23 worktree hashes
+were rechecked against `backup/native-clean-donor` before commit.
+
+The package test is the only imported-harness-adjacent file changed from its
+Task 2 state. Its obsolete assertion that `test-audit.c` was still deferred is
+replaced by the Task 3 invariant: the audit source is present for native tests
+but remains absent from production compilation and installation. No imported
+donor blob was edited.
+
+`tests/native/ratings-helper.compile.test.mjs`, `result.test.mjs`, all tilde
+fixtures, donor gate and broad-runner rewrites, and DNS, Telegram, and UI paths
+remain absent. Task 3 does not modify any production helper source or package
+rule.
