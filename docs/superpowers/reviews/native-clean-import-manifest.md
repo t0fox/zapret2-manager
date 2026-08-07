@@ -192,3 +192,19 @@ These are clean-main verification fixes, not additional donor imports. No
 timeout is increased, no blind signal or kill is added, and scan failure,
 surviving members, partial markers, marker reappearance, or an unreaped launcher
 still classify cleanup as uncertain.
+
+## Task 4 Import Ledger
+
+Task 4 imports these exact donor blobs:
+
+| Path | Donor blob | Consumer |
+|---|---|---|
+| `zapret2-manager/files/usr/libexec/zapret2-manager/core/errors.uc` | `5afad255e68cf1e621c24f0f07ae29318df5857b` | `core/result.uc` and focused result tests |
+| `zapret2-manager/files/usr/libexec/zapret2-manager/core/result.uc` | `f549ac7f7d017291d9856e2fb2d3f6f6f3cf3bc2` | Future native adapters and focused result tests |
+| `tests/native/core/result.test.mjs` | `3c59c349218f6b191645896909aeaea95f3bf0c0` | Six canonical v1 result/error contract checks |
+
+The package's existing `$(CP) ./files/* $(1)/` install rule recursively carries
+both modules to `/usr/libexec/zapret2-manager/core/`. `result.uc` imports only
+its colocated `./errors.uc`; no main RPC handler is replaced or changed. Task 4
+does not import donor gate rewrites or tilde fixtures and does not modify DNS,
+Telegram, UI, package, or broad-runner paths.
