@@ -55,7 +55,7 @@ function spawnInvoke(value, { env = {} } = {}) {
   child.lockGate = new Promise((resolve) => {
     child.stderr.setEncoding('utf8');
     child.stderr.on('data', (chunk) => {
-      const match = chunk.match(/lock-gate-pid=(\d+)/);
+      const match = chunk.match(/(?:lock|hash)-gate-pid=(\d+)/);
       const candidate = chunk.match(/candidate=([A-Za-z0-9._-]+)/)?.[1];
       if (candidate) child.candidate = candidate;
       if (match) resolve(Number(match[1]));
@@ -88,6 +88,25 @@ function request(operation, args, requestId = 'req-1') {
 
 function mkdirArgs(root, pathValue, existOk = false) {
   return { root, path: pathValue, mode: '0700', uid: 0, gid: 0, existOk };
+}
+
+function shaArgs(root, pathValue, maxBytes) {
+  return { root, path: pathValue, maxBytes };
+}
+
+function writeBuffer(root, relative, content, mode = '0600') {
+  const target = `${testRoot}/${roots[root]}/${relative}`;
+  const dir = target.slice(0, target.lastIndexOf('/'));
+  const encoded = content.toString('base64');
+  shell(`mkdir -p '${dir}' && chmod 0700 '${dir}' && printf '%s' '${encoded}' | base64 -d > '${target}' && chmod ${mode} '${target}'`);
+}
+
+function expectShaSuccess(run, content, expected) {
+  assert.equal(run.status, 0, run.stderr || run.stdout);
+  assert.deepEqual(Object.keys(run.response?.data ?? {}).sort(), ['byteLength', 'sha256']);
+  assert.equal(run.response.data.sha256, expected ?? crypto.createHash('sha256').update(content).digest('hex'));
+  assert.match(run.response.data.sha256, /^[a-f0-9]{64}$/);
+  assert.equal(run.response.data.byteLength, content.length);
 }
 
 function expectMkdirSuccess(run, created, durability) {
@@ -356,7 +375,6 @@ test('reserved operations return EUNSUPPORTED before filesystem access and have 
   const operations = {
     atomic_write: { root: 'runtime', path: 'must-not-exist', content: '', mode: '0600', uid: 0, gid: 0, allowCreate: true },
     atomic_write_json: { root: 'runtime', path: 'must-not-exist', value: {}, mode: '0600', uid: 0, gid: 0, allowCreate: true },
-    sha256_regular: { root: 'runtime', path: 'missing', maxBytes: 1 },
     rename_owned: { root: 'runtime', fromPath: 'missing', toPath: 'must-not-exist', ownershipToken: 'a'.repeat(64), replace: false },
     unlink_owned: { root: 'runtime', path: 'missing', ownershipToken: 'a'.repeat(64), missingOk: false },
     lock_acquire: { name: 'test', owner: 'owner', timeoutMs: 0 },
@@ -798,4 +816,153 @@ test('symlink replacement race never reads outside the selected root', () => {
     if (run.status === 0) assert.equal(Buffer.from(run.response.data.content, 'base64').toString(), 'inside');
     else assert.ok(['ESYMLINK', 'ENOENT'].includes(run.response?.error?.code), run.stdout);
   }
+});
+
+test('sha256_regular matches empty, abc, and NIST multi-block vectors', () => {
+  const vectors = [
+    ['sha-empty', Buffer.alloc(0), 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'],
+    ['sha-abc', Buffer.from('abc'), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'],
+    ['sha-nist', Buffer.from('abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq'),
+      '248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1']
+  ];
+  for (const [name, content, digest] of vectors) {
+    writeBuffer('jobs', name, content);
+    expectShaSuccess(invoke(request('sha256_regular', shaArgs('jobs', name, content.length))), content, digest);
+  }
+});
+
+test('sha256_regular hashes binary bytes and deterministic randomized streams', () => {
+  const binary = Buffer.from([0, 255, 192, 128, 1, 2, 127, 254]);
+  writeBuffer('jobs', 'sha-binary', binary);
+  expectShaSuccess(invoke(request('sha256_regular', shaArgs('jobs', 'sha-binary', binary.length))), binary);
+  let state = 0x6d2b79f5;
+  const random = Buffer.alloc(8191);
+  for (let i = 0; i < random.length; i++) {
+    state = (Math.imul(state ^ (state >>> 15), 1 | state) + i) >>> 0;
+    random[i] = state & 0xff;
+  }
+  writeBuffer('jobs', 'sha-random', random);
+  expectShaSuccess(invoke(request('sha256_regular', shaArgs('jobs', 'sha-random', random.length))), random);
+});
+
+test('sha256_regular enforces exact caller, zero, operation, and root bounds without prefix success', () => {
+  writeBuffer('runtime', 'sha-zero-empty', Buffer.alloc(0));
+  writeBuffer('runtime', 'sha-zero-nonempty', Buffer.from('x'));
+  writeBuffer('runtime', 'sha-exact', Buffer.from('exact'));
+  expectShaSuccess(invoke(request('sha256_regular', shaArgs('runtime', 'sha-zero-empty', 0))), Buffer.alloc(0));
+  expectFailure(invoke(request('sha256_regular', shaArgs('runtime', 'sha-zero-nonempty', 0))), 4, 'ETOOBIG');
+  expectShaSuccess(invoke(request('sha256_regular', shaArgs('runtime', 'sha-exact', 5))), Buffer.from('exact'));
+  expectFailure(invoke(request('sha256_regular', shaArgs('runtime', 'sha-exact', 4))), 4, 'ETOOBIG');
+  shell(`truncate -s 1048577 '${testRoot}/${roots.runtime}/sha-root-over'; chmod 0600 '${testRoot}/${roots.runtime}/sha-root-over'`);
+  expectFailure(invoke(request('sha256_regular', shaArgs('runtime', 'sha-root-over', 1048577))), 4, 'ETOOBIG');
+});
+
+test('sha256_regular refuses links, directories, FIFO, socket, and device without blocking', () => {
+  const base = `${testRoot}/${roots.staging}`;
+  shell(`mkdir -m 0700 '${base}/sha-real'; printf x > '${base}/sha-real/file'; chmod 0600 '${base}/sha-real/file'; ln -s sha-real/file '${base}/sha-final-link'; ln -s sha-real '${base}/sha-parent-link'; mkdir -m 0700 '${base}/sha-dir'; mkfifo '${base}/sha-fifo'; python3 -c "import socket; s=socket.socket(socket.AF_UNIX); s.bind('${base}/sha-socket')"; mknod '${base}/sha-device' c 1 3`);
+  for (const [name, code, status = 4] of [
+    ['sha-final-link', 'ESYMLINK'], ['sha-parent-link/file', 'ESYMLINK'], ['sha-dir', 'ENOTREG'],
+    ['sha-fifo', 'ENOTREG'], ['sha-socket', 'ENOTREG'], ['sha-device', 'EDENIED', 3]
+  ]) expectFailure(invoke(request('sha256_regular', shaArgs('staging', name, 32)), { timeout: 1000 }), status, code);
+});
+
+test('sha256_regular enforces mount crossing and safe fallback capability', (t) => {
+  write('runtime', 'sha-mount-id/file', 'inside');
+  expectFailure(invoke(request('sha256_regular', shaArgs('runtime', 'sha-mount-id/file', 32)), {
+    env: { Z2M_TEST_FORCE_FALLBACK: '1', Z2M_TEST_MNT_ID_CHANGE: '1' }
+  }), 4, 'EXDEV');
+  expectFailure(invoke(request('sha256_regular', shaArgs('runtime', 'sha-mount-id/file', 32)), {
+    env: { Z2M_TEST_FORCE_FALLBACK: '1', Z2M_TEST_MNT_ID_UNAVAILABLE: '1' }
+  }), 3, 'ECAPABILITY');
+  const mountpoint = `${testRoot}/${roots.runtime}/sha-mounted`;
+  shell(`mkdir -m 0700 '${mountpoint}'`);
+  const mounted = wsl(['mount', '-t', 'tmpfs', 'tmpfs', mountpoint]);
+  if (mounted.status !== 0) t.diagnostic(`mount unavailable: ${mounted.stderr.trim()}`);
+  else try {
+    shell(`printf escape > '${mountpoint}/file'; chmod 0600 '${mountpoint}/file'`);
+    expectFailure(invoke(request('sha256_regular', shaArgs('runtime', 'sha-mounted/file', 32))), 4, 'EXDEV');
+  } finally { shell(`umount '${mountpoint}'`); }
+});
+
+test('sha256_regular rejects wrong owner, mode, path, depth, schema, and integer typing', () => {
+  const base = `${testRoot}/${roots.jobs}`;
+  shell(`printf x > '${base}/sha-wide'; chmod 0644 '${base}/sha-wide'; printf x > '${base}/sha-foreign'; chmod 0600 '${base}/sha-foreign'; chown 65534:65534 '${base}/sha-foreign'`);
+  expectFailure(invoke(request('sha256_regular', shaArgs('jobs', 'sha-wide', 1))), 3, 'EDENIED');
+  expectFailure(invoke(request('sha256_regular', shaArgs('jobs', 'sha-foreign', 1))), 3, 'EDENIED');
+  for (const badPath of ['/absolute', '..', 'a/../b', Array(17).fill('a').join('/')]) {
+    const run = invoke(request('sha256_regular', shaArgs('jobs', badPath, 1)));
+    expectFailure(run, badPath.split('/').length > 16 && !badPath.includes('..') ? 3 : 2,
+      badPath.split('/').length > 16 && !badPath.includes('..') ? 'EPATH' : 'ESCHEMA');
+  }
+  for (const maxBytes of [-1, 1.5, '1', 4194305])
+    expectFailure(invoke(request('sha256_regular', shaArgs('jobs', 'sha-wide', maxBytes))), 2, 'ESCHEMA');
+  expectFailure(invoke(request('sha256_regular', { ...shaArgs('jobs', 'sha-wide', 1), extra: true })), 2, 'ESCHEMA');
+});
+
+test('sha256_regular remains denied for secrets and locks', () => {
+  expectFailure(invoke(request('sha256_regular', shaArgs('secrets', 'anything', 0))), 3, 'EDENIED');
+  expectFailure(invoke(request('sha256_regular', shaArgs('locks', 'anything', 0))), 3, 'EDENIED');
+});
+
+test('sha256_regular retries EINTR, handles short reads, and fails closed on read error', () => {
+  const content = Buffer.from('streaming-short-read-proof');
+  writeBuffer('jobs', 'sha-stream', content);
+  expectShaSuccess(invoke(request('sha256_regular', shaArgs('jobs', 'sha-stream', content.length)), {
+    env: { Z2M_TEST_SHA_READ_SHIM: '1' }
+  }), content);
+  expectFailure(invoke(request('sha256_regular', shaArgs('jobs', 'sha-stream', content.length)), {
+    env: { Z2M_TEST_SHA_READ_ERROR: '1' }
+  }), 4, 'EIO');
+});
+
+test('sha256_regular rejects append, truncate, and overwrite during hashing', async () => {
+  const base = `${testRoot}/${roots.staging}`;
+  for (const [name, mutation] of [
+    ['sha-append-race', (target) => `printf added >> '${target}'`],
+    ['sha-truncate-race', (target) => `truncate -s 1 '${target}'`],
+    ['sha-overwrite-race', (target) => `printf Z | dd of='${target}' bs=1 seek=70000 conv=notrunc status=none`]
+  ]) {
+    const original = Buffer.alloc(196608, 0x61);
+    shell(`head -c ${original.length} /dev/zero | tr '\\000' a > '${base}/${name}'; chmod 0600 '${base}/${name}'`);
+    const child = spawnInvoke(request('sha256_regular', shaArgs('staging', name, original.length + 32), name),
+      { env: { Z2M_TEST_SHA_STOP_AFTER_READ: '1' } });
+    const result = collect(child); const pid = await waitStopped(child); const target = `${base}/${name}`;
+    shell(`${mutation(target)}; kill -CONT ${pid}`);
+    expectFailure(await result, 4, 'EIO', name);
+  }
+});
+
+test('sha256_regular stays bound to the opened descriptor across pathname replacement', async () => {
+  const base = `${testRoot}/${roots.staging}`;
+  const original = Buffer.from('opened-descriptor-content');
+  const replacement = Buffer.from('replacement-path-content');
+  writeBuffer('staging', 'sha-replace', original);
+  writeBuffer('staging', 'sha-replacement-ready', replacement);
+  const child = spawnInvoke(request('sha256_regular', shaArgs('staging', 'sha-replace', 64), 'sha-replace'),
+    { env: { Z2M_TEST_SHA_STOP_AFTER_OPEN: '1' } });
+  const result = collect(child); const pid = await waitStopped(child);
+  shell(`mv '${base}/sha-replace' '${base}/sha-opened-old'; mv '${base}/sha-replacement-ready' '${base}/sha-replace'; kill -CONT ${pid}`);
+  const completed = await result;
+  if (completed.status === 0) expectShaSuccess(completed, original);
+  else {
+    expectFailure(completed, 4, 'EIO', 'sha-replace');
+    assert.notEqual(completed.response?.data?.sha256,
+      crypto.createHash('sha256').update(replacement).digest('hex'));
+  }
+});
+
+test('non-SHA reserved operations remain unsupported and side-effect-free after SHA promotion', () => {
+  const marker = `${testRoot}/${roots.runtime}/sha-promotion-must-not-exist`;
+  const operations = {
+    atomic_write: { root: 'runtime', path: 'sha-promotion-must-not-exist', content: '', mode: '0600', uid: 0, gid: 0, allowCreate: true },
+    atomic_write_json: { root: 'runtime', path: 'sha-promotion-must-not-exist', value: {}, mode: '0600', uid: 0, gid: 0, allowCreate: true },
+    rename_owned: { root: 'runtime', fromPath: 'missing', toPath: 'sha-promotion-must-not-exist', ownershipToken: 'a'.repeat(64), replace: false },
+    unlink_owned: { root: 'runtime', path: 'missing', ownershipToken: 'a'.repeat(64), missingOk: false },
+    lock_acquire: { name: 'sha-promotion', owner: 'owner', timeoutMs: 0 },
+    lock_release: { name: 'sha-promotion', owner: 'owner', token: 'a'.repeat(64) },
+    lock_status: { name: 'sha-promotion' }
+  };
+  for (const [operation, args] of Object.entries(operations))
+    expectFailure(invoke(request(operation, args)), 3, 'EUNSUPPORTED');
+  assert.equal(wsl(['test', '-e', marker]).status, 1);
 });

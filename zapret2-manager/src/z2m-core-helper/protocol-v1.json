@@ -201,8 +201,7 @@
       "ownership": "Creates only private directories allowed by root policy under an operation-scoped internal flock.", "crashSemantics": "Each component is either absent or a complete private directory; persistent parent changes require directory fsync.", "idempotency": "Idempotent only with existOk and matching verified directory policy."
     },
     "sha256_regular": {
-      "milestone": 2, "status": "reserved_unsupported", "roots": ["persistent_state", "snapshots", "registry", "runtime", "jobs", "staging"],
-      "unsupportedBehavior": { "errorCode": "EUNSUPPORTED", "dispatch": "reject_before_operation_dispatch", "sideEffects": "none", "response": "complete_failure_envelope", "exitCategory": "policy_denied", "exitCode": 3 },
+      "milestone": 2, "status": "milestone_2", "roots": ["persistent_state", "snapshots", "registry", "runtime", "jobs", "staging"],
       "requestSchema": { "type": "object", "additionalProperties": false, "required": ["root", "path", "maxBytes"], "properties": { "root": { "type": "string" }, "path": { "type": "string" }, "maxBytes": { "type": "integer", "minimum": 0, "maximum": 4194304 } } },
       "successSchema": { "type": "object", "additionalProperties": false, "required": ["sha256", "byteLength"], "properties": { "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "byteLength": { "type": "integer", "minimum": 0, "maximum": 4194304 } } },
       "limits": { "maxInputBytes": 4096, "maxOutputBytes": 1024, "timeoutMsMax": 10000 },

@@ -259,9 +259,10 @@ test('operation registry is closed and specifies schemas, limits, ownership, cra
   assert.equal(value.operations.stat_regular.status, 'milestone_1');
   assert.equal(value.operations.read_regular.status, 'milestone_1');
   assert.equal(value.operations.mkdir_private.status, 'milestone_2');
-  for (const name of operations.slice(2).filter((name) => name !== 'mkdir_private'))
+  assert.equal(value.operations.sha256_regular.status, 'milestone_2');
+  for (const name of operations.slice(2).filter((name) => !['mkdir_private', 'sha256_regular'].includes(name)))
     assert.equal(value.operations[name].status, 'reserved_unsupported', name);
-  for (const name of operations.slice(2).filter((name) => name !== 'mkdir_private')) {
+  for (const name of operations.slice(2).filter((name) => !['mkdir_private', 'sha256_regular'].includes(name))) {
     assert.deepEqual(value.operations[name].unsupportedBehavior, {
       errorCode: 'EUNSUPPORTED',
       dispatch: 'reject_before_operation_dispatch',
