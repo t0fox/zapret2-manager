@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { transition } from './sanitizer-launch-ownership.mjs';
 
@@ -26,15 +27,13 @@ function readProcess(pid) {
     argv: cmdline.stdout.split('\0').filter(Boolean) } };
 }
 
-function readMarker(context) {
-  const read = wsl(['/bin/cat', context.pidFile]);
-  if (read.status !== 0) return { ok: false, error: `marker-unavailable: ${read.stderr?.trim() ?? ''}` };
-  if (Buffer.byteLength(read.stdout) > markerLimit) return { ok: false, error: 'marker-too-large' };
+export function parseOwnedMarker(contents, context) {
+  if (Buffer.byteLength(contents) > markerLimit) return { ok: false, error: 'marker-too-large' };
   let marker;
-  try { marker = JSON.parse(read.stdout); } catch { return { ok: false, error: 'marker-malformed' }; }
+  try { marker = JSON.parse(contents); } catch { return { ok: false, error: 'marker-malformed' }; }
   const keys = Object.keys(marker).sort();
-  const expectedKeys = ['pgid', 'pid', 'scenarioPath', 'sid', 'startTime', 'token'].sort();
-  if (JSON.stringify(keys) !== JSON.stringify(expectedKeys) || !Number.isInteger(marker.pid) || marker.pid < 2 ||
+  const expected = ['pgid', 'pid', 'scenarioPath', 'sid', 'startTime', 'token'].sort();
+  if (JSON.stringify(keys) !== JSON.stringify(expected) || !Number.isInteger(marker.pid) || marker.pid < 2 ||
       marker.pgid !== marker.pid || marker.sid !== marker.pid || typeof marker.startTime !== 'string' ||
       !/^\d+$/.test(marker.startTime) || typeof marker.token !== 'string' || !/^[a-f0-9]{48}$/.test(marker.token) ||
       typeof marker.scenarioPath !== 'string' || marker.scenarioPath.length > 1024)
@@ -44,10 +43,16 @@ function readMarker(context) {
   return { ok: true, marker };
 }
 
+function readMarker(context) {
+  const read = wsl(['/bin/cat', context.pidFile]);
+  if (read.status !== 0) return { ok: false, error: `marker-unavailable: ${read.stderr?.trim() ?? ''}` };
+  return parseOwnedMarker(read.stdout, context);
+}
+
 function enumerateGroup(pgid, sid, options = {}) {
-  const listCommand = options.procListCommand ?? `${wslRoot}/tests/native/core/fixtures/sanitizer-proc-group-scan.sh`;
-  const listed = options.procListCommand ? wsl([listCommand, String(pgid), String(sid), ...(options.procListArgs ?? [])]) :
-    wsl(['/bin/sh', listCommand, String(pgid), String(sid)]);
+  const scanner = options.procListCommand ?? `${wslRoot}/tests/native/core/fixtures/sanitizer-proc-group-scan.sh`;
+  const listed = options.procListCommand ? wsl([scanner, String(pgid), String(sid), ...(options.procListArgs ?? [])]) :
+    wsl(['/bin/sh', scanner, String(pgid), String(sid)]);
   if (listed.status !== 0) return { ok: false, members: [],
     error: `enumeration-failed: ${listed.stderr?.trim() || listed.error?.message || listed.status}` };
   const members = listed.stdout.trim().split('\n').filter(Boolean).slice(0, memberLimit).map((line) => {
@@ -57,140 +62,207 @@ function enumerateGroup(pgid, sid, options = {}) {
   return { ok: true, members, error: null };
 }
 
-function listTempMarkers(context) {
-  const found = wsl(['/usr/bin/find', '/tmp', '-maxdepth', '1', '-type', 'f', '-name',
-    `${context.pidFile.split('/').at(-1)}.tmp.*`, '-print']);
-  return found.status === 0 ? found.stdout.trim().split('\n').filter(Boolean) : [`temp-scan-failed: ${found.stderr?.trim()}`];
+export function markerLocation(pidFile) {
+  const normalized = path.posix.normalize(pidFile);
+  if (!normalized.startsWith('/')) throw new Error('pidFile must be absolute');
+  return { parent: path.posix.dirname(normalized), pattern: `${path.posix.basename(normalized)}.tmp.*` };
 }
 
-function signalGroup(signal, pgid) {
-  return wsl(['/bin/kill', `-${signal}`, `-${pgid}`]).status === 0;
+function listTempMarkers(context, parent, pattern) {
+  const found = wsl(['/usr/bin/find', parent, '-maxdepth', '1', '-type', 'f', '-name', pattern, '-print']);
+  if (found.status !== 0) throw new Error(`temp-scan-failed: ${found.stderr?.trim()}`);
+  return found.stdout.trim().split('\n').filter(Boolean);
 }
 
-function sleep() {
-  wsl(['/bin/sleep', '0.05']);
+function signalVerifiedGroup(signal, marker, members) {
+  const helper = `${wslRoot}/tests/native/core/fixtures/sanitizer-pidfd-signal.py`;
+  const invoked = spawnSync('wsl.exe', ['-d', 'Ubuntu', '-u', 'root', '--cd', wslRoot, '--',
+    '/usr/bin/python3', helper], { input: JSON.stringify({ signal, marker, members: members.map(({ pid }) => pid) }),
+    encoding: 'utf8', timeout: 5000, maxBuffer: 64 * 1024, windowsHide: true });
+  try {
+    const result = JSON.parse(invoked.stdout);
+    return result && typeof result.ok === 'boolean' && typeof result.sent === 'boolean' ? result :
+      { ok: false, sent: false, error: 'pidfd-helper-invalid-result' };
+  } catch {
+    return { ok: false, sent: false, error: `pidfd-helper-failed:${invoked.stderr?.trim() || invoked.status}` };
+  }
 }
+
+function sleep() { wsl(['/bin/sleep', '0.05']); }
 
 function deleteMarker(context) {
   const removed = wsl(['/bin/rm', '-f', context.pidFile]);
-  if (removed.status !== 0) return false;
-  return wsl(['/usr/bin/test', '!', '-e', context.pidFile]).status === 0;
+  return removed.status === 0 && wsl(['/usr/bin/test', '!', '-e', context.pidFile]).status === 0;
+}
+
+function identityFailure(marker, leader) {
+  return leader.startTime !== marker.startTime ? 'start-time-mismatch' :
+    leader.pgid !== marker.pgid || leader.sid !== marker.sid ? 'group-identity-mismatch' :
+      !leader.argv.includes(marker.token) ? 'token-argv-mismatch' :
+        !leader.argv.includes(marker.scenarioPath) ? 'path-argv-mismatch' : null;
+}
+
+function baseResult(context) {
+  return { status: 'uncertain', pid: null, identityVerified: false, termSent: false, killSent: false,
+    windowsReaped: context.launcher === null || context.launcher.exitCode !== null || context.launcher.signalCode !== null,
+    groupGone: false, scanOk: false, membersBefore: [], membersAfter: [], markerDeleted: false, evidence: '' };
+}
+
+async function reapLauncher(context, timeoutMs) {
+  const launcher = context.launcher;
+  if (launcher === null || launcher.exitCode !== null || launcher.signalCode !== null) return true;
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (reaped) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      launcher.off('exit', onExit);
+      resolve(reaped);
+    };
+    const onExit = (code, signal) => {
+      context.launcherExit = { code, signal, at: context.now() };
+      finish(true);
+    };
+    launcher.once('exit', onExit);
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    try { launcher.kill(); } catch { finish(false); }
+  });
+}
+
+function finish(context, result, status, evidence) {
+  result.status = status;
+  result.evidence = JSON.stringify(typeof evidence === 'string' ? { reason: evidence } : evidence);
+  if (context.state === 'CLEANING') transition(context, status === 'verified-gone' || status === 'not-started' ?
+    'CLEANED' : 'CLEANUP_UNCERTAIN');
+  return result;
+}
+
+async function verifyLeader(marker, options) {
+  const current = await (options.readProcess ?? readProcess)(marker.pid);
+  if (!current.ok) return { ok: false, error: current.error };
+  const mismatch = identityFailure(marker, current.record);
+  return mismatch ? { ok: false, error: mismatch, leader: current.record } : { ok: true, leader: current.record };
 }
 
 /** @typedef {{status:'verified-gone'|'not-started'|'uncertain',pid:string|null,identityVerified:boolean,termSent:boolean,killSent:boolean,windowsReaped:boolean,groupGone:boolean,scanOk:boolean,membersBefore:readonly number[],membersAfter:readonly number[],markerDeleted:boolean,evidence:string}} CleanupResult */
 
-export function cleanupOwnedGroup(context, options = {}) {
-  const result = { status: 'uncertain', pid: null, identityVerified: false, termSent: false,
-    killSent: false, windowsReaped: context.launcher === null || context.launcher.exitCode !== null ||
-      context.launcher.signalCode !== null, groupGone: false, scanOk: false, membersBefore: [],
-    membersAfter: [], markerDeleted: false, evidence: '' };
-  if (context.state === 'CLEANED' || context.state === 'CLEANUP_UNCERTAIN') {
-    result.evidence = JSON.stringify({ reason: 'cleanup-already-settled' });
-    return result;
-  }
-  if (context.state === 'CREATED' && context.launcher === null) {
-    transition(context, 'FAILED');
-  }
-  if (context.state === 'SPAWNED') transition(context, 'FAILED');
-  if (context.state !== 'CLEANING') transition(context, 'CLEANING');
-
-  const parse = (options.readMarker ?? readMarker)(context);
-  if (!parse.ok) {
-    const evidence = (options.listTempMarkers ?? listTempMarkers)(context);
-    context.partialEvidence = [...new Set([...context.partialEvidence, ...evidence])];
-    if (context.launcher === null && context.failure) {
-      result.status = 'not-started';
-      result.groupGone = true;
-      result.scanOk = true;
-      result.windowsReaped = true;
-      result.evidence = JSON.stringify({ reason: 'spawn-failed-before-child', markerError: parse.error });
-      transition(context, 'CLEANED');
-      return result;
-    }
-    result.evidence = JSON.stringify({ reason: parse.error, partialEvidence: context.partialEvidence });
-    transition(context, 'CLEANUP_UNCERTAIN');
-    return result;
-  }
-
-  const marker = parse.marker;
-  context.marker = marker;
-  result.pid = String(marker.pid);
-  const current = (options.readProcess ?? readProcess)(marker.pid);
-  if (!current.ok) {
-    const scan = (options.enumerateGroup ?? enumerateGroup)(marker.pgid, marker.sid, options);
-    result.scanOk = scan.ok;
-    result.membersAfter = scan.members.map((member) => member.pid);
-    if (scan.ok && scan.members.length === 0) {
-      result.identityVerified = true;
-      result.groupGone = true;
-      result.markerDeleted = (options.deleteMarker ?? deleteMarker)(context);
-      result.status = result.markerDeleted ? 'verified-gone' : 'uncertain';
-    }
-    result.evidence = JSON.stringify({ reason: current.error, scanError: scan.error, membersAfter: result.membersAfter });
-    transition(context, result.status === 'verified-gone' ? 'CLEANED' : 'CLEANUP_UNCERTAIN');
-    return result;
-  }
-  const leader = current.record;
-  const identityFailure = leader.startTime !== marker.startTime ? 'start-time-mismatch' :
-    leader.pgid !== marker.pgid || leader.sid !== marker.sid ? 'group-identity-mismatch' :
-      !leader.argv.includes(marker.token) ? 'token-argv-mismatch' :
-        !leader.argv.includes(marker.scenarioPath) ? 'path-argv-mismatch' : null;
-  if (identityFailure) {
-    const scan = (options.enumerateGroup ?? enumerateGroup)(marker.pgid, marker.sid, options);
-    result.scanOk = scan.ok;
-    result.membersAfter = scan.members.map((member) => member.pid);
-    result.evidence = JSON.stringify({ reason: identityFailure, leader, scanError: scan.error });
-    transition(context, 'CLEANUP_UNCERTAIN');
-    return result;
-  }
-
-  result.identityVerified = true;
-  let scan = (options.enumerateGroup ?? enumerateGroup)(marker.pgid, marker.sid, options);
-  if (!scan.ok) {
-    result.evidence = JSON.stringify({ reason: scan.error });
-    transition(context, 'CLEANUP_UNCERTAIN');
-    return result;
-  }
-  result.scanOk = true;
-  result.membersBefore = scan.members.map((member) => member.pid);
-  if (scan.members.length !== 0) {
-    options.gates?.beforeTerm?.();
-    result.termSent = (options.signalGroup ?? signalGroup)('TERM', marker.pgid);
-    for (let attempt = 0; attempt < 20; attempt++) {
-      scan = (options.enumerateGroup ?? enumerateGroup)(marker.pgid, marker.sid, options);
-      if (!scan.ok) break;
-      result.membersAfter = scan.members.map((member) => member.pid);
-      if (scan.members.length === 0) break;
-      if (options.enumerateGroup) break;
-      (options.sleep ?? sleep)();
-    }
-    if (scan.ok && scan.members.length !== 0) {
-      options.gates?.beforeKill?.();
-      result.killSent = (options.signalGroup ?? signalGroup)('KILL', marker.pgid);
-      scan = (options.enumerateGroup ?? enumerateGroup)(marker.pgid, marker.sid, options);
-      result.membersAfter = scan.members.map((member) => member.pid);
-    }
-  } else result.membersAfter = [];
-
-  result.scanOk = scan.ok;
-  result.groupGone = scan.ok && scan.members.length === 0;
-  if (result.groupGone) result.markerDeleted = (options.deleteMarker ?? deleteMarker)(context);
-  result.status = result.groupGone && result.markerDeleted ? 'verified-gone' : 'uncertain';
-  result.evidence = JSON.stringify({ reason: !scan.ok ? scan.error : result.groupGone ?
-    result.markerDeleted ? 'group-empty' : 'marker-delete-failed' : 'group-survived',
-  membersBefore: result.membersBefore, membersAfter: result.membersAfter });
-  transition(context, result.status === 'verified-gone' ? 'CLEANED' : 'CLEANUP_UNCERTAIN');
-  return result;
+export async function observeOwnedMarker(context, options = {}) {
+  const location = markerLocation(context.pidFile);
+  await options.beforeMarkerRename?.();
+  const parsed = await (options.readMarker ?? readMarker)(context);
+  if (parsed.ok) return parsed;
+  const partial = await (options.listTempMarkers ?? listTempMarkers)(context, location.parent, location.pattern);
+  return { ...parsed, partial };
 }
 
-export function cleanupProcessGroup(pidFile, expectedToken, expectedPath, options = {}) {
+export async function cleanupOwnedGroup(context, options = {}) {
+  const result = baseResult(context);
+  try {
+    if (context.state === 'CLEANED' || context.state === 'CLEANUP_UNCERTAIN')
+      return finish(context, result, 'uncertain', 'cleanup-already-settled');
+    if (context.state === 'CREATED' && context.launcher === null) transition(context, 'FAILED');
+    if (context.state === 'SPAWNED') transition(context, 'FAILED');
+    if (context.state !== 'CLEANING') transition(context, 'CLEANING');
+    result.windowsReaped = await reapLauncher(context, options.reapTimeoutMs ?? 1000);
+
+    const observed = await observeOwnedMarker(context, options);
+    if (!observed.ok) {
+      context.partialEvidence = [...new Set([...context.partialEvidence, ...(observed.partial ?? [])])];
+      if (context.launcher === null && context.failure) {
+        result.groupGone = true;
+        result.scanOk = true;
+        result.windowsReaped = true;
+        return finish(context, result, 'not-started', { reason: 'spawn-failed-before-child', markerError: observed.error });
+      }
+      return finish(context, result, 'uncertain', { reason: observed.error, partialEvidence: context.partialEvidence });
+    }
+
+    const marker = observed.marker;
+    context.marker = marker;
+    result.pid = String(marker.pid);
+    let verified = await verifyLeader(marker, options);
+    if (!verified.ok) {
+      const scan = await (options.enumerateGroup ?? enumerateGroup)(marker.pgid, marker.sid, options);
+      result.scanOk = scan.ok;
+      result.membersAfter = scan.members.map(({ pid }) => pid);
+      if (verified.error?.startsWith('stat-unavailable') && scan.ok && scan.members.length === 0) {
+        result.identityVerified = true;
+        result.groupGone = true;
+        result.markerDeleted = await (options.deleteMarker ?? deleteMarker)(context);
+        return finish(context, result, result.markerDeleted && result.windowsReaped ? 'verified-gone' : 'uncertain',
+          result.markerDeleted ? 'group-empty' : 'marker-delete-failed');
+      }
+      return finish(context, result, 'uncertain', { reason: verified.error, leader: verified.leader,
+        scanError: scan.error, membersAfter: result.membersAfter });
+    }
+    result.identityVerified = true;
+
+    let scan = await (options.enumerateGroup ?? enumerateGroup)(marker.pgid, marker.sid, options);
+    if (!scan.ok) return finish(context, result, 'uncertain', scan.error);
+    result.scanOk = true;
+    result.membersBefore = scan.members.map(({ pid }) => pid);
+
+    if (scan.members.length !== 0) {
+      await (options.beforeTerm ?? options.gates?.beforeTerm)?.();
+      if (options.signalGroup) {
+        verified = await verifyLeader(marker, options);
+        if (!verified.ok) return finish(context, result, 'uncertain', verified.error);
+      }
+      const term = options.signalVerifiedGroup ? await options.signalVerifiedGroup('TERM', marker, scan.members) :
+        options.signalGroup ? { ok: true, sent: await options.signalGroup('TERM', marker.pgid) } :
+          signalVerifiedGroup('TERM', marker, scan.members);
+      if (!term.ok) return finish(context, result, 'uncertain', term.error);
+      result.termSent = term.sent;
+      for (let attempt = 0; attempt < 20; attempt++) {
+        scan = await (options.enumerateGroup ?? enumerateGroup)(marker.pgid, marker.sid, options);
+        if (!scan.ok) {
+          result.scanOk = false;
+          return finish(context, result, 'uncertain', scan.error);
+        }
+        result.membersAfter = scan.members.map(({ pid }) => pid);
+        if (scan.members.length === 0) break;
+        if (options.enumerateGroup) break;
+        await (options.sleep ?? sleep)();
+      }
+      if (scan.members.length !== 0) {
+        await (options.beforeKill ?? options.gates?.beforeKill)?.();
+        if (options.signalGroup) {
+          verified = await verifyLeader(marker, options);
+          if (!verified.ok) return finish(context, result, 'uncertain', verified.error);
+        }
+        const kill = options.signalVerifiedGroup ? await options.signalVerifiedGroup('KILL', marker, scan.members) :
+          options.signalGroup ? { ok: true, sent: await options.signalGroup('KILL', marker.pgid) } :
+            signalVerifiedGroup('KILL', marker, scan.members);
+        if (!kill.ok) return finish(context, result, 'uncertain', kill.error);
+        result.killSent = kill.sent;
+        scan = await (options.enumerateGroup ?? enumerateGroup)(marker.pgid, marker.sid, options);
+        if (!scan.ok) {
+          result.scanOk = false;
+          return finish(context, result, 'uncertain', scan.error);
+        }
+        result.membersAfter = scan.members.map(({ pid }) => pid);
+      }
+    } else result.membersAfter = [];
+
+    result.groupGone = scan.members.length === 0;
+    if (result.groupGone) result.markerDeleted = await (options.deleteMarker ?? deleteMarker)(context);
+    const success = result.groupGone && result.markerDeleted && result.windowsReaped;
+    return finish(context, result, success ? 'verified-gone' : 'uncertain', success ? 'group-empty' :
+      !result.groupGone ? 'group-survived' : !result.markerDeleted ? 'marker-delete-failed' : 'windows-not-reaped');
+  } catch (error) {
+    result.markerDeleted = false;
+    return finish(context, result, 'uncertain', { reason: 'cleanup-exception',
+      error: { name: error?.name ?? 'Error', message: error?.message ?? String(error) } });
+  }
+}
+
+export async function cleanupProcessGroup(pidFile, expectedToken, expectedPath, options = {}) {
   const context = { state: 'IDENTITY_VERIFIED', pidFile, token: expectedToken, scenarioPath: expectedPath,
     launcher: null, marker: null, partialEvidence: [], launcherExit: null, failure: null, now: Date.now };
-  const result = cleanupOwnedGroup(context, options);
-  return { pid: result.pid, identityVerified: result.identityVerified && result.scanOk, signalSent: result.termSent,
+  const result = await cleanupOwnedGroup(context, options);
+  return { ...result, identityVerified: result.identityVerified && result.scanOk, signalSent: result.termSent,
     terminated: result.groupGone, reaped: result.groupGone, processGone: result.groupGone,
     membersBefore: result.membersBefore.map((pid) => ({ pid })),
-    membersAfter: result.membersAfter.map((pid) => ({ pid })), evidence: result.evidence,
-    status: result.status, termSent: result.termSent, killSent: result.killSent, windowsReaped: result.windowsReaped,
-    groupGone: result.groupGone, scanOk: result.scanOk, markerDeleted: result.markerDeleted };
+    membersAfter: result.membersAfter.map((pid) => ({ pid })) };
 }

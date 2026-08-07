@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { launchGroup, awaitReadiness } from './sanitizer-launch-ownership.mjs';
 import { cleanupOwnedGroup } from './sanitizer-process-cleanup.mjs';
 
 const projectRoot = path.resolve('.');
@@ -115,25 +116,31 @@ function compilerCommand(executable, argv) {
   return executable.endsWith('.sh') ? ['/bin/sh', executable, ...argv] : [executable, ...argv];
 }
 
-function runControlled(command, env, input, timeoutMs, pidFile, cleanupToken) {
-  const args = [
+async function runControlled(command, env, input, timeoutMs, pidFile, cleanupToken) {
+  const context = launchGroup({ readyMode: 'silent', pidFile, token: cleanupToken, scenarioPath: command[0],
+    command: [wslExecutable, '-d', 'Ubuntu', '-u', 'root', '--cd', wslRoot, '--',
     '/usr/bin/setsid', '--wait', '/bin/sh', `${fixtureRoot}/sanitizer-process-wrapper.sh`, pidFile,
     cleanupToken, command[0], 'silent',
     '/usr/bin/env', ...Object.entries(env).map(([key, value]) => `${key}=${value}`), ...command
-  ];
-  const run = wsl(args, { input, timeout: timeoutMs });
-  const context = { state: 'IDENTITY_VERIFIED', pidFile, token: cleanupToken, scenarioPath: command[0],
-    launcher: null, marker: null, partialEvidence: [], launcherExit: null, failure: null, now: Date.now };
-  const ownedCleanup = run.timedOut ? cleanupOwnedGroup(context) : null;
-  const cleanup = ownedCleanup ? {
-    ...ownedCleanup, terminated: ownedCleanup.groupGone, reaped: ownedCleanup.groupGone,
-    processGone: ownedCleanup.groupGone, signalSent: ownedCleanup.termSent,
-    membersBefore: ownedCleanup.membersBefore.map((pid) => ({ pid })),
-    membersAfter: ownedCleanup.membersAfter.map((pid) => ({ pid }))
-  } : {
-    pid: null, terminated: false, reaped: true, processGone: true, evidence: 'process exited before cleanup'
-  };
-  return { run, cleanup };
+  ] });
+  let stdout = Buffer.alloc(0);
+  let stderr = Buffer.alloc(0);
+  context.launcher?.stdout?.on('data', (chunk) => { stdout = Buffer.concat([stdout, Buffer.from(chunk)]).subarray(0, streamLimit); });
+  context.launcher?.stderr?.on('data', (chunk) => { stderr = Buffer.concat([stderr, Buffer.from(chunk)]).subarray(0, streamLimit); });
+  if (context.launcher?.stdin) {
+    if (input !== undefined) context.launcher.stdin.write(input);
+    context.launcher.stdin.end();
+  }
+  const outcome = await awaitReadiness(context, { timeoutMs, cleanup: cleanupOwnedGroup });
+  const cleanup = { ...outcome.cleanup, terminated: outcome.cleanup?.groupGone ?? false,
+    reaped: outcome.cleanup?.groupGone ?? false, processGone: outcome.cleanup?.groupGone ?? false,
+    signalSent: outcome.cleanup?.termSent ?? false,
+    membersBefore: (outcome.cleanup?.membersBefore ?? []).map((pid) => ({ pid })),
+    membersAfter: (outcome.cleanup?.membersAfter ?? []).map((pid) => ({ pid })) };
+  const run = { exitCode: context.launcherExit?.code ?? null, signal: context.launcherExit?.signal ?? null,
+    stdout: bounded(stdout), stderr: bounded(stderr), timedOut: outcome.kind === 'timeout',
+    error: outcome.kind === 'launch-error' ? context.failure : null };
+  return { run, cleanup, context, outcome };
 }
 
 function emit(report) {
@@ -149,6 +156,8 @@ const tempRoot = `/tmp/${tag}`;
 let binaryPath = `${tempRoot}/${options.scenario}`;
 const probePath = `${tempRoot}/probe`;
 const testRoot = `${tempRoot}/roots`;
+const probePidFile = `/tmp/z2m-cleanup-${cleanupToken}-probe.pid`;
+const runPidFile = `/tmp/z2m-cleanup-${cleanupToken}-run.pid`;
 const sanitizerFlags = ['-fsanitize=address,undefined', '-fno-omit-frame-pointer', '-g'];
 const report = {
   classification: 'ASSERTION_FAILURE',
@@ -165,6 +174,7 @@ const report = {
   skipEvidence: null,
   assertion: null
 };
+const ownedExecutions = [];
 
 try {
   const madeTemp = wsl(['/bin/mkdir', '-m', '0700', tempRoot]);
@@ -184,8 +194,9 @@ try {
       report.classification = report.skipEvidence ? 'SKIP_UNAVAILABLE' : 'COMPILE_FAILED';
     } else {
       const probeTimeoutMs = options.probeBehavior === 'normal' ? Math.max(options.timeoutMs, 3000) : options.timeoutMs;
-      const probeExecution = runControlled([probePath], sanitizerEnvironment, undefined,
-        probeTimeoutMs, `${tempRoot}/probe.pid`, cleanupToken);
+      const probeExecution = await runControlled([probePath], sanitizerEnvironment, undefined,
+        probeTimeoutMs, probePidFile, cleanupToken);
+      ownedExecutions.push(probeExecution);
       report.probe = { ...report.probe, runtime: probeExecution.run, cleanup: probeExecution.cleanup };
       if (probeExecution.run.timedOut) {
         report.timeout.timedOut = true;
@@ -251,8 +262,9 @@ try {
                 arguments: { root: 'runtime', path: 'sanitizer.txt' }
               });
             }
-            const execution = runControlled([binaryPath], runEnv, input, options.timeoutMs,
-              `${tempRoot}/run.pid`, cleanupToken);
+            const execution = await runControlled([binaryPath], runEnv, input, options.timeoutMs,
+              runPidFile, cleanupToken);
+            ownedExecutions.push(execution);
             report.run = execution.run;
             report.cleanup = execution.cleanup;
             report.timeout.timedOut = report.run.timedOut;
@@ -282,7 +294,21 @@ try {
   report.classification = 'ASSERTION_FAILURE';
   report.assertion = { error: error.message };
 } finally {
-  wsl(['/bin/rm', '-rf', tempRoot]);
+  const ephemeralFiles = [probePath, `${testRoot}/tmp/zapret2-manager/runtime/sanitizer.txt`,
+    `${tempRoot}/${options.scenario}`];
+  const ephemeralDirectories = roots.map((root) => `${testRoot}/${root}`).sort((left, right) =>
+    right.split('/').length - left.split('/').length).concat(testRoot, tempRoot);
+  wsl(['/bin/rm', '-f', ...ephemeralFiles]);
+  wsl(['/bin/rmdir', ...ephemeralDirectories]);
+  const cleanupCertain = ownedExecutions.every(({ cleanup }) =>
+    ['verified-gone', 'not-started'].includes(cleanup.status) && cleanup.windowsReaped === true);
+  if (!cleanupCertain) {
+    const evidencePath = ownedExecutions.find(({ cleanup }) =>
+      !['verified-gone', 'not-started'].includes(cleanup.status) || cleanup.windowsReaped !== true)?.context.pidFile ?? null;
+    report.classification = 'ASSERTION_FAILURE';
+    report.assertion = { error: 'sanitizer ownership cleanup uncertain; artifacts retained',
+      evidencePath, evidence: ownedExecutions.map(({ cleanup }) => cleanup.evidence) };
+  }
 }
 
 emit(report);

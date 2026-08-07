@@ -5,7 +5,7 @@ import { PassThrough } from 'node:stream';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
-import { launchGroup, awaitReadiness } from './sanitizer-launch-ownership.mjs';
+import { launchGroup, awaitReadiness, observeOwnership } from './sanitizer-launch-ownership.mjs';
 import { cleanupOwnedGroup } from './sanitizer-process-cleanup.mjs';
 
 const projectRoot = path.resolve('.');
@@ -49,6 +49,12 @@ function fakeChild() {
   return child;
 }
 
+function deferred() {
+  let resolve;
+  const promise = new Promise((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
 function marker(token = 'a'.repeat(48)) {
   return { pid: 701, startTime: '1000', pgid: 701, sid: 701, token,
     scenarioPath: '/fixture' };
@@ -79,8 +85,10 @@ test('2 partial identity retains evidence and forbids every Linux signal', async
   const child = fakeChild();
   const context = launchGroup({ readyMode: 'silent', command: ['fixture'], scenarioPath: '/fixture',
     pidFile: '/tmp/partial', token: 'a'.repeat(48), spawnImpl: () => child });
-  context.state = 'IDENTITY_PARTIAL';
-  context.partialEvidence = ['/tmp/partial.tmp.701'];
+  await observeOwnership(context, {
+    readMarker: () => ({ ok: false, error: 'marker-unavailable' }),
+    listTempMarkers: () => ['/tmp/partial.tmp.701']
+  });
   const controller = new AbortController();
   controller.abort();
   const result = await awaitReadiness(context, { timeoutMs: 1000, signal: controller.signal,
@@ -96,10 +104,10 @@ test('2 partial identity retains evidence and forbids every Linux signal', async
   assert.equal(result.cleanup.markerDeleted, false);
 });
 
-test('3 verified survivors escalate TERM to KILL and require an empty scan', () => {
+test('3 verified survivors escalate TERM to KILL and require an empty scan', async () => {
   const scans = [[701, 702], [701, 702], []];
   const signals = [];
-  const result = cleanupOwnedGroup(contextForCleanup(), {
+  const result = await cleanupOwnedGroup(contextForCleanup(), {
     readMarker: () => ({ ok: true, marker: marker() }),
     readProcess: () => ({ ok: true, record: { ...marker(), argv: ['a'.repeat(48), '/fixture'] } }),
     enumerateGroup: () => ({ ok: true, members: scans.shift().map((pid) => ({ pid })) }),
@@ -114,9 +122,9 @@ test('3 verified survivors escalate TERM to KILL and require an empty scan', () 
   assert.equal(result.status, 'verified-gone');
 });
 
-test('4 natural exit between verified scan and TERM succeeds only on verified empty rescan', () => {
+test('4 natural exit between verified scan and TERM succeeds only on verified empty rescan', async () => {
   const scans = [[701], []];
-  const result = cleanupOwnedGroup(contextForCleanup(), {
+  const result = await cleanupOwnedGroup(contextForCleanup(), {
     readMarker: () => ({ ok: true, marker: marker() }),
     readProcess: () => ({ ok: true, record: { ...marker(), argv: ['a'.repeat(48), '/fixture'] } }),
     enumerateGroup: () => ({ ok: true, members: scans.shift().map((pid) => ({ pid })) }),
@@ -127,9 +135,9 @@ test('4 natural exit between verified scan and TERM succeeds only on verified em
   assert.equal(result.status, 'verified-gone');
 });
 
-test('5 PID reuse after marker publication forbids TERM KILL and marker deletion', () => {
+test('5 PID reuse after marker publication forbids TERM KILL and marker deletion', async () => {
   let signalled = false;
-  const result = cleanupOwnedGroup(contextForCleanup(), {
+  const result = await cleanupOwnedGroup(contextForCleanup(), {
     readMarker: () => ({ ok: true, marker: marker() }),
     readProcess: () => ({ ok: true, record: { ...marker(), startTime: '1001', argv: ['a'.repeat(48), '/fixture'] } }),
     enumerateGroup: () => ({ ok: true, members: [{ pid: 701 }] }),
@@ -163,9 +171,9 @@ test('6 readiness at the exact deadline settles once while post-deadline readine
   }
 });
 
-test('7 cleanup uncertainty retains final and temp markers and cannot classify PASS', () => {
+test('7 cleanup uncertainty retains final and temp markers and cannot classify PASS', async () => {
   const context = contextForCleanup({ partialEvidence: ['/tmp/marker.tmp.701'] });
-  const result = cleanupOwnedGroup(context, {
+  const result = await cleanupOwnedGroup(context, {
     readMarker: () => ({ ok: true, marker: marker() }),
     readProcess: () => ({ ok: true, record: { ...marker(), argv: ['a'.repeat(48), '/fixture'] } }),
     enumerateGroup: () => ({ ok: false, members: [], error: 'scan failed' })
@@ -180,8 +188,7 @@ test('8 Windows launcher death with Linux survival independently cleans verified
   const child = fakeChild();
   const context = launchGroup({ readyMode: 'silent', command: ['fixture'], scenarioPath: '/fixture',
     pidFile: '/tmp/marker', token: 'a'.repeat(48), spawnImpl: () => child });
-  context.marker = marker();
-  context.state = 'IDENTITY_VERIFIED';
+  await observeOwnership(context, { readMarker: () => ({ ok: true, marker: marker() }) });
   const pending = awaitReadiness(context, { timeoutMs: 1000, cleanup: () => ({
     status: 'verified-gone', windowsReaped: true, groupGone: true, markerDeleted: true
   }) });
@@ -233,9 +240,9 @@ test('child error and cancellation settle once and restore listener counts', asy
   }
 });
 
-test('scan failure after TERM cannot delete the marker or claim disappearance', () => {
+test('scan failure after TERM cannot delete the marker or claim disappearance', async () => {
   const scans = [{ ok: true, members: [{ pid: 701 }] }, { ok: false, members: [], error: 'scan failed' }];
-  const result = cleanupOwnedGroup(contextForCleanup(), {
+  const result = await cleanupOwnedGroup(contextForCleanup(), {
     readMarker: () => ({ ok: true, marker: marker() }),
     readProcess: () => ({ ok: true, record: { ...marker(), argv: ['a'.repeat(48), '/fixture'] } }),
     enumerateGroup: () => scans.shift(), signalGroup: () => true
@@ -247,8 +254,8 @@ test('scan failure after TERM cannot delete the marker or claim disappearance', 
   assert.equal(result.status, 'uncertain');
 });
 
-test('marker deletion failure turns verified absence into uncertainty', () => {
-  const result = cleanupOwnedGroup(contextForCleanup(), {
+test('marker deletion failure turns verified absence into uncertainty', async () => {
+  const result = await cleanupOwnedGroup(contextForCleanup(), {
     readMarker: () => ({ ok: true, marker: marker() }),
     readProcess: () => ({ ok: true, record: { ...marker(), argv: ['a'.repeat(48), '/fixture'] } }),
     enumerateGroup: () => ({ ok: true, members: [] }), deleteMarker: () => false
@@ -256,6 +263,157 @@ test('marker deletion failure turns verified absence into uncertainty', () => {
   assert.equal(result.groupGone, true);
   assert.equal(result.markerDeleted, false);
   assert.equal(result.status, 'uncertain');
+});
+
+test('suspended readiness cannot mutate READY after timeout reserves settlement', async () => {
+  const child = fakeChild();
+  const gate = deferred();
+  let now = 0;
+  let cleanupCalls = 0;
+  const context = launchGroup({ readyMode: 'ready', command: ['fixture'], scenarioPath: '/fixture',
+    pidFile: '/tmp/marker', token: 'a'.repeat(48), spawnImpl: () => child, now: () => now });
+  const pending = awaitReadiness(context, { timeoutMs: 0,
+    readMarker: () => ({ ok: true, marker: marker() }),
+    gates: { beforeReadySettle: () => gate.promise },
+    cleanup: async () => { cleanupCalls += 1; return { status: 'uncertain', windowsReaped: true }; } });
+  child.stdout.write(`${JSON.stringify(marker())}\n`);
+  await new Promise((resolve) => setImmediate(resolve));
+  now = 1;
+  const result = await pending;
+  assert.equal(result.kind, 'timeout');
+  const settledState = context.state;
+  gate.resolve();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(context.state, settledState);
+  assert.notEqual(context.state, 'READY');
+  assert.equal(cleanupCalls, 1);
+});
+
+test('PID reuse immediately before TERM forbids every signal and marker deletion', async () => {
+  let reads = 0;
+  let signalled = false;
+  const result = await cleanupOwnedGroup(contextForCleanup(), {
+    readMarker: () => ({ ok: true, marker: marker() }),
+    readProcess: () => ({ ok: true, record: { ...marker(), startTime: ++reads === 1 ? '1000' : '1001',
+      argv: ['a'.repeat(48), '/fixture'] } }),
+    enumerateGroup: () => ({ ok: true, members: [{ pid: 701 }] }),
+    beforeTerm: async () => {},
+    signalGroup: () => { signalled = true; return true; }, deleteMarker: () => true
+  });
+  assert.equal(signalled, false);
+  assert.equal(result.status, 'uncertain');
+  assert.equal(result.markerDeleted, false);
+});
+
+test('identity change inside atomic pidfd signal step sends nothing and retains marker', async () => {
+  let deleted = false;
+  const result = await cleanupOwnedGroup(contextForCleanup(), {
+    readMarker: () => ({ ok: true, marker: marker() }),
+    readProcess: () => ({ ok: true, record: { ...marker(), argv: ['a'.repeat(48), '/fixture'] } }),
+    enumerateGroup: () => ({ ok: true, members: [{ pid: 701 }] }),
+    signalVerifiedGroup: (_signal, owned, members) => {
+      assert.equal(owned.startTime, '1000');
+      assert.deepEqual(members.map(({ pid }) => pid), [701]);
+      return { ok: false, sent: false, error: 'leader-start-time-mismatch' };
+    },
+    deleteMarker: () => { deleted = true; return true; }
+  });
+  assert.equal(result.termSent, false);
+  assert.equal(result.killSent, false);
+  assert.equal(deleted, false);
+  assert.equal(result.status, 'uncertain');
+  assert.match(result.evidence, /leader-start-time-mismatch/);
+});
+
+test('PID reuse immediately before KILL forbids KILL and marker deletion', async () => {
+  let reads = 0;
+  const signals = [];
+  const result = await cleanupOwnedGroup(contextForCleanup(), {
+    readMarker: () => ({ ok: true, marker: marker() }),
+    readProcess: () => ({ ok: true, record: { ...marker(), startTime: ++reads < 3 ? '1000' : '1001',
+      argv: ['a'.repeat(48), '/fixture'] } }),
+    enumerateGroup: () => ({ ok: true, members: [{ pid: 701 }] }),
+    beforeTerm: async () => {}, beforeKill: async () => {},
+    signalGroup: (signal) => { signals.push(signal); return true; }, deleteMarker: () => true
+  });
+  assert.deepEqual(signals, ['TERM']);
+  assert.equal(result.killSent, false);
+  assert.equal(result.status, 'uncertain');
+  assert.equal(result.markerDeleted, false);
+});
+
+test('stubborn launcher reap timeout cannot report verified cleanup', async () => {
+  const child = fakeChild();
+  child.kill = () => true;
+  const context = launchGroup({ readyMode: 'silent', command: ['fixture'], scenarioPath: '/fixture',
+    spawnImpl: () => child });
+  const result = await awaitReadiness(context, { timeoutMs: 0, reapTimeoutMs: 1,
+    cleanup: async () => ({ status: 'verified-gone', windowsReaped: false, groupGone: true, markerDeleted: true }) });
+  assert.equal(result.kind, 'timeout');
+  assert.equal(result.cleanup.windowsReaped, false);
+  assert.equal(result.cleanup.status, 'uncertain');
+});
+
+test('cleanup awaits async TERM and KILL gates in order', async () => {
+  const termGate = deferred();
+  const killGate = deferred();
+  const events = [];
+  const pending = cleanupOwnedGroup(contextForCleanup(), {
+    readMarker: () => ({ ok: true, marker: marker() }),
+    readProcess: () => ({ ok: true, record: { ...marker(), argv: ['a'.repeat(48), '/fixture'] } }),
+    enumerateGroup: (() => { const scans = [[701], [701], []]; return () => ({ ok: true,
+      members: scans.shift().map((pid) => ({ pid })) }); })(),
+    beforeTerm: async () => { events.push('term-gate'); await termGate.promise; },
+    beforeKill: async () => { events.push('kill-gate'); await killGate.promise; },
+    signalGroup: (signal) => { events.push(signal); return true; }, deleteMarker: () => true
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(events, ['term-gate']);
+  termGate.resolve();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(events, ['term-gate', 'TERM', 'kill-gate']);
+  killGate.resolve();
+  const result = await pending;
+  assert.equal(result.status, 'verified-gone');
+  assert.deepEqual(events, ['term-gate', 'TERM', 'kill-gate', 'KILL']);
+});
+
+test('cleanup dependency and gate throws always resolve uncertain', async () => {
+  const cases = [
+    { readMarker: () => { throw new Error('marker throw'); } },
+    { readMarker: () => ({ ok: true, marker: marker() }), readProcess: () => { throw new Error('process throw'); } },
+    { readMarker: () => ({ ok: true, marker: marker() }), readProcess: () => ({ ok: true,
+      record: { ...marker(), argv: ['a'.repeat(48), '/fixture'] } }), enumerateGroup: () => { throw new Error('scan throw'); } },
+    { beforeTerm: async () => { throw new Error('term gate throw'); } },
+    { signalGroup: () => { throw new Error('signal throw'); } },
+    { beforeKill: async () => { throw new Error('kill gate throw'); } },
+    { deleteMarker: () => { throw new Error('delete throw'); }, enumerateGroup: () => ({ ok: true, members: [] }) }
+  ];
+  for (const injected of cases) {
+    const defaults = {
+      readMarker: () => ({ ok: true, marker: marker() }),
+      readProcess: () => ({ ok: true, record: { ...marker(), argv: ['a'.repeat(48), '/fixture'] } }),
+      enumerateGroup: (() => { const scans = [[701], [701], []]; return () => ({ ok: true,
+        members: (scans.shift() ?? []).map((pid) => ({ pid })) }); })(),
+      signalGroup: () => true, deleteMarker: () => true
+    };
+    const result = await cleanupOwnedGroup(contextForCleanup(), { ...defaults, ...injected });
+    assert.equal(result.status, 'uncertain');
+    assert.equal(result.markerDeleted, false);
+    assert.match(result.evidence, /throw/);
+  }
+});
+
+test('partial marker discovery uses the pidFile canonical parent', async () => {
+  let requested;
+  const context = contextForCleanup({ state: 'SPAWNED', pidFile: '/tmp/nested/run.pid', marker: null });
+  await observeOwnership(context, {
+    readMarker: () => ({ ok: false, error: 'missing' }),
+    listTempMarkers: (_owned, parent, pattern) => { requested = [parent, pattern]; return ['/tmp/nested/run.pid.tmp.9']; }
+  });
+  assert.deepEqual(requested, ['/tmp/nested', 'run.pid.tmp.*']);
+  assert.equal(context.state, 'IDENTITY_PARTIAL');
+  assert.deepEqual(context.partialEvidence, ['/tmp/nested/run.pid.tmp.9']);
 });
 
 test('9 focused runs leave no cleanup marker or temp artifact', () => {

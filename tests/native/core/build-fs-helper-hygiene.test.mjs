@@ -12,9 +12,18 @@ const rootOutputArtifact = path.join(projectRoot, 'fs-helper-test');
 const tag = `z2m-build-hygiene-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
 const tempRoot = `/tmp/${tag}`;
 const tempDir = `${tempRoot}/build`;
-const forbiddenRootNames = (name) => name === '-DZ2M_TESTING' || name === 'a.out' ||
-  name.endsWith('.o') || name === 'core' || name.startsWith('core.') ||
-  (/saniti[sz]er/i.test(name) && !/\.(?:c|mjs|sh)$/.test(name));
+const sourceExtensions = /\.(?:c|h|mjs|js|sh|py|md|json)$/i;
+const executableEvidence = (fullPath) => {
+  const header = fs.readFileSync(fullPath).subarray(0, 4);
+  return { script: header.subarray(0, 2).toString() === '#!',
+    binary: header.subarray(0, 4).equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46])) || header.subarray(0, 2).toString() === 'MZ' };
+};
+const forbiddenRootNames = (name, fullPath) => {
+  if (name === '-DZ2M_TESTING' || name === 'a.out' || name.endsWith('.o') || name === 'core' || name.startsWith('core.')) return true;
+  if (!/saniti[sz]er/i.test(name)) return false;
+  const evidence = executableEvidence(fullPath);
+  return evidence.binary || evidence.script && !sourceExtensions.test(name);
+};
 
 function wsl(args, options = {}) {
   return spawnSync('wsl.exe', ['-d', 'Ubuntu', '-u', 'root', '--cd', wslRoot, '--', ...args], {
@@ -31,7 +40,7 @@ function assertCleanRepositoryRoot() {
       const childRelative = path.join(relative, entry.name);
       if (childRelative === '.git' || childRelative === path.join('.superpowers', 'sdd')) continue;
       if (entry.isDirectory()) visit(path.join(directory, entry.name), childRelative);
-      else if (forbiddenRootNames(entry.name)) artifacts.push(childRelative);
+      else if (forbiddenRootNames(entry.name, path.join(directory, entry.name))) artifacts.push(childRelative);
     }
   }
   visit(projectRoot);
@@ -113,6 +122,29 @@ test('artifact scan detects forbidden files nested in the worktree', () => {
     assert.throws(() => assertCleanRepositoryRoot(), /nested\.o/);
   } finally {
     fs.rmSync(fixtureDir, { recursive: true, force: true });
+  }
+});
+
+test('artifact scan allows tracked sanitizer markdown but rejects executable sanitizer-named files', () => {
+  assert.doesNotThrow(() => assertCleanRepositoryRoot());
+  const fixture = path.join(projectRoot, 'tests', 'native', 'core', 'sanitizer-executable-fixture');
+  fs.writeFileSync(fixture, '#!/bin/sh\nexit 0\n', { mode: 0o700 });
+  try {
+    assert.throws(() => assertCleanRepositoryRoot(), /sanitizer-executable-fixture/);
+  } finally {
+    fs.rmSync(fixture, { force: true });
+  }
+});
+
+test('artifact scan detects a real sanitizer ELF even when its name has a documentation extension', () => {
+  const fixture = path.join(projectRoot, 'sanitizer-generated-binary.md');
+  const compiled = wsl(['/usr/bin/cc', 'tests/native/core/fixtures/sanitizer-scenarios.c', '-o',
+    `${wslRoot}/sanitizer-generated-binary.md`]);
+  assert.equal(compiled.status, 0, compiled.stderr);
+  try {
+    assert.throws(() => assertCleanRepositoryRoot(), /sanitizer-generated-binary\.md/);
+  } finally {
+    fs.rmSync(fixture, { force: true });
   }
 });
 
