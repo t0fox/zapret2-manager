@@ -171,6 +171,9 @@ _notilde() {
         word == "delete" || word == "typeof" || word == "void" || word == "new" ||
         word == "else" || word == "in"
     }
+    function control_keyword(word) {
+      return word == "if" || word == "while" || word == "for"
+    }
     function scan(raw,    i,ch,nextch,word) {
       for (i=1; i<=length(raw); i++) {
         ch=substr(raw,i,1); nextch=substr(raw,i+1,1)
@@ -200,6 +203,7 @@ _notilde() {
           while (i<=length(raw) && substr(raw,i,1) ~ /[A-Za-z0-9_]/) {
             word=word substr(raw,i,1); i++
           }
+          pending_control = !pending_property && control_keyword(word)
           can_end = pending_property || !prefix_keyword(word)
           pending_property=0
           i--
@@ -239,8 +243,19 @@ _notilde() {
           }
           can_end=0; pending_property=0
         }
-        else if (ch==")" || ch=="]" || ch=="}") { can_end=1; pending_property=0 }
-        else { can_end=0; pending_property=0 }
+        else if (ch=="(") {
+          paren_depth++
+          control_paren[paren_depth]=pending_control
+          pending_control=0; can_end=0; pending_property=0
+        }
+        else if (ch==")") {
+          can_end=!control_paren[paren_depth]
+          delete control_paren[paren_depth]
+          if (paren_depth>0) paren_depth--
+          pending_property=0
+        }
+        else if (ch=="]" || ch=="}") { can_end=1; pending_property=0; pending_control=0 }
+        else { can_end=0; pending_property=0; if (ch!="\n") pending_control=0 }
       }
     }
     {
@@ -261,6 +276,8 @@ if _notilde "$_tilde_samples/tilde-property-space-binary-broken.uc" >/dev/null 2
 if _notilde "$_tilde_samples/tilde-property-newline-binary-broken.uc" >/dev/null 2>&1; then echo "FAIL  self-test: binary tilde after multiline property division not flagged"; fail=1; fi
 if _notilde "$_tilde_samples/tilde-property-comment-binary-broken.uc" >/dev/null 2>&1; then echo "FAIL  self-test: binary tilde after commented property division not flagged"; fail=1; fi
 if _notilde "$_tilde_samples/tilde-trailing-decimal-binary-broken.uc" >/dev/null 2>&1; then echo "FAIL  self-test: binary tilde after trailing-dot decimal division not flagged"; fail=1; fi
+if _notilde "$_tilde_samples/tilde-parenthesized-binary-broken.uc" >/dev/null 2>&1; then echo "FAIL  self-test: binary tilde after parenthesized expression not flagged"; fail=1; fi
+if _notilde "$_tilde_samples/tilde-call-binary-broken.uc" >/dev/null 2>&1; then echo "FAIL  self-test: binary tilde after call expression not flagged"; fail=1; fi
 if ! _notilde "$_tilde_samples/tilde-unary-valid.uc" >/dev/null 2>&1; then echo "FAIL  self-test: unary tilde flagged"; fail=1; fi
 if ! _notilde "$_tilde_samples/tilde-string-valid.uc" >/dev/null 2>&1; then echo "FAIL  self-test: tilde inside quoted string flagged"; fail=1; fi
 if ! _notilde "$_tilde_samples/tilde-comment-valid.uc" >/dev/null 2>&1; then echo "FAIL  self-test: tilde inside block or line comment flagged"; fail=1; fi
@@ -268,6 +285,7 @@ if ! _notilde "$_tilde_samples/tilde-multiline-valid.uc" >/dev/null 2>&1; then e
 if ! _notilde "$_tilde_samples/tilde-incdec-valid.uc" >/dev/null 2>&1; then echo "FAIL  self-test: prefix or postfix increment context flagged"; fail=1; fi
 if ! _notilde "$_tilde_samples/tilde-keyword-regex-valid.uc" >/dev/null 2>&1; then echo "FAIL  self-test: tilde inside regex after supported keyword flagged"; fail=1; fi
 if ! _notilde "$_tilde_samples/tilde-property-keyword-valid.uc" >/dev/null 2>&1; then echo "FAIL  self-test: property keyword or decimal context flagged"; fail=1; fi
+if ! _notilde "$_tilde_samples/tilde-control-regex-valid.uc" >/dev/null 2>&1; then echo "FAIL  self-test: regex statement after control condition flagged"; fail=1; fi
 [ "$fail" -eq 0 ] && echo "PASS  no-tilde self-test (binary rejected; unary, literals, comments, and operators accepted)"
 for f in $(find zapret2-manager/files luci-app-zapret2-manager/files -name '*.uc' 2>/dev/null); do
   if ! _notilde "$f"; then fail=1; fi
