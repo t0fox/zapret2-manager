@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { cleanupProcessGroup } from './sanitizer-process-cleanup.mjs';
+import { cleanupOwnedGroup } from './sanitizer-process-cleanup.mjs';
 
 const projectRoot = path.resolve('.');
 const wslRoot = `/mnt/${projectRoot[0].toLowerCase()}${projectRoot.slice(2).replaceAll('\\', '/')}`;
@@ -122,7 +122,15 @@ function runControlled(command, env, input, timeoutMs, pidFile, cleanupToken) {
     '/usr/bin/env', ...Object.entries(env).map(([key, value]) => `${key}=${value}`), ...command
   ];
   const run = wsl(args, { input, timeout: timeoutMs });
-  const cleanup = run.timedOut ? cleanupProcessGroup(pidFile, cleanupToken, command[0]) : {
+  const context = { state: 'IDENTITY_VERIFIED', pidFile, token: cleanupToken, scenarioPath: command[0],
+    launcher: null, marker: null, partialEvidence: [], launcherExit: null, failure: null, now: Date.now };
+  const ownedCleanup = run.timedOut ? cleanupOwnedGroup(context) : null;
+  const cleanup = ownedCleanup ? {
+    ...ownedCleanup, terminated: ownedCleanup.groupGone, reaped: ownedCleanup.groupGone,
+    processGone: ownedCleanup.groupGone, signalSent: ownedCleanup.termSent,
+    membersBefore: ownedCleanup.membersBefore.map((pid) => ({ pid })),
+    membersAfter: ownedCleanup.membersAfter.map((pid) => ({ pid }))
+  } : {
     pid: null, terminated: false, reaped: true, processGone: true, evidence: 'process exited before cleanup'
   };
   return { run, cleanup };

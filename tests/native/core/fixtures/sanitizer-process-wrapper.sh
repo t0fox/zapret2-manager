@@ -10,6 +10,16 @@ shift
 READY_MODE=${1:?ready mode required}
 shift
 
+wait_gate() {
+	GATE=$1
+	test -n "$GATE" || return 0
+	case "$GATE" in
+		/tmp/z2m-sanitizer-gate-*) ;;
+		*) printf '%s\n' 'invalid sanitizer test gate' >&2; exit 2 ;;
+	esac
+	while test -e "$GATE"; do /bin/sleep 0.01; done
+}
+
 case "$READY_MODE" in
 	ready|silent) ;;
 	*) printf '%s\n' 'invalid ready mode' >&2; exit 2 ;;
@@ -24,6 +34,8 @@ MARKER_TMP="$PID_FILE.tmp.$$"
 MARKER=$(printf '{"pid":%s,"startTime":"%s","pgid":%s,"sid":%s,"token":"%s","scenarioPath":"%s"}' \
 	"$$" "$START_TIME" "$PGID" "$SID" "$TOKEN" "$SCENARIO_PATH")
 printf '%s\n' "$MARKER" > "$MARKER_TMP"
+wait_gate "${Z2M_SANITIZER_BEFORE_MARKER_RENAME_GATE:-}"
 /bin/mv "$MARKER_TMP" "$PID_FILE"
+wait_gate "${Z2M_SANITIZER_AFTER_MARKER_RENAME_GATE:-}"
 test "$READY_MODE" = silent || printf '%s\n' "$MARKER"
 exec "$@" "$TOKEN" "$SCENARIO_PATH"

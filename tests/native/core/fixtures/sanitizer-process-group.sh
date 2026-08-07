@@ -9,12 +9,13 @@ case "$MODE" in
 		wait
 		;;
 	leader-exit)
-		/bin/sh -c 'trap "" HUP TERM; exec /bin/sleep 60' &
+		/bin/sh -c 'trap "" HUP TERM; exec /bin/sleep 2' &
 		/bin/sleep 1
 		exit 0
 		;;
 	unrelated)
-		exec /bin/sleep 60
+		trap '' HUP TERM
+		while :; do /bin/sleep 60; done
 		;;
 	*) exit 2 ;;
 esac
