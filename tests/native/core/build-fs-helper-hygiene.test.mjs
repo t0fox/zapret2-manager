@@ -14,7 +14,7 @@ const tempRoot = `/tmp/${tag}`;
 const tempDir = `${tempRoot}/build`;
 const forbiddenRootNames = (name) => name === '-DZ2M_TESTING' || name === 'a.out' ||
   name.endsWith('.o') || name === 'core' || name.startsWith('core.') ||
-  (/saniti[sz]er/i.test(name) && !/\.(?:c|mjs)$/.test(name));
+  (/saniti[sz]er/i.test(name) && !/\.(?:c|mjs|sh)$/.test(name));
 
 function wsl(args, options = {}) {
   return spawnSync('wsl.exe', ['-d', 'Ubuntu', '-u', 'root', '--cd', wslRoot, '--', ...args], {

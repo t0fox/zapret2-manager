@@ -19,6 +19,17 @@ int main(void) {
 	return 0;
 #elif defined(Z2M_SCENARIO_ABNORMAL_EXIT)
 	return 17;
+#elif defined(Z2M_SCENARIO_EXIT_130)
+	return 130;
+#elif defined(Z2M_SCENARIO_STDOUT_MARKER)
+	(void)!write(STDOUT_FILENO, "AddressSanitizer is just text\n", 30);
+	return 19;
+#elif defined(Z2M_PROBE_CRASH)
+	raise(SIGSEGV);
+	return 0;
+#elif defined(Z2M_PROBE_TIMEOUT)
+	for (;;)
+		pause();
 #else
 	return 0;
 #endif

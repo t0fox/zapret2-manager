@@ -4,7 +4,9 @@ import { spawnSync } from 'node:child_process';
 
 const projectRoot = path.resolve('.');
 const wslRoot = `/mnt/${projectRoot[0].toLowerCase()}${projectRoot.slice(2).replaceAll('\\', '/')}`;
+const fixtureRoot = `${wslRoot}/tests/native/core/fixtures`;
 const streamLimit = 48 * 1024;
+let wslExecutable = 'wsl.exe';
 const sanitizerEnvironment = {
   ASAN_OPTIONS: 'abort_on_error=1:detect_leaks=1:halt_on_error=1',
   UBSAN_OPTIONS: 'halt_on_error=1:print_stacktrace=1'
@@ -16,31 +18,54 @@ const roots = [
   'tmp/zapret2-manager/runtime', 'tmp/zapret2-manager/jobs',
   'tmp/zapret2-manager/locks', 'tmp/zapret2-manager/staging'
 ];
+const scenarios = [
+  'normal', 'heap-overflow', 'compile-failure', 'timeout', 'signal',
+  'abnormal-exit', 'exit-130', 'stdout-marker'
+];
 
 function parseArgs(argv) {
-  const options = { scenario: 'normal', compiler: '/usr/bin/cc', timeoutMs: 3000 };
+  const options = {
+    scenario: 'normal', compiler: '/usr/bin/cc', timeoutMs: 3000,
+    probeFixture: `${fixtureRoot}/sanitizer-scenarios.c`, probeBehavior: 'normal'
+  };
   for (let index = 0; index < argv.length; index += 2) {
     const value = argv[index + 1];
     if (argv[index] === '--scenario') options.scenario = value;
     else if (argv[index] === '--compiler') options.compiler = value;
     else if (argv[index] === '--timeout-ms') options.timeoutMs = Number(value);
+    else if (argv[index] === '--probe-fixture') options.probeFixture = value;
+    else if (argv[index] === '--probe-behavior') options.probeBehavior = value;
+    else if (argv[index] === '--wsl-executable') options.wslExecutable = value;
     else throw new Error(`unknown argument: ${argv[index]}`);
   }
-  if (!['normal', 'heap-overflow', 'compile-failure', 'timeout', 'signal', 'abnormal-exit'].includes(options.scenario))
-    throw new Error(`unknown scenario: ${options.scenario}`);
+  if (!scenarios.includes(options.scenario)) throw new Error(`unknown scenario: ${options.scenario}`);
+  if (!['normal', 'crash', 'timeout'].includes(options.probeBehavior))
+    throw new Error(`unknown probe behavior: ${options.probeBehavior}`);
   if (!Number.isInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > 60000)
     throw new Error('timeout must be an integer from 1 through 60000');
+  options.wslExecutable ??= 'wsl.exe';
   return options;
 }
 
 function bounded(value) {
-  const text = value?.toString('utf8') ?? '';
-  if (Buffer.byteLength(text) <= streamLimit) return text;
-  return `${Buffer.from(text).subarray(0, streamLimit).toString('utf8')}\n[truncated]`;
+  const buffer = Buffer.isBuffer(value) ? value : Buffer.from(value ?? '');
+  if (buffer.length <= streamLimit) return buffer.toString('utf8');
+  return `${buffer.subarray(0, streamLimit).toString('utf8')}\n[truncated]`;
+}
+
+function hostError(error) {
+  if (!error) return null;
+  return {
+    name: error.name ?? null,
+    code: error.code ?? null,
+    errno: error.errno ?? null,
+    syscall: error.syscall ?? null,
+    message: bounded(error.message)
+  };
 }
 
 function wsl(args, options = {}) {
-  const result = spawnSync('wsl.exe', ['-d', 'Ubuntu', '-u', 'root', '--cd', wslRoot, '--', ...args], {
+  const result = spawnSync(wslExecutable, ['-d', 'Ubuntu', '-u', 'root', '--cd', wslRoot, '--', ...args], {
     encoding: null,
     input: options.input,
     timeout: options.timeout,
@@ -52,21 +77,84 @@ function wsl(args, options = {}) {
     signal: result.signal,
     stdout: bounded(result.stdout),
     stderr: bounded(result.stderr),
-    timedOut: result.error?.code === 'ETIMEDOUT'
+    timedOut: result.error?.code === 'ETIMEDOUT',
+    error: hostError(result.error)
   };
 }
 
 function emptyProcess() {
-  return { exitCode: null, signal: null, stdout: '', stderr: '' };
+  return { exitCode: null, signal: null, stdout: '', stderr: '', timedOut: false, error: null };
+}
+
+function compileSkipEvidence(run) {
+  const patterns = [
+    /unrecognized command-line option [‘']?-fsanitize=/i,
+    /unsupported option [‘']?-fsanitize=/i,
+    /cannot find (?:-l)?(?:asan|ubsan)\b/i,
+    /unable to find library .*\b(?:asan|ubsan)\b/i
+  ];
+  const diagnostic = run.stderr.split('\n').find((line) => patterns.some((pattern) => pattern.test(line)));
+  return diagnostic ? { phase: 'compile', diagnostic } : null;
+}
+
+function runtimeSkipEvidence(run) {
+  const patterns = [
+    /error while loading shared libraries: .*lib(?:asan|ubsan)/i,
+    /ASan runtime does not come first in initial library list/i,
+    /failed to preload .*lib(?:asan|ubsan)/i
+  ];
+  const diagnostic = run.stderr.split('\n').find((line) => patterns.some((pattern) => pattern.test(line)));
+  return diagnostic ? { phase: 'runtime', diagnostic } : null;
 }
 
 function sanitizerDiagnostic(run) {
-  return /AddressSanitizer|UndefinedBehaviorSanitizer|runtime error:|LeakSanitizer/.test(`${run.stderr}\n${run.stdout}`);
+  return /(?:^|\n)==\d+==ERROR: AddressSanitizer:|(?:^|\n)SUMMARY: (?:AddressSanitizer|UndefinedBehaviorSanitizer):|(?:^|\n).*runtime error:|UndefinedBehaviorSanitizer:DEADLYSIGNAL/.test(run.stderr);
 }
 
-function processWasSignalled(run, scenario) {
-  return run.signal !== null || (Number.isInteger(run.exitCode) && run.exitCode >= 128 && run.exitCode <= 255) ||
-    (scenario === 'signal' && run.exitCode === 15);
+function compilerCommand(executable, argv) {
+  return executable.endsWith('.sh') ? ['/bin/sh', executable, ...argv] : [executable, ...argv];
+}
+
+function cleanupGroup(pidFile) {
+  const cleanup = { pid: null, terminated: false, reaped: false, processGone: false, evidence: '' };
+  const readPid = wsl(['/bin/cat', pidFile]);
+  const pid = readPid.stdout.trim();
+  if (!/^\d+$/.test(pid)) {
+    cleanup.evidence = readPid.stderr || 'PID marker unavailable';
+    return cleanup;
+  }
+  cleanup.pid = pid;
+  const terminated = wsl(['/bin/kill', '-TERM', `-${pid}`]);
+  cleanup.terminated = terminated.exitCode === 0;
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const alive = wsl(['/bin/kill', '-0', pid]);
+    if (alive.exitCode !== 0) {
+      cleanup.terminated = true;
+      cleanup.reaped = true;
+      cleanup.processGone = true;
+      cleanup.evidence = alive.stderr;
+      return cleanup;
+    }
+    wsl(['/bin/sleep', '0.05']);
+  }
+  wsl(['/bin/kill', '-KILL', `-${pid}`]);
+  const alive = wsl(['/bin/kill', '-0', pid]);
+  cleanup.reaped = alive.exitCode !== 0;
+  cleanup.processGone = cleanup.reaped;
+  cleanup.evidence = alive.stderr;
+  return cleanup;
+}
+
+function runControlled(command, env, input, timeoutMs, pidFile) {
+  const args = [
+    '/usr/bin/setsid', '--wait', '/bin/sh', `${fixtureRoot}/sanitizer-process-wrapper.sh`, pidFile,
+    '/usr/bin/env', ...Object.entries(env).map(([key, value]) => `${key}=${value}`), ...command
+  ];
+  const run = wsl(args, { input, timeout: timeoutMs });
+  const cleanup = run.timedOut ? cleanupGroup(pidFile) : {
+    pid: null, terminated: false, reaped: true, processGone: true, evidence: 'process exited before cleanup'
+  };
+  return { run, cleanup };
 }
 
 function emit(report) {
@@ -75,12 +163,12 @@ function emit(report) {
 }
 
 const options = parseArgs(process.argv.slice(2));
+wslExecutable = options.wslExecutable;
 const tag = `z2m-sanitizer-${process.pid}-${crypto.randomBytes(6).toString('hex')}`;
 const tempRoot = `/tmp/${tag}`;
-const binaryPath = `${tempRoot}/${options.scenario}`;
+let binaryPath = `${tempRoot}/${options.scenario}`;
 const probePath = `${tempRoot}/probe`;
 const testRoot = `${tempRoot}/roots`;
-const fixture = `${wslRoot}/tests/native/core/fixtures/sanitizer-scenarios.c`;
 const sanitizerFlags = ['-fsanitize=address,undefined', '-fno-omit-frame-pointer', '-g'];
 const report = {
   classification: 'ASSERTION_FAILURE',
@@ -90,36 +178,42 @@ const report = {
   compile: emptyProcess(),
   run: emptyProcess(),
   timeout: { ms: options.timeoutMs, timedOut: false },
+  cleanup: { pid: null, terminated: false, reaped: true, processGone: true, evidence: 'not started' },
   binaryPath,
+  binaryPathVerified: false,
   sanitizerEnvironment,
+  skipEvidence: null,
   assertion: null
 };
 
 try {
-  const madeTemp = wsl(['mkdir', '-m', '0700', tempRoot]);
+  const madeTemp = wsl(['/bin/mkdir', '-m', '0700', tempRoot]);
   if (madeTemp.exitCode !== 0) {
     report.compile = madeTemp;
     report.classification = 'COMPILE_FAILED';
-    emit(report);
   } else {
-    const probeArgv = [...sanitizerFlags, fixture, '-o', probePath];
+    const probeDefinition = options.probeBehavior === 'crash' ? '-DZ2M_PROBE_CRASH' :
+      options.probeBehavior === 'timeout' ? '-DZ2M_PROBE_TIMEOUT' : null;
+    const probeArgv = [...sanitizerFlags, ...(probeDefinition ? [probeDefinition] : []),
+      options.probeFixture, '-o', probePath];
     report.compiler.argv = probeArgv;
-    report.probe = wsl([options.compiler, ...probeArgv]);
+    report.probe = wsl(compilerCommand(options.compiler, probeArgv));
     report.compile = report.probe;
-    if ((report.probe.exitCode === null && !report.probe.timedOut) || report.probe.exitCode === 127) {
-      report.classification = 'COMPILE_FAILED';
-      emit(report);
-    } else if (report.probe.exitCode !== 0) {
-      report.classification = 'SKIP_UNAVAILABLE';
-      emit(report);
+    if (report.probe.exitCode !== 0) {
+      report.skipEvidence = compileSkipEvidence(report.probe);
+      report.classification = report.skipEvidence ? 'SKIP_UNAVAILABLE' : 'COMPILE_FAILED';
     } else {
-      const probeRun = wsl(['env', ...Object.entries(sanitizerEnvironment).map(([key, value]) => `${key}=${value}`), probePath], {
-        timeout: options.timeoutMs
-      });
-      report.probe = { ...report.probe, runtime: probeRun };
-      if (probeRun.exitCode !== 0 || probeRun.timedOut) {
-        report.classification = 'SKIP_UNAVAILABLE';
-        emit(report);
+      const probeTimeoutMs = options.probeBehavior === 'normal' ? Math.max(options.timeoutMs, 3000) : options.timeoutMs;
+      const probeExecution = runControlled([probePath], sanitizerEnvironment, undefined,
+        probeTimeoutMs, `${tempRoot}/probe.pid`);
+      report.probe = { ...report.probe, runtime: probeExecution.run, cleanup: probeExecution.cleanup };
+      if (probeExecution.run.timedOut) {
+        report.timeout.timedOut = true;
+        report.cleanup = probeExecution.cleanup;
+        report.classification = 'TIMEOUT';
+      } else if (probeExecution.run.exitCode !== 0 || probeExecution.run.signal !== null) {
+        report.skipEvidence = runtimeSkipEvidence(probeExecution.run);
+        report.classification = report.skipEvidence ? 'SKIP_UNAVAILABLE' : 'ASSERTION_FAILURE';
       } else {
         let compileArgv;
         if (options.scenario === 'normal') {
@@ -127,7 +221,6 @@ try {
           if (pkgConfig.exitCode !== 0) {
             report.compile = pkgConfig;
             report.classification = 'COMPILE_FAILED';
-            emit(report);
           } else {
             const sources = ['main.c', 'protocol.c', 'errors.c', 'roots.c', 'paths.c', 'files.c', 'base64.c']
               .map((name) => `${wslRoot}/zapret2-manager/src/z2m-core-helper/${name}`);
@@ -135,52 +228,57 @@ try {
               ...sanitizerFlags, ...sources, ...pkgConfig.stdout.trim().split(/\s+/).filter(Boolean), '-o', binaryPath];
           }
         } else if (options.scenario === 'compile-failure') {
-          compileArgv = [...sanitizerFlags,
-            `${wslRoot}/tests/native/core/fixtures/sanitizer-compile-failure.c`, '-o', binaryPath];
+          compileArgv = [...sanitizerFlags, `${fixtureRoot}/sanitizer-compile-failure.c`, '-o', binaryPath];
         } else {
           const definitions = {
             'heap-overflow': '-DZ2M_SCENARIO_HEAP_OVERFLOW', timeout: '-DZ2M_SCENARIO_TIMEOUT',
-            signal: '-DZ2M_SCENARIO_SIGNAL', 'abnormal-exit': '-DZ2M_SCENARIO_ABNORMAL_EXIT'
+            signal: '-DZ2M_SCENARIO_SIGNAL', 'abnormal-exit': '-DZ2M_SCENARIO_ABNORMAL_EXIT',
+            'exit-130': '-DZ2M_SCENARIO_EXIT_130', 'stdout-marker': '-DZ2M_SCENARIO_STDOUT_MARKER'
           };
-          compileArgv = [...sanitizerFlags, definitions[options.scenario], fixture, '-o', binaryPath];
+          compileArgv = [...sanitizerFlags, definitions[options.scenario],
+            `${fixtureRoot}/sanitizer-scenarios.c`, '-o', binaryPath];
         }
 
         if (compileArgv) {
           report.compiler.argv = compileArgv;
-          report.compile = wsl([options.compiler, ...compileArgv]);
+          report.compile = wsl(compilerCommand(options.compiler, compileArgv));
           if (report.compile.exitCode !== 0) {
             report.classification = 'COMPILE_FAILED';
-            emit(report);
           } else {
+            const canonical = wsl(['/usr/bin/readlink', '-f', binaryPath]);
+            binaryPath = canonical.stdout.trim();
+            report.binaryPath = binaryPath;
+            report.binaryPathVerified = canonical.exitCode === 0 && binaryPath.startsWith(`${tempRoot}/`);
+            if (!report.binaryPathVerified) throw new Error(canonical.stderr || 'binary path verification failed');
+
             let input;
             const runEnv = { ...sanitizerEnvironment };
             if (options.scenario === 'normal') {
               for (const root of roots) {
-                const created = wsl(['mkdir', '-p', `${testRoot}/${root}`]);
+                const created = wsl(['/bin/mkdir', '-p', `${testRoot}/${root}`]);
                 if (created.exitCode !== 0) throw new Error(created.stderr || 'root creation failed');
               }
-              const chmod = wsl(['chmod', '0700', testRoot, ...roots.map((root) => `${testRoot}/${root}`)]);
+              const chmod = wsl(['/bin/chmod', '0700', testRoot, ...roots.map((root) => `${testRoot}/${root}`)]);
               if (chmod.exitCode !== 0) throw new Error(chmod.stderr || 'root chmod failed');
               const target = `${testRoot}/tmp/zapret2-manager/runtime/sanitizer.txt`;
-              const created = wsl(['touch', target]);
-              const secured = wsl(['chmod', '0600', target]);
+              const created = wsl(['/usr/bin/touch', target]);
+              const secured = wsl(['/bin/chmod', '0600', target]);
               if (created.exitCode !== 0 || secured.exitCode !== 0) throw new Error(created.stderr || secured.stderr);
               runEnv.Z2M_TEST_ROOT_PREFIX = testRoot;
               input = JSON.stringify({
-                protocolVersion: 1,
-                requestId: 'sanitizer-normal',
-                operation: 'stat_regular',
+                protocolVersion: 1, requestId: 'sanitizer-normal', operation: 'stat_regular',
                 arguments: { root: 'runtime', path: 'sanitizer.txt' }
               });
             }
-            report.run = wsl(['env', ...Object.entries(runEnv).map(([key, value]) => `${key}=${value}`), binaryPath], {
-              input,
-              timeout: options.timeoutMs
-            });
+            const execution = runControlled([binaryPath], runEnv, input, options.timeoutMs, `${tempRoot}/run.pid`);
+            report.run = execution.run;
+            report.cleanup = execution.cleanup;
             report.timeout.timedOut = report.run.timedOut;
             if (report.run.timedOut) report.classification = 'TIMEOUT';
             else if (sanitizerDiagnostic(report.run)) report.classification = 'SANITIZER_FAILURE';
-            else if (processWasSignalled(report.run, options.scenario)) report.classification = 'SIGNALLED';
+            else if (options.scenario === 'signal' &&
+              (report.run.signal === 'SIGTERM' || report.run.exitCode === 15 || report.run.exitCode === 143))
+              report.classification = 'SIGNALLED';
             else if (options.scenario === 'normal' && report.run.exitCode === 0) {
               try {
                 const response = JSON.parse(report.run.stdout);
@@ -192,7 +290,6 @@ try {
                 report.classification = 'ASSERTION_FAILURE';
               }
             } else report.classification = report.run.exitCode === 0 ? 'PASS' : 'ASSERTION_FAILURE';
-            emit(report);
           }
         }
       }
@@ -201,7 +298,8 @@ try {
 } catch (error) {
   report.classification = 'ASSERTION_FAILURE';
   report.assertion = { error: error.message };
-  emit(report);
 } finally {
-  wsl(['rm', '-rf', tempRoot]);
+  wsl(['/bin/rm', '-rf', tempRoot]);
 }
+
+emit(report);
