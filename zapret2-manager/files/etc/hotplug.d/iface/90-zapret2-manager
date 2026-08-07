@@ -1,0 +1,47 @@
+#!/bin/sh
+# 90-zapret2-manager — pause telemetry on interface hotplug events.
+#
+# PRIMARY pause mechanism: NFQWS2_ENABLE=0 in the applied config (written by
+# apply.uc) makes upstream's start a no-op by upstream's own logic — so on an
+# ifup, even though upstream's 90-zapret2 hook runs, it does not raise nfqws2.
+# No flap, no duplicated firewall logic.
+#
+# THIS hook is TELEMETRY-ONLY. In normal operation (NFQWS2_ENABLE=0 effective)
+# it does NOTHING: there is no running nfqws2 to find while paused. It only
+# emits an event if it finds a running nfqws2 despite an active pause — which
+# means the PRIMARY mechanism did NOT hold. That is a serious condition (the
+# pause is not actually holding on this installation), so the event severity is
+# crit, not informational. The hook does NOT stop the process itself: with the
+# primary mechanism in place, stopping is upstream's job (a later start is a
+# no-op while NFQWS2_ENABLE=0), and a guard that also stops would mask a broken
+# primary mechanism instead of surfacing it. If this event fires, the operator
+# must investigate why NFQWS2_ENABLE=0 did not hold.
+#
+# [VERIFY:ROUTER] the primary-form assumption (NFQWS2_ENABLE=0 holds) is
+# confirmed by tools/smoke.sh pause_fw_effect. If that check shows it does NOT
+# hold, revert this hook to the fallback form (active stop + warn event) and
+# record the hole in docs/upstream-mapping.md — see the branch report.
+#
+# The paused flag in /tmp is an indicator (for UI + watchdog), not the coercion
+# mechanism. Lexical order: "90-zapret2" < "90-zapret2-manager", so this runs
+# AFTER upstream's hook.
+
+[ -f /tmp/zapret2-manager/paused ] || exit 0
+[ "$ACTION" = "ifup" ] || exit 0
+
+# Is nfqws2 actually running despite the pause? If not, the primary mechanism
+# held — do nothing (no event). This is the normal path.
+if ! pgrep -x nfqws2 >/dev/null 2>&1; then
+	exit 0
+fi
+
+# Primary mechanism did NOT hold: a running nfqws2 exists despite an active
+# pause. Do NOT stop it here (telemetry-only). Record a crit event so the
+# operator learns the pause is not holding and investigates.
+ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")
+id="hotplug-$$-$(date +%s 2>/dev/null || echo 0)"
+mkdir -p /tmp/zapret2-manager 2>/dev/null
+printf '{"schema":"events.v1","ts":"%s","id":"%s","category":"pause","severity":"crit","source":"hotplug","msg":"nfqws2 found running while paused; primary NFQWS2_ENABLE=0 mechanism did not hold; investigate (guard is telemetry-only, did not stop)","action":"ifup"}\n' \
+	"$ts" "$id" >> /tmp/zapret2-manager/events.ndjson 2>/dev/null || true
+logger -t zapret2-manager "pause: nfqws2 found running while paused; primary mechanism did not hold (telemetry event, no stop)" 2>/dev/null || true
+exit 0

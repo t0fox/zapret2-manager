@@ -1,0 +1,2 @@
+# Persisted empty input for the upstream nfqws2 Steam profile.
+# The profile argv references this exact path; it must exist before boot.

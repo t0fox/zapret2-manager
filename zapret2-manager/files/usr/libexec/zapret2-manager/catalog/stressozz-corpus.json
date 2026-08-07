@@ -1,0 +1,543 @@
+{
+	"schemaVersion": 1,
+	"sourceRepo": "StressOzz/Zapret-Manager",
+	"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+	"records": [
+		{
+			"id": "stressozz-discord-media-dv1",
+			"feature": "discord-media",
+			"sourceRepo": "StressOzz/Zapret-Manager",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"sourceName": "Dv1",
+			"originalOptions": [
+				"--filter-tcp=2053,2083,2087,2096,8443",
+				"--hostlist-domains=discord.media",
+				"--dpi-desync=multisplit",
+				"--dpi-desync-split-seqovl=652",
+				"--dpi-desync-split-pos=2",
+				"--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
+			],
+			"filters": {
+				"tcpPorts": "2053,2083,2087,2096,8443",
+				"domains": [
+					"discord.media"
+				]
+			},
+			"payloadReferences": [
+				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
+			],
+			"executionStatus": "not-adapted"
+		},
+		{
+			"id": "stressozz-discord-media-dv2",
+			"feature": "discord-media",
+			"sourceRepo": "StressOzz/Zapret-Manager",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"sourceName": "Dv2",
+			"originalOptions": [
+				"--filter-tcp=2053,2083,2087,2096,8443",
+				"--hostlist-domains=discord.media",
+				"--dpi-desync=fake,multisplit",
+				"--dpi-desync-split-seqovl=681",
+				"--dpi-desync-split-pos=1",
+				"--dpi-desync-fooling=ts",
+				"--dpi-desync-repeats=8",
+				"--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
+				"--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com"
+			],
+			"filters": {
+				"tcpPorts": "2053,2083,2087,2096,8443",
+				"domains": [
+					"discord.media"
+				]
+			},
+			"payloadReferences": [
+				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
+				"rnd,dupsid,sni"
+			],
+			"executionStatus": "not-adapted"
+		},
+		{
+			"id": "stressozz-discord-media-dv3",
+			"feature": "discord-media",
+			"sourceRepo": "StressOzz/Zapret-Manager",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"sourceName": "Dv3",
+			"originalOptions": [
+				"--filter-tcp=2053,2083,2087,2096,8443",
+				"--hostlist-domains=discord.media",
+				"--dpi-desync=fake",
+				"--dpi-desync-repeats=6",
+				"--dpi-desync-fooling=ts",
+				"--dpi-desync-fake-tls=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
+				"--dpi-desync-fake-tls-mod=none"
+			],
+			"filters": {
+				"tcpPorts": "2053,2083,2087,2096,8443",
+				"domains": [
+					"discord.media"
+				]
+			},
+			"payloadReferences": [
+				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
+				"none"
+			],
+			"executionStatus": "not-adapted"
+		},
+		{
+			"id": "stressozz-discord-media-dv4",
+			"feature": "discord-media",
+			"sourceRepo": "StressOzz/Zapret-Manager",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"sourceName": "Dv4",
+			"originalOptions": [
+				"--filter-tcp=2053,2083,2087,2096,8443",
+				"--hostlist-domains=discord.media",
+				"--dpi-desync=multisplit",
+				"--dpi-desync-split-seqovl=652",
+				"--dpi-desync-split-pos=2",
+				"--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
+			],
+			"filters": {
+				"tcpPorts": "2053,2083,2087,2096,8443",
+				"domains": [
+					"discord.media"
+				]
+			},
+			"payloadReferences": [
+				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
+			],
+			"executionStatus": "not-adapted"
+		},
+		{
+			"id": "stressozz-discord-media-dv5",
+			"feature": "discord-media",
+			"sourceRepo": "StressOzz/Zapret-Manager",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"sourceName": "Dv5",
+			"originalOptions": [
+				"--filter-tcp=2053,2083,2087,2096,8443",
+				"--hostlist-domains=discord.media",
+				"--dpi-desync=fake,multisplit",
+				"--dpi-desync-repeats=6",
+				"--dpi-desync-fooling=badseq",
+				"--dpi-desync-badseq-increment=1000",
+				"--dpi-desync-fake-tls=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
+			],
+			"filters": {
+				"tcpPorts": "2053,2083,2087,2096,8443",
+				"domains": [
+					"discord.media"
+				]
+			},
+			"payloadReferences": [
+				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
+			],
+			"executionStatus": "not-adapted"
+		},
+		{
+			"id": "stressozz-discord-media-dv6",
+			"feature": "discord-media",
+			"sourceRepo": "StressOzz/Zapret-Manager",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"sourceName": "Dv6",
+			"originalOptions": [
+				"--filter-tcp=2053,2083,2087,2096,8443",
+				"--hostlist-domains=discord.media",
+				"--dpi-desync=multisplit",
+				"--dpi-desync-split-seqovl=681",
+				"--dpi-desync-split-pos=1",
+				"--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
+			],
+			"filters": {
+				"tcpPorts": "2053,2083,2087,2096,8443",
+				"domains": [
+					"discord.media"
+				]
+			},
+			"payloadReferences": [
+				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
+			],
+			"executionStatus": "not-adapted"
+		},
+		{
+			"id": "stressozz-discord-media-dv7",
+			"feature": "discord-media",
+			"sourceRepo": "StressOzz/Zapret-Manager",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"sourceName": "Dv7",
+			"originalOptions": [
+				"--filter-tcp=2053,2083,2087,2096,8443",
+				"--hostlist-domains=discord.media",
+				"--dpi-desync=multisplit",
+				"--dpi-desync-split-pos=2,sniext+1",
+				"--dpi-desync-split-seqovl=679",
+				"--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
+			],
+			"filters": {
+				"tcpPorts": "2053,2083,2087,2096,8443",
+				"domains": [
+					"discord.media"
+				]
+			},
+			"payloadReferences": [
+				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
+			],
+			"executionStatus": "not-adapted"
+		},
+		{
+			"id": "stressozz-discord-media-dv8",
+			"feature": "discord-media",
+			"sourceRepo": "StressOzz/Zapret-Manager",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"sourceName": "Dv8",
+			"originalOptions": [
+				"--filter-tcp=2053,2083,2087,2096,8443",
+				"--hostlist-domains=discord.media",
+				"--dpi-desync=fake",
+				"--dpi-desync-fake-tls-mod=none",
+				"--dpi-desync-repeats=6",
+				"--dpi-desync-fooling=badseq",
+				"--dpi-desync-badseq-increment=2"
+			],
+			"filters": {
+				"tcpPorts": "2053,2083,2087,2096,8443",
+				"domains": [
+					"discord.media"
+				]
+			},
+			"payloadReferences": [
+				"none"
+			],
+			"executionStatus": "not-adapted"
+		},
+		{
+			"id": "stressozz-discord-media-dv9",
+			"feature": "discord-media",
+			"sourceRepo": "StressOzz/Zapret-Manager",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"sourceName": "Dv9",
+			"originalOptions": [
+				"--filter-tcp=2053,2083,2087,2096,8443",
+				"--hostlist-domains=discord.media",
+				"--dpi-desync=fake,fakedsplit",
+				"--dpi-desync-split-pos=1",
+				"--dpi-desync-fooling=badseq",
+				"--dpi-desync-badseq-increment=2",
+				"--dpi-desync-repeats=8",
+				"--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com"
+			],
+			"filters": {
+				"tcpPorts": "2053,2083,2087,2096,8443",
+				"domains": [
+					"discord.media"
+				]
+			},
+			"payloadReferences": [
+				"rnd,dupsid,sni"
+			],
+			"executionStatus": "not-adapted"
+		},
+		{
+			"id": "stressozz-discord-media-dv10",
+			"feature": "discord-media",
+			"sourceRepo": "StressOzz/Zapret-Manager",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"sourceName": "Dv10",
+			"originalOptions": [
+				"--filter-tcp=2053,2083,2087,2096,8443",
+				"--hostlist-domains=discord.media",
+				"--dpi-desync=fake,multisplit",
+				"--dpi-desync-split-seqovl=681",
+				"--dpi-desync-split-pos=1",
+				"--dpi-desync-fooling=badseq",
+				"--dpi-desync-badseq-increment=10000000",
+				"--dpi-desync-repeats=8",
+				"--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
+				"--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com"
+			],
+			"filters": {
+				"tcpPorts": "2053,2083,2087,2096,8443",
+				"domains": [
+					"discord.media"
+				]
+			},
+			"payloadReferences": [
+				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
+				"rnd,dupsid,sni"
+			],
+			"executionStatus": "not-adapted"
+		},
+		{
+			"id": "stressozz-discord-media-dv11",
+			"feature": "discord-media",
+			"sourceRepo": "StressOzz/Zapret-Manager",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"sourceName": "Dv11",
+			"originalOptions": [
+				"--filter-tcp=2053,2083,2087,2096,8443",
+				"--hostlist-domains=discord.media",
+				"--dpi-desync=fake,multisplit",
+				"--dpi-desync-split-seqovl=681",
+				"--dpi-desync-split-pos=1",
+				"--dpi-desync-fooling=ts",
+				"--dpi-desync-repeats=8",
+				"--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
+				"--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com"
+			],
+			"filters": {
+				"tcpPorts": "2053,2083,2087,2096,8443",
+				"domains": [
+					"discord.media"
+				]
+			},
+			"payloadReferences": [
+				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
+				"rnd,dupsid,sni"
+			],
+			"executionStatus": "not-adapted"
+		},
+		{
+			"id": "stressozz-discord-media-dv12",
+			"feature": "discord-media",
+			"sourceRepo": "StressOzz/Zapret-Manager",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"sourceName": "Dv12",
+			"originalOptions": [
+				"--filter-tcp=2053,2083,2087,2096,8443",
+				"--hostlist-domains=discord.media",
+				"--dpi-desync=fake",
+				"--dpi-desync-repeats=6",
+				"--dpi-desync-fooling=badseq",
+				"--dpi-desync-badseq-increment=2",
+				"--dpi-desync-fake-tls=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
+			],
+			"filters": {
+				"tcpPorts": "2053,2083,2087,2096,8443",
+				"domains": [
+					"discord.media"
+				]
+			},
+			"payloadReferences": [
+				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
+			],
+			"executionStatus": "not-adapted"
+		},
+		{
+			"id": "stressozz-discord-media-dv13",
+			"feature": "discord-media",
+			"sourceRepo": "StressOzz/Zapret-Manager",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"sourceName": "Dv13",
+			"originalOptions": [
+				"--filter-tcp=2053,2083,2087,2096,8443",
+				"--hostlist-domains=discord.media",
+				"--dpi-desync=fake",
+				"--dpi-desync-repeats=6",
+				"--dpi-desync-fooling=ts",
+				"--dpi-desync-fake-tls=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
+			],
+			"filters": {
+				"tcpPorts": "2053,2083,2087,2096,8443",
+				"domains": [
+					"discord.media"
+				]
+			},
+			"payloadReferences": [
+				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
+			],
+			"executionStatus": "not-adapted"
+		},
+		{
+			"id": "stressozz-discord-media-dv14",
+			"feature": "discord-media",
+			"sourceRepo": "StressOzz/Zapret-Manager",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"sourceName": "Dv14",
+			"originalOptions": [
+				"--filter-tcp=2053,2083,2087,2096,8443",
+				"--hostlist-domains=discord.media",
+				"--dpi-desync=fake,fakedsplit",
+				"--dpi-desync-repeats=6",
+				"--dpi-desync-fooling=ts",
+				"--dpi-desync-fakedsplit-pattern=0x00",
+				"--dpi-desync-fake-tls=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
+			],
+			"filters": {
+				"tcpPorts": "2053,2083,2087,2096,8443",
+				"domains": [
+					"discord.media"
+				]
+			},
+			"payloadReferences": [
+				"0x00",
+				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
+			],
+			"executionStatus": "not-adapted"
+		},
+		{
+			"id": "stressozz-discord-media-dv15",
+			"feature": "discord-media",
+			"sourceRepo": "StressOzz/Zapret-Manager",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"sourceName": "Dv15",
+			"originalOptions": [
+				"--filter-tcp=2053,2083,2087,2096,8443",
+				"--hostlist-domains=discord.media",
+				"--dpi-desync=fake,multidisorder",
+				"--dpi-desync-split-pos=1,midsld",
+				"--dpi-desync-repeats=11",
+				"--dpi-desync-fooling=badseq",
+				"--dpi-desync-fake-tls=0x00000000",
+				"--dpi-desync-fake-tls=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
+				"--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com"
+			],
+			"filters": {
+				"tcpPorts": "2053,2083,2087,2096,8443",
+				"domains": [
+					"discord.media"
+				]
+			},
+			"payloadReferences": [
+				"0x00000000",
+				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
+				"rnd,dupsid,sni"
+			],
+			"executionStatus": "not-adapted"
+		},
+		{
+			"id": "stressozz-discord-media-dv16",
+			"feature": "discord-media",
+			"sourceRepo": "StressOzz/Zapret-Manager",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"sourceName": "Dv16",
+			"originalOptions": [
+				"--filter-tcp=2053,2083,2087,2096,8443",
+				"--hostlist-domains=discord.media",
+				"--dpi-desync=fake,hostfakesplit",
+				"--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com",
+				"--dpi-desync-hostfakesplit-mod=host=www.google.com,altorder=1",
+				"--dpi-desync-fooling=ts"
+			],
+			"filters": {
+				"tcpPorts": "2053,2083,2087,2096,8443",
+				"domains": [
+					"discord.media"
+				]
+			},
+			"payloadReferences": [
+				"rnd,dupsid,sni"
+			],
+			"executionStatus": "not-adapted"
+		},
+		{
+			"id": "stressozz-discord-media-dv17",
+			"feature": "discord-media",
+			"sourceRepo": "StressOzz/Zapret-Manager",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"sourceName": "Dv17",
+			"originalOptions": [
+				"--filter-tcp=2053,2083,2087,2096,8443",
+				"--hostlist-domains=discord.media",
+				"--dpi-desync=hostfakesplit",
+				"--dpi-desync-repeats=4",
+				"--dpi-desync-fooling=ts",
+				"--dpi-desync-hostfakesplit-mod=host=www.google.com"
+			],
+			"filters": {
+				"tcpPorts": "2053,2083,2087,2096,8443",
+				"domains": [
+					"discord.media"
+				]
+			},
+			"payloadReferences": [],
+			"executionStatus": "not-adapted"
+		},
+		{
+			"id": "stressozz-discord-voice",
+			"feature": "discord-voice",
+			"sourceRepo": "StressOzz/Zapret-Manager",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"sourceName": "discord voice/STUN",
+			"originalOptions": [
+				"--filter-udp=19294-19344,50000-50100",
+				"--filter-l7=discord,stun",
+				"--dpi-desync=fake",
+				"--dpi-desync-fake-discord=/opt/zapret/files/fake/stun.bin",
+				"--dpi-desync-fake-stun=/opt/zapret/files/fake/stun.bin",
+				"--dpi-desync-repeats=6"
+			],
+			"filters": {
+				"udpPorts": "19294-19344,50000-50100",
+				"l7": [
+					"discord",
+					"stun"
+				]
+			},
+			"payloadReferences": [
+				"/opt/zapret/files/fake/stun.bin"
+			],
+			"executionStatus": "not-adapted"
+		},
+		{
+			"id": "stressozz-discord-finland",
+			"feature": "discord-finland",
+			"sourceRepo": "StressOzz/Zapret-Manager",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"sourceName": "Finnish Discord media scope",
+			"originalOptions": [
+				"104\\.25\\.158\\.178 finland[0-9]\\{5\\}\\.discord\\.media"
+			],
+			"filters": {
+				"hostnames": [
+					"finland[0-9]{5}.discord.media"
+				],
+				"ips": [
+					"104.25.158.178"
+				]
+			},
+			"payloadReferences": [],
+			"executionStatus": "not-adapted"
+		},
+		{
+			"id": "stressozz-game-filter",
+			"feature": "game-filter",
+			"sourceRepo": "StressOzz/Zapret-Manager",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"sourceName": "Gv1",
+			"originalOptions": [
+				"--filter-udp=88,1024-2407,2409-4499,4502-19293,19345-49999,50101-65535",
+				"--dpi-desync=fake",
+				"--dpi-desync-cutoff=d2",
+				"--dpi-desync-any-protocol=1",
+				"--dpi-desync-fake-unknown-udp=/opt/zapret/files/fake/stun.bin",
+				"--new",
+				"--filter-tcp=2802,2302,2502,3724,6000-8000,8085,8090,8100,8903,8904,25565,27015-27030,27036-27037,50001,60442",
+				"--dpi-desync-any-protocol=1",
+				"--dpi-desync-cutoff=n5",
+				"--dpi-desync=multisplit",
+				"--dpi-desync-split-seqovl=582",
+				"--dpi-desync-split-pos=1",
+				"--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/stun.bin"
+			],
+			"filters": {
+				"tcpPorts": "2802,2302,2502,3724,6000-8000,8085,8090,8100,8903,8904,25565,27015-27030,27036-27037,50001,60442",
+				"udpPorts": "88,1024-2407,2409-4499,4502-19293,19345-49999,50101-65535",
+				"metadata": {
+					"enable": "fix_GAME installs Gv1",
+					"disable": "fix_GAME removes Gv1",
+					"strategyVariants": [
+						"Gv1",
+						"Gv2",
+						"Gv3",
+						"Gv4"
+					]
+				}
+			},
+			"payloadReferences": [
+				"/opt/zapret/files/fake/stun.bin"
+			],
+			"executionStatus": "not-adapted"
+		}
+	]
+}

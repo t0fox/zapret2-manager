@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "catalogRevision": "bol-van/zapret2@d3b3011000f103c5af161cc4e3167e80fd6928a2:standard-extract-1",
+  "sources": [
+    {
+      "source": "upstream-standard",
+      "sourcePath": "blockcheck2.d/standard/20-multi.sh",
+      "sourceRevision": "d3b3011000f103c5af161cc4e3167e80fd6928a2",
+      "protocol": "tcp_https",
+      "lines": [
+        "--payload=tls_client_hello --lua-desync=multisplit:pos=2",
+        "--payload=tls_client_hello --lua-desync=multisplit:pos=1",
+        "--payload=tls_client_hello --lua-desync=multisplit:pos=sniext+1",
+        "--payload=tls_client_hello --lua-desync=multisplit:pos=sniext+4",
+        "--payload=tls_client_hello --lua-desync=multisplit:pos=host+1",
+        "--payload=tls_client_hello --lua-desync=multisplit:pos=midsld",
+        "--payload=tls_client_hello --lua-desync=multisplit:pos=1,midsld",
+        "--payload=tls_client_hello --lua-desync=multidisorder:pos=1,midsld",
+        "--payload=tls_client_hello --lua-desync=wssize:wsize=1:scale=6 --lua-desync=multisplit:pos=2"
+      ]
+    },
+    {
+      "source": "upstream-standard",
+      "sourcePath": "blockcheck2.d/standard/25-fake.sh",
+      "sourceRevision": "d3b3011000f103c5af161cc4e3167e80fd6928a2",
+      "protocol": "tcp_https",
+      "lines": [
+        "--payload=tls_client_hello --lua-desync=fake:blob=fake_default_tls:tcp_md5",
+        "--payload=tls_client_hello --lua-desync=fake:blob=fake_default_tls:tcp_seq=-3000",
+        "--payload=tls_client_hello --lua-desync=fake:blob=fake_default_tls:badsum",
+        "--payload=tls_client_hello --lua-desync=fake:blob=0x00000000:tcp_md5"
+      ]
+    },
+    {
+      "source": "upstream-standard",
+      "sourcePath": "blockcheck2.d/standard/30-faked.sh",
+      "sourceRevision": "d3b3011000f103c5af161cc4e3167e80fd6928a2",
+      "protocol": "tcp_https",
+      "lines": [
+        "--payload=tls_client_hello --lua-desync=fakedsplit:pos=2",
+        "--payload=tls_client_hello --lua-desync=fakeddisorder:pos=1,midsld",
+        "--payload=tls_client_hello --lua-desync=hostfakesplit:pos=2"
+      ]
+    },
+    {
+      "source": "upstream-standard",
+      "sourcePath": "blockcheck2.d/standard/90-quic.sh",
+      "sourceRevision": "d3b3011000f103c5af161cc4e3167e80fd6928a2",
+      "protocol": "quic_udp",
+      "lines": [
+        "--payload=quic_initial --lua-desync=fake:blob=fake_default_quic:repeats=1",
+        "--payload=quic_initial --lua-desync=fake:blob=fake_default_quic:repeats=2",
+        "--payload=quic_initial --lua-desync=fake:blob=fake_default_quic:repeats=5",
+        "--payload=quic_initial --lua-desync=fake:blob=fake_default_quic:repeats=10",
+        "--payload=quic_initial --lua-desync=send:ipfrag:ipfrag_pos_udp=8 --lua-desync=drop",
+        "--payload=quic_initial --lua-desync=send:ipfrag:ipfrag_pos_udp=16 --lua-desync=drop",
+        "--payload=quic_initial --lua-desync=send:ipfrag:ipfrag_pos_udp=32 --lua-desync=drop",
+        "--payload=quic_initial --lua-desync=fake:blob=fake_default_quic:repeats=2 --lua-desync=send:ipfrag:ipfrag_pos_udp=8 --lua-desync=drop"
+      ]
+    }
+  ]
+}

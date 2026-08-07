@@ -1,0 +1,2 @@
+# Persisted empty input for the upstream nfqws2 games profile.
+# The profile argv references this exact path; it must exist before boot.

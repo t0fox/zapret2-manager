@@ -1,0 +1,36 @@
+# Generated/package outputs
+/artifacts/
+/build-apk/
+*.apk
+*.ipk
+
+# Agent/local workflow state
+/.claude/
+/docs/superpowers/
+
+# Native/build outputs
+*.o
+*.so
+*.core
+core
+core.*
+/fs-helper-*
+/test-*
+/tmp-*
+
+# Test/runtime artifacts
+playwright-report/
+test-results/
+coverage/
+*.log
+asan*
+lsan*
+ubsan*
+sanitizer-*
+*.dmp
+
+# Editor/OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo

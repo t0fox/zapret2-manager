@@ -1,0 +1,7 @@
+# Factory TCP/HTTPS preset. Comments and unknown options are intentionally retained.
+--daemon-opt=factory-tcp
+
+--filter-tcp=440-450 --hostlist-domains=*.example.com --unknown-option=keep --lua-desync=old --new
+
+# Secondary TCP profile
+--filter-tcp=80 --hostlist-domains=example.net --lua-desync=fake --new

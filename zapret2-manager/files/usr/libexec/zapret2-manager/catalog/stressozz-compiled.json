@@ -1,0 +1,1222 @@
+{
+	"schemaVersion": 1,
+	"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
+	"sourceRepo": "StressOzz/Zapret-Manager",
+	"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+	"records": [
+		{
+			"candidateId": "stressozz-discord-media-dv1",
+			"feature": "discord-media",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"originalOptions": [
+				"--filter-tcp=2053,2083,2087,2096,8443",
+				"--hostlist-domains=discord.media",
+				"--dpi-desync=multisplit",
+				"--dpi-desync-split-seqovl=652",
+				"--dpi-desync-split-pos=2",
+				"--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
+			],
+			"filters": {
+				"domains": [
+					"discord.media"
+				],
+				"ipScope": {
+					"hostnames": [],
+					"ips": []
+				},
+				"tcpPorts": "2053,2083,2087,2096,8443",
+				"udpPorts": null,
+				"l7": []
+			},
+			"compiledOptions": {
+				"format": "zapret2/nfqws2-profile-fragment",
+				"filters": {
+					"domains": [
+						"discord.media"
+					],
+					"ipScope": {
+						"hostnames": [],
+						"ips": []
+					},
+					"tcpPorts": "2053,2083,2087,2096,8443",
+					"udpPorts": null,
+					"l7": []
+				},
+				"operations": [],
+				"profileName": "StressOzz_Discord_Media_Dv1",
+				"fragment": "--blob=blob_stressozz_tls_clienthello_www_google_com:@/opt/zapret2/files/fake/tls_clienthello_www_google_com.bin --filter-tcp=2053,2083,2087,2096,8443 --filter-l7=tls --hostlist-domains=discord.media --payload=tls_client_hello --lua-desync=multisplit:pos=2:seqovl=652:seqovl_pattern=blob_stressozz_tls_clienthello_www_google_com",
+				"nativeLuaChain": [
+					"multisplit:pos=2:seqovl=652:seqovl_pattern=blob_stressozz_tls_clienthello_www_google_com"
+				],
+				"resolvedPayloads": [
+					{
+						"blobName": "blob_stressozz_tls_clienthello_www_google_com",
+						"sourcePath": "/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
+						"targetPath": "/opt/zapret2/files/fake/tls_clienthello_www_google_com.bin"
+					}
+				],
+				"semanticMappingEvidence": [
+					"--filter-tcp + --hostlist-domains → native TCP/domain filter",
+					"--dpi-desync=multisplit → --lua-desync=multisplit",
+					"--dpi-desync-split-seqovl=652 → seqovl=652",
+					"--dpi-desync-split-pos=2 → pos=2",
+					"--dpi-desync-split-seqovl-pattern → --blob + seqovl_pattern"
+				],
+				"argv": [
+					"--blob=blob_stressozz_tls_clienthello_www_google_com:@/opt/zapret2/files/fake/tls_clienthello_www_google_com.bin",
+					"--filter-tcp=2053,2083,2087,2096,8443",
+					"--filter-l7=tls",
+					"--hostlist-domains=discord.media",
+					"--payload=tls_client_hello",
+					"--lua-desync=multisplit:pos=2:seqovl=652:seqovl_pattern=blob_stressozz_tls_clienthello_www_google_com"
+				]
+			},
+			"requiredPayloads": [
+				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
+			],
+			"resolvedPayloads": [
+				{
+					"blobName": "blob_stressozz_tls_clienthello_www_google_com",
+					"sourcePath": "/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
+					"targetPath": "/opt/zapret2/files/fake/tls_clienthello_www_google_com.bin"
+				}
+			],
+			"semanticMappingEvidence": [
+				"--filter-tcp + --hostlist-domains → native TCP/domain filter",
+				"--dpi-desync=multisplit → --lua-desync=multisplit",
+				"--dpi-desync-split-seqovl=652 → seqovl=652",
+				"--dpi-desync-split-pos=2 → pos=2",
+				"--dpi-desync-split-seqovl-pattern → --blob + seqovl_pattern"
+			],
+			"executionStatus": "native-adapted",
+			"compatibilityReasons": [],
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
+			"compiledDigest": "73f7cefcb43412c012e32842bb8d8300fb5031b9ada88f200670b2420d819e8c"
+		},
+		{
+			"candidateId": "stressozz-discord-media-dv2",
+			"feature": "discord-media",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"originalOptions": [
+				"--filter-tcp=2053,2083,2087,2096,8443",
+				"--hostlist-domains=discord.media",
+				"--dpi-desync=fake,multisplit",
+				"--dpi-desync-split-seqovl=681",
+				"--dpi-desync-split-pos=1",
+				"--dpi-desync-fooling=ts",
+				"--dpi-desync-repeats=8",
+				"--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
+				"--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com"
+			],
+			"filters": {
+				"domains": [
+					"discord.media"
+				],
+				"ipScope": {
+					"hostnames": [],
+					"ips": []
+				},
+				"tcpPorts": "2053,2083,2087,2096,8443",
+				"udpPorts": null,
+				"l7": []
+			},
+			"compiledOptions": {
+				"format": "zapret2/nfqws2-profile-fragment",
+				"filters": {
+					"domains": [
+						"discord.media"
+					],
+					"ipScope": {
+						"hostnames": [],
+						"ips": []
+					},
+					"tcpPorts": "2053,2083,2087,2096,8443",
+					"udpPorts": null,
+					"l7": []
+				},
+				"operations": [],
+				"status": "rejected",
+				"compatibilityReasons": [
+					"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+				]
+			},
+			"requiredPayloads": [
+				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
+				"rnd,dupsid,sni"
+			],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
+			"executionStatus": "unsupported",
+			"compatibilityReasons": [
+				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+			],
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
+			"compiledDigest": null
+		},
+		{
+			"candidateId": "stressozz-discord-media-dv3",
+			"feature": "discord-media",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"originalOptions": [
+				"--filter-tcp=2053,2083,2087,2096,8443",
+				"--hostlist-domains=discord.media",
+				"--dpi-desync=fake",
+				"--dpi-desync-repeats=6",
+				"--dpi-desync-fooling=ts",
+				"--dpi-desync-fake-tls=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
+				"--dpi-desync-fake-tls-mod=none"
+			],
+			"filters": {
+				"domains": [
+					"discord.media"
+				],
+				"ipScope": {
+					"hostnames": [],
+					"ips": []
+				},
+				"tcpPorts": "2053,2083,2087,2096,8443",
+				"udpPorts": null,
+				"l7": []
+			},
+			"compiledOptions": {
+				"format": "zapret2/nfqws2-profile-fragment",
+				"filters": {
+					"domains": [
+						"discord.media"
+					],
+					"ipScope": {
+						"hostnames": [],
+						"ips": []
+					},
+					"tcpPorts": "2053,2083,2087,2096,8443",
+					"udpPorts": null,
+					"l7": []
+				},
+				"operations": [],
+				"status": "rejected",
+				"compatibilityReasons": [
+					"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+				]
+			},
+			"requiredPayloads": [
+				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
+				"none"
+			],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
+			"executionStatus": "unsupported",
+			"compatibilityReasons": [
+				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+			],
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
+			"compiledDigest": null
+		},
+		{
+			"candidateId": "stressozz-discord-media-dv4",
+			"feature": "discord-media",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"originalOptions": [
+				"--filter-tcp=2053,2083,2087,2096,8443",
+				"--hostlist-domains=discord.media",
+				"--dpi-desync=multisplit",
+				"--dpi-desync-split-seqovl=652",
+				"--dpi-desync-split-pos=2",
+				"--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
+			],
+			"filters": {
+				"domains": [
+					"discord.media"
+				],
+				"ipScope": {
+					"hostnames": [],
+					"ips": []
+				},
+				"tcpPorts": "2053,2083,2087,2096,8443",
+				"udpPorts": null,
+				"l7": []
+			},
+			"compiledOptions": {
+				"format": "zapret2/nfqws2-profile-fragment",
+				"filters": {
+					"domains": [
+						"discord.media"
+					],
+					"ipScope": {
+						"hostnames": [],
+						"ips": []
+					},
+					"tcpPorts": "2053,2083,2087,2096,8443",
+					"udpPorts": null,
+					"l7": []
+				},
+				"operations": [],
+				"status": "rejected",
+				"compatibilityReasons": [
+					"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+				]
+			},
+			"requiredPayloads": [
+				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
+			],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
+			"executionStatus": "unsupported",
+			"compatibilityReasons": [
+				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+			],
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
+			"compiledDigest": null
+		},
+		{
+			"candidateId": "stressozz-discord-media-dv5",
+			"feature": "discord-media",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"originalOptions": [
+				"--filter-tcp=2053,2083,2087,2096,8443",
+				"--hostlist-domains=discord.media",
+				"--dpi-desync=fake,multisplit",
+				"--dpi-desync-repeats=6",
+				"--dpi-desync-fooling=badseq",
+				"--dpi-desync-badseq-increment=1000",
+				"--dpi-desync-fake-tls=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
+			],
+			"filters": {
+				"domains": [
+					"discord.media"
+				],
+				"ipScope": {
+					"hostnames": [],
+					"ips": []
+				},
+				"tcpPorts": "2053,2083,2087,2096,8443",
+				"udpPorts": null,
+				"l7": []
+			},
+			"compiledOptions": {
+				"format": "zapret2/nfqws2-profile-fragment",
+				"filters": {
+					"domains": [
+						"discord.media"
+					],
+					"ipScope": {
+						"hostnames": [],
+						"ips": []
+					},
+					"tcpPorts": "2053,2083,2087,2096,8443",
+					"udpPorts": null,
+					"l7": []
+				},
+				"operations": [],
+				"status": "rejected",
+				"compatibilityReasons": [
+					"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+				]
+			},
+			"requiredPayloads": [
+				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
+			],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
+			"executionStatus": "unsupported",
+			"compatibilityReasons": [
+				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+			],
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
+			"compiledDigest": null
+		},
+		{
+			"candidateId": "stressozz-discord-media-dv6",
+			"feature": "discord-media",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"originalOptions": [
+				"--filter-tcp=2053,2083,2087,2096,8443",
+				"--hostlist-domains=discord.media",
+				"--dpi-desync=multisplit",
+				"--dpi-desync-split-seqovl=681",
+				"--dpi-desync-split-pos=1",
+				"--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
+			],
+			"filters": {
+				"domains": [
+					"discord.media"
+				],
+				"ipScope": {
+					"hostnames": [],
+					"ips": []
+				},
+				"tcpPorts": "2053,2083,2087,2096,8443",
+				"udpPorts": null,
+				"l7": []
+			},
+			"compiledOptions": {
+				"format": "zapret2/nfqws2-profile-fragment",
+				"filters": {
+					"domains": [
+						"discord.media"
+					],
+					"ipScope": {
+						"hostnames": [],
+						"ips": []
+					},
+					"tcpPorts": "2053,2083,2087,2096,8443",
+					"udpPorts": null,
+					"l7": []
+				},
+				"operations": [],
+				"status": "rejected",
+				"compatibilityReasons": [
+					"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+				]
+			},
+			"requiredPayloads": [
+				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
+			],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
+			"executionStatus": "unsupported",
+			"compatibilityReasons": [
+				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+			],
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
+			"compiledDigest": null
+		},
+		{
+			"candidateId": "stressozz-discord-media-dv7",
+			"feature": "discord-media",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"originalOptions": [
+				"--filter-tcp=2053,2083,2087,2096,8443",
+				"--hostlist-domains=discord.media",
+				"--dpi-desync=multisplit",
+				"--dpi-desync-split-pos=2,sniext+1",
+				"--dpi-desync-split-seqovl=679",
+				"--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
+			],
+			"filters": {
+				"domains": [
+					"discord.media"
+				],
+				"ipScope": {
+					"hostnames": [],
+					"ips": []
+				},
+				"tcpPorts": "2053,2083,2087,2096,8443",
+				"udpPorts": null,
+				"l7": []
+			},
+			"compiledOptions": {
+				"format": "zapret2/nfqws2-profile-fragment",
+				"filters": {
+					"domains": [
+						"discord.media"
+					],
+					"ipScope": {
+						"hostnames": [],
+						"ips": []
+					},
+					"tcpPorts": "2053,2083,2087,2096,8443",
+					"udpPorts": null,
+					"l7": []
+				},
+				"operations": [],
+				"status": "rejected",
+				"compatibilityReasons": [
+					"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+				]
+			},
+			"requiredPayloads": [
+				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
+			],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
+			"executionStatus": "unsupported",
+			"compatibilityReasons": [
+				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+			],
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
+			"compiledDigest": null
+		},
+		{
+			"candidateId": "stressozz-discord-media-dv8",
+			"feature": "discord-media",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"originalOptions": [
+				"--filter-tcp=2053,2083,2087,2096,8443",
+				"--hostlist-domains=discord.media",
+				"--dpi-desync=fake",
+				"--dpi-desync-fake-tls-mod=none",
+				"--dpi-desync-repeats=6",
+				"--dpi-desync-fooling=badseq",
+				"--dpi-desync-badseq-increment=2"
+			],
+			"filters": {
+				"domains": [
+					"discord.media"
+				],
+				"ipScope": {
+					"hostnames": [],
+					"ips": []
+				},
+				"tcpPorts": "2053,2083,2087,2096,8443",
+				"udpPorts": null,
+				"l7": []
+			},
+			"compiledOptions": {
+				"format": "zapret2/nfqws2-profile-fragment",
+				"filters": {
+					"domains": [
+						"discord.media"
+					],
+					"ipScope": {
+						"hostnames": [],
+						"ips": []
+					},
+					"tcpPorts": "2053,2083,2087,2096,8443",
+					"udpPorts": null,
+					"l7": []
+				},
+				"operations": [],
+				"status": "rejected",
+				"compatibilityReasons": [
+					"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+				]
+			},
+			"requiredPayloads": [
+				"none"
+			],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
+			"executionStatus": "unsupported",
+			"compatibilityReasons": [
+				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+			],
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
+			"compiledDigest": null
+		},
+		{
+			"candidateId": "stressozz-discord-media-dv9",
+			"feature": "discord-media",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"originalOptions": [
+				"--filter-tcp=2053,2083,2087,2096,8443",
+				"--hostlist-domains=discord.media",
+				"--dpi-desync=fake,fakedsplit",
+				"--dpi-desync-split-pos=1",
+				"--dpi-desync-fooling=badseq",
+				"--dpi-desync-badseq-increment=2",
+				"--dpi-desync-repeats=8",
+				"--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com"
+			],
+			"filters": {
+				"domains": [
+					"discord.media"
+				],
+				"ipScope": {
+					"hostnames": [],
+					"ips": []
+				},
+				"tcpPorts": "2053,2083,2087,2096,8443",
+				"udpPorts": null,
+				"l7": []
+			},
+			"compiledOptions": {
+				"format": "zapret2/nfqws2-profile-fragment",
+				"filters": {
+					"domains": [
+						"discord.media"
+					],
+					"ipScope": {
+						"hostnames": [],
+						"ips": []
+					},
+					"tcpPorts": "2053,2083,2087,2096,8443",
+					"udpPorts": null,
+					"l7": []
+				},
+				"operations": [],
+				"status": "rejected",
+				"compatibilityReasons": [
+					"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+				]
+			},
+			"requiredPayloads": [
+				"rnd,dupsid,sni"
+			],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
+			"executionStatus": "unsupported",
+			"compatibilityReasons": [
+				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+			],
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
+			"compiledDigest": null
+		},
+		{
+			"candidateId": "stressozz-discord-media-dv10",
+			"feature": "discord-media",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"originalOptions": [
+				"--filter-tcp=2053,2083,2087,2096,8443",
+				"--hostlist-domains=discord.media",
+				"--dpi-desync=fake,multisplit",
+				"--dpi-desync-split-seqovl=681",
+				"--dpi-desync-split-pos=1",
+				"--dpi-desync-fooling=badseq",
+				"--dpi-desync-badseq-increment=10000000",
+				"--dpi-desync-repeats=8",
+				"--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
+				"--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com"
+			],
+			"filters": {
+				"domains": [
+					"discord.media"
+				],
+				"ipScope": {
+					"hostnames": [],
+					"ips": []
+				},
+				"tcpPorts": "2053,2083,2087,2096,8443",
+				"udpPorts": null,
+				"l7": []
+			},
+			"compiledOptions": {
+				"format": "zapret2/nfqws2-profile-fragment",
+				"filters": {
+					"domains": [
+						"discord.media"
+					],
+					"ipScope": {
+						"hostnames": [],
+						"ips": []
+					},
+					"tcpPorts": "2053,2083,2087,2096,8443",
+					"udpPorts": null,
+					"l7": []
+				},
+				"operations": [],
+				"status": "rejected",
+				"compatibilityReasons": [
+					"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+				]
+			},
+			"requiredPayloads": [
+				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
+				"rnd,dupsid,sni"
+			],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
+			"executionStatus": "unsupported",
+			"compatibilityReasons": [
+				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+			],
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
+			"compiledDigest": null
+		},
+		{
+			"candidateId": "stressozz-discord-media-dv11",
+			"feature": "discord-media",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"originalOptions": [
+				"--filter-tcp=2053,2083,2087,2096,8443",
+				"--hostlist-domains=discord.media",
+				"--dpi-desync=fake,multisplit",
+				"--dpi-desync-split-seqovl=681",
+				"--dpi-desync-split-pos=1",
+				"--dpi-desync-fooling=ts",
+				"--dpi-desync-repeats=8",
+				"--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
+				"--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com"
+			],
+			"filters": {
+				"domains": [
+					"discord.media"
+				],
+				"ipScope": {
+					"hostnames": [],
+					"ips": []
+				},
+				"tcpPorts": "2053,2083,2087,2096,8443",
+				"udpPorts": null,
+				"l7": []
+			},
+			"compiledOptions": {
+				"format": "zapret2/nfqws2-profile-fragment",
+				"filters": {
+					"domains": [
+						"discord.media"
+					],
+					"ipScope": {
+						"hostnames": [],
+						"ips": []
+					},
+					"tcpPorts": "2053,2083,2087,2096,8443",
+					"udpPorts": null,
+					"l7": []
+				},
+				"operations": [],
+				"status": "rejected",
+				"compatibilityReasons": [
+					"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+				]
+			},
+			"requiredPayloads": [
+				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
+				"rnd,dupsid,sni"
+			],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
+			"executionStatus": "unsupported",
+			"compatibilityReasons": [
+				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+			],
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
+			"compiledDigest": null
+		},
+		{
+			"candidateId": "stressozz-discord-media-dv12",
+			"feature": "discord-media",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"originalOptions": [
+				"--filter-tcp=2053,2083,2087,2096,8443",
+				"--hostlist-domains=discord.media",
+				"--dpi-desync=fake",
+				"--dpi-desync-repeats=6",
+				"--dpi-desync-fooling=badseq",
+				"--dpi-desync-badseq-increment=2",
+				"--dpi-desync-fake-tls=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
+			],
+			"filters": {
+				"domains": [
+					"discord.media"
+				],
+				"ipScope": {
+					"hostnames": [],
+					"ips": []
+				},
+				"tcpPorts": "2053,2083,2087,2096,8443",
+				"udpPorts": null,
+				"l7": []
+			},
+			"compiledOptions": {
+				"format": "zapret2/nfqws2-profile-fragment",
+				"filters": {
+					"domains": [
+						"discord.media"
+					],
+					"ipScope": {
+						"hostnames": [],
+						"ips": []
+					},
+					"tcpPorts": "2053,2083,2087,2096,8443",
+					"udpPorts": null,
+					"l7": []
+				},
+				"operations": [],
+				"status": "rejected",
+				"compatibilityReasons": [
+					"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+				]
+			},
+			"requiredPayloads": [
+				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
+			],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
+			"executionStatus": "unsupported",
+			"compatibilityReasons": [
+				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+			],
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
+			"compiledDigest": null
+		},
+		{
+			"candidateId": "stressozz-discord-media-dv13",
+			"feature": "discord-media",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"originalOptions": [
+				"--filter-tcp=2053,2083,2087,2096,8443",
+				"--hostlist-domains=discord.media",
+				"--dpi-desync=fake",
+				"--dpi-desync-repeats=6",
+				"--dpi-desync-fooling=ts",
+				"--dpi-desync-fake-tls=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
+			],
+			"filters": {
+				"domains": [
+					"discord.media"
+				],
+				"ipScope": {
+					"hostnames": [],
+					"ips": []
+				},
+				"tcpPorts": "2053,2083,2087,2096,8443",
+				"udpPorts": null,
+				"l7": []
+			},
+			"compiledOptions": {
+				"format": "zapret2/nfqws2-profile-fragment",
+				"filters": {
+					"domains": [
+						"discord.media"
+					],
+					"ipScope": {
+						"hostnames": [],
+						"ips": []
+					},
+					"tcpPorts": "2053,2083,2087,2096,8443",
+					"udpPorts": null,
+					"l7": []
+				},
+				"operations": [],
+				"status": "rejected",
+				"compatibilityReasons": [
+					"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+				]
+			},
+			"requiredPayloads": [
+				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
+			],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
+			"executionStatus": "unsupported",
+			"compatibilityReasons": [
+				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+			],
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
+			"compiledDigest": null
+		},
+		{
+			"candidateId": "stressozz-discord-media-dv14",
+			"feature": "discord-media",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"originalOptions": [
+				"--filter-tcp=2053,2083,2087,2096,8443",
+				"--hostlist-domains=discord.media",
+				"--dpi-desync=fake,fakedsplit",
+				"--dpi-desync-repeats=6",
+				"--dpi-desync-fooling=ts",
+				"--dpi-desync-fakedsplit-pattern=0x00",
+				"--dpi-desync-fake-tls=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
+			],
+			"filters": {
+				"domains": [
+					"discord.media"
+				],
+				"ipScope": {
+					"hostnames": [],
+					"ips": []
+				},
+				"tcpPorts": "2053,2083,2087,2096,8443",
+				"udpPorts": null,
+				"l7": []
+			},
+			"compiledOptions": {
+				"format": "zapret2/nfqws2-profile-fragment",
+				"filters": {
+					"domains": [
+						"discord.media"
+					],
+					"ipScope": {
+						"hostnames": [],
+						"ips": []
+					},
+					"tcpPorts": "2053,2083,2087,2096,8443",
+					"udpPorts": null,
+					"l7": []
+				},
+				"operations": [],
+				"status": "rejected",
+				"compatibilityReasons": [
+					"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+				]
+			},
+			"requiredPayloads": [
+				"0x00",
+				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
+			],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
+			"executionStatus": "unsupported",
+			"compatibilityReasons": [
+				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+			],
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
+			"compiledDigest": null
+		},
+		{
+			"candidateId": "stressozz-discord-media-dv15",
+			"feature": "discord-media",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"originalOptions": [
+				"--filter-tcp=2053,2083,2087,2096,8443",
+				"--hostlist-domains=discord.media",
+				"--dpi-desync=fake,multidisorder",
+				"--dpi-desync-split-pos=1,midsld",
+				"--dpi-desync-repeats=11",
+				"--dpi-desync-fooling=badseq",
+				"--dpi-desync-fake-tls=0x00000000",
+				"--dpi-desync-fake-tls=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
+				"--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com"
+			],
+			"filters": {
+				"domains": [
+					"discord.media"
+				],
+				"ipScope": {
+					"hostnames": [],
+					"ips": []
+				},
+				"tcpPorts": "2053,2083,2087,2096,8443",
+				"udpPorts": null,
+				"l7": []
+			},
+			"compiledOptions": {
+				"format": "zapret2/nfqws2-profile-fragment",
+				"filters": {
+					"domains": [
+						"discord.media"
+					],
+					"ipScope": {
+						"hostnames": [],
+						"ips": []
+					},
+					"tcpPorts": "2053,2083,2087,2096,8443",
+					"udpPorts": null,
+					"l7": []
+				},
+				"operations": [],
+				"status": "rejected",
+				"compatibilityReasons": [
+					"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+				]
+			},
+			"requiredPayloads": [
+				"0x00000000",
+				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
+				"rnd,dupsid,sni"
+			],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
+			"executionStatus": "unsupported",
+			"compatibilityReasons": [
+				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+			],
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
+			"compiledDigest": null
+		},
+		{
+			"candidateId": "stressozz-discord-media-dv16",
+			"feature": "discord-media",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"originalOptions": [
+				"--filter-tcp=2053,2083,2087,2096,8443",
+				"--hostlist-domains=discord.media",
+				"--dpi-desync=fake,hostfakesplit",
+				"--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com",
+				"--dpi-desync-hostfakesplit-mod=host=www.google.com,altorder=1",
+				"--dpi-desync-fooling=ts"
+			],
+			"filters": {
+				"domains": [
+					"discord.media"
+				],
+				"ipScope": {
+					"hostnames": [],
+					"ips": []
+				},
+				"tcpPorts": "2053,2083,2087,2096,8443",
+				"udpPorts": null,
+				"l7": []
+			},
+			"compiledOptions": {
+				"format": "zapret2/nfqws2-profile-fragment",
+				"filters": {
+					"domains": [
+						"discord.media"
+					],
+					"ipScope": {
+						"hostnames": [],
+						"ips": []
+					},
+					"tcpPorts": "2053,2083,2087,2096,8443",
+					"udpPorts": null,
+					"l7": []
+				},
+				"operations": [],
+				"status": "rejected",
+				"compatibilityReasons": [
+					"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+				]
+			},
+			"requiredPayloads": [
+				"rnd,dupsid,sni"
+			],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
+			"executionStatus": "unsupported",
+			"compatibilityReasons": [
+				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+			],
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
+			"compiledDigest": null
+		},
+		{
+			"candidateId": "stressozz-discord-media-dv17",
+			"feature": "discord-media",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"originalOptions": [
+				"--filter-tcp=2053,2083,2087,2096,8443",
+				"--hostlist-domains=discord.media",
+				"--dpi-desync=hostfakesplit",
+				"--dpi-desync-repeats=4",
+				"--dpi-desync-fooling=ts",
+				"--dpi-desync-hostfakesplit-mod=host=www.google.com"
+			],
+			"filters": {
+				"domains": [
+					"discord.media"
+				],
+				"ipScope": {
+					"hostnames": [],
+					"ips": []
+				},
+				"tcpPorts": "2053,2083,2087,2096,8443",
+				"udpPorts": null,
+				"l7": []
+			},
+			"compiledOptions": {
+				"format": "zapret2/nfqws2-profile-fragment",
+				"filters": {
+					"domains": [
+						"discord.media"
+					],
+					"ipScope": {
+						"hostnames": [],
+						"ips": []
+					},
+					"tcpPorts": "2053,2083,2087,2096,8443",
+					"udpPorts": null,
+					"l7": []
+				},
+				"operations": [],
+				"status": "rejected",
+				"compatibilityReasons": [
+					"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent",
+					"missing payload: record has no concrete payload reference for its fake operation"
+				]
+			},
+			"requiredPayloads": [],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
+			"executionStatus": "unsupported",
+			"compatibilityReasons": [
+				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent",
+				"missing payload: record has no concrete payload reference for its fake operation"
+			],
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
+			"compiledDigest": null
+		},
+		{
+			"candidateId": "stressozz-discord-voice",
+			"feature": "discord-voice",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"originalOptions": [
+				"--filter-udp=19294-19344,50000-50100",
+				"--filter-l7=discord,stun",
+				"--dpi-desync=fake",
+				"--dpi-desync-fake-discord=/opt/zapret/files/fake/stun.bin",
+				"--dpi-desync-fake-stun=/opt/zapret/files/fake/stun.bin",
+				"--dpi-desync-repeats=6"
+			],
+			"filters": {
+				"domains": [],
+				"ipScope": {
+					"hostnames": [],
+					"ips": []
+				},
+				"tcpPorts": null,
+				"udpPorts": "19294-19344,50000-50100",
+				"l7": [
+					"discord",
+					"stun"
+				]
+			},
+			"compiledOptions": {
+				"format": "zapret2/nfqws2-profile-fragment",
+				"filters": {
+					"domains": [],
+					"ipScope": {
+						"hostnames": [],
+						"ips": []
+					},
+					"tcpPorts": null,
+					"udpPorts": "19294-19344,50000-50100",
+					"l7": [
+						"discord",
+						"stun"
+					]
+				},
+				"operations": [],
+				"profileName": "StressOzz_Discord_Voice",
+				"fragment": "--blob=blob_stressozz_stun:@/opt/zapret2/files/fake/stun.bin --filter-udp=19294-19344,50000-50100 --filter-l7=discord,stun --payload=stun,discord_ip_discovery --lua-desync=fake:blob=blob_stressozz_stun:repeats=6",
+				"nativeLuaChain": [
+					"fake:blob=blob_stressozz_stun:repeats=6"
+				],
+				"resolvedPayloads": [
+					{
+						"blobName": "blob_stressozz_stun",
+						"sourcePath": "/opt/zapret/files/fake/stun.bin",
+						"targetPath": "/opt/zapret2/files/fake/stun.bin"
+					}
+				],
+				"semanticMappingEvidence": [
+					"--filter-udp → native UDP filter",
+					"--filter-l7=discord,stun → native L7 filter",
+					"--dpi-desync=fake → --lua-desync=fake",
+					"--dpi-desync-repeats=6 → repeats=6",
+					"Discord/STUN packet selection → payload=stun,discord_ip_discovery"
+				],
+				"argv": [
+					"--blob=blob_stressozz_stun:@/opt/zapret2/files/fake/stun.bin",
+					"--filter-udp=19294-19344,50000-50100",
+					"--filter-l7=discord,stun",
+					"--payload=stun,discord_ip_discovery",
+					"--lua-desync=fake:blob=blob_stressozz_stun:repeats=6"
+				]
+			},
+			"requiredPayloads": [
+				"/opt/zapret/files/fake/stun.bin"
+			],
+			"resolvedPayloads": [
+				{
+					"blobName": "blob_stressozz_stun",
+					"sourcePath": "/opt/zapret/files/fake/stun.bin",
+					"targetPath": "/opt/zapret2/files/fake/stun.bin"
+				}
+			],
+			"semanticMappingEvidence": [
+				"--filter-udp → native UDP filter",
+				"--filter-l7=discord,stun → native L7 filter",
+				"--dpi-desync=fake → --lua-desync=fake",
+				"--dpi-desync-repeats=6 → repeats=6",
+				"Discord/STUN packet selection → payload=stun,discord_ip_discovery"
+			],
+			"executionStatus": "native-adapted",
+			"compatibilityReasons": [],
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
+			"compiledDigest": "8baed37c62f11365ea53a17053f8e0451ec885125207fa5a5cd384c360a9bc03"
+		},
+		{
+			"candidateId": "stressozz-discord-finland",
+			"feature": "discord-finland",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"originalOptions": [
+				"104\\.25\\.158\\.178 finland[0-9]\\{5\\}\\.discord\\.media"
+			],
+			"filters": {
+				"domains": [],
+				"ipScope": {
+					"hostnames": [
+						"finland[0-9]{5}.discord.media"
+					],
+					"ips": [
+						"104.25.158.178"
+					]
+				},
+				"tcpPorts": null,
+				"udpPorts": null,
+				"l7": []
+			},
+			"compiledOptions": {
+				"format": "zapret2/nfqws2-profile-fragment",
+				"filters": {
+					"domains": [],
+					"ipScope": {
+						"hostnames": [
+							"finland[0-9]{5}.discord.media"
+						],
+						"ips": [
+							"104.25.158.178"
+						]
+					},
+					"tcpPorts": null,
+					"udpPorts": null,
+					"l7": []
+				},
+				"operations": [],
+				"status": "rejected",
+				"compatibilityReasons": [
+					"semantic mismatch: Finnish Discord scope is an /etc/hosts IP/hostname mapping, not a zapret2 packet profile"
+				]
+			},
+			"requiredPayloads": [],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
+			"executionStatus": "unsupported",
+			"compatibilityReasons": [
+				"semantic mismatch: Finnish Discord scope is an /etc/hosts IP/hostname mapping, not a zapret2 packet profile"
+			],
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
+			"compiledDigest": null
+		},
+		{
+			"candidateId": "stressozz-game-filter",
+			"feature": "game-filter",
+			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
+			"originalOptions": [
+				"--filter-udp=88,1024-2407,2409-4499,4502-19293,19345-49999,50101-65535",
+				"--dpi-desync=fake",
+				"--dpi-desync-cutoff=d2",
+				"--dpi-desync-any-protocol=1",
+				"--dpi-desync-fake-unknown-udp=/opt/zapret/files/fake/stun.bin",
+				"--new",
+				"--filter-tcp=2802,2302,2502,3724,6000-8000,8085,8090,8100,8903,8904,25565,27015-27030,27036-27037,50001,60442",
+				"--dpi-desync-any-protocol=1",
+				"--dpi-desync-cutoff=n5",
+				"--dpi-desync=multisplit",
+				"--dpi-desync-split-seqovl=582",
+				"--dpi-desync-split-pos=1",
+				"--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/stun.bin"
+			],
+			"filters": {
+				"domains": [],
+				"ipScope": {
+					"hostnames": [],
+					"ips": []
+				},
+				"tcpPorts": "2802,2302,2502,3724,6000-8000,8085,8090,8100,8903,8904,25565,27015-27030,27036-27037,50001,60442",
+				"udpPorts": "88,1024-2407,2409-4499,4502-19293,19345-49999,50101-65535",
+				"l7": []
+			},
+			"compiledOptions": {
+				"format": "zapret2/nfqws2-profile-fragment",
+				"filters": {
+					"domains": [],
+					"ipScope": {
+						"hostnames": [],
+						"ips": []
+					},
+					"tcpPorts": "2802,2302,2502,3724,6000-8000,8085,8090,8100,8903,8904,25565,27015-27030,27036-27037,50001,60442",
+					"udpPorts": "88,1024-2407,2409-4499,4502-19293,19345-49999,50101-65535",
+					"l7": []
+				},
+				"operations": [],
+				"status": "rejected",
+				"compatibilityReasons": [
+					"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+				]
+			},
+			"requiredPayloads": [
+				"/opt/zapret/files/fake/stun.bin"
+			],
+			"resolvedPayloads": [],
+			"semanticMappingEvidence": [],
+			"executionStatus": "unsupported",
+			"compatibilityReasons": [
+				"unsupported primitive: --dpi-desync is zapret1 syntax with no lossless nfqws2 equivalent"
+			],
+			"compilerVersion": "stressozz-zapret2-compiler/2.0.0",
+			"compiledDigest": null
+		}
+	]
+}

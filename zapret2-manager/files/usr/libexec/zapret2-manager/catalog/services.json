@@ -1,0 +1,810 @@
+{
+	"schema": 1,
+	"catalogVersion": "2.0.0",
+	"digest": "097d97accb52ed80c7c31d21dda8ce17753aa86aea556a8c09e87860a3c99c6d",
+	"upstreamCommit": "41c7fed7fe06774eff01e75d51bbee065c2de206",
+	"upstreamRepo": "youtubediscord/zapret",
+	"upstreamPath": "src/hosts/proxy_domains.py (QUICK_SERVICES)",
+	"services": [
+		{
+			"id": "chatgpt-openai",
+			"name": "ChatGPT & Sora (OpenAI)",
+			"upstreamName": "ChatGPT & Sora (OpenAI)",
+			"category": "AI",
+			"description": "ChatGPT and OpenAI platform (web + API frontends).",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{
+					"source": "youtubediscord/zapret",
+					"url": "https://github.com/youtubediscord/zapret"
+				}
+			],
+			"mechanisms": [
+				"domainInclude",
+				"unsupportedGeo"
+			],
+			"limitations": "Domain listing does NOT bypass account/GEO restrictions.",
+			"stability": "reviewed",
+			"domains": [
+				"chatgpt.com",
+				"chat.openai.com",
+				"openai.com",
+				"oaistatic.com",
+				"oaiusercontent.com",
+				"platform.openai.com",
+				"api.openai.com",
+				"auth0.openai.com",
+				"files.oaiusercontent.com",
+				"tiktoken.aio-static.com"
+			],
+			"minUpstream": "0.9",
+			"minManager": "0.1.0-r41"
+		},
+		{
+			"id": "google-gemini",
+			"name": "Gemini AI",
+			"upstreamName": "Gemini AI",
+			"category": "AI",
+			"description": "Google Gemini web app.",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{
+					"source": "youtubediscord/zapret",
+					"url": "https://github.com/youtubediscord/zapret"
+				}
+			],
+			"mechanisms": [
+				"domainInclude",
+				"unsupportedGeo"
+			],
+			"limitations": "Domain listing does NOT bypass account/GEO restrictions.",
+			"stability": "reviewed",
+			"domains": [
+				"gemini.google.com",
+				"aistudio.google.com",
+				"generativelanguage.googleapis.com",
+				"deepmind.google",
+				"deepmind.com"
+			],
+			"minUpstream": "0.9",
+			"minManager": "0.1.0-r41"
+		},
+		{
+			"id": "claude",
+			"name": "Claude",
+			"upstreamName": "Claude",
+			"category": "AI",
+			"description": "Anthropic Claude AI assistant.",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{
+					"source": "youtubediscord/zapret",
+					"url": "https://github.com/youtubediscord/zapret"
+				}
+			],
+			"mechanisms": [
+				"domainInclude",
+				"unsupportedGeo"
+			],
+			"limitations": "Domain listing does NOT bypass account/GEO restrictions.",
+			"stability": "reviewed",
+			"domains": [
+				"claude.ai",
+				"anthropic.com"
+			],
+			"minUpstream": "0.9",
+			"minManager": "0.1.0-r41"
+		},
+		{
+			"id": "microsoft-copilot",
+			"name": "Microsoft (Copilot, Designer, Xbox)",
+			"upstreamName": "Microsoft (Copilot, Designer, Xbox)",
+			"category": "AI",
+			"description": "Microsoft Copilot, Designer, and Xbox-related domains.",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{
+					"source": "youtubediscord/zapret",
+					"url": "https://github.com/youtubediscord/zapret"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "Broad Microsoft domains; Xbox services may need additional UDP strategies.",
+			"stability": "reviewed",
+			"domains": [
+				"copilot.microsoft.com",
+				"designer.microsoft.com",
+				"www.bing.com",
+				"bing.com",
+				"edgeservices.bing.com",
+				"xbox.com",
+				"xboxlive.com"
+			],
+			"minUpstream": "0.9",
+			"minManager": "0.1.0-r41"
+		},
+		{
+			"id": "grok",
+			"name": "Grok",
+			"upstreamName": "Grok",
+			"category": "AI",
+			"description": "Grok AI by xAI (Twitter/X).",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{
+					"source": "youtubediscord/zapret",
+					"url": "https://github.com/youtubediscord/zapret"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "Linked to X/Twitter infrastructure.",
+			"stability": "reviewed",
+			"domains": [
+				"grok.com",
+				"x.ai"
+			],
+			"minUpstream": "0.9",
+			"minManager": "0.1.0-r41"
+		},
+		{
+			"id": "manus",
+			"name": "Manus",
+			"upstreamName": "Manus",
+			"category": "AI",
+			"description": "Manus AI platform.",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{
+					"source": "youtubediscord/zapret",
+					"url": "https://github.com/youtubediscord/zapret"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "Regional availability varies.",
+			"stability": "experimental",
+			"domains": [
+				"manus.im"
+			],
+			"minUpstream": "0.9",
+			"minManager": "0.1.0-r41"
+		},
+		{
+			"id": "meta-ai",
+			"name": "Meta AI",
+			"upstreamName": "Meta AI",
+			"category": "AI",
+			"description": "Meta AI services (Facebook + Instagram AI).",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{
+					"source": "youtubediscord/zapret",
+					"url": "https://github.com/youtubediscord/zapret"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "Linked to Facebook/Meta infrastructure.",
+			"stability": "reviewed",
+			"domains": [
+				"meta.ai",
+				"www.meta.ai"
+			],
+			"minUpstream": "0.9",
+			"minManager": "0.1.0-r41"
+		},
+		{
+			"id": "trae-ai",
+			"name": "Trae.ai",
+			"upstreamName": "Trae.ai",
+			"category": "AI",
+			"description": "Trae.ai coding assistant.",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{
+					"source": "youtubediscord/zapret",
+					"url": "https://github.com/youtubediscord/zapret"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "Regional availability varies.",
+			"stability": "experimental",
+			"domains": [
+				"trae.ai",
+				"www.trae.ai"
+			],
+			"minUpstream": "0.9",
+			"minManager": "0.1.0-r41"
+		},
+		{
+			"id": "windsurf",
+			"name": "Windsurf",
+			"upstreamName": "Windsurf",
+			"category": "AI",
+			"description": "Windsurf IDE by Codeium.",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{
+					"source": "youtubediscord/zapret",
+					"url": "https://github.com/youtubediscord/zapret"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "May need auth/proxy for API access.",
+			"stability": "reviewed",
+			"domains": [
+				"windsurf.com",
+				"codeium.com"
+			],
+			"minUpstream": "0.9",
+			"minManager": "0.1.0-r41"
+		},
+		{
+			"id": "tiktok",
+			"name": "TikTok",
+			"upstreamName": "TikTok",
+			"category": "social",
+			"description": "TikTok web and CDN.",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{
+					"source": "youtubediscord/zapret",
+					"url": "https://github.com/youtubediscord/zapret"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "CDN hosts rotate frequently; listing base domains covers typical playback.",
+			"stability": "reviewed",
+			"domains": [
+				"tiktok.com",
+				"www.tiktok.com",
+				"tiktokcdn.com",
+				"tiktokv.com",
+				"ibyteimg.com"
+			],
+			"minUpstream": "0.9",
+			"minManager": "0.1.0-r41"
+		},
+		{
+			"id": "spotify",
+			"name": "Spotify",
+			"upstreamName": "Spotify",
+			"category": "music",
+			"description": "Spotify web/player and CDN.",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{
+					"source": "youtubediscord/zapret",
+					"url": "https://github.com/youtubediscord/zapret"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "Audio CDN endpoints vary by region.",
+			"stability": "experimental",
+			"domains": [
+				"spotify.com",
+				"scdn.co",
+				"spotifycdn.com",
+				"spotifycharts.com"
+			],
+			"minUpstream": "0.9",
+			"minManager": "0.1.0-r41"
+		},
+		{
+			"id": "twitch",
+			"name": "Twitch",
+			"upstreamName": "Twitch",
+			"category": "video",
+			"description": "Twitch streaming (site, API, video CDN).",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{
+					"source": "youtubediscord/zapret",
+					"url": "https://github.com/youtubediscord/zapret"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "Live-edge CDN hostnames rotate; listing base CDN domains covers typical playback.",
+			"stability": "reviewed",
+			"domains": [
+				"twitch.tv",
+				"ttvnw.net",
+				"jtvnw.net",
+				"twitchcdn.net"
+			],
+			"minUpstream": "0.9",
+			"minManager": "0.1.0-r41"
+		},
+		{
+			"id": "notion",
+			"name": "Notion",
+			"upstreamName": "Notion",
+			"category": "other",
+			"description": "Notion workspace (app + public pages).",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{
+					"source": "youtubediscord/zapret",
+					"url": "https://github.com/youtubediscord/zapret"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "Workspace availability depends on account access.",
+			"stability": "reviewed",
+			"domains": [
+				"notion.so",
+				"notion.site",
+				"notion-static.com"
+			],
+			"minUpstream": "0.9",
+			"minManager": "0.1.0-r41"
+		},
+		{
+			"id": "deepl",
+			"name": "DeepL",
+			"upstreamName": "DeepL",
+			"category": "other",
+			"description": "DeepL Translator.",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{
+					"source": "youtubediscord/zapret",
+					"url": "https://github.com/youtubediscord/zapret"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "API access needs auth.",
+			"stability": "reviewed",
+			"domains": [
+				"deepl.com",
+				"www.deepl.com"
+			],
+			"minUpstream": "0.9",
+			"minManager": "0.1.0-r41"
+		},
+		{
+			"id": "canva",
+			"name": "Canva",
+			"upstreamName": "Canva",
+			"category": "other",
+			"description": "Canva design platform.",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{
+					"source": "youtubediscord/zapret",
+					"url": "https://github.com/youtubediscord/zapret"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "Asset-heavy; CDN endpoints vary.",
+			"stability": "reviewed",
+			"domains": [
+				"canva.com",
+				"www.canva.com",
+				"static.canva.com"
+			],
+			"minUpstream": "0.9",
+			"minManager": "0.1.0-r41"
+		},
+		{
+			"id": "elevenlabs",
+			"name": "ElevenLabs",
+			"upstreamName": "ElevenLabs",
+			"category": "AI",
+			"description": "ElevenLabs voice AI platform.",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{
+					"source": "youtubediscord/zapret",
+					"url": "https://github.com/youtubediscord/zapret"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "API access needs auth.",
+			"stability": "reviewed",
+			"domains": [
+				"elevenlabs.io",
+				"api.elevenlabs.io"
+			],
+			"minUpstream": "0.9",
+			"minManager": "0.1.0-r41"
+		},
+		{
+			"id": "jetbrains",
+			"name": "JetBrains",
+			"upstreamName": "JetBrains",
+			"category": "developer",
+			"description": "JetBrains IDE/plugin platform.",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{
+					"source": "youtubediscord/zapret",
+					"url": "https://github.com/youtubediscord/zapret"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "License check needs auth, not domain listing.",
+			"stability": "reviewed",
+			"domains": [
+				"jetbrains.com",
+				"account.jetbrains.com",
+				"plugins.jetbrains.com",
+				"download.jetbrains.com"
+			],
+			"minUpstream": "0.9",
+			"minManager": "0.1.0-r41"
+		},
+		{
+			"id": "mangalib",
+			"name": "MangaLib",
+			"upstreamName": "MangaLib",
+			"category": "media",
+			"description": "MangaLib manga reading platform.",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{
+					"source": "youtubediscord/zapret",
+					"url": "https://github.com/youtubediscord/zapret"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "Specific domain may change; check upstream.",
+			"stability": "experimental",
+			"domains": [
+				"mangalib.me"
+			],
+			"minUpstream": "0.9",
+			"minManager": "0.1.0-r41"
+		},
+		{
+			"id": "parsec",
+			"name": "Parsec",
+			"upstreamName": "Parsec",
+			"category": "games",
+			"description": "Parsec remote desktop gaming.",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{
+					"source": "youtubediscord/zapret",
+					"url": "https://github.com/youtubediscord/zapret"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "Latency-critical; domain listing helps initial connection, not P2P relay.",
+			"stability": "experimental",
+			"domains": [
+				"parsec.app",
+				"parsecgaming.com"
+			],
+			"minUpstream": "0.9",
+			"minManager": "0.1.0-r41"
+		},
+		{
+			"id": "square",
+			"name": "Square",
+			"upstreamName": "Square",
+			"category": "other",
+			"description": "Square payment platform.",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{
+					"source": "youtubediscord/zapret",
+					"url": "https://github.com/youtubediscord/zapret"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "Payment APIs need auth; domain listing covers web frontends.",
+			"stability": "experimental",
+			"domains": [
+				"squareup.com",
+				"squarecdn.com"
+			],
+			"minUpstream": "0.9",
+			"minManager": "0.1.0-r41"
+		},
+		{
+			"id": "discord",
+			"name": "Discord",
+			"upstreamName": "Discord",
+			"category": "messaging",
+			"description": "Discord app/web gateway, media and CDN domains.",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{
+					"source": "youtubediscord/zapret",
+					"url": "https://github.com/youtubediscord/zapret"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "Voice/UDP calls need working UDP/game strategies in the engine.",
+			"stability": "reviewed",
+			"domains": [
+				"discord.com",
+				"discord.gg",
+				"discordapp.com",
+				"discordapp.net",
+				"discord.media",
+				"discordcdn.com",
+				"discord.net",
+				"discordstatus.com"
+			],
+			"minUpstream": "0.9",
+			"minManager": "0.1.0-r41"
+		},
+		{
+			"id": "youtube",
+			"name": "YouTube",
+			"upstreamName": "YouTube (может не работать с пресетами)",
+			"category": "video",
+			"description": "YouTube video platform (web + embeds).",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{
+					"source": "youtubediscord/zapret",
+					"url": "https://github.com/youtubediscord/zapret"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "Effectiveness depends on active strategy; may not work with all presets.",
+			"stability": "reviewed",
+			"domains": [
+				"youtube.com",
+				"googlevideo.com",
+				"ytimg.com",
+				"youtube-nocookie.com",
+				"youtu.be",
+				"yt3.ggpht.com",
+				"youtubei.googleapis.com"
+			],
+			"minUpstream": "0.9",
+			"minManager": "0.1.0-r41"
+		},
+		{
+			"id": "github",
+			"name": "GitHub",
+			"upstreamName": "GitHub",
+			"category": "developer",
+			"description": "GitHub main site, assets, and raw/user content.",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{
+					"source": "youtubediscord/zapret",
+					"url": "https://github.com/youtubediscord/zapret"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "API/rate limits and auth restrictions are not DPI matters.",
+			"stability": "reviewed",
+			"domains": [
+				"github.com",
+				"github.githubassets.com",
+				"raw.githubusercontent.com",
+				"gist.githubusercontent.com",
+				"objects.githubusercontent.com",
+				"codeload.github.com"
+			],
+			"minUpstream": "0.9",
+			"minManager": "0.1.0-r41"
+		},
+		{
+			"id": "whatsapp",
+			"name": "WhatsApp",
+			"upstreamName": "WhatsApp (работает обход если есть IPv6)",
+			"category": "messaging",
+			"description": "WhatsApp web and service domains.",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{
+					"source": "youtubediscord/zapret",
+					"url": "https://github.com/youtubediscord/zapret"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "Works best with IPv6 available; some functionality requires proxy.",
+			"stability": "reviewed",
+			"domains": [
+				"whatsapp.com",
+				"web.whatsapp.com",
+				"whatsapp.net",
+				"whatsapp.org"
+			],
+			"minUpstream": "0.9",
+			"minManager": "0.1.0-r41"
+		},
+		{
+			"id": "x-twitter",
+			"name": "x.com / Twitter",
+			"upstreamName": "x.com / Twitter",
+			"category": "social",
+			"description": "x.com (Twitter) social platform.",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{
+					"source": "youtubediscord/zapret",
+					"url": "https://github.com/youtubediscord/zapret"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "API endpoints may change; base domains cover web access.",
+			"stability": "reviewed",
+			"domains": [
+				"x.com",
+				"twitter.com",
+				"twitter.co"
+			],
+			"minUpstream": "0.9",
+			"minManager": "0.1.0-r41"
+		},
+		{
+			"id": "rutor",
+			"name": "Rutor",
+			"upstreamName": "Rutor",
+			"category": "other",
+			"description": "Rutor torrent tracker.",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{
+					"source": "youtubediscord/zapret",
+					"url": "https://github.com/youtubediscord/zapret"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "Domain varies by mirror; check upstream for current address.",
+			"stability": "experimental",
+			"domains": [
+				"rutor.info",
+				"rutor.is"
+			],
+			"minUpstream": "0.9",
+			"minManager": "0.1.0-r41"
+		},
+		{
+			"id": "ntc-party",
+			"name": "ntc.party",
+			"upstreamName": "ntc.party (включить обход по IPv4)",
+			"category": "other",
+			"description": "ntc.party service.",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{
+					"source": "youtubediscord/zapret",
+					"url": "https://github.com/youtubediscord/zapret"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "IPv4-only bypass recommended.",
+			"stability": "experimental",
+			"domains": [
+				"ntc.party"
+			],
+			"minUpstream": "0.9",
+			"minManager": "0.1.0-r41"
+		},
+		{
+			"id": "flowseal-discord",
+			"name": "Flowseal Discord Voice",
+			"upstreamName": "Решение от Flowseal для Discord голоса",
+			"category": "messaging",
+			"description": "Flowseal fix for stable Discord voice servers.",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{
+					"source": "youtubediscord/zapret",
+					"url": "https://github.com/youtubediscord/zapret"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "Specific to Flowseal voice server configuration.",
+			"stability": "experimental",
+			"domains": [
+				"discord.com",
+				"discord.gg",
+				"discordapp.com",
+				"discord.media"
+			],
+			"minUpstream": "0.9",
+			"minManager": "0.1.0-r41"
+		},
+		{
+			"id": "supercell",
+			"name": "Supercell",
+			"upstreamName": "Supercell",
+			"category": "games",
+			"description": "Supercell game services (Clash of Clans, Brawl Stars, etc.).",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{
+					"source": "youtubediscord/zapret",
+					"url": "https://github.com/youtubediscord/zapret"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "Matchmaking may use UDP; domain listing covers service endpoints only.",
+			"stability": "experimental",
+			"domains": [
+				"supercell.com",
+				"supercell.net",
+				"game.supercell.net"
+			],
+			"minUpstream": "0.9",
+			"minManager": "0.1.0-r41"
+		},
+		{
+			"id": "instagram",
+			"name": "Instagram",
+			"upstreamName": "Instagram",
+			"category": "social",
+			"description": "Instagram (Meta).",
+			"reviewed": "2026-07-31",
+			"provenance": [
+				{
+					"source": "youtubediscord/zapret",
+					"url": "https://github.com/youtubediscord/zapret"
+				}
+			],
+			"mechanisms": [
+				"domainInclude"
+			],
+			"limitations": "Linked to Meta/Facebook infrastructure.",
+			"stability": "reviewed",
+			"domains": [
+				"instagram.com",
+				"www.instagram.com",
+				"cdninstagram.com",
+				"instagram.fhel"
+			],
+			"minUpstream": "0.9",
+			"minManager": "0.1.0-r41"
+		}
+	]
+}

@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "serviceId": "discord",
+  "source": {
+    "repo": "youtubediscord/zapret",
+    "commit": "41c7fed7fe06774eff01e75d51bbee065c2de206"
+  },
+  "requiredTargetIds": ["web", "gateway", "cdn"],
+  "targets": [
+    { "id": "web", "domain": "discord.com", "protocol": "tcp_https", "probe": "https" },
+    { "id": "gateway", "domain": "gateway.discord.gg", "protocol": "tcp_https", "probe": "websocket" },
+    { "id": "cdn", "domain": "cdn.discordapp.com", "protocol": "tcp_https", "probe": "bounded_download" }
+  ],
+  "dnsChecks": [
+    "discord.com",
+    "gateway.discord.gg",
+    "cdn.discordapp.com",
+    "discordapp.net",
+    "discord.media"
+  ]
+}

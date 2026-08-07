@@ -1,0 +1,9 @@
+{
+  "schema": "zapret2-manager.native-preflight.v1",
+  "status": "unconfigured",
+  "engineSourceCommit": null,
+  "expectedNfqws2Sha256": null,
+  "expectedLuaBundleSha256": null,
+  "luaFiles": [],
+  "notes": "Release engineering must pin the exact upstream engine and Lua bundle digests before production apply can be enabled. Null or empty values intentionally keep preflight partial and apply fail-closed."
+}
