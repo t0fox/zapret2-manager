@@ -33,11 +33,10 @@ set -eu
 cd /home/kirill/openwrt-sdk-25.12.5-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64
 SDK="$PWD"
 REPO="${REPO:-/mnt/g/zapret2-manager}"
-# Default arch is the device arch, NOT "all": apk 3.0.5 refuses `arch: all`
-# packages from a local v3 repo as "uninstallable" (arch:all is accepted from
-# HTTP repos but not local). The Makefile keeps PKGARCH:=all for the official
-# SDK/feed build; this manual local-build script targets the mediatek-filogic
-# device, so aarch64_cortex-a53 produces installable apks. Override with ARCH=.
+# Default arch is the device arch, NOT "all": the manager contains a target-built
+# helper, and apk 3.0.5 refuses `arch: all` packages from a local v3 repo as
+# "uninstallable". This script targets the mediatek-filogic device, so
+# aarch64_cortex-a53 produces installable apks. Override with ARCH=.
 ARCH="${ARCH:-aarch64_cortex-a53}"
 APK="$SDK/staging_dir/host/bin/apk"
 FAKE="$SDK/staging_dir/host/bin/fakeroot"
@@ -92,7 +91,7 @@ build_one() {
   set -- "$@" --info "name:${_name}"
   set -- "$@" --info "version:${_ver}"
   set -- "$@" --info "description:${_desc}"
-  set -- "$@" --info "arch:${ARCH:-all}"
+  set -- "$@" --info "arch:${ARCH}"
   set -- "$@" --info "license:MIT"
   set -- "$@" --info "maintainer:Ásgeir"
   set -- "$@" --info "origin:package/${_name}"
@@ -114,6 +113,29 @@ build_one() {
   echo "built: $_out"
   "$APK" manifest "$_out" 2>/dev/null | grep -E "^(name|version|arch|depends):" || true
 }
+
+# ---- z2m-core-helper build ---------------------------------------------------
+TOOLCHAIN="$(echo "$SDK"/staging_dir/toolchain-*)"
+TARGET="$(echo "$SDK"/staging_dir/target-*)"
+TARGET_CC="$(echo "$TOOLCHAIN"/bin/*-openwrt-linux-musl-gcc)"
+[ -x "$TARGET_CC" ] || { echo "FATAL: target compiler not found: $TARGET_CC" >&2; exit 1; }
+[ -d "$TARGET/usr/include" ] && [ -d "$TARGET/usr/lib" ] \
+  || { echo "FATAL: target sysroot not found: $TARGET" >&2; exit 1; }
+HELPER_BUILD="$HOME/z2m-build/z2m-core-helper"
+mkdir -p "$HELPER_BUILD"
+"$TARGET_CC" --sysroot="$TARGET" -I"$TARGET/usr/include" -L"$TARGET/usr/lib" \
+  -std=c11 -Wall -Wextra -Werror -D_GNU_SOURCE \
+  "$REPO/zapret2-manager/src/z2m-core-helper/atomic.c" \
+  "$REPO/zapret2-manager/src/z2m-core-helper/base64.c" \
+  "$REPO/zapret2-manager/src/z2m-core-helper/errors.c" \
+  "$REPO/zapret2-manager/src/z2m-core-helper/files.c" \
+  "$REPO/zapret2-manager/src/z2m-core-helper/main.c" \
+  "$REPO/zapret2-manager/src/z2m-core-helper/mkdir.c" \
+  "$REPO/zapret2-manager/src/z2m-core-helper/paths.c" \
+  "$REPO/zapret2-manager/src/z2m-core-helper/protocol.c" \
+  "$REPO/zapret2-manager/src/z2m-core-helper/roots.c" \
+  "$REPO/zapret2-manager/src/z2m-core-helper/sha256.c" \
+  -ljson-c -o "$HELPER_BUILD/z2m-core-helper"
 
 # ---- zapret2-manager ---------------------------------------------------------
 # Stage the package root $R per-file (mkdir -p each target dir, install -m each
@@ -165,6 +187,8 @@ install -m 0755 "$REPO/zapret2-manager/files/etc/hotplug.d/iface/90-zapret2-mana
                 "$R/etc/hotplug.d/iface/90-zapret2-manager"
 install -m 0755 "$REPO/zapret2-manager/files/etc/init.d/zapret2-manager" \
                 "$R/etc/init.d/zapret2-manager"
+install -m 0755 "$HELPER_BUILD/z2m-core-helper" \
+                "$R/usr/libexec/zapret2-manager/z2m-core-helper"
 # state.json preservation across upgrades: apk v3 mkpkg has no conffiles
 # field, and an upgrade REPLACES package-owned files — drafts would be wiped.
 # pre-install snapshots the live state; post-install restores it ONLY when
@@ -193,7 +217,7 @@ EOF
 )
 build_one "zapret2-manager" \
   "Management backend for upstream zapret2" \
-  "zapret2 ucode" \
+  "zapret2 ucode libjson-c" \
   "$R" "$ZPI" "" "" "$ZPRE" "$MGR_VER"
 rm -rf "$R" "$ZPI" "$ZPRE"
 
@@ -339,6 +363,8 @@ install -m 0755 "$REPO/zapret2-manager/files/etc/hotplug.d/iface/90-zapret2-mana
                 "$R/etc/hotplug.d/iface/90-zapret2-manager"
 install -m 0755 "$REPO/zapret2-manager/files/etc/init.d/zapret2-manager" \
                 "$R/etc/init.d/zapret2-manager"
+install -m 0755 "$HELPER_BUILD/z2m-core-helper" \
+                "$R/usr/libexec/zapret2-manager/z2m-core-helper"
 # Bundle the tg-ws-proxy-rs .apk + signed index for persistent local feed
 install -m 0644 "$HOME/z2m-build/feed/$_TGWS_BUNDLE" \
                 "$R/usr/share/zapret2-manager/feed/$_TGWS_BUNDLE"
@@ -374,7 +400,7 @@ EOF
 )
 build_one "zapret2-manager" \
   "Management backend for upstream zapret2" \
-  "zapret2 ucode" \
+  "zapret2 ucode libjson-c" \
   "$R" "$ZPI" "" "" "$ZPRE" "$MGR_VER"
 rm -rf "$R" "$ZPI" "$ZPRE"
 

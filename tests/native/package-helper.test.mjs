@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const makefile = fs.readFileSync('zapret2-manager/Makefile', 'utf8');
+const manualBuilder = fs.readFileSync('tools/build-apk-manual.sh', 'utf8');
 const helperDir = 'zapret2-manager/src/z2m-core-helper';
 const productionSources = [
   'atomic.c',
@@ -70,4 +71,47 @@ test('package prepares sources separately and installs only the executable', () 
     'install must exclude test instrumentation');
   assert.match(install, /\$\(CP\)\s+\.\/files\/\*\s+\$\(1\)\//,
     'existing runtime files must remain installed');
+});
+
+test('manual APK builder preserves the production helper package closure', () => {
+  const productionCompile = block('Build/Compile');
+  const productionFlags = ['-std=c11', '-Wall', '-Wextra', '-Werror', '-D_GNU_SOURCE']
+    .filter((flag) => productionCompile.includes(flag));
+  const helperBuild = /# ---- z2m-core-helper build[^\n]*\n([\s\S]*?)\n# ---- zapret2-manager/.exec(manualBuilder)?.[1] ?? '';
+
+  assert.notEqual(helperBuild, '', 'manual builder must have a dedicated production helper build');
+  for (const source of productionSources) {
+    assert.match(helperBuild, new RegExp(`src/z2m-core-helper/${source.replace('.', '\\.')}\\b`),
+      `manual builder must compile production source ${source}`);
+  }
+  for (const flag of productionFlags)
+    assert.ok(helperBuild.includes(flag), `manual builder must preserve production flag ${flag}`);
+  assert.match(helperBuild, /toolchain-[^\n]*\*-gcc|openwrt-linux-musl-gcc/,
+    'manual builder must resolve the SDK target compiler');
+  assert.match(helperBuild, /\$TARGET\/usr\/include/,
+    'manual builder must compile against target headers');
+  assert.match(helperBuild, /\$TARGET\/usr\/lib/,
+    'manual builder must link against target libraries');
+  assert.match(helperBuild, /-ljson-c/, 'manual helper must link target json-c');
+  assert.match(helperBuild, /-o\s+"?\$HELPER_BUILD\/z2m-core-helper"?/,
+    'manual helper output must use its fixed build path');
+  assert.doesNotMatch(helperBuild, /-DZ2M_TESTING|test-audit\.c|sanitize|audit-wrapper/i,
+    'manual production compilation must exclude test instrumentation');
+
+  const managerSections = manualBuilder.split('build_one "zapret2-manager"');
+  assert.equal(managerSections.length, 3, 'manual builder must keep both manager package builds');
+  for (let index = 0; index < 2; index++) {
+    const staging = managerSections[index];
+    const metadata = managerSections[index + 1].slice(0, 240);
+    assert.match(staging,
+      /install -m 0755 "\$HELPER_BUILD\/z2m-core-helper"[\s\\]*\n?\s*"\$R\/usr\/libexec\/zapret2-manager\/z2m-core-helper"/,
+      `manager package build ${index + 1} must stage the helper at its fixed executable path`);
+    assert.match(metadata, /"zapret2 ucode libjson-c"/,
+      `manager package build ${index + 1} must declare libjson-c`);
+  }
+
+  assert.doesNotMatch(makefile, /^PKGARCH:=all$/m,
+    'compiled manager package must not claim architecture all');
+  assert.doesNotMatch(manualBuilder, /PKGARCH:=all|arch:\$\{ARCH:-all\}/,
+    'manual builder must not claim or fall back to architecture all');
 });
