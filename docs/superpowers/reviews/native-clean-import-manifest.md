@@ -7,7 +7,8 @@
 - Inventory command: `git diff --name-status origin/main..backup/native-clean-donor`
 - Inventory size: 70 paths (`42 IMPORT`, `5 MAIN_WINS`, `23 EXCLUDE`)
 - `IMPORT` means approved for the stated clean-transplant task, not necessarily
-  imported by this commit. Task 1 imports only the four approved documents.
+  imported by this commit. Task 1 imported only the four approved documents;
+  Task 2 imports the helper production sources and protocol listed below.
 - `MAIN_WINS` means retain the current main file and independently make any
   narrowly required future edit. `EXCLUDE` means do not transplant the donor
   path or behavior.
@@ -108,6 +109,10 @@ health/recovery behavior, packages, catalogs, characterization tests, and UI.
 Task 1 modifies none of those paths. A final clean-tree check must also require
 `git diff --name-only origin/main...HEAD` to contain no DNS/TG production path.
 
+Task 2 likewise modifies no DNS, Telegram, or UI path. It independently adds the
+main package build/install closure rather than importing an incomplete donor
+Makefile.
+
 ## Task 1 Import Ledger
 
 Only these donor blobs are imported now:
@@ -125,3 +130,27 @@ part of Task 1. Main has contract-style tests for executable interfaces and JSON
 schemas, but no suitable non-native Markdown contract-link harness. Task 1
 therefore uses direct local Markdown-link and fenced-JSON checks rather than
 prematurely importing the donor native harness.
+
+## Task 2 Import Ledger
+
+Task 2 imports these exact donor production blobs:
+
+| Path | Donor blob |
+|---|---|
+| `zapret2-manager/src/z2m-core-helper/atomic.c` | `9ab6a43b0933036d5d5164b13632e5a391a8bc15` |
+| `zapret2-manager/src/z2m-core-helper/base64.c` | `e1004567cc1fb2221b92667953c393d63e0c00e2` |
+| `zapret2-manager/src/z2m-core-helper/errors.c` | `638a273fc54b93e02616207f06ef82b14d415bcf` |
+| `zapret2-manager/src/z2m-core-helper/files.c` | `f2507f4e0b83735eb34c78d45921bf6735b6cec1` |
+| `zapret2-manager/src/z2m-core-helper/helper.h` | `b6862158ba891471c41c30180b0c1e5e50e35380` |
+| `zapret2-manager/src/z2m-core-helper/main.c` | `1a97295132bab0bda95e0121fdd8906e66a7d57d` |
+| `zapret2-manager/src/z2m-core-helper/mkdir.c` | `64f3efdeb9302ed44566fd073d12b469799bbf22` |
+| `zapret2-manager/src/z2m-core-helper/paths.c` | `435fc8bb369f80a7d01589b9a8292bdec286af62` |
+| `zapret2-manager/src/z2m-core-helper/protocol-v1.json` | `9643014a317b1262c5aeaa1c49c132db518d2b86` |
+| `zapret2-manager/src/z2m-core-helper/protocol.c` | `b2661a3f8d78c05072d3bf6f7ad516e626b3375f` |
+| `zapret2-manager/src/z2m-core-helper/roots.c` | `bbf8814f02f119d1fe4ae30de26dc97ea160c16d` |
+| `zapret2-manager/src/z2m-core-helper/sha256.c` | `9081cf1960ffd549187f9b158a3637b3875ef8a1` |
+
+`test-audit.c` remains absent: it is test-only, production compilation excludes
+`Z2M_TESTING`, and Task 3 owns its import with the native test harness. No donor
+test, Makefile, DNS/TG/UI path, artifact, or generated output is imported by
+Task 2.

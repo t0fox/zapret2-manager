@@ -1,0 +1,286 @@
+{
+  "protocolVersion": 1,
+  "transport": {
+    "lifecycle": "short_lived",
+    "requestChannel": "stdin",
+    "responseChannel": "stdout",
+    "diagnosticsChannel": "stderr",
+    "requestCount": 1,
+    "responseCount": 1,
+    "requestMaxBytes": 4194304,
+    "responseMaxBytes": 6291456,
+    "responseTerminator": "\n",
+    "diagnostics": "redacted",
+    "inputEncoding": "utf-8",
+    "invalidUtf8": "reject",
+    "duplicateKeys": "reject",
+    "trailingData": "reject",
+    "trailingWhitespace": "allow",
+    "embeddedNul": "reject"
+  },
+  "envelopes": {
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocolVersion", "requestId", "operation", "arguments"],
+      "properties": {
+        "protocolVersion": { "const": 1 },
+        "requestId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]+$" },
+        "operation": { "type": "string", "enum": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "mkdir_private", "sha256_regular", "rename_owned", "unlink_owned", "lock_acquire", "lock_release", "lock_status"] },
+        "arguments": { "type": "object" }
+      }
+    },
+    "success": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocolVersion", "requestId", "ok", "data"],
+      "properties": {
+        "protocolVersion": { "const": 1 },
+        "requestId": { "type": "string" },
+        "ok": { "const": true },
+        "data": { "type": "object" }
+      }
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocolVersion", "requestId", "ok", "error"],
+      "properties": {
+        "protocolVersion": { "const": 1 },
+        "requestId": { "type": ["string", "null"] },
+        "ok": { "const": false },
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "message", "retryable", "committed", "durability", "stage"],
+          "properties": {
+            "code": { "type": "string", "enum": ["EMALFORMED", "ESCHEMA", "EREQUESTTOOBIG", "EDENIED", "EROOT", "EPATH", "EUNSUPPORTED", "ECAPABILITY", "ENOENT", "ENOTREG", "ESYMLINK", "EXDEV", "ETOOBIG", "EIO", "ECONFLICT", "ECLEANUPUNKNOWN", "ELOCKED", "ETIMEOUT", "EOWNERSHIP", "ECOMMITUNKNOWN", "EINTERNAL", "EINCOMPLETE"] },
+            "message": { "type": "string", "maxLength": 512 },
+            "retryable": { "type": "boolean" },
+            "committed": { "type": ["boolean", "null"] },
+            "durability": { "enum": ["unchanged", "durable", "unknown", "not_applicable"] },
+            "stage": { "type": "string", "minLength": 1, "maxLength": 64 },
+            "details": { "type": "object" }
+          }
+        }
+      }
+    }
+  },
+  "requestIdentity": {
+    "beforeRequestIdValidation": "null",
+    "afterRequestIdValidation": "echo_exactly",
+    "successRequiresValidatedRequestId": true,
+    "failureRequiresValidatedRequestIdOrNull": true
+  },
+  "exitCategories": {
+    "success": 0,
+    "request_invalid": 2,
+    "policy_denied": 3,
+    "filesystem_failure": 4,
+    "lock_unavailable": 5,
+    "commit_uncertain": 6,
+    "internal": 70,
+    "response_incomplete": 74
+  },
+  "errorPolicy": {
+    "maxMessageBytes": 512,
+    "maxDetailsBytes": 4096,
+    "pathsInMessages": "redacted",
+    "callersBranchOn": "code"
+  },
+  "errors": {
+    "EMALFORMED": { "message": "Request is not one valid JSON object.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["request_invalid"], "allowedStages": ["framing", "utf8", "json_decode", "trailing_data"] },
+    "ESCHEMA": { "message": "Request does not match protocol v1.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["request_invalid"], "allowedStages": ["schema", "request_id", "canonical_validate"] },
+    "EREQUESTTOOBIG": { "message": "Request exceeds the wire limit.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["request_invalid"], "allowedStages": ["request_size"] },
+    "EDENIED": { "message": "Operation is denied by root policy.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["policy_denied"], "allowedStages": ["policy"] },
+    "EROOT": { "message": "Root is unknown or insecure.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["policy_denied"], "allowedStages": ["root_select", "root_ancestor", "root_open", "root_verify"] },
+    "EPATH": { "message": "Path is not an allowed canonical relative path.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["policy_denied"], "allowedStages": ["path_validate", "path_resolve"] },
+    "EUNSUPPORTED": { "message": "Operation is reserved but not implemented in this milestone.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["policy_denied"], "allowedStages": ["operation_dispatch"] },
+    "ECAPABILITY": { "message": "Required safe filesystem capability is unavailable.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["policy_denied"], "allowedStages": ["path_resolve"] },
+    "ENOENT": { "message": "Managed object does not exist.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["filesystem_failure"], "allowedStages": ["path_resolve", "object_open"] },
+    "ENOTREG": { "message": "Managed object is not a regular file.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["filesystem_failure"], "allowedStages": ["object_verify"] },
+    "ESYMLINK": { "message": "Symbolic or magic link traversal was refused.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["filesystem_failure"], "allowedStages": ["path_resolve", "object_open"] },
+    "EXDEV": { "message": "Mount or root boundary crossing was refused.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["filesystem_failure"], "allowedStages": ["path_resolve"] },
+    "ETOOBIG": { "message": "Managed object exceeds the operation or root limit.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["filesystem_failure"], "allowedStages": ["object_verify", "read", "canonical_size"] },
+    "EIO": { "message": "Filesystem operation failed.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["filesystem_failure"], "allowedStages": ["root_open", "lock_acquire", "object_open", "stat", "read", "write", "file_fsync", "rename"] },
+    "ECONFLICT": { "message": "Managed object precondition changed.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["filesystem_failure"], "allowedStages": ["precondition"] },
+    "ECLEANUPUNKNOWN": { "message": "Candidate cleanup could not be proven.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["filesystem_failure"], "allowedStages": ["candidate_cleanup"] },
+    "ELOCKED": { "message": "Lock is held by another operation.", "retryable": true, "committed": false, "durability": "unchanged", "allowedExitCategories": ["lock_unavailable"], "allowedStages": ["lock_acquire"] },
+    "ETIMEOUT": { "message": "Lock acquisition timed out.", "retryable": true, "committed": false, "durability": "unchanged", "allowedExitCategories": ["lock_unavailable"], "allowedStages": ["lock_acquire"] },
+    "EOWNERSHIP": { "message": "Manager ownership evidence did not match.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["policy_denied"], "allowedStages": ["ownership_verify"] },
+    "ECOMMITUNKNOWN": { "message": "Commit may be visible but durability is unknown.", "retryable": false, "committed": true, "durability": "unknown", "allowedExitCategories": ["commit_uncertain"], "allowedStages": ["directory_fsync"] },
+    "EINTERNAL": { "message": "Helper failed internally.", "retryable": false, "committed": null, "durability": "not_applicable", "allowedExitCategories": ["internal"], "allowedStages": ["internal", "response_encode", "canonical_encode"] },
+    "EINCOMPLETE": { "message": "Helper could not emit one complete response.", "retryable": false, "committed": null, "durability": "not_applicable", "allowedExitCategories": ["response_incomplete"], "allowedStages": ["response_encode", "response_write"] }
+  },
+  "pathPolicy": {
+    "form": "canonical_relative",
+    "maxBytes": 4096,
+    "maxComponentBytes": 255,
+    "maxDepth": 32,
+    "allowedComponentPattern": "^[A-Za-z0-9._-]+$",
+    "emptyPath": "reject",
+    "leadingSlash": "reject",
+    "trailingSlash": "reject",
+    "repeatedSlash": "reject",
+    "dotComponent": "reject",
+    "dotDotComponent": "reject",
+    "embeddedNul": "reject",
+    "embeddedNulObjectKeys": "reject_schema",
+    "symlinks": "reject",
+    "magicLinks": "reject",
+    "mountCrossing": "reject",
+    "primaryTraversal": "openat2_resolve_beneath_no_symlinks_no_magiclinks",
+    "fallbackTraversal": "descriptor_walk_openat_o_nofollow",
+    "unsafeFallback": "fail_capability"
+  },
+  "constraints": {
+    "absolutePaths": "denied",
+    "genericFilesystemOperation": "absent",
+    "callerSelectedExecutable": "absent",
+    "shellExecution": "absent",
+    "crossRootRename": "denied",
+    "stagingAsPersistentAtomicSource": "denied"
+  },
+  "rootOpenPolicy": {
+    "absoluteBaseOpenedByHelperOnly": true,
+    "ancestorPolicy": {
+      "required": "root_owned_directory_no_symlink",
+      "writableException": "/tmp_must_be_root_owned_sticky_directory",
+      "managedTmpParent": "/tmp/zapret2-manager_must_be_root_owned_0700_directory"
+    },
+    "rejectSymlinkAncestors": true,
+    "openFlags": ["O_DIRECTORY", "O_NOFOLLOW", "O_CLOEXEC"],
+    "verifyAfterOpen": ["object_type", "owner_uid", "owner_gid", "mode"],
+    "insecureRoot": "EROOT",
+    "unsafeRootOpen": "fail_capability"
+  },
+  "roots": {
+    "persistent_state": { "base": "/etc/zapret2-manager/state", "storage": "persistent", "persistence": "survives_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 4194304, "maxDepth": 16, "mkdirPolicy": "private_only", "deletePolicy": "owned_token_only", "directoryFsync": "required", "objectType": "directory", "noFollowRoot": true, "allowedOperations": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "mkdir_private", "sha256_regular", "rename_owned", "unlink_owned"] },
+    "snapshots": { "base": "/etc/zapret2-manager/snapshots", "storage": "persistent", "persistence": "survives_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 4194304, "maxDepth": 16, "mkdirPolicy": "private_only", "deletePolicy": "owned_token_only", "directoryFsync": "required", "objectType": "directory", "noFollowRoot": true, "allowedOperations": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "mkdir_private", "sha256_regular", "rename_owned", "unlink_owned"] },
+    "registry": { "base": "/etc/zapret2-manager/registry", "storage": "persistent", "persistence": "survives_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 4194304, "maxDepth": 16, "mkdirPolicy": "private_only", "deletePolicy": "owned_token_only", "directoryFsync": "required", "objectType": "directory", "noFollowRoot": true, "allowedOperations": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "mkdir_private", "sha256_regular", "rename_owned", "unlink_owned"] },
+    "secrets": { "base": "/etc/zapret2-manager/secrets", "storage": "persistent", "persistence": "survives_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 0, "maxDepth": 8, "mkdirPolicy": "private_only", "deletePolicy": "owned_token_only", "directoryFsync": "required", "objectType": "directory", "noFollowRoot": true, "allowedOperations": ["stat_regular", "atomic_write", "atomic_write_json", "mkdir_private", "rename_owned", "unlink_owned"] },
+    "runtime": { "base": "/tmp/zapret2-manager/runtime", "storage": "tmpfs", "persistence": "cleared_on_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 1048576, "maxDepth": 12, "mkdirPolicy": "private_only", "deletePolicy": "owned_token_only", "directoryFsync": "not_required", "objectType": "directory", "noFollowRoot": true, "allowedOperations": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "mkdir_private", "sha256_regular", "rename_owned", "unlink_owned"] },
+    "jobs": { "base": "/tmp/zapret2-manager/jobs", "storage": "tmpfs", "persistence": "cleared_on_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 4194304, "maxDepth": 16, "mkdirPolicy": "private_only", "deletePolicy": "owned_token_only", "directoryFsync": "not_required", "objectType": "directory", "noFollowRoot": true, "allowedOperations": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "mkdir_private", "sha256_regular", "rename_owned", "unlink_owned"] },
+    "locks": { "base": "/tmp/zapret2-manager/locks", "storage": "tmpfs", "persistence": "cleared_on_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 0, "maxDepth": 1, "mkdirPolicy": "denied", "deletePolicy": "denied", "directoryFsync": "not_required", "objectType": "directory", "noFollowRoot": true, "allowedOperations": ["lock_acquire", "lock_release", "lock_status"] },
+    "staging": { "base": "/tmp/zapret2-manager/staging", "storage": "tmpfs", "persistence": "cleared_on_reboot", "ownerUid": 0, "ownerGid": 0, "rootMode": "0700", "fileMode": "0600", "directoryMode": "0700", "maxReadBytes": 4194304, "maxDepth": 12, "mkdirPolicy": "private_only", "deletePolicy": "owned_token_only", "directoryFsync": "not_required", "objectType": "directory", "noFollowRoot": true, "allowedOperations": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "mkdir_private", "sha256_regular", "rename_owned", "unlink_owned"] }
+  },
+  "operations": {
+    "stat_regular": {
+      "milestone": 1, "status": "milestone_1", "roots": ["persistent_state", "snapshots", "registry", "secrets", "runtime", "jobs", "staging"],
+      "requestSchema": { "type": "object", "additionalProperties": false, "required": ["root", "path"], "properties": { "root": { "type": "string" }, "path": { "type": "string" } } },
+      "successSchema": { "type": "object", "additionalProperties": false, "required": ["type", "size", "mode", "uid", "gid", "mtimeSec", "mtimeNsec"], "properties": { "type": { "const": "regular" }, "size": { "type": "integer", "minimum": 0 }, "mode": { "type": "string", "pattern": "^0[0-7]{3}$" }, "uid": { "type": "integer", "minimum": 0 }, "gid": { "type": "integer", "minimum": 0 }, "mtimeSec": { "type": "integer" }, "mtimeNsec": { "type": "integer", "minimum": 0, "maximum": 999999999 } } },
+      "limits": { "maxInputBytes": 4096, "maxOutputBytes": 1024, "timeoutMsMax": 5000 },
+      "ownership": "Metadata only; secrets disclose no content or digest.", "crashSemantics": "Read-only and leaves no state.", "idempotency": "Idempotent observation of the object opened by descriptor."
+    },
+    "read_regular": {
+      "milestone": 1, "status": "milestone_1", "roots": ["persistent_state", "snapshots", "registry", "runtime", "jobs", "staging"],
+      "requestSchema": { "type": "object", "additionalProperties": false, "required": ["root", "path", "maxBytes"], "properties": { "root": { "type": "string" }, "path": { "type": "string" }, "maxBytes": { "type": "integer", "minimum": 0, "maximum": 4194304 } } },
+      "successSchema": { "type": "object", "additionalProperties": false, "required": ["content", "byteLength"], "properties": { "content": { "type": "string", "encoding": "canonical_base64" }, "byteLength": { "type": "integer", "minimum": 0, "maximum": 4194304 } } },
+      "limits": { "maxInputBytes": 4096, "maxOutputBytes": 6291456, "timeoutMsMax": 10000 },
+      "ownership": "Denied for secrets; returns bytes only from an allowed verified regular descriptor.", "crashSemantics": "Read-only and never returns a truncated success.", "idempotency": "Idempotent for unchanged file content; concurrent replacement is isolated by the opened descriptor."
+    },
+    "atomic_write": {
+      "milestone": 2, "status": "milestone_2", "roots": ["persistent_state", "snapshots", "registry", "secrets", "runtime", "jobs", "staging"],
+      "requestSchema": { "type": "object", "additionalProperties": false, "required": ["root", "path", "content", "mode", "uid", "gid", "allowCreate"], "properties": { "root": { "type": "string" }, "path": { "type": "string" }, "content": { "type": "string", "encoding": "canonical_base64", "maxDecodedBytes": 521028 }, "mode": { "const": "0600" }, "uid": { "const": 0 }, "gid": { "const": 0 }, "allowCreate": { "type": "boolean" } } },
+      "successSchema": { "type": "object", "additionalProperties": false, "required": ["byteLength", "committed", "durability"], "properties": { "byteLength": { "type": "integer", "minimum": 0, "maximum": 4194304 }, "committed": { "const": true }, "durability": { "enum": ["durable", "tmpfs_visible"] } } },
+      "limits": { "maxInputBytes": 4194304, "maxOutputBytes": 1024, "timeoutMsMax": 30000, "effectiveMaxDecodedInputBytes": 521028 },
+      "ownership": "Fixed root policy plus requested mode/uid/gid; mutation holds an operation-scoped internal flock.", "crashSemantics": "Same-directory candidate, file fsync, rename, then required persistent-root directory fsync; post-rename uncertainty is ECOMMITUNKNOWN.", "idempotency": "Repeating identical bytes converges, but callers must reread after ECOMMITUNKNOWN before retry."
+    },
+    "atomic_write_json": {
+      "milestone": 2, "status": "reserved_unsupported", "roots": ["persistent_state", "snapshots", "registry", "secrets", "runtime", "jobs", "staging"],
+      "unsupportedBehavior": { "errorCode": "EUNSUPPORTED", "dispatch": "reject_before_operation_dispatch", "sideEffects": "none", "response": "complete_failure_envelope", "exitCategory": "policy_denied", "exitCode": 3 },
+      "canonicalization": "z2m-canonical-json-v1",
+      "canonicalizationContract": "docs/contracts/z2m-canonical-json-v1.md",
+      "requestSchema": { "type": "object", "additionalProperties": false, "required": ["root", "path", "value", "mode", "uid", "gid", "allowCreate"], "properties": { "root": { "type": "string" }, "path": { "type": "string" }, "value": {}, "mode": { "const": "0600" }, "uid": { "const": 0 }, "gid": { "const": 0 }, "allowCreate": { "type": "boolean" } } },
+      "successSchema": { "type": "object", "additionalProperties": false, "required": ["byteLength", "committed", "durability"], "properties": { "byteLength": { "type": "integer", "minimum": 0, "maximum": 4194304 }, "committed": { "const": true }, "durability": { "enum": ["durable", "tmpfs_visible"] } } },
+      "limits": { "maxInputBytes": 4194304, "maxOutputBytes": 1024, "timeoutMsMax": 30000, "maxCanonicalBytes": 521028, "maxCanonicalDepth": 64, "maxCanonicalContainers": 1024, "maxCanonicalMembers": 1024, "maxCanonicalNodes": 65536, "maxCanonicalKeyBytes": 4096 },
+      "ownership": "Helper canonicalizes JSON and applies fixed root policy under an operation-scoped internal flock.", "crashSemantics": "Uses atomic_write durability ordering after canonical serialization.", "idempotency": "Equivalent JSON values serialize canonically and converge; uncertainty requires reread."
+    },
+    "mkdir_private": {
+      "milestone": 2, "status": "milestone_2", "roots": ["persistent_state", "snapshots", "registry", "secrets", "runtime", "jobs", "staging"],
+      "requestSchema": { "type": "object", "additionalProperties": false, "required": ["root", "path", "mode", "uid", "gid", "existOk"], "properties": { "root": { "type": "string" }, "path": { "type": "string" }, "mode": { "const": "0700" }, "uid": { "const": 0 }, "gid": { "const": 0 }, "existOk": { "type": "boolean" } } },
+      "successSchema": { "type": "object", "additionalProperties": false, "required": ["created", "committed", "durability"], "properties": { "created": { "type": "boolean" }, "committed": { "const": true }, "durability": { "enum": ["durable", "tmpfs_visible"] } } },
+      "limits": { "maxInputBytes": 4096, "maxOutputBytes": 1024, "timeoutMsMax": 10000 },
+      "ownership": "Creates only private directories allowed by root policy under an operation-scoped internal flock.", "crashSemantics": "Each component is either absent or a complete private directory; persistent parent changes require directory fsync.", "idempotency": "Idempotent only with existOk and matching verified directory policy."
+    },
+    "sha256_regular": {
+      "milestone": 2, "status": "milestone_2", "roots": ["persistent_state", "snapshots", "registry", "runtime", "jobs", "staging"],
+      "requestSchema": { "type": "object", "additionalProperties": false, "required": ["root", "path", "maxBytes"], "properties": { "root": { "type": "string" }, "path": { "type": "string" }, "maxBytes": { "type": "integer", "minimum": 0, "maximum": 4194304 } } },
+      "successSchema": { "type": "object", "additionalProperties": false, "required": ["sha256", "byteLength"], "properties": { "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "byteLength": { "type": "integer", "minimum": 0, "maximum": 4194304 } } },
+      "limits": { "maxInputBytes": 4096, "maxOutputBytes": 1024, "timeoutMsMax": 10000 },
+      "ownership": "Denied for secrets; hashes one verified regular descriptor.", "crashSemantics": "Read-only and emits no partial digest success.", "idempotency": "Idempotent for unchanged bytes on the opened descriptor."
+    },
+    "rename_owned": {
+      "milestone": 3, "status": "reserved_unsupported", "roots": ["persistent_state", "snapshots", "registry", "secrets", "runtime", "jobs", "staging"],
+      "unsupportedBehavior": { "errorCode": "EUNSUPPORTED", "dispatch": "reject_before_operation_dispatch", "sideEffects": "none", "response": "complete_failure_envelope", "exitCategory": "policy_denied", "exitCode": 3 },
+      "requestSchema": { "type": "object", "additionalProperties": false, "required": ["root", "fromPath", "toPath", "ownershipToken", "replace"], "properties": { "root": { "type": "string" }, "fromPath": { "type": "string" }, "toPath": { "type": "string" }, "ownershipToken": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "replace": { "type": "boolean" } } },
+      "successSchema": { "type": "object", "additionalProperties": false, "required": ["renamed", "committed", "durability"], "properties": { "renamed": { "const": true }, "committed": { "const": true }, "durability": { "enum": ["durable", "tmpfs_visible"] } } },
+      "limits": { "maxInputBytes": 8192, "maxOutputBytes": 1024, "timeoutMsMax": 30000 },
+      "ownership": "Same-root only; both names require future manager-owned token evidence and an operation-scoped internal flock.", "crashSemantics": "No implementation until ownership evidence is designed; future persistent rename must fsync affected directories and report uncertainty.", "idempotency": "Not generally idempotent; retries require ownership and destination-state reread."
+    },
+    "unlink_owned": {
+      "milestone": 3, "status": "reserved_unsupported", "roots": ["persistent_state", "snapshots", "registry", "secrets", "runtime", "jobs", "staging"],
+      "unsupportedBehavior": { "errorCode": "EUNSUPPORTED", "dispatch": "reject_before_operation_dispatch", "sideEffects": "none", "response": "complete_failure_envelope", "exitCategory": "policy_denied", "exitCode": 3 },
+      "requestSchema": { "type": "object", "additionalProperties": false, "required": ["root", "path", "ownershipToken", "missingOk"], "properties": { "root": { "type": "string" }, "path": { "type": "string" }, "ownershipToken": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "missingOk": { "type": "boolean" } } },
+      "successSchema": { "type": "object", "additionalProperties": false, "required": ["removed", "durability"], "properties": { "removed": { "type": "boolean" }, "durability": { "enum": ["durable", "tmpfs_visible"] } } },
+      "limits": { "maxInputBytes": 4096, "maxOutputBytes": 1024, "timeoutMsMax": 30000 },
+      "ownership": "Regular manager-owned objects only; future token evidence and operation-scoped internal flock are mandatory.", "crashSemantics": "No implementation until ownership evidence is designed; future persistent deletion must fsync the parent and report uncertainty.", "idempotency": "Idempotent only with missingOk after verified ownership; otherwise deletion is single-use."
+    },
+    "lock_acquire": {
+      "milestone": 4, "status": "reserved_unsupported", "roots": ["locks"],
+      "unsupportedBehavior": { "errorCode": "EUNSUPPORTED", "dispatch": "reject_before_operation_dispatch", "sideEffects": "none", "response": "complete_failure_envelope", "exitCategory": "policy_denied", "exitCode": 3 },
+      "requestSchema": { "type": "object", "additionalProperties": false, "required": ["name", "owner", "timeoutMs"], "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9._/-]+$" }, "owner": { "type": "string", "minLength": 1, "maxLength": 128 }, "timeoutMs": { "type": "integer", "minimum": 0, "maximum": 30000 } } },
+      "successSchema": { "type": "object", "additionalProperties": false, "required": ["name", "owner", "token"], "properties": { "name": { "type": "string" }, "owner": { "type": "string" }, "token": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } },
+      "limits": { "maxInputBytes": 4096, "maxOutputBytes": 1024, "timeoutMsMax": 30000 },
+      "ownership": "Broker-only future operation; no lease is emulated by a short-lived process.", "crashSemantics": "Returns EUNSUPPORTED until a retained broker is proven necessary and separately designed.", "idempotency": "Not idempotent; a successful future acquisition creates one broker-held identity."
+    },
+    "lock_release": {
+      "milestone": 4, "status": "reserved_unsupported", "roots": ["locks"],
+      "unsupportedBehavior": { "errorCode": "EUNSUPPORTED", "dispatch": "reject_before_operation_dispatch", "sideEffects": "none", "response": "complete_failure_envelope", "exitCategory": "policy_denied", "exitCode": 3 },
+      "requestSchema": { "type": "object", "additionalProperties": false, "required": ["name", "owner", "token"], "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 256 }, "owner": { "type": "string", "minLength": 1, "maxLength": 128 }, "token": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } },
+      "successSchema": { "type": "object", "additionalProperties": false, "required": ["released"], "properties": { "released": { "const": true } } },
+      "limits": { "maxInputBytes": 4096, "maxOutputBytes": 1024, "timeoutMsMax": 5000 },
+      "ownership": "Broker-only future operation requiring exact name, owner, and token.", "crashSemantics": "Returns EUNSUPPORTED until a retained broker is proven necessary and separately designed.", "idempotency": "Single-use; double release must fail ownership or lease validation."
+    },
+    "lock_status": {
+      "milestone": 4, "status": "reserved_unsupported", "roots": ["locks"],
+      "unsupportedBehavior": { "errorCode": "EUNSUPPORTED", "dispatch": "reject_before_operation_dispatch", "sideEffects": "none", "response": "complete_failure_envelope", "exitCategory": "policy_denied", "exitCode": 3 },
+      "requestSchema": { "type": "object", "additionalProperties": false, "required": ["name"], "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 256 } } },
+      "successSchema": { "type": "object", "additionalProperties": false, "required": ["held", "owner"], "properties": { "held": { "type": "boolean" }, "owner": { "type": ["string", "null"] } } },
+      "limits": { "maxInputBytes": 4096, "maxOutputBytes": 1024, "timeoutMsMax": 5000 },
+      "ownership": "Broker-only diagnostic metadata; token is never disclosed.", "crashSemantics": "Returns EUNSUPPORTED until a retained broker is proven necessary and separately designed.", "idempotency": "Idempotent observation of future broker state."
+    }
+  },
+  "rpcMapping": {
+    "backendContract": "docs/contracts/native-backend-v1.md",
+    "generationSource": "calling_state_layer",
+    "helperMayAssignGeneration": false,
+    "success": { "helperData": "rpc.data" },
+    "validHelperFailure": {
+      "canonicalCodeByHelperCode": {
+        "EMALFORMED": "EINTERNAL", "ESCHEMA": "EINTERNAL", "EREQUESTTOOBIG": "EINTERNAL",
+        "EDENIED": "EINPUT", "EROOT": "EDEPENDENCY", "EPATH": "EINPUT",
+        "EUNSUPPORTED": "EDEPENDENCY", "ECAPABILITY": "EDEPENDENCY", "ENOENT": "EDEPENDENCY", "ENOTREG": "EDEPENDENCY",
+        "ESYMLINK": "EDEPENDENCY", "EXDEV": "EDEPENDENCY", "ETOOBIG": "EINPUT",
+        "EIO": "EDEPENDENCY", "ECONFLICT": "ECONFLICT", "ECLEANUPUNKNOWN": "EAPPLY", "ELOCKED": "ELOCKED", "ETIMEOUT": "ELOCKED",
+        "EOWNERSHIP": "EOWNERSHIP", "ECOMMITUNKNOWN": "EAPPLY",
+        "EINTERNAL": "EINTERNAL", "EINCOMPLETE": "EDEPENDENCY"
+      },
+      "details": {
+        "helperCode": "preserve", "helperRetryable": "preserve",
+        "helperCommitted": "preserve", "helperDurability": "preserve",
+        "helperStage": "preserve_if_present"
+      }
+    },
+    "adapterFailures": {
+      "callerArgumentsRejectedBeforeInvocation": "EINPUT",
+      "helperUnavailableOrTransportFailure": "EDEPENDENCY",
+      "missingOrIncompleteResponse": "EDEPENDENCY",
+      "mutationMissingOrIncompleteResponse": { "code": "EDEPENDENCY", "commitState": "unknown", "automaticRetry": false, "recovery": "reread_reconcile" },
+      "malformedResponse": "EINTERNAL",
+      "protocolVersionMismatch": "EINTERNAL",
+      "missingRequestIdAfterValidation": "EINTERNAL",
+      "mismatchedRequestId": "EINTERNAL"
+    }
+  }
+}
