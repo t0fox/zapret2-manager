@@ -21,14 +21,24 @@ test -d "$OUT_DIR" || {
 	exit 2
 }
 OUT_DIR=$(CDPATH= cd -- "$OUT_DIR" && pwd -P)
+TEMP_ROOT=${TMPDIR:-/tmp}
+test -d "$TEMP_ROOT" || {
+	echo "temporary root must already exist" >&2
+	exit 2
+}
+TEMP_ROOT=$(CDPATH= cd -- "$TEMP_ROOT" && pwd -P)
 case "$OUT_DIR/" in
-	/tmp/*) ;;
-	*) echo "output directory must be under /tmp" >&2; exit 2 ;;
+	"$TEMP_ROOT/"*) ;;
+	*) echo "output directory must be under the temporary root" >&2; exit 2 ;;
 esac
 case "$OUT_DIR/" in
 	"$ROOT/"*) echo "output directory must be outside the worktree" >&2; exit 2 ;;
 esac
 OUT="$OUT_DIR/$OUT_NAME"
+if test -L "$OUT" || { test -e "$OUT" && ! test -f "$OUT"; }; then
+	echo "existing output must be a regular file and not a symlink" >&2
+	exit 2
+fi
 
 CC=${CC:-cc}
 case "$CC" in

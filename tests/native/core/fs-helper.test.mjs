@@ -9,7 +9,8 @@ const projectRoot = path.resolve('.');
 const wslRoot = `/mnt/${projectRoot[0].toLowerCase()}${projectRoot.slice(2).replaceAll('\\', '/')}`;
 const tag = `z2m-fs-helper-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
 const testRoot = `/tmp/${tag}`;
-const buildRoot = `/tmp/${tag}-build`;
+const buildTempRoot = `/tmp/${tag}-temp`;
+const buildRoot = `${buildTempRoot}/build`;
 const testBin = `${buildRoot}/test`;
 const prodBin = `${buildRoot}/prod`;
 const noStatxBin = `${buildRoot}/no-statx`;
@@ -68,19 +69,22 @@ function write(root, relative, content, mode = '0600') {
 }
 
 before(() => {
-  let build = wsl(['mkdir', '-m', '0700', buildRoot]);
+  let build = wsl(['mkdir', '-p', '-m', '0700', buildRoot]);
   assert.equal(build.status, 0, build.stderr || build.stdout);
-  build = wsl(['sh', 'tests/native/core/build-fs-helper.sh', testBin, '-DZ2M_TESTING']);
+  build = wsl(['env', `TMPDIR=${buildTempRoot}`, 'sh', 'tests/native/core/build-fs-helper.sh', testBin, '-DZ2M_TESTING']);
   assert.equal(build.status, 0, build.stderr || build.stdout);
-  build = wsl(['sh', 'tests/native/core/build-fs-helper.sh', prodBin]);
+  assert.equal(build.stderr, '');
+  build = wsl(['env', `TMPDIR=${buildTempRoot}`, 'sh', 'tests/native/core/build-fs-helper.sh', prodBin]);
   assert.equal(build.status, 0, build.stderr || build.stdout);
-  build = wsl(['sh', 'tests/native/core/build-fs-helper.sh', noStatxBin, '-DZ2M_TESTING', '-DZ2M_NO_STATX']);
+  assert.equal(build.stderr, '');
+  build = wsl(['env', `TMPDIR=${buildTempRoot}`, 'sh', 'tests/native/core/build-fs-helper.sh', noStatxBin, '-DZ2M_TESTING', '-DZ2M_NO_STATX']);
   assert.equal(build.status, 0, build.stderr || build.stdout);
+  assert.equal(build.stderr, '');
   const dirs = Object.values(roots).map((entry) => `'${testRoot}/${entry}'`).join(' ');
   shell(`umask 077; mkdir -p ${dirs}; chmod 0700 '${testRoot}' '${testRoot}/etc' '${testRoot}/etc/zapret2-manager' '${testRoot}/tmp' '${testRoot}/tmp/zapret2-manager' ${dirs}`);
 });
 
-after(() => shell(`rm -rf '${testRoot}' '${buildRoot}'`));
+after(() => shell(`rm -rf '${testRoot}' '${buildTempRoot}'`));
 
 test('strict framing rejects empty, truncated, malformed, duplicate, trailing, NUL, UTF-8, and oversized input', () => {
   const cases = [
