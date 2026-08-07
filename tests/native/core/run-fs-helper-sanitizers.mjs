@@ -118,7 +118,7 @@ function compilerCommand(executable, argv) {
 function runControlled(command, env, input, timeoutMs, pidFile, cleanupToken) {
   const args = [
     '/usr/bin/setsid', '--wait', '/bin/sh', `${fixtureRoot}/sanitizer-process-wrapper.sh`, pidFile,
-    cleanupToken, command[0],
+    cleanupToken, command[0], 'silent',
     '/usr/bin/env', ...Object.entries(env).map(([key, value]) => `${key}=${value}`), ...command
   ];
   const run = wsl(args, { input, timeout: timeoutMs });

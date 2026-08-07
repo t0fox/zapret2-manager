@@ -13,7 +13,11 @@ case "$PROC_ROOT" in
 esac
 case "$TEST_HOOK" in
 	none) ;;
-	vanish-stat:[0-9]*)
+	vanish-stat:*)
+		HOOK_PID=${TEST_HOOK#vanish-stat:}
+		case "$HOOK_PID" in
+			''|*[!0-9]*) printf '%s\n' 'proc-scan: invalid test hook' >&2; exit 2 ;;
+		esac
 		case "$PROC_ROOT" in
 			/tmp/z2m-proc-scan-*) ;;
 			*) printf '%s\n' 'proc-scan: test hook requires isolated root' >&2; exit 2 ;;

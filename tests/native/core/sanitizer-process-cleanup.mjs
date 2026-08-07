@@ -50,7 +50,7 @@ function parseMarker(pidFile, expectedToken, expectedPath) {
 
 function enumerateGroup(pgid, sid, options = {}) {
   const listCommand = options.procListCommand ?? `${wslRoot}/tests/native/core/fixtures/sanitizer-proc-group-scan.sh`;
-  const listed = options.procListCommand ? wsl([listCommand, String(pgid), String(sid)]) :
+  const listed = options.procListCommand ? wsl([listCommand, String(pgid), String(sid), ...(options.procListArgs ?? [])]) :
     wsl(['/bin/sh', listCommand, String(pgid), String(sid)]);
   if (listed.status !== 0) {
     return { ok: false, members: [], error: `enumeration-failed: ${listed.stderr.trim() || listed.error?.message || listed.status}` };

@@ -278,16 +278,82 @@ test('proc scanner accepts an entry that vanishes after its stat read fails', ()
   }
 });
 
-async function waitForPid(pidFile) {
-  for (let attempt = 0; attempt < 200; attempt++) {
-    const read = wsl(['/bin/cat', pidFile]);
-    try {
-      const marker = JSON.parse(read.stdout);
-      if (Number.isInteger(marker.pid)) return marker;
-    } catch {}
-    await new Promise((resolve) => setTimeout(resolve, 50));
+test('proc scanner rejects hook names with trailing characters', () => {
+  const root = `/tmp/z2m-proc-scan-${process.pid}-invalid-hook`;
+  try {
+    assert.equal(wsl(['/bin/mkdir', '-p', root]).status, 0);
+    const run = runProcScanner(root, 'vanish-stat:703suffix');
+    assert.notEqual(run.status, 0);
+    assert.match(run.stderr, /invalid test hook/);
+  } finally {
+    wsl(['/bin/rm', '-rf', root]);
   }
-  throw new Error(`PID marker not created: ${pidFile}`);
+});
+
+test('launcher readiness waits for one delayed bounded marker', async () => {
+  const marker = { pid: 701, startTime: '1', pgid: 701, sid: 701, token: 'a'.repeat(48), scenarioPath: '/fixture' };
+  const launcher = spawn(process.execPath, ['-e',
+    `setTimeout(() => process.stdout.write(${JSON.stringify(`${JSON.stringify(marker)}\n`)}), 100)`],
+  { stdio: ['ignore', 'pipe', 'pipe'] });
+  const started = performance.now();
+  const ready = await waitForLauncherReady(launcher, 1000);
+  assert.deepEqual(ready, marker);
+  assert.ok(performance.now() - started >= 75);
+});
+
+test('launcher readiness reports early failure without waiting for deadline', async () => {
+  const launcher = spawn(process.execPath, ['-e', "process.stderr.write('fixture failed\\n'); process.exit(23)"],
+    { stdio: ['ignore', 'pipe', 'pipe'] });
+  const started = performance.now();
+  await assert.rejects(waitForLauncherReady(launcher, 5000), /exited 23.*fixture failed/s);
+  assert.ok(performance.now() - started < 2000);
+});
+
+function waitForLauncherReady(launcher, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    const finish = (error, marker) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (error) reject(error);
+      else resolve(marker);
+    };
+    const timer = setTimeout(() => {
+      launcher.kill();
+      const timeoutError = new Error(`launcher readiness timed out after ${timeoutMs}ms: ${stderr.trim()}`);
+      if (launcher.exitCode !== null || launcher.signalCode !== null) finish(timeoutError);
+      else {
+        launcher.once('exit', () => finish(timeoutError));
+        setTimeout(() => finish(new Error(`${timeoutError.message}; launcher reap timed out`)), 1000);
+      }
+    }, timeoutMs);
+    launcher.stdout.on('data', (chunk) => {
+      stdout += chunk;
+      if (Buffer.byteLength(stdout) > 4096) {
+        launcher.kill();
+        finish(new Error('launcher readiness marker too large'));
+        return;
+      }
+      const newline = stdout.indexOf('\n');
+      if (newline < 0) return;
+      try {
+        finish(null, JSON.parse(stdout.slice(0, newline)));
+      } catch {
+        launcher.kill();
+        finish(new Error('launcher readiness marker malformed'));
+      }
+    });
+    launcher.stderr.on('data', (chunk) => {
+      if (Buffer.byteLength(stderr) < 4096) stderr += chunk;
+    });
+    launcher.once('error', (error) => finish(new Error(`launcher error: ${error.message}`)));
+    launcher.once('exit', (code, signal) => {
+      finish(new Error(`launcher exited ${code ?? signal ?? 'unknown'} before readiness: ${stderr.trim()}`));
+    });
+  });
 }
 
 async function waitForExit(pid) {
@@ -302,10 +368,10 @@ async function startGroup(mode) {
   const token = crypto.randomBytes(24).toString('hex');
   const pidFile = `/tmp/z2m-cleanup-${token}.pid`;
   const scenarioPath = `${fixtures}/sanitizer-process-group.sh`;
-  const child = spawn('wsl.exe', ['-d', 'Ubuntu', '-u', 'root', '--', '/usr/bin/setsid',
+  const child = spawn('wsl.exe', ['-d', 'Ubuntu', '-u', 'root', '--', '/usr/bin/setsid', '--wait',
     '/bin/sh', `${fixtures}/sanitizer-process-wrapper.sh`, pidFile, token, scenarioPath,
-    '/bin/sh', scenarioPath, mode], { stdio: 'ignore' });
-  const marker = await waitForPid(pidFile);
+    'ready', '/bin/sh', scenarioPath, mode], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const marker = await waitForLauncherReady(child, 10000);
   return { child, pid: String(marker.pid), marker, pidFile, token, scenarioPath };
 }
 
@@ -388,6 +454,27 @@ test('enumeration tool failure is cleanup failure and never means group gone', a
     assert.match(cleanup.evidence, /enumeration-failed/);
     assert.equal(wsl(['/bin/kill', '-0', group.pid]).status, 0);
   } finally {
+    forceCleanup(group);
+  }
+});
+
+test('real scanner per-entry failure prevents cleanup signal and processGone', async () => {
+  const group = await startGroup('child');
+  const root = `/tmp/z2m-proc-scan-${process.pid}-cleanup-error`;
+  try {
+    assert.equal(wsl(['/bin/mkdir', '-p', `${root}/704/stat`]).status, 0);
+    const { cleanupProcessGroup } = await import(`${cleanupModuleUrl}?scanner-entry=${Date.now()}`);
+    const cleanup = cleanupProcessGroup(group.pidFile, group.token, group.scenarioPath, {
+      procListCommand: procScanner,
+      procListArgs: [root, 'none']
+    });
+    assert.equal(cleanup.identityVerified, false);
+    assert.equal(cleanup.signalSent, false);
+    assert.equal(cleanup.processGone, false);
+    assert.match(cleanup.evidence, /stat-read-failed.*pid=704/);
+    assert.equal(wsl(['/bin/kill', '-0', group.pid]).status, 0);
+  } finally {
+    wsl(['/bin/rm', '-rf', root]);
     forceCleanup(group);
   }
 });
