@@ -236,6 +236,22 @@ This is not a blanket permanent freeze. A future intentional DNS/TG migration
 must update focused behavior tests first, then review and update the explicit
 path/blob characterization and this provenance ledger in the same change.
 
+Task 5 review fix: recursive manual staging now applies an explicit executable
+mode only to the seven package-owned runtime `.sh` entry points, then retains
+the existing explicit `0755` init, hotplug, and native-helper overlays. A WSL
+temp-root staging test starts those entry points at `0644`, proves all ten
+installed executables are `0755`, and proves representative `0640` ipset data
+and `0600` state/config data retain their source modes. No broad chmod applies
+to package data, configuration, or secrets. The stale boot-recovery and Auto
+Strategy package assertions now verify recursive staging, source existence,
+and the installed-mode policy rather than the removed literal copy loops.
+
+The ignored-import ledger remains unchanged: this review fix imports no donor
+path and does not reconsider any `EXCLUDE` or `MAIN_WINS` decision. It modifies
+only the existing manual builder, existing package tests, and this provenance
+record; no DNS, Telegram, UI, hygiene-gate, package Makefile, or helper source
+semantics change.
+
 Focused Task 5 verification at `84d4391` plus the Task 5 worktree changes:
 
 - DNS backend, service DNS, dnsprov, catalogs and preservation: 154 pass, 0 fail.

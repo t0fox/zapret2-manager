@@ -114,6 +114,27 @@ build_one() {
   "$APK" manifest "$_out" 2>/dev/null | grep -E "^(name|version|arch|depends):" || true
 }
 
+stage_manager_files() {
+  cp -a "$REPO/zapret2-manager/files/." "$R/"
+  chmod 0755 \
+    "$R/usr/libexec/zapret2-manager/blockcheck-run.sh" \
+    "$R/usr/libexec/zapret2-manager/engine-operation-worker.sh" \
+    "$R/usr/libexec/zapret2-manager/health-run.sh" \
+    "$R/usr/libexec/zapret2-manager/log-rotate.sh" \
+    "$R/usr/libexec/zapret2-manager/orchestra-candidate-run.sh" \
+    "$R/usr/libexec/zapret2-manager/orchestra-probe-preflight.sh" \
+    "$R/usr/libexec/zapret2-manager/proxy-provider-go-init.sh"
+  # rpcd loads this plugin without an extension, matching the on-device convention.
+  install -m 0644 "$REPO/zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc" \
+                  "$R/usr/share/rpcd/ucode/zapret2-manager"
+  install -m 0755 "$REPO/zapret2-manager/files/etc/hotplug.d/iface/90-zapret2-manager" \
+                  "$R/etc/hotplug.d/iface/90-zapret2-manager"
+  install -m 0755 "$REPO/zapret2-manager/files/etc/init.d/zapret2-manager" \
+                  "$R/etc/init.d/zapret2-manager"
+  install -m 0755 "$HELPER_BUILD/z2m-core-helper" \
+                  "$R/usr/libexec/zapret2-manager/z2m-core-helper"
+}
+
 # ---- z2m-core-helper build ---------------------------------------------------
 TOOLCHAIN="$(echo "$SDK"/staging_dir/toolchain-*)"
 TARGET="$(echo "$SDK"/staging_dir/target-*)"
@@ -144,18 +165,7 @@ mkdir -p "$HELPER_BUILD"
 # bug (the postinst slot received $R), NOT `--files <dir>`, which works fine.
 R="$HOME/z2m-build/root"
 mkdir -p "$R"
-cp -a "$REPO/zapret2-manager/files/." "$R/"
-# rpcd ucode plugin: install WITHOUT extension, matching the on-device `luci`
-# plugin (/usr/share/rpcd/ucode/luci, no .uc). rpcd ucode.so scans the dir and
-# loads each file; keeping .uc would diverge from convention.
-install -m 0644 "$REPO/zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc" \
-                "$R/usr/share/rpcd/ucode/zapret2-manager"
-install -m 0755 "$REPO/zapret2-manager/files/etc/hotplug.d/iface/90-zapret2-manager" \
-                "$R/etc/hotplug.d/iface/90-zapret2-manager"
-install -m 0755 "$REPO/zapret2-manager/files/etc/init.d/zapret2-manager" \
-                "$R/etc/init.d/zapret2-manager"
-install -m 0755 "$HELPER_BUILD/z2m-core-helper" \
-                "$R/usr/libexec/zapret2-manager/z2m-core-helper"
+stage_manager_files
 # state.json preservation across upgrades: apk v3 mkpkg has no conffiles
 # field, and an upgrade REPLACES package-owned files — drafts would be wiped.
 # pre-install snapshots the live state; post-install restores it ONLY when
@@ -298,15 +308,7 @@ echo "Signing feed index with $SDK/private-key.pem"
 # ---- zapret2-manager (rebuild with bundled tg-ws-proxy-rs feed) ----------------
 R="$HOME/z2m-build/root"
 mkdir -p "$R"
-cp -a "$REPO/zapret2-manager/files/." "$R/"
-install -m 0644 "$REPO/zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc" \
-                "$R/usr/share/rpcd/ucode/zapret2-manager"
-install -m 0755 "$REPO/zapret2-manager/files/etc/hotplug.d/iface/90-zapret2-manager" \
-                "$R/etc/hotplug.d/iface/90-zapret2-manager"
-install -m 0755 "$REPO/zapret2-manager/files/etc/init.d/zapret2-manager" \
-                "$R/etc/init.d/zapret2-manager"
-install -m 0755 "$HELPER_BUILD/z2m-core-helper" \
-                "$R/usr/libexec/zapret2-manager/z2m-core-helper"
+stage_manager_files
 # Bundle the tg-ws-proxy-rs .apk + signed index for persistent local feed
 install -m 0644 "$HOME/z2m-build/feed/$_TGWS_BUNDLE" \
                 "$R/usr/share/zapret2-manager/feed/$_TGWS_BUNDLE"

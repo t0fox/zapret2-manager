@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
 
 const makefile = fs.readFileSync('zapret2-manager/Makefile', 'utf8');
 const manualBuilder = fs.readFileSync('tools/build-apk-manual.sh', 'utf8');
@@ -16,6 +17,15 @@ const productionSources = [
   'protocol.c',
   'roots.c',
   'sha256.c',
+];
+const runtimeShellEntryPoints = [
+  'blockcheck-run.sh',
+  'engine-operation-worker.sh',
+  'health-run.sh',
+  'log-rotate.sh',
+  'orchestra-candidate-run.sh',
+  'orchestra-probe-preflight.sh',
+  'proxy-provider-go-init.sh',
 ];
 
 function block(name) {
@@ -98,14 +108,17 @@ test('manual APK builder preserves the production helper package closure', () =>
   assert.doesNotMatch(helperBuild, /-DZ2M_TESTING|test-audit\.c|sanitize|audit-wrapper/i,
     'manual production compilation must exclude test instrumentation');
 
+  const stagingFunction = /stage_manager_files\(\) \{[\s\S]*?^\}/m.exec(manualBuilder)?.[0] ?? '';
+  assert.match(stagingFunction,
+    /install -m 0755 "\$HELPER_BUILD\/z2m-core-helper"[\s\\]*\n?\s*"\$R\/usr\/libexec\/zapret2-manager\/z2m-core-helper"/,
+    'manager staging policy must install the helper at its fixed executable path');
+  assert.equal(manualBuilder.match(/^stage_manager_files$/gm)?.length, 2,
+    'both manager package builds must use the reviewed staging policy');
+
   const managerSections = manualBuilder.split('build_one "zapret2-manager"');
   assert.equal(managerSections.length, 3, 'manual builder must keep both manager package builds');
   for (let index = 0; index < 2; index++) {
-    const staging = managerSections[index];
     const metadata = managerSections[index + 1].slice(0, 240);
-    assert.match(staging,
-      /install -m 0755 "\$HELPER_BUILD\/z2m-core-helper"[\s\\]*\n?\s*"\$R\/usr\/libexec\/zapret2-manager\/z2m-core-helper"/,
-      `manager package build ${index + 1} must stage the helper at its fixed executable path`);
     assert.match(metadata, /"zapret2 ucode libjson-c"/,
       `manager package build ${index + 1} must declare libjson-c`);
   }
@@ -114,4 +127,52 @@ test('manual APK builder preserves the production helper package closure', () =>
     'compiled manager package must not claim architecture all');
   assert.doesNotMatch(manualBuilder, /PKGARCH:=all|arch:\$\{ARCH:-all\}/,
     'manual builder must not claim or fall back to architecture all');
+});
+
+test('manual manager staging installs only runtime entry points as executable', () => {
+  const functionSource = /stage_manager_files\(\) \{[\s\S]*?^\}/m.exec(manualBuilder)?.[0];
+  assert.ok(functionSource, 'manual builder must expose its manager staging policy');
+
+  const windowsRoot = process.cwd().replaceAll('\\', '/');
+  const drive = windowsRoot.slice(0, 1).toLowerCase();
+  const wslRoot = `/mnt/${drive}${windowsRoot.slice(2)}`;
+  const quotedFunction = functionSource.replaceAll("'", "'\\''");
+  const shell = `set -eu
+mkdir -p "$HOME/z2m-build"
+tmp=$(mktemp -d "$HOME/z2m-build/staging-test.XXXXXX")
+trap 'rm -rf "$tmp"' EXIT
+mkdir -p "$tmp/repo/zapret2-manager" "$tmp/helper"
+cp -a '${wslRoot}/zapret2-manager/files' "$tmp/repo/zapret2-manager/files"
+chmod 0644 "$tmp/repo/zapret2-manager/files/usr/libexec/zapret2-manager/"*.sh
+chmod 0644 "$tmp/repo/zapret2-manager/files/etc/init.d/zapret2-manager"
+chmod 0644 "$tmp/repo/zapret2-manager/files/etc/hotplug.d/iface/90-zapret2-manager"
+chmod 0640 "$tmp/repo/zapret2-manager/files/etc/zapret2-manager/ipset/games.txt"
+chmod 0600 "$tmp/repo/zapret2-manager/files/etc/zapret2-manager/state.json"
+: > "$tmp/helper/z2m-core-helper"
+chmod 0644 "$tmp/helper/z2m-core-helper"
+REPO="$tmp/repo"
+R="$tmp/root"
+HELPER_BUILD="$tmp/helper"
+mkdir -p "$R"
+eval '${quotedFunction}'
+stage_manager_files
+for name in ${runtimeShellEntryPoints.join(' ')}; do stat -c '%a %n' "$R/usr/libexec/zapret2-manager/$name"; done
+stat -c '%a %n' "$R/etc/init.d/zapret2-manager"
+stat -c '%a %n' "$R/etc/hotplug.d/iface/90-zapret2-manager"
+stat -c '%a %n' "$R/usr/libexec/zapret2-manager/z2m-core-helper"
+stat -c '%a %n' "$R/etc/zapret2-manager/ipset/games.txt"
+stat -c '%a %n' "$R/etc/zapret2-manager/state.json"`;
+  const encodedShell = Buffer.from(shell).toString('base64');
+  const modes = execFileSync('wsl.exe', ['-d', 'Ubuntu', '--', 'sh', '-c', `printf %s ${encodedShell} | base64 -d | sh`], {
+    encoding: 'utf8',
+  }).trim().split('\n').map((line) => line.split(' ', 1)[0]);
+
+  assert.deepEqual(modes, [
+    ...runtimeShellEntryPoints.map(() => '755'),
+    '755',
+    '755',
+    '755',
+    '640',
+    '600',
+  ]);
 });
