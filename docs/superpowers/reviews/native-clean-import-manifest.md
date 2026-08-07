@@ -245,3 +245,67 @@ Focused Task 5 verification at `84d4391` plus the Task 5 worktree changes:
 - Shell gates: 10 pass, 0 fail (Windows Node path supplied to WSL); `ucode` binary unavailable.
 - Known stale UI-only `dns-provider-contract` baseline remains 5 pass, 2 fail;
   no DNS UI or production change was made to force those assertions green.
+
+## Task 6 Final Addition Ledger
+
+This machine-readable ledger is the complete allowlist for paths added relative
+to main. `EXACT` records an unchanged donor blob, `ADAPTED` records the donor
+blob plus the clean-branch reason for divergence, and `LOCAL` records a path
+created for the clean transplant with no donor provenance claim. The repository
+hygiene gate requires exact agreement between this list and Git.
+
+<!-- native-clean-final-ledger:start -->
+```json
+[
+  {"path":"docs/contracts/native-backend-v1.md","class":"contract","state":"EXACT","donorBlob":"13808fd26dfc628294bf01b097b34ec463157c6d","consumer":"native result modules and future adapters"},
+  {"path":"docs/contracts/z2m-canonical-json-v1.md","class":"contract","state":"EXACT","donorBlob":"ace23a54efa674d5e75ff856fb0fbb78edfef2f7","consumer":"atomic JSON helper and protocol tests"},
+  {"path":"docs/superpowers/plans/2026-08-07-native-clean-transplant.md","class":"plan","state":"LOCAL","donorBlob":null,"consumer":"clean transplant execution"},
+  {"path":"docs/superpowers/plans/2026-08-07-native-foundation-fs-helper.md","class":"plan","state":"EXACT","donorBlob":"799c1abee7d5e1e5233f29b5511c0c5b9f290c37","consumer":"helper implementation tasks"},
+  {"path":"docs/superpowers/reviews/native-clean-import-manifest.md","class":"provenance","state":"LOCAL","donorBlob":null,"consumer":"repository hygiene and transplant review"},
+  {"path":"docs/superpowers/specs/2026-08-07-native-clean-transplant-design.md","class":"spec","state":"LOCAL","donorBlob":null,"consumer":"clean transplant plan"},
+  {"path":"docs/superpowers/specs/2026-08-07-native-foundation-fs-helper-design.md","class":"spec","state":"EXACT","donorBlob":"42a8288bf5019100ef9f834d0653d26ae976f352","consumer":"helper implementation plan"},
+  {"path":"tests/native/baseline.test.mjs","class":"native-test","state":"EXACT","donorBlob":"f360fbc086d9a1e275f15aa9dd9d0ec239c34f2d","consumer":"native recursive suite"},
+  {"path":"tests/native/core/build-fs-helper-hygiene.test.mjs","class":"native-test","state":"ADAPTED","donorBlob":"fe47fa5224b01b8d3a1129b82305c9cda15797e1","consumer":"helper build and artifact hygiene","adaptation":"uses tracked status and file evidence to reject generated sanitizer outputs without rejecting tracked documentation"},
+  {"path":"tests/native/core/build-fs-helper.sh","class":"native-test","state":"EXACT","donorBlob":"e8f825b78dc81f70eae5a9bf3efb14f12a75f213","consumer":"native helper tests"},
+  {"path":"tests/native/core/fixtures/sanitizer-compile-failure.c","class":"native-fixture","state":"EXACT","donorBlob":"19d05343887451e4159a6cc4bad250b789ecbdcb","consumer":"sanitizer compile-failure test"},
+  {"path":"tests/native/core/fixtures/sanitizer-pidfd-signal.py","class":"native-fixture","state":"EXACT","donorBlob":"8bc4db3bb026a4cd65e4801cfbefd06addcde739","consumer":"sanitizer process identity tests"},
+  {"path":"tests/native/core/fixtures/sanitizer-proc-group-scan.sh","class":"native-fixture","state":"EXACT","donorBlob":"e915980290392fc869d85fa54bcdb0d3b529eadd","consumer":"sanitizer process-group observation"},
+  {"path":"tests/native/core/fixtures/sanitizer-process-group.sh","class":"native-fixture","state":"EXACT","donorBlob":"31c5d3d4f27d132c9723934e764a5fe58872f311","consumer":"sanitizer process-group lifecycle tests"},
+  {"path":"tests/native/core/fixtures/sanitizer-process-wrapper.sh","class":"native-fixture","state":"EXACT","donorBlob":"65d0073928800211ed303fc5612596a220cb13a7","consumer":"sanitizer wrapper ownership tests"},
+  {"path":"tests/native/core/fixtures/sanitizer-scenarios.c","class":"native-fixture","state":"EXACT","donorBlob":"c1408c927e5524707dc036a388864feee8f3b37c","consumer":"deterministic sanitizer outcomes"},
+  {"path":"tests/native/core/fixtures/sanitizer-tracked-notes.md","class":"native-fixture","state":"LOCAL","donorBlob":null,"consumer":"tracked sanitizer documentation negative control"},
+  {"path":"tests/native/core/fixtures/unrelated-asan-compile-cc.sh","class":"native-fixture","state":"EXACT","donorBlob":"635746decc4d12a5c1fe5d2f20410004c05e80da","consumer":"unrelated compiler preservation test"},
+  {"path":"tests/native/core/fixtures/unrelated-asan-library-cc.sh","class":"native-fixture","state":"EXACT","donorBlob":"de0d65127c3f95244e932252a9ccd01842de87ed","consumer":"unrelated library process preservation test"},
+  {"path":"tests/native/core/fixtures/unsupported-sanitizer-cc.sh","class":"native-fixture","state":"EXACT","donorBlob":"9db3787cbac69cfb25652f0404c47668716498b0","consumer":"unsupported sanitizer compiler test"},
+  {"path":"tests/native/core/fixtures/unsupported-sanitizer-runtime-cc.sh","class":"native-fixture","state":"EXACT","donorBlob":"5b1c9ce7e1e5df100f8f3d53c6a4f28420ec2a79","consumer":"unsupported sanitizer runtime test"},
+  {"path":"tests/native/core/fs-helper-mutation-transport-fixture.mjs","class":"native-fixture","state":"EXACT","donorBlob":"6baa227c18f13bd2034c64523646198f9d7a4915","consumer":"helper mutation transport test"},
+  {"path":"tests/native/core/fs-helper-mutation-transport.test.mjs","class":"native-test","state":"EXACT","donorBlob":"5d90c84f765e33198b39b97e219ea15b73629ef5","consumer":"helper transport recovery proof"},
+  {"path":"tests/native/core/fs-helper-protocol.test.mjs","class":"native-test","state":"EXACT","donorBlob":"9581f5a05b9526292ca17b09b4a1e76c640b48e6","consumer":"helper protocol conformance"},
+  {"path":"tests/native/core/fs-helper.test.mjs","class":"native-test","state":"EXACT","donorBlob":"675376f6a22f232847ebd5342abeea3977cdf7fe","consumer":"helper filesystem behavior"},
+  {"path":"tests/native/core/result.test.mjs","class":"native-test","state":"EXACT","donorBlob":"3c59c349218f6b191645896909aeaea95f3bf0c0","consumer":"native result modules"},
+  {"path":"tests/native/core/run-fs-helper-sanitizers.mjs","class":"native-test","state":"EXACT","donorBlob":"2a18eb3609d38d28eb9524c16af3c3b89a5db41a","consumer":"helper sanitizer execution"},
+  {"path":"tests/native/core/sanitizer-harness.test.mjs","class":"native-test","state":"EXACT","donorBlob":"8434823a6c09446f78750f4618fefc3a279a19da","consumer":"sanitizer harness behavior"},
+  {"path":"tests/native/core/sanitizer-launch-ownership.mjs","class":"native-test","state":"EXACT","donorBlob":"d2fd2d557757142fdfa2fde57c23fbafbfa10968","consumer":"sanitizer launch identity tests"},
+  {"path":"tests/native/core/sanitizer-launch-ownership.test.mjs","class":"native-test","state":"ADAPTED","donorBlob":"2985969fe0bd8f6ebb8809ed0dfe07c9678c0e2a","consumer":"sanitizer launch ownership proof","adaptation":"adds deterministic retained-identity and contradictory-evidence coverage"},
+  {"path":"tests/native/core/sanitizer-process-cleanup.mjs","class":"native-test","state":"ADAPTED","donorBlob":"11a93c2b586b609c0734559fbb9783b028e2e7f1","consumer":"safe sanitizer process cleanup","adaptation":"requires retained identity and launcher reaping before cleanup success claims"},
+  {"path":"tests/native/main-migration-preservation.test.mjs","class":"native-test","state":"LOCAL","donorBlob":null,"consumer":"main DNS and Telegram preservation proof"},
+  {"path":"tests/native/package-helper.test.mjs","class":"native-test","state":"LOCAL","donorBlob":null,"consumer":"helper package and manual install closure"},
+  {"path":"tests/native/repository-hygiene.test.mjs","class":"native-test","state":"LOCAL","donorBlob":null,"consumer":"clean transplant boundary gate"},
+  {"path":"zapret2-manager/files/usr/libexec/zapret2-manager/core/errors.uc","class":"runtime-module","state":"EXACT","donorBlob":"5afad255e68cf1e621c24f0f07ae29318df5857b","consumer":"native result module"},
+  {"path":"zapret2-manager/files/usr/libexec/zapret2-manager/core/result.uc","class":"runtime-module","state":"EXACT","donorBlob":"f549ac7f7d017291d9856e2fb2d3f6f6f3cf3bc2","consumer":"future native adapters and result tests"},
+  {"path":"zapret2-manager/src/z2m-core-helper/atomic.c","class":"helper-source","state":"EXACT","donorBlob":"9ab6a43b0933036d5d5164b13632e5a391a8bc15","consumer":"native helper executable"},
+  {"path":"zapret2-manager/src/z2m-core-helper/base64.c","class":"helper-source","state":"EXACT","donorBlob":"e1004567cc1fb2221b92667953c393d63e0c00e2","consumer":"native helper protocol"},
+  {"path":"zapret2-manager/src/z2m-core-helper/errors.c","class":"helper-source","state":"EXACT","donorBlob":"638a273fc54b93e02616207f06ef82b14d415bcf","consumer":"native helper errors"},
+  {"path":"zapret2-manager/src/z2m-core-helper/files.c","class":"helper-source","state":"EXACT","donorBlob":"f2507f4e0b83735eb34c78d45921bf6735b6cec1","consumer":"native helper file operations"},
+  {"path":"zapret2-manager/src/z2m-core-helper/helper.h","class":"helper-source","state":"EXACT","donorBlob":"b6862158ba891471c41c30180b0c1e5e50e35380","consumer":"all native helper translation units"},
+  {"path":"zapret2-manager/src/z2m-core-helper/main.c","class":"helper-source","state":"EXACT","donorBlob":"1a97295132bab0bda95e0121fdd8906e66a7d57d","consumer":"installed native helper executable"},
+  {"path":"zapret2-manager/src/z2m-core-helper/mkdir.c","class":"helper-source","state":"EXACT","donorBlob":"64f3efdeb9302ed44566fd073d12b469799bbf22","consumer":"native helper directory operations"},
+  {"path":"zapret2-manager/src/z2m-core-helper/paths.c","class":"helper-source","state":"EXACT","donorBlob":"435fc8bb369f80a7d01589b9a8292bdec286af62","consumer":"native helper path validation"},
+  {"path":"zapret2-manager/src/z2m-core-helper/protocol-v1.json","class":"helper-source","state":"EXACT","donorBlob":"9643014a317b1262c5aeaa1c49c132db518d2b86","consumer":"helper implementation and protocol tests"},
+  {"path":"zapret2-manager/src/z2m-core-helper/protocol.c","class":"helper-source","state":"EXACT","donorBlob":"b2661a3f8d78c05072d3bf6f7ad516e626b3375f","consumer":"native helper request dispatcher"},
+  {"path":"zapret2-manager/src/z2m-core-helper/roots.c","class":"helper-source","state":"EXACT","donorBlob":"bbf8814f02f119d1fe4ae30de26dc97ea160c16d","consumer":"native helper root mapping"},
+  {"path":"zapret2-manager/src/z2m-core-helper/sha256.c","class":"helper-source","state":"EXACT","donorBlob":"9081cf1960ffd549187f9b158a3637b3875ef8a1","consumer":"native helper hashing"},
+  {"path":"zapret2-manager/src/z2m-core-helper/test-audit.c","class":"native-fixture","state":"EXACT","donorBlob":"b8f66d14aea4b4823b40d63e5c0956b437a0c2f8","consumer":"native atomic-write tests only"}
+]
+```
+<!-- native-clean-final-ledger:end -->
