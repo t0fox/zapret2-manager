@@ -3,11 +3,14 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <linux/stat.h>
 #include <signal.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/file.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 
 static const struct z2m_root roots[] = {
@@ -61,10 +64,25 @@ int z2m_root_open(const struct z2m_root *root)
 	return fd;
 }
 
+int z2m_root_mount_id(int root_fd, uint64_t *id, const char **code)
+{
+#if defined(SYS_statx) && defined(STATX_MNT_ID) && !defined(Z2M_NO_STATX)
+	struct statx value;
+#ifdef Z2M_TESTING
+	if(getenv("Z2M_TEST_ROOT_MOUNT_ERROR")!=NULL){*code="ECAPABILITY";return -1;}
+#endif
+	if(syscall(SYS_statx,root_fd,"",AT_EMPTY_PATH|AT_STATX_SYNC_AS_STAT,STATX_MNT_ID,&value)<0||!(value.stx_mask&STATX_MNT_ID)){*code="ECAPABILITY";return -1;}
+	*id=value.stx_mnt_id;return 0;
+#else
+	(void)root_fd;(void)id;*code="ECAPABILITY";return -1;
+#endif
+}
+
 int z2m_root_lock(int root_fd, const char **code)
 {
 #ifdef Z2M_TESTING
 	const char *error=getenv("Z2M_TEST_FLOCK_ERROR");
+	if(getenv("Z2M_TEST_LOCK_ORDER_TRACE")!=NULL)fprintf(stderr,"z2m-core-helper: lock-attempt\n");
 	if(error!=NULL){errno=strcmp(error,"EIO")==0?EIO:EBADF;goto fail;}
 #endif
 	if(flock(root_fd,LOCK_EX|LOCK_NB)<0) goto fail;
