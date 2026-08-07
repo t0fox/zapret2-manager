@@ -493,7 +493,7 @@ test('mkdir_private refuses mounted descendants and injected mount identity chan
   }), 4, 'EXDEV');
 });
 
-test('mkdir_private rejects detached parents and foreign final-directory replacement', async () => {
+test('mkdir_private detects detached parents and unexpected candidate replacement', async () => {
   const base = `${testRoot}/${roots.staging}`;
   shell(`mkdir -m 0700 '${base}/race-parent'; mkdir -m 0700 '${testRoot}/outside-race'`);
   const child = spawnInvoke(request('mkdir_private', mkdirArgs('staging', 'race-parent/child'), 'race'),
@@ -523,7 +523,7 @@ test('mkdir_private rejects detached parents and foreign final-directory replace
   assert.equal(wsl(['test', '-e', `${base}/replace-parent/child`]).status, 1);
 });
 
-test('mkdir_private metadata cleanup never deletes a foreign directory replacement', async () => {
+test('mkdir_private detects unexpected candidate replacement before metadata cleanup', async () => {
   const base = `${testRoot}/${roots.staging}`;
   shell(`mkdir -m 0700 '${base}/cleanup-race'`);
   const child = spawnInvoke(request('mkdir_private', mkdirArgs('staging', 'cleanup-race/child'), 'cleanup-race'),
@@ -539,6 +539,79 @@ test('mkdir_private metadata cleanup never deletes a foreign directory replaceme
   const foreign = wsl(['stat', '-c', '%F %a %u %g', `${base}/cleanup-race/${child.candidate}`]);
   assert.equal(foreign.stdout.trim(), 'directory 755 65534 65534');
   assert.equal(wsl(['test', '-e', `${base}/cleanup-race/child`]).status, 1);
+});
+
+test('mkdir_private classifies final publication collisions from verified target and cleanup state', async () => {
+  const base = `${testRoot}/${roots.staging}`;
+  for (const [name, existOk, setup, expected] of [
+    ['publish-match', true, 'mkdir -m 0700', 'success'],
+    ['publish-no-exist', false, 'mkdir -m 0700', 'clean-failure'],
+    ['publish-mismatch', true, 'mkdir -m 0755', 'policy-failure']
+  ]) {
+    const child = spawnInvoke(request('mkdir_private', mkdirArgs('staging', name, existOk), name),
+      { env: { Z2M_TEST_STOP_BEFORE_MKDIR_PUBLISH: '1' } });
+    const result = collect(child);
+    const pid = await waitStopped(child);
+    shell(`${setup} '${base}/${name}'; kill -CONT ${pid}`);
+    const completed = await result;
+    if (expected === 'success') expectMkdirSuccess(completed, false, 'tmpfs_visible');
+    else if (expected === 'clean-failure') expectFailure(completed, 4, 'EIO', name);
+    else expectFailure(completed, 3, 'EDENIED', name);
+    assert.equal(wsl(['stat', '-c', '%a %u %g', `${base}/${name}`]).stdout.trim(),
+      expected === 'policy-failure' ? '755 0 0' : '700 0 0');
+  }
+  assert.equal(wsl(['find', base, '-maxdepth', '1', '-name', '.z2m-mkdir-*', '-print']).stdout, '');
+
+  const persistentBase = `${testRoot}/${roots.persistent_state}`;
+  const persistent = spawnInvoke(request('mkdir_private',
+    mkdirArgs('persistent_state', 'publish-persistent', true), 'publish-persistent'),
+  { env: { Z2M_TEST_STOP_BEFORE_MKDIR_PUBLISH: '1' } });
+  const persistentResult = collect(persistent);
+  const persistentPid = await waitStopped(persistent);
+  shell(`mkdir -m 0700 '${persistentBase}/publish-persistent'; kill -CONT ${persistentPid}`);
+  expectMkdirSuccess(await persistentResult, false, 'durable');
+  assert.equal(wsl(['find', persistentBase, '-maxdepth', '1', '-name', '.z2m-mkdir-*', '-print']).stdout, '');
+});
+
+test('mkdir_private reports uncertainty for ambiguous cleanup and post-publication verification', async () => {
+  const base = `${testRoot}/${roots.staging}`;
+  const collision = spawnInvoke(request('mkdir_private', mkdirArgs('staging', 'cleanup-uncertain'), 'cleanup-uncertain'),
+    { env: { Z2M_TEST_STOP_BEFORE_MKDIR_PUBLISH: '1', Z2M_TEST_CLEANUP_AMBIGUOUS: '1' } });
+  const collisionResult = collect(collision);
+  const collisionPid = await waitStopped(collision);
+  shell(`mkdir -m 0700 '${base}/cleanup-uncertain'; kill -CONT ${collisionPid}`);
+  const ambiguous = await collisionResult;
+  assert.equal(ambiguous.status, 6, ambiguous.stderr || ambiguous.stdout);
+  assert.equal(ambiguous.response?.error?.code, 'ECOMMITUNKNOWN');
+  assert.equal(ambiguous.response?.error?.committed, true);
+  assert.equal(ambiguous.response?.error?.durability, 'unknown');
+  assert.equal(wsl(['test', '-d', `${base}/cleanup-uncertain`]).status, 0);
+
+  const verify = invoke(request('mkdir_private', mkdirArgs('staging', 'verify-uncertain'), 'verify-uncertain'), {
+    env: { Z2M_TEST_FINAL_VERIFY_ERROR: '1' }
+  });
+  assert.equal(verify.status, 6, verify.stderr || verify.stdout);
+  assert.equal(verify.response?.error?.code, 'ECOMMITUNKNOWN');
+  assert.equal(verify.response?.error?.committed, true);
+  assert.equal(verify.response?.error?.durability, 'unknown');
+  assert.equal(wsl(['test', '-d', `${base}/verify-uncertain`]).status, 0);
+});
+
+test('mkdir_private classifies pre-publication verification by proven cleanup', () => {
+  const base = `${testRoot}/${roots.staging}`;
+  const clean = invoke(request('mkdir_private', mkdirArgs('staging', 'candidate-verify-clean'), 'candidate-verify-clean'), {
+    env: { Z2M_TEST_CANDIDATE_VERIFY_ERROR: '1' }
+  });
+  expectFailure(clean, 4, 'EIO', 'candidate-verify-clean');
+  assert.equal(wsl(['test', '-e', `${base}/candidate-verify-clean`]).status, 1);
+
+  const uncertain = invoke(request('mkdir_private', mkdirArgs('staging', 'candidate-verify-uncertain'), 'candidate-verify-uncertain'), {
+    env: { Z2M_TEST_CANDIDATE_VERIFY_ERROR: '1', Z2M_TEST_CLEANUP_AMBIGUOUS: '1' }
+  });
+  assert.equal(uncertain.status, 6, uncertain.stderr || uncertain.stdout);
+  assert.equal(uncertain.response?.error?.code, 'ECOMMITUNKNOWN');
+  assert.equal(uncertain.response?.error?.committed, true);
+  assert.equal(uncertain.response?.error?.durability, 'unknown');
 });
 
 test('mkdir_private cleans metadata failure while retaining the root lock', async () => {

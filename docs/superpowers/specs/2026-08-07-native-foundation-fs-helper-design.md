@@ -26,6 +26,23 @@ a closed operation name, and closed arguments. It deliberately has no backend
 The later ucode adapter maps helper results into the frozen RPC envelope in
 `docs/contracts/native-backend-v1.md`; the helper never assigns generation.
 
+## Threat Model
+
+The host kernel, host root/UID 0, the installed helper binary, and the compiled
+root policy are trusted. A malicious UID 0 or `CAP_SYS_ADMIN` adversary is out of
+scope: this short-lived root helper does not claim to resist an actor that can
+replace the helper, alter mounts or namespaces, inspect `/proc`, or arbitrarily
+mutate managed roots.
+
+Unprivileged pathname attacks, malformed or hostile helper input, symlink and
+magic-link substitution, path and mount escape, object-type substitution,
+stale preconditions, accidental namespace collisions, and concurrent
+cooperating helper writers are in scope. Descriptor-relative traversal,
+root-level mutation locking, and inode/metadata/CAS checks provide pathname
+safety, serialization, and detection within that boundary. Concurrent
+privileged mutation outside the helper contract may be detected, but is not an
+adversary the helper claims to defeat.
+
 Once `requestId` passes schema validation, every response echoes it byte for
 byte. Failures before request-ID validation, including malformed input, use
 JSON `null`; success always requires a validated ID. Missing or mismatched IDs
@@ -124,6 +141,13 @@ same-directory candidate, checked writes, `fchown` then `fchmod`, file `fsync`,
 descriptor-relative rename, and parent-directory `fsync`. A post-rename fsync
 failure is `ECOMMITUNKNOWN`; callers reread before retrying. Tmpfs operations
 require visibility but not a false persistence claim.
+
+`mkdir_private` publishes a verified same-parent candidate with
+`RENAME_NOREPLACE`. If the final name already exists, the helper first proves
+candidate cleanup, then verifies the existing directory by descriptor. A policy
+match with `existOk:true` is idempotent success; mismatch or `existOk:false` is a
+clean failure. Ambiguous cleanup or any failure after publication is
+`ECOMMITUNKNOWN`; the helper never deletes or recreates the existing final target.
 
 Broker-only `lock_acquire`, `lock_release`, and `lock_status` return
 `EUNSUPPORTED` unless evidence later proves that a retained broker is necessary.

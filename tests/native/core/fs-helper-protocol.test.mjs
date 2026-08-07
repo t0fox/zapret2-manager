@@ -421,4 +421,10 @@ test('design and plan describe only the manifest architecture and milestone 1 sc
   const milestoneOne = plan.match(/## Milestone 1[\s\S]*?(?=\n## Milestone 2|$)/i)?.[0] ?? '';
   assert.doesNotMatch(milestoneOne, /implement[^\n]*(sha256|atomic_write|mkdir_private|lock_)/i);
   assert.match(milestoneOne, /EUNSUPPORTED/);
+
+  const design = fs.readFileSync(designPath, 'utf8');
+  assert.match(design, /host kernel[\s\S]{0,200}host root\/UID 0[\s\S]{0,200}trusted/i);
+  assert.match(design, /malicious UID 0[\s\S]{0,100}`?CAP_SYS_ADMIN`?[\s\S]{0,100}out\s+of\s+scope/i);
+  assert.match(design, /CAS checks[\s\S]{0,200}detection/i);
+  assert.doesNotMatch(design, /resist(?:s|ance)?[\s\S]{0,100}(?:malicious|hostile) root/i);
 });

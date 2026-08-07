@@ -227,8 +227,8 @@ test('two full fs-helper suite runs leave the repository root build-artifact fre
     });
     assert.equal(run.status, 0, `run ${runNumber}: ${run.stderr || run.stdout}`);
     assert.equal(run.stderr, '');
-    assert.match(run.stdout, /tests 41/);
-    assert.match(run.stdout, /pass 41/);
+    assert.match(run.stdout, /tests 44/);
+    assert.match(run.stdout, /pass 44/);
     assertCleanRepositoryRoot();
   }
 });

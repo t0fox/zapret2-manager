@@ -102,14 +102,23 @@ static bool named_inode(int parent,const char *name,const struct stat *created)
 	return fstatat(parent,name,&named,AT_SYMLINK_NOFOLLOW)==0&&S_ISDIR(named.st_mode)&&same_inode(created,&named);
 }
 
-static int abandon_candidate(const struct z2m_request *request,const struct z2m_root *root,int parent,const char *candidate,const struct stat *created,bool clean_failure)
+static int cleanup_candidate(const struct z2m_root *root,int parent,const char *candidate,const struct stat *created)
 {
-	if(!named_inode(parent,candidate,created))return z2m_fail(request->request_id,"ECOMMITUNKNOWN","directory_fsync");
-	if(unlinkat(parent,candidate,AT_REMOVEDIR)<0)return z2m_fail(request->request_id,"ECOMMITUNKNOWN","directory_fsync");
-	if(root->directory_fsync&&fsync(parent)<0)return z2m_fail(request->request_id,"ECOMMITUNKNOWN","directory_fsync");
+	if(!named_inode(parent,candidate,created))return -1;
+#ifdef Z2M_TESTING
+	if(getenv("Z2M_TEST_CLEANUP_AMBIGUOUS")!=NULL)return -1;
+#endif
+	if(unlinkat(parent,candidate,AT_REMOVEDIR)<0)return -1;
+	if(root->directory_fsync&&fsync(parent)<0)return -1;
 #ifdef Z2M_TESTING
 	if(getenv("Z2M_TEST_STOP_AFTER_MKDIR_CLEANUP")!=NULL){fprintf(stderr,"z2m-core-helper: lock-gate-pid=%ld\n",(long)getpid());raise(SIGSTOP);}
 #endif
+	return 0;
+}
+
+static int abandon_candidate(const struct z2m_request *request,const struct z2m_root *root,int parent,const char *candidate,const struct stat *created,bool clean_failure)
+{
+	if(cleanup_candidate(root,parent,candidate,created)<0)return z2m_fail(request->request_id,"ECOMMITUNKNOWN","directory_fsync");
 	return clean_failure?z2m_fail(request->request_id,"EIO","object_open"):z2m_fail(request->request_id,"ECOMMITUNKNOWN","directory_fsync");
 }
 
@@ -148,12 +157,34 @@ int z2m_mkdir_private(const struct z2m_request *request,const struct z2m_root *r
 	   getenv("Z2M_TEST_METADATA_ERROR")!=NULL||
 #endif
 	   fchown(child,0,0)<0||fchmod(child,0700)<0){close(child);result=abandon_candidate(request,root,parent,candidate,&created,true);close(parent);free(copy);return result;}
-	if(verified_directory(child,root_mount,&code)<0){close(child);result=abandon_candidate(request,root,parent,candidate,&created,false);close(parent);free(copy);return result;}close(child);child=-1;
+	if(
+#ifdef Z2M_TESTING
+	   getenv("Z2M_TEST_CANDIDATE_VERIFY_ERROR")!=NULL||
+#endif
+	   verified_directory(child,root_mount,&code)<0){close(child);result=abandon_candidate(request,root,parent,candidate,&created,true);close(parent);free(copy);return result;}close(child);child=-1;
 	check=open_parent(root_fd,parent_path,root_mount,&code);if(check<0||fstat(check,&check_st)<0||!same_inode(&parent_st,&check_st)){if(check>=0)close(check);result=abandon_candidate(request,root,parent,candidate,&created,false);close(parent);free(copy);return result;}
 	if(!named_inode(parent,candidate,&created)){close(check);close(parent);free(copy);return z2m_fail(request->request_id,"ECOMMITUNKNOWN","directory_fsync");}
-	if(syscall(SYS_renameat2,parent,candidate,check,name,RENAME_NOREPLACE)<0){int error=errno;close(check);if(named_inode(parent,candidate,&created))result=abandon_candidate(request,root,parent,candidate,&created,error!=EEXIST);else result=z2m_fail(request->request_id,"ECOMMITUNKNOWN","directory_fsync");close(parent);free(copy);return result;}
+#ifdef Z2M_TESTING
+	if(getenv("Z2M_TEST_STOP_BEFORE_MKDIR_PUBLISH")!=NULL){fprintf(stderr,"z2m-core-helper: candidate=%s lock-gate-pid=%ld\n",candidate,(long)getpid());raise(SIGSTOP);}
+#endif
+	if(syscall(SYS_renameat2,parent,candidate,check,name,RENAME_NOREPLACE)<0){
+		int error=errno;close(check);
+		if(error==EEXIST){
+			if(cleanup_candidate(root,parent,candidate,&created)<0){close(parent);free(copy);return z2m_fail(request->request_id,"ECOMMITUNKNOWN","directory_fsync");}
+			child=openat(parent,name,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);
+			if(child<0){code=entry_error(parent,name,errno);close(parent);free(copy);return fail(request,code);}
+			int valid=verified_directory(child,root_mount,&code);close(child);close(parent);free(copy);
+			if(valid<0)return fail(request,code);
+			if(exist_ok)return success(request,false,root->directory_fsync?"durable":"tmpfs_visible");
+			return z2m_fail(request->request_id,"EIO","object_open");
+		}
+		if(named_inode(parent,candidate,&created))result=abandon_candidate(request,root,parent,candidate,&created,true);else result=z2m_fail(request->request_id,"ECOMMITUNKNOWN","directory_fsync");close(parent);free(copy);return result;
+	}
 	close(check);check=-1;
 	final=open_parent(root_fd,parent_path,root_mount,&code);if(final>=0){child=openat(final,name,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);if(child>=0&&fstat(child,&final_st)==0&&same_inode(&created,&final_st)&&verified_directory(child,root_mount,&code)==0)final_ok=true;if(child>=0)close(child);close(final);}
+#ifdef Z2M_TESTING
+	if(getenv("Z2M_TEST_FINAL_VERIFY_ERROR")!=NULL)final_ok=false;
+#endif
 	if(!final_ok){close(parent);free(copy);return z2m_fail(request->request_id,"ECOMMITUNKNOWN","directory_fsync");}
 	if(root->directory_fsync){
 #ifdef Z2M_TESTING
