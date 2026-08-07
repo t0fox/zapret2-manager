@@ -272,18 +272,85 @@ test('marker deletion failure turns verified absence into uncertainty', async ()
 });
 
 test('retained identity proves natural disappearance after the marker is removed', async () => {
+  let markerReads = 0;
+  let scans = 0;
   let signalled = false;
+  let deleted = false;
   const result = await cleanupOwnedGroup(contextForCleanup(), {
-    readMarker: () => ({ ok: false, error: 'marker-unavailable: ENOENT' }),
+    readMarker: () => { markerReads += 1; return { ok: false, error: 'marker-unavailable: ENOENT' }; },
     listTempMarkers: () => [],
-    enumerateGroup: () => ({ ok: true, members: [] }),
-    signalGroup: () => { signalled = true; return true; }
+    enumerateGroup: () => { scans += 1; return { ok: true, members: [] }; },
+    signalGroup: () => { signalled = true; return true; },
+    deleteMarker: () => { deleted = true; return true; }
   });
+  assert.equal(markerReads, 2);
+  assert.equal(scans, 1);
   assert.equal(signalled, false);
+  assert.equal(deleted, false);
+  assert.equal(result.termSent, false);
+  assert.equal(result.killSent, false);
   assert.equal(result.identityVerified, true);
   assert.equal(result.groupGone, true);
   assert.equal(result.markerDeleted, true);
   assert.equal(result.status, 'verified-gone');
+});
+
+test('retained identity rejects every contradictory cleanup observation without side effects', async (t) => {
+  const missing = { ok: false, error: 'marker-unavailable: ENOENT' };
+  const cases = [
+    { name: 'surviving member', scans: [{ ok: true, members: [{ pid: 702 }] }] },
+    { name: 'group scan failure', scans: [{ ok: false, members: [], error: 'enumeration-failed' }] },
+    { name: 'initial temp-marker scan failure', listFailureAt: 1 },
+    { name: 'final temp-marker scan failure', listFailureAt: 2 },
+    { name: 'marker reappearance', markerResults: [missing, { ok: true, marker: marker() }] },
+    { name: 'initial partial marker', partialAt: 1 },
+    { name: 'final partial marker', partialAt: 2 },
+    { name: 'unreaped launcher', unreaped: true }
+  ];
+
+  for (const scenario of cases) await t.test(scenario.name, async () => {
+    let markerReads = 0;
+    let tempScans = 0;
+    let groupScans = 0;
+    let termCalls = 0;
+    let killCalls = 0;
+    let deleteCalls = 0;
+    const context = contextForCleanup();
+    if (scenario.unreaped) {
+      context.launcher = fakeChild();
+      context.launcher.kill = () => true;
+    }
+    const markerResults = scenario.markerResults ?? [missing, missing];
+    const groupResults = scenario.scans ?? [{ ok: true, members: [] }];
+    const result = await cleanupOwnedGroup(context, {
+      reapTimeoutMs: 0,
+      readMarker: () => markerResults[Math.min(markerReads++, markerResults.length - 1)],
+      listTempMarkers: () => {
+        tempScans += 1;
+        if (tempScans === scenario.listFailureAt) throw new Error(`temp-scan-${tempScans}-failed`);
+        return tempScans === scenario.partialAt ? [`/tmp/marker.tmp.${tempScans}`] : [];
+      },
+      enumerateGroup: () => {
+        const value = groupResults[Math.min(groupScans, groupResults.length - 1)];
+        groupScans += 1;
+        return value;
+      },
+      signalGroup: (signal) => {
+        if (signal === 'TERM') termCalls += 1;
+        if (signal === 'KILL') killCalls += 1;
+        return true;
+      },
+      deleteMarker: () => { deleteCalls += 1; return true; }
+    });
+    assert.equal(result.status, 'uncertain');
+    assert.equal(result.termSent, false);
+    assert.equal(result.killSent, false);
+    assert.equal(result.groupGone, false);
+    assert.equal(result.markerDeleted, false);
+    assert.equal(termCalls, 0);
+    assert.equal(killCalls, 0);
+    assert.equal(deleteCalls, 0);
+  });
 });
 
 test('suspended readiness cannot mutate READY after timeout reserves settlement', async () => {

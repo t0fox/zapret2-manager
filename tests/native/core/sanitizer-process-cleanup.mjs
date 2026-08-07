@@ -181,10 +181,10 @@ export async function cleanupOwnedGroup(context, options = {}) {
         if (confirmed.ok || confirmed.partial?.length || !confirmed.error?.startsWith('marker-unavailable'))
           return finish(context, result, 'uncertain', { reason: 'marker-absence-not-stable', markerError: confirmed.error,
             partialEvidence: confirmed.partial ?? [] });
+        if (!result.windowsReaped) return finish(context, result, 'uncertain', 'windows-not-reaped');
         result.groupGone = true;
         result.markerDeleted = true;
-        return finish(context, result, result.windowsReaped ? 'verified-gone' : 'uncertain',
-          result.windowsReaped ? 'retained-identity-group-empty' : 'windows-not-reaped');
+        return finish(context, result, 'verified-gone', 'retained-identity-group-empty');
       }
       if (context.launcher === null && context.failure) {
         result.groupGone = true;

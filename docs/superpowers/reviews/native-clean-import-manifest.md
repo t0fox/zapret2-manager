@@ -184,14 +184,19 @@ provenance; these hashes identify the clean-branch versions:
 | Path | Clean-branch blob | Adaptation |
 |---|---|---|
 | `tests/native/core/build-fs-helper-hygiene.test.mjs` | `e52c2fd93bdd4cf4f14a6f1995d6c89bc0a6c9cc` | Classify sanitizer-family paths using Git tracked status plus binary/type/name evidence; reject untracked textual reports without exempting documentation extensions |
-| `tests/native/core/sanitizer-launch-ownership.test.mjs` | `834cfa99b712d811f25de775de086110c9d34b01` | Deterministic retained-identity regression for marker disappearance after natural group exit |
-| `tests/native/core/sanitizer-process-cleanup.mjs` | `1f2b7c47a7325c3be29f931100931cb622fea11a` | Reuse previously verified identity only for a double-observed missing marker and empty owned-group scan; never signal from retained identity |
+| `tests/native/core/sanitizer-launch-ownership.test.mjs` | `e244fb890f294280e8441d4ef9dd9d25d0074bce` | Deterministic retained-identity success and contradictory-evidence matrix covering exact observations, survivors, scan failures, marker reappearance, partial markers, and unreaped launchers |
+| `tests/native/core/sanitizer-process-cleanup.mjs` | `e02932382af3eba029067198a44f103943243829` | Reuse previously verified identity only for a double-observed missing marker and empty owned-group scan; never signal or claim disappearance/deletion before launcher reaping |
 | `tests/native/core/fixtures/sanitizer-tracked-notes.md` | `c807f8e4ebef0996d458d622cece91755490327f` | Tracked documentation fixture proving legitimate sanitizer-family source text remains allowed |
 
 These are clean-main verification fixes, not additional donor imports. No
 timeout is increased, no blind signal or kill is added, and scan failure,
 surviving members, partial markers, marker reappearance, or an unreaped launcher
 still classify cleanup as uncertain.
+
+Review fix round 2 adds strict coverage for every retained-identity predicate.
+The unreaped-launcher RED exposed one accounting defect: cleanup was uncertain
+but still claimed `groupGone` and `markerDeleted`. Those claims now remain false
+until launcher reaping is proven. The fix changes no timeout or signal behavior.
 
 ## Task 4 Import Ledger
 
