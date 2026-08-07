@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 
 const projectRoot = path.resolve('.');
 const runner = path.join(projectRoot, 'tests', 'native', 'core', 'run-fs-helper-sanitizers.mjs');
@@ -12,6 +13,8 @@ const classifications = new Set([
 ]);
 const wslRoot = `/mnt/${projectRoot[0].toLowerCase()}${projectRoot.slice(2).replaceAll('\\', '/')}`;
 const fixtures = `${wslRoot}/tests/native/core/fixtures`;
+const cleanupModule = path.join(projectRoot, 'tests', 'native', 'core', 'sanitizer-process-cleanup.mjs');
+const cleanupModuleUrl = pathToFileURL(cleanupModule).href;
 
 function runScenario(scenario, extraArgs = []) {
   const run = spawnSync(process.execPath, [runner, '--scenario', scenario, ...extraArgs], {
@@ -98,6 +101,15 @@ test('recognized unsupported sanitizer option is capability-proven SKIP_UNAVAILA
   assert.match(run.report.skipEvidence?.diagnostic, /unrecognized command-line option/);
 });
 
+for (const compiler of ['unrelated-asan-compile-cc.sh', 'unrelated-asan-library-cc.sh']) {
+  test(`${compiler} generic asan wording remains COMPILE_FAILED`, () => {
+    const run = runScenario('normal', ['--compiler', `${fixtures}/${compiler}`]);
+    assert.equal(run.status, 1);
+    assert.equal(run.report.classification, 'COMPILE_FAILED');
+    assert.equal(run.report.skipEvidence, null);
+  });
+}
+
 test('recognized missing sanitizer runtime is capability-proven SKIP_UNAVAILABLE', () => {
   const run = runScenario('normal', ['--compiler', `${fixtures}/unsupported-sanitizer-runtime-cc.sh`]);
   assert.equal(run.status, 0);
@@ -127,6 +139,8 @@ test('probe runtime timeout is TIMEOUT rather than skip', () => {
   assert.equal(run.status, 1);
   assert.equal(run.report.classification, 'TIMEOUT');
   assert.equal(run.report.timeout.timedOut, true);
+  assert.equal(run.report.cleanup.identityVerified, true, run.report.cleanup.evidence);
+  assert.deepEqual(run.report.cleanup.membersAfter, []);
 });
 
 test('intentional heap overflow is SANITIZER_FAILURE with diagnostics preserved', () => {
@@ -148,6 +162,8 @@ test('hung fixture is TIMEOUT', () => {
   if (!expectBehavior(run, 'TIMEOUT')) return;
   assert.equal(run.report.timeout.timedOut, true);
   assert.equal(run.report.cleanup.terminated, true);
+  assert.equal(run.report.cleanup.identityVerified, true, run.report.cleanup.evidence);
+  assert.deepEqual(run.report.cleanup.membersAfter, []);
   assert.equal(run.report.cleanup.reaped, true);
   assert.equal(run.report.cleanup.processGone, true);
   assert.match(run.report.cleanup.pid, /^\d+$/);
@@ -200,4 +216,83 @@ test('repeated runs leave no sanitizer artifacts in the worktree', () => {
     '-maxdepth', '1', '-type', 'd', '-name', 'z2m-sanitizer-*', '-print'], { encoding: 'utf8' });
   assert.equal(leftovers.status, 0, leftovers.stderr);
   assert.equal(leftovers.stdout, '');
+});
+
+function wsl(args) {
+  return spawnSync('wsl.exe', ['-d', 'Ubuntu', '-u', 'root', '--', ...args], { encoding: 'utf8' });
+}
+
+async function waitForPid(pidFile) {
+  for (let attempt = 0; attempt < 200; attempt++) {
+    const read = wsl(['/bin/cat', pidFile]);
+    if (/^\d+\s*$/.test(read.stdout)) return read.stdout.trim();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`PID marker not created: ${pidFile}`);
+}
+
+async function waitForExit(pid) {
+  for (let attempt = 0; attempt < 80; attempt++) {
+    if (wsl(['/bin/kill', '-0', pid]).status !== 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`leader did not exit: ${pid}`);
+}
+
+async function startGroup(mode) {
+  const token = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const pidFile = `/tmp/z2m-cleanup-${token}.pid`;
+  const child = spawn('wsl.exe', ['-d', 'Ubuntu', '-u', 'root', '--', '/usr/bin/setsid',
+    '/bin/sh', `${fixtures}/sanitizer-process-group.sh`, mode, pidFile], { stdio: 'ignore' });
+  const pid = await waitForPid(pidFile);
+  return { child, pid, pidFile };
+}
+
+function forceCleanup(group) {
+  if (!group) return;
+  wsl(['/bin/kill', '-KILL', `-${group.pid}`]);
+  wsl(['/bin/rm', '-f', group.pidFile]);
+  group.child.kill();
+}
+
+test('timeout cleanup verifies identity and removes every process-group member', async () => {
+  const group = await startGroup('child');
+  try {
+    const { cleanupProcessGroup } = await import(`${cleanupModuleUrl}?child=${Date.now()}`);
+    const cleanup = cleanupProcessGroup(group.pidFile, `${fixtures}/sanitizer-process-group.sh`);
+    assert.equal(cleanup.identityVerified, true, cleanup.evidence);
+    assert.ok(cleanup.membersBefore.length >= 2, cleanup.evidence);
+    assert.deepEqual(cleanup.membersAfter, []);
+    assert.equal(cleanup.processGone, true);
+  } finally {
+    forceCleanup(group);
+  }
+});
+
+test('forged PID marker never signals an unrelated process group', async () => {
+  const unrelated = await startGroup('unrelated');
+  try {
+    const { cleanupProcessGroup } = await import(`${cleanupModuleUrl}?forged=${Date.now()}`);
+    const cleanup = cleanupProcessGroup(unrelated.pidFile, `${fixtures}/sanitizer-process-group.sh`);
+    assert.equal(cleanup.identityVerified, false);
+    assert.equal(cleanup.signalSent, false);
+    assert.equal(wsl(['/bin/kill', '-0', unrelated.pid]).status, 0, 'unrelated process was signalled');
+  } finally {
+    forceCleanup(unrelated);
+  }
+});
+
+test('leader exit with child survivor is detected without signalling an unverified group', async () => {
+  const group = await startGroup('leader-exit');
+  try {
+    await waitForExit(group.pid);
+    const { cleanupProcessGroup } = await import(`${cleanupModuleUrl}?survivor=${Date.now()}`);
+    const cleanup = cleanupProcessGroup(group.pidFile, `${fixtures}/sanitizer-process-group.sh`);
+    assert.equal(cleanup.identityVerified, false);
+    assert.equal(cleanup.signalSent, false);
+    assert.ok(cleanup.membersAfter.length >= 1, cleanup.evidence);
+    assert.equal(cleanup.processGone, false);
+  } finally {
+    forceCleanup(group);
+  }
 });

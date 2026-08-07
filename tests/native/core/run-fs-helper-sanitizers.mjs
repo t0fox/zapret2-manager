@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { cleanupProcessGroup } from './sanitizer-process-cleanup.mjs';
 
 const projectRoot = path.resolve('.');
 const wslRoot = `/mnt/${projectRoot[0].toLowerCase()}${projectRoot.slice(2).replaceAll('\\', '/')}`;
@@ -88,10 +89,9 @@ function emptyProcess() {
 
 function compileSkipEvidence(run) {
   const patterns = [
-    /unrecognized command-line option [‘']?-fsanitize=/i,
-    /unsupported option [‘']?-fsanitize=/i,
-    /cannot find (?:-l)?(?:asan|ubsan)\b/i,
-    /unable to find library .*\b(?:asan|ubsan)\b/i
+    /(?:unrecognized command-line option|unknown argument|unsupported option) [‘'`"]?-fsanitize=[^’'`"\s]+/i,
+    /(?:ld|linker|collect2).*?(?:cannot find|not found).*?(?:-l(?:asan|ubsan)|lib(?:asan|ubsan)\.so(?:\.\d+)*)/i,
+    /(?:cannot find|not found) (?:-l(?:asan|ubsan)|lib(?:asan|ubsan)\.so(?:\.\d+)*)/i
   ];
   const diagnostic = run.stderr.split('\n').find((line) => patterns.some((pattern) => pattern.test(line)));
   return diagnostic ? { phase: 'compile', diagnostic } : null;
@@ -115,43 +115,13 @@ function compilerCommand(executable, argv) {
   return executable.endsWith('.sh') ? ['/bin/sh', executable, ...argv] : [executable, ...argv];
 }
 
-function cleanupGroup(pidFile) {
-  const cleanup = { pid: null, terminated: false, reaped: false, processGone: false, evidence: '' };
-  const readPid = wsl(['/bin/cat', pidFile]);
-  const pid = readPid.stdout.trim();
-  if (!/^\d+$/.test(pid)) {
-    cleanup.evidence = readPid.stderr || 'PID marker unavailable';
-    return cleanup;
-  }
-  cleanup.pid = pid;
-  const terminated = wsl(['/bin/kill', '-TERM', `-${pid}`]);
-  cleanup.terminated = terminated.exitCode === 0;
-  for (let attempt = 0; attempt < 20; attempt++) {
-    const alive = wsl(['/bin/kill', '-0', pid]);
-    if (alive.exitCode !== 0) {
-      cleanup.terminated = true;
-      cleanup.reaped = true;
-      cleanup.processGone = true;
-      cleanup.evidence = alive.stderr;
-      return cleanup;
-    }
-    wsl(['/bin/sleep', '0.05']);
-  }
-  wsl(['/bin/kill', '-KILL', `-${pid}`]);
-  const alive = wsl(['/bin/kill', '-0', pid]);
-  cleanup.reaped = alive.exitCode !== 0;
-  cleanup.processGone = cleanup.reaped;
-  cleanup.evidence = alive.stderr;
-  return cleanup;
-}
-
 function runControlled(command, env, input, timeoutMs, pidFile) {
   const args = [
     '/usr/bin/setsid', '--wait', '/bin/sh', `${fixtureRoot}/sanitizer-process-wrapper.sh`, pidFile,
     '/usr/bin/env', ...Object.entries(env).map(([key, value]) => `${key}=${value}`), ...command
   ];
   const run = wsl(args, { input, timeout: timeoutMs });
-  const cleanup = run.timedOut ? cleanupGroup(pidFile) : {
+  const cleanup = run.timedOut ? cleanupProcessGroup(pidFile, command[0]) : {
     pid: null, terminated: false, reaped: true, processGone: true, evidence: 'process exited before cleanup'
   };
   return { run, cleanup };
@@ -210,7 +180,8 @@ try {
       if (probeExecution.run.timedOut) {
         report.timeout.timedOut = true;
         report.cleanup = probeExecution.cleanup;
-        report.classification = 'TIMEOUT';
+        report.classification = probeExecution.cleanup.identityVerified && probeExecution.cleanup.processGone ?
+          'TIMEOUT' : 'ASSERTION_FAILURE';
       } else if (probeExecution.run.exitCode !== 0 || probeExecution.run.signal !== null) {
         report.skipEvidence = runtimeSkipEvidence(probeExecution.run);
         report.classification = report.skipEvidence ? 'SKIP_UNAVAILABLE' : 'ASSERTION_FAILURE';
@@ -274,7 +245,8 @@ try {
             report.run = execution.run;
             report.cleanup = execution.cleanup;
             report.timeout.timedOut = report.run.timedOut;
-            if (report.run.timedOut) report.classification = 'TIMEOUT';
+            if (report.run.timedOut) report.classification = report.cleanup.identityVerified && report.cleanup.processGone ?
+              'TIMEOUT' : 'ASSERTION_FAILURE';
             else if (sanitizerDiagnostic(report.run)) report.classification = 'SANITIZER_FAILURE';
             else if (options.scenario === 'signal' &&
               (report.run.signal === 'SIGTERM' || report.run.exitCode === 15 || report.run.exitCode === 143))
