@@ -240,7 +240,7 @@ test('operation registry is closed and specifies schemas, limits, ownership, cra
       requiredKeys.push('unsupportedBehavior');
     assert.deepEqual(sorted(Object.keys(operation)), sorted(requiredKeys), name);
     assert.ok(Number.isInteger(operation.milestone) && operation.milestone > 0, name);
-    assert.ok(['milestone_1', 'reserved_unsupported'].includes(operation.status), name);
+    assert.ok(['milestone_1', 'milestone_2', 'reserved_unsupported'].includes(operation.status), name);
     assert.ok(operation.roots.length > 0, name);
     assert.ok(operation.roots.every((root) => roots.includes(root)), name);
     assert.equal(operation.requestSchema.type, 'object', name);
@@ -258,9 +258,10 @@ test('operation registry is closed and specifies schemas, limits, ownership, cra
 
   assert.equal(value.operations.stat_regular.status, 'milestone_1');
   assert.equal(value.operations.read_regular.status, 'milestone_1');
-  for (const name of operations.slice(2))
+  assert.equal(value.operations.mkdir_private.status, 'milestone_2');
+  for (const name of operations.slice(2).filter((name) => name !== 'mkdir_private'))
     assert.equal(value.operations[name].status, 'reserved_unsupported', name);
-  for (const name of operations.slice(2)) {
+  for (const name of operations.slice(2).filter((name) => name !== 'mkdir_private')) {
     assert.deepEqual(value.operations[name].unsupportedBehavior, {
       errorCode: 'EUNSUPPORTED',
       dispatch: 'reject_before_operation_dispatch',
@@ -297,6 +298,8 @@ test('operation registry is closed and specifies schemas, limits, ownership, cra
   assert.equal(value.operations.mkdir_private.requestSchema.properties.mode.const, '0700');
   assert.equal(value.operations.mkdir_private.requestSchema.properties.uid.const, 0);
   assert.equal(value.operations.mkdir_private.requestSchema.properties.gid.const, 0);
+  assert.deepEqual(value.operations.mkdir_private.successSchema.required,
+    ['created', 'committed', 'durability']);
 });
 
 test('errors are stable, bounded, and map to one exit category', () => {

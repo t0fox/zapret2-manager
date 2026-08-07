@@ -214,7 +214,7 @@ try {
             report.compile = pkgConfig;
             report.classification = 'COMPILE_FAILED';
           } else {
-            const sources = ['main.c', 'protocol.c', 'errors.c', 'roots.c', 'paths.c', 'files.c', 'base64.c']
+            const sources = ['main.c', 'protocol.c', 'errors.c', 'roots.c', 'paths.c', 'files.c', 'base64.c', 'mkdir.c']
               .map((name) => `${wslRoot}/zapret2-manager/src/z2m-core-helper/${name}`);
             compileArgv = ['-std=c11', '-Wall', '-Wextra', '-Werror', '-D_GNU_SOURCE', '-DZ2M_TESTING',
               ...sanitizerFlags, ...sources, ...pkgConfig.stdout.trim().split(/\s+/).filter(Boolean), '-o', binaryPath];

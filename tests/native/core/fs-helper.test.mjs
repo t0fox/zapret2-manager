@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 
 const projectRoot = path.resolve('.');
 const wslRoot = `/mnt/${projectRoot[0].toLowerCase()}${projectRoot.slice(2).replaceAll('\\', '/')}`;
@@ -46,8 +46,51 @@ function invoke(value, { binary = testBin, env = {}, timeout = 3000 } = {}) {
   return { ...result, stdout, stderr: result.stderr.toString('utf8'), response };
 }
 
+function spawnInvoke(value, { env = {} } = {}) {
+  const input = JSON.stringify(value);
+  const args = Object.entries({ Z2M_TEST_ROOT_PREFIX: testRoot, ...env }).flatMap(([key, val]) => [`${key}=${val}`]);
+  const child = spawn('wsl.exe', ['-d', 'Ubuntu', '-u', 'root', '--cd', wslRoot, '--', 'env', ...args, testBin], {
+    stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true
+  });
+  child.lockGate = new Promise((resolve) => {
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk) => {
+      const match = chunk.match(/lock-gate-pid=(\d+)/);
+      if (match) resolve(Number(match[1]));
+    });
+  });
+  child.stdin.end(input);
+  return child;
+}
+
+async function waitStopped(child) {
+  const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('helper did not reach deterministic stop gate')), 3000));
+  return Promise.race([child.lockGate, timeout]);
+}
+
+function collect(child) {
+  return new Promise((resolve, reject) => {
+    let stdout = ''; let stderr = '';
+    child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => { stdout += chunk; });
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    child.once('error', reject);
+    child.once('exit', (status, signal) => resolve({ status, signal, stdout, stderr,
+      response: stdout ? JSON.parse(stdout) : null }));
+  });
+}
+
 function request(operation, args, requestId = 'req-1') {
   return { protocolVersion: 1, requestId, operation, arguments: args };
+}
+
+function mkdirArgs(root, pathValue, existOk = false) {
+  return { root, path: pathValue, mode: '0700', uid: 0, gid: 0, existOk };
+}
+
+function expectMkdirSuccess(run, created, durability) {
+  assert.equal(run.status, 0, run.stderr || run.stdout);
+  assert.deepEqual(run.response?.data, { created, committed: true, durability });
 }
 
 function expectFailure(run, status, code, requestId = 'req-1', context = '') {
@@ -311,7 +354,6 @@ test('reserved operations return EUNSUPPORTED before filesystem access and have 
   const operations = {
     atomic_write: { root: 'runtime', path: 'must-not-exist', content: '', mode: '0600', uid: 0, gid: 0, allowCreate: true },
     atomic_write_json: { root: 'runtime', path: 'must-not-exist', value: {}, mode: '0600', uid: 0, gid: 0, allowCreate: true },
-    mkdir_private: { root: 'runtime', path: 'must-not-exist', mode: '0700', uid: 0, gid: 0, existOk: false },
     sha256_regular: { root: 'runtime', path: 'missing', maxBytes: 1 },
     rename_owned: { root: 'runtime', fromPath: 'missing', toPath: 'must-not-exist', ownershipToken: 'a'.repeat(64), replace: false },
     unlink_owned: { root: 'runtime', path: 'missing', ownershipToken: 'a'.repeat(64), missingOk: false },
@@ -324,6 +366,178 @@ test('reserved operations return EUNSUPPORTED before filesystem access and have 
     expectFailure(run, 3, 'EUNSUPPORTED');
   }
   assert.equal(wsl(['test', '-e', marker]).status, 1);
+});
+
+test('mkdir_private uses a nonblocking per-root process lock and releases it on completion or crash', async () => {
+  const args = { root: 'runtime', path: 'lock-target', mode: '0700', uid: 0, gid: 0, existOk: false };
+  const holder = spawnInvoke(request('mkdir_private', args, 'holder'), { env: { Z2M_TEST_STOP_AFTER_LOCK: '1' } });
+  const holderResult = collect(holder);
+  const pid = await waitStopped(holder);
+
+  const contended = invoke(request('mkdir_private', args, 'contended'));
+  expectFailure(contended, 5, 'ELOCKED', 'contended');
+  assert.equal(contended.response.error.stage, 'lock_acquire');
+  assert.equal(wsl(['test', '-e', `${testRoot}/${roots.runtime}/lock-target`]).status, 1);
+
+  const otherRoot = invoke(request('mkdir_private', { ...args, root: 'jobs' }, 'other-root'));
+  assert.notEqual(otherRoot.response?.error?.code, 'ELOCKED', otherRoot.stdout);
+
+  shell(`kill -CONT ${pid}`);
+  await holderResult;
+  const afterCompletion = invoke(request('mkdir_private', args, 'after-completion'));
+  assert.notEqual(afterCompletion.response?.error?.code, 'ELOCKED', afterCompletion.stdout);
+
+  const crashHolder = spawnInvoke(request('mkdir_private', { ...args, path: 'crash-target' }, 'crash-holder'),
+    { env: { Z2M_TEST_STOP_AFTER_LOCK: '1' } });
+  const crashResult = collect(crashHolder);
+  const crashPid = await waitStopped(crashHolder);
+  shell(`kill -KILL ${crashPid}`);
+  await crashResult;
+  const afterCrash = invoke(request('mkdir_private', { ...args, path: 'crash-target' }, 'after-crash'));
+  assert.notEqual(afterCrash.response?.error?.code, 'ELOCKED', afterCrash.stdout);
+});
+
+test('mkdir_private acquires the root lock before traversal and retains it through failure classification', async () => {
+  const base = `${testRoot}/${roots.runtime}`;
+  shell(`ln -s '${testRoot}/outside' '${base}/prelock-link'`);
+  const args = { root: 'runtime', path: 'prelock-link/child', mode: '0700', uid: 0, gid: 0, existOk: false };
+  const holder = spawnInvoke(request('mkdir_private', args, 'ordered-holder'),
+    { env: { Z2M_TEST_STOP_AFTER_LOCK: '1' } });
+  const holderResult = collect(holder);
+  const pid = await waitStopped(holder);
+  assert.equal(wsl(['test', '-e', `${testRoot}/outside/child`]).status, 1);
+  expectFailure(invoke(request('mkdir_private', { ...args, path: 'other' }, 'ordered-contender')),
+    5, 'ELOCKED', 'ordered-contender');
+  shell(`kill -CONT ${pid}`);
+  const completed = await holderResult;
+  assert.notEqual(completed.response?.error?.code, 'ELOCKED');
+
+  const failureHolder = spawnInvoke(request('mkdir_private', args, 'failure-holder'),
+    { env: { Z2M_TEST_STOP_BEFORE_MKDIR_FAILURE: '1' } });
+  const failureResult = collect(failureHolder);
+  const failurePid = await waitStopped(failureHolder);
+  expectFailure(invoke(request('mkdir_private', { ...args, path: 'failure-contender' }, 'failure-contender')),
+    5, 'ELOCKED', 'failure-contender');
+  shell(`kill -CONT ${failurePid}`);
+  await failureResult;
+});
+
+test('mkdir_private does not classify unexpected flock failures as contention', () => {
+  const run = invoke(request('mkdir_private', {
+    root: 'runtime', path: 'flock-error', mode: '0700', uid: 0, gid: 0, existOk: false
+  }), { env: { Z2M_TEST_FLOCK_ERROR: 'EIO' } });
+  expectFailure(run, 4, 'EIO');
+  assert.equal(run.response.error.stage, 'lock_acquire');
+});
+
+test('mkdir_private creates only the final private directory and verifies existing objects', () => {
+  const base = `${testRoot}/${roots.runtime}`;
+  expectMkdirSuccess(invoke(request('mkdir_private', mkdirArgs('runtime', 'made'))), true, 'tmpfs_visible');
+  const metadata = wsl(['stat', '-c', '%F %a %u %g', `${base}/made`]);
+  assert.equal(metadata.stdout.trim(), 'directory 700 0 0');
+  expectMkdirSuccess(invoke(request('mkdir_private', mkdirArgs('runtime', 'made', true))), false, 'tmpfs_visible');
+  expectFailure(invoke(request('mkdir_private', mkdirArgs('runtime', 'made'))), 4, 'EIO');
+
+  shell(`printf x > '${base}/file-collision'; chmod 0600 '${base}/file-collision'; mkdir -m 0755 '${base}/wide'; mkdir -m 0700 '${base}/foreign'; chown 65534:65534 '${base}/foreign'; ln -s made '${base}/final-symlink'; mkdir -m 0700 '${base}/real-parent'; ln -s real-parent '${base}/parent-symlink'`);
+  for (const [name, code] of [['file-collision', 'ENOTREG'], ['wide', 'EDENIED'],
+    ['foreign', 'EDENIED'], ['final-symlink', 'ESYMLINK'], ['parent-symlink/child', 'ESYMLINK'], ['missing/child', 'ENOENT']])
+    expectFailure(invoke(request('mkdir_private', mkdirArgs('runtime', name, true))),
+      code === 'EDENIED' ? 3 : 4, code, 'req-1', name);
+});
+
+test('mkdir_private validates its closed schema, root depth, canonical path, and root policy before mutation', () => {
+  const invalid = [
+    { ...mkdirArgs('runtime', 'schema-mode'), mode: '0755' },
+    { ...mkdirArgs('runtime', 'schema-uid'), uid: 1 },
+    { ...mkdirArgs('runtime', 'schema-gid'), gid: 1 },
+    { ...mkdirArgs('runtime', 'schema-extra'), extra: true }
+  ];
+  for (const args of invalid) expectFailure(invoke(request('mkdir_private', args)), 2, 'ESCHEMA');
+  for (const value of ['/absolute', '..', 'a/../b', Array(13).fill('a').join('/')])
+    expectFailure(invoke(request('mkdir_private', mkdirArgs('runtime', value))),
+      value.includes('..') || value.startsWith('/') ? 2 : 3,
+      value.includes('..') || value.startsWith('/') ? 'ESCHEMA' : 'EPATH');
+  expectFailure(invoke(request('mkdir_private', mkdirArgs('locks', 'denied'))), 3, 'EDENIED');
+  assert.equal(wsl(['test', '-e', `${testRoot}/${roots.runtime}/schema-mode`]).status, 1);
+});
+
+test('mkdir_private refuses mounted descendants and injected mount identity changes', (t) => {
+  const mountpoint = `${testRoot}/${roots.runtime}/mkdir-mounted`;
+  shell(`mkdir -m 0700 '${mountpoint}'`);
+  const mounted = wsl(['mount', '-t', 'tmpfs', 'tmpfs', mountpoint]);
+  if (mounted.status !== 0) t.skip(`mount unavailable: ${mounted.stderr.trim()}`);
+  else {
+    try { expectFailure(invoke(request('mkdir_private', mkdirArgs('runtime', 'mkdir-mounted/child'))), 4, 'EXDEV'); }
+    finally { shell(`umount '${mountpoint}'`); }
+  }
+  shell(`mkdir -m 0700 '${testRoot}/${roots.runtime}/mount-hook'`);
+  expectFailure(invoke(request('mkdir_private', mkdirArgs('runtime', 'mount-hook/child')), {
+    env: { Z2M_TEST_MKDIR_MNT_ID_CHANGE: '1' }
+  }), 4, 'EXDEV');
+});
+
+test('mkdir_private final creation race cannot escape the opened parent descriptor', async () => {
+  const base = `${testRoot}/${roots.staging}`;
+  shell(`mkdir -m 0700 '${base}/race-parent'; mkdir -m 0700 '${testRoot}/outside-race'`);
+  const child = spawnInvoke(request('mkdir_private', mkdirArgs('staging', 'race-parent/child'), 'race'),
+    { env: { Z2M_TEST_STOP_BEFORE_MKDIR: '1' } });
+  const result = collect(child);
+  const pid = await waitStopped(child);
+  shell(`mv '${base}/race-parent' '${base}/detached-parent'; ln -s '${testRoot}/outside-race' '${base}/race-parent'; kill -CONT ${pid}`);
+  const completed = await result;
+  assert.equal(wsl(['test', '-e', `${testRoot}/outside-race/child`]).status, 1);
+  if (completed.status === 0) assert.equal(wsl(['test', '-d', `${base}/detached-parent/child`]).status, 0);
+  else assert.ok(['ESYMLINK', 'ENOENT', 'EIO'].includes(completed.response?.error?.code), completed.stdout);
+
+  shell(`mkdir -m 0700 '${base}/replace-parent'`);
+  const replaced = spawnInvoke(request('mkdir_private', mkdirArgs('staging', 'replace-parent/child'), 'replace'),
+    { env: { Z2M_TEST_STOP_AFTER_MKDIR: '1' } });
+  const replacedResult = collect(replaced);
+  const replacedPid = await waitStopped(replaced);
+  shell(`rmdir '${base}/replace-parent/child'; ln -s '${testRoot}/outside-race' '${base}/replace-parent/child'; kill -CONT ${replacedPid}`);
+  const replacedCompleted = await replacedResult;
+  expectFailure(replacedCompleted, 4, 'ESYMLINK', 'replace');
+  assert.equal(wsl(['test', '-e', `${testRoot}/outside-race/child`]).status, 1);
+});
+
+test('mkdir_private cleans metadata failure while retaining the root lock', async () => {
+  const target = `${testRoot}/${roots.persistent_state}/cleanup-target`;
+  const holder = spawnInvoke(request('mkdir_private', mkdirArgs('persistent_state', 'cleanup-target'), 'cleanup-holder'),
+    { env: { Z2M_TEST_METADATA_ERROR: '1', Z2M_TEST_STOP_AFTER_MKDIR_CLEANUP: '1' } });
+  const holderResult = collect(holder);
+  const pid = await waitStopped(holder);
+  assert.equal(wsl(['test', '-e', target]).status, 1);
+  expectFailure(invoke(request('mkdir_private', mkdirArgs('persistent_state', 'cleanup-contender'), 'cleanup-contender')),
+    5, 'ELOCKED', 'cleanup-contender');
+  shell(`kill -CONT ${pid}`);
+  const completed = await holderResult;
+  expectFailure(completed, 4, 'EIO', 'cleanup-holder');
+  assert.equal(wsl(['test', '-e', target]).status, 1);
+});
+
+test('mkdir_private reports persistent durability uncertainty and tmpfs visibility without false fsync claims', async () => {
+  expectMkdirSuccess(invoke(request('mkdir_private', mkdirArgs('persistent_state', 'durable'))), true, 'durable');
+  const failed = invoke(request('mkdir_private', mkdirArgs('persistent_state', 'uncertain')), {
+    env: { Z2M_TEST_DIRECTORY_FSYNC_ERROR: '1' }
+  });
+  assert.equal(failed.status, 6, failed.stderr || failed.stdout);
+  assert.equal(failed.response?.error?.code, 'ECOMMITUNKNOWN');
+  assert.equal(failed.response?.error?.committed, true);
+  assert.equal(failed.response?.error?.durability, 'unknown');
+  assert.equal(failed.response?.error?.stage, 'directory_fsync');
+  assert.equal(wsl(['test', '-d', `${testRoot}/${roots.persistent_state}/uncertain`]).status, 0);
+  expectMkdirSuccess(invoke(request('mkdir_private', mkdirArgs('runtime', 'visible')), {
+    env: { Z2M_TEST_DIRECTORY_FSYNC_ERROR: '1' }
+  }), true, 'tmpfs_visible');
+
+  const holder = spawnInvoke(request('mkdir_private', mkdirArgs('persistent_state', 'fsync-gated'), 'fsync-holder'),
+    { env: { Z2M_TEST_STOP_BEFORE_DIRECTORY_FSYNC: '1' } });
+  const holderResult = collect(holder);
+  const pid = await waitStopped(holder);
+  expectFailure(invoke(request('mkdir_private', mkdirArgs('persistent_state', 'while-fsync'), 'while-fsync')),
+    5, 'ELOCKED', 'while-fsync');
+  shell(`kill -CONT ${pid}`);
+  await holderResult;
 });
 
 test('reserved operations validate their complete closed schemas before EUNSUPPORTED', () => {

@@ -30,6 +30,8 @@ static const struct error_info errors[] = {
 	{"EXDEV", "Mount or root boundary crossing was refused.", false, NULL, "unchanged", 4},
 	{"ETOOBIG", "Managed object exceeds the operation or root limit.", false, NULL, "unchanged", 4},
 	{"EIO", "Filesystem operation failed.", false, NULL, "unchanged", 4},
+	{"ELOCKED", "Lock is held by another operation.", true, NULL, "unchanged", 5},
+	{"ECOMMITUNKNOWN", "Commit may be visible but durability is unknown.", false, NULL, "unknown", 6},
 	{"EINTERNAL", "Helper failed internally.", false, NULL, "not_applicable", 70},
 	{"EINCOMPLETE", "Helper could not emit one complete response.", false, NULL, "not_applicable", 74}
 };
@@ -121,9 +123,9 @@ int z2m_fail(const char *request_id, const char *code, const char *stage)
 	for (i = 0; i < sizeof(errors) / sizeof(errors[0]); i++)
 		if (strcmp(errors[i].code, code) == 0)
 			info = &errors[i];
-	if (info == NULL) info = &errors[14];
+	if (info == NULL) info = &errors[16];
 #ifdef Z2M_TESTING
-	if (getenv("Z2M_TEST_UNKNOWN_ERROR") != NULL) { info = &errors[14]; stage = "response_encode"; }
+	if (getenv("Z2M_TEST_UNKNOWN_ERROR") != NULL) { info = &errors[16]; stage = "response_encode"; }
 #endif
 	response=z2m_json_object(); error=z2m_json_object();
 	if (!z2m_json_add(response,"protocolVersion",z2m_json_int(1)) ||
@@ -132,7 +134,7 @@ int z2m_fail(const char *request_id, const char *code, const char *stage)
 	    !z2m_json_add(error,"code",z2m_json_string(info->code)) ||
 	    !z2m_json_add(error,"message",z2m_json_string(info->message)) ||
 	    !z2m_json_add(error,"retryable",z2m_json_bool(info->retryable)) ||
-	    (strcmp(info->code,"EINTERNAL")==0 || strcmp(info->code,"EINCOMPLETE")==0 ? json_object_object_add(error,"committed",NULL)!=0 : !z2m_json_add(error,"committed",z2m_json_bool(false))) ||
+	    (strcmp(info->code,"EINTERNAL")==0 || strcmp(info->code,"EINCOMPLETE")==0 ? json_object_object_add(error,"committed",NULL)!=0 : !z2m_json_add(error,"committed",z2m_json_bool(strcmp(info->code,"ECOMMITUNKNOWN")==0))) ||
 	    !z2m_json_add(error,"durability",z2m_json_string(info->durability)) ||
 	    !z2m_json_add(error,"stage",z2m_json_string(stage))) {
 		json_object_put(error); json_object_put(response);

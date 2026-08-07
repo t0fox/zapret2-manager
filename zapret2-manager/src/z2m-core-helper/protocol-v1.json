@@ -102,7 +102,7 @@
     "ESYMLINK": { "message": "Symbolic or magic link traversal was refused.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["filesystem_failure"], "allowedStages": ["path_resolve", "object_open"] },
     "EXDEV": { "message": "Mount or root boundary crossing was refused.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["filesystem_failure"], "allowedStages": ["path_resolve"] },
     "ETOOBIG": { "message": "Managed object exceeds the operation or root limit.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["filesystem_failure"], "allowedStages": ["object_verify", "read"] },
-    "EIO": { "message": "Filesystem operation failed.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["filesystem_failure"], "allowedStages": ["root_open", "object_open", "stat", "read", "write", "file_fsync", "rename"] },
+    "EIO": { "message": "Filesystem operation failed.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["filesystem_failure"], "allowedStages": ["root_open", "lock_acquire", "object_open", "stat", "read", "write", "file_fsync", "rename"] },
     "ELOCKED": { "message": "Lock is held by another operation.", "retryable": true, "committed": false, "durability": "unchanged", "allowedExitCategories": ["lock_unavailable"], "allowedStages": ["lock_acquire"] },
     "ETIMEOUT": { "message": "Lock acquisition timed out.", "retryable": true, "committed": false, "durability": "unchanged", "allowedExitCategories": ["lock_unavailable"], "allowedStages": ["lock_acquire"] },
     "EOWNERSHIP": { "message": "Manager ownership evidence did not match.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["policy_denied"], "allowedStages": ["ownership_verify"] },
@@ -194,10 +194,9 @@
       "ownership": "Helper canonicalizes JSON and applies fixed root policy under an operation-scoped internal flock.", "crashSemantics": "Uses atomic_write durability ordering after canonical serialization.", "idempotency": "Equivalent JSON values serialize canonically and converge; uncertainty requires reread."
     },
     "mkdir_private": {
-      "milestone": 2, "status": "reserved_unsupported", "roots": ["persistent_state", "snapshots", "registry", "secrets", "runtime", "jobs", "staging"],
-      "unsupportedBehavior": { "errorCode": "EUNSUPPORTED", "dispatch": "reject_before_operation_dispatch", "sideEffects": "none", "response": "complete_failure_envelope", "exitCategory": "policy_denied", "exitCode": 3 },
+      "milestone": 2, "status": "milestone_2", "roots": ["persistent_state", "snapshots", "registry", "secrets", "runtime", "jobs", "staging"],
       "requestSchema": { "type": "object", "additionalProperties": false, "required": ["root", "path", "mode", "uid", "gid", "existOk"], "properties": { "root": { "type": "string" }, "path": { "type": "string" }, "mode": { "const": "0700" }, "uid": { "const": 0 }, "gid": { "const": 0 }, "existOk": { "type": "boolean" } } },
-      "successSchema": { "type": "object", "additionalProperties": false, "required": ["created"], "properties": { "created": { "type": "boolean" } } },
+      "successSchema": { "type": "object", "additionalProperties": false, "required": ["created", "committed", "durability"], "properties": { "created": { "type": "boolean" }, "committed": { "const": true }, "durability": { "enum": ["durable", "tmpfs_visible"] } } },
       "limits": { "maxInputBytes": 4096, "maxOutputBytes": 1024, "timeoutMsMax": 10000 },
       "ownership": "Creates only private directories allowed by root policy under an operation-scoped internal flock.", "crashSemantics": "Each component is either absent or a complete private directory; persistent parent changes require directory fsync.", "idempotency": "Idempotent only with existOk and matching verified directory policy."
     },
