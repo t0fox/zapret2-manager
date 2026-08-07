@@ -54,6 +54,9 @@ static int mount_id(int fd, uint64_t *id)
 static int fallback_open(int root_fd,const char *path)
 {
 	char *copy=strdup(path),*part,*save=NULL; int current=dup(root_fd),next=-1;uint64_t root_mount,child_mount;
+#ifdef Z2M_TESTING
+	if(getenv("Z2M_TEST_FAIL_FALLBACK")!=NULL){free(copy);errno=EIO;return -1;}
+#endif
 	if(copy==NULL||current<0){free(copy);return -1;}
 	if(mount_id(root_fd,&root_mount)<0){free(copy);close(current);errno=ENOTSUP;return -1;}
 	part=strtok_r(copy,"/",&save);
@@ -69,17 +72,33 @@ static int fallback_open(int root_fd,const char *path)
 	free(copy);return current;
 }
 
+static int primary_open(int root_fd,const char *path)
+{
+	char *copy=strdup(path),*part,*save=NULL;int current=dup(root_fd),next=-1;struct stat st;
+	if(copy==NULL||current<0){free(copy);return -1;}
+	part=strtok_r(copy,"/",&save);
+	while(part!=NULL){char *following=strtok_r(NULL,"/",&save);
+		struct open_how how={.flags=O_RDONLY|O_CLOEXEC|O_NONBLOCK|(following?O_DIRECTORY:0),.resolve=RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS|RESOLVE_NO_XDEV};
+		next=(int)syscall(SYS_openat2,current,part,&how,sizeof(how));close(current);
+		if(next<0){free(copy);return -1;}
+		if(following){
+			if(fstat(next,&st)<0){int error=errno;close(next);free(copy);errno=error;return -1;}
+			if(!S_ISDIR(st.st_mode)||st.st_uid!=0||st.st_gid!=0||(st.st_mode&07777)!=0700){close(next);free(copy);errno=EACCES;return -1;}
+		}
+		current=next;part=following;
+	}
+	free(copy);return current;
+}
+
 int z2m_open_regular(int root_fd,const char *path,struct stat *st,const char **code)
 {
-	struct open_how how={.flags=O_RDONLY|O_CLOEXEC|O_NONBLOCK,.resolve=RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS|RESOLVE_NO_XDEV};
 	int fd;int saved;
 #ifdef Z2M_TESTING
 	if(getenv("Z2M_TEST_FORCE_FALLBACK")!=NULL){fd=-1;errno=ENOSYS;}else
 #endif
-		fd=(int)syscall(SYS_openat2,root_fd,path,&how,sizeof(how));
-	saved=errno;
-	if(fd>=0){close(fd);fd=fallback_open(root_fd,path);saved=errno;}
-	else if(saved==ENOSYS||saved==EINVAL){fd=fallback_open(root_fd,path);saved=errno;}
+		fd=primary_open(root_fd,path);
+	if(fd>=0)saved=0;
+	else {saved=errno;if(saved==ENOSYS||saved==EINVAL||saved==E2BIG){fd=fallback_open(root_fd,path);saved=errno;}}
 	if(fd<0){*code=saved==ENOTSUP?"ECAPABILITY":open_error(saved);return -1;}
 	if(fstat(fd,st)<0){close(fd);*code="EIO";return -1;}
 	if(!S_ISREG(st->st_mode)){close(fd);*code="ENOTREG";return -1;}
@@ -111,7 +130,7 @@ int z2m_stat_regular(const struct z2m_request *request,const struct z2m_root *ro
 	if(!fields(request->arguments,names,2)||!get_string(request->arguments,"path",&path)) return z2m_fail(request->request_id,"ESCHEMA","schema");
 	if(embedded_nul(request->arguments,"path",path)) return z2m_fail(request->request_id,"EPATH","path_validate");
 	if(!z2m_path_valid(path,root->max_depth)) return z2m_fail(request->request_id,"EPATH","path_validate");
-	fd=z2m_open_regular(root_fd,path,&st,&code);if(fd<0)return z2m_fail(request->request_id,code,strcmp(code,"EDENIED")==0?"policy":(strcmp(code,"ECAPABILITY")==0||strcmp(code,"EXDEV")==0?"path_resolve":"object_open"));close(fd);
+	fd=z2m_open_regular(root_fd,path,&st,&code);if(fd<0)return z2m_fail(request->request_id,code,strcmp(code,"EDENIED")==0?"policy":(strcmp(code,"ENOTREG")==0?"object_verify":(strcmp(code,"ECAPABILITY")==0||strcmp(code,"EXDEV")==0?"path_resolve":"object_open")));close(fd);
 	json_object *data=z2m_json_object();char mode[5];snprintf(mode,sizeof(mode),"0%03o",(unsigned)(st.st_mode&0777));
 	if(!z2m_json_add(data,"type",z2m_json_string("regular"))||!z2m_json_add(data,"size",z2m_json_int(st.st_size))||!z2m_json_add(data,"mode",z2m_json_string(mode))||!z2m_json_add(data,"uid",z2m_json_int(st.st_uid))||!z2m_json_add(data,"gid",z2m_json_int(st.st_gid))||!z2m_json_add(data,"mtimeSec",z2m_json_int(st.st_mtim.tv_sec))||!z2m_json_add(data,"mtimeNsec",z2m_json_int(st.st_mtim.tv_nsec))){json_object_put(data);return z2m_fail(request->request_id,"EINTERNAL","response_encode");}return z2m_success(request->request_id,data);
 }
@@ -122,7 +141,7 @@ int z2m_read_regular(const struct z2m_request *request,const struct z2m_root *ro
 	if(!fields(request->arguments,names,3)||!get_string(request->arguments,"path",&path)||!json_object_object_get_ex(request->arguments,"maxBytes",&maximum)||!json_object_is_type(maximum,json_type_int)||(max=json_object_get_int64(maximum))<0||max>4194304) return z2m_fail(request->request_id,"ESCHEMA","schema");
 	if(embedded_nul(request->arguments,"path",path)) return z2m_fail(request->request_id,"EPATH","path_validate");
 	if(!z2m_path_valid(path,root->max_depth))return z2m_fail(request->request_id,"EPATH","path_validate");
-	fd=z2m_open_regular(root_fd,path,&st,&code);if(fd<0)return z2m_fail(request->request_id,code,strcmp(code,"EDENIED")==0?"policy":(strcmp(code,"ECAPABILITY")==0||strcmp(code,"EXDEV")==0?"path_resolve":"object_open"));
+	fd=z2m_open_regular(root_fd,path,&st,&code);if(fd<0)return z2m_fail(request->request_id,code,strcmp(code,"EDENIED")==0?"policy":(strcmp(code,"ENOTREG")==0?"object_verify":(strcmp(code,"ECAPABILITY")==0||strcmp(code,"EXDEV")==0?"path_resolve":"object_open")));
 	if(st.st_size<0||(uint64_t)st.st_size>(uint64_t)max||(uint64_t)st.st_size>root->max_read){close(fd);return z2m_fail(request->request_id,"ETOOBIG","object_verify");}
 	data=malloc((size_t)st.st_size+1);if(data==NULL){close(fd);return z2m_fail(request->request_id,"EINTERNAL","internal");}
 	while(used<(size_t)st.st_size){got=Z2M_READ(fd,data+used,(size_t)st.st_size-used);if(got<0&&errno==EINTR)continue;if(got<=0){free(data);close(fd);return z2m_fail(request->request_id,"EIO","read");}used+=(size_t)got;}

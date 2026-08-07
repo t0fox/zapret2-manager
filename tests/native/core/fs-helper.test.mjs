@@ -12,6 +12,8 @@ const testRoot = `/tmp/${tag}`;
 const testBin = `/tmp/${tag}-test`;
 const prodBin = `/tmp/${tag}-prod`;
 const noStatxBin = `/tmp/${tag}-no-statx`;
+const protocolManifest = JSON.parse(fs.readFileSync(
+  'zapret2-manager/src/z2m-core-helper/protocol-v1.json', 'utf8'));
 const roots = {
   persistent_state: 'etc/zapret2-manager/state', snapshots: 'etc/zapret2-manager/snapshots',
   registry: 'etc/zapret2-manager/registry', secrets: 'etc/zapret2-manager/secrets',
@@ -208,11 +210,26 @@ test('stat_regular returns exact descriptor metadata for a regular file', () => 
   assert.equal(run.response.data.gid, 0);
 });
 
-test('object opening refuses final/parent symlinks and non-regular objects without blocking', () => {
+test('object errors match the protocol manifest exit category and stage', () => {
   const base = `${testRoot}/${roots.runtime}`;
   shell(`mkdir -m 0700 '${base}/real'; printf x > '${base}/real/file'; chmod 0600 '${base}/real/file'; ln -s real/file '${base}/final-link'; ln -s real '${base}/parent-link'; mkdir -m 0700 '${base}/dir'; mkfifo '${base}/fifo'; python3 -c "import socket; s=socket.socket(socket.AF_UNIX); s.bind('${base}/socket')"; mknod '${base}/device' c 1 3`);
-  for (const [name, code, status = 4] of [['final-link', 'ESYMLINK'], ['parent-link/file', 'ESYMLINK'], ['dir', 'ENOTREG'], ['fifo', 'ENOTREG'], ['socket', 'ENOTREG'], ['device', 'EDENIED', 3]])
-    expectFailure(invoke(request('stat_regular', { root: 'runtime', path: name }), { timeout: 1000 }), status, code, 'req-1', name);
+  const cases = [
+    ['final-link', 'ESYMLINK'], ['parent-link/file', 'ESYMLINK'],
+    ['dir', 'ENOTREG'], ['fifo', 'ENOTREG'], ['socket', 'ENOTREG'],
+    ['device', 'EDENIED', 3]
+  ];
+  for (const [name, code, status = 4] of cases) {
+    const run = invoke(request('stat_regular', { root: 'runtime', path: name }), {
+      timeout: 1000, env: { Z2M_TEST_FAIL_FALLBACK: '1' }
+    });
+    expectFailure(run, status, code, 'req-1', name);
+    const policy = protocolManifest.errors[code];
+    const exitCategory = Object.entries(protocolManifest.exitCategories)
+      .find(([, exit]) => exit === run.status)?.[0];
+    assert.ok(policy.allowedExitCategories.includes(exitCategory), `${name}: ${exitCategory}`);
+    assert.ok(policy.allowedStages.includes(run.response.error.stage),
+      `${name}: ${code} does not permit ${run.response.error.stage}`);
+  }
 });
 
 test('descendant directories and final files must match private owner and mode policy', () => {
@@ -418,6 +435,15 @@ test('descriptor fallback rejects changed mount identity and fails when mount id
   expectFailure(invoke(request('read_regular', { root: 'runtime', path: 'mount-id/file', maxBytes: 32 }), {
     env: { Z2M_TEST_FORCE_FALLBACK: '1', Z2M_TEST_MNT_ID_UNAVAILABLE: '1' }
   }), 3, 'ECAPABILITY');
+});
+
+test('successful openat2 remains usable when fallback mount identity is unavailable', () => {
+  write('runtime', 'openat2/file', 'primary-path');
+  const run = invoke(request('read_regular', { root: 'runtime', path: 'openat2/file', maxBytes: 32 }), {
+    env: { Z2M_TEST_MNT_ID_UNAVAILABLE: '1', Z2M_TEST_FAIL_FALLBACK: '1' }
+  });
+  assert.equal(run.status, 0, run.stderr || run.stdout);
+  assert.equal(Buffer.from(run.response.data.content, 'base64').toString(), 'primary-path');
 });
 
 test('build without statx constants compiles and fails fallback with ECAPABILITY', () => {
