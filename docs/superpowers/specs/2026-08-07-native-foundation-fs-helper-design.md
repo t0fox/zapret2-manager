@@ -142,6 +142,14 @@ descriptor-relative rename, and parent-directory `fsync`. A post-rename fsync
 failure is `ECOMMITUNKNOWN`; callers reread before retrying. Tmpfs operations
 require visibility but not a false persistence claim.
 
+`sha256_regular` uses a shared operation-scoped lock on the validated root
+directory. Cooperating helper mutations use the exclusive form of the same
+per-root lock. This provides a stable hashing window against cooperating helper
+writers. Host root is trusted; privileged non-cooperating writers are outside
+the snapshot guarantee. Descriptor metadata revalidation remains best-effort
+detection of external mutation and is not an unconditional filesystem snapshot
+guarantee.
+
 `mkdir_private` publishes a verified same-parent candidate with
 `RENAME_NOREPLACE`. If the final name already exists, the helper first proves
 candidate cleanup, then verifies the existing directory by descriptor. A policy

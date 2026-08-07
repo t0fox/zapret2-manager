@@ -78,14 +78,14 @@ int z2m_root_mount_id(int root_fd, uint64_t *id, const char **code)
 #endif
 }
 
-int z2m_root_lock(int root_fd, const char **code)
+int z2m_root_lock(int root_fd, bool shared, const char **code)
 {
 #ifdef Z2M_TESTING
 	const char *error=getenv("Z2M_TEST_FLOCK_ERROR");
 	if(getenv("Z2M_TEST_LOCK_ORDER_TRACE")!=NULL)fprintf(stderr,"z2m-core-helper: lock-attempt\n");
 	if(error!=NULL){errno=strcmp(error,"EIO")==0?EIO:EBADF;goto fail;}
 #endif
-	if(flock(root_fd,LOCK_EX|LOCK_NB)<0) goto fail;
+	if(flock(root_fd,(shared?LOCK_SH:LOCK_EX)|LOCK_NB)<0) goto fail;
 #ifdef Z2M_TESTING
 	if(getenv("Z2M_TEST_STOP_AFTER_LOCK")!=NULL){fprintf(stderr,"z2m-core-helper: lock-gate-pid=%ld\n",(long)getpid());raise(SIGSTOP);}
 #endif

@@ -52,7 +52,7 @@ static void finish(struct sha256 *ctx,unsigned char digest[32])
 
 static bool unchanged(const struct stat *before,const struct stat *after)
 {
-	return before->st_dev==after->st_dev&&before->st_ino==after->st_ino&&before->st_mode==after->st_mode&&before->st_uid==after->st_uid&&before->st_gid==after->st_gid&&before->st_size==after->st_size&&before->st_mtim.tv_sec==after->st_mtim.tv_sec&&before->st_mtim.tv_nsec==after->st_mtim.tv_nsec&&before->st_ctim.tv_sec==after->st_ctim.tv_sec&&before->st_ctim.tv_nsec==after->st_ctim.tv_nsec;
+	return before->st_dev==after->st_dev&&before->st_ino==after->st_ino&&before->st_mode==after->st_mode&&before->st_uid==after->st_uid&&before->st_gid==after->st_gid&&before->st_size==after->st_size&&before->st_mtim.tv_sec==after->st_mtim.tv_sec&&before->st_mtim.tv_nsec==after->st_mtim.tv_nsec;
 }
 
 static ssize_t hash_read(int fd,void *buffer,size_t length)

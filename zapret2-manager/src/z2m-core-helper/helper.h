@@ -39,7 +39,7 @@ bool z2m_reserved_schema_valid(const struct z2m_request *request);
 const struct z2m_root *z2m_root_find(const char *name);
 int z2m_root_open(const struct z2m_root *root);
 int z2m_root_mount_id(int root_fd, uint64_t *id, const char **code);
-int z2m_root_lock(int root_fd, const char **code);
+int z2m_root_lock(int root_fd, bool shared, const char **code);
 bool z2m_path_valid(const char *path, unsigned int max_depth);
 int z2m_open_regular(int root_fd, const char *path, struct stat *st, const char **code);
 int z2m_stat_regular(const struct z2m_request *request, const struct z2m_root *root, int root_fd);

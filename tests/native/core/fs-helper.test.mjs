@@ -845,6 +845,21 @@ test('sha256_regular hashes binary bytes and deterministic randomized streams', 
   expectShaSuccess(invoke(request('sha256_regular', shaArgs('jobs', 'sha-random', random.length))), random);
 });
 
+test('sha256_regular matches padding boundaries and the maximum successful size', () => {
+  for (const length of [55, 56, 63, 64, 65]) {
+    const content = Buffer.alloc(length, length);
+    const name = `sha-boundary-${length}`;
+    writeBuffer('jobs', name, content);
+    expectShaSuccess(invoke(request('sha256_regular', shaArgs('jobs', name, length))), content);
+  }
+  const maximum = Buffer.alloc(4 * 1024 * 1024, 0);
+  const target = `${testRoot}/${roots.jobs}/sha-maximum`;
+  shell(`truncate -s ${maximum.length} '${target}'; chmod 0600 '${target}'`);
+  expectShaSuccess(invoke(request('sha256_regular', shaArgs('jobs', 'sha-maximum', maximum.length)), {
+    timeout: 15000
+  }), maximum);
+});
+
 test('sha256_regular enforces exact caller, zero, operation, and root bounds without prefix success', () => {
   writeBuffer('runtime', 'sha-zero-empty', Buffer.alloc(0));
   writeBuffer('runtime', 'sha-zero-nonempty', Buffer.from('x'));
@@ -915,7 +930,7 @@ test('sha256_regular retries EINTR, handles short reads, and fails closed on rea
   }), 4, 'EIO');
 });
 
-test('sha256_regular rejects append, truncate, and overwrite during hashing', async () => {
+test('sha256_regular best-effort detects append, truncate, and ordinary overwrite during hashing', async () => {
   const base = `${testRoot}/${roots.staging}`;
   for (const [name, mutation] of [
     ['sha-append-race', (target) => `printf added >> '${target}'`],
@@ -942,13 +957,91 @@ test('sha256_regular stays bound to the opened descriptor across pathname replac
     { env: { Z2M_TEST_SHA_STOP_AFTER_OPEN: '1' } });
   const result = collect(child); const pid = await waitStopped(child);
   shell(`mv '${base}/sha-replace' '${base}/sha-opened-old'; mv '${base}/sha-replacement-ready' '${base}/sha-replace'; kill -CONT ${pid}`);
-  const completed = await result;
-  if (completed.status === 0) expectShaSuccess(completed, original);
-  else {
-    expectFailure(completed, 4, 'EIO', 'sha-replace');
-    assert.notEqual(completed.response?.data?.sha256,
-      crypto.createHash('sha256').update(replacement).digest('hex'));
-  }
+  expectShaSuccess(await result, original);
+});
+
+test('sha256_regular allows concurrent same-root shared lock holders', async () => {
+  const content = Buffer.from('shared-lock-content');
+  writeBuffer('staging', 'sha-shared', content);
+  const first = spawnInvoke(request('sha256_regular', shaArgs('staging', 'sha-shared', content.length), 'sha-shared-1'),
+    { env: { Z2M_TEST_STOP_AFTER_LOCK: '1' } });
+  const firstResult = collect(first); const firstPid = await waitStopped(first);
+  const second = spawnInvoke(request('sha256_regular', shaArgs('staging', 'sha-shared', content.length), 'sha-shared-2'),
+    { env: { Z2M_TEST_STOP_AFTER_LOCK: '1' } });
+  const secondResult = collect(second); const secondPid = await waitStopped(second);
+  shell(`kill -CONT ${firstPid} ${secondPid}`);
+  expectShaSuccess(await firstResult, content);
+  expectShaSuccess(await secondResult, content);
+});
+
+test('sha256_regular blocks a cooperating writer without side effects and exclusive mutation blocks SHA', async () => {
+  const content = Buffer.from('lock-direction-content');
+  writeBuffer('staging', 'sha-lock-direction', content);
+  const sha = spawnInvoke(request('sha256_regular', shaArgs('staging', 'sha-lock-direction', content.length), 'sha-holder'),
+    { env: { Z2M_TEST_STOP_AFTER_LOCK: '1' } });
+  const shaResult = collect(sha); const shaPid = await waitStopped(sha);
+  expectFailure(invoke(request('mkdir_private', mkdirArgs('staging', 'blocked-by-sha'), 'blocked-mutation')),
+    5, 'ELOCKED', 'blocked-mutation');
+  assert.equal(wsl(['test', '-e', `${testRoot}/${roots.staging}/blocked-by-sha`]).status, 1);
+  shell(`kill -CONT ${shaPid}`);
+  expectShaSuccess(await shaResult, content);
+
+  const mutation = spawnInvoke(request('mkdir_private', mkdirArgs('staging', 'exclusive-holder'), 'exclusive-holder'),
+    { env: { Z2M_TEST_STOP_AFTER_LOCK: '1' } });
+  const mutationResult = collect(mutation); const mutationPid = await waitStopped(mutation);
+  expectFailure(invoke(request('sha256_regular', shaArgs('staging', 'sha-lock-direction', content.length), 'blocked-sha')),
+    5, 'ELOCKED', 'blocked-sha');
+  shell(`kill -CONT ${mutationPid}`);
+  expectMkdirSuccess(await mutationResult, true, 'tmpfs_visible');
+});
+
+test('sha256_regular lock is per-root and acquired after mount validation but before traversal', async () => {
+  const holder = spawnInvoke(request('sha256_regular', shaArgs('staging', 'missing-before-traversal', 0), 'ordered-sha'),
+    { env: { Z2M_TEST_STOP_AFTER_LOCK: '1' } });
+  const holderResult = collect(holder); const pid = await waitStopped(holder);
+  expectFailure(invoke(request('mkdir_private', mkdirArgs('staging', 'ordered-blocked'), 'ordered-blocked')),
+    5, 'ELOCKED', 'ordered-blocked');
+  expectMkdirSuccess(invoke(request('mkdir_private', mkdirArgs('jobs', 'different-root'), 'different-root')),
+    true, 'tmpfs_visible');
+  shell(`kill -CONT ${pid}`);
+  expectFailure(await holderResult, 4, 'ENOENT', 'ordered-sha');
+
+  const mountFailure = invoke(request('sha256_regular', shaArgs('staging', 'missing', 0), 'mount-first'), {
+    env: { Z2M_TEST_ROOT_MOUNT_ERROR: '1', Z2M_TEST_LOCK_ORDER_TRACE: '1' }
+  });
+  expectFailure(mountFailure, 3, 'ECAPABILITY', 'mount-first');
+  assert.doesNotMatch(mountFailure.stderr, /lock-attempt/);
+});
+
+test('sha256_regular retains its shared lock through final validation and releases on normal or crash exit', async () => {
+  const content = Buffer.from('final-validation-lock');
+  writeBuffer('persistent_state', 'sha-lifetime', content);
+  const holder = spawnInvoke(request('sha256_regular', shaArgs('persistent_state', 'sha-lifetime', content.length), 'lifetime'),
+    { env: { Z2M_TEST_SHA_STOP_AFTER_READ: '1' } });
+  const holderResult = collect(holder); const pid = await waitStopped(holder);
+  expectFailure(invoke(request('mkdir_private', mkdirArgs('persistent_state', 'blocked-at-final'), 'blocked-at-final')),
+    5, 'ELOCKED', 'blocked-at-final');
+  shell(`kill -CONT ${pid}`);
+  expectShaSuccess(await holderResult, content);
+  expectMkdirSuccess(invoke(request('mkdir_private', mkdirArgs('persistent_state', 'after-normal'), 'after-normal')),
+    true, 'durable');
+
+  const crash = spawnInvoke(request('sha256_regular', shaArgs('persistent_state', 'sha-lifetime', content.length), 'crash-sha'),
+    { env: { Z2M_TEST_STOP_AFTER_LOCK: '1' } });
+  const crashResult = collect(crash); const crashPid = await waitStopped(crash);
+  shell(`kill -KILL ${crashPid}`);
+  await crashResult;
+  expectMkdirSuccess(invoke(request('mkdir_private', mkdirArgs('persistent_state', 'after-crash'), 'after-crash')),
+    true, 'durable');
+});
+
+test('sha256_regular maps only actual shared-lock contention to ELOCKED', () => {
+  write('jobs', 'sha-flock-error', 'x');
+  const run = invoke(request('sha256_regular', shaArgs('jobs', 'sha-flock-error', 1), 'sha-flock-error'), {
+    env: { Z2M_TEST_FLOCK_ERROR: 'EIO' }
+  });
+  expectFailure(run, 4, 'EIO', 'sha-flock-error');
+  assert.equal(run.response.error.stage, 'lock_acquire');
 });
 
 test('non-SHA reserved operations remain unsupported and side-effect-free after SHA promotion', () => {
