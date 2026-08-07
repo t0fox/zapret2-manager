@@ -32,6 +32,7 @@ test('boot 18: a process-only result is not the NFQUEUE proof', () => assert.mat
 test('boot 19: repeated watchdog cycles retain one upstream service owner', () => assert.match(watchdog, /\/etc\/init\.d\/zapret2 start/));
 test('boot 20: manual sanctioned check path remains available', () => assert.match(managerInit, /extra_command "check"/));
 test('boot 21: manual APK staging preserves argv-referenced ipset inputs', () => {
-  assert.match(manualBuild, /ipset\/games\.txt/);
-  assert.match(manualBuild, /ipset\/steam\.txt/);
+  assert.match(manualBuild, /cp -a "\$REPO\/zapret2-manager\/files\/\." "\$R\/"/);
+  assert.equal(fs.existsSync(games), true);
+  assert.equal(fs.existsSync(steam), true);
 });

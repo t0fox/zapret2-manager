@@ -40,7 +40,20 @@ test('backend package stages controller, RPC plugin, lifecycle hooks, and only s
 		'zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc',
 		'zapret2-manager/files/etc/init.d/zapret2-manager'
 	]) assert.equal(existsSync(file), true, `missing packaged runtime file: ${file}`);
-	assert.match(build, /files\/usr\/libexec\/zapret2-manager"\/\*\.uc/);
+	assert.match(build, /cp -a "\$REPO\/zapret2-manager\/files\/\." "\$R\/"/);
+	for (const file of [
+		'blockcheck-run.sh',
+		'engine-operation-worker.sh',
+		'health-run.sh',
+		'log-rotate.sh',
+		'orchestra-candidate-run.sh',
+		'orchestra-probe-preflight.sh',
+		'proxy-provider-go-init.sh'
+	]) {
+		assert.equal(existsSync(`zapret2-manager/files/usr/libexec/zapret2-manager/${file}`), true,
+			`missing packaged shell entry point: ${file}`);
+	}
+	assert.match(build, /stage_manager_files/);
 	assert.match(build, /\/etc\/init\.d\/rpcd reload/);
 	assert.match(build, /\/etc\/init\.d\/zapret2-manager enable/);
 	assert.doesNotMatch(build, /auto_rpc_run|auto-strategy-cli\.uc run/);

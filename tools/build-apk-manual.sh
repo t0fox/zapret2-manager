@@ -33,11 +33,10 @@ set -eu
 cd /home/kirill/openwrt-sdk-25.12.5-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64
 SDK="$PWD"
 REPO="${REPO:-/mnt/g/zapret2-manager}"
-# Default arch is the device arch, NOT "all": apk 3.0.5 refuses `arch: all`
-# packages from a local v3 repo as "uninstallable" (arch:all is accepted from
-# HTTP repos but not local). The Makefile keeps PKGARCH:=all for the official
-# SDK/feed build; this manual local-build script targets the mediatek-filogic
-# device, so aarch64_cortex-a53 produces installable apks. Override with ARCH=.
+# Default arch is the device arch, NOT "all": the manager contains a target-built
+# helper, and apk 3.0.5 refuses `arch: all` packages from a local v3 repo as
+# "uninstallable". This script targets the mediatek-filogic device, so
+# aarch64_cortex-a53 produces installable apks. Override with ARCH=.
 ARCH="${ARCH:-aarch64_cortex-a53}"
 APK="$SDK/staging_dir/host/bin/apk"
 FAKE="$SDK/staging_dir/host/bin/fakeroot"
@@ -92,7 +91,7 @@ build_one() {
   set -- "$@" --info "name:${_name}"
   set -- "$@" --info "version:${_ver}"
   set -- "$@" --info "description:${_desc}"
-  set -- "$@" --info "arch:${ARCH:-all}"
+  set -- "$@" --info "arch:${ARCH}"
   set -- "$@" --info "license:MIT"
   set -- "$@" --info "maintainer:Ásgeir"
   set -- "$@" --info "origin:package/${_name}"
@@ -115,56 +114,58 @@ build_one() {
   "$APK" manifest "$_out" 2>/dev/null | grep -E "^(name|version|arch|depends):" || true
 }
 
+stage_manager_files() {
+  cp -a "$REPO/zapret2-manager/files/." "$R/"
+  chmod 0755 \
+    "$R/usr/libexec/zapret2-manager/blockcheck-run.sh" \
+    "$R/usr/libexec/zapret2-manager/engine-operation-worker.sh" \
+    "$R/usr/libexec/zapret2-manager/health-run.sh" \
+    "$R/usr/libexec/zapret2-manager/log-rotate.sh" \
+    "$R/usr/libexec/zapret2-manager/orchestra-candidate-run.sh" \
+    "$R/usr/libexec/zapret2-manager/orchestra-probe-preflight.sh" \
+    "$R/usr/libexec/zapret2-manager/proxy-provider-go-init.sh"
+  # rpcd loads this plugin without an extension, matching the on-device convention.
+  install -m 0644 "$REPO/zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc" \
+                  "$R/usr/share/rpcd/ucode/zapret2-manager"
+  install -m 0755 "$REPO/zapret2-manager/files/etc/hotplug.d/iface/90-zapret2-manager" \
+                  "$R/etc/hotplug.d/iface/90-zapret2-manager"
+  install -m 0755 "$REPO/zapret2-manager/files/etc/init.d/zapret2-manager" \
+                  "$R/etc/init.d/zapret2-manager"
+  install -m 0755 "$HELPER_BUILD/z2m-core-helper" \
+                  "$R/usr/libexec/zapret2-manager/z2m-core-helper"
+}
+
+# ---- z2m-core-helper build ---------------------------------------------------
+TOOLCHAIN="$(echo "$SDK"/staging_dir/toolchain-*)"
+TARGET="$(echo "$SDK"/staging_dir/target-*)"
+TARGET_CC="$(echo "$TOOLCHAIN"/bin/*-openwrt-linux-musl-gcc)"
+[ -x "$TARGET_CC" ] || { echo "FATAL: target compiler not found: $TARGET_CC" >&2; exit 1; }
+[ -d "$TARGET/usr/include" ] && [ -d "$TARGET/usr/lib" ] \
+  || { echo "FATAL: target sysroot not found: $TARGET" >&2; exit 1; }
+HELPER_BUILD="$HOME/z2m-build/z2m-core-helper"
+mkdir -p "$HELPER_BUILD"
+"$TARGET_CC" --sysroot="$TARGET" -I"$TARGET/usr/include" -L"$TARGET/usr/lib" \
+  -std=c11 -Wall -Wextra -Werror -D_GNU_SOURCE \
+  "$REPO/zapret2-manager/src/z2m-core-helper/atomic.c" \
+  "$REPO/zapret2-manager/src/z2m-core-helper/base64.c" \
+  "$REPO/zapret2-manager/src/z2m-core-helper/errors.c" \
+  "$REPO/zapret2-manager/src/z2m-core-helper/files.c" \
+  "$REPO/zapret2-manager/src/z2m-core-helper/main.c" \
+  "$REPO/zapret2-manager/src/z2m-core-helper/mkdir.c" \
+  "$REPO/zapret2-manager/src/z2m-core-helper/paths.c" \
+  "$REPO/zapret2-manager/src/z2m-core-helper/protocol.c" \
+  "$REPO/zapret2-manager/src/z2m-core-helper/roots.c" \
+  "$REPO/zapret2-manager/src/z2m-core-helper/sha256.c" \
+  -ljson-c -o "$HELPER_BUILD/z2m-core-helper"
+
 # ---- zapret2-manager ---------------------------------------------------------
-# Stage the package root $R per-file (mkdir -p each target dir, install -m each
-# file), then `apk mkpkg --files $R` packages the whole tree. An earlier build
+# Stage the complete package files tree, then `apk mkpkg --files $R` packages
+# it. An earlier build
 # failed with "failed to load script: Is a directory" — that was an arg-shift
 # bug (the postinst slot received $R), NOT `--files <dir>`, which works fine.
 R="$HOME/z2m-build/root"
-mkdir -p "$R/etc/zapret2-manager/ipset" "$R/usr/libexec/zapret2-manager" \
-         "$R/usr/share/rpcd/ucode" "$R/etc/hotplug.d/iface" "$R/etc/init.d" "$R/etc/zapret2-manager/presets" "$R/usr/share/zapret2-manager/presets"
-install -m 0644 "$REPO/zapret2-manager/files/etc/zapret2-manager/state.json" \
-                "$R/etc/zapret2-manager/state.json"
-# Keep the manual package tree faithful to Package/zapret2-manager/install:
-# upstream owns nfqws2 but its persisted argv references these two inputs.
-install -m 0644 "$REPO/zapret2-manager/files/etc/zapret2-manager/ipset/games.txt" \
-                "$R/etc/zapret2-manager/ipset/games.txt"
-install -m 0644 "$REPO/zapret2-manager/files/etc/zapret2-manager/ipset/steam.txt" \
-                "$R/etc/zapret2-manager/ipset/steam.txt"
-for f in "$REPO/zapret2-manager/files/usr/share/zapret2-manager/presets"/*.txt; do install -m 0644 "$f" "$R/usr/share/zapret2-manager/presets/"; done
-# Backend ucode is enumerated with a GLOB, not a hardcoded list (a per-file
-# list silently drops new modules — the exact defect class the packaging gate
-# covers for the Makefile; this script had it for the manual build).
-for f in "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager"/*.uc; do
-  install -m 0644 "$f" "$R/usr/libexec/zapret2-manager/"
-done
-for f in "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager"/*.sh; do
-  install -m 0755 "$f" "$R/usr/libexec/zapret2-manager/"
-done
-# the declarative list-path model (router-derived manifest consumed by lists.uc)
-install -m 0644 "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/lists-model.json" \
-                "$R/usr/libexec/zapret2-manager/lists-model.json"
-# the Service Catalog dataset (package-owned; the backend fails closed without it)
-mkdir -p "$R/usr/libexec/zapret2-manager/catalog"
-mkdir -p "$R/usr/libexec/zapret2-manager/services"
-install -m 0644 "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/services/discord.json" \
-                "$R/usr/libexec/zapret2-manager/services/discord.json"
-install -m 0644 "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/catalog/services.json" \
-                "$R/usr/libexec/zapret2-manager/catalog/services.json"
-# every catalog dataset file (dns-providers.json today; glob, not a list —
-# a new dataset silently dropped by an enumeration would fail closed on target)
-for f in "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/catalog"/*.json; do
-  install -m 0644 "$f" "$R/usr/libexec/zapret2-manager/catalog/"
-done
-# rpcd ucode plugin: install WITHOUT extension, matching the on-device `luci`
-# plugin (/usr/share/rpcd/ucode/luci, no .uc). rpcd ucode.so scans the dir and
-# loads each file; keeping .uc would diverge from convention.
-install -m 0644 "$REPO/zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc" \
-                "$R/usr/share/rpcd/ucode/zapret2-manager"
-install -m 0755 "$REPO/zapret2-manager/files/etc/hotplug.d/iface/90-zapret2-manager" \
-                "$R/etc/hotplug.d/iface/90-zapret2-manager"
-install -m 0755 "$REPO/zapret2-manager/files/etc/init.d/zapret2-manager" \
-                "$R/etc/init.d/zapret2-manager"
+mkdir -p "$R"
+stage_manager_files
 # state.json preservation across upgrades: apk v3 mkpkg has no conffiles
 # field, and an upgrade REPLACES package-owned files — drafts would be wiped.
 # pre-install snapshots the live state; post-install restores it ONLY when
@@ -193,7 +194,7 @@ EOF
 )
 build_one "zapret2-manager" \
   "Management backend for upstream zapret2" \
-  "zapret2 ucode" \
+  "zapret2 ucode libjson-c" \
   "$R" "$ZPI" "" "" "$ZPRE" "$MGR_VER"
 rm -rf "$R" "$ZPI" "$ZPRE"
 
@@ -306,39 +307,8 @@ echo "Signing feed index with $SDK/private-key.pem"
 
 # ---- zapret2-manager (rebuild with bundled tg-ws-proxy-rs feed) ----------------
 R="$HOME/z2m-build/root"
-mkdir -p "$R/etc/zapret2-manager/ipset" "$R/usr/libexec/zapret2-manager" \
-         "$R/usr/share/rpcd/ucode" "$R/etc/hotplug.d/iface" "$R/etc/init.d" \
-         "$R/usr/share/zapret2-manager/feed" "$R/etc/zapret2-manager/presets" "$R/usr/share/zapret2-manager/presets"
-install -m 0644 "$REPO/zapret2-manager/files/etc/zapret2-manager/state.json" \
-                "$R/etc/zapret2-manager/state.json"
-install -m 0644 "$REPO/zapret2-manager/files/etc/zapret2-manager/ipset/games.txt" \
-                "$R/etc/zapret2-manager/ipset/games.txt"
-install -m 0644 "$REPO/zapret2-manager/files/etc/zapret2-manager/ipset/steam.txt" \
-                "$R/etc/zapret2-manager/ipset/steam.txt"
-for f in "$REPO/zapret2-manager/files/usr/share/zapret2-manager/presets"/*.txt; do install -m 0644 "$f" "$R/usr/share/zapret2-manager/presets/"; done
-for f in "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager"/*.uc; do
-  install -m 0644 "$f" "$R/usr/libexec/zapret2-manager/"
-done
-for f in "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager"/*.sh; do
-  install -m 0755 "$f" "$R/usr/libexec/zapret2-manager/"
-done
-install -m 0644 "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/lists-model.json" \
-                "$R/usr/libexec/zapret2-manager/lists-model.json"
-mkdir -p "$R/usr/libexec/zapret2-manager/catalog"
-mkdir -p "$R/usr/libexec/zapret2-manager/services"
-install -m 0644 "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/services/discord.json" \
-                "$R/usr/libexec/zapret2-manager/services/discord.json"
-install -m 0644 "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/catalog/services.json" \
-                "$R/usr/libexec/zapret2-manager/catalog/services.json"
-for f in "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/catalog"/*.json; do
-  install -m 0644 "$f" "$R/usr/libexec/zapret2-manager/catalog/"
-done
-install -m 0644 "$REPO/zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc" \
-                "$R/usr/share/rpcd/ucode/zapret2-manager"
-install -m 0755 "$REPO/zapret2-manager/files/etc/hotplug.d/iface/90-zapret2-manager" \
-                "$R/etc/hotplug.d/iface/90-zapret2-manager"
-install -m 0755 "$REPO/zapret2-manager/files/etc/init.d/zapret2-manager" \
-                "$R/etc/init.d/zapret2-manager"
+mkdir -p "$R"
+stage_manager_files
 # Bundle the tg-ws-proxy-rs .apk + signed index for persistent local feed
 install -m 0644 "$HOME/z2m-build/feed/$_TGWS_BUNDLE" \
                 "$R/usr/share/zapret2-manager/feed/$_TGWS_BUNDLE"
@@ -374,7 +344,7 @@ EOF
 )
 build_one "zapret2-manager" \
   "Management backend for upstream zapret2" \
-  "zapret2 ucode" \
+  "zapret2 ucode libjson-c" \
   "$R" "$ZPI" "" "" "$ZPRE" "$MGR_VER"
 rm -rf "$R" "$ZPI" "$ZPRE"
 

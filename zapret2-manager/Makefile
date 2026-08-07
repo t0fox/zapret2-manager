@@ -6,7 +6,6 @@ PKG_VERSION:=0.1.0
 PKG_RELEASE:=146
 PKG_MAINTAINER:=Ásgeir
 PKG_LICENSE:=MIT
-PKGARCH:=all
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)
 
 include $(INCLUDE_DIR)/package.mk
@@ -16,7 +15,7 @@ define Package/zapret2-manager
   CATEGORY:=Network
   SUBMENU:=DPI bypass
   TITLE:=Management backend for optional upstream zapret2
-  DEPENDS:=+ucode +ncat +flock +uclient-fetch +ca-bundle +unzip +jsonfilter
+  DEPENDS:=+ucode +ncat +flock +uclient-fetch +ca-bundle +unzip +jsonfilter +libjson-c
 endef
 
 define Package/zapret2-manager/description
@@ -26,9 +25,24 @@ endef
 
 define Build/Prepare
 	mkdir -p $(PKG_BUILD_DIR)
+	$(CP) ./src/z2m-core-helper/* $(PKG_BUILD_DIR)/
 endef
 
 define Build/Compile
+	$(TARGET_CC) $(TARGET_CPPFLAGS) $(TARGET_CFLAGS) \
+		-std=c11 -Wall -Wextra -Werror -D_GNU_SOURCE \
+		$(PKG_BUILD_DIR)/atomic.c \
+		$(PKG_BUILD_DIR)/base64.c \
+		$(PKG_BUILD_DIR)/errors.c \
+		$(PKG_BUILD_DIR)/files.c \
+		$(PKG_BUILD_DIR)/main.c \
+		$(PKG_BUILD_DIR)/mkdir.c \
+		$(PKG_BUILD_DIR)/paths.c \
+		$(PKG_BUILD_DIR)/protocol.c \
+		$(PKG_BUILD_DIR)/roots.c \
+		$(PKG_BUILD_DIR)/sha256.c \
+		$(TARGET_LDFLAGS) -ljson-c \
+		-o $(PKG_BUILD_DIR)/z2m-core-helper
 endef
 
 define Package/zapret2-manager/conffiles
@@ -39,6 +53,8 @@ endef
 
 define Package/zapret2-manager/install
 	$(CP) ./files/* $(1)/
+	$(INSTALL_DIR) $(1)/usr/libexec/zapret2-manager
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/z2m-core-helper $(1)/usr/libexec/zapret2-manager/z2m-core-helper
 endef
 
 define Package/zapret2-manager/postinst
