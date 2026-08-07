@@ -1,14 +1,44 @@
 #include "helper.h"
 
 #ifdef Z2M_TESTING
+#include <errno.h>
 #include <stdlib.h>
+#include <string.h>
+#include <sys/syscall.h>
+#include <unistd.h>
 
 static bool publication_started;
 static unsigned long allocations;
 static unsigned long json_calls;
+static unsigned long final_allocations;
+static unsigned long final_json_calls;
+static unsigned long final_project_allocations;
+static unsigned long final_serializations;
 
 void z2m_test_audit_start(void) { publication_started=true; }
-void z2m_test_audit_counts(unsigned long *a,unsigned long *j) { *a=allocations;*j=json_calls; }
+void z2m_test_audit_finish(unsigned long a,unsigned long s)
+{ final_project_allocations=a;final_serializations=s;final_allocations=allocations;final_json_calls=json_calls;publication_started=false; }
+
+static char *append_text(char *p,const char *s) { while(*s!='\0')*p++=*s++;return p; }
+static char *append_number(char *p,unsigned long n)
+{
+	char reversed[3*sizeof(n)];size_t length=0;
+	do { reversed[length++]=(char)('0'+n%10);n/=10; } while(n!=0);
+	while(length>0)*p++=reversed[--length];
+	return p;
+}
+static void raw_write_all(const char *p,size_t length)
+{
+	while(length>0){long n=syscall(SYS_write,STDERR_FILENO,p,length);if(n<0&&errno==EINTR)continue;if(n<=0)return;p+=n;length-=(size_t)n;}
+}
+void z2m_test_audit_report(void)
+{
+	char line[256],*p=line;
+	p=append_text(p,"z2m-core-helper: response-audit post-publication-allocations=");p=append_number(p,final_project_allocations);
+	p=append_text(p," serializations=");p=append_number(p,final_serializations);
+	p=append_text(p," broad-allocations=");p=append_number(p,final_allocations);
+	p=append_text(p," broad-json-calls=");p=append_number(p,final_json_calls);*p++='\n';raw_write_all(line,(size_t)(p-line));
+}
 
 void *__real_malloc(size_t); void *__real_calloc(size_t,size_t); void *__real_realloc(void *,size_t); char *__real_strdup(const char *);
 json_object *__real_json_object_new_object(void); json_object *__real_json_object_new_string(const char *); json_object *__real_json_object_new_int64(int64_t); json_object *__real_json_object_new_boolean(json_bool);

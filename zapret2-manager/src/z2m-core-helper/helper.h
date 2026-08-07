@@ -47,7 +47,8 @@ void z2m_discard_wire(struct z2m_prepared_wire *wire);
 void z2m_response_publication_started(void);
 #ifdef Z2M_TESTING
 void z2m_test_audit_start(void);
-void z2m_test_audit_counts(unsigned long *allocation_count, unsigned long *json_count);
+void z2m_test_audit_finish(unsigned long allocation_count, unsigned long serialization_count);
+void z2m_test_audit_report(void);
 void z2m_test_direct_post_publication_probe(void);
 #endif
 int z2m_read_request(struct z2m_request *request);

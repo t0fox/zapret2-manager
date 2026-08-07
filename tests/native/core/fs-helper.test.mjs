@@ -1302,10 +1302,11 @@ test('atomic_write traces required syscall order and injects direct phase failur
 test('atomic_write gives exit 74 transport truth after publication and leaves recovery to reread', () => {
   const target = `${testRoot}/${roots.runtime}/atomic-broken-stdout`;
   const run = invoke(request('atomic_write', atomicArgs('runtime', 'atomic-broken-stdout', Buffer.from('published'))), {
-    env: { Z2M_TEST_STDOUT_FAIL_AFTER: '8' }
+    env: { Z2M_TEST_STDOUT_FAIL_AFTER: '8', Z2M_TEST_RESPONSE_AUDIT: '1' }
   });
   assert.equal(run.status, 74);
   assert.equal(run.response, null);
+  assert.match(run.stderr, /response-audit .*broad-allocations=0 broad-json-calls=0/);
   assert.equal(wsl(['cat', target]).stdout, 'published');
 });
 
@@ -1332,6 +1333,14 @@ test('atomic_write serializes success and commit uncertainty before publication'
 test('atomic_write response audit detects a direct post-publication allocation probe', () => {
   const run = invoke(request('atomic_write', atomicArgs('runtime', 'atomic-direct-allocation-probe', Buffer.from('new')), 'direct-probe'), {
     env: { Z2M_TEST_RESPONSE_AUDIT: '1', Z2M_TEST_DIRECT_POST_PUBLICATION_PROBE: '1' }
+  });
+  expectAtomicSuccess(run, 3, 'tmpfs_visible');
+  assert.match(run.stderr, /response-audit .*broad-allocations=[1-9]\d* broad-json-calls=[1-9]\d*/);
+});
+
+test('atomic_write response audit includes byte emission and wire disposal', () => {
+  const run = invoke(request('atomic_write', atomicArgs('runtime', 'atomic-emitter-allocation-probe', Buffer.from('new')), 'emitter-probe'), {
+    env: { Z2M_TEST_RESPONSE_AUDIT: '1', Z2M_TEST_DIRECT_EMITTER_PROBE: '1' }
   });
   expectAtomicSuccess(run, 3, 'tmpfs_visible');
   assert.match(run.stderr, /response-audit .*broad-allocations=[1-9]\d* broad-json-calls=[1-9]\d*/);

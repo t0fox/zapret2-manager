@@ -128,10 +128,18 @@ int z2m_emit_wire(struct z2m_prepared_wire *wire,int exit_code)
 {
 	if(wire==NULL||wire->data==NULL)return 74;
 #ifdef Z2M_TESTING
-	if(getenv("Z2M_TEST_RESPONSE_AUDIT")!=NULL){unsigned long a,j;z2m_test_audit_counts(&a,&j);fprintf(stderr,"z2m-core-helper: response-audit post-publication-allocations=%ld serializations=%ld broad-allocations=%lu broad-json-calls=%lu\n",post_publication_allocations,post_publication_serializations,a,j);}
+	bool audit=getenv("Z2M_TEST_RESPONSE_AUDIT")!=NULL;
 #endif
-	bool ok=write_all(wire->data,wire->length)&&write_all("\n",1);
-	z2m_discard_wire(wire);return ok?exit_code:74;
+	bool ok=write_all(wire->data,wire->length);
+#ifdef Z2M_TESTING
+	if(getenv("Z2M_TEST_DIRECT_EMITTER_PROBE")!=NULL)z2m_test_direct_post_publication_probe();
+#endif
+	if(ok)ok=write_all("\n",1);
+	z2m_discard_wire(wire);
+#ifdef Z2M_TESTING
+	if(audit){z2m_test_audit_finish((unsigned long)post_publication_allocations,(unsigned long)post_publication_serializations);z2m_test_audit_report();}
+#endif
+	return ok?exit_code:74;
 }
 
 static bool prepare_wire(json_object *response,struct z2m_prepared_wire *wire)
