@@ -31,10 +31,20 @@ struct z2m_request {
 	json_object *arguments;
 };
 
+struct z2m_prepared_wire {
+	char *data;
+	size_t length;
+};
+
 int z2m_fail(const char *request_id, const char *code, const char *stage);
 int z2m_success(const char *request_id, json_object *data);
 json_object *z2m_prepare_success(const char *request_id, json_object *data);
 int z2m_emit_prepared(json_object *response, int exit_code);
+bool z2m_prepare_success_wire(const char *request_id, json_object *data, struct z2m_prepared_wire *wire);
+bool z2m_prepare_failure_wire(const char *request_id, const char *code, const char *stage, struct z2m_prepared_wire *wire);
+int z2m_emit_wire(struct z2m_prepared_wire *wire, int exit_code);
+void z2m_discard_wire(struct z2m_prepared_wire *wire);
+void z2m_response_publication_started(void);
 int z2m_read_request(struct z2m_request *request);
 void z2m_request_free(struct z2m_request *request);
 bool z2m_reserved_schema_valid(const struct z2m_request *request);

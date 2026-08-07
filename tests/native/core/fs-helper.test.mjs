@@ -1305,6 +1305,45 @@ test('atomic_write gives exit 74 transport truth after publication and leaves re
   assert.equal(wsl(['cat', target]).stdout, 'published');
 });
 
+test('atomic_write serializes success and commit uncertainty before publication', () => {
+  for (const [root, pathValue, env, expected] of [
+    ['runtime', 'atomic-prepared-visible', {}, { byteLength: 3, committed: true, durability: 'tmpfs_visible' }],
+    ['persistent_state', 'atomic-prepared-durable', {}, { byteLength: 3, committed: true, durability: 'durable' }],
+    ['persistent_state', 'atomic-prepared-after-rename', { Z2M_TEST_ATOMIC_FAULT: 'after_rename' }, 'unknown'],
+    ['persistent_state', 'atomic-prepared-before-parent-fsync', { Z2M_TEST_ATOMIC_FAULT: 'before_parent_fsync' }, 'unknown'],
+    ['persistent_state', 'atomic-prepared-parent-fsync', { Z2M_TEST_DIRECTORY_FSYNC_ERROR: '1' }, 'unknown'],
+    ['persistent_state', 'atomic-prepared-after-parent-fsync', { Z2M_TEST_ATOMIC_FAULT: 'after_parent_fsync' }, 'unknown'],
+    ['persistent_state', 'atomic-prepared-before-final', { Z2M_TEST_ATOMIC_FAULT: 'before_final_verify' }, 'unknown'],
+    ['persistent_state', 'atomic-prepared-after-final', { Z2M_TEST_ATOMIC_FAULT: 'after_final_verify' }, 'unknown']
+  ]) {
+    const run = invoke(request('atomic_write', atomicArgs(root, pathValue, Buffer.from('new')), pathValue), {
+      env: { ...env, Z2M_TEST_RESPONSE_AUDIT: '1', Z2M_TEST_SERIALIZE_FORBID_AFTER_PUBLICATION: '1' }
+    });
+    if (expected === 'unknown') expectCommitUnknown(run, pathValue);
+    else { assert.equal(run.status, 0, run.stderr || run.stdout); assert.deepEqual(run.response?.data, expected); }
+    assert.match(run.stderr, /response-audit post-publication-allocations=0 serializations=0/);
+  }
+});
+
+test('atomic_write response wire preparation failure precedes candidate creation and preserves target', () => {
+  const base = `${testRoot}/${roots.persistent_state}`;
+  write('persistent_state', 'atomic-wire-prepare-fail', 'original');
+  const before = wsl(['find', base, '-name', '.z2m-write-*', '-print']).stdout;
+  const run = invoke(request('atomic_write', atomicArgs('persistent_state', 'atomic-wire-prepare-fail', Buffer.from('new')), 'wire-prepare'), {
+    env: { Z2M_TEST_SERIALIZE_FAIL_AFTER: '1' }
+  });
+  assert.notEqual(run.status, 0);
+  assert.equal(wsl(['cat', `${base}/atomic-wire-prepare-fail`]).stdout, 'original');
+  assert.equal(wsl(['find', base, '-name', '.z2m-write-*', '-print']).stdout, before);
+});
+
+test('atomic_write rename fault maps deterministically regardless of stale errno', () => {
+  const run = invoke(request('atomic_write', atomicArgs('staging', 'atomic-rename-errno', Buffer.from('new')), 'rename-errno'), {
+    env: { Z2M_TEST_ATOMIC_RENAME_ERROR: '1', Z2M_TEST_ATOMIC_RENAME_STALE_ERRNO: 'EEXIST' }
+  });
+  expectAtomicFailure(run, 4, 'EIO', false, 'unchanged', 'rename', 'rename-errno');
+});
+
 test('atomic_write classifies persistent durability and final replacement honestly while tmpfs stays visibility-only', async () => {
   expectAtomicSuccess(invoke(request('atomic_write', atomicArgs('persistent_state', 'atomic-durable', Buffer.from('x')))), 1, 'durable');
   expectCommitUnknown(invoke(request('atomic_write', atomicArgs('persistent_state', 'atomic-fsync-unknown', Buffer.from('x'))), { env: { Z2M_TEST_DIRECTORY_FSYNC_ERROR: '1' } }));

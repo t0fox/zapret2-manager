@@ -40,9 +40,14 @@ static const struct error_info errors[] = {
 
 #ifdef Z2M_TESTING
 static long allocation_count;
+static long serialization_count;
+static long post_publication_allocations;
+static long post_publication_serializations;
+static bool publication_started;
 static bool allocation_should_fail(void)
 {
 	const char *value = getenv("Z2M_TEST_ALLOC_FAIL_AFTER");
+	if(publication_started)post_publication_allocations++;
 	if (value == NULL) return false;
 	return ++allocation_count >= strtol(value, NULL, 10);
 }
@@ -97,11 +102,47 @@ static bool write_all(const char *wire, size_t length)
 	return true;
 }
 
+static const char *serialize(json_object *response)
+{
+#ifdef Z2M_TESTING
+	const char *limit=getenv("Z2M_TEST_SERIALIZE_FAIL_AFTER");
+	serialization_count++;
+	if(publication_started){post_publication_serializations++;if(getenv("Z2M_TEST_SERIALIZE_FORBID_AFTER_PUBLICATION")!=NULL)return NULL;}
+	if(limit!=NULL&&serialization_count>=strtol(limit,NULL,10))return NULL;
+#endif
+	return json_object_to_json_string_ext(response,JSON_C_TO_STRING_PLAIN);
+}
+
+void z2m_response_publication_started(void)
+{
+#ifdef Z2M_TESTING
+	publication_started=true;
+#endif
+}
+
+void z2m_discard_wire(struct z2m_prepared_wire *wire)
+{if(wire!=NULL){free(wire->data);wire->data=NULL;wire->length=0;}}
+
+int z2m_emit_wire(struct z2m_prepared_wire *wire,int exit_code)
+{
+	if(wire==NULL||wire->data==NULL)return 74;
+	bool ok=write_all(wire->data,wire->length)&&write_all("\n",1);
+#ifdef Z2M_TESTING
+	if(getenv("Z2M_TEST_RESPONSE_AUDIT")!=NULL)fprintf(stderr,"z2m-core-helper: response-audit post-publication-allocations=%ld serializations=%ld\n",post_publication_allocations,post_publication_serializations);
+#endif
+	z2m_discard_wire(wire);return ok?exit_code:74;
+}
+
+static bool prepare_wire(json_object *response,struct z2m_prepared_wire *wire)
+{
+	const char *encoded;if(response==NULL||wire==NULL)return false;encoded=serialize(response);if(encoded==NULL){json_object_put(response);return false;}size_t length=strlen(encoded);if(length+1>Z2M_RESPONSE_MAX){json_object_put(response);return false;}wire->data=z2m_alloc(length);if(wire->data==NULL){json_object_put(response);return false;}memcpy(wire->data,encoded,length);wire->length=length;json_object_put(response);return true;
+}
+
 int z2m_emit_prepared(json_object *response, int exit_code)
 {
 	const char *wire;
 	if (response == NULL) { fprintf(stderr,"z2m-core-helper: response allocation failed\n"); return 74; }
-	wire = json_object_to_json_string_ext(response, JSON_C_TO_STRING_PLAIN);
+	wire = serialize(response);
 	if (wire == NULL) { json_object_put(response); return 74; }
 	size_t length = strlen(wire);
 	if (length + 1 > Z2M_RESPONSE_MAX) {
@@ -114,6 +155,14 @@ int z2m_emit_prepared(json_object *response, int exit_code)
 	}
 	json_object_put(response);
 	return exit_code;
+}
+
+bool z2m_prepare_success_wire(const char *request_id,json_object *data,struct z2m_prepared_wire *wire)
+{json_object *response=z2m_prepare_success(request_id,data);return prepare_wire(response,wire);}
+
+bool z2m_prepare_failure_wire(const char *request_id,const char *code,const char *stage,struct z2m_prepared_wire *wire)
+{
+	const struct error_info *info=NULL;json_object *response,*error;for(size_t i=0;i<sizeof(errors)/sizeof(errors[0]);i++)if(strcmp(errors[i].code,code)==0)info=&errors[i];if(info==NULL)return false;response=z2m_json_object();error=z2m_json_object();if(!z2m_json_add(response,"protocolVersion",z2m_json_int(1))||!z2m_json_add(response,"requestId",z2m_json_string(request_id))||!z2m_json_add(response,"ok",z2m_json_bool(false))||!z2m_json_add(error,"code",z2m_json_string(info->code))||!z2m_json_add(error,"message",z2m_json_string(info->message))||!z2m_json_add(error,"retryable",z2m_json_bool(info->retryable))||!z2m_json_add(error,"committed",z2m_json_bool(strcmp(info->code,"ECOMMITUNKNOWN")==0))||!z2m_json_add(error,"durability",z2m_json_string(info->durability))||!z2m_json_add(error,"stage",z2m_json_string(stage))){json_object_put(error);json_object_put(response);return false;}if(!z2m_json_add(response,"error",error)){json_object_put(response);return false;}return prepare_wire(response,wire);
 }
 
 int z2m_fail(const char *request_id, const char *code, const char *stage)
