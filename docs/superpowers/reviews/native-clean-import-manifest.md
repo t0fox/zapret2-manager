@@ -301,7 +301,19 @@ Final current-worktree verification at the Task 6 review-fix tree:
   compile gate ran and failed all shipped files; its script suppresses compiler
   diagnostics, so no narrower compatibility claim is made.
 
-Fresh committed-worktree evidence is recorded after the final commit.
+Fresh committed-worktree evidence for hygiene commit `619b779`:
+
+- Detached path:
+  `C:/Users/Kirill/AppData/Local/Temp/opencode/zapret2-native-clean-fresh-619b779`.
+  It contained exact commit `619b779`, had clean detached status, and was
+  removed safely with `git worktree remove` after evidence capture.
+- Repository hygiene: 5 pass, 0 fail. Package/preservation/protocol/result: 23
+  pass, 0 fail. Schema/package: 23 pass, 0 fail. All 10 shipped shell scripts
+  plus syntax RED/GREEN self-test passed. These runs used only committed files.
+- Native recursive default concurrency: 189 pass, 1 fail. The sole failure was
+  the same intermittent `leader exit with child survivor` sanitizer ownership
+  assertion (`identityVerified` was true rather than false). This failed gate is
+  retained as evidence and is not represented as a clean native pass.
 
 This machine-readable ledger is the complete allowlist for paths added relative
 to main. `EXACT` records an unchanged donor blob, `ADAPTED` records the donor
