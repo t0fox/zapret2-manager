@@ -9,9 +9,10 @@ const projectRoot = path.resolve('.');
 const wslRoot = `/mnt/${projectRoot[0].toLowerCase()}${projectRoot.slice(2).replaceAll('\\', '/')}`;
 const tag = `z2m-fs-helper-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
 const testRoot = `/tmp/${tag}`;
-const testBin = `/tmp/${tag}-test`;
-const prodBin = `/tmp/${tag}-prod`;
-const noStatxBin = `/tmp/${tag}-no-statx`;
+const buildRoot = `/tmp/${tag}-build`;
+const testBin = `${buildRoot}/test`;
+const prodBin = `${buildRoot}/prod`;
+const noStatxBin = `${buildRoot}/no-statx`;
 const protocolManifest = JSON.parse(fs.readFileSync(
   'zapret2-manager/src/z2m-core-helper/protocol-v1.json', 'utf8'));
 const roots = {
@@ -67,7 +68,9 @@ function write(root, relative, content, mode = '0600') {
 }
 
 before(() => {
-  let build = wsl(['sh', 'tests/native/core/build-fs-helper.sh', testBin, '-DZ2M_TESTING']);
+  let build = wsl(['mkdir', '-m', '0700', buildRoot]);
+  assert.equal(build.status, 0, build.stderr || build.stdout);
+  build = wsl(['sh', 'tests/native/core/build-fs-helper.sh', testBin, '-DZ2M_TESTING']);
   assert.equal(build.status, 0, build.stderr || build.stdout);
   build = wsl(['sh', 'tests/native/core/build-fs-helper.sh', prodBin]);
   assert.equal(build.status, 0, build.stderr || build.stdout);
@@ -77,7 +80,7 @@ before(() => {
   shell(`umask 077; mkdir -p ${dirs}; chmod 0700 '${testRoot}' '${testRoot}/etc' '${testRoot}/etc/zapret2-manager' '${testRoot}/tmp' '${testRoot}/tmp/zapret2-manager' ${dirs}`);
 });
 
-after(() => shell(`rm -rf '${testRoot}' '${testBin}' '${prodBin}' '${noStatxBin}'`));
+after(() => shell(`rm -rf '${testRoot}' '${buildRoot}'`));
 
 test('strict framing rejects empty, truncated, malformed, duplicate, trailing, NUL, UTF-8, and oversized input', () => {
   const cases = [
