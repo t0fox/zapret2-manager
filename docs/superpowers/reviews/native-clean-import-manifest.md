@@ -264,6 +264,45 @@ Focused Task 5 verification at `84d4391` plus the Task 5 worktree changes:
 
 ## Task 6 Final Addition Ledger
 
+Task 6 review fix round 1 closes the ignored-file magic inspection gap in the
+repository hygiene gate. The RED fixture creates an ignored extensionless ELF
+under `/bin/` and requires it to reach `fileKind()`; before the fix it was absent
+from `repositoryCandidates()`. The gate now expands Git-reported ignored
+directories without following directory symlinks, skips only `.git` and
+`.worktrees` internals, and fails closed after 10,000 inspected entries. Ignored
+text still does not become a main-relative import requiring ledger membership,
+but generated-path, output-name, sanitizer, special-file, and binary checks all
+run before that distinction. Tracked documentation and native fixtures retain
+their existing policy.
+
+Final current-worktree verification at the Task 6 review-fix tree:
+
+- Repository hygiene: 5 pass, 0 fail, including the ignored extensionless ELF
+  RED/GREEN regression.
+- Native recursive glob, default concurrency: run 1 was 188 pass, 2 fail
+  (`leader exit with child survivor` timing plus repository hygiene observing
+  that another concurrent test still owned `fs-helper-symlink-target`); run 2
+  was 190 pass, 0 fail. The invalid first run is retained here rather than
+  represented as green.
+- Focused helper/protocol/package/result/sanitizer ownership and harness: 168
+  pass, 0 fail. Normal ASan/UBSan runner classification: `PASS`.
+- DNS/TG/package preservation focus excluding only the documented stale UI
+  baseline: 346 pass, 0 fail. The excluded
+  `tests/dns-provider-contract.test.mjs` baseline remains 5 pass, 2 fail on
+  stale UI class-name assertions; no DNS, Telegram, or UI production changed.
+- JSON/package/install references: 32 pass, 0 fail; 16 shipped JSON files parsed.
+  WSL process/marker/artifact scan produced no output.
+- Shipped shell syntax: all 10 shipped scripts plus the RED/GREEN self-test
+  passed. `gate-selftests.test.sh` failed its good-JSON control because the
+  Windows Node executable cannot open WSL `/mnt/g/...` paths. The
+  `gate-ucode-compile.test.sh` local emulator failed for the same interop reason.
+  `ucode-no-sugar.test.sh` failed on the pre-existing awk `~` inside a quoted
+  `proxycfg.uc` command. With `/opt/ucode/bin` available on `PATH`, the real
+  compile gate ran and failed all shipped files; its script suppresses compiler
+  diagnostics, so no narrower compatibility claim is made.
+
+Fresh committed-worktree evidence is recorded after the final commit.
+
 This machine-readable ledger is the complete allowlist for paths added relative
 to main. `EXACT` records an unchanged donor blob, `ADAPTED` records the donor
 blob plus the clean-branch reason for divergence, and `LOCAL` records a path
@@ -306,7 +345,7 @@ hygiene gate requires exact agreement between this list and Git.
   {"path":"tests/native/core/sanitizer-process-cleanup.mjs","class":"native-test","state":"ADAPTED","donorBlob":"11a93c2b586b609c0734559fbb9783b028e2e7f1","consumer":"safe sanitizer process cleanup","adaptation":"requires retained identity and launcher reaping before cleanup success claims"},
   {"path":"tests/native/main-migration-preservation.test.mjs","class":"native-test","state":"LOCAL","donorBlob":null,"consumer":"main DNS and Telegram preservation proof"},
   {"path":"tests/native/package-helper.test.mjs","class":"native-test","state":"LOCAL","donorBlob":null,"consumer":"helper package and manual install closure"},
-  {"path":"tests/native/repository-hygiene.test.mjs","class":"native-test","state":"LOCAL","donorBlob":null,"consumer":"clean transplant boundary gate"},
+  {"path":"tests/native/repository-hygiene.test.mjs","class":"native-test","state":"LOCAL","donorBlob":null,"consumer":"clean transplant boundary gate including bounded ignored-file magic inspection"},
   {"path":"zapret2-manager/files/usr/libexec/zapret2-manager/core/errors.uc","class":"runtime-module","state":"EXACT","donorBlob":"5afad255e68cf1e621c24f0f07ae29318df5857b","consumer":"native result module"},
   {"path":"zapret2-manager/files/usr/libexec/zapret2-manager/core/result.uc","class":"runtime-module","state":"EXACT","donorBlob":"f549ac7f7d017291d9856e2fb2d3f6f6f3cf3bc2","consumer":"future native adapters and result tests"},
   {"path":"zapret2-manager/src/z2m-core-helper/atomic.c","class":"helper-source","state":"EXACT","donorBlob":"9ab6a43b0933036d5d5164b13632e5a391a8bc15","consumer":"native helper executable"},

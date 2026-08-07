@@ -12,6 +12,7 @@ const DONOR = '76df521e61acc188be8d9f59fcb67be9da90af02';
 const MANIFEST = 'docs/superpowers/reviews/native-clean-import-manifest.md';
 const LEDGER_START = '<!-- native-clean-final-ledger:start -->';
 const LEDGER_END = '<!-- native-clean-final-ledger:end -->';
+const MAX_IGNORED_ENTRIES = 10000;
 
 const approvedClasses = new Set([
   'contract',
@@ -90,7 +91,7 @@ function fileKind(fullPath) {
   return 'text';
 }
 
-export function inspectCandidate(relativePath, fullPath, { tracked = false, ledgerPaths = new Set() } = {}) {
+export function inspectCandidate(relativePath, fullPath, { tracked = false, ignored = false, ledgerPaths = new Set() } = {}) {
   const candidate = normalize(relativePath);
   const name = path.posix.basename(candidate);
   const lower = candidate.toLowerCase();
@@ -103,15 +104,34 @@ export function inspectCandidate(relativePath, fullPath, { tracked = false, ledg
   if (/(^|\/)(?:asan|ubsan|lsan|tsan|msan|saniti[sz]er)(?:[-_.][^/]*)?$/.test(lower) && !tracked)
     violations.push('untracked sanitizer-family output');
   if (fs.existsSync(fullPath) && fileKind(fullPath) !== 'text') violations.push('binary or special file type');
-  if (!ledgerPaths.has(candidate)) violations.push('path is not approved by the final import ledger');
+  if (!ignored && !ledgerPaths.has(candidate)) violations.push('path is not approved by the final import ledger');
   return violations;
 }
 
-function repositoryCandidates() {
+function ignoredCandidates(root = ROOT, runGit = git) {
+  const ignored = [];
+  const pending = nulList(runGit(['ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--directory'], { encoding: 'buffer' }));
+  let inspected = 0;
+  while (pending.length) {
+    const entry = pending.pop();
+    const candidate = entry.replace(/\/$/, '');
+    if (candidate.split('/').some((part) => part === '.git' || part === '.worktrees')) continue;
+    if (++inspected > MAX_IGNORED_ENTRIES)
+      throw new Error(`ignored-file inspection exceeded ${MAX_IGNORED_ENTRIES} entries`);
+    const fullPath = path.join(root, candidate);
+    const stat = fs.lstatSync(fullPath);
+    if (stat.isDirectory()) {
+      for (const child of fs.readdirSync(fullPath)) pending.push(`${candidate}/${child}`);
+    } else {
+      ignored.push(candidate);
+    }
+  }
+  return ignored;
+}
+
+function repositoryCandidates(ignored = ignoredCandidates()) {
   const additions = nulList(git(['diff', '-z', '--name-only', '--diff-filter=A', MAIN_BASE], { encoding: 'buffer' }));
   const untracked = nulList(git(['ls-files', '-z', '--others', '--exclude-standard'], { encoding: 'buffer' }));
-  const ignored = nulList(git(['ls-files', '-z', '--others', '--ignored', '--exclude-standard'], { encoding: 'buffer' }))
-    .filter((entry) => /(^|\/)(?:build-apk|screenshots)(\/|$)|\.(?:apk|ipk|o|obj)$|(^|\/)(?:core(?:\.|$)|(?:a|ub|l|t|m)san(?:[-_.]|$)|saniti[sz]er(?:[-_.]|$))/i.test(entry));
   return [...new Set([...additions, ...untracked, ...ignored])].sort();
 }
 
@@ -149,12 +169,38 @@ test('main-relative additions have approved classes and verified provenance', ()
 test('repository candidates exclude generated, binary, donor-history, broad-gate, and UI material', () => {
   const ledgerPaths = new Set(parseLedger().map((entry) => entry.path));
   const tracked = new Set(nulList(git(['ls-files', '-z'], { encoding: 'buffer' })));
+  const ignored = new Set(ignoredCandidates());
   const findings = new Map();
-  for (const candidate of repositoryCandidates()) {
-    const violations = inspectCandidate(candidate, path.join(ROOT, candidate), { tracked: tracked.has(candidate), ledgerPaths });
+  for (const candidate of repositoryCandidates(ignored)) {
+    const violations = inspectCandidate(candidate, path.join(ROOT, candidate), {
+      tracked: tracked.has(candidate),
+      ignored: ignored.has(candidate),
+      ledgerPaths,
+    });
     if (violations.length) findings.set(candidate, violations);
   }
   assert.deepEqual(findings, new Map());
+});
+
+test('ignored extensionless binaries are inspected by magic', () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-hygiene-git-'));
+  const candidate = 'bin/native-hygiene-ignored-elf';
+  const fullPath = path.join(tempRoot, candidate);
+  const tempGit = (args, options = {}) => execFileSync('git', args, {
+    cwd: tempRoot,
+    encoding: options.encoding ?? 'utf8',
+  });
+  try {
+    tempGit(['init', '--quiet']);
+    fs.writeFileSync(path.join(tempRoot, '.gitignore'), '/bin/\n');
+    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    fs.writeFileSync(fullPath, Buffer.from([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1, 0]));
+    assert.equal(tempGit(['check-ignore', candidate]).trim(), candidate, 'fixture must be ignored by Git');
+    assert.ok(ignoredCandidates(tempRoot, tempGit).includes(candidate), 'ignored extensionless binary must reach inspection');
+    assert.ok(inspectCandidate(candidate, fullPath).includes('binary or special file type'));
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
 });
 
 test('forbidden classes turn the hygiene gate red without a brittle extension blacklist', () => {
