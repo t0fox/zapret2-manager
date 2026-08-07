@@ -178,8 +178,7 @@
       "ownership": "Denied for secrets; returns bytes only from an allowed verified regular descriptor.", "crashSemantics": "Read-only and never returns a truncated success.", "idempotency": "Idempotent for unchanged file content; concurrent replacement is isolated by the opened descriptor."
     },
     "atomic_write": {
-      "milestone": 2, "status": "reserved_unsupported", "roots": ["persistent_state", "snapshots", "registry", "secrets", "runtime", "jobs", "staging"],
-      "unsupportedBehavior": { "errorCode": "EUNSUPPORTED", "dispatch": "reject_before_operation_dispatch", "sideEffects": "none", "response": "complete_failure_envelope", "exitCategory": "policy_denied", "exitCode": 3 },
+      "milestone": 2, "status": "milestone_2", "roots": ["persistent_state", "snapshots", "registry", "secrets", "runtime", "jobs", "staging"],
       "requestSchema": { "type": "object", "additionalProperties": false, "required": ["root", "path", "content", "mode", "uid", "gid", "allowCreate"], "properties": { "root": { "type": "string" }, "path": { "type": "string" }, "content": { "type": "string", "encoding": "canonical_base64", "maxDecodedBytes": 521028 }, "mode": { "const": "0600" }, "uid": { "const": 0 }, "gid": { "const": 0 }, "allowCreate": { "type": "boolean" } } },
       "successSchema": { "type": "object", "additionalProperties": false, "required": ["byteLength", "committed", "durability"], "properties": { "byteLength": { "type": "integer", "minimum": 0, "maximum": 4194304 }, "committed": { "const": true }, "durability": { "enum": ["durable", "tmpfs_visible"] } } },
       "limits": { "maxInputBytes": 4194304, "maxOutputBytes": 1024, "timeoutMsMax": 30000, "effectiveMaxDecodedInputBytes": 521028 },

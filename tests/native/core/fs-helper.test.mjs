@@ -94,6 +94,10 @@ function shaArgs(root, pathValue, maxBytes) {
   return { root, path: pathValue, maxBytes };
 }
 
+function atomicArgs(root, pathValue, content, allowCreate = true) {
+  return { root, path: pathValue, content: content.toString('base64'), mode: '0600', uid: 0, gid: 0, allowCreate };
+}
+
 function writeBuffer(root, relative, content, mode = '0600') {
   const target = `${testRoot}/${roots[root]}/${relative}`;
   const dir = target.slice(0, target.lastIndexOf('/'));
@@ -112,6 +116,20 @@ function expectShaSuccess(run, content, expected) {
 function expectMkdirSuccess(run, created, durability) {
   assert.equal(run.status, 0, run.stderr || run.stdout);
   assert.deepEqual(run.response?.data, { created, committed: true, durability });
+}
+
+function expectAtomicSuccess(run, length, durability) {
+  assert.equal(run.status, 0, run.stderr || run.stdout);
+  assert.deepEqual(run.response?.data, { byteLength: length, committed: true, durability });
+}
+
+function expectCommitUnknown(run, requestId = 'req-1') {
+  assert.equal(run.status, 6, run.stderr || run.stdout);
+  assert.equal(run.response?.requestId, requestId);
+  assert.equal(run.response?.error?.code, 'ECOMMITUNKNOWN');
+  assert.equal(run.response?.error?.committed, true);
+  assert.equal(run.response?.error?.durability, 'unknown');
+  assert.equal(run.response?.error?.stage, 'directory_fsync');
 }
 
 function expectFailure(run, status, code, requestId = 'req-1', context = '') {
@@ -373,7 +391,6 @@ test('unrecoverable partial stdout exits response-incomplete category', () => {
 test('reserved operations return EUNSUPPORTED before filesystem access and have no side effects', () => {
   const marker = `${testRoot}/${roots.runtime}/must-not-exist`;
   const operations = {
-    atomic_write: { root: 'runtime', path: 'must-not-exist', content: '', mode: '0600', uid: 0, gid: 0, allowCreate: true },
     atomic_write_json: { root: 'runtime', path: 'must-not-exist', value: {}, mode: '0600', uid: 0, gid: 0, allowCreate: true },
     rename_owned: { root: 'runtime', fromPath: 'missing', toPath: 'must-not-exist', ownershipToken: 'a'.repeat(64), replace: false },
     unlink_owned: { root: 'runtime', path: 'missing', ownershipToken: 'a'.repeat(64), missingOk: false },
@@ -719,7 +736,7 @@ test('atomic_write reserved schema accepts only canonical bounded base64', () =>
     expectFailure(invoke(request('atomic_write', { ...base, content })), 2, 'ESCHEMA');
   expectFailure(invoke(request('atomic_write', { ...base, content: 'A'.repeat(4 * 1024 * 1024 + 4) })), 2, 'EREQUESTTOOBIG', null);
   for (const content of ['', 'YQ==', 'YWJj'])
-    expectFailure(invoke(request('atomic_write', { ...base, content })), 3, 'EUNSUPPORTED');
+    assert.equal(protocolManifest.operations.atomic_write.requestSchema.properties.content.encoding, 'canonical_base64');
   expectFailure(invoke(request('atomic_write', { ...base, path: 'bad path', content: '' })), 2, 'ESCHEMA');
 });
 
@@ -1047,7 +1064,6 @@ test('sha256_regular maps only actual shared-lock contention to ELOCKED', () => 
 test('non-SHA reserved operations remain unsupported and side-effect-free after SHA promotion', () => {
   const marker = `${testRoot}/${roots.runtime}/sha-promotion-must-not-exist`;
   const operations = {
-    atomic_write: { root: 'runtime', path: 'sha-promotion-must-not-exist', content: '', mode: '0600', uid: 0, gid: 0, allowCreate: true },
     atomic_write_json: { root: 'runtime', path: 'sha-promotion-must-not-exist', value: {}, mode: '0600', uid: 0, gid: 0, allowCreate: true },
     rename_owned: { root: 'runtime', fromPath: 'missing', toPath: 'sha-promotion-must-not-exist', ownershipToken: 'a'.repeat(64), replace: false },
     unlink_owned: { root: 'runtime', path: 'missing', ownershipToken: 'a'.repeat(64), missingOk: false },
@@ -1057,5 +1073,154 @@ test('non-SHA reserved operations remain unsupported and side-effect-free after 
   };
   for (const [operation, args] of Object.entries(operations))
     expectFailure(invoke(request(operation, args)), 3, 'EUNSUPPORTED');
+  assert.equal(wsl(['test', '-e', marker]).status, 1);
+});
+
+test('atomic_write creates, replaces, converges, and preserves arbitrary bytes exactly', () => {
+  const base = `${testRoot}/${roots.runtime}`;
+  for (const [name, content] of [['atomic-empty', Buffer.alloc(0)], ['atomic-binary', Buffer.from([0, 255, 0, 192, 128, 1])], ['atomic-invalid-utf8', Buffer.from([0xc3, 0x28, 0xff])]]) {
+    expectAtomicSuccess(invoke(request('atomic_write', atomicArgs('runtime', name, content))), content.length, 'tmpfs_visible');
+    assert.equal(wsl(['base64', '-w0', `${base}/${name}`]).stdout, content.toString('base64'));
+  }
+  writeBuffer('runtime', 'atomic-replace', Buffer.from('old'));
+  const replacement = Buffer.from('replacement');
+  expectAtomicSuccess(invoke(request('atomic_write', atomicArgs('runtime', 'atomic-replace', replacement, false))), replacement.length, 'tmpfs_visible');
+  expectAtomicSuccess(invoke(request('atomic_write', atomicArgs('runtime', 'atomic-replace', replacement, false))), replacement.length, 'tmpfs_visible');
+  assert.equal(wsl(['stat', '-c', '%F %a %u %g', `${base}/atomic-replace`]).stdout.trim(), 'regular file 600 0 0');
+});
+
+test('atomic_write enforces create precondition, closed schema, path, policy, and bounds', () => {
+  expectFailure(invoke(request('atomic_write', atomicArgs('runtime', 'atomic-missing', Buffer.from('x'), false))), 4, 'ENOENT');
+  const valid = atomicArgs('runtime', 'atomic-schema', Buffer.from('x'));
+  for (const args of [{ ...valid, mode: '0644' }, { ...valid, uid: 1 }, { ...valid, gid: 1 }, { ...valid, allowCreate: 1 }, { ...valid, extra: true }])
+    expectFailure(invoke(request('atomic_write', args)), 2, 'ESCHEMA');
+  for (const pathValue of ['/absolute', '..', 'a/../b', Array(13).fill('a').join('/')]) {
+    const deep = pathValue.split('/').length > 12 && !pathValue.includes('..');
+    expectFailure(invoke(request('atomic_write', { ...valid, path: pathValue })), deep ? 3 : 2, deep ? 'EPATH' : 'ESCHEMA');
+  }
+  expectFailure(invoke(request('atomic_write', { ...valid, root: 'locks' })), 3, 'EDENIED');
+  for (const content of ['YQ', 'YQ===', 'Y Q==', 'YQ=/', '****', 'YR==']) expectFailure(invoke(request('atomic_write', { ...valid, content })), 2, 'ESCHEMA');
+  expectFailure(invoke(request('atomic_write', { ...valid, content: Buffer.alloc(521029).toString('base64') })), 2, 'ESCHEMA');
+});
+
+test('atomic_write refuses links, special files, wrong metadata, missing parents, and mount escape without blocking', (t) => {
+  const base = `${testRoot}/${roots.staging}`;
+  shell(`mkdir -m 0700 '${base}/atomic-real' '${base}/atomic-dir'; printf old > '${base}/atomic-real/file'; chmod 0600 '${base}/atomic-real/file'; ln -s atomic-real/file '${base}/atomic-final-link'; ln -s atomic-real '${base}/atomic-parent-link'; mkfifo '${base}/atomic-fifo'; python3 -c "import socket; s=socket.socket(socket.AF_UNIX); s.bind('${base}/atomic-socket')"; mknod '${base}/atomic-device' c 1 3; printf x > '${base}/atomic-wide'; chmod 0644 '${base}/atomic-wide'; printf x > '${base}/atomic-foreign'; chmod 0600 '${base}/atomic-foreign'; chown 65534:65534 '${base}/atomic-foreign'`);
+  for (const [name, code, status = 4] of [['atomic-final-link', 'ESYMLINK'], ['atomic-parent-link/file', 'ESYMLINK'], ['atomic-dir', 'ENOTREG'], ['atomic-fifo', 'ENOTREG'], ['atomic-socket', 'ENOTREG'], ['atomic-device', 'EDENIED', 3], ['atomic-wide', 'EDENIED', 3], ['atomic-foreign', 'EDENIED', 3], ['missing/child', 'ENOENT']])
+    expectFailure(invoke(request('atomic_write', atomicArgs('staging', name, Buffer.from('new'))), { timeout: 1000 }), status, code);
+  write('runtime', 'atomic-mount/file', 'inside');
+  expectFailure(invoke(request('atomic_write', atomicArgs('runtime', 'atomic-mount/file', Buffer.from('new'))), { env: { Z2M_TEST_ATOMIC_MNT_ID_CHANGE: '1' } }), 4, 'EXDEV');
+  expectFailure(invoke(request('atomic_write', atomicArgs('runtime', 'atomic-mount/file', Buffer.from('new'))), { binary: noStatxBin }), 3, 'ECAPABILITY');
+  const mountpoint = `${base}/atomic-mounted`; shell(`mkdir -m 0700 '${mountpoint}'`);
+  const mounted = wsl(['mount', '-t', 'tmpfs', 'tmpfs', mountpoint]);
+  if (mounted.status !== 0) t.diagnostic(`mount unavailable: ${mounted.stderr.trim()}`);
+  else try { expectFailure(invoke(request('atomic_write', atomicArgs('staging', 'atomic-mounted/file', Buffer.from('x')))), 4, 'EXDEV'); } finally { shell(`umount '${mountpoint}'`); }
+});
+
+test('atomic_write uses exclusive root locking before traversal through cleanup and classification', async () => {
+  const holder = spawnInvoke(request('atomic_write', atomicArgs('staging', 'atomic-lock-target', Buffer.from('locked')), 'atomic-holder'), { env: { Z2M_TEST_STOP_AFTER_LOCK: '1' } });
+  const result = collect(holder); const pid = await waitStopped(holder);
+  expectFailure(invoke(request('mkdir_private', mkdirArgs('staging', 'atomic-lock-contender'), 'atomic-contender')), 5, 'ELOCKED', 'atomic-contender');
+  expectFailure(invoke(request('sha256_regular', shaArgs('staging', 'missing', 0), 'atomic-sha-contender')), 5, 'ELOCKED', 'atomic-sha-contender');
+  expectMkdirSuccess(invoke(request('mkdir_private', mkdirArgs('jobs', 'atomic-other-root'), 'atomic-other-root')), true, 'tmpfs_visible');
+  shell(`kill -CONT ${pid}`); expectAtomicSuccess(await result, 6, 'tmpfs_visible');
+  const crash = spawnInvoke(request('atomic_write', atomicArgs('staging', 'atomic-crash', Buffer.from('x')), 'atomic-crash'), { env: { Z2M_TEST_STOP_AFTER_LOCK: '1' } });
+  const crashResult = collect(crash); const crashPid = await waitStopped(crash); shell(`kill -KILL ${crashPid}`); await crashResult;
+  expectAtomicSuccess(invoke(request('atomic_write', atomicArgs('staging', 'atomic-after-crash', Buffer.from('x')))), 1, 'tmpfs_visible');
+  const flockError = invoke(request('atomic_write', atomicArgs('staging', 'atomic-flock-error', Buffer.from('x'))), { env: { Z2M_TEST_FLOCK_ERROR: 'EIO' } });
+  expectFailure(flockError, 4, 'EIO'); assert.equal(flockError.response.error.stage, 'lock_acquire');
+});
+
+test('atomic_write handles write EINTR, short/zero/hard failure and preserves originals before rename', () => {
+  for (const [name, env, success] of [['shim', { Z2M_TEST_ATOMIC_WRITE_SHIM: '1' }, true], ['zero', { Z2M_TEST_ATOMIC_WRITE_ZERO: '1' }, false], ['error', { Z2M_TEST_ATOMIC_WRITE_ERROR: '1' }, false]]) {
+    write('staging', `atomic-write-${name}`, 'original');
+    const run = invoke(request('atomic_write', atomicArgs('staging', `atomic-write-${name}`, Buffer.from('replacement'))), { env });
+    if (success) expectAtomicSuccess(run, 11, 'tmpfs_visible'); else expectFailure(run, 4, 'EIO');
+    assert.equal(wsl(['cat', `${testRoot}/${roots.staging}/atomic-write-${name}`]).stdout, success ? 'replacement' : 'original');
+  }
+  assert.equal(wsl(['find', `${testRoot}/${roots.staging}`, '-name', '.z2m-write-*', '-print']).stdout, '');
+});
+
+test('atomic_write phase faults clean before publication and are uncertain after publication', () => {
+  const base = `${testRoot}/${roots.persistent_state}`;
+  for (const phase of ['before_create', 'after_create', 'before_write', 'after_write', 'before_chown', 'after_chown', 'before_chmod', 'after_chmod', 'before_file_fsync', 'after_file_fsync', 'before_candidate_verify', 'after_candidate_verify', 'before_cas', 'after_cas', 'before_rename']) {
+    const name = `atomic-fault-${phase}`; write('persistent_state', name, 'original');
+    const run = invoke(request('atomic_write', atomicArgs('persistent_state', name, Buffer.from('new'))), { env: { Z2M_TEST_ATOMIC_FAULT: phase } });
+    expectFailure(run, 4, 'EIO'); assert.equal(wsl(['cat', `${base}/${name}`]).stdout, 'original');
+  }
+  for (const phase of ['after_rename', 'before_parent_fsync', 'after_parent_fsync', 'before_final_verify', 'after_final_verify']) {
+    const name = `atomic-fault-${phase}`;
+    const run = invoke(request('atomic_write', atomicArgs('persistent_state', name, Buffer.from('new')), phase), { env: { Z2M_TEST_ATOMIC_FAULT: phase } });
+    expectCommitUnknown(run, phase); assert.equal(wsl(['cat', `${base}/${name}`]).stdout, 'new');
+  }
+  assert.equal(wsl(['find', base, '-name', '.z2m-write-*', '-print']).stdout, '');
+});
+
+test('atomic_write detects target and parent races without overwriting unexpected objects', async () => {
+  const base = `${testRoot}/${roots.staging}`;
+  write('staging', 'atomic-cas', 'old'); write('staging', 'atomic-cas-ready', 'foreign');
+  const targetRace = spawnInvoke(request('atomic_write', atomicArgs('staging', 'atomic-cas', Buffer.from('new')), 'atomic-cas'), { env: { Z2M_TEST_ATOMIC_STOP_BEFORE_CAS: '1' } });
+  const targetResult = collect(targetRace); const targetPid = await waitStopped(targetRace);
+  shell(`mv '${base}/atomic-cas' '${base}/atomic-cas-old'; mv '${base}/atomic-cas-ready' '${base}/atomic-cas'; kill -CONT ${targetPid}`);
+  expectFailure(await targetResult, 4, 'EIO', 'atomic-cas'); assert.equal(wsl(['cat', `${base}/atomic-cas`]).stdout, 'foreign');
+  shell(`mkdir -m 0700 '${base}/atomic-parent'; mkdir -m 0700 '${testRoot}/atomic-outside'`);
+  const parentRace = spawnInvoke(request('atomic_write', atomicArgs('staging', 'atomic-parent/file', Buffer.from('new')), 'atomic-parent'), { env: { Z2M_TEST_ATOMIC_STOP_BEFORE_CREATE: '1' } });
+  const parentResult = collect(parentRace); const parentPid = await waitStopped(parentRace);
+  shell(`mv '${base}/atomic-parent' '${base}/atomic-parent-old'; ln -s '${testRoot}/atomic-outside' '${base}/atomic-parent'; kill -CONT ${parentPid}`);
+  assert.notEqual((await parentResult).status, 0); assert.equal(wsl(['test', '-e', `${testRoot}/atomic-outside/file`]).status, 1);
+});
+
+test('atomic_write never modifies, deletes, or publishes a replaced candidate', async () => {
+  const base = `${testRoot}/${roots.staging}`;
+  const child = spawnInvoke(request('atomic_write', atomicArgs('staging', 'atomic-candidate-final', Buffer.from('new')), 'atomic-candidate'), { env: { Z2M_TEST_ATOMIC_STOP_AFTER_CREATE: '1' } });
+  const result = collect(child); const pid = await waitStopped(child);
+  assert.match(child.candidate ?? '', /^\.z2m-write-[a-f0-9]{32}$/);
+  shell(`rm '${base}/${child.candidate}'; printf foreign > '${base}/${child.candidate}'; chmod 0644 '${base}/${child.candidate}'; chown 65534:65534 '${base}/${child.candidate}'; kill -CONT ${pid}`);
+  const completed = await result; assert.notEqual(completed.status, 0);
+  assert.equal(wsl(['cat', `${base}/${child.candidate}`]).stdout, 'foreign'); assert.equal(wsl(['test', '-e', `${base}/atomic-candidate-final`]).status, 1);
+});
+
+test('atomic_write bounds candidate collisions and treats cleanup ambiguity as uncertainty', async () => {
+  const base = `${testRoot}/${roots.staging}`;
+  shell(`ln -s atomic-collision-foreign '${base}/.z2m-write-00000000000000000000000000000000'`);
+  expectFailure(invoke(request('atomic_write', atomicArgs('staging', 'atomic-collision-link', Buffer.from('x'))), { env: { Z2M_TEST_ATOMIC_COLLISION: '1' } }), 4, 'EIO');
+  shell(`rm '${base}/.z2m-write-00000000000000000000000000000000'`);
+  shell(`printf occupied > '${base}/.z2m-write-00000000000000000000000000000000'; chmod 0600 '${base}/.z2m-write-00000000000000000000000000000000'`);
+  expectAtomicSuccess(invoke(request('atomic_write', atomicArgs('staging', 'atomic-collision-retry', Buffer.from('x'))), { env: { Z2M_TEST_ATOMIC_COLLISION: '1' } }), 1, 'tmpfs_visible');
+  for (let i = 0; i < 8; i++) shell(`printf occupied > '${base}/.z2m-write-${i.toString(16).padStart(32, '0')}'; chmod 0600 '${base}/.z2m-write-${i.toString(16).padStart(32, '0')}'`);
+  expectFailure(invoke(request('atomic_write', atomicArgs('staging', 'atomic-collision-bound', Buffer.from('x'))), { env: { Z2M_TEST_ATOMIC_COLLISION: '1' } }), 4, 'EIO');
+  const uncertain = invoke(request('atomic_write', atomicArgs('staging', 'atomic-cleanup-unknown', Buffer.from('x')), 'cleanup-unknown'), {
+    env: { Z2M_TEST_ATOMIC_WRITE_ERROR: '1', Z2M_TEST_ATOMIC_CLEANUP_AMBIGUOUS: '1' }
+  });
+  expectCommitUnknown(uncertain, 'cleanup-unknown');
+
+  const holder = spawnInvoke(request('atomic_write', atomicArgs('persistent_state', 'atomic-cleanup-lock', Buffer.from('x')), 'cleanup-lock'), {
+    env: { Z2M_TEST_ATOMIC_WRITE_ERROR: '1', Z2M_TEST_ATOMIC_STOP_AFTER_CLEANUP: '1' }
+  });
+  const result = collect(holder); const pid = await waitStopped(holder);
+  expectFailure(invoke(request('mkdir_private', mkdirArgs('persistent_state', 'atomic-cleanup-contender'), 'cleanup-contender')), 5, 'ELOCKED', 'cleanup-contender');
+  shell(`kill -CONT ${pid}`); expectFailure(await result, 4, 'EIO', 'cleanup-lock');
+});
+
+test('atomic_write classifies persistent durability and final replacement honestly while tmpfs stays visibility-only', async () => {
+  expectAtomicSuccess(invoke(request('atomic_write', atomicArgs('persistent_state', 'atomic-durable', Buffer.from('x')))), 1, 'durable');
+  expectCommitUnknown(invoke(request('atomic_write', atomicArgs('persistent_state', 'atomic-fsync-unknown', Buffer.from('x'))), { env: { Z2M_TEST_DIRECTORY_FSYNC_ERROR: '1' } }));
+  expectAtomicSuccess(invoke(request('atomic_write', atomicArgs('runtime', 'atomic-visible', Buffer.from('x'))), { env: { Z2M_TEST_DIRECTORY_FSYNC_ERROR: '1' } }), 1, 'tmpfs_visible');
+  const base = `${testRoot}/${roots.staging}`;
+  const child = spawnInvoke(request('atomic_write', atomicArgs('staging', 'atomic-final-race', Buffer.from('new')), 'atomic-final-race'), { env: { Z2M_TEST_ATOMIC_STOP_BEFORE_FINAL_VERIFY: '1' } });
+  const result = collect(child); const pid = await waitStopped(child);
+  shell(`mv '${base}/atomic-final-race' '${base}/atomic-published'; printf foreign > '${base}/atomic-final-race'; chmod 0600 '${base}/atomic-final-race'; kill -CONT ${pid}`);
+  expectCommitUnknown(await result, 'atomic-final-race'); assert.equal(wsl(['cat', `${base}/atomic-final-race`]).stdout, 'foreign');
+});
+
+test('atomic_write_json and ownership/public lock operations remain unsupported and side-effect-free', () => {
+  const marker = `${testRoot}/${roots.runtime}/atomic-reserved-marker`;
+  const operations = {
+    atomic_write_json: { root: 'runtime', path: 'atomic-reserved-marker', value: {}, mode: '0600', uid: 0, gid: 0, allowCreate: true },
+    rename_owned: { root: 'runtime', fromPath: 'missing', toPath: 'atomic-reserved-marker', ownershipToken: 'a'.repeat(64), replace: false },
+    unlink_owned: { root: 'runtime', path: 'atomic-reserved-marker', ownershipToken: 'a'.repeat(64), missingOk: false },
+    lock_acquire: { name: 'atomic', owner: 'owner', timeoutMs: 0 }, lock_release: { name: 'atomic', owner: 'owner', token: 'a'.repeat(64) }, lock_status: { name: 'atomic' }
+  };
+  for (const [operation, args] of Object.entries(operations)) expectFailure(invoke(request(operation, args)), 3, 'EUNSUPPORTED');
   assert.equal(wsl(['test', '-e', marker]).status, 1);
 });

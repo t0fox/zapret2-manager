@@ -58,4 +58,5 @@ test -x "$COMPILER" || {
 	"$SRC/main.c" "$SRC/protocol.c" "$SRC/errors.c" \
 	"$SRC/roots.c" "$SRC/paths.c" "$SRC/files.c" "$SRC/base64.c" \
 	"$SRC/mkdir.c" "$SRC/sha256.c" \
+	"$SRC/atomic.c" \
 	$(pkg-config --cflags --libs json-c) -o "$OUT"
