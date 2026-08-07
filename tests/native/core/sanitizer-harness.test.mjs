@@ -14,6 +14,7 @@ const classifications = new Set([
 ]);
 const wslRoot = `/mnt/${projectRoot[0].toLowerCase()}${projectRoot.slice(2).replaceAll('\\', '/')}`;
 const fixtures = `${wslRoot}/tests/native/core/fixtures`;
+const procScanner = `${fixtures}/sanitizer-proc-group-scan.sh`;
 const cleanupModule = path.join(projectRoot, 'tests', 'native', 'core', 'sanitizer-process-cleanup.mjs');
 const cleanupModuleUrl = pathToFileURL(cleanupModule).href;
 
@@ -221,9 +222,61 @@ test('repeated runs leave no sanitizer artifacts in the worktree', () => {
 
 function wsl(args, options = {}) {
   return spawnSync('wsl.exe', ['-d', 'Ubuntu', '-u', 'root', '--', ...args], {
-    encoding: 'utf8', input: options.input
+    encoding: 'utf8', input: options.input, timeout: options.timeout ?? 120000
   });
 }
+
+function procStat(pid, pgid, sid, startTime = '1000') {
+  return `${pid} (fixture) S 1 ${pgid} ${sid} 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ${startTime} 0\n`;
+}
+
+function writeWslFile(file, contents) {
+  const written = wsl(['/usr/bin/tee', file], { input: contents });
+  assert.equal(written.status, 0, written.stderr);
+}
+
+function runProcScanner(root, hook = 'none') {
+  return wsl(['/bin/sh', procScanner, '700', '700', root, hook]);
+}
+
+test('proc scanner fails closed when a stat read fails for a present entry', () => {
+  const root = `/tmp/z2m-proc-scan-${process.pid}-stat`;
+  try {
+    assert.equal(wsl(['/bin/mkdir', '-p', `${root}/701/stat`]).status, 0);
+    const run = runProcScanner(root);
+    assert.notEqual(run.status, 0, run.stdout);
+    assert.match(run.stderr, /stat-read-failed.*pid=701/);
+    assert.ok(Buffer.byteLength(run.stderr) <= 4096);
+  } finally {
+    wsl(['/bin/rm', '-rf', root]);
+  }
+});
+
+test('proc scanner fails closed when a matching member cmdline read fails', () => {
+  const root = `/tmp/z2m-proc-scan-${process.pid}-cmdline`;
+  try {
+    assert.equal(wsl(['/bin/mkdir', '-p', `${root}/702/cmdline`]).status, 0);
+    writeWslFile(`${root}/702/stat`, procStat(702, 700, 700));
+    const run = runProcScanner(root);
+    assert.notEqual(run.status, 0, run.stdout);
+    assert.match(run.stderr, /cmdline-read-failed.*pid=702/);
+    assert.ok(Buffer.byteLength(run.stderr) <= 4096);
+  } finally {
+    wsl(['/bin/rm', '-rf', root]);
+  }
+});
+
+test('proc scanner accepts an entry that vanishes after its stat read fails', () => {
+  const root = `/tmp/z2m-proc-scan-${process.pid}-vanished`;
+  try {
+    assert.equal(wsl(['/bin/mkdir', '-p', `${root}/703/stat`]).status, 0);
+    const run = runProcScanner(root, 'vanish-stat:703');
+    assert.equal(run.status, 0, run.stderr);
+    assert.equal(run.stdout, '');
+  } finally {
+    wsl(['/bin/rm', '-rf', root]);
+  }
+});
 
 async function waitForPid(pidFile) {
   for (let attempt = 0; attempt < 200; attempt++) {
