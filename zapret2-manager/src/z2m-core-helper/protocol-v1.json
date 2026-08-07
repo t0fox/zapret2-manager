@@ -90,7 +90,7 @@
   },
   "errors": {
     "EMALFORMED": { "message": "Request is not one valid JSON object.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["request_invalid"], "allowedStages": ["framing", "utf8", "json_decode", "trailing_data"] },
-    "ESCHEMA": { "message": "Request does not match protocol v1.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["request_invalid"], "allowedStages": ["schema", "request_id"] },
+    "ESCHEMA": { "message": "Request does not match protocol v1.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["request_invalid"], "allowedStages": ["schema", "request_id", "canonical_validate"] },
     "EREQUESTTOOBIG": { "message": "Request exceeds the wire limit.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["request_invalid"], "allowedStages": ["request_size"] },
     "EDENIED": { "message": "Operation is denied by root policy.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["policy_denied"], "allowedStages": ["policy"] },
     "EROOT": { "message": "Root is unknown or insecure.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["policy_denied"], "allowedStages": ["root_select", "root_ancestor", "root_open", "root_verify"] },
@@ -101,7 +101,7 @@
     "ENOTREG": { "message": "Managed object is not a regular file.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["filesystem_failure"], "allowedStages": ["object_verify"] },
     "ESYMLINK": { "message": "Symbolic or magic link traversal was refused.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["filesystem_failure"], "allowedStages": ["path_resolve", "object_open"] },
     "EXDEV": { "message": "Mount or root boundary crossing was refused.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["filesystem_failure"], "allowedStages": ["path_resolve"] },
-    "ETOOBIG": { "message": "Managed object exceeds the operation or root limit.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["filesystem_failure"], "allowedStages": ["object_verify", "read"] },
+    "ETOOBIG": { "message": "Managed object exceeds the operation or root limit.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["filesystem_failure"], "allowedStages": ["object_verify", "read", "canonical_size"] },
     "EIO": { "message": "Filesystem operation failed.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["filesystem_failure"], "allowedStages": ["root_open", "lock_acquire", "object_open", "stat", "read", "write", "file_fsync", "rename"] },
     "ECONFLICT": { "message": "Managed object precondition changed.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["filesystem_failure"], "allowedStages": ["precondition"] },
     "ECLEANUPUNKNOWN": { "message": "Candidate cleanup could not be proven.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["filesystem_failure"], "allowedStages": ["candidate_cleanup"] },
@@ -109,7 +109,7 @@
     "ETIMEOUT": { "message": "Lock acquisition timed out.", "retryable": true, "committed": false, "durability": "unchanged", "allowedExitCategories": ["lock_unavailable"], "allowedStages": ["lock_acquire"] },
     "EOWNERSHIP": { "message": "Manager ownership evidence did not match.", "retryable": false, "committed": false, "durability": "unchanged", "allowedExitCategories": ["policy_denied"], "allowedStages": ["ownership_verify"] },
     "ECOMMITUNKNOWN": { "message": "Commit may be visible but durability is unknown.", "retryable": false, "committed": true, "durability": "unknown", "allowedExitCategories": ["commit_uncertain"], "allowedStages": ["directory_fsync"] },
-    "EINTERNAL": { "message": "Helper failed internally.", "retryable": false, "committed": null, "durability": "not_applicable", "allowedExitCategories": ["internal"], "allowedStages": ["internal", "response_encode"] },
+    "EINTERNAL": { "message": "Helper failed internally.", "retryable": false, "committed": null, "durability": "not_applicable", "allowedExitCategories": ["internal"], "allowedStages": ["internal", "response_encode", "canonical_encode"] },
     "EINCOMPLETE": { "message": "Helper could not emit one complete response.", "retryable": false, "committed": null, "durability": "not_applicable", "allowedExitCategories": ["response_incomplete"], "allowedStages": ["response_encode", "response_write"] }
   },
   "pathPolicy": {
@@ -189,9 +189,11 @@
     "atomic_write_json": {
       "milestone": 2, "status": "reserved_unsupported", "roots": ["persistent_state", "snapshots", "registry", "secrets", "runtime", "jobs", "staging"],
       "unsupportedBehavior": { "errorCode": "EUNSUPPORTED", "dispatch": "reject_before_operation_dispatch", "sideEffects": "none", "response": "complete_failure_envelope", "exitCategory": "policy_denied", "exitCode": 3 },
+      "canonicalization": "z2m-canonical-json-v1",
+      "canonicalizationContract": "docs/contracts/z2m-canonical-json-v1.md",
       "requestSchema": { "type": "object", "additionalProperties": false, "required": ["root", "path", "value", "mode", "uid", "gid", "allowCreate"], "properties": { "root": { "type": "string" }, "path": { "type": "string" }, "value": {}, "mode": { "const": "0600" }, "uid": { "const": 0 }, "gid": { "const": 0 }, "allowCreate": { "type": "boolean" } } },
       "successSchema": { "type": "object", "additionalProperties": false, "required": ["byteLength", "committed", "durability"], "properties": { "byteLength": { "type": "integer", "minimum": 0, "maximum": 4194304 }, "committed": { "const": true }, "durability": { "enum": ["durable", "tmpfs_visible"] } } },
-      "limits": { "maxInputBytes": 4194304, "maxOutputBytes": 1024, "timeoutMsMax": 30000 },
+      "limits": { "maxInputBytes": 4194304, "maxOutputBytes": 1024, "timeoutMsMax": 30000, "maxCanonicalBytes": 521028, "maxCanonicalDepth": 64, "maxCanonicalContainers": 1024, "maxCanonicalMembers": 1024, "maxCanonicalNodes": 65536, "maxCanonicalKeyBytes": 4096 },
       "ownership": "Helper canonicalizes JSON and applies fixed root policy under an operation-scoped internal flock.", "crashSemantics": "Uses atomic_write durability ordering after canonical serialization.", "idempotency": "Equivalent JSON values serialize canonically and converge; uncertainty requires reread."
     },
     "mkdir_private": {

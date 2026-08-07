@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const manifestPath = 'zapret2-manager/src/z2m-core-helper/protocol-v1.json';
+const canonicalJsonPath = 'docs/contracts/z2m-canonical-json-v1.md';
 const designPath = 'docs/superpowers/specs/2026-08-07-native-foundation-fs-helper-design.md';
 const planPath = 'docs/superpowers/plans/2026-08-07-native-foundation-fs-helper.md';
 
@@ -238,6 +239,8 @@ test('operation registry is closed and specifies schemas, limits, ownership, cra
     ];
     if (operation.status === 'reserved_unsupported')
       requiredKeys.push('unsupportedBehavior');
+    if (name === 'atomic_write_json')
+      requiredKeys.push('canonicalization', 'canonicalizationContract');
     assert.deepEqual(sorted(Object.keys(operation)), sorted(requiredKeys), name);
     assert.ok(Number.isInteger(operation.milestone) && operation.milestone > 0, name);
     assert.ok(['milestone_1', 'milestone_2', 'reserved_unsupported'].includes(operation.status), name);
@@ -250,6 +253,9 @@ test('operation registry is closed and specifies schemas, limits, ownership, cra
     assert.equal(operation.successSchema.additionalProperties, false, name);
     const limitKeys = ['maxInputBytes', 'maxOutputBytes', 'timeoutMsMax'];
     if (name === 'atomic_write') limitKeys.push('effectiveMaxDecodedInputBytes');
+    if (name === 'atomic_write_json') limitKeys.push('maxCanonicalBytes',
+      'maxCanonicalDepth', 'maxCanonicalContainers', 'maxCanonicalMembers',
+      'maxCanonicalNodes', 'maxCanonicalKeyBytes');
     assert.deepEqual(sorted(Object.keys(operation.limits)), sorted(limitKeys), name);
     assert.equal(typeof operation.ownership, 'string', name);
     assert.equal(typeof operation.crashSemantics, 'string', name);
@@ -297,6 +303,24 @@ test('operation registry is closed and specifies schemas, limits, ownership, cra
     assert.equal(value.operations[name].requestSchema.properties.uid.const, 0);
     assert.equal(value.operations[name].requestSchema.properties.gid.const, 0);
   }
+  assert.equal(value.operations.atomic_write_json.canonicalization,
+    'z2m-canonical-json-v1');
+  assert.equal(value.operations.atomic_write_json.canonicalizationContract,
+    'docs/contracts/z2m-canonical-json-v1.md');
+  assert.deepEqual(value.operations.atomic_write_json.limits, {
+    maxInputBytes: 4194304,
+    maxOutputBytes: 1024,
+    timeoutMsMax: 30000,
+    maxCanonicalBytes: 521028,
+    maxCanonicalDepth: 64,
+    maxCanonicalContainers: 1024,
+    maxCanonicalMembers: 1024,
+    maxCanonicalNodes: 65536,
+    maxCanonicalKeyBytes: 4096
+  });
+  const canonicalContract = fs.readFileSync(canonicalJsonPath, 'utf8');
+  assert.match(canonicalContract,
+    /^Canonicalization-ID: `z2m-canonical-json-v1`$/m);
   assert.equal(value.operations.mkdir_private.requestSchema.properties.mode.const, '0700');
   assert.equal(value.operations.mkdir_private.requestSchema.properties.uid.const, 0);
   assert.equal(value.operations.mkdir_private.requestSchema.properties.gid.const, 0);
@@ -356,7 +380,10 @@ test('errors are stable, bounded, and map to one exit category', () => {
     pathsInMessages: 'redacted',
     callersBranchOn: 'code'
   });
-  assert.deepEqual(value.errors.EINTERNAL.allowedStages, ['internal', 'response_encode']);
+  assert.deepEqual(value.errors.EINTERNAL.allowedStages,
+    ['internal', 'response_encode', 'canonical_encode']);
+  assert.ok(value.errors.ESCHEMA.allowedStages.includes('canonical_validate'));
+  assert.ok(value.errors.ETOOBIG.allowedStages.includes('canonical_size'));
 });
 
 test('reserved atomic write decoded input limit fits the bounded request wire independently', () => {
