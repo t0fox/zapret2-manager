@@ -117,6 +117,7 @@ void z2m_response_publication_started(void)
 {
 #ifdef Z2M_TESTING
 	publication_started=true;
+	z2m_test_audit_start();
 #endif
 }
 
@@ -126,10 +127,10 @@ void z2m_discard_wire(struct z2m_prepared_wire *wire)
 int z2m_emit_wire(struct z2m_prepared_wire *wire,int exit_code)
 {
 	if(wire==NULL||wire->data==NULL)return 74;
-	bool ok=write_all(wire->data,wire->length)&&write_all("\n",1);
 #ifdef Z2M_TESTING
-	if(getenv("Z2M_TEST_RESPONSE_AUDIT")!=NULL)fprintf(stderr,"z2m-core-helper: response-audit post-publication-allocations=%ld serializations=%ld\n",post_publication_allocations,post_publication_serializations);
+	if(getenv("Z2M_TEST_RESPONSE_AUDIT")!=NULL){unsigned long a,j;z2m_test_audit_counts(&a,&j);fprintf(stderr,"z2m-core-helper: response-audit post-publication-allocations=%ld serializations=%ld broad-allocations=%lu broad-json-calls=%lu\n",post_publication_allocations,post_publication_serializations,a,j);}
 #endif
+	bool ok=write_all(wire->data,wire->length)&&write_all("\n",1);
 	z2m_discard_wire(wire);return ok?exit_code:74;
 }
 

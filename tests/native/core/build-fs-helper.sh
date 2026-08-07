@@ -54,9 +54,16 @@ test -x "$COMPILER" || {
 	exit 2
 }
 
+WRAPS=
+for ARG in "$@"; do
+	if test "$ARG" = -DZ2M_TESTING; then
+		WRAPS='-Wl,--wrap=malloc -Wl,--wrap=calloc -Wl,--wrap=realloc -Wl,--wrap=strdup -Wl,--wrap=json_object_new_object -Wl,--wrap=json_object_new_string -Wl,--wrap=json_object_new_int64 -Wl,--wrap=json_object_new_boolean -Wl,--wrap=json_object_object_add -Wl,--wrap=json_object_to_json_string_ext'
+	fi
+done
+
 "$COMPILER" -std=c11 -Wall -Wextra -Werror -D_GNU_SOURCE "$@" \
 	"$SRC/main.c" "$SRC/protocol.c" "$SRC/errors.c" \
 	"$SRC/roots.c" "$SRC/paths.c" "$SRC/files.c" "$SRC/base64.c" \
 	"$SRC/mkdir.c" "$SRC/sha256.c" \
-	"$SRC/atomic.c" \
-	$(pkg-config --cflags --libs json-c) -o "$OUT"
+	"$SRC/atomic.c" "$SRC/test-audit.c" \
+	$(pkg-config --cflags --libs json-c) $WRAPS -o "$OUT"

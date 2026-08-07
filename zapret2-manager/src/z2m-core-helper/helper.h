@@ -45,6 +45,11 @@ bool z2m_prepare_failure_wire(const char *request_id, const char *code, const ch
 int z2m_emit_wire(struct z2m_prepared_wire *wire, int exit_code);
 void z2m_discard_wire(struct z2m_prepared_wire *wire);
 void z2m_response_publication_started(void);
+#ifdef Z2M_TESTING
+void z2m_test_audit_start(void);
+void z2m_test_audit_counts(unsigned long *allocation_count, unsigned long *json_count);
+void z2m_test_direct_post_publication_probe(void);
+#endif
 int z2m_read_request(struct z2m_request *request);
 void z2m_request_free(struct z2m_request *request);
 bool z2m_reserved_schema_valid(const struct z2m_request *request);

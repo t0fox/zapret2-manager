@@ -53,14 +53,18 @@ function spawnInvoke(value, { env = {} } = {}) {
     stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true
   });
   child.lockGate = new Promise((resolve) => {
+    child.resolveAudit = null;
     child.stderr.setEncoding('utf8');
     child.stderr.on('data', (chunk) => {
       const match = chunk.match(/(?:lock|hash)-gate-pid=(\d+)/);
       const candidate = chunk.match(/candidate=([A-Za-z0-9._-]+)/)?.[1];
       if (candidate) child.candidate = candidate;
       if (match) resolve(Number(match[1]));
+      const audit = chunk.match(/response-audit[^\n]*/)?.[0];
+      if (audit && child.resolveAudit) child.resolveAudit(audit);
     });
   });
+  child.responseAudit = new Promise((resolve) => { child.resolveAudit = resolve; });
   child.stdin.end(input);
   return child;
 }
@@ -1323,6 +1327,48 @@ test('atomic_write serializes success and commit uncertainty before publication'
     else { assert.equal(run.status, 0, run.stderr || run.stdout); assert.deepEqual(run.response?.data, expected); }
     assert.match(run.stderr, /response-audit post-publication-allocations=0 serializations=0/);
   }
+});
+
+test('atomic_write response audit detects a direct post-publication allocation probe', () => {
+  const run = invoke(request('atomic_write', atomicArgs('runtime', 'atomic-direct-allocation-probe', Buffer.from('new')), 'direct-probe'), {
+    env: { Z2M_TEST_RESPONSE_AUDIT: '1', Z2M_TEST_DIRECT_POST_PUBLICATION_PROBE: '1' }
+  });
+  expectAtomicSuccess(run, 3, 'tmpfs_visible');
+  assert.match(run.stderr, /response-audit .*broad-allocations=[1-9]\d* broad-json-calls=[1-9]\d*/);
+});
+
+test('atomic_write actual final verification failures use prepared uncertainty without post-publication work', () => {
+  for (const hook of ['Z2M_TEST_ATOMIC_FINAL_PARENT_ERROR', 'Z2M_TEST_ATOMIC_FINAL_OPEN_MISSING',
+    'Z2M_TEST_ATOMIC_FINAL_TYPE_ERROR', 'Z2M_TEST_ATOMIC_FINAL_MNT_ID_CHANGE',
+    'Z2M_TEST_ATOMIC_FINAL_INODE_MISMATCH', 'Z2M_TEST_ATOMIC_FINAL_SIZE_MISMATCH']) {
+    const requestId = hook.toLowerCase().replaceAll('_', '-');
+    const run = invoke(request('atomic_write', atomicArgs('persistent_state', requestId, Buffer.from('new')), requestId), {
+      env: { [hook]: '1', Z2M_TEST_RESPONSE_AUDIT: '1' }
+    });
+    expectCommitUnknown(run, requestId);
+    assert.match(run.stderr, /response-audit .*broad-allocations=0 broad-json-calls=0/);
+  }
+});
+
+test('atomic_write nested final verification performs no post-publication allocation', () => {
+  shell(`mkdir -m 0700 '${testRoot}/${roots.persistent_state}/atomic-audit-parent'`);
+  const run = invoke(request('atomic_write', atomicArgs('persistent_state', 'atomic-audit-parent/file', Buffer.from('new')), 'nested-audit'), {
+    env: { Z2M_TEST_RESPONSE_AUDIT: '1' }
+  });
+  expectAtomicSuccess(run, 3, 'durable');
+  assert.match(run.stderr, /response-audit .*broad-allocations=0 broad-json-calls=0/);
+});
+
+test('atomic_write actual final pathname replacement uses prepared uncertainty without post-publication work', async () => {
+  const base = `${testRoot}/${roots.staging}`;
+  const child = spawnInvoke(request('atomic_write', atomicArgs('staging', 'atomic-audited-final-race', Buffer.from('new')), 'audited-final-race'), {
+    env: { Z2M_TEST_ATOMIC_STOP_BEFORE_FINAL_VERIFY: '1', Z2M_TEST_RESPONSE_AUDIT: '1' }
+  });
+  const result = collect(child); const pid = await waitStopped(child);
+  shell(`mv '${base}/atomic-audited-final-race' '${base}/atomic-audited-published'; printf foreign > '${base}/atomic-audited-final-race'; chmod 0600 '${base}/atomic-audited-final-race'; kill -CONT ${pid}`);
+  const completed = await result; const audit = await child.responseAudit;
+  expectCommitUnknown(completed, 'audited-final-race');
+  assert.match(audit, /response-audit .*broad-allocations=0 broad-json-calls=0/);
 });
 
 test('atomic_write response wire preparation failure precedes candidate creation and preserves target', () => {

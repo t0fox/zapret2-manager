@@ -214,10 +214,11 @@ try {
             report.compile = pkgConfig;
             report.classification = 'COMPILE_FAILED';
           } else {
-            const sources = ['main.c', 'protocol.c', 'errors.c', 'roots.c', 'paths.c', 'files.c', 'base64.c', 'mkdir.c', 'sha256.c', 'atomic.c']
+            const sources = ['main.c', 'protocol.c', 'errors.c', 'roots.c', 'paths.c', 'files.c', 'base64.c', 'mkdir.c', 'sha256.c', 'atomic.c', 'test-audit.c']
               .map((name) => `${wslRoot}/zapret2-manager/src/z2m-core-helper/${name}`);
             compileArgv = ['-std=c11', '-Wall', '-Wextra', '-Werror', '-D_GNU_SOURCE', '-DZ2M_TESTING',
-              ...sanitizerFlags, ...sources, ...pkgConfig.stdout.trim().split(/\s+/).filter(Boolean), '-o', binaryPath];
+              ...sanitizerFlags, ...sources, ...pkgConfig.stdout.trim().split(/\s+/).filter(Boolean),
+              ...['malloc', 'calloc', 'realloc', 'strdup', 'json_object_new_object', 'json_object_new_string', 'json_object_new_int64', 'json_object_new_boolean', 'json_object_object_add', 'json_object_to_json_string_ext'].map((name) => `-Wl,--wrap=${name}`), '-o', binaryPath];
           }
         } else if (options.scenario === 'compile-failure') {
           compileArgv = [...sanitizerFlags, `${fixtureRoot}/sanitizer-compile-failure.c`, '-o', binaryPath];
