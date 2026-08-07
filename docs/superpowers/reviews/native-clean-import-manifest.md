@@ -213,3 +213,35 @@ both modules to `/usr/libexec/zapret2-manager/core/`. `result.uc` imports only
 its colocated `./errors.uc`; no main RPC handler is replaced or changed. Task 4
 does not import donor gate rewrites or tilde fixtures and does not modify DNS,
 Telegram, UI, package, or broad-runner paths.
+
+## Task 5 Preservation Ledger
+
+Task 5 adds `tests/native/main-migration-preservation.test.mjs`, repairs only the
+manual builder's recursive package staging, and changes no DNS, Telegram, UI,
+donor-import, package Makefile, or helper production source. The test
+pins main base `304728c4fb5e49252247d9f80c27becec89cfe41` and embeds the
+reviewed Git blob IDs for 31 explicit DNS/TG migration paths. This keeps the
+proof deterministic in a fresh checkout without requiring a fetch; when local
+`origin/main`, `backup/native-clean-main-base`, or donor refs exist, it also
+cross-checks their pinned SHAs and donor blob equality.
+
+The preservation set covers DNS workers/CLIs/catalogs, TG proxycfg/proxy/provider
+modules, rpcd/procd, both TG package definitions and their config/patch/licenses,
+plus health and boot-recovery sources. It also characterizes the package
+Makefile's recursive `files` install and the manual builder's backend, shell,
+catalog, service and native-helper staging closure. The donor has zero delta for
+all 31 paths.
+
+This is not a blanket permanent freeze. A future intentional DNS/TG migration
+must update focused behavior tests first, then review and update the explicit
+path/blob characterization and this provenance ledger in the same change.
+
+Focused Task 5 verification at `84d4391` plus the Task 5 worktree changes:
+
+- DNS backend, service DNS, dnsprov, catalogs and preservation: 154 pass, 0 fail.
+- TG proxycfg/proxy/procd/package/health/recovery: 185 pass, 0 fail.
+- Native package/helper/core/sanitizer: 179 pass, 0 fail.
+- Package/install/provenance follow-up after recursive staging repair: 53 pass, 0 fail.
+- Shell gates: 10 pass, 0 fail (Windows Node path supplied to WSL); `ucode` binary unavailable.
+- Known stale UI-only `dns-provider-contract` baseline remains 5 pass, 2 fail;
+  no DNS UI or production change was made to force those assertions green.

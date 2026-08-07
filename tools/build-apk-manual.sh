@@ -138,46 +138,13 @@ mkdir -p "$HELPER_BUILD"
   -ljson-c -o "$HELPER_BUILD/z2m-core-helper"
 
 # ---- zapret2-manager ---------------------------------------------------------
-# Stage the package root $R per-file (mkdir -p each target dir, install -m each
-# file), then `apk mkpkg --files $R` packages the whole tree. An earlier build
+# Stage the complete package files tree, then `apk mkpkg --files $R` packages
+# it. An earlier build
 # failed with "failed to load script: Is a directory" — that was an arg-shift
 # bug (the postinst slot received $R), NOT `--files <dir>`, which works fine.
 R="$HOME/z2m-build/root"
-mkdir -p "$R/etc/zapret2-manager/ipset" "$R/usr/libexec/zapret2-manager" \
-         "$R/usr/share/rpcd/ucode" "$R/etc/hotplug.d/iface" "$R/etc/init.d" "$R/etc/zapret2-manager/presets" "$R/usr/share/zapret2-manager/presets"
-install -m 0644 "$REPO/zapret2-manager/files/etc/zapret2-manager/state.json" \
-                "$R/etc/zapret2-manager/state.json"
-# Keep the manual package tree faithful to Package/zapret2-manager/install:
-# upstream owns nfqws2 but its persisted argv references these two inputs.
-install -m 0644 "$REPO/zapret2-manager/files/etc/zapret2-manager/ipset/games.txt" \
-                "$R/etc/zapret2-manager/ipset/games.txt"
-install -m 0644 "$REPO/zapret2-manager/files/etc/zapret2-manager/ipset/steam.txt" \
-                "$R/etc/zapret2-manager/ipset/steam.txt"
-for f in "$REPO/zapret2-manager/files/usr/share/zapret2-manager/presets"/*.txt; do install -m 0644 "$f" "$R/usr/share/zapret2-manager/presets/"; done
-# Backend ucode is enumerated with a GLOB, not a hardcoded list (a per-file
-# list silently drops new modules — the exact defect class the packaging gate
-# covers for the Makefile; this script had it for the manual build).
-for f in "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager"/*.uc; do
-  install -m 0644 "$f" "$R/usr/libexec/zapret2-manager/"
-done
-for f in "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager"/*.sh; do
-  install -m 0755 "$f" "$R/usr/libexec/zapret2-manager/"
-done
-# the declarative list-path model (router-derived manifest consumed by lists.uc)
-install -m 0644 "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/lists-model.json" \
-                "$R/usr/libexec/zapret2-manager/lists-model.json"
-# the Service Catalog dataset (package-owned; the backend fails closed without it)
-mkdir -p "$R/usr/libexec/zapret2-manager/catalog"
-mkdir -p "$R/usr/libexec/zapret2-manager/services"
-install -m 0644 "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/services/discord.json" \
-                "$R/usr/libexec/zapret2-manager/services/discord.json"
-install -m 0644 "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/catalog/services.json" \
-                "$R/usr/libexec/zapret2-manager/catalog/services.json"
-# every catalog dataset file (dns-providers.json today; glob, not a list —
-# a new dataset silently dropped by an enumeration would fail closed on target)
-for f in "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/catalog"/*.json; do
-  install -m 0644 "$f" "$R/usr/libexec/zapret2-manager/catalog/"
-done
+mkdir -p "$R"
+cp -a "$REPO/zapret2-manager/files/." "$R/"
 # rpcd ucode plugin: install WITHOUT extension, matching the on-device `luci`
 # plugin (/usr/share/rpcd/ucode/luci, no .uc). rpcd ucode.so scans the dir and
 # loads each file; keeping .uc would diverge from convention.
@@ -330,33 +297,8 @@ echo "Signing feed index with $SDK/private-key.pem"
 
 # ---- zapret2-manager (rebuild with bundled tg-ws-proxy-rs feed) ----------------
 R="$HOME/z2m-build/root"
-mkdir -p "$R/etc/zapret2-manager/ipset" "$R/usr/libexec/zapret2-manager" \
-         "$R/usr/share/rpcd/ucode" "$R/etc/hotplug.d/iface" "$R/etc/init.d" \
-         "$R/usr/share/zapret2-manager/feed" "$R/etc/zapret2-manager/presets" "$R/usr/share/zapret2-manager/presets"
-install -m 0644 "$REPO/zapret2-manager/files/etc/zapret2-manager/state.json" \
-                "$R/etc/zapret2-manager/state.json"
-install -m 0644 "$REPO/zapret2-manager/files/etc/zapret2-manager/ipset/games.txt" \
-                "$R/etc/zapret2-manager/ipset/games.txt"
-install -m 0644 "$REPO/zapret2-manager/files/etc/zapret2-manager/ipset/steam.txt" \
-                "$R/etc/zapret2-manager/ipset/steam.txt"
-for f in "$REPO/zapret2-manager/files/usr/share/zapret2-manager/presets"/*.txt; do install -m 0644 "$f" "$R/usr/share/zapret2-manager/presets/"; done
-for f in "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager"/*.uc; do
-  install -m 0644 "$f" "$R/usr/libexec/zapret2-manager/"
-done
-for f in "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager"/*.sh; do
-  install -m 0755 "$f" "$R/usr/libexec/zapret2-manager/"
-done
-install -m 0644 "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/lists-model.json" \
-                "$R/usr/libexec/zapret2-manager/lists-model.json"
-mkdir -p "$R/usr/libexec/zapret2-manager/catalog"
-mkdir -p "$R/usr/libexec/zapret2-manager/services"
-install -m 0644 "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/services/discord.json" \
-                "$R/usr/libexec/zapret2-manager/services/discord.json"
-install -m 0644 "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/catalog/services.json" \
-                "$R/usr/libexec/zapret2-manager/catalog/services.json"
-for f in "$REPO/zapret2-manager/files/usr/libexec/zapret2-manager/catalog"/*.json; do
-  install -m 0644 "$f" "$R/usr/libexec/zapret2-manager/catalog/"
-done
+mkdir -p "$R"
+cp -a "$REPO/zapret2-manager/files/." "$R/"
 install -m 0644 "$REPO/zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc" \
                 "$R/usr/share/rpcd/ucode/zapret2-manager"
 install -m 0755 "$REPO/zapret2-manager/files/etc/hotplug.d/iface/90-zapret2-manager" \
