@@ -132,6 +132,15 @@ function expectCommitUnknown(run, requestId = 'req-1') {
   assert.equal(run.response?.error?.stage, 'directory_fsync');
 }
 
+function expectAtomicFailure(run, status, code, committed, durability, stage, requestId = 'req-1') {
+  assert.equal(run.status, status, run.stderr || run.stdout);
+  assert.equal(run.response?.requestId, requestId);
+  assert.equal(run.response?.error?.code, code);
+  assert.equal(run.response?.error?.committed, committed);
+  assert.equal(run.response?.error?.durability, durability);
+  assert.equal(run.response?.error?.stage, stage);
+}
+
 function expectFailure(run, status, code, requestId = 'req-1', context = '') {
   assert.equal(run.status, status, `${context}: ${run.stderr || run.stdout}`);
   assert.ok(run.stdout.endsWith('\n'));
@@ -1162,12 +1171,41 @@ test('atomic_write detects target and parent races without overwriting unexpecte
   const targetRace = spawnInvoke(request('atomic_write', atomicArgs('staging', 'atomic-cas', Buffer.from('new')), 'atomic-cas'), { env: { Z2M_TEST_ATOMIC_STOP_BEFORE_CAS: '1' } });
   const targetResult = collect(targetRace); const targetPid = await waitStopped(targetRace);
   shell(`mv '${base}/atomic-cas' '${base}/atomic-cas-old'; mv '${base}/atomic-cas-ready' '${base}/atomic-cas'; kill -CONT ${targetPid}`);
-  expectFailure(await targetResult, 4, 'EIO', 'atomic-cas'); assert.equal(wsl(['cat', `${base}/atomic-cas`]).stdout, 'foreign');
+  expectAtomicFailure(await targetResult, 4, 'ECONFLICT', false, 'unchanged', 'precondition', 'atomic-cas'); assert.equal(wsl(['cat', `${base}/atomic-cas`]).stdout, 'foreign');
   shell(`mkdir -m 0700 '${base}/atomic-parent'; mkdir -m 0700 '${testRoot}/atomic-outside'`);
   const parentRace = spawnInvoke(request('atomic_write', atomicArgs('staging', 'atomic-parent/file', Buffer.from('new')), 'atomic-parent'), { env: { Z2M_TEST_ATOMIC_STOP_BEFORE_CREATE: '1' } });
   const parentResult = collect(parentRace); const parentPid = await waitStopped(parentRace);
   shell(`mv '${base}/atomic-parent' '${base}/atomic-parent-old'; ln -s '${testRoot}/atomic-outside' '${base}/atomic-parent'; kill -CONT ${parentPid}`);
   assert.notEqual((await parentResult).status, 0); assert.equal(wsl(['test', '-e', `${testRoot}/atomic-outside/file`]).status, 1);
+
+  shell(`mkdir -m 0700 '${base}/atomic-parent-final'`);
+  const finalParentRace = spawnInvoke(request('atomic_write', atomicArgs('staging', 'atomic-parent-final/file', Buffer.from('new')), 'atomic-parent-final'), {
+    env: { Z2M_TEST_ATOMIC_STOP_BEFORE_CAS: '1' }
+  });
+  const finalParentResult = collect(finalParentRace); const finalParentPid = await waitStopped(finalParentRace);
+  shell(`mv '${base}/atomic-parent-final' '${base}/atomic-parent-final-old'; ln -s '${testRoot}/atomic-outside' '${base}/atomic-parent-final'; kill -CONT ${finalParentPid}`);
+  assert.notEqual((await finalParentResult).status, 0);
+  assert.equal(wsl(['test', '-e', `${testRoot}/atomic-outside/file`]).status, 1);
+});
+
+test('atomic_write protects absent publication with RENAME_NOREPLACE but replaces a revalidated existing target', async () => {
+  const base = `${testRoot}/${roots.staging}`;
+  const absent = spawnInvoke(request('atomic_write', atomicArgs('staging', 'atomic-appeared', Buffer.from('new')), 'appeared'), {
+    env: { Z2M_TEST_ATOMIC_STOP_BEFORE_RENAME: '1' }
+  });
+  const absentResult = collect(absent); const absentPid = await waitStopped(absent);
+  shell(`printf foreign > '${base}/atomic-appeared'; chmod 0600 '${base}/atomic-appeared'; kill -CONT ${absentPid}`);
+  expectAtomicFailure(await absentResult, 4, 'ECONFLICT', false, 'unchanged', 'precondition', 'appeared');
+  assert.equal(wsl(['cat', `${base}/atomic-appeared`]).stdout, 'foreign');
+
+  write('staging', 'atomic-existing-ruled', 'old');
+  const existing = spawnInvoke(request('atomic_write', atomicArgs('staging', 'atomic-existing-ruled', Buffer.from('new'), false), 'existing'), {
+    env: { Z2M_TEST_ATOMIC_STOP_BEFORE_RENAME: '1' }
+  });
+  const existingResult = collect(existing); const existingPid = await waitStopped(existing);
+  shell(`kill -CONT ${existingPid}`);
+  expectAtomicSuccess(await existingResult, 3, 'tmpfs_visible');
+  assert.equal(wsl(['cat', `${base}/atomic-existing-ruled`]).stdout, 'new');
 });
 
 test('atomic_write never modifies, deletes, or publishes a replaced candidate', async () => {
@@ -1192,7 +1230,7 @@ test('atomic_write bounds candidate collisions and treats cleanup ambiguity as u
   const uncertain = invoke(request('atomic_write', atomicArgs('staging', 'atomic-cleanup-unknown', Buffer.from('x')), 'cleanup-unknown'), {
     env: { Z2M_TEST_ATOMIC_WRITE_ERROR: '1', Z2M_TEST_ATOMIC_CLEANUP_AMBIGUOUS: '1' }
   });
-  expectCommitUnknown(uncertain, 'cleanup-unknown');
+  expectAtomicFailure(uncertain, 4, 'ECLEANUPUNKNOWN', false, 'unchanged', 'candidate_cleanup', 'cleanup-unknown');
 
   const holder = spawnInvoke(request('atomic_write', atomicArgs('persistent_state', 'atomic-cleanup-lock', Buffer.from('x')), 'cleanup-lock'), {
     env: { Z2M_TEST_ATOMIC_WRITE_ERROR: '1', Z2M_TEST_ATOMIC_STOP_AFTER_CLEANUP: '1' }
@@ -1200,6 +1238,71 @@ test('atomic_write bounds candidate collisions and treats cleanup ambiguity as u
   const result = collect(holder); const pid = await waitStopped(holder);
   expectFailure(invoke(request('mkdir_private', mkdirArgs('persistent_state', 'atomic-cleanup-contender'), 'cleanup-contender')), 5, 'ELOCKED', 'cleanup-contender');
   shell(`kill -CONT ${pid}`); expectFailure(await result, 4, 'EIO', 'cleanup-lock');
+});
+
+test('atomic_write distinguishes proven cleanup, cleanup uncertainty, and publication uncertainty', () => {
+  const base = `${testRoot}/${roots.persistent_state}`;
+  write('persistent_state', 'atomic-clean-state', 'old');
+  const clean = invoke(request('atomic_write', atomicArgs('persistent_state', 'atomic-clean-state', Buffer.from('new')), 'clean-state'), {
+    env: { Z2M_TEST_ATOMIC_CHOWN_ERROR: '1' }
+  });
+  expectAtomicFailure(clean, 4, 'EIO', false, 'unchanged', 'write', 'clean-state');
+  assert.equal(wsl(['cat', `${base}/atomic-clean-state`]).stdout, 'old');
+
+  write('persistent_state', 'atomic-unclean-state', 'old');
+  const unclean = invoke(request('atomic_write', atomicArgs('persistent_state', 'atomic-unclean-state', Buffer.from('new')), 'unclean-state'), {
+    env: { Z2M_TEST_ATOMIC_CHMOD_ERROR: '1', Z2M_TEST_ATOMIC_CLEANUP_AMBIGUOUS: '1' }
+  });
+  expectAtomicFailure(unclean, 4, 'ECLEANUPUNKNOWN', false, 'unchanged', 'candidate_cleanup', 'unclean-state');
+  assert.equal(wsl(['cat', `${base}/atomic-unclean-state`]).stdout, 'old');
+
+  const published = invoke(request('atomic_write', atomicArgs('persistent_state', 'atomic-published-state', Buffer.from('new')), 'published-state'), {
+    env: { Z2M_TEST_ATOMIC_FAULT: 'after_rename' }
+  });
+  expectCommitUnknown(published, 'published-state');
+});
+
+test('atomic_write validates existing and published final target mount identity', (t) => {
+  const base = `${testRoot}/${roots.staging}`;
+  const source = `${testRoot}/atomic-file-mount-source`;
+  shell(`printf source > '${source}'; chmod 0600 '${source}'; printf target > '${base}/atomic-file-mount'; chmod 0600 '${base}/atomic-file-mount'`);
+  const mounted = wsl(['mount', '--bind', source, `${base}/atomic-file-mount`]);
+  if (mounted.status !== 0) { t.skip(`file bind mount unavailable: ${mounted.stderr.trim()}`); return; }
+  try { expectFailure(invoke(request('atomic_write', atomicArgs('staging', 'atomic-file-mount', Buffer.from('new')))), 4, 'EXDEV'); }
+  finally { shell(`umount '${base}/atomic-file-mount'`); }
+  const finalMount = invoke(request('atomic_write', atomicArgs('staging', 'atomic-final-mount-hook', Buffer.from('new'))), {
+    env: { Z2M_TEST_ATOMIC_FINAL_MNT_ID_CHANGE: '1' }
+  });
+  expectCommitUnknown(finalMount);
+});
+
+test('atomic_write traces required syscall order and injects direct phase failures', () => {
+  const traced = invoke(request('atomic_write', atomicArgs('persistent_state', 'atomic-order', Buffer.from('new'))), {
+    env: { Z2M_TEST_ATOMIC_TRACE: '1' }
+  });
+  expectAtomicSuccess(traced, 3, 'durable');
+  const phases = [...traced.stderr.matchAll(/atomic-phase=([a-z_]+)/g)].map((match) => match[1]);
+  assert.deepEqual(phases, ['write', 'fchown', 'fchmod', 'file_fsync', 'candidate_stat', 'candidate_name', 'cas', 'rename', 'parent_fsync', 'final_verify', 'response']);
+  for (const [hook, stage] of [['Z2M_TEST_ATOMIC_CHOWN_ERROR', 'write'], ['Z2M_TEST_ATOMIC_CHMOD_ERROR', 'write'],
+    ['Z2M_TEST_ATOMIC_CANDIDATE_STAT_ERROR', 'candidate_cleanup'], ['Z2M_TEST_ATOMIC_CANDIDATE_NAME_ERROR', 'object_open'],
+    ['Z2M_TEST_ATOMIC_RENAME_ERROR', 'rename'], ['Z2M_TEST_ATOMIC_RESPONSE_PREPARE_ERROR', 'response_encode']]) {
+    const name = `atomic-direct-${hook.toLowerCase()}`;
+    const run = invoke(request('atomic_write', atomicArgs('persistent_state', name, Buffer.from('new'))), { env: { [hook]: '1' } });
+    const cleanupUnknown = hook.includes('CANDIDATE_STAT');
+    expectAtomicFailure(run, hook.includes('RESPONSE') ? 70 : 4, hook.includes('RESPONSE') ? 'EINTERNAL' : (cleanupUnknown ? 'ECLEANUPUNKNOWN' : 'EIO'),
+      hook.includes('RESPONSE') ? null : false, hook.includes('RESPONSE') ? 'not_applicable' : 'unchanged', stage);
+    assert.equal(wsl(['test', '-e', `${testRoot}/${roots.persistent_state}/${name}`]).status, 1);
+  }
+});
+
+test('atomic_write gives exit 74 transport truth after publication and leaves recovery to reread', () => {
+  const target = `${testRoot}/${roots.runtime}/atomic-broken-stdout`;
+  const run = invoke(request('atomic_write', atomicArgs('runtime', 'atomic-broken-stdout', Buffer.from('published'))), {
+    env: { Z2M_TEST_STDOUT_FAIL_AFTER: '8' }
+  });
+  assert.equal(run.status, 74);
+  assert.equal(run.response, null);
+  assert.equal(wsl(['cat', target]).stdout, 'published');
 });
 
 test('atomic_write classifies persistent durability and final replacement honestly while tmpfs stays visibility-only', async () => {

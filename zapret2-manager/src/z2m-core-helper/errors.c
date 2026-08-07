@@ -30,6 +30,8 @@ static const struct error_info errors[] = {
 	{"EXDEV", "Mount or root boundary crossing was refused.", false, NULL, "unchanged", 4},
 	{"ETOOBIG", "Managed object exceeds the operation or root limit.", false, NULL, "unchanged", 4},
 	{"EIO", "Filesystem operation failed.", false, NULL, "unchanged", 4},
+	{"ECONFLICT", "Managed object precondition changed.", false, NULL, "unchanged", 4},
+	{"ECLEANUPUNKNOWN", "Candidate cleanup could not be proven.", false, NULL, "unchanged", 4},
 	{"ELOCKED", "Lock is held by another operation.", true, NULL, "unchanged", 5},
 	{"ECOMMITUNKNOWN", "Commit may be visible but durability is unknown.", false, NULL, "unknown", 6},
 	{"EINTERNAL", "Helper failed internally.", false, NULL, "not_applicable", 70},
@@ -95,7 +97,7 @@ static bool write_all(const char *wire, size_t length)
 	return true;
 }
 
-static int emit(json_object *response, int exit_code)
+int z2m_emit_prepared(json_object *response, int exit_code)
 {
 	const char *wire;
 	if (response == NULL) { fprintf(stderr,"z2m-core-helper: response allocation failed\n"); return 74; }
@@ -123,9 +125,9 @@ int z2m_fail(const char *request_id, const char *code, const char *stage)
 	for (i = 0; i < sizeof(errors) / sizeof(errors[0]); i++)
 		if (strcmp(errors[i].code, code) == 0)
 			info = &errors[i];
-	if (info == NULL) info = &errors[16];
+	if (info == NULL) info = &errors[18];
 #ifdef Z2M_TESTING
-	if (getenv("Z2M_TEST_UNKNOWN_ERROR") != NULL) { info = &errors[16]; stage = "response_encode"; }
+	if (getenv("Z2M_TEST_UNKNOWN_ERROR") != NULL) { info = &errors[18]; stage = "response_encode"; }
 #endif
 	response=z2m_json_object(); error=z2m_json_object();
 	if (!z2m_json_add(response,"protocolVersion",z2m_json_int(1)) ||
@@ -145,21 +147,28 @@ int z2m_fail(const char *request_id, const char *code, const char *stage)
 		fprintf(stderr,"z2m-core-helper: response allocation failed\n"); return 74;
 	}
 	fprintf(stderr, "z2m-core-helper: %s at %s\n", info->code, stage);
-	return emit(response, info->exit_code);
+	return z2m_emit_prepared(response, info->exit_code);
 }
 
-int z2m_success(const char *request_id, json_object *data)
+json_object *z2m_prepare_success(const char *request_id, json_object *data)
 {
 	json_object *response = z2m_json_object();
 	if (!z2m_json_add(response,"protocolVersion",z2m_json_int(1)) ||
 	    !z2m_json_add(response,"requestId",z2m_json_string(request_id)) ||
 	    !z2m_json_add(response,"ok",z2m_json_bool(true))) {
 		json_object_put(data); json_object_put(response);
-		return z2m_fail(request_id,"EINTERNAL","response_encode");
+		return NULL;
 	}
 	if (!z2m_json_add(response,"data",data)) {
 		json_object_put(response);
-		return z2m_fail(request_id,"EINTERNAL","response_encode");
+		return NULL;
 	}
-	return emit(response, 0);
+	return response;
+}
+
+int z2m_success(const char *request_id, json_object *data)
+{
+	json_object *response=z2m_prepare_success(request_id,data);
+	if(response==NULL)return z2m_fail(request_id,"EINTERNAL","response_encode");
+	return z2m_emit_prepared(response,0);
 }

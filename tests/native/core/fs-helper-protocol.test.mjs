@@ -309,7 +309,7 @@ test('errors are stable, bounded, and map to one exit category', () => {
   const expectedCodes = [
     'EMALFORMED', 'ESCHEMA', 'EREQUESTTOOBIG', 'EDENIED', 'EROOT', 'EPATH',
     'EUNSUPPORTED', 'ECAPABILITY', 'ENOENT', 'ENOTREG', 'ESYMLINK', 'EXDEV', 'ETOOBIG', 'EIO',
-    'ELOCKED', 'ETIMEOUT', 'EOWNERSHIP', 'ECOMMITUNKNOWN', 'EINTERNAL',
+    'ECONFLICT', 'ECLEANUPUNKNOWN', 'ELOCKED', 'ETIMEOUT', 'EOWNERSHIP', 'ECOMMITUNKNOWN', 'EINTERNAL',
     'EINCOMPLETE'
   ];
   assert.deepEqual(sorted(Object.keys(value.errors)), sorted(expectedCodes));
@@ -338,6 +338,14 @@ test('errors are stable, bounded, and map to one exit category', () => {
     durability: 'unknown',
     allowedExitCategories: ['commit_uncertain'],
     allowedStages: ['directory_fsync']
+  });
+  assert.deepEqual(value.errors.ECLEANUPUNKNOWN, {
+    message: 'Candidate cleanup could not be proven.', retryable: false, committed: false,
+    durability: 'unchanged', allowedExitCategories: ['filesystem_failure'], allowedStages: ['candidate_cleanup']
+  });
+  assert.deepEqual(value.errors.ECONFLICT, {
+    message: 'Managed object precondition changed.', retryable: false, committed: false,
+    durability: 'unchanged', allowedExitCategories: ['filesystem_failure'], allowedStages: ['precondition']
   });
   assert.ok(value.envelopes.failure.properties.error.required.includes('stage'));
   assert.deepEqual(value.envelopes.failure.properties.error.properties.stage,
@@ -386,7 +394,7 @@ test('ucode mapping supplies generation and closes helper and transport failures
         EDENIED: 'EINPUT', EROOT: 'EDEPENDENCY', EPATH: 'EINPUT',
         EUNSUPPORTED: 'EDEPENDENCY', ECAPABILITY: 'EDEPENDENCY', ENOENT: 'EDEPENDENCY', ENOTREG: 'EDEPENDENCY',
         ESYMLINK: 'EDEPENDENCY', EXDEV: 'EDEPENDENCY', ETOOBIG: 'EINPUT', EIO: 'EDEPENDENCY',
-        ELOCKED: 'ELOCKED', ETIMEOUT: 'ELOCKED', EOWNERSHIP: 'EOWNERSHIP',
+        ECONFLICT: 'ECONFLICT', ECLEANUPUNKNOWN: 'EAPPLY', ELOCKED: 'ELOCKED', ETIMEOUT: 'ELOCKED', EOWNERSHIP: 'EOWNERSHIP',
         ECOMMITUNKNOWN: 'EAPPLY', EINTERNAL: 'EINTERNAL', EINCOMPLETE: 'EDEPENDENCY'
       },
       details: {
@@ -398,6 +406,7 @@ test('ucode mapping supplies generation and closes helper and transport failures
       callerArgumentsRejectedBeforeInvocation: 'EINPUT',
       helperUnavailableOrTransportFailure: 'EDEPENDENCY',
       missingOrIncompleteResponse: 'EDEPENDENCY',
+      mutationMissingOrIncompleteResponse: { code: 'EDEPENDENCY', commitState: 'unknown', automaticRetry: false, recovery: 'reread_reconcile' },
       malformedResponse: 'EINTERNAL',
       protocolVersionMismatch: 'EINTERNAL',
       missingRequestIdAfterValidation: 'EINTERNAL',

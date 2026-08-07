@@ -33,6 +33,8 @@ struct z2m_request {
 
 int z2m_fail(const char *request_id, const char *code, const char *stage);
 int z2m_success(const char *request_id, json_object *data);
+json_object *z2m_prepare_success(const char *request_id, json_object *data);
+int z2m_emit_prepared(json_object *response, int exit_code);
 int z2m_read_request(struct z2m_request *request);
 void z2m_request_free(struct z2m_request *request);
 bool z2m_reserved_schema_valid(const struct z2m_request *request);

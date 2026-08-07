@@ -2,6 +2,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <linux/fs.h>
 #include <linux/stat.h>
 #include <signal.h>
 #include <stdio.h>
@@ -45,6 +46,17 @@ static int open_parent(int root,const char *path,uint64_t root_mount,const char 
 static bool regular_policy(const struct stat *st)
 {return S_ISREG(st->st_mode)&&st->st_uid==0&&st->st_gid==0&&(st->st_mode&07777)==0600;}
 
+static const char *target_code(const struct stat *st);
+
+static int verified_regular(int fd,uint64_t root_mount,struct stat *st,const char **code,bool final)
+{uint64_t id;if(fstat(fd,st)<0){*code="EIO";return -1;}if(!regular_policy(st)){*code=target_code(st);return -1;}if(mount_id(fd,&id)<0){*code="ECAPABILITY";return -1;}
+#ifdef Z2M_TESTING
+	if(final&&getenv("Z2M_TEST_ATOMIC_FINAL_MNT_ID_CHANGE")!=NULL)id=root_mount+1;
+#else
+	(void)final;
+#endif
+	if(id!=root_mount){*code="EXDEV";return -1;}return 0;}
+
 static const char *target_code(const struct stat *st)
 {if(S_ISLNK(st->st_mode))return "ESYMLINK";if(S_ISCHR(st->st_mode)||S_ISBLK(st->st_mode))return "EDENIED";if(!S_ISREG(st->st_mode))return "ENOTREG";return "EDENIED";}
 
@@ -82,6 +94,15 @@ static bool fault(const char *phase)
 #endif
 }
 
+static void trace(const char *phase)
+{
+#ifdef Z2M_TESTING
+	if(getenv("Z2M_TEST_ATOMIC_TRACE")!=NULL)fprintf(stderr,"z2m-core-helper: atomic-phase=%s\n",phase);
+#else
+	(void)phase;
+#endif
+}
+
 static bool directory_fsync_error(void)
 {
 #ifdef Z2M_TESTING
@@ -114,24 +135,48 @@ static unsigned char decode_char(unsigned char c)
 static unsigned char *decode(const char *wire,size_t *length)
 {size_t n=strlen(wire),padding=n?(wire[n-1]=='=')+(n>1&&wire[n-2]=='='):0,o=0;*length=n/4*3-padding;unsigned char *out=malloc(*length?*length:1);if(out==NULL)return NULL;for(size_t i=0;i<n;i+=4){unsigned int v=(decode_char(wire[i])<<18)|(decode_char(wire[i+1])<<12)|((wire[i+2]=='='?0:decode_char(wire[i+2]))<<6)|(wire[i+3]=='='?0:decode_char(wire[i+3]));if(o<*length)out[o++]=(unsigned char)(v>>16);if(o<*length)out[o++]=(unsigned char)(v>>8);if(o<*length)out[o++]=(unsigned char)v;}return out;}
 
-static int success(const struct z2m_request *r,size_t length,const char *durability)
-{json_object *data=z2m_json_object();if(!z2m_json_add(data,"byteLength",z2m_json_int((int64_t)length))||!z2m_json_add(data,"committed",z2m_json_bool(true))||!z2m_json_add(data,"durability",z2m_json_string(durability))){json_object_put(data);return fail(r,"EINTERNAL","response_encode");}return z2m_success(r->request_id,data);}
+static json_object *prepare_success(const struct z2m_request *r,size_t length,const char *durability)
+{json_object *data=z2m_json_object();if(!z2m_json_add(data,"byteLength",z2m_json_int((int64_t)length))||!z2m_json_add(data,"committed",z2m_json_bool(true))||!z2m_json_add(data,"durability",z2m_json_string(durability))){json_object_put(data);return NULL;}return z2m_prepare_success(r->request_id,data);}
 
 int z2m_atomic_write(const struct z2m_request *r,const struct z2m_root *root,int root_fd,uint64_t root_mount)
 {
-	json_object *path_value,*content_value,*create_value;const char *path,*wire,*code=NULL,*pending_code=NULL,*pending_stage=NULL;bool allow_create,had_target=false,published=false;char *copy,*name,*slash,parent_path[4097],candidate[44]={0};unsigned char *content=NULL;size_t length=0,written=0;int parent=-1,check=-1,target=-1,fd=-1,final=-1,result;struct stat parent_st,check_st,target_st,current_st,created,fd_st,final_st;
+	json_object *path_value,*content_value,*create_value,*prepared=NULL;const char *path,*wire,*code=NULL,*pending_code=NULL,*pending_stage=NULL;bool allow_create,had_target=false,published=false;char *copy,*name,*slash,parent_path[4097],candidate[44]={0};unsigned char *content=NULL;size_t length=0,written=0;int parent=-1,check=-1,target=-1,fd=-1,final=-1,result;struct stat parent_st,check_st,target_st,current_st,created,fd_st,final_st;
 	json_object_object_get_ex(r->arguments,"path",&path_value);json_object_object_get_ex(r->arguments,"content",&content_value);json_object_object_get_ex(r->arguments,"allowCreate",&create_value);path=json_object_get_string(path_value);wire=json_object_get_string(content_value);allow_create=json_object_get_boolean(create_value);if(!z2m_path_valid(path,root->max_depth))return fail(r,"EPATH","path_validate");content=decode(wire,&length);if(content==NULL)return fail(r,"EIO","write");
-	copy=strdup(path);if(copy==NULL){free(content);return fail(r,"EIO","object_open");}slash=strrchr(copy,'/');if(slash==NULL){parent_path[0]='\0';name=copy;}else{*slash='\0';strcpy(parent_path,copy);name=slash+1;}
-	parent=open_parent(root_fd,parent_path,root_mount,&code);if(parent<0){free(copy);free(content);return fail(r,code,strcmp(code,"EDENIED")==0?"policy":(strcmp(code,"ENOTREG")==0?"object_verify":"path_resolve"));}if(fstat(parent,&parent_st)<0){result=fail(r,"EIO","object_open");goto done;}
-	target=openat(parent,name,O_RDONLY|O_NOFOLLOW|O_NONBLOCK|O_CLOEXEC);if(target>=0){had_target=true;if(fstat(target,&target_st)<0){result=fail(r,"EIO","stat");goto done;}if(!regular_policy(&target_st)){code=target_code(&target_st);result=fail(r,code,strcmp(code,"EDENIED")==0?"policy":"object_verify");goto done;}close(target);target=-1;}else if(errno==ELOOP){result=fail(r,"ESYMLINK","object_open");goto done;}else if(errno!=ENOENT){struct stat st;if(fstatat(parent,name,&st,AT_SYMLINK_NOFOLLOW)==0){code=target_code(&st);result=fail(r,code,strcmp(code,"EDENIED")==0?"policy":"object_verify");}else result=fail(r,entry_code(parent,name,errno),"object_open");goto done;}else if(!allow_create){result=fail(r,"ENOENT","object_open");goto done;}
+	copy=strdup(path);if(copy==NULL){free(content);return fail(r,"EIO","object_open");}
+#ifdef Z2M_TESTING
+	if(getenv("Z2M_TEST_ATOMIC_RESPONSE_PREPARE_ERROR")!=NULL){free(copy);free(content);return fail(r,"EINTERNAL","response_encode");}
+#endif
+	prepared=prepare_success(r,length,root->directory_fsync?"durable":"tmpfs_visible");if(prepared==NULL){free(copy);free(content);return fail(r,"EINTERNAL","response_encode");}slash=strrchr(copy,'/');if(slash==NULL){parent_path[0]='\0';name=copy;}else{*slash='\0';strcpy(parent_path,copy);name=slash+1;}
+	parent=open_parent(root_fd,parent_path,root_mount,&code);if(parent<0){result=fail(r,code,strcmp(code,"EDENIED")==0?"policy":(strcmp(code,"ENOTREG")==0?"object_verify":"path_resolve"));goto done;}if(fstat(parent,&parent_st)<0){result=fail(r,"EIO","object_open");goto done;}
+	target=openat(parent,name,O_RDONLY|O_NOFOLLOW|O_NONBLOCK|O_CLOEXEC);if(target>=0){had_target=true;if(verified_regular(target,root_mount,&target_st,&code,false)<0){result=fail(r,code,strcmp(code,"EDENIED")==0?"policy":(strcmp(code,"EXDEV")==0||strcmp(code,"ECAPABILITY")==0?"path_resolve":"object_verify"));goto done;}close(target);target=-1;}else if(errno==ELOOP){result=fail(r,"ESYMLINK","object_open");goto done;}else if(errno!=ENOENT){struct stat st;if(fstatat(parent,name,&st,AT_SYMLINK_NOFOLLOW)==0){code=target_code(&st);result=fail(r,code,strcmp(code,"EDENIED")==0?"policy":"object_verify");}else result=fail(r,entry_code(parent,name,errno),"object_open");goto done;}else if(!allow_create){result=fail(r,"ENOENT","object_open");goto done;}
 	gate("Z2M_TEST_ATOMIC_STOP_BEFORE_CREATE",NULL);if(fault("before_create")){result=fail(r,"EIO","object_open");goto done;}check=open_parent(root_fd,parent_path,root_mount,&code);if(check<0||fstat(check,&check_st)<0||!same_inode(&parent_st,&check_st)){if(check>=0)close(check);check=-1;result=fail(r,"EIO","object_open");goto done;}close(check);check=-1;
 	for(unsigned int attempt=0;;attempt++){if(attempt==8||candidate_name(candidate)<0){result=fail(r,"EIO","object_open");goto done;}fd=openat(parent,candidate,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);if(fd>=0)break;if(errno!=EEXIST){result=fail(r,open_code(errno),"object_open");goto done;}if(fstatat(parent,candidate,&current_st,AT_SYMLINK_NOFOLLOW)<0||!S_ISREG(current_st.st_mode)){result=fail(r,"EIO","object_open");goto done;}}
-	if(fstat(fd,&created)<0||!S_ISREG(created.st_mode)){result=fail(r,"ECOMMITUNKNOWN","directory_fsync");goto done;}gate("Z2M_TEST_ATOMIC_STOP_AFTER_CREATE",candidate);if(fault("after_create")||fault("before_write")){pending_code="EIO";pending_stage="write";goto clean;}
-	while(written<length){ssize_t n=write_data(fd,content+written,length-written);if(n<0&&errno==EINTR)continue;if(n<=0){pending_code="EIO";pending_stage="write";goto clean;}written+=(size_t)n;}if(fault("after_write")||fault("before_chown")){pending_code="EIO";pending_stage="write";goto clean;}if(fchown(fd,0,0)<0){pending_code="EIO";pending_stage="write";goto clean;}if(fault("after_chown")||fault("before_chmod")){pending_code="EIO";pending_stage="write";goto clean;}if(fchmod(fd,0600)<0){pending_code="EIO";pending_stage="write";goto clean;}if(fault("after_chmod")||fault("before_file_fsync")){pending_code="EIO";pending_stage="file_fsync";goto clean;}if(fsync(fd)<0){pending_code="EIO";pending_stage="file_fsync";goto clean;}if(fault("after_file_fsync")||fault("before_candidate_verify")){pending_code="EIO";pending_stage="file_fsync";goto clean;}if(fstat(fd,&fd_st)<0||!same_inode(&created,&fd_st)||!regular_policy(&fd_st)||fd_st.st_size!=(off_t)length||!named_candidate(parent,candidate,&created)){pending_code="EIO";pending_stage="object_open";goto clean;}if(fault("after_candidate_verify")||fault("before_cas")){pending_code="EIO";pending_stage="object_open";goto clean;}
-	gate("Z2M_TEST_ATOMIC_STOP_BEFORE_CAS",candidate);check=open_parent(root_fd,parent_path,root_mount,&code);if(check<0||fstat(check,&check_st)<0||!same_inode(&parent_st,&check_st)){if(check>=0)close(check);check=-1;pending_code="EIO";pending_stage="object_open";goto clean;}if(fstatat(check,name,&current_st,AT_SYMLINK_NOFOLLOW)==0){if(!had_target||!same_inode(&target_st,&current_st)||!regular_policy(&current_st)){pending_code="EIO";pending_stage="object_open";goto clean;}}else if(errno!=ENOENT||had_target){pending_code="EIO";pending_stage="object_open";goto clean;}if(!named_candidate(parent,candidate,&created)){result=fail(r,"ECOMMITUNKNOWN","directory_fsync");goto done;}if(fault("after_cas")||fault("before_rename")){pending_code="EIO";pending_stage="rename";goto clean;}if(renameat(parent,candidate,check,name)<0){pending_code="EIO";pending_stage="rename";goto clean;}published=true;candidate[0]='\0';close(check);check=-1;if(fault("after_rename")||fault("before_parent_fsync")){result=fail(r,"ECOMMITUNKNOWN","directory_fsync");goto done;}if(root->directory_fsync){if(directory_fsync_error()||fsync(parent)<0){result=fail(r,"ECOMMITUNKNOWN","directory_fsync");goto done;}}if(fault("after_parent_fsync")||fault("before_final_verify")){result=fail(r,"ECOMMITUNKNOWN","directory_fsync");goto done;}
-	gate("Z2M_TEST_ATOMIC_STOP_BEFORE_FINAL_VERIFY",NULL);final=open_parent(root_fd,parent_path,root_mount,&code);if(final<0){result=fail(r,"ECOMMITUNKNOWN","directory_fsync");goto done;}target=openat(final,name,O_RDONLY|O_NOFOLLOW|O_NONBLOCK|O_CLOEXEC);if(target<0||fstat(target,&final_st)<0||!same_inode(&created,&final_st)||!regular_policy(&final_st)||final_st.st_size!=(off_t)length){result=fail(r,"ECOMMITUNKNOWN","directory_fsync");goto done;}if(fault("after_final_verify")){result=fail(r,"ECOMMITUNKNOWN","directory_fsync");goto done;}result=success(r,length,root->directory_fsync?"durable":"tmpfs_visible");goto done;
+	if(
+#ifdef Z2M_TESTING
+	   getenv("Z2M_TEST_ATOMIC_CANDIDATE_STAT_ERROR")!=NULL||
+#endif
+	   fstat(fd,&created)<0||!S_ISREG(created.st_mode)){result=fail(r,"ECLEANUPUNKNOWN","candidate_cleanup");candidate[0]='\0';goto done;}gate("Z2M_TEST_ATOMIC_STOP_AFTER_CREATE",candidate);if(fault("after_create")||fault("before_write")){pending_code="EIO";pending_stage="write";goto clean;}
+	trace("write");while(written<length){ssize_t n=write_data(fd,content+written,length-written);if(n<0&&errno==EINTR)continue;if(n<=0){pending_code="EIO";pending_stage="write";goto clean;}written+=(size_t)n;}if(fault("after_write")||fault("before_chown")){pending_code="EIO";pending_stage="write";goto clean;}trace("fchown");if(
+#ifdef Z2M_TESTING
+	   getenv("Z2M_TEST_ATOMIC_CHOWN_ERROR")!=NULL||
+#endif
+	   fchown(fd,0,0)<0){pending_code="EIO";pending_stage="write";goto clean;}if(fault("after_chown")||fault("before_chmod")){pending_code="EIO";pending_stage="write";goto clean;}trace("fchmod");if(
+#ifdef Z2M_TESTING
+	   getenv("Z2M_TEST_ATOMIC_CHMOD_ERROR")!=NULL||
+#endif
+	   fchmod(fd,0600)<0){pending_code="EIO";pending_stage="write";goto clean;}if(fault("after_chmod")||fault("before_file_fsync")){pending_code="EIO";pending_stage="file_fsync";goto clean;}trace("file_fsync");if(fsync(fd)<0){pending_code="EIO";pending_stage="file_fsync";goto clean;}if(fault("after_file_fsync")||fault("before_candidate_verify")){pending_code="EIO";pending_stage="file_fsync";goto clean;}trace("candidate_stat");if(fstat(fd,&fd_st)<0||!same_inode(&created,&fd_st)||!regular_policy(&fd_st)||fd_st.st_size!=(off_t)length){pending_code="EIO";pending_stage="object_open";goto clean;}trace("candidate_name");if(
+#ifdef Z2M_TESTING
+	   getenv("Z2M_TEST_ATOMIC_CANDIDATE_NAME_ERROR")!=NULL||
+#endif
+	   !named_candidate(parent,candidate,&created)){pending_code="EIO";pending_stage="object_open";goto clean;}if(fault("after_candidate_verify")||fault("before_cas")){pending_code="EIO";pending_stage="object_open";goto clean;}
+	gate("Z2M_TEST_ATOMIC_STOP_BEFORE_CAS",candidate);check=open_parent(root_fd,parent_path,root_mount,&code);if(check<0||fstat(check,&check_st)<0||!same_inode(&parent_st,&check_st)){if(check>=0)close(check);check=-1;pending_code="EIO";pending_stage="object_open";goto clean;}trace("cas");if(fstatat(check,name,&current_st,AT_SYMLINK_NOFOLLOW)==0){if(!had_target||!same_inode(&target_st,&current_st)||!regular_policy(&current_st)){pending_code="ECONFLICT";pending_stage="precondition";goto clean;}}else if(errno!=ENOENT||had_target){pending_code="ECONFLICT";pending_stage="precondition";goto clean;}if(!named_candidate(parent,candidate,&created)){pending_code="EIO";pending_stage="object_open";goto clean;}if(fault("after_cas")||fault("before_rename")){pending_code="EIO";pending_stage="rename";goto clean;}gate("Z2M_TEST_ATOMIC_STOP_BEFORE_RENAME",candidate);trace("rename");if(
+#ifdef Z2M_TESTING
+	   getenv("Z2M_TEST_ATOMIC_RENAME_ERROR")!=NULL||
+#endif
+	   syscall(SYS_renameat2,parent,candidate,check,name,had_target?0:RENAME_NOREPLACE)<0){if(!had_target&&errno==EEXIST){pending_code="ECONFLICT";pending_stage="precondition";}else{pending_code="EIO";pending_stage="rename";}goto clean;}published=true;candidate[0]='\0';close(check);check=-1;if(fault("after_rename")||fault("before_parent_fsync")){result=fail(r,"ECOMMITUNKNOWN","directory_fsync");goto done;}if(root->directory_fsync){trace("parent_fsync");if(directory_fsync_error()||fsync(parent)<0){result=fail(r,"ECOMMITUNKNOWN","directory_fsync");goto done;}}if(fault("after_parent_fsync")||fault("before_final_verify")){result=fail(r,"ECOMMITUNKNOWN","directory_fsync");goto done;}
+	gate("Z2M_TEST_ATOMIC_STOP_BEFORE_FINAL_VERIFY",NULL);trace("final_verify");final=open_parent(root_fd,parent_path,root_mount,&code);if(final<0){result=fail(r,"ECOMMITUNKNOWN","directory_fsync");goto done;}target=openat(final,name,O_RDONLY|O_NOFOLLOW|O_NONBLOCK|O_CLOEXEC);if(target<0||verified_regular(target,root_mount,&final_st,&code,true)<0||!same_inode(&created,&final_st)||final_st.st_size!=(off_t)length){result=fail(r,"ECOMMITUNKNOWN","directory_fsync");goto done;}if(fault("after_final_verify")){result=fail(r,"ECOMMITUNKNOWN","directory_fsync");goto done;}trace("response");result=z2m_emit_prepared(prepared,0);prepared=NULL;goto done;
 clean:
-	if(candidate[0]&&cleanup(root,parent,candidate,&created)<0)result=fail(r,"ECOMMITUNKNOWN","directory_fsync");
+	if(candidate[0]&&cleanup(root,parent,candidate,&created)<0)result=fail(r,"ECLEANUPUNKNOWN","candidate_cleanup");
 	else result=fail(r,pending_code,pending_stage);
 	candidate[0]='\0';
 done:
@@ -141,5 +186,6 @@ done:
 	if(target>=0)close(target);
 	if(fd>=0)close(fd);
 	if(parent>=0)close(parent);
+	json_object_put(prepared);
 	free(copy);free(content);return result;
 }

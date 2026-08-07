@@ -174,6 +174,19 @@ schema, framing, or request-size failure; 3 denied operation/root/path/policy;
 4 filesystem/object failure with a complete response; 5 lock contention or
 timeout; 6 commit uncertainty; 70 internal failure; 74 incomplete response.
 
+`ECLEANUPUNKNOWN` is a pre-publication cleanup uncertainty: the intended final
+target definitely was not published, so `committed:false` and
+`durability:unchanged` describe that target, but a helper-owned candidate may
+remain because cleanup absence was not proven. It is distinct from `ECONFLICT`
+(precondition mismatch) and `ECOMMITUNKNOWN` (publication or committed
+durability is uncertain).
+
+For mutation-capable operations, exit 74 or an incomplete/missing helper response
+after invocation is never safe-to-retry evidence. Transport truth takes
+precedence when a complete structured response cannot be delivered. The adapter
+must preserve possible commit uncertainty, reread actual state, and reconcile it
+before deciding whether retry, conflict, or recovered success is appropriate.
+
 The manifest defines stable codes including malformed/schema/size, denied root
 and path, unsupported operation, object/type/link/device failures, lock and
 ownership failures, commit uncertainty, internal failure, and incomplete
