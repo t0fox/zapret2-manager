@@ -6,7 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   SOCKET_PATH, MODULE, brokerResult, buildSendFixture, buildShutdownShim, childExited, invoke,
-  requestFrameBody, responseFrame, shutdownShimEnv, withPeer, withRawPeer, withSendFixture,
+  requestFrameBody, responseFrame, sendShimEnv, shutdownShimEnv, withPeer, withRawPeer,
+  withSendFixture,
 } from './ucode-test-harness.mjs';
 
 after(() => fs.rmSync(SOCKET_PATH, { force: true }));
@@ -26,7 +27,9 @@ async function roundTrip(expression, makeResponse = ({ header }) => childExited(
   let request;
   const result = await withPeer((socket, wire) => {
     request = requestFrameBody(wire);
-    socket.end(makeResponse(request));
+    const response = makeResponse(request);
+    if (response?.wire) socket.end(response.wire, response.onSent);
+    else socket.end(response);
   }, () => invoke(expression, hostTimeout, extraEnv));
   return { result, request };
 }
@@ -414,24 +417,73 @@ test('enforces exact 4096-byte serialized helper details bound including nested 
   assert.equal(invalidUtf8.result.error.automaticRetry, false);
 });
 
-function nestedArrays(depth) {
-  return `${'['.repeat(depth)}0${']'.repeat(depth)}`;
+test('details wire bound applies only to error.details, not unrelated data keys', async () => {
+  const unrelated = 'x'.repeat(5000);
+  const { result } = await roundTrip(`native.atomic_write('runtime', 'x', 'YQ==', true)`, ({ header }) =>
+    childExited(header.requestId,
+      `{"protocolVersion":1,"requestId":"${header.requestId}","ok":true,"data":{"byteLength":1,"committed":true,"durability":"tmpfs_visible","details":"${unrelated}"}}\n`));
+  assert.equal(result.error.commitState, 'unknown');
+  assert.equal(result.error.details.helper.issue, 'envelope');
+});
+
+function nestedObjects(depth, leaf = 0) {
+  let value = leaf;
+  for (let i = 0; i < depth; i++) value = { x: value };
+  return value;
 }
 
-test('scanner enforces exact depth and node budgets before helper JSON collapse', async () => {
-  const envelope = (id, rawData) =>
-    `{"protocolVersion":1,"requestId":"${id}","ok":true,"data":${rawData}}\n`;
-  for (const [depth, issue] of [[15, 'envelope'], [16, 'scan_budget']]) {
-    const { result } = await roundTrip(`native.atomic_write('runtime', 'x', 'YQ==', true)`, ({ header }) =>
-      childExited(header.requestId, envelope(header.requestId, nestedArrays(depth))));
-    assert.equal(result.error.details.helper.issue, issue, `depth ${depth}`);
-  }
-  for (const [nodes, issue] of [[65531, 'envelope'], [65532, 'scan_budget']]) {
-    const raw = `[${Array(nodes).fill('0').join(',')}]`;
-    const { result } = await roundTrip(`native.atomic_write('runtime', 'x', 'YQ==', true)`, ({ header }) =>
-      childExited(header.requestId, envelope(header.requestId, raw)), {}, 20000);
-    assert.equal(result.error.details.helper.issue, issue, `nodes ${nodes}`);
-  }
+test('accepts protocol depth 64 and rejects 65 without invented response node limits', async () => {
+  const validDetails = nestedObjects(62);
+  assert.ok(Buffer.byteLength(JSON.stringify(validDetails)) < 4096);
+  const valid = await roundTrip(`native.atomic_write('runtime', 'x', 'YQ==', true)`, ({ header }) => {
+    return childExited(header.requestId, detailsWire(header.requestId, 'read_regular', validDetails), 4);
+  }, {}, 15000);
+  assert.equal(valid.result.error.details?.helperCode, 'ENOENT', JSON.stringify(valid.result));
+
+  const overDetails = nestedObjects(63);
+  const over = await roundTrip(`native.atomic_write('runtime', 'x', 'YQ==', true)`, ({ header }) => {
+    return childExited(header.requestId, detailsWire(header.requestId, 'atomic_write', overDetails), 4);
+  }, {}, 15000);
+  assert.equal(over.result.error.commitState, 'unknown');
+  assert.equal(over.result.error.details.helper.issue, 'scan_budget');
+
+  const many = Array.from({ length: 1300 }, (_, i) => ({ [`k${i}`]: i }));
+  const allowed = await roundTrip(`native.atomic_write('runtime', 'x', 'YQ==', true)`, ({ header }) =>
+    childExited(header.requestId, `{"protocolVersion":1,"requestId":"${header.requestId}","ok":true,"data":${JSON.stringify(many)}}\n`),
+    {}, 15000);
+  assert.equal(allowed.result.error.details.helper.issue, 'envelope');
+});
+
+test('valid 4 MiB read response validates within a separate CPU bound', async () => {
+  const bytes = Buffer.alloc(4 * 1024 * 1024, 0xa5);
+  const content = bytes.toString('base64');
+  const threshold = process.env.UCODE_ARGS_PIPE ? 30000 : 2500;
+  let sentAt;
+  let started = Date.now();
+  const read = await roundTrip(`(() => {
+    let result = native.read_regular('jobs', 'large.bin', 4194304);
+    return { ok: result.ok, byteLength: result.data?.byteLength, contentLength: length(result.data?.content) };
+  })()`, ({ header }) => {
+    const frame = childExited(header.requestId, success(header.requestId, { content, byteLength: bytes.length }));
+    return { wire: frame, onSent: () => { sentAt = Date.now(); } };
+  }, {}, 60000);
+  const readMs = Date.now() - sentAt;
+  assert.deepEqual(read.result, { ok: true, byteLength: bytes.length, contentLength: content.length });
+  assert.ok(readMs < threshold, `large valid response validation took ${readMs}ms (limit ${threshold}ms)`);
+});
+
+test('worst-case large string rejects within a separate CPU bound', async () => {
+  const threshold = process.env.UCODE_ARGS_PIPE ? 30000 : 2500;
+  const largeUnknown = 'x'.repeat(5 * 1024 * 1024);
+  let sentAt = null;
+  const rejected = await roundTrip(`native.atomic_write('runtime', 'x', 'YQ==', true)`, ({ header }) => ({
+    wire: childExited(header.requestId,
+      `{"protocolVersion":1,"requestId":"${header.requestId}","ok":true,"data":{"byteLength":1,"committed":true,"durability":"tmpfs_visible","unknown":"${largeUnknown}"}}\n`),
+    onSent: () => { sentAt = Date.now(); },
+  }), {}, 60000);
+  const rejectMs = Date.now() - sentAt;
+  assert.equal(rejected.result.error.commitState, 'unknown');
+  assert.ok(rejectMs < threshold, `large string rejection took ${rejectMs}ms (limit ${threshold}ms)`);
 });
 
 test('production transport matrix rejects impossible unknown and accepts only serialized combinations', async () => {
@@ -461,6 +513,51 @@ test('production transport matrix rejects impossible unknown and accepts only se
   assert.equal(impossible.result.error.details.transport.issue, 'header');
 });
 
+test('production outcome table matches exact fork exec setup status and failure serialization', async () => {
+  const accepted = [
+    ['spawn_failure', { startState: 'not_started', childReaped: false,
+      stdoutEof: false, stderrEof: false, stage: 'fork', errno: 11 }],
+    ['spawn_failure', { startState: 'not_started', childReaped: true,
+      stdoutEof: true, stderrEof: true, stage: 'exec', errno: 2 }],
+    ['setup_failure', { startState: 'not_started', childReaped: true,
+      stdoutEof: true, stderrEof: true, stage: 'stdin_dup2', errno: 9 }],
+    ['transport_failure', { startState: 'not_started', childReaped: true,
+      stdoutEof: true, stderrEof: true, reason: 'status_protocol' }],
+    ['transport_failure', { startState: 'started', childReaped: true,
+      stdoutEof: true, stderrEof: true, reason: 'client_disconnect' }],
+    ['transport_failure', { startState: 'started', childReaped: true,
+      stdoutEof: true, stderrEof: true, reason: 'daemon_shutdown' }],
+    ['transport_failure', { startState: 'started', childReaped: true,
+      stdoutEof: true, stderrEof: true, reason: 'stdout_limit' }],
+    ['transport_failure', { startState: 'not_started', childReaped: false,
+      stdoutEof: false, stderrEof: false, reason: 'supervision_failure' }],
+    ['transport_failure', { startState: 'started', childReaped: false,
+      stdoutEof: true, stderrEof: false, reason: 'supervision_failure' }],
+    ['transport_failure', { startState: 'started', childReaped: true,
+      stdoutEof: true, stderrEof: true, reason: 'supervision_failure' }],
+  ];
+  for (const [outcome, fields] of accepted) {
+    const { result } = await roundTrip(`native.read_regular('jobs', 'x', 1)`, ({ header }) =>
+      brokerResult(header.requestId, outcome, fields));
+    assert.equal(result.error.code, 'EDEPENDENCY', `${outcome}/${JSON.stringify(fields)}`);
+  }
+  const impossible = [
+    ['spawn_failure', { startState: 'not_started', childReaped: false,
+      stdoutEof: true, stderrEof: true, stage: 'fork', errno: 11 }],
+    ['transport_failure', { startState: 'not_started', childReaped: false,
+      stdoutEof: false, stderrEof: false, reason: 'status_protocol' }],
+    ['transport_failure', { startState: 'not_started', childReaped: true,
+      stdoutEof: true, stderrEof: true, reason: 'client_disconnect' }],
+    ['transport_failure', { startState: 'started', childReaped: false,
+      stdoutEof: false, stderrEof: false, reason: 'stdout_limit' }],
+  ];
+  for (const [outcome, fields] of impossible) {
+    const { result } = await roundTrip(`native.atomic_write('runtime', 'x', 'YQ==', true)`, ({ header }) =>
+      brokerResult(header.requestId, outcome, fields));
+    assert.equal(result.error.details.transport.issue, 'header');
+  }
+});
+
 test('send backpressure and injected shutdown failure expose deterministic branch counters', async () => {
   const binary = path.join(os.tmpdir(), `z2m-send-fixture-${process.pid}`);
   const shim = path.join(os.tmpdir(), `z2m-shutdown-shim-${process.pid}.so`);
@@ -474,7 +571,23 @@ test('send backpressure and injected shutdown failure expose deterministic branc
     assert.equal(blocked.result.error.commitState, 'unknown');
     assert.ok(blocked.result.error.details.transport.bytesSent > 0);
     assert.ok(blocked.result.error.details.transport.sendWaits > 0);
-    assert.match(blocked.result.error.details.transport.stage, /send|poll/);
+    assert.ok(blocked.result.error.details.transport.shortWrites > 0);
+    assert.equal(blocked.result.error.details.transport.stage, 'send_poll');
+    assert.equal(blocked.result.error.details.transport.pollRevents, 28);
+
+    const short = await withSendFixture(binary, 'backpressure-hup', () =>
+      invoke(`native.atomic_write('runtime', 'x', '${content}', true)`, 7000,
+        sendShimEnv(shim, 'short')));
+    assert.ok(short.result.error.details.transport.shortWrites > 0);
+    assert.equal(short.result.error.details.transport.pollRevents, 28);
+
+    const direct = await withSendFixture(binary, 'backpressure-hup', () =>
+      invoke(`native.atomic_write('runtime', 'x', 'YQ==', true)`, 7000,
+        sendShimEnv(shim, 'zero')));
+    assert.equal(direct.result.error.code, 'EDEPENDENCY');
+    assert.equal('commitState' in direct.result.error, false);
+    assert.equal(direct.result.error.details.transport.stage, 'send');
+    assert.equal(direct.result.error.details.transport.bytesSent, 0);
 
     const shutdown = await roundTrip(`native.atomic_write('runtime', 'x', 'YQ==', true)`,
       ({ header }) => childExited(header.requestId, success(header.requestId,
