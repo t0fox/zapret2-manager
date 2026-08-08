@@ -110,7 +110,9 @@ export function invoke(expression, timeout = 5000, extraEnv = {}) {
   });
   return new Promise((resolve, reject) => {
     let stdout = '', stderr = '';
-    const guard = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('ucode timed out')); }, timeout);
+    const guard = setTimeout(() => {
+      child.kill('SIGKILL'); reject(new Error(`ucode timed out after ${timeout}ms`));
+    }, timeout);
     child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
     child.stdout.on('data', chunk => { stdout += chunk; });
     child.stderr.on('data', chunk => { stderr += chunk; });
@@ -149,6 +151,12 @@ export function shutdownShimEnv(shim) {
   return process.env.UCODE_ARGS_PIPE
     ? { QEMU_SET_ENV: `LD_PRELOAD=${shim},Z2M_TEST_SHUTDOWN_FAIL=1` }
     : { LD_PRELOAD: shim, Z2M_TEST_SHUTDOWN_FAIL: '1' };
+}
+
+export function sendShimEnv(shim, mode) {
+  return process.env.UCODE_ARGS_PIPE
+    ? { QEMU_SET_ENV: `LD_PRELOAD=${shim},Z2M_TEST_SEND_MODE=${mode}` }
+    : { LD_PRELOAD: shim, Z2M_TEST_SEND_MODE: mode };
 }
 
 export async function withSendFixture(binary, mode, callback) {

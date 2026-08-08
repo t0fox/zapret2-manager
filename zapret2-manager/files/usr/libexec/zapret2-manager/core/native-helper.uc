@@ -7,12 +7,7 @@ const HEADER_LIMIT = 2048;
 const STDOUT_LIMIT = 6291456;
 const STDERR_LIMIT = 4096;
 const CHUNK = 65536;
-const JSON_MAX_DEPTH = 16;
-const JSON_MAX_CONTAINERS = 1024;
-const JSON_MAX_MEMBERS = 1024;
-const JSON_MAX_NODES = 65536;
-const JSON_MAX_KEY_BYTES = 4096;
-const JSON_MAX_WORK = STDOUT_LIMIT;
+const JSON_MAX_DEPTH = 64;
 const ROOTS = [
 	'persistent_state', 'snapshots', 'registry', 'secrets',
 	'runtime', 'jobs', 'staging'
@@ -171,6 +166,8 @@ function utf8(codepoint) {
 }
 
 function valid_utf8(value) {
+	/* Keep the 6 MiB ASCII success path in C-backed regex code. */
+	if (match(value, /^[\t\n\r -~]*$/)) return true;
 	for (let i = 0; i < length(value); i++) {
 		let first = ord(value, i), need, codepoint;
 		if (first < 0x80) { if (!first) return false; continue; }
@@ -233,70 +230,115 @@ function whitespace_after(raw, offset) {
 }
 
 function skip_space(raw, at) {
-	while (at[0] < length(raw) && match(substr(raw, at[0], 1), /\s/)) at[0]++;
+	let whitespace = match(substr(raw, at[0]), /^[ \t\r\n]+/);
+	if (whitespace) at[0] += length(whitespace[0]);
 }
 
-function scan_bounded_value(raw, scan) {
-	skip_space(raw, scan.at);
-	if (++scan.nodes > JSON_MAX_NODES || scan.at[0] >= length(raw)) return 'budget';
-	let ch = substr(raw, scan.at[0], 1);
-	if (ch == '"') {
-		let decoded = decode_key(raw, scan.at[0] + 1);
-		if (!decoded) return 'malformed';
-		scan.at[0] = decoded[1];
-		return null;
+function scan_string_token(raw, offset) {
+	if (substr(raw, offset, 1) != '"') return null;
+	let cursor = offset + 1;
+	while (cursor < length(raw)) {
+		let relative = index(substr(raw, cursor), '"');
+		if (relative < 0) return null;
+		let quote = cursor + relative, slashes = 0;
+		for (let i = quote - 1; i >= cursor && substr(raw, i, 1) == '\\'; i--) slashes++;
+		if (!(slashes & 1)) return quote + 1;
+		cursor = quote + 1;
 	}
-	if (ch != '{' && ch != '[') {
-		let start = scan.at[0];
-		while (scan.at[0] < length(raw) &&
-		    index([',', '}', ']', ' ', '\t', '\r', '\n'], substr(raw, scan.at[0], 1)) < 0)
-			scan.at[0]++;
-		return scan.at[0] > start ? null : 'malformed';
-	}
-	if (++scan.containers > JSON_MAX_CONTAINERS || ++scan.depth > JSON_MAX_DEPTH)
-		return 'budget';
-	scan.at[0]++;
-	let object = ch == '{', seen = {};
-	skip_space(raw, scan.at);
-	if (substr(raw, scan.at[0], 1) == (object ? '}' : ']')) {
-		scan.at[0]++; scan.depth--; return null;
-	}
-	while (scan.at[0] < length(raw)) {
-		if (object) {
-			if (substr(raw, scan.at[0]++, 1) != '"') return 'malformed';
-			let decoded = decode_key(raw, scan.at[0]);
-			if (!decoded) return 'malformed';
-			if (length(decoded[0]) > JSON_MAX_KEY_BYTES || ++scan.members > JSON_MAX_MEMBERS)
-				return 'budget';
-			if (exists(seen, decoded[0])) return 'duplicate';
-			seen[decoded[0]] = true; scan.at[0] = decoded[1];
-			skip_space(raw, scan.at);
-			if (substr(raw, scan.at[0]++, 1) != ':') return 'malformed';
-			skip_space(raw, scan.at);
-			let value_start = scan.at[0], is_details = decoded[0] == 'details';
-			let issue = scan_bounded_value(raw, scan);
-			if (issue != null) return issue;
-			if (is_details && scan.at[0] - value_start > 4096) return 'details_budget';
-		} else {
-			let issue = scan_bounded_value(raw, scan);
-			if (issue != null) return issue;
-		}
-		skip_space(raw, scan.at);
-		ch = substr(raw, scan.at[0]++, 1);
-		if (ch == (object ? '}' : ']')) { scan.depth--; return null; }
-		if (ch != ',') return 'malformed';
-		skip_space(raw, scan.at);
-	}
-	return 'malformed';
+	return null;
 }
 
 function scan_json(raw) {
-	if (length(raw) > JSON_MAX_WORK) return 'budget';
-	let scan = { at: [0], depth: 0, containers: 0, members: 0, nodes: 0 };
-	let issue = scan_bounded_value(raw, scan);
-	if (issue != null) return issue;
-	skip_space(raw, scan.at);
-	return scan.at[0] == length(raw) ? null : 'malformed';
+	let at = [0], stack = [], depth = 0, root_state = 'value';
+	let details_start = null, details_end = null, large_strings = [];
+	let content_start = null, content_end = null;
+	while (true) {
+		skip_space(raw, at);
+		if (!depth && root_state == 'done')
+			return { issue: at[0] == length(raw) ? null : 'malformed',
+				detailsStart: details_start, detailsEnd: details_end,
+				largeStrings: large_strings, contentStart: content_start, contentEnd: content_end };
+		let frame = depth ? stack[depth - 1] : null;
+		let state = depth ? frame.state : root_state;
+		if (state == 'key_or_end') {
+			if (substr(raw, at[0], 1) == '}') {
+				at[0]++; depth--;
+				if (depth) stack[depth - 1].state = 'comma_or_end'; else root_state = 'done';
+				continue;
+			}
+			let end = scan_string_token(raw, at[0]);
+			if (end == null) return { issue: 'malformed' };
+			let decoded = decode_key(raw, at[0] + 1);
+			if (!decoded || exists(frame.seen, decoded[0])) return { issue: 'duplicate' };
+			frame.seen[decoded[0]] = true; frame.key = decoded[0]; at[0] = end;
+			frame.state = 'colon';
+			continue;
+		}
+		if (state == 'colon') {
+			if (substr(raw, at[0]++, 1) != ':') return { issue: 'malformed' };
+			frame.state = 'value';
+			continue;
+		}
+		if (state == 'comma_or_end') {
+			if (frame.details_start != null) {
+				if (at[0] - frame.details_start > 4096) return { issue: 'details_budget' };
+				details_start = frame.details_start; details_end = at[0];
+			}
+			frame.details_start = null;
+			let close = frame.kind == 'object' ? '}' : ']';
+			let ch = substr(raw, at[0]++, 1);
+			if (ch == close) {
+				depth--;
+				if (depth) stack[depth - 1].state = 'comma_or_end'; else root_state = 'done';
+			} else if (ch == ',') {
+				frame.state = frame.kind == 'object' ? 'key_or_end' : 'value';
+			} else return { issue: 'malformed' };
+			continue;
+		}
+		if (state == 'value_or_end') {
+			if (substr(raw, at[0], 1) == ']') {
+				at[0]++; depth--;
+				if (depth) stack[depth - 1].state = 'comma_or_end'; else root_state = 'done';
+				continue;
+			}
+			frame.state = 'value'; state = 'value';
+		}
+		if (state != 'value') return { issue: 'malformed' };
+		let value_start = at[0], ch = substr(raw, at[0], 1);
+		if (frame && frame.kind == 'object' && frame.key == 'details' && ch != '{')
+			return { issue: 'details_type' };
+		if (ch == '{' || ch == '[') {
+			if (depth + 1 > JSON_MAX_DEPTH) return { issue: 'budget' };
+			if (frame && frame.kind == 'object' && frame.key == 'details')
+				frame.details_start = value_start;
+			at[0]++;
+			stack[depth++] = { kind: ch == '{' ? 'object' : 'array',
+				state: ch == '{' ? 'key_or_end' : 'value_or_end', seen: {},
+				details_start: null };
+			continue;
+		}
+		if (ch == '"') {
+			let end = scan_string_token(raw, at[0]);
+			if (end == null) return { issue: 'malformed' };
+			if (end - at[0] > 4096) {
+				push(large_strings, [at[0], end]);
+				if (frame && frame.kind == 'object' && frame.key == 'content') {
+					content_start = at[0] + 1; content_end = end - 1;
+				}
+			}
+			at[0] = end;
+		} else {
+			let token = match(substr(raw, at[0]), /^(true|false|null|-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?)/);
+			if (!token) return { issue: 'malformed' };
+			at[0] += length(token[0]);
+		}
+		if (frame && frame.kind == 'object' && frame.key == 'details' &&
+		    at[0] - value_start > 4096) return { issue: 'details_budget' };
+		if (frame && frame.kind == 'object' && frame.key == 'details') {
+			details_start = value_start; details_end = at[0];
+		}
+		if (frame) frame.state = 'comma_or_end'; else root_state = 'done';
+	}
 }
 
 function transport_header_valid(raw, header, requestId, bodyLength) {
@@ -304,7 +346,7 @@ function transport_header_valid(raw, header, requestId, bodyLength) {
 		'stderrLength', 'stdoutEof', 'stderrEof', 'stderrTruncated', 'stderrDrained',
 		'childReaped'];
 	let fields = [...common];
-	if (scan_json(raw) != null ||
+	if (scan_json(raw).issue != null ||
 	    !unique_known_keys(raw, [...common, 'exitCode', 'signal', 'stage', 'errno', 'reason'])) return false;
 	if (header?.outcome == 'child_exited') push(fields, 'exitCode', 'signal');
 	else if (header?.outcome == 'timeout') push(fields, 'signal');
@@ -330,9 +372,9 @@ function transport_header_valid(raw, header, requestId, bodyLength) {
 		return header.startState == 'started' && header.stdoutEof && header.stderrEof &&
 			header.childReaped && type(header.signal) == 'int';
 	if (header.outcome == 'spawn_failure')
-		return header.startState == 'not_started' && header.stdoutEof && header.stderrEof &&
-			type(header.errno) == 'int' && index(['fork', 'exec'], header.stage) >= 0 &&
-			((header.stage == 'fork' && !header.childReaped) || (header.stage == 'exec' && header.childReaped));
+		return header.startState == 'not_started' && type(header.errno) == 'int' &&
+			((header.stage == 'fork' && !header.childReaped && !header.stdoutEof && !header.stderrEof) ||
+			(header.stage == 'exec' && header.childReaped && header.stdoutEof && header.stderrEof));
 	if (header.outcome == 'setup_failure')
 		return header.startState == 'not_started' && header.stdoutEof && header.stderrEof &&
 			header.childReaped && type(header.errno) == 'int' &&
@@ -342,18 +384,25 @@ function transport_header_valid(raw, header, requestId, bodyLength) {
 		return false;
 	if (header.reason == 'supervision_failure')
 		return index(['not_started', 'started'], header.startState) >= 0;
-	if (header.startState == 'started')
-		return header.childReaped && header.stdoutEof && header.stderrEof;
-	if (header.startState == 'not_started')
-		return (!header.childReaped && !header.stdoutEof && !header.stderrEof) ||
-			(header.childReaped && header.stdoutEof && header.stderrEof);
+	if (header.reason == 'status_protocol')
+		return header.startState == 'not_started' && header.childReaped &&
+			header.stdoutEof && header.stderrEof;
+	if (index(['client_disconnect', 'daemon_shutdown', 'stdout_limit'], header.reason) >= 0)
+		return header.startState == 'started' && header.childReaped &&
+			header.stdoutEof && header.stderrEof;
 	return false;
 }
 
 function canonical_base64(value) {
-	if (type(value) != 'string' || !match(value,
-	    /^([A-Za-z0-9+\/]{4})*([A-Za-z0-9+\/]{2}==|[A-Za-z0-9+\/]{3}=)?$/)) return false;
-	try { return b64enc(b64dec(value)) == value; } catch (e) { return false; }
+	return type(value) == 'string' && match(value,
+		/^([A-Za-z0-9+\/]{4})*([A-Za-z0-9+\/]{2}==|[A-Za-z0-9+\/]{3}=)?$/);
+}
+
+function base64_length(value) {
+	if (!canonical_base64(value)) return null;
+	if (!length(value)) return 0;
+	let padding = substr(value, -2) == '==' ? 2 : (substr(value, -1) == '=' ? 1 : 0);
+	return int(length(value) / 4) * 3 - padding;
 }
 
 function success_data_valid(operation, data) {
@@ -368,7 +417,7 @@ function success_data_valid(operation, data) {
 	if (operation == 'read_regular')
 		return exact_fields(data, ['content', 'byteLength']) && canonical_base64(data.content) &&
 			type(data.byteLength) == 'int' && data.byteLength >= 0 && data.byteLength <= 4194304 &&
-			length(b64dec(data.content)) == data.byteLength;
+			base64_length(data.content) == data.byteLength;
 	if (operation == 'mkdir_private')
 		return exact_fields(data, ['created', 'committed', 'durability']) && type(data.created) == 'bool' &&
 			data.committed == true && index(['durable', 'tmpfs_visible'], data.durability) >= 0;
@@ -415,12 +464,27 @@ function helper_response(operation, stdout, requestId, exitCode, mutation) {
 		return helper_invalid(mutation, !length(stdout) ? 'empty' : 'partial');
 	let raw = substr(stdout, 0, -1), value;
 	if (!valid_utf8(raw)) return helper_invalid(mutation, 'malformed');
-	let scan_issue = scan_json(raw);
+	let scanned = scan_json(raw), scan_issue = scanned.issue;
 	if (scan_issue != null)
 		return helper_invalid(mutation, scan_issue == 'budget' ? 'scan_budget' :
 			(scan_issue == 'details_budget' ? 'details_budget' :
-			(index(raw, '}{') >= 0 ? 'trailing' : 'malformed')));
-	try { value = json(stdout); } catch (e) { return helper_invalid(mutation, 'malformed'); }
+			(scan_issue == 'details_type' ? 'envelope' :
+			(index(raw, '}{') >= 0 ? 'trailing' : 'malformed'))));
+	let replacements = scanned.largeStrings || [];
+	if (scanned.detailsStart != null) push(replacements, [scanned.detailsStart, scanned.detailsEnd, '{}']);
+	sort(replacements, (a, b) => a[0] - b[0]);
+	let parts = [], cursor = 0;
+	for (let replacement in replacements) {
+		if (replacement[0] < cursor) continue;
+		push(parts, substr(raw, cursor, replacement[0] - cursor));
+		push(parts, replacement[2] || '""');
+		cursor = replacement[1];
+	}
+	push(parts, substr(raw, cursor));
+	let decode_raw = join('', parts);
+	try { value = json(decode_raw); } catch (e) { return helper_invalid(mutation, 'malformed'); }
+	if (scanned.contentStart != null && value?.data)
+		value.data.content = substr(raw, scanned.contentStart, scanned.contentEnd - scanned.contentStart);
 	if (type(value) != 'object' || value == null || value.protocolVersion != 1 ||
 	    type(value.ok) != 'bool')
 		return helper_invalid(mutation, value?.protocolVersion != 1 ? 'protocol' : 'envelope');
@@ -460,7 +524,8 @@ function invoke_private(operation, arguments, timeoutMs) {
 	let sock = socket.connect({ path: SOCKET_PATH }, null,
 		{ family: socket.AF_UNIX, socktype: socket.SOCK_STREAM }, remaining_ms(deadline));
 	if (!sock) return dependency();
-	let sent = 0, response = '', transportError = null, transportStage = null, pollRevents = null;
+	let sent = 0, response = '', responseChunks = [], responseLength = 0;
+	let transportError = null, transportStage = null, pollRevents = null;
 	let sendWaits = 0, shortWrites = 0, eof = false;
 	let cap = 20 + HEADER_LIMIT + STDOUT_LIMIT + STDERR_LIMIT;
 	while (sent < length(wire)) {
@@ -486,29 +551,36 @@ function invoke_private(operation, arguments, timeoutMs) {
 		if (events == null) { transportError = 'timeout'; break; }
 		if (events & socket.POLLERR) { transportError = 'socket'; break; }
 		if (events & socket.POLLIN) {
-			let available = cap + 1 - length(response);
+			let available = cap + 1 - responseLength;
 			let data = sock.recv(available < CHUNK ? available : CHUNK, socket.MSG_DONTWAIT);
 			if (data == null) continue;
 			if (!length(data)) { eof = true; break; }
-			response += data;
-			if (length(response) > cap) transportError = 'limit';
+			push(responseChunks, data); responseLength += length(data);
+			if (responseLength > cap) transportError = 'limit';
 			continue;
 		}
 		if (events & socket.POLLHUP) {
-			let data = sock.recv(cap + 1 - length(response), socket.MSG_DONTWAIT);
-			if (data != null && length(data)) response += data;
+			let data = sock.recv(cap + 1 - responseLength, socket.MSG_DONTWAIT);
+			if (data != null && length(data)) {
+				push(responseChunks, data); responseLength += length(data);
+			}
 			else eof = true;
-			if (length(response) > cap) transportError = 'limit';
+			if (responseLength > cap) transportError = 'limit';
 		}
 	}
 	sock.close();
+	response = join('', responseChunks);
 	let mutation = index(MUTATIONS, operation) >= 0;
 	if (transportError || !eof || length(response) < 20)
 		return mutation && sent ? uncertain({ transport: {
 			issue: transportError || 'incomplete', stage: transportStage || 'receive',
 			bytesSent: sent, sendWaits, shortWrites, pollRevents
 		} }) :
-			dependency('Native helper transport failed.');
+			failure('EDEPENDENCY', 'Native helper transport failed.', {
+				details: { transport: { issue: transportError || 'incomplete',
+					stage: transportStage || 'receive', bytesSent: sent,
+					sendWaits, shortWrites, pollRevents } }
+			});
 	if (substr(response, 0, 8) != MAGIC || ord(response, 8) != 2 ||
 	    ord(response, 9) || ord(response, 10) || ord(response, 11))
 		return mutation && sent ? uncertain({ transport: { issue: 'prelude' } }) : internal();
