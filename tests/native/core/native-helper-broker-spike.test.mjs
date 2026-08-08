@@ -48,7 +48,8 @@ function compileSpawnFixture(name, definitions = []) {
 }
 
 function spawnEvidence(mode, fixturePath = fixture) {
-  const result = run(ucode, [...targetPrefix, fixturePath, 'spawn', mode]);
+  const result = run(ucode, [...targetPrefix, fixturePath, 'spawn', mode], { timeout: 3000 });
+  assert.equal(result.error, undefined, `target fixture exceeded host guard: ${result.error ?? ''}`);
   assert.equal(result.signal, null, `target fixture terminated by ${result.signal}`);
   assert.equal(result.status, 0, `target fixture failed:\n${result.stdout}${result.stderr}`);
   return JSON.parse(result.stdout.trim());
@@ -361,4 +362,82 @@ test('does not reinterpret missing child stdout as spawn failure', () => {
     outcome: 'started', stage: null, errno: null, state: 'started',
     evidence: 'status_pipe_eof', childExit: 0, stdout: '',
   });
+});
+
+function assertGone(pid, label) {
+  assert.ok(Number.isInteger(pid) && pid > 0, `invalid ${label} pid ${pid}`);
+  assert.throws(() => process.kill(pid, 0), error => error?.code === 'ESRCH',
+    `${label} ${pid} remains live`);
+  assert.equal(fs.existsSync(`/proc/${pid}/stat`), false, `${label} ${pid} remains in /proc`);
+}
+
+test('terminates and reaps a cooperative 30-second child after one 100 ms deadline', () => {
+  const result = spawnEvidence('timeout-cooperative');
+  assert.equal(result.outcome, 'timeout');
+  assert.equal(result.termSent, true);
+  assert.equal(result.killSent, false);
+  assert.equal(result.reaped, true);
+  assert.equal(result.waitSignal, 15);
+  assert.ok(result.elapsedMs >= 80 && result.elapsedMs < 500, `elapsed ${result.elapsedMs}ms`);
+  assertGone(result.pid, 'child');
+});
+
+test('kills and reaps a TERM-ignoring 30-second child after bounded grace', () => {
+  const result = spawnEvidence('timeout-ignore-term');
+  assert.equal(result.outcome, 'timeout');
+  assert.equal(result.termSent, true);
+  assert.equal(result.killSent, true);
+  assert.equal(result.reaped, true);
+  assert.equal(result.waitSignal, 9);
+  assert.ok(result.elapsedMs >= 160 && result.elapsedMs < 600, `elapsed ${result.elapsedMs}ms`);
+  assertGone(result.pid, 'child');
+});
+
+test('terminates the dedicated process group including a forked descendant', () => {
+  const result = spawnEvidence('timeout-descendant');
+  assert.equal(result.outcome, 'timeout');
+  assert.equal(result.reaped, true);
+  assertGone(result.pid, 'child');
+  assertGone(result.descendantPid, 'descendant');
+});
+
+test('repeated EINTR and pipe wakeups do not extend the absolute deadline', () => {
+  const interrupted = compileSpawnFixture('z2m-helperd-supervision-eintr', [
+    '-DINJECT_SUPERVISION_EINTR=1',
+  ]);
+  const result = spawnEvidence('timeout-wakeups', interrupted);
+  assert.equal(result.outcome, 'timeout');
+  assert.ok(result.pollEintr >= 3, `expected repeated EINTR, got ${result.pollEintr}`);
+  assert.ok(result.stdoutReads >= 3, `expected repeated wakeups, got ${result.stdoutReads}`);
+  assert.ok(result.elapsedMs >= 80 && result.elapsedMs < 500, `elapsed ${result.elapsedMs}ms`);
+  assertGone(result.pid, 'child');
+});
+
+test('stops retaining child stdout at cap plus one byte', () => {
+  const result = spawnEvidence('stdout-overflow');
+  assert.equal(result.outcome, 'stdout_limit');
+  assert.equal(result.stdoutBytes, 4097);
+  assert.equal(result.reaped, true);
+  assertGone(result.pid, 'child');
+});
+
+test('retains 4096 stderr bytes while draining all excess', () => {
+  const result = spawnEvidence('stderr-excess');
+  assert.equal(result.outcome, 'timeout');
+  assert.equal(result.stderrBytes, 4096);
+  assert.equal(result.stderrDrained, 16384);
+  assert.equal(result.reaped, true);
+  assertGone(result.pid, 'child');
+});
+
+test('pumps child stdin, stdout, and stderr concurrently', () => {
+  const result = spawnEvidence('pipe-pump');
+  assert.equal(result.outcome, 'started');
+  assert.equal(result.childExit, 0);
+  assert.equal(result.stdinBytes, 65536);
+  assert.equal(result.stdoutBytes, 4096);
+  assert.equal(result.stderrDrained, 8192);
+  assert.equal(result.stderrBytes, 4096);
+  assert.equal(result.reaped, true);
+  assertGone(result.pid, 'child');
 });

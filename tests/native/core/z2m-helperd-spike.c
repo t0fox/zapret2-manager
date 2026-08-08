@@ -13,6 +13,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
+#include <sys/prctl.h>
 #include <sys/types.h>
 #include <sys/un.h>
 #include <sys/wait.h>
@@ -134,44 +135,121 @@ static bool valid_stage(uint8_t stage)
 	return stage >= STAGE_SETPGID && stage <= STAGE_EXEC;
 }
 
-static void read_output(int fd, char *output, size_t capacity)
+static int timespec_compare(const struct timespec *left, const struct timespec *right)
 {
-	size_t used = 0;
-
-	while (used + 1 < capacity) {
-		ssize_t length = read(fd, output + used, capacity - used - 1);
-		if (length < 0 && errno == EINTR)
-			continue;
-		if (length < 0)
-			fail("read child stdout");
-		if (length == 0)
-			break;
-		used += (size_t)length;
-	}
-	output[used] = '\0';
+	if (left->tv_sec != right->tv_sec)
+		return left->tv_sec < right->tv_sec ? -1 : 1;
+	if (left->tv_nsec != right->tv_nsec)
+		return left->tv_nsec < right->tv_nsec ? -1 : 1;
+	return 0;
 }
 
-static void spawn_child(const char *mode)
+static struct timespec timespec_after_ms(struct timespec value, long milliseconds)
+{
+	value.tv_sec += milliseconds / 1000;
+	value.tv_nsec += (milliseconds % 1000) * 1000000L;
+	if (value.tv_nsec >= 1000000000L) {
+		value.tv_sec++;
+		value.tv_nsec -= 1000000000L;
+	}
+	return value;
+}
+
+static int poll_timeout(const struct timespec *deadline)
+{
+	struct timespec now;
+	long seconds, nanoseconds;
+
+	if (clock_gettime(CLOCK_MONOTONIC, &now) < 0)
+		fail("clock_gettime");
+	if (timespec_compare(&now, deadline) >= 0)
+		return 0;
+	seconds = (long)(deadline->tv_sec - now.tv_sec);
+	nanoseconds = deadline->tv_nsec - now.tv_nsec;
+	if (nanoseconds < 0) {
+		seconds--;
+		nanoseconds += 1000000000L;
+	}
+	if (seconds > INT_MAX / 1000)
+		return INT_MAX;
+	return (int)(seconds * 1000 + (nanoseconds + 999999L) / 1000000L);
+}
+
+static void set_nonblocking(int fd)
+{
+	int flags = fcntl(fd, F_GETFL);
+	if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0)
+		fail("fcntl nonblocking");
+}
+
+static int supervised_poll(struct pollfd *fds, nfds_t count, int timeout,
+	unsigned int *calls, unsigned int *interruptions)
+{
+	(*calls)++;
+#ifdef INJECT_SUPERVISION_EINTR
+	if (*calls <= 3) {
+		(*interruptions)++;
+		errno = EINTR;
+		return -1;
+	}
+#else
+	(void)interruptions;
+#endif
+	return poll(fds, count, timeout);
+}
+
+static bool process_group_exists(pid_t pgid)
+{
+	if (kill(-pgid, 0) == 0 || errno == EPERM)
+		return true;
+	if (errno != ESRCH)
+		fail("inspect process group");
+	return false;
+}
+
+static void spawn_child(const char *requested_mode)
 {
 	int input[2], output[2], errors[2], exec_status[2];
 	struct setup_error record;
-	char child_output[128];
+	char child_output[4098] = { 0 };
+	char stderr_output[4097] = { 0 };
+	const char *mode = requested_mode;
+	const char *outcome = "started";
+	bool supervision = !strncmp(requested_mode, "timeout-", 8) ||
+		!strcmp(requested_mode, "stdout-overflow") ||
+		!strcmp(requested_mode, "stderr-excess");
+	bool pump_input = !strcmp(requested_mode, "pipe-pump");
+	if (!strcmp(requested_mode, "timeout-cooperative")) mode = "sleep-30";
+	else if (!strcmp(requested_mode, "timeout-ignore-term")) mode = "ignore-term-30";
+	else if (!strcmp(requested_mode, "timeout-descendant")) mode = "fork-descendant-sleep";
+	else if (!strcmp(requested_mode, "timeout-wakeups")) mode = "wakeups";
 	char *const argv[] = { (char *)FIXED_CHILD_PATH, (char *)mode, NULL };
 	char *const envp[] = { NULL };
 	pid_t pid;
-	ssize_t status_length = 0;
-	int wait_status;
+	size_t status_length = 0, stdout_length = 0, stderr_length = 0, input_written = 0;
+	size_t stderr_drained = 0;
+	int wait_status = 0;
+	bool child_reaped = false, status_eof = false, stdout_eof = false, stderr_eof = false;
+	bool stdin_closed = !pump_input;
+	bool term_sent = false, kill_sent = false;
+	unsigned int poll_calls = 0, poll_interruptions = 0, stdout_reads = 0;
+	struct timespec started, deadline, grace_deadline, finished;
 	struct status_guard *guard = mmap(NULL, sizeof(*guard), PROT_READ | PROT_WRITE,
 		MAP_SHARED | MAP_ANONYMOUS, -1, 0);
 	if (guard == MAP_FAILED)
 		fail("mmap status guard");
+	if (clock_gettime(CLOCK_MONOTONIC, &started) < 0)
+		fail("clock_gettime");
+	deadline = timespec_after_ms(started, supervision ? 100 : 2000);
+	grace_deadline = deadline;
+	if (prctl(PR_SET_CHILD_SUBREAPER, 1) < 0)
+		fail("prctl(PR_SET_CHILD_SUBREAPER)");
 
 	if (pipe2(input, O_CLOEXEC) < 0 || pipe2(output, O_CLOEXEC) < 0 ||
 	    pipe2(errors, O_CLOEXEC) < 0 ||
 	    pipe2(exec_status, O_CLOEXEC) < 0)
 		fail("pipe2");
-	if (fcntl(exec_status[0], F_SETFL, O_NONBLOCK) < 0)
-		fail("fcntl exec status");
+	set_nonblocking(exec_status[0]);
 
 	pid = fork();
 	if (pid < 0)
@@ -220,35 +298,181 @@ static void spawn_child(const char *mode)
 	if (close(input[0]) < 0 || close(output[1]) < 0 || close(errors[1]) < 0 ||
 	    close(exec_status[1]) < 0)
 		fail("parent close");
-	if (close(input[1]) < 0)
+	if (pump_input)
+		set_nonblocking(input[1]);
+	else if (close(input[1]) < 0)
 		fail("close child stdin");
+	set_nonblocking(output[0]);
+	set_nonblocking(errors[0]);
 
-	for (;;) {
-		struct pollfd watched = { .fd = exec_status[0], .events = POLLIN | POLLHUP };
-		int ready = poll(&watched, 1, -1);
+	while (!child_reaped || !stdout_eof || !stderr_eof || !status_eof) {
+		struct pollfd watched[4] = {
+			{ .fd = exec_status[0], .events = POLLIN | POLLHUP },
+			{ .fd = output[0], .events = POLLIN | POLLHUP },
+			{ .fd = errors[0], .events = POLLIN | POLLHUP },
+			{ .fd = stdin_closed ? -1 : input[1], .events = POLLOUT | POLLERR | POLLHUP },
+		};
+		struct timespec now;
+		const struct timespec *active_deadline = term_sent ? &grace_deadline : &deadline;
+		int ready = supervised_poll(watched, 4, poll_timeout(active_deadline),
+			&poll_calls, &poll_interruptions);
 		if (ready < 0 && errno == EINTR)
 			continue;
 		if (ready < 0)
-			fail("poll exec status");
-		ssize_t length = read(exec_status[0], (uint8_t *)&record + status_length,
-			sizeof(record) - (size_t)status_length);
-		if (length < 0 && (errno == EINTR || errno == EAGAIN))
-			continue;
-		if (length < 0)
-			fail("read exec status");
-		if (length == 0)
+			fail("poll child pipes");
+		if (!stdin_closed && (watched[3].revents & POLLOUT)) {
+			char input_buffer[4096];
+			memset(input_buffer, 'i', sizeof(input_buffer));
+			while (input_written < 65536) {
+				size_t remaining = 65536 - input_written;
+				size_t chunk = remaining < sizeof(input_buffer) ? remaining : sizeof(input_buffer);
+				ssize_t written = write(input[1], input_buffer, chunk);
+				if (written > 0) { input_written += (size_t)written; continue; }
+				if (written < 0 && (errno == EAGAIN || errno == EINTR)) break;
+				if (written < 0 && errno == EPIPE) break;
+				if (written <= 0) fail("write child stdin");
+			}
+			if (input_written == 65536) {
+				if (close(input[1]) < 0) fail("close child stdin");
+				stdin_closed = true;
+			}
+		}
+
+		for (;;) {
+			ssize_t length = read(exec_status[0], (uint8_t *)&record + status_length,
+				sizeof(record) - status_length);
+			if (length > 0) { status_length += (size_t)length; continue; }
+			if (length == 0) status_eof = true;
+			else if (errno != EAGAIN && errno != EINTR) fail("read exec status");
 			break;
-		status_length += length;
-		if ((size_t)status_length == sizeof(record))
+		}
+		for (;;) {
+			char buffer[1024];
+			ssize_t length = read(output[0], buffer, sizeof(buffer));
+			if (length > 0) {
+				stdout_reads++;
+				size_t retain = (size_t)length;
+				if (retain > sizeof(child_output) - 1 - stdout_length)
+					retain = sizeof(child_output) - 1 - stdout_length;
+				memcpy(child_output + stdout_length, buffer, retain);
+				stdout_length += retain;
+				continue;
+			}
+			if (length == 0) stdout_eof = true;
+			else if (errno != EAGAIN && errno != EINTR) fail("read child stdout");
+			break;
+		}
+		for (;;) {
+			char buffer[1024];
+			ssize_t length = read(errors[0], buffer, sizeof(buffer));
+			if (length > 0) {
+				size_t retain = (size_t)length;
+				stderr_drained += (size_t)length;
+				if (retain > sizeof(stderr_output) - 1 - stderr_length)
+					retain = sizeof(stderr_output) - 1 - stderr_length;
+				memcpy(stderr_output + stderr_length, buffer, retain);
+				stderr_length += retain;
+				continue;
+			}
+			if (length == 0) stderr_eof = true;
+			else if (errno != EAGAIN && errno != EINTR) fail("read child stderr");
+			break;
+		}
+
+		if (!child_reaped) {
+			siginfo_t info = { 0 };
+			if (waitid(P_PID, (id_t)pid, &info, WEXITED | WNOHANG | WNOWAIT) < 0 &&
+			    errno != EINTR)
+				fail("waitid WNOWAIT");
+			if (info.si_pid == pid) {
+				pid_t waited;
+				do { waited = waitpid(pid, &wait_status, 0); }
+				while (waited < 0 && errno == EINTR);
+				if (waited != pid) fail("waitpid");
+				child_reaped = true;
+			}
+		}
+		if (child_reaped) {
+			pid_t waited;
+			do { waited = waitpid(-pid, NULL, WNOHANG); } while (waited > 0);
+			if (waited < 0 && errno != ECHILD && errno != EINTR)
+				fail("waitpid descendants WNOHANG");
+		}
+		if (stdout_length >= 4097 && !term_sent) {
+			outcome = "stdout_limit";
+			if (kill(-pid, SIGTERM) < 0 && errno != ESRCH) fail("kill SIGTERM");
+			term_sent = true;
+			if (clock_gettime(CLOCK_MONOTONIC, &now) < 0) fail("clock_gettime");
+			grace_deadline = timespec_after_ms(now, 100);
+		}
+		if (clock_gettime(CLOCK_MONOTONIC, &now) < 0)
+			fail("clock_gettime");
+		if (!term_sent && timespec_compare(&now, &deadline) >= 0 &&
+		    (!child_reaped || process_group_exists(pid))) {
+			outcome = "timeout";
+			if (kill(-pid, SIGTERM) < 0 && errno != ESRCH) fail("kill SIGTERM");
+			term_sent = true;
+			grace_deadline = timespec_after_ms(deadline, 100);
+		}
+		if (term_sent && !kill_sent && timespec_compare(&now, &grace_deadline) >= 0 &&
+		    process_group_exists(pid)) {
+			if (kill(-pid, SIGKILL) < 0 && errno != ESRCH) fail("kill SIGKILL");
+			kill_sent = true;
+		}
+		if (child_reaped && stdout_eof && stderr_eof && status_eof &&
+		    !process_group_exists(pid))
 			break;
 	}
+	if (!child_reaped) {
+		pid_t waited;
+		do { waited = waitpid(pid, &wait_status, 0); } while (waited < 0 && errno == EINTR);
+		if (waited != pid) fail("waitpid");
+		child_reaped = true;
+	}
+	for (;;) {
+		pid_t waited = waitpid(-pid, NULL, 0);
+		if (waited > 0) continue;
+		if (waited < 0 && errno == EINTR) continue;
+		if (waited < 0 && errno == ECHILD) break;
+		if (waited < 0) fail("waitpid descendants");
+	}
+	if (clock_gettime(CLOCK_MONOTONIC, &finished) < 0)
+		fail("clock_gettime");
 	if (close(exec_status[0]) < 0)
 		fail("close exec status");
-	if (waitpid(pid, &wait_status, 0) < 0)
-		fail("waitpid");
-	read_output(output[0], child_output, sizeof(child_output));
 	if (close(output[0]) < 0 || close(errors[0]) < 0)
 		fail("close child output");
+	if (!stdin_closed && close(input[1]) < 0)
+		fail("close child stdin");
+	child_output[stdout_length] = '\0';
+	stderr_output[stderr_length] = '\0';
+
+	if (strcmp(outcome, "started")) {
+		long elapsed_ms = (long)(finished.tv_sec - started.tv_sec) * 1000L +
+			(finished.tv_nsec - started.tv_nsec) / 1000000L;
+		long descendant_pid = 0;
+		sscanf(child_output, "descendant=%ld", &descendant_pid);
+		printf("{\"outcome\":\"%s\",\"pid\":%ld,\"descendantPid\":%ld,"
+			"\"termSent\":%s,\"killSent\":%s,\"reaped\":%s,"
+			"\"waitSignal\":%d,\"elapsedMs\":%ld,\"pollEintr\":%u,"
+			"\"stdoutReads\":%u,\"stdoutBytes\":%zu,\"stderrBytes\":%zu,"
+			"\"stderrDrained\":%zu}\n", outcome, (long)pid, descendant_pid,
+			term_sent ? "true" : "false", kill_sent ? "true" : "false",
+			child_reaped ? "true" : "false",
+			WIFSIGNALED(wait_status) ? WTERMSIG(wait_status) : 0, elapsed_ms,
+			poll_interruptions, stdout_reads, stdout_length, stderr_length,
+			stderr_drained);
+		return;
+	}
+	if (pump_input) {
+		printf("{\"outcome\":\"started\",\"childExit\":%d,\"pid\":%ld,"
+			"\"stdinBytes\":%zu,\"stdoutBytes\":%zu,\"stderrBytes\":%zu,"
+			"\"stderrDrained\":%zu,\"reaped\":%s}\n",
+			WIFEXITED(wait_status) ? WEXITSTATUS(wait_status) : 128, (long)pid,
+			input_written, stdout_length, stderr_length, stderr_drained,
+			child_reaped ? "true" : "false");
+		return;
+	}
 
 	if (status_length == 0) {
 		if (guard->write_error != 0) {
