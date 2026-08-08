@@ -184,7 +184,8 @@ function unsafeCreation(site) {
   if (!site.target.startsWith('/')) return true;
   const knownPrefix = site.target.split('<', 1)[0].replace(/\/+$/, '');
   return managedRoots.some((root) =>
-    knownPrefix == root || knownPrefix.startsWith(`${root}/`));
+    knownPrefix == root || knownPrefix.startsWith(`${root}/`) ||
+      (site.target.includes('<') && root.startsWith(`${knownPrefix}/`)));
 }
 
 test('managed-root creation scanner resolves constants aliases and shell descendants', () => {
@@ -205,6 +206,13 @@ test('managed-root creation scanner rejects recursive creation hidden by a wrapp
   const sites = creationCallsites('wrapper-fixture', fixture);
   assert.ok(sites.some(unsafeCreation),
     `unresolved wrapper recursion must fail closed: ${JSON.stringify(sites)}`);
+});
+
+test('managed-root creation scanner rejects recursive absolute targets with managed descendants', () => {
+  const fixture = `function create(name){ run('mkdir -p ' + name); } create('/tmp/' + name);`;
+  const sites = creationCallsites('partial-absolute-wrapper-fixture', fixture);
+  assert.ok(sites.some(unsafeCreation),
+    `an unresolved absolute prefix above a managed root must fail closed: ${JSON.stringify(sites)}`);
 });
 
 test('managed-root creation policy permits proven unrelated recursion and non-recursive children', () => {
