@@ -1,13 +1,29 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { collectFacadeMethods } from '../tools/ui-rpc-contract.mjs';
-const contract=[
-  readFileSync('docs/frontend-backend-contract.md','utf8'),
-  readFileSync('docs/engine-providers.md','utf8')
-].join('\n');
-const api=readFileSync('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js','utf8');
-test('every central facade RPC method is named in the frozen contract',()=>{const missing=collectFacadeMethods().filter(method=>!contract.includes('`'+method+'`')&&!contract.includes(method));assert.deepEqual(missing,[]);});
-test('contract documents positional JSON edit transport and rejected ubus errors',()=>{assert.match(contract,/params: \['edit'\]/);assert.match(contract,/one positional JSON string/i);assert.match(contract,/reject: true/);assert.match(api,/params\s*:\s*\['edit'\]/);});
-test('contract documents rollback TTL and secret reveal semantics',()=>{assert.match(contract,/rollback_ttl/);assert.match(contract,/confirm_alive/);assert.match(contract,/"confirm": "REVEAL"/);});
-test('contract documents known backend gaps instead of presenting them as frontend success',()=>{for(const gap of ['events_tail','dnsmasq','zero targets','profiles_import_applied','nft table zapret2','nfqws2 process gone'])assert.match(contract,new RegExp(gap,'i'));});
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { collectFacadeMethods } from '../scripts/test/ui-rpc-contract.mjs';
+
+const rpcDir = 'zapret2-manager/files/usr/share/rpcd/ucode';
+const rpcSources = readdirSync(rpcDir)
+  .filter((name) => name.endsWith('.uc'))
+  .map((name) => readFileSync(join(rpcDir, name), 'utf8'))
+  .join('\n');
+const api = readFileSync('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js', 'utf8');
+const architecture = readFileSync('docs/architecture/repository-layout.md', 'utf8');
+
+test('every central facade RPC method is backed by a shipped rpcd registration', () => {
+  const missing = collectFacadeMethods().filter((method) => !rpcSources.includes(method));
+  assert.deepEqual(missing, []);
+});
+
+test('central facade keeps positional JSON edit transport and rejected ubus errors', () => {
+  assert.match(api, /params\s*:\s*\['edit'\]/);
+  assert.match(api, /reject\s*:\s*true/);
+});
+
+test('repository architecture documents public RPC compatibility instead of a stale frozen frontend document', () => {
+  assert.match(architecture, /Public compatibility boundary/i);
+  assert.match(architecture, /public ubus\/RPC method names/);
+  assert.match(architecture, /compatibility facade/i);
+});

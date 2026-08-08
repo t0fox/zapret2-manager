@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
-import { evaluateLuciModule } from '../../tools/luci-module-smoke.mjs';
+import { evaluateLuciModule } from '../../scripts/test/luci-module-smoke.mjs';
 
 const root = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager';
 
@@ -27,14 +27,12 @@ test('Services load obtains the canonical Domain Hub snapshot through the centra
   assert.deepEqual(data.hub.value.precondition, snapshot.precondition);
 });
 
-test('final docs describe the single app view and temporary review reports are absent', () => {
-  const architecture = readFileSync('docs/architecture.md', 'utf8');
-  const uiContract = readFileSync('docs/ui-remastered-v2.md', 'utf8');
-  assert.match(architecture, /app\.js.*single-view/i);
-  assert.doesNotMatch(architecture, /overview\.js\s+\(LuCI JS view\)/);
-  assert.match(uiContract, /single-view app/i);
-  assert.doesNotMatch(uiContract, /Root opens Orchestra, not `overview\.js`/);
-  assert.doesNotMatch(uiContract, /Source view modules not currently reached by the menu/);
+test('current architecture documents LuCI separation and temporary review reports stay absent', () => {
+  const architecture = readFileSync('docs/architecture/repository-layout.md', 'utf8');
+  assert.match(architecture, /luci-app-zapret2-manager\/.*LuCI JavaScript frontend/i);
+  assert.match(architecture, /LuCI[\s\S]*RPC[\s\S]*domain modules[\s\S]*core abstractions/i);
+  assert.match(architecture, /does not own backend business logic/i);
+  assert.equal(existsSync('docs/ui-remastered-v2.md'), false);
   assert.equal(existsSync('.superpowers/sdd/2026-08-04-holyversion-draft-services-parity/task-4-report.md'), false);
   assert.equal(existsSync('.superpowers/sdd/2026-08-04-holyversion-draft-services-parity/task-6-report.md'), false);
 });
