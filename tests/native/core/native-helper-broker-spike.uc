@@ -3,6 +3,8 @@ import * as socket from 'socket';
 
 const CHUNK = 65536;
 const SEND_CHUNK = 1024 * 1024;
+const RESPONSE_HEADER_LIMIT = 2048;
+const STDERR_LIMIT = 4096;
 const MAGIC = 'Z2MHTV1\n';
 const REQUEST_HEADER = '{"protocol":"z2m-helper-transport-v1","requestId":"probe:1","timeoutMs":100}';
 
@@ -16,6 +18,66 @@ function read_u32(value, offset) {
 		(ord(substr(value, offset + 1, 1)) << 16) |
 		(ord(substr(value, offset + 2, 1)) << 8) |
 		ord(substr(value, offset + 3, 1));
+}
+
+function exact_fields(value, expected) {
+	if (type(value) != 'object' || length(value) != length(expected))
+		return false;
+	for (let name in expected)
+		if (!exists(value, name))
+			return false;
+	return true;
+}
+
+function response_header_error(raw, header, body_length, cap) {
+	let base = {
+		protocol: true, requestId: true, outcome: true, startState: true,
+		stdoutLength: true, stderrLength: true, stdoutEof: true, stderrEof: true,
+		stderrTruncated: true, stderrDrained: true, childReaped: true,
+		exitCode: true, signal: true
+	};
+	if (index(raw, '"protocol"') != rindex(raw, '"protocol"') ||
+	    index(raw, '"requestId"') != rindex(raw, '"requestId"'))
+		return 'response_header_duplicate';
+	if (header?.outcome == 'spawn_failure' || header?.outcome == 'setup_failure')
+		base.stage = true;
+	else if (header?.outcome == 'transport_failure')
+		base.reason = true;
+	if (!exact_fields(header, base))
+		return 'response_header_fields';
+	if (type(header.protocol) != 'string' || type(header.requestId) != 'string' ||
+	    type(header.outcome) != 'string' || type(header.startState) != 'string' ||
+	    type(header.stdoutLength) != 'int' || type(header.stderrLength) != 'int' ||
+	    type(header.stdoutEof) != 'bool' || type(header.stderrEof) != 'bool' ||
+	    type(header.stderrTruncated) != 'bool' || type(header.stderrDrained) != 'int' ||
+	    type(header.childReaped) != 'bool' ||
+	    !(header.exitCode == null || type(header.exitCode) == 'int') ||
+	    !(header.signal == null || type(header.signal) == 'int'))
+		return 'response_header_types';
+	if (header.protocol != 'z2m-helper-transport-v1' || header.requestId != 'probe:1')
+		return 'response_header_identity';
+	if (index(['child_exited', 'timeout', 'spawn_failure', 'setup_failure', 'transport_failure'],
+	    header.outcome) < 0)
+		return 'response_header_outcome';
+	if (index(['not_started', 'started', 'unknown'], header.startState) < 0 ||
+	    header.stdoutLength < 0 || header.stdoutLength > cap ||
+	    header.stderrLength < 0 || header.stderrLength > STDERR_LIMIT ||
+	    header.stderrDrained < header.stderrLength ||
+	    header.stdoutLength + header.stderrLength != body_length)
+		return 'response_header_lifecycle';
+	if (!header.stdoutEof || !header.stderrEof || !header.childReaped)
+		return 'response_header_lifecycle';
+	if (header.outcome == 'child_exited' && (header.startState != 'started' ||
+	    (header.exitCode == null) == (header.signal == null)))
+		return 'response_header_lifecycle';
+	if (header.outcome == 'timeout' && (header.startState != 'started' || header.signal == null))
+		return 'response_header_lifecycle';
+	if ((header.outcome == 'spawn_failure' || header.outcome == 'setup_failure') &&
+	    (header.startState != 'not_started' || type(header.stage) != 'string'))
+		return 'response_header_lifecycle';
+	if (header.outcome == 'transport_failure' && type(header.reason) != 'string')
+		return 'response_header_lifecycle';
+	return null;
 }
 
 function request_frame(mode, body) {
@@ -85,11 +147,14 @@ function exchange(mode, socket_path, request, cap, timeout) {
 	let send_calls = 0;
 	let short_writes = 0;
 	let send_eagain = 0;
+	let send_null_errno = null;
+	let send_poll_revents = [];
 	let recv_calls = 0;
 	let saw_in_hup = false;
 	let eof = false;
 	let error = null;
 	let peer = null;
+	let frame_cap = 20 + RESPONSE_HEADER_LIMIT + cap + STDERR_LIMIT;
 
 	if (!sock)
 		return { error: 'connect', elapsedMs: monotonic_ms() - started };
@@ -99,8 +164,10 @@ function exchange(mode, socket_path, request, cap, timeout) {
 		let chunk = substr(request, offset, SEND_CHUNK);
 		let written = sock.send(chunk, socket.MSG_DONTWAIT);
 		if (written == null) {
+			send_null_errno = socket.error(true);
 			send_eagain++;
 			let events = wait(sock, socket.POLLOUT | socket.POLLERR | socket.POLLHUP, deadline);
+			push(send_poll_revents, events);
 			if (events == null) { error = 'timeout'; break; }
 			if (events & (socket.POLLERR | socket.POLLHUP)) { error = 'disconnect'; break; }
 			continue;
@@ -111,7 +178,7 @@ function exchange(mode, socket_path, request, cap, timeout) {
 		send_calls++;
 	}
 
-	if (!error && sock.shutdown(socket.SHUT_WR) == null)
+	if (!error && mode != 'request-no-eof' && sock.shutdown(socket.SHUT_WR) == null)
 		error = 'shutdown';
 	if (!error && (mode == 'disconnect-before-exec' || mode == 'disconnect-after-exec')) {
 		sock.close();
@@ -121,12 +188,16 @@ function exchange(mode, socket_path, request, cap, timeout) {
 	while (!error && !eof) {
 		let events = wait(sock, socket.POLLIN | socket.POLLERR | socket.POLLHUP, deadline);
 		if (events == null) { error = 'timeout'; break; }
-		if (events & socket.POLLERR) { error = 'socket'; break; }
+		if (events & socket.POLLERR) {
+			if (length(response) == 0) error = 'request_rejected';
+			else error = 'socket';
+			break;
+		}
 		if ((events & socket.POLLIN) && (events & socket.POLLHUP))
 			saw_in_hup = true;
 
 		if (events & socket.POLLIN) {
-			let available = cap + 2 - length(response);
+			let available = frame_cap + 1 - length(response);
 			let data = sock.recv(available < CHUNK ? available : CHUNK, socket.MSG_DONTWAIT);
 			if (data == null)
 				continue;
@@ -136,7 +207,7 @@ function exchange(mode, socket_path, request, cap, timeout) {
 				break;
 			}
 			response += data;
-			if (length(response) > cap + 1) {
+			if (length(response) > frame_cap) {
 				error = 'response_limit';
 				break;
 			}
@@ -144,11 +215,11 @@ function exchange(mode, socket_path, request, cap, timeout) {
 		}
 
 		if (events & socket.POLLHUP) {
-			let data = sock.recv(cap + 2 - length(response), socket.MSG_DONTWAIT);
+			let data = sock.recv(frame_cap + 1 - length(response), socket.MSG_DONTWAIT);
 			if (data != null && length(data) > 0) {
 				recv_calls++;
 				response += data;
-				if (length(response) > cap + 1)
+				if (length(response) > frame_cap)
 					error = 'response_limit';
 			}
 			else {
@@ -169,13 +240,16 @@ function exchange(mode, socket_path, request, cap, timeout) {
 	if (!error) {
 		let header_length = read_u32(response, 12);
 		let body_length = read_u32(response, 16);
-		if (header_length > 2048 || length(response) != 20 + header_length + body_length)
+		if (header_length > RESPONSE_HEADER_LIMIT || length(response) != 20 + header_length + body_length)
 			error = length(response) < 20 + header_length + body_length ? 'response_truncated' : 'response_frame';
 		else {
-			try { header = json(substr(response, 20, header_length)); } catch (e) { error = 'response_header'; }
-			if (!error && (header.protocol != 'z2m-helper-transport-v1' || header.requestId != 'probe:1' ||
-			    header.stdoutLength + header.stderrLength != body_length))
-				error = 'response_header';
+			let raw_header = substr(response, 20, header_length);
+			if (index(raw_header, '"protocol"') != rindex(raw_header, '"protocol"') ||
+			    index(raw_header, '"requestId"') != rindex(raw_header, '"requestId"'))
+				error = 'response_header_duplicate';
+			else try { header = json(raw_header); } catch (e) { error = 'response_header_malformed'; }
+			if (!error)
+				error = response_header_error(raw_header, header, body_length, cap);
 			response = substr(response, 20 + header_length, body_length);
 		}
 	}
@@ -189,6 +263,8 @@ function exchange(mode, socket_path, request, cap, timeout) {
 		sendCalls: send_calls,
 		shortWrites: short_writes,
 		sendEagain: send_eagain,
+		sendNullErrno: send_null_errno,
+		sendPollRevents: send_poll_revents,
 		recvCalls: recv_calls,
 		bytesRead: length(response),
 		elapsedMs: monotonic_ms() - started,
