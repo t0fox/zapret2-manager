@@ -32,8 +32,8 @@ count=$(tr -cd '\0' < "$test_list" | wc -c)
 xargs -0 node --test < "$test_list"
 
 if [ "$(id -u)" -eq 0 ]; then
-  node --test $root_tests
+  scripts/test/native-root.sh "$node_bin"
 else
   command -v sudo >/dev/null
-  sudo --preserve-env=TMPDIR,UCODE_BIN,UCODE_LIBRARY_PATH "$node_bin" --test tests/native/bootstrap.test.mjs tests/native/core/fs-helper.test.mjs
+  sudo --preserve-env=UCODE_BIN,UCODE_LIBRARY_PATH scripts/test/native-root.sh "$node_bin"
 fi
