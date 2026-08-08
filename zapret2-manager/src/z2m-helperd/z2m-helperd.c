@@ -97,7 +97,7 @@ static int acquire_lock(void)
 	if (lock_fd < 0 || fstat(lock_fd, &descriptor) < 0 ||
 	    fstatat(runtime_fd, "z2m-helperd.lock", &pathname, AT_SYMLINK_NOFOLLOW) < 0 ||
 	    !S_ISREG(descriptor.st_mode) || !S_ISREG(pathname.st_mode) ||
-	    (descriptor.st_mode & 0777) != 0600 || descriptor.st_uid != Z2M_RUNTIME_UID ||
+	    (descriptor.st_mode & 07777) != 0600 || descriptor.st_uid != Z2M_RUNTIME_UID ||
 	    descriptor.st_gid != Z2M_RUNTIME_GID || descriptor.st_dev != pathname.st_dev ||
 	    descriptor.st_ino != pathname.st_ino) goto failure;
 #ifdef Z2M_TEST_STOP_BEFORE_LOCK_FLOCK
@@ -110,7 +110,7 @@ static int acquire_lock(void)
 	if (fstat(lock_fd, &descriptor) < 0 ||
 	    fstatat(runtime_fd, "z2m-helperd.lock", &pathname, AT_SYMLINK_NOFOLLOW) < 0 ||
 	    !S_ISREG(descriptor.st_mode) || !S_ISREG(pathname.st_mode) ||
-	    (descriptor.st_mode & 0777) != 0600 || descriptor.st_uid != Z2M_RUNTIME_UID ||
+	    (descriptor.st_mode & 07777) != 0600 || descriptor.st_uid != Z2M_RUNTIME_UID ||
 	    descriptor.st_gid != Z2M_RUNTIME_GID || descriptor.st_dev != pathname.st_dev ||
 	    descriptor.st_ino != pathname.st_ino) goto failure_locked;
 	return 0;
@@ -133,7 +133,7 @@ static int remove_verified_stale_socket(void)
 	if (fstatat(runtime_fd, "z2m-helperd.sock", &existing, AT_SYMLINK_NOFOLLOW) < 0)
 		return errno == ENOENT ? 0 : -1;
 	if (!S_ISSOCK(existing.st_mode) || existing.st_uid != Z2M_RUNTIME_UID ||
-	    existing.st_gid != Z2M_RUNTIME_GID || (existing.st_mode & 0777) != 0600) {
+	    existing.st_gid != Z2M_RUNTIME_GID || (existing.st_mode & 07777) != 0600) {
 		fprintf(stderr, "z2m-helperd: unsafe pre-existing socket path left untouched\n");
 		errno = EPERM;
 		return -1;
@@ -149,7 +149,7 @@ static void remove_owned_socket(void)
 	if (!socket_owned || runtime_fd < 0 || lock_fd < 0) return;
 	if (fstatat(runtime_fd, "z2m-helperd.sock", &current, AT_SYMLINK_NOFOLLOW) == 0 &&
 	    S_ISSOCK(current.st_mode) && current.st_uid == Z2M_RUNTIME_UID &&
-	    current.st_gid == Z2M_RUNTIME_GID && (current.st_mode & 0777) == 0600 &&
+	    current.st_gid == Z2M_RUNTIME_GID && (current.st_mode & 07777) == 0600 &&
 	    current.st_dev == socket_dev && current.st_ino == socket_ino)
 		(void)unlinkat(runtime_fd, "z2m-helperd.sock", 0);
 	socket_owned = false;
@@ -194,7 +194,7 @@ int main(void)
 	if (fstatat(runtime_fd, "z2m-helperd.sock", &st, AT_SYMLINK_NOFOLLOW) < 0 ||
 	    !S_ISSOCK(st.st_mode) || st.st_uid != Z2M_RUNTIME_UID ||
 	    st.st_gid != Z2M_RUNTIME_GID ||
-	    (st.st_mode & 0777) != 0600) goto failure;
+	    (st.st_mode & 07777) != 0600) goto failure;
 	socket_dev = st.st_dev;
 	socket_ino = st.st_ino;
 	socket_owned = true;

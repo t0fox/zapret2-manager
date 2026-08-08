@@ -96,6 +96,13 @@ function removeSocketAsOperator() {
   if (fs.existsSync(socketPath)) fs.unlinkSync(socketPath);
 }
 
+function makeStaleSocket() {
+  const maker = path.join(root, 'stale-socket-maker');
+  compileHelper(maker, `#include <sys/socket.h>\n#include <sys/un.h>\n#include <string.h>\n#include <unistd.h>\nint main(void){struct sockaddr_un a={.sun_family=AF_UNIX};int s=socket(AF_UNIX,SOCK_STREAM,0);if(s<0)return 1;strcpy(a.sun_path,"${socketPath}");return bind(s,(struct sockaddr*)&a,sizeof(a))<0?2:0;}\n`);
+  const made = run(maker, []);
+  assert.equal(made.status, 0, made.stderr);
+}
+
 function exchange(payload = frame(), { resetIsEof = false } = {}) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -201,6 +208,37 @@ test('removes a verified stale socket under the singleton lock and restarts afte
   assert.equal(fs.existsSync(socketPath), false);
 });
 
+for (const [name, mode] of [
+  ['setuid', 0o4600],
+  ['setgid', 0o2600],
+  ['sticky', 0o1600],
+  ['setuid, setgid, and sticky', 0o7600],
+]) {
+  test(`rejects a stale socket with ${name} bits without replacing it`, async () => {
+    makeStaleSocket();
+    fs.chmodSync(socketPath, mode);
+    const before = fs.lstatSync(socketPath);
+    assert.equal(before.mode & 0o7777, mode);
+
+    const candidate = spawn(daemon, [], { stdio: ['ignore', 'ignore', 'pipe'] });
+    await waitFor(() => candidate.exitCode !== null || candidate.signalCode !== null ||
+      !fs.existsSync(socketPath) || fs.lstatSync(socketPath).ino !== before.ino);
+    const exitCode = candidate.exitCode;
+    const afterStat = fs.existsSync(socketPath) ? fs.lstatSync(socketPath) : null;
+    if (candidate.exitCode === null && candidate.signalCode === null) {
+      candidate.kill('SIGTERM');
+      await new Promise(resolve => candidate.once('exit', resolve));
+    }
+
+    assert.notEqual(exitCode, null, 'broker startup must fail');
+    assert.ok(afterStat, 'stale socket path must remain');
+    assert.equal(afterStat.dev, before.dev);
+    assert.equal(afterStat.ino, before.ino);
+    assert.equal(afterStat.mode & 0o7777, mode);
+    fs.unlinkSync(socketPath);
+  });
+}
+
 test('unsafe stale objects remain untouched and fail closed', () => {
   fs.writeFileSync(socketPath, 'sentinel', { mode: 0o600 });
   let failed = run(daemon, []);
@@ -221,12 +259,6 @@ test('unsafe stale objects remain untouched and fail closed', () => {
   assert.ok(fs.lstatSync(socketPath).isSymbolicLink());
   fs.unlinkSync(socketPath);
 
-  const makeStaleSocket = () => {
-    const maker = path.join(root, 'stale-socket-maker');
-    compileHelper(maker, `#include <sys/socket.h>\n#include <sys/un.h>\n#include <string.h>\n#include <unistd.h>\nint main(void){struct sockaddr_un a={.sun_family=AF_UNIX};int s=socket(AF_UNIX,SOCK_STREAM,0);if(s<0)return 1;strcpy(a.sun_path,"${socketPath}");return bind(s,(struct sockaddr*)&a,sizeof(a))<0?2:0;}\n`);
-    const made = run(maker, []);
-    assert.equal(made.status, 0, made.stderr);
-  };
   makeStaleSocket();
   fs.chmodSync(socketPath, 0o640);
   const wrongMode = fs.lstatSync(socketPath);

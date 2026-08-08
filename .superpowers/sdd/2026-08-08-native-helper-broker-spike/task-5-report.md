@@ -25,9 +25,12 @@ replacement, or M4 work was added.
   evidence, concurrent bounded pipe pumping, one monotonic deadline, TERM/grace/
   KILL, subreaper collection, and no positive-PID signaling after reap.
 - `z2m-helperd.c` verifies fixed runtime ancestry without symlink traversal,
-  takes the no-follow singleton lock, rejects every pre-existing socket path
-  without probing or mutation, enforces UID 0 peers, accepts serially,
-  propagates shutdown into active supervision, and never unlinks the pathname.
+  takes and verifies the no-follow singleton lock, and enforces UID 0 peers. A
+  verified singleton lock plus root-owned mode-0700 runtime directory and
+  root-owned exact-mode-0600 socket permit stale and owned socket cleanup;
+  unsafe type, symlink, wrong-owner, and wrong-mode objects are untouched and
+  fail closed. The broker accepts serially and propagates shutdown into active
+  supervision.
 - `zapret2-manager/Makefile` target-builds the three production C sources with
   strict C11 flags and installs only `/usr/libexec/zapret2-manager/z2m-helperd`.
 - Added package closure and host broker security/contract coverage. Production
@@ -74,6 +77,90 @@ fixed before the final gates.
 ## Concerns And Blockers
 
 - No Task 5 blocker remains.
+
+## Review Fix: Exact Socket Mode
+
+### Status
+
+**PASS.** The two remaining Important findings are closed within Task 5. Socket
+and lock exact-mode checks now include special permission bits, and the current
+`Exact Summary` states the accepted trusted-UID-0 lifecycle. No Task 6, adapter,
+gate replacement, M4, spike, or historical-round changes were made.
+
+### RED
+
+Command:
+
+```sh
+/home/kirill/.local/bin/node --test \
+  --test-name-pattern="rejects a stale socket with" \
+  tests/native/core/native-helper-broker.test.mjs
+```
+
+Result: **4 tests, 0 pass, 4 fail**. Setuid `04600`, setgid `02600`, sticky
+`01600`, and combined `07600` stale sockets each failed at `broker startup must
+fail`: the broker accepted the special-bit socket, replaced its inode, and
+remained running.
+
+### GREEN
+
+Command:
+
+```sh
+/home/kirill/.local/bin/node --test \
+  --test-name-pattern="removes a verified stale socket|rejects a stale socket with" \
+  tests/native/core/native-helper-broker.test.mjs
+```
+
+Result: **5 tests, 5 pass, 0 fail**. All four special-bit stale sockets are
+rejected with path, device, inode, and full mode unchanged. The positive trusted
+root-owned exact-`0600` stale-socket crash/restart cleanup regression also
+passes.
+
+### Verification Commands And Results
+
+```sh
+/home/kirill/.local/bin/node --test --test-concurrency=1 \
+  tests/native/core/native-helper-broker.test.mjs \
+  tests/native/package-helper.test.mjs
+# 68 tests, 68 pass, 0 fail, 0 skipped
+
+wsl.exe -u root --cd /home/kirill/z2m-work/native-state-foundation \
+  /home/kirill/z2m-work/native-state-foundation/scripts/test/native-root.sh \
+  /home/kirill/.local/opt/node-v22.22.1-linux-x64/bin/node
+# 96 tests, 96 pass, 0 fail, 0 skipped
+
+wsl.exe -u root --cd /home/kirill/z2m-work/native-state-foundation \
+  env TMPDIR=/tmp /home/kirill/.local/opt/node-v22.22.1-linux-x64/bin/node \
+  --test tests/native/core/native-helper-broker.test.mjs
+# 42 tests, 42 pass, 0 fail, 0 skipped
+
+cc -std=c11 -Wall -Wextra -Werror -D_GNU_SOURCE \
+  zapret2-manager/src/z2m-helperd/z2m-helperd.c \
+  zapret2-manager/src/z2m-helperd/transport.c \
+  zapret2-manager/src/z2m-helperd/supervise.c -ljson-c \
+  -o /tmp/z2m-helperd-host-review-fix
+# PASS: ELF 64-bit LSB pie executable, x86-64
+
+/home/kirill/z2m-sdk-clean/staging_dir/toolchain-aarch64_cortex-a53_gcc-14.3.0_musl/bin/aarch64-openwrt-linux-musl-gcc \
+  -std=c11 -Wall -Wextra -Werror -D_GNU_SOURCE \
+  -I/home/kirill/z2m-sdk-clean/staging_dir/target-aarch64_cortex-a53_musl/usr/include \
+  zapret2-manager/src/z2m-helperd/z2m-helperd.c \
+  zapret2-manager/src/z2m-helperd/transport.c \
+  zapret2-manager/src/z2m-helperd/supervise.c \
+  -L/home/kirill/z2m-sdk-clean/staging_dir/target-aarch64_cortex-a53_musl/usr/lib \
+  -ljson-c -o /tmp/z2m-helperd-aarch64-review-fix
+# PASS: ELF 64-bit LSB executable, ARM aarch64,
+# interpreter /lib/ld-musl-aarch64.so.1
+
+git diff --check
+# PASS
+```
+
+The OpenWrt compiler wrapper emitted its existing `STAGING_DIR not defined`
+warning but exited successfully and produced the verified AArch64 musl binary.
+The root suites used WSL's real-root launcher because passwordless `sudo` timed
+out in this session.
 
 ## Re-Review Fix Round 4
 
