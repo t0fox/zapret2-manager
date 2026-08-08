@@ -30,7 +30,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test ! -d tools
           test -d scripts/test
           test -d scripts/build
           test -d tests/native

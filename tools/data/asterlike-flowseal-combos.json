@@ -1,0 +1,92 @@
+{
+  "schema": 2,
+  "source": {
+    "repository": "Asterlike/zapret2UI",
+    "commit": "a937d6539911d45da20fd92568aa59bb0e688e5a",
+    "path": "Services/PresetService.cs",
+    "license": "MIT"
+  },
+  "capture": {
+    "tcp": "80,443-65535",
+    "udp": "443,19294-19344,50000-65535"
+  },
+  "candidates": [
+    {
+      "id": "combo-recommended",
+      "name": "Комбо (рекомендуемый)",
+      "description": "Универсальная стратегия: Discord через hostfakesplit, YouTube через fake + multidisorder.",
+      "recommended": true,
+      "aliases": ["combo.recommended"],
+      "discordTls": ["--lua-desync=hostfakesplit:host=www.google.com:tcp_ts=-1000:tcp_md5:repeats=4"],
+      "youtubeTls": ["--lua-desync=fake:blob=tls_google:tcp_md5:tcp_seq=-10000:repeats=6", "--lua-desync=multidisorder:pos=1,midsld"],
+      "fallbackTls": ["--lua-desync=hostfakesplit:host=www.google.com:tcp_ts=-1000:tcp_md5:repeats=4"],
+      "voice": ["--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:repeats=2"]
+    },
+    {
+      "id": "combo-vk-targeted",
+      "name": "Комбо — отечественный (VK, целевой)",
+      "description": "Вариант с маскировкой Discord и fallback-трафика под vk.com.",
+      "recommended": false,
+      "aliases": ["combo.vk"],
+      "discordTls": ["--lua-desync=hostfakesplit:host=vk.com:tcp_ts=-1000:tcp_md5:repeats=4"],
+      "youtubeTls": ["--lua-desync=fake:blob=tls_google:tcp_md5:tcp_seq=-10000:repeats=6", "--lua-desync=multidisorder:pos=1,midsld"],
+      "fallbackTls": ["--lua-desync=hostfakesplit:host=vk.com:tcp_ts=-1000:tcp_md5:repeats=4"],
+      "voice": ["--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:repeats=2"]
+    },
+    {
+      "id": "flowseal-alt10-combo",
+      "name": "Flowseal ALT10",
+      "description": "Двойной fake Google + VK с tcp_ts; часто помогает голосу и медиа.",
+      "recommended": false,
+      "aliases": ["flowseal.alt10", "combo.flowseal.alt10"],
+      "discordTls": ["--lua-desync=fake:blob=tls_google:tcp_ts=-1000:repeats=6", "--lua-desync=fake:blob=tls_vk:tcp_ts=-1000:repeats=6"],
+      "youtubeTls": ["--lua-desync=fake:blob=tls_google:tcp_ts=-1000:ip_id=zero:repeats=6"],
+      "fallbackTls": ["--lua-desync=fake:blob=tls_google:tcp_ts=-1000:repeats=6", "--lua-desync=fake:blob=tls_vk:tcp_ts=-1000:repeats=6"],
+      "voice": ["--lua-desync=fake:blob=quic_vk:repeats=6"]
+    },
+    {
+      "id": "flowseal-alt11-combo",
+      "name": "Flowseal ALT11",
+      "description": "Fake с tcp_ts, затем multisplit с большим seqovl.",
+      "recommended": false,
+      "aliases": ["flowseal.alt11", "combo.flowseal.alt11"],
+      "discordTls": ["--lua-desync=fake:blob=tls_google:tcp_ts=-1000:repeats=6", "--lua-desync=multisplit:pos=1,midsld:seqovl=681:seqovl_pattern=tls_google:optional"],
+      "youtubeTls": ["--lua-desync=fake:blob=tls_google:tcp_ts=-1000:repeats=6", "--lua-desync=multisplit:pos=1,midsld:seqovl=681:seqovl_pattern=tls_google:ip_id=zero:optional"],
+      "fallbackTls": ["--lua-desync=fake:blob=tls_google:tcp_ts=-1000:repeats=6", "--lua-desync=multisplit:pos=1,midsld:seqovl=664:seqovl_pattern=tls_google:optional"],
+      "voice": ["--lua-desync=fake:blob=quic_vk:repeats=6"]
+    },
+    {
+      "id": "flowseal-multisplit-combo",
+      "name": "Flowseal Multisplit",
+      "description": "Multisplit с большим seqovl и реальным ClientHello как паттерном.",
+      "recommended": false,
+      "aliases": ["flowseal.multisplit", "combo.flowseal.multisplit"],
+      "discordTls": ["--lua-desync=multisplit:pos=2:seqovl=681:seqovl_pattern=tls_google:optional"],
+      "youtubeTls": ["--lua-desync=multisplit:pos=2:seqovl=681:seqovl_pattern=tls_google:ip_id=zero:optional"],
+      "fallbackTls": ["--lua-desync=multisplit:pos=2:seqovl=568:seqovl_pattern=tls_google:optional"],
+      "voice": ["--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:repeats=2"]
+    },
+    {
+      "id": "flowseal-alt-fakedsplit-combo",
+      "name": "Flowseal ALT/Fakedsplit",
+      "description": "Fake с tcp_ts и ложная разрезка fakedsplit.",
+      "recommended": false,
+      "aliases": ["flowseal.alt", "combo.flowseal.alt"],
+      "discordTls": ["--lua-desync=fake:blob=tls_google:tcp_ts=-1000:repeats=6", "--lua-desync=fakedsplit:tcp_ts=-1000"],
+      "youtubeTls": ["--lua-desync=fake:blob=tls_google:tcp_ts=-1000:repeats=6", "--lua-desync=fakedsplit:tcp_ts=-1000"],
+      "fallbackTls": ["--lua-desync=fake:blob=tls_google:tcp_ts=-1000:repeats=6", "--lua-desync=fakedsplit:tcp_ts=-1000"],
+      "voice": ["--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:repeats=2"]
+    },
+    {
+      "id": "combo-wssize",
+      "name": "Flowseal — окно (wssize)",
+      "description": "Разрезка ClientHello и уменьшение окна для дробления ответа сервера.",
+      "recommended": false,
+      "aliases": ["combo.wssize"],
+      "discordTls": ["--lua-desync=multisplit:pos=2,midsld-2:seqovl=1:seqovl_pattern=tls_google:optional", "--lua-desync=wssize:wsize=1:scale=6"],
+      "youtubeTls": ["--lua-desync=fake:blob=tls_google:tcp_md5:tcp_seq=-10000:repeats=6", "--lua-desync=multidisorder:pos=1,midsld"],
+      "fallbackTls": ["--lua-desync=multisplit:pos=2,midsld-2:seqovl=1:seqovl_pattern=tls_google:optional", "--lua-desync=wssize:wsize=1:scale=6"],
+      "voice": ["--lua-desync=fake:blob=quic_google:ip_autottl=-2,3-20:ip6_autottl=-2,3-20:repeats=2"]
+    }
+  ]
+}
