@@ -351,7 +351,6 @@ function upstream_info() {
 }
 
 function collect() {
-	try { mkdir('/tmp/zapret2-manager'); } catch (e) { }
 	let engine, runtime, applied, draft, health, rules, system, upstream;
 	try { engine = engine_level(); }
 	catch (e) { engine = { installed: false, packagePresent: false, binaryPresent: false, servicePresent: false }; }

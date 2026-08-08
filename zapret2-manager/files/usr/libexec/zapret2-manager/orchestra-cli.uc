@@ -24,7 +24,7 @@ import { orchestra_capabilities, orchestra_status, orchestra_events, orchestra_h
 import { orchestra_run_start, orchestra_run_status, orchestra_run_events, orchestra_run_pause, orchestra_run_resume, orchestra_run_stop, orchestra_run_continue, orchestra_probe_preflight, orchestra_run_invalidate, orchestra_run_history, orchestra_run_load, orchestra_run_delete, orchestra_run_capabilities, orchestra_apply_best, orchestra_apply_best_test, orchestra_preview_best, orchestra_apply_status, orchestra_apply_events, orchestra_restore_previous, orchestra_apply_record_lan_verification } from './orchestra-run.uc';
 import { orchestra_corpus_get, orchestra_catalog_get } from './orchestra-corpus.uc';
 import { orchestra_corpus_run_start } from './orchestra-corpus-run.uc';
-import { readfile } from 'fs';
+import { readfile, popen } from 'fs';
 
 function read_request(path) {
 	if (!path || path == '') return {};
@@ -40,6 +40,8 @@ function read_request(path) {
 
 let mode = ARGV[0];
 let reqFile = length(ARGV) > 1 ? ARGV[1] : null;
+let bootstrap = popen('/usr/libexec/zapret2-manager/z2m-root-bootstrap runtime 2>/dev/null', 'r');
+if (!bootstrap || bootstrap.close() != 0) exit(1);
 
 if (mode == 'capabilities') {
 	let caps = orchestra_capabilities();

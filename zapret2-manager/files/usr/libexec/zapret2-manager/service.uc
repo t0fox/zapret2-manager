@@ -90,7 +90,6 @@ function requires_engine(action) {
 
 function event(source, category, severity, msg, extra) {
 	try {
-		mkdir('/tmp/zapret2-manager');
 		let ts = trim(sh('date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null'));
 		if (!length(ts)) ts = '' + time();
 		let prev = readfile(PATHS.events_ndjson);
@@ -105,7 +104,7 @@ function event(source, category, severity, msg, extra) {
 
 function set_paused(on) {
 	if (on) {
-		try { mkdir('/tmp/zapret2-manager'); writefile(PATHS.paused_flag, ''); } catch (e) { }
+		try { writefile(PATHS.paused_flag, ''); } catch (e) { }
 	} else {
 		try { unlink(PATHS.paused_flag); } catch (e) { }
 	}
@@ -145,7 +144,6 @@ function capture_applied_hash() {
 	try {
 		let st = { config: sha256_file(PATHS.applied_conf),
 			uci: sha256_file(PATHS.uci_conf), captured_at: time() };
-		mkdir('/tmp/zapret2-manager');
 		writefile('/tmp/zapret2-manager/applied.sha256', sprintf("%J", st) + '\n');
 	} catch (e) { }
 }

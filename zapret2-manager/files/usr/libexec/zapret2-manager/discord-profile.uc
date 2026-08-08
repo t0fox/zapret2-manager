@@ -75,7 +75,7 @@ function required_files(records) {
 	return { ok: ok, files: checks };
 }
 function read_journal() { let raw = readfile(JOURNAL); if (!raw) return null; try { return json(raw); } catch (e) { return null; } }
-function write_journal(doc) { try { mkdir('/tmp/zapret2-manager'); } catch (e) {} writefile(JOURNAL, sprintf('%J', doc) + '\n'); }
+function write_journal(doc) { writefile(JOURNAL, sprintf('%J', doc) + '\n'); }
 
 export const discord_preview = function() {
 	let loaded = load_compiled();

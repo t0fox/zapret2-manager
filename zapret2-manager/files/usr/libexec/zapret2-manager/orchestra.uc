@@ -314,7 +314,7 @@ function safe_diag_tail(path) {
 			}
 		}
 	}
-	try { mkdir('/tmp/zapret2-manager'); writefile(DIAG_LOG_PATH, raw); } catch (e) { }
+	try { writefile(DIAG_LOG_PATH, raw); } catch (e) { }
 	return {
 		path: path,
 		linesTotal: length(lines),

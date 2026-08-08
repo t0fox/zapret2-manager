@@ -154,7 +154,6 @@ function latest_candidate(providerId, arch) {
 function fetch_metadata(provider) {
 	let url = metadata_url(provider), quotedUrl = literal(url);
 	if (url == null || quotedUrl == null) return error('ESECURITY', 'Metadata URL не входит в allowlist.');
-	ensure_dir('/tmp/zapret2-manager');
 	let file = '/tmp/zapret2-manager/proxy-provider-metadata.' + provider + '.' + time();
 	let quotedFile = literal(file);
 	let result = run('ulimit -f 8192; uclient-fetch -q -T 20 --user-agent zapret2-manager/proxy -O ' + quotedFile + ' ' + quotedUrl);
@@ -398,7 +397,6 @@ export const proxy_provider_check_updates = function (input) {
 	candidate.installable = simulated.rc == 0;
 	let token = random_token();
 	if (safe_token(token) == null) return error('EINTERNAL', 'Не удалось создать token проверки.');
-	ensure_dir('/tmp/zapret2-manager');
 	ensure_dir(CHECK_DIR);
 	let now = time();
 	let record = { schema: 'proxy-provider-check.v1', token: token, checkedAt: now, expiresAt: now + CHECK_TTL, candidate: candidate };

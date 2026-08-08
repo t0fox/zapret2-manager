@@ -88,6 +88,42 @@ test('package and service lifecycle fail closed when bootstrap fails', () => {
   }
 });
 
+test('native bootstrap solely owns managed base-directory creation', () => {
+  const managed = [
+    '/tmp/zapret2-manager',
+    '/tmp/zapret2-manager/runtime',
+    '/tmp/zapret2-manager/jobs',
+    '/tmp/zapret2-manager/locks',
+    '/tmp/zapret2-manager/staging',
+    '/etc/zapret2-manager/state',
+    '/etc/zapret2-manager/snapshots',
+    '/etc/zapret2-manager/registry',
+    '/etc/zapret2-manager/secrets',
+  ];
+  const files = walkFiles(['zapret2-manager/files']);
+  for (const file of files) {
+    const body = fs.readFileSync(file, 'utf8');
+    for (const root of managed) {
+      const escaped = root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      assert.doesNotMatch(body,
+        new RegExp(`(?:\\b(?:mkdir|ensure_dir)\\s*(?:\\(\\s*)?|\\bmkdir\\s+-p\\s+)[^\\n]*${escaped}(?=[\\s'\");&]|$)`),
+        `${file} must not directly create managed base ${root}`);
+    }
+  }
+});
+
+test('standalone runtime CLIs bootstrap managed roots and propagate failure', () => {
+  for (const file of ['jobs-cli.uc', 'orchestra-cli.uc', 'engine-cli.uc', 'proxy-provider-cli.uc']) {
+    const body = fs.readFileSync(`zapret2-manager/files/usr/libexec/zapret2-manager/${file}`, 'utf8');
+    assert.match(body,
+      /\/usr\/libexec\/zapret2-manager\/z2m-root-bootstrap runtime/,
+      `${file} must invoke the fixed runtime bootstrap`);
+    assert.match(body,
+      /z2m-root-bootstrap runtime[\s\S]{0,160}(?:exit\([^0]|exit [^0])/,
+      `${file} must stop when runtime bootstrap fails`);
+  }
+});
+
 test('CI provisions pinned ucode and passes it to the shared native gate', () => {
   assert.match(nativeWorkflow, /v0\.0\.20250529/,
     'CI must pin the tested ucode release');

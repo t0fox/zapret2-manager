@@ -185,7 +185,6 @@ function sha256_file(path) {
 }
 
 function snapshot_apply() {
-	try { mkdir('/tmp/zapret2-manager'); } catch (e) { }
 	run('mkdir -p ' + LASTGOOD_DIR);
 	let configBytes = read_config_bytes();
 	let uciBytes = readfile(PATHS.uci_conf);

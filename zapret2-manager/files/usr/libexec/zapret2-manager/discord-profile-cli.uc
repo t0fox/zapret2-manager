@@ -154,7 +154,7 @@ function combo_apply(req) {
 	let applied=profiles_apply_candidate(c.opt,candidateSha256);if(!applied.ok){let rb=restore_original(original);return{ok:false,stage:'apply',operation:applied,rolledBack:rb.ok,rollback:rb};}
 	try{mkdir('/tmp/zapret2-manager/last-good');writefile(LASTGOOD_CONFIG,original);}catch(e){let rb=restore_original(original);return{ok:false,stage:'snapshot-finalize',rolledBack:rb.ok,rollback:rb};}
 	let operationId='flowseal-op-'+time()+'-'+substr(candidateSha256,0,12),result={ok:true,operationId:operationId,candidate:{managerId:c.managerId,name:c.name,digest:c.digest,composedDigest:c.composedDigest,tcpPorts:c.tcpPorts,udpPorts:c.udpPorts,profileCount:c.profileCount,overrideCount:c.overrideCount,source:c.source},native:native,requiredFiles:files,operation:applied,rollbackAvailable:true};
-	try{mkdir('/tmp/zapret2-manager');writefile(JOURNAL,sprintf('%J',{operationId:operationId,candidateId:c.managerId,digest:c.digest,status:'applied',appliedAt:time()})+'\n');}catch(e){}
+	try{writefile(JOURNAL,sprintf('%J',{operationId:operationId,candidateId:c.managerId,digest:c.digest,status:'applied',appliedAt:time()})+'\n');}catch(e){}
 	state.previous=state.active;state.active={candidateId:c.managerId,name:c.name,digest:c.digest,composedDigest:c.composedDigest,appliedAt:time(),operationId:operationId,overrideRevision:overrides_state().revision};state.lastToken=req.idempotencyToken||null;state.lastResult=result;atomic_json(STRATEGY_STATE,state);return result;
 }
 function override_list() { let x=overrides_state(); return {ok:true,schema:x.schema,revision:x.revision,rules:x.rules}; }

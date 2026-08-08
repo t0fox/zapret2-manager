@@ -65,7 +65,7 @@ function read_state() {
 }
 
 function write_state(st) {
-	try { mkdir('/tmp/zapret2-manager'); writefile(STATE_FILE, sprintf("%J", st) + '\n'); }
+	try { writefile(STATE_FILE, sprintf("%J", st) + '\n'); }
 	catch (e) { }
 }
 
@@ -74,7 +74,6 @@ function write_state(st) {
 // context (actual values, threshold, cycle count...).
 function event(source, category, severity, msg, extra) {
 	try {
-		mkdir('/tmp/zapret2-manager');
 		let ts = trim(sh('date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null'));
 		if (!length(ts)) ts = '' + now();
 		let prev = readfile(PATHS.events_ndjson);
@@ -157,7 +156,7 @@ function read_qlen_prev() {
 }
 
 function write_qlen_state(st) {
-	try { mkdir('/tmp/zapret2-manager'); writefile(QLEN_STATE, sprintf("%J", st) + '\n'); }
+	try { writefile(QLEN_STATE, sprintf("%J", st) + '\n'); }
 	catch (e) { }
 }
 
@@ -278,7 +277,6 @@ function check_cycle() {
 		return { skipped: true };
 	}
 
-	mkdir('/tmp/zapret2-manager');
 
 	// 1) process — crash recovery only (not thresholds)
 	let pids = find_pids();
