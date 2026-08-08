@@ -5,7 +5,6 @@ import { existsSync, readFileSync } from 'node:fs';
 const manager = readFileSync('zapret2-manager/Makefile', 'utf8');
 const luci = readFileSync('luci-app-zapret2-manager/Makefile', 'utf8');
 const full = readFileSync('zapret2-manager-full/Makefile', 'utf8');
-const build = readFileSync('tools/build-apk-manual.sh', 'utf8');
 const plugin = readFileSync('zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc', 'utf8');
 const acl = JSON.parse(readFileSync('luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json', 'utf8'))['zapret2-manager'];
 
@@ -23,12 +22,13 @@ test('M8 package versions are coherent while frontend release may advance indepe
 	assert.equal(packageRelease(manager), packageRelease(full));
 });
 
-test('manual APK build derives each manager release from package metadata', () => {
-	for (const pkg of ['zapret2-manager', 'luci-app-zapret2-manager', 'zapret2-manager-full']) {
-		assert.match(build, new RegExp(`package_version ${pkg}`));
-	}
-	assert.match(build, /build_one "luci-app-zapret2-manager"[\s\S]*"\$LUCI_VER"/);
-	assert.match(build, /build_one "zapret2-manager-full"[\s\S]*"\$FULL_VER"/);
+test('standard OpenWrt package metadata is the release and build authority', () => {
+	assert.match(manager, /define Build\/Prepare[\s\S]*src\/z2m-core-helper/);
+	assert.match(manager, /define Build\/Compile[\s\S]*\$\(TARGET_CC\)/);
+	assert.match(manager, /-ljson-c/);
+	assert.doesNotMatch(manager, /^\s*DEPENDS:=[^\n]*\+zapret2(?:\s|$)/m);
+	assert.equal(existsSync('tools/build-apk-manual.sh'), false,
+		'obsolete manual APK builder must not be restored');
 });
 
 test('backend package stages controller, RPC plugin, lifecycle hooks, and only safe install actions', () => {
@@ -40,7 +40,6 @@ test('backend package stages controller, RPC plugin, lifecycle hooks, and only s
 		'zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc',
 		'zapret2-manager/files/etc/init.d/zapret2-manager'
 	]) assert.equal(existsSync(file), true, `missing packaged runtime file: ${file}`);
-	assert.match(build, /cp -a "\$REPO\/zapret2-manager\/files\/\." "\$R\/"/);
 	for (const file of [
 		'blockcheck-run.sh',
 		'engine-operation-worker.sh',
@@ -53,24 +52,24 @@ test('backend package stages controller, RPC plugin, lifecycle hooks, and only s
 		assert.equal(existsSync(`zapret2-manager/files/usr/libexec/zapret2-manager/${file}`), true,
 			`missing packaged shell entry point: ${file}`);
 	}
-	assert.match(build, /stage_manager_files/);
-	assert.match(build, /\/etc\/init\.d\/rpcd reload/);
-	assert.match(build, /\/etc\/init\.d\/zapret2-manager enable/);
-	assert.doesNotMatch(build, /auto_rpc_run|auto-strategy-cli\.uc run/);
-	assert.doesNotMatch(build, /apk add[^\n]*--allow-untrusted/);
+	assert.match(manager, /\/etc\/init\.d\/rpcd reload/);
+	assert.match(manager, /\/etc\/init\.d\/zapret2-manager enable/);
+	assert.doesNotMatch(manager, /auto_rpc_run|auto-strategy-cli\.uc run/);
+	assert.doesNotMatch(manager, /--allow-untrusted/);
 });
 
 test('persistent Auto Strategy state is runtime-owned and protected from package replacement', () => {
 	assert.doesNotMatch(manager, /auto-strategy\.json/);
 	assert.doesNotMatch(manager, /auto-strategy-last-good\.json/);
 	assert.match(readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/auto-strategy.uc', 'utf8'), /state_path_safe\(\).*last_good_path_safe/s);
-	assert.doesNotMatch(build, /rm -rf \/etc\/zapret2-manager/);
+	assert.doesNotMatch(manager, /rm -rf \/etc\/zapret2-manager/);
 });
 
-test('LuCI package stages ACL menu and every shared view, including Orchestra', () => {
+test('LuCI package stages ACL menu and every shared view', () => {
 	assert.match(luci, /wildcard \.\/files\/www\/luci-static\/resources\/view\/zapret2-manager\/\*\.js/);
-	assert.match(build, /for js in "\$VIEW"\/\*\.js/);
-	assert.match(build, /for css in "\$VIEW"\/\*\.css/);
+	assert.match(luci, /wildcard \.\/files\/www\/luci-static\/resources\/view\/zapret2-manager\/\*\.css/);
+	assert.match(luci, /files\/usr\/share\/rpcd\/acl\.d/);
+	assert.match(luci, /files\/usr\/share\/luci\/menu\.d/);
 });
 
 test('Auto Strategy registration and narrow read/write ACL are packaged together', () => {
