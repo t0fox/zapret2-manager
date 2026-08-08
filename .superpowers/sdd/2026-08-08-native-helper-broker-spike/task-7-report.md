@@ -152,3 +152,172 @@ git diff --check
   force-staged explicitly; no `.gitignore` policy was changed.
 - Task 7 deliberately provides only structured future reread/reconciliation
   metadata for uncertain mutation transport. It does not implement reconciliation.
+
+## Fix Round 1
+
+### Status
+
+**PASS.** Review findings were fixed in a separate Task 7-only round. Task 8 and
+M4 remain untouched. Mutation operations now return structured uncertainty for
+every unverifiable result after request delivery or proven helper start, while
+broker-unavailable and valid `not_started` spawn/setup outcomes remain ordinary
+dependency failures.
+
+### Root Causes
+
+- Uncertainty was applied only to socket/framing failures before response-header
+  validation. Once a syntactically valid `child_exited` frame was parsed,
+  malformed helper semantics incorrectly became `EINTERNAL`, even for mutations.
+- The adapter's transport matrix was copied from the spike rather than the actual
+  production serializer. Production omits `signal` from `transport_failure` and
+  emits `status_protocol` and `daemon_shutdown` reasons.
+- Helper success accepted any object and the duplicate scanner tracked only the
+  outer object, allowing malformed operation data and nested duplicate-key
+  collapse.
+
+### RED Evidence
+
+The new adapter cases were written and run before production changes:
+
+```sh
+env TMPDIR=/tmp LD_LIBRARY_PATH=/opt/ucode/lib \
+  UCODE_BIN=/opt/ucode/bin/ucode \
+  /home/kirill/.local/opt/node-v22.22.1-linux-x64/bin/node \
+  --test --test-concurrency=1 tests/native/core/native-helper.test.mjs
+```
+
+Result: **22 tests, 18 pass, 4 fail**. The failures were the intended review
+reproductions:
+
+- mutation empty/malformed/trailing/partial/wrong helper results returned
+  `EINTERNAL` rather than structured uncertainty;
+- production `daemon_shutdown` was rejected because the adapter required a
+  non-serialized signal;
+- malformed operation success data was accepted;
+- escaped-equivalent nested duplicate keys survived JSON collapse.
+
+### Implementation
+
+- Mutation uncertainty now includes bounded safe evidence under `details`, keeps
+  `commitState: unknown`, `automaticRetry: false`, and
+  `recovery: reread_reconcile`, and never retries.
+- Empty, malformed, trailing, partial, wrong-ID/version/envelope/exit, signaled,
+  and operation-data-invalid `child_exited` results are uncertain for mutations
+  after proven start. Read-only operations retain `EINTERNAL` classification.
+- Valid helper `ECOMMITUNKNOWN` remains a distinct helper semantic `EAPPLY`
+  result without transport `commitState`.
+- The broker matrix now matches production `transport.c` and `supervise.c`:
+  `status_protocol`, `daemon_shutdown`, `client_disconnect`, `stdout_limit`, and
+  `supervision_failure` are accepted; production `transport_failure` does not
+  require signal metadata. Both real `not_started` forms are accepted.
+- Exact closed success schemas, primitive types, bounds, enums, canonical base64,
+  digest syntax, and additional-property rejection are enforced for all five
+  operations.
+- A recursive pre-decode scanner rejects decoded duplicate keys in every object,
+  including `data`, `error`, `details`, and objects nested in arrays.
+- Evidence covers stale socket `ECONNREFUSED`, post-read reset, malformed and
+  oversized framing, wrong transport identity, timeout, production status and
+  shutdown frames, mutation helper contradictions, and one-request/no-retry
+  behavior.
+
+### GREEN Verification
+
+Focused host adapter:
+
+```sh
+env TMPDIR=/tmp LD_LIBRARY_PATH=/opt/ucode/lib \
+  UCODE_BIN=/opt/ucode/bin/ucode \
+  /home/kirill/.local/opt/node-v22.22.1-linux-x64/bin/node \
+  --test --test-concurrency=1 tests/native/core/native-helper.test.mjs
+# 22 tests, 22 pass, 0 fail, 0 skipped
+```
+
+Exact-target AArch64 ucode/socket runtime with production-compatible frames:
+
+```sh
+env HOME=/home/kirill PROOT_NO_SECCOMP=1 \
+  LD_LIBRARY_PATH=/home/kirill/z2m-work/qemu-user-local/proot-root/usr/lib/x86_64-linux-gnu \
+  UCODE_BIN=/home/kirill/z2m-work/qemu-user-local/proot-root/usr/bin/proot \
+  'UCODE_ARGS_PIPE=-q|/home/kirill/z2m-work/qemu-user-local/root/usr/bin/qemu-aarch64|-R|/home/kirill/z2m-sdk-clean/staging_dir/target-aarch64_cortex-a53_musl/root-mediatek|-w|/home/kirill/z2m-work/native-state-foundation|/usr/bin/ucode' \
+  'UCODE_MODULE_PATH=/usr/lib/ucode/*.so' \
+  /home/kirill/.local/opt/node-v22.22.1-linux-x64/bin/node \
+  --test --test-concurrency=1 tests/native/core/native-helper.test.mjs
+# 22 tests, 22 pass, 0 fail, 0 skipped
+```
+
+Focused adapter plus package closure:
+
+```sh
+env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory \
+  GIT_CONFIG_VALUE_0=/home/kirill/z2m-work/native-state-foundation \
+  TMPDIR=/tmp LD_LIBRARY_PATH=/opt/ucode/lib UCODE_BIN=/opt/ucode/bin/ucode \
+  /home/kirill/.local/opt/node-v22.22.1-linux-x64/bin/node \
+  --test --test-concurrency=1 \
+  tests/native/core/native-helper.test.mjs tests/native/package-helper.test.mjs
+# 50 tests, 50 pass, 0 fail, 0 skipped
+```
+
+Production broker regressions:
+
+```sh
+env TMPDIR=/tmp \
+  /home/kirill/.local/opt/node-v22.22.1-linux-x64/bin/node \
+  --test --test-concurrency=1 tests/native/core/native-helper-broker.test.mjs
+# 42 tests, 42 pass, 0 fail, 0 skipped
+```
+
+Root and elevated lifecycle gates:
+
+```sh
+env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory \
+  GIT_CONFIG_VALUE_0=/home/kirill/z2m-work/native-state-foundation \
+  scripts/test/native-root.sh \
+  /home/kirill/.local/opt/node-v22.22.1-linux-x64/bin/node
+# 97 tests, 97 pass, 0 fail, 0 skipped
+
+env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory \
+  GIT_CONFIG_VALUE_0=/home/kirill/z2m-work/native-state-foundation \
+  /home/kirill/.local/opt/node-v22.22.1-linux-x64/bin/node \
+  --test tests/native/bootstrap.test.mjs tests/native/package-helper.test.mjs
+# 40 tests, 40 pass, 0 fail, 0 skipped
+```
+
+Strict builds and diff check:
+
+```sh
+cc -std=c11 -Wall -Wextra -Werror -D_GNU_SOURCE \
+  zapret2-manager/src/z2m-helperd/z2m-helperd.c \
+  zapret2-manager/src/z2m-helperd/transport.c \
+  zapret2-manager/src/z2m-helperd/supervise.c \
+  -ljson-c -o /tmp/z2m-helperd-task7-fix1-host
+# PASS: x86-64 ELF
+
+STAGING_DIR=/home/kirill/z2m-sdk-clean/staging_dir \
+  /home/kirill/z2m-sdk-clean/staging_dir/toolchain-aarch64_cortex-a53_gcc-14.3.0_musl/bin/aarch64-openwrt-linux-musl-gcc \
+  -std=c11 -Wall -Wextra -Werror -D_GNU_SOURCE \
+  -I/home/kirill/z2m-sdk-clean/staging_dir/target-aarch64_cortex-a53_musl/usr/include \
+  zapret2-manager/src/z2m-helperd/z2m-helperd.c \
+  zapret2-manager/src/z2m-helperd/transport.c \
+  zapret2-manager/src/z2m-helperd/supervise.c \
+  -L/home/kirill/z2m-sdk-clean/staging_dir/target-aarch64_cortex-a53_musl/usr/lib \
+  -ljson-c -o /tmp/z2m-helperd-task7-fix1-aarch64
+# PASS: AArch64 musl ELF
+
+git diff --check
+# PASS
+```
+
+### Concerns And Honest Boundary
+
+- Fixed-socket adapter and broker suites must run sequentially. One invalid
+  parallel verification caused socket/singleton interference and left two
+  test-only descendants after the shell killed Node at its host timeout; those
+  exact temporary test PIDs were terminated before clean sequential reruns.
+- An actual production AArch64 broker-plus-helper end-to-end test was attempted
+  but not claimed. Standalone helper target compilation outside the OpenWrt
+  package build could not reproduce package `TARGET_CPPFLAGS`: adding the target
+  include root caused musl/Linux `statx` redefinitions, while omitting it could
+  not find json-c. The temporary attempted test was removed. Exact-target Task 7
+  evidence therefore proves the adapter and exact socket runtime against frames
+  matching production serialization; complete production target end-to-end
+  integration remains Task 8.

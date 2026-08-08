@@ -66,9 +66,9 @@ function internal(message) {
 	return failure('EINTERNAL', message || 'Native helper response is invalid.');
 }
 
-function uncertain() {
+function uncertain(details) {
 	return failure('EDEPENDENCY', 'Native helper transport outcome is uncertain.', {
-		commitState: 'unknown', automaticRetry: false, recovery: 'reread_reconcile'
+		commitState: 'unknown', automaticRetry: false, recovery: 'reread_reconcile', details
 	});
 }
 
@@ -205,38 +205,63 @@ function whitespace_after(raw, offset) {
 	return true;
 }
 
-function unique_top_keys(raw) {
-	let seen = {}, i = 0;
-	while (i < length(raw) && match(substr(raw, i, 1), /\s/)) i++;
-	if (substr(raw, i++, 1) != '{') return false;
-	while (true) {
-		while (i < length(raw) && match(substr(raw, i, 1), /\s/)) i++;
-		if (substr(raw, i, 1) == '}') return whitespace_after(raw, i + 1);
-		if (substr(raw, i++, 1) != '"') return false;
-		let decoded = decode_key(raw, i);
-		if (!decoded || exists(seen, decoded[0])) return false;
-		seen[decoded[0]] = true; i = decoded[1];
-		while (i < length(raw) && match(substr(raw, i, 1), /\s/)) i++;
-		if (substr(raw, i++, 1) != ':') return false;
-		let depth = 0, quoted = false, escaped = false;
-		for (; i < length(raw); i++) {
-			let ch = substr(raw, i, 1);
-			if (quoted) {
-				if (escaped) escaped = false;
-				else if (ch == '\\') escaped = true;
-				else if (ch == '"') quoted = false;
-				continue;
-			}
-			if (ch == '"') { quoted = true; continue; }
-			if (ch == '{' || ch == '[') { depth++; continue; }
-			if (ch == '}' || ch == ']') {
-				if (!depth) return ch == '}' && whitespace_after(raw, i + 1);
-				depth--; continue;
-			}
-			if (ch == ',' && !depth) { i++; break; }
-		}
-		if (quoted || depth) return false;
+function skip_space(raw, at) {
+	while (at[0] < length(raw) && match(substr(raw, at[0], 1), /\s/)) at[0]++;
+}
+
+function scan_value(raw, at) {
+	skip_space(raw, at);
+	let ch = substr(raw, at[0], 1);
+	if (ch == '"') {
+		let decoded = decode_key(raw, at[0] + 1);
+		if (!decoded) return false;
+		at[0] = decoded[1];
+		return true;
 	}
+	if (ch == '{') {
+		let seen = {};
+		at[0]++;
+		skip_space(raw, at);
+		if (substr(raw, at[0], 1) == '}') { at[0]++; return true; }
+		while (at[0] < length(raw)) {
+			if (substr(raw, at[0]++, 1) != '"') return false;
+			let decoded = decode_key(raw, at[0]);
+			if (!decoded || exists(seen, decoded[0])) return false;
+			seen[decoded[0]] = true; at[0] = decoded[1];
+			skip_space(raw, at);
+			if (substr(raw, at[0]++, 1) != ':') return false;
+			if (!scan_value(raw, at)) return false;
+			skip_space(raw, at);
+			ch = substr(raw, at[0]++, 1);
+			if (ch == '}') return true;
+			if (ch != ',') return false;
+			skip_space(raw, at);
+		}
+		return false;
+	}
+	if (ch == '[') {
+		at[0]++;
+		skip_space(raw, at);
+		if (substr(raw, at[0], 1) == ']') { at[0]++; return true; }
+		while (at[0] < length(raw)) {
+			if (!scan_value(raw, at)) return false;
+			skip_space(raw, at);
+			ch = substr(raw, at[0]++, 1);
+			if (ch == ']') return true;
+			if (ch != ',') return false;
+			skip_space(raw, at);
+		}
+		return false;
+	}
+	let start = at[0];
+	while (at[0] < length(raw) && index([',', '}', ']', ' ', '\t', '\r', '\n'], substr(raw, at[0], 1)) < 0)
+		at[0]++;
+	return at[0] > start;
+}
+
+function unique_json_keys(raw) {
+	let at = [0];
+	return scan_value(raw, at) && (skip_space(raw, at) == null) && at[0] == length(raw);
 }
 
 function transport_header_valid(raw, header, requestId, bodyLength) {
@@ -244,16 +269,13 @@ function transport_header_valid(raw, header, requestId, bodyLength) {
 		'stderrLength', 'stdoutEof', 'stderrEof', 'stderrTruncated', 'stderrDrained',
 		'childReaped'];
 	let fields = [...common];
-	if (!unique_top_keys(raw) ||
+	if (!unique_json_keys(raw) ||
 	    !unique_known_keys(raw, [...common, 'exitCode', 'signal', 'stage', 'errno', 'reason'])) return false;
 	if (header?.outcome == 'child_exited') push(fields, 'exitCode', 'signal');
 	else if (header?.outcome == 'timeout') push(fields, 'signal');
 	else if (header?.outcome == 'spawn_failure' || header?.outcome == 'setup_failure')
 		push(fields, 'stage', 'errno');
-	else if (header?.outcome == 'transport_failure') {
-		push(fields, 'reason');
-		if (header?.startState == 'started') push(fields, 'signal');
-	}
+	else if (header?.outcome == 'transport_failure') push(fields, 'reason');
 	else return false;
 	if (!exact_fields(header, fields) || header.protocol != TRANSPORT_PROTOCOL ||
 	    header.requestId != requestId || type(header.startState) != 'string' ||
@@ -280,11 +302,48 @@ function transport_header_valid(raw, header, requestId, bodyLength) {
 		return header.startState == 'not_started' && header.stdoutEof && header.stderrEof &&
 			header.childReaped && type(header.errno) == 'int' &&
 			index(['setpgid', 'stdin_dup2', 'stdout_dup2', 'stderr_dup2', 'close'], header.stage) >= 0;
-	if (index(['stdout_limit', 'protocol_failure', 'supervision_failure', 'client_disconnect'], header.reason) < 0)
+	if (index(['stdout_limit', 'status_protocol', 'supervision_failure', 'client_disconnect',
+	    'daemon_shutdown'], header.reason) < 0)
 		return false;
 	if (header.startState == 'started')
-		return header.childReaped && header.stdoutEof && header.stderrEof && type(header.signal) == 'int';
-	return !header.childReaped && index(['not_started', 'unknown'], header.startState) >= 0;
+		return header.childReaped && header.stdoutEof && header.stderrEof;
+	if (header.startState == 'not_started')
+		return (!header.childReaped && !header.stdoutEof && !header.stderrEof) ||
+			(header.childReaped && header.stdoutEof && header.stderrEof);
+	return header.startState == 'unknown' && !header.childReaped;
+}
+
+function canonical_base64(value) {
+	if (type(value) != 'string' || !match(value,
+	    /^([A-Za-z0-9+\/]{4})*([A-Za-z0-9+\/]{2}==|[A-Za-z0-9+\/]{3}=)?$/)) return false;
+	try { return b64enc(b64dec(value)) == value; } catch (e) { return false; }
+}
+
+function success_data_valid(operation, data) {
+	if (type(data) != 'object' || data == null) return false;
+	if (operation == 'stat_regular')
+		return exact_fields(data, ['type', 'size', 'mode', 'uid', 'gid', 'mtimeSec', 'mtimeNsec']) &&
+			data.type == 'regular' && type(data.size) == 'int' && data.size >= 0 &&
+			type(data.mode) == 'string' && match(data.mode, /^0[0-7]{3}$/) &&
+			type(data.uid) == 'int' && data.uid >= 0 && type(data.gid) == 'int' && data.gid >= 0 &&
+			type(data.mtimeSec) == 'int' && type(data.mtimeNsec) == 'int' &&
+			data.mtimeNsec >= 0 && data.mtimeNsec <= 999999999;
+	if (operation == 'read_regular')
+		return exact_fields(data, ['content', 'byteLength']) && canonical_base64(data.content) &&
+			type(data.byteLength) == 'int' && data.byteLength >= 0 && data.byteLength <= 4194304 &&
+			length(b64dec(data.content)) == data.byteLength;
+	if (operation == 'mkdir_private')
+		return exact_fields(data, ['created', 'committed', 'durability']) && type(data.created) == 'bool' &&
+			data.committed == true && index(['durable', 'tmpfs_visible'], data.durability) >= 0;
+	if (operation == 'sha256_regular')
+		return exact_fields(data, ['sha256', 'byteLength']) && type(data.sha256) == 'string' &&
+			match(data.sha256, /^[a-f0-9]{64}$/) && type(data.byteLength) == 'int' &&
+			data.byteLength >= 0 && data.byteLength <= 4194304;
+	if (operation == 'atomic_write')
+		return exact_fields(data, ['byteLength', 'committed', 'durability']) &&
+			type(data.byteLength) == 'int' && data.byteLength >= 0 && data.byteLength <= 4194304 &&
+			data.committed == true && index(['durable', 'tmpfs_visible'], data.durability) >= 0;
+	return false;
 }
 
 function helper_error_valid(error) {
@@ -308,21 +367,32 @@ function helper_error_valid(error) {
 	return error.committed == false && error.durability == 'unchanged';
 }
 
-function helper_response(stdout, requestId, exitCode) {
+function helper_invalid(mutation, issue) {
+	return mutation ? uncertain({
+		transport: { outcome: 'child_exited', startState: 'started' }, helper: { issue }
+	}) : internal();
+}
+
+function helper_response(operation, stdout, requestId, exitCode, mutation) {
 	if (!length(stdout) || substr(stdout, -1) != '\n')
-		return internal();
+		return helper_invalid(mutation, !length(stdout) ? 'empty' : 'partial');
 	let raw = substr(stdout, 0, -1), value;
-	if (!unique_top_keys(raw)) return internal();
-	try { value = json(stdout); } catch (e) { return internal(); }
+	if (!unique_json_keys(raw))
+		return helper_invalid(mutation, index(raw, '}{') >= 0 ? 'trailing' : 'malformed');
+	try { value = json(stdout); } catch (e) { return helper_invalid(mutation, 'malformed'); }
 	if (type(value) != 'object' || value == null || value.protocolVersion != 1 ||
-	    value.requestId != requestId || type(value.ok) != 'bool') return internal();
+	    type(value.ok) != 'bool')
+		return helper_invalid(mutation, value?.protocolVersion != 1 ? 'protocol' : 'envelope');
+	if (value.requestId != requestId) return helper_invalid(mutation, 'request_id');
 	if (value.ok) {
 		if (!exact_fields(value, ['protocolVersion', 'requestId', 'ok', 'data']) ||
-		    type(value.data) != 'object' || exitCode != 0) return internal();
+		    !success_data_valid(operation, value.data)) return helper_invalid(mutation, 'envelope');
+		if (exitCode != 0) return helper_invalid(mutation, 'exit');
 		return { ok: true, data: value.data };
 	}
 	if (!exact_fields(value, ['protocolVersion', 'requestId', 'ok', 'error']) ||
-	    !helper_error_valid(value.error) || EXIT_CODES[value.error.code] != exitCode) return internal();
+	    !helper_error_valid(value.error)) return helper_invalid(mutation, 'envelope');
+	if (EXIT_CODES[value.error.code] != exitCode) return helper_invalid(mutation, 'exit');
 	return failure(PUBLIC_CODES[value.error.code], value.error.message, {
 		retryable: value.error.retryable,
 		details: {
@@ -386,22 +456,34 @@ function invoke_private(operation, arguments, timeoutMs) {
 	sock.close();
 	let mutation = index(MUTATIONS, operation) >= 0;
 	if (transportError || !eof || length(response) < 20)
-		return mutation && sent ? uncertain() : dependency('Native helper transport failed.');
+		return mutation && sent ? uncertain({ transport: { issue: transportError || 'incomplete' } }) :
+			dependency('Native helper transport failed.');
 	if (substr(response, 0, 8) != MAGIC || ord(response, 8) != 2 ||
 	    ord(response, 9) || ord(response, 10) || ord(response, 11))
-		return mutation && sent ? uncertain() : internal();
+		return mutation && sent ? uncertain({ transport: { issue: 'prelude' } }) : internal();
 	let headerLength = read_u32(response, 12), bodyLength = read_u32(response, 16);
 	if (headerLength > HEADER_LIMIT || bodyLength > STDOUT_LIMIT + STDERR_LIMIT ||
 	    length(response) != 20 + headerLength + bodyLength)
-		return mutation && sent ? uncertain() : internal();
+		return mutation && sent ? uncertain({ transport: { issue: 'length' } }) : internal();
 	let rawHeader = substr(response, 20, headerLength), header;
-	try { header = json(rawHeader); } catch (e) { return mutation && sent ? uncertain() : internal(); }
-	if (!transport_header_valid(rawHeader, header, requestId, bodyLength)) return internal();
-	if (header.outcome != 'child_exited')
+	try { header = json(rawHeader); } catch (e) {
+		return mutation && sent ? uncertain({ transport: { issue: 'header' } }) : internal();
+	}
+	if (!transport_header_valid(rawHeader, header, requestId, bodyLength))
+		return mutation && sent ? uncertain({ transport: { issue: 'header' } }) : internal();
+	if (header.outcome != 'child_exited') {
+		if (mutation && header.startState != 'not_started') {
+			let evidence = { outcome: header.outcome, startState: header.startState };
+			if (header.outcome == 'timeout') evidence.signal = header.signal;
+			else if (header.outcome == 'transport_failure') evidence.reason = header.reason;
+			return uncertain({ transport: evidence });
+		}
 		return dependency('Native helper broker did not complete the helper request.');
-	if (header.signal != null) return internal();
+	}
+	if (header.signal != null)
+		return mutation ? helper_invalid(true, 'signal') : internal();
 	let stdout = substr(response, 20 + headerLength, header.stdoutLength);
-	return helper_response(stdout, requestId, header.exitCode);
+	return helper_response(operation, stdout, requestId, header.exitCode, mutation);
 }
 
 export const stat_regular = function(root, path) {
