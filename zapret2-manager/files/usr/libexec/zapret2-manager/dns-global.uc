@@ -7,7 +7,7 @@
 // Apply writes dnsmasq UCI server entries and optional firewall rules.
 // All mutations keep a last-good snapshot for rollback.
 
-import { readfile, writefile, stat, unlink, popen } from 'fs';
+import { readfile, writefile, stat, unlink, popen, mkdir } from 'fs';
 import { load_state, save_state } from './profiles-draft.uc';
 
 const SNAP_DIR = '/tmp/zapret2-manager/last-good/dns-global';
@@ -221,7 +221,8 @@ export const dns_global_preview = function() {
 };
 
 function snapshot_global() {
-	run('mkdir -p ' + SNAP_DIR);
+	try { mkdir('/tmp/zapret2-manager/last-good'); } catch (e) { }
+	try { mkdir(SNAP_DIR); } catch (e) { }
 	run('cp -f /etc/config/dhcp ' + SNAP_DIR + '/dhcp.conf 2>/dev/null');
 	run('cp -f /etc/config/network ' + SNAP_DIR + '/network.conf 2>/dev/null');
 	run('cp -f /etc/zapret2-manager/state.json ' + SNAP_DIR + '/dns-global-state.json 2>/dev/null');

@@ -7,7 +7,7 @@
 // and verifies the exact result. Unsupported engine-owned operations remain
 // visible blockers and are never simulated.
 
-import { readfile, writefile, stat, unlink, popen } from 'fs';
+import { readfile, writefile, stat, unlink, popen, mkdir } from 'fs';
 import {
 	catalog_list, catalog_status, catalog_preview, catalog_apply,
 	cat_load, cat_ledger
@@ -460,7 +460,10 @@ function snapshot_take(snapshot, request_id) {
 	let id = safe_id(request_id);
 	if (id == null) id = 'snapshot-' + time();
 	let directory = SNAP_ROOT + '/' + id;
-	run('mkdir -p ' + directory);
+	try { mkdir('/tmp/zapret2-manager/last-good'); } catch (e) { }
+	try { mkdir(SNAP_ROOT); } catch (e) { }
+	try { mkdir(directory); } catch (e) { }
+	if (!stat(directory)) return error('ESNAPSHOT', 'failed to create domain hub snapshot directory');
 	let state_present = stat(PATHS.draft_state) ? true : false;
 	let manifest = {
 		schema: 1,
@@ -541,7 +544,8 @@ function cached_request(id) {
 function cache_request(id, result) {
 	let safe = safe_id(id);
 	if (safe == null) return;
-	run('mkdir -p ' + REQUEST_ROOT);
+	try { mkdir(REQUEST_ROOT); } catch (e) { }
+	if (!stat(REQUEST_ROOT)) return;
 	writefile(request_path(safe), sprintf('%J', result));
 }
 

@@ -88,8 +88,74 @@ test('package and service lifecycle fail closed when bootstrap fails', () => {
   }
 });
 
-test('native bootstrap solely owns managed base-directory creation', () => {
-  const managed = [
+function creationCallsites(file, body) {
+  const sites = [];
+  const resolve = (expression, offset, seen = new Set()) => {
+    expression = expression.replace(/^['"]\s*\+\s*/, '');
+    let value = '';
+    for (const part of expression.matchAll(/['"]([^'"]*)['"]|\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?|\b([A-Za-z_][A-Za-z0-9_]*)\b/g)) {
+      if (part[1] != null) {
+        value += part[1].replace(/\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?/g, (_, name) => {
+          if (seen.has(name)) return `<${name}>`;
+          const prefix = body.slice(0, offset);
+          let assignment = null;
+          for (const pattern of [
+            new RegExp(`\\b(?:const|let|var)\\s+${name}\\s*=\\s*([^;,\\n]+)`, 'g'),
+            new RegExp(`(?:^|[;\\n]\\s*)${name}=([^;\\n\\s]+)`, 'gm'),
+          ]) for (const match of prefix.matchAll(pattern))
+            if (assignment == null || match.index > assignment.index) assignment = match;
+          if (assignment == null) return `<${name}>`;
+          const raw = assignment[1];
+          if (/^\/[^$'"+\s]*$/.test(raw)) return raw;
+          return resolve(raw, assignment.index, new Set([...seen, name]));
+        });
+      }
+      else {
+        const name = part[2] ?? part[3];
+        if (seen.has(name)) { value += `<${name}>`; continue; }
+        const prefix = body.slice(0, offset);
+        const patterns = [
+          new RegExp(`\\b(?:const|let|var)\\s+${name}\\s*=\\s*([^;,\\n]+)`, 'g'),
+          new RegExp(`(?:^|[;\\n]\\s*)${name}=([^;\\n\\s]+)`, 'gm'),
+        ];
+        let assignment = null;
+        for (const pattern of patterns)
+          for (const match of prefix.matchAll(pattern))
+            if (assignment == null || match.index > assignment.index) assignment = match;
+        if (assignment == null) value += `<${name}>`;
+        else if (/^\/[^$'"+\s]*$/.test(assignment[1])) value += assignment[1];
+        else value += resolve(assignment[1], assignment.index, new Set([...seen, name]));
+      }
+    }
+    return value;
+  };
+
+  for (const match of body.matchAll(/\bmkdir\s+-p\s+([^;)]+)/g))
+    sites.push({ file, recursive: true, target: resolve(match[1], match.index), source: match[0] });
+  for (const match of body.matchAll(/\bmkdir\s*\(\s*([^,)]+)/g))
+    sites.push({ file, recursive: false, target: resolve(match[1], match.index), source: match[0] });
+  for (const match of body.matchAll(/\bensure_dir\s*\(\s*([^,)]+)/g))
+    sites.push({ file, recursive: false, target: resolve(match[1], match.index), source: match[0] });
+  for (const match of body.matchAll(/(?:^|[;\n])\s*mkdir\s+(?!-p\b)([^;\n]+)/g))
+    sites.push({ file, recursive: false, target: resolve(match[1], match.index), source: match[0] });
+  return sites;
+}
+
+test('managed-root creation scanner resolves constants aliases and shell descendants', () => {
+  const fixtures = [
+    `const ROOT = '/tmp/zapret2-manager/last-good';\nrun(\n  'mkdir -p ' + ROOT + '/nested'\n);`,
+    `const ROOT = '/tmp/zapret2-manager';\nlet alias = ROOT;\nmkdir(alias);`,
+    `ROOT=/tmp/zapret2-manager/worker; WORK="$ROOT/job.work"\nmkdir -p "$WORK/backup"`,
+  ];
+  for (const [index, fixture] of fixtures.entries()) {
+    const sites = creationCallsites(`fixture-${index}`, fixture);
+    assert.ok(sites.some((site) => site.target.startsWith('/tmp/zapret2-manager')),
+      `fixture ${index} must resolve a managed runtime target: ${JSON.stringify(sites)}`);
+  }
+});
+
+test('native bootstrap solely owns managed roots and recursive parent traversal', () => {
+  const managed = new Set([
     '/tmp/zapret2-manager',
     '/tmp/zapret2-manager/runtime',
     '/tmp/zapret2-manager/jobs',
@@ -99,17 +165,17 @@ test('native bootstrap solely owns managed base-directory creation', () => {
     '/etc/zapret2-manager/snapshots',
     '/etc/zapret2-manager/registry',
     '/etc/zapret2-manager/secrets',
-  ];
-  const files = walkFiles(['zapret2-manager/files']);
-  for (const file of files) {
+  ]);
+  const violations = [];
+  for (const file of walkFiles(['zapret2-manager/files'])) {
     const body = fs.readFileSync(file, 'utf8');
-    for (const root of managed) {
-      const escaped = root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      assert.doesNotMatch(body,
-        new RegExp(`(?:\\b(?:mkdir|ensure_dir)\\s*(?:\\(\\s*)?|\\bmkdir\\s+-p\\s+)[^\\n]*${escaped}(?=[\\s'\");&]|$)`),
-        `${file} must not directly create managed base ${root}`);
+    for (const site of creationCallsites(file, body)) {
+      const runtimeDescendant = site.target.startsWith('/tmp/zapret2-manager/');
+      if (managed.has(site.target) || (site.recursive && runtimeDescendant))
+        violations.push(`${file}: ${site.source} -> ${site.target}`);
     }
   }
+  assert.deepEqual(violations, [], `unsafe managed-root creation:\n${violations.join('\n')}`);
 });
 
 test('standalone runtime CLIs bootstrap managed roots and propagate failure', () => {

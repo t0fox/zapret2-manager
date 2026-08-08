@@ -19,7 +19,7 @@
 // dnsmasq reload is HUP-based (no listener drop). No direct browser UCI
 // writes — all writes go through this module.
 
-import { readfile, writefile, stat, unlink, popen } from 'fs';
+import { readfile, writefile, stat, unlink, popen, mkdir } from 'fs';
 import { load_state, save_state } from './profiles-draft.uc';
 
 const OVERRIDES_PATH = '/etc/zapret2-manager/dns-overrides.hosts';
@@ -379,7 +379,8 @@ export const dns_validate = function(input) {
 // apply (preview → snapshot → write → register → reload → verify → rollback)
 // ---------------------------------------------------------------------------
 function snapshot_dns(stateText) {
-	run('mkdir -p ' + SNAP_DIR);
+	try { mkdir('/tmp/zapret2-manager/last-good'); } catch (e) { }
+	try { mkdir(SNAP_DIR); } catch (e) { }
 	run('cp -f ' + DHCP_CONF + ' ' + SNAP_DIR + '/dhcp.conf 2>/dev/null');
 	run('cp -f ' + OVERRIDES_PATH + ' ' + SNAP_DIR + '/overrides.hosts 2>/dev/null');
 	if (type(stateText) == 'string') writefile(SNAP_DIR + '/state.json', stateText);
@@ -597,7 +598,8 @@ export const dns_check = function(input) {
 
 export const dns_restore_auto = function() {
 	let snap = '/tmp/zapret2-manager/last-good/dns-auto';
-	run('mkdir -p ' + snap);
+	try { mkdir('/tmp/zapret2-manager/last-good'); } catch (e) { }
+	try { mkdir(snap); } catch (e) { }
 	run('uci export network > ' + snap + '/network.uci');
 	let change = run("uci set network.wan.peerdns='1'; uci delete network.wan.dns; uci commit network; /etc/init.d/network reload");
 	if (change.rc != 0) {

@@ -8,7 +8,9 @@ LOCK=/tmp/zapret2-manager/engine-operation.lock; STATE=/etc/zapret2-manager/engi
 INIT=/etc/init.d/zapret2; CONFIG=/opt/zapret2/config; UCI=/etc/config/zapret2; BINARY=/opt/zapret2/nfq2/nfqws2; CANCEL="$ROOT/$ID.cancel"
 ROLLBACK_REQUIRED=0; ROLLBACK_ATTEMPTED=0; ROLLBACK_VERIFIED=0; WAS_RUNNING=0; OLD_INSTALLED=0; OLD_VERSION=; OLD_APK=; OLD_KEYDIR=
 case "$ID" in eng-[0-9]*-[a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9]) ;; *) exit 2;; esac
-mkdir -p "$WORK" "$BACKUP"; chmod 700 "$WORK" "$BACKUP"
+mkdir "$WORK" || exit 1
+mkdir "$BACKUP" || exit 1
+chmod 700 "$WORK" "$BACKUP"
 cleanup(){ rm -rf "$WORK" "$CANCEL"; }; trap cleanup EXIT HUP INT TERM
 phase(){ /usr/bin/ucode "$CLI" phase "$ID" "$1" "$2" "$3" >/dev/null 2>&1 || true; }
 value(){ jsonfilter -i "$JOB" -e "$1" 2>/dev/null | head -n 1; }
@@ -63,10 +65,10 @@ cancelled && fail ECANCELLED 'Операция отменена до измен�
 phase backup 12 'Создаётся snapshot пакета и пользовательской конфигурации.'
 if apk info -e zapret2 >/dev/null 2>&1; then OLD_INSTALLED=1; OLD_VERSION="$(apk info -v zapret2 2>/dev/null|head -n1|sed 's/^zapret2-//')"; fi
 pidof nfqws2 >/dev/null 2>&1 && WAS_RUNNING=1
-[ -f "$CONFIG" ] && { mkdir -p "$BACKUP/opt-config"; cp -a "$CONFIG" "$BACKUP/opt-config/config"; }
+ [ -f "$CONFIG" ] && { mkdir "$BACKUP/opt-config" || fail EBACKUP 'Не удалось создать backup config.'; cp -a "$CONFIG" "$BACKUP/opt-config/config"; }
 [ -f "$UCI" ] && cp -a "$UCI" "$BACKUP/zapret2.uci"; [ -d /opt/zapret2/init.d/openwrt/custom.d ] && cp -a /opt/zapret2/init.d/openwrt/custom.d "$BACKUP/custom.d"; [ -d /opt/zapret2/ipset ] && cp -a /opt/zapret2/ipset "$BACKUP/ipset"; [ -d /etc/zapret2-manager/lists ] && cp -a /etc/zapret2-manager/lists "$BACKUP/manager-lists"; [ -f "$STATE" ] && cp -a "$STATE" "$BACKUP/provider-state.json"
 if [ "$OLD_INSTALLED" -eq 1 ]; then
- if [ -f "$CACHE/current.apk" ] && [ -f "$CACHE/current.sha256" ] && [ "$(sha "$CACHE/current.apk")" = "$(cat "$CACHE/current.sha256")" ]; then cp -a "$CACHE/current.apk" "$BACKUP/old.apk"; OLD_APK="$BACKUP/old.apk"; [ -d "$CACHE/keys" ] && { cp -a "$CACHE/keys" "$BACKUP/old-keys"; OLD_KEYDIR="$BACKUP/old-keys"; }; else mkdir -p "$BACKUP/fetch"; apk fetch --output "$BACKUP/fetch" "zapret2=$OLD_VERSION" >/dev/null 2>&1 || fail EROLLBACK_UNAVAILABLE 'Старый пакет нельзя сохранить для rollback.'; OLD_APK="$(find "$BACKUP/fetch" -type f -name 'zapret2-*.apk'|head -n1)"; [ -n "$OLD_APK" ] && apk verify "$OLD_APK" >/dev/null 2>&1 || fail EROLLBACK_UNAVAILABLE 'Подпись snapshot APK не подтверждена.'; fi
+ if [ -f "$CACHE/current.apk" ] && [ -f "$CACHE/current.sha256" ] && [ "$(sha "$CACHE/current.apk")" = "$(cat "$CACHE/current.sha256")" ]; then cp -a "$CACHE/current.apk" "$BACKUP/old.apk"; OLD_APK="$BACKUP/old.apk"; [ -d "$CACHE/keys" ] && { cp -a "$CACHE/keys" "$BACKUP/old-keys"; OLD_KEYDIR="$BACKUP/old-keys"; }; else mkdir "$BACKUP/fetch" || fail EROLLBACK_UNAVAILABLE 'Не удалось создать rollback fetch.'; apk fetch --output "$BACKUP/fetch" "zapret2=$OLD_VERSION" >/dev/null 2>&1 || fail EROLLBACK_UNAVAILABLE 'Старый пакет нельзя сохранить для rollback.'; OLD_APK="$(find "$BACKUP/fetch" -type f -name 'zapret2-*.apk'|head -n1)"; [ -n "$OLD_APK" ] && apk verify "$OLD_APK" >/dev/null 2>&1 || fail EROLLBACK_UNAVAILABLE 'Подпись snapshot APK не подтверждена.'; fi
 fi
 cancelled && fail ECANCELLED 'Операция отменена до остановки службы.'
 phase stopping 20 'Служба zapret2 останавливается.'; [ -x "$INIT" ] && "$INIT" stop >/dev/null 2>&1 || [ "$OLD_INSTALLED" -eq 0 ] || fail ESTOP 'Не удалось остановить zapret2.'
@@ -83,13 +85,13 @@ phase downloading 32 'Загружается проверенный release asse
 [ -s "$ASSET" ] && [ "$(size "$ASSET")" -eq "$EXPECTED_SIZE" ] 2>/dev/null || fail ESIZE 'Размер release asset не совпадает с metadata.'; [ "$(sha "$ASSET")" = "$EXPECTED_SHA" ] || fail ESHA256 'SHA-256 release asset не совпадает.'
 cancelled && fail ECANCELLED 'Операция отменена до установки.'
 phase verifying 45 'Проверяются APK metadata и подпись.'
-if [ "$CONTAINER" = zip ]; then mkdir -p "$WORK/unpack"; unzip -qq "$ASSET" -d "$WORK/unpack" || fail EARCHIVE 'Архив поставщика повреждён.'; [ -z "$(find "$WORK/unpack" -type f -name 'luci-app-zapret2*.apk' -print -quit)" ] || fail ESECURITY 'Архив содержит запрещённый LuCI package.'; APK="$(find "$WORK/unpack" -type f -name 'zapret2-*.apk' -print|head -n1)"; [ -n "$APK" ] && [ "$(find "$WORK/unpack" -type f -name 'zapret2-*.apk'|wc -l)" -eq 1 ] || fail EPACKAGE 'В архиве нет единственного zapret2 APK.'; else APK="$ASSET"; fi
+if [ "$CONTAINER" = zip ]; then mkdir "$WORK/unpack" || fail EARCHIVE 'Не удалось создать каталог распаковки.'; unzip -qq "$ASSET" -d "$WORK/unpack" || fail EARCHIVE 'Архив поставщика повреждён.'; [ -z "$(find "$WORK/unpack" -type f -name 'luci-app-zapret2*.apk' -print -quit)" ] || fail ESECURITY 'Архив содержит запрещённый LuCI package.'; APK="$(find "$WORK/unpack" -type f -name 'zapret2-*.apk' -print|head -n1)"; [ -n "$APK" ] && [ "$(find "$WORK/unpack" -type f -name 'zapret2-*.apk'|wc -l)" -eq 1 ] || fail EPACKAGE 'В архиве нет единственного zapret2 APK.'; else APK="$ASSET"; fi
 KEYDIR=
 if [ "$PROVIDER" = andrevich ]; then
  case "$KEY_URL" in https://github.com/1andrevich/zapret2-openwrt/releases/download/v*/zapret2-1andrevich.pub) ;; *) fail ESECURITY 'Public key URL не входит в allowlist.';; esac
- mkdir -p "$WORK/keys"; cp -a /etc/apk/keys/. "$WORK/keys/" 2>/dev/null || true; uclient-fetch -q -T 30 -O "$WORK/keys/zapret2-1andrevich.pub" "$KEY_URL" || fail EKEY 'Не удалось скачать pinned public key.'; [ "$(sha "$WORK/keys/zapret2-1andrevich.pub")" = "$KEY_SHA" ] || fail EKEY 'Fingerprint public key не совпадает.'; KEYDIR="$WORK/keys"; apk --keys-dir "$KEYDIR" verify "$APK" >/dev/null 2>&1 || fail ESIGNATURE 'APK signature не подтверждена pinned key.'
+ mkdir "$WORK/keys" || fail EKEY 'Не удалось создать каталог ключей.'; cp -a /etc/apk/keys/. "$WORK/keys/" 2>/dev/null || true; uclient-fetch -q -T 30 -O "$WORK/keys/zapret2-1andrevich.pub" "$KEY_URL" || fail EKEY 'Не удалось скачать pinned public key.'; [ "$(sha "$WORK/keys/zapret2-1andrevich.pub")" = "$KEY_SHA" ] || fail EKEY 'Fingerprint public key не совпадает.'; KEYDIR="$WORK/keys"; apk --keys-dir "$KEYDIR" verify "$APK" >/dev/null 2>&1 || fail ESIGNATURE 'APK signature не подтверждена pinned key.'
 else apk verify "$APK" >/dev/null 2>&1 || fail ESIGNATURE 'Remittor APK не подписан доверенным системным ключом.'; fi
-META="$WORK/meta"; apk adbdump "$APK" >"$META" 2>/dev/null || { mkdir -p "$WORK/index"; apk index -o "$WORK/index/APKINDEX.tar.gz" "$APK" >/dev/null 2>&1 && tar -xOzf "$WORK/index/APKINDEX.tar.gz" APKINDEX >"$META" 2>/dev/null; } || fail EPACKAGE 'Не удалось прочитать APK metadata.'
+META="$WORK/meta"; apk adbdump "$APK" >"$META" 2>/dev/null || { mkdir "$WORK/index" && apk index -o "$WORK/index/APKINDEX.tar.gz" "$APK" >/dev/null 2>&1 && tar -xOzf "$WORK/index/APKINDEX.tar.gz" APKINDEX >"$META" 2>/dev/null; } || fail EPACKAGE 'Не удалось прочитать APK metadata.'
 PKG_NAME="$(awk -F: '/^(name|P):/{print $2;exit}' "$META"|tr -d ' ')"; PKG_VERSION="$(awk -F: '/^(version|V):/{print $2;exit}' "$META"|tr -d ' ')"; PKG_ARCH="$(awk -F: '/^(arch|A):/{print $2;exit}' "$META"|tr -d ' ')"
 [ "$PKG_NAME" = zapret2 ] || fail EPACKAGE 'APK package name не zapret2.'; case "$PKG_VERSION" in "$EXPECTED_VERSION"|"$EXPECTED_VERSION"-r[0-9]*) ;; *) fail EVERSION 'APK package version не совпадает с кандидатом.';; esac; [ "$PKG_ARCH" = "$ARCH" ] || fail EARCH 'APK architecture не совпадает с устройством.'
 ROLLBACK_REQUIRED=1; phase installing 60 'Устанавливается только engine package zapret2.'

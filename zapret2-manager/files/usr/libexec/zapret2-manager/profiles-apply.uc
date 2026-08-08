@@ -185,7 +185,7 @@ function sha256_file(path) {
 }
 
 function snapshot_apply() {
-	run('mkdir -p ' + LASTGOOD_DIR);
+	try { mkdir(LASTGOOD_DIR); } catch (e) { }
 	let configBytes = read_config_bytes();
 	let uciBytes = readfile(PATHS.uci_conf);
 	if (uciBytes == null) uciBytes = '';
