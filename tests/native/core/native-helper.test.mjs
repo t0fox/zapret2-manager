@@ -2,9 +2,11 @@ import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import net from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
 import {
-  SOCKET_PATH, MODULE, brokerResult, childExited, invoke, requestFrameBody, responseFrame, withPeer,
-  withRawPeer,
+  SOCKET_PATH, MODULE, brokerResult, buildSendFixture, buildShutdownShim, childExited, invoke,
+  requestFrameBody, responseFrame, shutdownShimEnv, withPeer, withRawPeer, withSendFixture,
 } from './ucode-test-harness.mjs';
 
 after(() => fs.rmSync(SOCKET_PATH, { force: true }));
@@ -20,12 +22,12 @@ const failure = (id, code = 'ENOENT', overrides = {}) => `${JSON.stringify({
 async function roundTrip(expression, makeResponse = ({ header }) => childExited(
   header.requestId, success(header.requestId, {
     type: 'regular', size: 7, mode: '0600', uid: 0, gid: 0, mtimeSec: 1, mtimeNsec: 2,
-  }))) {
+  })), extraEnv = {}, hostTimeout = 5000) {
   let request;
   const result = await withPeer((socket, wire) => {
     request = requestFrameBody(wire);
     socket.end(makeResponse(request));
-  }, () => invoke(expression));
+  }, () => invoke(expression, hostTimeout, extraEnv));
   return { result, request };
 }
 
@@ -180,11 +182,16 @@ test('validates every broker outcome and exit/envelope lifecycle consistency', a
 test('mutation transport damage after possible start is structured unknown with no retry or reconciliation', async () => {
   const result = await withPeer((socket) => socket.destroy(), () =>
     invoke(`native.atomic_write('runtime', 'state.bin', 'YQ==', true)`));
-  assert.deepEqual(result.error, {
-    code: 'EDEPENDENCY', message: 'Native helper transport outcome is uncertain.', retryable: false,
-    commitState: 'unknown', automaticRetry: false, recovery: 'reread_reconcile',
-    details: { transport: { issue: 'incomplete' } },
-  });
+  assert.equal(result.error.code, 'EDEPENDENCY');
+  assert.equal(result.error.commitState, 'unknown');
+  assert.equal(result.error.automaticRetry, false);
+  assert.equal(result.error.recovery, 'reread_reconcile');
+  assert.equal(result.error.details.transport.issue, 'incomplete');
+  assert.equal(result.error.details.transport.stage, 'receive');
+  assert.ok(result.error.details.transport.bytesSent > 0);
+  assert.equal(result.error.details.transport.sendWaits, 0);
+  assert.equal(result.error.details.transport.shortWrites, 0);
+  assert.equal(result.error.details.transport.pollRevents, null);
 });
 
 test('timeout, reset, malformed, empty, trailing frame, partial, and oversized response fail closed', async () => {
@@ -363,5 +370,120 @@ test('stale socket refusal and reset before or after request delivery never retr
     assert.equal(result.error.commitState, 'unknown');
     assert.equal(result.error.automaticRetry, false);
     assert.equal(connections, 1);
+  }
+});
+
+function detailsWire(id, operation, details) {
+  return `${JSON.stringify({
+    protocolVersion: 1, requestId: id, ok: false,
+    error: { code: 'ENOENT', message: 'Managed object does not exist.', retryable: false,
+      committed: false, durability: 'unchanged', stage: 'object_open', details },
+  })}\n`;
+}
+
+test('enforces exact 4096-byte serialized helper details bound including nested UTF-8', async () => {
+  const exactAscii = { x: 'a'.repeat(4088) };
+  const overAscii = { x: 'a'.repeat(4089) };
+  const nestedUtf8 = { n: { x: 'é'.repeat(2041) } };
+  assert.equal(Buffer.byteLength(JSON.stringify(exactAscii)), 4096);
+  assert.equal(Buffer.byteLength(JSON.stringify(overAscii)), 4097);
+  assert.equal(Buffer.byteLength(JSON.stringify(nestedUtf8)), 4096);
+
+  for (const details of [exactAscii, nestedUtf8]) {
+    const { result } = await roundTrip(`native.read_regular('jobs', 'x', 1)`, ({ header }) =>
+      childExited(header.requestId, detailsWire(header.requestId, 'read_regular', details), 4));
+    assert.equal(result.error.details?.helperCode, 'ENOENT', JSON.stringify(result));
+  }
+  const readOver = await roundTrip(`native.read_regular('jobs', 'x', 1)`, ({ header }) =>
+    childExited(header.requestId, detailsWire(header.requestId, 'read_regular', overAscii), 4));
+  assert.equal(readOver.result.error.code, 'EINTERNAL');
+  const mutationOver = await roundTrip(`native.atomic_write('runtime', 'x', 'YQ==', true)`, ({ header }) =>
+    childExited(header.requestId, detailsWire(header.requestId, 'atomic_write', overAscii), 4));
+  assert.equal(mutationOver.result.error.commitState, 'unknown');
+  assert.equal(mutationOver.result.error.automaticRetry, false);
+
+  const invalidType = await roundTrip(`native.read_regular('jobs', 'x', 1)`, ({ header }) =>
+    childExited(header.requestId, detailsWire(header.requestId, 'read_regular', 'invalid'), 4));
+  assert.equal(invalidType.result.error.code, 'EINTERNAL');
+  const invalidUtf8 = await roundTrip(`native.atomic_write('runtime', 'x', 'YQ==', true)`, ({ header }) => {
+    const prefix = Buffer.from(`{"protocolVersion":1,"requestId":"${header.requestId}","ok":false,"error":{"code":"ENOENT","message":"x","retryable":false,"committed":false,"durability":"unchanged","stage":"object_open","details":{"x":"`);
+    const suffix = Buffer.from('"}}}\n');
+    return childExited(header.requestId, Buffer.concat([prefix, Buffer.from([0xff]), suffix]), 4);
+  });
+  assert.equal(invalidUtf8.result.error.commitState, 'unknown');
+  assert.equal(invalidUtf8.result.error.automaticRetry, false);
+});
+
+function nestedArrays(depth) {
+  return `${'['.repeat(depth)}0${']'.repeat(depth)}`;
+}
+
+test('scanner enforces exact depth and node budgets before helper JSON collapse', async () => {
+  const envelope = (id, rawData) =>
+    `{"protocolVersion":1,"requestId":"${id}","ok":true,"data":${rawData}}\n`;
+  for (const [depth, issue] of [[15, 'envelope'], [16, 'scan_budget']]) {
+    const { result } = await roundTrip(`native.atomic_write('runtime', 'x', 'YQ==', true)`, ({ header }) =>
+      childExited(header.requestId, envelope(header.requestId, nestedArrays(depth))));
+    assert.equal(result.error.details.helper.issue, issue, `depth ${depth}`);
+  }
+  for (const [nodes, issue] of [[65531, 'envelope'], [65532, 'scan_budget']]) {
+    const raw = `[${Array(nodes).fill('0').join(',')}]`;
+    const { result } = await roundTrip(`native.atomic_write('runtime', 'x', 'YQ==', true)`, ({ header }) =>
+      childExited(header.requestId, envelope(header.requestId, raw)), {}, 20000);
+    assert.equal(result.error.details.helper.issue, issue, `nodes ${nodes}`);
+  }
+});
+
+test('production transport matrix rejects impossible unknown and accepts only serialized combinations', async () => {
+  const cases = [
+    ['status_protocol', 'not_started', true, true, true],
+    ['client_disconnect', 'started', true, true, true],
+    ['stdout_limit', 'started', true, true, true],
+    ['daemon_shutdown', 'started', true, true, true],
+    ['supervision_failure', 'not_started', false, false, false],
+    ['supervision_failure', 'not_started', true, true, true],
+    ['supervision_failure', 'started', true, true, true],
+    ['supervision_failure', 'started', false, true, false],
+  ];
+  for (const [reason, startState, childReaped, stdoutEof, stderrEof] of cases) {
+    const { result } = await roundTrip(`native.read_regular('jobs', 'x', 1)`, ({ header }) =>
+      brokerResult(header.requestId, 'transport_failure', {
+        reason, startState, childReaped, stdoutEof, stderrEof,
+      }));
+    assert.equal(result.error.code, 'EDEPENDENCY', `${reason}/${startState}/${childReaped}`);
+  }
+  const impossible = await roundTrip(`native.atomic_write('runtime', 'x', 'YQ==', true)`, ({ header }) =>
+    brokerResult(header.requestId, 'transport_failure', {
+      reason: 'supervision_failure', startState: 'unknown', childReaped: false,
+      stdoutEof: false, stderrEof: false,
+    }));
+  assert.equal(impossible.result.error.commitState, 'unknown');
+  assert.equal(impossible.result.error.details.transport.issue, 'header');
+});
+
+test('send backpressure and injected shutdown failure expose deterministic branch counters', async () => {
+  const binary = path.join(os.tmpdir(), `z2m-send-fixture-${process.pid}`);
+  const shim = path.join(os.tmpdir(), `z2m-shutdown-shim-${process.pid}.so`);
+  buildSendFixture(binary);
+  buildShutdownShim(shim);
+  try {
+    const content = Buffer.alloc(521028, 0x61).toString('base64');
+    const blocked = await withSendFixture(binary, 'backpressure-hup', () =>
+      invoke(`native.atomic_write('runtime', 'x', '${content}', true)`, 7000));
+    assert.match(blocked.evidence, /^MODE=backpressure-hup RECEIVED=[1-9][0-9]* RCVBUF=4096 NO_READ_MS=150$/);
+    assert.equal(blocked.result.error.commitState, 'unknown');
+    assert.ok(blocked.result.error.details.transport.bytesSent > 0);
+    assert.ok(blocked.result.error.details.transport.sendWaits > 0);
+    assert.match(blocked.result.error.details.transport.stage, /send|poll/);
+
+    const shutdown = await roundTrip(`native.atomic_write('runtime', 'x', 'YQ==', true)`,
+      ({ header }) => childExited(header.requestId, success(header.requestId,
+        { byteLength: 1, committed: true, durability: 'tmpfs_visible' })),
+      shutdownShimEnv(shim));
+    assert.equal(shutdown.result.error.commitState, 'unknown');
+    assert.equal(shutdown.result.error.details.transport.stage, 'shutdown');
+  } finally {
+    fs.rmSync(binary, { force: true });
+    fs.rmSync(shim, { force: true });
   }
 });

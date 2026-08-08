@@ -321,3 +321,157 @@ git diff --check
   evidence therefore proves the adapter and exact socket runtime against frames
   matching production serialization; complete production target end-to-end
   integration remains Task 8.
+
+## Fix Round 2
+
+### Status
+
+**PASS.** Four Important review findings are closed within Task 7. Task 8 and M4
+remain untouched. Helper details and JSON parsing are bounded before decode,
+broker outcomes match production serialization without accepting synthetic
+`unknown`, and send-side uncertainty now carries deterministic branch evidence.
+
+### RED Evidence
+
+Tests were added before production changes and run with:
+
+```sh
+env TMPDIR=/tmp LD_LIBRARY_PATH=/opt/ucode/lib \
+  UCODE_BIN=/opt/ucode/bin/ucode \
+  /home/kirill/.local/opt/node-v22.22.1-linux-x64/bin/node \
+  --test --test-concurrency=1 tests/native/core/native-helper.test.mjs
+```
+
+Result: **26 tests, 22 pass, 4 fail** after correcting one test-fixture include.
+The intended failures proved:
+
+- compact 4097-byte helper `details` was accepted;
+- valid nested input did not have deterministic scanner limits and the one-over
+  budget was not classified as mutation uncertainty;
+- impossible production `startState:unknown` was accepted;
+- deterministic backpressure lacked bytes-sent, wait, short-write, poll-event,
+  and stage evidence.
+
+The first send-fixture run failed at fixture compilation because `<sys/stat.h>`
+was missing, then at host `E2BIG` because a 521,028-byte payload was embedded in
+`ucode -e`. Those test defects were fixed before capturing the intended send RED:
+the harness now uses a temporary ucode source file for large invocations.
+
+### Implementation
+
+- Enforces the helper protocol's compact serialized `error.details` limit at
+  exactly 4096 UTF-8 bytes from the original wire span before JSON collapse.
+  Exact ASCII and nested non-ASCII vectors pass; 4097, non-object details, and
+  invalid UTF-8 fail closed. Read-only operations return `EINTERNAL`; mutations
+  after proven start return structured uncertainty with no retry.
+- Adds strict pre-decode parser budgets: depth 16, containers 1024, members 1024,
+  total nodes 65536, decoded key bytes 4096, and total work bounded by helper
+  stdout. Depth 15/16 and payload-node 65531/65532 vectors account for envelope
+  nodes and prove exact/one-over behavior without unbounded recursion.
+- Removes broker `startState:unknown`. Production outcome validation now permits
+  only `not_started` or `started` combinations emitted by `supervise.c` and
+  serialized by `transport.c`. `supervision_failure` separately permits partial
+  reap/EOF evidence; completed status, disconnect, limit, and shutdown outcomes
+  retain their exact lifecycle requirements.
+- Adds a native fixed-path AF_UNIX fixture with `SO_RCVBUF=4096`, 150 ms no-read
+  backpressure, partial receive evidence, and reset. A maximum request proves
+  positive bytes sent, send wait/EAGAIN, poll HUP/error stage, and no retry.
+- Adds a test-only `shutdown()` preload shim. Host tests build a host shared
+  object; exact-target tests build AArch64 and pass it through QEMU guest
+  environment. This deterministically proves the shutdown-failure uncertainty
+  branch without any production seam or new transport primitive.
+- Uncertainty evidence remains bounded scalars only: stage, bytes sent, send wait
+  count, short-write count, and numeric poll revents. Request/helper content is
+  never reflected.
+
+### GREEN Verification
+
+Focused host adapter and package closure:
+
+```sh
+env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory \
+  GIT_CONFIG_VALUE_0=/home/kirill/z2m-work/native-state-foundation \
+  TMPDIR=/tmp LD_LIBRARY_PATH=/opt/ucode/lib UCODE_BIN=/opt/ucode/bin/ucode \
+  /home/kirill/.local/opt/node-v22.22.1-linux-x64/bin/node \
+  --test --test-concurrency=1 \
+  tests/native/core/native-helper.test.mjs tests/native/package-helper.test.mjs
+# 54 tests, 54 pass, 0 fail, 0 skipped
+```
+
+Exact-target AArch64 ucode/socket runtime:
+
+```sh
+env HOME=/home/kirill PROOT_NO_SECCOMP=1 \
+  STAGING_DIR=/home/kirill/z2m-sdk-clean/staging_dir \
+  LD_LIBRARY_PATH=/home/kirill/z2m-work/qemu-user-local/proot-root/usr/lib/x86_64-linux-gnu \
+  UCODE_BIN=/home/kirill/z2m-work/qemu-user-local/proot-root/usr/bin/proot \
+  'UCODE_ARGS_PIPE=-q|/home/kirill/z2m-work/qemu-user-local/root/usr/bin/qemu-aarch64|-R|/home/kirill/z2m-sdk-clean/staging_dir/target-aarch64_cortex-a53_musl/root-mediatek|-w|/home/kirill/z2m-work/native-state-foundation|/usr/bin/ucode' \
+  'UCODE_MODULE_PATH=/usr/lib/ucode/*.so' \
+  TARGET_CC=/home/kirill/z2m-sdk-clean/staging_dir/toolchain-aarch64_cortex-a53_gcc-14.3.0_musl/bin/aarch64-openwrt-linux-musl-gcc \
+  /home/kirill/.local/opt/node-v22.22.1-linux-x64/bin/node \
+  --test --test-concurrency=1 tests/native/core/native-helper.test.mjs
+# 26 tests, 26 pass, 0 fail, 0 skipped
+```
+
+Production broker regressions:
+
+```sh
+env TMPDIR=/tmp \
+  /home/kirill/.local/opt/node-v22.22.1-linux-x64/bin/node \
+  --test --test-concurrency=1 tests/native/core/native-helper-broker.test.mjs
+# 42 tests, 42 pass, 0 fail, 0 skipped
+```
+
+Root and elevated lifecycle gates:
+
+```sh
+env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory \
+  GIT_CONFIG_VALUE_0=/home/kirill/z2m-work/native-state-foundation \
+  scripts/test/native-root.sh \
+  /home/kirill/.local/opt/node-v22.22.1-linux-x64/bin/node
+# 97 tests, 97 pass, 0 fail, 0 skipped
+
+env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory \
+  GIT_CONFIG_VALUE_0=/home/kirill/z2m-work/native-state-foundation \
+  /home/kirill/.local/opt/node-v22.22.1-linux-x64/bin/node \
+  --test tests/native/bootstrap.test.mjs tests/native/package-helper.test.mjs
+# 40 tests, 40 pass, 0 fail, 0 skipped
+```
+
+Strict builds and diff check:
+
+```sh
+cc -std=c11 -Wall -Wextra -Werror -D_GNU_SOURCE \
+  zapret2-manager/src/z2m-helperd/z2m-helperd.c \
+  zapret2-manager/src/z2m-helperd/transport.c \
+  zapret2-manager/src/z2m-helperd/supervise.c \
+  -ljson-c -o /tmp/z2m-helperd-task7-fix2-host
+# PASS: x86-64 ELF
+
+STAGING_DIR=/home/kirill/z2m-sdk-clean/staging_dir \
+  /home/kirill/z2m-sdk-clean/staging_dir/toolchain-aarch64_cortex-a53_gcc-14.3.0_musl/bin/aarch64-openwrt-linux-musl-gcc \
+  -std=c11 -Wall -Wextra -Werror -D_GNU_SOURCE \
+  -I/home/kirill/z2m-sdk-clean/staging_dir/target-aarch64_cortex-a53_musl/usr/include \
+  zapret2-manager/src/z2m-helperd/z2m-helperd.c \
+  zapret2-manager/src/z2m-helperd/transport.c \
+  zapret2-manager/src/z2m-helperd/supervise.c \
+  -L/home/kirill/z2m-sdk-clean/staging_dir/target-aarch64_cortex-a53_musl/usr/lib \
+  -ljson-c -o /tmp/z2m-helperd-task7-fix2-aarch64
+# PASS: AArch64 musl ELF
+
+git diff --check
+# PASS
+```
+
+### Concerns
+
+- High-node exact-target scanner vectors take about 38 seconds under QEMU; the
+  Node host guard is 20 seconds per high-node invocation while adapter transport
+  deadlines remain unchanged. The complete exact-target suite took about 60
+  seconds.
+- One broker regression invocation started with a transient test-runtime
+  socket/lock cascade and its shell guard expired after all subtests printed.
+  Process inspection showed no surviving broker process; the clean sequential
+  rerun with a larger host guard passed 42/42. No production file was changed.
+- Shutdown failure is syscall-injected only in tests using preload, with separate
+  host and AArch64 artifacts. Production has no environment, path, or test seam.

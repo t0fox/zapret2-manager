@@ -7,6 +7,12 @@ const HEADER_LIMIT = 2048;
 const STDOUT_LIMIT = 6291456;
 const STDERR_LIMIT = 4096;
 const CHUNK = 65536;
+const JSON_MAX_DEPTH = 16;
+const JSON_MAX_CONTAINERS = 1024;
+const JSON_MAX_MEMBERS = 1024;
+const JSON_MAX_NODES = 65536;
+const JSON_MAX_KEY_BYTES = 4096;
+const JSON_MAX_WORK = STDOUT_LIMIT;
 const ROOTS = [
 	'persistent_state', 'snapshots', 'registry', 'secrets',
 	'runtime', 'jobs', 'staging'
@@ -164,6 +170,27 @@ function utf8(codepoint) {
 		0x80 | (codepoint & 0x3f));
 }
 
+function valid_utf8(value) {
+	for (let i = 0; i < length(value); i++) {
+		let first = ord(value, i), need, codepoint;
+		if (first < 0x80) { if (!first) return false; continue; }
+		if ((first & 0xe0) == 0xc0) { codepoint = first & 0x1f; need = 1; if (codepoint < 2) return false; }
+		else if ((first & 0xf0) == 0xe0) { codepoint = first & 0x0f; need = 2; }
+		else if ((first & 0xf8) == 0xf0) { codepoint = first & 7; need = 3; }
+		else return false;
+		if (i + need >= length(value)) return false;
+		for (let j = 1; j <= need; j++) {
+			let next = ord(value, i + j);
+			if ((next & 0xc0) != 0x80) return false;
+			codepoint = (codepoint << 6) | (next & 0x3f);
+		}
+		if ((need == 2 && codepoint < 0x800) || (need == 3 && codepoint < 0x10000) ||
+		    (codepoint >= 0xd800 && codepoint <= 0xdfff) || codepoint > 0x10ffff) return false;
+		i += need;
+	}
+	return true;
+}
+
 function decode_key(raw, start) {
 	let value = '';
 	for (let i = start; i < length(raw); i++) {
@@ -209,59 +236,67 @@ function skip_space(raw, at) {
 	while (at[0] < length(raw) && match(substr(raw, at[0], 1), /\s/)) at[0]++;
 }
 
-function scan_value(raw, at) {
-	skip_space(raw, at);
-	let ch = substr(raw, at[0], 1);
+function scan_bounded_value(raw, scan) {
+	skip_space(raw, scan.at);
+	if (++scan.nodes > JSON_MAX_NODES || scan.at[0] >= length(raw)) return 'budget';
+	let ch = substr(raw, scan.at[0], 1);
 	if (ch == '"') {
-		let decoded = decode_key(raw, at[0] + 1);
-		if (!decoded) return false;
-		at[0] = decoded[1];
-		return true;
+		let decoded = decode_key(raw, scan.at[0] + 1);
+		if (!decoded) return 'malformed';
+		scan.at[0] = decoded[1];
+		return null;
 	}
-	if (ch == '{') {
-		let seen = {};
-		at[0]++;
-		skip_space(raw, at);
-		if (substr(raw, at[0], 1) == '}') { at[0]++; return true; }
-		while (at[0] < length(raw)) {
-			if (substr(raw, at[0]++, 1) != '"') return false;
-			let decoded = decode_key(raw, at[0]);
-			if (!decoded || exists(seen, decoded[0])) return false;
-			seen[decoded[0]] = true; at[0] = decoded[1];
-			skip_space(raw, at);
-			if (substr(raw, at[0]++, 1) != ':') return false;
-			if (!scan_value(raw, at)) return false;
-			skip_space(raw, at);
-			ch = substr(raw, at[0]++, 1);
-			if (ch == '}') return true;
-			if (ch != ',') return false;
-			skip_space(raw, at);
+	if (ch != '{' && ch != '[') {
+		let start = scan.at[0];
+		while (scan.at[0] < length(raw) &&
+		    index([',', '}', ']', ' ', '\t', '\r', '\n'], substr(raw, scan.at[0], 1)) < 0)
+			scan.at[0]++;
+		return scan.at[0] > start ? null : 'malformed';
+	}
+	if (++scan.containers > JSON_MAX_CONTAINERS || ++scan.depth > JSON_MAX_DEPTH)
+		return 'budget';
+	scan.at[0]++;
+	let object = ch == '{', seen = {};
+	skip_space(raw, scan.at);
+	if (substr(raw, scan.at[0], 1) == (object ? '}' : ']')) {
+		scan.at[0]++; scan.depth--; return null;
+	}
+	while (scan.at[0] < length(raw)) {
+		if (object) {
+			if (substr(raw, scan.at[0]++, 1) != '"') return 'malformed';
+			let decoded = decode_key(raw, scan.at[0]);
+			if (!decoded) return 'malformed';
+			if (length(decoded[0]) > JSON_MAX_KEY_BYTES || ++scan.members > JSON_MAX_MEMBERS)
+				return 'budget';
+			if (exists(seen, decoded[0])) return 'duplicate';
+			seen[decoded[0]] = true; scan.at[0] = decoded[1];
+			skip_space(raw, scan.at);
+			if (substr(raw, scan.at[0]++, 1) != ':') return 'malformed';
+			skip_space(raw, scan.at);
+			let value_start = scan.at[0], is_details = decoded[0] == 'details';
+			let issue = scan_bounded_value(raw, scan);
+			if (issue != null) return issue;
+			if (is_details && scan.at[0] - value_start > 4096) return 'details_budget';
+		} else {
+			let issue = scan_bounded_value(raw, scan);
+			if (issue != null) return issue;
 		}
-		return false;
+		skip_space(raw, scan.at);
+		ch = substr(raw, scan.at[0]++, 1);
+		if (ch == (object ? '}' : ']')) { scan.depth--; return null; }
+		if (ch != ',') return 'malformed';
+		skip_space(raw, scan.at);
 	}
-	if (ch == '[') {
-		at[0]++;
-		skip_space(raw, at);
-		if (substr(raw, at[0], 1) == ']') { at[0]++; return true; }
-		while (at[0] < length(raw)) {
-			if (!scan_value(raw, at)) return false;
-			skip_space(raw, at);
-			ch = substr(raw, at[0]++, 1);
-			if (ch == ']') return true;
-			if (ch != ',') return false;
-			skip_space(raw, at);
-		}
-		return false;
-	}
-	let start = at[0];
-	while (at[0] < length(raw) && index([',', '}', ']', ' ', '\t', '\r', '\n'], substr(raw, at[0], 1)) < 0)
-		at[0]++;
-	return at[0] > start;
+	return 'malformed';
 }
 
-function unique_json_keys(raw) {
-	let at = [0];
-	return scan_value(raw, at) && (skip_space(raw, at) == null) && at[0] == length(raw);
+function scan_json(raw) {
+	if (length(raw) > JSON_MAX_WORK) return 'budget';
+	let scan = { at: [0], depth: 0, containers: 0, members: 0, nodes: 0 };
+	let issue = scan_bounded_value(raw, scan);
+	if (issue != null) return issue;
+	skip_space(raw, scan.at);
+	return scan.at[0] == length(raw) ? null : 'malformed';
 }
 
 function transport_header_valid(raw, header, requestId, bodyLength) {
@@ -269,7 +304,7 @@ function transport_header_valid(raw, header, requestId, bodyLength) {
 		'stderrLength', 'stdoutEof', 'stderrEof', 'stderrTruncated', 'stderrDrained',
 		'childReaped'];
 	let fields = [...common];
-	if (!unique_json_keys(raw) ||
+	if (scan_json(raw) != null ||
 	    !unique_known_keys(raw, [...common, 'exitCode', 'signal', 'stage', 'errno', 'reason'])) return false;
 	if (header?.outcome == 'child_exited') push(fields, 'exitCode', 'signal');
 	else if (header?.outcome == 'timeout') push(fields, 'signal');
@@ -305,12 +340,14 @@ function transport_header_valid(raw, header, requestId, bodyLength) {
 	if (index(['stdout_limit', 'status_protocol', 'supervision_failure', 'client_disconnect',
 	    'daemon_shutdown'], header.reason) < 0)
 		return false;
+	if (header.reason == 'supervision_failure')
+		return index(['not_started', 'started'], header.startState) >= 0;
 	if (header.startState == 'started')
 		return header.childReaped && header.stdoutEof && header.stderrEof;
 	if (header.startState == 'not_started')
 		return (!header.childReaped && !header.stdoutEof && !header.stderrEof) ||
 			(header.childReaped && header.stdoutEof && header.stderrEof);
-	return header.startState == 'unknown' && !header.childReaped;
+	return false;
 }
 
 function canonical_base64(value) {
@@ -377,8 +414,12 @@ function helper_response(operation, stdout, requestId, exitCode, mutation) {
 	if (!length(stdout) || substr(stdout, -1) != '\n')
 		return helper_invalid(mutation, !length(stdout) ? 'empty' : 'partial');
 	let raw = substr(stdout, 0, -1), value;
-	if (!unique_json_keys(raw))
-		return helper_invalid(mutation, index(raw, '}{') >= 0 ? 'trailing' : 'malformed');
+	if (!valid_utf8(raw)) return helper_invalid(mutation, 'malformed');
+	let scan_issue = scan_json(raw);
+	if (scan_issue != null)
+		return helper_invalid(mutation, scan_issue == 'budget' ? 'scan_budget' :
+			(scan_issue == 'details_budget' ? 'details_budget' :
+			(index(raw, '}{') >= 0 ? 'trailing' : 'malformed')));
 	try { value = json(stdout); } catch (e) { return helper_invalid(mutation, 'malformed'); }
 	if (type(value) != 'object' || value == null || value.protocolVersion != 1 ||
 	    type(value.ok) != 'bool')
@@ -419,20 +460,27 @@ function invoke_private(operation, arguments, timeoutMs) {
 	let sock = socket.connect({ path: SOCKET_PATH }, null,
 		{ family: socket.AF_UNIX, socktype: socket.SOCK_STREAM }, remaining_ms(deadline));
 	if (!sock) return dependency();
-	let sent = 0, response = '', transportError = null, eof = false;
+	let sent = 0, response = '', transportError = null, transportStage = null, pollRevents = null;
+	let sendWaits = 0, shortWrites = 0, eof = false;
 	let cap = 20 + HEADER_LIMIT + STDOUT_LIMIT + STDERR_LIMIT;
 	while (sent < length(wire)) {
 		let count = sock.send(substr(wire, sent, CHUNK), socket.MSG_DONTWAIT);
 		if (count == null) {
+			sendWaits++;
 			let events = wait_ready(sock, socket.POLLOUT | socket.POLLERR | socket.POLLHUP, deadline);
-			if (events == null) { transportError = 'timeout'; break; }
-			if (events & (socket.POLLERR | socket.POLLHUP)) { transportError = 'disconnect'; break; }
+			if (events == null) { transportError = 'timeout'; transportStage = 'send_poll'; break; }
+			if (events & (socket.POLLERR | socket.POLLHUP)) {
+				transportError = 'disconnect'; transportStage = 'send_poll'; pollRevents = events; break;
+			}
 			continue;
 		}
-		if (count <= 0) { transportError = 'disconnect'; break; }
+		if (count <= 0) { transportError = 'disconnect'; transportStage = 'send'; break; }
+		if (count < (length(wire) - sent < CHUNK ? length(wire) - sent : CHUNK)) shortWrites++;
 		sent += count;
 	}
-	if (!transportError && sock.shutdown(socket.SHUT_WR) == null) transportError = 'shutdown';
+	if (!transportError && sock.shutdown(socket.SHUT_WR) == null) {
+		transportError = 'shutdown'; transportStage = 'shutdown';
+	}
 	while (!transportError && !eof) {
 		let events = wait_ready(sock, socket.POLLIN | socket.POLLERR | socket.POLLHUP, deadline);
 		if (events == null) { transportError = 'timeout'; break; }
@@ -456,7 +504,10 @@ function invoke_private(operation, arguments, timeoutMs) {
 	sock.close();
 	let mutation = index(MUTATIONS, operation) >= 0;
 	if (transportError || !eof || length(response) < 20)
-		return mutation && sent ? uncertain({ transport: { issue: transportError || 'incomplete' } }) :
+		return mutation && sent ? uncertain({ transport: {
+			issue: transportError || 'incomplete', stage: transportStage || 'receive',
+			bytesSent: sent, sendWaits, shortWrites, pollRevents
+		} }) :
 			dependency('Native helper transport failed.');
 	if (substr(response, 0, 8) != MAGIC || ord(response, 8) != 2 ||
 	    ord(response, 9) || ord(response, 10) || ord(response, 11))
