@@ -178,14 +178,29 @@ const managedRoots = [
   '/etc/zapret2-manager/secrets',
 ];
 
+function normalizeAbsolutePath(path) {
+  if (!path.startsWith('/')) return path;
+  const components = [];
+  for (const component of path.split('/')) {
+    if (component == '' || component == '.') continue;
+    if (component == '..') {
+      components.pop();
+      continue;
+    }
+    components.push(component);
+  }
+  return `/${components.join('/')}`;
+}
+
 function unsafeCreation(site) {
-  if (managedRoots.includes(site.target)) return true;
+  const target = normalizeAbsolutePath(site.target);
+  if (managedRoots.includes(target)) return true;
   if (!site.recursive) return false;
-  if (!site.target.startsWith('/')) return true;
-  const knownPrefix = site.target.split('<', 1)[0].replace(/\/+$/, '');
+  if (!target.startsWith('/')) return true;
+  const knownPrefix = target.split('<', 1)[0].replace(/\/+$/, '');
   return managedRoots.some((root) =>
     knownPrefix == root || knownPrefix.startsWith(`${root}/`) ||
-      (site.target.includes('<') && root.startsWith(`${knownPrefix}/`)));
+      (target.includes('<') && root.startsWith(`${knownPrefix}/`)));
 }
 
 test('managed-root creation scanner resolves constants aliases and shell descendants', () => {
@@ -213,6 +228,18 @@ test('managed-root creation scanner rejects recursive absolute targets with mana
   const sites = creationCallsites('partial-absolute-wrapper-fixture', fixture);
   assert.ok(sites.some(unsafeCreation),
     `an unresolved absolute prefix above a managed root must fail closed: ${JSON.stringify(sites)}`);
+});
+
+test('managed-root creation scanner normalizes unresolved absolute prefixes', () => {
+  const fixtures = [
+    `function create(name){ run('mkdir -p ' + name); } create('/tmp/./' + name);`,
+    `function create(name){ run('mkdir -p ' + name); } create('/var/tmp/../../tmp/' + name);`,
+  ];
+  for (const [index, fixture] of fixtures.entries()) {
+    const sites = creationCallsites(`normalized-prefix-fixture-${index}`, fixture);
+    assert.ok(sites.some(unsafeCreation),
+      `normalized unresolved prefix must fail closed: ${JSON.stringify(sites)}`);
+  }
 });
 
 test('managed-root creation policy permits proven unrelated recursion and non-recursive children', () => {
