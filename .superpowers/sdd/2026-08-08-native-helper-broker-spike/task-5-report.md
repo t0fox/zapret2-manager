@@ -158,3 +158,80 @@ bounded cleanup.
 - Response-send timeout occurs after helper completion and reap; a client that
   does not read receives no fabricated success and the serial daemon proceeds.
 - Tasks 6-8 and M4 remain untouched.
+
+## Re-Review Fix Round 2
+
+### Status
+
+**PASS.** All five re-review findings were reproduced with deterministic RED
+races and fixed in `4a8f9b3fdc14cba5fb7606f19554a34febca3ddf` (`fix(core): close
+broker identity races`). Scope remains Task 5 only.
+
+### RED Evidence
+
+The initial round-2 focused run failed the new lock, stale cleanup, child
+enumeration, post-reap group-signal, and outcome-precedence cases:
+
+```text
+FAIL singleton rejects lock replacement between precheck and flock while replacement lock is held
+FAIL singleton rejects lock replacement between flock and postcheck while replacement lock is held
+FAIL stale socket replacement immediately before removal is never unlinked
+FAIL repeated child discovery consumes a list larger than 4096 bytes and preserves identity
+FAIL post-reap cleanup never sends a negative process-group signal
+FAIL incomplete cleanup overrides timeout with supervision failure
+```
+
+Follow-up RED coverage also proved a quarantine-name collision and a descendant
+forked after TERM were not handled by one-shot selection/discovery.
+
+### Fixes
+
+- Singleton acquisition now verifies lock fd/path identity before `flock()` and
+  again while holding the successful lock. Either mismatch explicitly unlocks,
+  closes, clears the fd, and fails. Deterministic replacements in both race
+  windows prove a second daemon can hold the replacement lock without the raced
+  daemon disturbing it or becoming a second singleton owner.
+- Stale cleanup is bounded to the verified root:root mode-0700 runtime directory
+  while the singleton lock is held. Each attempt reserves a unique name with
+  `O_CREAT|O_EXCL`, then uses Linux `renameat2(RENAME_NOREPLACE)` to a separate
+  unique quarantine name. Collisions advance without modifying existing objects.
+- The stale source is revalidated immediately before rename. Replacement before
+  that check stays at the original pathname and causes fail-closed exit. The
+  quarantined inode is revalidated before unlink. Any post-rename ambiguity
+  modifies neither pathname because safe recovery is not provable.
+- Adopted children use a bounded identity registry of exact PID plus Linux procfs
+  starttime. Discovery reads repeated chunks up to 65,536 bytes and tracks at
+  most 2,048 identities; overflow or procfs failure is supervision failure.
+- Child discovery and identity-safe signaling repeat throughout TERM/KILL cleanup,
+  including descendants forked after TERM and lists larger than 4,096 bytes.
+  Signals are sent only when current `/proc/<pid>/stat` starttime matches the
+  tracked waitable identity.
+- Negative process-group signaling is permitted only before leader reap. After
+  reap, cleanup uses tracked PID+starttime identities, preventing unrelated PGID
+  signaling after group exhaustion.
+- Incomplete reap, descendant exhaustion, or pipe EOF and cleanup expiry now have
+  first outcome precedence. They force `transport_failure` with
+  `supervision_failure` before timeout, disconnect, shutdown, overflow, or normal
+  child-exit classification.
+
+### Verification
+
+- Focused broker plus package gate: **60 tests, 60 pass, 0 fail, 0 skipped**.
+- Shared non-M3 host gate: **75 tests, 75 pass, 0 fail, 0 skipped**.
+- Root-required unaffected bootstrap/helper gate: **96 tests, 96 pass, 0 fail,
+  0 skipped**.
+- Strict host production build: PASS with `-std=c11 -Wall -Wextra -Werror
+  -D_GNU_SOURCE` and `json-c`.
+- Strict OpenWrt AArch64 musl production build: PASS.
+- `git diff --check`: PASS.
+
+### Concerns
+
+- `renameat2(RENAME_NOREPLACE)` and procfs PID starttime are Linux-specific. The
+  daemon and target contract are Linux/OpenWrt-specific; unsupported pathname
+  primitives fail closed rather than using an unsafe fallback.
+- Enumeration is deliberately bounded at 65,536 bytes and 2,048 tracked children.
+  Exceeding either bound becomes supervision failure and cannot become a normal
+  terminal outcome.
+- No Task 5 blocker remains. Procd, adapter, M3 gate replacement, and M4 remain
+  untouched.
