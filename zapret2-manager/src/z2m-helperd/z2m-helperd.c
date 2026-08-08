@@ -11,8 +11,13 @@
 #include <sys/stat.h>
 #include <sys/prctl.h>
 #include <sys/types.h>
+#include <sys/syscall.h>
 #include <sys/un.h>
 #include <unistd.h>
+
+#ifndef RENAME_NOREPLACE
+#define RENAME_NOREPLACE (1U << 0)
+#endif
 
 static volatile sig_atomic_t stopping;
 static int listener = -1;
@@ -98,14 +103,50 @@ static int acquire_lock(void)
 	    !S_ISREG(descriptor.st_mode) || !S_ISREG(pathname.st_mode) ||
 	    (descriptor.st_mode & 0777) != 0600 || descriptor.st_uid != Z2M_RUNTIME_UID ||
 	    descriptor.st_gid != Z2M_RUNTIME_GID || descriptor.st_dev != pathname.st_dev ||
-	    descriptor.st_ino != pathname.st_ino || flock(lock_fd, LOCK_EX | LOCK_NB) < 0)
-		return -1;
+	    descriptor.st_ino != pathname.st_ino) goto failure;
+#ifdef Z2M_TEST_STOP_BEFORE_LOCK_FLOCK
+	raise(SIGSTOP);
+#endif
+	if (flock(lock_fd, LOCK_EX | LOCK_NB) < 0) goto failure;
+#ifdef Z2M_TEST_STOP_AFTER_LOCK_FLOCK
+	raise(SIGSTOP);
+#endif
+	if (fstat(lock_fd, &descriptor) < 0 ||
+	    fstatat(runtime_fd, "z2m-helperd.lock", &pathname, AT_SYMLINK_NOFOLLOW) < 0 ||
+	    !S_ISREG(descriptor.st_mode) || !S_ISREG(pathname.st_mode) ||
+	    (descriptor.st_mode & 0777) != 0600 || descriptor.st_uid != Z2M_RUNTIME_UID ||
+	    descriptor.st_gid != Z2M_RUNTIME_GID || descriptor.st_dev != pathname.st_dev ||
+	    descriptor.st_ino != pathname.st_ino) goto failure_locked;
 	return 0;
+
+failure_locked:
+	(void)flock(lock_fd, LOCK_UN);
+failure:
+	if (lock_fd >= 0) close(lock_fd);
+	lock_fd = -1;
+	errno = EPERM;
+	return -1;
+}
+
+static int rename_noreplace(const char *old_name, const char *new_name)
+{
+	return (int)syscall(SYS_renameat2, runtime_fd, old_name, runtime_fd, new_name,
+		RENAME_NOREPLACE);
 }
 
 static int remove_safe_stale_socket(void)
 {
-	struct stat before, after;
+	struct stat before, current, after;
+	char reservation[64], quarantine[64];
+	int reservation_fd = -1;
+	int saved_errno;
+	bool moved = false;
+	/*
+	 * The verified runtime is root:root 0700 and the singleton lock is held, so
+	 * only another privileged actor can race these names. O_EXCL reserves a
+	 * unique attempt and RENAME_NOREPLACE prevents overwriting any quarantine;
+	 * an identity mismatch is restored only into an absent original pathname.
+	 */
 	if (fstatat(runtime_fd, "z2m-helperd.sock", &before, AT_SYMLINK_NOFOLLOW) < 0)
 		return errno == ENOENT ? 0 : -1;
 	if (!S_ISSOCK(before.st_mode) || before.st_uid != Z2M_RUNTIME_UID ||
@@ -116,16 +157,56 @@ static int remove_safe_stale_socket(void)
 #ifdef Z2M_TEST_STOP_BEFORE_STALE_REMOVE
 	raise(SIGSTOP);
 #endif
-	if (renameat(runtime_fd, "z2m-helperd.sock", runtime_fd, "z2m-helperd.sock.stale") < 0)
-		return -1;
-	if (fstatat(runtime_fd, "z2m-helperd.sock.stale", &after, AT_SYMLINK_NOFOLLOW) < 0 ||
-	    after.st_dev != before.st_dev || after.st_ino != before.st_ino ||
-	    !S_ISSOCK(after.st_mode) || after.st_uid != Z2M_RUNTIME_UID ||
-	    after.st_gid != Z2M_RUNTIME_GID || (after.st_mode & 0777) != 0600) {
+	if (fstatat(runtime_fd, "z2m-helperd.sock", &current, AT_SYMLINK_NOFOLLOW) < 0 ||
+	    current.st_dev != before.st_dev || current.st_ino != before.st_ino ||
+	    !S_ISSOCK(current.st_mode) || current.st_uid != Z2M_RUNTIME_UID ||
+	    current.st_gid != Z2M_RUNTIME_GID || (current.st_mode & 0777) != 0600) {
 		errno = EPERM;
 		return -1;
 	}
-	return unlinkat(runtime_fd, "z2m-helperd.sock.stale", 0);
+#ifdef Z2M_TEST_STOP_BEFORE_QUARANTINE_RESERVE
+	raise(SIGSTOP);
+#endif
+	for (unsigned int attempt = 0; attempt < 32; attempt++) {
+		if (snprintf(reservation, sizeof(reservation), ".z2m-helperd.reserve.%ld.%u",
+		    (long)getpid(), attempt) < 0 ||
+		    snprintf(quarantine, sizeof(quarantine), ".z2m-helperd.stale.%ld.%u",
+		    (long)getpid(), attempt) < 0) return -1;
+		reservation_fd = openat(runtime_fd, reservation,
+			O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
+		if (reservation_fd < 0) {
+			if (errno == EEXIST) continue;
+			return -1;
+		}
+		if (close(reservation_fd) < 0) goto reserve_failure;
+		reservation_fd = -1;
+		if (rename_noreplace("z2m-helperd.sock", quarantine) == 0) {
+			moved = true;
+			break;
+		}
+		saved_errno = errno;
+		(void)unlinkat(runtime_fd, reservation, 0);
+		if (saved_errno != EEXIST) { errno = saved_errno; return -1; }
+	}
+	if (!moved) { errno = EEXIST; return -1; }
+	if (fstatat(runtime_fd, quarantine, &after, AT_SYMLINK_NOFOLLOW) < 0 ||
+	    after.st_dev != before.st_dev || after.st_ino != before.st_ino ||
+	    !S_ISSOCK(after.st_mode) || after.st_uid != Z2M_RUNTIME_UID ||
+	    after.st_gid != Z2M_RUNTIME_GID || (after.st_mode & 0777) != 0600) {
+		(void)unlinkat(runtime_fd, reservation, 0);
+		errno = EPERM;
+		return -1;
+	}
+	if (unlinkat(runtime_fd, quarantine, 0) < 0) goto reserve_failure;
+	if (unlinkat(runtime_fd, reservation, 0) < 0) return -1;
+	return 0;
+
+reserve_failure:
+	saved_errno = errno;
+	if (reservation_fd >= 0) (void)close(reservation_fd);
+	(void)unlinkat(runtime_fd, reservation, 0);
+	errno = saved_errno;
+	return -1;
 }
 
 static void cleanup(void)
