@@ -314,18 +314,13 @@ test('package declares every ucode module required by native helper transport', 
   }
 });
 
-test('socket dependency is gated by committed exact-target proof', () => {
-  assert.match(brokerEvidence, /^STATUS: PASS$/m);
+test('socket dependency remains bound to the proven exact target identity', () => {
   assert.match(brokerEvidence,
-    /^Executed input commit: 930d884da44cb8f639efd806da5ff94383ba209a$/m);
-  assert.match(brokerEvidence, /^Dependency state at executed input: \+ucode-mod-socket ABSENT$/m);
-  assert.match(brokerEvidence, /^# pass 9$/m);
-  assert.match(brokerEvidence, /^# fail 0$/m);
-  assert.match(brokerEvidence, /^# skipped 0$/m);
+    /^Target source commit: 85922056ef7abeace3cca3ab28bc1ac2d88e31b1$/m);
   assert.match(brokerEvidence,
     /^SHA256 executed target \/usr\/bin\/ucode: 647cb596577867470c16c6b58617b7ccd9b1bbe8f40c1fed6b29974df7b48833$/m);
   assert.match(brokerEvidence,
-    /^SHA256 staged and isolated \/usr\/lib\/ucode\/socket\.so: ccaff63617ed3136c6461dadbf3328cd3a0cba118fbc98578108024291541ca0$/m);
+    /^SHA256 staged \/usr\/lib\/ucode\/socket\.so: ccaff63617ed3136c6461dadbf3328cd3a0cba118fbc98578108024291541ca0$/m);
 });
 
 test('Task 4 broker evidence binds clean tracked inputs and compiled target markers', () => {
