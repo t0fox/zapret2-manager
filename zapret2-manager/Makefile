@@ -27,6 +27,8 @@ define Build/Prepare
 	mkdir -p $(PKG_BUILD_DIR)
 	$(CP) ./src/z2m-core-helper/* $(PKG_BUILD_DIR)/
 	$(CP) ./src/z2m-root-bootstrap.c $(PKG_BUILD_DIR)/
+	mkdir -p $(PKG_BUILD_DIR)/z2m-helperd
+	$(CP) ./src/z2m-helperd/* $(PKG_BUILD_DIR)/z2m-helperd/
 endef
 
 define Build/Compile
@@ -49,6 +51,13 @@ define Build/Compile
 		$(PKG_BUILD_DIR)/z2m-root-bootstrap.c \
 		$(TARGET_LDFLAGS) \
 		-o $(PKG_BUILD_DIR)/z2m-root-bootstrap
+	$(TARGET_CC) $(TARGET_CPPFLAGS) $(TARGET_CFLAGS) \
+		-std=c11 -Wall -Wextra -Werror -D_GNU_SOURCE \
+		$(PKG_BUILD_DIR)/z2m-helperd/z2m-helperd.c \
+		$(PKG_BUILD_DIR)/z2m-helperd/transport.c \
+		$(PKG_BUILD_DIR)/z2m-helperd/supervise.c \
+		$(TARGET_LDFLAGS) -ljson-c \
+		-o $(PKG_BUILD_DIR)/z2m-helperd
 endef
 
 define Package/zapret2-manager/conffiles
@@ -70,6 +79,7 @@ define Package/zapret2-manager/install
 	$(INSTALL_DIR) $(1)/usr/libexec/zapret2-manager
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/z2m-core-helper $(1)/usr/libexec/zapret2-manager/z2m-core-helper
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/z2m-root-bootstrap $(1)/usr/libexec/zapret2-manager/z2m-root-bootstrap
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/z2m-helperd $(1)/usr/libexec/zapret2-manager/z2m-helperd
 endef
 
 define Package/zapret2-manager/postinst
