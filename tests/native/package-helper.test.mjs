@@ -328,6 +328,25 @@ test('tracked exact-target artifact records the blocked 6/8 probe result', () =>
   }
 });
 
+test('exact-target artifact hashes match the executed tracked probe inputs', () => {
+  const evidence = fs.readFileSync(transportEvidencePath, 'utf8');
+  assert.match(evidence, /Executed input commit: [0-9a-f]{40}/);
+  assert.match(evidence, /Pre-run git status --porcelain: EMPTY/);
+  for (const [label, file] of [
+    ['probe ucode source', 'tests/native/core/native-helper-transport-probe.uc'],
+    ['probe Node test', 'tests/native/core/native-helper-transport-probe.test.mjs'],
+    ['probe child source', 'tests/native/core/native-helper-probe-child.c'],
+  ]) {
+    const expected = createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+    assert.ok(evidence.includes(`SHA256 ${label}: ${expected}`),
+      `exact-target evidence must hash the executed ${file}`);
+  }
+  const compiled = /SHA256 compiled target child: ([0-9a-f]{64})/.exec(evidence)?.[1];
+  assert.ok(compiled, 'exact-target evidence must hash the compiled target child');
+  assert.ok(evidence.includes(`PROBE_CHILD_SHA256=${compiled}`),
+    'compiled target child metadata must match the raw harness marker');
+});
+
 test('exact-target harness identifies the compiled child it executes', () => {
   assert.match(transportProbeTest, /PROBE_CHILD_SHA256=/,
     'harness must emit a stable marker for the executed child hash');

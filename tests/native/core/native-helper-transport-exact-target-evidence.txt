@@ -2,17 +2,26 @@ Task 3 exact-target transport evidence
 STATUS: M3 BLOCKED
 This artifact is evidence only. It does not clear M3 and authorizes no adapter work.
 
-Captured: 2026-08-08T11:24:31+03:00
+Execution provenance
+Captured: 2026-08-08T11:31:16+03:00
+Executed input commit: 2897ded750c0ed6ed52e7f80010ff9397d8ae9e5
+Pre-run git status --porcelain: EMPTY
+Evidence artifact: updated after the run in a subsequent evidence-only commit; it was not an executed input.
 Host environment: Linux 6.18.33.2-microsoft-standard-WSL2 x86_64 GNU/Linux
 Emulator: qemu-aarch64 version 10.2.1 (Debian 1:10.2.1+ds-1ubuntu3.2)
 Execution wrapper: PRoot 5.4.0, PROOT_NO_SECCOMP=1
-Repository pre-evidence commit: afd6a9ebecd9b6f4e6309ef43a1286501c63c7f5
 
+Executed probe identities
+SHA256 probe ucode source: 8cc388299afb7c04cb8b936467c23551757f3d7bf98c9edce3a3db55d9861403
+SHA256 probe Node test: 2f8f259c36daf861db421efae841c68f316af081d4883ebb61440cea61edc4f7
+SHA256 probe child source: 5040e77b9fa1308eb39dbc39b2bc34e38b8c79e75f289bd974b889a511642c3a
+SHA256 compiled target child: 7542f4a1ee47e325ace597539d4e8687668850365f2ec835f04148b10f5a3968
+
+Exact target identities
 Target package: ucode-2026.01.16~85922056
 Target source commit: 85922056ef7abeace3cca3ab28bc1ac2d88e31b1
 Target version.date: 1768603607
 Target ELF: ELF 64-bit LSB executable, ARM aarch64, version 1 (SYSV), dynamically linked, interpreter /lib/ld-musl-aarch64.so.1, with debug_info, not stripped
-
 SHA256 /usr/bin/ucode: 647cb596577867470c16c6b58617b7ccd9b1bbe8f40c1fed6b29974df7b48833
 SHA256 /usr/lib/ucode/fs.so: 7fea35cccab2a9aff18217575ec1f09cbb9f52f00679fcbdd8a5cd398054d6b3
 SHA256 /usr/lib/ucode/io.so: 9c8ae3de077fd9ce2925f13a979c1f9449c4e7bfc8cd09e276bdd305bee20f81
@@ -30,17 +39,20 @@ UCODE_BIN=/home/kirill/z2m-work/qemu-user-local/proot-root/usr/bin/proot \
 UCODE_ARGS='-q /home/kirill/z2m-work/qemu-user-local/root/usr/bin/qemu-aarch64 -R /home/kirill/z2m-sdk-clean/staging_dir/target-aarch64_cortex-a53_musl/root-mediatek -w /home/kirill/z2m-work/native-state-foundation /usr/bin/ucode' \
 UCODE_MODULE_PATH='/usr/lib/ucode/*.so' \
 TARGET_CC=/home/kirill/z2m-sdk-clean/staging_dir/toolchain-aarch64_cortex-a53_gcc-14.3.0_musl/bin/aarch64-openwrt-linux-musl-gcc \
-node --test tests/native/core/native-helper-transport-probe.test.mjs
+/home/kirill/.local/bin/node --test tests/native/core/native-helper-transport-probe.test.mjs
+
+Exact process exit: 1 (expected for this preserved M3-blocked run)
 
 BEGIN RAW TAP
-✔ preserves exact newline and binary payload through EOF (129.719904ms)
-✔ duplexes a 4 MiB request without deadlock (494.436834ms)
-✔ accepts a 6 MiB generated response (4122.850822ms)
-✔ stops observing a substantially oversized response at cap plus one byte (129.736007ms)
-✖ reports exit zero, exit seven, and signal termination (30367.177714ms)
-✔ separates bounded stderr diagnostics from protocol stdout (154.714682ms)
-✖ reports missing executable and setup failure without hanging (228.289364ms)
-✔ does not grow descriptors across 100 calls (3903.522266ms)
+PROBE_CHILD_SHA256=7542f4a1ee47e325ace597539d4e8687668850365f2ec835f04148b10f5a3968
+✔ preserves exact newline and binary payload through EOF (198.550141ms)
+✔ duplexes a 4 MiB request without deadlock (527.871889ms)
+✔ accepts a 6 MiB generated response (4134.386738ms)
+✔ stops observing a substantially oversized response at cap plus one byte (134.661082ms)
+✖ reports exit zero, exit seven, and signal termination (30395.488426ms)
+✔ separates bounded stderr diagnostics from protocol stdout (134.636485ms)
+✖ reports missing executable and setup failure without hanging (237.64588ms)
+✔ does not grow descriptors across 100 calls (4012.849415ms)
 ℹ tests 8
 ℹ suites 0
 ℹ pass 6
@@ -48,17 +60,17 @@ BEGIN RAW TAP
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 39690.388202
+ℹ duration_ms 40146.404457
 
 ✖ failing tests:
 
-test at tests/native/core/native-helper-transport-probe.test.mjs:79:1
-✖ reports exit zero, exit seven, and signal termination (30367.177714ms)
+test at tests/native/core/native-helper-transport-probe.test.mjs:81:1
+✖ reports exit zero, exit seven, and signal termination (30395.488426ms)
   AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
 
   false !== true
 
-      at TestContext.<anonymous> (file:///home/kirill/z2m-work/native-state-foundation/tests/native/core/native-helper-transport-probe.test.mjs:84:10)
+      at TestContext.<anonymous> (file:///home/kirill/z2m-work/native-state-foundation/tests/native/core/native-helper-transport-probe.test.mjs:86:10)
       at Test.runInAsyncScope (node:async_hooks:214:14)
       at Test.run (node:internal/test_runner/test:1047:25)
       at async Test.processPendingSubtests (node:internal/test_runner/test:744:7) {
@@ -70,13 +82,13 @@ test at tests/native/core/native-helper-transport-probe.test.mjs:79:1
     diff: 'simple'
   }
 
-test at tests/native/core/native-helper-transport-probe.test.mjs:94:1
-✖ reports missing executable and setup failure without hanging (228.289364ms)
+test at tests/native/core/native-helper-transport-probe.test.mjs:96:1
+✖ reports missing executable and setup failure without hanging (237.64588ms)
   AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
 
   0 !== 125
 
-      at TestContext.<anonymous> (file:///home/kirill/z2m-work/native-state-foundation/tests/native/core/native-helper-transport-probe.test.mjs:96:10)
+      at TestContext.<anonymous> (file:///home/kirill/z2m-work/native-state-foundation/tests/native/core/native-helper-transport-probe.test.mjs:98:10)
       at Test.runInAsyncScope (node:async_hooks:214:14)
       at Test.run (node:internal/test_runner/test:1047:25)
       at async Test.processPendingSubtests (node:internal/test_runner/test:744:7) {
