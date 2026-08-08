@@ -285,6 +285,46 @@ test('classifies a missing fixed child from a complete exec error record', () =>
   });
 });
 
+test('retries interrupted status-record writes without reporting started', () => {
+  const interrupted = compileSpawnFixture('z2m-helperd-status-eintr', [
+    '-DINJECT_STATUS_WRITE_EINTR=1', `-DFIXED_CHILD=${child}.missing`,
+  ]);
+  assert.deepEqual(spawnEvidence('success', interrupted), {
+    outcome: 'spawn_failure', stage: 'exec', errno: 'ENOENT', state: 'not_started',
+    evidence: 'status_record', statusWriteAttempts: 2,
+  });
+});
+
+test('completes partial status-record writes without reporting started', () => {
+  const partial = compileSpawnFixture('z2m-helperd-status-partial', [
+    '-DINJECT_STATUS_WRITE_PARTIAL=1', `-DFIXED_CHILD=${child}.missing`,
+  ]);
+  assert.deepEqual(spawnEvidence('success', partial), {
+    outcome: 'spawn_failure', stage: 'exec', errno: 'ENOENT', state: 'not_started',
+    evidence: 'status_record', statusWriteAttempts: 2,
+  });
+});
+
+test('fails closed when the status record cannot be written', () => {
+  const broken = compileSpawnFixture('z2m-helperd-status-hard-failure', [
+    '-DINJECT_STATUS_WRITE_FAILURE=1', `-DFIXED_CHILD=${child}.missing`,
+  ]);
+  assert.deepEqual(spawnEvidence('success', broken), {
+    outcome: 'protocol_failure', stage: null, errno: 'EIO', state: 'not_started',
+    evidence: 'status_write_failure',
+  });
+});
+
+test('rejects a complete status record with an unknown stage', () => {
+  const unknown = compileSpawnFixture('z2m-helperd-status-unknown-stage', [
+    '-DINJECT_UNKNOWN_STATUS_STAGE=1', `-DFIXED_CHILD=${child}.missing`,
+  ]);
+  assert.deepEqual(spawnEvidence('success', unknown), {
+    outcome: 'protocol_failure', stage: null, errno: 'EPROTO', state: 'not_started',
+    evidence: 'invalid_status_record',
+  });
+});
+
 for (const [name, stage] of [
   ['INJECT_STDIN_DUP2_FAILURE', 'stdin_dup2'],
   ['INJECT_STDOUT_DUP2_FAILURE', 'stdout_dup2'],
