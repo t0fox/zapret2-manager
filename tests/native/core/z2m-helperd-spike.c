@@ -60,6 +60,7 @@ struct setup_error {
 struct status_guard {
 	volatile sig_atomic_t write_attempts;
 	volatile sig_atomic_t write_error;
+	volatile sig_atomic_t process_group_ready;
 };
 
 _Static_assert(sizeof(struct setup_error) <= PIPE_BUF,
@@ -183,19 +184,42 @@ static void set_nonblocking(int fd)
 }
 
 static int supervised_poll(struct pollfd *fds, nfds_t count, int timeout,
-	unsigned int *calls, unsigned int *interruptions)
+	unsigned int *calls, unsigned int *interruptions, long *interruption_delay_ms)
 {
 	(*calls)++;
 #ifdef INJECT_SUPERVISION_EINTR
 	if (*calls <= 3) {
+		struct timespec delay = { .tv_nsec = 30000000L };
+		while (nanosleep(&delay, &delay) < 0 && errno == EINTR)
+			;
 		(*interruptions)++;
+		*interruption_delay_ms += 30;
 		errno = EINTR;
 		return -1;
 	}
 #else
 	(void)interruptions;
+	(void)interruption_delay_ms;
 #endif
 	return poll(fds, count, timeout);
+}
+
+static long elapsed_ms(const struct timespec *started, const struct timespec *event)
+{
+	return (long)(event->tv_sec - started->tv_sec) * 1000L +
+		(event->tv_nsec - started->tv_nsec) / 1000000L;
+}
+
+static void signal_child(pid_t pid, int signal_number, bool group_ready,
+	bool *direct_sent)
+{
+	if (group_ready && kill(-pid, signal_number) == 0)
+		return;
+	if (group_ready && errno != ESRCH)
+		fail("signal process group");
+	if (kill(pid, signal_number) < 0 && errno != ESRCH)
+		fail("signal direct child");
+	*direct_sent = true;
 }
 
 static bool process_group_exists(pid_t pgid)
@@ -223,6 +247,7 @@ static void spawn_child(const char *requested_mode)
 	else if (!strcmp(requested_mode, "timeout-ignore-term")) mode = "ignore-term-30";
 	else if (!strcmp(requested_mode, "timeout-descendant")) mode = "fork-descendant-sleep";
 	else if (!strcmp(requested_mode, "timeout-wakeups")) mode = "wakeups";
+	else if (!strcmp(requested_mode, "timeout-stderr-flood")) mode = "stderr-flood-ignore-term";
 	char *const argv[] = { (char *)FIXED_CHILD_PATH, (char *)mode, NULL };
 	char *const envp[] = { NULL };
 	pid_t pid;
@@ -232,8 +257,12 @@ static void spawn_child(const char *requested_mode)
 	bool child_reaped = false, status_eof = false, stdout_eof = false, stderr_eof = false;
 	bool stdin_closed = !pump_input;
 	bool term_sent = false, kill_sent = false;
+	bool direct_term_sent = false, direct_kill_sent = false;
+	bool group_ready_at_term = false, adopted_children_exhausted = false;
 	unsigned int poll_calls = 0, poll_interruptions = 0, stdout_reads = 0;
-	struct timespec started, deadline, grace_deadline, finished;
+	long interruption_delay_ms = 0, term_at_ms = -1, kill_at_ms = -1;
+	pid_t descendant_reaped_pid = 0;
+	struct timespec started, deadline, grace_deadline, cleanup_deadline, finished;
 	struct status_guard *guard = mmap(NULL, sizeof(*guard), PROT_READ | PROT_WRITE,
 		MAP_SHARED | MAP_ANONYMOUS, -1, 0);
 	if (guard == MAP_FAILED)
@@ -242,6 +271,7 @@ static void spawn_child(const char *requested_mode)
 		fail("clock_gettime");
 	deadline = timespec_after_ms(started, supervision ? 100 : 2000);
 	grace_deadline = deadline;
+	cleanup_deadline = deadline;
 	if (prctl(PR_SET_CHILD_SUBREAPER, 1) < 0)
 		fail("prctl(PR_SET_CHILD_SUBREAPER)");
 
@@ -261,8 +291,16 @@ static void spawn_child(const char *requested_mode)
 		checked_child_close(output[0], exec_status[1], guard);
 		checked_child_close(errors[0], exec_status[1], guard);
 		checked_child_close(exec_status[0], exec_status[1], guard);
+#ifdef INJECT_DELAYED_SETPGID
+		{
+			struct timespec delay = { .tv_nsec = 300000000L };
+			while (nanosleep(&delay, &delay) < 0 && errno == EINTR)
+				;
+		}
+#endif
 		if (setpgid(0, 0) < 0)
 			child_error(exec_status[1], STAGE_SETPGID, errno, guard);
+		guard->process_group_ready = 1;
 
 		source = input[0];
 #ifdef INJECT_STDIN_DUP2_FAILURE
@@ -315,7 +353,7 @@ static void spawn_child(const char *requested_mode)
 		struct timespec now;
 		const struct timespec *active_deadline = term_sent ? &grace_deadline : &deadline;
 		int ready = supervised_poll(watched, 4, poll_timeout(active_deadline),
-			&poll_calls, &poll_interruptions);
+			&poll_calls, &poll_interruptions, &interruption_delay_ms);
 		if (ready < 0 && errno == EINTR)
 			continue;
 		if (ready < 0)
@@ -338,7 +376,7 @@ static void spawn_child(const char *requested_mode)
 			}
 		}
 
-		for (;;) {
+		for (unsigned int reads = 0; reads < 8; reads++) {
 			ssize_t length = read(exec_status[0], (uint8_t *)&record + status_length,
 				sizeof(record) - status_length);
 			if (length > 0) { status_length += (size_t)length; continue; }
@@ -346,7 +384,7 @@ static void spawn_child(const char *requested_mode)
 			else if (errno != EAGAIN && errno != EINTR) fail("read exec status");
 			break;
 		}
-		for (;;) {
+		for (unsigned int reads = 0; reads < 8; reads++) {
 			char buffer[1024];
 			ssize_t length = read(output[0], buffer, sizeof(buffer));
 			if (length > 0) {
@@ -362,7 +400,7 @@ static void spawn_child(const char *requested_mode)
 			else if (errno != EAGAIN && errno != EINTR) fail("read child stdout");
 			break;
 		}
-		for (;;) {
+		for (unsigned int reads = 0; reads < 8; reads++) {
 			char buffer[1024];
 			ssize_t length = read(errors[0], buffer, sizeof(buffer));
 			if (length > 0) {
@@ -379,62 +417,51 @@ static void spawn_child(const char *requested_mode)
 			break;
 		}
 
-		if (!child_reaped) {
-			siginfo_t info = { 0 };
-			if (waitid(P_PID, (id_t)pid, &info, WEXITED | WNOHANG | WNOWAIT) < 0 &&
-			    errno != EINTR)
-				fail("waitid WNOWAIT");
-			if (info.si_pid == pid) {
-				pid_t waited;
-				do { waited = waitpid(pid, &wait_status, 0); }
-				while (waited < 0 && errno == EINTR);
-				if (waited != pid) fail("waitpid");
-				child_reaped = true;
-			}
-		}
-		if (child_reaped) {
-			pid_t waited;
-			do { waited = waitpid(-pid, NULL, WNOHANG); } while (waited > 0);
-			if (waited < 0 && errno != ECHILD && errno != EINTR)
-				fail("waitpid descendants WNOHANG");
+		for (unsigned int reaps = 0; reaps < 8; reaps++) {
+			int status;
+			pid_t waited = waitpid(-1, &status, WNOHANG);
+			if (waited == pid) { wait_status = status; child_reaped = true; continue; }
+			if (waited > 0) { descendant_reaped_pid = waited; continue; }
+			if (waited == 0) break;
+			if (errno == EINTR) continue;
+			if (errno == ECHILD) { adopted_children_exhausted = true; break; }
+			fail("waitpid WNOHANG");
 		}
 		if (stdout_length >= 4097 && !term_sent) {
 			outcome = "stdout_limit";
-			if (kill(-pid, SIGTERM) < 0 && errno != ESRCH) fail("kill SIGTERM");
+			group_ready_at_term = guard->process_group_ready != 0;
+			signal_child(pid, SIGTERM, group_ready_at_term, &direct_term_sent);
 			term_sent = true;
 			if (clock_gettime(CLOCK_MONOTONIC, &now) < 0) fail("clock_gettime");
+			term_at_ms = elapsed_ms(&started, &now);
 			grace_deadline = timespec_after_ms(now, 100);
+			cleanup_deadline = timespec_after_ms(grace_deadline, 300);
 		}
 		if (clock_gettime(CLOCK_MONOTONIC, &now) < 0)
 			fail("clock_gettime");
 		if (!term_sent && timespec_compare(&now, &deadline) >= 0 &&
 		    (!child_reaped || process_group_exists(pid))) {
 			outcome = "timeout";
-			if (kill(-pid, SIGTERM) < 0 && errno != ESRCH) fail("kill SIGTERM");
+			group_ready_at_term = guard->process_group_ready != 0;
+			signal_child(pid, SIGTERM, group_ready_at_term, &direct_term_sent);
 			term_sent = true;
+			term_at_ms = elapsed_ms(&started, &now);
 			grace_deadline = timespec_after_ms(deadline, 100);
+			cleanup_deadline = timespec_after_ms(grace_deadline, 300);
 		}
 		if (term_sent && !kill_sent && timespec_compare(&now, &grace_deadline) >= 0 &&
-		    process_group_exists(pid)) {
-			if (kill(-pid, SIGKILL) < 0 && errno != ESRCH) fail("kill SIGKILL");
+		    (!child_reaped || process_group_exists(pid))) {
+			signal_child(pid, SIGKILL, guard->process_group_ready != 0, &direct_kill_sent);
 			kill_sent = true;
+			kill_at_ms = elapsed_ms(&started, &now);
 		}
 		if (child_reaped && stdout_eof && stderr_eof && status_eof &&
-		    !process_group_exists(pid))
+		    !process_group_exists(pid) && adopted_children_exhausted)
 			break;
-	}
-	if (!child_reaped) {
-		pid_t waited;
-		do { waited = waitpid(pid, &wait_status, 0); } while (waited < 0 && errno == EINTR);
-		if (waited != pid) fail("waitpid");
-		child_reaped = true;
-	}
-	for (;;) {
-		pid_t waited = waitpid(-pid, NULL, 0);
-		if (waited > 0) continue;
-		if (waited < 0 && errno == EINTR) continue;
-		if (waited < 0 && errno == ECHILD) break;
-		if (waited < 0) fail("waitpid descendants");
+		if (term_sent && timespec_compare(&now, &cleanup_deadline) >= 0) {
+			outcome = "supervision_failure";
+			break;
+		}
 	}
 	if (clock_gettime(CLOCK_MONOTONIC, &finished) < 0)
 		fail("clock_gettime");
@@ -448,20 +475,27 @@ static void spawn_child(const char *requested_mode)
 	stderr_output[stderr_length] = '\0';
 
 	if (strcmp(outcome, "started")) {
-		long elapsed_ms = (long)(finished.tv_sec - started.tv_sec) * 1000L +
-			(finished.tv_nsec - started.tv_nsec) / 1000000L;
+		long total_elapsed_ms = elapsed_ms(&started, &finished);
 		long descendant_pid = 0;
 		sscanf(child_output, "descendant=%ld", &descendant_pid);
 		printf("{\"outcome\":\"%s\",\"pid\":%ld,\"descendantPid\":%ld,"
 			"\"termSent\":%s,\"killSent\":%s,\"reaped\":%s,"
-			"\"waitSignal\":%d,\"elapsedMs\":%ld,\"pollEintr\":%u,"
+			"\"directTermSent\":%s,\"directKillSent\":%s,"
+			"\"groupReadyAtTerm\":%s,\"termAtMs\":%ld,\"killAtMs\":",
+			outcome, (long)pid, descendant_pid, term_sent ? "true" : "false",
+			kill_sent ? "true" : "false", child_reaped ? "true" : "false",
+			direct_term_sent ? "true" : "false", direct_kill_sent ? "true" : "false",
+			group_ready_at_term ? "true" : "false", term_at_ms);
+		if (kill_at_ms < 0) printf("null"); else printf("%ld", kill_at_ms);
+		printf(",\"waitSignal\":%d,\"elapsedMs\":%ld,\"pollEintr\":%u,"
+			"\"interruptionDelayMs\":%ld,\"descendantReapedPid\":%ld,"
+			"\"adoptedChildrenExhausted\":%s,"
 			"\"stdoutReads\":%u,\"stdoutBytes\":%zu,\"stderrBytes\":%zu,"
-			"\"stderrDrained\":%zu}\n", outcome, (long)pid, descendant_pid,
-			term_sent ? "true" : "false", kill_sent ? "true" : "false",
-			child_reaped ? "true" : "false",
-			WIFSIGNALED(wait_status) ? WTERMSIG(wait_status) : 0, elapsed_ms,
-			poll_interruptions, stdout_reads, stdout_length, stderr_length,
-			stderr_drained);
+			"\"stderrDrained\":%zu}\n",
+			WIFSIGNALED(wait_status) ? WTERMSIG(wait_status) : 0, total_elapsed_ms,
+			poll_interruptions, interruption_delay_ms, (long)descendant_reaped_pid,
+			adopted_children_exhausted ? "true" : "false", stdout_reads,
+			stdout_length, stderr_length, stderr_drained);
 		return;
 	}
 	if (pump_input) {
