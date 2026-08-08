@@ -179,7 +179,7 @@ process faults/crashes, and permits future procd respawn without implementing
 procd in this round.
 
 Implementation and regression evidence are committed in
-`b5bb13c0660bd1640b576068b74e21f02edcf929` (`fix(core): restore trusted-root
+`b5bb13c4cce0f7520ac307155f8c1b7d73bba7d6` (`fix(core): restore trusted-root
 broker lifecycle`).
 
 ### Root Cause And Fixes
