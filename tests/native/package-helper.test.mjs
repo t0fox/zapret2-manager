@@ -11,6 +11,8 @@ const nativeRootGate = fs.existsSync('scripts/test/native-root.sh')
 const nativeWorkflow = fs.readFileSync('.github/workflows/native-gate.yml', 'utf8');
 const brokerEvidence = fs.readFileSync(
   'tests/native/core/native-helper-broker-exact-target-evidence.txt', 'utf8');
+const brokerRawTapPath = 'tests/native/core/native-helper-broker-exact-target.tap';
+const brokerRawTap = fs.readFileSync(brokerRawTapPath, 'utf8');
 const transportEvidencePath = 'tests/native/core/native-helper-transport-exact-target-evidence.txt';
 const setupPatchPath = 'tests/native/core/fixtures/111-uloop-add-optional-setup-callback-to-process.patch';
 const uloopCallSourcePath = 'tests/native/core/fixtures/uc-uloop-vm-call-85922056.c';
@@ -324,7 +326,7 @@ test('socket dependency remains bound to the proven exact target identity', () =
 });
 
 test('Task 4 broker evidence binds clean tracked inputs and compiled target markers', () => {
-  assert.match(brokerEvidence, /^STATUS: M3 BLOCKED$/m);
+  assert.match(brokerEvidence, /^STATUS: PASS$/m);
   assert.match(brokerEvidence, /^Pre-run git status --porcelain: EMPTY$/m);
   assert.match(brokerEvidence, /^Executed input commit: [0-9a-f]{40}$/m);
   for (const [label, file] of [
@@ -343,14 +345,20 @@ test('Task 4 broker evidence binds clean tracked inputs and compiled target mark
   ]) {
     const hash = new RegExp(`^SHA256 ${label}: ([0-9a-f]{64})$`, 'm').exec(brokerEvidence)?.[1];
     assert.ok(hash, `Task 4 evidence must hash ${label}`);
-    assert.ok(brokerEvidence.includes(`# ${marker}=${hash}`),
+    assert.ok(brokerRawTap.includes(`# ${marker}=${hash}`),
       `raw TAP must bind ${marker}`);
   }
-  for (const marker of ['BEGIN RAW TAP', 'END RAW TAP', '# fail ', '# skipped 0',
+  for (const marker of ['Raw TAP artifact:', '# tests 54', '# pass 54',
+    '# fail 0', '# skipped 0',
     'ELF 64-bit LSB executable, ARM aarch64',
     'ELF 64-bit LSB shared object, ARM aarch64',
-    'SHA256 target package Makefile:', 'Exact process exit: 1'])
+    'SHA256 target package Makefile:', 'Exact process exit: 0'])
     assert.ok(brokerEvidence.includes(marker), `Task 4 evidence must include ${marker}`);
+  const rawHash = createHash('sha256').update(fs.readFileSync(brokerRawTapPath)).digest('hex');
+  assert.ok(brokerEvidence.includes(`SHA256 raw TAP artifact: ${rawHash}`));
+  for (const marker of ['TAP version 13', '# tests 54', '# pass 54', '# fail 0',
+    '# skipped 0', '# BROKER_CHILD_SHA256=', '# BROKER_FIXTURE_SHA256='])
+    assert.ok(brokerRawTap.includes(marker), `raw TAP must include ${marker}`);
 });
 
 test('tracked patch 111 evidence shows setup callback outcome is discarded before exec', () => {
