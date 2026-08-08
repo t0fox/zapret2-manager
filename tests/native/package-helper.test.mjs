@@ -32,6 +32,7 @@ const productionSources = [
   'sha256.c',
 ];
 const brokerSources = ['z2m-helperd.c', 'transport.c', 'supervise.c'];
+const nativeHelperAdapterPath = 'zapret2-manager/files/usr/libexec/zapret2-manager/core/native-helper.uc';
 function block(name) {
   const match = new RegExp(`define ${name}\\n([\\s\\S]*?)\\nendef`).exec(makefile);
   assert.ok(match, `${name} must be defined`);
@@ -568,4 +569,23 @@ test('package strictly target-builds and installs only the production broker bin
     'package must install the broker at its fixed libexec path');
   assert.doesNotMatch(install, /src\/z2m-helperd|helperd\.h|transport\.c|supervise\.c/,
     'package payload must not contain broker development files');
+});
+
+test('native helper adapter exposes only typed fixed-socket operations', () => {
+  assert.ok(fs.existsSync(nativeHelperAdapterPath), 'Task 7 adapter must be packaged');
+  const source = fs.readFileSync(nativeHelperAdapterPath, 'utf8');
+  const exports = [...source.matchAll(/export const\s+([A-Za-z_][A-Za-z0-9_]*)/g)]
+    .map(match => match[1]).sort();
+  assert.deepEqual(exports,
+    ['atomic_write', 'mkdir_private', 'read_regular', 'sha256_regular', 'stat_regular']);
+  assert.match(source, /['"]\/tmp\/zapret2-manager\/runtime\/z2m-helperd\.sock['"]/,
+    'production adapter must use the fixed broker socket');
+  assert.match(source, /socket\.connect\(\s*\{\s*path:\s*SOCKET_PATH\s*\}/,
+    'adapter must use the proven object-form AF_UNIX connect API');
+  assert.doesNotMatch(source, /\b(?:popen|system|command|uloop\.process)\s*\(/,
+    'adapter must not expose another execution transport');
+  assert.doesNotMatch(source, /export[^\n]*(?:invoke|transport|socket|timeout|executable|argv|env)/i,
+    'generic transport and process controls must remain private');
+  assert.doesNotMatch(source, /getenv|Z2M_TEST|ARGV/,
+    'production fixed path must have no environment or argument override seam');
 });
