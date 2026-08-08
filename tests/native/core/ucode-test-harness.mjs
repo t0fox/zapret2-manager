@@ -45,6 +45,16 @@ export function childExited(requestId, stdout, exitCode = 0, overrides = {}) {
   }, stdout);
 }
 
+export function brokerResult(requestId, outcome, overrides = {}) {
+  const base = {
+    protocol: 'z2m-helper-transport-v1', requestId, outcome,
+    startState: 'started', stdoutLength: 0, stderrLength: 0,
+    stdoutEof: true, stderrEof: true, stderrTruncated: false, stderrDrained: 0,
+    childReaped: true,
+  };
+  return responseFrame({ ...base, ...overrides });
+}
+
 export async function withPeer(handler, callback) {
   fs.mkdirSync('/tmp/zapret2-manager/runtime', { recursive: true, mode: 0o700 });
   fs.rmSync(SOCKET_PATH, { force: true });
@@ -56,6 +66,19 @@ export async function withPeer(handler, callback) {
       catch (error) { socket.destroy(error); }
     });
   });
+  await new Promise((resolve, reject) => server.listen(SOCKET_PATH, resolve).once('error', reject));
+  fs.chmodSync(SOCKET_PATH, 0o600);
+  try { return await callback(); }
+  finally {
+    await new Promise(resolve => server.close(resolve));
+    fs.rmSync(SOCKET_PATH, { force: true });
+  }
+}
+
+export async function withRawPeer(onConnection, callback) {
+  fs.mkdirSync('/tmp/zapret2-manager/runtime', { recursive: true, mode: 0o700 });
+  fs.rmSync(SOCKET_PATH, { force: true });
+  const server = net.createServer(onConnection);
   await new Promise((resolve, reject) => server.listen(SOCKET_PATH, resolve).once('error', reject));
   fs.chmodSync(SOCKET_PATH, 0o600);
   try { return await callback(); }
