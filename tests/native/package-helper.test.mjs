@@ -328,6 +328,36 @@ test('socket dependency is gated by committed exact-target proof', () => {
     /^SHA256 staged and isolated \/usr\/lib\/ucode\/socket\.so: ccaff63617ed3136c6461dadbf3328cd3a0cba118fbc98578108024291541ca0$/m);
 });
 
+test('Task 4 broker evidence binds clean tracked inputs and compiled target markers', () => {
+  assert.match(brokerEvidence, /^STATUS: M3 BLOCKED$/m);
+  assert.match(brokerEvidence, /^Pre-run git status --porcelain: EMPTY$/m);
+  assert.match(brokerEvidence, /^Executed input commit: [0-9a-f]{40}$/m);
+  for (const [label, file] of [
+    ['C server source', 'tests/native/core/z2m-helperd-spike.c'],
+    ['ucode client source', 'tests/native/core/native-helper-broker-spike.uc'],
+    ['Node harness source', 'tests/native/core/native-helper-broker-spike.test.mjs'],
+    ['child fixture source', 'tests/native/core/native-helper-broker-child.c'],
+  ]) {
+    const expected = createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+    assert.ok(brokerEvidence.includes(`SHA256 ${label}: ${expected}`),
+      `Task 4 evidence must hash ${file}`);
+  }
+  for (const [label, marker] of [
+    ['compiled AArch64 server', 'BROKER_FIXTURE_SHA256'],
+    ['compiled AArch64 child', 'BROKER_CHILD_SHA256'],
+  ]) {
+    const hash = new RegExp(`^SHA256 ${label}: ([0-9a-f]{64})$`, 'm').exec(brokerEvidence)?.[1];
+    assert.ok(hash, `Task 4 evidence must hash ${label}`);
+    assert.ok(brokerEvidence.includes(`# ${marker}=${hash}`),
+      `raw TAP must bind ${marker}`);
+  }
+  for (const marker of ['BEGIN RAW TAP', 'END RAW TAP', '# fail ', '# skipped 0',
+    'ELF 64-bit LSB executable, ARM aarch64',
+    'ELF 64-bit LSB shared object, ARM aarch64',
+    'SHA256 target package Makefile:', 'Exact process exit: 1'])
+    assert.ok(brokerEvidence.includes(marker), `Task 4 evidence must include ${marker}`);
+});
+
 test('tracked patch 111 evidence shows setup callback outcome is discarded before exec', () => {
   const patch = fs.readFileSync(setupPatchPath, 'utf8');
   const helper = fs.readFileSync(uloopCallSourcePath, 'utf8');
