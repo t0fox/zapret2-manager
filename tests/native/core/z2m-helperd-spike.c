@@ -211,15 +211,40 @@ static long elapsed_ms(const struct timespec *started, const struct timespec *ev
 }
 
 static void signal_child(pid_t pid, int signal_number, bool group_ready,
-	bool *direct_sent)
+	bool child_reaped, bool *direct_sent, bool *group_no_target,
+	bool *direct_attempted, bool *direct_no_target,
+	bool *direct_attempted_after_reap)
 {
-	if (group_ready && kill(-pid, signal_number) == 0)
+	if (group_ready) {
+		int result;
+#ifdef INJECT_GROUP_KILL_ESRCH_AFTER_REAP
+		if (signal_number == SIGKILL && child_reaped) {
+			result = kill(-pid, signal_number);
+			if (result < 0 && errno != ESRCH)
+				fail("inject signal process group");
+			errno = ESRCH;
+			result = -1;
+		} else
+#endif
+			result = kill(-pid, signal_number);
+		if (result == 0)
+			return;
+		if (errno != ESRCH)
+			fail("signal process group");
+		*group_no_target = true;
+	}
+	if (child_reaped)
 		return;
-	if (group_ready && errno != ESRCH)
-		fail("signal process group");
-	if (kill(pid, signal_number) < 0 && errno != ESRCH)
+	*direct_attempted = true;
+	if (kill(pid, signal_number) == 0) {
+		*direct_sent = true;
+		return;
+	}
+	if (errno != ESRCH)
 		fail("signal direct child");
-	*direct_sent = true;
+	*direct_no_target = true;
+	if (child_reaped)
+		*direct_attempted_after_reap = true;
 }
 
 static bool process_group_exists(pid_t pgid)
@@ -248,6 +273,8 @@ static void spawn_child(const char *requested_mode)
 	else if (!strcmp(requested_mode, "timeout-descendant")) mode = "fork-descendant-sleep";
 	else if (!strcmp(requested_mode, "timeout-wakeups")) mode = "wakeups";
 	else if (!strcmp(requested_mode, "timeout-stderr-flood")) mode = "stderr-flood-ignore-term";
+	else if (!strcmp(requested_mode, "timeout-reaped-group-race"))
+		mode = "fork-descendant-parent-exit";
 	char *const argv[] = { (char *)FIXED_CHILD_PATH, (char *)mode, NULL };
 	char *const envp[] = { NULL };
 	pid_t pid;
@@ -258,6 +285,10 @@ static void spawn_child(const char *requested_mode)
 	bool stdin_closed = !pump_input;
 	bool term_sent = false, kill_sent = false;
 	bool direct_term_sent = false, direct_kill_sent = false;
+	bool direct_term_attempted = false, direct_kill_attempted = false;
+	bool direct_term_no_target = false, direct_kill_no_target = false;
+	bool group_term_no_target = false, group_kill_no_target = false;
+	bool direct_attempted_after_reap = false, reaped_before_kill = false;
 	bool group_ready_at_term = false, adopted_children_exhausted = false;
 	unsigned int poll_calls = 0, poll_interruptions = 0, stdout_reads = 0;
 	long interruption_delay_ms = 0, term_at_ms = -1, kill_at_ms = -1;
@@ -430,7 +461,10 @@ static void spawn_child(const char *requested_mode)
 		if (stdout_length >= 4097 && !term_sent) {
 			outcome = "stdout_limit";
 			group_ready_at_term = guard->process_group_ready != 0;
-			signal_child(pid, SIGTERM, group_ready_at_term, &direct_term_sent);
+			signal_child(pid, SIGTERM, group_ready_at_term, child_reaped,
+				&direct_term_sent, &group_term_no_target,
+				&direct_term_attempted, &direct_term_no_target,
+				&direct_attempted_after_reap);
 			term_sent = true;
 			if (clock_gettime(CLOCK_MONOTONIC, &now) < 0) fail("clock_gettime");
 			term_at_ms = elapsed_ms(&started, &now);
@@ -443,7 +477,10 @@ static void spawn_child(const char *requested_mode)
 		    (!child_reaped || process_group_exists(pid))) {
 			outcome = "timeout";
 			group_ready_at_term = guard->process_group_ready != 0;
-			signal_child(pid, SIGTERM, group_ready_at_term, &direct_term_sent);
+			signal_child(pid, SIGTERM, group_ready_at_term, child_reaped,
+				&direct_term_sent, &group_term_no_target,
+				&direct_term_attempted, &direct_term_no_target,
+				&direct_attempted_after_reap);
 			term_sent = true;
 			term_at_ms = elapsed_ms(&started, &now);
 			grace_deadline = timespec_after_ms(deadline, 100);
@@ -451,7 +488,11 @@ static void spawn_child(const char *requested_mode)
 		}
 		if (term_sent && !kill_sent && timespec_compare(&now, &grace_deadline) >= 0 &&
 		    (!child_reaped || process_group_exists(pid))) {
-			signal_child(pid, SIGKILL, guard->process_group_ready != 0, &direct_kill_sent);
+			reaped_before_kill = child_reaped;
+			signal_child(pid, SIGKILL, guard->process_group_ready != 0, child_reaped,
+				&direct_kill_sent, &group_kill_no_target,
+				&direct_kill_attempted, &direct_kill_no_target,
+				&direct_attempted_after_reap);
 			kill_sent = true;
 			kill_at_ms = elapsed_ms(&started, &now);
 		}
@@ -481,10 +522,22 @@ static void spawn_child(const char *requested_mode)
 		printf("{\"outcome\":\"%s\",\"pid\":%ld,\"descendantPid\":%ld,"
 			"\"termSent\":%s,\"killSent\":%s,\"reaped\":%s,"
 			"\"directTermSent\":%s,\"directKillSent\":%s,"
+			"\"directTermAttempted\":%s,\"directKillAttempted\":%s,"
+			"\"directTermNoTarget\":%s,\"directKillNoTarget\":%s,"
+			"\"groupTermNoTarget\":%s,\"groupKillNoTarget\":%s,"
+			"\"reapedBeforeKill\":%s,\"directKillAttemptedAfterReap\":%s,"
 			"\"groupReadyAtTerm\":%s,\"termAtMs\":%ld,\"killAtMs\":",
 			outcome, (long)pid, descendant_pid, term_sent ? "true" : "false",
 			kill_sent ? "true" : "false", child_reaped ? "true" : "false",
 			direct_term_sent ? "true" : "false", direct_kill_sent ? "true" : "false",
+			direct_term_attempted ? "true" : "false",
+			direct_kill_attempted ? "true" : "false",
+			direct_term_no_target ? "true" : "false",
+			direct_kill_no_target ? "true" : "false",
+			group_term_no_target ? "true" : "false",
+			group_kill_no_target ? "true" : "false",
+			reaped_before_kill ? "true" : "false",
+			direct_attempted_after_reap ? "true" : "false",
 			group_ready_at_term ? "true" : "false", term_at_ms);
 		if (kill_at_ms < 0) printf("null"); else printf("%ld", kill_at_ms);
 		printf(",\"waitSignal\":%d,\"elapsedMs\":%ld,\"pollEintr\":%u,"

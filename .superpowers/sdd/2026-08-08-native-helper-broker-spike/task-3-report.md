@@ -224,3 +224,75 @@ f04733236f4a72465363123c90e85368e2991ee8018d928fc37cdadc93454bd5  tests/native/c
 - QEMU tolerance remains explicit: TERM must be observed in `[80, 200)` ms, KILL in `[180, 350)` ms, and bounded completion under 600 ms for escalation cases.
 - No framing, production broker, adapter, procd, or M4 work was added.
 - No blocker remains.
+
+## Review Resolution Round 2: Post-Reap PID Identity
+
+### Status
+
+**PASS.** Group `ESRCH` after direct-child reap no longer permits positive-PID fallback. The exact UID0 AArch64 proof passes 31/31 cases.
+
+### Root Cause And RED Evidence
+
+`signal_child()` previously treated group `ESRCH` as a reason to call `kill(pid, signal)` unconditionally. Once `waitpid()` had reaped the direct child, that positive PID was no longer identity-stable and could have been reused by an unrelated process. The helper also set `direct_sent=true` after direct `ESRCH`, although no signal was delivered.
+
+The deterministic race case was added first. A direct child creates a TERM-ignoring descendant in its process group, reports the descendant PID, and exits. The broker reaps the direct child before KILL grace expires. Injection removes the descendant group at KILL but exposes group `ESRCH`, forcing the exact no-target branch. Initial RED result:
+
+```text
+FAIL group ESRCH after direct reap never falls back to reusable positive PID
+  expected outcome: timeout
+  actual outcome: started
+tests 1, pass 0, fail 1
+```
+
+### Minimal Fix
+
+- `signal_child()` now receives `child_reaped` identity state.
+- Positive-PID fallback is allowed only while the direct child remains unreaped. Before reap, the PID remains reserved for that waitable child and cannot be reused.
+- Group `ESRCH` after reap records `group*NoTarget` and returns without calling `kill(pid, ...)`.
+- `direct*Attempted` records entry into the positive-PID syscall path.
+- `direct*Sent` becomes true only when `kill(pid, signal)` returns success.
+- Direct `ESRCH` is separately reported as `direct*NoTarget`; it is not successful-delivery evidence.
+
+The race asserts:
+
+```text
+reapedBeforeKill=true
+groupKillNoTarget=true
+directKillAttempted=false
+directKillSent=false
+directKillNoTarget=false
+directKillAttemptedAfterReap=false
+descendantReapedPid=descendantPid
+adoptedChildrenExhausted=true
+```
+
+### Exact AArch64 UID0 Proof
+
+```text
+SOCKET_MODULE_SHA256=ccaff63617ed3136c6461dadbf3328cd3a0cba118fbc98578108024291541ca0
+BROKER_FIXTURE_SHA256=09b04f7a09d9eac97aeb250bf669da31b0e5f79bc2b05727dce0bfde49dba18b
+tests 31
+pass 31
+fail 0
+cancelled 0
+skipped 0
+todo 0
+duration_ms 17092.910076
+```
+
+Strict target builds passed with `-std=c11 -Wall -Wextra -Werror`. Package policy passed 23/23 in `147.807667 ms`. `git diff --check` passed.
+
+Review-round-2 artifact hashes:
+
+```text
+080f430416ddb6901abe1dc490ef8b8eedcf153dde9c7aeebed9a32afbf9dba2  tests/native/core/z2m-helperd-spike.c
+5b2e4e13cbebf1fbcd0844c0291b5f12fb72a81d26ab2b018ed824d23e921886  tests/native/core/native-helper-broker-child.c
+372a78fa24c19ef24c544ced9ecb310e77555c76333278e525e5e202ffb212ee  tests/native/core/native-helper-broker-spike.test.mjs
+```
+
+### Concerns
+
+- The deterministic `ESRCH` injection is spike test instrumentation; production signaling remains out of scope.
+- The identity rule depends only on standard waitable-child semantics: a direct child PID is safe before reap and must never be targeted after reap.
+- No framing, production broker, adapter, procd, or M4 work was added.
+- No blocker remains.

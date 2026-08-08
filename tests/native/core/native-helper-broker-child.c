@@ -118,6 +118,19 @@ int main(int argc, char **argv)
 		printf("descendant=%ld\n", (long)descendant);
 		return 0;
 	}
+	if (!strcmp(mode, "fork-descendant-parent-exit")) {
+		pid_t descendant = fork();
+		if (descendant < 0)
+			return 1;
+		if (descendant == 0) {
+			signal(SIGTERM, SIG_IGN);
+			sleep_30_seconds();
+			return 0;
+		}
+		printf("descendant=%ld\n", (long)descendant);
+		fflush(stdout);
+		return 0;
+	}
 	if (!strcmp(mode, "fork-descendant-sleep")) {
 		pid_t descendant = fork();
 		if (descendant < 0)
