@@ -254,6 +254,24 @@ void z2m_test_signal_tracked(int pid, unsigned long long starttime, int signal_n
 	struct child_identity tracked = { .pid = (pid_t)pid, .starttime = starttime };
 	signal_tracked(&tracked, 1, signal_number);
 }
+
+int z2m_test_registry_reuse_transition(int pid, unsigned long long old_starttime,
+	unsigned long long new_starttime)
+{
+	struct child_identity tracked[2] = { 0 };
+	size_t count = 0;
+	if (track_identity_value(tracked, &count, (pid_t)pid, old_starttime) < 0)
+		return -1;
+	errno = 0;
+	if (track_identity_value(tracked, &count, (pid_t)pid, new_starttime) != -1 ||
+	    errno != EEXIST)
+		return -1;
+	tracked[0].reaped = true;
+	if (track_identity_value(tracked, &count, (pid_t)pid, new_starttime) < 0)
+		return -1;
+	return count == 2 && tracked[1].pid == pid &&
+		tracked[1].starttime == new_starttime && !tracked[1].reaped ? 0 : -1;
+}
 #endif
 
 static void signal_leader_group(pid_t leader, int signal_number, bool leader_reaped,

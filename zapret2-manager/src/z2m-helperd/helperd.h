@@ -90,6 +90,8 @@ bool z2m_test_identity_live(int pid, unsigned long long starttime);
 int z2m_test_track_conflict(int pid, unsigned long long first_starttime,
 	unsigned long long second_starttime);
 void z2m_test_signal_tracked(int pid, unsigned long long starttime, int signal_number);
+int z2m_test_registry_reuse_transition(int pid, unsigned long long old_starttime,
+	unsigned long long new_starttime);
 #endif
 
 #endif
