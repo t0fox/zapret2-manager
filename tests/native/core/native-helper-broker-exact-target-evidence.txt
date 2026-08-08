@@ -1,0 +1,116 @@
+Broker Spike Task 1 exact-target socket evidence
+STATUS: PASS
+This proof predates and gates restoration of +ucode-mod-socket.
+
+Execution provenance
+Captured: 2026-08-08T12:27:00+03:00
+Executed input commit: 6067dd5be5c5178e6df2b5e060ae8ee15751aa27
+Pre-run git status --porcelain: EMPTY
+Dependency state at executed input: +ucode-mod-socket ABSENT
+Host: Linux 6.18.33.2-microsoft-standard-WSL2 x86_64 GNU/Linux
+Root execution context: wsl.exe -d Ubuntu -u root (real uid=0)
+Non-root rejection context: passwd account dynamically resolved from getent passwd 1000
+Emulator: qemu-aarch64 version 10.2.1 (Debian 1:10.2.1+ds-1ubuntu3.2)
+Execution wrapper: PRoot 5.4.0, PROOT_NO_SECCOMP=1
+
+Executed probe identities
+SHA256 C fixture source: fa30caa1cebb630f6953a87f3a790ee7173bd6362a3a8755cf4d454d296283ab
+SHA256 ucode client source: ecb6da520ecdbcd0031502a6454162c11d992dab88cb6b7b1adaafdfa7799c06
+SHA256 Node test: 2af5f1df96aa1e41565b156c7756e4d527699fd96433b0508b8402d929b6abd8
+SHA256 compiled target fixture: d29dcc4497db2778c2714a6211877482df989b157a2d6dfa79388dcb871f22aa
+
+Exact target identities
+Target source commit: 85922056ef7abeace3cca3ab28bc1ac2d88e31b1
+Target source artifact SHA256: 8c6f586f90e704827dc8736bf3726d15989a978c6a726a52d51e33f8019403b6
+Target version.date: 1768603607
+SHA256 executed target /usr/bin/ucode: 647cb596577867470c16c6b58617b7ccd9b1bbe8f40c1fed6b29974df7b48833
+SHA256 staged and isolated /usr/lib/ucode/socket.so: ccaff63617ed3136c6461dadbf3328cd3a0cba118fbc98578108024291541ca0
+The harness copies staged socket.so and fs.so to an isolated module directory,
+loads only that glob, and asserts /proc/self/maps contains the isolated socket.so.
+The harness reads PKG_SOURCE_VERSION and PKG_MIRROR_HASH from the target SDK
+package manifest and hashes the downloaded source artifact itself.
+
+Exact invocation
+wsl.exe -d Ubuntu -u root -- bash -lc "
+  cd /home/kirill/z2m-work/native-state-foundation &&
+  export HOME=/home/kirill &&
+  export LD_LIBRARY_PATH=/home/kirill/z2m-work/qemu-user-local/proot-root/usr/lib/x86_64-linux-gnu &&
+  export PROOT_NO_SECCOMP=1 &&
+  export STAGING_DIR=/home/kirill/z2m-sdk-clean/staging_dir &&
+  export UCODE_BIN=/home/kirill/z2m-work/qemu-user-local/proot-root/usr/bin/proot &&
+  export UCODE_ARGS='-q /home/kirill/z2m-work/qemu-user-local/root/usr/bin/qemu-aarch64 -R /home/kirill/z2m-sdk-clean/staging_dir/target-aarch64_cortex-a53_musl/root-mediatek -w /home/kirill/z2m-work/native-state-foundation /usr/bin/ucode' &&
+  export TARGET_SOCKET_MODULE=/home/kirill/z2m-sdk-clean/staging_dir/target-aarch64_cortex-a53_musl/root-mediatek/usr/lib/ucode/socket.so &&
+  export TARGET_CC=/home/kirill/z2m-sdk-clean/staging_dir/toolchain-aarch64_cortex-a53_gcc-14.3.0_musl/bin/aarch64-openwrt-linux-musl-gcc &&
+  timeout 120s /home/kirill/.local/opt/node-v22.22.1-linux-x64/bin/node --test --test-reporter=tap tests/native/core/native-helper-broker-spike.test.mjs
+"
+
+Exact process exit: 0
+
+BEGIN RAW TAP
+TAP version 13
+# SOCKET_MODULE_SHA256=ccaff63617ed3136c6461dadbf3328cd3a0cba118fbc98578108024291541ca0
+# BROKER_FIXTURE_SHA256=d29dcc4497db2778c2714a6211877482df989b157a2d6dfa79388dcb871f22aa
+# Subtest: preserves binary and embedded-NUL bytes
+ok 1 - preserves binary and embedded-NUL bytes
+  ---
+  duration_ms: 131.336143
+  type: 'test'
+  ...
+# Subtest: handles partial writes and backpressure
+ok 2 - handles partial writes and backpressure
+  ---
+  duration_ms: 787.414812
+  type: 'test'
+  ...
+# Subtest: drains POLLIN with POLLHUP before reporting EOF
+ok 3 - drains POLLIN with POLLHUP before reporting EOF
+  ---
+  duration_ms: 125.824378
+  type: 'test'
+  ...
+# Subtest: uses one absolute deadline across repeated trickle wakeups
+ok 4 - uses one absolute deadline across repeated trickle wakeups
+  ---
+  duration_ms: 239.844134
+  type: 'test'
+  ...
+# Subtest: distinguishes bare EOF from an explicitly framed empty body
+ok 5 - distinguishes bare EOF from an explicitly framed empty body
+  ---
+  duration_ms: 267.534496
+  type: 'test'
+  ...
+# Subtest: stops reading at response cap plus one byte
+ok 6 - stops reading at response cap plus one byte
+  ---
+  duration_ms: 126.993623
+  type: 'test'
+  ...
+# Subtest: reports root peer credentials and fixture PID
+ok 7 - reports root peer credentials and fixture PID
+  ---
+  duration_ms: 125.746365
+  type: 'test'
+  ...
+# Subtest: fixture rejects a non-root peer
+ok 8 - fixture rejects a non-root peer
+  ---
+  duration_ms: 136.981304
+  type: 'test'
+  ...
+# Subtest: does not grow descriptors over 100 connect-close cycles
+ok 9 - does not grow descriptors over 100 connect-close cycles
+  ---
+  duration_ms: 10404.064188
+  type: 'test'
+  ...
+1..9
+# tests 9
+# suites 0
+# pass 9
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 13042.29928
+END RAW TAP
