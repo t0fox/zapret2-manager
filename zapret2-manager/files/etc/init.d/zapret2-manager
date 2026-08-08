@@ -12,8 +12,10 @@ STOP=10
 
 PROG=/usr/libexec/zapret2-manager/watchdog.uc
 UCODE=/usr/bin/ucode
+BOOTSTRAP=/usr/libexec/zapret2-manager/z2m-root-bootstrap
 
 start_service() {
+	"$BOOTSTRAP" all || return $?
 	procd_open_instance
 	procd_set_param command "$UCODE" "$PROG"
 	# Respawn if the loop dies: threshold 60s, timeout 5, retry 5.
@@ -29,5 +31,6 @@ start_service() {
 extra_command "check" "Run one watchdog check cycle and exit"
 
 check() {
+	"$BOOTSTRAP" all || return $?
 	"$UCODE" "$PROG" check
 }

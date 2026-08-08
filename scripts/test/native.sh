@@ -17,10 +17,12 @@ mkdir -p "$TMPDIR"
 
 test_list="$TMPDIR/native-tests.$$.list"
 trap 'rm -f "$test_list"' 0 HUP INT TERM
-root_test=tests/native/core/fs-helper.test.mjs
-test -f "$root_test"
+root_tests='tests/native/bootstrap.test.mjs tests/native/core/fs-helper.test.mjs'
+for root_test in $root_tests; do
+  test -f "$root_test"
+done
 
-find tests/native -type f -name '*.test.mjs' ! -path "$root_test" -print | LC_ALL=C sort |
+find tests/native -type f -name '*.test.mjs' ! -path tests/native/bootstrap.test.mjs ! -path tests/native/core/fs-helper.test.mjs -print | LC_ALL=C sort |
 while IFS= read -r test_file; do
   printf '%s\0' "$test_file"
 done > "$test_list"
@@ -30,8 +32,8 @@ count=$(tr -cd '\0' < "$test_list" | wc -c)
 xargs -0 node --test < "$test_list"
 
 if [ "$(id -u)" -eq 0 ]; then
-  node --test "$root_test"
+  node --test $root_tests
 else
   command -v sudo >/dev/null
-  sudo --preserve-env=TMPDIR,UCODE_BIN,UCODE_LIBRARY_PATH "$node_bin" --test tests/native/core/fs-helper.test.mjs
+  sudo --preserve-env=TMPDIR,UCODE_BIN,UCODE_LIBRARY_PATH "$node_bin" --test tests/native/bootstrap.test.mjs tests/native/core/fs-helper.test.mjs
 fi

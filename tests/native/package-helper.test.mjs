@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const makefile = fs.readFileSync('zapret2-manager/Makefile', 'utf8');
+const initScript = fs.readFileSync('zapret2-manager/files/etc/init.d/zapret2-manager', 'utf8');
 const nativeGate = fs.readFileSync('scripts/test/native.sh', 'utf8');
 const nativeWorkflow = fs.readFileSync('.github/workflows/native-gate.yml', 'utf8');
 const helperDir = 'zapret2-manager/src/z2m-core-helper';
@@ -47,14 +48,44 @@ test('native production and tests contain no Windows or WSL execution', () => {
   }
 });
 
-test('native gate elevates only the root-required helper test and cleans temporary discovery state', () => {
+test('native gate elevates only root-required tests and cleans temporary discovery state', () => {
   assert.match(nativeGate, /trap '[^']*rm -f[^']*' (?:EXIT|0) HUP INT TERM/,
     'native gate must clean its temporary list on exit and signals');
   assert.match(nativeGate,
-    /sudo[^\n]*--preserve-env=[^\n]*(?:TMPDIR|UCODE_BIN|UCODE_LIBRARY_PATH)[^\n]*"\$node_bin"[^\n]*fs-helper\.test\.mjs/,
-    'native gate must preserve its environment while elevating the helper test');
+    /sudo[^\n]*--preserve-env=[^\n]*(?:TMPDIR|UCODE_BIN|UCODE_LIBRARY_PATH)[^\n]*"\$node_bin"[^\n]*bootstrap\.test\.mjs[^\n]*fs-helper\.test\.mjs/,
+    'native gate must preserve its environment while elevating both root-required tests');
   assert.equal((nativeGate.match(/^\s*sudo\b/gm) ?? []).length, 1,
-    'only the root-required helper test may use sudo');
+    'root-required tests must share one sudo invocation');
+});
+
+test('package strictly builds and installs the managed-root bootstrap', () => {
+  const compile = block('Build/Compile');
+  assert.match(compile, /\$\(TARGET_CC\)[\s\S]*z2m-root-bootstrap\.c[\s\S]*-o\s+\$\(PKG_BUILD_DIR\)\/z2m-root-bootstrap/);
+  for (const flag of ['-std=c11', '-Wall', '-Wextra', '-Werror', '-D_GNU_SOURCE'])
+    assert.ok(compile.includes(flag), `bootstrap compilation must use ${flag}`);
+  assert.doesNotMatch(compile, /-DZ2M_TESTING/, 'production bootstrap must ignore test prefixes');
+
+  const prepare = block('Build/Prepare');
+  assert.match(prepare, /src\/z2m-root-bootstrap\.c/);
+  const install = block('Package/zapret2-manager/install');
+  assert.match(install, /\$\(INSTALL_BIN\)[^\n]*z2m-root-bootstrap[^\n]*\/usr\/libexec\/zapret2-manager\/z2m-root-bootstrap/);
+});
+
+test('package and service lifecycle fail closed when bootstrap fails', () => {
+  const postinst = block('Package/zapret2-manager/postinst');
+  assert.match(postinst, /\[ -n "\$\$\{IPKG_INSTROOT:-\}" \] && exit 0/);
+  const bootstrapAt = postinst.indexOf('/usr/libexec/zapret2-manager/z2m-root-bootstrap persistent || exit $$?');
+  assert.ok(bootstrapAt >= 0, 'live postinst must propagate persistent bootstrap failure');
+  assert.ok(bootstrapAt < postinst.indexOf('/etc/init.d/rpcd reload'));
+  assert.ok(bootstrapAt < postinst.indexOf('/etc/init.d/zapret2-manager enable'));
+
+  assert.match(initScript, /^BOOTSTRAP=\/usr\/libexec\/zapret2-manager\/z2m-root-bootstrap$/m);
+  for (const functionName of ['start_service', 'check']) {
+    const match = new RegExp(`${functionName}\\(\\) \\{([\\s\\S]*?)\\n\\}`).exec(initScript);
+    assert.ok(match, `${functionName} must exist`);
+    assert.match(match[1], /^\s*"\$BOOTSTRAP" all \|\| return \$\?/m,
+      `${functionName} must propagate bootstrap failure first`);
+  }
 });
 
 test('CI provisions pinned ucode and passes it to the shared native gate', () => {

@@ -26,6 +26,7 @@ endef
 define Build/Prepare
 	mkdir -p $(PKG_BUILD_DIR)
 	$(CP) ./src/z2m-core-helper/* $(PKG_BUILD_DIR)/
+	$(CP) ./src/z2m-root-bootstrap.c $(PKG_BUILD_DIR)/
 endef
 
 define Build/Compile
@@ -43,6 +44,11 @@ define Build/Compile
 		$(PKG_BUILD_DIR)/sha256.c \
 		$(TARGET_LDFLAGS) -ljson-c \
 		-o $(PKG_BUILD_DIR)/z2m-core-helper
+	$(TARGET_CC) $(TARGET_CPPFLAGS) $(TARGET_CFLAGS) \
+		-std=c11 -Wall -Wextra -Werror -D_GNU_SOURCE \
+		$(PKG_BUILD_DIR)/z2m-root-bootstrap.c \
+		$(TARGET_LDFLAGS) \
+		-o $(PKG_BUILD_DIR)/z2m-root-bootstrap
 endef
 
 define Package/zapret2-manager/conffiles
@@ -63,11 +69,13 @@ define Package/zapret2-manager/install
 	chmod 0600 $(1)/etc/zapret2-manager/state.json
 	$(INSTALL_DIR) $(1)/usr/libexec/zapret2-manager
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/z2m-core-helper $(1)/usr/libexec/zapret2-manager/z2m-core-helper
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/z2m-root-bootstrap $(1)/usr/libexec/zapret2-manager/z2m-root-bootstrap
 endef
 
 define Package/zapret2-manager/postinst
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT:-}" ] && exit 0
+/usr/libexec/zapret2-manager/z2m-root-bootstrap persistent || exit $$?
 /etc/init.d/rpcd reload
 /etc/init.d/zapret2-manager enable
 exit 0
