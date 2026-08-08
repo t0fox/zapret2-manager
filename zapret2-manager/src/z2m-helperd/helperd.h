@@ -85,7 +85,11 @@ void z2m_supervise(int client, const struct z2m_request *request,
 void z2m_free_result(struct z2m_result *result);
 bool z2m_stopping(void);
 #ifdef Z2M_TESTING
-bool z2m_test_registry_reuse(void);
+unsigned long long z2m_test_process_starttime(int pid);
+bool z2m_test_identity_live(int pid, unsigned long long starttime);
+int z2m_test_track_conflict(int pid, unsigned long long first_starttime,
+	unsigned long long second_starttime);
+void z2m_test_signal_tracked(int pid, unsigned long long starttime, int signal_number);
 #endif
 
 #endif

@@ -86,10 +86,15 @@ async function start(binary = daemon) {
   assert.equal(server.exitCode, null, errors);
 }
 
-async function stop() {
+async function stop(operatorCleanup = true) {
   if (!server || server.exitCode !== null) return;
   server.kill('SIGTERM');
   await new Promise(resolve => server.once('exit', resolve));
+  if (operatorCleanup) removeSocketAsOperator();
+}
+
+function removeSocketAsOperator() {
+  if (fs.existsSync(socketPath)) fs.unlinkSync(socketPath);
 }
 
 function exchange(payload = frame(), { resetIsEof = false } = {}) {
@@ -204,7 +209,7 @@ test('fails closed on a stale socket and leaves every pre-existing object untouc
   fs.unlinkSync(socketPath);
 });
 
-test('fails singleton probe on a live socket without modifying it', async () => {
+test('fails singleton startup on a live socket without modifying it', async () => {
   await start();
   const before = fs.lstatSync(socketPath);
   const second = run(daemon, []);
@@ -215,6 +220,27 @@ test('fails singleton probe on a live socket without modifying it', async () => 
   assert.match(second.stderr, /singleton|pre-existing socket path/);
   assert.equal(parseResponse(await exchange()).header.outcome, 'child_exited');
   await stop();
+});
+
+test('rejects a full-backlog socket without probing or modifying it', () => {
+  const listener = path.join(root, 'full-backlog-listener');
+  const ready = path.join(root, 'full-backlog-ready');
+  compileHelper(listener, `#include <fcntl.h>\n#include <sys/socket.h>\n#include <sys/stat.h>\n#include <sys/un.h>\n#include <string.h>\n#include <unistd.h>\nint main(void){struct sockaddr_un a={.sun_family=AF_UNIX};int s=socket(AF_UNIX,SOCK_STREAM,0);if(s<0)return 1;strcpy(a.sun_path,"${socketPath}");if(bind(s,(struct sockaddr*)&a,sizeof(a))<0||chmod(a.sun_path,0600)<0||listen(s,1)<0)return 2;for(int i=0;i<64;i++){int c=socket(AF_UNIX,SOCK_STREAM|SOCK_NONBLOCK,0);if(c>=0)(void)connect(c,(struct sockaddr*)&a,sizeof(a));}int r=open("${ready}",O_WRONLY|O_CREAT|O_TRUNC,0600);if(r<0)return 3;close(r);sleep(3);return 0;}\n`);
+  const crafted = spawn(listener);
+  return waitFor(() => fs.existsSync(ready)).then(() => {
+    const before = fs.lstatSync(socketPath);
+    const started = performance.now();
+    const failed = run(daemon, [], { timeout: 1000 });
+    const elapsed = performance.now() - started;
+    assert.notEqual(failed.status, 0);
+    assert.equal(failed.signal, null, 'broker startup must not hit the host timeout');
+    assert.ok(elapsed < 500, `pre-existing socket rejection took ${elapsed}ms`);
+    const afterStat = fs.lstatSync(socketPath);
+    assert.equal(afterStat.dev, before.dev);
+    assert.equal(afterStat.ino, before.ino);
+    crafted.kill('SIGKILL');
+    return new Promise(resolve => crafted.once('exit', resolve));
+  }).finally(removeSocketAsOperator);
 });
 
 test('fails closed when peer UID does not match the fixed accepted UID', async () => {
@@ -372,13 +398,39 @@ test('daemon shutdown terminates and reaps an active helper', async () => {
   assert.equal(fs.existsSync(`/proc/${childPid}`), false, `helper ${childPid} survived daemon shutdown`);
 });
 
-test('cleanup removes only the socket inode created by this daemon', async () => {
+test('shutdown never unlinks the socket inode created by this daemon', async () => {
+  await start();
+  const owned = fs.lstatSync(socketPath);
+  await stop(false);
+  const afterStat = fs.lstatSync(socketPath);
+  assert.equal(afterStat.dev, owned.dev);
+  assert.equal(afterStat.ino, owned.ino);
+  removeSocketAsOperator();
+});
+
+test('shutdown never unlinks a replacement socket pathname', async () => {
   await start();
   const original = `${socketPath}.original`;
   fs.renameSync(socketPath, original);
   fs.writeFileSync(socketPath, 'replacement', { mode: 0o600 });
-  await stop();
+  await stop(false);
   assert.equal(fs.readFileSync(socketPath, 'utf8'), 'replacement');
+  fs.unlinkSync(socketPath);
+  fs.unlinkSync(original);
+});
+
+test('replacement between bind and socket recording is never unlinked', async () => {
+  const binary = path.join(root, 'z2m-helperd-bind-record-race');
+  compile(binary, helper, ['-DZ2M_TEST_STOP_AFTER_BIND']);
+  server = spawn(binary, [], { stdio: ['ignore', 'ignore', 'pipe'] });
+  await waitStopped(server.pid);
+  const original = `${socketPath}.bind-original`;
+  fs.renameSync(socketPath, original);
+  fs.writeFileSync(socketPath, 'bind-record-replacement', { mode: 0o600 });
+  server.kill('SIGCONT');
+  await new Promise(resolve => server.once('exit', resolve));
+  assert.notEqual(server.exitCode, 0);
+  assert.equal(fs.readFileSync(socketPath, 'utf8'), 'bind-record-replacement');
   fs.unlinkSync(socketPath);
   fs.unlinkSync(original);
 });
@@ -548,6 +600,7 @@ for (const [window, definition] of [
     assert.equal(contender.exitCode, null, 'raced daemon must not disturb replacement lock owner');
     contender.kill('SIGTERM');
     await new Promise(resolve => contender.once('exit', resolve));
+    removeSocketAsOperator();
     fs.unlinkSync(displaced);
     server = contender;
   });
@@ -628,10 +681,10 @@ test('discovery failure overrides simultaneous timeout after converged cleanup',
   await stop();
 });
 
-test('identity registry accepts a reused PID only with new starttime after old reap', () => {
-  const auditSource = path.join(root, 'registry-reuse-audit.c');
-  const auditBinary = path.join(root, 'registry-reuse-audit');
-  fs.writeFileSync(auditSource, `#include <stdio.h>\n#include "${path.resolve(sourceDir, 'helperd.h')}"\nbool z2m_stopping(void){return false;}\nint main(void){return z2m_test_registry_reuse() ? 0 : 1;}\n`);
+test('real process identity gates reject stale conflicts and signal only the matching child', () => {
+  const auditSource = path.join(root, 'process-identity-audit.c');
+  const auditBinary = path.join(root, 'process-identity-audit');
+  fs.writeFileSync(auditSource, `#include <errno.h>\n#include <signal.h>\n#include <stdbool.h>\n#include <sys/wait.h>\n#include <unistd.h>\n#include "${path.resolve(sourceDir, 'helperd.h')}"\nbool z2m_stopping(void){return false;}\nstatic pid_t child(void){pid_t p=fork();if(p==0){for(;;)pause();}return p;}\nstatic int still_running(pid_t p){int s;return waitpid(p,&s,WNOHANG)==0;}\nstatic int fail(pid_t p,int code){kill(p,SIGKILL);while(waitpid(p,0,0)<0&&errno==EINTR){}return code;}\nint main(void){int s;pid_t p=child();if(p<0)return 1;unsigned long long actual=z2m_test_process_starttime(p);if(!actual)return fail(p,2);if(!z2m_test_identity_live(p,actual)||z2m_test_identity_live(p,actual+1))return fail(p,3);errno=0;if(z2m_test_track_conflict(p,actual+1,actual)!=-1||errno!=EEXIST)return fail(p,4);if(!still_running(p))return fail(p,5);z2m_test_signal_tracked(p,actual+1,SIGTERM);usleep(50000);if(!still_running(p))return fail(p,6);z2m_test_signal_tracked(p,actual,SIGTERM);if(waitpid(p,&s,0)!=p||!WIFSIGNALED(s)||WTERMSIG(s)!=SIGTERM)return 7;if(z2m_test_identity_live(p,actual))return 8;return 0;}\n`);
   const built = run('cc', ['-std=c11', '-Wall', '-Wextra', '-Werror', '-D_GNU_SOURCE',
     '-DZ2M_TESTING', `-DZ2M_RUNTIME_PATH="${runtime}"`, `-DZ2M_HELPER_PATH="${helper}"`,
     auditSource, `${sourceDir}/supervise.c`, '-o', auditBinary]);

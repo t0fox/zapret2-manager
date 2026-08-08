@@ -94,19 +94,19 @@ The broker opens a root-owned regular lock file at the fixed lock path using
 `O_NOFOLLOW`, verifies mode `0600`, and obtains `flock(LOCK_EX|LOCK_NB)` before
 examining the socket pathname.
 
-An existing socket pathname is never removed automatically at startup. While
-holding the singleton lock, the broker may connect-probe a verified root-owned
-socket only to distinguish a live daemon from a stale object; both outcomes
-fail startup and leave the pathname untouched. Symlinks, regular files, FIFOs,
-devices, wrong-owner sockets, and unverifiable objects also fail closed and
-remain untouched. A stale socket requires explicit operator removal after
-confirming no daemon is live, or disappears naturally when `/tmp` is recreated
-at reboot. This avoids claiming pathname identity guarantees Linux unlink does
-not provide.
+Any existing socket pathname fails startup immediately and remains untouched.
+The broker does not connect-probe it: the singleton lock is the daemon-liveness
+authority, and probing an unrelated listener adds blocking and side effects
+without proving pathname ownership. Symlinks, regular files, FIFOs, devices,
+and sockets of any ownership or mode receive the same non-mutating policy.
 
-The bound socket has exact mode `0600`. After bind, the broker records and
-verifies its device/inode. Shutdown removes the pathname only when type,
-ownership, and recorded identity still match.
+The bound socket has exact mode `0600`. The broker never unlinks the socket
+pathname, including on clean shutdown, because Linux has no fd-based unlink
+that atomically proves a pathname still names the inspected inode. Every
+restart therefore requires trusted operator removal after confirming no daemon
+holds the singleton lock, or a reboot that recreates `/tmp`. The runtime root's
+root:root mode `0700` limits ordinary replacement, but the design does not
+claim resistance to a malicious root actor or atomic pathname unlink.
 
 Every accepted connection is checked with kernel AF_UNIX peer credentials.
 V1 requires peer UID 0. Failure to obtain credentials or a non-root peer is
