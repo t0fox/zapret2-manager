@@ -11,13 +11,8 @@
 #include <sys/stat.h>
 #include <sys/prctl.h>
 #include <sys/types.h>
-#include <sys/syscall.h>
 #include <sys/un.h>
 #include <unistd.h>
-
-#ifndef RENAME_NOREPLACE
-#define RENAME_NOREPLACE (1U << 0)
-#endif
 
 static volatile sig_atomic_t stopping;
 static int listener = -1;
@@ -128,84 +123,31 @@ failure:
 	return -1;
 }
 
-static int rename_noreplace(const char *old_name, const char *new_name)
+static int reject_preexisting_socket(void)
 {
-	return (int)syscall(SYS_renameat2, runtime_fd, old_name, runtime_fd, new_name,
-		RENAME_NOREPLACE);
-}
+	struct sockaddr_un address = { .sun_family = AF_UNIX };
+	struct stat existing;
+	int probe;
 
-static int remove_safe_stale_socket(void)
-{
-	struct stat before, current, after;
-	char reservation[64], quarantine[64];
-	int reservation_fd = -1;
-	int saved_errno;
-	bool moved = false;
-	/*
-	 * The verified runtime is root:root 0700 and the singleton lock is held, so
-	 * only another privileged actor can race these names. O_EXCL reserves a
-	 * unique attempt and RENAME_NOREPLACE prevents overwriting any quarantine;
-	 * an identity mismatch is restored only into an absent original pathname.
-	 */
-	if (fstatat(runtime_fd, "z2m-helperd.sock", &before, AT_SYMLINK_NOFOLLOW) < 0)
+	if (fstatat(runtime_fd, "z2m-helperd.sock", &existing, AT_SYMLINK_NOFOLLOW) < 0)
 		return errno == ENOENT ? 0 : -1;
-	if (!S_ISSOCK(before.st_mode) || before.st_uid != Z2M_RUNTIME_UID ||
-	    before.st_gid != Z2M_RUNTIME_GID || (before.st_mode & 0777) != 0600) {
+	if (!S_ISSOCK(existing.st_mode) || existing.st_uid != Z2M_RUNTIME_UID ||
+	    existing.st_gid != Z2M_RUNTIME_GID || (existing.st_mode & 0777) != 0600) {
+		fprintf(stderr, "z2m-helperd: unsafe pre-existing socket path left untouched\n");
 		errno = EPERM;
 		return -1;
 	}
-#ifdef Z2M_TEST_STOP_BEFORE_STALE_REMOVE
-	raise(SIGSTOP);
-#endif
-	if (fstatat(runtime_fd, "z2m-helperd.sock", &current, AT_SYMLINK_NOFOLLOW) < 0 ||
-	    current.st_dev != before.st_dev || current.st_ino != before.st_ino ||
-	    !S_ISSOCK(current.st_mode) || current.st_uid != Z2M_RUNTIME_UID ||
-	    current.st_gid != Z2M_RUNTIME_GID || (current.st_mode & 0777) != 0600) {
-		errno = EPERM;
+	memcpy(address.sun_path, Z2M_SOCKET_PATH, strlen(Z2M_SOCKET_PATH) + 1);
+	probe = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+	if (probe >= 0 && connect(probe, (struct sockaddr *)&address, sizeof(address)) == 0) {
+		(void)close(probe);
+		fprintf(stderr, "z2m-helperd: live pre-existing socket path; singleton already active\n");
+		errno = EADDRINUSE;
 		return -1;
 	}
-#ifdef Z2M_TEST_STOP_BEFORE_QUARANTINE_RESERVE
-	raise(SIGSTOP);
-#endif
-	for (unsigned int attempt = 0; attempt < 32; attempt++) {
-		if (snprintf(reservation, sizeof(reservation), ".z2m-helperd.reserve.%ld.%u",
-		    (long)getpid(), attempt) < 0 ||
-		    snprintf(quarantine, sizeof(quarantine), ".z2m-helperd.stale.%ld.%u",
-		    (long)getpid(), attempt) < 0) return -1;
-		reservation_fd = openat(runtime_fd, reservation,
-			O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
-		if (reservation_fd < 0) {
-			if (errno == EEXIST) continue;
-			return -1;
-		}
-		if (close(reservation_fd) < 0) goto reserve_failure;
-		reservation_fd = -1;
-		if (rename_noreplace("z2m-helperd.sock", quarantine) == 0) {
-			moved = true;
-			break;
-		}
-		saved_errno = errno;
-		(void)unlinkat(runtime_fd, reservation, 0);
-		if (saved_errno != EEXIST) { errno = saved_errno; return -1; }
-	}
-	if (!moved) { errno = EEXIST; return -1; }
-	if (fstatat(runtime_fd, quarantine, &after, AT_SYMLINK_NOFOLLOW) < 0 ||
-	    after.st_dev != before.st_dev || after.st_ino != before.st_ino ||
-	    !S_ISSOCK(after.st_mode) || after.st_uid != Z2M_RUNTIME_UID ||
-	    after.st_gid != Z2M_RUNTIME_GID || (after.st_mode & 0777) != 0600) {
-		(void)unlinkat(runtime_fd, reservation, 0);
-		errno = EPERM;
-		return -1;
-	}
-	if (unlinkat(runtime_fd, quarantine, 0) < 0) goto reserve_failure;
-	if (unlinkat(runtime_fd, reservation, 0) < 0) return -1;
-	return 0;
-
-reserve_failure:
-	saved_errno = errno;
-	if (reservation_fd >= 0) (void)close(reservation_fd);
-	(void)unlinkat(runtime_fd, reservation, 0);
-	errno = saved_errno;
+	if (probe >= 0) (void)close(probe);
+	fprintf(stderr, "z2m-helperd: stale pre-existing socket path left untouched; operator removal required\n");
+	errno = ESTALE;
 	return -1;
 }
 
@@ -231,7 +173,11 @@ int main(void)
 	runtime_fd = verify_runtime();
 	if (runtime_fd < 0) goto failure;
 	if (prctl(PR_SET_CHILD_SUBREAPER, 1) < 0) goto failure;
-	if (acquire_lock() < 0 || remove_safe_stale_socket() < 0) goto failure;
+	if (acquire_lock() < 0) {
+		fprintf(stderr, "z2m-helperd: singleton lock unavailable\n");
+		goto failure;
+	}
+	if (reject_preexisting_socket() < 0) goto failure;
 	memcpy(address.sun_path, Z2M_SOCKET_PATH, strlen(Z2M_SOCKET_PATH) + 1);
 	old_umask = umask(0077);
 	listener = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
