@@ -94,10 +94,15 @@ The broker opens a root-owned regular lock file at the fixed lock path using
 `O_NOFOLLOW`, verifies mode `0600`, and obtains `flock(LOCK_EX|LOCK_NB)` before
 examining the socket pathname.
 
-An existing pathname is removed only when it is a verified root-owned socket
-and the broker owns the singleton lock. Symlinks, regular files, FIFOs,
-devices, wrong-owner sockets, and unverifiable objects fail closed and remain
-untouched.
+An existing socket pathname is never removed automatically at startup. While
+holding the singleton lock, the broker may connect-probe a verified root-owned
+socket only to distinguish a live daemon from a stale object; both outcomes
+fail startup and leave the pathname untouched. Symlinks, regular files, FIFOs,
+devices, wrong-owner sockets, and unverifiable objects also fail closed and
+remain untouched. A stale socket requires explicit operator removal after
+confirming no daemon is live, or disappears naturally when `/tmp` is recreated
+at reboot. This avoids claiming pathname identity guarantees Linux unlink does
+not provide.
 
 The bound socket has exact mode `0600`. After bind, the broker records and
 verifies its device/inode. Shutdown removes the pathname only when type,

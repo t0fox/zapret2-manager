@@ -177,20 +177,44 @@ test('singleton lock excludes a second daemon without disturbing the live socket
   await stop();
 });
 
-test('removes a safe stale socket but leaves unsafe stale objects untouched', async () => {
+test('fails closed on a stale socket and leaves every pre-existing object untouched', async () => {
   await start();
   server.kill('SIGKILL');
   await new Promise(resolve => server.once('exit', resolve));
-  assert.ok(fs.lstatSync(socketPath).isSocket());
-  await start();
-  assert.equal(parseResponse(await exchange()).header.outcome, 'child_exited');
-  await stop();
+  const stale = fs.lstatSync(socketPath);
+  const failedStale = spawn(daemon, [], { stdio: ['ignore', 'ignore', 'pipe'] });
+  let staleErrors = '';
+  failedStale.stderr.on('data', chunk => { staleErrors += chunk; });
+  await new Promise(resolve => setTimeout(resolve, 300));
+  if (failedStale.exitCode === null) {
+    failedStale.kill('SIGTERM');
+    await new Promise(resolve => failedStale.once('exit', resolve));
+  }
+  assert.notEqual(failedStale.exitCode, 0);
+  const after = fs.lstatSync(socketPath);
+  assert.equal(after.dev, stale.dev);
+  assert.equal(after.ino, stale.ino);
+  assert.match(staleErrors, /pre-existing socket path/);
+  fs.unlinkSync(socketPath);
 
   fs.writeFileSync(socketPath, 'sentinel', { mode: 0o600 });
   const failed = run(daemon, []);
   assert.notEqual(failed.status, 0);
   assert.equal(fs.readFileSync(socketPath, 'utf8'), 'sentinel');
   fs.unlinkSync(socketPath);
+});
+
+test('fails singleton probe on a live socket without modifying it', async () => {
+  await start();
+  const before = fs.lstatSync(socketPath);
+  const second = run(daemon, []);
+  assert.notEqual(second.status, 0);
+  const after = fs.lstatSync(socketPath);
+  assert.equal(after.dev, before.dev);
+  assert.equal(after.ino, before.ino);
+  assert.match(second.stderr, /singleton|pre-existing socket path/);
+  assert.equal(parseResponse(await exchange()).header.outcome, 'child_exited');
+  await stop();
 });
 
 test('fails closed when peer UID does not match the fixed accepted UID', async () => {
@@ -529,61 +553,6 @@ for (const [window, definition] of [
   });
 }
 
-test('stale socket replacement immediately before removal is never unlinked', async () => {
-  await start();
-  server.kill('SIGKILL');
-  await new Promise(resolve => server.once('exit', resolve));
-  const binary = path.join(root, 'z2m-helperd-stale-race');
-  compile(binary, helper, ['-DZ2M_TEST_STOP_BEFORE_STALE_REMOVE']);
-  server = spawn(binary, [], { stdio: ['ignore', 'ignore', 'pipe'] });
-  await waitStopped(server.pid);
-  const displaced = `${socketPath}.displaced`;
-  fs.renameSync(socketPath, displaced);
-  fs.writeFileSync(socketPath, 'replacement', { mode: 0o600 });
-  server.kill('SIGCONT');
-  await new Promise(resolve => server.once('exit', resolve));
-  assert.notEqual(server.exitCode, 0);
-  assert.ok(fs.lstatSync(socketPath).isFile(), 'replacement must remain at original pathname');
-  assert.equal(fs.readFileSync(socketPath, 'utf8'), 'replacement');
-  fs.unlinkSync(socketPath);
-  fs.unlinkSync(displaced);
-});
-
-test('stale cleanup never overwrites a pre-existing quarantine object', async () => {
-  await start();
-  server.kill('SIGKILL');
-  await new Promise(resolve => server.once('exit', resolve));
-  const quarantine = path.join(runtime, 'z2m-helperd.sock.stale');
-  fs.writeFileSync(quarantine, 'quarantine-sentinel', { mode: 0o600 });
-  await start();
-  assert.equal(fs.readFileSync(quarantine, 'utf8'), 'quarantine-sentinel');
-  assert.equal(parseResponse(await exchange()).header.outcome, 'child_exited');
-  await stop();
-  fs.unlinkSync(quarantine);
-});
-
-test('stale cleanup skips a colliding unique quarantine reservation without modifying it', async () => {
-  await start();
-  server.kill('SIGKILL');
-  await new Promise(resolve => server.once('exit', resolve));
-  const binary = path.join(root, 'z2m-helperd-quarantine-collision');
-  compile(binary, helper, ['-DZ2M_TEST_STOP_BEFORE_QUARANTINE_RESERVE']);
-  server = spawn(binary, [], { stdio: ['ignore', 'ignore', 'pipe'] });
-  await waitStopped(server.pid);
-  const collision = path.join(runtime, `.z2m-helperd.stale.${server.pid}.0`);
-  fs.writeFileSync(collision, 'collision-sentinel', { mode: 0o600 });
-  server.kill('SIGCONT');
-  await waitFor(() => {
-    if (server.exitCode !== null || !fs.existsSync(socketPath)) return server.exitCode !== null;
-    return fs.lstatSync(socketPath).isSocket();
-  });
-  assert.equal(server.exitCode, null);
-  assert.equal(fs.readFileSync(collision, 'utf8'), 'collision-sentinel');
-  assert.equal(parseResponse(await exchange()).header.outcome, 'child_exited');
-  await stop();
-  fs.unlinkSync(collision);
-});
-
 test('repeated child discovery consumes a list larger than 4096 bytes and preserves identity', async () => {
   const childList = path.join(root, 'oversized-children');
   const enumeration = path.join(root, 'enumeration-bytes');
@@ -642,4 +611,31 @@ test('incomplete cleanup overrides timeout with supervision failure', async () =
   assert.equal(response.header.reason, 'supervision_failure');
   assert.equal(response.header.childReaped, true);
   await stop();
+});
+
+test('discovery failure overrides simultaneous timeout after converged cleanup', async () => {
+  const childrenDirectory = path.join(root, 'children-is-directory');
+  fs.mkdirSync(childrenDirectory, { mode: 0o700 });
+  const sleeper = path.join(root, 'discovery-failure-sleeper');
+  compileHelper(sleeper, '#include <unistd.h>\nint main(void){sleep(2);return 0;}\n');
+  const binary = path.join(root, 'z2m-helperd-discovery-failure');
+  compile(binary, sleeper, [`-DZ2M_TEST_CHILDREN_PATH="${childrenDirectory}"`]);
+  await start(binary);
+  const response = parseResponse(await exchangeGuarded(frame(Buffer.alloc(0), 'discovery:failure', 100), {}, 1500));
+  assert.equal(response.header.outcome, 'transport_failure');
+  assert.equal(response.header.reason, 'supervision_failure');
+  assert.equal(response.header.childReaped, true);
+  await stop();
+});
+
+test('identity registry accepts a reused PID only with new starttime after old reap', () => {
+  const auditSource = path.join(root, 'registry-reuse-audit.c');
+  const auditBinary = path.join(root, 'registry-reuse-audit');
+  fs.writeFileSync(auditSource, `#include <stdio.h>\n#include "${path.resolve(sourceDir, 'helperd.h')}"\nbool z2m_stopping(void){return false;}\nint main(void){return z2m_test_registry_reuse() ? 0 : 1;}\n`);
+  const built = run('cc', ['-std=c11', '-Wall', '-Wextra', '-Werror', '-D_GNU_SOURCE',
+    '-DZ2M_TESTING', `-DZ2M_RUNTIME_PATH="${runtime}"`, `-DZ2M_HELPER_PATH="${helper}"`,
+    auditSource, `${sourceDir}/supervise.c`, '-o', auditBinary]);
+  assert.equal(built.status, 0, built.stderr);
+  const result = run(auditBinary, []);
+  assert.equal(result.status, 0, result.stderr);
 });

@@ -84,5 +84,8 @@ void z2m_supervise(int client, const struct z2m_request *request,
 	struct z2m_result *result);
 void z2m_free_result(struct z2m_result *result);
 bool z2m_stopping(void);
+#ifdef Z2M_TESTING
+bool z2m_test_registry_reuse(void);
+#endif
 
 #endif

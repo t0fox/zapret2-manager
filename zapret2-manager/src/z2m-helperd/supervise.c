@@ -142,18 +142,45 @@ static bool identity_live(const struct child_identity *identity)
 		process_starttime(identity->pid) == identity->starttime;
 }
 
-static int track_identity(struct child_identity *tracked, size_t *count, pid_t pid)
+static int track_identity_value(struct child_identity *tracked, size_t *count,
+	pid_t pid, unsigned long long starttime)
 {
-	unsigned long long starttime;
-	for (size_t i = 0; i < *count; i++)
-		if (tracked[i].pid == pid) return 0;
+	for (size_t i = 0; i < *count; i++) {
+		if (tracked[i].pid != pid) continue;
+		if (tracked[i].starttime == starttime) return 0;
+		if (!tracked[i].reaped) { errno = EEXIST; return -1; }
+	}
 	if (*count >= MAX_TRACKED_CHILDREN) { errno = EOVERFLOW; return -1; }
-	starttime = process_starttime(pid);
 	if (starttime == 0) return 0;
 	tracked[*count] = (struct child_identity){ .pid = pid, .starttime = starttime };
 	(*count)++;
 	return 0;
 }
+
+static int track_identity(struct child_identity *tracked, size_t *count, pid_t pid)
+{
+	return track_identity_value(tracked, count, pid, process_starttime(pid));
+}
+
+#ifdef Z2M_TESTING
+bool z2m_test_registry_reuse(void)
+{
+	struct child_identity tracked[2] = { 0 };
+	size_t count = 0;
+	bool new_identity_signaled = false;
+	if (track_identity_value(tracked, &count, 4242, 10) < 0 || count != 1) return false;
+	tracked[0].reaped = true;
+	if (track_identity_value(tracked, &count, 4242, 20) < 0 || count != 2) return false;
+	if (!tracked[0].reaped || tracked[0].starttime == 20 ||
+	    tracked[1].pid != 4242 || tracked[1].starttime != 20 || tracked[1].reaped)
+		return false;
+	/* Simulate the same starttime identity gate used immediately before kill(). */
+	if (tracked[1].starttime == 20) new_identity_signaled = true;
+	if (!new_identity_signaled) return false;
+	tracked[1].reaped = true;
+	return tracked[1].reaped;
+}
+#endif
 
 static int discover_children(struct child_identity *tracked, size_t *count,
 	size_t *enumeration_bytes)
@@ -407,7 +434,7 @@ void z2m_supervise(int client, const struct z2m_request *request, struct z2m_res
 	result->child_reaped = reaped;
 	result->stdout_eof = output_eof;
 	result->stderr_eof = errors_eof;
-	if (cleanup_expired || !reaped || !descendants_exhausted || !output_eof ||
+	if (supervision_failed || cleanup_expired || !reaped || !descendants_exhausted || !output_eof ||
 	    !errors_eof || !status_eof) {
 		result->outcome = "transport_failure"; result->reason = "supervision_failure";
 	} else if (status_length == sizeof(record) && record.version == 1 && stage_name(record.stage)) {
@@ -426,8 +453,6 @@ void z2m_supervise(int client, const struct z2m_request *request, struct z2m_res
 		result->outcome = "transport_failure"; result->reason = "stdout_limit";
 	} else if (timed_out) {
 		result->outcome = "timeout";
-	} else if (supervision_failed) {
-		result->outcome = "transport_failure"; result->reason = "supervision_failure";
 	} else {
 		result->outcome = "child_exited";
 	}
