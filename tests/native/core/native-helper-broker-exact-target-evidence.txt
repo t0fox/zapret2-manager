@@ -4,7 +4,7 @@ This proof predates and gates restoration of +ucode-mod-socket.
 
 Execution provenance
 Captured: 2026-08-08T12:27:00+03:00
-Executed input commit: 6067dd5be5c5178e6df2b5e060ae8ee15751aa27
+Executed input commit: 930d884da44cb8f639efd806da5ff94383ba209a
 Pre-run git status --porcelain: EMPTY
 Dependency state at executed input: +ucode-mod-socket ABSENT
 Host: Linux 6.18.33.2-microsoft-standard-WSL2 x86_64 GNU/Linux
@@ -14,10 +14,10 @@ Emulator: qemu-aarch64 version 10.2.1 (Debian 1:10.2.1+ds-1ubuntu3.2)
 Execution wrapper: PRoot 5.4.0, PROOT_NO_SECCOMP=1
 
 Executed probe identities
-SHA256 C fixture source: fa30caa1cebb630f6953a87f3a790ee7173bd6362a3a8755cf4d454d296283ab
+SHA256 C fixture source: 307374e5fa4cdb33fb94778c864c7b9e3f9aebdba129eedce9fd2daac9015c70
 SHA256 ucode client source: ecb6da520ecdbcd0031502a6454162c11d992dab88cb6b7b1adaafdfa7799c06
-SHA256 Node test: 2af5f1df96aa1e41565b156c7756e4d527699fd96433b0508b8402d929b6abd8
-SHA256 compiled target fixture: d29dcc4497db2778c2714a6211877482df989b157a2d6dfa79388dcb871f22aa
+SHA256 Node test: 9411d303409bd064df284893d595e5676c854d221cf3d28e5180c3de30c25397
+SHA256 compiled target fixture: 7d9b1ee7c567c978320cf0379479ad9a2759f1fe7e89fba1df0ff1095af22a00
 
 Exact target identities
 Target source commit: 85922056ef7abeace3cca3ab28bc1ac2d88e31b1
@@ -47,59 +47,59 @@ Exact process exit: 0
 BEGIN RAW TAP
 TAP version 13
 # SOCKET_MODULE_SHA256=ccaff63617ed3136c6461dadbf3328cd3a0cba118fbc98578108024291541ca0
-# BROKER_FIXTURE_SHA256=d29dcc4497db2778c2714a6211877482df989b157a2d6dfa79388dcb871f22aa
+# BROKER_FIXTURE_SHA256=7d9b1ee7c567c978320cf0379479ad9a2759f1fe7e89fba1df0ff1095af22a00
 # Subtest: preserves binary and embedded-NUL bytes
 ok 1 - preserves binary and embedded-NUL bytes
   ---
-  duration_ms: 131.336143
+  duration_ms: 128.466932
   type: 'test'
   ...
 # Subtest: handles partial writes and backpressure
 ok 2 - handles partial writes and backpressure
   ---
-  duration_ms: 787.414812
+  duration_ms: 770.785989
   type: 'test'
   ...
 # Subtest: drains POLLIN with POLLHUP before reporting EOF
 ok 3 - drains POLLIN with POLLHUP before reporting EOF
   ---
-  duration_ms: 125.824378
+  duration_ms: 122.654608
   type: 'test'
   ...
 # Subtest: uses one absolute deadline across repeated trickle wakeups
 ok 4 - uses one absolute deadline across repeated trickle wakeups
   ---
-  duration_ms: 239.844134
+  duration_ms: 236.515222
   type: 'test'
   ...
 # Subtest: distinguishes bare EOF from an explicitly framed empty body
 ok 5 - distinguishes bare EOF from an explicitly framed empty body
   ---
-  duration_ms: 267.534496
+  duration_ms: 255.922526
   type: 'test'
   ...
 # Subtest: stops reading at response cap plus one byte
 ok 6 - stops reading at response cap plus one byte
   ---
-  duration_ms: 126.993623
+  duration_ms: 122.311005
   type: 'test'
   ...
 # Subtest: reports root peer credentials and fixture PID
 ok 7 - reports root peer credentials and fixture PID
   ---
-  duration_ms: 125.746365
+  duration_ms: 120.761272
   type: 'test'
   ...
 # Subtest: fixture rejects a non-root peer
 ok 8 - fixture rejects a non-root peer
   ---
-  duration_ms: 136.981304
+  duration_ms: 134.940363
   type: 'test'
   ...
 # Subtest: does not grow descriptors over 100 connect-close cycles
 ok 9 - does not grow descriptors over 100 connect-close cycles
   ---
-  duration_ms: 10404.064188
+  duration_ms: 10410.803125
   type: 'test'
   ...
 1..9
@@ -110,5 +110,5 @@ ok 9 - does not grow descriptors over 100 connect-close cycles
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 13042.29928
+# duration_ms 13174.558246
 END RAW TAP
