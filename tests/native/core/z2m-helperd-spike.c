@@ -19,6 +19,9 @@
 #error TEST_ROOT must identify the compile-time test root
 #endif
 
+#define STRINGIFY_INNER(value) #value
+#define STRINGIFY(value) STRINGIFY_INNER(value)
+#define TEST_ROOT_PATH STRINGIFY(TEST_ROOT)
 #define SOCKET_BASENAME "helper.sock"
 #define FRAME_MARKER "F"
 
@@ -252,13 +255,13 @@ int main(int argc, char **argv)
 	mode_t previous_umask;
 
 	int path_length = snprintf(required_path, sizeof(required_path),
-		"%s/%s", TEST_ROOT, SOCKET_BASENAME);
+		"%s/%s", TEST_ROOT_PATH, SOCKET_BASENAME);
 	if (path_length < 0 || (size_t)path_length >= sizeof(required_path) ||
 	    argc < 3 || strcmp(argv[2], required_path) != 0) {
 		fprintf(stderr, "usage: %s MODE SOCKET [ARGUMENT]\n", argv[0]);
 		return 2;
 	}
-	if (lstat(TEST_ROOT, &root_st) < 0 || !S_ISDIR(root_st.st_mode) ||
+	if (lstat(TEST_ROOT_PATH, &root_st) < 0 || !S_ISDIR(root_st.st_mode) ||
 	    S_ISLNK(root_st.st_mode)) {
 		errno = EINVAL;
 		fail("unsafe TEST_ROOT");

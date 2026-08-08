@@ -8,7 +8,7 @@ Executed input commit: 6067dd5be5c5178e6df2b5e060ae8ee15751aa27
 Pre-run git status --porcelain: EMPTY
 Dependency state at executed input: +ucode-mod-socket ABSENT
 Host: Linux 6.18.33.2-microsoft-standard-WSL2 x86_64 GNU/Linux
-Root execution context: wsl.exe -d Ubuntu -u root (real uid=0)
+Root execution context: real host uid=0 (verified by id before invocation)
 Non-root rejection context: passwd account dynamically resolved from getent passwd 1000
 Emulator: qemu-aarch64 version 10.2.1 (Debian 1:10.2.1+ds-1ubuntu3.2)
 Execution wrapper: PRoot 5.4.0, PROOT_NO_SECCOMP=1
@@ -30,19 +30,17 @@ loads only that glob, and asserts /proc/self/maps contains the isolated socket.s
 The harness reads PKG_SOURCE_VERSION and PKG_MIRROR_HASH from the target SDK
 package manifest and hashes the downloaded source artifact itself.
 
-Exact invocation
-wsl.exe -d Ubuntu -u root -- bash -lc "
-  cd /home/kirill/z2m-work/native-state-foundation &&
-  export HOME=/home/kirill &&
-  export LD_LIBRARY_PATH=/home/kirill/z2m-work/qemu-user-local/proot-root/usr/lib/x86_64-linux-gnu &&
-  export PROOT_NO_SECCOMP=1 &&
-  export STAGING_DIR=/home/kirill/z2m-sdk-clean/staging_dir &&
-  export UCODE_BIN=/home/kirill/z2m-work/qemu-user-local/proot-root/usr/bin/proot &&
-  export UCODE_ARGS='-q /home/kirill/z2m-work/qemu-user-local/root/usr/bin/qemu-aarch64 -R /home/kirill/z2m-sdk-clean/staging_dir/target-aarch64_cortex-a53_musl/root-mediatek -w /home/kirill/z2m-work/native-state-foundation /usr/bin/ucode' &&
-  export TARGET_SOCKET_MODULE=/home/kirill/z2m-sdk-clean/staging_dir/target-aarch64_cortex-a53_musl/root-mediatek/usr/lib/ucode/socket.so &&
-  export TARGET_CC=/home/kirill/z2m-sdk-clean/staging_dir/toolchain-aarch64_cortex-a53_gcc-14.3.0_musl/bin/aarch64-openwrt-linux-musl-gcc &&
-  timeout 120s /home/kirill/.local/opt/node-v22.22.1-linux-x64/bin/node --test --test-reporter=tap tests/native/core/native-helper-broker-spike.test.mjs
-"
+Exact invocation (inside the verified real-uid-0 Linux process)
+cd /home/kirill/z2m-work/native-state-foundation
+export HOME=/home/kirill
+export LD_LIBRARY_PATH=/home/kirill/z2m-work/qemu-user-local/proot-root/usr/lib/x86_64-linux-gnu
+export PROOT_NO_SECCOMP=1
+export STAGING_DIR=/home/kirill/z2m-sdk-clean/staging_dir
+export UCODE_BIN=/home/kirill/z2m-work/qemu-user-local/proot-root/usr/bin/proot
+export UCODE_ARGS='-q /home/kirill/z2m-work/qemu-user-local/root/usr/bin/qemu-aarch64 -R /home/kirill/z2m-sdk-clean/staging_dir/target-aarch64_cortex-a53_musl/root-mediatek -w /home/kirill/z2m-work/native-state-foundation /usr/bin/ucode'
+export TARGET_SOCKET_MODULE=/home/kirill/z2m-sdk-clean/staging_dir/target-aarch64_cortex-a53_musl/root-mediatek/usr/lib/ucode/socket.so
+export TARGET_CC=/home/kirill/z2m-sdk-clean/staging_dir/toolchain-aarch64_cortex-a53_gcc-14.3.0_musl/bin/aarch64-openwrt-linux-musl-gcc
+timeout 120s /home/kirill/.local/opt/node-v22.22.1-linux-x64/bin/node --test --test-reporter=tap tests/native/core/native-helper-broker-spike.test.mjs
 
 Exact process exit: 0
 
