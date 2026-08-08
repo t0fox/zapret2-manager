@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import net from 'node:net';
-import { spawn } from 'node:child_process';
+import os from 'node:os';
+import path from 'node:path';
+import { spawn, spawnSync } from 'node:child_process';
 
 export const SOCKET_PATH = '/tmp/zapret2-manager/runtime/z2m-helperd.sock';
-export const MODULE = './zapret2-manager/files/usr/libexec/zapret2-manager/core/native-helper.uc';
+export const MODULE = path.resolve('zapret2-manager/files/usr/libexec/zapret2-manager/core/native-helper.uc');
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const UCODE_ARGS = process.env.UCODE_ARGS_PIPE
   ? process.env.UCODE_ARGS_PIPE.split('|')
@@ -60,6 +62,9 @@ export async function withPeer(handler, callback) {
   fs.rmSync(SOCKET_PATH, { force: true });
   const server = net.createServer(socket => {
     const chunks = [];
+    socket.on('error', error => {
+      if (!['EPIPE', 'ECONNRESET'].includes(error.code)) throw error;
+    });
     socket.on('data', chunk => chunks.push(chunk));
     socket.on('end', async () => {
       try { await handler(socket, Buffer.concat(chunks)); }
@@ -88,11 +93,19 @@ export async function withRawPeer(onConnection, callback) {
   }
 }
 
-export function invoke(expression, timeout = 5000) {
+export function invoke(expression, timeout = 5000, extraEnv = {}) {
   const source = `import * as native from '${MODULE}'; print(sprintf('%J', ${expression}));`;
-  const child = spawn(UCODE_BIN, [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source], {
+  let sourceRoot = null;
+  let sourceArgs = ['-e', source];
+  if (Buffer.byteLength(source) > 65536) {
+    sourceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-ucode-source-'));
+    const sourcePath = path.join(sourceRoot, 'invoke.uc');
+    fs.writeFileSync(sourcePath, source, { mode: 0o600 });
+    sourceArgs = [sourcePath];
+  }
+  const child = spawn(UCODE_BIN, [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, ...sourceArgs], {
     cwd: process.cwd(),
-    env: { ...process.env,
+    env: { ...process.env, ...extraEnv,
       LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? process.env.LD_LIBRARY_PATH ?? '/opt/ucode/lib' },
   });
   return new Promise((resolve, reject) => {
@@ -104,6 +117,7 @@ export function invoke(expression, timeout = 5000) {
     child.once('error', error => { clearTimeout(guard); reject(error); });
     child.once('close', (status, signal) => {
       clearTimeout(guard);
+      if (sourceRoot) fs.rmSync(sourceRoot, { recursive: true, force: true });
       try {
         assert.equal(signal, null, `ucode terminated by ${signal}`);
         assert.equal(status, 0, stderr || stdout);
@@ -111,4 +125,58 @@ export function invoke(expression, timeout = 5000) {
       } catch (error) { reject(error); }
     });
   });
+}
+
+export function buildSendFixture(output) {
+  const built = spawnSync('cc', [
+    '-std=c11', '-Wall', '-Wextra', '-Werror',
+    'tests/native/core/native-helper-send-fixture.c', '-o', output,
+  ], { cwd: process.cwd(), encoding: 'utf8' });
+  assert.equal(built.status, 0, built.stderr || built.stdout);
+}
+
+export function buildShutdownShim(output) {
+  const compiler = process.env.UCODE_ARGS_PIPE ? process.env.TARGET_CC : 'cc';
+  assert.ok(compiler, 'TARGET_CC is required for exact-target shutdown injection');
+  const built = spawnSync(compiler, [
+    '-std=c11', '-Wall', '-Wextra', '-Werror', '-shared', '-fPIC', '-ldl',
+    'tests/native/core/native-helper-shutdown-shim.c', '-o', output,
+  ], { cwd: process.cwd(), encoding: 'utf8' });
+  assert.equal(built.status, 0, built.stderr || built.stdout);
+}
+
+export function shutdownShimEnv(shim) {
+  return process.env.UCODE_ARGS_PIPE
+    ? { QEMU_SET_ENV: `LD_PRELOAD=${shim},Z2M_TEST_SHUTDOWN_FAIL=1` }
+    : { LD_PRELOAD: shim, Z2M_TEST_SHUTDOWN_FAIL: '1' };
+}
+
+export async function withSendFixture(binary, mode, callback) {
+  fs.rmSync(SOCKET_PATH, { force: true });
+  const child = spawn(binary, [mode], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let stdout = '', stderr = '';
+  child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
+  child.stdout.on('data', chunk => { stdout += chunk; });
+  child.stderr.on('data', chunk => { stderr += chunk; });
+  const ready = new Promise((resolve, reject) => {
+    const guard = setTimeout(() => reject(new Error(`send fixture not ready: ${stderr}`)), 3000);
+    child.stdout.on('data', () => {
+      if (stdout.includes('READY\n')) { clearTimeout(guard); resolve(); }
+    });
+    child.once('error', reject);
+    child.once('exit', code => {
+      if (!stdout.includes('READY\n')) reject(new Error(`send fixture exited ${code}: ${stderr}`));
+    });
+  });
+  await ready;
+  try {
+    const result = await callback();
+    if (child.exitCode === null)
+      await new Promise(resolve => child.once('exit', resolve));
+    assert.equal(child.exitCode, 0, stderr);
+    return { result, evidence: stdout.trim().split('\n').at(-1) };
+  } finally {
+    if (child.exitCode === null) child.kill('SIGKILL');
+    fs.rmSync(SOCKET_PATH, { force: true });
+  }
 }
