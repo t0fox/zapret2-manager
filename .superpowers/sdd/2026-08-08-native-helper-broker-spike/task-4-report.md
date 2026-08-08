@@ -2,7 +2,7 @@
 
 ## Status
 
-**PASS.** The complete spike passed 54/54 cases with zero skips on the exact
+**PASS.** Fix round 2 passed 83/83 cases with zero skips on the exact
 AArch64 OpenWrt musl target under real UID 0. The earlier claimed socket API
 blocker was a C control-flow defect. No production Task 5+, procd, adapter, or M4
 work was started.
@@ -51,13 +51,32 @@ is now labeled only from immediate numeric `socket.error(true)` evidence.
   wrong-ID, lifecycle-contradiction, trailing, and truncated response cases.
 - Scoped instrumentation so stderr backpressure cannot perturb 100-request proof.
 
+## Review Fix Round 2
+
+- Duplicate-key scanning now covers every allowed response header key before
+  JSON collapse, including outcome, lengths, lifecycle fields, stage, and reason.
+- The outcome matrix has exact outcome-specific field sets and lifecycle rules.
+  Timeout forbids exit code; pre-start failures forbid exit/signal metadata;
+  transport failures define compatible not-started/started/unknown states.
+- Stage and reason values are closed enums. Stderr truncation is equivalent to
+  drained bytes exceeding retained bytes, and non-truncation requires equality.
+- Before-exec disconnect is observed from kernel peer HUP/error after a complete
+  request and full client close. Server evidence records fork count zero before
+  returning; the old unconditional fixture branch is gone.
+- Response lengths are decoded arithmetically as unsigned 32-bit values. High-bit
+  and `0xffffffff` header/body lengths reject before addition or substring use.
+- The long-lived server measures its own descriptors before and after 100 child
+  requests and reports 100 forks; both client and server counts must be unchanged.
+- Static evidence now reads each source blob from the recorded executed input
+  commit and hashes that blob, rather than checking only the current working tree.
+
 ## Exact Evidence
 
-- Clean executable input: `347278194579bdbc3a822a9aaf538a36dfe4976d`
+- Clean executable input: `94daabcc69eecb991aa508202bb421ede99526e5`
 - Pre-run porcelain: empty
 - Full raw TAP: `tests/native/core/native-helper-broker-exact-target.tap`
 - Reconstructable metadata: `tests/native/core/native-helper-broker-exact-target-evidence.txt`
-- Full exact-target result: 54 tests, 54 pass, 0 fail, 0 skipped
+- Full exact-target result: 83 tests, 83 pass, 0 fail, 0 skipped
 - Strict target builds: `-std=c11 -Wall -Wextra -Werror`
 
 The evidence records all source, compiled binary, module, package, and raw TAP
@@ -73,7 +92,7 @@ hashes plus architecture, environment paths, timestamp, invocation, and exit 0.
 ## Commits
 
 - Reviewer fixes and executable clean input:
-  `347278194579bdbc3a822a9aaf538a36dfe4976d`
+  `94daabcc69eecb991aa508202bb421ede99526e5`
 - Evidence/report commit: the completing commit containing this report.
 
 ## Concerns
