@@ -2,8 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
-const apply = fs.readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/apply.uc', 'utf8');
-const profiles = fs.readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/profiles-apply.uc', 'utf8');
+const apply = fs.readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/zapret/apply.uc', 'utf8');
+const profiles = fs.readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/zapret/profiles-apply.uc', 'utf8');
+const applyFacade = fs.readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/apply.uc', 'utf8');
+const profilesFacade = fs.readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/profiles-apply.uc', 'utf8');
 const cli = fs.readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/profiles-cli.uc', 'utf8');
 const service = fs.readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/service.uc', 'utf8');
 
@@ -42,6 +44,8 @@ test('apply performs a whole-config CAS before the sole sanctioned write', () =>
   assert.match(apply, /expected_sha/);
   assert.match(apply, /ECONFLICT/);
   assert.match(profiles, /set_var_cas\(OPT_VAR,[\s\S]*configSha256/);
+  assert.match(applyFacade, /\.\/zapret\/apply\.uc/);
+  assert.match(profilesFacade, /\.\/zapret\/profiles-apply\.uc/);
 });
 
 test('rollback restores exact snapshot bytes through apply.uc and verifies restored runtime', () => {

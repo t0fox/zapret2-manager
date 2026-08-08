@@ -3,6 +3,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const preflight = fs.readFileSync(
+  'zapret2-manager/files/usr/libexec/zapret2-manager/zapret/native-preflight.uc',
+  'utf8'
+);
+const facade = fs.readFileSync(
   'zapret2-manager/files/usr/libexec/zapret2-manager/native-preflight.uc',
   'utf8'
 );
@@ -32,4 +36,6 @@ test('production apply uses the independent native verifier inside the lock', ()
   assert.match(cli, /import \{ native_preflight \} from '.\/native-preflight\.uc'/);
   assert.match(cli, /native_preflight\(preview\.candidate\)/);
   assert.match(cli, /full_native_verified\(native\)[\s\S]*profiles_apply_run\(\)/);
+  assert.match(facade, /\.\/zapret\/native-preflight\.uc/);
+  assert.match(facade, /export const native_preflight = impl\.native_preflight/);
 });
