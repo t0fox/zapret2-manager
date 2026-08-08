@@ -216,20 +216,29 @@ test('uses the strict 20-byte transport-v1 prelude and preserves helper bytes', 
   await stopServer();
 });
 
-for (const [mode, error] of [
-  ['request-short', 'request_rejected'], ['request-magic', 'request_rejected'],
-  ['request-type', 'request_rejected'], ['request-flags', 'request_rejected'],
-  ['request-reserved', 'request_rejected'], ['request-length', 'request_rejected'],
-  ['request-trailing', 'request_rejected'], ['request-oversized', 'request_rejected'],
-  ['request-duplicate', 'request_rejected'], ['request-unknown', 'request_rejected'],
-  ['request-malformed', 'request_rejected'], ['request-id', 'request_rejected'],
+for (const [mode, stage, reason] of [
+  ['request-short', 'prelude', 'short'], ['request-magic', 'prelude', 'magic'],
+  ['request-type', 'prelude', 'frame_type'], ['request-flags', 'prelude', 'flags'],
+  ['request-reserved', 'prelude', 'reserved'], ['request-length', 'header', 'shape'],
+  ['request-trailing', 'eof', 'trailing'], ['request-oversized', 'prelude', 'body_limit'],
+  ['request-duplicate', 'header', 'duplicate_key'], ['request-unknown', 'header', 'unknown_field'],
+  ['request-malformed', 'header', 'malformed_json'], ['request-id', 'header', 'request_id'],
 ]) {
   test(`rejects strict framing violation ${mode}`, async () => {
     await startServer('broker-success');
-    assert.ok(invoke(mode, Buffer.from('x')).error, `${mode} must not produce a valid response`);
+    const result = invoke(mode, Buffer.from('x'));
+    assert.equal(result.error, 'request_rejected');
     await stopServer();
+    assert.match(serverErrors, new RegExp(`request-rejected stage=${stage} reason=${reason}(?:\\n|$)`));
   });
 }
+
+test('requires actual EOF after the one request frame', async () => {
+  await startServer('broker-success');
+  assert.equal(invoke('request-no-eof').error, 'request_rejected');
+  await stopServer();
+  assert.match(serverErrors, /request-rejected stage=eof reason=missing/);
+});
 
 test('preserves helper structured failure and malformed stdout as opaque bytes', async () => {
   await startServer('broker-exit7', [2]);
@@ -309,7 +318,14 @@ for (const mode of ['disconnect-before-exec', 'disconnect-after-exec']) {
     const result = invoke(mode);
     assert.equal(result.error, null);
     await stopServer();
-    assert.match(serverErrors, new RegExp(`${mode}=reaped`));
+    if (mode == 'disconnect-before-exec') {
+      assert.match(serverErrors, /disconnect-before-exec=observed/);
+      assert.doesNotMatch(serverErrors, /broker-stage=fork|broker-stage=started/);
+    } else {
+      assert.match(serverErrors, /broker-stage=started/);
+      assert.match(serverErrors, /disconnect-after-exec=terminated/);
+      assert.match(serverErrors, /disconnect-after-exec=reaped/);
+    }
   });
 }
 
@@ -319,11 +335,29 @@ test('rejects a truncated response frame', async () => {
   await stopServer();
 });
 
+for (const [mode, error] of [
+  ['response-malformed', 'response_header_malformed'],
+  ['response-duplicate', 'response_header_duplicate'],
+  ['response-unknown', 'response_header_fields'],
+  ['response-type', 'response_header_types'],
+  ['response-outcome', 'response_header_outcome'],
+  ['response-id', 'response_header_identity'],
+  ['response-lifecycle', 'response_header_lifecycle'],
+  ['response-trailing', 'response_frame'],
+]) {
+  test(`rejects strict response violation ${mode}`, async () => {
+    await startServer(mode);
+    assert.equal(invoke('exchange').error, error);
+    await stopServer();
+  });
+}
+
 test('does not grow descriptors over 100 framed requests', async () => {
   await startServer('broker-success', [100]);
   const result = invoke('cycles', Buffer.from('x'), { repeats: 100 });
-  assert.equal(result.fdAfter, result.fdBefore);
-  assert.equal(result.completed, 100);
+  assert.equal(result.fdAfter, result.fdBefore, JSON.stringify(result));
+  assert.equal(result.completed, 100,
+    `cycles stopped: ${JSON.stringify(result)} server=${server?.exitCode}/${server?.signalCode} ${serverErrors}`);
   await stopServer();
 });
 

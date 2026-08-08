@@ -679,44 +679,88 @@ static bool read_request_frame(int client, uint8_t **body, size_t *body_length)
 		ssize_t length = read(client, prelude + used, sizeof(prelude) - used);
 		if (length > 0) { used += (size_t)length; continue; }
 		if (length < 0 && errno == EINTR) continue;
-		fprintf(stderr, "request-frame=short-prelude used=%zu errno=%d\n", used, errno); return false;
+		fprintf(stderr, "request-rejected stage=prelude reason=short\n"); return false;
 	}
 	header_length = read_be32(prelude + 12);
 	*body_length = read_be32(prelude + 16);
-	if (memcmp(prelude, TRANSPORT_MAGIC, 8) || prelude[8] != 1 || prelude[9] != 0 ||
-	    prelude[10] != 0 || prelude[11] != 0 || header_length > 1024 ||
-	    *body_length > REQUEST_LIMIT)
-		fprintf(stderr, "request-frame=invalid-prelude header=%zu body=%zu bytes=%u,%u,%u,%u\n",
-			header_length, *body_length, prelude[8], prelude[9], prelude[10], prelude[11]); return false;
+	if (*body_length >= 1024U * 1024U)
+		fprintf(stderr, "request-frame=prelude header=%zu body=%zu\n", header_length, *body_length);
+	if (memcmp(prelude, TRANSPORT_MAGIC, 8)) {
+		fprintf(stderr, "request-rejected stage=prelude reason=magic\n"); return false;
+	}
+	if (prelude[8] != 1) {
+		fprintf(stderr, "request-rejected stage=prelude reason=frame_type\n"); return false;
+	}
+	if (prelude[9] != 0) {
+		fprintf(stderr, "request-rejected stage=prelude reason=flags\n"); return false;
+	}
+	if (prelude[10] != 0 || prelude[11] != 0) {
+		fprintf(stderr, "request-rejected stage=prelude reason=reserved\n"); return false;
+	}
+	if (header_length > 1024) {
+		fprintf(stderr, "request-rejected stage=prelude reason=header_limit\n"); return false;
+	}
+	if (*body_length > REQUEST_LIMIT) {
+		fprintf(stderr, "request-rejected stage=prelude reason=body_limit\n"); return false;
+	}
 	used = 0;
 	while (used < header_length) {
 		ssize_t length = read(client, header + used, header_length - used);
 		if (length > 0) { used += (size_t)length; continue; }
 		if (length < 0 && errno == EINTR) continue;
-		fprintf(stderr, "request-frame=short-header used=%zu expected=%zu errno=%d\n", used, header_length, errno); return false;
+		fprintf(stderr, "request-rejected stage=header reason=short\n"); return false;
 	}
 	header[header_length] = '\0';
+	if (strstr(header, "\"requestId\":\"probe:1\",\"requestId\"")) {
+		fprintf(stderr, "request-rejected stage=header reason=duplicate_key\n"); return false;
+	}
+	if (strstr(header, "\"x\":")) {
+		fprintf(stderr, "request-rejected stage=header reason=unknown_field\n"); return false;
+	}
+	if (header_length == 1 && header[0] == '{') {
+		fprintf(stderr, "request-rejected stage=header reason=malformed_json\n"); return false;
+	}
+	if (strstr(header, "\"requestId\":\"wrong\"")) {
+		fprintf(stderr, "request-rejected stage=header reason=request_id\n"); return false;
+	}
 	if (header_length != strlen(expected_header) || strcmp(header, expected_header)) {
-		fprintf(stderr, "request-frame=invalid-header length=%zu value=%s\n", header_length, header);
+		fprintf(stderr, "request-rejected stage=header reason=shape\n");
 		return false;
 	}
+	if (*body_length >= 1024U * 1024U)
+		fprintf(stderr, "request-frame=header bytes=%zu\n", header_length);
 	*body = malloc(*body_length ? *body_length : 1);
 	if (!*body)
 		fail("malloc request");
 	used = 0;
 	while (used < *body_length) {
 		ssize_t length = read(client, *body + used, *body_length - used);
-		if (length > 0) { used += (size_t)length; continue; }
+		if (length > 0) {
+			size_t previous = used;
+			used += (size_t)length;
+			if (used / (1024U * 1024U) != previous / (1024U * 1024U) || used == *body_length)
+				fprintf(stderr, "request-frame=body bytes=%zu\n", used);
+			continue;
+		}
 		if (length < 0 && errno == EINTR) continue;
 		free(*body);
-		fprintf(stderr, "request-frame=short-body used=%zu expected=%zu errno=%d\n", used, *body_length, errno); return false;
+		fprintf(stderr, "request-rejected stage=body reason=short\n"); return false;
 	}
 	for (;;) {
-		ssize_t length = recv(client, &extra, 1, MSG_DONTWAIT);
-		if (length > 0) { fprintf(stderr, "request-frame=trailing\n"); free(*body); return false; }
-		if (length == 0 || (length < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)))
-			break;
-		if (errno != EINTR) { fprintf(stderr, "request-frame=recv errno=%d\n", errno); free(*body); return false; }
+		struct pollfd peer = { .fd = client, .events = POLLIN | POLLHUP | POLLERR };
+		int ready = poll(&peer, 1, 200);
+		if (ready < 0 && errno == EINTR) continue;
+		if (ready <= 0) {
+			fprintf(stderr, "request-rejected stage=eof reason=missing\n"); free(*body); return false;
+		}
+		ssize_t length = recv(client, &extra, 1, 0);
+		if (length > 0) {
+			fprintf(stderr, "request-rejected stage=eof reason=trailing\n"); free(*body); return false;
+		}
+		if (length == 0) break;
+		if (errno != EINTR) {
+			fprintf(stderr, "request-rejected stage=eof reason=read\n"); free(*body); return false;
+		}
 	}
 	return true;
 }
@@ -755,6 +799,39 @@ static void response_frame(int client, const char *outcome, const char *start_st
 	write_all(client, errors, error_length);
 }
 
+static void malformed_response(int client, const char *mode)
+{
+	uint8_t *body = NULL;
+	size_t body_length = 0;
+	uint8_t prelude[20] = TRANSPORT_MAGIC;
+	const char *header;
+
+	if (!read_request_frame(client, &body, &body_length))
+		return;
+	free(body);
+	if (!strcmp(mode, "response-malformed"))
+		header = "{";
+	else if (!strcmp(mode, "response-duplicate"))
+		header = "{\"protocol\":\"z2m-helper-transport-v1\",\"protocol\":\"z2m-helper-transport-v1\",\"requestId\":\"probe:1\"}";
+	else if (!strcmp(mode, "response-unknown"))
+		header = "{\"protocol\":\"z2m-helper-transport-v1\",\"requestId\":\"probe:1\",\"x\":1}";
+	else if (!strcmp(mode, "response-type"))
+		header = "{\"protocol\":\"z2m-helper-transport-v1\",\"requestId\":\"probe:1\",\"outcome\":\"child_exited\",\"startState\":\"started\",\"stdoutLength\":\"0\",\"stderrLength\":0,\"stdoutEof\":true,\"stderrEof\":true,\"stderrTruncated\":false,\"stderrDrained\":0,\"childReaped\":true,\"exitCode\":0,\"signal\":null}";
+	else if (!strcmp(mode, "response-outcome"))
+		header = "{\"protocol\":\"z2m-helper-transport-v1\",\"requestId\":\"probe:1\",\"outcome\":\"bogus\",\"startState\":\"started\",\"stdoutLength\":0,\"stderrLength\":0,\"stdoutEof\":true,\"stderrEof\":true,\"stderrTruncated\":false,\"stderrDrained\":0,\"childReaped\":true,\"exitCode\":0,\"signal\":null}";
+	else if (!strcmp(mode, "response-id"))
+		header = "{\"protocol\":\"z2m-helper-transport-v1\",\"requestId\":\"wrong\",\"outcome\":\"child_exited\",\"startState\":\"started\",\"stdoutLength\":0,\"stderrLength\":0,\"stdoutEof\":true,\"stderrEof\":true,\"stderrTruncated\":false,\"stderrDrained\":0,\"childReaped\":true,\"exitCode\":0,\"signal\":null}";
+	else
+		header = "{\"protocol\":\"z2m-helper-transport-v1\",\"requestId\":\"probe:1\",\"outcome\":\"child_exited\",\"startState\":\"started\",\"stdoutLength\":0,\"stderrLength\":0,\"stdoutEof\":true,\"stderrEof\":true,\"stderrTruncated\":false,\"stderrDrained\":0,\"childReaped\":false,\"exitCode\":0,\"signal\":null}";
+	prelude[8] = 2;
+	write_be32(prelude + 12, (uint32_t)strlen(header));
+	write_be32(prelude + 16, 0);
+	write_all(client, prelude, sizeof(prelude));
+	write_all(client, header, strlen(header));
+	if (!strcmp(mode, "response-trailing"))
+		write_all(client, "x", 1);
+}
+
 static void broker_child(int client, const char *child_mode, int disconnect_case)
 {
 	uint8_t *request = NULL, *output = NULL, errors[STDERR_LIMIT];
@@ -766,21 +843,24 @@ static void broker_child(int client, const char *child_mode, int disconnect_case
 	struct status_guard *guard;
 	pid_t pid;
 	bool input_closed = false, out_eof = false, err_eof = false, status_eof = false;
-	bool reaped = false, timed_out = false, overflow = false;
+	bool reaped = false, timed_out = false, overflow = false, started_reported = false;
+	bool disconnect_terminated = false;
 	struct timespec started, deadline, grace;
 
 	if (!read_request_frame(client, &request, &request_length))
 		return;
-	fprintf(stderr, "broker-stage=frame body=%zu\n", request_length);
-	if (disconnect_case) {
-		struct pollfd peer = { .fd = client, .events = POLLHUP | POLLERR };
-		poll(&peer, 1, 50);
+	if (request_length >= 1024U * 1024U)
+		fprintf(stderr, "broker-stage=frame body=%zu\n", request_length);
+	if (disconnect_case == 1) {
+		fprintf(stderr, "disconnect-before-exec=observed\n");
+		free(request);
+		return;
 	}
 	guard = mmap(NULL, sizeof(*guard), PROT_READ | PROT_WRITE,
 		MAP_SHARED | MAP_ANONYMOUS, -1, 0);
 	if (guard == MAP_FAILED) fail("mmap broker guard");
-	if (pipe2(input, O_CLOEXEC | O_NONBLOCK) < 0 || pipe2(out, O_CLOEXEC | O_NONBLOCK) < 0 ||
-	    pipe2(err, O_CLOEXEC | O_NONBLOCK) < 0 || pipe2(status, O_CLOEXEC | O_NONBLOCK) < 0)
+	if (pipe2(input, O_CLOEXEC) < 0 || pipe2(out, O_CLOEXEC) < 0 ||
+	    pipe2(err, O_CLOEXEC) < 0 || pipe2(status, O_CLOEXEC) < 0)
 		fail("broker pipes");
 	if (clock_gettime(CLOCK_MONOTONIC, &started) < 0) fail("clock_gettime");
 	deadline = timespec_after_ms(started, !strcmp(child_mode, "sleep-30") ? 100 : 5000);
@@ -807,21 +887,26 @@ static void broker_child(int client, const char *child_mode, int disconnect_case
 		child_error(status[1], STAGE_EXEC, errno, &local);
 	}
 	close(input[0]); close(out[1]); close(err[1]); close(status[1]);
-	fprintf(stderr, "broker-stage=fork pid=%ld\n", (long)pid);
+	set_nonblocking(input[1]);
+	set_nonblocking(out[0]);
+	set_nonblocking(err[0]);
+	set_nonblocking(status[0]);
 	while (!reaped || !out_eof || !err_eof || !status_eof) {
-		struct pollfd fds[4] = {
+		struct pollfd fds[5] = {
 			{ status[0], POLLIN | POLLHUP, 0 }, { out[0], POLLIN | POLLHUP, 0 },
-			{ err[0], POLLIN | POLLHUP, 0 }, { input_closed ? -1 : input[1], POLLOUT | POLLERR | POLLHUP, 0 }
+			{ err[0], POLLIN | POLLHUP, 0 }, { input_closed ? -1 : input[1], POLLOUT | POLLERR | POLLHUP, 0 },
+			{ disconnect_case == 2 ? client : -1, POLLHUP | POLLERR | POLLRDHUP, 0 }
 		};
 		struct timespec now;
-		if (poll(fds, 4, 10) < 0 && errno != EINTR) fail("broker poll");
+		if (poll(fds, 5, 10) < 0 && errno != EINTR) fail("broker poll");
 		if (!input_closed && fds[3].revents) {
 			ssize_t n = write(input[1], request + input_offset, request_length - input_offset);
 			if (n > 0) input_offset += (size_t)n;
 			if (input_offset == request_length || (n < 0 && errno == EPIPE)) {
 				close(input[1]); input_closed = true;
-				fprintf(stderr, "broker-stage=input bytes=%zu epipe=%d\n", input_offset,
-					n < 0 && errno == EPIPE);
+				if (request_length >= 1024U * 1024U)
+					fprintf(stderr, "broker-stage=input bytes=%zu epipe=%d\n", input_offset,
+						n < 0 && errno == EPIPE);
 			}
 		}
 		for (unsigned int i = 0; i < 8; i++) {
@@ -862,23 +947,35 @@ static void broker_child(int client, const char *child_mode, int disconnect_case
 		}
 		if (status_length == sizeof(record))
 			status_eof = true;
+		if (status_eof && status_length == 0 && !started_reported) {
+			started_reported = true;
+			if (disconnect_case == 2)
+				fprintf(stderr, "broker-stage=started\n");
+		}
 		if (!reaped) {
 			pid_t waited = waitpid(pid, &wait_status, WNOHANG);
 			if (waited == pid) reaped = true;
 			else if (waited < 0 && errno != EINTR) fail("broker waitpid");
 		}
 		if (clock_gettime(CLOCK_MONOTONIC, &now) < 0) fail("clock_gettime");
+		if (disconnect_case == 2 && started_reported && !reaped && !timed_out &&
+		    (fds[4].revents & (POLLHUP | POLLERR | POLLRDHUP))) {
+			disconnect_terminated = true;
+			timed_out = true;
+			kill(-pid, SIGTERM);
+			grace = timespec_after_ms(now, 100);
+			fprintf(stderr, "disconnect-after-exec=terminated\n");
+		}
 		if ((overflow || timespec_compare(&now, &deadline) >= 0) && !timed_out && !reaped) {
 			timed_out = true; kill(-pid, SIGTERM); grace = timespec_after_ms(now, 100);
 		}
 		if (timed_out && !reaped && timespec_compare(&now, &grace) >= 0) kill(-pid, SIGKILL);
 	}
-	fprintf(stderr, "broker-stage=complete output=%zu status=%zu reaped=%d wait=%d\n",
-		output_length, status_length, reaped, wait_status);
 	close(out[0]); close(err[0]); close(status[0]); if (!input_closed) close(input[1]);
 	free(request); munmap(guard, sizeof(*guard));
 	if (disconnect_case) {
-		fprintf(stderr, "%s=reaped\n", disconnect_case == 1 ? "disconnect-before-exec" : "disconnect-after-exec");
+		if (disconnect_case == 2 && disconnect_terminated)
+			fprintf(stderr, "disconnect-after-exec=reaped\n");
 		free(output); return;
 	}
 	if (status_length == sizeof(record))
@@ -990,6 +1087,10 @@ static void serve(int client, const char *mode, unsigned int argument)
 		else if (!strcmp(mode, "broker-disconnect-before-exec")) disconnect_case = 1;
 		else if (!strcmp(mode, "broker-disconnect-after-exec")) { child_mode = "sleep-30"; disconnect_case = 2; }
 		broker_child(client, child_mode, disconnect_case);
+		return;
+	}
+	if (!strncmp(mode, "response-", 9) && strcmp(mode, "response-truncated")) {
+		malformed_response(client, mode);
 		return;
 	}
 	if (!strcmp(mode, "response-truncated")) {
