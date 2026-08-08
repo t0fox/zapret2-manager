@@ -148,7 +148,7 @@ before(() => {
   assert.equal(accountUid.stdout.trim(), '1000', `${nonRootName} must resolve to UID 1000`);
 
   const built = run(cc, ['-std=c11', '-Wall', '-Wextra', '-Werror',
-    `-DTEST_ROOT=\"${root}\"`, fixtureSource, '-o', fixture]);
+    `-DTEST_ROOT=${root}`, fixtureSource, '-o', fixture]);
   assert.equal(built.status, 0, `${cc} failed:\n${built.stdout}${built.stderr}`);
   const userTmp = run('runuser', ['-u', nonRootName, '--', 'mktemp', '-d',
     `${process.env.TMPDIR ?? '/tmp'}/z2m-broker-nonroot-XXXXXX`]);
@@ -157,7 +157,7 @@ before(() => {
   nonRootFixture = path.join(nonRootRoot, 'z2m-helperd-spike');
   const nonRootBuilt = run('runuser', ['-u', nonRootName, '--', 'env',
     `STAGING_DIR=${process.env.STAGING_DIR}`, cc, '-std=c11', '-Wall', '-Wextra', '-Werror',
-    `-DTEST_ROOT=\"${nonRootRoot}\"`, fixtureSource, '-o', nonRootFixture]);
+    `-DTEST_ROOT=${nonRootRoot}`, fixtureSource, '-o', nonRootFixture]);
   assert.equal(nonRootBuilt.status, 0, `${cc} failed:\n${nonRootBuilt.stdout}${nonRootBuilt.stderr}`);
   process.stderr.write(`SOCKET_MODULE_SHA256=${sha256(modulePath)}\n`);
   process.stderr.write(`BROKER_FIXTURE_SHA256=${sha256(fixture)}\n`);
