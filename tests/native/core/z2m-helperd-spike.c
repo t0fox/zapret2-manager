@@ -881,6 +881,18 @@ static void malformed_response(int client, const char *mode)
 		header = "{\"protocol\":\"z2m-helper-transport-v1\",\"requestId\":\"probe:1\",\"outcome\":\"child_exited\",\"startState\":\"started\",\"stdoutLength\":0,\"stderrLength\":0,\"stdoutEof\":true,\"stderrEof\":true,\"stderrTruncated\":false,\"stderrDrained\":1,\"childReaped\":true,\"exitCode\":0,\"signal\":null}";
 	else if (!strcmp(mode, "response-stderr-truncated-true"))
 		header = "{\"protocol\":\"z2m-helper-transport-v1\",\"requestId\":\"probe:1\",\"outcome\":\"child_exited\",\"startState\":\"started\",\"stdoutLength\":0,\"stderrLength\":0,\"stdoutEof\":true,\"stderrEof\":true,\"stderrTruncated\":true,\"stderrDrained\":0,\"childReaped\":true,\"exitCode\":0,\"signal\":null}";
+	else if (!strcmp(mode, "response-escaped-outcome"))
+		header = "{\"protocol\":\"z2m-helper-transport-v1\",\"requestId\":\"probe:1\",\"outcome\":\"child_exited\",\"\\u006futcome\":\"child_exited\"}";
+	else if (!strcmp(mode, "response-escaped-stdout-length"))
+		header = "{\"protocol\":\"z2m-helper-transport-v1\",\"requestId\":\"probe:1\",\"stdoutLength\":0,\"stdout\\u004cength\":0}";
+	else if (!strcmp(mode, "response-escaped-child-reaped"))
+		header = "{\"protocol\":\"z2m-helper-transport-v1\",\"requestId\":\"probe:1\",\"childReaped\":true,\"child\\u0052eaped\":true}";
+	else if (!strcmp(mode, "response-key-invalid-escape"))
+		header = "{\"protocol\":\"z2m-helper-transport-v1\",\"bad\\q\":1}";
+	else if (!strcmp(mode, "response-key-high-surrogate"))
+		header = "{\"protocol\":\"z2m-helper-transport-v1\",\"bad\\ud800\":1}";
+	else if (!strcmp(mode, "response-key-low-surrogate"))
+		header = "{\"protocol\":\"z2m-helper-transport-v1\",\"bad\\udc00\":1}";
 	else if (!strcmp(mode, "response-malformed"))
 		header = "{";
 	else if (!strcmp(mode, "response-duplicate"))
@@ -942,10 +954,19 @@ static void broker_child(int client, const char *child_mode, int disconnect_case
 		fail("broker pipes");
 	if (clock_gettime(CLOCK_MONOTONIC, &started) < 0) fail("clock_gettime");
 	deadline = timespec_after_ms(started, !strcmp(child_mode, "sleep-30") ? 100 : 5000);
+#ifdef INJECT_BROKER_FORK_FAILURE
+	errno = EAGAIN;
+	pid = -1;
+#else
 	pid = fork();
+#endif
 	if (pid < 0) {
+		close(input[0]); close(input[1]); close(out[0]); close(out[1]);
+		close(err[0]); close(err[1]); close(status[0]); close(status[1]);
+		munmap(guard, sizeof(*guard));
 		response_frame(client, "spawn_failure", "not_started", "fork", NULL, false,
 			-1, 0, NULL, 0, NULL, 0, 0, false, false);
+		fprintf(stderr, "broker-fork-failure forks=%u\n", broker_forks);
 		free(request); return;
 	}
 	if (pid == 0) {

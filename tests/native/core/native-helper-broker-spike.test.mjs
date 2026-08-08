@@ -363,6 +363,21 @@ for (const field of ['protocol', 'requestId', 'outcome', 'stdoutLength', 'stderr
 }
 
 for (const [mode, error] of [
+  ['response-escaped-outcome', 'response_header_duplicate'],
+  ['response-escaped-stdout-length', 'response_header_duplicate'],
+  ['response-escaped-child-reaped', 'response_header_duplicate'],
+  ['response-key-invalid-escape', 'response_header_malformed'],
+  ['response-key-high-surrogate', 'response_header_malformed'],
+  ['response-key-low-surrogate', 'response_header_malformed'],
+]) {
+  test(`rejects decoded response key violation ${mode}`, async () => {
+    await startServer(mode);
+    assert.equal(invoke('exchange').error, error);
+    await stopServer();
+  });
+}
+
+for (const [mode, error] of [
   ['response-timeout-exit', 'response_header_fields'],
   ['response-timeout-not-started', 'response_header_lifecycle'],
   ['response-spawn-signal', 'response_header_fields'],
@@ -405,6 +420,23 @@ test('does not grow descriptors over 100 framed requests', async () => {
   assert.ok(counts, `missing server descriptor evidence: ${serverErrors}`);
   assert.equal(Number(counts[2]), Number(counts[1]));
   assert.equal(Number(counts[3]), 100);
+});
+
+test('classifies injected fork failure without fabricating a child or reap', async () => {
+  const forkFailure = compileSpawnFixture('z2m-helperd-broker-fork-failure', [
+    '-DINJECT_BROKER_FORK_FAILURE=1',
+  ]);
+  await startServer('broker-success', [], { fixturePath: forkFailure });
+  const result = invoke('exchange');
+  assert.equal(result.error, null);
+  assert.equal(result.header.outcome, 'spawn_failure');
+  assert.equal(result.header.stage, 'fork');
+  assert.equal(result.header.startState, 'not_started');
+  assert.equal(result.header.childReaped, false);
+  assert.equal(Object.hasOwn(result.header, 'exitCode'), false);
+  assert.equal(Object.hasOwn(result.header, 'signal'), false);
+  await stopServer();
+  assert.match(serverErrors, /broker-fork-failure forks=0/);
 });
 
 test('classifies a missing fixed child from a complete exec error record', () => {

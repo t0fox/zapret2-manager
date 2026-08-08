@@ -20,19 +20,88 @@ function read_u32(value, offset) {
 		ord(substr(value, offset + 3, 1));
 }
 
-const RESPONSE_KEYS = [
-	'protocol', 'requestId', 'outcome', 'startState', 'stdoutLength',
-	'stderrLength', 'stdoutEof', 'stderrEof', 'stderrTruncated',
-	'stderrDrained', 'childReaped', 'exitCode', 'signal', 'stage', 'reason'
-];
+function utf8(codepoint) {
+	if (codepoint <= 0x7f) return sprintf('%c', codepoint);
+	if (codepoint <= 0x7ff)
+		return sprintf('%c%c', 0xc0 | (codepoint >> 6), 0x80 | (codepoint & 0x3f));
+	if (codepoint <= 0xffff)
+		return sprintf('%c%c%c', 0xe0 | (codepoint >> 12),
+			0x80 | ((codepoint >> 6) & 0x3f), 0x80 | (codepoint & 0x3f));
+	return sprintf('%c%c%c%c', 0xf0 | (codepoint >> 18),
+		0x80 | ((codepoint >> 12) & 0x3f), 0x80 | ((codepoint >> 6) & 0x3f),
+		0x80 | (codepoint & 0x3f));
+}
 
-function has_duplicate_key(raw) {
-	for (let key in RESPONSE_KEYS) {
-		let token = sprintf('%J', key);
-		if (index(raw, token) != rindex(raw, token))
-			return true;
+function decode_key(raw, start) {
+	let value = '';
+	for (let i = start; i < length(raw); i++) {
+		let byte = ord(raw, i);
+		if (byte == 34) return [value, i + 1];
+		if (byte < 0x20) return null;
+		if (byte != 92) { value += substr(raw, i, 1); continue; }
+		if (++i >= length(raw)) return null;
+		let escaped = substr(raw, i, 1);
+		if (index(['"', '\\', '/'], escaped) >= 0) { value += escaped; continue; }
+		if (escaped == 'b') { value += sprintf('%c', 8); continue; }
+		if (escaped == 'f') { value += sprintf('%c', 12); continue; }
+		if (escaped == 'n') { value += '\n'; continue; }
+		if (escaped == 'r') { value += '\r'; continue; }
+		if (escaped == 't') { value += '\t'; continue; }
+		if (escaped != 'u' || i + 4 >= length(raw)) return null;
+		let digits = substr(raw, i + 1, 4);
+		if (!match(digits, /^[0-9A-Fa-f]{4}$/)) return null;
+		let codepoint = int(digits, 16);
+		i += 4;
+		if (codepoint >= 0xd800 && codepoint <= 0xdbff) {
+			if (substr(raw, i + 1, 2) != '\\u' || i + 6 >= length(raw)) return null;
+			let low_digits = substr(raw, i + 3, 4);
+			if (!match(low_digits, /^[0-9A-Fa-f]{4}$/)) return null;
+			let low = int(low_digits, 16);
+			if (low < 0xdc00 || low > 0xdfff) return null;
+			codepoint = 0x10000 + ((codepoint - 0xd800) << 10) + low - 0xdc00;
+			i += 6;
+		}
+		else if (codepoint >= 0xdc00 && codepoint <= 0xdfff) return null;
+		value += utf8(codepoint);
 	}
-	return false;
+	return null;
+}
+
+function scan_keys(raw) {
+	let seen = {};
+	let i = 0;
+	while (i < length(raw) && match(substr(raw, i, 1), /\s/)) i++;
+	if (substr(raw, i++, 1) != '{') return 'malformed';
+	while (true) {
+		while (i < length(raw) && match(substr(raw, i, 1), /\s/)) i++;
+		if (substr(raw, i, 1) == '}') return null;
+		if (substr(raw, i++, 1) != '"') return 'malformed';
+		let decoded = decode_key(raw, i);
+		if (!decoded) return 'malformed';
+		let key = decoded[0]; i = decoded[1];
+		if (exists(seen, key)) return 'duplicate';
+		seen[key] = true;
+		while (i < length(raw) && match(substr(raw, i, 1), /\s/)) i++;
+		if (substr(raw, i++, 1) != ':') return 'malformed';
+		let depth = 0, quoted = false, escaped = false;
+		for (; i < length(raw); i++) {
+			let ch = substr(raw, i, 1);
+			if (quoted) {
+				if (escaped) escaped = false;
+				else if (ch == '\\') escaped = true;
+				else if (ch == '"') quoted = false;
+				continue;
+			}
+			if (ch == '"') { quoted = true; continue; }
+			if (ch == '{' || ch == '[') { depth++; continue; }
+			if (ch == '}' || ch == ']') {
+				if (depth == 0) return ch == '}' ? null : 'malformed';
+				depth--; continue;
+			}
+			if (ch == ',' && depth == 0) { i++; break; }
+		}
+		if (quoted || depth != 0 || i > length(raw)) return 'malformed';
+	}
 }
 
 function exact_fields(value, expected) {
@@ -50,8 +119,11 @@ function response_header_error(raw, header, body_length, cap) {
 		stdoutLength: true, stderrLength: true, stdoutEof: true, stderrEof: true,
 		stderrTruncated: true, stderrDrained: true, childReaped: true
 	};
-	if (has_duplicate_key(raw))
+	let key_scan = scan_keys(raw);
+	if (key_scan == 'duplicate')
 		return 'response_header_duplicate';
+	if (key_scan == 'malformed')
+		return 'response_header_malformed';
 	if (type(header?.outcome) == 'string' &&
 	    index(['child_exited', 'timeout', 'spawn_failure', 'setup_failure', 'transport_failure'],
 	    header.outcome) < 0)
@@ -97,7 +169,13 @@ function response_header_error(raw, header, body_length, cap) {
 		return 'response_header_lifecycle';
 	if ((header.outcome == 'spawn_failure' || header.outcome == 'setup_failure') &&
 	    (header.startState != 'not_started' || !header.stdoutEof || !header.stderrEof ||
-	    !header.childReaped || type(header.stage) != 'string'))
+	    type(header.stage) != 'string'))
+		return 'response_header_lifecycle';
+	if (header.outcome == 'spawn_failure' &&
+	    ((header.stage == 'fork' && header.childReaped) ||
+	    (header.stage == 'exec' && !header.childReaped)))
+		return 'response_header_lifecycle';
+	if (header.outcome == 'setup_failure' && !header.childReaped)
 		return 'response_header_lifecycle';
 	if ((header.outcome == 'spawn_failure' && index(['fork', 'exec'], header.stage) < 0) ||
 	    (header.outcome == 'setup_failure' &&
@@ -286,8 +364,11 @@ function exchange(mode, socket_path, request, cap, timeout) {
 			error = length(response) < 20 + header_length + body_length ? 'response_truncated' : 'response_frame';
 		if (!error) {
 			let raw_header = substr(response, 20, header_length);
-			if (has_duplicate_key(raw_header))
+			let key_scan = scan_keys(raw_header);
+			if (key_scan == 'duplicate')
 				error = 'response_header_duplicate';
+			else if (key_scan == 'malformed')
+				error = 'response_header_malformed';
 			else try { header = json(raw_header); } catch (e) { error = 'response_header_malformed'; }
 			if (!error)
 				error = response_header_error(raw_header, header, body_length, cap);
