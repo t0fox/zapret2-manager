@@ -77,3 +77,84 @@ fixed before the final gates.
 - Codex review availability remains an environment concern only: reinstall the
   CLI with its Linux optional dependency before requesting that independent
   review under WSL.
+
+## Reviewer Findings Follow-Up
+
+### Status
+
+**PASS.** All five reviewer findings were reproduced with RED host contracts,
+fixed within the existing Task 5 production boundary, and committed as
+`63a6d1be774628a7c60e194766408abaaacaae59` (`fix(core): harden helper broker
+lifecycle`). No procd, ucode adapter, gate replacement, or M4 work was added.
+
+### RED Evidence
+
+The first focused run failed all eight initial reviewer regression cases:
+
+```text
+FAIL deadline remains active after the leader exits while a descendant survives
+FAIL shutdown escalates TERM-ignoring descendants after leader reap without hanging serial broker
+FAIL EOF descriptors are removed from poll and silent-child poll count stays bounded
+FAIL fatal poll error terminates and reaps before transport failure response
+FAIL partial request stall expires and cannot wedge the next serial client
+FAIL non-reading response client expires and cannot wedge the next serial client
+FAIL lock pathname replacement after open cannot create dual singleton ownership
+FAIL stale socket replacement immediately before removal is never unlinked
+```
+
+An additional adopted-child case used `setsid()` to leave the leader process
+group and failed RED because the escaped child remained live after the broker's
+bounded cleanup.
+
+### Fixes
+
+- Timeout, shutdown, overflow, disconnect, and fatal-poll termination stay active
+  until the leader is reaped, all adopted children are exhausted, and all child
+  pipes reach EOF. TERM-ignoring groups and adopted children receive SIGKILL
+  after monotonic grace. Cleanup itself has a fixed absolute bound.
+- The subreaper signals waitable adopted direct children discovered from
+  `/proc/self/task/<pid>/children`; these PIDs remain identity-safe until
+  `waitpid()` reaps them. Positive leader-PID fallback remains forbidden after
+  leader reap.
+- Status/stdout/stderr descriptors are closed and removed from the poll set on
+  EOF or complete status record exactly once. A silent 300 ms helper verifies a
+  bounded poll count below 100 rather than level-triggered spinning.
+- Fatal non-EINTR `poll()` errors latch `supervision_failure`, initiate bounded
+  TERM/KILL cleanup, drain/reap, and can never fall through to `child_exited`.
+  Start state remains `not_started` or `started` only when status-pipe evidence
+  proves it.
+- Client sockets are nonblocking. Request receive and response send use partial
+  I/O loops under absolute `CLOCK_MONOTONIC` deadlines. A partial-frame stall and
+  a non-reading 6 MiB response client both expire without wedging the next serial
+  connection.
+- The verified runtime directory fd remains open for daemon lifetime. Lock open,
+  pathname identity verification, socket inspection, stale quarantine/removal,
+  socket verification, and cleanup use descriptor-relative operations.
+- Lock inode identity is checked between the opened fd and current pathname
+  before `flock()`. Stale sockets are atomically renamed to a private quarantine
+  name, revalidated by inode/type/owner/mode, then removed. Replacement races
+  leave the replacement untouched and cannot create dual singleton ownership.
+
+### Follow-Up Verification
+
+- Focused production broker plus package gate: **52 tests, 52 pass, 0 fail,
+  0 skipped**.
+- Shared non-M3 host gate: **67 tests, 67 pass, 0 fail, 0 skipped**.
+- Root-required unaffected bootstrap/helper gate: **96 tests, 96 pass, 0 fail,
+  0 skipped**.
+- Package closure alone: **26 tests, 26 pass, 0 fail, 0 skipped**.
+- Strict host production build: PASS with `-std=c11 -Wall -Wextra -Werror
+  -D_GNU_SOURCE` and `json-c`.
+- Strict OpenWrt target production build: PASS; AArch64 musl ELF.
+- Static closure scan: no generic exec, shell, TCP, environment capability, or
+  production test seam found.
+- `git diff --check`: PASS.
+
+### Follow-Up Concerns
+
+- No Task 5 blocker remains.
+- Adopted-child signaling relies on Linux procfs, which is present on the OpenWrt
+  target and already required by the process-state verification contract.
+- Response-send timeout occurs after helper completion and reap; a client that
+  does not read receives no fabricated success and the serial daemon proceeds.
+- Tasks 6-8 and M4 remain untouched.
