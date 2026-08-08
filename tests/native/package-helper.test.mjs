@@ -92,6 +92,19 @@ function creationCallsites(file, body) {
   const sites = [];
   const resolve = (expression, offset, seen = new Set()) => {
     expression = expression.replace(/^['"]\s*\+\s*/, '');
+    const rawAbsolute = /^\/[^\s'";)]+/.exec(expression);
+    if (rawAbsolute) return rawAbsolute[0];
+    const call = /^([A-Za-z_][A-Za-z0-9_]*)\s*\((.*?)(?:\))?$/.exec(expression.trim());
+    if (call && !seen.has(call[1])) {
+      const definition = new RegExp(`function\\s+${call[1]}\\s*\\(\\s*([A-Za-z_][A-Za-z0-9_]*)[^)]*\\)\\s*\\{[\\s\\S]*?return\\s+([^;]+);[\\s\\S]*?\\}`).exec(body);
+      if (definition) {
+        const argument = resolve(call[2], offset, seen);
+        const withoutParameter = definition[2].replace(new RegExp(`\\b${definition[1]}\\b`, 'g'), '');
+        if (!/[A-Za-z0-9_/$]/.test(withoutParameter.replace(/['"+\s]/g, ''))) return argument;
+        const returned = definition[2].replace(new RegExp(`\\b${definition[1]}\\b`, 'g'), `'${argument}'`);
+        return resolve(returned, definition.index, new Set([...seen, call[1]]));
+      }
+    }
     let value = '';
     for (const part of expression.matchAll(/['"]([^'"]*)['"]|\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?|\b([A-Za-z_][A-Za-z0-9_]*)\b/g)) {
       if (part[1] != null) {
@@ -138,7 +151,40 @@ function creationCallsites(file, body) {
     sites.push({ file, recursive: false, target: resolve(match[1], match.index), source: match[0] });
   for (const match of body.matchAll(/(?:^|[;\n])\s*mkdir\s+(?!-p\b)([^;\n]+)/g))
     sites.push({ file, recursive: false, target: resolve(match[1], match.index), source: match[0] });
+
+  for (const wrapper of body.matchAll(/function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)[^)]*\)\s*\{([\s\S]*?)\}/g)) {
+    if (!new RegExp(`\\bmkdir\\s+-p\\s+[^;\\n)]*\\b${wrapper[2]}\\b`).test(wrapper[3])) continue;
+    const calls = [...body.matchAll(new RegExp(`\\b${wrapper[1]}\\s*\\(([^)]*)\\)`, 'g'))]
+      .filter((call) => call.index < wrapper.index || call.index > wrapper.index + wrapper[0].length);
+    if (calls.length == 0)
+      sites.push({ file, recursive: true, target: `<${wrapper[2]}>`, source: `${wrapper[1]} wrapper` });
+    else for (let i = sites.length - 1; i >= 0; i--)
+      if (sites[i].recursive && sites[i].target == `<${wrapper[2]}>`) sites.splice(i, 1);
+    for (const call of calls)
+      sites.push({ file, recursive: true, target: resolve(call[1], call.index), source: call[0] });
+  }
   return sites;
+}
+
+const managedRoots = [
+  '/tmp/zapret2-manager',
+  '/tmp/zapret2-manager/runtime',
+  '/tmp/zapret2-manager/jobs',
+  '/tmp/zapret2-manager/locks',
+  '/tmp/zapret2-manager/staging',
+  '/etc/zapret2-manager/state',
+  '/etc/zapret2-manager/snapshots',
+  '/etc/zapret2-manager/registry',
+  '/etc/zapret2-manager/secrets',
+];
+
+function unsafeCreation(site) {
+  if (managedRoots.includes(site.target)) return true;
+  if (!site.recursive) return false;
+  if (!site.target.startsWith('/')) return true;
+  const knownPrefix = site.target.split('<', 1)[0].replace(/\/+$/, '');
+  return managedRoots.some((root) =>
+    knownPrefix == root || knownPrefix.startsWith(`${root}/`));
 }
 
 test('managed-root creation scanner resolves constants aliases and shell descendants', () => {
@@ -154,24 +200,26 @@ test('managed-root creation scanner resolves constants aliases and shell descend
   }
 });
 
+test('managed-root creation scanner rejects recursive creation hidden by a wrapper', () => {
+  const fixture = `function create(path){ run('mkdir -p ' + path); } const ROOT='/tmp/zapret2-manager'; create(ROOT+'/child');`;
+  const sites = creationCallsites('wrapper-fixture', fixture);
+  assert.ok(sites.some(unsafeCreation),
+    `unresolved wrapper recursion must fail closed: ${JSON.stringify(sites)}`);
+});
+
+test('managed-root creation policy permits proven unrelated recursion and non-recursive children', () => {
+  const fixture = `run('mkdir -p /var/lib/example/cache'); mkdir('/tmp/zapret2-manager/last-good');`;
+  const sites = creationCallsites('allowed-fixture', fixture);
+  assert.equal(sites.length, 2, JSON.stringify(sites));
+  assert.equal(sites.some(unsafeCreation), false, JSON.stringify(sites));
+});
+
 test('native bootstrap solely owns managed roots and recursive parent traversal', () => {
-  const managed = new Set([
-    '/tmp/zapret2-manager',
-    '/tmp/zapret2-manager/runtime',
-    '/tmp/zapret2-manager/jobs',
-    '/tmp/zapret2-manager/locks',
-    '/tmp/zapret2-manager/staging',
-    '/etc/zapret2-manager/state',
-    '/etc/zapret2-manager/snapshots',
-    '/etc/zapret2-manager/registry',
-    '/etc/zapret2-manager/secrets',
-  ]);
   const violations = [];
   for (const file of walkFiles(['zapret2-manager/files'])) {
     const body = fs.readFileSync(file, 'utf8');
     for (const site of creationCallsites(file, body)) {
-      const runtimeDescendant = site.target.startsWith('/tmp/zapret2-manager/');
-      if (managed.has(site.target) || (site.recursive && runtimeDescendant))
+      if (unsafeCreation(site))
         violations.push(`${file}: ${site.source} -> ${site.target}`);
     }
   }
