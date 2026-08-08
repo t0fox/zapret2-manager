@@ -378,6 +378,8 @@ test('terminates and reaps a cooperative 30-second child after one 100 ms deadli
   assert.equal(result.killSent, false);
   assert.equal(result.reaped, true);
   assert.equal(result.waitSignal, 15);
+  assert.ok(result.termAtMs >= 80 && result.termAtMs < 200, `TERM at ${result.termAtMs}ms`);
+  assert.equal(result.killAtMs, null);
   assert.ok(result.elapsedMs >= 80 && result.elapsedMs < 500, `elapsed ${result.elapsedMs}ms`);
   assertGone(result.pid, 'child');
 });
@@ -389,6 +391,10 @@ test('kills and reaps a TERM-ignoring 30-second child after bounded grace', () =
   assert.equal(result.killSent, true);
   assert.equal(result.reaped, true);
   assert.equal(result.waitSignal, 9);
+  assert.ok(result.termAtMs >= 80 && result.termAtMs < 200, `TERM at ${result.termAtMs}ms`);
+  assert.ok(result.killAtMs >= 180 && result.killAtMs < 350, `KILL at ${result.killAtMs}ms`);
+  assert.ok(result.killAtMs - result.termAtMs >= 80,
+    `grace ${result.killAtMs - result.termAtMs}ms`);
   assert.ok(result.elapsedMs >= 160 && result.elapsedMs < 600, `elapsed ${result.elapsedMs}ms`);
   assertGone(result.pid, 'child');
 });
@@ -397,6 +403,12 @@ test('terminates the dedicated process group including a forked descendant', () 
   const result = spawnEvidence('timeout-descendant');
   assert.equal(result.outcome, 'timeout');
   assert.equal(result.reaped, true);
+  assert.equal(result.killSent, true);
+  assert.equal(result.descendantReapedPid, result.descendantPid);
+  assert.equal(result.adoptedChildrenExhausted, true);
+  assert.ok(result.termAtMs >= 80 && result.termAtMs < 200, `TERM at ${result.termAtMs}ms`);
+  assert.ok(result.killAtMs >= 180 && result.killAtMs < 350, `KILL at ${result.killAtMs}ms`);
+  assert.ok(result.elapsedMs >= 180 && result.elapsedMs < 600, `elapsed ${result.elapsedMs}ms`);
   assertGone(result.pid, 'child');
   assertGone(result.descendantPid, 'descendant');
 });
@@ -408,7 +420,10 @@ test('repeated EINTR and pipe wakeups do not extend the absolute deadline', () =
   const result = spawnEvidence('timeout-wakeups', interrupted);
   assert.equal(result.outcome, 'timeout');
   assert.ok(result.pollEintr >= 3, `expected repeated EINTR, got ${result.pollEintr}`);
+  assert.ok(result.interruptionDelayMs >= 75,
+    `expected deterministic EINTR delay, got ${result.interruptionDelayMs}ms`);
   assert.ok(result.stdoutReads >= 3, `expected repeated wakeups, got ${result.stdoutReads}`);
+  assert.ok(result.termAtMs >= 80 && result.termAtMs < 160, `TERM at ${result.termAtMs}ms`);
   assert.ok(result.elapsedMs >= 80 && result.elapsedMs < 500, `elapsed ${result.elapsedMs}ms`);
   assertGone(result.pid, 'child');
 });
@@ -427,6 +442,34 @@ test('retains 4096 stderr bytes while draining all excess', () => {
   assert.equal(result.stderrBytes, 4096);
   assert.equal(result.stderrDrained, 16384);
   assert.equal(result.reaped, true);
+  assertGone(result.pid, 'child');
+});
+
+test('continuous stderr flood cannot starve deadline or bounded escalation', () => {
+  const result = spawnEvidence('timeout-stderr-flood');
+  assert.equal(result.outcome, 'timeout');
+  assert.equal(result.termSent, true);
+  assert.equal(result.killSent, true);
+  assert.equal(result.waitSignal, 9);
+  assert.equal(result.stderrBytes, 4096);
+  assert.ok(result.stderrDrained > 4096, `drained ${result.stderrDrained}`);
+  assert.ok(result.termAtMs >= 80 && result.termAtMs < 200, `TERM at ${result.termAtMs}ms`);
+  assert.ok(result.killAtMs >= 180 && result.killAtMs < 350, `KILL at ${result.killAtMs}ms`);
+  assert.ok(result.elapsedMs < 600, `elapsed ${result.elapsedMs}ms`);
+  assertGone(result.pid, 'child');
+});
+
+test('delayed setpgid cannot escape direct-child timeout signaling', () => {
+  const delayed = compileSpawnFixture('z2m-helperd-delayed-setpgid', [
+    '-DINJECT_DELAYED_SETPGID=1',
+  ]);
+  const result = spawnEvidence('timeout-cooperative', delayed);
+  assert.equal(result.outcome, 'timeout');
+  assert.equal(result.groupReadyAtTerm, false);
+  assert.equal(result.directTermSent, true);
+  assert.equal(result.waitSignal, 15);
+  assert.ok(result.termAtMs >= 80 && result.termAtMs < 200, `TERM at ${result.termAtMs}ms`);
+  assert.ok(result.elapsedMs < 500, `elapsed ${result.elapsedMs}ms`);
   assertGone(result.pid, 'child');
 });
 

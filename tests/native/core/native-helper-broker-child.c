@@ -68,7 +68,7 @@ int main(int argc, char **argv)
 		return 0;
 	}
 	if (!strcmp(mode, "wakeups")) {
-		struct timespec delay = { .tv_nsec = 10000000L };
+		struct timespec delay = { .tv_nsec = 2000000L };
 		for (;;) {
 			fputc('w', stdout);
 			fflush(stdout);
@@ -86,6 +86,12 @@ int main(int argc, char **argv)
 			return 1;
 		sleep_30_seconds();
 		return 0;
+	}
+	if (!strcmp(mode, "stderr-flood-ignore-term")) {
+		signal(SIGTERM, SIG_IGN);
+		for (;;)
+			if (write_repeated(STDERR_FILENO, 'f', 4096) < 0)
+				return 1;
 	}
 	if (!strcmp(mode, "pipe-pump")) {
 		char buffer[4096];

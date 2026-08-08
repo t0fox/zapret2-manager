@@ -131,3 +131,96 @@ duration_ms 103.653116
 ```text
 2f705a725dbeb19f04bd2e78ac05aaae9c8ff577  test(core): prove bounded helper termination and reap
 ```
+
+## Review Resolution: Bounded Pump, Setup Race, And Exact Reap Evidence
+
+### Status
+
+**PASS.** All six reviewer findings were reproduced or confirmed from control flow and resolved within the Task 3 spike. The exact UID0 AArch64 proof now passes 30/30 cases.
+
+### Root Causes
+
+- stdout, stderr, and status drains looped until `EAGAIN`; a continuously writable pipe could keep the broker inside one drain and delay both deadline checks and escalation.
+- timeout signaling used only `kill(-pid, signal)`. Before the child completed `setpgid(0, 0)`, that process group did not exist and `ESRCH` was accepted without signaling the direct child.
+- descendant `waitpid` results were discarded, so the report proved PID absence but not which adopted PID the broker reaped or whether a final `ECHILD` was observed.
+- TERM and KILL times were inferred only from total elapsed time.
+- injected poll interruptions consumed no time, so a broken implementation that restarted a relative timeout could still pass.
+- final descendant cleanup used blocking `waitpid`, which had no supervision bound if an adopted child remained alive.
+
+### RED Evidence
+
+The adversarial tests were added before implementation changes. Focused exact-target RED result:
+
+```text
+FAIL continuous stderr flood cannot starve deadline or bounded escalation
+  expected outcome: timeout
+  actual outcome: started
+
+FAIL delayed setpgid cannot escape direct-child timeout signaling
+  expected groupReadyAtTerm: false
+  actual: undefined
+
+tests 2, pass 0, fail 2
+```
+
+Timing, exact descendant reap, and final adopted-child exhaustion assertions were also absent from the prior result shape and therefore failed before the new evidence was implemented.
+
+### Implementation
+
+- Each status/stdout/stderr drain performs at most eight 1,024-byte reads per poll iteration. Control always returns to monotonic deadline and escalation checks even under a perpetual writer.
+- The child records `process_group_ready` in the existing shared setup guard immediately after successful `setpgid` and before later setup/exec work.
+- TERM/KILL use the group only after that explicit readiness evidence. If the group is not ready or a ready-group signal races with `ESRCH`, the broker signals the direct PID instead.
+- Signal timestamps are captured from `CLOCK_MONOTONIC` and reported relative to the original start: `termAtMs` and nullable `killAtMs`.
+- Three injected poll interruptions each consume 30 ms. The EINTR case therefore spends 90 ms interrupted and still sends TERM against the original 100 ms deadline while also observing repeated pipe wakeups.
+- All child collection uses bounded `waitpid(-1, ..., WNOHANG)` batches. Exact direct and descendant PIDs are retained; final `ECHILD` sets `adoptedChildrenExhausted`.
+- Cleanup has a fixed deadline after escalation. Failure to prove direct/descendant reap and `ECHILD` becomes `supervision_failure`; no blocking descendant wait remains.
+
+### Exact AArch64 UID0 Proof
+
+```text
+SOCKET_MODULE_SHA256=ccaff63617ed3136c6461dadbf3328cd3a0cba118fbc98578108024291541ca0
+BROKER_FIXTURE_SHA256=bd2d06590e221d8bc1910f22bb9c32c88e6bb0bdcd6bfadff9457417649f9f49
+tests 30
+pass 30
+fail 0
+cancelled 0
+skipped 0
+todo 0
+duration_ms 16417.588935
+```
+
+New and strengthened cases:
+
+```text
+PASS continuous stderr flood cannot starve deadline or bounded escalation
+PASS delayed setpgid cannot escape direct-child timeout signaling
+PASS terminates the dedicated process group including a forked descendant
+PASS repeated EINTR and pipe wakeups do not extend the absolute deadline
+PASS cooperative and TERM-ignoring cases expose bounded monotonic signal times
+```
+
+The exact command identity is unchanged from the preceding proof: real WSL UID 0, target AArch64 OpenWrt musl under the pinned PRoot/QEMU invocation, target compiler, ucode, and isolated socket module.
+
+### Strict Builds And Regressions
+
+```text
+z2m-helperd-spike.c: PASS (-std=c11 -Wall -Wextra -Werror)
+native-helper-broker-child.c: PASS (-std=c11 -Wall -Wextra -Werror)
+package policy: 23 tests, 23 pass, 0 fail, duration_ms 144.898575
+git diff --check: PASS
+```
+
+Review-resolution artifact hashes:
+
+```text
+e7643122ff25e4972e96f3dc7365e14dd3299fe9977658a0a38c9717a60b46c9  tests/native/core/z2m-helperd-spike.c
+f04733236f4a72465363123c90e85368e2991ee8018d928fc37cdadc93454bd5  tests/native/core/native-helper-broker-child.c
+2d4bddc4846f85f922d1a04e9f0928b52998a3bb8f233993eedb4bbec69c6746  tests/native/core/native-helper-broker-spike.test.mjs
+```
+
+### Residual Concerns
+
+- The explicit setup-ready flag and subreaper are spike evidence mechanisms, not a production broker protocol or daemon-wide child policy.
+- QEMU tolerance remains explicit: TERM must be observed in `[80, 200)` ms, KILL in `[180, 350)` ms, and bounded completion under 600 ms for escalation cases.
+- No framing, production broker, adapter, procd, or M4 work was added.
+- No blocker remains.
