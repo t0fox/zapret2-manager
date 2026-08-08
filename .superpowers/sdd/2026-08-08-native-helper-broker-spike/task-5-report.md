@@ -235,3 +235,89 @@ forked after TERM were not handled by one-shot selection/discovery.
   terminal outcome.
 - No Task 5 blocker remains. Procd, adapter, M3 gate replacement, and M4 remain
   untouched.
+
+## Re-Review Fix Round 3
+
+### Status
+
+**PASS.** The remaining stale-path, outcome-precedence, and PID-reuse findings
+were reproduced RED and fixed in
+`d517ffa650e636c8f9eb8641911db5d29a97c9fa` (`fix(core): fail closed on stale
+broker sockets`). No procd, adapter, M3 gate replacement, or M4 work was added.
+
+### Policy Decision
+
+Linux does not provide an fd-based unlink operation that atomically guarantees
+the pathname still names a previously inspected socket. Layering pathname
+stat/rename/recheck steps cannot prove that an unrelated privileged replacement
+will never be moved or deleted. Production therefore no longer automatically
+renames or unlinks any socket pathname that exists at startup.
+
+The stricter policy is compatible with the amendment's safety condition: stale
+objects may be removed only when verified, but automatic removal is not required.
+The approved design now states the concrete recovery behavior. Under the held
+singleton lock, a verified root-owned socket is connect-probed only to classify
+it as live or stale. Both classifications fail startup and leave the pathname
+untouched. A stale path requires explicit operator removal after confirming no
+daemon is live, or disappears naturally when `/tmp` is recreated on reboot.
+
+### RED Evidence
+
+```text
+FAIL fails closed on a stale socket and leaves every pre-existing object untouched
+FAIL fails singleton probe on a live socket without modifying it
+FAIL discovery failure overrides simultaneous timeout after converged cleanup
+FAIL identity registry accepts a reused PID only with new starttime after old reap
+```
+
+The stale test initially needed a bounded asynchronous host guard because the
+old implementation successfully auto-cleaned and remained running, which itself
+was the behavior under test.
+
+### Fixes
+
+- Removed all startup stale-socket rename, quarantine, restoration, and unlink
+  logic. Startup performs no mutation when the fixed socket pathname exists.
+- A root-owned mode-0600 socket is connect-probed while the post-verified
+  singleton lock is held. Successful connect reports a live singleton;
+  connection failure reports stale-path operator recovery. Both return failure
+  and preserve the exact inode. Unsafe non-socket/wrong-metadata objects remain
+  untouched and fail closed.
+- Shutdown cleanup still unlinks only the socket created by the current daemon
+  after device/inode/type/owner identity matches. This is distinct from startup
+  stale cleanup and retains the prior identity-safe replacement test.
+- Any `supervision_failed` flag now has first terminal-outcome precedence,
+  alongside incomplete cleanup. A deterministic child-discovery failure at the
+  same time as timeout converges cleanup and still returns
+  `transport_failure/supervision_failure`, never `timeout`.
+- Identity registry lookup now keys by PID and starttime. The same identity is
+  deduplicated; a different starttime for an unreaped PID is a fail-closed
+  conflict; after the old identity is reaped, the reused PID/new starttime is
+  inserted as a distinct live identity and passes the same signal/reap lifecycle
+  eligibility audit.
+- Post-flock lock identity recheck and the no-negative-PGID-after-leader-reap
+  rules remain unchanged.
+
+### Verification
+
+- Focused broker plus package gate: **60 tests, 60 pass, 0 fail, 0 skipped**.
+- Shared non-M3 host gate: **75 tests, 75 pass, 0 fail, 0 skipped**.
+- Root-required unaffected bootstrap/helper gate: **96 tests, 96 pass, 0 fail,
+  0 skipped**.
+- Strict host production build: PASS with `-std=c11 -Wall -Wextra -Werror
+  -D_GNU_SOURCE` and `json-c`.
+- Strict OpenWrt AArch64 musl production build: PASS.
+- Static audit: no startup rename/unlink of the fixed socket; no generic exec,
+  shell, TCP, environment capability, or package test seam.
+- `git diff --check`: PASS.
+
+### Concerns
+
+- An unclean daemon crash leaves a stale socket and intentionally prevents
+  automatic restart until an operator verifies no daemon is live and removes
+  the path. Normal shutdown removes the daemon-created inode; reboot recreates
+  tmpfs and clears it. Task 6 procd integration must surface this startup error
+  rather than adding unsafe cleanup.
+- PID identity remains Linux procfs PID+starttime because pidfd availability on
+  the exact target is not assumed. Identity mismatch is fail-closed.
+- No Task 5 blocker remains.
