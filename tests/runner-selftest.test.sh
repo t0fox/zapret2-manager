@@ -1,5 +1,5 @@
 #!/bin/sh
-# tests/runner-selftest.test.sh — negative controls for tools/run-all-tests.sh.
+# tests/runner-selftest.test.sh — negative controls for scripts/test/run-all-tests.sh.
 #
 # A runner that cannot prove it goes red is not a gate. Each control builds a
 # TEMP fixture tree (never a permanent fixture in production tests) and runs
@@ -19,7 +19,7 @@
 
 set -u
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-RUNNER="$HERE/tools/run-all-tests.sh"
+RUNNER="$HERE/scripts/test/run-all-tests.sh"
 NODE="${NODE:-node}"
 
 FIX="$(mktemp -d)" || { echo "selftest: mktemp -d failed" >&2; exit 1; }
@@ -29,7 +29,7 @@ fails=0
 ok()  { printf '[runner-selftest]   PASS  %s\n' "$1"; }
 bad() { printf '[runner-selftest]   FAIL  %s\n' "$1" >&2; fails=$((fails+1)); }
 
-passing_node() { # $1 = file
+passing_node() {
 	cat > "$1" <<'EOF'
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -37,7 +37,6 @@ test('fixture passes', () => { assert.equal(1, 1); });
 EOF
 }
 
-# happy_tree DIR — a minimal complete tree: backend + ui + strategy + shell.
 happy_tree() {
 	mkdir -p "$1/ui" "$1/strategy"
 	passing_node "$1/a.test.mjs"
@@ -46,13 +45,12 @@ happy_tree() {
 	printf '#!/bin/sh\nexit 0\n' > "$1/gate.test.sh"
 }
 
-run_runner() { # $1 = tree ; output in $FIX/last.out, rc in $rrc (no subshell)
+run_runner() {
 	TEST_ROOT="$1" sh "$RUNNER" > "$FIX/last.out" 2>&1
 	rrc=$?
 	out="$(cat "$FIX/last.out")"
 }
 
-# ---- B1/B2: nested ui/ and strategy/ suites are discovered -------------------
 T1="$FIX/t1"; mkdir -p "$T1"; happy_tree "$T1"
 run_runner "$T1"
 if [ "$rrc" -eq 0 ] \
@@ -68,7 +66,6 @@ else
 	bad "B1+B2: nested suites not discovered or wrong totals (rc=$rrc)"; printf '%s\n' "$out" | sed 's/^/    /' >&2
 fi
 
-# ---- B3: a failing nested Node test makes the runner non-zero ----------------
 T2="$FIX/t2"; mkdir -p "$T2"; happy_tree "$T2"
 cat > "$T2/ui/broken.test.mjs" <<'EOF'
 import { test } from 'node:test';
@@ -84,7 +81,6 @@ else
 	bad "B3: failing nested Node test did not redden the runner (rc=$rrc)"; printf '%s\n' "$out" | sed 's/^/    /' >&2
 fi
 
-# ---- B4: a Node syntax crash reddens (and a no-TAP crash is synthetic fail=1)
 T3="$FIX/t3"; mkdir -p "$T3"; happy_tree "$T3"
 printf 'this is not valid javascript (((\n' > "$T3/strategy/crash.test.mjs"
 out=''; run_runner "$T3"
@@ -95,9 +91,7 @@ if [ "$rrc" -ne 0 ] \
 else
 	bad "B4a: syntax crash was not recorded as a failure (rc=$rrc)"; printf '%s\n' "$out" | sed 's/^/    /' >&2
 fi
-# no-TAP variant: node produces garbage output and exits 1 — the runner must
-# not parse pass=0/fail=0 as success; exit code alone reddens with a
-# synthetic fail=1 (the exact weakness of the old command-substitution runner).
+
 T3B="$FIX/t3b"; mkdir -p "$T3B"; happy_tree "$T3B"
 printf '#!/bin/sh\necho garbage-without-any-tap-summary\nexit 1\n' > "$FIX/fake-node.sh"
 chmod +x "$FIX/fake-node.sh"
@@ -112,7 +106,6 @@ else
 	bad "B4b: no-TAP crash became pass=0/fail=0 success (rc=$rrc)"; printf '%s\n' "$out" | sed 's/^/    /' >&2
 fi
 
-# ---- B5: a failing shell gate makes the runner non-zero ----------------------
 T4="$FIX/t4"; mkdir -p "$T4"; happy_tree "$T4"
 printf '#!/bin/sh\nexit 1\n' > "$T4/badgate.test.sh"
 run_runner "$T4"
@@ -124,7 +117,6 @@ else
 	bad "B5: failing shell gate did not redden the runner (rc=$rrc)"; printf '%s\n' "$out" | sed 's/^/    /' >&2
 fi
 
-# ---- B6: one test file runs exactly once -------------------------------------
 T5="$FIX/t5"; mkdir -p "$T5"; happy_tree "$T5"
 run_runner "$T5"
 n="$(printf '%s\n' "$out" | grep -c 'FILE a.test.mjs ')"
@@ -134,7 +126,6 @@ else
 	bad "B6: a.test.mjs seen $n times (rc=$rrc)"; printf '%s\n' "$out" | sed 's/^/    /' >&2
 fi
 
-# ---- B7: names containing a space do not break discovery ---------------------
 T6="$FIX/t6"; mkdir -p "$T6"; happy_tree "$T6"; mkdir -p "$T6/dir with space"
 passing_node "$T6/dir with space/my test.test.mjs"
 run_runner "$T6"
@@ -146,8 +137,7 @@ else
 	bad "B7: spaced names broke discovery (rc=$rrc)"; printf '%s\n' "$out" | sed 's/^/    /' >&2
 fi
 
-# ---- B8: a missing expected category is an error ------------------------------
-T7="$FIX/t7"; mkdir -p "$T7/strategy"   # NO ui/ directory at all
+T7="$FIX/t7"; mkdir -p "$T7/strategy"
 passing_node "$T7/a.test.mjs"
 passing_node "$T7/strategy/s.test.mjs"
 printf '#!/bin/sh\nexit 0\n' > "$T7/gate.test.sh"

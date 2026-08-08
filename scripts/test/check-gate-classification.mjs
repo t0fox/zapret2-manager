@@ -15,25 +15,23 @@ export function parseFailures(text) {
 export function classify(text) {
   const failures = parseFailures(text);
   const unexpected = [];
-  for (const [file, count] of failures) {
-    unexpected.push({ file, count });
-  }
+  for (const [file, count] of failures) unexpected.push({ file, count });
   return { failures, unexpected, missing: [], mismatched: [], ok: unexpected.length === 0 };
 }
 
 function main() {
   const path = process.argv[2];
   if (!path) {
-    console.error('usage: check-frontend-gate-classification.mjs FULL_GATE_LOG');
+    console.error('usage: check-gate-classification.mjs FULL_GATE_LOG');
     process.exit(2);
   }
   const result = classify(readFileSync(path, 'utf8'));
   if (!result.ok) {
-    console.error('Frontend completion classification failed.');
+    console.error('Repository gate classification failed.');
     if (result.unexpected.length) console.error('Unexpected failures:', JSON.stringify(result.unexpected));
     process.exit(1);
   }
-  console.log('Frontend gate PASS: all parsed suites are green.');
+  console.log('Repository gate PASS: all parsed suites are green.');
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) main();

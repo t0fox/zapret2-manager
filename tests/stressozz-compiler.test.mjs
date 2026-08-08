@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { compileCorpus, compileRecord, COMPILER_VERSION, runIsolatedValidation } from '../tools/compile-stressozz-corpus.mjs';
+import { compileCorpus, compileRecord, COMPILER_VERSION, runIsolatedValidation } from '../scripts/build/compile-stressozz-corpus.mjs';
 
 const root = new URL('..', import.meta.url).pathname.replace(/^\/(?:[A-Za-z]:)/, (m) => m.slice(1));
 const source = JSON.parse(readFileSync(join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/catalog/stressozz-corpus.json'), 'utf8'));
@@ -26,7 +26,7 @@ test('compiler is deterministic and packaged compiled corpus matches generated o
 	const dir = mkdtempSync(join(tmpdir(), 'stressozz-compile-'));
 	try {
 		const output = join(dir, 'compiled.json');
-		execFileSync(process.execPath, ['tools/compile-stressozz-corpus.mjs', 'zapret2-manager/files/usr/libexec/zapret2-manager/catalog/stressozz-corpus.json', output], { cwd: root });
+		execFileSync(process.execPath, ['scripts/build/compile-stressozz-corpus.mjs', 'zapret2-manager/files/usr/libexec/zapret2-manager/catalog/stressozz-corpus.json', output], { cwd: root });
 		assert.deepEqual(readFileSync(output), readFileSync(join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/catalog/stressozz-compiled.json')));
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
