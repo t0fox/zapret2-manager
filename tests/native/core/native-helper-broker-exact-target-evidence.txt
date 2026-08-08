@@ -3,8 +3,8 @@ STATUS: PASS
 Production Tasks 5+ and M4 were not started.
 
 Execution provenance
-Captured: 2026-08-08T13:42:18+03:00
-Executed input commit: 94daabcc69eecb991aa508202bb421ede99526e5
+Captured: 2026-08-08T13:50:46+03:00
+Executed input commit: 7d570e095d09479ee9a0bb5e149b34fc0b1d88c1
 Pre-run git status --porcelain: EMPTY
 Host: Linux DESKTOP-1M72BG8 6.18.33.2-microsoft-standard-WSL2 x86_64 GNU/Linux
 Root execution context: real host uid=0
@@ -13,13 +13,13 @@ Emulator: qemu-aarch64 version 10.2.1 (Debian 1:10.2.1+ds-1ubuntu3.2)
 Execution wrapper: PRoot, PROOT_NO_SECCOMP=1
 
 Tracked source identities
-SHA256 C server source: 6098ae9470fded43eafed3650e484f0770bb837553e2cda5120dca9f6cdb936f
-SHA256 ucode client source: 0c14599423f70567b5a5babe463826f52d038fc1e21335cba055b9228eba312b
-SHA256 Node harness source: 3615f89a4f7061cb12986d5fa7dab98f0e489ef63cf0a33f94e95d437c271b63
+SHA256 C server source: 3e9bec582d20f65fb5109df7c1557d921104f51263660a221f63ac5e5d1f32bf
+SHA256 ucode client source: a8dd2d5dc21f85cab00d710f2cdde2e81b4da43d3185d2d5ac89a6c6962cd6a6
+SHA256 Node harness source: 229d03f7aceaae88919d068062342f55a02ab0642a0447c4b5001ebd9c236d81
 SHA256 child fixture source: 8ce580af386dd858630fcabf6147df3337df8ce9595aeb07b81abeed7fbaa38b
 
 Compiled exact-target identities from the raw TAP run
-SHA256 compiled AArch64 server: 969e585c1773bb7f1023f7a5754cc61fd3fe8112a6e8223f2c3b1eae51c99798
+SHA256 compiled AArch64 server: 4d79dea39c3b21a0fafee249598b78a048d7382752ff03b996a267549be972e9
 SHA256 compiled AArch64 child: e766c44676b1e08e6a829fab2700c7b51d4b6aad9680d038b407b2f18dd5dee5
 Both were compiled by TARGET_CC with -std=c11 -Wall -Wextra -Werror.
 
@@ -58,12 +58,12 @@ body bytes 1278944, 2192544, 3361952, and final 4194304. A separate child-pipe
 finding then restored blocking child ends and nonblocking parent pump ends.
 
 Raw TAP artifact: tests/native/core/native-helper-broker-exact-target.tap
-SHA256 raw TAP artifact: feb253f89bebdd7d3d063b882ed7c989ad5f813a621875a8021069a77c0e2d36
-# tests 83
+SHA256 raw TAP artifact: accbe968096ed557bb55116971338838d722a26021acba634714b89b19107a20
+# tests 90
 # suites 0
-# pass 83
+# pass 90
 # fail 0
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 19180.568309
+# duration_ms 22721.072671
