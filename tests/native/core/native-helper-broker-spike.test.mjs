@@ -7,9 +7,12 @@ import { createHash } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 
 const EXPECTED_UCODE_COMMIT = '85922056ef7abeace3cca3ab28bc1ac2d88e31b1';
+const EXPECTED_UCODE_SHA256 = '647cb596577867470c16c6b58617b7ccd9b1bbe8f40c1fed6b29974df7b48833';
+const EXPECTED_SOCKET_SHA256 = 'ccaff63617ed3136c6461dadbf3328cd3a0cba118fbc98578108024291541ca0';
+const EXPECTED_SOURCE_SHA256 = '8c6f586f90e704827dc8736bf3726d15989a978c6a726a52d51e33f8019403b6';
+const EXPECTED_VERSION_DATE = '1768603607';
 const ucode = process.env.UCODE_BIN;
 const ucodeArgs = process.env.UCODE_ARGS?.split(/\s+/).filter(Boolean) ?? [];
-const libraryArgs = process.env.UCODE_MODULE_PATH ? ['-L', process.env.UCODE_MODULE_PATH] : [];
 const cc = process.env.TARGET_CC;
 const root = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), 'z2m-broker-spike-'));
 const fixture = path.join(root, 'z2m-helperd-spike');
@@ -21,6 +24,8 @@ let server;
 let serverErrors = '';
 let nonRootRoot;
 let nonRootFixture;
+let nonRootName;
+let libraryArgs;
 
 function sha256(file) {
   return createHash('sha256').update(fs.readFileSync(file)).digest('hex');
@@ -37,7 +42,7 @@ function invoke(mode, request = Buffer.alloc(0), { cap = 8 * 1024 * 1024,
   const requestPath = path.join(invocationRoot, `request-${mode}`);
   const responsePath = path.join(invocationRoot, `response-${mode}`);
   if (asNonRoot) {
-    const written = run('runuser', ['-u', 'kirill', '--', 'tee', requestPath], {
+    const written = run('runuser', ['-u', nonRootName, '--', 'tee', requestPath], {
       input: request, encoding: null,
     });
     assert.equal(written.status, 0, `non-root request creation failed: ${written.stderr}`);
@@ -45,7 +50,7 @@ function invoke(mode, request = Buffer.alloc(0), { cap = 8 * 1024 * 1024,
     fs.writeFileSync(requestPath, request);
   }
   const command = asNonRoot ? 'runuser' : ucode;
-  const prefix = asNonRoot ? ['-u', 'kirill', '--', 'env',
+  const prefix = asNonRoot ? ['-u', nonRootName, '--', 'env',
     `LD_LIBRARY_PATH=${process.env.LD_LIBRARY_PATH}`, 'PROOT_NO_SECCOMP=1', ucode] : [];
   const result = run(command, [...prefix, ...ucodeArgs, ...libraryArgs, probe, mode, invocationSocket,
     requestPath, responsePath, String(cap), String(timeout), String(repeats)], {
@@ -63,7 +68,7 @@ async function startServer(mode, args = [], { asNonRoot = false } = {}) {
   const invocationSocket = path.join(invocationRoot, 'helper.sock');
   fs.rmSync(invocationSocket, { force: true });
   const command = asNonRoot ? 'runuser' : ucode;
-  const prefix = asNonRoot ? ['-u', 'kirill', '--', 'env',
+  const prefix = asNonRoot ? ['-u', nonRootName, '--', 'env',
     `LD_LIBRARY_PATH=${process.env.LD_LIBRARY_PATH}`, 'PROOT_NO_SECCOMP=1', ucode] : [];
   server = spawn(command, [...prefix, ...targetPrefix, asNonRoot ? nonRootFixture : fixture,
     mode, invocationSocket,
@@ -90,33 +95,69 @@ before(() => {
   assert.equal(process.getuid?.(), 0, 'exact socket proof must run under real host UID 0');
   assert.ok(ucode, 'UCODE_BIN must identify exact target ucode');
   assert.ok(process.env.UCODE_ARGS, 'UCODE_ARGS must identify exact target PRoot/QEMU invocation');
-  assert.ok(process.env.UCODE_MODULE_PATH, 'UCODE_MODULE_PATH must identify exact target modules');
   assert.ok(cc, 'TARGET_CC must identify the AArch64 target compiler');
-  assert.equal(process.env.UCODE_SOURCE_COMMIT, EXPECTED_UCODE_COMMIT,
-    `UCODE_SOURCE_COMMIT must equal ${EXPECTED_UCODE_COMMIT}`);
+  const targetRootIndex = ucodeArgs.indexOf('-R');
+  assert.ok(targetRootIndex >= 0 && ucodeArgs[targetRootIndex + 1], 'UCODE_ARGS must contain target -R root');
+  const targetRoot = ucodeArgs[targetRootIndex + 1];
+  const targetUcode = path.join(targetRoot, 'usr/bin/ucode');
+  const modulePath = process.env.TARGET_SOCKET_MODULE;
+  assert.equal(modulePath, path.join(targetRoot, 'usr/lib/ucode/socket.so'),
+    'TARGET_SOCKET_MODULE must be socket.so beneath the executed target root');
+  assert.equal(sha256(targetUcode), EXPECTED_UCODE_SHA256, 'executed target ucode hash mismatch');
+  assert.equal(sha256(modulePath), EXPECTED_SOCKET_SHA256, 'executed target socket module hash mismatch');
+  const sdkRoot = targetRoot.slice(0, targetRoot.indexOf('/staging_dir/'));
+  const packageMakefile = fs.readFileSync(path.join(sdkRoot, 'package/feeds/base/ucode/Makefile'), 'utf8');
+  assert.match(packageMakefile,
+    new RegExp(`^PKG_SOURCE_VERSION:=${EXPECTED_UCODE_COMMIT}$`, 'm'),
+    'target SDK ucode source commit mismatch');
+  assert.match(packageMakefile,
+    new RegExp(`^PKG_MIRROR_HASH:=${EXPECTED_SOURCE_SHA256}$`, 'm'),
+    'target SDK ucode source hash mismatch');
+  assert.equal(sha256(path.join(sdkRoot, 'dl/ucode-2026.01.16~85922056.tar.zst')),
+    EXPECTED_SOURCE_SHA256, 'downloaded ucode source artifact hash mismatch');
+  const versionDate = path.join(sdkRoot,
+    'build_dir/target-aarch64_cortex-a53_musl/ucode-2026.01.16~85922056/version.date');
+  assert.equal(fs.readFileSync(versionDate, 'utf8').trim(), EXPECTED_VERSION_DATE,
+    'target source version.date mismatch');
+
+  const isolatedModules = path.join(root, 'modules');
+  fs.mkdirSync(isolatedModules, { mode: 0o755 });
+  for (const name of ['socket.so', 'fs.so'])
+    fs.copyFileSync(path.join(targetRoot, `usr/lib/ucode/${name}`), path.join(isolatedModules, name));
+  libraryArgs = ['-L', `${isolatedModules}/*.so`];
 
   const identity = run(ucode, [...ucodeArgs, ...libraryArgs, '-e',
-    "import * as socket from 'socket'; printf('%J\\n', { constants: [socket.AF_UNIX, socket.SOCK_STREAM, socket.POLLIN, socket.POLLOUT, socket.POLLERR, socket.POLLHUP] });"]);
+    "import * as fs from 'fs'; import * as socket from 'socket'; printf('%J\\n', { constants: [socket.AF_UNIX, socket.SOCK_STREAM, socket.POLLIN, socket.POLLOUT, socket.POLLERR, socket.POLLHUP], maps: fs.readfile('/proc/self/maps') });"]);
   assert.equal(identity.status, 0, `socket module import failed:\n${identity.stdout}${identity.stderr}`);
-  assert.deepEqual(JSON.parse(identity.stdout.trim()).constants.map(Number.isInteger),
+  const targetIdentity = JSON.parse(identity.stdout.trim());
+  assert.deepEqual(targetIdentity.constants.map(Number.isInteger),
     [true, true, true, true, true, true]);
+  assert.match(targetIdentity.maps, new RegExp(`${isolatedModules.replaceAll('/', '\\/')}\\/socket\\.so`),
+    'target process did not map isolated staged socket.so');
 
-  const modulePath = process.env.TARGET_SOCKET_MODULE;
-  assert.ok(modulePath, 'TARGET_SOCKET_MODULE must identify exact target socket.so on the host');
   const moduleFile = run('file', [modulePath]);
   assert.equal(moduleFile.status, 0, moduleFile.stderr);
   assert.match(moduleFile.stdout, /ELF 64-bit LSB shared object, ARM aarch64/);
 
-  const built = run(cc, ['-std=c11', '-Wall', '-Wextra', '-Werror', fixtureSource, '-o', fixture]);
+  const account = run('getent', ['passwd', '1000']);
+  assert.equal(account.status, 0, 'a real passwd account for required UID 1000 must exist');
+  nonRootName = account.stdout.split(':')[0];
+  assert.ok(nonRootName, 'unable to resolve account name for UID 1000');
+  const accountUid = run('id', ['-u', nonRootName]);
+  assert.equal(accountUid.status, 0, `unable to inspect UID 1000 account ${nonRootName}`);
+  assert.equal(accountUid.stdout.trim(), '1000', `${nonRootName} must resolve to UID 1000`);
+
+  const built = run(cc, ['-std=c11', '-Wall', '-Wextra', '-Werror',
+    `-DTEST_ROOT=\"${root}\"`, fixtureSource, '-o', fixture]);
   assert.equal(built.status, 0, `${cc} failed:\n${built.stdout}${built.stderr}`);
-  const userTmp = run('runuser', ['-u', 'kirill', '--', 'mktemp', '-d',
+  const userTmp = run('runuser', ['-u', nonRootName, '--', 'mktemp', '-d',
     `${process.env.TMPDIR ?? '/tmp'}/z2m-broker-nonroot-XXXXXX`]);
   assert.equal(userTmp.status, 0, `non-root test root creation failed:\n${userTmp.stderr}`);
   nonRootRoot = userTmp.stdout.trim();
   nonRootFixture = path.join(nonRootRoot, 'z2m-helperd-spike');
-  const nonRootBuilt = run('runuser', ['-u', 'kirill', '--', 'env',
+  const nonRootBuilt = run('runuser', ['-u', nonRootName, '--', 'env',
     `STAGING_DIR=${process.env.STAGING_DIR}`, cc, '-std=c11', '-Wall', '-Wextra', '-Werror',
-    fixtureSource, '-o', nonRootFixture]);
+    `-DTEST_ROOT=\"${nonRootRoot}\"`, fixtureSource, '-o', nonRootFixture]);
   assert.equal(nonRootBuilt.status, 0, `${cc} failed:\n${nonRootBuilt.stdout}${nonRootBuilt.stderr}`);
   process.stderr.write(`SOCKET_MODULE_SHA256=${sha256(modulePath)}\n`);
   process.stderr.write(`BROKER_FIXTURE_SHA256=${sha256(fixture)}\n`);
@@ -138,10 +179,12 @@ test('preserves binary and embedded-NUL bytes', async () => {
 });
 
 test('handles partial writes and backpressure', async () => {
-  await startServer('echo', [200]);
+  await startServer('backpressure', [200]);
   const payload = Buffer.alloc(4 * 1024 * 1024, 0x5a);
   const result = invoke('exchange', payload, { cap: payload.length, timeout: 5000 });
-  assert.ok(result.sendCalls > 1, `expected partial writes, got ${result.sendCalls} send call(s)`);
+  assert.ok(result.shortWrites > 0, `expected a short send, got ${result.shortWrites}`);
+  assert.ok(result.sendEagain > 0, `expected EAGAIN under backpressure, got ${result.sendEagain}`);
+  assert.ok(result.recvCalls > 1, `expected fragmented receive, got ${result.recvCalls} recv call(s)`);
   assert.deepEqual(result.response, payload);
   await stopServer();
 });
@@ -155,19 +198,20 @@ test('drains POLLIN with POLLHUP before reporting EOF', async () => {
   await stopServer();
 });
 
-test('uses one absolute deadline for delayed replies', async () => {
-  await startServer('delayed', [250]);
-  const result = invoke('exchange', Buffer.from('request'), { timeout: 100 });
+test('uses one absolute deadline across repeated trickle wakeups', async () => {
+  await startServer('trickle', [30]);
+  const result = invoke('exchange', Buffer.from('request'), { timeout: 120 });
   assert.equal(result.error, 'timeout');
-  assert.ok(result.elapsedMs >= 80 && result.elapsedMs < 240, `elapsed ${result.elapsedMs}ms`);
+  assert.ok(result.recvCalls >= 3, `expected repeated readiness, got ${result.recvCalls} recv call(s)`);
+  assert.ok(result.elapsedMs >= 100 && result.elapsedMs < 230, `elapsed ${result.elapsedMs}ms`);
   await stopServer();
 });
 
-test('distinguishes immediate disconnect from a valid empty response', async () => {
+test('distinguishes bare EOF from an explicitly framed empty body', async () => {
   await startServer('immediate-close');
-  assert.equal(invoke('exchange', Buffer.from('request')).error, 'disconnect');
+  assert.equal(invoke('exchange').error, 'disconnect');
   await stopServer();
-  await startServer('echo');
+  await startServer('empty-frame');
   const empty = invoke('exchange');
   assert.equal(empty.error, null);
   assert.equal(empty.eof, true);

@@ -15,6 +15,13 @@
 #include <time.h>
 #include <unistd.h>
 
+#ifndef TEST_ROOT
+#error TEST_ROOT must identify the compile-time test root
+#endif
+
+#define SOCKET_BASENAME "helper.sock"
+#define FRAME_MARKER "F"
+
 static const char *socket_path;
 static dev_t socket_dev;
 static ino_t socket_ino;
@@ -61,6 +68,26 @@ static void write_all(int fd, const void *data, size_t length)
 	}
 }
 
+static void write_fragmented(int fd, const void *data, size_t length)
+{
+	const uint8_t *cursor = data;
+	const struct timespec pause = { .tv_nsec = 1000000L };
+
+	while (length > 0) {
+		size_t chunk = length > 32768 ? 32768 : length;
+		write_all(fd, cursor, chunk);
+		cursor += chunk;
+		length -= chunk;
+		if (length > 0)
+			nanosleep(&pause, NULL);
+	}
+}
+
+static void begin_frame(int client)
+{
+	write_all(client, FRAME_MARKER, 1);
+}
+
 static void drain(int client)
 {
 	uint8_t buffer[16384];
@@ -74,7 +101,7 @@ static void drain(int client)
 		fail("read");
 }
 
-static void drain_and_echo(int client, unsigned int delay_ms)
+static void drain_and_echo(int client, unsigned int delay_ms, bool fragmented)
 {
 	uint8_t buffer[16384];
 	uint8_t *request = NULL;
@@ -107,7 +134,11 @@ static void drain_and_echo(int client, unsigned int delay_ms)
 		used += (size_t)length;
 	}
 
-	write_all(client, request, used);
+	begin_frame(client);
+	if (fragmented)
+		write_fragmented(client, request, used);
+	else
+		write_all(client, request, used);
 	free(request);
 }
 
@@ -139,6 +170,7 @@ static void serve(int client, const char *mode, unsigned int argument)
 
 	if (!strcmp(mode, "partial")) {
 		drain(client);
+		begin_frame(client);
 		write_all(client, "partial-response", strlen("partial-response"));
 		return;
 	}
@@ -146,6 +178,7 @@ static void serve(int client, const char *mode, unsigned int argument)
 	if (!strcmp(mode, "generate")) {
 		uint8_t buffer[4096];
 		drain(client);
+		begin_frame(client);
 		memset(buffer, 0xa5, sizeof(buffer));
 		for (unsigned int sent = 0; sent < argument;) {
 			size_t chunk = argument - sent;
@@ -161,17 +194,47 @@ static void serve(int client, const char *mode, unsigned int argument)
 		int length = snprintf(report, sizeof(report),
 			"server_pid=%ld client_uid=%ld client_pid=%ld\n",
 			(long)getpid(), (long)cred.uid, (long)cred.pid);
+		begin_frame(client);
 		write_all(client, report, (size_t)length);
 		return;
 	}
 
+	if (!strcmp(mode, "empty-frame")) {
+		drain(client);
+		begin_frame(client);
+		return;
+	}
+
+	if (!strcmp(mode, "trickle")) {
+		const struct timespec pause = {
+			.tv_sec = argument / 1000,
+			.tv_nsec = (long)(argument % 1000) * 1000000L,
+		};
+		drain(client);
+		begin_frame(client);
+		for (unsigned int i = 0; i < 20; i++) {
+			write_all(client, "x", 1);
+			nanosleep(&pause, NULL);
+		}
+		return;
+	}
+
 	if (!strcmp(mode, "delayed")) {
-		drain_and_echo(client, argument);
+		drain_and_echo(client, argument, false);
+		return;
+	}
+
+	if (!strcmp(mode, "backpressure")) {
+		int buffer_size = 4096;
+		if (setsockopt(client, SOL_SOCKET, SO_RCVBUF,
+		    &buffer_size, sizeof(buffer_size)) < 0)
+			fail("setsockopt(SO_RCVBUF)");
+		drain_and_echo(client, argument, true);
 		return;
 	}
 
 	if (!strcmp(mode, "echo") || !strcmp(mode, "echo-many")) {
-		drain_and_echo(client, argument);
+		drain_and_echo(client, argument, false);
 		return;
 	}
 
@@ -182,14 +245,23 @@ static void serve(int client, const char *mode, unsigned int argument)
 int main(int argc, char **argv)
 {
 	struct sockaddr_un address = { .sun_family = AF_UNIX };
-	struct stat st;
+	struct stat st, root_st;
+	char required_path[sizeof(address.sun_path)];
 	unsigned int argument = 0;
 	unsigned int count = 1;
 	mode_t previous_umask;
 
-	if (argc < 3 || strlen(argv[2]) >= sizeof(address.sun_path)) {
+	int path_length = snprintf(required_path, sizeof(required_path),
+		"%s/%s", TEST_ROOT, SOCKET_BASENAME);
+	if (path_length < 0 || (size_t)path_length >= sizeof(required_path) ||
+	    argc < 3 || strcmp(argv[2], required_path) != 0) {
 		fprintf(stderr, "usage: %s MODE SOCKET [ARGUMENT]\n", argv[0]);
 		return 2;
+	}
+	if (lstat(TEST_ROOT, &root_st) < 0 || !S_ISDIR(root_st.st_mode) ||
+	    S_ISLNK(root_st.st_mode)) {
+		errno = EINVAL;
+		fail("unsafe TEST_ROOT");
 	}
 
 	if (argc > 3)
