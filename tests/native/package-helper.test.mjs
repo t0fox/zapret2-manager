@@ -306,7 +306,7 @@ test('CI provisions pinned ucode and passes it to the shared native gate', () =>
 
 test('package declares every ucode module required by native helper transport', () => {
   const packageDefinition = block('Package/zapret2-manager');
-  for (const dependency of ['ucode-mod-fs', 'ucode-mod-io', 'ucode-mod-uloop']) {
+  for (const dependency of ['ucode-mod-fs', 'ucode-mod-io', 'ucode-mod-socket', 'ucode-mod-uloop']) {
     assert.match(packageDefinition, new RegExp(`(?:^|\\s)\\+${dependency}(?=\\s|$)`),
       `package must depend on ${dependency}`);
   }
