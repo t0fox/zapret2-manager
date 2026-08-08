@@ -88,7 +88,8 @@ function duplex(executable, mode, request, cap, deadline, setup_fail) {
 	}, uloop.ULOOP_WRITE);
 
 	reader_watch = uloop.handle(response_reader, function() {
-		let data = response_reader.read(CHUNK);
+		let remaining = cap + 1 - result.bytesRead;
+		let data = response_reader.read(remaining < CHUNK ? remaining : CHUNK);
 		if (data == null)
 			return;
 		if (length(data) == 0) {
@@ -97,12 +98,14 @@ function duplex(executable, mode, request, cap, deadline, setup_fail) {
 			close(response_pipe[0]);
 			return;
 		}
-		let remaining = cap + 1 - result.bytesRead;
-		if (remaining > 0)
-			response += substr(data, 0, remaining);
+		response += data;
 		result.bytesRead += length(data);
-		if (result.bytesRead > cap)
+		if (result.bytesRead > cap) {
 			result.error = 'response_limit';
+			reader_watch.delete(); reader_watch = null;
+			result.stdoutEof = true;
+			close(response_pipe[0]);
+		}
 	}, uloop.ULOOP_READ);
 
 	diagnostic_watch = uloop.handle(diagnostic_reader, function() {
