@@ -2,6 +2,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -12,6 +13,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/un.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -19,9 +21,14 @@
 #error TEST_ROOT must identify the compile-time test root
 #endif
 
+#ifndef FIXED_CHILD
+#error FIXED_CHILD must identify the compile-time fixed child
+#endif
+
 #define STRINGIFY_INNER(value) #value
 #define STRINGIFY(value) STRINGIFY_INNER(value)
 #define TEST_ROOT_PATH STRINGIFY(TEST_ROOT)
+#define FIXED_CHILD_PATH STRINGIFY(FIXED_CHILD)
 #define SOCKET_BASENAME "helper.sock"
 #define FRAME_MARKER "F"
 
@@ -29,6 +36,180 @@ static const char *socket_path;
 static dev_t socket_dev;
 static ino_t socket_ino;
 static int listener = -1;
+
+static void fail(const char *operation);
+
+enum setup_stage {
+	STAGE_SETPGID = 1,
+	STAGE_STDIN_DUP2,
+	STAGE_STDOUT_DUP2,
+	STAGE_STDERR_DUP2,
+	STAGE_CLOSE,
+	STAGE_EXEC,
+};
+
+struct setup_error {
+	uint8_t version;
+	uint8_t stage;
+	int32_t error;
+};
+
+static void child_error(int fd, enum setup_stage stage, int error)
+{
+	struct setup_error record = { .version = 1, .stage = stage, .error = error };
+	ssize_t ignored = write(fd, &record, sizeof(record));
+	(void)ignored;
+	_exit(126);
+}
+
+static void checked_child_close(int fd, int status_fd)
+{
+	if (close(fd) < 0)
+		child_error(status_fd, STAGE_CLOSE, errno);
+}
+
+static const char *stage_name(uint8_t stage)
+{
+	switch (stage) {
+	case STAGE_SETPGID: return "setpgid";
+	case STAGE_STDIN_DUP2: return "stdin_dup2";
+	case STAGE_STDOUT_DUP2: return "stdout_dup2";
+	case STAGE_STDERR_DUP2: return "stderr_dup2";
+	case STAGE_CLOSE: return "close";
+	case STAGE_EXEC: return "exec";
+	default: return "unknown";
+	}
+}
+
+static void read_output(int fd, char *output, size_t capacity)
+{
+	size_t used = 0;
+
+	while (used + 1 < capacity) {
+		ssize_t length = read(fd, output + used, capacity - used - 1);
+		if (length < 0 && errno == EINTR)
+			continue;
+		if (length < 0)
+			fail("read child stdout");
+		if (length == 0)
+			break;
+		used += (size_t)length;
+	}
+	output[used] = '\0';
+}
+
+static void spawn_child(const char *mode)
+{
+	int input[2], output[2], errors[2], exec_status[2];
+	struct setup_error record;
+	char child_output[128];
+	char *const argv[] = { (char *)FIXED_CHILD_PATH, (char *)mode, NULL };
+	char *const envp[] = { NULL };
+	pid_t pid;
+	ssize_t status_length = 0;
+	int wait_status;
+
+	if (pipe2(input, O_CLOEXEC) < 0 || pipe2(output, O_CLOEXEC) < 0 ||
+	    pipe2(errors, O_CLOEXEC) < 0 ||
+	    pipe2(exec_status, O_CLOEXEC | O_NONBLOCK) < 0)
+		fail("pipe2");
+
+	pid = fork();
+	if (pid < 0)
+		fail("fork");
+	if (pid == 0) {
+		int source;
+
+		checked_child_close(input[1], exec_status[1]);
+		checked_child_close(output[0], exec_status[1]);
+		checked_child_close(errors[0], exec_status[1]);
+		checked_child_close(exec_status[0], exec_status[1]);
+		if (setpgid(0, 0) < 0)
+			child_error(exec_status[1], STAGE_SETPGID, errno);
+
+		source = input[0];
+#ifdef INJECT_STDIN_DUP2_FAILURE
+		checked_child_close(source, exec_status[1]);
+#endif
+		if (dup2(source, STDIN_FILENO) < 0)
+			child_error(exec_status[1], STAGE_STDIN_DUP2, errno);
+		if (source != STDIN_FILENO)
+			checked_child_close(source, exec_status[1]);
+
+		source = output[1];
+#ifdef INJECT_STDOUT_DUP2_FAILURE
+		checked_child_close(source, exec_status[1]);
+#endif
+		if (dup2(source, STDOUT_FILENO) < 0)
+			child_error(exec_status[1], STAGE_STDOUT_DUP2, errno);
+		if (source != STDOUT_FILENO)
+			checked_child_close(source, exec_status[1]);
+
+		source = errors[1];
+#ifdef INJECT_STDERR_DUP2_FAILURE
+		checked_child_close(source, exec_status[1]);
+#endif
+		if (dup2(source, STDERR_FILENO) < 0)
+			child_error(exec_status[1], STAGE_STDERR_DUP2, errno);
+		if (source != STDERR_FILENO)
+			checked_child_close(source, exec_status[1]);
+
+		execve(FIXED_CHILD_PATH, argv, envp);
+		child_error(exec_status[1], STAGE_EXEC, errno);
+	}
+
+	if (close(input[0]) < 0 || close(output[1]) < 0 || close(errors[1]) < 0 ||
+	    close(exec_status[1]) < 0)
+		fail("parent close");
+	if (close(input[1]) < 0)
+		fail("close child stdin");
+
+	for (;;) {
+		struct pollfd watched = { .fd = exec_status[0], .events = POLLIN | POLLHUP };
+		int ready = poll(&watched, 1, -1);
+		if (ready < 0 && errno == EINTR)
+			continue;
+		if (ready < 0)
+			fail("poll exec status");
+		ssize_t length = read(exec_status[0], (uint8_t *)&record + status_length,
+			sizeof(record) - (size_t)status_length);
+		if (length < 0 && (errno == EINTR || errno == EAGAIN))
+			continue;
+		if (length < 0)
+			fail("read exec status");
+		if (length == 0)
+			break;
+		status_length += length;
+		if ((size_t)status_length == sizeof(record))
+			break;
+	}
+	if (close(exec_status[0]) < 0)
+		fail("close exec status");
+	if (waitpid(pid, &wait_status, 0) < 0)
+		fail("waitpid");
+	read_output(output[0], child_output, sizeof(child_output));
+	if (close(output[0]) < 0 || close(errors[0]) < 0)
+		fail("close child output");
+
+	if (status_length == 0) {
+		int exit_code = WIFEXITED(wait_status) ? WEXITSTATUS(wait_status) : 128;
+		printf("{\"outcome\":\"started\",\"stage\":null,\"errno\":null,"
+			"\"state\":\"started\",\"evidence\":\"status_pipe_eof\","
+			"\"childExit\":%d,\"stdout\":\"%s\"}\n", exit_code,
+			child_output[0] ? !strcmp(child_output, "{\"ok\":true}\n") ?
+				"{\\\"ok\\\":true}\\n" : child_output : "");
+		return;
+	}
+	if ((size_t)status_length != sizeof(record) || record.version != 1) {
+		errno = EPROTO;
+		fail("incomplete exec status");
+	}
+	printf("{\"outcome\":\"%s\",\"stage\":\"%s\",\"errno\":\"%s\","
+		"\"state\":\"not_started\",\"evidence\":\"status_record\"}\n",
+		record.stage == STAGE_EXEC ? "spawn_failure" : "setup_failure",
+		stage_name(record.stage), record.error == ENOENT ? "ENOENT" :
+			record.error == EBADF ? "EBADF" : "OTHER");
+}
 
 static void cleanup(void)
 {
@@ -253,6 +434,11 @@ int main(int argc, char **argv)
 	unsigned int argument = 0;
 	unsigned int count = 1;
 	mode_t previous_umask;
+
+	if (argc == 3 && !strcmp(argv[1], "spawn")) {
+		spawn_child(argv[2]);
+		return 0;
+	}
 
 	int path_length = snprintf(required_path, sizeof(required_path),
 		"%s/%s", TEST_ROOT_PATH, SOCKET_BASENAME);

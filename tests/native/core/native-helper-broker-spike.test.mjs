@@ -16,9 +16,11 @@ const ucodeArgs = process.env.UCODE_ARGS?.split(/\s+/).filter(Boolean) ?? [];
 const cc = process.env.TARGET_CC;
 const root = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), 'z2m-broker-spike-'));
 const fixture = path.join(root, 'z2m-helperd-spike');
+const child = path.join(root, 'native-helper-broker-child');
 const socketPath = path.join(root, 'helper.sock');
 const probe = path.resolve('tests/native/core/native-helper-broker-spike.uc');
 const fixtureSource = path.resolve('tests/native/core/z2m-helperd-spike.c');
+const childSource = path.resolve('tests/native/core/native-helper-broker-child.c');
 const targetPrefix = ucodeArgs.slice(0, -1);
 let server;
 let serverErrors = '';
@@ -33,6 +35,23 @@ function sha256(file) {
 
 function run(command, args, options = {}) {
   return spawnSync(command, args, { encoding: 'utf8', env: process.env, ...options });
+}
+
+function compileSpawnFixture(name, definitions = []) {
+  const output = path.join(root, name);
+  const fixedChild = definitions.some(definition => definition.startsWith('-DFIXED_CHILD='))
+    ? [] : [`-DFIXED_CHILD=${child}`];
+  const built = run(cc, ['-std=c11', '-Wall', '-Wextra', '-Werror',
+    `-DTEST_ROOT=${root}`, ...fixedChild, ...definitions, fixtureSource, '-o', output]);
+  assert.equal(built.status, 0, `${cc} failed:\n${built.stdout}${built.stderr}`);
+  return output;
+}
+
+function spawnEvidence(mode, fixturePath = fixture) {
+  const result = run(ucode, [...targetPrefix, fixturePath, 'spawn', mode]);
+  assert.equal(result.signal, null, `target fixture terminated by ${result.signal}`);
+  assert.equal(result.status, 0, `target fixture failed:\n${result.stdout}${result.stderr}`);
+  return JSON.parse(result.stdout.trim());
 }
 
 function invoke(mode, request = Buffer.alloc(0), { cap = 8 * 1024 * 1024,
@@ -148,8 +167,10 @@ before(() => {
   assert.equal(accountUid.stdout.trim(), '1000', `${nonRootName} must resolve to UID 1000`);
 
   const built = run(cc, ['-std=c11', '-Wall', '-Wextra', '-Werror',
-    `-DTEST_ROOT=${root}`, fixtureSource, '-o', fixture]);
+    `-DTEST_ROOT=${root}`, `-DFIXED_CHILD=${child}`, fixtureSource, '-o', fixture]);
   assert.equal(built.status, 0, `${cc} failed:\n${built.stdout}${built.stderr}`);
+  const childBuilt = run(cc, ['-std=c11', '-Wall', '-Wextra', '-Werror', childSource, '-o', child]);
+  assert.equal(childBuilt.status, 0, `${cc} failed:\n${childBuilt.stdout}${childBuilt.stderr}`);
   const userTmp = run('runuser', ['-u', nonRootName, '--', 'mktemp', '-d',
     `${process.env.TMPDIR ?? '/tmp'}/z2m-broker-nonroot-XXXXXX`]);
   assert.equal(userTmp.status, 0, `non-root test root creation failed:\n${userTmp.stderr}`);
@@ -157,7 +178,7 @@ before(() => {
   nonRootFixture = path.join(nonRootRoot, 'z2m-helperd-spike');
   const nonRootBuilt = run('runuser', ['-u', nonRootName, '--', 'env',
     `STAGING_DIR=${process.env.STAGING_DIR}`, cc, '-std=c11', '-Wall', '-Wextra', '-Werror',
-    `-DTEST_ROOT=${nonRootRoot}`, fixtureSource, '-o', nonRootFixture]);
+    `-DTEST_ROOT=${nonRootRoot}`, `-DFIXED_CHILD=${child}`, fixtureSource, '-o', nonRootFixture]);
   assert.equal(nonRootBuilt.status, 0, `${cc} failed:\n${nonRootBuilt.stdout}${nonRootBuilt.stderr}`);
   process.stderr.write(`SOCKET_MODULE_SHA256=${sha256(modulePath)}\n`);
   process.stderr.write(`BROKER_FIXTURE_SHA256=${sha256(fixture)}\n`);
@@ -254,4 +275,50 @@ test('does not grow descriptors over 100 connect-close cycles', async () => {
   assert.equal(result.fdAfter, result.fdBefore);
   assert.equal(result.completed, 100);
   await stopServer();
+});
+
+test('classifies a missing fixed child from a complete exec error record', () => {
+  const missing = compileSpawnFixture('z2m-helperd-missing', [`-DFIXED_CHILD=${child}.missing`]);
+  assert.deepEqual(spawnEvidence('success', missing), {
+    outcome: 'spawn_failure', stage: 'exec', errno: 'ENOENT', state: 'not_started',
+    evidence: 'status_record',
+  });
+});
+
+for (const [name, stage] of [
+  ['INJECT_STDIN_DUP2_FAILURE', 'stdin_dup2'],
+  ['INJECT_STDOUT_DUP2_FAILURE', 'stdout_dup2'],
+  ['INJECT_STDERR_DUP2_FAILURE', 'stderr_dup2'],
+]) {
+  test(`classifies ${stage} setup failure from a complete status record`, () => {
+    const injected = compileSpawnFixture(`z2m-helperd-${stage}`, [`-D${name}=1`]);
+    assert.deepEqual(spawnEvidence('success', injected), {
+      outcome: 'setup_failure', stage, errno: 'EBADF', state: 'not_started',
+      evidence: 'status_record',
+    });
+  });
+}
+
+test('classifies successful exec only from close-on-exec EOF', () => {
+  assert.deepEqual(spawnEvidence('success'), {
+    outcome: 'started', stage: null, errno: null, state: 'started',
+    evidence: 'status_pipe_eof', childExit: 0, stdout: '{"ok":true}\n',
+  });
+});
+
+for (const code of [127, 255]) {
+  test(`does not reinterpret child exit ${code} as spawn failure`, () => {
+    const result = spawnEvidence(`exit-${code}`);
+    assert.equal(result.outcome, 'started');
+    assert.equal(result.state, 'started');
+    assert.equal(result.evidence, 'status_pipe_eof');
+    assert.equal(result.childExit, code);
+  });
+}
+
+test('does not reinterpret missing child stdout as spawn failure', () => {
+  assert.deepEqual(spawnEvidence('no-stdout'), {
+    outcome: 'started', stage: null, errno: null, state: 'started',
+    evidence: 'status_pipe_eof', childExit: 0, stdout: '',
+  });
 });
