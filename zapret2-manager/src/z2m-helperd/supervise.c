@@ -15,6 +15,9 @@
 
 enum setup_stage { STAGE_SETPGID = 1, STAGE_STDIN, STAGE_STDOUT, STAGE_STDERR, STAGE_CLOSE, STAGE_EXEC };
 struct setup_error { uint8_t version; uint8_t stage; int32_t error; };
+struct child_identity { pid_t pid; unsigned long long starttime; bool reaped; };
+#define MAX_TRACKED_CHILDREN 2048U
+#define MAX_CHILDREN_BYTES 65536U
 _Static_assert(sizeof(struct setup_error) <= PIPE_BUF, "status record must be atomic");
 
 static const char *stage_name(uint8_t stage)
@@ -96,36 +99,138 @@ static int remaining_ms(const struct timespec *deadline)
 	return (int)(sec * 1000 + (nsec + 999999L) / 1000000L);
 }
 
-static void signal_child(pid_t pid, int signal_number, bool reaped)
+static unsigned long long process_starttime(pid_t pid)
 {
-	if (kill(-pid, signal_number) == 0) return;
-	if (errno != ESRCH || reaped) return;
-	(void)kill(pid, signal_number);
-}
-
-static void signal_adopted_children(pid_t leader, int signal_number)
-{
-	char path[64], buffer[4096];
+	char path[64], buffer[1024], *cursor, *end;
 	int fd;
 	ssize_t length;
-	char *cursor, *end;
+	unsigned int field = 3;
 
-	if (snprintf(path, sizeof(path), "/proc/self/task/%ld/children", (long)getpid()) < 0)
-		return;
+	if (snprintf(path, sizeof(path), "/proc/%ld/stat", (long)pid) < 0) return 0;
 	fd = open(path, O_RDONLY | O_CLOEXEC);
-	if (fd < 0) return;
+	if (fd < 0) return 0;
 	do { length = read(fd, buffer, sizeof(buffer) - 1); } while (length < 0 && errno == EINTR);
 	(void)close(fd);
-	if (length <= 0) return;
+	if (length <= 0) return 0;
 	buffer[length] = '\0';
-	cursor = buffer;
-	while (*cursor) {
-		long child = strtol(cursor, &end, 10);
-		if (end == cursor) break;
-		if (child > 0 && child != leader)
-			(void)kill((pid_t)child, signal_number);
+	cursor = strrchr(buffer, ')');
+	if (!cursor || cursor[1] != ' ') return 0;
+	cursor += 2;
+	while (field <= 22) {
+		while (*cursor == ' ') cursor++;
+		if (!*cursor) return 0;
+		end = cursor;
+		while (*end && *end != ' ') end++;
+		if (field == 22) {
+			char saved = *end;
+			unsigned long long value;
+			*end = '\0';
+			errno = 0;
+			value = strtoull(cursor, NULL, 10);
+			*end = saved;
+			return errno == 0 ? value : 0;
+		}
 		cursor = end;
+		field++;
 	}
+	return 0;
+}
+
+static bool identity_live(const struct child_identity *identity)
+{
+	return !identity->reaped && identity->starttime != 0 &&
+		process_starttime(identity->pid) == identity->starttime;
+}
+
+static int track_identity(struct child_identity *tracked, size_t *count, pid_t pid)
+{
+	unsigned long long starttime;
+	for (size_t i = 0; i < *count; i++)
+		if (tracked[i].pid == pid) return 0;
+	if (*count >= MAX_TRACKED_CHILDREN) { errno = EOVERFLOW; return -1; }
+	starttime = process_starttime(pid);
+	if (starttime == 0) return 0;
+	tracked[*count] = (struct child_identity){ .pid = pid, .starttime = starttime };
+	(*count)++;
+	return 0;
+}
+
+static int discover_children(struct child_identity *tracked, size_t *count,
+	size_t *enumeration_bytes)
+{
+	char path[64], buffer[4096], token[32];
+	int fd;
+	ssize_t length;
+	size_t token_length = 0, total = 0;
+#ifdef Z2M_TEST_CHILDREN_PATH
+	const char *children_path = Z2M_TEST_CHILDREN_PATH;
+#else
+	const char *children_path = path;
+#endif
+
+	if (snprintf(path, sizeof(path), "/proc/self/task/%ld/children", (long)getpid()) < 0)
+		return -1;
+	fd = open(children_path, O_RDONLY | O_CLOEXEC);
+	if (fd < 0) {
+#ifdef Z2M_TEST_CHILDREN_PATH
+		if (errno == ENOENT) return 0;
+#endif
+		return -1;
+	}
+	for (;;) {
+		do { length = read(fd, buffer, sizeof(buffer)); } while (length < 0 && errno == EINTR);
+		if (length < 0) { (void)close(fd); return -1; }
+		if (length == 0) break;
+		total += (size_t)length;
+		if (total > MAX_CHILDREN_BYTES) { (void)close(fd); errno = EOVERFLOW; return -1; }
+		for (ssize_t i = 0; i < length; i++) {
+			if (buffer[i] >= '0' && buffer[i] <= '9') {
+				if (token_length + 1 >= sizeof(token)) { (void)close(fd); errno = EOVERFLOW; return -1; }
+				token[token_length++] = buffer[i];
+			} else if (token_length) {
+				long value;
+				token[token_length] = '\0';
+				value = strtol(token, NULL, 10);
+				if (value > 0 && track_identity(tracked, count, (pid_t)value) < 0) {
+					(void)close(fd); return -1;
+				}
+				token_length = 0;
+			}
+		}
+	}
+	(void)close(fd);
+	if (token_length) {
+		long value;
+		token[token_length] = '\0';
+		value = strtol(token, NULL, 10);
+		if (value > 0 && track_identity(tracked, count, (pid_t)value) < 0) return -1;
+	}
+	*enumeration_bytes += total;
+	return 0;
+}
+
+static void signal_tracked(struct child_identity *tracked, size_t count,
+	int signal_number)
+{
+#ifndef Z2M_TEST_SKIP_TERMINATION_SIGNALS
+	for (size_t i = 0; i < count; i++)
+		if (identity_live(&tracked[i])) (void)kill(tracked[i].pid, signal_number);
+#else
+	(void)tracked; (void)count; (void)signal_number;
+#endif
+}
+
+static void signal_leader_group(pid_t leader, int signal_number, bool leader_reaped,
+	unsigned int *post_reap_group_signals)
+{
+	if (leader_reaped) return;
+#ifndef Z2M_TEST_SKIP_TERMINATION_SIGNALS
+	if (kill(-leader, signal_number) < 0 && errno == ESRCH)
+		(void)kill(leader, signal_number);
+#else
+	(void)leader; (void)signal_number;
+#endif
+	(void)post_reap_group_signals;
 }
 
 void z2m_supervise(int client, const struct z2m_request *request, struct z2m_result *result)
@@ -139,6 +244,9 @@ void z2m_supervise(int client, const struct z2m_request *request, struct z2m_res
 	bool timed_out = false, overflow = false, supervision_failed = false;
 	bool cleanup_expired = false;
 	unsigned int poll_count = 0;
+	unsigned int post_reap_group_signals = 0;
+	size_t tracked_count = 0, enumeration_bytes = 0;
+	struct child_identity tracked[MAX_TRACKED_CHILDREN];
 	int wait_status = 0;
 	pid_t pid;
 	struct timespec started, deadline, grace, cleanup_deadline;
@@ -172,6 +280,8 @@ void z2m_supervise(int client, const struct z2m_request *request, struct z2m_res
 		execve(Z2M_HELPER_PATH, argv, envp);
 		child_error(status[1], STAGE_EXEC, errno);
 	}
+	memset(tracked, 0, sizeof(tracked));
+	if (track_identity(tracked, &tracked_count, pid) < 0) supervision_failed = true;
 	close(input[0]); input[0] = -1; close(output[1]); output[1] = -1;
 	close(errors[1]); errors[1] = -1; close(status[1]); status[1] = -1;
 	nonblocking(input[1]); nonblocking(output[0]); nonblocking(errors[0]); nonblocking(status[0]);
@@ -249,13 +359,21 @@ void z2m_supervise(int client, const struct z2m_request *request, struct z2m_res
 		for (unsigned int i = 0; i < 8; i++) {
 			int collected_status;
 			pid_t waited = waitpid(-1, &collected_status, WNOHANG);
-			if (waited == pid) { wait_status = collected_status; reaped = true; continue; }
-			if (waited > 0) continue;
+			if (waited == pid) { wait_status = collected_status; reaped = true; }
+			if (waited > 0) {
+				for (size_t j = 0; j < tracked_count; j++)
+					if (tracked[j].pid == waited) tracked[j].reaped = true;
+				continue;
+			}
 			if (waited == 0) break;
 			if (errno == EINTR) continue;
 			if (errno == ECHILD) { descendants_exhausted = true; break; }
 			supervision_failed = true; break;
 		}
+		if (!descendants_exhausted && discover_children(tracked, &tracked_count,
+		    &enumeration_bytes) < 0) supervision_failed = true;
+		if (terminating && !descendants_exhausted)
+			signal_tracked(tracked, tracked_count, kill_sent ? SIGKILL : SIGTERM);
 		if (fds[4].revents & (POLLHUP | POLLERR)) disconnected = true;
 		if (z2m_stopping()) shutdown = true;
 		if (clock_gettime(CLOCK_MONOTONIC, &now) < 0) {
@@ -266,15 +384,16 @@ void z2m_supervise(int client, const struct z2m_request *request, struct z2m_res
 		if (!descendants_exhausted && compare_time(&now, &deadline) >= 0) timed_out = true;
 		if (!terminating && (disconnected || shutdown || overflow || timed_out || supervision_failed)) {
 			terminating = true;
-			signal_child(pid, SIGTERM, reaped);
-			signal_adopted_children(pid, SIGTERM);
+			signal_leader_group(pid, SIGTERM, reaped, &post_reap_group_signals);
+			signal_tracked(tracked, tracked_count, SIGTERM);
 			grace = after_ms(now, 100);
 			cleanup_deadline = after_ms(grace, 300);
 		}
 		if (terminating && !kill_sent && compare_time(&now, &grace) >= 0 &&
 		    !descendants_exhausted) {
-			signal_child(pid, SIGKILL, reaped); kill_sent = true;
-			signal_adopted_children(pid, SIGKILL);
+			signal_leader_group(pid, SIGKILL, reaped, &post_reap_group_signals);
+			signal_tracked(tracked, tracked_count, SIGKILL);
+			kill_sent = true;
 		}
 		if (terminating && compare_time(&now, &cleanup_deadline) >= 0 &&
 		    (!reaped || !descendants_exhausted || !output_eof || !errors_eof || !status_eof)) {
@@ -282,10 +401,16 @@ void z2m_supervise(int client, const struct z2m_request *request, struct z2m_res
 			break;
 		}
 	}
+#ifdef Z2M_TEST_FORCE_CLEANUP_EXPIRED
+	cleanup_expired = true;
+#endif
 	result->child_reaped = reaped;
 	result->stdout_eof = output_eof;
 	result->stderr_eof = errors_eof;
-	if (status_length == sizeof(record) && record.version == 1 && stage_name(record.stage)) {
+	if (cleanup_expired || !reaped || !descendants_exhausted || !output_eof ||
+	    !errors_eof || !status_eof) {
+		result->outcome = "transport_failure"; result->reason = "supervision_failure";
+	} else if (status_length == sizeof(record) && record.version == 1 && stage_name(record.stage)) {
 		result->outcome = record.stage == STAGE_EXEC ? "spawn_failure" : "setup_failure";
 		result->start_state = "not_started"; result->stage = stage_name(record.stage);
 		result->error_number = record.error;
@@ -301,7 +426,7 @@ void z2m_supervise(int client, const struct z2m_request *request, struct z2m_res
 		result->outcome = "transport_failure"; result->reason = "stdout_limit";
 	} else if (timed_out) {
 		result->outcome = "timeout";
-	} else if (supervision_failed || cleanup_expired || !reaped || !descendants_exhausted) {
+	} else if (supervision_failed) {
 		result->outcome = "transport_failure"; result->reason = "supervision_failure";
 	} else {
 		result->outcome = "child_exited";
@@ -315,6 +440,27 @@ void z2m_supervise(int client, const struct z2m_request *request, struct z2m_res
 		if (report >= 0) {
 			char value[32];
 			int length = snprintf(value, sizeof(value), "%u\n", poll_count);
+			if (length > 0) (void)write(report, value, (size_t)length);
+			(void)close(report);
+		}
+	}
+#endif
+
+#ifdef Z2M_TEST_ENUMERATION_BYTES_PATH
+	{
+		int report = open(Z2M_TEST_ENUMERATION_BYTES_PATH, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+		if (report >= 0) {
+			char value[32]; int length = snprintf(value, sizeof(value), "%zu\n", enumeration_bytes);
+			if (length > 0) (void)write(report, value, (size_t)length);
+			(void)close(report);
+		}
+	}
+#endif
+#ifdef Z2M_TEST_POST_REAP_GROUP_SIGNAL_PATH
+	{
+		int report = open(Z2M_TEST_POST_REAP_GROUP_SIGNAL_PATH, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+		if (report >= 0) {
+			char value[32]; int length = snprintf(value, sizeof(value), "%u\n", post_reap_group_signals);
 			if (length > 0) (void)write(report, value, (size_t)length);
 			(void)close(report);
 		}
