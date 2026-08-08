@@ -68,11 +68,12 @@ test('accepts a 6 MiB generated response', () => {
   assert.deepEqual(invoke('generate', `${size}\n`, { cap: size }).response, deterministic(size));
 });
 
-test('rejects response cap plus one byte', () => {
+test('stops observing a substantially oversized response at cap plus one byte', () => {
   const cap = 4096;
-  const result = invoke('generate', `${cap + 1}\n`, { cap });
+  const result = invoke('generate', `${cap + 1024 * 1024}\n`, { cap });
   assert.equal(result.error, 'response_limit');
   assert.equal(result.bytesRead, cap + 1);
+  assert.equal(result.response.length, cap + 1);
 });
 
 test('reports exit zero, exit seven, and signal termination', () => {

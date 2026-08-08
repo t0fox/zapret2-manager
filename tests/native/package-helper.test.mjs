@@ -1,11 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 
 const makefile = fs.readFileSync('zapret2-manager/Makefile', 'utf8');
 const initScript = fs.readFileSync('zapret2-manager/files/etc/init.d/zapret2-manager', 'utf8');
 const nativeGate = fs.readFileSync('scripts/test/native.sh', 'utf8');
 const nativeWorkflow = fs.readFileSync('.github/workflows/native-gate.yml', 'utf8');
+const transportEvidencePath = 'tests/native/core/native-helper-transport-exact-target-evidence.txt';
+const setupPatchPath = 'tests/native/core/fixtures/111-uloop-add-optional-setup-callback-to-process.patch';
+const uloopCallSourcePath = 'tests/native/core/fixtures/uc-uloop-vm-call-85922056.c';
 const helperDir = 'zapret2-manager/src/z2m-core-helper';
 const productionSources = [
   'atomic.c',
@@ -289,6 +293,37 @@ test('package declares every ucode module required by native helper transport', 
   for (const dependency of ['ucode-mod-fs', 'ucode-mod-io', 'ucode-mod-uloop']) {
     assert.match(packageDefinition, new RegExp(`(?:^|\\s)\\+${dependency}(?=\\s|$)`),
       `package must depend on ${dependency}`);
+  }
+});
+
+test('tracked patch 111 evidence shows setup callback outcome is discarded before exec', () => {
+  const patch = fs.readFileSync(setupPatchPath, 'utf8');
+  const helper = fs.readFileSync(uloopCallSourcePath, 'utf8');
+  assert.equal(createHash('sha256').update(patch).digest('hex'),
+    '6427250f4fbc577df39d36830c680062fd450694dff13d6f97809cd7fdc43b1a',
+    'tracked patch 111 must remain byte-identical to the exact SDK patch');
+  const setupCall = patch.indexOf('if (uc_uloop_vm_call(vm, false, 0))');
+  const discarded = patch.indexOf('ucv_put(uc_vm_stack_pop(vm));', setupCall);
+  const execContinues = patch.indexOf('argp = calloc(', discarded);
+  assert.ok(setupCall >= 0, 'patch must invoke the setup callback');
+  assert.ok(discarded > setupCall, 'patch must discard the callback stack result');
+  assert.ok(execContinues > discarded, 'patch must continue toward exec after discarding the outcome');
+  assert.doesNotMatch(patch.slice(setupCall, execContinues), /_exit|return|goto/,
+    'patch must not abort child execution on the setup callback outcome');
+  assert.match(helper, /uc_vm_call\(vm, mcall, nargs\) == EXCEPTION_NONE[\s\S]*return true;/,
+    'helper must identify successful callback execution as true');
+  assert.match(helper, /error:[\s\S]*uloop_end\(\);[\s\S]*return false;/,
+    'helper must identify an unhandled callback exception as false');
+});
+
+test('tracked exact-target artifact records the blocked 6/8 probe result', () => {
+  const evidence = fs.readFileSync(transportEvidencePath, 'utf8');
+  for (const marker of ['STATUS: M3 BLOCKED', 'ℹ tests 8', 'ℹ pass 6', 'ℹ fail 2',
+    'ucode-2026.01.16~85922056', 'ELF 64-bit LSB executable, ARM aarch64',
+    'SHA256 /usr/bin/ucode:', 'SHA256 /usr/lib/ucode/fs.so:',
+    'SHA256 /usr/lib/ucode/io.so:', 'SHA256 /usr/lib/ucode/uloop.so:',
+    'SHA256 patch 110:', 'SHA256 patch 111:', 'BEGIN RAW TAP', 'END RAW TAP']) {
+    assert.ok(evidence.includes(marker), `exact-target evidence must include ${marker}`);
   }
 });
 
