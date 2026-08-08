@@ -1,0 +1,11 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
+import { loadLuciModule } from './lib/load-luci-module.mjs';
+const file=fileURLToPath(new URL('../../luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-engine-model.js',import.meta.url));
+const EngineModel=await loadLuciModule(file);
+test('engine missing shows install only after metadata check',()=>{const before=EngineModel.actions({installed:false,busy:false,checked:false,selectedProvider:'andrevich'});assert.equal(before.install.visible,true);assert.equal(before.install.disabled,true);const after=EngineModel.actions({installed:false,busy:false,checked:true,compatible:true,selectedProvider:'andrevich'});assert.equal(after.install.disabled,false);});
+test('same-provider update and provider switch are exclusive',()=>{const update=EngineModel.actions({installed:true,provider:'remittor',selectedProvider:'remittor',updateAvailable:true,checked:true,compatible:true});assert.equal(update.update.visible,true);assert.equal(update.switchProvider.visible,false);const switching=EngineModel.actions({installed:true,provider:'remittor',selectedProvider:'andrevich',checked:true,compatible:true});assert.equal(switching.update.visible,false);assert.equal(switching.switchProvider.visible,true);});
+test('busy state disables conflicting controls',()=>{const a=EngineModel.actions({installed:true,provider:'remittor',selectedProvider:'andrevich',checked:true,compatible:true,busy:true});for(const [name,value] of Object.entries(a))if(name!=='cancel')assert.equal(value.disabled,true,name);});
+test('incompatible update remains blocked without destroying state',()=>{const a=EngineModel.actions({installed:true,provider:'andrevich',selectedProvider:'andrevich',updateAvailable:true,checked:true,compatible:false});assert.equal(a.update.visible,true);assert.equal(a.update.disabled,true);assert.equal(EngineModel.statusKind({state:'error'}),'error');assert.equal(EngineModel.statusKind({state:'engine_missing'}),'missing');});
+test('progress phases and unknown provider are renderable',()=>{assert.equal(EngineModel.phaseLabel('rolling_back'),'Откат');assert.equal(EngineModel.phaseLabel('custom'),'custom');assert.equal(EngineModel.normalizeStatus({installed:true,provider:'unknown'}).provider,'unknown');});

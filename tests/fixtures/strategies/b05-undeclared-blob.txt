@@ -1,0 +1,4 @@
+--filter-tcp=443
+--hostlist-domains=example.com
+--payload=tls_client_hello
+--lua-desync=fake:blob=totally_made_up_blob_xyz:repeats=4

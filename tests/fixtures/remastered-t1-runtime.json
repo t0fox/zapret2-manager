@@ -1,0 +1,18 @@
+{
+  "healthy": {
+    "serviceConfigured": true,
+    "serviceRunning": true,
+    "process": { "found": true, "pid": 19820, "starttime": "verified", "identityVerified": true },
+    "runtime": { "argvAvailable": true, "appliedMatch": true, "verification": "verified" },
+    "nfqueue": { "registered": true, "ownerMatches": true, "outboundRule": true, "inboundRule": true },
+    "status": "running",
+    "reasonCode": null
+  },
+  "serviceRunningProcessUnconfirmed": { "serviceConfigured": true, "serviceRunning": true, "process": { "found": null, "pid": null, "starttime": null, "identityVerified": false }, "status": "starting", "reasonCode": "runtime-not-confirmed" },
+  "appliedMismatch": { "serviceConfigured": true, "process": { "found": true, "pid": 19820, "identityVerified": true }, "runtime": { "argvAvailable": true, "appliedMatch": false, "verification": "failed" }, "status": "mismatch", "reasonCode": "runtime-applied-mismatch" },
+  "processAbsent": { "serviceConfigured": true, "serviceRunning": false, "process": { "found": false, "pid": null, "starttime": null, "identityVerified": false }, "nfqueue": { "registered": false, "ownerMatches": false }, "status": "stopped", "reasonCode": "process-absent" },
+  "queueMissing": { "process": { "found": true, "pid": 19820, "identityVerified": true }, "nfqueue": { "registered": false, "ownerMatches": false }, "status": "degraded", "reasonCode": "nfqueue-missing" },
+  "ownerMismatch": { "process": { "found": true, "pid": 19820, "identityVerified": true }, "nfqueue": { "registered": true, "ownerMatches": false }, "status": "degraded", "reasonCode": "nfqueue-owner-mismatch" },
+  "partial": { "serviceConfigured": true, "serviceRunning": null, "process": { "found": null, "pid": null, "starttime": null, "identityVerified": false }, "runtime": { "argvAvailable": false, "appliedMatch": null, "verification": "unknown" }, "nfqueue": { "registered": null, "ownerMatches": null }, "status": "unknown", "reasonCode": "runtime-not-confirmed" },
+  "routerFalseNegative": { "source": "redacted router capture: ps plus NFQUEUE 300", "process": { "found": true, "pid": 19820, "identityVerified": true }, "runtime": { "argvAvailable": true, "appliedMatch": true, "verification": "verified" }, "nfqueue": { "registered": true, "ownerMatches": true }, "status": "running", "reasonCode": null }
+}

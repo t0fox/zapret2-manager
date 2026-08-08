@@ -1,0 +1,44 @@
+{
+	"id": "target-v5-20260307",
+	"role": "current-target",
+	"binaryVersionFixture": "tests/fixtures-postinstall/nfqws2-version-long.out",
+	"luaContentsFixture": "tests/fixtures-postinstall/opt-zapret2-lua-contents.out",
+	"binaryVersion": "github version 0.9.20260307 (d3b3011000f103c5af161cc4e3167e80fd6928a2)",
+	"binaryCommitSelfReported": "d3b3011000f103c5af161cc4e3167e80fd6928a2",
+	"binarySha256": null,
+	"binaryHashVerified": false,
+	"luaCompatVer": 5,
+	"trustedLuaInitPaths": [
+		"/opt/zapret2/lua/zapret-lib.lua",
+		"/opt/zapret2/lua/zapret-auto.lua",
+		"/opt/zapret2/lua/zapret-antidpi.lua",
+		"/opt/zapret2/lua/zapret-obfs.lua",
+		"/opt/zapret2/lua/zapret-pcap.lua",
+		"/opt/zapret2/lua/zapret-tests.lua"
+	],
+	"sameReleaseEvidence": {
+		"upstreamCommit": "d3b3011000f103c5af161cc4e3167e80fd6928a2",
+		"luaCompatVer": 5,
+		"files": {
+			"zapret-antidpi.lua": "3fd4cc5792dfb2958b3e83eeb5c1d56864074a40198364fdc6fe829133e407f1",
+			"zapret-auto.lua": "eed81c8cf1b4ab2a4b7f150c37e405e76fd86f02dad83e601faf45991c4cb268",
+			"zapret-lib.lua": "b42f637eabf154df1ca510602a4262de88ab52003e78710a56a131c7531adbd1",
+			"zapret-obfs.lua": "2a2da8f3912045c949e4df9e63a792d1496cc362736cbd729eb48e280e19dd9a",
+			"zapret-pcap.lua": "053bc0b0e148b75b9a691b083b1e2637073dd5b6fd5d4d5e3f6dfb21823f46b1",
+			"zapret-tests.lua": "b6f0a796ec011d59040224773d26833523080fa95ab07f1e48d8fdd38acebf0f"
+		},
+		"evidenceHash": "d1a22ad689515847bf6e78e686bb80f3e12a3ed3796c654ed80db443d22df3fd",
+		"method": "SHA-256 of each captured Lua file (LF-normalized, ===END: markers stripped) must equal the recorded values; recorded values were proven byte-exact to upstream d3b3011 on 2026-07-27; evidenceHash binds commit+compat+files against tampering; zapret-lib.lua@d3b3011 declares NFQWS2_COMPAT_VER_REQUIRED=5, matching the binary self-report"
+	},
+	"provenance": {
+		"source": "postinstall router capture",
+		"capturedAt": null,
+		"target": "Cudy WBR3000UAX v1, OpenWrt 25.12.5, aarch64_cortex-a53",
+		"notes": [
+			"binary self-reports upstream commit d3b3011 and lua_compat_ver 5; the binary artifact's own SHA-256 is NOT recorded, so full binary byte-identity is not claimed",
+			"the captured Lua bundle is hash-verified against upstream d3b3011",
+			"this capture contains no init_vars.lua/custom_funcs.lua — device-local Lua files from the legacy capture are NOT part of this trusted bundle"
+		]
+	},
+	"bundleConfidence": "high"
+}

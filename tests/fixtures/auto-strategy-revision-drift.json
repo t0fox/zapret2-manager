@@ -1,0 +1,8 @@
+{
+  "source": "redacted target orchestra_auto_status capture",
+  "enabled": false,
+  "beforeRevision": 11661,
+  "afterRevision": 11663,
+  "intervalSeconds": 1,
+  "activeRun": null
+}

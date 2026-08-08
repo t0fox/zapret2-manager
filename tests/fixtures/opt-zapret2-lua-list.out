@@ -1,0 +1,14 @@
+/opt/zapret2/lua/zapret-tests.lua
+/opt/zapret2/lua/zapret-lib.lua
+/opt/zapret2/lua/zapret-auto.lua
+/opt/zapret2/lua/zapret-antidpi.lua
+/opt/zapret2/lua/init_vars.lua
+/opt/zapret2/lua/custom_funcs.lua
+/opt/zapret2/lua/orchestra-extra/slm-adapter.lua
+/opt/zapret2/lua/orchestra-extra/slm.lua
+/opt/zapret2/lua/orchestra-extra/init.lua
+/opt/zapret2/lua/orchestra-extra/orchestrator.lua
+/opt/zapret2/lua/orchestra-extra/events.lua
+/opt/zapret2/lua/orchestra-extra/detectors.lua
+/opt/zapret2/lua/zapret-obfs.lua
+/opt/zapret2/lua/zapret-pcap.lua

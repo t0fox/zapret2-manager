@@ -1,0 +1,8 @@
+--filter-tcp=443
+--hostlist-domains=youtube.com,www.youtube.com,googlevideo.com
+--payload=tls_client_hello
+--in-range=-s4096
+--lua-desync=circular:fails=3:time=60:success_detector=standard_success_detector:failure_detector=standard_failure_detector
+--lua-desync=fake:blob=tls_google:tls_mod=rnd,dupsid,sni=www.google.com:repeats=8:strategy=1
+--lua-desync=multisplit:pos=2:seqovl=681:seqovl_pattern=tls_google:repeats=8:strategy=2
+--lua-desync=multidisorder:pos=1,host+2,sld+2,endhost-2:seqovl=1:strategy=3:final=1

@@ -1,0 +1,56 @@
+name: Repository gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  repository:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install source-test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libjson-c-dev
+
+      - name: Validate repository layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d scripts/test
+          test -d scripts/build
+          test -d tests/native
+          test -s docs/architecture/repository-layout.md
+          test -s docs/contracts/native-backend-v1.md
+          test -s docs/contracts/z2m-canonical-json-v1.md
+          test -f zapret2-manager/Makefile
+          test -f luci-app-zapret2-manager/Makefile
+          test -f zapret2-manager-full/Makefile
+
+      - name: Run repository test gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          export TMPDIR="$RUNNER_TEMP/z2m-tests"
+          mkdir -p "$TMPDIR"
+          sh scripts/test/run-all-tests.sh | tee "$RUNNER_TEMP/repository-gate.log"
+          node scripts/test/check-gate-classification.mjs "$RUNNER_TEMP/repository-gate.log"
+
+      - name: Ensure generated output stays untracked
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain)"

@@ -1,0 +1,100 @@
+  PID USER       VSZ STAT COMMAND
+    1 root      1700 S    /sbin/procd
+    2 root         0 SW   [kthreadd]
+    3 root         0 SW   [pool_workqueue_]
+    4 root         0 IW<  [kworker/R-kvfre]
+    5 root         0 IW<  [kworker/R-rcu_g]
+    6 root         0 IW<  [kworker/R-sync_]
+    7 root         0 IW<  [kworker/R-slub_]
+    8 root         0 IW<  [kworker/R-netns]
+   13 root         0 IW<  [kworker/R-mm_pe]
+   14 root         0 IW   [rcu_tasks_trace]
+   15 root         0 SW   [ksoftirqd/0]
+   16 root         0 IW   [rcu_sched]
+   17 root         0 SW   [rcu_exp_par_gp_]
+   18 root         0 SW   [rcu_exp_gp_kthr]
+   19 root         0 SW   [migration/0]
+   20 root         0 SW   [cpuhp/0]
+   21 root         0 SW   [cpuhp/1]
+   22 root         0 SW   [migration/1]
+   23 root         0 SW   [ksoftirqd/1]
+   25 root         0 IW<  [kworker/1:0H-kb]
+   26 root         0 IW<  [kworker/R-inet_]
+   27 root         0 SW   [oom_reaper]
+   28 root         0 IW<  [kworker/R-write]
+   29 root         0 SW   [kcompactd0]
+   30 root         0 IW<  [kworker/R-pencr]
+   31 root         0 IW<  [kworker/R-pdecr]
+   32 root         0 IW<  [kworker/R-crypt]
+   33 root         0 IW<  [kworker/R-kbloc]
+   34 root         0 IW<  [kworker/R-blkcg]
+   37 root         0 IW<  [kworker/R-ata_s]
+   39 root         0 IW<  [kworker/R-devfr]
+   41 root         0 SW   [watchdogd]
+   49 root         0 SW   [kswapd0]
+   50 root         0 IW<  [kworker/R-kthro]
+  207 root         0 SW   [hwrng]
+  244 root         0 SW   [irq/73-1100a000]
+  245 root         0 SW   [spi0]
+  276 root         0 SW   [ubi_bgt0d]
+  389 root         0 SW   [napi/mtk_eth-5]
+  390 root         0 SW   [napi/mtk_eth-6]
+  424 root         0 IW<  [kworker/R-mld]
+  426 root         0 IW<  [kworker/R-ipv6_]
+  427 root         0 IW<  [kworker/0:1H-kb]
+  429 root         0 IW<  [kworker/R-dsa_o]
+  431 root         0 IW<  [kworker/R-kstrp]
+  620 root         0 SW   [irq/53-mt7530]
+  664 root         0 SW   [irq/16-gpio-key]
+  665 root         0 SW   [irq/15-gpio-key]
+  712 root         0 IW<  [kworker/0:2H]
+  810 root         0 SW   [ubifs_bgt0_2]
+  889 ubus      1336 S    /sbin/ubusd
+  890 root       924 S    /sbin/askfirst /usr/libexec/login.sh
+  925 root      1020 S    /sbin/urngd
+  998 root         0 SW   [irq/85-10320000]
+ 1000 root         0 IW<  [kworker/R-wq_ri]
+ 1001 root         0 SW   [irq/86-10320000]
+ 1002 root         0 IW<  [kworker/R-wq_ri]
+ 1003 root         0 SW   [irq/87-10320000]
+ 1004 root         0 IW<  [kworker/R-wq_ri]
+ 1005 root         0 SW   [irq/88-10320000]
+ 1006 root         0 IW<  [kworker/R-wq_ri]
+ 1025 root         0 IW<  [kworker/R-cfg80]
+ 1027 root         0 IW<  [kworker/1:2H-kb]
+ 1033 root         0 SW   [napi/phy0-7]
+ 1034 root         0 SW   [napi/phy0-8]
+ 1035 root         0 SW   [napi/phy0-9]
+ 1036 root         0 SW   [napi/phy0-10]
+ 1037 root         0 SW   [napi/phy0-11]
+ 1038 root         0 SW   [napi/phy0-12]
+ 1071 root         0 SW   [mt76-tx phy0]
+ 1331 logd      1916 S    /sbin/logd -S 128
+ 1645 root      1136 S    /usr/sbin/dropbear -F -P /var/run/dropbear.main.pid -p 22 -K 300 -T 3
+ 1751 root      2352 S    {hostapd} /sbin/ujail -t 5 -n hostapd -U network -G network -C /etc/capabilities/wpad.json -c -- /usr/sbi
+ 1752 root      2352 S    {wpa_supplicant} /sbin/ujail -t 5 -n wpa_supplicant -U network -G network -C /etc/capabilities/wpad.json 
+ 1788 network   4196 S    /usr/sbin/hostapd -s -g /var/run/hostapd/global
+ 1789 network   3884 S    /usr/sbin/wpa_supplicant -n -s -g /var/run/wpa_supplicant/global
+ 1816 root      2928 S    /sbin/netifd
+ 2407 root      1328 S    udhcpc -p /var/run/udhcpc-wan.pid -s /lib/netifd/dhcp.script -f -t 0 -i wan -x hostname:OpenWrt -x 0x3d:f
+ 2457 root      1164 S    odhcp6c -s /lib/netifd/dhcpv6.script -P0:bc6680c1 -c0004250101e32f064d30aec245fb4a89fbc2 -t120 wan
+ 2635 root      1396 S    /usr/sbin/odhcpd
+ 3280 root      2352 S    {ntpd} /sbin/ujail -t 5 -n ntpd -U ntp -G ntp -C /etc/capabilities/ntpd.json -c -u -r /bin/ubus -r /usr/b
+ 3336 ntp       1328 S    /usr/sbin/ntpd -n -N -S /usr/sbin/ntpd-hotplug -p 0.openwrt.pool.ntp.org -p 1.openwrt.pool.ntp.org -p 2.o
+ 3352 root       960 S    /usr/sbin/ubihealthd -f -d /dev/ubi0
+ 3686 root      2352 S    {dnsmasq} /sbin/ujail -t 5 -n dnsmasq -u -l -r /bin/ubus -r /etc/TZ -r /etc/dnsmasq.conf -r /etc/ethers -
+ 3703 dnsmasq   1536 S    /usr/sbin/dnsmasq -C /var/etc/dnsmasq.conf.cfg01411c -k -x /var/run/dnsmasq/dnsmasq.cfg01411c.pid
+11881 root      1796 R    ucode /usr/share/zapret2-orchestra/learner.uc run
+12714 root      2092 S    /usr/sbin/uhttpd -f -h /www -r OpenWrt -x /cgi-bin -u /ubus -t 60 -T 30 -k 20 -A 1 -n 3 -N 100 -R -p 0.0.
+15584 root         0 IW   [kworker/0:1-pm]
+18759 root         0 IW   [kworker/1:2-mm_]
+19472 root         0 IW   [kworker/0:0-eve]
+19628 root      2416 S    /sbin/rpcd -s /var/run/ubus/ubus.sock -t 30
+19792 root         0 IW   [kworker/1:0]
+19820 daemon   10256 S    /opt/zapret2/nfq2/nfqws2 --user=daemon --fwmark=0x40000000 --lua-init=@/opt/zapret2/lua/zapret-lib.lua --
+20834 root         0 IW   [kworker/u8:0-ev]
+20886 root         0 IW   [kworker/u8:2-ph]
+21003 root         0 IW   [kworker/u8:1-th]
+21052 root         0 IW   [kworker/u8:3-ph]
+21130 root      1156 S    /usr/sbin/dropbear -F -P /var/run/dropbear.main.pid -p 22 -K 300 -T 3 -2 9
+21131 root      1336 R    ps w

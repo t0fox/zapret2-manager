@@ -1,0 +1,17 @@
+table inet zapret2 {
+	set wanif {
+		type ifname
+		elements = { "wan" }
+	}
+}
+table inet zapret2 {
+	set wanif6 {
+		type ifname
+	}
+}
+table inet zapret2 {
+	set lanif {
+		type ifname
+		elements = { "br-lan" }
+	}
+}

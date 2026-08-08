@@ -1,31 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { execFileSync } from 'node:child_process';
 
 const makefile = fs.readFileSync('zapret2-manager/Makefile', 'utf8');
-const manualBuilder = fs.readFileSync('tools/build-apk-manual.sh', 'utf8');
 const helperDir = 'zapret2-manager/src/z2m-core-helper';
 const productionSources = [
-  'atomic.c',
-  'base64.c',
-  'errors.c',
-  'files.c',
-  'main.c',
-  'mkdir.c',
-  'paths.c',
-  'protocol.c',
-  'roots.c',
-  'sha256.c',
+  'atomic.c', 'base64.c', 'errors.c', 'files.c', 'main.c',
+  'mkdir.c', 'paths.c', 'protocol.c', 'roots.c', 'sha256.c',
 ];
 const runtimeShellEntryPoints = [
-  'blockcheck-run.sh',
-  'engine-operation-worker.sh',
-  'health-run.sh',
-  'log-rotate.sh',
-  'orchestra-candidate-run.sh',
-  'orchestra-probe-preflight.sh',
-  'proxy-provider-go-init.sh',
+  'blockcheck-run.sh', 'engine-operation-worker.sh', 'health-run.sh',
+  'log-rotate.sh', 'orchestra-candidate-run.sh',
+  'orchestra-probe-preflight.sh', 'proxy-provider-go-init.sh',
 ];
 
 function block(name) {
@@ -34,145 +20,68 @@ function block(name) {
   return match[1];
 }
 
+function mode(path) {
+  return fs.statSync(path).mode & 0o777;
+}
+
 test('package target-builds the complete production helper with json-c', () => {
-  for (const source of productionSources) {
+  for (const source of productionSources)
     assert.ok(fs.existsSync(`${helperDir}/${source}`), `${source} must be present`);
-  }
   assert.ok(fs.existsSync(`${helperDir}/helper.h`), 'helper.h must be present');
   assert.ok(fs.existsSync(`${helperDir}/protocol-v1.json`), 'protocol-v1.json must be present');
-  assert.ok(fs.existsSync(`${helperDir}/test-audit.c`), 'Task 3 test audit source must be present');
+  assert.ok(fs.existsSync(`${helperDir}/test-audit.c`), 'test audit source must remain available to the test harness');
 
   const compile = block('Build/Compile');
   for (const source of productionSources) {
     assert.match(compile, new RegExp(`\\$\\(PKG_BUILD_DIR\\)/${source.replace('.', '\\.')}\\b`),
       `Build/Compile must compile ${source}`);
   }
-  assert.match(compile, /\$\(TARGET_CC\)/, 'helper must use the target compiler');
-  assert.match(compile, /\$\(TARGET_CPPFLAGS\)/, 'helper must use target CPPFLAGS');
-  assert.match(compile, /\$\(TARGET_CFLAGS\)/, 'helper must use target CFLAGS');
-  assert.match(compile, /\$\(TARGET_LDFLAGS\)/, 'helper must use target LDFLAGS');
-  for (const flag of ['-std=c11', '-Wall', '-Wextra', '-Werror', '-D_GNU_SOURCE']) {
+  assert.match(compile, /\$\(TARGET_CC\)/);
+  assert.match(compile, /\$\(TARGET_CPPFLAGS\)/);
+  assert.match(compile, /\$\(TARGET_CFLAGS\)/);
+  assert.match(compile, /\$\(TARGET_LDFLAGS\)/);
+  for (const flag of ['-std=c11', '-Wall', '-Wextra', '-Werror', '-D_GNU_SOURCE'])
     assert.ok(compile.includes(flag), `Build/Compile must use ${flag}`);
-  }
-  assert.match(compile, /-ljson-c/, 'helper must link target json-c');
-  assert.match(compile, /-o\s+\$\(PKG_BUILD_DIR\)\/z2m-core-helper(?:\s|$)/,
-    'helper output must be fixed under PKG_BUILD_DIR');
-  assert.doesNotMatch(compile, /-DZ2M_TESTING|test-audit\.c|sanitize|audit-wrapper/i,
-    'production compilation must exclude test instrumentation');
-
-  assert.match(makefile, /^\s*DEPENDS:=[^\n]*\+libjson-c(?:\s|$)/m,
-    'package must declare the libjson-c runtime dependency');
+  assert.match(compile, /-ljson-c/);
+  assert.match(compile, /-o\s+\$\(PKG_BUILD_DIR\)\/z2m-core-helper(?:\s|$)/);
+  assert.doesNotMatch(compile, /-DZ2M_TESTING|test-audit\.c|sanitize|audit-wrapper/i);
+  assert.match(makefile, /^\s*DEPENDS:=[^\n]*\+libjson-c(?:\s|$)/m);
 });
 
-test('package prepares sources separately and installs only the executable', () => {
+test('package prepares sources separately and installs only the helper executable', () => {
   const prepare = block('Build/Prepare');
-  assert.match(prepare, /src\/z2m-core-helper/, 'Build/Prepare must copy helper inputs');
-  assert.match(prepare, /\$\(PKG_BUILD_DIR\)/, 'Build/Prepare must stage inputs in PKG_BUILD_DIR');
+  assert.match(prepare, /src\/z2m-core-helper/);
+  assert.match(prepare, /\$\(PKG_BUILD_DIR\)/);
 
   const install = block('Package/zapret2-manager/install');
-  assert.match(install, /\$\(INSTALL_DIR\)\s+\$\(1\)\/usr\/libexec\/zapret2-manager/,
-    'install must create the fixed libexec directory');
+  assert.match(install, /\$\(INSTALL_DIR\)\s+\$\(1\)\/usr\/libexec\/zapret2-manager/);
   assert.match(install,
-    /\$\(INSTALL_BIN\)\s+\$\(PKG_BUILD_DIR\)\/z2m-core-helper\s+\$\(1\)\/usr\/libexec\/zapret2-manager\/z2m-core-helper/,
-    'install must place the helper executable at its fixed path');
-  assert.doesNotMatch(install, /src\/z2m-core-helper|protocol-v1\.json|helper\.h|\.c(?:\s|$)/,
-    'install must not copy helper sources or protocol development files');
-  assert.doesNotMatch(install, /test-audit\.c|Z2M_TESTING/i,
-    'install must exclude test instrumentation');
-  assert.match(install, /\$\(CP\)\s+\.\/files\/\*\s+\$\(1\)\//,
-    'existing runtime files must remain installed');
+    /\$\(INSTALL_BIN\)\s+\$\(PKG_BUILD_DIR\)\/z2m-core-helper\s+\$\(1\)\/usr\/libexec\/zapret2-manager\/z2m-core-helper/);
+  assert.doesNotMatch(install, /src\/z2m-core-helper|protocol-v1\.json|helper\.h|\.c(?:\s|$)/);
+  assert.doesNotMatch(install, /test-audit\.c|Z2M_TESTING/i);
+  assert.match(install, /\$\(CP\)\s+\.\/files\/\*\s+\$\(1\)\//);
 });
 
-test('manual APK builder preserves the production helper package closure', () => {
-  const productionCompile = block('Build/Compile');
-  const productionFlags = ['-std=c11', '-Wall', '-Wextra', '-Werror', '-D_GNU_SOURCE']
-    .filter((flag) => productionCompile.includes(flag));
-  const helperBuild = /# ---- z2m-core-helper build[^\n]*\n([\s\S]*?)\n# ---- zapret2-manager/.exec(manualBuilder)?.[1] ?? '';
-
-  assert.notEqual(helperBuild, '', 'manual builder must have a dedicated production helper build');
-  for (const source of productionSources) {
-    assert.match(helperBuild, new RegExp(`src/z2m-core-helper/${source.replace('.', '\\.')}\\b`),
-      `manual builder must compile production source ${source}`);
-  }
-  for (const flag of productionFlags)
-    assert.ok(helperBuild.includes(flag), `manual builder must preserve production flag ${flag}`);
-  assert.match(helperBuild, /toolchain-[^\n]*\*-gcc|openwrt-linux-musl-gcc/,
-    'manual builder must resolve the SDK target compiler');
-  assert.match(helperBuild, /\$TARGET\/usr\/include/,
-    'manual builder must compile against target headers');
-  assert.match(helperBuild, /\$TARGET\/usr\/lib/,
-    'manual builder must link against target libraries');
-  assert.match(helperBuild, /-ljson-c/, 'manual helper must link target json-c');
-  assert.match(helperBuild, /-o\s+"?\$HELPER_BUILD\/z2m-core-helper"?/,
-    'manual helper output must use its fixed build path');
-  assert.doesNotMatch(helperBuild, /-DZ2M_TESTING|test-audit\.c|sanitize|audit-wrapper/i,
-    'manual production compilation must exclude test instrumentation');
-
-  const stagingFunction = /stage_manager_files\(\) \{[\s\S]*?^\}/m.exec(manualBuilder)?.[0] ?? '';
-  assert.match(stagingFunction,
-    /install -m 0755 "\$HELPER_BUILD\/z2m-core-helper"[\s\\]*\n?\s*"\$R\/usr\/libexec\/zapret2-manager\/z2m-core-helper"/,
-    'manager staging policy must install the helper at its fixed executable path');
-  assert.equal(manualBuilder.match(/^stage_manager_files$/gm)?.length, 2,
-    'both manager package builds must use the reviewed staging policy');
-
-  const managerSections = manualBuilder.split('build_one "zapret2-manager"');
-  assert.equal(managerSections.length, 3, 'manual builder must keep both manager package builds');
-  for (let index = 0; index < 2; index++) {
-    const metadata = managerSections[index + 1].slice(0, 240);
-    assert.match(metadata, /"zapret2 ucode libjson-c"/,
-      `manager package build ${index + 1} must declare libjson-c`);
-  }
-
+test('standard OpenWrt package build is the only production package closure', () => {
   assert.doesNotMatch(makefile, /^PKGARCH:=all$/m,
-    'compiled manager package must not claim architecture all');
-  assert.doesNotMatch(manualBuilder, /PKGARCH:=all|arch:\$\{ARCH:-all\}/,
-    'manual builder must not claim or fall back to architecture all');
+    'a package containing a target-built helper must not claim architecture all');
+  assert.doesNotMatch(makefile, /^\s*DEPENDS:=[^\n]*\+zapret2(?:\s|$)/m,
+    'the manager package must not force-build the optional zapret2 engine');
+  assert.equal(fs.existsSync('tools/build-apk-manual.sh'), false,
+    'the obsolete repository-local manual APK builder must not return');
+  assert.equal(fs.existsSync('scripts/build/build-apk-manual.sh'), false,
+    'manual APK packaging is not migrated because the standard package build now owns this responsibility');
 });
 
-test('manual manager staging installs only runtime entry points as executable', () => {
-  const functionSource = /stage_manager_files\(\) \{[\s\S]*?^\}/m.exec(manualBuilder)?.[0];
-  assert.ok(functionSource, 'manual builder must expose its manager staging policy');
-
-  const windowsRoot = process.cwd().replaceAll('\\', '/');
-  const drive = windowsRoot.slice(0, 1).toLowerCase();
-  const wslRoot = `/mnt/${drive}${windowsRoot.slice(2)}`;
-  const quotedFunction = functionSource.replaceAll("'", "'\\''");
-  const shell = `set -eu
-mkdir -p "$HOME/z2m-build"
-tmp=$(mktemp -d "$HOME/z2m-build/staging-test.XXXXXX")
-trap 'rm -rf "$tmp"' EXIT
-mkdir -p "$tmp/repo/zapret2-manager" "$tmp/helper"
-cp -a '${wslRoot}/zapret2-manager/files' "$tmp/repo/zapret2-manager/files"
-chmod 0644 "$tmp/repo/zapret2-manager/files/usr/libexec/zapret2-manager/"*.sh
-chmod 0644 "$tmp/repo/zapret2-manager/files/etc/init.d/zapret2-manager"
-chmod 0644 "$tmp/repo/zapret2-manager/files/etc/hotplug.d/iface/90-zapret2-manager"
-chmod 0640 "$tmp/repo/zapret2-manager/files/etc/zapret2-manager/ipset/games.txt"
-chmod 0600 "$tmp/repo/zapret2-manager/files/etc/zapret2-manager/state.json"
-: > "$tmp/helper/z2m-core-helper"
-chmod 0644 "$tmp/helper/z2m-core-helper"
-REPO="$tmp/repo"
-R="$tmp/root"
-HELPER_BUILD="$tmp/helper"
-mkdir -p "$R"
-eval '${quotedFunction}'
-stage_manager_files
-for name in ${runtimeShellEntryPoints.join(' ')}; do stat -c '%a %n' "$R/usr/libexec/zapret2-manager/$name"; done
-stat -c '%a %n' "$R/etc/init.d/zapret2-manager"
-stat -c '%a %n' "$R/etc/hotplug.d/iface/90-zapret2-manager"
-stat -c '%a %n' "$R/usr/libexec/zapret2-manager/z2m-core-helper"
-stat -c '%a %n' "$R/etc/zapret2-manager/ipset/games.txt"
-stat -c '%a %n' "$R/etc/zapret2-manager/state.json"`;
-  const encodedShell = Buffer.from(shell).toString('base64');
-  const modes = execFileSync('wsl.exe', ['-d', 'Ubuntu', '--', 'sh', '-c', `printf %s ${encodedShell} | base64 -d | sh`], {
-    encoding: 'utf8',
-  }).trim().split('\n').map((line) => line.split(' ', 1)[0]);
-
-  assert.deepEqual(modes, [
-    ...runtimeShellEntryPoints.map(() => '755'),
-    '755',
-    '755',
-    '755',
-    '640',
-    '600',
-  ]);
+test('runtime shell entry points remain executable while state/data stay non-executable', () => {
+  if (process.platform === 'win32') return;
+  for (const name of runtimeShellEntryPoints) {
+    const path = `zapret2-manager/files/usr/libexec/zapret2-manager/${name}`;
+    assert.ok(fs.existsSync(path), `missing runtime entry point: ${name}`);
+    assert.ok((mode(path) & 0o111) !== 0, `${name} must retain an executable bit`);
+  }
+  const init = 'zapret2-manager/files/etc/init.d/zapret2-manager';
+  assert.ok((mode(init) & 0o111) !== 0, 'procd init script must remain executable');
+  const state = 'zapret2-manager/files/etc/zapret2-manager/state.json';
+  if (fs.existsSync(state)) assert.equal(mode(state) & 0o111, 0, 'state seed must not be executable');
 });

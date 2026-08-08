@@ -1,0 +1,25 @@
+ORIGIN of the tests/fixtures-postinstall/ snapshots
+====================================================
+
+These fixtures are the post-install snapshot of the router AFTER restoring
+the upstream zapret2 engine, taken on 2026-07-27 (commit 3917508 on the
+infra branch, "tests/fixtures-postinstall — snapshot after upstream engine
+install").
+
+Source: remittor/zapret-openwrt releases — the upstream zapret2 engine
+(2nd gen, v0.9.20260307-r1, aarch64_cortex-a53) installed on the device.
+
+Engine-only snapshot: NO orchestra (excluded from the product), NO 1st-gen.
+Collected by tools/collect-fixtures.sh (busybox pgrep -x replaced with pidof
+for this target — pgrep -x does not match the process comm here).
+
+The real engine config file is tests/fixtures-postinstall/opt-zapret2-config.out
+(quoted values, single-line NFQWS2_OPT, profiles split by --new, <HOSTLIST>/
+<HOSTLIST_NOAUTO> placeholders, --filter-l7). This is what the writer/stripper
+self-tests are now built on.
+
+NOT device-confirmed by this agent: the device is currently with another
+owner. These fixtures are a snapshot of confirmed origin (collected from the
+device post-install), but the RUNTIME behavior of the ucode writer/stripper
+against the live engine is confirmed on the target via tools/smoke.sh, not
+locally.

@@ -1,0 +1,4 @@
+--filter-tcp=443
+--ipset=/opt/zapret2/ipset/hoster-ranges.txt
+--ipset-exclude=/opt/zapret2/ipset/exclude.txt
+--lua-desync=fake:blob=fake_default_tls:repeats=4
