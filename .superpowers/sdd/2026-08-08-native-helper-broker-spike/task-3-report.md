@@ -128,4 +128,6 @@ duration_ms 103.653116
 
 ## Commit
 
-The implementation commit is recorded after this report is committed.
+```text
+2f705a725dbeb19f04bd2e78ac05aaae9c8ff577  test(core): prove bounded helper termination and reap
+```
