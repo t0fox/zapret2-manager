@@ -6,6 +6,8 @@ import { createHash } from 'node:crypto';
 const makefile = fs.readFileSync('zapret2-manager/Makefile', 'utf8');
 const initScript = fs.readFileSync('zapret2-manager/files/etc/init.d/zapret2-manager', 'utf8');
 const nativeGate = fs.readFileSync('scripts/test/native.sh', 'utf8');
+const nativeRootGate = fs.existsSync('scripts/test/native-root.sh')
+  ? fs.readFileSync('scripts/test/native-root.sh', 'utf8') : '';
 const nativeWorkflow = fs.readFileSync('.github/workflows/native-gate.yml', 'utf8');
 const transportEvidencePath = 'tests/native/core/native-helper-transport-exact-target-evidence.txt';
 const setupPatchPath = 'tests/native/core/fixtures/111-uloop-add-optional-setup-callback-to-process.patch';
@@ -57,10 +59,23 @@ test('native gate elevates only root-required tests and cleans temporary discove
   assert.match(nativeGate, /trap '[^']*rm -f[^']*' (?:EXIT|0) HUP INT TERM/,
     'native gate must clean its temporary list on exit and signals');
   assert.match(nativeGate,
-    /sudo[^\n]*--preserve-env=[^\n]*(?:TMPDIR|UCODE_BIN|UCODE_LIBRARY_PATH)[^\n]*"\$node_bin"[^\n]*bootstrap\.test\.mjs[^\n]*fs-helper\.test\.mjs/,
-    'native gate must preserve its environment while elevating both root-required tests');
+    /sudo[^\n]*--preserve-env=[^\n]*(?:UCODE_BIN|UCODE_LIBRARY_PATH)[^\n]*native-root\.sh[^\n]*"\$node_bin"/,
+    'native gate must preserve ucode configuration while isolating root-required tests');
   assert.equal((nativeGate.match(/^\s*sudo\b/gm) ?? []).length, 1,
     'root-required tests must share one sudo invocation');
+});
+
+test('consecutive non-root gates isolate elevated state from the caller temporary directory', () => {
+  assert.doesNotMatch(nativeGate, /--preserve-env=[^\n]*TMPDIR/,
+    'sudo must not inherit the caller temporary directory');
+  assert.match(nativeGate, /sudo[^\n]*native-root\.sh[^\n]*"\$node_bin"/,
+    'root-required tests must run through the isolated root wrapper');
+  assert.match(nativeRootGate, /root_tmp=\$\(mktemp -d \/tmp\/z2m-native-root\.X+\)/,
+    'the root wrapper must atomically create a private directory under sticky /tmp');
+  assert.doesNotMatch(nativeRootGate, /chmod|chown/,
+    'the root wrapper must never repair suspicious pre-existing objects');
+  assert.match(nativeRootGate, /trap '[^']*rm -rf -- "\$root_tmp"[^']*' 0 HUP INT TERM/,
+    'the root wrapper must clean only the directory it created');
 });
 
 test('package strictly builds and installs the managed-root bootstrap', () => {
