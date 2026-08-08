@@ -732,3 +732,72 @@ node --test tests/native/bootstrap.test.mjs tests/native/package-helper.test.mjs
   pass. The rest of the envelope is decoded unchanged.
 - Exact-target QEMU remains materially slower than native execution. Performance
   thresholds are therefore explicit and separate from transport deadlines.
+
+## Fix Round 5
+
+### Status
+
+**PASS.** The final Task 7 round addresses only canonical base64 pad bits and
+object-key scaling coverage. Task 8 and M4 remain untouched.
+
+### RED And Reference
+
+Socket-level tests were added before production changes. `AB==` with
+`byteLength:1` was accepted, proving that the adapter checked base64 shape but
+not unused pad bits. The helper reference in `z2m-core-helper/base64.c` requires
+the final significant character to be in `AQgw` for `==` and
+`AEIMQUYcgkosw048` for `=`.
+
+The initial host key benchmark measured 10k/20k/40k unique short keys at
+303/864/1732 ms. Exact-target measurement after correcting the timing source was
+5686/11117/21688 ms, approximately 1.95x per doubling. The known round-4 100k
+exact-target observation was approximately 50.7 seconds. The current scaling
+series demonstrates linear behavior; it did not reproduce a quadratic ratio.
+
+### Implementation
+
+- `canonical_base64()` now exactly mirrors helper pad-bit acceptance: `AQgw`
+  for two padding bytes and `AEIMQUYcgkosw048` for one.
+- Both selective pre-decode read-content validation and post-decode read success
+  validation call the same predicate.
+- Socket cases accept canonical `AA==` and `AAA=` and reject noncanonical `AB==`
+  and `AAB=`.
+- Added 10k/20k/40k unique-short-key timing points with separate host and QEMU
+  absolute caps and a generous maximum 3x growth per doubling. Numeric 100k and
+  500k array performance cases remain unchanged.
+
+### Verification
+
+```sh
+# Host adapter
+node --test tests/native/core/native-helper.test.mjs
+# 35 tests, 35 pass, 0 fail; 7.23 s total
+# OBJECT_KEY_SCALING_MS=381,770,1563
+
+# Exact-target AArch64 adapter
+node --test tests/native/core/native-helper.test.mjs
+# 35 tests, 35 pass, 0 fail; 106.42 s total
+# OBJECT_KEY_SCALING_MS=5655,11388,22642
+# ratios: 2.01x, 1.99x; 40k cap: 30 s
+
+# Production broker
+node --test --test-concurrency=1 tests/native/core/native-helper-broker.test.mjs
+# 42 tests, 42 pass, 0 fail
+
+# Root helper/bootstrap
+scripts/test/native-root.sh node
+# 97 tests, 97 pass, 0 fail
+
+# Elevated lifecycle/package
+node --test tests/native/bootstrap.test.mjs tests/native/package-helper.test.mjs
+# 40 tests, 40 pass, 0 fail
+
+# Strict host and AArch64 broker builds
+# -std=c11 -Wall -Wextra -Werror: PASS
+```
+
+### Concerns
+
+- Exact-target QEMU key processing has a high constant factor despite linear
+  scaling. The performance assertion therefore combines ratios with a 30-second
+  40k cap rather than extrapolating a native-hardware deadline.

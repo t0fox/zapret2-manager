@@ -505,6 +505,17 @@ test('details and content handling is structural rather than matching arbitrary 
   assert.equal(result.error.code, 'EINTERNAL');
 });
 
+test('read content enforces canonical base64 pad bits at the socket boundary', async () => {
+  for (const [content, byteLength, accepted] of [
+    ['AA==', 1, true], ['AAA=', 2, true], ['AB==', 1, false], ['AAB=', 2, false],
+  ]) {
+    const { result } = await roundTrip(`native.read_regular('jobs', 'pad.bin', 2)`, ({ header }) =>
+      childExited(header.requestId, success(header.requestId, { content, byteLength })));
+    assert.equal(result.ok, accepted, content);
+    if (!accepted) assert.equal(result.error.code, 'EINTERNAL');
+  }
+});
+
 test('dense unknown arrays and objects are rejected in linear time without semantic materialization', async () => {
   const values = [
     [`[${'0,'.repeat(99999)}0]`, process.env.UCODE_ARGS_PIPE ? 15000 : 2000],
@@ -523,6 +534,29 @@ test('dense unknown arrays and objects are rejected in linear time without seman
     assert.equal(rejected.result.error.code, 'EINTERNAL');
     assert.ok(elapsed < threshold, `dense response validation took ${elapsed}ms (limit ${threshold}ms)`);
   }
+});
+
+test('unique short object-key scanning scales linearly', async () => {
+  const timings = [];
+  for (const count of [10000, 20000, 40000]) {
+    const unknown = `{${Array.from({ length: count }, (_, i) => `"k${i}":0`).join(',')}}`;
+    const startedAt = Date.now();
+    const rejected = await roundTrip(`native.read_regular('jobs', 'keys', 1)`, ({ header }) => ({
+      wire: childExited(header.requestId,
+        `{"protocolVersion":1,"requestId":"${header.requestId}","ok":true,"data":${unknown}}\n`),
+    }), {}, process.env.UCODE_ARGS_PIPE ? 60000 : 15000);
+    const elapsed = Date.now() - startedAt;
+    assert.equal(rejected.result.error.code, 'EINTERNAL');
+    assert.ok(elapsed < (process.env.UCODE_ARGS_PIPE ? 30000 : 5000),
+      `${count} keys took ${elapsed}ms`);
+    timings.push(elapsed);
+  }
+  const allowance = process.env.UCODE_ARGS_PIPE ? 2500 : 250;
+  console.log(`OBJECT_KEY_SCALING_MS=${timings.join(',')}`);
+  assert.ok(timings[1] <= timings[0] * 3 + allowance,
+    `10k/20k key scaling was ${timings.join('/')}ms`);
+  assert.ok(timings[2] <= timings[1] * 3 + allowance,
+    `20k/40k key scaling was ${timings.join('/')}ms`);
 });
 
 test('production transport matrix rejects impossible unknown and accepts only serialized combinations', async () => {

@@ -279,6 +279,23 @@ function scan_numeric_array_run(raw, offset) {
 	return run ? offset + length(run[0]) : offset;
 }
 
+function canonical_base64(value) {
+	if (type(value) != 'string' || !match(value,
+	    /^([A-Za-z0-9+\/]{4})*([A-Za-z0-9+\/]{2}==|[A-Za-z0-9+\/]{3}=)?$/))
+		return false;
+	if (!length(value)) return true;
+	if (substr(value, -2) == '==') return index('AQgw', substr(value, -3, 1)) >= 0;
+	if (substr(value, -1) == '=') return index('AEIMQUYcgkosw048', substr(value, -2, 1)) >= 0;
+	return true;
+}
+
+function base64_length(value) {
+	if (!canonical_base64(value)) return null;
+	if (!length(value)) return 0;
+	let padding = substr(value, -2) == '==' ? 2 : (substr(value, -1) == '=' ? 1 : 0);
+	return int(length(value) / 4) * 3 - padding;
+}
+
 function scan_json(raw, operation) {
 	let at = 0, size = length(raw), stack = [], depth = 0, root_state = 'value';
 	let details_start = null, details_end = null, content_start = null, content_end = null;
@@ -372,9 +389,7 @@ function scan_json(raw, operation) {
 			at = token[0];
 			if (target == 'content') {
 				content_start = value_start; content_end = at; content = token[1];
-				if (!match(content, /^([A-Za-z0-9+\/]{4})*([A-Za-z0-9+\/]{2}==|[A-Za-z0-9+\/]{3}=)?$/) ||
-				    (length(content) ? int(length(content) / 4) * 3 -
-				    (substr(content, -2) == '==' ? 2 : (substr(content, -1) == '=' ? 1 : 0)) : 0) > 4194304)
+				if (!canonical_base64(content) || base64_length(content) > 4194304)
 					return { issue: 'envelope' };
 			}
 		} else {
@@ -437,18 +452,6 @@ function transport_header_valid(raw, header, requestId, bodyLength) {
 		return header.startState == 'started' && header.childReaped &&
 			header.stdoutEof && header.stderrEof;
 	return false;
-}
-
-function canonical_base64(value) {
-	return type(value) == 'string' && match(value,
-		/^([A-Za-z0-9+\/]{4})*([A-Za-z0-9+\/]{2}==|[A-Za-z0-9+\/]{3}=)?$/);
-}
-
-function base64_length(value) {
-	if (!canonical_base64(value)) return null;
-	if (!length(value)) return 0;
-	let padding = substr(value, -2) == '==' ? 2 : (substr(value, -1) == '=' ? 1 : 0);
-	return int(length(value) / 4) * 3 - padding;
 }
 
 function success_data_valid(operation, data) {
