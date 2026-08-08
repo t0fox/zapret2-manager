@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 
 #include <errno.h>
+#include <dirent.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <poll.h>
@@ -43,8 +44,25 @@ static const char *socket_path;
 static dev_t socket_dev;
 static ino_t socket_ino;
 static int listener = -1;
+static unsigned int broker_forks;
 
 static void fail(const char *operation);
+
+static int fd_count(void)
+{
+	DIR *directory = opendir("/proc/self/fd");
+	struct dirent *entry;
+	int count = 0;
+
+	if (!directory)
+		fail("opendir /proc/self/fd");
+	while ((entry = readdir(directory)) != NULL)
+		if (strcmp(entry->d_name, ".") && strcmp(entry->d_name, ".."))
+			count++;
+	if (closedir(directory) < 0)
+		fail("closedir /proc/self/fd");
+	return count;
+}
 
 enum setup_stage {
 	STAGE_SETPGID = 1,
@@ -738,7 +756,9 @@ static bool read_request_frame(int client, uint8_t **body, size_t *body_length)
 		if (length > 0) {
 			size_t previous = used;
 			used += (size_t)length;
-			if (used / (1024U * 1024U) != previous / (1024U * 1024U) || used == *body_length)
+			if (*body_length >= 1024U * 1024U &&
+			    (used / (1024U * 1024U) != previous / (1024U * 1024U) ||
+			    used == *body_length))
 				fprintf(stderr, "request-frame=body bytes=%zu\n", used);
 			continue;
 		}
@@ -772,21 +792,27 @@ static void response_frame(int client, const char *outcome, const char *start_st
 {
 	char header[2049];
 	uint8_t prelude[20] = TRANSPORT_MAGIC;
-	char exit_value[32], signal_value[32], stage_field[64] = "", reason_field[64] = "";
+	char metadata[160] = "";
 	int length;
 
-	if (exit_code < 0) strcpy(exit_value, "null"); else snprintf(exit_value, sizeof(exit_value), "%d", exit_code);
-	if (signal_number == 0) strcpy(signal_value, "null"); else snprintf(signal_value, sizeof(signal_value), "%d", signal_number);
-	if (stage) snprintf(stage_field, sizeof(stage_field), ",\"stage\":\"%s\"", stage);
-	if (reason) snprintf(reason_field, sizeof(reason_field), ",\"reason\":\"%s\"", reason);
+	if (!strcmp(outcome, "child_exited"))
+		snprintf(metadata, sizeof(metadata), ",\"exitCode\":%s,\"signal\":%s",
+			exit_code < 0 ? "null" : ({ static char value[32]; snprintf(value, sizeof(value), "%d", exit_code); value; }),
+			signal_number == 0 ? "null" : ({ static char value[32]; snprintf(value, sizeof(value), "%d", signal_number); value; }));
+	else if (!strcmp(outcome, "timeout"))
+		snprintf(metadata, sizeof(metadata), ",\"signal\":%d", signal_number);
+	else if (!strcmp(outcome, "spawn_failure") || !strcmp(outcome, "setup_failure"))
+		snprintf(metadata, sizeof(metadata), ",\"stage\":\"%s\"", stage);
+	else if (!strcmp(outcome, "transport_failure"))
+		snprintf(metadata, sizeof(metadata), ",\"reason\":\"%s\"%s",
+			reason, !strcmp(start_state, "started") ? ",\"signal\":15" : "");
 	length = snprintf(header, sizeof(header),
 		"{\"protocol\":\"z2m-helper-transport-v1\",\"requestId\":\"probe:1\","
 		"\"outcome\":\"%s\",\"startState\":\"%s\",\"stdoutLength\":%zu,"
 		"\"stderrLength\":%zu,\"stdoutEof\":true,\"stderrEof\":true,"
-		"\"stderrTruncated\":%s,\"stderrDrained\":%zu,\"childReaped\":%s,"
-		"\"exitCode\":%s,\"signal\":%s%s%s}", outcome, start_state,
+		"\"stderrTruncated\":%s,\"stderrDrained\":%zu,\"childReaped\":%s%s}", outcome, start_state,
 		output_length, error_length, error_truncated ? "true" : "false", error_drained,
-		reaped ? "true" : "false", exit_value, signal_value, stage_field, reason_field);
+		reaped ? "true" : "false", metadata);
 	if (length < 0 || (size_t)length >= sizeof(header))
 		fail("response header");
 	prelude[8] = 2;
@@ -809,7 +835,53 @@ static void malformed_response(int client, const char *mode)
 	if (!read_request_frame(client, &body, &body_length))
 		return;
 	free(body);
-	if (!strcmp(mode, "response-malformed"))
+	if (!strncmp(mode, "response-header-", 16) || !strncmp(mode, "response-body-", 14)) {
+		header = "";
+		prelude[8] = 2;
+		if (!strcmp(mode, "response-header-high-bit")) write_be32(prelude + 12, UINT32_C(0x80000000));
+		else if (!strcmp(mode, "response-header-max")) write_be32(prelude + 12, UINT32_MAX);
+		else if (!strcmp(mode, "response-body-high-bit")) write_be32(prelude + 16, UINT32_C(0x80000000));
+		else write_be32(prelude + 16, UINT32_MAX);
+		write_all(client, prelude, sizeof(prelude));
+		return;
+	}
+	if (!strncmp(mode, "response-duplicate-", 19)) {
+		const char *field = mode + 19;
+		if (!strcmp(field, "stage"))
+			header = "{\"protocol\":\"z2m-helper-transport-v1\",\"requestId\":\"probe:1\",\"outcome\":\"setup_failure\",\"startState\":\"not_started\",\"stdoutLength\":0,\"stderrLength\":0,\"stdoutEof\":true,\"stderrEof\":true,\"stderrTruncated\":false,\"stderrDrained\":0,\"childReaped\":true,\"stage\":\"stdin_dup2\",\"stage\":\"stdin_dup2\"}";
+		else if (!strcmp(field, "reason"))
+			header = "{\"protocol\":\"z2m-helper-transport-v1\",\"requestId\":\"probe:1\",\"outcome\":\"transport_failure\",\"startState\":\"unknown\",\"stdoutLength\":0,\"stderrLength\":0,\"stdoutEof\":true,\"stderrEof\":true,\"stderrTruncated\":false,\"stderrDrained\":0,\"childReaped\":false,\"reason\":\"protocol_failure\",\"reason\":\"protocol_failure\"}";
+		else {
+			static char duplicate[1024];
+			const char *value = (!strcmp(field, "outcome") || !strcmp(field, "startState")) ? "\"child_exited\"" :
+				(!strcmp(field, "stdoutEof") || !strcmp(field, "stderrEof") || !strcmp(field, "childReaped")) ? "true" :
+				!strcmp(field, "stderrTruncated") ? "false" : !strcmp(field, "signal") ? "null" : "0";
+			snprintf(duplicate, sizeof(duplicate),
+				"{\"protocol\":\"z2m-helper-transport-v1\",\"requestId\":\"probe:1\",\"outcome\":\"child_exited\",\"startState\":\"started\",\"stdoutLength\":0,\"stderrLength\":0,\"stdoutEof\":true,\"stderrEof\":true,\"stderrTruncated\":false,\"stderrDrained\":0,\"childReaped\":true,\"exitCode\":0,\"signal\":null,\"%s\":%s}", field, value);
+			header = duplicate;
+		}
+	}
+	else if (!strcmp(mode, "response-stage-enum"))
+		header = "{\"protocol\":\"z2m-helper-transport-v1\",\"requestId\":\"probe:1\",\"outcome\":\"setup_failure\",\"startState\":\"not_started\",\"stdoutLength\":0,\"stderrLength\":0,\"stdoutEof\":true,\"stderrEof\":true,\"stderrTruncated\":false,\"stderrDrained\":0,\"childReaped\":true,\"stage\":\"bogus\"}";
+	else if (!strcmp(mode, "response-reason-enum"))
+		header = "{\"protocol\":\"z2m-helper-transport-v1\",\"requestId\":\"probe:1\",\"outcome\":\"transport_failure\",\"startState\":\"unknown\",\"stdoutLength\":0,\"stderrLength\":0,\"stdoutEof\":false,\"stderrEof\":false,\"stderrTruncated\":false,\"stderrDrained\":0,\"childReaped\":false,\"reason\":\"bogus\"}";
+	else if (!strcmp(mode, "response-timeout-exit"))
+		header = "{\"protocol\":\"z2m-helper-transport-v1\",\"requestId\":\"probe:1\",\"outcome\":\"timeout\",\"startState\":\"started\",\"stdoutLength\":0,\"stderrLength\":0,\"stdoutEof\":true,\"stderrEof\":true,\"stderrTruncated\":false,\"stderrDrained\":0,\"childReaped\":true,\"signal\":15,\"exitCode\":0}";
+	else if (!strcmp(mode, "response-timeout-not-started"))
+		header = "{\"protocol\":\"z2m-helper-transport-v1\",\"requestId\":\"probe:1\",\"outcome\":\"timeout\",\"startState\":\"not_started\",\"stdoutLength\":0,\"stderrLength\":0,\"stdoutEof\":true,\"stderrEof\":true,\"stderrTruncated\":false,\"stderrDrained\":0,\"childReaped\":true,\"signal\":15}";
+	else if (!strcmp(mode, "response-spawn-signal"))
+		header = "{\"protocol\":\"z2m-helper-transport-v1\",\"requestId\":\"probe:1\",\"outcome\":\"spawn_failure\",\"startState\":\"not_started\",\"stdoutLength\":0,\"stderrLength\":0,\"stdoutEof\":true,\"stderrEof\":true,\"stderrTruncated\":false,\"stderrDrained\":0,\"childReaped\":true,\"stage\":\"exec\",\"signal\":9}";
+	else if (!strcmp(mode, "response-setup-exit"))
+		header = "{\"protocol\":\"z2m-helper-transport-v1\",\"requestId\":\"probe:1\",\"outcome\":\"setup_failure\",\"startState\":\"not_started\",\"stdoutLength\":0,\"stderrLength\":0,\"stdoutEof\":true,\"stderrEof\":true,\"stderrTruncated\":false,\"stderrDrained\":0,\"childReaped\":true,\"stage\":\"stdin_dup2\",\"exitCode\":126}";
+	else if (!strcmp(mode, "response-transport-not-started-signal"))
+		header = "{\"protocol\":\"z2m-helper-transport-v1\",\"requestId\":\"probe:1\",\"outcome\":\"transport_failure\",\"startState\":\"not_started\",\"stdoutLength\":0,\"stderrLength\":0,\"stdoutEof\":false,\"stderrEof\":false,\"stderrTruncated\":false,\"stderrDrained\":0,\"childReaped\":false,\"reason\":\"protocol_failure\",\"signal\":9}";
+	else if (!strcmp(mode, "response-transport-started-no-reap"))
+		header = "{\"protocol\":\"z2m-helper-transport-v1\",\"requestId\":\"probe:1\",\"outcome\":\"transport_failure\",\"startState\":\"started\",\"stdoutLength\":0,\"stderrLength\":0,\"stdoutEof\":true,\"stderrEof\":true,\"stderrTruncated\":false,\"stderrDrained\":0,\"childReaped\":false,\"reason\":\"supervision_failure\",\"signal\":9}";
+	else if (!strcmp(mode, "response-stderr-truncated-false"))
+		header = "{\"protocol\":\"z2m-helper-transport-v1\",\"requestId\":\"probe:1\",\"outcome\":\"child_exited\",\"startState\":\"started\",\"stdoutLength\":0,\"stderrLength\":0,\"stdoutEof\":true,\"stderrEof\":true,\"stderrTruncated\":false,\"stderrDrained\":1,\"childReaped\":true,\"exitCode\":0,\"signal\":null}";
+	else if (!strcmp(mode, "response-stderr-truncated-true"))
+		header = "{\"protocol\":\"z2m-helper-transport-v1\",\"requestId\":\"probe:1\",\"outcome\":\"child_exited\",\"startState\":\"started\",\"stdoutLength\":0,\"stderrLength\":0,\"stdoutEof\":true,\"stderrEof\":true,\"stderrTruncated\":true,\"stderrDrained\":0,\"childReaped\":true,\"exitCode\":0,\"signal\":null}";
+	else if (!strcmp(mode, "response-malformed"))
 		header = "{";
 	else if (!strcmp(mode, "response-duplicate"))
 		header = "{\"protocol\":\"z2m-helper-transport-v1\",\"protocol\":\"z2m-helper-transport-v1\",\"requestId\":\"probe:1\"}";
@@ -852,9 +924,15 @@ static void broker_child(int client, const char *child_mode, int disconnect_case
 	if (request_length >= 1024U * 1024U)
 		fprintf(stderr, "broker-stage=frame body=%zu\n", request_length);
 	if (disconnect_case == 1) {
-		fprintf(stderr, "disconnect-before-exec=observed\n");
-		free(request);
-		return;
+		struct pollfd peer = { .fd = client, .events = POLLHUP | POLLERR | POLLRDHUP };
+		int ready;
+		do { ready = poll(&peer, 1, 200); } while (ready < 0 && errno == EINTR);
+		if (ready > 0 && (peer.revents & (POLLHUP | POLLERR))) {
+			fprintf(stderr, "disconnect-before-exec=observed revents=%d forks=%u\n",
+				peer.revents, broker_forks);
+			free(request);
+			return;
+		}
 	}
 	guard = mmap(NULL, sizeof(*guard), PROT_READ | PROT_WRITE,
 		MAP_SHARED | MAP_ANONYMOUS, -1, 0);
@@ -886,6 +964,7 @@ static void broker_child(int client, const char *child_mode, int disconnect_case
 		execve(FIXED_CHILD_PATH, argv, envp);
 		child_error(status[1], STAGE_EXEC, errno, &local);
 	}
+	broker_forks++;
 	close(input[0]); close(out[1]); close(err[1]); close(status[1]);
 	set_nonblocking(input[1]);
 	set_nonblocking(out[0]);
@@ -1198,6 +1277,7 @@ int main(int argc, char **argv)
 	char required_path[sizeof(address.sun_path)];
 	unsigned int argument = 0;
 	unsigned int count = 1;
+	int server_fd_before;
 	mode_t previous_umask;
 
 	if (argc == 3 && !strcmp(argv[1], "spawn")) {
@@ -1248,6 +1328,7 @@ int main(int argc, char **argv)
 	signal(SIGINT, stop);
 	puts("READY");
 	fflush(stdout);
+	server_fd_before = fd_count();
 
 	for (unsigned int handled = 0; handled < count; handled++) {
 		int client;
@@ -1262,6 +1343,9 @@ int main(int argc, char **argv)
 		if (close(client) < 0)
 			fail("close");
 	}
+	if (!strcmp(argv[1], "broker-success") && count == 100)
+		fprintf(stderr, "SERVER_FD_BEFORE=%d SERVER_FD_AFTER=%d FORKS=%u\n",
+			server_fd_before, fd_count(), broker_forks);
 
 	return 0;
 }

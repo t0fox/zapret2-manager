@@ -319,7 +319,7 @@ for (const mode of ['disconnect-before-exec', 'disconnect-after-exec']) {
     assert.equal(result.error, null);
     await stopServer();
     if (mode == 'disconnect-before-exec') {
-      assert.match(serverErrors, /disconnect-before-exec=observed/);
+      assert.match(serverErrors, /disconnect-before-exec=observed revents=\d+ forks=0/);
       assert.doesNotMatch(serverErrors, /broker-stage=fork|broker-stage=started/);
     } else {
       assert.match(serverErrors, /broker-stage=started/);
@@ -352,6 +352,48 @@ for (const [mode, error] of [
   });
 }
 
+for (const field of ['protocol', 'requestId', 'outcome', 'stdoutLength', 'stderrLength', 'startState',
+  'stdoutEof', 'stderrEof', 'stderrTruncated', 'stderrDrained', 'childReaped',
+  'exitCode', 'signal', 'stage', 'reason']) {
+  test(`rejects duplicate response key ${field}`, async () => {
+    await startServer(`response-duplicate-${field}`);
+    assert.equal(invoke('exchange').error, 'response_header_duplicate');
+    await stopServer();
+  });
+}
+
+for (const [mode, error] of [
+  ['response-timeout-exit', 'response_header_fields'],
+  ['response-timeout-not-started', 'response_header_lifecycle'],
+  ['response-spawn-signal', 'response_header_fields'],
+  ['response-setup-exit', 'response_header_fields'],
+  ['response-transport-not-started-signal', 'response_header_fields'],
+  ['response-transport-started-no-reap', 'response_header_lifecycle'],
+  ['response-stage-enum', 'response_header_stage'],
+  ['response-reason-enum', 'response_header_reason'],
+  ['response-stderr-truncated-false', 'response_header_lifecycle'],
+  ['response-stderr-truncated-true', 'response_header_lifecycle'],
+]) {
+  test(`rejects outcome matrix violation ${mode}`, async () => {
+    await startServer(mode);
+    assert.equal(invoke('exchange').error, error);
+    await stopServer();
+  });
+}
+
+for (const [mode, error] of [
+  ['response-header-high-bit', 'response_header_limit'],
+  ['response-header-max', 'response_header_limit'],
+  ['response-body-high-bit', 'response_body_limit'],
+  ['response-body-max', 'response_body_limit'],
+]) {
+  test(`rejects unsigned response length ${mode}`, async () => {
+    await startServer(mode);
+    assert.equal(invoke('exchange').error, error);
+    await stopServer();
+  });
+}
+
 test('does not grow descriptors over 100 framed requests', async () => {
   await startServer('broker-success', [100]);
   const result = invoke('cycles', Buffer.from('x'), { repeats: 100 });
@@ -359,6 +401,10 @@ test('does not grow descriptors over 100 framed requests', async () => {
   assert.equal(result.completed, 100,
     `cycles stopped: ${JSON.stringify(result)} server=${server?.exitCode}/${server?.signalCode} ${serverErrors}`);
   await stopServer();
+  const counts = /SERVER_FD_BEFORE=(\d+) SERVER_FD_AFTER=(\d+) FORKS=(\d+)/.exec(serverErrors);
+  assert.ok(counts, `missing server descriptor evidence: ${serverErrors}`);
+  assert.equal(Number(counts[2]), Number(counts[1]));
+  assert.equal(Number(counts[3]), 100);
 });
 
 test('classifies a missing fixed child from a complete exec error record', () => {

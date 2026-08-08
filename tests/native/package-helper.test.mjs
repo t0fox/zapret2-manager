@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 
 const makefile = fs.readFileSync('zapret2-manager/Makefile', 'utf8');
 const initScript = fs.readFileSync('zapret2-manager/files/etc/init.d/zapret2-manager', 'utf8');
@@ -359,6 +360,23 @@ test('Task 4 broker evidence binds clean tracked inputs and compiled target mark
   for (const marker of ['TAP version 13', '# tests 54', '# pass 54', '# fail 0',
     '# skipped 0', '# BROKER_CHILD_SHA256=', '# BROKER_FIXTURE_SHA256='])
     assert.ok(brokerRawTap.includes(marker), `raw TAP must include ${marker}`);
+});
+
+test('Task 4 source hashes bind the recorded executed input commit blobs', () => {
+  const commit = /^Executed input commit: ([0-9a-f]{40})$/m.exec(brokerEvidence)?.[1];
+  assert.ok(commit, 'evidence must record an executed input commit');
+  for (const [label, file] of [
+    ['C server source', 'tests/native/core/z2m-helperd-spike.c'],
+    ['ucode client source', 'tests/native/core/native-helper-broker-spike.uc'],
+    ['Node harness source', 'tests/native/core/native-helper-broker-spike.test.mjs'],
+    ['child fixture source', 'tests/native/core/native-helper-broker-child.c'],
+  ]) {
+    const blob = spawnSync('git', ['show', `${commit}:${file}`], { encoding: null });
+    assert.equal(blob.status, 0, `cannot read ${file} from ${commit}: ${blob.stderr}`);
+    const hash = createHash('sha256').update(blob.stdout).digest('hex');
+    assert.ok(brokerEvidence.includes(`SHA256 ${label}: ${hash}`),
+      `evidence must hash ${commit}:${file}`);
+  }
 });
 
 test('tracked patch 111 evidence shows setup callback outcome is discarded before exec', () => {

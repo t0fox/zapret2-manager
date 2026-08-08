@@ -14,10 +14,25 @@ function u32(value) {
 }
 
 function read_u32(value, offset) {
-	return (ord(substr(value, offset, 1)) << 24) |
-		(ord(substr(value, offset + 1, 1)) << 16) |
-		(ord(substr(value, offset + 2, 1)) << 8) |
+	return ord(substr(value, offset, 1)) * 16777216 +
+		ord(substr(value, offset + 1, 1)) * 65536 +
+		ord(substr(value, offset + 2, 1)) * 256 +
 		ord(substr(value, offset + 3, 1));
+}
+
+const RESPONSE_KEYS = [
+	'protocol', 'requestId', 'outcome', 'startState', 'stdoutLength',
+	'stderrLength', 'stdoutEof', 'stderrEof', 'stderrTruncated',
+	'stderrDrained', 'childReaped', 'exitCode', 'signal', 'stage', 'reason'
+];
+
+function has_duplicate_key(raw) {
+	for (let key in RESPONSE_KEYS) {
+		let token = sprintf('%J', key);
+		if (index(raw, token) != rindex(raw, token))
+			return true;
+	}
+	return false;
 }
 
 function exact_fields(value, expected) {
@@ -33,16 +48,22 @@ function response_header_error(raw, header, body_length, cap) {
 	let base = {
 		protocol: true, requestId: true, outcome: true, startState: true,
 		stdoutLength: true, stderrLength: true, stdoutEof: true, stderrEof: true,
-		stderrTruncated: true, stderrDrained: true, childReaped: true,
-		exitCode: true, signal: true
+		stderrTruncated: true, stderrDrained: true, childReaped: true
 	};
-	if (index(raw, '"protocol"') != rindex(raw, '"protocol"') ||
-	    index(raw, '"requestId"') != rindex(raw, '"requestId"'))
+	if (has_duplicate_key(raw))
 		return 'response_header_duplicate';
-	if (header?.outcome == 'spawn_failure' || header?.outcome == 'setup_failure')
+	if (type(header?.outcome) == 'string' &&
+	    index(['child_exited', 'timeout', 'spawn_failure', 'setup_failure', 'transport_failure'],
+	    header.outcome) < 0)
+		return 'response_header_outcome';
+	if (header?.outcome == 'child_exited') { base.exitCode = true; base.signal = true; }
+	else if (header?.outcome == 'timeout') base.signal = true;
+	else if (header?.outcome == 'spawn_failure' || header?.outcome == 'setup_failure')
 		base.stage = true;
-	else if (header?.outcome == 'transport_failure')
+	else if (header?.outcome == 'transport_failure') {
 		base.reason = true;
+		if (header?.startState == 'started') base.signal = true;
+	}
 	if (!exact_fields(header, base))
 		return 'response_header_fields';
 	if (type(header.protocol) != 'string' || type(header.requestId) != 'string' ||
@@ -50,33 +71,50 @@ function response_header_error(raw, header, body_length, cap) {
 	    type(header.stdoutLength) != 'int' || type(header.stderrLength) != 'int' ||
 	    type(header.stdoutEof) != 'bool' || type(header.stderrEof) != 'bool' ||
 	    type(header.stderrTruncated) != 'bool' || type(header.stderrDrained) != 'int' ||
-	    type(header.childReaped) != 'bool' ||
-	    !(header.exitCode == null || type(header.exitCode) == 'int') ||
-	    !(header.signal == null || type(header.signal) == 'int'))
+	    type(header.childReaped) != 'bool')
+		return 'response_header_types';
+	if (exists(header, 'exitCode') && !(header.exitCode == null || type(header.exitCode) == 'int'))
+		return 'response_header_types';
+	if (exists(header, 'signal') && !(header.signal == null || type(header.signal) == 'int'))
 		return 'response_header_types';
 	if (header.protocol != 'z2m-helper-transport-v1' || header.requestId != 'probe:1')
 		return 'response_header_identity';
-	if (index(['child_exited', 'timeout', 'spawn_failure', 'setup_failure', 'transport_failure'],
-	    header.outcome) < 0)
-		return 'response_header_outcome';
 	if (index(['not_started', 'started', 'unknown'], header.startState) < 0 ||
 	    header.stdoutLength < 0 || header.stdoutLength > cap ||
 	    header.stderrLength < 0 || header.stderrLength > STDERR_LIMIT ||
 	    header.stderrDrained < header.stderrLength ||
 	    header.stdoutLength + header.stderrLength != body_length)
 		return 'response_header_lifecycle';
-	if (!header.stdoutEof || !header.stderrEof || !header.childReaped)
+	if ((header.stderrTruncated && header.stderrDrained <= header.stderrLength) ||
+	    (!header.stderrTruncated && header.stderrDrained != header.stderrLength))
 		return 'response_header_lifecycle';
 	if (header.outcome == 'child_exited' && (header.startState != 'started' ||
+	    !header.stdoutEof || !header.stderrEof || !header.childReaped ||
 	    (header.exitCode == null) == (header.signal == null)))
 		return 'response_header_lifecycle';
-	if (header.outcome == 'timeout' && (header.startState != 'started' || header.signal == null))
+	if (header.outcome == 'timeout' && (header.startState != 'started' ||
+	    !header.stdoutEof || !header.stderrEof || !header.childReaped || header.signal == null))
 		return 'response_header_lifecycle';
 	if ((header.outcome == 'spawn_failure' || header.outcome == 'setup_failure') &&
-	    (header.startState != 'not_started' || type(header.stage) != 'string'))
+	    (header.startState != 'not_started' || !header.stdoutEof || !header.stderrEof ||
+	    !header.childReaped || type(header.stage) != 'string'))
 		return 'response_header_lifecycle';
-	if (header.outcome == 'transport_failure' && type(header.reason) != 'string')
-		return 'response_header_lifecycle';
+	if ((header.outcome == 'spawn_failure' && index(['fork', 'exec'], header.stage) < 0) ||
+	    (header.outcome == 'setup_failure' &&
+	    index(['setpgid', 'stdin_dup2', 'stdout_dup2', 'stderr_dup2', 'close'], header.stage) < 0))
+		return 'response_header_stage';
+	if (header.outcome == 'transport_failure') {
+		if (index(['stdout_limit', 'protocol_failure', 'supervision_failure', 'client_disconnect'],
+		    header.reason) < 0)
+			return 'response_header_reason';
+		if (header.startState == 'not_started' && header.childReaped)
+			return 'response_header_lifecycle';
+		if (header.startState == 'started' && (!header.childReaped || header.signal == null ||
+		    !header.stdoutEof || !header.stderrEof))
+			return 'response_header_lifecycle';
+		if (header.startState == 'unknown' && header.childReaped)
+			return 'response_header_lifecycle';
+	}
 	return null;
 }
 
@@ -240,12 +278,15 @@ function exchange(mode, socket_path, request, cap, timeout) {
 	if (!error) {
 		let header_length = read_u32(response, 12);
 		let body_length = read_u32(response, 16);
-		if (header_length > RESPONSE_HEADER_LIMIT || length(response) != 20 + header_length + body_length)
+		if (header_length > RESPONSE_HEADER_LIMIT)
+			error = 'response_header_limit';
+		else if (body_length > cap + STDERR_LIMIT)
+			error = 'response_body_limit';
+		else if (length(response) != 20 + header_length + body_length)
 			error = length(response) < 20 + header_length + body_length ? 'response_truncated' : 'response_frame';
-		else {
+		if (!error) {
 			let raw_header = substr(response, 20, header_length);
-			if (index(raw_header, '"protocol"') != rindex(raw_header, '"protocol"') ||
-			    index(raw_header, '"requestId"') != rindex(raw_header, '"requestId"'))
+			if (has_duplicate_key(raw_header))
 				error = 'response_header_duplicate';
 			else try { header = json(raw_header); } catch (e) { error = 'response_header_malformed'; }
 			if (!error)
