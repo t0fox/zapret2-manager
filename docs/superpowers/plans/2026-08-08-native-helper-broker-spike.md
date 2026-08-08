@@ -17,7 +17,7 @@
 - The only production child executable is `/usr/libexec/zapret2-manager/z2m-core-helper`.
 - The only production socket is `/tmp/zapret2-manager/runtime/z2m-helperd.sock`.
 - Bootstrap remains the sole creator/verifier of the `runtime` base root; broker verifies but does not repair it.
-- Socket and lock objects are root-owned, restrictive, no-follow, and fail closed on unsafe stale objects.
+- Socket and lock objects are root-owned, restrictive, no-follow, and fail closed on unsafe stale objects. Local UID 0 is trusted; malicious-root pathname races are out of scope.
 - Use a close-on-exec status pipe to distinguish setup/exec success and failure; never infer these from exit 127, exit 255, `-1`, or missing stdout.
 - One absolute `CLOCK_MONOTONIC` deadline governs each request.
 - Timeout must perform SIGTERM, bounded grace, SIGKILL if needed, and `waitpid`; do not return timeout before proven reap.
@@ -407,7 +407,10 @@ shutdown cleanup.
 
 Compile with test-only path/helper substitution and rerun framing, stale-object,
 peer, timeout, setup/exec, bounds, disconnect, cleanup, and descriptor tests.
-Prove unsafe stale socket objects remain untouched.
+Prove exact-0600 creation without post-bind chmod, verified stale cleanup and
+normal/crash restart, stored-inode shutdown cleanup, and that unsafe stale
+objects remain untouched. Prove PID/starttime registry reuse only after the old
+identity is marked reaped and signal-time starttime validation remains mandatory.
 
 - [ ] **Step 4: Add package build and install**
 

@@ -18,6 +18,9 @@ static volatile sig_atomic_t stopping;
 static int listener = -1;
 static int lock_fd = -1;
 static int runtime_fd = -1;
+static dev_t socket_dev;
+static ino_t socket_ino;
+static bool socket_owned;
 
 static void stop(int signal_number)
 {
@@ -121,23 +124,46 @@ failure:
 	return -1;
 }
 
-static int reject_preexisting_socket(void)
+static int remove_verified_stale_socket(void)
 {
 	struct stat existing;
 
+	/* The verified 0700 runtime root and held singleton lock exclude unprivileged races.
+	 * Local UID 0 is trusted; malicious-root pathname replacement is out of scope. */
 	if (fstatat(runtime_fd, "z2m-helperd.sock", &existing, AT_SYMLINK_NOFOLLOW) < 0)
 		return errno == ENOENT ? 0 : -1;
-	(void)existing;
-	fprintf(stderr, "z2m-helperd: pre-existing socket path left untouched; operator removal required\n");
-	errno = EEXIST;
-	return -1;
+	if (!S_ISSOCK(existing.st_mode) || existing.st_uid != Z2M_RUNTIME_UID ||
+	    existing.st_gid != Z2M_RUNTIME_GID || (existing.st_mode & 0777) != 0600) {
+		fprintf(stderr, "z2m-helperd: unsafe pre-existing socket path left untouched\n");
+		errno = EPERM;
+		return -1;
+	}
+	return unlinkat(runtime_fd, "z2m-helperd.sock", 0);
+}
+
+static void remove_owned_socket(void)
+{
+	struct stat current;
+
+	/* Preserve any replacement unless the fixed name still has our recorded identity. */
+	if (!socket_owned || runtime_fd < 0 || lock_fd < 0) return;
+	if (fstatat(runtime_fd, "z2m-helperd.sock", &current, AT_SYMLINK_NOFOLLOW) == 0 &&
+	    S_ISSOCK(current.st_mode) && current.st_uid == Z2M_RUNTIME_UID &&
+	    current.st_gid == Z2M_RUNTIME_GID && (current.st_mode & 0777) == 0600 &&
+	    current.st_dev == socket_dev && current.st_ino == socket_ino)
+		(void)unlinkat(runtime_fd, "z2m-helperd.sock", 0);
+	socket_owned = false;
 }
 
 static void cleanup(void)
 {
 	if (listener >= 0) close(listener);
+	listener = -1;
+	remove_owned_socket();
 	if (lock_fd >= 0) close(lock_fd);
+	lock_fd = -1;
 	if (runtime_fd >= 0) close(runtime_fd);
+	runtime_fd = -1;
 }
 
 int main(void)
@@ -154,9 +180,9 @@ int main(void)
 		fprintf(stderr, "z2m-helperd: singleton lock unavailable\n");
 		goto failure;
 	}
-	if (reject_preexisting_socket() < 0) goto failure;
+	if (remove_verified_stale_socket() < 0) goto failure;
 	memcpy(address.sun_path, Z2M_SOCKET_PATH, strlen(Z2M_SOCKET_PATH) + 1);
-	old_umask = umask(0077);
+	old_umask = umask(0177);
 	listener = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
 	if (listener < 0 || bind(listener, (struct sockaddr *)&address, sizeof(address)) < 0) {
 		umask(old_umask); goto failure;
@@ -165,11 +191,13 @@ int main(void)
 #ifdef Z2M_TEST_STOP_AFTER_BIND
 	raise(SIGSTOP);
 #endif
-	if (fchmodat(runtime_fd, "z2m-helperd.sock", 0600, 0) < 0 ||
-	    fstatat(runtime_fd, "z2m-helperd.sock", &st, AT_SYMLINK_NOFOLLOW) < 0 ||
+	if (fstatat(runtime_fd, "z2m-helperd.sock", &st, AT_SYMLINK_NOFOLLOW) < 0 ||
 	    !S_ISSOCK(st.st_mode) || st.st_uid != Z2M_RUNTIME_UID ||
 	    st.st_gid != Z2M_RUNTIME_GID ||
 	    (st.st_mode & 0777) != 0600) goto failure;
+	socket_dev = st.st_dev;
+	socket_ino = st.st_ino;
+	socket_owned = true;
 	if (listen(listener, 8) < 0) goto failure;
 	atexit(cleanup);
 	sigemptyset(&action.sa_mask);
