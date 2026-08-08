@@ -349,7 +349,7 @@ test('Task 4 broker evidence binds clean tracked inputs and compiled target mark
     assert.ok(brokerRawTap.includes(`# ${marker}=${hash}`),
       `raw TAP must bind ${marker}`);
   }
-  for (const marker of ['Raw TAP artifact:', '# tests 83', '# pass 83',
+  for (const marker of ['Raw TAP artifact:', '# tests 90', '# pass 90',
     '# fail 0', '# skipped 0',
     'ELF 64-bit LSB executable, ARM aarch64',
     'ELF 64-bit LSB shared object, ARM aarch64',
@@ -357,7 +357,7 @@ test('Task 4 broker evidence binds clean tracked inputs and compiled target mark
     assert.ok(brokerEvidence.includes(marker), `Task 4 evidence must include ${marker}`);
   const rawHash = createHash('sha256').update(fs.readFileSync(brokerRawTapPath)).digest('hex');
   assert.ok(brokerEvidence.includes(`SHA256 raw TAP artifact: ${rawHash}`));
-  for (const marker of ['TAP version 13', '# tests 83', '# pass 83', '# fail 0',
+  for (const marker of ['TAP version 13', '# tests 90', '# pass 90', '# fail 0',
     '# skipped 0', '# BROKER_CHILD_SHA256=', '# BROKER_FIXTURE_SHA256='])
     assert.ok(brokerRawTap.includes(marker), `raw TAP must include ${marker}`);
 });

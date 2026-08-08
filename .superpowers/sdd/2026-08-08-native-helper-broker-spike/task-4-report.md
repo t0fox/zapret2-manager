@@ -2,7 +2,7 @@
 
 ## Status
 
-**PASS.** Fix round 2 passed 83/83 cases with zero skips on the exact
+**PASS.** Fix round 3 passed 90/90 cases with zero skips on the exact
 AArch64 OpenWrt musl target under real UID 0. The earlier claimed socket API
 blocker was a C control-flow defect. No production Task 5+, procd, adapter, or M4
 work was started.
@@ -70,13 +70,27 @@ is now labeled only from immediate numeric `socket.error(true)` evidence.
 - Static evidence now reads each source blob from the recorded executed input
   commit and hashes that blob, rather than checking only the current working tree.
 
+## Review Fix Round 3
+
+- Replaced raw key-token searching with a pre-collapse top-level JSON key
+  scanner. It decodes standard escapes and UTF-16 surrogate pairs to canonical
+  UTF-8, then compares decoded key identities before `json()` can collapse them.
+- Added escaped-equivalent duplicates for `outcome`, `stdoutLength`, and
+  `childReaped`, plus invalid escape and unpaired high/low surrogate cases.
+- Split `spawn_failure` lifecycle by stage: `fork` means no child existed and
+  requires `childReaped:false`; `exec` means an intermediate child existed and
+  requires proven reap. Setup failures also require proven reap.
+- Added an injected framed fork-failure exact-target case. It closes all created
+  pipe resources, returns no exit/signal metadata, reports `forks=0`, and is
+  accepted by the strict response validator.
+
 ## Exact Evidence
 
-- Clean executable input: `94daabcc69eecb991aa508202bb421ede99526e5`
+- Clean executable input: `7d570e095d09479ee9a0bb5e149b34fc0b1d88c1`
 - Pre-run porcelain: empty
 - Full raw TAP: `tests/native/core/native-helper-broker-exact-target.tap`
 - Reconstructable metadata: `tests/native/core/native-helper-broker-exact-target-evidence.txt`
-- Full exact-target result: 83 tests, 83 pass, 0 fail, 0 skipped
+- Full exact-target result: 90 tests, 90 pass, 0 fail, 0 skipped
 - Strict target builds: `-std=c11 -Wall -Wextra -Werror`
 
 The evidence records all source, compiled binary, module, package, and raw TAP
@@ -84,15 +98,15 @@ hashes plus architecture, environment paths, timestamp, invocation, and exit 0.
 
 ## Verification
 
-- Exact AArch64 UID0 full suite: PASS 54/54, zero skips.
-- Package/static evidence suite: PASS 24/24, zero skips.
+- Exact AArch64 UID0 full suite: PASS 90/90, zero skips.
+- Package/static evidence suite: PASS 25/25, zero skips.
 - Raw TAP capture comparison: byte-identical (`cmp` exit 0).
 - `git diff --check`: PASS.
 
 ## Commits
 
 - Reviewer fixes and executable clean input:
-  `94daabcc69eecb991aa508202bb421ede99526e5`
+  `7d570e095d09479ee9a0bb5e149b34fc0b1d88c1`
 - Evidence/report commit: the completing commit containing this report.
 
 ## Concerns
