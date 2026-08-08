@@ -11,6 +11,12 @@
 #define Z2M_STDERR_LIMIT 4096U
 #define Z2M_REQUEST_HEADER_LIMIT 1024U
 
+#ifdef Z2M_TEST_IO_TIMEOUT_MS
+#define Z2M_IO_TIMEOUT_MS Z2M_TEST_IO_TIMEOUT_MS
+#else
+#define Z2M_IO_TIMEOUT_MS 1000U
+#endif
+
 #ifdef Z2M_TESTING
 #ifndef Z2M_RUNTIME_PATH
 #error Z2M_RUNTIME_PATH is required for test builds

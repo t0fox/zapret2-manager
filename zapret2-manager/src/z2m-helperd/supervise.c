@@ -5,6 +5,7 @@
 #include <limits.h>
 #include <poll.h>
 #include <signal.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
@@ -55,6 +56,19 @@ static void nonblocking(int fd)
 	if (flags >= 0) (void)fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
 
+static int supervised_poll(struct pollfd *fds, nfds_t count, int timeout,
+	unsigned int *poll_count)
+{
+	(*poll_count)++;
+#ifdef Z2M_TEST_POLL_HARD_FAILURE
+	if (*poll_count == 1) {
+		errno = EIO;
+		return -1;
+	}
+#endif
+	return poll(fds, count, timeout);
+}
+
 static int compare_time(const struct timespec *a, const struct timespec *b)
 {
 	if (a->tv_sec != b->tv_sec) return a->tv_sec < b->tv_sec ? -1 : 1;
@@ -89,6 +103,31 @@ static void signal_child(pid_t pid, int signal_number, bool reaped)
 	(void)kill(pid, signal_number);
 }
 
+static void signal_adopted_children(pid_t leader, int signal_number)
+{
+	char path[64], buffer[4096];
+	int fd;
+	ssize_t length;
+	char *cursor, *end;
+
+	if (snprintf(path, sizeof(path), "/proc/self/task/%ld/children", (long)getpid()) < 0)
+		return;
+	fd = open(path, O_RDONLY | O_CLOEXEC);
+	if (fd < 0) return;
+	do { length = read(fd, buffer, sizeof(buffer) - 1); } while (length < 0 && errno == EINTR);
+	(void)close(fd);
+	if (length <= 0) return;
+	buffer[length] = '\0';
+	cursor = buffer;
+	while (*cursor) {
+		long child = strtol(cursor, &end, 10);
+		if (end == cursor) break;
+		if (child > 0 && child != leader)
+			(void)kill((pid_t)child, signal_number);
+		cursor = end;
+	}
+}
+
 void z2m_supervise(int client, const struct z2m_request *request, struct z2m_result *result)
 {
 	int input[2] = {-1,-1}, output[2] = {-1,-1}, errors[2] = {-1,-1}, status[2] = {-1,-1};
@@ -98,9 +137,11 @@ void z2m_supervise(int client, const struct z2m_request *request, struct z2m_res
 	bool reaped = false, descendants_exhausted = false, terminating = false;
 	bool kill_sent = false, disconnected = false, shutdown = false;
 	bool timed_out = false, overflow = false, supervision_failed = false;
+	bool cleanup_expired = false;
+	unsigned int poll_count = 0;
 	int wait_status = 0;
 	pid_t pid;
-	struct timespec started, deadline, grace;
+	struct timespec started, deadline, grace, cleanup_deadline;
 
 	memset(result, 0, sizeof(*result));
 	result->outcome = "transport_failure";
@@ -143,9 +184,9 @@ void z2m_supervise(int client, const struct z2m_request *request, struct z2m_res
 		struct timespec now;
 		int timeout = terminating ? remaining_ms(&grace) : remaining_ms(&deadline);
 		if (timeout > 10) timeout = 10;
-		int ready = poll(fds, 5, timeout);
+		int ready = supervised_poll(fds, 5, timeout, &poll_count);
 		if (ready < 0 && errno == EINTR) continue;
-		if (ready < 0) break;
+		if (ready < 0) supervision_failed = true;
 		if (!input_closed && fds[3].revents) {
 			ssize_t count = write(input[1], request->body + input_at, request->body_length - input_at);
 			if (count > 0) input_at += (size_t)count;
@@ -153,7 +194,7 @@ void z2m_supervise(int client, const struct z2m_request *request, struct z2m_res
 				close(input[1]); input[1] = -1; input_closed = true;
 			}
 		}
-		for (unsigned int i = 0; i < 8; i++) {
+		for (unsigned int i = 0; output[0] >= 0 && i < 8; i++) {
 			uint8_t buffer[65536]; ssize_t count = read(output[0], buffer, sizeof(buffer));
 			if (count > 0) {
 				size_t keep = (size_t)count;
@@ -168,11 +209,14 @@ void z2m_supervise(int client, const struct z2m_request *request, struct z2m_res
 				memcpy(result->output + result->output_length, buffer, keep);
 				result->output_length += keep; continue;
 			}
-			if (count == 0) output_eof = true;
+			if (count == 0) {
+				output_eof = true;
+				close(output[0]); output[0] = -1;
+			}
 			else if (errno != EAGAIN && errno != EINTR) supervision_failed = true;
 			break;
 		}
-		for (unsigned int i = 0; i < 8; i++) {
+		for (unsigned int i = 0; errors[0] >= 0 && i < 8; i++) {
 			uint8_t buffer[4096]; ssize_t count = read(errors[0], buffer, sizeof(buffer));
 			if (count > 0) {
 				size_t keep = (size_t)count;
@@ -180,18 +224,27 @@ void z2m_supervise(int client, const struct z2m_request *request, struct z2m_res
 				if (keep > Z2M_STDERR_LIMIT - result->error_length) keep = Z2M_STDERR_LIMIT - result->error_length;
 				memcpy(result->errors + result->error_length, buffer, keep); result->error_length += keep; continue;
 			}
-			if (count == 0) errors_eof = true;
+			if (count == 0) {
+				errors_eof = true;
+				close(errors[0]); errors[0] = -1;
+			}
 			else if (errno != EAGAIN && errno != EINTR) supervision_failed = true;
 			break;
 		}
-		while (status_length < sizeof(record)) {
+		while (status[0] >= 0 && status_length < sizeof(record)) {
 			ssize_t count = read(status[0], (uint8_t *)&record + status_length, sizeof(record) - status_length);
 			if (count > 0) { status_length += (size_t)count; continue; }
-			if (count == 0) status_eof = true;
+			if (count == 0) {
+				status_eof = true;
+				close(status[0]); status[0] = -1;
+			}
 			else if (errno != EAGAIN && errno != EINTR) supervision_failed = true;
 			break;
 		}
-		if (status_length == sizeof(record)) status_eof = true;
+		if (status_length == sizeof(record)) {
+			status_eof = true;
+			if (status[0] >= 0) { close(status[0]); status[0] = -1; }
+		}
 		if (status_eof && status_length == 0) result->start_state = "started";
 		for (unsigned int i = 0; i < 8; i++) {
 			int collected_status;
@@ -210,12 +263,23 @@ void z2m_supervise(int client, const struct z2m_request *request, struct z2m_res
 			memset(&now, 0, sizeof(now));
 		}
 		overflow = result->output_length > Z2M_RESPONSE_LIMIT;
-		if (!reaped && compare_time(&now, &deadline) >= 0) timed_out = true;
+		if (!descendants_exhausted && compare_time(&now, &deadline) >= 0) timed_out = true;
 		if (!terminating && (disconnected || shutdown || overflow || timed_out || supervision_failed)) {
-			terminating = true; signal_child(pid, SIGTERM, reaped); grace = after_ms(now, 100);
+			terminating = true;
+			signal_child(pid, SIGTERM, reaped);
+			signal_adopted_children(pid, SIGTERM);
+			grace = after_ms(now, 100);
+			cleanup_deadline = after_ms(grace, 300);
 		}
-		if (terminating && !kill_sent && compare_time(&now, &grace) >= 0 && !reaped) {
+		if (terminating && !kill_sent && compare_time(&now, &grace) >= 0 &&
+		    !descendants_exhausted) {
 			signal_child(pid, SIGKILL, reaped); kill_sent = true;
+			signal_adopted_children(pid, SIGKILL);
+		}
+		if (terminating && compare_time(&now, &cleanup_deadline) >= 0 &&
+		    (!reaped || !descendants_exhausted || !output_eof || !errors_eof || !status_eof)) {
+			cleanup_expired = true;
+			break;
 		}
 	}
 	result->child_reaped = reaped;
@@ -237,13 +301,25 @@ void z2m_supervise(int client, const struct z2m_request *request, struct z2m_res
 		result->outcome = "transport_failure"; result->reason = "stdout_limit";
 	} else if (timed_out) {
 		result->outcome = "timeout";
-	} else if (supervision_failed) {
+	} else if (supervision_failed || cleanup_expired || !reaped || !descendants_exhausted) {
 		result->outcome = "transport_failure"; result->reason = "supervision_failure";
 	} else {
 		result->outcome = "child_exited";
 	}
 	result->exit_code = WIFEXITED(wait_status) ? WEXITSTATUS(wait_status) : -1;
 	result->signal_number = WIFSIGNALED(wait_status) ? WTERMSIG(wait_status) : 0;
+
+#ifdef Z2M_TEST_POLL_COUNT_PATH
+	{
+		int report = open(Z2M_TEST_POLL_COUNT_PATH, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+		if (report >= 0) {
+			char value[32];
+			int length = snprintf(value, sizeof(value), "%u\n", poll_count);
+			if (length > 0) (void)write(report, value, (size_t)length);
+			(void)close(report);
+		}
+	}
+#endif
 
 finish:
 	for (size_t i = 0; i < 2; i++) {
