@@ -2,82 +2,84 @@
 
 ## Status
 
-**M3 BLOCKED.** The strict transport-v1 spike was implemented and run on the
-exact AArch64 OpenWrt musl target under real UID 0. The mandatory 4 MiB framed
-request fails at the ucode AF_UNIX send boundary. Production Tasks 5+ were not
-started and remain forbidden.
+**PASS.** The complete spike passed 54/54 cases with zero skips on the exact
+AArch64 OpenWrt musl target under real UID 0. The earlier claimed socket API
+blocker was a C control-flow defect. No production Task 5+, procd, adapter, or M4
+work was started.
 
-## Commits
+## Root Cause Correction
 
-- Clean executable input: `53dcc4bcdfd509ff39728b31a7902a1bff0e91da`
-- Evidence/report commit: recorded by the completing commit for this report.
+`read_request_frame()` omitted braces around invalid-prelude handling. Only the
+diagnostic `fprintf()` was conditional; `return false` executed for every valid
+prelude.
 
-## Implemented Spike Scope
-
-- Added the exact 20-byte `Z2MHTV1\n` prelude, request/response frame types,
-  zero flags/reserved fields, and unsigned big-endian header/body lengths.
-- Added exact request header validation for protocol, `probe:1`, and timeout.
-- Added framed closed outcomes and opaque stdout plus retained-stderr bodies.
-- Added strict malformed/short/trailing/oversized/duplicate/unknown/identity
-  request cases, helper outcome cases, disconnect cases, response truncation,
-  large bodies, stderr draining, timeout metadata, and 100 framed requests.
-- Retained all review-clean Task 2/3 direct spawn and supervision cases.
-- Added package/static evidence tests that recompute tracked source hashes and
-  bind raw TAP to both compiled AArch64 binary markers.
-- Added no production daemon, adapter, procd integration, or M4 work.
-
-## TDD And Root Cause Evidence
-
-The first strict frame case was observed RED with `actual error: socket` before
-the frame implementation, then passed in a focused exact-target run. Subsequent
-focused runs localized the required 4 MiB failure before the C server's accepted
-frame marker:
+Focused exact-target RED instrumentation showed:
 
 ```text
-sendCalls=1
-shortWrites=1
-sendEagain=1
-recvCalls=0
-bytesRead=0
-error=disconnect
-server exit=0, signal=null
+server: request-frame=prelude header=76 body=4194304
+client: sendNullErrno=32 (EPIPE)
+client: sendPollRevents=[28] (POLLOUT|POLLERR|POLLHUP)
+client: shortWrites=1, recvCalls=0, bytesRead=0
 ```
 
-Three single-variable hypotheses were tested and rejected because the trace was
-unchanged: combined `POLLOUT|POLLHUP` ordering, 64 KiB send chunks, and blocking
-send flags. Systematic-debugging's three-attempt architecture gate therefore
-requires stopping rather than layering a fourth speculative transport change.
+After adding only braces, with chunk size, send flags, and deadline unchanged:
+
+```text
+client: sendNullErrno=11 (EAGAIN)
+client: sendPollRevents=[4] (POLLOUT)
+server: prelude header=76 body=4194304
+server: header bytes=76
+server: body bytes=1278944, 2192544, 3361952, 4194304
+```
+
+The prior report's API limitation and EAGAIN attribution were false. Null send
+is now labeled only from immediate numeric `socket.error(true)` evidence.
+
+## Independent Findings Fixed
+
+- Restored blocking child pipe ends and made only parent pump ends nonblocking.
+- Separated transport frame overhead from the helper stdout cap. A legal 6 MiB
+  stdout passes; stdout cap plus one returns reaped `transport_failure`.
+- Every malformed request asserts exact parser stage and reason.
+- Request parsing requires real EOF after one frame; `EAGAIN` is not EOF.
+- Before-exec disconnect returns before pipe creation/fork. After-exec disconnect
+  proves status-pipe EOF/start, TERM, and reap.
+- Strict response validation checks raw duplicate keys, exact outcome-dependent
+  fields, types, protocol/request identity, closed enums, body split, EOF/reap,
+  and lifecycle compatibility.
+- Added malformed, duplicate, unknown-field, wrong-type, unknown-outcome,
+  wrong-ID, lifecycle-contradiction, trailing, and truncated response cases.
+- Scoped instrumentation so stderr backpressure cannot perturb 100-request proof.
 
 ## Exact Evidence
 
-The reconstructable artifact is
-`tests/native/core/native-helper-broker-exact-target-evidence.txt`. It records:
+- Clean executable input: `347278194579bdbc3a822a9aaf538a36dfe4976d`
+- Pre-run porcelain: empty
+- Full raw TAP: `tests/native/core/native-helper-broker-exact-target.tap`
+- Reconstructable metadata: `tests/native/core/native-helper-broker-exact-target-evidence.txt`
+- Full exact-target result: 54 tests, 54 pass, 0 fail, 0 skipped
+- Strict target builds: `-std=c11 -Wall -Wextra -Werror`
 
-- clean input commit and empty pre-run porcelain status;
-- hashes for all four tracked sources;
-- hashes for both compiled AArch64 binaries;
-- target ucode, socket module, package Makefile, and APK hashes;
-- ARM aarch64 binary/module architecture;
-- exact UID0 PRoot/QEMU invocation and environment paths;
-- timestamp, raw TAP, exact exit 1, zero skips, and the failing assertion.
+The evidence records all source, compiled binary, module, package, and raw TAP
+hashes plus architecture, environment paths, timestamp, invocation, and exit 0.
 
 ## Verification
 
-- Strict target builds: PASS (`-std=c11 -Wall -Wextra -Werror`).
-- Required exact-target focused case: FAIL, 0 pass / 1 fail / 0 skipped.
-- Package static test was observed RED before the Task 4 artifact replacement,
-  as expected; final verification is recorded after evidence creation.
-- `git diff --check`: recorded in final verification.
-- Package/static evidence suite: PASS, 24/24, 0 skipped.
-- Independent Codex review could not run because the installed CLI is missing
-  `@openai/codex-linux-x64`; this is an environment review gap, not a PASS.
+- Exact AArch64 UID0 full suite: PASS 54/54, zero skips.
+- Package/static evidence suite: PASS 24/24, zero skips.
+- Raw TAP capture comparison: byte-identical (`cmp` exit 0).
+- `git diff --check`: PASS.
 
-## Concerns And Blocker
+## Commits
 
-- Valid framed exchanges are not stable in the clean full run; malformed request
-  rejection is repeatable, but valid exchanges frequently report socket failure.
-- The exact 4 MiB required case is deterministically blocked at the client send
-  boundary and prevents exercising the paired 6 MiB response in that test.
-- The implementation remains spike-only and includes diagnostic markers retained
-  specifically to reconstruct the failure boundary.
-- No production continuation is permitted from this result.
+- Reviewer fixes and executable clean input:
+  `347278194579bdbc3a822a9aaf538a36dfe4976d`
+- Evidence/report commit: the completing commit containing this report.
+
+## Concerns
+
+- This remains spike-only code and test instrumentation, not production design.
+- Request-header strictness in the C spike intentionally recognizes the fixed
+  exact test header and explicit adversarial fixtures; production parsing remains
+  Task 5 scope and was not started.
+- No blocker remains for Task 4 itself.

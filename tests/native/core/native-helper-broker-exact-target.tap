@@ -1,0 +1,337 @@
+TAP version 13
+# BROKER_CHILD_SHA256=e766c44676b1e08e6a829fab2700c7b51d4b6aad9680d038b407b2f18dd5dee5
+# SOCKET_MODULE_SHA256=ccaff63617ed3136c6461dadbf3328cd3a0cba118fbc98578108024291541ca0
+# BROKER_FIXTURE_SHA256=272ba7145cf8be2d984ccbddc16e16d153f42a662b6618df3872c0c1a02c2cd0
+# Subtest: uses the strict 20-byte transport-v1 prelude and preserves helper bytes
+ok 1 - uses the strict 20-byte transport-v1 prelude and preserves helper bytes
+  ---
+  duration_ms: 171.243983
+  type: 'test'
+  ...
+# Subtest: rejects strict framing violation request-short
+ok 2 - rejects strict framing violation request-short
+  ---
+  duration_ms: 131.150444
+  type: 'test'
+  ...
+# Subtest: rejects strict framing violation request-magic
+ok 3 - rejects strict framing violation request-magic
+  ---
+  duration_ms: 131.612107
+  type: 'test'
+  ...
+# Subtest: rejects strict framing violation request-type
+ok 4 - rejects strict framing violation request-type
+  ---
+  duration_ms: 124.386844
+  type: 'test'
+  ...
+# Subtest: rejects strict framing violation request-flags
+ok 5 - rejects strict framing violation request-flags
+  ---
+  duration_ms: 130.457541
+  type: 'test'
+  ...
+# Subtest: rejects strict framing violation request-reserved
+ok 6 - rejects strict framing violation request-reserved
+  ---
+  duration_ms: 127.593678
+  type: 'test'
+  ...
+# Subtest: rejects strict framing violation request-length
+ok 7 - rejects strict framing violation request-length
+  ---
+  duration_ms: 121.848568
+  type: 'test'
+  ...
+# Subtest: rejects strict framing violation request-trailing
+ok 8 - rejects strict framing violation request-trailing
+  ---
+  duration_ms: 127.791577
+  type: 'test'
+  ...
+# Subtest: rejects strict framing violation request-oversized
+ok 9 - rejects strict framing violation request-oversized
+  ---
+  duration_ms: 126.342958
+  type: 'test'
+  ...
+# Subtest: rejects strict framing violation request-duplicate
+ok 10 - rejects strict framing violation request-duplicate
+  ---
+  duration_ms: 129.085214
+  type: 'test'
+  ...
+# Subtest: rejects strict framing violation request-unknown
+ok 11 - rejects strict framing violation request-unknown
+  ---
+  duration_ms: 124.796998
+  type: 'test'
+  ...
+# Subtest: rejects strict framing violation request-malformed
+ok 12 - rejects strict framing violation request-malformed
+  ---
+  duration_ms: 128.562479
+  type: 'test'
+  ...
+# Subtest: rejects strict framing violation request-id
+ok 13 - rejects strict framing violation request-id
+  ---
+  duration_ms: 124.955094
+  type: 'test'
+  ...
+# Subtest: requires actual EOF after the one request frame
+ok 14 - requires actual EOF after the one request frame
+  ---
+  duration_ms: 331.412079
+  type: 'test'
+  ...
+# Subtest: preserves helper structured failure and malformed stdout as opaque bytes
+ok 15 - preserves helper structured failure and malformed stdout as opaque bytes
+  ---
+  duration_ms: 336.35735
+  type: 'test'
+  ...
+# Subtest: classifies fixed-helper exec and injected setup failures in framed responses
+ok 16 - classifies fixed-helper exec and injected setup failures in framed responses
+  ---
+  duration_ms: 598.819137
+  type: 'test'
+  ...
+# Subtest: duplexes a 4 MiB request and accepts a 6 MiB response
+ok 17 - duplexes a 4 MiB request and accepts a 6 MiB response
+  ---
+  duration_ms: 994.242053
+  type: 'test'
+  ...
+# Subtest: turns helper stdout cap plus one into transport_failure
+ok 18 - turns helper stdout cap plus one into transport_failure
+  ---
+  duration_ms: 249.15749
+  type: 'test'
+  ...
+# Subtest: retains bounded stderr while draining excess
+ok 19 - retains bounded stderr while draining excess
+  ---
+  duration_ms: 165.520085
+  type: 'test'
+  ...
+# Subtest: times out, signals, and reaps before framing the response
+ok 20 - times out, signals, and reaps before framing the response
+  ---
+  duration_ms: 239.617228
+  type: 'test'
+  ...
+# Subtest: reaps the child after disconnect before exec
+ok 21 - reaps the child after disconnect before exec
+  ---
+  duration_ms: 124.811949
+  type: 'test'
+  ...
+# Subtest: reaps the child after disconnect after exec
+ok 22 - reaps the child after disconnect after exec
+  ---
+  duration_ms: 128.794254
+  type: 'test'
+  ...
+# Subtest: rejects a truncated response frame
+ok 23 - rejects a truncated response frame
+  ---
+  duration_ms: 127.065046
+  type: 'test'
+  ...
+# Subtest: rejects strict response violation response-malformed
+ok 24 - rejects strict response violation response-malformed
+  ---
+  duration_ms: 129.021192
+  type: 'test'
+  ...
+# Subtest: rejects strict response violation response-duplicate
+ok 25 - rejects strict response violation response-duplicate
+  ---
+  duration_ms: 128.863698
+  type: 'test'
+  ...
+# Subtest: rejects strict response violation response-unknown
+ok 26 - rejects strict response violation response-unknown
+  ---
+  duration_ms: 131.161091
+  type: 'test'
+  ...
+# Subtest: rejects strict response violation response-type
+ok 27 - rejects strict response violation response-type
+  ---
+  duration_ms: 126.973787
+  type: 'test'
+  ...
+# Subtest: rejects strict response violation response-outcome
+ok 28 - rejects strict response violation response-outcome
+  ---
+  duration_ms: 132.467477
+  type: 'test'
+  ...
+# Subtest: rejects strict response violation response-id
+ok 29 - rejects strict response violation response-id
+  ---
+  duration_ms: 133.687457
+  type: 'test'
+  ...
+# Subtest: rejects strict response violation response-lifecycle
+ok 30 - rejects strict response violation response-lifecycle
+  ---
+  duration_ms: 129.986887
+  type: 'test'
+  ...
+# Subtest: rejects strict response violation response-trailing
+ok 31 - rejects strict response violation response-trailing
+  ---
+  duration_ms: 127.45859
+  type: 'test'
+  ...
+# Subtest: does not grow descriptors over 100 framed requests
+ok 32 - does not grow descriptors over 100 framed requests
+  ---
+  duration_ms: 4067.27512
+  type: 'test'
+  ...
+# Subtest: classifies a missing fixed child from a complete exec error record
+ok 33 - classifies a missing fixed child from a complete exec error record
+  ---
+  duration_ms: 192.911826
+  type: 'test'
+  ...
+# Subtest: retries interrupted status-record writes without reporting started
+ok 34 - retries interrupted status-record writes without reporting started
+  ---
+  duration_ms: 199.930408
+  type: 'test'
+  ...
+# Subtest: completes partial status-record writes without reporting started
+ok 35 - completes partial status-record writes without reporting started
+  ---
+  duration_ms: 192.376179
+  type: 'test'
+  ...
+# Subtest: fails closed when the status record cannot be written
+ok 36 - fails closed when the status record cannot be written
+  ---
+  duration_ms: 198.531239
+  type: 'test'
+  ...
+# Subtest: rejects a complete status record with an unknown stage
+ok 37 - rejects a complete status record with an unknown stage
+  ---
+  duration_ms: 196.298498
+  type: 'test'
+  ...
+# Subtest: classifies stdin_dup2 setup failure from a complete status record
+ok 38 - classifies stdin_dup2 setup failure from a complete status record
+  ---
+  duration_ms: 198.566897
+  type: 'test'
+  ...
+# Subtest: classifies stdout_dup2 setup failure from a complete status record
+ok 39 - classifies stdout_dup2 setup failure from a complete status record
+  ---
+  duration_ms: 195.325603
+  type: 'test'
+  ...
+# Subtest: classifies stderr_dup2 setup failure from a complete status record
+ok 40 - classifies stderr_dup2 setup failure from a complete status record
+  ---
+  duration_ms: 195.032519
+  type: 'test'
+  ...
+# Subtest: classifies successful exec only from close-on-exec EOF
+ok 41 - classifies successful exec only from close-on-exec EOF
+  ---
+  duration_ms: 68.570377
+  type: 'test'
+  ...
+# Subtest: does not reinterpret child exit 127 as spawn failure
+ok 42 - does not reinterpret child exit 127 as spawn failure
+  ---
+  duration_ms: 65.751873
+  type: 'test'
+  ...
+# Subtest: does not reinterpret child exit 255 as spawn failure
+ok 43 - does not reinterpret child exit 255 as spawn failure
+  ---
+  duration_ms: 62.98819
+  type: 'test'
+  ...
+# Subtest: does not reinterpret missing child stdout as spawn failure
+ok 44 - does not reinterpret missing child stdout as spawn failure
+  ---
+  duration_ms: 62.647567
+  type: 'test'
+  ...
+# Subtest: terminates and reaps a cooperative 30-second child after one 100 ms deadline
+ok 45 - terminates and reaps a cooperative 30-second child after one 100 ms deadline
+  ---
+  duration_ms: 135.771411
+  type: 'test'
+  ...
+# Subtest: kills and reaps a TERM-ignoring 30-second child after bounded grace
+ok 46 - kills and reaps a TERM-ignoring 30-second child after bounded grace
+  ---
+  duration_ms: 234.29341
+  type: 'test'
+  ...
+# Subtest: terminates the dedicated process group including a forked descendant
+ok 47 - terminates the dedicated process group including a forked descendant
+  ---
+  duration_ms: 234.230549
+  type: 'test'
+  ...
+# Subtest: repeated EINTR and pipe wakeups do not extend the absolute deadline
+ok 48 - repeated EINTR and pipe wakeups do not extend the absolute deadline
+  ---
+  duration_ms: 294.915104
+  type: 'test'
+  ...
+# Subtest: stops retaining child stdout at cap plus one byte
+ok 49 - stops retaining child stdout at cap plus one byte
+  ---
+  duration_ms: 63.566782
+  type: 'test'
+  ...
+# Subtest: retains 4096 stderr bytes while draining all excess
+ok 50 - retains 4096 stderr bytes while draining all excess
+  ---
+  duration_ms: 135.085036
+  type: 'test'
+  ...
+# Subtest: continuous stderr flood cannot starve deadline or bounded escalation
+ok 51 - continuous stderr flood cannot starve deadline or bounded escalation
+  ---
+  duration_ms: 240.197722
+  type: 'test'
+  ...
+# Subtest: delayed setpgid cannot escape direct-child timeout signaling
+ok 52 - delayed setpgid cannot escape direct-child timeout signaling
+  ---
+  duration_ms: 300.247347
+  type: 'test'
+  ...
+# Subtest: group ESRCH after direct reap never falls back to reusable positive PID
+ok 53 - group ESRCH after direct reap never falls back to reusable positive PID
+  ---
+  duration_ms: 396.393563
+  type: 'test'
+  ...
+# Subtest: pumps child stdin, stdout, and stderr concurrently
+ok 54 - pumps child stdin, stdout, and stderr concurrently
+  ---
+  duration_ms: 67.607385
+  type: 'test'
+  ...
+1..54
+# tests 54
+# suites 0
+# pass 54
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 14938.970557

@@ -1,10 +1,10 @@
 Broker Spike Task 4 exact-target transport evidence
-STATUS: M3 BLOCKED
-Production Tasks 5+ remain forbidden.
+STATUS: PASS
+Production Tasks 5+ and M4 were not started.
 
 Execution provenance
-Captured: 2026-08-08T13:17:19+03:00
-Executed input commit: 53dcc4bcdfd509ff39728b31a7902a1bff0e91da
+Captured: 2026-08-08T13:30:53+03:00
+Executed input commit: 347278194579bdbc3a822a9aaf538a36dfe4976d
 Pre-run git status --porcelain: EMPTY
 Host: Linux DESKTOP-1M72BG8 6.18.33.2-microsoft-standard-WSL2 x86_64 GNU/Linux
 Root execution context: real host uid=0
@@ -13,13 +13,13 @@ Emulator: qemu-aarch64 version 10.2.1 (Debian 1:10.2.1+ds-1ubuntu3.2)
 Execution wrapper: PRoot, PROOT_NO_SECCOMP=1
 
 Tracked source identities
-SHA256 C server source: d902b7176c091f70c6cc95b16c70010aea7877c5cf6ad95219c6d5427b36cf25
-SHA256 ucode client source: e4bfe22e6a9a56517dfa1f8e378e1fea63358fe0b8b162af694676f6d0764799
-SHA256 Node harness source: 72aa2d205e86cbb4162974668f59186f37bfd4917f072cb3052fde8b3efe1e98
+SHA256 C server source: 74390eb8109743a80177c40b5d387994226c3c54ef01f3304165bf6b35e665fd
+SHA256 ucode client source: c8b347a1964f2f3b78fea3517a2d6c48d48889a2522f7e87bd5756f68f65151a
+SHA256 Node harness source: 249474b7a3dc725fc65778beb566e01037d8fb1d3e1377bc0cbf44e815a23f39
 SHA256 child fixture source: 8ce580af386dd858630fcabf6147df3337df8ce9595aeb07b81abeed7fbaa38b
 
 Compiled exact-target identities from the raw TAP run
-SHA256 compiled AArch64 server: d6c49666cc76deb1c79c805cde47ce3ae9fc064402c675c10be02f9f0d9eecd6
+SHA256 compiled AArch64 server: 272ba7145cf8be2d984ccbddc16e16d153f42a662b6618df3872c0c1a02c2cd0
 SHA256 compiled AArch64 child: e766c44676b1e08e6a829fab2700c7b51d4b6aad9680d038b407b2f18dd5dee5
 Both were compiled by TARGET_CC with -std=c11 -Wall -Wextra -Werror.
 
@@ -43,54 +43,27 @@ export UCODE_BIN=/home/kirill/z2m-work/qemu-user-local/proot-root/usr/bin/proot
 export UCODE_ARGS='-q /home/kirill/z2m-work/qemu-user-local/root/usr/bin/qemu-aarch64 -R /home/kirill/z2m-sdk-clean/staging_dir/target-aarch64_cortex-a53_musl/root-mediatek -w /home/kirill/z2m-work/native-state-foundation /usr/bin/ucode'
 export TARGET_SOCKET_MODULE=/home/kirill/z2m-sdk-clean/staging_dir/target-aarch64_cortex-a53_musl/root-mediatek/usr/lib/ucode/socket.so
 export TARGET_CC=/home/kirill/z2m-sdk-clean/staging_dir/toolchain-aarch64_cortex-a53_gcc-14.3.0_musl/bin/aarch64-openwrt-linux-musl-gcc
-timeout 180s /home/kirill/.local/opt/node-v22.22.1-linux-x64/bin/node --test '--test-name-pattern=4 MiB' --test-reporter=tap tests/native/core/native-helper-broker-spike.test.mjs
+timeout 180s /home/kirill/.local/opt/node-v22.22.1-linux-x64/bin/node --test --test-reporter=tap tests/native/core/native-helper-broker-spike.test.mjs
 
-Exact process exit: 1
+Exact process exit: 0
 
-Blocker
-The required 4 MiB framed request does not reach the C frame decoder. The exact
-target client performs one short send, observes one EAGAIN, then reports peer
-disconnect with zero response bytes. The server exits cleanly and emits no
-accepted-frame marker. Three isolated hypotheses were tested without changing
-the result: combined POLLOUT/POLLHUP event ordering, 64 KiB send chunks, and
-blocking send flags. Under the three-attempt architecture rule, the spike stops
-here. No required case is waived or skipped.
+Corrected root-cause evidence
+RED before braces: server parsed prelude header=76 body=4194304 then returned;
+client null send immediately reported socket.error(true)=32 (EPIPE), poll revents=28
+(POLLOUT|POLLERR|POLLHUP), one short write, zero response bytes. The prior report's
+EAGAIN/API-limitation claim was false.
+GREEN after only braces: client null send immediately reported errno=11 (EAGAIN),
+poll revents=4 (POLLOUT); server milestones proved prelude, 76-byte header,
+body bytes 1278944, 2192544, 3361952, and final 4194304. A separate child-pipe
+finding then restored blocking child ends and nonblocking parent pump ends.
 
-BEGIN RAW TAP
-TAP version 13
-# BROKER_CHILD_SHA256=e766c44676b1e08e6a829fab2700c7b51d4b6aad9680d038b407b2f18dd5dee5
-# SOCKET_MODULE_SHA256=ccaff63617ed3136c6461dadbf3328cd3a0cba118fbc98578108024291541ca0
-# BROKER_FIXTURE_SHA256=d6c49666cc76deb1c79c805cde47ce3ae9fc064402c675c10be02f9f0d9eecd6
-# Subtest: duplexes a 4 MiB request and accepts a 6 MiB response
-not ok 1 - duplexes a 4 MiB request and accepts a 6 MiB response
-  ---
-  duration_ms: 508.962523
-  type: 'test'
-  location: '/home/kirill/z2m-work/native-state-foundation/tests/native/core/native-helper-broker-spike.test.mjs:259:1'
-  failureType: 'testCodeFailure'
-  error: |-
-    4 MiB request failed: {"error":"disconnect","header":null,"eof":false,"peer":{"uid":0,"gid":0,"pid":546},"sawInHup":false,"sendCalls":1,"shortWrites":1,"sendEagain":1,"recvCalls":0,"bytesRead":0,"elapsedMs":12,"fdBefore":7,"fdAfter":7,"response":{"type":"Buffer","data":[]}} server=0/null
-    + actual - expected
-
-    + 'disconnect'
-    - null
-  code: 'ERR_ASSERTION'
-  name: 'AssertionError'
-  expected: ~
-  actual: 'disconnect'
-  operator: 'strictEqual'
-  stack: |-
-    TestContext.<anonymous> (file:///home/kirill/z2m-work/native-state-foundation/tests/native/core/native-helper-broker-spike.test.mjs:264:10)
-    async Test.run (node:internal/test_runner/test:1054:7)
-    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
-  ...
-1..1
-# tests 1
+Raw TAP artifact: tests/native/core/native-helper-broker-exact-target.tap
+SHA256 raw TAP artifact: 4d8d9a1b01bf401be59b18eb6cb3c32c2720fe045eea6594829d85042abac8cb
+# tests 54
 # suites 0
-# pass 0
-# fail 1
+# pass 54
+# fail 0
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 1580.349897
-END RAW TAP
+# duration_ms 14938.970557
