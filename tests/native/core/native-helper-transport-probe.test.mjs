@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 
 const ucode = process.env.UCODE_BIN;
@@ -23,6 +24,7 @@ before(() => {
     ...(process.env.TARGET_LDFLAGS?.split(/\s+/).filter(Boolean) ?? []),
   ], { encoding: 'utf8' });
   assert.equal(built.status, 0, `${cc} failed:\n${built.stdout}${built.stderr}`);
+  process.stderr.write(`PROBE_CHILD_SHA256=${createHash('sha256').update(fs.readFileSync(child)).digest('hex')}\n`);
 });
 
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
