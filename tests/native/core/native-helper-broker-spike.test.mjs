@@ -473,6 +473,24 @@ test('delayed setpgid cannot escape direct-child timeout signaling', () => {
   assertGone(result.pid, 'child');
 });
 
+test('group ESRCH after direct reap never falls back to reusable positive PID', () => {
+  const raced = compileSpawnFixture('z2m-helperd-reaped-group-race', [
+    '-DINJECT_GROUP_KILL_ESRCH_AFTER_REAP=1',
+  ]);
+  const result = spawnEvidence('timeout-reaped-group-race', raced);
+  assert.equal(result.outcome, 'timeout');
+  assert.equal(result.reapedBeforeKill, true);
+  assert.equal(result.groupKillNoTarget, true);
+  assert.equal(result.directKillAttempted, false);
+  assert.equal(result.directKillSent, false);
+  assert.equal(result.directKillNoTarget, false);
+  assert.equal(result.directKillAttemptedAfterReap, false);
+  assert.equal(result.descendantReapedPid, result.descendantPid);
+  assert.equal(result.adoptedChildrenExhausted, true);
+  assertGone(result.pid, 'child');
+  assertGone(result.descendantPid, 'descendant');
+});
+
 test('pumps child stdin, stdout, and stderr concurrently', () => {
   const result = spawnEvidence('pipe-pump');
   assert.equal(result.outcome, 'started');
