@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const rpc = fs.readFileSync('zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc', 'utf8');
-const backend = fs.readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/dns.uc', 'utf8');
-const serviceDns = fs.readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/service-dns.uc', 'utf8');
+const backend = fs.readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/dns/overrides.uc', 'utf8');
+const serviceDns = fs.readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/dns/services.uc', 'utf8');
 const api = fs.readFileSync('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js', 'utf8');
 
 const required = ['dns_get', 'dns_validate', 'dns_check', 'dns_apply', 'dns_rollback', 'dns_restore_auto'];

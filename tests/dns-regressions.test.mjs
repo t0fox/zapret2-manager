@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const ui = readFileSync(new URL('../luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-dns.js', import.meta.url), 'utf8');
-const dns = readFileSync(new URL('../zapret2-manager/files/usr/libexec/zapret2-manager/dns.uc', import.meta.url), 'utf8');
-const globalDns = readFileSync(new URL('../zapret2-manager/files/usr/libexec/zapret2-manager/dns-global.uc', import.meta.url), 'utf8');
-const service = readFileSync(new URL('../zapret2-manager/files/usr/libexec/zapret2-manager/service-dns.uc', import.meta.url), 'utf8');
+const dns = readFileSync(new URL('../zapret2-manager/files/usr/libexec/zapret2-manager/dns/overrides.uc', import.meta.url), 'utf8');
+const globalDns = readFileSync(new URL('../zapret2-manager/files/usr/libexec/zapret2-manager/dns/legacy-global.uc', import.meta.url), 'utf8');
+const service = readFileSync(new URL('../zapret2-manager/files/usr/libexec/zapret2-manager/dns/services.uc', import.meta.url), 'utf8');
 const worker = readFileSync(new URL('../zapret2-manager/files/usr/libexec/zapret2-manager/service-dns-apply-worker.uc', import.meta.url), 'utf8');
 
 test('Advanced DNS controls remain editable semantic drafts', () => {

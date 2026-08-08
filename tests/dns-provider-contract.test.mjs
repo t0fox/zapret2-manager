@@ -6,15 +6,19 @@ const uiPath = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/za
 const apiPath = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js';
 const ui = fs.readFileSync(uiPath, 'utf8');
 const api = fs.readFileSync(apiPath, 'utf8');
-const backend = fs.readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/dnsprov.uc', 'utf8');
+const facade = fs.readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/dnsprov.uc', 'utf8');
+const backend = fs.readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/dns/providers.uc', 'utf8');
 const rpc = fs.readFileSync('zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc', 'utf8');
 const acl = JSON.parse(fs.readFileSync('luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json', 'utf8'))['zapret2-manager'];
 
 test('DNS tab uses the established provider facade and backend exports', () => {
   for (const method of ['dnsprov_components','dnsprov_providers','dnsprov_diagnose','dns_select_provider']) assert.match(api, new RegExp(method));
   for (const call of ['api.dns.components','api.dns.providers','api.dns.diagnose','api.dns.selectProvider']) assert.match(ui, new RegExp(call.replaceAll('.', '\\.')));
-  for (const exported of ['dnsprov_components','dnsprov_providers','dnsprov_diagnose','dns_select_provider'])
+  assert.match(facade, /\.\/dns\/providers\.uc/);
+  for (const exported of ['dnsprov_components','dnsprov_providers','dnsprov_diagnose','dns_select_provider']) {
     assert.match(backend, new RegExp(`export const ${exported}`));
+    assert.match(facade, new RegExp(`export const ${exported} = impl\\.${exported}`));
+  }
   assert.match(rpc, /dns_select_provider_method/);
 });
 

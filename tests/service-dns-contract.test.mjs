@@ -8,7 +8,8 @@ import assert from 'node:assert/strict';
 
 const UI = readFileSync('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-dns.js', 'utf8');
 const API = readFileSync('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js', 'utf8');
-const BACKEND = readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/service-dns.uc', 'utf8');
+const BACKEND = readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/dns/services.uc', 'utf8');
+const FACADE = readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/service-dns.uc', 'utf8');
 const WORKER = readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/service-dns-apply-worker.uc', 'utf8');
 const ACL = JSON.parse(readFileSync('luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json', 'utf8'))['zapret2-manager'];
 
@@ -19,6 +20,8 @@ test('all Service DNS RPC methods remain in the central facade and narrow ACL', 
   for (const method of read) assert.ok(ACL.read.ubus['zapret2-manager'].includes(method), method);
   for (const method of write) assert.ok(ACL.write.ubus['zapret2-manager'].includes(method), method);
   assert.equal(ACL.read.ubus['zapret2-manager'].includes('service_dns_set'), false);
+  assert.match(FACADE, /\.\/dns\/services\.uc/);
+  for (const method of [...read, ...write]) assert.match(FACADE, new RegExp(`export const ${method} = impl\\.${method}`));
 });
 
 test('backend service_dns_set advances and returns the authoritative draft revision', () => {
