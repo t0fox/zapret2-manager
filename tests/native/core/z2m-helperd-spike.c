@@ -2,6 +2,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdbool.h>
@@ -11,6 +12,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/mman.h>
 #include <sys/types.h>
 #include <sys/un.h>
 #include <sys/wait.h>
@@ -54,18 +56,64 @@ struct setup_error {
 	int32_t error;
 };
 
-static void child_error(int fd, enum setup_stage stage, int error)
+struct status_guard {
+	volatile sig_atomic_t write_attempts;
+	volatile sig_atomic_t write_error;
+};
+
+_Static_assert(sizeof(struct setup_error) <= PIPE_BUF,
+	"setup error record must remain atomically writable");
+
+static ssize_t status_write(int fd, const void *data, size_t length,
+	struct status_guard *guard)
+{
+	guard->write_attempts++;
+#ifdef INJECT_STATUS_WRITE_EINTR
+	if (guard->write_attempts == 1) {
+		errno = EINTR;
+		return -1;
+	}
+#endif
+#ifdef INJECT_STATUS_WRITE_FAILURE
+	errno = EIO;
+	return -1;
+#endif
+#ifdef INJECT_STATUS_WRITE_PARTIAL
+	if (guard->write_attempts == 1 && length > 1)
+		length /= 2;
+#endif
+	return write(fd, data, length);
+}
+
+static void child_error(int fd, enum setup_stage stage, int error,
+	struct status_guard *guard)
 {
 	struct setup_error record = { .version = 1, .stage = stage, .error = error };
-	ssize_t ignored = write(fd, &record, sizeof(record));
-	(void)ignored;
+	const uint8_t *cursor = (const uint8_t *)&record;
+	size_t remaining = sizeof(record);
+
+#ifdef INJECT_UNKNOWN_STATUS_STAGE
+	record.stage = UINT8_MAX;
+#endif
+	while (remaining > 0) {
+		ssize_t written = status_write(fd, cursor, remaining, guard);
+		if (written < 0 && errno == EINTR)
+			continue;
+		if (written <= 0) {
+			guard->write_error = written < 0 ? errno : EIO;
+			kill(getpid(), SIGKILL);
+			_exit(127);
+		}
+		cursor += written;
+		remaining -= (size_t)written;
+	}
 	_exit(126);
 }
 
-static void checked_child_close(int fd, int status_fd)
+static void checked_child_close(int fd, int status_fd, struct status_guard *guard)
 {
 	if (close(fd) < 0)
-		child_error(status_fd, STAGE_CLOSE, errno);
+		child_error(status_fd, STAGE_CLOSE, errno, guard);
 }
 
 static const char *stage_name(uint8_t stage)
@@ -79,6 +127,11 @@ static const char *stage_name(uint8_t stage)
 	case STAGE_EXEC: return "exec";
 	default: return "unknown";
 	}
+}
+
+static bool valid_stage(uint8_t stage)
+{
+	return stage >= STAGE_SETPGID && stage <= STAGE_EXEC;
 }
 
 static void read_output(int fd, char *output, size_t capacity)
@@ -108,11 +161,17 @@ static void spawn_child(const char *mode)
 	pid_t pid;
 	ssize_t status_length = 0;
 	int wait_status;
+	struct status_guard *guard = mmap(NULL, sizeof(*guard), PROT_READ | PROT_WRITE,
+		MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+	if (guard == MAP_FAILED)
+		fail("mmap status guard");
 
 	if (pipe2(input, O_CLOEXEC) < 0 || pipe2(output, O_CLOEXEC) < 0 ||
 	    pipe2(errors, O_CLOEXEC) < 0 ||
-	    pipe2(exec_status, O_CLOEXEC | O_NONBLOCK) < 0)
+	    pipe2(exec_status, O_CLOEXEC) < 0)
 		fail("pipe2");
+	if (fcntl(exec_status[0], F_SETFL, O_NONBLOCK) < 0)
+		fail("fcntl exec status");
 
 	pid = fork();
 	if (pid < 0)
@@ -120,42 +179,42 @@ static void spawn_child(const char *mode)
 	if (pid == 0) {
 		int source;
 
-		checked_child_close(input[1], exec_status[1]);
-		checked_child_close(output[0], exec_status[1]);
-		checked_child_close(errors[0], exec_status[1]);
-		checked_child_close(exec_status[0], exec_status[1]);
+		checked_child_close(input[1], exec_status[1], guard);
+		checked_child_close(output[0], exec_status[1], guard);
+		checked_child_close(errors[0], exec_status[1], guard);
+		checked_child_close(exec_status[0], exec_status[1], guard);
 		if (setpgid(0, 0) < 0)
-			child_error(exec_status[1], STAGE_SETPGID, errno);
+			child_error(exec_status[1], STAGE_SETPGID, errno, guard);
 
 		source = input[0];
 #ifdef INJECT_STDIN_DUP2_FAILURE
-		checked_child_close(source, exec_status[1]);
+		checked_child_close(source, exec_status[1], guard);
 #endif
 		if (dup2(source, STDIN_FILENO) < 0)
-			child_error(exec_status[1], STAGE_STDIN_DUP2, errno);
+			child_error(exec_status[1], STAGE_STDIN_DUP2, errno, guard);
 		if (source != STDIN_FILENO)
-			checked_child_close(source, exec_status[1]);
+			checked_child_close(source, exec_status[1], guard);
 
 		source = output[1];
 #ifdef INJECT_STDOUT_DUP2_FAILURE
-		checked_child_close(source, exec_status[1]);
+		checked_child_close(source, exec_status[1], guard);
 #endif
 		if (dup2(source, STDOUT_FILENO) < 0)
-			child_error(exec_status[1], STAGE_STDOUT_DUP2, errno);
+			child_error(exec_status[1], STAGE_STDOUT_DUP2, errno, guard);
 		if (source != STDOUT_FILENO)
-			checked_child_close(source, exec_status[1]);
+			checked_child_close(source, exec_status[1], guard);
 
 		source = errors[1];
 #ifdef INJECT_STDERR_DUP2_FAILURE
-		checked_child_close(source, exec_status[1]);
+		checked_child_close(source, exec_status[1], guard);
 #endif
 		if (dup2(source, STDERR_FILENO) < 0)
-			child_error(exec_status[1], STAGE_STDERR_DUP2, errno);
+			child_error(exec_status[1], STAGE_STDERR_DUP2, errno, guard);
 		if (source != STDERR_FILENO)
-			checked_child_close(source, exec_status[1]);
+			checked_child_close(source, exec_status[1], guard);
 
 		execve(FIXED_CHILD_PATH, argv, envp);
-		child_error(exec_status[1], STAGE_EXEC, errno);
+		child_error(exec_status[1], STAGE_EXEC, errno, guard);
 	}
 
 	if (close(input[0]) < 0 || close(output[1]) < 0 || close(errors[1]) < 0 ||
@@ -192,6 +251,12 @@ static void spawn_child(const char *mode)
 		fail("close child output");
 
 	if (status_length == 0) {
+		if (guard->write_error != 0) {
+			printf("{\"outcome\":\"protocol_failure\",\"stage\":null,"
+				"\"errno\":\"EIO\",\"state\":\"not_started\","
+				"\"evidence\":\"status_write_failure\"}\n");
+			return;
+		}
 		int exit_code = WIFEXITED(wait_status) ? WEXITSTATUS(wait_status) : 128;
 		printf("{\"outcome\":\"started\",\"stage\":null,\"errno\":null,"
 			"\"state\":\"started\",\"evidence\":\"status_pipe_eof\","
@@ -200,15 +265,21 @@ static void spawn_child(const char *mode)
 				"{\\\"ok\\\":true}\\n" : child_output : "");
 		return;
 	}
-	if ((size_t)status_length != sizeof(record) || record.version != 1) {
-		errno = EPROTO;
-		fail("incomplete exec status");
+	if ((size_t)status_length != sizeof(record) || record.version != 1 ||
+	    !valid_stage(record.stage)) {
+		printf("{\"outcome\":\"protocol_failure\",\"stage\":null,"
+			"\"errno\":\"EPROTO\",\"state\":\"not_started\","
+			"\"evidence\":\"invalid_status_record\"}\n");
+		return;
 	}
 	printf("{\"outcome\":\"%s\",\"stage\":\"%s\",\"errno\":\"%s\","
-		"\"state\":\"not_started\",\"evidence\":\"status_record\"}\n",
+		"\"state\":\"not_started\",\"evidence\":\"status_record\"",
 		record.stage == STAGE_EXEC ? "spawn_failure" : "setup_failure",
 		stage_name(record.stage), record.error == ENOENT ? "ENOENT" :
 			record.error == EBADF ? "EBADF" : "OTHER");
+	if (guard->write_attempts > 1)
+		printf(",\"statusWriteAttempts\":%ld", (long)guard->write_attempts);
+	puts("}");
 }
 
 static void cleanup(void)
