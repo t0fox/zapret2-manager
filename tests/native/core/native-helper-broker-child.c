@@ -49,6 +49,30 @@ int main(int argc, char **argv)
 		fputs("{not-json\n", stdout);
 		return 0;
 	}
+	if (!strcmp(mode, "structured-failure")) {
+		fputs("{\"ok\":false,\"error\":\"probe\"}\n", stdout);
+		return 7;
+	}
+	if (!strcmp(mode, "count-input")) {
+		char buffer[65536];
+		size_t total = 0;
+		for (;;) {
+			ssize_t length = read(STDIN_FILENO, buffer, sizeof(buffer));
+			if (length > 0) { total += (size_t)length; continue; }
+			if (length == 0) break;
+			if (errno != EINTR) return 1;
+		}
+		printf("%zu\n", total);
+		return 0;
+	}
+	if (!strcmp(mode, "generate-6m"))
+		return write_repeated(STDOUT_FILENO, (char)0xa5, 6 * 1024 * 1024) < 0;
+	if (!strcmp(mode, "overflow-6m"))
+		return write_repeated(STDOUT_FILENO, 'o', 6 * 1024 * 1024 + 1) < 0;
+	if (!strcmp(mode, "stderr-16k")) {
+		fputs("protocol-ok\n", stdout);
+		return write_repeated(STDERR_FILENO, 'e', 16384) < 0;
+	}
 	if (!strcmp(mode, "sleep")) {
 		for (;;)
 			pause();

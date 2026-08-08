@@ -34,6 +34,10 @@
 #define FIXED_CHILD_PATH STRINGIFY(FIXED_CHILD)
 #define SOCKET_BASENAME "helper.sock"
 #define FRAME_MARKER "F"
+#define TRANSPORT_MAGIC "Z2MHTV1\n"
+#define REQUEST_LIMIT (4U * 1024U * 1024U)
+#define RESPONSE_LIMIT (6U * 1024U * 1024U)
+#define STDERR_LIMIT 4096U
 
 static const char *socket_path;
 static dev_t socket_dev;
@@ -649,6 +653,259 @@ static void write_fragmented(int fd, const void *data, size_t length)
 	}
 }
 
+static uint32_t read_be32(const uint8_t *value)
+{
+	return ((uint32_t)value[0] << 24) | ((uint32_t)value[1] << 16) |
+		((uint32_t)value[2] << 8) | value[3];
+}
+
+static void write_be32(uint8_t *value, uint32_t number)
+{
+	value[0] = (uint8_t)(number >> 24);
+	value[1] = (uint8_t)(number >> 16);
+	value[2] = (uint8_t)(number >> 8);
+	value[3] = (uint8_t)number;
+}
+
+static bool read_request_frame(int client, uint8_t **body, size_t *body_length)
+{
+	static const char expected_header[] =
+		"{\"protocol\":\"z2m-helper-transport-v1\",\"requestId\":\"probe:1\",\"timeoutMs\":100}";
+	uint8_t prelude[20], extra;
+	size_t used = 0, header_length;
+	char header[1025];
+
+	while (used < sizeof(prelude)) {
+		ssize_t length = read(client, prelude + used, sizeof(prelude) - used);
+		if (length > 0) { used += (size_t)length; continue; }
+		if (length < 0 && errno == EINTR) continue;
+		fprintf(stderr, "request-frame=short-prelude used=%zu errno=%d\n", used, errno); return false;
+	}
+	header_length = read_be32(prelude + 12);
+	*body_length = read_be32(prelude + 16);
+	if (memcmp(prelude, TRANSPORT_MAGIC, 8) || prelude[8] != 1 || prelude[9] != 0 ||
+	    prelude[10] != 0 || prelude[11] != 0 || header_length > 1024 ||
+	    *body_length > REQUEST_LIMIT)
+		fprintf(stderr, "request-frame=invalid-prelude header=%zu body=%zu bytes=%u,%u,%u,%u\n",
+			header_length, *body_length, prelude[8], prelude[9], prelude[10], prelude[11]); return false;
+	used = 0;
+	while (used < header_length) {
+		ssize_t length = read(client, header + used, header_length - used);
+		if (length > 0) { used += (size_t)length; continue; }
+		if (length < 0 && errno == EINTR) continue;
+		fprintf(stderr, "request-frame=short-header used=%zu expected=%zu errno=%d\n", used, header_length, errno); return false;
+	}
+	header[header_length] = '\0';
+	if (header_length != strlen(expected_header) || strcmp(header, expected_header)) {
+		fprintf(stderr, "request-frame=invalid-header length=%zu value=%s\n", header_length, header);
+		return false;
+	}
+	*body = malloc(*body_length ? *body_length : 1);
+	if (!*body)
+		fail("malloc request");
+	used = 0;
+	while (used < *body_length) {
+		ssize_t length = read(client, *body + used, *body_length - used);
+		if (length > 0) { used += (size_t)length; continue; }
+		if (length < 0 && errno == EINTR) continue;
+		free(*body);
+		fprintf(stderr, "request-frame=short-body used=%zu expected=%zu errno=%d\n", used, *body_length, errno); return false;
+	}
+	for (;;) {
+		ssize_t length = recv(client, &extra, 1, MSG_DONTWAIT);
+		if (length > 0) { fprintf(stderr, "request-frame=trailing\n"); free(*body); return false; }
+		if (length == 0 || (length < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)))
+			break;
+		if (errno != EINTR) { fprintf(stderr, "request-frame=recv errno=%d\n", errno); free(*body); return false; }
+	}
+	return true;
+}
+
+static void response_frame(int client, const char *outcome, const char *start_state,
+	const char *stage, const char *reason, bool reaped, int exit_code, int signal_number,
+	const uint8_t *output, size_t output_length, const uint8_t *errors,
+	size_t error_length, size_t error_drained, bool error_truncated, bool truncate)
+{
+	char header[2049];
+	uint8_t prelude[20] = TRANSPORT_MAGIC;
+	char exit_value[32], signal_value[32], stage_field[64] = "", reason_field[64] = "";
+	int length;
+
+	if (exit_code < 0) strcpy(exit_value, "null"); else snprintf(exit_value, sizeof(exit_value), "%d", exit_code);
+	if (signal_number == 0) strcpy(signal_value, "null"); else snprintf(signal_value, sizeof(signal_value), "%d", signal_number);
+	if (stage) snprintf(stage_field, sizeof(stage_field), ",\"stage\":\"%s\"", stage);
+	if (reason) snprintf(reason_field, sizeof(reason_field), ",\"reason\":\"%s\"", reason);
+	length = snprintf(header, sizeof(header),
+		"{\"protocol\":\"z2m-helper-transport-v1\",\"requestId\":\"probe:1\","
+		"\"outcome\":\"%s\",\"startState\":\"%s\",\"stdoutLength\":%zu,"
+		"\"stderrLength\":%zu,\"stdoutEof\":true,\"stderrEof\":true,"
+		"\"stderrTruncated\":%s,\"stderrDrained\":%zu,\"childReaped\":%s,"
+		"\"exitCode\":%s,\"signal\":%s%s%s}", outcome, start_state,
+		output_length, error_length, error_truncated ? "true" : "false", error_drained,
+		reaped ? "true" : "false", exit_value, signal_value, stage_field, reason_field);
+	if (length < 0 || (size_t)length >= sizeof(header))
+		fail("response header");
+	prelude[8] = 2;
+	write_be32(prelude + 12, (uint32_t)length);
+	write_be32(prelude + 16, (uint32_t)(output_length + error_length));
+	write_all(client, prelude, truncate ? 19 : sizeof(prelude));
+	if (truncate) return;
+	write_all(client, header, (size_t)length);
+	write_all(client, output, output_length);
+	write_all(client, errors, error_length);
+}
+
+static void broker_child(int client, const char *child_mode, int disconnect_case)
+{
+	uint8_t *request = NULL, *output = NULL, errors[STDERR_LIMIT];
+	size_t request_length = 0, output_length = 0, output_capacity = 0;
+	size_t error_length = 0, error_drained = 0, input_offset = 0;
+	int input[2], out[2], err[2], status[2], wait_status = 0;
+	struct setup_error record;
+	size_t status_length = 0;
+	struct status_guard *guard;
+	pid_t pid;
+	bool input_closed = false, out_eof = false, err_eof = false, status_eof = false;
+	bool reaped = false, timed_out = false, overflow = false;
+	struct timespec started, deadline, grace;
+
+	if (!read_request_frame(client, &request, &request_length))
+		return;
+	fprintf(stderr, "broker-stage=frame body=%zu\n", request_length);
+	if (disconnect_case) {
+		struct pollfd peer = { .fd = client, .events = POLLHUP | POLLERR };
+		poll(&peer, 1, 50);
+	}
+	guard = mmap(NULL, sizeof(*guard), PROT_READ | PROT_WRITE,
+		MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+	if (guard == MAP_FAILED) fail("mmap broker guard");
+	if (pipe2(input, O_CLOEXEC | O_NONBLOCK) < 0 || pipe2(out, O_CLOEXEC | O_NONBLOCK) < 0 ||
+	    pipe2(err, O_CLOEXEC | O_NONBLOCK) < 0 || pipe2(status, O_CLOEXEC | O_NONBLOCK) < 0)
+		fail("broker pipes");
+	if (clock_gettime(CLOCK_MONOTONIC, &started) < 0) fail("clock_gettime");
+	deadline = timespec_after_ms(started, !strcmp(child_mode, "sleep-30") ? 100 : 5000);
+	pid = fork();
+	if (pid < 0) {
+		response_frame(client, "spawn_failure", "not_started", "fork", NULL, false,
+			-1, 0, NULL, 0, NULL, 0, 0, false, false);
+		free(request); return;
+	}
+	if (pid == 0) {
+		struct status_guard local = { 0 };
+		char *const argv[] = { (char *)FIXED_CHILD_PATH, (char *)child_mode, NULL };
+		char *const envp[] = { NULL };
+		close(input[1]); close(out[0]); close(err[0]); close(status[0]);
+		if (setpgid(0, 0) < 0) child_error(status[1], STAGE_SETPGID, errno, &local);
+#ifdef INJECT_STDIN_DUP2_FAILURE
+		close(input[0]);
+#endif
+		if (dup2(input[0], 0) < 0) child_error(status[1], STAGE_STDIN_DUP2, errno, &local);
+		if (dup2(out[1], 1) < 0) child_error(status[1], STAGE_STDOUT_DUP2, errno, &local);
+		if (dup2(err[1], 2) < 0) child_error(status[1], STAGE_STDERR_DUP2, errno, &local);
+		close(input[0]); close(out[1]); close(err[1]);
+		execve(FIXED_CHILD_PATH, argv, envp);
+		child_error(status[1], STAGE_EXEC, errno, &local);
+	}
+	close(input[0]); close(out[1]); close(err[1]); close(status[1]);
+	fprintf(stderr, "broker-stage=fork pid=%ld\n", (long)pid);
+	while (!reaped || !out_eof || !err_eof || !status_eof) {
+		struct pollfd fds[4] = {
+			{ status[0], POLLIN | POLLHUP, 0 }, { out[0], POLLIN | POLLHUP, 0 },
+			{ err[0], POLLIN | POLLHUP, 0 }, { input_closed ? -1 : input[1], POLLOUT | POLLERR | POLLHUP, 0 }
+		};
+		struct timespec now;
+		if (poll(fds, 4, 10) < 0 && errno != EINTR) fail("broker poll");
+		if (!input_closed && fds[3].revents) {
+			ssize_t n = write(input[1], request + input_offset, request_length - input_offset);
+			if (n > 0) input_offset += (size_t)n;
+			if (input_offset == request_length || (n < 0 && errno == EPIPE)) {
+				close(input[1]); input_closed = true;
+				fprintf(stderr, "broker-stage=input bytes=%zu epipe=%d\n", input_offset,
+					n < 0 && errno == EPIPE);
+			}
+		}
+		for (unsigned int i = 0; i < 8; i++) {
+			uint8_t buffer[65536]; ssize_t n = read(out[0], buffer, sizeof(buffer));
+			if (n > 0) {
+				size_t keep = (size_t)n;
+				if (output_length + keep > RESPONSE_LIMIT + 1) keep = RESPONSE_LIMIT + 1 - output_length;
+				if (output_length + keep > output_capacity) {
+					output_capacity = output_length + keep; output = realloc(output, output_capacity);
+					if (!output) fail("realloc output");
+				}
+				memcpy(output + output_length, buffer, keep); output_length += keep;
+				if (output_length > RESPONSE_LIMIT) overflow = true;
+				continue;
+			}
+			if (n == 0) out_eof = true;
+			else if (errno != EAGAIN && errno != EINTR) fail("broker stdout");
+			break;
+		}
+		for (unsigned int i = 0; i < 8; i++) {
+			uint8_t buffer[4096]; ssize_t n = read(err[0], buffer, sizeof(buffer));
+			if (n > 0) {
+				size_t keep = (size_t)n;
+				error_drained += (size_t)n;
+				if (keep > STDERR_LIMIT - error_length) keep = STDERR_LIMIT - error_length;
+				memcpy(errors + error_length, buffer, keep); error_length += keep; continue;
+			}
+			if (n == 0) err_eof = true;
+			else if (errno != EAGAIN && errno != EINTR) fail("broker stderr");
+			break;
+		}
+		while (status_length < sizeof(record)) {
+			ssize_t n = read(status[0], (uint8_t *)&record + status_length, sizeof(record) - status_length);
+			if (n > 0) { status_length += (size_t)n; continue; }
+			if (n == 0) status_eof = true;
+			else if (errno != EAGAIN && errno != EINTR) fail("broker status");
+			break;
+		}
+		if (status_length == sizeof(record))
+			status_eof = true;
+		if (!reaped) {
+			pid_t waited = waitpid(pid, &wait_status, WNOHANG);
+			if (waited == pid) reaped = true;
+			else if (waited < 0 && errno != EINTR) fail("broker waitpid");
+		}
+		if (clock_gettime(CLOCK_MONOTONIC, &now) < 0) fail("clock_gettime");
+		if ((overflow || timespec_compare(&now, &deadline) >= 0) && !timed_out && !reaped) {
+			timed_out = true; kill(-pid, SIGTERM); grace = timespec_after_ms(now, 100);
+		}
+		if (timed_out && !reaped && timespec_compare(&now, &grace) >= 0) kill(-pid, SIGKILL);
+	}
+	fprintf(stderr, "broker-stage=complete output=%zu status=%zu reaped=%d wait=%d\n",
+		output_length, status_length, reaped, wait_status);
+	close(out[0]); close(err[0]); close(status[0]); if (!input_closed) close(input[1]);
+	free(request); munmap(guard, sizeof(*guard));
+	if (disconnect_case) {
+		fprintf(stderr, "%s=reaped\n", disconnect_case == 1 ? "disconnect-before-exec" : "disconnect-after-exec");
+		free(output); return;
+	}
+	if (status_length == sizeof(record))
+		response_frame(client, record.stage == STAGE_EXEC ? "spawn_failure" : "setup_failure",
+			"not_started", stage_name(record.stage), NULL, true,
+			WIFEXITED(wait_status) ? WEXITSTATUS(wait_status) : -1,
+			WIFSIGNALED(wait_status) ? WTERMSIG(wait_status) : 0,
+			output, output_length, errors, error_length, error_drained,
+			error_drained > error_length, false);
+	else if (overflow)
+		response_frame(client, "transport_failure", "started", NULL, "stdout_limit", true,
+			-1, WIFSIGNALED(wait_status) ? WTERMSIG(wait_status) : 0,
+			NULL, 0, errors, error_length, error_drained, error_drained > error_length, false);
+	else if (timed_out)
+		response_frame(client, "timeout", "started", NULL, NULL, true, -1,
+			WIFSIGNALED(wait_status) ? WTERMSIG(wait_status) : 0,
+			output, output_length, errors, error_length, error_drained,
+			error_drained > error_length, false);
+	else
+		response_frame(client, "child_exited", "started", NULL, NULL, true,
+			WIFEXITED(wait_status) ? WEXITSTATUS(wait_status) : -1,
+			WIFSIGNALED(wait_status) ? WTERMSIG(wait_status) : 0,
+			output, output_length, errors, error_length, error_drained,
+			error_drained > error_length, false);
+	free(output);
+}
+
 static void begin_frame(int client)
 {
 	write_all(client, FRAME_MARKER, 1);
@@ -719,6 +976,31 @@ static void serve(int client, const char *mode, unsigned int argument)
 	if (cred_length != sizeof(cred)) {
 		errno = EINVAL;
 		fail("getsockopt(SO_PEERCRED) length");
+	}
+	if (!strncmp(mode, "broker-", 7)) {
+		const char *child_mode = "success";
+		int disconnect_case = 0;
+		if (!strcmp(mode, "broker-exit7")) child_mode = "structured-failure";
+		else if (!strcmp(mode, "broker-malformed")) child_mode = "malformed-stdout";
+		else if (!strcmp(mode, "broker-count-input")) child_mode = "count-input";
+		else if (!strcmp(mode, "broker-generate-6m")) child_mode = "generate-6m";
+		else if (!strcmp(mode, "broker-overflow")) child_mode = "overflow-6m";
+		else if (!strcmp(mode, "broker-stderr")) child_mode = "stderr-16k";
+		else if (!strcmp(mode, "broker-timeout")) child_mode = "sleep-30";
+		else if (!strcmp(mode, "broker-disconnect-before-exec")) disconnect_case = 1;
+		else if (!strcmp(mode, "broker-disconnect-after-exec")) { child_mode = "sleep-30"; disconnect_case = 2; }
+		broker_child(client, child_mode, disconnect_case);
+		return;
+	}
+	if (!strcmp(mode, "response-truncated")) {
+		uint8_t *body = NULL;
+		size_t body_length = 0;
+		if (read_request_frame(client, &body, &body_length)) {
+			free(body);
+			response_frame(client, "child_exited", "started", NULL, NULL, true,
+				0, 0, NULL, 0, NULL, 0, 0, false, true);
+		}
+		return;
 	}
 
 	if (!strcmp(mode, "immediate-close"))
@@ -837,8 +1119,10 @@ int main(int argc, char **argv)
 
 	if (argc > 3)
 		argument = (unsigned int)strtoul(argv[3], NULL, 10);
-	if (!strcmp(argv[1], "echo-many"))
+	if (!strcmp(argv[1], "echo-many") || !strcmp(argv[1], "broker-success"))
 		count = argument;
+	if (count == 0)
+		count = 1;
 
 	socket_path = argv[2];
 	memcpy(address.sun_path, socket_path, strlen(socket_path) + 1);

@@ -22,6 +22,7 @@ const probe = path.resolve('tests/native/core/native-helper-broker-spike.uc');
 const fixtureSource = path.resolve('tests/native/core/z2m-helperd-spike.c');
 const childSource = path.resolve('tests/native/core/native-helper-broker-child.c');
 const targetPrefix = ucodeArgs.slice(0, -1);
+const TRANSPORT = 'z2m-helper-transport-v1';
 let server;
 let serverErrors = '';
 let nonRootRoot;
@@ -83,14 +84,31 @@ function invoke(mode, request = Buffer.alloc(0), { cap = 8 * 1024 * 1024,
   return parsed;
 }
 
-async function startServer(mode, args = [], { asNonRoot = false } = {}) {
+function expectChildExit(result, stdout, { exitCode = 0, stderr = Buffer.alloc(0),
+  stderrTruncated = false } = {}) {
+  assert.equal(result.error, null);
+  assert.equal(result.header.protocol, TRANSPORT);
+  assert.equal(result.header.requestId, 'probe:1');
+  assert.equal(result.header.outcome, 'child_exited');
+  assert.equal(result.header.startState, 'started');
+  assert.equal(result.header.childReaped, true);
+  assert.equal(result.header.exitCode, exitCode);
+  assert.equal(result.header.signal, null);
+  assert.equal(result.header.stdoutLength, stdout.length);
+  assert.equal(result.header.stderrLength, stderr.length);
+  assert.equal(result.header.stderrTruncated, stderrTruncated);
+  assert.deepEqual(result.response.subarray(0, stdout.length), stdout);
+  assert.deepEqual(result.response.subarray(stdout.length), stderr);
+}
+
+async function startServer(mode, args = [], { asNonRoot = false, fixturePath = fixture } = {}) {
   const invocationRoot = asNonRoot ? nonRootRoot : root;
   const invocationSocket = path.join(invocationRoot, 'helper.sock');
   fs.rmSync(invocationSocket, { force: true });
   const command = asNonRoot ? 'runuser' : ucode;
   const prefix = asNonRoot ? ['-u', nonRootName, '--', 'env',
     `LD_LIBRARY_PATH=${process.env.LD_LIBRARY_PATH}`, 'PROOT_NO_SECCOMP=1', ucode] : [];
-  server = spawn(command, [...prefix, ...targetPrefix, asNonRoot ? nonRootFixture : fixture,
+  server = spawn(command, [...prefix, ...targetPrefix, asNonRoot ? nonRootFixture : fixturePath,
     mode, invocationSocket,
     ...args.map(String)], {
     stdio: ['ignore', 'pipe', 'pipe'], env: process.env,
@@ -172,6 +190,7 @@ before(() => {
   assert.equal(built.status, 0, `${cc} failed:\n${built.stdout}${built.stderr}`);
   const childBuilt = run(cc, ['-std=c11', '-Wall', '-Wextra', '-Werror', childSource, '-o', child]);
   assert.equal(childBuilt.status, 0, `${cc} failed:\n${childBuilt.stdout}${childBuilt.stderr}`);
+	process.stderr.write(`BROKER_CHILD_SHA256=${sha256(child)}\n`);
   const userTmp = run('runuser', ['-u', nonRootName, '--', 'mktemp', '-d',
     `${process.env.TMPDIR ?? '/tmp'}/z2m-broker-nonroot-XXXXXX`]);
   assert.equal(userTmp.status, 0, `non-root test root creation failed:\n${userTmp.stderr}`);
@@ -191,87 +210,117 @@ after(async () => {
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-test('preserves binary and embedded-NUL bytes', async () => {
-  await startServer('echo');
-  const payload = Buffer.from([0, 10, 13, 255, 65, 0, 66]);
-  const result = invoke('exchange', payload, { cap: payload.length });
-  assert.equal(result.error, null);
-  assert.deepEqual(result.response, payload);
+test('uses the strict 20-byte transport-v1 prelude and preserves helper bytes', async () => {
+  await startServer('broker-success');
+  expectChildExit(invoke('exchange', Buffer.from('ignored')), Buffer.from('{"ok":true}\n'));
   await stopServer();
 });
 
-test('handles partial writes and backpressure', async () => {
-  await startServer('backpressure', [200]);
-  const payload = Buffer.alloc(4 * 1024 * 1024, 0x5a);
-  const result = invoke('exchange', payload, { cap: payload.length, timeout: 5000 });
-  assert.ok(result.shortWrites > 0, `expected a short send, got ${result.shortWrites}`);
-  assert.ok(result.sendEagain > 0, `expected EAGAIN under backpressure, got ${result.sendEagain}`);
-  assert.ok(result.recvCalls > 1, `expected fragmented receive, got ${result.recvCalls} recv call(s)`);
-  assert.deepEqual(result.response, payload);
+for (const [mode, error] of [
+  ['request-short', 'request_rejected'], ['request-magic', 'request_rejected'],
+  ['request-type', 'request_rejected'], ['request-flags', 'request_rejected'],
+  ['request-reserved', 'request_rejected'], ['request-length', 'request_rejected'],
+  ['request-trailing', 'request_rejected'], ['request-oversized', 'request_rejected'],
+  ['request-duplicate', 'request_rejected'], ['request-unknown', 'request_rejected'],
+  ['request-malformed', 'request_rejected'], ['request-id', 'request_rejected'],
+]) {
+  test(`rejects strict framing violation ${mode}`, async () => {
+    await startServer('broker-success');
+    assert.ok(invoke(mode, Buffer.from('x')).error, `${mode} must not produce a valid response`);
+    await stopServer();
+  });
+}
+
+test('preserves helper structured failure and malformed stdout as opaque bytes', async () => {
+  await startServer('broker-exit7', [2]);
+  expectChildExit(invoke('exchange'), Buffer.from('{"ok":false,"error":"probe"}\n'), { exitCode: 7 });
+  await stopServer();
+  await startServer('broker-malformed');
+  expectChildExit(invoke('exchange'), Buffer.from('{not-json\n'));
   await stopServer();
 });
 
-test('drains POLLIN with POLLHUP before reporting EOF', async () => {
-  await startServer('partial');
-  const result = invoke('exchange', Buffer.from('request'));
-  assert.equal(result.sawInHup, true);
-  assert.equal(result.eof, true);
-  assert.deepEqual(result.response, Buffer.from('partial-response'));
+test('classifies fixed-helper exec and injected setup failures in framed responses', async () => {
+  const missing = compileSpawnFixture('z2m-helperd-broker-missing', [`-DFIXED_CHILD=${child}.missing`]);
+  await startServer('broker-success', [], { fixturePath: missing });
+  let result = invoke('exchange');
+  assert.equal(result.header.outcome, 'spawn_failure');
+  assert.equal(result.header.startState, 'not_started');
+  assert.equal(result.header.stage, 'exec');
+  await stopServer();
+  const setup = compileSpawnFixture('z2m-helperd-broker-setup', ['-DINJECT_STDIN_DUP2_FAILURE=1']);
+  await startServer('broker-success', [], { fixturePath: setup });
+  result = invoke('exchange');
+  assert.equal(result.header.outcome, 'setup_failure');
+  assert.equal(result.header.stage, 'stdin_dup2');
   await stopServer();
 });
 
-test('uses one absolute deadline across repeated trickle wakeups', async () => {
-  await startServer('trickle', [30]);
-  const result = invoke('exchange', Buffer.from('request'), { timeout: 120 });
-  assert.equal(result.error, 'timeout');
-  assert.ok(result.recvCalls >= 3, `expected repeated readiness, got ${result.recvCalls} recv call(s)`);
-  assert.ok(result.elapsedMs >= 100 && result.elapsedMs < 230, `elapsed ${result.elapsedMs}ms`);
+test('duplexes a 4 MiB request and accepts a 6 MiB response', async () => {
+  const request = Buffer.alloc(4 * 1024 * 1024, 0x5a);
+  await startServer('broker-count-input');
+  const counted = invoke('exchange', request, { timeout: 5000 });
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(counted.error, null,
+    `4 MiB request failed: ${JSON.stringify(counted)} server=${server?.exitCode}/${server?.signalCode} ${serverErrors}`);
+  assert.equal(counted.header.exitCode, 0,
+    `count child failed: header=${JSON.stringify(counted.header)} body=${counted.response.toString()}`);
+  expectChildExit(counted, Buffer.from('4194304\n'));
+  await stopServer();
+  await startServer('broker-generate-6m');
+  expectChildExit(invoke('exchange', Buffer.alloc(0), { cap: 6 * 1024 * 1024, timeout: 5000 }),
+    Buffer.alloc(6 * 1024 * 1024, 0xa5));
   await stopServer();
 });
 
-test('distinguishes bare EOF from an explicitly framed empty body', async () => {
-  await startServer('immediate-close');
-  assert.equal(invoke('exchange').error, 'disconnect');
-  await stopServer();
-  await startServer('empty-frame');
-  const empty = invoke('exchange');
-  assert.equal(empty.error, null);
-  assert.equal(empty.eof, true);
-  assert.equal(empty.response.length, 0);
+test('turns helper stdout cap plus one into transport_failure', async () => {
+  await startServer('broker-overflow');
+  const result = invoke('exchange', Buffer.alloc(0), { cap: 6 * 1024 * 1024, timeout: 5000 });
+  assert.equal(result.header.outcome, 'transport_failure');
+  assert.equal(result.header.reason, 'stdout_limit');
+  assert.equal(result.header.childReaped, true);
   await stopServer();
 });
 
-test('stops reading at response cap plus one byte', async () => {
-  await startServer('generate', [8192]);
-  const result = invoke('exchange', Buffer.from('request'), { cap: 4096 });
-  assert.equal(result.error, 'response_limit');
-  assert.equal(result.bytesRead, 4097);
-  assert.equal(result.response.length, 4097);
-  await stopServer();
-});
-
-test('reports root peer credentials and fixture PID', async () => {
-  await startServer('peercred');
+test('retains bounded stderr while draining excess', async () => {
+  await startServer('broker-stderr');
   const result = invoke('exchange');
-  const report = result.response.toString().match(/^server_pid=(\d+) client_uid=(\d+) client_pid=(\d+)\n$/);
-  assert.ok(report, `unexpected credential report: ${result.response.toString()}`);
-  assert.equal(result.peer.uid, 0);
-  assert.equal(result.peer.pid, Number(report[1]));
-  assert.equal(Number(report[2]), 0);
-  assert.ok(Number(report[3]) > 0);
+  expectChildExit(result, Buffer.from('protocol-ok\n'), {
+    stderr: Buffer.alloc(4096, 0x65), stderrTruncated: true,
+  });
+  assert.equal(result.header.stderrDrained, 16384);
   await stopServer();
 });
 
-test('fixture rejects a non-root peer', async () => {
-  await startServer('reject-nonroot', [], { asNonRoot: true });
-  const result = invoke('exchange', Buffer.from('request'), { asNonRoot: true });
-  assert.equal(result.error, 'disconnect');
+test('times out, signals, and reaps before framing the response', async () => {
+  await startServer('broker-timeout');
+  const result = invoke('exchange', Buffer.alloc(0), { timeout: 1000 });
+  assert.equal(result.header.outcome, 'timeout');
+  assert.equal(result.header.startState, 'started');
+  assert.equal(result.header.childReaped, true);
+  assert.equal(result.header.signal, 15);
+  assert.ok(result.elapsedMs < 700, `elapsed ${result.elapsedMs}ms`);
   await stopServer();
-  assert.match(serverErrors, /REJECTED uid=1000 pid=\d+/);
 });
 
-test('does not grow descriptors over 100 connect-close cycles', async () => {
-  await startServer('echo-many', [100]);
+for (const mode of ['disconnect-before-exec', 'disconnect-after-exec']) {
+  test(`reaps the child after ${mode.replaceAll('-', ' ')}`, async () => {
+    await startServer(`broker-${mode}`);
+    const result = invoke(mode);
+    assert.equal(result.error, null);
+    await stopServer();
+    assert.match(serverErrors, new RegExp(`${mode}=reaped`));
+  });
+}
+
+test('rejects a truncated response frame', async () => {
+  await startServer('response-truncated');
+  assert.equal(invoke('exchange').error, 'response_truncated');
+  await stopServer();
+});
+
+test('does not grow descriptors over 100 framed requests', async () => {
+  await startServer('broker-success', [100]);
   const result = invoke('cycles', Buffer.from('x'), { repeats: 100 });
   assert.equal(result.fdAfter, result.fdBefore);
   assert.equal(result.completed, 100);
