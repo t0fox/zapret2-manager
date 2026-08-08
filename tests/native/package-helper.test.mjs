@@ -114,6 +114,39 @@ test('package and service lifecycle fail closed when bootstrap fails', () => {
   }
 });
 
+test('service lifecycle uses fixed named instances without claiming declaration readiness', () => {
+  assert.match(initScript, /^HELPERD=\/usr\/libexec\/zapret2-manager\/z2m-helperd$/m,
+    'helperd must use its fixed installed daemon path');
+  const start = /start_service\(\) \{([\s\S]*?)\n\}/.exec(initScript)?.[1];
+  assert.ok(start, 'start_service must exist');
+
+  const bootstrapAt = start.indexOf('"$BOOTSTRAP" all || return $?');
+  const helperAt = start.indexOf('procd_open_instance helperd');
+  const watchdogAt = start.indexOf('procd_open_instance watchdog');
+  assert.ok(bootstrapAt >= 0 && bootstrapAt < helperAt,
+    'fail-closed bootstrap must precede helperd declaration');
+  assert.ok(helperAt < watchdogAt, 'helperd must be declared before watchdog');
+
+  for (const [name, begin, end] of [
+    ['helperd', helperAt, watchdogAt],
+    ['watchdog', watchdogAt, start.length],
+  ]) {
+    const instance = start.slice(begin, end);
+    assert.match(instance, /procd_set_param respawn 60 5 5/,
+      `${name} must have an independent respawn policy`);
+    assert.match(instance, /procd_set_param term_timeout 10/,
+      `${name} must have bounded termination`);
+  }
+
+  const helper = start.slice(helperAt, watchdogAt);
+  assert.match(helper, /procd_set_param command "\$HELPERD"/,
+    'helperd command must be a direct fixed argv entry');
+  assert.doesNotMatch(helper, /\b(?:sh|ash|bash)\b|-c\b|eval\b|procd_append_param command/,
+    'helperd must not launch through shell command construction');
+  assert.doesNotMatch(start, /\b(?:wait|sleep|until)\b|ubus\s+wait_for|service_started/,
+    'declaration order must not be treated as a readiness acknowledgment');
+});
+
 function creationCallsites(file, body) {
   const sites = [];
   const resolve = (expression, offset, seen = new Set()) => {

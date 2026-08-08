@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 
 const source = 'zapret2-manager/src/z2m-root-bootstrap.c';
 const protocolPath = 'zapret2-manager/src/z2m-core-helper/protocol-v1.json';
+const initScript = 'zapret2-manager/files/etc/init.d/zapret2-manager';
 
 if (process.getuid() !== 0) {
   test('bootstrap contract runs in one root-owned test process', () => {
@@ -51,6 +52,60 @@ if (process.getuid() !== 0) {
       .map((match) => match[1]).sort();
     assert.deepEqual(expected, roots.slice().sort());
     assert.deepEqual(actual, expected);
+  });
+
+  test('service registers independently supervised helperd then watchdog after bootstrap', () => {
+    const root = fs.mkdtempSync('/tmp/z2m-lifecycle-test-');
+    const log = path.join(root, 'calls');
+    const bootstrap = path.join(root, 'bootstrap');
+    const harness = path.join(root, 'harness.sh');
+    try {
+      fs.writeFileSync(bootstrap, `#!/bin/sh\nprintf 'bootstrap %s\\n' "$1" >> '${log}'\nexit "\${BOOTSTRAP_RESULT:-0}"\n`);
+      fs.chmodSync(bootstrap, 0o755);
+      fs.writeFileSync(harness, `#!/bin/sh
+extra_command() { :; }
+. '${path.resolve(initScript)}'
+BOOTSTRAP='${bootstrap}'
+procd_open_instance() { printf 'open %s\\n' "$1" >> '${log}'; }
+procd_set_param() { printf 'param %s\\n' "$*" >> '${log}'; }
+procd_close_instance() { printf 'close\\n' >> '${log}'; }
+start_service
+`);
+      fs.chmodSync(harness, 0o755);
+
+      const run = spawnSync('/bin/sh', [harness], { encoding: 'utf8' });
+      assert.equal(run.status, 0, run.stderr);
+      assert.deepEqual(fs.readFileSync(log, 'utf8').trim().split('\n'), [
+        'bootstrap all',
+        'open helperd',
+        'param command /usr/libexec/zapret2-manager/z2m-helperd',
+        'param respawn 60 5 5',
+        'param term_timeout 10',
+        'param stdout 1',
+        'param stderr 1',
+        'param limits core=unlimited',
+        'close',
+        'open watchdog',
+        'param command /usr/bin/ucode /usr/libexec/zapret2-manager/watchdog.uc',
+        'param respawn 60 5 5',
+        'param term_timeout 10',
+        'param stdout 1',
+        'param stderr 1',
+        'param limits core=unlimited',
+        'close',
+      ]);
+
+      fs.writeFileSync(log, '');
+      const failed = spawnSync('/bin/sh', [harness], {
+        encoding: 'utf8',
+        env: { ...process.env, BOOTSTRAP_RESULT: '73' },
+      });
+      assert.equal(failed.status, 73, failed.stderr);
+      assert.equal(fs.readFileSync(log, 'utf8'), 'bootstrap all\n',
+        'bootstrap failure must prevent every procd declaration');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   function prefix() {
