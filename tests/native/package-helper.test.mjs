@@ -31,6 +31,7 @@ const productionSources = [
   'roots.c',
   'sha256.c',
 ];
+const brokerSources = ['z2m-helperd.c', 'transport.c', 'supervise.c'];
 function block(name) {
   const match = new RegExp(`define ${name}\\n([\\s\\S]*?)\\nendef`).exec(makefile);
   assert.ok(match, `${name} must be defined`);
@@ -510,4 +511,28 @@ test('package installation assigns reviewed runtime file modes', () => {
 test('compiled package does not claim architecture all', () => {
   assert.doesNotMatch(makefile, /^PKGARCH:=all$/m,
     'compiled manager package must not claim architecture all');
+});
+
+test('package strictly target-builds and installs only the production broker binary', () => {
+  const prepare = block('Build/Prepare');
+  assert.match(prepare, /src\/z2m-helperd/,
+    'Build/Prepare must stage the focused broker sources');
+
+  const compile = block('Build/Compile');
+  for (const source of brokerSources)
+    assert.match(compile, new RegExp(`\\$\\(PKG_BUILD_DIR\\)/z2m-helperd/${source.replace('.', '\\.')}\\b`),
+      `broker build must compile exactly ${source}`);
+  for (const flag of ['-std=c11', '-Wall', '-Wextra', '-Werror', '-D_GNU_SOURCE'])
+    assert.ok(compile.includes(flag), `broker compilation must use ${flag}`);
+  assert.match(compile, /-o\s+\$\(PKG_BUILD_DIR\)\/z2m-helperd(?:\s|$)/,
+    'broker output must have the fixed package-build name');
+  assert.doesNotMatch(compile, /-DZ2M_TESTING|TEST_ROOT|FIXED_CHILD/,
+    'production package build must expose no test seams');
+
+  const install = block('Package/zapret2-manager/install');
+  assert.match(install,
+    /\$\(INSTALL_BIN\)\s+\$\(PKG_BUILD_DIR\)\/z2m-helperd\s+\$\(1\)\/usr\/libexec\/zapret2-manager\/z2m-helperd/,
+    'package must install the broker at its fixed libexec path');
+  assert.doesNotMatch(install, /src\/z2m-helperd|helperd\.h|transport\.c|supervise\.c/,
+    'package payload must not contain broker development files');
 });
