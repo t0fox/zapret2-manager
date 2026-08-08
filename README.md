@@ -38,11 +38,16 @@ make package/zapret2-manager-full/compile V=s
 
 Only tests for the current native foundation are kept in `tests/native/`.
 
-On Linux with Node.js, a C compiler, `pkg-config`, and json-c development files installed:
+On Linux with Node.js, a C compiler, `pkg-config`, json-c development files,
+ucode, and passwordless `sudo` for the root-policy helper test:
 
 ```sh
 scripts/test/native.sh
 ```
+
+Set `UCODE_BIN` and `UCODE_LIBRARY_PATH` when ucode is not installed under
+`/opt/ucode`. The gate runs only `fs-helper.test.mjs` through `sudo`; all other
+native tests run as the invoking user.
 
 These source tests are not a substitute for OpenWrt SDK compilation or router validation.
 

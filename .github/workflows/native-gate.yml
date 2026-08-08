@@ -24,9 +24,14 @@ jobs:
       - name: Install native test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libjson-c-dev
+          sudo apt-get install -y build-essential cmake curl pkg-config libjson-c-dev
+
+      - name: Build pinned ucode v0.0.20250529
+        run: scripts/test/install-ucode.sh "${{ runner.temp }}/ucode"
 
       - name: Run native foundation gate
         env:
           TMPDIR: ${{ runner.temp }}/z2m-native
+          UCODE_BIN: ${{ runner.temp }}/ucode/bin/ucode
+          UCODE_LIBRARY_PATH: ${{ runner.temp }}/ucode/lib
         run: scripts/test/native.sh

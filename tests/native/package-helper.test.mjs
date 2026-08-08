@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const makefile = fs.readFileSync('zapret2-manager/Makefile', 'utf8');
+const nativeGate = fs.readFileSync('scripts/test/native.sh', 'utf8');
+const nativeWorkflow = fs.readFileSync('.github/workflows/native-gate.yml', 'utf8');
 const helperDir = 'zapret2-manager/src/z2m-core-helper';
 const productionSources = [
   'atomic.c',
@@ -43,6 +45,27 @@ test('native production and tests contain no Windows or WSL execution', () => {
     assert.doesNotMatch(body, /wsl\.exe|\/mnt\/[a-z]\b|[A-Za-z]:\\\\/,
       `${file} must execute directly on Linux`);
   }
+});
+
+test('native gate elevates only the root-required helper test and cleans temporary discovery state', () => {
+  assert.match(nativeGate, /trap '[^']*rm -f[^']*' (?:EXIT|0) HUP INT TERM/,
+    'native gate must clean its temporary list on exit and signals');
+  assert.match(nativeGate,
+    /sudo[^\n]*--preserve-env=[^\n]*(?:TMPDIR|UCODE_BIN|UCODE_LIBRARY_PATH)[^\n]*"\$node_bin"[^\n]*fs-helper\.test\.mjs/,
+    'native gate must preserve its environment while elevating the helper test');
+  assert.equal((nativeGate.match(/^\s*sudo\b/gm) ?? []).length, 1,
+    'only the root-required helper test may use sudo');
+});
+
+test('CI provisions pinned ucode and passes it to the shared native gate', () => {
+  assert.match(nativeWorkflow, /v0\.0\.20250529/,
+    'CI must pin the tested ucode release');
+  assert.match(nativeWorkflow, /scripts\/test\/install-ucode\.sh/,
+    'CI must use the repository ucode installer');
+  assert.match(nativeWorkflow, /UCODE_BIN:/,
+    'CI must configure the ucode executable for the gate');
+  assert.match(nativeWorkflow, /UCODE_LIBRARY_PATH:/,
+    'CI must configure the ucode library path for the gate');
 });
 
 test('package target-builds the complete production helper with json-c', () => {
@@ -92,6 +115,28 @@ test('package prepares sources separately and installs only the executable', () 
     'install must exclude test instrumentation');
   assert.match(install, /\$\(CP\)\s+\.\/files\/\*\s+\$\(1\)\//,
     'existing runtime files must remain installed');
+});
+
+test('package installation assigns reviewed runtime file modes', () => {
+  const install = block('Package/zapret2-manager/install');
+  assert.match(install, /chmod 0755[^\n]*\/usr\/libexec\/zapret2-manager\/\*\.sh/,
+    'runtime shell entry points must be executable');
+  assert.match(install, /chmod 0755[^\n]*\/etc\/init\.d\/zapret2-manager/,
+    'init entry point must be executable');
+  assert.match(install, /chmod 0755[^\n]*\/etc\/hotplug\.d\/iface\/90-zapret2-manager/,
+    'hotplug entry point must be executable');
+  assert.match(install, /\$\(INSTALL_BIN\)[^\n]*\/usr\/libexec\/zapret2-manager\/z2m-core-helper/,
+    'native helper must be installed executable');
+  assert.match(install, /chmod 0644[^\n]*\/usr\/libexec\/zapret2-manager\/\*\.uc/,
+    'runtime ucode files must be non-executable data');
+  assert.match(install, /find[^\n]*\/usr\/share\/zapret2-manager[^\n]*chmod 0644/,
+    'shared package data must be non-executable');
+  assert.match(install, /chmod 0644[^\n]*\/etc\/zapret2-manager\/\*\.json/,
+    'ordinary top-level JSON configuration must be non-executable');
+  assert.match(install, /chmod 0640[^\n]*\/etc\/zapret2-manager\/ipset\/\*\.txt/,
+    'managed data lists must be group-readable but not executable');
+  assert.match(install, /chmod 0600[^\n]*\/etc\/zapret2-manager\/state\.json/,
+    'state must remain private');
 });
 
 test('compiled package does not claim architecture all', () => {
