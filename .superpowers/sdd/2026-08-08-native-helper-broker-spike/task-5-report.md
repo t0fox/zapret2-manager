@@ -2,11 +2,13 @@
 
 ## Status
 
-**PASS WITH MANUAL RESTART RECOVERY.** Production `z2m-helperd` is implemented,
-host-tested, target-built, packaged, and committed through review round 4. The
-broker never removes its socket pathname; every clean or unclean restart
-requires trusted operator removal after lock-owner verification, or reboot.
-The implementation is limited to Task 5. No procd, ucode adapter, M3 gate
+**PASS.** Production `z2m-helperd` is implemented, host-tested, target-built,
+packaged, and committed through review round 5. Under the governing boundary,
+local UID 0 is trusted and malicious-root pathname races are out of scope. The
+broker creates its socket as exact `0600`, removes only verified stale sockets
+under the post-identity-verified singleton lock, removes its recorded inode on
+normal shutdown, and supports clean restart or crash/procd-style respawn. The
+implementation remains limited to Task 5. No procd, ucode adapter, gate
 replacement, or M4 work was added.
 
 ## Production Commit
@@ -164,6 +166,80 @@ listener behavior.
 - Codex review availability remains an environment concern only: reinstall the
   CLI with its Linux optional dependency before requesting that independent
   review under WSL.
+
+## Re-Review Fix Round 5
+
+### Status
+
+**PASS.** The human threat-model decision supersedes round 4's malicious-root
+pathname-race policy: local UID 0 is trusted. Historical round labels and
+evidence above remain point-in-time records. The current implementation defends
+against unprivileged users, unsafe objects, stale state, malformed IPC, and
+process faults/crashes, and permits future procd respawn without implementing
+procd in this round.
+
+Implementation and regression evidence are committed in
+`b5bb13c0660bd1640b576068b74e21f02edcf929` (`fix(core): restore trusted-root
+broker lifecycle`).
+
+### Root Cause And Fixes
+
+- Round 4 removed all pathname cleanup because it treated malicious root as an
+  attacker. That exceeded the approved boundary and made every normal or crash
+  restart require manual intervention.
+- Socket creation now applies umask `0177` before `bind()`, producing exact mode
+  `0600` with no pathname chmod after bind. Type, UID, GID, and mode are verified
+  immediately, then device/inode are recorded.
+- Startup cleanup runs only after the singleton lock's post-flock identity check
+  beneath verified root:root mode-0700 runtime ancestry. It unlinks only a
+  no-follow socket with root:root ownership and exact mode `0600`. Symlinks,
+  files, FIFOs, wrong-owner sockets, and wrong-mode sockets remain untouched and
+  fail closed. The held lock is the liveness authority, so no blocking connect
+  probe is needed.
+- Normal shutdown checks socket type, owner, mode, and the stored device/inode
+  before unlink. A replacement pathname remains untouched.
+- The registry lifecycle audit marks the old PID/starttime identity reaped,
+  accepts the same numeric PID with a new starttime as a distinct identity,
+  rejects the same transition while unreaped, and retains real `/proc` starttime
+  validation before signaling.
+- The amendment design, implementation plan, and report top summary now share
+  the trusted-root boundary and clean/crash respawn behavior.
+
+### Safety Boundary
+
+This is safe against unprivileged users because pathname mutation occurs only
+under verified root-owned mode-0700 ancestry while the verified singleton lock
+is held. It is not claimed safe against malicious root racing pathnames; such a
+root actor is explicitly out of scope.
+
+### Verification
+
+- Focused broker plus package gate: **64 tests, 64 pass, 0 fail, 0 skipped**.
+- Shared non-M3 host gate: **79 tests, 79 pass, 0 fail, 0 skipped**.
+- Root-required bootstrap/helper gate: **96 tests, 96 pass, 0 fail, 0 skipped**.
+- Elevated focused broker cases: all **38 broker tests pass**, including
+  wrong-owner socket preservation. The combined elevated package run had one
+  unrelated Git `safe.directory` refusal because root does not own the worktree;
+  the same package suite passed in the focused and shared owner runs.
+- Strict host production build: PASS with `-std=c11 -Wall -Wextra -Werror
+  -D_GNU_SOURCE` and `json-c`; x86-64 ELF.
+- Strict OpenWrt target production build: PASS with the AArch64 musl toolchain;
+  AArch64 ELF with `/lib/ld-musl-aarch64.so.1`.
+- `git diff --check`: PASS.
+
+### Concerns
+
+- The trusted-root boundary is deliberate: malicious root can still race
+  pathnames and is not defended against.
+- Actual kernel PID-number reuse is not forced; the registry transition is
+  tested directly, while real-process tests prove signal-time `/proc` starttime
+  validation.
+- Procd is not implemented yet. This round proves lifecycle compatibility with
+  future respawn only. Adapter, gate replacement, and M4 remain untouched.
+- Independent Codex review remains unavailable because the Windows-global CLI
+  cannot load the WSL optional package `@openai/codex-linux-x64`; reinstalling
+  `@openai/codex@latest` inside Linux is required. Manual diff review and all
+  executable gates completed.
 
 ## Reviewer Findings Follow-Up
 
