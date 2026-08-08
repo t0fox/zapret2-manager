@@ -83,6 +83,10 @@ was added. The historical rounds in this report are retained as point-in-time
 records; where they describe automatic stale or shutdown cleanup, round 4
 supersedes that policy.
 
+Implementation and regression evidence are committed in
+`f70b45ad9ac6ba10f32552a20a68a43b07f6bcad` (`fix(core): remove unsafe broker
+pathname cleanup`).
+
 ### Root Cause And Policy
 
 The shutdown device/inode check followed by `unlinkat()` was still a pathname
