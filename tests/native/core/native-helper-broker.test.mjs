@@ -100,6 +100,20 @@ function exchange(payload = frame(), { resetIsEof = false } = {}) {
   });
 }
 
+function exchangeGuarded(payload = frame(), options = {}, guardMs = 2000) {
+  return Promise.race([
+    exchange(payload, options),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('exchange host guard expired')), guardMs)),
+  ]);
+}
+
+async function waitStopped(pid) {
+  await waitFor(() => {
+    if (!fs.existsSync(`/proc/${pid}/status`)) return false;
+    return /^State:\s+T/m.test(fs.readFileSync(`/proc/${pid}/status`, 'utf8'));
+  });
+}
+
 before(() => {
   fs.mkdirSync(runtime, { mode: 0o700 });
   const helperBuilt = run('cc', ['-std=c11', '-Wall', '-Wextra', '-Werror', '-x', 'c', '-', '-o', helper], {
@@ -348,4 +362,156 @@ test('handles serial requests without descriptor growth', async () => {
   const afterCount = fs.readdirSync(`/proc/${server.pid}/fd`).length;
   assert.equal(afterCount, before);
   await stop();
+});
+
+test('deadline remains active after the leader exits while a descendant survives', async () => {
+  const descendantHelper = path.join(root, 'descendant-timeout-helper');
+  compileHelper(descendantHelper, '#include <signal.h>\n#include <stdio.h>\n#include <unistd.h>\nint main(void){pid_t p=fork();if(p<0)return 1;if(p==0){signal(SIGTERM,SIG_IGN);sleep(2);return 0;}printf("descendant=%ld\\n",(long)p);fflush(stdout);return 0;}\n');
+  const binary = path.join(root, 'z2m-helperd-descendant-timeout');
+  compile(binary, descendantHelper);
+  await start(binary);
+  const started = Date.now();
+  const response = parseResponse(await exchangeGuarded(frame(Buffer.alloc(0), 'descendant:timeout', 100), {}, 1500));
+  const descendant = Number(/descendant=(\d+)/.exec(response.body.toString())?.[1]);
+  assert.equal(response.header.outcome, 'timeout');
+  assert.equal(response.header.childReaped, true);
+  assert.ok(Date.now() - started < 800, `descendant timeout took ${Date.now() - started}ms`);
+  assert.equal(fs.existsSync(`/proc/${descendant}`), false, `descendant ${descendant} survived timeout`);
+  await stop();
+});
+
+test('shutdown escalates TERM-ignoring descendants after leader reap without hanging serial broker', async () => {
+  const descendantHelper = path.join(root, 'descendant-shutdown-helper');
+  compileHelper(descendantHelper, '#include <signal.h>\n#include <stdio.h>\n#include <unistd.h>\nint main(void){pid_t p=fork();if(p<0)return 1;if(p==0){signal(SIGTERM,SIG_IGN);sleep(2);return 0;}printf("descendant=%ld\\n",(long)p);fflush(stdout);return 0;}\n');
+  const binary = path.join(root, 'z2m-helperd-descendant-shutdown');
+  compile(binary, descendantHelper);
+  await start(binary);
+  const pending = exchangeGuarded(frame(Buffer.alloc(0), 'descendant:shutdown', 30000), { resetIsEof: true }, 1500);
+  let descendant;
+  await waitFor(() => {
+    const children = fs.readFileSync(`/proc/${server.pid}/task/${server.pid}/children`, 'utf8').trim();
+    descendant = Number(children.split(/\s+/)[0]);
+    return Number.isInteger(descendant) && descendant > 0;
+  });
+  const started = Date.now();
+  await stop();
+  await pending;
+  assert.ok(Date.now() - started < 800, `shutdown took ${Date.now() - started}ms`);
+  assert.equal(fs.existsSync(`/proc/${descendant}`), false, `descendant ${descendant} survived shutdown`);
+});
+
+test('deadline kills and reaps an adopted descendant that escapes the leader process group', async () => {
+  const adoptedHelper = path.join(root, 'adopted-timeout-helper');
+  compileHelper(adoptedHelper, '#include <signal.h>\n#include <stdio.h>\n#include <unistd.h>\nint main(void){pid_t p=fork();if(p<0)return 1;if(p==0){if(setsid()<0)return 2;signal(SIGTERM,SIG_IGN);sleep(2);return 0;}printf("adopted=%ld\\n",(long)p);fflush(stdout);return 0;}\n');
+  const binary = path.join(root, 'z2m-helperd-adopted-timeout');
+  compile(binary, adoptedHelper);
+  await start(binary);
+  const response = parseResponse(await exchangeGuarded(frame(Buffer.alloc(0), 'adopted:timeout', 100), {}, 1500));
+  const adopted = Number(/adopted=(\d+)/.exec(response.body.toString())?.[1]);
+  assert.equal(response.header.outcome, 'timeout');
+  assert.equal(response.header.childReaped, true);
+  assert.equal(fs.existsSync(`/proc/${adopted}`), false, `adopted child ${adopted} survived timeout`);
+  await stop();
+});
+
+test('EOF descriptors are removed from poll and silent-child poll count stays bounded', async () => {
+  const silent = path.join(root, 'silent-helper');
+  compileHelper(silent, '#include <unistd.h>\nint main(void){close(0);close(1);close(2);usleep(300000);return 0;}\n');
+  const report = path.join(root, 'poll-count');
+  const binary = path.join(root, 'z2m-helperd-poll-count');
+  compile(binary, silent, [`-DZ2M_TEST_POLL_COUNT_PATH="${report}"`]);
+  await start(binary);
+  const response = parseResponse(await exchangeGuarded(frame(Buffer.alloc(0), 'poll:bounded', 1000)));
+  assert.equal(response.header.outcome, 'child_exited');
+  const count = Number(fs.readFileSync(report, 'utf8'));
+  assert.ok(count > 0 && count < 100, `poll count ${count} is not bounded`);
+  await stop();
+});
+
+test('fatal poll error terminates and reaps before transport failure response', async () => {
+  const sleeper = path.join(root, 'poll-failure-sleeper');
+  compileHelper(sleeper, '#include <unistd.h>\nint main(void){sleep(2);return 0;}\n');
+  const binary = path.join(root, 'z2m-helperd-poll-failure');
+  compile(binary, sleeper, ['-DZ2M_TEST_POLL_HARD_FAILURE']);
+  await start(binary);
+  const response = parseResponse(await exchangeGuarded(frame(Buffer.alloc(0), 'poll:failure', 1000)));
+  assert.equal(response.header.outcome, 'transport_failure');
+  assert.equal(response.header.reason, 'supervision_failure');
+  assert.ok(['not_started', 'started'].includes(response.header.startState),
+    `unexpected start state ${response.header.startState}`);
+  assert.equal(response.header.childReaped, true);
+  await stop();
+});
+
+test('partial request stall expires and cannot wedge the next serial client', async () => {
+  const binary = path.join(root, 'z2m-helperd-read-deadline');
+  compile(binary, helper, ['-DZ2M_TEST_IO_TIMEOUT_MS=100']);
+  await start(binary);
+  const stalled = net.createConnection(socketPath);
+  await new Promise((resolve, reject) => stalled.once('connect', resolve).once('error', reject));
+  stalled.write(Buffer.from('Z2M'));
+  const started = Date.now();
+  const next = parseResponse(await exchangeGuarded(frame(Buffer.alloc(0), 'after:read-stall', 1000), {}, 1000));
+  assert.equal(next.header.outcome, 'child_exited');
+  assert.ok(Date.now() - started < 400, `next client waited ${Date.now() - started}ms`);
+  stalled.destroy();
+  await stop();
+});
+
+test('non-reading response client expires and cannot wedge the next serial client', async () => {
+  const writer = path.join(root, 'nonreader-writer');
+  compileHelper(writer, '#include <string.h>\n#include <unistd.h>\nint main(void){char b[65536];memset(b,\'x\',sizeof(b));for(int i=0;i<96;i++)if(write(1,b,sizeof(b))!=(ssize_t)sizeof(b))return 1;return 0;}\n');
+  const binary = path.join(root, 'z2m-helperd-write-deadline');
+  compile(binary, writer, ['-DZ2M_TEST_IO_TIMEOUT_MS=100']);
+  await start(binary);
+  const stalled = net.createConnection(socketPath);
+  await new Promise((resolve, reject) => stalled.once('connect', resolve).once('error', reject));
+  stalled.end(frame(Buffer.alloc(0), 'response:stall', 1000));
+  await new Promise(resolve => setTimeout(resolve, 50));
+  const started = Date.now();
+  const next = exchangeGuarded(frame(Buffer.alloc(0), 'after:write-stall', 1000), { resetIsEof: true }, 1000);
+  await next;
+  assert.ok(Date.now() - started < 400, `next client waited ${Date.now() - started}ms`);
+  stalled.destroy();
+  await stop();
+});
+
+test('lock pathname replacement after open cannot create dual singleton ownership', async () => {
+  const binary = path.join(root, 'z2m-helperd-lock-race');
+  compile(binary, helper, ['-DZ2M_TEST_STOP_AFTER_LOCK_OPEN']);
+  server = spawn(binary, [], { stdio: ['ignore', 'ignore', 'pipe'] });
+  await waitStopped(server.pid);
+  const lockPath = path.join(runtime, 'z2m-helperd.lock');
+  const displaced = `${lockPath}.displaced`;
+  fs.renameSync(lockPath, displaced);
+  fs.writeFileSync(lockPath, '', { mode: 0o600 });
+  server.kill('SIGCONT');
+  await new Promise(resolve => server.once('exit', resolve));
+  assert.notEqual(server.exitCode, 0, 'raced daemon must fail before lock ownership');
+  fs.unlinkSync(displaced);
+  await start();
+  assert.equal(parseResponse(await exchange()).header.outcome, 'child_exited');
+  await stop();
+});
+
+test('stale socket replacement immediately before removal is never unlinked', async () => {
+  await start();
+  server.kill('SIGKILL');
+  await new Promise(resolve => server.once('exit', resolve));
+  const binary = path.join(root, 'z2m-helperd-stale-race');
+  compile(binary, helper, ['-DZ2M_TEST_STOP_BEFORE_STALE_REMOVE']);
+  server = spawn(binary, [], { stdio: ['ignore', 'ignore', 'pipe'] });
+  await waitStopped(server.pid);
+  const displaced = `${socketPath}.displaced`;
+  fs.renameSync(socketPath, displaced);
+  fs.writeFileSync(socketPath, 'replacement', { mode: 0o600 });
+  server.kill('SIGCONT');
+  await new Promise(resolve => server.once('exit', resolve));
+  assert.notEqual(server.exitCode, 0);
+  const candidates = [socketPath, path.join(runtime, 'z2m-helperd.sock.stale')]
+    .filter(candidate => fs.existsSync(candidate));
+  assert.ok(candidates.some(candidate => fs.lstatSync(candidate).isFile() &&
+    fs.readFileSync(candidate, 'utf8') == 'replacement'), 'replacement object was unlinked');
+  for (const candidate of candidates) fs.rmSync(candidate, { force: true });
+  fs.unlinkSync(displaced);
 });

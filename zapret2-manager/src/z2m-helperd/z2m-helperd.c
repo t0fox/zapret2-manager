@@ -17,6 +17,7 @@
 static volatile sig_atomic_t stopping;
 static int listener = -1;
 static int lock_fd = -1;
+static int runtime_fd = -1;
 static dev_t socket_dev;
 static ino_t socket_ino;
 
@@ -86,32 +87,57 @@ unsafe:
 
 static int acquire_lock(void)
 {
-	struct stat st;
-	lock_fd = open(Z2M_LOCK_PATH, O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600);
-	if (lock_fd < 0 || fstat(lock_fd, &st) < 0 || !S_ISREG(st.st_mode) ||
-	    (st.st_mode & 0777) != 0600 || st.st_uid != Z2M_RUNTIME_UID ||
-	    st.st_gid != Z2M_RUNTIME_GID ||
-	    flock(lock_fd, LOCK_EX | LOCK_NB) < 0) return -1;
+	struct stat descriptor, pathname;
+	lock_fd = openat(runtime_fd, "z2m-helperd.lock",
+		O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600);
+#ifdef Z2M_TEST_STOP_AFTER_LOCK_OPEN
+	raise(SIGSTOP);
+#endif
+	if (lock_fd < 0 || fstat(lock_fd, &descriptor) < 0 ||
+	    fstatat(runtime_fd, "z2m-helperd.lock", &pathname, AT_SYMLINK_NOFOLLOW) < 0 ||
+	    !S_ISREG(descriptor.st_mode) || !S_ISREG(pathname.st_mode) ||
+	    (descriptor.st_mode & 0777) != 0600 || descriptor.st_uid != Z2M_RUNTIME_UID ||
+	    descriptor.st_gid != Z2M_RUNTIME_GID || descriptor.st_dev != pathname.st_dev ||
+	    descriptor.st_ino != pathname.st_ino || flock(lock_fd, LOCK_EX | LOCK_NB) < 0)
+		return -1;
 	return 0;
 }
 
 static int remove_safe_stale_socket(void)
 {
-	struct stat st;
-	if (lstat(Z2M_SOCKET_PATH, &st) < 0) return errno == ENOENT ? 0 : -1;
-	if (!S_ISSOCK(st.st_mode) || st.st_uid != Z2M_RUNTIME_UID || st.st_gid != Z2M_RUNTIME_GID ||
-	    (st.st_mode & 0777) != 0600) { errno = EPERM; return -1; }
-	return unlink(Z2M_SOCKET_PATH);
+	struct stat before, after;
+	if (fstatat(runtime_fd, "z2m-helperd.sock", &before, AT_SYMLINK_NOFOLLOW) < 0)
+		return errno == ENOENT ? 0 : -1;
+	if (!S_ISSOCK(before.st_mode) || before.st_uid != Z2M_RUNTIME_UID ||
+	    before.st_gid != Z2M_RUNTIME_GID || (before.st_mode & 0777) != 0600) {
+		errno = EPERM;
+		return -1;
+	}
+#ifdef Z2M_TEST_STOP_BEFORE_STALE_REMOVE
+	raise(SIGSTOP);
+#endif
+	if (renameat(runtime_fd, "z2m-helperd.sock", runtime_fd, "z2m-helperd.sock.stale") < 0)
+		return -1;
+	if (fstatat(runtime_fd, "z2m-helperd.sock.stale", &after, AT_SYMLINK_NOFOLLOW) < 0 ||
+	    after.st_dev != before.st_dev || after.st_ino != before.st_ino ||
+	    !S_ISSOCK(after.st_mode) || after.st_uid != Z2M_RUNTIME_UID ||
+	    after.st_gid != Z2M_RUNTIME_GID || (after.st_mode & 0777) != 0600) {
+		errno = EPERM;
+		return -1;
+	}
+	return unlinkat(runtime_fd, "z2m-helperd.sock.stale", 0);
 }
 
 static void cleanup(void)
 {
 	struct stat st;
 	if (listener >= 0) close(listener);
-	if (lstat(Z2M_SOCKET_PATH, &st) == 0 && S_ISSOCK(st.st_mode) && st.st_uid == Z2M_RUNTIME_UID &&
+	if (runtime_fd >= 0 && fstatat(runtime_fd, "z2m-helperd.sock", &st, AT_SYMLINK_NOFOLLOW) == 0 &&
+	    S_ISSOCK(st.st_mode) && st.st_uid == Z2M_RUNTIME_UID &&
 	    st.st_gid == Z2M_RUNTIME_GID && st.st_dev == socket_dev && st.st_ino == socket_ino)
-		(void)unlink(Z2M_SOCKET_PATH);
+		(void)unlinkat(runtime_fd, "z2m-helperd.sock", 0);
 	if (lock_fd >= 0) close(lock_fd);
+	if (runtime_fd >= 0) close(runtime_fd);
 }
 
 int main(void)
@@ -120,12 +146,9 @@ int main(void)
 	struct sigaction action = { .sa_handler = stop };
 	struct stat st;
 	mode_t old_umask;
-	int runtime_fd;
-
 	if (strlen(Z2M_SOCKET_PATH) >= sizeof(address.sun_path)) { errno = ENAMETOOLONG; goto failure; }
 	runtime_fd = verify_runtime();
 	if (runtime_fd < 0) goto failure;
-	close(runtime_fd);
 	if (prctl(PR_SET_CHILD_SUBREAPER, 1) < 0) goto failure;
 	if (acquire_lock() < 0 || remove_safe_stale_socket() < 0) goto failure;
 	memcpy(address.sun_path, Z2M_SOCKET_PATH, strlen(Z2M_SOCKET_PATH) + 1);
@@ -135,7 +158,8 @@ int main(void)
 		umask(old_umask); goto failure;
 	}
 	umask(old_umask);
-	if (chmod(Z2M_SOCKET_PATH, 0600) < 0 || lstat(Z2M_SOCKET_PATH, &st) < 0 ||
+	if (fchmodat(runtime_fd, "z2m-helperd.sock", 0600, 0) < 0 ||
+	    fstatat(runtime_fd, "z2m-helperd.sock", &st, AT_SYMLINK_NOFOLLOW) < 0 ||
 	    !S_ISSOCK(st.st_mode) || st.st_uid != Z2M_RUNTIME_UID ||
 	    st.st_gid != Z2M_RUNTIME_GID ||
 	    (st.st_mode & 0777) != 0600) goto failure;
