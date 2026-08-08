@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as socket from 'socket';
 
 const CHUNK = 65536;
+const SEND_CHUNK = 1024 * 1024;
 
 function fd_count() {
 	let entries = fs.lsdir('/proc/self/fd');
@@ -46,6 +47,9 @@ function exchange(socket_path, request, cap, timeout) {
 	let response = '';
 	let offset = 0;
 	let send_calls = 0;
+	let short_writes = 0;
+	let send_eagain = 0;
+	let recv_calls = 0;
 	let saw_in_hup = false;
 	let eof = false;
 	let error = null;
@@ -56,12 +60,17 @@ function exchange(socket_path, request, cap, timeout) {
 
 	peer = sock.peercred();
 	while (offset < length(request)) {
-		let events = wait(sock, socket.POLLOUT | socket.POLLERR | socket.POLLHUP, deadline);
-		if (events == null) { error = 'timeout'; break; }
-		if (events & (socket.POLLERR | socket.POLLHUP)) { error = 'disconnect'; break; }
-		let written = sock.send(substr(request, offset, CHUNK), socket.MSG_DONTWAIT);
-		if (written == null)
+		let chunk = substr(request, offset, SEND_CHUNK);
+		let written = sock.send(chunk, socket.MSG_DONTWAIT);
+		if (written == null) {
+			send_eagain++;
+			let events = wait(sock, socket.POLLOUT | socket.POLLERR | socket.POLLHUP, deadline);
+			if (events == null) { error = 'timeout'; break; }
+			if (events & (socket.POLLERR | socket.POLLHUP)) { error = 'disconnect'; break; }
 			continue;
+		}
+		if (written < length(chunk))
+			short_writes++;
 		offset += written;
 		send_calls++;
 	}
@@ -77,16 +86,17 @@ function exchange(socket_path, request, cap, timeout) {
 			saw_in_hup = true;
 
 		if (events & socket.POLLIN) {
-			let available = cap + 1 - length(response);
+			let available = cap + 2 - length(response);
 			let data = sock.recv(available < CHUNK ? available : CHUNK, socket.MSG_DONTWAIT);
 			if (data == null)
 				continue;
+			recv_calls++;
 			if (length(data) == 0) {
 				eof = true;
 				break;
 			}
 			response += data;
-			if (length(response) > cap) {
+			if (length(response) > cap + 1) {
 				error = 'response_limit';
 				break;
 			}
@@ -94,20 +104,25 @@ function exchange(socket_path, request, cap, timeout) {
 		}
 
 		if (events & socket.POLLHUP) {
-			let data = sock.recv(cap + 1 - length(response), socket.MSG_DONTWAIT);
+			let data = sock.recv(cap + 2 - length(response), socket.MSG_DONTWAIT);
 			if (data != null && length(data) > 0) {
+				recv_calls++;
 				response += data;
-				if (length(response) > cap)
+				if (length(response) > cap + 1)
 					error = 'response_limit';
 			}
 			else {
 				eof = true;
-				if (length(request) > 0 && length(response) == 0)
+				if (length(response) == 0)
 					error = 'disconnect';
 			}
 		}
 	}
 
+	if (!error && (length(response) == 0 || substr(response, 0, 1) != 'F'))
+		error = 'disconnect';
+	if (substr(response, 0, 1) == 'F')
+		response = substr(response, 1);
 	sock.close();
 	return {
 		error,
@@ -115,6 +130,9 @@ function exchange(socket_path, request, cap, timeout) {
 		peer,
 		sawInHup: saw_in_hup,
 		sendCalls: send_calls,
+		shortWrites: short_writes,
+		sendEagain: send_eagain,
+		recvCalls: recv_calls,
 		bytesRead: length(response),
 		elapsedMs: monotonic_ms() - started,
 		response
