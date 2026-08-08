@@ -15,7 +15,7 @@ define Package/zapret2-manager
   CATEGORY:=Network
   SUBMENU:=DPI bypass
   TITLE:=Management backend for optional upstream zapret2
-  DEPENDS:=+ucode +ucode-mod-fs +ucode-mod-io +ucode-mod-uloop +ncat +flock +uclient-fetch +ca-bundle +unzip +jsonfilter +libjson-c
+  DEPENDS:=+ucode +ucode-mod-fs +ucode-mod-io +ucode-mod-socket +ucode-mod-uloop +ncat +flock +uclient-fetch +ca-bundle +unzip +jsonfilter +libjson-c
 endef
 
 define Package/zapret2-manager/description

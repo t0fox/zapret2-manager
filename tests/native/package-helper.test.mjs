@@ -9,6 +9,8 @@ const nativeGate = fs.readFileSync('scripts/test/native.sh', 'utf8');
 const nativeRootGate = fs.existsSync('scripts/test/native-root.sh')
   ? fs.readFileSync('scripts/test/native-root.sh', 'utf8') : '';
 const nativeWorkflow = fs.readFileSync('.github/workflows/native-gate.yml', 'utf8');
+const brokerEvidence = fs.readFileSync(
+  'tests/native/core/native-helper-broker-exact-target-evidence.txt', 'utf8');
 const transportEvidencePath = 'tests/native/core/native-helper-transport-exact-target-evidence.txt';
 const setupPatchPath = 'tests/native/core/fixtures/111-uloop-add-optional-setup-callback-to-process.patch';
 const uloopCallSourcePath = 'tests/native/core/fixtures/uc-uloop-vm-call-85922056.c';
@@ -306,10 +308,24 @@ test('CI provisions pinned ucode and passes it to the shared native gate', () =>
 
 test('package declares every ucode module required by native helper transport', () => {
   const packageDefinition = block('Package/zapret2-manager');
-  for (const dependency of ['ucode-mod-fs', 'ucode-mod-io', 'ucode-mod-uloop']) {
+  for (const dependency of ['ucode-mod-fs', 'ucode-mod-io', 'ucode-mod-socket', 'ucode-mod-uloop']) {
     assert.match(packageDefinition, new RegExp(`(?:^|\\s)\\+${dependency}(?=\\s|$)`),
       `package must depend on ${dependency}`);
   }
+});
+
+test('socket dependency is gated by committed exact-target proof', () => {
+  assert.match(brokerEvidence, /^STATUS: PASS$/m);
+  assert.match(brokerEvidence,
+    /^Executed input commit: 930d884da44cb8f639efd806da5ff94383ba209a$/m);
+  assert.match(brokerEvidence, /^Dependency state at executed input: \+ucode-mod-socket ABSENT$/m);
+  assert.match(brokerEvidence, /^# pass 9$/m);
+  assert.match(brokerEvidence, /^# fail 0$/m);
+  assert.match(brokerEvidence, /^# skipped 0$/m);
+  assert.match(brokerEvidence,
+    /^SHA256 executed target \/usr\/bin\/ucode: 647cb596577867470c16c6b58617b7ccd9b1bbe8f40c1fed6b29974df7b48833$/m);
+  assert.match(brokerEvidence,
+    /^SHA256 staged and isolated \/usr\/lib\/ucode\/socket\.so: ccaff63617ed3136c6461dadbf3328cd3a0cba118fbc98578108024291541ca0$/m);
 });
 
 test('tracked patch 111 evidence shows setup callback outcome is discarded before exec', () => {
