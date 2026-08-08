@@ -162,26 +162,6 @@ static int track_identity(struct child_identity *tracked, size_t *count, pid_t p
 	return track_identity_value(tracked, count, pid, process_starttime(pid));
 }
 
-#ifdef Z2M_TESTING
-bool z2m_test_registry_reuse(void)
-{
-	struct child_identity tracked[2] = { 0 };
-	size_t count = 0;
-	bool new_identity_signaled = false;
-	if (track_identity_value(tracked, &count, 4242, 10) < 0 || count != 1) return false;
-	tracked[0].reaped = true;
-	if (track_identity_value(tracked, &count, 4242, 20) < 0 || count != 2) return false;
-	if (!tracked[0].reaped || tracked[0].starttime == 20 ||
-	    tracked[1].pid != 4242 || tracked[1].starttime != 20 || tracked[1].reaped)
-		return false;
-	/* Simulate the same starttime identity gate used immediately before kill(). */
-	if (tracked[1].starttime == 20) new_identity_signaled = true;
-	if (!new_identity_signaled) return false;
-	tracked[1].reaped = true;
-	return tracked[1].reaped;
-}
-#endif
-
 static int discover_children(struct child_identity *tracked, size_t *count,
 	size_t *enumeration_bytes)
 {
@@ -246,6 +226,35 @@ static void signal_tracked(struct child_identity *tracked, size_t count,
 	(void)tracked; (void)count; (void)signal_number;
 #endif
 }
+
+#ifdef Z2M_TESTING
+unsigned long long z2m_test_process_starttime(int pid)
+{
+	return process_starttime((pid_t)pid);
+}
+
+bool z2m_test_identity_live(int pid, unsigned long long starttime)
+{
+	struct child_identity identity = { .pid = (pid_t)pid, .starttime = starttime };
+	return identity_live(&identity);
+}
+
+int z2m_test_track_conflict(int pid, unsigned long long first_starttime,
+	unsigned long long second_starttime)
+{
+	struct child_identity tracked[2] = { 0 };
+	size_t count = 0;
+	if (track_identity_value(tracked, &count, (pid_t)pid, first_starttime) < 0)
+		return -1;
+	return track_identity_value(tracked, &count, (pid_t)pid, second_starttime);
+}
+
+void z2m_test_signal_tracked(int pid, unsigned long long starttime, int signal_number)
+{
+	struct child_identity tracked = { .pid = (pid_t)pid, .starttime = starttime };
+	signal_tracked(&tracked, 1, signal_number);
+}
+#endif
 
 static void signal_leader_group(pid_t leader, int signal_number, bool leader_reaped,
 	unsigned int *post_reap_group_signals)

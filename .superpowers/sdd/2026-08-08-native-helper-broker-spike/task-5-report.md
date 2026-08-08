@@ -2,9 +2,12 @@
 
 ## Status
 
-**PASS.** Production `z2m-helperd` is implemented, host-tested, target-built,
-packaged, and committed. The implementation is limited to Task 5. No procd,
-ucode adapter, M3 gate replacement, or M4 work was added.
+**PASS WITH MANUAL RESTART RECOVERY.** Production `z2m-helperd` is implemented,
+host-tested, target-built, packaged, and committed through review round 4. The
+broker never removes its socket pathname; every clean or unclean restart
+requires trusted operator removal after lock-owner verification, or reboot.
+The implementation is limited to Task 5. No procd, ucode adapter, M3 gate
+replacement, or M4 work was added.
 
 ## Production Commit
 
@@ -20,9 +23,9 @@ ucode adapter, M3 gate replacement, or M4 work was added.
   evidence, concurrent bounded pipe pumping, one monotonic deadline, TERM/grace/
   KILL, subreaper collection, and no positive-PID signaling after reap.
 - `z2m-helperd.c` verifies fixed runtime ancestry without symlink traversal,
-  takes the no-follow singleton lock before stale inspection, removes only a
-  verified safe stale socket, enforces UID 0 peers, accepts serially, propagates
-  shutdown into active supervision, and cleans only its recorded socket inode.
+  takes the no-follow singleton lock, rejects every pre-existing socket path
+  without probing or mutation, enforces UID 0 peers, accepts serially,
+  propagates shutdown into active supervision, and never unlinks the pathname.
 - `zapret2-manager/Makefile` target-builds the three production C sources with
   strict C11 flags and installs only `/usr/libexec/zapret2-manager/z2m-helperd`.
 - Added package closure and host broker security/contract coverage. Production
@@ -69,6 +72,86 @@ fixed before the final gates.
 ## Concerns And Blockers
 
 - No Task 5 blocker remains.
+
+## Re-Review Fix Round 4
+
+### Status
+
+**PASS WITH MANUAL RESTART RECOVERY.** Four Important findings were reproduced
+and addressed within Task 5. No procd, adapter, M3 gate replacement, or M4 work
+was added. The historical rounds in this report are retained as point-in-time
+records; where they describe automatic stale or shutdown cleanup, round 4
+supersedes that policy.
+
+### Root Cause And Policy
+
+The shutdown device/inode check followed by `unlinkat()` was still a pathname
+check-then-act race. A replacement could arrive after the check, so the broker
+could not honestly claim atomic ownership-safe unlink. The startup connect probe
+also could block against an unrelated full-backlog listener and did not prove
+ownership.
+
+The minimal defensible policy removes both operations. Startup rejects every
+pre-existing fixed socket pathname immediately without probing or mutation.
+Shutdown closes the listener but never unlinks the pathname. Consequently every
+restart, clean or unclean, requires trusted operator removal after confirming
+the singleton lock has no owner, or reboot. The root:root mode-0700 runtime
+directory excludes unprivileged replacement; the design does not claim safety
+against malicious root or an atomic pathname unlink primitive Linux lacks.
+
+### RED Evidence
+
+```text
+FAIL shutdown never unlinks the socket inode created by this daemon (ENOENT)
+FAIL replacement between bind and socket recording is never unlinked (missing test stop seam)
+FAIL real process identity gates reject stale conflicts and signal only the matching child (missing real-process audit API)
+```
+
+The crafted full-backlog test passed against the previous implementation only
+because the held replacement lock caused rejection before its connect probe.
+Round 4 removes the probe entirely and statically verifies that startup has no
+`connect()` path, making lock ownership and pathname policy independent of
+listener behavior.
+
+### Fixes And Tests
+
+- Removed socket-path `connect()` probing and all broker socket-path `unlinkat()`
+  calls. Every pre-existing object is non-mutating fail-closed.
+- Added clean-shutdown and replacement-shutdown tests proving the owned inode or
+  unrelated replacement remains at the fixed path.
+- Added a bind/record stop seam and replacement test proving startup failure
+  never deletes the replacement in that window.
+- Added a crafted nonaccepting listener test with an absolute host timeout. The
+  broker exits in under 500 ms and preserves device/inode without probing.
+- Replaced the synthetic PID registry test with a compiled audit that forks a
+  real child, reads its actual `/proc/<pid>/stat` starttime through production
+  logic, verifies an unreaped same-PID/different-starttime conflict returns
+  `EEXIST`, proves the wrong identity sends no signal, proves the correct
+  identity sends `SIGTERM`, and reaps the child with exact signal status.
+- Updated the approved design and this report's current top summary. Earlier
+  round sections remain explicitly historical.
+
+### Verification
+
+- Focused broker plus package gate: **63 tests, 63 pass, 0 fail, 0 skipped**.
+- Shared non-M3 host gate: **78 tests, 78 pass, 0 fail, 0 skipped**.
+- Root-required unaffected bootstrap/helper gate: **96 tests, 96 pass, 0 fail,
+  0 skipped**.
+- Strict host production build: PASS with `-std=c11 -Wall -Wextra -Werror
+  -D_GNU_SOURCE` and `json-c`.
+- Strict OpenWrt AArch64 musl production build: PASS; output verified as AArch64
+  musl ELF.
+- `git diff --check`: PASS.
+
+### Concerns
+
+- Automatic service restart is deliberately unavailable under this Task 5
+  policy, including after clean shutdown. Task 6 must not enable respawn until a
+  separately proven publication/cleanup design exists or operational cleanup is
+  explicitly accepted.
+- PID identity remains Linux procfs PID+starttime because pidfd availability on
+  the exact OpenWrt target is not assumed. The real-process test validates the
+  identity boundary, not impractical forced PID-number reuse.
 - The intentionally-red direct `uloop.process` M3 probes remain untouched and
   excluded from the shared unaffected gate, as required until Task 8.
 - Production exact-target execution through the future ucode adapter/procd

@@ -18,8 +18,6 @@ static volatile sig_atomic_t stopping;
 static int listener = -1;
 static int lock_fd = -1;
 static int runtime_fd = -1;
-static dev_t socket_dev;
-static ino_t socket_ino;
 
 static void stop(int signal_number)
 {
@@ -125,40 +123,19 @@ failure:
 
 static int reject_preexisting_socket(void)
 {
-	struct sockaddr_un address = { .sun_family = AF_UNIX };
 	struct stat existing;
-	int probe;
 
 	if (fstatat(runtime_fd, "z2m-helperd.sock", &existing, AT_SYMLINK_NOFOLLOW) < 0)
 		return errno == ENOENT ? 0 : -1;
-	if (!S_ISSOCK(existing.st_mode) || existing.st_uid != Z2M_RUNTIME_UID ||
-	    existing.st_gid != Z2M_RUNTIME_GID || (existing.st_mode & 0777) != 0600) {
-		fprintf(stderr, "z2m-helperd: unsafe pre-existing socket path left untouched\n");
-		errno = EPERM;
-		return -1;
-	}
-	memcpy(address.sun_path, Z2M_SOCKET_PATH, strlen(Z2M_SOCKET_PATH) + 1);
-	probe = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
-	if (probe >= 0 && connect(probe, (struct sockaddr *)&address, sizeof(address)) == 0) {
-		(void)close(probe);
-		fprintf(stderr, "z2m-helperd: live pre-existing socket path; singleton already active\n");
-		errno = EADDRINUSE;
-		return -1;
-	}
-	if (probe >= 0) (void)close(probe);
-	fprintf(stderr, "z2m-helperd: stale pre-existing socket path left untouched; operator removal required\n");
-	errno = ESTALE;
+	(void)existing;
+	fprintf(stderr, "z2m-helperd: pre-existing socket path left untouched; operator removal required\n");
+	errno = EEXIST;
 	return -1;
 }
 
 static void cleanup(void)
 {
-	struct stat st;
 	if (listener >= 0) close(listener);
-	if (runtime_fd >= 0 && fstatat(runtime_fd, "z2m-helperd.sock", &st, AT_SYMLINK_NOFOLLOW) == 0 &&
-	    S_ISSOCK(st.st_mode) && st.st_uid == Z2M_RUNTIME_UID &&
-	    st.st_gid == Z2M_RUNTIME_GID && st.st_dev == socket_dev && st.st_ino == socket_ino)
-		(void)unlinkat(runtime_fd, "z2m-helperd.sock", 0);
 	if (lock_fd >= 0) close(lock_fd);
 	if (runtime_fd >= 0) close(runtime_fd);
 }
@@ -185,12 +162,14 @@ int main(void)
 		umask(old_umask); goto failure;
 	}
 	umask(old_umask);
+#ifdef Z2M_TEST_STOP_AFTER_BIND
+	raise(SIGSTOP);
+#endif
 	if (fchmodat(runtime_fd, "z2m-helperd.sock", 0600, 0) < 0 ||
 	    fstatat(runtime_fd, "z2m-helperd.sock", &st, AT_SYMLINK_NOFOLLOW) < 0 ||
 	    !S_ISSOCK(st.st_mode) || st.st_uid != Z2M_RUNTIME_UID ||
 	    st.st_gid != Z2M_RUNTIME_GID ||
 	    (st.st_mode & 0777) != 0600) goto failure;
-	socket_dev = st.st_dev; socket_ino = st.st_ino;
 	if (listen(listener, 8) < 0) goto failure;
 	atexit(cleanup);
 	sigemptyset(&action.sa_mask);
