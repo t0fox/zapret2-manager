@@ -10,6 +10,7 @@ const nativeWorkflow = fs.readFileSync('.github/workflows/native-gate.yml', 'utf
 const transportEvidencePath = 'tests/native/core/native-helper-transport-exact-target-evidence.txt';
 const setupPatchPath = 'tests/native/core/fixtures/111-uloop-add-optional-setup-callback-to-process.patch';
 const uloopCallSourcePath = 'tests/native/core/fixtures/uc-uloop-vm-call-85922056.c';
+const transportProbeTest = fs.readFileSync('tests/native/core/native-helper-transport-probe.test.mjs', 'utf8');
 const helperDir = 'zapret2-manager/src/z2m-core-helper';
 const productionSources = [
   'atomic.c',
@@ -325,6 +326,13 @@ test('tracked exact-target artifact records the blocked 6/8 probe result', () =>
     'SHA256 patch 110:', 'SHA256 patch 111:', 'BEGIN RAW TAP', 'END RAW TAP']) {
     assert.ok(evidence.includes(marker), `exact-target evidence must include ${marker}`);
   }
+});
+
+test('exact-target harness identifies the compiled child it executes', () => {
+  assert.match(transportProbeTest, /PROBE_CHILD_SHA256=/,
+    'harness must emit a stable marker for the executed child hash');
+  assert.match(transportProbeTest, /createHash\('sha256'\)[\s\S]*readFileSync\(child\)/,
+    'harness marker must hash the compiled child path');
 });
 
 test('package target-builds the complete production helper with json-c', () => {
