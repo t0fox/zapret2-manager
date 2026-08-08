@@ -643,3 +643,92 @@ git diff --check
 - Deep `details` are lexically validated, duplicate-checked, size-bounded, then
   elided before built-in JSON decode because pinned ucode rejects protocol-valid
   depth 64. Details remain undisclosed as required by the adapter mapping.
+
+## Fix Round 4
+
+### Status
+
+**PASS.** The helper response path now uses a strict linear lexical parser with
+an explicit depth-64 stack, path-selective handling, and no generic string
+elision. The accepted broker response matrix exactly excludes suppressed
+`client_disconnect` serialization. Task 8 and M4 remain untouched.
+
+### RED And Root Cause
+
+New tests were written before production changes. The first focused RED returned
+`EDEPENDENCY` for a malformed trailing-comma helper failure instead of rejecting
+it as `EINTERNAL`. Inspection confirmed that round 3's scanner accepted trailing
+commas, did not validate escapes in value strings, selected `details` and
+`content` by arbitrary key name, elided every string over 4096 bytes, and created
+large suffix strings in whitespace, quote, and number scans. Exact-target RED
+also measured the dense 100k-key object path at 50.7 seconds under QEMU.
+
+### Implementation
+
+- Strictly recognizes the complete JSON grammar before decode, including string
+  escapes, Unicode surrogate pairs, numbers, delimiters, trailing input, and
+  recursive decoded duplicate keys. Trailing commas are rejected.
+- Tracks structural paths. Only `error.details` is replaced, after independent
+  object grammar, duplicate, UTF-8, depth, and exact 4096-byte wire-span checks.
+  Only read `data.content` is replaced, after independent JSON-string escape,
+  UTF-8, canonical-base64, and decoded-length checks. `error.message` and
+  arbitrary strings are never elided.
+- Uses monotonic offsets, indexed byte access, fixed-size bulk string searches,
+  and an explicit stack. Numeric array runs use bounded bulk matching. Invalid
+  operation data is lexically validated but never passed to built-in semantic
+  JSON materialization.
+- Removed `client_disconnect` from accepted transport reasons. Existing real
+  EOF/reset/disconnect tests continue to prove read and mutation behavior,
+  including no retry and mutation `commitState: unknown` after delivery.
+- Preserved depth 64, recursive escaped-equivalent duplicate detection, exact
+  operation schemas, and prior uncertainty classifications.
+
+### Performance And Verification
+
+Focused host adapter after final changes:
+
+```sh
+env TMPDIR=/tmp LD_LIBRARY_PATH=/opt/ucode/lib UCODE_BIN=/opt/ucode/bin/ucode \
+  /home/kirill/.local/opt/node-v22.22.1-linux-x64/bin/node \
+  --test tests/native/core/native-helper.test.mjs
+# 33 tests, 33 pass, 0 fail; 5.94 s total
+# 4 MiB valid read: 0.98 s; 5 MiB unknown string: 0.12 s
+```
+
+Fresh exact-target AArch64 run:
+
+```sh
+# same pinned proot/qemu/target environment as round 3
+node --test tests/native/core/native-helper.test.mjs
+# 33 tests, 33 pass, 0 fail; 55.92 s total
+# 4 MiB valid read: 14.31 s; dense performance group: 9.30 s
+```
+
+The dense group covers 100k and 500k numeric values with separate host/QEMU
+thresholds, plus a 10k-key object to retain duplicate-set performance coverage.
+This distinguishes the prior approximately 4-second/53-second value-density
+behavior without setting a false target for 100k interpreted key insertions.
+
+Other gates:
+
+```sh
+node --test --test-concurrency=1 tests/native/core/native-helper-broker.test.mjs
+# 42 tests, 42 pass, 0 fail
+
+scripts/test/native-root.sh node
+# 97 tests, 97 pass, 0 fail
+
+node --test tests/native/bootstrap.test.mjs tests/native/package-helper.test.mjs
+# 40 tests, 40 pass, 0 fail
+
+# strict -std=c11 -Wall -Wextra -Werror host and AArch64 broker builds: PASS
+# host artifact: x86-64 ELF; target artifact: AArch64 musl ELF
+```
+
+### Concerns
+
+- Pinned ucode's built-in decoder still cannot accept protocol depth 64, so the
+  two explicitly validated paths are replaced only after the complete lexical
+  pass. The rest of the envelope is decoded unchanged.
+- Exact-target QEMU remains materially slower than native execution. Performance
+  thresholds are therefore explicit and separate from transport deadlines.

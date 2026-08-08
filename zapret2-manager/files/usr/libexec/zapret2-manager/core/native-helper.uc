@@ -7,6 +7,7 @@ const HEADER_LIMIT = 2048;
 const STDOUT_LIMIT = 6291456;
 const STDERR_LIMIT = 4096;
 const CHUNK = 65536;
+const JSON_STRING_CHUNK = 256;
 const JSON_MAX_DEPTH = 64;
 const ROOTS = [
 	'persistent_state', 'snapshots', 'registry', 'secrets',
@@ -143,16 +144,6 @@ function wait_ready(sock, events, deadline) {
 	}
 }
 
-/* JSON decoders collapse duplicate keys, so reject them before decoding. */
-function unique_known_keys(raw, names) {
-	for (let name in names) {
-		let token = sprintf('%J', name);
-		let first = index(raw, token);
-		if (first >= 0 && index(substr(raw, first + length(token)), token) >= 0) return false;
-	}
-	return true;
-}
-
 function utf8(codepoint) {
 	if (codepoint <= 0x7f) return sprintf('%c', codepoint);
 	if (codepoint <= 0x7ff)
@@ -188,155 +179,211 @@ function valid_utf8(value) {
 	return true;
 }
 
-function decode_key(raw, start) {
-	let value = '';
-	for (let i = start; i < length(raw); i++) {
-		let byte = ord(raw, i);
-		if (byte == 34) return [value, i + 1];
-		if (byte < 0x20) return null;
-		if (byte != 92) { value += substr(raw, i, 1); continue; }
-		if (++i >= length(raw)) return null;
-		let escaped = substr(raw, i, 1);
-		if (index(['"', '\\', '/'], escaped) >= 0) { value += escaped; continue; }
-		if (escaped == 'b') { value += sprintf('%c', 8); continue; }
-		if (escaped == 'f') { value += sprintf('%c', 12); continue; }
-		if (escaped == 'n') { value += '\n'; continue; }
-		if (escaped == 'r') { value += '\r'; continue; }
-		if (escaped == 't') { value += '\t'; continue; }
-		if (escaped != 'u' || i + 4 >= length(raw)) return null;
-		let digits = substr(raw, i + 1, 4);
-		if (!match(digits, /^[0-9A-Fa-f]{4}$/)) return null;
-		let codepoint = int(digits, 16);
-		i += 4;
-		if (codepoint >= 0xd800 && codepoint <= 0xdbff) {
-			if (substr(raw, i + 1, 2) != '\\u' || i + 6 >= length(raw)) return null;
-			let low_digits = substr(raw, i + 3, 4);
-			if (!match(low_digits, /^[0-9A-Fa-f]{4}$/)) return null;
-			let low = int(low_digits, 16);
-			if (low < 0xdc00 || low > 0xdfff) return null;
-			codepoint = 0x10000 + ((codepoint - 0xd800) << 10) + low - 0xdc00;
-			i += 6;
+function hex_digit(byte) {
+	if (byte >= 48 && byte <= 57) return byte - 48;
+	if (byte >= 65 && byte <= 70) return byte - 55;
+	if (byte >= 97 && byte <= 102) return byte - 87;
+	return null;
+}
+
+/* Return [end offset, decoded value]. Decoding is reserved for keys and read content. */
+function scan_string(raw, offset, decode) {
+	if (ord(raw, offset) != 34) return null;
+	let parts = [], run = offset + 1, i = run, size = length(raw);
+	while (i < size) {
+		if (decode != 'key') {
+			let chunk = substr(raw, i, JSON_STRING_CHUNK);
+			let quote = index(chunk, '"'), slash = index(chunk, '\\');
+			let control = match(chunk, /[[:cntrl:]]/);
+			let stop = quote;
+			if (stop < 0 || (slash >= 0 && slash < stop)) stop = slash;
+			if (control && (stop < 0 || index(chunk, control[0]) < stop)) stop = index(chunk, control[0]);
+			if (stop < 0) { i += length(chunk); continue; }
+			i += stop;
 		}
-		else if (codepoint >= 0xdc00 && codepoint <= 0xdfff) return null;
-		value += utf8(codepoint);
+		let byte = ord(raw, i);
+		/* POSIX cntrl includes DEL, which JSON permits unescaped. */
+		if (byte == 0x7f) { i++; continue; }
+		if (byte == 34) {
+			if (!decode) return [i + 1, null];
+			push(parts, substr(raw, run, i - run));
+			return [i + 1, join('', parts)];
+		}
+		if (byte < 0x20) return null;
+		if (byte != 92) { i++; continue; }
+		if (decode) push(parts, substr(raw, run, i - run));
+		if (++i >= size) return null;
+		byte = ord(raw, i);
+		if (byte == 34 || byte == 47 || byte == 92) { if (decode) push(parts, sprintf('%c', byte)); }
+		else if (byte == 98) { if (decode) push(parts, sprintf('%c', 8)); }
+		else if (byte == 102) { if (decode) push(parts, sprintf('%c', 12)); }
+		else if (byte == 110) { if (decode) push(parts, '\n'); }
+		else if (byte == 114) { if (decode) push(parts, '\r'); }
+		else if (byte == 116) { if (decode) push(parts, '\t'); }
+		else if (byte == 117) {
+			if (i + 4 >= size) return null;
+			let codepoint = 0;
+			for (let j = 1; j <= 4; j++) {
+				let digit = hex_digit(ord(raw, i + j));
+				if (digit == null) return null;
+				codepoint = codepoint * 16 + digit;
+			}
+			i += 4;
+			if (codepoint >= 0xd800 && codepoint <= 0xdbff) {
+				if (i + 6 >= size || ord(raw, i + 1) != 92 || ord(raw, i + 2) != 117) return null;
+				let low = 0;
+				for (let j = 3; j <= 6; j++) {
+					let digit = hex_digit(ord(raw, i + j));
+					if (digit == null) return null;
+					low = low * 16 + digit;
+				}
+				if (low < 0xdc00 || low > 0xdfff) return null;
+				codepoint = 0x10000 + ((codepoint - 0xd800) << 10) + low - 0xdc00;
+				i += 6;
+			} else if (codepoint >= 0xdc00 && codepoint <= 0xdfff) return null;
+			if (decode) push(parts, utf8(codepoint));
+		} else return null;
+		i++; run = i;
 	}
 	return null;
 }
 
-function whitespace_after(raw, offset) {
-	for (let i = offset; i < length(raw); i++)
-		if (!match(substr(raw, i, 1), /\s/)) return false;
-	return true;
+function whitespace(byte) {
+	return byte == 32 || byte == 9 || byte == 10 || byte == 13;
 }
 
-function skip_space(raw, at) {
-	let whitespace = match(substr(raw, at[0]), /^[ \t\r\n]+/);
-	if (whitespace) at[0] += length(whitespace[0]);
-}
-
-function scan_string_token(raw, offset) {
-	if (substr(raw, offset, 1) != '"') return null;
-	let cursor = offset + 1;
-	while (cursor < length(raw)) {
-		let relative = index(substr(raw, cursor), '"');
-		if (relative < 0) return null;
-		let quote = cursor + relative, slashes = 0;
-		for (let i = quote - 1; i >= cursor && substr(raw, i, 1) == '\\'; i--) slashes++;
-		if (!(slashes & 1)) return quote + 1;
-		cursor = quote + 1;
+function scan_number(raw, offset) {
+	let i = offset, size = length(raw), byte = ord(raw, i);
+	if (byte == 45) { if (++i >= size) return null; byte = ord(raw, i); }
+	if (byte == 48) i++;
+	else {
+		if (byte < 49 || byte > 57) return null;
+		while (++i < size && ord(raw, i) >= 48 && ord(raw, i) <= 57) {}
 	}
-	return null;
+	if (i < size && ord(raw, i) == 46) {
+		if (++i >= size || ord(raw, i) < 48 || ord(raw, i) > 57) return null;
+		while (++i < size && ord(raw, i) >= 48 && ord(raw, i) <= 57) {}
+	}
+	if (i < size && (ord(raw, i) == 69 || ord(raw, i) == 101)) {
+		i++;
+		if (i < size && (ord(raw, i) == 43 || ord(raw, i) == 45)) i++;
+		if (i >= size || ord(raw, i) < 48 || ord(raw, i) > 57) return null;
+		while (++i < size && ord(raw, i) >= 48 && ord(raw, i) <= 57) {}
+	}
+	return i;
 }
 
-function scan_json(raw) {
-	let at = [0], stack = [], depth = 0, root_state = 'value';
-	let details_start = null, details_end = null, large_strings = [];
-	let content_start = null, content_end = null;
+function scan_numeric_array_run(raw, offset) {
+	let run = match(substr(raw, offset, JSON_STRING_CHUNK),
+		/^(-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?,)+/);
+	return run ? offset + length(run[0]) : offset;
+}
+
+function scan_json(raw, operation) {
+	let at = 0, size = length(raw), stack = [], depth = 0, root_state = 'value';
+	let details_start = null, details_end = null, content_start = null, content_end = null;
+	let content = null, shape_issue = false, envelope = operation != null;
+	let data_fields = operation == 'stat_regular' ? ['type', 'size', 'mode', 'uid', 'gid', 'mtimeSec', 'mtimeNsec'] :
+		(operation == 'read_regular' ? ['content', 'byteLength'] :
+		(operation == 'mkdir_private' ? ['created', 'committed', 'durability'] :
+		(operation == 'sha256_regular' ? ['sha256', 'byteLength'] : ['byteLength', 'committed', 'durability'])));
 	while (true) {
-		skip_space(raw, at);
+		while (at < size && whitespace(ord(raw, at))) at++;
 		if (!depth && root_state == 'done')
-			return { issue: at[0] == length(raw) ? null : 'malformed',
+			return { issue: at == size ? (shape_issue ? 'envelope' : null) : 'malformed',
 				detailsStart: details_start, detailsEnd: details_end,
-				largeStrings: large_strings, contentStart: content_start, contentEnd: content_end };
+				contentStart: content_start, contentEnd: content_end, content };
 		let frame = depth ? stack[depth - 1] : null;
 		let state = depth ? frame.state : root_state;
-		if (state == 'key_or_end') {
-			if (substr(raw, at[0], 1) == '}') {
-				at[0]++; depth--;
+		if (state == 'key_or_end' || state == 'key') {
+			if (state == 'key_or_end' && at < size && ord(raw, at) == 125) {
+				at++; depth--;
+				if (frame.target == 'details') { details_start = frame.start; details_end = at; }
 				if (depth) stack[depth - 1].state = 'comma_or_end'; else root_state = 'done';
 				continue;
 			}
-			let end = scan_string_token(raw, at[0]);
-			if (end == null) return { issue: 'malformed' };
-			let decoded = decode_key(raw, at[0] + 1);
-			if (!decoded || exists(frame.seen, decoded[0])) return { issue: 'duplicate' };
-			frame.seen[decoded[0]] = true; frame.key = decoded[0]; at[0] = end;
+			let token = scan_string(raw, at, 'key');
+			if (!token) return { issue: 'malformed' };
+			if (exists(frame.seen, token[1])) return { issue: 'duplicate' };
+			frame.seen[token[1]] = true; frame.key = token[1]; at = token[0];
+			if (envelope && frame.path == 'root' && index(['protocolVersion', 'requestId', 'ok', 'data', 'error'], frame.key) < 0)
+				shape_issue = true;
+			if (envelope && frame.path == 'data' && index(data_fields, frame.key) < 0) shape_issue = true;
+			if (envelope && frame.path == 'error' && index(['code', 'message', 'retryable', 'committed', 'durability', 'stage', 'details'], frame.key) < 0)
+				shape_issue = true;
 			frame.state = 'colon';
 			continue;
 		}
 		if (state == 'colon') {
-			if (substr(raw, at[0]++, 1) != ':') return { issue: 'malformed' };
+			if (at >= size || ord(raw, at++) != 58) return { issue: 'malformed' };
 			frame.state = 'value';
 			continue;
 		}
 		if (state == 'comma_or_end') {
-			if (frame.details_start != null) {
-				if (at[0] - frame.details_start > 4096) return { issue: 'details_budget' };
-				details_start = frame.details_start; details_end = at[0];
-			}
-			frame.details_start = null;
 			let close = frame.kind == 'object' ? '}' : ']';
-			let ch = substr(raw, at[0]++, 1);
-			if (ch == close) {
+			if (at >= size) return { issue: 'malformed' };
+			let byte = ord(raw, at++);
+			if (byte == (close == '}' ? 125 : 93)) {
+				if (frame.target == 'details' && at - frame.start > 4096)
+					return { issue: 'details_budget' };
 				depth--;
+				if (frame.target == 'details') { details_start = frame.start; details_end = at; }
 				if (depth) stack[depth - 1].state = 'comma_or_end'; else root_state = 'done';
-			} else if (ch == ',') {
-				frame.state = frame.kind == 'object' ? 'key_or_end' : 'value';
+			} else if (byte == 44) {
+				frame.state = frame.kind == 'object' ? 'key' : 'value';
 			} else return { issue: 'malformed' };
 			continue;
 		}
 		if (state == 'value_or_end') {
-			if (substr(raw, at[0], 1) == ']') {
-				at[0]++; depth--;
+			if (at < size && ord(raw, at) == 93) {
+				at++; depth--;
 				if (depth) stack[depth - 1].state = 'comma_or_end'; else root_state = 'done';
 				continue;
 			}
 			frame.state = 'value'; state = 'value';
 		}
 		if (state != 'value') return { issue: 'malformed' };
-		let value_start = at[0], ch = substr(raw, at[0], 1);
-		if (frame && frame.kind == 'object' && frame.key == 'details' && ch != '{')
+		if (frame && frame.kind == 'array' && frame.path == 'data') shape_issue = true;
+		if (frame?.kind == 'array') {
+			let end = scan_numeric_array_run(raw, at);
+			if (end > at) { at = end; continue; }
+		}
+		if (at >= size) return { issue: 'malformed' };
+		let value_start = at, byte = ord(raw, at), target = null, child_path = null;
+		if (frame?.path == 'error' && frame.key == 'details') target = 'details';
+		if (operation == 'read_regular' && frame?.path == 'data' && frame.key == 'content') target = 'content';
+		if (target == 'details' && byte != 123)
 			return { issue: 'details_type' };
-		if (ch == '{' || ch == '[') {
+		if (frame?.path == 'root' && (frame.key == 'data' || frame.key == 'error')) {
+			child_path = frame.key;
+			if (byte != 123) shape_issue = true;
+		}
+		if (byte == 123 || byte == 91) {
 			if (depth + 1 > JSON_MAX_DEPTH) return { issue: 'budget' };
-			if (frame && frame.kind == 'object' && frame.key == 'details')
-				frame.details_start = value_start;
-			at[0]++;
-			stack[depth++] = { kind: ch == '{' ? 'object' : 'array',
-				state: ch == '{' ? 'key_or_end' : 'value_or_end', seen: {},
-				details_start: null };
+			at++;
+			stack[depth++] = { kind: byte == 123 ? 'object' : 'array',
+				state: byte == 123 ? 'key_or_end' : 'value_or_end', seen: {},
+				path: frame == null ? 'root' : child_path, target, start: value_start };
 			continue;
 		}
-		if (ch == '"') {
-			let end = scan_string_token(raw, at[0]);
-			if (end == null) return { issue: 'malformed' };
-			if (end - at[0] > 4096) {
-				push(large_strings, [at[0], end]);
-				if (frame && frame.kind == 'object' && frame.key == 'content') {
-					content_start = at[0] + 1; content_end = end - 1;
-				}
-			}
-			at[0] = end;
-		} else {
-			let token = match(substr(raw, at[0]), /^(true|false|null|-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?)/);
+		if (byte == 34) {
+			let token = scan_string(raw, at, target == 'content');
 			if (!token) return { issue: 'malformed' };
-			at[0] += length(token[0]);
+			at = token[0];
+			if (target == 'content') {
+				content_start = value_start; content_end = at; content = token[1];
+				if (!match(content, /^([A-Za-z0-9+\/]{4})*([A-Za-z0-9+\/]{2}==|[A-Za-z0-9+\/]{3}=)?$/) ||
+				    (length(content) ? int(length(content) / 4) * 3 -
+				    (substr(content, -2) == '==' ? 2 : (substr(content, -1) == '=' ? 1 : 0)) : 0) > 4194304)
+					return { issue: 'envelope' };
+			}
+		} else {
+			if (byte == 116 && at + 4 <= size && substr(raw, at, 4) == 'true') at += 4;
+			else if (byte == 102 && at + 5 <= size && substr(raw, at, 5) == 'false') at += 5;
+			else if (byte == 110 && at + 4 <= size && substr(raw, at, 4) == 'null') at += 4;
+			else { let end = scan_number(raw, at); if (end == null) return { issue: 'malformed' }; at = end; }
 		}
-		if (frame && frame.kind == 'object' && frame.key == 'details' &&
-		    at[0] - value_start > 4096) return { issue: 'details_budget' };
-		if (frame && frame.kind == 'object' && frame.key == 'details') {
-			details_start = value_start; details_end = at[0];
-		}
+		if (target == 'details' && at - value_start > 4096) return { issue: 'details_budget' };
 		if (frame) frame.state = 'comma_or_end'; else root_state = 'done';
 	}
 }
@@ -346,8 +393,7 @@ function transport_header_valid(raw, header, requestId, bodyLength) {
 		'stderrLength', 'stdoutEof', 'stderrEof', 'stderrTruncated', 'stderrDrained',
 		'childReaped'];
 	let fields = [...common];
-	if (scan_json(raw).issue != null ||
-	    !unique_known_keys(raw, [...common, 'exitCode', 'signal', 'stage', 'errno', 'reason'])) return false;
+	if (scan_json(raw).issue != null) return false;
 	if (header?.outcome == 'child_exited') push(fields, 'exitCode', 'signal');
 	else if (header?.outcome == 'timeout') push(fields, 'signal');
 	else if (header?.outcome == 'spawn_failure' || header?.outcome == 'setup_failure')
@@ -379,7 +425,7 @@ function transport_header_valid(raw, header, requestId, bodyLength) {
 		return header.startState == 'not_started' && header.stdoutEof && header.stderrEof &&
 			header.childReaped && type(header.errno) == 'int' &&
 			index(['setpgid', 'stdin_dup2', 'stdout_dup2', 'stderr_dup2', 'close'], header.stage) >= 0;
-	if (index(['stdout_limit', 'status_protocol', 'supervision_failure', 'client_disconnect',
+	if (index(['stdout_limit', 'status_protocol', 'supervision_failure',
 	    'daemon_shutdown'], header.reason) < 0)
 		return false;
 	if (header.reason == 'supervision_failure')
@@ -387,7 +433,7 @@ function transport_header_valid(raw, header, requestId, bodyLength) {
 	if (header.reason == 'status_protocol')
 		return header.startState == 'not_started' && header.childReaped &&
 			header.stdoutEof && header.stderrEof;
-	if (index(['client_disconnect', 'daemon_shutdown', 'stdout_limit'], header.reason) >= 0)
+	if (index(['daemon_shutdown', 'stdout_limit'], header.reason) >= 0)
 		return header.startState == 'started' && header.childReaped &&
 			header.stdoutEof && header.stderrEof;
 	return false;
@@ -464,14 +510,15 @@ function helper_response(operation, stdout, requestId, exitCode, mutation) {
 		return helper_invalid(mutation, !length(stdout) ? 'empty' : 'partial');
 	let raw = substr(stdout, 0, -1), value;
 	if (!valid_utf8(raw)) return helper_invalid(mutation, 'malformed');
-	let scanned = scan_json(raw), scan_issue = scanned.issue;
+	let scanned = scan_json(raw, operation), scan_issue = scanned.issue;
 	if (scan_issue != null)
 		return helper_invalid(mutation, scan_issue == 'budget' ? 'scan_budget' :
 			(scan_issue == 'details_budget' ? 'details_budget' :
-			(scan_issue == 'details_type' ? 'envelope' :
+			((scan_issue == 'details_type' || scan_issue == 'envelope') ? 'envelope' :
 			(index(raw, '}{') >= 0 ? 'trailing' : 'malformed'))));
-	let replacements = scanned.largeStrings || [];
+	let replacements = [];
 	if (scanned.detailsStart != null) push(replacements, [scanned.detailsStart, scanned.detailsEnd, '{}']);
+	if (scanned.contentStart != null) push(replacements, [scanned.contentStart, scanned.contentEnd, '""']);
 	sort(replacements, (a, b) => a[0] - b[0]);
 	let parts = [], cursor = 0;
 	for (let replacement in replacements) {
@@ -483,8 +530,7 @@ function helper_response(operation, stdout, requestId, exitCode, mutation) {
 	push(parts, substr(raw, cursor));
 	let decode_raw = join('', parts);
 	try { value = json(decode_raw); } catch (e) { return helper_invalid(mutation, 'malformed'); }
-	if (scanned.contentStart != null && value?.data)
-		value.data.content = substr(raw, scanned.contentStart, scanned.contentEnd - scanned.contentStart);
+	if (scanned.contentStart != null && value?.data) value.data.content = scanned.content;
 	if (type(value) != 'object' || value == null || value.protocolVersion != 1 ||
 	    type(value.ok) != 'bool')
 		return helper_invalid(mutation, value?.protocolVersion != 1 ? 'protocol' : 'envelope');

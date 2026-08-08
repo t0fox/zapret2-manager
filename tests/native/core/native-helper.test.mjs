@@ -486,10 +486,48 @@ test('worst-case large string rejects within a separate CPU bound', async () => 
   assert.ok(rejectMs < threshold, `large string rejection took ${rejectMs}ms (limit ${threshold}ms)`);
 });
 
+test('strict scan rejects malformed grammar before path-selective decoding and never elides messages', async () => {
+  const cases = [
+    id => `{"protocolVersion":1,"requestId":"${id}","ok":false,"error":{"code":"ENOENT","message":"x","retryable":false,"committed":false,"durability":"unchanged","stage":"object_open","details":{"x":1,}}}\n`,
+    id => `{"protocolVersion":1,"requestId":"${id}","ok":true,"data":{"content":"${'A'.repeat(5000)}\\q","byteLength":1}}\n`,
+    id => `{"protocolVersion":1,"requestId":"${id}","ok":false,"error":{"code":"ENOENT","message":"${'x'.repeat(5000)}","retryable":false,"committed":false,"durability":"unchanged","stage":"object_open"}}\n`,
+  ];
+  for (const make of cases) {
+    const { result } = await roundTrip(`native.read_regular('jobs', 'x', 4)`, ({ header }) =>
+      childExited(header.requestId, make(header.requestId), make === cases[2] ? 4 : 0));
+    assert.equal(result.error.code, 'EINTERNAL');
+  }
+});
+
+test('details and content handling is structural rather than matching arbitrary nested key names', async () => {
+  const { result } = await roundTrip(`native.read_regular('jobs', 'x', 1)`, ({ header }) =>
+    childExited(header.requestId, `{"protocolVersion":1,"requestId":"${header.requestId}","ok":true,"data":{"content":"YQ==","byteLength":1,"nested":{"details":{"content":"${'x'.repeat(5000)}"}}}}\n`));
+  assert.equal(result.error.code, 'EINTERNAL');
+});
+
+test('dense unknown arrays and objects are rejected in linear time without semantic materialization', async () => {
+  const values = [
+    [`[${'0,'.repeat(99999)}0]`, process.env.UCODE_ARGS_PIPE ? 15000 : 2000],
+    [`[${'0,'.repeat(499999)}0]`, process.env.UCODE_ARGS_PIPE ? 90000 : 15000],
+    [`{${Array.from({ length: 10000 }, (_, i) => `"k${i}":0`).join(',')}}`,
+      process.env.UCODE_ARGS_PIPE ? 15000 : 2000],
+  ];
+  for (const [unknown, threshold] of values) {
+    let sentAt;
+    const rejected = await roundTrip(`native.read_regular('jobs', 'dense', 1)`, ({ header }) => ({
+      wire: childExited(header.requestId,
+        `{"protocolVersion":1,"requestId":"${header.requestId}","ok":true,"data":${unknown}}\n`),
+      onSent: () => { sentAt = Date.now(); },
+    }), {}, process.env.UCODE_ARGS_PIPE ? 120000 : 60000);
+    const elapsed = Date.now() - sentAt;
+    assert.equal(rejected.result.error.code, 'EINTERNAL');
+    assert.ok(elapsed < threshold, `dense response validation took ${elapsed}ms (limit ${threshold}ms)`);
+  }
+});
+
 test('production transport matrix rejects impossible unknown and accepts only serialized combinations', async () => {
   const cases = [
     ['status_protocol', 'not_started', true, true, true],
-    ['client_disconnect', 'started', true, true, true],
     ['stdout_limit', 'started', true, true, true],
     ['daemon_shutdown', 'started', true, true, true],
     ['supervision_failure', 'not_started', false, false, false],
@@ -524,8 +562,6 @@ test('production outcome table matches exact fork exec setup status and failure 
     ['transport_failure', { startState: 'not_started', childReaped: true,
       stdoutEof: true, stderrEof: true, reason: 'status_protocol' }],
     ['transport_failure', { startState: 'started', childReaped: true,
-      stdoutEof: true, stderrEof: true, reason: 'client_disconnect' }],
-    ['transport_failure', { startState: 'started', childReaped: true,
       stdoutEof: true, stderrEof: true, reason: 'daemon_shutdown' }],
     ['transport_failure', { startState: 'started', childReaped: true,
       stdoutEof: true, stderrEof: true, reason: 'stdout_limit' }],
@@ -547,6 +583,8 @@ test('production outcome table matches exact fork exec setup status and failure 
     ['transport_failure', { startState: 'not_started', childReaped: false,
       stdoutEof: false, stderrEof: false, reason: 'status_protocol' }],
     ['transport_failure', { startState: 'not_started', childReaped: true,
+      stdoutEof: true, stderrEof: true, reason: 'client_disconnect' }],
+    ['transport_failure', { startState: 'started', childReaped: true,
       stdoutEof: true, stderrEof: true, reason: 'client_disconnect' }],
     ['transport_failure', { startState: 'started', childReaped: false,
       stdoutEof: false, stderrEof: false, reason: 'stdout_limit' }],
