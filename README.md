@@ -41,7 +41,7 @@ Only tests for the current native foundation are kept in `tests/native/`.
 On Linux with Node.js, a C compiler, `pkg-config`, and json-c development files installed:
 
 ```sh
-node --test tests/native/**/*.test.mjs
+scripts/test/native.sh
 ```
 
 These source tests are not a substitute for OpenWrt SDK compilation or router validation.

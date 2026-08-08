@@ -26,29 +26,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential pkg-config libjson-c-dev
 
-      - name: Run current native tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          export TMPDIR="$RUNNER_TEMP/z2m-native"
-          mkdir -p "$TMPDIR"
-          mapfile -d '' tests < <(find tests/native -type f -name '*.test.mjs' -print0 | sort -z)
-          test "${#tests[@]}" -gt 0
-          node --test "${tests[@]}"
-
-      - name: Validate package metadata
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -f zapret2-manager/Makefile
-          test -f luci-app-zapret2-manager/Makefile
-          test -f zapret2-manager-full/Makefile
-          grep -q 'z2m-core-helper' zapret2-manager/Makefile
-          grep -q 'libjson-c' zapret2-manager/Makefile
-
-      - name: Validate contracts
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -s docs/contracts/native-backend-v1.md
-          test -s docs/contracts/z2m-canonical-json-v1.md
+      - name: Run native foundation gate
+        env:
+          TMPDIR: ${{ runner.temp }}/z2m-native
+        run: scripts/test/native.sh

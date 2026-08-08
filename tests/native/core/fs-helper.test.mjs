@@ -2,11 +2,10 @@ import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 
-const projectRoot = path.resolve('.');
-const wslRoot = `/mnt/${projectRoot[0].toLowerCase()}${projectRoot.slice(2).replaceAll('\\', '/')}`;
+const cwd = process.cwd();
+const buildScript = 'tests/native/core/build-fs-helper.sh';
 const tag = `z2m-fs-helper-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
 const testRoot = `/tmp/${tag}`;
 const buildTempRoot = `/tmp/${tag}-temp`;
@@ -24,22 +23,25 @@ const roots = {
 };
 
 function wsl(args, options = {}) {
-  return spawnSync('wsl.exe', ['-d', 'Ubuntu', '-u', 'root', '--cd', wslRoot, '--', ...args], {
-    encoding: options.encoding === 'buffer' ? null : (options.encoding ?? 'utf8'), input: options.input, env: process.env,
+  return spawnSync(args[0], args.slice(1), {
+    cwd, encoding: options.encoding === 'buffer' ? null : (options.encoding ?? 'utf8'),
+    input: options.input, env: process.env,
     timeout: options.timeout ?? 15000, maxBuffer: 16 * 1024 * 1024
   });
 }
 
 function shell(script) {
-  const result = wsl(['sh', '-c', script]);
+  const result = spawnSync('sh', ['-c', script], { cwd, env: process.env, encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   return result;
 }
 
 function invoke(value, { binary = testBin, env = {}, timeout = 3000 } = {}) {
   const input = Buffer.isBuffer(value) || typeof value === 'string' ? value : JSON.stringify(value);
-  const args = Object.entries({ Z2M_TEST_ROOT_PREFIX: testRoot, ...env }).flatMap(([key, val]) => [`${key}=${val}`]);
-  const result = wsl(['env', ...args, binary], { input, timeout, encoding: 'buffer' });
+  const result = spawnSync(binary, [], {
+    cwd, env: { ...process.env, Z2M_TEST_ROOT_PREFIX: testRoot, ...env }, input,
+    encoding: null, timeout, maxBuffer: 16 * 1024 * 1024
+  });
   const stdout = result.stdout.toString('utf8');
   let response;
   try { response = JSON.parse(stdout); } catch { response = null; }
@@ -48,9 +50,9 @@ function invoke(value, { binary = testBin, env = {}, timeout = 3000 } = {}) {
 
 function spawnInvoke(value, { env = {} } = {}) {
   const input = JSON.stringify(value);
-  const args = Object.entries({ Z2M_TEST_ROOT_PREFIX: testRoot, ...env }).flatMap(([key, val]) => [`${key}=${val}`]);
-  const child = spawn('wsl.exe', ['-d', 'Ubuntu', '-u', 'root', '--cd', wslRoot, '--', 'env', ...args, testBin], {
-    stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true
+  const child = spawn(testBin, [], {
+    cwd, env: { ...process.env, Z2M_TEST_ROOT_PREFIX: testRoot, ...env },
+    stdio: ['pipe', 'pipe', 'pipe']
   });
   child.lockGate = new Promise((resolve) => {
     child.resolveAudit = null;
@@ -81,7 +83,7 @@ function collect(child) {
     child.stdout.on('data', (chunk) => { stdout += chunk; });
     child.stderr.on('data', (chunk) => { stderr += chunk; });
     child.once('error', reject);
-    child.once('exit', (status, signal) => resolve({ status, signal, stdout, stderr,
+    child.once('close', (status, signal) => resolve({ status, signal, stdout, stderr,
       response: stdout ? JSON.parse(stdout) : null }));
   });
 }
@@ -166,13 +168,14 @@ function write(root, relative, content, mode = '0600') {
 before(() => {
   let build = wsl(['mkdir', '-p', '-m', '0700', buildRoot]);
   assert.equal(build.status, 0, build.stderr || build.stdout);
-  build = wsl(['env', `TMPDIR=${buildTempRoot}`, 'sh', 'tests/native/core/build-fs-helper.sh', testBin, '-DZ2M_TESTING']);
+  const env = { ...process.env, TMPDIR: buildTempRoot };
+  build = spawnSync('sh', [buildScript, testBin, '-DZ2M_TESTING'], { cwd, env, encoding: 'utf8' });
   assert.equal(build.status, 0, build.stderr || build.stdout);
   assert.equal(build.stderr, '');
-  build = wsl(['env', `TMPDIR=${buildTempRoot}`, 'sh', 'tests/native/core/build-fs-helper.sh', prodBin]);
+  build = spawnSync('sh', [buildScript, prodBin], { cwd, env, encoding: 'utf8' });
   assert.equal(build.status, 0, build.stderr || build.stdout);
   assert.equal(build.stderr, '');
-  build = wsl(['env', `TMPDIR=${buildTempRoot}`, 'sh', 'tests/native/core/build-fs-helper.sh', noStatxBin, '-DZ2M_TESTING', '-DZ2M_NO_STATX']);
+  build = spawnSync('sh', [buildScript, noStatxBin, '-DZ2M_TESTING', '-DZ2M_NO_STATX'], { cwd, env, encoding: 'utf8' });
   assert.equal(build.status, 0, build.stderr || build.stdout);
   assert.equal(build.stderr, '');
   const dirs = Object.values(roots).map((entry) => `'${testRoot}/${entry}'`).join(' ');
