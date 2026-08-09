@@ -23,6 +23,16 @@ typedef struct z2m_statx z2m_statx;
 #define Z2M_JSON_MAX_DEPTH 64U
 #define Z2M_JSON_MAX_KEYS 1024U
 #define Z2M_JSON_MAX_CONTAINERS 1024U
+#define Z2M_CANONICAL_MAX_DEPTH 64U
+#define Z2M_CANONICAL_MAX_CONTAINERS 1024U
+#define Z2M_CANONICAL_MAX_MEMBERS 1024U
+#define Z2M_CANONICAL_MAX_NODES 65536U
+#define Z2M_CANONICAL_MAX_KEY_BYTES 4096U
+
+struct z2m_canonical_error {
+	const char *code;
+	const char *stage;
+};
 
 struct z2m_root {
 	const char *name;
@@ -65,6 +75,8 @@ void z2m_test_direct_post_publication_probe(void);
 int z2m_read_request(struct z2m_request *request);
 void z2m_request_free(struct z2m_request *request);
 bool z2m_reserved_schema_valid(const struct z2m_request *request);
+bool z2m_canonical_validate(const unsigned char *data, size_t length,
+	struct z2m_canonical_error *error);
 const struct z2m_root *z2m_root_find(const char *name);
 int z2m_root_open(const struct z2m_root *root);
 int z2m_root_mount_id(int root_fd, uint64_t *id, const char **code);
