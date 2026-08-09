@@ -18,7 +18,7 @@ mkdir -p "$TMPDIR"
 test_list="$TMPDIR/native-tests.$$.list"
 production_broker="$TMPDIR/z2m-helperd-production.$$"
 trap 'rm -f "$test_list" "$production_broker"' 0 HUP INT TERM
-root_tests='tests/native/bootstrap.test.mjs tests/native/core/fs-helper.test.mjs tests/native/core/atomic-write-json-property.test.mjs'
+root_tests='tests/native/bootstrap.test.mjs tests/native/core/fs-helper.test.mjs tests/native/core/atomic-write-json-property.test.mjs tests/native/core/atomic-write-json-cas.test.mjs'
 for root_test in $root_tests; do
   test -f "$root_test"
 done
@@ -37,6 +37,7 @@ find tests/native -type f -name '*.test.mjs' \
   ! -path tests/native/bootstrap.test.mjs \
   ! -path tests/native/core/fs-helper.test.mjs \
   ! -path tests/native/core/atomic-write-json-property.test.mjs \
+  ! -path tests/native/core/atomic-write-json-cas.test.mjs \
   ! -path tests/native/core/native-helper-broker.test.mjs \
   ! -path tests/native/core/native-helper.test.mjs \
   ! -path tests/native/package-helper.test.mjs \
