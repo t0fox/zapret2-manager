@@ -310,6 +310,29 @@ test('root opening rejects missing, symlinked, non-directory, and insecure roots
   shell(`chmod 0700 '${base}'`);
 });
 
+test('atomic_write_json encodes before an insecure root can mask an over-limit error', () => {
+  const base = `${testRoot}/${roots.registry}`;
+  const target = `${base}/preflight-order.json`;
+  const before = fs.readdirSync(base).sort();
+  const over = materializeGenerator({ kind: 'canonical_output_bytes', bytes: 521029 });
+  const wire = Buffer.from('{"protocolVersion":1,"requestId":"json-preflight",'
+    + '"operation":"atomic_write_json","arguments":{"root":"registry",'
+    + `"path":"preflight-order.json","value":${over},`
+    + '"mode":"0600","uid":0,"gid":0,"allowCreate":true}}');
+
+  shell(`chmod 0770 '${base}'`);
+  try {
+    const run = invoke(wire, { env: { Z2M_TEST_ATOMIC_TRACE: '1' } });
+    expectFailure(run, 4, 'ETOOBIG', 'json-preflight');
+    assert.equal(run.response.error.stage, 'canonical_size');
+    assert.doesNotMatch(run.stderr, /atomic-phase=/);
+    assert.deepEqual(fs.readdirSync(base).sort(), before);
+    assert.equal(fs.existsSync(target), false);
+  } finally {
+    shell(`chmod 0700 '${base}'`);
+  }
+});
+
 test('stat_regular returns exact descriptor metadata for a regular file', () => {
   write('runtime', 'meta.bin', 'hello');
   const run = invoke(request('stat_regular', { root: 'runtime', path: 'meta.bin' }));
