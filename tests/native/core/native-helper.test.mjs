@@ -34,7 +34,7 @@ async function roundTrip(expression, makeResponse = ({ header }) => childExited(
   return { result, request };
 }
 
-test('exports only the five typed operations and sends exact closed helper requests', async () => {
+test('exports only the six typed operations and sends exact closed helper requests', async () => {
   const cases = [
     [`native.stat_regular('runtime', 'state.bin')`, 'stat_regular',
       { root: 'runtime', path: 'state.bin' }, 5000,
@@ -51,6 +51,9 @@ test('exports only the five typed operations and sends exact closed helper reque
     [`native.atomic_write('persistent_state', 'state.bin', 'YQ==', false)`, 'atomic_write',
       { root: 'persistent_state', path: 'state.bin', content: 'YQ==', mode: '0600', uid: 0, gid: 0, allowCreate: false }, 30000,
       { byteLength: 1, committed: true, durability: 'durable' }],
+    [`native.atomic_write_json('persistent_state', 'state.json', { a: 1 }, false)`, 'atomic_write_json',
+      { root: 'persistent_state', path: 'state.json', value: { a: 1 }, mode: '0600', uid: 0, gid: 0, allowCreate: false }, 30000,
+      { byteLength: 7, committed: true, durability: 'durable' }],
   ];
   const ids = new Set();
   for (const [expression, operation, args, timeoutMs, data] of cases) {
@@ -69,7 +72,7 @@ test('exports only the five typed operations and sends exact closed helper reque
     ids.add(request.header.requestId);
   }
   assert.deepEqual(await invoke(`sort(keys(native))`),
-    ['atomic_write', 'mkdir_private', 'read_regular', 'sha256_regular', 'stat_regular']);
+    ['atomic_write', 'atomic_write_json', 'mkdir_private', 'read_regular', 'sha256_regular', 'stat_regular']);
 });
 
 test('rejects invalid typed arguments before opening the fixed socket', async () => {
