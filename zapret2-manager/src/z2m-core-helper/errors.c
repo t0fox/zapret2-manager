@@ -56,6 +56,7 @@ static bool allocation_should_fail(void) { return false; }
 #endif
 
 void *z2m_alloc(size_t size) { return allocation_should_fail() ? NULL : malloc(size); }
+void *z2m_realloc(void *pointer, size_t size) { return allocation_should_fail() ? NULL : realloc(pointer,size); }
 json_object *z2m_json_object(void) { return allocation_should_fail() ? NULL : json_object_new_object(); }
 json_object *z2m_json_string(const char *value) { return allocation_should_fail() ? NULL : json_object_new_string(value); }
 json_object *z2m_json_int(int64_t value) { return allocation_should_fail() ? NULL : json_object_new_int64(value); }

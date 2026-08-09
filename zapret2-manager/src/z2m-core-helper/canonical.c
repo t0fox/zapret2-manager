@@ -813,3 +813,345 @@ bool z2m_canonical_construct(const unsigned char *data, size_t length,
 	*value = parsed;
 	return true;
 }
+
+struct encode_member {
+	const char *key;
+	size_t key_length;
+	json_object *value;
+};
+
+struct encode_frame {
+	json_object *value;
+	enum json_type type;
+	size_t index;
+	size_t count;
+	size_t member_start;
+	bool opened;
+};
+
+struct canonical_encoder {
+	unsigned char *output;
+	size_t length;
+	size_t capacity;
+	struct encode_frame *frames;
+	size_t frame_count;
+	struct encode_member *members;
+	size_t member_count;
+	size_t containers;
+	size_t nodes;
+	struct z2m_canonical_error *error;
+};
+
+static bool encode_reject(struct canonical_encoder *encoder, const char *code,
+	const char *stage)
+{
+	encoder->error->code = code;
+	encoder->error->stage = stage;
+	return false;
+}
+
+static bool encode_internal(struct canonical_encoder *encoder)
+{
+	return encode_reject(encoder, "EINTERNAL", "canonical_encode");
+}
+
+static bool encode_reserve(struct canonical_encoder *encoder, size_t addition)
+{
+	size_t required;
+	size_t next;
+	unsigned char *grown;
+
+	if (addition > Z2M_CANONICAL_MAX_BYTES - encoder->length)
+		return encode_reject(encoder, "ETOOBIG", "canonical_size");
+	required = encoder->length + addition;
+	if (required <= encoder->capacity)
+		return true;
+	next = encoder->capacity;
+	while (next < required) {
+		if (next > Z2M_CANONICAL_MAX_BYTES / 2U)
+			next = Z2M_CANONICAL_MAX_BYTES;
+		else
+			next += next;
+	}
+	grown = z2m_realloc(encoder->output, next);
+	if (grown == NULL)
+		return encode_internal(encoder);
+	encoder->output = grown;
+	encoder->capacity = next;
+	return true;
+}
+
+static bool encode_append(struct canonical_encoder *encoder,
+	const unsigned char *data, size_t length)
+{
+	if (!encode_reserve(encoder, length))
+		return false;
+	if (length != 0)
+		memcpy(encoder->output + encoder->length, data, length);
+	encoder->length += length;
+	return true;
+}
+
+static bool encode_byte(struct canonical_encoder *encoder, unsigned char byte)
+{
+	return encode_append(encoder, &byte, 1U);
+}
+
+static bool encode_string(struct canonical_encoder *encoder,
+	const unsigned char *value, size_t length)
+{
+	static const unsigned char digits[] = "0123456789abcdef";
+
+	if (!encode_byte(encoder, '"'))
+		return false;
+	for (size_t i = 0; i < length; i++) {
+		unsigned char byte = value[i];
+		unsigned char escape[6];
+		unsigned char named = 0;
+
+		if (byte == '"' || byte == '\\') {
+			escape[0] = '\\';
+			escape[1] = byte;
+			if (!encode_append(encoder, escape, 2U))
+				return false;
+			continue;
+		}
+		switch (byte) {
+		case '\b': named = 'b'; break;
+		case '\t': named = 't'; break;
+		case '\n': named = 'n'; break;
+		case '\f': named = 'f'; break;
+		case '\r': named = 'r'; break;
+		default: break;
+		}
+		if (named != 0) {
+			escape[0] = '\\';
+			escape[1] = named;
+			if (!encode_append(encoder, escape, 2U))
+				return false;
+		} else if (byte < 0x20U) {
+			escape[0] = '\\';
+			escape[1] = 'u';
+			escape[2] = '0';
+			escape[3] = '0';
+			escape[4] = digits[byte >> 4];
+			escape[5] = digits[byte & 0x0fU];
+			if (!encode_append(encoder, escape, sizeof(escape)))
+				return false;
+		} else if (!encode_byte(encoder, byte)) {
+			return false;
+		}
+	}
+	return encode_byte(encoder, '"');
+}
+
+static bool encode_integer(struct canonical_encoder *encoder, int64_t value)
+{
+	unsigned char buffer[21];
+	unsigned char *cursor = buffer + sizeof(buffer);
+	uint64_t magnitude = value < 0 ? (uint64_t)(-(value + 1)) + 1U :
+		(uint64_t)value;
+
+	do {
+		*--cursor = (unsigned char)('0' + magnitude % 10U);
+		magnitude /= 10U;
+	} while (magnitude != 0);
+	if (value < 0)
+		*--cursor = '-';
+	return encode_append(encoder, cursor,
+		(size_t)(buffer + sizeof(buffer) - cursor));
+}
+
+static int compare_encode_members(const void *left_value,
+	const void *right_value)
+{
+	const struct encode_member *left = left_value;
+	const struct encode_member *right = right_value;
+	size_t common = left->key_length < right->key_length ? left->key_length :
+		right->key_length;
+	int compared = common == 0 ? 0 : memcmp(left->key, right->key, common);
+
+	if (compared != 0)
+		return compared;
+	return left->key_length < right->key_length ? -1 :
+		left->key_length > right->key_length;
+}
+
+static bool encode_push(struct canonical_encoder *encoder, json_object *value)
+{
+	struct encode_frame *frame;
+	enum json_type type = value == NULL ? json_type_null :
+		json_object_get_type(value);
+
+	if (encoder->frame_count >= Z2M_CANONICAL_MAX_DEPTH ||
+		encoder->nodes >= Z2M_CANONICAL_MAX_NODES)
+		return encode_internal(encoder);
+	if (type != json_type_null && type != json_type_boolean &&
+		type != json_type_int && type != json_type_string &&
+		type != json_type_array && type != json_type_object)
+		return encode_internal(encoder);
+	if ((type == json_type_array || type == json_type_object) &&
+		encoder->containers >= Z2M_CANONICAL_MAX_CONTAINERS)
+		return encode_internal(encoder);
+	encoder->nodes++;
+	if (type == json_type_array || type == json_type_object)
+		encoder->containers++;
+	frame = &encoder->frames[encoder->frame_count++];
+	memset(frame, 0, sizeof(*frame));
+	frame->value = value;
+	frame->type = type;
+	return true;
+}
+
+static bool encode_open_object(struct canonical_encoder *encoder,
+	struct encode_frame *frame)
+{
+	size_t count = json_object_object_length(frame->value);
+
+	if (count > Z2M_CANONICAL_MAX_MEMBERS - encoder->member_count)
+		return encode_internal(encoder);
+	frame->member_start = encoder->member_count;
+	frame->count = count;
+	json_object_object_foreach(frame->value, key, child) {
+		size_t key_length = strlen(key);
+		struct encode_member *member;
+
+		if (key_length > Z2M_CANONICAL_MAX_KEY_BYTES ||
+			encoder->member_count >= Z2M_CANONICAL_MAX_MEMBERS)
+			return encode_internal(encoder);
+		member = &encoder->members[encoder->member_count++];
+		member->key = key;
+		member->key_length = key_length;
+		member->value = child;
+	}
+	if (encoder->member_count - frame->member_start != count)
+		return encode_internal(encoder);
+	if (count > 1U)
+		qsort(encoder->members + frame->member_start, count,
+			sizeof(*encoder->members), compare_encode_members);
+	frame->opened = true;
+	return encode_byte(encoder, '{');
+}
+
+static bool encode_scalar(struct canonical_encoder *encoder,
+	struct encode_frame *frame)
+{
+	switch (frame->type) {
+	case json_type_null:
+		return encode_append(encoder, (const unsigned char *)"null", 4U);
+	case json_type_boolean:
+		if (json_object_get_boolean(frame->value))
+			return encode_append(encoder, (const unsigned char *)"true", 4U);
+		return encode_append(encoder, (const unsigned char *)"false", 5U);
+	case json_type_int:
+		if (json_object_get_uint64(frame->value) > INT64_MAX)
+			return encode_internal(encoder);
+		return encode_integer(encoder, json_object_get_int64(frame->value));
+	case json_type_string: {
+		int length = json_object_get_string_len(frame->value);
+		const char *value = json_object_get_string(frame->value);
+
+		if (length < 0 || (length != 0 && value == NULL))
+			return encode_internal(encoder);
+		return encode_string(encoder, (const unsigned char *)value,
+			(size_t)length);
+	}
+	default:
+		return encode_internal(encoder);
+	}
+}
+
+static bool encode_value(struct canonical_encoder *encoder)
+{
+	while (encoder->frame_count != 0) {
+		struct encode_frame *frame =
+			&encoder->frames[encoder->frame_count - 1U];
+
+		if (frame->type != json_type_array && frame->type != json_type_object) {
+			if (!encode_scalar(encoder, frame))
+				return false;
+			encoder->frame_count--;
+			continue;
+		}
+		if (!frame->opened) {
+			if (frame->type == json_type_object) {
+				if (!encode_open_object(encoder, frame))
+					return false;
+			} else {
+				frame->count = json_object_array_length(frame->value);
+				frame->opened = true;
+				if (!encode_byte(encoder, '['))
+					return false;
+			}
+			continue;
+		}
+		if (frame->index == frame->count) {
+			if (!encode_byte(encoder,
+				frame->type == json_type_object ? '}' : ']'))
+				return false;
+			encoder->frame_count--;
+			continue;
+		}
+		if (frame->index != 0 && !encode_byte(encoder, ','))
+			return false;
+		if (frame->type == json_type_array) {
+			json_object *child = json_object_array_get_idx(frame->value,
+				frame->index++);
+			if (!encode_push(encoder, child))
+				return false;
+		} else {
+			struct encode_member *member = &encoder->members[
+				frame->member_start + frame->index++];
+			if (!encode_string(encoder, (const unsigned char *)member->key,
+				member->key_length) || !encode_byte(encoder, ':') ||
+				!encode_push(encoder, member->value))
+				return false;
+		}
+	}
+	return true;
+}
+
+bool z2m_canonical_encode(json_object *value, unsigned char **output,
+	size_t *length, struct z2m_canonical_error *error)
+{
+	struct canonical_encoder encoder = {.error = error};
+	const size_t initial_capacity = 256U;
+	bool encoded;
+
+	if (output == NULL || length == NULL || error == NULL)
+		return false;
+	*output = NULL;
+	*length = 0;
+	error->code = NULL;
+	error->stage = NULL;
+	if (Z2M_CANONICAL_MAX_DEPTH > SIZE_MAX / sizeof(*encoder.frames) ||
+		Z2M_CANONICAL_MAX_MEMBERS > SIZE_MAX / sizeof(*encoder.members))
+		return encode_internal(&encoder);
+	encoder.output = z2m_alloc(initial_capacity);
+	if (encoder.output == NULL)
+		return encode_internal(&encoder);
+	encoder.capacity = initial_capacity;
+	encoder.frames = z2m_alloc(Z2M_CANONICAL_MAX_DEPTH *
+		sizeof(*encoder.frames));
+	if (encoder.frames == NULL) {
+		free(encoder.output);
+		return encode_internal(&encoder);
+	}
+	encoder.members = z2m_alloc(Z2M_CANONICAL_MAX_MEMBERS *
+		sizeof(*encoder.members));
+	if (encoder.members == NULL) {
+		free(encoder.frames);
+		free(encoder.output);
+		return encode_internal(&encoder);
+	}
+	encoded = encode_push(&encoder, value) && encode_value(&encoder);
+	free(encoder.members);
+	free(encoder.frames);
+	if (!encoded) {
+		free(encoder.output);
+		return false;
+	}
+	*output = encoder.output;
+	*length = encoder.length;
+	return true;
+}
