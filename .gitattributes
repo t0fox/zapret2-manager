@@ -4,3 +4,6 @@
 # would leak \r into APK-shipped ucode. Binary payloads are excluded.
 * text=auto eol=lf
 *.bin binary
+# Preserve the byte-identical upstream patch; its nested diff context contains
+# intentional space-tab and blank context lines.
+tests/native/core/fixtures/*.patch -whitespace

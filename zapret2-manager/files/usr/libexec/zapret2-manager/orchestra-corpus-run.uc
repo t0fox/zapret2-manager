@@ -79,7 +79,7 @@ function save_request_ref(id, runId) {
 	return path ? atomic_write(path, sprintf('%J', { requestId: id, runId: runId }) + '\n') : false;
 }
 function acquire_start_lock() {
-	try { mkdir('/tmp/zapret2-manager'); mkdir(ROOT); } catch (e) { }
+	try { mkdir(ROOT); } catch (e) { }
 	let lock = stat(START_LOCK);
 	if (lock && time() - lock.mtime > 30) run("rmdir '" + START_LOCK + "' 2>/dev/null");
 	return run("mkdir '" + START_LOCK + "' 2>/dev/null").rc == 0;

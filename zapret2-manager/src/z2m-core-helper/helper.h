@@ -7,6 +7,17 @@
 #include <stdint.h>
 #include <sys/stat.h>
 
+#ifdef __GLIBC__
+typedef struct statx z2m_statx;
+#else
+#define statx z2m_statx
+#define statx_timestamp z2m_statx_timestamp
+#include <linux/stat.h>
+#undef statx_timestamp
+#undef statx
+typedef struct z2m_statx z2m_statx;
+#endif
+
 #define Z2M_REQUEST_MAX (4U * 1024U * 1024U)
 #define Z2M_RESPONSE_MAX (6U * 1024U * 1024U)
 #define Z2M_JSON_MAX_DEPTH 64U

@@ -1,19 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import path from 'node:path';
 
-const projectRoot = path.resolve('.');
-const wslRoot = `/mnt/${projectRoot[0].toLowerCase()}${projectRoot.slice(2).replaceAll('\\', '/')}`;
 const resultModule = './zapret2-manager/files/usr/libexec/zapret2-manager/core/result.uc';
 const errorsModule = './zapret2-manager/files/usr/libexec/zapret2-manager/core/errors.uc';
+const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
+const env = {
+  ...process.env,
+  LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib',
+};
 
-function runUcode(expression) {
-  const run = spawnSync('wsl.exe', [
-    '-d', 'Ubuntu', '--cd', wslRoot, '--',
-    'env', 'LD_LIBRARY_PATH=/opt/ucode/lib',
-    '/opt/ucode/bin/ucode', '-e', expression
-  ], { encoding: 'utf8' });
+function runUcode(source) {
+  const run = spawnSync(UCODE_BIN, ['-e', source], {
+    cwd: process.cwd(), env, encoding: 'utf8',
+  });
 
   assert.equal(run.status, 0, run.stderr || run.stdout);
   return JSON.parse(run.stdout);

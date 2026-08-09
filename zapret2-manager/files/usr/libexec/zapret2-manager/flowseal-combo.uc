@@ -214,7 +214,6 @@ export const flowseal_combo_apply = function(req) {
 
 	let operationId = 'flowseal-op-' + time() + '-' + substr(candidateSha256, 0, 12);
 	try {
-		mkdir('/tmp/zapret2-manager');
 		writefile(JOURNAL, sprintf('%J', { operationId: operationId, candidateId: c.managerId, digest: c.digest, status: 'applied', appliedAt: time() }) + '\n');
 	} catch (e) { }
 	return {

@@ -3,7 +3,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/fs.h>
-#include <linux/stat.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -16,7 +15,7 @@
 static int mount_id(int fd,uint64_t *id)
 {
 #if defined(SYS_statx) && defined(STATX_MNT_ID) && !defined(Z2M_NO_STATX)
-	struct statx value;
+	z2m_statx value;
 	if(syscall(SYS_statx,fd,"",AT_EMPTY_PATH|AT_STATX_SYNC_AS_STAT,STATX_MNT_ID,&value)<0||!(value.stx_mask&STATX_MNT_ID)){errno=ENOTSUP;return -1;}
 	*id=value.stx_mnt_id;return 0;
 #else

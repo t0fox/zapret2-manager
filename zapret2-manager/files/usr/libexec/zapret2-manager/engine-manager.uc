@@ -10,7 +10,7 @@ function allowed(v,list){for(let i=0;i<length(list);i++)if(list[i]==v)return tru
 function terminal(v){return allowed(v,TERMINAL);}
 function read_json(p,f){try{let r=readfile(p);return r?json(r):f;}catch(e){return f;}}
 function atomic(p,v){let t=p+'.tmp.'+time();if(!writefile(t,sprintf('%J',v)+'\n'))return false;let r=run("chmod 600 '"+t+"' && mv -f '"+t+"' '"+p+"'");if(r.rc!=0){try{unlink(t);}catch(e){}return false;}return true;}
-function setup(){try{mkdir('/tmp/zapret2-manager');}catch(e){}try{mkdir(ROOT);}catch(e){}run("chmod 700 '/tmp/zapret2-manager' '"+ROOT+"'");}
+function setup(){try{mkdir(ROOT);}catch(e){}run("chmod 700 '"+ROOT+"'");}
 function new_id(){let e=trim(run("od -An -N6 -tx1 /dev/urandom | tr -d ' \\n'").out);return match(e,/^[a-f0-9]{12}$/)?'eng-'+time()+'-'+e:null;}
 function path(id){return ROOT+'/'+id+'.json';}
 function read_job(id){return safe_id(id)!=null?read_json(path(id),null):null;}

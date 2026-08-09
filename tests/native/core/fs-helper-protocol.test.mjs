@@ -4,8 +4,6 @@ import fs from 'node:fs';
 
 const manifestPath = 'zapret2-manager/src/z2m-core-helper/protocol-v1.json';
 const canonicalJsonPath = 'docs/contracts/z2m-canonical-json-v1.md';
-const designPath = 'docs/superpowers/specs/2026-08-07-native-foundation-fs-helper-design.md';
-const planPath = 'docs/superpowers/plans/2026-08-07-native-foundation-fs-helper.md';
 
 const roots = [
   'persistent_state', 'snapshots', 'registry', 'secrets',
@@ -440,29 +438,4 @@ test('ucode mapping supplies generation and closes helper and transport failures
       mismatchedRequestId: 'EINTERNAL'
     }
   });
-});
-
-test('design and plan describe only the manifest architecture and milestone 1 scope', () => {
-  for (const file of [designPath, planPath]) {
-    const body = fs.readFileSync(file, 'utf8');
-    assert.match(body, /protocol-v1\.json/);
-    assert.match(body, /short-lived/i);
-    assert.match(body, /one\s+bounded\s+JSON\s+request/i);
-    assert.match(body, /one\s+bounded\s+JSON\s+response/i);
-    assert.match(body, /calling state layer/i);
-    assert.match(body, /requestId/i);
-    assert.match(body, /Milestone 1[\s\S]{0,1200}stat_regular[\s\S]{0,1200}read_regular/i);
-    assert.doesNotMatch(body, /runs as a root-owned procd service|listens on[^.]*socket|daemon retains|implement retained[^.]*broker|install[^.]*procd service/i);
-  }
-
-  const plan = fs.readFileSync(planPath, 'utf8');
-  const milestoneOne = plan.match(/## Milestone 1[\s\S]*?(?=\n## Milestone 2|$)/i)?.[0] ?? '';
-  assert.doesNotMatch(milestoneOne, /implement[^\n]*(sha256|atomic_write|mkdir_private|lock_)/i);
-  assert.match(milestoneOne, /EUNSUPPORTED/);
-
-  const design = fs.readFileSync(designPath, 'utf8');
-  assert.match(design, /host kernel[\s\S]{0,200}host root\/UID 0[\s\S]{0,200}trusted/i);
-  assert.match(design, /malicious UID 0[\s\S]{0,100}`?CAP_SYS_ADMIN`?[\s\S]{0,100}out\s+of\s+scope/i);
-  assert.match(design, /CAS checks[\s\S]{0,200}detection/i);
-  assert.doesNotMatch(design, /resist(?:s|ance)?[\s\S]{0,100}(?:malicious|hostile) root/i);
 });

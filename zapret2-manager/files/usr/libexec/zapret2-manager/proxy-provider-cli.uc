@@ -1,7 +1,7 @@
 #!/usr/bin/ucode
 'use strict';
 
-import { readfile } from 'fs';
+import { readfile, popen } from 'fs';
 import {
 	proxy_provider_catalog,
 	proxy_provider_status,
@@ -27,6 +27,8 @@ function emit(value) {
 }
 
 let action = ARGV[0];
+let bootstrap = popen('/usr/libexec/zapret2-manager/z2m-root-bootstrap runtime 2>/dev/null', 'r');
+if (!bootstrap || bootstrap.close() != 0) exit(1);
 if (action == 'catalog') emit(proxy_provider_catalog());
 else if (action == 'status') emit(proxy_provider_status());
 else if (action == 'preflight') emit(proxy_provider_preflight());

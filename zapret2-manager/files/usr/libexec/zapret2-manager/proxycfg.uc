@@ -1364,8 +1364,7 @@ function write_config_conf(text) {
 // ---- snapshot / rollback -------------------------------------------------------
 
 function snapshot_apply(runningBefore, rcDBefore) {
-	let p = popen('mkdir -p ' + SNAP_DIR + ' 2>/dev/null', 'r');
-	if (p) p.close();
+	try { mkdir(SNAP_DIR); } catch (e) { }
 	let hadConfig = (stat(CONFIG_CONF) != null);
 	let hadState = (stat(STATE_JSON) != null);
 	if (hadConfig) { let q = popen('cp -f ' + CONFIG_CONF + ' ' + SNAP_DIR + '/config.conf 2>/dev/null', 'r'); if (q) q.close(); }

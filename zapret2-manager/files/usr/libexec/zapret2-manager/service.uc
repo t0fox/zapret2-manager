@@ -90,7 +90,6 @@ function requires_engine(action) {
 
 function event(source, category, severity, msg, extra) {
 	try {
-		mkdir('/tmp/zapret2-manager');
 		let ts = trim(sh('date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null'));
 		if (!length(ts)) ts = '' + time();
 		let prev = readfile(PATHS.events_ndjson);
@@ -105,7 +104,7 @@ function event(source, category, severity, msg, extra) {
 
 function set_paused(on) {
 	if (on) {
-		try { mkdir('/tmp/zapret2-manager'); writefile(PATHS.paused_flag, ''); } catch (e) { }
+		try { writefile(PATHS.paused_flag, ''); } catch (e) { }
 	} else {
 		try { unlink(PATHS.paused_flag); } catch (e) { }
 	}
@@ -118,7 +117,7 @@ function basename(p) {
 
 function save_prev_enable(prev) {
 	try {
-		run('mkdir -p ' + LASTGOOD_DIR);
+		try { mkdir(LASTGOOD_DIR); } catch (e) { }
 		writefile(PREV_ENABLE, (prev == null ? '' : prev) + '\n');
 	} catch (e) { }
 }
@@ -145,14 +144,13 @@ function capture_applied_hash() {
 	try {
 		let st = { config: sha256_file(PATHS.applied_conf),
 			uci: sha256_file(PATHS.uci_conf), captured_at: time() };
-		mkdir('/tmp/zapret2-manager');
 		writefile('/tmp/zapret2-manager/applied.sha256', sprintf("%J", st) + '\n');
 	} catch (e) { }
 }
 
 function snapshot_last_good() {
 	try {
-		run('mkdir -p ' + LASTGOOD_DIR);
+		try { mkdir(LASTGOOD_DIR); } catch (e) { }
 		let configBytes = readfile(PATHS.applied_conf);
 		let uciBytes = readfile(PATHS.uci_conf);
 		if (configBytes == null) configBytes = '';
@@ -312,7 +310,7 @@ function rollback(force) {
 const PREV_OPT = LASTGOOD_DIR + '/nfqws2_opt.orig';
 
 function save_orig_opt(v) {
-	try { run('mkdir -p ' + LASTGOOD_DIR); writefile(PREV_OPT, (v == null ? '' : v) + '\n'); }
+	try { mkdir(LASTGOOD_DIR); writefile(PREV_OPT, (v == null ? '' : v) + '\n'); }
 	catch (e) { }
 }
 

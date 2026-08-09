@@ -24,7 +24,7 @@ const TERMINAL = ['completed', 'applied', 'rolled-back', 'restored', 'timeout', 
 const APPLY_ROOT = '/var/lib/zapret2-manager/orchestra-operations';
 
 function err(code, message, details, runId, phase) { return { ok:false, error:{ code:code, message:message, details:details || {}, runId:runId || null, phase:phase || null } }; }
-function ensure() { try { mkdir('/tmp/zapret2-manager'); mkdir(ROOT); } catch(e) {} }
+function ensure() { try { mkdir(ROOT); } catch(e) {} }
 function safe_id(id) { return type(id) == 'string' && match(id, /^or-[a-f0-9]{8}-[a-f0-9]{4}$/); }
 function path(id) { return ROOT + '/' + id + '.json'; }
 function load(p) { try { let x = json(readfile(p)); return type(x) == 'object' ? x : null; } catch(e) { return null; } }
