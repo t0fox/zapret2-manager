@@ -571,6 +571,7 @@ bool z2m_reserved_schema_valid(const struct z2m_request *request)
 	json_object *args=request->arguments,*value;const char *s,*token;int64_t number;
 	static const char *const write_fields[]={"root","path","content","mode","uid","gid","allowCreate"};
 	static const char *const write_json_fields[]={"root","path","value","mode","uid","gid","allowCreate"};
+	static const char *const write_json_cas_fields[]={"root","path","value","mode","uid","gid","allowCreate","expectedSha256"};
 	static const char *const mkdir_fields[]={"root","path","mode","uid","gid","existOk"};
 	static const char *const hash_fields[]={"root","path","maxBytes"};
 	static const char *const rename_fields[]={"root","fromPath","toPath","ownershipToken","replace"};
@@ -580,8 +581,10 @@ bool z2m_reserved_schema_valid(const struct z2m_request *request)
 	static const char *const status_fields[]={"name"};
 	if(strcmp(request->operation,"atomic_write")==0)
 		return exact_fields(args,write_fields,7)&&string_value(args,"root",0,SIZE_MAX,&s)&&string_value(args,"path",0,SIZE_MAX,&s)&&z2m_path_valid(s,32)&&string_value(args,"content",0,694704,&s)&&z2m_base64_canonical(s,strlen(s),521028)&&string_value(args,"mode",4,4,&s)&&strcmp(s,"0600")==0&&integer_value(args,"uid",0,0,&number)&&integer_value(args,"gid",0,0,&number)&&boolean_value(args,"allowCreate");
-	if(strcmp(request->operation,"atomic_write_json")==0)
-		return exact_fields(args,write_json_fields,7)&&string_value(args,"root",0,SIZE_MAX,&s)&&string_value(args,"path",0,SIZE_MAX,&s)&&z2m_path_valid(s,32)&&json_object_object_get_ex(args,"value",&value)&&string_value(args,"mode",4,4,&s)&&strcmp(s,"0600")==0&&integer_value(args,"uid",0,0,&number)&&integer_value(args,"gid",0,0,&number)&&boolean_value(args,"allowCreate");
+	if(strcmp(request->operation,"atomic_write_json")==0){
+		bool fields_ok=exact_fields(args,write_json_fields,7)||(exact_fields(args,write_json_cas_fields,8)&&string_value(args,"expectedSha256",64,64,&token)&&hex64(token));
+		return fields_ok&&string_value(args,"root",0,SIZE_MAX,&s)&&string_value(args,"path",0,SIZE_MAX,&s)&&z2m_path_valid(s,32)&&json_object_object_get_ex(args,"value",&value)&&string_value(args,"mode",4,4,&s)&&strcmp(s,"0600")==0&&integer_value(args,"uid",0,0,&number)&&integer_value(args,"gid",0,0,&number)&&boolean_value(args,"allowCreate");
+	}
 	if(strcmp(request->operation,"mkdir_private")==0)
 		return exact_fields(args,mkdir_fields,6)&&string_value(args,"root",0,SIZE_MAX,&s)&&string_value(args,"path",0,SIZE_MAX,&s)&&z2m_path_valid(s,32)&&string_value(args,"mode",4,4,&s)&&strcmp(s,"0700")==0&&integer_value(args,"uid",0,0,&number)&&integer_value(args,"gid",0,0,&number)&&boolean_value(args,"existOk");
 	if(strcmp(request->operation,"sha256_regular")==0)
