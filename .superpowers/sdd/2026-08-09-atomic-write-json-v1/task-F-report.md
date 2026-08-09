@@ -51,7 +51,9 @@ clean
 
 ## Commit
 
-Pending final commit.
+`428fa9b feat(core): dispatch atomic json writes`
+
+The report metadata update is included in the following report-only commit.
 
 ## Self-Review
 
