@@ -38,7 +38,7 @@ static const char *open_error(int error)
 static int classify_special_open_error(int parent,const char *name,int error)
 {
 	struct stat st;
-	if((error==ENXIO||error==ENODEV||error==EOPNOTSUPP||error==EPERM)&&
+	if((error==EIO||error==ENXIO||error==ENODEV||error==EOPNOTSUPP||error==EPERM)&&
 		fstatat(parent,name,&st,AT_SYMLINK_NOFOLLOW)==0&&
 		(S_ISCHR(st.st_mode)||S_ISBLK(st.st_mode))) return EACCES;
 	return error;
