@@ -229,3 +229,12 @@ int z2m_atomic_write(const struct z2m_request *r,const struct z2m_root *root,int
 	result=z2m_atomic_write_bytes(r,root,root_fd,path,content,length,allow_create);
 	free(content);return result;
 }
+
+int z2m_atomic_write_json(const struct z2m_request *r,const struct z2m_root *root,int root_fd)
+{
+	json_object *path_value,*create_value;const char *path;bool allow_create;unsigned char *content=NULL;size_t length=0;struct z2m_canonical_error error;int result;
+	json_object_object_get_ex(r->arguments,"path",&path_value);json_object_object_get_ex(r->arguments,"allowCreate",&create_value);path=json_object_get_string(path_value);allow_create=json_object_get_boolean(create_value);if(!z2m_path_valid(path,root->max_depth))return fail(r,"EPATH","path_validate");
+	if(!z2m_canonical_encode(r->canonical_value,&content,&length,&error))return fail(r,error.code,error.stage);
+	result=z2m_atomic_write_bytes(r,root,root_fd,path,content,length,allow_create);
+	free(content);return result;
+}

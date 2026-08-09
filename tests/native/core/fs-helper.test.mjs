@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
+import {
+  canonicalizeValue, materializeGenerator, permutedObjectEntries,
+} from './canonical-json-v1-oracle.mjs';
 
 const cwd = process.cwd();
 const buildScript = 'tests/native/core/build-fs-helper.sh';
@@ -102,6 +105,10 @@ function shaArgs(root, pathValue, maxBytes) {
 
 function atomicArgs(root, pathValue, content, allowCreate = true) {
   return { root, path: pathValue, content: content.toString('base64'), mode: '0600', uid: 0, gid: 0, allowCreate };
+}
+
+function atomicJsonArgs(root, pathValue, value, allowCreate = true) {
+  return { root, path: pathValue, value, mode: '0600', uid: 0, gid: 0, allowCreate };
 }
 
 function writeBuffer(root, relative, content, mode = '0600') {
@@ -287,7 +294,7 @@ test('canonical relative path rejects every forbidden form and enforces byte/com
   assert.equal(Buffer.byteLength(maximum), 4096);
   expectFailure(invoke(request('atomic_write_json', {
     root: 'persistent_state', path: maximum, value: {}, mode: '0600', uid: 0, gid: 0, allowCreate: true
-  })), 3, 'EUNSUPPORTED');
+  })), 3, 'EPATH');
 });
 
 test('root opening rejects missing, symlinked, non-directory, and insecure roots', () => {
@@ -404,10 +411,9 @@ test('unrecoverable partial stdout exits response-incomplete category', () => {
   assert.ok(run.stdout.length > 0 && run.stdout.length <= 8);
 });
 
-test('reserved operations return EUNSUPPORTED before filesystem access and have no side effects', () => {
+test('ownership and public lock operations return EUNSUPPORTED before filesystem access and have no side effects', () => {
   const marker = `${testRoot}/${roots.runtime}/must-not-exist`;
   const operations = {
-    atomic_write_json: { root: 'runtime', path: 'must-not-exist', value: {}, mode: '0600', uid: 0, gid: 0, allowCreate: true },
     rename_owned: { root: 'runtime', fromPath: 'missing', toPath: 'must-not-exist', ownershipToken: 'a'.repeat(64), replace: false },
     unlink_owned: { root: 'runtime', path: 'missing', ownershipToken: 'a'.repeat(64), missingOk: false },
     lock_acquire: { name: 'test', owner: 'owner', timeoutMs: 0 },
@@ -1077,10 +1083,9 @@ test('sha256_regular maps only actual shared-lock contention to ELOCKED', () => 
   assert.equal(run.response.error.stage, 'lock_acquire');
 });
 
-test('non-SHA reserved operations remain unsupported and side-effect-free after SHA promotion', () => {
+test('ownership and public lock operations remain unsupported and side-effect-free after SHA promotion', () => {
   const marker = `${testRoot}/${roots.runtime}/sha-promotion-must-not-exist`;
   const operations = {
-    atomic_write_json: { root: 'runtime', path: 'sha-promotion-must-not-exist', value: {}, mode: '0600', uid: 0, gid: 0, allowCreate: true },
     rename_owned: { root: 'runtime', fromPath: 'missing', toPath: 'sha-promotion-must-not-exist', ownershipToken: 'a'.repeat(64), replace: false },
     unlink_owned: { root: 'runtime', path: 'missing', ownershipToken: 'a'.repeat(64), missingOk: false },
     lock_acquire: { name: 'sha-promotion', owner: 'owner', timeoutMs: 0 },
@@ -1413,14 +1418,164 @@ test('atomic_write classifies persistent durability and final replacement honest
   expectCommitUnknown(await result, 'atomic-final-race'); assert.equal(wsl(['cat', `${base}/atomic-final-race`]).stdout, 'foreign');
 });
 
-test('atomic_write_json and ownership/public lock operations remain unsupported and side-effect-free', () => {
+test('ownership and public lock operations remain unsupported and side-effect-free', () => {
   const marker = `${testRoot}/${roots.runtime}/atomic-reserved-marker`;
   const operations = {
-    atomic_write_json: { root: 'runtime', path: 'atomic-reserved-marker', value: {}, mode: '0600', uid: 0, gid: 0, allowCreate: true },
     rename_owned: { root: 'runtime', fromPath: 'missing', toPath: 'atomic-reserved-marker', ownershipToken: 'a'.repeat(64), replace: false },
     unlink_owned: { root: 'runtime', path: 'atomic-reserved-marker', ownershipToken: 'a'.repeat(64), missingOk: false },
     lock_acquire: { name: 'atomic', owner: 'owner', timeoutMs: 0 }, lock_release: { name: 'atomic', owner: 'owner', token: 'a'.repeat(64) }, lock_status: { name: 'atomic' }
   };
   for (const [operation, args] of Object.entries(operations)) expectFailure(invoke(request(operation, args)), 3, 'EUNSUPPORTED');
   assert.equal(wsl(['test', '-e', marker]).status, 1);
+});
+
+function readTargetBytes(root, relative) {
+  const target = `${testRoot}/${roots[root]}/${relative}`;
+  const run = wsl(['cat', target], { encoding: 'buffer' });
+  assert.equal(run.status, 0, run.stderr);
+  return run.stdout;
+}
+
+function statTarget(root, relative) {
+  const target = `${testRoot}/${roots[root]}/${relative}`;
+  const run = wsl(['stat', '-c', '%a %u %g %F', target]);
+  assert.equal(run.status, 0, run.stderr);
+  return run.stdout.trim();
+}
+
+test('atomic_write_json publishes exact canonical bytes with 0600/0/0, no trailing newline, and durable success', () => {
+  const value = { z: [3, 2, 1], a: { y: 2, x: 1 }, n: null, s: 'quote"\\slash' };
+  const expected = Buffer.from(canonicalizeValue(value));
+  const run = invoke(request('atomic_write_json', atomicJsonArgs('persistent_state', 'canonical-durable.json', value)));
+  expectAtomicSuccess(run, expected.length, 'durable');
+  assert.deepEqual(readTargetBytes('persistent_state', 'canonical-durable.json'), expected);
+  assert.equal(statTarget('persistent_state', 'canonical-durable.json'), '600 0 0 regular file');
+  assert.equal(expected[expected.length - 1] !== 0x0a, true, 'no trailing newline');
+
+  const visible = invoke(request('atomic_write_json', atomicJsonArgs('runtime', 'canonical-visible.json', value)));
+  expectAtomicSuccess(visible, expected.length, 'tmpfs_visible');
+  assert.deepEqual(readTargetBytes('runtime', 'canonical-visible.json'), expected);
+});
+
+test('atomic_write_json publishes byte-identical content for differently formatted and permuted-key inputs', () => {
+  const value = { z: [3, 2, 1], a: { y: 2, x: 1 }, n: null };
+  const expected = Buffer.from(canonicalizeValue(value));
+  const spaced = '{"protocolVersion":1,"requestId":"json-spaced","operation":"atomic_write_json",'
+    + '"arguments":{"root":"staging","path":"canonical-permute.json",'
+    + '"value": { "z" : [ 3, 2, 1 ], "a" : { "y" : 2, "x" : 1 }, "n" : null },'
+    + '"mode":"0600","uid":0,"gid":0,"allowCreate":true}}';
+  expectAtomicSuccess(invoke(Buffer.from(spaced), { timeout: 3000 }), expected.length, 'tmpfs_visible', 'json-spaced');
+  assert.deepEqual(readTargetBytes('staging', 'canonical-permute.json'), expected);
+  for (const seed of [1, 2, 3, 0x5eed]) {
+    const permuted = permutedObjectEntries(Object.entries(value), seed);
+    const run = invoke(request('atomic_write_json', atomicJsonArgs('staging', 'canonical-permute.json', permuted, false), `json-permute-${seed}`));
+    expectAtomicSuccess(run, expected.length, 'tmpfs_visible', `json-permute-${seed}`);
+    assert.deepEqual(readTargetBytes('staging', 'canonical-permute.json'), expected);
+  }
+});
+
+test('atomic_write_json rejects invalid canonical values before any lock, traversal, candidate, or publication', () => {
+  const cases = [
+    ['{"a":1,"a":2}', 'ESCHEMA', 'canonical_validate', 2],
+    ['{"a":1,"\\u0061":2}', 'ESCHEMA', 'canonical_validate', 2],
+    ['1.0', 'ESCHEMA', 'canonical_validate', 2],
+    ['9223372036854775808', 'ESCHEMA', 'canonical_validate', 2],
+    ['"\\ud800"', 'ESCHEMA', 'canonical_validate', 2],
+    ['{"\\u0000":1}', 'ESCHEMA', 'canonical_validate', 2],
+    [Buffer.from([0x22, 0xff, 0x22]), 'EMALFORMED', 'utf8', 2],
+    [materializeGenerator({ kind: 'object_member_count', count: 1025 }), 'ESCHEMA', 'canonical_validate', 2],
+  ];
+  const relative = 'canonical-reject-marker.json';
+  const target = `${testRoot}/${roots.persistent_state}/${relative}`;
+  for (const [rawValue, code, stage, status] of cases) {
+    const beforeCandidates = wsl(['sh', '-c', `ls -a '${testRoot}/${roots.persistent_state}'`]).stdout;
+    const wire = Buffer.concat([
+      Buffer.from('{"protocolVersion":1,"requestId":"json-reject","operation":"atomic_write_json",'
+        + `"arguments":{"root":"persistent_state","path":"${relative}","value":`),
+      Buffer.isBuffer(rawValue) ? rawValue : Buffer.from(rawValue),
+      Buffer.from(',"mode":"0600","uid":0,"gid":0,"allowCreate":true}}'),
+    ]);
+    const run = invoke(wire, { env: { Z2M_TEST_ATOMIC_TRACE: '1' } });
+    assert.equal(run.status, status, `${code}: ${run.stderr || run.stdout}`);
+    assert.equal(run.response?.error?.code, code, String(rawValue));
+    assert.equal(run.response?.error?.stage, stage, String(rawValue));
+    assert.equal(run.response?.error?.committed, false);
+    assert.equal(run.response?.error?.durability, 'unchanged');
+    assert.doesNotMatch(run.stderr, /atomic-phase=/, 'no publication phase before canonical preflight');
+    assert.equal(wsl(['test', '-e', target]).status, 1, 'destination unchanged');
+    const listing = wsl(['sh', '-c', `ls -a '${testRoot}/${roots.persistent_state}'`]).stdout;
+    assert.equal(listing, beforeCandidates, 'candidate directory unchanged');
+  }
+});
+
+test('atomic_write_json over-limit canonical output returns ETOOBIG/canonical_size with no side effect', () => {
+  const relative = 'canonical-toobig.json';
+  const target = `${testRoot}/${roots.persistent_state}/${relative}`;
+  const over = materializeGenerator({ kind: 'canonical_output_bytes', bytes: 521029 });
+  const wire = Buffer.from('{"protocolVersion":1,"requestId":"json-toobig","operation":"atomic_write_json",'
+    + `"arguments":{"root":"persistent_state","path":"${relative}","value":${over},`
+    + '"mode":"0600","uid":0,"gid":0,"allowCreate":true}}');
+  const run = invoke(wire, { env: { Z2M_TEST_ATOMIC_TRACE: '1' } });
+  assert.equal(run.status, 4, run.stderr || run.stdout);
+  assert.equal(run.response?.error?.code, 'ETOOBIG');
+  assert.equal(run.response?.error?.stage, 'canonical_size');
+  assert.equal(run.response?.error?.committed, false);
+  assert.equal(run.response?.error?.durability, 'unchanged');
+  assert.doesNotMatch(run.stderr, /atomic-phase=/, 'encoding precedes any publication phase');
+  assert.equal(wsl(['test', '-e', target]).status, 1);
+});
+
+test('atomic_write_json exactly 521028 canonical bytes publishes successfully', () => {
+  const value = 'a'.repeat(521026);
+  const expected = Buffer.from(canonicalizeValue(value));
+  assert.equal(expected.length, 521028);
+  const run = invoke(request('atomic_write_json', atomicJsonArgs('persistent_state', 'canonical-exact.json', value)));
+  expectAtomicSuccess(run, 521028, 'durable');
+  assert.deepEqual(readTargetBytes('persistent_state', 'canonical-exact.json'), expected);
+});
+
+test('atomic_write_json canonical preflight completes before root open, mount lookup, and lock', async () => {
+  const value = { hello: 'world' };
+  const expected = Buffer.from(canonicalizeValue(value));
+  const holder = spawnInvoke(request('atomic_write', atomicArgs('staging', 'json-lock-holder', Buffer.from('locked')), 'json-holder'), { env: { Z2M_TEST_STOP_AFTER_LOCK: '1' } });
+  const holderResult = collect(holder);
+  const pid = await waitStopped(holder);
+  const bad = invoke(Buffer.from('{"protocolVersion":1,"requestId":"req-1",'
+    + '"operation":"atomic_write_json","arguments":{"root":"staging",'
+    + '"path":"json-blocked.json","value":1.0,"mode":"0600","uid":0,'
+    + '"gid":0,"allowCreate":true}}'), { timeout: 1000 });
+  expectFailure(bad, 2, 'ESCHEMA', null);
+  assert.equal(bad.response?.error?.stage, 'canonical_validate');
+  shell(`kill -CONT ${pid}`);
+  expectAtomicSuccess(await holderResult, 6, 'tmpfs_visible', 'json-holder');
+  const good = invoke(request('atomic_write_json', atomicJsonArgs('staging', 'json-good.json', value)));
+  expectAtomicSuccess(good, expected.length, 'tmpfs_visible');
+  assert.deepEqual(readTargetBytes('staging', 'json-good.json'), expected);
+});
+
+test('atomic_write_json enforces its exact seven-field reserved schema, fixed mode/uid/gid, path, and policy', () => {
+  const valid = atomicJsonArgs('runtime', 'json-schema.json', { a: 1 });
+  const invalid = [
+    { ...valid, extra: true }, { root: 'runtime', path: 'x', mode: '0600', uid: 0, gid: 0, allowCreate: true },
+    { ...valid, mode: '0644' }, { ...valid, uid: 1 }, { ...valid, gid: 1 },
+    { ...valid, allowCreate: 'yes' }, { ...valid, content: '' },
+  ];
+  for (const args of invalid) expectFailure(invoke(request('atomic_write_json', args)), 2, 'ESCHEMA');
+  expectFailure(invoke(request('atomic_write_json', { ...valid, path: 'bad path' })), 2, 'ESCHEMA');
+  expectFailure(invoke(request('atomic_write_json', { ...valid, path: `${'a/'.repeat(16)}a` })), 3, 'EPATH');
+  expectFailure(invoke(request('atomic_write_json', { ...valid, root: 'locks' })), 3, 'EDENIED');
+  expectFailure(invoke(request('atomic_write_json', atomicJsonArgs('runtime', 'json-missing.json', { a: 1 }, false))), 4, 'ENOENT');
+});
+
+test('atomic_write_json reuses the shared publication engine for representative fault phases', () => {
+  const value = { a: 1 };
+  for (const [name, phase] of [['before_write', 'before_write'], ['after_write', 'after_write'], ['before_file_fsync', 'before_file_fsync']]) {
+    const run = invoke(request('atomic_write_json', atomicJsonArgs('persistent_state', `json-fault-${name}`, value)), { env: { Z2M_TEST_ATOMIC_FAULT: phase } });
+    expectFailure(run, 4, 'EIO');
+    assert.equal(wsl(['test', '-e', `${testRoot}/${roots.persistent_state}/json-fault-${name}`]).status, 1);
+  }
+  for (const phase of ['before_parent_fsync', 'after_rename']) {
+    const run = invoke(request('atomic_write_json', atomicJsonArgs('persistent_state', `json-uncertain-${phase}`, value), phase), { env: { Z2M_TEST_ATOMIC_FAULT: phase } });
+    expectCommitUnknown(run, phase);
+  }
 });
