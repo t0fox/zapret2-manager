@@ -279,7 +279,7 @@ test('canonical relative path rejects every forbidden form and enforces byte/com
     'a'.repeat(256), `${'a/'.repeat(16)}a`, 'a'.repeat(4097)];
   for (const pathValue of bad)
     expectFailure(invoke(request('stat_regular', { root: 'runtime', path: pathValue })), 3, 'EPATH', 'req-1', JSON.stringify(pathValue));
-  expectFailure(invoke(request('stat_regular', { root: 'runtime', path: 'aéb' })), 2, 'EMALFORMED', null, 'non-ASCII path');
+  expectFailure(invoke('{"protocolVersion":1,"requestId":"req-1","operation":"stat_regular","arguments":{"root":"runtime","path":"a\\u00e9b"}}'), 3, 'EPATH', 'req-1', 'non-ASCII path');
   const depth12 = Array(12).fill('a').join('/');
   const allowed = invoke(request('stat_regular', { root: 'runtime', path: depth12 }));
   expectFailure(allowed, 4, 'ENOENT');
