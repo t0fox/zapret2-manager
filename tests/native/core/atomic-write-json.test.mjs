@@ -85,7 +85,7 @@ function expectedResult(classification) {
 
 function requestWithValue(value) {
   return Buffer.from('{"protocolVersion":1,"requestId":"canonical-test",'
-    + '"operation":"atomic_write_json","arguments":{"root":"runtime",'
+    + '"operation":"atomic_write_json","arguments":{"root":"unknown",'
     + `"path":"canonical.json","value":${value},"mode":"0600","uid":0,`
     + '"gid":0,"allowCreate":true}}');
 }
@@ -238,20 +238,20 @@ test('canonical encoder allocation failures are internal, leak-free, and filesys
   assert.equal(readFileSync(sentinel, 'utf8'), 'unchanged');
 });
 
-test('request reader accepts an exact depth-64 canonical value inside its envelope', () => {
+test('request reader accepts an exact depth-64 canonical value before root selection', () => {
   const value = materializeGenerator({ kind: 'nested_object', depth: 64 });
   const run = invokeHelper(requestWithValue(value));
   assert.equal(run.status, 3, run.stderr);
-  assert.equal(run.response.error.code, 'EUNSUPPORTED');
-  assert.equal(run.response.error.stage, 'operation_dispatch');
+  assert.equal(run.response.error.code, 'EROOT');
+  assert.equal(run.response.error.stage, 'root_select');
 });
 
-test('request reader retains raw UTF-8 and scalar-distinct values through full construction', () => {
+test('request reader retains raw UTF-8 and scalar-distinct values through root selection', () => {
   for (const value of ['["é","é"]', '{"é":1,"é":2}']) {
     const run = invokeHelper(requestWithValue(value));
     assert.equal(run.status, 3, run.stderr);
-    assert.equal(run.response.error.code, 'EUNSUPPORTED');
-    assert.equal(run.response.error.stage, 'operation_dispatch');
+    assert.equal(run.response.error.code, 'EROOT');
+    assert.equal(run.response.error.stage, 'root_select');
   }
 });
 
@@ -267,8 +267,8 @@ test('request reader validates only the raw atomic_write_json value before json-
     kind: 'object_member_count', count: 1024,
   })));
   assert.equal(exactMembers.status, 3, exactMembers.stderr);
-  assert.equal(exactMembers.response.error.code, 'EUNSUPPORTED');
-  assert.equal(exactMembers.response.error.stage, 'operation_dispatch');
+  assert.equal(exactMembers.response.error.code, 'EROOT');
+  assert.equal(exactMembers.response.error.stage, 'root_select');
 
   const overMembers = invokeHelper(requestWithValue(materializeGenerator({
     kind: 'object_member_count', count: 1025,

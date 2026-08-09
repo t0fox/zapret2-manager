@@ -36,6 +36,7 @@ define Build/Compile
 		-std=c11 -Wall -Wextra -Werror -D_GNU_SOURCE \
 		$(PKG_BUILD_DIR)/atomic.c \
 		$(PKG_BUILD_DIR)/base64.c \
+		$(PKG_BUILD_DIR)/canonical.c \
 		$(PKG_BUILD_DIR)/errors.c \
 		$(PKG_BUILD_DIR)/files.c \
 		$(PKG_BUILD_DIR)/main.c \

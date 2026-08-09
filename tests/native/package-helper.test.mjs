@@ -22,6 +22,7 @@ const helperDir = 'zapret2-manager/src/z2m-core-helper';
 const productionSources = [
   'atomic.c',
   'base64.c',
+  'canonical.c',
   'errors.c',
   'files.c',
   'main.c',
