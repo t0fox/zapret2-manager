@@ -74,6 +74,18 @@ static void test_gate(const char *name)
 #endif
 }
 
+int z2m_sha256_fd_hex(int fd,size_t max_bytes,char hex[65])
+{
+	struct stat before,after;unsigned char buffer[16384],digest[32];size_t total=0;ssize_t got;
+	struct sha256 ctx={{0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19},0,{0},0};
+	if(fstat(fd,&before)<0||before.st_size<0||(uint64_t)before.st_size>(uint64_t)max_bytes){errno=EFBIG;return -1;}
+	if(lseek(fd,0,SEEK_SET)<0)return -1;
+	for(;;){do got=read(fd,buffer,sizeof(buffer));while(got<0&&errno==EINTR);if(got<0)return -1;if(got==0)break;if((uint64_t)total+(uint64_t)got>(uint64_t)max_bytes){errno=EFBIG;return -1;}update(&ctx,buffer,(size_t)got);total+=(size_t)got;}
+	if(fstat(fd,&after)<0)return -1;
+	if(total!=(size_t)before.st_size||!unchanged(&before,&after)){errno=EAGAIN;return -1;}
+	finish(&ctx,digest);for(size_t i=0;i<32;i++)snprintf(hex+i*2,3,"%02x",digest[i]);hex[64]='\0';return 0;
+}
+
 int z2m_sha256_regular(const struct z2m_request *request,const struct z2m_root *root,int root_fd)
 {
 	json_object *path_value,*maximum,*out;const char *path,*code;int64_t max;int fd;struct stat before,after;unsigned char buffer[16384],digest[32];size_t total=0;ssize_t got;char hex[65];
