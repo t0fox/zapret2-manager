@@ -34,4 +34,5 @@ jobs:
           TMPDIR: ${{ runner.temp }}/z2m-native
           UCODE_BIN: ${{ runner.temp }}/ucode/bin/ucode
           UCODE_LIBRARY_PATH: ${{ runner.temp }}/ucode/lib
+          UCODE_MODULE_PATH: ${{ runner.temp }}/ucode/lib/ucode
         run: scripts/test/native.sh
