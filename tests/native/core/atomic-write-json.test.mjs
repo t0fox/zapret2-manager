@@ -18,11 +18,14 @@ after(() => rmSync(temporaryRoot, { recursive: true, force: true }));
 
 before(() => {
   writeFileSync(sentinel, 'unchanged');
+  const jsonC = spawnSync('pkg-config', ['--cflags', '--libs', 'json-c'], { encoding: 'utf8' });
+  assert.equal(jsonC.status, 0, jsonC.stderr);
   const compile = spawnSync('cc', [
     '-std=c11', '-Wall', '-Wextra', '-Werror', '-D_GNU_SOURCE',
     '-I', sourceRoot,
     'tests/native/core/canonical-validator-fixture.c',
     `${sourceRoot}/canonical.c`,
+    ...jsonC.stdout.trim().split(/\s+/),
     '-o', binary,
   ], { encoding: 'utf8' });
   assert.equal(compile.status, 0, compile.stderr);
@@ -40,6 +43,12 @@ function inputFor(testCase) {
 
 function validate(input) {
   const run = spawnSync(binary, [], { input, encoding: 'utf8' });
+  assert.equal(run.status, 0, run.stderr);
+  return run.stdout.trim();
+}
+
+function construct(input) {
+  const run = spawnSync(binary, ['construct'], { input, encoding: 'utf8' });
   assert.equal(run.status, 0, run.stderr);
   return run.stdout.trim();
 }
@@ -95,6 +104,69 @@ test('direct raw validator fixture has no filesystem target or side effects', ()
   assert.equal(validate(Buffer.from('{"a":1,"\\u0061":2}')), 'ESCHEMA canonical_validate');
   assert.deepEqual(readdirSync(temporaryRoot).sort(), before);
   assert.equal(readFileSync(sentinel, 'utf8'), 'unchanged');
+});
+
+test('semantic constructor preserves every supported value through owned cleanup', () => {
+  const cases = [
+    ['null', 'null\tnull'],
+    ['true', 'boolean\ttrue'],
+    ['false', 'boolean\tfalse'],
+    ['0', 'int\t0'],
+    ['-0', 'int\t0'],
+    ['-1', 'int\t-1'],
+    ['-9223372036854775808', 'int\t-9223372036854775808'],
+    ['9223372036854775807', 'int\t9223372036854775807'],
+    ['"ordinary"', 'string\t"ordinary"'],
+    ['"é"', 'string\t"é"'],
+    ['"\\u0000"', 'string\t"\\u0000"'],
+    ['"\\ud83d\\ude00"', 'string\t"😀"'],
+    ['[null,false,0,"x",[],{}]', 'array\t[null,false,0,"x",[],{}]'],
+    ['{"outer":{"items":[true,-1,"é"]}}',
+      'object\t{"outer":{"items":[true,-1,"é"]}}'],
+    ['{"é":1,"é":2}', 'object\t{"é":1,"é":2}'],
+    ['["é","é"]', 'array\t["é","é"]'],
+  ];
+  for (const [input, expected] of cases)
+    assert.equal(construct(Buffer.from(input)), expected, input);
+});
+
+test('semantic construction rejects unsupported and information-losing raw values first', () => {
+  const cases = [
+    [Buffer.from('1.0'), 'ESCHEMA canonical_validate'],
+    [Buffer.from('['), 'EMALFORMED json_decode'],
+    [Buffer.from('{"a":1,"\\u0061":2}'), 'ESCHEMA canonical_validate'],
+    [Buffer.from('"\\ud800"'), 'ESCHEMA canonical_validate'],
+    [Buffer.from('9223372036854775808'), 'ESCHEMA canonical_validate'],
+    [Buffer.from('{"\\u0000":1}'), 'ESCHEMA canonical_validate'],
+    [Buffer.from([0x22, 0xff, 0x22]), 'EMALFORMED utf8'],
+  ];
+  for (const [input, expected] of cases)
+    assert.equal(construct(input), expected);
+
+  const double = spawnSync(binary, ['double'], { encoding: 'utf8' });
+  assert.equal(double.status, 0, double.stderr);
+  assert.equal(double.stdout.trim(), 'REJECTED');
+
+  const uint64 = spawnSync(binary, ['uint64'], { encoding: 'utf8' });
+  assert.equal(uint64.status, 0, uint64.stderr);
+  assert.equal(uint64.stdout.trim(), 'REJECTED');
+});
+
+test('request reader accepts an exact depth-64 canonical value inside its envelope', () => {
+  const value = materializeGenerator({ kind: 'nested_object', depth: 64 });
+  const run = invokeHelper(requestWithValue(value));
+  assert.equal(run.status, 3, run.stderr);
+  assert.equal(run.response.error.code, 'EUNSUPPORTED');
+  assert.equal(run.response.error.stage, 'operation_dispatch');
+});
+
+test('request reader retains raw UTF-8 and scalar-distinct values through full construction', () => {
+  for (const value of ['["é","é"]', '{"é":1,"é":2}']) {
+    const run = invokeHelper(requestWithValue(value));
+    assert.equal(run.status, 3, run.stderr);
+    assert.equal(run.response.error.code, 'EUNSUPPORTED');
+    assert.equal(run.response.error.stage, 'operation_dispatch');
+  }
 });
 
 test('request reader validates only the raw atomic_write_json value before json-c construction', () => {
@@ -169,8 +241,8 @@ test('forbidden whitespace cannot bypass framing when operation follows argument
 test('pre-construction token handling is project-local and canonical validation is ordered first', () => {
   const source = readFileSync(`${sourceRoot}/protocol.c`, 'utf8');
   const construction = source.indexOf('request->document = json_tokener_parse_ex');
-  const canonicalValidation = source.indexOf('!z2m_canonical_validate');
-  assert.ok(canonicalValidation >= 0 && construction > canonicalValidation);
+  const canonicalBoundary = source.indexOf('!z2m_canonical_construct');
+  assert.ok(canonicalBoundary >= 0 && construction > canonicalBoundary);
   const preConstruction = source.slice(0, construction);
   assert.doesNotMatch(preConstruction, /\bjson_tokener_parse\s*\(/);
   assert.doesNotMatch(preConstruction, /\bisspace\s*\(/);
