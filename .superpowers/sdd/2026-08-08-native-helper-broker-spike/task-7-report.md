@@ -801,3 +801,93 @@ node --test tests/native/bootstrap.test.mjs tests/native/package-helper.test.mjs
 - Exact-target QEMU key processing has a high constant factor despite linear
   scaling. The performance assertion therefore combines ratios with a 30-second
   40k cap rather than extrapolating a native-hardware deadline.
+
+## Performance Regression Gate Correction
+
+### Scope And Baseline
+
+This follow-up changes only the object-key scanning quality regression test. No
+production file, Task 8 code, or M4 code changed.
+
+The requested `3599099` RED baseline was checked in an isolated detached
+worktree before editing the current branch. It cannot be a truthful RED baseline:
+`3599099` is the commit that introduced the current linear object-key scanner.
+The object-key scanning code is unchanged between `3599099` and current HEAD;
+the only production difference is canonical base64 validation. The identical
+new test therefore correctly passes on `3599099`:
+
+```text
+3599099 host counts 10000/20000/40000
+samples: 437/417/427, 848/825/826, 1664/1673/1711 ms
+medians: 427/826/1673 ms
+normalized 20k->40k growth: 1.013
+PASS
+```
+
+With explicit approval, A/B uses the actual pre-fix parent `8b084e2`, whose
+`decode_key()` grows strings one byte at a time and exhibits the object-key
+complexity regression.
+
+### Adversarial Input And Gate
+
+- One object contains only unique sibling keys, so no early duplicate rejection
+  can hide scan cost.
+- Every key has the same eight-byte shape, `k` plus seven decimal digits.
+- Every value is the scalar `0`; no base64, large-string, nested-container, or
+  semantic materialization path dominates the measurement.
+- The largest host payload is about 508 KiB plus the small response envelope,
+  well below the 6 MiB protocol limit.
+- Host measures 10k/20k/40k in three rounds and uses each size's median.
+- Timing starts only after the response frame has been sent, excluding frame
+  construction, socket setup, and ucode process startup.
+- The assertion is dimensionless: both adjacent normalized doubling ratios must
+  be below 1.2. It has no global performance threshold and therefore does not
+  depend on a particular CPU speed.
+- QEMU runs smaller 500/1k/2k evidence points once and intentionally makes no
+  timing assertion because emulation scheduling is noisy.
+
+### Mandatory A/B Evidence
+
+The same test block failed on actual pre-fix `8b084e2` and passed on current
+HEAD without production changes:
+
+```text
+8b084e2 host counts 10000/20000/40000
+samples: 851/833/831, 2053/2101/2084, 5699/5814/5566 ms
+medians: 833/2084/5699 ms
+normalized adjacent growth: 1.251/1.367 (limit 1.2)
+FAIL: fixed-width key doubling was superlinear
+
+current HEAD host counts 10000/20000/40000
+full-suite samples: 420/463/414, 836/832/856, 1699/1753/1683 ms
+full-suite medians: 420/836/1699 ms
+normalized adjacent growth: 0.995/1.016 (limit 1.2)
+PASS
+```
+
+The old ratios exceed the limit by 0.051 and 0.167; current ratios remain 0.205
+and 0.184 below it. Repeated old samples cluster tightly and fail by scaling
+ratio, not by timeout.
+
+Exact-target evidence also separates the implementations:
+
+```text
+8b084e2 AArch64/QEMU counts 500/1000/2000: 2687/7008/22200 ms
+normalized adjacent growth: 1.304/1.584
+
+current HEAD AArch64/QEMU full suite: 327/604/1192 ms
+normalized adjacent growth: 0.924/0.987
+```
+
+### Final Verification
+
+```text
+Task 7 host adapter: 35/35 PASS
+Exact-target AArch64 adapter: 35/35 PASS
+Production broker regressions: 42/42 PASS
+Root-required suite: 97/97 PASS
+Lifecycle/package suite: 40/40 PASS
+Strict host build (-std=c11 -Wall -Wextra -Werror): PASS
+Strict AArch64 build (-std=c11 -Wall -Wextra -Werror): PASS
+git diff --check: PASS
+```

@@ -27,8 +27,8 @@ define Build/Prepare
 	mkdir -p $(PKG_BUILD_DIR)
 	$(CP) ./src/z2m-core-helper/* $(PKG_BUILD_DIR)/
 	$(CP) ./src/z2m-root-bootstrap.c $(PKG_BUILD_DIR)/
-	mkdir -p $(PKG_BUILD_DIR)/z2m-helperd
-	$(CP) ./src/z2m-helperd/* $(PKG_BUILD_DIR)/z2m-helperd/
+	mkdir -p $(PKG_BUILD_DIR)/z2m-helperd-src
+	$(CP) ./src/z2m-helperd/* $(PKG_BUILD_DIR)/z2m-helperd-src/
 endef
 
 define Build/Compile
@@ -53,9 +53,9 @@ define Build/Compile
 		-o $(PKG_BUILD_DIR)/z2m-root-bootstrap
 	$(TARGET_CC) $(TARGET_CPPFLAGS) $(TARGET_CFLAGS) \
 		-std=c11 -Wall -Wextra -Werror -D_GNU_SOURCE \
-		$(PKG_BUILD_DIR)/z2m-helperd/z2m-helperd.c \
-		$(PKG_BUILD_DIR)/z2m-helperd/transport.c \
-		$(PKG_BUILD_DIR)/z2m-helperd/supervise.c \
+		$(PKG_BUILD_DIR)/z2m-helperd-src/z2m-helperd.c \
+		$(PKG_BUILD_DIR)/z2m-helperd-src/transport.c \
+		$(PKG_BUILD_DIR)/z2m-helperd-src/supervise.c \
 		$(TARGET_LDFLAGS) -ljson-c \
 		-o $(PKG_BUILD_DIR)/z2m-helperd
 endef

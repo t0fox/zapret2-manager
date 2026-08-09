@@ -537,26 +537,30 @@ test('dense unknown arrays and objects are rejected in linear time without seman
 });
 
 test('unique short object-key scanning scales linearly', async () => {
-  const timings = [];
-  for (const count of [10000, 20000, 40000]) {
-    const unknown = `{${Array.from({ length: count }, (_, i) => `"k${i}":0`).join(',')}}`;
-    const startedAt = Date.now();
-    const rejected = await roundTrip(`native.read_regular('jobs', 'keys', 1)`, ({ header }) => ({
-      wire: childExited(header.requestId,
-        `{"protocolVersion":1,"requestId":"${header.requestId}","ok":true,"data":${unknown}}\n`),
-    }), {}, process.env.UCODE_ARGS_PIPE ? 60000 : 15000);
-    const elapsed = Date.now() - startedAt;
-    assert.equal(rejected.result.error.code, 'EINTERNAL');
-    assert.ok(elapsed < (process.env.UCODE_ARGS_PIPE ? 30000 : 5000),
-      `${count} keys took ${elapsed}ms`);
-    timings.push(elapsed);
+  const counts = process.env.UCODE_ARGS_PIPE ? [500, 1000, 2000] : [10000, 20000, 40000];
+  const samples = counts.map(() => []);
+  const rounds = process.env.UCODE_ARGS_PIPE ? 1 : 3;
+  for (let round = 0; round < rounds; round++) {
+    for (let size = 0; size < counts.length; size++) {
+      const count = counts[size];
+      const unknown = `{${Array.from({ length: count }, (_, i) =>
+        `"k${String(i).padStart(7, '0')}":0`).join(',')}}`;
+      let sentAt;
+      const rejected = await roundTrip(`native.read_regular('jobs', 'keys', 1)`, ({ header }) => ({
+        wire: childExited(header.requestId,
+          `{"protocolVersion":1,"requestId":"${header.requestId}","ok":true,"data":${unknown}}\n`),
+        onSent: () => { sentAt = Date.now(); },
+      }), {}, process.env.UCODE_ARGS_PIPE ? 60000 : 15000);
+      samples[size].push(Date.now() - sentAt);
+      assert.equal(rejected.result.error.code, 'EINTERNAL');
+    }
   }
-  const allowance = process.env.UCODE_ARGS_PIPE ? 2500 : 250;
-  console.log(`OBJECT_KEY_SCALING_MS=${timings.join(',')}`);
-  assert.ok(timings[1] <= timings[0] * 3 + allowance,
-    `10k/20k key scaling was ${timings.join('/')}ms`);
-  assert.ok(timings[2] <= timings[1] * 3 + allowance,
-    `20k/40k key scaling was ${timings.join('/')}ms`);
+  const timings = samples.map(values => values.toSorted((a, b) => a - b)[Math.floor(values.length / 2)]);
+  const growth = [timings[1] / (2 * timings[0]), timings[2] / (2 * timings[1])];
+  console.log(`OBJECT_KEY_SCALING_COUNTS=${counts.join(',')} SAMPLES_MS=${samples.map(v => v.join('/')).join(',')} MEDIANS_MS=${timings.join(',')} NORMALIZED_2X_GROWTH=${growth.map(v => v.toFixed(3)).join(',')}`);
+  if (!process.env.UCODE_ARGS_PIPE)
+    assert.ok(Math.max(...growth) < 1.2,
+      `fixed-width key doubling was superlinear: ${timings.join('/')}ms (${growth.map(v => v.toFixed(3)).join('/')} normalized)`);
 });
 
 test('production transport matrix rejects impossible unknown and accepts only serialized combinations', async () => {

@@ -33,6 +33,14 @@ const productionSources = [
 ];
 const brokerSources = ['z2m-helperd.c', 'transport.c', 'supervise.c'];
 const nativeHelperAdapterPath = 'zapret2-manager/files/usr/libexec/zapret2-manager/core/native-helper.uc';
+
+test('core helper does not mix libc and Linux UAPI statx declarations', () => {
+  assert.match(fs.readFileSync(`${helperDir}/helper.h`, 'utf8'), /#include <sys\/stat\.h>/);
+  for (const source of ['atomic.c', 'files.c', 'mkdir.c', 'roots.c'])
+    assert.doesNotMatch(fs.readFileSync(`${helperDir}/${source}`, 'utf8'), /#include <linux\/stat\.h>/,
+      `${source} must not redeclare libc-owned statx structures through Linux UAPI headers`);
+});
+
 function block(name) {
   const match = new RegExp(`define ${name}\\n([\\s\\S]*?)\\nendef`).exec(makefile);
   assert.ok(match, `${name} must be defined`);
@@ -547,6 +555,24 @@ test('compiled package does not claim architecture all', () => {
     'compiled manager package must not claim architecture all');
 });
 
+test('broker source staging is distinct from the installed executable output', () => {
+  const prepare = block('Build/Prepare');
+  const compile = block('Build/Compile');
+  const install = block('Package/zapret2-manager/install');
+  const sourceDir = /mkdir -p (\$\(PKG_BUILD_DIR\)\/[^\s]+)\n\s*\$\(CP\) \.\/src\/z2m-helperd\/\* \1\//.exec(prepare)?.[1];
+  const output = /-o\s+(\$\(PKG_BUILD_DIR\)\/[^\s]+)/g;
+  const outputs = [...compile.matchAll(output)].map((match) => match[1]);
+  const brokerOutput = outputs.at(-1);
+
+  assert.ok(sourceDir, 'Build/Prepare must stage broker sources in one package-build directory');
+  assert.ok(brokerOutput, 'Build/Compile must produce the broker executable under PKG_BUILD_DIR');
+  assert.notEqual(sourceDir, brokerOutput,
+    'broker source staging directory cannot also be the linker output path');
+  assert.ok(install.includes(
+    `$(INSTALL_BIN) ${brokerOutput} $(1)/usr/libexec/zapret2-manager/z2m-helperd`),
+    'package must install the broker executable output at its fixed libexec path');
+});
+
 test('package strictly target-builds and installs only the production broker binary', () => {
   const prepare = block('Build/Prepare');
   assert.match(prepare, /src\/z2m-helperd/,
@@ -554,7 +580,7 @@ test('package strictly target-builds and installs only the production broker bin
 
   const compile = block('Build/Compile');
   for (const source of brokerSources)
-    assert.match(compile, new RegExp(`\\$\\(PKG_BUILD_DIR\\)/z2m-helperd/${source.replace('.', '\\.')}\\b`),
+    assert.match(compile, new RegExp(`\\$\\(PKG_BUILD_DIR\\)/z2m-helperd-src/${source.replace('.', '\\.')}\\b`),
       `broker build must compile exactly ${source}`);
   for (const flag of ['-std=c11', '-Wall', '-Wextra', '-Werror', '-D_GNU_SOURCE'])
     assert.ok(compile.includes(flag), `broker compilation must use ${flag}`);
