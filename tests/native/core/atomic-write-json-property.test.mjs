@@ -34,8 +34,12 @@ function request(value, target, rootName = 'runtime') {
 }
 
 function invoke(value, target, env = {}, rootName = 'runtime') {
+  return invokeRequest(request(value, target, rootName), env);
+}
+
+function invokeRequest(input, env = {}) {
   const run = spawnSync(helper, [], {
-    input: request(value, target, rootName),
+    input,
     env: { ...process.env, Z2M_TEST_ROOT_PREFIX: prefix, ...env },
     encoding: null,
     maxBuffer: 16 * 1024 * 1024,
@@ -45,6 +49,12 @@ function invoke(value, target, env = {}, rootName = 'runtime') {
   let response = null;
   try { response = JSON.parse(stdout); } catch {}
   return { ...run, stdout, stderr: run.stderr.toString('utf8'), response };
+}
+
+function sizedRequest(value, targetBytes, target = 'request-boundary.json') {
+  const base = request(value, target);
+  assert.ok(targetBytes >= base.length, `request base exceeds ${targetBytes} bytes`);
+  return Buffer.concat([base, Buffer.alloc(targetBytes - base.length, 0x20)]);
 }
 
 function targetPath(rootName, target) {
@@ -78,6 +88,44 @@ function hash(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
+function evidenceField(evidence, name) {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const matches = [...evidence.matchAll(new RegExp(`^${escaped}: (.*)$`, 'gm'))];
+  assert.equal(matches.length, 1, `evidence field ${name} must appear exactly once`);
+  return matches[0][1];
+}
+
+function parseExactTargetTap(tap) {
+  const lines = tap.trimEnd().split('\n');
+  assert.equal(lines[0], 'TAP version 13');
+  const plans = lines.filter(line => /^1\.\.\d+(?: # .+)?$/.test(line));
+  assert.equal(plans.length, 1, 'TAP must have one plan');
+  const planned = Number(/^1\.\.(\d+)/.exec(plans[0])[1]);
+  const points = [];
+  for (const line of lines) {
+    const skip = /^(not )?ok (\d+) - (.*?) # SKIP (.+)$/.exec(line);
+    if (skip) {
+      points.push({ ok: !skip[1], number: Number(skip[2]), name: skip[3], skip: skip[4] });
+      continue;
+    }
+    const point = /^(not )?ok (\d+) - (.+)$/.exec(line);
+    if (point) points.push({ ok: !point[1], number: Number(point[2]), name: point[3] });
+  }
+  assert.equal(points.length, planned, 'TAP point count must match plan');
+  return {
+    planned,
+    passed: points.filter(point => point.ok && !point.skip).length,
+    failed: points.filter(point => !point.ok).length,
+    skipped: points.filter(point => point.skip).length,
+    points,
+  };
+}
+
+function assertNoCandidates(rootName, target) {
+  const parent = path.dirname(targetPath(rootName, target));
+  assert.deepEqual(fs.readdirSync(parent).filter(name => name.startsWith('.z2m-write-')), []);
+}
+
 function setupRoot() {
   fs.mkdirSync(buildRoot, { recursive: true, mode: 0o700 });
   fs.mkdirSync(prefix, { recursive: true, mode: 0o700 });
@@ -95,14 +143,61 @@ function setupRoot() {
 test('Task H exact-target evidence records a result', () => {
   const evidence = fs.readFileSync(
     'tests/native/core/atomic-write-json-exact-target-evidence.txt', 'utf8');
-  assert.match(evidence, /^Exact-target result: (PASS|NOT RUN)$/m);
-  assert.match(evidence, /^Executed input commit: [0-9a-f]{40}$/m);
-  assert.match(evidence, /^SHA256 canonical corpus: [0-9a-f]{64}$/m);
-  assert.match(evidence, /^SHA256 mutation corpus: [0-9a-f]{64}$/m);
-  assert.match(evidence, /^Pass count: [0-9]+$/m);
-  assert.match(evidence, /^Fail count: [0-9]+$/m);
-  assert.match(evidence, /^Skip count: [0-9]+$/m);
-  assert.match(evidence, /^SHA256 raw TAP artifact: (NOT RUN|[0-9a-f]{64})$/m);
+  const result = evidenceField(evidence, 'Exact-target result');
+  assert.ok(['PASS', 'NOT RUN'].includes(result));
+  assert.equal(evidenceField(evidence, 'STATUS'), result);
+  assert.match(evidenceField(evidence, 'Executed input commit'), /^[0-9a-f]{40}$/);
+  for (const [field, file] of [
+    ['SHA256 canonical corpus', 'tests/native/core/canonical-json-v1-vectors.json'],
+    ['SHA256 mutation corpus', 'tests/native/core/canonical-json-v1-mutations.json'],
+    ['SHA256 canonical.c', 'zapret2-manager/src/z2m-core-helper/canonical.c'],
+    ['SHA256 property test', 'tests/native/core/atomic-write-json-property.test.mjs'],
+  ]) assert.equal(evidenceField(evidence, field), hash(fs.readFileSync(file)), field);
+  assert.match(evidenceField(evidence, 'SHA256 host strict helper'), /^[0-9a-f]{64}$/);
+  assert.match(evidenceField(evidence, 'SHA256 host sanitizer fixture'), /^[0-9a-f]{64}$/);
+  for (const field of [
+    'Host strict build command', 'Host strict build result',
+    'Host sanitizer build command', 'Host sanitizer build result',
+    'Host sanitizer test command', 'Host sanitizer test result',
+  ]) assert.ok(evidenceField(evidence, field).length > 0);
+  assert.equal(evidenceField(evidence, 'Host strict build result'), 'PASS');
+  assert.equal(evidenceField(evidence, 'Host sanitizer build result'), 'PASS');
+  assert.equal(evidenceField(evidence, 'Host sanitizer test result'), 'PASS');
+
+  const tapFile = evidenceField(evidence, 'Raw TAP artifact');
+  const tap = parseExactTargetTap(fs.readFileSync(tapFile, 'utf8'));
+  assert.equal(evidenceField(evidence, 'SHA256 raw TAP artifact'), hash(fs.readFileSync(tapFile)));
+  assert.equal(Number(evidenceField(evidence, 'Exact-target planned count')), tap.planned);
+  assert.equal(Number(evidenceField(evidence, 'Exact-target pass count')), tap.passed);
+  assert.equal(Number(evidenceField(evidence, 'Exact-target fail count')), tap.failed);
+  assert.equal(Number(evidenceField(evidence, 'Exact-target skip count')), tap.skipped);
+
+  if (result === 'NOT RUN') {
+    const reason = evidenceField(evidence, 'Exact-target reason');
+    const missing = evidenceField(evidence, 'Missing exact-target variables').split(/\s+/);
+    assert.ok(missing.length > 0 && missing.every(Boolean));
+    assert.equal(tap.planned, 1);
+    assert.equal(tap.passed, 0);
+    assert.equal(tap.failed, 0);
+    assert.equal(tap.skipped, 1);
+    assert.equal(tap.points[0].skip,
+      `exact-target NOT RUN: ${reason}; missing variables: ${missing.join(' ')}`);
+    assert.equal(evidenceField(evidence, 'Artifact architecture'), 'AArch64 musl, NOT RUN');
+    for (const field of [
+      'SHA256 packaged z2m-core-helper', 'SHA256 package APK',
+      'SHA256 target package Makefile',
+    ]) assert.equal(evidenceField(evidence, field), 'NOT RUN');
+  } else {
+    assert.ok(tap.planned > 0);
+    assert.ok(tap.passed > 0);
+    assert.equal(tap.failed, 0);
+    assert.equal(tap.skipped, 0);
+    assert.equal(evidenceField(evidence, 'Artifact architecture'), 'AArch64 musl');
+    for (const field of [
+      'SHA256 packaged z2m-core-helper', 'SHA256 package APK',
+      'SHA256 target package Makefile',
+    ]) assert.match(evidenceField(evidence, field), /^[0-9a-f]{64}$/);
+  }
 });
 
 test.before(() => {
@@ -165,6 +260,51 @@ test('production accepts every exact frozen bound and rejects the first value ov
   }
 });
 
+test('production helper accepts the request wire limit and rejects one byte over', () => {
+  const target = 'property-request-bytes.json';
+  const expected = Buffer.from('{"a":1}');
+  const exact = invokeRequest(sizedRequest('{"a":1}', LIMITS.requestBytes, target));
+  expectSuccess(exact, expected);
+  assert.deepEqual(fs.readFileSync(targetPath('runtime', target)), expected);
+
+  const overTarget = 'property-request-bytes-over.json';
+  const before = snapshot(targetPath('runtime', overTarget));
+  const over = invokeRequest(sizedRequest('{"a":1}', LIMITS.requestBytes + 1, overTarget));
+  expectValidationFailure(over, 'EREQUESTTOOBIG', 'request_size');
+  assert.deepEqual(snapshot(targetPath('runtime', overTarget)), before);
+  assertNoCandidates('runtime', overTarget);
+});
+
+test('production helper enforces the global member limit across nested objects', () => {
+  const exactValue = materializeGenerator({ kind: 'global_member_count', count: LIMITS.members });
+  const exactTarget = 'property-global-members-exact.json';
+  const exact = invoke(exactValue, exactTarget);
+  expectSuccess(exact, Buffer.from(canonicalizeReference(exactValue)));
+
+  const overValue = materializeGenerator({ kind: 'global_member_count', count: LIMITS.members + 1 });
+  const overTarget = 'property-global-members-over.json';
+  const before = snapshot(targetPath('runtime', overTarget));
+  const over = invoke(overValue, overTarget);
+  expectValidationFailure(over);
+  assert.deepEqual(snapshot(targetPath('runtime', overTarget)), before);
+  assertNoCandidates('runtime', overTarget);
+});
+
+test('production helper enforces decoded UTF-8 key byte boundaries', () => {
+  const exactValue = materializeGenerator({ kind: 'key_utf8_bytes', bytes: LIMITS.keyBytes });
+  const exactTarget = 'property-utf8-key-exact.json';
+  const exact = invoke(exactValue, exactTarget);
+  expectSuccess(exact, Buffer.from(canonicalizeReference(exactValue)));
+
+  const overValue = materializeGenerator({ kind: 'key_utf8_bytes', bytes: LIMITS.keyBytes + 1 });
+  const overTarget = 'property-utf8-key-over.json';
+  const before = snapshot(targetPath('runtime', overTarget));
+  const over = invoke(overValue, overTarget);
+  expectValidationFailure(over);
+  assert.deepEqual(snapshot(targetPath('runtime', overTarget)), before);
+  assertNoCandidates('runtime', overTarget);
+});
+
 test('production mutation corpus rejects before filesystem side effects', () => {
   for (const [index, mutation] of mutations.entries()) {
     const value = mutation.inputBytesHex ? Buffer.from(mutation.inputBytesHex, 'hex') : mutation.input;
@@ -179,15 +319,21 @@ test('production mutation corpus rejects before filesystem side effects', () => 
   }
 });
 
-test('production allocation failures remain publication-free', () => {
+test('production allocator failures fail closed without publication artifacts', () => {
   for (let failAfter = 1; failAfter <= 20; failAfter++) {
     const target = `property-alloc-${failAfter}.json`;
     const before = snapshot(targetPath('runtime', target));
     const run = invoke('{"a":1}', target, {
       Z2M_TEST_ALLOC_FAIL_AFTER: String(failAfter),
     });
-    assert.notEqual(run.status, 0, `allocation ${failAfter} unexpectedly succeeded`);
+    assert.notEqual(run.status, null, `allocation ${failAfter} timed out`);
+    assert.equal(run.signal, null, `allocation ${failAfter} crashed`);
+    assert.equal(run.error, undefined, `allocation ${failAfter} failed to spawn`);
+    assert.equal(run.status, 74, `allocation ${failAfter} exit status`);
+    assert.equal(run.stdout, '', `allocation ${failAfter} emitted partial output`);
+    assert.equal(run.response, null, `allocation ${failAfter} emitted a partial response`);
     assert.deepEqual(snapshot(targetPath('runtime', target)), before, `allocation ${failAfter}`);
+    assertNoCandidates('runtime', target);
   }
 });
 
@@ -217,11 +363,14 @@ test('production JSON publication matches every atomic fault and uncertainty pha
     'before_final_verify', 'after_final_verify'];
   for (const phase of uncertain) {
     const target = `property-uncertain-${phase}.json`;
+    const before = snapshot(targetPath('persistent_state', target));
     const run = invoke(value, target, { Z2M_TEST_ATOMIC_FAULT: phase }, 'persistent_state');
     assert.equal(run.status, 6, run.stderr || run.stdout);
     assert.equal(run.response?.error?.code, 'ECOMMITUNKNOWN', phase);
     assert.equal(run.response?.error?.stage, 'directory_fsync');
     assert.deepEqual(fs.readFileSync(targetPath('persistent_state', target)), expected, phase);
+    assertNoCandidates('persistent_state', target);
+    assert.notDeepEqual(snapshot(targetPath('persistent_state', target)), before, phase);
   }
   const fsyncTarget = 'property-uncertain-directory-fsync.json';
   const fsyncRun = invoke(value, fsyncTarget, {
@@ -230,4 +379,5 @@ test('production JSON publication matches every atomic fault and uncertainty pha
   assert.equal(fsyncRun.status, 6, fsyncRun.stderr || fsyncRun.stdout);
   assert.equal(fsyncRun.response?.error?.code, 'ECOMMITUNKNOWN');
   assert.deepEqual(fs.readFileSync(targetPath('persistent_state', fsyncTarget)), expected);
+  assertNoCandidates('persistent_state', fsyncTarget);
 });
