@@ -58,8 +58,10 @@ function requestWithValue(value) {
     + '"gid":0,"allowCreate":true}}');
 }
 
-function invokeHelper(input) {
-  const run = spawnSync(helperBinary, [], { input, encoding: 'utf8' });
+function invokeHelper(input, env = {}) {
+  const run = spawnSync(helperBinary, [], {
+    input, encoding: 'utf8', env: { ...process.env, ...env },
+  });
   return { status: run.status, response: JSON.parse(run.stdout), stderr: run.stderr };
 }
 
@@ -128,4 +130,57 @@ test('request reader validates only the raw atomic_write_json value before json-
   assert.equal(trailing.status, 2, trailing.stderr);
   assert.equal(trailing.response.error.code, 'EMALFORMED');
   assert.equal(trailing.response.error.stage, 'trailing_data');
+});
+
+test('non-atomic arguments.value retains legacy duplicate classification', () => {
+  const run = invokeHelper(Buffer.from('{"protocolVersion":1,"requestId":"legacy-value",'
+    + '"operation":"rename_owned","arguments":{"root":"runtime","fromPath":"a",'
+    + '"toPath":"b","ownershipToken":"'
+    + `${'0'.repeat(64)}","replace":false,"value":{"a":1,"a":2}}}`));
+  assert.equal(run.status, 2, run.stderr);
+  assert.equal(run.response.requestId, null);
+  assert.equal(run.response.error.code, 'EMALFORMED');
+  assert.equal(run.response.error.stage, 'json_decode');
+});
+
+test('non-atomic operation-last arguments.value retains legacy limit classification', () => {
+  const value = materializeGenerator({ kind: 'object_member_count', count: 1026 });
+  const run = invokeHelper(Buffer.from('{"protocolVersion":1,"requestId":"legacy-limit",'
+    + '"arguments":{"root":"runtime","fromPath":"a","toPath":"b",'
+    + `"ownershipToken":"${'0'.repeat(64)}","replace":false,"value":${value}},`
+    + '"operation":"rename_owned"}'));
+  assert.equal(run.status, 2, run.stderr);
+  assert.equal(run.response.requestId, null);
+  assert.equal(run.response.error.code, 'ESCHEMA');
+  assert.equal(run.response.error.stage, 'schema');
+});
+
+test('forbidden whitespace cannot bypass framing when operation follows arguments', () => {
+  const run = invokeHelper(Buffer.from('{"protocolVersion":1,"requestId":"late-operation",'
+    + '"arguments":{"root":"runtime","path":"canonical.json","value":\v1.0,'
+    + '"mode":"0600","uid":0,"gid":0,"allowCreate":true},'
+    + '"operation":"atomic_write_json"}'));
+  assert.equal(run.status, 2, run.stderr);
+  assert.equal(run.response.requestId, null);
+  assert.equal(run.response.error.code, 'EMALFORMED');
+  assert.equal(run.response.error.stage, 'json_decode');
+});
+
+test('pre-construction token handling is project-local and canonical validation is ordered first', () => {
+  const source = readFileSync(`${sourceRoot}/protocol.c`, 'utf8');
+  const construction = source.indexOf('request->document = json_tokener_parse_ex');
+  const canonicalValidation = source.indexOf('!z2m_canonical_validate');
+  assert.ok(canonicalValidation >= 0 && construction > canonicalValidation);
+  const preConstruction = source.slice(0, construction);
+  assert.doesNotMatch(preConstruction, /\bjson_tokener_parse\s*\(/);
+  assert.doesNotMatch(preConstruction, /\bisspace\s*\(/);
+});
+
+test('canonical key vector growth checks doubling before multiplication', () => {
+  const source = readFileSync(`${sourceRoot}/canonical.c`, 'utf8');
+  const start = source.indexOf('static bool add_key(');
+  const end = source.indexOf('\nstatic bool close_object(', start);
+  const addKey = source.slice(start, end);
+  assert.doesNotMatch(addKey, /key_capacity\s*\*\s*2U/);
+  assert.match(addKey, /key_capacity\s*>\s*SIZE_MAX\s*\/\s*2U/);
 });
