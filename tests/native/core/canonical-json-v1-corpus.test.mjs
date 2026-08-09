@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vectors from './canonical-json-v1-vectors.json' with { type: 'json' };
 import mutations from './canonical-json-v1-mutations.json' with { type: 'json' };
+import * as canonicalOracle from './canonical-json-v1-oracle.mjs';
 import {
   LIMITS, canonicalizeReference, canonicalizeValue, compareCodePointKeys,
   compareUtf16Keys, compareUtf8Keys, deterministicValues, expectedBytes,
@@ -58,7 +59,7 @@ test('accepted vectors match the independent contract oracle', () => {
   for (const vector of vectors.accept) {
     const input = inputFor(vector);
     const expected = expectedFor(vector, input);
-    assert.equal(expected.length <= LIMITS.outputBytes, true, vector.id);
+    assert.equal(Buffer.byteLength(expected) <= LIMITS.outputBytes, true, vector.id);
     if (vector.expectedGenerator?.kind !== 'reference')
       assert.equal(canonicalizeReference(input), expected, vector.id);
     else assert.equal(expected, canonicalizeReference(input), vector.id);
@@ -77,6 +78,14 @@ test('rejected vectors carry a deterministic failure class without production im
   }
 });
 
+test('every rejected vector and mutation is rejected by the independent contract model', () => {
+  for (const vector of [...vectors.reject, ...mutations]) {
+    const input = vector.inputBytesHex ? Buffer.from(vector.inputBytesHex, 'hex') : inputFor(vector);
+    const classification = canonicalOracle.classifyReference?.(input);
+    assert.deepEqual(classification, { valid: false, class: vector.class }, vector.id);
+  }
+});
+
 test('ordering oracle is UTF-8 byte lexical and exposes UTF-16 and code-point traps', () => {
   const supplementary = '\ud800\udc00';
   const privateUse = '\ue000';
@@ -86,6 +95,10 @@ test('ordering oracle is UTF-8 byte lexical and exposes UTF-16 and code-point tr
   assert.ok(compareUtf8Keys('Z', 'a') < 0);
   assert.ok(compareUtf8Keys('a', 'aa') < 0);
   assert.ok(compareUtf8Keys('e\u0301', '\u00e9') < 0);
+});
+
+test('ordinary entries array properties do not collide with parsed objects', () => {
+  assert.equal(canonicalizeValue({ entries: [1, 2] }), '{"entries":[1,2]}');
 });
 
 test('deterministic boundary generators materialize exact frozen limits', () => {
@@ -101,6 +114,18 @@ test('deterministic boundary generators materialize exact frozen limits', () => 
   }
   const value = '0';
   assert.equal(Buffer.byteLength(makeRequestWithValue(value, LIMITS.requestBytes)), LIMITS.requestBytes);
+});
+
+test('boundary generators distinguish UTF-8 key bytes and globally split members', () => {
+  const keyInput = materializeGenerator({ kind: 'key_utf8_bytes', bytes: LIMITS.keyBytes });
+  const key = Object.keys(JSON.parse(keyInput))[0];
+  assert.equal(key.length, LIMITS.keyBytes / 2);
+  assert.equal(Buffer.byteLength(key), LIMITS.keyBytes);
+
+  const memberInput = materializeGenerator({ kind: 'global_member_count', count: LIMITS.members });
+  const objects = JSON.parse(memberInput);
+  assert.equal(objects.length, 2);
+  assert.equal(objects.reduce((total, object) => total + Object.keys(object).length, 0), LIMITS.members);
 });
 
 test('bounded deterministic properties preserve canonical fixed points and arrays', () => {
