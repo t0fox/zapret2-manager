@@ -1,0 +1,2 @@
+TAP version 13
+1..0 # SKIP exact-target NOT RUN: required environment is absent
