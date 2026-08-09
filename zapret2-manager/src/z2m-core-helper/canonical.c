@@ -355,7 +355,16 @@ static bool add_key(struct canonical_scan *scan, struct canonical_frame *frame,
 	}
 	scan->members++;
 	if (frame->key_count == frame->key_capacity) {
-		next = frame->key_capacity == 0 ? 8U : frame->key_capacity * 2U;
+		if (frame->key_capacity == 0)
+			next = 8U;
+		else {
+			if (frame->key_capacity > SIZE_MAX / 2U) {
+				free(key->data);
+				key->data = NULL;
+				return reject_internal(scan);
+			}
+			next = frame->key_capacity + frame->key_capacity;
+		}
 		if (next > Z2M_CANONICAL_MAX_MEMBERS)
 			next = Z2M_CANONICAL_MAX_MEMBERS;
 		if (next > SIZE_MAX / sizeof(*grown)) {
