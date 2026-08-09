@@ -527,6 +527,43 @@ test('mkdir_private validates root mount capability before attempting flock', ()
   assert.equal(wsl(['test', '-e', `${testRoot}/${roots.runtime}/mount-before-lock`]).status, 1);
 });
 
+test('atomic_write preserves legacy mount and lock ordering around path validation', async () => {
+  const tooDeep = Array.from({ length: 13 }, () => 'a').join('/');
+  const args = atomicArgs('runtime', tooDeep, Buffer.from('new'));
+  const holder = spawnInvoke(request('atomic_write', atomicArgs('runtime', 'legacy-lock-holder', Buffer.from('old')), 'legacy-holder'), {
+    env: { Z2M_TEST_STOP_AFTER_LOCK: '1' },
+  });
+  const holderResult = collect(holder);
+  const pid = await waitStopped(holder);
+
+  const contended = invoke(request('atomic_write', args, 'legacy-contended'), {
+    env: { Z2M_TEST_LOCK_ORDER_TRACE: '1' },
+  });
+  expectFailure(contended, 5, 'ELOCKED', 'legacy-contended');
+  assert.equal(contended.response.error.stage, 'lock_acquire');
+  assert.match(contended.stderr, /lock-attempt/);
+
+  shell(`kill -CONT ${pid}`);
+  await holderResult;
+
+  const completed = invoke(request('atomic_write', args, 'legacy-invalid-path'), {
+    env: { Z2M_TEST_LOCK_ORDER_TRACE: '1' },
+  });
+  expectFailure(completed, 3, 'EPATH', 'legacy-invalid-path');
+  assert.equal(completed.response.error.stage, 'path_validate');
+  assert.match(completed.stderr, /lock-attempt/);
+});
+
+test('atomic_write rejects invalid base64 at schema before root locking', () => {
+  const run = invoke(request('atomic_write', {
+    root: 'runtime', path: 'invalid-base64', content: 'not-base64',
+    mode: '0600', uid: 0, gid: 0, allowCreate: true,
+  }), { env: { Z2M_TEST_LOCK_ORDER_TRACE: '1' } });
+  expectFailure(run, 2, 'ESCHEMA', 'req-1');
+  assert.equal(run.response.error.stage, 'schema');
+  assert.doesNotMatch(run.stderr, /lock-attempt/);
+});
+
 test('mkdir_private creates only the final private directory and verifies existing objects', () => {
   const base = `${testRoot}/${roots.runtime}`;
   expectMkdirSuccess(invoke(request('mkdir_private', mkdirArgs('runtime', 'made'))), true, 'tmpfs_visible');

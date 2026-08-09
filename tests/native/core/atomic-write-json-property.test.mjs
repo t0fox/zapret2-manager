@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import mutations from './canonical-json-v1-mutations.json' with { type: 'json' };
+import vectors from './canonical-json-v1-vectors.json' with { type: 'json' };
 import {
   LIMITS, canonicalizeReference, canonicalizeValue, deterministicValues,
   materializeGenerator, permutedObjectEntries,
@@ -86,6 +87,18 @@ function expectValidationFailure(run, code = 'ESCHEMA', stage = 'canonical_valid
 
 function hash(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
+}
+
+function corpusValue(testCase) {
+  if (testCase.inputBytesHex) return Buffer.from(testCase.inputBytesHex, 'hex');
+  if (testCase.generator) return Buffer.from(materializeGenerator(testCase.generator));
+  return Buffer.from(testCase.input);
+}
+
+function corpusExpected(testCase, value) {
+  if (testCase.expectedGenerator?.kind === 'reference')
+    return Buffer.from(canonicalizeReference(value.toString('utf8')));
+  return Buffer.from(testCase.expected);
 }
 
 function evidenceField(evidence, name) {
@@ -231,6 +244,33 @@ test('production canonical values are fixed points and preserve arrays and key p
     assert.equal(hash(actual), expectedHash, `permutation ${index}`);
   }
   assert.deepEqual(fs.readFileSync(targetPath('runtime', 'property-permuted.json')), expected);
+});
+
+test('production helper covers every prepared canonical accepted and rejected vector', () => {
+  for (const testCase of vectors.accept) {
+    const value = corpusValue(testCase);
+    const expected = corpusExpected(testCase, value);
+    const target = `property-corpus-accept-${testCase.id}.json`;
+    const run = invoke(value, target);
+    expectSuccess(run, expected);
+    assert.deepEqual(fs.readFileSync(targetPath('runtime', target)), expected, testCase.id);
+  }
+
+  for (const testCase of vectors.reject) {
+    const value = corpusValue(testCase);
+    const target = `property-corpus-reject-${testCase.id}.json`;
+    const before = snapshot(targetPath('runtime', target));
+    const run = invoke(value, target);
+    const malformed = ['malformed_lexical_json', 'trailing_data', 'invalid_utf8'].includes(testCase.class);
+    const outputTooLarge = testCase.class === 'output_too_large';
+    expectValidationFailure(run, outputTooLarge ? 'ETOOBIG' : malformed ? 'EMALFORMED' : 'ESCHEMA',
+      outputTooLarge ? 'canonical_size' : malformed
+        ? (testCase.class === 'invalid_utf8' ? 'utf8'
+          : testCase.class === 'trailing_data' && testCase.id === 'trailing-garbage'
+            ? 'trailing_data' : 'json_decode')
+        : 'canonical_validate');
+    assert.deepEqual(snapshot(targetPath('runtime', target)), before, testCase.id);
+  }
 });
 
 test('production accepts every exact frozen bound and rejects the first value over', () => {

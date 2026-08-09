@@ -108,3 +108,62 @@ passes, 0 failures, 1 skip. SHA-256:
 Host verification: PASS. Exact AArch64 target/package verification: NOT RUN.
 The remaining concern is the unavailable exact-target environment; this Task H
 run does not fabricate an AArch64 result.
+
+## Final Review Fix Evidence
+
+### Findings Fixed
+
+- Legacy `atomic_write` ordering is restored. `main.c` obtains the root mount ID
+  and exclusive lock before `z2m_atomic_write()` performs path validation or
+  base64 decoding. The shared byte publication body accepts that verified state
+  without reacquiring the lock. `atomic_write_json` keeps canonical encoding
+  before root open and uses the normal locking mode through the same body.
+- Canonical allocation and construction failures now report exactly
+  `EINTERNAL/canonical_encode`, including scanner key allocation,
+  `json_c_input`, tokener allocation, and semantic construction. Malformed and
+  domain failures retain their existing classifications.
+- Production-helper coverage now runs every prepared accepted and rejected
+  corpus vector, including ordinary U+0000 values, all required escapes,
+  UTF-8 comparator ordering, int64 limits, and invalid classes.
+
+### TDD RED
+
+- Direct canonical allocation regression initially reported
+  `EINTERNAL internal` instead of `EINTERNAL canonical_encode` for scanner-key
+  allocation, json-c input allocation, and tokener allocation.
+- Legacy lock-order regression initially returned `EPATH/path_validate` while
+  an exclusive writer held the root lock; the required legacy result was
+  `ELOCKED/lock_acquire`. Invalid base64 remained `ESCHEMA/schema` before lock
+  attempt.
+
+### TDD GREEN
+
+- Focused command:
+  `node --test --test-concurrency=1 tests/native/core/canonical-json-v1-corpus.test.mjs tests/native/core/json-c-information-loss.test.mjs tests/native/core/atomic-write-json.test.mjs tests/native/core/atomic-write-json-property.test.mjs`
+  Result: `42 passed, 0 failed, 0 skipped`.
+- Root helper command:
+  `node --test --test-concurrency=1 tests/native/core/fs-helper.test.mjs`
+  Result: `96 passed, 0 failed, 0 skipped`.
+- Full native command:
+  `env PATH=/home/kirill/.local/opt/node-v22.22.1-linux-x64/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin TMPDIR=/tmp bash scripts/test/native.sh`
+  Result: `288 passed, 0 failed, 0 skipped` across broker, adapter, package,
+  host, root, and production-helper phases.
+
+### Build Evidence
+
+- Strict helper build: PASS. Artifact SHA-256:
+  `d8707304d839e4b70b22eae18739f6fbab9e4c090c36f0ffda87f005b8fd25ab`.
+- Full helper ASan/UBSan build: PASS. Artifact SHA-256:
+  `d732afe9815ba4874346902b43a2ba4afc735a41575c23a5d2c39e1ee721d940`.
+- Canonical ASan/UBSan fixture build: PASS. Artifact SHA-256:
+  `a6eec3c3410aa5dced6f9e1158905e3f13793ed26b961fc57508279e3521516d`.
+  Smoke tests produced `{"a":1}` and `ESCHEMA canonical_validate` for a
+  duplicate-key input with no sanitizer diagnostics.
+
+### Current Evidence Hashes
+
+- `canonical.c`: `2e99f961ed00148997585edcf0b61f46f4547425944711455dcff1afda643468`.
+- Property test: `b3a83957334eb57ca6258fcde875556eeba5b858e39df660670dce75824e6893`.
+- Exact-target artifact remains honest and unchanged: `NOT RUN` because the
+  required `OPENWRT_SDK`, `SHARED_SDK`, `TARGET_ROOT`, `NODE_BIN`, `TARGET_CC`,
+  `PROOT_BIN`, and `QEMU_AARCH64` variables are unavailable.

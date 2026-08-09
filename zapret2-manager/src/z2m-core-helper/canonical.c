@@ -66,7 +66,7 @@ static bool reject_schema(struct canonical_scan *scan)
 
 static bool reject_internal(struct canonical_scan *scan)
 {
-	return reject(scan, "EINTERNAL", "internal");
+	return reject(scan, "EINTERNAL", "canonical_encode");
 }
 
 static bool is_json_whitespace(unsigned char byte)
@@ -157,7 +157,7 @@ static bool append_key_bytes(struct canonical_scan *scan,
 			}
 			next *= 2U;
 		}
-		grown = realloc(key->data, next);
+		grown = z2m_realloc(key->data, next);
 		if (grown == NULL)
 			return reject_internal(scan);
 		key->data = grown;
@@ -373,7 +373,7 @@ static bool add_key(struct canonical_scan *scan, struct canonical_frame *frame,
 			key->data = NULL;
 			return reject_internal(scan);
 		}
-		grown = realloc(frame->keys, next * sizeof(*grown));
+		grown = z2m_realloc(frame->keys, next * sizeof(*grown));
 		if (grown == NULL) {
 			free(key->data);
 			key->data = NULL;
@@ -729,7 +729,7 @@ static unsigned char *json_c_input(const unsigned char *data, size_t length,
 	}
 	if (required >= (size_t)INT_MAX)
 		return NULL;
-	copy = malloc(required + 1U);
+	copy = z2m_alloc(required + 1U);
 	if (copy == NULL)
 		return NULL;
 	output = copy;
@@ -807,7 +807,7 @@ bool z2m_canonical_construct(const unsigned char *data, size_t length,
 		!z2m_canonical_semantic_valid(parsed)) {
 		json_object_put(parsed);
 		error->code = "EINTERNAL";
-		error->stage = "internal";
+		error->stage = "canonical_encode";
 		return false;
 	}
 	*value = parsed;

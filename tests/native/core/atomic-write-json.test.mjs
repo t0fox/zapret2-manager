@@ -31,6 +31,7 @@ before(() => {
     `${sourceRoot}/canonical.c`,
     ...jsonC.stdout.trim().split(/\s+/),
     '-Wl,--wrap=free',
+    '-Wl,--wrap=json_tokener_new_ex',
     '-o', binary,
   ], { encoding: 'utf8' });
   assert.equal(compile.status, 0, compile.stderr);
@@ -178,6 +179,23 @@ test('semantic construction rejects unsupported and information-losing raw value
   assert.equal(uint64.stdout.trim(), 'REJECTED');
 });
 
+test('canonical construction allocation failures use the canonical encode stage', () => {
+  const cases = [
+    [Buffer.from('{"allocation-key":1}'), '1', 'scanner key allocation'],
+    [Buffer.from('"json-c-input"'), '1', 'json-c input allocation'],
+    [Buffer.from('"json-c-tokener"'), '2', 'json-c tokener allocation'],
+  ];
+  for (const [input, failAfter, label] of cases) {
+    const run = spawnSync(binary, ['construct'], {
+      input,
+      env: { ...process.env, Z2M_TEST_ALLOC_FAIL_AFTER: failAfter },
+    });
+    assert.equal(run.status, 0, `${label}: ${run.stderr}`);
+    assert.equal(run.stdout.toString(), 'EINTERNAL canonical_encode\n', label);
+    assert.equal(run.stderr.toString(), '', label);
+  }
+});
+
 test('canonical encoder emits every accepted prepared vector byte-for-byte', () => {
   for (const testCase of vectors.accept) {
     const input = inputFor(testCase);
@@ -227,7 +245,7 @@ test('canonical encoder allocation failures are internal, leak-free, and filesys
     kind: 'canonical_output_bytes', bytes: 521028,
   }));
   const before = readdirSync(temporaryRoot).sort();
-  for (let failAfter = 1; failAfter <= 14; failAfter++) {
+  for (let failAfter = 1; failAfter <= 16; failAfter++) {
     const run = spawnSync(binary, ['encode'], {
       input,
       env: { ...process.env, Z2M_TEST_ALLOC_FAIL_AFTER: String(failAfter) },
@@ -242,7 +260,7 @@ test('canonical encoder allocation failures are internal, leak-free, and filesys
     assert.equal(readFileSync(sentinel, 'utf8'), 'unchanged');
   }
   assert.deepEqual(encode(input, {
-    Z2M_TEST_ALLOC_FAIL_AFTER: '15',
+    Z2M_TEST_ALLOC_FAIL_AFTER: '17',
   }), input);
   assert.deepEqual(readdirSync(temporaryRoot).sort(), before);
   assert.equal(readFileSync(sentinel, 'utf8'), 'unchanged');
