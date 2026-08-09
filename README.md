@@ -13,6 +13,20 @@ The repository is intentionally kept small and current. Historical implementatio
 - `zapret2-manager-full` — target-specific meta-package for backend + LuCI. The zapret2 engine and Telegram proxy remain optional.
 - `tg-ws-proxy-rs` / `tg-ws-proxy-go` — optional Telegram proxy providers.
 
+### New LuCI frontend
+
+The frontend is being replaced by a task-oriented network/security console.
+The current foundation phase provides the shared terminal design system,
+grouped navigation, Overview, DNS, Telegram Proxy, Monitoring, and Maintenance.
+DNS and Telegram Proxy use the existing backend contracts.
+
+The remaining approved sections are visible as explicit contract-required
+states rather than fake controls: Strategies, Strategy Selection, DPI
+Diagnostics, Domain/List Data Hub, constrained Routing, and WARP/MASQUE via
+usque. They are implemented in dedicated phases after their frontend-backend
+contracts are approved. Internal backend names such as Orchestra do not define
+the new navigation.
+
 ## Native foundation
 
 `zapret2-manager/src/z2m-core-helper/` contains the current native filesystem/helper foundation and protocol manifest. The implemented foundation includes bounded protocol parsing, descriptor-relative filesystem access, private directory creation, SHA-256 reads, and atomic writes.

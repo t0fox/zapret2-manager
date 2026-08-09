@@ -1,36 +1,133 @@
 'use strict';
 'require rpc';
 'require baseclass';
-var calls={
- status:rpc.declare({object:'zapret2-manager',method:'status',reject:true}),start:rpc.declare({object:'zapret2-manager',method:'start',reject:true}),stop:rpc.declare({object:'zapret2-manager',method:'stop',reject:true}),
- discordProfilePreview:rpc.declare({object:'zapret2-manager',method:'discord_profile_preview',reject:true}),discordProfileApply:rpc.declare({object:'zapret2-manager',method:'discord_profile_apply',params:['edit'],reject:true}),discordProfileRollback:rpc.declare({object:'zapret2-manager',method:'discord_profile_rollback',reject:true}),
- orchestraRunStart:rpc.declare({object:'zapret2-manager',method:'orchestra_run_start',params:['edit'],reject:true}),orchestraRunStatus:rpc.declare({object:'zapret2-manager',method:'orchestra_run_status',params:['edit'],reject:true}),orchestraRunHistory:rpc.declare({object:'zapret2-manager',method:'orchestra_run_history',reject:true}),orchestraCapabilities:rpc.declare({object:'zapret2-manager',method:'orchestra_capabilities',reject:true}),orchestraCatalog:rpc.declare({object:'zapret2-manager-orchestra',method:'orchestra_catalog',reject:true}),orchestraCorpus:rpc.declare({object:'zapret2-manager-orchestra',method:'orchestra_corpus_get',reject:true}),orchestraStatus:rpc.declare({object:'zapret2-manager',method:'orchestra_status',reject:true}),orchestraEvents:rpc.declare({object:'zapret2-manager',method:'orchestra_events',reject:true}),orchestraHistory:rpc.declare({object:'zapret2-manager',method:'orchestra_history',reject:true}),orchestraRatingsGet:rpc.declare({object:'zapret2-manager',method:'orchestra_ratings_get',reject:true}),orchestraRunContinue:rpc.declare({object:'zapret2-manager',method:'orchestra_run_continue',params:['edit'],reject:true}),orchestraRunPause:rpc.declare({object:'zapret2-manager',method:'orchestra_run_pause',reject:true}),orchestraRunResume:rpc.declare({object:'zapret2-manager',method:'orchestra_run_resume',reject:true}),orchestraRunStop:rpc.declare({object:'zapret2-manager',method:'orchestra_run_stop',reject:true}),orchestraProbePreflight:rpc.declare({object:'zapret2-manager',method:'orchestra_probe_preflight',reject:true}),orchestraPreviewBest:rpc.declare({object:'zapret2-manager',method:'orchestra_preview_best',params:['edit'],reject:true}),orchestraApplyBest:rpc.declare({object:'zapret2-manager',method:'orchestra_apply_best',params:['edit'],reject:true}),orchestraApplyStatus:rpc.declare({object:'zapret2-manager',method:'orchestra_apply_status',params:['edit'],reject:true}),orchestraRestorePrevious:rpc.declare({object:'zapret2-manager',method:'orchestra_restore_previous',params:['edit'],reject:true}),
- catalogList:rpc.declare({object:'zapret2-manager',method:'catalog_list',reject:true}),catalogStatus:rpc.declare({object:'zapret2-manager',method:'catalog_status',reject:true}),catalogGet:rpc.declare({object:'zapret2-manager',method:'catalog_get',params:['edit'],reject:true}),catalogPreview:rpc.declare({object:'zapret2-manager',method:'catalog_preview',params:['edit'],reject:true}),catalogApply:rpc.declare({object:'zapret2-manager',method:'catalog_apply',params:['edit'],reject:true}),
- domainHubGet:rpc.declare({object:'zapret2-manager-domain-hub',method:'domain_hub_get',reject:true}),domainHubPreview:rpc.declare({object:'zapret2-manager-domain-hub',method:'domain_hub_preview',params:['edit'],reject:true}),domainHubApply:rpc.declare({object:'zapret2-manager-domain-hub',method:'domain_hub_apply',params:['edit'],reject:true}),healthMatrixGet:rpc.declare({object:'zapret2-manager',method:'health_matrix_get',reject:true}),
- orchestraAutoStatus:rpc.declare({object:'zapret2-manager',method:'orchestra_auto_status',reject:true}),orchestraAutoEnable:rpc.declare({object:'zapret2-manager',method:'orchestra_auto_enable',params:['edit'],reject:true}),orchestraAutoDisable:rpc.declare({object:'zapret2-manager',method:'orchestra_auto_disable',params:['edit'],reject:true}),orchestraAutoRun:rpc.declare({object:'zapret2-manager',method:'orchestra_auto_run',params:['edit'],reject:true}),orchestraAutoStop:rpc.declare({object:'zapret2-manager',method:'orchestra_auto_stop',params:['edit'],reject:true}),orchestraAutoRestore:rpc.declare({object:'zapret2-manager',method:'orchestra_auto_restore',params:['edit'],reject:true}),
- profilesList:rpc.declare({object:'zapret2-manager',method:'profiles_list',reject:true}),profilesCreate:rpc.declare({object:'zapret2-manager',method:'profiles_create',params:['edit'],reject:true}),profilesUpdate:rpc.declare({object:'zapret2-manager',method:'profiles_update',params:['edit'],reject:true}),profilesClone:rpc.declare({object:'zapret2-manager',method:'profiles_clone',params:['edit'],reject:true}),profilesDelete:rpc.declare({object:'zapret2-manager',method:'profiles_delete',params:['edit'],reject:true}),profilesValidate:rpc.declare({object:'zapret2-manager',method:'profiles_validate',params:['edit'],reject:true}),profilesImportApplied:rpc.declare({object:'zapret2-manager',method:'profiles_import_applied',reject:true}),profilesApply:rpc.declare({object:'zapret2-manager',method:'profiles_apply',params:['edit'],reject:true}),passthrough:rpc.declare({object:'zapret2-manager',method:'passthrough',params:['enabled'],reject:true}),confirmAlive:rpc.declare({object:'zapret2-manager',method:'confirm_alive',reject:true}),rollback:rpc.declare({object:'zapret2-manager',method:'rollback',reject:true}),
- listsGet:rpc.declare({object:'zapret2-manager',method:'lists_get',reject:true}),listsCheckDomain:rpc.declare({object:'zapret2-manager',method:'lists_check_domain',params:['domain'],reject:true}),listsSet:rpc.declare({object:'zapret2-manager',method:'lists_set',params:['edit'],reject:true}),
- dnsGet:rpc.declare({object:'zapret2-manager',method:'dns_get',reject:true}),dnsSet:rpc.declare({object:'zapret2-manager',method:'dns_set',params:['edit'],reject:true}),dnsValidate:rpc.declare({object:'zapret2-manager',method:'dns_validate',params:['edit'],reject:true}),dnsApply:rpc.declare({object:'zapret2-manager',method:'dns_apply',params:['edit'],reject:true}),dnsCheck:rpc.declare({object:'zapret2-manager',method:'dns_check',params:['edit'],reject:true}),dnsRollback:rpc.declare({object:'zapret2-manager',method:'dns_rollback',reject:true}),dnsRestoreAuto:rpc.declare({object:'zapret2-manager',method:'dns_restore_auto',reject:true}),dnsprovComponents:rpc.declare({object:'zapret2-manager',method:'dnsprov_components',reject:true}),dnsprovProviders:rpc.declare({object:'zapret2-manager',method:'dnsprov_providers',reject:true}),dnsprovDiagnose:rpc.declare({object:'zapret2-manager',method:'dnsprov_diagnose',params:['edit'],reject:true}),dnsSelectProvider:rpc.declare({object:'zapret2-manager',method:'dns_select_provider',params:['edit'],reject:true}),
- serviceDnsProviders:rpc.declare({object:'zapret2-manager',method:'service_dns_providers',reject:true}),serviceDnsStatus:rpc.declare({object:'zapret2-manager',method:'service_dns_status',reject:true}),serviceDnsPreview:rpc.declare({object:'zapret2-manager',method:'service_dns_preview',reject:true}),serviceDnsSet:rpc.declare({object:'zapret2-manager',method:'service_dns_set',params:['edit'],reject:true}),serviceDnsApply:rpc.declare({object:'zapret2-manager',method:'service_dns_apply',params:['edit'],reject:true}),serviceDnsApplyAsync:rpc.declare({object:'zapret2-manager',method:'service_dns_apply_async',params:['edit'],reject:true}),serviceDnsApplyStatus:rpc.declare({object:'zapret2-manager',method:'service_dns_apply_status',params:['edit'],reject:true}),serviceDnsRollback:rpc.declare({object:'zapret2-manager',method:'service_dns_rollback',reject:true}),
- proxyCapabilities:rpc.declare({object:'zapret2-manager',method:'proxy_capabilities',reject:true}),proxyStatus:rpc.declare({object:'zapret2-manager',method:'proxy_status',reject:true}),proxyConfigGet:rpc.declare({object:'zapret2-manager',method:'proxy_config_get',reject:true}),proxyConfigValidate:rpc.declare({object:'zapret2-manager',method:'proxy_config_validate',params:['edit'],reject:true}),proxyConfigPreview:rpc.declare({object:'zapret2-manager',method:'proxy_config_preview',params:['edit'],reject:true}),proxyConfigApply:rpc.declare({object:'zapret2-manager',method:'proxy_config_apply',params:['edit'],reject:true}),proxyStart:rpc.declare({object:'zapret2-manager',method:'proxy_start',reject:true}),proxyStop:rpc.declare({object:'zapret2-manager',method:'proxy_stop',reject:true}),proxyRestart:rpc.declare({object:'zapret2-manager',method:'proxy_restart',reject:true}),proxyAutostartSet:rpc.declare({object:'zapret2-manager',method:'proxy_autostart_set',params:['edit'],reject:true}),proxySecretRotate:rpc.declare({object:'zapret2-manager',method:'proxy_secret_rotate',reject:true}),proxyLogsTail:rpc.declare({object:'zapret2-manager',method:'proxy_logs_tail',params:['edit'],reject:true}),proxyHealth:rpc.declare({object:'zapret2-manager',method:'proxy_health',params:['edit'],reject:true}),proxyLinkInfo:rpc.declare({object:'zapret2-manager',method:'proxy_link_info',params:['edit'],reject:true}),proxyQuickInstall:rpc.declare({object:'zapret2-manager',method:'proxy_quick_install',reject:true}),
- versions:rpc.declare({object:'zapret2-manager',method:'versions',reject:true}),maintenanceStatus:rpc.declare({object:'zapret2-manager',method:'maintenance_status',reject:true}),backupList:rpc.declare({object:'zapret2-manager',method:'backup_list',reject:true}),backupCreate:rpc.declare({object:'zapret2-manager',method:'backup_create',params:['edit'],reject:true}),backupRestorePreview:rpc.declare({object:'zapret2-manager',method:'backup_restore_preview',params:['edit'],reject:true}),backupRestore:rpc.declare({object:'zapret2-manager',method:'backup_restore',params:['edit'],reject:true}),backupDelete:rpc.declare({object:'zapret2-manager',method:'backup_delete',params:['edit'],reject:true}),eventsTail:rpc.declare({object:'zapret2-manager',method:'events_tail',params:['edit'],reject:true}),monitorSnapshot:rpc.declare({object:'zapret2-manager-monitor',method:'monitor_snapshot',params:['edit'],reject:true}),diagnosticsExport:rpc.declare({object:'zapret2-manager',method:'diagnostics_export',reject:true})
+
+function call(object, method, params) {
+  return rpc.declare({ object: object, method: method, params: params, reject: true });
+}
+
+function read(object, method) {
+  var invoke = call(object, method);
+  return function () { return invoke(); };
+}
+
+function edit(object, method) {
+  var invoke = call(object, method, ['edit']);
+  return function (value) { return invoke(JSON.stringify(value || {})); };
+}
+
+function settle(promise) {
+  return Promise.resolve(promise).then(function (value) { return { value: value }; }, function (error) { return { error: error }; });
+}
+
+var service = {
+  status: read('zapret2-manager', 'status'),
+  start: read('zapret2-manager', 'start'),
+  stop: read('zapret2-manager', 'stop'),
+  restart: read('zapret2-manager', 'restart'),
+  passthrough: call('zapret2-manager', 'passthrough', ['enabled'])
 };
-var engineObject='zapret2-manager'+'-engine',engineCalls={};
-function engineCall(method,value){var key=method+(value==null?':read':':edit'),call=engineCalls[key];if(!call){call=rpc.declare({object:engineObject,method:method,params:value==null?undefined:['edit'],reject:true});engineCalls[key]=call;}return value==null?call():call(JSON.stringify(value));}
-function normalizeError(error){if(error==null)return{code:'unknown',message:_('Неизвестная ошибка')};if(typeof error==='string')return{code:'error',message:error};var value=error.error!=null?error.error:error;if(typeof value==='string')return{code:error.code||'error',message:value};return{code:value.code||error.code||'error',message:value.message||error.message||value.detail||error.detail||_('Неизвестная ошибка'),details:value.details||error.details||null};}
+
+var jobs = {
+  get: edit('zapret2-manager', 'job_get'),
+  list: read('zapret2-manager', 'job_list')
+};
+
+var dns = {
+  get: read('zapret2-manager', 'dns_get'),
+  set: edit('zapret2-manager', 'dns_set'),
+  validate: edit('zapret2-manager', 'dns_validate'),
+  apply: edit('zapret2-manager', 'dns_apply'),
+  check: edit('zapret2-manager', 'dns_check'),
+  rollback: read('zapret2-manager', 'dns_rollback'),
+  restoreAuto: read('zapret2-manager', 'dns_restore_auto'),
+  components: read('zapret2-manager', 'dnsprov_components'),
+  providers: read('zapret2-manager', 'dnsprov_providers'),
+  diagnose: edit('zapret2-manager', 'dnsprov_diagnose'),
+  selectProvider: edit('zapret2-manager', 'dns_select_provider'),
+  globalGet: read('zapret2-manager', 'dns_global_get'),
+  globalSet: edit('zapret2-manager', 'dns_global_set'),
+  globalPreview: read('zapret2-manager', 'dns_global_preview'),
+  globalApply: read('zapret2-manager', 'dns_global_apply'),
+  globalRollback: read('zapret2-manager', 'dns_global_rollback'),
+  serviceProviders: read('zapret2-manager', 'service_dns_providers'),
+  serviceStatus: read('zapret2-manager', 'service_dns_status'),
+  serviceCheck: read('zapret2-manager', 'service_dns_check'),
+  servicePreview: read('zapret2-manager', 'service_dns_preview'),
+  serviceSet: edit('zapret2-manager', 'service_dns_set'),
+  serviceApply: edit('zapret2-manager', 'service_dns_apply'),
+  serviceApplyAsync: edit('zapret2-manager', 'service_dns_apply_async'),
+  serviceApplyStatus: edit('zapret2-manager', 'service_dns_apply_status'),
+  serviceRollback: read('zapret2-manager', 'service_dns_rollback')
+};
+
+var proxy = {
+  capabilities: read('zapret2-manager', 'proxy_capabilities'),
+  status: read('zapret2-manager', 'proxy_status'),
+  configGet: read('zapret2-manager', 'proxy_config_get'),
+  configValidate: edit('zapret2-manager', 'proxy_config_validate'),
+  configPreview: edit('zapret2-manager', 'proxy_config_preview'),
+  configApply: edit('zapret2-manager', 'proxy_config_apply'),
+  start: read('zapret2-manager', 'proxy_start'),
+  stop: read('zapret2-manager', 'proxy_stop'),
+  restart: read('zapret2-manager', 'proxy_restart'),
+  autostartSet: edit('zapret2-manager', 'proxy_autostart_set'),
+  secretRotate: read('zapret2-manager', 'proxy_secret_rotate'),
+  logsTail: edit('zapret2-manager', 'proxy_logs_tail'),
+  health: edit('zapret2-manager', 'proxy_health'),
+  linkInfo: edit('zapret2-manager', 'proxy_link_info'),
+  quickInstall: read('zapret2-manager', 'proxy_quick_install')
+};
+
+var proxyProvider = {
+  catalog: read('zapret2-manager-proxy-provider', 'proxy_provider_catalog'),
+  status: read('zapret2-manager-proxy-provider', 'proxy_provider_status'),
+  preflight: read('zapret2-manager-proxy-provider', 'proxy_provider_preflight'),
+  checkUpdates: edit('zapret2-manager-proxy-provider', 'proxy_provider_check_updates'),
+  install: edit('zapret2-manager-proxy-provider', 'proxy_provider_install'),
+  remove: edit('zapret2-manager-proxy-provider', 'proxy_provider_remove'),
+  purge: edit('zapret2-manager-proxy-provider', 'proxy_provider_purge')
+};
+
+var monitor = {
+  snapshot: edit('zapret2-manager-monitor', 'monitor_snapshot'),
+  status: service.status,
+  eventsTail: edit('zapret2-manager', 'events_tail')
+};
+
+var maintenance = {
+  versions: read('zapret2-manager', 'versions'),
+  status: read('zapret2-manager', 'maintenance_status'),
+  eventsTail: edit('zapret2-manager', 'events_tail'),
+  diagnosticsExport: read('zapret2-manager', 'diagnostics_export'),
+  backupList: read('zapret2-manager', 'backup_list'),
+  backupCreate: edit('zapret2-manager', 'backup_create'),
+  backupPreview: edit('zapret2-manager', 'backup_restore_preview'),
+  backupRestore: edit('zapret2-manager', 'backup_restore'),
+  backupDelete: edit('zapret2-manager', 'backup_delete')
+};
+
+function capabilities() {
+  return {
+    service: true,
+    jobs: true,
+    dns: true,
+    proxy: true,
+    monitoring: true,
+    maintenance: true,
+    routing: false,
+    masque: false
+  };
+}
+
 return baseclass.extend({
- normalizeError:normalizeError,all:calls,
- service:{status:calls.status,start:calls.start,stop:calls.stop},
- strategy:{preview:calls.discordProfilePreview,apply:calls.discordProfileApply,rollback:calls.discordProfileRollback,confirmAlive:calls.confirmAlive,rollbackManager:calls.rollback},
- orchestra:{capabilities:calls.orchestraCapabilities,catalog:calls.orchestraCatalog,corpus:calls.orchestraCorpus,status:calls.orchestraStatus,events:calls.orchestraEvents,history:calls.orchestraHistory,ratings:calls.orchestraRatingsGet,runStart:calls.orchestraRunStart,runStatus:calls.orchestraRunStatus,runHistory:calls.orchestraRunHistory,runContinue:calls.orchestraRunContinue,runPause:calls.orchestraRunPause,runResume:calls.orchestraRunResume,runStop:calls.orchestraRunStop,probePreflight:calls.orchestraProbePreflight,previewBest:calls.orchestraPreviewBest,applyBest:calls.orchestraApplyBest,applyStatus:calls.orchestraApplyStatus,restorePrevious:calls.orchestraRestorePrevious,autoStatus:calls.orchestraAutoStatus,autoEnable:calls.orchestraAutoEnable,autoDisable:calls.orchestraAutoDisable,autoRun:calls.orchestraAutoRun,autoStop:calls.orchestraAutoStop,autoRestore:calls.orchestraAutoRestore},
- profiles:{list:calls.profilesList,create:calls.profilesCreate,update:calls.profilesUpdate,clone:calls.profilesClone,delete:calls.profilesDelete,validate:calls.profilesValidate,importApplied:calls.profilesImportApplied,apply:calls.profilesApply,passthrough:calls.passthrough},
- domainHub:{get:calls.domainHubGet,preview:calls.domainHubPreview,apply:calls.domainHubApply},
- services:{catalogList:calls.catalogList,catalogStatus:calls.catalogStatus,catalogGet:calls.catalogGet,catalogPreview:calls.catalogPreview,catalogApply:calls.catalogApply,healthMatrixGet:calls.healthMatrixGet},
- coordinator:{catalogList:calls.catalogList,catalogStatus:calls.catalogStatus,catalogPreview:calls.catalogPreview,catalogApply:calls.catalogApply},
- lists:{get:calls.listsGet,checkDomain:calls.listsCheckDomain,set:calls.listsSet},
- dns:{get:calls.dnsGet,set:calls.dnsSet,validate:calls.dnsValidate,apply:calls.dnsApply,check:calls.dnsCheck,rollback:calls.dnsRollback,restoreAuto:calls.dnsRestoreAuto,components:calls.dnsprovComponents,providers:calls.dnsprovProviders,diagnose:calls.dnsprovDiagnose,selectProvider:calls.dnsSelectProvider,serviceProviders:calls.serviceDnsProviders,serviceStatus:calls.serviceDnsStatus,servicePreview:calls.serviceDnsPreview,serviceSet:calls.serviceDnsSet,serviceApply:calls.serviceDnsApply,serviceApplyAsync:calls.serviceDnsApplyAsync,serviceApplyStatus:calls.serviceDnsApplyStatus,serviceRollback:calls.serviceDnsRollback},
- proxy:{capabilities:calls.proxyCapabilities,status:calls.proxyStatus,configGet:calls.proxyConfigGet,configValidate:calls.proxyConfigValidate,configPreview:calls.proxyConfigPreview,configApply:calls.proxyConfigApply,start:calls.proxyStart,stop:calls.proxyStop,restart:calls.proxyRestart,autostartSet:calls.proxyAutostartSet,secretRotate:calls.proxySecretRotate,logsTail:calls.proxyLogsTail,health:calls.proxyHealth,linkInfo:calls.proxyLinkInfo,quickInstall:calls.proxyQuickInstall},
- monitor:{snapshot:calls.monitorSnapshot,status:calls.status,eventsTail:calls.eventsTail},
- maintenance:{versions:calls.versions,status:calls.maintenanceStatus,backupList:calls.backupList,backupCreate:calls.backupCreate,backupPreview:calls.backupRestorePreview,backupRestore:calls.backupRestore,backupDelete:calls.backupDelete,eventsTail:calls.eventsTail,diagnosticsExport:calls.diagnosticsExport},
- engine:{providers:function(){return engineCall(['engine','providers'].join('_'),null);},status:function(){return engineCall(['engine','status'].join('_'),null);},checkUpdates:function(value){return engineCall(['engine','check_updates'].join('_'),value);},install:function(value){return engineCall(['engine','install'].join('_'),value);},remove:function(value){return engineCall(['engine','remove'].join('_'),value);},operationStatus:function(value){return engineCall(['engine','operation_status'].join('_'),value||{});},operationCancel:function(value){return engineCall(['engine','operation_cancel'].join('_'),value);}}
+  settle: settle,
+  capabilities: capabilities,
+  service: service,
+  jobs: jobs,
+  dns: dns,
+  proxy: proxy,
+  proxyProvider: proxyProvider,
+  monitor: monitor,
+  maintenance: maintenance
 });
