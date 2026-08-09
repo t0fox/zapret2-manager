@@ -327,7 +327,6 @@ test('object errors match the protocol manifest exit category and stage', () => 
     const run = invoke(request('stat_regular', { root: 'runtime', path: name }), {
       timeout: 1000, env: { Z2M_TEST_FAIL_FALLBACK: '1' }
     });
-    if (name === 'device') process.stderr.write(run.stderr);
     expectFailure(run, status, code, 'req-1', name);
     const policy = protocolManifest.errors[code];
     const exitCategory = Object.entries(protocolManifest.exitCategories)

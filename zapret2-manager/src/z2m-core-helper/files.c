@@ -38,9 +38,6 @@ static const char *open_error(int error)
 static int classify_special_open_error(int parent,const char *name,int error)
 {
 	struct stat st;int result=fstatat(parent,name,&st,AT_SYMLINK_NOFOLLOW);
-#ifdef Z2M_TESTING
-	if(getenv("Z2M_TEST_FAIL_FALLBACK")!=NULL)fprintf(stderr,"z2m-core-helper: special-open errno=%d stat=%d type=%o\n",error,result,result==0?(unsigned)(st.st_mode&S_IFMT):0);
-#endif
 	(void)error;
 	if(result==0&&
 		(S_ISCHR(st.st_mode)||S_ISBLK(st.st_mode))) return EACCES;
@@ -115,6 +112,7 @@ int z2m_open_regular(int root_fd,const char *path,struct stat *st,const char **c
 	else {saved=errno;if(saved==ENOSYS||saved==EINVAL||saved==E2BIG){fd=fallback_open(root_fd,path);saved=errno;}}
 	if(fd<0){*code=saved==ENOTSUP?"ECAPABILITY":open_error(saved);return -1;}
 	if(fstat(fd,st)<0){close(fd);*code="EIO";return -1;}
+	if(S_ISCHR(st->st_mode)||S_ISBLK(st->st_mode)){close(fd);*code="EDENIED";return -1;}
 	if(!S_ISREG(st->st_mode)){close(fd);*code="ENOTREG";return -1;}
 	if(st->st_uid!=0 || st->st_gid!=0 || (st->st_mode&07777)!=0600){close(fd);*code="EDENIED";return -1;}
 	return fd;
