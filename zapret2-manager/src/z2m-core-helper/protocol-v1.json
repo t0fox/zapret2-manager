@@ -187,8 +187,7 @@
       "ownership": "Fixed root policy plus requested mode/uid/gid; mutation holds an operation-scoped internal flock.", "crashSemantics": "Same-directory candidate, file fsync, rename, then required persistent-root directory fsync; post-rename uncertainty is ECOMMITUNKNOWN.", "idempotency": "Repeating identical bytes converges, but callers must reread after ECOMMITUNKNOWN before retry."
     },
     "atomic_write_json": {
-      "milestone": 2, "status": "reserved_unsupported", "roots": ["persistent_state", "snapshots", "registry", "secrets", "runtime", "jobs", "staging"],
-      "unsupportedBehavior": { "errorCode": "EUNSUPPORTED", "dispatch": "reject_before_operation_dispatch", "sideEffects": "none", "response": "complete_failure_envelope", "exitCategory": "policy_denied", "exitCode": 3 },
+      "milestone": 2, "status": "implemented", "roots": ["persistent_state", "snapshots", "registry", "secrets", "runtime", "jobs", "staging"],
       "canonicalization": "z2m-canonical-json-v1",
       "canonicalizationContract": "docs/contracts/z2m-canonical-json-v1.md",
       "requestSchema": { "type": "object", "additionalProperties": false, "required": ["root", "path", "value", "mode", "uid", "gid", "allowCreate"], "properties": { "root": { "type": "string" }, "path": { "type": "string" }, "value": {}, "mode": { "const": "0600" }, "uid": { "const": 0 }, "gid": { "const": 0 }, "allowCreate": { "type": "boolean" } } },

@@ -241,7 +241,7 @@ test('operation registry is closed and specifies schemas, limits, ownership, cra
       requiredKeys.push('canonicalization', 'canonicalizationContract');
     assert.deepEqual(sorted(Object.keys(operation)), sorted(requiredKeys), name);
     assert.ok(Number.isInteger(operation.milestone) && operation.milestone > 0, name);
-    assert.ok(['milestone_1', 'milestone_2', 'reserved_unsupported'].includes(operation.status), name);
+    assert.ok(['milestone_1', 'milestone_2', 'implemented', 'reserved_unsupported'].includes(operation.status), name);
     assert.ok(operation.roots.length > 0, name);
     assert.ok(operation.roots.every((root) => roots.includes(root)), name);
     assert.equal(operation.requestSchema.type, 'object', name);
@@ -263,11 +263,12 @@ test('operation registry is closed and specifies schemas, limits, ownership, cra
   assert.equal(value.operations.stat_regular.status, 'milestone_1');
   assert.equal(value.operations.read_regular.status, 'milestone_1');
   assert.equal(value.operations.atomic_write.status, 'milestone_2');
+  assert.equal(value.operations.atomic_write_json.status, 'implemented');
   assert.equal(value.operations.mkdir_private.status, 'milestone_2');
   assert.equal(value.operations.sha256_regular.status, 'milestone_2');
-  for (const name of operations.slice(2).filter((name) => !['atomic_write', 'mkdir_private', 'sha256_regular'].includes(name)))
+  for (const name of operations.slice(2).filter((name) => !['atomic_write', 'atomic_write_json', 'mkdir_private', 'sha256_regular'].includes(name)))
     assert.equal(value.operations[name].status, 'reserved_unsupported', name);
-  for (const name of operations.slice(2).filter((name) => !['atomic_write', 'mkdir_private', 'sha256_regular'].includes(name))) {
+  for (const name of operations.slice(2).filter((name) => !['atomic_write', 'atomic_write_json', 'mkdir_private', 'sha256_regular'].includes(name))) {
     assert.deepEqual(value.operations[name].unsupportedBehavior, {
       errorCode: 'EUNSUPPORTED',
       dispatch: 'reject_before_operation_dispatch',
