@@ -96,7 +96,8 @@ int z2m_stat_regular(const struct z2m_request *request, const struct z2m_root *r
 int z2m_read_regular(const struct z2m_request *request, const struct z2m_root *root, int root_fd);
 int z2m_sha256_regular(const struct z2m_request *request, const struct z2m_root *root, int root_fd);
 int z2m_mkdir_private(const struct z2m_request *request, const struct z2m_root *root, int root_fd, uint64_t root_mount);
-int z2m_atomic_write(const struct z2m_request *request, const struct z2m_root *root, int root_fd, uint64_t root_mount);
+int z2m_atomic_write(const struct z2m_request *request, const struct z2m_root *root, int root_fd);
+int z2m_atomic_write_bytes(const struct z2m_request *request, const struct z2m_root *root, int root_fd, const char *path, const unsigned char *content, size_t length, bool allow_create);
 char *z2m_base64(const unsigned char *input, size_t length);
 bool z2m_base64_canonical(const char *input, size_t length, size_t max_decoded);
 void *z2m_alloc(size_t size);
