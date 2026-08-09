@@ -62,7 +62,7 @@ for ARG in "$@"; do
 done
 
 "$COMPILER" -std=c11 -Wall -Wextra -Werror -D_GNU_SOURCE "$@" \
-	"$SRC/main.c" "$SRC/protocol.c" "$SRC/errors.c" \
+	"$SRC/main.c" "$SRC/protocol.c" "$SRC/canonical.c" "$SRC/errors.c" \
 	"$SRC/roots.c" "$SRC/paths.c" "$SRC/files.c" "$SRC/base64.c" \
 	"$SRC/mkdir.c" "$SRC/sha256.c" \
 	"$SRC/atomic.c" "$SRC/test-audit.c" \

@@ -18,6 +18,23 @@ struct scan {
 	size_t probes;
 	size_t containers;
 	size_t bucket_allocs;
+	size_t canonical_depth;
+	size_t canonical_keys;
+	size_t canonical_containers;
+	size_t canonical_start;
+	size_t canonical_end;
+	bool canonical_seen;
+	bool canonical_limited;
+	bool duplicate_other;
+	bool nul_key_other;
+	bool atomic_write_json;
+};
+
+enum scan_scope {
+	SCAN_OTHER,
+	SCAN_ENVELOPE,
+	SCAN_ARGUMENTS,
+	SCAN_CANONICAL
 };
 
 #define KEY_BUCKETS 2048U
@@ -98,76 +115,159 @@ static bool scan_string(struct scan *s, char **decoded, size_t *decoded_length)
 	free(text);
 	if (value == NULL || !json_object_is_type(value, json_type_string)) { json_object_put(value); return false; }
 	*decoded_length = (size_t)json_object_get_string_len(value);
-	if (strlen(json_object_get_string(value)) != *decoded_length) {
-		s->limited = true;
-		json_object_put(value);
-		return false;
+	if (*decoded_length == SIZE_MAX) { json_object_put(value); return false; }
+	*decoded = malloc(*decoded_length + 1U);
+	if (*decoded != NULL) {
+		memcpy(*decoded, json_object_get_string(value), *decoded_length);
+		(*decoded)[*decoded_length] = '\0';
 	}
-	*decoded = strndup(json_object_get_string(value), *decoded_length);
 	json_object_put(value);
 	return *decoded != NULL;
 }
 
-static bool scan_value(struct scan *s, bool *duplicate);
+static bool scan_value(struct scan *s, enum scan_scope scope);
 
-static bool scan_object(struct scan *s, bool *duplicate)
+static bool key_is(const char *key, size_t length, const char *expected)
+{
+	size_t expected_length = strlen(expected);
+	return length == expected_length && memcmp(key, expected, length) == 0;
+}
+
+static bool scan_object(struct scan *s, enum scan_scope scope)
 {
 	struct key_entry **keys = NULL;
-	if (s->containers >= Z2M_JSON_MAX_CONTAINERS) { s->limited = true; return false; }
-	s->containers++;
-	if (++s->depth > Z2M_JSON_MAX_DEPTH) { s->limited = true; return false; }
+	bool canonical = scope == SCAN_CANONICAL;
+	if (canonical) {
+		if (s->canonical_containers >= Z2M_CANONICAL_MAX_CONTAINERS + 1U ||
+			s->canonical_depth >= Z2M_CANONICAL_MAX_DEPTH + 1U) {
+			s->canonical_limited = true;
+			return false;
+		}
+		s->canonical_containers++;
+		s->canonical_depth++;
+	} else {
+		if (s->containers >= Z2M_JSON_MAX_CONTAINERS) { s->limited = true; return false; }
+		s->containers++;
+		if (++s->depth > Z2M_JSON_MAX_DEPTH) { s->limited = true; return false; }
+	}
 	if (s->data[s->offset++] != '{') return false;
 	ws(s);
-	if (s->offset < s->length && s->data[s->offset] == '}') { s->offset++; s->depth--; return true; }
+	if (s->offset < s->length && s->data[s->offset] == '}') {
+		s->offset++;
+		if (canonical) s->canonical_depth--; else s->depth--;
+		return true;
+	}
 	for (;;) {
 		char *key = NULL;
 		size_t key_length = 0;
-		if (!scan_string(s, &key, &key_length)) goto fail;
-		if (++s->keys > Z2M_JSON_MAX_KEYS) { s->limited = true; free(key); goto fail; }
-		if (keys == NULL) {
-			keys = calloc(KEY_BUCKETS, sizeof(*keys));
-			if (keys == NULL) { free(key); goto fail; }
-			s->bucket_allocs++;
+		enum scan_scope child_scope = canonical ? SCAN_CANONICAL : SCAN_OTHER;
+		bool operation_field = false;
+		bool canonical_field = false;
+		if (canonical) {
+			if (!scan_string(s, NULL, NULL)) goto fail;
+			if (++s->canonical_keys > Z2M_CANONICAL_MAX_MEMBERS + 1U) {
+				s->canonical_limited = true;
+				goto fail;
+			}
+		} else {
+			if (!scan_string(s, &key, &key_length)) goto fail;
+			operation_field = scope == SCAN_ENVELOPE && key_is(key, key_length, "operation");
+			if (scope == SCAN_ENVELOPE && key_is(key, key_length, "arguments"))
+				child_scope = SCAN_ARGUMENTS;
+			else if (scope == SCAN_ARGUMENTS && key_is(key, key_length, "value"))
+				child_scope = SCAN_CANONICAL;
+			canonical_field = child_scope == SCAN_CANONICAL;
+			if (memchr(key, 0, key_length) != NULL)
+				s->nul_key_other = true;
+			if (++s->keys > Z2M_JSON_MAX_KEYS) { s->limited = true; free(key); goto fail; }
+			if (keys == NULL) {
+				keys = calloc(KEY_BUCKETS, sizeof(*keys));
+				if (keys == NULL) { free(key); goto fail; }
+				s->bucket_allocs++;
+			}
+			if (!add_key(s, keys, key, key_length, &s->duplicate_other)) goto fail;
 		}
-		if (!add_key(s, keys, key, key_length, duplicate)) goto fail;
 		ws(s); if (s->offset >= s->length || s->data[s->offset++] != ':') goto fail;
-		ws(s); if (!scan_value(s, duplicate)) goto fail;
+		ws(s);
+		if (operation_field && s->offset < s->length && s->data[s->offset] == '"') {
+			char *operation = NULL;
+			size_t operation_length = 0;
+			if (!scan_string(s, &operation, &operation_length)) goto fail;
+			if (key_is(operation, operation_length, "atomic_write_json"))
+				s->atomic_write_json = true;
+			free(operation);
+		} else {
+			size_t start = s->offset;
+			if (!scan_value(s, child_scope)) goto fail;
+			if (canonical_field && !s->canonical_seen) {
+				s->canonical_start = start;
+				s->canonical_end = s->offset;
+				s->canonical_seen = true;
+			}
+		}
 		ws(s); if (s->offset >= s->length) goto fail;
 		if (s->data[s->offset++] == '}') break;
 		if (s->data[s->offset - 1] != ',') goto fail;
 		ws(s);
 	}
 	free_keys(keys);
-	s->depth--;
+	if (canonical) s->canonical_depth--; else s->depth--;
 	return true;
 fail:
 	free_keys(keys);
-	s->depth--;
+	if (canonical) s->canonical_depth--; else s->depth--;
 	return false;
 }
 
-static bool scan_array(struct scan *s, bool *duplicate)
+static bool scan_array(struct scan *s, enum scan_scope scope)
 {
-	if (s->containers >= Z2M_JSON_MAX_CONTAINERS) { s->limited = true; return false; }
-	s->containers++;
-	if (++s->depth > Z2M_JSON_MAX_DEPTH) { s->limited = true; return false; }
+	bool canonical = scope == SCAN_CANONICAL;
+	if (canonical) {
+		if (s->canonical_containers >= Z2M_CANONICAL_MAX_CONTAINERS + 1U ||
+			s->canonical_depth >= Z2M_CANONICAL_MAX_DEPTH + 1U) {
+			s->canonical_limited = true;
+			return false;
+		}
+		s->canonical_containers++;
+		s->canonical_depth++;
+	} else {
+		if (s->containers >= Z2M_JSON_MAX_CONTAINERS) { s->limited = true; return false; }
+		s->containers++;
+		if (++s->depth > Z2M_JSON_MAX_DEPTH) { s->limited = true; return false; }
+	}
 	s->offset++; ws(s);
-	if (s->offset < s->length && s->data[s->offset] == ']') { s->offset++; s->depth--; return true; }
+	if (s->offset < s->length && s->data[s->offset] == ']') {
+		s->offset++;
+		if (canonical) s->canonical_depth--; else s->depth--;
+		return true;
+	}
 	for (;;) {
-		if (!scan_value(s, duplicate)) { s->depth--; return false; }
-		ws(s); if (s->offset >= s->length) { s->depth--; return false; }
-		if (s->data[s->offset++] == ']') { s->depth--; return true; }
-		if (s->data[s->offset - 1] != ',') { s->depth--; return false; }
+		if (!scan_value(s, canonical ? SCAN_CANONICAL : SCAN_OTHER)) {
+			if (canonical) s->canonical_depth--; else s->depth--;
+			return false;
+		}
+		ws(s); if (s->offset >= s->length) {
+			if (canonical) s->canonical_depth--; else s->depth--;
+			return false;
+		}
+		if (s->data[s->offset++] == ']') {
+			if (canonical) s->canonical_depth--; else s->depth--;
+			return true;
+		}
+		if (s->data[s->offset - 1] != ',') {
+			if (canonical) s->canonical_depth--; else s->depth--;
+			return false;
+		}
 		ws(s);
 	}
 }
 
-static bool scan_value(struct scan *s, bool *duplicate)
+static bool scan_value(struct scan *s, enum scan_scope scope)
 {
 	size_t start;
 	ws(s); if (s->offset >= s->length) return false;
-	if (s->data[s->offset] == '{') return scan_object(s, duplicate);
-	if (s->data[s->offset] == '[') return scan_array(s, duplicate);
+	if (s->data[s->offset] == '{') return scan_object(s, scope);
+	if (s->data[s->offset] == '[') return scan_array(s, scope);
 	if (s->data[s->offset] == '"') return scan_string(s, NULL, NULL);
 	start = s->offset;
 	while (s->offset < s->length && !strchr(" \t\r\n,]}", s->data[s->offset])) s->offset++;
@@ -250,7 +350,8 @@ int z2m_read_request(struct z2m_request *request)
 	unsigned char *buffer = z2m_alloc(Z2M_REQUEST_MAX + 1); size_t used = 0; ssize_t got;
 	json_tokener *tokener; enum json_tokener_error error; json_object *id, *op, *args, *version;
 	static const char *const envelope[] = {"protocolVersion","requestId","operation","arguments"};
-	struct scan scan; bool duplicate = false;
+	struct scan scan;
+	struct z2m_canonical_error canonical_error;
 	if (buffer == NULL) return z2m_fail(NULL, "EINTERNAL", "internal");
 	for (;;) {
 		got = input_read(buffer + used, Z2M_REQUEST_MAX + 1 - used);
@@ -262,17 +363,28 @@ int z2m_read_request(struct z2m_request *request)
 	if (got < 0) { free(buffer); return z2m_fail(NULL, "EMALFORMED", "framing"); }
 	if (used == 0 || !valid_utf8(buffer, used)) { free(buffer); return z2m_fail(NULL, "EMALFORMED", "utf8"); }
 	scan = (struct scan){.data=buffer,.length=used};
-	if (!scan_value(&scan, &duplicate)) {
+	if (!scan_value(&scan, SCAN_ENVELOPE)) {
 #ifdef Z2M_TESTING
 		if (getenv("Z2M_TEST_SCAN_STATS") != NULL) fprintf(stderr,"z2m-core-helper: scan-containers=%zu scan-bucket-allocs=%zu scan-probes=%zu\n",scan.containers,scan.bucket_allocs,scan.probes);
 #endif
-		free(buffer); return z2m_fail(NULL, scan.limited ? "ESCHEMA" : "EMALFORMED", scan.limited ? "schema" : "json_decode");
+		free(buffer);
+		if (scan.canonical_limited)
+			return z2m_fail(NULL, "ESCHEMA", "canonical_validate");
+		return z2m_fail(NULL, scan.limited ? "ESCHEMA" : "EMALFORMED", scan.limited ? "schema" : "json_decode");
 	}
 	ws(&scan);
 #ifdef Z2M_TESTING
 	if (getenv("Z2M_TEST_SCAN_STATS") != NULL) fprintf(stderr,"z2m-core-helper: scan-containers=%zu scan-bucket-allocs=%zu scan-probes=%zu\n",scan.containers,scan.bucket_allocs,scan.probes);
 #endif
-	if (scan.offset != used || duplicate) { free(buffer); return z2m_fail(NULL, "EMALFORMED", duplicate ? "json_decode" : "trailing_data"); }
+	if (scan.offset != used) { free(buffer); return z2m_fail(NULL, "EMALFORMED", "trailing_data"); }
+	if (scan.nul_key_other) { free(buffer); return z2m_fail(NULL, "ESCHEMA", "schema"); }
+	if (scan.duplicate_other) { free(buffer); return z2m_fail(NULL, "EMALFORMED", "json_decode"); }
+	if (scan.atomic_write_json && scan.canonical_seen &&
+		!z2m_canonical_validate(buffer + scan.canonical_start,
+			scan.canonical_end - scan.canonical_start, &canonical_error)) {
+		free(buffer);
+		return z2m_fail(NULL, canonical_error.code, canonical_error.stage);
+	}
 	tokener = json_tokener_new();
 	if (tokener == NULL) { free(buffer); return z2m_fail(NULL,"EINTERNAL","internal"); }
 	json_tokener_set_flags(tokener, JSON_TOKENER_STRICT);
