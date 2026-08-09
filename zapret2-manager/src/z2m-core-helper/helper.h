@@ -28,6 +28,7 @@ typedef struct z2m_statx z2m_statx;
 #define Z2M_CANONICAL_MAX_MEMBERS 1024U
 #define Z2M_CANONICAL_MAX_NODES 65536U
 #define Z2M_CANONICAL_MAX_KEY_BYTES 4096U
+#define Z2M_CANONICAL_MAX_BYTES 521028U
 
 struct z2m_canonical_error {
 	const char *code;
@@ -81,6 +82,8 @@ bool z2m_canonical_validate(const unsigned char *data, size_t length,
 bool z2m_canonical_semantic_valid(json_object *value);
 bool z2m_canonical_construct(const unsigned char *data, size_t length,
 	json_object **value, struct z2m_canonical_error *error);
+bool z2m_canonical_encode(json_object *value, unsigned char **output,
+	size_t *length, struct z2m_canonical_error *error);
 bool z2m_json_c_parse_validated(const unsigned char *data, size_t length,
 	unsigned int max_depth, json_object **value);
 const struct z2m_root *z2m_root_find(const char *name);
@@ -97,6 +100,7 @@ int z2m_atomic_write(const struct z2m_request *request, const struct z2m_root *r
 char *z2m_base64(const unsigned char *input, size_t length);
 bool z2m_base64_canonical(const char *input, size_t length, size_t max_decoded);
 void *z2m_alloc(size_t size);
+void *z2m_realloc(void *pointer, size_t size);
 json_object *z2m_json_object(void);
 json_object *z2m_json_string(const char *value);
 json_object *z2m_json_int(int64_t value);

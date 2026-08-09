@@ -1,12 +1,16 @@
 import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import vectors from './canonical-json-v1-vectors.json' with { type: 'json' };
 import mutations from './canonical-json-v1-mutations.json' with { type: 'json' };
-import { materializeGenerator } from './canonical-json-v1-oracle.mjs';
+import {
+  canonicalizeReference, canonicalizeValue, deterministicValues, expectedBytes,
+  materializeGenerator, permutedObjectEntries,
+} from './canonical-json-v1-oracle.mjs';
 
 const sourceRoot = 'zapret2-manager/src/z2m-core-helper';
 const temporaryRoot = mkdtempSync(join(tmpdir(), 'z2m-canonical-validator-'));
@@ -26,6 +30,7 @@ before(() => {
     'tests/native/core/canonical-validator-fixture.c',
     `${sourceRoot}/canonical.c`,
     ...jsonC.stdout.trim().split(/\s+/),
+    '-Wl,--wrap=free',
     '-o', binary,
   ], { encoding: 'utf8' });
   assert.equal(compile.status, 0, compile.stderr);
@@ -51,6 +56,24 @@ function construct(input) {
   const run = spawnSync(binary, ['construct'], { input, encoding: 'utf8' });
   assert.equal(run.status, 0, run.stderr);
   return run.stdout.trim();
+}
+
+function encode(input, env = {}) {
+  const run = spawnSync(binary, ['encode'], {
+    input, env: { ...process.env, ...env },
+  });
+  assert.equal(run.status, 0, run.stderr.toString());
+  return run.stdout;
+}
+
+function preparedExpected(testCase, input) {
+  if (testCase.expectedGenerator?.kind === 'reference')
+    return Buffer.from(canonicalizeReference(input.toString('utf8')));
+  return Buffer.from(expectedBytes(testCase.expected));
+}
+
+function sha256(bytes) {
+  return createHash('sha256').update(bytes).digest('hex');
 }
 
 function expectedResult(classification) {
@@ -150,6 +173,64 @@ test('semantic construction rejects unsupported and information-losing raw value
   const uint64 = spawnSync(binary, ['uint64'], { encoding: 'utf8' });
   assert.equal(uint64.status, 0, uint64.stderr);
   assert.equal(uint64.stdout.trim(), 'REJECTED');
+});
+
+test('canonical encoder emits every accepted prepared vector byte-for-byte', () => {
+  for (const testCase of vectors.accept) {
+    const input = inputFor(testCase);
+    assert.deepEqual(encode(input), preparedExpected(testCase, input), testCase.id);
+  }
+});
+
+test('canonical encoder preserves bounded property fixed points', () => {
+  for (const value of deterministicValues()) {
+    const expected = Buffer.from(canonicalizeValue(value));
+    assert.deepEqual(encode(Buffer.from(JSON.stringify(value))), expected);
+    assert.deepEqual(encode(expected), expected);
+  }
+});
+
+test('canonical encoder makes formatting and insertion permutations byte and hash identical', () => {
+  const value = { z: [3, 2, 1], a: { y: 2, x: 1 }, n: null };
+  const expected = Buffer.from('{"a":{"x":1,"y":2},"n":null,"z":[3,2,1]}');
+  const inputs = [
+    Buffer.from(' { "z" : [ 3, 2, 1 ], "a" : { "y" : 2, "x" : 1 }, "n" : null } '),
+    ...[1, 2, 3, 0x5eed].map((seed) => Buffer.from(JSON.stringify(
+      permutedObjectEntries(Object.entries(value), seed),
+    ))),
+  ];
+  const expectedHash = sha256(expected);
+  for (const input of inputs) {
+    const output = encode(input);
+    assert.deepEqual(output, expected);
+    assert.equal(sha256(output), expectedHash);
+  }
+});
+
+test('canonical encoder accepts exactly 521028 bytes and rejects the first byte over', () => {
+  const exact = Buffer.from(materializeGenerator({
+    kind: 'canonical_output_bytes', bytes: 521028,
+  }));
+  const over = Buffer.from(materializeGenerator({
+    kind: 'canonical_output_bytes', bytes: 521029,
+  }));
+  assert.equal(exact.length, 521028);
+  assert.deepEqual(encode(exact), exact);
+  assert.equal(encode(over).toString().trim(), 'ETOOBIG canonical_size');
+});
+
+test('canonical encoder allocation failures are internal, leak-free, and filesystem-free', () => {
+  const input = Buffer.from(materializeGenerator({
+    kind: 'canonical_output_bytes', bytes: 521028,
+  }));
+  const before = readdirSync(temporaryRoot).sort();
+  for (const failAfter of [1, 2, 3, 4]) {
+    assert.equal(encode(input, {
+      Z2M_TEST_ALLOC_FAIL_AFTER: String(failAfter),
+    }).toString().trim(), 'EINTERNAL canonical_encode');
+    assert.deepEqual(readdirSync(temporaryRoot).sort(), before);
+    assert.equal(readFileSync(sentinel, 'utf8'), 'unchanged');
+  }
 });
 
 test('request reader accepts an exact depth-64 canonical value inside its envelope', () => {
