@@ -350,6 +350,8 @@ test('CI provisions pinned ucode and passes it to the shared native gate', () =>
     'CI must configure the ucode executable for the gate');
   assert.match(nativeWorkflow, /UCODE_LIBRARY_PATH:/,
     'CI must configure the ucode library path for the gate');
+  assert.match(nativeWorkflow, /UCODE_MODULE_PATH:/,
+    'CI must configure the ucode module path for the gate');
 });
 
 test('package declares every ucode module required by native helper transport', () => {
