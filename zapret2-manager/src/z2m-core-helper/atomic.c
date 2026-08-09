@@ -150,11 +150,10 @@ static bool rename_publish(int parent,const char *candidate,int check,const char
 	return syscall(SYS_renameat2,parent,candidate,check,name,had_target?0:RENAME_NOREPLACE)==0;
 }
 
-int z2m_atomic_write_bytes(const struct z2m_request *r,const struct z2m_root *root,int root_fd,const char *path,const unsigned char *content,size_t length,bool allow_create)
+static int atomic_write_bytes_state(const struct z2m_request *r,const struct z2m_root *root,int root_fd,const char *path,const unsigned char *content,size_t length,bool allow_create,bool prelocked,uint64_t verified_mount)
 {
-	struct z2m_prepared_wire success_wire={0},unknown_wire={0};const char *code=NULL,*pending_code=NULL,*pending_stage=NULL;bool had_target=false,published=false;char *copy,*name,*slash,parent_path[4097],candidate[44]={0};size_t written=0;uint64_t root_mount;int parent=-1,check=-1,target=-1,fd=-1,final=-1,result;struct stat parent_st,check_st,target_st,current_st,created,fd_st,final_st;
-	if(z2m_root_mount_id(root_fd,&root_mount,&code)<0)return fail(r,code,"path_resolve");
-	if(z2m_root_lock(root_fd,false,&code)<0)return fail(r,code,"lock_acquire");
+	struct z2m_prepared_wire success_wire={0},unknown_wire={0};const char *code=NULL,*pending_code=NULL,*pending_stage=NULL;bool had_target=false,published=false;char *copy,*name,*slash,parent_path[4097],candidate[44]={0};size_t written=0;uint64_t root_mount=verified_mount;int parent=-1,check=-1,target=-1,fd=-1,final=-1,result;struct stat parent_st,check_st,target_st,current_st,created,fd_st,final_st;
+	if(!prelocked){if(z2m_root_mount_id(root_fd,&root_mount,&code)<0)return fail(r,code,"path_resolve");if(z2m_root_lock(root_fd,false,&code)<0)return fail(r,code,"lock_acquire");}
 	copy=strdup(path);if(copy==NULL)return fail(r,"EIO","object_open");
 #ifdef Z2M_TESTING
 	if(getenv("Z2M_TEST_ATOMIC_RESPONSE_PREPARE_ERROR")!=NULL){free(copy);return fail(r,"EINTERNAL","response_encode");}
@@ -222,11 +221,16 @@ done:
 	free(copy);return result;
 }
 
-int z2m_atomic_write(const struct z2m_request *r,const struct z2m_root *root,int root_fd)
+int z2m_atomic_write_bytes(const struct z2m_request *r,const struct z2m_root *root,int root_fd,const char *path,const unsigned char *content,size_t length,bool allow_create)
+{
+	return atomic_write_bytes_state(r,root,root_fd,path,content,length,allow_create,false,0);
+}
+
+int z2m_atomic_write(const struct z2m_request *r,const struct z2m_root *root,int root_fd,uint64_t root_mount)
 {
 	json_object *path_value,*content_value,*create_value;const char *path,*wire;bool allow_create;unsigned char *content;size_t length=0;int result;
 	json_object_object_get_ex(r->arguments,"path",&path_value);json_object_object_get_ex(r->arguments,"content",&content_value);json_object_object_get_ex(r->arguments,"allowCreate",&create_value);path=json_object_get_string(path_value);wire=json_object_get_string(content_value);allow_create=json_object_get_boolean(create_value);if(!z2m_path_valid(path,root->max_depth))return fail(r,"EPATH","path_validate");content=decode(wire,&length);if(content==NULL)return fail(r,"EIO","write");
-	result=z2m_atomic_write_bytes(r,root,root_fd,path,content,length,allow_create);
+	result=atomic_write_bytes_state(r,root,root_fd,path,content,length,allow_create,true,root_mount);
 	free(content);return result;
 }
 

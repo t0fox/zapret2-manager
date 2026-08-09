@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static void *tracked_allocations[16];
+static void *tracked_allocations[4096];
 static size_t tracked_count;
 static long allocation_count;
 
@@ -62,6 +62,14 @@ void *z2m_realloc(void *pointer, size_t size)
 }
 
 void __real_free(void *pointer);
+json_tokener *__real_json_tokener_new_ex(int depth);
+
+json_tokener *__wrap_json_tokener_new_ex(int depth)
+{
+	if (allocation_should_fail())
+		return NULL;
+	return __real_json_tokener_new_ex(depth);
+}
 
 void __wrap_free(void *pointer)
 {
