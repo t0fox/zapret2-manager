@@ -1,0 +1,36 @@
+Task H atomic_write_json exact-target evidence
+STATUS: NOT RUN
+Exact-target result: NOT RUN
+Exact-target reason: required environment variables are absent
+Missing exact-target variables: OPENWRT_SDK SHARED_SDK TARGET_ROOT NODE_BIN TARGET_CC PROOT_BIN QEMU_AARCH64
+
+Execution provenance
+Executed input commit: 7abbc2eee16d9b054c982244bf66c49c0191f67a
+Pre-run git status --porcelain: had Task H verification changes only
+Host: Linux WSL2 x86_64
+Root execution context: exact-target gate not run; host property gate requires uid=0
+Compiler: /usr/bin/cc, cc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+json-c: 0.18
+
+Target and package identity
+Artifact architecture: AArch64 musl, NOT RUN
+SHA256 packaged z2m-core-helper: NOT RUN
+SHA256 package APK: NOT RUN
+SHA256 target package Makefile: NOT RUN
+
+Host corpus identities
+SHA256 canonical corpus: f2b9008d5b1668367f932d2cc14828a31e36b5e2a1ae7e488ef4cec8424bbd35
+SHA256 mutation corpus: 461292fb2fbf4944734ddf2c5e500f04d50cd4fbb40c986b0ff132a2afb292f7
+SHA256 canonical.c: b522345184683e86a3a0a48f904ed277c65208f51ff4448a0410405da5374ea6
+SHA256 property test: 3ebb0148adf730d7ad3a0c9025520703f9ab41c2c3a8685e0c2daf09c36041d6
+
+Host property matrix counts
+Pass count: 6
+Fail count: 0
+Skip count: 0
+Sanitized strict build: NOT RUN in this evidence artifact; recorded by final report
+
+Exact-target raw TAP
+Raw TAP artifact: tests/native/core/atomic-write-json-exact-target.tap
+SHA256 raw TAP artifact: 7789ae634468e612216d2de0c248bb00a6627e70605f999dff3785078f460648
+Exact-target pass/fail/skip: 0/0/1
