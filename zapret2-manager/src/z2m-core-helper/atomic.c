@@ -150,15 +150,16 @@ static bool rename_publish(int parent,const char *candidate,int check,const char
 	return syscall(SYS_renameat2,parent,candidate,check,name,had_target?0:RENAME_NOREPLACE)==0;
 }
 
-int z2m_atomic_write(const struct z2m_request *r,const struct z2m_root *root,int root_fd,uint64_t root_mount)
+int z2m_atomic_write_bytes(const struct z2m_request *r,const struct z2m_root *root,int root_fd,const char *path,const unsigned char *content,size_t length,bool allow_create)
 {
-	json_object *path_value,*content_value,*create_value;struct z2m_prepared_wire success_wire={0},unknown_wire={0};const char *path,*wire,*code=NULL,*pending_code=NULL,*pending_stage=NULL;bool allow_create,had_target=false,published=false;char *copy,*name,*slash,parent_path[4097],candidate[44]={0};unsigned char *content=NULL;size_t length=0,written=0;int parent=-1,check=-1,target=-1,fd=-1,final=-1,result;struct stat parent_st,check_st,target_st,current_st,created,fd_st,final_st;
-	json_object_object_get_ex(r->arguments,"path",&path_value);json_object_object_get_ex(r->arguments,"content",&content_value);json_object_object_get_ex(r->arguments,"allowCreate",&create_value);path=json_object_get_string(path_value);wire=json_object_get_string(content_value);allow_create=json_object_get_boolean(create_value);if(!z2m_path_valid(path,root->max_depth))return fail(r,"EPATH","path_validate");content=decode(wire,&length);if(content==NULL)return fail(r,"EIO","write");
-	copy=strdup(path);if(copy==NULL){free(content);return fail(r,"EIO","object_open");}
+	struct z2m_prepared_wire success_wire={0},unknown_wire={0};const char *code=NULL,*pending_code=NULL,*pending_stage=NULL;bool had_target=false,published=false;char *copy,*name,*slash,parent_path[4097],candidate[44]={0};size_t written=0;uint64_t root_mount;int parent=-1,check=-1,target=-1,fd=-1,final=-1,result;struct stat parent_st,check_st,target_st,current_st,created,fd_st,final_st;
+	if(z2m_root_mount_id(root_fd,&root_mount,&code)<0)return fail(r,code,"path_resolve");
+	if(z2m_root_lock(root_fd,false,&code)<0)return fail(r,code,"lock_acquire");
+	copy=strdup(path);if(copy==NULL)return fail(r,"EIO","object_open");
 #ifdef Z2M_TESTING
-	if(getenv("Z2M_TEST_ATOMIC_RESPONSE_PREPARE_ERROR")!=NULL){free(copy);free(content);return fail(r,"EINTERNAL","response_encode");}
+	if(getenv("Z2M_TEST_ATOMIC_RESPONSE_PREPARE_ERROR")!=NULL){free(copy);return fail(r,"EINTERNAL","response_encode");}
 #endif
-	if(!prepare_success(r,length,root->directory_fsync?"durable":"tmpfs_visible",&success_wire)||!z2m_prepare_failure_wire(r->request_id,"ECOMMITUNKNOWN","directory_fsync",&unknown_wire)){z2m_discard_wire(&success_wire);free(copy);free(content);return fail(r,"EINTERNAL","response_encode");}slash=strrchr(copy,'/');if(slash==NULL){parent_path[0]='\0';name=copy;}else{*slash='\0';strcpy(parent_path,copy);name=slash+1;}
+	if(!prepare_success(r,length,root->directory_fsync?"durable":"tmpfs_visible",&success_wire)||!z2m_prepare_failure_wire(r->request_id,"ECOMMITUNKNOWN","directory_fsync",&unknown_wire)){z2m_discard_wire(&success_wire);free(copy);return fail(r,"EINTERNAL","response_encode");}slash=strrchr(copy,'/');if(slash==NULL){parent_path[0]='\0';name=copy;}else{*slash='\0';strcpy(parent_path,copy);name=slash+1;}
 	parent=open_parent(root_fd,parent_path,root_mount,&code);if(parent<0){result=fail(r,code,strcmp(code,"EDENIED")==0?"policy":(strcmp(code,"ENOTREG")==0?"object_verify":"path_resolve"));goto done;}if(fstat(parent,&parent_st)<0){result=fail(r,"EIO","object_open");goto done;}
 	target=openat(parent,name,O_RDONLY|O_NOFOLLOW|O_NONBLOCK|O_CLOEXEC);if(target>=0){had_target=true;if(verified_regular(target,root_mount,&target_st,&code,false)<0){result=fail(r,code,strcmp(code,"EDENIED")==0?"policy":(strcmp(code,"EXDEV")==0||strcmp(code,"ECAPABILITY")==0?"path_resolve":"object_verify"));goto done;}close(target);target=-1;}else if(errno==ELOOP){result=fail(r,"ESYMLINK","object_open");goto done;}else if(errno!=ENOENT){struct stat st;if(fstatat(parent,name,&st,AT_SYMLINK_NOFOLLOW)==0){code=target_code(&st);result=fail(r,code,strcmp(code,"EDENIED")==0?"policy":"object_verify");}else result=fail(r,entry_code(parent,name,errno),"object_open");goto done;}else if(!allow_create){result=fail(r,"ENOENT","object_open");goto done;}
 	gate("Z2M_TEST_ATOMIC_STOP_BEFORE_CREATE",NULL);if(fault("before_create")){result=fail(r,"EIO","object_open");goto done;}check=open_parent(root_fd,parent_path,root_mount,&code);if(check<0||fstat(check,&check_st)<0||!same_inode(&parent_st,&check_st)){if(check>=0)close(check);check=-1;result=fail(r,"EIO","object_open");goto done;}close(check);check=-1;
@@ -218,5 +219,13 @@ done:
 	if(fd>=0)close(fd);
 	if(parent>=0)close(parent);
 	z2m_discard_wire(&success_wire);z2m_discard_wire(&unknown_wire);
-	free(copy);free(content);return result;
+	free(copy);return result;
+}
+
+int z2m_atomic_write(const struct z2m_request *r,const struct z2m_root *root,int root_fd)
+{
+	json_object *path_value,*content_value,*create_value;const char *path,*wire;bool allow_create;unsigned char *content;size_t length=0;int result;
+	json_object_object_get_ex(r->arguments,"path",&path_value);json_object_object_get_ex(r->arguments,"content",&content_value);json_object_object_get_ex(r->arguments,"allowCreate",&create_value);path=json_object_get_string(path_value);wire=json_object_get_string(content_value);allow_create=json_object_get_boolean(create_value);if(!z2m_path_valid(path,root->max_depth))return fail(r,"EPATH","path_validate");content=decode(wire,&length);if(content==NULL)return fail(r,"EIO","write");
+	result=z2m_atomic_write_bytes(r,root,root_fd,path,content,length,allow_create);
+	free(content);return result;
 }
