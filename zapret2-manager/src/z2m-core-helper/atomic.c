@@ -3,7 +3,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/fs.h>
-#include <linux/stat.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,7 +17,7 @@ static bool same_inode(const struct stat *a,const struct stat *b)
 static int mount_id(int fd,uint64_t *id)
 {
 #if defined(SYS_statx) && defined(STATX_MNT_ID) && !defined(Z2M_NO_STATX)
-	struct statx st;if(syscall(SYS_statx,fd,"",AT_EMPTY_PATH|AT_STATX_SYNC_AS_STAT,STATX_MNT_ID,&st)<0||!(st.stx_mask&STATX_MNT_ID)){errno=ENOTSUP;return -1;}*id=st.stx_mnt_id;return 0;
+	z2m_statx st;if(syscall(SYS_statx,fd,"",AT_EMPTY_PATH|AT_STATX_SYNC_AS_STAT,STATX_MNT_ID,&st)<0||!(st.stx_mask&STATX_MNT_ID)){errno=ENOTSUP;return -1;}*id=st.stx_mnt_id;return 0;
 #else
 	(void)fd;(void)id;errno=ENOTSUP;return -1;
 #endif

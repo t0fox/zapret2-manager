@@ -40,7 +40,6 @@ tail -n "$KEEP_LINES" "$LOG" > "$tmp" && mv -f "$tmp" "$LOG" || rm -f "$tmp"
 # Record a lists event (ndjson, with a source field). See events.v1.json.
 ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")
 id="lists-$$-$(date +%s 2>/dev/null || echo 0)"
-mkdir -p /tmp/zapret2-manager
 printf '{"schema":"events.v1","ts":"%s","id":"%s","category":"lists","severity":"info","source":"lists","msg":"autohostlist log rotated to last %s lines (was %s bytes)","path":"%s","keep_lines":%s,"was_bytes":%s}\n' \
 	"$ts" "$id" "$KEEP_LINES" "$size" "$LOG" "$KEEP_LINES" "$size" >> "$EVENTS" 2>/dev/null || true
 

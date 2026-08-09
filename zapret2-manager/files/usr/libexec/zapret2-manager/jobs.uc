@@ -49,8 +49,7 @@ function is_terminal(status) {
 // record IO
 // ---------------------------------------------------------------------------
 function ensure_jdir() {
-	try { mkdir('/tmp/zapret2-manager'); } catch (e) { }
-	try { mkdir(JDIR); } catch (e) { }
+	return stat(JDIR) != null;
 }
 
 function record_path(id) { return JDIR + '/' + id + '.json'; }

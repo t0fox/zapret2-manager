@@ -3,7 +3,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
-#include <linux/stat.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -67,7 +66,7 @@ int z2m_root_open(const struct z2m_root *root)
 int z2m_root_mount_id(int root_fd, uint64_t *id, const char **code)
 {
 #if defined(SYS_statx) && defined(STATX_MNT_ID) && !defined(Z2M_NO_STATX)
-	struct statx value;
+	z2m_statx value;
 #ifdef Z2M_TESTING
 	if(getenv("Z2M_TEST_ROOT_MOUNT_ERROR")!=NULL){*code="ECAPABILITY";return -1;}
 #endif

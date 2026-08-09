@@ -15,7 +15,7 @@ define Package/zapret2-manager
   CATEGORY:=Network
   SUBMENU:=DPI bypass
   TITLE:=Management backend for optional upstream zapret2
-  DEPENDS:=+ucode +ncat +flock +uclient-fetch +ca-bundle +unzip +jsonfilter +libjson-c
+  DEPENDS:=+ucode +ucode-mod-fs +ucode-mod-io +ucode-mod-socket +ucode-mod-uloop +ncat +flock +uclient-fetch +ca-bundle +unzip +jsonfilter +libjson-c
 endef
 
 define Package/zapret2-manager/description
@@ -26,6 +26,9 @@ endef
 define Build/Prepare
 	mkdir -p $(PKG_BUILD_DIR)
 	$(CP) ./src/z2m-core-helper/* $(PKG_BUILD_DIR)/
+	$(CP) ./src/z2m-root-bootstrap.c $(PKG_BUILD_DIR)/
+	mkdir -p $(PKG_BUILD_DIR)/z2m-helperd-src
+	$(CP) ./src/z2m-helperd/* $(PKG_BUILD_DIR)/z2m-helperd-src/
 endef
 
 define Build/Compile
@@ -43,6 +46,18 @@ define Build/Compile
 		$(PKG_BUILD_DIR)/sha256.c \
 		$(TARGET_LDFLAGS) -ljson-c \
 		-o $(PKG_BUILD_DIR)/z2m-core-helper
+	$(TARGET_CC) $(TARGET_CPPFLAGS) $(TARGET_CFLAGS) \
+		-std=c11 -Wall -Wextra -Werror -D_GNU_SOURCE \
+		$(PKG_BUILD_DIR)/z2m-root-bootstrap.c \
+		$(TARGET_LDFLAGS) \
+		-o $(PKG_BUILD_DIR)/z2m-root-bootstrap
+	$(TARGET_CC) $(TARGET_CPPFLAGS) $(TARGET_CFLAGS) \
+		-std=c11 -Wall -Wextra -Werror -D_GNU_SOURCE \
+		$(PKG_BUILD_DIR)/z2m-helperd-src/z2m-helperd.c \
+		$(PKG_BUILD_DIR)/z2m-helperd-src/transport.c \
+		$(PKG_BUILD_DIR)/z2m-helperd-src/supervise.c \
+		$(TARGET_LDFLAGS) -ljson-c \
+		-o $(PKG_BUILD_DIR)/z2m-helperd
 endef
 
 define Package/zapret2-manager/conffiles
@@ -53,13 +68,24 @@ endef
 
 define Package/zapret2-manager/install
 	$(CP) ./files/* $(1)/
+	chmod 0755 $(1)/usr/libexec/zapret2-manager/*.sh
+	chmod 0755 $(1)/etc/init.d/zapret2-manager
+	chmod 0755 $(1)/etc/hotplug.d/iface/90-zapret2-manager
+	chmod 0644 $(1)/usr/libexec/zapret2-manager/*.uc
+	find $(1)/usr/share/zapret2-manager -type f -exec chmod 0644 {} +
+	chmod 0644 $(1)/etc/zapret2-manager/*.json
+	chmod 0640 $(1)/etc/zapret2-manager/ipset/*.txt
+	chmod 0600 $(1)/etc/zapret2-manager/state.json
 	$(INSTALL_DIR) $(1)/usr/libexec/zapret2-manager
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/z2m-core-helper $(1)/usr/libexec/zapret2-manager/z2m-core-helper
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/z2m-root-bootstrap $(1)/usr/libexec/zapret2-manager/z2m-root-bootstrap
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/z2m-helperd $(1)/usr/libexec/zapret2-manager/z2m-helperd
 endef
 
 define Package/zapret2-manager/postinst
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT:-}" ] && exit 0
+/usr/libexec/zapret2-manager/z2m-root-bootstrap persistent || exit $$?
 /etc/init.d/rpcd reload
 /etc/init.d/zapret2-manager enable
 exit 0

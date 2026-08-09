@@ -64,6 +64,9 @@ if (mode == null) {
 	exit(1);
 }
 
+let bootstrap = popen('/usr/libexec/zapret2-manager/z2m-root-bootstrap runtime 2>/dev/null', 'r');
+if (!bootstrap || bootstrap.close() != 0) exit(1);
+
 if ((mode == 'start' || mode == 'cancel' || mode == 'hm-start' || mode == 'hm-cancel') && getenv('Z2M_JFLOCKED') == null && have_flock()) {
 	if (flock_wrap(mode, ARGV[1])) exit(0);
 }

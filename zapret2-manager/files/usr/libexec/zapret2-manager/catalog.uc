@@ -11,7 +11,7 @@
 // as unsupported, never applied. proxyRoute/unsupportedGeo are never
 // pretended to be supported.
 
-import { readfile, writefile, stat, unlink, popen } from 'fs';
+import { readfile, writefile, stat, unlink, popen, mkdir } from 'fs';
 import { read_list_file, write_list_file } from './apply.uc';
 import { load_state, save_state } from './profiles-draft.uc';
 import { PATHS } from './constants.uc';
@@ -578,7 +578,8 @@ export const catalog_preview = function(input) {
 };
 
 function snapshot_catalog(listEntries) {
-	run('mkdir -p ' + SNAP_DIR);
+	try { mkdir('/tmp/zapret2-manager/last-good'); } catch (e) { }
+	try { mkdir(SNAP_DIR); } catch (e) { }
 	run('cp -f ' + domain_include_path() + ' ' + SNAP_DIR + '/domainInclude.txt 2>/dev/null');
 	run('cp -f ' + PATHS.draft_state + ' ' + SNAP_DIR + '/state.json 2>/dev/null');
 	return { dir: SNAP_DIR };
