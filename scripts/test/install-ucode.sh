@@ -21,10 +21,8 @@ cmake -S "$source" -B "$build" \
   -DCMAKE_C_FLAGS=-Wno-error=discarded-qualifiers \
   -DDEBUG_SUPPORT=OFF -DFS_SUPPORT=OFF -DMATH_SUPPORT=OFF \
   -DRESOLV_SUPPORT=OFF -DSTRUCT_SUPPORT=OFF -DLOG_SUPPORT=OFF \
-  -DSOCKET_SUPPORT=OFF -DZLIB_SUPPORT=OFF -DDIGEST_SUPPORT=OFF
-cmake --build "$build" --target ucode
-mkdir -p "$prefix/bin" "$prefix/lib"
-cp "$build/ucode" "$prefix/bin/ucode"
-cp "$build"/libucode.so* "$prefix/lib/"
+  -DSOCKET_SUPPORT=ON -DZLIB_SUPPORT=OFF -DDIGEST_SUPPORT=OFF
+cmake --build "$build"
+cmake --install "$build"
 
 LD_LIBRARY_PATH="$prefix/lib" "$prefix/bin/ucode" -e 'print("ucode-ready\\n");'

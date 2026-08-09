@@ -343,6 +343,8 @@ test('standalone runtime CLIs bootstrap managed roots and propagate failure', ()
 });
 
 test('CI provisions pinned ucode and passes it to the shared native gate', () => {
+  assert.match(nativeWorkflow, /uses: actions\/checkout@v4\s+with:\s+fetch-depth:\s+0/,
+    'CI must fetch historical commits used by evidence provenance checks');
   assert.match(nativeWorkflow, /v0\.0\.20250529/,
     'CI must pin the tested ucode release');
   assert.match(nativeWorkflow, /scripts\/test\/install-ucode\.sh/,
@@ -351,6 +353,8 @@ test('CI provisions pinned ucode and passes it to the shared native gate', () =>
     'CI must configure the ucode executable for the gate');
   assert.match(nativeWorkflow, /UCODE_LIBRARY_PATH:/,
     'CI must configure the ucode library path for the gate');
+  assert.match(nativeWorkflow, /UCODE_MODULE_PATH:/,
+    'CI must configure the ucode module path for the gate');
 });
 
 test('package declares every ucode module required by native helper transport', () => {
