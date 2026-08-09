@@ -37,9 +37,12 @@ static const char *open_error(int error)
 
 static int classify_special_open_error(int parent,const char *name,int error)
 {
-	struct stat st;
+	struct stat st;int result=fstatat(parent,name,&st,AT_SYMLINK_NOFOLLOW);
+#ifdef Z2M_TESTING
+	if(getenv("Z2M_TEST_FAIL_FALLBACK")!=NULL)fprintf(stderr,"z2m-core-helper: special-open errno=%d stat=%d type=%o\n",error,result,result==0?(unsigned)(st.st_mode&S_IFMT):0);
+#endif
 	(void)error;
-	if(fstatat(parent,name,&st,AT_SYMLINK_NOFOLLOW)==0&&
+	if(result==0&&
 		(S_ISCHR(st.st_mode)||S_ISBLK(st.st_mode))) return EACCES;
 	return error;
 }
