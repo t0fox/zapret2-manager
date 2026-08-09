@@ -35,6 +35,15 @@ static const char *open_error(int error)
 	return "EIO";
 }
 
+static int classify_special_open_error(int parent,const char *name,int error)
+{
+	struct stat st;int result=fstatat(parent,name,&st,AT_SYMLINK_NOFOLLOW);
+	(void)error;
+	if(result==0&&
+		(S_ISCHR(st.st_mode)||S_ISBLK(st.st_mode))) return EACCES;
+	return error;
+}
+
 static int mount_id(int fd, uint64_t *id)
 {
 #if defined(SYS_statx) && defined(STATX_MNT_ID) && !defined(Z2M_NO_STATX)
@@ -60,7 +69,9 @@ static int fallback_open(int root_fd,const char *path)
 	if(mount_id(root_fd,&root_mount)<0){free(copy);close(current);errno=ENOTSUP;return -1;}
 	part=strtok_r(copy,"/",&save);
 	while(part!=NULL){char *following=strtok_r(NULL,"/",&save); int flags=O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK|(following?O_DIRECTORY:0);
-		next=openat(current,part,O_RDONLY|flags);close(current);if(next<0){free(copy);return -1;}
+		next=openat(current,part,O_RDONLY|flags);
+		if(next<0){int error=errno;if(!following)error=classify_special_open_error(current,part,error);close(current);free(copy);errno=error;return -1;}
+		close(current);
 		if(mount_id(next,&child_mount)<0){close(next);free(copy);errno=ENOTSUP;return -1;}
 #ifdef Z2M_TESTING
 		if(getenv("Z2M_TEST_MNT_ID_CHANGE")!=NULL) child_mount=root_mount+1;
@@ -78,8 +89,9 @@ static int primary_open(int root_fd,const char *path)
 	part=strtok_r(copy,"/",&save);
 	while(part!=NULL){char *following=strtok_r(NULL,"/",&save);
 		struct open_how how={.flags=O_RDONLY|O_CLOEXEC|O_NONBLOCK|(following?O_DIRECTORY:0),.resolve=RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS|RESOLVE_NO_XDEV};
-		next=(int)syscall(SYS_openat2,current,part,&how,sizeof(how));close(current);
-		if(next<0){free(copy);return -1;}
+		next=(int)syscall(SYS_openat2,current,part,&how,sizeof(how));
+		if(next<0){int error=errno;if(!following)error=classify_special_open_error(current,part,error);close(current);free(copy);errno=error;return -1;}
+		close(current);
 		if(following){
 			if(fstat(next,&st)<0){int error=errno;close(next);free(copy);errno=error;return -1;}
 			if(!S_ISDIR(st.st_mode)||st.st_uid!=0||st.st_gid!=0||(st.st_mode&07777)!=0700){close(next);free(copy);errno=EACCES;return -1;}
@@ -100,6 +112,7 @@ int z2m_open_regular(int root_fd,const char *path,struct stat *st,const char **c
 	else {saved=errno;if(saved==ENOSYS||saved==EINVAL||saved==E2BIG){fd=fallback_open(root_fd,path);saved=errno;}}
 	if(fd<0){*code=saved==ENOTSUP?"ECAPABILITY":open_error(saved);return -1;}
 	if(fstat(fd,st)<0){close(fd);*code="EIO";return -1;}
+	if(S_ISCHR(st->st_mode)||S_ISBLK(st->st_mode)){close(fd);*code="EDENIED";return -1;}
 	if(!S_ISREG(st->st_mode)){close(fd);*code="ENOTREG";return -1;}
 	if(st->st_uid!=0 || st->st_gid!=0 || (st->st_mode&07777)!=0600){close(fd);*code="EDENIED";return -1;}
 	return fd;
