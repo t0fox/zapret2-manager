@@ -513,17 +513,28 @@ int z2m_read_request(struct z2m_request *request)
 	if (checked->nul_key_other) { free(buffer); return z2m_fail(NULL, "ESCHEMA", "schema"); }
 	if (checked->duplicate_other) { free(buffer); return z2m_fail(NULL, "EMALFORMED", "json_decode"); }
 	if (scan.atomic_write_json && scan.candidate_seen &&
-		!z2m_canonical_validate(buffer + scan.candidate_start,
-			scan.candidate_end - scan.candidate_start, &canonical_error)) {
+		!z2m_canonical_construct(buffer + scan.candidate_start,
+			scan.candidate_end - scan.candidate_start,
+			&request->canonical_value, &canonical_error)) {
 		free(buffer);
 		return z2m_fail(NULL, canonical_error.code, canonical_error.stage);
 	}
-	tokener = json_tokener_new();
-	if (tokener == NULL) { free(buffer); return z2m_fail(NULL,"EINTERNAL","internal"); }
-	json_tokener_set_flags(tokener, JSON_TOKENER_STRICT);
-	request->document = json_tokener_parse_ex(tokener, (const char *)buffer, (int)used); error = json_tokener_get_error(tokener);
-	json_tokener_free(tokener); free(buffer);
-	if (error != json_tokener_success || request->document == NULL || !json_object_is_type(request->document, json_type_object)) return z2m_fail(NULL, "EMALFORMED", "json_decode");
+	if (scan.atomic_write_json) {
+		if (!z2m_json_c_parse_validated(buffer, used,
+			Z2M_CANONICAL_MAX_DEPTH + 3U, &request->document)) {
+			free(buffer);
+			return z2m_fail(NULL, "EMALFORMED", "json_decode");
+		}
+	} else {
+		tokener = json_tokener_new();
+		if (tokener == NULL) { free(buffer); return z2m_fail(NULL,"EINTERNAL","internal"); }
+		json_tokener_set_flags(tokener, JSON_TOKENER_STRICT);
+		request->document = json_tokener_parse_ex(tokener, (const char *)buffer, (int)used); error = json_tokener_get_error(tokener);
+		json_tokener_free(tokener);
+		if (error != json_tokener_success) { free(buffer); return z2m_fail(NULL, "EMALFORMED", "json_decode"); }
+	}
+	free(buffer);
+	if (request->document == NULL || !json_object_is_type(request->document, json_type_object)) return z2m_fail(NULL, "EMALFORMED", "json_decode");
 	if (!json_object_object_get_ex(request->document,"requestId",&id) || !valid_id(id)) return z2m_fail(NULL,"ESCHEMA","request_id");
 	request->request_id = strdup(json_object_get_string(id));
 	if (request->request_id == NULL) return z2m_fail(NULL,"EINTERNAL","internal");
@@ -533,7 +544,7 @@ int z2m_read_request(struct z2m_request *request)
 	return -1;
 }
 
-void z2m_request_free(struct z2m_request *request) { free(request->request_id); json_object_put(request->document); }
+void z2m_request_free(struct z2m_request *request) { free(request->request_id); json_object_put(request->canonical_value); json_object_put(request->document); }
 
 static bool integer_value(json_object *args, const char *name, int64_t minimum, int64_t maximum, int64_t *out)
 {

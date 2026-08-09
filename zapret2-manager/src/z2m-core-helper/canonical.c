@@ -1,5 +1,6 @@
 #include "helper.h"
 
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -617,4 +618,198 @@ bool z2m_canonical_validate(const unsigned char *data, size_t length,
 	}
 	cleanup(&scan);
 	return valid;
+}
+
+struct semantic_counts {
+	size_t containers;
+	size_t members;
+	size_t nodes;
+};
+
+static bool semantic_node_valid(json_object *value, size_t depth,
+	struct semantic_counts *counts)
+{
+	enum json_type type = value == NULL ? json_type_null :
+		json_object_get_type(value);
+
+	if (depth > Z2M_CANONICAL_MAX_DEPTH ||
+		counts->nodes >= Z2M_CANONICAL_MAX_NODES)
+		return false;
+	counts->nodes++;
+	switch (type) {
+	case json_type_null:
+	case json_type_boolean:
+		return true;
+	case json_type_int:
+		(void)json_object_get_int64(value);
+		return json_object_get_uint64(value) <= INT64_MAX;
+	case json_type_string: {
+		int length = json_object_get_string_len(value);
+		return length >= 0 && (length == 0 || json_object_get_string(value) != NULL);
+	}
+	case json_type_array: {
+		size_t length;
+
+		if (counts->containers >= Z2M_CANONICAL_MAX_CONTAINERS)
+			return false;
+		counts->containers++;
+		length = json_object_array_length(value);
+		for (size_t i = 0; i < length; i++)
+			if (!semantic_node_valid(json_object_array_get_idx(value, i),
+				depth + 1U, counts))
+				return false;
+		return true;
+	}
+	case json_type_object: {
+		size_t length;
+
+		if (counts->containers >= Z2M_CANONICAL_MAX_CONTAINERS)
+			return false;
+		counts->containers++;
+		length = json_object_object_length(value);
+		if (length > Z2M_CANONICAL_MAX_MEMBERS - counts->members)
+			return false;
+		counts->members += length;
+		json_object_object_foreach(value, key, child) {
+			if (strlen(key) > Z2M_CANONICAL_MAX_KEY_BYTES ||
+				!semantic_node_valid(child, depth + 1U, counts))
+				return false;
+		}
+		return true;
+	}
+	case json_type_double:
+	default:
+		return false;
+	}
+}
+
+bool z2m_canonical_semantic_valid(json_object *value)
+{
+	struct semantic_counts counts = {0};
+
+	return semantic_node_valid(value, 1U, &counts);
+}
+
+static void append_hex_quad(unsigned char **output, uint32_t value)
+{
+	static const unsigned char digits[] = "0123456789abcdef";
+
+	*(*output)++ = '\\';
+	*(*output)++ = 'u';
+	for (unsigned int shift = 12U;; shift -= 4U) {
+		*(*output)++ = digits[(value >> shift) & 0x0fU];
+		if (shift == 0)
+			break;
+	}
+}
+
+static unsigned char *json_c_input(const unsigned char *data, size_t length,
+	size_t *output_length)
+{
+	size_t required = length;
+	size_t offset = 0;
+	unsigned char *copy;
+	unsigned char *output;
+
+	while (offset < length) {
+		size_t start = offset;
+		uint32_t codepoint;
+		size_t escaped;
+
+		if (data[offset] < 0x80U) {
+			offset++;
+			continue;
+		}
+		if (!decode_utf8(data, length, &offset, &codepoint))
+			return NULL;
+		escaped = codepoint <= 0xffffU ? 6U : 12U;
+		if (escaped - (offset - start) > SIZE_MAX - required)
+			return NULL;
+		required += escaped - (offset - start);
+	}
+	if (required >= (size_t)INT_MAX)
+		return NULL;
+	copy = malloc(required + 1U);
+	if (copy == NULL)
+		return NULL;
+	output = copy;
+	offset = 0;
+	while (offset < length) {
+		uint32_t codepoint;
+
+		if (data[offset] < 0x80U) {
+			*output++ = data[offset++];
+			continue;
+		}
+		if (!decode_utf8(data, length, &offset, &codepoint)) {
+			free(copy);
+			return NULL;
+		}
+		if (codepoint <= 0xffffU) {
+			append_hex_quad(&output, codepoint);
+		} else {
+			uint32_t pair = codepoint - 0x10000U;
+			append_hex_quad(&output, 0xd800U + (pair >> 10));
+			append_hex_quad(&output, 0xdc00U + (pair & 0x3ffU));
+		}
+	}
+	*output = '\0';
+	*output_length = required;
+	return copy;
+}
+
+bool z2m_json_c_parse_validated(const unsigned char *data, size_t length,
+	unsigned int max_depth, json_object **value)
+{
+	json_tokener *tokener;
+	json_object *parsed;
+	enum json_tokener_error tokener_error;
+	unsigned char *input;
+	size_t input_length;
+
+	if (value == NULL || max_depth > (unsigned int)INT_MAX)
+		return false;
+	*value = NULL;
+	input = json_c_input(data, length, &input_length);
+	if (input == NULL)
+		return false;
+	tokener = json_tokener_new_ex((int)max_depth);
+	if (tokener == NULL) {
+		free(input);
+		return false;
+	}
+	json_tokener_set_flags(tokener, JSON_TOKENER_STRICT);
+	parsed = json_tokener_parse_ex(tokener, (const char *)input,
+		(int)input_length + 1);
+	tokener_error = json_tokener_get_error(tokener);
+	json_tokener_free(tokener);
+	free(input);
+	if (tokener_error != json_tokener_success) {
+		json_object_put(parsed);
+		return false;
+	}
+	*value = parsed;
+	return true;
+}
+
+bool z2m_canonical_construct(const unsigned char *data, size_t length,
+	json_object **value, struct z2m_canonical_error *error)
+{
+	json_object *parsed;
+
+	if (value == NULL || error == NULL)
+		return false;
+	*value = NULL;
+	if (!z2m_canonical_validate(data, length, error))
+		return false;
+	if (!z2m_json_c_parse_validated(data, length,
+		Z2M_CANONICAL_MAX_DEPTH + 1U, &parsed) ||
+		!z2m_canonical_semantic_valid(parsed)) {
+		json_object_put(parsed);
+		error->code = "EINTERNAL";
+		error->stage = "internal";
+		return false;
+	}
+	*value = parsed;
+	return true;
 }

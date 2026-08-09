@@ -50,6 +50,7 @@ struct z2m_request {
 	const char *operation;
 	json_object *document;
 	json_object *arguments;
+	json_object *canonical_value;
 };
 
 struct z2m_prepared_wire {
@@ -77,6 +78,11 @@ void z2m_request_free(struct z2m_request *request);
 bool z2m_reserved_schema_valid(const struct z2m_request *request);
 bool z2m_canonical_validate(const unsigned char *data, size_t length,
 	struct z2m_canonical_error *error);
+bool z2m_canonical_semantic_valid(json_object *value);
+bool z2m_canonical_construct(const unsigned char *data, size_t length,
+	json_object **value, struct z2m_canonical_error *error);
+bool z2m_json_c_parse_validated(const unsigned char *data, size_t length,
+	unsigned int max_depth, json_object **value);
 const struct z2m_root *z2m_root_find(const char *name);
 int z2m_root_open(const struct z2m_root *root);
 int z2m_root_mount_id(int root_fd, uint64_t *id, const char **code);
