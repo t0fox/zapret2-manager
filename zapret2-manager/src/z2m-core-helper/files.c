@@ -3,7 +3,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/openat2.h>
-#include <linux/stat.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,7 +38,7 @@ static const char *open_error(int error)
 static int mount_id(int fd, uint64_t *id)
 {
 #if defined(SYS_statx) && defined(STATX_MNT_ID) && !defined(Z2M_NO_STATX)
-	struct statx value;
+	z2m_statx value;
 #ifdef Z2M_TESTING
 	if(getenv("Z2M_TEST_MNT_ID_UNAVAILABLE")!=NULL){errno=ENOSYS;return -1;}
 #endif
