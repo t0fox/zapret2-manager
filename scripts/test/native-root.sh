@@ -12,4 +12,5 @@ export TMPDIR
 "$node_bin" --test --test-concurrency=1 \
   tests/native/bootstrap.test.mjs \
   tests/native/core/fs-helper.test.mjs \
-  tests/native/core/atomic-write-json-property.test.mjs
+  tests/native/core/atomic-write-json-property.test.mjs \
+  tests/native/core/atomic-write-json-cas.test.mjs
