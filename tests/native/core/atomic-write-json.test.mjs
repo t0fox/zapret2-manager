@@ -224,13 +224,18 @@ test('canonical encoder allocation failures are internal, leak-free, and filesys
     kind: 'canonical_output_bytes', bytes: 521028,
   }));
   const before = readdirSync(temporaryRoot).sort();
-  for (const failAfter of [1, 2, 3, 4]) {
-    assert.equal(encode(input, {
+  for (let failAfter = 1; failAfter <= 14; failAfter++) {
+    assert.deepEqual(encode(input, {
       Z2M_TEST_ALLOC_FAIL_AFTER: String(failAfter),
-    }).toString().trim(), 'EINTERNAL canonical_encode');
+    }), Buffer.from('EINTERNAL canonical_encode\n'));
     assert.deepEqual(readdirSync(temporaryRoot).sort(), before);
     assert.equal(readFileSync(sentinel, 'utf8'), 'unchanged');
   }
+  assert.deepEqual(encode(input, {
+    Z2M_TEST_ALLOC_FAIL_AFTER: '15',
+  }), input);
+  assert.deepEqual(readdirSync(temporaryRoot).sort(), before);
+  assert.equal(readFileSync(sentinel, 'utf8'), 'unchanged');
 });
 
 test('request reader accepts an exact depth-64 canonical value inside its envelope', () => {
