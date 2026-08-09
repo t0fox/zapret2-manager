@@ -65,3 +65,14 @@ The report metadata update is included in the following report-only commit.
 ## Concerns
 
 None.
+
+## Review-Finding Fix Evidence
+
+- Finding: `main.c` opened the selected root before `z2m_canonical_encode()`, allowing `EROOT/root_open` to mask canonical size or encoder failures.
+- RED regression: `atomic_write_json encodes before an insecure root can mask an over-limit error` failed with `EROOT/root_open` (`3`) where it expected `ETOOBIG/canonical_size` (`4`).
+- Fix: `main.c` now encodes `request.canonical_value` after schema/root/policy checks and before `z2m_root_open()`. The JSON wrapper accepts borrowed prepared bytes and delegates publication only to `z2m_atomic_write_bytes()`; `main.c` frees the bytes on encoder failure, root-open failure, and publication return.
+- GREEN focused ordering regression: `1 test, 1 passed, 0 failed`.
+- GREEN focused JSON suite: `20 tests, 20 passed, 0 failed`.
+- GREEN root gate: `106 tests, 106 passed, 0 failed`.
+- GREEN full native gate: broker `42/42`, helper `35/35`, package/static `30/30`, remaining native `62/62`, root `106/106`, all passed.
+- `git diff --check`: clean.
