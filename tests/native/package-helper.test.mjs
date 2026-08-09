@@ -342,6 +342,8 @@ test('standalone runtime CLIs bootstrap managed roots and propagate failure', ()
 });
 
 test('CI provisions pinned ucode and passes it to the shared native gate', () => {
+  assert.match(nativeWorkflow, /uses: actions\/checkout@v4\s+with:\s+fetch-depth:\s+0/,
+    'CI must fetch historical commits used by evidence provenance checks');
   assert.match(nativeWorkflow, /v0\.0\.20250529/,
     'CI must pin the tested ucode release');
   assert.match(nativeWorkflow, /scripts\/test\/install-ucode\.sh/,
