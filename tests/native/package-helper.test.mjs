@@ -414,7 +414,9 @@ test('Task 4 source hashes bind the recorded executed input commit blobs', () =>
     ['Node harness source', 'tests/native/core/native-helper-broker-spike.test.mjs'],
     ['child fixture source', 'tests/native/core/native-helper-broker-child.c'],
   ]) {
-    const blob = spawnSync('git', ['show', `${commit}:${file}`], { encoding: null });
+    const blob = spawnSync('git', ['-c', `safe.directory=${process.cwd()}`, 'show', `${commit}:${file}`], {
+      encoding: null,
+    });
     assert.equal(blob.status, 0, `cannot read ${file} from ${commit}: ${blob.stderr}`);
     const hash = createHash('sha256').update(blob.stdout).digest('hex');
     assert.ok(brokerEvidence.includes(`SHA256 ${label}: ${hash}`),

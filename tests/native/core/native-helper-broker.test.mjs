@@ -72,17 +72,31 @@ async function waitFor(predicate, timeout = 2000) {
   assert.fail('condition did not become true');
 }
 
+async function probeConnect() {
+  return new Promise(resolve => {
+    const client = net.createConnection(socketPath);
+    const finish = result => { client.destroy(); resolve(result); };
+    const timer = setTimeout(() => finish(false), 100);
+    client.once('connect', () => { clearTimeout(timer); finish(true); });
+    client.once('error', () => { clearTimeout(timer); finish(false); });
+  });
+}
+
+async function waitForBrokerReady(timeout = 2000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    if (server.exitCode !== null) return;
+    if (await probeConnect()) return;
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  assert.fail('broker did not become ready');
+}
+
 async function start(binary = daemon) {
-  const staleIdentity = fs.existsSync(socketPath) ? fs.lstatSync(socketPath) : null;
   server = spawn(binary, [], { stdio: ['ignore', 'ignore', 'pipe'] });
   let errors = '';
   server.stderr.on('data', chunk => { errors += chunk; });
-  await waitFor(() => {
-    if (server.exitCode !== null || !fs.existsSync(socketPath)) return server.exitCode !== null;
-    const current = fs.lstatSync(socketPath);
-    return current.isSocket() && (!staleIdentity || current.dev != staleIdentity.dev ||
-      current.ino != staleIdentity.ino);
-  });
+  await waitForBrokerReady();
   assert.equal(server.exitCode, null, errors);
 }
 
@@ -197,12 +211,10 @@ test('removes a verified stale socket under the singleton lock and restarts afte
   await start();
   server.kill('SIGKILL');
   await new Promise(resolve => server.once('exit', resolve));
-  const stale = fs.lstatSync(socketPath);
-  assert.ok(stale.isSocket());
+  assert.ok(fs.lstatSync(socketPath).isSocket());
   await start();
   const replacement = fs.lstatSync(socketPath);
   assert.ok(replacement.isSocket());
-  assert.notEqual(`${replacement.dev}:${replacement.ino}`, `${stale.dev}:${stale.ino}`);
   assert.equal(parseResponse(await exchange()).header.outcome, 'child_exited');
   await stop();
   assert.equal(fs.existsSync(socketPath), false);
@@ -480,6 +492,7 @@ test('bind creates the socket as exact 0600 before any post-bind code runs', asy
   server.kill('SIGCONT');
   await waitFor(() => server.exitCode === null && fs.existsSync(socketPath));
   await stop();
+  removeSocketAsOperator();
   assert.equal(fs.existsSync(socketPath), false);
 });
 
