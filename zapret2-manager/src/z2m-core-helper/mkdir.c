@@ -70,6 +70,11 @@ static bool same_inode(const struct stat *left,const struct stat *right)
 	return left->st_dev==right->st_dev&&left->st_ino==right->st_ino;
 }
 
+static bool same_object(const struct stat *left,const struct stat *right)
+{
+	return same_inode(left,right)&&left->st_mtim.tv_sec==right->st_mtim.tv_sec&&left->st_mtim.tv_nsec==right->st_mtim.tv_nsec;
+}
+
 static int open_parent(int root_fd,const char *parent_path,uint64_t root_mount,const char **code)
 {
 	char *copy,*part,*save=NULL;int parent=dup(root_fd),child;
@@ -98,7 +103,7 @@ static int candidate_name(char name[44])
 static bool named_inode(int parent,const char *name,const struct stat *created)
 {
 	struct stat named;
-	return fstatat(parent,name,&named,AT_SYMLINK_NOFOLLOW)==0&&S_ISDIR(named.st_mode)&&same_inode(created,&named);
+	return fstatat(parent,name,&named,AT_SYMLINK_NOFOLLOW)==0&&S_ISDIR(named.st_mode)&&same_object(created,&named);
 }
 
 static int cleanup_candidate(const struct z2m_root *root,int parent,const char *candidate,const struct stat *created)
@@ -150,12 +155,13 @@ int z2m_mkdir_private(const struct z2m_request *request,const struct z2m_root *r
 	if(getenv("Z2M_TEST_STOP_AFTER_MKDIR")!=NULL){fprintf(stderr,"z2m-core-helper: candidate=%s lock-gate-pid=%ld\n",candidate,(long)getpid());raise(SIGSTOP);}
 #endif
 	child=openat(parent,candidate,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);
-	if(child<0||fstat(child,&final_st)<0||!same_inode(&created,&final_st)||!named_inode(parent,candidate,&created)){if(child>=0)close(child);close(parent);free(copy);return z2m_fail(request->request_id,"ECOMMITUNKNOWN","directory_fsync");}
+	if(child<0||fstat(child,&final_st)<0||!same_object(&created,&final_st)||!named_inode(parent,candidate,&created)){if(child>=0)close(child);close(parent);free(copy);return z2m_fail(request->request_id,"ECOMMITUNKNOWN","directory_fsync");}
 	if(
 #ifdef Z2M_TESTING
 	   getenv("Z2M_TEST_METADATA_ERROR")!=NULL||
 #endif
-	   fchown(child,0,0)<0||fchmod(child,0700)<0){close(child);result=abandon_candidate(request,root,parent,candidate,&created,true);close(parent);free(copy);return result;}
+	   fchown(child,0,0)<0||fchmod(child,0700)<0){if(fstat(child,&created)<0){close(child);result=z2m_fail(request->request_id,"ECOMMITUNKNOWN","directory_fsync");}else{close(child);result=abandon_candidate(request,root,parent,candidate,&created,true);}close(parent);free(copy);return result;}
+	if(fstat(child,&created)<0){close(child);close(parent);free(copy);return z2m_fail(request->request_id,"ECOMMITUNKNOWN","directory_fsync");}
 	if(
 #ifdef Z2M_TESTING
 	   getenv("Z2M_TEST_CANDIDATE_VERIFY_ERROR")!=NULL||
@@ -180,7 +186,7 @@ int z2m_mkdir_private(const struct z2m_request *request,const struct z2m_root *r
 		if(named_inode(parent,candidate,&created))result=abandon_candidate(request,root,parent,candidate,&created,true);else result=z2m_fail(request->request_id,"ECOMMITUNKNOWN","directory_fsync");close(parent);free(copy);return result;
 	}
 	close(check);check=-1;
-	final=open_parent(root_fd,parent_path,root_mount,&code);if(final>=0){child=openat(final,name,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);if(child>=0&&fstat(child,&final_st)==0&&same_inode(&created,&final_st)&&verified_directory(child,root_mount,&code)==0)final_ok=true;if(child>=0)close(child);close(final);}
+	final=open_parent(root_fd,parent_path,root_mount,&code);if(final>=0){child=openat(final,name,O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);if(child>=0&&fstat(child,&final_st)==0&&same_object(&created,&final_st)&&verified_directory(child,root_mount,&code)==0)final_ok=true;if(child>=0)close(child);close(final);}
 #ifdef Z2M_TESTING
 	if(getenv("Z2M_TEST_FINAL_VERIFY_ERROR")!=NULL)final_ok=false;
 #endif
