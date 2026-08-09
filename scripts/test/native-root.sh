@@ -9,4 +9,7 @@ trap 'rm -rf -- "$root_tmp"' 0 HUP INT TERM
 TMPDIR=$root_tmp
 export TMPDIR
 
-"$node_bin" --test tests/native/bootstrap.test.mjs tests/native/core/fs-helper.test.mjs
+"$node_bin" --test --test-concurrency=1 \
+  tests/native/bootstrap.test.mjs \
+  tests/native/core/fs-helper.test.mjs \
+  tests/native/core/atomic-write-json-property.test.mjs
