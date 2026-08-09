@@ -234,10 +234,27 @@ int z2m_atomic_write(const struct z2m_request *r,const struct z2m_root *root,int
 	free(content);return result;
 }
 
+static int json_content_precondition(const struct z2m_request *r,const struct z2m_root *root,int root_fd,const char *path,const char *expected,uint64_t *root_mount)
+{
+	const char *code;struct stat st;char actual[65];int fd;
+	if(z2m_root_mount_id(root_fd,root_mount,&code)<0)return fail(r,code,"path_resolve");
+	if(z2m_root_lock(root_fd,false,&code)<0)return fail(r,code,"lock_acquire");
+	fd=z2m_open_regular(root_fd,path,&st,&code);
+	if(fd<0){
+		if(strcmp(code,"ENOENT")==0)return fail(r,"ECONFLICT","precondition");
+		return fail(r,code,strcmp(code,"EDENIED")==0?"policy":(strcmp(code,"ENOTREG")==0?"object_verify":(strcmp(code,"ECAPABILITY")==0||strcmp(code,"EXDEV")==0?"path_resolve":"object_open")));
+	}
+	if(z2m_sha256_fd_hex(fd,root->max_read,actual)<0){int saved=errno;close(fd);if(saved==EAGAIN)return fail(r,"ECONFLICT","precondition");if(saved==EFBIG)return fail(r,"ETOOBIG","object_verify");return fail(r,"EIO","read");}
+	close(fd);
+	if(strcmp(actual,expected)!=0)return fail(r,"ECONFLICT","precondition");
+	return -1;
+}
+
 int z2m_atomic_write_json(const struct z2m_request *r,const struct z2m_root *root,int root_fd,const unsigned char *content,size_t length)
 {
-	json_object *path_value,*create_value;const char *path;bool allow_create;int result;
+	json_object *path_value,*create_value,*expected_value;const char *path,*expected=NULL;bool allow_create;int result;uint64_t root_mount=0;
 	json_object_object_get_ex(r->arguments,"path",&path_value);json_object_object_get_ex(r->arguments,"allowCreate",&create_value);path=json_object_get_string(path_value);allow_create=json_object_get_boolean(create_value);if(!z2m_path_valid(path,root->max_depth))return fail(r,"EPATH","path_validate");
-	result=z2m_atomic_write_bytes(r,root,root_fd,path,content,length,allow_create);
-	return result;
+	if(json_object_object_get_ex(r->arguments,"expectedSha256",&expected_value))expected=json_object_get_string(expected_value);
+	if(expected!=NULL){result=json_content_precondition(r,root,root_fd,path,expected,&root_mount);if(result!=-1)return result;return atomic_write_bytes_state(r,root,root_fd,path,content,length,allow_create,true,root_mount);}
+	return z2m_atomic_write_bytes(r,root,root_fd,path,content,length,allow_create);
 }
