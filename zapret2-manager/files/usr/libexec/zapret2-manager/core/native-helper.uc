@@ -13,7 +13,7 @@ const ROOTS = [
 	'persistent_state', 'snapshots', 'registry', 'secrets',
 	'runtime', 'jobs', 'staging'
 ];
-const MUTATIONS = ['atomic_write', 'mkdir_private'];
+const MUTATIONS = ['atomic_write', 'atomic_write_json', 'mkdir_private'];
 const EXIT_CODES = {
 	EMALFORMED: 2, ESCHEMA: 2, EREQUESTTOOBIG: 2,
 	EDENIED: 3, EROOT: 3, EPATH: 3, EUNSUPPORTED: 3, ECAPABILITY: 3, EOWNERSHIP: 3,
@@ -106,6 +106,29 @@ function valid_base64(value) {
 		let decoded = b64dec(value);
 		return length(decoded) <= 521028 && b64enc(decoded) == value;
 	} catch (e) { return false; }
+}
+
+function valid_json_node(value, depth, budget) {
+	if (++budget.nodes > 65536 || depth > 64) return false;
+	let kind = type(value);
+	if (value == null || kind == 'bool' || kind == 'int' || kind == 'string') return true;
+	if (kind != 'array' && kind != 'object') return false;
+	if (++budget.containers > 1024) return false;
+	if (kind == 'object') {
+		for (let key in value) {
+			if (++budget.members > 1024 || length(key) > 4096 || index(key, sprintf('%c', 0)) >= 0)
+				return false;
+			if (!valid_json_node(value[key], depth + 1, budget)) return false;
+		}
+		return true;
+	}
+	for (let item in value)
+		if (!valid_json_node(item, depth + 1, budget)) return false;
+	return true;
+}
+
+function valid_json_value(value) {
+	return valid_json_node(value, 0, { nodes: 0, containers: 0, members: 0 });
 }
 
 function request_id() {
@@ -474,10 +497,12 @@ function success_data_valid(operation, data) {
 		return exact_fields(data, ['sha256', 'byteLength']) && type(data.sha256) == 'string' &&
 			match(data.sha256, /^[a-f0-9]{64}$/) && type(data.byteLength) == 'int' &&
 			data.byteLength >= 0 && data.byteLength <= 4194304;
-	if (operation == 'atomic_write')
+	if (operation == 'atomic_write' || operation == 'atomic_write_json') {
+		let maximum = operation == 'atomic_write_json' ? 521028 : 4194304;
 		return exact_fields(data, ['byteLength', 'committed', 'durability']) &&
-			type(data.byteLength) == 'int' && data.byteLength >= 0 && data.byteLength <= 4194304 &&
+			type(data.byteLength) == 'int' && data.byteLength >= 0 && data.byteLength <= maximum &&
 			data.committed == true && index(['durable', 'tmpfs_visible'], data.durability) >= 0;
+	}
 	return false;
 }
 
@@ -683,5 +708,13 @@ export const atomic_write = function(root, path, content, allowCreate) {
 		return invalid();
 	return invoke_private('atomic_write', {
 		root, path, content, mode: '0600', uid: 0, gid: 0, allowCreate
+	}, 30000);
+};
+
+export const atomic_write_json = function(root, path, value, allowCreate) {
+	if (!valid_root(root) || !valid_path(path) || !valid_json_value(value) || type(allowCreate) != 'bool')
+		return invalid();
+	return invoke_private('atomic_write_json', {
+		root, path, value, mode: '0600', uid: 0, gid: 0, allowCreate
 	}, 30000);
 };
