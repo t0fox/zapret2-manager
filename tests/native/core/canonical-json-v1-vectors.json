@@ -50,8 +50,10 @@
     {"id":"depth-boundary","category":"boundaries","generator":{"kind":"nested_object","depth":64},"expectedGenerator":{"kind":"reference"},"rationale":"root depth 1 and exact depth 64 are allowed"},
     {"id":"container-boundary","category":"boundaries","generator":{"kind":"container_count","count":1024},"expectedGenerator":{"kind":"reference"},"rationale":"exact container limit is allowed"},
     {"id":"member-boundary","category":"boundaries","generator":{"kind":"object_member_count","count":1024},"expectedGenerator":{"kind":"reference"},"rationale":"exact total object member limit is allowed"},
+    {"id":"global-member-boundary","category":"boundaries","generator":{"kind":"global_member_count","count":1024},"expectedGenerator":{"kind":"reference"},"rationale":"1024 members split across objects prove the member limit is global"},
     {"id":"node-boundary","category":"boundaries","generator":{"kind":"node_count","count":65536},"expectedGenerator":{"kind":"reference"},"rationale":"root plus 65535 array elements is exact node limit"},
     {"id":"key-boundary","category":"boundaries","generator":{"kind":"key_bytes","bytes":4096},"expectedGenerator":{"kind":"reference"},"rationale":"exact decoded object-key byte limit is allowed"},
+    {"id":"utf8-key-byte-boundary","category":"boundaries","generator":{"kind":"key_utf8_bytes","bytes":4096},"expectedGenerator":{"kind":"reference"},"rationale":"2048 non-ASCII characters occupy the exact 4096-byte decoded key limit"},
     {"id":"output-boundary","category":"boundaries","generator":{"kind":"canonical_output_bytes","bytes":521028},"expectedGenerator":{"kind":"reference"},"rationale":"exact canonical byte limit is allowed"}
   ],
   "contractGaps": [
@@ -81,10 +83,14 @@
     {"id":"depth-over","category":"boundaries","generator":{"kind":"nested_object","depth":65},"class":"depth_exceeded","rationale":"depth 65 exceeds frozen depth 64"},
     {"id":"container-over","category":"boundaries","generator":{"kind":"container_count","count":1025},"class":"count_exceeded","rationale":"container 1025 exceeds frozen container limit"},
     {"id":"member-over","category":"boundaries","generator":{"kind":"object_member_count","count":1025},"class":"count_exceeded","rationale":"member 1025 exceeds frozen member limit"},
+    {"id":"global-member-over","category":"boundaries","generator":{"kind":"global_member_count","count":1025},"class":"count_exceeded","rationale":"1025 members split across objects exceed the global member limit"},
     {"id":"node-over","category":"boundaries","generator":{"kind":"node_count","count":65537},"class":"count_exceeded","rationale":"node 65537 exceeds frozen node limit"},
     {"id":"key-over","category":"boundaries","generator":{"kind":"key_bytes","bytes":4097},"class":"key_too_large","rationale":"decoded key byte 4097 exceeds frozen key limit"},
+    {"id":"utf8-key-byte-over","category":"boundaries","generator":{"kind":"key_utf8_bytes","bytes":4097},"class":"key_too_large","rationale":"2049 characters occupying 4097 UTF-8 bytes exceed the decoded key byte limit"},
     {"id":"output-over","category":"boundaries","generator":{"kind":"canonical_output_bytes","bytes":521029},"class":"output_too_large","rationale":"canonical output byte 521029 exceeds frozen output limit"},
     {"id":"raw-nul","category":"unicode","inputBytesHex":"220022","class":"invalid_utf8","rationale":"raw embedded NUL is rejected on the request byte stream"},
-    {"id":"invalid-utf8","category":"unicode","inputBytesHex":"22ff22","class":"invalid_utf8","rationale":"malformed UTF-8 is rejected"}
+    {"id":"invalid-utf8","category":"unicode","inputBytesHex":"22ff22","class":"invalid_utf8","rationale":"malformed UTF-8 is rejected"},
+    {"id":"utf8-surrogate-encoding","category":"unicode","inputBytesHex":"22eda08022","class":"invalid_utf8","rationale":"UTF-8 encoding of a surrogate code point is rejected"},
+    {"id":"utf8-above-u10ffff","category":"unicode","inputBytesHex":"22f490808022","class":"invalid_utf8","rationale":"UTF-8 encoding above U+10FFFF is rejected"}
   ]
 }
