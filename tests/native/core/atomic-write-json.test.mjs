@@ -62,6 +62,9 @@ function encode(input, env = {}) {
   const run = spawnSync(binary, ['encode'], {
     input, env: { ...process.env, ...env },
   });
+  assert.notEqual(run.status, null, 'canonical encoder process timed out');
+  assert.equal(run.signal, null, 'canonical encoder process crashed');
+  assert.equal(run.error, undefined, `canonical encoder failed to spawn: ${run.error ?? ''}`);
   assert.equal(run.status, 0, run.stderr.toString());
   return run.stdout;
 }
@@ -225,9 +228,16 @@ test('canonical encoder allocation failures are internal, leak-free, and filesys
   }));
   const before = readdirSync(temporaryRoot).sort();
   for (let failAfter = 1; failAfter <= 14; failAfter++) {
-    assert.deepEqual(encode(input, {
-      Z2M_TEST_ALLOC_FAIL_AFTER: String(failAfter),
-    }), Buffer.from('EINTERNAL canonical_encode\n'));
+    const run = spawnSync(binary, ['encode'], {
+      input,
+      env: { ...process.env, Z2M_TEST_ALLOC_FAIL_AFTER: String(failAfter) },
+    });
+    assert.notEqual(run.status, null, `allocation ${failAfter} timed out`);
+    assert.equal(run.signal, null, `allocation ${failAfter} crashed`);
+    assert.equal(run.error, undefined, `allocation ${failAfter} failed to spawn`);
+    assert.equal(run.status, 0, `allocation ${failAfter} process status`);
+    assert.equal(run.stdout.toString(), 'EINTERNAL canonical_encode\n',
+      `allocation ${failAfter} response`);
     assert.deepEqual(readdirSync(temporaryRoot).sort(), before);
     assert.equal(readFileSync(sentinel, 'utf8'), 'unchanged');
   }
