@@ -12,10 +12,15 @@ const STRATEGY_DIR = getenv('Z2M_STRATEGY_DIR') || '/etc/zapret2-manager/strateg
 const STATE_PATH = getenv('Z2M_STRATEGY_STATE') || '/etc/zapret2-manager/strategy-state.json';
 const RECONCILE_PATH = getenv('Z2M_STRATEGY_RECONCILIATION') || '/tmp/zapret2-manager/strategy-reconciliation.json';
 const LOCK_PATH = getenv('Z2M_STRATEGY_LOCK') || '/tmp/zapret2-manager/strategy-state.lock';
+const CATALOG_MANIFEST_PATH = getenv('Z2M_STRATEGY_CATALOG_MANIFEST') || '/usr/share/zapret2-manager/catalog/avatar/manifest.json';
 const MAX_BYTES = 521028;
+const MAX_MANIFEST_BYTES = 4 * 1024 * 1024;
 const MAX_ID = 128;
 const MAX_NAME = 256;
 const MAX_PROFILES = 256;
+const MAX_METADATA_KEYS = 64;
+const MAX_METADATA_TEXT = 4096;
+const LOCK_STALE_SECONDS = 300;
 const PRIVATE_DIR_MODE = 448; // 0700
 const PRIVATE_FILE_MODE = 384; // 0600
 
@@ -42,7 +47,41 @@ function builtin_id(id) {
 }
 
 function extension_id(id) { return is_string(id) && match(id, /^extension([._-]|$)/); }
-function protected_id(id) { return builtin_id(id) || extension_id(id); }
+
+let catalog_ids = {};
+let catalog_loaded = false;
+let catalog_available = false;
+
+function load_catalog_ids() {
+	if (catalog_loaded) return catalog_available;
+	catalog_loaded = true;
+	let metadata = null;
+	try { metadata = stat(CATALOG_MANIFEST_PATH); } catch (e) { metadata = null; }
+	if (metadata == null || metadata.type != 'file' || readlink(CATALOG_MANIFEST_PATH) != null ||
+		type(metadata.size) != 'int' || metadata.size > MAX_MANIFEST_BYTES) return false;
+	let raw = null, manifest = null;
+	try { raw = readfile(CATALOG_MANIFEST_PATH); manifest = json(raw); } catch (e) { return false; }
+	if (!is_object(manifest) || manifest.schema !== 1 || !is_object(manifest.source) ||
+		manifest.source.repository != 'avatarDD/zapret-gui' ||
+		manifest.source.commit != 'f9dd3ea47a2239514f396a843b475c92c33f0b4c' ||
+		type(manifest.physicalEntries) != 'array' || type(manifest.files) != 'array') return false;
+	for (let entry in manifest.physicalEntries) {
+		if (!is_object(entry) || !bounded_string(entry.id, MAX_ID)) return false;
+		catalog_ids[entry.id] = true;
+	}
+	for (let file in manifest.files) {
+		if (!is_object(file) || type(file.sourceOrder) != 'array') return false;
+		for (let id in file.sourceOrder) {
+			if (!bounded_string(id, MAX_ID)) return false;
+			catalog_ids[id] = true;
+		}
+	}
+	catalog_available = true;
+	return true;
+}
+
+function catalog_id(id) { return load_catalog_ids() && catalog_ids[id] == true; }
+function protected_id(id) { return builtin_id(id) || extension_id(id) || catalog_id(id); }
 
 function exact_fields(value, fields) {
 	if (!is_object(value) || length(value) != length(fields)) return false;
@@ -96,6 +135,13 @@ function ensure_storage() {
 function acquire_lock() {
 	let parent = substr(LOCK_PATH, 0, rindex(LOCK_PATH, '/'));
 	if (!ensure_directory(parent, PRIVATE_DIR_MODE)) return false;
+	let created = command('umask 077; mkdir ' + shell_quote(LOCK_PATH) + ' 2>/dev/null');
+	if (created.ok) return true;
+	let metadata = null;
+	try { metadata = stat(LOCK_PATH); } catch (e) { metadata = null; }
+	if (metadata == null || metadata.type != 'directory' || type(metadata.mtime) != 'int' ||
+		time() < metadata.mtime || time() - metadata.mtime <= LOCK_STALE_SECONDS) return false;
+	if (!command('rmdir ' + shell_quote(LOCK_PATH) + ' 2>/dev/null').ok) return false;
 	return command('umask 077; mkdir ' + shell_quote(LOCK_PATH) + ' 2>/dev/null').ok;
 }
 
@@ -140,6 +186,7 @@ function read_document(path) {
 		return error('EINPUT', 'Strategy storage is not a bounded private regular file.');
 	let raw = readfile(path);
 	if (raw == null || length(raw) != metadata.size) return error('EIO', 'Strategy storage could not be read.');
+	if (raw == '') return { ok: true, empty: true, raw: raw, value: null, hash: null };
 	let value = null;
 	try { value = json(raw); } catch (e) { return error('EINPUT', 'Strategy storage is not valid JSON.'); }
 	return { ok: true, raw: raw, value: value, hash: hash_text(raw) };
@@ -159,6 +206,11 @@ function temporary_path(target) {
 }
 
 function atomic_write(path, value, allow_create) {
+	let link = null, existing = null;
+	try { link = readlink(path); } catch (e) { link = null; }
+	try { existing = stat(path); } catch (e) { existing = null; }
+	if (link != null || (existing != null && existing.type != 'file'))
+		return error('EINPUT', 'Strategy state destination must not be a symlink or non-file.');
 	let raw = sprintf('%J', value);
 	if (length(raw) > MAX_BYTES) return error('EINPUT', 'Strategy state exceeds the bounded size.');
 	let temporary = temporary_path(path);
@@ -175,12 +227,29 @@ function profile_valid(profile) {
 		(profile.enabled == null || type(profile.enabled) == 'bool');
 }
 
+function metadata_value_valid(value) {
+	if (is_string(value)) return length(value) <= MAX_METADATA_TEXT;
+	if (type(value) == 'bool') return true;
+	if (type(value) != 'array' || length(value) > MAX_PROFILES) return false;
+	for (let item in value) if (!is_string(item) || length(item) > MAX_METADATA_TEXT) return false;
+	return true;
+}
+
+function metadata_valid(value) {
+	if (!is_object(value) || length(value) > MAX_METADATA_KEYS) return false;
+	for (let key in value) if (!bounded_string(key, MAX_ID) || !metadata_value_valid(value[key])) return false;
+	return true;
+}
+
 function user_input_valid(strategy, require_profiles) {
 	if (!is_object(strategy) || !safe_id(strategy.id) || !bounded_string(strategy.name, MAX_NAME) ||
 		type(strategy.profiles) != 'array' || length(strategy.profiles) > MAX_PROFILES ||
 		(require_profiles && length(strategy.profiles) == 0)) return false;
+	if (!load_catalog_ids()) return false;
+	let metadata = exists(strategy, 'metadata') ? strategy.metadata : {};
+	if (!metadata_valid(metadata)) return false;
 	if (strategy.is_builtin == true || builtin_id(strategy.id) || strategy.origin == 'avatar_builtin' || strategy.origin == 'catalog') return false;
-	if (strategy.is_extension == true || extension_id(strategy.id) || strategy.origin == 'extension') return false;
+	if (catalog_id(strategy.id) || strategy.is_extension == true || extension_id(strategy.id) || strategy.origin == 'extension') return false;
 	for (let profile in strategy.profiles) if (!profile_valid(profile)) return false;
 	return model_validate(strategy, 'structural').ok;
 }
@@ -188,7 +257,7 @@ function user_input_valid(strategy, require_profiles) {
 function record_valid(value) {
 	if (!exact_fields(value, ['schema', 'id', 'revision', 'name', 'origin', 'is_builtin', 'metadata', 'profiles', 'updatedAt']) ||
 		value.schema !== 1 || !safe_id(value.id) || !integer(value.revision) || value.revision < 1 ||
-		!bounded_string(value.name, MAX_NAME) || value.origin != 'user' || value.is_builtin != false || !is_object(value.metadata) ||
+		!bounded_string(value.name, MAX_NAME) || value.origin != 'user' || value.is_builtin != false || !metadata_valid(value.metadata) ||
 		type(value.profiles) != 'array' || length(value.profiles) > MAX_PROFILES || !integer(value.updatedAt)) return false;
 	for (let profile in value.profiles) if (!profile_valid(profile)) return false;
 	return true;
@@ -214,6 +283,7 @@ function read_state() {
 	let result = read_document(STATE_PATH);
 	if (result.missing) return { ok: true, state: state_default(), raw: null, hash: null, absent: true };
 	if (!result.ok) return result;
+	if (result.empty) return { ok: true, state: state_default(), raw: '', hash: null, absent: true };
 	if (!state_valid(result.value)) return error('EINPUT', 'Strategy state schema is invalid.');
 	return { ok: true, state: result.value, raw: result.raw, hash: result.hash, absent: false };
 }
@@ -293,7 +363,7 @@ export const strategy_user_create = function(input) {
 	return locked(function() {
 		let strategy = is_object(input) ? input.strategy : null;
 		if (!user_input_valid(strategy, true)) {
-			if (strategy != null && (strategy.is_builtin == true || builtin_id(strategy.id) || strategy.origin == 'avatar_builtin' || strategy.origin == 'catalog' ||
+			if (strategy != null && (strategy.is_builtin == true || builtin_id(strategy.id) || catalog_id(strategy.id) || strategy.origin == 'avatar_builtin' || strategy.origin == 'catalog' ||
 				strategy.is_extension == true || extension_id(strategy.id) || strategy.origin == 'extension'))
 				return error('ECONFLICT', 'Builtin Strategies are immutable.');
 			return error('EINPUT', 'User Strategy input is invalid.');
@@ -355,9 +425,11 @@ export const strategy_duplicate = function(input) {
 		let source = is_object(input) ? input.strategy : null;
 		if (!is_object(source) || !safe_id(source.id) || !bounded_string(source.name, MAX_NAME) || type(source.profiles) != 'array')
 			return error('EINPUT', 'Duplicate source Strategy is invalid.');
+		let sourceMetadata = exists(source, 'metadata') ? source.metadata : {};
+		if (!metadata_valid(sourceMetadata)) return error('EINPUT', 'Duplicate source metadata is invalid.');
 		let duplicate = {
 			id: source.id + '_copy', name: source.name + ' (копия)', origin: 'user', is_builtin: false,
-			metadata: copy(source.metadata || {}), profiles: copy(source.profiles)
+			metadata: copy(sourceMetadata), profiles: copy(source.profiles)
 		};
 		if (!user_input_valid(duplicate, true)) return error('EINPUT', 'Duplicate source cannot be stored.');
 		if (!ensure_create_directory()) return error('EIO', 'User Strategy directory is unavailable.');
@@ -371,6 +443,10 @@ export const strategy_favorite = function(input) {
 	return locked(function() {
 		if (!is_object(input) || !integer(input.expectedRevision)) return error('EINPUT', 'Favorite mutation requires expectedRevision.');
 		if (input.id != null && !safe_id(input.id)) return error('EINPUT', 'Favorite identity is unsafe.');
+		if (input.id != null && input.favorite != true && input.favorite != false)
+			return error('EINPUT', 'Favorite mutation requires a boolean favorite value.');
+		if (input.id != null && !(protected_id(input.id) || read_user(input.id).ok))
+			return error('ENOENT', 'Favorite Strategy was not found.');
 		return state_mutate(input.expectedRevision, function(next) {
 			let values = [], seen = {};
 			for (let id in next.favorites) if ((protected_id(id) || read_user(id).ok) && !seen[id]) { seen[id] = true; push(values, id); }

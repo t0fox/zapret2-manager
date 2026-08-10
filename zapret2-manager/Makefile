@@ -91,7 +91,8 @@ if [ ! -e /etc/zapret2-manager/strategies ] && [ ! -L /etc/zapret2-manager/strat
   install -d -o root -g root -m 0700 /etc/zapret2-manager/strategies || exit $$?
 fi
 if [ ! -e /etc/zapret2-manager/strategy-state.json ] && [ ! -L /etc/zapret2-manager/strategy-state.json ]; then
-  install -o root -g root -m 0600 /dev/null /etc/zapret2-manager/strategy-state.json || exit $$?
+  printf '%s\n' '{"schema":1,"revision":0,"favorites":[],"selected":null}' \
+    | install -o root -g root -m 0600 /dev/stdin /etc/zapret2-manager/strategy-state.json || exit $$?
 fi
 /etc/init.d/rpcd reload
 /etc/init.d/zapret2-manager enable

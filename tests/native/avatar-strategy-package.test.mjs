@@ -150,7 +150,7 @@ test('postinst bootstraps absent Strategy storage with fixed root ownership and 
   assert.match(postinst, /if \[ ! -e \/etc\/zapret2-manager\/strategies \] && \[ ! -L \/etc\/zapret2-manager\/strategies \]; then/);
   assert.match(postinst, /install -d -o root -g root -m 0700 \/etc\/zapret2-manager\/strategies/);
   assert.match(postinst, /if \[ ! -e \/etc\/zapret2-manager\/strategy-state\.json \] && \[ ! -L \/etc\/zapret2-manager\/strategy-state\.json \]; then/);
-  assert.match(postinst, /install -o root -g root -m 0600 \/dev\/null \/etc\/zapret2-manager\/strategy-state\.json/);
+  assert.match(postinst, /printf '[^\n]+schema[^\n]+revision[^\n]+'[\s\\\n]+\| install -o root -g root -m 0600 \/dev\/stdin \/etc\/zapret2-manager\/strategy-state\.json/);
   assert.match(postinst, /\/usr\/libexec\/zapret2-manager\/z2m-root-bootstrap persistent \|\| exit \$\$\?/);
 });
 
@@ -176,6 +176,9 @@ test('postinst creates absent Strategy storage in a temporary package root', () 
     assert.equal(fs.statSync(strategies).isDirectory(), true);
     assert.equal(mode(strategies), 0o700);
     assert.equal(mode(state), 0o600);
+    assert.deepEqual(JSON.parse(fs.readFileSync(state, 'utf8')), {
+      schema: 1, revision: 0, favorites: [], selected: null,
+    });
     assertRootOwnership(strategies);
     assertRootOwnership(state);
     assert.ok(calls.some(args => args.includes('-d') && args.includes('-o') && args.includes('root')

@@ -9,6 +9,8 @@ import { ucodeDiagnostic, ucodeModulePattern } from '../native/core/ucode-test-h
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const MODULE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-state.uc');
+const CATALOG_MANIFEST = path.join(ROOT,
+  'zapret2-manager/files/usr/share/zapret2-manager/catalog/avatar/manifest.json');
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.split('|') : [];
 const UCODE_MODULE_PATTERN = ucodeModulePattern(
@@ -43,6 +45,7 @@ function storage(callback) {
     Z2M_STRATEGY_STATE: path.join(root, 'strategy-state.json'),
     Z2M_STRATEGY_RECONCILIATION: path.join(runtime, 'strategy-reconciliation.json'),
     Z2M_STRATEGY_LOCK: path.join(runtime, 'strategy-state.lock'),
+    Z2M_STRATEGY_CATALOG_MANIFEST: CATALOG_MANIFEST,
   };
   try { return callback(env, root, strategies); } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -58,6 +61,21 @@ const userStrategy = () => ({
     { id: 'p1', args: '--filter-tcp=80', enabled: false },
   ],
 });
+
+test('package-created empty state is immediately usable without overwriting it on read', () => storage((env, root) => {
+  fs.writeFileSync(path.join(root, 'strategy-state.json'), '');
+  fs.chmodSync(path.join(root, 'strategy-state.json'), 0o600);
+  const initial = invoke('state.strategy_selection_get()', env);
+  assert.deepEqual(initial, { ok: true, revision: 0, selected: null });
+
+  const set = invoke(`state.strategy_selection_set({expectedRevision:0,selected:{id:'user-one',origin:'user',revision:1,candidateSha256:'${hash}'}})`, env);
+  assert.equal(set.ok, true);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, 'strategy-state.json'), 'utf8')), {
+    schema: 1, revision: 1, favorites: [], selected: {
+      id: 'user-one', origin: 'user', revision: 1, candidateSha256: hash,
+    },
+  });
+}));
 
 test('stale Strategy revision is rejected without changing the file', () => storage((env, root, strategies) => {
   const created = invoke(`state.strategy_user_create({strategy:${JSON.stringify(userStrategy())}})`, env);
@@ -100,6 +118,10 @@ test('builtin and extension identities cannot enter user storage or be mutated',
   const extension = { id: 'extension-one', name: 'Extension', is_extension: true,
     origin: 'extension', profiles: [{ id: 'p1', args: '--filter-tcp=443' }] };
   assert.equal(invoke(`state.strategy_user_create({strategy:${JSON.stringify(builtin)}})`, env).error.code, 'ECONFLICT');
+  assert.equal(invoke(`state.strategy_user_create({strategy:${JSON.stringify({
+    id: 'fake_simple', name: 'Catalog collision', profiles: [{ id: 'p1', args: '--x' }],
+    metadata: {},
+  })}})`, env).error.code, 'ECONFLICT');
   assert.equal(invoke(`state.strategy_user_create({strategy:${JSON.stringify(extension)}})`, env).error.code, 'ECONFLICT');
   assert.equal(invoke(`state.strategy_user_update({id:'z2k_all_in_one',expectedRevision:1,strategy:${JSON.stringify(builtin)}})`, env).error.code, 'EIMMUTABLE');
   assert.equal(invoke("state.strategy_user_delete({id:'z2k_all_in_one',expectedRevision:1})", env).error.code, 'EIMMUTABLE');
@@ -123,6 +145,9 @@ test('duplicate proposes and stores a deep-copied user Strategy with pinned ID/n
 test('favorites preserve requested order, allow builtin IDs, and clean deleted user IDs', () => storage((env) => {
   const created = invoke(`state.strategy_user_create({strategy:${JSON.stringify(userStrategy())}})`, env);
   assert.equal(created.ok, true);
+  const ghost = invoke("state.strategy_favorite({expectedRevision:0,id:'missing-user',favorite:true})", env);
+  assert.equal(ghost.error.code, 'ENOENT');
+  assert.equal(invoke('state.strategy_selection_get()', env).revision, 0);
   const favorite = invoke("state.strategy_favorite({expectedRevision:0,id:'user-one',favorite:true})", env);
   assert.equal(favorite.ok, true);
   const builtin = invoke(`state.strategy_favorite({expectedRevision:${favorite.state.revision},id:'z2k_all_in_one',favorite:true})`, env);
@@ -131,6 +156,30 @@ test('favorites preserve requested order, allow builtin IDs, and clean deleted u
   assert.equal(removed.ok, true);
   assert.deepEqual(invoke(`state.strategy_favorite({expectedRevision:${removed.state.revision},id:null,favorite:false})`, env).state.favorites,
     ['z2k_all_in_one']);
+}));
+
+test('metadata type and content are validated consistently before create, update, and duplicate writes', () => storage((env, root, strategies) => {
+  for (const metadata of ['bad', { description: 7 }, { nested: { unsupported: true } }]) {
+    const result = invoke(`state.strategy_user_create({strategy:${JSON.stringify({
+      ...userStrategy(), id: 'bad-' + (typeof metadata === 'string' ? 'string' : 'object'), metadata,
+    })}})`, env);
+    assert.equal(result.error.code, 'EINPUT');
+  }
+  assert.deepEqual(fs.readdirSync(strategies), []);
+
+  const created = invoke(`state.strategy_user_create({strategy:${JSON.stringify(userStrategy())}})`, env);
+  assert.equal(created.ok, true);
+  const malformedUpdate = invoke(`state.strategy_user_update({id:'user-one',expectedRevision:1,strategy:${JSON.stringify({
+    ...userStrategy(), metadata: { description: 9 },
+  })}})`, env);
+  assert.equal(malformedUpdate.error.code, 'EINPUT');
+  assert.equal(invoke("state.strategy_user_get({id:'user-one'})", env).strategy.revision, 1);
+
+  const malformedDuplicate = invoke(`state.strategy_duplicate({strategy:${JSON.stringify({
+    ...userStrategy(), id: 'source', metadata: { description: 9 },
+  })}})`, env);
+  assert.equal(malformedDuplicate.error.code, 'EINPUT');
+  assert.equal(fs.existsSync(path.join(strategies, 'source_copy.json')), false);
 }));
 
 test('selection uses state CAS and persists identity/hash fields only', () => storage((env, root) => {
@@ -163,6 +212,31 @@ test('delete cleans active selection and reconciliation remains volatile', () =>
   assert.equal(invoke('state.strategy_selection_get()', env).selected, null);
 }));
 
+test('all atomic write destinations fail closed when already symlinked', () => storage((env, root) => {
+  const stateTarget = path.join(root, 'state-target.json');
+  fs.writeFileSync(stateTarget, 'keep-state');
+  fs.symlinkSync(stateTarget, env.Z2M_STRATEGY_STATE);
+  const stateResult = invoke("state.strategy_selection_set({expectedRevision:0,selected:null})", env);
+  assert.equal(stateResult.error.code, 'EINPUT');
+  assert.equal(fs.readFileSync(stateTarget, 'utf8'), 'keep-state');
+
+  const reconciliationTarget = path.join(root, 'reconciliation-target.json');
+  fs.writeFileSync(reconciliationTarget, 'keep-reconciliation');
+  fs.symlinkSync(reconciliationTarget, env.Z2M_STRATEGY_RECONCILIATION);
+  const reconciliationResult = invoke(`state.strategy_reconcile_record({id:'user-one',hash:'${hash}',reason:'drift'})`, env);
+  assert.equal(reconciliationResult.error.code, 'EINPUT');
+  assert.equal(fs.readFileSync(reconciliationTarget, 'utf8'), 'keep-reconciliation');
+}));
+
+test('stale private lock is recovered without weakening the mutation boundary', () => storage((env, root, strategies) => {
+  fs.mkdirSync(env.Z2M_STRATEGY_LOCK);
+  fs.utimesSync(env.Z2M_STRATEGY_LOCK, new Date(0), new Date(0));
+  const result = invoke(`state.strategy_user_create({strategy:${JSON.stringify(userStrategy())}})`, env);
+  assert.equal(result.ok, true);
+  assert.equal(fs.existsSync(env.Z2M_STRATEGY_LOCK), false);
+  assert.equal(fs.statSync(path.join(strategies, 'user-one.json')).mode & 0o777, 0o600);
+}));
+
 test('schema, bounds, traversal, atomicity, and production path boundaries fail closed', () => storage((env, root, strategies) => {
   for (const strategy of [
     { ...userStrategy(), id: '../escape' },
@@ -178,14 +252,6 @@ test('schema, bounds, traversal, atomicity, and production path boundaries fail 
   assert.equal(invoke("state.strategy_user_get({id:'too-large'})", env).error.code, 'EINPUT');
   assert.deepEqual(fs.readdirSync(strategies), ['too-large.json']);
 
-  const source = fs.readFileSync(MODULE, 'utf8');
-  assert.match(source, /\/etc\/zapret2-manager\/strategies/);
-  assert.match(source, /\/etc\/zapret2-manager\/strategy-state\.json/);
-  assert.match(source, /mktemp/);
-  assert.match(source, /mv -f/);
-  assert.match(source, /0600/);
-  assert.match(source, /0700/);
-  assert.match(source, /flock/);
-  assert.doesNotMatch(source, /profiles-draft/);
-  assert.doesNotMatch(source, /\/etc\/zapret2-manager\/state\.json['"`]/);
+  assert.equal(fs.existsSync(path.join(root, 'state.json')), false,
+    'legacy Profile state must not be created or migrated by Strategy storage');
 }));
