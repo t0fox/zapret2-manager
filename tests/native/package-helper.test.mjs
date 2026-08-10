@@ -84,9 +84,12 @@ test('native gate elevates only root-required tests and cleans temporary discove
 test('native gate and product subprocesses preserve configured ucode module paths', () => {
   assert.match(nativeGate, /--preserve-env=[^\n]*UCODE_MODULE_PATH/,
     'sudo must preserve the configured ucode module path');
+  assert.match(fs.readFileSync('tests/native/core/ucode-test-harness.mjs', 'utf8'),
+    /export function ucodeModulePattern\(modulePath\)[\s\S]*path\.join\(modulePath, '\*\.so'\)/,
+    'the shared test harness must convert module directories to ucode library globs');
   assert.match(fs.readFileSync('tests/product/profiles-model.test.mjs', 'utf8'),
-    /process\.env\.UCODE_MODULE_PATH \? \['-L', process\.env\.UCODE_MODULE_PATH\] : \[\]/,
-    'product ucode subprocesses must pass the configured module path');
+    /ucodeModulePattern\(process\.env\.UCODE_MODULE_PATH\)/,
+    'product ucode subprocesses must pass the converted module pattern');
 });
 
 test('consecutive non-root gates isolate elevated state from the caller temporary directory', () => {
