@@ -184,6 +184,7 @@ function profiles_create_method(req) { return profiles_edit_action('create', req
 function profiles_update_method(req) { return profiles_edit_action('update', req); }
 function profiles_clone_method(req) { return profiles_edit_action('clone', req); }
 function profiles_delete_method(req) { return profiles_edit_action('delete', req); }
+function profiles_reorder_method(req) { return profiles_edit_action('reorder', req); }
 function profiles_validate_method(req) { return profiles_edit_action('validate', req); }
 function profiles_import_applied_method(req) { return profiles_action('import_applied'); }
 
@@ -550,6 +551,7 @@ return {
 		profiles_update:   { args: { edit: 'string' }, call: function (req) { return profiles_update_method(req); } },
 		profiles_clone:    { args: { edit: 'string' }, call: function (req) { return profiles_clone_method(req); } },
 		profiles_delete:   { args: { edit: 'string' }, call: function (req) { return profiles_delete_method(req); } },
+		profiles_reorder:  { args: { edit: 'string' }, call: function (req) { return profiles_reorder_method(req); } },
 		profiles_validate: { args: { edit: 'string' }, call: function (req) { return profiles_validate_method(req); } },
 		profiles_import_applied: { call: function (req) { return profiles_import_applied_method(req); } },
 		profiles_apply:    { args: { edit: 'string' }, call: function (req) { return profiles_apply_method(req); } },
