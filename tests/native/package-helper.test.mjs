@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 
@@ -85,11 +87,24 @@ test('native gate and product subprocesses preserve configured ucode module path
   assert.match(nativeGate, /--preserve-env=[^\n]*UCODE_MODULE_PATH/,
     'sudo must preserve the configured ucode module path');
   assert.match(fs.readFileSync('tests/native/core/ucode-test-harness.mjs', 'utf8'),
-    /export function ucodeModulePattern\(modulePath\)[\s\S]*path\.join\(modulePath, '\*\.so'\)/,
+    /export function ucodeModulePattern\(modulePath, libraryPath\)[\s\S]*path\.join\(moduleRoot, '\*\.so'\)/,
     'the shared test harness must convert module directories to ucode library globs');
   assert.match(fs.readFileSync('tests/product/profiles-model.test.mjs', 'utf8'),
-    /ucodeModulePattern\(process\.env\.UCODE_MODULE_PATH\)/,
+    /ucodeModulePattern\([\s\S]*process\.env\.UCODE_MODULE_PATH, process\.env\.UCODE_LIBRARY_PATH\)/,
     'product ucode subprocesses must pass the converted module pattern');
+});
+
+test('ucode module glob falls back to the pinned library root when CI omits module path', async () => {
+  const libraryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-ucode-lib-'));
+  const moduleRoot = path.join(libraryRoot, 'ucode');
+  fs.mkdirSync(moduleRoot);
+  fs.writeFileSync(path.join(moduleRoot, 'fs.so'), '');
+  try {
+    const { ucodeModulePattern } = await import('./core/ucode-test-harness.mjs');
+    assert.equal(ucodeModulePattern(undefined, libraryRoot), path.join(moduleRoot, '*.so'));
+  } finally {
+    fs.rmSync(libraryRoot, { recursive: true, force: true });
+  }
 });
 
 test('consecutive non-root gates isolate elevated state from the caller temporary directory', () => {

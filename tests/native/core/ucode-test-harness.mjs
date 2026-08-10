@@ -13,11 +13,13 @@ const UCODE_ARGS = process.env.UCODE_ARGS_PIPE
   : process.env.UCODE_ARGS_JSON
   ? JSON.parse(process.env.UCODE_ARGS_JSON)
   : process.env.UCODE_ARGS?.split(/\s+/).filter(Boolean) ?? [];
-const UCODE_LIBRARY_ARGS = process.env.UCODE_MODULE_PATH
-  ? ['-L', ucodeModulePattern(process.env.UCODE_MODULE_PATH)] : [];
+const UCODE_MODULE_PATTERN = ucodeModulePattern(
+  process.env.UCODE_MODULE_PATH, process.env.UCODE_LIBRARY_PATH);
+const UCODE_LIBRARY_ARGS = UCODE_MODULE_PATTERN ? ['-L', UCODE_MODULE_PATTERN] : [];
 
-export function ucodeModulePattern(modulePath) {
-  return modulePath ? path.join(modulePath, '*.so') : null;
+export function ucodeModulePattern(modulePath, libraryPath) {
+  const moduleRoot = modulePath ?? (libraryPath ? path.join(libraryPath, 'ucode') : null);
+  return moduleRoot && fs.existsSync(moduleRoot) ? path.join(moduleRoot, '*.so') : null;
 }
 
 export function requestFrameBody(frame) {
