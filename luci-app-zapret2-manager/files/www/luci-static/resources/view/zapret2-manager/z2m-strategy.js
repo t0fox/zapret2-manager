@@ -733,10 +733,31 @@ function render(ctx) {
       return reload();
     }).catch(showError);
   }
-  function renderProfileChain() {
-    var drafts = draftProfiles(profileData);
-    var applied = appliedProfiles(profileData);
+  function reorderProfiles(ids, profiles) {
+    var revisions = {};
+    profiles.forEach(function (profile) { revisions[profile.id] = profile.revision; });
+    return edit(ctx.api.profiles.reorder, { ids: ids, revisions: revisions });
+  }
+  function previewProfiles() {
+    return edit(ctx.api.profiles.apply, { mode: 'preview' });
+  }
+  function applyProfiles() {
+    return edit(ctx.api.profiles.apply, { mode: 'apply' }).then(function (answer) {
+      return Promise.all([
+        Promise.resolve(createAdapter(ctx.api).reloadAppliedState()),
+        ctx.api.service.status()
+      ]).then(function (reads) {
+        return { answer: answer, applied: reads[0], status: reads[1] };
+      });
+    });
+  }
+  function renderProfilesPane(currentProfileData) {
+    var drafts = draftProfiles(currentProfileData);
+    var applied = appliedProfiles(currentProfileData);
     var shown = drafts.length ? drafts : applied;
+    var busy = false;
+    var preview = null;
+    var replaceFullSet = false;
     var globalRows = [];
     function addGlobal(label, value) {
       var text = format.text(value);
@@ -745,18 +766,83 @@ function render(ctx) {
         E('div', { 'class': 'nm' }, label), E('div', { 'class': 'co' }, text)
       ])));
     }
-    addGlobal(_('Parse status'), profileData.parseStatus);
-    addGlobal(_('Applied revision'), profileData.appliedRevision !== undefined ? profileData.appliedRevision : profileData.revision);
-    addGlobal(_('Round-trip'), profileData.roundtrip && (profileData.roundtrip.preserve || profileData.roundtrip.status));
-    addGlobal(_('Источник'), object(profileData.global || profileData.globals || profileData.applied).source || profileData.source);
+    addGlobal(_('Parse status'), currentProfileData.parseStatus);
+    addGlobal(_('Applied revision'), currentProfileData.appliedRevision !== undefined ? currentProfileData.appliedRevision : currentProfileData.revision);
+    addGlobal(_('Round-trip'), currentProfileData.roundtrip && (currentProfileData.roundtrip.preserve || currentProfileData.roundtrip.status));
+    addGlobal(_('Источник'), object(currentProfileData.global || currentProfileData.globals || currentProfileData.applied).source || currentProfileData.source);
 
     var profileHost = E('div', { 'class': 'z2m-profile-chain' });
-    shown.forEach(function (profile, index) {
+    var workflowHost = E('div', { 'class': 'z2m-profile-workflow', 'aria-live': 'polite' });
+    var previewButton;
+    var applyButton;
+    function setBusy(value) {
+      busy = value;
+      previewButton.disabled = busy || !drafts.length;
+      var previewReady = preview && preview.ok === true && preview.wouldApply === true;
+      applyButton.disabled = busy || !previewReady || !replaceFullSet;
+      Array.prototype.forEach.call(profileHost.querySelectorAll('button'), function (button) { button.disabled = busy || button.getAttribute('data-blocked') === 'true'; });
+    }
+    function renderBackendResult(title, answer, reads) {
+      var value = object(answer);
+      var diff = object(value.diff);
+      var native = object(value.native);
+      var verification = object(value.verification || value.verify);
+      var rollback = object(value.rollback);
+      var manualRecovery = object(value.manualRecovery);
+      var rows = [];
+      function add(label, item) {
+        var text = format.text(item);
+        if (text === null) return;
+        rows.push(E('div', { 'class': 'z2m-svcrow z2m-single-row' }, E('div', {}, [
+          E('div', { 'class': 'nm' }, label), E('div', { 'class': 'co' }, text)
+        ])));
+      }
+      add(_('Профилей в черновике'), value.draftCount);
+      add(_('Backend candidate'), value.candidate);
+      add(_('Текущий SHA-256'), diff.currentSha256);
+      add(_('Candidate SHA-256'), diff.candidateSha256);
+      add(_('Текущая длина'), diff.currentLength);
+      add(_('Candidate длина'), diff.candidateLength);
+      add(_('Native preflight'), native.status);
+      add(_('Будет применено'), value.wouldApply);
+      add(_('Причина отказа'), value.refuseReason);
+      add(_('Проверка runtime'), verification.status || verification.ok);
+      add(_('Rollback'), rollback.status || rollback.ok || value.rollbackOk || value.rolledBack);
+      add(_('Ручное восстановление'), manualRecovery.message || manualRecovery.required || value.critical);
+      add(_('Сообщение backend'), value.message || value.detail);
+      if (reads) {
+        add(_('Фактический applied revision'), reads.applied && reads.applied.revision);
+        add(_('Фактический статус'), reads.status && (reads.status.serviceState || reads.status.state));
+      }
+      workflowHost.replaceChildren(shell.panel(title, rows.length ? E('div', {}, rows) :
+        shell.statePanel({ message: _('Backend не вернул отображаемых деталей.'), kind: 'info' }),
+        value.ok === true ? _('ответ backend') : _('операция заблокирована')));
+    }
+    function moveProfile(index, offset) {
+      if (busy) return;
+      var ids = drafts.map(function (profile) { return profile.id; });
+      var swap = index + offset;
+      var moved = ids[index];
+      ids[index] = ids[swap];
+      ids[swap] = moved;
+      setBusy(true);
+      reorderProfiles(ids, drafts).then(function (answer) {
+        if (!answer || answer.ok !== true) throw answer || new Error('profile reorder failed');
+        markProfileDraft();
+        return reload();
+      }).catch(function (error) {
+        setBusy(false);
+        showError(error);
+      });
+    }
+    function renderDraftProfile(profile, index) {
       var name = profileName(profile, format);
       var opt = profileOpt(profile, format);
-      if (name === null && opt === null) return;
+      if (name === null && opt === null) return null;
       var validation = E('div', { 'class': 'z2m-profile-validation', 'aria-live': 'polite' });
       var actions = drafts.length ? [
+        shell.button(_('Вверх'), 'sm', function () { moveProfile(index, -1); }, index === 0),
+        shell.button(_('Вниз'), 'sm', function () { moveProfile(index, 1); }, index === drafts.length - 1),
         shell.button(_('Проверить'), 'sm', function () {
           edit(ctx.api.profiles.validate, { id: profile.id }).then(function (answer) {
             var rows = issueRows(answer || {}, shell);
@@ -768,7 +854,9 @@ function render(ctx) {
         shell.button(_('Клонировать'), 'sm', function () { cloneProfile(profile); }),
         shell.button(_('Удалить'), 'danger sm', function () { deleteProfile(profile); })
       ] : [];
-      profileHost.appendChild(E('div', { 'class': 'z2m-profile-row' }, [
+      if (actions[0] && index === 0) actions[0].setAttribute('data-blocked', 'true');
+      if (actions[1] && index === drafts.length - 1) actions[1].setAttribute('data-blocked', 'true');
+      return E('div', { 'class': 'z2m-profile-row' }, [
         E('div', { 'class': 'z2m-profile-order' }, String(index + 1)),
         E('div', { 'class': 'z2m-profile-main' }, compact([
           name !== null ? E('div', { 'class': 'nm' }, [name, drafts.length ? shell.chip(_('черновик'), 'o') : shell.chip(_('применён'), 'g')]) : null,
@@ -776,21 +864,63 @@ function render(ctx) {
           validation
         ])),
         E('div', { 'class': 'z2m-profile-actions' }, actions)
-      ]));
+      ]);
+    }
+    shown.forEach(function (profile, index) {
+      var row = renderDraftProfile(profile, index);
+      if (row) profileHost.appendChild(row);
     });
-    var command = shown.map(function (profile) { return profileOpt(profile, format); }).filter(Boolean).join(' --new ');
-    return E('div', {}, compact([
+    var acknowledgement = E('input', { type: 'checkbox', id: 'replace-full-set' });
+    acknowledgement.addEventListener('change', function () {
+      replaceFullSet = acknowledgement.checked === true;
+      setBusy(busy);
+    });
+    previewButton = shell.button(_('Предпросмотр полного набора'), 'sm', function () {
+      if (busy) return;
+      preview = null;
+      replaceFullSet = false;
+      acknowledgement.checked = false;
+      setBusy(true);
+      previewProfiles().then(function (answer) {
+        preview = answer || {};
+        renderBackendResult(_('Backend preview'), preview);
+        setBusy(false);
+      }).catch(function (error) {
+        setBusy(false);
+        showError(error);
+      });
+    }, !drafts.length);
+    applyButton = shell.button(_('Применить полный набор'), 'primary sm', function () {
+      if (busy || !preview || preview.ok !== true || preview.wouldApply !== true || !replaceFullSet) return;
+      setBusy(true);
+      applyProfiles().then(function (result) {
+        renderBackendResult(_('Результат применения'), result.answer, result);
+        return reload();
+      }).catch(function (error) {
+        setBusy(false);
+        showError(error);
+      });
+    }, true);
+    setBusy(false);
+    return E('div', { 'class': 'z2m-profiles-pane' }, compact([
       globalRows.length ? shell.panel(_('Глобальная часть'), E('div', {}, globalRows), _('действует на всю команду, до первого --new')) : null,
       shell.panel(_('Профили'), E('div', {}, [
+        shell.statePanel({ message: _('Редактор хранит расширенные совместимые фрагменты nfqws2. Это не каноническая модель Strategy.'), kind: 'info' }),
         E('div', { 'class': 'z2m-btnrow z2m-profile-toolbar' }, [
           shell.button(_('Новый профиль'), 'primary sm', function () { openProfileEditor(null); }),
           shell.button(_('Импортировать применённые'), 'sm', importApplied),
-          shell.button(_('Показать различия'), 'sm', openApply, !drafts.length)
+          previewButton
         ]),
         profileHost
       ]), shown.length ? shown.length + _(' блоков через --new · порядок важен') : null),
-      command ? shell.panel(_('Итоговая команда'), E('pre', { 'class': 'z2m-console z2m-final-command' }, command), null,
-        shell.button(_('Копировать'), 'sm', function () { copyText(command, shell, ctx.api); })) : null
+      drafts.length ? shell.panel(_('Применение профилей'), E('div', {}, [
+        E('label', { 'for': 'replace-full-set', 'class': 'z2m-profile-ack' }, [
+          acknowledgement,
+          E('span', {}, _('Я понимаю: применение заменит весь упорядоченный набор применённых профилей.'))
+        ]),
+        E('div', { 'class': 'z2m-btnrow' }, [applyButton])
+      ]), _('Сначала получите актуальный backend preview.')) : null,
+      workflowHost
     ]));
   }
   function renderCheckPane() {
@@ -851,7 +981,7 @@ function render(ctx) {
 
   var panes = {
     list: listPane,
-    chain: renderProfileChain(),
+    chain: renderProfilesPane(profileData),
     check: renderCheckPane(),
     hist: renderHistoryPane()
   };
