@@ -19,7 +19,7 @@
           "confirm_alive", "rollback", "passthrough",
           "lists_set",
           "profiles_create", "profiles_update", "profiles_clone",
-          "profiles_delete", "profiles_import_applied", "profiles_apply",
+          "profiles_delete", "profiles_reorder", "profiles_import_applied", "profiles_apply",
           "blockcheck_start", "blockcheck_cancel", "blockcheck_apply", "blockcheck_preview", "blockcheck_rollback",
           "backup_create", "backup_restore", "backup_delete",
           "dns_set", "dns_apply", "dns_rollback", "dns_restore_auto", "dns_global_set", "dns_global_apply", "dns_global_rollback",
