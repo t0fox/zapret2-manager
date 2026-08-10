@@ -140,6 +140,40 @@
       ]
     },
     {
+      "id": "preview",
+      "cases": [
+        {
+          "id": "zero-enabled-inspection",
+          "expected": {"ok": true, "args": [], "profiles_count": 0, "applicable": false}
+        }
+      ]
+    },
+    {
+      "id": "validation",
+      "cases": [
+        {
+          "id": "zero-enabled-rejected",
+          "expectedError": "ENOENABLED"
+        }
+      ]
+    },
+    {
+      "id": "mutation",
+      "cases": [
+        {
+          "id": "builtin-update-rejected",
+          "operation": "update",
+          "expectedError": "EIMMUTABLE"
+        },
+        {
+          "id": "user-update-accepted",
+          "operation": "update",
+          "expectedOk": true,
+          "expectedRevision": 1
+        }
+      ]
+    },
+    {
       "id": "autowrap",
       "cases": [
         {"id": "tls-client-hello", "input": ["--payload=tls_client_hello", "--lua-desync=fake:blob=fake_default_tls"], "expected": ["--filter-tcp=443", "--filter-l7=tls", "--payload=tls_client_hello", "--lua-desync=fake:blob=fake_default_tls"]},

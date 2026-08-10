@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 const PINNED_SHA = 'f9dd3ea47a2239514f396a843b475c92c33f0b4c';
@@ -26,6 +26,30 @@ function requirePinnedSource() {
   }
   if (head !== PINNED_SHA) {
     throw new Error(`Fixture regeneration only: expected Avatar HEAD ${PINNED_SHA}, got ${head}`);
+  }
+  let status;
+  try {
+    status = execFileSync('git', [
+      '-C', source, 'status', '--porcelain=v1', '--untracked-files=all', '--ignored=matching',
+    ], { encoding: 'utf8' }).trim();
+  } catch (error) {
+    throw new Error(`Fixture regeneration only: cannot inspect AVATAR_PINNED_SRC cleanliness (${error.message})`);
+  }
+  if (status) {
+    const details = status.split('\n').slice(0, 8).join('; ');
+    throw new Error(`Fixture regeneration only: AVATAR_PINNED_SRC must be clean (${details})`);
+  }
+  for (const level of LEVELS) {
+    const directory = path.join(source, 'catalogs', level);
+    let directoryPresent = false;
+    try {
+      directoryPresent = existsSync(directory) && statSync(directory).isDirectory();
+    } catch {
+      directoryPresent = false;
+    }
+    if (!directoryPresent) {
+      throw new Error(`Fixture regeneration only: pinned checkout is missing catalog directory catalogs/${level}`);
+    }
   }
   return source;
 }
@@ -213,7 +237,10 @@ function buildManifest(source) {
     physicalEntryCount: physicalEntries.length,
     uniqueStrategyIdCount: new Set(physicalEntries.map(entry => entry.id)).size,
     duplicateIdGroupCount: duplicateGroups.length,
-    aggregateDigest: AUDITED_AGGREGATE_DIGEST,
+    aggregateDigest: sha256(Buffer.from(files
+      .map(file => `${file.sha256}  catalogs/${file.path}\n`)
+      .join(''))),
+    aggregateDigestAlgorithm: 'sha256(source-order lines "<file-sha256>  catalogs/<relative-path>\\n")',
     levelEntryCounts,
     protocolEntryCounts,
     featuredIds: [...new Set(physicalEntries.filter(entry => entry.metadata.featured).map(entry => entry.id))],

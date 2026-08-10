@@ -9,6 +9,7 @@
   "uniqueStrategyIdCount": 732,
   "duplicateIdGroupCount": 503,
   "aggregateDigest": "5978d35bfc0b73caaae658124874e24619b1f448e673ec09fd7c5d4dd8c3dda1",
+  "aggregateDigestAlgorithm": "sha256(source-order lines \"<file-sha256>  catalogs/<relative-path>\\n\")",
   "levelEntryCounts": {
     "advanced": 565,
     "basic": 496,
