@@ -137,6 +137,15 @@ test('status CLI remains directly executable and delegates to the importable col
   assert.doesNotMatch(source, /export const/);
 });
 
+test('observation collector preserves legacy runtime, drift, system, and upstream evidence', () => {
+  const source = fs.readFileSync(COLLECTOR, 'utf8');
+  for (const evidence of [
+    /VmRSS:/, /ps w/, /list_table/, /uci show zapret2/, /nft list table inet/,
+    /sha256sum/, /normalizedRuntime/, /reconcile_queue_owner/, /apk version -c/,
+    /nfqws2_version\(\)/, /autohostlist_vars\(\)/, /date -u -r/,
+  ]) assert.match(source, evidence);
+});
+
 test('degraded native state remains schema 3 without healthy generation-zero fabrication', () => {
   const degraded = { schemaVersion: 1, generation: null, generatedAt: null, serviceState: 'error',
     runtime: { processes: [], namespaces: [] }, transactions: [], jobs: [],
