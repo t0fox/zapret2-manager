@@ -163,7 +163,10 @@ function profiles_tmpfile() {
 	if (!p) return null;
 	let tmp = trim(p.read('all') || '');
 	let rc = p.close();
-	if (rc != 0 || index(tmp, '/tmp/z2m-profiles-edit.') != 0) return null;
+	if (rc != 0 || index(tmp, '/tmp/z2m-profiles-edit.') != 0) {
+		if (length(tmp)) try { unlink(tmp); } catch (e) { }
+		return null;
+	}
 	return tmp;
 }
 function profiles_edit_action(sub, req) {
