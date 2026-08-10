@@ -10,6 +10,7 @@ import {
 } from '../constants.uc';
 import { parse_queue } from '../qlen.uc';
 import { read_var } from '../apply.uc';
+import { derive_runtime_observation, resolve_native_status } from './status-observations.uc';
 
 function sh(cmd) {
 	let p = popen(cmd + ' 2>/dev/null', 'r');
@@ -269,22 +270,6 @@ function service_state(runtime, rules, health, draft, engine) {
 	return 'running';
 }
 
-const PROFILE_SEP = '--new';
-function profile_count(opt_value) {
-	if (opt_value == null) return null;
-	let n = 0;
-	let i = 0;
-	let len = length(opt_value);
-	let mlen = length(PROFILE_SEP);
-	while (i < len) {
-		let p = index(substr(opt_value, i), PROFILE_SEP);
-		if (p < 0) break;
-		n++;
-		i = i + p + mlen;
-	}
-	return n + 1;
-}
-
 function nfqws2_version() {
 	try {
 		let raw = readfile(PATHS.applied_version);
@@ -361,22 +346,13 @@ export const collect_observations = function() {
 	try { upstream = upstream_info(); } catch (e) { upstream = { error: 'upstream collect failed: ' + e }; }
 	let ownerWarn = null;
 	try { ownerWarn = reconcile_queue_owner(runtime, health); } catch (e) { ownerWarn = null; }
-	let drift, svc_state, prof_count;
+	let drift, svc_state, applied_opt;
 	try { drift = drift_block(runtime, rules); }
 	catch (e) { drift = { divergent: false, reason: 'drift compute failed: ' + e, basis: 'sha256-intermediate' }; }
 	try { svc_state = service_state(runtime, rules, health, draft, engine); }
 	catch (e) { svc_state = 'error'; }
-	try { prof_count = profile_count(read_var('NFQWS2_OPT')); } catch (e) { prof_count = null; }
-	let instances = runtime.instances || [];
-	let runtime_out = {
-		present: runtime.present ? true : false,
-		count: runtime.count ? runtime.count : 0,
-		instances: instances,
-		strategies: runtime.strategies ? runtime.strategies : null,
-		profileCount: prof_count,
-		psSummary: runtime.psSummary ? runtime.psSummary : '',
-		rulesPresent: runtime.rulesPresent ? true : false
-	};
+	try { applied_opt = read_var('NFQWS2_OPT'); } catch (e) { applied_opt = null; }
+	let runtime_out = derive_runtime_observation(runtime, applied_opt);
 	let applied_out = {
 		configPath: applied.configPath ? applied.configPath : PATHS.applied_conf,
 		configPresent: applied.configPresent ? true : false,
@@ -415,8 +391,7 @@ function degraded(result) {
 
 export const collect = function() {
 	let observations = collect_observations(), native_result = state_read();
-	if (!native_result.ok && native_result.error?.details?.helperCode == 'ENOENT')
-		native_result = state_initialize();
+	native_result = resolve_native_status(native_result, state_initialize);
 	let status = legacy_status_v3(native_result.ok ? native_result.data.state : degraded(native_result), observations);
 	try { writefile(PATHS.status_json, sprintf('%J', status) + '\n'); } catch (e) { }
 	return status;
