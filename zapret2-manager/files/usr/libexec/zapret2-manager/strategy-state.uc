@@ -324,10 +324,20 @@ function record_valid(value) {
 
 function state_default() { return { schema: 1, revision: 0, favorites: [], selected: null }; }
 
+function identity_verified(id, origin) {
+	if (origin == 'user') {
+		let result = read_document(path_for(id));
+		return result.ok && record_valid(result.value) && result.value.id == id;
+	}
+	if (origin == 'avatar_builtin') return catalog_id(id);
+	if (origin == 'extension') return extension_id(id);
+	return false;
+}
+
 function selected_valid(value) {
 	return value == null || (exact_fields(value, ['id', 'origin', 'revision', 'candidateSha256']) &&
 		safe_id(value.id) && (value.origin == 'user' || value.origin == 'avatar_builtin' || value.origin == 'extension') &&
-		integer(value.revision) && sha256(value.candidateSha256));
+		integer(value.revision) && sha256(value.candidateSha256) && identity_verified(value.id, value.origin));
 }
 
 function state_valid(value) {
@@ -504,6 +514,7 @@ export const strategy_favorite = function(input) {
 		if (input.id != null && !safe_id(input.id)) return error('EINPUT', 'Favorite identity is unsafe.');
 		if (input.id != null && input.favorite != true && input.favorite != false)
 			return error('EINPUT', 'Favorite mutation requires a boolean favorite value.');
+		if (!load_catalog_ids()) return error('EVERIFY', 'Verified catalog is unavailable.');
 		if (input.id != null && !(protected_id(input.id) || read_user(input.id).ok))
 			return error('ENOENT', 'Favorite Strategy was not found.');
 		return state_mutate(input.expectedRevision, function(next) {

@@ -250,3 +250,63 @@ git diff --check
 ```
 
 Result: passed.
+
+## Round 3 Fixes
+
+The third review found two state mutations that still treated trust-boundary
+failure as ordinary absence:
+
+1. Favorite mutation now preflights the verified catalog before reading or
+   transforming durable state. If catalog verification fails, it returns
+   `EVERIFY` and cannot filter, rewrite, or increment the preference state.
+   Existing valid catalog favorites therefore remain byte-for-byte unchanged.
+2. Selection validation now verifies the identity by origin: user selections
+   must resolve to a valid user Strategy record, `avatar_builtin` selections
+   must resolve to a verified catalog winner, and `extension` selections must
+   resolve to the verified packaged-extension manifest. Unknown origins and
+   namespace ghosts are rejected before CAS mutation. Persisted selections use
+   the same boundary.
+
+Verified catalog IDs remain the authoritative winner map, so a catalog ID that
+appears in a non-winning duplicate is not a separate selectable or creatable
+identity. Direct user create coverage confirms the effective `fake_simple`
+collision is rejected without creating `fake_simple.json`.
+
+## Round 3 Behavioral Evidence
+
+Added temporary-root regressions in
+`tests/product/avatar-strategy-state.test.mjs` for:
+
+- catalog verification failure after a durable `fake_simple` favorite, proving
+  the state bytes, favorites, and revision are unchanged;
+- rejection of unknown builtin, extension, and user selections;
+- valid catalog builtin, packaged extension, and existing user selections;
+- verified catalog collision on user create with no file written.
+
+## Round 3 Verification
+
+Commands run from the real WSL worktree:
+
+```text
+UCODE_BIN=/opt/ucode/bin/ucode UCODE_LIBRARY_PATH=/opt/ucode/lib node --test tests/product/avatar-strategy-state.test.mjs tests/product/profiles-contract.test.mjs tests/product/avatar-strategy-model.test.mjs tests/product/avatar-strategy-catalog.test.mjs tests/product/avatar-strategy-compiler.test.mjs
+```
+
+Result: 81 passed.
+
+```text
+node --test tests/native/avatar-strategy-package.test.mjs tests/native/package-helper.test.mjs
+```
+
+Result: 46 passed.
+
+```text
+/home/kirill/.local/opt/node-v22.22.1-linux-x64/bin/node --test tests/native/bootstrap.test.mjs
+```
+
+Result: 12 passed under WSL root.
+
+```text
+git diff --check
+```
+
+Result: passed.

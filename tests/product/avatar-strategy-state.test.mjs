@@ -73,6 +73,7 @@ test('package-created empty state is immediately usable without overwriting it o
   const initial = invoke('state.strategy_selection_get()', env);
   assert.deepEqual(initial, { ok: true, revision: 0, selected: null });
 
+  assert.equal(invoke(`state.strategy_user_create({strategy:${JSON.stringify(userStrategy())}})`, env).ok, true);
   const set = invoke(`state.strategy_selection_set({expectedRevision:0,selected:{id:'user-one',origin:'user',revision:1,candidateSha256:'${hash}'}})`, env);
   assert.equal(set.ok, true);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, 'strategy-state.json'), 'utf8')), {
@@ -123,10 +124,12 @@ test('builtin and extension identities cannot enter user storage or be mutated',
   const extension = { id: 'extension-one', name: 'Extension', is_extension: true,
     origin: 'extension', profiles: [{ id: 'p1', args: '--filter-tcp=443' }] };
   assert.equal(invoke(`state.strategy_user_create({strategy:${JSON.stringify(builtin)}})`, env).error.code, 'ECONFLICT');
-  assert.equal(invoke(`state.strategy_user_create({strategy:${JSON.stringify({
-    id: 'fake_simple', name: 'Catalog collision', profiles: [{ id: 'p1', args: '--x' }],
-    metadata: {},
-  })}})`, env).error.code, 'ECONFLICT');
+  const catalogCollision = invoke(`state.strategy_user_create({strategy:${JSON.stringify({
+    id: 'fake_simple', name: 'Catalog collision', metadata: {},
+    profiles: [{ id: 'p1', args: '--filter-tcp=443' }],
+  })}})`, env);
+  assert.equal(catalogCollision.error.code, 'ECONFLICT');
+  assert.equal(fs.existsSync(path.join(env.Z2M_STRATEGY_DIR, 'fake_simple.json')), false);
   assert.equal(invoke(`state.strategy_user_create({strategy:${JSON.stringify(extension)}})`, env).error.code, 'ECONFLICT');
   assert.equal(invoke(`state.strategy_user_update({id:'z2k_all_in_one',expectedRevision:1,strategy:${JSON.stringify(builtin)}})`, env).error.code, 'EIMMUTABLE');
   assert.equal(invoke("state.strategy_user_delete({id:'z2k_all_in_one',expectedRevision:1})", env).error.code, 'EIMMUTABLE');
@@ -174,6 +177,45 @@ test('favorites preserve requested order, allow builtin IDs, and clean deleted u
     ['fake_simple', 'extension-one', 'duplicate-source_copy']);
 }));
 
+test('catalog verification failure preserves existing favorites and state revision', () => storage((env, root) => {
+  assert.equal(invoke(`state.strategy_user_create({strategy:${JSON.stringify(userStrategy())}})`, env).ok, true);
+  const favorite = invoke("state.strategy_favorite({expectedRevision:0,id:'fake_simple',favorite:true})", env);
+  assert.equal(favorite.ok, true);
+  const before = fs.readFileSync(env.Z2M_STRATEGY_STATE, 'utf8');
+  const unavailable = { ...env, Z2M_STRATEGY_CATALOG_ROOT: path.join(root, 'missing-catalog') };
+  const failed = invoke("state.strategy_favorite({expectedRevision:1,id:'user-one',favorite:true})", unavailable);
+  assert.equal(failed.ok, false);
+  assert.equal(fs.readFileSync(env.Z2M_STRATEGY_STATE, 'utf8'), before);
+  assert.equal(invoke('state.strategy_selection_get()', env).revision, 1);
+  assert.deepEqual(JSON.parse(before).favorites, ['fake_simple']);
+}));
+
+test('selection accepts only verified user, catalog, and packaged extension identities', () => storage((env) => {
+  assert.equal(invoke(`state.strategy_user_create({strategy:${JSON.stringify(userStrategy())}})`, env).ok, true);
+  const hashSelection = (id, origin, revision) => ({ id, origin, revision, candidateSha256: hash });
+  for (const selected of [
+    hashSelection('z2k_not_a_real_catalog_id', 'avatar_builtin', 1),
+    hashSelection('extension_not_packaged', 'extension', 1),
+    hashSelection('missing-user', 'user', 1),
+  ]) {
+    const ghost = invoke(`state.strategy_selection_set({expectedRevision:0,selected:${JSON.stringify(selected)}})`, env);
+    assert.equal(ghost.ok, false);
+  }
+  assert.equal(invoke('state.strategy_selection_get()', env).revision, 0);
+
+  const builtin = invoke(`state.strategy_selection_set({expectedRevision:0,selected:${JSON.stringify(
+    hashSelection('fake_simple', 'avatar_builtin', 1))}})`, env);
+  assert.equal(builtin.ok, true);
+  const extension = invoke(`state.strategy_selection_set({expectedRevision:1,selected:${JSON.stringify(
+    hashSelection('extension-one', 'extension', 1))}})`, env);
+  assert.equal(extension.ok, true);
+  const user = invoke(`state.strategy_selection_set({expectedRevision:2,selected:${JSON.stringify(
+    hashSelection('user-one', 'user', 1))}})`, env);
+  assert.equal(user.ok, true);
+  assert.equal(user.state.revision, 3);
+  assert.equal(invoke('state.strategy_selection_get()', env).selected.id, 'user-one');
+}));
+
 test('metadata type and content are validated consistently before create, update, and duplicate writes', () => storage((env, root, strategies) => {
   for (const metadata of ['bad', { description: 7 }, { nested: { unsupported: true } }]) {
     const result = invoke(`state.strategy_user_create({strategy:${JSON.stringify({
@@ -199,6 +241,10 @@ test('metadata type and content are validated consistently before create, update
 }));
 
 test('selection uses state CAS and persists identity/hash fields only', () => storage((env, root) => {
+  assert.equal(invoke(`state.strategy_user_create({strategy:${JSON.stringify(userStrategy())}})`, env).ok, true);
+  assert.equal(invoke(`state.strategy_user_create({strategy:${JSON.stringify({
+    ...userStrategy(), id: 'other', name: 'Other user',
+  })}})`, env).ok, true);
   const set = invoke(`state.strategy_selection_set({expectedRevision:0,selected:{id:'user-one',origin:'user',revision:3,candidateSha256:'${hash}'}})`, env);
   assert.equal(set.ok, true);
   assert.equal(set.state.revision, 1);
@@ -272,9 +318,9 @@ test('same-provenance manifest tampering fails closed before collision or favori
 
   const tamperedEnv = { ...env, Z2M_STRATEGY_CATALOG_ROOT: tamperedRoot };
   const builtin = invoke("state.strategy_favorite({expectedRevision:0,id:'fake_simple',favorite:true})", tamperedEnv);
-  assert.equal(builtin.error.code, 'ENOENT');
+  assert.equal(builtin.ok, false);
   const altered = invoke("state.strategy_favorite({expectedRevision:0,id:'tampered_catalog_id',favorite:true})", tamperedEnv);
-  assert.equal(altered.error.code, 'ENOENT');
+  assert.equal(altered.ok, false);
   assert.equal(invoke('state.strategy_selection_get()', tamperedEnv).revision, 0);
 }));
 
