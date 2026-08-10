@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { ucodeModulePattern } from '../native/core/ucode-test-harness.mjs';
+import { ucodeDiagnostic, ucodeModulePattern } from '../native/core/ucode-test-harness.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const read = relativePath => readFileSync(path.join(ROOT, relativePath), 'utf8');
@@ -21,23 +21,27 @@ const UCODE_LIBRARY_ARGS = UCODE_MODULE_PATTERN ? ['-L', UCODE_MODULE_PATTERN] :
 
 function renderProduction(profiles) {
   const source = `import { profiles_render_candidate } from '${APPLY_MODULE}'; print(sprintf('%J', profiles_render_candidate(${JSON.stringify(profiles)})));`;
-  const result = spawnSync(UCODE_BIN, [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source], {
+  const argv = [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source];
+  const result = spawnSync(UCODE_BIN, argv, {
     cwd: ROOT,
     env: { ...process.env, LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib' },
     encoding: 'utf8', timeout: 15_000,
   });
-  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(result.status, 0,
+    `${result.stderr || result.stdout}\nucode diagnostic:\n${ucodeDiagnostic([UCODE_BIN, ...argv], UCODE_MODULE_PATTERN)}`);
   return JSON.parse(result.stdout);
 }
 
 function rollbackDecision(restartRc, verifyOk, configRestored = true, rollbackRestartRc = 0, rollbackVerifyOk = true) {
   const source = `import { profiles_rollback_decision } from '${APPLY_MODULE}'; print(sprintf('%J', profiles_rollback_decision(${restartRc}, ${verifyOk}, ${configRestored}, ${rollbackRestartRc}, ${rollbackVerifyOk})));`;
-  const result = spawnSync(UCODE_BIN, [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source], {
+  const argv = [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source];
+  const result = spawnSync(UCODE_BIN, argv, {
     cwd: ROOT,
     env: { ...process.env, LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib' },
     encoding: 'utf8', timeout: 15_000,
   });
-  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(result.status, 0,
+    `${result.stderr || result.stdout}\nucode diagnostic:\n${ucodeDiagnostic([UCODE_BIN, ...argv], UCODE_MODULE_PATTERN)}`);
   return JSON.parse(result.stdout);
 }
 
