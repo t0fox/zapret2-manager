@@ -3,6 +3,7 @@
 // file names and digests; raw files provide the parsed Strategy records.
 
 import { readfile, readlink, stat, popen } from 'fs';
+import { catalog_entry_to_strategy as normalize_catalog_entry } from './strategy-model.uc';
 
 const DEFAULT_ROOT = '/usr/share/zapret2-manager/catalog/avatar';
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
@@ -575,4 +576,8 @@ export const strategy_catalog_reload = function() {
 	let result = strategy_catalog_load(root);
 	if (!result.ok) return result;
 	return strategy_catalog_status();
+};
+
+export const catalog_entry_to_strategy = function(entry) {
+	return normalize_catalog_entry(entry);
 };

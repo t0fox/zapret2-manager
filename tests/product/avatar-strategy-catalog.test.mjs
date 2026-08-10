@@ -313,3 +313,18 @@ test('failed loads clear prior state and reload does not leak a previous catalog
     fs.rmSync(good, { recursive: true, force: true });
   }
 });
+
+test('catalog exposes conversion for a physical winner without changing its identity', () => {
+  const catalog = load();
+  const entry = catalog.winners.z2k_all_in_one;
+  const result = invokeCatalog('catalog_entry_to_strategy', [entry]);
+  assert.equal(result.id, entry.id);
+  assert.equal(result.id, 'z2k_all_in_one');
+  assert.equal(result.source, 'catalog');
+  assert.equal(result.is_builtin, true);
+  assert.equal(result.enabled, undefined);
+  assert.equal(result.sourceFile, entry.sourceFile);
+  assert.equal(result.sourceOrdinal, entry.sourceOrdinal);
+  assert.deepEqual(result.profiles.map(profile => profile.enabled),
+    Array.from({ length: result.profiles.length }, () => true));
+});

@@ -32,6 +32,32 @@ function model(functionName, ...args) {
   return JSON.parse(result.stdout);
 }
 
+function catalogEntry(overrides = {}) {
+  return {
+    id: 'avatar-stable-id',
+    metadata: {
+      name: 'Catalog name',
+      author: 'Avatar author',
+      label: 'recommended',
+      description: 'Catalog description',
+      blobs: ['tls_google', 'quic_google'],
+      featured: true,
+    },
+    args: '--filter-tcp=80 --lua-init=code=\'hello world\' --new --filter-udp=443 --payload=quic_initial',
+    level: 'builtin',
+    protocol: 'udp',
+    sourceFile: 'builtin/winws2_presets.txt',
+    sourceOrdinal: 17,
+    cacheKey: 'builtin/udp',
+    cacheOrdinal: 23,
+    effectiveOrdinal: 9,
+    duplicateGroup: 4,
+    winner: true,
+    rawArgs: '--filter-tcp=80 --lua-init=code=\'hello world\'\n--new\n--filter-udp=443 --payload=quic_initial',
+    ...overrides,
+  };
+}
+
 test('missing enabled defaults to true and preserves quoted tokens', () => {
   const result = model('strategy_normalize', {
     id: 's1', name: 'S1', profiles: [{ id: 'p1', args: "--lua-init=code='hello world'\n--x" }],
@@ -86,6 +112,107 @@ test('normalization preserves unknown options, disabled children, duplicates, an
   assert.deepEqual(model('strategy_enabled_profiles', result.strategy)
     .map(profile => profile.id), ['p1', 'p2']);
   assert.equal(model('strategy_profile_count', result.strategy), 2);
+});
+
+test('catalog conversion splits only exact separator tokens and preserves order', () => {
+  const result = model('catalog_entry_to_strategy', catalogEntry({
+    id: 's1',
+    args: '--filter-tcp=80 --x --new --filter-tcp=443 --y --new=literal --quoted=\'--new\' --z',
+  }));
+  assert.equal(result.id, 's1');
+  assert.equal(result.type, 'combined');
+  assert.deepEqual(result.profiles.map(profile => ({
+    id: profile.id,
+    name: profile.name,
+    enabled: profile.enabled,
+    args: profile.args,
+  })), [
+    { id: 'http1', name: 'HTTP (порт 80)', enabled: true, args: '--filter-tcp=80 --x' },
+    {
+      id: 'tcp2', name: 'TCP (порты 443)', enabled: true,
+      args: "--filter-tcp=443 --y --new=literal --quoted='--new' --z",
+    },
+  ]);
+});
+
+test('catalog conversion drops empty separator segments and omits no-args entries', () => {
+  const result = model('catalog_entry_to_strategy', catalogEntry({
+    args: '--new --new --filter-l3=ipv4 --new',
+  }));
+  assert.deepEqual(result.profiles.map(profile => ({
+    id: profile.id, name: profile.name, args: profile.args,
+  })), [{ id: 'ipv4_1', name: 'IPV4', args: '--filter-l3=ipv4' }]);
+  assert.equal(model('catalog_entry_to_strategy', catalogEntry({ args: '' })), null);
+});
+
+test('catalog conversion falls back to the pinned ID when metadata name is empty', () => {
+  const result = model('catalog_entry_to_strategy', catalogEntry({
+    id: 'stable-id',
+    metadata: { ...catalogEntry().metadata, name: '' },
+    args: '--payload=all',
+  }));
+  assert.equal(result.id, 'stable-id');
+  assert.equal(result.name, 'stable-id');
+});
+
+test('catalog conversion uses the first TCP, UDP, or L3 filter for profile identity', () => {
+  const result = model('catalog_entry_to_strategy', catalogEntry({
+    args: '--filter-tcp=443 --filter-udp=53 --new --filter-udp=53 --new --filter-l3=ipv6 --new --payload=all',
+  }));
+  assert.deepEqual(result.profiles.map(profile => [profile.id, profile.name]), [
+    ['tcp1', 'TCP (порты 443)'],
+    ['udp2', 'UDP (порты 53)'],
+    ['ipv6_3', 'IPV6'],
+    ['profile4', 'Profile 4'],
+  ]);
+});
+
+test('catalog conversion copies metadata and physical provenance without rewriting IDs', () => {
+  const result = model('catalog_entry_to_strategy', catalogEntry({
+    id: 'Avatar ID.with punctuation',
+    protocol: 'tcp',
+    args: '--payload=tls_client_hello',
+  }));
+  assert.deepEqual(result, {
+    id: 'Avatar ID.with punctuation',
+    name: 'Catalog name',
+    description: 'Catalog description',
+    type: 'single',
+    version: 1,
+    is_builtin: true,
+    source: 'catalog',
+    level: 'builtin',
+    label: 'recommended',
+    author: 'Avatar author',
+    protocol: 'tcp',
+    featured: true,
+    blobs: ['tls_google', 'quic_google'],
+    sourceFile: 'builtin/winws2_presets.txt',
+    sourceOrdinal: 17,
+    cacheKey: 'builtin/udp',
+    cacheOrdinal: 23,
+    effectiveOrdinal: 9,
+    duplicateGroup: 4,
+    winner: true,
+    rawArgs: "--filter-tcp=80 --lua-init=code='hello world'\n--new\n--filter-udp=443 --payload=quic_initial",
+    profiles: [{
+      id: 'profile1', name: 'Profile 1', enabled: true, args: '--payload=tls_client_hello',
+    }],
+  });
+});
+
+test('catalog conversion preserves preset Blob and Lua references and does not filter user input', () => {
+  const result = model('catalog_entry_to_strategy', catalogEntry({
+    args: "--wf-tcp=inline --blob=tls_google:@bin/tls_clienthello.bin --lua-desync=fake:blob=tls_google --unknown=keep",
+    metadata: {
+      ...catalogEntry().metadata,
+      blobs: ['tls_google'],
+    },
+  }));
+  assert.equal(result.protocol, 'udp');
+  assert.deepEqual(result.blobs, ['tls_google']);
+  assert.equal(result.profiles[0].args,
+    "--wf-tcp=inline --blob=tls_google:@bin/tls_clienthello.bin --lua-desync=fake:blob=tls_google --unknown=keep");
 });
 
 test('domain fixtures preserve defaulting and empty-array structural validity', () => {

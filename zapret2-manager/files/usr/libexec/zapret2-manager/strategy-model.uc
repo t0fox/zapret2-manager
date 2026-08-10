@@ -117,6 +117,134 @@ export const strategy_normalize = function(input, origin) {
 	return { ok: true, strategy: strategy, tokens: tokens, diagnostics: valid.diagnostics };
 };
 
+function copy_values(values) {
+	let result = [];
+	if (type(values) != 'array') return result;
+	for (let i = 0; i < length(values); i++) push(result, values[i]);
+	return result;
+}
+
+function catalog_field(entry, name, fallback) {
+	let metadata = is_object(entry.metadata) ? entry.metadata : entry;
+	return metadata[name] == null ? fallback : metadata[name];
+}
+
+function catalog_protocol(entry) {
+	return entry.protocol == 'udp' ? 'udp' : 'tcp';
+}
+
+function starts_with(value, prefix) {
+	return type(value) == 'string' && length(value) >= length(prefix)
+		&& substr(value, 0, length(prefix)) == prefix;
+}
+
+function upper_ascii(value) {
+	let result = '';
+	for (let i = 0; i < length(value); i++) {
+		let code = ord(substr(value, i, 1));
+		result += code >= 97 && code <= 122 ? chr(code - 32) : substr(value, i, 1);
+	}
+	return result;
+}
+
+function canonical_values(values) {
+	let result = '';
+	for (let i = 0; i < length(values); i++) {
+		if (i > 0) result += ' ';
+		result += values[i];
+	}
+	return result;
+}
+
+function profile_identity(tokens, index) {
+	for (let i = 0; i < length(tokens); i++) {
+		let value = tokens[i];
+		if (starts_with(value, '--filter-tcp=')) {
+			let ports = substr(value, length('--filter-tcp='));
+			if (ports == '80') return { id: 'http' + (index + 1), name: 'HTTP (порт 80)' };
+			return { id: 'tcp' + (index + 1), name: 'TCP (порты ' + ports + ')' };
+		}
+		if (starts_with(value, '--filter-udp=')) {
+			let ports = substr(value, length('--filter-udp='));
+			return { id: 'udp' + (index + 1), name: 'UDP (порты ' + ports + ')' };
+		}
+		if (starts_with(value, '--filter-l3=')) {
+			let version = substr(value, length('--filter-l3='));
+			return { id: version + '_' + (index + 1), name: upper_ascii(version) };
+		}
+	}
+	return { id: 'profile' + (index + 1), name: 'Profile ' + (index + 1) };
+}
+
+function copy_catalog_provenance(strategy, entry) {
+	if (entry.sourceFile != null) strategy.sourceFile = entry.sourceFile;
+	if (entry.sourceOrdinal != null) strategy.sourceOrdinal = entry.sourceOrdinal;
+	if (entry.cacheKey != null) strategy.cacheKey = entry.cacheKey;
+	if (entry.cacheOrdinal != null) strategy.cacheOrdinal = entry.cacheOrdinal;
+	if (entry.duplicateGroup != null) strategy.duplicateGroup = entry.duplicateGroup;
+	if (entry.winner != null) strategy.winner = entry.winner;
+	if (entry.effectiveOrdinal != null) strategy.effectiveOrdinal = entry.effectiveOrdinal;
+	if (entry.rawArgs != null) strategy.rawArgs = entry.rawArgs;
+}
+
+// Convert one physical CatalogEntry without applying compiler transforms. The
+// catalog parser owns WinDivert line filtering; this boundary only tokenizes
+// the already parsed args and preserves all other tokens as Profile data.
+export const catalog_entry_to_strategy = function(entry) {
+	if (!is_object(entry)) return null;
+	let strategyId = entry.id != null ? entry.id : entry.sectionId;
+	if (type(strategyId) != 'string' || length(strategyId) == 0) return null;
+
+	let args = entry.args == null ? '' : entry.args;
+	let tokenized = avatar_tokenize(args);
+	if (!tokenized.ok || length(tokenized.tokens) == 0) return null;
+
+	let sections = [], current = [];
+	for (let i = 0; i < length(tokenized.tokens); i++) {
+		let value = tokenized.tokens[i].value;
+		if (value == '--new') {
+			if (length(current) > 0) push(sections, current);
+			current = [];
+		} else push(current, value);
+	}
+	if (length(current) > 0) push(sections, current);
+	if (length(sections) == 0) return null;
+
+	let profiles = [];
+	for (let i = 0; i < length(sections); i++) {
+		let identity = profile_identity(sections[i], i);
+		push(profiles, {
+			id: identity.id,
+			name: identity.name,
+			enabled: true,
+			args: canonical_values(sections[i])
+		});
+	}
+	let strategyName = catalog_field(entry, 'name', strategyId);
+	if (type(strategyName) != 'string' || length(strategyName) == 0) strategyName = strategyId;
+
+	let strategy = {
+		id: strategyId,
+		name: strategyName,
+		description: catalog_field(entry, 'description', ''),
+		type: length(profiles) > 1 ? 'combined' : 'single',
+		version: 1,
+		is_builtin: true,
+		source: 'catalog',
+		level: entry.level == null ? '' : entry.level,
+		label: catalog_field(entry, 'label', ''),
+		author: catalog_field(entry, 'author', ''),
+		protocol: catalog_protocol(entry),
+		featured: catalog_field(entry, 'featured', false),
+		blobs: copy_values(catalog_field(entry, 'blobs', [])),
+		profiles: profiles
+	};
+	copy_catalog_provenance(strategy, entry);
+
+	let normalized = strategy_normalize(strategy);
+	return normalized.ok ? normalized.strategy : null;
+};
+
 export const strategy_enabled_profiles = function(strategy) {
 	let result = [];
 	if (!is_object(strategy) || type(strategy.profiles) != 'array') return result;
