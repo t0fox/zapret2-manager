@@ -170,10 +170,12 @@ test('recent apply cache verifies current config and runtime before returning id
 });
 
 test('profile temporary files are created collision-resistant with private permissions', () => {
+  const tmpfile = functionBody(rpc, 'profiles_tmpfile');
   const transport = functionBody(rpc, 'profiles_edit_action');
 
   assert.match(rpc, /function profiles_tmpfile\(\)/);
   assert.match(rpc, /mktemp \/tmp\/z2m-profiles-edit\.XXXXXX/);
+  assertOrdered(tmpfile, [/if \(rc != 0 \|\| index\(tmp, '\/tmp\/z2m-profiles-edit\.'\) != 0\)/, /unlink\(tmp\)/, /return null/]);
   assert.match(transport, /profiles_tmpfile\(\)/);
   assert.doesNotMatch(transport, /z2m-profiles-edit\.' \+ time\(\)/);
 });
