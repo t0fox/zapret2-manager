@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 const ROOT = process.cwd();
 const STATUS = path.resolve('zapret2-manager/files/usr/libexec/zapret2-manager/status.uc');
 const COLLECTOR = path.resolve('zapret2-manager/files/usr/libexec/zapret2-manager/core/status-collector.uc');
+const OBSERVATIONS = path.resolve('zapret2-manager/files/usr/libexec/zapret2-manager/core/status-observations.uc');
 const COMPAT = path.resolve('zapret2-manager/files/usr/libexec/zapret2-manager/core/status-compat.uc');
 const RPC = 'zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc';
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
@@ -28,6 +29,14 @@ function run(source, env = {}) {
 
 function importStatus(expression) {
   return run(`import * as status from '${COLLECTOR}'; print(sprintf('%J', ${expression}));`);
+}
+
+function deriveRuntime(runtime, appliedOpt) {
+  return run(`import { derive_runtime_observation } from '${OBSERVATIONS}'; print(sprintf('%J', derive_runtime_observation(${JSON.stringify(runtime)}, ${JSON.stringify(appliedOpt)})));`);
+}
+
+function resolveNative(result) {
+  return run(`import { resolve_native_status } from '${OBSERVATIONS}'; let calls = 0; let resolved = resolve_native_status(${JSON.stringify(result)}, function() { calls++; return { ok: true, data: { state: { generation: 0 } } }; }); print(sprintf('%J', { resolved: resolved, calls: calls }));`);
 }
 
 function nativeState(generation = 7, serviceState = 'stopped') {
@@ -128,18 +137,36 @@ test('status permits cache publication and one ENOENT initialization but no gene
   assert.match(source, /export const collect_observations = function/);
   assert.match(source, /export const collect = function/);
   assert.match(source, /native_result\s*=\s*state_read\(\)/);
-  assert.match(source, /helperCode\s*==\s*'ENOENT'[\s\S]*?state_initialize\(\)/);
+  assert.match(source, /resolve_native_status\(native_result, state_initialize\)/);
   assert.match(source, /writefile\(PATHS\.status_json/);
   assert.doesNotMatch(source, /\bstate_mutate\s*\(/);
   assert.doesNotMatch(source, /profiles_(?:create|update|clone|delete|reorder|import_applied|apply)\s*\(/);
   assert.match(source, /legacy_status_v3\([\s\S]*?,\s*observations\)/);
 });
 
-test('status profile evidence is derived from applied and runtime observations', () => {
-  const source = fs.readFileSync(COLLECTOR, 'utf8');
-  assert.match(source, /prof_count = profile_count\(read_var\('NFQWS2_OPT'\)\)/);
-  assert.match(source, /strategies: runtime\.strategies \? runtime\.strategies : null/);
-  assert.match(source, /profileCount: prof_count/);
+test('collector derives profile count and strategy observation from controlled production inputs', () => {
+  const runtime = { present: true, count: 1, instances: [{ pid: 17 }],
+    strategies: 'tcp-80\ntcp-443', psSummary: 'nfqws2', rulesPresent: true };
+  const result = deriveRuntime(runtime, '--a --new --b --new --c');
+
+  assert.deepEqual(result, {
+    present: true, count: 1, instances: [{ pid: 17 }],
+    strategies: runtime.strategies, profileCount: 3,
+    psSummary: 'nfqws2', rulesPresent: true,
+  });
+  assert.equal(deriveRuntime({ strategies: null }, null).profileCount, null);
+});
+
+test('status integration initializes only missing state and never mutates generation', () => {
+  const present = { ok: true, data: { state: { generation: 9 } } };
+  const missing = { ok: false, error: { details: { helperCode: 'ENOENT' } } };
+  const invalid = { ok: false, error: { details: { helperCode: 'ESCHEMA' } } };
+
+  assert.deepEqual(resolveNative(present), { resolved: present, calls: 0 });
+  assert.deepEqual(resolveNative(missing), {
+    resolved: { ok: true, data: { state: { generation: 0 } } }, calls: 1,
+  });
+  assert.deepEqual(resolveNative(invalid), { resolved: invalid, calls: 0 });
 });
 
 test('status module exports collect_observations and collect as importable functions', () => {
