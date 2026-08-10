@@ -6,7 +6,7 @@
 
 import { readfile, popen } from 'fs';
 import { profiles_list } from './profiles.uc';
-import { draft_block, profiles_create, profiles_update, profiles_clone, profiles_delete, profiles_validate, profiles_import_applied } from './profiles-draft.uc';
+import { draft_block, profiles_create, profiles_update, profiles_clone, profiles_delete, profiles_reorder, profiles_validate, profiles_import_applied } from './profiles-draft.uc';
 import { profiles_apply_preview, profiles_apply_run } from './profiles-apply.uc';
 import { native_preflight } from './native-preflight.uc';
 
@@ -25,7 +25,7 @@ function have_flock() {
 }
 
 function is_mutating(mode) {
-	return (mode == 'create' || mode == 'update' || mode == 'clone' || mode == 'delete' || mode == 'import_applied' || mode == 'apply');
+	return (mode == 'create' || mode == 'update' || mode == 'clone' || mode == 'delete' || mode == 'reorder' || mode == 'import_applied' || mode == 'apply');
 }
 
 function flock_wrap(mode, argfile) {
@@ -70,7 +70,7 @@ function full_native_verified(native) {
 let mode = ARGV[0];
 
 if (mode == null) {
-	print('usage: ucode profiles-cli.uc list | create <f> | update <f> | clone <f> | delete <f> | validate <f> | import_applied | preview | apply\n');
+	print('usage: ucode profiles-cli.uc list | create <f> | update <f> | clone <f> | delete <f> | reorder <f> | validate <f> | import_applied | preview | apply\n');
 	exit(1);
 }
 
@@ -99,6 +99,8 @@ if (mode == 'list') {
 	print_json(profiles_clone(read_args(ARGV[1])));
 } else if (mode == 'delete') {
 	print_json(profiles_delete(read_args(ARGV[1])));
+} else if (mode == 'reorder') {
+	print_json(profiles_reorder(read_args(ARGV[1])));
 } else if (mode == 'validate') {
 	print_json(profiles_validate(read_args(ARGV[1])));
 } else if (mode == 'import_applied') {
@@ -125,6 +127,6 @@ if (mode == 'list') {
 	}
 	print_json(profiles_apply_run());
 } else {
-	print('usage: ucode profiles-cli.uc list | create <f> | update <f> | clone <f> | delete <f> | validate <f> | import_applied | preview | apply\n');
+	print('usage: ucode profiles-cli.uc list | create <f> | update <f> | clone <f> | delete <f> | reorder <f> | validate <f> | import_applied | preview | apply\n');
 	exit(1);
 }

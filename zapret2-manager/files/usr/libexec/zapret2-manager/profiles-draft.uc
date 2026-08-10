@@ -303,6 +303,39 @@ export const profiles_delete = function(input) {
 	return { ok: true, id: input.id };
 };
 
+export const profiles_reorder = function(input) {
+	if (type(input) != 'object' || input == null || type(input.ids) != 'array'
+		|| type(input.revisions) != 'object' || input.revisions == null)
+		return err('EINPUT', 'reorder needs ids array and revisions object');
+	let ls = load_state();
+	if (!ls.ok) return err('ESTATE', 'draft state is malformed — refusing to overwrite it: ' + ls.reason);
+	if (length(input.ids) != length(ls.state.profiles))
+		return err('ESTATE', 'reorder ids must contain the complete draft profile set');
+
+	let ordered = [];
+	for (let i = 0; i < length(input.ids); i++) {
+		let id = input.ids[i];
+		if (type(id) != 'string') return err('ESTATE', 'reorder ids must be unique current draft profile ids');
+		for (let j = 0; j < i; j++)
+			if (input.ids[j] == id) return err('ESTATE', 'reorder ids must be unique current draft profile ids');
+		let idx = find_profile(ls.state, id);
+		if (idx < 0) return err('ESTATE', 'reorder ids must be unique current draft profile ids');
+		push(ordered, ls.state.profiles[idx]);
+	}
+
+	for (let i = 0; i < length(ls.state.profiles); i++) {
+		let profile = ls.state.profiles[i];
+		let revision = input.revisions[profile.id];
+		if (type(revision) != 'int' || revision != profile.revision)
+			return err('ECONFLICT', 'draft ' + profile.id + ' was changed elsewhere (revision ' + profile.revision + '); reload and retry');
+	}
+
+	ls.state.profiles = ordered;
+	ls.state.updatedAt = time();
+	if (!save_state(ls.state)) return err('ETARGET', 'failed to write draft state (lock active or disk error)');
+	return { ok: true, ids: input.ids };
+};
+
 // ---------------------------------------------------------------------------
 // import applied (READS the applied config through the sanctioned reader;
 // every applied profile becomes a draft with its raw fragment preserved)
