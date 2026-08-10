@@ -14,10 +14,11 @@ const apply = read('zapret2-manager/files/usr/libexec/zapret2-manager/profiles-a
 const APPLY_MODULE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/profiles-apply.uc');
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.split('|') : [];
+const UCODE_LIBRARY_ARGS = process.env.UCODE_MODULE_PATH ? ['-L', process.env.UCODE_MODULE_PATH] : [];
 
 function renderProduction(profiles) {
   const source = `import { profiles_render_candidate } from '${APPLY_MODULE}'; print(sprintf('%J', profiles_render_candidate(${JSON.stringify(profiles)})));`;
-  const result = spawnSync(UCODE_BIN, [...UCODE_ARGS, '-e', source], {
+  const result = spawnSync(UCODE_BIN, [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source], {
     cwd: ROOT,
     env: { ...process.env, LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib' },
     encoding: 'utf8', timeout: 15_000,
@@ -28,7 +29,7 @@ function renderProduction(profiles) {
 
 function rollbackDecision(restartRc, verifyOk, configRestored = true, rollbackRestartRc = 0, rollbackVerifyOk = true) {
   const source = `import { profiles_rollback_decision } from '${APPLY_MODULE}'; print(sprintf('%J', profiles_rollback_decision(${restartRc}, ${verifyOk}, ${configRestored}, ${rollbackRestartRc}, ${rollbackVerifyOk})));`;
-  const result = spawnSync(UCODE_BIN, [...UCODE_ARGS, '-e', source], {
+  const result = spawnSync(UCODE_BIN, [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source], {
     cwd: ROOT,
     env: { ...process.env, LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib' },
     encoding: 'utf8', timeout: 15_000,
