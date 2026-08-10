@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import fs, { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { ucodeDiagnostic, ucodeModulePattern } from '../native/core/ucode-test-harness.mjs';
@@ -21,11 +22,48 @@ const UCODE_LIBRARY_ARGS = UCODE_MODULE_PATTERN ? ['-L', UCODE_MODULE_PATTERN] :
 const readFixture = name => JSON.parse(readFileSync(path.join(FIXTURE_ROOT, name), 'utf8'));
 const expected = readFixture('manifest.expected.json');
 const digest = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+const sha256File = file => createHash('sha256').update(readFileSync(file)).digest('hex');
+
+function temporaryCatalog() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-avatar-catalog-'));
+  fs.cpSync(INSTALLED_ROOT, root, { recursive: true });
+  return root;
+}
+
+function manifestPath(root) {
+  return path.join(root, 'manifest.json');
+}
+
+function readManifest(root) {
+  return JSON.parse(readFileSync(manifestPath(root), 'utf8'));
+}
+
+function writeManifest(root, manifest) {
+  fs.writeFileSync(manifestPath(root), `${JSON.stringify(manifest, null, 2)}\n`);
+}
+
+function recomputeAggregateDigest(manifest) {
+  manifest.aggregateDigest = createHash('sha256').update(manifest.files
+    .map(file => `${file.sha256}  catalogs/${file.path}\n`).join('')).digest('hex');
+}
 
 function invokeCatalog(functionName, args = [], preloadRoot = null) {
   const preload = preloadRoot == null ? ''
     : `catalogModule.strategy_catalog_load(${JSON.stringify(preloadRoot)});`;
   const source = `import * as catalogModule from ${JSON.stringify(MODULE)}; ${preload} print(sprintf('%J', catalogModule.${functionName}(${args.map(JSON.stringify).join(', ')})));`;
+  const argv = [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source];
+  const result = spawnSync(UCODE_BIN, argv, {
+    cwd: ROOT,
+    env: { ...process.env, LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib' },
+    encoding: 'utf8', timeout: 30_000, maxBuffer: 20 * 1024 * 1024,
+  });
+  assert.equal(result.status, 0,
+    `${result.stderr || result.stdout}\nucode diagnostic:\n${ucodeDiagnostic([UCODE_BIN, ...argv], UCODE_MODULE_PATTERN)}`);
+  return JSON.parse(result.stdout);
+}
+
+function invokeScript(script) {
+  const source = `import * as catalogModule from ${JSON.stringify(MODULE)}; ${script}`;
   const argv = [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source];
   const result = spawnSync(UCODE_BIN, argv, {
     cwd: ROOT,
@@ -133,4 +171,142 @@ test('catalog status and reload report the verified source', () => {
   const reloaded = invokeCatalog('strategy_catalog_reload', [], INSTALLED_ROOT);
   assert.equal(reloaded.ok, true);
   assert.equal(reloaded.digest, loaded.aggregateDigest);
+});
+
+test('rejects symlinked catalog roots and level directories before reading files', () => {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-avatar-root-'));
+  const rootLink = path.join(parent, 'root-link');
+  fs.symlinkSync(INSTALLED_ROOT, rootLink, 'dir');
+  try {
+    const rootResult = invokeCatalog('strategy_catalog_load', [rootLink]);
+    assert.equal(rootResult.ok, false);
+    assert.equal(rootResult.error.code, 'EPATH');
+  } finally {
+    fs.rmSync(parent, { recursive: true, force: true });
+  }
+
+  const root = temporaryCatalog();
+  const levelTarget = path.join(root, 'advanced');
+  fs.rmSync(levelTarget, { recursive: true, force: true });
+  fs.symlinkSync(path.join(INSTALLED_ROOT, 'advanced'), levelTarget, 'dir');
+  try {
+    const levelResult = invokeCatalog('strategy_catalog_load', [root]);
+    assert.equal(levelResult.ok, false);
+    assert.equal(levelResult.error.code, 'EPATH');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('rejects malformed, oversized, escaping, and hash-mismatched evidence', () => {
+  const cases = [
+    ['malformed manifest', root => fs.writeFileSync(manifestPath(root), '{'), 'EMANIFEST'],
+    ['oversized manifest', root => fs.writeFileSync(manifestPath(root), 'x'.repeat(4 * 1024 * 1024 + 1)), 'EMANIFEST'],
+    ['oversized file', root => fs.appendFileSync(path.join(root, 'direct', 'tcp.txt'), Buffer.alloc(4 * 1024 * 1024 + 1)), 'EFILE'],
+    ['path escape', root => {
+      const manifest = readManifest(root);
+      manifest.files[0].path = 'advanced/../direct/tcp.txt';
+      writeManifest(root, manifest);
+    }, 'EMANIFEST'],
+    ['file hash mismatch', root => {
+      const manifest = readManifest(root);
+      manifest.files[0].sha256 = '0'.repeat(64);
+      writeManifest(root, manifest);
+    }, 'EDIGEST'],
+    ['physical ordinal mismatch', root => {
+      const manifest = readManifest(root);
+      manifest.physicalEntries[0].sourceOrdinal = 2;
+      writeManifest(root, manifest);
+    }, 'EORDINAL'],
+  ];
+
+  for (const [name, mutate, code] of cases) {
+    const root = temporaryCatalog();
+    try {
+      mutate(root);
+      const result = invokeCatalog('strategy_catalog_load', [root]);
+      assert.equal(result.ok, false, name);
+      assert.equal(result.error.code, code, name);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test('rejects every tampered manifest declaration instead of reporting stale catalog state', () => {
+  const mutations = [
+    ['uniqueStrategyIdCount', manifest => { manifest.uniqueStrategyIdCount++; }],
+    ['duplicateIdGroupCount', manifest => { manifest.duplicateIdGroupCount++; }],
+    ['winnerOrder', manifest => { manifest.winnerOrder = [...manifest.winnerOrder].reverse(); }],
+    ['sets', manifest => { manifest.sets.tcp.quick = [...manifest.sets.tcp.quick].reverse(); }],
+    ['levelEntryCounts', manifest => { manifest.levelEntryCounts.advanced++; }],
+    ['protocolEntryCounts', manifest => { manifest.protocolEntryCounts.tcp++; }],
+    ['featuredIds', manifest => { manifest.featuredIds = []; }],
+    ['physicalEntries', manifest => { manifest.physicalEntries[0].args = 'tampered'; }],
+    ['duplicateGroups', manifest => { manifest.duplicateGroups[0].winner++; }],
+  ];
+
+  for (const [name, mutate] of mutations) {
+    const root = temporaryCatalog();
+    try {
+      const manifest = readManifest(root);
+      mutate(manifest);
+      writeManifest(root, manifest);
+      const result = invokeCatalog('strategy_catalog_load', [root]);
+      assert.equal(result.ok, false, name);
+      assert.equal(result.error.code, 'EDECLARATION', name);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test('removes case-insensitive WinDivert tokens while preserving raw and non-WinDivert arguments', () => {
+  const root = temporaryCatalog();
+  try {
+    const manifest = readManifest(root);
+    const file = manifest.files[0];
+    const target = path.join(root, ...file.path.split('/'));
+    const original = readFileSync(target, 'utf8');
+    const entry = manifest.physicalEntries[0];
+    const replacement = `--WF-TCP=1 --payload=preserved\n${entry.rawArgs}`;
+    fs.writeFileSync(target, original.replace(entry.rawArgs, replacement));
+    entry.rawArgs = replacement;
+    entry.args = `--payload=preserved\n${entry.args}`;
+    file.byteSize = fs.statSync(target).size;
+    file.sha256 = sha256File(target);
+    recomputeAggregateDigest(manifest);
+    writeManifest(root, manifest);
+
+    const result = invokeCatalog('strategy_catalog_load', [root]);
+    assert.equal(result.ok, true, JSON.stringify(result));
+    const parsed = result.catalog.physicalEntries[0];
+    assert.match(parsed.rawArgs, /^--WF-TCP=1 --payload=preserved\n/);
+    assert.doesNotMatch(parsed.args, /--wf-/i);
+    assert.match(parsed.args, /^--payload=preserved\n/);
+    assert.match(parsed.args, /--lua-desync=/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('failed loads clear prior state and reload does not leak a previous catalog', () => {
+  const good = temporaryCatalog();
+  try {
+    const bad = temporaryCatalog();
+    try {
+      const manifest = readManifest(bad);
+      manifest.aggregateDigest = '0'.repeat(64);
+      writeManifest(bad, manifest);
+      const result = invokeScript(`let good = catalogModule.strategy_catalog_load(${JSON.stringify(good)}); let bad = catalogModule.strategy_catalog_load(${JSON.stringify(bad)}); let status = catalogModule.strategy_catalog_status(); print(sprintf('%J', { good: good.ok, bad: bad.ok, status: status.ok }));`);
+      assert.deepEqual(result, { good: true, bad: false, status: false });
+    } finally {
+      fs.rmSync(bad, { recursive: true, force: true });
+    }
+
+    const reloadResult = invokeScript(`import { readfile, writefile } from 'fs'; let loaded = catalogModule.strategy_catalog_load(${JSON.stringify(good)}); let raw = readfile(${JSON.stringify(manifestPath(good))}); let manifest = json(raw); manifest.uniqueStrategyIdCount++; writefile(${JSON.stringify(manifestPath(good))}, sprintf('%J', manifest)); let reload = catalogModule.strategy_catalog_reload(); let status = catalogModule.strategy_catalog_status(); print(sprintf('%J', { loaded: loaded.ok, reload: reload.ok, status: status.ok }));`);
+    assert.deepEqual(reloadResult, { loaded: true, reload: false, status: false });
+  } finally {
+    fs.rmSync(good, { recursive: true, force: true });
+  }
 });

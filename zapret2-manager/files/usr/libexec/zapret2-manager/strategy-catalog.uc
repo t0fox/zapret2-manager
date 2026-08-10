@@ -14,6 +14,7 @@ const LEVELS = ['advanced', 'basic', 'builtin', 'direct'];
 const PROTOCOLS = ['tcp', 'udp'];
 const SETS = ['quick', 'standard', 'full'];
 const LABELS = { recommended: 1, experimental: 1, game: 1, stable: 1, caution: 1, deprecated: 1 };
+const WINDIVERT_PREFIXES = ['--wf-tcp', '--wf-udp', '--wf-raw', '--wf-l3', '--wf-ip'];
 
 let loaded = null;
 let loadedRoot = null;
@@ -75,6 +76,26 @@ function regular_file(path, expectedSize) {
 	return metadata.size == expectedSize && metadata.size <= MAX_FILE_BYTES;
 }
 
+function directory(path) {
+	let metadata = null;
+	try { metadata = stat(path); } catch (e) { return false; }
+	return metadata != null && metadata.type == 'directory';
+}
+
+function symlink_target(path) {
+	try { return readlink(path); } catch (e) { return null; }
+}
+
+function has_symlink_component(path) {
+	let prefix = '';
+	for (let component in split(path, '/')) {
+		if (component == '') continue;
+		prefix += '/' + component;
+		if (symlink_target(prefix) != null) return true;
+	}
+	return false;
+}
+
 function is_safe_root(root) {
 	if (type(root) != 'string' || length(root) < 2 || substr(root, 0, 1) != '/') return false;
 	if (index(root, chr(0)) >= 0 || index(root, '//') >= 0 || index(root, '/../') >= 0
@@ -97,14 +118,19 @@ function safe_file_path(root, relative) {
 
 function read_manifest(root) {
 	if (!is_safe_root(root)) return error_result('EPATH', 'catalog root must be an absolute bounded path', 'root');
+	if (!directory(root) || has_symlink_component(root))
+		return error_result('EPATH', 'catalog root must be a real directory', 'root');
+	for (let level in LEVELS) {
+		let levelPath = root + '/' + level;
+		if (!directory(levelPath) || symlink_target(levelPath) != null)
+			return error_result('EPATH', 'catalog level must be a real directory', levelPath);
+	}
 	let manifestPath = root + '/manifest.json';
 	let manifestStat = null;
 	try { manifestStat = stat(manifestPath); } catch (e) { manifestStat = null; }
 	if (!manifestStat || manifestStat.type != 'file' || manifestStat.size > MAX_FILE_BYTES)
 		return error_result('EMANIFEST', 'manifest is missing or is not a bounded regular file', manifestPath);
-	let manifestLink = null;
-	try { manifestLink = readlink(manifestPath); } catch (e) { manifestLink = null; }
-	if (manifestLink != null) return error_result('EPATH', 'manifest must not be a symlink', manifestPath);
+	if (symlink_target(manifestPath) != null) return error_result('EPATH', 'manifest must not be a symlink', manifestPath);
 	let raw = readfile(manifestPath);
 	if (raw == null) return error_result('EMANIFEST', 'manifest could not be read', manifestPath);
 	let manifest = null;
@@ -137,10 +163,31 @@ function protocol_for(filename) {
 	return 'tcp';
 }
 
-function is_windivert(value) {
+function lower_ascii(value) {
+	let result = '';
+	for (let i = 0; i < length(value); i++) {
+		let code = ord(substr(value, i, 1));
+		result += (code >= 65 && code <= 90) ? chr(code + 32) : substr(value, i, 1);
+	}
+	return result;
+}
+
+function is_windivert_token(value) {
+	let lower = lower_ascii(value);
+	for (let prefix in WINDIVERT_PREFIXES) if (starts(lower, prefix)) return true;
+	return false;
+}
+
+function filter_windivert_line(value) {
 	let tokenized = avatar_tokenize(value);
-	if (!tokenized.ok || length(tokenized.tokens) != 1) return false;
-	return starts(tokenized.tokens[0].value, '--wf-');
+	if (!tokenized.ok) return { keep: true, value: value };
+	let filtered = [], changed = false;
+	for (let token in tokenized.tokens) {
+		if (is_windivert_token(token.value)) changed = true;
+		else push(filtered, token.value);
+	}
+	if (!changed) return { keep: true, value: value };
+	return { keep: length(filtered) > 0, value: join(' ', filtered) };
 }
 
 function parse_file(content, file, level, protocol) {
@@ -149,8 +196,10 @@ function parse_file(content, file, level, protocol) {
 	let flush = function() {
 		if (current == null) return;
 		let filtered = [];
-		for (let i = 0; i < length(current.rawArgs); i++)
-			if (!is_windivert(current.rawArgs[i])) push(filtered, current.rawArgs[i]);
+		for (let i = 0; i < length(current.rawArgs); i++) {
+			let filteredLine = filter_windivert_line(current.rawArgs[i]);
+			if (filteredLine.keep) push(filtered, filteredLine.value);
+		}
 		if (length(filtered) == 0) { current = null; return; }
 		let args = trim(join('\n', filtered));
 		if (args == '') { current = null; return; }
@@ -286,6 +335,61 @@ function ids(entries) {
 	return result;
 }
 
+function same_value(left, right) {
+	if (type(left) != type(right)) return false;
+	if (left == null || right == null) return left == right;
+	if (type(left) == 'array') {
+		if (length(left) != length(right)) return false;
+		for (let i = 0; i < length(left); i++) if (!same_value(left[i], right[i])) return false;
+		return true;
+	}
+	if (type(left) == 'object') {
+		let leftKeys = keys(left), rightKeys = keys(right);
+		if (length(leftKeys) != length(rightKeys)) return false;
+		for (let key in leftKeys)
+			if (!exists(right, key) || !same_value(left[key], right[key])) return false;
+		return true;
+	}
+	return left == right;
+}
+
+function same_file_evidence(expected, actual) {
+	let fields = ['path', 'byteSize', 'sha256', 'level', 'protocol', 'physicalEntryCount', 'sourceOrder'];
+	for (let field in fields) if (!same_value(expected[fields[field]], actual[fields[field]])) return false;
+	return true;
+}
+
+function declaration_error(message, path) {
+	return error_result('EDECLARATION', message, path);
+}
+
+function validate_declarations(manifest, files, physicalEntries, duplicateGroups,
+	 winnerOrder, sets, winners, levelEntryCounts, protocolEntryCounts, featuredIds) {
+	if (manifest.physicalFileCount != length(files) || manifest.physicalEntryCount != length(physicalEntries)
+		|| manifest.uniqueStrategyIdCount != length(keys(winners))
+		|| manifest.duplicateIdGroupCount != length(duplicateGroups))
+		return declaration_error('manifest aggregate counts differ from recomputed catalog', 'manifest.json');
+	if (!same_value(manifest.levelEntryCounts, levelEntryCounts)
+		|| !same_value(manifest.protocolEntryCounts, protocolEntryCounts))
+		return declaration_error('manifest level or protocol counts differ from recomputed catalog', 'manifest.json');
+	if (!same_value(manifest.featuredIds, featuredIds))
+		return declaration_error('manifest featured IDs differ from recomputed catalog', 'manifest.json');
+	if (type(manifest.winnerOrder) != 'array' || !same_value(manifest.winnerOrder, winnerOrder))
+		return declaration_error('manifest winner order differs from recomputed traversal', 'manifest.json');
+	if (!is_object(manifest.sets) || !same_value(manifest.sets, sets))
+		return declaration_error('manifest protocol sets differ from recomputed membership', 'manifest.json');
+	if (type(manifest.duplicateGroups) != 'array' || !same_value(manifest.duplicateGroups, duplicateGroups))
+		return declaration_error('manifest duplicate groups differ from recomputed groups', 'manifest.json');
+	if (type(manifest.physicalEntries) != 'array' || !same_value(manifest.physicalEntries, physicalEntries))
+		return declaration_error('manifest physical entries differ from recomputed entries', 'manifest.json');
+	if (type(manifest.files) != 'array' || length(manifest.files) != length(files))
+		return declaration_error('manifest file evidence length differs from recomputed files', 'manifest.json');
+	for (let i = 0; i < length(files); i++)
+		if (!same_file_evidence(manifest.files[i], files[i]))
+			return declaration_error('manifest file evidence differs from recomputed files', manifest.files[i].path);
+	return null;
+}
+
 function build_sets(byCacheKey) {
 	let cacheKeys = sort_strings(keys(byCacheKey));
 	let sets = { tcp: {}, udp: {} };
@@ -334,18 +438,19 @@ function build_catalog(root, manifest, manifestPath) {
 	for (let i = 0; i < length(ordered); i++) {
 		let file = ordered[i];
 		let path = safe_file_path(root, file.path);
-		if (path == null || !regular_file(path, file.byteSize))
-			return error_result('EFILE', 'manifest-listed file is missing, non-regular, or oversized', file.path);
 		let link = null;
 		try { link = readlink(path); } catch (e) { link = null; }
-		if (link != null) return error_result('EPATH', 'manifest-listed file must not be a symlink', file.path);
+		if (path == null || link != null)
+			return error_result('EPATH', 'manifest-listed file must be contained and must not be a symlink', file.path);
+		if (!regular_file(path, file.byteSize))
+			return error_result('EFILE', 'manifest-listed file is missing, non-regular, or oversized', file.path);
 		let actual = sha256_file(path);
 		if (actual == null || actual != file.sha256)
 			return error_result('EDIGEST', 'catalog file digest mismatch', file.path);
 		let raw = readfile(path);
 		if (raw == null || length(raw) > MAX_FILE_BYTES)
 			return error_result('ESIZE', 'catalog file content exceeds the parser bound', file.path);
-		let level = split(file.path, '/')[0], filename = split(file.path, '/')[1];
+		let level = split(file.path, '/')[0];
 		let parsed = parse_file(raw, file.path, level, file.protocol);
 		if (length(parsed) != file.physicalEntryCount)
 			return error_result('EORDINAL', 'parsed entry count differs from manifest', file.path);
@@ -365,7 +470,7 @@ function build_catalog(root, manifest, manifestPath) {
 		return error_result('EORDINAL', 'manifest physical entry count mismatch', manifestPath);
 	let inventoryError = verify_manifest_entries(manifest, physicalEntries);
 	if (inventoryError != null) return error_result('EORDINAL', inventoryError, manifestPath);
-	let occurrences = {}, duplicateGroupById = {}, duplicateGroups = [], duplicateGroup = 0;
+	let occurrences = {}, duplicateGroupById = {}, duplicateIds = [], duplicateGroups = [], duplicateGroup = 0;
 	for (let i = 0; i < length(physicalEntries); i++) {
 		let id = physicalEntries[i].id;
 		if (occurrences[id] == null) occurrences[id] = [];
@@ -373,11 +478,13 @@ function build_catalog(root, manifest, manifestPath) {
 	}
 	for (let i = 0; i < length(physicalEntries); i++) {
 		let entry = physicalEntries[i], id = entry.id;
-		if (length(occurrences[id]) > 1 && duplicateGroupById[id] == null)
+		if (length(occurrences[id]) > 1 && duplicateGroupById[id] == null) {
 			duplicateGroupById[id] = ++duplicateGroup;
+			push(duplicateIds, id);
+		}
 		entry.duplicateGroup = duplicateGroupById[id] == null ? 0 : duplicateGroupById[id];
 	}
-	for (let id in duplicateGroupById) {
+	for (let id in duplicateIds) {
 		let groupEntries = occurrences[id], occurrenceOrdinals = [];
 		for (let i = 0; i < length(groupEntries); i++) push(occurrenceOrdinals, groupEntries[i].sourceOrdinal);
 		push(duplicateGroups, { group: duplicateGroupById[id], id: id, occurrences: occurrenceOrdinals, winner: null });
@@ -413,6 +520,9 @@ function build_catalog(root, manifest, manifestPath) {
 		levelEntryCounts[physicalEntries[i].level]++;
 		protocolEntryCounts[physicalEntries[i].protocol]++;
 	}
+	let declaration = validate_declarations(manifest, files, physicalEntries, duplicateGroups,
+		winnerOrder, sets, winners, levelEntryCounts, protocolEntryCounts, featuredIds);
+	if (declaration != null) return declaration;
 	return { ok: true, catalog: {
 		schema: manifest.schema, source: manifest.source, aggregateDigest: manifest.aggregateDigest,
 		aggregateDigestAlgorithm: manifest.aggregateDigestAlgorithm, physicalFileCount: length(files),

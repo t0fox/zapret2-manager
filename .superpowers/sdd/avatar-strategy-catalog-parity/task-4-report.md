@@ -85,3 +85,43 @@ Aggregate SHA-256 verification invokes the target's existing `sha256sum`
 utility through a shell-quoted pipeline, matching repository conventions. The
 parser remains fail-closed if that utility is unavailable or returns an invalid
 digest.
+
+## Round 1 Fixes
+
+The scoped review findings were addressed without changing pinned package bytes,
+Task 1/2 files, the plan, ledger, or unrelated production modules.
+
+- Catalog roots are now checked as real directories with no symlink component;
+  every level directory is checked before manifest reads, and manifest-listed
+  files are rejected if symlinked or outside the bounded lexical path.
+- Recomputed counts, level/protocol counts, featured IDs, physical entries,
+  duplicate groups, winner order, set arrays, file evidence, ordinals, and
+  aggregate hashes are compared to manifest declarations. Any mismatch returns
+  `EDECLARATION` or the specific fail-closed evidence error; failed loads and
+  reloads clear the previous in-memory catalog.
+- WinDivert matching follows the pinned case-insensitive prefixes and tokenizes
+  multi-option lines. Only WinDivert tokens are removed from `args`; `rawArgs`
+  and all non-WinDivert options remain preserved.
+- Duplicate groups are emitted from an explicit source/traversal-ordered ID
+  list, not object-property enumeration.
+
+Round 1 regression coverage uses temporary local copies only. It covers
+symlinked roots/levels, malformed and oversized manifests/files, path escape,
+file hash mismatch, physical ordinal mismatch, every tampered declaration
+category, multi-option case-insensitive WinDivert filtering, raw/non-WinDivert
+preservation, failed-load isolation, and failed-reload isolation.
+
+## Round 1 Verification
+
+- RED before fixes: the new temporary-fixture suite failed on symlink roots,
+  declaration tampering, and multi-option WinDivert preservation.
+- Focused catalog suite after fixes:
+  `node --test tests/product/avatar-strategy-catalog.test.mjs` passed, 11 tests.
+- Catalog plus characterization and model checks passed, 18 tests.
+- Profile checks passed, 47 tests.
+- Installed package/manifest checks passed, 11 tests.
+- `git diff --check` passed.
+
+Remaining concern: aggregate SHA-256 verification still depends on the target's
+existing `sha256sum` utility; unavailable or malformed utility output fails
+closed rather than reporting a catalog.
