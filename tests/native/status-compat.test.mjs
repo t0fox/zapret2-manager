@@ -17,7 +17,7 @@ const TOP = ['applied', 'draft', 'drift', 'engine', 'generatedAt', 'generation',
   'jobs', 'runtime', 'runtimeSummary', 'schema', 'serviceState', 'system', 'upstream', 'warnings'];
 
 function run(source, env = {}) {
-  const result = spawnSync(UCODE_BIN, [...LIBRARY, '-e', source], {
+  const result = spawnSync(UCODE_BIN, ['-e', source, ...LIBRARY], {
     cwd: ROOT, env: { ...process.env, LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib', ...env },
     encoding: 'utf8', timeout: 15_000,
   });
