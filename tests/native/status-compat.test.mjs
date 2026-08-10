@@ -12,12 +12,12 @@ const RPC = 'zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc';
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const LIBRARY_PATH = process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib';
 const MODULE_ROOT = process.env.UCODE_MODULE_PATH ?? path.join(LIBRARY_PATH, 'ucode');
-const LIBRARY = ['-L', path.join(MODULE_ROOT, '*.so')];
+const LIBRARY = ['-L', MODULE_ROOT];
 const TOP = ['applied', 'draft', 'drift', 'engine', 'generatedAt', 'generation', 'health',
   'jobs', 'runtime', 'runtimeSummary', 'schema', 'serviceState', 'system', 'upstream', 'warnings'];
 
 function run(source, env = {}) {
-  const result = spawnSync(UCODE_BIN, ['-e', source, ...LIBRARY], {
+  const result = spawnSync(UCODE_BIN, [...LIBRARY, '-e', source], {
     cwd: ROOT, env: { ...process.env, LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib', ...env },
     encoding: 'utf8', timeout: 15_000,
   });
