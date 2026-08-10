@@ -1,0 +1,184 @@
+{
+  "schema": 1,
+  "contract": "Avatar Strategy aggregate, compiler, state, list, and dependency characterization",
+  "groups": [
+    {
+      "id": "enabled-defaulting",
+      "cases": [
+        {
+          "id": "omitted",
+          "strategy": {"id": "s1", "name": "S1", "profiles": [{"id": "p1", "args": "--filter-tcp=443"}]},
+          "expectedEnabled": [true],
+          "expectedArgs": ["--filter-tcp=443"]
+        },
+        {
+          "id": "true",
+          "strategy": {"id": "s1", "name": "S1", "profiles": [{"id": "p1", "args": "--filter-tcp=443", "enabled": true}]},
+          "expectedEnabled": [true],
+          "expectedArgs": ["--filter-tcp=443"]
+        },
+        {
+          "id": "false",
+          "strategy": {"id": "s1", "name": "S1", "profiles": [{"id": "p1", "args": "--filter-tcp=443", "enabled": false}]},
+          "expectedEnabled": [false],
+          "expectedArgs": []
+        }
+      ]
+    },
+    {
+      "id": "empty-profiles",
+      "cases": [
+        {
+          "id": "structurally-valid",
+          "strategy": {"id": "empty", "name": "Empty", "profiles": []},
+          "expectedStructuralValid": true,
+          "expectedCreateValid": false,
+          "expectedUpdateValid": true
+        },
+        {
+          "id": "missing-array",
+          "strategy": {"id": "invalid", "name": "Invalid"},
+          "expectedStructuralValid": false
+        }
+      ]
+    },
+    {
+      "id": "zero-enabled",
+      "cases": [
+        {
+          "id": "all-disabled",
+          "strategy": {
+            "id": "zero",
+            "name": "Zero enabled",
+            "profiles": [
+              {"id": "p1", "args": "--filter-tcp=443", "enabled": false},
+              {"id": "p2", "args": "--filter-udp=443", "enabled": false}
+            ]
+          },
+          "expectedPreview": {"ok": true, "args": [], "profiles_count": 0, "applicable": false},
+          "expectedValidateError": "ENOENABLED",
+          "expectedApplyError": "ENOENABLED"
+        },
+        {
+          "id": "empty-array",
+          "strategy": {"id": "zero-empty", "name": "Zero empty", "profiles": []},
+          "expectedPreview": {"ok": true, "args": [], "profiles_count": 0, "applicable": false},
+          "expectedValidateError": "ENOENABLED",
+          "expectedApplyError": "ENOENABLED"
+        }
+      ]
+    },
+    {
+      "id": "builtin",
+      "cases": [
+        {
+          "id": "immutable",
+          "strategy": {"id": "z2k_all_in_one", "name": "All in one", "is_builtin": true, "source": "catalog", "profiles": [{"id": "p1", "args": "--filter-tcp=443"}]},
+          "expectedOrigin": "avatar_builtin",
+          "expectedMutationErrors": {"create": "ECONFLICT", "update": "EIMMUTABLE", "delete": "EIMMUTABLE"},
+          "expectedDuplicate": {"id": "z2k_all_in_one_copy", "name": "All in one (copy)", "origin": "user"}
+        }
+      ]
+    },
+    {
+      "id": "user",
+      "cases": [
+        {
+          "id": "crud",
+          "strategy": {"id": "user-one", "name": "User one", "is_builtin": false, "profiles": [{"id": "p1", "args": "--filter-tcp=443"}]},
+          "expectedOrigin": "user",
+          "expectedMutable": true,
+          "expectedRevision": 1
+        }
+      ]
+    },
+    {
+      "id": "duplicate",
+      "cases": [
+        {
+          "id": "duplicate-child-ids-preserved",
+          "strategy": {"id": "duplicate-children", "name": "Duplicate children", "profiles": [{"id": "p1", "args": "--filter-tcp=80"}, {"id": "p1", "args": "--filter-tcp=443", "enabled": false}]},
+          "expectedProfileIds": ["p1", "p1"],
+          "expectedOrder": ["--filter-tcp=80", "--filter-tcp=443"],
+          "expectedCompiledArgs": ["--filter-tcp=80"]
+        }
+      ]
+    },
+    {
+      "id": "favorite",
+      "cases": [
+        {
+          "id": "ordered-toggle",
+          "visibleIds": ["z2k_all_in_one", "user-one"],
+          "initialFavorites": [],
+          "toggle": ["user-one", "z2k_all_in_one"],
+          "expectedFavorites": ["user-one", "z2k_all_in_one"],
+          "expectedBuiltinFavorite": true
+        },
+        {
+          "id": "delete-cleans-user",
+          "initialFavorites": ["user-one", "z2k_all_in_one"],
+          "deletedId": "user-one",
+          "expectedFavorites": ["z2k_all_in_one"]
+        }
+      ]
+    },
+    {
+      "id": "active",
+      "cases": [
+        {
+          "id": "selected-user",
+          "selected": {"id": "user-one", "origin": "user", "revision": 3, "candidateSha256": "abc"},
+          "expectedProjection": {"is_active": true, "id": "user-one", "origin": "user"}
+        },
+        {
+          "id": "deleted-active-user",
+          "selected": {"id": "user-one", "origin": "user"},
+          "deletedId": "user-one",
+          "expectedSelection": null
+        }
+      ]
+    },
+    {
+      "id": "autowrap",
+      "cases": [
+        {"id": "tls-client-hello", "input": ["--payload=tls_client_hello", "--lua-desync=fake:blob=fake_default_tls"], "expected": ["--filter-tcp=443", "--filter-l7=tls", "--payload=tls_client_hello", "--lua-desync=fake:blob=fake_default_tls"]},
+        {"id": "http-request", "input": ["--payload=http_req", "--lua-desync=fake:blob=fake_default_http"], "expected": ["--filter-tcp=80", "--filter-l7=http", "--payload=http_req", "--lua-desync=fake:blob=fake_default_http"]},
+        {"id": "http-reply", "input": ["--payload=http_reply", "--lua-desync=fake"], "expected": ["--filter-tcp=80", "--filter-l7=http", "--payload=http_reply", "--lua-desync=fake"]},
+        {"id": "quic-initial", "input": ["--payload=quic_initial", "--lua-desync=fake"], "expected": ["--filter-udp=443", "--filter-l7=quic", "--payload=quic_initial", "--lua-desync=fake"]},
+        {"id": "existing-filter", "input": ["--filter-tcp=443", "--filter-l7=tls", "--lua-desync=fake"], "expected": ["--filter-tcp=443", "--filter-l7=tls", "--lua-desync=fake"]},
+        {"id": "missing-lua", "input": ["--payload=tls_client_hello"], "expected": ["--payload=tls_client_hello"]},
+        {"id": "unknown-payload", "input": ["--payload=dns_query", "--lua-desync=fake"], "expected": ["--payload=dns_query", "--lua-desync=fake"]},
+        {"id": "payload-all", "input": ["--payload=all", "--lua-desync=fake:blob=quic_google:repeats=6"], "expected": ["--payload=all", "--lua-desync=fake:blob=quic_google:repeats=6"]}
+      ]
+    },
+    {
+      "id": "lists",
+      "cases": [
+        {"id": "explicit-hostlist", "mode": "explicit", "path": "/scan/other.txt", "present": true, "expectedFlags": ["--hostlist=/scan/other.txt"]},
+        {"id": "missing-explicit-hostlist", "mode": "explicit", "path": "/scan/missing.txt", "present": false, "expectedFlags": []},
+        {"id": "none", "mode": "none", "excludePresent": true, "expectedFlags": ["--hostlist-exclude=/lists/netrogat.txt"]},
+        {"id": "hostlist", "mode": "hostlist", "excludePresent": true, "expectedFlags": ["--hostlist-exclude=/lists/netrogat.txt"]},
+        {"id": "autohostlist", "mode": "autohostlist", "excludePresent": true, "expectedFlags": ["--hostlist-auto=/lists/auto.txt", "--hostlist-exclude=/lists/netrogat.txt"]},
+        {"id": "auto", "mode": "auto", "excludePresent": true, "expectedFlags": ["--hostlist-auto=/lists/auto.txt", "--hostlist-exclude=/lists/netrogat.txt"]},
+        {"id": "ipset", "mode": "ipset", "excludePresent": true, "expectedFlags": []},
+        {"id": "existing-hostlist", "args": ["--filter-tcp=443", "--hostlist=/custom/include.txt", "--lua-desync=multisplit"], "injected": ["--hostlist-auto=/lists/auto.txt", "--hostlist-exclude=/lists/netrogat.txt"], "expectedArgs": ["--filter-tcp=443", "--hostlist=/custom/include.txt", "--hostlist-exclude=/lists/netrogat.txt", "--lua-desync=multisplit"]},
+        {"id": "existing-ipset", "args": ["--filter-udp=443", "--ipset=/custom/ipset.txt", "--lua-desync=fake"], "injected": [], "expectedArgs": ["--filter-udp=443", "--ipset=/custom/ipset.txt", "--lua-desync=fake"]},
+        {"id": "existing-exclude", "args": ["--filter-tcp=443", "--hostlist-exclude=/custom/exclude.txt", "--lua-desync=multisplit"], "injected": ["--hostlist-exclude=/lists/netrogat.txt"], "expectedArgs": ["--filter-tcp=443", "--hostlist-exclude=/custom/exclude.txt", "--lua-desync=multisplit"]}
+      ]
+    },
+    {
+      "id": "dependencies",
+      "cases": [
+        {"id": "blob-present", "kind": "blob", "reference": "fake_default_tls", "present": true, "expectedAvailable": true},
+        {"id": "blob-missing", "kind": "blob", "reference": "missing_blob", "present": false, "expectedAvailable": false},
+        {"id": "lua-present", "kind": "lua", "reference": "desync.lua", "present": true, "expectedAvailable": true},
+        {"id": "lua-missing", "kind": "lua", "reference": "missing.lua", "present": false, "expectedAvailable": false},
+        {"id": "hostlist-present", "kind": "hostlist", "reference": "other.txt", "present": true, "expectedAvailable": true},
+        {"id": "hostlist-missing", "kind": "hostlist", "reference": "missing.txt", "present": false, "expectedAvailable": false},
+        {"id": "ipset-present", "kind": "ipset", "reference": "youtube.txt", "present": true, "expectedAvailable": true},
+        {"id": "ipset-missing", "kind": "ipset", "reference": "missing.txt", "present": false, "expectedAvailable": false}
+      ]
+    }
+  ]
+}

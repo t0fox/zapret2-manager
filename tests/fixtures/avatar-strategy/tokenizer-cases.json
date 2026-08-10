@@ -1,0 +1,88 @@
+{
+  "schema": 1,
+  "contract": "Avatar quote-aware tokenizer: split on space, tab, CR, and LF outside matching quotes; preserve quote characters",
+  "cases": [
+    {
+      "id": "spaces",
+      "input": "--filter-tcp=80   --payload=http_req",
+      "tokens": ["--filter-tcp=80", "--payload=http_req"],
+      "unmatchedQuote": false
+    },
+    {
+      "id": "tabs",
+      "input": "--filter-tcp=80\t--filter-l7=http\t--payload=http_req",
+      "tokens": ["--filter-tcp=80", "--filter-l7=http", "--payload=http_req"],
+      "unmatchedQuote": false
+    },
+    {
+      "id": "cr",
+      "input": "--filter-tcp=80\r--payload=http_req",
+      "tokens": ["--filter-tcp=80", "--payload=http_req"],
+      "unmatchedQuote": false
+    },
+    {
+      "id": "lf",
+      "input": "--filter-tcp=80\n--payload=http_req",
+      "tokens": ["--filter-tcp=80", "--payload=http_req"],
+      "unmatchedQuote": false
+    },
+    {
+      "id": "quoted-whitespace",
+      "input": "--lua-desync=luaexec:code='desync.x = 1 return' --payload=http_req",
+      "tokens": ["--lua-desync=luaexec:code='desync.x = 1 return'", "--payload=http_req"],
+      "unmatchedQuote": false
+    },
+    {
+      "id": "single-quoted-inline-lua",
+      "input": "--lua-init=fake_default_tls=tls_mod(fake_default_tls,'rnd') --lua-desync=wssize:wsize=1:scale=6 --payload=tls_client_hello",
+      "tokens": [
+        "--lua-init=fake_default_tls=tls_mod(fake_default_tls,'rnd')",
+        "--lua-desync=wssize:wsize=1:scale=6",
+        "--payload=tls_client_hello"
+      ],
+      "unmatchedQuote": false
+    },
+    {
+      "id": "double-quoted-inline-lua",
+      "input": "--lua-init=x=f(\"rnd\") --payload=tls_client_hello",
+      "tokens": ["--lua-init=x=f(\"rnd\")", "--payload=tls_client_hello"],
+      "unmatchedQuote": false
+    },
+    {
+      "id": "multiple-flags-per-line",
+      "input": "--filter-tcp=80,443 --filter-l7=tls,http --ipcache-hostname=1 --lua-desync=fake:strategy=1 --lua-desync=multisplit:strategy=1",
+      "tokens": [
+        "--filter-tcp=80,443",
+        "--filter-l7=tls,http",
+        "--ipcache-hostname=1",
+        "--lua-desync=fake:strategy=1",
+        "--lua-desync=multisplit:strategy=1"
+      ],
+      "unmatchedQuote": false
+    },
+    {
+      "id": "unmatched-single-quote",
+      "input": "--lua-init=code='desync.x = 1 --payload=http_req",
+      "tokens": ["--lua-init=code='desync.x = 1 --payload=http_req"],
+      "unmatchedQuote": true
+    },
+    {
+      "id": "unmatched-double-quote",
+      "input": "--lua-init=code=\"desync.x = 1 --payload=http_req",
+      "tokens": ["--lua-init=code=\"desync.x = 1 --payload=http_req"],
+      "unmatchedQuote": true
+    },
+    {
+      "id": "newline-inside-quote",
+      "input": "--lua-desync=luaexec:code='desync.x = 1\nreturn' --payload=http_req",
+      "tokens": ["--lua-desync=luaexec:code='desync.x = 1\nreturn'", "--payload=http_req"],
+      "unmatchedQuote": false
+    },
+    {
+      "id": "empty",
+      "input": "",
+      "tokens": [],
+      "unmatchedQuote": false
+    }
+  ]
+}
