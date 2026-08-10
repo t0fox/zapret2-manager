@@ -30,6 +30,7 @@ function link() {
     `${sourceRoot}/roots.c`,
     `${sourceRoot}/paths.c`,
     `${sourceRoot}/files.c`,
+    `${sourceRoot}/sha256.c`,
     `${sourceRoot}/base64.c`,
     `${sourceRoot}/canonical.c`,
     ...jsonCFlags,
