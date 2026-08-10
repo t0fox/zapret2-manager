@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { ucodeDiagnostic, ucodeModulePattern } from '../native/core/ucode-test-harness.mjs';
@@ -35,6 +36,9 @@ const environment = {
   lua: {
     'desync.lua': { present: true },
     'missing.lua': { present: false },
+  },
+  functions: {
+    fake: { present: true },
   },
   lists: {
     'scan/other.txt': { path: '/scan/other.txt', present: true },
@@ -321,6 +325,60 @@ test('missing dependencies remain inspectable and only execution admission is un
   assert.match(result.strategyArgs, /missing_blob/);
 });
 
+test('missing Blob, Lua, function, list, and ipset dependencies remain bounded and inspectable', () => {
+  const result = invoke('strategy_compile', strategy([
+    { id: 'p1', args: '--lua-init=@lua/missing.lua --hostlist=lists/missing.txt --ipset=lists/missing-ipset.txt --lua-desync=missing_function:blob=missing_blob' },
+  ], { blobs: ['missing_blob'] }), {
+    ...environment,
+    blobs: { missing_blob: { path: 'missing_blob.bin', present: false } },
+    functions: { missing_function: { present: false } },
+    lists: {
+      'missing.txt': { path: 'missing.txt', present: false },
+      'missing-ipset.txt': { path: 'missing-ipset.txt', present: false },
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.structurallyCompilable, true);
+  assert.equal(result.dependencies.available, false);
+  assert.equal(result.applicable, false);
+  for (const kind of ['blob', 'lua', 'function', 'hostlist', 'ipset']) {
+    assert.ok(result.dependencies.missing.some(item => item.kind === kind
+      && typeof item.id === 'string' && typeof item.reason === 'string'), kind);
+  }
+});
+
+test('pure compilation exposes dependency/native status without invoking native dry-run', () => {
+  const result = invoke('strategy_compile', strategy([
+    { id: 'p1', args: '--filter-tcp=443 --lua-desync=fake' },
+  ]), environment);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.structurallyCompilable, true);
+  assert.equal(result.dependencies.available, true);
+  assert.equal(result.dependencies.nativeValidation.status, 'not_checked');
+  assert.equal(result.nativeValidation.status, 'not_checked');
+});
+
+test('compiler pure paths have no write, install, or network operations', () => {
+  const source = readFileSync(path.join(ROOT,
+    'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-compiler.uc'), 'utf8');
+
+  assert.doesNotMatch(source, /\b(?:writefile|unlink|mkdir|rename|install|curl|wget|uci|opkg|apk)\s*\(/);
+});
+
+test('validate=true performs native admission and exposes the bounded result', () => {
+  const result = invoke('strategy_compile', strategy([
+    { id: 'p1', args: '--filter-tcp=443 --lua-desync=fake' },
+  ]), { ...environment, validate: true });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.structurallyCompilable, true);
+  assert.notEqual(result.nativeValidation.status, 'not_checked');
+  assert.equal(result.dependencies.nativeValidation.status, result.nativeValidation.status);
+  assert.equal(result.executable, result.applicable && result.nativeValidation.status === 'verified');
+});
+
 test('effective argv uses the same engine, base, Lua-init, hostlist, and strategy inputs', () => {
   const runtimeInputs = {
     source: 'live',
@@ -341,6 +399,10 @@ test('effective argv uses the same engine, base, Lua-init, hostlist, and strateg
     '--filter-tcp=443', '--new', '--filter-udp=443',
   ]);
   assert.equal(result.command, result.argv.map(argument => `'${argument}'`).join(' '));
+  assert.deepEqual(result.effectiveArgv, result.argv);
+  assert.equal(result.effectiveCommand, result.command);
+  assert.deepEqual(result.fullArgv, result.argv);
+  assert.equal(result.fullCommand, result.command);
 });
 
 test('effective argv rejects client-composed inputs and shell-quotes captured values', () => {

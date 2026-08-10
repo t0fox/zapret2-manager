@@ -9,6 +9,7 @@
 import { avatar_tokenize, strategy_normalize, strategy_enabled_profiles } from './strategy-model.uc';
 import { z2m_parse, z2m_validate, z2m_fragment } from './profiles.uc';
 import { profiles_render_candidate, profiles_candidate_round_trip } from './profiles-apply.uc';
+import { native_preflight } from './native-preflight.uc';
 import { popen } from 'fs';
 
 const ENGINE_PATH = '/opt/zapret2/nfq2/nfqws2';
@@ -269,12 +270,25 @@ function add_dependency(dependencies, kind, reference, available, reason) {
 	let key = kind + ':' + reference;
 	for (let i = 0; i < length(dependencies.items); i++)
 		if (dependencies.items[i].key == key) return;
-	let item = { key: key, kind: kind, reference: reference, available: available == true };
+	let item = { key: key, kind: kind, id: reference, reference: reference, available: available == true };
 	if (!item.available) {
 		item.reason = reason != null ? reason : 'dependency is unavailable';
 		push(dependencies.missing, item);
 	}
 	push(dependencies.items, item);
+}
+
+function function_dependency(environment, reference) {
+	let registry = is_object(environment.functions) ? environment.functions
+		: (is_object(environment.luaFunctions) ? environment.luaFunctions : null);
+	if (registry == null) return null;
+	let descriptor = registry[reference];
+	return {
+		available: descriptor != null && descriptor_safe(descriptor)
+			&& descriptor_present(descriptor, false),
+		reason: descriptor == null ? 'Lua function descriptor is missing'
+			: (!descriptor_safe(descriptor) ? 'Lua function descriptor is unsafe' : 'Lua function is missing'),
+	};
 }
 
 function lua_dependency(environment, reference) {
@@ -381,7 +395,7 @@ function collect_raw_lua_dependencies(dependencies, rawFragments, environment) {
 }
 
 function collect_dependencies(strategy, fragments, environment, rawFragments) {
-	let dependencies = { available: true, items: [], missing: [] };
+	let dependencies = { available: true, items: [], missing: [], structurallyCompilable: true };
 	let scanFragments = rawFragments != null ? rawFragments : fragments;
 	let inlineBlobs = inline_blob_names(scanFragments);
 	let metadataBlobs = type(strategy.blobs) == 'array' ? strategy.blobs : [];
@@ -412,6 +426,11 @@ function collect_dependencies(strategy, fragments, environment, rawFragments) {
 			}
 			if (info.name == 'lua-desync' && info.hasEquals) {
 				let parts = split(info.value, ':');
+				let functionName = length(parts) > 0 ? parts[0] : '';
+				let functionRecord = function_dependency(environment, functionName);
+				if (functionRecord != null)
+					add_dependency(dependencies, 'function', functionName,
+						functionRecord.available, functionRecord.reason);
 				for (let pi = 1; pi < length(parts); pi++) if (starts_with(parts[pi], 'blob=')) {
 					let name = substr(parts[pi], 5), blob = inlineBlobs[name]
 						? { available: true, reason: null } : blob_dependency(environment, name);
@@ -423,6 +442,39 @@ function collect_dependencies(strategy, fragments, environment, rawFragments) {
 	}
 	dependencies.available = length(dependencies.missing) == 0;
 	return dependencies;
+}
+
+function native_validation_shell() {
+	return {
+		status: 'not_checked',
+		coverage: {
+			cliSyntax: 'not_checked',
+			luaLoad: 'not_checked',
+			luaCompatibility: 'not_checked',
+			functionExistence: 'not_checked',
+			blobExistence: 'not_checked',
+			runtimeArguments: 'not_checked',
+			executionPlan: 'not_checked'
+		},
+		diagnostics: []
+	};
+}
+
+function wants_native_validation(environment) {
+	return environment.validate == true || environment.executionAdmission == true;
+}
+
+function validate_native(candidate, environment) {
+	if (!wants_native_validation(environment)) return native_validation_shell();
+	try { return native_preflight(candidate); }
+	catch (e) {
+		let shell = native_validation_shell();
+		return {
+			status: 'unavailable',
+			coverage: shell.coverage,
+			diagnostics: [{ severity: 'error', code: 'NATIVE_PREFLIGHT_FAILED', message: 'native preflight could not be completed' }]
+		};
+	}
 }
 
 function blob_declarations(strategy, fragments, environment) {
@@ -541,9 +593,13 @@ function compile_normalized(strategy, environment) {
 	if (length(fragments) == 0) {
 		let digest = digest_text('');
 		if (digest == null) return error_result('EINTERNAL', 'SHA-256 is unavailable for candidate identity');
+		let nativeValidation = validate_native('', environment);
+		dependencies.nativeValidation = nativeValidation;
 		return {
 			ok: true, strategyArgs: '', fragments: [], profilesCount: 0,
-			dependencies: dependencies, diagnostics: diagnostics, applicable: false,
+			args: '', dependencies: dependencies, nativeValidation: nativeValidation,
+			structurallyCompilable: true, executable: false,
+			diagnostics: diagnostics, applicable: false,
 			digest: digest, candidateSha256: digest, expectedHash: digest
 		};
 	}
@@ -555,14 +611,22 @@ function compile_normalized(strategy, environment) {
 		return error_result('EINTERNAL', 'Profile renderer round-trip proof failed');
 	let digest = digest_text(rendered.candidate);
 	if (digest == null) return error_result('EINTERNAL', 'SHA-256 is unavailable for candidate identity');
+	let nativeValidation = validate_native(rendered.candidate, environment);
+	dependencies.nativeValidation = nativeValidation;
+	let nativeVerified = nativeValidation.status == 'verified';
 	return {
 		ok: true,
 		strategyArgs: rendered.candidate,
+		args: rendered.candidate,
 		fragments: rendered.fragments,
 		profilesCount: length(rendered.fragments),
 		dependencies: dependencies,
+		nativeValidation: nativeValidation,
+		structurallyCompilable: true,
 		diagnostics: diagnostics,
-		applicable: dependencies.available,
+		applicable: wants_native_validation(environment)
+			? dependencies.available && nativeVerified : dependencies.available,
+		executable: dependencies.available && nativeVerified,
 		digest: digest,
 		candidateSha256: digest,
 		expectedHash: digest
@@ -582,9 +646,13 @@ export const strategy_candidate = function(input, environment) {
 		ok: true,
 		candidate: result.strategyArgs,
 		strategyArgs: result.strategyArgs,
+		args: result.strategyArgs,
 		fragments: result.fragments,
 		profilesCount: result.profilesCount,
 		dependencies: result.dependencies,
+		nativeValidation: result.nativeValidation,
+		structurallyCompilable: result.structurallyCompilable,
+		executable: result.executable,
 		applicable: result.applicable,
 		digest: result.digest,
 		candidateSha256: result.digest,
@@ -626,5 +694,13 @@ export const strategy_effective_argv = function(strategyArgs, runtimeInputs) {
 		if (i > 0) command += ' ';
 		command += shell_quote(argv[i]);
 	}
-	return { ok: true, argv: argv, command: command };
+	return {
+		ok: true,
+		argv: argv,
+		command: command,
+		effectiveArgv: argv,
+		effectiveCommand: command,
+		fullArgv: argv,
+		fullCommand: command
+	};
 };
