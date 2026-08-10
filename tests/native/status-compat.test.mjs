@@ -87,6 +87,17 @@ test('future pure adapter projects authoritative native state into exact schema 
   assert.equal(result.runtimeSummary.source, 'status-v3');
 });
 
+test('schema-3 adapter preserves collected applied profile and strategy observations', () => {
+  const obs = observations();
+  obs.runtime.profileCount = 3;
+  obs.runtime.strategies = 'tcp-80\ntcp-443\nquic';
+  const result = run(`import { legacy_status_v3 } from '${COMPAT}'; print(sprintf('%J', legacy_status_v3(${JSON.stringify(nativeState())}, ${JSON.stringify(obs)})));`);
+
+  assert.equal(result.schema, 3);
+  assert.equal(result.runtime.profileCount, 3);
+  assert.equal(result.runtime.strategies, obs.runtime.strategies);
+});
+
 test('pure adapter preserves native jobs and deterministic warning shape', () => {
   const state = nativeState(12, 'running');
   state.jobs = [{ id: 'J1', kind: 'verify', state: 'running', generation: 12,
@@ -119,8 +130,16 @@ test('status integration reads native state, initializes only ENOENT, and never 
   assert.match(source, /native_result\s*=\s*state_read\(\)/);
   assert.match(source, /helperCode\s*==\s*'ENOENT'[\s\S]*?state_initialize\(\)/);
   assert.doesNotMatch(source, /state_mutate\(|atomic_write_json\(/);
+  assert.doesNotMatch(source, /profiles_(?:create|update|clone|delete|reorder|import_applied|apply)\s*\(/);
   assert.match(source, /legacy_status_v3\([\s\S]*?,\s*observations\)/);
   assert.match(source, /writefile\(PATHS\.status_json/);
+});
+
+test('status profile evidence is derived from applied and runtime observations', () => {
+  const source = fs.readFileSync(COLLECTOR, 'utf8');
+  assert.match(source, /prof_count = profile_count\(read_var\('NFQWS2_OPT'\)\)/);
+  assert.match(source, /strategies: runtime\.strategies \? runtime\.strategies : null/);
+  assert.match(source, /profileCount: prof_count/);
 });
 
 test('status module exports collect_observations and collect as importable functions', () => {
