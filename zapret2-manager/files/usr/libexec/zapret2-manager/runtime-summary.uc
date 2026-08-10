@@ -2,8 +2,6 @@
 // Single, additive runtime projection. It consumes the status collector
 // payload; consumers must treat missing evidence as unknown, never stopped.
 
-import { readfile } from 'fs';
-import { PATHS } from './constants.uc';
 
 function bool_or_null(v) { return v === true ? true : v === false ? false : null; }
 function text_or_null(v) { return type(v) == 'string' && length(v) ? v : null; }
@@ -39,7 +37,7 @@ export const runtime_summary = function(status) {
 };
 
 export const runtime_summary_cached = function() {
-	let raw = readfile(PATHS.status_json), status = null;
+	let fs = require('fs'), raw = fs.readfile('/tmp/zapret2-manager/status.json'), status = null;
 	try { status = raw ? json(raw) : null; } catch (e) { status = null; }
 	if (status && type(status.runtimeSummary) == 'object') return status.runtimeSummary;
 	return runtime_summary(status);
