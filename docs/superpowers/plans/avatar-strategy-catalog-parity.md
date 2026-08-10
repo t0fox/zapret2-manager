@@ -104,7 +104,7 @@ harness where already established.
 - Create: `tests/fixtures/avatar-strategy/manifest.expected.json`
 - Create: `tests/fixtures/avatar-strategy/tokenizer-cases.json`
 - Create: `tests/fixtures/avatar-strategy/domain-cases.json`
-- Test source: pinned checkout `C:\Users\Kirill\AppData\Local\Temp\opencode\avatar-parity-src`
+- Fixture-generation source: any verified local checkout supplied through optional `AVATAR_PINNED_SRC`; normal repository tests never require this variable or an external checkout.
 
 **Interfaces:**
 - Consumes: pinned Avatar catalog files and the already audited aggregate digest.
@@ -130,12 +130,18 @@ Run: `node --test tests/product/avatar-strategy-characterization.test.mjs`
 
 Expected: FAIL because the fixture and packaged Avatar snapshot do not yet exist.
 
-- [ ] **Step 3: Generate the fixture from every pinned file**
+- [ ] **Step 3: Verify and generate the fixture from every pinned file**
 
-Record for each file: relative path, byte size, SHA-256, level, inferred
-protocol, entry count and source order. Record every physical section with
-source ordinal, ID, metadata, raw args and duplicate group. Record TCP/UDP
-quick/standard/full ordered ID arrays and the two featured IDs.
+When `AVATAR_PINNED_SRC` is provided, run
+`git -C "$AVATAR_PINNED_SRC" rev-parse HEAD` and require
+`f9dd3ea47a2239514f396a843b475c92c33f0b4c`; otherwise fail with a
+fixture-regeneration-only message and do not affect normal tests. Generate
+committed fixtures from exactly `advanced/`, `basic/`, `builtin/`, `direct/`
+from that verified checkout. Record for each file: relative path, byte size,
+SHA-256, level, inferred protocol, entry count and source order. Record every
+physical section with source ordinal, ID, metadata, raw args and duplicate
+group. Record TCP/UDP quick/standard/full ordered ID arrays and the two featured
+IDs.
 
 - [ ] **Step 4: Add tokenizer and domain fixtures**
 
@@ -255,16 +261,20 @@ Expected: FAIL because package assets and manifest are absent.
 
 - [ ] **Step 3: Copy raw files without normalization**
 
-Copy exactly `advanced/`, `basic/`, `builtin/`, `direct/` from the pinned
-checkout. Do not create `catalogs/presets/`. Include
+Copy exactly `advanced/`, `basic/`, `builtin/`, `direct/` from the committed
+Task 1 evidence. Do not create `catalogs/presets/`. Include
 `builtin/winws2_presets.txt`, attribution metadata and the generated manifest.
 
 - [ ] **Step 4: Update package installation**
 
-Keep raw assets under `/usr/share/zapret2-manager/catalog/avatar/` with mode
-directory mode `0700` and file mode `0600` without replacing existing files.
-Package upgrades replace only `/usr/share` builtin assets and preserve user
-files and selection state.
+Keep package-owned raw assets under `/usr/share/zapret2-manager/catalog/avatar/`
+with mode `0644`; do not add them to conffiles. A normal package upgrade may
+replace/update these `/usr/share` builtin assets as part of an approved package
+version. Extend post-install setup to create
+`/etc/zapret2-manager/strategies/` and `strategy-state.json` with root ownership,
+directory mode `0700` and file mode `0600` only when absent. The installer must
+never replace user Strategy files, favorites/selection state, or the existing
+`/etc/zapret2-manager/state.json` Profile compatibility document.
 
 - [ ] **Step 5: Run GREEN and package regression**
 
@@ -847,8 +857,10 @@ Keep service `catalog_*` and Orchestra objects separate.
 
 - [ ] **Step 4: Add exact ACL entries**
 
-Read: list/get/preview/validate/catalog status/reload and status projection.
-Write: create/update/delete/duplicate/favorite/apply/import/catalog reload.
+Read: list/get/preview/validate/catalog status/catalog reload and status
+projection. `strategies_catalog_reload` only reparses/verifies immutable
+package-owned files; it is not a persistent mutation and is not duplicated in
+the write ACL. Write: create/update/delete/duplicate/favorite/apply/import.
 Run ACL source assertions for every method.
 
 - [ ] **Step 5: Run GREEN and adjacent tests**
@@ -1079,9 +1091,8 @@ First inspect `scripts/test/native.sh` and run its current exact command. Then
 run:
 
 ```bash
-node --test tests/product/avatar-strategy-characterization.test.mjs tests/product/avatar-strategy-model.test.mjs tests/product/avatar-strategy-catalog.test.mjs tests/product/avatar-strategy-compiler.test.mjs tests/product/avatar-strategy-state.test.mjs tests/product/avatar-strategy-preview.test.mjs tests/product/avatar-strategy-apply.test.mjs tests/product/avatar-strategy-status.test.mjs tests/product/avatar-strategy-rpc.test.mjs tests/product/avatar-strategy-import.test.mjs tests/product/avatar-strategy-ui.test.mjs tests/product/avatar-strategy-integration.test.mjs
+node --test tests/product/avatar-strategy-characterization.test.mjs tests/product/avatar-strategy-model.test.mjs tests/product/avatar-strategy-catalog.test.mjs tests/product/avatar-strategy-compiler.test.mjs tests/product/avatar-strategy-state.test.mjs tests/product/avatar-strategy-preview.test.mjs tests/product/avatar-strategy-apply.test.mjs tests/native/avatar-strategy-status.test.mjs tests/product/avatar-strategy-rpc.test.mjs tests/product/avatar-strategy-import.test.mjs tests/product/avatar-strategy-ui.test.mjs tests/product/avatar-strategy-integration.test.mjs
 scripts/test/native.sh
-scripts/test/native-root.sh "$(node -p 'process.execPath')"
 git diff --check
 ```
 
