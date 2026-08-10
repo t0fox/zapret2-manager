@@ -261,7 +261,7 @@ test('rejects every tampered manifest declaration instead of reporting stale cat
   }
 });
 
-test('removes case-insensitive WinDivert tokens while preserving raw and non-WinDivert arguments', () => {
+test('matches reference WinDivert line prefixes and preserves inline tokens', () => {
   const root = temporaryCatalog();
   try {
     const manifest = readManifest(root);
@@ -269,10 +269,12 @@ test('removes case-insensitive WinDivert tokens while preserving raw and non-Win
     const target = path.join(root, ...file.path.split('/'));
     const original = readFileSync(target, 'utf8');
     const entry = manifest.physicalEntries[0];
-    const replacement = `--WF-TCP=1 --payload=preserved\n${entry.rawArgs}`;
+    const prefixLine = '--WF-TCP=1 --payload=discarded';
+    const inlineLine = '--payload=preserved --wf-tcp=inline';
+    const replacement = `${prefixLine}\n${inlineLine}\n${entry.rawArgs}`;
     fs.writeFileSync(target, original.replace(entry.rawArgs, replacement));
     entry.rawArgs = replacement;
-    entry.args = `--payload=preserved\n${entry.args}`;
+    entry.args = `${inlineLine}\n${entry.args}`;
     file.byteSize = fs.statSync(target).size;
     file.sha256 = sha256File(target);
     recomputeAggregateDigest(manifest);
@@ -281,9 +283,10 @@ test('removes case-insensitive WinDivert tokens while preserving raw and non-Win
     const result = invokeCatalog('strategy_catalog_load', [root]);
     assert.equal(result.ok, true, JSON.stringify(result));
     const parsed = result.catalog.physicalEntries[0];
-    assert.match(parsed.rawArgs, /^--WF-TCP=1 --payload=preserved\n/);
-    assert.doesNotMatch(parsed.args, /--wf-/i);
-    assert.match(parsed.args, /^--payload=preserved\n/);
+    assert.match(parsed.rawArgs, /^--WF-TCP=1 --payload=discarded\n/);
+    assert.doesNotMatch(parsed.args, /--payload=discarded/);
+    assert.match(parsed.args, /^--payload=preserved --wf-tcp=inline\n/);
+    assert.match(parsed.args, /--wf-tcp=inline/);
     assert.match(parsed.args, /--lua-desync=/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

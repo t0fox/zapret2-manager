@@ -3,7 +3,6 @@
 // file names and digests; raw files provide the parsed Strategy records.
 
 import { readfile, readlink, stat, popen } from 'fs';
-import { avatar_tokenize } from './strategy-model.uc';
 
 const DEFAULT_ROOT = '/usr/share/zapret2-manager/catalog/avatar';
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
@@ -172,22 +171,14 @@ function lower_ascii(value) {
 	return result;
 }
 
-function is_windivert_token(value) {
+function is_windivert_line(value) {
 	let lower = lower_ascii(value);
 	for (let prefix in WINDIVERT_PREFIXES) if (starts(lower, prefix)) return true;
 	return false;
 }
 
 function filter_windivert_line(value) {
-	let tokenized = avatar_tokenize(value);
-	if (!tokenized.ok) return { keep: true, value: value };
-	let filtered = [], changed = false;
-	for (let token in tokenized.tokens) {
-		if (is_windivert_token(token.value)) changed = true;
-		else push(filtered, token.value);
-	}
-	if (!changed) return { keep: true, value: value };
-	return { keep: length(filtered) > 0, value: join(' ', filtered) };
+	return { keep: !is_windivert_line(value), value: value };
 }
 
 function parse_file(content, file, level, protocol) {

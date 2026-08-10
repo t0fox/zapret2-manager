@@ -125,3 +125,32 @@ preservation, failed-load isolation, and failed-reload isolation.
 Remaining concern: aggregate SHA-256 verification still depends on the target's
 existing `sha256sum` utility; unavailable or malformed utility output fails
 closed rather than reporting a catalog.
+
+## Round 2 Fixes
+
+Round 2 corrected the remaining WinDivert semantic mismatch against the pinned
+reference at `tests/fixtures/avatar-strategy/generate.mjs:62-74`. Catalog
+normalization now lowercases each complete argument line and discards the whole
+line only when it starts with one of the pinned prefixes: `--wf-tcp`,
+`--wf-udp`, `--wf-raw`, `--wf-l3`, or `--wf-ip`. It preserves `rawArgs` and
+leaves non-prefixed lines byte-for-byte intact, including inline `--wf-*`
+tokens and other options on those lines.
+
+This resolves the apparent wording tension explicitly: Task 4 catalog parsing
+matches the pinned line-prefix normalization exactly; later tokenizer/compiler
+semantics may interpret individual tokens, but they are outside this parser's
+catalog-facing normalization boundary.
+
+The regression fixture now verifies both a case-insensitive prefixed line with
+multiple options being discarded wholesale and a non-prefixed multi-option line
+retaining its inline `--wf-tcp=inline` token. All prior temporary-fixture
+security, declaration, duplicate-order, and reload-isolation coverage remains.
+
+## Round 2 Verification
+
+- RED before the parser fix: the exact-prefix test failed with
+  `EDECLARATION` because inline filtering diverged from the manifest evidence.
+- Catalog, characterization, and model checks passed, 23 tests.
+- Profile checks passed, 47 tests.
+- Installed package/manifest checks passed, 11 tests.
+- `git diff --check` passed.
