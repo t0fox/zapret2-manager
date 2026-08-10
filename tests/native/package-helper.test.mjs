@@ -92,6 +92,9 @@ test('native gate and product subprocesses preserve configured ucode module path
   assert.match(fs.readFileSync('tests/product/profiles-model.test.mjs', 'utf8'),
     /ucodeModulePattern\([\s\S]*process\.env\.UCODE_MODULE_PATH, process\.env\.UCODE_LIBRARY_PATH\)/,
     'product ucode subprocesses must pass the converted module pattern');
+  assert.match(fs.readFileSync('tests/product/profiles-model.test.mjs', 'utf8'),
+    /ucodeDiagnostic\(\[UCODE_BIN, \.\.\.argv\], UCODE_MODULE_PATTERN\)/,
+    'product failures must report exact argv, safe ucode env, and normalized module paths');
 });
 
 test('ucode module path normalizes the exact native workflow directory value', async () => {
@@ -415,6 +418,12 @@ test('CI provisions pinned ucode and passes it to the shared native gate', () =>
     'CI must configure the ucode library path for the gate');
   assert.match(nativeWorkflow, /UCODE_MODULE_PATH:/,
     'CI must configure the ucode module path for the gate');
+});
+
+test('pinned ucode build enables the fs module required by production imports', () => {
+  const installer = fs.readFileSync('scripts/test/install-ucode.sh', 'utf8');
+  assert.match(installer, /-DFS_SUPPORT=ON/,
+    'CI ucode must build fs.so because production modules import fs');
 });
 
 test('package declares every ucode module required by native helper transport', () => {

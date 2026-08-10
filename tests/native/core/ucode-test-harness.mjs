@@ -32,6 +32,20 @@ export function ucodeModulePattern(modulePath, libraryPath) {
   return null;
 }
 
+export function ucodeDiagnostic(argv, modulePattern, env = process.env) {
+  return JSON.stringify({
+    argv,
+    env: {
+      UCODE_BIN: env.UCODE_BIN ?? null,
+      UCODE_ARGS_PIPE: env.UCODE_ARGS_PIPE ?? null,
+      UCODE_MODULE_PATH: env.UCODE_MODULE_PATH ?? null,
+      UCODE_LIBRARY_PATH: env.UCODE_LIBRARY_PATH ?? null,
+      LD_LIBRARY_PATH: env.LD_LIBRARY_PATH ?? null,
+    },
+    normalizedModulePattern: modulePattern,
+  }, null, 2);
+}
+
 export function requestFrameBody(frame) {
   assert.equal(frame.subarray(0, 8).toString(), 'Z2MHTV1\n');
   assert.equal(frame[8], 1);
@@ -120,7 +134,8 @@ export function invoke(expression, timeout = 5000, extraEnv = {}) {
     fs.writeFileSync(sourcePath, source, { mode: 0o600 });
     sourceArgs = [sourcePath];
   }
-  const child = spawn(UCODE_BIN, [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, ...sourceArgs], {
+  const argv = [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, ...sourceArgs];
+  const child = spawn(UCODE_BIN, argv, {
     cwd: process.cwd(),
     env: { ...process.env, ...extraEnv,
       LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? process.env.LD_LIBRARY_PATH ?? '/opt/ucode/lib' },
@@ -139,7 +154,8 @@ export function invoke(expression, timeout = 5000, extraEnv = {}) {
       if (sourceRoot) fs.rmSync(sourceRoot, { recursive: true, force: true });
       try {
         assert.equal(signal, null, `ucode terminated by ${signal}`);
-        assert.equal(status, 0, stderr || stdout);
+        assert.equal(status, 0,
+          `${stderr || stdout}\nucode diagnostic:\n${ucodeDiagnostic([UCODE_BIN, ...argv], UCODE_MODULE_PATTERN)}`);
         resolve(JSON.parse(stdout));
       } catch (error) { reject(error); }
     });
