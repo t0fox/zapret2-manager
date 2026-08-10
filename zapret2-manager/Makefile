@@ -87,6 +87,12 @@ define Package/zapret2-manager/postinst
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT:-}" ] && exit 0
 /usr/libexec/zapret2-manager/z2m-root-bootstrap persistent || exit $$?
+if [ ! -e /etc/zapret2-manager/strategies ] && [ ! -L /etc/zapret2-manager/strategies ]; then
+  install -d -o root -g root -m 0700 /etc/zapret2-manager/strategies || exit $$?
+fi
+if [ ! -e /etc/zapret2-manager/strategy-state.json ] && [ ! -L /etc/zapret2-manager/strategy-state.json ]; then
+  install -o root -g root -m 0600 /dev/null /etc/zapret2-manager/strategy-state.json || exit $$?
+fi
 /etc/init.d/rpcd reload
 /etc/init.d/zapret2-manager enable
 exit 0
