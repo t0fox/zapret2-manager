@@ -13,6 +13,8 @@
 *.so
 *.core
 core
+!zapret2-manager/files/usr/libexec/zapret2-manager/core/
+!zapret2-manager/files/usr/libexec/zapret2-manager/core/state-store.uc
 core.*
 !/tests/native/core/
 /fs-helper-*

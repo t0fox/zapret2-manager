@@ -711,10 +711,14 @@ export const atomic_write = function(root, path, content, allowCreate) {
 	}, 30000);
 };
 
-export const atomic_write_json = function(root, path, value, allowCreate) {
-	if (!valid_root(root) || !valid_path(path) || !valid_json_value(value) || type(allowCreate) != 'bool')
+export const atomic_write_json = function(root, path, value, allowCreate, expectedSha256) {
+	if (!valid_root(root) || !valid_path(path) || !valid_json_value(value) ||
+	    type(allowCreate) != 'bool' || (expectedSha256 != null &&
+	    (type(expectedSha256) != 'string' || !match(expectedSha256, /^[a-f0-9]{64}$/))))
 		return invalid();
-	return invoke_private('atomic_write_json', {
+	let arguments = {
 		root, path, value, mode: '0600', uid: 0, gid: 0, allowCreate
-	}, 30000);
+	};
+	if (expectedSha256 != null) arguments.expectedSha256 = expectedSha256;
+	return invoke_private('atomic_write_json', arguments, 30000);
 };

@@ -63,7 +63,8 @@ function invokeState(expression, timeout = 10000) {
 function canonical(value) {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
   if (value && typeof value === 'object')
-    return `{${Object.keys(value).sort(Buffer.compare).map(k => `${JSON.stringify(k)}:${canonical(value[k])}`).join(',')}}`;
+    return `{${Object.keys(value).sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)))
+      .map(k => `${JSON.stringify(k)}:${canonical(value[k])}`).join(',')}}`;
   return JSON.stringify(value);
 }
 
@@ -103,11 +104,24 @@ async function withStore(initial, options, callback) {
       return;
     }
 
+    if (request.body.operation === 'sha256_regular') {
+      assert.deepEqual(args, { root: 'persistent_state', path: 'manager-state.json', maxBytes: 521028 });
+      if (current == null) {
+        const f = helperFailure(requestId, 'ENOENT', 'object_open', 4);
+        socket.end(childExited(requestId, f.stdout, f.exitCode));
+      } else socket.end(childExited(requestId, success(requestId, {
+        sha256: createHash('sha256').update(current).digest('hex'), byteLength: Buffer.byteLength(current),
+      })));
+      return;
+    }
+
     if (request.body.operation === 'atomic_write_json') {
       writes++;
       assert.equal(args.root, 'persistent_state');
       assert.equal(args.path, 'manager-state.json');
       assert.equal(args.mode, '0600'); assert.equal(args.uid, 0); assert.equal(args.gid, 0);
+      if (args.allowCreate === false) assert.equal(args.expectedSha256,
+        createHash('sha256').update(current).digest('hex'));
       const candidate = canonical(args.value);
       const action = options?.onWrite?.({ writes, request, candidate, current }) ?? { kind: 'success', commit: true };
       if (action.commit) current = candidate;
@@ -150,6 +164,50 @@ test('state_validate accepts the frozen v1 envelope and rejects corrupt shapes',
     { ...state(), extra: true },
   ]) {
     const result = await invokeState(`state.state_validate(${JSON.stringify(bad)})`);
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, 'ESCHEMA');
+  }
+});
+
+test('state_validate enforces every frozen nested v1 shape and primitive type', async () => {
+  const processIdentity = {
+    pid: 123, startTime: 456, exe: '/usr/bin/nfqws2', argvSha256: 'a'.repeat(64),
+    owner: 'runtime/nfqws2', generation: 4,
+  };
+  const full = {
+    ...state(4, 'partial'),
+    runtime: { processes: [processIdentity], namespaces: [{
+      namespace: 'config/global', owner: 'transaction/01J4', generation: 4,
+      acquiredAt: '2026-08-10T12:00:00Z', process: processIdentity,
+    }] },
+    transactions: [{
+      id: '01J4', kind: 'config_apply', phase: 'verifying', generation: 4,
+      namespaces: ['config/global'], createdAt: '2026-08-10T12:00:00Z',
+      updatedAt: '2026-08-10T12:00:01Z', error: null,
+    }],
+    jobs: [{
+      id: '01J5', kind: 'dns_verify', state: 'running', generation: 4,
+      owner: 'jobs/dns_verify', createdAt: '2026-08-10T12:00:00Z',
+      updatedAt: '2026-08-10T12:00:01Z', result: null, error: null,
+    }],
+    warnings: [{ code: 'WTEST', message: 'test warning' }],
+  };
+  assert.equal((await invokeState(`state.state_validate(${JSON.stringify(full)})`)).ok, true);
+
+  const invalid = [
+    { ...full, generatedAt: '2026-08-10T12:00:00+01:00' },
+    { ...full, generation: 1.5 },
+    { ...full, runtime: { ...full.runtime, processes: [{
+      pid: processIdentity.pid, startTime: processIdentity.startTime, exe: processIdentity.exe,
+      argvSha256: processIdentity.argvSha256, generation: processIdentity.generation,
+    }] } },
+    { ...full, runtime: { ...full.runtime, namespaces: [{ ...full.runtime.namespaces[0], namespace: '/bad' }] } },
+    { ...full, transactions: [{ ...full.transactions[0], phase: 'unknown' }] },
+    { ...full, jobs: [{ ...full.jobs[0], state: 'unknown' }] },
+    { ...full, warnings: [{ code: 'WTEST', message: 1 }] },
+  ];
+  for (const value of invalid) {
+    const result = await invokeState(`state.state_validate(${JSON.stringify(value)})`);
     assert.equal(result.ok, false);
     assert.equal(result.error.code, 'ESCHEMA');
   }
@@ -281,3 +339,28 @@ test('transport uncertainty after delivery reconciles by reread and never issues
     assert.equal(store.writes, 1);
   });
 });
+
+for (const [label, action] of [
+  ['helper ECOMMITUNKNOWN', { kind: 'uncertain' }],
+  ['transport unknown', { kind: 'disconnect' }],
+]) {
+  for (const [observed, replaceWith, code] of [
+    ['candidate', undefined, null],
+    ['previous', state(8), 'EAPPLY'],
+    ['third valid', state(10, 'running'), 'ECONFLICT'],
+    ['missing', null, 'EDEPENDENCY'],
+    ['malformed', '{bad', 'EDEPENDENCY'],
+  ]) test(`${label} classifies ${observed} after exactly one mutation publication`, async () => {
+    await withStore(state(8), {
+      onWrite: ({ candidate }) => ({
+        ...action, commit: observed === 'candidate',
+        ...(observed === 'candidate' ? {} : { replaceWith }),
+      }),
+    }, async store => {
+      const result = await invokeState(`state.state_mutate(8, (s) => { s.serviceState = 'paused'; return s; })`);
+      if (code == null) assert.equal(result.ok, true);
+      else assert.equal(result.error.code, code);
+      assert.equal(store.writes, 1);
+    });
+  });
+}
