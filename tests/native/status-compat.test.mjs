@@ -10,7 +10,8 @@ const COMPAT = path.resolve('zapret2-manager/files/usr/libexec/zapret2-manager/c
 const RPC = 'zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc';
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.split('|') : [];
-const LIBRARY = process.env.UCODE_MODULE_PATH ? ['-L', process.env.UCODE_MODULE_PATH] : [];
+const LIBRARY = process.env.UCODE_MODULE_PATH ? ['-L', process.env.UCODE_MODULE_PATH]
+  : process.env.UCODE_LIBRARY_PATH ? ['-L', process.env.UCODE_LIBRARY_PATH] : [];
 const TOP = ['applied', 'draft', 'drift', 'engine', 'generatedAt', 'generation', 'health',
   'jobs', 'runtime', 'runtimeSummary', 'schema', 'serviceState', 'system', 'upstream', 'warnings'];
 
