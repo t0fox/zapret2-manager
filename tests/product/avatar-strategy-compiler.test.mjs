@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -116,6 +117,55 @@ test('compiler places injected list flags after filters and before the first pay
   assert.equal(result.fragments[0], '--filter-tcp=443 --hostlist-auto=/lists/auto.txt --hostlist-exclude=/lists/netrogat.txt --payload=tls_client_hello --lua-desync=fake');
 });
 
+test('list suppression is scoped to the corresponding include or exclude flag', () => {
+  const paths = { ...environment.paths, hostlistExclude: '/lists/netrogat.txt' };
+  const auto = invoke('strategy_compile', strategy([
+    { id: 'p1', args: '--filter-tcp=443 --hostlist=/custom/include.txt --payload=tls_client_hello' },
+  ]), { ...environment, listMode: 'autohostlist', paths });
+  const explicit = invoke('strategy_compile', strategy([
+    { id: 'p1', args: '--filter-tcp=443 --hostlist-auto=/custom/auto.txt --payload=tls_client_hello' },
+  ]), {
+    ...environment, listMode: 'explicit', listPath: '/scan/other.txt', paths,
+  });
+  const ipsetExclude = invoke('strategy_compile', strategy([
+    { id: 'p1', args: '--filter-udp=443 --ipset-exclude=lists/ru.txt --payload=quic_initial' },
+  ]), { ...environment, listMode: 'autohostlist', paths });
+
+  assert.match(auto.fragments[0], /--hostlist=\/custom\/include\.txt --hostlist-auto=\/lists\/auto\.txt/);
+  assert.match(auto.fragments[0], /--hostlist-exclude=\/lists\/netrogat\.txt/);
+  assert.match(explicit.fragments[0], /--hostlist-auto=\/custom\/auto\.txt --hostlist=\/scan\/other\.txt/);
+  assert.match(ipsetExclude.fragments[0], /--ipset-exclude=\/lists\/ru\.txt --hostlist-auto=\/lists\/auto\.txt/);
+});
+
+test('list and ipset dependencies resolve relative descriptors and absolute listPath safely', () => {
+  const result = invoke('strategy_compile', strategy([
+    { id: 'p1', args: '--filter-tcp=443 --hostlist=lists/relative.txt --ipset=lists/missing-ipset.txt' },
+  ]), {
+    ...environment,
+    listMode: 'explicit',
+    listPath: '/scan/relative.txt',
+    lists: {
+      'scan/relative.txt': { path: 'relative.txt', present: true },
+      'lists/relative.txt': { path: 'relative.txt', present: true },
+      'missing-ipset.txt': { path: 'missing-ipset.txt', present: false },
+    },
+  });
+  const unsafe = invoke('strategy_compile', strategy([
+    { id: 'p1', args: '--filter-tcp=443' },
+  ]), { ...environment, listMode: 'explicit', listPath: '/etc/passwd', lists: {} });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.applicable, false, JSON.stringify(result.dependencies));
+  assert.ok(result.dependencies.missing.some(item => item.kind === 'ipset'
+    && item.reference === 'lists/missing-ipset.txt'));
+  assert.match(result.strategyArgs, /--hostlist=\/lists\/relative\.txt/);
+  assert.match(result.strategyArgs, /--ipset=\/lists\/missing-ipset\.txt/);
+  assert.equal(unsafe.applicable, false);
+  assert.ok(unsafe.dependencies.missing.some(item => item.kind === 'hostlist'
+    && item.reference === '/etc/passwd'));
+  assert.doesNotMatch(unsafe.strategyArgs, /--hostlist=\/etc\/passwd/);
+});
+
 test('compiler adds each required Blob declaration once and resolves portable paths', () => {
   const result = invoke('strategy_compile', strategy([
     { id: 'p1', args: '--lua-init=@lua/desync.lua --blob=tls_google:@bin/tls_google.bin --lua-desync=fake:blob=tls_google' },
@@ -126,6 +176,35 @@ test('compiler adds each required Blob declaration once and resolves portable pa
   assert.equal(result.strategyArgs.split('--blob=tls_google:/opt/zapret2/bin/tls_google.bin').length - 1, 1);
   assert.match(result.strategyArgs, /--lua-init=\/opt\/zapret2\/lua\/desync\.lua/);
   assert.match(result.strategyArgs, /--blob=tls_google:\/opt\/zapret2\/bin\/tls_google\.bin/);
+});
+
+test('compiler rejects absolute, traversing, and symlinked Blob/path resolutions', () => {
+  const cases = [
+    { path: '../escape.bin', symlink: false },
+    { path: '/etc/passwd', symlink: false },
+    { path: 'real.bin', symlink: true },
+  ];
+
+  for (const descriptor of cases) {
+    const result = invoke('strategy_compile', strategy([
+      { id: 'p1', args: '--lua-init=@lua/../escape.lua --lua-desync=fake:blob=unsafe_blob' },
+    ], { blobs: ['unsafe_blob'] }), {
+      ...environment,
+      blobs: { unsafe_blob: { ...descriptor, present: true } },
+    });
+
+    assert.equal(result.ok, true, JSON.stringify(descriptor));
+    assert.equal(result.applicable, false, JSON.stringify(descriptor));
+    assert.ok(result.dependencies.missing.some(item => item.kind === 'blob'), JSON.stringify(descriptor));
+    assert.doesNotMatch(result.strategyArgs, /--blob=unsafe_blob:/, JSON.stringify(descriptor));
+    assert.match(result.strategyArgs, /--lua-init=@lua\/\.\.\/escape\.lua/, JSON.stringify(descriptor));
+  }
+
+  const unsafeSource = invoke('strategy_compile', strategy([
+    { id: 'p1', args: '--filter-tcp=443 --blob=tls_google:/etc/passwd' },
+  ]), environment);
+  assert.equal(unsafeSource.applicable, false);
+  assert.ok(unsafeSource.dependencies.missing.some(item => item.kind === 'blob'));
 });
 
 test('compiler preserves unknown options while exposing manager diagnostics', () => {
@@ -152,7 +231,14 @@ test('zero enabled Profiles produce a successful empty structural candidate', ()
     fragments: result.fragments,
     profilesCount: result.profilesCount,
   }, { ok: true, strategyArgs: '', fragments: [], profilesCount: 0 });
-  assert.deepEqual(candidate, { ok: true, candidate: '', fragments: [], profilesCount: 0 });
+  assert.equal(candidate.ok, true);
+  assert.equal(candidate.candidate, '');
+  assert.deepEqual(candidate.fragments, []);
+  assert.equal(candidate.profilesCount, 0);
+  assert.equal(candidate.candidateSha256, createHash('sha256').update('').digest('hex'));
+  assert.equal(candidate.expectedHash, candidate.candidateSha256);
+  assert.equal(candidate.dependencies.available, true);
+  assert.equal(candidate.applicable, false);
 });
 
 test('compiler preserves token semantics after canonicalization', () => {
@@ -200,4 +286,56 @@ test('effective argv uses the same engine, base, Lua-init, hostlist, and strateg
     '--filter-tcp=443', '--new', '--filter-udp=443',
   ]);
   assert.equal(result.command, result.argv.map(argument => `'${argument}'`).join(' '));
+});
+
+test('effective argv rejects client-composed inputs and shell-quotes captured values', () => {
+  const captured = {
+    source: 'live',
+    enginePath: '/opt/zapret2/nfq2/nfqws2',
+    baseArgs: ['--qnum=30999'],
+    luaInit: [],
+    hostlists: ["/lists/$HOME;touch '/tmp/pwned'"],
+  };
+  const safe = invoke('strategy_effective_argv', '--filter-tcp=443', captured);
+  const rejectedArgv = invoke('strategy_effective_argv', '--filter-tcp=443', {
+    ...captured, argv: ['/bin/sh', '-c', 'touch /tmp/pwned'],
+  });
+  const rejectedSource = invoke('strategy_effective_argv', '--filter-tcp=443', {
+    ...captured, source: 'client', command: '/bin/sh -c touch',
+  });
+
+  assert.equal(safe.ok, true);
+  assert.ok(safe.command.includes("'--hostlist=/lists/$HOME;touch "));
+  assert.ok(safe.command.includes("'\\''/tmp/pwned'\\''"));
+  assert.equal(rejectedArgv.ok, false);
+  assert.equal(rejectedSource.ok, false);
+});
+
+test('strategy candidate carries Apply-compatible SHA-256 identity and admission fields', () => {
+  const result = invoke('strategy_candidate', strategy([
+    { id: 'p1', args: '--filter-tcp=443' },
+  ]), environment);
+  const expected = createHash('sha256').update(result.candidate).digest('hex');
+
+  assert.equal(result.ok, true);
+  assert.match(result.digest, /^[a-f0-9]{64}$/);
+  assert.equal(result.digest, expected);
+  assert.equal(result.candidateSha256, expected);
+  assert.equal(result.expectedHash, expected);
+  assert.equal(result.strategyArgs, result.candidate);
+  assert.equal(typeof result.dependencies.available, 'boolean');
+  assert.equal(result.applicable, result.dependencies.available);
+});
+
+test('list placement remains after the last filter when options are interleaved', () => {
+  const result = invoke('strategy_compile', strategy([
+    { id: 'p1', args: '--filter-tcp=443 --lua-desync=fake --comment=between --filter-l7=tls --payload=tls_client_hello' },
+  ]), {
+    ...environment,
+    listMode: 'autohostlist',
+    paths: { ...environment.paths, hostlistExclude: '/lists/netrogat.txt' },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.fragments[0], '--filter-tcp=443 --lua-desync=fake --comment=between --filter-l7=tls --hostlist-auto=/lists/auto.txt --hostlist-exclude=/lists/netrogat.txt --payload=tls_client_hello');
 });

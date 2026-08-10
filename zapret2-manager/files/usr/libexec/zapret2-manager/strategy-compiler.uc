@@ -9,6 +9,7 @@
 import { avatar_tokenize, strategy_normalize, strategy_enabled_profiles } from './strategy-model.uc';
 import { z2m_parse, z2m_validate, z2m_fragment } from './profiles.uc';
 import { profiles_render_candidate, profiles_candidate_round_trip } from './profiles-apply.uc';
+import { popen } from 'fs';
 
 const ENGINE_PATH = '/opt/zapret2/nfq2/nfqws2';
 
@@ -56,22 +57,44 @@ function copy_array(value) {
 	return result;
 }
 
+function safe_path_text(value) {
+	if (type(value) != 'string') return false;
+	for (let i = 0; i < length(value); i++) {
+		let c = substr(value, i, 1);
+		if (c == '\n' || c == '\r' || c == '\t' || c == ';' || c == '\'' || c == '"' || c == '`' || c == '$' || c == '\\') return false;
+	}
+	return true;
+}
+
+function safe_absolute_path(value) {
+	if (!safe_path_text(value) || !starts_with(value, '/') || value == '/' || index(value, '//') >= 0) return false;
+	let parts = split(value, '/');
+	for (let i = 0; i < length(parts); i++) if (parts[i] == '..' || parts[i] == '.') return false;
+	return true;
+}
+
 function path_join(root, value) {
-	if (starts_with(value, '/')) return value;
-	if (root == null || root == '') return null;
-	if (starts_with(value, '../') || value == '..' || index(value, '/../') >= 0) return null;
+	if (!safe_absolute_path(root) || type(value) != 'string' || starts_with(value, '/') || value == '') return null;
+	if (!safe_path_text(value)) return null;
+	let parts = split(value, '/');
+	for (let i = 0; i < length(parts); i++) if (parts[i] == '..' || parts[i] == '.') return null;
 	return root + '/' + value;
 }
 
 function resolve_path(value, paths, kind) {
 	if (value == null || value == '') return value;
+	if (starts_with(value, '/')) return kind == 'list' || kind == 'hostlist' || kind == 'ipset'
+		? (safe_absolute_path(value) ? value : null) : null;
 	let root = kind == 'lua' ? paths.luaRoot
 		: (kind == 'blob' ? paths.blobRoot
 			: (kind == 'ipset' ? paths.ipsetRoot : paths.listRoot));
 	if (kind == 'lua' && starts_with(value, '@lua/')) return path_join(root, substr(value, 5));
 	if (kind == 'blob' && starts_with(value, '@bin/')) return path_join(root, substr(value, 5));
+	if (kind == 'blob' && starts_with(value, '0x')) return value;
 	if ((kind == 'list' || kind == 'hostlist' || kind == 'ipset') && starts_with(value, 'lists/'))
 		return path_join(root, substr(value, 6));
+	if (kind == 'lua' || kind == 'blob' || kind == 'list' || kind == 'hostlist' || kind == 'ipset')
+		return path_join(root, value);
 	return value;
 }
 
@@ -162,27 +185,51 @@ function descriptor_present(descriptor, defaultValue) {
 	return defaultValue;
 }
 
+function descriptor_safe(descriptor) {
+	return !is_object(descriptor) || (descriptor.symlink != true && descriptor.safe != false);
+}
+
+function list_descriptor_for(environment, reference) {
+	if (!is_object(environment.lists)) return null;
+	let keys = [reference];
+	if (starts_with(reference, '/')) push(keys, substr(reference, 1));
+	if (starts_with(reference, 'lists/')) push(keys, substr(reference, 6));
+	for (let i = 0; i < length(keys); i++) if (environment.lists[keys[i]] != null) return environment.lists[keys[i]];
+	return null;
+}
+
+function list_reference(environment, reference, kind) {
+	let paths = is_object(environment.paths) ? environment.paths : {};
+	let descriptor = list_descriptor_for(environment, reference), raw = descriptor_path(descriptor, reference);
+	let resolved = resolve_path(raw, paths, kind == 'ipset' ? 'ipset' : 'list');
+	let available = descriptor != null && descriptor_safe(descriptor)
+		&& descriptor_present(descriptor, false) && resolved != null;
+	return {
+		reference: reference,
+		available: available,
+		path: resolved,
+		reason: descriptor == null ? 'list descriptor is missing'
+			: (!descriptor_safe(descriptor) ? 'list descriptor resolves through a symlink'
+				: (resolved == null ? 'list path is outside the bounded native root' : 'list file is missing')),
+	};
+}
+
 function list_flags(environment, tokens) {
 	let mode = environment.listMode == null ? 'none' : environment.listMode;
 	let paths = is_object(environment.paths) ? environment.paths : {};
 	let result = [];
-	let hasHostlist = has_name(tokens, ['hostlist', 'hostlist-domains', 'hostlist-auto']);
-	let hasIpSet = has_name(tokens, ['ipset', 'ipset-ip', 'ipset-exclude', 'ipset-exclude-ip']);
+	let hasHostlist = has_name(tokens, ['hostlist', 'hostlist-domains']);
+	let hasHostlistAuto = has_name(tokens, ['hostlist-auto']);
 	let hasExclude = has_name(tokens, ['hostlist-exclude', 'hostlist-exclude-domains']);
 
-	if (!hasHostlist && !hasIpSet) {
-		if (mode == 'explicit') {
+	if (mode == 'explicit' && !hasHostlist) {
 			let path = environment.listPath;
-			let descriptor = list_descriptor(environment, path);
-			if (descriptor_present(descriptor, path != null)) {
-				let resolved = descriptor_path(descriptor, path);
-				if (resolved != null) push(result, '--hostlist=' + resolved);
-			}
-		} else if (mode == 'auto' || mode == 'autohostlist') {
-			if (paths.autoHostlist != null) push(result, '--hostlist-auto=' + paths.autoHostlist);
-		}
+			let list = path == null ? null : list_reference(environment, path, 'list');
+			if (list != null && list.available) push(result, '--hostlist=' + list.path);
+	} else if ((mode == 'auto' || mode == 'autohostlist') && !hasHostlistAuto) {
+			if (safe_absolute_path(paths.autoHostlist)) push(result, '--hostlist-auto=' + paths.autoHostlist);
 	}
-	if (mode != 'ipset' && !hasExclude && paths.hostlistExclude != null)
+	if (!hasExclude && mode != 'ipset' && safe_absolute_path(paths.hostlistExclude))
 		push(result, '--hostlist-exclude=' + paths.hostlistExclude);
 	return result;
 }
@@ -218,12 +265,66 @@ function lua_dependency(environment, reference) {
 	if (starts_with(name, '@lua/')) name = substr(name, 5);
 	else if (root != null && starts_with(name, root + '/')) name = substr(name, length(root) + 1);
 	let descriptor = is_object(environment.lua) ? environment.lua[name] : null;
-	return { name: name, available: descriptor_present(descriptor, false) };
+	let source = descriptor_path(descriptor, name), resolved = resolve_path(source, is_object(environment.paths) ? environment.paths : {}, 'lua');
+	return {
+		name: name,
+		available: descriptor != null && descriptor_safe(descriptor)
+			&& descriptor_present(descriptor, false) && resolved != null,
+		reason: descriptor == null ? 'Lua descriptor is missing'
+			: (!descriptor_safe(descriptor) ? 'Lua descriptor resolves through a symlink'
+				: (resolved == null ? 'Lua path is outside the bounded native root' : 'Lua file is missing')),
+	};
 }
 
-function blob_dependency(environment, reference) {
+function blob_dependency(environment, reference, sourceOverride) {
 	let descriptor = is_object(environment.blobs) ? environment.blobs[reference] : null;
-	return { available: descriptor_present(descriptor, false), descriptor: descriptor };
+	let source = sourceOverride != null ? sourceOverride : descriptor_path(descriptor, null), resolved = source == null ? null
+		: resolve_path(source, is_object(environment.paths) ? environment.paths : {}, 'blob');
+	return {
+		available: descriptor != null && descriptor_safe(descriptor)
+			&& descriptor_present(descriptor, false) && resolved != null,
+		descriptor: descriptor,
+		reason: descriptor == null ? 'Blob descriptor is missing'
+			: (!descriptor_safe(descriptor) ? 'Blob descriptor resolves through a symlink'
+				: (resolved == null ? 'Blob path is outside the bounded native root' : 'Blob file is missing')),
+	};
+}
+
+function collect_list_option_dependencies(dependencies, tokens, environment) {
+	for (let ti = 0; ti < length(tokens); ti++) {
+		let info = option_info(tokens[ti].value);
+		if (!info.hasEquals) continue;
+		let kind = null;
+		if (info.name == 'hostlist' || info.name == 'hostlist-domains' || info.name == 'hostlist-auto'
+			|| info.name == 'hostlist-exclude' || info.name == 'hostlist-exclude-domains') kind = 'hostlist';
+		else if (info.name == 'ipset' || info.name == 'ipset-ip' || info.name == 'ipset-exclude' || info.name == 'ipset-exclude-ip') kind = 'ipset';
+		if (kind == null) continue;
+		let list = list_reference(environment, info.value, kind);
+		add_dependency(dependencies, kind, info.value, list.available, list.reason);
+	}
+}
+
+function collect_environment_list_dependencies(dependencies, fragments, environment) {
+	let hasHostlist = false, hasHostlistAuto = false, hasExclude = false;
+	for (let fi = 0; fi < length(fragments); fi++) {
+		let tokens = avatar_tokenize(fragments[fi]).tokens;
+		for (let ti = 0; ti < length(tokens); ti++) {
+			let name = option_info(tokens[ti].value).name;
+			if (name == 'hostlist' || name == 'hostlist-domains') hasHostlist = true;
+			if (name == 'hostlist-auto') hasHostlistAuto = true;
+			if (name == 'hostlist-exclude' || name == 'hostlist-exclude-domains') hasExclude = true;
+		}
+	}
+	let mode = environment.listMode == null ? 'none' : environment.listMode;
+	if (mode == 'explicit' && !hasHostlist && environment.listPath != null) {
+		let list = list_reference(environment, environment.listPath, 'list');
+		add_dependency(dependencies, 'hostlist', environment.listPath, list.available, list.reason);
+	}
+	let paths = is_object(environment.paths) ? environment.paths : {};
+	if ((mode == 'auto' || mode == 'autohostlist') && !hasHostlistAuto && paths.autoHostlist != null)
+		add_dependency(dependencies, 'hostlist', paths.autoHostlist, safe_absolute_path(paths.autoHostlist), 'auto hostlist path is unsafe');
+	if (mode != 'ipset' && !hasExclude && paths.hostlistExclude != null)
+		add_dependency(dependencies, 'hostlist', paths.hostlistExclude, safe_absolute_path(paths.hostlistExclude), 'hostlist exclusion path is unsafe');
 }
 
 function collect_raw_lua_dependencies(dependencies, rawFragments, environment) {
@@ -240,7 +341,7 @@ function collect_raw_lua_dependencies(dependencies, rawFragments, environment) {
 				end++;
 			}
 			let name = substr(raw, start, end - start), lua = lua_dependency(environment, '@lua/' + name);
-			add_dependency(dependencies, 'lua', lua.name, lua.available, 'Lua file is missing');
+			add_dependency(dependencies, 'lua', lua.name, lua.available, lua.reason);
 			cursor = end;
 		}
 	}
@@ -252,33 +353,38 @@ function collect_dependencies(strategy, fragments, environment, rawFragments) {
 	for (let i = 0; i < length(metadataBlobs); i++) {
 		let name = metadataBlobs[i];
 		let blob = blob_dependency(environment, name);
-		add_dependency(dependencies, 'blob', name, blob.available, 'catalog Blob is missing');
+		add_dependency(dependencies, 'blob', name, blob.available, blob.reason);
 	}
 	if (rawFragments != null) collect_raw_lua_dependencies(dependencies, rawFragments, environment);
 	let scanFragments = rawFragments != null ? rawFragments : fragments;
+	collect_environment_list_dependencies(dependencies, scanFragments, environment);
 	for (let fi = 0; fi < length(scanFragments); fi++) {
 		let tokens = avatar_tokenize(scanFragments[fi]).tokens;
 		for (let ti = 0; ti < length(tokens); ti++) {
-			let info = option_info(tokens[ti]);
+			let info = option_info(tokens[ti].value);
 			if (info.name == 'lua-init' && info.hasEquals
 				&& (starts_with(info.value, '@lua/') || substr(info.value, length(info.value) - 4) == '.lua')) {
 				let lua = lua_dependency(environment, info.value);
-				add_dependency(dependencies, 'lua', lua.name, lua.available, 'Lua file is missing');
+				add_dependency(dependencies, 'lua', lua.name, lua.available, lua.reason);
 			}
 			if (info.name == 'blob' && info.hasEquals) {
-				let name = info.value, colon = index(name, ':');
-				if (colon >= 0) name = substr(name, 0, colon);
-				let blob = blob_dependency(environment, name);
-				add_dependency(dependencies, 'blob', name, blob.available, 'Blob file is missing');
+				let value = info.value, name = value, source = null, colon = index(value, ':');
+				if (colon >= 0) {
+					name = substr(value, 0, colon);
+					source = substr(value, colon + 1);
+				}
+				let blob = blob_dependency(environment, name, source);
+				add_dependency(dependencies, 'blob', name, blob.available, blob.reason);
 			}
 			if (info.name == 'lua-desync' && info.hasEquals) {
 				let parts = split(info.value, ':');
 				for (let pi = 1; pi < length(parts); pi++) if (starts_with(parts[pi], 'blob=')) {
 					let name = substr(parts[pi], 5), blob = blob_dependency(environment, name);
-					add_dependency(dependencies, 'blob', name, blob.available, 'Blob file is missing');
+					add_dependency(dependencies, 'blob', name, blob.available, blob.reason);
 				}
 			}
 		}
+		collect_list_option_dependencies(dependencies, tokens, environment);
 	}
 	dependencies.available = length(dependencies.missing) == 0;
 	return dependencies;
@@ -289,7 +395,7 @@ function blob_declarations(strategy, fragments, environment) {
 	for (let fi = 0; fi < length(fragments); fi++) {
 		let tokens = avatar_tokenize(fragments[fi]).tokens;
 		for (let ti = 0; ti < length(tokens); ti++) {
-			let info = option_info(tokens[ti]);
+			let info = option_info(tokens[ti].value);
 			if (info.name == 'blob' && info.hasEquals) {
 				let value = info.value, colon = index(value, ':');
 				let name = colon >= 0 ? substr(value, 0, colon) : value;
@@ -306,7 +412,8 @@ function blob_declarations(strategy, fragments, environment) {
 		let source = descriptor_path(descriptor, null);
 		if (source == null) continue;
 		let resolved = resolve_path(source, paths, 'blob');
-		push(declarations, '--blob=' + name + ':' + resolved);
+		if (descriptor_safe(descriptor) && descriptor_present(descriptor, false) && resolved != null)
+			push(declarations, '--blob=' + name + ':' + resolved);
 		declared[name] = true;
 	}
 	return declarations;
@@ -346,12 +453,23 @@ function validate_fragment(fragment, id, includeWarnings) {
 	return diagnostics;
 }
 
+function shell_quote(value) {
+	let result = "'";
+	for (let i = 0; i < length(value); i++) {
+		let c = substr(value, i, 1);
+		result += c == "'" ? "'\\''" : c;
+	}
+	return result + "'";
+}
+
 function digest_text(text) {
-	// Pure stable digest for compiler output; config SHA-256 remains the Apply
-	// CAS authority and is deliberately not duplicated here.
-	let h = 5381;
-	for (let i = 0; i < length(text); i++) h = ((h << 5) + h) + ord(substr(text, i, 1));
-	return sprintf('%08x', h & 0xFFFFFFFF);
+	let process = null;
+	try { process = popen('printf %s ' + shell_quote(text) + ' | sha256sum 2>/dev/null', 'r'); }
+	catch (e) { return null; }
+	if (!process) return null;
+	let output = process.read('all') || '', rc = process.close();
+	let fields = split(trim_ws(output), /[ \t]+/);
+	return rc == 0 && length(fields) > 0 ? fields[0] : null;
 }
 
 function compile_normalized(strategy, environment) {
@@ -386,9 +504,12 @@ function compile_normalized(strategy, environment) {
 		if (hasError) return error_result('EINPUT', 'one or more transformed Profiles are structurally invalid', { diagnostics: diagnostics });
 	}
 	if (length(fragments) == 0) {
+		let digest = digest_text('');
+		if (digest == null) return error_result('EINTERNAL', 'SHA-256 is unavailable for candidate identity');
 		return {
 			ok: true, strategyArgs: '', fragments: [], profilesCount: 0,
-			dependencies: dependencies, diagnostics: diagnostics, applicable: false, digest: digest_text('')
+			dependencies: dependencies, diagnostics: diagnostics, applicable: false,
+			digest: digest, candidateSha256: digest, expectedHash: digest
 		};
 	}
 	let drafts = [];
@@ -397,6 +518,8 @@ function compile_normalized(strategy, environment) {
 	if (!rendered.ok) return error_result('EINPUT', 'Profile renderer refused transformed fragments', { renderer: rendered });
 	if (!profiles_candidate_round_trip(rendered.candidate, rendered.fragments))
 		return error_result('EINTERNAL', 'Profile renderer round-trip proof failed');
+	let digest = digest_text(rendered.candidate);
+	if (digest == null) return error_result('EINTERNAL', 'SHA-256 is unavailable for candidate identity');
 	return {
 		ok: true,
 		strategyArgs: rendered.candidate,
@@ -405,7 +528,9 @@ function compile_normalized(strategy, environment) {
 		dependencies: dependencies,
 		diagnostics: diagnostics,
 		applicable: dependencies.available,
-		digest: digest_text(rendered.candidate)
+		digest: digest,
+		candidateSha256: digest,
+		expectedHash: digest
 	};
 }
 
@@ -418,17 +543,19 @@ export const strategy_compile = function(input, environment) {
 export const strategy_candidate = function(input, environment) {
 	let result = strategy_compile(input, environment);
 	if (!result.ok) return result;
-	return { ok: true, candidate: result.strategyArgs, fragments: result.fragments, profilesCount: result.profilesCount };
+	return {
+		ok: true,
+		candidate: result.strategyArgs,
+		strategyArgs: result.strategyArgs,
+		fragments: result.fragments,
+		profilesCount: result.profilesCount,
+		dependencies: result.dependencies,
+		applicable: result.applicable,
+		digest: result.digest,
+		candidateSha256: result.digest,
+		expectedHash: result.digest,
+	};
 };
-
-function shell_quote(value) {
-	let result = "'";
-	for (let i = 0; i < length(value); i++) {
-		let c = substr(value, i, 1);
-		result += c == "'" ? "'\\''" : c;
-	}
-	return result + "'";
-}
 
 export const strategy_effective_argv = function(strategyArgs, runtimeInputs) {
 	if (type(strategyArgs) != 'string' || !is_object(runtimeInputs))
@@ -440,13 +567,22 @@ export const strategy_effective_argv = function(strategyArgs, runtimeInputs) {
 	let argv = [ENGINE_PATH];
 	let baseArgs = runtimeInputs.baseArgs;
 	if (type(baseArgs) != 'array') return error_result('EINPUT', 'live base args are required');
-	for (let i = 0; i < length(baseArgs); i++) push(argv, baseArgs[i]);
+	for (let i = 0; i < length(baseArgs); i++) {
+		if (type(baseArgs[i]) != 'string') return error_result('EINPUT', 'live base args must be strings');
+		push(argv, baseArgs[i]);
+	}
 	let luaInit = runtimeInputs.luaInit;
 	if (type(luaInit) != 'array') return error_result('EINPUT', 'live Lua-init inputs are required');
-	for (let i = 0; i < length(luaInit); i++) push(argv, '--lua-init=' + luaInit[i]);
+	for (let i = 0; i < length(luaInit); i++) {
+		if (type(luaInit[i]) != 'string') return error_result('EINPUT', 'live Lua-init inputs must be strings');
+		push(argv, '--lua-init=' + luaInit[i]);
+	}
 	let hostlists = runtimeInputs.hostlists;
 	if (type(hostlists) != 'array') return error_result('EINPUT', 'live hostlist inputs are required');
-	for (let i = 0; i < length(hostlists); i++) push(argv, '--hostlist=' + hostlists[i]);
+	for (let i = 0; i < length(hostlists); i++) {
+		if (type(hostlists[i]) != 'string') return error_result('EINPUT', 'live hostlist inputs must be strings');
+		push(argv, '--hostlist=' + hostlists[i]);
+	}
 	let tokenized = avatar_tokenize(strategyArgs);
 	if (!tokenized.ok) return tokenized;
 	for (let i = 0; i < length(tokenized.tokens); i++) push(argv, tokenized.tokens[i].value);
