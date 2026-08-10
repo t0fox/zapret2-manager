@@ -226,8 +226,20 @@ function buildManifest(source) {
   return manifest;
 }
 
+function assertAuditedManifest(manifest) {
+  if (manifest.physicalFileCount !== 23
+      || manifest.physicalEntryCount !== 1836
+      || manifest.uniqueStrategyIdCount !== 732
+      || manifest.duplicateIdGroupCount !== 503
+      || manifest.aggregateDigest !== AUDITED_AGGREGATE_DIGEST) {
+    throw new Error('Fixture regeneration only: source does not match the audited Avatar catalog contract');
+  }
+}
+
 const source = requirePinnedSource();
 const output = path.resolve(path.dirname(new URL(import.meta.url).pathname), 'manifest.expected.json');
 mkdirSync(path.dirname(output), { recursive: true });
-writeFileSync(output, `${JSON.stringify(buildManifest(source), null, 2)}\n`);
+const manifest = buildManifest(source);
+assertAuditedManifest(manifest);
+writeFileSync(output, `${JSON.stringify(manifest, null, 2)}\n`);
 console.log(`wrote ${output}`);
