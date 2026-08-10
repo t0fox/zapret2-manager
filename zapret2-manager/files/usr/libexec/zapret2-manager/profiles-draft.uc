@@ -206,6 +206,19 @@ function valid_input(name, opt) {
 	return null;
 }
 
+function validate_single_fragment(optText) {
+	let frag = trim(optText);
+	if (frag == '') return 'opt must contain one profile fragment';
+	if (index(frag, '\n') >= 0 || index(frag, '\r') >= 0) return 'opt must be a single-line profile fragment';
+	let model = z2m_parse(frag);
+	let diags = z2m_validate(model);
+	for (let d in model.diagnostics) if (d.severity == 'error') return 'opt has structural parse errors';
+	for (let d in diags) if (d.severity == 'error') return 'opt has structural validation errors';
+	if (length(model.profiles) != 1 || length(model.trailingTokens) > 0)
+		return 'opt must parse as exactly one profile fragment';
+	return null;
+}
+
 function find_profile(state, id) {
 	for (let i = 0; i < length(state.profiles); i++)
 		if (state.profiles[i].id == id) return i;
@@ -217,6 +230,8 @@ export const profiles_create = function(input) {
 	if (!ls.ok) return err('ESTATE', 'draft state is malformed — refusing to overwrite it: ' + ls.reason);
 	let bad = valid_input(input ? input.name : null, input ? input.opt : null);
 	if (bad != null) return err('EINPUT', bad);
+	let structural = validate_single_fragment(input.opt);
+	if (structural != null) return err('EINPUT', structural);
 	if (length(ls.state.profiles) >= MAX_PROFILES)
 		return err('ESTATE', 'draft profile limit reached (' + MAX_PROFILES + ')');
 	let now = time();
@@ -249,6 +264,8 @@ export const profiles_update = function(input) {
 	let newOpt = (input.opt != null) ? input.opt : cur.opt;
 	let bad = valid_input(newName, newOpt);
 	if (bad != null) return err('EINPUT', bad);
+	let structural = validate_single_fragment(newOpt);
+	if (structural != null) return err('EINPUT', structural);
 	cur.name = newName;
 	cur.opt = newOpt;
 	cur.revision = cur.revision + 1;
@@ -292,6 +309,9 @@ export const profiles_delete = function(input) {
 	if (!ls.ok) return err('ESTATE', 'draft state is malformed — refusing to overwrite it: ' + ls.reason);
 	let idx = find_profile(ls.state, input.id);
 	if (idx < 0) return err('ESTATE', 'no draft profile with id ' + input.id);
+	let cur = ls.state.profiles[idx];
+	if (type(input.revision) != 'int' || input.revision != cur.revision)
+		return err('ECONFLICT', 'draft ' + input.id + ' was changed elsewhere (revision ' + cur.revision + '); reload and retry');
 	// NOTE: deleting a DRAFT never affects runtime/applied — drafts are not
 	// referenced by the running engine at all (three-level state model).
 	let kept = [];

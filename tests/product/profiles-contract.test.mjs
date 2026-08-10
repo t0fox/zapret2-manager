@@ -104,6 +104,21 @@ test('profiles preserve draft ownership and the shared transactional compiler', 
   assert.match(apply, /set_var_cas/);
 });
 
+test('draft mutations enforce the production single-profile structural validator before save', () => {
+  const create = functionBody(drafts, 'profiles_create');
+  const update = functionBody(drafts, 'profiles_update');
+
+  assert.match(drafts, /function validate_single_fragment\(optText\)/);
+  assertOrdered(create, [/validate_single_fragment\(/, /alloc_id\(/, /save_state\(/]);
+  assertOrdered(update, [/validate_single_fragment\(/, /cur\.opt = newOpt/, /save_state\(/]);
+});
+
+test('delete requires and checks the expected profile revision before mutation', () => {
+  const remove = functionBody(drafts, 'profiles_delete');
+
+  assertOrdered(remove, [/type\(input\.revision\) != 'int'/, /input\.revision != cur\.revision/, /let kept = \[\]/, /save_state\(/]);
+});
+
 test('preview is non-mutating and apply reuses the compiler inside the lock', () => {
   const preview = functionBody(apply, 'profiles_apply_preview');
   const run = functionBody(apply, 'profiles_apply_run');
@@ -146,6 +161,23 @@ test('apply transaction snapshots, writes, restarts, recollects, verifies, and r
   ]);
 });
 
+test('recent apply cache verifies current config and runtime before returning idempotent success', () => {
+  const transaction = functionBody(apply, 'apply_candidate_pipeline');
+
+  assert.match(transaction, /read_var\(OPT_VAR\) == f\.candidate/);
+  assert.match(transaction, /verify_status\(recollect_status\(\), parse_queue\(\)/);
+  assertOrdered(transaction, [/candidateSha256 == f\.diff\.candidateSha256/, /read_var\(OPT_VAR\) == f\.candidate/, /idempotent: true/]);
+});
+
+test('profile temporary files are created collision-resistant with private permissions', () => {
+  const transport = functionBody(rpc, 'profiles_edit_action');
+
+  assert.match(rpc, /function profiles_tmpfile\(\)/);
+  assert.match(rpc, /mktemp \/tmp\/z2m-profiles-edit\.XXXXXX/);
+  assert.match(transport, /profiles_tmpfile\(\)/);
+  assert.doesNotMatch(transport, /z2m-profiles-edit\.' \+ time\(\)/);
+});
+
 test('candidate and expected hash cross the lock boundary unchanged', () => {
   const caller = functionBody(apply, 'locked_candidate_call');
   const receiver = functionBody(apply, 'profiles_apply_candidate');
@@ -153,6 +185,12 @@ test('candidate and expected hash cross the lock boundary unchanged', () => {
   assert.match(caller, /\{ candidate: candidate, expectedHash: expectedHash \}/);
   assert.match(receiver, /diff\.candidateSha256 != expectedHash/);
   assert.match(receiver, /apply_candidate_pipeline\(\{ candidate: candidate,/);
+});
+
+test('profiles list exposes the exact applied option hash for post-apply verification', () => {
+  const profiles = read('zapret2-manager/files/usr/libexec/zapret2-manager/profiles.uc');
+  assert.match(profiles, /source\.optSha256 = sha256_text\(opt\)/);
+  assert.match(profiles, /mktemp \/tmp\/z2m-profiles-sha\.XXXXXX/);
 });
 
 test('profiles RPC keeps direct envelopes and JSON-file transport', () => {

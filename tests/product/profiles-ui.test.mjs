@@ -60,10 +60,34 @@ test('Profiles workflow delegates composition and apply exclusively to its backe
   assert.doesNotMatch(handler, /ctx\.api\.orchestra/);
 });
 
+test('global Strategy adapter handles profile-only preview and apply before catalog candidate gates', () => {
+  const previewStart = source.indexOf('previewDraft: function');
+  const previewEnd = source.indexOf('previewValid:', previewStart);
+  const applyStart = source.indexOf('applyDraft: function');
+  const applyEnd = source.indexOf('reloadAppliedState:', applyStart);
+  const preview = source.slice(previewStart, previewEnd);
+  const apply = source.slice(applyStart, applyEnd);
+
+  assert.ok(preview.indexOf('hasProfileDraft(value)') < preview.indexOf('candidateGate(value, preview)'));
+  assert.ok(apply.indexOf('hasProfileDraft(draft)') < apply.indexOf('candidateApplicable(selected)'));
+});
+
+test('global Strategy profile verification uses applied hash and runtime rather than draft deletion', () => {
+  const start = source.indexOf('verifyApplied: function');
+  const end = source.indexOf('\n    }', start);
+  const verify = source.slice(start, end);
+
+  assert.match(verify, /verifyAppliedResult/);
+  assert.doesNotMatch(verify, /raw\.draft|profiles\.length === 0/);
+});
+
 test('successful draft mutations invalidate preview and acknowledgement', () => {
   assert.match(source, /function invalidateProfilePreview\(\)/);
   assert.match(source, /profilesWorkflow\.invalidate\(profilesState\)/);
   assert.match(source, /function profileMutationSucceeded\(\)/);
+  const start = source.indexOf('function profileMutationSucceeded(');
+  const end = source.indexOf('\n  function ', start + 1);
+  assert.doesNotMatch(source.slice(start, end), /markProfileDraft|setStrategyDraft/);
 
   for (const handler of ['saveEditor', 'cloneProfile', 'deleteProfile', 'importApplied', 'moveProfile']) {
     const start = source.indexOf(`function ${handler}(`);
@@ -71,6 +95,29 @@ test('successful draft mutations invalidate preview and acknowledgement', () => 
     assert.notEqual(start, -1, handler);
     assert.match(source.slice(start, end === -1 ? source.length : end), /runProfileMutation\(/, handler);
   }
+});
+
+test('delete sends the displayed expected revision', () => {
+  const start = source.indexOf('function deleteProfile(');
+  const end = source.indexOf('\n  function ', start + 1);
+  assert.match(source.slice(start, end), /revision:\s*profile\.revision/);
+});
+
+test('preview ok false is rendered and surfaced as a bounded error', () => {
+  const start = source.indexOf('function previewProfiles(');
+  const handlerStart = source.indexOf('profilePreviewButton =', start);
+  const handlerEnd = source.indexOf('profileApplyButton =', handlerStart);
+  const handler = source.slice(handlerStart, handlerEnd);
+
+  assert.match(handler, /answer\.ok !== true/);
+  assert.match(handler, /boundedProfileFailure\(answer\)/);
+});
+
+test('apply result is verified against actual candidate hash and runtime profile count', () => {
+  assert.match(workflowSource, /function verifyAppliedResult\(/);
+  assert.match(workflowSource, /candidateSha256/);
+  assert.match(workflowSource, /profileCount/);
+  assert.match(source, /profilesWorkflow\.verifyAppliedResult\(/);
 });
 
 test('Profiles busy lock covers toolbar and editor mutation controls', () => {
@@ -147,4 +194,17 @@ test('apply attempt independently retains successful and failed rereads', async 
   assert.equal(result.answer.code, 'ETARGET');
   assert.equal(result.applied.revision, 9);
   assert.match(result.statusError.message, /status unavailable/);
+});
+
+test('actual apply verification rejects stale applied hashes and runtime counts', () => {
+  const expected = { candidateSha256: 'abc', profiles: 2 };
+  assert.equal(workflow.verifyAppliedResult(expected, {
+    applied: { optSha256: 'abc' }, status: { runtime: { profileCount: 2 } },
+  }).ok, true);
+  assert.equal(workflow.verifyAppliedResult(expected, {
+    applied: { optSha256: 'stale' }, status: { runtime: { profileCount: 2 } },
+  }).ok, false);
+  assert.equal(workflow.verifyAppliedResult(expected, {
+    applied: { optSha256: 'abc' }, status: { runtime: { profileCount: 1 } },
+  }).ok, false);
 });

@@ -312,10 +312,13 @@ function apply_candidate_pipeline(f) {
 		try { la = json(la_raw); } catch (e) { la = null; }
 		if (type(la) == 'object' && la != null && la.candidateSha256 == f.diff.candidateSha256) {
 			let age = time() - (type(la.at) == 'int' ? la.at : 0);
-			if (age >= 0 && age < 60)
+			let currentMatches = read_var(OPT_VAR) == f.candidate;
+			let currentVerify = currentMatches ? verify_status(recollect_status(), parse_queue(), f.allowExternalNfqws == true) : null;
+			if (age >= 0 && age < 60 && currentMatches && currentVerify.ok)
 				return { ok: true, mode: 'apply', idempotent: true,
 					note: 'identical candidate was applied ' + age + 's ago — rollback baseline preserved',
 					applied: { profiles: f.draftCount, candidateSha256: f.diff.candidateSha256 },
+					verify: currentVerify,
 					rollback: { available: true, armed: false } };
 		}
 	}

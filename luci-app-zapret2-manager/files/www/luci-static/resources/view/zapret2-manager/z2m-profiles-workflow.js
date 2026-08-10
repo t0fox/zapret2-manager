@@ -71,10 +71,23 @@ function applyAndReread(apply, readProfiles, readStatus) {
   });
 }
 
+function verifyAppliedResult(expected, reads) {
+  var applied = object(reads.applied);
+  var appliedBlock = object(applied.applied);
+  var runtime = object(object(reads.status).runtime);
+  var actualHash = appliedBlock.optSha256 || object(appliedBlock.source).optSha256 ||
+    applied.optSha256 || object(applied.source).optSha256;
+  var actualCount = runtime.profileCount;
+  var ok = actualHash === expected.candidateSha256 && actualCount === expected.profiles;
+  return { ok: ok, expectedHash: expected.candidateSha256, actualHash: actualHash,
+    expectedProfiles: expected.profiles, actualProfiles: actualCount };
+}
+
 return baseclass.extend({
   createState: createState,
   invalidate: invalidate,
   runMutation: runMutation,
   buildReorderRequest: buildReorderRequest,
-  applyAndReread: applyAndReread
+  applyAndReread: applyAndReread,
+  verifyAppliedResult: verifyAppliedResult
 });

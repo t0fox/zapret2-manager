@@ -157,6 +157,12 @@ test('collector derives profile count and strategy observation from controlled p
   assert.equal(deriveRuntime({ strategies: null }, null).profileCount, null);
 });
 
+test('profile count recognizes parsed separators rather than --new text inside values', () => {
+  assert.equal(deriveRuntime({}, '--comment="literal --new text" --filter-tcp=80').profileCount, 1);
+  assert.equal(deriveRuntime({}, '--comment="literal --new text" --new --filter-tcp=443').profileCount, 2);
+  assert.equal(deriveRuntime({}, '--renew=1 --filter-tcp=80').profileCount, 1);
+});
+
 test('status integration initializes only missing state and never mutates generation', () => {
   const present = { ok: true, data: { state: { generation: 9 } } };
   const missing = { ok: false, error: { details: { helperCode: 'ENOENT' } } };
