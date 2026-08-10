@@ -135,6 +135,10 @@ function candidate_round_trip(candidate, frags) {
 	return true;
 }
 
+// Pure proof hook for adapters that render through this module. The apply
+// pipeline below remains the only transaction owner.
+export const profiles_candidate_round_trip = candidate_round_trip;
+
 function shell_escape(s) {
 	let out = "'";
 	for (let i = 0; i < length(s); i++) {
