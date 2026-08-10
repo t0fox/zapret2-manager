@@ -90,3 +90,65 @@ Additional verification:
   must pass authoritative live inputs to `strategy_effective_argv`; UI/RPC
   callers must not construct them.
 - Full Strategy Preview and Validate request handling remain Task 9 scope.
+
+## Fix Round 1
+
+The follow-up review identified three concrete gaps in the original boundary:
+
+- `function_dependency()` returned `null` when no function registry existed,
+  so `lua-desync=fake` was silently treated as available. The collector now
+  emits an unavailable `function` dependency with id `fake` and reason
+  `Lua function registry is unavailable`. Supplied `functions` and
+  `luaFunctions` descriptors remain authoritative and descriptor-driven.
+- Injected `autoHostlist` and `hostlistExclude` paths were previously admitted
+  from safe absolute-path syntax alone. Environment injection now uses the
+  same bounded descriptor/presence probe as explicit list references. Missing
+  injected paths remain in the inspectable strategy args and produce bounded
+  missing hostlist records without writes, installation, or network access.
+- Added a direct `executionAdmission: true` regression. It reaches the existing
+  native preflight gate and returns a non-`not_checked` native status, while the
+  pure path remains `not_checked`.
+
+Explicit list behavior remains unchanged: trusted `listPath` resolution still
+uses its bounded absolute descriptor path, and explicit hostlist/ipset options
+continue to preserve their original values when unavailable.
+
+### Fix Evidence
+
+RED command:
+
+```text
+wsl -d Ubuntu --cd /home/kirill/z2m-work/m5-native-state-store -- /home/kirill/.local/bin/node --test tests/product/avatar-strategy-compiler.test.mjs
+```
+
+Result before the production fix: 25 passed, 2 failed. The failures were the
+absent function registry and missing injected list availability assertions;
+the execution-admission regression passed against the existing gate.
+
+GREEN command:
+
+```text
+wsl -d Ubuntu --cd /home/kirill/z2m-work/m5-native-state-store -- /home/kirill/.local/bin/node --test tests/product/avatar-strategy-compiler.test.mjs
+```
+
+Result: 27 tests passed, 0 failed.
+
+Required focused regressions:
+
+```text
+wsl -d Ubuntu --cd /home/kirill/z2m-work/m5-native-state-store -- /home/kirill/.local/bin/node --test tests/product/avatar-strategy-compiler.test.mjs tests/native/status-compat.test.mjs tests/product/profiles-model.test.mjs tests/product/profiles-contract.test.mjs
+```
+
+Result: 71 tests passed, 0 failed.
+
+Full product suite:
+
+```text
+wsl -d Ubuntu --cd /home/kirill/z2m-work/m5-native-state-store -- /home/kirill/.local/bin/node --test tests/product/*.test.mjs
+```
+
+Result: 104 tests passed, 0 failed.
+
+`git diff --check` passed. `native-preflight.uc` was not changed: the existing
+pinned read-only preflight remains the sole native execution gate, and the
+compiler invokes it only for `validate=true` or trusted `executionAdmission`.

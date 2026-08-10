@@ -41,6 +41,8 @@ const environment = {
     fake: { present: true },
   },
   lists: {
+    'lists/auto.txt': { path: '/lists/auto.txt', present: true },
+    'lists/netrogat.txt': { path: '/lists/netrogat.txt', present: true },
     'scan/other.txt': { path: '/scan/other.txt', present: true },
     'scan/missing.txt': { path: '/scan/missing.txt', present: false },
   },
@@ -118,6 +120,7 @@ test('compiler places injected list flags after filters and before the first pay
   });
 
   assert.equal(result.ok, true);
+  assert.equal(result.applicable, true, JSON.stringify(result.dependencies));
   assert.equal(result.fragments[0], '--filter-tcp=443 --hostlist-auto=/lists/auto.txt --hostlist-exclude=/lists/netrogat.txt --payload=tls_client_hello --lua-desync=fake');
 });
 
@@ -348,6 +351,45 @@ test('missing Blob, Lua, function, list, and ipset dependencies remain bounded a
   }
 });
 
+test('unknown Lua functions are unavailable when no function registry is supplied', () => {
+  const { functions, ...withoutFunctionRegistry } = environment;
+  const result = invoke('strategy_compile', strategy([
+    { id: 'p1', args: '--filter-tcp=443 --lua-desync=fake' },
+  ]), withoutFunctionRegistry);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.structurallyCompilable, true);
+  assert.equal(result.dependencies.available, false);
+  assert.equal(result.applicable, false);
+  assert.ok(result.dependencies.missing.some(item => item.kind === 'function'
+    && item.id === 'fake' && /registry|unknown/i.test(item.reason)));
+});
+
+test('missing injected auto-hostlist and exclusion paths remain inspectable and unavailable', () => {
+  const result = invoke('strategy_compile', strategy([
+    { id: 'p1', args: '--filter-tcp=443 --payload=tls_client_hello --lua-desync=fake' },
+  ]), {
+    ...environment,
+    listMode: 'autohostlist',
+    lists: {},
+    paths: {
+      ...environment.paths,
+      autoHostlist: '/lists/missing-auto.txt',
+      hostlistExclude: '/lists/missing-exclude.txt',
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.dependencies.available, false);
+  assert.equal(result.applicable, false);
+  assert.match(result.strategyArgs, /--hostlist-auto=\/lists\/missing-auto\.txt/);
+  assert.match(result.strategyArgs, /--hostlist-exclude=\/lists\/missing-exclude\.txt/);
+  assert.ok(result.dependencies.missing.some(item => item.kind === 'hostlist'
+    && item.id === '/lists/missing-auto.txt'));
+  assert.ok(result.dependencies.missing.some(item => item.kind === 'hostlist'
+    && item.id === '/lists/missing-exclude.txt'));
+});
+
 test('pure compilation exposes dependency/native status without invoking native dry-run', () => {
   const result = invoke('strategy_compile', strategy([
     { id: 'p1', args: '--filter-tcp=443 --lua-desync=fake' },
@@ -377,6 +419,16 @@ test('validate=true performs native admission and exposes the bounded result', (
   assert.notEqual(result.nativeValidation.status, 'not_checked');
   assert.equal(result.dependencies.nativeValidation.status, result.nativeValidation.status);
   assert.equal(result.executable, result.applicable && result.nativeValidation.status === 'verified');
+});
+
+test('executionAdmission=true invokes native preflight while the pure path does not', () => {
+  const result = invoke('strategy_compile', strategy([
+    { id: 'p1', args: '--filter-tcp=443 --lua-desync=fake' },
+  ]), { ...environment, executionAdmission: true });
+
+  assert.equal(result.ok, true);
+  assert.notEqual(result.nativeValidation.status, 'not_checked');
+  assert.equal(result.dependencies.nativeValidation.status, result.nativeValidation.status);
 });
 
 test('effective argv uses the same engine, base, Lua-init, hostlist, and strategy inputs', () => {

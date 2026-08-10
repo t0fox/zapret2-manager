@@ -281,7 +281,8 @@ function add_dependency(dependencies, kind, reference, available, reason) {
 function function_dependency(environment, reference) {
 	let registry = is_object(environment.functions) ? environment.functions
 		: (is_object(environment.luaFunctions) ? environment.luaFunctions : null);
-	if (registry == null) return null;
+	if (registry == null)
+		return { available: false, reason: 'Lua function registry is unavailable' };
 	let descriptor = registry[reference];
 	return {
 		available: descriptor != null && descriptor_safe(descriptor)
@@ -368,10 +369,16 @@ function collect_environment_list_dependencies(dependencies, fragments, environm
 		add_dependency(dependencies, 'hostlist', environment.listPath, list.available, list.reason);
 	}
 	let paths = is_object(environment.paths) ? environment.paths : {};
-	if ((mode == 'auto' || mode == 'autohostlist') && !hasHostlistAuto && paths.autoHostlist != null)
-		add_dependency(dependencies, 'hostlist', paths.autoHostlist, safe_absolute_path(paths.autoHostlist), 'auto hostlist path is unsafe');
-	if (mode != 'ipset' && !hasExclude && paths.hostlistExclude != null)
-		add_dependency(dependencies, 'hostlist', paths.hostlistExclude, safe_absolute_path(paths.hostlistExclude), 'hostlist exclusion path is unsafe');
+	if ((mode == 'auto' || mode == 'autohostlist') && !hasHostlistAuto && paths.autoHostlist != null) {
+		let autoHostlist = list_reference(environment, paths.autoHostlist, 'hostlist', true);
+		add_dependency(dependencies, 'hostlist', paths.autoHostlist,
+			autoHostlist.available, autoHostlist.reason);
+	}
+	if (mode != 'ipset' && !hasExclude && paths.hostlistExclude != null) {
+		let hostlistExclude = list_reference(environment, paths.hostlistExclude, 'hostlist', true);
+		add_dependency(dependencies, 'hostlist', paths.hostlistExclude,
+			hostlistExclude.available, hostlistExclude.reason);
+	}
 }
 
 function collect_raw_lua_dependencies(dependencies, rawFragments, environment) {
