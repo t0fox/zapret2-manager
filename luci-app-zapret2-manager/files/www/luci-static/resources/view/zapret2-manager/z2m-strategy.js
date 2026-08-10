@@ -93,9 +93,10 @@ function createAdapter(api) {
       ? api.profiles.list() : Promise.resolve({});
   }
   function reloadAppliedState() {
-    return Promise.all([api.strategy.preview(), readProfiles()]).then(function (values) {
+    return Promise.all([api.strategy.preview(), readProfiles(), api.service.status()]).then(function (values) {
       var preview = object(values[0]);
       var profiles = object(values[1]);
+      var status = object(values[2]);
       var activeCandidate = active(preview) || {};
       return {
         value: {
@@ -105,7 +106,7 @@ function createAdapter(api) {
           profileState: profiles
         },
         revision: strategyRevision(preview, profiles),
-        raw: { preview: preview, profiles: profiles }
+        raw: { preview: preview, profiles: profiles, status: status }
       };
     });
   }
@@ -138,19 +139,15 @@ function createAdapter(api) {
     previewDraft: function (scope, value, context) {
       if (object(value).override)
         return Promise.resolve({ ok: false, message: _('Точечные правила применяются своим backend-адаптером.') });
+      if (hasProfileDraft(value) && api.profiles && typeof api.profiles.apply === 'function')
+        return edit(api.profiles.apply, { mode: 'preview' });
       return api.strategy.preview().then(function (preview) {
         var gate = candidateGate(value, preview);
         if (!gate.ok) return { ok: false, message: gate.message, candidate: gate.candidate };
         var read = context && context.applied && context.applied.strategy || {};
         var revision = read.candidate && read.candidate.digest ||
           strategyRevision(read.raw && read.raw.preview, read.raw && read.raw.profiles) || revisionOf(read);
-        var profilePreview = hasProfileDraft(value) && api.profiles && typeof api.profiles.apply === 'function'
-          ? edit(api.profiles.apply, { mode: 'preview' }) : Promise.resolve({ ok: true });
-        return profilePreview.then(function (answer) {
-          if (!answer || answer.ok !== true || answer.wouldApply === false)
-            return { ok: false, message: answer && (answer.refuseReason || answer.message) || _('Backend заблокировал предпросмотр профилей.') };
-          return Object.assign({}, answer, { candidate: gate.candidate, precondition: { revision: revision } });
-        });
+        return { ok: true, candidate: gate.candidate, precondition: { revision: revision } };
       });
     },
     previewValid: function (answer) {
@@ -161,10 +158,10 @@ function createAdapter(api) {
       var previews = context && context.previews || {};
       var preview = previews.strategy || context && context.preview || {};
       var selected = object(preview.candidate);
-      if (draft.candidateId === null || draft.candidateId === undefined || !candidateApplicable(selected))
-        return Promise.reject({ code: 'candidate-blocked', message: selected.validationMessage || _('Применение стратегии заблокировано backend.') });
       if (hasProfileDraft(draft) && api.profiles && typeof api.profiles.apply === 'function')
         return edit(api.profiles.apply, { mode: 'apply' });
+      if (draft.candidateId === null || draft.candidateId === undefined || !candidateApplicable(selected))
+        return Promise.reject({ code: 'candidate-blocked', message: selected.validationMessage || _('Применение стратегии заблокировано backend.') });
       return edit(api.strategy.apply, {
         candidateId: draft.candidateId,
         expectedDigest: selected.digest,
@@ -181,7 +178,14 @@ function createAdapter(api) {
           String(actual.candidateId || '') !== String(draft.candidateId)) return false;
       if (hasProfileDraft(draft)) {
         var raw = object(read && read.raw && read.raw.profiles);
-        return !object(raw.draft).profiles || object(raw.draft).profiles.length === 0;
+        var preview = object(context && context.previews && context.previews.strategy);
+        return profilesWorkflow.verifyAppliedResult({
+          candidateSha256: object(preview.diff).candidateSha256,
+          profiles: preview.draftCount
+        }, {
+          applied: { optSha256: object(raw.source).optSha256 },
+          status: read && read.raw && read.raw.status
+        }).ok;
       }
       return true;
     },
@@ -678,7 +682,6 @@ function render(ctx) {
   }
   function profileMutationSucceeded() {
     invalidateProfilePreview();
-    markProfileDraft();
     return reload();
   }
   function markProfileDraft() {
@@ -742,7 +745,7 @@ function render(ctx) {
       shell.button(_('Отмена'), '', shell.closeModal),
       shell.button(_('Удалить'), 'danger', function () {
         if (profilesState.busy) return;
-        runProfileMutation(function () { return edit(ctx.api.profiles.delete, { id: profile.id }); }).then(function () {
+        runProfileMutation(function () { return edit(ctx.api.profiles.delete, { id: profile.id, revision: profile.revision }); }).then(function () {
           shell.closeModal();
         }).catch(showError);
       })
@@ -888,6 +891,8 @@ function render(ctx) {
       previewProfiles().then(function (answer) {
         profilesState.preview = answer || {};
         renderBackendResult(_('Backend preview'), profilesState.preview);
+        if (!answer || answer.ok !== true)
+          shell.showToast(boundedProfileFailure(answer), 'err');
         setProfilesBusy(false);
       }).catch(function (error) {
         setProfilesBusy(false);
@@ -899,8 +904,10 @@ function render(ctx) {
       if (profilesState.busy || !profilesState.preview || profilesState.preview.ok !== true || profilesState.preview.wouldApply !== true || !profilesState.replaceFullSet) return;
       setProfilesBusy(true);
       applyProfiles().then(function (result) {
+        var expected = result.answer && result.answer.applied;
+        result.actualVerification = expected ? profilesWorkflow.verifyAppliedResult(expected, result) : { ok: false };
         renderBackendResult(_('Результат применения'), result.answer, result);
-        if (result.rejected || !result.answer || result.answer.ok !== true)
+        if (result.rejected || !result.answer || result.answer.ok !== true || result.actualVerification.ok !== true)
           shell.showToast(boundedProfileFailure(result.answer), 'err');
         if (result.appliedError) shell.showToast(boundedProfileFailure(result.appliedError), 'err');
         if (result.statusError) shell.showToast(boundedProfileFailure(result.statusError), 'err');

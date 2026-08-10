@@ -1067,6 +1067,20 @@ function sha256_file(path) {	let p = popen("sha256sum " + path + " 2>/dev/null |
 	return (length(out) == 64) ? out : null;
 }
 
+function sha256_text(text) {
+	let p = popen('umask 077; mktemp /tmp/z2m-profiles-sha.XXXXXX 2>/dev/null', 'r');
+	if (!p) return null;
+	let path = trim(p.read('all') || '');
+	if (p.close() != 0 || index(path, '/tmp/z2m-profiles-sha.') != 0 || !stat(path)) {
+		if (index(path, '/tmp/z2m-profiles-sha.') == 0) try { unlink(path); } catch (e) { }
+		return null;
+	}
+	writefile(path, text);
+	let hash = sha256_file(path);
+	try { unlink(path); } catch (e) { }
+	return hash;
+}
+
 function provenance_block() {
 	return {
 		source: 'applied',
@@ -1124,6 +1138,7 @@ export const profiles_list = function() {
 		};
 	}
 	source.optPresent = true;
+	source.optSha256 = sha256_text(opt);
 
 	let model = parse_opt(opt);
 	model.source = PATHS.applied_conf;

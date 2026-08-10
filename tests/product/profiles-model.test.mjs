@@ -181,6 +181,13 @@ test('production compiler enforces the executable composition matrix', () => {
   assert.match(apply, /candidate_round_trip\(rc\.candidate, rc\.fragments\)/);
 });
 
+test('create and update use the same exact single-profile validator as apply', () => {
+  assert.match(drafts, /function validate_single_fragment\(optText\)/);
+  assert.match(drafts, /let structural = validate_single_fragment\(input\.opt\)/);
+  assert.match(drafts, /let structural = validate_single_fragment\(newOpt\)/);
+  assert.match(drafts, /length\(model\.profiles\) != 1 \|\| length\(model\.trailingTokens\) > 0/);
+});
+
 test('production ucode renderer executes deterministic composition and refusal behavior', () => {
   const special = '--hostlist=\"$HOME`cmd`\\list\"';
   for (const { profiles, expected } of [

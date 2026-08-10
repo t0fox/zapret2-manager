@@ -158,13 +158,22 @@ function profiles_list_method(req) { return profiles_action('list'); }
 // STRING (same wire pattern as lists_set): written verbatim to a temp file
 // and handed to the CLI (a file, not argv, carries multi-line opts and
 // avoids shell interpolation of content entirely).
+function profiles_tmpfile() {
+	let p = popen('umask 077; mktemp /tmp/z2m-profiles-edit.XXXXXX 2>/dev/null', 'r');
+	if (!p) return null;
+	let tmp = trim(p.read('all') || '');
+	let rc = p.close();
+	if (rc != 0 || index(tmp, '/tmp/z2m-profiles-edit.') != 0) return null;
+	return tmp;
+}
 function profiles_edit_action(sub, req) {
 	let edit = null;
 	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
 	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
 	if (edit == null) return { ok: false, error: { code: 'EINPUT', message: 'missing edit param' } };
 	if (type(edit) != 'string') return { ok: false, error: { code: 'EINPUT', message: 'edit must be a JSON string', got: type(edit) } };
-	let tmp = '/tmp/z2m-profiles-edit.' + time();
+	let tmp = profiles_tmpfile();
+	if (tmp == null) return { ok: false, error: { code: 'ETARGET', message: 'request temp file unavailable' } };
 	writefile(tmp, edit);   // verbatim — no re-encode
 	let cmd = '/usr/bin/ucode ' + PROFILES_CLI + ' ' + sub + ' ' + tmp + ' 2>/dev/null';
 	let p = popen(cmd, 'r');

@@ -1,20 +1,10 @@
 'use strict';
 
-const PROFILE_SEP = '--new';
+import { z2m_parse } from '../profiles.uc';
 
 function profile_count(opt_value) {
 	if (opt_value == null) return null;
-	let n = 0;
-	let i = 0;
-	let len = length(opt_value);
-	let mlen = length(PROFILE_SEP);
-	while (i < len) {
-		let p = index(substr(opt_value, i), PROFILE_SEP);
-		if (p < 0) break;
-		n++;
-		i = i + p + mlen;
-	}
-	return n + 1;
+	return length(z2m_parse(opt_value).profiles);
 }
 
 export const derive_runtime_observation = function(runtime, applied_opt) {
