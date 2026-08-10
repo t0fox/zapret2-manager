@@ -18,8 +18,18 @@ const UCODE_MODULE_PATTERN = ucodeModulePattern(
 const UCODE_LIBRARY_ARGS = UCODE_MODULE_PATTERN ? ['-L', UCODE_MODULE_PATTERN] : [];
 
 export function ucodeModulePattern(modulePath, libraryPath) {
-  const moduleRoot = modulePath ?? (libraryPath ? path.join(libraryPath, 'ucode') : null);
-  return moduleRoot && fs.existsSync(moduleRoot) ? path.join(moduleRoot, '*.so') : null;
+  const configuredPath = modulePath ?? libraryPath;
+  if (!configuredPath) return null;
+  if (/[*?[\]]/.test(configuredPath)) return configuredPath;
+  if (!fs.existsSync(configuredPath)) return null;
+  if (fs.statSync(configuredPath).isFile()) return configuredPath;
+
+  for (const moduleRoot of [configuredPath, path.join(configuredPath, 'ucode')]) {
+    if (fs.existsSync(moduleRoot)
+        && fs.readdirSync(moduleRoot).some(name => name.endsWith('.so')))
+      return path.join(moduleRoot, '*.so');
+  }
+  return null;
 }
 
 export function requestFrameBody(frame) {
