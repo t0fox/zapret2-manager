@@ -135,8 +135,11 @@ array but permits it to be empty. Public POST create rejects an empty array;
 the pinned PUT/update path does not repeat that non-empty check and therefore
 permits an empty array through structural persistence. Native create/update
 must preserve this observable distinction. Regardless of persistence policy, a
-Strategy with no enabled child cannot validate for execution, preview an
-executable candidate or Apply.
+Strategy with no enabled child compiles successfully to an empty argv. It is a
+non-executable preview: Preview returns `ok: true`, `args: []`,
+`profiles_count: 0` and an explicit non-applicable projection where native wire
+shape provides one. Validate and Apply reject it with the distinct
+no-enabled-profiles error.
 
 Strategy identity is the stable Avatar ID, never a path-derived hash, Orchestra
 candidate ID or `z2m_` rewrite.
@@ -155,9 +158,23 @@ separator. Duplicate child IDs are accepted because pinned Avatar validation
 does not reject them. The normalized implementation must not silently rename,
 deduplicate or reorder them.
 
-`args` accepts the Avatar-facing representation and normalizes losslessly to
-one opaque fragment accepted by the existing production validator. It does not
-reorder flags or discard unknown valid nfqws2 options.
+Avatar-facing `args` may contain spaces, tabs, CR/LF and matching quoted
+whitespace. Avatar tokenization splits on any whitespace outside quotes and
+preserves quote characters and exact token values; unmatched quotes remain in
+the final token because the pinned tokenizer does not synthesize a new error.
+The Strategy adapter applies that quote-aware tokenizer first, then
+canonicalizes the token stream to the existing safe single-line Profile
+fragment representation. The compatibility guarantee is token-semantic
+losslessness, not byte-identical whitespace:
+
+```text
+tokenize_avatar(originalArgs) == tokenize_avatar(canonicalizedFragment)
+```
+
+The canonicalization preserves token count, order, exact token values and
+unknown valid nfqws2 options. It does not silently reorder flags or drop them.
+Malformed/unmatched quoting is characterized against Avatar before any native
+safety strengthening is classified as a deviation.
 
 ## 9. Builtin Strategy Semantics
 
@@ -212,10 +229,14 @@ that does not alter accepted canonical Avatar IDs.
 
 Pinned Avatar GET list and GET detail both return the cleaned full Strategy
 object, including Profiles; each response adds computed `is_active` and
-`is_favorite`, while internal `_filepath` is removed. Native list/detail may
-use a bounded list/detail split only under `OPENWRT_NATIVE` if all metadata,
-identity, Profile controls and availability remain reachable without changing
-user behavior. Detail remains lossless and authoritative for editing/Apply.
+`is_favorite`, while internal `_filepath` is removed. Full Avatar-compatible
+list responses are the default. Before any native projection, pagination or
+list/detail split is considered, implementation work must measure the actual
+packaged full-list payload and the concrete rpcd/ubus message-size, memory and
+serialization limits. Only measured evidence of an unsafe or unworkable full
+response can authorize an `OPENWRT_NATIVE` deviation, with no loss of user
+capability; “732 Strategies sounds large” is not evidence. Detail remains
+lossless and authoritative for editing/Apply.
 
 ## 14. Catalog Parser and Normalizer
 
@@ -271,10 +292,13 @@ distinct; they are not flattened into tags.
 
 ## 17. Protocol and Set Membership
 
-Protocol inference exactly preserves Avatar filename rules, including TCP,
-UDP, HTTP80, QUIC/HTTP3 and Discord Voice distinctions represented by catalog
-source and metadata. Native internal enums use an explicit lossless mapping and
-do not collapse these into Orchestra terminology.
+The canonical Avatar Strategy `protocol` field is only `"tcp"` or `"udp"`.
+Filename inference maps names containing `udp`, `voice`, `discord`, `stun` or
+`quic` to `udp`; names containing `tcp`, `http80`, `http`, or `tls` to `tcp`;
+the fallback is `tcp`. HTTP80, QUIC/HTTP3 and Discord Voice distinctions remain
+available through physical source file/category, metadata and Profile filters;
+they are not replacement Strategy protocol values. Future Scanner target/test
+types may be richer without changing this catalog field.
 
 The manifest stores exact ordered TCP and UDP quick, standard and full ID
 lists. Quick prioritizes recommended entries and caps at 30. Standard takes
@@ -298,7 +322,10 @@ delegating to existing Profiles machinery:
 
 1. Validate aggregate schema.
 2. Preserve Profile order and filter disabled children.
-3. Quote-aware normalize each Profile without shell execution.
+3. Tokenize each Avatar-facing Profile with the pinned any-whitespace,
+   quote-aware tokenizer, preserving quote characters and exact token values;
+   canonicalize that token stream to the existing safe single-line fragment
+   representation without changing token order or semantics.
 4. Apply bare-trick autowrap.
 5. Inject Strategy-facing list flags.
 6. Add missing global blob declarations once.
@@ -307,7 +334,8 @@ delegating to existing Profiles machinery:
 9. Delegate exact ` --new ` joining and round-trip proof to the existing
    full-set compiler.
 
-No second tokenizer, `--new` compiler or Apply engine is introduced.
+The Avatar-compatible tokenizer is the Strategy boundary; it is not a second
+semantic compiler. No second `--new` compiler or Apply engine is introduced.
 
 ## 20. Autowrap Semantics
 
@@ -366,18 +394,56 @@ The adapter returns the existing candidate representation consumed by
 
 ## 24. Preview
 
-Preview is read-only and compiles the whole Strategy through the shared adapter.
-It returns normalized Strategy identity, enabled count, compiled candidate,
-hash/diff, dependency status and native preflight result. It performs zero
-manager-state or configuration writes. The client never supplies authoritative
-compiled text to a later Apply.
+Preview is read-only and accepts either a persisted `strategy_id` plus its
+expected revision/catalog digest, or a bounded complete inline `strategy_data`
+object. Inline Preview never persists the object, mutates runtime/configuration,
+or creates active identity. It is not save-first behavior.
+
+Both inputs compile through the same authoritative server-side adapter. The
+response exposes at least:
+
+- `strategyArgs`: exact compiled Strategy/NFQWS2_OPT-level args;
+- `effectiveCommand` and/or `effectiveArgv`: the full effective nfqws2
+  invocation produced by the same runtime composition layer used for live
+  execution, including native base/runtime-required composition;
+- `profilesCount`/`profiles_count`;
+- dependency availability and bounded missing dependencies;
+- candidate/config digest and explicit executable/applicable projection.
+
+For Avatar wire compatibility, native responses also expose the conceptual
+aliases `command = effectiveCommand` and `args = strategyArgs`, alongside the
+snake/camel-case `profiles_count`/`profilesCount` projection.
+
+The effective command is not merely Strategy args and is never composed in
+LuCI. There is no preview-only command composer: the backend reuses the live
+runtime composition inputs and path.
+
+Zero enabled Profiles are a successful non-executable inspection result:
+`ok: true`, `args: []`, `profiles_count: 0`; Preview does not reject solely for
+empty argv. Structural compilation errors may still fail the request.
+
+Pure Preview does not require dry-run validation. If required Lua/Blob/path
+assets are unavailable but structural compilation is possible, Preview still
+returns the command/args plus `unavailable` dependency information; it does
+not hide or erase the Strategy and does not fake execution readiness.
+
+When `validate=true` is requested, Preview first returns the same compile result
+and then attaches optional native dry-run/preflight validation. Missing runtime
+assets may make that validation unavailable or failed without removing the
+pure inspection result. Preview performs zero feature-state, manager-state or
+runtime writes. The client never supplies authoritative compiled text to a
+later Apply.
 
 ## 25. Validate
 
-Validate uses exactly the same compiled candidate as Preview and Apply. It
-checks aggregate schema, every fragment, dependencies, output bounds, lossless
-round trip and pinned native dry-run. Zero enabled Profiles is a distinct
-failure. No UI-side or consumer-specific builder exists.
+Validate uses exactly the same authoritative compiler and effective runtime
+composition as Preview and Apply. It may validate a bounded inline Strategy as
+an explicit non-persisting operation, or a persisted Strategy under its
+revision/catalog precondition. It requires execution admission: aggregate and
+Profile validation, dependencies, output bounds, lossless token round trip,
+native dry-run/preflight and runtime-required checks. Zero enabled Profiles is
+rejected with no-enabled-profiles. No UI-side or consumer-specific builder
+exists.
 
 ## 26. Apply
 
@@ -430,9 +496,11 @@ the selected identity; equality of arguments alone does not infer identity.
 
 Existing status/config hashes compare current `NFQWS2_OPT` with the active
 projection's expected candidate. External change retains “last selected”
-identity for diagnosis but marks it drifted/not currently matching. The UI must
-not claim healthy active equivalence until the selected Strategy is applied
-again successfully.
+identity for diagnosis but derives a read-only `match`/`drift`/
+`unavailable`/`uncertain` status projection. The current drift boolean,
+dependency availability, runtime health, process state and queue state are not
+persisted in Strategy feature storage. The UI must not claim healthy active
+equivalence until the selected Strategy is applied again successfully.
 
 ## 29. Favorites
 
@@ -458,7 +526,7 @@ remain at their Avatar create defaults.
 
 Based on the current repository's existing `/etc/zapret2-manager/` feature-owned
 documents, user Strategies use one file per ID under
-`/etc/zapret2-manager/strategies/`; favorites and the active identity/drift
+`/etc/zapret2-manager/strategies/`; favorites and the persisted active selection
 projection use `/etc/zapret2-manager/strategy-state.json`. These are new
 Strategy-owned documents, not M5 manager-state and not the legacy shared
 `/etc/zapret2-manager/state.json`. The latter remains the Profile-draft and
@@ -467,16 +535,26 @@ compatibility document.
 Writes use a same-directory temporary file, fsync/atomic replace, bounded
 backups and locks. Every user mutation carries expected Strategy/store revision;
 stale writes fail without blind retry. Package upgrades replace only builtin
-assets. No runtime observations are written into these feature documents.
+assets. The persisted projection contains selection identity, display metadata,
+origin, user revision or catalog digest and expected candidate/config hash. It
+does not contain current drift, dependency availability, runtime health,
+process/queue state or other observations. Derived status reads perform zero
+Strategy feature writes and zero manager-state writes.
 
 ## 32. Native RPC Contract
 
 Following current rpcd conventions, the semantic surface provides bounded
 methods for list, detail, user create/update/delete, duplicate, favorite toggle,
 whole-Strategy Preview, Validate and Apply, and packaged catalog status/reload.
-List may omit full Profile args for router efficiency under `OPENWRT_NATIVE`,
-but detail exposes the complete product object and UI capability is unchanged.
-No method exposes arbitrary paths or executables.
+The default wire contract reproduces Avatar: list and detail both return full
+cleaned Strategy objects including Profiles and computed active/favorite
+projections. The implementation must first measure the actual packaged full-list
+payload and rpcd/ubus memory/message/serialization limits. Only concrete
+measured native evidence that the full response is unsafe or unworkable may
+authorize pagination or a bounded list projection plus full detail; that choice
+must be classified `OPENWRT_NATIVE` and preserve every user capability. No
+assumption based only on the 732-ID count is sufficient. No method exposes
+arbitrary paths or executables.
 
 Distinct bounded errors cover Strategy not found, builtin immutable, protected
 ID collision, invalid Strategy, invalid Profile, no enabled Profiles, stale
@@ -522,9 +600,12 @@ are visible but fail closed.
 ## 37. Status Schema-3 Integration
 
 Schema remains 3. Backward-compatible extension fields expose selected Strategy
-ID/name/origin, expected revision/digest, match/drift state and dependency
-availability without changing existing fields. Observation reads perform zero
-writes. Absence of active evidence produces no fabricated identity.
+ID/name/origin, expected revision/digest, compiled candidate hash and derived
+match/drift/availability/uncertain state without changing existing fields.
+Current drift and availability are derived observations, not persisted in
+`strategy-state.json`. Observation reads perform zero Strategy feature writes
+and zero manager-state writes. Absence of active evidence produces no fabricated
+identity.
 
 ## 38. Autostart Relationship
 
@@ -548,13 +629,28 @@ Before production changes, fixtures freeze:
 - empty Profile-array core/create/update/build edge behavior;
 - builtin/user collision, public immutability, duplicate and favorites;
 - Strategy conversion and computed metadata;
-- Preview/Validate/Apply candidate identity;
+- persisted Strategy Preview and inline unsaved Preview;
+- zero-enabled Preview returns `ok`, empty args and `profiles_count: 0`, while
+  Validate/Apply reject it;
+- Preview `strategyArgs`, full effective command/argv, profiles count, digest,
+  optional `validate=true`, unavailable dependencies and zero writes;
+- Preview does not require dry-run unless requested;
+- Preview/Validate/Apply use the same authoritative compiler;
 - all autowrap yes/no cases and explicit filters;
 - TLS, HTTP, QUIC, ambiguous/all payloads;
 - every hostlist mode and insertion position;
+- Avatar args containing spaces, tabs, CR/LF, multiline textarea input,
+  multiple flags per line, quoted whitespace, preserved single/double quote
+  characters, inline Lua quotes and unmatched quotes;
+- token-semantic equality between original Avatar args and the canonicalized
+  native fragment;
 - preset conversion and multi-Profile output;
 - Blob/Lua present and missing dependencies;
-- exact TCP/UDP and quick/standard/full ordered memberships.
+- exact TCP/UDP and quick/standard/full ordered memberships;
+- full Avatar-compatible list payload measurement and the measured-evidence gate
+  for any later list/detail projection;
+- selected identity and expected hash persistence, derived drift and zero-write
+  status reads.
 
 Implementation tests then cover native parser parity, manifest drift diagnostics,
 CRUD/CAS, compatibility import, dependency errors, shared compilation,
