@@ -10,14 +10,14 @@ const COLLECTOR = path.resolve('zapret2-manager/files/usr/libexec/zapret2-manage
 const COMPAT = path.resolve('zapret2-manager/files/usr/libexec/zapret2-manager/core/status-compat.uc');
 const RPC = 'zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc';
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
-const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.split('|') : [];
 const LIBRARY_PATH = process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib';
-const LIBRARY = ['-L', process.env.UCODE_MODULE_PATH ?? path.join(LIBRARY_PATH, 'ucode')];
+const LIBRARY = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.split('|')
+  : ['-L', process.env.UCODE_MODULE_PATH ?? path.join(LIBRARY_PATH, 'ucode')];
 const TOP = ['applied', 'draft', 'drift', 'engine', 'generatedAt', 'generation', 'health',
   'jobs', 'runtime', 'runtimeSummary', 'schema', 'serviceState', 'system', 'upstream', 'warnings'];
 
 function run(source, env = {}) {
-  const result = spawnSync(UCODE_BIN, [...LIBRARY, ...UCODE_ARGS, '-e', source], {
+  const result = spawnSync(UCODE_BIN, [...LIBRARY, '-e', source], {
     cwd: ROOT, env: { ...process.env, LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib', ...env },
     encoding: 'utf8', timeout: 15_000,
   });
