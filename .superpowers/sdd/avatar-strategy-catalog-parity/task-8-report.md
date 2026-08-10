@@ -178,6 +178,73 @@ Results: 11 passed and 35 passed.
 Result: 12 passed under WSL root, which is required by the existing bootstrap
 test gate.
 
+## Round 2 Fixes
+
+The second review reproduced three remaining trust-boundary failures before
+implementation:
+
+1. `protected_id()` still accepted `z2k_*` and `extension*` prefixes without
+   proving that the identity existed. Prefix heuristics are no longer used for
+   favorites or immutable user-file operations. Favorites now accept only a
+   user record, a winner returned by the verified catalog, or an ID in the
+   verified packaged-extension manifest.
+2. Lock recovery previously used only directory age. Lock directories now carry
+   a private `owner` record containing the ucode PID and `/proc/<pid>/stat`
+   start-time marker. A lock with a live PID and matching start marker is never
+   stolen, regardless of age. Recovery requires the owner to be absent, invalid,
+   dead, or PID-reused and the lock to exceed the bounded stale grace period.
+   Killed-process recovery remains bounded and fail-closed for fresh locks.
+3. State-side manifest parsing only checked provenance and array shape. The
+   module now calls the existing authoritative `strategy_catalog_load()` with
+   the configured catalog root and indexes only its verified `catalog.winners`.
+   That path validates raw files, file digests, aggregate digest, traversal,
+   duplicate groups, source order, winner declarations, and pinned provenance.
+   Non-winning duplicate entries are not independently exposed as identities;
+   the effective winner ID is the only catalog identity used by state.
+
+Packaged extension identities use a private schema-1 JSON manifest with mode
+`0644`; duplicate IDs and IDs colliding with the verified catalog are rejected.
+With no installed extension manifest, namespace-looking IDs are not treated as
+valid extensions.
+
+## Round 2 Behavioral Evidence
+
+Added temporary-root regressions in
+`tests/product/avatar-strategy-state.test.mjs` for:
+
+- `z2k_not_a_real_catalog_id` and `extension_not_packaged` favorite rejection
+  with unchanged state revision;
+- valid `fake_simple` catalog favorite, valid packaged `extension-one` favorite,
+  and valid duplicated user Strategy favorite with preserved order;
+- a lock dated older than the stale threshold with a live test-process PID and
+  matching start marker, which remains locked;
+- recovery of the same old lock after replacing its owner with a demonstrably
+  dead PID;
+- a same-provenance copied catalog whose physical winner ID is tampered, which
+  fails closed and cannot make either the original or altered ID favoritable.
+
+## Round 2 Verification
+
+Commands run from the real WSL worktree:
+
+```text
+UCODE_BIN=/opt/ucode/bin/ucode UCODE_LIBRARY_PATH=/opt/ucode/lib node --test tests/product/avatar-strategy-state.test.mjs tests/product/profiles-contract.test.mjs tests/product/avatar-strategy-model.test.mjs tests/product/avatar-strategy-catalog.test.mjs tests/product/avatar-strategy-compiler.test.mjs
+```
+
+Result: 79 passed.
+
+```text
+node --test tests/native/avatar-strategy-package.test.mjs tests/native/package-helper.test.mjs
+```
+
+Result: 46 passed.
+
+```text
+/home/kirill/.local/opt/node-v22.22.1-linux-x64/bin/node --test tests/native/bootstrap.test.mjs
+```
+
+Result: 12 passed under WSL root.
+
 ```text
 git diff --check
 ```

@@ -45,8 +45,13 @@ function storage(callback) {
     Z2M_STRATEGY_STATE: path.join(root, 'strategy-state.json'),
     Z2M_STRATEGY_RECONCILIATION: path.join(runtime, 'strategy-reconciliation.json'),
     Z2M_STRATEGY_LOCK: path.join(runtime, 'strategy-state.lock'),
-    Z2M_STRATEGY_CATALOG_MANIFEST: CATALOG_MANIFEST,
+    Z2M_STRATEGY_CATALOG_ROOT: path.dirname(CATALOG_MANIFEST),
+    Z2M_STRATEGY_EXTENSION_MANIFEST: path.join(root, 'extensions.json'),
   };
+  fs.writeFileSync(env.Z2M_STRATEGY_EXTENSION_MANIFEST, JSON.stringify({
+    schema: 1, extensions: ['extension-one'],
+  }));
+  fs.chmodSync(env.Z2M_STRATEGY_EXTENSION_MANIFEST, 0o644);
   try { return callback(env, root, strategies); } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -145,17 +150,28 @@ test('duplicate proposes and stores a deep-copied user Strategy with pinned ID/n
 test('favorites preserve requested order, allow builtin IDs, and clean deleted user IDs', () => storage((env) => {
   const created = invoke(`state.strategy_user_create({strategy:${JSON.stringify(userStrategy())}})`, env);
   assert.equal(created.ok, true);
-  const ghost = invoke("state.strategy_favorite({expectedRevision:0,id:'missing-user',favorite:true})", env);
-  assert.equal(ghost.error.code, 'ENOENT');
+  for (const id of ['missing-user', 'z2k_not_a_real_catalog_id', 'extension_not_packaged']) {
+    const ghost = invoke(`state.strategy_favorite({expectedRevision:0,id:'${id}',favorite:true})`, env);
+    assert.equal(ghost.error.code, 'ENOENT');
+  }
   assert.equal(invoke('state.strategy_selection_get()', env).revision, 0);
   const favorite = invoke("state.strategy_favorite({expectedRevision:0,id:'user-one',favorite:true})", env);
   assert.equal(favorite.ok, true);
-  const builtin = invoke(`state.strategy_favorite({expectedRevision:${favorite.state.revision},id:'z2k_all_in_one',favorite:true})`, env);
-  assert.deepEqual(builtin.state.favorites, ['user-one', 'z2k_all_in_one']);
+  const builtin = invoke(`state.strategy_favorite({expectedRevision:${favorite.state.revision},id:'fake_simple',favorite:true})`, env);
+  assert.deepEqual(builtin.state.favorites, ['user-one', 'fake_simple']);
+  const extension = invoke(`state.strategy_favorite({expectedRevision:${builtin.state.revision},id:'extension-one',favorite:true})`, env);
+  assert.deepEqual(extension.state.favorites, ['user-one', 'fake_simple', 'extension-one']);
+  const duplicate = invoke(`state.strategy_duplicate({strategy:${JSON.stringify({
+    ...userStrategy(), id: 'duplicate-source', name: 'Duplicate source',
+  })}})`, env);
+  assert.equal(duplicate.ok, true);
+  const duplicateFavorite = invoke(`state.strategy_favorite({expectedRevision:${extension.state.revision},id:'duplicate-source_copy',favorite:true})`, env);
+  assert.deepEqual(duplicateFavorite.state.favorites,
+    ['user-one', 'fake_simple', 'extension-one', 'duplicate-source_copy']);
   const removed = invoke(`state.strategy_user_delete({id:'user-one',expectedRevision:1})`, env);
   assert.equal(removed.ok, true);
   assert.deepEqual(invoke(`state.strategy_favorite({expectedRevision:${removed.state.revision},id:null,favorite:false})`, env).state.favorites,
-    ['z2k_all_in_one']);
+    ['fake_simple', 'extension-one', 'duplicate-source_copy']);
 }));
 
 test('metadata type and content are validated consistently before create, update, and duplicate writes', () => storage((env, root, strategies) => {
@@ -228,13 +244,38 @@ test('all atomic write destinations fail closed when already symlinked', () => s
   assert.equal(fs.readFileSync(reconciliationTarget, 'utf8'), 'keep-reconciliation');
 }));
 
-test('stale private lock is recovered without weakening the mutation boundary', () => storage((env, root, strategies) => {
+test('stale lock recovery requires dead owner evidence and never steals a live owner', () => storage((env, root, strategies) => {
   fs.mkdirSync(env.Z2M_STRATEGY_LOCK);
+  const startMarker = fs.readFileSync(`/proc/${process.pid}/stat`, 'utf8').trim().split(/\s+/)[21];
+  fs.writeFileSync(path.join(env.Z2M_STRATEGY_LOCK, 'owner'), `${process.pid}:${startMarker}`);
+  fs.chmodSync(path.join(env.Z2M_STRATEGY_LOCK, 'owner'), 0o600);
   fs.utimesSync(env.Z2M_STRATEGY_LOCK, new Date(0), new Date(0));
+  const live = invoke(`state.strategy_user_create({strategy:${JSON.stringify(userStrategy())}})`, env);
+  assert.equal(live.error.code, 'ELOCKED');
+  assert.equal(fs.existsSync(path.join(strategies, 'user-one.json')), false);
+
+  fs.writeFileSync(path.join(env.Z2M_STRATEGY_LOCK, 'owner'), '999999:1');
   const result = invoke(`state.strategy_user_create({strategy:${JSON.stringify(userStrategy())}})`, env);
   assert.equal(result.ok, true);
   assert.equal(fs.existsSync(env.Z2M_STRATEGY_LOCK), false);
   assert.equal(fs.statSync(path.join(strategies, 'user-one.json')).mode & 0o777, 0o600);
+}));
+
+test('same-provenance manifest tampering fails closed before collision or favorite decisions', () => storage((env, root) => {
+  const tamperedRoot = path.join(root, 'tampered-catalog');
+  fs.cpSync(path.dirname(CATALOG_MANIFEST), tamperedRoot, { recursive: true });
+  const manifestPath = path.join(tamperedRoot, 'manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  manifest.physicalEntries[0].id = 'tampered_catalog_id';
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+  fs.chmodSync(manifestPath, 0o644);
+
+  const tamperedEnv = { ...env, Z2M_STRATEGY_CATALOG_ROOT: tamperedRoot };
+  const builtin = invoke("state.strategy_favorite({expectedRevision:0,id:'fake_simple',favorite:true})", tamperedEnv);
+  assert.equal(builtin.error.code, 'ENOENT');
+  const altered = invoke("state.strategy_favorite({expectedRevision:0,id:'tampered_catalog_id',favorite:true})", tamperedEnv);
+  assert.equal(altered.error.code, 'ENOENT');
+  assert.equal(invoke('state.strategy_selection_get()', tamperedEnv).revision, 0);
 }));
 
 test('schema, bounds, traversal, atomicity, and production path boundaries fail closed', () => storage((env, root, strategies) => {

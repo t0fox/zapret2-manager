@@ -6,15 +6,16 @@
 
 import { readfile, writefile, stat, readlink, unlink, mkdir, lsdir, popen } from 'fs';
 import { strategy_validate as model_validate, strategy_normalize } from './strategy-model.uc';
+import { strategy_catalog_load } from './strategy-catalog.uc';
 
 const STORAGE_ROOT = getenv('Z2M_STRATEGY_ROOT') || '/etc/zapret2-manager';
 const STRATEGY_DIR = getenv('Z2M_STRATEGY_DIR') || '/etc/zapret2-manager/strategies';
 const STATE_PATH = getenv('Z2M_STRATEGY_STATE') || '/etc/zapret2-manager/strategy-state.json';
 const RECONCILE_PATH = getenv('Z2M_STRATEGY_RECONCILIATION') || '/tmp/zapret2-manager/strategy-reconciliation.json';
 const LOCK_PATH = getenv('Z2M_STRATEGY_LOCK') || '/tmp/zapret2-manager/strategy-state.lock';
-const CATALOG_MANIFEST_PATH = getenv('Z2M_STRATEGY_CATALOG_MANIFEST') || '/usr/share/zapret2-manager/catalog/avatar/manifest.json';
+const CATALOG_ROOT = getenv('Z2M_STRATEGY_CATALOG_ROOT') || '/usr/share/zapret2-manager/catalog/avatar';
+const EXTENSION_MANIFEST_PATH = getenv('Z2M_STRATEGY_EXTENSION_MANIFEST') || '/usr/share/zapret2-manager/strategies/extensions.json';
 const MAX_BYTES = 521028;
-const MAX_MANIFEST_BYTES = 4 * 1024 * 1024;
 const MAX_ID = 128;
 const MAX_NAME = 256;
 const MAX_PROFILES = 256;
@@ -46,42 +47,48 @@ function builtin_id(id) {
 	return is_string(id) && (match(id, /^z2k_/) && substr(id, -5) != '_copy' || match(id, /^builtin([._-]|$)/));
 }
 
-function extension_id(id) { return is_string(id) && match(id, /^extension([._-]|$)/); }
-
 let catalog_ids = {};
 let catalog_loaded = false;
 let catalog_available = false;
+let extension_ids = {};
+let extensions_loaded = false;
+let extensions_available = false;
 
 function load_catalog_ids() {
 	if (catalog_loaded) return catalog_available;
 	catalog_loaded = true;
-	let metadata = null;
-	try { metadata = stat(CATALOG_MANIFEST_PATH); } catch (e) { metadata = null; }
-	if (metadata == null || metadata.type != 'file' || readlink(CATALOG_MANIFEST_PATH) != null ||
-		type(metadata.size) != 'int' || metadata.size > MAX_MANIFEST_BYTES) return false;
-	let raw = null, manifest = null;
-	try { raw = readfile(CATALOG_MANIFEST_PATH); manifest = json(raw); } catch (e) { return false; }
-	if (!is_object(manifest) || manifest.schema !== 1 || !is_object(manifest.source) ||
-		manifest.source.repository != 'avatarDD/zapret-gui' ||
-		manifest.source.commit != 'f9dd3ea47a2239514f396a843b475c92c33f0b4c' ||
-		type(manifest.physicalEntries) != 'array' || type(manifest.files) != 'array') return false;
-	for (let entry in manifest.physicalEntries) {
-		if (!is_object(entry) || !bounded_string(entry.id, MAX_ID)) return false;
-		catalog_ids[entry.id] = true;
-	}
-	for (let file in manifest.files) {
-		if (!is_object(file) || type(file.sourceOrder) != 'array') return false;
-		for (let id in file.sourceOrder) {
-			if (!bounded_string(id, MAX_ID)) return false;
-			catalog_ids[id] = true;
-		}
-	}
+	let loaded = null;
+	try { loaded = strategy_catalog_load(CATALOG_ROOT); } catch (e) { loaded = null; }
+	if (!is_object(loaded) || loaded.ok != true || !is_object(loaded.catalog) ||
+		!is_object(loaded.catalog.winners)) return false;
+	for (let id in loaded.catalog.winners) catalog_ids[id] = true;
 	catalog_available = true;
 	return true;
 }
 
+function load_extension_ids() {
+	if (extensions_loaded) return extensions_available;
+	extensions_loaded = true;
+	let metadata = null, raw = null, manifest = null;
+	try { metadata = stat(EXTENSION_MANIFEST_PATH); } catch (e) { metadata = null; }
+	if (metadata == null || metadata.type != 'file' || readlink(EXTENSION_MANIFEST_PATH) != null ||
+		type(metadata.size) != 'int' || metadata.size > MAX_BYTES || metadata.mode % 512 != 420) return false;
+	try { raw = readfile(EXTENSION_MANIFEST_PATH); manifest = json(raw); } catch (e) { return false; }
+	if (!is_object(manifest) || manifest.schema !== 1 || type(manifest.extensions) != 'array' ||
+		!load_catalog_ids()) return false;
+	let seen = {};
+	for (let id in manifest.extensions) {
+		if (!bounded_string(id, MAX_ID) || seen[id] || catalog_ids[id]) return false;
+		seen[id] = true;
+		extension_ids[id] = true;
+	}
+	extensions_available = true;
+	return true;
+}
+
 function catalog_id(id) { return load_catalog_ids() && catalog_ids[id] == true; }
-function protected_id(id) { return builtin_id(id) || extension_id(id) || catalog_id(id); }
+function extension_id(id) { return load_extension_ids() && extension_ids[id] == true; }
+function protected_id(id) { return catalog_id(id) || extension_id(id); }
 
 function exact_fields(value, fields) {
 	if (!is_object(value) || length(value) != length(fields)) return false;
@@ -132,20 +139,72 @@ function ensure_storage() {
 	return ensure_directory(STRATEGY_DIR, PRIVATE_DIR_MODE);
 }
 
+function process_start_marker(pid) {
+	if (!is_string(pid) || !match(pid, /^[0-9]{1,16}$/)) return null;
+	let raw = null;
+	try { raw = readfile('/proc/' + pid + '/stat'); } catch (e) { return null; }
+	let fields = split(trim(raw || ''), /[ \t]+/);
+	return length(fields) > 21 && match(fields[21], /^[0-9]+$/) ? fields[21] : null;
+}
+
+function owner_identity() {
+	let pid = null;
+	try { pid = readlink('/proc/self'); } catch (e) { pid = null; }
+	let marker = process_start_marker(pid);
+	return marker == null ? null : pid + ':' + marker;
+}
+
+function lock_owner_alive() {
+	let ownerPath = LOCK_PATH + '/owner', metadata = null;
+	try { metadata = stat(ownerPath); } catch (e) { metadata = null; }
+	if (metadata == null || metadata.type != 'file' || readlink(ownerPath) != null ||
+		type(metadata.size) != 'int' || metadata.size < 3 || metadata.size > 64 ||
+		metadata.mode % 512 != PRIVATE_FILE_MODE) return false;
+	let raw = null;
+	try { raw = readfile(ownerPath); } catch (e) { return false; }
+	let fields = split(trim(raw || ''), ':');
+	return length(fields) == 2 && process_start_marker(fields[0]) == fields[1];
+}
+
+function lock_is_old(metadata) {
+	return metadata != null && type(metadata.mtime) == 'int' && time() >= metadata.mtime &&
+		time() - metadata.mtime > LOCK_STALE_SECONDS;
+}
+
+function create_lock() {
+	let identity = owner_identity();
+	if (identity == null) return false;
+	let ownerPath = LOCK_PATH + '/owner';
+	try { writefile(ownerPath, identity); } catch (e) {
+		command('rmdir ' + shell_quote(LOCK_PATH) + ' 2>/dev/null');
+		return false;
+	}
+	if (!command('chmod 0600 ' + shell_quote(ownerPath) + ' 2>/dev/null').ok) {
+		try { unlink(ownerPath); } catch (ignored) { }
+		command('rmdir ' + shell_quote(LOCK_PATH) + ' 2>/dev/null');
+		return false;
+	}
+	return true;
+}
+
 function acquire_lock() {
 	let parent = substr(LOCK_PATH, 0, rindex(LOCK_PATH, '/'));
 	if (!ensure_directory(parent, PRIVATE_DIR_MODE)) return false;
 	let created = command('umask 077; mkdir ' + shell_quote(LOCK_PATH) + ' 2>/dev/null');
-	if (created.ok) return true;
+	if (created.ok) return create_lock();
 	let metadata = null;
 	try { metadata = stat(LOCK_PATH); } catch (e) { metadata = null; }
-	if (metadata == null || metadata.type != 'directory' || type(metadata.mtime) != 'int' ||
-		time() < metadata.mtime || time() - metadata.mtime <= LOCK_STALE_SECONDS) return false;
+	if (metadata == null || metadata.type != 'directory' || lock_owner_alive() || !lock_is_old(metadata)) return false;
+	try { unlink(LOCK_PATH + '/owner'); } catch (e) { }
 	if (!command('rmdir ' + shell_quote(LOCK_PATH) + ' 2>/dev/null').ok) return false;
-	return command('umask 077; mkdir ' + shell_quote(LOCK_PATH) + ' 2>/dev/null').ok;
+	if (!command('umask 077; mkdir ' + shell_quote(LOCK_PATH) + ' 2>/dev/null').ok) return false;
+	return create_lock();
 }
 
-function release_lock() { command('rmdir ' + shell_quote(LOCK_PATH) + ' 2>/dev/null'); }
+function release_lock() {
+	try { unlink(LOCK_PATH + '/owner'); } catch (e) { }
+	command('rmdir ' + shell_quote(LOCK_PATH) + ' 2>/dev/null');
+}
 
 // Production CLI callers may hold the package-standard flock -x boundary;
 // direct module callers use an atomic private mkdir lock.
