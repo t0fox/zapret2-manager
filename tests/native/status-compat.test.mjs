@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 
 const ROOT = process.cwd();
 const STATUS = path.resolve('zapret2-manager/files/usr/libexec/zapret2-manager/status.uc');
+const COLLECTOR = path.resolve('zapret2-manager/files/usr/libexec/zapret2-manager/core/status-collector.uc');
 const COMPAT = path.resolve('zapret2-manager/files/usr/libexec/zapret2-manager/core/status-compat.uc');
 const RPC = 'zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc';
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
@@ -25,7 +26,7 @@ function run(source, env = {}) {
 }
 
 function importStatus(expression) {
-  return run(`global.ARGV = ['--no-print']; import * as status from '${STATUS}'; print(sprintf('%J', ${expression}));`);
+  return run(`import * as status from '${COLLECTOR}'; print(sprintf('%J', ${expression}));`);
 }
 
 function nativeState(generation = 7, serviceState = 'stopped') {
@@ -56,11 +57,12 @@ function observations() {
 
 test('current status collector freezes the schema-3 assembly contract before refactor', () => {
   const source = fs.readFileSync(STATUS, 'utf8');
+  const collector = fs.readFileSync(COLLECTOR, 'utf8');
   const compat = fs.readFileSync(COMPAT, 'utf8');
   assert.match(compat, /schema:\s*3/);
   for (const key of TOP) assert.match(compat, new RegExp(`\\b${key}:`), key);
   assert.match(compat, /runtime_summary\(status\)/);
-  assert.match(source, /writefile\(PATHS\.status_json/);
+  assert.match(collector, /writefile\(PATHS\.status_json/);
 });
 
 test('rpc status method preserves direct schema-3 cache behavior and three-second TTL', () => {
@@ -110,19 +112,26 @@ test('compatibility adapter is pure and delegates runtimeSummary to existing imp
 });
 
 test('status integration reads native state, initializes only ENOENT, and never mutates observations', () => {
-  const source = fs.readFileSync(STATUS, 'utf8');
+  const source = fs.readFileSync(COLLECTOR, 'utf8');
   assert.match(source, /export const collect_observations = function/);
   assert.match(source, /export const collect = function/);
-  assert.match(source, /let native_result = state_read\(\);/);
-  assert.match(source, /helperCode == 'ENOENT'[\s\S]*?state_initialize\(\)/);
+  assert.match(source, /native_result\s*=\s*state_read\(\)/);
+  assert.match(source, /helperCode\s*==\s*'ENOENT'[\s\S]*?state_initialize\(\)/);
   assert.doesNotMatch(source, /state_mutate\(|atomic_write_json\(/);
-  assert.match(source, /legacy_status_v3\(native_state, observations\)/);
+  assert.match(source, /legacy_status_v3\([\s\S]*?,\s*observations\)/);
   assert.match(source, /writefile\(PATHS\.status_json/);
 });
 
 test('status module exports collect_observations and collect as importable functions', () => {
   const exported = importStatus('sort(keys(status))');
   assert.deepEqual(exported, ['collect', 'collect_observations']);
+});
+
+test('status CLI remains directly executable and delegates to the importable collector', () => {
+  const source = fs.readFileSync(STATUS, 'utf8');
+  assert.match(source, /^#!\/usr\/bin\/ucode$/m);
+  assert.match(source, /import \{ collect \} from '\.\/core\/status-collector\.uc';/);
+  assert.doesNotMatch(source, /export const/);
 });
 
 test('degraded native state remains schema 3 without healthy generation-zero fabrication', () => {
