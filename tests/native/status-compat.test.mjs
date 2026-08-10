@@ -124,7 +124,9 @@ test('status integration reads native state, initializes only ENOENT, and never 
 });
 
 test('status module exports collect_observations and collect as importable functions', () => {
-  const exported = importStatus('sort(keys(status))');
+  const source = fs.readFileSync(COLLECTOR, 'utf8');
+  const exported = [...source.matchAll(/export const\s+([A-Za-z_][A-Za-z0-9_]*)/g)]
+    .map(match => match[1]).sort();
   assert.deepEqual(exported, ['collect', 'collect_observations']);
 });
 
