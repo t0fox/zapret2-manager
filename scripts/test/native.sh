@@ -48,6 +48,10 @@ find tests/native -type f -name '*.test.mjs' \
 while IFS= read -r test_file; do
   printf '%s\0' "$test_file"
 done > "$test_list"
+find tests/product -type f -name '*.test.mjs' -print | LC_ALL=C sort |
+while IFS= read -r test_file; do
+  printf '%s\0' "$test_file"
+done >> "$test_list"
 
 count=$(tr -cd '\0' < "$test_list" | wc -c)
 [ "$count" -gt 0 ] || { echo 'no native tests found' >&2; exit 1; }
