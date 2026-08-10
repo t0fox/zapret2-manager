@@ -652,6 +652,37 @@ function render(ctx) {
   });
   renderCandidates();
 
+  var profilesBusy = false;
+  var profilePreview = null;
+  var replaceFullSet = false;
+  var profilesPaneHost = null;
+  var profileAcknowledgement = null;
+  var profileApplyButton = null;
+  var profilePreviewButton = null;
+  function invalidateProfilePreview() {
+    profilePreview = null;
+    replaceFullSet = false;
+    if (profileAcknowledgement) profileAcknowledgement.checked = false;
+  }
+  function setProfilesBusy(value) {
+    profilesBusy = value;
+    if (!profilesPaneHost) return;
+    Array.prototype.forEach.call(profilesPaneHost.querySelectorAll('button, input, textarea, select'), function (control) {
+      control.disabled = profilesBusy || control.getAttribute('data-blocked') === 'true';
+    });
+    if (!profilesBusy) {
+      if (profilePreviewButton) profilePreviewButton.disabled = profilePreviewButton.getAttribute('data-blocked') === 'true';
+      if (profileApplyButton)
+        profileApplyButton.disabled = !profilePreview || profilePreview.ok !== true || profilePreview.wouldApply !== true || !replaceFullSet;
+      if (profileAcknowledgement)
+        profileAcknowledgement.disabled = !profilePreview || profilePreview.ok !== true || profilePreview.wouldApply !== true;
+    }
+  }
+  function profileMutationSucceeded() {
+    invalidateProfilePreview();
+    markProfileDraft();
+    return reload();
+  }
   function markProfileDraft() {
     setStrategyDraft(ctx, {
       profiles: true,
@@ -661,6 +692,7 @@ function render(ctx) {
     });
   }
   function openProfileEditor(profile) {
+    if (profilesBusy) return;
     var creating = !profile;
     var nameInput = E('input', { type: 'text', placeholder: _('Название профиля') });
     var optArea = E('textarea', { rows: '8', 'class': 'z2m-mono', placeholder: '--filter-tcp=443\n--lua-desync=...' });
@@ -677,6 +709,7 @@ function render(ctx) {
       }).catch(showError);
     }
     function saveEditor() {
+      if (profilesBusy) return;
       var payload = { name: String(nameInput.value || '').trim(), opt: String(optArea.value || '') };
       if (!payload.name || !payload.opt.trim()) {
         shell.showToast(_('Укажите название и параметры профиля.'), 'err');
@@ -692,8 +725,7 @@ function render(ctx) {
       request.then(function (answer) {
         if (!answer || answer.ok !== true) throw answer || new Error('profile save failed');
         shell.closeModal();
-        markProfileDraft();
-        return reload();
+        return profileMutationSucceeded();
       }).catch(showError);
     }
     shell.openModal(creating ? _('Новый профиль') : _('Изменить профиль'), E('div', { 'class': 'z2m-cbi' }, [
@@ -707,57 +739,75 @@ function render(ctx) {
     ]);
   }
   function cloneProfile(profile) {
+    if (profilesBusy) return;
     edit(ctx.api.profiles.clone, { id: profile.id }).then(function (answer) {
       if (!answer || answer.ok !== true) throw answer || new Error('profile clone failed');
-      markProfileDraft();
-      return reload();
+      return profileMutationSucceeded();
     }).catch(showError);
   }
   function deleteProfile(profile) {
+    if (profilesBusy) return;
     shell.openModal(_('Удалить профиль?'), E('p', {}, profileName(profile, format) || ''), [
       shell.button(_('Отмена'), '', shell.closeModal),
       shell.button(_('Удалить'), 'danger', function () {
+        if (profilesBusy) return;
         edit(ctx.api.profiles.delete, { id: profile.id }).then(function (answer) {
           if (!answer || answer.ok !== true) throw answer || new Error('profile delete failed');
           shell.closeModal();
-          markProfileDraft();
-          return reload();
+          return profileMutationSucceeded();
         }).catch(showError);
       })
     ]);
   }
   function importApplied() {
+    if (profilesBusy) return;
     ctx.api.profiles.importApplied().then(function (answer) {
       if (!answer || answer.ok !== true) throw answer || new Error('profile import failed');
-      markProfileDraft();
-      return reload();
+      return profileMutationSucceeded();
     }).catch(showError);
   }
-  function reorderProfiles(ids, profiles) {
-    var revisions = {};
-    profiles.forEach(function (profile) { revisions[profile.id] = profile.revision; });
-    return edit(ctx.api.profiles.reorder, { ids: ids, revisions: revisions });
+  function reorderProfiles(movedId, offset) {
+    return ctx.api.profiles.list().then(function (latest) {
+      var profiles = draftProfiles(latest);
+      var index = profiles.map(function (profile) { return profile.id; }).indexOf(movedId);
+      var swap = index + offset;
+      if (index < 0 || swap < 0 || swap >= profiles.length)
+        throw { code: 'ESTATE', message: _('Порядок профилей изменился. Обновите страницу и повторите.') };
+      var ids = profiles.map(function (profile) { return profile.id; });
+      var revisions = {};
+      profiles.forEach(function (profile) { revisions[profile.id] = profile.revision; });
+      ids[index] = ids[swap];
+      ids[swap] = movedId;
+      return edit(ctx.api.profiles.reorder, { ids: ids, revisions: revisions });
+    });
   }
   function previewProfiles() {
     return edit(ctx.api.profiles.apply, { mode: 'preview' });
   }
   function applyProfiles() {
-    return edit(ctx.api.profiles.apply, { mode: 'apply' }).then(function (answer) {
+    function settleApply(settlement) {
       return Promise.all([
         Promise.resolve(createAdapter(ctx.api).reloadAppliedState()),
         ctx.api.service.status()
       ]).then(function (reads) {
-        return { answer: answer, applied: reads[0], status: reads[1] };
+        return { answer: settlement.answer, applied: reads[0], status: reads[1], rejected: settlement.rejected };
+      }, function (readError) {
+        return { answer: settlement.answer, readError: readError, rejected: settlement.rejected };
       });
-    });
+    }
+    return Promise.resolve(edit(ctx.api.profiles.apply, { mode: 'apply' })).then(
+      function (answer) { return settleApply({ answer: answer, rejected: false }); },
+      function (error) { return settleApply({ answer: error, rejected: true }); }
+    );
+  }
+  function boundedProfileFailure(error) {
+    var normalized = ctx.api.normalizeError(error);
+    return String(normalized && normalized.message || _('Операция профилей завершилась ошибкой.')).slice(0, 320);
   }
   function renderProfilesPane(currentProfileData) {
     var drafts = draftProfiles(currentProfileData);
     var applied = appliedProfiles(currentProfileData);
     var shown = drafts.length ? drafts : applied;
-    var busy = false;
-    var preview = null;
-    var replaceFullSet = false;
     var globalRows = [];
     function addGlobal(label, value) {
       var text = format.text(value);
@@ -773,15 +823,6 @@ function render(ctx) {
 
     var profileHost = E('div', { 'class': 'z2m-profile-chain' });
     var workflowHost = E('div', { 'class': 'z2m-profile-workflow', 'aria-live': 'polite' });
-    var previewButton;
-    var applyButton;
-    function setBusy(value) {
-      busy = value;
-      previewButton.disabled = busy || !drafts.length;
-      var previewReady = preview && preview.ok === true && preview.wouldApply === true;
-      applyButton.disabled = busy || !previewReady || !replaceFullSet;
-      Array.prototype.forEach.call(profileHost.querySelectorAll('button'), function (button) { button.disabled = busy || button.getAttribute('data-blocked') === 'true'; });
-    }
     function renderBackendResult(title, answer, reads) {
       var value = object(answer);
       var diff = object(value.diff);
@@ -819,19 +860,13 @@ function render(ctx) {
         value.ok === true ? _('ответ backend') : _('операция заблокирована')));
     }
     function moveProfile(index, offset) {
-      if (busy) return;
-      var ids = drafts.map(function (profile) { return profile.id; });
-      var swap = index + offset;
-      var moved = ids[index];
-      ids[index] = ids[swap];
-      ids[swap] = moved;
-      setBusy(true);
-      reorderProfiles(ids, drafts).then(function (answer) {
+      if (profilesBusy) return;
+      setProfilesBusy(true);
+      reorderProfiles(drafts[index].id, offset).then(function (answer) {
         if (!answer || answer.ok !== true) throw answer || new Error('profile reorder failed');
-        markProfileDraft();
-        return reload();
+        return profileMutationSucceeded();
       }).catch(function (error) {
-        setBusy(false);
+        setProfilesBusy(false);
         showError(error);
       });
     }
@@ -870,58 +905,61 @@ function render(ctx) {
       var row = renderDraftProfile(profile, index);
       if (row) profileHost.appendChild(row);
     });
-    var acknowledgement = E('input', { type: 'checkbox', id: 'replace-full-set' });
-    acknowledgement.addEventListener('change', function () {
-      replaceFullSet = acknowledgement.checked === true;
-      setBusy(busy);
+    profileAcknowledgement = E('input', { type: 'checkbox', id: 'replace-full-set', disabled: 'disabled' });
+    profileAcknowledgement.addEventListener('change', function () {
+      replaceFullSet = profileAcknowledgement.checked === true;
+      setProfilesBusy(profilesBusy);
     });
-    previewButton = shell.button(_('Предпросмотр полного набора'), 'sm', function () {
-      if (busy) return;
-      preview = null;
-      replaceFullSet = false;
-      acknowledgement.checked = false;
-      setBusy(true);
+    profilePreviewButton = shell.button(_('Предпросмотр полного набора'), 'sm', function () {
+      if (profilesBusy) return;
+      invalidateProfilePreview();
+      setProfilesBusy(true);
       previewProfiles().then(function (answer) {
-        preview = answer || {};
-        renderBackendResult(_('Backend preview'), preview);
-        setBusy(false);
+        profilePreview = answer || {};
+        renderBackendResult(_('Backend preview'), profilePreview);
+        setProfilesBusy(false);
       }).catch(function (error) {
-        setBusy(false);
+        setProfilesBusy(false);
         showError(error);
       });
     }, !drafts.length);
-    applyButton = shell.button(_('Применить полный набор'), 'primary sm', function () {
-      if (busy || !preview || preview.ok !== true || preview.wouldApply !== true || !replaceFullSet) return;
-      setBusy(true);
+    if (!drafts.length) profilePreviewButton.setAttribute('data-blocked', 'true');
+    profileApplyButton = shell.button(_('Применить полный набор'), 'primary sm', function () {
+      if (profilesBusy || !profilePreview || profilePreview.ok !== true || profilePreview.wouldApply !== true || !replaceFullSet) return;
+      setProfilesBusy(true);
       applyProfiles().then(function (result) {
         renderBackendResult(_('Результат применения'), result.answer, result);
-        return reload();
-      }).catch(function (error) {
-        setBusy(false);
-        showError(error);
+        if (result.rejected || !result.answer || result.answer.ok !== true)
+          shell.showToast(boundedProfileFailure(result.answer), 'err');
+        if (result.readError) shell.showToast(boundedProfileFailure(result.readError), 'err');
+        return reload().catch(function (error) {
+          setProfilesBusy(false);
+          shell.showToast(boundedProfileFailure(error), 'err');
+        });
       });
     }, true);
-    setBusy(false);
-    return E('div', { 'class': 'z2m-profiles-pane' }, compact([
+    profilesPaneHost = E('div', { 'class': 'z2m-profiles-pane' }, compact([
       globalRows.length ? shell.panel(_('Глобальная часть'), E('div', {}, globalRows), _('действует на всю команду, до первого --new')) : null,
       shell.panel(_('Профили'), E('div', {}, [
         shell.statePanel({ message: _('Редактор хранит расширенные совместимые фрагменты nfqws2. Это не каноническая модель Strategy.'), kind: 'info' }),
         E('div', { 'class': 'z2m-btnrow z2m-profile-toolbar' }, [
-          shell.button(_('Новый профиль'), 'primary sm', function () { openProfileEditor(null); }),
-          shell.button(_('Импортировать применённые'), 'sm', importApplied),
-          previewButton
+          shell.button(_('Новый профиль'), 'primary sm', function () { openProfileEditor(null); }, profilesBusy),
+          shell.button(_('Импортировать применённые'), 'sm', importApplied, profilesBusy),
+          profilePreviewButton
         ]),
         profileHost
       ]), shown.length ? shown.length + _(' блоков через --new · порядок важен') : null),
       drafts.length ? shell.panel(_('Применение профилей'), E('div', {}, [
         E('label', { 'for': 'replace-full-set', 'class': 'z2m-profile-ack' }, [
-          acknowledgement,
+          profileAcknowledgement,
           E('span', {}, _('Я понимаю: применение заменит весь упорядоченный набор применённых профилей.'))
         ]),
-        E('div', { 'class': 'z2m-btnrow' }, [applyButton])
+        E('div', { 'class': 'z2m-btnrow' }, [profileApplyButton])
       ]), _('Сначала получите актуальный backend preview.')) : null,
       workflowHost
     ]));
+    setProfilesBusy(false);
+    return profilesPaneHost;
   }
   function renderCheckPane() {
     var preflight = object(state.preflight || data.preflight && data.preflight.value);
