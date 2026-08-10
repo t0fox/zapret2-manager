@@ -46,7 +46,21 @@ test('atomic_write_json validates typed arguments before socket access', async (
     `native.atomic_write_json('/absolute', 'x', {}, true)`,
     `native.atomic_write_json('persistent_state', '../x', {}, true)`,
     `native.atomic_write_json('persistent_state', 'x', {}, 1)`,
+    `native.atomic_write_json('persistent_state', 'x', {}, false, '${'A'.repeat(64)}')`,
   ]) assert.equal((await invoke(expression)).error.code, 'EINPUT');
+});
+
+test('atomic_write_json sends an optional lowercase content CAS precondition', async () => {
+  const expectedSha256 = 'a'.repeat(64);
+  const { result, request } = await roundTrip(
+    `native.atomic_write_json('persistent_state', 'manager-state.json', { generation: 2 }, false, '${expectedSha256}')`,
+    ({ header }) => childExited(header.requestId, success(header.requestId, {
+      byteLength: 16, committed: true, durability: 'durable',
+    })),
+  );
+  assert.equal(result.ok, true);
+  assert.equal(request.body.arguments.expectedSha256, expectedSha256);
+  assert.equal(request.body.arguments.allowCreate, false);
 });
 
 test('atomic_write_json transport damage is mutation uncertainty and is never retried', async () => {

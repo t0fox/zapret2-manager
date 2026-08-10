@@ -610,7 +610,7 @@ test('native helper adapter exposes only typed fixed-socket operations', () => {
   const exports = [...source.matchAll(/export const\s+([A-Za-z_][A-Za-z0-9_]*)/g)]
     .map(match => match[1]).sort();
   assert.deepEqual(exports,
-    ['atomic_write', 'mkdir_private', 'read_regular', 'sha256_regular', 'stat_regular']);
+    ['atomic_write', 'atomic_write_json', 'mkdir_private', 'read_regular', 'sha256_regular', 'stat_regular']);
   assert.match(source, /['"]\/tmp\/zapret2-manager\/runtime\/z2m-helperd\.sock['"]/,
     'production adapter must use the fixed broker socket');
   assert.match(source, /socket\.connect\(\s*\{\s*path:\s*SOCKET_PATH\s*\}/,
