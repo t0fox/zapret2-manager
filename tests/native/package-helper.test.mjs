@@ -81,6 +81,14 @@ test('native gate elevates only root-required tests and cleans temporary discove
     'root-required tests must share one sudo invocation');
 });
 
+test('native gate and product subprocesses preserve configured ucode module paths', () => {
+  assert.match(nativeGate, /--preserve-env=[^\n]*UCODE_MODULE_PATH/,
+    'sudo must preserve the configured ucode module path');
+  assert.match(fs.readFileSync('tests/product/profiles-model.test.mjs', 'utf8'),
+    /process\.env\.UCODE_MODULE_PATH \? \['-L', process\.env\.UCODE_MODULE_PATH\] : \[\]/,
+    'product ucode subprocesses must pass the configured module path');
+});
+
 test('consecutive non-root gates isolate elevated state from the caller temporary directory', () => {
   assert.doesNotMatch(nativeGate, /--preserve-env=[^\n]*TMPDIR/,
     'sudo must not inherit the caller temporary directory');

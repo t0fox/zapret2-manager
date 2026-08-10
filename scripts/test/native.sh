@@ -61,5 +61,5 @@ if [ "$(id -u)" -eq 0 ]; then
   scripts/test/native-root.sh "$node_bin"
 else
   command -v sudo >/dev/null
-  sudo --preserve-env=UCODE_BIN,UCODE_LIBRARY_PATH scripts/test/native-root.sh "$node_bin"
+  sudo --preserve-env=UCODE_BIN,UCODE_LIBRARY_PATH,UCODE_MODULE_PATH scripts/test/native-root.sh "$node_bin"
 fi
