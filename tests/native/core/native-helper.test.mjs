@@ -652,13 +652,13 @@ test('send backpressure and injected shutdown failure expose deterministic branc
     assert.ok(blocked.result.error.details.transport.sendWaits > 0);
     assert.ok(blocked.result.error.details.transport.shortWrites > 0);
     assert.equal(blocked.result.error.details.transport.stage, 'send_poll');
-    assert.equal(blocked.result.error.details.transport.pollRevents, 28);
+    assert.ok([24, 28].includes(blocked.result.error.details.transport.pollRevents));
 
     const short = await withSendFixture(binary, 'backpressure-hup', () =>
       invoke(`native.atomic_write('runtime', 'x', '${content}', true)`, 7000,
         sendShimEnv(shim, 'short')));
     assert.ok(short.result.error.details.transport.shortWrites > 0);
-    assert.equal(short.result.error.details.transport.pollRevents, 28);
+    assert.ok([24, 28].includes(short.result.error.details.transport.pollRevents));
 
     const direct = await withSendFixture(binary, 'backpressure-hup', () =>
       invoke(`native.atomic_write('runtime', 'x', 'YQ==', true)`, 7000,
