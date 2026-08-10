@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -10,6 +11,31 @@ const read = relativePath => readFileSync(path.join(ROOT, relativePath), 'utf8')
 const drafts = read('zapret2-manager/files/usr/libexec/zapret2-manager/profiles-draft.uc');
 const cli = read('zapret2-manager/files/usr/libexec/zapret2-manager/profiles-cli.uc');
 const apply = read('zapret2-manager/files/usr/libexec/zapret2-manager/profiles-apply.uc');
+const APPLY_MODULE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/profiles-apply.uc');
+const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
+const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.split('|') : [];
+
+function renderProduction(profiles) {
+  const source = `import { profiles_render_candidate } from '${APPLY_MODULE}'; print(sprintf('%J', profiles_render_candidate(${JSON.stringify(profiles)})));`;
+  const result = spawnSync(UCODE_BIN, [...UCODE_ARGS, '-e', source], {
+    cwd: ROOT,
+    env: { ...process.env, LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib' },
+    encoding: 'utf8', timeout: 15_000,
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  return JSON.parse(result.stdout);
+}
+
+function rollbackDecision(restartRc, verifyOk, configRestored = true, rollbackRestartRc = 0, rollbackVerifyOk = true) {
+  const source = `import { profiles_rollback_decision } from '${APPLY_MODULE}'; print(sprintf('%J', profiles_rollback_decision(${restartRc}, ${verifyOk}, ${configRestored}, ${rollbackRestartRc}, ${rollbackVerifyOk})));`;
+  const result = spawnSync(UCODE_BIN, [...UCODE_ARGS, '-e', source], {
+    cwd: ROOT,
+    env: { ...process.env, LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib' },
+    encoding: 'utf8', timeout: 15_000,
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  return JSON.parse(result.stdout);
+}
 
 function composeProfiles(profiles) {
   if (!profiles.length) return { ok: false, code: 'ESTATE' };
@@ -153,4 +179,30 @@ test('production compiler enforces the executable composition matrix', () => {
   assert.match(apply, /length\(model\.profiles\) != 1 \|\| length\(model\.trailingTokens\) > 0/);
   assert.match(apply, /let candidate = join\(' --new ', frags\)/);
   assert.match(apply, /candidate_round_trip\(rc\.candidate, rc\.fragments\)/);
+});
+
+test('production ucode renderer executes deterministic composition and refusal behavior', () => {
+  const special = '--hostlist=\"$HOME`cmd`\\list\"';
+  for (const { profiles, expected } of [
+    { profiles: [{ id: 'a', opt: '--filter-tcp=80' }], expected: { ok: true, candidate: '--filter-tcp=80' } },
+    { profiles: [{ id: 'a', opt: '--a' }, { id: 'b', opt: '--b' }], expected: { ok: true, candidate: '--a --new --b' } },
+    { profiles: [{ id: 'b', opt: '--b' }, { id: 'a', opt: '--a' }], expected: { ok: true, candidate: '--b --new --a' } },
+    { profiles: [{ id: 'a', opt: ` \t${special}\r\n` }], expected: { ok: true, candidate: special } },
+  ]) {
+    const result = renderProduction(profiles);
+    assert.equal(result.ok, expected.ok);
+    assert.equal(result.candidate, expected.candidate);
+  }
+
+  for (const profiles of [[], [{ id: 'a', opt: '--a\n--b' }], [{ id: 'a', opt: '--a --new --b' }]])
+    assert.equal(renderProduction(profiles).ok, false);
+});
+
+test('restart and verification failures both require rollback and rollback verification gates success', () => {
+  assert.deepEqual(rollbackDecision(1, true), { rollbackRequired: true, rollbackOk: true });
+  assert.deepEqual(rollbackDecision(0, false), { rollbackRequired: true, rollbackOk: true });
+  assert.deepEqual(rollbackDecision(0, true), { rollbackRequired: false, rollbackOk: false });
+  assert.equal(rollbackDecision(1, true, false, 0, true).rollbackOk, false);
+  assert.equal(rollbackDecision(0, false, true, 1, true).rollbackOk, false);
+  assert.equal(rollbackDecision(0, false, true, 0, false).rollbackOk, false);
 });

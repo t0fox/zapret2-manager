@@ -93,7 +93,7 @@ function dq_escape(s) {
 	return out;
 }
 
-function render_candidate(profiles) {
+export const profiles_render_candidate = function(profiles) {
 	if (type(profiles) != 'array' || length(profiles) == 0)
 		return err('load', 'ESTATE', 'no draft profiles to apply (refusing to replace the applied config with an empty set)');
 	let failures = [];
@@ -125,7 +125,7 @@ function render_candidate(profiles) {
 	if (length(candidate) > MAX_CANDIDATE_BYTES)
 		return err('render', 'EINPUT', 'candidate exceeds ' + MAX_CANDIDATE_BYTES + ' bytes');
 	return { ok: true, candidate: candidate, fragments: frags };
-}
+};
 
 function candidate_round_trip(candidate, frags) {
 	let model = z2m_parse(candidate);
@@ -234,6 +234,14 @@ function verify_status(sj, q, allow_external_nfqws) {
 	return { ok: ok, checks: checks, daemonPid: pid, queueOwner: q.peer_portid };
 }
 
+export const profiles_rollback_decision = function(restartRc, verifyOk, configRestored, rollbackRestartRc, rollbackVerifyOk) {
+	let rollbackRequired = restartRc != 0 || !verifyOk;
+	return {
+		rollbackRequired: rollbackRequired,
+		rollbackOk: rollbackRequired && configRestored && rollbackRestartRc == 0 && rollbackVerifyOk
+	};
+};
+
 function recollect_status() {
 	try { unlink(PATHS.status_json); } catch (e) { }
 	let p = popen('/usr/bin/ucode ' + PATHS.collector + ' --no-print 2>/dev/null', 'r');
@@ -269,7 +277,7 @@ function load_drafts_or_refuse() {
 function pipeline_front() {
 	let ld = load_drafts_or_refuse();
 	if (ld.refuse) return { refuse: ld.refuse };
-	let rc = render_candidate(ld.state.profiles);
+	let rc = profiles_render_candidate(ld.state.profiles);
 	if (!rc.ok) return { refuse: rc };
 	if (!candidate_round_trip(rc.candidate, rc.fragments))
 		return { refuse: err('render', 'EINTERNAL', 'round trip lost content — refusing to apply (MANAGER_LOSSY_ROUNDTRIP)') };
@@ -326,14 +334,15 @@ function apply_candidate_pipeline(f) {
 	let r = run(UPSTREAM_INIT + ' restart');
 	run('sleep 2');
 	let verify = verify_status(recollect_status(), parse_queue(), f.allowExternalNfqws == true);
-	if (r.rc != 0 || !verify.ok) {
+	let rollbackDecision = profiles_rollback_decision(r.rc, verify.ok, false, -1, false);
+	if (rollbackDecision.rollbackRequired) {
 		let restored = restore_whole_file(PATHS.applied_conf, snap.configBytes);
 		if (snap.uciBytes != null) writefile(PATHS.uci_conf, snap.uciBytes);
 		let rr = run(UPSTREAM_INIT + ' restart');
 		run('sleep 2');
 		let rollbackVerify = verify_status(recollect_status(), parse_queue(), f.allowExternalNfqws == true);
 		let configRestored = restored != null && config_sha256() == snap.configSha256 && read_config_bytes() == snap.configBytes;
-		let rollbackOk = configRestored && rr.rc == 0 && rollbackVerify.ok;
+		let rollbackOk = profiles_rollback_decision(r.rc, verify.ok, configRestored, rr.rc, rollbackVerify.ok).rollbackOk;
 		if (!rollbackOk) {
 			event_apply('crit', 'APPLY FAILED AND EXACT ROLLBACK VERIFICATION FAILED — manual recovery required', {
 				restartRc: r.rc, verify: verify.checks, rollbackRestartRc: rr.rc,
