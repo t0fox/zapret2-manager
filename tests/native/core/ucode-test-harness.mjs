@@ -13,7 +13,12 @@ const UCODE_ARGS = process.env.UCODE_ARGS_PIPE
   : process.env.UCODE_ARGS_JSON
   ? JSON.parse(process.env.UCODE_ARGS_JSON)
   : process.env.UCODE_ARGS?.split(/\s+/).filter(Boolean) ?? [];
-const UCODE_LIBRARY_ARGS = process.env.UCODE_MODULE_PATH ? ['-L', process.env.UCODE_MODULE_PATH] : [];
+const UCODE_LIBRARY_ARGS = process.env.UCODE_MODULE_PATH
+  ? ['-L', ucodeModulePattern(process.env.UCODE_MODULE_PATH)] : [];
+
+export function ucodeModulePattern(modulePath) {
+  return modulePath ? path.join(modulePath, '*.so') : null;
+}
 
 export function requestFrameBody(frame) {
   assert.equal(frame.subarray(0, 8).toString(), 'Z2MHTV1\n');

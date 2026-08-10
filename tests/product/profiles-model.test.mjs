@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { ucodeModulePattern } from '../native/core/ucode-test-harness.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const read = relativePath => readFileSync(path.join(ROOT, relativePath), 'utf8');
@@ -14,7 +15,8 @@ const apply = read('zapret2-manager/files/usr/libexec/zapret2-manager/profiles-a
 const APPLY_MODULE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/profiles-apply.uc');
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.split('|') : [];
-const UCODE_LIBRARY_ARGS = process.env.UCODE_MODULE_PATH ? ['-L', process.env.UCODE_MODULE_PATH] : [];
+const UCODE_LIBRARY_ARGS = process.env.UCODE_MODULE_PATH
+  ? ['-L', ucodeModulePattern(process.env.UCODE_MODULE_PATH)] : [];
 
 function renderProduction(profiles) {
   const source = `import { profiles_render_candidate } from '${APPLY_MODULE}'; print(sprintf('%J', profiles_render_candidate(${JSON.stringify(profiles)})));`;
