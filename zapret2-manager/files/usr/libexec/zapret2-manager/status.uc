@@ -1,4 +1,3 @@
-#!/usr/bin/ucode
 'use strict';
 // Three-level status collector: runtime, applied and draft. The optional
 // zapret2 engine is reported independently so its absence is not mislabeled
@@ -11,7 +10,8 @@ import {
 } from './constants.uc';
 import { parse_queue } from './qlen.uc';
 import { read_var } from './apply.uc';
-import { runtime_summary } from './runtime-summary.uc';
+import { state_read, state_initialize } from './core/state-store.uc';
+import { legacy_status_v3 } from './core/status-compat.uc';
 
 function sh(cmd) {
 	let p = popen(cmd + ' 2>/dev/null', 'r');
@@ -252,25 +252,6 @@ function reconcile_queue_owner(runtime, health) {
 	return null;
 }
 
-function service_state(runtime, rules, health, draft, engine) {
-	let qh = (health && health.qlenHealth) ? health.qlenHealth : null;
-	let q = (health && health.queue) ? health.queue : null;
-	let present = runtime && runtime.present;
-	if (!engine || engine.installed !== true) return 'engine_missing';
-	if (stat(PATHS.paused_flag)) return present ? 'error' : 'paused';
-	if (draft && draft.passthrough && draft.passthrough.enabled)
-		return present ? 'passthrough' : 'error';
-	if (!present) {
-		if (q && q.registered) return 'error';
-		return 'stopped';
-	}
-	if (!rules) return 'partial';
-	if (q && q.registered === false) return 'error';
-	if (q && q.registered && q.ownerConflict) return 'error';
-	if (qh && qh.state === 'critical') return 'error';
-	return 'running';
-}
-
 const PROFILE_SEP = '--new';
 function profile_count(opt_value) {
 	if (opt_value == null) return null;
@@ -350,7 +331,7 @@ function upstream_info() {
 	return { nfqws2Version: nfqws2_version(), autohostlist: autohostlist_vars() };
 }
 
-function collect() {
+export const collect_observations = function() {
 	let engine, runtime, applied, draft, health, rules, system, upstream;
 	try { engine = engine_level(); }
 	catch (e) { engine = { installed: false, packagePresent: false, binaryPresent: false, servicePresent: false }; }
@@ -363,11 +344,9 @@ function collect() {
 	try { upstream = upstream_info(); } catch (e) { upstream = { error: 'upstream collect failed: ' + e }; }
 	let ownerWarn = null;
 	try { ownerWarn = reconcile_queue_owner(runtime, health); } catch (e) { ownerWarn = null; }
-	let drift, svc_state, prof_count;
+	let drift, prof_count;
 	try { drift = drift_block(runtime, rules); }
 	catch (e) { drift = { divergent: false, reason: 'drift compute failed: ' + e, basis: 'sha256-intermediate' }; }
-	try { svc_state = service_state(runtime, rules, health, draft, engine); }
-	catch (e) { svc_state = 'error'; }
 	try { prof_count = profile_count(read_var('NFQWS2_OPT')); } catch (e) { prof_count = null; }
 	let instances = runtime.instances || [];
 	let runtime_out = {
@@ -379,7 +358,6 @@ function collect() {
 		psSummary: runtime.psSummary ? runtime.psSummary : '',
 		rulesPresent: runtime.rulesPresent ? true : false
 	};
-	let generation = (applied && applied.generation != null) ? applied.generation : null;
 	let applied_out = {
 		configPath: applied.configPath ? applied.configPath : PATHS.applied_conf,
 		configPresent: applied.configPresent ? true : false,
@@ -392,11 +370,8 @@ function collect() {
 	if (!engine.installed) push(warnings, {
 		code: 'engine_missing', message: 'Optional zapret2 engine is not installed or its runtime contract is incomplete.', severity: 'warn'
 	});
-	let status = {
-		schema: 3,
+	return {
 		generatedAt: iso_now(),
-		generation: generation,
-		serviceState: svc_state,
 		engine: engine,
 		runtime: runtime_out,
 		applied: applied_out,
@@ -405,14 +380,29 @@ function collect() {
 		health: health,
 		system: system,
 		upstream: upstream,
-		jobs: [],
-		warnings: warnings,
-		runtimeSummary: null
+		warnings: warnings
 	};
-	status.runtimeSummary = runtime_summary(status);
+};
+
+function degraded_state(result) {
+	let message = result?.error?.message || 'Native state is unavailable.';
+	return {
+		schemaVersion: 1, generation: null, generatedAt: null, serviceState: 'error',
+		runtime: { processes: [], namespaces: [] }, transactions: [], jobs: [],
+		warnings: [{ code: result?.error?.code || 'EDEPENDENCY', message: message }]
+	};
+}
+
+export const collect = function() {
+	let observations = collect_observations();
+	let native_result = state_read();
+	if (!native_result.ok && native_result.error?.details?.helperCode == 'ENOENT')
+		native_result = state_initialize();
+	let native_state = native_result.ok ? native_result.data.state : degraded_state(native_result);
+	let status = legacy_status_v3(native_state, observations);
 	try { writefile(PATHS.status_json, sprintf("%J", status) + '\n'); } catch (e) { }
 	return status;
-}
+};
 
 if (length(ARGV) == 0 || ARGV[0] != '--no-print') {
 	let s = collect();
