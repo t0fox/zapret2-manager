@@ -94,16 +94,50 @@ test('native gate and product subprocesses preserve configured ucode module path
     'product ucode subprocesses must pass the converted module pattern');
 });
 
-test('ucode module glob falls back to the pinned library root when CI omits module path', async () => {
+test('ucode module path normalizes the exact native workflow directory value', async () => {
   const libraryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-ucode-lib-'));
   const moduleRoot = path.join(libraryRoot, 'ucode');
   fs.mkdirSync(moduleRoot);
   fs.writeFileSync(path.join(moduleRoot, 'fs.so'), '');
   try {
     const { ucodeModulePattern } = await import('./core/ucode-test-harness.mjs');
-    assert.equal(ucodeModulePattern(undefined, libraryRoot), path.join(moduleRoot, '*.so'));
+    const workflowValue = /UCODE_MODULE_PATH:\s*\$\{\{ runner\.temp \}\}([^\n]+)/
+      .exec(nativeWorkflow)?.[1].trim();
+    assert.equal(workflowValue, '/ucode/lib/ucode');
+    assert.equal(ucodeModulePattern(moduleRoot, '/ignored'), path.join(moduleRoot, '*.so'));
   } finally {
     fs.rmSync(libraryRoot, { recursive: true, force: true });
+  }
+});
+
+test('ucode module path discovers modules in a library directory and its ucode child', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-ucode-modules-'));
+  const directRoot = path.join(root, 'direct');
+  const nestedRoot = path.join(root, 'nested');
+  fs.mkdirSync(directRoot);
+  fs.mkdirSync(path.join(nestedRoot, 'ucode'), { recursive: true });
+  fs.writeFileSync(path.join(directRoot, 'fs.so'), '');
+  fs.writeFileSync(path.join(nestedRoot, 'ucode', 'fs.so'), '');
+  try {
+    const { ucodeModulePattern } = await import('./core/ucode-test-harness.mjs');
+    assert.equal(ucodeModulePattern(undefined, directRoot), path.join(directRoot, '*.so'));
+    assert.equal(ucodeModulePattern(undefined, nestedRoot), path.join(nestedRoot, 'ucode', '*.so'));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('ucode module path preserves explicit glob and module file values', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-ucode-module-'));
+  const moduleFile = path.join(root, 'fs.so');
+  const moduleGlob = path.join(root, '*.so');
+  fs.writeFileSync(moduleFile, '');
+  try {
+    const { ucodeModulePattern } = await import('./core/ucode-test-harness.mjs');
+    assert.equal(ucodeModulePattern(moduleGlob, '/ignored'), moduleGlob);
+    assert.equal(ucodeModulePattern(moduleFile, '/ignored'), moduleFile);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
