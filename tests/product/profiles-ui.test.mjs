@@ -29,7 +29,7 @@ test('Profiles preview and apply require explicit full-set acknowledgement and a
   assert.match(source, /candidateSha256/);
   assert.match(source, /currentSha256/);
   assert.match(source, /replaceFullSet|replace-full-set/);
-  assert.match(source, /wouldApply\s*===\s*true/);
+  assert.match(source, /wouldApply\s*!==\s*true/);
   assert.match(source, /reloadAppliedState\(\)/);
   assert.match(source, /ctx\.api\.service\.status\(\)/);
   assert.match(source, /verification\s*\|\|\s*value\.verify/);
@@ -46,4 +46,45 @@ test('Profiles workflow delegates composition and apply exclusively to its backe
   const handler = source.slice(start, end === -1 ? source.length : end);
   assert.match(handler, /ctx\.api\.profiles\.apply/);
   assert.doesNotMatch(handler, /ctx\.api\.orchestra/);
+});
+
+test('successful draft mutations invalidate preview and acknowledgement', () => {
+  assert.match(source, /function invalidateProfilePreview\(\)/);
+  assert.match(source, /profilePreview\s*=\s*null/);
+  assert.match(source, /replaceFullSet\s*=\s*false/);
+  assert.match(source, /function profileMutationSucceeded\(\)/);
+
+  for (const handler of ['saveEditor', 'cloneProfile', 'deleteProfile', 'importApplied', 'moveProfile']) {
+    const start = source.indexOf(`function ${handler}(`);
+    const end = source.indexOf('\n  function ', start + 1);
+    assert.notEqual(start, -1, handler);
+    assert.match(source.slice(start, end === -1 ? source.length : end), /profileMutationSucceeded\(\)/, handler);
+  }
+});
+
+test('Profiles busy lock covers toolbar and editor mutation controls', () => {
+  assert.match(source, /profilesPaneHost\.querySelectorAll\('button, input, textarea, select'\)/);
+  assert.match(source, /if \(profilesBusy\) return;/);
+  assert.match(source, /shell\.button\(_\('Новый профиль'\)[\s\S]*profilesBusy/);
+  assert.match(source, /shell\.button\(_\('Импортировать применённые'\)[\s\S]*profilesBusy/);
+});
+
+test('reorder rereads latest profiles before building revisions', () => {
+  const start = source.indexOf('function reorderProfiles(');
+  const end = source.indexOf('\n  function ', start + 1);
+  const handler = source.slice(start, end === -1 ? source.length : end);
+  assert.match(handler, /ctx\.api\.profiles\.list\(\)/);
+  assert.match(handler, /draftProfiles\(latest\)/);
+  assert.match(handler, /revisions\[profile\.id\]\s*=\s*profile\.revision/);
+});
+
+test('every apply settlement rereads actual profiles and status', () => {
+  const start = source.indexOf('function applyProfiles(');
+  const end = source.indexOf('\n  function ', start + 1);
+  const handler = source.slice(start, end === -1 ? source.length : end);
+  assert.match(handler, /settleApply\(\{ answer: answer, rejected: false \}\)/);
+  assert.match(handler, /settleApply\(\{ answer: error, rejected: true \}\)/);
+  assert.match(handler, /reloadAppliedState\(\)/);
+  assert.match(handler, /ctx\.api\.service\.status\(\)/);
+  assert.match(source, /boundedProfileFailure/);
 });
