@@ -166,6 +166,50 @@ test('list and ipset dependencies resolve relative descriptors and absolute list
   assert.doesNotMatch(unsafe.strategyArgs, /--hostlist=\/etc\/passwd/);
 });
 
+test('missing native list roots preserve original options without null executable paths', () => {
+  const result = invoke('strategy_compile', strategy([
+    { id: 'p1', args: '--filter-tcp=443 --hostlist=lists/missing.txt --ipset=lists/missing-ipset.txt' },
+  ]), {
+    ...environment,
+    paths: { ...environment.paths, listRoot: null, ipsetRoot: null },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.applicable, false);
+  assert.doesNotMatch(result.strategyArgs, /=(null|undefined)(?:\s|$)/);
+  assert.match(result.strategyArgs, /--hostlist=lists\/missing\.txt/);
+  assert.match(result.strategyArgs, /--ipset=lists\/missing-ipset\.txt/);
+  assert.ok(result.dependencies.missing.some(item => item.kind === 'hostlist'));
+  assert.ok(result.dependencies.missing.some(item => item.kind === 'ipset'));
+});
+
+test('unsafe explicit list options remain inspectable and non-applicable', () => {
+  const result = invoke('strategy_compile', strategy([
+    { id: 'p1', args: '--filter-tcp=443 --hostlist=lists/../escape.txt --ipset=/etc/passwd' },
+  ]), environment);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.applicable, false);
+  assert.match(result.strategyArgs, /--hostlist=lists\/\.\.\/escape\.txt/);
+  assert.match(result.strategyArgs, /--ipset=\/etc\/passwd/);
+  assert.doesNotMatch(result.strategyArgs, /--(?:hostlist|ipset)=null/);
+  assert.equal(result.dependencies.missing.filter(item => item.kind === 'hostlist' || item.kind === 'ipset').length, 2);
+});
+
+test('symlinked list descriptors are non-applicable even when marked present', () => {
+  const result = invoke('strategy_compile', strategy([
+    { id: 'p1', args: '--filter-tcp=443 --hostlist=lists/symlink.txt' },
+  ]), {
+    ...environment,
+    lists: { 'symlink.txt': { path: 'real.txt', present: true, symlink: true } },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.applicable, false);
+  assert.ok(result.dependencies.missing.some(item => item.kind === 'hostlist'
+    && item.reference === 'lists/symlink.txt'));
+});
+
 test('compiler adds each required Blob declaration once and resolves portable paths', () => {
   const result = invoke('strategy_compile', strategy([
     { id: 'p1', args: '--lua-init=@lua/desync.lua --blob=tls_google:@bin/tls_google.bin --lua-desync=fake:blob=tls_google' },
@@ -176,6 +220,17 @@ test('compiler adds each required Blob declaration once and resolves portable pa
   assert.equal(result.strategyArgs.split('--blob=tls_google:/opt/zapret2/bin/tls_google.bin').length - 1, 1);
   assert.match(result.strategyArgs, /--lua-init=\/opt\/zapret2\/lua\/desync\.lua/);
   assert.match(result.strategyArgs, /--blob=tls_google:\/opt\/zapret2\/bin\/tls_google\.bin/);
+});
+
+test('inline hex Blob sources are available without catalog descriptors', () => {
+  const result = invoke('strategy_compile', strategy([
+    { id: 'p1', args: '--filter-tcp=443 --blob=inline_blob:0xA1B2C3 --lua-desync=fake:blob=inline_blob' },
+  ]), environment);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.applicable, true, JSON.stringify(result.dependencies));
+  assert.doesNotMatch(result.dependencies.missing.map(item => item.reference).join(' '), /inline_blob/);
+  assert.match(result.strategyArgs, /--blob=inline_blob:0xA1B2C3/);
 });
 
 test('compiler rejects absolute, traversing, and symlinked Blob/path resolutions', () => {
@@ -338,4 +393,17 @@ test('list placement remains after the last filter when options are interleaved'
 
   assert.equal(result.ok, true);
   assert.equal(result.fragments[0], '--filter-tcp=443 --lua-desync=fake --comment=between --filter-l7=tls --hostlist-auto=/lists/auto.txt --hostlist-exclude=/lists/netrogat.txt --payload=tls_client_hello');
+});
+
+test('list placement stays before the first payload when a later filter follows it', () => {
+  const result = invoke('strategy_compile', strategy([
+    { id: 'p1', args: '--filter-tcp=443 --payload=tls_client_hello --filter-l7=tls --lua-desync=fake' },
+  ]), {
+    ...environment,
+    listMode: 'autohostlist',
+    paths: { ...environment.paths, hostlistExclude: '/lists/netrogat.txt' },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.fragments[0], '--filter-tcp=443 --hostlist-auto=/lists/auto.txt --hostlist-exclude=/lists/netrogat.txt --payload=tls_client_hello --filter-l7=tls --lua-desync=fake');
 });

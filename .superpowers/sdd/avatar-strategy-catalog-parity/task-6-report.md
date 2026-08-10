@@ -133,3 +133,35 @@ Profile renderer or Apply transaction boundary:
 - Profile model and contract suites: 30 passed, 0 failed.
 - Full product suite: 92 passed, 0 failed.
 - `git diff --check`: clean.
+
+## Fix Round 2
+
+The second scoped review follow-up closed the remaining compiler findings:
+
+- Invalid relative list and ipset resolutions now retain their original
+  inspectable option values instead of concatenating `null`. Missing native
+  roots remain unavailable and non-applicable through dependency metadata.
+- Explicit list options do not receive trusted absolute-path treatment.
+  Absolute and traversal references remain visible but cannot become
+  applicable executable paths; trusted absolute descriptor resolution is
+  limited to the environment-owned list selection path, and symlink-marked
+  descriptors remain unavailable.
+- Inline hexadecimal Blob declarations such as `name:0xA1B2C3` are admitted
+  without catalog file descriptors. References to those inline names inherit
+  the same inline availability during dependency collection.
+- List injection is anchored to the first payload and only considers filters
+  before that payload. A later filter cannot move injected lists after the
+  payload.
+- Added regressions for missing roots, unsafe explicit list options,
+  symlinked descriptors, inline hex Blobs, and payload-before-later-filter
+  placement.
+
+## Fix Round 2 Verification
+
+- RED focused run: 4 new regression cases failed against the pre-fix
+  implementation.
+- Focused compiler suite: 20 passed, 0 failed.
+- Full product/Profile/catalog/model suite: 97 passed, 0 failed.
+- Native package suites (`package-helper` and `avatar-strategy-package`): 46
+  passed, 0 failed.
+- `git diff --check`: clean.

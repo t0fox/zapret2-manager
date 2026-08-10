@@ -73,6 +73,10 @@ function safe_absolute_path(value) {
 	return true;
 }
 
+function inline_blob_source(value) {
+	return type(value) == 'string' && match(value, /^0x[0-9A-Fa-f]+$/);
+}
+
 function path_join(root, value) {
 	if (!safe_absolute_path(root) || type(value) != 'string' || starts_with(value, '/') || value == '') return null;
 	if (!safe_path_text(value)) return null;
@@ -81,16 +85,16 @@ function path_join(root, value) {
 	return root + '/' + value;
 }
 
-function resolve_path(value, paths, kind) {
+function resolve_path(value, paths, kind, allowAbsolute) {
 	if (value == null || value == '') return value;
 	if (starts_with(value, '/')) return kind == 'list' || kind == 'hostlist' || kind == 'ipset'
-		? (safe_absolute_path(value) ? value : null) : null;
+		? (allowAbsolute == true && safe_absolute_path(value) ? value : null) : null;
 	let root = kind == 'lua' ? paths.luaRoot
 		: (kind == 'blob' ? paths.blobRoot
 			: (kind == 'ipset' ? paths.ipsetRoot : paths.listRoot));
 	if (kind == 'lua' && starts_with(value, '@lua/')) return path_join(root, substr(value, 5));
 	if (kind == 'blob' && starts_with(value, '@bin/')) return path_join(root, substr(value, 5));
-	if (kind == 'blob' && starts_with(value, '0x')) return value;
+	if (kind == 'blob' && inline_blob_source(value)) return value;
 	if ((kind == 'list' || kind == 'hostlist' || kind == 'ipset') && starts_with(value, 'lists/'))
 		return path_join(root, substr(value, 6));
 	if (kind == 'lua' || kind == 'blob' || kind == 'list' || kind == 'hostlist' || kind == 'ipset')
@@ -116,11 +120,15 @@ function resolve_token(token, environment) {
 	if (info.name == 'blob') return '--blob=' + resolve_blob_value(info.value, paths);
 	if (info.name == 'hostlist' || info.name == 'hostlist-domains'
 		|| info.name == 'hostlist-exclude' || info.name == 'hostlist-exclude-domains'
-		|| info.name == 'hostlist-auto')
-		return '--' + info.name + '=' + resolve_path(info.value, paths, 'hostlist');
+		|| info.name == 'hostlist-auto') {
+		let resolvedHostlist = resolve_path(info.value, paths, 'hostlist');
+		return '--' + info.name + '=' + (resolvedHostlist != null ? resolvedHostlist : info.value);
+	}
 	if (info.name == 'ipset' || info.name == 'ipset-ip'
-		|| info.name == 'ipset-exclude' || info.name == 'ipset-exclude-ip')
-		return '--' + info.name + '=' + resolve_path(info.value, paths, 'ipset');
+		|| info.name == 'ipset-exclude' || info.name == 'ipset-exclude-ip') {
+		let resolvedIpSet = resolve_path(info.value, paths, 'ipset');
+		return '--' + info.name + '=' + (resolvedIpSet != null ? resolvedIpSet : info.value);
+	}
 	return token;
 }
 
@@ -143,6 +151,15 @@ function first_payload(tokens) {
 function last_filter_index(tokens) {
 	let indexOfFilter = -1;
 	for (let i = 0; i < length(tokens); i++) {
+		let name = option_info(tokens[i]).name;
+		if (name == 'filter-tcp' || name == 'filter-udp' || name == 'filter-l7') indexOfFilter = i;
+	}
+	return indexOfFilter;
+}
+
+function last_filter_before(tokens, limit) {
+	let indexOfFilter = -1;
+	for (let i = 0; i < limit; i++) {
 		let name = option_info(tokens[i]).name;
 		if (name == 'filter-tcp' || name == 'filter-udp' || name == 'filter-l7') indexOfFilter = i;
 	}
@@ -198,10 +215,10 @@ function list_descriptor_for(environment, reference) {
 	return null;
 }
 
-function list_reference(environment, reference, kind) {
+function list_reference(environment, reference, kind, allowAbsolute) {
 	let paths = is_object(environment.paths) ? environment.paths : {};
 	let descriptor = list_descriptor_for(environment, reference), raw = descriptor_path(descriptor, reference);
-	let resolved = resolve_path(raw, paths, kind == 'ipset' ? 'ipset' : 'list');
+	let resolved = resolve_path(raw, paths, kind == 'ipset' ? 'ipset' : 'list', allowAbsolute == true);
 	let available = descriptor != null && descriptor_safe(descriptor)
 		&& descriptor_present(descriptor, false) && resolved != null;
 	return {
@@ -224,7 +241,7 @@ function list_flags(environment, tokens) {
 
 	if (mode == 'explicit' && !hasHostlist) {
 			let path = environment.listPath;
-			let list = path == null ? null : list_reference(environment, path, 'list');
+			let list = path == null ? null : list_reference(environment, path, 'list', true);
 			if (list != null && list.available) push(result, '--hostlist=' + list.path);
 	} else if ((mode == 'auto' || mode == 'autohostlist') && !hasHostlistAuto) {
 			if (safe_absolute_path(paths.autoHostlist)) push(result, '--hostlist-auto=' + paths.autoHostlist);
@@ -237,7 +254,7 @@ function list_flags(environment, tokens) {
 function insert_lists(tokens, injected) {
 	if (length(injected) == 0) return tokens;
 	let payload = first_payload(tokens), at = payload != null ? payload.index : length(tokens);
-	let filter = last_filter_index(tokens);
+	let filter = payload != null ? last_filter_before(tokens, payload.index) : last_filter_index(tokens);
 	if (filter >= 0 && filter + 1 > at) at = filter + 1;
 	let result = [];
 	for (let i = 0; i < length(tokens); i++) {
@@ -280,9 +297,10 @@ function blob_dependency(environment, reference, sourceOverride) {
 	let descriptor = is_object(environment.blobs) ? environment.blobs[reference] : null;
 	let source = sourceOverride != null ? sourceOverride : descriptor_path(descriptor, null), resolved = source == null ? null
 		: resolve_path(source, is_object(environment.paths) ? environment.paths : {}, 'blob');
+	let inline = sourceOverride != null && !!inline_blob_source(sourceOverride);
 	return {
-		available: descriptor != null && descriptor_safe(descriptor)
-			&& descriptor_present(descriptor, false) && resolved != null,
+		available: inline || (descriptor != null && descriptor_safe(descriptor)
+			&& descriptor_present(descriptor, false) && resolved != null),
 		descriptor: descriptor,
 		reason: descriptor == null ? 'Blob descriptor is missing'
 			: (!descriptor_safe(descriptor) ? 'Blob descriptor resolves through a symlink'
@@ -299,9 +317,24 @@ function collect_list_option_dependencies(dependencies, tokens, environment) {
 			|| info.name == 'hostlist-exclude' || info.name == 'hostlist-exclude-domains') kind = 'hostlist';
 		else if (info.name == 'ipset' || info.name == 'ipset-ip' || info.name == 'ipset-exclude' || info.name == 'ipset-exclude-ip') kind = 'ipset';
 		if (kind == null) continue;
-		let list = list_reference(environment, info.value, kind);
+		let list = list_reference(environment, info.value, kind, false);
 		add_dependency(dependencies, kind, info.value, list.available, list.reason);
 	}
+}
+
+function inline_blob_names(fragments) {
+	let names = {};
+	for (let fi = 0; fi < length(fragments); fi++) {
+		let tokens = avatar_tokenize(fragments[fi]).tokens;
+		for (let ti = 0; ti < length(tokens); ti++) {
+			let info = option_info(tokens[ti].value);
+			if (info.name != 'blob' || !info.hasEquals) continue;
+			let colon = index(info.value, ':');
+			if (colon >= 0 && inline_blob_source(substr(info.value, colon + 1)))
+				names[substr(info.value, 0, colon)] = true;
+		}
+	}
+	return names;
 }
 
 function collect_environment_list_dependencies(dependencies, fragments, environment) {
@@ -317,7 +350,7 @@ function collect_environment_list_dependencies(dependencies, fragments, environm
 	}
 	let mode = environment.listMode == null ? 'none' : environment.listMode;
 	if (mode == 'explicit' && !hasHostlist && environment.listPath != null) {
-		let list = list_reference(environment, environment.listPath, 'list');
+		let list = list_reference(environment, environment.listPath, 'list', true);
 		add_dependency(dependencies, 'hostlist', environment.listPath, list.available, list.reason);
 	}
 	let paths = is_object(environment.paths) ? environment.paths : {};
@@ -349,14 +382,15 @@ function collect_raw_lua_dependencies(dependencies, rawFragments, environment) {
 
 function collect_dependencies(strategy, fragments, environment, rawFragments) {
 	let dependencies = { available: true, items: [], missing: [] };
+	let scanFragments = rawFragments != null ? rawFragments : fragments;
+	let inlineBlobs = inline_blob_names(scanFragments);
 	let metadataBlobs = type(strategy.blobs) == 'array' ? strategy.blobs : [];
 	for (let i = 0; i < length(metadataBlobs); i++) {
 		let name = metadataBlobs[i];
-		let blob = blob_dependency(environment, name);
+		let blob = inlineBlobs[name] ? { available: true, reason: null } : blob_dependency(environment, name);
 		add_dependency(dependencies, 'blob', name, blob.available, blob.reason);
 	}
 	if (rawFragments != null) collect_raw_lua_dependencies(dependencies, rawFragments, environment);
-	let scanFragments = rawFragments != null ? rawFragments : fragments;
 	collect_environment_list_dependencies(dependencies, scanFragments, environment);
 	for (let fi = 0; fi < length(scanFragments); fi++) {
 		let tokens = avatar_tokenize(scanFragments[fi]).tokens;
@@ -379,7 +413,8 @@ function collect_dependencies(strategy, fragments, environment, rawFragments) {
 			if (info.name == 'lua-desync' && info.hasEquals) {
 				let parts = split(info.value, ':');
 				for (let pi = 1; pi < length(parts); pi++) if (starts_with(parts[pi], 'blob=')) {
-					let name = substr(parts[pi], 5), blob = blob_dependency(environment, name);
+					let name = substr(parts[pi], 5), blob = inlineBlobs[name]
+						? { available: true, reason: null } : blob_dependency(environment, name);
 					add_dependency(dependencies, 'blob', name, blob.available, blob.reason);
 				}
 			}
