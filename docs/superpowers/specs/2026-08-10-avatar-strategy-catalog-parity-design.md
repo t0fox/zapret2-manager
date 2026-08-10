@@ -396,8 +396,28 @@ after runtime/config mutation, the implementation must compensate by rolling
 back to the previous verified config/runtime/identity, or enter an explicit
 bounded degraded/uncertain reconciliation state; it must never silently leave
 new runtime/config with old identity or old runtime/config with new identity.
+
+The deterministic compensation order is:
+
+1. Retry the identity projection write only within the current Apply lock and
+   bounded operation deadline.
+2. If it still fails, invoke the existing exact rollback to the previous
+   verified configuration/runtime and retain the previous identity.
+3. If rollback or restoration of the previous identity also fails, publish a
+   bounded volatile reconciliation record under the existing
+   `/tmp/zapret2-manager/last-good/` transaction area containing old/new config
+   hashes, old/new Strategy identities and the verified runtime outcome. The
+   operation is reported as `uncertain`, normal Apply is blocked, and status
+   reports the uncertainty without writing observation state.
+4. The next explicit Strategy operation reconciles deterministically: an old
+   config hash plus old runtime restores/retains the old identity; a new config
+   hash plus verified new runtime completes the new identity projection; any
+   other hash/runtime combination remains degraded and requires bounded manual
+   recovery. Reconciliation never guesses identity from equal argv.
+
 Failure reports rollback/reconciliation outcome and never falsely marks the
-Strategy active.
+Strategy active. The reconciliation record is volatile; this does not add
+reboot-durable transaction recovery.
 
 ## 27. Active Strategy
 
