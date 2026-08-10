@@ -15,18 +15,72 @@ const acl = read('luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-z
 const statusCompatTest = read('tests/native/status-compat.test.mjs');
 const api = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js');
 
-function functionBody(source, name) {
+function codeMask(source) {
+  let masked = '', state = 'code', escaped = false, regexClass = false, quote = '';
+  for (let i = 0; i < source.length; i++) {
+    const char = source[i], next = source[i + 1];
+    if (state === 'line') {
+      if (char === '\n') { state = 'code'; masked += '\n'; } else masked += ' ';
+    } else if (state === 'block') {
+      if (char === '*' && next === '/') { masked += '  '; i++; state = 'code'; }
+      else masked += char === '\n' ? '\n' : ' ';
+    } else if (state === 'quote') {
+      masked += char === '\n' ? '\n' : ' ';
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === quote) state = 'code';
+    } else if (state === 'regex') {
+      masked += char === '\n' ? '\n' : ' ';
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '[') regexClass = true;
+      else if (char === ']') regexClass = false;
+      else if (char === '/' && !regexClass) state = 'code';
+    } else if (char === '/' && next === '/') { masked += '  '; i++; state = 'line'; }
+    else if (char === '/' && next === '*') { masked += '  '; i++; state = 'block'; }
+    else if (char === '"' || char === "'" || char === '`') { masked += ' '; state = 'quote'; quote = char; }
+    else if (char === '/' && /[=(,:;!&|?{}\[]/.test(source.slice(0, i).trimEnd().at(-1) ?? '=')) {
+      masked += ' '; state = 'regex'; regexClass = false;
+    } else masked += char;
+  }
+  return masked;
+}
+
+function functionRange(source, name) {
   const declaration = new RegExp(`(?:export const ${name} = function|function ${name})\\([^)]*\\)\\s*\\{`).exec(source);
   assert.ok(declaration, `missing function ${name}`);
 
   const start = declaration.index + declaration[0].length;
+  const masked = codeMask(source);
   let depth = 1;
-  for (let i = start; i < source.length; i++) {
-    if (source[i] === '{') depth++;
-    else if (source[i] === '}' && --depth === 0) return source.slice(start, i);
+  for (let i = start; i < masked.length; i++) {
+    if (masked[i] === '{') depth++;
+    else if (masked[i] === '}' && --depth === 0) return { start, end: i };
   }
   assert.fail(`unterminated function ${name}`);
 }
+
+function functionBody(source, name) {
+  const { start, end } = functionRange(source, name);
+  return source.slice(start, end);
+}
+
+function functionCode(source, name) {
+  const { start, end } = functionRange(source, name);
+  return codeMask(source).slice(start, end);
+}
+
+test('function extraction ignores lexical braces', () => {
+  const fixture = `function target() {
+    let a = "}"; // }
+    let b = /[{}]/; /* { } */
+    return { ok: true };
+  }
+  function next() { return false; }`;
+
+  assert.match(functionBody(fixture, 'target'), /return \{ ok: true \};/);
+  assert.doesNotMatch(functionBody(fixture, 'target'), /function next/);
+});
 
 function assertOrdered(body, patterns) {
   let cursor = 0;
@@ -55,7 +109,10 @@ test('preview is non-mutating and apply reuses the compiler inside the lock', ()
   const run = functionBody(apply, 'profiles_apply_run');
 
   assert.match(preview, /pipeline_front\(\)/);
-  assert.doesNotMatch(preview, /set_var_cas|snapshot_apply|UPSTREAM_INIT|restart|apply_candidate_pipeline/);
+  const previewCode = functionCode(apply, 'profiles_apply_preview');
+  const calls = [...previewCode.matchAll(/\b([A-Za-z_][A-Za-z0-9_]*)\s*\(/g)]
+    .map(match => match[1]).filter(name => name !== 'if');
+  assert.deepEqual([...new Set(calls)].sort(), ['apply_decision', 'pipeline_front']);
   assertOrdered(run, [
     /getenv\('Z2M_CONFIG_LOCKED'\)/,
     /pipeline_front\(\)/,
@@ -74,14 +131,15 @@ test('apply transaction snapshots, writes, restarts, recollects, verifies, and r
     /verify_status\(/,
   ]);
   assertOrdered(transaction, [
-    /if \(r\.rc != 0 \|\| !verify\.ok\)/,
+    /profiles_rollback_decision\(r\.rc, verify\.ok, false, -1, false\)/,
+    /if \(rollbackDecision\.rollbackRequired\)/,
     /restore_whole_file\(PATHS\.applied_conf, snap\.configBytes\)/,
     /config_sha256\(\) == snap\.configSha256/,
     /read_config_bytes\(\) == snap\.configBytes/,
-    /rollbackVerify\.ok/,
+    /profiles_rollback_decision\(r\.rc, verify\.ok, configRestored, rr\.rc, rollbackVerify\.ok\)\.rollbackOk/,
   ]);
   assertOrdered(transaction, [
-    /if \(r\.rc != 0 \|\| !verify\.ok\)/,
+    /if \(rollbackDecision\.rollbackRequired\)/,
     /return err\('verify'/,
     /event_apply\('info'/,
     /return \{\s*ok: true, mode: 'apply'/,

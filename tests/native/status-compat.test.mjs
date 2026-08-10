@@ -123,16 +123,16 @@ test('compatibility adapter is pure and delegates runtimeSummary to existing imp
   assert.doesNotMatch(source, /\b(?:readfile|writefile|stat|lsdir|popen|system|exec|state_read|state_initialize|state_mutate|native_helper|ubus|uci)\s*\(/);
 });
 
-test('status integration reads native state, initializes only ENOENT, and never mutates observations', () => {
+test('status permits cache publication and one ENOENT initialization but no generation mutation', () => {
   const source = fs.readFileSync(COLLECTOR, 'utf8');
   assert.match(source, /export const collect_observations = function/);
   assert.match(source, /export const collect = function/);
   assert.match(source, /native_result\s*=\s*state_read\(\)/);
   assert.match(source, /helperCode\s*==\s*'ENOENT'[\s\S]*?state_initialize\(\)/);
-  assert.doesNotMatch(source, /state_mutate\(|atomic_write_json\(/);
+  assert.match(source, /writefile\(PATHS\.status_json/);
+  assert.doesNotMatch(source, /\bstate_mutate\s*\(/);
   assert.doesNotMatch(source, /profiles_(?:create|update|clone|delete|reorder|import_applied|apply)\s*\(/);
   assert.match(source, /legacy_status_v3\([\s\S]*?,\s*observations\)/);
-  assert.match(source, /writefile\(PATHS\.status_json/);
 });
 
 test('status profile evidence is derived from applied and runtime observations', () => {
