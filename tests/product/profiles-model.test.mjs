@@ -9,6 +9,19 @@ const read = relativePath => readFileSync(path.join(ROOT, relativePath), 'utf8')
 
 const drafts = read('zapret2-manager/files/usr/libexec/zapret2-manager/profiles-draft.uc');
 const cli = read('zapret2-manager/files/usr/libexec/zapret2-manager/profiles-cli.uc');
+const apply = read('zapret2-manager/files/usr/libexec/zapret2-manager/profiles-apply.uc');
+
+function composeProfiles(profiles) {
+  if (!profiles.length) return { ok: false, code: 'ESTATE' };
+
+  const fragments = profiles.map(profile => profile.opt.trim());
+  if (fragments.some(fragment => !fragment || /[\r\n]/.test(fragment)
+      || /(^|\s)--new(?:\s|$)/.test(fragment))) {
+    return { ok: false, code: 'EINPUT' };
+  }
+
+  return { ok: true, candidate: fragments.join(' --new ') };
+}
 
 function reorderProfiles(state, input) {
   if (input === null || typeof input !== 'object' || Array.isArray(input)
@@ -101,4 +114,43 @@ test('production exports reorder and routes it through the state lock', () => {
   assert.match(cli, /mode == 'reorder'/);
   assert.match(cli, /profiles_reorder\(read_args\(ARGV\[1\]\)\)/);
   assert.match(cli, /let lock = mode == 'apply' \? CONFIG_LOCK : STATE_LOCK/);
+});
+
+test('compiler deterministically composes ordered profile fragments', () => {
+  const special = '--hostlist=\"$HOME`cmd`\\list\"';
+  const cases = [
+    { profiles: [{ opt: '--filter-tcp=80' }], candidate: '--filter-tcp=80' },
+    {
+      profiles: [{ opt: '--filter-tcp=80' }, { opt: '--filter-tcp=443' }],
+      candidate: '--filter-tcp=80 --new --filter-tcp=443',
+    },
+    {
+      profiles: [{ opt: '--filter-tcp=443' }, { opt: '--filter-tcp=80' }],
+      candidate: '--filter-tcp=443 --new --filter-tcp=80',
+    },
+    { profiles: [{ opt: ' \t--filter-tcp=80\r\n' }], candidate: '--filter-tcp=80' },
+    { profiles: [{ opt: special }], candidate: special },
+  ];
+
+  for (const { profiles, candidate } of cases)
+    assert.deepEqual(composeProfiles(profiles), { ok: true, candidate });
+
+  assert.notEqual(composeProfiles(cases[1].profiles).candidate,
+    composeProfiles(cases[2].profiles).candidate);
+});
+
+for (const { name, profiles, code } of [
+  { name: 'empty profile sets are refused', profiles: [], code: 'ESTATE' },
+  { name: 'multiline fragments are refused', profiles: [{ opt: '--foo\n--bar' }], code: 'EINPUT' },
+  { name: 'embedded profile separators are refused', profiles: [{ opt: '--foo --new --bar' }], code: 'EINPUT' },
+]) {
+  test(name, () => assert.deepEqual(composeProfiles(profiles), { ok: false, code }));
+}
+
+test('production compiler enforces the executable composition matrix', () => {
+  assert.match(apply, /let frag = trim_ws\(p\.opt != null \? p\.opt : ''\)/);
+  assert.match(apply, /index\(frag, '\\n'\) >= 0 \|\| index\(frag, '\\r'\) >= 0/);
+  assert.match(apply, /length\(model\.profiles\) != 1 \|\| length\(model\.trailingTokens\) > 0/);
+  assert.match(apply, /let candidate = join\(' --new ', frags\)/);
+  assert.match(apply, /candidate_round_trip\(rc\.candidate, rc\.fragments\)/);
 });
