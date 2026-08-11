@@ -6,9 +6,9 @@
 import { readfile, stat, readlink } from 'fs';
 import { strategy_catalog_load, catalog_entry_to_strategy } from './strategy-catalog.uc';
 import { strategy_user_get_readonly, strategy_selection_get, strategy_apply_uncertain_get,
-	strategy_apply_reconcile } from './strategy-state.uc';
+ strategy_apply_reconcile, strategy_apply_guard_status, strategy_apply_begin, strategy_apply_end } from './strategy-state.uc';
 import { strategy_candidate, strategy_effective_argv } from './strategy-compiler.uc';
-import { profiles_apply_candidate, profiles_config_hash } from './profiles-apply.uc';
+import { profiles_apply_candidate, profiles_config_hash, profiles_candidate_hash, profiles_reconcile_evidence } from './profiles-apply.uc';
 
 const DEFAULT_CATALOG_ROOT = '/usr/share/zapret2-manager/catalog/avatar';
 const ENGINE_PATH = '/opt/zapret2/nfq2/nfqws2';
@@ -25,7 +25,7 @@ const MAX_DEPENDENCY_TEXT = 256;
 const MAX_DEPENDENCY_ITEMS = 32;
 const MAX_DEPENDENCY_BYTES = 16384;
 const ERROR_CODES = ['EINPUT', 'ENOENT', 'ECONFLICT', 'ENOENABLED', 'EDEPENDENCY',
-	'EPREFLIGHT', 'EVERIFY', 'EINTERNAL', 'ELOCK', 'EUNCERTAIN', 'ERECONCILE'];
+	'EPREFLIGHT', 'EVERIFY', 'EINTERNAL', 'ELOCK', 'EUNCERTAIN', 'ERECONCILE', 'EIO'];
 
 function is_object(value) { return type(value) == 'object' && value != null; }
 function is_string(value) { return type(value) == 'string'; }
@@ -386,7 +386,12 @@ export const strategy_validate = function(input, context) {
 function strategy_apply_projection(resolved, input, candidate, selection, configHash) {
 	return {
 		candidateSha256: candidate.digest,
+		callerContext: 'strategy_apply', operationNonce: selection.operationNonce,
+		strategyId: resolved.id, strategyOrigin: resolved.origin, strategyRevision: input.revision,
+		catalogDigest: input.catalog_digest,
 		expectedRevision: selection.revision,
+		selectionRevision: selection.revision, expectedSelected: selection.selected,
+		previousCandidateSha256: selection.previousCandidateSha256,
 		expectedConfigSha256: configHash,
 		previousSelected: selection.selected,
 		selected: {
@@ -396,64 +401,80 @@ function strategy_apply_projection(resolved, input, candidate, selection, config
 	};
 }
 
+function strategy_apply_finish(result, operationNonce) {
+	if (result == null) return error_result('EINTERNAL', 'Strategy transaction returned no result');
+	if (result.uncertain == true || (result.error && result.error.code == 'EUNCERTAIN')) return result;
+	let ended = null;
+	try { ended = strategy_apply_end({ applyNonce: operationNonce }); } catch (e) { ended = null; }
+	if (!is_object(ended) || ended.ok != true)
+		return error_result('EIO', 'Strategy Apply guard could not be released; future Apply remains blocked.', {
+			blocked: true, uncertain: false, transaction: result, guard: ended
+		});
+	return result;
+}
+
 export const strategy_apply = function(input, context) {
 	let shape = input_shape(input, true);
 	if (!shape.ok) return shape;
+	let guard = null;
+	try { guard = strategy_apply_guard_status(); } catch (e) { guard = null; }
+	if (!is_object(guard) || guard.ok != true || guard.blocked == true)
+		return error_result('EUNCERTAIN', 'Strategy Apply is blocked until explicit reconciliation.');
 	let pending = null;
 	try { pending = strategy_apply_uncertain_get(); } catch (e) { pending = null; }
 	if (!is_object(pending) || pending.ok != true)
 		return error_result('EUNCERTAIN', 'Strategy Apply uncertainty state is unreadable; explicit reconciliation is required.');
 	if (is_object(pending) && pending.ok == true && pending.record != null)
 		return error_result('EUNCERTAIN', 'Strategy Apply is blocked until explicit reconciliation.');
+	let begun = null;
+	try { begun = strategy_apply_begin({ strategyId: input.strategy_id, strategyRevision: input.revision, catalogDigest: input.catalog_digest }); }
+	catch (e) { begun = null; }
+	if (!is_object(begun) || begun.ok != true)
+		return error_result(begun && begun.error ? begun.error.code : 'EUNCERTAIN', begun && begun.error ? begun.error.message : 'Strategy Apply guard could not be established.');
 	let currentCatalog = catalog();
-	if (!is_object(currentCatalog) || currentCatalog.ok == false) return currentCatalog;
+	if (!is_object(currentCatalog) || currentCatalog.ok == false) return strategy_apply_finish(currentCatalog, begun.operationNonce);
 	let resolved = resolve_strategy(input, currentCatalog);
-	if (!resolved.ok) return resolved;
+	if (!resolved.ok) return strategy_apply_finish(resolved, begun.operationNonce);
 	let trusted = trusted_context(context);
 	trusted.environment.validate = true;
 	trusted.environment.executionAdmission = true;
 	let candidate = null;
 	try { candidate = strategy_candidate(resolved.strategy, trusted.environment); }
-	catch (e) { return error_result('EINTERNAL', 'Strategy compilation failed'); }
+	catch (e) { return strategy_apply_finish(error_result('EINTERNAL', 'Strategy compilation failed'), begun.operationNonce); }
 	if (!is_object(candidate) || candidate.ok != true)
-		return error_result(candidate && candidate.error ? candidate.error.code : 'EINTERNAL',
-			candidate && candidate.error ? candidate.error.message : 'Strategy compilation failed');
+		return strategy_apply_finish(error_result(candidate && candidate.error ? candidate.error.code : 'EINTERNAL',
+			candidate && candidate.error ? candidate.error.message : 'Strategy compilation failed'), begun.operationNonce);
 	if (candidate.profilesCount == 0)
-		return error_result('ENOENABLED', 'Strategy requires at least one enabled Profile');
+		return strategy_apply_finish(error_result('ENOENABLED', 'Strategy requires at least one enabled Profile'), begun.operationNonce);
 	if (!is_object(candidate.dependencies) || candidate.dependencies.available != true)
-		return error_result('EDEPENDENCY', 'Strategy dependencies are unavailable');
+		return strategy_apply_finish(error_result('EDEPENDENCY', 'Strategy dependencies are unavailable'), begun.operationNonce);
 	if (!complete_validation(candidate.nativeValidation))
-		return error_result('EPREFLIGHT', 'complete native Strategy preflight is required');
-	if (!digest(candidate.digest)) return error_result('EINTERNAL', 'Strategy candidate digest is unavailable');
+		return strategy_apply_finish(error_result('EPREFLIGHT', 'complete native Strategy preflight is required'), begun.operationNonce);
+	if (!digest(candidate.digest)) return strategy_apply_finish(error_result('EINTERNAL', 'Strategy candidate digest is unavailable'), begun.operationNonce);
 	let configHash = null;
 	try { configHash = profiles_config_hash(); } catch (e) { configHash = null; }
-	if (!digest(configHash)) return error_result('EVERIFY', 'current upstream config hash is unavailable');
-	let selection = null;
-	try { selection = strategy_selection_get(); } catch (e) { selection = null; }
-	if (!is_object(selection) || selection.ok != true)
-		return error_result('EVERIFY', 'Strategy selection state is unavailable');
+	if (!digest(configHash)) return strategy_apply_finish(error_result('EVERIFY', 'current upstream config hash is unavailable'), begun.operationNonce);
+	let previousCandidateSha256 = null;
+	try { previousCandidateSha256 = profiles_candidate_hash(); } catch (e) { previousCandidateSha256 = null; }
+	if (!digest(previousCandidateSha256)) return strategy_apply_finish(error_result('EVERIFY', 'current upstream candidate hash is unavailable'), begun.operationNonce);
+	let selection = { revision: begun.selectionRevision, selected: begun.selected,
+		operationNonce: begun.operationNonce, previousCandidateSha256: previousCandidateSha256 };
 	let projection = strategy_apply_projection(resolved, input, candidate, selection, configHash);
 	let applied = profiles_apply_candidate(candidate.candidate, candidate.digest, projection);
-	if (!is_object(applied)) return error_result('EINTERNAL', 'Strategy transaction returned no result');
+	if (!is_object(applied)) return strategy_apply_finish(error_result('EINTERNAL', 'Strategy transaction returned no result'), begun.operationNonce);
 	if (applied.ok != true) {
-		if (applied.uncertain == true)
-			return error_result('EUNCERTAIN', 'Strategy Apply is uncertain — explicit reconciliation is required', { transaction: applied });
-		return applied;
+		return strategy_apply_finish(applied, begun.operationNonce);
 	}
 	applied.strategy = { id: resolved.id, origin: resolved.origin, revision: input.revision,
 		candidateSha256: candidate.digest };
-	return applied;
+	return strategy_apply_finish(applied, begun.operationNonce);
 };
 
 export const strategy_reconcile = function(input, context) {
-	let trusted = trusted_context(context), evidence = trusted.reconciliation;
-	if (!is_object(evidence) || evidence.runtimeVerified != true)
-		return error_result('EVERIFY', 'verified runtime reconciliation evidence is required');
-	return strategy_apply_reconcile({
-		currentConfigSha256: evidence.currentConfigSha256,
-		activeIdentity: evidence.activeIdentity,
-		runtimeVerified: evidence.runtimeVerified
-	});
+	let evidence = null;
+	try { evidence = profiles_reconcile_evidence(); } catch (e) { evidence = null; }
+	if (!is_object(evidence) || evidence.ok != true) return evidence || error_result('EVERIFY', 'verified runtime reconciliation evidence is unavailable');
+	return strategy_apply_reconcile(evidence);
 };
 
 function request(path) {
@@ -485,6 +506,7 @@ function dispatch_result(mode, input, context) {
 export const strategy_cli_dispatch = dispatch_result;
 
 export const strategy_cli_request = function(mode, path) {
+	if (mode == 'reconcile') return dispatch_result(mode, null);
 	let input = request(path);
 	return dispatch_result(mode, input);
 };

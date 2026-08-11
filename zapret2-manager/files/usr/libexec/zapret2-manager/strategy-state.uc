@@ -13,6 +13,9 @@ const STRATEGY_DIR = getenv('Z2M_STRATEGY_DIR') || '/etc/zapret2-manager/strateg
 const STATE_PATH = getenv('Z2M_STRATEGY_STATE') || '/etc/zapret2-manager/strategy-state.json';
 const RECONCILE_PATH = getenv('Z2M_STRATEGY_RECONCILIATION') || '/tmp/zapret2-manager/strategy-reconciliation.json';
 const APPLY_UNCERTAIN_PATH = getenv('Z2M_STRATEGY_APPLY_UNCERTAIN') || '/tmp/zapret2-manager/last-good/strategy-apply-uncertain.json';
+const APPLY_LASTGOOD_DIR = getenv('Z2M_STRATEGY_APPLY_LASTGOOD') || '/tmp/zapret2-manager/last-good';
+const APPLY_BLOCK_PATH = getenv('Z2M_STRATEGY_APPLY_BLOCK') || APPLY_LASTGOOD_DIR + '/strategy-apply-block.json';
+const APPLY_LEASE_PATH = getenv('Z2M_STRATEGY_APPLY_LEASE') || APPLY_LASTGOOD_DIR + '/strategy-apply-lease.json';
 const LOCK_PATH = getenv('Z2M_STRATEGY_LOCK') || '/tmp/zapret2-manager/strategy-state.lock';
 const CATALOG_ROOT = getenv('Z2M_STRATEGY_CATALOG_ROOT') || '/usr/share/zapret2-manager/catalog/avatar';
 const EXTENSION_MANIFEST_PATH = getenv('Z2M_STRATEGY_EXTENSION_MANIFEST') || '/usr/share/zapret2-manager/strategies/extensions.json';
@@ -27,6 +30,8 @@ const PRIVATE_DIR_MODE = 448; // 0700
 const PRIVATE_FILE_MODE = 384; // 0600
 const HASH_TAG = getenv('Z2M_STRATEGY_HASH_TAG') || '';
 const MAX_APPLY_UNCERTAIN_BYTES = 16384;
+const APPLY_BLOCK_MARKER = 'z2m-strategy-apply-block.v1';
+const APPLY_LEASE_MARKER = 'z2m-strategy-apply-lease.v1';
 
 function error(code, message, extra) {
 	let result = { ok: false, error: { code: code, message: message } };
@@ -157,6 +162,56 @@ function owner_identity() {
 	return marker == null ? null : pid + ':' + marker;
 }
 
+function apply_guard_dir_secure() {
+	let metadata = null;
+	try { metadata = stat(APPLY_LASTGOOD_DIR); } catch (e) { metadata = null; }
+	if (metadata == null) return ensure_directory(APPLY_LASTGOOD_DIR, PRIVATE_DIR_MODE);
+	return metadata.type == 'directory' && readlink(APPLY_LASTGOOD_DIR) == null
+		&& metadata.mode % 512 == PRIVATE_DIR_MODE;
+}
+
+function nonce() {
+	let made = command('umask 077; mktemp /tmp/z2m-strategy-apply.XXXXXX 2>/dev/null');
+	let value = trim(made.output);
+	if (!made.ok || !match(value, /^\/tmp\/z2m-strategy-apply\.[A-Za-z0-9_-]+$/)) return null;
+	try { unlink(value); } catch (e) { return null; }
+	return value;
+}
+
+function apply_lease_valid(value) {
+	return is_object(value) && exact_fields(value, ['schema', 'marker', 'nonce', 'owner', 'createdAt'])
+		&& value.schema === 1 && value.marker == APPLY_LEASE_MARKER
+		&& bounded_string(value.nonce, 256) && bounded_string(value.owner, 128)
+		&& integer(value.createdAt);
+}
+
+function apply_lease_read() {
+	let metadata = null;
+	try { metadata = stat(APPLY_LEASE_PATH); } catch (e) { metadata = null; }
+	if (metadata == null) return { ok: true, record: null };
+	if (metadata.type != 'file' || readlink(APPLY_LEASE_PATH) != null
+		|| metadata.mode % 512 != PRIVATE_FILE_MODE || type(metadata.size) != 'int' || metadata.size > 4096)
+		return { ok: false, invalid: true };
+	let value = null;
+	try { value = json(readfile(APPLY_LEASE_PATH)); } catch (e) { value = null; }
+	if (!apply_lease_valid(value)) return { ok: false, invalid: true };
+	return { ok: true, record: value };
+}
+
+function apply_lease_owner_alive(record) {
+	let fields = split(record.owner, ':');
+	return length(fields) == 2 && process_start_marker(fields[0]) == fields[1];
+}
+
+function apply_lease_active() {
+	let lease = apply_lease_read();
+	if (!lease.ok) return true;
+	if (lease.record == null) return false;
+	if (apply_lease_owner_alive(lease.record)) return true;
+	try { unlink(APPLY_LEASE_PATH); } catch (e) { return true; }
+	return false;
+}
+
 function lock_owner_alive() {
 	let ownerPath = LOCK_PATH + '/owner', metadata = null;
 	try { metadata = stat(ownerPath); } catch (e) { metadata = null; }
@@ -211,7 +266,12 @@ function release_lock() {
 
 // Production CLI callers may hold the package-standard flock -x boundary;
 // direct module callers use an atomic private mkdir lock.
-function locked(operation) {
+function locked(operation, applyNonce) {
+	let active = apply_lease_read();
+	if (!active.ok) return error('ELOCKED', 'Strategy Apply lease is invalid; explicit recovery is required.');
+	if (active.record != null && !apply_lease_active()) active = { ok: true, record: null };
+	if (active.record != null && active.record.nonce != applyNonce)
+		return error('ELOCKED', 'Strategy storage is held by an active Strategy Apply.');
 	if (getenv('Z2M_STRATEGY_LOCKED') == '1') return operation();
 	if (!acquire_lock()) return error('ELOCKED', 'Strategy storage is locked.');
 	let result;
@@ -588,6 +648,90 @@ export const strategy_selection_set = function(input) {
 	});
 };
 
+function apply_block_valid(value) {
+	return is_object(value) && exact_fields(value, ['schema', 'marker', 'nonce', 'state', 'strategyId', 'strategyRevision', 'catalogDigest', 'createdAt'])
+		&& value.schema === 1 && value.marker == APPLY_BLOCK_MARKER
+		&& bounded_string(value.nonce, 256) && value.state == 'pending'
+		&& safe_id(value.strategyId) && integer(value.strategyRevision)
+		&& sha256(value.catalogDigest) && integer(value.createdAt);
+}
+
+function apply_block_read() {
+	let result = read_document(APPLY_BLOCK_PATH);
+	if (result.missing) return { ok: true, record: null };
+	if (!result.ok || !apply_block_valid(result.value)) return { ok: false, invalid: true };
+	return { ok: true, record: result.value };
+}
+
+function apply_block_clear() {
+	if (stat(APPLY_BLOCK_PATH) == null) return true;
+	try { unlink(APPLY_BLOCK_PATH); } catch (e) { return false; }
+	return true;
+}
+
+function apply_catalog_digest() {
+	let loaded = null;
+	try { loaded = strategy_catalog_load(CATALOG_ROOT); } catch (e) { loaded = null; }
+	return is_object(loaded) && loaded.ok == true && is_object(loaded.catalog)
+		&& sha256(loaded.catalog.aggregateDigest) ? loaded.catalog.aggregateDigest : null;
+}
+
+export const strategy_apply_guard_status = function() {
+	if (!apply_guard_dir_secure()) return { ok: true, blocked: true, reason: 'last-good directory is not private and secure' };
+	let block = apply_block_read();
+	if (!block.ok) return { ok: true, blocked: true, reason: 'Apply block marker is invalid' };
+	if (block.record != null) return { ok: true, blocked: true, reason: 'Strategy Apply is pending or uncertain' };
+	if (apply_lease_active()) return { ok: true, blocked: true, reason: 'Strategy Apply lease is active' };
+	return { ok: true, blocked: false };
+};
+
+export const strategy_apply_begin = function(input) {
+	return locked(function() {
+		if (!is_object(input) || !safe_id(input.strategyId) || !integer(input.strategyRevision) || !sha256(input.catalogDigest))
+			return error('EINPUT', 'Strategy Apply lease identity is invalid.');
+		if (!apply_guard_dir_secure()) return error('EUNCERTAIN', 'private last-good directory is unavailable.');
+		let status = strategy_apply_guard_status();
+		if (!status.ok || status.blocked) return error('EUNCERTAIN', status.reason || 'Strategy Apply is blocked.');
+		let digest = apply_catalog_digest();
+		if (digest == null || digest != input.catalogDigest) return error('ECONFLICT', 'Strategy catalog digest is stale.');
+		let current = read_user(input.strategyId);
+		if (current.ok) {
+			if (current.strategy.revision != input.strategyRevision) return error('ECONFLICT', 'Strategy revision is stale.');
+		} else if (!(current.error && current.error.code == 'ENOENT' && input.strategyRevision == 0 && catalog_id(input.strategyId))) {
+			return current;
+		}
+		let operationNonce = nonce(), owner = owner_identity();
+		if (operationNonce == null || owner == null) return error('EIO', 'Strategy Apply operation nonce is unavailable.');
+		let block = {
+			schema: 1, marker: APPLY_BLOCK_MARKER, nonce: operationNonce, state: 'pending',
+			strategyId: input.strategyId, strategyRevision: input.strategyRevision,
+			catalogDigest: input.catalogDigest, createdAt: time()
+		};
+		let savedBlock = atomic_write(APPLY_BLOCK_PATH, block, true);
+		if (!savedBlock.ok) return error('EUNCERTAIN', 'Strategy Apply blocking marker could not be persisted.', { persistence: savedBlock });
+		let lease = { schema: 1, marker: APPLY_LEASE_MARKER, nonce: operationNonce, owner: owner, createdAt: time() };
+		let savedLease = atomic_write(APPLY_LEASE_PATH, lease, true);
+		if (!savedLease.ok) return error('EUNCERTAIN', 'Strategy Apply lease could not be persisted.', { persistence: savedLease });
+		let selection = read_state();
+		if (!selection.ok) return selection;
+		return { ok: true, operationNonce: operationNonce, strategyRevision: input.strategyRevision,
+			catalogDigest: input.catalogDigest, selectionRevision: selection.state.revision,
+			selected: selection.state.selected };
+	});
+};
+
+export const strategy_apply_end = function(input) {
+	return locked(function() {
+		if (!is_object(input) || !bounded_string(input.applyNonce, 256)) return error('EINPUT', 'Strategy Apply operation nonce is required.');
+		let lease = apply_lease_read();
+		if (!lease.ok || lease.record == null || lease.record.nonce != input.applyNonce)
+			return error('ECONFLICT', 'Strategy Apply lease is not current.');
+		try { unlink(APPLY_LEASE_PATH); } catch (e) { return error('EIO', 'Strategy Apply lease could not be released.'); }
+		try { unlink(APPLY_BLOCK_PATH); } catch (e) { return error('EIO', 'Strategy Apply blocking marker could not be cleared.'); }
+		return { ok: true, released: true };
+	}, input && input.applyNonce);
+};
+
 function selection_copy(value) {
 	return value == null ? null : {
 		id: value.id, origin: value.origin, revision: value.revision,
@@ -607,11 +751,35 @@ export const strategy_selection_apply = function(input) {
 			next.selected = selection_copy(input.selected);
 			return next;
 		});
-	});
+	}, input && input.applyNonce);
 };
 
 export const strategy_selection_restore = function(input) {
 	return strategy_selection_apply(input);
+};
+
+export const strategy_apply_revalidate = function(input) {
+	return locked(function() {
+		if (!is_object(input) || !safe_id(input.strategyId) || !integer(input.strategyRevision)
+			|| !sha256(input.catalogDigest) || !integer(input.selectionRevision)
+			|| !apply_uncertain_identity(input.expectedSelected))
+			return error('EINPUT', 'Strategy Apply revalidation identity is invalid.');
+		let digest = apply_catalog_digest();
+		if (digest == null || digest != input.catalogDigest) return error('ECONFLICT', 'Strategy catalog digest changed.');
+		let current = read_user(input.strategyId);
+		if (current.ok) {
+			if (current.strategy.revision != input.strategyRevision || input.strategyOrigin != 'user')
+				return error('ECONFLICT', 'Strategy revision changed before config mutation.');
+		} else if (!(current.error && current.error.code == 'ENOENT' && input.strategyRevision == 0
+			&& input.strategyOrigin == 'avatar_builtin' && catalog_id(input.strategyId))) {
+			return error('ECONFLICT', 'Strategy identity changed before config mutation.');
+		}
+		let state = read_state();
+		if (!state.ok || state.state.revision != input.selectionRevision
+			|| !same_selection(state.state.selected, input.expectedSelected))
+			return error('ECONFLICT', 'Strategy selection changed before config mutation.');
+		return { ok: true, strategyRevision: input.strategyRevision, selectionRevision: state.state.revision };
+	}, input && input.applyNonce);
 };
 
 export const strategy_identity_outcome = function(input) {
@@ -625,12 +793,32 @@ function apply_uncertain_identity(value) {
 	return value == null || selected_valid(value);
 }
 
+function runtime_checks_shape(value) {
+	return is_object(value) && exact_fields(value, ['processPresent', 'singleInstance', 'rulesPresent', 'queueRegistered', 'ownerMatch'])
+		&& type(value.processPresent) == 'bool' && type(value.singleInstance) == 'bool'
+		&& type(value.rulesPresent) == 'bool' && type(value.queueRegistered) == 'bool'
+		&& type(value.ownerMatch) == 'bool';
+}
+
+function runtime_checks_verified(value) {
+	return runtime_checks_shape(value) && value.processPresent == true && value.singleInstance == true
+		&& value.rulesPresent == true && value.queueRegistered == true && value.ownerMatch == true;
+}
+
+function runtime_outcome_valid(value) {
+	return is_object(value) && exact_fields(value, ['initial', 'rollback', 'restartRc', 'rollbackRestartRc', 'configRestored', 'identityRestored'])
+		&& runtime_checks_shape(value.initial) && runtime_checks_shape(value.rollback)
+		&& type(value.restartRc) == 'int' && type(value.rollbackRestartRc) == 'int'
+		&& type(value.configRestored) == 'bool' && type(value.identityRestored) == 'bool';
+}
+
 function apply_uncertain_valid(value) {
 	return is_object(value) && exact_fields(value, ['schema', 'oldConfigSha256', 'newConfigSha256',
-		'oldIdentity', 'newIdentity', 'runtimeOutcome', 'reason']) && value.schema === 1
+		'oldCandidateSha256', 'newCandidateSha256', 'oldIdentity', 'newIdentity', 'runtimeOutcome', 'reason']) && value.schema === 1
 		&& sha256(value.oldConfigSha256) && sha256(value.newConfigSha256)
+		&& sha256(value.oldCandidateSha256) && sha256(value.newCandidateSha256)
 		&& apply_uncertain_identity(value.oldIdentity) && apply_uncertain_identity(value.newIdentity)
-		&& bounded_string(value.runtimeOutcome, 128) && bounded_string(value.reason, 128);
+		&& runtime_outcome_valid(value.runtimeOutcome) && bounded_string(value.reason, 128);
 }
 
 function apply_uncertain_read() {
@@ -650,12 +838,14 @@ function apply_uncertain_parent() {
 export const strategy_apply_uncertain_record = function(input) {
 	return locked(function() {
 		if (!is_object(input) || !sha256(input.oldConfigSha256) || !sha256(input.newConfigSha256)
+			|| !sha256(input.oldCandidateSha256) || !sha256(input.newCandidateSha256)
 			|| !apply_uncertain_identity(input.oldIdentity) || !apply_uncertain_identity(input.newIdentity)
-			|| !bounded_string(input.runtimeOutcome, 128) || !bounded_string(input.reason, 128))
+			|| !runtime_outcome_valid(input.runtimeOutcome) || !bounded_string(input.reason, 128))
 			return error('EINPUT', 'Strategy Apply uncertainty record is invalid.');
 		if (!apply_uncertain_parent()) return error('EIO', 'Strategy Apply uncertainty directory is unavailable.');
 		let record = {
 			schema: 1, oldConfigSha256: input.oldConfigSha256, newConfigSha256: input.newConfigSha256,
+			oldCandidateSha256: input.oldCandidateSha256, newCandidateSha256: input.newCandidateSha256,
 			oldIdentity: selection_copy(input.oldIdentity), newIdentity: selection_copy(input.newIdentity),
 			runtimeOutcome: input.runtimeOutcome, reason: input.reason
 		};
@@ -663,7 +853,7 @@ export const strategy_apply_uncertain_record = function(input) {
 		if (length(encoded) > MAX_APPLY_UNCERTAIN_BYTES) return error('EINPUT', 'Strategy Apply uncertainty record is too large.');
 		let write = atomic_write(APPLY_UNCERTAIN_PATH, record, true);
 		return write.ok ? { ok: true, record: record } : write;
-	});
+	}, input && input.applyNonce);
 };
 
 export const strategy_apply_uncertain_get = function() {
@@ -692,15 +882,21 @@ export const strategy_apply_reconcile = function(input) {
 		let pending = apply_uncertain_read();
 		if (!pending.ok) return pending;
 		if (pending.record == null) return { ok: true, reconciled: false };
-		if (!is_object(input) || input.runtimeVerified != true || !sha256(input.currentConfigSha256)
-			|| !apply_uncertain_identity(input.activeIdentity))
+		if (!is_object(input) || input.evidenceMarker != 'z2m-authoritative-reconcile.v1'
+			|| !sha256(input.currentConfigSha256)
+			|| !sha256(input.activeCandidateSha256) || !runtime_checks_verified(input.runtimeChecks))
 			return error('EVERIFY', 'verified runtime and exact config evidence are required for reconciliation.');
 		let record = pending.record;
-		if (input.currentConfigSha256 == record.oldConfigSha256 && same_selection(input.activeIdentity, record.oldIdentity)) {
+		let oldMatch = input.currentConfigSha256 == record.oldConfigSha256
+			&& input.activeCandidateSha256 == record.oldCandidateSha256;
+		let newMatch = input.currentConfigSha256 == record.newConfigSha256
+			&& input.activeCandidateSha256 == record.newCandidateSha256;
+		if (oldMatch) {
 			try { unlink(APPLY_UNCERTAIN_PATH); } catch (e) { return error('EIO', 'Strategy Apply uncertainty record could not be cleared.'); }
+			if (!apply_block_clear()) return error('EIO', 'Strategy Apply blocking marker could not be cleared.');
 			return { ok: true, reconciled: 'old', selected: record.oldIdentity };
 		}
-		if (input.currentConfigSha256 != record.newConfigSha256 || !same_selection(input.activeIdentity, record.newIdentity))
+		if (!newMatch)
 			return error('ECONFLICT', 'runtime and config do not match either Strategy Apply identity.');
 		let current = read_state();
 		if (!current.ok) return current;
@@ -711,6 +907,7 @@ export const strategy_apply_reconcile = function(input) {
 		let saved = write_state(current, next, current.state.revision);
 		if (!saved.ok) return saved;
 		try { unlink(APPLY_UNCERTAIN_PATH); } catch (e) { return error('EIO', 'Strategy Apply uncertainty record could not be cleared.'); }
+		if (!apply_block_clear()) return error('EIO', 'Strategy Apply blocking marker could not be cleared.');
 		return { ok: true, reconciled: 'new', selected: selected, state: saved.state, revision: saved.revision };
 	});
 };
