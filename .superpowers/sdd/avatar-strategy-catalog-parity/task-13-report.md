@@ -102,3 +102,34 @@ Result: 183 passed, 0 failed.
   the combined native/product batch passed with 307 tests, and the privileged
   root batch passed with 120 tests.
 - `git diff --check`: passed before the report update.
+
+## Round 2 Correction
+
+- The Round 1 production context seam was removed from the normal import path.
+  `strategy_import_profiles(input)`, `strategy_cli_dispatch`, and
+  `strategy_cli_request` now always use the authoritative
+  `profiles-draft.uc` `load_state()` source. Import dispatch does not forward a
+  caller context, and RPC request JSON cannot select draft state.
+- Injected draft context is available only through the separately named
+  `strategy_cli_dispatch_test` and `strategy_import_profiles_test` paths, and
+  both require the server-side `Z2M_STRATEGY_SERVER_TEST=1` environment marker.
+  The marker is not read from request JSON or RPC input.
+- Dispatcher-level tests use that marked seam with temporary Strategy roots.
+  They snapshot existing Strategy file bytes, Strategy state, legacy draft,
+  config, `NFQWS2_OPT`, runtime, active identity, and manager state. Preview
+  and invalid imports preserve every snapshot byte; create adds exactly one
+  user Strategy file and preserves all existing files and state.
+- Added regressions show normal dispatcher and RPC request context cannot
+  fabricate a legacy draft. RPC child rejection may be surfaced as the
+  existing bounded `EINPUT` or `ECHILD` envelope.
+
+## Round 2 Verification
+
+- Focused import/RPC suite: 27 passed, 0 failed.
+- Full product suite: 188 passed, 0 failed.
+- Root native gate: 42 + 35 + 35 + 310 + 120 tests passed, 0 failed. The
+  non-root wrapper cannot complete its final `sudo` phase because this WSL
+  environment has no interactive authentication; the root rerun executed the
+  same full gate with the writable temporary directory
+  `/tmp/kirill-z2m-native-root-r2-tmp`.
+- `git diff --check`: passed before this report update.

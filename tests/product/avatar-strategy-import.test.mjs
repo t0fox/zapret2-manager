@@ -70,13 +70,57 @@ function previewSource(value = draft, input = { mode: 'preview' }) {
   return `import { strategy_import_profiles_from_state } from ${JSON.stringify(CLI)}; print(sprintf('%J', strategy_import_profiles_from_state(${JSON.stringify(value)}, ${JSON.stringify(input)})));`;
 }
 
-function productionSource(input, context = { importProfiles: { draftState: draft } }) {
-  return `import { strategy_import_profiles } from ${JSON.stringify(CLI)}; print(sprintf('%J', strategy_import_profiles(${JSON.stringify(input)}, ${JSON.stringify(context)})));`;
+function dispatcherSource(mode, input, context, testOnly = false) {
+  const fn = testOnly ? 'strategy_cli_dispatch_test' : 'strategy_cli_dispatch';
+  const args = [mode, input];
+  if (context !== undefined) args.push(context);
+  return `import { ${fn} } from ${JSON.stringify(CLI)}; print(sprintf('%J', ${fn}(${args.map(JSON.stringify).join(', ')})));`;
 }
 
-function sentinelBytes(root) {
-  return Object.fromEntries(['legacy-state.json', 'config', 'nfqws2-opt', 'runtime.json', 'active-identity', 'manager-state.json']
-    .map(name => [name, fs.readFileSync(path.join(root, name), 'utf8')]));
+function fileBytes(file) {
+  return fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+}
+
+function storageSnapshot(env, root, strategies) {
+  return {
+    strategies: Object.fromEntries(fs.readdirSync(strategies).sort()
+      .map(name => [name, fs.readFileSync(path.join(strategies, name), 'utf8')])),
+    files: Object.fromEntries([
+      env.Z2M_STRATEGY_STATE,
+      path.join(root, 'legacy-state.json'),
+      path.join(root, 'config'),
+      path.join(root, 'nfqws2-opt'),
+      path.join(root, 'runtime.json'),
+      path.join(root, 'active-identity'),
+      path.join(root, 'manager-state.json'),
+    ].map(file => [file, fileBytes(file)])),
+  };
+}
+
+function testContext(draftState = draft) {
+  return { importProfiles: { draftState } };
+}
+
+function testEnv(env) {
+  return { ...env, Z2M_STRATEGY_SERVER_TEST: '1' };
+}
+
+function seedStorage(env, root, strategies, draftState) {
+  const legacyBytes = JSON.stringify(draftState);
+  for (const [name, value] of Object.entries({
+    'existing-user.json': JSON.stringify({ schema: 1, id: 'existing-user', revision: 2 }),
+    'legacy-state.json': legacyBytes,
+    config: 'config-before',
+    'nfqws2-opt': 'NFQWS2_OPT-before',
+    'runtime.json': JSON.stringify({ pid: 123, running: true }),
+    'active-identity': 'active-before',
+    'manager-state.json': JSON.stringify({ revision: 9 }),
+  })) {
+    const destination = name === 'existing-user.json' ? path.join(strategies, name)
+      : path.join(root, name);
+    fs.writeFileSync(destination, value);
+  }
+  fs.writeFileSync(env.Z2M_STRATEGY_STATE, 'strategy-state-before');
 }
 
 test('preview preserves ordered Profile args and quote-aware token semantics', () => {
@@ -117,52 +161,59 @@ test('preview does not publish, while explicit create publishes one user Strateg
   assert.equal(fs.existsSync(path.join(root, 'state.json')), false);
 }));
 
-test('production import entry point honors preview/create modes with injected draft context', () => storage((env, root, strategies) => {
-  const legacyBytes = JSON.stringify(draft);
-  for (const [name, value] of Object.entries({
-    'legacy-state.json': legacyBytes,
-    config: 'config-before',
-    'nfqws2-opt': 'NFQWS2_OPT-before',
-    'runtime.json': JSON.stringify({ pid: 123, running: true }),
-    'active-identity': 'active-before',
-    'manager-state.json': JSON.stringify({ revision: 9 }),
-  })) fs.writeFileSync(path.join(root, name), value);
-  const before = sentinelBytes(root);
+test('marked dispatcher import preview/create has the exact allowed mutation boundary', () => storage((env, root, strategies) => {
+  seedStorage(env, root, strategies, draft);
+  const before = storageSnapshot(env, root, strategies);
 
-  const preview = invoke(productionSource({ mode: 'preview' }), env);
+  const preview = invoke(dispatcherSource('import_profiles', { mode: 'preview' }, testContext(), true), testEnv(env));
   assert.equal(preview.ok, true);
   assert.equal(preview.mode, 'preview');
   assert.equal(preview.runtimeMutation, false);
-  assert.deepEqual(fs.readdirSync(strategies), []);
+  assert.deepEqual(storageSnapshot(env, root, strategies), before);
 
-  const created = invoke(productionSource({ mode: 'create' }), env);
+  const created = invoke(dispatcherSource('import_profiles', { mode: 'create' }, testContext(), true), testEnv(env));
   assert.equal(created.ok, true);
   assert.equal(created.mode, 'create');
   assert.equal(created.runtimeMutation, false);
-  assert.deepEqual(fs.readdirSync(strategies), ['legacy-profile-drafts.json']);
-  assert.equal(JSON.stringify(draft), legacyBytes);
-  assert.deepEqual(sentinelBytes(root), before);
+  const afterCreate = storageSnapshot(env, root, strategies);
+  assert.deepEqual(afterCreate.files, before.files);
+  assert.deepEqual(Object.keys(afterCreate.strategies).sort(), ['existing-user.json', 'legacy-profile-drafts.json']);
+  assert.equal(afterCreate.strategies['existing-user.json'], before.strategies['existing-user.json']);
+  assert.equal(typeof afterCreate.strategies['legacy-profile-drafts.json'], 'string');
 }));
 
-test('production import entry point blocks invalid fragments in both preview and create modes', () => storage((env, root, strategies) => {
+test('unmarked dispatcher test seam fails closed before reading injected state', () => {
+  const forged = { ...draft, profiles: [{ id: 'forged-profile', name: 'Forged', opt: '--filter-tcp=1' }] };
+  const result = invoke(dispatcherSource('import_profiles', { mode: 'preview' }, testContext(forged), true));
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'EINPUT');
+});
+
+test('marked dispatcher import blocks invalid fragments without mutation in both modes', () => storage((env, root, strategies) => {
   const invalid = { ...draft, profiles: [
     { id: 'p000001', name: 'Multiline', opt: '--filter-tcp=443\n--filter-udp=443' },
     { id: 'p000002', name: 'Separator', opt: '--filter-tcp=80 --new --filter-udp=443' },
   ] };
-  const legacyBytes = JSON.stringify(invalid);
-  for (const name of ['legacy-state.json', 'config', 'nfqws2-opt', 'runtime.json', 'active-identity', 'manager-state.json'])
-    fs.writeFileSync(path.join(root, name), legacyBytes);
-  const before = sentinelBytes(root);
+  seedStorage(env, root, strategies, invalid);
+  const before = storageSnapshot(env, root, strategies);
   for (const mode of ['preview', 'create']) {
-    const result = invoke(productionSource({ mode }, { importProfiles: { draftState: invalid } }), env);
+    const result = invoke(dispatcherSource('import_profiles', { mode }, testContext(invalid), true), testEnv(env));
     assert.equal(result.ok, false, mode);
     assert.equal(result.error.code, 'EINPUT', mode);
     assert.ok(Array.isArray(result.diagnostics), mode);
     assert.ok(result.diagnostics.length <= 16, mode);
-    assert.deepEqual(fs.readdirSync(strategies), [], mode);
+    assert.deepEqual(storageSnapshot(env, root, strategies), before, mode);
   }
-  assert.equal(JSON.stringify(invalid), legacyBytes);
-  assert.deepEqual(sentinelBytes(root), before);
+}));
+
+test('normal dispatcher ignores fabricated import context and uses load_state authority', () => storage((env, root, strategies) => {
+  seedStorage(env, root, strategies, draft);
+  const before = storageSnapshot(env, root, strategies);
+  const fabricated = { ...draft, profiles: [{ id: 'forged', name: 'Forged', opt: '--filter-tcp=1' }] };
+  const result = invoke(dispatcherSource('import_profiles', { mode: 'preview' }, testContext(fabricated)), env);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'EINPUT');
+  assert.deepEqual(storageSnapshot(env, root, strategies), before);
 }));
 
 test('import uses load_state, replaces the bounded placeholder, and has no runtime writer path', () => {
@@ -173,6 +224,8 @@ test('import uses load_state, replaces the bounded placeholder, and has no runti
   assert.match(cli, /import \{ load_state \} from '\.\/profiles-draft\.uc'/);
   assert.match(cli, /strategy_import_profiles/);
   assert.match(cli, /strategy_import_profiles_from_state/);
+  assert.match(cli, /Z2M_STRATEGY_SERVER_TEST/);
+  assert.match(cli, /strategy_cli_dispatch_test/);
   assert.doesNotMatch(cli, /Profile import is not available/);
   assert.match(state, /strategy_user_create/);
   assert.match(draftsSource, /export const load_state/);

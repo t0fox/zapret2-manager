@@ -338,8 +338,21 @@ test('ACL grants the exact Strategy read/write split and preserves existing Prof
 });
 
 test('Profile import dispatches the explicit Task 13 preview/create operation', () => {
-  assert.match(CLI, /mode == 'import_profiles'[\s\S]*strategy_import_profiles\(input(?:,\s*context)?\)/);
+  assert.match(CLI, /mode == 'import_profiles'[\s\S]*strategy_import_profiles\(input\)/);
+  assert.match(CLI, /strategy_import_profiles_test\(input, context\)/);
   assert.match(CLI, /import \{ load_state \} from '\.\/profiles-draft\.uc'/);
   const result = invokeValues('strategy_cli_dispatch', ['import_profiles', {}]);
   assert.equal(result.error.code, 'EINPUT');
+});
+
+test('RPC import cannot fabricate a legacy draft through request context', () => {
+  const forged = {
+    schema: 1,
+    profiles: [{ id: 'forged-profile', name: 'Forged', opt: '--filter-tcp=1' }],
+  };
+  const result = invokeRpcMethod('strategies_import_profiles', {
+    edit: JSON.stringify({ mode: 'preview', importProfiles: { draftState: forged } }),
+  });
+  if (result.ok) assert.notEqual(result.strategy?.id, 'forged-profile');
+  else assert.ok(['EINPUT', 'ECHILD'].includes(result.error.code), result.error.code);
 });

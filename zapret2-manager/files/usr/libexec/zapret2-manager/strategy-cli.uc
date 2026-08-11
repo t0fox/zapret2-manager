@@ -695,10 +695,17 @@ export const strategy_import_profiles_from_state = function(draft, input) {
 	};
 };
 
-function import_draft_source(context) {
-	if (is_object(context) && is_object(context.importProfiles)
-		&& exists(context.importProfiles, 'draftState'))
+const SERVER_TEST_MARKER = 'Z2M_STRATEGY_SERVER_TEST';
+
+function import_draft_source(context, allowTestContext) {
+	if (allowTestContext == true) {
+		if (getenv(SERVER_TEST_MARKER) != '1')
+			return error_result('EINPUT', 'server-test import context is unavailable');
+		if (!is_object(context) || !is_object(context.importProfiles)
+			|| !exists(context.importProfiles, 'draftState'))
+			return error_result('EINPUT', 'server-test import context is malformed');
 		return { ok: true, state: context.importProfiles.draftState };
+	}
 	let loaded = null;
 	try { loaded = load_state(); } catch (e) { loaded = null; }
 	if (!is_object(loaded) || loaded.ok != true)
@@ -706,8 +713,8 @@ function import_draft_source(context) {
 	return { ok: true, state: loaded.state };
 }
 
-export const strategy_import_profiles = function(input, context) {
-	let source = import_draft_source(context);
+function import_profiles_from_source(input, context, allowTestContext) {
+	let source = import_draft_source(context, allowTestContext);
 	if (!source.ok) return source;
 	let preview = strategy_import_profiles_from_state(source.state, input);
 	if (!preview.ok || !is_object(input) || input.mode != 'create') return preview;
@@ -718,6 +725,14 @@ export const strategy_import_profiles = function(input, context) {
 	created.runtimeMutation = false;
 	created.source = preview.source;
 	return created;
+}
+
+export const strategy_import_profiles = function(input) {
+	return import_profiles_from_source(input, null, false);
+};
+
+export const strategy_import_profiles_test = function(input, context) {
+	return import_profiles_from_source(input, context, true);
 };
 
 function catalog_root() {
@@ -832,7 +847,7 @@ function request(path) {
 	return value;
 }
 
-function dispatch_result(mode, input, context) {
+function dispatch_result(mode, input, context, testContext) {
 	if (mode == 'reconcile') return strategy_reconcile(input, context);
 	if (mode == 'list') return strategy_list();
 	if (mode == 'get') return strategy_get(input);
@@ -850,11 +865,20 @@ function dispatch_result(mode, input, context) {
 		if (!shape.ok) return shape;
 		return strategy_apply(input, context);
 	}
-	if (mode == 'import_profiles') return strategy_import_profiles(input, context);
+	if (mode == 'import_profiles')
+		return testContext == true ? strategy_import_profiles_test(input, context) : strategy_import_profiles(input);
 	return error_result('EINPUT', 'unknown Strategy operation');
 }
 
-export const strategy_cli_dispatch = dispatch_result;
+export const strategy_cli_dispatch = function(mode, input, context) {
+	return dispatch_result(mode, input, context, false);
+};
+
+export const strategy_cli_dispatch_test = function(mode, input, context) {
+	if (getenv(SERVER_TEST_MARKER) != '1')
+		return error_result('EINPUT', 'server-test dispatcher is unavailable');
+	return dispatch_result(mode, input, context, true);
+};
 
 export const strategy_cli_request = function(mode, path) {
 	if (mode == 'reconcile') return dispatch_result(mode, null);
