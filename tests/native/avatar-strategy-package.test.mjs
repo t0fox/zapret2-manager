@@ -145,6 +145,14 @@ test('package installs immutable catalog data without making it a conffile', () 
     'immutable catalog and Strategy state must not be conffiles');
 });
 
+test('package payload does not install mutable Strategy storage or extension declarations', () => {
+  const install = block('Package/zapret2-manager/install');
+  assert.match(install, /usr\/share\/zapret2-manager/,
+    'package install must include the immutable catalog payload');
+  assert.doesNotMatch(install, /(?:\/strategies|strategy-state\.json|strategies\/extensions\.json)/,
+    'package install must not ship mutable Strategy storage or extension declarations');
+});
+
 test('postinst bootstraps absent Strategy storage with fixed root ownership and modes', () => {
   const postinst = block('Package/zapret2-manager/postinst');
   assert.match(postinst, /if \[ ! -e \/etc\/zapret2-manager\/strategies \] && \[ ! -L \/etc\/zapret2-manager\/strategies \]; then/);

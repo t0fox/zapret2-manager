@@ -18,6 +18,8 @@ const ACL = readFileSync(path.join(ROOT,
 const CATALOG_ROOT = path.join(ROOT,
   'zapret2-manager/files/usr/share/zapret2-manager/catalog/avatar');
 const CATALOG_MANIFEST = JSON.parse(readFileSync(path.join(CATALOG_ROOT, 'manifest.json'), 'utf8'));
+const NATIVE_PROTOCOL = JSON.parse(readFileSync(path.join(ROOT,
+  'zapret2-manager/src/z2m-core-helper/protocol-v1.json'), 'utf8'));
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.split('|') : [];
 const UCODE_MODULE_PATTERN = ucodeModulePattern(
@@ -88,6 +90,64 @@ function stubChild(mode) {
   fs.writeFileSync(file, body, { mode: 0o755 });
   fs.chmodSync(file, 0o755);
   return { file, root: path.dirname(file) };
+}
+
+function temporaryCatalog() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-strategy-rpc-catalog-'));
+  fs.cpSync(CATALOG_ROOT, root, { recursive: true });
+  return root;
+}
+
+function temporaryStrategyStorage() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-strategy-rpc-state-'));
+  const strategies = path.join(root, 'strategies');
+  const extensions = path.join(root, 'extensions.json');
+  fs.mkdirSync(strategies, { mode: 0o700 });
+  fs.chmodSync(root, 0o700);
+  fs.chmodSync(strategies, 0o700);
+  fs.writeFileSync(extensions, JSON.stringify({ schema: 1, extensions: ['extension-one'] }), { mode: 0o644 });
+  fs.chmodSync(extensions, 0o644);
+  return {
+    root,
+    strategies,
+    state: path.join(root, 'strategy-state.json'),
+    extensions,
+  };
+}
+
+function strategyStorageEnv(storage) {
+  return {
+    Z2M_STRATEGY_ROOT: storage.root,
+    Z2M_STRATEGY_DIR: storage.strategies,
+    Z2M_STRATEGY_STATE: storage.state,
+    Z2M_STRATEGY_EXTENSION_MANIFEST: storage.extensions,
+  };
+}
+
+function userStrategy(overrides = {}) {
+  return {
+    id: 'user-one', name: 'User one', origin: 'user', is_builtin: false,
+    metadata: { description: 'local' },
+    profiles: [{ id: 'p1', args: '--filter-tcp=443', enabled: true }],
+    ...overrides,
+  };
+}
+
+function measureFullStrategyList(value) {
+  const started = process.hrtime.bigint();
+  const encoded = JSON.stringify(value);
+  const elapsedNs = Number(process.hrtime.bigint() - started);
+  return {
+    bytes: Buffer.byteLength(encoded),
+    serializationMs: elapsedNs / 1e6,
+    projectionAuthorized: false,
+    strategyResponseMaxBytes: 4 * 1024 * 1024,
+    nativeRequestMaxBytes: NATIVE_PROTOCOL.transport.requestMaxBytes,
+    nativeResponseMaxBytes: NATIVE_PROTOCOL.transport.responseMaxBytes,
+    nativeCanonicalMaxBytes: NATIVE_PROTOCOL.operations.atomic_write_json.limits.maxCanonicalBytes,
+    nativeProcessMemoryLimitBytes: null,
+    nativeTestChildMaxBufferBytes: 8 * 1024 * 1024,
+  };
 }
 
 test('Strategy methods use the existing rpcd object and bounded edit transport', () => {
@@ -213,6 +273,145 @@ test('Default Strategy list remains a complete bounded catalog projection', () =
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('full list is measured before any projection is allowed', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-strategy-rpc-measure-'));
+  const strategies = path.join(root, 'strategies');
+  fs.mkdirSync(strategies, { mode: 0o700 });
+  fs.chmodSync(root, 0o700);
+  fs.chmodSync(strategies, 0o700);
+  try {
+    const fullList = invokeValues('strategy_cli_dispatch', ['list', {}], {
+      Z2M_STRATEGY_ROOT: root, Z2M_STRATEGY_DIR: strategies,
+    });
+    assert.equal(fullList.ok, true);
+    assert.equal(fullList.strategies.length, CATALOG_MANIFEST.uniqueStrategyIdCount);
+    assert.ok(fullList.strategies.every(strategy => Array.isArray(strategy.profiles)),
+      'the measured response must contain full Strategy records, not a projected ID list');
+
+    const measurement = measureFullStrategyList(fullList);
+    assert.ok(measurement.bytes > 0);
+    assert.ok(measurement.serializationMs >= 0);
+    assert.equal(measurement.projectionAuthorized, false);
+    assert.ok(measurement.bytes <= measurement.strategyResponseMaxBytes,
+      `full list exceeds Strategy response bound: ${measurement.bytes}`);
+    assert.ok(measurement.bytes < measurement.nativeResponseMaxBytes,
+      `full list exceeds native response bound: ${measurement.bytes}`);
+    assert.equal(measurement.nativeRequestMaxBytes, 4 * 1024 * 1024);
+    assert.equal(measurement.nativeResponseMaxBytes, 6 * 1024 * 1024);
+    assert.equal(measurement.nativeCanonicalMaxBytes, 521028);
+    assert.equal(measurement.nativeProcessMemoryLimitBytes, null,
+      'the protocol must not invent an RSS limit that it does not declare');
+    assert.equal(measurement.nativeTestChildMaxBufferBytes, 8 * 1024 * 1024);
+    assert.doesNotMatch(CLI, /OPENWRT_NATIVE/,
+      'no concrete OPENWRT_NATIVE evidence authorizes a projection');
+    console.log(`# Task 15 full-list evidence: ${JSON.stringify(measurement)}`);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('RPC rejects malformed or tampered catalog evidence before serving Strategy data', () => {
+  const mutations = [
+    ['malformed manifest', root => fs.writeFileSync(path.join(root, 'manifest.json'), '{'), 'EMANIFEST'],
+    ['path traversal', root => {
+      const manifestPath = path.join(root, 'manifest.json');
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+      manifest.files[0].path = 'advanced/../direct/tcp.txt';
+      fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+    }, 'EMANIFEST'],
+    ['stale file hash', root => {
+      const manifestPath = path.join(root, 'manifest.json');
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+      manifest.files[0].sha256 = '0'.repeat(64);
+      fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+    }, 'EDIGEST'],
+  ];
+
+  for (const [name, mutate, code] of mutations) {
+    const root = temporaryCatalog();
+    try {
+      mutate(root);
+      const result = invokeValues('strategy_cli_dispatch', ['catalog_status', {}], {
+        Z2M_STRATEGY_CATALOG_ROOT: root,
+      });
+      assert.equal(result.ok, false, name);
+      assert.equal(result.error.code, 'EVERIFY', name);
+      assert.match(result.error.message, /verified Avatar catalog is unavailable/);
+      assert.notEqual(result.error.code, code, 'RPC must expose only its bounded verification envelope');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test('RPC storage rejects traversal, builtin/extension collisions, shell input, and oversized Strategy/Profile data', () => {
+  const storage = temporaryStrategyStorage();
+  const env = strategyStorageEnv(storage);
+  const marker = path.join(storage.root, 'shell-injection-marker');
+  try {
+    const traversal = invokeValues('strategy_cli_dispatch', ['create', {
+      strategy: userStrategy({ id: '../escape' }),
+    }], env);
+    assert.equal(traversal.ok, false);
+    assert.equal(traversal.error.code, 'EINPUT');
+    assert.equal(fs.existsSync(path.join(storage.root, 'escape.json')), false);
+
+    const builtin = invokeValues('strategy_cli_dispatch', ['create', {
+      strategy: userStrategy({ id: 'fake_simple' }),
+    }], env);
+    assert.equal(builtin.ok, false);
+    assert.equal(builtin.error.code, 'ECONFLICT');
+    assert.equal(fs.existsSync(path.join(storage.strategies, 'fake_simple.json')), false);
+
+    const extension = invokeValues('strategy_cli_dispatch', ['create', {
+      strategy: userStrategy({ id: 'extension-one' }),
+    }], env);
+    assert.equal(extension.ok, false);
+    assert.equal(extension.error.code, 'ECONFLICT');
+    assert.equal(fs.existsSync(path.join(storage.strategies, 'extension-one.json')), false);
+
+    const shellInput = invokeValues('strategy_cli_dispatch', ['create', {
+      strategy: userStrategy({
+        id: 'shell-safe',
+        name: `$(touch ${marker}); &; |`,
+        metadata: { description: `$(touch ${marker})` },
+      }),
+    }], env);
+    assert.equal(shellInput.ok, true);
+    assert.equal(fs.existsSync(marker), false, 'Strategy fields must never become shell commands');
+    assert.equal(JSON.parse(fs.readFileSync(path.join(storage.strategies, 'shell-safe.json'), 'utf8')).name,
+      `$(touch ${marker}); &; |`);
+
+    fs.writeFileSync(path.join(storage.strategies, 'too-large.json'), 'x'.repeat(521029), { mode: 0o600 });
+    fs.chmodSync(path.join(storage.strategies, 'too-large.json'), 0o600);
+    const oversizedStrategy = invokeValues('strategy_cli_dispatch', ['get', { id: 'too-large' }], env);
+    assert.equal(oversizedStrategy.ok, false);
+    assert.equal(oversizedStrategy.error.code, 'EINPUT');
+
+    const oversizedProfile = invokeValues('strategy_import_profiles_test', [
+      { mode: 'preview' },
+      { importProfiles: { draftState: {
+        schema: 1,
+        profiles: Array.from({ length: 257 }, (_, index) => ({
+          id: `oversized-${index}`, name: 'Oversized', opt: '--filter-tcp=443',
+        })),
+      } } },
+    ], { ...env, Z2M_STRATEGY_SERVER_TEST: '1' });
+    assert.equal(oversizedProfile.ok, false);
+    assert.equal(oversizedProfile.error.code, 'EINPUT');
+  } finally {
+    fs.rmSync(storage.root, { recursive: true, force: true });
+  }
+});
+
+test('RPC rejects a stale catalog hash before compiling a Strategy', () => {
+  const result = invokeValues('strategy_cli_dispatch', ['preview', {
+    strategy_id: 'z2k_all_in_one', revision: 0, catalog_digest: '0'.repeat(64),
+  }]);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'ECONFLICT');
 });
 
 test('Strategy list returns durable ordered favorites state separately from Strategy objects', () => {
