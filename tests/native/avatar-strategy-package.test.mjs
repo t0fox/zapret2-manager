@@ -79,6 +79,41 @@ process.exit(result.status ?? 1);
   return { calls, root };
 }
 
+function runPackageInstall(staging, buildRoot) {
+  const script = block('Package/zapret2-manager/install')
+    .replaceAll('$(CP)', 'cp -a')
+    .replaceAll('$(INSTALL_DIR)', 'install -d')
+    .replaceAll('$(INSTALL_BIN)', 'install -m 0755')
+    .replaceAll('$(PKG_BUILD_DIR)', buildRoot)
+    .replaceAll('$(1)', staging);
+  const result = spawnSync('/bin/sh', ['-eu', '-c', script], {
+    cwd: path.join(ROOT, 'zapret2-manager'), encoding: 'utf8',
+  });
+  assert.equal(result.error, undefined, result.error?.message);
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+}
+
+function packageFiles(root) {
+  const result = [];
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    const file = path.join(root, entry.name);
+    if (entry.isDirectory()) result.push(...packageFiles(file));
+    else if (entry.isFile()) result.push(file);
+  }
+  return result;
+}
+
+function mergePackagePayload(staging, liveRoot, conffiles) {
+  for (const source of packageFiles(staging)) {
+    const relative = path.relative(staging, source).split(path.sep).join('/');
+    const destination = path.join(liveRoot, ...relative.split('/'));
+    if (conffiles.has('/' + relative) && fs.existsSync(destination)) continue;
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.copyFileSync(source, destination);
+    fs.chmodSync(destination, fs.statSync(source).mode & 0o777);
+  }
+}
+
 function mode(file) {
   return fs.statSync(file).mode & 0o777;
 }
@@ -230,6 +265,59 @@ test('postinst preserves existing Strategy files, selection state, and legacy st
   }
 });
 
+test('staged package upgrade preserves user Strategies, favorites, selection, and conffiles', () => {
+  const liveRoot = temporaryPackageRoot();
+  const staging = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-package-stage-'));
+  const buildRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-package-build-'));
+  const etc = path.join(liveRoot, 'etc', 'zapret2-manager');
+  const strategies = path.join(etc, 'strategies');
+  const userStrategy = path.join(strategies, 'user-one.json');
+  const strategyState = path.join(etc, 'strategy-state.json');
+  const legacyState = path.join(etc, 'state.json');
+  try {
+    fs.mkdirSync(strategies);
+    fs.writeFileSync(userStrategy, '{"id":"user-one","profiles":[]}', { mode: 0o600 });
+    fs.writeFileSync(strategyState, '{"favorites":["z2k_all_in_one","user-one"],"selected":"user-one"}', { mode: 0o640 });
+    fs.writeFileSync(legacyState, '{"profiles":[{"id":"legacy"}]}', { mode: 0o600 });
+    fs.chmodSync(strategies, 0o750);
+    fs.chmodSync(userStrategy, 0o600);
+    fs.chmodSync(strategyState, 0o640);
+    fs.chmodSync(legacyState, 0o600);
+    const before = new Map([
+      [userStrategy, fs.readFileSync(userStrategy)],
+      [strategyState, fs.readFileSync(strategyState)],
+      [legacyState, fs.readFileSync(legacyState)],
+    ]);
+
+    for (const name of ['z2m-core-helper', 'z2m-root-bootstrap', 'z2m-helperd']) {
+      fs.writeFileSync(path.join(buildRoot, name), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+      fs.chmodSync(path.join(buildRoot, name), 0o755);
+    }
+    runPackageInstall(staging, buildRoot);
+    assert.equal(fs.existsSync(path.join(staging, 'etc', 'zapret2-manager', 'strategies')), false);
+    assert.equal(fs.statSync(path.join(staging, 'etc', 'zapret2-manager', 'state.json')).mode & 0o777, 0o600);
+    assert.equal(fs.statSync(path.join(staging, 'usr', 'share', 'zapret2-manager', 'catalog',
+      'avatar', 'manifest.json')).mode & 0o777, 0o644);
+
+    const conffiles = new Set(block('Package/zapret2-manager/conffiles').trim().split('\n'));
+    assert.ok(conffiles.has('/etc/zapret2-manager/state.json'));
+    mergePackagePayload(staging, liveRoot, conffiles);
+    const { calls } = runPostinst(liveRoot);
+    assert.deepEqual(calls, [], 'upgrade must not bootstrap over existing user state');
+    for (const [file, bytes] of before) assert.deepEqual(fs.readFileSync(file), bytes, file);
+    assert.equal(fs.statSync(strategies).mode & 0o777, 0o750);
+    assert.equal(fs.statSync(userStrategy).mode & 0o777, 0o600);
+    assert.equal(fs.statSync(strategyState).mode & 0o777, 0o640);
+    assert.equal(fs.statSync(legacyState).mode & 0o777, 0o600);
+    assert.equal(fs.existsSync(path.join(liveRoot, 'etc', 'zapret2-manager', 'state.json')), true);
+    assert.equal(fs.readFileSync(legacyState, 'utf8'), '{"profiles":[{"id":"legacy"}]}');
+  } finally {
+    fs.rmSync(liveRoot, { recursive: true, force: true });
+    fs.rmSync(staging, { recursive: true, force: true });
+    fs.rmSync(buildRoot, { recursive: true, force: true });
+  }
+});
+
 test('postinst does not follow live Strategy storage symlinks', () => {
   const root = temporaryPackageRoot();
   const etc = path.join(root, 'etc', 'zapret2-manager');
@@ -245,6 +333,8 @@ test('postinst does not follow live Strategy storage symlinks', () => {
     assert.deepEqual(calls, [], 'live symlinks must not invoke install');
     assert.equal(fs.lstatSync(path.join(etc, 'strategies')).isSymbolicLink(), true);
     assert.equal(fs.lstatSync(path.join(etc, 'strategy-state.json')).isSymbolicLink(), true);
+    assert.equal(fs.readlinkSync(path.join(etc, 'strategies')), targetDir);
+    assert.equal(fs.readlinkSync(path.join(etc, 'strategy-state.json')), targetState);
     assert.equal(fs.readFileSync(path.join(targetDir, 'keep.json'), 'utf8'), 'keep');
     assert.equal(fs.readFileSync(targetState, 'utf8'), '{"favorites":["keep"]}');
   } finally {
@@ -264,6 +354,8 @@ test('postinst preserves dangling Strategy storage symlinks', () => {
     assert.deepEqual(calls, [], 'dangling symlinks must not invoke install');
     assert.equal(fs.lstatSync(strategies).isSymbolicLink(), true);
     assert.equal(fs.lstatSync(strategyState).isSymbolicLink(), true);
+    assert.equal(fs.readlinkSync(strategies), path.join(root, 'missing-strategies'));
+    assert.equal(fs.readlinkSync(strategyState), path.join(root, 'missing-state.json'));
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

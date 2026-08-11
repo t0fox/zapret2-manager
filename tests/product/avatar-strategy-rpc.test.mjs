@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import fs, { readFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import os from 'node:os';
@@ -18,6 +19,8 @@ const ACL = readFileSync(path.join(ROOT,
 const CATALOG_ROOT = path.join(ROOT,
   'zapret2-manager/files/usr/share/zapret2-manager/catalog/avatar');
 const CATALOG_MANIFEST = JSON.parse(readFileSync(path.join(CATALOG_ROOT, 'manifest.json'), 'utf8'));
+const EXPECTED_MANIFEST = JSON.parse(readFileSync(path.join(ROOT,
+  'tests/fixtures/avatar-strategy/manifest.expected.json'), 'utf8'));
 const NATIVE_PROTOCOL = JSON.parse(readFileSync(path.join(ROOT,
   'zapret2-manager/src/z2m-core-helper/protocol-v1.json'), 'utf8'));
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
@@ -68,7 +71,10 @@ function invokeUcode(source, env = {}) {
 }
 
 function rpcSignatureSource(method, request) {
-  const opened = RPC.replace("return {\n\t'zapret2-manager'", "let signature = {\n\t'zapret2-manager'");
+  const opened = RPC
+    .replace("const STRATEGY_CLI = '/usr/libexec/zapret2-manager/strategy-cli.uc';",
+      `const STRATEGY_CLI = ${JSON.stringify(CLI_PATH)};`)
+    .replace("return {\n\t'zapret2-manager'", "let signature = {\n\t'zapret2-manager'");
   return opened.replace(/\n};\s*$/, `\n};\nprint(sprintf('%J', signature['zapret2-manager'][${JSON.stringify(method)}].call(${JSON.stringify(request)})));`);
 }
 
@@ -133,21 +139,122 @@ function userStrategy(overrides = {}) {
   };
 }
 
-function measureFullStrategyList(value) {
-  const started = process.hrtime.bigint();
-  const encoded = JSON.stringify(value);
-  const elapsedNs = Number(process.hrtime.bigint() - started);
+function writeUserStrategy(storage) {
+  fs.writeFileSync(path.join(storage.strategies, 'user-one.json'), JSON.stringify({
+    schema: 1, id: 'user-one', revision: 1, name: 'User one', origin: 'user',
+    is_builtin: false, metadata: { description: 'local' },
+    profiles: [{ id: 'p1', args: '--filter-tcp=443', enabled: true }], updatedAt: 1,
+  }), { mode: 0o600 });
+  fs.chmodSync(path.join(storage.strategies, 'user-one.json'), 0o600);
+  fs.writeFileSync(storage.state, JSON.stringify({
+    schema: 1, revision: 3, favorites: ['z2k_all_in_one', 'user-one'], selected: null,
+  }), { mode: 0o600 });
+  fs.chmodSync(storage.state, 0o600);
+}
+
+function assertFullBuiltinStrategy(strategy) {
+  for (const field of ['id', 'name', 'description', 'type', 'version', 'is_builtin',
+    'source', 'level', 'label', 'author', 'protocol', 'featured', 'blobs', 'profiles'])
+    assert.ok(Object.hasOwn(strategy, field), `${strategy.id} missing ${field}`);
+  assert.equal(strategy.is_builtin, true, `${strategy.id} builtin identity`);
+  assert.equal(strategy.source, 'catalog', `${strategy.id} catalog source`);
+  assert.ok(Array.isArray(strategy.blobs), `${strategy.id} blobs`);
+  assert.ok(Array.isArray(strategy.profiles) && strategy.profiles.length > 0,
+    `${strategy.id} profiles`);
+  for (const profile of strategy.profiles) {
+    for (const field of ['id', 'name', 'enabled', 'args'])
+      assert.ok(Object.hasOwn(profile, field), `${strategy.id} profile missing ${field}`);
+    assert.equal(profile.enabled, true, `${strategy.id} profile enabled`);
+    assert.equal(typeof profile.args, 'string', `${strategy.id} profile args`);
+  }
+}
+
+function protocolMemoryFields(value, prefix = '') {
+  const fields = [];
+  if (value == null || typeof value !== 'object') return fields;
+  for (const [key, child] of Object.entries(value)) {
+    const field = prefix ? `${prefix}.${key}` : key;
+    if (/(?:memory|rss|resident|address)/i.test(key)) fields.push(field);
+    fields.push(...protocolMemoryFields(child, field));
+  }
+  return fields;
+}
+
+function strategyResponseMaxBytes() {
+  const match = /const MAX_STRATEGY_RESPONSE_BYTES = (\d+) \* 1024 \* 1024/.exec(CLI);
+  assert.ok(match, 'Strategy response bound must be declared in the CLI');
+  return Number(match[1]) * 1024 * 1024;
+}
+
+function measureFullStrategyList(transport) {
   return {
-    bytes: Buffer.byteLength(encoded),
-    serializationMs: elapsedNs / 1e6,
+    bytes: transport.childResponseBytes,
+    requestBytes: transport.requestBytes,
+    childSerializationTransportMs: transport.childElapsedMs,
+    rpcTransportMs: transport.rpcElapsedMs,
     projectionAuthorized: false,
-    strategyResponseMaxBytes: 4 * 1024 * 1024,
+    strategyResponseMaxBytes: strategyResponseMaxBytes(),
     nativeRequestMaxBytes: NATIVE_PROTOCOL.transport.requestMaxBytes,
     nativeResponseMaxBytes: NATIVE_PROTOCOL.transport.responseMaxBytes,
-    nativeCanonicalMaxBytes: NATIVE_PROTOCOL.operations.atomic_write_json.limits.maxCanonicalBytes,
-    nativeProcessMemoryLimitBytes: null,
-    nativeTestChildMaxBufferBytes: 8 * 1024 * 1024,
+    nativeAtomicWriteJsonCanonicalMaxBytes: NATIVE_PROTOCOL.operations.atomic_write_json.limits.maxCanonicalBytes,
+    nativeMemory: {
+      protocolFields: protocolMemoryFields(NATIVE_PROTOCOL),
+      runtimeVirtualMemoryKb: transport.runtimeVirtualMemoryKb,
+      runtimeResidentMemoryKb: transport.runtimeResidentMemoryKb,
+    },
+    childResponseSha256: transport.childResponseSha256,
   };
+}
+
+function rpcTransportProbe(storage) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-strategy-rpc-transport-'));
+  const wrapper = path.join(root, 'ucode-wrapper.sh');
+  const output = path.join(root, 'child.stdout');
+  const stderr = path.join(root, 'child.stderr');
+  const elapsed = path.join(root, 'child.elapsed');
+  const bytes = path.join(root, 'child.bytes');
+  const limits = path.join(root, 'child.limits');
+  fs.writeFileSync(wrapper, `#!/bin/sh
+set -eu
+printf '%s\\n%s\\n' "$(ulimit -v)" "$(ulimit -m)" > "$Z2M_TASK15_LIMITS"
+/usr/bin/time -f '%e' -o "$Z2M_TASK15_ELAPSED" "$Z2M_TASK15_REAL_UCODE" "$@" > "$Z2M_TASK15_OUTPUT" 2> "$Z2M_TASK15_STDERR"
+rc=$?
+wc -c < "$Z2M_TASK15_OUTPUT" > "$Z2M_TASK15_BYTES"
+cat "$Z2M_TASK15_OUTPUT"
+exit "$rc"
+  `, { mode: 0o755 });
+  fs.chmodSync(wrapper, 0o755);
+  try {
+    const started = process.hrtime.bigint();
+    const result = invokeRpcMethod('strategies_list', {}, {
+      ...strategyStorageEnv(storage),
+      Z2M_STRATEGY_UCODE_BIN: wrapper,
+      Z2M_TASK15_REAL_UCODE: UCODE_BIN,
+      Z2M_TASK15_OUTPUT: output,
+      Z2M_TASK15_STDERR: stderr,
+      Z2M_TASK15_ELAPSED: elapsed,
+      Z2M_TASK15_BYTES: bytes,
+      Z2M_TASK15_LIMITS: limits,
+    });
+    const rpcElapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
+    const childResponse = fs.readFileSync(output);
+    const childResult = JSON.parse(childResponse);
+    assert.deepEqual(childResult, result, 'RPC must return the exact child response body');
+    const [runtimeVirtualMemoryKb, runtimeResidentMemoryKb] = fs.readFileSync(limits, 'utf8').trim().split('\n');
+    const childElapsedMs = Number.parseFloat(fs.readFileSync(elapsed, 'utf8')) * 1000;
+    const childResponseBytes = Number.parseInt(fs.readFileSync(bytes, 'utf8').trim(), 10);
+    assert.equal(childResponseBytes, childResponse.byteLength);
+    assert.equal(fs.readFileSync(stderr, 'utf8'), '', 'child stderr must not contaminate RPC response');
+    assert.ok(Number.isFinite(childElapsedMs) && childElapsedMs >= 0);
+    assert.ok(Number.isFinite(childResponseBytes) && childResponseBytes > 0);
+    return {
+      result, requestBytes: Buffer.byteLength('{}'), childResponseBytes,
+      childElapsedMs, rpcElapsedMs, runtimeVirtualMemoryKb, runtimeResidentMemoryKb,
+      childResponseSha256: createHash('sha256').update(childResponse).digest('hex'),
+    };
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 }
 
 test('Strategy methods use the existing rpcd object and bounded edit transport', () => {
@@ -267,48 +374,70 @@ test('Default Strategy list remains a complete bounded catalog projection', () =
       Z2M_STRATEGY_ROOT: root, Z2M_STRATEGY_DIR: strategies,
     });
     assert.equal(result.ok, true);
-    assert.equal(result.strategies.length, CATALOG_MANIFEST.uniqueStrategyIdCount);
+    assert.equal(CATALOG_MANIFEST.uniqueStrategyIdCount, 732);
+    assert.equal(CATALOG_MANIFEST.winnerOrder.length, 732);
+    assert.deepEqual(CATALOG_MANIFEST.winnerOrder, EXPECTED_MANIFEST.winnerOrder);
+    assert.equal(result.strategies.length, 732);
+    const ids = result.strategies.map(strategy => strategy.id);
+    assert.deepEqual(ids, EXPECTED_MANIFEST.winnerOrder);
+    assert.equal(new Set(ids).size, 732);
+    for (const strategy of result.strategies) assertFullBuiltinStrategy(strategy);
     assert.deepEqual(result.state, { revision: 0, favorites: [] });
-    assert.ok(JSON.stringify(result).length <= 4 * 1024 * 1024);
+    assert.ok(Buffer.byteLength(JSON.stringify(result)) <= strategyResponseMaxBytes());
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
 test('full list is measured before any projection is allowed', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-strategy-rpc-measure-'));
-  const strategies = path.join(root, 'strategies');
-  fs.mkdirSync(strategies, { mode: 0o700 });
-  fs.chmodSync(root, 0o700);
-  fs.chmodSync(strategies, 0o700);
+  const storage = temporaryStrategyStorage();
+  writeUserStrategy(storage);
   try {
-    const fullList = invokeValues('strategy_cli_dispatch', ['list', {}], {
-      Z2M_STRATEGY_ROOT: root, Z2M_STRATEGY_DIR: strategies,
-    });
+    const probe = rpcTransportProbe(storage);
+    const fullList = probe.result;
     assert.equal(fullList.ok, true);
-    assert.equal(fullList.strategies.length, CATALOG_MANIFEST.uniqueStrategyIdCount);
-    assert.ok(fullList.strategies.every(strategy => Array.isArray(strategy.profiles)),
-      'the measured response must contain full Strategy records, not a projected ID list');
+    const builtinIds = fullList.strategies.filter(strategy => strategy.is_builtin === true)
+      .map(strategy => strategy.id);
+    const users = fullList.strategies.filter(strategy => strategy.origin === 'user');
+    assert.deepEqual(builtinIds, EXPECTED_MANIFEST.winnerOrder);
+    assert.equal(builtinIds.length, 732);
+    assert.equal(new Set(builtinIds).size, 732);
+    assert.equal(users.length, 1);
+    assert.deepEqual(users[0], {
+      schema: 1, id: 'user-one', revision: 1, name: 'User one', origin: 'user',
+      is_builtin: false, metadata: { description: 'local' },
+      profiles: [{ id: 'p1', args: '--filter-tcp=443', enabled: true }], updatedAt: 1,
+    });
+    assert.deepEqual(fullList.strategies.map(strategy => strategy.id),
+      [...EXPECTED_MANIFEST.winnerOrder, 'user-one']);
+    for (const strategy of fullList.strategies.filter(strategy => strategy.is_builtin === true))
+      assertFullBuiltinStrategy(strategy);
+    assert.equal(fullList.state.revision, 3);
+    assert.deepEqual(fullList.state.favorites, ['z2k_all_in_one', 'user-one']);
 
-    const measurement = measureFullStrategyList(fullList);
+    const measurement = measureFullStrategyList(probe);
     assert.ok(measurement.bytes > 0);
-    assert.ok(measurement.serializationMs >= 0);
+    assert.equal(measurement.requestBytes, Buffer.byteLength('{}'));
+    assert.ok(measurement.childSerializationTransportMs >= 0);
+    assert.ok(measurement.rpcTransportMs >= measurement.childSerializationTransportMs);
     assert.equal(measurement.projectionAuthorized, false);
     assert.ok(measurement.bytes <= measurement.strategyResponseMaxBytes,
       `full list exceeds Strategy response bound: ${measurement.bytes}`);
+    assert.ok(measurement.requestBytes <= measurement.nativeRequestMaxBytes);
     assert.ok(measurement.bytes < measurement.nativeResponseMaxBytes,
       `full list exceeds native response bound: ${measurement.bytes}`);
     assert.equal(measurement.nativeRequestMaxBytes, 4 * 1024 * 1024);
     assert.equal(measurement.nativeResponseMaxBytes, 6 * 1024 * 1024);
-    assert.equal(measurement.nativeCanonicalMaxBytes, 521028);
-    assert.equal(measurement.nativeProcessMemoryLimitBytes, null,
-      'the protocol must not invent an RSS limit that it does not declare');
-    assert.equal(measurement.nativeTestChildMaxBufferBytes, 8 * 1024 * 1024);
+    assert.equal(measurement.nativeAtomicWriteJsonCanonicalMaxBytes, 521028);
+    assert.deepEqual(measurement.nativeMemory.protocolFields, [],
+      'protocol-v1.json must genuinely declare no RSS/memory limit');
+    assert.equal(measurement.nativeMemory.runtimeVirtualMemoryKb, 'unlimited');
+    assert.equal(measurement.nativeMemory.runtimeResidentMemoryKb, 'unlimited');
     assert.doesNotMatch(CLI, /OPENWRT_NATIVE/,
       'no concrete OPENWRT_NATIVE evidence authorizes a projection');
     console.log(`# Task 15 full-list evidence: ${JSON.stringify(measurement)}`);
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(storage.root, { recursive: true, force: true });
   }
 });
 
@@ -327,14 +456,24 @@ test('RPC rejects malformed or tampered catalog evidence before serving Strategy
       manifest.files[0].sha256 = '0'.repeat(64);
       fs.writeFileSync(manifestPath, JSON.stringify(manifest));
     }, 'EDIGEST'],
+    ['raw catalog byte tamper', root => {
+      const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
+      const target = path.join(root, ...manifest.files[0].path.split('/'));
+      const original = fs.readFileSync(target);
+      const mutated = Buffer.from(original);
+      mutated[0] ^= 1;
+      fs.writeFileSync(target, mutated);
+      assert.equal(mutated.byteLength, original.byteLength);
+      assert.notEqual(createHash('sha256').update(mutated).digest('hex'), manifest.files[0].sha256);
+    }, 'EDIGEST'],
   ];
 
   for (const [name, mutate, code] of mutations) {
     const root = temporaryCatalog();
     try {
       mutate(root);
-      const result = invokeValues('strategy_cli_dispatch', ['catalog_status', {}], {
-        Z2M_STRATEGY_CATALOG_ROOT: root,
+      const result = invokeRpcMethod('strategies_catalog_status', {}, {
+        Z2M_STRATEGY_CATALOG_ROOT: root, Z2M_STRATEGY_UCODE_BIN: UCODE_BIN,
       });
       assert.equal(result.ok, false, name);
       assert.equal(result.error.code, 'EVERIFY', name);
