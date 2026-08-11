@@ -1,11 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const MODULE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-model.uc');
+const PROBES_FIXTURE = JSON.parse(readFileSync(
+  path.join(ROOT, 'tests/fixtures/avatar-strategy-scanner/probes.json'), 'utf8'));
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.split('|') : [];
 
@@ -194,6 +197,20 @@ test('status view is bounded and reports Avatar-compatible counters', () => {
     baseline_by_af: { ipv4: { status: 'blocked', available: true } },
     recovery: { state: 'not_required' },
   });
+});
+
+test('status view preserves the pinned IPv6 skipped baseline status', () => {
+  const request = invoke('scanner_request_validate', validRequest()).value;
+  const record = invoke('scanner_state_create', request, { candidates: [] });
+  const expected = PROBES_FIXTURE.cases.find(
+    entry => entry.id === 'baseline-ipv4-open-ipv6-skipped');
+  const status = invoke('scanner_status_view', {
+    ...record,
+    baselineByAddressFamily: expected.expected.byAddressFamily,
+  });
+  assert.deepEqual(status.baseline_by_af, expected.expected.byAddressFamily);
+  assert.equal(status.baseline_by_af.ipv6.status, 'skipped');
+  assert.equal(status.baseline_by_af.ipv6.available, false);
 });
 
 test('status view whitelists enums and bounds scalar and address-family fields', () => {
