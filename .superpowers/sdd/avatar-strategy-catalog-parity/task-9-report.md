@@ -150,3 +150,80 @@ Result: clean for both new files.
   client-provided context.
 - No compiler changes were needed, and the existing compiler candidate tests
   already cover the shared digest and effective argv behavior consumed here.
+
+## Fix Round 1
+
+The review identified four concrete request-boundary gaps. The fixes remain
+limited to `strategy-cli.uc` and `avatar-strategy-preview.test.mjs`.
+
+1. Ordinary Preview now strips both `executionAdmission` and `validate` from
+   the internal context environment before compilation. Only the explicit
+   request `validate: true` enables native preflight in this CLI. A direct
+   regression passes `executionAdmission: true` and proves Preview retains
+   `nativeValidation.status == not_checked`. No later trusted admission path
+   was added.
+2. Validate now builds one shared bounded projection after candidate
+   composition. `ENOENABLED`, `EDEPENDENCY`, and `EPREFLIGHT` all return
+   `strategyArgs`, `args`, `effectiveCommand`, `effectiveArgv`,
+   `profiles_count`, `profilesCount`, `dependencies`, `digest`, `applicable`,
+   `validation`, and a bounded `error`. Empty candidates use the required empty
+   array aliases, and all rejected Validate projections force
+   `applicable: false`.
+3. `strategy_cli_request` and `strategy_cli_dispatch` now validate every parsed
+   input through the same request-shape gate before dispatch. Parsed
+   `{ ok: false, error: ... }` objects and `{ args: { ok: false, error: ... } }`
+   are treated as untrusted request data and return bounded `EINPUT` instead of
+   being returned as operation results. Error codes remain clamped to the
+   existing bounded vocabulary.
+4. Product coverage now rejects all client `argv`, `command`,
+   `effectiveCommand`, `effectiveArgv`, and `strategyArgs` fields, checks
+   malformed JSON, oversized files, symlink request files, forged error
+   envelopes, Validate no-write behavior, and all three complete Validate
+   rejection projections.
+
+## Fix Round 1 Verification
+
+RED focused run after adding the regressions:
+
+```text
+wsl.exe -d Ubuntu --cd /home/kirill/z2m-work/m5-native-state-store -- /home/kirill/.local/bin/node --test tests/product/avatar-strategy-preview.test.mjs
+```
+
+Result before the production fix: 10 passed, 4 failed. The four failures were
+the untrusted `executionAdmission` preflight, missing Validate aliases, missing
+persisted Validate no-write projection, and forged request error acceptance.
+
+Focused GREEN:
+
+```text
+wsl.exe -d Ubuntu --cd /home/kirill/z2m-work/m5-native-state-store -- /home/kirill/.local/bin/node --test tests/product/avatar-strategy-preview.test.mjs
+```
+
+Result: 14 passed, 0 failed.
+
+Adjacent product verification:
+
+```text
+wsl.exe -d Ubuntu --cd /home/kirill/z2m-work/m5-native-state-store -- env UCODE_BIN=/opt/ucode/bin/ucode UCODE_LIBRARY_PATH=/opt/ucode/lib /home/kirill/.local/bin/node --test tests/product/avatar-strategy-preview.test.mjs tests/product/avatar-strategy-compiler.test.mjs tests/product/profiles-model.test.mjs
+```
+
+Result: 57 passed, 0 failed.
+
+Full product verification:
+
+```text
+wsl.exe -d Ubuntu --cd /home/kirill/z2m-work/m5-native-state-store -- env UCODE_BIN=/opt/ucode/bin/ucode UCODE_LIBRARY_PATH=/opt/ucode/lib /home/kirill/.local/bin/node --test tests/product/*.test.mjs
+```
+
+Result: 133 passed, 0 failed.
+
+Package/native verification:
+
+```text
+wsl.exe -d Ubuntu --cd /home/kirill/z2m-work/m5-native-state-store -- /home/kirill/.local/bin/node --test tests/native/avatar-strategy-package.test.mjs tests/native/package-helper.test.mjs
+```
+
+Result: 46 passed, 0 failed.
+
+`git diff --check` passed. The worktree contains only the focused Task 9 fix
+changes before commit.

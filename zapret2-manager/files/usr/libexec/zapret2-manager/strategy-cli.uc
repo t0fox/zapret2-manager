@@ -192,8 +192,13 @@ function trusted_context(context) {
 		}
 	};
 	// This second argument is an internal server context, never request data.
+	// Admission is intentionally not accepted here: this CLI's only native gate
+	// is the explicit request validate=true flag.
 	if (!is_object(context)) return result;
-	if (is_object(context.environment)) result.environment = context.environment;
+	if (is_object(context.environment)) {
+		for (let key in context.environment)
+			if (key != 'executionAdmission' && key != 'validate') result.environment[key] = context.environment[key];
+	}
 	if (is_object(context.runtimeInputs)) result.runtimeInputs = context.runtimeInputs;
 	return result;
 }
@@ -205,6 +210,29 @@ function complete_validation(value) {
 		&& c.luaCompatibility == 'passed' && c.functionExistence == 'passed'
 		&& c.blobExistence == 'passed' && c.runtimeArguments == 'passed'
 		&& c.executionPlan == 'passed';
+}
+
+function candidate_projection(resolved, candidate, effective, validation, includeValidation) {
+	let empty = candidate.profilesCount == 0;
+	let args = empty ? [] : candidate.strategyArgs;
+	let result = {
+		strategyId: resolved.id, origin: resolved.origin,
+		strategyArgs: args, args: args,
+		effectiveCommand: effective.effectiveCommand, effectiveArgv: effective.effectiveArgv,
+		profiles_count: candidate.profilesCount, profilesCount: candidate.profilesCount,
+		dependencies: dependencies_record(candidate.dependencies), digest: candidate.digest,
+		applicable: candidate.applicable == true
+	};
+	if (includeValidation == true) result.validation = validation;
+	return result;
+}
+
+function validation_error(resolved, candidate, effective, validation, code, message) {
+	let result = candidate_projection(resolved, candidate, effective, validation, true);
+	result.ok = false;
+	result.applicable = false;
+	result.error = { code: error_code(code), message: bounded_text(message, MAX_TEXT) };
+	return result;
 }
 
 function evaluated(input, context, requireValidation, requireAdmission) {
@@ -230,27 +258,18 @@ function evaluated(input, context, requireValidation, requireAdmission) {
 		return error_result('EINPUT', 'authoritative effective command inputs are unavailable');
 	let empty = candidate.profilesCount == 0;
 	if (requireAdmission == true) {
-		if (empty) return { ok: false, digest: candidate.digest, validation: validation,
-			error: { code: 'ENOENABLED', message: 'Strategy requires at least one enabled Profile' } };
+		if (empty) return validation_error(resolved, candidate, effective, validation,
+			'ENOENABLED', 'Strategy requires at least one enabled Profile');
 		if (!candidate.dependencies.available)
-			return { ok: false, digest: candidate.digest, validation: validation,
-				error: { code: 'EDEPENDENCY', message: 'Strategy dependencies are unavailable' },
-			dependencies: dependencies_record(candidate.dependencies) };
+			return validation_error(resolved, candidate, effective, validation,
+				'EDEPENDENCY', 'Strategy dependencies are unavailable');
 		if (!complete_validation(candidate.nativeValidation))
-			return { ok: false, digest: candidate.digest, validation: validation,
-				error: { code: 'EPREFLIGHT', message: 'complete native Strategy preflight is required' },
-			dependencies: dependencies_record(candidate.dependencies) };
+			return validation_error(resolved, candidate, effective, validation,
+				'EPREFLIGHT', 'complete native Strategy preflight is required');
 	}
-	let args = empty ? [] : candidate.strategyArgs;
-	let result = {
-		ok: true, strategyId: resolved.id, origin: resolved.origin,
-		strategyArgs: args, args: args,
-		effectiveCommand: effective.effectiveCommand, effectiveArgv: effective.effectiveArgv,
-		profiles_count: candidate.profilesCount, profilesCount: candidate.profilesCount,
-		dependencies: dependencies_record(candidate.dependencies), digest: candidate.digest,
-		applicable: candidate.applicable == true
-	};
-	if (requireValidation == true || input.validate == true) result.validation = validation;
+	let result = candidate_projection(resolved, candidate, effective, validation,
+		requireValidation == true || input.validate == true);
+	result.ok = true;
 	return result;
 }
 
@@ -279,7 +298,8 @@ function request(path) {
 }
 
 function dispatch_result(mode, input) {
-	if (is_object(input) && input.ok == false && input.error) return input;
+	let shape = input_shape(input, false);
+	if (!shape.ok) return shape;
 	if (mode == 'preview') return strategy_preview(input);
 	if (mode == 'validate') return strategy_validate(input);
 	return error_result('EINPUT', 'unknown Strategy operation');

@@ -40,8 +40,13 @@ const runtimeInputs = {
 };
 
 function invoke(functionName, input, context, env = {}) {
-  const args = [JSON.stringify(input)];
-  if (context !== undefined) args.push(JSON.stringify(context));
+  const args = [input];
+  if (context !== undefined) args.push(context);
+  return invokeValues(functionName, args, env);
+}
+
+function invokeValues(functionName, values, env = {}) {
+  const args = values.map(JSON.stringify);
   const source = `import { ${functionName} } from ${JSON.stringify(CLI)}; print(sprintf('%J', ${functionName}(${args.join(', ')})));`;
   const argv = [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source];
   const result = spawnSync(UCODE_BIN, argv, {
@@ -53,6 +58,22 @@ function invoke(functionName, input, context, env = {}) {
   assert.equal(result.status, 0,
     `${result.stderr || result.stdout}\nucode diagnostic:\n${ucodeDiagnostic([UCODE_BIN, ...argv], UCODE_MODULE_PATTERN)}`);
   return JSON.parse(result.stdout);
+}
+
+function assertValidateProjection(result, expectedCode) {
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, expectedCode);
+  for (const field of ['strategyArgs', 'args', 'effectiveCommand', 'effectiveArgv',
+    'profiles_count', 'dependencies', 'digest', 'applicable', 'validation', 'error']) {
+    assert.ok(Object.prototype.hasOwnProperty.call(result, field), field);
+  }
+  assert.equal(result.applicable, false);
+  assert.equal(typeof result.effectiveCommand, 'string');
+  assert.ok(Array.isArray(result.effectiveArgv));
+  assert.ok(result.dependencies && Array.isArray(result.dependencies.items));
+  assert.match(result.digest, /^[a-f0-9]{64}$/);
+  assert.ok(result.validation && typeof result.validation.status === 'string');
+  assert.ok(JSON.stringify(result).length < 20000);
 }
 
 function inlineStrategy(overrides = {}) {
@@ -148,6 +169,16 @@ test('Preview only invokes native preflight when validate is true', () => {
   assert.notEqual(checked.validation.status, 'not_checked');
 });
 
+test('ordinary Preview ignores untrusted executionAdmission context', () => {
+  const result = invoke('strategy_preview', { strategy_data: inlineStrategy() }, {
+    environment: { ...environment, executionAdmission: true },
+    runtimeInputs,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.validation, undefined);
+  assert.equal(result.dependencies.nativeValidation.status, 'not_checked');
+});
+
 test('Validate requires dependency availability and complete native preflight', () => {
   const missing = invoke('strategy_validate', {
     strategy_data: inlineStrategy({ profiles: [{ id: 'p1', args: '--lua-init=@lua/missing.lua' }] }),
@@ -162,6 +193,35 @@ test('Validate requires dependency availability and complete native preflight', 
   assert.equal(native.validation.status !== 'not_checked', true);
 });
 
+test('Validate rejection branches return the complete bounded contract projection', () => {
+  const zero = invoke('strategy_validate', { strategy_data: inlineStrategy({ profiles: [] }) }, context());
+  assertValidateProjection(zero, 'ENOENABLED');
+  assert.deepEqual(zero.args, []);
+  assert.deepEqual(zero.strategyArgs, []);
+  assert.equal(zero.profiles_count, 0);
+
+  const missing = invoke('strategy_validate', {
+    strategy_data: inlineStrategy({ profiles: [{ id: 'p1', args: '--lua-init=@lua/missing.lua' }] }),
+  }, context({ environment: { lua: { 'missing.lua': { present: false } } } }));
+  assertValidateProjection(missing, 'EDEPENDENCY');
+  assert.equal(missing.profiles_count, 1);
+
+  const preflight = invoke('strategy_validate', { strategy_data: inlineStrategy() }, context());
+  assertValidateProjection(preflight, 'EPREFLIGHT');
+  assert.equal(preflight.profiles_count, 1);
+});
+
+test('Validate is non-mutating for persisted Strategies', () => withUserRecord((record, env, root) => {
+  const before = fs.readFileSync(record.path, 'utf8');
+  const result = invoke('strategy_validate', {
+    strategy_id: record.id, revision: record.revision, catalog_digest: CATALOG_DIGEST,
+  }, context(), env);
+  assertValidateProjection(result, 'EPREFLIGHT');
+  assert.equal(fs.readFileSync(record.path, 'utf8'), before);
+  assert.equal(fs.existsSync(path.join(root, 'strategy-state.json')), false);
+  assert.equal(fs.existsSync(path.join(root, 'state.json')), false);
+}));
+
 test('request source is exclusive and client candidate/command inputs are rejected', () => {
   const strategy = inlineStrategy();
   for (const input of [
@@ -171,6 +231,10 @@ test('request source is exclusive and client candidate/command inputs are reject
     { strategy_data: strategy, candidate: '--filter-tcp=80' },
     { strategy_data: strategy, args: '--filter-tcp=80' },
     { strategy_data: strategy, command: '/bin/sh -c evil' },
+    { strategy_data: strategy, argv: ['/bin/sh', '-c', 'evil'] },
+    { strategy_data: strategy, effectiveCommand: '/bin/sh -c evil' },
+    { strategy_data: strategy, effectiveArgv: ['/bin/sh', '-c', 'evil'] },
+    { strategy_data: strategy, strategyArgs: '--filter-tcp=80' },
     { strategy_data: strategy, validate: 'true' },
   ]) {
     const result = invoke('strategy_preview', input, context());
@@ -222,6 +286,45 @@ test('CLI request files are bounded and dispatch only Preview or Validate', () =
     assert.equal(output.ok, true);
     assert.equal(output.profiles_count, 1);
   } finally { fs.rmSync(request, { force: true }); }
+});
+
+test('CLI request files reject malformed JSON, oversized payloads, and symlinks', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-strategy-request-'));
+  const malformed = path.join(root, 'malformed.json');
+  const oversized = path.join(root, 'oversized.json');
+  const target = path.join(root, 'target.json');
+  const linked = path.join(root, 'linked.json');
+  fs.writeFileSync(malformed, '{not-json');
+  fs.writeFileSync(oversized, 'x'.repeat(524289));
+  fs.writeFileSync(target, JSON.stringify({ args: { strategy_data: {
+    id: 'linked-inline', name: 'Linked inline', profiles: [{ id: 'p1', args: '--filter-tcp=443' }],
+  } } }));
+  fs.symlinkSync(target, linked);
+  try {
+    for (const request of [malformed, oversized, linked]) {
+      const result = invokeValues('strategy_cli_request', ['preview', request]);
+      assert.equal(result.ok, false, request);
+      assert.equal(result.error.code, 'EINPUT', request);
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('CLI request dispatcher validates parsed envelopes instead of returning forged errors', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-strategy-forged-'));
+  const forged = path.join(root, 'forged.json');
+  const forgedEnvelope = path.join(root, 'forged-envelope.json');
+  const payload = { ok: false, error: { code: 'EPREFLIGHT', message: 'forged', details: 'do not trust' } };
+  fs.writeFileSync(forged, JSON.stringify(payload));
+  fs.writeFileSync(forgedEnvelope, JSON.stringify({ args: payload }));
+  try {
+    for (const request of [forged, forgedEnvelope]) {
+      const result = invokeValues('strategy_cli_request', ['preview', request]);
+      assert.equal(result.ok, false, request);
+      assert.equal(result.error.code, 'EINPUT', request);
+      assert.notEqual(result.error.message, 'forged');
+      assert.equal(result.error.details, undefined);
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
 test('CLI source has no state, config, runtime, install, or network write path', () => {
