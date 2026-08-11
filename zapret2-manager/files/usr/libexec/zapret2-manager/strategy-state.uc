@@ -24,6 +24,7 @@ const MAX_METADATA_TEXT = 4096;
 const LOCK_STALE_SECONDS = 300;
 const PRIVATE_DIR_MODE = 448; // 0700
 const PRIVATE_FILE_MODE = 384; // 0600
+const HASH_TAG = getenv('Z2M_STRATEGY_HASH_TAG') || '';
 
 function error(code, message, extra) {
 	let result = { ok: false, error: { code: code, message: message } };
@@ -226,9 +227,10 @@ function regular_metadata(path) {
 }
 
 function hash_text(value) {
-	let temporary = command('umask 077; mktemp /tmp/z2m-strategy-hash.XXXXXX 2>/dev/null');
+	let tag = match(HASH_TAG, /^[A-Za-z0-9_-]{1,64}$/) ? '.' + HASH_TAG : '';
+	let temporary = command('umask 077; mktemp ' + shell_quote('/tmp/z2m-strategy-hash' + tag + '.XXXXXX') + ' 2>/dev/null');
 	let path = trim(temporary.output);
-	if (!temporary.ok || index(path, '/tmp/z2m-strategy-hash.') != 0) return null;
+	if (!temporary.ok || index(path, '/tmp/z2m-strategy-hash' + tag + '.') != 0) return null;
 	try { writefile(path, value); } catch (e) { try { unlink(path); } catch (ignored) { } return null; }
 	let result = command('sha256sum ' + shell_quote(path) + " 2>/dev/null | awk '{print $1}'");
 	try { unlink(path); } catch (e) { }
@@ -249,6 +251,24 @@ function read_document(path) {
 	let value = null;
 	try { value = json(raw); } catch (e) { return error('EINPUT', 'Strategy storage is not valid JSON.'); }
 	return { ok: true, raw: raw, value: value, hash: hash_text(raw) };
+}
+
+// Read-only Strategy identity path for inspection/Preview. CAS callers keep
+// using read_document() because their hash reread is part of mutation
+// concurrency control; inspection must not create a hash temporary.
+function read_document_readonly(path) {
+	let metadata = null;
+	try { metadata = stat(path); } catch (e) { metadata = null; }
+	if (metadata == null) return { ok: false, missing: true };
+	if (readlink(path) != null || metadata.type != 'file' || type(metadata.size) != 'int' ||
+		metadata.size > MAX_BYTES)
+		return error('EINPUT', 'Strategy storage is not a bounded regular file.');
+	let raw = readfile(path);
+	if (raw == null || length(raw) != metadata.size) return error('EIO', 'Strategy storage could not be read.');
+	if (raw == '') return { ok: true, empty: true, raw: raw, value: null };
+	let value = null;
+	try { value = json(raw); } catch (e) { return error('EINPUT', 'Strategy storage is not valid JSON.'); }
+	return { ok: true, raw: raw, value: value };
 }
 
 function hash_file(path) {
@@ -387,6 +407,16 @@ function read_user(id) {
 	return { ok: true, strategy: result.value, hash: result.hash, raw: result.raw };
 }
 
+function read_user_readonly(id) {
+	if (!safe_id(id)) return error('EINPUT', 'Strategy id is unsafe.');
+	let result = read_document_readonly(path_for(id));
+	if (result.missing) return error('ENOENT', 'User Strategy was not found.');
+	if (!result.ok) return result;
+	if (!record_valid(result.value) || result.value.id != id)
+		return error('EINPUT', 'User Strategy schema is invalid.');
+	return { ok: true, strategy: result.value };
+}
+
 function build_user(strategy, revision) {
 	let normalized = strategy_normalize(strategy, 'user');
 	if (!normalized.ok) return null;
@@ -405,6 +435,13 @@ function ensure_create_directory() {
 export const strategy_user_get = function(input) {
 	let id = is_object(input) ? input.id : input;
 	let result = read_user(id);
+	if (!result.ok) return result;
+	return { ok: true, strategy: result.strategy };
+};
+
+export const strategy_user_get_readonly = function(input) {
+	let id = is_object(input) ? input.id : input;
+	let result = read_user_readonly(id);
 	if (!result.ok) return result;
 	return { ok: true, strategy: result.strategy };
 };

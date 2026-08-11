@@ -16,6 +16,9 @@ const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.spl
 const UCODE_MODULE_PATTERN = ucodeModulePattern(
   process.env.UCODE_MODULE_PATH, process.env.UCODE_LIBRARY_PATH);
 const UCODE_LIBRARY_ARGS = UCODE_MODULE_PATTERN ? ['-L', UCODE_MODULE_PATTERN] : [];
+const MAX_OUTPUT_BYTES = 65536;
+const MAX_OUTPUT_ARG_BYTES = 4096;
+const MAX_OUTPUT_ARRAY_ITEMS = 256;
 
 const environment = {
   listMode: 'none',
@@ -123,8 +126,31 @@ function withUserRecord(callback, revision = 3) {
   };
   fs.writeFileSync(env.Z2M_STRATEGY_EXTENSION_MANIFEST, JSON.stringify({ schema: 1, extensions: [] }));
   fs.chmodSync(env.Z2M_STRATEGY_EXTENSION_MANIFEST, 0o644);
-  try { return callback({ ...record, path: recordPath }, env, root); }
-  finally { fs.rmSync(root, { recursive: true, force: true }); }
+  let result;
+  try { result = callback({ ...record, path: recordPath }, env, root); }
+  catch (error) { fs.rmSync(root, { recursive: true, force: true }); throw error; }
+  if (result && typeof result.then === 'function') return result.finally(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.rmSync(root, { recursive: true, force: true });
+  return result;
+}
+
+function assertBoundedRejectedProjection(result) {
+  assert.equal(result.ok, false);
+  assert.ok(['EINPUT', 'EINTERNAL'].includes(result.error.code));
+  for (const field of ['strategyArgs', 'args', 'effectiveCommand', 'effectiveArgv',
+    'fullCommand', 'fullArgv', 'profiles_count', 'dependencies', 'digest',
+    'applicable', 'error']) {
+    assert.ok(Object.prototype.hasOwnProperty.call(result, field), field);
+  }
+  for (const field of ['strategyArgs', 'args', 'effectiveCommand', 'fullCommand']) {
+    if (typeof result[field] === 'string') assert.ok(result[field].length <= MAX_OUTPUT_BYTES, field);
+  }
+  for (const field of ['effectiveArgv', 'fullArgv']) {
+    assert.ok(Array.isArray(result[field]));
+    assert.ok(result[field].length <= MAX_OUTPUT_ARRAY_ITEMS, field);
+    for (const value of result[field]) assert.ok(value.length <= MAX_OUTPUT_ARG_BYTES, field);
+  }
+  assert.ok(JSON.stringify(result).length <= MAX_OUTPUT_BYTES);
 }
 
 test('inline zero-enabled Preview is inspectable while Validate rejects', () => {
@@ -222,6 +248,27 @@ test('Validate is non-mutating for persisted Strategies', () => withUserRecord((
   assert.equal(fs.existsSync(path.join(root, 'state.json')), false);
 }));
 
+test('adversarial strategy and runtime values fail closed with bounded projections', () => {
+  const oversizedStrategy = inlineStrategy({
+    profiles: [{ id: 'p1', args: `--comment=${'x'.repeat(70000)}` }],
+  });
+  const oversizedStrategyResult = invoke('strategy_preview', {
+    strategy_data: oversizedStrategy,
+  }, context());
+  assertBoundedRejectedProjection(oversizedStrategyResult);
+
+  const hostileRuntimeResult = invoke('strategy_preview', {
+    strategy_data: inlineStrategy(),
+  }, {
+    environment,
+    runtimeInputs: {
+      source: 'live', enginePath: '/opt/zapret2/nfq2/nfqws2',
+      baseArgs: ['x'.repeat(70000)], luaInit: [], hostlists: [],
+    },
+  });
+  assertBoundedRejectedProjection(hostileRuntimeResult);
+});
+
 test('request source is exclusive and client candidate/command inputs are rejected', () => {
   const strategy = inlineStrategy();
   for (const input of [
@@ -266,6 +313,29 @@ test('persisted source remains unchanged and Preview does not write Strategy or 
   assert.equal(fs.readFileSync(record.path, 'utf8'), before);
   assert.equal(fs.existsSync(path.join(root, 'strategy-state.json')), false);
   assert.equal(fs.existsSync(path.join(root, 'state.json')), false);
+}));
+
+test('persisted Preview and Validate perform no transient or persistent filesystem writes', () => withUserRecord(async (record, env, root) => {
+  const hashTag = `preview_${process.pid}`;
+  const beforeRoot = fs.readdirSync(root).sort();
+  const hashPrefix = `z2m-strategy-hash.${hashTag}.`;
+  const beforeTmp = fs.readdirSync('/tmp').filter(name => name.startsWith(hashPrefix)).sort();
+  const events = [];
+  const watcher = fs.watch('/tmp', (eventType, filename) => {
+    if (filename && filename.toString().startsWith(hashPrefix)) events.push({ eventType, filename: filename.toString() });
+  });
+  try {
+    const source = { strategy_id: record.id, revision: record.revision, catalog_digest: CATALOG_DIGEST };
+    const taggedEnv = { ...env, Z2M_STRATEGY_HASH_TAG: hashTag };
+    assert.equal(invoke('strategy_preview', source, context(), taggedEnv).ok, true);
+    assert.equal(invoke('strategy_validate', source, context(), taggedEnv).ok, false);
+    await new Promise(resolve => setTimeout(resolve, 100));
+  } finally { watcher.close(); }
+  const afterRoot = fs.readdirSync(root).sort();
+  const afterTmp = fs.readdirSync('/tmp').filter(name => name.startsWith(hashPrefix)).sort();
+  assert.deepEqual(afterRoot, beforeRoot);
+  assert.deepEqual(afterTmp, beforeTmp);
+  assert.deepEqual(events, []);
 }));
 
 test('CLI request files are bounded and dispatch only Preview or Validate', () => {

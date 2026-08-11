@@ -5,7 +5,7 @@
 
 import { readfile, stat, readlink } from 'fs';
 import { strategy_catalog_load, catalog_entry_to_strategy } from './strategy-catalog.uc';
-import { strategy_user_get } from './strategy-state.uc';
+import { strategy_user_get_readonly } from './strategy-state.uc';
 import { strategy_candidate, strategy_effective_argv } from './strategy-compiler.uc';
 
 const DEFAULT_CATALOG_ROOT = '/usr/share/zapret2-manager/catalog/avatar';
@@ -15,6 +15,13 @@ const MAX_INLINE_BYTES = 262144;
 const MAX_TEXT = 512;
 const MAX_DIAGNOSTICS = 32;
 const MAX_DEPENDENCIES = 256;
+const MAX_OUTPUT_BYTES = 65536;
+const MAX_OUTPUT_TEXT = 32768;
+const MAX_OUTPUT_ARG_BYTES = 4096;
+const MAX_OUTPUT_ARRAY_ITEMS = 256;
+const MAX_DEPENDENCY_TEXT = 256;
+const MAX_DEPENDENCY_ITEMS = 32;
+const MAX_DEPENDENCY_BYTES = 16384;
 const ERROR_CODES = ['EINPUT', 'ENOENT', 'ECONFLICT', 'ENOENABLED', 'EDEPENDENCY',
 	'EPREFLIGHT', 'EVERIFY', 'EINTERNAL'];
 
@@ -24,6 +31,9 @@ function is_integer(value) { return type(value) == 'int' && value >= 0; }
 function bounded_text(value, maximum) {
 	if (!is_string(value)) return '';
 	return length(value) > maximum ? substr(value, 0, maximum) : value;
+}
+function bounded_identity(value, maximum) {
+	return is_string(value) && length(value) <= maximum ? value : null;
 }
 function digest(value) { return is_string(value) && match(value, /^[a-f0-9]{64}$/); }
 function error_code(value) {
@@ -52,13 +62,13 @@ function copy_array(value, limit) {
 function bounded_diagnostics(value) {
 	let result = [];
 	if (type(value) != 'array') return result;
-	for (let i = 0; i < length(value) && i < MAX_DIAGNOSTICS; i++) {
+	for (let i = 0; i < length(value) && i < MAX_DIAGNOSTICS && i < 16; i++) {
 		let item = value[i];
 		if (!is_object(item)) continue;
 		push(result, {
 			severity: bounded_text(item.severity, 32),
 			code: bounded_text(item.code, 64),
-			message: bounded_text(item.message, MAX_TEXT),
+			message: bounded_text(item.message, MAX_DEPENDENCY_TEXT),
 			tokenIndex: type(item.tokenIndex) == 'int' ? item.tokenIndex : null,
 			profileIndex: type(item.profileIndex) == 'int' ? item.profileIndex : null
 		});
@@ -88,21 +98,21 @@ function validation_record(value) {
 function dependencies_record(value) {
 	let record = is_object(value) ? value : {};
 	let items = [], missing = [];
-	for (let item in copy_array(record.items, MAX_DEPENDENCIES)) {
+	for (let item in copy_array(record.items, MAX_DEPENDENCY_ITEMS)) {
 		if (!is_object(item)) continue;
 		push(items, {
-			key: bounded_text(item.key, MAX_TEXT), kind: bounded_text(item.kind, 32),
-			id: bounded_text(item.id, MAX_TEXT), reference: bounded_text(item.reference, MAX_TEXT),
+			key: bounded_text(item.key, MAX_DEPENDENCY_TEXT), kind: bounded_text(item.kind, 32),
+			id: bounded_text(item.id, MAX_DEPENDENCY_TEXT), reference: bounded_text(item.reference, MAX_DEPENDENCY_TEXT),
 			available: item.available == true,
-			reason: item.available == true ? null : bounded_text(item.reason, MAX_TEXT)
+			reason: item.available == true ? null : bounded_text(item.reason, MAX_DEPENDENCY_TEXT)
 		});
 	}
-	for (let item in copy_array(record.missing, MAX_DEPENDENCIES)) {
+	for (let item in copy_array(record.missing, MAX_DEPENDENCY_ITEMS)) {
 		if (!is_object(item)) continue;
 		push(missing, {
-			key: bounded_text(item.key, MAX_TEXT), kind: bounded_text(item.kind, 32),
-			id: bounded_text(item.id, MAX_TEXT), reference: bounded_text(item.reference, MAX_TEXT),
-			available: false, reason: bounded_text(item.reason, MAX_TEXT)
+			key: bounded_text(item.key, MAX_DEPENDENCY_TEXT), kind: bounded_text(item.kind, 32),
+			id: bounded_text(item.id, MAX_DEPENDENCY_TEXT), reference: bounded_text(item.reference, MAX_DEPENDENCY_TEXT),
+			available: false, reason: bounded_text(item.reason, MAX_DEPENDENCY_TEXT)
 		});
 	}
 	return {
@@ -116,6 +126,48 @@ function dependencies_record(value) {
 
 function serialize(value) {
 	try { return sprintf('%J', value); } catch (e) { return null; }
+}
+
+function bounded_string_array(value) {
+	if (type(value) != 'array' || length(value) > MAX_OUTPUT_ARRAY_ITEMS) return null;
+	let result = [];
+	for (let item in value) {
+		if (!is_string(item) || length(item) > MAX_OUTPUT_ARG_BYTES) return null;
+		push(result, item);
+	}
+	return result;
+}
+
+function effective_projection(value) {
+	if (!is_object(value)) return null;
+	let argv = bounded_string_array(value.effectiveArgv);
+	if (argv == null || !is_string(value.effectiveCommand)
+		|| length(value.effectiveCommand) > MAX_OUTPUT_TEXT) return null;
+	return {
+		effectiveCommand: value.effectiveCommand,
+		effectiveArgv: argv,
+		fullCommand: value.effectiveCommand,
+		fullArgv: copy_array(argv, MAX_OUTPUT_ARRAY_ITEMS)
+	};
+}
+
+function runtime_inputs_bounded(value) {
+	if (!is_object(value)) return false;
+	if (value.source != null && (!is_string(value.source) || length(value.source) > MAX_TEXT)) return false;
+	for (let key in ['baseArgs', 'luaInit', 'hostlists']) {
+		let values = value[key];
+		if (type(values) != 'array' || length(values) > MAX_OUTPUT_ARRAY_ITEMS) return false;
+		for (let item in values)
+			if (!is_string(item) || length(item) > MAX_OUTPUT_ARG_BYTES) return false;
+	}
+	return true;
+}
+
+function minimal_dependencies() {
+	return {
+		available: false, items: [], missing: [], structurallyCompilable: false,
+		nativeValidation: validation_record(null)
+	};
 }
 
 function catalog() {
@@ -164,7 +216,7 @@ function resolve_strategy(input, currentCatalog) {
 		return error_result('ECONFLICT', 'Avatar catalog revision is stale');
 	if (shape.hasId) {
 		let user = null;
-		try { user = strategy_user_get({ id: input.strategy_id }); } catch (e) { user = null; }
+		try { user = strategy_user_get_readonly({ id: input.strategy_id }); } catch (e) { user = null; }
 		if (is_object(user) && user.ok == true) {
 			if (!is_object(user.strategy) || user.strategy.revision != input.revision)
 				return error_result('ECONFLICT', 'Strategy revision is stale');
@@ -212,23 +264,50 @@ function complete_validation(value) {
 		&& c.executionPlan == 'passed';
 }
 
+function bounded_error_projection(resolved, candidate, validation, code, message) {
+	let count = candidate && type(candidate.profilesCount) == 'int' && candidate.profilesCount >= 0
+		? (candidate.profilesCount > MAX_OUTPUT_ARRAY_ITEMS ? MAX_OUTPUT_ARRAY_ITEMS : candidate.profilesCount) : 0;
+	let args = count == 0 ? [] : '';
+	return {
+		ok: false, strategyId: resolved && resolved.id != null ? bounded_text(resolved.id, 128) : null,
+		origin: resolved && resolved.origin != null ? bounded_text(resolved.origin, 32) : null,
+		strategyArgs: args, args: args, effectiveCommand: '', effectiveArgv: [],
+		fullCommand: '', fullArgv: [], profiles_count: count, profilesCount: count,
+		dependencies: minimal_dependencies(),
+		digest: candidate && digest(candidate.digest) ? candidate.digest : null,
+		applicable: false, validation: validation,
+		error: { code: error_code(code), message: bounded_text(message, MAX_TEXT) }
+	};
+}
+
 function candidate_projection(resolved, candidate, effective, validation, includeValidation) {
 	let empty = candidate.profilesCount == 0;
 	let args = empty ? [] : candidate.strategyArgs;
+	if (!is_string(resolved.id) || length(resolved.id) > 128
+		|| !is_string(resolved.origin) || length(resolved.origin) > 32) return null;
+	if (!empty && (!is_string(args) || length(args) > MAX_OUTPUT_TEXT)) return null;
+	let effectiveValue = effective_projection(effective);
+	if (effectiveValue == null) return null;
+	let dependencies = dependencies_record(candidate.dependencies), dependencyText = serialize(dependencies);
+	if (dependencies == null || dependencyText == null || length(dependencyText) > MAX_DEPENDENCY_BYTES) return null;
 	let result = {
-		strategyId: resolved.id, origin: resolved.origin,
+		strategyId: bounded_identity(resolved.id, 128), origin: bounded_identity(resolved.origin, 32),
 		strategyArgs: args, args: args,
-		effectiveCommand: effective.effectiveCommand, effectiveArgv: effective.effectiveArgv,
+		effectiveCommand: effectiveValue.effectiveCommand, effectiveArgv: effectiveValue.effectiveArgv,
+		fullCommand: effectiveValue.fullCommand, fullArgv: effectiveValue.fullArgv,
 		profiles_count: candidate.profilesCount, profilesCount: candidate.profilesCount,
-		dependencies: dependencies_record(candidate.dependencies), digest: candidate.digest,
+		dependencies: dependencies, digest: candidate.digest,
 		applicable: candidate.applicable == true
 	};
 	if (includeValidation == true) result.validation = validation;
-	return result;
+	let encoded = serialize(result);
+	return encoded != null && length(encoded) <= MAX_OUTPUT_BYTES ? result : null;
 }
 
 function validation_error(resolved, candidate, effective, validation, code, message) {
 	let result = candidate_projection(resolved, candidate, effective, validation, true);
+	if (result == null) return bounded_error_projection(resolved, candidate, validation, 'EINPUT',
+		'Strategy validation projection exceeds the safe output bound');
 	result.ok = false;
 	result.applicable = false;
 	result.error = { code: error_code(code), message: bounded_text(message, MAX_TEXT) };
@@ -251,11 +330,22 @@ function evaluated(input, context, requireValidation, requireAdmission) {
 		return error_result(candidate && candidate.error ? candidate.error.code : 'EINPUT',
 			candidate && candidate.error ? candidate.error.message : 'Strategy compilation failed');
 	let validation = validation_record(candidate.nativeValidation);
+	if (type(candidate.profilesCount) != 'int' || candidate.profilesCount < 0
+		|| candidate.profilesCount > MAX_OUTPUT_ARRAY_ITEMS ||
+		(candidate.profilesCount > 0 && (!is_string(candidate.strategyArgs)
+			|| length(candidate.strategyArgs) > MAX_OUTPUT_TEXT)))
+		return bounded_error_projection(resolved, candidate, validation, 'EINPUT',
+			'Strategy Preview output exceeds the safe bound');
 	let effective = null;
+	let trustedRuntime = trusted.runtimeInputs;
+	if (!runtime_inputs_bounded(trustedRuntime))
+		return bounded_error_projection(resolved, candidate, validation, 'EINPUT',
+			'authoritative runtime inputs exceed the safe bound');
 	try { effective = strategy_effective_argv(candidate.strategyArgs, trusted.runtimeInputs); }
 	catch (e) { effective = null; }
-	if (!is_object(effective) || effective.ok != true)
-		return error_result('EINPUT', 'authoritative effective command inputs are unavailable');
+	if (!is_object(effective) || effective.ok != true || effective_projection(effective) == null)
+		return bounded_error_projection(resolved, candidate, validation, 'EINPUT',
+			'authoritative effective command exceeds the safe bound');
 	let empty = candidate.profilesCount == 0;
 	if (requireAdmission == true) {
 		if (empty) return validation_error(resolved, candidate, effective, validation,
@@ -269,6 +359,8 @@ function evaluated(input, context, requireValidation, requireAdmission) {
 	}
 	let result = candidate_projection(resolved, candidate, effective, validation,
 		requireValidation == true || input.validate == true);
+	if (result == null) return bounded_error_projection(resolved, candidate, validation, 'EINTERNAL',
+		'Strategy Preview projection exceeds the safe output bound');
 	result.ok = true;
 	return result;
 }

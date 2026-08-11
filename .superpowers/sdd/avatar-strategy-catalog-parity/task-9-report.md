@@ -227,3 +227,84 @@ Result: 46 passed, 0 failed.
 
 `git diff --check` passed. The worktree contains only the focused Task 9 fix
 changes before commit.
+
+## Fix Round 2
+
+The second review identified two deeper boundary failures.
+
+1. Preview projections previously passed compiler candidate strings and
+   effective runtime arrays through without hard output limits. The CLI now
+   bounds candidate args, effective command strings, every argv element and
+   array length, dependency records, native validation diagnostics, and the
+   serialized total projection. It emits `fullCommand` and `fullArgv` aliases
+   alongside the effective aliases. Oversized untrusted strategy/runtime data
+   fails closed with a bounded alias-preserving projection using `EINPUT` or
+   `EINTERNAL`; no hostile value is truncated into a different candidate.
+2. Persisted CLI resolution previously called Task 8's `strategy_user_get()`,
+   whose CAS-oriented `read_document()` computes a hash through
+   `/tmp/z2m-strategy-hash.*` `writefile`/`unlink` operations. The state module
+   now exposes `strategy_user_get_readonly()`, backed by bounded stat,
+   symlink, read, JSON, and schema validation only. CLI Preview/Validate use
+   this API. Task 8 mutation paths retain the original hashed
+   `read_document()` behavior for CAS and write concurrency checks.
+
+## Fix Round 2 TDD Evidence
+
+RED focused run after adding the adversarial tests:
+
+```text
+wsl.exe -d Ubuntu --cd /home/kirill/z2m-work/m5-native-state-store -- /home/kirill/.local/bin/node --test tests/product/avatar-strategy-preview.test.mjs
+```
+
+Result before the production fix: 14 passed, 2 failed. The failures were the
+oversized candidate returning `ok: true` and persisted Preview/Validate
+creating and removing observed hash temporary files. The no-write test saw
+`rename`, `change`, and `rename` events for the hash temp path.
+
+GREEN focused run:
+
+```text
+wsl.exe -d Ubuntu --cd /home/kirill/z2m-work/m5-native-state-store -- /home/kirill/.local/bin/node --test tests/product/avatar-strategy-preview.test.mjs
+```
+
+Result: 16 passed, 0 failed.
+
+The adversarial tests cover:
+
+- oversized inline Profile args;
+- oversized trusted runtime argv elements;
+- bounded strategy args/args, effective/full command strings, effective/full
+  argv arrays and elements, dependency records, and total JSON output;
+- required aliases and bounded errors on output rejection;
+- exact root and `/tmp` snapshots around persisted Preview/Validate;
+- inotify-style detection of transient tagged hash temp-file events;
+- preservation of the existing non-empty and zero-enabled Preview contracts.
+
+## Fix Round 2 Verification
+
+Preview, state, compiler, and Profile suites:
+
+```text
+wsl.exe -d Ubuntu --cd /home/kirill/z2m-work/m5-native-state-store -- env UCODE_BIN=/opt/ucode/bin/ucode UCODE_LIBRARY_PATH=/opt/ucode/lib /home/kirill/.local/bin/node --test tests/product/avatar-strategy-preview.test.mjs tests/product/avatar-strategy-state.test.mjs tests/product/avatar-strategy-compiler.test.mjs tests/product/profiles-model.test.mjs
+```
+
+Result: 74 passed, 0 failed.
+
+Full product suite:
+
+```text
+wsl.exe -d Ubuntu --cd /home/kirill/z2m-work/m5-native-state-store -- env UCODE_BIN=/opt/ucode/bin/ucode UCODE_LIBRARY_PATH=/opt/ucode/lib /home/kirill/.local/bin/node --test tests/product/*.test.mjs
+```
+
+Result: 135 passed, 0 failed.
+
+Package/native suite:
+
+```text
+wsl.exe -d Ubuntu --cd /home/kirill/z2m-work/m5-native-state-store -- /home/kirill/.local/bin/node --test tests/native/avatar-strategy-package.test.mjs tests/native/package-helper.test.mjs
+```
+
+Result: 46 passed, 0 failed.
+
+`git diff --check` passed. No Apply, status, RPC, UI, catalog asset, plan, or
+ledger file was changed.
