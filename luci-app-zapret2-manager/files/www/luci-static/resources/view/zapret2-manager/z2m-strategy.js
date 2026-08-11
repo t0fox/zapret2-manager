@@ -44,20 +44,14 @@ function stateSnapshot(value) {
 }
 function stateRevision(value) {
   value = object(value);
-  var strategyStatus = object(value.strategyStatus);
-  if (strategyStatus.revision !== undefined) return strategyStatus.revision;
   var snapshot = stateSnapshot(value);
   return snapshot && snapshot.revision !== undefined ? snapshot.revision : null;
 }
 function favoriteState(data) {
   var list = object(data && data.list && data.list.value);
-  var status = object(data && data.status && data.status.value);
-  var snapshot = stateSnapshot(list) || stateSnapshot(status) || state.favoriteState;
-  var revision = snapshot && snapshot.revision !== undefined ? snapshot.revision : stateRevision(status);
-  if (!snapshot) {
-    if (revision !== null) snapshot = { favorites: [], revision: revision };
-  }
-  return snapshot ? { favorites: array(snapshot.favorites), revision: revision } : null;
+  var snapshot = data && data.list ? stateSnapshot(list) : state.favoriteState;
+  return snapshot && snapshot.revision !== undefined
+    ? { favorites: array(snapshot.favorites), revision: snapshot.revision } : null;
 }
 function rememberFavoriteState(value) {
   var snapshot = stateSnapshot(value && value.state ? value.state : value);
@@ -95,6 +89,7 @@ function normalizeStrategy(value) {
   result.name = text(value.name || value.displayName) || result.id || _('Strategy');
   result.origin = text(value.origin) || (value.is_builtin === true ? 'avatar_builtin' : 'user');
   result.is_builtin = value.is_builtin === true || value.isBuiltin === true || result.origin === 'avatar_builtin';
+  if (result.revision === undefined && result.is_builtin === true) result.revision = 0;
   result.metadata = Object.assign({}, object(value.metadata), object(value.catalogMetadata));
   ['description', 'author', 'protocol', 'provenance', 'source', 'sourceFile', 'sourceOrdinal'].forEach(function (key) {
     if (value[key] !== undefined && result.metadata[key] === undefined) result.metadata[key] = value[key];
@@ -186,6 +181,10 @@ function mutate(ctx, operation, request) {
   }, function (error) {
     state.busy = false;
     showError(ctx, error);
+    if (operation === 'favorite') {
+      state.favoriteState = null;
+      return Promise.resolve(refresh(ctx)).catch(function () {}).then(function () { return null; });
+    }
     return null;
   });
 }
@@ -225,8 +224,7 @@ function load(ctx) {
       status: settled(results[2], ctx.api),
       profiles: settled(results[3], ctx.api)
     };
-    var persistedFavorites = favoriteState(data);
-    if (persistedFavorites) state.favoriteState = persistedFavorites;
+    state.favoriteState = favoriteState(data);
     return loadDetail(ctx, data);
   });
 }
@@ -412,7 +410,6 @@ function visibleStrategies(data) {
 }
 function toggleFavorite(ctx, data, strategy) {
   var snapshot = favoriteState(data), revision = snapshot && snapshot.revision;
-  if (revision === undefined || revision === null) revision = stateRevision(data.status && data.status.value);
   if (revision === undefined || revision === null) {
     showError(ctx, { code: 'ESTATE', message: _('Favorite state revision is unavailable.') });
     return Promise.resolve(null);
@@ -642,7 +639,7 @@ function createAdapter(api) {
     return id && catalog ? { ok: true } : { ok: false, message: _('Persisted Strategy identity is required.') };
   }
   function candidateApplicable(value) { return !!(value && (value.strategy_id || value.id) && value.revision !== undefined); }
-  function reloadAppliedState() { return Promise.all([api.service.status(), api.strategies.list()]).then(function (values) { return { value: { status: values[0], strategies: strategyList(values[1]) }, revision: stateRevision(values[0]), raw: { status: values[0], list: values[1] } }; }); }
+  function reloadAppliedState() { return Promise.all([api.service.status(), api.strategies.list()]).then(function (values) { return { value: { status: values[0], strategies: strategyList(values[1]) }, revision: stateRevision(values[1]), raw: { status: values[0], list: values[1] } }; }); }
   function hasProfileDraft(value) { return object(value).profiles === true || object(value).changes && object(value).changes.profiles !== undefined; }
   return {
     supported: true,

@@ -170,8 +170,26 @@ test('direct strategyStatus identity, drift, and revision are consumed behaviora
   const status = { strategyStatus: { id: 'user-one', name: 'User one', drift: true, availability: 'drifted', revision: 7 } };
   assert.equal(helpers.activeIdentity(status).id, 'user-one');
   assert.equal(helpers.activeDrift(status), true);
-  assert.equal(helpers.stateRevision(status), 7);
+  assert.equal(helpers.stateRevision(status), null);
   assert.equal(helpers.strategyAvailability(status.strategyStatus), false);
+});
+
+test('catalog Strategies normalize to revision zero and persisted Apply sends revision zero plus catalog digest', async () => {
+  const prefix = page.slice(0, page.lastIndexOf('return baseclass.extend({'));
+  const helpers = vm.runInNewContext(`(function () {${prefix}\nreturn { normalizeStrategy, applyStrategy };\n})()`, {
+    _: value => value,
+  });
+  const strategy = helpers.normalizeStrategy({ id: 'z2k_all_in_one', origin: 'avatar_builtin', is_builtin: true, profiles: [] });
+  assert.equal(strategy.revision, 0);
+  let request;
+  const result = helpers.applyStrategy({
+    data: { catalog: { value: { aggregateDigest: 'a'.repeat(64) } } },
+    api: { strategies: { apply: value => { request = JSON.parse(value); return request; } } },
+  }, strategy);
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    strategy_id: 'z2k_all_in_one', revision: 0, catalog_digest: 'a'.repeat(64),
+  });
+  assert.deepEqual(request, JSON.parse(JSON.stringify(result)));
 });
 
 test('favorites use authoritative state revision and returned ordered state, never revision zero', () => {
@@ -186,10 +204,58 @@ test('favorites use authoritative state revision and returned ordered state, nev
   const helpers = vm.runInNewContext(`(function () {${prefix}\nreturn { favoriteState, stateRevision };\n})()`, {
     _: value => value,
   });
-  const data = { list: { value: { state: { favorites: ['first', 'second'], revision: 11 } } } };
+  const data = { list: { value: { state: { favorites: ['first', 'second'], revision: 11 } } }, status: { value: { strategyStatus: { revision: 88 } } } };
   assert.deepEqual(JSON.parse(JSON.stringify(helpers.favoriteState(data))), { favorites: ['first', 'second'], revision: 11 });
-  assert.equal(helpers.favoriteState({ list: { value: { state: { favorites: ['first'] } } }, status: { value: { strategyStatus: { revision: 12 } } } }).revision, 12);
-  assert.equal(helpers.stateRevision({ strategyStatus: { revision: 11 } }), 11);
+  assert.equal(helpers.favoriteState({ status: { value: { strategyStatus: { revision: 12 } } } }), null);
+  assert.equal(helpers.stateRevision({ strategyStatus: { revision: 11 } }), null);
+});
+
+test('favorite toggle uses durable list state revision for catalog and user identities and adopts response state', async () => {
+  const prefix = page.slice(0, page.lastIndexOf('return baseclass.extend({'));
+  const helpers = vm.runInNewContext(`(function () {${prefix}\nreturn { favoriteState, toggleFavorite };\n})()`, {
+    _: value => value,
+  });
+  const payloads = [];
+  const ctx = {
+    api: {
+      normalizeError: value => value,
+      strategies: { favorite: value => { payloads.push(JSON.parse(value)); return { ok: true, state: { favorites: ['catalog-one', 'user-one'], revision: 19 } }; } },
+    },
+    refresh: () => Promise.resolve(),
+    shell: { showToast() {} },
+  };
+  const data = { list: { value: { state: { favorites: ['catalog-one'], revision: 18 } } } };
+  await helpers.toggleFavorite(ctx, data, { id: 'catalog-one' });
+  const refreshed = { list: { value: { state: { favorites: ['catalog-one'], revision: 19 } } } };
+  await helpers.toggleFavorite(ctx, refreshed, { id: 'user-one' });
+  assert.deepEqual(payloads, [
+    { expectedRevision: 18, id: 'catalog-one', favorite: false },
+    { expectedRevision: 19, id: 'user-one', favorite: true },
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(helpers.favoriteState({}))), {
+    favorites: ['catalog-one', 'user-one'], revision: 19,
+  });
+});
+
+test('stale favorite mutation fails closed without inventing a new state revision', async () => {
+  assert.match(page, /operation === 'favorite'[\s\S]*state\.favoriteState = null[\s\S]*refresh\(ctx\)/);
+  const prefix = page.slice(0, page.lastIndexOf('return baseclass.extend({'));
+  const helpers = vm.runInNewContext(`(function () {${prefix}\nreturn { favoriteState, toggleFavorite };\n})()`, {
+    _: value => value,
+  });
+  let request;
+  const ctx = {
+    api: {
+      normalizeError: value => value,
+      strategies: { favorite: value => { request = JSON.parse(value); return { ok: false, error: { code: 'ECONFLICT' } }; } },
+    },
+    refresh: () => Promise.resolve(),
+    shell: { showToast() {} },
+  };
+  const result = await helpers.toggleFavorite(ctx, { list: { value: { state: { favorites: ['user-one'], revision: 17 } } } }, { id: 'user-one' });
+  assert.equal(result, null);
+  assert.deepEqual(request, { expectedRevision: 17, id: 'user-one', favorite: false });
+  assert.equal(helpers.favoriteState({}), null);
 });
 
 test('new Strategy editor can add a Profile and preserves zero-enabled Preview versus server rejection', () => {

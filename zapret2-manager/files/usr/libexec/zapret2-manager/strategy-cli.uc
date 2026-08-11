@@ -758,6 +758,10 @@ function catalog_strategy(entry) {
 function strategy_list() {
 	let current = load_request_catalog();
 	if (!is_object(current) || current.ok == false) return current;
+	let selection = null;
+	try { selection = strategy_selection_get(); } catch (e) { selection = null; }
+	if (!is_object(selection) || selection.ok != true || type(selection.favorites) != 'array')
+		return error_result('EIO', 'Strategy favorites state is unavailable');
 	let strategies = [];
 	let order = is_object(current.winners) && type(current.winnerOrder) == 'array'
 		? current.winnerOrder : keys(current.winners || {});
@@ -770,7 +774,8 @@ function strategy_list() {
 	try { users = strategy_user_list(); } catch (e) { users = null; }
 	if (!is_object(users) || users.ok != true) return users || error_result('EIO', 'User Strategy list is unavailable');
 	for (let strategy in users.strategies) push(strategies, strategy);
-	return bounded_strategy_response({ ok: true, strategies: strategies }, 'Strategy list');
+	return bounded_strategy_response({ ok: true, strategies: strategies,
+		state: { revision: selection.revision, favorites: selection.favorites } }, 'Strategy list');
 }
 
 function strategy_get(input) {

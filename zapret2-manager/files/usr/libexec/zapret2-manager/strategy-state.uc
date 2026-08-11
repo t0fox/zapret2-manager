@@ -656,7 +656,7 @@ export const strategy_favorite = function(input) {
 
 export const strategy_selection_get = function() {
 	let state = read_state();
-	return state.ok ? { ok: true, revision: state.state.revision, selected: state.state.selected } : state;
+	return state.ok ? { ok: true, revision: state.state.revision, favorites: state.state.favorites, selected: state.state.selected } : state;
 };
 
 export const strategy_selection_get_readonly = function() {

@@ -208,7 +208,27 @@ test('Default Strategy list remains a complete bounded catalog projection', () =
     });
     assert.equal(result.ok, true);
     assert.equal(result.strategies.length, CATALOG_MANIFEST.uniqueStrategyIdCount);
+    assert.deepEqual(result.state, { revision: 0, favorites: [] });
     assert.ok(JSON.stringify(result).length <= 4 * 1024 * 1024);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Strategy list returns durable ordered favorites state separately from Strategy objects', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-strategy-rpc-state-'));
+  const strategies = path.join(root, 'strategies');
+  const state = path.join(root, 'strategy-state.json');
+  fs.mkdirSync(strategies, { mode: 0o700 });
+  fs.chmodSync(root, 0o700);
+  fs.chmodSync(strategies, 0o700);
+  fs.writeFileSync(state, JSON.stringify({ schema: 1, revision: 7, favorites: ['z2k_all_in_one', 'user-one'], selected: null }), { mode: 0o600 });
+  try {
+    const result = invokeValues('strategy_cli_dispatch', ['list', {}], {
+      Z2M_STRATEGY_ROOT: root, Z2M_STRATEGY_DIR: strategies, Z2M_STRATEGY_STATE: state,
+    });
+    assert.deepEqual(result.state, { revision: 7, favorites: ['z2k_all_in_one', 'user-one'] });
+    assert.equal(result.strategies.find(strategy => strategy.id === 'z2k_all_in_one').revision, undefined);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

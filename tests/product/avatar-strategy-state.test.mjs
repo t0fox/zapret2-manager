@@ -71,7 +71,7 @@ test('package-created empty state is immediately usable without overwriting it o
   fs.writeFileSync(path.join(root, 'strategy-state.json'), '');
   fs.chmodSync(path.join(root, 'strategy-state.json'), 0o600);
   const initial = invoke('state.strategy_selection_get()', env);
-  assert.deepEqual(initial, { ok: true, revision: 0, selected: null });
+  assert.deepEqual(initial, { ok: true, revision: 0, favorites: [], selected: null });
 
   assert.equal(invoke(`state.strategy_user_create({strategy:${JSON.stringify(userStrategy())}})`, env).ok, true);
   const set = invoke(`state.strategy_selection_set({expectedRevision:0,selected:{id:'user-one',origin:'user',revision:1,candidateSha256:'${hash}'}})`, env);
