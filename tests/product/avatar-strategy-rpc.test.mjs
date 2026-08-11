@@ -130,6 +130,24 @@ function strategyStorageEnv(storage) {
   };
 }
 
+function authoritativeRuntimeEnv() {
+  return {
+    Z2M_STRATEGY_UCODE_BIN: UCODE_BIN,
+    Z2M_STRATEGY_RPC: '1',
+    Z2M_STRATEGY_SERVER_TEST: '1',
+    Z2M_STRATEGY_RUNTIME_INPUTS: JSON.stringify({
+      source: 'live', enginePath: '/opt/zapret2/nfq2/nfqws2',
+      baseArgs: ['--qnum=30999'],
+      luaInit: ['/opt/zapret2/lua/zapret-lib.lua'],
+      hostlists: ['/lists/netrogat.txt'],
+    }),
+    Z2M_STRATEGY_RUNTIME_ENVIRONMENT: JSON.stringify({
+      listMode: 'none', paths: { luaRoot: '/opt/zapret2/lua', blobRoot: '/opt/zapret2/bin', listRoot: '/lists', ipsetRoot: '/lists' },
+      functions: { fake: { present: true } }, blobs: {}, lua: {}, lists: {},
+    }),
+  };
+}
+
 function userStrategy(overrides = {}) {
   return {
     id: 'user-one', name: 'User one', origin: 'user', is_builtin: false,
@@ -389,6 +407,82 @@ test('Default Strategy list remains a complete bounded catalog projection', () =
   }
 });
 
+test('Strategy list and detail emit authoritative active/favorite flags and metadata projections', () => {
+  const storage = temporaryStrategyStorage();
+  writeUserStrategy(storage);
+  fs.writeFileSync(storage.state, JSON.stringify({ schema: 1, revision: 3,
+    favorites: ['z2k_all_in_one', 'user-one'],
+    selected: { id: 'z2k_all_in_one', origin: 'avatar_builtin', revision: 0, candidateSha256: 'a'.repeat(64) },
+  }), { mode: 0o600 });
+  try {
+    const env = strategyStorageEnv(storage);
+    const list = invokeValues('strategy_cli_dispatch', ['list', {}], env);
+    assert.equal(list.ok, true);
+    const builtin = list.strategies.find(strategy => strategy.id === 'z2k_all_in_one');
+    const user = list.strategies.find(strategy => strategy.id === 'user-one');
+    assert.equal(builtin.is_active, true);
+    assert.equal(builtin.is_favorite, true);
+    assert.equal(user.is_active, false);
+    assert.equal(user.is_favorite, true);
+    assert.equal(list.state.revision, 3);
+    assert.deepEqual(list.state.favorites, ['z2k_all_in_one', 'user-one']);
+    assert.equal(list.favoritesRevision, 3);
+    assert.equal(builtin.metadata.catalogDigest, CATALOG_MANIFEST.aggregateDigest);
+    assert.equal(builtin.metadata.provenance.sourceFile, builtin.sourceFile);
+    assert.equal(typeof builtin.metadata.provenance.sourceOrdinal, 'number');
+    assert.equal(typeof user.metadata, 'object');
+
+    const detail = invokeValues('strategy_cli_dispatch', ['get', { id: 'z2k_all_in_one' }], env);
+    assert.equal(detail.ok, true);
+    assert.equal(detail.strategy.is_active, true);
+    assert.equal(detail.strategy.is_favorite, true);
+    assert.deepEqual(detail.strategy.metadata, builtin.metadata);
+    const userDetail = invokeValues('strategy_cli_dispatch', ['get', { id: 'user-one' }], env);
+    assert.equal(userDetail.strategy.is_active, false);
+    assert.equal(userDetail.strategy.is_favorite, true);
+    assert.deepEqual(userDetail.strategy.metadata, { description: 'local' });
+  } finally {
+    fs.rmSync(storage.root, { recursive: true, force: true });
+  }
+});
+
+test('RPC Preview uses authoritative server runtime composition and ignores client context', () => {
+  const request = {
+    edit: JSON.stringify({
+      strategy_data: { id: 'rpc-runtime', name: 'RPC runtime', profiles: [{ id: 'p1', args: '--filter-tcp=443' }] },
+    }),
+  };
+  const result = invokeRpcMethod('strategies_preview', request, authoritativeRuntimeEnv());
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(result.effectiveArgv.slice(0, 4), [
+    '/opt/zapret2/nfq2/nfqws2', '--qnum=30999',
+    '--lua-init=/opt/zapret2/lua/zapret-lib.lua', '--hostlist=/lists/netrogat.txt',
+  ]);
+  assert.equal(result.effectiveArgv.includes('--qnum=forged'), false);
+  assert.equal(result.dependencies.available, true);
+  const forged = invokeRpcMethod('strategies_preview', {
+    edit: JSON.stringify({
+      strategy_data: { id: 'rpc-runtime', name: 'RPC runtime', profiles: [{ id: 'p1', args: '--filter-tcp=443' }] },
+      runtimeInputs: { source: 'live', enginePath: '/opt/zapret2/nfq2/nfqws2', baseArgs: ['--qnum=forged'], luaInit: [], hostlists: [] },
+    }),
+  }, authoritativeRuntimeEnv());
+  assert.equal(forged.ok, false);
+  assert.equal(forged.error.code, 'EINPUT');
+});
+
+test('RPC Preview fails closed when authoritative runtime composition is unavailable', () => {
+  const result = invokeRpcMethod('strategies_preview', {
+    edit: JSON.stringify({
+      strategy_data: { id: 'rpc-unavailable', name: 'RPC unavailable', profiles: [{ id: 'p1', args: '--filter-tcp=443' }] },
+    }),
+  }, {
+    Z2M_STRATEGY_UCODE_BIN: UCODE_BIN,
+    Z2M_STRATEGY_RPC: '1', Z2M_STRATEGY_SERVER_TEST: '1',
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'EUNAVAILABLE');
+});
+
 test('full list is measured before any projection is allowed', () => {
   const storage = temporaryStrategyStorage();
   writeUserStrategy(storage);
@@ -407,6 +501,7 @@ test('full list is measured before any projection is allowed', () => {
       schema: 1, id: 'user-one', revision: 1, name: 'User one', origin: 'user',
       is_builtin: false, metadata: { description: 'local' },
       profiles: [{ id: 'p1', args: '--filter-tcp=443', enabled: true }], updatedAt: 1,
+      is_active: false, is_favorite: true,
     });
     assert.deepEqual(fullList.strategies.map(strategy => strategy.id),
       [...EXPECTED_MANIFEST.winnerOrder, 'user-one']);
@@ -566,7 +661,7 @@ test('Strategy list returns durable ordered favorites state separately from Stra
       Z2M_STRATEGY_ROOT: root, Z2M_STRATEGY_DIR: strategies, Z2M_STRATEGY_STATE: state,
     });
     assert.deepEqual(result.state, { revision: 7, favorites: ['z2k_all_in_one', 'user-one'] });
-    assert.equal(result.strategies.find(strategy => strategy.id === 'z2k_all_in_one').revision, undefined);
+    assert.equal(result.strategies.find(strategy => strategy.id === 'z2k_all_in_one').revision, 0);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

@@ -549,7 +549,7 @@ function strategy_private_request(tmp, expectedSize) {
 }
 
 function strategy_locked_command(mode, command) {
-	let state = 'Z2M_FLOCKED=1 Z2M_STRATEGY_LOCKED=1 ';
+	let state = 'Z2M_FLOCKED=1 Z2M_STRATEGY_LOCKED=1 Z2M_STRATEGY_RPC=1 ';
 	if (mode == 'apply') {
 		let config = 'Z2M_CONFIG_LOCKED=1 ' + command;
 		config = 'flock -x ' + shell_escape(STRATEGY_CONFIG_FLOCK) + ' -c ' + shell_escape(config);

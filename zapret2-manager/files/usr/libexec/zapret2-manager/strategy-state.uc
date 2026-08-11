@@ -6,7 +6,7 @@
 
 import { readfile, writefile, stat, readlink, unlink, mkdir, lsdir, popen } from 'fs';
 import { strategy_validate as model_validate, strategy_normalize } from './strategy-model.uc';
-import { strategy_catalog_load } from './strategy-catalog.uc';
+import { strategy_catalog_load, catalog_entry_to_strategy } from './strategy-catalog.uc';
 
 const STORAGE_ROOT = getenv('Z2M_STRATEGY_ROOT') || '/etc/zapret2-manager';
 const STRATEGY_DIR = getenv('Z2M_STRATEGY_DIR') || '/etc/zapret2-manager/strategies';
@@ -323,7 +323,7 @@ function read_document_readonly(path) {
 	try { metadata = stat(path); } catch (e) { metadata = null; }
 	if (metadata == null) return { ok: false, missing: true };
 	if (readlink(path) != null || metadata.type != 'file' || type(metadata.size) != 'int' ||
-		metadata.size > MAX_BYTES)
+		metadata.size > MAX_BYTES || metadata.mode % 512 != PRIVATE_FILE_MODE)
 		return error('EINPUT', 'Strategy storage is not a bounded regular file.');
 	let raw = readfile(path);
 	if (raw == null || length(raw) != metadata.size) return error('EIO', 'Strategy storage could not be read.');
@@ -613,9 +613,22 @@ export const strategy_user_delete = function(input) {
 
 export const strategy_duplicate = function(input) {
 	return locked(function() {
-		let source = is_object(input) ? input.strategy : null;
+		let requested = is_object(input) ? (input.id != null ? input.id
+			: is_object(input.strategy) ? input.strategy.id : null) : null;
+		if (!safe_id(requested)) return error('EINPUT', 'Duplicate source Strategy id is invalid.');
+		let sourceResult = read_user(requested);
+		let source = sourceResult.ok ? sourceResult.strategy : null;
+		if (source == null && sourceResult.error && sourceResult.error.code != 'ENOENT') return sourceResult;
+		if (source == null) {
+			let loaded = null;
+			try { loaded = strategy_catalog_load(CATALOG_ROOT); } catch (e) { loaded = null; }
+			let entry = loaded && loaded.ok == true && loaded.catalog && loaded.catalog.winners
+				? loaded.catalog.winners[requested] : null;
+			try { source = entry == null ? null : catalog_entry_to_strategy(entry); } catch (e) { source = null; }
+			if (source != null) { source.origin = 'avatar_builtin'; source.is_builtin = true; }
+		}
 		if (!is_object(source) || !safe_id(source.id) || !bounded_string(source.name, MAX_NAME) || type(source.profiles) != 'array')
-			return error('EINPUT', 'Duplicate source Strategy is invalid.');
+			return error('ENOENT', 'Duplicate source Strategy was not found.');
 		let sourceMetadata = exists(source, 'metadata') ? source.metadata : {};
 		if (!metadata_valid(sourceMetadata)) return error('EINPUT', 'Duplicate source metadata is invalid.');
 		let duplicate = {

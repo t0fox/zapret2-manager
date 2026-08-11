@@ -72,9 +72,10 @@ function runtimeChecks(value) {
 }
 
 function transactionHook(overrides = {}) {
-  const { state: stateOverrides = {}, candidate: candidateOverrides = {}, ...transactionOverrides } = overrides;
+  const { state: stateOverrides = {}, candidate: candidateOverrides = {}, realState = false, ...transactionOverrides } = overrides;
   return JSON.stringify({
-    state: { strategy_apply_revalidate: { ok: true }, strategy_selection_apply: { ok: true }, ...stateOverrides },
+    state: realState ? { strategy_apply_revalidate: { ok: true }, ...stateOverrides }
+      : { strategy_apply_revalidate: { ok: true }, strategy_selection_apply: { ok: true }, ...stateOverrides },
     transaction: {
       currentOpt: '--filter-tcp=80',
       preflight: { status: 'verified', coverage: {
@@ -154,9 +155,13 @@ function runStrategyFlow(env, root) {
     }, diagnostics: [] },
   };
   const apply = invoke(CLI, `mod.strategy_cli_dispatch('apply', ${JSON.stringify(input)})`, {
-    ...env, Z2M_STRATEGY_APPLY_HOOK: transactionHook({ candidate }),
+    ...env, Z2M_STRATEGY_APPLY_HOOK: transactionHook({ candidate, realState: true }),
   });
-  const selection = invoke(STATE, `mod.strategy_selection_apply({expectedRevision:0,selected:${JSON.stringify(apply.strategy)}})`, env);
+  assert.equal(apply.ok, true, JSON.stringify(apply));
+  const persistedSelection = JSON.parse(fs.readFileSync(env.Z2M_STRATEGY_STATE, 'utf8'));
+  const selection = { ok: true, state: persistedSelection };
+  assert.deepEqual(persistedSelection.selected, apply.strategy,
+    'Apply must commit selection through the real transaction state writer');
   const observations = {
     drift: { currentSha256: { config: NEW_CONFIG_HASH }, appliedSha256: { config: NEW_CONFIG_HASH } },
     strategy: { candidateSha256: preview.digest },

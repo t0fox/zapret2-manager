@@ -3,7 +3,7 @@
 // catalog provenance, and runtime composition on the server, then delegates
 // candidate construction to the shared Strategy compiler.
 
-import { readfile, stat, readlink, popen } from 'fs';
+import { readfile, stat, readlink, lsdir, popen } from 'fs';
 import { strategy_catalog_load, strategy_catalog_get,
  strategy_catalog_status, strategy_catalog_reload, catalog_entry_to_strategy } from './strategy-catalog.uc';
 import { strategy_user_list, strategy_user_get_readonly, strategy_duplicate,
@@ -11,7 +11,8 @@ import { strategy_user_list, strategy_user_get_readonly, strategy_duplicate,
  strategy_apply_uncertain_record, strategy_apply_reconcile, strategy_apply_guard_status, strategy_apply_begin, strategy_apply_end } from './strategy-state.uc';
 import * as strategy_state from './strategy-state.uc';
 import { load_state } from './profiles-draft.uc';
-import { z2m_parse, z2m_validate } from './profiles.uc';
+import { read_var } from './apply.uc';
+import { z2m_parse, z2m_validate, z2m_tokenize } from './profiles.uc';
 import { avatar_tokenize, strategy_validate as model_validate, strategy_normalize } from './strategy-model.uc';
 import { strategy_candidate, strategy_effective_argv } from './strategy-compiler.uc';
 import { profiles_apply_candidate, profiles_config_hash, profiles_candidate_hash, profiles_reconcile_evidence } from './profiles-apply.uc';
@@ -42,7 +43,7 @@ const MAX_IMPORT_DIAGNOSTICS = 16;
 const MAX_IMPORT_NAME = 256;
 const ERROR_CODES = ['EINPUT', 'ENOENT', 'ECONFLICT', 'ENOENABLED', 'EDEPENDENCY',
 	'EPREFLIGHT', 'EVERIFY', 'EINTERNAL', 'ELOCK', 'EUNCERTAIN', 'ERECONCILE', 'EIO',
-	'EOUTPUT', 'ECHILD'];
+	'EOUTPUT', 'ECHILD', 'EUNAVAILABLE'];
 
 function is_object(value) { return type(value) == 'object' && value != null; }
 function is_string(value) { return type(value) == 'string'; }
@@ -211,6 +212,81 @@ function runtime_inputs_bounded(value) {
 	return true;
 }
 
+function runtime_context_from_environment() {
+	if (getenv('Z2M_STRATEGY_SERVER_TEST') != '1') return null;
+	let runtime = null, environment = {};
+	try { runtime = json(getenv('Z2M_STRATEGY_RUNTIME_INPUTS') || 'null'); } catch (e) { runtime = null; }
+	try { environment = json(getenv('Z2M_STRATEGY_RUNTIME_ENVIRONMENT') || '{}'); } catch (e) { environment = {}; }
+	if (!runtime_inputs_bounded(runtime) || runtime.source != 'live'
+		|| runtime.enginePath != ENGINE_PATH) return error_result('EUNAVAILABLE', 'server runtime composition test evidence is unavailable');
+	return { ok: true, environment: is_object(environment) ? environment : {}, runtimeInputs: runtime };
+}
+
+function live_runtime_inputs() {
+	let entries = [], found = [];
+	try { entries = lsdir('/proc') || []; } catch (e) { entries = []; }
+	for (let name in entries) {
+		if (!is_string(name) || !match(name, /^[0-9]+$/)) continue;
+		let raw = null;
+		try { raw = readfile('/proc/' + name + '/cmdline'); } catch (e) { raw = null; }
+		if (!is_string(raw) || !length(raw)) continue;
+		let argv = split(raw, chr(0)), cleaned = [];
+		for (let value in argv) if (is_string(value) && length(value)) push(cleaned, value);
+		if (length(cleaned) && cleaned[0] == ENGINE_PATH) push(found, cleaned);
+	}
+	if (length(found) != 1) return error_result('EUNAVAILABLE', 'authoritative live nfqws2 process composition is unavailable');
+	let applied = null;
+	try { applied = read_var('NFQWS2_OPT'); } catch (e) { applied = null; }
+	if (!is_string(applied)) return error_result('EUNAVAILABLE', 'authoritative applied Strategy options are unavailable');
+	let tokenized = null;
+	try { tokenized = z2m_tokenize(applied); } catch (e) { tokenized = null; }
+	if (!is_object(tokenized) || type(tokenized.tokens) != 'array') return error_result('EUNAVAILABLE', 'authoritative applied Strategy options are malformed');
+	let configured = [];
+	for (let token in tokenized.tokens || []) if (is_object(token) && is_string(token.value)) push(configured, token.value);
+	let used = [], baseArgs = [];
+	for (let i = 0; i < length(configured); i++) used[i] = false;
+	for (let i = 1; i < length(found[0]); i++) {
+		let matched = -1;
+		for (let j = 0; j < length(configured); j++)
+			if (!used[j] && configured[j] == found[0][i]) { matched = j; break; }
+		if (matched >= 0) used[matched] = true;
+		else push(baseArgs, found[0][i]);
+	}
+	let luaInit = [], hostlists = [];
+	for (let value in configured) {
+		if (starts_with(value, '--lua-init=')) push(luaInit, substr(value, 11));
+		else if (starts_with(value, '--hostlist=')) push(hostlists, substr(value, 11));
+	}
+	if (length(baseArgs) + length(luaInit) + length(hostlists) == 0 && length(configured) == 0)
+		return error_result('EUNAVAILABLE', 'authoritative live nfqws2 composition has no captured runtime inputs');
+	return { ok: true, environment: {
+		listMode: 'none', paths: { luaRoot: '/opt/zapret2/lua', blobRoot: '/opt/zapret2/bin', listRoot: '/lists', ipsetRoot: '/lists' },
+		functions: {}, blobs: {}, lua: {}, lists: {}
+	}, runtimeInputs: { source: 'live', enginePath: ENGINE_PATH, baseArgs: baseArgs, luaInit: luaInit, hostlists: hostlists } };
+}
+
+function server_context(context) {
+	if (getenv('Z2M_STRATEGY_SERVER_TEST') == '1') {
+		let testContext = runtime_context_from_environment();
+		return testContext != null ? testContext : error_result('EUNAVAILABLE', 'server runtime composition test evidence is unavailable');
+	}
+	if (getenv('Z2M_STRATEGY_RPC') == '1') {
+		return live_runtime_inputs();
+	}
+	// Direct module callers may supply an internal test context. RPC requests
+	// never reach this branch and cannot provide runtime composition inputs.
+	if (is_object(context)) {
+		if (!is_object(context.runtimeInputs) || context.runtimeInputs.source != 'live'
+			|| context.runtimeInputs.enginePath != ENGINE_PATH)
+			return error_result('EINPUT', 'internal runtime composition evidence is invalid');
+		let environment = {};
+		if (is_object(context.environment)) for (let key in context.environment)
+			if (key != 'executionAdmission' && key != 'validate') environment[key] = context.environment[key];
+		return { ok: true, environment: environment, runtimeInputs: context.runtimeInputs };
+	}
+	return live_runtime_inputs();
+}
+
 function minimal_dependencies() {
 	return {
 		available: false, items: [], missing: [], structurallyCompilable: false,
@@ -229,7 +305,8 @@ function catalog() {
 
 function input_shape(input, requireSource) {
 	if (!is_object(input)) return error_result('EINPUT', 'Strategy request must be an object');
-	let forbidden = ['candidate', 'command', 'argv', 'effectiveCommand', 'effectiveArgv', 'strategyArgs', 'args'];
+	let forbidden = ['candidate', 'command', 'argv', 'effectiveCommand', 'effectiveArgv', 'strategyArgs', 'args',
+		'runtimeInputs', 'environment', 'context'];
 	let inputKeys = keys(input);
 	for (let key in inputKeys) for (let fi in forbidden)
 		if (key == fi)
@@ -282,27 +359,6 @@ function resolve_strategy(input, currentCatalog) {
 		return { ok: true, strategy: strategy, id: input.strategy_id, origin: 'avatar_builtin' };
 	}
 	return { ok: true, strategy: input.strategy_data, id: input.strategy_data.id, origin: 'inline' };
-}
-
-function trusted_context(context) {
-	let result = {
-		environment: {},
-		runtimeInputs: {
-			source: 'live', enginePath: ENGINE_PATH, baseArgs: [], luaInit: [], hostlists: []
-		},
-		reconciliation: null
-	};
-	// This second argument is an internal server context, never request data.
-	// Admission is intentionally not accepted here: this CLI's only native gate
-	// is the explicit request validate=true flag.
-	if (!is_object(context)) return result;
-	if (is_object(context.environment)) {
-		for (let key in context.environment)
-			if (key != 'executionAdmission' && key != 'validate') result.environment[key] = context.environment[key];
-	}
-	if (is_object(context.runtimeInputs)) result.runtimeInputs = context.runtimeInputs;
-	if (is_object(context.reconciliation)) result.reconciliation = context.reconciliation;
-	return result;
 }
 
 function complete_validation(value) {
@@ -376,7 +432,9 @@ function evaluated(input, context, requireValidation, requireAdmission) {
 	if (!is_object(currentCatalog) || currentCatalog.ok == false) return currentCatalog;
 	let resolved = resolve_strategy(input, currentCatalog);
 	if (!resolved.ok) return resolved;
-	let trusted = trusted_context(context), environment = trusted.environment;
+	let trusted = server_context(context);
+	if (!trusted.ok) return trusted;
+	let environment = trusted.environment;
 	environment.validate = requireValidation == true || input.validate == true;
 	let candidate = null;
 	try { candidate = strategy_candidate(resolved.strategy, environment); }
@@ -513,7 +571,10 @@ export const strategy_apply = function(input, context) {
 	if (!is_object(currentCatalog) || currentCatalog.ok == false) return strategy_apply_finish(currentCatalog, begun.operationNonce);
 	let resolved = resolve_strategy(input, currentCatalog);
 	if (!resolved.ok) return strategy_apply_finish(resolved, begun.operationNonce);
-	let trusted = trusted_context(context);
+	let trusted = server_context(context);
+	if (!trusted.ok && apply_hook_value('candidate', null) == null)
+		return strategy_apply_finish(trusted, begun.operationNonce);
+	if (!trusted.ok) trusted = { ok: true, environment: {} };
 	trusted.environment.validate = true;
 	trusted.environment.executionAdmission = true;
 	let candidate = null;
@@ -752,7 +813,49 @@ function catalog_strategy(entry) {
 	if (!is_object(strategy)) return null;
 	strategy.origin = 'avatar_builtin';
 	strategy.is_builtin = true;
+	strategy.revision = 0;
 	return strategy;
+}
+
+function catalog_wire_metadata(strategy, current) {
+	let metadata = {};
+	if (is_object(strategy.metadata)) for (let key in strategy.metadata) metadata[key] = strategy.metadata[key];
+	for (let key in ['description', 'type', 'version', 'is_builtin', 'source', 'level', 'label',
+		'author', 'protocol', 'featured', 'blobs'])
+		if (strategy[key] != null && metadata[key] == null) metadata[key] = strategy[key];
+	metadata.catalogDigest = current.aggregateDigest;
+	metadata.provenance = {
+		source: current.source, aggregateDigest: current.aggregateDigest,
+		aggregateDigestAlgorithm: current.aggregateDigestAlgorithm || null,
+		sourceFile: strategy.sourceFile || null, sourceOrdinal: strategy.sourceOrdinal || null,
+		cacheKey: strategy.cacheKey || null, cacheOrdinal: strategy.cacheOrdinal || null,
+		duplicateGroup: strategy.duplicateGroup || null, effectiveOrdinal: strategy.effectiveOrdinal || null,
+		winner: strategy.winner === true
+	};
+	metadata.catalog = {
+		schema: current.schema || 1, source: current.source, aggregateDigest: current.aggregateDigest,
+		aggregateDigestAlgorithm: current.aggregateDigestAlgorithm || null,
+		physicalFileCount: current.physicalFileCount, physicalEntryCount: current.physicalEntryCount,
+		uniqueStrategyIdCount: current.uniqueStrategyIdCount, duplicateIdGroupCount: current.duplicateIdGroupCount,
+		levelEntryCounts: current.levelEntryCounts, protocolEntryCounts: current.protocolEntryCounts,
+		featuredIds: current.featuredIds
+	};
+	return metadata;
+}
+
+function wire_strategy(strategy, current, selection) {
+	if (!is_object(strategy)) return null;
+	let result = {};
+	for (let key in strategy) result[key] = strategy[key];
+	let selected = selection && selection.selected;
+	let revision = type(result.revision) == 'int' ? result.revision : 0;
+	result.revision = revision;
+	result.is_active = is_object(selected) && selected.id == result.id
+		&& selected.origin == result.origin && selected.revision == revision;
+	result.is_favorite = type(selection.favorites) == 'array' && index(selection.favorites, result.id) >= 0;
+	result.metadata = result.origin == 'avatar_builtin'
+		? catalog_wire_metadata(result, current) : (is_object(result.metadata) ? result.metadata : {});
+	return result;
 }
 
 function strategy_list() {
@@ -768,30 +871,36 @@ function strategy_list() {
 	for (let id in order) {
 		let strategy = catalog_strategy(current.winners[id]);
 		if (strategy == null) return error_result('EVERIFY', 'catalog Strategy normalization failed');
-		push(strategies, strategy);
+		push(strategies, wire_strategy(strategy, current, selection));
 	}
 	let users = null;
 	try { users = strategy_user_list(); } catch (e) { users = null; }
 	if (!is_object(users) || users.ok != true) return users || error_result('EIO', 'User Strategy list is unavailable');
-	for (let strategy in users.strategies) push(strategies, strategy);
+	for (let strategy in users.strategies) push(strategies, wire_strategy(strategy, current, selection));
 	return bounded_strategy_response({ ok: true, strategies: strategies,
-		state: { revision: selection.revision, favorites: selection.favorites } }, 'Strategy list');
+		state: { revision: selection.revision, favorites: selection.favorites },
+		favoritesRevision: selection.revision }, 'Strategy list');
 }
 
 function strategy_get(input) {
 	if (!is_object(input) || !safe_id(input.id)) return error_result('EINPUT', 'Strategy get requires a safe id');
-	let user = null;
-	try { user = strategy_user_get_readonly({ id: input.id }); } catch (e) { user = null; }
-	if (is_object(user) && user.ok == true) return bounded_strategy_response(user, 'Strategy detail');
-	if (is_object(user) && user.error && user.error.code != 'ENOENT') return user;
 	let current = load_request_catalog();
 	if (!is_object(current) || current.ok == false) return current;
+	let selection = null;
+	try { selection = strategy_selection_get(); } catch (e) { selection = null; }
+	if (!is_object(selection) || selection.ok != true || type(selection.favorites) != 'array')
+		return error_result('EIO', 'Strategy favorites state is unavailable');
+	let user = null;
+	try { user = strategy_user_get_readonly({ id: input.id }); } catch (e) { user = null; }
+	if (is_object(user) && user.ok == true)
+		return bounded_strategy_response({ ok: true, strategy: wire_strategy(user.strategy, current, selection) }, 'Strategy detail');
+	if (is_object(user) && user.error && user.error.code != 'ENOENT') return user;
 	let entry = null;
 	try { entry = strategy_catalog_get(input.id); } catch (e) { entry = null; }
 	if (is_object(entry) && entry.error) return entry;
 	let strategy = catalog_strategy(entry);
 	return strategy == null ? error_result('ENOENT', 'Strategy was not found')
-		: bounded_strategy_response({ ok: true, strategy: strategy }, 'Strategy detail');
+		: bounded_strategy_response({ ok: true, strategy: wire_strategy(strategy, current, selection) }, 'Strategy detail');
 }
 
 function strategy_catalog_status_request() {

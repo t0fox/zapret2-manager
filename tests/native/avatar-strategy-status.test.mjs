@@ -103,7 +103,7 @@ function selectedState() {
   return {
     revision: 4,
     selected: { id: 'user-one', origin: 'user', revision: 3, candidateSha256: HASH },
-    identity: { name: 'User one' },
+    identity: { name: 'User one', revision: 3 },
     digest: CATALOG_DIGEST,
   };
 }
@@ -117,8 +117,17 @@ test('matching active Strategy has no derived drift and exposes identity provena
   assert.deepEqual(projection(result), {
     id: 'user-one', name: 'User one', origin: 'user', revision: 3,
     digest: CATALOG_DIGEST, candidateSha256: HASH,
+    configSha256: CONFIG_HASH, appliedConfigSha256: CONFIG_HASH,
     match: true, drift: false, availability: 'available', uncertain: false,
   });
+});
+
+test('selected user revision mismatch cannot claim a matching active Strategy', () => {
+  const result = derive({ ...selectedState(), identity: { name: 'User one', revision: 4 } },
+    { configSha256: CONFIG_HASH, appliedConfigSha256: CONFIG_HASH, candidateSha256: HASH }, healthyRuntime);
+  assert.equal(result.match, false);
+  assert.equal(result.drift, true);
+  assert.equal(result.availability, 'drifted');
 });
 
 test('drift is derived from the current config and candidate evidence and is never saved', () => {
@@ -174,6 +183,7 @@ test('absent persisted identity is represented without inventing runtime or dura
   assert.deepEqual(projection(result), {
     id: null, name: null, origin: null, revision: null,
     digest: null, candidateSha256: null,
+    configSha256: null, appliedConfigSha256: null,
     match: null, drift: false, availability: 'absent', uncertain: false,
   });
   assert.equal(result.writes.length, 0);
@@ -223,6 +233,29 @@ test('collect_strategy_status reads selection and volatile evidence without chan
     ? fs.readFileSync(storage.env.Z2M_STATUS_MKTEMP_LOG, 'utf8') : '', '');
   assert.deepEqual(events, []);
   fs.rmSync(storage.root, { recursive: true, force: true });
+});
+
+test('collect_strategy_status derives drift when the current user revision is newer than selection', () => {
+  const storage = temporaryStrategyStorage();
+  fs.writeFileSync(path.join(storage.strategies, 'user-one.json'), JSON.stringify({
+    schema: 1, id: 'user-one', revision: 4, name: 'User one', origin: 'user', is_builtin: false,
+    metadata: {}, profiles: [{ id: 'p1', args: '--filter-tcp=443', enabled: true }], updatedAt: 1,
+  }), { mode: 0o600 });
+  fs.writeFileSync(storage.env.Z2M_STRATEGY_STATE, JSON.stringify({ schema: 1, revision: 4,
+    favorites: [], selected: { id: 'user-one', origin: 'user', revision: 3, candidateSha256: HASH },
+  }), { mode: 0o600 });
+  try {
+    const result = collectStatus({
+      drift: { currentSha256: { config: CONFIG_HASH }, appliedSha256: { config: CONFIG_HASH } },
+      strategy: { candidateSha256: HASH }, runtime: healthyRuntime,
+    }, storage.env);
+    assert.equal(result.match, false);
+    assert.equal(result.drift, true);
+    assert.equal(result.availability, 'drifted');
+    assert.equal(result.revision, 3);
+  } finally {
+    fs.rmSync(storage.root, { recursive: true, force: true });
+  }
 });
 
 test('actual status collector publishes strategyStatus while preserving schema-3 fields and runtimeSummary', () => {

@@ -374,6 +374,9 @@ test('CLI request files are bounded and dispatch only Preview or Validate', () =
     const result = spawnSync(UCODE_BIN, [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source], {
       cwd: ROOT,
       env: { ...process.env, Z2M_STRATEGY_CATALOG_ROOT: CATALOG_ROOT,
+        Z2M_STRATEGY_SERVER_TEST: '1',
+        Z2M_STRATEGY_RUNTIME_INPUTS: JSON.stringify(runtimeInputs),
+        Z2M_STRATEGY_RUNTIME_ENVIRONMENT: JSON.stringify(environment),
         LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib' },
       encoding: 'utf8', timeout: 15_000,
     });

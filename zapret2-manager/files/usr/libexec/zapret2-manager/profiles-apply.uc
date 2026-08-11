@@ -38,7 +38,7 @@ const MAX_CANDIDATE_BYTES = 262144;
 const CONFIG_LOCK = getenv('Z2M_STRATEGY_CONFIG_LOCK') || '/opt/zapret2/config.lock';
 const PROFILE_APPLY_CLI = getenv('Z2M_STRATEGY_PROFILE_CLI') || '/usr/libexec/zapret2-manager/profiles-apply-cli.uc';
 const UCODE_BIN = getenv('Z2M_STRATEGY_UCODE_BIN') || '/usr/bin/ucode';
-const STRATEGY_STATE_MODULE = '/usr/libexec/zapret2-manager/strategy-state.uc';
+const STRATEGY_STATE_MODULE = getenv('Z2M_STRATEGY_STATE_MODULE') || '/usr/libexec/zapret2-manager/strategy-state.uc';
 const PROJECTION_MARKER = 'z2m-strategy-apply-projection.v1';
 let APPLY_HOOK = null, APPLY_HOOK_LOADED = false, APPLY_HOOK_CURSOR = {};
 
@@ -96,7 +96,7 @@ function strategy_state_call(name, input) {
 	if (injected != null) return injected;
 	let source = 'import { ' + name + ' } from ' + sprintf('%J', STRATEGY_STATE_MODULE)
 		+ '; print(sprintf("%J", ' + name + '(' + (input == null ? '' : sprintf('%J', input)) + ')));';
-	let answer = run('/usr/bin/ucode -e ' + shell_escape(source));
+	let answer = run(shell_escape(UCODE_BIN) + ' -e ' + shell_escape(source));
 	if (answer.rc != 0) return err('identity', 'EINTERNAL', 'Strategy state hook failed');
 	try { return json(answer.out); } catch (e) { return err('identity', 'EINTERNAL', 'Strategy state hook response is malformed'); }
 }

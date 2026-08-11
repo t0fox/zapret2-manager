@@ -136,18 +136,30 @@ test('builtin and extension identities cannot enter user storage or be mutated',
 }));
 
 test('duplicate proposes and stores a deep-copied user Strategy with pinned ID/name semantics', () => storage((env) => {
-  const builtin = { id: 'z2k_all_in_one', name: 'All in one', is_builtin: true,
+  const builtin = { id: 'z2k_all_in_one', name: 'Forged name', is_builtin: true,
     origin: 'avatar_builtin', metadata: { label: 'recommended' },
-    profiles: [{ id: 'p1', args: '--filter-tcp=443', enabled: true }] };
-  const result = invoke(`state.strategy_duplicate({strategy:${JSON.stringify(builtin)}})`, env);
+    profiles: [{ id: 'forged', args: '--forged', enabled: true }] };
+  const result = invoke(`state.strategy_duplicate({id:'z2k_all_in_one',strategy:${JSON.stringify(builtin)}})`, env);
   assert.equal(result.ok, true);
   assert.equal(result.strategy.id, 'z2k_all_in_one_copy');
-  assert.equal(result.strategy.name, 'All in one (копия)');
+  assert.notEqual(result.strategy.name, 'Forged name (копия)');
   assert.equal(result.strategy.origin, 'user');
   assert.equal(result.strategy.is_builtin, false);
-  assert.deepEqual(result.strategy.metadata, builtin.metadata);
-  assert.deepEqual(result.strategy.profiles, builtin.profiles);
+  assert.notDeepEqual(result.strategy.metadata, builtin.metadata);
+  assert.equal(result.strategy.profiles.some(profile => profile.args === '--forged'), false);
   assert.equal(invoke("state.strategy_user_get({id:'z2k_all_in_one_copy'})", env).ok, true);
+}));
+
+test('read-only Strategy state reads reject non-private files', () => storage((env, root, strategies) => {
+  fs.writeFileSync(env.Z2M_STRATEGY_STATE, JSON.stringify({ schema: 1, revision: 0, favorites: [], selected: null }), { mode: 0o644 });
+  fs.chmodSync(env.Z2M_STRATEGY_STATE, 0o644);
+  assert.equal(invoke('state.strategy_selection_get_readonly()', env).error.code, 'EINPUT');
+  fs.writeFileSync(path.join(strategies, 'user-one.json'), JSON.stringify({
+    schema: 1, id: 'user-one', revision: 1, name: 'User one', origin: 'user', is_builtin: false,
+    metadata: {}, profiles: [{ id: 'p1', args: '--filter-tcp=443', enabled: true }], updatedAt: 1,
+  }), { mode: 0o644 });
+  fs.chmodSync(path.join(strategies, 'user-one.json'), 0o644);
+  assert.equal(invoke("state.strategy_user_get_readonly({id:'user-one'})", env).error.code, 'EINPUT');
 }));
 
 test('favorites preserve requested order, allow builtin IDs, and clean deleted user IDs', () => storage((env) => {
@@ -164,17 +176,17 @@ test('favorites preserve requested order, allow builtin IDs, and clean deleted u
   assert.deepEqual(builtin.state.favorites, ['user-one', 'fake_simple']);
   const extension = invoke(`state.strategy_favorite({expectedRevision:${builtin.state.revision},id:'extension-one',favorite:true})`, env);
   assert.deepEqual(extension.state.favorites, ['user-one', 'fake_simple', 'extension-one']);
-  const duplicate = invoke(`state.strategy_duplicate({strategy:${JSON.stringify({
-    ...userStrategy(), id: 'duplicate-source', name: 'Duplicate source',
+  const duplicate = invoke(`state.strategy_duplicate({id:'user-one',strategy:${JSON.stringify({
+    ...userStrategy(), id: 'user-one', name: 'Forged duplicate source',
   })}})`, env);
   assert.equal(duplicate.ok, true);
-  const duplicateFavorite = invoke(`state.strategy_favorite({expectedRevision:${extension.state.revision},id:'duplicate-source_copy',favorite:true})`, env);
+  const duplicateFavorite = invoke(`state.strategy_favorite({expectedRevision:${extension.state.revision},id:'user-one_copy',favorite:true})`, env);
   assert.deepEqual(duplicateFavorite.state.favorites,
-    ['user-one', 'fake_simple', 'extension-one', 'duplicate-source_copy']);
+    ['user-one', 'fake_simple', 'extension-one', 'user-one_copy']);
   const removed = invoke(`state.strategy_user_delete({id:'user-one',expectedRevision:1})`, env);
   assert.equal(removed.ok, true);
   assert.deepEqual(invoke(`state.strategy_favorite({expectedRevision:${removed.state.revision},id:null,favorite:false})`, env).state.favorites,
-    ['fake_simple', 'extension-one', 'duplicate-source_copy']);
+    ['fake_simple', 'extension-one', 'user-one_copy']);
 }));
 
 test('catalog verification failure preserves existing favorites and state revision', () => storage((env, root) => {
@@ -236,7 +248,7 @@ test('metadata type and content are validated consistently before create, update
   const malformedDuplicate = invoke(`state.strategy_duplicate({strategy:${JSON.stringify({
     ...userStrategy(), id: 'source', metadata: { description: 9 },
   })}})`, env);
-  assert.equal(malformedDuplicate.error.code, 'EINPUT');
+  assert.equal(malformedDuplicate.error.code, 'ENOENT');
   assert.equal(fs.existsSync(path.join(strategies, 'source_copy.json')), false);
 }));
 

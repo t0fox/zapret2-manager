@@ -12,23 +12,31 @@ function object(value) { return type(value) == 'object' && value != null; }
 function digest(value) { return type(value) == 'string' && match(value, /^[a-f0-9]{64}$/); }
 
 function identity_from(selected, supplied, catalog) {
- if (object(supplied)) return {
-  available: supplied.available !== false,
-  name: type(supplied.name) == 'string' ? supplied.name : selected.id
- };
  if (!object(selected)) return { available: false, name: null };
  if (selected.origin == 'user') {
+  if (object(supplied)) return {
+   available: supplied.available !== false && supplied.revision == selected.revision,
+   revisionMismatch: supplied.revision != null && supplied.revision != selected.revision,
+   name: type(supplied.name) == 'string' ? supplied.name : selected.id
+  };
   let user = null;
   try { user = strategy_user_get_readonly({ id: selected.id }); } catch (e) { user = null; }
   return user && user.ok == true && object(user.strategy)
-   ? { available: true, name: user.strategy.name || selected.id }
+   ? { available: user.strategy.revision == selected.revision, revision: user.strategy.revision,
+       revisionMismatch: user.strategy.revision != selected.revision,
+       name: user.strategy.name || selected.id }
    : { available: false, name: null };
  }
  if (selected.origin == 'avatar_builtin') {
+  if (object(supplied)) return {
+   available: supplied.available !== false && (supplied.revision == null || supplied.revision == selected.revision),
+   revisionMismatch: supplied.revision != null && supplied.revision != selected.revision,
+   name: type(supplied.name) == 'string' ? supplied.name : selected.id
+  };
   let entry = object(catalog) && object(catalog.winners) ? catalog.winners[selected.id] : null;
   let strategy = null;
   try { strategy = catalog_entry_to_strategy(entry); } catch (e) { strategy = null; }
-  return strategy != null ? { available: true, name: strategy.name || selected.id }
+   return strategy != null ? { available: selected.revision == 0, revision: 0, revisionMismatch: selected.revision != 0, name: strategy.name || selected.id }
    : { available: false, name: null };
  }
  if (selected.origin == 'extension') return { available: true, name: selected.id };
@@ -42,9 +50,10 @@ function volatile_uncertain(value) {
 
 function public_fields(value) {
  return {
-  id: value.id, name: value.name, origin: value.origin, revision: value.revision,
-  digest: value.digest, candidateSha256: value.candidateSha256,
-  match: value.match, drift: value.drift, availability: value.availability,
+   id: value.id, name: value.name, origin: value.origin, revision: value.revision,
+   digest: value.digest, candidateSha256: value.candidateSha256,
+   configSha256: value.configSha256, appliedConfigSha256: value.appliedConfigSha256,
+   match: value.match, drift: value.drift, availability: value.availability,
   uncertain: value.uncertain
  };
 }
@@ -61,16 +70,25 @@ export const derive_strategy_status = function(selectedState, current, runtime, 
   name: selected ? (identity.name || selected.id) : null,
   origin: selected && selected.origin || null,
   revision: selected ? selected.revision : null,
-  digest: selected ? (selectedState.digest || current.catalogDigest || null) : null,
-  candidateSha256: selected ? selected.candidateSha256 : null,
-  match: null, drift: selected == null ? false : null,
+   digest: selected ? (selectedState.digest || current.catalogDigest || null) : null,
+   candidateSha256: selected ? selected.candidateSha256 : null,
+   configSha256: selected ? (current.configSha256 || null) : null,
+   appliedConfigSha256: selected ? (current.appliedConfigSha256 || null) : null,
+   match: null, drift: selected == null ? false : null,
   availability: selected == null ? 'absent' : 'unavailable',
   uncertain: false,
   writes: [],
   persistedState: sprintf('%J', { revision: selectedState.revision || 0, selected: selected || null })
  };
  if (selected == null) return base;
- if (selectedState.readError || identity.available === false) return base;
+  if (selectedState.readError) return base;
+  if (identity.revisionMismatch) {
+   base.match = false;
+   base.drift = true;
+   base.availability = 'drifted';
+   return base;
+  }
+  if (identity.available === false) return base;
  let uncertain = volatile_uncertain(volatile);
  if (uncertain != null) {
   base.availability = 'uncertain';
