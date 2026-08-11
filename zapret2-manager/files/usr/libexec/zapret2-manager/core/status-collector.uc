@@ -11,6 +11,9 @@ import {
 import { parse_queue } from '../qlen.uc';
 import { read_var } from '../apply.uc';
 import { derive_runtime_observation, derive_strategy_observation, resolve_native_status } from './status-observations.uc';
+import { state_read, state_initialize } from './state-store.uc';
+import { legacy_status_v3, with_strategy_status } from './status-compat.uc';
+import { collect_strategy_status } from '../strategy-status.uc';
 
 function sh(cmd) {
 	let p = popen(cmd + ' 2>/dev/null', 'r');
@@ -381,10 +384,6 @@ export const collect_observations = function() {
 	};
 };
 
-import { state_read, state_initialize } from './state-store.uc';
-import { legacy_status_v3 } from './status-compat.uc';
-import { collect_strategy_status } from '../strategy-status.uc';
-
 function degraded(result) {
 	return { schemaVersion: 1, generation: null, generatedAt: null, serviceState: 'error',
 		runtime: { processes: [], namespaces: [] }, transactions: [], jobs: [],
@@ -398,7 +397,7 @@ export const collect = function() {
 	let strategy_status = null;
 	try { strategy_status = collect_strategy_status(observations); } catch (e) { strategy_status = null; }
 	let status = legacy_status_v3(native_result.ok ? native_result.data.state : degraded(native_result), observations);
-	if (strategy_status != null) status.strategyStatus = strategy_status;
+	status = with_strategy_status(status, strategy_status);
 	try { writefile(PATHS.status_json, sprintf('%J', status) + '\n'); } catch (e) { }
 	return status;
 };

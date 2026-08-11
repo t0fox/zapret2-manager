@@ -4,14 +4,14 @@
 // only selection identity; drift and availability are calculated from current
 // observations and volatile Apply evidence.
 
-import { strategy_selection_get, strategy_user_get_readonly,
- strategy_apply_uncertain_get, strategy_reconcile_get } from './strategy-state.uc';
-import { strategy_catalog_get, strategy_catalog_status, catalog_entry_to_strategy } from './strategy-catalog.uc';
+import { strategy_selection_get_readonly, strategy_user_get_readonly,
+ strategy_apply_uncertain_get_readonly, strategy_reconcile_get_readonly } from './strategy-state.uc';
+import { strategy_catalog_load, catalog_entry_to_strategy } from './strategy-catalog.uc';
 
 function object(value) { return type(value) == 'object' && value != null; }
 function digest(value) { return type(value) == 'string' && match(value, /^[a-f0-9]{64}$/); }
 
-function identity_from(selected, supplied) {
+function identity_from(selected, supplied, catalog) {
  if (object(supplied)) return {
   available: supplied.available !== false,
   name: type(supplied.name) == 'string' ? supplied.name : selected.id
@@ -25,8 +25,9 @@ function identity_from(selected, supplied) {
    : { available: false, name: null };
  }
  if (selected.origin == 'avatar_builtin') {
-  let entry = null, strategy = null;
-  try { entry = strategy_catalog_get(selected.id); strategy = catalog_entry_to_strategy(entry); } catch (e) { strategy = null; }
+  let entry = object(catalog) && object(catalog.winners) ? catalog.winners[selected.id] : null;
+  let strategy = null;
+  try { strategy = catalog_entry_to_strategy(entry); } catch (e) { strategy = null; }
   return strategy != null ? { available: true, name: strategy.name || selected.id }
    : { available: false, name: null };
  }
@@ -76,8 +77,14 @@ export const derive_strategy_status = function(selectedState, current, runtime, 
   base.uncertain = true;
   return base;
  }
- if (runtime.present !== true
-  || !digest(current.configSha256) || !digest(current.candidateSha256)) return base;
+ if (runtime.present !== true || !digest(current.configSha256)
+  || !digest(current.appliedConfigSha256) || !digest(current.candidateSha256)) return base;
+ if (current.configSha256 != current.appliedConfigSha256) {
+  base.match = false;
+  base.drift = true;
+  base.availability = 'drifted';
+  return base;
+ }
 
  let reconciliation = object(volatile.reconciliation) ? volatile.reconciliation : null;
  let candidateMatch = runtime.rulesPresent === true
@@ -97,12 +104,12 @@ export const derive_strategy_status = function(selectedState, current, runtime, 
 function read_volatile() {
  let uncertain = null, reconciliation = null, uncertainRead = false, reconciliationRead = false;
  try {
-  let result = strategy_apply_uncertain_get();
+  let result = strategy_apply_uncertain_get_readonly();
   if (!result || result.ok !== true) uncertainRead = true;
   else uncertain = result.record;
  } catch (e) { uncertainRead = true; }
  try {
-  let result = strategy_reconcile_get();
+  let result = strategy_reconcile_get_readonly();
   if (!result || result.ok !== true) reconciliationRead = true;
   else reconciliation = result.record;
  } catch (e) { reconciliationRead = true; }
@@ -113,22 +120,27 @@ function read_volatile() {
 export const collect_strategy_status = function(observations) {
  observations = observations || {};
  let selection = null;
- try { selection = strategy_selection_get(); } catch (e) { selection = null; }
+ try { selection = strategy_selection_get_readonly(); } catch (e) { selection = null; }
  let selectedState = selection && selection.ok === true
   ? { revision: selection.revision, selected: selection.selected }
   : { revision: 0, selected: null, readError: true };
- let selected = selectedState.selected;
- if (selected != null) selectedState.identity = identity_from(selected);
  let catalog = null;
- try { catalog = strategy_catalog_status(); } catch (e) { catalog = null; }
- if (catalog && catalog.ok === true) selectedState.digest = catalog.digest;
+ try {
+  let loaded = strategy_catalog_load(getenv('Z2M_STRATEGY_CATALOG_ROOT') || '/usr/share/zapret2-manager/catalog/avatar');
+  catalog = loaded && loaded.ok === true ? loaded.catalog : null;
+ } catch (e) { catalog = null; }
+ let selected = selectedState.selected;
+ if (selected != null) selectedState.identity = identity_from(selected, null, catalog);
+ if (catalog != null) selectedState.digest = catalog.aggregateDigest;
  let drift = object(observations.drift) ? observations.drift : {};
  let currentSha = object(drift.currentSha256) ? drift.currentSha256 : {};
+ let appliedSha = object(drift.appliedSha256) ? drift.appliedSha256 : {};
  let strategy = object(observations.strategy) ? observations.strategy : {};
  let derived = derive_strategy_status(selectedState, {
   configSha256: currentSha.config || null,
+  appliedConfigSha256: appliedSha.config || null,
   candidateSha256: strategy.candidateSha256 || null,
-  catalogDigest: catalog && catalog.ok === true ? catalog.digest : null
+  catalogDigest: catalog ? catalog.aggregateDigest : null
  }, observations.runtime, read_volatile());
  return public_fields(derived);
 };

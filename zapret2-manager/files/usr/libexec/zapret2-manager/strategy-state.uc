@@ -430,6 +430,29 @@ function state_valid(value) {
 	return true;
 }
 
+function selected_readonly_valid(value) {
+	return value == null || (exact_fields(value, ['id', 'origin', 'revision', 'candidateSha256']) &&
+		safe_id(value.id) && (value.origin == 'user' || value.origin == 'avatar_builtin' || value.origin == 'extension') &&
+		integer(value.revision) && sha256(value.candidateSha256));
+}
+
+function state_readonly_valid(value) {
+	if (!exact_fields(value, ['schema', 'revision', 'favorites', 'selected']) || value.schema !== 1 ||
+		!integer(value.revision) || type(value.favorites) != 'array' || !selected_readonly_valid(value.selected)) return false;
+	let seen = {};
+	for (let id in value.favorites) if (!safe_id(id) || seen[id]) return false; else seen[id] = true;
+	return true;
+}
+
+function read_state_readonly() {
+	let result = read_document_readonly(STATE_PATH);
+	if (result.missing) return { ok: true, state: state_default(), absent: true };
+	if (!result.ok) return result;
+	if (result.empty) return { ok: true, state: state_default(), absent: true };
+	if (!state_readonly_valid(result.value)) return error('EINPUT', 'Strategy state schema is invalid.');
+	return { ok: true, state: result.value, absent: false };
+}
+
 function read_state() {
 	let result = read_document(STATE_PATH);
 	if (result.missing) return { ok: true, state: state_default(), raw: null, hash: null, absent: true };
@@ -636,6 +659,11 @@ export const strategy_selection_get = function() {
 	return state.ok ? { ok: true, revision: state.state.revision, selected: state.state.selected } : state;
 };
 
+export const strategy_selection_get_readonly = function() {
+	let state = read_state_readonly();
+	return state.ok ? { ok: true, revision: state.state.revision, selected: state.state.selected } : state;
+};
+
 export const strategy_selection_set = function(input) {
 	return locked(function() {
 		if (!is_object(input) || !integer(input.expectedRevision)) return error('EINPUT', 'Selection requires expectedRevision.');
@@ -835,6 +863,16 @@ function apply_uncertain_valid(value) {
 		&& runtime_outcome_valid(value.runtimeOutcome) && bounded_string(value.reason, 128);
 }
 
+function apply_uncertain_valid_readonly(value) {
+	return is_object(value) && exact_fields(value, ['schema', 'oldConfigSha256', 'newConfigSha256',
+		'oldCandidateSha256', 'newCandidateSha256', 'catalogDigest', 'oldIdentity', 'newIdentity', 'runtimeOutcome', 'reason']) && value.schema === 1
+		&& sha256(value.oldConfigSha256) && sha256(value.newConfigSha256)
+		&& sha256(value.oldCandidateSha256) && sha256(value.newCandidateSha256)
+		&& sha256(value.catalogDigest)
+		&& selected_readonly_valid(value.oldIdentity) && selected_readonly_valid(value.newIdentity)
+		&& runtime_outcome_valid(value.runtimeOutcome) && bounded_string(value.reason, 128);
+}
+
 function apply_uncertain_read() {
 	let result = read_document(APPLY_UNCERTAIN_PATH);
 	if (result.missing) return { ok: true, record: null };
@@ -874,6 +912,15 @@ export const strategy_apply_uncertain_record = function(input) {
 
 export const strategy_apply_uncertain_get = function() {
 	return apply_uncertain_read();
+};
+
+export const strategy_apply_uncertain_get_readonly = function() {
+	let result = read_document_readonly(APPLY_UNCERTAIN_PATH);
+	if (result.missing) return { ok: true, record: null };
+	if (!result.ok || !apply_uncertain_valid_readonly(result.value)
+		|| length(result.raw) > MAX_APPLY_UNCERTAIN_BYTES)
+		return error('EINPUT', 'Strategy Apply uncertainty record is invalid.');
+	return { ok: true, record: result.value };
 };
 
 export const strategy_apply_uncertain_clear = function() {
@@ -998,6 +1045,14 @@ export const strategy_reconcile_record = function(input) {
 
 export const strategy_reconcile_get = function() {
 	let result = read_document(RECONCILE_PATH);
+	if (result.missing) return { ok: true, record: null };
+	if (!result.ok || !is_object(result.value) || result.value.schema !== 1 || !safe_id(result.value.id) || !sha256(result.value.hash) || !bounded_string(result.value.reason, 128))
+		return error('EINPUT', 'Reconciliation record is invalid.');
+	return { ok: true, record: { id: result.value.id, hash: result.value.hash, reason: result.value.reason } };
+};
+
+export const strategy_reconcile_get_readonly = function() {
+	let result = read_document_readonly(RECONCILE_PATH);
 	if (result.missing) return { ok: true, record: null };
 	if (!result.ok || !is_object(result.value) || result.value.schema !== 1 || !safe_id(result.value.id) || !sha256(result.value.hash) || !bounded_string(result.value.reason, 128))
 		return error('EINPUT', 'Reconciliation record is invalid.');
