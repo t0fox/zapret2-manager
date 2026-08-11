@@ -13,6 +13,11 @@ function invalidate(state) {
   state.replaceFullSet = false;
 }
 
+function canApply(state) {
+  return !!(state && state.busy !== true && state.replaceFullSet === true &&
+    state.preview && state.preview.ok === true && state.preview.wouldApply === true);
+}
+
 function runMutation(state, request) {
   if (state.busy) return Promise.resolve({ skipped: true });
   state.busy = true;
@@ -90,6 +95,7 @@ function compatibilityPane(current) {
 return baseclass.extend({
   createState: createState,
   invalidate: invalidate,
+  canApply: canApply,
   runMutation: runMutation,
   buildReorderRequest: buildReorderRequest,
   applyAndReread: applyAndReread,

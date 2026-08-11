@@ -41,12 +41,23 @@ test('Profiles preview and apply require explicit full-set acknowledgement and a
   assert.match(source, /candidateSha256/);
   assert.match(source, /currentSha256/);
   assert.match(source, /replaceFullSet|replace-full-set/);
-  assert.match(source, /wouldApply\s*!==\s*true/);
+  assert.match(source, /profilesWorkflow\.canApply\(profilesState\)/);
   assert.match(source, /reloadAppliedState\(\)/);
   assert.match(source, /ctx\.api\.service\.status\(\)/);
   assert.match(source, /verification\s*\|\|\s*value\.verify/);
   assert.match(source, /rollbackOk|rolledBack/);
   assert.match(source, /manualRecovery|value\.critical/);
+});
+
+test('Compatibility Apply gate enables only for acknowledged valid backend Preview', () => {
+  const state = workflow.createState();
+  assert.equal(workflow.canApply(state), false);
+  state.preview = { ok: true, wouldApply: true };
+  assert.equal(workflow.canApply(state), false);
+  state.replaceFullSet = true;
+  assert.equal(workflow.canApply(state), true);
+  state.busy = true;
+  assert.equal(workflow.canApply(state), false);
 });
 
 test('Profiles workflow delegates composition and apply exclusively to its backend', () => {
@@ -125,6 +136,7 @@ test('Profiles busy lock covers toolbar and editor mutation controls', () => {
   assert.match(source, /if \(profilesState\.busy\) return;/);
   assert.match(source, /shell\.button\(_\('Новый профиль'\)[\s\S]*profilesState\.busy/);
   assert.match(source, /shell\.button\(_\('Импортировать применённые'\)[\s\S]*profilesState\.busy/);
+  assert.match(source, /function applyProfiles\([\s\S]*profilesState\.busy = true[\s\S]*setBusy\(true\)/);
 });
 
 test('reorder rereads latest profiles before building revisions', () => {

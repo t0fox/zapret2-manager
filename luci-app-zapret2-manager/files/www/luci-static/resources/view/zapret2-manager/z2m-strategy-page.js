@@ -36,18 +36,19 @@ function primaryFailure(ctx, error) {
 }
 
 function load(ctx) {
-  var mode = advanced(ctx) ? 'workflow' : 'manual';
+  var isAdvanced = advanced(ctx);
+  var mode = isAdvanced ? 'workflow' : 'manual';
   var primary = primaryModule(mode);
-  return Promise.allSettled([
-    primary.load(ctx),
-    Auto.load(ctx),
-    Runs.load(ctx)
-  ]).then(function (results) {
+  var requests = [primary.load(ctx)];
+  if (isAdvanced) {
+    requests.push(Auto.load(ctx), Runs.load(ctx));
+  }
+  return Promise.allSettled(requests).then(function (results) {
     return {
       mode: mode,
       primary: settled(results[0], ctx.api),
-      auto: settled(results[1], ctx.api),
-      runs: settled(results[2], ctx.api)
+      auto: isAdvanced ? settled(results[1], ctx.api) : null,
+      runs: isAdvanced ? settled(results[2], ctx.api) : null
     };
   });
 }
@@ -59,8 +60,10 @@ function render(ctx) {
     ? primaryFailure(ctx, data.primary.error)
     : primary.render(primaryContext(ctx, data.primary));
 
-  root.appendChild(Auto.render(ctx, data.auto));
-  root.appendChild(Runs.render(ctx, data.runs));
+  if (data.mode === 'workflow') {
+    root.appendChild(Auto.render(ctx, data.auto));
+    root.appendChild(Runs.render(ctx, data.runs));
+  }
   return root;
 }
 

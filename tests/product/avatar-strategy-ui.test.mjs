@@ -3,12 +3,15 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import vm from 'node:vm';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const read = relativePath => readFileSync(path.join(ROOT, relativePath), 'utf8');
 const api = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js');
 const page = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategy.js');
 const pageAdapter = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategy-page.js');
+const auto = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-auto.js');
+const runs = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-runs.js');
 const model = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategy-model.js');
 const workflow = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategy-workflow.js');
 const workflowCore = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategy-workflow-core.js');
@@ -96,4 +99,126 @@ test('Profile compatibility workflow remains navigable without becoming the cano
   assert.match(page, /Compatibility|Совместим/);
   assert.match(page, /state\.subtab|subTabs/);
   assert.match(profilesWorkflow, /createState|buildReorderRequest|applyAndReread/);
+});
+
+function loadPageWithStubs(calls) {
+  const module = (name, renderValue) => ({
+    load: () => { calls.push(`${name}.load`); return Promise.resolve({}); },
+    render: () => { calls.push(`${name}.render`); return renderValue || { appendChild() {} }; },
+    mount: () => calls.push(`${name}.mount`),
+    unmount: () => calls.push(`${name}.unmount`),
+  });
+  const context = {
+    baseclass: { extend: value => value },
+    EngineGate: { wrap: value => value },
+    Strategy: module('strategy'), Workflow: module('workflow'),
+    Auto: module('auto'), Runs: module('runs'),
+    E: () => ({ appendChild() {} }),
+    _: value => value,
+  };
+  return vm.runInNewContext(`(function () {${pageAdapter}\n})()`, context);
+}
+
+function pageContext(advanced) {
+  return {
+    store: { get: () => ({ ui: { advanced } }) },
+    api: { normalizeError: error => error },
+    shell: {},
+  };
+}
+
+test('normal Strategy load/render excludes Orchestra Auto and Runs while Advanced includes both', async () => {
+  const normalCalls = [];
+  const normalPage = loadPageWithStubs(normalCalls);
+  const normalData = await normalPage.load(pageContext(false));
+  assert.equal(normalData.mode, 'manual');
+  assert.deepEqual(normalCalls, ['strategy.load']);
+  const normalRoot = normalPage.render({ ...pageContext(false), data: normalData });
+  assert.ok(normalRoot);
+  assert.deepEqual(normalCalls, ['strategy.load', 'strategy.render']);
+
+  const advancedCalls = [];
+  const advancedPage = loadPageWithStubs(advancedCalls);
+  const advancedData = await advancedPage.load(pageContext(true));
+  assert.equal(advancedData.mode, 'workflow');
+  assert.deepEqual(advancedCalls, ['workflow.load', 'auto.load', 'runs.load']);
+  advancedPage.render({ ...pageContext(true), data: advancedData });
+  assert.deepEqual(advancedCalls, ['workflow.load', 'auto.load', 'runs.load', 'workflow.render', 'auto.render', 'runs.render']);
+});
+
+test('Advanced modules retain Orchestra mutation authority only behind the page boundary', () => {
+  assert.match(pageAdapter, /var isAdvanced = advanced\(ctx\)/);
+  assert.match(pageAdapter, /if\s*\(isAdvanced\)[\s\S]*Auto\.load/);
+  assert.match(pageAdapter, /if\s*\(isAdvanced\)[\s\S]*Runs\.load/);
+  assert.match(auto, /ctx\.api\.orchestra\.(autoEnable|autoDisable|autoRun|autoStop|autoRestore)/);
+  assert.match(runs, /ctx\.api\.orchestra\.(previewBest|applyBest)/);
+});
+
+test('Compatibility Apply is enabled only after acknowledged valid Preview and stays recoverable', () => {
+  assert.match(profilesWorkflow, /function canApply\(/);
+  assert.match(page, /profilesWorkflow\.canApply\(profilesState\)/);
+  assert.match(page, /profileApplyButton\.disabled\s*=\s*!profilesWorkflow\.canApply\(profilesState\)/);
+  assert.doesNotMatch(page, /shell\.button\(_\('Apply compatibility set'\)[\s\S]*\}, true\)/);
+  assert.match(page, /manualRecovery|rollbackOk|rolledBack/);
+});
+
+test('direct strategyStatus identity, drift, and revision are consumed behaviorally', () => {
+  const prefix = page.slice(0, page.lastIndexOf('return baseclass.extend({'));
+  const helpers = vm.runInNewContext(`(function () {${prefix}\nreturn { activeIdentity, activeDrift, stateRevision, strategyAvailability, normalizeStrategy };\n})()`, {
+    _: value => value,
+  });
+  const status = { strategyStatus: { id: 'user-one', name: 'User one', drift: true, availability: 'drifted', revision: 7 } };
+  assert.equal(helpers.activeIdentity(status).id, 'user-one');
+  assert.equal(helpers.activeDrift(status), true);
+  assert.equal(helpers.stateRevision(status), 7);
+  assert.equal(helpers.strategyAvailability(status.strategyStatus), false);
+});
+
+test('favorites use authoritative state revision and returned ordered state, never revision zero', () => {
+  assert.match(page, /function favoriteState\(/);
+  assert.match(page, /state\.favoriteState\s*=\s*(?:favoriteState|persistedFavorites)/);
+  assert.match(page, /expectedRevision:\s*revision/);
+  const revisionStart = page.indexOf('function stateRevision(');
+  const revisionEnd = page.indexOf('\nfunction catalogDigest', revisionStart);
+  assert.doesNotMatch(page.slice(revisionStart, revisionEnd), /\|\|\s*0/);
+  assert.match(page, /rememberFavoriteState\(answer\)/);
+  const prefix = page.slice(0, page.lastIndexOf('return baseclass.extend({'));
+  const helpers = vm.runInNewContext(`(function () {${prefix}\nreturn { favoriteState, stateRevision };\n})()`, {
+    _: value => value,
+  });
+  const data = { list: { value: { state: { favorites: ['first', 'second'], revision: 11 } } } };
+  assert.deepEqual(JSON.parse(JSON.stringify(helpers.favoriteState(data))), { favorites: ['first', 'second'], revision: 11 });
+  assert.equal(helpers.favoriteState({ list: { value: { state: { favorites: ['first'] } } }, status: { value: { strategyStatus: { revision: 12 } } } }).revision, 12);
+  assert.equal(helpers.stateRevision({ strategyStatus: { revision: 11 } }), 11);
+});
+
+test('new Strategy editor can add a Profile and preserves zero-enabled Preview versus server rejection', () => {
+  assert.match(page, /function addProfile\(/);
+  assert.match(page, /Add Profile|Добавить профиль/);
+  assert.match(page, /strategy\.profiles\.length\s*===\s*0/);
+  assert.doesNotMatch(page, /!strategy\.profiles\.length\)\s*\{/);
+  assert.match(page, /enabledProfiles|enabled !== false/);
+  assert.match(page, /ctx\.api\.strategies\.validate/);
+});
+
+test('Available filtering requires explicit backend availability and unknown catalog entries remain searchable only', () => {
+  const prefix = page.slice(0, page.lastIndexOf('return baseclass.extend({'));
+  const helpers = vm.runInNewContext(`(function () {${prefix}\nreturn { strategyAvailability, normalizeStrategy };\n})()`, {
+    _: value => value,
+  });
+  assert.equal(helpers.strategyAvailability(helpers.normalizeStrategy({ id: 'unknown' })), undefined);
+  assert.equal(helpers.strategyAvailability(helpers.normalizeStrategy({ id: 'yes', availability: 'available' })), true);
+  assert.equal(helpers.strategyAvailability(helpers.normalizeStrategy({ id: 'no', availability: 'drifted' })), false);
+  assert.match(page, /state\.filter === 'available' && strategyAvailability\(strategy\) !== true/);
+});
+
+test('top-level catalog metadata is mapped into display/search text', () => {
+  const prefix = page.slice(0, page.lastIndexOf('return baseclass.extend({'));
+  const helpers = vm.runInNewContext(`(function () {${prefix}\nreturn { normalizeStrategy, metadataText };\n})()`, {
+    _: value => value,
+  });
+  const strategy = helpers.normalizeStrategy({ id: 'catalog-one', description: 'TLS preset', author: 'Avatar', protocol: 'tcp', provenance: 'manifest' });
+  const metadata = helpers.metadataText(strategy);
+  for (const value of ['TLS preset', 'Avatar', 'tcp', 'manifest']) assert.match(metadata, new RegExp(value));
+  assert.match(page, /metadataText\(strategy\)/);
 });

@@ -13,6 +13,7 @@ var state = {
   disposed: false,
   preview: null,
   validation: null,
+  favoriteState: null,
   lastError: null
 };
 
@@ -30,15 +31,37 @@ function settled(result, api) {
     ? { value: result.value || {} }
     : { error: api.normalizeError(result.reason) };
 }
+function stateSnapshot(value) {
+  value = object(value);
+  if (Array.isArray(value.favorites)) return { favorites: value.favorites, revision: value.revision };
+  var keys = ['state', 'strategyState', 'strategy_state', 'selection'];
+  for (var index = 0; index < keys.length; index++) {
+    var key = keys[index];
+    var nested = object(value[key]);
+    if (Array.isArray(nested.favorites)) return { favorites: nested.favorites, revision: nested.revision };
+  }
+  return null;
+}
 function stateRevision(value) {
   value = object(value);
-  if (value.revision !== undefined) return value.revision;
-  if (object(value.strategyState).revision !== undefined) return object(value.strategyState).revision;
-  if (object(value.selection).revision !== undefined) return object(value.selection).revision;
-  // Preserve server-projected state revision when present.
-  var persisted = object(value.strategy).persistedState;
-  if (typeof persisted === 'string') try { return object(JSON.parse(persisted)).revision || 0; } catch (error) { }
-  return 0;
+  var strategyStatus = object(value.strategyStatus);
+  if (strategyStatus.revision !== undefined) return strategyStatus.revision;
+  var snapshot = stateSnapshot(value);
+  return snapshot && snapshot.revision !== undefined ? snapshot.revision : null;
+}
+function favoriteState(data) {
+  var list = object(data && data.list && data.list.value);
+  var status = object(data && data.status && data.status.value);
+  var snapshot = stateSnapshot(list) || stateSnapshot(status) || state.favoriteState;
+  var revision = snapshot && snapshot.revision !== undefined ? snapshot.revision : stateRevision(status);
+  if (!snapshot) {
+    if (revision !== null) snapshot = { favorites: [], revision: revision };
+  }
+  return snapshot ? { favorites: array(snapshot.favorites), revision: revision } : null;
+}
+function rememberFavoriteState(value) {
+  var snapshot = stateSnapshot(value && value.state ? value.state : value);
+  if (snapshot) state.favoriteState = { favorites: array(snapshot.favorites), revision: snapshot.revision };
 }
 function catalogDigest(value) {
   value = object(value);
@@ -61,6 +84,9 @@ function strategyProfiles(value) {
     };
   });
 }
+function enabledProfiles(strategy) {
+  return strategyProfiles(strategy).filter(function (profile) { return profile.enabled !== false; }).length;
+}
 function normalizeStrategy(value) {
   value = object(value);
   var result = {};
@@ -69,7 +95,12 @@ function normalizeStrategy(value) {
   result.name = text(value.name || value.displayName) || result.id || _('Strategy');
   result.origin = text(value.origin) || (value.is_builtin === true ? 'avatar_builtin' : 'user');
   result.is_builtin = value.is_builtin === true || value.isBuiltin === true || result.origin === 'avatar_builtin';
-  result.metadata = object(value.metadata);
+  result.metadata = Object.assign({}, object(value.metadata), object(value.catalogMetadata));
+  ['description', 'author', 'protocol', 'provenance', 'source', 'sourceFile', 'sourceOrdinal'].forEach(function (key) {
+    if (value[key] !== undefined && result.metadata[key] === undefined) result.metadata[key] = value[key];
+  });
+  if (result.availability === undefined && (result.origin === 'avatar_builtin' || value.source === 'catalog'))
+    result.availability = 'available';
   result.profiles = strategyProfiles(value);
   return result;
 }
@@ -85,8 +116,11 @@ function strategyInput(value) {
 }
 function activeIdentity(value) {
   value = object(value);
+  var strategyStatus = object(value.strategyStatus);
+  if (strategyStatus.id || strategyStatus.strategyId || strategyStatus.origin || strategyStatus.availability !== undefined)
+    return strategyStatus;
   return object(value.activeStrategy || value.strategy || value.selected ||
-    object(value.strategyStatus).active || object(value.strategyState).selected);
+    object(value.strategyState).selected);
 }
 function activeId(value) {
   var active = activeIdentity(value);
@@ -94,12 +128,16 @@ function activeId(value) {
 }
 function activeDrift(value) {
   var active = activeIdentity(value);
-  return active.drift !== undefined ? active.drift : object(value.drift).divergent;
+  if (active.drift !== undefined) return active.drift;
+  return object(value.drift).divergent;
 }
 function strategyAvailability(strategy) {
-  return strategy.available !== undefined ? strategy.available :
-    strategy.applicable !== undefined ? strategy.applicable :
-    object(strategy.availability).available;
+  strategy = object(strategy);
+  if (strategy.availability === 'available' || strategy.available === true || strategy.applicable === true)
+    return true;
+  if (strategy.availability !== undefined || strategy.available === false || strategy.applicable === false)
+    return false;
+  return undefined;
 }
 function strategyFavorite(strategy, favorites) {
   return strategy.favorite === true || array(favorites).indexOf(strategy.id) >= 0;
@@ -140,6 +178,7 @@ function mutate(ctx, operation, request) {
   state.lastError = null;
   return Promise.resolve(request).then(function (answer) {
     if (!answer || answer.ok !== true) throw answer || new Error(operation + ' failed');
+    if (operation === 'favorite') rememberFavoriteState(answer);
     return refresh(ctx).then(function () { return answer; });
   }).then(function (answer) {
     state.busy = false;
@@ -186,6 +225,8 @@ function load(ctx) {
       status: settled(results[2], ctx.api),
       profiles: settled(results[3], ctx.api)
     };
+    var persistedFavorites = favoriteState(data);
+    if (persistedFavorites) state.favoriteState = persistedFavorites;
     return loadDetail(ctx, data);
   });
 }
@@ -200,7 +241,10 @@ function renderError(ctx, data) {
 }
 function metadataText(strategy) {
   var metadata = object(strategy.metadata);
-  return Object.keys(metadata).map(function (key) { return key + ': ' + String(metadata[key]); }).join(' · ');
+  return Object.keys(metadata).map(function (key) {
+    var value = metadata[key];
+    return key + ': ' + (value && typeof value === 'object' ? JSON.stringify(value) : String(value));
+  }).join(' · ');
 }
 function renderStatus(ctx, statusValue, strategy) {
   var shell = ctx.shell;
@@ -259,6 +303,13 @@ function openStrategyEditor(ctx, original, creating) {
   var name = E('input', { type: 'text', value: strategy.name || '' });
   var description = E('input', { type: 'text', value: object(strategy.metadata).description || '' });
   var profileHost = E('div', { 'class': 'z2m-profile-chain' });
+  function addProfile() {
+    var index = strategy.profiles.length + 1;
+    var ids = strategy.profiles.map(function (profile) { return profile.id; });
+    while (ids.indexOf('profile-' + String(index)) >= 0) index++;
+    strategy.profiles.push({ id: 'profile-' + String(index), name: 'Profile ' + String(index), args: '', enabled: true });
+    redraw();
+  }
   var form = E('div', { 'class': 'z2m-cbi' }, [
     E('label', {}, _('Id')), id,
     E('label', {}, _('Name')), name,
@@ -276,7 +327,7 @@ function openStrategyEditor(ctx, original, creating) {
     strategy.id = String(id.value || '').trim();
     strategy.name = String(name.value || '').trim();
     strategy.metadata = { description: String(description.value || '').trim() };
-    if (!strategy.id || !strategy.name || !strategy.profiles.length) {
+    if (!strategy.id || !strategy.name || strategy.profiles.length === 0) {
       shell.showToast(_('A Strategy id, name, and at least one Profile are required.'), 'err');
       return;
     }
@@ -290,6 +341,7 @@ function openStrategyEditor(ctx, original, creating) {
   redraw();
   shell.openModal(creating ? _('New Strategy') : _('Edit Strategy'), form, [
     shell.button(_('Cancel'), '', shell.closeModal),
+    shell.button(_('Add Profile'), 'sm', addProfile),
     shell.button(_('Save'), 'primary', save)
   ]);
 }
@@ -324,7 +376,7 @@ function renderStrategyDetail(ctx, strategy, data) {
       shell.button(_('Apply'), 'primary sm', function () {
         if (formStrategy.revision === undefined || formStrategy.revision === null) return;
         mutate(ctx, 'apply', applyStrategy(ctx, formStrategy));
-      }, !formStrategy.id || formStrategy.revision === undefined || formStrategy.revision === null || available === false)
+      }, !formStrategy.id || formStrategy.revision === undefined || formStrategy.revision === null || available === false || enabledProfiles(formStrategy) === 0)
     ]);
     var rows = formStrategy.profiles.map(function (profile, index) {
       return E('div', { 'class': 'z2m-profile-row' }, [
@@ -347,16 +399,30 @@ function renderStrategyDetail(ctx, strategy, data) {
   return host;
 }
 function visibleStrategies(data) {
-  var favorites = object(data.status && data.status.value).favorites || object(data.status && data.status.value).strategyState && object(data.status.value.strategyState).favorites;
+  var favoriteSnapshot = favoriteState(data), favorites = favoriteSnapshot ? favoriteSnapshot.favorites : [];
   return strategyList(data.list).map(normalizeStrategy).filter(function (strategy) {
     var haystack = [strategy.id, strategy.name, strategy.origin, metadataText(strategy)].join(' ').toLowerCase();
     if (state.search && haystack.indexOf(state.search.toLowerCase()) < 0) return false;
     if (state.favoritesOnly && !strategyFavorite(strategy, favorites)) return false;
     if (state.filter === 'builtin' && !strategy.is_builtin) return false;
     if (state.filter === 'user' && !isUserStrategy(strategy)) return false;
-    if (state.filter === 'available' && strategyAvailability(strategy) === false) return false;
+    if (state.filter === 'available' && strategyAvailability(strategy) !== true) return false;
     return true;
   });
+}
+function toggleFavorite(ctx, data, strategy) {
+  var snapshot = favoriteState(data), revision = snapshot && snapshot.revision;
+  if (revision === undefined || revision === null) revision = stateRevision(data.status && data.status.value);
+  if (revision === undefined || revision === null) {
+    showError(ctx, { code: 'ESTATE', message: _('Favorite state revision is unavailable.') });
+    return Promise.resolve(null);
+  }
+  var favorites = snapshot.favorites;
+  return mutate(ctx, 'favorite', edit(ctx.api.strategies.favorite, {
+    expectedRevision: revision,
+    id: strategy.id,
+    favorite: !strategyFavorite(strategy, favorites)
+  }));
 }
 function renderCatalog(ctx, data) {
   var shell = ctx.shell;
@@ -371,6 +437,7 @@ function renderCatalog(ctx, data) {
   var detailHost = E('div', { id: 'z2m-strategy-detail', 'aria-live': 'polite' });
   function redraw() {
     var strategies = visibleStrategies(data);
+    var favoriteSnapshot = favoriteState(data), favorites = favoriteSnapshot ? favoriteSnapshot.favorites : [];
     listHost.replaceChildren();
     strategies.forEach(function (strategy) {
       var selected = strategy.id === state.selectedId;
@@ -383,10 +450,10 @@ function renderCatalog(ctx, data) {
           E('div', { 'class': 'ds' }, compact([strategy.id, metadataText(strategy), available === false ? _('unavailable') : null]).join(' · '))
         ])),
         shell.chip(available === false ? _('unavailable') : available === true ? _('available') : _('not checked'), available === false ? 'r' : available === true ? 'g' : 'o'),
-        shell.button(strategyFavorite(strategy, object(data.status && data.status.value).favorites) ? _('Unfavorite') : _('Favorite'), 'sm', function (event) {
-          if (event && event.stopPropagation) event.stopPropagation();
-          mutate(ctx, 'favorite', edit(ctx.api.strategies.favorite, { expectedRevision: stateRevision(data.status && data.status.value), id: strategy.id, favorite: !strategyFavorite(strategy, object(data.status && data.status.value).favorites) }));
-        })
+        shell.button(strategyFavorite(strategy, favorites) ? _('Unfavorite') : _('Favorite'), 'sm', function (event) {
+           if (event && event.stopPropagation) event.stopPropagation();
+           toggleFavorite(ctx, data, strategy);
+         }, !favoriteSnapshot || favoriteSnapshot.revision === undefined || favoriteSnapshot.revision === null)
       ]);
       row.addEventListener('click', function () {
         state.selectedId = strategy.id;
@@ -427,6 +494,7 @@ function renderProfilesPane(ctx, currentProfileData) {
   var profilesState = Object.assign(profilesWorkflow.createState(), { replaceFullSet: false });
   var profilesPaneHost = E('div', { 'class': 'z2m-profiles-pane' });
   var profilePreviewButton = null;
+  var profileApplyButton = null;
   function showProfileResult(title, answer, reads) {
     var value = object(answer), diff = object(value.diff), verification = object(value.verification || value.verify);
     workflowHost.replaceChildren(shell.panel(title, E('div', {}, compact([
@@ -443,6 +511,10 @@ function renderProfilesPane(ctx, currentProfileData) {
   function setBusy(value) {
     profilesState.busy = value;
     Array.prototype.forEach.call(profilesPaneHost.querySelectorAll('button, input, textarea, select'), function (control) { control.disabled = value || control.getAttribute('data-blocked') === 'true'; });
+    updateProfileControls();
+  }
+  function updateProfileControls() {
+    if (profileApplyButton) profileApplyButton.disabled = !profilesWorkflow.canApply(profilesState);
   }
   function invalidateProfilePreview() { profilesWorkflow.invalidate(profilesState); }
   function profileMutationSucceeded() {
@@ -460,8 +532,19 @@ function renderProfilesPane(ctx, currentProfileData) {
   }
   function previewProfiles() { return edit(ctx.api.profiles.apply, { mode: 'preview' }); }
   function applyProfiles() {
+    if (profilesState.busy) return Promise.resolve({ rejected: true, answer: { code: 'EBUSY' } });
     function reloadAppliedState() { return ctx.api.profiles.list(); }
-    return profilesWorkflow.applyAndReread(function () { return edit(ctx.api.profiles.apply, { mode: 'apply' }); }, function () { return reloadAppliedState(); }, ctx.api.service.status);
+    profilesState.busy = true;
+    setBusy(true);
+    return profilesWorkflow.applyAndReread(function () { return edit(ctx.api.profiles.apply, { mode: 'apply' }); }, function () { return reloadAppliedState(); }, ctx.api.service.status).then(function (result) {
+      profilesState.busy = false;
+      setBusy(false);
+      return result;
+    }, function (error) {
+      profilesState.busy = false;
+      setBusy(false);
+      throw error;
+    });
   }
   function boundedProfileFailure(error) { return String(ctx.api.normalizeError(error).message || _('Profile operation failed.')).slice(0, 320); }
   function saveEditor(profile, payload) {
@@ -525,27 +608,29 @@ function renderProfilesPane(ctx, currentProfileData) {
         shell.button(_('Импортировать применённые'), 'sm', importApplied, profilesState.busy),
         profilePreviewButton = shell.button(_('Preview compatibility set'), 'sm', function () {
           if (profilesState.busy) return;
-          previewProfiles().then(function (answer) {
-            profilesState.preview = answer;
-            showProfileResult(_('Compatibility Preview'), answer);
-            if (!answer || answer.ok !== true) shell.showToast(boundedProfileFailure(answer), 'err');
-          }).catch(function (error) { shell.showToast(boundedProfileFailure(error), 'err'); });
-        }, !drafts.length),
+           previewProfiles().then(function (answer) {
+             profilesState.preview = answer;
+             showProfileResult(_('Compatibility Preview'), answer);
+             updateProfileControls();
+             if (!answer || answer.ok !== true) shell.showToast(boundedProfileFailure(answer), 'err');
+           }).catch(function (error) { updateProfileControls(); shell.showToast(boundedProfileFailure(error), 'err'); });
+         }, !drafts.length),
         shell.button(_('Import applied Profiles'), 'sm', function () { importApplied().catch(function (error) { shell.showToast(boundedProfileFailure(error), 'err'); }); }, profilesState.busy),
-        shell.button(_('Apply compatibility set'), 'primary sm', function () {
-          if (!profilesState.preview || profilesState.preview.ok !== true || profilesState.preview.wouldApply !== true || !profilesState.replaceFullSet) return;
-          applyProfiles().then(function (result) {
+         profileApplyButton = shell.button(_('Apply compatibility set'), 'primary sm', function () {
+           if (!profilesWorkflow.canApply(profilesState)) return;
+           applyProfiles().then(function (result) {
             var expected = result.answer && result.answer.applied;
             result.actualVerification = expected ? profilesWorkflow.verifyAppliedResult(expected, result) : { ok: false };
             showProfileResult(_('Compatibility Apply'), result.answer, result);
           }).catch(function (error) { shell.showToast(boundedProfileFailure(error), 'err'); });
-        }, true)
+         }, !profilesWorkflow.canApply(profilesState))
       ]), profileHost
     ]), _('Advanced compatibility path; ordered Profile semantics are retained.')), workflowHost);
     var acknowledgement = E('input', { type: 'checkbox', id: 'replace-full-set' });
-    acknowledgement.addEventListener('change', function () { profilesState.replaceFullSet = acknowledgement.checked === true; });
+    acknowledgement.addEventListener('change', function () { profilesState.replaceFullSet = acknowledgement.checked === true; updateProfileControls(); });
     profilesPaneHost.insertBefore(E('label', { 'class': 'z2m-profile-ack' }, [acknowledgement, _('I understand this replaces the full compatibility set.')]), profilesPaneHost.firstChild);
     setBusy(false);
+    updateProfileControls();
   }
   renderProfilesPaneBody();
   return profilesPaneHost;
