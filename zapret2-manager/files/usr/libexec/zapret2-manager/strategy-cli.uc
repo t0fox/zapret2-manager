@@ -269,8 +269,8 @@ function bounded_error_projection(resolved, candidate, validation, code, message
 		? (candidate.profilesCount > MAX_OUTPUT_ARRAY_ITEMS ? MAX_OUTPUT_ARRAY_ITEMS : candidate.profilesCount) : 0;
 	let args = count == 0 ? [] : '';
 	return {
-		ok: false, strategyId: resolved && resolved.id != null ? bounded_text(resolved.id, 128) : null,
-		origin: resolved && resolved.origin != null ? bounded_text(resolved.origin, 32) : null,
+		ok: false, strategyId: resolved && resolved.id != null ? bounded_identity(resolved.id, 128) : null,
+		origin: resolved && resolved.origin != null ? bounded_identity(resolved.origin, 32) : null,
 		strategyArgs: args, args: args, effectiveCommand: '', effectiveArgv: [],
 		fullCommand: '', fullArgv: [], profiles_count: count, profilesCount: count,
 		dependencies: minimal_dependencies(),
@@ -278,6 +278,11 @@ function bounded_error_projection(resolved, candidate, validation, code, message
 		applicable: false, validation: validation,
 		error: { code: error_code(code), message: bounded_text(message, MAX_TEXT) }
 	};
+}
+
+function final_projection(value, fallback) {
+	let encoded = serialize(value);
+	return encoded != null && length(encoded) <= MAX_OUTPUT_BYTES ? value : fallback;
 }
 
 function candidate_projection(resolved, candidate, effective, validation, includeValidation) {
@@ -300,8 +305,7 @@ function candidate_projection(resolved, candidate, effective, validation, includ
 		applicable: candidate.applicable == true
 	};
 	if (includeValidation == true) result.validation = validation;
-	let encoded = serialize(result);
-	return encoded != null && length(encoded) <= MAX_OUTPUT_BYTES ? result : null;
+	return result;
 }
 
 function validation_error(resolved, candidate, effective, validation, code, message) {
@@ -311,7 +315,8 @@ function validation_error(resolved, candidate, effective, validation, code, mess
 	result.ok = false;
 	result.applicable = false;
 	result.error = { code: error_code(code), message: bounded_text(message, MAX_TEXT) };
-	return result;
+	return final_projection(result, bounded_error_projection(resolved, candidate, validation, 'EINPUT',
+		'Strategy validation projection exceeds the safe output bound'));
 }
 
 function evaluated(input, context, requireValidation, requireAdmission) {
@@ -362,7 +367,8 @@ function evaluated(input, context, requireValidation, requireAdmission) {
 	if (result == null) return bounded_error_projection(resolved, candidate, validation, 'EINTERNAL',
 		'Strategy Preview projection exceeds the safe output bound');
 	result.ok = true;
-	return result;
+	return final_projection(result, bounded_error_projection(resolved, candidate, validation, 'EINTERNAL',
+		'Strategy Preview projection exceeds the safe output bound'));
 }
 
 export const strategy_preview = function(input, context) {

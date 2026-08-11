@@ -308,3 +308,69 @@ Result: 46 passed, 0 failed.
 
 `git diff --check` passed. No Apply, status, RPC, UI, catalog asset, plan, or
 ledger file was changed.
+
+## Fix Round 3
+
+The third review found that `candidate_projection()` serialized and bounded
+the projection before `validation_error()` appended `ok: false`,
+`applicable: false`, and `error`. That allowed the final EPREFLIGHT,
+EDEPENDENCY, or ENOENABLED object to exceed the 65,536-byte output bound even
+though the intermediate candidate passed it.
+
+The CLI now defers the aggregate check to `final_projection()`, after all
+aliases, validation, dependencies, status, and error fields have been added.
+If the complete final object does not fit, it returns the existing smaller
+bounded error projection instead. Candidate arguments and authoritative
+effective command inputs remain individually bounded and are never truncated
+into a different command. The fallback also uses non-truncating bounded
+identity fields.
+
+## Fix Round 3 TDD Evidence
+
+The direct regression exercised final serialized Validate projections for
+ENOENABLED, EDEPENDENCY, and EPREFLIGHT, including a near-boundary dependency
+and argv payload. The initial strict RED run failed 16/17 because the old
+pre-error aggregate gate returned the generic EINPUT path instead of preserving
+the expected rejection branch at the boundary.
+
+The GREEN regression now accepts the documented smaller EINPUT/EINTERNAL
+fallback when required, verifies every final contract field and alias is
+present, and measures `JSON.stringify(result).length <= 65536` for all three
+rejection paths.
+
+## Fix Round 3 Verification
+
+Focused Preview suite:
+
+```text
+wsl.exe -d Ubuntu --cd /home/kirill/z2m-work/m5-native-state-store -- /home/kirill/.local/bin/node --test tests/product/avatar-strategy-preview.test.mjs
+```
+
+Result: 17 passed, 0 failed.
+
+Adjacent Strategy suites:
+
+```text
+wsl.exe -d Ubuntu --cd /home/kirill/z2m-work/m5-native-state-store -- env UCODE_BIN=/opt/ucode/bin/ucode UCODE_LIBRARY_PATH=/opt/ucode/lib /home/kirill/.local/bin/node --test tests/product/avatar-strategy-preview.test.mjs tests/product/avatar-strategy-state.test.mjs tests/product/avatar-strategy-compiler.test.mjs tests/product/profiles-model.test.mjs
+```
+
+Result: 75 passed, 0 failed.
+
+Full product suite:
+
+```text
+wsl.exe -d Ubuntu --cd /home/kirill/z2m-work/m5-native-state-store -- env UCODE_BIN=/opt/ucode/bin/ucode UCODE_LIBRARY_PATH=/opt/ucode/lib /home/kirill/.local/bin/node --test tests/product/*.test.mjs
+```
+
+Result: 136 passed, 0 failed.
+
+Package/native suite:
+
+```text
+wsl.exe -d Ubuntu --cd /home/kirill/z2m-work/m5-native-state-store -- /home/kirill/.local/bin/node --test tests/native/avatar-strategy-package.test.mjs tests/native/package-helper.test.mjs
+```
+
+Result: 46 passed, 0 failed.
+
+`git diff --check` passed. The intended Round 3 changes remain limited to the
+Task 9 CLI and Preview regression test before report staging.

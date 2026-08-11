@@ -237,6 +237,37 @@ test('Validate rejection branches return the complete bounded contract projectio
   assert.equal(preflight.profiles_count, 1);
 });
 
+test('final Validate rejection projections stay within the hard serialized size bound', () => {
+  const oversizedArgs = [
+    `--unknown-0=${'x'.repeat(77)}`,
+    ...Array.from({ length: 111 }, (_, index) => `--unknown-${index + 1}=${'x'.repeat(50)}`),
+  ].join(' ');
+  const zero = invoke('strategy_validate', {
+    strategy_data: inlineStrategy({ profiles: [{ id: 'p1', args: oversizedArgs, enabled: false }] }),
+  }, context());
+  const missing = invoke('strategy_validate', {
+    strategy_data: inlineStrategy({
+      profiles: [{ id: 'p1', args: `${Array.from({ length: 9 }, (_, index) =>
+        `--lua-init=@lua/${'missing'.repeat(20)}${index}.lua`).join(' ')} ${oversizedArgs}` }],
+    }),
+  }, context({ environment: { lua: { 'missing.lua': { present: false } } } }));
+  const preflight = invoke('strategy_validate', {
+    strategy_data: inlineStrategy({ profiles: [{ id: 'p1', args: oversizedArgs }] }),
+  }, context());
+  for (const [result, code] of [[zero, 'ENOENABLED'], [missing, 'EDEPENDENCY'], [preflight, 'EPREFLIGHT']]) {
+    assert.equal(result.ok, false);
+    assert.ok([code, 'EINPUT', 'EINTERNAL'].includes(result.error.code),
+      `${code} rejection changed to an unbounded error code`);
+    for (const field of ['strategyArgs', 'args', 'effectiveCommand', 'effectiveArgv',
+      'fullCommand', 'fullArgv', 'profiles_count', 'profilesCount', 'dependencies',
+      'digest', 'applicable', 'validation', 'error']) {
+      assert.ok(Object.prototype.hasOwnProperty.call(result, field), `${code}.${field}`);
+    }
+    assert.ok(JSON.stringify(result).length <= MAX_OUTPUT_BYTES,
+      `${code} projection exceeded ${MAX_OUTPUT_BYTES} bytes`);
+  }
+});
+
 test('Validate is non-mutating for persisted Strategies', () => withUserRecord((record, env, root) => {
   const before = fs.readFileSync(record.path, 'utf8');
   const result = invoke('strategy_validate', {
