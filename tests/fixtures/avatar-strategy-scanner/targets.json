@@ -1,0 +1,202 @@
+{
+  "schema": 1,
+  "provenance": {
+    "avatar": {
+      "repository": "avatarDD/zapret-gui",
+      "commit": "f9dd3ea47a2239514f396a843b475c92c33f0b4c"
+    },
+    "manager": {
+      "repository": "t0fox/zapret2-manager",
+      "head": "681fb45bc87b0dad590e86b86b1459eb45438c08"
+    },
+    "approvedSpec": "359ce10b4b3b3830fe5cabd73036e69dbdbfc78b"
+  },
+  "deviationClasses": [
+    "OPENWRT_NATIVE",
+    "SECURITY_HARDENING_EQUIVALENT_BEHAVIOR",
+    "EXPLICIT_USER_PRODUCT_CONSTRAINT",
+    "CONFLICT_REQUIRES_USER_DECISION"
+  ],
+  "sourceEvidence": [
+    "core/scan_targets.py@f9dd3ea47a2239514f396a843b475c92c33f0b4c",
+    "core/strategy_scanner.py@f9dd3ea47a2239514f396a843b475c92c33f0b4c",
+    "docs/superpowers/specs/2026-08-12-avatar-strategy-scanner-parity-design.md@359ce10b4b3b3830fe5cabd73036e69dbdbfc78b"
+  ],
+  "constants": {
+    "tcpModes": ["quick", "standard", "full"],
+    "udpModes": ["quick", "standard", "full"],
+    "maxHostsByMode": {
+      "quick": 1,
+      "standard": 2,
+      "full": 4
+    }
+  },
+  "cases": [
+    {
+      "id": "youtube-known",
+      "input": {
+        "target": "youtube.com",
+        "protocol": "tcp",
+        "mode": "full"
+      },
+      "expected": {
+        "profileKey": "youtube",
+        "primaryHost": "youtube.com",
+        "testHosts": [
+          "www.youtube.com",
+          "i.ytimg.com",
+          "yt3.ggpht.com"
+        ],
+        "hostlistDomains": [
+          "youtube.com",
+          "www.youtube.com",
+          "m.youtube.com",
+          "youtu.be",
+          "youtubei.googleapis.com",
+          "youtube-nocookie.com",
+          "googlevideo.com",
+          "rr1---sn-axq7sn7s.googlevideo.com",
+          "ytimg.com",
+          "i.ytimg.com",
+          "yt3.ggpht.com",
+          "ggpht.com",
+          "lh3.googleusercontent.com",
+          "yt3.googleusercontent.com"
+        ],
+        "expectedHostlists": [
+          "youtube.txt",
+          "youtubeGV.txt",
+          "youtubeQ.txt",
+          "youtube_v2.txt"
+        ],
+        "tcp": {
+          "ports": "80,443",
+          "l7": "tls",
+          "payload": "tls_client_hello"
+        },
+        "udp": {
+          "ports": "443",
+          "l7": "quic",
+          "payload": "quic_initial"
+        },
+        "probeUrl": "https://i.ytimg.com/generate_204"
+      }
+    },
+    {
+      "id": "discord-known",
+      "input": {
+        "target": "discord.com",
+        "protocol": "udp",
+        "mode": "standard"
+      },
+      "expected": {
+        "profileKey": "discord",
+        "primaryHost": "discord.com",
+        "testHosts": [
+          "gateway.discord.gg",
+          "cdn.discordapp.com",
+          "media.discordapp.net"
+        ],
+        "hostlistDomains": [
+          "discord.com",
+          "discordapp.com",
+          "discord.gg",
+          "discord.media",
+          "discord-attachments-uploads-prd.storage.googleapis.com",
+          "gateway.discord.gg",
+          "cdn.discordapp.com",
+          "media.discordapp.net"
+        ],
+        "expectedHostlists": ["discord.txt"],
+        "tcp": {
+          "ports": "443",
+          "l7": "tls",
+          "payload": "tls_client_hello"
+        },
+        "udp": {
+          "ports": "50000-65535",
+          "l7": "discord",
+          "payload": ""
+        },
+        "probeUrl": "https://discord.com/api/v9/gateway"
+      }
+    },
+    {
+      "id": "generic-domain",
+      "input": {
+        "target": "kernel.org",
+        "protocol": "tcp",
+        "mode": "quick"
+      },
+      "expected": {
+        "profileKey": "generic",
+        "primaryHost": "kernel.org",
+        "testHosts": ["kernel.org"],
+        "hostlistDomains": ["kernel.org"],
+        "expectedHostlists": [],
+        "tcp": {
+          "ports": "443",
+          "l7": "tls",
+          "payload": "tls_client_hello"
+        },
+        "udp": {
+          "ports": "443",
+          "l7": "quic",
+          "payload": "quic_initial"
+        },
+        "probeUrl": "https://kernel.org/"
+      }
+    },
+    {
+      "id": "youtube-alternate-host",
+      "input": {
+        "target": "m.youtube.com",
+        "protocol": "tcp",
+        "mode": "full"
+      },
+      "expected": {
+        "profileKey": "youtube",
+        "primaryHost": "m.youtube.com",
+        "testHosts": [
+          "m.youtube.com",
+          "www.youtube.com",
+          "i.ytimg.com",
+          "yt3.ggpht.com"
+        ],
+        "hostlistDomains": [
+          "m.youtube.com",
+          "youtube.com",
+          "www.youtube.com",
+          "youtu.be",
+          "youtubei.googleapis.com",
+          "youtube-nocookie.com",
+          "googlevideo.com",
+          "rr1---sn-axq7sn7s.googlevideo.com",
+          "ytimg.com",
+          "i.ytimg.com",
+          "yt3.ggpht.com",
+          "ggpht.com",
+          "lh3.googleusercontent.com",
+          "yt3.googleusercontent.com"
+        ],
+        "expectedHostlists": [
+          "youtube.txt",
+          "youtubeGV.txt",
+          "youtubeQ.txt",
+          "youtube_v2.txt"
+        ],
+        "tcp": {
+          "ports": "80,443",
+          "l7": "tls",
+          "payload": "tls_client_hello"
+        },
+        "udp": {
+          "ports": "443",
+          "l7": "quic",
+          "payload": "quic_initial"
+        },
+        "probeUrl": "https://i.ytimg.com/generate_204"
+      }
+    }
+  ]
+}

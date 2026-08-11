@@ -1,0 +1,115 @@
+{
+  "schema": 1,
+  "provenance": {
+    "avatar": {
+      "repository": "avatarDD/zapret-gui",
+      "commit": "f9dd3ea47a2239514f396a843b475c92c33f0b4c"
+    },
+    "manager": {
+      "repository": "t0fox/zapret2-manager",
+      "head": "681fb45bc87b0dad590e86b86b1459eb45438c08"
+    },
+    "approvedSpec": "359ce10b4b3b3830fe5cabd73036e69dbdbfc78b"
+  },
+  "deviationClasses": [
+    "OPENWRT_NATIVE",
+    "SECURITY_HARDENING_EQUIVALENT_BEHAVIOR",
+    "EXPLICIT_USER_PRODUCT_CONSTRAINT",
+    "CONFLICT_REQUIRES_USER_DECISION"
+  ],
+  "sourceEvidence": [
+    "core/strategy_scanner.py@f9dd3ea47a2239514f396a843b475c92c33f0b4c",
+    "docs/superpowers/specs/2026-08-12-avatar-strategy-scanner-parity-design.md@359ce10b4b3b3830fe5cabd73036e69dbdbfc78b"
+  ],
+  "terminalContract": {
+    "legal": [
+      {"terminalState": "completed", "recoveryState": "verified"},
+      {"terminalState": "cancelled", "recoveryState": "verified"},
+      {"terminalState": "error", "recoveryState": "uncertain"}
+    ],
+    "forbidden": [
+      {"terminalState": "cancelled", "recoveryState": "uncertain"}
+    ],
+    "restoreBeforePublish": true,
+    "originalSnapshotCaptures": 1,
+    "terminalRestores": 1
+  },
+  "cases": [
+    {
+      "id": "completed-restored",
+      "trigger": "scan-complete",
+      "expected": {
+        "terminalState": "completed",
+        "recoveryState": "verified",
+        "cancelledUncertain": false,
+        "configRestored": true,
+        "activeStrategyRestored": true,
+        "runtimeIdentityVerified": true,
+        "firewallOwnershipVerified": true,
+        "temporaryArtifactsRemoved": true,
+        "applyBlocked": false
+      }
+    },
+    {
+      "id": "cancelled-restored",
+      "trigger": "stop-request",
+      "response": {"cancelAccepted": true},
+      "expected": {
+        "terminalState": "cancelled",
+        "recoveryState": "verified",
+        "cancelledUncertain": false,
+        "configRestored": true,
+        "activeStrategyRestored": true,
+        "runtimeIdentityVerified": true,
+        "firewallOwnershipVerified": true,
+        "temporaryArtifactsRemoved": true,
+        "applyBlocked": false
+      }
+    },
+    {
+      "id": "cancelled-restore-unproven",
+      "trigger": "stop-request",
+      "response": {"cancelAccepted": true},
+      "failure": "final-restore-not-proven",
+      "expected": {
+        "terminalState": "error",
+        "recoveryState": "uncertain",
+        "cancelledUncertain": false,
+        "configRestored": false,
+        "activeStrategyRestored": false,
+        "applyBlocked": true
+      }
+    },
+    {
+      "id": "worker-death-restore-unproven",
+      "trigger": "worker-death",
+      "failure": "stale-process-start-time",
+      "expected": {
+        "terminalState": "error",
+        "recoveryState": "uncertain",
+        "cancelledUncertain": false,
+        "workerFailureRanked": false,
+        "applyBlocked": true
+      }
+    },
+    {
+      "id": "candidate-cleanup-before-next",
+      "trigger": "candidate-success",
+      "expected": {
+        "terminalState": "running",
+        "recoveryState": "not_required",
+        "cancelledUncertain": false,
+        "cleanupOrder": [
+          "process",
+          "firewall",
+          "nfqueue",
+          "hostlist",
+          "temporary-files",
+          "next-candidate"
+        ],
+        "originalSnapshotRestores": 0,
+        "candidateArtifactsOwnedOnly": true
+      }
+    }
+  ]
+}

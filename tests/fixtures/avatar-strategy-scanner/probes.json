@@ -1,0 +1,197 @@
+{
+  "schema": 1,
+  "provenance": {
+    "avatar": {
+      "repository": "avatarDD/zapret-gui",
+      "commit": "f9dd3ea47a2239514f396a843b475c92c33f0b4c"
+    },
+    "manager": {
+      "repository": "t0fox/zapret2-manager",
+      "head": "681fb45bc87b0dad590e86b86b1459eb45438c08"
+    },
+    "approvedSpec": "359ce10b4b3b3830fe5cabd73036e69dbdbfc78b"
+  },
+  "deviationClasses": [
+    "OPENWRT_NATIVE",
+    "SECURITY_HARDENING_EQUIVALENT_BEHAVIOR",
+    "EXPLICIT_USER_PRODUCT_CONSTRAINT",
+    "CONFLICT_REQUIRES_USER_DECISION"
+  ],
+  "sourceEvidence": [
+    "core/strategy_scanner.py@f9dd3ea47a2239514f396a843b475c92c33f0b4c",
+    "core/testers/tls_tester.py@f9dd3ea47a2239514f396a843b475c92c33f0b4c",
+    "core/testers/body_tester.py@f9dd3ea47a2239514f396a843b475c92c33f0b4c",
+    "core/testers/stun_tester.py@f9dd3ea47a2239514f396a843b475c92c33f0b4c"
+  ],
+  "constants": {
+    "tlsTimeoutSeconds": 6,
+    "bodyTimeoutSeconds": 8,
+    "stunTimeoutSeconds": 4,
+    "stabilizationDelaySeconds": 2,
+    "interCandidateDelaySeconds": 0.3,
+    "bodyMinimumBytes": 65536,
+    "tlsReadBytes": 2048,
+    "bodyReadChunkBytes": 4096,
+    "bodyMarkerScanBytes": 8192,
+    "tcpBlockRangeBytes": [15000, 21000],
+    "tcpBlockRangeWideBytes": [10240, 25600],
+    "maxImmediateCrashAttempts": 3,
+    "stunRetries": 2,
+    "pinnedScannerStartupWaitSeconds": 1
+  },
+  "cases": [
+    {
+      "id": "baseline-ipv4-open-ipv6-skipped",
+      "protocol": "tcp",
+      "observation": {
+        "ipv4": {"status": "open", "available": true},
+        "ipv6": {"status": "skipped", "available": false}
+      },
+      "expected": {
+        "baselineOpen": true,
+        "byAddressFamily": {
+          "ipv4": {"status": "open", "available": true},
+          "ipv6": {"status": "skipped", "available": false}
+        },
+        "success": false
+      }
+    },
+    {
+      "id": "baseline-open-suppresses-success",
+      "protocol": "tcp",
+      "observation": {
+        "ipv4": {"status": "open", "available": true},
+        "ipv6": {"status": "open", "available": true}
+      },
+      "candidateObservation": {"tls": "success", "body": "success"},
+      "expected": {
+        "baselineOpen": true,
+        "candidateSuccess": false,
+        "reason": "BASELINE_OPEN"
+      }
+    },
+    {
+      "id": "tcp-tls-and-body-success",
+      "protocol": "tcp",
+      "hostsByMode": {"quick": 1, "standard": 2, "full": 4},
+      "observation": {
+        "tls": {"status": "success", "readBytes": 2048},
+        "body": {"statusCode": 200, "bytesReceived": 65536, "marker": ""}
+      },
+      "expected": {
+        "success": true,
+        "failureClass": null,
+        "bodyPassed": true,
+        "testType": "http"
+      }
+    },
+    {
+      "id": "tcp-body-16-20",
+      "protocol": "tcp",
+      "observation": {
+        "statusCode": 200,
+        "bytesReceived": 18000,
+        "marker": "tcp_16_20"
+      },
+      "expected": {
+        "success": false,
+        "error": "TCP_16_20",
+        "failureClass": "candidate_blocked",
+        "bodyPassed": false
+      }
+    },
+    {
+      "id": "tcp-body-status-exception",
+      "protocol": "tcp",
+      "observation": {
+        "statusCodes": [204, 205, 304],
+        "bytesReceived": [0, 0, 0]
+      },
+      "expected": {
+        "success": true,
+        "statusCodeException": true,
+        "failureClass": null
+      }
+    },
+    {
+      "id": "tcp-body-timeout",
+      "protocol": "tcp",
+      "observation": {
+        "statusCode": 200,
+        "bytesReceived": 4096,
+        "transport": "timeout"
+      },
+      "expected": {
+        "success": false,
+        "error": "TIMEOUT",
+        "failureClass": "candidate_blocked"
+      }
+    },
+    {
+      "id": "udp-stun-success",
+      "protocol": "udp",
+      "observation": {
+        "transport": "stun",
+        "status": "success",
+        "latencyMs": 80,
+        "mappedFamily": "IPv4"
+      },
+      "expected": {
+        "success": true,
+        "testType": "stun",
+        "quicProbe": false,
+        "failureClass": null
+      }
+    },
+    {
+      "id": "udp-stun-timeout",
+      "protocol": "udp",
+      "observation": {
+        "transport": "stun",
+        "status": "timeout",
+        "attempts": 2,
+        "latencyMs": 4000
+      },
+      "expected": {
+        "success": false,
+        "error": "TIMEOUT",
+        "testType": "stun",
+        "quicProbe": false,
+        "failureClass": "candidate_blocked"
+      }
+    },
+    {
+      "id": "score-tcp",
+      "protocol": "tcp",
+      "observation": {
+        "successRate": 1,
+        "averageKbps": 1000,
+        "averageLatencyMs": 100
+      },
+      "expected": {
+        "formula": "success_rate * min(avg_kbps, 2048) / max(avg_latency_ms, 50) * 1000",
+        "score": 10000
+      }
+    },
+    {
+      "id": "score-udp",
+      "protocol": "udp",
+      "observation": {"stunLatencyMs": 80},
+      "expected": {
+        "formula": "1000 / max(stun_latency_ms, 50)",
+        "score": 12.5
+      }
+    },
+    {
+      "id": "infrastructure-not-ranked",
+      "protocol": "tcp",
+      "observation": {"failureClass": "restore_failure", "status": "error"},
+      "expected": {
+        "success": false,
+        "ranked": false,
+        "countedAsFailedStrategy": false,
+        "terminalRecovery": "uncertain"
+      }
+    }
+  ]
+}

@@ -1,0 +1,204 @@
+{
+  "schema": 1,
+  "provenance": {
+    "avatar": {
+      "repository": "avatarDD/zapret-gui",
+      "commit": "f9dd3ea47a2239514f396a843b475c92c33f0b4c"
+    },
+    "manager": {
+      "repository": "t0fox/zapret2-manager",
+      "head": "681fb45bc87b0dad590e86b86b1459eb45438c08"
+    },
+    "approvedSpec": "359ce10b4b3b3830fe5cabd73036e69dbdbfc78b"
+  },
+  "deviationClasses": [
+    "OPENWRT_NATIVE",
+    "SECURITY_HARDENING_EQUIVALENT_BEHAVIOR",
+    "EXPLICIT_USER_PRODUCT_CONSTRAINT",
+    "CONFLICT_REQUIRES_USER_DECISION"
+  ],
+  "sourceEvidence": [
+    "core/strategy_scanner.py@f9dd3ea47a2239514f396a843b475c92c33f0b4c",
+    "core/strategy_generator.py@f9dd3ea47a2239514f396a843b475c92c33f0b4c",
+    "tests/fixtures/avatar-strategy/manifest.expected.json@681fb45bc87b0dad590e86b86b1459eb45438c08"
+  ],
+  "catalog": {
+    "manifest": "tests/fixtures/avatar-strategy/manifest.expected.json",
+    "aggregateDigest": "5978d35bfc0b73caaae658124874e24619b1f448e673ec09fd7c5d4dd8c3dda1"
+  },
+  "candidateSchema": {
+    "identityKinds": ["catalog", "user", "canonicalized", "generated"],
+    "requiredFields": [
+      "scannerId", "identityKind", "strategyId", "strategyRevision", "source",
+      "sourcePath", "protocol", "compiledTokens", "compiledDigest", "dependencyClosure",
+      "dependencyDigest", "ordinal", "complexity", "recommended", "fullPreset", "saveRequired"
+    ]
+  },
+  "cases": [
+    {
+      "id": "quick-tcp-order",
+      "protocol": "tcp",
+      "mode": "quick",
+      "sourceSet": "tcp.quick",
+      "expected": {
+        "prefix": [
+          "winws2_all_tcp_and_udp_ytdisbystro_3_4_v1",
+          "winws2_all_tcp_and_udp_discord_urgent_sni",
+          "winws2_all_tcp_and_udp_fake_tls_auto_11"
+        ],
+        "tail": ["split", "disorder", "fakedsplit_host"],
+        "prefixIsFullPreset": true,
+        "tailIsCatalogOrder": true,
+        "generatedAppended": false
+      }
+    },
+    {
+      "id": "standard-tcp-generated-tail",
+      "protocol": "tcp",
+      "mode": "standard",
+      "sourceSet": "tcp.standard",
+      "expected": {
+        "prefix": [
+          "winws2_all_tcp_and_udp_ytdisbystro_3_4_v1",
+          "winws2_all_tcp_and_udp_discord_urgent_sni",
+          "winws2_all_tcp_and_udp_fake_tls_auto_11"
+        ],
+        "tail": ["multisplit_seqovl700", "multidisorder_complex", "multisplit_midsld"],
+        "prefixIsFullPreset": true,
+        "tailIsCatalogOrder": true,
+        "generatedAppended": true
+      },
+      "generated": {
+        "position": "append-before-dpi-filter",
+        "ids": [
+          "gen_multisplit_pos_1",
+          "gen_fake_blob_fake_default_tls_repeats_6"
+        ]
+      }
+    },
+    {
+      "id": "full-udp-order",
+      "protocol": "udp",
+      "mode": "full",
+      "sourceSet": "udp.full",
+      "expected": {
+        "prefix": [
+          "z2k_autocircular_discord_voice",
+          "z2k_autocircular_yt_quic",
+          "fake_blob_quic_google_repeats_10_autottl"
+        ],
+        "generatedAppended": true,
+        "protocolOnly": "udp"
+      }
+    },
+    {
+      "id": "known-dpi-skip",
+      "protocol": "tcp",
+      "mode": "standard",
+      "dpiType": "dns_fake",
+      "expected": {
+        "filter": "skip",
+        "candidates": [],
+        "runtimeArguments": []
+      }
+    },
+    {
+      "id": "known-dpi-filter",
+      "protocol": "tcp",
+      "mode": "standard",
+      "dpiType": "tls_dpi",
+      "input": ["split", "http_aggressive", "z2k_all_in_one", "fake_quic_google_6"],
+      "expected": {
+        "filter": "tls_dpi",
+        "output": ["split", "http_aggressive", "z2k_all_in_one"],
+        "excluded": ["fake_quic_google_6"],
+        "runtimeArguments": []
+      }
+    },
+    {
+      "id": "unknown-dpi-no-filter",
+      "protocol": "tcp",
+      "mode": "standard",
+      "dpiType": "vendor_block_v1",
+      "expected": {
+        "filter": "none",
+        "before": ["split", "http_aggressive", "z2k_all_in_one"],
+        "after": ["split", "http_aggressive", "z2k_all_in_one"],
+        "runtimeArguments": []
+      }
+    },
+    {
+      "id": "exact-generated-canonicalization",
+      "protocol": "tcp",
+      "mode": "standard",
+      "candidate": {
+        "scannerId": "generated:gen_multisplit_pos_1",
+        "identityKind": "generated",
+        "strategyId": null,
+        "strategyRevision": null,
+        "source": "generator",
+        "sourcePath": "generator",
+        "protocol": "tcp",
+        "compiledTokens": ["--filter-tcp=443", "--lua-desync=multisplit:pos=1"],
+        "compiledDigest": "1d6a80c8d6cf5c6a4a8e1a8bca35e7df3c4aa73f38a3bbf2be7ae3d2f9c81e5a",
+        "dependencyClosure": {"blobs": [], "lua": ["desync.lua"], "lists": []},
+        "dependencyDigest": "b3f54f2dbce7be3f3a8a6a07cbd3aa2dc2ea4b77a1d3bf6d5d8d5b8fd07ca421",
+        "ordinal": 1,
+        "complexity": [1, 0, 0],
+        "recommended": false,
+        "fullPreset": false,
+        "saveRequired": true
+      },
+      "existing": {
+        "strategyId": "user-one",
+        "revision": 3,
+        "compiledTokens": ["--filter-tcp=443", "--lua-desync=multisplit:pos=1"],
+        "dependencyClosure": {"blobs": [], "lua": ["desync.lua"], "lists": []}
+      },
+      "expected": {
+        "identityKind": "canonicalized",
+        "strategyId": "user-one",
+        "strategyRevision": 3,
+        "saveRequired": false
+      }
+    },
+    {
+      "id": "unmatched-generated-save-required",
+      "protocol": "tcp",
+      "mode": "full",
+      "candidate": {
+        "scannerId": "generated:gen_fake_blob_fake_default_tls_repeats_6",
+        "identityKind": "generated",
+        "strategyId": null,
+        "strategyRevision": null,
+        "source": "generator",
+        "sourcePath": "generator",
+        "protocol": "tcp",
+        "compiledTokens": [
+          "--filter-tcp=443",
+          "--lua-desync=fake:blob=fake_default_tls:repeats=6"
+        ],
+        "compiledDigest": "e5dca4fbcd0c3b8f55f6b0d25ecf75ff2be348f8a5f2de3c2dc6a2f6476421b0",
+        "dependencyClosure": {"blobs": ["fake_default_tls"], "lua": ["desync.lua"], "lists": []},
+        "dependencyDigest": "6f05b45c3a7e0e4dd8d5ab8d2d17cf3d9cb8b5c5b0b0e1b3a55b1f1b7d0f6a12",
+        "ordinal": 2,
+        "complexity": [1, 6, 0],
+        "recommended": false,
+        "fullPreset": false,
+        "saveRequired": true
+      },
+      "existing": {
+        "strategyId": "display-name-match-only",
+        "revision": 1,
+        "compiledTokens": ["--filter-tcp=443", "--lua-desync=fake:blob=fake_default_tls:repeats=5"],
+        "dependencyClosure": {"blobs": ["fake_default_tls"], "lua": ["desync.lua"], "lists": []}
+      },
+      "expected": {
+        "identityKind": "generated",
+        "strategyId": null,
+        "strategyRevision": null,
+        "saveRequired": true
+      }
+    }
+  ]
+}
