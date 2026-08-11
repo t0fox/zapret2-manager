@@ -267,10 +267,12 @@ syntax, and IPv4/IPv6 literals are rejected. Label and total-length bounds are
 enforced. The browser cannot add alternate hosts, ports, payloads, commands, or
 executables.
 
-The DPI value is a bounded server-recognized hint. It is applied only through
-the pinned relevance-filter semantics; unknown values are rejected or ignored
-according to the pinned filter contract, never passed through as compiler
-arguments.
+The DPI value is a syntactically bounded hint. Known skip-types such as
+`dns_fake`, `ip_block`, and `full_block` retain their pinned explicit filtering
+semantics. Unknown but syntactically bounded `dpi_type` values are accepted and
+result in no DPI filtering, matching pinned Avatar behavior: the candidate list
+remains unchanged. Unknown values are never passed into Strategy compiler or
+runtime arguments.
 
 ### 6.2 Target profiles
 
@@ -300,6 +302,8 @@ The planner preserves the pinned mode behavior:
 - generated candidates are appended for standard/full only when server
   configuration enables generation;
 - DPI filtering occurs after generated candidates are added;
+- an unknown but syntactically bounded `dpi_type` leaves the candidate list
+  unchanged and performs no DPI filtering;
 - full-preset priority precedes recommended priority, then complexity, source
   filename, and section ID;
 - duplicate normalized candidates are removed deterministically.
@@ -454,7 +458,8 @@ On completed, cancelled, error, or worker-recovery paths, terminal cleanup:
 If final restoration cannot be proven, the result is terminal `error` with an
 explicit `recovery.state = uncertain`. The Scanner must not claim successful
 restoration merely because its worker exited. The shared Strategy Apply gate
-blocks permanent Apply until reconciliation succeeds.
+blocks permanent Apply until reconciliation succeeds. This rule also applies to
+cancellation: uncertain final restoration is never published as `cancelled`.
 
 ## 10. Worker, state machine, concurrency, cancellation, and resume
 
@@ -476,7 +481,10 @@ message.
 
 There is no pause state or pause API because the pinned Scanner does not have
 actual pause/resume execution. Resume is a bounded continuation after
-cancellation or worker interruption.
+cancellation or worker interruption. A terminal `cancelled` state is valid only
+with `recovery.state = verified`; if cancellation reaches terminal cleanup but
+final restoration cannot be proven, the terminal state is `error` with
+`recovery.state = uncertain` instead. `cancelled` plus `uncertain` is forbidden.
 
 ### 10.2 One active scan and worker identity
 
@@ -487,8 +495,8 @@ PID, process start time, owner, heartbeat, and request/catalog identity.
 Status and control calls reconcile stale worker records. A worker PID that is
 reused with a different start time is not accepted as the Scanner worker. Worker
 death is an infrastructure event, not a failed Strategy. Recovery attempts
-owned cleanup and final restoration before publishing `error` or uncertain
-recovery.
+owned cleanup and final restoration before publishing a terminal `error` with
+explicit uncertain recovery when restoration cannot be proven.
 
 ### 10.3 Volatile state and checkpoints
 
@@ -522,8 +530,17 @@ Stop creates an id-scoped cancellation request. The active bounded probe adapter
 is interrupted safely where possible; otherwise its fixed timeout bounds the
 wait. The worker checks cancellation before each candidate and during cleanup.
 The response means cancellation was accepted, not that restoration is complete.
-The terminal `cancelled` state is published only after final restoration or
-explicit uncertain recovery publication.
+The terminal state contract is explicit:
+
+- cancellation request + successful candidate/session cleanup + independently
+  verified pre-scan runtime/firewall restoration → terminal `cancelled` with
+  `recovery.state = verified`;
+- cancellation request + final restoration not proven → terminal `error` with
+  `recovery.state = uncertain`, with permanent Strategy Apply blocked until
+  reconciliation succeeds.
+
+The response does not mean cleanup or restoration is complete. `cancelled` plus
+`recovery.state = uncertain` is forbidden.
 
 ## 11. Result, report, ranking, and Strategy handoff
 
@@ -687,6 +704,9 @@ Regression coverage is required for:
 - controlled neutral/transient state between candidates;
 - one-time terminal restoration on completion, cancellation, error, and worker
   recovery;
+- cancellation with verified restoration publishing only `cancelled`, and
+  cancellation with unproven restoration publishing only `error` plus
+  `recovery.state = uncertain`;
 - immediate nfqws2 crash retry and candidate/infrastructure distinction;
 - cancellation cleanup;
 - stale worker detection;
@@ -694,6 +714,8 @@ Regression coverage is required for:
 - restore failure and explicit uncertain state;
 - Apply blocking and reconciliation release;
 - generated candidate exact mapping, Save as Strategy, and raw-args rejection.
+- unknown bounded `dpi_type` preserving the candidate list without compiler or
+  runtime argument injection.
 
 True revert/fix/regression proof is mandatory for these load-bearing cases. It
 is not required for trivial static UI assertions.
@@ -793,7 +815,8 @@ The slice is complete only when:
 5. each candidate’s owned artifacts are removed and verified before the next;
 6. the original pre-scan runtime/firewall state is restored once at terminal
    cleanup and terminal publication waits for proof;
-7. uncertain recovery blocks permanent Apply until reconciliation;
+7. uncertain recovery blocks permanent Apply until reconciliation, and
+   `cancelled` is never published with `recovery.state = uncertain`;
 8. existing Strategy Preview → Validate → Apply remains the only permanent
    Apply path;
 9. RPC, ACL, LuCI, package, focused, Strategy regression, and native tests pass;
