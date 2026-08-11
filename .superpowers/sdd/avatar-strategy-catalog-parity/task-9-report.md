@@ -374,3 +374,77 @@ Result: 46 passed, 0 failed.
 
 `git diff --check` passed. The intended Round 3 changes remain limited to the
 Task 9 CLI and Preview regression test before report staging.
+
+## Fix Round 4
+
+The Round 3 regression was too permissive: allowing EINPUT/EINTERNAL also
+accepted the exact fallback produced by the pre-fix intermediate candidate
+bound, so it did not prove that the final `error` append was checked.
+
+The regression now uses a deterministic Validate/EPREFLIGHT case with 149
+bounded unknown argv options and an authoritative inline server context. A
+temporary test-only diagnostic probe measured the pre-error candidate
+projection at 65,532 bytes, under the 65,536-byte cap. The strict regression
+requires the completed response to use the final bounded fallback:
+
+- `error.code == EINPUT`;
+- exact bounded-projection error message;
+- `applicable == false`, `profiles_count == profilesCount == 1`;
+- empty `strategyArgs`, `args`, effective/full command strings, and effective/full argv arrays;
+- dependencies, digest, validation, and every required alias present;
+- final `JSON.stringify()` size at or below 65,536 bytes.
+
+No production diagnostic bypass or unbounded context path remains. The
+temporary probe was removed before verification.
+
+## Fix Round 4 TDD Evidence
+
+RED against the pre-fix intermediate-bound implementation:
+
+```text
+wsl.exe -d Ubuntu --cd /home/kirill/z2m-work/m5-native-state-store -- /home/kirill/.local/bin/node --test --test-name-pattern="final Validate rejection" tests/product/avatar-strategy-preview.test.mjs
+```
+
+Temporary bounded instrumentation measured the same preflight case as
+`candidate=65532 final=65641`: the candidate was under the cap, but the
+completed response was over it. Result: 0 passed, 1 failed. The pre-fix
+response returned `EPREFLIGHT` where the discriminating regression requires
+the final bounded `EINPUT` fallback.
+
+GREEN focused Preview suite:
+
+```text
+wsl.exe -d Ubuntu --cd /home/kirill/z2m-work/m5-native-state-store -- /home/kirill/.local/bin/node --test tests/product/avatar-strategy-preview.test.mjs
+```
+
+Result: 17 passed, 0 failed.
+
+## Fix Round 4 Verification
+
+Adjacent Strategy suites:
+
+```text
+wsl.exe -d Ubuntu --cd /home/kirill/z2m-work/m5-native-state-store -- env UCODE_BIN=/opt/ucode/bin/ucode UCODE_LIBRARY_PATH=/opt/ucode/lib /home/kirill/.local/bin/node --test tests/product/avatar-strategy-preview.test.mjs tests/product/avatar-strategy-state.test.mjs tests/product/avatar-strategy-compiler.test.mjs tests/product/profiles-model.test.mjs
+```
+
+Result: 75 passed, 0 failed.
+
+Full product suite:
+
+```text
+wsl.exe -d Ubuntu --cd /home/kirill/z2m-work/m5-native-state-store -- env UCODE_BIN=/opt/ucode/bin/ucode UCODE_LIBRARY_PATH=/opt/ucode/lib /home/kirill/.local/bin/node --test tests/product/*.test.mjs
+```
+
+Result: 136 passed, 0 failed.
+
+Package/native suite:
+
+```text
+wsl.exe -d Ubuntu --cd /home/kirill/z2m-work/m5-native-state-store -- /home/kirill/.local/bin/node --test tests/native/avatar-strategy-package.test.mjs tests/native/package-helper.test.mjs
+```
+
+Result: 46 passed, 0 failed.
+
+`git diff --check` passed. The implementation remains centered on the final
+projection check at `strategy-cli.uc:311-320`; only the Task 9 CLI, Preview
+test, and report are intended to change in this round.

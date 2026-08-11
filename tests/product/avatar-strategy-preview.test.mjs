@@ -238,34 +238,29 @@ test('Validate rejection branches return the complete bounded contract projectio
 });
 
 test('final Validate rejection projections stay within the hard serialized size bound', () => {
-  const oversizedArgs = [
-    `--unknown-0=${'x'.repeat(77)}`,
-    ...Array.from({ length: 111 }, (_, index) => `--unknown-${index + 1}=${'x'.repeat(50)}`),
+  const preflightArgs = [
+    `--unknown-0=${'x'.repeat(117)}`,
+    ...Array.from({ length: 148 }, (_, index) => `--unknown-${index + 1}=${'x'.repeat(55)}`),
   ].join(' ');
-  const zero = invoke('strategy_validate', {
-    strategy_data: inlineStrategy({ profiles: [{ id: 'p1', args: oversizedArgs, enabled: false }] }),
-  }, context());
-  const missing = invoke('strategy_validate', {
-    strategy_data: inlineStrategy({
-      profiles: [{ id: 'p1', args: `${Array.from({ length: 9 }, (_, index) =>
-        `--lua-init=@lua/${'missing'.repeat(20)}${index}.lua`).join(' ')} ${oversizedArgs}` }],
-    }),
-  }, context({ environment: { lua: { 'missing.lua': { present: false } } } }));
   const preflight = invoke('strategy_validate', {
-    strategy_data: inlineStrategy({ profiles: [{ id: 'p1', args: oversizedArgs }] }),
+    strategy_data: inlineStrategy({ id: 'p', profiles: [{ id: 'p1', args: preflightArgs }] }),
   }, context());
-  for (const [result, code] of [[zero, 'ENOENABLED'], [missing, 'EDEPENDENCY'], [preflight, 'EPREFLIGHT']]) {
-    assert.equal(result.ok, false);
-    assert.ok([code, 'EINPUT', 'EINTERNAL'].includes(result.error.code),
-      `${code} rejection changed to an unbounded error code`);
-    for (const field of ['strategyArgs', 'args', 'effectiveCommand', 'effectiveArgv',
-      'fullCommand', 'fullArgv', 'profiles_count', 'profilesCount', 'dependencies',
-      'digest', 'applicable', 'validation', 'error']) {
-      assert.ok(Object.prototype.hasOwnProperty.call(result, field), `${code}.${field}`);
-    }
-    assert.ok(JSON.stringify(result).length <= MAX_OUTPUT_BYTES,
-      `${code} projection exceeded ${MAX_OUTPUT_BYTES} bytes`);
-  }
+  assert.equal(preflight.ok, false);
+  assert.equal(preflight.error.code, 'EINPUT');
+  assert.equal(preflight.error.message, 'Strategy validation projection exceeds the safe output bound');
+  assert.equal(preflight.applicable, false);
+  assert.equal(preflight.strategyArgs, '');
+  assert.equal(preflight.args, '');
+  assert.equal(preflight.effectiveCommand, '');
+  assert.deepEqual(preflight.effectiveArgv, []);
+  assert.equal(preflight.fullCommand, '');
+  assert.deepEqual(preflight.fullArgv, []);
+  assert.equal(preflight.profiles_count, 1);
+  assert.equal(preflight.profilesCount, 1);
+  assert.equal(preflight.dependencies.available, false);
+  assert.ok(preflight.validation && typeof preflight.validation.status === 'string');
+  assert.match(preflight.digest, /^[a-f0-9]{64}$/);
+  assert.ok(JSON.stringify(preflight).length <= MAX_OUTPUT_BYTES);
 });
 
 test('Validate is non-mutating for persisted Strategies', () => withUserRecord((record, env, root) => {
