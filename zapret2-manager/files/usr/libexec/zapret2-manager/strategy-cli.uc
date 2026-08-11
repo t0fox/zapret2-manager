@@ -5,8 +5,10 @@
 
 import { readfile, stat, readlink } from 'fs';
 import { strategy_catalog_load, catalog_entry_to_strategy } from './strategy-catalog.uc';
-import { strategy_user_get_readonly } from './strategy-state.uc';
+import { strategy_user_get_readonly, strategy_selection_get, strategy_apply_uncertain_get,
+	strategy_apply_reconcile } from './strategy-state.uc';
 import { strategy_candidate, strategy_effective_argv } from './strategy-compiler.uc';
+import { profiles_apply_candidate, profiles_config_hash } from './profiles-apply.uc';
 
 const DEFAULT_CATALOG_ROOT = '/usr/share/zapret2-manager/catalog/avatar';
 const ENGINE_PATH = '/opt/zapret2/nfq2/nfqws2';
@@ -23,7 +25,7 @@ const MAX_DEPENDENCY_TEXT = 256;
 const MAX_DEPENDENCY_ITEMS = 32;
 const MAX_DEPENDENCY_BYTES = 16384;
 const ERROR_CODES = ['EINPUT', 'ENOENT', 'ECONFLICT', 'ENOENABLED', 'EDEPENDENCY',
-	'EPREFLIGHT', 'EVERIFY', 'EINTERNAL'];
+	'EPREFLIGHT', 'EVERIFY', 'EINTERNAL', 'ELOCK', 'EUNCERTAIN', 'ERECONCILE'];
 
 function is_object(value) { return type(value) == 'object' && value != null; }
 function is_string(value) { return type(value) == 'string'; }
@@ -241,7 +243,8 @@ function trusted_context(context) {
 		environment: {},
 		runtimeInputs: {
 			source: 'live', enginePath: ENGINE_PATH, baseArgs: [], luaInit: [], hostlists: []
-		}
+		},
+		reconciliation: null
 	};
 	// This second argument is an internal server context, never request data.
 	// Admission is intentionally not accepted here: this CLI's only native gate
@@ -252,6 +255,7 @@ function trusted_context(context) {
 			if (key != 'executionAdmission' && key != 'validate') result.environment[key] = context.environment[key];
 	}
 	if (is_object(context.runtimeInputs)) result.runtimeInputs = context.runtimeInputs;
+	if (is_object(context.reconciliation)) result.reconciliation = context.reconciliation;
 	return result;
 }
 
@@ -379,6 +383,79 @@ export const strategy_validate = function(input, context) {
 	return evaluated(input, context, true, true);
 };
 
+function strategy_apply_projection(resolved, input, candidate, selection, configHash) {
+	return {
+		candidateSha256: candidate.digest,
+		expectedRevision: selection.revision,
+		expectedConfigSha256: configHash,
+		previousSelected: selection.selected,
+		selected: {
+			id: resolved.id, origin: resolved.origin, revision: input.revision,
+			candidateSha256: candidate.digest
+		}
+	};
+}
+
+export const strategy_apply = function(input, context) {
+	let shape = input_shape(input, true);
+	if (!shape.ok) return shape;
+	let pending = null;
+	try { pending = strategy_apply_uncertain_get(); } catch (e) { pending = null; }
+	if (!is_object(pending) || pending.ok != true)
+		return error_result('EUNCERTAIN', 'Strategy Apply uncertainty state is unreadable; explicit reconciliation is required.');
+	if (is_object(pending) && pending.ok == true && pending.record != null)
+		return error_result('EUNCERTAIN', 'Strategy Apply is blocked until explicit reconciliation.');
+	let currentCatalog = catalog();
+	if (!is_object(currentCatalog) || currentCatalog.ok == false) return currentCatalog;
+	let resolved = resolve_strategy(input, currentCatalog);
+	if (!resolved.ok) return resolved;
+	let trusted = trusted_context(context);
+	trusted.environment.validate = true;
+	trusted.environment.executionAdmission = true;
+	let candidate = null;
+	try { candidate = strategy_candidate(resolved.strategy, trusted.environment); }
+	catch (e) { return error_result('EINTERNAL', 'Strategy compilation failed'); }
+	if (!is_object(candidate) || candidate.ok != true)
+		return error_result(candidate && candidate.error ? candidate.error.code : 'EINTERNAL',
+			candidate && candidate.error ? candidate.error.message : 'Strategy compilation failed');
+	if (candidate.profilesCount == 0)
+		return error_result('ENOENABLED', 'Strategy requires at least one enabled Profile');
+	if (!is_object(candidate.dependencies) || candidate.dependencies.available != true)
+		return error_result('EDEPENDENCY', 'Strategy dependencies are unavailable');
+	if (!complete_validation(candidate.nativeValidation))
+		return error_result('EPREFLIGHT', 'complete native Strategy preflight is required');
+	if (!digest(candidate.digest)) return error_result('EINTERNAL', 'Strategy candidate digest is unavailable');
+	let configHash = null;
+	try { configHash = profiles_config_hash(); } catch (e) { configHash = null; }
+	if (!digest(configHash)) return error_result('EVERIFY', 'current upstream config hash is unavailable');
+	let selection = null;
+	try { selection = strategy_selection_get(); } catch (e) { selection = null; }
+	if (!is_object(selection) || selection.ok != true)
+		return error_result('EVERIFY', 'Strategy selection state is unavailable');
+	let projection = strategy_apply_projection(resolved, input, candidate, selection, configHash);
+	let applied = profiles_apply_candidate(candidate.candidate, candidate.digest, projection);
+	if (!is_object(applied)) return error_result('EINTERNAL', 'Strategy transaction returned no result');
+	if (applied.ok != true) {
+		if (applied.uncertain == true)
+			return error_result('EUNCERTAIN', 'Strategy Apply is uncertain — explicit reconciliation is required', { transaction: applied });
+		return applied;
+	}
+	applied.strategy = { id: resolved.id, origin: resolved.origin, revision: input.revision,
+		candidateSha256: candidate.digest };
+	return applied;
+};
+
+export const strategy_reconcile = function(input, context) {
+	let trusted = trusted_context(context), evidence = trusted.reconciliation;
+	if (!is_object(evidence) || evidence.runtimeVerified != true)
+		return error_result('EVERIFY', 'verified runtime reconciliation evidence is required');
+	return strategy_apply_reconcile({
+		currentConfigSha256: evidence.currentConfigSha256,
+		activeIdentity: evidence.activeIdentity,
+		runtimeVerified: evidence.runtimeVerified
+	});
+};
+
 function request(path) {
 	if (!is_string(path) || length(path) == 0 || length(path) > 256) return error_result('EINPUT', 'request path is invalid');
 	let metadata = null;
@@ -395,11 +472,13 @@ function request(path) {
 	return value;
 }
 
-function dispatch_result(mode, input) {
-	let shape = input_shape(input, false);
+function dispatch_result(mode, input, context) {
+	if (mode == 'reconcile') return strategy_reconcile(input, context);
+	let shape = input_shape(input, mode == 'apply');
 	if (!shape.ok) return shape;
-	if (mode == 'preview') return strategy_preview(input);
-	if (mode == 'validate') return strategy_validate(input);
+	if (mode == 'preview') return strategy_preview(input, context);
+	if (mode == 'validate') return strategy_validate(input, context);
+	if (mode == 'apply') return strategy_apply(input, context);
 	return error_result('EINPUT', 'unknown Strategy operation');
 }
 

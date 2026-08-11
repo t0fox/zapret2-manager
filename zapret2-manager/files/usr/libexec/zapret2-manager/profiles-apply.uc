@@ -37,6 +37,7 @@ const OPT_VAR = 'NFQWS2_OPT';
 const MAX_CANDIDATE_BYTES = 262144;
 const CONFIG_LOCK = '/opt/zapret2/config.lock';
 const PROFILE_APPLY_CLI = '/usr/libexec/zapret2-manager/profiles-apply-cli.uc';
+const STRATEGY_STATE_MODULE = '/usr/libexec/zapret2-manager/strategy-state.uc';
 
 function run(cmd) {
 	let p = popen(cmd + ' 2>&1', 'r');
@@ -45,6 +46,14 @@ function run(cmd) {
 	if (!out) out = '';
 	let rc = p.close();
 	return { out: out, rc: rc };
+}
+
+function strategy_state_call(name, input) {
+	let source = 'import { ' + name + ' } from ' + sprintf('%J', STRATEGY_STATE_MODULE)
+		+ '; print(sprintf("%J", ' + name + '(' + (input == null ? '' : sprintf('%J', input)) + ')));';
+	let answer = run('/usr/bin/ucode -e ' + shell_escape(source));
+	if (answer.rc != 0) return err('identity', 'EINTERNAL', 'Strategy state hook failed');
+	try { return json(answer.out); } catch (e) { return err('identity', 'EINTERNAL', 'Strategy state hook response is malformed'); }
 }
 
 function err(stage, code, message, extra) {
@@ -278,6 +287,45 @@ function load_drafts_or_refuse() {
 	return { state: ls.state };
 }
 
+function projection_path(candidateHash) {
+	return type(candidateHash) == 'string' && match(candidateHash, /^[a-f0-9]{64}$/)
+		? '/tmp/z2m-strategy-projection-' + candidateHash + '.json' : null;
+}
+
+function projection_read(candidateHash) {
+	let path = projection_path(candidateHash);
+	if (path == null || !stat(path) || readlink(path) != null) return null;
+	let metadata = stat(path);
+	if (metadata.type != 'file' || type(metadata.size) != 'int' || metadata.size > 8192) return null;
+	let raw = readfile(path), value = null;
+	try { value = json(raw); } catch (e) { return null; }
+	return type(value) == 'object' && value != null && value.candidateSha256 == candidateHash ? value : null;
+}
+
+function projection_identity_equal(left, right) {
+	if (left == null || right == null) return left == right;
+	return left.id == right.id && left.origin == right.origin
+		&& left.revision == right.revision && left.candidateSha256 == right.candidateSha256;
+}
+
+function restore_projection_identity(projection) {
+	if (projection == null) return { ok: true, skipped: true };
+	let current = strategy_state_call('strategy_selection_get', null);
+	if (!current.ok) return current;
+	if (!projection_identity_equal(current.selected, projection.selected))
+		return { ok: true, skipped: true };
+	return strategy_state_call('strategy_selection_restore', { expectedRevision: current.revision, selected: projection.previousSelected });
+}
+
+function uncertain_projection(projection, snap, newConfigHash, runtimeOutcome, reason) {
+	if (projection == null) return { ok: false, error: { code: 'EINTERNAL', message: reason } };
+	return strategy_state_call('strategy_apply_uncertain_record', {
+		oldConfigSha256: snap.configSha256, newConfigSha256: newConfigHash,
+		oldIdentity: projection.previousSelected, newIdentity: projection.selected,
+		runtimeOutcome: runtimeOutcome, reason: reason
+	});
+}
+
 function pipeline_front() {
 	let ld = load_drafts_or_refuse();
 	if (ld.refuse) return { refuse: ld.refuse };
@@ -318,7 +366,7 @@ function apply_candidate_pipeline(f) {
 			let age = time() - (type(la.at) == 'int' ? la.at : 0);
 			let currentMatches = read_var(OPT_VAR) == f.candidate;
 			let currentVerify = currentMatches ? verify_status(recollect_status(), parse_queue(), f.allowExternalNfqws == true) : null;
-			if (age >= 0 && age < 60 && currentMatches && currentVerify.ok)
+			if (age >= 0 && age < 60 && currentMatches && currentVerify.ok && f.projection == null)
 				return { ok: true, mode: 'apply', idempotent: true,
 					note: 'identical candidate was applied ' + age + 's ago — rollback baseline preserved',
 					applied: { profiles: f.draftCount, candidateSha256: f.diff.candidateSha256 },
@@ -330,6 +378,9 @@ function apply_candidate_pipeline(f) {
 	let snap = snapshot_apply();
 	if (snap.configSha256 == null)
 		return err('snapshot', 'ETARGET', 'unable to hash the locked upstream config — nothing was written');
+	if (f.projection != null && f.projection.expectedConfigSha256 != null
+		&& f.projection.expectedConfigSha256 != snap.configSha256)
+		return err('validate', 'ECONFLICT', 'upstream config changed before Strategy Apply mutation', { expected: f.projection.expectedConfigSha256, actual: snap.configSha256 });
 	let cas = set_var_cas(OPT_VAR, dq_escape(f.candidate), snap.configSha256);
 	if (type(cas) != 'object' || cas == null || cas.ok != true) {
 		let code = (cas && cas.code) ? cas.code : 'EWRITE';
@@ -342,6 +393,13 @@ function apply_candidate_pipeline(f) {
 	run('sleep 2');
 	let verify = verify_status(recollect_status(), parse_queue(), f.allowExternalNfqws == true);
 	let rollbackDecision = profiles_rollback_decision(r.rc, verify.ok, false, -1, false);
+	let identity = null, identityRetry = null, identityFailure = false;
+	if (!rollbackDecision.rollbackRequired && f.projection != null) {
+		identity = strategy_state_call('strategy_selection_apply', { expectedRevision: f.projection.expectedRevision, selected: f.projection.selected });
+		if (!identity.ok) identityRetry = strategy_state_call('strategy_selection_apply', { expectedRevision: f.projection.expectedRevision, selected: f.projection.selected });
+		identityFailure = !identity.ok && (identityRetry == null || !identityRetry.ok);
+		if (identityFailure) rollbackDecision.rollbackRequired = true;
+	}
 	if (rollbackDecision.rollbackRequired) {
 		let restored = restore_whole_file(PATHS.applied_conf, snap.configBytes);
 		if (snap.uciBytes != null) writefile(PATHS.uci_conf, snap.uciBytes);
@@ -349,15 +407,32 @@ function apply_candidate_pipeline(f) {
 		run('sleep 2');
 		let rollbackVerify = verify_status(recollect_status(), parse_queue(), f.allowExternalNfqws == true);
 		let configRestored = restored != null && config_sha256() == snap.configSha256 && read_config_bytes() == snap.configBytes;
-		let rollbackOk = profiles_rollback_decision(r.rc, verify.ok, configRestored, rr.rc, rollbackVerify.ok).rollbackOk;
+		let rollbackOk = identityFailure
+			? (configRestored && rr.rc == 0 && rollbackVerify.ok)
+			: profiles_rollback_decision(r.rc, verify.ok, configRestored, rr.rc, rollbackVerify.ok).rollbackOk;
+		let identityRestored = restore_projection_identity(f.projection);
+		if (!identityRestored.ok) rollbackOk = false;
 		if (!rollbackOk) {
+			let uncertain = uncertain_projection(f.projection, snap, cas.configSha256,
+				'rollback or identity restoration could not be verified', 'rollback-or-identity-restoration-failed');
 			event_apply('crit', 'APPLY FAILED AND EXACT ROLLBACK VERIFICATION FAILED — manual recovery required', {
 				restartRc: r.rc, verify: verify.checks, rollbackRestartRc: rr.rc,
 				rollbackVerify: rollbackVerify.checks, configRestored: configRestored
 			});
-			return err('rollback', 'EINTERNAL', 'apply failed and exact rollback could not be verified — MANUAL RECOVERY REQUIRED', {
+			return err('rollback', f.projection != null ? 'EVERIFY' : 'EINTERNAL', f.projection != null
+				? 'Strategy Apply is uncertain — explicit reconciliation is required'
+				: 'apply failed and exact rollback could not be verified — MANUAL RECOVERY REQUIRED', {
 				verify: verify, rollbackOk: false, rollbackVerify: rollbackVerify,
-				configRestored: configRestored, critical: true, rolledBack: false
+				configRestored: configRestored, identityRestored: identityRestored,
+				uncertain: f.projection != null, critical: f.projection == null, rolledBack: false
+			});
+		}
+		if (identityFailure) {
+			let uncertain = uncertain_projection(f.projection, snap, cas.configSha256,
+				'verified runtime was rolled back after identity commit failure', 'identity-commit-failed');
+			if (!uncertain.ok) return err('rollback', 'EVERIFY', 'Strategy Apply identity commit failed after exact rollback', { uncertain: true, rollbackOk: true, identity: identityRetry || identity });
+			return err('identity', 'EUNCERTAIN', 'Strategy Apply identity commit failed — explicit reconciliation is required', {
+				uncertain: true, rollbackOk: true, identity: identityRetry || identity, reconciliation: uncertain.record
 			});
 		}
 		event_apply('crit', 'apply failed verification; exact snapshot restored and verified', {
@@ -379,7 +454,7 @@ function apply_candidate_pipeline(f) {
 	return {
 		ok: true, mode: 'apply',
 		applied: { profiles: f.draftCount, candidateSha256: f.diff.candidateSha256, configSha256: cas.configSha256 },
-		verify: verify, snapshot: snap,
+		verify: verify, snapshot: snap, identity: f.projection == null ? null : (identityRetry && identityRetry.ok ? identityRetry : identity),
 		rollback: { available: true, armed: false, exactSnapshot: true }
 	};
 }
@@ -395,32 +470,55 @@ function secure_request() {
 	return path;
 }
 
-function locked_candidate_call(candidate, expectedHash) {
+function locked_candidate_call(candidate, expectedHash, projection) {
 	let request = secure_request();
 	if (request == null) return err('lock', 'ELOCK', 'unable to create secure transaction request');
+	let sidecar = null;
+	if (projection != null) {
+		sidecar = projection_path(expectedHash);
+		if (sidecar == null || stat(sidecar) || readlink(sidecar) != null) {
+			try { unlink(request); } catch (e) { }
+			return err('lock', 'ELOCK', 'unable to create the private Strategy projection sidecar');
+		}
+		try { writefile(sidecar, sprintf('%J', projection) + '\n'); } catch (e) {
+			try { unlink(request); } catch (ignored) { }
+			return err('lock', 'ELOCK', 'unable to persist the private Strategy projection sidecar');
+		}
+		let secured = run('chmod 600 ' + shell_escape(sidecar));
+		if (secured.rc != 0) {
+			try { unlink(request); } catch (ignored) { }
+			try { unlink(sidecar); } catch (ignored) { }
+			return err('lock', 'ELOCK', 'unable to secure the private Strategy projection sidecar');
+		}
+	}
 	writefile(request, sprintf("%J", { candidate: candidate, expectedHash: expectedHash }) + '\n');
 	let inner = '/usr/bin/ucode ' + PROFILE_APPLY_CLI + ' candidate ' + shell_escape(request);
 	let cmd = 'Z2M_CONFIG_LOCKED=1 flock -x ' + shell_escape(CONFIG_LOCK) + ' -c ' + shell_escape(inner);
 	let answer = run(cmd);
 	try { unlink(request); } catch (e) { }
+	if (sidecar != null) try { unlink(sidecar); } catch (e) { }
 	if (answer.rc != 0 && !length(trim(answer.out))) return err('lock', 'ELOCK', 'transaction process failed before returning a result');
 	try { return json(answer.out); }
 	catch (e) { return err('lock', 'EINTERNAL', 'transaction response is malformed'); }
 }
 
-export const profiles_apply_candidate = function(candidate, expectedHash) {
+export const profiles_apply_candidate = function(candidate, expectedHash, projection) {
 	if (type(candidate) != 'string' || !length(candidate) || length(candidate) > MAX_CANDIDATE_BYTES)
 		return err('render', 'EINPUT', 'typed candidate is missing or exceeds the safe size limit');
 	if (getenv('Z2M_CONFIG_LOCKED') != '1')
-		return locked_candidate_call(candidate, expectedHash);
+		return locked_candidate_call(candidate, expectedHash, projection);
 	let model = z2m_parse(candidate), diags = z2m_validate(model);
 	for (let d in model.diagnostics) if (d.severity == 'error') return err('render', 'EINPUT', 'typed candidate has parse errors', { diagnostics: model.diagnostics });
 	for (let d in diags) if (d.severity == 'error') return err('render', 'EINPUT', 'typed candidate has validation errors', { diagnostics: diags });
 	let native = native_preflight(candidate), cur = read_var(OPT_VAR), diff = diff_summary(cur != null ? cur : '', candidate);
 	if (expectedHash != null && diff.candidateSha256 != expectedHash)
 		return err('validate', 'ECONFLICT', 'typed candidate hash changed before mutation', { expected: expectedHash, actual: diff.candidateSha256 });
-	return apply_candidate_pipeline({ candidate: candidate, fragments: [], native: native, diff: diff, draftCount: length(model.profiles), allowExternalNfqws: true });
+	let internalProjection = projection != null ? projection : projection_read(expectedHash);
+	return apply_candidate_pipeline({ candidate: candidate, fragments: [], native: native, diff: diff,
+		draftCount: length(model.profiles), allowExternalNfqws: true, projection: internalProjection });
 };
+
+export const profiles_config_hash = function() { return config_sha256(); };
 
 export const profiles_apply_run = function() {
 	if (getenv('Z2M_CONFIG_LOCKED') != '1')

@@ -12,6 +12,7 @@ const STORAGE_ROOT = getenv('Z2M_STRATEGY_ROOT') || '/etc/zapret2-manager';
 const STRATEGY_DIR = getenv('Z2M_STRATEGY_DIR') || '/etc/zapret2-manager/strategies';
 const STATE_PATH = getenv('Z2M_STRATEGY_STATE') || '/etc/zapret2-manager/strategy-state.json';
 const RECONCILE_PATH = getenv('Z2M_STRATEGY_RECONCILIATION') || '/tmp/zapret2-manager/strategy-reconciliation.json';
+const APPLY_UNCERTAIN_PATH = getenv('Z2M_STRATEGY_APPLY_UNCERTAIN') || '/tmp/zapret2-manager/last-good/strategy-apply-uncertain.json';
 const LOCK_PATH = getenv('Z2M_STRATEGY_LOCK') || '/tmp/zapret2-manager/strategy-state.lock';
 const CATALOG_ROOT = getenv('Z2M_STRATEGY_CATALOG_ROOT') || '/usr/share/zapret2-manager/catalog/avatar';
 const EXTENSION_MANIFEST_PATH = getenv('Z2M_STRATEGY_EXTENSION_MANIFEST') || '/usr/share/zapret2-manager/strategies/extensions.json';
@@ -25,6 +26,7 @@ const LOCK_STALE_SECONDS = 300;
 const PRIVATE_DIR_MODE = 448; // 0700
 const PRIVATE_FILE_MODE = 384; // 0600
 const HASH_TAG = getenv('Z2M_STRATEGY_HASH_TAG') || '';
+const MAX_APPLY_UNCERTAIN_BYTES = 16384;
 
 function error(code, message, extra) {
 	let result = { ok: false, error: { code: code, message: message } };
@@ -583,6 +585,133 @@ export const strategy_selection_set = function(input) {
 			selected = { id: selected.id, origin: selected.origin, revision: selected.revision, candidateSha256: selected.candidateSha256 };
 		}
 		return state_mutate(input.expectedRevision, function(next) { next.selected = selected; return next; });
+	});
+};
+
+function selection_copy(value) {
+	return value == null ? null : {
+		id: value.id, origin: value.origin, revision: value.revision,
+		candidateSha256: value.candidateSha256
+	};
+}
+
+// Apply commits only the narrow selected identity projection. Config bytes
+// remain owned by profiles-apply.uc and are never written here.
+export const strategy_selection_apply = function(input) {
+	return locked(function() {
+		if (!is_object(input) || !integer(input.expectedRevision))
+			return error('EINPUT', 'Strategy Apply selection requires expectedRevision.');
+		if (input.selected != null && !selected_valid(input.selected))
+			return error('EINPUT', 'Strategy Apply selection identity is invalid.');
+		return state_mutate(input.expectedRevision, function(next) {
+			next.selected = selection_copy(input.selected);
+			return next;
+		});
+	});
+};
+
+export const strategy_selection_restore = function(input) {
+	return strategy_selection_apply(input);
+};
+
+export const strategy_identity_outcome = function(input) {
+	if (!is_object(input) || input.runtimeVerified != true)
+		return { ok: false, state: 'uncertain' };
+	if (input.identityOk == true) return { ok: true, state: 'verified' };
+	return { ok: false, state: 'rollback' };
+};
+
+function apply_uncertain_identity(value) {
+	return value == null || selected_valid(value);
+}
+
+function apply_uncertain_valid(value) {
+	return is_object(value) && exact_fields(value, ['schema', 'oldConfigSha256', 'newConfigSha256',
+		'oldIdentity', 'newIdentity', 'runtimeOutcome', 'reason']) && value.schema === 1
+		&& sha256(value.oldConfigSha256) && sha256(value.newConfigSha256)
+		&& apply_uncertain_identity(value.oldIdentity) && apply_uncertain_identity(value.newIdentity)
+		&& bounded_string(value.runtimeOutcome, 128) && bounded_string(value.reason, 128);
+}
+
+function apply_uncertain_read() {
+	let result = read_document(APPLY_UNCERTAIN_PATH);
+	if (result.missing) return { ok: true, record: null };
+	if (!result.ok || !apply_uncertain_valid(result.value)
+		|| length(result.raw) > MAX_APPLY_UNCERTAIN_BYTES)
+		return error('EINPUT', 'Strategy Apply uncertainty record is invalid.');
+	return { ok: true, record: result.value };
+}
+
+function apply_uncertain_parent() {
+	let slash = rindex(APPLY_UNCERTAIN_PATH, '/');
+	return slash > 0 && ensure_directory(substr(APPLY_UNCERTAIN_PATH, 0, slash), PRIVATE_DIR_MODE);
+}
+
+export const strategy_apply_uncertain_record = function(input) {
+	return locked(function() {
+		if (!is_object(input) || !sha256(input.oldConfigSha256) || !sha256(input.newConfigSha256)
+			|| !apply_uncertain_identity(input.oldIdentity) || !apply_uncertain_identity(input.newIdentity)
+			|| !bounded_string(input.runtimeOutcome, 128) || !bounded_string(input.reason, 128))
+			return error('EINPUT', 'Strategy Apply uncertainty record is invalid.');
+		if (!apply_uncertain_parent()) return error('EIO', 'Strategy Apply uncertainty directory is unavailable.');
+		let record = {
+			schema: 1, oldConfigSha256: input.oldConfigSha256, newConfigSha256: input.newConfigSha256,
+			oldIdentity: selection_copy(input.oldIdentity), newIdentity: selection_copy(input.newIdentity),
+			runtimeOutcome: input.runtimeOutcome, reason: input.reason
+		};
+		let encoded = sprintf('%J', record);
+		if (length(encoded) > MAX_APPLY_UNCERTAIN_BYTES) return error('EINPUT', 'Strategy Apply uncertainty record is too large.');
+		let write = atomic_write(APPLY_UNCERTAIN_PATH, record, true);
+		return write.ok ? { ok: true, record: record } : write;
+	});
+};
+
+export const strategy_apply_uncertain_get = function() {
+	return apply_uncertain_read();
+};
+
+export const strategy_apply_uncertain_clear = function() {
+	return locked(function() {
+		if (stat(APPLY_UNCERTAIN_PATH) == null) return { ok: true, cleared: false };
+		try { unlink(APPLY_UNCERTAIN_PATH); } catch (e) { return error('EIO', 'Strategy Apply uncertainty record could not be cleared.'); }
+		return { ok: true, cleared: true };
+	});
+};
+
+function same_selection(left, right) {
+	if (left == null || right == null) return left == right;
+	return left.id == right.id && left.origin == right.origin
+		&& left.revision == right.revision && left.candidateSha256 == right.candidateSha256;
+}
+
+// Reconciliation is explicit and requires independently verified runtime and
+// exact old/new config evidence. Normal Apply must remain blocked while the
+// uncertainty record exists.
+export const strategy_apply_reconcile = function(input) {
+	return locked(function() {
+		let pending = apply_uncertain_read();
+		if (!pending.ok) return pending;
+		if (pending.record == null) return { ok: true, reconciled: false };
+		if (!is_object(input) || input.runtimeVerified != true || !sha256(input.currentConfigSha256)
+			|| !apply_uncertain_identity(input.activeIdentity))
+			return error('EVERIFY', 'verified runtime and exact config evidence are required for reconciliation.');
+		let record = pending.record;
+		if (input.currentConfigSha256 == record.oldConfigSha256 && same_selection(input.activeIdentity, record.oldIdentity)) {
+			try { unlink(APPLY_UNCERTAIN_PATH); } catch (e) { return error('EIO', 'Strategy Apply uncertainty record could not be cleared.'); }
+			return { ok: true, reconciled: 'old', selected: record.oldIdentity };
+		}
+		if (input.currentConfigSha256 != record.newConfigSha256 || !same_selection(input.activeIdentity, record.newIdentity))
+			return error('ECONFLICT', 'runtime and config do not match either Strategy Apply identity.');
+		let current = read_state();
+		if (!current.ok) return current;
+		let selected = record.newIdentity;
+		let next = copy(current.state);
+		next.selected = selection_copy(selected);
+		next.revision = current.state.revision + 1;
+		let saved = write_state(current, next, current.state.revision);
+		if (!saved.ok) return saved;
+		try { unlink(APPLY_UNCERTAIN_PATH); } catch (e) { return error('EIO', 'Strategy Apply uncertainty record could not be cleared.'); }
+		return { ok: true, reconciled: 'new', selected: selected, state: saved.state, revision: saved.revision };
 	});
 };
 
