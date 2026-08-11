@@ -58,8 +58,9 @@ function runtimeChecks(verified) {
 }
 
 function transactionHook(overrides = {}) {
-  const { state: stateOverrides = {}, ...transactionOverrides } = overrides;
-  return JSON.stringify({ state: {
+  const { state: stateOverrides = {}, candidate: candidateOverride = null,
+    reconciliation: reconciliationOverride = null, ...transactionOverrides } = overrides;
+  const hook = { state: {
     strategy_apply_revalidate: { ok: true },
     strategy_selection_apply: { ok: true },
     ...stateOverrides,
@@ -76,8 +77,24 @@ function transactionHook(overrides = {}) {
     restart: [{ rc: 0, out: '' }, { rc: 0, out: '' }],
     verify: [{ ok: true, checks: runtimeChecks(true) }, { ok: true, checks: runtimeChecks(true) }],
     rollback: { restoreOk: true, configBytes: 'old-config', configSha256: OLD_CONFIG_HASH },
+    configHash: OLD_CONFIG_HASH, candidateHash: HASH,
     ...transactionOverrides
-  }});
+  }};
+  if (candidateOverride != null) hook.candidate = candidateOverride;
+  if (reconciliationOverride != null) hook.reconciliation = { evidence: reconciliationOverride };
+  return JSON.stringify(hook);
+}
+
+function strategyCandidateStub() {
+  return {
+    ok: true, candidate: CANDIDATE, digest: CANDIDATE_HASH, profilesCount: 1,
+    dependencies: { available: true },
+    nativeValidation: { status: 'verified', coverage: {
+      cliSyntax: 'passed', luaLoad: 'passed', luaCompatibility: 'passed',
+      functionExistence: 'passed', blobExistence: 'passed', runtimeArguments: 'passed',
+      executionPlan: 'passed'
+    }, diagnostics: [] }
+  };
 }
 
 function strategyProjection(record, selected, previousCandidateSha256 = HASH) {
@@ -112,6 +129,11 @@ function storage(callback, revision = 3) {
     Z2M_STRATEGY_APPLY_LASTGOOD: lastGood,
     Z2M_STRATEGY_APPLY_BLOCK: path.join(lastGood, 'strategy-apply-block.json'),
     Z2M_STRATEGY_APPLY_LEASE: path.join(lastGood, 'strategy-apply-lease.json'),
+    Z2M_STRATEGY_CONFIG_LOCK: path.join(runtime, 'config.lock'),
+    Z2M_STRATEGY_PROFILE_MODULE: APPLY,
+    Z2M_STRATEGY_PROFILE_CLI: path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/profiles-apply-cli.uc'),
+    Z2M_STRATEGY_STATE_MODULE: STATE,
+    Z2M_STRATEGY_UCODE_BIN: UCODE_BIN,
     Z2M_STRATEGY_LOCK: path.join(runtime, 'strategy.lock'),
     Z2M_STRATEGY_CATALOG_ROOT: CATALOG_ROOT,
     Z2M_STRATEGY_EXTENSION_MANIFEST: path.join(root, 'extensions.json'),
@@ -268,6 +290,20 @@ test('dead pending Apply guard clears only through exact authoritative old-state
   assert.equal(fs.existsSync(env.Z2M_STRATEGY_APPLY_BLOCK), false);
 }));
 
+test('dead pending Apply guard recovers a first Apply with null old selection', () => storage(({ record, env }) => {
+  const begun = invoke(STATE, `mod.strategy_apply_begin(${JSON.stringify({
+    strategyId: record.id, strategyRevision: record.revision, catalogDigest: CATALOG_DIGEST,
+    oldConfigSha256: OLD_CONFIG_HASH, oldCandidateSha256: HASH,
+  })})`, env);
+  assert.equal(begun.ok, true);
+  const recovered = invoke(STATE, `mod.strategy_apply_reconcile(${JSON.stringify({
+    evidenceMarker: 'z2m-authoritative-reconcile.v1', currentConfigSha256: OLD_CONFIG_HASH,
+    activeCandidateSha256: HASH, runtimeChecks: runtimeChecks(true),
+  })})`, env);
+  assert.deepEqual(recovered, { ok: true, reconciled: 'pending-old', selected: null });
+  assert.equal(fs.existsSync(env.Z2M_STRATEGY_APPLY_BLOCK), false);
+}));
+
 test('live pending Apply guard cannot be stolen or cleared by reconciliation', async () => storage(async ({ record, env }) => {
   const oldIdentity = { id: record.id, origin: 'user', revision: record.revision, candidateSha256: HASH };
   assert.equal(invoke(STATE, `mod.strategy_selection_apply({expectedRevision:0,selected:${JSON.stringify(oldIdentity)}})`, env).ok, true);
@@ -327,7 +363,7 @@ test('profiles_apply_candidate retries identity commit once and reports verified
       ] },
     }),
   });
-  assert.equal(result.ok, true);
+  assert.equal(result.ok, true, JSON.stringify(result));
   assert.equal(result.identity.ok, true);
   assert.equal(result.identityRetry.ok, true);
 }));
@@ -366,6 +402,73 @@ test('profiles_apply_candidate preserves the blocker when uncertainty persistenc
   assert.equal(result.error.code, 'EVERIFY');
   assert.equal(result.uncertain, true);
   assert.equal(result.uncertaintyPersistence.ok, false);
+}));
+
+test('strategy_apply executes a successful transaction through the injected candidate and profile seams', () => storage(({ record, env }) => {
+  const hook = transactionHook({ candidate: strategyCandidateStub(), processBoundary: true });
+  const result = invoke(CLI, `mod.strategy_cli_dispatch('apply', ${JSON.stringify({
+    strategy_id: record.id, revision: record.revision, catalog_digest: CATALOG_DIGEST,
+  })})`, { ...env, Z2M_STRATEGY_APPLY_HOOK: hook });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(result.strategy, { id: record.id, origin: 'user', revision: record.revision, candidateSha256: CANDIDATE_HASH });
+  assert.equal(fs.existsSync(env.Z2M_STRATEGY_APPLY_BLOCK), false);
+  assert.equal(fs.existsSync(env.Z2M_STRATEGY_APPLY_LEASE), false);
+}));
+
+test('strategy_apply executes restart failure and verified rollback through the injected seams', () => storage(({ record, env }) => {
+  const result = invoke(CLI, `mod.strategy_cli_dispatch('apply', ${JSON.stringify({
+    strategy_id: record.id, revision: record.revision, catalog_digest: CATALOG_DIGEST,
+  })})`, { ...env, Z2M_STRATEGY_APPLY_HOOK: transactionHook({
+    candidate: strategyCandidateStub(), processBoundary: true,
+    state: { strategy_selection_get: { ok: true, revision: 0, selected: null } },
+    restart: [{ rc: 1, out: 'restart failed' }, { rc: 0, out: '' }],
+    verify: [{ ok: false, checks: runtimeChecks(false) }, { ok: true, checks: runtimeChecks(true) }],
+  }) });
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'ETARGET');
+  assert.equal(result.rolledBack, true);
+  assert.equal(fs.existsSync(env.Z2M_STRATEGY_APPLY_BLOCK), false);
+}));
+
+test('successful strategy_apply guard-release failure records evidence and reconciles the old state', () => storage(({ record, env }) => {
+  const result = invoke(CLI, `mod.strategy_cli_dispatch('apply', ${JSON.stringify({
+    strategy_id: record.id, revision: record.revision, catalog_digest: CATALOG_DIGEST,
+  })})`, { ...env,
+    Z2M_STRATEGY_APPLY_END_RESULT: JSON.stringify({ ok: false, error: { code: 'EIO', message: 'release failed' } }),
+    Z2M_STRATEGY_APPLY_HOOK: transactionHook({ candidate: strategyCandidateStub(), processBoundary: true }),
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'EUNCERTAIN');
+  const recordValue = JSON.parse(fs.readFileSync(env.Z2M_STRATEGY_APPLY_UNCERTAIN, 'utf8'));
+  assert.equal(recordValue.oldCandidateSha256, HASH);
+  assert.equal(recordValue.newCandidateSha256, CANDIDATE_HASH);
+  assert.equal(recordValue.oldIdentity, null);
+  const reconciled = invoke(STATE, `mod.strategy_apply_reconcile(${JSON.stringify({
+    evidenceMarker: 'z2m-authoritative-reconcile.v1', currentConfigSha256: OLD_CONFIG_HASH,
+    activeCandidateSha256: HASH, runtimeChecks: runtimeChecks(true),
+  })})`, env);
+  assert.deepEqual(reconciled, { ok: true, reconciled: 'old', selected: null });
+  assert.equal(fs.existsSync(env.Z2M_STRATEGY_APPLY_UNCERTAIN), false);
+  assert.equal(fs.existsSync(env.Z2M_STRATEGY_APPLY_BLOCK), false);
+}));
+
+test('strategy_apply reconciliation holds the config lock while collecting evidence', async () => storage(async ({ env }) => {
+  const evidence = { ok: true, evidenceMarker: 'z2m-authoritative-reconcile.v1',
+    currentConfigSha256: OLD_CONFIG_HASH, activeCandidateSha256: HASH, runtimeChecks: runtimeChecks(true) };
+  const holder = spawn('flock', ['-x', env.Z2M_STRATEGY_CONFIG_LOCK, '-c', 'sleep 1.5'], { stdio: 'ignore' });
+  await new Promise(resolve => setTimeout(resolve, 150));
+  const started = Date.now();
+  const result = invoke(CLI, `mod.strategy_cli_dispatch('reconcile', { forged: true }, { forged: true })`, {
+    ...env, Z2M_STRATEGY_APPLY_HOOK: transactionHook({ reconciliation: evidence }),
+  });
+  const elapsed = Date.now() - started;
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.reconciled, false);
+  assert.ok(elapsed >= 900, `reconciliation did not wait for config lock: ${elapsed}ms`);
+  if (holder.exitCode == null) await new Promise((resolve, reject) => {
+    holder.once('error', reject);
+    holder.once('exit', code => code == 0 ? resolve() : reject(new Error(`flock holder exit ${code}`)));
+  });
 }));
 
 test('state identity failure decision requires rollback or volatile uncertainty, never reboot durability', () => {

@@ -3,15 +3,19 @@
 // catalog provenance, and runtime composition on the server, then delegates
 // candidate construction to the shared Strategy compiler.
 
-import { readfile, stat, readlink } from 'fs';
+import { readfile, stat, readlink, popen } from 'fs';
 import { strategy_catalog_load, catalog_entry_to_strategy } from './strategy-catalog.uc';
 import { strategy_user_get_readonly, strategy_selection_get, strategy_apply_uncertain_get,
- strategy_apply_reconcile, strategy_apply_guard_status, strategy_apply_begin, strategy_apply_end } from './strategy-state.uc';
+ strategy_apply_uncertain_record, strategy_apply_reconcile, strategy_apply_guard_status, strategy_apply_begin, strategy_apply_end } from './strategy-state.uc';
 import { strategy_candidate, strategy_effective_argv } from './strategy-compiler.uc';
 import { profiles_apply_candidate, profiles_config_hash, profiles_candidate_hash, profiles_reconcile_evidence } from './profiles-apply.uc';
 
 const DEFAULT_CATALOG_ROOT = '/usr/share/zapret2-manager/catalog/avatar';
 const ENGINE_PATH = '/opt/zapret2/nfq2/nfqws2';
+const CONFIG_LOCK = getenv('Z2M_STRATEGY_CONFIG_LOCK') || '/opt/zapret2/config.lock';
+const PROFILE_APPLY_MODULE = getenv('Z2M_STRATEGY_PROFILE_MODULE') || '/usr/libexec/zapret2-manager/profiles-apply.uc';
+const STATE_MODULE = getenv('Z2M_STRATEGY_STATE_MODULE') || '/usr/libexec/zapret2-manager/strategy-state.uc';
+const UCODE_BIN = getenv('Z2M_STRATEGY_UCODE_BIN') || '/usr/bin/ucode';
 const MAX_REQUEST_BYTES = 524288;
 const MAX_INLINE_BYTES = 262144;
 const MAX_TEXT = 512;
@@ -47,6 +51,28 @@ function error_result(code, message, extra) {
 	let result = { ok: false, error: { code: error_code(code), message: bounded_text(message, MAX_TEXT) } };
 	if (is_object(extra)) for (let key in extra) result[key] = extra[key];
 	return result;
+}
+
+let APPLY_HOOK = null, APPLY_HOOK_LOADED = false;
+
+function apply_hook_value(section, name) {
+	if (!APPLY_HOOK_LOADED) {
+		APPLY_HOOK_LOADED = true;
+		let raw = getenv('Z2M_STRATEGY_APPLY_HOOK');
+		if (raw != null && length(raw) <= 65536) try { APPLY_HOOK = json(raw); } catch (e) { APPLY_HOOK = null; }
+	}
+	let group = is_object(APPLY_HOOK) ? APPLY_HOOK[section] : null;
+	if (name == null) return group;
+	return is_object(group) && group[name] != null ? group[name] : null;
+}
+
+function shell_escape(value) {
+	let result = "'";
+	for (let i = 0; i < length(value); i++) {
+		let c = substr(value, i, 1);
+		result += c == "'" ? "'\\''" : c;
+	}
+	return result + "'";
 }
 
 function safe_id(value) {
@@ -401,15 +427,43 @@ function strategy_apply_projection(resolved, input, candidate, selection, config
 	};
 }
 
-function strategy_apply_finish(result, operationNonce) {
+function strategy_apply_candidate(resolved, environment) {
+	let injected = apply_hook_value('candidate', null);
+	return is_object(injected) ? injected : strategy_candidate(resolved.strategy, environment);
+}
+
+function strategy_apply_release_evidence(result, projection, operationNonce) {
+	if (!is_object(projection) || !is_object(result) || !is_object(result.applied)
+		|| !digest(projection.expectedConfigSha256) || !digest(projection.previousCandidateSha256)
+		|| !digest(result.applied.configSha256) || !digest(projection.candidateSha256))
+		return error_result('EIO', 'successful Strategy Apply guard release lacks bounded recovery evidence');
+	let checks = is_object(result.verify) && is_object(result.verify.checks) ? result.verify.checks : {
+		processPresent: false, singleInstance: false, rulesPresent: false, queueRegistered: false, ownerMatch: false
+	};
+	let saved = null;
+	try { saved = strategy_apply_uncertain_record({
+		oldConfigSha256: projection.expectedConfigSha256, newConfigSha256: result.applied.configSha256,
+		oldCandidateSha256: projection.previousCandidateSha256, newCandidateSha256: projection.candidateSha256,
+		catalogDigest: projection.catalogDigest, oldIdentity: projection.previousSelected,
+		newIdentity: projection.selected, runtimeOutcome: {
+			initial: checks, rollback: checks, restartRc: 0, rollbackRestartRc: 0,
+			configRestored: true, identityRestored: true
+		}, reason: 'successful Apply guard release failed', applyNonce: operationNonce });
+	} catch (e) { saved = null; }
+	return saved || error_result('EIO', 'successful Strategy Apply guard recovery evidence could not be persisted');
+}
+
+function strategy_apply_finish(result, operationNonce, projection) {
 	if (result == null) return error_result('EINTERNAL', 'Strategy transaction returned no result');
 	if (result.uncertain == true || (result.error && result.error.code == 'EUNCERTAIN')) return result;
 	let ended = null;
 	try { ended = strategy_apply_end({ applyNonce: operationNonce }); } catch (e) { ended = null; }
-	if (!is_object(ended) || ended.ok != true)
-		return error_result('EIO', 'Strategy Apply guard could not be released; future Apply remains blocked.', {
-			blocked: true, uncertain: false, transaction: result, guard: ended
+	if (!is_object(ended) || ended.ok != true) {
+		let evidence = strategy_apply_release_evidence(result, projection, operationNonce);
+		return error_result('EUNCERTAIN', 'Strategy Apply guard could not be released; explicit reconciliation is required.', {
+			blocked: true, uncertain: true, transaction: result, guard: ended, uncertaintyPersistence: evidence
 		});
+	}
 	return result;
 }
 
@@ -443,7 +497,7 @@ export const strategy_apply = function(input, context) {
 	trusted.environment.validate = true;
 	trusted.environment.executionAdmission = true;
 	let candidate = null;
-	try { candidate = strategy_candidate(resolved.strategy, trusted.environment); }
+	try { candidate = strategy_apply_candidate(resolved, trusted.environment); }
 	catch (e) { return strategy_apply_finish(error_result('EINTERNAL', 'Strategy compilation failed'), begun.operationNonce); }
 	if (!is_object(candidate) || candidate.ok != true)
 		return strategy_apply_finish(error_result(candidate && candidate.error ? candidate.error.code : 'EINTERNAL',
@@ -463,18 +517,39 @@ export const strategy_apply = function(input, context) {
 	let applied = profiles_apply_candidate(candidate.candidate, candidate.digest, projection);
 	if (!is_object(applied)) return strategy_apply_finish(error_result('EINTERNAL', 'Strategy transaction returned no result'), begun.operationNonce);
 	if (applied.ok != true) {
-		return strategy_apply_finish(applied, begun.operationNonce);
+		return strategy_apply_finish(applied, begun.operationNonce, projection);
 	}
 	applied.strategy = { id: resolved.id, origin: resolved.origin, revision: input.revision,
 		candidateSha256: candidate.digest };
-	return strategy_apply_finish(applied, begun.operationNonce);
+	return strategy_apply_finish(applied, begun.operationNonce, projection);
 };
 
-export const strategy_reconcile = function(input, context) {
+function strategy_reconcile_locked() {
 	let evidence = null;
 	try { evidence = profiles_reconcile_evidence(); } catch (e) { evidence = null; }
 	if (!is_object(evidence) || evidence.ok != true) return evidence || error_result('EVERIFY', 'verified runtime reconciliation evidence is unavailable');
 	return strategy_apply_reconcile(evidence);
+}
+
+function strategy_reconcile_with_config_lock() {
+	let profileMetadata = null;
+	try { profileMetadata = stat(PROFILE_APPLY_MODULE); } catch (e) { profileMetadata = null; }
+	if (profileMetadata == null) return error_result('EVERIFY', 'authoritative reconciliation adapter is unavailable');
+	let source = 'import { profiles_reconcile_evidence } from ' + sprintf('%J', PROFILE_APPLY_MODULE)
+		+ '; import { strategy_apply_reconcile } from ' + sprintf('%J', STATE_MODULE)
+		+ '; let evidence = profiles_reconcile_evidence(); let result = evidence.ok == true ? strategy_apply_reconcile(evidence) : evidence; print(sprintf("%J", result));';
+	let inner = shell_escape(UCODE_BIN) + ' -e ' + shell_escape(source);
+	let p = null;
+	try { p = popen('Z2M_CONFIG_LOCKED=1 flock -x ' + shell_escape(CONFIG_LOCK) + ' -c ' + shell_escape(inner) + ' 2>&1', 'r'); }
+	catch (e) { p = null; }
+	if (!p) return error_result('EIO', 'authoritative reconciliation lock could not be acquired');
+	let output = p.read('all') || '', rc = p.close();
+	if (rc != 0 && !length(output)) return error_result('EIO', 'authoritative reconciliation process failed');
+	try { return json(output); } catch (e) { return error_result('EIO', 'authoritative reconciliation response is malformed'); }
+}
+
+export const strategy_reconcile = function(input, context) {
+	return getenv('Z2M_CONFIG_LOCKED') == '1' ? strategy_reconcile_locked() : strategy_reconcile_with_config_lock();
 };
 
 function request(path) {

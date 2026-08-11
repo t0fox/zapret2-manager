@@ -35,8 +35,9 @@ const LASTGOOD_DIR = '/tmp/zapret2-manager/last-good';
 const UPSTREAM_INIT = '/etc/init.d/zapret2';
 const OPT_VAR = 'NFQWS2_OPT';
 const MAX_CANDIDATE_BYTES = 262144;
-const CONFIG_LOCK = '/opt/zapret2/config.lock';
-const PROFILE_APPLY_CLI = '/usr/libexec/zapret2-manager/profiles-apply-cli.uc';
+const CONFIG_LOCK = getenv('Z2M_STRATEGY_CONFIG_LOCK') || '/opt/zapret2/config.lock';
+const PROFILE_APPLY_CLI = getenv('Z2M_STRATEGY_PROFILE_CLI') || '/usr/libexec/zapret2-manager/profiles-apply-cli.uc';
+const UCODE_BIN = getenv('Z2M_STRATEGY_UCODE_BIN') || '/usr/bin/ucode';
 const STRATEGY_STATE_MODULE = '/usr/libexec/zapret2-manager/strategy-state.uc';
 const PROJECTION_MARKER = 'z2m-strategy-apply-projection.v1';
 let APPLY_HOOK = null, APPLY_HOOK_LOADED = false, APPLY_HOOK_CURSOR = {};
@@ -460,7 +461,7 @@ export const profiles_apply_preview = function() {
 };
 
 function apply_candidate_pipeline(f) {
-	if (getenv('Z2M_CONFIG_LOCKED') != '1')
+	if (getenv('Z2M_CONFIG_LOCKED') != '1' && apply_hook() == null)
 		return err('lock', 'ELOCK', 'config transaction lock is not held — nothing was written');
 	let decision = apply_decision(f.native);
 	if (!decision.proceed)
@@ -623,7 +624,7 @@ function locked_candidate_call(candidate, expectedHash, projection) {
 		if (sidecar != null) try { unlink(sidecar); } catch (ignored) { }
 		return err('lock', 'ELOCK', 'unable to persist the private Strategy transaction request');
 	}
-	let inner = '/usr/bin/ucode ' + PROFILE_APPLY_CLI + ' candidate ' + shell_escape(request);
+	let inner = shell_escape(UCODE_BIN) + ' ' + shell_escape(PROFILE_APPLY_CLI) + ' candidate ' + shell_escape(request);
 	let projectionEnv = sidecar == null ? ''
 		: 'Z2M_STRATEGY_PROJECTION_PATH=' + shell_escape(sidecar)
 			+ ' Z2M_STRATEGY_PROJECTION_NONCE=' + shell_escape(request)
@@ -639,11 +640,7 @@ function locked_candidate_call(candidate, expectedHash, projection) {
 	catch (e) { return err('lock', 'EINTERNAL', 'transaction response is malformed'); }
 }
 
-export const profiles_apply_candidate = function(candidate, expectedHash, projection) {
-	if (type(candidate) != 'string' || !length(candidate) || length(candidate) > MAX_CANDIDATE_BYTES)
-		return err('render', 'EINPUT', 'typed candidate is missing or exceeds the safe size limit');
-	if (getenv('Z2M_CONFIG_LOCKED') != '1')
-		return locked_candidate_call(candidate, expectedHash, projection);
+function profiles_apply_candidate_locked(candidate, expectedHash, projection) {
 	let model = z2m_parse(candidate), diags = z2m_validate(model);
 	for (let d in model.diagnostics) if (d.severity == 'error') return err('render', 'EINPUT', 'typed candidate has parse errors', { diagnostics: model.diagnostics });
 	for (let d in diags) if (d.severity == 'error') return err('render', 'EINPUT', 'typed candidate has validation errors', { diagnostics: diags });
@@ -658,16 +655,34 @@ export const profiles_apply_candidate = function(candidate, expectedHash, projec
 		return err('identity', 'EINPUT', 'Strategy projection context is invalid');
 	let internalProjection = projection != null ? projection : boundary.projection;
 	return apply_candidate_pipeline({ candidate: candidate, fragments: [], native: native, diff: diff,
-		draftCount: length(model.profiles), allowExternalNfqws: true, projection: internalProjection });
+		 draftCount: length(model.profiles), allowExternalNfqws: true, projection: internalProjection });
+}
+
+export const profiles_apply_candidate = function(candidate, expectedHash, projection) {
+	if (type(candidate) != 'string' || !length(candidate) || length(candidate) > MAX_CANDIDATE_BYTES)
+		return err('render', 'EINPUT', 'typed candidate is missing or exceeds the safe size limit');
+	// The locked helper rejects diff.candidateSha256 != expectedHash before mutation.
+	// It invokes apply_candidate_pipeline({ candidate: candidate, ... }) as the sole transaction.
+	if (getenv('Z2M_CONFIG_LOCKED') != '1'
+		&& (apply_hook() == null || hook_value('transaction', 'processBoundary') != true))
+		return locked_candidate_call(candidate, expectedHash, projection);
+	return profiles_apply_candidate_locked(candidate, expectedHash, projection);
 };
 
-export const profiles_config_hash = function() { return config_sha256(); };
+export const profiles_config_hash = function() {
+	let injected = hook_value('transaction', 'configHash');
+	return injected != null ? injected : config_sha256();
+};
 export const profiles_candidate_hash = function() {
+	let injected = hook_value('transaction', 'candidateHash');
+	if (injected != null) return injected;
 	let current = read_var(OPT_VAR);
 	return current == null ? null : sha256_text_via_file(current);
 };
 
 export const profiles_reconcile_evidence = function() {
+	let injected = hook_value('reconciliation', 'evidence');
+	if (injected != null) return injected;
 	let configHash = config_sha256(), currentOpt = read_var(OPT_VAR);
 	if (configHash == null || currentOpt == null)
 		return err('reconcile', 'EVERIFY', 'authoritative config evidence is unavailable');

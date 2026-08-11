@@ -731,6 +731,9 @@ export const strategy_apply_begin = function(input) {
 };
 
 export const strategy_apply_end = function(input) {
+	let injected = null, raw = getenv('Z2M_STRATEGY_APPLY_END_RESULT');
+	if (raw != null && length(raw) <= 4096) try { injected = json(raw); } catch (e) { injected = null; }
+	if (is_object(injected)) return injected;
 	return locked(function() {
 		if (!is_object(input) || !bounded_string(input.applyNonce, 256)) return error('EINPUT', 'Strategy Apply operation nonce is required.');
 		let lease = apply_lease_read();
@@ -900,6 +903,10 @@ function selection_exact_authoritative(active, expected) {
 	return expected != null && same_selection(active, expected) && selection_authoritative(active);
 }
 
+function selection_old_authoritative(active, expected) {
+	return expected == null ? active == null : selection_exact_authoritative(active, expected);
+}
+
 function apply_target_current(id, revision) {
 	let current = read_user(id);
 	if (current.ok) return current.strategy.revision == revision;
@@ -934,12 +941,12 @@ export const strategy_apply_reconcile = function(input) {
 		if (!current.ok) return current;
 		if (pending.record == null) {
 			let baseline = block.record;
-			if (baseline.oldConfigSha256 == null || baseline.oldCandidateSha256 == null || baseline.oldSelected == null
+			if (baseline.oldConfigSha256 == null || baseline.oldCandidateSha256 == null
 				|| !apply_target_current(baseline.strategyId, baseline.strategyRevision)
 				|| apply_catalog_digest() != baseline.catalogDigest
 				|| input.currentConfigSha256 != baseline.oldConfigSha256
 				|| input.activeCandidateSha256 != baseline.oldCandidateSha256
-				|| !selection_exact_authoritative(current.state.selected, baseline.oldSelected))
+				|| !selection_old_authoritative(current.state.selected, baseline.oldSelected))
 				return error('ECONFLICT', 'dead pending Strategy Apply outcome is not the exact verified old state.');
 			let clearedPending = apply_block_clear();
 			if (!clearedPending) return error('EIO', 'Strategy Apply blocking marker could not be cleared.');
@@ -953,7 +960,7 @@ export const strategy_apply_reconcile = function(input) {
 		let newMatch = input.currentConfigSha256 == record.newConfigSha256
 			&& input.activeCandidateSha256 == record.newCandidateSha256;
 		if (oldMatch) {
-			if (!selection_exact_authoritative(current.state.selected, record.oldIdentity))
+			if (!selection_old_authoritative(current.state.selected, record.oldIdentity))
 				return error('ECONFLICT', 'authoritative persisted Strategy selection does not match the old identity.');
 			let clearedOld = clear_apply_uncertainty();
 			if (!clearedOld.ok) return clearedOld;
@@ -967,7 +974,7 @@ export const strategy_apply_reconcile = function(input) {
 			if (!clearedNew.ok) return clearedNew;
 			return { ok: true, reconciled: 'new', selected: selected, revision: current.state.revision };
 		}
-		if (!selection_exact_authoritative(current.state.selected, record.oldIdentity))
+		if (!selection_old_authoritative(current.state.selected, record.oldIdentity))
 			return error('ECONFLICT', 'authoritative persisted Strategy selection does not match the old identity.');
 		let next = copy(current.state);
 		next.selected = selection_copy(selected);

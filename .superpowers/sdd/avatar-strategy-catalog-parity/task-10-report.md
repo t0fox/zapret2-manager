@@ -65,7 +65,7 @@ these tests without adding a router dependency.
   production implementation; Round 2 RED run covered selection collisions,
   pending-owner recovery, and executable transaction outcomes before the
   corresponding fixes.
-- Focused Apply/Profile/model/compiler/state/Preview run: 108 tests passed.
+- Focused Apply/Profile/model/compiler/state/Preview run: 113 tests passed.
 - `git diff --check`: passed.
 - Transaction boundary manually inspected in `apply_candidate_pipeline`: the
   existing snapshot, CAS, upstream restart, recollection, runtime verification,
@@ -112,9 +112,38 @@ these tests without adding a router dependency.
 
 ## Verification Update
 
-- Focused Apply/Profile/model/compiler/state/Preview suite: 108 passed.
+- Focused Apply/Profile/model/compiler/state/Preview suite: 113 passed.
 - Native core state/atomic suites: 52 passed.
 - Native atomic-write-json property suite: 10 passed when run as WSL root, as
   required by its production filesystem tests; the non-root invocation failed
   only its explicit root precondition.
 - `git diff --check`: passed after the final implementation changes.
+
+## Round 3 Fix Evidence
+
+- A null `oldSelected` is now an authoritative first-Apply baseline. Dead
+  pending guards can reconcile to `{ reconciled: 'pending-old', selected: null }`
+  only after exact old config/candidate/catalog evidence and verified runtime
+  checks; mismatched outcomes remain blocked.
+- Reconciliation now runs its server-side evidence collection inside the
+  configured config lock and invokes the state reconciler before releasing that
+  lock. The state lock is acquired for the persisted selection read and commit,
+  so ordinary config and selection mutations cannot race the evidence-to-commit
+  boundary. Caller context and caller evidence remain ignored.
+- If a verified Apply succeeds but guard release fails, the CLI persists a
+  bounded uncertainty record containing old/new config hashes, old/new
+  candidate hashes, catalog digest, identities, and verified runtime checks.
+  Explicit reconciliation can confirm either old or new state and clear the
+  block; persistence failure remains fail-closed.
+- The deterministic Apply hook now supports candidate injection, transaction
+  outcomes, state outcomes, and the real request/process-boundary adapter. New
+  executable tests call `strategy_apply`, traverse `profiles-apply-cli.uc` and
+  the nonce-bound sidecar, and cover success, restart/rollback failure,
+  guard-release recovery, null old selection, and evidence lock serialization.
+
+## Round 3 Verification
+
+- Apply behavioral suite: 24 passed.
+- Focused Apply/Profile/model/compiler/state/Preview suite: 113 passed.
+- Native core state/atomic suites: 42 passed.
+- Native atomic-write-json property suite: 10 passed as WSL root.
