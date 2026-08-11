@@ -171,7 +171,7 @@
           "scontent.cdninstagram.com",
           "cdninstagram.com"
         ],
-        "expectedHostlists": [],
+        "expectedHostlists": ["instagram.txt"],
         "tcp": {
           "ports": "443",
           "l7": "tls",
@@ -235,7 +235,7 @@
           "fbcdn.net",
           "scontent.xx.fbcdn.net"
         ],
-        "expectedHostlists": [],
+        "expectedHostlists": ["facebook.txt"],
         "tcp": {
           "ports": "443",
           "l7": "tls",

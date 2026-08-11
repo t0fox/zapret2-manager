@@ -82,6 +82,8 @@ test('Scanner fixtures share pinned provenance and bounded deterministic schemas
 test('target fixture preserves known profiles and generic fallback selection', () => {
   const fixture = readFixture('targets.json');
   assertProvenance(fixture, 'targets.json');
+  assert.ok(fixture.sourceEvidence.includes(
+    'core/scan_targets.py@f9dd3ea47a2239514f396a843b475c92c33f0b4c'));
   assert.deepEqual(fixture.constants, {
     tcpModes: ['quick', 'standard', 'full'],
     udpModes: ['quick', 'standard', 'full'],
@@ -137,7 +139,7 @@ test('target fixture preserves known profiles and generic fallback selection', (
         'instagram.com', 'www.instagram.com', 'i.instagram.com',
         'scontent.cdninstagram.com', 'cdninstagram.com',
       ],
-      expectedHostlists: [],
+      expectedHostlists: ['instagram.txt'],
       tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' },
       udp: { ports: '443', l7: 'quic', payload: 'quic_initial' },
       probeUrl: 'https://instagram.com/',
@@ -155,7 +157,7 @@ test('target fixture preserves known profiles and generic fallback selection', (
       profileKey: 'facebook', primaryHost: 'facebook.com',
       testHosts: ['www.facebook.com', 'scontent.xx.fbcdn.net'],
       hostlistDomains: ['facebook.com', 'www.facebook.com', 'fbcdn.net', 'scontent.xx.fbcdn.net'],
-      expectedHostlists: [],
+      expectedHostlists: ['facebook.txt'],
       tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' },
       udp: { ports: '443', l7: 'quic', payload: 'quic_initial' },
       probeUrl: 'https://facebook.com/',
@@ -256,6 +258,29 @@ test('candidate fixture captures bounded mode order, DPI filtering, and identity
     assert.equal(entry.candidate.dependencyDigest,
       sha256Text(JSON.stringify(entry.candidate.dependencyClosure)), entry.id);
     assert.deepEqual(entry.candidate.compiledTokens, entry.candidate.compiledCandidate.split(' '), entry.id);
+  }
+});
+
+test('generated candidate IDs, techniques, normalized identities, dependencies, and order stay consistent', () => {
+  const fixture = readFixture('candidates.json');
+  const standard = fixture.cases.find(entry => entry.id === 'standard-tcp-generated-tail');
+  const generated = fixture.generatedCandidates;
+  assert.ok(Array.isArray(generated) && generated.length > 0);
+  assert.deepEqual(generated.map(entry => entry.id), standard.generated.ids);
+  assert.equal(new Set(generated.map(entry => entry.id)).size, generated.length);
+  assert.equal(new Set(generated.map(entry => entry.normalizedTokenStream)).size, generated.length);
+  for (const entry of generated) {
+    const linked = fixture.cases.find(candidate => candidate.id === entry.caseId);
+    assert.ok(linked, entry.id);
+    assert.equal(linked.candidate.scannerId, `generated:${entry.id}`, entry.id);
+    assert.match(entry.id, new RegExp(`^gen_${entry.technique}_`), entry.id);
+    assert.deepEqual(entry.normalizedTokens, linked.candidate.compiledTokens, entry.id);
+    assert.equal(entry.normalizedTokenStream, entry.normalizedTokens.join(' '), entry.id);
+    const techniqueToken = entry.normalizedTokens.find(token => token.startsWith('--lua-desync='));
+    assert.equal(techniqueToken.slice('--lua-desync='.length).split(':', 1)[0], entry.technique, entry.id);
+    assert.deepEqual(entry.complexity, linked.candidate.complexity, entry.id);
+    assert.deepEqual(entry.dependencyClosure, linked.candidate.dependencyClosure, entry.id);
+    assert.equal(entry.dependencyDigest, linked.candidate.dependencyDigest, entry.id);
   }
 });
 

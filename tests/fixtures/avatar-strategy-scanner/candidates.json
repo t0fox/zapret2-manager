@@ -55,6 +55,49 @@
       "dependencyDigest", "ordinal", "complexity", "recommended", "fullPreset", "saveRequired"
     ]
   },
+  "generatedCandidates": [
+    {
+      "id": "gen_multisplit_pos_1",
+      "caseId": "exact-generated-canonicalization",
+      "technique": "multisplit",
+      "normalizedTokens": [
+        "--filter-tcp=443",
+        "--lua-desync=multisplit:pos=1"
+      ],
+      "normalizedTokenStream": "--filter-tcp=443 --lua-desync=multisplit:pos=1",
+      "complexity": [1, 0, 0],
+      "dependencyClosure": {
+        "available": true,
+        "items": [
+          {"key": "function:multisplit", "kind": "function", "id": "multisplit", "reference": "multisplit", "available": true}
+        ],
+        "missing": [],
+        "structurallyCompilable": true
+      },
+      "dependencyDigest": "91c5f9cca771ab57461c35d052e500771235c1049b7b46da40b1ba71db8636b3"
+    },
+    {
+      "id": "gen_fake_blob_fake_default_tls_repeats_6",
+      "caseId": "unmatched-generated-save-required",
+      "technique": "fake",
+      "normalizedTokens": [
+        "--filter-tcp=443",
+        "--lua-desync=fake:blob=fake_default_tls:repeats=6"
+      ],
+      "normalizedTokenStream": "--filter-tcp=443 --lua-desync=fake:blob=fake_default_tls:repeats=6",
+      "complexity": [1, 6, 0],
+      "dependencyClosure": {
+        "available": true,
+        "items": [
+          {"key": "function:fake", "kind": "function", "id": "fake", "reference": "fake", "available": true},
+          {"key": "blob:fake_default_tls", "kind": "blob", "id": "fake_default_tls", "reference": "fake_default_tls", "available": true}
+        ],
+        "missing": [],
+        "structurallyCompilable": true
+      },
+      "dependencyDigest": "14c862f4f9e8919913278a43675ea2595ad3dc83318248e4204a2bdc88c6b8af"
+    }
+  ],
   "cases": [
     {
       "id": "quick-tcp-order",
@@ -162,20 +205,19 @@
         "protocol": "tcp",
         "compiledTokens": [
           "--filter-tcp=443",
-          "--lua-desync=fake:blob=fake_default_tls:repeats=6"
+          "--lua-desync=multisplit:pos=1"
         ],
-        "compiledCandidate": "--filter-tcp=443 --lua-desync=fake:blob=fake_default_tls:repeats=6",
-        "compiledDigest": "878fb03dc03ccbbae559c2d68a07e9135d17eb71b4f6115c0a9aa810a62f5546",
+        "compiledCandidate": "--filter-tcp=443 --lua-desync=multisplit:pos=1",
+        "compiledDigest": "10ee8bba8d9703bc51a9e1cb34f2707a9a460734e77e858bcccae8271606f406",
         "dependencyClosure": {
           "available": true,
           "items": [
-            {"key": "function:fake", "kind": "function", "id": "fake", "reference": "fake", "available": true},
-            {"key": "blob:fake_default_tls", "kind": "blob", "id": "fake_default_tls", "reference": "fake_default_tls", "available": true}
+            {"key": "function:multisplit", "kind": "function", "id": "multisplit", "reference": "multisplit", "available": true}
           ],
           "missing": [],
           "structurallyCompilable": true
         },
-        "dependencyDigest": "14c862f4f9e8919913278a43675ea2595ad3dc83318248e4204a2bdc88c6b8af",
+        "dependencyDigest": "91c5f9cca771ab57461c35d052e500771235c1049b7b46da40b1ba71db8636b3",
         "ordinal": 1,
         "complexity": [1, 0, 0],
         "recommended": false,
@@ -187,13 +229,12 @@
         "revision": 3,
         "compiledTokens": [
           "--filter-tcp=443",
-          "--lua-desync=fake:blob=fake_default_tls:repeats=6"
+          "--lua-desync=multisplit:pos=1"
         ],
         "dependencyClosure": {
           "available": true,
           "items": [
-            {"key": "function:fake", "kind": "function", "id": "fake", "reference": "fake", "available": true},
-            {"key": "blob:fake_default_tls", "kind": "blob", "id": "fake_default_tls", "reference": "fake_default_tls", "available": true}
+            {"key": "function:multisplit", "kind": "function", "id": "multisplit", "reference": "multisplit", "available": true}
           ],
           "missing": [],
           "structurallyCompilable": true
