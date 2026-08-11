@@ -9,8 +9,8 @@ This audit compares user-visible behavior and domain models, not filenames or im
 
 | Status | Count |
 |---|---:|
-| PARITY | 13 |
-| PARTIAL | 29 |
+| PARITY | 11 |
+| PARTIAL | 31 |
 | MISSING | 28 |
 | DIVERGENT | 2 |
 | INTENTIONAL_DEVIATION | 4 |
@@ -57,7 +57,7 @@ Two LEGACY_DEAD inventory rows are excluded from product-parity arithmetic.
 | Strategy validation/apply | builder validation and whole-Strategy apply | Validate and apply aggregate | `strategy-cli.uc`, `profiles-apply.uc`; Preview/Apply/integration tests | Validate is explicit and non-mutating; Apply requires persisted identity/catalog digest, uses CAS transaction, runtime verification and rollback | PARITY | SECURITY_HARDENING_EQUIVALENT_BEHAVIOR (DEV-003) | Preserve the stronger transaction boundary while accepting the proven Strategy contract. |
 | Hostlist injection/autowrap | `strategy_builder.py`; tests for bare trick autowrap/quoting | Inject filters/assets and auto-wrap bare trick as Avatar specifies | compiler/preview tests; integration fixture | Shared compiler preserves quote-aware fragments, hostlist/runtime injection and Avatar autowrap semantics | PARITY | — | Extend only from pinned characterization evidence. |
 | Basic/advanced/direct/preset catalogs | `catalogs/**`; `core/catalog_loader.py` | Distinct catalog sources and stable Strategy IDs | installed `catalog/avatar/manifest.json`; package/catalog/integration tests | Four pinned Avatar catalog levels are packaged, hash-verified, loaded with deterministic winners and exposed separately from service/Orchestra catalogs | PARITY | — | Keep catalog reload verified and do not conflate service-domain identity. |
-| Catalog protocol sets/labels | catalog metadata and scan UI | TCP/UDP/HTTP80/QUIC/Discord applicability; quick/standard/full; recommendation labels | manifest sets; catalog/compiler tests; integration test | Canonical TCP/UDP quick/standard/full sets preserve pinned order, uniqueness and winner membership | PARITY | — | Add other Avatar protocol labels only with new pinned evidence. |
+| Catalog protocol sets/labels | catalog metadata and scan UI | TCP/UDP/HTTP80/QUIC/Discord applicability; quick/standard/full; recommendation labels | manifest sets; catalog/compiler tests; integration test | TCP/UDP quick/standard/full sets preserve pinned order, uniqueness and winner membership; HTTP80/QUIC/Discord applicability and recommendation labels are unknown and unverified | PARTIAL | — | Collect bounded evidence before claiming HTTP80/QUIC/Discord parity. |
 | Catalog update/reload | `core/catalog_updater.py`; `api/catalog_update.py` | Check/download/install catalog update while preserving users | service catalog revision/ownership ledger | Wrong catalog domain | MISSING | — | Implement strategy-catalog update with validation/preview and user preservation. |
 | Strategy Scanner | `core/strategy_scanner.py`; `api/scan.py`; scan pages | Catalog Strategy executor with `quick|standard|full`, protocol/target/DPI filtering, resume index, baseline-aware success and apply by result index/Strategy ID | Orchestra runs | Evidence-gated runner exists but product semantics and catalog differ | DIVERGENT | — | Reproduce exact Scanner semantics using durable native jobs. |
 | Scanner probes | scanner testers/models/targets | Baseline, IPv4/6, TLS/body/QUIC/STUN as selected | health matrix/Orchestra HTTPS-centric probes | Not full probe matrix | PARTIAL | — | Add each Avatar probe and verdict semantics. |
@@ -107,7 +107,7 @@ Two LEGACY_DEAD inventory rows are excluded from product-parity arithmetic.
 | UI/navigation reachability | `web/js/app.js` 38 canonical pages plus two legacy aliases | Every major capability has a reachable page | LuCI app seven canonical tabs plus one lists alias | Many capabilities unreachable | PARTIAL | OPENWRT_NATIVE (DEV-001) | Equivalent tabs/subtabs/deep links; CSS identity not required. |
 | REST versus ubus | `api/*.py` REST endpoints | Typed CRUD/status/jobs/cancel/history/preview/apply | rpcd/ubus methods | Protocol differs by platform | INTENTIONAL_DEVIATION | OPENWRT_NATIVE (DEV-001) | Maintain semantic mapping tests. |
 | API error semantics | API status/errors by subsystem | User receives bounded actionable result | mixed direct legacy/status and `{ok,error}` methods | Not systematically Avatar-compatible | PARTIAL | — | Freeze endpoint-by-endpoint mapping. |
-| Strategy→runtime→status flow | catalog→Strategy profiles[]→preview→validate→apply→nfqws→status→autostart | Stable aggregate identity throughout | catalog/Strategy CLI/compiler/transaction/derived status; integration test | Pinned catalog identity survives Preview, bounded Validate, verified Apply/rollback boundary and derived status without persisted drift | PARITY | SECURITY_HARDENING_EQUIVALENT_BEHAVIOR (DEV-003) | Preserve the flow and extend autostart display only from fresh evidence. |
+| Strategy→runtime→status flow | catalog→Strategy profiles[]→preview→validate→apply→nfqws→status | Stable aggregate identity through status | catalog/Strategy CLI/compiler/transaction/derived status; integration test | Pinned catalog identity survives Preview, bounded Validate, verified Apply/rollback boundary and derived status without persisted drift; autostart linkage is not evidenced | PARTIAL | SECURITY_HARDENING_EQUIVALENT_BEHAVIOR (DEV-003) | Preserve the verified flow and collect autostart evidence before claiming that boundary. |
 | Scanner→Strategy apply flow | catalog Scanner→working result→Strategy apply | Tested Strategy identity preserved | Orchestra candidate→typed apply | Different catalog/result model | DIVERGENT | — | Rebuild product facade around native runner. |
 | BlockCheck→recommendation | distinct BlockCheck classification | Diagnostic result informs remediation | blockcheck job and health matrix overlap | Product distinction incomplete | PARTIAL | — | Keep three independent flows. |
 | Auto-remediation→DNS/Scanner/tunnel | `auto_remediation.py` | Classification dispatches exact subsystem | only auto-strategy | Missing flow | MISSING | — | Implement last, after dependencies. |
@@ -122,7 +122,7 @@ Two LEGACY_DEAD inventory rows are excluded from product-parity arithmetic.
 
 | Flow | Verdict | Evidence and gap |
 |---|---|---|
-| Strategy catalog → Strategy → Profiles[] → preview → apply → status → autostart | PARITY | Pinned catalog, aggregate Strategy identity, ordered Profiles, Preview/Validate/Apply, derived status, rollback and reconciliation are covered by the focused and Task 16 integration gates. |
+| Strategy catalog → Strategy → Profiles[] → preview → apply → status → autostart | PARTIAL | Pinned catalog, aggregate Strategy identity, ordered Profiles, Preview/Validate/Apply, derived status, rollback and reconciliation are covered by the focused and Task 16 integration gates; autostart is not evidenced. |
 | Scanner → catalog Strategies → working results → apply | DIVERGENT | Avatar `strategy_scanner.py` consumes catalog Strategies; ours Orchestra consumes other registries and requires different winner evidence. |
 | BlockCheck → recommendation | PARTIAL | Avatar native BlockCheck is distinct; ours lacks equivalent classification UI. |
 | BlockCheck2 → found Strategy | PARTIAL | Script job exists, but reconstruction does not yield Avatar Strategy aggregate. |

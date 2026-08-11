@@ -17,6 +17,7 @@ const CLI = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/s
 const APPLY = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/profiles-apply.uc');
 const STATE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-state.uc');
 const STATUS = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-status.uc');
+const STATUS_COMPAT = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/core/status-compat.uc');
 const RPC = path.join(ROOT, 'zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc');
 const ACL = path.join(ROOT, 'luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json');
 const PAGE = path.join(ROOT, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategy.js');
@@ -39,6 +40,10 @@ const expectedManifest = JSON.parse(read(EXPECTED_MANIFEST));
 
 function invoke(module, expression, env = {}) {
   const source = `import * as mod from ${JSON.stringify(module)}; print(sprintf('%J', ${expression}));`;
+  return invokeSource(source, env);
+}
+
+function invokeSource(source, env = {}) {
   const result = spawnSync(UCODE_BIN, [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source], {
     cwd: ROOT,
     env: { ...process.env, ...env, LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib' },
@@ -48,13 +53,26 @@ function invoke(module, expression, env = {}) {
   return JSON.parse(result.stdout);
 }
 
+function treeSnapshot(root) {
+  const entries = [];
+  function visit(current) {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
+      const file = path.join(current, entry.name);
+      if (entry.isDirectory()) visit(file);
+      else entries.push([path.relative(root, file), fs.readFileSync(file).toString('hex')]);
+    }
+  }
+  visit(root);
+  return entries;
+}
+
 function runtimeChecks(value) {
   return { processPresent: value, singleInstance: value, rulesPresent: value,
     queueRegistered: value, ownerMatch: value };
 }
 
 function transactionHook(overrides = {}) {
-  const { state: stateOverrides = {}, ...transactionOverrides } = overrides;
+  const { state: stateOverrides = {}, candidate: candidateOverrides = {}, ...transactionOverrides } = overrides;
   return JSON.stringify({
     state: { strategy_apply_revalidate: { ok: true }, strategy_selection_apply: { ok: true }, ...stateOverrides },
     transaction: {
@@ -77,7 +95,7 @@ function transactionHook(overrides = {}) {
         cliSyntax: 'passed', luaLoad: 'passed', luaCompatibility: 'passed',
         functionExistence: 'passed', blobExistence: 'passed', runtimeArguments: 'passed',
         executionPlan: 'passed',
-      }, diagnostics: [] } },
+      }, diagnostics: [] }, ...candidateOverrides },
   });
 }
 
@@ -88,11 +106,6 @@ function storage(callback) {
   const lastGood = path.join(runtime, 'last-good');
   fs.mkdirSync(strategies, { mode: 0o700 });
   fs.mkdirSync(lastGood, { recursive: true, mode: 0o700 });
-  fs.writeFileSync(path.join(strategies, 'pinned-id.json'), JSON.stringify({
-    schema: 1, id: 'pinned-id', revision: 1, name: 'Pinned Strategy',
-    origin: 'user', is_builtin: false, metadata: { description: 'integration' },
-    profiles: [{ id: 'p1', name: 'Pinned Profile', args: CANDIDATE, enabled: true }], updatedAt: 1,
-  }), { mode: 0o600 });
   const env = {
     Z2M_STRATEGY_ROOT: root, Z2M_STRATEGY_DIR: strategies,
     Z2M_STRATEGY_STATE: path.join(root, 'strategy-state.json'),
@@ -116,34 +129,66 @@ function storage(callback) {
   finally { fs.rmSync(root, { recursive: true, force: true }); }
 }
 
-function runStrategyFlow(env) {
-  const strategy = { id: 'pinned-id', name: 'Pinned Strategy', profiles: [{ id: 'p1', args: CANDIDATE }] };
+function runStrategyFlow(env, root) {
+  const loaded = invoke(CATALOG, `mod.strategy_catalog_load(${JSON.stringify(CATALOG_ROOT)})`);
+  const winnerEntry = loaded.catalog.winners.z2k_all_in_one;
+  const strategy = invoke(CATALOG, `mod.catalog_entry_to_strategy(${JSON.stringify(winnerEntry)})`);
+  assert.equal(strategy.id, 'z2k_all_in_one');
+  assert.equal(strategy.is_builtin, true);
   const context = {
     environment: { listMode: 'none', functions: { fake: { present: true } }, blobs: { fake_default_tls: { present: true } }, lua: { 'desync.lua': { present: true } }, lists: {} },
     runtimeInputs: { source: 'live', enginePath: '/opt/zapret2/nfq2/nfqws2', baseArgs: [], luaInit: [], hostlists: [] },
   };
-  const input = { strategy_id: 'pinned-id', revision: 1, catalog_digest: manifest.aggregateDigest };
+  const input = { strategy_id: strategy.id, revision: 0, catalog_digest: loaded.catalog.aggregateDigest };
   const preview = invoke(CLI, `mod.strategy_cli_dispatch('preview', ${JSON.stringify({ strategy_data: strategy })}, ${JSON.stringify(context)})`, env);
   const validate = invoke(CLI, `mod.strategy_cli_dispatch('validate', ${JSON.stringify(input)}, ${JSON.stringify(context)})`, env);
+  const candidate = {
+    candidate: preview.strategyArgs,
+    digest: preview.digest,
+    profilesCount: preview.profiles_count,
+    dependencies: { available: true },
+    nativeValidation: { status: 'verified', coverage: {
+      cliSyntax: 'passed', luaLoad: 'passed', luaCompatibility: 'passed',
+      functionExistence: 'passed', blobExistence: 'passed', runtimeArguments: 'passed',
+      executionPlan: 'passed',
+    }, diagnostics: [] },
+  };
   const apply = invoke(CLI, `mod.strategy_cli_dispatch('apply', ${JSON.stringify(input)})`, {
-    ...env, Z2M_STRATEGY_APPLY_HOOK: transactionHook(),
+    ...env, Z2M_STRATEGY_APPLY_HOOK: transactionHook({ candidate }),
   });
-  const selected = { revision: 1, selected: apply.strategy,
-    digest: manifest.aggregateDigest, identity: { name: 'Pinned Strategy' } };
-  const status = invoke(STATUS, `mod.derive_strategy_status(${JSON.stringify(selected)}, ${JSON.stringify({ configSha256: NEW_CONFIG_HASH, appliedConfigSha256: NEW_CONFIG_HASH, candidateSha256: CANDIDATE_HASH })}, ${JSON.stringify({ present: true, rulesPresent: true, count: 1 })})`, env);
-  return { preview, validate, apply, status: { strategy: status }, selected };
+  const selection = invoke(STATE, `mod.strategy_selection_apply({expectedRevision:0,selected:${JSON.stringify(apply.strategy)}})`, env);
+  const observations = {
+    drift: { currentSha256: { config: NEW_CONFIG_HASH }, appliedSha256: { config: NEW_CONFIG_HASH } },
+    strategy: { candidateSha256: preview.digest },
+    runtime: { present: true, rulesPresent: true, count: 1 },
+  };
+  const beforeStatus = treeSnapshot(root);
+  const status = invoke(STATUS, `mod.collect_strategy_status(${JSON.stringify(observations)})`, env);
+  assert.deepEqual(treeSnapshot(root), beforeStatus);
+  return { catalog: loaded.catalog, strategy, preview, validate, apply, selection, status, observations };
 }
 
-test('Strategy identity survives catalog -> Preview -> Validate -> Apply -> status', () => storage(({ env }) => {
-  const result = runStrategyFlow(env);
+test('Strategy identity survives catalog -> Preview -> Validate -> Apply -> status', () => storage(({ env, root }) => {
+  const result = runStrategyFlow(env, root);
   assert.equal(result.preview.ok, true);
+  assert.equal(result.preview.strategyId, result.strategy.id);
+  assert.equal(result.preview.digest, result.apply.strategy.candidateSha256);
   assert.equal(result.preview.profiles_count >= 0, true);
-  assert.equal(result.validate.strategyId, 'pinned-id');
-  assert.equal(result.validate.error.code, 'EPREFLIGHT');
+  assert.equal(result.validate.strategyId, result.strategy.id);
+  assert.equal(result.validate.origin, 'avatar_builtin');
+  assert.equal(result.validate.digest, result.preview.digest);
+  assert.ok(['EDEPENDENCY', 'EPREFLIGHT'].includes(result.validate.error.code), result.validate.error.code);
   assert.equal(result.apply.ok, true, JSON.stringify(result.apply));
-  assert.equal(result.status.strategy.id, 'pinned-id');
-  assert.equal(result.status.strategy.drift, false);
-  assert.equal(result.selected.selected.id, 'pinned-id');
+  assert.deepEqual(result.selection.state.selected, result.apply.strategy);
+  assert.equal(result.apply.strategy.id, result.strategy.id);
+  assert.equal(result.apply.strategy.origin, 'avatar_builtin');
+  assert.equal(result.status.id, result.strategy.id);
+  assert.equal(result.status.origin, 'avatar_builtin');
+  assert.equal(result.status.digest, result.catalog.aggregateDigest);
+  assert.equal(result.status.candidateSha256, result.preview.digest);
+  assert.equal(result.status.match, true);
+  assert.equal(result.status.drift, false);
+  assert.equal(result.status.availability, 'available');
 }));
 
 test('rollback and identity reconciliation preserve the authoritative selection boundary', () => storage(({ env }) => {
@@ -156,7 +201,7 @@ test('rollback and identity reconciliation preserve the authoritative selection 
   assert.equal(rollback.ok, false);
   assert.equal(rollback.rolledBack, true);
 
-  const oldIdentity = { id: 'pinned-id', origin: 'user', revision: 1, candidateSha256: HASH };
+  const oldIdentity = { id: 'z2k_all_in_one', origin: 'avatar_builtin', revision: 0, candidateSha256: HASH };
   const newIdentity = { ...oldIdentity, candidateSha256: 'b'.repeat(64) };
   assert.equal(invoke(STATE, `mod.strategy_selection_apply({expectedRevision:0,selected:${JSON.stringify(oldIdentity)}})`, env).ok, true);
   assert.equal(invoke(STATE, `mod.strategy_apply_uncertain_record(${JSON.stringify({
@@ -201,6 +246,16 @@ test('catalog digest, duplicate winner, protocol sets, package assets, and impor
   assert.equal(imported.ok, true);
   assert.equal(imported.runtimeMutation, false);
   assert.deepEqual(imported.strategy.profiles.map(profile => profile.args), ['--filter-tcp=443']);
+
+  storage(({ env, root }) => {
+    const before = treeSnapshot(root);
+    const preview = invoke(CLI, `mod.strategy_cli_dispatch_test('import_profiles',{mode:'preview'},{importProfiles:{draftState:${JSON.stringify(draft)}}})`, {
+      ...env, Z2M_STRATEGY_SERVER_TEST: '1',
+    });
+    assert.equal(preview.ok, true);
+    assert.equal(preview.runtimeMutation, false);
+    assert.deepEqual(treeSnapshot(root), before);
+  });
 });
 
 test('RPC, ACL, UI reachability, schema 3, and out-of-scope boundaries remain explicit', () => {
@@ -210,7 +265,7 @@ test('RPC, ACL, UI reachability, schema 3, and out-of-scope boundaries remain ex
   const adapter = read(PAGE_ADAPTER);
   const workflowCore = read(WORKFLOW_CORE);
   const cli = read(CLI);
-  const statusCompat = read(path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/core/status-compat.uc'));
+  const statusCompat = read(STATUS_COMPAT);
   const methods = ['strategies_list', 'strategies_get', 'strategies_preview', 'strategies_validate', 'strategies_apply', 'strategies_catalog_status', 'strategies_catalog_reload', 'strategies_import_profiles'];
   for (const method of methods) assert.match(rpc, new RegExp(`\\b${method}:\\s*\\{`), method);
   for (const method of ['strategies_create', 'strategies_update', 'strategies_delete', 'strategies_duplicate', 'strategies_favorite', 'strategies_apply', 'strategies_import_profiles'])
@@ -227,4 +282,32 @@ test('RPC, ACL, UI reachability, schema 3, and out-of-scope boundaries remain ex
   assert.doesNotMatch(cli, /schema\s*[:=]\s*4|Scanner|catalog_updater|online updater|router migration/i);
   assert.doesNotMatch(page, /DNS migration|router migration|online updater/i);
   assert.doesNotMatch(MAKEFILE, /catalogs\/presets compatibility tree/);
+
+  const status3 = invoke(STATUS_COMPAT, `mod.legacy_status_v3(${JSON.stringify({
+    schemaVersion: 1, generation: 7, generatedAt: '2026-08-10T12:00:00Z', serviceState: 'stopped',
+    runtime: { processes: [], namespaces: [] }, transactions: [], jobs: [], warnings: [],
+  })}, ${JSON.stringify({
+    generatedAt: '2026-08-10T12:00:10Z', engine: {}, runtime: {}, applied: {}, draft: {}, drift: {},
+    health: {}, system: {}, upstream: {}, warnings: [],
+  })})`);
+  assert.equal(status3.schema, 3);
+  assert.equal(status3.runtimeSummary.source, 'status-v3');
+
+  const rpcSource = rpcSignatureSource('strategies_catalog_status', {});
+  const rpcStatus = invokeSource(rpcSource, {
+    Z2M_STRATEGY_REQUEST_UID: String(process.getuid?.() ?? 0),
+    Z2M_STRATEGY_REQUEST_GID: String(process.getgid?.() ?? 0),
+    Z2M_STRATEGY_CATALOG_ROOT: CATALOG_ROOT,
+    Z2M_STRATEGY_UCODE_BIN: UCODE_BIN,
+  });
+  assert.equal(rpcStatus.ok, true, JSON.stringify(rpcStatus));
+  assert.equal(rpcStatus.digest, manifest.aggregateDigest);
 });
+
+function rpcSignatureSource(method, request) {
+  return read(RPC)
+    .replace("const STRATEGY_CLI = '/usr/libexec/zapret2-manager/strategy-cli.uc';",
+      `const STRATEGY_CLI = ${JSON.stringify(CLI)};`)
+    .replace("return {\n\t'zapret2-manager'", "let signature = {\n\t'zapret2-manager'")
+    .replace(/\n};\s*$/, `\n};\nprint(sprintf('%J', signature['zapret2-manager'][${JSON.stringify(method)}].call(${JSON.stringify(request)})));`);
+}
