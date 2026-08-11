@@ -127,6 +127,100 @@ function pageContext(advanced) {
   };
 }
 
+function vmNode() {
+  return {
+    children: [],
+    firstChild: null,
+    appendChild(child) { this.children.push(child); this.firstChild = this.children[0] || null; return child; },
+    insertBefore(child) { this.children.unshift(child); this.firstChild = this.children[0] || null; return child; },
+    replaceChildren(...children) { this.children = children.flat().filter(Boolean); this.firstChild = this.children[0] || null; },
+    addEventListener() {},
+    querySelectorAll() { return []; },
+    getAttribute() { return null; },
+  };
+}
+
+function loadLuCIModule(source, dependencies, calls) {
+  return vm.runInNewContext(`(function () {${source}\n})()`, {
+    ...dependencies,
+    baseclass: { extend: value => value },
+    E: (...args) => vmNode(),
+    _: value => value,
+    calls,
+  });
+}
+
+function loadRecursiveStrategyPage(calls) {
+  const strategyModel = {
+    normalizeCatalog: () => ({ candidates: [], applicableIds: [] }),
+    normalizeCorpus: () => ({ valid: false, count: 0 }),
+    normalizeRun: () => ({ active: false, complete: false, candidates: [], infrastructureFailures: [], raw: {} }),
+    progress: () => ({ testedDomains: 0, totalDomains: 0, percent: 0, complete: false }),
+    startGate: () => ({ allowed: false, reason: 'test' }),
+  };
+  const profileWorkflow = loadLuCIModule(profilesWorkflow, {}, calls);
+  const strategy = loadLuCIModule(page, { profilesWorkflow: profileWorkflow }, calls);
+  const originalRenderCompatibility = strategy.renderCompatibility;
+  strategy.renderCompatibility = function (ctx, profileData) {
+    calls.profileRenderer += 1;
+    return originalRenderCompatibility(ctx, profileData);
+  };
+  strategy.load = () => { calls.push('strategy.load'); return Promise.resolve({}); };
+  strategy.render = () => { calls.push('strategy.render'); return vmNode(); };
+
+  const core = loadLuCIModule(workflowCore, { Strategy: strategy, StrategyModel: strategyModel }, calls);
+  const workflowModule = loadLuCIModule(workflow, { Core: core }, calls);
+  const lifecycle = name => ({
+    load: () => { calls.push(`${name}.load`); return Promise.resolve({}); },
+    render: () => { calls.push(`${name}.render`); return vmNode(); },
+    mount: () => calls.push(`${name}.mount`),
+    unmount: () => calls.push(`${name}.unmount`),
+  });
+  const pageModule = loadLuCIModule(pageAdapter, {
+    EngineGate: { wrap: value => value },
+    Strategy: strategy,
+    Workflow: workflowModule,
+    Auto: lifecycle('auto'),
+    Runs: lifecycle('runs'),
+  }, calls);
+  return { pageModule, strategy };
+}
+
+function recursivePageContext(advanced, calls) {
+  const shell = {
+    format: { text: value => value === null || value === undefined || value === '' ? null : String(value), timestamp: () => '' },
+    panel: () => vmNode(),
+    statePanel: () => vmNode(),
+    chip: () => vmNode(),
+    button: label => { calls.editorButtons.push(label); return vmNode(); },
+    subTabs: (tabs, active, onSelect) => {
+      calls.tabGroups.push({ tabs, active, onSelect });
+      return vmNode();
+    },
+    showToast() {},
+    openModal() {},
+    closeModal() {},
+  };
+  const rpc = () => Promise.resolve({});
+  const api = {
+    normalizeError: error => error,
+    strategy: { preview: rpc },
+    orchestra: {
+      catalog: rpc, corpus: rpc, runStatus: rpc, runHistory: rpc, probePreflight: rpc,
+    },
+    profiles: {
+      list: () => Promise.resolve({ profiles: [{ id: 'profile-one', name: 'Profile One', opt: '--test' }] }),
+    },
+  };
+  return {
+    store: { get: () => ({ ui: { advanced }, draft: {}, pending: {} }) },
+    api,
+    shell,
+    refresh: () => Promise.resolve(),
+    setDraft() {},
+  };
+}
+
 test('normal Strategy load/render excludes Orchestra Auto and Runs while Advanced includes both', async () => {
   const normalCalls = [];
   const normalPage = loadPageWithStubs(normalCalls);
@@ -154,12 +248,30 @@ test('Advanced modules retain Orchestra mutation authority only behind the page 
   assert.match(runs, /ctx\.api\.orchestra\.(previewBest|applyBest)/);
 });
 
-test('actual Advanced workflow reaches Compatibility through the existing Profile renderer while normal mode cannot invoke it', () => {
-  assert.match(workflowCore, /Strategy\.renderCompatibility\(ctx/);
-  assert.match(workflowCore, /id:\s*'compatibility'[\s\S]*Compatibility \/ Profiles/);
-  assert.match(workflowCore, /profiles:\s*settled\(results\[6\]/);
-  assert.match(pageAdapter, /if\s*\(data\.mode === 'workflow'\)/);
-  assert.doesNotMatch(pageAdapter, /Strategy\.renderCompatibility/);
+test('actual Advanced workflow reaches Compatibility through the existing Profile renderer while normal mode cannot invoke it', async () => {
+  const normalCalls = Object.assign([], { editorButtons: [], profileRenderer: 0, tabGroups: [] });
+  const normal = loadRecursiveStrategyPage(normalCalls).pageModule;
+  const normalContext = recursivePageContext(false, normalCalls);
+  const normalData = await normal.load(normalContext);
+  assert.equal(normalData.mode, 'manual');
+  normal.render({ ...normalContext, data: normalData });
+  assert.equal(normalCalls.profileRenderer, 0);
+  assert.equal(normalCalls.tabGroups.length, 0);
+
+  const advancedCalls = Object.assign([], { editorButtons: [], profileRenderer: 0, tabGroups: [] });
+  const advanced = loadRecursiveStrategyPage(advancedCalls).pageModule;
+  const advancedContext = recursivePageContext(true, advancedCalls);
+  const advancedData = await advanced.load(advancedContext);
+  assert.equal(advancedData.mode, 'workflow');
+  const root = advanced.render({ ...advancedContext, data: advancedData });
+  assert.ok(root);
+  assert.deepEqual(advancedCalls.slice(0, 2), ['auto.load', 'runs.load']);
+  const tabs = advancedCalls.tabGroups.find(group => group.tabs.some(tab => tab.id === 'compatibility'));
+  assert.ok(tabs);
+  assert.equal(tabs.active, 'strategies');
+  tabs.onSelect('compatibility');
+  assert.equal(advancedCalls.profileRenderer, 1);
+  assert.ok(advancedCalls.editorButtons.includes('Новый профиль'));
 });
 
 test('Compatibility Apply is enabled only after acknowledged valid Preview and stays recoverable', () => {
