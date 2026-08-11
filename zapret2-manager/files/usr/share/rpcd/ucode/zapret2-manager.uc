@@ -500,6 +500,71 @@ function dns_global_preview_method(req) { return cli_action(DNSGLOBAL_CLI, 'prev
 function dns_global_apply_method(req) { return cli_action(DNSGLOBAL_CLI, 'apply'); }
 function dns_global_rollback_method(req) { return cli_action(DNSGLOBAL_CLI, 'rollback'); }
 
+// ---- Avatar Strategy API ----------------------------------------------------
+// Strategy requests use the same private JSON-string edit convention as
+// Profiles. The RPC layer chooses a fixed CLI mode; request content is carried
+// only in a collision-resistant 0600 file and is never interpreted as shell.
+const STRATEGY_CLI = '/usr/libexec/zapret2-manager/strategy-cli.uc';
+const STRATEGY_MAX_REQUEST_BYTES = 524288;
+
+function strategy_tmpfile() {
+	let p = popen('umask 077; mktemp /tmp/z2m-strategy-edit.XXXXXX 2>/dev/null', 'r');
+	if (!p) return null;
+	let tmp = trim(p.read('all') || ''), rc = p.close();
+	if (rc != 0 || index(tmp, '/tmp/z2m-strategy-edit.') != 0) {
+		if (length(tmp)) try { unlink(tmp); } catch (e) { }
+		return null;
+	}
+	return tmp;
+}
+
+function strategy_edit_action(mode, req) {
+	let edit = null;
+	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
+	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
+	if (edit == null) return { ok: false, error: { code: 'EINPUT', message: 'missing edit param' } };
+	if (type(edit) != 'string') return { ok: false, error: { code: 'EINPUT', message: 'edit must be a JSON string', got: type(edit) } };
+	if (length(edit) > STRATEGY_MAX_REQUEST_BYTES)
+		return { ok: false, error: { code: 'EINPUT', message: 'edit exceeds the safe request size limit' } };
+	let tmp = strategy_tmpfile();
+	if (tmp == null) return { ok: false, error: { code: 'ETARGET', message: 'request temp file unavailable' } };
+	try { writefile(tmp, edit); }
+	catch (e) {
+		try { unlink(tmp); } catch (ignored) { }
+		return { ok: false, error: { code: 'EIO', message: 'request temp file could not be written' } };
+	}
+	let source = 'import { strategy_cli_request } from ' + sprintf('%J', STRATEGY_CLI)
+		+ '; print(sprintf("%J", strategy_cli_request(' + sprintf('%J', mode) + ', '
+		+ sprintf('%J', tmp) + ')));';
+	let cmd = '/usr/bin/ucode -e ' + shell_escape(source) + ' 2>/dev/null';
+	let p = popen(cmd, 'r');
+	if (!p) { try { unlink(tmp); } catch (e) { } return { ok: false, error: { code: 'ETARGET', message: 'Strategy CLI unavailable' } }; }
+	let out = p.read('all') || '';
+	p.close();
+	try { unlink(tmp); } catch (e) { }
+	try {
+		let parsed = json(out);
+		return parsed != null ? parsed : { ok: false, error: { code: 'EINTERNAL', message: 'Strategy response was empty' } };
+	} catch (e) {
+		return { ok: false, error: { code: 'EINTERNAL', message: 'Strategy response was malformed' } };
+	}
+}
+
+function strategy_noarg_action(mode) { return strategy_edit_action(mode, { edit: '{}' }); }
+function strategies_list_method(req) { return strategy_noarg_action('list'); }
+function strategies_get_method(req) { return strategy_edit_action('get', req); }
+function strategies_create_method(req) { return strategy_edit_action('create', req); }
+function strategies_update_method(req) { return strategy_edit_action('update', req); }
+function strategies_delete_method(req) { return strategy_edit_action('delete', req); }
+function strategies_duplicate_method(req) { return strategy_edit_action('duplicate', req); }
+function strategies_favorite_method(req) { return strategy_edit_action('favorite', req); }
+function strategies_preview_method(req) { return strategy_edit_action('preview', req); }
+function strategies_validate_method(req) { return strategy_edit_action('validate', req); }
+function strategies_apply_method(req) { return strategy_edit_action('apply', req); }
+function strategies_catalog_status_method(req) { return strategy_noarg_action('catalog_status'); }
+function strategies_catalog_reload_method(req) { return strategy_noarg_action('catalog_reload'); }
+function strategies_import_profiles_method(req) { return strategy_edit_action('import_profiles', req); }
+
 // ---- service catalog (Phase B) -------------------------------------------------
 const CATALOG_CLI = '/usr/libexec/zapret2-manager/catalog-cli.uc';
 function catalog_list_method(req) { return cli_action(CATALOG_CLI, 'list'); }
@@ -667,6 +732,19 @@ return {
 		dns_global_preview:{ call: function (req) { return dns_global_preview_method(req); } },
 		dns_global_apply:  { call: function (req) { return dns_global_apply_method(req); } },
 		dns_global_rollback: { call: function (req) { return dns_global_rollback_method(req); } },
+		strategies_list:   { call: function (req) { return strategies_list_method(req); } },
+		strategies_get:    { args: { edit: 'string' }, call: function (req) { return strategies_get_method(req); } },
+		strategies_create: { args: { edit: 'string' }, call: function (req) { return strategies_create_method(req); } },
+		strategies_update: { args: { edit: 'string' }, call: function (req) { return strategies_update_method(req); } },
+		strategies_delete: { args: { edit: 'string' }, call: function (req) { return strategies_delete_method(req); } },
+		strategies_duplicate: { args: { edit: 'string' }, call: function (req) { return strategies_duplicate_method(req); } },
+		strategies_favorite: { args: { edit: 'string' }, call: function (req) { return strategies_favorite_method(req); } },
+		strategies_preview: { args: { edit: 'string' }, call: function (req) { return strategies_preview_method(req); } },
+		strategies_validate: { args: { edit: 'string' }, call: function (req) { return strategies_validate_method(req); } },
+		strategies_apply: { args: { edit: 'string' }, call: function (req) { return strategies_apply_method(req); } },
+		strategies_catalog_status: { call: function (req) { return strategies_catalog_status_method(req); } },
+		strategies_catalog_reload: { call: function (req) { return strategies_catalog_reload_method(req); } },
+		strategies_import_profiles: { args: { edit: 'string' }, call: function (req) { return strategies_import_profiles_method(req); } },
 		catalog_list:      { call: function (req) { return catalog_list_method(req); } },
 		catalog_get:       { args: { edit: 'string' }, call: function (req) { return catalog_get_method(req); } },
 		catalog_status:    { call: function (req) { return catalog_status_method(req); } },

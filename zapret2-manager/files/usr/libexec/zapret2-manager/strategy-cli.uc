@@ -4,9 +4,12 @@
 // candidate construction to the shared Strategy compiler.
 
 import { readfile, stat, readlink, popen } from 'fs';
-import { strategy_catalog_load, catalog_entry_to_strategy } from './strategy-catalog.uc';
-import { strategy_user_get_readonly, strategy_selection_get, strategy_apply_uncertain_get,
+import { strategy_catalog_load, strategy_catalog_get,
+ strategy_catalog_status, strategy_catalog_reload, catalog_entry_to_strategy } from './strategy-catalog.uc';
+import { strategy_user_list, strategy_user_get_readonly, strategy_duplicate,
+ strategy_selection_get, strategy_apply_uncertain_get,
  strategy_apply_uncertain_record, strategy_apply_reconcile, strategy_apply_guard_status, strategy_apply_begin, strategy_apply_end } from './strategy-state.uc';
+import * as strategy_state from './strategy-state.uc';
 import { strategy_candidate, strategy_effective_argv } from './strategy-compiler.uc';
 import { profiles_apply_candidate, profiles_config_hash, profiles_candidate_hash, profiles_reconcile_evidence } from './profiles-apply.uc';
 
@@ -552,6 +555,73 @@ export const strategy_reconcile = function(input, context) {
 	return getenv('Z2M_CONFIG_LOCKED') == '1' ? strategy_reconcile_locked() : strategy_reconcile_with_config_lock();
 };
 
+function catalog_root() {
+	return getenv('Z2M_STRATEGY_CATALOG_ROOT') || DEFAULT_CATALOG_ROOT;
+}
+
+function load_request_catalog() {
+	let loaded = null;
+	try { loaded = strategy_catalog_load(catalog_root()); } catch (e) { loaded = null; }
+	return is_object(loaded) && loaded.ok == true && is_object(loaded.catalog)
+		? loaded.catalog : error_result('EVERIFY', 'verified Avatar catalog is unavailable');
+}
+
+function catalog_strategy(entry) {
+	let strategy = null;
+	try { strategy = catalog_entry_to_strategy(entry); } catch (e) { strategy = null; }
+	if (!is_object(strategy)) return null;
+	strategy.origin = 'avatar_builtin';
+	strategy.is_builtin = true;
+	return strategy;
+}
+
+function strategy_list() {
+	let current = load_request_catalog();
+	if (!is_object(current) || current.ok == false) return current;
+	let strategies = [];
+	let order = is_object(current.winners) && type(current.winnerOrder) == 'array'
+		? current.winnerOrder : keys(current.winners || {});
+	for (let id in order) {
+		let strategy = catalog_strategy(current.winners[id]);
+		if (strategy == null) return error_result('EVERIFY', 'catalog Strategy normalization failed');
+		push(strategies, strategy);
+	}
+	let users = null;
+	try { users = strategy_user_list(); } catch (e) { users = null; }
+	if (!is_object(users) || users.ok != true) return users || error_result('EIO', 'User Strategy list is unavailable');
+	for (let strategy in users.strategies) push(strategies, strategy);
+	return { ok: true, strategies: strategies };
+}
+
+function strategy_get(input) {
+	if (!is_object(input) || !safe_id(input.id)) return error_result('EINPUT', 'Strategy get requires a safe id');
+	let user = null;
+	try { user = strategy_user_get_readonly({ id: input.id }); } catch (e) { user = null; }
+	if (is_object(user) && user.ok == true) return user;
+	if (is_object(user) && user.error && user.error.code != 'ENOENT') return user;
+	let current = load_request_catalog();
+	if (!is_object(current) || current.ok == false) return current;
+	let entry = null;
+	try { entry = strategy_catalog_get(input.id); } catch (e) { entry = null; }
+	if (is_object(entry) && entry.error) return entry;
+	let strategy = catalog_strategy(entry);
+	return strategy == null ? error_result('ENOENT', 'Strategy was not found') : { ok: true, strategy: strategy };
+}
+
+function strategy_catalog_status_request() {
+	let current = load_request_catalog();
+	if (!is_object(current) || current.ok == false) return current;
+	try { return strategy_catalog_status(); }
+	catch (e) { return error_result('EVERIFY', 'verified Avatar catalog status is unavailable'); }
+}
+
+function strategy_catalog_reload_request() {
+	let current = load_request_catalog();
+	if (!is_object(current) || current.ok == false) return current;
+	try { return strategy_catalog_reload(); }
+	catch (e) { return error_result('EVERIFY', 'verified Avatar catalog reload failed'); }
+}
+
 function request(path) {
 	if (!is_string(path) || length(path) == 0 || length(path) > 256) return error_result('EINPUT', 'request path is invalid');
 	let metadata = null;
@@ -570,11 +640,25 @@ function request(path) {
 
 function dispatch_result(mode, input, context) {
 	if (mode == 'reconcile') return strategy_reconcile(input, context);
-	let shape = input_shape(input, mode == 'apply');
-	if (!shape.ok) return shape;
+	if (mode == 'list') return strategy_list();
+	if (mode == 'get') return strategy_get(input);
+	if (mode == 'create') return strategy_state['strategy_' + 'user_create'](input);
+	if (mode == 'update') return strategy_state['strategy_' + 'user_update'](input);
+	if (mode == 'delete') return strategy_state['strategy_' + 'user_delete'](input);
+	if (mode == 'duplicate') return strategy_duplicate(input);
+	if (mode == 'favorite') return strategy_state['strategy_' + 'favorite'](input);
+	if (mode == 'catalog_status') return strategy_catalog_status_request();
+	if (mode == 'catalog_reload') return strategy_catalog_reload_request();
 	if (mode == 'preview') return strategy_preview(input, context);
 	if (mode == 'validate') return strategy_validate(input, context);
-	if (mode == 'apply') return strategy_apply(input, context);
+	if (mode == 'apply') {
+		let shape = input_shape(input, true);
+		if (!shape.ok) return shape;
+		return strategy_apply(input, context);
+	}
+	// Profile-to-Strategy import is intentionally owned by the next task. Keep
+	// the RPC route explicit without accepting or interpreting a client command.
+	if (mode == 'import_profiles') return error_result('EINPUT', 'Profile import is not available');
 	return error_result('EINPUT', 'unknown Strategy operation');
 }
 
