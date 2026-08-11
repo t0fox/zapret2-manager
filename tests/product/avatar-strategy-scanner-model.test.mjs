@@ -202,13 +202,19 @@ test('status view is bounded and reports Avatar-compatible counters', () => {
 test('status view preserves the pinned IPv6 skipped baseline status', () => {
   const request = invoke('scanner_request_validate', validRequest()).value;
   const record = invoke('scanner_state_create', request, { candidates: [] });
-  const expected = PROBES_FIXTURE.cases.find(
+  const baselineCase = PROBES_FIXTURE.cases.find(
     entry => entry.id === 'baseline-ipv4-open-ipv6-skipped');
+  assert.ok(baselineCase, 'Task 1 baseline skipped fixture case must exist');
+  const observation = baselineCase.observation;
+  assert.deepEqual(observation, {
+    ipv4: { status: 'open', available: true },
+    ipv6: { status: 'skipped', available: false },
+  });
   const status = invoke('scanner_status_view', {
     ...record,
-    baselineByAddressFamily: expected.expected.byAddressFamily,
+    baselineByAddressFamily: observation,
   });
-  assert.deepEqual(status.baseline_by_af, expected.expected.byAddressFamily);
+  assert.deepEqual(status.baseline_by_af, observation);
   assert.equal(status.baseline_by_af.ipv6.status, 'skipped');
   assert.equal(status.baseline_by_af.ipv6.available, false);
 });
