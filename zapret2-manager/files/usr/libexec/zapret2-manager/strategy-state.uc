@@ -649,11 +649,14 @@ export const strategy_selection_set = function(input) {
 };
 
 function apply_block_valid(value) {
-	return is_object(value) && exact_fields(value, ['schema', 'marker', 'nonce', 'state', 'strategyId', 'strategyRevision', 'catalogDigest', 'createdAt'])
+	return is_object(value) && exact_fields(value, ['schema', 'marker', 'nonce', 'state', 'strategyId', 'strategyRevision', 'catalogDigest', 'createdAt', 'oldConfigSha256', 'oldCandidateSha256', 'oldSelected'])
 		&& value.schema === 1 && value.marker == APPLY_BLOCK_MARKER
 		&& bounded_string(value.nonce, 256) && value.state == 'pending'
 		&& safe_id(value.strategyId) && integer(value.strategyRevision)
-		&& sha256(value.catalogDigest) && integer(value.createdAt);
+		&& sha256(value.catalogDigest) && integer(value.createdAt)
+		&& (value.oldConfigSha256 == null || sha256(value.oldConfigSha256))
+		&& (value.oldCandidateSha256 == null || sha256(value.oldCandidateSha256))
+		&& (value.oldSelected == null || selected_valid(value.oldSelected));
 }
 
 function apply_block_read() {
@@ -689,6 +692,9 @@ export const strategy_apply_begin = function(input) {
 	return locked(function() {
 		if (!is_object(input) || !safe_id(input.strategyId) || !integer(input.strategyRevision) || !sha256(input.catalogDigest))
 			return error('EINPUT', 'Strategy Apply lease identity is invalid.');
+		if ((input.oldConfigSha256 != null && !sha256(input.oldConfigSha256))
+			|| (input.oldCandidateSha256 != null && !sha256(input.oldCandidateSha256)))
+			return error('EINPUT', 'Strategy Apply baseline evidence is invalid.');
 		if (!apply_guard_dir_secure()) return error('EUNCERTAIN', 'private last-good directory is unavailable.');
 		let status = strategy_apply_guard_status();
 		if (!status.ok || status.blocked) return error('EUNCERTAIN', status.reason || 'Strategy Apply is blocked.');
@@ -700,23 +706,27 @@ export const strategy_apply_begin = function(input) {
 		} else if (!(current.error && current.error.code == 'ENOENT' && input.strategyRevision == 0 && catalog_id(input.strategyId))) {
 			return current;
 		}
+		let selection = read_state();
+		if (!selection.ok) return selection;
 		let operationNonce = nonce(), owner = owner_identity();
 		if (operationNonce == null || owner == null) return error('EIO', 'Strategy Apply operation nonce is unavailable.');
 		let block = {
 			schema: 1, marker: APPLY_BLOCK_MARKER, nonce: operationNonce, state: 'pending',
 			strategyId: input.strategyId, strategyRevision: input.strategyRevision,
-			catalogDigest: input.catalogDigest, createdAt: time()
+			catalogDigest: input.catalogDigest, createdAt: time(),
+			oldConfigSha256: input.oldConfigSha256 == null ? null : input.oldConfigSha256,
+			oldCandidateSha256: input.oldCandidateSha256 == null ? null : input.oldCandidateSha256,
+			oldSelected: selection == null ? null : selection.state.selected
 		};
 		let savedBlock = atomic_write(APPLY_BLOCK_PATH, block, true);
 		if (!savedBlock.ok) return error('EUNCERTAIN', 'Strategy Apply blocking marker could not be persisted.', { persistence: savedBlock });
 		let lease = { schema: 1, marker: APPLY_LEASE_MARKER, nonce: operationNonce, owner: owner, createdAt: time() };
 		let savedLease = atomic_write(APPLY_LEASE_PATH, lease, true);
 		if (!savedLease.ok) return error('EUNCERTAIN', 'Strategy Apply lease could not be persisted.', { persistence: savedLease });
-		let selection = read_state();
-		if (!selection.ok) return selection;
 		return { ok: true, operationNonce: operationNonce, strategyRevision: input.strategyRevision,
 			catalogDigest: input.catalogDigest, selectionRevision: selection.state.revision,
-			selected: selection.state.selected };
+			selected: selection.state.selected, oldConfigSha256: block.oldConfigSha256,
+			oldCandidateSha256: block.oldCandidateSha256 };
 	});
 };
 
@@ -814,9 +824,10 @@ function runtime_outcome_valid(value) {
 
 function apply_uncertain_valid(value) {
 	return is_object(value) && exact_fields(value, ['schema', 'oldConfigSha256', 'newConfigSha256',
-		'oldCandidateSha256', 'newCandidateSha256', 'oldIdentity', 'newIdentity', 'runtimeOutcome', 'reason']) && value.schema === 1
+		'oldCandidateSha256', 'newCandidateSha256', 'catalogDigest', 'oldIdentity', 'newIdentity', 'runtimeOutcome', 'reason']) && value.schema === 1
 		&& sha256(value.oldConfigSha256) && sha256(value.newConfigSha256)
 		&& sha256(value.oldCandidateSha256) && sha256(value.newCandidateSha256)
+		&& sha256(value.catalogDigest)
 		&& apply_uncertain_identity(value.oldIdentity) && apply_uncertain_identity(value.newIdentity)
 		&& runtime_outcome_valid(value.runtimeOutcome) && bounded_string(value.reason, 128);
 }
@@ -839,6 +850,7 @@ export const strategy_apply_uncertain_record = function(input) {
 	return locked(function() {
 		if (!is_object(input) || !sha256(input.oldConfigSha256) || !sha256(input.newConfigSha256)
 			|| !sha256(input.oldCandidateSha256) || !sha256(input.newCandidateSha256)
+			|| !sha256(input.catalogDigest)
 			|| !apply_uncertain_identity(input.oldIdentity) || !apply_uncertain_identity(input.newIdentity)
 			|| !runtime_outcome_valid(input.runtimeOutcome) || !bounded_string(input.reason, 128))
 			return error('EINPUT', 'Strategy Apply uncertainty record is invalid.');
@@ -846,6 +858,7 @@ export const strategy_apply_uncertain_record = function(input) {
 		let record = {
 			schema: 1, oldConfigSha256: input.oldConfigSha256, newConfigSha256: input.newConfigSha256,
 			oldCandidateSha256: input.oldCandidateSha256, newCandidateSha256: input.newCandidateSha256,
+			catalogDigest: input.catalogDigest,
 			oldIdentity: selection_copy(input.oldIdentity), newIdentity: selection_copy(input.newIdentity),
 			runtimeOutcome: input.runtimeOutcome, reason: input.reason
 		};
@@ -874,6 +887,37 @@ function same_selection(left, right) {
 		&& left.revision == right.revision && left.candidateSha256 == right.candidateSha256;
 }
 
+function selection_authoritative(value) {
+	if (!selected_valid(value)) return false;
+	if (value.origin == 'user') {
+		let current = read_user(value.id);
+		return current.ok && current.strategy.revision == value.revision;
+	}
+	return value.revision == 0 && (value.origin == 'avatar_builtin' ? catalog_id(value.id) : extension_id(value.id));
+}
+
+function selection_exact_authoritative(active, expected) {
+	return expected != null && same_selection(active, expected) && selection_authoritative(active);
+}
+
+function apply_target_current(id, revision) {
+	let current = read_user(id);
+	if (current.ok) return current.strategy.revision == revision;
+	return revision == 0 && (catalog_id(id) || extension_id(id));
+}
+
+function reconcile_evidence_valid(input) {
+	return is_object(input) && input.evidenceMarker == 'z2m-authoritative-reconcile.v1'
+		&& sha256(input.currentConfigSha256) && sha256(input.activeCandidateSha256)
+		&& runtime_checks_verified(input.runtimeChecks);
+}
+
+function clear_apply_uncertainty() {
+	try { unlink(APPLY_UNCERTAIN_PATH); } catch (e) { return error('EIO', 'Strategy Apply uncertainty record could not be cleared.'); }
+	if (!apply_block_clear()) return error('EIO', 'Strategy Apply blocking marker could not be cleared.');
+	return { ok: true };
+}
+
 // Reconciliation is explicit and requires independently verified runtime and
 // exact old/new config evidence. Normal Apply must remain blocked while the
 // uncertainty record exists.
@@ -881,33 +925,57 @@ export const strategy_apply_reconcile = function(input) {
 	return locked(function() {
 		let pending = apply_uncertain_read();
 		if (!pending.ok) return pending;
-		if (pending.record == null) return { ok: true, reconciled: false };
-		if (!is_object(input) || input.evidenceMarker != 'z2m-authoritative-reconcile.v1'
-			|| !sha256(input.currentConfigSha256)
-			|| !sha256(input.activeCandidateSha256) || !runtime_checks_verified(input.runtimeChecks))
+		let block = apply_block_read();
+		if (!block.ok) return block;
+		if (pending.record == null && block.record == null) return { ok: true, reconciled: false };
+		if (!reconcile_evidence_valid(input))
 			return error('EVERIFY', 'verified runtime and exact config evidence are required for reconciliation.');
+		let current = read_state();
+		if (!current.ok) return current;
+		if (pending.record == null) {
+			let baseline = block.record;
+			if (baseline.oldConfigSha256 == null || baseline.oldCandidateSha256 == null || baseline.oldSelected == null
+				|| !apply_target_current(baseline.strategyId, baseline.strategyRevision)
+				|| apply_catalog_digest() != baseline.catalogDigest
+				|| input.currentConfigSha256 != baseline.oldConfigSha256
+				|| input.activeCandidateSha256 != baseline.oldCandidateSha256
+				|| !selection_exact_authoritative(current.state.selected, baseline.oldSelected))
+				return error('ECONFLICT', 'dead pending Strategy Apply outcome is not the exact verified old state.');
+			let clearedPending = apply_block_clear();
+			if (!clearedPending) return error('EIO', 'Strategy Apply blocking marker could not be cleared.');
+			return { ok: true, reconciled: 'pending-old', selected: baseline.oldSelected };
+		}
 		let record = pending.record;
+		if (apply_catalog_digest() != record.catalogDigest)
+			return error('ECONFLICT', 'Strategy catalog identity changed during reconciliation.');
 		let oldMatch = input.currentConfigSha256 == record.oldConfigSha256
 			&& input.activeCandidateSha256 == record.oldCandidateSha256;
 		let newMatch = input.currentConfigSha256 == record.newConfigSha256
 			&& input.activeCandidateSha256 == record.newCandidateSha256;
 		if (oldMatch) {
-			try { unlink(APPLY_UNCERTAIN_PATH); } catch (e) { return error('EIO', 'Strategy Apply uncertainty record could not be cleared.'); }
-			if (!apply_block_clear()) return error('EIO', 'Strategy Apply blocking marker could not be cleared.');
+			if (!selection_exact_authoritative(current.state.selected, record.oldIdentity))
+				return error('ECONFLICT', 'authoritative persisted Strategy selection does not match the old identity.');
+			let clearedOld = clear_apply_uncertainty();
+			if (!clearedOld.ok) return clearedOld;
 			return { ok: true, reconciled: 'old', selected: record.oldIdentity };
 		}
 		if (!newMatch)
 			return error('ECONFLICT', 'runtime and config do not match either Strategy Apply identity.');
-		let current = read_state();
-		if (!current.ok) return current;
 		let selected = record.newIdentity;
+		if (selection_exact_authoritative(current.state.selected, selected)) {
+			let clearedNew = clear_apply_uncertainty();
+			if (!clearedNew.ok) return clearedNew;
+			return { ok: true, reconciled: 'new', selected: selected, revision: current.state.revision };
+		}
+		if (!selection_exact_authoritative(current.state.selected, record.oldIdentity))
+			return error('ECONFLICT', 'authoritative persisted Strategy selection does not match the old identity.');
 		let next = copy(current.state);
 		next.selected = selection_copy(selected);
 		next.revision = current.state.revision + 1;
 		let saved = write_state(current, next, current.state.revision);
 		if (!saved.ok) return saved;
-		try { unlink(APPLY_UNCERTAIN_PATH); } catch (e) { return error('EIO', 'Strategy Apply uncertainty record could not be cleared.'); }
-		if (!apply_block_clear()) return error('EIO', 'Strategy Apply blocking marker could not be cleared.');
+		let clearedNew = clear_apply_uncertainty();
+		if (!clearedNew.ok) return clearedNew;
 		return { ok: true, reconciled: 'new', selected: selected, state: saved.state, revision: saved.revision };
 	});
 };

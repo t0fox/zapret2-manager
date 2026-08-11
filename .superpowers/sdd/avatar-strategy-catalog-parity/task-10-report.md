@@ -2,8 +2,9 @@
 
 ## Status
 
-Implemented transactional Avatar Strategy Apply and identity reconciliation on
-branch `m5-native-state-store`.
+Implemented transactional Avatar Strategy Apply, authoritative identity
+reconciliation, and conservative pending-guard recovery on branch
+`m5-native-state-store`.
 
 ## Implementation
 
@@ -23,12 +24,23 @@ branch `m5-native-state-store`.
   projection across the existing profile transaction process boundary.
 - The projection commits selected identity only after restart and five-check
   runtime verification. Identity commit retries once while the config lock is
-  still held. Identity or rollback restoration failures record volatile
-  old/new hashes, identities, reason, and runtime outcome under
-  `/tmp/zapret2-manager/last-good/` and return `EUNCERTAIN`.
-- Normal Apply is blocked while uncertainty exists. Explicit reconciliation
-  requires verified runtime plus exact old/new config and identity evidence;
-  it either confirms the old state or commits the verified new selection.
+  still held. A verified rollback after identity commit failure returns
+  `EVERIFY` with `rolledBack: true`; failed or unverifiable rollback/identity
+  restoration records volatile old/new config and candidate hashes, catalog
+  digest, identities, reason, and bounded runtime outcome under
+  `/tmp/zapret2-manager/last-good/` and returns `EUNCERTAIN`.
+- Normal Apply is blocked while uncertainty or a pending guard exists. Explicit
+  reconciliation ignores caller context and recollects authoritative config,
+  candidate, runtime, and persisted Strategy selection evidence under the state
+  lock. It confirms old state only with the exact old identity, commits new
+  identity only from the exact persisted old Strategy identity, treats an exact
+  persisted new identity as already committed, and rejects null/ordinary or
+  mismatched selection hash collisions.
+- Pending guards persist the exact pre-Apply config/candidate hashes, catalog
+  digest, and active selection. A live lease is never stolen or cleared. A dead
+  pending guard remains blocked until explicit reconciliation proves the exact
+  old config, candidate, catalog, selection, and verified runtime; unknown or
+  mismatched outcomes remain blocked.
 - Existing Profile callers retain their transaction path, ordering, CAS,
   restart, verification, rollback, and idempotency behavior. Strategy Apply
   bypasses only the Profile idempotency shortcut so its identity projection is
@@ -39,14 +51,21 @@ branch `m5-native-state-store`.
 Created `tests/product/avatar-strategy-apply.test.mjs` covering authoritative
 input, stale and inline rejection, client-composed input rejection, full-set
 delegation, admission gates, digest/config CAS, identity commit ordering,
-retry/rollback/uncertain behavior, reconciliation, Apply blocking, and no
-direct config writes.
+sidecar process-boundary binding, executable success/failure/restart/rollback
+transactions through `profiles_apply_candidate`, identity retry/failure,
+uncertainty persistence failure, revision races, authoritative reconciliation,
+ordinary output/hash collision rejection, dead/live pending guards, Apply
+blocking, and no direct config writes. The production-default-disabled
+`Z2M_STRATEGY_APPLY_HOOK` provides deterministic transaction/state stubs for
+these tests without adding a router dependency.
 
 ## Verification
 
-- RED run observed failures for the missing Apply/state hooks before production
-  implementation.
-- Focused Apply/Profile/model/compiler/state/Preview run: 99 tests passed.
+- Round 1 RED run observed failures for the missing Apply/state hooks before
+  production implementation; Round 2 RED run covered selection collisions,
+  pending-owner recovery, and executable transaction outcomes before the
+  corresponding fixes.
+- Focused Apply/Profile/model/compiler/state/Preview run: 108 tests passed.
 - `git diff --check`: passed.
 - Transaction boundary manually inspected in `apply_candidate_pipeline`: the
   existing snapshot, CAS, upstream restart, recollection, runtime verification,
@@ -56,8 +75,46 @@ direct config writes.
 ## Concerns
 
 - End-to-end Apply against a live router was not available in this workspace;
-  native restart and runtime failure injection remain covered by the existing
-  transaction tests and source-order assertions.
+  native restart/runtime behavior is covered by the deterministic transaction
+  hook and existing Profile transaction tests, while live-router behavior still
+  requires device validation.
 - The identity projection crosses the existing `profiles-apply-cli.uc` process
-  boundary through a private candidate-digest-keyed sidecar because that
+  boundary through a private request-nonce-bound sidecar because that
   adapter was intentionally left unchanged by Task 10 scope.
+
+## Post-Implementation Fix Evidence
+
+- Projection sidecars now carry an explicit marker, transaction nonce, caller
+  context, selected identity, candidate digest, and previous candidate digest.
+  The profile transaction consumes the sidecar only when every binding matches;
+  ordinary Profile callers still take the no-projection path. Sidecars are
+  created with collision-resistant names, `0600` permissions, and are removed
+  after consumption or rejection.
+- Apply now establishes a durable guard and lease before preflight/config
+  mutation. The guard requires the last-good directory to be a real `0700`
+  directory, blocks on active or stale uncertainty, and fails closed when the
+  block/lease/uncertainty records cannot be persisted. The lease binds the
+  expected Strategy revision and selection revision and rejects concurrent
+  user updates until the transaction ends.
+- Revalidation runs under the Apply lease immediately before the Replace Full
+  Set. Identity commit and exact restoration use the same lease; a successful
+  rollback is reported as rollback, while failed or unverifiable restoration
+  records volatile uncertainty and leaves normal Apply blocked.
+- Reconciliation now obtains config, candidate, identity, and runtime evidence
+  from authoritative server-side reads. The CLI ignores caller hashes,
+  identities, runtime claims, and request context; the state reconciler accepts
+  only the internal authoritative evidence marker, rereads catalog/selection
+  state under its lock, and requires exact verified old/new evidence.
+- `tests/product/avatar-strategy-apply.test.mjs` now exercises the process
+  boundary, stale/concurrent sidecars, guard failures, live lease conflicts,
+  identity CAS retry/failure, authoritative reconciliation, bounded runtime
+  evidence, rollback classification, and volatile uncertainty persistence.
+
+## Verification Update
+
+- Focused Apply/Profile/model/compiler/state/Preview suite: 108 passed.
+- Native core state/atomic suites: 52 passed.
+- Native atomic-write-json property suite: 10 passed when run as WSL root, as
+  required by its production filesystem tests; the non-root invocation failed
+  only its explicit root precondition.
+- `git diff --check`: passed after the final implementation changes.

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -18,6 +19,10 @@ const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.spl
 const MODULE_PATTERN = ucodeModulePattern(process.env.UCODE_MODULE_PATH, process.env.UCODE_LIBRARY_PATH);
 const LIBRARY_ARGS = MODULE_PATTERN ? ['-L', MODULE_PATTERN] : [];
 const HASH = 'a'.repeat(64);
+const OLD_CONFIG_HASH = 'c'.repeat(64);
+const NEW_CONFIG_HASH = 'd'.repeat(64);
+const CANDIDATE = '--filter-tcp=443';
+const CANDIDATE_HASH = createHash('sha256').update(CANDIDATE).digest('hex');
 
 const environment = {
   listMode: 'none',
@@ -44,6 +49,46 @@ function strategy(overrides = {}) {
   return {
     id: 'user-one', name: 'User one', origin: 'user', is_builtin: false, metadata: {},
     profiles: [{ id: 'p1', args: '--filter-tcp=443', enabled: true }], ...overrides,
+  };
+}
+
+function runtimeChecks(verified) {
+  return { processPresent: verified, singleInstance: verified, rulesPresent: verified,
+    queueRegistered: verified, ownerMatch: verified };
+}
+
+function transactionHook(overrides = {}) {
+  const { state: stateOverrides = {}, ...transactionOverrides } = overrides;
+  return JSON.stringify({ state: {
+    strategy_apply_revalidate: { ok: true },
+    strategy_selection_apply: { ok: true },
+    ...stateOverrides,
+  }, transaction: {
+    currentOpt: '--filter-tcp=80',
+    preflight: { status: 'verified', coverage: {
+      cliSyntax: 'passed', luaLoad: 'passed', luaCompatibility: 'passed',
+      functionExistence: 'passed', blobExistence: 'passed', runtimeArguments: 'passed',
+      executionPlan: 'passed'
+    }, diagnostics: [] },
+    snapshot: { configBytes: 'old-config', configSha256: OLD_CONFIG_HASH,
+      uciBytes: '', uciSha256: null },
+    cas: { ok: true, configSha256: NEW_CONFIG_HASH },
+    restart: [{ rc: 0, out: '' }, { rc: 0, out: '' }],
+    verify: [{ ok: true, checks: runtimeChecks(true) }, { ok: true, checks: runtimeChecks(true) }],
+    rollback: { restoreOk: true, configBytes: 'old-config', configSha256: OLD_CONFIG_HASH },
+    ...transactionOverrides
+  }});
+}
+
+function strategyProjection(record, selected, previousCandidateSha256 = HASH) {
+  return {
+    callerContext: 'strategy_apply', operationNonce: 'apply-op',
+    strategyId: record.id, strategyOrigin: 'user', strategyRevision: record.revision,
+    catalogDigest: CATALOG_DIGEST, expectedRevision: selected == null ? 0 : 1,
+    selectionRevision: selected == null ? 0 : 1, expectedSelected: selected,
+    previousCandidateSha256, candidateSha256: CANDIDATE_HASH,
+    expectedConfigSha256: OLD_CONFIG_HASH, previousSelected: selected,
+    selected: { id: record.id, origin: 'user', revision: record.revision, candidateSha256: CANDIDATE_HASH }
   };
 }
 
@@ -143,9 +188,10 @@ test('uncertain Apply is volatile, blocks normal Apply, and reconciles only with
   const oldIdentity = { id: record.id, origin: 'user', revision: record.revision, candidateSha256: HASH };
   const newIdentity = { id: record.id, origin: 'user', revision: record.revision, candidateSha256: 'b'.repeat(64) };
   const oldHash = 'c'.repeat(64), newHash = 'd'.repeat(64);
+  assert.equal(invoke(STATE, `mod.strategy_selection_apply({expectedRevision:0,selected:${JSON.stringify(oldIdentity)}})`, env).ok, true);
   const saved = invoke(STATE, `mod.strategy_apply_uncertain_record(${JSON.stringify({
     oldConfigSha256: oldHash, newConfigSha256: newHash, oldCandidateSha256: HASH,
-    newCandidateSha256: newIdentity.candidateSha256, oldIdentity, newIdentity,
+     newCandidateSha256: newIdentity.candidateSha256, catalogDigest: CATALOG_DIGEST, oldIdentity, newIdentity,
     runtimeOutcome: { initial: { processPresent: true, singleInstance: true, rulesPresent: true, queueRegistered: true, ownerMatch: true },
       rollback: { processPresent: false, singleInstance: false, rulesPresent: false, queueRegistered: false, ownerMatch: false },
       restartRc: 1, rollbackRestartRc: 1, configRestored: false, identityRestored: false }, reason: 'test',
@@ -162,6 +208,164 @@ test('uncertain Apply is volatile, blocks normal Apply, and reconciles only with
   })})`, env);
   assert.deepEqual(reconciled, { ok: true, reconciled: 'old', selected: oldIdentity });
   assert.equal(fs.existsSync(env.Z2M_STRATEGY_APPLY_UNCERTAIN), false);
+}));
+
+test('reconciliation refuses an ordinary output hash collision without changing persisted selection', () => storage(({ record, env }) => {
+  const oldIdentity = { id: record.id, origin: 'user', revision: record.revision, candidateSha256: HASH };
+  const newIdentity = { id: record.id, origin: 'user', revision: record.revision, candidateSha256: 'b'.repeat(64) };
+  const saved = invoke(STATE, `mod.strategy_apply_uncertain_record(${JSON.stringify({
+    oldConfigSha256: OLD_CONFIG_HASH, newConfigSha256: NEW_CONFIG_HASH,
+     oldCandidateSha256: HASH, newCandidateSha256: newIdentity.candidateSha256, catalogDigest: CATALOG_DIGEST,
+    oldIdentity, newIdentity,
+    runtimeOutcome: { initial: runtimeChecks(false), rollback: runtimeChecks(false), restartRc: 1, rollbackRestartRc: 1,
+      configRestored: false, identityRestored: false }, reason: 'hash-collision',
+  })})`, env);
+  assert.equal(saved.ok, true);
+  const reconciled = invoke(STATE, `mod.strategy_apply_reconcile(${JSON.stringify({
+    evidenceMarker: 'z2m-authoritative-reconcile.v1', currentConfigSha256: NEW_CONFIG_HASH,
+    activeCandidateSha256: NEW_CONFIG_HASH,
+    runtimeChecks: runtimeChecks(true),
+  })})`, env);
+  assert.equal(reconciled.error.code, 'ECONFLICT');
+  assert.equal(invoke(STATE, 'mod.strategy_selection_get()', env).selected, null);
+  assert.equal(fs.existsSync(env.Z2M_STRATEGY_APPLY_UNCERTAIN), true);
+}));
+
+test('reconciliation commits new identity only from the exact persisted old Strategy selection', () => storage(({ record, env }) => {
+  const oldIdentity = { id: record.id, origin: 'user', revision: record.revision, candidateSha256: HASH };
+  const newIdentity = { id: record.id, origin: 'user', revision: record.revision, candidateSha256: 'b'.repeat(64) };
+  assert.equal(invoke(STATE, `mod.strategy_selection_apply({expectedRevision:0,selected:${JSON.stringify(oldIdentity)}})`, env).ok, true);
+  assert.equal(invoke(STATE, `mod.strategy_apply_uncertain_record(${JSON.stringify({
+    oldConfigSha256: OLD_CONFIG_HASH, newConfigSha256: NEW_CONFIG_HASH,
+     oldCandidateSha256: HASH, newCandidateSha256: newIdentity.candidateSha256, catalogDigest: CATALOG_DIGEST,
+    oldIdentity, newIdentity,
+    runtimeOutcome: { initial: runtimeChecks(false), rollback: runtimeChecks(false), restartRc: 1, rollbackRestartRc: 1,
+      configRestored: false, identityRestored: false }, reason: 'new-authoritative-state',
+  })})`, env).ok, true);
+  const reconciled = invoke(STATE, `mod.strategy_apply_reconcile(${JSON.stringify({
+    evidenceMarker: 'z2m-authoritative-reconcile.v1', currentConfigSha256: NEW_CONFIG_HASH,
+    activeCandidateSha256: newIdentity.candidateSha256, runtimeChecks: runtimeChecks(true),
+  })})`, env);
+  assert.equal(reconciled.ok, true);
+  assert.equal(reconciled.reconciled, 'new');
+  assert.deepEqual(invoke(STATE, 'mod.strategy_selection_get()', env).selected, newIdentity);
+}));
+
+test('dead pending Apply guard clears only through exact authoritative old-state reconciliation', () => storage(({ record, env }) => {
+  const oldIdentity = { id: record.id, origin: 'user', revision: record.revision, candidateSha256: HASH };
+  assert.equal(invoke(STATE, `mod.strategy_selection_apply({expectedRevision:0,selected:${JSON.stringify(oldIdentity)}})`, env).ok, true);
+  const begun = invoke(STATE, `mod.strategy_apply_begin(${JSON.stringify({
+    strategyId: record.id, strategyRevision: record.revision, catalogDigest: CATALOG_DIGEST,
+    oldConfigSha256: OLD_CONFIG_HASH, oldCandidateSha256: HASH,
+  })})`, env);
+  assert.equal(begun.ok, true);
+  assert.equal(fs.existsSync(env.Z2M_STRATEGY_APPLY_BLOCK), true);
+  const recovered = invoke(STATE, `mod.strategy_apply_reconcile(${JSON.stringify({
+    evidenceMarker: 'z2m-authoritative-reconcile.v1', currentConfigSha256: OLD_CONFIG_HASH,
+    activeCandidateSha256: HASH, runtimeChecks: runtimeChecks(true),
+  })})`, env);
+  assert.deepEqual(recovered, { ok: true, reconciled: 'pending-old', selected: oldIdentity });
+  assert.equal(fs.existsSync(env.Z2M_STRATEGY_APPLY_BLOCK), false);
+}));
+
+test('live pending Apply guard cannot be stolen or cleared by reconciliation', async () => storage(async ({ record, env }) => {
+  const oldIdentity = { id: record.id, origin: 'user', revision: record.revision, candidateSha256: HASH };
+  assert.equal(invoke(STATE, `mod.strategy_selection_apply({expectedRevision:0,selected:${JSON.stringify(oldIdentity)}})`, env).ok, true);
+  const begun = await holdUcode(STATE, `mod.strategy_apply_begin(${JSON.stringify({
+    strategyId: record.id, strategyRevision: record.revision, catalogDigest: CATALOG_DIGEST,
+    oldConfigSha256: OLD_CONFIG_HASH, oldCandidateSha256: HASH,
+  })})`, env);
+  assert.equal(begun.result.ok, true);
+  const recovered = invoke(STATE, `mod.strategy_apply_reconcile(${JSON.stringify({
+    evidenceMarker: 'z2m-authoritative-reconcile.v1', currentConfigSha256: OLD_CONFIG_HASH,
+    activeCandidateSha256: HASH, runtimeChecks: runtimeChecks(true),
+  })})`, env);
+  assert.equal(recovered.error.code, 'ELOCKED');
+  assert.equal(fs.existsSync(env.Z2M_STRATEGY_APPLY_BLOCK), true);
+  if (begun.child.exitCode == null) await new Promise((resolve, reject) => {
+    begun.child.once('error', reject);
+    begun.child.once('exit', code => code == 0 || code == null ? resolve() : reject(new Error(`held ucode exit ${code}`)));
+    begun.child.kill('SIGTERM');
+  });
+}));
+
+test('profiles_apply_candidate executes a verified Strategy transaction through the boundary', () => storage(({ record, env }) => {
+  const oldIdentity = { id: record.id, origin: 'user', revision: record.revision, candidateSha256: HASH };
+  assert.equal(invoke(STATE, `mod.strategy_selection_apply({expectedRevision:0,selected:${JSON.stringify(oldIdentity)}})`, env).ok, true);
+  const result = invoke(APPLY, `mod.profiles_apply_candidate(${JSON.stringify(CANDIDATE)}, '${CANDIDATE_HASH}', ${JSON.stringify(strategyProjection(record, oldIdentity))})`, {
+    ...env, Z2M_CONFIG_LOCKED: '1', Z2M_STRATEGY_APPLY_HOOK: transactionHook(),
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.identity.ok, true);
+  assert.deepEqual(invoke(STATE, 'mod.strategy_selection_get()', env).selected, oldIdentity);
+}));
+
+test('profiles_apply_candidate executes restart failure and verified rollback through the boundary', () => storage(({ record, env }) => {
+  const oldIdentity = { id: record.id, origin: 'user', revision: record.revision, candidateSha256: HASH };
+  assert.equal(invoke(STATE, `mod.strategy_selection_apply({expectedRevision:0,selected:${JSON.stringify(oldIdentity)}})`, env).ok, true);
+  const result = invoke(APPLY, `mod.profiles_apply_candidate(${JSON.stringify(CANDIDATE)}, '${CANDIDATE_HASH}', ${JSON.stringify(strategyProjection(record, oldIdentity))})`, {
+    ...env, Z2M_CONFIG_LOCKED: '1', Z2M_STRATEGY_APPLY_HOOK: transactionHook({
+      state: { strategy_selection_get: { ok: true, revision: 1, selected: oldIdentity } },
+      restart: [{ rc: 1, out: 'restart failed' }, { rc: 0, out: '' }],
+      verify: [{ ok: false, checks: runtimeChecks(false) }, { ok: true, checks: runtimeChecks(true) }],
+    }),
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'ETARGET');
+  assert.equal(result.rolledBack, true);
+  assert.deepEqual(invoke(STATE, 'mod.strategy_selection_get()', env).selected, oldIdentity);
+}));
+
+test('profiles_apply_candidate retries identity commit once and reports verified retry', () => storage(({ record, env }) => {
+  const oldIdentity = { id: record.id, origin: 'user', revision: record.revision, candidateSha256: HASH };
+  assert.equal(invoke(STATE, `mod.strategy_selection_apply({expectedRevision:0,selected:${JSON.stringify(oldIdentity)}})`, env).ok, true);
+  const result = invoke(APPLY, `mod.profiles_apply_candidate(${JSON.stringify(CANDIDATE)}, '${CANDIDATE_HASH}', ${JSON.stringify(strategyProjection(record, oldIdentity))})`, {
+    ...env, Z2M_CONFIG_LOCKED: '1', Z2M_STRATEGY_APPLY_HOOK: transactionHook({
+      state: { strategy_selection_apply: [
+        { ok: false, error: { code: 'ECONFLICT', message: 'injected identity race' } },
+        { ok: true, state: { selected: { id: record.id, origin: 'user', revision: record.revision, candidateSha256: CANDIDATE_HASH } } },
+      ] },
+    }),
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.identity.ok, true);
+  assert.equal(result.identityRetry.ok, true);
+}));
+
+test('profiles_apply_candidate rolls back when identity commit and retry both fail', () => storage(({ record, env }) => {
+  const oldIdentity = { id: record.id, origin: 'user', revision: record.revision, candidateSha256: HASH };
+  assert.equal(invoke(STATE, `mod.strategy_selection_apply({expectedRevision:0,selected:${JSON.stringify(oldIdentity)}})`, env).ok, true);
+  const result = invoke(APPLY, `mod.profiles_apply_candidate(${JSON.stringify(CANDIDATE)}, '${CANDIDATE_HASH}', ${JSON.stringify(strategyProjection(record, oldIdentity))})`, {
+    ...env, Z2M_CONFIG_LOCKED: '1', Z2M_STRATEGY_APPLY_HOOK: transactionHook({
+      state: { strategy_selection_get: { ok: true, revision: 1, selected: oldIdentity }, strategy_selection_apply: [
+        { ok: false, error: { code: 'ECONFLICT', message: 'injected identity race' } },
+        { ok: false, error: { code: 'ECONFLICT', message: 'injected identity retry failure' } },
+      ] },
+      restart: [{ rc: 0, out: '' }, { rc: 0, out: '' }],
+      verify: [{ ok: true, checks: runtimeChecks(true) }, { ok: true, checks: runtimeChecks(true) }],
+    }),
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'EVERIFY');
+  assert.equal(result.rolledBack, true);
+  assert.equal(result.uncertain, false);
+}));
+
+test('profiles_apply_candidate preserves the blocker when uncertainty persistence fails', () => storage(({ record, env }) => {
+  const oldIdentity = { id: record.id, origin: 'user', revision: record.revision, candidateSha256: HASH };
+  assert.equal(invoke(STATE, `mod.strategy_selection_apply({expectedRevision:0,selected:${JSON.stringify(oldIdentity)}})`, env).ok, true);
+  const result = invoke(APPLY, `mod.profiles_apply_candidate(${JSON.stringify(CANDIDATE)}, '${CANDIDATE_HASH}', ${JSON.stringify(strategyProjection(record, oldIdentity))})`, {
+    ...env, Z2M_CONFIG_LOCKED: '1', Z2M_STRATEGY_APPLY_HOOK: transactionHook({
+      state: { strategy_apply_uncertain_record: { ok: false, error: { code: 'EIO', message: 'injected persistence failure' } } },
+      restart: [{ rc: 1, out: 'restart failed' }, { rc: 1, out: 'rollback restart failed' }],
+      verify: [{ ok: false, checks: runtimeChecks(false) }, { ok: false, checks: runtimeChecks(false) }],
+      rollback: { restoreOk: false, configBytes: 'wrong-config', configSha256: 'e'.repeat(64) },
+    }),
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'EVERIFY');
+  assert.equal(result.uncertain, true);
+  assert.equal(result.uncertaintyPersistence.ok, false);
 }));
 
 test('state identity failure decision requires rollback or volatile uncertainty, never reboot durability', () => {
@@ -222,7 +426,7 @@ test('Apply guard fails closed on insecure last-good or uncertainty write failur
   fs.symlinkSync(target, env.Z2M_STRATEGY_APPLY_UNCERTAIN);
   assert.equal(invoke(STATE, `mod.strategy_apply_uncertain_record(${JSON.stringify({
     oldConfigSha256: '1'.repeat(64), newConfigSha256: '2'.repeat(64),
-    oldCandidateSha256: '3'.repeat(64), newCandidateSha256: '4'.repeat(64),
+     oldCandidateSha256: '3'.repeat(64), newCandidateSha256: '4'.repeat(64), catalogDigest: CATALOG_DIGEST,
     oldIdentity: null, newIdentity: null,
     runtimeOutcome: { initial: { processPresent: true, singleInstance: true, rulesPresent: true, queueRegistered: true, ownerMatch: true },
       rollback: { processPresent: false, singleInstance: false, rulesPresent: false, queueRegistered: false, ownerMatch: false }, restartRc: 1, rollbackRestartRc: 1,
@@ -277,7 +481,7 @@ test('runtime uncertainty records preserve bounded verified checks and rollback-
   };
   const saved = invoke(STATE, `mod.strategy_apply_uncertain_record(${JSON.stringify({
     oldConfigSha256: '3'.repeat(64), newConfigSha256: '4'.repeat(64),
-    oldCandidateSha256: '5'.repeat(64), newCandidateSha256: '6'.repeat(64),
+     oldCandidateSha256: '5'.repeat(64), newCandidateSha256: '6'.repeat(64), catalogDigest: CATALOG_DIGEST,
     oldIdentity: null, newIdentity: null, runtimeOutcome: outcome, reason: 'verified-checks',
   })})`, env);
   assert.equal(saved.ok, true);

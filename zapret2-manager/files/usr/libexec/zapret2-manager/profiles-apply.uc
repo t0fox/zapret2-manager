@@ -39,6 +39,7 @@ const CONFIG_LOCK = '/opt/zapret2/config.lock';
 const PROFILE_APPLY_CLI = '/usr/libexec/zapret2-manager/profiles-apply-cli.uc';
 const STRATEGY_STATE_MODULE = '/usr/libexec/zapret2-manager/strategy-state.uc';
 const PROJECTION_MARKER = 'z2m-strategy-apply-projection.v1';
+let APPLY_HOOK = null, APPLY_HOOK_LOADED = false, APPLY_HOOK_CURSOR = {};
 
 function run(cmd) {
 	let p = popen(cmd + ' 2>&1', 'r');
@@ -49,12 +50,35 @@ function run(cmd) {
 	return { out: out, rc: rc };
 }
 
-function strategy_state_call(name, input) {
-	let source = 'import { ' + name + ' } from ' + sprintf('%J', STRATEGY_STATE_MODULE)
-		+ '; print(sprintf("%J", ' + name + '(' + (input == null ? '' : sprintf('%J', input)) + ')));';
-	let answer = run('/usr/bin/ucode -e ' + shell_escape(source));
-	if (answer.rc != 0) return err('identity', 'EINTERNAL', 'Strategy state hook failed');
-	try { return json(answer.out); } catch (e) { return err('identity', 'EINTERNAL', 'Strategy state hook response is malformed'); }
+function apply_hook() {
+	if (APPLY_HOOK_LOADED) return APPLY_HOOK;
+	APPLY_HOOK_LOADED = true;
+	let raw = getenv('Z2M_STRATEGY_APPLY_HOOK');
+	if (raw == null || length(raw) > 65536) return null;
+	try { APPLY_HOOK = json(raw); } catch (e) { APPLY_HOOK = null; }
+	return type(APPLY_HOOK) == 'object' && APPLY_HOOK != null ? APPLY_HOOK : null;
+}
+
+function hook_value(section, name) {
+	let hook = apply_hook(), group = hook != null ? hook[section] : null;
+	if (type(group) != 'object' || group == null || group[name] == null) return null;
+	let value = group[name];
+	if (type(value) != 'array') return value;
+	let cursor = APPLY_HOOK_CURSOR[section + ':' + name];
+	if (type(cursor) != 'int') cursor = 0;
+	let index = cursor < length(value) ? cursor : length(value) - 1;
+	APPLY_HOOK_CURSOR[section + ':' + name] = cursor + 1;
+	return index >= 0 ? value[index] : null;
+}
+
+function shell_escape(s) {
+	let out = "'";
+	for (let i = 0; i < length(s); i++) {
+		let c = substr(s, i, 1);
+		if (c == "'") out += "'\\''";
+		else out += c;
+	}
+	return out + "'";
 }
 
 function err(stage, code, message, extra) {
@@ -64,6 +88,16 @@ function err(stage, code, message, extra) {
 		for (let i = 0; i < length(ks); i++) e[ks[i]] = extra[ks[i]];
 	}
 	return e;
+}
+
+function strategy_state_call(name, input) {
+	let injected = hook_value('state', name);
+	if (injected != null) return injected;
+	let source = 'import { ' + name + ' } from ' + sprintf('%J', STRATEGY_STATE_MODULE)
+		+ '; print(sprintf("%J", ' + name + '(' + (input == null ? '' : sprintf('%J', input)) + ')));';
+	let answer = run('/usr/bin/ucode -e ' + shell_escape(source));
+	if (answer.rc != 0) return err('identity', 'EINTERNAL', 'Strategy state hook failed');
+	try { return json(answer.out); } catch (e) { return err('identity', 'EINTERNAL', 'Strategy state hook response is malformed'); }
 }
 
 function trim_ws(s) {
@@ -82,6 +116,17 @@ function trim_ws(s) {
 	return substr(s, a, b - a);
 }
 
+function secure_request() {
+	let p = popen("umask 077; mktemp /tmp/z2m-profile-apply.XXXXXX 2>/dev/null", 'r');
+	if (!p) return null;
+	let path = trim(p.read('all'));
+	let rc = p.close();
+	if (rc != 0 || !length(path)) return null;
+	let check = run('[ -f ' + shell_escape(path) + ' ] && [ ! -L ' + shell_escape(path) + ' ] && chmod 600 ' + shell_escape(path));
+	if (check.rc != 0) { try { unlink(path); } catch (e) { } return null; }
+	return path;
+}
+
 function sha256_text_via_file(text) {
 	let tmppath = secure_request();
 	if (tmppath == null) return null;
@@ -93,6 +138,11 @@ function sha256_text_via_file(text) {
 	try { unlink(tmppath); } catch (e) { }
 	let h = trim(r.out);
 	return (length(h) == 64) ? h : null;
+}
+
+function native_preflight_for_apply(candidate) {
+	let injected = hook_value('transaction', 'preflight');
+	return injected != null ? injected : native_preflight(candidate);
 }
 
 function dq_escape(s) {
@@ -153,16 +203,6 @@ function candidate_round_trip(candidate, frags) {
 // Pure proof hook for adapters that render through this module. The apply
 // pipeline below remains the only transaction owner.
 export const profiles_candidate_round_trip = candidate_round_trip;
-
-function shell_escape(s) {
-	let out = "'";
-	for (let i = 0; i < length(s); i++) {
-		let c = substr(s, i, 1);
-		if (c == "'") out += "'\\''";
-		else out += c;
-	}
-	return out + "'";
-}
 
 function apply_decision(nv) {
 	if (type(nv) != 'object' || nv == null || nv.status != 'verified')
@@ -233,6 +273,19 @@ function snapshot_apply() {
 	};
 }
 
+function transaction_snapshot(injected) {
+	return injected != null ? injected : snapshot_apply();
+}
+
+function transaction_cas(candidate, expectedHash, snapshot, injected) {
+	return injected != null ? injected : set_var_cas(OPT_VAR, dq_escape(candidate), snapshot.configSha256);
+}
+
+function transaction_restart(attempt, injected) {
+	if (injected != null) return injected;
+	return run(UPSTREAM_INIT + ' restart');
+}
+
 function verify_status(sj, q, allow_external_nfqws) {
 	let rt = (type(sj) == 'object' && sj != null && type(sj.runtime) == 'object') ? sj.runtime : {};
 	let count = (type(rt.count) == 'int') ? rt.count
@@ -251,6 +304,24 @@ function verify_status(sj, q, allow_external_nfqws) {
 	};
 	let ok = checks.processPresent && checks.singleInstance && checks.rulesPresent && checks.queueRegistered && checks.ownerMatch;
 	return { ok: ok, checks: checks, daemonPid: pid, queueOwner: q.peer_portid };
+}
+
+function transaction_verify(attempt, allow_external_nfqws, injected) {
+	if (injected != null) return injected;
+	return verify_status(recollect_status(), parse_queue(), allow_external_nfqws);
+}
+
+function transaction_restore(snapshot, injected) {
+	if (injected != null) return injected.restoreOk == true ? { ok: true } : null;
+	return restore_whole_file(PATHS.applied_conf, snapshot.configBytes);
+}
+
+function transaction_config_hash(injected) {
+	return injected != null && injected.configSha256 != null ? injected.configSha256 : config_sha256();
+}
+
+function transaction_config_bytes(injected) {
+	return injected != null && injected.configBytes != null ? injected.configBytes : read_config_bytes();
 }
 
 export const profiles_rollback_decision = function(restartRc, verifyOk, configRestored, rollbackRestartRc, rollbackVerifyOk) {
@@ -357,6 +428,7 @@ function uncertain_projection(projection, snap, newConfigHash, runtimeOutcome, r
 	return strategy_state_call('strategy_apply_uncertain_record', {
 		oldConfigSha256: snap.configSha256, newConfigSha256: newConfigHash,
 		oldCandidateSha256: projection.previousCandidateSha256, newCandidateSha256: projection.candidateSha256,
+		catalogDigest: projection.catalogDigest,
 		oldIdentity: projection.previousSelected, newIdentity: projection.selected,
 		runtimeOutcome: runtimeOutcome, reason: reason, applyNonce: projection.operationNonce
 	});
@@ -401,7 +473,10 @@ function apply_candidate_pipeline(f) {
 		if (type(la) == 'object' && la != null && la.candidateSha256 == f.diff.candidateSha256) {
 			let age = time() - (type(la.at) == 'int' ? la.at : 0);
 			let currentMatches = read_var(OPT_VAR) == f.candidate;
-			let currentVerify = currentMatches ? verify_status(recollect_status(), parse_queue(), f.allowExternalNfqws == true) : null;
+			let cachedVerifyHook = hook_value('transaction', 'verify');
+			let currentVerify = currentMatches
+				? (cachedVerifyHook != null ? transaction_verify(0, f.allowExternalNfqws == true, cachedVerifyHook)
+					: verify_status(recollect_status(), parse_queue(), f.allowExternalNfqws == true)) : null;
 			if (age >= 0 && age < 60 && currentMatches && currentVerify.ok && f.projection == null)
 				return { ok: true, mode: 'apply', idempotent: true,
 					note: 'identical candidate was applied ' + age + 's ago — rollback baseline preserved',
@@ -411,7 +486,8 @@ function apply_candidate_pipeline(f) {
 		}
 	}
 
-	let snap = snapshot_apply();
+	let snapshotHook = hook_value('transaction', 'snapshot');
+	let snap = snapshotHook != null ? transaction_snapshot(snapshotHook) : snapshot_apply();
 	if (snap.configSha256 == null)
 		return err('snapshot', 'ETARGET', 'unable to hash the locked upstream config — nothing was written');
 	if (f.projection != null && f.projection.expectedConfigSha256 != null
@@ -427,7 +503,9 @@ function apply_candidate_pipeline(f) {
 		if (!currentIdentity.ok)
 			return err('validate', 'ECONFLICT', 'Strategy identity changed before config mutation', { identity: currentIdentity });
 	}
-	let cas = set_var_cas(OPT_VAR, dq_escape(f.candidate), snap.configSha256);
+	let casHook = hook_value('transaction', 'cas');
+	let cas = casHook != null ? transaction_cas(f.candidate, f.diff.candidateSha256, snap, casHook)
+		: set_var_cas(OPT_VAR, dq_escape(f.candidate), snap.configSha256);
 	if (type(cas) != 'object' || cas == null || cas.ok != true) {
 		let code = (cas && cas.code) ? cas.code : 'EWRITE';
 		return err('write', code, code == 'ECONFLICT'
@@ -435,9 +513,12 @@ function apply_candidate_pipeline(f) {
 			: 'durable atomic config write failed', { snapshot: snap, cas: cas });
 	}
 
-	let r = run(UPSTREAM_INIT + ' restart');
+	let restartHook = hook_value('transaction', 'restart');
+	let r = restartHook != null ? transaction_restart(0, restartHook) : run(UPSTREAM_INIT + ' restart');
 	run('sleep 2');
-	let verify = verify_status(recollect_status(), parse_queue(), f.allowExternalNfqws == true);
+	let verifyHook = hook_value('transaction', 'verify');
+	let verify = verifyHook != null ? transaction_verify(0, f.allowExternalNfqws == true, verifyHook)
+		: verify_status(recollect_status(), parse_queue(), f.allowExternalNfqws == true);
 	let rollbackDecision = profiles_rollback_decision(r.rc, verify.ok, false, -1, false);
 	let identity = null, identityRetry = null, identityFailure = false;
 	if (!rollbackDecision.rollbackRequired && f.projection != null) {
@@ -447,12 +528,19 @@ function apply_candidate_pipeline(f) {
 		if (identityFailure) rollbackDecision.rollbackRequired = true;
 	}
 	if (rollbackDecision.rollbackRequired) {
-		let restored = restore_whole_file(PATHS.applied_conf, snap.configBytes);
+		let rollbackHook = hook_value('transaction', 'rollback');
+		let restored = rollbackHook != null ? transaction_restore(snap, rollbackHook)
+			: restore_whole_file(PATHS.applied_conf, snap.configBytes);
 		if (snap.uciBytes != null) writefile(PATHS.uci_conf, snap.uciBytes);
-		let rr = run(UPSTREAM_INIT + ' restart');
+		let rollbackRestartHook = hook_value('transaction', 'restart');
+		let rr = rollbackRestartHook != null ? transaction_restart(1, rollbackRestartHook) : run(UPSTREAM_INIT + ' restart');
 		run('sleep 2');
-		let rollbackVerify = verify_status(recollect_status(), parse_queue(), f.allowExternalNfqws == true);
-		let configRestored = restored != null && config_sha256() == snap.configSha256 && read_config_bytes() == snap.configBytes;
+		let rollbackVerifyHook = hook_value('transaction', 'verify');
+		let rollbackVerify = rollbackVerifyHook != null ? transaction_verify(1, f.allowExternalNfqws == true, rollbackVerifyHook)
+			: verify_status(recollect_status(), parse_queue(), f.allowExternalNfqws == true);
+		let configRestored = restored != null
+			&& (rollbackHook != null ? transaction_config_hash(rollbackHook) == snap.configSha256 : config_sha256() == snap.configSha256)
+			&& (rollbackHook != null ? transaction_config_bytes(rollbackHook) == snap.configBytes : read_config_bytes() == snap.configBytes);
 		let rollbackOk = identityFailure
 			? (configRestored && rr.rc == 0 && rollbackVerify.ok)
 			: profiles_rollback_decision(r.rc, verify.ok, configRestored, rr.rc, rollbackVerify.ok).rollbackOk;
@@ -501,19 +589,9 @@ function apply_candidate_pipeline(f) {
 		ok: true, mode: 'apply',
 		applied: { profiles: f.draftCount, candidateSha256: f.diff.candidateSha256, configSha256: cas.configSha256 },
 		verify: verify, snapshot: snap, identity: f.projection == null ? null : (identityRetry && identityRetry.ok ? identityRetry : identity),
+		identityRetry: identityRetry,
 		rollback: { available: true, armed: false, exactSnapshot: true }
 	};
-}
-
-function secure_request() {
-	let p = popen("umask 077; mktemp /tmp/z2m-profile-apply.XXXXXX 2>/dev/null", 'r');
-	if (!p) return null;
-	let path = trim(p.read('all'));
-	let rc = p.close();
-	if (rc != 0 || !length(path)) return null;
-	let check = run('[ -f ' + shell_escape(path) + ' ] && [ ! -L ' + shell_escape(path) + ' ] && chmod 600 ' + shell_escape(path));
-	if (check.rc != 0) { try { unlink(path); } catch (e) { } return null; }
-	return path;
 }
 
 function locked_candidate_call(candidate, expectedHash, projection) {
@@ -569,7 +647,9 @@ export const profiles_apply_candidate = function(candidate, expectedHash, projec
 	let model = z2m_parse(candidate), diags = z2m_validate(model);
 	for (let d in model.diagnostics) if (d.severity == 'error') return err('render', 'EINPUT', 'typed candidate has parse errors', { diagnostics: model.diagnostics });
 	for (let d in diags) if (d.severity == 'error') return err('render', 'EINPUT', 'typed candidate has validation errors', { diagnostics: diags });
-	let native = native_preflight(candidate), cur = read_var(OPT_VAR), diff = diff_summary(cur != null ? cur : '', candidate);
+	let native = native_preflight_for_apply(candidate), cur = hook_value('transaction', 'currentOpt');
+	if (cur == null) cur = read_var(OPT_VAR);
+	let diff = diff_summary(cur != null ? cur : '', candidate);
 	if (expectedHash != null && diff.candidateSha256 != expectedHash)
 		return err('validate', 'ECONFLICT', 'typed candidate hash changed before mutation', { expected: expectedHash, actual: diff.candidateSha256 });
 	let boundary = profiles_projection_boundary(expectedHash);

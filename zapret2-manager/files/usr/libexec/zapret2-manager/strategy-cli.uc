@@ -426,8 +426,12 @@ export const strategy_apply = function(input, context) {
 		return error_result('EUNCERTAIN', 'Strategy Apply uncertainty state is unreadable; explicit reconciliation is required.');
 	if (is_object(pending) && pending.ok == true && pending.record != null)
 		return error_result('EUNCERTAIN', 'Strategy Apply is blocked until explicit reconciliation.');
+	let oldConfigSha256 = null, oldCandidateSha256 = null;
+	try { oldConfigSha256 = profiles_config_hash(); oldCandidateSha256 = profiles_candidate_hash(); }
+	catch (e) { oldConfigSha256 = null; oldCandidateSha256 = null; }
 	let begun = null;
-	try { begun = strategy_apply_begin({ strategyId: input.strategy_id, strategyRevision: input.revision, catalogDigest: input.catalog_digest }); }
+	try { begun = strategy_apply_begin({ strategyId: input.strategy_id, strategyRevision: input.revision, catalogDigest: input.catalog_digest,
+		oldConfigSha256: oldConfigSha256, oldCandidateSha256: oldCandidateSha256 }); }
 	catch (e) { begun = null; }
 	if (!is_object(begun) || begun.ok != true)
 		return error_result(begun && begun.error ? begun.error.code : 'EUNCERTAIN', begun && begun.error ? begun.error.message : 'Strategy Apply guard could not be established.');
@@ -451,15 +455,11 @@ export const strategy_apply = function(input, context) {
 	if (!complete_validation(candidate.nativeValidation))
 		return strategy_apply_finish(error_result('EPREFLIGHT', 'complete native Strategy preflight is required'), begun.operationNonce);
 	if (!digest(candidate.digest)) return strategy_apply_finish(error_result('EINTERNAL', 'Strategy candidate digest is unavailable'), begun.operationNonce);
-	let configHash = null;
-	try { configHash = profiles_config_hash(); } catch (e) { configHash = null; }
-	if (!digest(configHash)) return strategy_apply_finish(error_result('EVERIFY', 'current upstream config hash is unavailable'), begun.operationNonce);
-	let previousCandidateSha256 = null;
-	try { previousCandidateSha256 = profiles_candidate_hash(); } catch (e) { previousCandidateSha256 = null; }
-	if (!digest(previousCandidateSha256)) return strategy_apply_finish(error_result('EVERIFY', 'current upstream candidate hash is unavailable'), begun.operationNonce);
+	if (!digest(oldConfigSha256) || !digest(oldCandidateSha256))
+		return strategy_apply_finish(error_result('EVERIFY', 'authoritative pre-Apply config and candidate hashes are unavailable'), begun.operationNonce);
 	let selection = { revision: begun.selectionRevision, selected: begun.selected,
-		operationNonce: begun.operationNonce, previousCandidateSha256: previousCandidateSha256 };
-	let projection = strategy_apply_projection(resolved, input, candidate, selection, configHash);
+		operationNonce: begun.operationNonce, previousCandidateSha256: begun.oldCandidateSha256 };
+	let projection = strategy_apply_projection(resolved, input, candidate, selection, begun.oldConfigSha256);
 	let applied = profiles_apply_candidate(candidate.candidate, candidate.digest, projection);
 	if (!is_object(applied)) return strategy_apply_finish(error_result('EINTERNAL', 'Strategy transaction returned no result'), begun.operationNonce);
 	if (applied.ok != true) {
