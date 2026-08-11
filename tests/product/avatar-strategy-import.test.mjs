@@ -70,6 +70,15 @@ function previewSource(value = draft, input = { mode: 'preview' }) {
   return `import { strategy_import_profiles_from_state } from ${JSON.stringify(CLI)}; print(sprintf('%J', strategy_import_profiles_from_state(${JSON.stringify(value)}, ${JSON.stringify(input)})));`;
 }
 
+function productionSource(input, context = { importProfiles: { draftState: draft } }) {
+  return `import { strategy_import_profiles } from ${JSON.stringify(CLI)}; print(sprintf('%J', strategy_import_profiles(${JSON.stringify(input)}, ${JSON.stringify(context)})));`;
+}
+
+function sentinelBytes(root) {
+  return Object.fromEntries(['legacy-state.json', 'config', 'nfqws2-opt', 'runtime.json', 'active-identity', 'manager-state.json']
+    .map(name => [name, fs.readFileSync(path.join(root, name), 'utf8')]));
+}
+
 test('preview preserves ordered Profile args and quote-aware token semantics', () => {
   const result = invoke(previewSource());
   assert.equal(result.ok, true);
@@ -106,6 +115,54 @@ test('preview does not publish, while explicit create publishes one user Strateg
   assert.equal(created.runtimeMutation, false);
   assert.deepEqual(fs.readdirSync(strategies), ['legacy-profile-drafts.json']);
   assert.equal(fs.existsSync(path.join(root, 'state.json')), false);
+}));
+
+test('production import entry point honors preview/create modes with injected draft context', () => storage((env, root, strategies) => {
+  const legacyBytes = JSON.stringify(draft);
+  for (const [name, value] of Object.entries({
+    'legacy-state.json': legacyBytes,
+    config: 'config-before',
+    'nfqws2-opt': 'NFQWS2_OPT-before',
+    'runtime.json': JSON.stringify({ pid: 123, running: true }),
+    'active-identity': 'active-before',
+    'manager-state.json': JSON.stringify({ revision: 9 }),
+  })) fs.writeFileSync(path.join(root, name), value);
+  const before = sentinelBytes(root);
+
+  const preview = invoke(productionSource({ mode: 'preview' }), env);
+  assert.equal(preview.ok, true);
+  assert.equal(preview.mode, 'preview');
+  assert.equal(preview.runtimeMutation, false);
+  assert.deepEqual(fs.readdirSync(strategies), []);
+
+  const created = invoke(productionSource({ mode: 'create' }), env);
+  assert.equal(created.ok, true);
+  assert.equal(created.mode, 'create');
+  assert.equal(created.runtimeMutation, false);
+  assert.deepEqual(fs.readdirSync(strategies), ['legacy-profile-drafts.json']);
+  assert.equal(JSON.stringify(draft), legacyBytes);
+  assert.deepEqual(sentinelBytes(root), before);
+}));
+
+test('production import entry point blocks invalid fragments in both preview and create modes', () => storage((env, root, strategies) => {
+  const invalid = { ...draft, profiles: [
+    { id: 'p000001', name: 'Multiline', opt: '--filter-tcp=443\n--filter-udp=443' },
+    { id: 'p000002', name: 'Separator', opt: '--filter-tcp=80 --new --filter-udp=443' },
+  ] };
+  const legacyBytes = JSON.stringify(invalid);
+  for (const name of ['legacy-state.json', 'config', 'nfqws2-opt', 'runtime.json', 'active-identity', 'manager-state.json'])
+    fs.writeFileSync(path.join(root, name), legacyBytes);
+  const before = sentinelBytes(root);
+  for (const mode of ['preview', 'create']) {
+    const result = invoke(productionSource({ mode }, { importProfiles: { draftState: invalid } }), env);
+    assert.equal(result.ok, false, mode);
+    assert.equal(result.error.code, 'EINPUT', mode);
+    assert.ok(Array.isArray(result.diagnostics), mode);
+    assert.ok(result.diagnostics.length <= 16, mode);
+    assert.deepEqual(fs.readdirSync(strategies), [], mode);
+  }
+  assert.equal(JSON.stringify(invalid), legacyBytes);
+  assert.deepEqual(sentinelBytes(root), before);
 }));
 
 test('import uses load_state, replaces the bounded placeholder, and has no runtime writer path', () => {

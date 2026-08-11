@@ -338,7 +338,7 @@ test('ACL grants the exact Strategy read/write split and preserves existing Prof
 });
 
 test('Profile import dispatches the explicit Task 13 preview/create operation', () => {
-  assert.match(CLI, /mode == 'import_profiles'[\s\S]*strategy_import_profiles\(input\)/);
+  assert.match(CLI, /mode == 'import_profiles'[\s\S]*strategy_import_profiles\(input(?:,\s*context)?\)/);
   assert.match(CLI, /import \{ load_state \} from '\.\/profiles-draft\.uc'/);
   const result = invokeValues('strategy_cli_dispatch', ['import_profiles', {}]);
   assert.equal(result.error.code, 'EINPUT');

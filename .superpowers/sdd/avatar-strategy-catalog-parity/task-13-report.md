@@ -81,3 +81,24 @@ Result: 183 passed, 0 failed.
   `load_state()`.
 - The existing repository is 33 commits ahead of its remote tracking branch;
   no branch or unrelated changes were created by this task.
+
+## Round 1 Follow-up
+
+- The production import entry point now accepts an optional injected draft
+  context for deterministic boundary testing. When no context is supplied, it
+  still reads the legacy draft through `load_state()`.
+- The RPC dispatcher passes its request context into the import operation, so
+  the tested production path covers preview and create without installing a
+  fixture under `/etc`.
+- Invalid-fragment coverage now asserts both preview and create are blocked and
+  that the sentinel draft and Strategy storage bytes remain unchanged.
+
+## Round 1 Verification
+
+- Focused import/RPC tests: passed.
+- Product suite: 307 passed, 0 failed.
+- Native gate rerun as WSL root because the non-root `sudo` phase requires
+  interactive authentication: native broker/helper/package batches passed,
+  the combined native/product batch passed with 307 tests, and the privileged
+  root batch passed with 120 tests.
+- `git diff --check`: passed before the report update.

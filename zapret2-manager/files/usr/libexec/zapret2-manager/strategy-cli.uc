@@ -695,12 +695,21 @@ export const strategy_import_profiles_from_state = function(draft, input) {
 	};
 };
 
-export const strategy_import_profiles = function(input) {
+function import_draft_source(context) {
+	if (is_object(context) && is_object(context.importProfiles)
+		&& exists(context.importProfiles, 'draftState'))
+		return { ok: true, state: context.importProfiles.draftState };
 	let loaded = null;
 	try { loaded = load_state(); } catch (e) { loaded = null; }
 	if (!is_object(loaded) || loaded.ok != true)
 		return error_result('EINPUT', 'Legacy Profile draft state is unavailable');
-	let preview = strategy_import_profiles_from_state(loaded.state, input);
+	return { ok: true, state: loaded.state };
+}
+
+export const strategy_import_profiles = function(input, context) {
+	let source = import_draft_source(context);
+	if (!source.ok) return source;
+	let preview = strategy_import_profiles_from_state(source.state, input);
 	if (!preview.ok || !is_object(input) || input.mode != 'create') return preview;
 	let created = strategy_state['strategy_' + 'user_create']({ strategy: preview.strategy });
 	if (!is_object(created)) return error_result('EINTERNAL', 'User Strategy creation returned no result');
@@ -841,7 +850,7 @@ function dispatch_result(mode, input, context) {
 		if (!shape.ok) return shape;
 		return strategy_apply(input, context);
 	}
-	if (mode == 'import_profiles') return strategy_import_profiles(input);
+	if (mode == 'import_profiles') return strategy_import_profiles(input, context);
 	return error_result('EINPUT', 'unknown Strategy operation');
 }
 
