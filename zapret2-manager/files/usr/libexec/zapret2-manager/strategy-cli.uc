@@ -10,6 +10,9 @@ import { strategy_user_list, strategy_user_get_readonly, strategy_duplicate,
  strategy_selection_get, strategy_apply_uncertain_get,
  strategy_apply_uncertain_record, strategy_apply_reconcile, strategy_apply_guard_status, strategy_apply_begin, strategy_apply_end } from './strategy-state.uc';
 import * as strategy_state from './strategy-state.uc';
+import { load_state } from './profiles-draft.uc';
+import { z2m_parse, z2m_validate } from './profiles.uc';
+import { avatar_tokenize, strategy_validate as model_validate, strategy_normalize } from './strategy-model.uc';
 import { strategy_candidate, strategy_effective_argv } from './strategy-compiler.uc';
 import { profiles_apply_candidate, profiles_config_hash, profiles_candidate_hash, profiles_reconcile_evidence } from './profiles-apply.uc';
 
@@ -34,6 +37,9 @@ const MAX_OUTPUT_ARRAY_ITEMS = 256;
 const MAX_DEPENDENCY_TEXT = 256;
 const MAX_DEPENDENCY_ITEMS = 32;
 const MAX_DEPENDENCY_BYTES = 16384;
+const MAX_IMPORT_PROFILES = 256;
+const MAX_IMPORT_DIAGNOSTICS = 16;
+const MAX_IMPORT_NAME = 256;
 const ERROR_CODES = ['EINPUT', 'ENOENT', 'ECONFLICT', 'ENOENABLED', 'EDEPENDENCY',
 	'EPREFLIGHT', 'EVERIFY', 'EINTERNAL', 'ELOCK', 'EUNCERTAIN', 'ERECONCILE', 'EIO',
 	'EOUTPUT', 'ECHILD'];
@@ -566,6 +572,145 @@ export const strategy_reconcile = function(input, context) {
 	return getenv('Z2M_CONFIG_LOCKED') == '1' ? strategy_reconcile_locked() : strategy_reconcile_with_config_lock();
 };
 
+function import_diagnostic(diagnostics, profile, profileIndex, code, message, tokenIndex) {
+	if (length(diagnostics) >= MAX_IMPORT_DIAGNOSTICS) return;
+	push(diagnostics, {
+		severity: 'error', code: bounded_text(code, 64), message: bounded_text(message, MAX_DEPENDENCY_TEXT),
+		tokenIndex: type(tokenIndex) == 'int' ? tokenIndex : null,
+		profileIndex: profileIndex,
+		profileId: is_object(profile) && is_string(profile.id) ? bounded_text(profile.id, MAX_TEXT) : null
+	});
+}
+
+function import_parser_errors(diagnostics, profile, profileIndex, model, validation) {
+	for (let item in model.diagnostics || [])
+		if (is_object(item) && item.severity == 'error')
+			import_diagnostic(diagnostics, profile, profileIndex, item.code, item.message, item.tokenIndex);
+	for (let item in validation || [])
+		if (is_object(item) && item.severity == 'error')
+			import_diagnostic(diagnostics, profile, profileIndex, item.code, item.message, item.tokenIndex);
+}
+
+function import_profile(profile, profileIndex, seen, diagnostics) {
+	if (!is_object(profile)) {
+		import_diagnostic(diagnostics, profile, profileIndex, 'MANAGER_PROFILE_SHAPE', 'Profile record is not an object', null);
+		return null;
+	}
+	if (!is_string(profile.id) || length(profile.id) == 0 || length(profile.id) > MAX_TEXT) {
+		import_diagnostic(diagnostics, profile, profileIndex, 'MANAGER_PROFILE_ID', 'Profile id is invalid', null);
+		return null;
+	}
+	if (seen[profile.id]) {
+		import_diagnostic(diagnostics, profile, profileIndex, 'MANAGER_DUPLICATE_PROFILE_ID', 'Profile id is duplicated', null);
+		return null;
+	}
+	seen[profile.id] = true;
+	if (!is_string(profile.opt) || length(profile.opt) == 0 || length(profile.opt) > MAX_INLINE_BYTES) {
+		import_diagnostic(diagnostics, profile, profileIndex, 'MANAGER_PROFILE_ARGS', 'Profile args are missing or oversized', null);
+		return null;
+	}
+	let fragment = trim(profile.opt);
+	if (fragment == '' || index(fragment, '\n') >= 0 || index(fragment, '\r') >= 0) {
+		import_diagnostic(diagnostics, profile, profileIndex, 'MANAGER_FRAGMENT_SHAPE', 'Profile args must be one non-empty fragment', null);
+		return null;
+	}
+
+	let model = null, validation = null, tokenized = null;
+	try {
+		model = z2m_parse(fragment);
+		validation = z2m_validate(model);
+		tokenized = avatar_tokenize(fragment);
+	} catch (e) {
+		import_diagnostic(diagnostics, profile, profileIndex, 'MANAGER_PARSE_FAILURE', 'Profile args could not be parsed', null);
+		return null;
+	}
+	import_parser_errors(diagnostics, profile, profileIndex, model, validation);
+	if (!tokenized.ok) {
+		import_diagnostic(diagnostics, profile, profileIndex, tokenized.error.code, tokenized.error.message, null);
+		return null;
+	}
+	for (let token in tokenized.tokens)
+		if (match(token.value, /^--new(=|$)/))
+			import_diagnostic(diagnostics, profile, profileIndex, 'MANAGER_FRAGMENT_SEPARATOR', 'Profile args contain a second Profile separator', token.start);
+	if (length(model.profiles) != 1 || length(model.trailingTokens) > 0) {
+		import_diagnostic(diagnostics, profile, profileIndex, 'MANAGER_FRAGMENT_SHAPE', 'Profile args must contain exactly one Profile', null);
+		return null;
+	}
+	for (let item in model.diagnostics || []) if (item.severity == 'error') return null;
+	for (let item in validation || []) if (item.severity == 'error') return null;
+	if (length(diagnostics) >= MAX_IMPORT_DIAGNOSTICS) return null;
+
+	let profileInput = {
+		id: profile.id,
+		name: is_string(profile.name) && length(profile.name) > 0 ? profile.name : profile.id,
+		args: fragment,
+		enabled: model.profiles[0].enabled == false ? false : true
+	};
+	let normalized = strategy_normalize({
+		id: 'legacy-profile-drafts', name: 'Imported Profile Drafts', profiles: [profileInput]
+	}, 'user');
+	if (!normalized.ok || !length(normalized.strategy.profiles)) {
+		import_diagnostic(diagnostics, profile, profileIndex, 'MANAGER_NORMALIZE_FAILURE', 'Profile args could not be normalized', null);
+		return null;
+	}
+	return normalized.strategy.profiles[0];
+}
+
+function import_request_identity(input) {
+	let source = is_object(input) && is_object(input.strategy) ? input.strategy : input;
+	if (!is_object(source)) source = {};
+	let id = source.id == null ? 'legacy-profile-drafts' : source.id;
+	let name = source.name == null ? 'Imported Profile Drafts' : source.name;
+	if (!safe_id(id) || !is_string(name) || length(name) == 0 || length(name) > MAX_IMPORT_NAME)
+		return error_result('EINPUT', 'Profile import requires a safe Strategy id and name');
+	return { ok: true, id: id, name: name };
+}
+
+export const strategy_import_profiles_from_state = function(draft, input) {
+	let identity = import_request_identity(input);
+	if (!identity.ok) return identity;
+	if (!is_object(draft) || type(draft.profiles) != 'array')
+		return error_result('EINPUT', 'Legacy Profile draft state is malformed');
+	if (length(draft.profiles) > MAX_IMPORT_PROFILES)
+		return error_result('EINPUT', 'Legacy Profile draft set exceeds the import bound');
+
+	let profiles = [], diagnostics = [], seen = {};
+	for (let i = 0; i < length(draft.profiles); i++) {
+		let converted = import_profile(draft.profiles[i], i, seen, diagnostics);
+		if (converted != null) push(profiles, converted);
+	}
+	if (length(diagnostics)) return error_result('EINPUT', 'Legacy Profile drafts contain invalid fragments', { diagnostics: diagnostics });
+	if (!length(profiles)) return error_result('EINPUT', 'At least one valid Profile draft is required');
+
+	let strategy = {
+		id: identity.id, name: identity.name, origin: 'user', is_builtin: false,
+		metadata: { source: 'legacy-profile-drafts' }, profiles: profiles
+	};
+	let valid = model_validate(strategy, 'create');
+	if (!valid.ok) return error_result('EINPUT', 'Imported Profile drafts do not form a valid Strategy');
+	return {
+		ok: true, mode: 'preview', strategy: strategy,
+		runtimeMutation: false,
+		source: { kind: 'legacy-profile-drafts', profileCount: length(profiles) }
+	};
+};
+
+export const strategy_import_profiles = function(input) {
+	let loaded = null;
+	try { loaded = load_state(); } catch (e) { loaded = null; }
+	if (!is_object(loaded) || loaded.ok != true)
+		return error_result('EINPUT', 'Legacy Profile draft state is unavailable');
+	let preview = strategy_import_profiles_from_state(loaded.state, input);
+	if (!preview.ok || !is_object(input) || input.mode != 'create') return preview;
+	let created = strategy_state['strategy_' + 'user_create']({ strategy: preview.strategy });
+	if (!is_object(created)) return error_result('EINTERNAL', 'User Strategy creation returned no result');
+	if (!created.ok) return created;
+	created.mode = 'create';
+	created.runtimeMutation = false;
+	created.source = preview.source;
+	return created;
+};
+
 function catalog_root() {
 	return getenv('Z2M_STRATEGY_CATALOG_ROOT') || DEFAULT_CATALOG_ROOT;
 }
@@ -696,9 +841,7 @@ function dispatch_result(mode, input, context) {
 		if (!shape.ok) return shape;
 		return strategy_apply(input, context);
 	}
-	// Profile-to-Strategy import is intentionally owned by the next task. Keep
-	// the RPC route explicit without accepting or interpreting a client command.
-	if (mode == 'import_profiles') return error_result('EINPUT', 'Profile import is not available');
+	if (mode == 'import_profiles') return strategy_import_profiles(input);
 	return error_result('EINPUT', 'unknown Strategy operation');
 }
 

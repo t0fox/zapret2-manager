@@ -337,8 +337,9 @@ test('ACL grants the exact Strategy read/write split and preserves existing Prof
   for (const method of METHODS) assert.ok(read.includes(method) || write.includes(method), method);
 });
 
-test('Profile import remains an explicit Task 13 placeholder', () => {
-  assert.match(CLI, /mode == 'import_profiles'[\s\S]*error_result\('EINPUT', 'Profile import is not available'\)/);
+test('Profile import dispatches the explicit Task 13 preview/create operation', () => {
+  assert.match(CLI, /mode == 'import_profiles'[\s\S]*strategy_import_profiles\(input\)/);
+  assert.match(CLI, /import \{ load_state \} from '\.\/profiles-draft\.uc'/);
   const result = invokeValues('strategy_cli_dispatch', ['import_profiles', {}]);
   assert.equal(result.error.code, 'EINPUT');
 });
