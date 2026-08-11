@@ -10,7 +10,7 @@ import {
 } from '../constants.uc';
 import { parse_queue } from '../qlen.uc';
 import { read_var } from '../apply.uc';
-import { derive_runtime_observation, resolve_native_status } from './status-observations.uc';
+import { derive_runtime_observation, derive_strategy_observation, resolve_native_status } from './status-observations.uc';
 
 function sh(cmd) {
 	let p = popen(cmd + ' 2>/dev/null', 'r');
@@ -353,6 +353,7 @@ export const collect_observations = function() {
 	catch (e) { svc_state = 'error'; }
 	try { applied_opt = read_var('NFQWS2_OPT'); } catch (e) { applied_opt = null; }
 	let runtime_out = derive_runtime_observation(runtime, applied_opt);
+	let strategy_out = derive_strategy_observation(runtime, applied_opt);
 	let applied_out = {
 		configPath: applied.configPath ? applied.configPath : PATHS.applied_conf,
 		configPresent: applied.configPresent ? true : false,
@@ -369,6 +370,7 @@ export const collect_observations = function() {
 		generatedAt: iso_now(),
 		engine: engine,
 		runtime: runtime_out,
+		strategy: strategy_out,
 		applied: applied_out,
 		draft: draft,
 		drift: drift,
@@ -381,6 +383,7 @@ export const collect_observations = function() {
 
 import { state_read, state_initialize } from './state-store.uc';
 import { legacy_status_v3 } from './status-compat.uc';
+import { collect_strategy_status } from '../strategy-status.uc';
 
 function degraded(result) {
 	return { schemaVersion: 1, generation: null, generatedAt: null, serviceState: 'error',
@@ -392,7 +395,10 @@ function degraded(result) {
 export const collect = function() {
 	let observations = collect_observations(), native_result = state_read();
 	native_result = resolve_native_status(native_result, state_initialize);
+	let strategy_status = null;
+	try { strategy_status = collect_strategy_status(observations); } catch (e) { strategy_status = null; }
 	let status = legacy_status_v3(native_result.ok ? native_result.data.state : degraded(native_result), observations);
+	if (strategy_status != null) status.strategyStatus = strategy_status;
 	try { writefile(PATHS.status_json, sprintf('%J', status) + '\n'); } catch (e) { }
 	return status;
 };

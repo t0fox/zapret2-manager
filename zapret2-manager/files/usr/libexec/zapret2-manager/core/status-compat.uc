@@ -27,7 +27,7 @@ function warnings(native_state, observations) {
 	return result;
 }
 
-export const legacy_status_v3 = function(native_state, observations) {
+export const legacy_status_v3 = function(native_state, observations, strategy_status) {
 	let status = {
 		schema: 3,
 		generatedAt: observations.generatedAt,
@@ -45,6 +45,7 @@ export const legacy_status_v3 = function(native_state, observations) {
 		warnings: warnings(native_state, observations),
 		runtimeSummary: null
 	};
+	if (strategy_status != null) status.strategyStatus = strategy_status;
 	status.runtimeSummary = runtime_summary(status);
 	return status;
 };
