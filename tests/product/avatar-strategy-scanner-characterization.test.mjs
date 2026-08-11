@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -27,6 +28,7 @@ const UCODE_LIBRARY_ARGS = UCODE_MODULE_PATTERN ? ['-L', UCODE_MODULE_PATTERN] :
 
 const readFixture = name => JSON.parse(
   fs.readFileSync(path.join(FIXTURE_ROOT, name), 'utf8'));
+const sha256Text = value => createHash('sha256').update(value, 'utf8').digest('hex');
 
 export function runUcodeExpression(module, expression, env = {}) {
   const source = `import * as mod from ${JSON.stringify(module)}; print(sprintf('%J', ${expression}));`;
@@ -86,28 +88,97 @@ test('target fixture preserves known profiles and generic fallback selection', (
     maxHostsByMode: { quick: 1, standard: 2, full: 4 },
   });
   assert.deepEqual(fixture.cases.map(entry => entry.id), [
-    'youtube-known', 'discord-known', 'generic-domain',
+    'youtube-known', 'discord-known', 'telegram-known', 'instagram-known',
+    'twitter-known', 'facebook-known', 'google-known', 'generic-domain',
     'youtube-alternate-host',
   ]);
-  const youtube = fixture.cases.find(entry => entry.id === 'youtube-known');
-  assert.equal(youtube.expected.profileKey, 'youtube');
-  assert.equal(youtube.expected.primaryHost, 'youtube.com');
-  assert.deepEqual(youtube.expected.testHosts, [
-    'www.youtube.com', 'i.ytimg.com', 'yt3.ggpht.com',
-  ]);
-  assert.equal(youtube.expected.tcp.ports, '80,443');
-  assert.equal(youtube.expected.udp.payload, 'quic_initial');
-  const generic = fixture.cases.find(entry => entry.id === 'generic-domain');
-  assert.deepEqual(generic.expected, {
-    profileKey: 'generic',
-    primaryHost: 'kernel.org',
-    testHosts: ['kernel.org'],
-    hostlistDomains: ['kernel.org'],
-    expectedHostlists: [],
-    tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' },
-    udp: { ports: '443', l7: 'quic', payload: 'quic_initial' },
-    probeUrl: 'https://kernel.org/',
-  });
+  const expectedProfiles = {
+    'youtube-known': {
+      profileKey: 'youtube', primaryHost: 'youtube.com',
+      testHosts: ['www.youtube.com', 'i.ytimg.com', 'yt3.ggpht.com'],
+      hostlistDomains: [
+        'youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be',
+        'youtubei.googleapis.com', 'youtube-nocookie.com', 'googlevideo.com',
+        'rr1---sn-axq7sn7s.googlevideo.com', 'ytimg.com', 'i.ytimg.com',
+        'yt3.ggpht.com', 'ggpht.com', 'lh3.googleusercontent.com',
+        'yt3.googleusercontent.com',
+      ],
+      expectedHostlists: ['youtube.txt', 'youtubeGV.txt', 'youtubeQ.txt', 'youtube_v2.txt'],
+      tcp: { ports: '80,443', l7: 'tls', payload: 'tls_client_hello' },
+      udp: { ports: '443', l7: 'quic', payload: 'quic_initial' },
+      probeUrl: 'https://i.ytimg.com/generate_204',
+    },
+    'discord-known': {
+      profileKey: 'discord', primaryHost: 'discord.com',
+      testHosts: ['gateway.discord.gg', 'cdn.discordapp.com', 'media.discordapp.net'],
+      hostlistDomains: [
+        'discord.com', 'discordapp.com', 'discord.gg', 'discord.media',
+        'discord-attachments-uploads-prd.storage.googleapis.com',
+        'gateway.discord.gg', 'cdn.discordapp.com', 'media.discordapp.net',
+      ],
+      expectedHostlists: ['discord.txt'],
+      tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' },
+      udp: { ports: '50000-65535', l7: 'discord', payload: '' },
+      probeUrl: 'https://discord.com/api/v9/gateway',
+    },
+    'telegram-known': {
+      profileKey: 'telegram', primaryHost: 'web.telegram.org',
+      testHosts: ['telegram.org', 't.me'],
+      hostlistDomains: ['telegram.org', 'web.telegram.org', 'telegram.me', 't.me', 'cdn-telegram.org'],
+      expectedHostlists: ['telegram.txt'],
+      tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' },
+      udp: { ports: '443', l7: 'quic', payload: 'quic_initial' },
+      probeUrl: 'https://web.telegram.org/k/',
+    },
+    'instagram-known': {
+      profileKey: 'instagram', primaryHost: 'instagram.com',
+      testHosts: ['www.instagram.com', 'i.instagram.com'],
+      hostlistDomains: [
+        'instagram.com', 'www.instagram.com', 'i.instagram.com',
+        'scontent.cdninstagram.com', 'cdninstagram.com',
+      ],
+      expectedHostlists: [],
+      tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' },
+      udp: { ports: '443', l7: 'quic', payload: 'quic_initial' },
+      probeUrl: 'https://instagram.com/',
+    },
+    'twitter-known': {
+      profileKey: 'twitter', primaryHost: 'x.com',
+      testHosts: ['twitter.com', 'abs.twimg.com'],
+      hostlistDomains: ['x.com', 'twitter.com', 't.co', 'twimg.com', 'abs.twimg.com', 'video.twimg.com'],
+      expectedHostlists: ['twitter.txt'],
+      tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' },
+      udp: { ports: '443', l7: 'quic', payload: 'quic_initial' },
+      probeUrl: 'https://x.com/',
+    },
+    'facebook-known': {
+      profileKey: 'facebook', primaryHost: 'facebook.com',
+      testHosts: ['www.facebook.com', 'scontent.xx.fbcdn.net'],
+      hostlistDomains: ['facebook.com', 'www.facebook.com', 'fbcdn.net', 'scontent.xx.fbcdn.net'],
+      expectedHostlists: [],
+      tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' },
+      udp: { ports: '443', l7: 'quic', payload: 'quic_initial' },
+      probeUrl: 'https://facebook.com/',
+    },
+    'google-known': {
+      profileKey: 'google', primaryHost: 'www.google.com',
+      testHosts: ['google.com', 'fonts.gstatic.com'],
+      hostlistDomains: ['google.com', 'www.google.com', 'gstatic.com', 'fonts.gstatic.com'],
+      expectedHostlists: [],
+      tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' },
+      udp: { ports: '443', l7: 'quic', payload: 'quic_initial' },
+      probeUrl: 'https://www.google.com/',
+    },
+    'generic-domain': {
+      profileKey: 'generic', primaryHost: 'kernel.org',
+      testHosts: ['kernel.org'], hostlistDomains: ['kernel.org'], expectedHostlists: [],
+      tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' },
+      udp: { ports: '443', l7: 'quic', payload: 'quic_initial' },
+      probeUrl: 'https://kernel.org/',
+    },
+  };
+  for (const [id, expected] of Object.entries(expectedProfiles))
+    assert.deepEqual(fixture.cases.find(entry => entry.id === id).expected, expected, id);
   const alternate = fixture.cases.find(entry => entry.id === 'youtube-alternate-host');
   assert.equal(alternate.expected.profileKey, 'youtube');
   assert.equal(alternate.expected.primaryHost, 'm.youtube.com');
@@ -120,6 +191,32 @@ test('candidate fixture captures bounded mode order, DPI filtering, and identity
   assert.deepEqual(fixture.catalog, {
     manifest: 'tests/fixtures/avatar-strategy/manifest.expected.json',
     aggregateDigest: '5978d35bfc0b73caaae658124874e24619b1f448e673ec09fd7c5d4dd8c3dda1',
+  });
+  assert.deepEqual(fixture.candidateSchema.requiredFields, [
+    'scannerId', 'identityKind', 'strategyId', 'strategyRevision', 'source',
+    'sourcePath', 'protocol', 'compiledTokens', 'compiledDigest', 'dependencyClosure',
+    'dependencyDigest', 'ordinal', 'complexity', 'recommended', 'fullPreset', 'saveRequired',
+  ]);
+  assert.deepEqual(fixture.dpiTypeContract, {
+    algorithm: 'bounded ASCII identifier',
+    maxLength: 64,
+    pattern: '^[a-z0-9][a-z0-9_-]{0,63}$',
+    unknownBehavior: 'accept and do not filter',
+    runtimeInjection: false,
+  });
+  assert.deepEqual(fixture.identityDigestContract, {
+    algorithm: 'sha256',
+    encoding: 'UTF-8',
+    compiled: {
+      source: 'strategy-compiler.uc:strategy_candidate.candidateSha256',
+      input: 'exact rendered candidate string',
+      canonicalization: 'manager-rendered tokens joined by ASCII spaces and --new separators',
+    },
+    dependency: {
+      source: 'strategy-compiler.uc:collect_dependencies.dependencies',
+      input: 'JSON serialization of the manager dependency object',
+      canonicalization: 'manager insertion order with no sorting or omitted fields',
+    },
   });
   assert.deepEqual(fixture.cases.map(entry => entry.id), [
     'quick-tcp-order', 'standard-tcp-generated-tail', 'full-udp-order',
@@ -141,6 +238,8 @@ test('candidate fixture captures bounded mode order, DPI filtering, and identity
   ]);
   const unknown = fixture.cases.find(entry => entry.id === 'unknown-dpi-no-filter');
   assert.equal(unknown.dpiType, 'vendor_block_v1');
+  assert.match(unknown.dpiType, new RegExp(fixture.dpiTypeContract.pattern));
+  assert.ok(unknown.dpiType.length <= fixture.dpiTypeContract.maxLength);
   assert.equal(unknown.expected.filter, 'none');
   assert.deepEqual(unknown.expected.before, unknown.expected.after);
   assert.deepEqual(unknown.expected.runtimeArguments, []);
@@ -152,6 +251,12 @@ test('candidate fixture captures bounded mode order, DPI filtering, and identity
   assert.equal(ephemeral.expected.identityKind, 'generated');
   assert.equal(ephemeral.expected.strategyId, null);
   assert.equal(ephemeral.expected.saveRequired, true);
+  for (const entry of [canonical, ephemeral]) {
+    assert.equal(entry.candidate.compiledDigest, sha256Text(entry.candidate.compiledCandidate), entry.id);
+    assert.equal(entry.candidate.dependencyDigest,
+      sha256Text(JSON.stringify(entry.candidate.dependencyClosure)), entry.id);
+    assert.deepEqual(entry.candidate.compiledTokens, entry.candidate.compiledCandidate.split(' '), entry.id);
+  }
 });
 
 test('probe fixture freezes Avatar constants, observations, scores, and UDP scope', () => {
@@ -202,6 +307,17 @@ test('probe fixture freezes Avatar constants, observations, scores, and UDP scop
 test('recovery fixture freezes exact terminal cancellation combinations', () => {
   const fixture = readFixture('recovery.json');
   assertProvenance(fixture, 'recovery.json');
+  assert.deepEqual(fixture.terminalContract.legal, [
+    { terminalState: 'completed', recoveryState: 'verified' },
+    { terminalState: 'cancelled', recoveryState: 'verified' },
+    { terminalState: 'error', recoveryState: 'uncertain' },
+  ]);
+  assert.deepEqual(fixture.terminalContract.forbidden, [
+    { terminalState: 'cancelled', recoveryState: 'uncertain' },
+  ]);
+  assert.equal(fixture.terminalContract.restoreBeforePublish, true);
+  assert.equal(fixture.terminalContract.originalSnapshotCaptures, 1);
+  assert.equal(fixture.terminalContract.terminalRestores, 1);
   assert.deepEqual(fixture.cases.map(entry => entry.id), [
     'completed-restored', 'cancelled-restored', 'cancelled-restore-unproven',
     'worker-death-restore-unproven', 'candidate-cleanup-before-next',

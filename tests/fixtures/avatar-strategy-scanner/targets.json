@@ -122,6 +122,165 @@
       }
     },
     {
+      "id": "telegram-known",
+      "input": {
+        "target": "web.telegram.org",
+        "protocol": "tcp",
+        "mode": "standard"
+      },
+      "expected": {
+        "profileKey": "telegram",
+        "primaryHost": "web.telegram.org",
+        "testHosts": ["telegram.org", "t.me"],
+        "hostlistDomains": [
+          "telegram.org",
+          "web.telegram.org",
+          "telegram.me",
+          "t.me",
+          "cdn-telegram.org"
+        ],
+        "expectedHostlists": ["telegram.txt"],
+        "tcp": {
+          "ports": "443",
+          "l7": "tls",
+          "payload": "tls_client_hello"
+        },
+        "udp": {
+          "ports": "443",
+          "l7": "quic",
+          "payload": "quic_initial"
+        },
+        "probeUrl": "https://web.telegram.org/k/"
+      }
+    },
+    {
+      "id": "instagram-known",
+      "input": {
+        "target": "instagram.com",
+        "protocol": "tcp",
+        "mode": "standard"
+      },
+      "expected": {
+        "profileKey": "instagram",
+        "primaryHost": "instagram.com",
+        "testHosts": ["www.instagram.com", "i.instagram.com"],
+        "hostlistDomains": [
+          "instagram.com",
+          "www.instagram.com",
+          "i.instagram.com",
+          "scontent.cdninstagram.com",
+          "cdninstagram.com"
+        ],
+        "expectedHostlists": [],
+        "tcp": {
+          "ports": "443",
+          "l7": "tls",
+          "payload": "tls_client_hello"
+        },
+        "udp": {
+          "ports": "443",
+          "l7": "quic",
+          "payload": "quic_initial"
+        },
+        "probeUrl": "https://instagram.com/"
+      }
+    },
+    {
+      "id": "twitter-known",
+      "input": {
+        "target": "x.com",
+        "protocol": "tcp",
+        "mode": "standard"
+      },
+      "expected": {
+        "profileKey": "twitter",
+        "primaryHost": "x.com",
+        "testHosts": ["twitter.com", "abs.twimg.com"],
+        "hostlistDomains": [
+          "x.com",
+          "twitter.com",
+          "t.co",
+          "twimg.com",
+          "abs.twimg.com",
+          "video.twimg.com"
+        ],
+        "expectedHostlists": ["twitter.txt"],
+        "tcp": {
+          "ports": "443",
+          "l7": "tls",
+          "payload": "tls_client_hello"
+        },
+        "udp": {
+          "ports": "443",
+          "l7": "quic",
+          "payload": "quic_initial"
+        },
+        "probeUrl": "https://x.com/"
+      }
+    },
+    {
+      "id": "facebook-known",
+      "input": {
+        "target": "facebook.com",
+        "protocol": "tcp",
+        "mode": "standard"
+      },
+      "expected": {
+        "profileKey": "facebook",
+        "primaryHost": "facebook.com",
+        "testHosts": ["www.facebook.com", "scontent.xx.fbcdn.net"],
+        "hostlistDomains": [
+          "facebook.com",
+          "www.facebook.com",
+          "fbcdn.net",
+          "scontent.xx.fbcdn.net"
+        ],
+        "expectedHostlists": [],
+        "tcp": {
+          "ports": "443",
+          "l7": "tls",
+          "payload": "tls_client_hello"
+        },
+        "udp": {
+          "ports": "443",
+          "l7": "quic",
+          "payload": "quic_initial"
+        },
+        "probeUrl": "https://facebook.com/"
+      }
+    },
+    {
+      "id": "google-known",
+      "input": {
+        "target": "www.google.com",
+        "protocol": "tcp",
+        "mode": "standard"
+      },
+      "expected": {
+        "profileKey": "google",
+        "primaryHost": "www.google.com",
+        "testHosts": ["google.com", "fonts.gstatic.com"],
+        "hostlistDomains": [
+          "google.com",
+          "www.google.com",
+          "gstatic.com",
+          "fonts.gstatic.com"
+        ],
+        "expectedHostlists": [],
+        "tcp": {
+          "ports": "443",
+          "l7": "tls",
+          "payload": "tls_client_hello"
+        },
+        "udp": {
+          "ports": "443",
+          "l7": "quic",
+          "payload": "quic_initial"
+        },
+        "probeUrl": "https://www.google.com/"
+      }
+    },
+    {
       "id": "generic-domain",
       "input": {
         "target": "kernel.org",

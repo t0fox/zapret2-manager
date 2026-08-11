@@ -26,6 +26,27 @@
     "manifest": "tests/fixtures/avatar-strategy/manifest.expected.json",
     "aggregateDigest": "5978d35bfc0b73caaae658124874e24619b1f448e673ec09fd7c5d4dd8c3dda1"
   },
+  "dpiTypeContract": {
+    "algorithm": "bounded ASCII identifier",
+    "maxLength": 64,
+    "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+    "unknownBehavior": "accept and do not filter",
+    "runtimeInjection": false
+  },
+  "identityDigestContract": {
+    "algorithm": "sha256",
+    "encoding": "UTF-8",
+    "compiled": {
+      "source": "strategy-compiler.uc:strategy_candidate.candidateSha256",
+      "input": "exact rendered candidate string",
+      "canonicalization": "manager-rendered tokens joined by ASCII spaces and --new separators"
+    },
+    "dependency": {
+      "source": "strategy-compiler.uc:collect_dependencies.dependencies",
+      "input": "JSON serialization of the manager dependency object",
+      "canonicalization": "manager insertion order with no sorting or omitted fields"
+    }
+  },
   "candidateSchema": {
     "identityKinds": ["catalog", "user", "canonicalized", "generated"],
     "requiredFields": [
@@ -139,10 +160,22 @@
         "source": "generator",
         "sourcePath": "generator",
         "protocol": "tcp",
-        "compiledTokens": ["--filter-tcp=443", "--lua-desync=multisplit:pos=1"],
-        "compiledDigest": "1d6a80c8d6cf5c6a4a8e1a8bca35e7df3c4aa73f38a3bbf2be7ae3d2f9c81e5a",
-        "dependencyClosure": {"blobs": [], "lua": ["desync.lua"], "lists": []},
-        "dependencyDigest": "b3f54f2dbce7be3f3a8a6a07cbd3aa2dc2ea4b77a1d3bf6d5d8d5b8fd07ca421",
+        "compiledTokens": [
+          "--filter-tcp=443",
+          "--lua-desync=fake:blob=fake_default_tls:repeats=6"
+        ],
+        "compiledCandidate": "--filter-tcp=443 --lua-desync=fake:blob=fake_default_tls:repeats=6",
+        "compiledDigest": "878fb03dc03ccbbae559c2d68a07e9135d17eb71b4f6115c0a9aa810a62f5546",
+        "dependencyClosure": {
+          "available": true,
+          "items": [
+            {"key": "function:fake", "kind": "function", "id": "fake", "reference": "fake", "available": true},
+            {"key": "blob:fake_default_tls", "kind": "blob", "id": "fake_default_tls", "reference": "fake_default_tls", "available": true}
+          ],
+          "missing": [],
+          "structurallyCompilable": true
+        },
+        "dependencyDigest": "14c862f4f9e8919913278a43675ea2595ad3dc83318248e4204a2bdc88c6b8af",
         "ordinal": 1,
         "complexity": [1, 0, 0],
         "recommended": false,
@@ -152,8 +185,19 @@
       "existing": {
         "strategyId": "user-one",
         "revision": 3,
-        "compiledTokens": ["--filter-tcp=443", "--lua-desync=multisplit:pos=1"],
-        "dependencyClosure": {"blobs": [], "lua": ["desync.lua"], "lists": []}
+        "compiledTokens": [
+          "--filter-tcp=443",
+          "--lua-desync=fake:blob=fake_default_tls:repeats=6"
+        ],
+        "dependencyClosure": {
+          "available": true,
+          "items": [
+            {"key": "function:fake", "kind": "function", "id": "fake", "reference": "fake", "available": true},
+            {"key": "blob:fake_default_tls", "kind": "blob", "id": "fake_default_tls", "reference": "fake_default_tls", "available": true}
+          ],
+          "missing": [],
+          "structurallyCompilable": true
+        }
       },
       "expected": {
         "identityKind": "canonicalized",
@@ -178,9 +222,18 @@
           "--filter-tcp=443",
           "--lua-desync=fake:blob=fake_default_tls:repeats=6"
         ],
-        "compiledDigest": "e5dca4fbcd0c3b8f55f6b0d25ecf75ff2be348f8a5f2de3c2dc6a2f6476421b0",
-        "dependencyClosure": {"blobs": ["fake_default_tls"], "lua": ["desync.lua"], "lists": []},
-        "dependencyDigest": "6f05b45c3a7e0e4dd8d5ab8d2d17cf3d9cb8b5c5b0b0e1b3a55b1f1b7d0f6a12",
+        "compiledCandidate": "--filter-tcp=443 --lua-desync=fake:blob=fake_default_tls:repeats=6",
+        "compiledDigest": "878fb03dc03ccbbae559c2d68a07e9135d17eb71b4f6115c0a9aa810a62f5546",
+        "dependencyClosure": {
+          "available": true,
+          "items": [
+            {"key": "function:fake", "kind": "function", "id": "fake", "reference": "fake", "available": true},
+            {"key": "blob:fake_default_tls", "kind": "blob", "id": "fake_default_tls", "reference": "fake_default_tls", "available": true}
+          ],
+          "missing": [],
+          "structurallyCompilable": true
+        },
+        "dependencyDigest": "14c862f4f9e8919913278a43675ea2595ad3dc83318248e4204a2bdc88c6b8af",
         "ordinal": 2,
         "complexity": [1, 6, 0],
         "recommended": false,
@@ -191,7 +244,15 @@
         "strategyId": "display-name-match-only",
         "revision": 1,
         "compiledTokens": ["--filter-tcp=443", "--lua-desync=fake:blob=fake_default_tls:repeats=5"],
-        "dependencyClosure": {"blobs": ["fake_default_tls"], "lua": ["desync.lua"], "lists": []}
+        "dependencyClosure": {
+          "available": true,
+          "items": [
+            {"key": "function:fake", "kind": "function", "id": "fake", "reference": "fake", "available": true},
+            {"key": "blob:fake_default_tls", "kind": "blob", "id": "fake_default_tls", "reference": "fake_default_tls", "available": true}
+          ],
+          "missing": [],
+          "structurallyCompilable": true
+        }
       },
       "expected": {
         "identityKind": "generated",
