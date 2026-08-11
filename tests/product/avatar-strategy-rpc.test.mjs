@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs, { readFileSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,6 +17,7 @@ const ACL = readFileSync(path.join(ROOT,
   'luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json'), 'utf8');
 const CATALOG_ROOT = path.join(ROOT,
   'zapret2-manager/files/usr/share/zapret2-manager/catalog/avatar');
+const CATALOG_MANIFEST = JSON.parse(readFileSync(path.join(CATALOG_ROOT, 'manifest.json'), 'utf8'));
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.split('|') : [];
 const UCODE_MODULE_PATTERN = ucodeModulePattern(
@@ -45,11 +46,48 @@ function invokeValues(functionName, values, env = {}) {
     cwd: ROOT,
     env: { ...process.env, Z2M_STRATEGY_CATALOG_ROOT: CATALOG_ROOT, ...env,
       LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib' },
-    encoding: 'utf8', timeout: 15_000,
+    encoding: 'utf8', timeout: 15_000, maxBuffer: 8 * 1024 * 1024,
   });
   assert.equal(result.status, 0,
     `${result.stderr || result.stdout}\nucode diagnostic:\n${ucodeDiagnostic([UCODE_BIN, ...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source], UCODE_MODULE_PATTERN)}`);
   return JSON.parse(result.stdout);
+}
+
+function invokeUcode(source, env = {}) {
+  const result = spawnSync(UCODE_BIN, [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source], {
+    cwd: ROOT,
+    env: { ...process.env, Z2M_STRATEGY_CATALOG_ROOT: CATALOG_ROOT, ...env,
+      LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib' },
+    encoding: 'utf8', timeout: 15_000, maxBuffer: 8 * 1024 * 1024,
+  });
+  assert.equal(result.status, 0,
+    `${result.stderr || result.stdout}\nucode diagnostic:\n${ucodeDiagnostic([UCODE_BIN, ...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source], UCODE_MODULE_PATTERN)}`);
+  return JSON.parse(result.stdout);
+}
+
+function rpcSignatureSource(method, request) {
+  const opened = RPC.replace("return {\n\t'zapret2-manager'", "let signature = {\n\t'zapret2-manager'");
+  return opened.replace(/\n};\s*$/, `\n};\nprint(sprintf('%J', signature['zapret2-manager'][${JSON.stringify(method)}].call(${JSON.stringify(request)})));`);
+}
+
+function invokeRpcMethod(method, request, env = {}) {
+  return invokeUcode(rpcSignatureSource(method, request), {
+    Z2M_STRATEGY_REQUEST_UID: String(process.getuid?.() ?? 0),
+    Z2M_STRATEGY_REQUEST_GID: String(process.getgid?.() ?? 0),
+    ...env,
+  });
+}
+
+function stubChild(mode) {
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-strategy-rpc-stub-')), 'ucode-stub.sh');
+  const body = mode === 'oversized'
+    ? '#!/bin/sh\nhead -c 4194305 /dev/zero\nexit 0\n'
+    : mode === 'nonzero'
+      ? '#!/bin/sh\nprintf \'{"ok":true}\'\nexit 7\n'
+      : '#!/bin/sh\nprintf \'{"ok":true,"stub":true}\'\nexit 0\n';
+  fs.writeFileSync(file, body, { mode: 0o755 });
+  fs.chmodSync(file, 0o755);
+  return { file, root: path.dirname(file) };
 }
 
 test('Strategy methods use the existing rpcd object and bounded edit transport', () => {
@@ -61,6 +99,119 @@ test('Strategy methods use the existing rpcd object and bounded edit transport',
   assert.doesNotMatch(RPC, /exec.*client/i);
   assert.doesNotMatch(RPC, /generic.*action/i);
   assert.doesNotMatch(RPC, /strategy.*Orchestra|ORCH_CLI.*STRATEGY/i);
+});
+
+test('RPC mutations use package-standard flock while read methods remain concurrent', () => {
+  assert.match(RPC, /STRATEGY_STATE_FLOCK[\s\S]*['"]\/tmp\/zapret2-manager\/state\.lock/);
+  assert.match(RPC, /STRATEGY_CONFIG_FLOCK[\s\S]*['"]\/opt\/zapret2\/config\.lock/);
+  assert.match(RPC, /flock -x/);
+  assert.match(RPC, /Z2M_FLOCKED=1/);
+  assert.match(RPC, /Z2M_STRATEGY_LOCKED=1/);
+  assert.match(RPC, /Z2M_CONFIG_LOCKED=1/);
+  const transport = RPC.slice(RPC.indexOf('function strategy_edit_action'), RPC.indexOf('function strategy_noarg_action'));
+  assert.match(transport, /strategy_lock_for\(mode\)/);
+  assert.match(transport, /strategy_have_flock\(\)/);
+  assert.doesNotMatch(transport, /Z2M_STRATEGY_LOCKED=1[^\n]*\n[^\n]*flock/);
+  assert.doesNotMatch(RPC.slice(RPC.indexOf('function strategy_noarg_action'), RPC.indexOf('// ---- service catalog')), /strategy_lock_for/);
+});
+
+test('RPC invokes the real signature wrapper with a deterministic child', () => {
+  const stub = stubChild('ok');
+  try {
+    const result = invokeRpcMethod('strategies_catalog_status', {}, { Z2M_STRATEGY_UCODE_BIN: stub.file });
+    assert.deepEqual(result, { ok: true, stub: true });
+  } finally {
+    fs.rmSync(stub.root, { recursive: true, force: true });
+  }
+  for (const method of METHODS) assert.match(RPC, new RegExp(`\\b${method}:\\s*\\{`), method);
+});
+
+test('RPC child transport bounds combined output, checks status, and cleans up on every path', () => {
+  assert.match(RPC, /STRATEGY_MAX_CHILD_RESPONSE_BYTES/);
+  assert.match(RPC, /head -c/);
+  assert.match(RPC, /__Z2M_CHILD_RC__/);
+  assert.match(RPC, /strategy_child_response/);
+  assert.match(RPC, /p\.close\(\)/);
+  assert.match(RPC, /try \{ unlink\(tmp\); \} catch/);
+  assert.match(RPC, /catch \(e\)[\s\S]*?strategy_cleanup_request\(tmp\)/);
+  assert.match(RPC, /child exited|child response|response exceeds/i);
+});
+
+test('RPC returns bounded child errors and removes request files after child failure', () => {
+  for (const mode of ['nonzero', 'oversized']) {
+    const stub = stubChild(mode);
+    const before = fs.readdirSync('/tmp').filter(name => name.startsWith('z2m-strategy-edit.')).sort();
+    try {
+      const result = invokeRpcMethod('strategies_catalog_status', {}, { Z2M_STRATEGY_UCODE_BIN: stub.file });
+      assert.equal(result.ok, false, mode);
+      assert.equal(result.error.code, mode === 'nonzero' ? 'ECHILD' : 'EOUTPUT', mode);
+    } finally {
+      const after = fs.readdirSync('/tmp').filter(name => name.startsWith('z2m-strategy-edit.')).sort();
+      assert.deepEqual(after, before, `${mode} request cleanup`);
+      fs.rmSync(stub.root, { recursive: true, force: true });
+    }
+  }
+});
+
+test('RPC mutation waits for the shared state flock instead of bypassing it', () => new Promise((resolve, reject) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-strategy-rpc-lock-'));
+  const lock = path.join(root, 'state.lock');
+  const stub = stubChild('ok');
+  const holder = spawn('flock', ['-x', lock, '-c', 'sleep 0.35'], { stdio: 'ignore' });
+  setTimeout(() => {
+    const started = Date.now();
+    try {
+      const result = invokeRpcMethod('strategies_create', { edit: '{}' }, {
+        Z2M_STRATEGY_UCODE_BIN: stub.file, Z2M_STRATEGY_STATE_FLOCK: lock,
+      });
+      assert.deepEqual(result, { ok: true, stub: true });
+      assert.ok(Date.now() - started >= 250, 'mutation bypassed the shared flock');
+      resolve();
+    } catch (error) { reject(error); }
+    finally {
+      holder.kill();
+      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(stub.root, { recursive: true, force: true });
+    }
+  }, 40);
+}));
+
+test('CLI revalidates private request identity and size immediately around read', () => {
+  const request = CLI.slice(CLI.indexOf('function request'), CLI.indexOf('function dispatch_result'));
+  assert.match(request, /stat\(path\)/g);
+  assert.match(request, /readlink\(path\)/g);
+  assert.match(request, /\.size/);
+  assert.match(request, /metadata_same/);
+  assert.match(request, /uid/);
+  assert.match(request, /mode % 512/);
+  assert.match(request, /readfile\(path\)/);
+  assert.match(request, /length\(raw\) !=/);
+});
+
+test('Strategy list and detail responses have a server serialization bound without pagination', () => {
+  assert.match(CLI, /MAX_STRATEGY_RESPONSE_BYTES/);
+  assert.match(CLI, /bounded_strategy_response/);
+  assert.match(CLI, /strategy_list\(\)[\s\S]*bounded_strategy_response/);
+  assert.match(CLI, /strategy_get\(input\)[\s\S]*bounded_strategy_response/);
+  assert.doesNotMatch(CLI, /strategies_list.*(?:page|cursor|offset|limit)/i);
+});
+
+test('Default Strategy list remains a complete bounded catalog projection', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-strategy-rpc-list-'));
+  const strategies = path.join(root, 'strategies');
+  fs.mkdirSync(strategies, { mode: 0o700 });
+  fs.chmodSync(root, 0o700);
+  fs.chmodSync(strategies, 0o700);
+  try {
+    const result = invokeValues('strategy_cli_dispatch', ['list', {}], {
+      Z2M_STRATEGY_ROOT: root, Z2M_STRATEGY_DIR: strategies,
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.strategies.length, CATALOG_MANIFEST.uniqueStrategyIdCount);
+    assert.ok(JSON.stringify(result).length <= 4 * 1024 * 1024);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('Strategy RPC registration keeps fixed CLI modes and explicit error envelopes', () => {
@@ -114,6 +265,22 @@ test('Strategy CLI request files reject malformed, oversized, and symlinked JSON
   }
 });
 
+test('CLI accepts an RPC-created private request after identity and size revalidation', () => {
+  const request = path.join('/tmp', `z2m-strategy-edit.${process.pid}.json`);
+  fs.writeFileSync(request, '{}', { mode: 0o600 });
+  fs.chmodSync(request, 0o600);
+  try {
+    const result = invokeValues('strategy_cli_request', ['catalog_status', request], {
+      Z2M_STRATEGY_REQUEST_UID: String(process.getuid?.() ?? 0),
+      Z2M_STRATEGY_REQUEST_GID: String(process.getgid?.() ?? 0),
+    });
+    assert.equal(result.ok, true);
+    assert.match(result.digest, /^[a-f0-9]{64}$/);
+  } finally {
+    fs.rmSync(request, { force: true });
+  }
+});
+
 test('Strategy CLI executable dispatches a fixed catalog mode through the request file', () => {
   const request = path.join(os.tmpdir(), `z2m-strategy-rpc-cli.${process.pid}.json`);
   fs.writeFileSync(request, '{}');
@@ -161,9 +328,17 @@ test('ACL grants the exact Strategy read/write split and preserves existing Prof
   const write = object.write.ubus['zapret2-manager'];
   for (const method of READ_METHODS) assert.ok(read.includes(method), `read ${method}`);
   for (const method of WRITE_METHODS) assert.ok(write.includes(method), `write ${method}`);
+  for (const method of READ_METHODS) assert.ok(!write.includes(method), `read leaked to write ${method}`);
+  for (const method of WRITE_METHODS) assert.ok(!read.includes(method), `write leaked to read ${method}`);
   assert.ok(!write.includes('strategies_catalog_reload'));
   assert.ok(!read.includes('strategies_create'));
   assert.ok(read.includes('profiles_list') && write.includes('profiles_create'));
   assert.ok(read.includes('orchestra_status') && write.includes('orchestra_run_start'));
   for (const method of METHODS) assert.ok(read.includes(method) || write.includes(method), method);
+});
+
+test('Profile import remains an explicit Task 13 placeholder', () => {
+  assert.match(CLI, /mode == 'import_profiles'[\s\S]*error_result\('EINPUT', 'Profile import is not available'\)/);
+  const result = invokeValues('strategy_cli_dispatch', ['import_profiles', {}]);
+  assert.equal(result.error.code, 'EINPUT');
 });

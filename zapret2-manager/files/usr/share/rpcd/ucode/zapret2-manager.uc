@@ -22,7 +22,7 @@
 // and a permissioned LuCI call succeeds. If the shape is wrong the object
 // does not register at all.
 
-import { stat, readfile, writefile, unlink, popen } from 'fs';
+import { stat, readfile, writefile, unlink, readlink, popen } from 'fs';
 
 const STATUS_JSON = '/tmp/zapret2-manager/status.json';
 const COLLECTOR   = '/usr/libexec/zapret2-manager/status.uc';
@@ -505,12 +505,85 @@ function dns_global_rollback_method(req) { return cli_action(DNSGLOBAL_CLI, 'rol
 // Profiles. The RPC layer chooses a fixed CLI mode; request content is carried
 // only in a collision-resistant 0600 file and is never interpreted as shell.
 const STRATEGY_CLI = '/usr/libexec/zapret2-manager/strategy-cli.uc';
+const STRATEGY_UCODE_BIN = getenv('Z2M_STRATEGY_UCODE_BIN') || '/usr/bin/ucode';
+const STRATEGY_STATE_FLOCK = getenv('Z2M_STRATEGY_STATE_FLOCK') || '/tmp/zapret2-manager/state.lock';
+const STRATEGY_CONFIG_FLOCK = getenv('Z2M_STRATEGY_CONFIG_FLOCK') || '/opt/zapret2/config.lock';
+const STRATEGY_REQUEST_UID = getenv('Z2M_STRATEGY_REQUEST_UID') || '0';
+const STRATEGY_REQUEST_GID = getenv('Z2M_STRATEGY_REQUEST_GID') || '0';
 const STRATEGY_MAX_REQUEST_BYTES = 524288;
+const STRATEGY_MAX_CHILD_RESPONSE_BYTES = 4 * 1024 * 1024;
+const STRATEGY_CHILD_RESPONSE_MARKER = '__Z2M_CHILD_RC__';
+
+function strategy_mutating_mode(mode) {
+	return mode == 'create' || mode == 'update' || mode == 'delete'
+		|| mode == 'duplicate' || mode == 'favorite' || mode == 'apply'
+		|| mode == 'import_profiles';
+}
+
+function strategy_lock_for(mode) {
+	return strategy_mutating_mode(mode) ? STRATEGY_STATE_FLOCK : null;
+}
+
+function strategy_have_flock() {
+	let p = null, output = '', rc = -1;
+	try { p = popen('command -v flock 2>/dev/null', 'r'); } catch (e) { p = null; }
+	if (!p) return false;
+	try { output = p.read('all') || ''; } catch (e) { output = ''; }
+	try { rc = p.close(); } catch (e) { rc = -1; }
+	return rc == 0 && length(trim(output)) > 0;
+}
+
+function strategy_cleanup_request(tmp) {
+	if (tmp != null) try { unlink(tmp); } catch (e) { }
+}
+
+function strategy_private_request(tmp, expectedSize) {
+	let metadata = null, link = null;
+	try { metadata = stat(tmp); } catch (e) { metadata = null; }
+	try { link = readlink(tmp); } catch (e) { link = 'error'; }
+	return metadata != null && metadata.type == 'file' && link == null
+		&& type(metadata.size) == 'int' && metadata.size == expectedSize
+		&& metadata.mode % 512 == 384 && '' + metadata.uid == STRATEGY_REQUEST_UID
+		&& '' + metadata.gid == STRATEGY_REQUEST_GID
+		&& match(tmp, /^\/tmp\/z2m-strategy-edit\.[A-Za-z0-9_-]+$/);
+}
+
+function strategy_locked_command(mode, command) {
+	let state = 'Z2M_FLOCKED=1 Z2M_STRATEGY_LOCKED=1 ';
+	if (mode == 'apply') {
+		let config = 'Z2M_CONFIG_LOCKED=1 ' + command;
+		config = 'flock -x ' + shell_escape(STRATEGY_CONFIG_FLOCK) + ' -c ' + shell_escape(config);
+		return 'flock -x ' + shell_escape(STRATEGY_STATE_FLOCK) + ' -c ' + shell_escape(state + config);
+	}
+	return 'flock -x ' + shell_escape(STRATEGY_STATE_FLOCK) + ' -c ' + shell_escape(state + command);
+}
+
+function strategy_child_response(output, streamRc) {
+	if (streamRc != 0 || type(output) != 'string' || length(output) > STRATEGY_MAX_CHILD_RESPONSE_BYTES + 128)
+		return { ok: false, error: { code: 'EOUTPUT', message: 'Strategy child response exceeded the safe bound' } };
+	let marker = '\n' + STRATEGY_CHILD_RESPONSE_MARKER, markerAt = rindex(output, marker);
+	if (markerAt < 0) return { ok: false, error: { code: 'EOUTPUT', message: 'Strategy child response was truncated' } };
+	let rcText = trim(substr(output, markerAt + length(marker)));
+	if (!match(rcText, /^[0-9]+$/)) return { ok: false, error: { code: 'EOUTPUT', message: 'Strategy child status marker was malformed' } };
+	let body = substr(output, 0, markerAt), childRc = +rcText;
+	if (length(body) > STRATEGY_MAX_CHILD_RESPONSE_BYTES)
+		return { ok: false, error: { code: 'EOUTPUT', message: 'Strategy child response exceeded the safe bound' } };
+	if (childRc != 0) return { ok: false, error: { code: 'ECHILD', message: 'Strategy child exited unsuccessfully' } };
+	try {
+		let parsed = json(body);
+		return parsed != null ? parsed : { ok: false, error: { code: 'EINTERNAL', message: 'Strategy response was empty' } };
+	} catch (e) {
+		return { ok: false, error: { code: 'EINTERNAL', message: 'Strategy response was malformed' } };
+	}
+}
 
 function strategy_tmpfile() {
-	let p = popen('umask 077; mktemp /tmp/z2m-strategy-edit.XXXXXX 2>/dev/null', 'r');
+	let p = null, output = '', rc = -1;
+	try { p = popen('umask 077; mktemp /tmp/z2m-strategy-edit.XXXXXX 2>/dev/null', 'r'); } catch (e) { p = null; }
 	if (!p) return null;
-	let tmp = trim(p.read('all') || ''), rc = p.close();
+	try { output = p.read('all') || ''; } catch (e) { output = ''; }
+	try { rc = p.close(); } catch (e) { rc = -1; }
+	let tmp = trim(output);
 	if (rc != 0 || index(tmp, '/tmp/z2m-strategy-edit.') != 0) {
 		if (length(tmp)) try { unlink(tmp); } catch (e) { }
 		return null;
@@ -530,24 +603,38 @@ function strategy_edit_action(mode, req) {
 	if (tmp == null) return { ok: false, error: { code: 'ETARGET', message: 'request temp file unavailable' } };
 	try { writefile(tmp, edit); }
 	catch (e) {
-		try { unlink(tmp); } catch (ignored) { }
+		strategy_cleanup_request(tmp);
 		return { ok: false, error: { code: 'EIO', message: 'request temp file could not be written' } };
 	}
-	let source = 'import { strategy_cli_request } from ' + sprintf('%J', STRATEGY_CLI)
-		+ '; print(sprintf("%J", strategy_cli_request(' + sprintf('%J', mode) + ', '
-		+ sprintf('%J', tmp) + ')));';
-	let cmd = '/usr/bin/ucode -e ' + shell_escape(source) + ' 2>/dev/null';
-	let p = popen(cmd, 'r');
-	if (!p) { try { unlink(tmp); } catch (e) { } return { ok: false, error: { code: 'ETARGET', message: 'Strategy CLI unavailable' } }; }
-	let out = p.read('all') || '';
-	p.close();
-	try { unlink(tmp); } catch (e) { }
-	try {
-		let parsed = json(out);
-		return parsed != null ? parsed : { ok: false, error: { code: 'EINTERNAL', message: 'Strategy response was empty' } };
-	} catch (e) {
-		return { ok: false, error: { code: 'EINTERNAL', message: 'Strategy response was malformed' } };
+	if (!strategy_private_request(tmp, length(edit))) {
+		strategy_cleanup_request(tmp);
+		return { ok: false, error: { code: 'EINPUT', message: 'request temp file failed the private-file invariant' } };
 	}
+	let lock = strategy_lock_for(mode);
+	if (lock != null && !strategy_have_flock()) {
+		strategy_cleanup_request(tmp);
+		return { ok: false, error: { code: 'ELOCK', message: 'real flock is required for Strategy mutations' } };
+	}
+	let source = null, cmd = null, wrapped = null;
+	try {
+		source = 'import { strategy_cli_request } from ' + sprintf('%J', STRATEGY_CLI)
+			+ '; print(sprintf("%J", strategy_cli_request(' + sprintf('%J', mode) + ', '
+			+ sprintf('%J', tmp) + ')));';
+		cmd = shell_escape(STRATEGY_UCODE_BIN) + ' -e ' + shell_escape(source);
+		if (lock != null) cmd = strategy_locked_command(mode, cmd);
+		wrapped = '(' + cmd + '; rc=$?; printf ' + shell_escape('\n' + STRATEGY_CHILD_RESPONSE_MARKER + '%s\n') + ' "$rc") 2>&1 | head -c ' + (STRATEGY_MAX_CHILD_RESPONSE_BYTES + 128);
+	} catch (e) {
+		strategy_cleanup_request(tmp);
+		return { ok: false, error: { code: 'EINPUT', message: 'Strategy child command could not be prepared' } };
+	}
+	let p = null, out = '', readOk = true, streamRc = -1;
+	try { p = popen(wrapped, 'r'); } catch (e) { p = null; }
+	if (!p) { strategy_cleanup_request(tmp); return { ok: false, error: { code: 'ETARGET', message: 'Strategy CLI unavailable' } }; }
+	try { out = p.read('all') || ''; } catch (e) { readOk = false; }
+	try { streamRc = p.close(); } catch (e) { streamRc = -1; }
+	strategy_cleanup_request(tmp);
+	if (!readOk) return { ok: false, error: { code: 'EIO', message: 'Strategy child response could not be read' } };
+	return strategy_child_response(out, streamRc);
 }
 
 function strategy_noarg_action(mode) { return strategy_edit_action(mode, { edit: '{}' }); }

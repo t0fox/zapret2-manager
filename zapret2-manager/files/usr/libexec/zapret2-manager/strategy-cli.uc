@@ -20,6 +20,9 @@ const PROFILE_APPLY_MODULE = getenv('Z2M_STRATEGY_PROFILE_MODULE') || '/usr/libe
 const STATE_MODULE = getenv('Z2M_STRATEGY_STATE_MODULE') || '/usr/libexec/zapret2-manager/strategy-state.uc';
 const UCODE_BIN = getenv('Z2M_STRATEGY_UCODE_BIN') || '/usr/bin/ucode';
 const MAX_REQUEST_BYTES = 524288;
+const MAX_STRATEGY_RESPONSE_BYTES = 4 * 1024 * 1024;
+const REQUEST_UID = getenv('Z2M_STRATEGY_REQUEST_UID') || '0';
+const REQUEST_GID = getenv('Z2M_STRATEGY_REQUEST_GID') || '0';
 const MAX_INLINE_BYTES = 262144;
 const MAX_TEXT = 512;
 const MAX_DIAGNOSTICS = 32;
@@ -32,7 +35,8 @@ const MAX_DEPENDENCY_TEXT = 256;
 const MAX_DEPENDENCY_ITEMS = 32;
 const MAX_DEPENDENCY_BYTES = 16384;
 const ERROR_CODES = ['EINPUT', 'ENOENT', 'ECONFLICT', 'ENOENABLED', 'EDEPENDENCY',
-	'EPREFLIGHT', 'EVERIFY', 'EINTERNAL', 'ELOCK', 'EUNCERTAIN', 'ERECONCILE', 'EIO'];
+	'EPREFLIGHT', 'EVERIFY', 'EINTERNAL', 'ELOCK', 'EUNCERTAIN', 'ERECONCILE', 'EIO',
+	'EOUTPUT', 'ECHILD'];
 
 function is_object(value) { return type(value) == 'object' && value != null; }
 function is_string(value) { return type(value) == 'string'; }
@@ -157,6 +161,13 @@ function dependencies_record(value) {
 
 function serialize(value) {
 	try { return sprintf('%J', value); } catch (e) { return null; }
+}
+
+function bounded_strategy_response(value, label) {
+	let encoded = serialize(value);
+	if (encoded == null || length(encoded) > MAX_STRATEGY_RESPONSE_BYTES)
+		return error_result('EOUTPUT', label + ' exceeds the safe response bound');
+	return value;
 }
 
 function bounded_string_array(value) {
@@ -590,14 +601,14 @@ function strategy_list() {
 	try { users = strategy_user_list(); } catch (e) { users = null; }
 	if (!is_object(users) || users.ok != true) return users || error_result('EIO', 'User Strategy list is unavailable');
 	for (let strategy in users.strategies) push(strategies, strategy);
-	return { ok: true, strategies: strategies };
+	return bounded_strategy_response({ ok: true, strategies: strategies }, 'Strategy list');
 }
 
 function strategy_get(input) {
 	if (!is_object(input) || !safe_id(input.id)) return error_result('EINPUT', 'Strategy get requires a safe id');
 	let user = null;
 	try { user = strategy_user_get_readonly({ id: input.id }); } catch (e) { user = null; }
-	if (is_object(user) && user.ok == true) return user;
+	if (is_object(user) && user.ok == true) return bounded_strategy_response(user, 'Strategy detail');
 	if (is_object(user) && user.error && user.error.code != 'ENOENT') return user;
 	let current = load_request_catalog();
 	if (!is_object(current) || current.ok == false) return current;
@@ -605,7 +616,8 @@ function strategy_get(input) {
 	try { entry = strategy_catalog_get(input.id); } catch (e) { entry = null; }
 	if (is_object(entry) && entry.error) return entry;
 	let strategy = catalog_strategy(entry);
-	return strategy == null ? error_result('ENOENT', 'Strategy was not found') : { ok: true, strategy: strategy };
+	return strategy == null ? error_result('ENOENT', 'Strategy was not found')
+		: bounded_strategy_response({ ok: true, strategy: strategy }, 'Strategy detail');
 }
 
 function strategy_catalog_status_request() {
@@ -624,14 +636,42 @@ function strategy_catalog_reload_request() {
 
 function request(path) {
 	if (!is_string(path) || length(path) == 0 || length(path) > 256) return error_result('EINPUT', 'request path is invalid');
-	let metadata = null;
-	try { metadata = stat(path); } catch (e) { metadata = null; }
-	if (!metadata || metadata.type != 'file' || type(metadata.size) != 'int' || metadata.size < 0
-		|| readlink(path) != null || metadata.size > MAX_REQUEST_BYTES)
-		return error_result('EINPUT', 'request file is not a bounded regular file');
-	let raw = null;
+	function metadata_same(left, right) {
+		if (left == null || right == null) return false;
+		for (let field in ['type', 'size', 'mode', 'uid', 'gid', 'inode'])
+			if (left[field] != null || right[field] != null)
+				if (left[field] != right[field]) return false;
+		if (left.dev != null || right.dev != null) {
+			if (left.dev == null || right.dev == null
+				|| left.dev.major != right.dev.major || left.dev.minor != right.dev.minor) return false;
+		}
+		return true;
+	}
+	function metadata_valid(value) {
+		let link = null;
+		try { link = readlink(path); } catch (e) { return false; }
+		if (!is_object(value) || value.type != 'file' || type(value.size) != 'int'
+			|| value.size < 0 || value.size > MAX_REQUEST_BYTES || link != null) return false;
+		// RPC-created request files carry this exact private path/mode/owner
+		// invariant. Direct module tests may use another bounded path.
+		if (match(path, /^\/tmp\/z2m-strategy-edit\./))
+			return value.mode % 512 == 384 && '' + value.uid == REQUEST_UID
+				&& '' + value.gid == REQUEST_GID;
+		return true;
+	}
+	let first = null, beforeRead = null, afterRead = null, raw = null;
+	try { first = stat(path); } catch (e) { first = null; }
+	if (!metadata_valid(first)) return error_result('EINPUT', 'request file is not a bounded private regular file');
+	try { beforeRead = stat(path); } catch (e) { beforeRead = null; }
+	if (!metadata_same(first, beforeRead) || !metadata_valid(beforeRead))
+		return error_result('EINPUT', 'request file identity changed before read');
 	try { raw = readfile(path); } catch (e) { raw = null; }
-	if (!is_string(raw) || length(raw) > MAX_REQUEST_BYTES) return error_result('EINPUT', 'request file is unreadable or oversized');
+	try { afterRead = stat(path); } catch (e) { afterRead = null; }
+	let finalLink = null;
+	try { finalLink = readlink(path); } catch (e) { finalLink = 'error'; }
+	if (!is_string(raw) || !metadata_same(beforeRead, afterRead) || finalLink != null
+		|| length(raw) != beforeRead.size)
+		return error_result('EINPUT', 'request file changed during read');
 	let value = null;
 	try { value = json(raw); } catch (e) { return error_result('EINPUT', 'request JSON is malformed'); }
 	if (is_object(value) && is_object(value.args)) return value.args;
