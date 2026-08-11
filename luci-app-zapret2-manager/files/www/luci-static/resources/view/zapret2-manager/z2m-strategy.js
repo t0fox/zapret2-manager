@@ -3,1068 +3,632 @@
 'require zapret2-manager.z2m-profiles-workflow as profilesWorkflow';
 
 var state = {
-  timer: null,
-  runId: null,
+  selectedId: null,
+  search: '',
+  filter: 'all',
+  favoritesOnly: false,
   subtab: 'list',
-  sort: 'ok',
   busy: false,
-  preflight: null
+  timer: null,
+  disposed: false,
+  preview: null,
+  validation: null,
+  lastError: null
 };
 
-var TERMINAL_PHASES = [
-  'completed', 'applied', 'rolled-back', 'restored', 'timeout', 'timed-out',
-  'partial', 'infrastructure-error', 'cancelled', 'canceled', 'stopped',
-  'failed', 'interrupted'
-];
-
 function edit(fn, value) { return fn(JSON.stringify(value || {})); }
-function asArray(value) { return Array.isArray(value) ? value : []; }
+function array(value) { return Array.isArray(value) ? value : []; }
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
-function compact(values) { return (values || []).filter(function (value) { return value !== null && value !== undefined; }); }
+function text(value) {
+  if (value === null || value === undefined) return null;
+  var result = String(value).trim();
+  return result || null;
+}
+function compact(values) { return array(values).filter(function (value) { return value !== null && value !== undefined; }); }
 function settled(result, api) {
   return result.status === 'fulfilled'
     ? { value: result.value || {} }
     : { error: api.normalizeError(result.reason) };
 }
-function missingRunError(error) {
-  var value = error && error.error ? error.error : error || {};
-  var code = String(value.code || '').toLowerCase();
-  var text = String(value.message || value.detail || value || '').toLowerCase();
-  return code === 'enoent' || code === 'run-not-found' || code === 'run_not_found' ||
-    text.indexOf('run not found') >= 0 || text.indexOf('запуск не найден') >= 0 || text.indexOf('enoent') >= 0;
-}
-function candidates(preview) {
-  return preview && preview.comboCatalog && Array.isArray(preview.comboCatalog.candidates)
-    ? preview.comboCatalog.candidates : [];
-}
-function active(preview) {
-  return preview && preview.strategyState && preview.strategyState.active || preview && preview.active || null;
-}
-function candidateId(candidate) {
-  var value = candidate && (candidate.managerId || candidate.candidateId || candidate.id || candidate.strategyId);
-  return value === null || value === undefined || value === '' ? null : String(value);
-}
-function candidateName(candidate, format) {
-  return format.text(candidate && (candidate.name || candidate.displayName || candidateId(candidate)));
-}
-function candidateApplicable(candidate) {
-  return !!(candidate && candidate.applicable === true && candidate.corpusOnly !== true);
-}
-function candidateValidationMessage(candidate, format) {
-  return format.text(candidate && (candidate.validationMessage || candidate.refuseReason || candidate.unsupportedReason));
-}
-function strategyCandidate(preview, id) {
-  var wanted = String(id == null ? '' : id);
-  return candidates(preview).filter(function (candidate) { return String(candidateId(candidate) || '') === wanted; })[0] || null;
-}
-function revisionOf(value) {
+function stateRevision(value) {
   value = object(value);
-  if (value.revision !== null && value.revision !== undefined) return value.revision;
-  if (value.catalogRevision !== null && value.catalogRevision !== undefined) return value.catalogRevision;
-  if (value.appliedRevision !== null && value.appliedRevision !== undefined) return value.appliedRevision;
+  if (value.revision !== undefined) return value.revision;
+  if (object(value.strategyState).revision !== undefined) return object(value.strategyState).revision;
+  if (object(value.selection).revision !== undefined) return object(value.selection).revision;
+  // Preserve server-projected state revision when present.
+  var persisted = object(value.strategy).persistedState;
+  if (typeof persisted === 'string') try { return object(JSON.parse(persisted)).revision || 0; } catch (error) { }
+  return 0;
+}
+function catalogDigest(value) {
+  value = object(value);
+  return text(value.aggregateDigest || value.catalogDigest || value.digest ||
+    object(value.catalog).aggregateDigest || object(value.catalog).digest);
+}
+function strategyList(value) {
+  value = object(value && value.value || value);
+  return array(value.strategies || value.items || value.list);
+}
+function strategyProfiles(value) {
+  return array(object(value).profiles).map(function (profile, index) {
+    profile = object(profile);
+    return {
+      id: text(profile.id) || 'profile-' + String(index + 1),
+      name: text(profile.name || profile.label) || 'Profile ' + String(index + 1),
+      args: String(profile.args !== undefined ? profile.args : profile.opt || ''),
+      enabled: profile.enabled !== false,
+      revision: profile.revision
+    };
+  });
+}
+function normalizeStrategy(value) {
+  value = object(value);
+  var result = {};
+  Object.keys(value).forEach(function (key) { result[key] = value[key]; });
+  result.id = text(value.id || value.strategyId);
+  result.name = text(value.name || value.displayName) || result.id || _('Strategy');
+  result.origin = text(value.origin) || (value.is_builtin === true ? 'avatar_builtin' : 'user');
+  result.is_builtin = value.is_builtin === true || value.isBuiltin === true || result.origin === 'avatar_builtin';
+  result.metadata = object(value.metadata);
+  result.profiles = strategyProfiles(value);
+  return result;
+}
+function strategyInput(value) {
+  var strategy = normalizeStrategy(value);
+  return {
+    id: strategy.id, name: strategy.name, origin: strategy.origin,
+    is_builtin: strategy.is_builtin, metadata: strategy.metadata,
+    profiles: strategy.profiles.map(function (profile) {
+      return { id: profile.id, name: profile.name, args: profile.args, enabled: profile.enabled };
+    })
+  };
+}
+function activeIdentity(value) {
+  value = object(value);
+  return object(value.activeStrategy || value.strategy || value.selected ||
+    object(value.strategyStatus).active || object(value.strategyState).selected);
+}
+function activeId(value) {
+  var active = activeIdentity(value);
+  return text(active.id || active.strategyId || active.selectedId);
+}
+function activeDrift(value) {
+  var active = activeIdentity(value);
+  return active.drift !== undefined ? active.drift : object(value.drift).divergent;
+}
+function strategyAvailability(strategy) {
+  return strategy.available !== undefined ? strategy.available :
+    strategy.applicable !== undefined ? strategy.applicable :
+    object(strategy.availability).available;
+}
+function strategyFavorite(strategy, favorites) {
+  return strategy.favorite === true || array(favorites).indexOf(strategy.id) >= 0;
+}
+function isUserStrategy(strategy) {
+  return strategy.is_builtin !== true && strategy.origin !== 'avatar_builtin' && strategy.origin !== 'builtin';
+}
+function selectedStrategy(data) {
+  var list = strategyList(data.list);
+  var id = state.selectedId || (list[0] && normalizeStrategy(list[0]).id);
+  var detail = data.detail && data.detail.value && data.detail.value.strategy;
+  if (detail && normalizeStrategy(detail).id === id) return normalizeStrategy(detail);
+  for (var index = 0; index < list.length; index++) {
+    var strategy = normalizeStrategy(list[index]);
+    if (strategy.id === id) return strategy;
+  }
   return null;
 }
-function strategyRevision(preview, profiles) {
-  var activeCandidate = active(preview) || {};
-  var source = object(object(profiles).source);
-  return activeCandidate.digest || revisionOf(profiles) || source.configSha256 || revisionOf(preview) || null;
+function requestIdentity(strategy, data) {
+  return {
+    strategy_id: strategy.id,
+    revision: Number(strategy.revision || 0),
+    catalog_digest: catalogDigest(data.catalog && data.catalog.value)
+  };
 }
-function hasProfileDraft(value) {
-  return object(value).profiles === true ||
-    object(value).changes && object(value).changes.profiles !== undefined;
+function previewRequest(strategy, data, validate) {
+  return { strategy_data: strategyInput(strategy), catalog_digest: catalogDigest(data.catalog && data.catalog.value), validate: validate === true };
 }
-function currentStrategyDraft(ctx) {
-  return ctx.store.get().draft && ctx.store.get().draft.strategy || {};
+function showError(ctx, error) {
+  var normalized = ctx.api.normalizeError(error);
+  state.lastError = normalized && normalized.message || _('Strategy operation failed.');
+  ctx.shell.showToast(state.lastError, 'err');
 }
-function setStrategyDraft(ctx, patch) {
-  ctx.setDraft('strategy', Object.assign({}, currentStrategyDraft(ctx), patch || {}));
-}
-function clearStrategyDraftField(ctx, field) {
-  var next = Object.assign({}, currentStrategyDraft(ctx));
-  delete next[field];
-  if (Object.keys(next).length) ctx.setDraft('strategy', next);
-  else ctx.clearDraft('strategy');
+function refresh(ctx) { return ctx.refresh('strategy'); }
+function mutate(ctx, operation, request) {
+  if (state.busy) return Promise.resolve(null);
+  state.busy = operation;
+  state.lastError = null;
+  return Promise.resolve(request).then(function (answer) {
+    if (!answer || answer.ok !== true) throw answer || new Error(operation + ' failed');
+    return refresh(ctx).then(function () { return answer; });
+  }).then(function (answer) {
+    state.busy = false;
+    return answer;
+  }, function (error) {
+    state.busy = false;
+    showError(ctx, error);
+    return null;
+  });
 }
 
+function previewStrategy(ctx, strategy, validate) {
+  var request = previewRequest(strategy, ctx.data || {}, validate);
+  return edit(validate === true ? ctx.api.strategies.validate : ctx.api.strategies.preview, request);
+}
+function applyStrategy(ctx, strategy) {
+  if (!strategy || !strategy.id || strategy.revision === undefined || strategy.revision === null)
+    return Promise.reject({ code: 'EINPUT', message: _('Apply requires a persisted Strategy revision.') });
+  return edit(ctx.api.strategies.apply, requestIdentity(strategy, ctx.data || {}));
+}
+function loadDetail(ctx, data) {
+  var list = strategyList(data.list);
+  var id = state.selectedId || (list[0] && normalizeStrategy(list[0]).id);
+  if (!id) return Promise.resolve(data);
+  state.selectedId = id;
+  return edit(ctx.api.strategies.get, { id: id }).then(function (answer) {
+    data.detail = { value: answer || {} };
+    return data;
+  }).catch(function (error) {
+    data.detail = { error: ctx.api.normalizeError(error) };
+    return data;
+  });
+}
+function load(ctx) {
+  return Promise.allSettled([
+    ctx.api.strategies.list(),
+    ctx.api.strategies.catalogStatus(),
+    ctx.api.service.status(),
+    ctx.api.profiles.list()
+  ]).then(function (results) {
+    var data = {
+      list: settled(results[0], ctx.api),
+      catalog: settled(results[1], ctx.api),
+      status: settled(results[2], ctx.api),
+      profiles: settled(results[3], ctx.api)
+    };
+    return loadDetail(ctx, data);
+  });
+}
+
+function renderError(ctx, data) {
+  var errors = [];
+  Object.keys(data || {}).forEach(function (key) {
+    if (data[key] && data[key].error) errors.push(ctx.shell.statePanel({ title: _('Backend error'), message: data[key].error.message, kind: 'error' }));
+  });
+  if (state.lastError) errors.push(ctx.shell.statePanel({ message: state.lastError, kind: 'error' }));
+  return errors;
+}
+function metadataText(strategy) {
+  var metadata = object(strategy.metadata);
+  return Object.keys(metadata).map(function (key) { return key + ': ' + String(metadata[key]); }).join(' · ');
+}
+function renderStatus(ctx, statusValue, strategy) {
+  var shell = ctx.shell;
+  var active = activeIdentity(statusValue);
+  var drift = activeDrift(statusValue);
+  var rows = compact([
+    active.id || active.strategyId ? E('div', { 'class': 'z2m-svcrow z2m-single-row' }, [E('div', {}, [E('div', { 'class': 'nm' }, _('Active Strategy')), E('div', { 'class': 'co' }, active.id || active.strategyId)]), shell.chip(active.id === strategy.id ? _('selected') : _('different'), active.id === strategy.id ? 'g' : 'o')]) : null,
+    drift !== undefined && drift !== null ? E('div', { 'class': 'z2m-svcrow z2m-single-row' }, [E('div', {}, [E('div', { 'class': 'nm' }, _('Runtime drift')), E('div', { 'class': 'co' }, String(drift))]), shell.chip(drift === false ? _('in sync') : _('drifted'), drift === false ? 'g' : 'r')]) : null
+  ]);
+  return rows.length ? shell.panel(_('Active status'), E('div', {}, rows)) : null;
+}
+function renderPreview(ctx, strategy, data) {
+  var shell = ctx.shell;
+  var preview = state.preview || state.validation;
+  if (!preview) return null;
+  var value = object(preview);
+  var dependencies = object(value.dependencies);
+  var lines = compact([
+    value.ok === true ? shell.chip(_('backend accepted'), 'g') : shell.chip(_('backend rejected'), 'r'),
+    value.applicable !== undefined ? shell.chip(value.applicable ? _('available') : _('unavailable'), value.applicable ? 'g' : 'r') : null,
+    value.profilesCount !== undefined ? E('span', { 'class': 'z2m-dim' }, _('enabled Profiles: ') + value.profilesCount) : null,
+    dependencies.available !== undefined ? E('span', { 'class': 'z2m-dim' }, _('dependencies: ') + String(dependencies.available)) : null
+  ]);
+  return shell.panel(state.validation ? _('Validation result') : _('Inline Preview'), E('div', {}, compact([
+    E('div', { 'class': 'z2m-btnrow' }, lines),
+    value.error ? shell.statePanel({ message: value.error.message || value.error.code, kind: 'error' }) : null,
+    value.effectiveCommand ? E('pre', { 'class': 'z2m-tech' }, value.effectiveCommand) : null,
+    value.effectiveArgv ? E('pre', { 'class': 'z2m-dim' }, JSON.stringify(value.effectiveArgv)) : null,
+    value.validation ? E('pre', { 'class': 'z2m-diff' }, JSON.stringify(value.validation, null, 2)) : null
+  ])), _('The command and validation are authoritative backend output.'));
+}
+function profileEditorRow(ctx, strategy, profile, index, onChange) {
+  var shell = ctx.shell;
+  var args = E('textarea', { rows: '3', 'class': 'z2m-mono', 'aria-label': profile.name + ' args' }, profile.args);
+  var enabled = E('input', { type: 'checkbox', checked: profile.enabled ? 'checked' : null, 'aria-label': profile.name + ' enabled' });
+  var name = E('input', { type: 'text', value: profile.name, 'aria-label': profile.name + ' name' });
+  args.addEventListener('input', function () { profile.args = String(args.value || ''); onChange(); });
+  enabled.addEventListener('change', function () { profile.enabled = enabled.checked; onChange(); });
+  name.addEventListener('input', function () { profile.name = String(name.value || ''); onChange(); });
+  return E('div', { 'class': 'z2m-profile-row' }, [
+    E('div', { 'class': 'z2m-profile-order' }, String(index + 1)),
+    E('div', { 'class': 'z2m-profile-main' }, [name, args]),
+    E('label', { 'class': 'z2m-profile-enabled' }, [enabled, _('enabled')]),
+    E('div', { 'class': 'z2m-profile-actions' }, compact([
+      index > 0 ? shell.button(_('Up'), 'sm', function () { strategy.profiles.splice(index - 1, 2, strategy.profiles[index], strategy.profiles[index - 1]); onChange(); ctx.rerender(); }) : null,
+      index + 1 < strategy.profiles.length ? shell.button(_('Down'), 'sm', function () { strategy.profiles.splice(index, 2, strategy.profiles[index + 1], strategy.profiles[index]); onChange(); ctx.rerender(); }) : null,
+      shell.button(_('Remove'), 'danger sm', function () { strategy.profiles.splice(index, 1); onChange(); ctx.rerender(); })
+    ]))
+  ]);
+}
+function openStrategyEditor(ctx, original, creating) {
+  var shell = ctx.shell;
+  var strategy = normalizeStrategy(original || { id: '', name: '', metadata: {}, profiles: [] });
+  if (creating) { strategy.id = ''; strategy.origin = 'user'; strategy.is_builtin = false; }
+  var id = E('input', { type: 'text', value: strategy.id || '', disabled: creating ? null : 'disabled' });
+  var name = E('input', { type: 'text', value: strategy.name || '' });
+  var description = E('input', { type: 'text', value: object(strategy.metadata).description || '' });
+  var profileHost = E('div', { 'class': 'z2m-profile-chain' });
+  var form = E('div', { 'class': 'z2m-cbi' }, [
+    E('label', {}, _('Id')), id,
+    E('label', {}, _('Name')), name,
+    E('label', {}, _('Description')), description,
+    E('h4', {}, _('Ordered Profiles')),
+    profileHost
+  ]);
+  function redraw() {
+    profileHost.replaceChildren();
+    strategy.profiles.forEach(function (profile, index) {
+      profileHost.appendChild(profileEditorRow(ctx, strategy, profile, index, redraw));
+    });
+  }
+  function save() {
+    strategy.id = String(id.value || '').trim();
+    strategy.name = String(name.value || '').trim();
+    strategy.metadata = { description: String(description.value || '').trim() };
+    if (!strategy.id || !strategy.name || !strategy.profiles.length) {
+      shell.showToast(_('A Strategy id, name, and at least one Profile are required.'), 'err');
+      return;
+    }
+    var request = creating
+      ? edit(ctx.api.strategies.create, { strategy: strategyInput(strategy) })
+      : edit(ctx.api.strategies.update, { id: strategy.id, expectedRevision: strategy.revision, strategy: strategyInput(strategy) });
+    mutate(ctx, creating ? 'create' : 'update', request).then(function (answer) {
+      if (answer) shell.closeModal();
+    });
+  }
+  redraw();
+  shell.openModal(creating ? _('New Strategy') : _('Edit Strategy'), form, [
+    shell.button(_('Cancel'), '', shell.closeModal),
+    shell.button(_('Save'), 'primary', save)
+  ]);
+}
+function renderStrategyDetail(ctx, strategy, data) {
+  var shell = ctx.shell;
+  var formStrategy = normalizeStrategy(strategy);
+  var host = E('div', { 'class': 'z2m-strategy-detail' });
+  function redraw() { host.replaceChildren(renderStrategyDetailContent()); }
+  function renderStrategyDetailContent() {
+    var metadata = metadataText(formStrategy);
+    var available = strategyAvailability(formStrategy);
+    var controls = compact([
+      isUserStrategy(formStrategy) ? shell.button(_('Edit'), 'sm', function () { openStrategyEditor(ctx, formStrategy, false); }) : null,
+      shell.button(_('Duplicate'), 'sm', function () { mutate(ctx, 'duplicate', edit(ctx.api.strategies.duplicate, { strategy: strategyInput(formStrategy) })); }),
+      isUserStrategy(formStrategy) ? shell.button(_('Delete'), 'danger sm', function () {
+        shell.openModal(_('Delete Strategy?'), E('p', {}, formStrategy.name), [
+          shell.button(_('Cancel'), '', shell.closeModal),
+          shell.button(_('Delete'), 'danger', function () {
+            shell.closeModal();
+            mutate(ctx, 'delete', edit(ctx.api.strategies.delete, { id: formStrategy.id, expectedRevision: formStrategy.revision }));
+          })
+        ]);
+      }) : null,
+      shell.button(_('Preview'), 'sm', function () {
+        state.preview = null; state.validation = null;
+        previewStrategy(ctx, formStrategy, false).then(function (answer) { state.preview = answer; redraw(); }).catch(function (error) { showError(ctx, error); });
+      }),
+      shell.button(_('Validate'), 'sm', function () {
+        state.validation = null; state.preview = null;
+        previewStrategy(ctx, formStrategy, true).then(function (answer) { state.validation = answer; redraw(); }).catch(function (error) { showError(ctx, error); });
+      }),
+      shell.button(_('Apply'), 'primary sm', function () {
+        if (formStrategy.revision === undefined || formStrategy.revision === null) return;
+        mutate(ctx, 'apply', applyStrategy(ctx, formStrategy));
+      }, !formStrategy.id || formStrategy.revision === undefined || formStrategy.revision === null || available === false)
+    ]);
+    var rows = formStrategy.profiles.map(function (profile, index) {
+      return E('div', { 'class': 'z2m-profile-row' }, [
+        E('div', { 'class': 'z2m-profile-order' }, String(index + 1)),
+        E('div', { 'class': 'z2m-profile-main' }, [E('div', { 'class': 'nm' }, profile.name), E('div', { 'class': 'co' }, profile.args)]),
+        shell.chip(profile.enabled ? _('enabled') : _('disabled'), profile.enabled ? 'g' : 'o')
+      ]);
+    });
+    return E('div', {}, compact([
+      E('div', { 'class': 'z2m-btnrow' }, controls),
+      E('div', { 'class': 'z2m-svcrow z2m-single-row' }, [E('div', {}, [E('div', { 'class': 'nm' }, formStrategy.name), E('div', { 'class': 'co' }, formStrategy.id)]), shell.chip(formStrategy.is_builtin ? _('built-in') : _('user'), formStrategy.is_builtin ? 'b' : 'o')]),
+      metadata ? E('div', { 'class': 'z2m-dim' }, metadata) : null,
+      available !== undefined ? shell.statePanel({ message: available ? _('Available') : _('Unavailable'), kind: available ? 'success' : 'warning' }) : null,
+      shell.panel(_('Ordered Profiles'), E('div', {}, rows), _('Omitted enabled values are treated as enabled by the server.')),
+      renderPreview(ctx, formStrategy, data),
+      renderStatus(ctx, data.status && data.status.value, formStrategy)
+    ]));
+  }
+  redraw();
+  return host;
+}
+function visibleStrategies(data) {
+  var favorites = object(data.status && data.status.value).favorites || object(data.status && data.status.value).strategyState && object(data.status.value.strategyState).favorites;
+  return strategyList(data.list).map(normalizeStrategy).filter(function (strategy) {
+    var haystack = [strategy.id, strategy.name, strategy.origin, metadataText(strategy)].join(' ').toLowerCase();
+    if (state.search && haystack.indexOf(state.search.toLowerCase()) < 0) return false;
+    if (state.favoritesOnly && !strategyFavorite(strategy, favorites)) return false;
+    if (state.filter === 'builtin' && !strategy.is_builtin) return false;
+    if (state.filter === 'user' && !isUserStrategy(strategy)) return false;
+    if (state.filter === 'available' && strategyAvailability(strategy) === false) return false;
+    return true;
+  });
+}
+function renderCatalog(ctx, data) {
+  var shell = ctx.shell;
+  var search = E('input', { type: 'search', placeholder: _('Search Strategies'), value: state.search, 'aria-label': _('Search Strategies') });
+  var filter = E('select', { 'aria-label': _('Filter Strategies') }, [
+    E('option', { value: 'all' }, _('All')), E('option', { value: 'available' }, _('Available')),
+    E('option', { value: 'builtin' }, _('Built-in')), E('option', { value: 'user' }, _('User'))
+  ]);
+  filter.value = state.filter;
+  var favorite = E('input', { type: 'checkbox', checked: state.favoritesOnly ? 'checked' : null });
+  var listHost = E('div', { id: 'z2m-strategy-list' });
+  var detailHost = E('div', { id: 'z2m-strategy-detail', 'aria-live': 'polite' });
+  function redraw() {
+    var strategies = visibleStrategies(data);
+    listHost.replaceChildren();
+    strategies.forEach(function (strategy) {
+      var selected = strategy.id === state.selectedId;
+      var available = strategyAvailability(strategy);
+      var active = activeId(data.status && data.status.value) === strategy.id;
+      var drift = active && activeDrift(data.status && data.status.value);
+      var row = E('div', { 'class': 'z2m-srow' + (selected ? ' sel' : ''), 'data-strategy': strategy.id }, [
+        E('div', {}, compact([
+          E('div', { 'class': 'nm' }, [strategy.name, strategy.is_builtin ? shell.chip(_('built-in'), 'b') : shell.chip(_('user'), 'o'), active ? shell.chip(_('active'), 'g') : null, drift ? shell.chip(_('drift'), 'r') : null]),
+          E('div', { 'class': 'ds' }, compact([strategy.id, metadataText(strategy), available === false ? _('unavailable') : null]).join(' · '))
+        ])),
+        shell.chip(available === false ? _('unavailable') : available === true ? _('available') : _('not checked'), available === false ? 'r' : available === true ? 'g' : 'o'),
+        shell.button(strategyFavorite(strategy, object(data.status && data.status.value).favorites) ? _('Unfavorite') : _('Favorite'), 'sm', function (event) {
+          if (event && event.stopPropagation) event.stopPropagation();
+          mutate(ctx, 'favorite', edit(ctx.api.strategies.favorite, { expectedRevision: stateRevision(data.status && data.status.value), id: strategy.id, favorite: !strategyFavorite(strategy, object(data.status && data.status.value).favorites) }));
+        })
+      ]);
+      row.addEventListener('click', function () {
+        state.selectedId = strategy.id;
+        state.preview = null; state.validation = null;
+        loadDetail(ctx, data).then(function () { redraw(); });
+      });
+      listHost.appendChild(row);
+    });
+    if (!listHost.children.length) listHost.appendChild(shell.statePanel({ message: _('No Strategies match the current filters.'), kind: 'info' }));
+    detailHost.replaceChildren();
+    var selected = selectedStrategy(data);
+    if (selected) detailHost.appendChild(renderStrategyDetail(ctx, selected, data));
+  }
+  search.addEventListener('input', function () { state.search = String(search.value || ''); redraw(); });
+  filter.addEventListener('change', function () { state.filter = filter.value; redraw(); });
+  favorite.addEventListener('change', function () { state.favoritesOnly = favorite.checked; redraw(); });
+  redraw();
+  return E('div', {}, [
+    shell.panel(_('Strategy Catalog'), E('div', { 'class': 'z2m-btnrow' }, [search, filter, E('label', {}, [favorite, _('Favorites only')]), shell.button(_('New Strategy'), 'primary sm', function () { openStrategyEditor(ctx, null, true); })])),
+    shell.panel(_('Available Strategies'), listHost, _('Search and filtering operate on the server-returned Strategy objects.')),
+    detailHost
+  ]);
+}
+
+function draftProfiles(profileData) { return array(object(profileData).draft && object(profileData.draft).profiles); }
+function appliedProfiles(profileData) { return array(object(profileData).profiles || object(profileData).appliedProfiles); }
+function profileName(profile, format) { return format.text(profile && (profile.name || profile.label || profile.id)); }
+function profileOpt(profile, format) { return format.text(profile && (profile.opt || profile.raw || profile.command || profile.argv)); }
+function issueRows(value, shell) {
+  var items = array(value && value.errors).concat(array(value && value.warnings)).concat(array(value && value.issues));
+  return items.length ? E('div', {}, items.map(function (item) { return shell.statePanel({ message: item.message || item.detail || item.code || String(item), kind: item.severity === 'error' ? 'error' : 'warning' }); })) : null;
+}
+function renderProfilesPane(ctx, currentProfileData) {
+  var shell = ctx.shell, format = shell.format;
+  var drafts = draftProfiles(currentProfileData), applied = appliedProfiles(currentProfileData), shown = drafts.length ? drafts : applied;
+  var profileHost = E('div', { 'class': 'z2m-profile-chain' });
+  var workflowHost = E('div', { 'class': 'z2m-profile-workflow', 'aria-live': 'polite' });
+  var profilesState = Object.assign(profilesWorkflow.createState(), { replaceFullSet: false });
+  var profilesPaneHost = E('div', { 'class': 'z2m-profiles-pane' });
+  var profilePreviewButton = null;
+  function showProfileResult(title, answer, reads) {
+    var value = object(answer), diff = object(value.diff), verification = object(value.verification || value.verify);
+    workflowHost.replaceChildren(shell.panel(title, E('div', {}, compact([
+      E('div', {}, _('Backend owns Profile compatibility composition.')),
+      diff.currentSha256 ? E('div', { 'class': 'z2m-tech' }, _('current hash: ') + diff.currentSha256) : null,
+      diff.candidateSha256 ? E('div', { 'class': 'z2m-tech' }, _('candidate hash: ') + diff.candidateSha256) : null,
+      value.wouldApply !== undefined ? E('div', {}, _('would apply: ') + String(value.wouldApply)) : null,
+      verification.status || verification.ok ? E('div', {}, _('runtime verification: ') + String(verification.status || verification.ok)) : null,
+      value.rollbackOk !== undefined || value.rolledBack !== undefined ? E('div', {}, _('rollback: ') + String(value.rollbackOk !== undefined ? value.rollbackOk : value.rolledBack)) : null,
+      value.manualRecovery !== undefined || value.critical !== undefined ? E('div', {}, _('manual recovery: ') + String(value.manualRecovery || value.critical)) : null,
+      value.error ? shell.statePanel({ message: value.error.message || value.error.code, kind: 'error' }) : null
+    ]))));
+  }
+  function setBusy(value) {
+    profilesState.busy = value;
+    Array.prototype.forEach.call(profilesPaneHost.querySelectorAll('button, input, textarea, select'), function (control) { control.disabled = value || control.getAttribute('data-blocked') === 'true'; });
+  }
+  function invalidateProfilePreview() { profilesWorkflow.invalidate(profilesState); }
+  function profileMutationSucceeded() {
+    if (profilesState.busy) return;
+    invalidateProfilePreview();
+    return refresh(ctx);
+  }
+  function runProfileMutation(request) {
+    var mutation = profilesWorkflow.runMutation(profilesState, request);
+    setBusy(profilesState.busy);
+    return mutation.then(function (answer) { setBusy(false); return profileMutationSucceeded().then(function () { return answer; }); }, function (error) { setBusy(false); throw error; });
+  }
+  function reorderProfiles(movedId, offset) {
+    return profilesWorkflow.buildReorderRequest(ctx.api.profiles.list, movedId, offset).then(function (request) { return edit(ctx.api.profiles.reorder, request); });
+  }
+  function previewProfiles() { return edit(ctx.api.profiles.apply, { mode: 'preview' }); }
+  function applyProfiles() {
+    function reloadAppliedState() { return ctx.api.profiles.list(); }
+    return profilesWorkflow.applyAndReread(function () { return edit(ctx.api.profiles.apply, { mode: 'apply' }); }, function () { return reloadAppliedState(); }, ctx.api.service.status);
+  }
+  function boundedProfileFailure(error) { return String(ctx.api.normalizeError(error).message || _('Profile operation failed.')).slice(0, 320); }
+  function saveEditor(profile, payload) {
+    if (profilesState.busy) return;
+    payload = Object.assign({}, payload);
+    if (profile) { payload.id = profile.id; payload.revision = profile.revision; return runProfileMutation(function () { return edit(ctx.api.profiles.update, payload); }); }
+    return runProfileMutation(function () { return edit(ctx.api.profiles.create, payload); });
+  }
+  function cloneProfile(profile) {
+    if (profilesState.busy) return;
+    return runProfileMutation(function () { return edit(ctx.api.profiles.clone, { id: profile.id }); });
+  }
+  function deleteProfile(profile) {
+    if (profilesState.busy) return;
+    return runProfileMutation(function () { return edit(ctx.api.profiles.delete, { id: profile.id, revision: profile.revision }); });
+  }
+  function importApplied() {
+    if (profilesState.busy) return;
+    return runProfileMutation(function () { return ctx.api.profiles.importApplied(); });
+  }
+  function moveProfile(index, offset) {
+    if (profilesState.busy) return;
+    if (drafts[index]) return runProfileMutation(function () { return reorderProfiles(drafts[index].id, offset); });
+  }
+  function openProfileEditor(profile) {
+    if (profilesState.busy) return;
+    var name = E('input', { type: 'text', value: profileName(profile, format) || '' });
+    var opt = E('textarea', { rows: '5', 'class': 'z2m-mono' }, profileOpt(profile, format) || '');
+    shell.openModal(profile ? _('Edit compatibility Profile') : _('New compatibility Profile'), E('div', { 'class': 'z2m-cbi' }, [
+      E('label', {}, _('Name')), name, E('label', {}, _('Arguments')), opt
+    ]), [
+      shell.button(_('Cancel'), '', shell.closeModal),
+      shell.button(_('Save'), 'primary', function () {
+        saveEditor(profile, { name: String(name.value || '').trim(), opt: String(opt.value || '') }).then(function () { shell.closeModal(); }).catch(function (error) { shell.showToast(boundedProfileFailure(error), 'err'); });
+      })
+    ]);
+  }
+  function renderProfilesPaneBody() {
+    profileHost.replaceChildren();
+    shown.forEach(function (profile, index) {
+      var validation = E('div', { 'class': 'z2m-profile-validation', 'aria-live': 'polite' });
+      var row = E('div', { 'class': 'z2m-profile-row' }, [
+        E('div', { 'class': 'z2m-profile-order' }, String(index + 1)),
+        E('div', { 'class': 'z2m-profile-main' }, [E('div', { 'class': 'nm' }, profileName(profile, format) || profile.id), E('div', { 'class': 'co' }, profileOpt(profile, format) || ''), validation]),
+        E('div', { 'class': 'z2m-profile-actions' }, [
+          shell.button(_('Up'), 'sm', function () { moveProfile(index, -1); }, index === 0),
+          shell.button(_('Down'), 'sm', function () { moveProfile(index, 1); }, index === shown.length - 1),
+          shell.button(_('Check'), 'sm', function () { edit(ctx.api.profiles.validate, { id: profile.id }).then(function (answer) { validation.replaceChildren(issueRows(answer, shell) || shell.statePanel({ message: _('Backend returned no issues.'), kind: 'success' })); }).catch(function (error) { showError(ctx, error); }); }),
+          shell.button(_('Edit'), 'sm', function () { openProfileEditor(profile); }),
+          shell.button(_('Clone'), 'sm', function () { cloneProfile(profile).catch(function (error) { shell.showToast(boundedProfileFailure(error), 'err'); }); }),
+          shell.button(_('Delete'), 'danger sm', function () { deleteProfile(profile).catch(function (error) { shell.showToast(boundedProfileFailure(error), 'err'); }); })
+        ])
+      ]);
+      profileHost.appendChild(row);
+    });
+    profilesPaneHost.replaceChildren(shell.panel(_('Compatibility / Profiles'), E('div', {}, [
+      shell.statePanel({ message: _('Advanced compatibility editor. The canonical Strategy editor remains the source of truth.'), kind: 'info' }),
+      E('div', { 'class': 'z2m-btnrow' }, [
+        shell.button(_('Move first Profile up'), 'sm', function () { moveProfile(0, -1); }, !drafts.length),
+        shell.button(_('Новый профиль'), 'primary sm', function () { openProfileEditor(null); }, profilesState.busy),
+        shell.button(_('Импортировать применённые'), 'sm', importApplied, profilesState.busy),
+        profilePreviewButton = shell.button(_('Preview compatibility set'), 'sm', function () {
+          if (profilesState.busy) return;
+          previewProfiles().then(function (answer) {
+            profilesState.preview = answer;
+            showProfileResult(_('Compatibility Preview'), answer);
+            if (!answer || answer.ok !== true) shell.showToast(boundedProfileFailure(answer), 'err');
+          }).catch(function (error) { shell.showToast(boundedProfileFailure(error), 'err'); });
+        }, !drafts.length),
+        shell.button(_('Import applied Profiles'), 'sm', function () { importApplied().catch(function (error) { shell.showToast(boundedProfileFailure(error), 'err'); }); }, profilesState.busy),
+        shell.button(_('Apply compatibility set'), 'primary sm', function () {
+          if (!profilesState.preview || profilesState.preview.ok !== true || profilesState.preview.wouldApply !== true || !profilesState.replaceFullSet) return;
+          applyProfiles().then(function (result) {
+            var expected = result.answer && result.answer.applied;
+            result.actualVerification = expected ? profilesWorkflow.verifyAppliedResult(expected, result) : { ok: false };
+            showProfileResult(_('Compatibility Apply'), result.answer, result);
+          }).catch(function (error) { shell.showToast(boundedProfileFailure(error), 'err'); });
+        }, true)
+      ]), profileHost
+    ]), _('Advanced compatibility path; ordered Profile semantics are retained.')), workflowHost);
+    var acknowledgement = E('input', { type: 'checkbox', id: 'replace-full-set' });
+    acknowledgement.addEventListener('change', function () { profilesState.replaceFullSet = acknowledgement.checked === true; });
+    profilesPaneHost.insertBefore(E('label', { 'class': 'z2m-profile-ack' }, [acknowledgement, _('I understand this replaces the full compatibility set.')]), profilesPaneHost.firstChild);
+    setBusy(false);
+  }
+  renderProfilesPaneBody();
+  return profilesPaneHost;
+}
 function createAdapter(api) {
   api = api || {};
-  function readProfiles() {
-    return api.profiles && typeof api.profiles.list === 'function'
-      ? api.profiles.list() : Promise.resolve({});
+  function candidateGate(value, catalog) {
+    var strategy = object(value), id = strategy.strategy_id || strategy.id;
+    return id && catalog ? { ok: true } : { ok: false, message: _('Persisted Strategy identity is required.') };
   }
-  function reloadAppliedState() {
-    return Promise.all([api.strategy.preview(), readProfiles(), api.service.status()]).then(function (values) {
-      var preview = object(values[0]);
-      var profiles = object(values[1]);
-      var status = object(values[2]);
-      var activeCandidate = active(preview) || {};
-      return {
-        value: {
-          candidateId: activeCandidate.candidateId || activeCandidate.managerId || null,
-          candidate: activeCandidate,
-          profiles: profiles.profiles || profiles.appliedProfiles || [],
-          profileState: profiles
-        },
-        revision: strategyRevision(preview, profiles),
-        raw: { preview: preview, profiles: profiles, status: status }
-      };
-    });
-  }
-  function candidateGate(value, preview) {
-    var id = object(value).candidateId;
-    if (id === null || id === undefined)
-      return { ok: false, message: _('Для применения требуется идентификатор стратегии.') };
-    var candidate = strategyCandidate(preview, id);
-    if (!candidate)
-      return { ok: false, message: _('Выбранная стратегия больше не найдена в backend-каталоге.') };
-    if (!candidateApplicable(candidate))
-      return { ok: false, message: candidate.validationMessage || candidate.refuseReason || _('Backend заблокировал применение стратегии.'), candidate: candidate };
-    return { ok: true, candidate: candidate };
-  }
-  function validateCandidate(value) {
-    if (object(value).override)
-      return Promise.resolve({ ok: false, message: _('Точечные правила применяются своим backend-адаптером.') });
-    if (object(value).blocker)
-      return Promise.resolve({ ok: false, message: value.blocker });
-    return api.strategy.preview().then(function (preview) {
-      var gate = candidateGate(value, preview);
-      return gate.ok
-        ? { ok: true, candidate: gate.candidate }
-        : { ok: false, message: gate.message, candidate: gate.candidate };
-    });
-  }
+  function candidateApplicable(value) { return !!(value && (value.strategy_id || value.id) && value.revision !== undefined); }
+  function reloadAppliedState() { return Promise.all([api.service.status(), api.strategies.list()]).then(function (values) { return { value: { status: values[0], strategies: strategyList(values[1]) }, revision: stateRevision(values[0]), raw: { status: values[0], list: values[1] } }; }); }
+  function hasProfileDraft(value) { return object(value).profiles === true || object(value).changes && object(value).changes.profiles !== undefined; }
   return {
     supported: true,
-    validateDraft: function (scope, value) { return validateCandidate(value); },
-    previewDraft: function (scope, value, context) {
-      if (object(value).override)
-        return Promise.resolve({ ok: false, message: _('Точечные правила применяются своим backend-адаптером.') });
-      if (hasProfileDraft(value) && api.profiles && typeof api.profiles.apply === 'function')
-        return edit(api.profiles.apply, { mode: 'preview' });
-      return api.strategy.preview().then(function (preview) {
-        var gate = candidateGate(value, preview);
-        if (!gate.ok) return { ok: false, message: gate.message, candidate: gate.candidate };
-        var read = context && context.applied && context.applied.strategy || {};
-        var revision = read.candidate && read.candidate.digest ||
-          strategyRevision(read.raw && read.raw.preview, read.raw && read.raw.profiles) || revisionOf(read);
-        return { ok: true, candidate: gate.candidate, precondition: { revision: revision } };
-      });
+    validateDraft: function (scope, value) { return Promise.resolve(candidateGate(value, true)); },
+    previewDraft: function (scope, value) {
+      if (hasProfileDraft(value)) return edit(api.profiles.apply, { mode: 'preview' });
+      var preview = true;
+      var gate = candidateGate(value, preview);
+      return gate.ok ? edit(api.strategies.preview, { strategy_id: value.strategy_id, revision: value.revision, catalog_digest: value.catalog_digest }) : Promise.resolve(gate);
     },
-    previewValid: function (answer) {
-      return !!(answer && answer.ok === true && answer.precondition && answer.precondition.revision !== null && answer.precondition.revision !== undefined);
-    },
-    applyDraft: function (scope, value, expectedRevision, context) {
-      var draft = object(value);
-      var previews = context && context.previews || {};
-      var preview = previews.strategy || context && context.preview || {};
-      var selected = object(preview.candidate);
-      if (hasProfileDraft(draft) && api.profiles && typeof api.profiles.apply === 'function')
-        return edit(api.profiles.apply, { mode: 'apply' });
-      if (draft.candidateId === null || draft.candidateId === undefined || !candidateApplicable(selected))
-        return Promise.reject({ code: 'candidate-blocked', message: selected.validationMessage || _('Применение стратегии заблокировано backend.') });
-      return edit(api.strategy.apply, {
-        candidateId: draft.candidateId,
-        expectedDigest: selected.digest,
-        wideAcknowledged: true,
-        includeOverrides: true,
-        idempotencyToken: 'luci-global-' + Date.now()
-      });
+    previewValid: function (answer) { return !!(answer && answer.ok === true); },
+    applyDraft: function (scope, value) {
+      var draft = value;
+      var selected = value;
+      if (hasProfileDraft(draft)) return edit(api.profiles.apply, { mode: 'apply' });
+      if (!candidateApplicable(selected)) return Promise.reject({ code: 'candidate-blocked', message: _('Persisted Strategy identity is unavailable.') });
+      return edit(api.strategies.apply, { strategy_id: draft.strategy_id, revision: draft.revision, catalog_digest: draft.catalog_digest });
     },
     reloadAppliedState: reloadAppliedState,
     verifyApplied: function (value, context, read) {
-      var draft = object(value);
-      var actual = object(read && read.value);
-      if (draft.candidateId !== null && draft.candidateId !== undefined &&
-          String(actual.candidateId || '') !== String(draft.candidateId)) return false;
-      if (hasProfileDraft(draft)) {
-        var raw = object(read && read.raw && read.raw.profiles);
-        var preview = object(context && context.previews && context.previews.strategy);
-        return profilesWorkflow.verifyAppliedResult({
-          candidateSha256: object(preview.diff).candidateSha256,
-          profiles: preview.draftCount
-        }, {
-          applied: { optSha256: object(raw.source).optSha256 },
-          status: read && read.raw && read.raw.status
-        }).ok;
-      }
-      return true;
+      if (hasProfileDraft(value)) return profilesWorkflow.verifyAppliedResult(
+        object(context && context.preview).applied || {}, read || {}).ok;
+      return !!(read && read.value);
     },
     resetDraft: function () {}
   };
 }
-
-function latestCorpusSummary(history) {
-  var runs = asArray(object(history).runs);
-  for (var i = 0; i < runs.length; i++)
-    if (runs[i] && runs[i].targetType === 'corpus') return runs[i];
-  return null;
-}
-function load(ctx) {
-  return Promise.allSettled([
-    ctx.api.service.status(),
-    ctx.api.strategy.preview(),
-    ctx.api.orchestra.runHistory(),
-    ctx.api.orchestra.capabilities(),
-    ctx.api.profiles.list(),
-    ctx.api.orchestra.probePreflight(),
-    edit(ctx.api.orchestra.runStatus, {})
-  ]).then(function (results) {
-    var data = {
-      status: settled(results[0], ctx.api),
-      preview: settled(results[1], ctx.api),
-      history: settled(results[2], ctx.api),
-      capabilities: settled(results[3], ctx.api),
-      profiles: settled(results[4], ctx.api),
-      preflight: settled(results[5], ctx.api),
-      run: settled(results[6], ctx.api)
-    };
-    if (data.run.error && missingRunError(data.run.error)) data.run = {};
-    var activeRun = data.run.value && data.run.value.run;
-    if (activeRun) return data;
-    var summary = latestCorpusSummary(data.history.value);
-    if (!summary || !summary.runId) return data;
-    return edit(ctx.api.orchestra.runStatus, { runId: summary.runId }).then(function (answer) {
-      data.run = { value: answer || {} };
-      return data;
-    }).catch(function () { return data; });
-  });
-}
-
-function profileName(profile, format) {
-  return format.text(profile && (profile.name || profile.label || profile.id));
-}
-function profileOpt(profile, format) {
-  return format.text(profile && (profile.opt || profile.raw || profile.command || profile.argv));
-}
-function draftProfiles(profileData) {
-  return asArray(profileData && profileData.draft && profileData.draft.profiles);
-}
-function appliedProfiles(profileData) {
-  return asArray(profileData && (profileData.profiles || profileData.appliedProfiles));
-}
-function copyText(text, shell, api) {
-  if (!text) return;
-  if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText && window.isSecureContext) {
-    navigator.clipboard.writeText(text)
-      .then(function () { shell.showToast(_('Команда скопирована.'), 'ok'); })
-      .catch(function (error) { shell.showToast(api.normalizeError(error).message, 'err'); });
-    return;
-  }
-  var area = document.createElement('textarea');
-  area.value = text;
-  area.style.position = 'fixed';
-  area.style.left = '-9999px';
-  document.body.appendChild(area);
-  area.select();
-  try {
-    if (!document.execCommand('copy')) throw new Error('copy failed');
-    shell.showToast(_('Команда скопирована.'), 'ok');
-  } catch (error) {
-    shell.showToast(api.normalizeError(error).message, 'err');
-  }
-  if (area.parentNode) area.parentNode.removeChild(area);
-}
-function metric(shell, value, label, accent) {
-  var text = shell.format.text(value);
-  if (text === null) return null;
-  return E('div', { 'class': 'z2m-kpi' + (accent ? ' z2m-acc' : '') }, [
-    E('div', { 'class': 'v' }, text),
-    E('div', { 'class': 'l' }, label)
-  ]);
-}
-function phaseKind(phase) {
-  if (phase === 'completed' || phase === 'applied' || phase === 'restored') return 'g';
-  if (phase === 'failed' || phase === 'infrastructure-error' || phase === 'timed-out' || phase === 'timeout') return 'r';
-  return 'o';
-}
-function activePhase(phase) {
-  return TERMINAL_PHASES.indexOf(String(phase || '')) < 0;
-}
-function corpusContract(capabilities) {
-  var root = object(capabilities).orchestrationCorpus;
-  var corpus = object(root).domainCorpus;
-  return corpus && corpus.ok === true && Number(corpus.count) === 61 ? corpus : null;
-}
-function rankMap(run) {
-  var map = {};
-  asArray(run && run.rankedResults).forEach(function (row) {
-    var id = candidateId(row);
-    if (id !== null) map[id] = row;
-  });
-  return map;
-}
-function candidateUnion(preview, run) {
-  var output = [], seen = {};
-  candidates(preview).forEach(function (candidate) {
-    var id = candidateId(candidate);
-    if (id === null || seen[id]) return;
-    seen[id] = true;
-    output.push(candidate);
-  });
-  asArray(run && run.rankedResults).forEach(function (ranking) {
-    var id = candidateId(ranking);
-    if (id === null || seen[id]) return;
-    seen[id] = true;
-    output.push({
-      candidateId: id,
-      name: ranking.name,
-      displayName: ranking.name,
-      description: ranking.reason,
-      source: ranking.source,
-      corpusOnly: true,
-      applicable: false
-    });
-  });
-  return output;
-}
-function selectedId(ctx, list, preview) {
-  var pending = ctx.store.get().pending && ctx.store.get().pending.pendingStrategyId;
-  var activeItem = active(preview);
-  var applied = activeItem && (activeItem.candidateId || activeItem.managerId);
-  if (pending !== null && pending !== undefined) return String(pending);
-  if (applied !== null && applied !== undefined) return String(applied);
-  for (var i = 0; i < list.length; i++) if (candidateApplicable(list[i])) return candidateId(list[i]);
-  return null;
-}
-function select(ctx, id, candidate) {
-  if (!candidateApplicable(candidate)) return;
-  var snapshot = ctx.store.get();
-  ctx.store.update({ pending: Object.assign({}, snapshot.pending, { pendingStrategyId: id }) });
-  var activeItem = active(ctx.data && ctx.data.preview && ctx.data.preview.value || {});
-  var appliedId = activeItem && (activeItem.candidateId || activeItem.managerId) || null;
-  setStrategyDraft(ctx, {
-    candidateId: id,
-    appliedCandidateId: appliedId,
-    applicable: true,
-    blocker: null,
-    changes: Object.assign({}, currentStrategyDraft(ctx).changes || {}, {
-      candidateId: { label: _('Стратегия'), before: appliedId, after: id }
-    })
-  });
-}
-
-function issueRows(value, shell) {
-  var issues = [];
-  asArray(value && value.errors).forEach(function (item) { issues.push({ level: 'error', item: item }); });
-  asArray(value && value.warnings).forEach(function (item) { issues.push({ level: 'warning', item: item }); });
-  asArray(value && value.issues).forEach(function (item) { issues.push({ level: item.level || item.severity || 'warning', item: item }); });
-  asArray(value && value.checks).forEach(function (item) {
-    if (item && item.ok === false) issues.push({ level: 'error', item: item });
-    else if (item && (item.ok === true || item.status)) issues.push({ level: 'ok', item: item });
-  });
-  if (!issues.length && value && value.ok === true)
-    return shell.statePanel({ message: _('Backend preflight завершён без блокирующей ошибки.'), kind: 'success' });
-  if (!issues.length) return null;
-  return E('div', {}, issues.map(function (entry) {
-    var item = object(entry.item);
-    var level = String(entry.level || '').toLowerCase();
-    var kind = level === 'error' || level === 'fatal' || level === 'failed' ? 'r' :
-      level === 'ok' || level === 'passed' ? 'g' : 'o';
-    var name = shell.format.text(item.name || item.field || item.code);
-    var message = shell.format.text(item.message || item.detail || item.reason || item.status);
-    if (name === null && message === null) return null;
-    return E('div', { 'class': 'z2m-svcrow z2m-single-row' }, compact([
-      E('div', {}, compact([
-        name !== null ? E('div', { 'class': 'nm' }, name) : null,
-        message !== null ? E('div', { 'class': 'co' }, message) : null
-      ])),
-      shell.chip(kind === 'r' ? _('ошибка') : kind === 'g' ? _('готово') : _('внимание'), kind)
-    ]));
-  }).filter(Boolean));
-}
-function environmentRows(data, shell) {
-  var status = object(data.status && data.status.value);
-  var capabilities = object(data.capabilities && data.capabilities.value);
-  var preflight = object(state.preflight || data.preflight && data.preflight.value);
-  var rows = [];
-  function pushRow(label, value, good) {
-    var text = shell.format.text(value);
-    if (text === null) return;
-    rows.push(E('div', { 'class': 'z2m-svcrow z2m-env-row' }, [
-      E('div', {}, [E('div', { 'class': 'nm' }, label), E('div', { 'class': 'co' }, text)]),
-      good === null || good === undefined ? null : shell.chip(good ? _('готово') : _('проверить'), good ? 'g' : 'o')
-    ]));
-  }
-  var serviceState = status.serviceState || status.state;
-  pushRow(_('Служба zapret2'), serviceState, serviceState === 'running');
-  if (preflight.native) pushRow(_('Native validation'), preflight.native.status || preflight.native.ok, preflight.native.ok === true || preflight.native.status === 'passed');
-  if (preflight.requiredFiles) pushRow(_('Файлы и блобы'), preflight.requiredFiles.status || preflight.requiredFiles.ok, preflight.requiredFiles.ok === true);
-  var corpus = corpusContract(capabilities);
-  if (corpus) pushRow(_('Corpus'), corpus.count + ' · ' + corpus.version, true);
-  return rows.length ? E('div', {}, rows) : null;
-}
-
 function render(ctx) {
-  var shell = ctx.shell;
-  var format = shell.format;
   var data = ctx.data || {};
-  var preview = object(data.preview && data.preview.value);
-  var history = object(data.history && data.history.value);
-  var capabilities = object(data.capabilities && data.capabilities.value);
-  var profileData = object(data.profiles && data.profiles.value);
-  var runEnvelope = object(data.run && data.run.value);
-  var run = object(runEnvelope.run);
-  var corpus = corpusContract(capabilities);
-  var list = candidateUnion(preview, run);
-  var rankings = rankMap(run);
-  var appliedItem = active(preview);
-  var appliedId = candidateId(appliedItem);
-  var pendingId = selectedId(ctx, list, preview);
-  var selected = strategyCandidate(preview, pendingId);
+  var current = selectedStrategy(data);
   var advanced = !!(ctx.store.get().ui && ctx.store.get().ui.advanced);
-  if (!advanced && (state.subtab === 'chain' || state.subtab === 'check')) state.subtab = 'list';
-  if (run.runId && activePhase(run.phase)) state.runId = run.runId;
-
-  function showError(error) {
-    var normalized = ctx.api.normalizeError(error);
-    shell.showToast(normalized && normalized.message, 'err');
-  }
-  function reload() { return ctx.refresh('strategy'); }
-  function stageCandidate(candidate) {
-    var id = candidateId(candidate);
-    if (id === null || !candidateApplicable(candidate)) return;
-    if (id === appliedId) {
-      var current = ctx.store.get();
-      var nextPending = Object.assign({}, current.pending);
-      delete nextPending.pendingStrategyId;
-      ctx.store.update({ pending: nextPending });
-      clearStrategyDraftField(ctx, 'candidateId');
-    } else {
-      select(ctx, id, candidate);
-    }
-    if (ctx.rerender) ctx.rerender();
-    else reload();
-  }
-  function openApply() {
-    if (ctx.openSemanticDiff) ctx.openSemanticDiff();
-  }
-
-  var pageWarnings = [];
-  Object.keys(data).forEach(function (key) {
-    if (!data[key] || !data[key].error || key === 'run' && missingRunError(data[key].error)) return;
-    var message = format.text(data[key].error.message);
-    if (message !== null) pageWarnings.push(shell.statePanel({ title: _('Ошибка backend'), message: message, kind: 'error' }));
-  });
-
-  var runHost = E('div', { id: 'z2m-strategy-run', 'aria-live': 'polite' });
-  function rankingTable(currentRun) {
-    var rows = asArray(currentRun.rankedResults).map(function (ranking) {
-      var name = format.text(ranking.name || ranking.candidateId);
-      if (name === null) return null;
-      var availability = ranking.successCount !== null && ranking.successCount !== undefined && ranking.targetCount
-        ? ranking.successCount + ' / ' + ranking.targetCount : null;
-      var latency = ranking.medianDurationMs !== null && ranking.medianDurationMs !== undefined
-        ? format.decimal(ranking.medianDurationMs, 0) + ' мс' : null;
-      return E('tr', {}, compact([
-        E('td', { 'class': 'z2m-num' }, ranking.rank !== null && ranking.rank !== undefined ? String(ranking.rank) : ''),
-        E('td', {}, name),
-        availability !== null ? E('td', { 'class': 'z2m-num' }, availability) : null,
-        latency !== null ? E('td', { 'class': 'z2m-num' }, latency) : null,
-        format.text(ranking.verdict) !== null ? E('td', {}, shell.chip(ranking.verdict, ranking.verdict === 'complete' ? 'g' : ranking.verdict === 'failed' ? 'r' : 'o')) : null
-      ]));
-    }).filter(Boolean);
-    if (!rows.length) return null;
-    return E('div', { 'class': 'z2m-table-wrap' }, E('table', { 'class': 't z2m-ranking-table' }, [
-      E('thead', {}, E('tr', {}, [
-        E('th', {}, '#'), E('th', {}, _('Стратегия')), E('th', {}, _('Доступность')),
-        E('th', {}, _('Задержка')), E('th', {}, _('Вердикт'))
-      ])),
-      E('tbody', {}, rows)
-    ]));
-  }
-  function renderRun(currentRun) {
-    runHost.replaceChildren();
-    if (!currentRun || !currentRun.runId) return;
-    var phase = format.text(currentRun.phase);
-    var completed = currentRun.completedCount !== null && currentRun.completedCount !== undefined ? Number(currentRun.completedCount) : null;
-    var total = currentRun.totalCount !== null && currentRun.totalCount !== undefined ? Number(currentRun.totalCount) : null;
-    var progress = total && completed !== null ? Math.max(0, Math.min(100, completed / total * 100)) : null;
-    var winner = object(currentRun.selectedWinner || currentRun.corpusResult && currentRun.corpusResult.winner);
-    var actions = [];
-    if (phase === 'paused') actions.push(shell.button(_('Продолжить'), 'primary sm', function () {
-      ctx.api.orchestra.runResume().then(reload).catch(showError);
-    }));
-    else if (phase !== null && activePhase(phase)) actions.push(shell.button(_('Пауза'), 'sm', function () {
-      ctx.api.orchestra.runPause().then(reload).catch(showError);
-    }));
-    if (phase !== null && activePhase(phase)) actions.push(shell.button(_('Остановить'), 'danger sm', function () {
-      shell.openModal(_('Остановить проверку?'), E('p', {}, _('Текущая попытка будет завершена, уже собранные результаты останутся в журнале.')), [
-        shell.button(_('Отмена'), '', shell.closeModal),
-        shell.button(_('Остановить'), 'danger', function () {
-          ctx.api.orchestra.runStop().then(function () { shell.closeModal(); return reload(); }).catch(showError);
-        })
-      ]);
-    }));
-    var kpis = compact([
-      completed !== null && total !== null ? metric(shell, completed + ' / ' + total, _('попыток'), true) : null,
-      currentRun.targetCount !== null && currentRun.targetCount !== undefined ? metric(shell, currentRun.targetCount, _('доменов')) : null,
-      currentRun.totalCandidates !== null && currentRun.totalCandidates !== undefined ? metric(shell, currentRun.totalCandidates, _('стратегий')) : null,
-      winner.successCount !== null && winner.successCount !== undefined && winner.targetCount
-        ? metric(shell, winner.successCount + ' / ' + winner.targetCount, _('лучший результат')) : null
-    ]);
-    var current = compact([
-      format.text(currentRun.currentCandidate),
-      format.text(currentRun.currentDomain)
-    ]).join(' · ');
-    var body = [];
-    if (kpis.length) body.push(E('div', { 'class': 'z2m-kpis' }, kpis));
-    if (progress !== null) body.push(E('div', {
-      'class': 'z2m-bar z2m-corpus-progress', role: 'progressbar',
-      'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(Math.round(progress))
-    }, E('i', { 'class': progress >= 100 ? 'g' : '', style: 'width:' + progress + '%' })));
-    if (current) body.push(E('div', { 'class': 'z2m-dim z2m-current-attempt' }, current));
-    var table = rankingTable(currentRun);
-    if (table) body.push(table);
-    if (winner.failedDomains && winner.failedDomains.length) body.push(E('div', { 'class': 'z2m-overview-failures' }, winner.failedDomains.map(function (domain) {
-      return shell.chip(domain, 'r');
-    }).filter(Boolean)));
-    runHost.appendChild(shell.panel(
-      currentRun.targetType === 'corpus' ? _('Проверка всех стратегий по 61 домену') : _('Проверка стратегии'),
-      E('div', {}, body),
-      phase,
-      actions.length ? E('div', { 'class': 'z2m-btnrow' }, actions) : null
-    ));
-  }
-  renderRun(run);
-
-  function poll() {
-    if (!state.runId) return;
-    edit(ctx.api.orchestra.runStatus, { runId: state.runId }).then(function (answer) {
-      var currentRun = answer && answer.run;
-      if (!currentRun) throw answer || new Error('run status unavailable');
-      renderRun(currentRun);
-      if (activePhase(currentRun.phase)) state.timer = window.setTimeout(poll, 1800);
-      else {
-        state.timer = null;
-        state.runId = null;
-        reload();
-      }
-    }).catch(function (error) {
-      if (state.timer) window.clearTimeout(state.timer);
-      state.timer = null;
-      state.runId = null;
-      if (missingRunError(error)) {
-        shell.showToast(_('Запуск больше не найден. Активное состояние очищено.'), 'warn');
-        reload();
-      } else showError(error);
-    });
-  }
-  function startCorpus() {
-    if (!corpus || state.busy || state.runId) return;
-    state.busy = true;
-    edit(ctx.api.orchestra.runStart, {
-      targetType: 'corpus',
-      candidateMode: 'all',
-      candidateIds: [],
-      protocols: ['tcp_https'],
-      repeats: 1,
-      perAttemptTimeoutSec: 15,
-      totalTimeoutSec: 600
-    }).then(function (answer) {
-      if (!answer || answer.ok !== true || !answer.run || !answer.run.runId)
-        throw answer || new Error('corpus run start failed');
-      if (Number(answer.run.targetCount) === 0 || Number(answer.run.candidateCount || answer.run.totalCandidates) === 0)
-        throw {
-          code: 'empty-run',
-          message: _('Backend не получил целей или применимых стратегий для запуска.'),
-          detail: 'corpus run start failed: 0 targets or candidates'
-        };
-      state.runId = answer.run.runId;
-      state.busy = false;
-      renderRun(answer.run);
-      poll();
-    }).catch(function (error) {
-      state.busy = false;
-      showError(error);
-    });
-  }
-
-  var sortSelect = E('select', { 'aria-label': _('Сортировка стратегий') }, [
-    E('option', { value: 'ok', selected: state.sort === 'ok' ? 'selected' : null }, _('По доступности')),
-    E('option', { value: 'ms', selected: state.sort === 'ms' ? 'selected' : null }, _('По задержке')),
-    E('option', { value: 'name', selected: state.sort === 'name' ? 'selected' : null }, _('По имени'))
-  ]);
-  sortSelect.value = state.sort;
-  var listHost = E('div', { id: 'z2m-strategy-list' });
-  function renderCandidates() {
-    var ordered = list.slice();
-    ordered.sort(function (left, right) {
-      var leftId = candidateId(left), rightId = candidateId(right);
-      var a = rankings[leftId] || {}, b = rankings[rightId] || {};
-      if (state.sort === 'name') return String(candidateName(left, format) || '').localeCompare(String(candidateName(right, format) || ''), 'ru');
-      if (state.sort === 'ms') {
-        var am = a.medianDurationMs === null || a.medianDurationMs === undefined ? Number.MAX_SAFE_INTEGER : Number(a.medianDurationMs);
-        var bm = b.medianDurationMs === null || b.medianDurationMs === undefined ? Number.MAX_SAFE_INTEGER : Number(b.medianDurationMs);
-        return am - bm || String(leftId).localeCompare(String(rightId));
-      }
-      var ao = a.successCount === null || a.successCount === undefined ? -1 : Number(a.successCount);
-      var bo = b.successCount === null || b.successCount === undefined ? -1 : Number(b.successCount);
-      return bo - ao || String(leftId).localeCompare(String(rightId));
-    });
-    listHost.replaceChildren();
-    ordered.forEach(function (candidate) {
-      var id = candidateId(candidate);
-      var name = candidateName(candidate, format);
-      if (id === null || name === null) return;
-      var ranking = rankings[id] || {};
-      var isApplied = id === appliedId;
-      var isPending = id === pendingId && !isApplied;
-      var description = format.text(candidate.description || ranking.reason);
-      var argv = format.text(candidate.argv || candidate.opt || candidate.parameters);
-      var tags = compact([
-        isApplied ? shell.chip(_('применена'), 'g') : null,
-        isPending ? shell.chip(_('в черновике'), 'o') : null,
-        !isApplied && !isPending && format.text(candidate.tag) !== null ? shell.chip(candidate.tag, 'b') : null
-      ]);
-      var availability = ranking.successCount !== null && ranking.successCount !== undefined && ranking.targetCount
-        ? ranking.successCount + ' / ' + ranking.targetCount : null;
-      var percent = ranking.successCount !== null && ranking.successCount !== undefined && ranking.targetCount
-        ? Math.max(0, Math.min(100, Number(ranking.successCount) / Number(ranking.targetCount) * 100)) : null;
-      var latency = ranking.medianDurationMs !== null && ranking.medianDurationMs !== undefined
-        ? format.decimal(ranking.medianDurationMs, 0) + ' мс' : null;
-      var action = isApplied ? shell.chip(_('активна'), 'g') :
-        isPending ? shell.chip(_('выбрана'), 'o') :
-        candidateApplicable(candidate) ? E('span', { 'class': 'z2m-btn sm' }, _('Выбрать')) : shell.chip(_('нельзя применить'), 'r');
-      var row = E(candidateApplicable(candidate) ? 'button' : 'div', {
-        type: candidateApplicable(candidate) ? 'button' : null,
-        'class': 'z2m-srow' + (isApplied || isPending ? ' sel' : '') + (!candidateApplicable(candidate) ? ' z2m-readonly-row' : ''),
-        'data-strategy': id,
-        'aria-pressed': candidateApplicable(candidate) ? (isPending ? 'true' : 'false') : null
-      }, [
-        E('div', {}, compact([
-          E('div', { 'class': 'nm' }, [name].concat(tags)),
-          description !== null ? E('div', { 'class': 'ds' }, description) : null,
-          argv !== null ? E('div', { 'class': 'z2m-tech' }, argv) : null
-        ])),
-        E('div', {}, compact([
-          availability !== null ? E('div', { 'class': 'z2m-num z2m-availability' }, availability) : null,
-          percent !== null ? E('div', { 'class': 'z2m-bar' }, E('i', {
-            'class': percent >= 88 ? 'g' : percent >= 65 ? 'o' : 'r', style: 'width:' + percent + '%'
-          })) : null
-        ])),
-        latency !== null ? E('div', { 'class': 'z2m-num' }, latency) : E('div'),
-        E('div', { 'class': 'z2m-strategy-action' }, action)
-      ]);
-      if (candidateApplicable(candidate)) row.addEventListener('click', function () { stageCandidate(candidate); });
-      listHost.appendChild(row);
-    });
-    if (!listHost.children.length && data.preview && data.preview.value)
-      listHost.appendChild(shell.statePanel({ message: _('Backend-каталог стратегий пуст.'), kind: 'info' }));
-  }
-  sortSelect.addEventListener('change', function () {
-    state.sort = sortSelect.value;
-    renderCandidates();
-  });
-  renderCandidates();
-
-  var profilesState = profilesWorkflow.createState();
-  var profilesPaneHost = null;
-  var profileAcknowledgement = null;
-  var profileApplyButton = null;
-  var profilePreviewButton = null;
-  function invalidateProfilePreview() {
-    profilesWorkflow.invalidate(profilesState);
-    if (profileAcknowledgement) profileAcknowledgement.checked = false;
-  }
-  function setProfilesBusy(value) {
-    profilesState.busy = value;
-    if (!profilesPaneHost) return;
-    Array.prototype.forEach.call(profilesPaneHost.querySelectorAll('button, input, textarea, select'), function (control) {
-      control.disabled = profilesState.busy || control.getAttribute('data-blocked') === 'true';
-    });
-    if (!profilesState.busy) {
-      if (profilePreviewButton) profilePreviewButton.disabled = profilePreviewButton.getAttribute('data-blocked') === 'true';
-      if (profileApplyButton)
-        profileApplyButton.disabled = !profilesState.preview || profilesState.preview.ok !== true || profilesState.preview.wouldApply !== true || !profilesState.replaceFullSet;
-      if (profileAcknowledgement)
-        profileAcknowledgement.disabled = !profilesState.preview || profilesState.preview.ok !== true || profilesState.preview.wouldApply !== true;
-    }
-  }
-  function profileMutationSucceeded() {
-    invalidateProfilePreview();
-    return reload();
-  }
-  function markProfileDraft() {
-    setStrategyDraft(ctx, {
-      profiles: true,
-      changes: Object.assign({}, currentStrategyDraft(ctx).changes || {}, {
-        profiles: { label: _('Профили'), before: false, after: true }
-      })
-    });
-  }
-  function openProfileEditor(profile) {
-    if (profilesState.busy) return;
-    var creating = !profile;
-    var nameInput = E('input', { type: 'text', placeholder: _('Название профиля') });
-    var optArea = E('textarea', { rows: '8', 'class': 'z2m-mono', placeholder: '--filter-tcp=443\n--lua-desync=...' });
-    var currentName = profileName(profile, format);
-    var currentOpt = profileOpt(profile, format);
-    if (currentName !== null) nameInput.value = currentName;
-    if (currentOpt !== null) optArea.value = currentOpt;
-    var result = E('div', { 'class': 'z2m-profile-validation', 'aria-live': 'polite' });
-    function validateEditor() {
-      edit(ctx.api.profiles.validate, { opt: String(optArea.value || '') }).then(function (answer) {
-        var rows = issueRows(answer || {}, shell);
-        result.replaceChildren();
-        if (rows) result.appendChild(rows);
-      }).catch(showError);
-    }
-    function saveEditor() {
-      if (profilesState.busy) return;
-      var payload = { name: String(nameInput.value || '').trim(), opt: String(optArea.value || '') };
-      if (!payload.name || !payload.opt.trim()) {
-        shell.showToast(_('Укажите название и параметры профиля.'), 'err');
-        return;
-      }
-      runProfileMutation(function () {
-        if (creating) return edit(ctx.api.profiles.create, payload);
-        payload.id = profile.id;
-        payload.revision = profile.revision;
-        return edit(ctx.api.profiles.update, payload);
-      }).then(function () {
-        shell.closeModal();
-      }).catch(showError);
-    }
-    shell.openModal(creating ? _('Новый профиль') : _('Изменить профиль'), E('div', { 'class': 'z2m-cbi' }, [
-      E('label', {}, _('Название')), E('div', {}, nameInput),
-      E('label', {}, _('Параметры')), E('div', {}, optArea),
-      E('div'), result
-    ]), [
-      shell.button(_('Отмена'), '', shell.closeModal),
-      shell.button(_('Проверить'), '', validateEditor),
-      shell.button(creating ? _('Создать черновик') : _('Сохранить в черновик'), 'primary', saveEditor)
-    ]);
-  }
-  function cloneProfile(profile) {
-    if (profilesState.busy) return;
-    runProfileMutation(function () { return edit(ctx.api.profiles.clone, { id: profile.id }); }).catch(showError);
-  }
-  function deleteProfile(profile) {
-    if (profilesState.busy) return;
-    shell.openModal(_('Удалить профиль?'), E('p', {}, profileName(profile, format) || ''), [
-      shell.button(_('Отмена'), '', shell.closeModal),
-      shell.button(_('Удалить'), 'danger', function () {
-        if (profilesState.busy) return;
-        runProfileMutation(function () { return edit(ctx.api.profiles.delete, { id: profile.id, revision: profile.revision }); }).then(function () {
-          shell.closeModal();
-        }).catch(showError);
-      })
-    ]);
-  }
-  function importApplied() {
-    if (profilesState.busy) return;
-    runProfileMutation(function () { return ctx.api.profiles.importApplied(); }).catch(showError);
-  }
-  function runProfileMutation(request) {
-    var mutation = profilesWorkflow.runMutation(profilesState, request);
-    setProfilesBusy(profilesState.busy);
-    return mutation.then(function (answer) {
-      setProfilesBusy(false);
-      return profileMutationSucceeded().then(function () { return answer; });
-    }, function (error) {
-      setProfilesBusy(false);
-      throw error;
-    });
-  }
-  function reorderProfiles(movedId, offset) {
-    return profilesWorkflow.buildReorderRequest(ctx.api.profiles.list, movedId, offset).then(function (request) {
-      return edit(ctx.api.profiles.reorder, request);
-    });
-  }
-  function previewProfiles() {
-    return edit(ctx.api.profiles.apply, { mode: 'preview' });
-  }
-  function applyProfiles() {
-    return profilesWorkflow.applyAndReread(
-      function () { return edit(ctx.api.profiles.apply, { mode: 'apply' }); },
-      function () { return createAdapter(ctx.api).reloadAppliedState(); },
-      ctx.api.service.status
-    );
-  }
-  function boundedProfileFailure(error) {
-    var normalized = ctx.api.normalizeError(error);
-    return String(normalized && normalized.message || _('Операция профилей завершилась ошибкой.')).slice(0, 320);
-  }
-  function renderProfilesPane(currentProfileData) {
-    var drafts = draftProfiles(currentProfileData);
-    var applied = appliedProfiles(currentProfileData);
-    var shown = drafts.length ? drafts : applied;
-    var globalRows = [];
-    function addGlobal(label, value) {
-      var text = format.text(value);
-      if (text === null) return;
-      globalRows.push(E('div', { 'class': 'z2m-svcrow z2m-single-row' }, E('div', {}, [
-        E('div', { 'class': 'nm' }, label), E('div', { 'class': 'co' }, text)
-      ])));
-    }
-    addGlobal(_('Parse status'), currentProfileData.parseStatus);
-    addGlobal(_('Applied revision'), currentProfileData.appliedRevision !== undefined ? currentProfileData.appliedRevision : currentProfileData.revision);
-    addGlobal(_('Round-trip'), currentProfileData.roundtrip && (currentProfileData.roundtrip.preserve || currentProfileData.roundtrip.status));
-    addGlobal(_('Источник'), object(currentProfileData.global || currentProfileData.globals || currentProfileData.applied).source || currentProfileData.source);
-
-    var profileHost = E('div', { 'class': 'z2m-profile-chain' });
-    var workflowHost = E('div', { 'class': 'z2m-profile-workflow', 'aria-live': 'polite' });
-    function renderBackendResult(title, answer, reads) {
-      var value = object(answer);
-      var diff = object(value.diff);
-      var native = object(value.native);
-      var verification = object(value.verification || value.verify);
-      var rollback = object(value.rollback);
-      var manualRecovery = object(value.manualRecovery);
-      var rows = [];
-      function add(label, item) {
-        var text = format.text(item);
-        if (text === null) return;
-        rows.push(E('div', { 'class': 'z2m-svcrow z2m-single-row' }, E('div', {}, [
-          E('div', { 'class': 'nm' }, label), E('div', { 'class': 'co' }, text)
-        ])));
-      }
-      add(_('Профилей в черновике'), value.draftCount);
-      add(_('Backend candidate'), value.candidate);
-      add(_('Текущий SHA-256'), diff.currentSha256);
-      add(_('Candidate SHA-256'), diff.candidateSha256);
-      add(_('Текущая длина'), diff.currentLength);
-      add(_('Candidate длина'), diff.candidateLength);
-      add(_('Native preflight'), native.status);
-      add(_('Будет применено'), value.wouldApply);
-      add(_('Причина отказа'), value.refuseReason);
-      add(_('Проверка runtime'), verification.status || verification.ok);
-      add(_('Rollback'), rollback.status || rollback.ok || value.rollbackOk || value.rolledBack);
-      add(_('Ручное восстановление'), manualRecovery.message || manualRecovery.required || value.critical);
-      add(_('Сообщение backend'), value.message || value.detail);
-      if (reads) {
-        add(_('Фактический applied revision'), reads.applied && reads.applied.revision);
-        add(_('Фактический статус'), reads.status && (reads.status.serviceState || reads.status.state));
-      }
-      workflowHost.replaceChildren(shell.panel(title, rows.length ? E('div', {}, rows) :
-        shell.statePanel({ message: _('Backend не вернул отображаемых деталей.'), kind: 'info' }),
-        value.ok === true ? _('ответ backend') : _('операция заблокирована')));
-    }
-    function moveProfile(index, offset) {
-      if (profilesState.busy) return;
-      runProfileMutation(function () { return reorderProfiles(drafts[index].id, offset); }).catch(showError);
-    }
-    function renderDraftProfile(profile, index) {
-      var name = profileName(profile, format);
-      var opt = profileOpt(profile, format);
-      if (name === null && opt === null) return null;
-      var validation = E('div', { 'class': 'z2m-profile-validation', 'aria-live': 'polite' });
-      var actions = drafts.length ? [
-        shell.button(_('Вверх'), 'sm', function () { moveProfile(index, -1); }, index === 0),
-        shell.button(_('Вниз'), 'sm', function () { moveProfile(index, 1); }, index === drafts.length - 1),
-        shell.button(_('Проверить'), 'sm', function () {
-          edit(ctx.api.profiles.validate, { id: profile.id }).then(function (answer) {
-            var rows = issueRows(answer || {}, shell);
-            validation.replaceChildren();
-            if (rows) validation.appendChild(rows);
-          }).catch(showError);
-        }),
-        shell.button(_('Изменить'), 'sm', function () { openProfileEditor(profile); }),
-        shell.button(_('Клонировать'), 'sm', function () { cloneProfile(profile); }),
-        shell.button(_('Удалить'), 'danger sm', function () { deleteProfile(profile); })
-      ] : [];
-      if (actions[0] && index === 0) actions[0].setAttribute('data-blocked', 'true');
-      if (actions[1] && index === drafts.length - 1) actions[1].setAttribute('data-blocked', 'true');
-      return E('div', { 'class': 'z2m-profile-row' }, [
-        E('div', { 'class': 'z2m-profile-order' }, String(index + 1)),
-        E('div', { 'class': 'z2m-profile-main' }, compact([
-          name !== null ? E('div', { 'class': 'nm' }, [name, drafts.length ? shell.chip(_('черновик'), 'o') : shell.chip(_('применён'), 'g')]) : null,
-          opt !== null ? E('div', { 'class': 'co' }, opt) : null,
-          validation
-        ])),
-        E('div', { 'class': 'z2m-profile-actions' }, actions)
-      ]);
-    }
-    shown.forEach(function (profile, index) {
-      var row = renderDraftProfile(profile, index);
-      if (row) profileHost.appendChild(row);
-    });
-    profileAcknowledgement = E('input', { type: 'checkbox', id: 'replace-full-set', disabled: 'disabled' });
-    profileAcknowledgement.addEventListener('change', function () {
-      profilesState.replaceFullSet = profileAcknowledgement.checked === true;
-      setProfilesBusy(profilesState.busy);
-    });
-    profilePreviewButton = shell.button(_('Предпросмотр полного набора'), 'sm', function () {
-      if (profilesState.busy) return;
-      invalidateProfilePreview();
-      setProfilesBusy(true);
-      previewProfiles().then(function (answer) {
-        profilesState.preview = answer || {};
-        renderBackendResult(_('Backend preview'), profilesState.preview);
-        if (!answer || answer.ok !== true)
-          shell.showToast(boundedProfileFailure(answer), 'err');
-        setProfilesBusy(false);
-      }).catch(function (error) {
-        setProfilesBusy(false);
-        showError(error);
-      });
-    }, !drafts.length);
-    if (!drafts.length) profilePreviewButton.setAttribute('data-blocked', 'true');
-    profileApplyButton = shell.button(_('Применить полный набор'), 'primary sm', function () {
-      if (profilesState.busy || !profilesState.preview || profilesState.preview.ok !== true || profilesState.preview.wouldApply !== true || !profilesState.replaceFullSet) return;
-      setProfilesBusy(true);
-      applyProfiles().then(function (result) {
-        var expected = result.answer && result.answer.applied;
-        result.actualVerification = expected ? profilesWorkflow.verifyAppliedResult(expected, result) : { ok: false };
-        renderBackendResult(_('Результат применения'), result.answer, result);
-        if (result.rejected || !result.answer || result.answer.ok !== true || result.actualVerification.ok !== true)
-          shell.showToast(boundedProfileFailure(result.answer), 'err');
-        if (result.appliedError) shell.showToast(boundedProfileFailure(result.appliedError), 'err');
-        if (result.statusError) shell.showToast(boundedProfileFailure(result.statusError), 'err');
-        return reload().catch(function (error) {
-          setProfilesBusy(false);
-          shell.showToast(boundedProfileFailure(error), 'err');
-        });
-      });
-    }, true);
-    profilesPaneHost = E('div', { 'class': 'z2m-profiles-pane' }, compact([
-      globalRows.length ? shell.panel(_('Глобальная часть'), E('div', {}, globalRows), _('действует на всю команду, до первого --new')) : null,
-      shell.panel(_('Профили'), E('div', {}, [
-        shell.statePanel({ message: _('Редактор хранит расширенные совместимые фрагменты nfqws2. Это не каноническая модель Strategy.'), kind: 'info' }),
-        E('div', { 'class': 'z2m-btnrow z2m-profile-toolbar' }, [
-          shell.button(_('Новый профиль'), 'primary sm', function () { openProfileEditor(null); }, profilesState.busy),
-          shell.button(_('Импортировать применённые'), 'sm', importApplied, profilesState.busy),
-          profilePreviewButton
-        ]),
-        profileHost
-      ]), shown.length ? shown.length + _(' блоков через --new · порядок важен') : null),
-      drafts.length ? shell.panel(_('Применение профилей'), E('div', {}, [
-        E('label', { 'for': 'replace-full-set', 'class': 'z2m-profile-ack' }, [
-          profileAcknowledgement,
-          E('span', {}, _('Я понимаю: применение заменит весь упорядоченный набор применённых профилей.'))
-        ]),
-        E('div', { 'class': 'z2m-btnrow' }, [profileApplyButton])
-      ]), _('Сначала получите актуальный backend preview.')) : null,
-      workflowHost
-    ]));
-    setProfilesBusy(false);
-    return profilesPaneHost;
-  }
-  function renderCheckPane() {
-    var preflight = object(state.preflight || data.preflight && data.preflight.value);
-    var checksHost = E('div', { id: 'z2m-preflight-checks', 'aria-live': 'polite' });
-    var initial = issueRows(preflight, shell);
-    if (initial) checksHost.appendChild(initial);
-    function rerun() {
-      ctx.api.orchestra.probePreflight().then(function (answer) {
-        state.preflight = answer || {};
-        var rows = issueRows(state.preflight, shell);
-        checksHost.replaceChildren();
-        if (rows) checksHost.appendChild(rows);
-      }).catch(showError);
-    }
-    var environment = environmentRows(data, shell);
-    return E('div', {}, compact([
-      shell.panel(_('Проверка конфига'), checksHost, _('ловит случаи «зелёно, а не работает»'), shell.button(_('Проверить сейчас'), 'primary sm', rerun)),
-      environment ? shell.panel(_('Среда'), environment, _('от этого зависят половина приёмов')) : null
-    ]));
-  }
-  function renderHistoryPane() {
-    var rows = asArray(history.runs).map(function (item) {
-      var time = format.timestamp(item.appliedAt || item.finishedAt || item.updatedAt || item.startedAt);
-      var name = format.text(item.winnerName || item.winnerCandidateId || item.candidateId);
-      var source = format.text(item.source || item.trigger || item.mode || item.targetType);
-      var phase = format.text(item.phase || item.status);
-      if (time === null && name === null && source === null && phase === null) return null;
-      return E('tr', {}, [
-        E('td', { 'class': 'z2m-dim' }, time || ''),
-        E('td', {}, name || ''),
-        E('td', { 'class': 'z2m-dim' }, source || ''),
-        E('td', {}, phase !== null ? shell.chip(phase, phaseKind(phase)) : null),
-        E('td')
-      ]);
-    }).filter(Boolean);
-    if (!rows.length) return E('div');
-    return shell.panel(_('История применений'), E('div', { 'class': 'z2m-table-wrap' }, E('table', { 'class': 't' }, [
-      E('thead', {}, E('tr', {}, [_('Время'), _('Стратегия'), _('Источник'), _('Результат'), ''].map(function (label) { return E('th', {}, label); }))),
-      E('tbody', {}, rows)
-    ])));
-  }
-
-  var scanInfo = null;
-  if (run && run.targetType === 'corpus' && run.finishedAt) {
-    var finished = format.timestamp(run.finishedAt);
-    if (finished !== null) scanInfo = _('последний полный прогон ') + finished + ' · ' + (run.targetCount || 61) + _(' домен');
-  }
-  var listPane = E('div', { 'class': 'z2m-strategy-pane' }, compact([
-    corpus ? shell.panel(_('Corpus проверки'), E('div', { 'class': 'z2m-kpis' }, compact([
-      metric(shell, corpus.count, _('доменов'), true),
-      metric(shell, capabilities.orchestrationCorpus && capabilities.orchestrationCorpus.totalCandidates, _('применимых стратегий')),
-      format.text(corpus.version) !== null ? metric(shell, corpus.version, _('версия')) : null
-    ])), format.text(corpus.digest) !== null ? corpus.digest : null) : null,
-    runHost,
-    shell.panel(_('Доступные стратегии'), listHost, scanInfo, sortSelect)
-  ]));
-
+  if (!advanced && state.subtab === 'compatibility') state.subtab = 'list';
+  var paneHost = E('div', { id: 'z2m-strategy-pane' });
   var panes = {
-    list: listPane,
-    chain: renderProfilesPane(profileData),
-    check: renderCheckPane(),
-    hist: renderHistoryPane()
+    list: renderCatalog(ctx, data),
+    compatibility: advanced ? renderProfilesPane(ctx, data.profiles && data.profiles.value || {}) : E('div')
   };
-  var paneHost = E('div', { id: 'z2m-strategy-pane' }, panes[state.subtab]);
-  var subtabs = shell.subTabs([
-    { id: 'list', label: _('Стратегии') },
-    { id: 'chain', label: _('Цепочка профилей'), hidden: !advanced },
-    { id: 'check', label: _('Проверка конфига'), hidden: !advanced },
-    { id: 'hist', label: _('История') }
-  ], state.subtab, function (id) {
-    state.subtab = id;
-    paneHost.replaceChildren(panes[id]);
-  }, { id: 'z2m-strategy-subtabs', 'aria-label': _('Разделы стратегии') });
-
-  var headActions = [];
-  if (corpus) headActions.push(shell.button(_('Перепроверить все'), 'sm', startCorpus, state.busy || !!state.runId));
-  if (pendingId && pendingId !== appliedId)
-    headActions.push(shell.button(_('Применить'), 'primary sm', openApply, !candidateApplicable(selected)));
-
+  paneHost.appendChild(panes[state.subtab] || panes.list);
+  var tabs = ctx.shell.subTabs([
+    { id: 'list', label: _('Strategies') },
+    { id: 'compatibility', label: _('Advanced / Compatibility Profiles'), hidden: !advanced }
+  ], state.subtab, function (id) { state.subtab = id; paneHost.replaceChildren(panes[id] || panes.list); }, { id: 'z2m-strategy-subtabs', 'aria-label': _('Strategy sections') });
+  var active = activeIdentity(data.status && data.status.value);
+  var digest = catalogDigest(data.catalog && data.catalog.value);
   return E('section', { 'class': 'z2m-view on', id: 'z2m-view-strategy' }, compact([
-    E('div', { 'class': 'z2m-phead' }, [
-      E('div', {}, [E('h1', {}, _('Стратегия')), E('p', {}, _('Выбор и проверка способа обхода DPI. Выбор стратегии не меняет runtime до общего применения.'))]),
-      headActions.length ? E('div', { 'class': 'sp z2m-btnrow' }, headActions) : null
-    ]),
-    pageWarnings.length ? pageWarnings : null,
-    subtabs,
+    E('div', { 'class': 'z2m-phead' }, [E('div', {}, [E('h1', {}, _('Avatar Strategy')), E('p', {}, _('Canonical Strategy catalog and persisted runtime Apply.'))]), current && active.id && active.id !== current.id ? ctx.shell.chip(_('active differs'), 'o') : null]),
+    renderError(ctx, data),
+    digest ? E('div', { 'class': 'z2m-tech' }, 'catalog_digest=' + digest) : null,
+    tabs,
     paneHost
   ]));
 }
-
 function mount(ctx) {
-  var run = ctx && ctx.data && ctx.data.run && ctx.data.run.value && ctx.data.run.value.run;
-  if (run && run.runId && activePhase(run.phase)) {
-    state.runId = run.runId;
-    if (!state.timer) {
-      state.timer = window.setTimeout(function tick() {
-        edit(ctx.api.orchestra.runStatus, { runId: state.runId }).then(function (answer) {
-          var current = answer && answer.run;
-          if (!current || !activePhase(current.phase)) {
-            state.timer = null;
-            state.runId = null;
-            ctx.refresh('strategy');
-            return;
-          }
-          state.timer = window.setTimeout(tick, 1800);
-        }).catch(function (error) {
-          state.timer = null;
-          state.runId = null;
-          if (missingRunError(error)) {
-            ctx.shell.showToast(_('Запуск больше не найден. Активное состояние очищено.'), 'warn');
-            ctx.refresh('strategy');
-          }
-        });
-      }, 1800);
-    }
-  }
+  state.disposed = false;
+  if (state.timer) return;
+  state.timer = window.setTimeout(function poll() {
+    state.timer = null;
+    if (state.disposed) return;
+    refresh(ctx).then(function () { if (!state.disposed) mount(ctx); });
+  }, 5000);
 }
 function unmount() {
+  state.disposed = true;
   if (state.timer) window.clearTimeout(state.timer);
   state.timer = null;
 }
 
 return baseclass.extend({
   id: 'strategy',
-  title: _('Стратегия'),
-  subtitle: _('Выбор и проверка способа обхода DPI'),
+  title: _('Avatar Strategy'),
+  subtitle: _('Canonical Strategy catalog and persisted Apply'),
   load: load,
   render: render,
   mount: mount,

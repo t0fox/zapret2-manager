@@ -48,8 +48,8 @@ function render(ctx) {
 
 return baseclass.extend({
   id: Core.id || 'strategy',
-  title: Core.title || _('Стратегия'),
-  subtitle: Core.subtitle || _('Выбор и проверка способа обхода DPI'),
+  title: Core.title || _('Advanced Orchestra'),
+  subtitle: Core.subtitle || _('Advanced workflow for corpus runs and diagnostics'),
   load: function (ctx) { return Core.load(ctx); },
   render: render,
   mount: function (ctx) { if (Core.mount) Core.mount(ctx); },

@@ -476,7 +476,7 @@ function render(ctx) {
 
   return E('section', { 'class': 'z2m-view on', id: 'z2m-view-strategy' }, compact([
     E('div', { 'class': 'z2m-phead' }, [
-      E('div', {}, [E('h1', {}, _('Стратегия')), E('p', {}, _('Полный подбор стратегии по зафиксированному corpus из 61 домена'))]),
+      E('div', {}, [E('h1', {}, _('Advanced Orchestra')), E('p', {}, _('Расширенный workflow полного подбора по зафиксированному corpus из 61 домена'))]),
       E('div', { 'class': 'sp' }, headAction)
     ]),
     errors.length ? E('div', {}, errors) : null,
@@ -523,8 +523,8 @@ function createAdapter(api) {
 
 return baseclass.extend({
   id: 'strategy',
-  title: _('Стратегия'),
-  subtitle: _('Выбор и проверка способа обхода DPI'),
+  title: _('Advanced Orchestra'),
+  subtitle: _('Расширенный workflow полного подбора и диагностики'),
   load: load,
   render: render,
   mount: mount,

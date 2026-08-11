@@ -83,11 +83,16 @@ function verifyAppliedResult(expected, reads) {
     expectedProfiles: expected.profiles, actualProfiles: actualCount };
 }
 
+function compatibilityPane(current) {
+  return current === 'compatibility' ? 'compatibility' : 'list';
+}
+
 return baseclass.extend({
   createState: createState,
   invalidate: invalidate,
   runMutation: runMutation,
   buildReorderRequest: buildReorderRequest,
   applyAndReread: applyAndReread,
-  verifyAppliedResult: verifyAppliedResult
+  verifyAppliedResult: verifyAppliedResult,
+  compatibilityPane: compatibilityPane
 });
