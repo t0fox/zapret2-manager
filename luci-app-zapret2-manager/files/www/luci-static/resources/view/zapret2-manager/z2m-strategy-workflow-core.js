@@ -449,7 +449,8 @@ function render(ctx) {
       ? Strategy.renderCompatibility(ctx, data.profiles && data.profiles.value || {}) : E('div');
     return panes[id];
   }
-  if (!panes[state.tab]) state.tab = 'strategies';
+  if (['strategies', 'progress', 'diagnostics', 'journal', 'settings', 'compatibility'].indexOf(state.tab) < 0)
+    state.tab = 'strategies';
   var paneHost = E('div', { id: 'z2m-strategy-workflow-pane' }, pane(state.tab));
   var tabs = ctx.shell.subTabs([
     { id: 'strategies', label: _('Стратегии') },

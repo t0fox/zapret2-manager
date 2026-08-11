@@ -285,6 +285,25 @@ test('actual Advanced workflow reaches Compatibility through the existing Profil
   assert.ok(advancedCalls.editorButtons.includes('Новый профиль'));
 });
 
+test('selected Compatibility tab survives an Advanced workflow rerender', async () => {
+  const calls = Object.assign([], { editorButtons: [], profileRenderer: 0, strategyRenderer: 0, tabGroups: [] });
+  const advanced = loadRecursiveStrategyPage(calls).pageModule;
+  const context = recursivePageContext(true, calls);
+  const data = await advanced.load(context);
+
+  advanced.render({ ...context, data });
+  const firstTabs = calls.tabGroups.at(-1);
+  assert.equal(firstTabs.active, 'strategies');
+  firstTabs.onSelect('compatibility');
+  assert.equal(calls.tabGroups.length, 1);
+  assert.equal(calls.profileRenderer, 1);
+
+  advanced.render({ ...context, data });
+  const rerenderedTabs = calls.tabGroups.at(-1);
+  assert.equal(rerenderedTabs.active, 'compatibility');
+  assert.equal(calls.profileRenderer, 2);
+});
+
 test('Compatibility Apply is enabled only after acknowledged valid Preview and stays recoverable', () => {
   assert.match(profilesWorkflow, /function canApply\(/);
   assert.match(page, /profilesWorkflow\.canApply\(profilesState\)/);

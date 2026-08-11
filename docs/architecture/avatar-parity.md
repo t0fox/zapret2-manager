@@ -9,29 +9,26 @@ This audit compares user-visible behavior and domain models, not filenames or im
 
 | Status | Count |
 |---|---:|
-| PARITY | 0 |
-| PARTIAL | 36 |
-| MISSING | 30 |
-| DIVERGENT | 8 |
+| PARITY | 13 |
+| PARTIAL | 29 |
+| MISSING | 28 |
+| DIVERGENT | 2 |
 | INTENTIONAL_DEVIATION | 4 |
 | CONFLICT_REQUIRES_USER_DECISION | 3 |
 | LEGACY_DEAD | 2 |
-| **Product parity total** | **81** |
+| **Product parity total** | **79** |
 
 Two LEGACY_DEAD inventory rows are excluded from product-parity arithmetic.
 
 ## Top Product Parity Blockers
 
-1. Avatar Strategy owns ordered `profiles[]`; ours exposes Profiles first and separately models Orchestra candidates.
-2. Avatar strategy catalogs are not our service-domain catalog or Orchestra registry.
-3. Scanner and BlockCheck/BlockCheck2 are three distinct Avatar flows; ours does not preserve all three product models.
-4. Auto-remediation cannot reach parity until Scanner, DNS remediation and tunnel routing exist.
-5. Avatar unified routing requires destinations/selectors, primary method, ordered fallbacks, monitoring and failover; ours lacks that product model.
-6. Lua, blob and IP-set registries required by Strategies are absent.
-7. AWG, usque/MASQUE/WARP, sing-box, mihomo and Opera lifecycle products are absent.
-8. Avatar has 38 canonical SPA pages plus two legacy hash aliases; ours has seven canonical LuCI tabs plus one lists alias and several backend-only capabilities.
-9. Cross-flow identity is missing between catalog Strategy, scan result, applied Strategy and status.
-10. Several existing equivalents are safer internally but do not expose the complete Avatar user capability.
+1. Scanner and BlockCheck/BlockCheck2 are three distinct Avatar flows; ours does not preserve all three product models.
+2. Auto-remediation cannot reach parity until Scanner, DNS remediation and tunnel routing exist.
+3. Avatar unified routing requires destinations/selectors, primary method, ordered fallbacks, monitoring and failover; ours lacks that product model.
+4. Lua, blob and IP-set registries required by Strategies are absent.
+5. AWG, usque/MASQUE/WARP, sing-box, mihomo and Opera lifecycle products are absent.
+6. Avatar has 38 canonical SPA pages plus two legacy hash aliases; ours has seven canonical LuCI tabs plus one lists alias and several backend-only capabilities.
+7. Several existing equivalents are safer internally but do not expose the complete Avatar user capability.
 
 ## Detailed Parity Matrix
 
@@ -40,7 +37,7 @@ Two LEGACY_DEAD inventory rows are excluded from product-parity arithmetic.
 | Dashboard | `web/js/app.js` routes `#dashboard`; `web/js/components/sidebar.js` dashboard entry | Global service/health/current Strategy/system shortcuts | `z2m-overview.js`; schema-3 `status.uc` | Status, service controls, resources and selected summaries exist | PARTIAL | — | Match Avatar cards, current Strategy identity, shortcuts and refresh semantics. |
 | Global status | `core/system_info.py`, dashboard API consumers | Engine/process/system state plus active Strategy identity in one reachable view | `core/status-collector.uc`, `status-compat.uc`, `z2m-overview.js` | Runtime/system/upstream evidence exists, but active Avatar Strategy identity does not | PARTIAL | — | Add active Strategy identity while preserving schema 3. |
 | Start/stop/restart | `core/system_control.py`; `api/system.py`; control page | Explicit lifecycle operations and results | rpcd `start/stop/restart`, Overview controls | Same user effect through init owner | INTENTIONAL_DEVIATION | OPENWRT_NATIVE (DEV-002) | Keep procd/init implementation and map Avatar result semantics. |
-| Current Strategy display | dashboard/control/strategies consumers; `core/strategy_state.py` | Active Strategy ID/name/metadata visible | Profiles applied parse plus Orchestra preview in `z2m-strategy.js` | No single Avatar-compatible active Strategy identity | DIVERGENT | — | Add active Strategy projection after Strategy model parity. |
+| Current Strategy display | dashboard/control/strategies consumers; `core/strategy_state.py` | Active Strategy ID/name/metadata visible | `z2m-strategy.js`; `avatar-strategy-integration.test.mjs` derived status assertion | Canonical Strategy UI consumes service status and renders active identity and drift | PARITY | — | Preserve identity and drift fields while extending the remaining dashboard surface. |
 | Uptime/RAM/system | `core/system_info.py` | Visible uptime, memory and platform information | status collector `/proc`, uptime and memory observations | Substrate exists; field/UI equivalence is unproven | PARTIAL | — | Freeze and map each Avatar field and presentation. |
 | Events/logs | `core/log_buffer.py`; `web/js/pages/logs.js` | Unified logs, filtering/tailing/copy/download | events tail, proxy logs, Maintenance/Monitoring views | Fragmented sources; no unified consumer | PARTIAL | — | Add Avatar-equivalent unified bounded log view. |
 | Settings/expert/theme | `web/js/pages/settings.js`; config APIs | Product settings, expert-mode capability visibility, persistent UI settings | app advanced flag and native backend config | Expert mode partly exists; settings/defaults/theme differ | PARTIAL | — | Characterize exact Avatar defaults and expose equivalent settings. |
@@ -50,17 +47,17 @@ Two LEGACY_DEAD inventory rows are excluded from product-parity arithmetic.
 | Lua assets | `core/lua_manager.py`; `#lua` | List bundled/custom scripts, import/edit/delete, dependency checks | native preflight checks Lua function existence only | No Lua product registry/UI | MISSING | — | Implement Avatar Lua manager semantics on safe native storage. |
 | Blob assets | `core/blob_manager.py`, `blob_registry.py`; `#blobs` | CRUD/generate/stats and Strategy requirements | native preflight checks blob existence only | No blob product registry/UI | MISSING | — | Implement binary-safe Avatar blob registry and references. |
 | Engine dry-run/preflight | strategy preview/validation APIs and nfqws manager | Validate before apply | `native-preflight.uc`, `profiles-apply.uc` | Strong complete pinned native/Lua gate | INTENTIONAL_DEVIATION | SECURITY_HARDENING_EQUIVALENT_BEHAVIOR (DEV-003) | Retain stronger gate while preserving accepted Avatar strategies. |
-| Strategy aggregate model | `core/strategy_builder.py` `StrategyManager`; `api/strategies.py`; strategies UI | Validated dictionary requires `id`, `name`, ordered `profiles[]`; Profile requires `id`, `args`, with `enabled` default true; enabled Profiles compile with `--new`; same-ID user Strategy overrides builtin | `profiles-draft.uc`; `orchestra-run.uc`; `z2m-strategy.js` | Profile-first drafts and separate candidate registry | DIVERGENT | — | Make these exact invariants public and reuse existing compiler underneath. |
-| Profile belongs to Strategy | `strategy_builder.py` builds/validates profiles inside Strategy | Profiles are child runnable units, not top-level product | Profile CRUD RPCs are top-level | Profiles are primary public entities | DIVERGENT | — | Nest existing profile records under Strategy-facing API/UI. |
-| Ordered/enabled profiles | `strategy_builder.py`; strategy editor | Explicit order and enable state affect whole Strategy preview/apply | ordered drafts/reorder; no Avatar enable model | Order parity exists; enable semantics absent | PARTIAL | — | Add Strategy-owned enabled state and compile enabled children only. |
-| Builtin/user Strategies | `core/catalog_loader.py`; user strategy JSON; strategies API | Builtins read-only, users CRUD; source distinction | immutable Orchestra sources plus mutable drafts, no unified identity | Overlapping models not Avatar-compatible | DIVERGENT | — | One Strategy API preserving builtin restrictions and user CRUD. |
-| Strategy metadata | `core/models.py`; `strategy_builder.py`; `api/strategies.py` | Stored description, author, label, source, featured and protocol/level data; API computes `is_favorite` | partial candidate provenance/tags | No complete Avatar metadata contract | PARTIAL | — | Preserve exact stored/computed distinction and stable IDs. |
-| Strategy duplicate/custom/manual | `web/js/pages/strategies.js` duplicate-to-user flow | Duplicate builtin/user Strategy into editable user Strategy | profile clone only | Cannot duplicate whole Strategy | MISSING | — | Implement whole-Strategy duplicate and manual user Strategy. |
-| Strategy preview | `api/strategies.py` preview; strategies UI | Preview whole Strategy compilation | profiles full-set preview | Whole ordered profile set preview exists but lacks Strategy identity/metadata | PARTIAL | — | Wrap exact existing preview in Strategy request/response. |
-| Strategy validation/apply | builder validation and whole-Strategy apply | Validate and apply aggregate | mandatory profile validation, shared compiler, transactional apply | Safer full-set apply but public model differs | PARTIAL | SECURITY_HARDENING_EQUIVALENT_BEHAVIOR (DEV-003) | Reuse transaction behind Avatar Strategy semantics. |
-| Hostlist injection/autowrap | `strategy_builder.py`; tests for bare trick autowrap/quoting | Inject filters/assets and auto-wrap bare trick as Avatar specifies | lossless opaque fragments; no complete Avatar builder transforms | Compatibility fragments require manual expression | MISSING | — | Characterize builder transformations and implement exact compiler front-end. |
-| Basic/advanced/direct/preset catalogs | `catalogs/**`; `core/catalog_loader.py` | Distinct catalog sources and stable Strategy IDs | `catalog/services.json`, Orchestra corpus/registry | Different domain catalogs | DIVERGENT | — | Import/map Avatar pinned catalogs; do not reuse service catalog identity. |
-| Catalog protocol sets/labels | catalog metadata and scan UI | TCP/UDP/HTTP80/QUIC/Discord applicability; quick/standard/full; recommendation labels | Orchestra protocol/candidate modes | Partial protocol/corpus semantics | PARTIAL | — | Preserve Avatar classifications, order, labels and set membership. |
+| Strategy aggregate model | `core/strategy_builder.py` `StrategyManager`; `api/strategies.py`; strategies UI | Validated dictionary requires `id`, `name`, ordered `profiles[]`; Profile requires `id`, `args`, with `enabled` default true; enabled Profiles compile with `--new`; same-ID user Strategy overrides builtin | `strategy-state.uc`, `strategy-compiler.uc`, `z2m-strategy.js`; `avatar-strategy-integration.test.mjs` | Canonical Strategy API/UI owns the aggregate and shared compiler preserves ordered enabled Profiles | PARITY | — | Extend only with remaining Avatar catalog consumers; do not reintroduce Profile-first authority. |
+| Profile belongs to Strategy | `strategy_builder.py` builds/validates profiles inside Strategy | Profiles are child runnable units, not top-level product | `z2m-strategy.js` nested editor; Strategy model/compiler tests | Canonical editor and RPCs expose Profiles as ordered Strategy children; compatibility CRUD remains a bounded legacy path | PARITY | — | Keep compatibility reachability without changing canonical ownership. |
+| Ordered/enabled profiles | `strategy_builder.py`; strategy editor | Explicit order and enable state affect whole Strategy preview/apply | `avatar-strategy-model.test.mjs`, `avatar-strategy-compiler.test.mjs`, `avatar-strategy-preview.test.mjs` | Order is preserved, omitted `enabled` defaults true, disabled Profiles are excluded, and zero-enabled Preview remains inspectable | PARITY | — | Preserve zero-enabled Preview versus Validate/Apply admission. |
+| Builtin/user Strategies | `core/catalog_loader.py`; user strategy JSON; strategies API | Builtins read-only, users CRUD; source distinction | `strategy-state.uc`, catalog manifest, Strategy RPC/UI tests | Pinned catalog winners are immutable builtins; user CRUD and CAS identity are separate and stable | PARITY | — | Add only future catalog channels without changing identity rules. |
+| Strategy metadata | `core/models.py`; `strategy_builder.py`; `api/strategies.py` | Stored description, author, label, source, featured and protocol/level data; API computes `is_favorite` | catalog manifest conversion, Strategy model/UI tests | Metadata, provenance, protocol, level, featured and ordered favorite state are exposed from authoritative records | PARITY | — | Preserve stored versus computed metadata semantics. |
+| Strategy duplicate/custom/manual | `web/js/pages/strategies.js` duplicate-to-user flow | Duplicate builtin/user Strategy into editable user Strategy | `strategy-state.uc`; `avatar-strategy-state.test.mjs`; RPC/UI tests | Duplicate creates a deep-copied user Strategy with stable copy identity and preserves metadata/Profiles | PARITY | — | Keep duplicate bounded by catalog and user-storage collision checks. |
+| Strategy preview | `api/strategies.py` preview; strategies UI | Preview whole Strategy compilation | `strategy-cli.uc`; Preview/compiler tests; UI tests | Preview compiles the whole ordered Strategy, returns identity, effective command/argv, digest and dependencies without mutation | PARITY | — | Retain backend-owned output and bounded projections. |
+| Strategy validation/apply | builder validation and whole-Strategy apply | Validate and apply aggregate | `strategy-cli.uc`, `profiles-apply.uc`; Preview/Apply/integration tests | Validate is explicit and non-mutating; Apply requires persisted identity/catalog digest, uses CAS transaction, runtime verification and rollback | PARITY | SECURITY_HARDENING_EQUIVALENT_BEHAVIOR (DEV-003) | Preserve the stronger transaction boundary while accepting the proven Strategy contract. |
+| Hostlist injection/autowrap | `strategy_builder.py`; tests for bare trick autowrap/quoting | Inject filters/assets and auto-wrap bare trick as Avatar specifies | compiler/preview tests; integration fixture | Shared compiler preserves quote-aware fragments, hostlist/runtime injection and Avatar autowrap semantics | PARITY | — | Extend only from pinned characterization evidence. |
+| Basic/advanced/direct/preset catalogs | `catalogs/**`; `core/catalog_loader.py` | Distinct catalog sources and stable Strategy IDs | installed `catalog/avatar/manifest.json`; package/catalog/integration tests | Four pinned Avatar catalog levels are packaged, hash-verified, loaded with deterministic winners and exposed separately from service/Orchestra catalogs | PARITY | — | Keep catalog reload verified and do not conflate service-domain identity. |
+| Catalog protocol sets/labels | catalog metadata and scan UI | TCP/UDP/HTTP80/QUIC/Discord applicability; quick/standard/full; recommendation labels | manifest sets; catalog/compiler tests; integration test | Canonical TCP/UDP quick/standard/full sets preserve pinned order, uniqueness and winner membership | PARITY | — | Add other Avatar protocol labels only with new pinned evidence. |
 | Catalog update/reload | `core/catalog_updater.py`; `api/catalog_update.py` | Check/download/install catalog update while preserving users | service catalog revision/ownership ledger | Wrong catalog domain | MISSING | — | Implement strategy-catalog update with validation/preview and user preservation. |
 | Strategy Scanner | `core/strategy_scanner.py`; `api/scan.py`; scan pages | Catalog Strategy executor with `quick|standard|full`, protocol/target/DPI filtering, resume index, baseline-aware success and apply by result index/Strategy ID | Orchestra runs | Evidence-gated runner exists but product semantics and catalog differ | DIVERGENT | — | Reproduce exact Scanner semantics using durable native jobs. |
 | Scanner probes | scanner testers/models/targets | Baseline, IPv4/6, TLS/body/QUIC/STUN as selected | health matrix/Orchestra HTTPS-centric probes | Not full probe matrix | PARTIAL | — | Add each Avatar probe and verdict semantics. |
@@ -110,7 +107,7 @@ Two LEGACY_DEAD inventory rows are excluded from product-parity arithmetic.
 | UI/navigation reachability | `web/js/app.js` 38 canonical pages plus two legacy aliases | Every major capability has a reachable page | LuCI app seven canonical tabs plus one lists alias | Many capabilities unreachable | PARTIAL | OPENWRT_NATIVE (DEV-001) | Equivalent tabs/subtabs/deep links; CSS identity not required. |
 | REST versus ubus | `api/*.py` REST endpoints | Typed CRUD/status/jobs/cancel/history/preview/apply | rpcd/ubus methods | Protocol differs by platform | INTENTIONAL_DEVIATION | OPENWRT_NATIVE (DEV-001) | Maintain semantic mapping tests. |
 | API error semantics | API status/errors by subsystem | User receives bounded actionable result | mixed direct legacy/status and `{ok,error}` methods | Not systematically Avatar-compatible | PARTIAL | — | Freeze endpoint-by-endpoint mapping. |
-| Strategy→runtime→status flow | catalog→Strategy profiles[]→preview→validate→apply→nfqws→status→autostart | Stable aggregate identity throughout | profile drafts→compiler→transaction→status; Orchestra separate | Flow works below aggregate but identity breaks | DIVERGENT | — | Add Strategy facade and active identity without replacing safe pipeline. |
+| Strategy→runtime→status flow | catalog→Strategy profiles[]→preview→validate→apply→nfqws→status→autostart | Stable aggregate identity throughout | catalog/Strategy CLI/compiler/transaction/derived status; integration test | Pinned catalog identity survives Preview, bounded Validate, verified Apply/rollback boundary and derived status without persisted drift | PARITY | SECURITY_HARDENING_EQUIVALENT_BEHAVIOR (DEV-003) | Preserve the flow and extend autostart display only from fresh evidence. |
 | Scanner→Strategy apply flow | catalog Scanner→working result→Strategy apply | Tested Strategy identity preserved | Orchestra candidate→typed apply | Different catalog/result model | DIVERGENT | — | Rebuild product facade around native runner. |
 | BlockCheck→recommendation | distinct BlockCheck classification | Diagnostic result informs remediation | blockcheck job and health matrix overlap | Product distinction incomplete | PARTIAL | — | Keep three independent flows. |
 | Auto-remediation→DNS/Scanner/tunnel | `auto_remediation.py` | Classification dispatches exact subsystem | only auto-strategy | Missing flow | MISSING | — | Implement last, after dependencies. |
@@ -125,7 +122,7 @@ Two LEGACY_DEAD inventory rows are excluded from product-parity arithmetic.
 
 | Flow | Verdict | Evidence and gap |
 |---|---|---|
-| Strategy catalog → Strategy → Profiles[] → preview → apply → status → autostart | DIVERGENT | Avatar builder/catalog/state owns one aggregate; ours splits Profiles and Orchestra, though `profiles-apply.uc` provides a reusable safe lower layer. |
+| Strategy catalog → Strategy → Profiles[] → preview → apply → status → autostart | PARITY | Pinned catalog, aggregate Strategy identity, ordered Profiles, Preview/Validate/Apply, derived status, rollback and reconciliation are covered by the focused and Task 16 integration gates. |
 | Scanner → catalog Strategies → working results → apply | DIVERGENT | Avatar `strategy_scanner.py` consumes catalog Strategies; ours Orchestra consumes other registries and requires different winner evidence. |
 | BlockCheck → recommendation | PARTIAL | Avatar native BlockCheck is distinct; ours lacks equivalent classification UI. |
 | BlockCheck2 → found Strategy | PARTIAL | Script job exists, but reconstruction does not yield Avatar Strategy aggregate. |
@@ -140,7 +137,7 @@ Two LEGACY_DEAD inventory rows are excluded from product-parity arithmetic.
 
 ## Known Strategy/Profile Result
 
-Avatar’s authoritative domain model is **Strategy containing ordered Profiles[]**. Builtins come from catalogs; user Strategies have separate CRUD; preview and apply operate on the whole Strategy; the builder composes enabled profiles with `--new`, injects required filters/assets and applies Avatar’s bare-trick wrapping rules. Our baseline instead exposes ordered Profile drafts as the primary editable product and has a separate Orchestra candidate registry. The current full-set compiler, validation, preview, transactional apply, runtime verification, rollback and status are suitable implementation machinery underneath Avatar-compatible Strategy semantics, but they do not make the current public model parity. Status: **DIVERGENT**.
+Avatar’s authoritative domain model is **Strategy containing ordered Profiles[]**. Builtins come from catalogs; user Strategies have separate CRUD; preview and apply operate on the whole Strategy; the builder composes enabled profiles with `--new`, injects required filters/assets and applies Avatar’s bare-trick wrapping rules. The verified OpenWrt implementation now exposes that aggregate through the canonical Strategy API/UI, preserves the pinned catalog identity, and keeps the safer transaction, rollback, reconciliation and derived status machinery underneath. Status: **PARITY** for the verified Strategy vertical slice.
 
 ## Known Scanner Result
 
