@@ -3,7 +3,21 @@
 const MAX_TARGET = 253;
 const MAX_DPI = 64;
 const MAX_STATUS_TEXT = 256;
+const MAX_STATUS_TOTAL = 10000;
+const MAX_ELAPSED_SECONDS = 86400;
 const REQUEST_FIELDS = { target: true, protocol: true, mode: true, resume: true, dpi_type: true };
+const STATUS_VALUES = { idle: true, running: true, completed: true, cancelled: true, error: true };
+const PHASE_VALUES = {
+	idle: true, validating: true, planning: true, snapshotting: true, baselining: true,
+	executing: true, probing: true, ranking: true, cancelling: true, cleaning: true,
+	restoring: true, reconciling: true, publishing: true, completed: true,
+	cancelled: true, error: true, recovery: true,
+};
+const RECOVERY_VALUES = { not_required: true, verified: true, failed: true, uncertain: true };
+const BASELINE_VALUES = {
+	open: true, skipped: true, blocked: true, dns: true, no_route: true,
+	host_unreachable: true, unavailable: true, unknown: true,
+};
 
 function is_object(value) { return type(value) == 'object' && value != null; }
 function is_string(value) { return type(value) == 'string'; }
@@ -63,14 +77,17 @@ function valid_dpi(value) {
 	return match(value, /^[a-z0-9][a-z0-9_-]{0,63}$/);
 }
 
-function request_fields_valid(input) {
-	for (let key in input) if (!REQUEST_FIELDS[key]) return false;
-	return true;
+function request_unknown_field(input) {
+	for (let key in input) if (!REQUEST_FIELDS[key]) return key;
+	return null;
 }
 
 export const scanner_request_validate = function(input) {
-	if (!is_object(input) || !request_fields_valid(input))
-		return error_result('EINPUT', 'Scanner request is an object with only public fields.');
+	if (!is_object(input))
+		return error_result('EINPUT', 'Scanner request is an object with only public fields.', 'request');
+	let unknownField = request_unknown_field(input);
+	if (unknownField != null)
+		return error_result('EINPUT', 'Scanner request contains an unknown field.', unknownField);
 
 	let target = normalize_hostname(input.target);
 	if (target == null) return error_result('EINPUT', 'Scanner target must be a strict hostname.', 'target');
@@ -99,6 +116,12 @@ export const scanner_request_validate = function(input) {
 	return { ok: true, value: {
 		target: target, protocol: protocol, mode: mode, resume: resume, dpi_type: dpi
 	} };
+};
+
+export const scanner_dpi_filter_mode = function(value) {
+	if (!is_string(value)) return 'none';
+	let dpi = lower(trim(value));
+	return dpi == 'dns_fake' || dpi == 'ip_block' || dpi == 'full_block' ? 'skip' : 'none';
 };
 
 function recovery_state(value) {
@@ -140,11 +163,11 @@ export const scanner_state_create = function(request, plan) {
 	};
 };
 
-function event_recovery(event, fallback) {
-	let nested = is_object(event) ? recovery_state(event.recovery) : null;
-	if (nested != null) return nested;
-	if (is_object(event) && is_string(event.recoveryState)) return event.recoveryState;
-	return fallback;
+function event_recovery(event) {
+	if (!is_object(event)) return null;
+	if (exists(event, 'recovery')) return recovery_state(event.recovery);
+	if (exists(event, 'recoveryState')) return is_string(event.recoveryState) ? event.recoveryState : null;
+	return null;
 }
 
 export const scanner_state_transition = function(record, event) {
@@ -170,7 +193,7 @@ export const scanner_state_transition = function(record, event) {
 	}
 
 	if (kind == 'complete' || kind == 'cancel' || kind == 'stop') {
-		let recovery = event_recovery(event, 'verified');
+		let recovery = event_recovery(event);
 		if (kind == 'complete') {
 			if (recovery != 'verified') {
 				next.status = 'error';
@@ -187,11 +210,11 @@ export const scanner_state_transition = function(record, event) {
 			next.phase = 'recovery';
 			next.recovery = { state: 'uncertain' };
 			next.error = 'Scanner cancellation recovery is uncertain.';
-		} else if (recovery == 'verified') {
+		} else {
 			next.status = 'cancelled';
 			next.phase = 'cancelled';
 			next.recovery = { state: 'verified' };
-		} else return state_error('Cancelled Scanner state requires verified recovery.');
+		}
 		return { ok: true, state: next };
 	}
 
@@ -211,8 +234,37 @@ function bounded_text(value) {
 	return length(value) > MAX_STATUS_TEXT ? substr(value, 0, MAX_STATUS_TEXT) : value;
 }
 
+function enum_value(value, allowed, fallback) {
+	return is_string(value) && allowed[value] ? value : fallback;
+}
+
+function bounded_integer(value, maximum) {
+	if (type(value) != 'int' || value < 0) return 0;
+	return value > maximum ? maximum : value;
+}
+
+function bounded_elapsed(value) {
+	if ((type(value) != 'int' && type(value) != 'double') || value < 0) return 0;
+	return value > MAX_ELAPSED_SECONDS ? MAX_ELAPSED_SECONDS : value;
+}
+
+function baseline_view(value) {
+	let result = {};
+	if (!is_object(value)) return result;
+	let families = ['ipv4', 'ipv6'];
+	for (let i in families) {
+		let family = families[i];
+		let entry = value[family];
+		if (!is_object(entry) || !is_string(entry.status) || !BASELINE_VALUES[entry.status]
+			|| type(entry.available) != 'bool') continue;
+		result[family] = { status: entry.status, available: entry.available };
+	}
+	return result;
+}
+
 function count_value(counts, name) {
-	return is_object(counts) && type(counts[name]) == 'int' && counts[name] >= 0 ? counts[name] : 0;
+	if (!is_object(counts) || type(counts[name]) != 'int' || counts[name] < 0) return 0;
+	return counts[name] > MAX_STATUS_TOTAL ? MAX_STATUS_TOTAL : counts[name];
 }
 
 export const scanner_status_view = function(record) {
@@ -222,12 +274,21 @@ export const scanner_status_view = function(record) {
 	let totalDone = working + failed;
 	let successRate = totalDone > 0 ? working * 100 / totalDone : 0;
 	let request = is_object(record) && is_object(record.request) ? record.request : {};
-	let recovery = is_object(record) && is_object(record.recovery) ? record.recovery : { state: 'not_required' };
+	let recoveryInput = is_object(record) ? record.recovery : null;
+	let recovery = is_object(recoveryInput) ? recoveryInput : { state: 'uncertain' };
+	let safeStatus = enum_value(record && record.status, STATUS_VALUES, 'error');
+	let safeRecovery = enum_value(recovery.state, RECOVERY_VALUES, 'uncertain');
+	if ((safeStatus == 'completed' || safeStatus == 'cancelled') && safeRecovery != 'verified')
+		safeStatus = 'error';
+	if (safeStatus == 'error' && safeRecovery != 'uncertain') safeRecovery = 'uncertain';
+	let total = bounded_integer(record && record.total, MAX_STATUS_TOTAL);
+	let progress = bounded_integer(record && record.progress, MAX_STATUS_TOTAL);
+	if (progress > total) progress = total;
 	return {
-		status: record && record.status != null ? record.status : 'idle',
-		progress: record && type(record.progress) == 'int' && record.progress >= 0 ? record.progress : 0,
-		total: record && type(record.total) == 'int' && record.total >= 0 ? record.total : 0,
-		phase: bounded_text(record && record.phase) || 'idle',
+		status: safeStatus,
+		progress: progress,
+		total: total,
+		phase: enum_value(record && record.phase, PHASE_VALUES, 'idle'),
 		current_strategy: bounded_text(record && record.currentCandidate),
 		target: bounded_text(request.target),
 		protocol: request.protocol == 'udp' ? 'udp' : 'tcp',
@@ -237,9 +298,9 @@ export const scanner_status_view = function(record) {
 		failed_count: failed,
 		infrastructure_count: count_value(counts, 'infrastructure'),
 		success_rate: successRate,
-		elapsed_seconds: record && (type(record.elapsedSeconds) == 'int' || type(record.elapsedSeconds) == 'double') ? record.elapsedSeconds : 0,
+		elapsed_seconds: bounded_elapsed(record && record.elapsedSeconds),
 		baseline_open: record && record.baselineOpen == true,
-		baseline_by_af: copy_value(record && record.baselineByAddressFamily || {}),
-		recovery: { state: recovery.state == 'uncertain' ? 'uncertain' : recovery.state == 'verified' ? 'verified' : 'not_required' },
+		baseline_by_af: baseline_view(record && record.baselineByAddressFamily),
+		recovery: { state: safeRecovery },
 	};
 };

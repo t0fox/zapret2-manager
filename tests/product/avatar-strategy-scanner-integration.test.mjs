@@ -65,3 +65,13 @@ test('target detection lowercases trailing-dot hosts without changing mode order
     'm.youtube.com', 'www.youtube.com', 'i.ytimg.com', 'yt3.ggpht.com',
   ]);
 });
+
+test('target detection uses hostname labels and keeps unrelated domains generic', () => {
+  assert.equal(invoke('scanner_target_profile', ''), null);
+  const unrelated = invoke('scanner_target_profile', 'notyoutube.example');
+  assert.equal(unrelated.profileKey, 'generic');
+  assert.equal(unrelated.primaryHost, 'notyoutube.example');
+  assert.deepEqual(invoke('scanner_target_hosts', 'notyoutube.example', 'full'), [
+    'notyoutube.example',
+  ]);
+});

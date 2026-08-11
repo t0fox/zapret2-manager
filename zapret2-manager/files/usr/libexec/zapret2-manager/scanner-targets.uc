@@ -12,9 +12,10 @@ function lower(value) {
 }
 
 function normalize_host(value) {
+	if (value == null || type(value) != 'string') return null;
 	let host = lower(trim(value == null ? '' : '' + value));
 	if (substr(host, -1) == '.') host = substr(host, 0, -1);
-	return host == '' ? 'youtube.com' : host;
+	return host == '' ? null : host;
 }
 
 function copy_array(values) {
@@ -101,6 +102,21 @@ function contains(values, value) {
 	return false;
 }
 
+function has_label(host, label) {
+	let labels = split(host, '.');
+	for (let i in labels) if (labels[i] == label) return true;
+	return false;
+}
+
+function has_suffix(host, suffix) {
+	return host == suffix || (length(host) > length(suffix)
+		&& substr(host, -length(suffix) - 1) == '.' + suffix);
+}
+
+function hint_matches(host, hint) {
+	return index(hint, '.') >= 0 ? has_suffix(host, hint) : has_label(host, hint);
+}
+
 function custom_profile(base, host) {
 	let result = copy_profile(base), tests = [host], domains = [host];
 	for (let i in base.testHosts) if (!contains(tests, base.testHosts[i]) && length(tests) < 4)
@@ -115,8 +131,9 @@ function custom_profile(base, host) {
 
 export const scanner_target_profile = function(value) {
 	let host = normalize_host(value), key = null;
+	if (host == null) return null;
 	for (let i in HINTS) {
-		if (index(host, HINTS[i][0]) >= 0) { key = HINTS[i][1]; break; }
+		if (hint_matches(host, HINTS[i][0])) { key = HINTS[i][1]; break; }
 	}
 	if (key == null) return target_profile('generic', host, [host], [host], [],
 		'443', 'tls', 'tls_client_hello', '443', 'quic', 'quic_initial', 'https://' + host + '/');
@@ -133,6 +150,7 @@ function max_hosts(mode) {
 
 export const scanner_target_hosts = function(value, mode) {
 	let profile = is_object(value) ? value : scanner_target_profile(value), maximum = max_hosts(mode);
+	if (!is_object(profile)) return [];
 	let result = [], candidates = [profile.primaryHost];
 	for (let i in profile.testHosts) if (!contains(candidates, profile.testHosts[i])) push(candidates, profile.testHosts[i]);
 	for (let i = 0; i < length(candidates) && i < maximum; i++) push(result, candidates[i]);

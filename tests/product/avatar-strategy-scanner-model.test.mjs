@@ -64,6 +64,14 @@ test('request validation bounds protocol, mode, resume, and DPI hints', () => {
     assert.equal(result.error.path, field, field);
   }
 
+  const unknownField = invoke('scanner_request_validate', { ...validRequest(), command: 'uname' });
+  assert.equal(unknownField.ok, false);
+  assert.equal(unknownField.error.code, 'EINPUT');
+  assert.equal(unknownField.error.path, 'command');
+  const nonObject = invoke('scanner_request_validate', null);
+  assert.equal(nonObject.ok, false);
+  assert.equal(nonObject.error.path, 'request');
+
   const unknown = invoke('scanner_request_validate', validRequest({ dpi_type: 'vendor_block_v1' }));
   assert.equal(unknown.ok, true);
   assert.equal(unknown.value.dpi_type, 'vendor_block_v1');
@@ -126,6 +134,34 @@ test('uncertain cancellation publishes error and never cancelled plus uncertain'
   assert.equal(forbidden.error.code, 'ESTATE');
 });
 
+test('terminal recovery proof is explicit for cancel and complete', () => {
+  const request = invoke('scanner_request_validate', validRequest()).value;
+  for (const eventType of ['cancel', 'complete']) {
+    for (const event of [
+      { type: eventType },
+      { type: eventType, recovery: null },
+      { type: eventType, recovery: { state: 'failed' } },
+    ]) {
+      const initial = invoke('scanner_state_create', request, { candidates: [] });
+      const running = invoke('scanner_state_transition', initial, { type: 'start' }).state;
+      const result = invoke('scanner_state_transition', running, event);
+      assert.equal(result.ok, true, JSON.stringify(event));
+      assert.equal(result.state.status, 'error', JSON.stringify(event));
+      assert.equal(result.state.recovery.state, 'uncertain', JSON.stringify(event));
+      assert.notEqual(result.state.status, 'cancelled', JSON.stringify(event));
+    }
+  }
+
+  const initial = invoke('scanner_state_create', request, { candidates: [] });
+  const running = invoke('scanner_state_transition', initial, { type: 'start' }).state;
+  const verified = invoke('scanner_state_transition', running, {
+    type: 'cancel', recovery: { state: 'verified' },
+  });
+  assert.equal(verified.ok, true);
+  assert.equal(verified.state.status, 'cancelled');
+  assert.equal(verified.state.recovery.state, 'verified');
+});
+
 test('status view is bounded and reports Avatar-compatible counters', () => {
   const request = invoke('scanner_request_validate', validRequest({ target: 'kernel.org' })).value;
   const record = invoke('scanner_state_create', request, { candidates: Array.from({ length: 3 }, (_, i) => ({ scannerId: `c${i}` })) });
@@ -158,4 +194,47 @@ test('status view is bounded and reports Avatar-compatible counters', () => {
     baseline_by_af: { ipv4: { status: 'blocked', available: true } },
     recovery: { state: 'not_required' },
   });
+});
+
+test('status view whitelists enums and bounds scalar and address-family fields', () => {
+  const request = invoke('scanner_request_validate', validRequest()).value;
+  const record = invoke('scanner_state_create', request, { candidates: [] });
+  const status = invoke('scanner_status_view', {
+    ...record,
+    status: 'made-up-status',
+    phase: 'made-up-phase',
+    recovery: { state: 'made-up-recovery' },
+    progress: 999999,
+    total: 999999,
+    elapsedSeconds: -5,
+    currentCandidate: 'x'.repeat(1000),
+    baselineByAddressFamily: {
+      ipv4: { status: 'open', available: true, leaked: 'x'.repeat(1000) },
+      ipv6: { status: 'not-a-status', available: 'yes' },
+      unexpected: { status: 'open', available: true },
+    },
+  });
+  assert.equal(status.status, 'error');
+  assert.equal(status.phase, 'idle');
+  assert.equal(status.recovery.state, 'uncertain');
+  assert.equal(status.total, 10000);
+  assert.equal(status.progress, 10000);
+  assert.equal(status.elapsed_seconds, 0);
+  assert.equal(status.current_strategy.length, 256);
+  assert.deepEqual(status.baseline_by_af, {
+    ipv4: { status: 'open', available: true },
+  });
+
+  const forbidden = invoke('scanner_status_view', {
+    ...record, status: 'cancelled', recovery: { state: 'uncertain' },
+  });
+  assert.equal(forbidden.status, 'error');
+  assert.equal(forbidden.recovery.state, 'uncertain');
+});
+
+test('DPI filter mode preserves known skips and leaves bounded unknown values unfiltered', () => {
+  for (const dpiType of ['dns_fake', 'ip_block', 'full_block'])
+    assert.equal(invoke('scanner_dpi_filter_mode', dpiType), 'skip', dpiType);
+  assert.equal(invoke('scanner_dpi_filter_mode', 'vendor_block_v1'), 'none');
+  assert.equal(invoke('scanner_dpi_filter_mode', null), 'none');
 });
