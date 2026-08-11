@@ -15,8 +15,9 @@ const PHASE_VALUES = {
 };
 const RECOVERY_VALUES = { not_required: true, verified: true, failed: true, uncertain: true };
 const BASELINE_VALUES = {
-	open: true, skipped: true, blocked: true, dns: true, no_route: true,
+	open: true, blocked: true, dns: true, no_route: true,
 	host_unreachable: true, unavailable: true, unknown: true,
+	skipped: true,
 };
 
 function is_object(value) { return type(value) == 'object' && value != null; }
