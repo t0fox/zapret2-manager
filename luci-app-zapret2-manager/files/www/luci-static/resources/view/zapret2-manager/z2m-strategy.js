@@ -715,5 +715,8 @@ return baseclass.extend({
   render: render,
   mount: mount,
   unmount: unmount,
-  createAdapter: createAdapter
+  createAdapter: createAdapter,
+  renderCompatibility: function (ctx, profileData) {
+    return renderProfilesPane(ctx, profileData || {});
+  }
 });

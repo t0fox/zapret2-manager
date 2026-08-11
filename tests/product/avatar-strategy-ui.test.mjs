@@ -154,6 +154,14 @@ test('Advanced modules retain Orchestra mutation authority only behind the page 
   assert.match(runs, /ctx\.api\.orchestra\.(previewBest|applyBest)/);
 });
 
+test('actual Advanced workflow reaches Compatibility through the existing Profile renderer while normal mode cannot invoke it', () => {
+  assert.match(workflowCore, /Strategy\.renderCompatibility\(ctx/);
+  assert.match(workflowCore, /id:\s*'compatibility'[\s\S]*Compatibility \/ Profiles/);
+  assert.match(workflowCore, /profiles:\s*settled\(results\[6\]/);
+  assert.match(pageAdapter, /if\s*\(data\.mode === 'workflow'\)/);
+  assert.doesNotMatch(pageAdapter, /Strategy\.renderCompatibility/);
+});
+
 test('Compatibility Apply is enabled only after acknowledged valid Preview and stays recoverable', () => {
   assert.match(profilesWorkflow, /function canApply\(/);
   assert.match(page, /profilesWorkflow\.canApply\(profilesState\)/);

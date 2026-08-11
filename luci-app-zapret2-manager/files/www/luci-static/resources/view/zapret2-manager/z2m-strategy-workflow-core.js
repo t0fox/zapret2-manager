@@ -442,7 +442,9 @@ function render(ctx) {
     progress: renderProgress(ctx, catalog, corpus, run),
     diagnostics: renderDiagnostics(ctx, data, run),
     journal: renderJournal(ctx, data, run),
-    settings: renderSettings(ctx, catalog, corpus, run)
+    settings: renderSettings(ctx, catalog, corpus, run),
+    compatibility: Strategy.renderCompatibility
+      ? Strategy.renderCompatibility(ctx, data.profiles && data.profiles.value || {}) : E('div')
   };
   if (!panes[state.tab]) state.tab = 'strategies';
   var paneHost = E('div', { id: 'z2m-strategy-workflow-pane' }, panes[state.tab]);
@@ -451,7 +453,8 @@ function render(ctx) {
     { id: 'progress', label: _('Прогресс'), badge: run.active ? StrategyModel.progress(run, corpus).percent + '%' : null },
     { id: 'diagnostics', label: _('Диагностика') },
     { id: 'journal', label: _('Журнал и история') },
-    { id: 'settings', label: _('Настройки') }
+    { id: 'settings', label: _('Настройки') },
+    { id: 'compatibility', label: _('Compatibility / Profiles') }
   ], state.tab, function (id) {
     state.tab = id;
     paneHost.replaceChildren(panes[id]);
