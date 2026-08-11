@@ -405,7 +405,7 @@ test('profiles_apply_candidate preserves the blocker when uncertainty persistenc
 }));
 
 test('strategy_apply executes a successful transaction through the injected candidate and profile seams', () => storage(({ record, env }) => {
-  const hook = transactionHook({ candidate: strategyCandidateStub(), processBoundary: true });
+  const hook = transactionHook({ candidate: strategyCandidateStub() });
   const result = invoke(CLI, `mod.strategy_cli_dispatch('apply', ${JSON.stringify({
     strategy_id: record.id, revision: record.revision, catalog_digest: CATALOG_DIGEST,
   })})`, { ...env, Z2M_STRATEGY_APPLY_HOOK: hook });
@@ -419,7 +419,7 @@ test('strategy_apply executes restart failure and verified rollback through the 
   const result = invoke(CLI, `mod.strategy_cli_dispatch('apply', ${JSON.stringify({
     strategy_id: record.id, revision: record.revision, catalog_digest: CATALOG_DIGEST,
   })})`, { ...env, Z2M_STRATEGY_APPLY_HOOK: transactionHook({
-    candidate: strategyCandidateStub(), processBoundary: true,
+    candidate: strategyCandidateStub(),
     state: { strategy_selection_get: { ok: true, revision: 0, selected: null } },
     restart: [{ rc: 1, out: 'restart failed' }, { rc: 0, out: '' }],
     verify: [{ ok: false, checks: runtimeChecks(false) }, { ok: true, checks: runtimeChecks(true) }],
@@ -435,7 +435,7 @@ test('successful strategy_apply guard-release failure records evidence and recon
     strategy_id: record.id, revision: record.revision, catalog_digest: CATALOG_DIGEST,
   })})`, { ...env,
     Z2M_STRATEGY_APPLY_END_RESULT: JSON.stringify({ ok: false, error: { code: 'EIO', message: 'release failed' } }),
-    Z2M_STRATEGY_APPLY_HOOK: transactionHook({ candidate: strategyCandidateStub(), processBoundary: true }),
+    Z2M_STRATEGY_APPLY_HOOK: transactionHook({ candidate: strategyCandidateStub() }),
   });
   assert.equal(result.ok, false);
   assert.equal(result.error.code, 'EUNCERTAIN');
@@ -510,6 +510,22 @@ test('projection boundary rejects stale or concurrent sidecars and preserves no-
     }).error.code, 'EINPUT');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
+
+test('ordinary Profile adapter calls cannot consume an externally supplied Strategy sidecar', () => storage(({ record, env }) => {
+  const sidecar = path.join(env.Z2M_STRATEGY_ROOT, 'ordinary-sidecar.json');
+  const projection = strategyProjection(record, null);
+  fs.writeFileSync(sidecar, JSON.stringify({ schema: 1, marker: 'z2m-strategy-apply-projection.v1',
+    callerContext: 'strategy_apply', transactionNonce: 'external-nonce', candidateSha256: CANDIDATE_HASH, projection }));
+  fs.chmodSync(sidecar, 0o600);
+  const result = invoke(APPLY, `mod.profiles_apply_candidate('${CANDIDATE}', '${CANDIDATE_HASH}')`, {
+    ...env, Z2M_STRATEGY_APPLY_HOOK: transactionHook(),
+    Z2M_STRATEGY_PROJECTION_PATH: sidecar, Z2M_STRATEGY_PROJECTION_NONCE: 'external-nonce',
+    Z2M_STRATEGY_PROJECTION_MARKER: 'z2m-strategy-apply-projection.v1', Z2M_STRATEGY_PROJECTION_CALLER: 'strategy_apply',
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.identity, null);
+  assert.equal(fs.existsSync(sidecar), true);
+}));
 
 test('Apply guard fails closed on insecure last-good or uncertainty write failure and blocks the next Apply', () => storage(({ record, env }) => {
   fs.chmodSync(env.Z2M_STRATEGY_APPLY_LASTGOOD, 0o755);

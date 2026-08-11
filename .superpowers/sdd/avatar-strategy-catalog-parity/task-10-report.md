@@ -147,3 +147,27 @@ these tests without adding a router dependency.
 - Focused Apply/Profile/model/compiler/state/Preview suite: 113 passed.
 - Native core state/atomic suites: 42 passed.
 - Native atomic-write-json property suite: 10 passed as WSL root.
+
+## Round 4 Fix Evidence
+
+- Removed the `processBoundary` shortcut from the production Apply path.
+  Strategy Apply now enters `locked_candidate_call`, writes the real request
+  and nonce-bound projection sidecar, invokes the configured
+  `profiles-apply-cli.uc` adapter, and consumes the sidecar only in that
+  Strategy-bound child process.
+- No-projection adapter calls explicitly unset all Strategy projection
+  environment variables before launching `profiles-apply-cli.uc`. Ordinary
+  Profile/Orchestra transactions therefore cannot inherit or consume a
+  Strategy sidecar; the external sidecar remains untouched.
+- Round 4 tests execute Strategy success/failure through the real adapter path
+  with deterministic transaction outcomes and verify ordinary no-projection
+  isolation. The direct boundary tests remain as additional binding coverage.
+
+## Round 4 Verification
+
+- Apply behavioral suite: 25 passed.
+- Focused Apply/Profile/model/compiler/state/Preview suite: 113 passed.
+- Complete `scripts/test/native.sh` gate passed: native broker 42, native
+  helper 35, package helper 35, combined native/product batch 274, and the
+  root-policy batch 120; all reported zero failures.
+- Native atomic-write-json property suite: 10 passed as WSL root.

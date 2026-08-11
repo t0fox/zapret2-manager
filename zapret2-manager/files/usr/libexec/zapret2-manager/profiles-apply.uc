@@ -625,12 +625,12 @@ function locked_candidate_call(candidate, expectedHash, projection) {
 		return err('lock', 'ELOCK', 'unable to persist the private Strategy transaction request');
 	}
 	let inner = shell_escape(UCODE_BIN) + ' ' + shell_escape(PROFILE_APPLY_CLI) + ' candidate ' + shell_escape(request);
-	let projectionEnv = sidecar == null ? ''
+	let projectionEnv = sidecar == null ? 'unset Z2M_STRATEGY_PROJECTION_PATH Z2M_STRATEGY_PROJECTION_NONCE Z2M_STRATEGY_PROJECTION_MARKER Z2M_STRATEGY_PROJECTION_CALLER; '
 		: 'Z2M_STRATEGY_PROJECTION_PATH=' + shell_escape(sidecar)
 			+ ' Z2M_STRATEGY_PROJECTION_NONCE=' + shell_escape(request)
 			+ ' Z2M_STRATEGY_PROJECTION_MARKER=' + shell_escape(PROJECTION_MARKER)
 			+ ' Z2M_STRATEGY_PROJECTION_CALLER=' + shell_escape('strategy_apply') + ' ';
-	let cmd = 'Z2M_CONFIG_LOCKED=1 ' + projectionEnv
+	let cmd = projectionEnv + 'Z2M_CONFIG_LOCKED=1 '
 		+ 'flock -x ' + shell_escape(CONFIG_LOCK) + ' -c ' + shell_escape(inner);
 	let answer = run(cmd);
 	try { unlink(request); } catch (e) { }
@@ -663,8 +663,7 @@ export const profiles_apply_candidate = function(candidate, expectedHash, projec
 		return err('render', 'EINPUT', 'typed candidate is missing or exceeds the safe size limit');
 	// The locked helper rejects diff.candidateSha256 != expectedHash before mutation.
 	// It invokes apply_candidate_pipeline({ candidate: candidate, ... }) as the sole transaction.
-	if (getenv('Z2M_CONFIG_LOCKED') != '1'
-		&& (apply_hook() == null || hook_value('transaction', 'processBoundary') != true))
+	if (getenv('Z2M_CONFIG_LOCKED') != '1')
 		return locked_candidate_call(candidate, expectedHash, projection);
 	return profiles_apply_candidate_locked(candidate, expectedHash, projection);
 };
