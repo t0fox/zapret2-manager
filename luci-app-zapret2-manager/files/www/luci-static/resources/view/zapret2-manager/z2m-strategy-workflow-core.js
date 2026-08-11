@@ -437,17 +437,20 @@ function render(ctx) {
   var catalog = StrategyModel.normalizeCatalog(object(data.catalog && data.catalog.value), preview);
   var corpus = StrategyModel.normalizeCorpus(object(data.corpus && data.corpus.value));
   var run = currentRun(data, catalog, corpus);
-  var panes = {
-    strategies: renderStrategies(ctx, catalog, corpus, run, preview),
-    progress: renderProgress(ctx, catalog, corpus, run),
-    diagnostics: renderDiagnostics(ctx, data, run),
-    journal: renderJournal(ctx, data, run),
-    settings: renderSettings(ctx, catalog, corpus, run),
-    compatibility: Strategy.renderCompatibility
-      ? Strategy.renderCompatibility(ctx, data.profiles && data.profiles.value || {}) : E('div')
-  };
+  var panes = {};
+  function pane(id) {
+    if (panes[id]) return panes[id];
+    if (id === 'strategies') panes[id] = renderStrategies(ctx, catalog, corpus, run, preview);
+    else if (id === 'progress') panes[id] = renderProgress(ctx, catalog, corpus, run);
+    else if (id === 'diagnostics') panes[id] = renderDiagnostics(ctx, data, run);
+    else if (id === 'journal') panes[id] = renderJournal(ctx, data, run);
+    else if (id === 'settings') panes[id] = renderSettings(ctx, catalog, corpus, run);
+    else if (id === 'compatibility') panes[id] = Strategy.renderCompatibility
+      ? Strategy.renderCompatibility(ctx, data.profiles && data.profiles.value || {}) : E('div');
+    return panes[id];
+  }
   if (!panes[state.tab]) state.tab = 'strategies';
-  var paneHost = E('div', { id: 'z2m-strategy-workflow-pane' }, panes[state.tab]);
+  var paneHost = E('div', { id: 'z2m-strategy-workflow-pane' }, pane(state.tab));
   var tabs = ctx.shell.subTabs([
     { id: 'strategies', label: _('Стратегии') },
     { id: 'progress', label: _('Прогресс'), badge: run.active ? StrategyModel.progress(run, corpus).percent + '%' : null },
@@ -457,7 +460,7 @@ function render(ctx) {
     { id: 'compatibility', label: _('Compatibility / Profiles') }
   ], state.tab, function (id) {
     state.tab = id;
-    paneHost.replaceChildren(panes[id]);
+    paneHost.replaceChildren(pane(id));
   }, { 'aria-label': _('Разделы стратегии') });
 
   var errors = [];
@@ -470,11 +473,11 @@ function render(ctx) {
   var headAction = run.active
     ? ctx.shell.button(_('Остановить прогон'), 'danger sm', function () {
         state.tab = 'progress';
-        paneHost.replaceChildren(panes.progress);
+        paneHost.replaceChildren(pane('progress'));
       })
     : ctx.shell.button(_('Новый полный прогон'), 'primary sm', function () {
         state.tab = 'settings';
-        paneHost.replaceChildren(panes.settings);
+        paneHost.replaceChildren(pane('settings'));
       }, !corpus.valid || !catalog.applicableIds.length);
 
   return E('section', { 'class': 'z2m-view on', id: 'z2m-view-strategy' }, compact([

@@ -165,8 +165,11 @@ function loadRecursiveStrategyPage(calls) {
     calls.profileRenderer += 1;
     return originalRenderCompatibility(ctx, profileData);
   };
-  strategy.load = () => { calls.push('strategy.load'); return Promise.resolve({}); };
-  strategy.render = () => { calls.push('strategy.render'); return vmNode(); };
+  const originalStrategyRender = strategy.render;
+  strategy.render = function (ctx) {
+    calls.strategyRenderer += 1;
+    return originalStrategyRender(ctx);
+  };
 
   const core = loadLuCIModule(workflowCore, { Strategy: strategy, StrategyModel: strategyModel }, calls);
   const workflowModule = loadLuCIModule(workflow, { Core: core }, calls);
@@ -204,6 +207,11 @@ function recursivePageContext(advanced, calls) {
   const rpc = () => Promise.resolve({});
   const api = {
     normalizeError: error => error,
+    strategies: {
+      list: () => Promise.resolve({ strategies: [{ id: 'strategy-one', name: 'Strategy One', origin: 'avatar_builtin', is_builtin: true, revision: 0, availability: 'available', profiles: [{ id: 'profile-one', name: 'Profile One', args: '--test' }] }], state: { revision: 1, favorites: [] } }),
+      catalogStatus: () => Promise.resolve({ digest: 'catalog-test' }),
+      get: () => Promise.resolve({ strategy: { id: 'strategy-one', name: 'Strategy One', origin: 'avatar_builtin', is_builtin: true, revision: 0, availability: 'available', profiles: [{ id: 'profile-one', name: 'Profile One', args: '--test' }] } }),
+    },
     strategy: { preview: rpc },
     orchestra: {
       catalog: rpc, corpus: rpc, runStatus: rpc, runHistory: rpc, probePreflight: rpc,
@@ -211,6 +219,7 @@ function recursivePageContext(advanced, calls) {
     profiles: {
       list: () => Promise.resolve({ profiles: [{ id: 'profile-one', name: 'Profile One', opt: '--test' }] }),
     },
+    service: { status: () => Promise.resolve({ strategyStatus: { id: 'strategy-one', drift: false, availability: 'available', revision: 0 } }) },
   };
   return {
     store: { get: () => ({ ui: { advanced }, draft: {}, pending: {} }) },
@@ -249,16 +258,16 @@ test('Advanced modules retain Orchestra mutation authority only behind the page 
 });
 
 test('actual Advanced workflow reaches Compatibility through the existing Profile renderer while normal mode cannot invoke it', async () => {
-  const normalCalls = Object.assign([], { editorButtons: [], profileRenderer: 0, tabGroups: [] });
+  const normalCalls = Object.assign([], { editorButtons: [], profileRenderer: 0, strategyRenderer: 0, tabGroups: [] });
   const normal = loadRecursiveStrategyPage(normalCalls).pageModule;
   const normalContext = recursivePageContext(false, normalCalls);
   const normalData = await normal.load(normalContext);
   assert.equal(normalData.mode, 'manual');
   normal.render({ ...normalContext, data: normalData });
   assert.equal(normalCalls.profileRenderer, 0);
-  assert.equal(normalCalls.tabGroups.length, 0);
+  assert.equal(normalCalls.strategyRenderer, 1);
 
-  const advancedCalls = Object.assign([], { editorButtons: [], profileRenderer: 0, tabGroups: [] });
+  const advancedCalls = Object.assign([], { editorButtons: [], profileRenderer: 0, strategyRenderer: 0, tabGroups: [] });
   const advanced = loadRecursiveStrategyPage(advancedCalls).pageModule;
   const advancedContext = recursivePageContext(true, advancedCalls);
   const advancedData = await advanced.load(advancedContext);
@@ -269,8 +278,10 @@ test('actual Advanced workflow reaches Compatibility through the existing Profil
   const tabs = advancedCalls.tabGroups.find(group => group.tabs.some(tab => tab.id === 'compatibility'));
   assert.ok(tabs);
   assert.equal(tabs.active, 'strategies');
+  const rendererCountBeforeSelection = advancedCalls.profileRenderer;
+  assert.equal(rendererCountBeforeSelection, 0);
   tabs.onSelect('compatibility');
-  assert.equal(advancedCalls.profileRenderer, 1);
+  assert.equal(advancedCalls.profileRenderer, rendererCountBeforeSelection + 1);
   assert.ok(advancedCalls.editorButtons.includes('Новый профиль'));
 });
 
