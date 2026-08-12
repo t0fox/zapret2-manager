@@ -94,6 +94,10 @@ function storageEnv(root) {
   return { Z2M_SCANNER_SERVER_TEST: '1', Z2M_SCANNER_STATE_ROOT: root };
 }
 
+function invokeCli(expression, env = {}) {
+  return invoke(CLI, expression, env);
+}
+
 test('Task 6 modules expose bounded volatile state, worker, and fixed CLI contracts', () => {
   for (const file of [STATE, WORKER, CLI]) assert.equal(fs.existsSync(file), true, file);
   const state = fs.readFileSync(STATE, 'utf8');
@@ -199,4 +203,110 @@ test('resume requires exact request, catalog, compiler, plan, and cursor identit
   const cli = fs.readFileSync(CLI, 'utf8');
   assert.match(cli, /save-generated/);
   assert.match(cli, /EAPPLY|EUNAVAILABLE/);
+});
+
+test('CLI start dispatch validates the request and invokes the worker', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-cli-start-'));
+  try {
+    const result = invokeCli(`subject.scanner_cli_dispatch('start', {id:'scan-cli', request:${JSON.stringify(request())}}, ${JSON.stringify(hooks())})`, storageEnv(root));
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(result.state.status, 'completed');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('worker invokes fixed adapters and never fabricates a successful production probe', () => {
+  const source = fs.readFileSync(WORKER, 'utf8');
+  assert.match(source, /scanner_probe_adapter_baseline/);
+  assert.match(source, /scanner_probe_adapter_tcp/);
+  assert.match(source, /scanner_probe_adapter_udp/);
+  assert.doesNotMatch(source, /raw == null[\s\S]{0,500}status: 'success'/);
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-no-fake-'));
+  try {
+    const testHooks = hooks();
+    delete testHooks.probe;
+    const result = invoke(WORKER, `subject.scanner_worker_run({id:'scan-no-fake',request:${JSON.stringify(request())}}, ${JSON.stringify(testHooks)})`, storageEnv(root));
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(result.state.status, 'completed');
+    assert.equal(result.state.counts.infrastructure > 0, true);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('adapter and transient failures preserve cleanup evidence and stop progression', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-cleanup-uncertain-'));
+  try {
+    const testHooks = hooks();
+    testHooks.runtime = { ...testHooks.transient.runtime, activate: { ok: false, code: 'EOWNERSHIP', cleanup: { ok: false, processRemoved: false } } };
+    testHooks.transient.runtime = testHooks.runtime;
+    const result = invoke(WORKER, `subject.scanner_worker_run({id:'scan-cleanup-uncertain',request:${JSON.stringify(request())}}, ${JSON.stringify(testHooks)})`, storageEnv(root));
+    assert.equal(result.ok, false, JSON.stringify(result));
+    assert.equal(result.state.status, 'error');
+    assert.equal(result.state.recovery.state, 'uncertain');
+    assert.equal(result.state.results.length, 0);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('worker lifecycle exceptions publish uncertain infrastructure state and release ownership', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-exception-'));
+  try {
+    const testHooks = hooks();
+    testHooks.transient = null;
+    const result = invoke(WORKER, `subject.scanner_worker_run({id:'scan-exception',request:${JSON.stringify(request())}}, ${JSON.stringify(testHooks)})`, storageEnv(root));
+    assert.equal(result.ok, false, JSON.stringify(result));
+    assert.equal(result.state.status, 'error');
+    assert.equal(result.state.recovery.state, 'uncertain');
+    assert.equal(fs.existsSync(path.join(root, 'active.json')), false);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('resume rejects caller-supplied plan identity and malformed checkpoint results', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-resume-authority-'));
+  try {
+    const env = storageEnv(root);
+    const req = request();
+    const p = plan(req);
+    const created = invoke(STATE, `subject.scanner_state_create(${JSON.stringify(req)}, ${JSON.stringify(p)})`, env);
+    const checkpoint = { ...created, id: 'scan-authority', status: 'running', phase: 'probing', heartbeatAt: Math.floor(Date.now() / 1000), worker: { pid: 42, startTime: 99, owner: 'scanner/worker' }, cursor: { nextCandidate: 2 }, progress: 2, results: [{ candidateId: 'c1', ordinal: 1, verdict: 'working', success: true }, { candidateId: 'c1', ordinal: 1, verdict: 'working', success: true }] };
+    const saved = invoke(STATE, `subject.scanner_state_save(${JSON.stringify(checkpoint)})`, env);
+    assert.equal(saved.ok, true, JSON.stringify(saved));
+    const resumed = invoke(WORKER, `subject.scanner_worker_resume({id:'scan-authority',requestDigest:'${'0'.repeat(64)}',catalogDigest:'${'0'.repeat(64)}',compilerDigest:'${'0'.repeat(64)}',planDigest:'${'0'.repeat(64)}',plan:${JSON.stringify({})}},{plan:${JSON.stringify(p)},identity:{pid:42,startTime:99}})`, env);
+    assert.equal(resumed.ok, false);
+    assert.equal(resumed.error.code, 'ESTALE');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('active worker claim rejects a second live identity, including the same scan id', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-claim-'));
+  try {
+    const env = storageEnv(root);
+    const first = invoke(STATE, `subject.scanner_state_claim('scan-claim',{pid:2,startTime:1})`, env);
+    assert.equal(first.ok, true, JSON.stringify(first));
+    const second = invoke(STATE, `subject.scanner_state_claim('scan-claim',{pid:2,startTime:1})`, env);
+    assert.equal(second.ok, false);
+    assert.equal(second.error.code, 'EBUSY');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('stop control is idempotent and stale revisions cannot overwrite it', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-stop-cas-'));
+  try {
+    const env = storageEnv(root);
+    const created = invoke(STATE, `subject.scanner_state_create(${JSON.stringify(request())}, ${JSON.stringify(plan())})`, env);
+    const started = invoke(STATE, `subject.scanner_state_save(${JSON.stringify({ ...created, id:'scan-stop-cas', status:'running', worker:{pid:42,startTime:99,owner:'scanner/worker'} })})`, env);
+    const accepted = invoke(STATE, `subject.scanner_control_request('scan-stop-cas','stop',{expectedRevision:${started.revision}})`, env);
+    const repeated = invoke(STATE, `subject.scanner_control_request('scan-stop-cas','stop',{expectedRevision:${started.revision}})`, env);
+    assert.equal(accepted.ok, true, JSON.stringify(accepted));
+    assert.deepEqual(repeated.control, accepted.control);
+    const stale = invoke(STATE, `subject.scanner_control_request('scan-stop-cas','stop',{expectedRevision:0})`, env);
+    assert.equal(stale.ok, false);
+    assert.equal(stale.error.code, 'ECONFLICT');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('CLI responses are schema-versioned and request files are private fixed records', () => {
+  const cli = fs.readFileSync(CLI, 'utf8');
+    assert.match(cli, /SCHEMA_VERSION\s*=\s*1/);
+  assert.match(cli, /mode|request/);
+  assert.match(cli, /readlink/);
+  assert.match(cli, /uid|mode|private/i);
 });

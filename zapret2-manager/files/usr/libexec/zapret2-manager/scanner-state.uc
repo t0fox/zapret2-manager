@@ -1,8 +1,9 @@
 'use strict';
 
-import { stat, readfile, writefile, mkdir, unlink, popen } from 'fs';
+import { stat, readfile, writefile, mkdir, unlink, popen, readlink } from 'fs';
+import * as native from './core/native-helper.uc';
 
-const ROOT = '/tmp/zapret2-manager/scanner';
+const ROOT = '/tmp/zapret2-manager/runtime/scanner';
 const MAX_RECORD_BYTES = 98304;
 const MAX_RESULTS = 128;
 const MAX_EVENTS = 32;
@@ -23,6 +24,8 @@ function copy(value) {
 }
 function root() { return getenv('Z2M_SCANNER_SERVER_TEST') == '1' ? (getenv('Z2M_SCANNER_STATE_ROOT') || ROOT) : ROOT; }
 function path(id, suffix) { return root() + '/' + id + suffix; }
+function test_mode() { return getenv('Z2M_SCANNER_SERVER_TEST') == '1'; }
+function native_path(id, suffix) { return 'scanner/' + (id ? id + suffix : suffix); }
 function shell(value) {
 	let out = "'";
 	for (let i = 0; i < length(value); i++) out += substr(value, i, 1) == "'" ? "'\\''" : substr(value, i, 1);
@@ -30,7 +33,10 @@ function shell(value) {
 }
 function ensure_root() {
 	try { mkdir(root()); } catch (e) { }
-	return stat(root()) != null;
+	let metadata = null;
+	try { metadata = stat(root()); } catch (e) { metadata = null; }
+	return object(metadata) && metadata.type == 'directory' && readlink(root()) == null
+		&& (test_mode() || (metadata.uid == 0 && metadata.gid == 0 && metadata.mode % 512 == 448));
 }
 function atomic(file, value) {
 	if (!ensure_root()) return false;
@@ -48,6 +54,28 @@ function read_json(file) {
 	if (!string(raw) || length(raw) > MAX_RECORD_BYTES) return null;
 	try { let value = json(raw); return object(value) ? value : null; } catch (e) { return null; }
 }
+function native_read(id, suffix) {
+	let result = native.read_regular('runtime', native_path(id, suffix), MAX_RECORD_BYTES);
+	if (!result.ok) return null;
+	try { return json(b64dec(result.data.content)); } catch (e) { return null; }
+}
+function native_digest(id, suffix) {
+	let result = native.sha256_regular('runtime', native_path(id, suffix), MAX_RECORD_BYTES);
+	return result.ok ? result.data.sha256 : null;
+}
+function publish_json(id, suffix, value, expected) {
+	if (test_mode()) return atomic(path(id, suffix), value);
+	let made = native.mkdir_private('runtime', 'scanner', true);
+	if (!made.ok) return false;
+	if (id != '') {
+		made = native.mkdir_private('runtime', 'scanner/' + id, true);
+		if (!made.ok) return false;
+	}
+	let result = native.atomic_write_json('runtime', native_path(id, suffix), value, expected == null, expected);
+	return result.ok;
+}
+function read_record(id) { return test_mode() ? read_json(path(id, '.record.json')) : native_read(id, '.record.json'); }
+function read_control(id) { return test_mode() ? read_json(path(id, '.control.json')) : native_read(id, '.control.json'); }
 function hash(value) {
 	if (!ensure_root()) return null;
 	let file = root() + '/.digest.' + time() + '.' + (++sequence), result = null, process = null;
@@ -143,7 +171,7 @@ export const scanner_state_digest = function(value) { return hash(sprintf('%J', 
 
 export const scanner_state_load = function(id) {
 	if (!safe_id(id)) return error('EINPUT', 'Scanner id is invalid.');
-	let value = read_json(path(id, '.record.json'));
+	let value = read_record(id);
 	return valid_record(value) ? { ok: true, state: value } : error('ENOENT', 'Scanner record is unavailable.');
 };
 
@@ -159,14 +187,15 @@ export const scanner_state_save = function(input) {
 	if (!digest(candidate.requestDigest) || !digest(candidate.planDigest) || !digest(candidate.catalogDigest) || !digest(candidate.compilerDigest))
 		return error('ESCHEMA', 'Scanner record digests are incomplete.');
 	if (length(sprintf('%J', candidate)) > MAX_RECORD_BYTES) return error('EOUTPUT', 'Scanner record exceeds volatile bounds.');
-	return atomic(path(candidate.id, '.record.json'), candidate)
+	let expected = previous == null || test_mode() ? null : native_digest(candidate.id, '.record.json');
+	return publish_json(candidate.id, '.record.json', candidate, expected)
 		? { ok: true, id: candidate.id, revision: candidate.revision, state: candidate }
 		: error('EIO', 'Scanner record could not be atomically published.');
 };
 
 export const scanner_control_load = function(id) {
 	if (!safe_id(id)) return error('EINPUT', 'Scanner id is invalid.');
-	let value = read_json(path(id, '.control.json'));
+	let value = read_control(id);
 	return value != null && value.id == id ? { ok: true, control: value } : { ok: true, control: { id, revision: 0, stopRequested: false, updatedAt: time() } };
 };
 
@@ -178,24 +207,45 @@ export const scanner_control_request = function(id, command, input) {
 	if (!object(input) || input.expectedRevision != loaded.state.revision)
 		return error('ECONFLICT', 'Scanner control revision is stale.', { revision: loaded.state.revision });
 	let old = scanner_control_load(id).control;
+	if (old.stopRequested === true) return { ok: true, control: old, idempotent: true };
 	let control = { id, revision: (integer(old.revision) ? old.revision : 0) + 1, stopRequested: true, updatedAt: time() };
-	return atomic(path(id, '.control.json'), control) ? { ok: true, control } : error('EIO', 'Scanner control could not be atomically published.');
+	let expected = test_mode() ? null : native_digest(id, '.control.json');
+	return publish_json(id, '.control.json', control, expected) ? { ok: true, control } : error('ECONFLICT', 'Scanner control revision is stale.');
 };
 
-export const scanner_state_claim = function(id, identity) {
+export const scanner_state_claim = function(id, identity, continuation) {
 	if (!safe_id(id) || !object(identity) || !integer(identity.pid) || !integer(identity.startTime)) return error('EINPUT', 'Scanner worker identity is invalid.');
-	let active = read_json(path('', ACTIVE));
-	if (active != null && active.id != id) {
-		if (live_identity(active.pid, active.startTime)) return error('EBUSY', 'Another Scanner is active.');
-		try { unlink(path('', ACTIVE)); } catch (e) { return error('EIO', 'Stale Scanner marker could not be removed.'); }
+	let active = test_mode() ? read_json(path('', ACTIVE)) : native_read('', ACTIVE);
+	if (active != null) {
+		if (active.released === true) active = null;
 	}
-	return atomic(path('', ACTIVE), { id, pid: identity.pid, startTime: identity.startTime, claimedAt: time() }) ? { ok: true } : error('EIO', 'Scanner active marker could not be published.');
+	if (active != null) {
+		if (!safe_id(active.id) || !integer(active.pid) || !integer(active.startTime)) return error('EIO', 'Scanner active marker is malformed.');
+		if ((test_mode() && active.pid == identity.pid && active.startTime == identity.startTime) || live_identity(active.pid, active.startTime)) {
+			if (continuation === true && active.id == id && active.pid == identity.pid && active.startTime == identity.startTime) return { ok: true, continued: true };
+			return error('EBUSY', 'Another Scanner is active.');
+		}
+		let staleDigest = test_mode() ? null : native_digest('', ACTIVE);
+		if (test_mode()) { try { unlink(path('', ACTIVE)); } catch (e) { return error('EIO', 'Stale Scanner marker could not be removed.'); } }
+		else if (!staleDigest) return error('ESTALE', 'Scanner active marker cannot be reclaimed without a verified digest.');
+		active._staleDigest = staleDigest;
+	}
+	let marker = { id, pid: identity.pid, startTime: identity.startTime, claimedAt: time() };
+	let expected = active != null && !test_mode() ? active._staleDigest : null;
+	let published = publish_json('', ACTIVE, marker, expected);
+	return published ? { ok: true } : error('EBUSY', 'Scanner active marker could not be claimed.');
 };
 
 export const scanner_state_release = function(id, identity) {
-	let active = read_json(path('', ACTIVE));
+	let active = test_mode() ? read_json(path('', ACTIVE)) : native_read('', ACTIVE);
 	if (active == null) return { ok: true };
 	if (active.id != id || active.pid != identity?.pid || active.startTime != identity?.startTime) return error('ESTALE', 'Scanner active marker identity changed.');
+	if (!test_mode()) {
+		let digest = native_digest('', ACTIVE);
+		if (!digest) return error('EDEPENDENCY', 'Scanner active marker release cannot be verified.');
+		return publish_json('', ACTIVE, { released: true, releasedAt: time() }, digest)
+			? { ok: true, retained: true } : error('EDEPENDENCY', 'Scanner active marker release is uncertain.');
+	}
 	try { unlink(path('', ACTIVE)); } catch (e) { return error('EIO', 'Scanner active marker could not be removed.'); }
 	return { ok: true };
 };

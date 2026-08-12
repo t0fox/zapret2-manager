@@ -95,3 +95,57 @@ from Tasks 2/3.
 ROUTER_E2E: NOT RUN
 REASON: production router activation and Task 5 compare-delete remain intentionally fail-closed
 ```
+
+## Fix Round 1
+
+### Status
+
+PASS WITH DOCUMENTED HOST LIMITATIONS. Critical/Important review findings for
+CLI dispatch, production probe authority, worker cleanup/error handling, resume
+identity, control idempotency, active ownership, and volatile file boundaries
+are addressed. Task 5 production firewall activation remains fail-closed at
+`EUNSUPPORTED`; Task 7 reconciliation remains authoritative.
+
+### Fixes
+
+- Fixed CLI `start` dispatch to pass the validated request rather than the
+  undefined `checked.value`; imported CLI modules no longer include a shebang
+  that breaks ucode module parsing, and responses carry `schemaVersion: 1`.
+- Production ignores all injected seams, builds the server-owned plan, invokes
+  fixed TCP/TLS-body or UDP/STUN adapters, and records missing observations as
+  infrastructure evidence instead of synthetic success.
+- Worker lifecycle exceptions publish `error/recovery=uncertain`, preserve
+  cleanup evidence, and attempt active-marker release. Activation and cleanup
+  uncertainty stops candidate progression.
+- Resume rebuilds the plan from server authority, recomputes request/plan
+  digests, validates cursor bounds/result identity/no duplicates, checks bounded
+  probe deadlines and heartbeat updates, and does not trust caller plan/digest
+  strings.
+- State/control publication uses the native helper runtime root and digest CAS
+  in production; stop is idempotent; active claims reject live PID/starttime
+  ownership, require matching continuation identity, and reclaim stale markers
+  only through verified ownership evidence.
+- CLI request files are restricted to root-owned private records in the fixed
+  runtime request directory; volatile roots reject symlinks and insecure modes.
+
+### TDD And Verification
+
+The fix-round behavioral tests cover CLI start, adapter invocation/no fake
+success, activation cleanup uncertainty, lifecycle exceptions, resume authority
+and checkpoint integrity, same-id active claims, stop CAS/idempotency, and
+schema/private request boundaries.
+
+```text
+wsl.exe -d Ubuntu --cd /mnt/c/Users/Kirill/zapret2-manager -- env UCODE_BIN=/opt/ucode/bin/ucode UCODE_LIBRARY_PATH=/opt/ucode/lib /home/kirill/.local/bin/node --test tests/product/avatar-strategy-scanner-worker.test.mjs tests/product/avatar-strategy-scanner-transient.test.mjs tests/native/avatar-strategy-scanner-runtime.test.mjs tests/native/avatar-strategy-firewall-helper.test.mjs
+```
+
+Result: **53 passed, 0 failed**.
+
+The broader worker/transient/integration run had **3 inherited WSL ucode
+failures** in unchanged `scanner-targets.uc:136` null indexing; all 40 changed
+Task 6/Task 5 tests passed. `node --check` and `git diff --check` passed.
+
+```text
+ROUTER_E2E: NOT RUN
+REASON: explicit physical-router mutation/deployment approval was not provided
+```
