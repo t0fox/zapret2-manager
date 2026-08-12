@@ -37,6 +37,24 @@
 #define EVIDENCE_PATH EVIDENCE_PRODUCTION
 #endif
 
+static uid_t expected_uid(void)
+{
+#ifdef Z2M_SCANNER_HELPER_TEST
+	return getuid();
+#else
+	return 0;
+#endif
+}
+
+static gid_t expected_gid(void)
+{
+#ifdef Z2M_SCANNER_HELPER_TEST
+	return getgid();
+#else
+	return 0;
+#endif
+}
+
 struct request {
 	char session[129];
 	char candidate[129];
@@ -219,25 +237,19 @@ static void emit_result(bool ok, const char *code, const char *evidence)
 static bool private_directory(const char *path)
 {
 	struct stat st;
-	return lstat(path, &st) == 0 && S_ISDIR(st.st_mode) && st.st_uid == (uid_t)
-#ifdef Z2M_SCANNER_HELPER_TEST
-		getuid()
-#else
-		0
-#endif
-		&& st.st_gid == (gid_t)
-#ifdef Z2M_SCANNER_HELPER_TEST
-		getgid()
-#else
-		0
-#endif
-		&& (st.st_mode & 0777) == 0700;
+	return lstat(path, &st) == 0 && S_ISDIR(st.st_mode) && st.st_uid == expected_uid() &&
+		st.st_gid == expected_gid() && (st.st_mode & 0777) == 0700;
 }
 
 static bool write_evidence(const struct request *request, const char *state, const char *observed)
 {
-	int fd = open(EVIDENCE_PATH, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0600);
+	int fd = open(EVIDENCE_PATH, O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0600);
 	if (fd < 0) return false;
+	struct stat file_stat;
+	if (fstat(fd, &file_stat) < 0 || !S_ISREG(file_stat.st_mode) || file_stat.st_uid != expected_uid() ||
+		file_stat.st_gid != expected_gid() || (file_stat.st_mode & 0777) != 0600 || ftruncate(fd, 0) < 0 || lseek(fd, 0, SEEK_SET) < 0) {
+		close(fd); return false;
+	}
 	char line[2048];
 	int length = snprintf(line, sizeof(line), "operation=%s\nsession=%s\ncandidate=%s\ngeneration=%lld\nnonce=%s\nstate=%s\nobservedDigest=%s\n", OPERATION, request->session, request->candidate, (long long)request->generation, request->nonce, state, observed);
 	bool ok = length > 0 && (size_t)length < sizeof(line);
@@ -271,7 +283,9 @@ static int run_nft(const char *const argv[], char *output, size_t capacity)
 		used += (size_t)got;
 	}
 	close(pipefd[0]);
-	int status; while (waitpid(child, &status, 0) < 0 && errno == EINTR) { }
+	int status; pid_t waited;
+	do waited = waitpid(child, &status, 0); while (waited < 0 && errno == EINTR);
+	if (waited < 0) return -1;
 	if (used == capacity) { output[capacity - 1] = '\0'; return -1; }
 	output[used] = '\0';
 	return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
@@ -300,6 +314,11 @@ static int compare_delete(const struct request *request)
 	}
 	int lock = open(LOCK_PATH, O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0600);
 	if (lock < 0 || flock(lock, LOCK_EX) < 0) { if (lock >= 0) close(lock); emit_result(false, "ELOCKED", "lock"); return 1; }
+	struct stat lock_stat;
+	if (fstat(lock, &lock_stat) < 0 || !S_ISREG(lock_stat.st_mode) || lock_stat.st_uid != expected_uid() ||
+		lock_stat.st_gid != expected_gid() || (lock_stat.st_mode & 0777) != 0600) {
+		write_evidence(request, "unsafe-lock", ""); emit_result(false, "EOWNERSHIP", "unsafe-lock"); close(lock); return 1;
+	}
 	char chain[MAX_CHAIN + 1], digest[65];
 	const char *list[] = { NFT_PATH, "list", "chain", "inet", TABLE, CHAIN, NULL };
 	int listed = run_nft(list, chain, MAX_CHAIN);
