@@ -76,19 +76,26 @@ test('fixed Scanner runtime shim exercises activate, stabilize, cleanup vectors 
     fs.writeFileSync(path.join(root, 'nfqws2.c'), `#include <stdio.h>\n#include <unistd.h>\nint main(void){FILE*f=fopen("${queue}","w");if(!f)return 2;fprintf(f,"300 %d 0 0 0 0 0 0 1\\n",getpid());fclose(f);for(;;)pause();}\n`);
     const built = spawnSync('cc', ['-std=c11', '-Wall', '-Wextra', '-Werror', path.join(root, 'nfqws2.c'), '-o', fakeNfqws], { encoding: 'utf8' });
     assert.equal(built.status, 0, built.stderr);
-    fs.writeFileSync(fakeNft, `#!/bin/sh\necho nft "$@" >> "$Z2M_TEST_LOG"\ncase "$*" in\n  "list table inet zapret2") exit 0;;\n  "list chain inet zapret2 z2m_scanner") test -f "$Z2M_TEST_CHAIN" && echo "$Z2M_TEST_MARKER queue num 300" || exit 1;;\n  "add chain inet zapret2 z2m_scanner"*) touch "$Z2M_TEST_CHAIN";;\n  "add rule inet zapret2 z2m_scanner"*) :;;\n  "delete chain inet zapret2 z2m_scanner") rm -f "$Z2M_TEST_CHAIN"; : > "$Z2M_SCANNER_TEST_NFQ_PROC";;\nesac\nexit 0\n`, { mode: 0o755 });
+    fs.writeFileSync(fakeNft, `#!/bin/sh\necho nft "$@" >> "$Z2M_TEST_LOG"\ncase "$*" in\n  "list table inet zapret2") exit 0;;\n  "list chain inet zapret2 z2m_scanner") test -f "$Z2M_TEST_CHAIN" || exit 1; echo "$Z2M_TEST_MARKER queue num 300"; test "\${Z2M_TEST_MUTATE:-0}" = 1 && echo "foreign mutation";;\n  "add chain inet zapret2 z2m_scanner"*) touch "$Z2M_TEST_CHAIN";;\n  "add rule inet zapret2 z2m_scanner"*) :;;\n  "delete chain inet zapret2 z2m_scanner") rm -f "$Z2M_TEST_CHAIN"; : > "$Z2M_SCANNER_TEST_NFQ_PROC";;\nesac\nexit 0\n`, { mode: 0o755 });
     fs.writeFileSync(fakeInit, '#!/bin/sh\necho init "$@" >> "$Z2M_TEST_LOG"\n: > "$Z2M_SCANNER_TEST_NFQ_PROC"\nexit 0\n', { mode: 0o755 });
     fs.mkdirSync(argvDir, { recursive: true });
     fs.writeFileSync(path.join(argvDir, `${candidate}.argv`), '--filter-tcp=443\n--payload=tls_client_hello\n');
     fs.writeFileSync(path.join(argvDir, `${candidate}.argv.digest`), `${crypto.createHash('sha256').update('--filter-tcp=443\n--payload=tls_client_hello\n').digest('hex')}\n`);
-    const env = { ...process.env, PATH: `${root}:${process.env.PATH}`, Z2M_SCANNER_RUNTIME_SHIM: '1', Z2M_SCANNER_SERVER_TEST: '1', Z2M_SCANNER_TEST_NFQWS2: fakeNfqws, Z2M_SCANNER_TEST_NFT: fakeNft, Z2M_SCANNER_TEST_INIT: fakeInit, Z2M_SCANNER_TEST_NFQ_PROC: queue, Z2M_SCANNER_TEST_LOCK: path.join(root, 'config.lock'), Z2M_TEST_LOG: log, Z2M_TEST_CHAIN: path.join(root, 'chain'), Z2M_TEST_SESSION: session, Z2M_TEST_PID_FILE: path.join(argvDir, `${candidate}.pid`) };
+    const env = { ...process.env, PATH: `${root}:${process.env.PATH}`, Z2M_SCANNER_RUNTIME_SHIM: '1', Z2M_SCANNER_SERVER_TEST: '1', Z2M_SCANNER_TEST_NFQWS2: fakeNfqws, Z2M_SCANNER_TEST_NFT: fakeNft, Z2M_SCANNER_TEST_INIT: fakeInit, Z2M_SCANNER_TEST_NFQ_PROC: queue, Z2M_SCANNER_TEST_LOCK: path.join(root, 'config.lock'), Z2M_TEST_LOG: log, Z2M_TEST_CHAIN: path.join(root, 'chain'), Z2M_TEST_SESSION: session, Z2M_TEST_PID_FILE: path.join(argvDir, `${candidate}.pid`), Z2M_SCANNER_TEST_NFT_CAS: '1' };
     fs.writeFileSync(queue, '300 0 0 0 0 0 0 0 1\n');
     const locked = spawnSync('sh', [run, 'lock-acquire', session, 'session', '5'], { env, encoding: 'utf8' });
     assert.equal(locked.status, 0, locked.stderr || locked.stdout);
     lockPid = JSON.parse(locked.stdout).lockPid;
     env.Z2M_TEST_MARKER = `z2m-scanner:${session}:${candidate}:5:${JSON.parse(locked.stdout).nonce}`;
+    fs.writeFileSync(path.join(argvDir, `${candidate}.argv.meta`), JSON.stringify({ schema: 1, session, candidate, generation: 5, nonce: JSON.parse(locked.stdout).nonce, compiledDigest: crypto.createHash('sha256').update('--filter-tcp=443\n--payload=tls_client_hello\n').digest('hex') }) + '\n');
     const descriptor = path.join(argvDir, 'lock.descriptor');
     const descriptorBytes = fs.readFileSync(descriptor);
+    const meta = path.join(argvDir, `${candidate}.argv.meta`);
+    const metaBytes = fs.readFileSync(meta);
+    fs.writeFileSync(meta, metaBytes.toString().replace(JSON.parse(locked.stdout).nonce, '0'.repeat(64)));
+    const tamperedMeta = spawnSync('sh', [run, 'activate', session, candidate, '5'], { env, encoding: 'utf8' });
+    assert.notEqual(tamperedMeta.status, 0);
+    fs.writeFileSync(meta, metaBytes);
     fs.writeFileSync(descriptor, `${session}|${lockPid}|1|${'f'.repeat(64)}\n`);
     const tamperedRelease = spawnSync('sh', [run, 'lock-release', session, 'session', '0', JSON.parse(locked.stdout).nonce], { env, encoding: 'utf8' });
     assert.notEqual(tamperedRelease.status, 0);
@@ -100,6 +107,11 @@ test('fixed Scanner runtime shim exercises activate, stabilize, cleanup vectors 
     const stabilize = spawnSync('sh', [run, 'stabilize', session, candidate, '5'], { env, encoding: 'utf8' });
     assert.equal(stabilize.status, 0, stabilize.stderr || stabilize.stdout);
     assert.equal(JSON.parse(stabilize.stdout).stable, true);
+    env.Z2M_TEST_MUTATE = '1';
+    const concurrentMutation = spawnSync('sh', [run, 'cleanup', session, candidate, '5'], { env, encoding: 'utf8' });
+    assert.notEqual(concurrentMutation.status, 0);
+    assert.equal(fs.existsSync(path.join(root, 'chain')), true, 'ownership mismatch must retain the chain');
+    delete env.Z2M_TEST_MUTATE;
     const cleanup = spawnSync('sh', [run, 'cleanup', session, candidate, '5'], { env, encoding: 'utf8' });
     assert.equal(cleanup.status, 0, cleanup.stderr || cleanup.stdout);
     assert.equal(JSON.parse(cleanup.stdout).ownedOnly, true);
@@ -107,6 +119,8 @@ test('fixed Scanner runtime shim exercises activate, stabilize, cleanup vectors 
     const repeatedCleanup = spawnSync('sh', [run, 'cleanup', session, candidate, '5'], { env, encoding: 'utf8' });
     assert.equal(repeatedCleanup.status, 0, repeatedCleanup.stderr || repeatedCleanup.stdout);
     assert.equal(JSON.parse(repeatedCleanup.stdout).evidence, 'complete');
+    assert.equal(fs.existsSync(path.join(argvDir, `${candidate}.argv.meta`)), false);
+    assert.equal(JSON.parse(locked.stdout).nonce.length, 64);
     const invalid = spawnSync('sh', [run, 'activate', '../escape', candidate, '5'], { env, encoding: 'utf8' });
     assert.notEqual(invalid.status, 0);
     assert.equal(invalid.stdout || '', '');
@@ -119,6 +133,16 @@ test('fixed Scanner runtime shim exercises activate, stabilize, cleanup vectors 
     fs.rmSync(argvDir, { recursive: true, force: true });
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('runtime refuses to delete a chain after a concurrent ownership mutation', () => {
+  if (process.platform === 'win32') {
+    assert.ok(true, 'Linux/WSL shell and procfs runtime required');
+    return;
+  }
+  const source = fs.readFileSync(ADAPTER, 'utf8');
+  assert.match(source, /Z2M_SCANNER_TEST_NFT_CAS/);
+  assert.match(source, /fail closed|ownership-mismatch/);
 });
 
 test('runtime source requires generation-bound exact ownership, nonce-bound locks, and session removal evidence', () => {
@@ -136,6 +160,8 @@ test('runtime source refuses cleanup on ownership mismatch and tampered lock met
   assert.match(source, /ETAMPERED/);
   assert.match(source, /supplied_nonce/);
   assert.match(source, /CHAIN_DIGEST_FILE/);
+  assert.match(source, /argv\.meta|META_FILE/);
+  assert.match(source, /lock-holder\.pid/);
 });
 
 test('runtime source journals every owned resource and retains failed cleanup evidence', () => {
@@ -146,6 +172,9 @@ test('runtime source journals every owned resource and retains failed cleanup ev
   assert.match(source, /atomic|mktemp/);
   assert.match(source, /nonce.*session.*candidate.*generation|session.*candidate.*generation.*nonce/);
   assert.match(source, /ownership.*lock|OWNERSHIP_LOCK/);
+  assert.match(source, /journal\(.*\|\| fail|journal_required/);
+  assert.match(source, /sync -f|sync\)/);
+  assert.doesNotMatch(source, /printf[^\n]*>"\$\{?(?:PID_FILE|START_FILE|CHAIN_DIGEST_FILE)/);
 });
 
 test('runtime source rechecks argv digest immediately before launch and never deletes an ambiguous chain', () => {
@@ -155,4 +184,5 @@ test('runtime source rechecks argv digest immediately before launch and never de
   assert.match(source, /ownership-mismatch/);
   assert.match(source, /flock.*OWNERSHIP_LOCK|OWNERSHIP_LOCK.*flock/);
   assert.doesNotMatch(source, /nft\s+flush/);
+  assert.match(source, /atomic compare|NFT_ATOMIC|NFT_CAS/);
 });

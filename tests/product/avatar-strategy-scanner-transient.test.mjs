@@ -38,14 +38,16 @@ const hooks = {
     artifacts: { config: '/opt/zapret2/config', firewall: 'zapret2', nfqueue: 300, temporaryRoot: '/tmp/zapret2-manager/scanner' },
     reconciliation: { generation: 4, reference: 'pre-scan-runtime' },
   },
-  compile: { ok: true, candidate: '--filter-tcp=443', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: '5'.repeat(64), dependencies: { available: true }, native: { status: 'verified' } },
+  compile: { ok: true, candidate: '--filter-tcp=443', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: '5'.repeat(64), dependencies: { available: true, structurallyCompilable: true, items: [], missing: [] }, native: { status: 'verified' } },
   runtime: { activate: { ok: true, identityVerified: true, expectedProcess: { pid: 11, startTime: 21, exe: '/opt/zapret2/nfq2/nfqws2', argvSha256: '6'.repeat(64), owner: 'scanner/session', generation: 5 }, process: { pid: 11, startTime: 21, exe: '/opt/zapret2/nfq2/nfqws2', argvSha256: '6'.repeat(64), owner: 'scanner/session', generation: 5 }, firewall: { table: 'zapret2', owner: 'scanner/session', ownedRules: ['scanner-rule'] }, nfqueue: { registered: true, peer_portid: 11 } }, stabilize: [{ ok: true, stable: true }], cleanup: [{ ok: true, processRemoved: true, firewallRemoved: true, nfqueueRemoved: true, hostlistRemoved: true, temporaryFilesRemoved: true, ownedOnly: true }] },
 };
 
-test('transient Scanner exports typed session and candidate lifecycle entry points', () => {
+test('transient Scanner exports only the Task 5 lifecycle and documents the Task 7 boundary', () => {
   const source = fs.readFileSync(TRANSIENT, 'utf8');
-  for (const name of ['scanner_session_begin', 'scanner_candidate_activate', 'scanner_candidate_cleanup', 'scanner_session_restore'])
+  for (const name of ['scanner_session_begin', 'scanner_candidate_activate', 'scanner_candidate_cleanup'])
     assert.match(source, new RegExp(`export const ${name}\\s*=`));
+  assert.doesNotMatch(source, /export const scanner_session_restore/);
+  assert.match(source, /Task 7 boundary marker/);
   assert.match(source, /ScannerSession/);
   assert.match(source, /CandidateAttempt/);
   assert.match(source, /CleanupEvidence/);
@@ -196,6 +198,16 @@ test('compiled preflight rejects a seam that omits compiler-owned tokens', () =>
   assert.equal(result.error.code, 'ECONFLICT');
 });
 
+test('compiled preflight rejects an incomplete dependency closure before activation', () => {
+  const candidate = { scannerId: 'one', protocol: 'tcp', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: '5'.repeat(64) };
+  const result = invoke(`subject.scanner_candidate_activate(${JSON.stringify(candidate)}, ${JSON.stringify({
+    ...hooks, compile: { ...hooks.compile, dependencies: { available: true, structurallyCompilable: false, items: [], missing: [{ key: 'blob:x', kind: 'blob', id: 'x', reference: 'x', available: false, reason: 'missing' }] } },
+  })})`);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.stage, 'preflight');
+  assert.equal(result.error.code, 'EPREFLIGHT');
+});
+
 test('queue ownership mismatch fails closed before candidate cleanup can be claimed', () => {
   const candidate = { scannerId: 'one', protocol: 'tcp', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: '5'.repeat(64) };
   const activation = { ...hooks.runtime.activate, nfqueue: { registered: true, peer_portid: 99 } };
@@ -222,7 +234,7 @@ test('session lock release failure is an infrastructure error with recovery evid
   assert.equal(result.error.stage, 'lock');
   assert.equal(result.error.code, 'ELOCKED');
   assert.ok(result.recovery, JSON.stringify(result));
-  assert.equal(result.recovery.verifiedCleanup, true);
+  assert.equal(result.recovery.verifiedCleanup, false);
   assert.deepEqual(result.lockRelease, { ok: false, code: 'ETAMPERED', evidence: { verifiedCleanup: true } });
 });
 
@@ -235,4 +247,10 @@ test('snapshot failure retains session cleanup evidence and does not silently re
   assert.ok(result.cleanup, JSON.stringify(result));
   assert.equal(result.cleanup.verifiedCleanup, true);
   assert.equal(result.cleanup.sessionCleanup.ok, true);
+});
+
+test('recovery source releases the session lock before adapter session cleanup', () => {
+  const source = fs.readFileSync(TRANSIENT, 'utf8');
+  assert.match(source, /release_then_session_cleanup/);
+  assert.doesNotMatch(source, /profiles_transient_session_cleanup\(session\.sessionId[\s\S]{0,180}profiles_transient_unlock/);
 });

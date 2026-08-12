@@ -214,10 +214,14 @@ function scanner_stage_candidate(candidate, compiled) {
 	let dir = SCANNER_RUNTIME_ROOT + '/' + sessionId, path = dir + '/' + runtimeId + '.argv';
 	try { mkdir(SCANNER_RUNTIME_ROOT); } catch (e) { }
 	try { mkdir(dir); } catch (e) { }
+	let rootMeta = stat(SCANNER_RUNTIME_ROOT), dirMeta = stat(dir);
+	if (rootMeta == null || rootMeta.type != 'directory' || readlink(SCANNER_RUNTIME_ROOT) != null
+		|| dirMeta == null || dirMeta.type != 'directory' || readlink(dir) != null) return false;
+	if (run('chmod 700 ' + shell_escape(SCANNER_RUNTIME_ROOT) + ' ' + shell_escape(dir)).rc != 0) return false;
 	let text = '';
 	for (let token in tokens) text += token + '\n';
 	let stage = function(destination, content) {
-		let tmp = secure_temp(destination + '.tmp.XXXXXX');
+		let tmp = scanner_secure_temp(destination + '.tmp.XXXXXX');
 		if (tmp == null) return false;
 		try { writefile(tmp, content); } catch (e) { cleanup(tmp); return false; }
 		let moved = command('mv -f ' + shell_escape(tmp) + ' ' + shell_escape(destination));
@@ -244,6 +248,31 @@ function scanner_input_safe(candidate) {
 	return type(candidate) == 'object' && candidate.command == null && candidate.argv == null
 		&& candidate.args == null && candidate.executable == null && candidate.path == null
 		&& candidate.rawCommand == null && candidate.rawPath == null;
+}
+
+function scanner_dependency_closure_valid(value) {
+	if (type(value) != 'object' || value == null || value.available != true
+		|| value.structurallyCompilable != true || type(value.items) != 'array'
+		|| type(value.missing) != 'array' || length(value.missing) != 0) return false;
+	let seen = {};
+	for (let item in value.items) {
+		if (type(item) != 'object' || item == null || type(item.key) != 'string'
+			|| type(item.kind) != 'string' || type(item.id) != 'string'
+			|| type(item.reference) != 'string' || item.available != true
+			|| seen[item.key]) return false;
+		seen[item.key] = true;
+	}
+	return true;
+}
+
+function scanner_secure_temp(template) {
+	let p = popen('umask 077; mktemp ' + shell_escape(template) + ' 2>/dev/null', 'r');
+	if (!p) return null;
+	let path = trim(p.read('all')), rc = p.close();
+	if (rc != 0 || !length(path)) return null;
+	let checked = run('[ -f ' + shell_escape(path) + ' ] && [ ! -L ' + shell_escape(path) + ' ] && chmod 600 ' + shell_escape(path));
+	if (checked.rc != 0) { try { unlink(path); } catch (e) { } return null; }
+	return path;
 }
 
 function dq_escape(s) {
@@ -828,8 +857,10 @@ export const profiles_transient_compile_preflight = function(candidate, supplied
 	if (injected != null) {
 		if (injected.ok != true || type(injected.candidate) != 'string'
 			|| (injected.candidate != candidate.compiledCandidate)
-			|| (injected.dependencies != null && injected.dependencies.available != true)
-			|| (injected.native != null && injected.native.status != 'verified'))
+			|| !scanner_dependency_closure_valid(injected.dependencies)
+			|| type(injected.native) != 'object' || injected.native.status != 'verified'
+			|| injected.dependencyDigest != candidate.dependencyDigest
+			|| (candidate.dependencies != null && sprintf('%J', injected.dependencies) != sprintf('%J', candidate.dependencies)))
 			return err('preflight', injected.candidate != candidate.compiledCandidate ? 'ECONFLICT' : 'EPREFLIGHT', 'candidate preflight or compiled output was refused', { native: injected.native, dependencies: injected.dependencies });
 		if (injected.compiledDigest != candidate.compiledDigest
 			|| type(injected.compiledTokens) != 'array'
@@ -840,6 +871,8 @@ export const profiles_transient_compile_preflight = function(candidate, supplied
 	}
 	let native = native_preflight_for_apply(candidate.compiledCandidate);
 	if (!apply_decision(native)) return err('preflight', 'EPREFLIGHT', 'complete native preflight is required', { native: native });
+	if (!scanner_dependency_closure_valid(candidate.dependencies))
+		return err('preflight', 'EPREFLIGHT', 'complete dependency closure is required', { dependencies: candidate.dependencies });
 	return { ok: true, candidate: candidate.compiledCandidate, compiledTokens: candidateTokens, compiledDigest: candidate.compiledDigest,
 		dependencyDigest: candidate.dependencyDigest, dependencies: candidate.dependencies, native: native };
 };

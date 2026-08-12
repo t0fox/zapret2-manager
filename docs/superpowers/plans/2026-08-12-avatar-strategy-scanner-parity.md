@@ -410,6 +410,9 @@ runtime state. The UI module exports `load(ctx)`, `render(ctx)`, `mount(ctx)`,
 **Interfaces:**
 - Consumes: Task 3 `ScannerCandidate`, Task 4 probe/runtime dependency contracts, existing `apply.uc` writer/CAS, `profiles-apply.uc` compiler/preflight/verification, native helper, process identity, and firewall ownership primitives.
 - Produces: `scanner_session_begin`, `scanner_candidate_activate`, `scanner_candidate_cleanup`, and typed `ScannerSession`, `CandidateAttempt`, `CleanupEvidence` values.
+- Task 5 does not export a terminal restore API. Task 7 owns the later terminal
+  restoration/reconciliation integration boundary; Task 5 only owns transient
+  candidate cleanup and verified recovery evidence.
 
 - [ ] **Step 1: Add RED invariant tests.** Assert one session lock, one pre-scan snapshot, unchanged config/active Strategy identity, server-side compile/preflight binding, process identity verification, exact owned firewall/NFQUEUE setup, bounded stabilization/retry, candidate-only cleanup, and no direct Scanner config writer/raw command.
 

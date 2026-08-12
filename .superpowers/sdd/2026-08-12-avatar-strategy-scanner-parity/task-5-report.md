@@ -264,3 +264,83 @@ addressed. Task 7 terminal restoration remains deferred and is not claimed.
 ROUTER_E2E: NOT RUN
 REASON: explicit physical-router mutation/deployment approval was not provided
 ```
+
+## Fix Round 4
+
+### Status
+
+PASS WITH DOCUMENTED HOST LIMITATIONS. Round-3 Critical/Important findings were
+closed with fail-closed behavior and executable regression evidence. Task 7
+terminal restoration remains an explicit later boundary and is not exported or
+claimed by Task 5.
+
+### Fixes
+
+- Cleanup now removes and verifies `.argv`, `.argv.digest`, `.argv.meta`, PID,
+  start-time, log, hostlist, chain digest, and ownership metadata. Normal session
+  cleanup writes checked recovery evidence, removes runtime sidecars, and verifies
+  `rmdir` success.
+- Production compile preflight requires a complete dependency closure: available,
+  structurally compilable, no missing entries, unique available items, exact
+  dependency digest, exact compiled token stream, and verified native status.
+  Unavailable or structurally incomplete dependencies fail before activation.
+- Recovery ordering is centralized in `release_then_session_cleanup`: owned
+  candidate operations happen under the session lock, then lock ownership is
+  verified and released, then the adapter session directory cleanup is called.
+  Failed release retains a locked-state recovery record instead of calling an
+  adapter cleanup that rejects a held lock.
+- Removed the callable `scanner_session_restore`/`EDEFERRED` API. The source,
+  plan, and report retain only the documented Task 7 boundary marker.
+- Firewall cleanup uses an ownership lock and a controlled compare-delete test
+  transaction. Since production `nft` cannot provide atomic compare-delete for
+  this chain, production fails closed and retains ownership evidence rather than
+  deleting from a stale digest. Mutation tests prove the chain is retained.
+- Lock acquisition creates the descriptor and readiness marker inside the flock
+  holder before success is reported. Release holds an ownership lock across
+  descriptor identity/start-time/nonce checks and signaling, rechecks the PID
+  start-time after termination, and fails closed on PID reuse or tampering.
+- Journal and cleanup evidence writes are private atomic writes with sync and
+  read-back verification. Journal failure is fatal before resource creation and
+  prevents best-effort rollback from hiding missing evidence.
+- Launch validates the `.argv.meta` session, candidate, generation, nonce, and
+  compiled digest binding. Runtime roots and session directories reject symlinks,
+  use private modes, and staged files use secure temporary writes plus rename.
+- Added executable adapter evidence for metadata tamper, 64-byte nonce length,
+  concurrent ownership mutation, no-delete behavior, sidecar deletion, and
+  focused recovery-order/dependency-closure tests.
+
+### TDD And Verification
+
+- Focused/native command:
+
+  ```text
+  wsl.exe -d Ubuntu --cd /mnt/c/Users/Kirill/zapret2-manager -- env UCODE_BIN=/opt/ucode/bin/ucode UCODE_LIBRARY_PATH=/opt/ucode/lib /home/kirill/.local/bin/node --test tests/native/avatar-strategy-scanner-runtime.test.mjs tests/product/avatar-strategy-scanner-transient.test.mjs
+  ```
+
+  Result: **29 passed, 0 failed**.
+- Static checks passed: WSL `sh -n` for the runtime adapter, `node --check`
+  for both changed test files, and `git diff --check`.
+- Task 5 aggregate including Apply/compiler/package:
+
+  ```text
+  wsl.exe -d Ubuntu --cd /mnt/c/Users/Kirill/zapret2-manager -- env UCODE_BIN=/opt/ucode/bin/ucode UCODE_LIBRARY_PATH=/opt/ucode/lib /home/kirill/.local/bin/node --test tests/product/avatar-strategy-apply.test.mjs tests/product/avatar-strategy-compiler.test.mjs tests/product/avatar-strategy-scanner-transient.test.mjs tests/native/avatar-strategy-scanner-runtime.test.mjs tests/native/avatar-strategy-package.test.mjs
+  ```
+
+  Result: **94 passed, 1 pre-existing host-mode failure**. The failure is the
+  unchanged pinned catalog mode check (`advanced/discord_voice_zapret2_advanced.txt`:
+  expected `0644`, Windows-mounted checkout reports `0777`).
+- No DNS/TG-ws/router/LuCI/Orchestra files changed. No nft flush, raw caller
+  command/exec/argv/path input, permanent config write, Strategy mutation, or
+  Task 7 restoration claim was added.
+
+### Concerns
+
+- Real OpenWrt nftables, NFQUEUE, nfqws2, and production activation were not
+  available on this Windows/WSL host. Production firewall cleanup intentionally
+  fails closed until an approved atomic compare-delete primitive exists.
+- Physical-router E2E remains intentionally unrun.
+
+```text
+ROUTER_E2E: NOT RUN
+REASON: explicit physical-router mutation/deployment approval was not provided
+```
