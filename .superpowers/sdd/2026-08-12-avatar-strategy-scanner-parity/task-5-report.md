@@ -182,3 +182,85 @@ restore remains deferred and is not claimed here.
   null-indexing failures documented above.
 - No permanent config or Strategy mutation, nft flush, raw caller command/exec/
   argv/path input, or Task 7 restoration claim was added.
+
+## Fix Round 3
+
+### Status
+
+PASS WITH DOCUMENTED HOST LIMITATIONS. Critical/Important Task 5 ownership,
+cleanup, activation, lock, compiler-binding, and coordinator findings were
+addressed. Task 7 terminal restoration remains deferred and is not claimed.
+
+### Fixes
+
+- Added a private per-session ownership journal with session, candidate,
+  generation, nonce, owner, and resource-created transitions. Journal and
+  cleanup evidence files are private, atomic, regular files; failed cleanup
+  retains the ownership/evidence state and publishes recovery evidence.
+- Cleanup now deletes ownership metadata only after process, exact firewall,
+  NFQUEUE, and temporary-resource removal are each verified. Repeating cleanup
+  after a verified removal is idempotent; missing or ambiguous ownership still
+  fails closed.
+- Firewall deletion is serialized by a private ownership lock and performs an
+  immediate marker, queue, and exact chain-digest recheck immediately before the
+  fixed `nft delete chain`; no flush operation exists. The marker includes the
+  session/candidate/generation and random lock nonce.
+- Candidate argv staging uses private atomic temp files plus rename, rejects
+  symlinks, and writes a session/candidate/generation/nonce sidecar. The runtime
+  recomputes the argv digest before and immediately before launch. Compiler
+  preflight now requires compiler-owned token output and exact digest equality.
+- Coordinator paths clone candidates instead of mutating caller objects, retain
+  cleanup/recovery evidence on activation, snapshot, candidate cleanup, lock
+  release, and session-removal failures, and invoke session recovery before
+  returning an error.
+- Lock descriptors use cryptographic random bytes from `/dev/urandom`, private
+  atomic creation, and release rereads/verifies session, nonce, PID, and
+  procfs starttime under the ownership lock before signaling. Tampered
+  descriptor behavior is covered by a native shim test.
+- Explicitly added `scanner-runtime-adapter.sh` to Task 5 plan/package/test
+  coverage. No unrelated package implementation was changed.
+- Corrected the misleading lock-release test to require recovery evidence rather
+  than asserting its absence.
+
+### TDD And Verification
+
+- RED additions covered caller-object mutation, snapshot cleanup evidence,
+  compiler token omission, lock-release recovery, descriptor tampering, repeat
+  cleanup, journal/atomic metadata, and prelaunch argv/firewall invariants.
+- Focused GREEN command:
+
+  ```text
+  wsl.exe -d Ubuntu --cd /mnt/c/Users/Kirill/zapret2-manager -- env UCODE_BIN=/opt/ucode/bin/ucode UCODE_LIBRARY_PATH=/opt/ucode/lib /home/kirill/.local/bin/node --test tests/native/avatar-strategy-scanner-runtime.test.mjs tests/product/avatar-strategy-scanner-transient.test.mjs
+  ```
+
+  Result: **26 passed, 0 failed**.
+- Task 5 aggregate including Apply/compiler/package:
+
+  ```text
+  wsl.exe -d Ubuntu --cd /mnt/c/Users/Kirill/zapret2-manager -- env UCODE_BIN=/opt/ucode/bin/ucode UCODE_LIBRARY_PATH=/opt/ucode/lib /home/kirill/.local/bin/node --test tests/product/avatar-strategy-apply.test.mjs tests/product/avatar-strategy-compiler.test.mjs tests/product/avatar-strategy-scanner-transient.test.mjs tests/native/avatar-strategy-scanner-runtime.test.mjs tests/native/avatar-strategy-package.test.mjs
+  ```
+
+  Result: **91 passed, 1 pre-existing host-mode failure**. The failure is the
+  unchanged pinned catalog mode check (`advanced/discord_voice_zapret2_advanced.txt`:
+  expected `0644`, Windows-mounted checkout reports `0777`); no catalog file is
+  changed by this round.
+- `node --check` passed for both changed JavaScript test files.
+- `sh -n zapret2-manager/files/usr/libexec/zapret2-manager/scanner-runtime-adapter.sh` passed under WSL.
+- `git diff --check` passed.
+- The scanner-wide aggregate was attempted but exceeded the 120-second host
+  timeout after running unrelated suites; known pre-existing WSL ucode
+  null-indexing failures remain outside Task 5.
+
+### Concerns
+
+- Real OpenWrt nftables, NFQUEUE, nfqws2, and production ucode activation were
+  not run on this Windows/WSL host. Physical-router E2E remains intentionally
+  unrun.
+- Task 7 still owns terminal restoration/reconciliation. This report claims
+  only transient-session cleanup/recovery evidence and does not claim permanent
+  config or Strategy restoration.
+
+```text
+ROUTER_E2E: NOT RUN
+REASON: explicit physical-router mutation/deployment approval was not provided
+```

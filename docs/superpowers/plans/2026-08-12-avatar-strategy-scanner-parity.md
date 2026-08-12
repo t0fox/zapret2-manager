@@ -404,6 +404,8 @@ runtime state. The UI module exports `load(ctx)`, `render(ctx)`, `mount(ctx)`,
 - Modify: `zapret2-manager/files/usr/libexec/zapret2-manager/profiles-apply.uc`
 - Create: `tests/product/avatar-strategy-scanner-transient.test.mjs`
 - Create: `tests/native/avatar-strategy-scanner-runtime.test.mjs`
+- Modify: `zapret2-manager/files/usr/libexec/zapret2-manager/scanner-runtime-adapter.sh`
+- Coverage: `tests/native/avatar-strategy-scanner-runtime.test.mjs` and the existing package inventory test explicitly cover the shipped adapter; no package implementation change is authorized in Task 5.
 
 **Interfaces:**
 - Consumes: Task 3 `ScannerCandidate`, Task 4 probe/runtime dependency contracts, existing `apply.uc` writer/CAS, `profiles-apply.uc` compiler/preflight/verification, native helper, process identity, and firewall ownership primitives.

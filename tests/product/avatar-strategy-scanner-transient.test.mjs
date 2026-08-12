@@ -38,7 +38,7 @@ const hooks = {
     artifacts: { config: '/opt/zapret2/config', firewall: 'zapret2', nfqueue: 300, temporaryRoot: '/tmp/zapret2-manager/scanner' },
     reconciliation: { generation: 4, reference: 'pre-scan-runtime' },
   },
-  compile: { ok: true, candidate: '--filter-tcp=443', compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: '5'.repeat(64), dependencies: { available: true }, native: { status: 'verified' } },
+  compile: { ok: true, candidate: '--filter-tcp=443', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: '5'.repeat(64), dependencies: { available: true }, native: { status: 'verified' } },
   runtime: { activate: { ok: true, identityVerified: true, expectedProcess: { pid: 11, startTime: 21, exe: '/opt/zapret2/nfq2/nfqws2', argvSha256: '6'.repeat(64), owner: 'scanner/session', generation: 5 }, process: { pid: 11, startTime: 21, exe: '/opt/zapret2/nfq2/nfqws2', argvSha256: '6'.repeat(64), owner: 'scanner/session', generation: 5 }, firewall: { table: 'zapret2', owner: 'scanner/session', ownedRules: ['scanner-rule'] }, nfqueue: { registered: true, peer_portid: 11 } }, stabilize: [{ ok: true, stable: true }], cleanup: [{ ok: true, processRemoved: true, firewallRemoved: true, nfqueueRemoved: true, hostlistRemoved: true, temporaryFilesRemoved: true, ownedOnly: true }] },
 };
 
@@ -138,6 +138,17 @@ test('session snapshot carries restorable artifact references and cleanup order 
   assert.equal(result.session.restored, undefined);
 });
 
+test('coordinator does not mutate caller candidate objects while binding session ownership', () => {
+  const candidate = { scannerId: 'one', protocol: 'tcp', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: '5'.repeat(64) };
+  const expression = `let candidate = ${JSON.stringify(candidate)}; let before = sprintf('%J', candidate); let result = subject.scanner_session_run(${JSON.stringify({ candidates: [candidate] })}, ${JSON.stringify(hooks)}); print(sprintf('%J', { same: before == sprintf('%J', candidate), result: result }));`;
+  const source = `import * as subject from ${JSON.stringify(TRANSIENT)}; ${expression}`;
+  const result = spawnSync(UCODE_BIN, [...UCODE_ARGS, ...LIBRARY_ARGS, '-e', source], {
+    cwd: ROOT, env: { ...process.env, Z2M_SCANNER_SERVER_TEST: '1', LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib' }, encoding: 'utf8',
+  });
+  assert.equal(result.status, 0, `${result.stderr}\n${ucodeDiagnostic([UCODE_BIN, ...UCODE_ARGS, ...LIBRARY_ARGS, '-e', source], MODULE_PATTERN)}`);
+  assert.equal(JSON.parse(result.stdout).same, true, result.stdout);
+});
+
 test('activation failure preserves complete cleanup evidence instead of returning a bare error', () => {
   const candidate = { scannerId: 'one', protocol: 'tcp', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: '5'.repeat(64) };
   const cleanup = { ok: true, processRemoved: true, firewallRemoved: true, nfqueueRemoved: true,
@@ -168,7 +179,17 @@ test('stabilization infrastructure failure is cleaned before the session returns
 test('compiled preflight must return the exact candidate token stream and digest', () => {
   const candidate = { scannerId: 'one', protocol: 'tcp', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: '5'.repeat(64) };
   const result = invoke(`subject.scanner_candidate_activate(${JSON.stringify(candidate)}, ${JSON.stringify({
-    ...hooks, compile: { ...hooks.compile, candidate: '--filter-udp=443', compiledDigest: 'f'.repeat(64) },
+    ...hooks, compile: { ...hooks.compile, candidate: '--filter-udp=443', compiledTokens: ['--filter-udp=443'], compiledDigest: 'f'.repeat(64) },
+  })})`);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.stage, 'preflight');
+  assert.equal(result.error.code, 'ECONFLICT');
+});
+
+test('compiled preflight rejects a seam that omits compiler-owned tokens', () => {
+  const candidate = { scannerId: 'one', protocol: 'tcp', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: '5'.repeat(64) };
+  const result = invoke(`subject.scanner_candidate_activate(${JSON.stringify(candidate)}, ${JSON.stringify({
+    ...hooks, compile: { ...hooks.compile, compiledTokens: undefined },
   })})`);
   assert.equal(result.ok, false);
   assert.equal(result.error.stage, 'preflight');
@@ -200,6 +221,18 @@ test('session lock release failure is an infrastructure error with recovery evid
   assert.equal(result.ok, false);
   assert.equal(result.error.stage, 'lock');
   assert.equal(result.error.code, 'ELOCKED');
-  assert.equal(result.error.recovery, undefined);
+  assert.ok(result.recovery, JSON.stringify(result));
+  assert.equal(result.recovery.verifiedCleanup, true);
   assert.deepEqual(result.lockRelease, { ok: false, code: 'ETAMPERED', evidence: { verifiedCleanup: true } });
+});
+
+test('snapshot failure retains session cleanup evidence and does not silently release state', () => {
+  const result = invoke(`subject.scanner_session_begin(${JSON.stringify({ sessionId: 'snapshot-failure', candidates: [] })}, ${JSON.stringify({
+    ...hooks, snapshot: { ok: false, code: 'EIO', evidence: { sessionState: 'locked' } }, lockRelease: { ok: true, evidence: { sessionState: 'removed' } }, sessionCleanup: { ok: true, removed: true, verified: true },
+  })})`);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.stage, 'snapshot');
+  assert.ok(result.cleanup, JSON.stringify(result));
+  assert.equal(result.cleanup.verifiedCleanup, true);
+  assert.equal(result.cleanup.sessionCleanup.ok, true);
 });

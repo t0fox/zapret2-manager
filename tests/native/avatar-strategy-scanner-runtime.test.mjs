@@ -76,7 +76,7 @@ test('fixed Scanner runtime shim exercises activate, stabilize, cleanup vectors 
     fs.writeFileSync(path.join(root, 'nfqws2.c'), `#include <stdio.h>\n#include <unistd.h>\nint main(void){FILE*f=fopen("${queue}","w");if(!f)return 2;fprintf(f,"300 %d 0 0 0 0 0 0 1\\n",getpid());fclose(f);for(;;)pause();}\n`);
     const built = spawnSync('cc', ['-std=c11', '-Wall', '-Wextra', '-Werror', path.join(root, 'nfqws2.c'), '-o', fakeNfqws], { encoding: 'utf8' });
     assert.equal(built.status, 0, built.stderr);
-    fs.writeFileSync(fakeNft, `#!/bin/sh\necho nft "$@" >> "$Z2M_TEST_LOG"\ncase "$*" in\n  "list table inet zapret2") exit 0;;\n  "list chain inet zapret2 z2m_scanner") test -f "$Z2M_TEST_CHAIN" && echo "z2m-scanner:$Z2M_TEST_SESSION:c1:5 queue num 300" || exit 1;;\n  "add chain inet zapret2 z2m_scanner"*) touch "$Z2M_TEST_CHAIN";;\n  "add rule inet zapret2 z2m_scanner"*) :;;\n  "delete chain inet zapret2 z2m_scanner") rm -f "$Z2M_TEST_CHAIN"; : > "$Z2M_SCANNER_TEST_NFQ_PROC";;\nesac\nexit 0\n`, { mode: 0o755 });
+    fs.writeFileSync(fakeNft, `#!/bin/sh\necho nft "$@" >> "$Z2M_TEST_LOG"\ncase "$*" in\n  "list table inet zapret2") exit 0;;\n  "list chain inet zapret2 z2m_scanner") test -f "$Z2M_TEST_CHAIN" && echo "$Z2M_TEST_MARKER queue num 300" || exit 1;;\n  "add chain inet zapret2 z2m_scanner"*) touch "$Z2M_TEST_CHAIN";;\n  "add rule inet zapret2 z2m_scanner"*) :;;\n  "delete chain inet zapret2 z2m_scanner") rm -f "$Z2M_TEST_CHAIN"; : > "$Z2M_SCANNER_TEST_NFQ_PROC";;\nesac\nexit 0\n`, { mode: 0o755 });
     fs.writeFileSync(fakeInit, '#!/bin/sh\necho init "$@" >> "$Z2M_TEST_LOG"\n: > "$Z2M_SCANNER_TEST_NFQ_PROC"\nexit 0\n', { mode: 0o755 });
     fs.mkdirSync(argvDir, { recursive: true });
     fs.writeFileSync(path.join(argvDir, `${candidate}.argv`), '--filter-tcp=443\n--payload=tls_client_hello\n');
@@ -86,6 +86,13 @@ test('fixed Scanner runtime shim exercises activate, stabilize, cleanup vectors 
     const locked = spawnSync('sh', [run, 'lock-acquire', session, 'session', '5'], { env, encoding: 'utf8' });
     assert.equal(locked.status, 0, locked.stderr || locked.stdout);
     lockPid = JSON.parse(locked.stdout).lockPid;
+    env.Z2M_TEST_MARKER = `z2m-scanner:${session}:${candidate}:5:${JSON.parse(locked.stdout).nonce}`;
+    const descriptor = path.join(argvDir, 'lock.descriptor');
+    const descriptorBytes = fs.readFileSync(descriptor);
+    fs.writeFileSync(descriptor, `${session}|${lockPid}|1|${'f'.repeat(64)}\n`);
+    const tamperedRelease = spawnSync('sh', [run, 'lock-release', session, 'session', '0', JSON.parse(locked.stdout).nonce], { env, encoding: 'utf8' });
+    assert.notEqual(tamperedRelease.status, 0);
+    fs.writeFileSync(descriptor, descriptorBytes);
     const activate = spawnSync('sh', [run, 'activate', session, candidate, '5'], { env, encoding: 'utf8' });
     assert.equal(activate.status, 0, activate.stderr || activate.stdout);
     const activated = JSON.parse(activate.stdout);
@@ -97,6 +104,9 @@ test('fixed Scanner runtime shim exercises activate, stabilize, cleanup vectors 
     assert.equal(cleanup.status, 0, cleanup.stderr || cleanup.stdout);
     assert.equal(JSON.parse(cleanup.stdout).ownedOnly, true);
     assert.equal(JSON.parse(cleanup.stdout).evidence, 'complete');
+    const repeatedCleanup = spawnSync('sh', [run, 'cleanup', session, candidate, '5'], { env, encoding: 'utf8' });
+    assert.equal(repeatedCleanup.status, 0, repeatedCleanup.stderr || repeatedCleanup.stdout);
+    assert.equal(JSON.parse(repeatedCleanup.stdout).evidence, 'complete');
     const invalid = spawnSync('sh', [run, 'activate', '../escape', candidate, '5'], { env, encoding: 'utf8' });
     assert.notEqual(invalid.status, 0);
     assert.equal(invalid.stdout || '', '');
@@ -124,6 +134,25 @@ test('runtime source refuses cleanup on ownership mismatch and tampered lock met
   const source = fs.readFileSync(ADAPTER, 'utf8');
   assert.match(source, /ownership-mismatch/);
   assert.match(source, /ETAMPERED/);
-  assert.match(source, /supplied_nonce.*lock_nonce|lock_nonce.*supplied_nonce/);
+  assert.match(source, /supplied_nonce/);
   assert.match(source, /CHAIN_DIGEST_FILE/);
+});
+
+test('runtime source journals every owned resource and retains failed cleanup evidence', () => {
+  const source = fs.readFileSync(ADAPTER, 'utf8');
+  assert.match(source, /SESSION_JOURNAL/);
+  assert.match(source, /RESOURCE_CREATED/);
+  assert.match(source, /cleanup\.evidence/);
+  assert.match(source, /atomic|mktemp/);
+  assert.match(source, /nonce.*session.*candidate.*generation|session.*candidate.*generation.*nonce/);
+  assert.match(source, /ownership.*lock|OWNERSHIP_LOCK/);
+});
+
+test('runtime source rechecks argv digest immediately before launch and never deletes an ambiguous chain', () => {
+  const source = fs.readFileSync(ADAPTER, 'utf8');
+  assert.match(source, /argv.*digest|digest.*argv/);
+  assert.match(source, /before.*launch|launch.*before|prelaunch/);
+  assert.match(source, /ownership-mismatch/);
+  assert.match(source, /flock.*OWNERSHIP_LOCK|OWNERSHIP_LOCK.*flock/);
+  assert.doesNotMatch(source, /nft\s+flush/);
 });

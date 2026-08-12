@@ -208,14 +208,28 @@ function scanner_stage_candidate(candidate, compiled) {
 	if (tokens == null || !scanner_safe_id(sessionId) || runtimeId == null
 		|| type(compiled) != 'object' || compiled == null || type(compiled.candidate) != 'string'
 		|| expected == null || sprintf('%J', tokens) != sprintf('%J', expected)
-		|| compiled.candidate != join(' ', tokens) || compiled.compiledDigest != candidate.compiledDigest) return false;
+		|| compiled.candidate != join(' ', tokens) || compiled.compiledDigest != candidate.compiledDigest
+		|| type(candidate.generation) != 'int' || candidate.generation < 0
+		|| type(candidate.argvNonce) != 'string' || !match(candidate.argvNonce, /^[a-f0-9]{32,128}$/)) return false;
 	let dir = SCANNER_RUNTIME_ROOT + '/' + sessionId, path = dir + '/' + runtimeId + '.argv';
 	try { mkdir(SCANNER_RUNTIME_ROOT); } catch (e) { }
 	try { mkdir(dir); } catch (e) { }
 	let text = '';
 	for (let token in tokens) text += token + '\n';
-	try { writefile(path, text); writefile(path + '.digest', candidate.compiledDigest + '\n'); } catch (e) { return false; }
-	return readfile(path) == text && readfile(path + '.digest') == candidate.compiledDigest + '\n';
+	let stage = function(destination, content) {
+		let tmp = secure_temp(destination + '.tmp.XXXXXX');
+		if (tmp == null) return false;
+		try { writefile(tmp, content); } catch (e) { cleanup(tmp); return false; }
+		let moved = command('mv -f ' + shell_escape(tmp) + ' ' + shell_escape(destination));
+		if (moved.rc != 0) { cleanup(tmp); return false; }
+		let metadata = stat(destination);
+		return metadata != null && metadata.type == 'file' && readlink(destination) == null;
+	};
+	let sidecar = sprintf('%J', { schema: 1, session: sessionId, candidate: runtimeId,
+		generation: candidate.generation, nonce: candidate.argvNonce, compiledDigest: candidate.compiledDigest }) + '\n';
+	if (!stage(path, text) || !stage(path + '.digest', candidate.compiledDigest + '\n') || !stage(path + '.meta', sidecar)) return false;
+	return readfile(path) == text && readfile(path + '.digest') == candidate.compiledDigest + '\n'
+		&& readfile(path + '.meta') == sidecar;
 }
 
 function scanner_process_identity(value, owner) {
@@ -818,7 +832,8 @@ export const profiles_transient_compile_preflight = function(candidate, supplied
 			|| (injected.native != null && injected.native.status != 'verified'))
 			return err('preflight', injected.candidate != candidate.compiledCandidate ? 'ECONFLICT' : 'EPREFLIGHT', 'candidate preflight or compiled output was refused', { native: injected.native, dependencies: injected.dependencies });
 		if (injected.compiledDigest != candidate.compiledDigest
-			|| (type(injected.compiledTokens) == 'array' && sprintf('%J', injected.compiledTokens) != sprintf('%J', candidate.compiledTokens)))
+			|| type(injected.compiledTokens) != 'array'
+			|| sprintf('%J', injected.compiledTokens) != sprintf('%J', candidateTokens))
 			return err('preflight', 'ECONFLICT', 'compiled output does not match the candidate token stream');
 		injected.compiledTokens = candidateTokens;
 		return injected;
