@@ -63,6 +63,10 @@ export const scanner_baseline_classify = function(raw) {
 			return { protocol: 'udp', baselineOpen: false, allAvailableOpen: false,
 				byAddressFamily: {}, probeAddressFamilies: ['ipv4'], infrastructureFailure: true,
 				error: 'PROBE_DEPENDENCY' };
+		if (!valid_nonnegative_number(raw.latencyMs))
+			return { protocol: 'udp', baselineOpen: false, allAvailableOpen: false,
+				byAddressFamily: {}, probeAddressFamilies: ['ipv4'], infrastructureFailure: true,
+				error: 'INVALID_BASELINE' };
 		if (raw.status == 'success' && raw.mappedFamily != 'IPv4')
 			return { protocol: 'udp', baselineOpen: false, allAvailableOpen: false,
 				byAddressFamily: {}, probeAddressFamilies: ['ipv4'], infrastructureFailure: true,

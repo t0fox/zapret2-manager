@@ -271,6 +271,40 @@ test('UDP rejects missing, negative, NaN, Infinity, and otherwise invalid latenc
   }
 });
 
+test('UDP baseline rejects invalid latency without publishing baseline evidence', () => {
+  for (const raw of [
+    { protocol: 'udp', transport: 'stun', status: 'success', mappedFamily: 'IPv4' },
+    { protocol: 'udp', transport: 'stun', status: 'success', mappedFamily: 'IPv4', latencyMs: null },
+    { protocol: 'udp', transport: 'stun', status: 'success', mappedFamily: 'IPv4', latencyMs: -1 },
+    { protocol: 'udp', transport: 'stun', status: 'success', mappedFamily: 'IPv4', latencyMs: '80' },
+  ]) {
+    const result = call('scanner_baseline_classify', raw);
+    assert.equal(result.infrastructureFailure, true, JSON.stringify(raw));
+    assert.equal(result.error, 'INVALID_BASELINE', JSON.stringify(raw));
+    assert.deepEqual(result.byAddressFamily, {}, JSON.stringify(raw));
+  }
+
+  for (const expression of [
+    'subject.scanner_baseline_classify({protocol: "udp", transport: "stun", status: "success", mappedFamily: "IPv4", latencyMs: 0 / 0})',
+    'subject.scanner_baseline_classify({protocol: "udp", transport: "stun", status: "success", mappedFamily: "IPv4", latencyMs: 1 / 0})',
+  ]) {
+    const result = callExpression(expression);
+    assert.equal(result.infrastructureFailure, true, expression);
+    assert.equal(result.error, 'INVALID_BASELINE', expression);
+    assert.deepEqual(result.byAddressFamily, {}, expression);
+  }
+});
+
+test('UDP baseline preserves valid latency and STUN mapped-family semantics', () => {
+  const result = call('scanner_baseline_classify', {
+    protocol: 'udp', transport: 'stun', status: 'timeout', latencyMs: 4000,
+  });
+  assert.equal(result.infrastructureFailure, false);
+  assert.equal(result.byAddressFamily.ipv4.latencyMs, 4000);
+  assert.equal(result.byAddressFamily.ipv4.status, 'timeout');
+  assert.equal(result.byAddressFamily.ipv4.available, true);
+});
+
 test('score formulas are exact and infrastructure outcomes are not scored', () => {
   assert.equal(call('scanner_score', { protocol: 'tcp', success: true,
     successRate: 1, averageKbps: 1000, averageLatencyMs: 100 }), 10000);
