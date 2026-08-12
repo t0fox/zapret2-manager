@@ -296,7 +296,7 @@ test('staged package upgrade preserves user Strategies, favorites, selection, an
       [legacyState, fs.readFileSync(legacyState)],
     ]);
 
-    for (const name of ['z2m-core-helper', 'z2m-root-bootstrap', 'z2m-helperd']) {
+    for (const name of ['z2m-core-helper', 'z2m-root-bootstrap', 'z2m-scanner-firewall-helper', 'z2m-helperd']) {
       fs.writeFileSync(path.join(buildRoot, name), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
       fs.chmodSync(path.join(buildRoot, name), 0o755);
     }

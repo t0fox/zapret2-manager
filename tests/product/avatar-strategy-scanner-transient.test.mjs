@@ -266,9 +266,11 @@ test('recovery source releases the session lock before adapter session cleanup',
   assert.doesNotMatch(source, /profiles_transient_session_cleanup\(session\.sessionId[\s\S]{0,180}profiles_transient_unlock/);
 });
 
-test('production firewall cleanup remains fail-closed without a native compare-delete owner', () => {
+test('production firewall cleanup delegates compare-delete to the fixed native owner', () => {
   const source = fs.readFileSync(RUNTIME_ADAPTER, 'utf8');
-  assert.match(source, /nft cannot atomically compare and delete/);
-  assert.match(source, /Z2M_SCANNER_RUNTIME_SHIM.*Z2M_SCANNER_TEST_NFT_CAS/);
-  assert.match(source, /return 42/);
+  assert.match(source, /z2m-scanner-firewall-helper/);
+  assert.match(source, /compare_delete/);
+  assert.match(source, /ownershipToken/);
+  assert.match(source, /expectedChainDigest/);
+  assert.doesNotMatch(source, /nft\s+delete\s+chain/);
 });

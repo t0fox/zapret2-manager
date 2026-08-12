@@ -265,6 +265,72 @@ ROUTER_E2E: NOT RUN
 REASON: explicit physical-router mutation/deployment approval was not provided
 ```
 
+## Final Architecture Fix
+
+### Status
+
+COMPLETE WITH DOCUMENTED PRODUCTION LIMITATION. Production Scanner cleanup now
+uses a dedicated root-owned native compare-delete helper. Task 5 no longer relies
+on the test-only firewall CAS shim and does not claim a fail-closed-disabled
+production path.
+
+### Native Boundary
+
+- Added `z2m-scanner-firewall-helper.c`, packaged as
+  `/usr/libexec/zapret2-manager/z2m-scanner-firewall-helper`.
+- The helper accepts one fixed JSON request with only session, candidate,
+  generation, nonce, ownership token, marker, and expected chain digest. It does
+  not accept an executable, path, command, raw argv, table, chain, queue, or nft
+  path from callers.
+- It fixes nft to `/usr/sbin/nft`, table `zapret2`, chain `z2m_scanner`, and
+  queue `300`; serializes ownership with a root-owned lock; verifies the exact
+  marker, queue occurrence, and chain digest; and issues only
+  `nft delete chain inet zapret2 z2m_scanner` after the checks pass.
+- Any mismatch, nft failure, post-delete ambiguity, or evidence-write failure
+  returns failure and retains evidence. No nft flush operation exists.
+- `scanner-runtime-adapter.sh` production cleanup invokes this fixed helper;
+  the test helper remains injectable only inside the existing explicit test
+  shim boundary.
+
+### Verification
+
+- RED focused assertion was observed before implementation: the new production
+  helper/vector contract failed because the helper did not yet exist.
+- Native helper behavioral test passed under WSL: exact ownership deleted the
+  chain; a mutated digest retained the chain and wrote ownership-mismatch
+  evidence.
+- Focused Task 5/package command: **49 passed, 1 unrelated host-mode failure**.
+  The unrelated failure is the pinned catalog file permission check where the
+  Windows-mounted checkout reports `0777` instead of `0644`.
+- `node --check` passed for all changed JavaScript tests.
+- WSL `sh -n zapret2-manager/files/usr/libexec/zapret2-manager/scanner-runtime-adapter.sh` passed.
+- `git diff --check` passed.
+
+### Exact Production Limitation
+
+The real OpenWrt target package build, live `/usr/sbin/nft`, nfqws2,
+NFQUEUE, and physical-router E2E were not available in this Windows/WSL
+checkout. The native helper compiled and ran behaviorally against a fixed nft
+test binary, but real nft mutation remains unexecuted here. The helper is
+therefore implemented and wired for production, with live-router execution
+explicitly pending target deployment; this report does not claim that live nft
+mutation was verified.
+
+### Files Added/Changed
+
+- `zapret2-manager/src/z2m-scanner-firewall-helper.c`
+- `zapret2-manager/Makefile`
+- `zapret2-manager/files/usr/libexec/zapret2-manager/scanner-runtime-adapter.sh`
+- `tests/native/avatar-strategy-firewall-helper.test.mjs`
+- `tests/native/avatar-strategy-scanner-runtime.test.mjs`
+- `tests/native/avatar-strategy-package.test.mjs`
+- `tests/native/core/native-helper-production-e2e.test.mjs`
+- `tests/product/avatar-strategy-scanner-transient.test.mjs`
+- `docs/superpowers/plans/2026-08-12-avatar-strategy-scanner-parity.md`
+
+No callable Task 7 restore API, permanent config writer, Strategy mutation, raw
+caller command/path/argv input, or nft flush was added.
+
 ## Fix Round 5
 
 ### Status

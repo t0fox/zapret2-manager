@@ -27,6 +27,7 @@ define Build/Prepare
 	mkdir -p $(PKG_BUILD_DIR)
 	$(CP) ./src/z2m-core-helper/* $(PKG_BUILD_DIR)/
 	$(CP) ./src/z2m-root-bootstrap.c $(PKG_BUILD_DIR)/
+	$(CP) ./src/z2m-scanner-firewall-helper.c $(PKG_BUILD_DIR)/
 	mkdir -p $(PKG_BUILD_DIR)/z2m-helperd-src
 	$(CP) ./src/z2m-helperd/* $(PKG_BUILD_DIR)/z2m-helperd-src/
 endef
@@ -52,6 +53,11 @@ define Build/Compile
 		$(PKG_BUILD_DIR)/z2m-root-bootstrap.c \
 		$(TARGET_LDFLAGS) \
 		-o $(PKG_BUILD_DIR)/z2m-root-bootstrap
+	$(TARGET_CC) $(TARGET_CPPFLAGS) $(TARGET_CFLAGS) \
+		-std=c11 -Wall -Wextra -Werror -D_GNU_SOURCE \
+		$(PKG_BUILD_DIR)/z2m-scanner-firewall-helper.c \
+		$(TARGET_LDFLAGS) -ljson-c \
+		-o $(PKG_BUILD_DIR)/z2m-scanner-firewall-helper
 	$(TARGET_CC) $(TARGET_CPPFLAGS) $(TARGET_CFLAGS) \
 		-std=c11 -Wall -Wextra -Werror -D_GNU_SOURCE \
 		$(PKG_BUILD_DIR)/z2m-helperd-src/z2m-helperd.c \
@@ -80,6 +86,7 @@ define Package/zapret2-manager/install
 	$(INSTALL_DIR) $(1)/usr/libexec/zapret2-manager
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/z2m-core-helper $(1)/usr/libexec/zapret2-manager/z2m-core-helper
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/z2m-root-bootstrap $(1)/usr/libexec/zapret2-manager/z2m-root-bootstrap
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/z2m-scanner-firewall-helper $(1)/usr/libexec/zapret2-manager/z2m-scanner-firewall-helper
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/z2m-helperd $(1)/usr/libexec/zapret2-manager/z2m-helperd
 endef
 

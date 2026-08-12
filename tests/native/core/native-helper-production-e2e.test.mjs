@@ -11,14 +11,16 @@ const PACKAGE_FILES = new Map([
   ['usr/libexec/zapret2-manager/z2m-helperd', 0o755],
   ['usr/libexec/zapret2-manager/z2m-core-helper', 0o755],
   ['usr/libexec/zapret2-manager/z2m-root-bootstrap', 0o755],
+  ['usr/libexec/zapret2-manager/z2m-scanner-firewall-helper', 0o755],
   ['usr/libexec/zapret2-manager/core/native-helper.uc', 0o644],
   ['etc/init.d/zapret2-manager', 0o755],
 ]);
-const EXECUTABLES = [...PACKAGE_FILES.keys()].slice(0, 3);
+const EXECUTABLES = [...PACKAGE_FILES.keys()].filter(relative => relative.includes('/z2m-'));
 const BUILD_BASENAMES = new Map([
   ['usr/libexec/zapret2-manager/z2m-helperd', 'z2m-helperd'],
   ['usr/libexec/zapret2-manager/z2m-core-helper', 'z2m-core-helper'],
   ['usr/libexec/zapret2-manager/z2m-root-bootstrap', 'z2m-root-bootstrap'],
+  ['usr/libexec/zapret2-manager/z2m-scanner-firewall-helper', 'z2m-scanner-firewall-helper'],
 ]);
 const REQUIRED_FEED_LINKS = new Map([
   ['package/feeds/base/uclient', '../../../feeds/base/libs/uclient'],

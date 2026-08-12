@@ -8,6 +8,7 @@ BASE=/tmp/zapret2-manager
 ROOT=$BASE/scanner
 NFQWS2=/opt/zapret2/nfq2/nfqws2
 NFT=/usr/sbin/nft
+FIREWALL_HELPER=/usr/libexec/zapret2-manager/z2m-scanner-firewall-helper
 NFQ_PROC=/proc/net/netfilter/nfnetlink_queue
 INIT=/etc/init.d/zapret2
 LOCK=/opt/zapret2/config.lock
@@ -20,6 +21,7 @@ if [ "${Z2M_SCANNER_RUNTIME_SHIM:-0}" = 1 ]; then
 	[ "${Z2M_SCANNER_SERVER_TEST:-0}" = 1 ] || { printf '%s\n' '{"ok":false,"code":"EINPUT","stage":"input"}'; exit 1; }
 	NFQWS2=${Z2M_SCANNER_TEST_NFQWS2:-$NFQWS2}
 	NFT=${Z2M_SCANNER_TEST_NFT:-$NFT}
+	FIREWALL_HELPER=${Z2M_SCANNER_TEST_FIREWALL_HELPER:-$FIREWALL_HELPER}
 	INIT=${Z2M_SCANNER_TEST_INIT:-$INIT}
 	NFQ_PROC=${Z2M_SCANNER_TEST_NFQ_PROC:-$NFQ_PROC}
 	LOCK=${Z2M_SCANNER_TEST_LOCK:-$LOCK}
@@ -127,20 +129,16 @@ chain_owned() {
 }
 
 firewall_delete_owned() {
-	# nft cannot atomically compare and delete a chain. Production fails closed;
-	# only the controlled shim enables the test ownership transaction.
-	[ "${Z2M_SCANNER_RUNTIME_SHIM:-0}" = 1 ] && [ "${Z2M_SCANNER_TEST_NFT_CAS:-0}" = 1 ] || return 42
-	flock -x "$OWNERSHIP_LOCK" sh -c '
-		nft=$1; table=$2; chain=$3; queue=$4; marker=$5; expected=$6
-		text=$("$nft" list chain inet "$table" "$chain" 2>/dev/null || true)
-		count=$(printf "%s\\n" "$text" | grep -F -c "$marker" || true)
-		queues=$(printf "%s\\n" "$text" | grep -F -c "queue num $queue" || true)
-		actual=$(printf "%s\\n" "$text" | sha256sum | cut -d " " -f1)
-		[ "$count" = 1 ] && [ "$queues" = 1 ] && [ "$actual" = "$expected" ] || exit 42
-		"$nft" delete chain inet "$table" "$chain" >/dev/null 2>&1 || exit 43
-		text=$("$nft" list chain inet "$table" "$chain" 2>/dev/null || true)
-		[ -z "$text" ] || exit 44
-	' sh "$NFT" "$TABLE" "$CHAIN" "$QUEUE" "$marker" "$(cat "$CHAIN_DIGEST_FILE" 2>/dev/null || true)"
+	[ -x "$FIREWALL_HELPER" ] || return 42
+	owned_record=$(cat "$OWNERSHIP_FILE" 2>/dev/null || true)
+	owned_marker=$(printf '%s\n' "$owned_record" | cut -d '|' -f4)
+	owned_nonce=$(printf '%s\n' "$owned_record" | cut -d '|' -f5)
+	ownership_token="scanner-firewall-v1:$session:$candidate:$generation:$owned_nonce"
+	expected_chain_digest=$(cat "$CHAIN_DIGEST_FILE" 2>/dev/null || true)
+	request=$(printf '{"candidate":"%s","expectedChainDigest":"%s","generation":%s,"marker":"%s","nonce":"%s","operation":"compare_delete","ownershipToken":"%s","session":"%s"}\n' \
+		"$candidate" "$expected_chain_digest" "$generation" "$owned_marker" "$owned_nonce" "$ownership_token" "$session")
+	response=$(printf '%s' "$request" | "$FIREWALL_HELPER" 2>/dev/null) || return 42
+	printf '%s\n' "$response" | grep -F -q '"ok":true' || return 42
 }
 
 atomic_private_write() {

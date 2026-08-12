@@ -35,6 +35,7 @@ const productionSources = [
   'sha256.c',
 ];
 const brokerSources = ['z2m-helperd.c', 'transport.c', 'supervise.c'];
+const scannerFirewallHelperSource = 'z2m-scanner-firewall-helper.c';
 const nativeHelperAdapterPath = 'zapret2-manager/files/usr/libexec/zapret2-manager/core/native-helper.uc';
 
 test('core helper does not mix libc and Linux UAPI statx declarations', () => {
@@ -583,6 +584,18 @@ test('package target-builds the complete production helper with json-c', () => {
 
   assert.match(makefile, /^\s*DEPENDS:=[^\n]*\+libjson-c(?:\s|$)/m,
     'package must declare the libjson-c runtime dependency');
+});
+
+test('package builds and installs the fixed Scanner firewall ownership helper', () => {
+  assert.ok(fs.existsSync(`zapret2-manager/src/${scannerFirewallHelperSource}`));
+  const prepare = block('Build/Prepare');
+  assert.match(prepare, new RegExp(`src/${scannerFirewallHelperSource}`));
+  const compile = block('Build/Compile');
+  assert.match(compile, new RegExp(`\\$\\(PKG_BUILD_DIR\\)/${scannerFirewallHelperSource}`));
+  assert.match(compile, /-o\s+\$\(PKG_BUILD_DIR\)\/z2m-scanner-firewall-helper/);
+  assert.match(compile, /-ljson-c/);
+  const install = block('Package/zapret2-manager/install');
+  assert.match(install, /z2m-scanner-firewall-helper\s+\$\(1\)\/usr\/libexec\/zapret2-manager\/z2m-scanner-firewall-helper/);
 });
 
 test('package prepares sources separately and installs only the executable', () => {

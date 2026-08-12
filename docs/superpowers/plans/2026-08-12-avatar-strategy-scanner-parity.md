@@ -21,9 +21,9 @@
 - Persistent config and active Strategy identity remain unchanged throughout scanning.
 - Candidate cleanup removes only that candidate’s owned process, firewall/NFQUEUE rules, temporary files, hostlist, and other owned artifacts before the next candidate.
 - The original pre-scan runtime/firewall state is restored once during terminal cleanup.
-- Task 5 production firewall deletion remains incomplete until a native helper or
-  server-owned transaction can atomically compare ownership and delete the chain;
-  the current adapter fails closed and never falls back to `nft flush`.
+- Task 5 production firewall deletion uses a dedicated root-owned native helper
+  that compares ownership and deletes only the fixed Scanner chain; the adapter
+  never falls back to `nft flush`.
 - Verified cancellation publishes `cancelled` with `recovery.state = verified`.
 - Unproven cancellation restoration publishes `error` with `recovery.state = uncertain`.
 - `cancelled` plus `recovery.state = uncertain` is forbidden.
@@ -407,8 +407,9 @@ runtime state. The UI module exports `load(ctx)`, `render(ctx)`, `mount(ctx)`,
 - Modify: `zapret2-manager/files/usr/libexec/zapret2-manager/profiles-apply.uc`
 - Create: `tests/product/avatar-strategy-scanner-transient.test.mjs`
 - Create: `tests/native/avatar-strategy-scanner-runtime.test.mjs`
+- Create: `zapret2-manager/src/z2m-scanner-firewall-helper.c` — dedicated root-owned fixed Scanner firewall compare-delete primitive authorized by the native-helper boundary.
 - Modify: `zapret2-manager/files/usr/libexec/zapret2-manager/scanner-runtime-adapter.sh`
-- Coverage: `tests/native/avatar-strategy-scanner-runtime.test.mjs` and the existing package inventory test explicitly cover the shipped adapter; no package implementation change is authorized in Task 5.
+- Coverage: `tests/native/avatar-strategy-scanner-runtime.test.mjs`, `tests/native/avatar-strategy-firewall-helper.test.mjs`, `tests/native/avatar-strategy-package.test.mjs`, and the native production package inventory explicitly cover the shipped adapter and helper. The dedicated native helper/package change is authorized by this plan's native-helper boundary; no unrelated package implementation change is authorized.
 
 **Interfaces:**
 - Consumes: Task 3 `ScannerCandidate`, Task 4 probe/runtime dependency contracts, existing `apply.uc` writer/CAS, `profiles-apply.uc` compiler/preflight/verification, native helper, process identity, and firewall ownership primitives.

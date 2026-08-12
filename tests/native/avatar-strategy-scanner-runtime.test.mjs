@@ -46,6 +46,12 @@ test('Scanner runtime adapter exposes only fixed operation vectors and fixed pro
   assert.match(source, /\/usr\/sbin\/nft/);
   assert.match(source, /activate\|stabilize\|cleanup/);
   assert.match(source, /Z2M_SCANNER_RUNTIME_SHIM/);
+  assert.match(source, /z2m-scanner-firewall-helper/);
+  assert.match(source, /compare_delete/);
+  assert.match(source, /ownershipToken/);
+  assert.match(source, /expectedChainDigest/);
+  assert.doesNotMatch(source, /nft\s+delete\s+chain/,
+    'production shell adapter must not own the compare-delete mutation');
   assert.doesNotMatch(source, /eval\s|nft\s+flush\s+ruleset|\$\{[^}]*\b(?:command|exec|argv|path)\b/);
   assert.match(source, /hostlist=\*\|--hostlist-exclude=\*\|--hostlist-auto=\*\|--ipset=\*/);
   assert.match(source, /\/opt\/zapret2\/\*\|\/tmp\/zapret2-manager\/scanner\/\*/);
@@ -68,8 +74,10 @@ test('fixed Scanner runtime shim exercises activate, stabilize, cleanup vectors 
   const fakeNfqws = path.join(root, 'nfqws2');
   const fakeNft = path.join(root, 'nft');
   const fakeInit = path.join(root, 'init');
+  const firewallHelper = path.join(root, 'firewall-helper');
   const queue = path.join(root, 'queue');
   const log = path.join(root, 'calls');
+  const helperLog = path.join(root, 'firewall-helper.json');
   const argvDir = path.join('/tmp/zapret2-manager/scanner', session);
   let lockPid;
   try {
@@ -78,10 +86,11 @@ test('fixed Scanner runtime shim exercises activate, stabilize, cleanup vectors 
     assert.equal(built.status, 0, built.stderr);
     fs.writeFileSync(fakeNft, `#!/bin/sh\necho nft "$@" >> "$Z2M_TEST_LOG"\ncase "$*" in\n  "list table inet zapret2") exit 0;;\n  "list chain inet zapret2 z2m_scanner") test -f "$Z2M_TEST_CHAIN" || exit 1; echo "$Z2M_TEST_MARKER queue num 300"; test "\${Z2M_TEST_MUTATE:-0}" = 1 && echo "foreign mutation";;\n  "add chain inet zapret2 z2m_scanner"*) touch "$Z2M_TEST_CHAIN";;\n  "add rule inet zapret2 z2m_scanner"*) :;;\n  "delete chain inet zapret2 z2m_scanner") rm -f "$Z2M_TEST_CHAIN"; : > "$Z2M_SCANNER_TEST_NFQ_PROC";;\nesac\nexit 0\n`, { mode: 0o755 });
     fs.writeFileSync(fakeInit, '#!/bin/sh\necho init "$@" >> "$Z2M_TEST_LOG"\n: > "$Z2M_SCANNER_TEST_NFQ_PROC"\nexit 0\n', { mode: 0o755 });
+    fs.writeFileSync(firewallHelper, '#!/bin/sh\ncat > "$Z2M_TEST_FIREWALL_HELPER_LOG"\nrm -f "$Z2M_TEST_CHAIN"\n: > "$Z2M_SCANNER_TEST_NFQ_PROC"\nprintf \'%s\\n\' \'{"ok":true,"firewallRemoved":true,"evidence":"native-compare-delete"}\'\n', { mode: 0o755 });
     fs.mkdirSync(argvDir, { recursive: true });
     fs.writeFileSync(path.join(argvDir, `${candidate}.argv`), '--filter-tcp=443\n--payload=tls_client_hello\n');
     fs.writeFileSync(path.join(argvDir, `${candidate}.argv.digest`), `${crypto.createHash('sha256').update('--filter-tcp=443\n--payload=tls_client_hello\n').digest('hex')}\n`);
-    const env = { ...process.env, PATH: `${root}:${process.env.PATH}`, Z2M_SCANNER_RUNTIME_SHIM: '1', Z2M_SCANNER_SERVER_TEST: '1', Z2M_SCANNER_TEST_NFQWS2: fakeNfqws, Z2M_SCANNER_TEST_NFT: fakeNft, Z2M_SCANNER_TEST_INIT: fakeInit, Z2M_SCANNER_TEST_NFQ_PROC: queue, Z2M_SCANNER_TEST_LOCK: path.join(root, 'config.lock'), Z2M_TEST_LOG: log, Z2M_TEST_CHAIN: path.join(root, 'chain'), Z2M_TEST_SESSION: session, Z2M_TEST_PID_FILE: path.join(argvDir, `${candidate}.pid`), Z2M_SCANNER_TEST_NFT_CAS: '1' };
+    const env = { ...process.env, PATH: `${root}:${process.env.PATH}`, Z2M_SCANNER_RUNTIME_SHIM: '1', Z2M_SCANNER_SERVER_TEST: '1', Z2M_SCANNER_TEST_NFQWS2: fakeNfqws, Z2M_SCANNER_TEST_NFT: fakeNft, Z2M_SCANNER_TEST_INIT: fakeInit, Z2M_SCANNER_TEST_FIREWALL_HELPER: firewallHelper, Z2M_TEST_FIREWALL_HELPER_LOG: helperLog, Z2M_SCANNER_TEST_NFQ_PROC: queue, Z2M_SCANNER_TEST_LOCK: path.join(root, 'config.lock'), Z2M_TEST_LOG: log, Z2M_TEST_CHAIN: path.join(root, 'chain'), Z2M_TEST_SESSION: session, Z2M_TEST_PID_FILE: path.join(argvDir, `${candidate}.pid`) };
     fs.writeFileSync(queue, '300 0 0 0 0 0 0 0 1\n');
     const locked = spawnSync('sh', [run, 'lock-acquire', session, 'session', '5'], { env, encoding: 'utf8' });
     assert.equal(locked.status, 0, locked.stderr || locked.stdout);
@@ -116,6 +125,17 @@ test('fixed Scanner runtime shim exercises activate, stabilize, cleanup vectors 
     assert.equal(cleanup.status, 0, cleanup.stderr || cleanup.stdout);
     assert.equal(JSON.parse(cleanup.stdout).ownedOnly, true);
     assert.equal(JSON.parse(cleanup.stdout).evidence, 'complete');
+    const helperRequest = JSON.parse(fs.readFileSync(helperLog, 'utf8'));
+    assert.deepEqual(Object.keys(helperRequest).sort(),
+      ['candidate', 'expectedChainDigest', 'generation', 'marker', 'nonce', 'operation', 'ownershipToken', 'session']);
+    assert.equal(helperRequest.operation, 'compare_delete');
+    assert.equal(helperRequest.session, session);
+    assert.equal(helperRequest.candidate, candidate);
+    assert.equal(helperRequest.generation, 5);
+    assert.equal(helperRequest.nonce, JSON.parse(locked.stdout).nonce);
+    assert.match(helperRequest.marker, new RegExp(`^z2m-scanner:${session}:${candidate}:5:`));
+    assert.match(helperRequest.ownershipToken, new RegExp(`^scanner-firewall-v1:${session}:${candidate}:5:`));
+    assert.match(helperRequest.expectedChainDigest, /^[a-f0-9]{64}$/);
     const repeatedCleanup = spawnSync('sh', [run, 'cleanup', session, candidate, '5'], { env, encoding: 'utf8' });
     assert.equal(repeatedCleanup.status, 0, repeatedCleanup.stderr || repeatedCleanup.stdout);
     assert.equal(JSON.parse(repeatedCleanup.stdout).evidence, 'complete');
@@ -141,8 +161,9 @@ test('runtime refuses to delete a chain after a concurrent ownership mutation', 
     return;
   }
   const source = fs.readFileSync(ADAPTER, 'utf8');
-  assert.match(source, /Z2M_SCANNER_TEST_NFT_CAS/);
-  assert.match(source, /fail closed|ownership-mismatch/);
+  assert.match(source, /z2m-scanner-firewall-helper/);
+  assert.match(source, /expectedChainDigest/);
+  assert.match(source, /ownership-mismatch/);
 });
 
 test('runtime source requires generation-bound exact ownership, nonce-bound locks, and session removal evidence', () => {
@@ -262,7 +283,8 @@ test('runtime source rechecks argv digest immediately before launch and never de
   assert.match(source, /argv.*digest|digest.*argv/);
   assert.match(source, /before.*launch|launch.*before|prelaunch/);
   assert.match(source, /ownership-mismatch/);
-  assert.match(source, /flock.*OWNERSHIP_LOCK|OWNERSHIP_LOCK.*flock/);
+  assert.match(source, /z2m-scanner-firewall-helper/);
+  assert.match(source, /ownershipToken/);
   assert.doesNotMatch(source, /nft\s+flush/);
-  assert.match(source, /atomic compare|NFT_ATOMIC|NFT_CAS/);
+  assert.match(source, /z2m-scanner-firewall-helper|compare_delete/);
 });
