@@ -9,6 +9,8 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const TARGETS = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-targets.uc');
 const MODEL = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-model.uc');
 const PLANNER = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-planner.uc');
+const PROBES = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-probes.uc');
+const PROBE_ADAPTER = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-probe-adapter.uc');
 const FIXTURE = path.join(ROOT, 'tests/fixtures/avatar-strategy-scanner/targets.json');
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.split('|') : [];
@@ -28,7 +30,7 @@ function invoke(functionName, ...args) {
 const fixture = JSON.parse(readFileSync(FIXTURE, 'utf8'));
 
 test('pure Scanner modules have no runtime or I/O imports', () => {
-  for (const file of [MODEL, TARGETS]) {
+  for (const file of [MODEL, TARGETS, PROBES]) {
     const source = readFileSync(file, 'utf8');
     assert.doesNotMatch(source, /^\s*import\s/m, file);
     assert.doesNotMatch(source, /(?:firewall|network|rpc|frontend|orchestra|apply|popen|readfile|writefile|from ['"]fs['"])/i, file);
@@ -37,6 +39,19 @@ test('pure Scanner modules have no runtime or I/O imports', () => {
   assert.doesNotMatch(planner, /(?:firewall|network|rpc|frontend|orchestra|apply|popen|readfile|writefile|from ['"]fs['"])/i, PLANNER);
   const compiler = readFileSync(path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-compiler.uc'), 'utf8');
   assert.doesNotMatch(compiler, /(?:popen|from ['"]fs['"])/i, 'strategy-compiler.uc');
+});
+
+test('Scanner probe boundary exports only classification and fixed adapters', () => {
+  const probes = readFileSync(PROBES, 'utf8');
+  const adapter = readFileSync(PROBE_ADAPTER, 'utf8');
+  for (const name of ['scanner_baseline_classify', 'scanner_tcp_classify',
+    'scanner_udp_classify', 'scanner_candidate_verdict', 'scanner_score'])
+    assert.match(probes, new RegExp(`export const ${name}\\b`));
+  for (const name of ['scanner_probe_adapter_baseline', 'scanner_probe_adapter_tcp',
+    'scanner_probe_adapter_udp'])
+    assert.match(adapter, new RegExp(`export const ${name}\\b`));
+  assert.doesNotMatch(`${probes}\n${adapter}`, /(?:http3|http\/3|scanner_probe_adapter_quic|scanner_quic_classify)/i);
+  assert.doesNotMatch(adapter, /compiledTokens|nfqws2|firewall|nft\s|iptables/);
 });
 
 test('target profiles preserve pinned fixture facts and deterministic host selection', () => {

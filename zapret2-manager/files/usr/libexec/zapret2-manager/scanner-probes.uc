@@ -1,0 +1,225 @@
+'use strict';
+
+const TLS_READ_LIMIT = 2048;
+const BODY_MINIMUM = 65536;
+const BLOCK_MIN = 15000;
+const BLOCK_MAX = 21000;
+const BLOCK_WIDE_MIN = 10240;
+const BLOCK_WIDE_MAX = 25600;
+
+const UNAVAILABLE_ERRORS = {
+	NO_ADDR: true, DNS_ERR: true, RESOLVE_ERR: true, NET_UNREACH: true, HOST_UNREACH: true,
+};
+
+const ERROR_PRIORITY = [
+	'FAKE_LEAK', 'ISP_PAGE', 'HTTP_INJECT', 'TLS_MITM_SELF', 'TLS_MITM_UNKNOWN_CA',
+	'TCP_16_20', 'TLS_RESET', 'TCP_RESET', 'TLS_EOF_EARLY', 'TLS_EOF_DATA',
+	'READ_RESET', 'READ_BROKEN', 'TLS_SNI_REJECT', 'TLS_HANDSHAKE',
+	'TLS_ALERT_INTERNAL', 'TLS_ALERT', 'TLS_CERT_ERR', 'TLS_VERSION', 'TCP_REFUSED',
+	'HOST_UNREACH', 'NET_UNREACH', 'TLS_TIMEOUT', 'TCP_TIMEOUT', 'READ_TIMEOUT',
+	'TIMEOUT', 'SHORT_BODY', 'RST', 'TCP_ABORT', 'CONNECT_ERR', 'TLS_ERR',
+	'READ_ERR', 'BAD_URL', 'DNS_ERR', 'RESOLVE_ERR',
+];
+
+function is_object(value) { return type(value) == 'object' && value != null; }
+function is_number(value) { return type(value) == 'int' || type(value) == 'double'; }
+function number(value, fallback) { return is_number(value) && value >= 0 ? value : fallback; }
+function clamp(value, low, high) { return value < low ? low : (value > high ? high : value); }
+function round_to(value, places) {
+	let scale = places == 3 ? 1000 : (places == 2 ? 100 : 10);
+	return int(value * scale + 0.5) / (scale * 1.0);
+}
+
+function infrastructure(error, testType) {
+	return {
+		success: false, error: error, failureClass: 'probe_dependency_failure',
+		infrastructureFailure: true, testType: testType,
+	};
+}
+
+function normalize_family(raw) {
+	raw = is_object(raw) ? raw : {};
+	let status = type(raw.status) == 'string' ? raw.status : 'unavailable';
+	let error = type(raw.error) == 'string' && raw.error != '' ? raw.error : null;
+	let available = raw.available === true;
+	if (raw.available !== false)
+		available = status == 'open' || status == 'blocked' || status == 'failed' || status == 'timeout';
+	if (status == 'skipped' || status == 'unavailable' || UNAVAILABLE_ERRORS[error]) available = false;
+	return { status, available, latencyMs: number(raw.latencyMs, 0), error };
+}
+
+export const scanner_baseline_classify = function(raw) {
+	if (!is_object(raw) || (raw.protocol != 'tcp' && raw.protocol != 'udp'))
+		return { protocol: null, baselineOpen: false, allAvailableOpen: false,
+			byAddressFamily: {}, probeAddressFamilies: [], infrastructureFailure: true,
+			error: 'INVALID_BASELINE' };
+
+	let by = {};
+	if (raw.protocol == 'udp') {
+		if (raw.transport != 'stun')
+			return { protocol: 'udp', baselineOpen: false, allAvailableOpen: false,
+				byAddressFamily: {}, probeAddressFamilies: ['ipv4'], infrastructureFailure: true,
+				error: 'PROBE_DEPENDENCY' };
+		let status = raw.status == 'success' ? 'open' :
+			(raw.status == 'timeout' ? 'timeout' : (raw.status == 'skipped' ? 'skipped' : 'blocked'));
+		by.ipv4 = normalize_family({ status, available: status != 'skipped', latencyMs: raw.latencyMs,
+			error: raw.error || (status == 'timeout' ? 'TIMEOUT' : null) });
+	}
+	else {
+		by.ipv4 = normalize_family(raw.ipv4);
+		by.ipv6 = normalize_family(raw.ipv6);
+	}
+
+	let available = 0, open = 0, blocked = [];
+	for (let af in ['ipv4', 'ipv6']) {
+		if (!by[af] || !by[af].available) continue;
+		available++;
+		if (by[af].status == 'open') open++;
+		else push(blocked, af);
+	}
+	let all_open = available > 0 && open == available;
+	let probe = blocked;
+	if (!length(probe)) {
+		if (by.ipv4) probe = ['ipv4'];
+		else if (by.ipv6) probe = ['ipv6'];
+	}
+	return { protocol: raw.protocol, baselineOpen: open > 0, allAvailableOpen: all_open,
+		byAddressFamily: by, probeAddressFamilies: probe, infrastructureFailure: false, error: null };
+};
+
+function normalize_tls(raw) {
+	raw = is_object(raw) ? raw : {};
+	let success = raw.status == 'success' || raw.success === true;
+	return {
+		success, status: success ? 'success' : (raw.status || 'failed'),
+		error: success ? null : (raw.error || (raw.status == 'timeout' ? 'TIMEOUT' : 'TLS_FAIL')),
+		latencyMs: number(raw.latencyMs, 0),
+		readBytes: clamp(number(raw.readBytes, 0), 0, TLS_READ_LIMIT), readLimitBytes: TLS_READ_LIMIT,
+	};
+}
+
+function in_cutoff(bytes) {
+	return (bytes >= BLOCK_MIN && bytes <= BLOCK_MAX) ||
+		(bytes >= BLOCK_WIDE_MIN && bytes <= BLOCK_WIDE_MAX);
+}
+
+function normalize_body(raw) {
+	raw = is_object(raw) ? raw : {};
+	let bytes = number(raw.bytesReceived, 0), code = number(raw.statusCode, 0);
+	let error = type(raw.error) == 'string' && raw.error != '' ? raw.error : null;
+	let marker = type(raw.marker) == 'string' ? raw.marker : '';
+	let transport = type(raw.transport) == 'string' ? raw.transport : '';
+	if (marker == 'isp_page' || raw.ispMarker) error = 'ISP_PAGE';
+	else if (code == 400) error = 'FAKE_LEAK';
+	else if (in_cutoff(bytes) && bytes < BODY_MINIMUM) error = 'TCP_16_20';
+	else if (transport == 'timeout') error = 'TIMEOUT';
+	else if (transport == 'reset') error = 'RST';
+	let success = error == null && (bytes >= BODY_MINIMUM || bytes > BLOCK_MAX ||
+		code == 204 || code == 205 || code == 304);
+	if (!success && error == null) error = 'SHORT_BODY';
+	return {
+		success, status: success ? 'success' : (transport == 'timeout' ? 'timeout' : 'failed'),
+		error: success ? null : error, statusCode: code, bytesReceived: bytes,
+		kbps: number(raw.kbps, 0), latencyMs: number(raw.latencyMs, 0),
+		marker: marker, range: 'bytes=0-69632', minimumBytes: BODY_MINIMUM,
+	};
+}
+
+function pick_error(errors, tls_ok, body_ok) {
+	if (!length(errors)) return tls_ok == 0 ? 'TLS_FAIL' : 'BODY_FAIL';
+	let present = {};
+	for (let error in errors) if (type(error) == 'string' && error != '') present[error] = true;
+	for (let candidate in ERROR_PRIORITY) if (present[candidate]) return candidate;
+	return errors[0];
+}
+
+export const scanner_score = function(result) {
+	if (!is_object(result) || result.infrastructureFailure === true) return null;
+	if (result.protocol == 'udp') {
+		if (result.success !== true) return 0;
+		let latency = number(result.stunLatencyMs, number(result.latencyMs, 0));
+		return latency > 0 ? round_to(1000.0 / (latency < 50 ? 50 : latency), 2) : 0;
+	}
+	if (result.protocol != 'tcp') return null;
+	let rate = clamp(number(result.successRate, 0), 0, 1);
+	if (result.success !== true) return round_to(rate, 3);
+	let kbps = clamp(number(result.averageKbps, number(result.kbps, 0)), 0, 2048);
+	let latency = number(result.averageLatencyMs, number(result.latencyMs, 0));
+	latency = latency < 50 ? 50 : latency;
+	return round_to(rate * (kbps / (latency * 1.0)) * 1000, 2);
+};
+
+export const scanner_tcp_classify = function(raw) {
+	if (!is_object(raw) || type(raw.hosts) != 'array' || !length(raw.hosts) || length(raw.hosts) > 8)
+		return infrastructure('INVALID_OBSERVATION', 'tls+body');
+	let per_host = [], errors = [], tls_count = 0, body_count = 0;
+	let sum_kbps = 0, kbps_count = 0, sum_latency = 0;
+	for (let item in raw.hosts) {
+		if (!is_object(item)) continue;
+		let tls = normalize_tls(item.tls), body = null;
+		if (tls.success) {
+			tls_count++;
+			body = normalize_body(item.body);
+			if (body.success) {
+				body_count++; sum_kbps += body.kbps; kbps_count++; sum_latency += body.latencyMs;
+			}
+			else push(errors, body.error);
+		}
+		else push(errors, tls.error);
+		push(per_host, { host: type(item.host) == 'string' ? item.host : '',
+			addressFamily: item.addressFamily == 'ipv6' ? 'ipv6' : 'ipv4', tls, body });
+	}
+	let total = length(raw.hosts), rate = round_to((tls_count * 0.4 + body_count * 0.6) / total, 3);
+	let success = body_count > 0;
+	let result = {
+		protocol: 'tcp', success, error: success ? null : pick_error(errors, tls_count, body_count),
+		failureClass: success ? null : 'candidate_blocked', infrastructureFailure: false,
+		testType: 'tls+body', bodyPassed: body_count > 0, successRate: rate,
+		averageKbps: kbps_count ? round_to(sum_kbps / kbps_count, 1) : 0,
+		averageLatencyMs: total ? round_to(sum_latency / total, 2) : 0,
+		perHost: per_host,
+	};
+	result.score = scanner_score(result);
+	return result;
+};
+
+export const scanner_udp_classify = function(raw) {
+	if (!is_object(raw) || raw.transport != 'stun') return infrastructure('PROBE_DEPENDENCY', 'stun');
+	let success = raw.status == 'success';
+	let latency = number(raw.latencyMs, 0);
+	let result = {
+		protocol: 'udp', success,
+		error: success ? null : (raw.error || (raw.status == 'timeout' ? 'TIMEOUT' :
+			(raw.status == 'reset' ? 'RESET' : (raw.status == 'parse_error' ? 'PARSE_ERR' : 'STUN_FAIL')))),
+		failureClass: success ? null : 'candidate_blocked', infrastructureFailure: false,
+		testType: 'stun', quicProbe: false, attempts: clamp(number(raw.attempts, 1), 1, 2),
+		latencyMs: latency, stunLatencyMs: latency,
+		mappedFamily: raw.mappedFamily == 'IPv6' ? 'IPv6' : (raw.mappedFamily == 'IPv4' ? 'IPv4' : null),
+	};
+	result.score = scanner_score(result);
+	return result;
+};
+
+export const scanner_candidate_verdict = function(baseline, tests) {
+	if (!is_object(baseline) || baseline.infrastructureFailure === true)
+		return { verdict: 'infrastructure', reason: baseline?.error || 'BASELINE_UNAVAILABLE', success: false,
+			evidence: { infrastructure: true, baselineSuppressed: false, failureClass: 'probe_dependency_failure' } };
+	if (type(tests) != 'array' || !length(tests))
+		return { verdict: 'infrastructure', reason: 'INDETERMINATE', success: false,
+			evidence: { infrastructure: true, baselineSuppressed: false, failureClass: 'indeterminate' } };
+	for (let evidence in tests) if (evidence?.infrastructureFailure === true)
+		return { verdict: 'infrastructure', reason: evidence.error || 'INFRASTRUCTURE_FAILURE', success: false,
+			evidence: { infrastructure: true, baselineSuppressed: false,
+				failureClass: evidence.failureClass || 'probe_dependency_failure' } };
+	if (baseline.allAvailableOpen === true)
+		return { verdict: 'failed', reason: 'BASELINE_OPEN', success: false,
+			evidence: { infrastructure: false, baselineSuppressed: true, failureClass: 'baseline_open' } };
+	for (let evidence in tests) if (evidence?.success === true)
+		return { verdict: 'working', reason: null, success: true,
+			evidence: { infrastructure: false, baselineSuppressed: false, failureClass: null } };
+	let errors = [];
+	for (let evidence in tests) if (evidence?.error) push(errors, evidence.error);
+	return { verdict: 'failed', reason: pick_error(errors, 0, 0), success: false,
+		evidence: { infrastructure: false, baselineSuppressed: false,
+			failureClass: tests[0]?.failureClass || 'candidate_blocked' } };
+};
