@@ -150,7 +150,7 @@ static bool rename_publish(int parent,const char *candidate,int check,const char
 	return syscall(SYS_renameat2,parent,candidate,check,name,had_target?0:RENAME_NOREPLACE)==0;
 }
 
-static int atomic_write_bytes_state(const struct z2m_request *r,const struct z2m_root *root,int root_fd,const char *path,const unsigned char *content,size_t length,bool allow_create,bool prelocked,uint64_t verified_mount)
+static int atomic_write_bytes_state(const struct z2m_request *r,const struct z2m_root *root,int root_fd,const char *path,const unsigned char *content,size_t length,bool allow_create,const char *expected,bool prelocked,uint64_t verified_mount)
 {
 	struct z2m_prepared_wire success_wire={0},unknown_wire={0};const char *code=NULL,*pending_code=NULL,*pending_stage=NULL;bool had_target=false,published=false;char *copy,*name,*slash,parent_path[4097],candidate[44]={0};size_t written=0;uint64_t root_mount=verified_mount;int parent=-1,check=-1,target=-1,fd=-1,final=-1,result;struct stat parent_st,check_st,target_st,current_st,created,fd_st,final_st;
 	if(!prelocked){if(z2m_root_mount_id(root_fd,&root_mount,&code)<0)return fail(r,code,"path_resolve");if(z2m_root_lock(root_fd,false,&code)<0)return fail(r,code,"lock_acquire");}
@@ -160,7 +160,7 @@ static int atomic_write_bytes_state(const struct z2m_request *r,const struct z2m
 #endif
 	if(!prepare_success(r,length,root->directory_fsync?"durable":"tmpfs_visible",&success_wire)||!z2m_prepare_failure_wire(r->request_id,"ECOMMITUNKNOWN","directory_fsync",&unknown_wire)){z2m_discard_wire(&success_wire);free(copy);return fail(r,"EINTERNAL","response_encode");}slash=strrchr(copy,'/');if(slash==NULL){parent_path[0]='\0';name=copy;}else{*slash='\0';strcpy(parent_path,copy);name=slash+1;}
 	parent=open_parent(root_fd,parent_path,root_mount,&code);if(parent<0){result=fail(r,code,strcmp(code,"EDENIED")==0?"policy":(strcmp(code,"ENOTREG")==0?"object_verify":"path_resolve"));goto done;}if(fstat(parent,&parent_st)<0){result=fail(r,"EIO","object_open");goto done;}
-	target=openat(parent,name,O_RDONLY|O_NOFOLLOW|O_NONBLOCK|O_CLOEXEC);if(target>=0){had_target=true;if(verified_regular(target,root_mount,&target_st,&code,false)<0){result=fail(r,code,strcmp(code,"EDENIED")==0?"policy":(strcmp(code,"EXDEV")==0||strcmp(code,"ECAPABILITY")==0?"path_resolve":"object_verify"));goto done;}close(target);target=-1;}else if(errno==ELOOP){result=fail(r,"ESYMLINK","object_open");goto done;}else if(errno!=ENOENT){struct stat st;if(fstatat(parent,name,&st,AT_SYMLINK_NOFOLLOW)==0){code=target_code(&st);result=fail(r,code,strcmp(code,"EDENIED")==0?"policy":"object_verify");}else result=fail(r,entry_code(parent,name,errno),"object_open");goto done;}else if(!allow_create){result=fail(r,"ENOENT","object_open");goto done;}
+	target=openat(parent,name,O_RDONLY|O_NOFOLLOW|O_NONBLOCK|O_CLOEXEC);if(target>=0){char actual[65];had_target=true;if(verified_regular(target,root_mount,&target_st,&code,false)<0){result=fail(r,code,strcmp(code,"EDENIED")==0?"policy":(strcmp(code,"EXDEV")==0||strcmp(code,"ECAPABILITY")==0?"path_resolve":"object_verify"));goto done;}if(expected!=NULL&&(z2m_sha256_fd_hex(target,root->max_read,actual)<0||strcmp(actual,expected)!=0)){result=fail(r,"ECONFLICT","precondition");goto done;}close(target);target=-1;}else if(errno==ELOOP){result=fail(r,"ESYMLINK","object_open");goto done;}else if(errno!=ENOENT){struct stat st;if(fstatat(parent,name,&st,AT_SYMLINK_NOFOLLOW)==0){code=target_code(&st);result=fail(r,code,strcmp(code,"EDENIED")==0?"policy":"object_verify");}else result=fail(r,entry_code(parent,name,errno),"object_open");goto done;}else if(!allow_create||expected!=NULL){result=fail(r,expected!=NULL?"ECONFLICT":"ENOENT",expected!=NULL?"precondition":"object_open");goto done;}
 	gate("Z2M_TEST_ATOMIC_STOP_BEFORE_CREATE",NULL);if(fault("before_create")){result=fail(r,"EIO","object_open");goto done;}check=open_parent(root_fd,parent_path,root_mount,&code);if(check<0||fstat(check,&check_st)<0||!same_inode(&parent_st,&check_st)){if(check>=0)close(check);check=-1;result=fail(r,"EIO","object_open");goto done;}close(check);check=-1;
 	for(unsigned int attempt=0;;attempt++){if(attempt==8||candidate_name(candidate)<0){result=fail(r,"EIO","object_open");goto done;}fd=openat(parent,candidate,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,0600);if(fd>=0)break;if(errno!=EEXIST){result=fail(r,open_code(errno),"object_open");goto done;}if(fstatat(parent,candidate,&current_st,AT_SYMLINK_NOFOLLOW)<0||!S_ISREG(current_st.st_mode)){result=fail(r,"EIO","object_open");goto done;}}
 	if(
@@ -223,38 +223,34 @@ done:
 
 int z2m_atomic_write_bytes(const struct z2m_request *r,const struct z2m_root *root,int root_fd,const char *path,const unsigned char *content,size_t length,bool allow_create)
 {
-	return atomic_write_bytes_state(r,root,root_fd,path,content,length,allow_create,false,0);
+	return atomic_write_bytes_state(r,root,root_fd,path,content,length,allow_create,NULL,false,0);
 }
 
 int z2m_atomic_write(const struct z2m_request *r,const struct z2m_root *root,int root_fd,uint64_t root_mount)
 {
 	json_object *path_value,*content_value,*create_value;const char *path,*wire;bool allow_create;unsigned char *content;size_t length=0;int result;
 	json_object_object_get_ex(r->arguments,"path",&path_value);json_object_object_get_ex(r->arguments,"content",&content_value);json_object_object_get_ex(r->arguments,"allowCreate",&create_value);path=json_object_get_string(path_value);wire=json_object_get_string(content_value);allow_create=json_object_get_boolean(create_value);if(!z2m_path_valid(path,root->max_depth))return fail(r,"EPATH","path_validate");content=decode(wire,&length);if(content==NULL)return fail(r,"EIO","write");
-	result=atomic_write_bytes_state(r,root,root_fd,path,content,length,allow_create,true,root_mount);
+	result=atomic_write_bytes_state(r,root,root_fd,path,content,length,allow_create,NULL,true,root_mount);
 	free(content);return result;
-}
-
-static int json_content_precondition(const struct z2m_request *r,const struct z2m_root *root,int root_fd,const char *path,const char *expected,uint64_t *root_mount)
-{
-	const char *code;struct stat st;char actual[65];int fd;
-	if(z2m_root_mount_id(root_fd,root_mount,&code)<0)return fail(r,code,"path_resolve");
-	if(z2m_root_lock(root_fd,false,&code)<0)return fail(r,code,"lock_acquire");
-	fd=z2m_open_regular(root_fd,path,&st,&code);
-	if(fd<0){
-		if(strcmp(code,"ENOENT")==0)return fail(r,"ECONFLICT","precondition");
-		return fail(r,code,strcmp(code,"EDENIED")==0?"policy":(strcmp(code,"ENOTREG")==0?"object_verify":(strcmp(code,"ECAPABILITY")==0||strcmp(code,"EXDEV")==0?"path_resolve":"object_open")));
-	}
-	if(z2m_sha256_fd_hex(fd,root->max_read,actual)<0){int saved=errno;close(fd);if(saved==EAGAIN)return fail(r,"ECONFLICT","precondition");if(saved==EFBIG)return fail(r,"ETOOBIG","object_verify");return fail(r,"EIO","read");}
-	close(fd);
-	if(strcmp(actual,expected)!=0)return fail(r,"ECONFLICT","precondition");
-	return -1;
 }
 
 int z2m_atomic_write_json(const struct z2m_request *r,const struct z2m_root *root,int root_fd,const unsigned char *content,size_t length)
 {
-	json_object *path_value,*create_value,*expected_value;const char *path,*expected=NULL;bool allow_create;int result;uint64_t root_mount=0;
+	json_object *path_value,*create_value,*expected_value;const char *path,*expected=NULL;bool allow_create;uint64_t root_mount=0;
 	json_object_object_get_ex(r->arguments,"path",&path_value);json_object_object_get_ex(r->arguments,"allowCreate",&create_value);path=json_object_get_string(path_value);allow_create=json_object_get_boolean(create_value);if(!z2m_path_valid(path,root->max_depth))return fail(r,"EPATH","path_validate");
 	if(json_object_object_get_ex(r->arguments,"expectedSha256",&expected_value))expected=json_object_get_string(expected_value);
-	if(expected!=NULL){result=json_content_precondition(r,root,root_fd,path,expected,&root_mount);if(result!=-1)return result;return atomic_write_bytes_state(r,root,root_fd,path,content,length,allow_create,true,root_mount);}
+	if(expected!=NULL){const char *code;if(z2m_root_mount_id(root_fd,&root_mount,&code)<0)return fail(r,code,"path_resolve");if(z2m_root_lock(root_fd,false,&code)<0)return fail(r,code,"lock_acquire");return atomic_write_bytes_state(r,root,root_fd,path,content,length,allow_create,expected,true,root_mount);}
 	return z2m_atomic_write_bytes(r,root,root_fd,path,content,length,allow_create);
+}
+
+int z2m_atomic_write_json_revision(const struct z2m_request *r,const struct z2m_root *root,int root_fd,const unsigned char *content,size_t length)
+{
+	json_object *path_value,*expected_value,*create_value,*current,*revision_value;const char *path,*code;int64_t expected;bool allow_create;struct stat st;int fd;uint64_t mount;
+	json_object_object_get_ex(r->arguments,"path",&path_value);json_object_object_get_ex(r->arguments,"expectedRevision",&expected_value);json_object_object_get_ex(r->arguments,"allowCreate",&create_value);path=json_object_get_string(path_value);expected=json_object_get_int64(expected_value);allow_create=json_object_get_boolean(create_value);
+	if(z2m_root_mount_id(root_fd,&mount,&code)<0)return fail(r,code,"path_resolve");
+	if(z2m_root_lock(root_fd,false,&code)<0)return fail(r,code,"lock_acquire");
+	fd=z2m_open_regular(root_fd,path,&st,&code);
+	if(fd<0){if(strcmp(code,"ENOENT")!=0||expected!=-1||!allow_create)return fail(r,"ECONFLICT","precondition");}
+	else {unsigned char *bytes=malloc((size_t)st.st_size+1);if(bytes==NULL){close(fd);return fail(r,"EINTERNAL","internal");}if(read(fd,bytes,(size_t)st.st_size)!=(ssize_t)st.st_size){free(bytes);close(fd);return fail(r,"EIO","read");}bytes[st.st_size]='\0';json_tokener *tokener=json_tokener_new();current=json_tokener_parse_ex(tokener,(char*)bytes,(int)st.st_size);json_tokener_free(tokener);free(bytes);close(fd);if(current==NULL||!json_object_object_get_ex(current,"revision",&revision_value)||!json_object_is_type(revision_value,json_type_int)||json_object_get_int64(revision_value)!=expected){json_object_put(current);return fail(r,"ECONFLICT","precondition");}json_object_put(current);}
+	return atomic_write_bytes_state(r,root,root_fd,path,content,length,allow_create,NULL,true,mount);
 }

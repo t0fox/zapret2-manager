@@ -13,7 +13,7 @@ const ROOTS = [
 	'persistent_state', 'snapshots', 'registry', 'secrets',
 	'runtime', 'jobs', 'staging'
 ];
-const MUTATIONS = ['atomic_write', 'atomic_write_json', 'mkdir_private'];
+const MUTATIONS = ['atomic_write', 'atomic_write_json', 'atomic_write_json_revision', 'mkdir_private'];
 const EXIT_CODES = {
 	EMALFORMED: 2, ESCHEMA: 2, EREQUESTTOOBIG: 2,
 	EDENIED: 3, EROOT: 3, EPATH: 3, EUNSUPPORTED: 3, ECAPABILITY: 3, EOWNERSHIP: 3,
@@ -497,8 +497,8 @@ function success_data_valid(operation, data) {
 		return exact_fields(data, ['sha256', 'byteLength']) && type(data.sha256) == 'string' &&
 			match(data.sha256, /^[a-f0-9]{64}$/) && type(data.byteLength) == 'int' &&
 			data.byteLength >= 0 && data.byteLength <= 4194304;
-	if (operation == 'atomic_write' || operation == 'atomic_write_json') {
-		let maximum = operation == 'atomic_write_json' ? 521028 : 4194304;
+	if (operation == 'atomic_write' || operation == 'atomic_write_json' || operation == 'atomic_write_json_revision') {
+		let maximum = operation == 'atomic_write' || operation == 'atomic_write_json_revision' ? 4194304 : 521028;
 		return exact_fields(data, ['byteLength', 'committed', 'durability']) &&
 			type(data.byteLength) == 'int' && data.byteLength >= 0 && data.byteLength <= maximum &&
 			data.committed == true && index(['durable', 'tmpfs_visible'], data.durability) >= 0;
@@ -721,4 +721,10 @@ export const atomic_write_json = function(root, path, value, allowCreate, expect
 	};
 	if (expectedSha256 != null) arguments.expectedSha256 = expectedSha256;
 	return invoke_private('atomic_write_json', arguments, 30000);
+};
+
+export const atomic_write_json_revision = function(root, path, value, allowCreate, expectedRevision) {
+	if (!valid_root(root) || !valid_path(path) || !valid_json_value(value) || type(allowCreate) != 'bool' || type(expectedRevision) != 'int' || expectedRevision < -1)
+		return invalid();
+	return invoke_private('atomic_write_json_revision', { root, path, value, mode: '0600', uid: 0, gid: 0, allowCreate, expectedRevision }, 30000);
 };

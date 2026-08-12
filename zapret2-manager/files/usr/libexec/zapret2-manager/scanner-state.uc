@@ -74,6 +74,13 @@ function publish_json(id, suffix, value, expected) {
 	let result = native.atomic_write_json('runtime', native_path(id, suffix), value, expected == null, expected);
 	return result.ok;
 }
+function publish_revision(id, suffix, value, revision) {
+	if (test_mode()) return atomic(path(id, suffix), value);
+	let made = native.mkdir_private('runtime', 'scanner', true);
+	if (!made.ok) return false;
+	if (id != '') { made = native.mkdir_private('runtime', 'scanner/' + id, true); if (!made.ok) return false; }
+	return native.atomic_write_json_revision('runtime', native_path(id, suffix), value, revision < 0, revision).ok;
+}
 function read_record(id) { return test_mode() ? read_json(path(id, '.record.json')) : native_read(id, '.record.json'); }
 function read_control(id) { return test_mode() ? read_json(path(id, '.control.json')) : native_read(id, '.control.json'); }
 function hash(value) {
@@ -106,6 +113,8 @@ function result_projection(value) {
 		verdict: text(value.verdict) || 'infrastructure', success: value.success == true,
 		score: type(value.score) == 'double' || type(value.score) == 'int' ? value.score : null,
 		reason: text(value.reason), evidence: object(value.evidence) ? copy(value.evidence) : null,
+		planDigest: digest(value.planDigest) ? value.planDigest : null,
+		evidenceIdentity: digest(value.evidenceIdentity) ? value.evidenceIdentity : null,
 	};
 }
 function bounded_results(value) {
@@ -142,6 +151,7 @@ function public_record(value) {
 		heartbeatAt: integer(value.heartbeatAt) ? value.heartbeatAt : time(), startedAt: integer(value.startedAt) ? value.startedAt : null,
 		finishedAt: integer(value.finishedAt) ? value.finishedAt : null, events: bounded_events(value.events),
 	};
+	if (object(value.planAuthority) && type(value.planAuthority.candidates) == 'array') out.planAuthority = copy(value.planAuthority);
 	return out;
 }
 function valid_record(value) {
@@ -163,7 +173,7 @@ export const scanner_state_create = function(request, plan) {
 		progress: 0, total: length(candidates), cursor: { nextCandidate: 0 }, currentCandidate: null,
 		counts: { working: 0, failed: 0, infrastructure: 0 }, results: [], baseline: null, error: null,
 		recovery: { state: 'not_required' }, cancellationRequested: false, worker: null,
-		heartbeatAt: time(), startedAt: null, finishedAt: null, events: [],
+		heartbeatAt: time(), startedAt: null, finishedAt: null, events: [], planAuthority: copy(plan || {}),
 	};
 };
 
@@ -187,8 +197,8 @@ export const scanner_state_save = function(input) {
 	if (!digest(candidate.requestDigest) || !digest(candidate.planDigest) || !digest(candidate.catalogDigest) || !digest(candidate.compilerDigest))
 		return error('ESCHEMA', 'Scanner record digests are incomplete.');
 	if (length(sprintf('%J', candidate)) > MAX_RECORD_BYTES) return error('EOUTPUT', 'Scanner record exceeds volatile bounds.');
-	let expected = previous == null || test_mode() ? null : native_digest(candidate.id, '.record.json');
-	return publish_json(candidate.id, '.record.json', candidate, expected)
+	let expected = previous == null ? -1 : previous.revision;
+	return (test_mode() ? publish_json(candidate.id, '.record.json', candidate, null) : publish_revision(candidate.id, '.record.json', candidate, expected))
 		? { ok: true, id: candidate.id, revision: candidate.revision, state: candidate }
 		: error('EIO', 'Scanner record could not be atomically published.');
 };
@@ -203,14 +213,21 @@ export const scanner_control_request = function(id, command, input) {
 	let loaded = scanner_state_load(id);
 	if (!loaded.ok) return loaded;
 	if (command != 'stop') return error('EINPUT', 'Only stop control is supported.');
-	if (loaded.state.status != 'running' && loaded.state.status != 'idle') return error('ESTATE', 'Scanner is already terminal.');
+	let old = scanner_control_load(id).control;
+	if (old.stopRequested === true) {
+		if (!object(input) || (input.expectedRevision != loaded.state.revision && input.expectedRevision != old.revision))
+			return error('ECONFLICT', 'Scanner control revision is stale.', { revision: loaded.state.revision });
+		return { ok: true, control: old, idempotent: true };
+	}
+	if (loaded.state.status != 'running' && loaded.state.status != 'idle') {
+		let terminal = { id, revision: (integer(old.revision) ? old.revision : 0) + 1, stopRequested: true, updatedAt: time(), terminal: true };
+		let publishedTerminal = publish_json(id, '.control.json', terminal, test_mode() ? null : native_digest(id, '.control.json'));
+		return publishedTerminal ? { ok: true, control: terminal, result: loaded.state, idempotent: true } : error('ECONFLICT', 'Scanner terminal control changed.');
+	}
 	if (!object(input) || input.expectedRevision != loaded.state.revision)
 		return error('ECONFLICT', 'Scanner control revision is stale.', { revision: loaded.state.revision });
-	let old = scanner_control_load(id).control;
-	if (old.stopRequested === true) return { ok: true, control: old, idempotent: true };
 	let control = { id, revision: (integer(old.revision) ? old.revision : 0) + 1, stopRequested: true, updatedAt: time() };
-	let expected = test_mode() ? null : native_digest(id, '.control.json');
-	return publish_json(id, '.control.json', control, expected) ? { ok: true, control } : error('ECONFLICT', 'Scanner control revision is stale.');
+	return (test_mode() ? publish_json(id, '.control.json', control, null) : publish_revision(id, '.control.json', control, old.revision)) ? { ok: true, control } : error('ECONFLICT', 'Scanner control revision is stale.');
 };
 
 export const scanner_state_claim = function(id, identity, continuation) {
@@ -226,13 +243,12 @@ export const scanner_state_claim = function(id, identity, continuation) {
 			return error('EBUSY', 'Another Scanner is active.');
 		}
 		let staleDigest = test_mode() ? null : native_digest('', ACTIVE);
-		if (test_mode()) { try { unlink(path('', ACTIVE)); } catch (e) { return error('EIO', 'Stale Scanner marker could not be removed.'); } }
-		else if (!staleDigest) return error('ESTALE', 'Scanner active marker cannot be reclaimed without a verified digest.');
+		if (!test_mode() && !staleDigest) return error('ESTALE', 'Scanner active marker cannot be reclaimed without a verified digest.');
 		active._staleDigest = staleDigest;
 	}
-	let marker = { id, pid: identity.pid, startTime: identity.startTime, claimedAt: time() };
-	let expected = active != null && !test_mode() ? active._staleDigest : null;
-	let published = publish_json('', ACTIVE, marker, expected);
+	let marker = { id, pid: identity.pid, startTime: identity.startTime, claimedAt: time(), revision: active != null && integer(active.revision) ? active.revision + 1 : 1 };
+	let expected = active != null && integer(active.revision) ? active.revision : -1;
+	let published = test_mode() ? publish_json('', ACTIVE, marker, null) : publish_revision('', ACTIVE, marker, expected);
 	return published ? { ok: true } : error('EBUSY', 'Scanner active marker could not be claimed.');
 };
 
@@ -241,9 +257,8 @@ export const scanner_state_release = function(id, identity) {
 	if (active == null) return { ok: true };
 	if (active.id != id || active.pid != identity?.pid || active.startTime != identity?.startTime) return error('ESTALE', 'Scanner active marker identity changed.');
 	if (!test_mode()) {
-		let digest = native_digest('', ACTIVE);
-		if (!digest) return error('EDEPENDENCY', 'Scanner active marker release cannot be verified.');
-		return publish_json('', ACTIVE, { released: true, releasedAt: time() }, digest)
+		if (!integer(active.revision)) return error('EDEPENDENCY', 'Scanner active marker revision is unavailable.');
+		return publish_revision('', ACTIVE, { released: true, releasedAt: time(), revision: active.revision + 1 }, active.revision)
 			? { ok: true, retained: true } : error('EDEPENDENCY', 'Scanner active marker release is uncertain.');
 	}
 	try { unlink(path('', ACTIVE)); } catch (e) { return error('EIO', 'Scanner active marker could not be removed.'); }

@@ -23,6 +23,7 @@ struct scan {
 	bool duplicate_other;
 	bool nul_key_other;
 	bool atomic_write_json;
+	bool atomic_write_json_revision;
 	bool capture_candidate;
 };
 
@@ -330,6 +331,8 @@ static bool scan_object(struct scan *s, enum scan_scope scope)
 			if (!scan_string(s, &operation, &operation_length)) goto fail;
 			if (key_is(operation, operation_length, "atomic_write_json"))
 				s->atomic_write_json = true;
+			if (key_is(operation, operation_length, "atomic_write_json_revision"))
+				s->atomic_write_json_revision = true;
 			free(operation);
 		} else {
 			if (!scan_value(s, child_scope)) goto fail;
@@ -438,7 +441,7 @@ static bool valid_id(json_object *value)
 
 static bool known_operation(const char *op)
 {
-	static const char *const names[] = {"stat_regular","read_regular","atomic_write","atomic_write_json","mkdir_private","sha256_regular","rename_owned","unlink_owned","lock_acquire","lock_release","lock_status"};
+	static const char *const names[] = {"stat_regular","read_regular","atomic_write","atomic_write_json","atomic_write_json_revision","mkdir_private","sha256_regular","rename_owned","unlink_owned","lock_acquire","lock_release","lock_status"};
 	for (size_t i = 0; i < sizeof(names)/sizeof(names[0]); i++) if (strcmp(op, names[i]) == 0) return true;
 	return false;
 }
@@ -496,7 +499,7 @@ int z2m_read_request(struct z2m_request *request)
 #endif
 	if (scan.offset != used) { free(buffer); return z2m_fail(NULL, "EMALFORMED", "trailing_data"); }
 	checked = &scan;
-	if (!scan.atomic_write_json && scan.candidate_seen) {
+	if (!(scan.atomic_write_json || scan.atomic_write_json_revision) && scan.candidate_seen) {
 		legacy_scan = (struct scan){.data=buffer,.length=used};
 		if (!scan_value(&legacy_scan, SCAN_ENVELOPE)) {
 			free(buffer);
@@ -512,14 +515,14 @@ int z2m_read_request(struct z2m_request *request)
 	}
 	if (checked->nul_key_other) { free(buffer); return z2m_fail(NULL, "ESCHEMA", "schema"); }
 	if (checked->duplicate_other) { free(buffer); return z2m_fail(NULL, "EMALFORMED", "json_decode"); }
-	if (scan.atomic_write_json && scan.candidate_seen &&
+	if ((scan.atomic_write_json || scan.atomic_write_json_revision) && scan.candidate_seen &&
 		!z2m_canonical_construct(buffer + scan.candidate_start,
 			scan.candidate_end - scan.candidate_start,
 			&request->canonical_value, &canonical_error)) {
 		free(buffer);
 		return z2m_fail(NULL, canonical_error.code, canonical_error.stage);
 	}
-	if (scan.atomic_write_json) {
+	if (scan.atomic_write_json || scan.atomic_write_json_revision) {
 		if (!z2m_json_c_parse_validated(buffer, used,
 			Z2M_CANONICAL_MAX_DEPTH + 3U, &request->document)) {
 			free(buffer);
@@ -572,6 +575,7 @@ bool z2m_reserved_schema_valid(const struct z2m_request *request)
 	static const char *const write_fields[]={"root","path","content","mode","uid","gid","allowCreate"};
 	static const char *const write_json_fields[]={"root","path","value","mode","uid","gid","allowCreate"};
 	static const char *const write_json_cas_fields[]={"root","path","value","mode","uid","gid","allowCreate","expectedSha256"};
+	static const char *const write_json_revision_fields[]={"root","path","value","mode","uid","gid","allowCreate","expectedRevision"};
 	static const char *const mkdir_fields[]={"root","path","mode","uid","gid","existOk"};
 	static const char *const hash_fields[]={"root","path","maxBytes"};
 	static const char *const rename_fields[]={"root","fromPath","toPath","ownershipToken","replace"};
@@ -585,6 +589,8 @@ bool z2m_reserved_schema_valid(const struct z2m_request *request)
 		bool fields_ok=exact_fields(args,write_json_fields,7)||(exact_fields(args,write_json_cas_fields,8)&&string_value(args,"expectedSha256",64,64,&token)&&hex64(token));
 		return fields_ok&&string_value(args,"root",0,SIZE_MAX,&s)&&string_value(args,"path",0,SIZE_MAX,&s)&&z2m_path_valid(s,32)&&json_object_object_get_ex(args,"value",&value)&&string_value(args,"mode",4,4,&s)&&strcmp(s,"0600")==0&&integer_value(args,"uid",0,0,&number)&&integer_value(args,"gid",0,0,&number)&&boolean_value(args,"allowCreate");
 	}
+	if(strcmp(request->operation,"atomic_write_json_revision")==0)
+		return exact_fields(args,write_json_revision_fields,8)&&string_value(args,"root",0,SIZE_MAX,&s)&&string_value(args,"path",0,SIZE_MAX,&s)&&z2m_path_valid(s,32)&&json_object_object_get_ex(args,"value",&value)&&string_value(args,"mode",4,4,&s)&&strcmp(s,"0600")==0&&integer_value(args,"uid",0,0,&number)&&integer_value(args,"gid",0,0,&number)&&boolean_value(args,"allowCreate")&&integer_value(args,"expectedRevision",-1,2147483647,&number);
 	if(strcmp(request->operation,"mkdir_private")==0)
 		return exact_fields(args,mkdir_fields,6)&&string_value(args,"root",0,SIZE_MAX,&s)&&string_value(args,"path",0,SIZE_MAX,&s)&&z2m_path_valid(s,32)&&string_value(args,"mode",4,4,&s)&&strcmp(s,"0700")==0&&integer_value(args,"uid",0,0,&number)&&integer_value(args,"gid",0,0,&number)&&boolean_value(args,"existOk");
 	if(strcmp(request->operation,"sha256_regular")==0)

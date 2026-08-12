@@ -148,4 +148,68 @@ Task 6/Task 5 tests passed. `node --check` and `git diff --check` passed.
 ```text
 ROUTER_E2E: NOT RUN
 REASON: explicit physical-router mutation/deployment approval was not provided
+
+## Fix Round 2
+
+### Status
+
+IMPLEMENTED WITH HOST LIMITATIONS. Round-2 review findings are addressed with
+behavioral recovery, retained plan authority, fixed production probe execution,
+and native revision-CAS publication. Task 5 production firewall activation
+remains fail-closed at `EUNSUPPORTED`; Task 7 restore/reconciliation remains
+outside this task.
+
+### Fixes
+
+- Worker exceptions now use one centralized recovery path. It retains candidate
+  cleanup, session cleanup, lock release, and active-marker release evidence,
+  releases the active marker, and records uncertain recovery after activation
+  or checkpoint failures. Terminal cleanup failures retain the full evidence.
+- Added `scanner_probe_executor.uc`: production consumes adapter descriptors
+  through fixed `/usr/bin/curl` and `/usr/bin/ncat` bounded operations. No caller
+  executable, command, raw arguments, or descriptor discard path exists;
+  executor failures return typed dependency/infrastructure evidence.
+- The worker builds plan authority once, stores an immutable `planAuthority`
+  with digest and candidate list, resumes only from that retained plan, and
+  validates ordinal, candidate ID, plan digest, verdict, evidence identity,
+  score, cursor, and result relation.
+- Added native `atomic_write_json_revision`, whose root lock covers revision
+  precondition and atomic publish. Production scanner record saves, control
+  updates, active claims, and active release use the revision-CAS operation;
+  separate digest/load/write calls no longer claim atomicity.
+- Terminal stop retries are idempotent and return existing terminal control and
+  result. All CLI dispatch and request-file errors include `schemaVersion: 1`.
+- Fixed runtime request/root validation remains private, fixed-root, ancestor
+  no-symlink validation. No permanent Strategy/config writes, Task 7 restore,
+  DNS/TG/router/LuCI/Orchestra behavior, or Task 5 `EUNSUPPORTED` bypass was
+  added.
+
+### TDD And Verification
+
+Added behavioral coverage for exception-after-activation recovery, checkpoint
+failure cleanup, fixed executor production-path behavior, retained-plan resume,
+terminal stop retry, revision-CAS helper operation, result identity, and schema
+versioning.
+
+Focused verification:
+
+```text
+wsl.exe -d Ubuntu --cd /mnt/c/Users/Kirill/zapret2-manager -- env UCODE_BIN=/opt/ucode/bin/ucode UCODE_LIBRARY_PATH=/opt/ucode/lib /home/kirill/.local/bin/node --test tests/product/avatar-strategy-scanner-worker.test.mjs tests/product/avatar-strategy-scanner-transient.test.mjs tests/native/core/native-helper.test.mjs tests/native/core/atomic-write-json.test.mjs
+```
+
+Result: **76 passed, 0 failed**.
+
+`git diff --check` passed. The helper test binary was built through the
+repository `build-fs-helper.sh` path with `-Wall -Wextra -Werror`.
+
+Broader scanner/runtime verification passed for Task 5 runtime/firewall and
+the changed worker/native suites. The broader scanner integration command still
+has the inherited WSL ucode null-indexing failures in `scanner-targets.uc:136`;
+those failures are unchanged target-profile host limitations and are not caused
+by this round's files.
+
+```text
+ROUTER_E2E: NOT RUN
+REASON: Windows/WSL host has no production nfqws2/NFQUEUE/nftables runtime; physical-router mutation was not approved
+```
 ```

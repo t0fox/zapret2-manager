@@ -13,7 +13,7 @@ const REQUEST_ROOT = '/tmp/zapret2-manager/runtime/requests/';
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
 function safe_id(value) { return string(value) && match(value, /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/); }
-function result(code, message, extra) { let out = { ok: false, error: { code, message } }; for (let key in extra || {}) out[key] = extra[key]; return out; }
+function result(code, message, extra) { let out = { schemaVersion: SCHEMA_VERSION, ok: false, error: { code, message } }; for (let key in extra || {}) out[key] = extra[key]; return out; }
 function response(value) {
 	if (object(value) && value.schemaVersion == null) value.schemaVersion = SCHEMA_VERSION;
 	return value;
@@ -53,10 +53,10 @@ function dispatch(command, input, seams) {
 	return scanner_worker_run({ id: input.id, request: checked }, seams);
 }
 
-export const scanner_cli_dispatch = function(command, input, seams) { return dispatch(command, input, seams); };
+export const scanner_cli_dispatch = function(command, input, seams) { return response(dispatch(command, input, seams)); };
 export const scanner_cli_request = function(command, requestPath) {
 	let input = command == 'status' || command == 'results' || command == 'stop' ? request_file(requestPath) : request_file(requestPath);
-	return input && input.ok === false && input.error ? input : response(dispatch(command, input, null));
+	return input && input.ok === false && input.error ? response(input) : response(dispatch(command, input, null));
 };
 
 if (ARGV[0] != null) {

@@ -54,6 +54,9 @@ test('exports only the six typed operations and sends exact closed helper reques
     [`native.atomic_write_json('persistent_state', 'state.json', { a: 1 }, false)`, 'atomic_write_json',
       { root: 'persistent_state', path: 'state.json', value: { a: 1 }, mode: '0600', uid: 0, gid: 0, allowCreate: false }, 30000,
       { byteLength: 7, committed: true, durability: 'durable' }],
+    [`native.atomic_write_json_revision('runtime', 'scanner/scan.record.json', { revision: 2 }, false, 1)`, 'atomic_write_json_revision',
+      { root: 'runtime', path: 'scanner/scan.record.json', value: { revision: 2 }, mode: '0600', uid: 0, gid: 0, allowCreate: false, expectedRevision: 1 }, 30000,
+      { byteLength: 15, committed: true, durability: 'tmpfs_visible' }],
   ];
   const ids = new Set();
   for (const [expression, operation, args, timeoutMs, data] of cases) {
@@ -72,7 +75,7 @@ test('exports only the six typed operations and sends exact closed helper reques
     ids.add(request.header.requestId);
   }
   assert.deepEqual(await invoke(`sort(keys(native))`),
-    ['atomic_write', 'atomic_write_json', 'mkdir_private', 'read_regular', 'sha256_regular', 'stat_regular']);
+    ['atomic_write', 'atomic_write_json', 'atomic_write_json_revision', 'mkdir_private', 'read_regular', 'sha256_regular', 'stat_regular']);
 });
 
 test('rejects invalid typed arguments before opening the fixed socket', async () => {

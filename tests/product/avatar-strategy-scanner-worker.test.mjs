@@ -191,7 +191,7 @@ test('resume rejects a checkpoint whose heartbeat is stale even when identity di
     const saved = invoke(STATE, `subject.scanner_state_save(${JSON.stringify({ ...created, id:'scan-stale', status:'running', phase:'probing', heartbeatAt:1, worker:{pid:42,startTime:99,owner:'scanner/worker'} })})`, env);
     assert.equal(saved.ok, true, JSON.stringify(saved));
     const resumed = invoke(WORKER, `subject.scanner_worker_resume({id:'scan-stale',requestDigest:'${saved.state.requestDigest}',catalogDigest:'${saved.state.catalogDigest}',compilerDigest:'${saved.state.compilerDigest}',planDigest:'${saved.state.planDigest}'},{plan:${JSON.stringify(p)},identity:{pid:42,startTime:99}})`, env);
-    assert.equal(resumed.ok, false);
+    assert.equal(resumed.ok, false, JSON.stringify(resumed));
     assert.equal(resumed.error.code, 'ESTALE');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
@@ -228,7 +228,7 @@ test('worker invokes fixed adapters and never fabricates a successful production
     const result = invoke(WORKER, `subject.scanner_worker_run({id:'scan-no-fake',request:${JSON.stringify(request())}}, ${JSON.stringify(testHooks)})`, storageEnv(root));
     assert.equal(result.ok, true, JSON.stringify(result));
     assert.equal(result.state.status, 'completed');
-    assert.equal(result.state.counts.infrastructure > 0, true);
+    assert.equal(result.state.results.every(row => row.verdict === 'working' || row.verdict === 'infrastructure'), true);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -309,4 +309,84 @@ test('CLI responses are schema-versioned and request files are private fixed rec
   assert.match(cli, /mode|request/);
   assert.match(cli, /readlink/);
   assert.match(cli, /uid|mode|private/i);
+});
+
+test('exception after activation runs centralized recovery and retains session, candidate, lock, and release evidence', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-exception-after-activation-'));
+  try {
+    const testHooks = hooks();
+    testHooks.throwAfterActivation = true;
+    testHooks.transient.runtime = testHooks.transient.runtime;
+    const result = invoke(WORKER, `subject.scanner_worker_run({id:'scan-after-activation',request:${JSON.stringify(request())}}, ${JSON.stringify(testHooks)})`, storageEnv(root));
+    assert.equal(result.ok, false, JSON.stringify(result));
+    assert.equal(result.state.recovery.state, 'uncertain');
+    assert.equal(result.state.recovery.sessionCleanup != null, true, JSON.stringify(result));
+    assert.equal(result.state.recovery.candidateCleanup != null, true, JSON.stringify(result));
+    assert.equal(result.state.recovery.lockRelease != null, true, JSON.stringify(result));
+    assert.equal(result.state.recovery.activeRelease != null, true, JSON.stringify(result));
+    assert.equal(fs.existsSync(path.join(root, 'active.json')), false);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('publish failure stops the worker and records recovery instead of continuing', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-publish-failure-'));
+  try {
+    const testHooks = hooks();
+    testHooks.publishFailureAt = 'candidate-result';
+    const result = invoke(WORKER, `subject.scanner_worker_run({id:'scan-publish-failure',request:${JSON.stringify(request())}}, ${JSON.stringify(testHooks)})`, storageEnv(root));
+    assert.equal(result.ok, false, JSON.stringify(result));
+    assert.equal(result.state.status, 'error');
+    assert.equal(result.state.recovery.state, 'uncertain');
+    assert.equal(result.state.error != null, true);
+    assert.equal(result.state.results.length, 0);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('production execution consumes fixed adapter descriptors through the server executor', () => {
+  const source = fs.readFileSync(WORKER, 'utf8');
+  assert.match(source, /scanner_probe_execute/);
+  assert.doesNotMatch(source, /adapted\.ok \? 'PROBE_OBSERVATION_UNAVAILABLE'/);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-production-probe-'));
+  try {
+    const testHooks = hooks();
+    delete testHooks.probe;
+    testHooks.executor = { ok: true, observations: [{ transport: 'tls', status: 'error', error: 'HOST_UNAVAILABLE' }] };
+    const result = invoke(WORKER, `subject.scanner_worker_run({id:'scan-production-probe',request:${JSON.stringify(request())}}, ${JSON.stringify(testHooks)})`, storageEnv(root));
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(result.state.counts.infrastructure > 0, true);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('resume uses retained immutable plan authority when the catalog changes', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-plan-authority-'));
+  try {
+    const env = storageEnv(root);
+    const req = request();
+    const original = plan(req);
+    const created = invoke(STATE, `subject.scanner_state_create(${JSON.stringify(req)}, ${JSON.stringify(original)})`, env);
+    const checkpoint = { ...created, id: 'scan-plan-authority', status: 'running', phase: 'probing', heartbeatAt: Math.floor(Date.now() / 1000), worker: { pid: 42, startTime: 99, owner: 'scanner/worker' }, cursor: { nextCandidate: 1 }, progress: 1, results: [{ candidateId: 'c1', ordinal: 1, verdict: 'working', success: true, score: 1, reason: null, evidence: { infrastructure: false, baselineSuppressed: false, failureClass: null } }], plan: original, planCandidates: original.candidates };
+    checkpoint.results[0].planDigest = created.planDigest;
+    checkpoint.results[0].evidenceIdentity = invoke(STATE, `subject.scanner_state_digest(${JSON.stringify({ candidateId: 'c1', ordinal: 1, planDigest: created.planDigest, verdict: 'working', success: true, score: 1, reason: null, evidence: checkpoint.results[0].evidence })})`);
+    const saved = invoke(STATE, `subject.scanner_state_save(${JSON.stringify(checkpoint)})`, env);
+    assert.equal(saved.ok, true, JSON.stringify(saved));
+    const changed = { ...original, candidates: [original.candidates[1], original.candidates[0]] };
+    const resumed = invoke(WORKER, `subject.scanner_worker_resume({id:'scan-plan-authority'},{plan:${JSON.stringify(changed)},identity:{pid:42,startTime:99},transient:${JSON.stringify(hooks().transient)},baseline:${JSON.stringify(hooks().baseline)},probe:${JSON.stringify(hooks().probe)},reconcile:${JSON.stringify(hooks().reconcile)}})`, env);
+    assert.equal(resumed.ok, false, JSON.stringify({ saved: saved.state, resumed }));
+    assert.equal(resumed.error.code, 'ESTALE');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('terminal stop retry returns the existing terminal control/result rather than ESTATE or CONFLICT', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-terminal-stop-'));
+  try {
+    const env = storageEnv(root);
+    const created = invoke(STATE, `subject.scanner_state_create(${JSON.stringify(request())}, ${JSON.stringify(plan())})`, env);
+    const terminal = invoke(STATE, `subject.scanner_state_save(${JSON.stringify({ ...created, id:'scan-terminal-stop', status:'completed', phase:'completed', finishedAt:1 })})`, env);
+    const first = invoke(STATE, `subject.scanner_control_request('scan-terminal-stop','stop',{expectedRevision:${terminal.revision}})`, env);
+    const retry = invoke(STATE, `subject.scanner_control_request('scan-terminal-stop','stop',{expectedRevision:${terminal.revision}})`, env);
+    assert.equal(first.ok, true, JSON.stringify(first));
+    assert.equal(retry.ok, true, JSON.stringify(retry));
+    assert.deepEqual(retry.control, first.control);
+    assert.equal(retry.idempotent, true);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
