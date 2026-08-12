@@ -31,10 +31,10 @@ test('pure Scanner modules have no runtime or I/O imports', () => {
   for (const file of [MODEL, TARGETS]) {
     const source = readFileSync(file, 'utf8');
     assert.doesNotMatch(source, /^\s*import\s/m, file);
-    assert.doesNotMatch(source, /(?:firewall|network|rpc|frontend|orchestra|apply)/i, file);
+    assert.doesNotMatch(source, /(?:firewall|network|rpc|frontend|orchestra|apply|popen|readfile|writefile|from ['"]fs['"])/i, file);
   }
   const planner = readFileSync(PLANNER, 'utf8');
-  assert.doesNotMatch(planner, /(?:firewall|network|rpc|frontend|orchestra|apply)/i, PLANNER);
+  assert.doesNotMatch(planner, /(?:firewall|network|rpc|frontend|orchestra|apply|popen|readfile|writefile|from ['"]fs['"])/i, PLANNER);
 });
 
 test('target profiles preserve pinned fixture facts and deterministic host selection', () => {

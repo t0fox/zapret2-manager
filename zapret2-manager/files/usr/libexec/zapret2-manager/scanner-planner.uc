@@ -8,7 +8,13 @@ import { avatar_tokenize } from './strategy-model.uc';
 import { strategy_catalog_load, catalog_entry_to_strategy } from './strategy-catalog.uc';
 import { strategy_user_list } from './strategy-state.uc';
 import { strategy_candidate } from './strategy-compiler.uc';
-import { popen } from 'fs';
+
+const AUTHORITY_MARKER = 'z2m-scanner-authority.v1';
+const GENERATOR_MARKER = 'z2m-scanner-generator.v1';
+const AUTHORITATIVE_COMPILER_DIGEST = 'ae6761cb991048e870d2d7adf7b8c93b21a88b43cf4963a599fd4158ad47d404';
+const AUTHORITATIVE_CATALOG_DIGEST = '5978d35bfc0b73caaae658124874e24619b1f448e673ec09fd7c5d4dd8c3dda1';
+const AUTHORITATIVE_CATALOG_REPOSITORY = 'avatarDD/zapret-gui';
+const AUTHORITATIVE_CATALOG_COMMIT = 'f9dd3ea47a2239514f396a843b475c92c33f0b4c';
 
 const KNOWN_DPI = {
 	tls_dpi: { must: ['filter-l7=tls', 'tls_client_hello'], bad: ['filter-l7=quic', 'quic_initial'] },
@@ -210,7 +216,8 @@ function compare_complexity(a, b) {
 
 function candidate_sort_key(candidate) {
 	return [candidate.fullPreset == true ? 0 : (candidate.recommended == true ? 1 : 2),
-		candidate.complexity, candidate.sourcePath || '', candidate.strategyId || ''];
+		candidate.complexity, candidate.sourcePath || '', integer_value(candidate.sourceOrdinal),
+		integer_value(candidate.effectiveOrdinal), candidate.strategyId || '', integer_value(candidate.catalogOrder)];
 }
 
 function compare_candidates(a, b) {
@@ -220,7 +227,13 @@ function compare_candidates(a, b) {
 	result = compare_complexity(left[1], right[1]);
 	if (result != 0) return result;
 	result = compare_text(left[2], right[2]);
-	return result != 0 ? result : compare_text(left[3], right[3]);
+	if (result != 0) return result;
+	result = compare_number(left[3], right[3]);
+	if (result != 0) return result;
+	result = compare_number(left[4], right[4]);
+	if (result != 0) return result;
+	result = compare_text(left[5], right[5]);
+	return result != 0 ? result : compare_number(left[6], right[6]);
 }
 
 function sort_candidates(values) {
@@ -248,6 +261,90 @@ function contains(values, value) {
 function source_metadata(entry, name, fallback) {
 	let metadata = is_object(entry.metadata) ? entry.metadata : entry;
 	return metadata[name] == null ? fallback : metadata[name];
+}
+
+function valid_digest(value) { return is_string(value) && match(value, /^[a-f0-9]{64}$/); }
+
+const SHA_K = [
+	0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+	0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+	0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+	0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+	0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+	0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+	0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+	0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+];
+
+function u32(value) {
+	let result = value % 4294967296;
+	return result < 0 ? result + 4294967296 : result;
+}
+
+function shr(value, bits) { return int(u32(value) / (2 ** bits)); }
+
+function xor32(left, right) { return u32(u32(left) ^ u32(right)); }
+function and32(left, right) { return u32(u32(left) & u32(right)); }
+function not32(value) { return 4294967295 - u32(value); }
+
+function rotr(value, bits) {
+	return u32(shr(value, bits) | u32(u32(value) * (2 ** (32 - bits))));
+}
+
+function hex32(value) {
+	let text = '', number = u32(value);
+	for (let i = 7; i >= 0; i--) text += substr('0123456789abcdef', int(number / (2 ** (i * 4))) % 16, 1);
+	return text;
+}
+
+// Pure SHA-256 for the compiler dependency contract. Input is the authoritative
+// JSON serialization produced by this module; no filesystem or process access.
+function sha256_text(text) {
+	let bytes = [], bitLength = length(text) * 8;
+	for (let i = 0; i < length(text); i++) {
+		let code = ord(substr(text, i, 1));
+		if (code > 127) return null;
+		push(bytes, code);
+	}
+	push(bytes, 128);
+	while (length(bytes) % 64 != 56) push(bytes, 0);
+	for (let i = 7; i >= 0; i--) push(bytes, int(bitLength / (2 ** (i * 8))) % 256);
+	let state = [1779033703, -1150833019, 1013904242, -1521486534, 1359893119, -1694144372, 528734635, 1541459225];
+	for (let offset = 0; offset < length(bytes); offset += 64) {
+		let words = [];
+		for (let i = 0; i < 16; i++) {
+			let at = offset + i * 4;
+			push(words, u32(bytes[at] * 16777216 + bytes[at + 1] * 65536 + bytes[at + 2] * 256 + bytes[at + 3]));
+		}
+		for (let i = 16; i < 64; i++) {
+			let x = words[i - 15], y = words[i - 2];
+			let sx = xor32(xor32(rotr(x, 7), rotr(x, 18)), shr(x, 3));
+			let sy = xor32(xor32(rotr(y, 17), rotr(y, 19)), shr(y, 10));
+			push(words, u32(sx + words[i - 16] + sy + words[i - 7]));
+		}
+		let a = state[0], b = state[1], c = state[2], d = state[3], e = state[4], f = state[5], g = state[6], h = state[7];
+		for (let i = 0; i < 64; i++) {
+			let s1 = xor32(xor32(rotr(e, 6), rotr(e, 11)), rotr(e, 25));
+			let choose = xor32(and32(e, f), and32(not32(e), g));
+			let temp1 = u32(h + s1 + choose + SHA_K[i] + words[i]);
+			let s0 = xor32(xor32(rotr(a, 2), rotr(a, 13)), rotr(a, 22));
+			let majority = xor32(xor32(and32(a, b), and32(a, c)), and32(b, c));
+			let temp2 = u32(s0 + majority);
+			h = g; g = f; f = e; e = u32(d + temp1); d = c; c = b; b = a; a = u32(temp1 + temp2);
+		}
+		state[0] = u32(state[0] + a); state[1] = u32(state[1] + b); state[2] = u32(state[2] + c); state[3] = u32(state[3] + d);
+		state[4] = u32(state[4] + e); state[5] = u32(state[5] + f); state[6] = u32(state[6] + g); state[7] = u32(state[7] + h);
+	}
+	let result = '';
+	for (let i = 0; i < 8; i++) result += hex32(state[i]);
+	return result;
+}
+
+function dependency_digest(strategy, catalog, source, closure) {
+	let value = is_object(source) && is_string(source.dependencyDigest) ? source.dependencyDigest
+		: (is_string(strategy.dependencyDigest) ? strategy.dependencyDigest
+			: (is_object(catalog.dependencyDigests) ? catalog.dependencyDigests[strategy.id] : null));
+	return valid_digest(value) ? value : (closure == null ? null : sha256_text(sprintf('%J', closure)));
 }
 
 function raw_entry_ids(catalog, protocol, mode) {
@@ -304,43 +401,28 @@ function catalog_strategy(entry) {
 	return catalog_entry_to_strategy(entry);
 }
 
-function generated_strategy(generated, protocol) {
-	let args = generated.args;
-	if (!is_string(args) && is_string(generated.rawArgs)) args = generated.rawArgs;
-	if (!is_string(args)) return null;
-	let id = is_string(generated.id) ? generated.id : null;
-	if (id == null || id == '') return null;
-	return {
-		id: id, name: is_string(generated.name) ? generated.name : id,
-		profiles: [{ id: 'generated', args: args, enabled: true }],
-		metadata: { label: 'generated' }, blobs: generated.blobs || [],
-		origin: 'generated', source: 'generator', level: 'generated', protocol: protocol,
-	};
-}
-
 function dependency_closure(value) {
 	let source = is_object(value) ? value : {};
+	if (type(source.available) != 'bool' || type(source.structurallyCompilable) != 'bool'
+		|| type(source.items) != 'array' || type(source.missing) != 'array') return null;
+	for (let i = 0; i < length(source.items); i++) {
+		let item = source.items[i];
+		if (!is_object(item) || !is_string(item.key) || !is_string(item.kind)
+			|| !is_string(item.id) || !is_string(item.reference)
+			|| type(item.available) != 'bool' || !exists(item, 'reason')
+			|| (item.reason != null && !is_string(item.reason))) return null;
+	}
+	for (let i = 0; i < length(source.missing); i++) {
+		let item = source.missing[i];
+		if (!is_object(item) || !is_string(item.key) || !is_string(item.kind)
+			|| !is_string(item.id) || !is_string(item.reference)
+			|| type(item.available) != 'bool' || item.available == true || !exists(item, 'reason')
+			|| !is_string(item.reason)) return null;
+	}
 	return {
-		available: source.available == true,
-		items: type(source.items) == 'array' ? copy(source.items) : [],
-		missing: type(source.missing) == 'array' ? copy(source.missing) : [],
-		structurallyCompilable: source.structurallyCompilable == true,
+		available: source.available, items: copy(source.items), missing: copy(source.missing),
+		structurallyCompilable: source.structurallyCompilable,
 	};
-}
-
-function shell_quote(value) {
-	let result = "'";
-	for (let i = 0; i < length(value); i++) result += substr(value, i, 1) == "'" ? "'\\''" : substr(value, i, 1);
-	return result + "'";
-}
-
-function digest(value) {
-	let process = null;
-	try { process = popen('printf %s ' + shell_quote(value) + ' | sha256sum 2>/dev/null', 'r'); }
-	catch (e) { return null; }
-	if (!process) return null;
-	let output = process.read('all') || '', rc = process.close(), fields = split(trim_ws(output), /[ \t]+/);
-	return rc == 0 && length(fields) > 0 ? fields[0] : null;
 }
 
 function compiled_values(compiled) {
@@ -361,6 +443,7 @@ function canonical_view(candidate) {
 	let tokens = compiled_values(candidate);
 	if (tokens == null || !is_object(candidate)) return null;
 	let closure = dependency_closure(candidate.dependencyClosure);
+	if (closure == null) return null;
 	return { stream: token_stream(tokens), closure: closure };
 }
 
@@ -375,23 +458,32 @@ function compile_view(strategy, environment) {
 	if (!is_object(result) || result.ok != true) return null;
 	let tokens = token_values(result.candidate);
 	let closure = dependency_closure(result.dependencies);
+	if (closure == null) return null;
 	return { stream: token_stream(tokens), closure: closure,
 		tokens: tokens, compiledDigest: result.candidateSha256,
-		dependencyDigest: digest(sprintf('%J', closure)) };
+		dependencyDigest: null };
 }
 
 function identity_view(existing, environment) {
 	if (!is_object(existing)) return null;
-	let view = canonical_view(existing);
-	if (view != null) return view;
 	let strategy = is_object(existing.strategy) ? existing.strategy : existing;
+	if (!is_string(strategy.id) || !is_string(strategy.name) || type(strategy.profiles) != 'array'
+		|| length(strategy.profiles) == 0 || strategy.origin != 'user' || type(strategy.revision) != 'int') return null;
+	for (let i = 0; i < length(strategy.profiles); i++) {
+		let profile = strategy.profiles[i];
+		if (!is_object(profile) || !is_string(profile.id) || !is_string(profile.args) || type(profile.enabled) != 'bool') return null;
+	}
 	let compiled = compile_view(strategy, environment);
 	return compiled == null ? null : { stream: compiled.stream, closure: compiled.closure };
 }
 
 function generated_identity(candidate, existingStrategies, environment) {
 	if (reject_raw_candidate(candidate)) return error_result('EINPUT', 'Scanner candidates cannot contain client command arguments.');
-	let generated = canonical_view(candidate), existing = type(existingStrategies) == 'array' ? existingStrategies : [];
+	if (type(existingStrategies) == 'object' && existingStrategies.serverOwned != true) return error_result('EVERIFY', 'User Strategies are not authoritative.');
+	let existing = type(existingStrategies) == 'object' ? existingStrategies.strategies : existingStrategies;
+	if (type(existing) != 'array') return error_result('EVERIFY', 'User Strategies are not authoritative.');
+	let generated = canonical_view(candidate);
+	if (generated == null) return error_result('EINPUT', 'Generated candidate identity is incomplete.');
 	if (generated != null) {
 		for (let i = 0; i < length(existing); i++) {
 			let item = existing[i], view = identity_view(item, environment);
@@ -422,9 +514,11 @@ export const scanner_candidate_canonicalize = function(candidate, existingStrate
 };
 
 function candidate_from_strategy(strategy, protocol, source, sourcePath, ordinal,
-		environment, generated, existingStrategies) {
+		environment, generated, existingStrategies, catalog, generatedInput) {
 	let compiled = compile_view(strategy, environment);
 	if (compiled == null || compiled.compiledDigest == null) return null;
+	let dependencyDigest = dependency_digest(strategy, catalog, generatedInput, compiled.closure);
+	if (dependencyDigest == null) return null;
 	let full = full_preset(strategy_argument_text(strategy)), recommended = source_metadata(strategy, 'label', '') == 'recommended';
 	let candidate = {
 		scannerId: (generated ? 'generated:' : '') + strategy.id,
@@ -437,13 +531,16 @@ function candidate_from_strategy(strategy, protocol, source, sourcePath, ordinal
 		compiledTokens: copy(compiled.tokens),
 		compiledDigest: compiled.compiledDigest,
 		dependencyClosure: copy(compiled.closure),
-		dependencyDigest: compiled.dependencyDigest,
+		dependencyDigest: dependencyDigest,
 		ordinal: ordinal,
 		complexity: complexity(compiled.tokens),
 		recommended: recommended,
 		fullPreset: full,
 		saveRequired: generated,
 	};
+	candidate.sourceOrdinal = integer_value(strategy.sourceOrdinal);
+	candidate.effectiveOrdinal = integer_value(strategy.effectiveOrdinal);
+	candidate.catalogOrder = ordinal;
 	if (generated) {
 		let identity = generated_identity(candidate, existingStrategies, environment);
 		if (identity.ok == false) return identity;
@@ -487,6 +584,54 @@ function catalog_snapshot(value) {
 	return is_object(value) ? value : null;
 }
 
+function authority_valid(catalog) {
+	return is_object(catalog) && catalog.serverOwned == true && is_object(catalog.authority)
+		&& catalog.authority.marker == AUTHORITY_MARKER
+		&& catalog.authority.repository == AUTHORITATIVE_CATALOG_REPOSITORY
+		&& catalog.authority.commit == AUTHORITATIVE_CATALOG_COMMIT
+		&& is_string(catalog.aggregateDigest) && match(catalog.aggregateDigest, /^[a-f0-9]{64}$/)
+		&& catalog.aggregateDigest == AUTHORITATIVE_CATALOG_DIGEST
+		&& catalog.authority.catalogDigest == catalog.aggregateDigest
+		&& catalog.authority.compilerDigest == AUTHORITATIVE_COMPILER_DIGEST
+		&& catalog.compilerDigest == AUTHORITATIVE_COMPILER_DIGEST;
+}
+
+function generator_valid(catalog) {
+	return is_object(catalog.generator) && catalog.generator.marker == GENERATOR_MARKER
+		&& catalog.generator.compilerDigest == AUTHORITATIVE_COMPILER_DIGEST
+		&& type(catalog.generator.candidates) == 'array';
+}
+
+function records_shape_valid(records, generated) {
+	for (let i = 0; i < length(records); i++) {
+		let strategy = records[i];
+		if (!is_object(strategy) || !is_string(strategy.id) || !is_string(strategy.name)
+			|| type(strategy.profiles) != 'array' || length(strategy.profiles) == 0) return false;
+		for (let j = 0; j < length(strategy.profiles); j++) {
+			let profile = strategy.profiles[j];
+			if (!is_object(profile) || !is_string(profile.id) || !is_string(profile.args)
+				|| type(profile.enabled) != 'bool') return false;
+		}
+		if (!generated && (strategy.origin != 'user' || type(strategy.revision) != 'int')) return false;
+	}
+	return true;
+}
+
+function user_records_valid(value, catalog) {
+	return is_object(value) && value.serverOwned == true && is_object(value.authority)
+		&& value.authority.marker == AUTHORITY_MARKER
+		&& value.authority.catalogDigest == catalog.aggregateDigest
+		&& value.authority.compilerDigest == AUTHORITATIVE_COMPILER_DIGEST
+		&& type(value.strategies) == 'array' && records_shape_valid(value.strategies, false);
+}
+
+function target_profile_valid(profile) {
+	return is_object(profile) && is_string(profile.profileKey) && is_string(profile.primaryHost)
+		&& type(profile.testHosts) == 'array' && type(profile.hostlistDomains) == 'array'
+		&& type(profile.expectedHostlists) == 'array' && is_object(profile.tcp)
+		&& is_object(profile.udp) && is_string(profile.probeUrl);
+}
+
 export const scanner_plan_build = function(request, catalogSnapshot, userStrategies) {
 	let validated = request_normalize(request);
 	if (!validated.ok) return validated;
@@ -495,16 +640,24 @@ export const scanner_plan_build = function(request, catalogSnapshot, userStrateg
 		let loaded = strategy_catalog_load(null);
 		if (!is_object(loaded) || loaded.ok != true) return error_result('ENOENT', 'Scanner Strategy Catalog is unavailable.');
 		catalog = loaded.catalog;
+		catalog.serverOwned = true;
+		catalog.authority = { marker: AUTHORITY_MARKER, repository: AUTHORITATIVE_CATALOG_REPOSITORY,
+			commit: AUTHORITATIVE_CATALOG_COMMIT, catalogDigest: catalog.aggregateDigest,
+			compilerDigest: AUTHORITATIVE_COMPILER_DIGEST };
+		catalog.compilerDigest = AUTHORITATIVE_COMPILER_DIGEST;
 	}
+	if (!authority_valid(catalog)) return error_result('EVERIFY', 'Scanner Catalog/compiler authority is unavailable or stale.');
 	let users = userStrategies;
 	if (users == null) {
 		let listed = strategy_user_list();
 		if (!is_object(listed) || listed.ok != true) return error_result('EIO', 'Scanner user Strategies are unavailable.');
-		users = listed.strategies;
+		users = { serverOwned: true, authority: { marker: AUTHORITY_MARKER,
+			catalogDigest: catalog.aggregateDigest, compilerDigest: AUTHORITATIVE_COMPILER_DIGEST }, strategies: listed.strategies };
 	}
-	if (type(users) != 'array') return error_result('EINPUT', 'Scanner user Strategies must be server-owned records.');
-	let profile = null;
-	try { profile = scanner_target_profile(value.target); } catch (e) { profile = null; }
+	if (!user_records_valid(users, catalog)) return error_result('EVERIFY', 'Scanner user Strategies must be server-owned records.');
+	let profile = target_profile_valid(catalog.targetProfile) ? copy(catalog.targetProfile) : null;
+	if (profile == null) try { profile = scanner_target_profile(value.target); } catch (e) { profile = null; }
+	if (profile == null) return error_result('EINPUT', 'Scanner target profile could not be resolved.', 'target');
 	let environment = is_object(catalog.compilerEnvironment)
 		? copy(catalog.compilerEnvironment) : {};
 	let entries = selected_entries(catalog, value.protocol, value.mode), catalogCandidates = [], ordinal = 1;
@@ -512,20 +665,25 @@ export const scanner_plan_build = function(request, catalogSnapshot, userStrateg
 		let strategy = catalog_strategy(entries[i]);
 		if (strategy == null) continue;
 		let candidate = candidate_from_strategy(strategy, value.protocol, 'catalog',
-			strategy.sourceFile || entries[i].sourceFile || 'catalog', ordinal++, environment, false, users);
+			strategy.sourceFile || entries[i].sourceFile || 'catalog', ordinal++, environment, false, users, catalog, entries[i]);
 		if (candidate != null) push(catalogCandidates, candidate);
 	}
-	catalogCandidates = dedup_candidates(sort_candidates(catalogCandidates));
+	catalogCandidates = dedup_candidates(catalogCandidates);
 	let generatedCandidates = [];
 	if ((value.mode == 'standard' || value.mode == 'full') && is_object(catalog.policy)
-		&& catalog.policy.useGenerated == true && type(catalog.generatedCandidates) == 'array') {
-		for (let i = 0; i < length(catalog.generatedCandidates); i++) {
-			let generated = catalog.generatedCandidates[i];
-			if (!is_object(generated) || (generated.protocol || value.protocol) != value.protocol) continue;
-			let strategy = generated_strategy(generated, value.protocol);
+		&& catalog.policy.useGenerated == true) {
+		if (!generator_valid(catalog)) return error_result('EVERIFY', 'Scanner generator authority is unavailable or stale.');
+		for (let i = 0; i < length(catalog.generator.candidates); i++) {
+			let generated = catalog.generator.candidates[i];
+			if (!is_object(generated) || (generated.protocol || value.protocol) != value.protocol
+				|| !is_string(generated.id) || !is_object(generated.strategy)
+				|| !is_string(generated.dependencyDigest) || !valid_digest(generated.dependencyDigest)
+				|| !records_shape_valid([generated.strategy], true))
+				return error_result('EVERIFY', 'Scanner generator record is not authoritative.');
+			let strategy = is_object(generated.strategy) ? generated.strategy : null;
 			if (strategy == null) continue;
 			let candidate = candidate_from_strategy(strategy, value.protocol, 'generator', 'generator', ordinal++,
-				environment, true, users);
+				environment, true, users, catalog, generated);
 			if (candidate != null) push(generatedCandidates, candidate);
 		}
 	}
@@ -535,6 +693,7 @@ export const scanner_plan_build = function(request, catalogSnapshot, userStrateg
 	candidates = dedup_candidates(candidates);
 	let filtered = [];
 	for (let i = 0; i < length(candidates); i++) if (dpi_keep(candidates[i], value.dpi_type)) push(filtered, candidates[i]);
+	for (let i = 0; i < length(filtered); i++) filtered[i].ordinal = i + 1;
 	return { ok: true, plan: {
 		schema: 1, request: copy(value), targetProfile: copy(profile),
 		catalogDigest: catalog.aggregateDigest || null,
