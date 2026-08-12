@@ -37,23 +37,17 @@
 #define EVIDENCE_PATH EVIDENCE_PRODUCTION
 #endif
 
+#ifdef Z2M_SCANNER_HELPER_TEST
 static uid_t expected_uid(void)
 {
-#ifdef Z2M_SCANNER_HELPER_TEST
 	return getuid();
-#else
-	return 0;
-#endif
 }
 
 static gid_t expected_gid(void)
 {
-#ifdef Z2M_SCANNER_HELPER_TEST
 	return getgid();
-#else
-	return 0;
-#endif
 }
+#endif
 
 struct request {
 	char session[129];
@@ -65,6 +59,7 @@ struct request {
 	int64_t generation;
 };
 
+#ifdef Z2M_SCANNER_HELPER_TEST
 struct sha256 {
 	uint32_t state[8];
 	uint64_t length;
@@ -142,7 +137,9 @@ static void sha_finish(struct sha256 *ctx, char output[65])
 	for (size_t i = 0; i < sizeof(digest); i++) snprintf(output + i * 2, 3, "%02x", digest[i]);
 	output[64] = '\0';
 }
+#endif
 
+#ifdef Z2M_SCANNER_HELPER_TEST
 static bool valid_hex(const char *value, size_t length)
 {
 	if (strlen(value) != length) return false;
@@ -223,6 +220,7 @@ static bool parse_request(struct request *request)
 	}
 	json_object_put(document); json_tokener_free(tokener); return valid;
 }
+#endif
 
 static void emit_result(bool ok, const char *code, const char *evidence)
 {
@@ -234,6 +232,7 @@ static void emit_result(bool ok, const char *code, const char *evidence)
 	json_object_put(result);
 }
 
+#ifdef Z2M_SCANNER_HELPER_TEST
 static bool private_directory(const char *path)
 {
 	struct stat st;
@@ -297,16 +296,11 @@ static size_t occurrences(const char *text, const char *needle)
 	while ((at = strstr(at, needle)) != NULL) { count++; at += strlen(needle); }
 	return count;
 }
+#endif
 
+#ifdef Z2M_SCANNER_HELPER_TEST
 static int compare_delete(const struct request *request)
 {
-	if (geteuid() != 0 &&
-#ifndef Z2M_SCANNER_HELPER_TEST
-		true
-#else
-		false
-#endif
-	) { emit_result(false, "EDENIED", "not-root"); return 1; }
 	char scanner_root[PATH_MAX];
 	if (snprintf(scanner_root, sizeof(scanner_root), "%s/scanner", ROOT_PATH) < 0 ||
 		!private_directory(ROOT_PATH) || !private_directory(scanner_root)) {
@@ -341,10 +335,16 @@ static int compare_delete(const struct request *request)
 	if (!write_evidence(request, "deleted", digest)) { emit_result(false, "EIO", "evidence-unavailable"); close(lock); return 1; }
 	emit_result(true, "", "native-compare-delete"); close(lock); return 0;
 }
+#endif
 
 int main(void)
 {
+#ifndef Z2M_SCANNER_HELPER_TEST
+	emit_result(false, "EUNSUPPORTED", "atomic-compare-delete-unavailable");
+	return 1;
+#else
 	struct request request = { 0 };
 	if (!parse_request(&request)) { emit_result(false, "ESCHEMA", "request"); return 2; }
 	return compare_delete(&request);
+#endif
 }

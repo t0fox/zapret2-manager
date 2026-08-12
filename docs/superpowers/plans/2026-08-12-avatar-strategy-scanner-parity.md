@@ -407,7 +407,7 @@ runtime state. The UI module exports `load(ctx)`, `render(ctx)`, `mount(ctx)`,
 - Modify: `zapret2-manager/files/usr/libexec/zapret2-manager/profiles-apply.uc`
 - Create: `tests/product/avatar-strategy-scanner-transient.test.mjs`
 - Create: `tests/native/avatar-strategy-scanner-runtime.test.mjs`
-- Create: `zapret2-manager/src/z2m-scanner-firewall-helper.c` — dedicated root-owned fixed Scanner firewall compare-delete primitive authorized by the native-helper boundary.
+- Create: `zapret2-manager/src/z2m-scanner-firewall-helper.c` — fixed Scanner firewall helper; production must fail closed because this checkout has no proven atomic ownership-conditional delete primitive.
 - Modify: `zapret2-manager/files/usr/libexec/zapret2-manager/scanner-runtime-adapter.sh`
 - Coverage: `tests/native/avatar-strategy-scanner-runtime.test.mjs`, `tests/native/avatar-strategy-firewall-helper.test.mjs`, `tests/native/avatar-strategy-package.test.mjs`, and the native production package inventory explicitly cover the shipped adapter and helper. The dedicated native helper/package change is authorized by this plan's native-helper boundary; no unrelated package implementation change is authorized.
 
@@ -744,7 +744,7 @@ runtime state. The UI module exports `load(ctx)`, `render(ctx)`, `mount(ctx)`,
 
   Expected: only approved Scanner files/docs are changed; DNS changes = 0, Telegram changes = 0, and no router mutation evidence exists.
 
-- [ ] **Step 9: Perform final whole-slice review.** Use `superpowers:requesting-code-review` and `superpowers:verification-before-completion`. Critical findings must equal 0 and Important findings must equal 0. Reconcile every task report and final test command before claiming completion. Task 5 is not complete while production firewall compare-delete remains unavailable.
+- [ ] **Step 9: Perform final whole-slice review.** Use `superpowers:requesting-code-review` and `superpowers:verification-before-completion`. Critical findings must equal 0 and Important findings must equal 0. Reconcile every task report and final test command before claiming completion. Task 5 remains incomplete while production firewall compare-delete remains unavailable; the helper must stay fail-closed until a proven primitive and all-writer lock contract exist.
 
 - [ ] **Step 10: Commit.**
 

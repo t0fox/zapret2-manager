@@ -18,6 +18,37 @@ test('native Scanner firewall helper has no caller-controlled execution surface'
   assert.match(source, /flock\(lock, LOCK_EX\)/);
 });
 
+test('production Scanner firewall helper fails closed before any nft or filesystem mutation', () => {
+  if (process.platform === 'win32') return;
+  const cc = spawnSync('cc', ['--version'], { encoding: 'utf8' });
+  const pkg = spawnSync('pkg-config', ['--exists', 'json-c'], { encoding: 'utf8' });
+  if (cc.status !== 0 || pkg.status !== 0) {
+    assert.ok(true, 'native compiler or json-c unavailable; production helper execution limitation documented');
+    return;
+  }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-firewall-helper-prod-'));
+  const bin = path.join(root, 'helper');
+  try {
+    const built = spawnSync('cc', [
+      '-std=c11', '-Wall', '-Wextra', '-Werror', '-D_GNU_SOURCE', SOURCE,
+      ...spawnSync('pkg-config', ['--cflags', '--libs', 'json-c'], { encoding: 'utf8' }).stdout.trim().split(/\s+/),
+      '-o', bin,
+    ], { encoding: 'utf8' });
+    assert.equal(built.status, 0, `${built.stdout}\n${built.stderr}`);
+    const nonce = 'b'.repeat(64);
+    const request = JSON.stringify({ candidate: 'candidate1', expectedChainDigest: 'c'.repeat(64), generation: 7,
+      marker: `z2m-scanner:session1:candidate1:7:${nonce}`, nonce, operation: 'compare_delete',
+      ownershipToken: `scanner-firewall-v1:session1:candidate1:7:${nonce}`, session: 'session1' });
+    const ran = spawnSync(bin, [], { input: request, encoding: 'utf8' });
+    assert.notEqual(ran.status, 0);
+    assert.deepEqual(JSON.parse(ran.stdout), {
+      ok: false, code: 'EUNSUPPORTED', evidence: 'atomic-compare-delete-unavailable',
+    });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('native Scanner firewall helper compare-deletes only an exact owned chain', () => {
   if (process.platform === 'win32') return;
   const cc = spawnSync('cc', ['--version'], { encoding: 'utf8' });

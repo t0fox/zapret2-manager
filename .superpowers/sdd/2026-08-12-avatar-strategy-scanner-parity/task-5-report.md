@@ -265,14 +265,87 @@ ROUTER_E2E: NOT RUN
 REASON: explicit physical-router mutation/deployment approval was not provided
 ```
 
-## Final Architecture Fix
+## Feasibility Recheck: Atomic Firewall Ownership Delete
 
 ### Status
 
-COMPLETE WITH DOCUMENTED PRODUCTION LIMITATION. Production Scanner cleanup now
-uses a dedicated root-owned native compare-delete helper. Task 5 no longer relies
-on the test-only firewall CAS shim and does not claim a fail-closed-disabled
-production path.
+BLOCKED: Task 5 production lifecycle remains incomplete. The production helper
+now fails closed with `EUNSUPPORTED` before opening runtime files, taking a lock,
+invoking nft, or deleting anything. The existing compare/delete behavior remains
+compiled only inside `Z2M_SCANNER_HELPER_TEST` so the mutation and race tests
+continue to exercise the safety boundary without turning the unsupported
+production path into a claim.
+
+### Exact Proof
+
+The requested alternatives were checked against the Linux nftables UAPI, kernel
+implementation, nft documentation, libnftnl sources, OpenWrt package metadata,
+and this checkout:
+
+- `NFT_MSG_GETGEN` is registered by the kernel as an `NFNL_CB_RCU` read callback.
+  `nf_tables_getgen()` returns `NFTA_GEN_ID`; the request does not carry a
+  compare value and does not reserve that generation for a later mutation.
+- `NFT_MSG_DELCHAIN` is registered separately as an `NFNL_CB_BATCH` mutation.
+  `nf_tables_delchain()` resolves the chain by name or `NFTA_CHAIN_HANDLE` and
+  queues deletion. The delete policy has no generation-id or userdata/digest
+  precondition. A handle identifies the currently resolved object; it is not an
+  ownership or compare token.
+- Netfilter batch begin/end makes the submitted nft mutation set commit as one
+  transaction. It cannot place a kernel read result, userspace digest comparison,
+  and conditional delete into one transaction. libnftnl exposes batch framing,
+  chain handles, and generation-object formatting, but no conditional-delete
+  operation.
+- nft's `owner` table flag would exclude other netlink processes from the table,
+  but `zapret2` is an existing fw4/upstream table and this helper does not own
+  it. Enabling ownership would itself mutate unrelated authority and is not a
+  safe Task 5 change.
+- The repository's writer inventory disproves a manager-wide lock contract:
+  `blockcheck-run.sh` and `orchestra-candidate-run.sh` issue targeted nft deletes
+  without `firewall.lock`; `dns-global.uc`, `status-collector.uc`, and
+  `watchdog.uc` also invoke nft outside that lock. Changing those writers is
+  explicitly outside this task and would still not make unrelated external
+  writers cooperate.
+
+Primary sources checked:
+
+- Linux UAPI `nf_tables.h`: `NFT_MSG_GETGEN`, `NFTA_GEN_ID`,
+  `NFTA_CHAIN_HANDLE`, and `NFT_MSG_DELCHAIN`:
+  `https://raw.githubusercontent.com/torvalds/linux/master/include/uapi/linux/netfilter/nf_tables.h`
+- Linux kernel `nf_tables_api.c`: `nf_tables_getgen()`, callback types,
+  `nft_chain_lookup_byhandle()`, and `nf_tables_delchain()`:
+  `https://raw.githubusercontent.com/torvalds/linux/master/net/netfilter/nf_tables_api.c`
+- nft man page: chain/rule deletion by name or handle and transaction input:
+  `https://www.netfilter.org/projects/nftables/manpage.html`
+- libnftnl batch and chain APIs/examples:
+  `https://git.netfilter.org/libnftnl/tree/include/libnftnl`
+
+### Remaining Safety Gaps
+
+- The test-only compare/list/delete shim still has a userspace observation-to-
+  mutation window by design. Its lock protects only cooperating test processes.
+- Production Scanner activation and cleanup cannot be claimed until a kernel
+  supported conditional operation or an approved all-writer ownership contract
+  is introduced. The helper deliberately returns `EUNSUPPORTED` instead.
+- Other targeted cleanup paths remain non-atomic and outside this task, notably
+  PID-named blockcheck table cleanup and Orchestra table cleanup. They must not
+  be treated as proof of Scanner chain ownership.
+
+### Verification
+
+- Added a production-mode behavioral test that compiles the helper without the
+  test macro and proves the fixed request returns `EUNSUPPORTED` without any nft
+  or runtime-root setup.
+- Existing test-mode exact-owner deletion and mutation-retention tests remain
+  unchanged and continue to cover the controlled shim only.
+
+## Final Architecture Fix (Superseded by Feasibility Recheck)
+
+### Status
+
+SUPERSEDED. The dedicated helper is retained as a root-owned fixed boundary, but
+the feasibility recheck above proves that its production compare-delete path
+cannot be made atomic in this checkout. The current production behavior is
+fail-closed `EUNSUPPORTED`; Task 5 is not complete.
 
 ### Native Boundary
 
@@ -286,11 +359,12 @@ production path.
   queue `300`; serializes ownership with a root-owned lock; verifies the exact
   marker, queue occurrence, and chain digest; and issues only
   `nft delete chain inet zapret2 z2m_scanner` after the checks pass.
-- Any mismatch, nft failure, post-delete ambiguity, or evidence-write failure
-  returns failure and retains evidence. No nft flush operation exists.
-- `scanner-runtime-adapter.sh` production cleanup invokes this fixed helper;
-  the test helper remains injectable only inside the existing explicit test
-  shim boundary.
+- In the historical test-only implementation, any mismatch, nft failure,
+  post-delete ambiguity, or evidence-write failure returned failure and retained
+  evidence. No nft flush operation exists.
+- `scanner-runtime-adapter.sh` production cleanup invokes this fixed helper and
+  therefore fails closed on `EUNSUPPORTED`; the compare/delete shim remains
+  injectable only inside the existing explicit test boundary.
 
 ### Verification
 
@@ -306,15 +380,14 @@ production path.
 - WSL `sh -n zapret2-manager/files/usr/libexec/zapret2-manager/scanner-runtime-adapter.sh` passed.
 - `git diff --check` passed.
 
-### Exact Production Limitation
+### Historical Production Limitation
 
 The real OpenWrt target package build, live `/usr/sbin/nft`, nfqws2,
 NFQUEUE, and physical-router E2E were not available in this Windows/WSL
 checkout. The native helper compiled and ran behaviorally against a fixed nft
-test binary, but real nft mutation remains unexecuted here. The helper is
-therefore implemented and wired for production, with live-router execution
-explicitly pending target deployment; this report does not claim that live nft
-mutation was verified.
+test binary, but that test-only sequence is not an atomic production primitive.
+The feasibility recheck is the authoritative result and production mutation is
+disabled fail-closed.
 
 ### Files Added/Changed
 
