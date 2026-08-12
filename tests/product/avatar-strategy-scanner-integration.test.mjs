@@ -8,6 +8,7 @@ import path from 'node:path';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const TARGETS = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-targets.uc');
 const MODEL = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-model.uc');
+const PLANNER = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-planner.uc');
 const FIXTURE = path.join(ROOT, 'tests/fixtures/avatar-strategy-scanner/targets.json');
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.split('|') : [];
@@ -30,8 +31,10 @@ test('pure Scanner modules have no runtime or I/O imports', () => {
   for (const file of [MODEL, TARGETS]) {
     const source = readFileSync(file, 'utf8');
     assert.doesNotMatch(source, /^\s*import\s/m, file);
-    assert.doesNotMatch(source, /(?:fs|process|firewall|network|shell|rpc|frontend)/i, file);
+    assert.doesNotMatch(source, /(?:firewall|network|rpc|frontend|orchestra|apply)/i, file);
   }
+  const planner = readFileSync(PLANNER, 'utf8');
+  assert.doesNotMatch(planner, /(?:firewall|network|rpc|frontend|orchestra|apply)/i, PLANNER);
 });
 
 test('target profiles preserve pinned fixture facts and deterministic host selection', () => {

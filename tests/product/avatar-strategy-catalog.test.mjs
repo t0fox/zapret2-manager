@@ -328,3 +328,15 @@ test('catalog exposes conversion for a physical winner without changing its iden
   assert.deepEqual(result.profiles.map(profile => profile.enabled),
     Array.from({ length: result.profiles.length }, () => true));
 });
+
+test('catalog winner records retain the planner tie-breaker provenance fields', () => {
+  const catalog = load();
+  const entry = catalog.winners.split;
+  assert.equal(typeof entry.sourceFile, 'string');
+  assert.equal(typeof entry.sourceOrdinal, 'number');
+  assert.equal(typeof entry.level, 'string');
+  assert.equal(typeof entry.protocol, 'string');
+  assert.equal(typeof entry.metadata, 'object');
+  assert.equal(typeof entry.args, 'string');
+  assert.equal(typeof entry.rawArgs, 'string');
+});
