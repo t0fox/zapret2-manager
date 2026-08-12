@@ -7,12 +7,10 @@ import { scanner_target_profile } from './scanner-targets.uc';
 import { avatar_tokenize } from './strategy-model.uc';
 import { strategy_catalog_load, catalog_entry_to_strategy } from './strategy-catalog.uc';
 import { strategy_user_list } from './strategy-state.uc';
-import { strategy_candidate } from './strategy-compiler.uc';
+import { strategy_candidate, strategy_compiler_authority } from './strategy-compiler.uc';
 
 const AUTHORITY_MARKER = 'z2m-scanner-authority.v1';
 const GENERATOR_MARKER = 'z2m-scanner-generator.v1';
-const AUTHORITATIVE_COMPILER_DIGEST = 'ae6761cb991048e870d2d7adf7b8c93b21a88b43cf4963a599fd4158ad47d404';
-const AUTHORITATIVE_CATALOG_DIGEST = '5978d35bfc0b73caaae658124874e24619b1f448e673ec09fd7c5d4dd8c3dda1';
 const AUTHORITATIVE_CATALOG_REPOSITORY = 'avatarDD/zapret-gui';
 const AUTHORITATIVE_CATALOG_COMMIT = 'f9dd3ea47a2239514f396a843b475c92c33f0b4c';
 
@@ -53,6 +51,14 @@ function copy(value) {
 		return result;
 	}
 	return value;
+}
+
+function valid_digest(value) { return is_string(value) && match(value, /^[a-f0-9]{64}$/); }
+
+function compiler_digest() {
+	let authority = strategy_compiler_authority();
+	return is_object(authority) && authority.marker == 'z2m-scanner-compiler.v1'
+		&& valid_digest(authority.digest) ? authority.digest : null;
 }
 
 function lower(value) {
@@ -217,7 +223,8 @@ function compare_complexity(a, b) {
 function candidate_sort_key(candidate) {
 	return [candidate.fullPreset == true ? 0 : (candidate.recommended == true ? 1 : 2),
 		candidate.complexity, candidate.sourcePath || '', integer_value(candidate.sourceOrdinal),
-		integer_value(candidate.effectiveOrdinal), candidate.strategyId || '', integer_value(candidate.catalogOrder)];
+		integer_value(candidate.sectionOrdinal), integer_value(candidate.effectiveOrdinal),
+		candidate.strategyId || '', integer_value(candidate.catalogOrder)];
 }
 
 function compare_candidates(a, b) {
@@ -232,8 +239,10 @@ function compare_candidates(a, b) {
 	if (result != 0) return result;
 	result = compare_number(left[4], right[4]);
 	if (result != 0) return result;
-	result = compare_text(left[5], right[5]);
-	return result != 0 ? result : compare_number(left[6], right[6]);
+	result = compare_number(left[5], right[5]);
+	if (result != 0) return result;
+	result = compare_text(left[6], right[6]);
+	return result != 0 ? result : compare_number(left[7], right[7]);
 }
 
 function sort_candidates(values) {
@@ -262,8 +271,6 @@ function source_metadata(entry, name, fallback) {
 	let metadata = is_object(entry.metadata) ? entry.metadata : entry;
 	return metadata[name] == null ? fallback : metadata[name];
 }
-
-function valid_digest(value) { return is_string(value) && match(value, /^[a-f0-9]{64}$/); }
 
 const SHA_K = [
 	0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
@@ -300,12 +307,27 @@ function hex32(value) {
 // Pure SHA-256 for the compiler dependency contract. Input is the authoritative
 // JSON serialization produced by this module; no filesystem or process access.
 function sha256_text(text) {
-	let bytes = [], bitLength = length(text) * 8;
+	let bytes = [];
 	for (let i = 0; i < length(text); i++) {
 		let code = ord(substr(text, i, 1));
-		if (code > 127) return null;
-		push(bytes, code);
+		if (code <= 0x7f) push(bytes, code);
+		else if (code <= 0x7ff) {
+			push(bytes, 0xc0 | (code >> 6));
+			push(bytes, 0x80 | (code & 0x3f));
+		}
+		else if (code <= 0xffff) {
+			push(bytes, 0xe0 | (code >> 12));
+			push(bytes, 0x80 | ((code >> 6) & 0x3f));
+			push(bytes, 0x80 | (code & 0x3f));
+		}
+		else {
+			push(bytes, 0xf0 | (code >> 18));
+			push(bytes, 0x80 | ((code >> 12) & 0x3f));
+			push(bytes, 0x80 | ((code >> 6) & 0x3f));
+			push(bytes, 0x80 | (code & 0x3f));
+		}
 	}
+	let bitLength = length(bytes) * 8;
 	push(bytes, 128);
 	while (length(bytes) % 64 != 56) push(bytes, 0);
 	for (let i = 7; i >= 0; i--) push(bytes, int(bitLength / (2 ** (i * 8))) % 256);
@@ -341,10 +363,13 @@ function sha256_text(text) {
 }
 
 function dependency_digest(strategy, catalog, source, closure) {
-	let value = is_object(source) && is_string(source.dependencyDigest) ? source.dependencyDigest
+	if (closure == null) return null;
+	let computed = sha256_text(sprintf('%J', closure));
+	if (!valid_digest(computed)) return null;
+	let supplied = is_object(source) && is_string(source.dependencyDigest) ? source.dependencyDigest
 		: (is_string(strategy.dependencyDigest) ? strategy.dependencyDigest
 			: (is_object(catalog.dependencyDigests) ? catalog.dependencyDigests[strategy.id] : null));
-	return valid_digest(value) ? value : (closure == null ? null : sha256_text(sprintf('%J', closure)));
+	return supplied == null ? computed : (supplied == computed ? computed : null);
 }
 
 function raw_entry_ids(catalog, protocol, mode) {
@@ -419,6 +444,16 @@ function dependency_closure(value) {
 			|| type(item.available) != 'bool' || item.available == true || !exists(item, 'reason')
 			|| !is_string(item.reason)) return null;
 	}
+	let missing = {}, unavailable = false;
+	for (let i = 0; i < length(source.missing); i++) missing[source.missing[i].key] = true;
+	for (let i = 0; i < length(source.items); i++) {
+		let item = source.items[i];
+		if (!item.available) {
+			unavailable = true;
+			if (!missing[item.key]) return null;
+		}
+	}
+	if (source.available == unavailable || source.structurallyCompilable != true) return null;
 	return {
 		available: source.available, items: copy(source.items), missing: copy(source.missing),
 		structurallyCompilable: source.structurallyCompilable,
@@ -479,11 +514,32 @@ function identity_view(existing, environment) {
 
 function generated_identity(candidate, existingStrategies, environment) {
 	if (reject_raw_candidate(candidate)) return error_result('EINPUT', 'Scanner candidates cannot contain client command arguments.');
-	if (type(existingStrategies) == 'object' && existingStrategies.serverOwned != true) return error_result('EVERIFY', 'User Strategies are not authoritative.');
+	if (type(existingStrategies) != 'object' || existingStrategies.serverOwned != true
+		|| !is_object(existingStrategies.authority)
+		|| existingStrategies.authority.marker != AUTHORITY_MARKER
+		|| existingStrategies.authority.repository != AUTHORITATIVE_CATALOG_REPOSITORY
+		|| existingStrategies.authority.commit != AUTHORITATIVE_CATALOG_COMMIT
+		|| existingStrategies.authority.catalogDigest != '5978d35bfc0b73caaae658124874e24619b1f448e673ec09fd7c5d4dd8c3dda1'
+		|| !valid_digest(existingStrategies.authority.catalogEnvelopeDigest)
+		|| !is_object(existingStrategies.authority.catalog)
+		|| existingStrategies.authority.catalog.serverOwned != true
+		|| existingStrategies.authority.catalog.marker != 'z2m-scanner-catalog.v1'
+		|| existingStrategies.authority.catalog.repository != AUTHORITATIVE_CATALOG_REPOSITORY
+		|| existingStrategies.authority.catalog.commit != AUTHORITATIVE_CATALOG_COMMIT
+		|| existingStrategies.authority.catalog.catalogDigest != existingStrategies.authority.catalogDigest
+		|| existingStrategies.authority.catalog.catalogEnvelopeDigest != existingStrategies.authority.catalogEnvelopeDigest
+		|| candidate.compilerDigest != compiler_digest()
+		|| candidate.catalogDigest != existingStrategies.authority.catalogDigest
+		|| existingStrategies.authority.compilerDigest != compiler_digest())
+		return error_result('EVERIFY', 'User Strategies are not authoritative.');
 	let existing = type(existingStrategies) == 'object' ? existingStrategies.strategies : existingStrategies;
 	if (type(existing) != 'array') return error_result('EVERIFY', 'User Strategies are not authoritative.');
 	let generated = canonical_view(candidate);
 	if (generated == null) return error_result('EINPUT', 'Generated candidate identity is incomplete.');
+	let computedDependencyDigest = sha256_text(sprintf('%J', generated.closure));
+	if (!valid_digest(computedDependencyDigest)
+		|| (candidate.dependencyDigest != null && candidate.dependencyDigest != computedDependencyDigest))
+		return error_result('EVERIFY', 'Scanner dependency digest does not match the validated closure.');
 	if (generated != null) {
 		for (let i = 0; i < length(existing); i++) {
 			let item = existing[i], view = identity_view(item, environment);
@@ -518,7 +574,7 @@ function candidate_from_strategy(strategy, protocol, source, sourcePath, ordinal
 	let compiled = compile_view(strategy, environment);
 	if (compiled == null || compiled.compiledDigest == null) return null;
 	let dependencyDigest = dependency_digest(strategy, catalog, generatedInput, compiled.closure);
-	if (dependencyDigest == null) return null;
+	if (dependencyDigest == null) return error_result('EVERIFY', 'Scanner dependency authority is unavailable or mismatched.');
 	let full = full_preset(strategy_argument_text(strategy)), recommended = source_metadata(strategy, 'label', '') == 'recommended';
 	let candidate = {
 		scannerId: (generated ? 'generated:' : '') + strategy.id,
@@ -532,6 +588,8 @@ function candidate_from_strategy(strategy, protocol, source, sourcePath, ordinal
 		compiledDigest: compiled.compiledDigest,
 		dependencyClosure: copy(compiled.closure),
 		dependencyDigest: dependencyDigest,
+		catalogDigest: catalog.aggregateDigest,
+		compilerDigest: compiler_digest(),
 		ordinal: ordinal,
 		complexity: complexity(compiled.tokens),
 		recommended: recommended,
@@ -539,6 +597,8 @@ function candidate_from_strategy(strategy, protocol, source, sourcePath, ordinal
 		saveRequired: generated,
 	};
 	candidate.sourceOrdinal = integer_value(strategy.sourceOrdinal);
+	candidate.sectionOrdinal = integer_value(strategy.sectionOrdinal != null ? strategy.sectionOrdinal
+		: source_metadata(strategy, 'sectionOrdinal', 0));
 	candidate.effectiveOrdinal = integer_value(strategy.effectiveOrdinal);
 	candidate.catalogOrder = ordinal;
 	if (generated) {
@@ -584,21 +644,67 @@ function catalog_snapshot(value) {
 	return is_object(value) ? value : null;
 }
 
+function catalog_aggregate_digest(catalog) {
+	if (!is_object(catalog) || type(catalog.files) != 'array') return null;
+	let aggregate = '';
+	for (let i = 0; i < length(catalog.files); i++) {
+		let file = catalog.files[i];
+		if (!is_object(file) || !is_string(file.path) || !valid_digest(file.sha256)) return null;
+		aggregate += file.sha256 + '  catalogs/' + file.path + '\n';
+	}
+	return sha256_text(aggregate);
+}
+
+function catalog_envelope_digest(catalog) {
+	if (!is_object(catalog)) return null;
+	let envelope = { source: catalog.source, aggregateDigest: catalog.aggregateDigest,
+		files: catalog.files, winnerOrder: catalog.winnerOrder, sets: catalog.sets, winners: catalog.winners };
+	let digest = sha256_text(sprintf('%J', envelope));
+	return valid_digest(digest) ? digest : null;
+}
+
+function target_profile_valid(profile) {
+	return is_object(profile) && is_string(profile.profileKey) && is_string(profile.primaryHost)
+		&& type(profile.testHosts) == 'array' && type(profile.hostlistDomains) == 'array'
+		&& type(profile.expectedHostlists) == 'array' && is_object(profile.tcp)
+		&& is_object(profile.udp) && is_string(profile.probeUrl);
+}
+
 function authority_valid(catalog) {
+	let compilerDigest = compiler_digest();
+	let envelopeDigest = catalog_envelope_digest(catalog);
 	return is_object(catalog) && catalog.serverOwned == true && is_object(catalog.authority)
+		&& catalog_aggregate_digest(catalog) == catalog.aggregateDigest
 		&& catalog.authority.marker == AUTHORITY_MARKER
 		&& catalog.authority.repository == AUTHORITATIVE_CATALOG_REPOSITORY
 		&& catalog.authority.commit == AUTHORITATIVE_CATALOG_COMMIT
-		&& is_string(catalog.aggregateDigest) && match(catalog.aggregateDigest, /^[a-f0-9]{64}$/)
-		&& catalog.aggregateDigest == AUTHORITATIVE_CATALOG_DIGEST
 		&& catalog.authority.catalogDigest == catalog.aggregateDigest
-		&& catalog.authority.compilerDigest == AUTHORITATIVE_COMPILER_DIGEST
-		&& catalog.compilerDigest == AUTHORITATIVE_COMPILER_DIGEST;
+		&& valid_digest(catalog.authority.catalogEnvelopeDigest)
+		&& is_object(catalog.authority.catalog)
+		&& catalog.authority.catalog.serverOwned == true
+		&& catalog.authority.catalog.marker == 'z2m-scanner-catalog.v1'
+		&& catalog.authority.catalog.repository == AUTHORITATIVE_CATALOG_REPOSITORY
+		&& catalog.authority.catalog.commit == AUTHORITATIVE_CATALOG_COMMIT
+		&& catalog.authority.catalog.catalogDigest == catalog.aggregateDigest
+		&& catalog.authority.catalog.catalogEnvelopeDigest == catalog.authority.catalogEnvelopeDigest
+		&& sprintf('%J', catalog.authority.catalog.source) == sprintf('%J', catalog.source)
+		&& sprintf('%J', catalog.authority.catalog.winnerOrder) == sprintf('%J', catalog.winnerOrder)
+		&& sprintf('%J', catalog.authority.catalog.sets) == sprintf('%J', catalog.sets)
+		&& sprintf('%J', catalog.authority.catalog.winners) == sprintf('%J', catalog.winners)
+		&& catalog.authority.compilerDigest == compilerDigest
+		&& catalog.compilerDigest == compilerDigest;
 }
 
 function generator_valid(catalog) {
-	return is_object(catalog.generator) && catalog.generator.marker == GENERATOR_MARKER
-		&& catalog.generator.compilerDigest == AUTHORITATIVE_COMPILER_DIGEST
+	let compilerDigest = compiler_digest();
+	return is_object(catalog.generator) && catalog.generator.serverOwned == true
+		&& is_object(catalog.generator.authority) && catalog.generator.authority.marker == GENERATOR_MARKER
+		&& catalog.generator.authority.repository == AUTHORITATIVE_CATALOG_REPOSITORY
+		&& catalog.generator.authority.commit == AUTHORITATIVE_CATALOG_COMMIT
+		&& catalog.generator.authority.catalogDigest == catalog.aggregateDigest
+		&& catalog.generator.authority.catalogEnvelopeDigest == catalog.authority.catalogEnvelopeDigest
+		&& sprintf('%J', catalog.generator.authority.catalog) == sprintf('%J', catalog.authority.catalog)
+		&& catalog.generator.authority.compilerDigest == compilerDigest
 		&& type(catalog.generator.candidates) == 'array';
 }
 
@@ -618,18 +724,38 @@ function records_shape_valid(records, generated) {
 }
 
 function user_records_valid(value, catalog) {
+	let compilerDigest = compiler_digest();
 	return is_object(value) && value.serverOwned == true && is_object(value.authority)
 		&& value.authority.marker == AUTHORITY_MARKER
+		&& value.authority.repository == AUTHORITATIVE_CATALOG_REPOSITORY
+		&& value.authority.commit == AUTHORITATIVE_CATALOG_COMMIT
 		&& value.authority.catalogDigest == catalog.aggregateDigest
-		&& value.authority.compilerDigest == AUTHORITATIVE_COMPILER_DIGEST
+		&& value.authority.catalogEnvelopeDigest == catalog.authority.catalogEnvelopeDigest
+		&& is_object(value.authority.catalog)
+		&& value.authority.catalog.repository == catalog.authority.catalog.repository
+		&& value.authority.catalog.commit == catalog.authority.catalog.commit
+		&& value.authority.catalog.catalogDigest == catalog.authority.catalog.catalogDigest
+		&& value.authority.catalog.catalogEnvelopeDigest == catalog.authority.catalogEnvelopeDigest
+		&& value.authority.compilerDigest == compilerDigest
 		&& type(value.strategies) == 'array' && records_shape_valid(value.strategies, false);
 }
 
-function target_profile_valid(profile) {
-	return is_object(profile) && is_string(profile.profileKey) && is_string(profile.primaryHost)
-		&& type(profile.testHosts) == 'array' && type(profile.hostlistDomains) == 'array'
-		&& type(profile.expectedHostlists) == 'array' && is_object(profile.tcp)
-		&& is_object(profile.udp) && is_string(profile.probeUrl);
+function profile_matches_request(profile, request) {
+	if (!is_object(profile) || !is_string(profile.profileKey) || !is_string(profile.primaryHost)
+		|| type(profile.testHosts) != 'array' || type(profile.hostlistDomains) != 'array'
+		|| type(profile.expectedHostlists) != 'array' || !is_object(profile.tcp)
+		|| !is_object(profile.udp) || !is_string(profile.probeUrl)) return false;
+	let primary = lower(trim_ws(request.target));
+	if (substr(primary, -1) == '.') primary = substr(primary, 0, length(primary) - 1);
+	if (lower(profile.primaryHost) != primary || length(profile.testHosts) == 0
+		|| length(profile.hostlistDomains) == 0 || profile.probeUrl == '') return false;
+	for (let i = 0; i < length(profile.testHosts); i++) if (!valid_hostname(profile.testHosts[i])) return false;
+	for (let i = 0; i < length(profile.hostlistDomains); i++) if (!valid_hostname(profile.hostlistDomains[i])) return false;
+	for (let i = 0; i < length(profile.expectedHostlists); i++) if (!is_string(profile.expectedHostlists[i])) return false;
+	let protocol = request.protocol == 'udp' ? profile.udp : profile.tcp;
+	return is_object(protocol) && is_string(protocol.ports) && is_string(protocol.l7)
+		&& is_string(protocol.payload)
+		&& (request.protocol == 'udp' ? protocol.l7 == 'quic' : protocol.l7 == 'tls');
 }
 
 export const scanner_plan_build = function(request, catalogSnapshot, userStrategies) {
@@ -643,8 +769,13 @@ export const scanner_plan_build = function(request, catalogSnapshot, userStrateg
 		catalog.serverOwned = true;
 		catalog.authority = { marker: AUTHORITY_MARKER, repository: AUTHORITATIVE_CATALOG_REPOSITORY,
 			commit: AUTHORITATIVE_CATALOG_COMMIT, catalogDigest: catalog.aggregateDigest,
-			compilerDigest: AUTHORITATIVE_COMPILER_DIGEST };
-		catalog.compilerDigest = AUTHORITATIVE_COMPILER_DIGEST;
+			compilerDigest: compiler_digest(), catalogEnvelopeDigest: catalog_envelope_digest(catalog),
+			catalog: { serverOwned: true, marker: 'z2m-scanner-catalog.v1',
+				repository: AUTHORITATIVE_CATALOG_REPOSITORY, commit: AUTHORITATIVE_CATALOG_COMMIT,
+				catalogDigest: catalog.aggregateDigest, catalogEnvelopeDigest: catalog_envelope_digest(catalog),
+				source: catalog.source, winnerOrder: catalog.winnerOrder, sets: catalog.sets,
+				winners: catalog.winners } };
+		catalog.compilerDigest = compiler_digest();
 	}
 	if (!authority_valid(catalog)) return error_result('EVERIFY', 'Scanner Catalog/compiler authority is unavailable or stale.');
 	let users = userStrategies;
@@ -652,12 +783,14 @@ export const scanner_plan_build = function(request, catalogSnapshot, userStrateg
 		let listed = strategy_user_list();
 		if (!is_object(listed) || listed.ok != true) return error_result('EIO', 'Scanner user Strategies are unavailable.');
 		users = { serverOwned: true, authority: { marker: AUTHORITY_MARKER,
-			catalogDigest: catalog.aggregateDigest, compilerDigest: AUTHORITATIVE_COMPILER_DIGEST }, strategies: listed.strategies };
+			repository: AUTHORITATIVE_CATALOG_REPOSITORY, commit: AUTHORITATIVE_CATALOG_COMMIT,
+			catalogDigest: catalog.aggregateDigest, compilerDigest: compiler_digest(),
+			catalogEnvelopeDigest: catalog.authority.catalogEnvelopeDigest, catalog: catalog.authority.catalog }, strategies: listed.strategies };
 	}
 	if (!user_records_valid(users, catalog)) return error_result('EVERIFY', 'Scanner user Strategies must be server-owned records.');
 	let profile = target_profile_valid(catalog.targetProfile) ? copy(catalog.targetProfile) : null;
 	if (profile == null) try { profile = scanner_target_profile(value.target); } catch (e) { profile = null; }
-	if (profile == null) return error_result('EINPUT', 'Scanner target profile could not be resolved.', 'target');
+	if (profile == null || !profile_matches_request(profile, value)) return error_result('EINPUT', 'Scanner target profile is absent or mismatched.', 'target');
 	let environment = is_object(catalog.compilerEnvironment)
 		? copy(catalog.compilerEnvironment) : {};
 	let entries = selected_entries(catalog, value.protocol, value.mode), catalogCandidates = [], ordinal = 1;
@@ -666,9 +799,10 @@ export const scanner_plan_build = function(request, catalogSnapshot, userStrateg
 		if (strategy == null) continue;
 		let candidate = candidate_from_strategy(strategy, value.protocol, 'catalog',
 			strategy.sourceFile || entries[i].sourceFile || 'catalog', ordinal++, environment, false, users, catalog, entries[i]);
+		if (candidate != null && candidate.ok == false) return candidate;
 		if (candidate != null) push(catalogCandidates, candidate);
 	}
-	catalogCandidates = dedup_candidates(catalogCandidates);
+	catalogCandidates = dedup_candidates(sort_candidates(catalogCandidates));
 	let generatedCandidates = [];
 	if ((value.mode == 'standard' || value.mode == 'full') && is_object(catalog.policy)
 		&& catalog.policy.useGenerated == true) {
@@ -677,13 +811,13 @@ export const scanner_plan_build = function(request, catalogSnapshot, userStrateg
 			let generated = catalog.generator.candidates[i];
 			if (!is_object(generated) || (generated.protocol || value.protocol) != value.protocol
 				|| !is_string(generated.id) || !is_object(generated.strategy)
-				|| !is_string(generated.dependencyDigest) || !valid_digest(generated.dependencyDigest)
 				|| !records_shape_valid([generated.strategy], true))
 				return error_result('EVERIFY', 'Scanner generator record is not authoritative.');
 			let strategy = is_object(generated.strategy) ? generated.strategy : null;
 			if (strategy == null) continue;
 			let candidate = candidate_from_strategy(strategy, value.protocol, 'generator', 'generator', ordinal++,
 				environment, true, users, catalog, generated);
+			if (candidate != null && candidate.ok == false) return candidate;
 			if (candidate != null) push(generatedCandidates, candidate);
 		}
 	}

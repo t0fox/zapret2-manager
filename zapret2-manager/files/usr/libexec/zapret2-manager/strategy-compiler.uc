@@ -13,6 +13,16 @@ import { native_preflight } from './native-preflight.uc';
 import { popen } from 'fs';
 
 const ENGINE_PATH = '/opt/zapret2/nfq2/nfqws2';
+const COMPILER_AUTHORITY_MARKER = 'z2m-scanner-compiler.v1';
+const COMPILER_AUTHORITY_CONTRACT = {
+	version: 1,
+	module: 'strategy-compiler.uc',
+	tokenizer: 'avatar_tokenize.quote-aware.v1',
+	profiles: 'enabled-order.join-new.v1',
+	transforms: ['resolve-token-paths', 'autowrap-pinned-payloads', 'insert-list-flags', 'blob-declarations'],
+	dependencies: 'collect_dependencies.ordered-complete.v1',
+	digest: 'sha256.rendered-candidate-utf8.v1',
+};
 
 function is_object(value) {
 	return type(value) == 'object' && value != null;
@@ -665,6 +675,30 @@ export const strategy_candidate = function(input, environment) {
 		candidateSha256: result.digest,
 		expectedHash: result.digest,
 	};
+};
+
+export const strategy_compiler_authority = function() {
+	let probeInputs = [
+		{ id: 'authority-tls', name: 'authority-tls', profiles: [{ id: 'p1', args: '--payload=tls_client_hello --lua-desync=fake', enabled: true }] },
+		{ id: 'authority-multi', name: 'authority-multi', profiles: [
+			{ id: 'p1', args: '--filter-tcp=443 --payload=tls_client_hello --lua-desync=fake', enabled: true },
+			{ id: 'p2', args: '--filter-udp=443 --payload=quic_initial --lua-desync=fake', enabled: true },
+		] },
+	];
+	let probeEnvironment = { listMode: 'none', paths: {}, blobs: {}, lua: {}, functions: { fake: { present: true } } };
+	let probes = [];
+	for (let i = 0; i < length(probeInputs); i++) {
+		let result = strategy_candidate(probeInputs[i], probeEnvironment);
+		if (!is_object(result) || result.ok != true) return null;
+		push(probes, { strategy: probeInputs[i], environment: probeEnvironment,
+			strategyArgs: result.strategyArgs, fragments: result.fragments,
+			dependencies: result.dependencies });
+	}
+	let digestInput = sprintf('%J', { contract: COMPILER_AUTHORITY_CONTRACT, probes: probes });
+	let digest = digest_text(digestInput);
+	if (digest == null) return null;
+	return { marker: COMPILER_AUTHORITY_MARKER, contract: COMPILER_AUTHORITY_CONTRACT,
+		digest: digest, digestInput: digestInput, probes: probes, source: 'strategy-compiler.uc' };
 };
 
 export const strategy_effective_argv = function(strategyArgs, runtimeInputs) {

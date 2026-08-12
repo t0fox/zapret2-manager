@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { ucodeDiagnostic, ucodeModulePattern } from '../native/core/ucode-test-harness.mjs';
@@ -8,6 +10,10 @@ import { ucodeDiagnostic, ucodeModulePattern } from '../native/core/ucode-test-h
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const MODULE = path.join(ROOT,
   'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-planner.uc');
+const COMPILER = path.join(ROOT,
+  'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-compiler.uc');
+const CATALOG_MANIFEST = JSON.parse(readFileSync(path.join(ROOT,
+  'zapret2-manager/files/usr/share/zapret2-manager/catalog/avatar/manifest.json'), 'utf8'));
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.split('|') : [];
 const UCODE_MODULE_PATTERN = ucodeModulePattern(
@@ -15,9 +21,40 @@ const UCODE_MODULE_PATTERN = ucodeModulePattern(
 const UCODE_LIBRARY_ARGS = UCODE_MODULE_PATTERN ? ['-L', UCODE_MODULE_PATTERN] : [];
 const AUTHORITY_MARKER = 'z2m-scanner-authority.v1';
 const GENERATOR_MARKER = 'z2m-scanner-generator.v1';
-const COMPILER_DIGEST = 'ae6761cb991048e870d2d7adf7b8c93b21a88b43cf4963a599fd4158ad47d404';
 const CATALOG_DIGEST = '5978d35bfc0b73caaae658124874e24619b1f448e673ec09fd7c5d4dd8c3dda1';
-const DEPENDENCY_DIGEST = 'b'.repeat(64);
+
+function invokeCompiler(expression) {
+  const source = `import * as compiler from ${JSON.stringify(COMPILER)}; print(${expression});`;
+  const argv = [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source];
+  const result = spawnSync(UCODE_BIN, argv, {
+    cwd: ROOT,
+    env: { ...process.env, LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib' },
+    encoding: 'utf8', timeout: 30_000, maxBuffer: 20 * 1024 * 1024,
+  });
+  assert.equal(result.status, 0, `${result.stderr || result.stdout}`);
+  return JSON.parse(result.stdout);
+}
+
+const COMPILER_AUTHORITY = invokeCompiler('sprintf("%J", compiler.strategy_compiler_authority())');
+const COMPILER_DIGEST = COMPILER_AUTHORITY.digest;
+let lastCatalogAuthority = null;
+
+function catalogEnvelope(value) {
+  return {
+    source: value.source ?? null, aggregateDigest: value.aggregateDigest ?? null,
+    files: value.files ?? null, winnerOrder: value.winnerOrder ?? null,
+    sets: value.sets ?? null, winners: value.winners ?? null,
+  };
+}
+
+test('compiler authority digest is derived from compiled behavior, not metadata alone', () => {
+  assert.equal(COMPILER_AUTHORITY.digest,
+    createHash('sha256').update(COMPILER_AUTHORITY.digestInput, 'utf8').digest('hex'));
+  assert.notEqual(COMPILER_AUTHORITY.digest,
+    createHash('sha256').update(JSON.stringify(COMPILER_AUTHORITY.contract), 'utf8').digest('hex'));
+  assert.ok(Array.isArray(COMPILER_AUTHORITY.probes));
+  assert.ok(COMPILER_AUTHORITY.probes.some(probe => probe.strategyArgs.includes('--filter-l7=tls')));
+});
 
 function invoke(expression) {
   const source = `import * as planner from ${JSON.stringify(MODULE)}; print(sprintf('%J', ${expression}));`;
@@ -34,37 +71,56 @@ function invoke(expression) {
 
 function entry(id, args, extra = {}) {
   return {
-    id, args, level: 'advanced', protocol: 'tcp', sourceFile: 'advanced/tcp.txt',
-    sourceOrdinal: 1, effectiveOrdinal: 1, dependencyDigest: DEPENDENCY_DIGEST,
+    id, args, winner: true, level: 'advanced', protocol: 'tcp', sourceFile: 'advanced/tcp.txt',
+    sourceOrdinal: 1, effectiveOrdinal: 1,
     metadata: { name: id, label: '', ...extra },
   };
 }
 
 function snapshot(entries, sets, extra = {}) {
   const winners = Object.fromEntries(entries.map(item => [item.id, item]));
-  return {
+  const value = {
     serverOwned: true,
     authority: { marker: AUTHORITY_MARKER, repository: 'avatarDD/zapret-gui', commit: 'f9dd3ea47a2239514f396a843b475c92c33f0b4c', catalogDigest: CATALOG_DIGEST, compilerDigest: COMPILER_DIGEST },
     aggregateDigest: CATALOG_DIGEST, compilerDigest: COMPILER_DIGEST,
+    source: { repository: 'avatarDD/zapret-gui', commit: 'f9dd3ea47a2239514f396a843b475c92c33f0b4c' },
+    files: CATALOG_MANIFEST.files,
     policy: { useGenerated: false }, winners, sets,
     winnerOrder: entries.map(item => item.id),
-    dependencyDigests: Object.fromEntries(entries.map(item => [item.id, DEPENDENCY_DIGEST])),
     targetProfile: { profileKey: 'generic', primaryHost: 'example.com', testHosts: ['example.com'],
       hostlistDomains: ['example.com'], expectedHostlists: [],
       tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' },
       udp: { ports: '443', l7: 'quic', payload: 'quic_initial' }, probeUrl: 'https://example.com/' },
     ...extra,
   };
+  const catalogEnvelopeDigest = createHash('sha256').update(JSON.stringify(catalogEnvelope(value)), 'utf8').digest('hex');
+  lastCatalogAuthority = { serverOwned: true, marker: 'z2m-scanner-catalog.v1',
+    repository: 'avatarDD/zapret-gui', commit: 'f9dd3ea47a2239514f396a843b475c92c33f0b4c',
+    catalogDigest: CATALOG_DIGEST, catalogEnvelopeDigest, source: value.source, files: value.files,
+    winnerOrder: value.winnerOrder, sets: value.sets, winners: value.winners };
+  value.authority.catalogEnvelopeDigest = catalogEnvelopeDigest;
+  value.authority.catalog = lastCatalogAuthority;
+  if (value.generator?.authority) {
+    value.generator.authority.catalogEnvelopeDigest = catalogEnvelopeDigest;
+    value.generator.authority.catalog = lastCatalogAuthority;
+  }
+  return value;
 }
 
 function users(strategies = []) {
   return { serverOwned: true, authority: { marker: AUTHORITY_MARKER, repository: 'avatarDD/zapret-gui', commit: 'f9dd3ea47a2239514f396a843b475c92c33f0b4c',
-    catalogDigest: CATALOG_DIGEST, compilerDigest: COMPILER_DIGEST }, strategies };
+    catalogDigest: CATALOG_DIGEST, compilerDigest: COMPILER_DIGEST,
+    catalogEnvelopeDigest: lastCatalogAuthority?.catalogEnvelopeDigest,
+    catalog: lastCatalogAuthority }, strategies };
 }
 
 function generatedInput(values) {
-  return { marker: GENERATOR_MARKER, compilerDigest: COMPILER_DIGEST,
-    candidates: values.map(value => ({ id: value.id, protocol: value.protocol, dependencyDigest: DEPENDENCY_DIGEST,
+  return { serverOwned: true, authority: { marker: GENERATOR_MARKER,
+    repository: 'avatarDD/zapret-gui', commit: 'f9dd3ea47a2239514f396a843b475c92c33f0b4c',
+    catalogDigest: CATALOG_DIGEST, compilerDigest: COMPILER_DIGEST,
+    catalogEnvelopeDigest: lastCatalogAuthority?.catalogEnvelopeDigest,
+    catalog: lastCatalogAuthority },
+    candidates: values.map(value => ({ id: value.id, protocol: value.protocol,
       strategy: { id: value.id, name: value.id, profiles: [{ id: 'generated', args: value.args, enabled: true }] } })) };
 }
 
@@ -83,7 +139,9 @@ test('quick prepends ten full presets and preserves the catalog tail order', () 
   ];
   const all = [...full, ...tail];
   const sets = { tcp: { quick: all.map(item => item.id), standard: all.map(item => item.id), full: all.map(item => item.id) }, udp: { quick: [], standard: [], full: [] } };
-  const plan = invoke(`planner.scanner_plan_build(${JSON.stringify(request('quick'))}, ${JSON.stringify(snapshot(all, sets))}, ${JSON.stringify(users())})`).plan;
+  const result = invoke(`planner.scanner_plan_build(${JSON.stringify(request('quick'))}, ${JSON.stringify(snapshot(all, sets))}, ${JSON.stringify(users())})`);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  const plan = result.plan;
   assert.deepEqual(plan.candidates.map(item => item.strategyId), [
     ...full.slice(0, 10).map(item => item.id), ...tail.map(item => item.id),
   ]);
@@ -104,7 +162,9 @@ test('standard prepends twenty full presets, while full keeps only the requested
     udp: { quick: ['udp-full'], standard: ['udp-full'], full: ['udp-full'] },
   };
   const data = JSON.stringify(snapshot(all, sets));
-  const standard = invoke(`planner.scanner_plan_build(${JSON.stringify(request('standard'))}, ${data}, ${JSON.stringify(users())})`).plan;
+  const standardResult = invoke(`planner.scanner_plan_build(${JSON.stringify(request('standard'))}, ${data}, ${JSON.stringify(users())})`);
+  assert.equal(standardResult.ok, true, JSON.stringify(standardResult));
+  const standard = standardResult.plan;
   assert.deepEqual(standard.candidates.slice(0, 20).map(item => item.strategyId),
     tcp.slice(0, 20).map(item => item.id));
   const fullUdp = invoke(`planner.scanner_plan_build(${JSON.stringify(request('full', 'udp'))}, ${data}, ${JSON.stringify(users())})`).plan;
@@ -158,10 +218,30 @@ test('recommended, complexity, source, and section tie-breakers are deterministi
   ];
   const ids = candidates.map(candidate => candidate.id);
   const sets = { tcp: { quick: ids, standard: ids, full: ids }, udp: { quick: [], standard: [], full: [] } };
-  const plan = invoke(`planner.scanner_plan_build(${JSON.stringify(request('quick'))}, ${JSON.stringify(snapshot(candidates, sets))}, ${JSON.stringify(users())})`).plan;
+  const result = invoke(`planner.scanner_plan_build(${JSON.stringify(request('quick'))}, ${JSON.stringify(snapshot(candidates, sets))}, ${JSON.stringify(users())})`);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  const plan = result.plan;
   assert.deepEqual(plan.candidates.map(candidate => candidate.strategyId), [
-    'recommended-z', 'recommended-a', 'recommended-b', 'recommended-simple', 'normal',
+    'recommended-a', 'recommended-b', 'recommended-z', 'recommended-simple', 'normal',
   ]);
+});
+
+test('approved Scanner ordering applies full preset, recommendation, complexity, source, section, and ID tie-breakers', () => {
+  const candidates = [
+    { ...entry('id-z', '--lua-desync=split:pos=1 --comment=z'), sourceFile: 'b.txt', sourceOrdinal: 2, effectiveOrdinal: 2 },
+    { ...entry('id-a', '--lua-desync=split:pos=1 --comment=a'), sourceFile: 'b.txt', sourceOrdinal: 2, effectiveOrdinal: 2 },
+    { ...entry('source-a', '--lua-desync=split:pos=1 --comment=source'), sourceFile: 'a.txt', sourceOrdinal: 9, effectiveOrdinal: 9 },
+    { ...entry('complex', '--lua-desync=split:repeats=8'), sourceFile: 'a.txt', sourceOrdinal: 1, effectiveOrdinal: 1 },
+    { ...entry('recommended', '--lua-desync=split:pos=1 --comment=recommended', { label: 'recommended' }), sourceFile: 'z.txt' },
+    { ...entry('full', '--filter-tcp=443'), level: 'builtin', sourceFile: 'builtin/presets.txt' },
+  ];
+  const ids = candidates.map(candidate => candidate.id);
+  const sets = { tcp: { quick: ids, standard: ids, full: ids }, udp: { quick: [], standard: [], full: [] } };
+  const result = invoke(`planner.scanner_plan_build(${JSON.stringify(request('full'))}, ${JSON.stringify(snapshot(candidates, sets))}, ${JSON.stringify(users())})`);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  const plan = result.plan;
+  assert.deepEqual(plan.candidates.map(candidate => candidate.strategyId),
+    ['full', 'recommended', 'source-a', 'id-a', 'id-z', 'complex']);
 });
 
 test('planner binds provenance, normalized compiled tokens, dependency closure, and ordinals', () => {
@@ -171,8 +251,9 @@ test('planner binds provenance, normalized compiled tokens, dependency closure, 
   const candidate = plan.candidates[0];
   assert.deepEqual(Object.keys(candidate).sort(), [
     'catalogOrder', 'compiledDigest', 'compiledTokens', 'complexity', 'dependencyClosure',
+    'catalogDigest', 'compilerDigest',
     'dependencyDigest', 'fullPreset', 'identityKind', 'ordinal', 'protocol',
-    'effectiveOrdinal', 'recommended', 'saveRequired', 'scannerId', 'source', 'sourceOrdinal', 'sourcePath',
+    'effectiveOrdinal', 'sectionOrdinal', 'recommended', 'saveRequired', 'scannerId', 'source', 'sourceOrdinal', 'sourcePath',
     'strategyId', 'strategyRevision',
   ].sort());
   assert.equal(candidate.identityKind, 'catalog');
@@ -181,13 +262,13 @@ test('planner binds provenance, normalized compiled tokens, dependency closure, 
   assert.equal(candidate.ordinal, 1);
   assert.equal(candidate.fullPreset, true);
   assert.equal(candidate.saveRequired, false);
-  assert.equal(plan.candidates[0].catalogDigest, undefined);
+  assert.equal(plan.candidates[0].catalogDigest, CATALOG_DIGEST);
 });
 
 test('dependency digest fallback hashes the canonical closure without process access', () => {
   const item = { ...entry('one', '--filter-tcp=443'), dependencyDigest: null };
   const sets = { tcp: { quick: ['one'], standard: ['one'], full: ['one'] }, udp: { quick: [], standard: [], full: [] } };
-  const data = snapshot([item], sets, { dependencyDigests: {} });
+  const data = snapshot([item], sets);
   const plan = invoke(`planner.scanner_plan_build(${JSON.stringify(request('quick'))}, ${JSON.stringify(data)}, ${JSON.stringify(users())})`).plan;
   assert.equal(plan.candidates[0].dependencyDigest,
     'fd6bc5930bb0a77ae383fbc33948ee0a4dc0700b69e43e506c97ea2ae18139c5');
@@ -197,6 +278,7 @@ test('canonicalization maps only exact normalized compiled tokens and dependency
   const exact = {
     scannerId: 'generated:gen-one', identityKind: 'generated', strategyId: null,
     strategyRevision: null, source: 'generator', sourcePath: 'generator', protocol: 'tcp',
+    catalogDigest: CATALOG_DIGEST, compilerDigest: COMPILER_DIGEST,
     compiledTokens: ['--filter-tcp=443'],
     dependencyClosure: { available: true, items: [], missing: [], structurallyCompilable: true },
     ordinal: 1, complexity: [1, 0, 0], recommended: false, fullPreset: false, saveRequired: true,
@@ -222,6 +304,7 @@ test('canonicalization rejects display-only, approximate, and client raw-argumen
   const candidate = {
     scannerId: 'generated:gen-one', identityKind: 'generated', strategyId: null,
     strategyRevision: null, source: 'generator', sourcePath: 'generator', protocol: 'tcp',
+    catalogDigest: CATALOG_DIGEST, compilerDigest: COMPILER_DIGEST,
     compiledTokens: ['--filter-tcp=443'], dependencyClosure: { available: true, items: [], missing: [], structurallyCompilable: true },
     ordinal: 1, complexity: [0, 0, 0], recommended: false, fullPreset: true, saveRequired: true,
   };
@@ -247,6 +330,14 @@ test('planner rejects missing or mismatched compiler/catalog authority', () => {
     assert.equal(result.ok, false);
     assert.equal(result.error.code, 'EVERIFY');
   }
+});
+
+test('planner rejects compiler drift from the authoritative compiler contract', () => {
+  const item = entry('one', '--filter-tcp=443');
+  const sets = { tcp: { quick: ['one'], standard: ['one'], full: ['one'] }, udp: { quick: [], standard: [], full: [] } };
+  const result = invoke(`planner.scanner_plan_build(${JSON.stringify(request('quick'))}, ${JSON.stringify(snapshot([item], sets, { compilerDigest: '0'.repeat(64), authority: { marker: AUTHORITY_MARKER, repository: 'avatarDD/zapret-gui', commit: 'f9dd3ea47a2239514f396a843b475c92c33f0b4c', catalogDigest: CATALOG_DIGEST, compilerDigest: '0'.repeat(64) } }))}, ${JSON.stringify(users())})`);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'EVERIFY');
 });
 
 test('planner rejects untrusted snapshots, user records, and public generated args', () => {
@@ -278,12 +369,89 @@ test('planner fails closed when target profile resolution fails', () => {
   assert.equal(result.error.code, 'EINPUT');
 });
 
+test('planner rejects a target profile unrelated to the validated request target', () => {
+  const item = entry('one', '--filter-tcp=443');
+  const sets = { tcp: { quick: ['one'], standard: ['one'], full: ['one'] }, udp: { quick: [], standard: [], full: [] } };
+  const result = invoke(`planner.scanner_plan_build(${JSON.stringify(request('quick'))}, ${JSON.stringify(snapshot([item], sets, { targetProfile: { ...snapshot([], sets).targetProfile, primaryHost: 'other.example' } }))}, ${JSON.stringify(users())})`);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'EINPUT');
+});
+
+test('planner rejects a supplied dependency digest that disagrees with the validated closure', () => {
+  const item = { ...entry('one', '--filter-tcp=443'), dependencyDigest: '0'.repeat(64) };
+  const sets = { tcp: { quick: ['one'], standard: ['one'], full: ['one'] }, udp: { quick: [], standard: [], full: [] } };
+  const result = invoke(`planner.scanner_plan_build(${JSON.stringify(request('quick'))}, ${JSON.stringify(snapshot([item], sets))}, ${JSON.stringify(users())})`);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'EVERIFY');
+});
+
+test('planner rejects forged authority envelopes and unbound generated snapshots', () => {
+  const item = entry('one', '--filter-tcp=443');
+  const sets = { tcp: { quick: ['one'], standard: ['one'], full: ['one'] }, udp: { quick: [], standard: [], full: [] } };
+  const trusted = snapshot([item], sets, {
+    policy: { useGenerated: true }, generator: generatedInput([
+      { id: 'generated-one', protocol: 'tcp', args: '--filter-tcp=443' },
+    ]),
+  });
+  const cases = [
+    { ...trusted, authority: { ...trusted.authority, catalog: { ...lastCatalogAuthority, commit: 'forged' } } },
+    { ...trusted, generator: { ...trusted.generator, authority: { ...trusted.generator.authority, catalogDigest: '0'.repeat(64) } } },
+    { ...trusted, files: trusted.files.slice(1) },
+    { ...trusted, authority: { ...trusted.authority, compilerDigest: '0'.repeat(64) } },
+  ];
+  for (const forged of cases) {
+    const result = invoke(`planner.scanner_plan_build(${JSON.stringify(request('standard'))}, ${JSON.stringify(forged)}, ${JSON.stringify(users())})`);
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, 'EVERIFY');
+  }
+});
+
+test('planner binds a valid target profile to the requested protocol', () => {
+  const item = entry('one', '--filter-udp=443');
+  const sets = { tcp: { quick: [], standard: [], full: [] }, udp: { quick: ['one'], standard: ['one'], full: ['one'] } };
+  const base = snapshot([{ ...item, protocol: 'udp' }], sets);
+  const result = invoke(`planner.scanner_plan_build(${JSON.stringify(request('quick', 'udp'))}, ${JSON.stringify({ ...base,
+    targetProfile: { ...base.targetProfile, udp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' } },
+  })}, ${JSON.stringify(users())})`);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'EINPUT');
+});
+
+test('canonicalization recomputes and validates the dependency digest', () => {
+  const candidate = {
+    scannerId: 'generated:one', identityKind: 'generated', strategyId: null,
+    strategyRevision: null, source: 'generator', sourcePath: 'generator', protocol: 'tcp',
+    catalogDigest: CATALOG_DIGEST, compilerDigest: COMPILER_DIGEST,
+    compiledTokens: ['--filter-tcp=443'],
+    dependencyClosure: { available: true, items: [], missing: [], structurallyCompilable: true },
+    dependencyDigest: '0'.repeat(64), catalogDigest: CATALOG_DIGEST, compilerDigest: COMPILER_DIGEST,
+    ordinal: 1, complexity: [0, 0, 0], recommended: false, fullPreset: true, saveRequired: true,
+  };
+  const result = invoke(`planner.scanner_candidate_canonicalize(${JSON.stringify(candidate)}, ${JSON.stringify(users())})`);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'EVERIFY');
+});
+
+test('ordering exercises section and effective ordinal tie-breakers after source', () => {
+  const candidates = [
+    { ...entry('effective-late', '--lua-desync=split:pos=1 --filter-tcp=443'), sourceFile: 'a.txt', sourceOrdinal: 4, effectiveOrdinal: 9, sectionOrdinal: 9 },
+    { ...entry('section-first', '--lua-desync=split:pos=2 --filter-tcp=443'), sourceFile: 'a.txt', sourceOrdinal: 4, effectiveOrdinal: 2, sectionOrdinal: 2 },
+    { ...entry('source-first', '--lua-desync=split:pos=3 --filter-tcp=443'), sourceFile: 'a.txt', sourceOrdinal: 3, effectiveOrdinal: 99, sectionOrdinal: 99 },
+    { ...entry('other-source', '--lua-desync=split:pos=4 --filter-tcp=443'), sourceFile: 'b.txt', sourceOrdinal: 1, effectiveOrdinal: 1, sectionOrdinal: 1 },
+  ];
+  const ids = candidates.map(candidate => candidate.id);
+  const sets = { tcp: { quick: ids, standard: ids, full: ids }, udp: { quick: [], standard: [], full: [] } };
+  const plan = invoke(`planner.scanner_plan_build(${JSON.stringify(request('full'))}, ${JSON.stringify(snapshot(candidates, sets))}, ${JSON.stringify(users())})`).plan;
+  assert.deepEqual(plan.candidates.map(candidate => candidate.strategyId),
+    ['source-first', 'section-first', 'effective-late', 'other-source']);
+});
+
 test('final ordinals are contiguous after authoritative-order deduplication', () => {
   const first = { ...entry('z-section', '--filter-tcp=443 --name=z'), sourceFile: 'a.txt', sourceOrdinal: 20, effectiveOrdinal: 9 };
   const second = { ...entry('a-section', '--filter-tcp=443 --name=a'), sourceFile: 'a.txt', sourceOrdinal: 10, effectiveOrdinal: 3 };
   const sets = { tcp: { quick: ['z-section', 'a-section'], standard: ['z-section', 'a-section'], full: ['z-section', 'a-section'] }, udp: { quick: [], standard: [], full: [] } };
   const plan = invoke(`planner.scanner_plan_build(${JSON.stringify(request('full'))}, ${JSON.stringify(snapshot([first, second], sets))}, ${JSON.stringify(users())})`).plan;
-  assert.deepEqual(plan.candidates.map(candidate => candidate.strategyId), ['z-section', 'a-section']);
+  assert.deepEqual(plan.candidates.map(candidate => candidate.strategyId), ['a-section', 'z-section']);
   assert.deepEqual(plan.candidates.map(candidate => candidate.ordinal), [1, 2]);
 });
 
@@ -297,5 +465,5 @@ test('canonicalization rejects incomplete dependency items and closure mismatche
   };
   const result = invoke(`planner.scanner_candidate_canonicalize(${JSON.stringify(candidate)}, ${JSON.stringify(users())})`);
   assert.equal(result.ok, false);
-  assert.equal(result.error.code, 'EINPUT');
+  assert.equal(result.error.code, 'EVERIFY');
 });
