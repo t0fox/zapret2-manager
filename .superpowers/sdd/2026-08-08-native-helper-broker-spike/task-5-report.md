@@ -78,6 +78,52 @@ fixed before the final gates.
 
 - No Task 5 blocker remains.
 
+## Scanner Transient Adapter Fix Round
+
+### Status
+
+**PASS WITH DOCUMENTED HOST LIMITATIONS.** The approved transient Scanner
+activation, stabilization, cleanup, identity, snapshot, and fixed-runtime
+adapter boundary is implemented. The adapter owns only server-issued IDs,
+fixed production paths, and server-owned temporary files. It does not write
+Strategy/config state, invoke caller-provided commands or paths, run a second
+Apply engine, or flush the nftables ruleset.
+
+### Fixes
+
+- Added a real held global config lock lifecycle using the fixed
+  `/opt/zapret2/config.lock` path, with bounded acquire and release operations.
+- Added lock release on snapshot failure, candidate activation/cleanup failure,
+  and successful neutral session completion. Task 7 terminal restoration remains
+  explicitly deferred.
+- Mapped planner IDs such as `generated:<strategy-id>` to server-owned safe
+  runtime filenames and shell IDs; raw IDs never cross the shell boundary.
+- Moved the shell failure helper before test-shim initialization and corrected
+  the lock worker PID/termination behavior.
+- Added native WSL fixed-shim coverage for acquire, activate, stabilize, cleanup,
+  invalid path rejection, and release.
+
+### Verification
+
+- `UCODE_BIN=/opt/ucode/bin/ucode node --test tests/product/avatar-strategy-scanner-transient.test.mjs`:
+  **9 pass, 0 fail**.
+- WSL `node --test tests/native/avatar-strategy-scanner-runtime.test.mjs`:
+  **4 pass, 0 fail**.
+- `sh -n zapret2-manager/files/usr/libexec/zapret2-manager/scanner-runtime-adapter.sh`:
+  **PASS**.
+- `git diff --check`: **PASS**.
+- Package gate: **13 pass, 1 pre-existing unrelated failure**. The failure is
+  the pinned `advanced/discord_voice_zapret2_advanced.txt` mode mismatch
+  (`0777` actual versus `0644` expected); no Scanner adapter assertion failed.
+
+### Limitations
+
+- Real router `/opt/zapret2/nfq2/nfqws2`, production nftables, and production
+  ucode runtime are unavailable on this host. Runtime behavior is verified with
+  fixed WSL shims; production paths and operation vectors are statically pinned.
+- Independent reviewer dispatch was unavailable because the subagent depth
+  limit was reached. A manual security/scope audit was completed instead.
+
 ## Review Fix: Exact Socket Mode
 
 ### Status

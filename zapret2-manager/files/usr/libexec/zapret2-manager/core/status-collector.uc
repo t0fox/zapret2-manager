@@ -3,7 +3,7 @@
 // zapret2 engine is reported independently so its absence is not mislabeled
 // as a cleanly stopped runtime.
 
-import { readfile, writefile, stat, mkdir, lsdir, popen } from 'fs';
+import { readfile, writefile, stat, readlink, mkdir, lsdir, popen } from 'fs';
 import {
 	NFQUEUE, QLEN_WARN, QLEN_CRIT_CONSECUTIVE, CACHE_TTL_SEC,
 	DAEMON, NFT_TABLE, PATHS
@@ -75,6 +75,15 @@ function find_pids() {
 		if (index(bin, '/' + DAEMON) < 0 && bin != DAEMON) continue;
 		let pst = stat('/proc/' + name);
 		let pid = +name;
+		let startTick = null;
+		try {
+			let statRaw = readfile('/proc/' + name + '/stat'), fields = split(trim(statRaw || ''), /[ \t]+/);
+			if (length(fields) > 21 && match(fields[21], /^[0-9]+$/)) startTick = +fields[21];
+		} catch (e) { startTick = null; }
+		let exe = null;
+		try { exe = readlink('/proc/' + name + '/exe'); } catch (e) { exe = null; }
+		let argvSha256 = null;
+		try { argvSha256 = trim(sh("sha256sum /proc/" + name + "/cmdline 2>/dev/null | awk '{print $1}'")); } catch (e) { argvSha256 = null; }
 		let rss = null;
 		try {
 			let st_raw = readfile('/proc/' + name + '/status');
@@ -86,6 +95,10 @@ function find_pids() {
 		push(pids, {
 			pid: pid,
 			binary: (length(argv) && length(argv[0])) ? argv[0] : null,
+			exe: exe,
+			argvSha256: match(argvSha256 || '', /^[a-f0-9]{64}$/) ? argvSha256 : null,
+			startTimeTick: startTick,
+			owner: 'runtime/nfqws2',
 			cmdline: trim(human),
 			startTime: iso_from_unix(pst ? pst.mtime : null),
 			rssKb: rss

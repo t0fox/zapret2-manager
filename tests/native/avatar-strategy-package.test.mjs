@@ -18,6 +18,12 @@ const LEVELS = ['advanced', 'basic', 'builtin', 'direct'];
 const makefile = fs.readFileSync(path.join(ROOT, 'zapret2-manager', 'Makefile'), 'utf8');
 const expectedManifest = JSON.parse(fs.readFileSync(EXPECTED_MANIFEST_PATH, 'utf8'));
 
+test('package installs the fixed transient Scanner adapter with executable mode', () => {
+  const source = path.join(ROOT, 'zapret2-manager', 'files', 'usr', 'libexec', 'zapret2-manager', 'scanner-runtime-adapter.sh');
+  assert.match(makefile, /chmod 0755 \$\(1\)\/usr\/libexec\/zapret2-manager\/\*\.sh/);
+  assert.match(fs.readFileSync(source, 'utf8'), /activate\|stabilize\|cleanup/);
+});
+
 function readInstalledManifest() {
   return JSON.parse(fs.readFileSync(path.join(CATALOG_ROOT, 'manifest.json'), 'utf8'));
 }

@@ -10,6 +10,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const TRANSIENT = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-transient.uc');
 const APPLY = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/apply.uc');
 const PROFILES_APPLY = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/profiles-apply.uc');
+const RUNTIME_ADAPTER = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-runtime-adapter.sh');
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.split('|') : [];
 const MODULE_PATTERN = ucodeModulePattern(process.env.UCODE_MODULE_PATH, process.env.UCODE_LIBRARY_PATH);
@@ -33,7 +34,9 @@ const hooks = {
     config: { sha256: '1'.repeat(64), bytes: 'NFQWS2_OPT=old' },
     identity: { id: 'old', origin: 'user', revision: 7, candidateSha256: '2'.repeat(64) },
     runtime: { process: { pid: 10, startTime: 20, exe: '/opt/zapret2/nfq2/nfqws2', argvSha256: '3'.repeat(64), owner: 'runtime/nfqws2', generation: 4 }, rules: 'old-rules', nfqueue: { registered: true, peer_portid: 10 } },
-    firewall: { table: 'zapret2', ownedRules: ['old-rule'] },
+    firewall: { table: 'zapret2', ownedRules: ['old-rule'], nfqueue: { registered: true, peerPortid: 10 } },
+    artifacts: { config: '/opt/zapret2/config', firewall: 'zapret2', nfqueue: 300, temporaryRoot: '/tmp/zapret2-manager/scanner' },
+    reconciliation: { generation: 4, reference: 'pre-scan-runtime' },
   },
   compile: { ok: true, candidate: '--filter-tcp=443', compiledDigest: '4'.repeat(64), dependencyDigest: '5'.repeat(64), dependencies: { available: true }, native: { status: 'verified' } },
   runtime: { activate: { ok: true, identityVerified: true, expectedProcess: { pid: 11, startTime: 21, exe: '/opt/zapret2/nfq2/nfqws2', argvSha256: '6'.repeat(64), owner: 'scanner/session', generation: 5 }, process: { pid: 11, startTime: 21, exe: '/opt/zapret2/nfq2/nfqws2', argvSha256: '6'.repeat(64), owner: 'scanner/session', generation: 5 }, firewall: { table: 'zapret2', owner: 'scanner/session', ownedRules: ['scanner-rule'] }, nfqueue: { registered: true, peer_portid: 11 } }, stabilize: [{ ok: true, stable: true }], cleanup: [{ ok: true, processRemoved: true, firewallRemoved: true, nfqueueRemoved: true, hostlistRemoved: true, temporaryFilesRemoved: true, ownedOnly: true }] },
@@ -41,7 +44,7 @@ const hooks = {
 
 test('transient Scanner exports typed session and candidate lifecycle entry points', () => {
   const source = fs.readFileSync(TRANSIENT, 'utf8');
-  for (const name of ['scanner_session_begin', 'scanner_candidate_activate', 'scanner_candidate_cleanup'])
+  for (const name of ['scanner_session_begin', 'scanner_candidate_activate', 'scanner_candidate_cleanup', 'scanner_session_restore'])
     assert.match(source, new RegExp(`export const ${name}\\s*=`));
   assert.match(source, /ScannerSession/);
   assert.match(source, /CandidateAttempt/);
@@ -86,8 +89,51 @@ test('dependency, identity, and cleanup failures fail closed with distinct stage
 
 test('transient implementation has no direct config writer, scanner config path, nft flush, or caller commands', () => {
   const source = fs.readFileSync(TRANSIENT, 'utf8');
-  assert.doesNotMatch(source, /writefile\s*\(|\/opt\/zapret2\/config|nft\s+flush|\b(?:shell|command|executable|argv|args|rawCommand)\b/);
+  assert.doesNotMatch(source, /writefile\s*\(|popen\s*\(|system\s*\(|\/opt\/zapret2\/config|nft\s+flush/);
   assert.doesNotMatch(source, /import\s+\{[^}]*set_var|restore_whole_file/);
   assert.match(fs.readFileSync(APPLY, 'utf8'), /export const (?:scanner|transient)_/);
   assert.match(fs.readFileSync(PROFILES_APPLY, 'utf8'), /export const profiles_transient_/);
+  assert.match(fs.readFileSync(APPLY, 'utf8'), /flock -n/);
+});
+
+test('production transient adapters are real fixed server-owned operations, not unavailable stubs', () => {
+  const profiles = fs.readFileSync(PROFILES_APPLY, 'utf8');
+  const adapter = fs.readFileSync(RUNTIME_ADAPTER, 'utf8');
+  assert.doesNotMatch(profiles, /profiles_transient_(activate|stabilize|cleanup)[\s\S]{0,500}EUNAVAILABLE/);
+  assert.match(adapter, /\/opt\/zapret2\/nfq2\/nfqws2/);
+  assert.match(adapter, /\/usr\/sbin\/nft/);
+  assert.match(adapter, /case \"\$1\" in/);
+  assert.match(adapter, /activate\|stabilize\|cleanup/);
+  assert.doesNotMatch(adapter, /eval\s|nft\s+flush\s+ruleset|\$\{[^}]*command|\$\{[^}]*exec|\$\{[^}]*argv/);
+});
+
+test('production rejects all injected runtime seams', () => {
+  const candidate = { scannerId: 'one', protocol: 'tcp', compiledTokens: ['--filter-tcp=443'], compiledDigest: '4'.repeat(64), dependencyDigest: '5'.repeat(64) };
+  const result = invoke(`subject.scanner_candidate_activate(${JSON.stringify(candidate)}, ${JSON.stringify(hooks)})`, { Z2M_SCANNER_SERVER_TEST: '0' });
+  assert.equal(result.ok, false);
+  assert.equal(result.error.stage, 'input');
+  assert.equal(result.error.code, 'EINPUT');
+});
+
+test('candidate input rejects raw runtime command, argv, executable, and path fields', () => {
+  const candidate = { scannerId: 'one', protocol: 'tcp', compiledTokens: ['--filter-tcp=443'], compiledDigest: '4'.repeat(64), dependencyDigest: '5'.repeat(64), command: '/bin/sh' };
+  const result = invoke(`subject.scanner_candidate_activate(${JSON.stringify(candidate)}, ${JSON.stringify(hooks)})`);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.stage, 'input');
+  assert.equal(result.error.code, 'EINPUT');
+});
+
+test('session snapshot carries restorable artifact references and cleanup order is verified', () => {
+  const snapshot = { ...hooks.snapshot,
+    runtime: { ...hooks.snapshot.runtime, process: { ...hooks.snapshot.runtime.process, exe: '/opt/zapret2/nfq2/nfqws2', argvSha256: '3'.repeat(64) } },
+    artifacts: { config: '/opt/zapret2/config', firewall: 'zapret2', nfqueue: 300, hostlist: '/tmp/zapret2-manager/scanner/s1/hosts', temporaryRoot: '/tmp/zapret2-manager/scanner/s1' },
+    reconciliation: { generation: 4, reference: 'pre-scan:s1' },
+  };
+  const value = { ...hooks, snapshot, runtime: { ...hooks.runtime, cleanup: [{ ok: true, processRemoved: true, firewallRemoved: true, nfqueueRemoved: true, hostlistRemoved: true, temporaryFilesRemoved: true, ownedOnly: true, order: ['process', 'firewall', 'nfqueue', 'hostlist', 'temporary-files'] }] } };
+  const result = invoke(`subject.scanner_session_run(${JSON.stringify({ candidates: [{ scannerId: 'one', protocol: 'tcp', compiledTokens: ['--filter-tcp=443'], compiledDigest: '4'.repeat(64), dependencyDigest: '5'.repeat(64) }] })}, ${JSON.stringify(value)})`);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(result.attempts[0].cleanup.evidence.order, ['process', 'firewall', 'nfqueue', 'hostlist', 'temporary-files']);
+  assert.equal(result.session.snapshot.artifacts.nfqueue, 300);
+  assert.equal(result.session.snapshot.reconciliation.reference, 'pre-scan:s1');
+  assert.equal(result.session.restored, undefined);
 });

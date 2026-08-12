@@ -354,9 +354,16 @@ export const write_list_file = function(path, entries) {
 export const scanner_transient_lock = function(testEvidence) {
 	let testHeld = getenv('Z2M_SCANNER_SERVER_TEST') == '1' && testEvidence != null
 		&& testEvidence.held == true && testEvidence.owner == 'config/global';
-	return getenv('Z2M_CONFIG_LOCKED') == '1' || testHeld
-		? { ok: true, owner: 'config/global', held: getenv('Z2M_CONFIG_LOCKED') == '1' || testHeld }
-		: { ok: false, code: 'ELOCK', message: 'transient Scanner session requires the existing config transaction lock' };
+	if (testHeld) return { ok: true, owner: 'config/global', held: true, verified: 'test-shim' };
+	if (getenv('Z2M_CONFIG_LOCKED') != '1' || !have_flock())
+		return { ok: false, code: 'ELOCK', message: 'transient Scanner session requires the existing config transaction lock' };
+	// The fixed caller enters this module under the existing config flock. A
+	// non-blocking child probe must fail while that real lock is held; success
+	// proves the environment marker was forged or the lock was released.
+	let probe = command('flock -n ' + shell_escape(LOCKFILE) + ' -c true');
+	return probe.rc == 0
+		? { ok: false, code: 'ELOCK', message: 'config transaction lock ownership could not be verified' }
+		: { ok: true, owner: 'config/global', held: true, verified: 'flock' };
 };
 
 export const scanner_transient_config_snapshot = function() {

@@ -26,11 +26,12 @@
 import { readfile, writefile, stat, readlink, unlink, popen, mkdir } from 'fs';
 import { read_var, set_var_cas, restore_whole_file, read_config_bytes, config_sha256 } from './apply.uc';
 import { PATHS } from './constants.uc';
-import { z2m_parse, z2m_validate, z2m_fragment } from './profiles.uc';
+import { z2m_parse, z2m_validate, z2m_fragment, z2m_tokenize } from './profiles.uc';
 import { load_state } from './profiles-draft.uc';
 import { parse_queue } from './qlen.uc';
 import { native_preflight } from './native-preflight.uc';
 import { collect_observations } from './core/status-collector.uc';
+import { state_read } from './core/state-store.uc';
 import { strategy_selection_get_readonly } from './strategy-state.uc';
 
 const LASTGOOD_DIR = '/tmp/zapret2-manager/last-good';
@@ -42,6 +43,8 @@ const PROFILE_APPLY_CLI = getenv('Z2M_STRATEGY_PROFILE_CLI') || '/usr/libexec/za
 const UCODE_BIN = getenv('Z2M_STRATEGY_UCODE_BIN') || '/usr/bin/ucode';
 const STRATEGY_STATE_MODULE = getenv('Z2M_STRATEGY_STATE_MODULE') || '/usr/libexec/zapret2-manager/strategy-state.uc';
 const PROJECTION_MARKER = 'z2m-strategy-apply-projection.v1';
+const SCANNER_RUNTIME_ADAPTER = '/usr/libexec/zapret2-manager/scanner-runtime-adapter.sh';
+const SCANNER_RUNTIME_ROOT = '/tmp/zapret2-manager/scanner';
 let APPLY_HOOK = null, APPLY_HOOK_LOADED = false, APPLY_HOOK_CURSOR = {};
 
 function run(cmd) {
@@ -146,6 +149,81 @@ function sha256_text_via_file(text) {
 function native_preflight_for_apply(candidate) {
 	let injected = hook_value('transaction', 'preflight');
 	return injected != null ? injected : native_preflight(candidate);
+}
+
+function scanner_safe_id(value) {
+	return type(value) == 'string' && length(value) > 0 && length(value) <= 128
+		&& match(value, /^[A-Za-z0-9][A-Za-z0-9._-]*$/);
+}
+
+function scanner_runtime_call(operation, sessionId, candidateId, generation) {
+	if (index(['lock-acquire', 'lock-release', 'activate', 'stabilize', 'cleanup'], operation) < 0
+		|| !scanner_safe_id(sessionId) || !scanner_safe_id(candidateId)
+		|| type(generation) != 'int' || generation < 0)
+		return err('runtime', 'EINPUT', 'fixed Scanner runtime binding is invalid');
+	let command = shell_escape(SCANNER_RUNTIME_ADAPTER) + ' ' + operation + ' '
+		+ shell_escape(sessionId) + ' ' + shell_escape(candidateId) + ' ' + generation;
+	let result = run(command), raw = trim(result.out), value = null;
+	try { value = length(raw) ? json(raw) : null; } catch (e) { value = null; }
+	if (result.rc != 0 || type(value) != 'object' || value == null)
+		return err('runtime', result.rc != 0 && value != null ? value.code : 'EDEPENDENCY', 'fixed Scanner runtime adapter failed', { adapter: value, rc: result.rc });
+	return value;
+}
+
+export const profiles_transient_lock = function(sessionId) {
+	if (!scanner_safe_id(sessionId)) return err('lock', 'EINPUT', 'Scanner session identity is invalid');
+	return scanner_runtime_call('lock-acquire', sessionId, 'session', 0);
+};
+
+export const profiles_transient_unlock = function(sessionId) {
+	if (!scanner_safe_id(sessionId)) return err('lock', 'EINPUT', 'Scanner session identity is invalid');
+	return scanner_runtime_call('lock-release', sessionId, 'session', 0);
+};
+
+function scanner_runtime_id(value) {
+	let id = replace(value, /[^A-Za-z0-9._-]/g, '-');
+	return scanner_safe_id(id) ? id : null;
+}
+
+function scanner_candidate_tokens(candidate) {
+	let tokens = type(candidate.compiledTokens) == 'array' ? candidate.compiledTokens : null;
+	if (tokens == null) {
+		let parsed = z2m_tokenize(candidate.compiledCandidate);
+		if (parsed == null || parsed.ok != true || type(parsed.tokens) != 'array') return null;
+		tokens = [];
+		for (let token in parsed.tokens) push(tokens, token.value);
+	}
+	if (!length(tokens) || length(tokens) > 256) return null;
+	for (let token in tokens)
+		if (type(token) != 'string' || !length(token) || index(token, '\n') >= 0 || index(token, '\r') >= 0 || index(token, chr(0)) >= 0) return null;
+	return tokens;
+}
+
+function scanner_stage_candidate(candidate) {
+	let tokens = scanner_candidate_tokens(candidate), sessionId = candidate.sessionId;
+	let runtimeId = scanner_runtime_id(candidate.scannerId);
+	if (tokens == null || !scanner_safe_id(sessionId) || runtimeId == null) return false;
+	let dir = SCANNER_RUNTIME_ROOT + '/' + sessionId, path = dir + '/' + runtimeId + '.argv';
+	try { mkdir(SCANNER_RUNTIME_ROOT); } catch (e) { }
+	try { mkdir(dir); } catch (e) { }
+	let text = '';
+	for (let token in tokens) text += token + '\n';
+	try { writefile(path, text); } catch (e) { return false; }
+	return readfile(path) == text;
+}
+
+function scanner_process_identity(value, owner) {
+	return type(value) == 'object' && type(value.pid) == 'int' && value.pid > 0
+		&& type(value.startTime) == 'int' && value.startTime > 0
+		&& type(value.exe) == 'string' && value.exe == '/opt/zapret2/nfq2/nfqws2'
+		&& type(value.argvSha256) == 'string' && match(value.argvSha256, /^[a-f0-9]{64}$/)
+		&& value.owner == owner && type(value.generation) == 'int' && value.generation >= 0;
+}
+
+function scanner_input_safe(candidate) {
+	return type(candidate) == 'object' && candidate.command == null && candidate.argv == null
+		&& candidate.args == null && candidate.executable == null && candidate.path == null
+		&& candidate.rawCommand == null && candidate.rawPath == null;
 }
 
 function dq_escape(s) {
@@ -743,27 +821,62 @@ export const profiles_transient_snapshot = function(supplied) {
 	}
 	if (type(observations) != 'object' || observations == null || type(selection) != 'object' || selection == null || selection.ok != true)
 		return err('snapshot', 'EUNAVAILABLE', 'runtime and Strategy identity snapshot is incomplete');
-	return { ok: true, config: { bytes: read_config_bytes(), sha256: config_sha256() },
+	let configBytes = read_config_bytes(), configSha = config_sha256();
+	if (configSha == null) return err('snapshot', 'EUNAVAILABLE', 'authoritative config snapshot is unavailable');
+	let instances = observations.runtime && type(observations.runtime.instances) == 'array'
+		? observations.runtime.instances : [], rawProcess = length(instances) == 1 ? instances[0] : null;
+	let nativeState = null;
+	try { nativeState = state_read(); } catch (e) { nativeState = null; }
+	let generation = nativeState && nativeState.ok == true && type(nativeState.generation) == 'int'
+		? nativeState.generation : null;
+	let process = rawProcess == null ? null : {
+		pid: rawProcess.pid, startTime: rawProcess.startTimeTick, exe: rawProcess.exe,
+		argvSha256: rawProcess.argvSha256, owner: rawProcess.owner,
+		generation: generation
+	};
+	if (!scanner_process_identity(process, 'runtime/nfqws2') || generation == null)
+		return err('snapshot', 'EUNAVAILABLE', 'complete live process identity is unavailable');
+	let queue = observations.health && observations.health.queue;
+	if (type(queue) != 'object' || queue.registered != true || queue.peerPortid != process.pid)
+		return err('snapshot', 'EUNAVAILABLE', 'authoritative NFQUEUE ownership is unavailable');
+	return { ok: true, config: { bytes: configBytes, sha256: configSha },
 		identity: { selected: selection.selected, revision: selection.revision },
-		runtime: observations.runtime,
+		runtime: { process: process, rules: observations.runtime.rulesPresent == true,
+			nfqueue: { registered: true, peer_portid: queue.peerPortid } },
 		firewall: { table: 'zapret2', rulesPresent: observations.runtime && observations.runtime.rulesPresent == true,
-			nfqueue: observations.health && observations.health.queue } };
+			nfqueue: queue,
+			owner: 'runtime/firewall', generation: generation },
+		artifacts: { config: '/opt/zapret2/config', firewall: 'zapret2', nfqueue: 300,
+			hostlist: null, temporaryRoot: SCANNER_RUNTIME_ROOT },
+		reconciliation: { generation: generation,
+			reference: 'pre-scan-runtime' } };
 };
 
 export const profiles_transient_activate = function(candidate, compiled, supplied) {
 	let injected = transient_test_value('activate', supplied);
 	if (injected != null) return injected;
-	return err('activate', 'EUNAVAILABLE', 'server-owned transient runtime adapter is unavailable');
+	if (!scanner_input_safe(candidate) || type(candidate) != 'object' || candidate == null || !scanner_stage_candidate(candidate))
+		return err('activate', 'EINPUT', 'server-owned compiled candidate staging failed');
+	return scanner_runtime_call('activate', candidate.sessionId, scanner_runtime_id(candidate.scannerId),
+		type(candidate.generation) == 'int' ? candidate.generation : 0);
 };
 
 export const profiles_transient_stabilize = function(attempt, supplied) {
 	let injected = transient_test_value('stabilize', supplied);
 	if (injected != null) return injected;
-	return err('stabilize', 'EUNAVAILABLE', 'server-owned transient stabilization adapter is unavailable');
+	if (type(attempt) != 'object' || attempt == null || type(attempt.candidate) != 'object')
+		return err('stabilize', 'EINPUT', 'transient stabilization binding is invalid');
+	let candidate = attempt.candidate;
+	return scanner_runtime_call('stabilize', candidate.sessionId, scanner_runtime_id(candidate.scannerId),
+		type(candidate.generation) == 'int' ? candidate.generation : 0);
 };
 
 export const profiles_transient_cleanup = function(attempt, supplied) {
 	let injected = transient_test_value('cleanup', supplied);
 	if (injected != null) return injected;
-	return err('cleanup', 'EUNAVAILABLE', 'server-owned transient cleanup adapter is unavailable');
+	if (type(attempt) != 'object' || attempt == null || type(attempt.candidate) != 'object')
+		return err('cleanup', 'EINPUT', 'transient cleanup binding is invalid');
+	let candidate = attempt.candidate;
+	return scanner_runtime_call('cleanup', candidate.sessionId, scanner_runtime_id(candidate.scannerId),
+		type(candidate.generation) == 'int' ? candidate.generation : 0);
 };
