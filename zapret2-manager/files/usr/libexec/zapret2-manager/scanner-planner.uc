@@ -7,7 +7,9 @@ import { scanner_target_profile } from './scanner-targets.uc';
 import { avatar_tokenize } from './strategy-model.uc';
 import { strategy_catalog_load, catalog_entry_to_strategy } from './strategy-catalog.uc';
 import { strategy_user_list } from './strategy-state.uc';
-import { strategy_candidate, strategy_compiler_authority } from './strategy-compiler.uc';
+import { strategy_candidate } from './strategy-compiler.uc';
+import { scanner_compiler_authority } from './scanner-compiler-authority.uc';
+import { scanner_generator_policy, scanner_generator_records } from './scanner-generator.uc';
 
 const AUTHORITY_MARKER = 'z2m-scanner-authority.v1';
 const GENERATOR_MARKER = 'z2m-scanner-generator.v1';
@@ -56,8 +58,7 @@ function copy(value) {
 
 function valid_digest(value) { return is_string(value) && match(value, /^[a-f0-9]{64}$/); }
 
-function compiler_digest() {
-	let authority = strategy_compiler_authority();
+function compiler_digest(authority) {
 	return is_object(authority) && authority.marker == 'z2m-scanner-compiler.v1'
 		&& valid_digest(authority.digest) ? authority.digest : null;
 }
@@ -530,7 +531,8 @@ function identity_view(existing, environment) {
 	return compiled == null ? null : { stream: compiled.stream, closure: compiled.closure };
 }
 
-function generated_identity(candidate, existingStrategies, environment) {
+function generated_identity(candidate, existingStrategies, environment, compilerAuthority) {
+	let authorityDigest = compiler_digest(compilerAuthority);
 	if (reject_raw_candidate(candidate)) return error_result('EINPUT', 'Scanner candidates cannot contain client command arguments.');
 	if (type(existingStrategies) != 'object' || existingStrategies.serverOwned != true
 		|| !is_object(existingStrategies.authority)
@@ -548,9 +550,9 @@ function generated_identity(candidate, existingStrategies, environment) {
 		|| existingStrategies.authority.catalog.catalogEnvelopeDigest != existingStrategies.authority.catalogEnvelopeDigest
 		|| sprintf('%J', existingStrategies.authority.records) != sprintf('%J', existingStrategies.strategies)
 		|| existingStrategies.authority.recordsDigest != sha256_text(sprintf('%J', existingStrategies.strategies))
-		|| candidate.compilerDigest != compiler_digest()
+		|| candidate.compilerDigest != authorityDigest
 		|| candidate.catalogDigest != existingStrategies.authority.catalogDigest
-		|| existingStrategies.authority.compilerDigest != compiler_digest())
+		|| existingStrategies.authority.compilerDigest != authorityDigest)
 		return error_result('EVERIFY', 'User Strategies are not authoritative.');
 	let existing = type(existingStrategies) == 'object' ? existingStrategies.strategies : existingStrategies;
 	if (type(existing) != 'array') return error_result('EVERIFY', 'User Strategies are not authoritative.');
@@ -588,7 +590,7 @@ function strategy_argument_text(strategy) {
 export const scanner_candidate_canonicalize_test = function(candidate, existingStrategies) {
 	if (getenv('Z2M_SCANNER_SERVER_TEST') != '1')
 		return error_result('EACCES', 'Scanner test authority is disabled.');
-	return generated_identity(candidate, existingStrategies, {});
+	return generated_identity(candidate, existingStrategies, {}, { marker: 'z2m-scanner-compiler.v1', digest: existingStrategies.authority.compilerDigest });
 };
 
 export const scanner_candidate_canonicalize = function(candidate, existingStrategies) {
@@ -600,14 +602,15 @@ export const scanner_candidate_canonicalize = function(candidate, existingStrate
 	catalog.targetProfile = null;
 	catalog.compilerEnvironment = {};
 	catalog.policy = { useGenerated: false };
-	catalog = catalog_authority(catalog);
+	let compilerAuthority = scanner_compiler_authority();
+	catalog = catalog_authority(catalog, compilerAuthority);
 	let listed = strategy_user_list();
 	if (!is_object(listed) || listed.ok != true) return error_result('EIO', 'Scanner user Strategies are unavailable.');
-	return generated_identity(candidate, user_authority(listed.strategies, catalog), {});
+	return generated_identity(candidate, user_authority(listed.strategies, catalog, compilerAuthority), {}, compilerAuthority);
 };
 
 function candidate_from_strategy(strategy, protocol, source, sourcePath, ordinal,
-		environment, generated, existingStrategies, catalog, generatedInput) {
+		environment, generated, existingStrategies, catalog, generatedInput, compilerAuthority) {
 	let compiled = compile_view(strategy, environment);
 	if (compiled == null || compiled.compiledDigest == null) return null;
 	let dependencyDigest = dependency_digest(strategy, catalog, generatedInput, compiled.closure);
@@ -626,7 +629,7 @@ function candidate_from_strategy(strategy, protocol, source, sourcePath, ordinal
 		dependencyClosure: copy(compiled.closure),
 		dependencyDigest: dependencyDigest,
 		catalogDigest: catalog.aggregateDigest,
-		compilerDigest: compiler_digest(),
+		compilerDigest: compiler_digest(compilerAuthority),
 		ordinal: ordinal,
 		complexity: complexity(compiled.tokens),
 		recommended: recommended,
@@ -644,7 +647,7 @@ function candidate_from_strategy(strategy, protocol, source, sourcePath, ordinal
 			: source_metadata(generatedInput, 'effectiveOrdinal', 0)));
 	candidate.catalogOrder = ordinal;
 	if (generated) {
-		let identity = generated_identity(candidate, existingStrategies, environment);
+		let identity = generated_identity(candidate, existingStrategies, environment, compilerAuthority);
 		if (identity.ok == false) return identity;
 		candidate.identityKind = identity.identityKind;
 		candidate.strategyId = identity.strategyId;
@@ -726,8 +729,8 @@ function target_profile_valid(profile) {
 		&& is_object(profile.udp) && is_string(profile.probeUrl);
 }
 
-function authority_valid(catalog) {
-	let compilerDigest = compiler_digest();
+function authority_valid(catalog, compilerAuthority) {
+	let compilerDigest = compiler_digest(compilerAuthority);
 	let envelopeDigest = catalog_envelope_digest(catalog);
 	if (is_object(catalog) && is_object(catalog.authority) && catalog.authority.catalogEnvelopeDigest != envelopeDigest)
 		return false;
@@ -757,8 +760,8 @@ function authority_valid(catalog) {
 		&& catalog.compilerDigest == compilerDigest;
 }
 
-function generator_valid(catalog) {
-	let compilerDigest = compiler_digest();
+function generator_valid(catalog, compilerAuthority) {
+	let compilerDigest = compiler_digest(compilerAuthority);
 	return is_object(catalog.generator) && catalog.generator.serverOwned == true
 		&& is_object(catalog.generator.authority) && catalog.generator.authority.marker == GENERATOR_MARKER
 		&& catalog.generator.authority.repository == AUTHORITATIVE_CATALOG_REPOSITORY
@@ -787,8 +790,8 @@ function records_shape_valid(records, generated) {
 	return true;
 }
 
-function user_records_valid(value, catalog) {
-	let compilerDigest = compiler_digest();
+function user_records_valid(value, catalog, compilerAuthority) {
+	let compilerDigest = compiler_digest(compilerAuthority);
 	return is_object(value) && value.serverOwned == true && is_object(value.authority)
 		&& value.authority.marker == AUTHORITY_MARKER
 		&& value.authority.repository == AUTHORITATIVE_CATALOG_REPOSITORY
@@ -825,14 +828,14 @@ function profile_matches_authority(profile, authoritative, request) {
 	return true;
 }
 
-function scanner_plan_build_pure(request, catalogSnapshot, userStrategies, authoritativeProfile) {
+function scanner_plan_build_pure(request, catalogSnapshot, userStrategies, authoritativeProfile, compilerAuthority) {
 	let validated = request_normalize(request);
 	if (!validated.ok) return validated;
 	let value = validated.value, catalog = catalog_snapshot(catalogSnapshot);
 	if (catalog == null) return error_result('EVERIFY', 'Scanner Catalog authority is unavailable.');
-	if (!authority_valid(catalog)) return error_result('EVERIFY', 'Scanner Catalog/compiler authority is unavailable or stale.');
+	if (!authority_valid(catalog, compilerAuthority)) return error_result('EVERIFY', 'Scanner Catalog/compiler authority is unavailable or stale.');
 	let users = userStrategies;
-	if (!user_records_valid(users, catalog)) return error_result('EVERIFY', 'Scanner user Strategies must be server-owned records.');
+	if (!user_records_valid(users, catalog, compilerAuthority)) return error_result('EVERIFY', 'Scanner user Strategies must be server-owned records.');
 	let profile = target_profile_valid(catalog.targetProfile) ? copy(catalog.targetProfile) : null;
 	if (profile == null || !profile_matches_authority(profile, authoritativeProfile, value))
 		return error_result('EINPUT', 'Scanner target profile is absent or mismatched.', 'target');
@@ -843,7 +846,7 @@ function scanner_plan_build_pure(request, catalogSnapshot, userStrategies, autho
 		let strategy = catalog_strategy(entries[i]);
 		if (strategy == null) continue;
 		let candidate = candidate_from_strategy(strategy, value.protocol, 'catalog',
-			strategy.sourceFile || entries[i].sourceFile || 'catalog', ordinal++, environment, false, users, catalog, entries[i]);
+			strategy.sourceFile || entries[i].sourceFile || 'catalog', ordinal++, environment, false, users, catalog, entries[i], compilerAuthority);
 		if (candidate != null && candidate.ok == false) return candidate;
 		if (candidate != null) push(catalogCandidates, candidate);
 	}
@@ -851,17 +854,17 @@ function scanner_plan_build_pure(request, catalogSnapshot, userStrategies, autho
 	let generatedCandidates = [];
 	if ((value.mode == 'standard' || value.mode == 'full') && is_object(catalog.policy)
 		&& catalog.policy.useGenerated == true) {
-		if (!generator_valid(catalog)) return error_result('EVERIFY', 'Scanner generator authority is unavailable or stale.');
+		if (!generator_valid(catalog, compilerAuthority)) return error_result('EVERIFY', 'Scanner generator authority is unavailable or stale.');
 		for (let i = 0; i < length(catalog.generator.candidates); i++) {
 			let generated = catalog.generator.candidates[i];
-			if (!is_object(generated) || (generated.protocol || value.protocol) != value.protocol
-				|| !is_string(generated.id) || !is_object(generated.strategy)
+			if (!is_object(generated) || !is_string(generated.id) || !is_object(generated.strategy)
 				|| !records_shape_valid([generated.strategy], true))
 				return error_result('EVERIFY', 'Scanner generator record is not authoritative.');
+			if ((generated.protocol == null ? value.protocol : generated.protocol) != value.protocol) continue;
 			let strategy = is_object(generated.strategy) ? generated.strategy : null;
 			if (strategy == null) continue;
 			let candidate = candidate_from_strategy(strategy, value.protocol, 'generator', 'generator', ordinal++,
-				environment, true, users, catalog, generated);
+				environment, true, users, catalog, generated, compilerAuthority);
 			if (candidate != null && candidate.ok == false) return candidate;
 			if (candidate != null) push(generatedCandidates, candidate);
 		}
@@ -881,9 +884,9 @@ function scanner_plan_build_pure(request, catalogSnapshot, userStrategies, autho
 	} };
 }
 
-function catalog_authority(catalog) {
+function catalog_authority(catalog, compilerAuthority) {
 	catalog.serverOwned = true;
-	catalog.compilerDigest = compiler_digest();
+	catalog.compilerDigest = compiler_digest(compilerAuthority);
 	let envelopeDigest = catalog_envelope_digest(catalog);
 	let authorityCatalog = { serverOwned: true, marker: 'z2m-scanner-catalog.v1',
 		repository: AUTHORITATIVE_CATALOG_REPOSITORY, commit: AUTHORITATIVE_CATALOG_COMMIT,
@@ -893,16 +896,25 @@ function catalog_authority(catalog) {
 		compilerEnvironment: copy(catalog.compilerEnvironment), policy: copy(catalog.policy) };
 	catalog.authority = { marker: AUTHORITY_MARKER, repository: AUTHORITATIVE_CATALOG_REPOSITORY,
 		commit: AUTHORITATIVE_CATALOG_COMMIT, catalogDigest: catalog.aggregateDigest,
-		compilerDigest: compiler_digest(), catalogEnvelopeDigest: envelopeDigest, catalog: authorityCatalog };
+		compilerDigest: compiler_digest(compilerAuthority), catalogEnvelopeDigest: envelopeDigest, catalog: authorityCatalog };
 	return catalog;
 }
 
-function user_authority(strategies, catalog) {
+function user_authority(strategies, catalog, compilerAuthority) {
 	return { serverOwned: true, authority: { marker: AUTHORITY_MARKER,
 		repository: AUTHORITATIVE_CATALOG_REPOSITORY, commit: AUTHORITATIVE_CATALOG_COMMIT,
-		catalogDigest: catalog.aggregateDigest, compilerDigest: compiler_digest(),
+		catalogDigest: catalog.aggregateDigest, compilerDigest: compiler_digest(compilerAuthority),
 		catalogEnvelopeDigest: catalog.authority.catalogEnvelopeDigest, catalog: catalog.authority.catalog,
 		records: copy(strategies), recordsDigest: sha256_text(sprintf('%J', strategies)) }, strategies: strategies };
+}
+
+function generator_authority(catalog, compilerAuthority) {
+	let candidates = scanner_generator_records();
+	return { serverOwned: true, authority: { marker: GENERATOR_MARKER,
+		repository: AUTHORITATIVE_CATALOG_REPOSITORY, commit: AUTHORITATIVE_CATALOG_COMMIT,
+		catalogDigest: catalog.aggregateDigest, compilerDigest: compiler_digest(compilerAuthority),
+		catalogEnvelopeDigest: catalog.authority.catalogEnvelopeDigest, catalog: catalog.authority.catalog,
+		records: copy(candidates), recordsDigest: sha256_text(sprintf('%J', candidates)) }, candidates: candidates };
 }
 
 export const scanner_plan_build_test = function(request, catalogSnapshot, userStrategies) {
@@ -916,7 +928,25 @@ export const scanner_plan_build_test = function(request, catalogSnapshot, userSt
 			expectedHostlists: [], tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' },
 			udp: { ports: '443', l7: 'quic', payload: 'quic_initial' }, probeUrl: 'https://' + target + '/' };
 	}
-	return scanner_plan_build_pure(request, catalogSnapshot, userStrategies, profile);
+	return scanner_plan_build_pure(request, catalogSnapshot, userStrategies, profile, scanner_compiler_authority());
+};
+
+function scanner_plan_build_server(request, catalog, strategies, profile, compilerAuthority) {
+	catalog.targetProfile = copy(profile);
+	catalog.compilerEnvironment = {};
+	catalog.policy = scanner_generator_policy();
+	catalog = catalog_authority(catalog, compilerAuthority);
+	if (catalog.policy.useGenerated == true) catalog.generator = generator_authority(catalog, compilerAuthority);
+	return scanner_plan_build_pure(request, catalog, user_authority(strategies, catalog, compilerAuthority), profile, compilerAuthority);
+}
+
+export const scanner_plan_build_server_test = function(request, catalog, strategies, profile) {
+	if (getenv('Z2M_SCANNER_SERVER_TEST') != '1')
+		return error_result('EACCES', 'Scanner test authority is disabled.');
+	if (!is_object(catalog) || type(strategies) != 'array' || !target_profile_valid(profile))
+		return error_result('EINPUT', 'Scanner server test inputs are invalid.');
+	let compilerAuthority = scanner_compiler_authority();
+	return scanner_plan_build_server(request, copy(catalog), copy(strategies), copy(profile), compilerAuthority);
 };
 
 export const scanner_plan_build = function(request, catalogSnapshot, userStrategies) {
@@ -926,15 +956,15 @@ export const scanner_plan_build = function(request, catalogSnapshot, userStrateg
 	if (!validated.ok) return validated;
 	let profile = null;
 	try { profile = scanner_target_profile(validated.value.target); } catch (e) { profile = null; }
+	if (profile == null && getenv('Z2M_SCANNER_SERVER_TEST') == '1') {
+		try { profile = json(getenv('Z2M_SCANNER_TARGET_PROFILE') || 'null'); } catch (e) { profile = null; }
+	}
 	if (!target_profile_valid(profile)) return error_result('EINPUT', 'Scanner target profile is unavailable.', 'target');
-	let loaded = strategy_catalog_load(null);
+	let loaded = strategy_catalog_load(getenv('Z2M_STRATEGY_CATALOG_ROOT') || null);
 	if (!is_object(loaded) || loaded.ok != true) return error_result('ENOENT', 'Scanner Strategy Catalog is unavailable.');
-	let catalog = loaded.catalog;
-	catalog.targetProfile = copy(profile);
-	catalog.compilerEnvironment = {};
-	catalog.policy = { useGenerated: false };
-	catalog = catalog_authority(catalog);
 	let listed = strategy_user_list();
 	if (!is_object(listed) || listed.ok != true) return error_result('EIO', 'Scanner user Strategies are unavailable.');
-	return scanner_plan_build_pure(validated.value, catalog, user_authority(listed.strategies, catalog), profile);
+	let compilerAuthority = scanner_compiler_authority();
+	if (compiler_digest(compilerAuthority) == null) return error_result('EVERIFY', 'Scanner compiler authority is unavailable.');
+	return scanner_plan_build_server(validated.value, loaded.catalog, listed.strategies, profile, compilerAuthority);
 };

@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { ucodeDiagnostic, ucodeModulePattern } from '../native/core/ucode-test-harness.mjs';
@@ -12,6 +13,8 @@ const MODULE = path.join(ROOT,
   'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-planner.uc');
 const COMPILER = path.join(ROOT,
   'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-compiler.uc');
+const COMPILER_AUTHORITY_MODULE = path.join(ROOT,
+  'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-compiler-authority.uc');
 const CATALOG_MANIFEST = JSON.parse(readFileSync(path.join(ROOT,
   'zapret2-manager/files/usr/share/zapret2-manager/catalog/avatar/manifest.json'), 'utf8'));
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
@@ -23,19 +26,31 @@ const AUTHORITY_MARKER = 'z2m-scanner-authority.v1';
 const GENERATOR_MARKER = 'z2m-scanner-generator.v1';
 const CATALOG_DIGEST = '5978d35bfc0b73caaae658124874e24619b1f448e673ec09fd7c5d4dd8c3dda1';
 
-function invokeCompiler(expression) {
+function invokeCompiler(expression, extraEnv = {}) {
   const source = `import * as compiler from ${JSON.stringify(COMPILER)}; print(${expression});`;
   const argv = [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source];
   const result = spawnSync(UCODE_BIN, argv, {
     cwd: ROOT,
-    env: { ...process.env, Z2M_SCANNER_SERVER_TEST: '1', LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib' },
-    encoding: 'utf8', timeout: 30_000, maxBuffer: 20 * 1024 * 1024,
+    env: { ...process.env, Z2M_SCANNER_SERVER_TEST: '1', Z2M_SCANNER_COMPILER_SOURCE: COMPILER,
+      LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib', ...extraEnv },
+    encoding: 'utf8', timeout: 120_000, maxBuffer: 20 * 1024 * 1024,
   });
   assert.equal(result.status, 0, `${result.stderr || result.stdout}`);
   return JSON.parse(result.stdout);
 }
 
-const COMPILER_AUTHORITY = invokeCompiler('sprintf("%J", compiler.strategy_compiler_authority())');
+const COMPILER_SEMANTIC_AUTHORITY = invokeCompiler('sprintf("%J", compiler.strategy_compiler_authority())');
+const COMPILER_AUTHORITY = (() => {
+  const source = `import * as authority from ${JSON.stringify(COMPILER_AUTHORITY_MODULE)}; print(sprintf('%J', authority.scanner_compiler_authority()));`;
+  const result = spawnSync(UCODE_BIN, [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source], {
+    cwd: ROOT,
+    env: { ...process.env, Z2M_SCANNER_SERVER_TEST: '1', Z2M_SCANNER_COMPILER_SOURCE: COMPILER,
+      LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib' },
+    encoding: 'utf8', timeout: 30_000,
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  return JSON.parse(result.stdout);
+})();
 const COMPILER_DIGEST = COMPILER_AUTHORITY.digest;
 let lastCatalogAuthority = null;
 
@@ -49,15 +64,15 @@ function catalogEnvelope(value) {
 }
 
 test('compiler authority digest covers the complete versioned semantic manifest', () => {
-  assert.equal(COMPILER_AUTHORITY.digest,
-    createHash('sha256').update(COMPILER_AUTHORITY.digestInput, 'utf8').digest('hex'));
-  assert.deepEqual(JSON.parse(COMPILER_AUTHORITY.digestInput), COMPILER_AUTHORITY.manifest);
-  assert.equal(COMPILER_AUTHORITY.manifest.schema, 1);
-  for (const field of Object.keys(COMPILER_AUTHORITY.manifest)) {
-    const changed = structuredClone(COMPILER_AUTHORITY.manifest);
+  assert.equal(COMPILER_SEMANTIC_AUTHORITY.digest,
+    createHash('sha256').update(COMPILER_SEMANTIC_AUTHORITY.digestInput, 'utf8').digest('hex'));
+  assert.deepEqual(JSON.parse(COMPILER_SEMANTIC_AUTHORITY.digestInput), COMPILER_SEMANTIC_AUTHORITY.manifest);
+  assert.equal(COMPILER_SEMANTIC_AUTHORITY.manifest.schema, 1);
+  for (const field of Object.keys(COMPILER_SEMANTIC_AUTHORITY.manifest)) {
+    const changed = structuredClone(COMPILER_SEMANTIC_AUTHORITY.manifest);
     changed[field] = typeof changed[field] === 'number' ? changed[field] + 1 : `${JSON.stringify(changed[field])}:changed`;
     const digest = invokeCompiler(`sprintf("%J", compiler.strategy_compiler_manifest_digest(${JSON.stringify(changed)}))`);
-    assert.notEqual(digest, COMPILER_AUTHORITY.digest, field);
+    assert.notEqual(digest, COMPILER_SEMANTIC_AUTHORITY.digest, field);
   }
 });
 
@@ -68,7 +83,64 @@ test('catalog envelope digest uses the canonical planning inputs', () => {
   assert.equal(invoke(`planner.scanner_snapshot_digest(${JSON.stringify(value)})`), value.authority.catalogEnvelopeDigest);
 });
 
-function invoke(expression, useTestAuthority = true) {
+test('compiler authority automatically binds the installed compiler source and rejects drift', () => {
+  assert.equal(COMPILER_AUTHORITY.sourceSha256,
+    createHash('sha256').update(readFileSync(COMPILER)).digest('hex'));
+  assert.equal(COMPILER_AUTHORITY.digest,
+    createHash('sha256').update(`${COMPILER_AUTHORITY.manifestDigest}\n${COMPILER_AUTHORITY.sourceSha256}\n`, 'utf8').digest('hex'));
+
+  const directory = mkdtempSync(path.join(tmpdir(), 'z2m-scanner-compiler-'));
+  const changedCompiler = path.join(directory, 'strategy-compiler.uc');
+  try {
+    copyFileSync(COMPILER, changedCompiler);
+    writeFileSync(changedCompiler, `${readFileSync(changedCompiler, 'utf8')}\n// drift\n`);
+    const source = `import * as authority from ${JSON.stringify(COMPILER_AUTHORITY_MODULE)}; print(sprintf('%J', authority.scanner_compiler_authority()));`;
+    const child = spawnSync(UCODE_BIN, [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source], {
+      cwd: ROOT, encoding: 'utf8', timeout: 30_000,
+      env: { ...process.env, Z2M_SCANNER_SERVER_TEST: '1', Z2M_SCANNER_COMPILER_SOURCE: changedCompiler,
+        LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib' },
+    });
+    assert.equal(child.status, 0, child.stderr || child.stdout);
+    const changed = JSON.parse(child.stdout);
+    assert.notEqual(changed.sourceSha256, COMPILER_AUTHORITY.sourceSha256);
+    assert.notEqual(changed.digest, COMPILER_AUTHORITY.digest);
+
+    const item = entry('compiler-drift', '--filter-tcp=443');
+    const sets = { tcp: { quick: ['compiler-drift'], standard: ['compiler-drift'], full: ['compiler-drift'] }, udp: { quick: [], standard: [], full: [] } };
+    const result = invoke(`planner.scanner_plan_build(${JSON.stringify(request('quick'))}, ${JSON.stringify(snapshot([item], sets))}, ${JSON.stringify(users())})`, true, {
+      Z2M_SCANNER_COMPILER_SOURCE: changedCompiler,
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, 'EVERIFY');
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('production policy generates standard/full candidates but never quick candidates', () => {
+  const item = entry('production-catalog', '--filter-tcp=443');
+  const sets = { tcp: { quick: ['production-catalog'], standard: ['production-catalog'], full: ['production-catalog'] }, udp: { quick: [], standard: [], full: [] } };
+  const catalog = snapshot([item], sets);
+  for (const mode of ['standard', 'full']) {
+    const result = invoke(`planner.scanner_plan_build_server_test(${JSON.stringify(request(mode))}, ${JSON.stringify(catalog)}, [], ${JSON.stringify(catalog.targetProfile)})`, false);
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.ok(result.plan.candidates.some(candidate => candidate.source === 'generator'), mode);
+  }
+  const quick = invoke(`planner.scanner_plan_build_server_test(${JSON.stringify(request('quick'))}, ${JSON.stringify(catalog)}, [], ${JSON.stringify(catalog.targetProfile)})`, false);
+  assert.equal(quick.ok, true, JSON.stringify(quick));
+  assert.equal(quick.plan.candidates.some(candidate => candidate.source === 'generator'), false);
+});
+
+test('production server policy can disable generated candidates', () => {
+  const item = entry('production-catalog', '--filter-tcp=443');
+  const sets = { tcp: { quick: ['production-catalog'], standard: ['production-catalog'], full: ['production-catalog'] }, udp: { quick: [], standard: [], full: [] } };
+  const catalog = snapshot([item], sets);
+  const result = invoke(`planner.scanner_plan_build_server_test(${JSON.stringify(request('standard'))}, ${JSON.stringify(catalog)}, [], ${JSON.stringify(catalog.targetProfile)})`, false, { Z2M_SCANNER_GENERATION: '0' });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.plan.candidates.some(candidate => candidate.source === 'generator'), false);
+});
+
+function invoke(expression, useTestAuthority = true, extraEnv = {}) {
   if (useTestAuthority) expression = expression.replaceAll(
     'planner.scanner_plan_build(', 'planner.scanner_plan_build_test(')
     .replaceAll('planner.scanner_candidate_canonicalize(', 'planner.scanner_candidate_canonicalize_test(');
@@ -76,8 +148,9 @@ function invoke(expression, useTestAuthority = true) {
   const argv = [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source];
   const result = spawnSync(UCODE_BIN, argv, {
     cwd: ROOT,
-    env: { ...process.env, Z2M_SCANNER_SERVER_TEST: '1', LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib' },
-    encoding: 'utf8', timeout: 30_000, maxBuffer: 20 * 1024 * 1024,
+    env: { ...process.env, Z2M_SCANNER_SERVER_TEST: '1', Z2M_SCANNER_COMPILER_SOURCE: COMPILER,
+      LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib', ...extraEnv },
+    encoding: 'utf8', timeout: 120_000, maxBuffer: 20 * 1024 * 1024,
   });
   assert.equal(result.status, 0,
     `${result.stderr || result.stdout}\nucode diagnostic:\n${ucodeDiagnostic([UCODE_BIN, ...argv], UCODE_MODULE_PATTERN)}`);

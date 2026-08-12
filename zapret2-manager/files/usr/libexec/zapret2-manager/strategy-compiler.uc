@@ -714,6 +714,16 @@ export const strategy_compiler_manifest_digest = function(manifest) {
 	return is_object(manifest) ? digest_text(sprintf('%J', manifest)) : null;
 };
 
+export const strategy_compiler_source_authority = function(semantic, sourceSha256) {
+	if (!is_object(semantic) || semantic.marker != COMPILER_AUTHORITY_MARKER
+		|| type(semantic.digest) != 'string' || type(sourceSha256) != 'string'
+		|| !match(sourceSha256, /^[a-f0-9]{64}$/)) return null;
+	let digest = digest_text(semantic.digest + '\n' + sourceSha256 + '\n');
+	return { marker: COMPILER_AUTHORITY_MARKER, manifest: semantic.manifest,
+		manifestDigest: semantic.digest, sourceSha256: sourceSha256, digest: digest,
+		digestInput: semantic.digest + '\n' + sourceSha256 + '\n', source: 'strategy-compiler.uc' };
+};
+
 export const strategy_effective_argv = function(strategyArgs, runtimeInputs) {
 	if (type(strategyArgs) != 'string' || !is_object(runtimeInputs))
 		return error_result('EINPUT', 'strategy args and live runtime inputs are required');

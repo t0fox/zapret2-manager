@@ -302,3 +302,38 @@ outside this fix scope.
 
 Static verification: JavaScript syntax and `git diff --check` passed. No runtime,
 Apply, Orchestra, DNS, Telegram, router, LuCI, or frontend files were changed.
+
+## Review Round 4 Fixes
+
+The fourth review round closed the final two Important findings:
+
+- production planning now obtains generation policy and candidate definitions
+  from a server-owned generator module, enables generated candidates for
+  standard/full by default, leaves quick generation disabled, and binds every
+  generated record to catalog/compiler/record authority before pure planning;
+- compiler authority now combines the semantic-manifest digest with the exact
+  SHA-256 of the installed bounded regular `strategy-compiler.uc` file through a
+  server-owned I/O adapter. The pure planning function receives this authority
+  as input and performs no filesystem access.
+
+The compiler source override and generation-policy override are accepted only
+under the existing `Z2M_SCANNER_SERVER_TEST=1` test gate. Public Scanner requests
+still expose no raw arguments, paths, generator controls, or authority records.
+
+## Review Round 4 TDD And Verification
+
+The initial RED planner run produced three expected failures: absent compiler
+source binding, no standard/full production generation, and no disabled-policy
+production coverage. After implementation:
+
+- focused planner: 36 passed, 0 failed;
+- compiler suite: 27 passed, 0 failed;
+- mandated Task 3 command: 50 passed, 3 failed only in the unchanged Task 2
+  `scanner-targets.uc:136` WSL ucode null-indexing incompatibility documented in
+  prior rounds;
+- JavaScript syntax and `git diff --check`: passed.
+
+Changed production scope is limited to Scanner planner authority, the new
+server-owned generator/compiler-authority adapters, and the compiler authority
+combiner. No runtime, Apply, Orchestra, DNS, Telegram, router, LuCI, or frontend
+files were changed.
