@@ -60,6 +60,15 @@ export const scanner_baseline_classify = function(raw) {
 			return { protocol: 'udp', baselineOpen: false, allAvailableOpen: false,
 				byAddressFamily: {}, probeAddressFamilies: ['ipv4'], infrastructureFailure: true,
 				error: 'PROBE_DEPENDENCY' };
+		if (raw.status == 'success' && raw.mappedFamily != 'IPv4')
+			return { protocol: 'udp', baselineOpen: false, allAvailableOpen: false,
+				byAddressFamily: {}, probeAddressFamilies: ['ipv4'], infrastructureFailure: true,
+				error: 'INVALID_BASELINE' };
+		if (raw.status == 'error' || (raw.status != 'success' && raw.status != 'timeout' &&
+			raw.status != 'skipped' && raw.status != 'blocked'))
+			return { protocol: 'udp', baselineOpen: false, allAvailableOpen: false,
+				byAddressFamily: {}, probeAddressFamilies: ['ipv4'], infrastructureFailure: true,
+				error: raw.error || 'INDETERMINATE' };
 		let status = raw.status == 'success' ? 'open' :
 			(raw.status == 'timeout' ? 'timeout' : (raw.status == 'skipped' ? 'skipped' : 'blocked'));
 		by.ipv4 = normalize_family({ status, available: status != 'skipped', latencyMs: raw.latencyMs,
@@ -155,9 +164,17 @@ export const scanner_tcp_classify = function(raw) {
 	let per_host = [], errors = [], tls_count = 0, body_count = 0;
 	let sum_kbps = 0, kbps_count = 0, sum_latency = 0;
 	for (let item in raw.hosts) {
-		if (!is_object(item)) continue;
+		if (!is_object(item) || type(item.host) != 'string' || !length(item.host) ||
+			(item.addressFamily != 'ipv4' && item.addressFamily != 'ipv6') || !is_object(item.tls) ||
+			type(item.tls.status) != 'string' && item.tls.success !== true)
+			return infrastructure('INVALID_OBSERVATION', 'tls+body');
 		let tls = normalize_tls(item.tls), body = null;
 		if (tls.success) {
+			if (!is_object(item.body) ||
+				(!(item.body.status == 'failed' && type(item.body.error) == 'string' && length(item.body.error)) &&
+					(!is_number(item.body.statusCode) || item.body.statusCode < 0 ||
+						!is_number(item.body.bytesReceived) || item.body.bytesReceived < 0)))
+				return infrastructure('INVALID_OBSERVATION', 'tls+body');
 			tls_count++;
 			body = normalize_body(item.body);
 			if (body.success) {
@@ -185,6 +202,11 @@ export const scanner_tcp_classify = function(raw) {
 
 export const scanner_udp_classify = function(raw) {
 	if (!is_object(raw) || raw.transport != 'stun') return infrastructure('PROBE_DEPENDENCY', 'stun');
+	if (raw.status == 'success' && raw.mappedFamily != 'IPv4')
+		return infrastructure('INVALID_OBSERVATION', 'stun');
+	if (raw.status == 'error' || (raw.status != 'success' && raw.status != 'timeout' &&
+		raw.status != 'reset' && raw.status != 'parse_error'))
+		return infrastructure(raw.error || 'INDETERMINATE', 'stun');
 	let success = raw.status == 'success';
 	let latency = number(raw.latencyMs, 0);
 	let result = {
@@ -207,7 +229,13 @@ export const scanner_candidate_verdict = function(baseline, tests) {
 	if (type(tests) != 'array' || !length(tests))
 		return { verdict: 'infrastructure', reason: 'INDETERMINATE', success: false,
 			evidence: { infrastructure: true, baselineSuppressed: false, failureClass: 'indeterminate' } };
-	for (let evidence in tests) if (evidence?.infrastructureFailure === true)
+	for (let evidence in tests) if (!is_object(evidence) ||
+		type(evidence.success) != 'bool' || type(evidence.infrastructureFailure) != 'bool' ||
+		(!evidence.success && (type(evidence.error) != 'string' || !length(evidence.error) ||
+			type(evidence.failureClass) != 'string' || !length(evidence.failureClass))))
+		return { verdict: 'infrastructure', reason: 'INDETERMINATE', success: false,
+			evidence: { infrastructure: true, baselineSuppressed: false, failureClass: 'indeterminate' } };
+	for (let evidence in tests) if (evidence.infrastructureFailure === true)
 		return { verdict: 'infrastructure', reason: evidence.error || 'INFRASTRUCTURE_FAILURE', success: false,
 			evidence: { infrastructure: true, baselineSuppressed: false,
 				failureClass: evidence.failureClass || 'probe_dependency_failure' } };

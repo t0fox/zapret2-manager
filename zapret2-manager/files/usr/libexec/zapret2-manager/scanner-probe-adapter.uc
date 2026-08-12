@@ -9,6 +9,23 @@ function is_object(value) { return type(value) == 'object' && value != null; }
 function fail(message) { return { ok: false, error: { code: 'EINPUT', message } }; }
 function is_hex64(value) { return type(value) == 'string' && match(value, /^[a-f0-9]{64}$/) != null; }
 
+function lower_key(value) {
+	let result = '';
+	for (let i = 0; i < length(value); i++) {
+		let code = ord(substr(value, i, 1));
+		result += code >= 65 && code <= 90 ? chr(code + 32) : substr(value, i, 1);
+	}
+	return result;
+}
+
+function forbidden_name(value) {
+	let key = lower_key(value);
+	for (let token in ['command', 'cmd', 'argv', 'arg', 'argument', 'executable', 'binary',
+		'shell', 'process', 'path', 'raw', 'strategyargs', 'nfqwsargs', 'workingdirectory', 'cwd'])
+		if (index(key, token) >= 0) return true;
+	return false;
+}
+
 function safe_host(value) {
 	if (type(value) != 'string' || length(value) < 1 || length(value) > 253 ||
 		match(value, /^[a-z0-9][a-z0-9.-]*$/) == null || substr(value, -1) == '-') return false;
@@ -19,10 +36,22 @@ function safe_host(value) {
 
 function forbidden(value) {
 	if (!is_object(value)) return false;
-	let names = { executable: true, command: true, shell: true, args: true, rawArgs: true,
-		rawArguments: true, nfqwsArgs: true, path: true, userPath: true, outputPath: true };
+	let names = {
+		executable: true, executablePath: true, executable_path: true, program: true, binary: true,
+		binaryPath: true, binary_path: true, exec: true, execPath: true, exec_path: true,
+		command: true, commandLine: true, command_line: true, effectiveCommand: true, effective_command: true,
+		commandArgs: true, command_args: true, commandPath: true, command_path: true,
+		fullCommand: true, full_command: true,
+		rawCommand: true, raw_command: true, rawCommandLine: true, raw_command_line: true,
+		shell: true, process: true, argv: true, effectiveArgv: true, effective_argv: true,
+		effectiveArgs: true, effective_args: true, rawArgv: true, raw_argv: true,
+		args: true, arguments: true, raw: true, rawArgs: true, raw_args: true, rawArguments: true,
+		raw_arguments: true, strategyArgs: true, strategy_args: true, nfqwsArgs: true,
+		nfqws_args: true, path: true, userPath: true, outputPath: true,
+		inputPath: true, workingDirectory: true, cwd: true,
+	};
 	for (let key in value) {
-		if (names[key]) return true;
+		if (names[key] || forbidden_name(key)) return true;
 		if (is_object(value[key]) && forbidden(value[key])) return true;
 	}
 	return false;

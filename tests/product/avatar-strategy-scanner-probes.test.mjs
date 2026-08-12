@@ -144,6 +144,22 @@ test('body classification preserves Range, block-page, fake-400, cutoff, and sta
   }
 });
 
+test('body cutoff boundaries remain exact at every pinned threshold', () => {
+  const expected = new Map([
+    [65535, null], [65536, null],
+    [10239, 'SHORT_BODY'], [10240, 'TCP_16_20'], [10241, 'TCP_16_20'],
+    [14999, 'TCP_16_20'], [15000, 'TCP_16_20'], [15001, 'TCP_16_20'],
+    [21000, 'TCP_16_20'], [21001, 'TCP_16_20'],
+    [25600, 'TCP_16_20'], [25601, null],
+  ]);
+  for (const [bytes, error] of expected) {
+    const result = call('scanner_tcp_classify', { hosts: [{ host: 'example.com', addressFamily: 'ipv4',
+      tls: { status: 'success' }, body: { statusCode: 200, bytesReceived: bytes } }] });
+    assert.equal(result.error, error, `bytes=${bytes}`);
+    assert.equal(result.success, error == null, `bytes=${bytes}`);
+  }
+});
+
 test('body timeout and reset retain cutoff priority and distinct failure classes', () => {
   for (const [body, error] of [
     [{ statusCode: 200, bytesReceived: 4096, transport: 'timeout' }, 'TIMEOUT'],
@@ -201,6 +217,37 @@ test('UDP accepts only bounded STUN evidence with retries and latency', () => {
   assert.equal(call('scanner_udp_classify', { transport: 'quic', status: 'success' }).infrastructureFailure, true);
 });
 
+test('UDP operational errors and incomplete STUN evidence are infrastructure', () => {
+  for (const raw of [
+    { transport: 'stun', status: 'error', error: 'DNS_ERR' },
+    { transport: 'stun', status: 'error', error: 'RESOLVE_ERR' },
+    { transport: 'stun', status: 'unknown' },
+    { transport: 'stun', status: 'success' },
+  ]) {
+    const result = call('scanner_udp_classify', raw);
+    assert.equal(result.infrastructureFailure, true, JSON.stringify(raw));
+    assert.equal(result.failureClass, 'probe_dependency_failure', JSON.stringify(raw));
+  }
+
+  for (const raw of [
+    { protocol: 'udp', transport: 'stun', status: 'error', error: 'DNS_ERR' },
+    { protocol: 'udp', transport: 'stun', status: 'error', error: 'RESOLVE_ERR' },
+    { protocol: 'udp', transport: 'stun', status: 'unknown' },
+    { protocol: 'udp', transport: 'stun', status: 'success' },
+  ]) {
+    const result = call('scanner_baseline_classify', raw);
+    assert.equal(result.infrastructureFailure, true, JSON.stringify(raw));
+  }
+
+  const success = call('scanner_udp_classify', {
+    transport: 'stun', status: 'success', attempts: 1, latencyMs: 80, mappedFamily: 'IPv4',
+  });
+  assert.equal(success.success, true);
+  assert.equal(call('scanner_baseline_classify', {
+    protocol: 'udp', transport: 'stun', status: 'success', latencyMs: 80, mappedFamily: 'IPv4',
+  }).baselineOpen, true);
+});
+
 test('score formulas are exact and infrastructure outcomes are not scored', () => {
   assert.equal(call('scanner_score', { protocol: 'tcp', success: true,
     successRate: 1, averageKbps: 1000, averageLatencyMs: 100 }), 10000);
@@ -240,6 +287,38 @@ test('malformed raw observations are infrastructure evidence, never failed candi
   assert.equal(call('scanner_baseline_classify', { protocol: 'sctp' }).infrastructureFailure, true);
 });
 
+test('malformed nested TCP evidence is infrastructure, never a failed candidate', () => {
+  for (const value of [
+    { hosts: [null] },
+    { hosts: ['example.com'] },
+    { hosts: [{}] },
+    { hosts: [{ host: 'example.com', addressFamily: 'ipv4' }] },
+    { hosts: [{ host: 'example.com', addressFamily: 'ipv4', tls: null, body: {} }] },
+    { hosts: [{ host: 'example.com', addressFamily: 'ipv4', tls: { status: 'success' }, body: null }] },
+    { hosts: [{ host: 'example.com', addressFamily: 'ipv4', tls: {}, body: {} }] },
+    { hosts: [{ host: 'example.com', addressFamily: 'ipv4', tls: { status: 'success' }, body: {} }] },
+  ]) {
+    const result = call('scanner_tcp_classify', value);
+    assert.equal(result.infrastructureFailure, true, JSON.stringify(value));
+    assert.equal(result.failureClass, 'probe_dependency_failure', JSON.stringify(value));
+  }
+
+  const baseline = call('scanner_baseline_classify', {
+    protocol: 'tcp', ipv4: { status: 'blocked', error: 'TIMEOUT' }, ipv6: { status: 'skipped' },
+  });
+  for (const evidence of [null, {}, { status: 'unknown' }, { arbitrary: true }]) {
+    const verdict = call('scanner_candidate_verdict', baseline, [evidence]);
+    assert.equal(verdict.verdict, 'infrastructure', JSON.stringify(evidence));
+    assert.equal(verdict.evidence.infrastructure, true, JSON.stringify(evidence));
+    assert.equal(verdict.evidence.failureClass, 'indeterminate', JSON.stringify(evidence));
+  }
+
+  const validFailure = call('scanner_tcp_classify', { hosts: [{ host: 'example.com', addressFamily: 'ipv4',
+    tls: { status: 'failed', error: 'TLS_RESET' }, body: null }] });
+  assert.equal(validFailure.infrastructureFailure, false);
+  assert.equal(validFailure.failureClass, 'candidate_blocked');
+});
+
 test('fixed adapter plans pin timeout, read, Range, STUN, retry, and deadline bounds', () => {
   const profile = { profileKey: 'generic', primaryHost: 'example.com', testHosts: ['example.com'],
     probeUrl: 'https://example.com/', tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' },
@@ -260,6 +339,39 @@ test('fixed adapter plans pin timeout, read, Range, STUN, retry, and deadline bo
     { host: 'stun.l.google.com', port: 19302 }, deadline);
   assert.deepEqual(udp.request, { transport: 'stun', host: 'stun.l.google.com', port: 19302,
     addressFamily: 'ipv4', timeoutMs: 4000, retries: 2, receiveLimitBytes: 1024, deadlineMs: 20000 });
+
+  const clamped = adapt('scanner_probe_adapter_tcp', candidate, profile, 'ipv4',
+    { nowMs: 1000, deadlineMs: 999999, mode: 'quick' });
+  assert.equal(clamped.ok, true);
+  assert.equal(clamped.request.deadlineMs, 121000);
+  assert.equal(clamped.request.body.minimumBytes, 65536);
+  assert.equal(clamped.request.body.readLimitBytes, 69633);
+  assert.equal(clamped.request.body.range, 'bytes=0-69632');
+});
+
+test('adapter rejects invalid deadlines and malformed mode or host-list shapes', () => {
+  const profile = { profileKey: 'generic', primaryHost: 'example.com', testHosts: ['example.com'],
+    probeUrl: 'https://example.com/', tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' } };
+  const candidate = { scannerId: 'catalog:one', protocol: 'tcp', compiledDigest: 'a'.repeat(64), dependencyDigest: 'b'.repeat(64) };
+  for (const limit of [null, {}, { nowMs: 1.5, deadlineMs: 10000 },
+    { nowMs: -1, deadlineMs: 10000 }, { nowMs: 1000, deadlineMs: 1000 },
+    { nowMs: 1000, deadlineMs: 10999 }, { nowMs: 1000, deadlineMs: 900 }]) {
+    const result = adapt('scanner_probe_adapter_tcp', candidate, profile, 'ipv4', limit);
+    assert.equal(result.ok, false, JSON.stringify(limit));
+    assert.equal(result.error.code, 'EINPUT', JSON.stringify(limit));
+  }
+  for (const target of [
+    { ...profile, testHosts: null },
+    { ...profile, testHosts: ['bad host'] },
+    { ...profile, testHosts: [{}] },
+  ]) {
+    const result = adapt('scanner_probe_adapter_tcp', candidate, target, 'ipv4',
+      { nowMs: 1000, deadlineMs: 20000, mode: 'quick' });
+    assert.equal(result.ok, false, JSON.stringify(target));
+  }
+  const invalidMode = adapt('scanner_probe_adapter_tcp', candidate, profile, 'ipv4',
+    { nowMs: 1000, deadlineMs: 20000, mode: 'paused' });
+  assert.equal(invalidMode.ok, false);
 });
 
 test('adapter rejects executable, shell, raw nfqws arguments, paths, and unbound candidates', () => {
@@ -269,8 +381,17 @@ test('adapter rejects executable, shell, raw nfqws arguments, paths, and unbound
   const candidate = { scannerId: 'catalog:one', protocol: 'tcp', compiledDigest: 'a'.repeat(64), dependencyDigest: 'b'.repeat(64) };
   const deadline = { nowMs: 1000, deadlineMs: 20000, mode: 'quick' };
   for (const injected of [
-    { executable: '/bin/sh' }, { command: 'curl example.com' }, { shell: 'sh' },
-    { args: ['--lua-desync=fake'] }, { rawArgs: '--filter-tcp=443' }, { path: '/tmp/output' },
+    { executable: '/bin/sh' }, { executablePath: '/bin/sh' }, { exec: '/bin/sh' }, { binaryPath: '/bin/sh' },
+    { command: 'curl example.com' }, { cmd: 'curl example.com' }, { cmdline: 'curl example.com' },
+    { commandLine: 'curl example.com' }, { commandArgs: ['curl'] },
+    { commandPath: '/bin/curl' }, { fullCommand: 'curl example.com' },
+    { shell: 'sh' }, { argv: ['curl'] }, { args: ['--lua-desync=fake'] },
+    { arguments: ['--lua-desync=fake'] }, { effectiveCommand: 'curl example.com' },
+    { effectiveArgv: ['curl'] }, { effectiveArgs: ['--filter-tcp=443'] },
+    { rawArgv: ['curl'] }, { raw_argv: ['curl'] }, { strategyArgs: '--filter-tcp=443' },
+    { rawArgs: '--filter-tcp=443' }, { rawArguments: '--filter-tcp=443' }, { raw: '--filter-tcp=443' },
+    { nfqwsArgs: '--filter-tcp=443' }, { path: '/tmp/output' },
+    { nested: { commandLine: 'curl example.com' } },
   ]) {
     const result = adapt('scanner_probe_adapter_tcp', { ...candidate, ...injected }, profile, 'ipv4', deadline);
     assert.equal(result.ok, false, JSON.stringify(injected));
