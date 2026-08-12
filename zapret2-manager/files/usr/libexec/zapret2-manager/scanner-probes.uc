@@ -23,6 +23,9 @@ const ERROR_PRIORITY = [
 
 function is_object(value) { return type(value) == 'object' && value != null; }
 function is_number(value) { return type(value) == 'int' || type(value) == 'double'; }
+function valid_nonnegative_number(value) {
+	return is_number(value) && value == value && value >= 0 && value - value == 0;
+}
 function number(value, fallback) { return is_number(value) && value >= 0 ? value : fallback; }
 function clamp(value, low, high) { return value < low ? low : (value > high ? high : value); }
 function round_to(value, places) {
@@ -202,6 +205,8 @@ export const scanner_tcp_classify = function(raw) {
 
 export const scanner_udp_classify = function(raw) {
 	if (!is_object(raw) || raw.transport != 'stun') return infrastructure('PROBE_DEPENDENCY', 'stun');
+	if (!valid_nonnegative_number(raw.latencyMs))
+		return infrastructure('INVALID_OBSERVATION', 'stun');
 	if (raw.status == 'success' && raw.mappedFamily != 'IPv4')
 		return infrastructure('INVALID_OBSERVATION', 'stun');
 	if (raw.status == 'error' || (raw.status != 'success' && raw.status != 'timeout' &&
@@ -222,17 +227,63 @@ export const scanner_udp_classify = function(raw) {
 	return result;
 };
 
+function valid_text(value) { return type(value) == 'string' && length(value) > 0; }
+function valid_nullable_text(value) { return value == null || valid_text(value); }
+
+function valid_tcp_test(evidence) {
+	if (evidence.protocol != 'tcp' || evidence.testType != 'tls+body' ||
+		type(evidence.bodyPassed) != 'bool' || !valid_nonnegative_number(evidence.successRate) ||
+		evidence.successRate > 1 || !valid_nonnegative_number(evidence.averageKbps) ||
+		!valid_nonnegative_number(evidence.averageLatencyMs) || type(evidence.perHost) != 'array' ||
+		!length(evidence.perHost) || length(evidence.perHost) > 8) return false;
+	for (let host in evidence.perHost) {
+		if (!is_object(host) || !valid_text(host.host) ||
+			(host.addressFamily != 'ipv4' && host.addressFamily != 'ipv6') || !is_object(host.tls) ||
+		type(host.tls.success) != 'bool' || !valid_text(host.tls.status) ||
+			!valid_nullable_text(host.tls.error) || !valid_nonnegative_number(host.tls.latencyMs) ||
+			!valid_nonnegative_number(host.tls.readBytes) || host.tls.readBytes > TLS_READ_LIMIT ||
+			host.tls.readLimitBytes != TLS_READ_LIMIT) return false;
+		if (host.tls.success) {
+			if (!is_object(host.body) || type(host.body.success) != 'bool' ||
+				!valid_text(host.body.status) || !valid_nullable_text(host.body.error) ||
+				!valid_nonnegative_number(host.body.statusCode) ||
+				!valid_nonnegative_number(host.body.bytesReceived) ||
+				!valid_nonnegative_number(host.body.kbps) ||
+				!valid_nonnegative_number(host.body.latencyMs) ||
+				host.body.range != 'bytes=0-69632' || host.body.minimumBytes != BODY_MINIMUM) return false;
+		}
+		else if (host.body != null) return false;
+	}
+	return true;
+}
+
+function valid_udp_test(evidence) {
+	return evidence.protocol == 'udp' && evidence.testType == 'stun' && evidence.quicProbe === false &&
+		type(evidence.attempts) == 'int' && evidence.attempts >= 1 && evidence.attempts <= 2 &&
+		valid_nonnegative_number(evidence.latencyMs) &&
+		valid_nonnegative_number(evidence.stunLatencyMs) && evidence.latencyMs == evidence.stunLatencyMs &&
+		(evidence.mappedFamily == null || evidence.mappedFamily == 'IPv4' || evidence.mappedFamily == 'IPv6') &&
+		(!evidence.success || evidence.mappedFamily == 'IPv4');
+}
+
+function valid_candidate_test(evidence, protocol) {
+	if (!is_object(evidence) || type(evidence.success) != 'bool' ||
+		type(evidence.infrastructureFailure) != 'bool' ||
+		(!evidence.success && (!valid_text(evidence.error) || !valid_text(evidence.failureClass)))) return false;
+	if (evidence.infrastructureFailure === true) return true;
+	if (evidence.protocol != protocol) return false;
+	return protocol == 'tcp' ? valid_tcp_test(evidence) : valid_udp_test(evidence);
+}
+
 export const scanner_candidate_verdict = function(baseline, tests) {
-	if (!is_object(baseline) || baseline.infrastructureFailure === true)
+	if (!is_object(baseline) || baseline.infrastructureFailure === true ||
+		(baseline.protocol != 'tcp' && baseline.protocol != 'udp'))
 		return { verdict: 'infrastructure', reason: baseline?.error || 'BASELINE_UNAVAILABLE', success: false,
 			evidence: { infrastructure: true, baselineSuppressed: false, failureClass: 'probe_dependency_failure' } };
 	if (type(tests) != 'array' || !length(tests))
 		return { verdict: 'infrastructure', reason: 'INDETERMINATE', success: false,
 			evidence: { infrastructure: true, baselineSuppressed: false, failureClass: 'indeterminate' } };
-	for (let evidence in tests) if (!is_object(evidence) ||
-		type(evidence.success) != 'bool' || type(evidence.infrastructureFailure) != 'bool' ||
-		(!evidence.success && (type(evidence.error) != 'string' || !length(evidence.error) ||
-			type(evidence.failureClass) != 'string' || !length(evidence.failureClass))))
+	for (let evidence in tests) if (!valid_candidate_test(evidence, baseline.protocol))
 		return { verdict: 'infrastructure', reason: 'INDETERMINATE', success: false,
 			evidence: { infrastructure: true, baselineSuppressed: false, failureClass: 'indeterminate' } };
 	for (let evidence in tests) if (evidence.infrastructureFailure === true)
