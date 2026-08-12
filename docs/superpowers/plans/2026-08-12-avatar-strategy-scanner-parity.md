@@ -21,6 +21,9 @@
 - Persistent config and active Strategy identity remain unchanged throughout scanning.
 - Candidate cleanup removes only that candidate’s owned process, firewall/NFQUEUE rules, temporary files, hostlist, and other owned artifacts before the next candidate.
 - The original pre-scan runtime/firewall state is restored once during terminal cleanup.
+- Task 5 production firewall deletion remains incomplete until a native helper or
+  server-owned transaction can atomically compare ownership and delete the chain;
+  the current adapter fails closed and never falls back to `nft flush`.
 - Verified cancellation publishes `cancelled` with `recovery.state = verified`.
 - Unproven cancellation restoration publishes `error` with `recovery.state = uncertain`.
 - `cancelled` plus `recovery.state = uncertain` is forbidden.
@@ -740,7 +743,7 @@ runtime state. The UI module exports `load(ctx)`, `render(ctx)`, `mount(ctx)`,
 
   Expected: only approved Scanner files/docs are changed; DNS changes = 0, Telegram changes = 0, and no router mutation evidence exists.
 
-- [ ] **Step 9: Perform final whole-slice review.** Use `superpowers:requesting-code-review` and `superpowers:verification-before-completion`. Critical findings must equal 0 and Important findings must equal 0. Reconcile every task report and final test command before claiming completion.
+- [ ] **Step 9: Perform final whole-slice review.** Use `superpowers:requesting-code-review` and `superpowers:verification-before-completion`. Critical findings must equal 0 and Important findings must equal 0. Reconcile every task report and final test command before claiming completion. Task 5 is not complete while production firewall compare-delete remains unavailable.
 
 - [ ] **Step 10: Commit.**
 

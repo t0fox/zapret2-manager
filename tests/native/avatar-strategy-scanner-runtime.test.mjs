@@ -87,7 +87,7 @@ test('fixed Scanner runtime shim exercises activate, stabilize, cleanup vectors 
     assert.equal(locked.status, 0, locked.stderr || locked.stdout);
     lockPid = JSON.parse(locked.stdout).lockPid;
     env.Z2M_TEST_MARKER = `z2m-scanner:${session}:${candidate}:5:${JSON.parse(locked.stdout).nonce}`;
-    fs.writeFileSync(path.join(argvDir, `${candidate}.argv.meta`), JSON.stringify({ schema: 1, session, candidate, generation: 5, nonce: JSON.parse(locked.stdout).nonce, compiledDigest: crypto.createHash('sha256').update('--filter-tcp=443\n--payload=tls_client_hello\n').digest('hex') }) + '\n');
+    fs.writeFileSync(path.join(argvDir, `${candidate}.argv.meta`), `{ "schema": 1, "session": "${session}", "candidate": "${candidate}", "generation": 5, "nonce": "${JSON.parse(locked.stdout).nonce}", "compiledDigest": "${crypto.createHash('sha256').update('--filter-tcp=443\n--payload=tls_client_hello\n').digest('hex')}" }\n`);
     const descriptor = path.join(argvDir, 'lock.descriptor');
     const descriptorBytes = fs.readFileSync(descriptor);
     const meta = path.join(argvDir, `${candidate}.argv.meta`);
@@ -162,6 +162,86 @@ test('runtime source refuses cleanup on ownership mismatch and tampered lock met
   assert.match(source, /CHAIN_DIGEST_FILE/);
   assert.match(source, /argv\.meta|META_FILE/);
   assert.match(source, /lock-holder\.pid/);
+});
+
+test('runtime lock failure reaps only a nonce/session-bound holder and validates every root on cleanup', () => {
+  const source = fs.readFileSync(ADAPTER, 'utf8');
+  assert.match(source, /reap_holder/);
+  assert.match(source, /ready_record.*session.*nonce/);
+  assert.match(source, /private_dir.*BASE|private_dir.*ROOT|private_dir.*DIR/);
+  assert.match(source, /path_safety/);
+});
+
+test('lock acquisition failure preserves a pre-existing readiness artifact and leaves no new descriptor', () => {
+  if (process.platform === 'win32') {
+    assert.ok(true, 'Linux/WSL shell and procfs runtime required');
+    return;
+  }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-lock-fail-'));
+  const session = `lock-fail-${process.pid}-${Date.now()}`;
+  const run = path.resolve(ADAPTER);
+  const adapterRoot = path.join('/tmp/zapret2-manager/scanner', session);
+  let lockPid;
+  try {
+    fs.mkdirSync(adapterRoot, { recursive: true });
+    const ready = path.join(adapterRoot, 'lock.ready');
+    fs.writeFileSync(ready, 'foreign-ready\n');
+    const env = { ...process.env, Z2M_SCANNER_RUNTIME_SHIM: '1', Z2M_SCANNER_SERVER_TEST: '1',
+      Z2M_SCANNER_TEST_LOCK: path.join(root, 'config.lock') };
+    const failed = spawnSync('sh', [run, 'lock-acquire', session, 'session', '1'], { env, encoding: 'utf8' });
+    assert.notEqual(failed.status, 0, failed.stdout);
+    assert.equal(fs.readFileSync(ready, 'utf8'), 'foreign-ready\n');
+    assert.equal(fs.existsSync(path.join(adapterRoot, 'lock.descriptor')), false);
+    assert.equal(fs.existsSync(path.join(adapterRoot, 'lock-holder.pid')), false);
+  } finally {
+    try { if (typeof lockPid === 'number') process.kill(lockPid, 'SIGTERM'); } catch { }
+    fs.rmSync(adapterRoot, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('runtime argv metadata uses one exact schema rather than substring matches', () => {
+  const source = fs.readFileSync(ADAPTER, 'utf8');
+  assert.match(source, /expected_meta=.*schema/);
+  assert.match(source, /\[ "\$meta" = "\$expected_meta" \]/);
+  assert.doesNotMatch(source, /grep -F -q.*compiledDigest/);
+});
+
+test('session cleanup is behavioral: evidence persists, sidecars are removed, directory is removed after release', () => {
+  if (process.platform === 'win32') {
+    assert.ok(true, 'Linux/WSL shell and procfs runtime required');
+    return;
+  }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-cleanup-'));
+  const session = `cleanup-${process.pid}-${Date.now()}`;
+  const run = path.resolve(ADAPTER);
+  const adapterRoot = path.join('/tmp/zapret2-manager/scanner', session);
+  const log = path.join(root, 'calls');
+  let lockPid;
+  try {
+    const env = { ...process.env, Z2M_SCANNER_RUNTIME_SHIM: '1', Z2M_SCANNER_SERVER_TEST: '1',
+      Z2M_SCANNER_TEST_LOCK: path.join(root, 'config.lock'), Z2M_TEST_LOG: log };
+    fs.mkdirSync(adapterRoot, { recursive: true });
+    fs.writeFileSync(path.join(adapterRoot, 'candidate.argv'), 'x\n');
+    fs.writeFileSync(path.join(adapterRoot, 'candidate.argv.meta'), '{}\n');
+    const locked = spawnSync('sh', [run, 'lock-acquire', session, 'session', '1'], { env, encoding: 'utf8' });
+    assert.equal(locked.status, 0, locked.stderr || locked.stdout);
+    lockPid = JSON.parse(locked.stdout).lockPid;
+    const released = spawnSync('sh', [run, 'lock-release', session, 'session', '0', JSON.parse(locked.stdout).nonce], { env, encoding: 'utf8' });
+    assert.equal(released.status, 0, released.stderr || released.stdout);
+    const cleaned = spawnSync('sh', [run, 'session-cleanup', session, 'session', '1'], { env, encoding: 'utf8' });
+    assert.equal(cleaned.status, 0, cleaned.stderr || cleaned.stdout);
+    assert.equal(JSON.parse(cleaned.stdout).sessionDirectoryRemoved, true);
+    assert.match(fs.readFileSync(path.join('/tmp/zapret2-manager/scanner', `${session}.recovery.evidence`), 'utf8'), /verified=true/);
+    assert.match(fs.readFileSync(path.join('/tmp/zapret2-manager/scanner', `${session}.recovery.evidence`), 'utf8'), /durability=tmpfs_visible/);
+    assert.deepEqual(fs.readFileSync(log, 'utf8').trim().split(/\r?\n/), ['lock-release', 'session-cleanup']);
+    assert.equal(fs.existsSync(adapterRoot), false);
+  } finally {
+    try { if (typeof lockPid === 'number') process.kill(lockPid, 'SIGTERM'); } catch { }
+    fs.rmSync(adapterRoot, { recursive: true, force: true });
+    fs.rmSync(path.join('/tmp/zapret2-manager/scanner', `${session}.recovery.evidence`), { force: true });
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('runtime source journals every owned resource and retains failed cleanup evidence', () => {

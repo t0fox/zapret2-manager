@@ -265,6 +265,11 @@ function scanner_dependency_closure_valid(value) {
 	return true;
 }
 
+function scanner_dependency_digest(value) {
+	if (!scanner_dependency_closure_valid(value)) return null;
+	return sha256_text_via_file(sprintf('%J', value));
+}
+
 function scanner_secure_temp(template) {
 	let p = popen('umask 077; mktemp ' + shell_escape(template) + ' 2>/dev/null', 'r');
 	if (!p) return null;
@@ -855,12 +860,14 @@ export const profiles_transient_compile_preflight = function(candidate, supplied
 	}
 	let injected = transient_test_value('compile', supplied);
 	if (injected != null) {
+		let injectedDependencyDigest = scanner_dependency_digest(injected.dependencies);
 		if (injected.ok != true || type(injected.candidate) != 'string'
 			|| (injected.candidate != candidate.compiledCandidate)
 			|| !scanner_dependency_closure_valid(injected.dependencies)
 			|| type(injected.native) != 'object' || injected.native.status != 'verified'
-			|| injected.dependencyDigest != candidate.dependencyDigest
-			|| (candidate.dependencies != null && sprintf('%J', injected.dependencies) != sprintf('%J', candidate.dependencies)))
+			|| injectedDependencyDigest == null || injectedDependencyDigest != candidate.dependencyDigest
+			|| (candidate.dependencies != null && sprintf('%J', injected.dependencies) != sprintf('%J', candidate.dependencies))
+			|| (candidate.dependencyClosure != null && sprintf('%J', injected.dependencies) != sprintf('%J', candidate.dependencyClosure)))
 			return err('preflight', injected.candidate != candidate.compiledCandidate ? 'ECONFLICT' : 'EPREFLIGHT', 'candidate preflight or compiled output was refused', { native: injected.native, dependencies: injected.dependencies });
 		if (injected.compiledDigest != candidate.compiledDigest
 			|| type(injected.compiledTokens) != 'array'
@@ -871,10 +878,14 @@ export const profiles_transient_compile_preflight = function(candidate, supplied
 	}
 	let native = native_preflight_for_apply(candidate.compiledCandidate);
 	if (!apply_decision(native)) return err('preflight', 'EPREFLIGHT', 'complete native preflight is required', { native: native });
-	if (!scanner_dependency_closure_valid(candidate.dependencies))
+	let dependencyClosure = candidate.dependencyClosure != null ? candidate.dependencyClosure : candidate.dependencies;
+	if (!scanner_dependency_closure_valid(dependencyClosure))
 		return err('preflight', 'EPREFLIGHT', 'complete dependency closure is required', { dependencies: candidate.dependencies });
+	let dependencyDigest = scanner_dependency_digest(dependencyClosure);
+	if (dependencyDigest == null || dependencyDigest != candidate.dependencyDigest)
+		return err('preflight', 'ECONFLICT', 'candidate dependency digest does not match the validated closure', { dependencyDigest: dependencyDigest });
 	return { ok: true, candidate: candidate.compiledCandidate, compiledTokens: candidateTokens, compiledDigest: candidate.compiledDigest,
-		dependencyDigest: candidate.dependencyDigest, dependencies: candidate.dependencies, native: native };
+		dependencyDigest: dependencyDigest, dependencies: dependencyClosure, native: native };
 };
 
 export const profiles_transient_snapshot = function(supplied) {

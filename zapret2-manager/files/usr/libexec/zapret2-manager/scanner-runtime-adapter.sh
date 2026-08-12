@@ -45,18 +45,26 @@ LOCK_OWNER="$DIR/lock.descriptor"
 OWNERSHIP_LOCK="$DIR/ownership.lock"
 SESSION_JOURNAL="$DIR/session.journal"
 CLEANUP_EVIDENCE="$DIR/cleanup.evidence"
-if [ "$operation" = session-cleanup ]; then
-	[ -d "$DIR" ] && [ ! -L "$DIR" ] || { printf '%s\n' '{"ok":false,"code":"ECLEANUP","stage":"cleanup"}'; exit 1; }
-else
+private_dir() {
+	path=$1
+	[ -d "$path" ] && [ ! -L "$path" ] || return 1
+	set -- $(stat -c '%u %g %a' "$path" 2>/dev/null) || return 1
+	expected_uid=0
+	[ "${Z2M_SCANNER_RUNTIME_SHIM:-0}" = 1 ] && [ "${Z2M_SCANNER_SERVER_TEST:-0}" = 1 ] && expected_uid=$(id -u)
+	[ "$1" = "$expected_uid" ] && [ "$2" = "$expected_uid" ] && [ "$3" = 700 ]
+}
+if [ "$operation" != session-cleanup ]; then
 	[ ! -L "$BASE" ] || exit 1
-	[ -d "$BASE" ] || mkdir "$BASE" 2>/dev/null || exit 1
+	if [ -e "$BASE" ]; then [ -d "$BASE" ] || exit 1; else mkdir "$BASE" 2>/dev/null || exit 1; fi
 	[ ! -L "$ROOT" ] || exit 1
-	[ -d "$ROOT" ] || mkdir "$ROOT" 2>/dev/null || exit 1
-	chmod 700 "$ROOT" 2>/dev/null || exit 1
+	if [ -e "$ROOT" ]; then [ -d "$ROOT" ] || exit 1; else mkdir "$ROOT" 2>/dev/null || exit 1; fi
 	[ -d "$DIR" ] || mkdir "$DIR" 2>/dev/null || exit 1
 	[ ! -L "$DIR" ] || exit 1
-	chmod 700 "$DIR" 2>/dev/null || exit 1
+	chmod 700 "$BASE" "$ROOT" "$DIR" 2>/dev/null || exit 1
 fi
+private_dir "$BASE" && private_dir "$ROOT" && private_dir "$DIR" || {
+	printf '%s\n' '{"ok":false,"code":"ECLEANUP","stage":"path_safety"}'; exit 1;
+}
 
 starttime() { awk '{print $22}' "/proc/$1/stat" 2>/dev/null || true; }
 argv_digest() { sha256sum "/proc/$1/cmdline" 2>/dev/null | awk '{print $1}' || true; }
@@ -64,8 +72,24 @@ queue_peer() { awk -v q="$QUEUE" '$1 == q { print $2; exit }' "$NFQ_PROC" 2>/dev
 process_alive() { [ -r "/proc/$1/stat" ] && [ "$(starttime "$1")" = "$2" ]; }
 process_exe() { readlink "/proc/$1/exe" 2>/dev/null || true; }
 
+reap_holder() {
+	record=$(cat "$LOCK_OWNER" 2>/dev/null | tr -d '\n' || true)
+	record_session=${record%%|*}; rest=${record#*|}; record_pid=${rest%%|*}; rest=${rest#*|}; record_nonce=${rest#*|}
+	ready_record=$(cat "$DIR/lock.ready" 2>/dev/null | tr -d '\n' || true)
+	ready_pid=$(cat "$DIR/lock-holder.pid" 2>/dev/null || true)
+	if [ "$record_session" = "$session" ] && [ "$record_nonce" = "$nonce" ] &&
+		[ "$ready_record" = "$session|$nonce|$record_pid" ] && [ "$ready_pid" = "$record_pid" ]; then
+		case "$record_pid" in ''|*[!0-9]*) return ;; esac
+		kill -TERM "$record_pid" 2>/dev/null || true
+		i=0; while kill -0 "$record_pid" 2>/dev/null && [ "$i" -lt 20 ]; do sleep 0.05; i=$((i + 1)); done
+		kill -KILL "$record_pid" 2>/dev/null || true
+		wait "$record_pid" 2>/dev/null || true
+		rm -f "$LOCK_OWNER" "$DIR/lock-holder.pid" "$DIR/lock.ready"
+	fi
+}
+
 nonce_marker="$session:$candidate:$generation:$(od -An -N16 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n' || true)"
-lock_nonce=""
+lock_session=""; lock_pid=""; lock_start=""; lock_nonce=""
 if [ -r "$LOCK_OWNER" ]; then
 	lock_record=$(cat "$LOCK_OWNER" 2>/dev/null || true)
 	lock_session=${lock_record%%|*}; lock_rest=${lock_record#*|}
@@ -200,27 +224,32 @@ fail() {
 }
 
 lock_acquire() {
-	[ ! -e "$LOCK_OWNER" ] || { lock_held && fail ELOCKED lock; fail ETAMPERED lock; }
+	[ ! -e "$LOCK_OWNER" ] && [ ! -e "$DIR/lock-holder.pid" ] && [ ! -e "$DIR/lock.ready" ] || {
+		lock_held && fail ELOCKED lock; fail ETAMPERED lock;
+	}
 	nonce=$(od -An -N32 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
 	case "$nonce" in *[!a-f0-9]*|'') fail ELOCKED lock ;; esac
 	[ "$(printf '%s' "$nonce" | wc -c)" = 64 ] || fail ELOCKED lock
-	flock -n "$LOCK" sh -c 'umask 077; set -C; holder="$1"; descriptor="$2"; ready="$3"; session="$4"; nonce="$5"; start=$(awk '\''{print $22}'\'' "/proc/$$/stat"); printf "%s|%s|%s|%s\n" "$session" "$$" "$start" "$nonce" > "$descriptor" || exit 61; printf "%s\n" "$$" > "$holder" || exit 62; printf "%s\n" ready > "$ready" || exit 63; trap '\''rm -f "$descriptor" "$holder" "$ready"; exit 0'\'' TERM INT HUP; while :; do sleep 1; done' sh "$DIR/lock-holder.pid" "$LOCK_OWNER" "$DIR/lock.ready" "$session" "$nonce" >/dev/null 2>&1 &
+	flock -n "$LOCK" sh -c 'umask 077; set -C; holder="$1"; descriptor="$2"; ready="$3"; session="$4"; nonce="$5"; start=$(awk '\''{print $22}'\'' "/proc/$$/stat"); printf "%s|%s|%s|%s\n" "$session" "$$" "$start" "$nonce" > "$descriptor" || exit 61; printf "%s\n" "$$" > "$holder" || exit 62; printf "%s|%s|%s\n" "$session" "$nonce" "$$" > "$ready" || exit 63; trap '\''rm -f "$descriptor" "$holder" "$ready"; exit 0'\'' TERM INT HUP; while :; do sleep 1; done' sh "$DIR/lock-holder.pid" "$LOCK_OWNER" "$DIR/lock.ready" "$session" "$nonce" >/dev/null 2>&1 &
 	owner=$!; i=0; while [ "$i" -lt 20 ] && [ ! -s "$DIR/lock.ready" ]; do sleep 0.05; i=$((i + 1)); done
-	[ -s "$DIR/lock.ready" ] || { kill "$owner" 2>/dev/null || true; fail ELOCKED lock; }
+	ready_record=$(cat "$DIR/lock.ready" 2>/dev/null | tr -d '\n' || true)
+	ready_pid=$(cat "$DIR/lock-holder.pid" 2>/dev/null || true)
+	[ "$ready_record" = "$session|$nonce|$ready_pid" ] || { reap_holder; kill "$owner" 2>/dev/null || true; wait "$owner" 2>/dev/null || true; fail ELOCKED lock; }
 	lock_record=$(cat "$LOCK_OWNER" 2>/dev/null | tr -d '\n' || true)
 	lock_session=${lock_record%%|*}; lock_rest=${lock_record#*|}; lock_pid=${lock_rest%%|*}; lock_rest=${lock_rest#*|}; lock_start=${lock_rest%%|*}; lock_nonce=${lock_rest#*|}
-	[ "$lock_session" = "$session" ] && [ -n "$lock_pid" ] && [ -n "$lock_start" ] && [ "$lock_nonce" = "$nonce" ] || fail ELOCKED lock
+	[ "$lock_session" = "$session" ] && [ -n "$lock_pid" ] && [ -n "$lock_start" ] && [ "$lock_nonce" = "$nonce" ] || { reap_holder; kill "$owner" 2>/dev/null || true; wait "$owner" 2>/dev/null || true; fail ELOCKED lock; }
 	lock_session=$lock_session; lock_pid=$lock_pid; lock_start=$lock_start; lock_nonce=$lock_nonce
 	journal_required "lock.owner=$lock_session|$lock_pid|$lock_start|$lock_nonce" || {
 		JOURNAL_FAILED=1; kill -TERM "$lock_pid" 2>/dev/null || true
 		rm -f "$LOCK_OWNER" "$DIR/lock-holder.pid" "$DIR/lock.ready"
 		fail EIO journal
 	}
-	lock_held || fail ELOCKED lock
+	lock_held || { reap_holder; kill "$owner" 2>/dev/null || true; wait "$owner" 2>/dev/null || true; fail ELOCKED lock; }
 	printf '%s\n' "{\"ok\":true,\"owner\":\"config/global\",\"held\":true,\"lockPid\":$lock_pid,\"session\":\"$session\",\"nonce\":\"$nonce\"}"
 }
 
 lock_release() {
+	[ -z "${Z2M_TEST_LOG:-}" ] || printf '%s\n' lock-release >> "$Z2M_TEST_LOG"
 	[ ! -L "$OWNERSHIP_LOCK" ] || fail ETAMPERED lock
 	exec 9>"$OWNERSHIP_LOCK" || fail ETAMPERED lock
 	flock -x 9 || fail ETAMPERED lock
@@ -254,11 +283,8 @@ activate() {
 	[ ! -L "$ARGV_FILE" ] && [ ! -L "$ARGV_DIGEST_FILE" ] || fail ETAMPERED activate
 	[ ! -L "$ARGV_META_FILE" ] || fail ETAMPERED activate
 	meta=$(cat "$ARGV_META_FILE" 2>/dev/null || true)
-	printf '%s' "$meta" | grep -F -q "\"session\":\"$session\"" || fail ETAMPERED activate
-	printf '%s' "$meta" | grep -F -q "\"candidate\":\"$candidate\"" || fail ETAMPERED activate
-	printf '%s' "$meta" | grep -F -q "\"generation\":$generation" || fail ETAMPERED activate
-	printf '%s' "$meta" | grep -F -q "\"nonce\":\"$lock_nonce\"" || fail ETAMPERED activate
-	printf '%s' "$meta" | grep -F -q "\"compiledDigest\":\"$compiled_digest\"" || fail ETAMPERED activate
+	expected_meta=$(printf '{ "schema": 1, "session": "%s", "candidate": "%s", "generation": %s, "nonce": "%s", "compiledDigest": "%s" }\n' "$session" "$candidate" "$generation" "$lock_nonce" "$compiled_digest")
+	[ "$meta" = "$expected_meta" ] || fail ETAMPERED activate
 	argv_before=$(sha256sum "$ARGV_FILE" | awk '{print $1}'); [ "$argv_before" = "$compiled_digest" ] || fail ETAMPERED activate
 	set --
 	while IFS= read -r token || [ -n "$token" ]; do
@@ -319,15 +345,18 @@ cleanup() {
 }
 
 session_cleanup() {
+	[ -z "${Z2M_TEST_LOG:-}" ] || printf '%s\n' session-cleanup >> "$Z2M_TEST_LOG"
 	lock_held && fail ELOCKED cleanup
 	[ ! -e "$LOCK_OWNER" ] || fail ETAMPERED cleanup
 	if [ -e "$OWNERSHIP_FILE" ] || [ -e "$PID_FILE" ] || [ -e "$CHAIN_DIGEST_FILE" ]; then
 		[ -r "$CLEANUP_EVIDENCE" ] && grep -F -q 'evidence=complete' "$CLEANUP_EVIDENCE" 2>/dev/null || fail ECLEANUP cleanup
 	fi
 	recovery_evidence="$ROOT/$session.recovery.evidence"
-	atomic_private_write "$recovery_evidence" "session=$session\nverified=true\n" || fail ECLEANUP cleanup
+	atomic_private_write "$recovery_evidence" "session=$session\nverified=true\ndurability=tmpfs_visible\n" || fail ECLEANUP cleanup
+	# Remove only the fixed runtime sidecars; unknown files keep rmdir fail-closed.
+	rm -f "$DIR"/*.argv "$DIR"/*.argv.digest "$DIR"/*.argv.meta
 	rm -f "$SESSION_JOURNAL" "$CLEANUP_EVIDENCE" "$OWNERSHIP_LOCK" "$DIR/lock.ready"
-	rmdir "$DIR" 2>/dev/null || { atomic_private_write "$recovery_evidence" "session=$session\nverified=false\n" || true; fail ECLEANUP cleanup; }
+	rmdir "$DIR" 2>/dev/null || { atomic_private_write "$recovery_evidence" "session=$session\nverified=false\ndurability=tmpfs_visible\n" || true; fail ECLEANUP cleanup; }
 	[ ! -e "$DIR" ] || fail ECLEANUP cleanup
 	printf '%s\n' '{"ok":true,"removed":true,"verified":true,"sessionDirectoryRemoved":true}'
 }

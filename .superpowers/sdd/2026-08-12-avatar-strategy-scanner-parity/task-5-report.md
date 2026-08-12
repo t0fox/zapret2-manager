@@ -265,6 +265,60 @@ ROUTER_E2E: NOT RUN
 REASON: explicit physical-router mutation/deployment approval was not provided
 ```
 
+## Fix Round 5
+
+### Status
+
+INCOMPLETE: production lifecycle remains blocked by the missing atomic firewall
+ownership operation. Task 5 is not claimed complete. The runtime continues to
+fail closed for production chain cleanup; the controlled compare-delete shim is
+test-only. No `nft flush` or broad firewall reset was added.
+
+### Fixes
+
+- `profiles_transient_compile_preflight` now recomputes `dependencyDigest` from
+  the canonical validated dependency closure and requires both candidate and
+  compiler output to match it. Tests use the computed digest; a repeated
+  arbitrary digest is rejected.
+- Lock acquisition readiness is session/nonce/PID-bound. Failure paths reap only
+  the newly started holder when all descriptor/readiness fields match, then remove
+  only that holder's descriptor, PID, and readiness artifacts.
+- `BASE`, `ROOT`, and session directories are checked for non-symlink directory
+  type, ownership, and private mode on every adapter operation, including
+  `session-cleanup`, before evidence writes.
+- argv metadata is compared against one exact schema serialization, rejecting
+  malformed, duplicate, or mismatched metadata instead of using field substring
+  searches.
+- Added a behavioral session-cleanup test that invokes the adapter and verifies
+  recovery evidence persistence, tmpfs durability qualification, sidecar removal,
+  `rmdir`, and release-before-cleanup ordering.
+- Recovery evidence explicitly reports `durability=tmpfs_visible`; no durable
+  claim is made without the native helper directory-fsync contract.
+
+### Verification
+
+Focused/native command:
+
+```text
+wsl.exe -d Ubuntu --cd /mnt/c/Users/Kirill/zapret2-manager -- env UCODE_BIN=/opt/ucode/bin/ucode UCODE_LIBRARY_PATH=/opt/ucode/lib /home/kirill/.local/bin/node --test tests/product/avatar-strategy-scanner-transient.test.mjs tests/native/avatar-strategy-scanner-runtime.test.mjs
+```
+
+Result: **35 passed, 0 failed**.
+
+Static checks:
+
+- WSL `sh -n zapret2-manager/files/usr/libexec/zapret2-manager/scanner-runtime-adapter.sh`: pass.
+- `node --check tests/product/avatar-strategy-scanner-transient.test.mjs`: pass.
+- `node --check tests/native/avatar-strategy-scanner-runtime.test.mjs`: pass.
+
+### Remaining Concern
+
+The native helper contract currently marks `rename_owned`, `unlink_owned`, and
+retained lock operations unsupported. It provides no operation that coordinates
+all cooperating firewall writers and atomically compares the owned nft chain
+before deletion. Production cleanup therefore remains fail-closed and Task 5
+production lifecycle evidence remains incomplete pending that native operation.
+
 ## Fix Round 4
 
 ### Status

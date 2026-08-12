@@ -15,6 +15,8 @@ const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.split('|') : [];
 const MODULE_PATTERN = ucodeModulePattern(process.env.UCODE_MODULE_PATH, process.env.UCODE_LIBRARY_PATH);
 const LIBRARY_ARGS = MODULE_PATTERN ? ['-L', MODULE_PATTERN] : [];
+const DEPENDENCY_CLOSURE = { available: true, structurallyCompilable: true, items: [], missing: [] };
+const DEPENDENCY_DIGEST = '5bc433818fda74ede1980fff9b730a2d75b61a3abf773912a1c891127f460dfa';
 
 function invoke(expression, env = {}) {
   const source = `import * as subject from ${JSON.stringify(TRANSIENT)}; print(sprintf('%J', ${expression}));`;
@@ -38,8 +40,9 @@ const hooks = {
     artifacts: { config: '/opt/zapret2/config', firewall: 'zapret2', nfqueue: 300, temporaryRoot: '/tmp/zapret2-manager/scanner' },
     reconciliation: { generation: 4, reference: 'pre-scan-runtime' },
   },
-  compile: { ok: true, candidate: '--filter-tcp=443', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: '5'.repeat(64), dependencies: { available: true, structurallyCompilable: true, items: [], missing: [] }, native: { status: 'verified' } },
+  compile: { ok: true, candidate: '--filter-tcp=443', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: DEPENDENCY_DIGEST, dependencies: DEPENDENCY_CLOSURE, native: { status: 'verified' } },
   runtime: { activate: { ok: true, identityVerified: true, expectedProcess: { pid: 11, startTime: 21, exe: '/opt/zapret2/nfq2/nfqws2', argvSha256: '6'.repeat(64), owner: 'scanner/session', generation: 5 }, process: { pid: 11, startTime: 21, exe: '/opt/zapret2/nfq2/nfqws2', argvSha256: '6'.repeat(64), owner: 'scanner/session', generation: 5 }, firewall: { table: 'zapret2', owner: 'scanner/session', ownedRules: ['scanner-rule'] }, nfqueue: { registered: true, peer_portid: 11 } }, stabilize: [{ ok: true, stable: true }], cleanup: [{ ok: true, processRemoved: true, firewallRemoved: true, nfqueueRemoved: true, hostlistRemoved: true, temporaryFilesRemoved: true, ownedOnly: true }] },
+  sessionCleanup: { ok: true, removed: true, verified: true },
 };
 
 test('transient Scanner exports only the Task 5 lifecycle and documents the Task 7 boundary', () => {
@@ -54,7 +57,7 @@ test('transient Scanner exports only the Task 5 lifecycle and documents the Task
 });
 
 test('transient session snapshots once, stays neutral between candidates, and preserves identity', () => {
-  const result = invoke(`subject.scanner_session_run(${JSON.stringify({ candidates: [{ scannerId: 'one', protocol: 'tcp', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: '5'.repeat(64) }] })}, ${JSON.stringify(hooks)})`);
+  const result = invoke(`subject.scanner_session_run(${JSON.stringify({ candidates: [{ scannerId: 'one', protocol: 'tcp', compiledCandidate: '--filter-tcp=443', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: DEPENDENCY_DIGEST, dependencyClosure: DEPENDENCY_CLOSURE }] })}, ${JSON.stringify(hooks)})`);
   assert.equal(result.ok, true, JSON.stringify(result));
   assert.equal(result.snapshotCaptures, 1);
   assert.equal(result.originalRestores, 0);
@@ -65,14 +68,14 @@ test('transient session snapshots once, stays neutral between candidates, and pr
 
 test('candidate failure is distinct from infrastructure failure and does not stop the session', () => {
   const value = { ...hooks, runtime: { ...hooks.runtime, stabilize: [{ ok: true, stable: false, candidateFailure: 'TIMEOUT' }, { ok: true, stable: false, candidateFailure: 'TIMEOUT' }, { ok: true, stable: false, candidateFailure: 'TIMEOUT' }] } };
-  const result = invoke(`subject.scanner_session_run(${JSON.stringify({ candidates: [{ scannerId: 'one', protocol: 'tcp', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: '5'.repeat(64) }, { scannerId: 'two', protocol: 'tcp', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: '5'.repeat(64) }] })}, ${JSON.stringify(value)})`);
+  const result = invoke(`subject.scanner_session_run(${JSON.stringify({ candidates: [{ scannerId: 'one', protocol: 'tcp', compiledCandidate: '--filter-tcp=443', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: DEPENDENCY_DIGEST, dependencyClosure: DEPENDENCY_CLOSURE }, { scannerId: 'two', protocol: 'tcp', compiledCandidate: '--filter-tcp=443', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: DEPENDENCY_DIGEST, dependencyClosure: DEPENDENCY_CLOSURE }] })}, ${JSON.stringify(value)})`);
   assert.equal(result.ok, true, JSON.stringify(result));
   assert.equal(result.attempts[0].failure.kind, 'candidate');
   assert.equal(result.attempts[1].failure.kind, 'candidate');
 });
 
 test('dependency, identity, and cleanup failures fail closed with distinct stages', () => {
-  const candidate = { scannerId: 'one', protocol: 'tcp', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: '5'.repeat(64) };
+  const candidate = { scannerId: 'one', protocol: 'tcp', compiledCandidate: '--filter-tcp=443', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: DEPENDENCY_DIGEST, dependencyClosure: DEPENDENCY_CLOSURE };
   const unavailable = invoke(`subject.scanner_candidate_activate(${JSON.stringify(candidate)}, ${JSON.stringify({ ...hooks, compile: { ...hooks.compile, dependencies: { available: false } } })})`);
   assert.equal(unavailable.ok, false);
   assert.equal(unavailable.error.kind, 'infrastructure');
@@ -83,7 +86,7 @@ test('dependency, identity, and cleanup failures fail closed with distinct stage
   assert.equal(mismatch.error.kind, 'infrastructure');
   assert.equal(mismatch.error.stage, 'identity');
 
-  const cleanup = invoke(`subject.scanner_session_run(${JSON.stringify({ candidates: [candidate, { ...candidate, scannerId: 'two' }] })}, ${JSON.stringify({ ...hooks, runtime: { ...hooks.runtime, cleanup: [{ ok: false, processRemoved: false }] } })})`);
+  const cleanup = invoke(`subject.scanner_session_run(${JSON.stringify({ candidates: [candidate, { ...candidate, scannerId: 'two' }] })}, ${JSON.stringify({ ...hooks, runtime: { ...hooks.runtime, cleanup: [{ ok: false, processRemoved: false }] }, sessionCleanup: { ok: true, removed: true, verified: true } })})`);
   assert.equal(cleanup.ok, false);
   assert.equal(cleanup.error.stage, 'cleanup');
   assert.equal(cleanup.error.code, 'ECLEANUP');
@@ -110,7 +113,7 @@ test('production transient adapters are real fixed server-owned operations, not 
 });
 
 test('production rejects all injected runtime seams', () => {
-  const candidate = { scannerId: 'one', protocol: 'tcp', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: '5'.repeat(64) };
+  const candidate = { scannerId: 'one', protocol: 'tcp', compiledCandidate: '--filter-tcp=443', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: DEPENDENCY_DIGEST, dependencyClosure: DEPENDENCY_CLOSURE };
   const result = invoke(`subject.scanner_candidate_activate(${JSON.stringify(candidate)}, ${JSON.stringify(hooks)})`, { Z2M_SCANNER_SERVER_TEST: '0' });
   assert.equal(result.ok, false);
   assert.equal(result.error.stage, 'input');
@@ -132,7 +135,7 @@ test('session snapshot carries restorable artifact references and cleanup order 
     reconciliation: { generation: 4, reference: 'pre-scan:s1' },
   };
   const value = { ...hooks, snapshot, runtime: { ...hooks.runtime, cleanup: [{ ok: true, processRemoved: true, firewallRemoved: true, nfqueueRemoved: true, hostlistRemoved: true, temporaryFilesRemoved: true, ownedOnly: true, order: ['process', 'firewall', 'nfqueue', 'hostlist', 'temporary-files'] }] } };
-  const result = invoke(`subject.scanner_session_run(${JSON.stringify({ candidates: [{ scannerId: 'one', protocol: 'tcp', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: '5'.repeat(64) }] })}, ${JSON.stringify(value)})`);
+  const result = invoke(`subject.scanner_session_run(${JSON.stringify({ candidates: [{ scannerId: 'one', protocol: 'tcp', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: DEPENDENCY_DIGEST, dependencyClosure: DEPENDENCY_CLOSURE }] })}, ${JSON.stringify(value)})`);
   assert.equal(result.ok, true, JSON.stringify(result));
   assert.deepEqual(result.attempts[0].cleanup.evidence.order, ['process', 'firewall', 'nfqueue', 'hostlist', 'temporary-files']);
   assert.equal(result.session.snapshot.artifacts.nfqueue, 300);
@@ -141,7 +144,7 @@ test('session snapshot carries restorable artifact references and cleanup order 
 });
 
 test('coordinator does not mutate caller candidate objects while binding session ownership', () => {
-  const candidate = { scannerId: 'one', protocol: 'tcp', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: '5'.repeat(64) };
+  const candidate = { scannerId: 'one', protocol: 'tcp', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: DEPENDENCY_DIGEST };
   const expression = `let candidate = ${JSON.stringify(candidate)}; let before = sprintf('%J', candidate); let result = subject.scanner_session_run(${JSON.stringify({ candidates: [candidate] })}, ${JSON.stringify(hooks)}); print(sprintf('%J', { same: before == sprintf('%J', candidate), result: result }));`;
   const source = `import * as subject from ${JSON.stringify(TRANSIENT)}; ${expression}`;
   const result = spawnSync(UCODE_BIN, [...UCODE_ARGS, ...LIBRARY_ARGS, '-e', source], {
@@ -152,7 +155,7 @@ test('coordinator does not mutate caller candidate objects while binding session
 });
 
 test('activation failure preserves complete cleanup evidence instead of returning a bare error', () => {
-  const candidate = { scannerId: 'one', protocol: 'tcp', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: '5'.repeat(64) };
+  const candidate = { scannerId: 'one', protocol: 'tcp', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: DEPENDENCY_DIGEST };
   const cleanup = { ok: true, processRemoved: true, firewallRemoved: true, nfqueueRemoved: true,
     hostlistRemoved: true, temporaryFilesRemoved: true, ownedOnly: true, evidenceMarker: 'cleanup.v2' };
   const result = invoke(`subject.scanner_session_run(${JSON.stringify({ candidates: [candidate] })}, ${JSON.stringify({
@@ -163,7 +166,7 @@ test('activation failure preserves complete cleanup evidence instead of returnin
 });
 
 test('stabilization infrastructure failure is cleaned before the session returns', () => {
-  const candidate = { scannerId: 'one', protocol: 'tcp', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: '5'.repeat(64) };
+  const candidate = { scannerId: 'one', protocol: 'tcp', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: DEPENDENCY_DIGEST };
   const cleanup = { ok: true, processRemoved: true, firewallRemoved: true, nfqueueRemoved: true,
     hostlistRemoved: true, temporaryFilesRemoved: true, ownedOnly: true, evidenceMarker: 'cleanup.v2' };
   const result = invoke(`subject.scanner_session_run(${JSON.stringify({ candidates: [candidate] })}, ${JSON.stringify({
@@ -179,7 +182,7 @@ test('stabilization infrastructure failure is cleaned before the session returns
 });
 
 test('compiled preflight must return the exact candidate token stream and digest', () => {
-  const candidate = { scannerId: 'one', protocol: 'tcp', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: '5'.repeat(64) };
+  const candidate = { scannerId: 'one', protocol: 'tcp', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: DEPENDENCY_DIGEST };
   const result = invoke(`subject.scanner_candidate_activate(${JSON.stringify(candidate)}, ${JSON.stringify({
     ...hooks, compile: { ...hooks.compile, candidate: '--filter-udp=443', compiledTokens: ['--filter-udp=443'], compiledDigest: 'f'.repeat(64) },
   })})`);
@@ -189,7 +192,7 @@ test('compiled preflight must return the exact candidate token stream and digest
 });
 
 test('compiled preflight rejects a seam that omits compiler-owned tokens', () => {
-  const candidate = { scannerId: 'one', protocol: 'tcp', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: '5'.repeat(64) };
+  const candidate = { scannerId: 'one', protocol: 'tcp', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: DEPENDENCY_DIGEST };
   const result = invoke(`subject.scanner_candidate_activate(${JSON.stringify(candidate)}, ${JSON.stringify({
     ...hooks, compile: { ...hooks.compile, compiledTokens: undefined },
   })})`);
@@ -199,7 +202,7 @@ test('compiled preflight rejects a seam that omits compiler-owned tokens', () =>
 });
 
 test('compiled preflight rejects an incomplete dependency closure before activation', () => {
-  const candidate = { scannerId: 'one', protocol: 'tcp', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: '5'.repeat(64) };
+  const candidate = { scannerId: 'one', protocol: 'tcp', compiledCandidate: '--filter-tcp=443', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: '5'.repeat(64), dependencyClosure: DEPENDENCY_CLOSURE };
   const result = invoke(`subject.scanner_candidate_activate(${JSON.stringify(candidate)}, ${JSON.stringify({
     ...hooks, compile: { ...hooks.compile, dependencies: { available: true, structurallyCompilable: false, items: [], missing: [{ key: 'blob:x', kind: 'blob', id: 'x', reference: 'x', available: false, reason: 'missing' }] } },
   })})`);
@@ -208,8 +211,16 @@ test('compiled preflight rejects an incomplete dependency closure before activat
   assert.equal(result.error.code, 'EPREFLIGHT');
 });
 
+test('compiled preflight rejects a repeated dependency digest that is not the closure digest', () => {
+  const candidate = { scannerId: 'one', protocol: 'tcp', compiledCandidate: '--filter-tcp=443', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: '5'.repeat(64), dependencyClosure: DEPENDENCY_CLOSURE };
+  const result = invoke(`subject.scanner_candidate_activate(${JSON.stringify(candidate)}, ${JSON.stringify(hooks)})`);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.stage, 'preflight');
+  assert.equal(result.error.code, 'EPREFLIGHT');
+});
+
 test('queue ownership mismatch fails closed before candidate cleanup can be claimed', () => {
-  const candidate = { scannerId: 'one', protocol: 'tcp', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: '5'.repeat(64) };
+  const candidate = { scannerId: 'one', protocol: 'tcp', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: DEPENDENCY_DIGEST };
   const activation = { ...hooks.runtime.activate, nfqueue: { registered: true, peer_portid: 99 } };
   const result = invoke(`subject.scanner_candidate_activate(${JSON.stringify(candidate)}, ${JSON.stringify({ ...hooks, runtime: { ...hooks.runtime, activate: activation } })})`);
   assert.equal(result.ok, false);
@@ -217,7 +228,7 @@ test('queue ownership mismatch fails closed before candidate cleanup can be clai
 });
 
 test('firewall ownership mismatch fails closed and refuses owned-only cleanup', () => {
-  const candidate = { scannerId: 'one', protocol: 'tcp', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: '5'.repeat(64) };
+  const candidate = { scannerId: 'one', protocol: 'tcp', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: DEPENDENCY_DIGEST };
   const activation = { ...hooks.runtime.activate, firewall: { table: 'zapret2', owner: 'other/session', ownedRules: ['other-rule'] } };
   const result = invoke(`subject.scanner_candidate_activate(${JSON.stringify(candidate)}, ${JSON.stringify({ ...hooks, runtime: { ...hooks.runtime, activate: activation } })})`);
   assert.equal(result.ok, false);
@@ -226,7 +237,7 @@ test('firewall ownership mismatch fails closed and refuses owned-only cleanup', 
 });
 
 test('session lock release failure is an infrastructure error with recovery evidence', () => {
-  const candidate = { scannerId: 'one', protocol: 'tcp', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: '5'.repeat(64) };
+  const candidate = { scannerId: 'one', protocol: 'tcp', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: DEPENDENCY_DIGEST };
   const result = invoke(`subject.scanner_session_run(${JSON.stringify({ candidates: [candidate] })}, ${JSON.stringify({
     ...hooks, lockRelease: { ok: false, code: 'ETAMPERED', evidence: { verifiedCleanup: true } }, sessionCleanup: { ok: true, removed: true, verified: true },
   })})`);
@@ -253,4 +264,11 @@ test('recovery source releases the session lock before adapter session cleanup',
   const source = fs.readFileSync(TRANSIENT, 'utf8');
   assert.match(source, /release_then_session_cleanup/);
   assert.doesNotMatch(source, /profiles_transient_session_cleanup\(session\.sessionId[\s\S]{0,180}profiles_transient_unlock/);
+});
+
+test('production firewall cleanup remains fail-closed without a native compare-delete owner', () => {
+  const source = fs.readFileSync(RUNTIME_ADAPTER, 'utf8');
+  assert.match(source, /nft cannot atomically compare and delete/);
+  assert.match(source, /Z2M_SCANNER_RUNTIME_SHIM.*Z2M_SCANNER_TEST_NFT_CAS/);
+  assert.match(source, /return 42/);
 });
