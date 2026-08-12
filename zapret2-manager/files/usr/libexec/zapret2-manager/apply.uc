@@ -347,3 +347,20 @@ export const write_list_file = function(path, entries) {
 	}
 	return out;
 };
+
+// Scanner uses the same Apply substrate for observation only. These entry
+// points deliberately have no write capability: transient execution is owned
+// by the bounded runtime adapter, never by a second config writer.
+export const scanner_transient_lock = function(testEvidence) {
+	let testHeld = getenv('Z2M_SCANNER_SERVER_TEST') == '1' && testEvidence != null
+		&& testEvidence.held == true && testEvidence.owner == 'config/global';
+	return getenv('Z2M_CONFIG_LOCKED') == '1' || testHeld
+		? { ok: true, owner: 'config/global', held: getenv('Z2M_CONFIG_LOCKED') == '1' || testHeld }
+		: { ok: false, code: 'ELOCK', message: 'transient Scanner session requires the existing config transaction lock' };
+};
+
+export const scanner_transient_config_snapshot = function() {
+	let bytes = read_config_bytes(), sha = config_sha256();
+	if (sha == null) return { ok: false, code: 'ESNAPSHOT', message: 'authoritative config snapshot is unavailable' };
+	return { ok: true, config: { bytes: bytes, sha256: sha } };
+};

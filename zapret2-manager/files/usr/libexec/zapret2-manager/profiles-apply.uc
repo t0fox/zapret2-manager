@@ -30,6 +30,8 @@ import { z2m_parse, z2m_validate, z2m_fragment } from './profiles.uc';
 import { load_state } from './profiles-draft.uc';
 import { parse_queue } from './qlen.uc';
 import { native_preflight } from './native-preflight.uc';
+import { collect_observations } from './core/status-collector.uc';
+import { strategy_selection_get_readonly } from './strategy-state.uc';
 
 const LASTGOOD_DIR = '/tmp/zapret2-manager/last-good';
 const UPSTREAM_INIT = '/etc/init.d/zapret2';
@@ -699,4 +701,69 @@ export const profiles_apply_run = function() {
 	let f = pipeline_front();
 	if (f.refuse) return f.refuse;
 	return apply_candidate_pipeline(f);
+};
+
+// These are the only transient runtime seams. Production callers must provide
+// server-owned runtime adapters; tests may inject bounded evidence through the
+// existing server-test hook. None of these functions changes config or
+// Strategy identity.
+function transient_test_value(name, supplied) {
+	if (getenv('Z2M_SCANNER_SERVER_TEST') != '1') return null;
+	if (type(supplied) == 'array') return length(supplied) > 0 ? supplied[0] : null;
+	if (supplied != null) return supplied;
+	return hook_value('transient', name);
+}
+
+export const profiles_transient_compile_preflight = function(candidate, supplied) {
+	let injected = transient_test_value('compile', supplied);
+	if (injected != null) {
+		if (injected.ok != true || (injected.dependencies != null && injected.dependencies.available != true)
+			|| (injected.native != null && injected.native.status != 'verified'))
+			return err('preflight', 'EPREFLIGHT', 'candidate dependencies or native preflight are unavailable', { native: injected.native, dependencies: injected.dependencies });
+		return injected;
+	}
+	if (type(candidate) != 'object' || candidate == null || type(candidate.compiledCandidate) != 'string'
+		|| !length(candidate.compiledCandidate) || type(candidate.compiledDigest) != 'string'
+		|| !match(candidate.compiledDigest, /^[a-f0-9]{64}$/))
+		return err('preflight', 'EINPUT', 'Scanner candidate is not a server-owned compiled value');
+	let candidateHash = sha256_text_via_file(candidate.compiledCandidate);
+	if (candidateHash == null || candidateHash != candidate.compiledDigest)
+		return err('preflight', 'ECONFLICT', 'compiled candidate identity does not match the server-owned digest');
+	let native = native_preflight_for_apply(candidate.compiledCandidate);
+	if (!apply_decision(native)) return err('preflight', 'EPREFLIGHT', 'complete native preflight is required', { native: native });
+	return { ok: true, candidate: candidate.compiledCandidate, compiledDigest: candidate.compiledDigest,
+		dependencyDigest: candidate.dependencyDigest, dependencies: candidate.dependencies, native: native };
+};
+
+export const profiles_transient_snapshot = function(supplied) {
+	if (getenv('Z2M_SCANNER_SERVER_TEST') == '1' && supplied != null) return supplied;
+	let observations = null, selection = null;
+	try { observations = collect_observations(); selection = strategy_selection_get_readonly(); } catch (e) {
+		return err('snapshot', 'EUNAVAILABLE', 'runtime and Strategy identity snapshot is unavailable');
+	}
+	if (type(observations) != 'object' || observations == null || type(selection) != 'object' || selection == null || selection.ok != true)
+		return err('snapshot', 'EUNAVAILABLE', 'runtime and Strategy identity snapshot is incomplete');
+	return { ok: true, config: { bytes: read_config_bytes(), sha256: config_sha256() },
+		identity: { selected: selection.selected, revision: selection.revision },
+		runtime: observations.runtime,
+		firewall: { table: 'zapret2', rulesPresent: observations.runtime && observations.runtime.rulesPresent == true,
+			nfqueue: observations.health && observations.health.queue } };
+};
+
+export const profiles_transient_activate = function(candidate, compiled, supplied) {
+	let injected = transient_test_value('activate', supplied);
+	if (injected != null) return injected;
+	return err('activate', 'EUNAVAILABLE', 'server-owned transient runtime adapter is unavailable');
+};
+
+export const profiles_transient_stabilize = function(attempt, supplied) {
+	let injected = transient_test_value('stabilize', supplied);
+	if (injected != null) return injected;
+	return err('stabilize', 'EUNAVAILABLE', 'server-owned transient stabilization adapter is unavailable');
+};
+
+export const profiles_transient_cleanup = function(attempt, supplied) {
+	let injected = transient_test_value('cleanup', supplied);
+	if (injected != null) return injected;
+	return err('cleanup', 'EUNAVAILABLE', 'server-owned transient cleanup adapter is unavailable');
 };
