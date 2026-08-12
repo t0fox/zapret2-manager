@@ -28,7 +28,7 @@ function invokeCompiler(expression) {
   const argv = [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source];
   const result = spawnSync(UCODE_BIN, argv, {
     cwd: ROOT,
-    env: { ...process.env, LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib' },
+    env: { ...process.env, Z2M_SCANNER_SERVER_TEST: '1', LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib' },
     encoding: 'utf8', timeout: 30_000, maxBuffer: 20 * 1024 * 1024,
   });
   assert.equal(result.status, 0, `${result.stderr || result.stdout}`);
@@ -48,13 +48,17 @@ function catalogEnvelope(value) {
   };
 }
 
-test('compiler authority digest is derived from compiled behavior, not metadata alone', () => {
+test('compiler authority digest covers the complete versioned semantic manifest', () => {
   assert.equal(COMPILER_AUTHORITY.digest,
     createHash('sha256').update(COMPILER_AUTHORITY.digestInput, 'utf8').digest('hex'));
-  assert.notEqual(COMPILER_AUTHORITY.digest,
-    createHash('sha256').update(JSON.stringify(COMPILER_AUTHORITY.contract), 'utf8').digest('hex'));
-  assert.ok(Array.isArray(COMPILER_AUTHORITY.probes));
-  assert.ok(COMPILER_AUTHORITY.probes.some(probe => probe.strategyArgs.includes('--filter-l7=tls')));
+  assert.deepEqual(JSON.parse(COMPILER_AUTHORITY.digestInput), COMPILER_AUTHORITY.manifest);
+  assert.equal(COMPILER_AUTHORITY.manifest.schema, 1);
+  for (const field of Object.keys(COMPILER_AUTHORITY.manifest)) {
+    const changed = structuredClone(COMPILER_AUTHORITY.manifest);
+    changed[field] = typeof changed[field] === 'number' ? changed[field] + 1 : `${JSON.stringify(changed[field])}:changed`;
+    const digest = invokeCompiler(`sprintf("%J", compiler.strategy_compiler_manifest_digest(${JSON.stringify(changed)}))`);
+    assert.notEqual(digest, COMPILER_AUTHORITY.digest, field);
+  }
 });
 
 test('catalog envelope digest uses the canonical planning inputs', () => {
@@ -64,12 +68,15 @@ test('catalog envelope digest uses the canonical planning inputs', () => {
   assert.equal(invoke(`planner.scanner_snapshot_digest(${JSON.stringify(value)})`), value.authority.catalogEnvelopeDigest);
 });
 
-function invoke(expression) {
+function invoke(expression, useTestAuthority = true) {
+  if (useTestAuthority) expression = expression.replaceAll(
+    'planner.scanner_plan_build(', 'planner.scanner_plan_build_test(')
+    .replaceAll('planner.scanner_candidate_canonicalize(', 'planner.scanner_candidate_canonicalize_test(');
   const source = `import * as planner from ${JSON.stringify(MODULE)}; print(sprintf('%J', ${expression}));`;
   const argv = [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source];
   const result = spawnSync(UCODE_BIN, argv, {
     cwd: ROOT,
-    env: { ...process.env, LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib' },
+    env: { ...process.env, Z2M_SCANNER_SERVER_TEST: '1', LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib' },
     encoding: 'utf8', timeout: 30_000, maxBuffer: 20 * 1024 * 1024,
   });
   assert.equal(result.status, 0,
@@ -256,6 +263,19 @@ test('approved Scanner ordering restores source, section, effective, ID, and cat
     ['full', 'recommended', 'source-a', 'id-a', 'id-z', 'complex']);
 });
 
+test('recommendation is an independent tie-breaker among full presets', () => {
+  const candidates = [
+    { ...entry('full-normal', '--filter-tcp=443 --name=normal'), level: 'builtin', sourceFile: 'a.txt' },
+    { ...entry('full-recommended', '--filter-tcp=443 --name=recommended', { label: 'recommended' }), level: 'builtin', sourceFile: 'z.txt' },
+  ];
+  const ids = candidates.map(candidate => candidate.id);
+  const sets = { tcp: { quick: ids, standard: ids, full: ids }, udp: { quick: [], standard: [], full: [] } };
+  const result = invoke(`planner.scanner_plan_build(${JSON.stringify(request('full'))}, ${JSON.stringify(snapshot(candidates, sets))}, ${JSON.stringify(users())})`);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(result.plan.candidates.map(candidate => candidate.strategyId),
+    ['full-recommended', 'full-normal']);
+});
+
 test('planner binds provenance, normalized compiled tokens, dependency closure, and ordinals', () => {
   const item = entry('one', '--filter-tcp=443');
   const sets = { tcp: { quick: ['one'], standard: ['one'], full: ['one'] }, udp: { quick: [], standard: [], full: [] } };
@@ -373,6 +393,28 @@ test('planner rejects untrusted snapshots, user records, and public generated ar
   assert.equal(badGenerated.error.code, 'EVERIFY');
 });
 
+test('production planner does not accept caller-supplied authority records', () => {
+  const item = entry('one', '--filter-tcp=443');
+  const sets = { tcp: { quick: ['one'], standard: ['one'], full: ['one'] }, udp: { quick: [], standard: [], full: [] } };
+  const forged = snapshot([item], sets);
+  const result = invoke(`planner.scanner_plan_build(${JSON.stringify(request('quick'))}, ${JSON.stringify(forged)}, ${JSON.stringify(users())})`, false);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'EINPUT');
+});
+
+test('test authority hook is unavailable without the explicit server-test gate', () => {
+  const source = `import * as planner from ${JSON.stringify(MODULE)}; print(sprintf('%J', planner.scanner_plan_build_test(${JSON.stringify(request('quick'))}, {}, {})));`;
+  const result = spawnSync(UCODE_BIN, [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source], {
+    cwd: ROOT,
+    env: { ...process.env, Z2M_SCANNER_SERVER_TEST: '0', LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib' },
+    encoding: 'utf8', timeout: 30_000,
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const value = JSON.parse(result.stdout);
+  assert.equal(value.ok, false);
+  assert.equal(value.error.code, 'EACCES');
+});
+
 test('planner fails closed when target profile resolution fails', () => {
   const item = entry('one', '--filter-tcp=443');
   const sets = { tcp: { quick: ['one'], standard: ['one'], full: ['one'] }, udp: { quick: [], standard: [], full: [] } };
@@ -387,6 +429,26 @@ test('planner rejects a target profile unrelated to the validated request target
   const result = invoke(`planner.scanner_plan_build(${JSON.stringify(request('quick'))}, ${JSON.stringify(snapshot([item], sets, { targetProfile: { ...snapshot([], sets).targetProfile, primaryHost: 'other.example' } }))}, ${JSON.stringify(users())})`);
   assert.equal(result.ok, false);
   assert.equal(result.error.code, 'EINPUT');
+});
+
+test('planner accepts the exact server-derived named profile when hosts and probe URL differ', () => {
+  const item = entry('one', '--filter-tcp=443');
+  const sets = { tcp: { quick: ['one'], standard: ['one'], full: ['one'] }, udp: { quick: [], standard: [], full: [] } };
+  const youtube = {
+    profileKey: 'youtube', primaryHost: 'youtube.com',
+    testHosts: ['www.youtube.com', 'i.ytimg.com', 'yt3.ggpht.com'],
+    hostlistDomains: ['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be', 'youtubei.googleapis.com',
+      'youtube-nocookie.com', 'googlevideo.com', 'rr1---sn-axq7sn7s.googlevideo.com', 'ytimg.com',
+      'i.ytimg.com', 'yt3.ggpht.com', 'ggpht.com', 'lh3.googleusercontent.com', 'yt3.googleusercontent.com'],
+    expectedHostlists: ['youtube.txt', 'youtubeGV.txt', 'youtubeQ.txt', 'youtube_v2.txt'],
+    tcp: { ports: '80,443', l7: 'tls', payload: 'tls_client_hello' },
+    udp: { ports: '443', l7: 'quic', payload: 'quic_initial' },
+    probeUrl: 'https://i.ytimg.com/generate_204',
+  };
+  const data = snapshot([item], sets, { targetProfile: youtube });
+  const result = invoke(`planner.scanner_plan_build(${JSON.stringify({ ...request('quick'), target: 'youtube.com' })}, ${JSON.stringify(data)}, ${JSON.stringify(users())})`);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(result.plan.targetProfile, youtube);
 });
 
 test('planner rejects a supplied dependency digest that disagrees with the validated closure', () => {

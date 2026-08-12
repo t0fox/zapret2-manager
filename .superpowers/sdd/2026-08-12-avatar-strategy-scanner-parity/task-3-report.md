@@ -248,3 +248,57 @@ Static evidence:
 - the planner purity scan finds no filesystem, process, runtime, Apply, Orchestra,
   firewall, network, RPC, or frontend access;
 - changed scope is limited to planner/compiler code, product regressions, and this report.
+
+## Review Round 3 Fixes
+
+The third review round closed all five Important findings within planner,
+compiler, catalog-authority, and test scope:
+
+- restored single-quote-safe shell rendering for effective argv while preserving
+  the exact captured argv array;
+- bound catalog target profiles to the exact server-derived target profile, so
+  valid named profiles may intentionally use different primary/test hosts and
+  probe URLs while unrelated profiles are rejected;
+- changed `scanner_plan_build()` into a server-owned entry point that rejects
+  caller snapshots, loads catalog and user records internally, and delegates to
+  a pure planner; fixture injection is available only through the explicit
+  `Z2M_SCANNER_SERVER_TEST=1` test hook;
+- replaced behavior probes with a versioned compiler semantic manifest covering
+  normalization, tokenization, profile joining, path/list/blob transforms,
+  dependency closure/output, structural validation, rendering, candidate output
+  and identity, native preflight/output, and effective argv semantics;
+- applied full-preset and recommendation ranks independently before complexity,
+  source, ordinals, section, Strategy ID, and catalog-order tie-breakers.
+
+Closure validation/digests, contiguous final ordinals, pure planning, DPI
+filtering, and generated canonicalization remain covered by the focused suite.
+
+## Review Round 3 TDD And Verification
+
+The RED run reproduced 29 failures across the compiler/planner command, including
+the two undefined `shell_quote` effective-argv failures and all new authority,
+profile, manifest, and ordering regressions.
+
+Focused affected regressions after implementation: 7 passed, 0 failed.
+
+Compiler suite:
+
+```text
+wsl.exe -d Ubuntu --cd /mnt/c/Users/Kirill/zapret2-manager -- env UCODE_BIN=/opt/ucode/bin/ucode UCODE_LIBRARY_PATH=/opt/ucode/lib /home/kirill/.local/bin/node --test tests/product/avatar-strategy-compiler.test.mjs
+```
+
+Result: 27 passed, 0 failed.
+
+Mandated Task 3 command:
+
+```text
+wsl.exe -d Ubuntu --cd /mnt/c/Users/Kirill/zapret2-manager -- env UCODE_BIN=/opt/ucode/bin/ucode UCODE_LIBRARY_PATH=/opt/ucode/lib /home/kirill/.local/bin/node --test tests/product/avatar-strategy-scanner-planner.test.mjs tests/product/avatar-strategy-catalog.test.mjs tests/product/avatar-strategy-scanner-integration.test.mjs
+```
+
+Result: 47 passed, 3 failed. All planner and catalog tests passed. The only
+failures are the unchanged Task 2 WSL ucode `scanner-targets.uc:136`
+null-indexing incompatibility documented in rounds 1 and 2; that file remains
+outside this fix scope.
+
+Static verification: JavaScript syntax and `git diff --check` passed. No runtime,
+Apply, Orchestra, DNS, Telegram, router, LuCI, or frontend files were changed.

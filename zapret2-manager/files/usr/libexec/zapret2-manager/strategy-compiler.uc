@@ -13,14 +13,24 @@ import { native_preflight } from './native-preflight.uc';
 
 const ENGINE_PATH = '/opt/zapret2/nfq2/nfqws2';
 const COMPILER_AUTHORITY_MARKER = 'z2m-scanner-compiler.v1';
-const COMPILER_AUTHORITY_CONTRACT = {
-	version: 1,
-	module: 'strategy-compiler.uc',
+const COMPILER_SEMANTIC_MANIFEST = {
+	schema: 1,
+	compiler: 'strategy-compiler.v1',
+	normalization: 'strategy_normalize.v1',
 	tokenizer: 'avatar_tokenize.quote-aware.v1',
-	profiles: 'enabled-order.join-new.v1',
-	transforms: ['resolve-token-paths', 'autowrap-pinned-payloads', 'insert-list-flags', 'blob-declarations'],
-	dependencies: 'collect_dependencies.ordered-complete.v1',
-	digest: 'sha256.rendered-candidate-utf8.v1',
+	profiles: 'enabled-order.reserved-new.join-new.v1',
+	pathResolution: 'bounded-roots.no-traversal.no-symlink.v1',
+	transforms: 'resolve-paths.autowrap-payloads.inject-lists.declare-blobs.v1',
+	listPlacement: 'after-last-filter-before-first-payload.v1',
+	dependencies: 'blob-lua-function-hostlist-ipset.ordered-complete.v1',
+	dependencyOutput: 'available.items.missing.structurallyCompilable.nativeValidation.v1',
+	structuralValidation: 'parse.validate.single-profile.pre-and-post-transform.v1',
+	rendering: 'profiles_render_candidate.round-trip.v1',
+	candidateIdentity: 'sha256.rendered-candidate-utf8.v1',
+	candidateOutput: 'args.fragments.count.dependencies.validation.applicability.sha256.v1',
+	nativePreflight: 'opt-in.validate-or-execution-admission.v1',
+	preflightOutput: 'status.coverage.diagnostics.v1',
+	effectiveArgv: 'pinned-engine.live-inputs.shell-quoted-command.v1',
 };
 
 function is_object(value) {
@@ -81,6 +91,16 @@ function safe_absolute_path(value) {
 	let parts = split(value, '/');
 	for (let i = 0; i < length(parts); i++) if (parts[i] == '..' || parts[i] == '.') return false;
 	return true;
+}
+
+function shell_quote(value) {
+	let result = chr(39);
+	for (let i = 0; i < length(value); i++) {
+		let ch = substr(value, i, 1);
+		if (ch == chr(39)) result += chr(39) + chr(92) + chr(39) + chr(39);
+		else result += ch;
+	}
+	return result + chr(39);
 }
 
 function inline_blob_source(value) {
@@ -683,27 +703,15 @@ export const strategy_candidate = function(input, environment) {
 };
 
 export const strategy_compiler_authority = function() {
-	let probeInputs = [
-		{ id: 'authority-tls', name: 'authority-tls', profiles: [{ id: 'p1', args: '--payload=tls_client_hello --lua-desync=fake', enabled: true }] },
-		{ id: 'authority-multi', name: 'authority-multi', profiles: [
-			{ id: 'p1', args: '--filter-tcp=443 --payload=tls_client_hello --lua-desync=fake', enabled: true },
-			{ id: 'p2', args: '--filter-udp=443 --payload=quic_initial --lua-desync=fake', enabled: true },
-		] },
-	];
-	let probeEnvironment = { listMode: 'none', paths: {}, blobs: {}, lua: {}, functions: { fake: { present: true } } };
-	let probes = [];
-	for (let i = 0; i < length(probeInputs); i++) {
-		let result = strategy_candidate(probeInputs[i], probeEnvironment);
-		if (!is_object(result) || result.ok != true) return null;
-		push(probes, { strategy: probeInputs[i], environment: probeEnvironment,
-			strategyArgs: result.strategyArgs, fragments: result.fragments,
-			dependencies: result.dependencies });
-	}
-	let digestInput = sprintf('%J', { contract: COMPILER_AUTHORITY_CONTRACT, probes: probes });
+	let digestInput = sprintf('%J', COMPILER_SEMANTIC_MANIFEST);
 	let digest = digest_text(digestInput);
 	if (digest == null) return null;
-	return { marker: COMPILER_AUTHORITY_MARKER, contract: COMPILER_AUTHORITY_CONTRACT,
-		digest: digest, digestInput: digestInput, probes: probes, source: 'strategy-compiler.uc' };
+	return { marker: COMPILER_AUTHORITY_MARKER, manifest: COMPILER_SEMANTIC_MANIFEST,
+		digest: digest, digestInput: digestInput, source: 'strategy-compiler.uc' };
+};
+
+export const strategy_compiler_manifest_digest = function(manifest) {
+	return is_object(manifest) ? digest_text(sprintf('%J', manifest)) : null;
 };
 
 export const strategy_effective_argv = function(strategyArgs, runtimeInputs) {

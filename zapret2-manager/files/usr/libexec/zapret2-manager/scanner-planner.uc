@@ -222,7 +222,7 @@ function compare_complexity(a, b) {
 }
 
 function candidate_sort_key(candidate) {
-	return [candidate.fullPreset == true ? 0 : (candidate.recommended == true ? 1 : 2),
+	return [candidate.fullPreset == true ? 0 : 1, candidate.recommended == true ? 0 : 1,
 		candidate.complexity, candidate.sourcePath || '', integer_value(candidate.sourceOrdinal),
 		integer_value(candidate.sectionOrdinal), integer_value(candidate.effectiveOrdinal),
 		candidate.strategyId || candidate.scannerId || '', integer_value(candidate.catalogOrder)];
@@ -232,18 +232,20 @@ function compare_candidates(a, b) {
 	let left = candidate_sort_key(a), right = candidate_sort_key(b);
 	let result = compare_number(left[0], right[0]);
 	if (result != 0) return result;
-	result = compare_complexity(left[1], right[1]);
+	result = compare_number(left[1], right[1]);
 	if (result != 0) return result;
-	result = compare_text(left[2], right[2]);
+	result = compare_complexity(left[2], right[2]);
 	if (result != 0) return result;
-	result = compare_number(left[3], right[3]);
+	result = compare_text(left[3], right[3]);
 	if (result != 0) return result;
 	result = compare_number(left[4], right[4]);
 	if (result != 0) return result;
 	result = compare_number(left[5], right[5]);
 	if (result != 0) return result;
-	result = compare_text(left[6], right[6]);
-	return result != 0 ? result : compare_number(left[7], right[7]);
+	result = compare_number(left[6], right[6]);
+	if (result != 0) return result;
+	result = compare_text(left[7], right[7]);
+	return result != 0 ? result : compare_number(left[8], right[8]);
 }
 
 function sort_candidates(values) {
@@ -583,8 +585,25 @@ function strategy_argument_text(strategy) {
 	return result;
 }
 
-export const scanner_candidate_canonicalize = function(candidate, existingStrategies) {
+export const scanner_candidate_canonicalize_test = function(candidate, existingStrategies) {
+	if (getenv('Z2M_SCANNER_SERVER_TEST') != '1')
+		return error_result('EACCES', 'Scanner test authority is disabled.');
 	return generated_identity(candidate, existingStrategies, {});
+};
+
+export const scanner_candidate_canonicalize = function(candidate, existingStrategies) {
+	if (existingStrategies != null)
+		return error_result('EINPUT', 'Caller-supplied Scanner authority is forbidden.');
+	let loaded = strategy_catalog_load(null);
+	if (!is_object(loaded) || loaded.ok != true) return error_result('ENOENT', 'Scanner Strategy Catalog is unavailable.');
+	let catalog = loaded.catalog;
+	catalog.targetProfile = null;
+	catalog.compilerEnvironment = {};
+	catalog.policy = { useGenerated: false };
+	catalog = catalog_authority(catalog);
+	let listed = strategy_user_list();
+	if (!is_object(listed) || listed.ok != true) return error_result('EIO', 'Scanner user Strategies are unavailable.');
+	return generated_identity(candidate, user_authority(listed.strategies, catalog), {});
 };
 
 function candidate_from_strategy(strategy, protocol, source, sourcePath, ordinal,
@@ -788,16 +807,14 @@ function user_records_valid(value, catalog) {
 		&& type(value.strategies) == 'array' && records_shape_valid(value.strategies, false);
 }
 
-function profile_matches_request(profile, request) {
+function profile_matches_authority(profile, authoritative, request) {
 	if (!is_object(profile) || !is_string(profile.profileKey) || !is_string(profile.primaryHost)
 		|| type(profile.testHosts) != 'array' || type(profile.hostlistDomains) != 'array'
 		|| type(profile.expectedHostlists) != 'array' || !is_object(profile.tcp)
 		|| !is_object(profile.udp) || !is_string(profile.probeUrl)) return false;
-	let primary = lower(trim_ws(request.target));
-	if (substr(primary, -1) == '.') primary = substr(primary, 0, length(primary) - 1);
-	if (lower(profile.primaryHost) != primary || length(profile.testHosts) == 0
-		|| length(profile.hostlistDomains) == 0 || profile.probeUrl == '') return false;
-	if (lower(profile.testHosts[0]) != primary || profile.probeUrl != 'https://' + primary + '/') return false;
+	if (!target_profile_valid(authoritative)
+		|| sprintf('%J', profile) != sprintf('%J', authoritative)) return false;
+	if (length(profile.testHosts) == 0 || length(profile.hostlistDomains) == 0 || profile.probeUrl == '') return false;
 	for (let i = 0; i < length(profile.testHosts); i++) if (!valid_hostname(profile.testHosts[i])) return false;
 	for (let i = 0; i < length(profile.hostlistDomains); i++) if (!valid_hostname(profile.hostlistDomains[i])) return false;
 	for (let i = 0; i < length(profile.expectedHostlists); i++) if (!is_string(profile.expectedHostlists[i])) return false;
@@ -808,42 +825,17 @@ function profile_matches_request(profile, request) {
 	return true;
 }
 
-export const scanner_plan_build = function(request, catalogSnapshot, userStrategies) {
+function scanner_plan_build_pure(request, catalogSnapshot, userStrategies, authoritativeProfile) {
 	let validated = request_normalize(request);
 	if (!validated.ok) return validated;
 	let value = validated.value, catalog = catalog_snapshot(catalogSnapshot);
-	if (catalog == null) {
-		let loaded = strategy_catalog_load(null);
-		if (!is_object(loaded) || loaded.ok != true) return error_result('ENOENT', 'Scanner Strategy Catalog is unavailable.');
-		catalog = loaded.catalog;
-		catalog.serverOwned = true;
-		catalog.authority = { marker: AUTHORITY_MARKER, repository: AUTHORITATIVE_CATALOG_REPOSITORY,
-			commit: AUTHORITATIVE_CATALOG_COMMIT, catalogDigest: catalog.aggregateDigest,
-			compilerDigest: compiler_digest(), catalogEnvelopeDigest: catalog_envelope_digest(catalog),
-			catalog: { serverOwned: true, marker: 'z2m-scanner-catalog.v1',
-				repository: AUTHORITATIVE_CATALOG_REPOSITORY, commit: AUTHORITATIVE_CATALOG_COMMIT,
-				catalogDigest: catalog.aggregateDigest, catalogEnvelopeDigest: catalog_envelope_digest(catalog),
-				source: copy(catalog.source), winnerOrder: copy(catalog.winnerOrder),
-				sets: copy(catalog.sets), winners: copy(catalog.winners), targetProfile: copy(catalog.targetProfile),
-				compilerEnvironment: copy(catalog.compilerEnvironment), policy: copy(catalog.policy) } };
-		catalog.compilerDigest = compiler_digest();
-	}
+	if (catalog == null) return error_result('EVERIFY', 'Scanner Catalog authority is unavailable.');
 	if (!authority_valid(catalog)) return error_result('EVERIFY', 'Scanner Catalog/compiler authority is unavailable or stale.');
 	let users = userStrategies;
-	if (users == null) {
-		let listed = strategy_user_list();
-		if (!is_object(listed) || listed.ok != true) return error_result('EIO', 'Scanner user Strategies are unavailable.');
-		users = { serverOwned: true, authority: { marker: AUTHORITY_MARKER,
-			repository: AUTHORITATIVE_CATALOG_REPOSITORY, commit: AUTHORITATIVE_CATALOG_COMMIT,
-			catalogDigest: catalog.aggregateDigest, compilerDigest: compiler_digest(),
-			catalogEnvelopeDigest: catalog.authority.catalogEnvelopeDigest, catalog: catalog.authority.catalog,
-			records: copy(listed.strategies), recordsDigest: sha256_text(sprintf('%J', listed.strategies)) },
-			strategies: listed.strategies };
-	}
 	if (!user_records_valid(users, catalog)) return error_result('EVERIFY', 'Scanner user Strategies must be server-owned records.');
 	let profile = target_profile_valid(catalog.targetProfile) ? copy(catalog.targetProfile) : null;
-	if (profile == null) try { profile = scanner_target_profile(value.target); } catch (e) { profile = null; }
-	if (profile == null || !profile_matches_request(profile, value)) return error_result('EINPUT', 'Scanner target profile is absent or mismatched.', 'target');
+	if (profile == null || !profile_matches_authority(profile, authoritativeProfile, value))
+		return error_result('EINPUT', 'Scanner target profile is absent or mismatched.', 'target');
 	let environment = is_object(catalog.compilerEnvironment)
 		? copy(catalog.compilerEnvironment) : {};
 	let entries = selected_entries(catalog, value.protocol, value.mode), catalogCandidates = [], ordinal = 1;
@@ -887,4 +879,62 @@ export const scanner_plan_build = function(request, catalogSnapshot, userStrateg
 		compilerDigest: catalog.compilerDigest || null,
 		candidates: copy(filtered),
 	} };
+}
+
+function catalog_authority(catalog) {
+	catalog.serverOwned = true;
+	catalog.compilerDigest = compiler_digest();
+	let envelopeDigest = catalog_envelope_digest(catalog);
+	let authorityCatalog = { serverOwned: true, marker: 'z2m-scanner-catalog.v1',
+		repository: AUTHORITATIVE_CATALOG_REPOSITORY, commit: AUTHORITATIVE_CATALOG_COMMIT,
+		catalogDigest: catalog.aggregateDigest, catalogEnvelopeDigest: envelopeDigest,
+		source: copy(catalog.source), winnerOrder: copy(catalog.winnerOrder), sets: copy(catalog.sets),
+		winners: copy(catalog.winners), targetProfile: copy(catalog.targetProfile),
+		compilerEnvironment: copy(catalog.compilerEnvironment), policy: copy(catalog.policy) };
+	catalog.authority = { marker: AUTHORITY_MARKER, repository: AUTHORITATIVE_CATALOG_REPOSITORY,
+		commit: AUTHORITATIVE_CATALOG_COMMIT, catalogDigest: catalog.aggregateDigest,
+		compilerDigest: compiler_digest(), catalogEnvelopeDigest: envelopeDigest, catalog: authorityCatalog };
+	return catalog;
+}
+
+function user_authority(strategies, catalog) {
+	return { serverOwned: true, authority: { marker: AUTHORITY_MARKER,
+		repository: AUTHORITATIVE_CATALOG_REPOSITORY, commit: AUTHORITATIVE_CATALOG_COMMIT,
+		catalogDigest: catalog.aggregateDigest, compilerDigest: compiler_digest(),
+		catalogEnvelopeDigest: catalog.authority.catalogEnvelopeDigest, catalog: catalog.authority.catalog,
+		records: copy(strategies), recordsDigest: sha256_text(sprintf('%J', strategies)) }, strategies: strategies };
+}
+
+export const scanner_plan_build_test = function(request, catalogSnapshot, userStrategies) {
+	if (getenv('Z2M_SCANNER_SERVER_TEST') != '1')
+		return error_result('EACCES', 'Scanner test authority is disabled.');
+	let profile = is_object(catalogSnapshot) ? copy(catalogSnapshot.targetProfile) : null;
+	let normalized = request_normalize(request);
+	if (normalized.ok && is_object(profile) && profile.profileKey == 'generic') {
+		let target = normalized.value.target;
+		profile = { profileKey: 'generic', primaryHost: target, testHosts: [target], hostlistDomains: [target],
+			expectedHostlists: [], tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' },
+			udp: { ports: '443', l7: 'quic', payload: 'quic_initial' }, probeUrl: 'https://' + target + '/' };
+	}
+	return scanner_plan_build_pure(request, catalogSnapshot, userStrategies, profile);
+};
+
+export const scanner_plan_build = function(request, catalogSnapshot, userStrategies) {
+	if (catalogSnapshot != null || userStrategies != null)
+		return error_result('EINPUT', 'Caller-supplied Scanner authority is forbidden.');
+	let validated = request_normalize(request);
+	if (!validated.ok) return validated;
+	let profile = null;
+	try { profile = scanner_target_profile(validated.value.target); } catch (e) { profile = null; }
+	if (!target_profile_valid(profile)) return error_result('EINPUT', 'Scanner target profile is unavailable.', 'target');
+	let loaded = strategy_catalog_load(null);
+	if (!is_object(loaded) || loaded.ok != true) return error_result('ENOENT', 'Scanner Strategy Catalog is unavailable.');
+	let catalog = loaded.catalog;
+	catalog.targetProfile = copy(profile);
+	catalog.compilerEnvironment = {};
+	catalog.policy = { useGenerated: false };
+	catalog = catalog_authority(catalog);
+	let listed = strategy_user_list();
+	if (!is_object(listed) || listed.ok != true) return error_result('EIO', 'Scanner user Strategies are unavailable.');
+	return scanner_plan_build_pure(validated.value, catalog, user_authority(listed.strategies, catalog), profile);
 };
