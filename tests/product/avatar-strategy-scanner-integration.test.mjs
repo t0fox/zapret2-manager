@@ -11,6 +11,8 @@ const MODEL = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager
 const PLANNER = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-planner.uc');
 const PROBES = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-probes.uc');
 const PROBE_ADAPTER = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-probe-adapter.uc');
+const WORKER = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-worker.uc');
+const STATE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-state.uc');
 const FIXTURE = path.join(ROOT, 'tests/fixtures/avatar-strategy-scanner/targets.json');
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.split('|') : [];
@@ -52,6 +54,21 @@ test('Scanner probe boundary exports only classification and fixed adapters', ()
     assert.match(adapter, new RegExp(`export const ${name}\\b`));
   assert.doesNotMatch(`${probes}\n${adapter}`, /(?:http3|http\/3|scanner_probe_adapter_quic|scanner_quic_classify)/i);
   assert.doesNotMatch(adapter, /compiledTokens|nfqws2|firewall|nft\s|iptables/);
+});
+
+test('Task 6 worker remains a volatile coordinator and keeps Task 5 cleanup fail-closed', () => {
+  const worker = readFileSync(WORKER, 'utf8');
+  const state = readFileSync(STATE, 'utf8');
+  assert.match(worker, /scanner_plan_build/);
+  assert.match(worker, /scanner_session_begin/);
+  assert.match(worker, /scanner_candidate_activate/);
+  assert.match(worker, /scanner_candidate_cleanup/);
+  assert.match(worker, /scanner_probe_adapter_(baseline|tcp|udp)/);
+  assert.match(worker, /scanner_candidate_verdict/);
+  assert.match(worker, /reconcil/);
+  assert.match(state, /\/tmp\/zapret2-manager/);
+  assert.doesNotMatch(`${worker}\n${state}`, /manager-state\.json|state_mutate|strategy_user_(create|update|delete)|write_var|set_var/);
+  assert.doesNotMatch(worker, /popen\s*\(|system\s*\(|eval\s|argv\s*=/);
 });
 
 test('target profiles preserve pinned fixture facts and deterministic host selection', () => {

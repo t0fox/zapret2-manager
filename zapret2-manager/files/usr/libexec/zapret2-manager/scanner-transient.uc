@@ -288,3 +288,11 @@ export const scanner_session_run = function(input, seams) {
 		attempts: attempts, snapshotCaptures: 1, originalRestores: 0,
 		preserved: { config: true, identity: true, runtime: true, firewall: true } };
 };
+
+// Task 6 terminal boundary: release only the Scanner-owned session resources.
+// Whole-runtime reconciliation remains owned by Task 7 and is supplied by the
+// caller as explicit evidence; this export never restores Strategy/config.
+export const scanner_session_finish = function(session, seams) {
+	if (!session || !session.sessionId) return { ok: false, error: { stage: 'cleanup', code: 'EINPUT', message: 'Scanner session identity is missing' } };
+	return release_then_session_cleanup(session, seams);
+};
