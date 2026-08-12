@@ -107,10 +107,8 @@ cleanup_internal() {
 	fi
 	i=0; while [ -n "$(queue_peer)" ] && [ "$i" -lt 20 ]; do sleep 0.05; i=$((i + 1)); done
 	[ -z "$(queue_peer)" ] || { nfqueue_removed=false; owned_only=false; evidence=nfqueue; }
-	if [ "$nfqueue_removed" = true ]; then
-		rm -f "$ARGV_FILE" "$ARGV_DIGEST_FILE" "$PID_FILE" "$START_FILE" "$LOG_FILE" "$HOSTLIST_FILE" "$OWNERSHIP_FILE" "$CHAIN_DIGEST_FILE"
-		[ ! -e "$ARGV_FILE" ] && [ ! -e "$ARGV_DIGEST_FILE" ] && [ ! -e "$PID_FILE" ] && [ ! -e "$START_FILE" ] && [ ! -e "$LOG_FILE" ] && [ ! -e "$HOSTLIST_FILE" ] && [ ! -e "$OWNERSHIP_FILE" ] && [ ! -e "$CHAIN_DIGEST_FILE" ] || { temporary_removed=false; owned_only=false; evidence=temporary; }
-	fi
+	rm -f "$ARGV_FILE" "$ARGV_DIGEST_FILE" "$PID_FILE" "$START_FILE" "$LOG_FILE" "$HOSTLIST_FILE" "$OWNERSHIP_FILE" "$CHAIN_DIGEST_FILE"
+	[ ! -e "$ARGV_FILE" ] && [ ! -e "$ARGV_DIGEST_FILE" ] && [ ! -e "$PID_FILE" ] && [ ! -e "$START_FILE" ] && [ ! -e "$LOG_FILE" ] && [ ! -e "$HOSTLIST_FILE" ] && [ ! -e "$OWNERSHIP_FILE" ] && [ ! -e "$CHAIN_DIGEST_FILE" ] || { temporary_removed=false; owned_only=false; evidence=temporary; }
 	emit_cleanup true "$process_removed" "$firewall_removed" "$nfqueue_removed" "$hostlist_removed" "$temporary_removed" "$owned_only" "$evidence"
 }
 

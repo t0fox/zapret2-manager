@@ -162,7 +162,7 @@ restore remains deferred and is not claimed here.
   wsl.exe -d Ubuntu --cd /mnt/c/Users/Kirill/zapret2-manager -- env UCODE_BIN=/opt/ucode/bin/ucode UCODE_LIBRARY_PATH=/opt/ucode/lib /home/kirill/.local/bin/node --test tests/product/avatar-strategy-scanner-transient.test.mjs tests/native/avatar-strategy-scanner-runtime.test.mjs
   ```
 
-  Result: **20 passed, 0 failed**.
+  Result: **21 passed, 0 failed**.
 - Final Task 5 aggregate:
 
   ```text
