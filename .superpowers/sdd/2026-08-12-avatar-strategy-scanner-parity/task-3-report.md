@@ -337,3 +337,33 @@ Changed production scope is limited to Scanner planner authority, the new
 server-owned generator/compiler-authority adapters, and the compiler authority
 combiner. No runtime, Apply, Orchestra, DNS, Telegram, router, LuCI, or frontend
 files were changed.
+
+## Review Round 5 Fixes
+
+The fifth review round closed the two remaining Important findings:
+
+- production Scanner catalog loading now ignores `Z2M_STRATEGY_CATALOG_ROOT`
+  and always selects the packaged catalog root; the override remains available
+  only when `Z2M_SCANNER_SERVER_TEST=1`;
+- generated candidate canonicalization now requires a valid non-null Scanner
+  compiler authority and an explicit valid candidate `compilerDigest`. The test
+  hook obtains the real compiler authority, so unavailable authority and omitted
+  digest both fail closed with `EVERIFY`.
+
+## Review Round 5 TDD And Verification
+
+The focused RED run produced the two expected failures: the production catalog
+call site accepted the ungated override, and null compiler authority did not
+return an error. After implementation:
+
+- focused regressions: 2 passed, 0 failed;
+- focused planner: 38 passed, 0 failed;
+- compiler suite: 27 passed, 0 failed;
+- mandated Task 3 command: 52 passed, 3 failed only in the unchanged Task 2
+  `scanner-targets.uc:136` WSL ucode null-indexing incompatibility documented in
+  prior rounds;
+- JavaScript syntax and `git diff --check`: passed.
+
+Changed production scope is limited to `scanner-planner.uc`, with regressions in
+the existing planner test and this report. No runtime, Apply, Orchestra, DNS,
+Telegram, router, LuCI, or frontend files were changed.

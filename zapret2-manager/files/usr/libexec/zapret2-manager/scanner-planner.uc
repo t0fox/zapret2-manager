@@ -534,7 +534,8 @@ function identity_view(existing, environment) {
 function generated_identity(candidate, existingStrategies, environment, compilerAuthority) {
 	let authorityDigest = compiler_digest(compilerAuthority);
 	if (reject_raw_candidate(candidate)) return error_result('EINPUT', 'Scanner candidates cannot contain client command arguments.');
-	if (type(existingStrategies) != 'object' || existingStrategies.serverOwned != true
+	if (authorityDigest == null || !is_object(candidate) || !valid_digest(candidate.compilerDigest)
+		|| type(existingStrategies) != 'object' || existingStrategies.serverOwned != true
 		|| !is_object(existingStrategies.authority)
 		|| existingStrategies.authority.marker != AUTHORITY_MARKER
 		|| existingStrategies.authority.repository != AUTHORITATIVE_CATALOG_REPOSITORY
@@ -590,7 +591,7 @@ function strategy_argument_text(strategy) {
 export const scanner_candidate_canonicalize_test = function(candidate, existingStrategies) {
 	if (getenv('Z2M_SCANNER_SERVER_TEST') != '1')
 		return error_result('EACCES', 'Scanner test authority is disabled.');
-	return generated_identity(candidate, existingStrategies, {}, { marker: 'z2m-scanner-compiler.v1', digest: existingStrategies.authority.compilerDigest });
+	return generated_identity(candidate, existingStrategies, {}, scanner_compiler_authority());
 };
 
 export const scanner_candidate_canonicalize = function(candidate, existingStrategies) {
@@ -960,7 +961,7 @@ export const scanner_plan_build = function(request, catalogSnapshot, userStrateg
 		try { profile = json(getenv('Z2M_SCANNER_TARGET_PROFILE') || 'null'); } catch (e) { profile = null; }
 	}
 	if (!target_profile_valid(profile)) return error_result('EINPUT', 'Scanner target profile is unavailable.', 'target');
-	let loaded = strategy_catalog_load(getenv('Z2M_STRATEGY_CATALOG_ROOT') || null);
+	let loaded = strategy_catalog_load(getenv('Z2M_SCANNER_SERVER_TEST') == '1' ? getenv('Z2M_STRATEGY_CATALOG_ROOT') || null : null);
 	if (!is_object(loaded) || loaded.ok != true) return error_result('ENOENT', 'Scanner Strategy Catalog is unavailable.');
 	let listed = strategy_user_list();
 	if (!is_object(listed) || listed.ok != true) return error_result('EIO', 'Scanner user Strategies are unavailable.');

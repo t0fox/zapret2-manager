@@ -488,6 +488,14 @@ test('test authority hook is unavailable without the explicit server-test gate',
   assert.equal(value.error.code, 'EACCES');
 });
 
+test('production catalog loading ignores path overrides outside the server-test gate', () => {
+  const source = readFileSync(MODULE, 'utf8');
+  assert.match(source,
+    /strategy_catalog_load\(getenv\('Z2M_SCANNER_SERVER_TEST'\) == '1' \? getenv\('Z2M_STRATEGY_CATALOG_ROOT'\) \|\| null : null\)/);
+  assert.doesNotMatch(source,
+    /strategy_catalog_load\(getenv\('Z2M_STRATEGY_CATALOG_ROOT'\) \|\| null\)/);
+});
+
 test('planner fails closed when target profile resolution fails', () => {
   const item = entry('one', '--filter-tcp=443');
   const sets = { tcp: { quick: ['one'], standard: ['one'], full: ['one'] }, udp: { quick: [], standard: [], full: [] } };
@@ -578,6 +586,30 @@ test('canonicalization recomputes and validates the dependency digest', () => {
   const result = invoke(`planner.scanner_candidate_canonicalize(${JSON.stringify(candidate)}, ${JSON.stringify(users())})`);
   assert.equal(result.ok, false);
   assert.equal(result.error.code, 'EVERIFY');
+});
+
+test('canonicalization fails closed for unavailable authority and omitted compiler digest', () => {
+  const sets = { tcp: { quick: [], standard: [], full: [] }, udp: { quick: [], standard: [], full: [] } };
+  snapshot([], sets);
+  const candidate = {
+    scannerId: 'generated:one', identityKind: 'generated', strategyId: null,
+    strategyRevision: null, source: 'generator', sourcePath: 'generator', protocol: 'tcp',
+    catalogDigest: CATALOG_DIGEST, compilerDigest: COMPILER_DIGEST,
+    compiledTokens: ['--filter-tcp=443'],
+    dependencyClosure: { available: true, items: [], missing: [], structurallyCompilable: true },
+    ordinal: 1, complexity: [0, 0, 0], recommended: false, fullPreset: true, saveRequired: true,
+  };
+  const unavailable = invoke(
+    `planner.scanner_candidate_canonicalize(${JSON.stringify(candidate)}, ${JSON.stringify(users())})`,
+    true, { Z2M_SCANNER_COMPILER_SOURCE: '/missing/z2m-strategy-compiler.uc' });
+  assert.equal(unavailable.ok, false);
+  assert.equal(unavailable.error.code, 'EVERIFY');
+
+  const omitted = structuredClone(candidate);
+  delete omitted.compilerDigest;
+  const missingDigest = invoke(`planner.scanner_candidate_canonicalize(${JSON.stringify(omitted)}, ${JSON.stringify(users())})`);
+  assert.equal(missingDigest.ok, false);
+  assert.equal(missingDigest.error.code, 'EVERIFY');
 });
 
 test('ordering applies source, section, and effective ordinals before Strategy ID', () => {
