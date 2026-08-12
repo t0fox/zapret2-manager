@@ -156,13 +156,14 @@ function scanner_safe_id(value) {
 		&& match(value, /^[A-Za-z0-9][A-Za-z0-9._-]*$/);
 }
 
-function scanner_runtime_call(operation, sessionId, candidateId, generation) {
-	if (index(['lock-acquire', 'lock-release', 'activate', 'stabilize', 'cleanup'], operation) < 0
+function scanner_runtime_call(operation, sessionId, candidateId, generation, nonce) {
+	if (index(['lock-acquire', 'lock-release', 'activate', 'stabilize', 'cleanup', 'session-cleanup'], operation) < 0
 		|| !scanner_safe_id(sessionId) || !scanner_safe_id(candidateId)
 		|| type(generation) != 'int' || generation < 0)
 		return err('runtime', 'EINPUT', 'fixed Scanner runtime binding is invalid');
 	let command = shell_escape(SCANNER_RUNTIME_ADAPTER) + ' ' + operation + ' '
-		+ shell_escape(sessionId) + ' ' + shell_escape(candidateId) + ' ' + generation;
+		+ shell_escape(sessionId) + ' ' + shell_escape(candidateId) + ' ' + generation
+		+ (nonce != null ? ' ' + shell_escape(nonce) : '');
 	let result = run(command), raw = trim(result.out), value = null;
 	try { value = length(raw) ? json(raw) : null; } catch (e) { value = null; }
 	if (result.rc != 0 || type(value) != 'object' || value == null)
@@ -175,9 +176,11 @@ export const profiles_transient_lock = function(sessionId) {
 	return scanner_runtime_call('lock-acquire', sessionId, 'session', 0);
 };
 
-export const profiles_transient_unlock = function(sessionId) {
+export const profiles_transient_unlock = function(sessionId, supplied) {
 	if (!scanner_safe_id(sessionId)) return err('lock', 'EINPUT', 'Scanner session identity is invalid');
-	return scanner_runtime_call('lock-release', sessionId, 'session', 0);
+	let injected = getenv('Z2M_SCANNER_SERVER_TEST') == '1' && supplied != null ? supplied : null;
+	if (injected != null) return injected;
+	return scanner_runtime_call('lock-release', sessionId, 'session', 0, supplied);
 };
 
 function scanner_runtime_id(value) {
@@ -199,17 +202,20 @@ function scanner_candidate_tokens(candidate) {
 	return tokens;
 }
 
-function scanner_stage_candidate(candidate) {
-	let tokens = scanner_candidate_tokens(candidate), sessionId = candidate.sessionId;
+function scanner_stage_candidate(candidate, compiled) {
+	let tokens = scanner_candidate_tokens({ compiledCandidate: compiled.candidate }), expected = scanner_candidate_tokens(candidate), sessionId = candidate.sessionId;
 	let runtimeId = scanner_runtime_id(candidate.scannerId);
-	if (tokens == null || !scanner_safe_id(sessionId) || runtimeId == null) return false;
+	if (tokens == null || !scanner_safe_id(sessionId) || runtimeId == null
+		|| type(compiled) != 'object' || compiled == null || type(compiled.candidate) != 'string'
+		|| expected == null || sprintf('%J', tokens) != sprintf('%J', expected)
+		|| compiled.candidate != join(' ', tokens) || compiled.compiledDigest != candidate.compiledDigest) return false;
 	let dir = SCANNER_RUNTIME_ROOT + '/' + sessionId, path = dir + '/' + runtimeId + '.argv';
 	try { mkdir(SCANNER_RUNTIME_ROOT); } catch (e) { }
 	try { mkdir(dir); } catch (e) { }
 	let text = '';
 	for (let token in tokens) text += token + '\n';
-	try { writefile(path, text); } catch (e) { return false; }
-	return readfile(path) == text;
+	try { writefile(path, text); writefile(path + '.digest', candidate.compiledDigest + '\n'); } catch (e) { return false; }
+	return readfile(path) == text && readfile(path + '.digest') == candidate.compiledDigest + '\n';
 }
 
 function scanner_process_identity(value, owner) {
@@ -793,23 +799,33 @@ function transient_test_value(name, supplied) {
 }
 
 export const profiles_transient_compile_preflight = function(candidate, supplied) {
-	let injected = transient_test_value('compile', supplied);
-	if (injected != null) {
-		if (injected.ok != true || (injected.dependencies != null && injected.dependencies.available != true)
-			|| (injected.native != null && injected.native.status != 'verified'))
-			return err('preflight', 'EPREFLIGHT', 'candidate dependencies or native preflight are unavailable', { native: injected.native, dependencies: injected.dependencies });
-		return injected;
-	}
 	if (type(candidate) != 'object' || candidate == null || type(candidate.compiledCandidate) != 'string'
 		|| !length(candidate.compiledCandidate) || type(candidate.compiledDigest) != 'string'
 		|| !match(candidate.compiledDigest, /^[a-f0-9]{64}$/))
 		return err('preflight', 'EINPUT', 'Scanner candidate is not a server-owned compiled value');
-	let candidateHash = sha256_text_via_file(candidate.compiledCandidate);
-	if (candidateHash == null || candidateHash != candidate.compiledDigest)
-		return err('preflight', 'ECONFLICT', 'compiled candidate identity does not match the server-owned digest');
+	let candidateTokens = scanner_candidate_tokens(candidate);
+	if (candidateTokens == null) return err('preflight', 'ECONFLICT', 'candidate token stream is invalid');
+	if (getenv('Z2M_SCANNER_SERVER_TEST') != '1') {
+		let candidateHash = sha256_text_via_file(candidate.compiledCandidate);
+		if (candidateHash == null || candidateHash != candidate.compiledDigest)
+			return err('preflight', 'ECONFLICT', 'candidate token stream does not match its compiled digest');
+	}
+	let injected = transient_test_value('compile', supplied);
+	if (injected != null) {
+		if (injected.ok != true || type(injected.candidate) != 'string'
+			|| (injected.candidate != candidate.compiledCandidate)
+			|| (injected.dependencies != null && injected.dependencies.available != true)
+			|| (injected.native != null && injected.native.status != 'verified'))
+			return err('preflight', injected.candidate != candidate.compiledCandidate ? 'ECONFLICT' : 'EPREFLIGHT', 'candidate preflight or compiled output was refused', { native: injected.native, dependencies: injected.dependencies });
+		if (injected.compiledDigest != candidate.compiledDigest
+			|| (type(injected.compiledTokens) == 'array' && sprintf('%J', injected.compiledTokens) != sprintf('%J', candidate.compiledTokens)))
+			return err('preflight', 'ECONFLICT', 'compiled output does not match the candidate token stream');
+		injected.compiledTokens = candidateTokens;
+		return injected;
+	}
 	let native = native_preflight_for_apply(candidate.compiledCandidate);
 	if (!apply_decision(native)) return err('preflight', 'EPREFLIGHT', 'complete native preflight is required', { native: native });
-	return { ok: true, candidate: candidate.compiledCandidate, compiledDigest: candidate.compiledDigest,
+	return { ok: true, candidate: candidate.compiledCandidate, compiledTokens: candidateTokens, compiledDigest: candidate.compiledDigest,
 		dependencyDigest: candidate.dependencyDigest, dependencies: candidate.dependencies, native: native };
 };
 
@@ -855,10 +871,16 @@ export const profiles_transient_snapshot = function(supplied) {
 export const profiles_transient_activate = function(candidate, compiled, supplied) {
 	let injected = transient_test_value('activate', supplied);
 	if (injected != null) return injected;
-	if (!scanner_input_safe(candidate) || type(candidate) != 'object' || candidate == null || !scanner_stage_candidate(candidate))
+	if (!scanner_input_safe(candidate) || type(candidate) != 'object' || candidate == null || !scanner_stage_candidate(candidate, compiled))
 		return err('activate', 'EINPUT', 'server-owned compiled candidate staging failed');
 	return scanner_runtime_call('activate', candidate.sessionId, scanner_runtime_id(candidate.scannerId),
 		type(candidate.generation) == 'int' ? candidate.generation : 0);
+};
+
+export const profiles_transient_session_cleanup = function(sessionId, generation, supplied) {
+	let injected = getenv('Z2M_SCANNER_SERVER_TEST') == '1' && supplied != null ? supplied : null;
+	if (injected != null) return injected;
+	return scanner_runtime_call('session-cleanup', sessionId, 'session', generation);
 };
 
 export const profiles_transient_stabilize = function(attempt, supplied) {

@@ -6,7 +6,7 @@
 import { scanner_transient_lock, scanner_transient_config_snapshot } from './apply.uc';
 import { profiles_transient_compile_preflight, profiles_transient_activate,
 	profiles_transient_stabilize, profiles_transient_cleanup, profiles_transient_snapshot,
-	profiles_transient_unlock } from './profiles-apply.uc';
+	profiles_transient_unlock, profiles_transient_session_cleanup } from './profiles-apply.uc';
 
 const MAX_CANDIDATES = 128;
 const MAX_STABILIZE_ATTEMPTS = 3;
@@ -33,7 +33,13 @@ function candidate_valid(candidate) {
 		&& digest(candidate.compiledDigest) && digest(candidate.dependencyDigest);
 }
 function compiled_text(candidate) {
-	if (type(candidate.compiledCandidate) == 'string') return candidate.compiledCandidate;
+	if (type(candidate.compiledCandidate) == 'string') {
+		if (type(candidate.compiledTokens) == 'array') {
+			let rebuilt = compiled_text({ compiledTokens: candidate.compiledTokens });
+			if (rebuilt == null || rebuilt != candidate.compiledCandidate) return null;
+		}
+		return candidate.compiledCandidate;
+	}
 	let tokens = candidate.compiledTokens, out = '';
 	for (let i = 0; i < length(tokens); i++) {
 		if (type(tokens[i]) != 'string' || !length(tokens[i])) return null;
@@ -62,6 +68,17 @@ function cleanup_valid(value) {
 		&& value.firewallRemoved == true && value.nfqueueRemoved == true
 		&& value.hostlistRemoved == true && value.temporaryFilesRemoved == true
 		&& value.ownedOnly == true;
+}
+function cleanup_evidence(value) { return cleanup_valid(value) ? value : null; }
+function candidate_cleanup(attempt) {
+	if (!object(attempt) || !ownership_valid(attempt.activation)) return error('cleanup', 'EIDENTITY', 'cleanup ownership evidence is incomplete');
+	let supplied = attempt.seams != null && attempt.seams.runtime != null ? attempt.seams.runtime.cleanup : null;
+	if (type(supplied) == 'array') supplied = supplied[0];
+	let result = profiles_transient_cleanup(attempt, supplied);
+	if (!cleanup_valid(result)) return error('cleanup', 'ECLEANUP', 'owned candidate cleanup was not verified', { cleanup: result });
+	return { ok: true, cleanup: { ok: true, processRemoved: true, firewallRemoved: true,
+		nfqueueRemoved: true, hostlistRemoved: true, temporaryFilesRemoved: true,
+		ownedOnly: true, evidence: result } };
 }
 function snapshot_process_valid(value) {
 	return object(value) && type(value.pid) == 'int' && value.pid > 0
@@ -102,17 +119,32 @@ export const scanner_candidate_activate = function(candidate, seams) {
 	if (!candidate_valid(candidate)) return error('input', 'EINPUT', 'Scanner candidate binding is incomplete');
 	for (let key in ['command', 'argv', 'args', 'executable', 'path', 'rawCommand', 'rawPath'])
 		if (candidate[key] != null) return error('input', 'EINPUT', 'raw runtime command or path input is forbidden');
-	let compiledInput = { compiledCandidate: compiled_text(candidate), compiledDigest: candidate.compiledDigest,
+	let compiledInput = { compiledCandidate: compiled_text(candidate), compiledTokens: candidate.compiledTokens,
+		compiledDigest: candidate.compiledDigest,
 		dependencyDigest: candidate.dependencyDigest, dependencies: candidate.dependencyClosure };
 	let compiled = profiles_transient_compile_preflight(compiledInput, seams != null ? seams.compile : null);
 	if (!object(compiled) || compiled.ok != true)
 		return error('preflight', compiled && compiled.error ? compiled.error.code : 'EPREFLIGHT', 'candidate preflight refused', { preflight: compiled });
 	let activated = profiles_transient_activate(candidate, compiled, seams != null && seams.runtime != null ? seams.runtime.activate : null);
 	if (!object(activated) || activated.ok != true)
-		return error('activate', activated && activated.error ? activated.error.code : 'EACTIVATE', 'candidate activation failed', { activation: activated });
-	if (!ownership_valid(activated)) return error('identity', 'EIDENTITY', 'activated process or NFQUEUE ownership does not match the exact Scanner identity', { activation: activated });
-	let stabilized = next_stabilize({ candidate: candidate, activation: activated, compiled: compiled }, seams);
-	if (stabilized.infrastructure) return error('stabilize', 'ESTABILIZE', 'transient runtime stabilization failed', { stabilization: stabilized });
+		return error('activate', activated && activated.error ? activated.error.code : 'EACTIVATE', 'candidate activation failed', {
+			activation: activated, cleanup: cleanup_evidence(activated && activated.cleanup)
+		});
+	if (!ownership_valid(activated)) {
+		let invalidAttempt = { candidate: candidate, compiled: compiled, activation: activated, seams: seams };
+		return error('identity', 'EIDENTITY', 'activated process or NFQUEUE ownership does not match the exact Scanner identity', {
+			activation: activated, cleanup: candidate_cleanup(invalidAttempt)
+		});
+	}
+	let attempt = { candidate: candidate, activation: activated, compiled: compiled };
+	let stabilized = next_stabilize(attempt, seams);
+	if (stabilized.infrastructure) {
+		attempt.seams = seams;
+		let cleanup = candidate_cleanup(attempt);
+		return error('stabilize', 'ESTABILIZE', 'transient runtime stabilization failed', {
+			stabilization: stabilized, cleanup: cleanup
+		});
+	}
 	return { ok: true, attempt: { candidate: candidate, compiled: compiled, activation: activated,
 		stabilization: stabilized.evidence, retries: stabilized.retries, failure: stabilized.candidate ? failure('candidate', 'probe', 'ECANDIDATE', stabilized.evidence.candidateFailure) : null } };
 };
@@ -158,7 +190,7 @@ export const scanner_session_begin = function(input, seams) {
 		{ if (getenv('Z2M_SCANNER_SERVER_TEST') != '1') profiles_transient_unlock(requestedSessionId);
 		return error('snapshot', 'ESNAPSHOT', 'complete config, identity, runtime, and firewall snapshot is required'); }
 	return { ok: true, session: { state: 'running', snapshot: snapshot, snapshotCaptures: 1,
-		originalRestores: 0, owner: SCANNER_OWNER,
+		originalRestores: 0, owner: SCANNER_OWNER, lock: lock,
 		sessionId: requestedSessionId,
 		generation: snapshot.reconciliation && type(snapshot.reconciliation.generation) == 'int'
 			? snapshot.reconciliation.generation + 1 : 0,
@@ -173,24 +205,43 @@ export const scanner_session_run = function(input, seams) {
 		let candidate = session.candidates[i];
 		candidate.sessionId = session.sessionId; candidate.generation = session.generation;
 		let activated = scanner_candidate_activate(candidate, seams);
-		if (!activated.ok) { if (getenv('Z2M_SCANNER_SERVER_TEST') != '1') profiles_transient_unlock(session.sessionId);
-			return error(activated.error.stage, activated.error.code, activated.error.message, { attempts: attempts, session: session }); }
+	if (!activated.ok) {
+			let unlocked = getenv('Z2M_SCANNER_SERVER_TEST') == '1'
+				? (seams != null && seams.lockRelease != null ? profiles_transient_unlock(session.sessionId, seams.lockRelease) : { ok: true })
+				: profiles_transient_unlock(session.sessionId, session.lock.nonce);
+			return error(activated.error.stage, activated.error.code, activated.error.message, {
+				attempts: attempts, session: session, cleanup: activated.cleanup, lockRelease: unlocked
+			});
+		}
 		let attempt = activated.attempt; attempt.seams = seams;
 		if (attempt.failure != null) {
 			let cleanup = scanner_candidate_cleanup(attempt);
-			if (!cleanup.ok) { if (getenv('Z2M_SCANNER_SERVER_TEST') != '1') profiles_transient_unlock(session.sessionId);
+			if (!cleanup.ok) { if (getenv('Z2M_SCANNER_SERVER_TEST') != '1') profiles_transient_unlock(session.sessionId, session.lock.nonce);
 				return error('cleanup', 'ECLEANUP', 'candidate failure cleanup was not verified', { attempts: attempts, cleanup: cleanup }); }
 			attempt.cleanup = cleanup.cleanup; push(attempts, attempt); continue;
 		}
 		let cleanup = scanner_candidate_cleanup(attempt);
-		if (!cleanup.ok) { if (getenv('Z2M_SCANNER_SERVER_TEST') != '1') profiles_transient_unlock(session.sessionId);
+		if (!cleanup.ok) { if (getenv('Z2M_SCANNER_SERVER_TEST') != '1') profiles_transient_unlock(session.sessionId, session.lock.nonce);
 			return error('cleanup', 'ECLEANUP', 'candidate cleanup was not verified', { attempts: attempts, cleanup: cleanup }); }
 		attempt.cleanup = cleanup.cleanup; push(attempts, attempt);
 	}
-	if (getenv('Z2M_SCANNER_SERVER_TEST') != '1') {
-		let unlocked = profiles_transient_unlock(session.sessionId);
-		if (!unlocked.ok) return error('lock', 'ELOCKED', 'Scanner lock release was not verified', { attempts: attempts, session: session });
+	let unlocked = getenv('Z2M_SCANNER_SERVER_TEST') == '1'
+		? (seams != null && seams.lockRelease != null ? profiles_transient_unlock(session.sessionId, seams.lockRelease) : { ok: true })
+		: profiles_transient_unlock(session.sessionId, session.lock.nonce);
+	if (!unlocked.ok) {
+		let recovery = profiles_transient_session_cleanup(session.sessionId, session.generation,
+			seams != null ? seams.sessionCleanup : null);
+		return error('lock', 'ELOCKED', 'Scanner lock release was not verified', {
+			attempts: attempts, session: session, recovery: recovery, lockRelease: unlocked
+		});
 	}
+	let removed = getenv('Z2M_SCANNER_SERVER_TEST') == '1' && (seams == null || seams.sessionCleanup == null)
+		? { ok: true, removed: true, verified: true, sessionDirectoryRemoved: true }
+		: profiles_transient_session_cleanup(session.sessionId, session.generation,
+			seams != null ? seams.sessionCleanup : null);
+	if (!removed.ok) return error('cleanup', 'ECLEANUP', 'Scanner session directory removal was not verified', {
+		attempts: attempts, session: session, recovery: removed
+	});
 	return { ok: true, session: { state: 'neutral', snapshot: session.snapshot, owner: session.owner,
 		sessionId: session.sessionId, generation: session.generation },
 		attempts: attempts, snapshotCaptures: 1, originalRestores: 0,
