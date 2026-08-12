@@ -203,3 +203,48 @@ binding, generated append semantics, section coverage, and contiguous ordinals.
 Concern: the required three-file command remains non-zero solely because this
 available WSL ucode runtime cannot index `HINTS[i]` in the unchanged Task 2
 `scanner-targets.uc`; changing that out-of-scope file was explicitly forbidden.
+
+## Fix Round 2 Evidence
+
+The final fix pass added exact regressions and closed the remaining gaps:
+
+- compiler authority is a real digest of the compiler contract and compiled probe outputs;
+- catalog, user, and generator values are checked against independent server-owned copies,
+  so recomputing attacker-controlled hashes does not confer authority;
+- catalog ordering now applies full preset, recommendation, complexity, source path,
+  source ordinal, section ordinal, effective ordinal, Strategy ID, and catalog order;
+- dependency closures reject duplicate, extra, inconsistent, or reordered missing items,
+  and dependency digests are recomputed from the complete validated ordered closure;
+- supplied target profiles are bound to the normalized request target, first test host,
+  canonical probe URL, and requested protocol semantics;
+- final ordinals remain contiguous after sorting, deduplication, generation, and DPI filtering.
+
+Focused planner:
+
+```text
+wsl.exe -d Ubuntu --cd /mnt/c/Users/Kirill/zapret2-manager -- env UCODE_BIN=/opt/ucode/bin/ucode UCODE_LIBRARY_PATH=/opt/ucode/lib /home/kirill/.local/bin/node --test tests/product/avatar-strategy-scanner-planner.test.mjs
+```
+
+Result: 29 passed, 0 failed.
+
+Focused catalog:
+
+```text
+wsl.exe -d Ubuntu --cd /mnt/c/Users/Kirill/zapret2-manager -- env UCODE_BIN=/opt/ucode/bin/ucode UCODE_LIBRARY_PATH=/opt/ucode/lib /home/kirill/.local/bin/node --test tests/product/avatar-strategy-catalog.test.mjs
+```
+
+Result: 13 passed, 0 failed.
+
+The mandated three-file run reached 45 passed and 1 failed before the final
+planner-only rerun. The remaining failure is the unchanged Task 2 WSL ucode
+compatibility issue at `scanner-targets.uc:136`; its isolated integration run is
+1 passed and 3 failed for the same null-indexing error. No target module change
+is included in this fix.
+
+Static evidence:
+
+- both modified JavaScript files pass `node --check`;
+- `git diff --check` passes;
+- the planner purity scan finds no filesystem, process, runtime, Apply, Orchestra,
+  firewall, network, RPC, or frontend access;
+- changed scope is limited to planner/compiler code, product regressions, and this report.

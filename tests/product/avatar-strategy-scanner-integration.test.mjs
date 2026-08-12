@@ -35,6 +35,8 @@ test('pure Scanner modules have no runtime or I/O imports', () => {
   }
   const planner = readFileSync(PLANNER, 'utf8');
   assert.doesNotMatch(planner, /(?:firewall|network|rpc|frontend|orchestra|apply|popen|readfile|writefile|from ['"]fs['"])/i, PLANNER);
+  const compiler = readFileSync(path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-compiler.uc'), 'utf8');
+  assert.doesNotMatch(compiler, /(?:popen|from ['"]fs['"])/i, 'strategy-compiler.uc');
 });
 
 test('target profiles preserve pinned fixture facts and deterministic host selection', () => {

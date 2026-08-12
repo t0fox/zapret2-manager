@@ -42,8 +42,9 @@ let lastCatalogAuthority = null;
 function catalogEnvelope(value) {
   return {
     source: value.source ?? null, aggregateDigest: value.aggregateDigest ?? null,
-    files: value.files ?? null, winnerOrder: value.winnerOrder ?? null,
-    sets: value.sets ?? null, winners: value.winners ?? null,
+    files: value.files ?? null, winnerOrder: value.winnerOrder ?? null, sets: value.sets ?? null,
+    winners: value.winners ?? null, targetProfile: value.targetProfile ?? null,
+    compilerEnvironment: value.compilerEnvironment ?? null, policy: value.policy ?? null,
   };
 }
 
@@ -54,6 +55,13 @@ test('compiler authority digest is derived from compiled behavior, not metadata 
     createHash('sha256').update(JSON.stringify(COMPILER_AUTHORITY.contract), 'utf8').digest('hex'));
   assert.ok(Array.isArray(COMPILER_AUTHORITY.probes));
   assert.ok(COMPILER_AUTHORITY.probes.some(probe => probe.strategyArgs.includes('--filter-l7=tls')));
+});
+
+test('catalog envelope digest uses the canonical planning inputs', () => {
+  const item = entry('digest-one', '--filter-tcp=443');
+  const sets = { tcp: { quick: ['digest-one'], standard: ['digest-one'], full: ['digest-one'] }, udp: { quick: [], standard: [], full: [] } };
+  const value = snapshot([item], sets);
+  assert.equal(invoke(`planner.scanner_snapshot_digest(${JSON.stringify(value)})`), value.authority.catalogEnvelopeDigest);
 });
 
 function invoke(expression) {
@@ -72,7 +80,7 @@ function invoke(expression) {
 function entry(id, args, extra = {}) {
   return {
     id, args, winner: true, level: 'advanced', protocol: 'tcp', sourceFile: 'advanced/tcp.txt',
-    sourceOrdinal: 1, effectiveOrdinal: 1,
+    sourceOrdinal: 1, sectionOrdinal: 1, effectiveOrdinal: 1,
     metadata: { name: id, label: '', ...extra },
   };
 }
@@ -93,11 +101,13 @@ function snapshot(entries, sets, extra = {}) {
       udp: { ports: '443', l7: 'quic', payload: 'quic_initial' }, probeUrl: 'https://example.com/' },
     ...extra,
   };
-  const catalogEnvelopeDigest = createHash('sha256').update(JSON.stringify(catalogEnvelope(value)), 'utf8').digest('hex');
+  const catalogEnvelopeDigest = invoke(`planner.scanner_snapshot_digest(${JSON.stringify(value)})`);
   lastCatalogAuthority = { serverOwned: true, marker: 'z2m-scanner-catalog.v1',
     repository: 'avatarDD/zapret-gui', commit: 'f9dd3ea47a2239514f396a843b475c92c33f0b4c',
-    catalogDigest: CATALOG_DIGEST, catalogEnvelopeDigest, source: value.source, files: value.files,
-    winnerOrder: value.winnerOrder, sets: value.sets, winners: value.winners };
+    catalogDigest: CATALOG_DIGEST, catalogEnvelopeDigest,
+    source: value.source, winnerOrder: value.winnerOrder,
+    sets: value.sets, winners: value.winners, targetProfile: value.targetProfile,
+    compilerEnvironment: value.compilerEnvironment ?? null, policy: value.policy };
   value.authority.catalogEnvelopeDigest = catalogEnvelopeDigest;
   value.authority.catalog = lastCatalogAuthority;
   if (value.generator?.authority) {
@@ -111,17 +121,19 @@ function users(strategies = []) {
   return { serverOwned: true, authority: { marker: AUTHORITY_MARKER, repository: 'avatarDD/zapret-gui', commit: 'f9dd3ea47a2239514f396a843b475c92c33f0b4c',
     catalogDigest: CATALOG_DIGEST, compilerDigest: COMPILER_DIGEST,
     catalogEnvelopeDigest: lastCatalogAuthority?.catalogEnvelopeDigest,
-    catalog: lastCatalogAuthority }, strategies };
+    catalog: lastCatalogAuthority, records: structuredClone(strategies),
+    recordsDigest: invoke(`planner.scanner_records_digest(${JSON.stringify(strategies)})`) }, strategies };
 }
 
 function generatedInput(values) {
+  const candidates = values.map(value => ({ id: value.id, protocol: value.protocol,
+    strategy: { id: value.id, name: value.id, profiles: [{ id: 'generated', args: value.args, enabled: true }] } }));
   return { serverOwned: true, authority: { marker: GENERATOR_MARKER,
     repository: 'avatarDD/zapret-gui', commit: 'f9dd3ea47a2239514f396a843b475c92c33f0b4c',
     catalogDigest: CATALOG_DIGEST, compilerDigest: COMPILER_DIGEST,
     catalogEnvelopeDigest: lastCatalogAuthority?.catalogEnvelopeDigest,
-    catalog: lastCatalogAuthority },
-    candidates: values.map(value => ({ id: value.id, protocol: value.protocol,
-      strategy: { id: value.id, name: value.id, profiles: [{ id: 'generated', args: value.args, enabled: true }] } })) };
+    catalog: lastCatalogAuthority, records: structuredClone(candidates),
+    recordsDigest: invoke(`planner.scanner_records_digest(${JSON.stringify(candidates)})`) }, candidates };
 }
 
 const request = (mode, protocol = 'tcp', dpi_type = null) => ({
@@ -226,11 +238,11 @@ test('recommended, complexity, source, and section tie-breakers are deterministi
   ]);
 });
 
-test('approved Scanner ordering applies full preset, recommendation, complexity, source, section, and ID tie-breakers', () => {
+test('approved Scanner ordering restores source, section, effective, ID, and catalog tie-breakers', () => {
   const candidates = [
-    { ...entry('id-z', '--lua-desync=split:pos=1 --comment=z'), sourceFile: 'b.txt', sourceOrdinal: 2, effectiveOrdinal: 2 },
-    { ...entry('id-a', '--lua-desync=split:pos=1 --comment=a'), sourceFile: 'b.txt', sourceOrdinal: 2, effectiveOrdinal: 2 },
-    { ...entry('source-a', '--lua-desync=split:pos=1 --comment=source'), sourceFile: 'a.txt', sourceOrdinal: 9, effectiveOrdinal: 9 },
+    { ...entry('id-z', '--lua-desync=split:pos=1 --name=z'), sourceFile: 'b.txt', sourceOrdinal: 2, sectionOrdinal: 2, effectiveOrdinal: 2 },
+    { ...entry('id-a', '--lua-desync=split:pos=1 --name=a'), sourceFile: 'b.txt', sourceOrdinal: 2, sectionOrdinal: 2, effectiveOrdinal: 2 },
+    { ...entry('source-a', '--lua-desync=split:pos=1 --comment=source'), sourceFile: 'a.txt', sourceOrdinal: 9, sectionOrdinal: 9, effectiveOrdinal: 9 },
     { ...entry('complex', '--lua-desync=split:repeats=8'), sourceFile: 'a.txt', sourceOrdinal: 1, effectiveOrdinal: 1 },
     { ...entry('recommended', '--lua-desync=split:pos=1 --comment=recommended', { label: 'recommended' }), sourceFile: 'z.txt' },
     { ...entry('full', '--filter-tcp=443'), level: 'builtin', sourceFile: 'builtin/presets.txt' },
@@ -409,10 +421,11 @@ test('planner rejects forged authority envelopes and unbound generated snapshots
 test('planner binds a valid target profile to the requested protocol', () => {
   const item = entry('one', '--filter-udp=443');
   const sets = { tcp: { quick: [], standard: [], full: [] }, udp: { quick: ['one'], standard: ['one'], full: ['one'] } };
-  const base = snapshot([{ ...item, protocol: 'udp' }], sets);
-  const result = invoke(`planner.scanner_plan_build(${JSON.stringify(request('quick', 'udp'))}, ${JSON.stringify({ ...base,
-    targetProfile: { ...base.targetProfile, udp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' } },
-  })}, ${JSON.stringify(users())})`);
+  const profile = snapshot([], sets).targetProfile;
+  const data = snapshot([{ ...item, protocol: 'udp' }], sets, {
+    targetProfile: { ...profile, udp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' } },
+  });
+  const result = invoke(`planner.scanner_plan_build(${JSON.stringify(request('quick', 'udp'))}, ${JSON.stringify(data)}, ${JSON.stringify(users())})`);
   assert.equal(result.ok, false);
   assert.equal(result.error.code, 'EINPUT');
 });
@@ -432,23 +445,121 @@ test('canonicalization recomputes and validates the dependency digest', () => {
   assert.equal(result.error.code, 'EVERIFY');
 });
 
-test('ordering exercises section and effective ordinal tie-breakers after source', () => {
+test('ordering applies source, section, and effective ordinals before Strategy ID', () => {
   const candidates = [
-    { ...entry('effective-late', '--lua-desync=split:pos=1 --filter-tcp=443'), sourceFile: 'a.txt', sourceOrdinal: 4, effectiveOrdinal: 9, sectionOrdinal: 9 },
-    { ...entry('section-first', '--lua-desync=split:pos=2 --filter-tcp=443'), sourceFile: 'a.txt', sourceOrdinal: 4, effectiveOrdinal: 2, sectionOrdinal: 2 },
-    { ...entry('source-first', '--lua-desync=split:pos=3 --filter-tcp=443'), sourceFile: 'a.txt', sourceOrdinal: 3, effectiveOrdinal: 99, sectionOrdinal: 99 },
-    { ...entry('other-source', '--lua-desync=split:pos=4 --filter-tcp=443'), sourceFile: 'b.txt', sourceOrdinal: 1, effectiveOrdinal: 1, sectionOrdinal: 1 },
+    { ...entry('effective-late', '--lua-desync=split:pos=1 --name=effective-late'), sourceFile: 'a.txt', sourceOrdinal: 4, sectionOrdinal: 2, effectiveOrdinal: 9 },
+    { ...entry('effective-first', '--lua-desync=split:pos=1 --name=effective-first'), sourceFile: 'a.txt', sourceOrdinal: 4, sectionOrdinal: 2, effectiveOrdinal: 2 },
+    { ...entry('section-first', '--lua-desync=split:pos=1 --name=section-first'), sourceFile: 'a.txt', sourceOrdinal: 4, sectionOrdinal: 1, effectiveOrdinal: 99 },
+    { ...entry('source-first', '--lua-desync=split:pos=1 --name=source-first'), sourceFile: 'a.txt', sourceOrdinal: 3, sectionOrdinal: 99, effectiveOrdinal: 99 },
+    { ...entry('other-source', '--lua-desync=split:pos=1 --name=other-source'), sourceFile: 'b.txt', sourceOrdinal: 0, sectionOrdinal: 0, effectiveOrdinal: 0 },
   ];
   const ids = candidates.map(candidate => candidate.id);
   const sets = { tcp: { quick: ids, standard: ids, full: ids }, udp: { quick: [], standard: [], full: [] } };
   const plan = invoke(`planner.scanner_plan_build(${JSON.stringify(request('full'))}, ${JSON.stringify(snapshot(candidates, sets))}, ${JSON.stringify(users())})`).plan;
   assert.deepEqual(plan.candidates.map(candidate => candidate.strategyId),
-    ['source-first', 'section-first', 'effective-late', 'other-source']);
+	['source-first', 'section-first', 'effective-first', 'effective-late', 'other-source']);
+});
+
+test('self-rehashing forged catalog, user, or generator contents does not confer authority', () => {
+  const item = entry('one', '--filter-tcp=443');
+  const sets = { tcp: { quick: ['one'], standard: ['one'], full: ['one'] }, udp: { quick: [], standard: [], full: [] } };
+  const trusted = snapshot([item], sets, { policy: { useGenerated: true }, generator: generatedInput([{ id: 'gen', protocol: 'tcp', args: '--filter-tcp=443' }]) });
+  const forgedCatalog = { ...trusted, winners: { one: { ...item, args: '--filter-tcp=80' } } };
+  const forgedCatalogDigest = invoke(`planner.scanner_snapshot_digest(${JSON.stringify(forgedCatalog)})`);
+  forgedCatalog.authority = { ...trusted.authority, catalogEnvelopeDigest: forgedCatalogDigest,
+    catalog: { ...trusted.authority.catalog, catalogEnvelopeDigest: forgedCatalogDigest } };
+  const forgedUsers = users([{ id: 'u', revision: 1, name: 'u', origin: 'user', profiles: [{ id: 'p', args: '--filter-tcp=443', enabled: true }] }]);
+  forgedUsers.strategies[0].profiles[0].args = '--filter-tcp=80';
+  forgedUsers.authority.recordsDigest = invoke(`planner.scanner_records_digest(${JSON.stringify(forgedUsers.strategies)})`);
+  const forgedGenerator = structuredClone(trusted);
+  forgedGenerator.generator.candidates[0].strategy.profiles[0].args = '--filter-tcp=80';
+  forgedGenerator.generator.authority.recordsDigest = invoke(`planner.scanner_records_digest(${JSON.stringify(forgedGenerator.generator.candidates)})`);
+  for (const [catalog, userRecords] of [[forgedCatalog, users()], [trusted, forgedUsers], [forgedGenerator, users()]]) {
+    const result = invoke(`planner.scanner_plan_build(${JSON.stringify(request('standard'))}, ${JSON.stringify(catalog)}, ${JSON.stringify(userRecords)})`);
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, 'EVERIFY');
+  }
+});
+
+test('dependency closure rejects missing extras, duplicate keys, and non-canonical missing order', () => {
+  const sets = { tcp: { quick: [], standard: [], full: [] }, udp: { quick: [], standard: [], full: [] } };
+  snapshot([], sets);
+  const base = {
+    scannerId: 'generated:one', identityKind: 'generated', strategyId: null, strategyRevision: null,
+    source: 'generator', sourcePath: 'generator', protocol: 'tcp', catalogDigest: CATALOG_DIGEST,
+    compilerDigest: COMPILER_DIGEST, compiledTokens: ['--filter-tcp=443'], ordinal: 1,
+    complexity: [0, 0, 0], recommended: false, fullPreset: true, saveRequired: true,
+  };
+  const unavailable = key => ({ key, kind: 'function', id: key, reference: key, available: false, reason: 'missing' });
+  const cases = [
+    { available: false, items: [unavailable('a')], missing: [unavailable('a'), unavailable('extra')], structurallyCompilable: true },
+    { available: false, items: [unavailable('a'), unavailable('a')], missing: [unavailable('a')], structurallyCompilable: true },
+    { available: false, items: [unavailable('a'), unavailable('b')], missing: [unavailable('b'), unavailable('a')], structurallyCompilable: true },
+  ];
+  for (const dependencyClosure of cases) {
+    const result = invoke(`planner.scanner_candidate_canonicalize(${JSON.stringify({ ...base, dependencyClosure })}, ${JSON.stringify(users())})`);
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, 'EINPUT');
+  }
+});
+
+test('target profile must be request-bound, not only share its primary host', () => {
+  const item = entry('one', '--filter-tcp=443');
+  const sets = { tcp: { quick: ['one'], standard: ['one'], full: ['one'] }, udp: { quick: [], standard: [], full: [] } };
+  const base = snapshot([item], sets);
+  for (const targetProfile of [
+    { ...base.targetProfile, testHosts: ['unrelated.example', 'example.com'] },
+    { ...base.targetProfile, probeUrl: 'https://unrelated.example/' },
+  ]) {
+    const forged = { ...base, targetProfile };
+    const envelopeDigest = invoke(`planner.scanner_snapshot_digest(${JSON.stringify(forged)})`);
+    forged.authority = { ...base.authority, catalogEnvelopeDigest: envelopeDigest,
+      catalog: { ...base.authority.catalog, catalogEnvelopeDigest: envelopeDigest } };
+    const result = invoke(`planner.scanner_plan_build(${JSON.stringify(request('quick'))}, ${JSON.stringify(forged)}, ${JSON.stringify(users())})`);
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, 'EVERIFY');
+  }
+});
+
+test('catalog, policy, profile, environment, generator, and user record contents are digest-bound', () => {
+  const item = entry('one', '--filter-tcp=443');
+  const sets = { tcp: { quick: ['one'], standard: ['one'], full: ['one'] }, udp: { quick: [], standard: [], full: [] } };
+  const trusted = snapshot([item], sets, { compilerEnvironment: { listMode: 'none' } });
+  const trustedUsers = users([{ id: 'u', revision: 1, name: 'u', origin: 'user', profiles: [{ id: 'p', args: '--filter-tcp=443', enabled: true }] }]);
+  const cases = [
+    { catalog: { ...trusted, winners: { one: { ...item, args: '--filter-tcp=80' } } }, users: trustedUsers },
+    { catalog: { ...trusted, policy: { useGenerated: true } }, users: trustedUsers },
+    { catalog: { ...trusted, targetProfile: { ...trusted.targetProfile, probeUrl: 'https://evil.example/' } }, users: trustedUsers },
+    { catalog: { ...trusted, compilerEnvironment: { listMode: 'hostlist' } }, users: trustedUsers },
+    { catalog: trusted, users: { ...trustedUsers, strategies: [{ ...trustedUsers.strategies[0], name: 'replaced' }] } },
+  ];
+  for (const value of cases) {
+    const result = invoke(`planner.scanner_plan_build(${JSON.stringify(request('quick'))}, ${JSON.stringify(value.catalog)}, ${JSON.stringify(value.users)})`);
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, 'EVERIFY');
+  }
+});
+
+test('generated records are digest-bound and DPI filtering preserves Avatar trick exceptions', () => {
+  const entries = [
+    { ...entry('pure-split', '--lua-split=pos=1'), level: 'advanced' },
+    { ...entry('pure-oob', '--oob=1'), level: 'advanced' },
+    { ...entry('basic-trick', '--lua-desync=pass --comment=basic'), level: 'basic', sourceFile: 'basic/tcp.txt' },
+    entry('irrelevant', '--lua-desync=pass'),
+  ];
+  const sets = { tcp: { quick: entries.map(x => x.id), standard: entries.map(x => x.id), full: entries.map(x => x.id) }, udp: { quick: [], standard: [], full: [] } };
+  const base = snapshot(entries, sets, { policy: { useGenerated: true }, generator: generatedInput([{ id: 'gen', protocol: 'tcp', args: '--filter-l7=tls --lua-desync=fake' }]) });
+  const forged = { ...base, generator: { ...base.generator, candidates: [{ ...base.generator.candidates[0], id: 'replaced' }] } };
+  const rejected = invoke(`planner.scanner_plan_build(${JSON.stringify(request('standard'))}, ${JSON.stringify(forged)}, ${JSON.stringify(users())})`);
+  assert.equal(rejected.ok, false);
+  assert.equal(rejected.error.code, 'EVERIFY');
+  const filtered = invoke(`planner.scanner_plan_build(${JSON.stringify(request('quick', 'tcp', 'tls_dpi'))}, ${JSON.stringify(snapshot(entries, sets))}, ${JSON.stringify(users())})`).plan;
+  assert.deepEqual(filtered.candidates.map(x => x.strategyId), ['pure-oob', 'pure-split', 'basic-trick']);
 });
 
 test('final ordinals are contiguous after authoritative-order deduplication', () => {
-  const first = { ...entry('z-section', '--filter-tcp=443 --name=z'), sourceFile: 'a.txt', sourceOrdinal: 20, effectiveOrdinal: 9 };
-  const second = { ...entry('a-section', '--filter-tcp=443 --name=a'), sourceFile: 'a.txt', sourceOrdinal: 10, effectiveOrdinal: 3 };
+  const first = { ...entry('z-section', '--filter-tcp=443 --name=same'), sourceFile: 'a.txt', sourceOrdinal: 20, effectiveOrdinal: 9 };
+  const second = { ...entry('a-section', '--filter-tcp=443 --name=other'), sourceFile: 'a.txt', sourceOrdinal: 10, effectiveOrdinal: 3 };
   const sets = { tcp: { quick: ['z-section', 'a-section'], standard: ['z-section', 'a-section'], full: ['z-section', 'a-section'] }, udp: { quick: [], standard: [], full: [] } };
   const plan = invoke(`planner.scanner_plan_build(${JSON.stringify(request('full'))}, ${JSON.stringify(snapshot([first, second], sets))}, ${JSON.stringify(users())})`).plan;
   assert.deepEqual(plan.candidates.map(candidate => candidate.strategyId), ['a-section', 'z-section']);

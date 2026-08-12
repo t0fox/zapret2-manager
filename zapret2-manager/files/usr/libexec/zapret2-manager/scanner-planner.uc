@@ -11,6 +11,7 @@ import { strategy_candidate, strategy_compiler_authority } from './strategy-comp
 
 const AUTHORITY_MARKER = 'z2m-scanner-authority.v1';
 const GENERATOR_MARKER = 'z2m-scanner-generator.v1';
+const AUTHORITATIVE_CATALOG_DIGEST = '5978d35bfc0b73caaae658124874e24619b1f448e673ec09fd7c5d4dd8c3dda1';
 const AUTHORITATIVE_CATALOG_REPOSITORY = 'avatarDD/zapret-gui';
 const AUTHORITATIVE_CATALOG_COMMIT = 'f9dd3ea47a2239514f396a843b475c92c33f0b4c';
 
@@ -224,7 +225,7 @@ function candidate_sort_key(candidate) {
 	return [candidate.fullPreset == true ? 0 : (candidate.recommended == true ? 1 : 2),
 		candidate.complexity, candidate.sourcePath || '', integer_value(candidate.sourceOrdinal),
 		integer_value(candidate.sectionOrdinal), integer_value(candidate.effectiveOrdinal),
-		candidate.strategyId || '', integer_value(candidate.catalogOrder)];
+		candidate.strategyId || candidate.scannerId || '', integer_value(candidate.catalogOrder)];
 }
 
 function compare_candidates(a, b) {
@@ -445,14 +446,29 @@ function dependency_closure(value) {
 			|| !is_string(item.reason)) return null;
 	}
 	let missing = {}, unavailable = false;
-	for (let i = 0; i < length(source.missing); i++) missing[source.missing[i].key] = true;
+	for (let i = 0; i < length(source.missing); i++) {
+		if (missing[source.missing[i].key]) return null;
+		missing[source.missing[i].key] = source.missing[i];
+	}
+	let itemKeys = {};
 	for (let i = 0; i < length(source.items); i++) {
 		let item = source.items[i];
+		if (itemKeys[item.key]) return null;
+		itemKeys[item.key] = true;
 		if (!item.available) {
 			unavailable = true;
 			if (!missing[item.key]) return null;
+			if (sprintf('%J', missing[item.key]) != sprintf('%J', item)) return null;
 		}
+		else if (missing[item.key]) return null;
 	}
+	let missingIndex = 0;
+	for (let i = 0; i < length(source.items); i++) if (!source.items[i].available) {
+		if (missingIndex >= length(source.missing)
+			|| source.missing[missingIndex].key != source.items[i].key) return null;
+		missingIndex++;
+	}
+	if (missingIndex != length(source.missing)) return null;
 	if (source.available == unavailable || source.structurallyCompilable != true) return null;
 	return {
 		available: source.available, items: copy(source.items), missing: copy(source.missing),
@@ -528,6 +544,8 @@ function generated_identity(candidate, existingStrategies, environment) {
 		|| existingStrategies.authority.catalog.commit != AUTHORITATIVE_CATALOG_COMMIT
 		|| existingStrategies.authority.catalog.catalogDigest != existingStrategies.authority.catalogDigest
 		|| existingStrategies.authority.catalog.catalogEnvelopeDigest != existingStrategies.authority.catalogEnvelopeDigest
+		|| sprintf('%J', existingStrategies.authority.records) != sprintf('%J', existingStrategies.strategies)
+		|| existingStrategies.authority.recordsDigest != sha256_text(sprintf('%J', existingStrategies.strategies))
 		|| candidate.compilerDigest != compiler_digest()
 		|| candidate.catalogDigest != existingStrategies.authority.catalogDigest
 		|| existingStrategies.authority.compilerDigest != compiler_digest())
@@ -596,10 +614,15 @@ function candidate_from_strategy(strategy, protocol, source, sourcePath, ordinal
 		fullPreset: full,
 		saveRequired: generated,
 	};
-	candidate.sourceOrdinal = integer_value(strategy.sourceOrdinal);
+	candidate.sourceOrdinal = integer_value(strategy.sourceOrdinal != null ? strategy.sourceOrdinal
+		: (is_object(generatedInput) && generatedInput.sourceOrdinal != null ? generatedInput.sourceOrdinal
+			: source_metadata(generatedInput, 'sourceOrdinal', 0)));
 	candidate.sectionOrdinal = integer_value(strategy.sectionOrdinal != null ? strategy.sectionOrdinal
-		: source_metadata(strategy, 'sectionOrdinal', 0));
-	candidate.effectiveOrdinal = integer_value(strategy.effectiveOrdinal);
+		: (is_object(generatedInput) && generatedInput.sectionOrdinal != null ? generatedInput.sectionOrdinal
+			: source_metadata(generatedInput, 'sectionOrdinal', 0)));
+	candidate.effectiveOrdinal = integer_value(strategy.effectiveOrdinal != null ? strategy.effectiveOrdinal
+		: (is_object(generatedInput) && generatedInput.effectiveOrdinal != null ? generatedInput.effectiveOrdinal
+			: source_metadata(generatedInput, 'effectiveOrdinal', 0)));
 	candidate.catalogOrder = ordinal;
 	if (generated) {
 		let identity = generated_identity(candidate, existingStrategies, environment);
@@ -622,7 +645,10 @@ function dpi_keep(candidate, dpi) {
 	let text = candidate_text(candidate), hasMust = false;
 	for (let i = 0; i < length(rule.must); i++) if (index(text, rule.must[i]) >= 0) { hasMust = true; break; }
 	let trick = starts_with(candidate.sourcePath || '', 'basic/')
-		|| starts_with(candidate.sourcePath || '', 'direct/');
+		|| starts_with(candidate.sourcePath || '', 'direct/')
+		|| starts_with(candidate.sourcePath || '', 'builtin/')
+		|| ((index(text, 'split') >= 0 || index(text, 'disorder') >= 0 || index(text, 'oob') >= 0)
+			&& index(text, 'desync') < 0);
 	if (length(rule.must) > 0 && !hasMust && !candidate.fullPreset && !trick) return false;
 	for (let i = 0; i < length(rule.bad); i++) if (index(text, rule.bad[i]) >= 0) return false;
 	return true;
@@ -658,10 +684,21 @@ function catalog_aggregate_digest(catalog) {
 function catalog_envelope_digest(catalog) {
 	if (!is_object(catalog)) return null;
 	let envelope = { source: catalog.source, aggregateDigest: catalog.aggregateDigest,
-		files: catalog.files, winnerOrder: catalog.winnerOrder, sets: catalog.sets, winners: catalog.winners };
+		files: catalog.files, winnerOrder: catalog.winnerOrder, sets: catalog.sets, winners: catalog.winners,
+		targetProfile: catalog.targetProfile, compilerEnvironment: catalog.compilerEnvironment,
+		policy: catalog.policy };
 	let digest = sha256_text(sprintf('%J', envelope));
 	return valid_digest(digest) ? digest : null;
 }
+
+export const scanner_snapshot_digest = function(catalog) { return catalog_envelope_digest(catalog); };
+export const scanner_snapshot_canonical = function(catalog) {
+	return sprintf('%J', { source: catalog.source, aggregateDigest: catalog.aggregateDigest,
+		files: catalog.files, winnerOrder: catalog.winnerOrder, sets: catalog.sets, winners: catalog.winners,
+		targetProfile: catalog.targetProfile, compilerEnvironment: catalog.compilerEnvironment,
+		policy: catalog.policy });
+};
+export const scanner_records_digest = function(records) { return sha256_text(sprintf('%J', records)); };
 
 function target_profile_valid(profile) {
 	return is_object(profile) && is_string(profile.profileKey) && is_string(profile.primaryHost)
@@ -673,24 +710,30 @@ function target_profile_valid(profile) {
 function authority_valid(catalog) {
 	let compilerDigest = compiler_digest();
 	let envelopeDigest = catalog_envelope_digest(catalog);
+	if (is_object(catalog) && is_object(catalog.authority) && catalog.authority.catalogEnvelopeDigest != envelopeDigest)
+		return false;
 	return is_object(catalog) && catalog.serverOwned == true && is_object(catalog.authority)
 		&& catalog_aggregate_digest(catalog) == catalog.aggregateDigest
+		&& catalog.aggregateDigest == AUTHORITATIVE_CATALOG_DIGEST
 		&& catalog.authority.marker == AUTHORITY_MARKER
 		&& catalog.authority.repository == AUTHORITATIVE_CATALOG_REPOSITORY
 		&& catalog.authority.commit == AUTHORITATIVE_CATALOG_COMMIT
 		&& catalog.authority.catalogDigest == catalog.aggregateDigest
-		&& valid_digest(catalog.authority.catalogEnvelopeDigest)
+		&& catalog.authority.catalogEnvelopeDigest == envelopeDigest
 		&& is_object(catalog.authority.catalog)
 		&& catalog.authority.catalog.serverOwned == true
 		&& catalog.authority.catalog.marker == 'z2m-scanner-catalog.v1'
 		&& catalog.authority.catalog.repository == AUTHORITATIVE_CATALOG_REPOSITORY
 		&& catalog.authority.catalog.commit == AUTHORITATIVE_CATALOG_COMMIT
 		&& catalog.authority.catalog.catalogDigest == catalog.aggregateDigest
-		&& catalog.authority.catalog.catalogEnvelopeDigest == catalog.authority.catalogEnvelopeDigest
+		&& catalog.authority.catalog.catalogEnvelopeDigest == envelopeDigest
 		&& sprintf('%J', catalog.authority.catalog.source) == sprintf('%J', catalog.source)
 		&& sprintf('%J', catalog.authority.catalog.winnerOrder) == sprintf('%J', catalog.winnerOrder)
 		&& sprintf('%J', catalog.authority.catalog.sets) == sprintf('%J', catalog.sets)
 		&& sprintf('%J', catalog.authority.catalog.winners) == sprintf('%J', catalog.winners)
+		&& sprintf('%J', catalog.authority.catalog.targetProfile) == sprintf('%J', catalog.targetProfile)
+		&& sprintf('%J', catalog.authority.catalog.compilerEnvironment) == sprintf('%J', catalog.compilerEnvironment)
+		&& sprintf('%J', catalog.authority.catalog.policy) == sprintf('%J', catalog.policy)
 		&& catalog.authority.compilerDigest == compilerDigest
 		&& catalog.compilerDigest == compilerDigest;
 }
@@ -704,6 +747,8 @@ function generator_valid(catalog) {
 		&& catalog.generator.authority.catalogDigest == catalog.aggregateDigest
 		&& catalog.generator.authority.catalogEnvelopeDigest == catalog.authority.catalogEnvelopeDigest
 		&& sprintf('%J', catalog.generator.authority.catalog) == sprintf('%J', catalog.authority.catalog)
+		&& sprintf('%J', catalog.generator.authority.records) == sprintf('%J', catalog.generator.candidates)
+		&& catalog.generator.authority.recordsDigest == sha256_text(sprintf('%J', catalog.generator.candidates))
 		&& catalog.generator.authority.compilerDigest == compilerDigest
 		&& type(catalog.generator.candidates) == 'array';
 }
@@ -736,6 +781,9 @@ function user_records_valid(value, catalog) {
 		&& value.authority.catalog.commit == catalog.authority.catalog.commit
 		&& value.authority.catalog.catalogDigest == catalog.authority.catalog.catalogDigest
 		&& value.authority.catalog.catalogEnvelopeDigest == catalog.authority.catalogEnvelopeDigest
+		&& sprintf('%J', value.authority.catalog) == sprintf('%J', catalog.authority.catalog)
+		&& sprintf('%J', value.authority.records) == sprintf('%J', value.strategies)
+		&& value.authority.recordsDigest == sha256_text(sprintf('%J', value.strategies))
 		&& value.authority.compilerDigest == compilerDigest
 		&& type(value.strategies) == 'array' && records_shape_valid(value.strategies, false);
 }
@@ -749,13 +797,15 @@ function profile_matches_request(profile, request) {
 	if (substr(primary, -1) == '.') primary = substr(primary, 0, length(primary) - 1);
 	if (lower(profile.primaryHost) != primary || length(profile.testHosts) == 0
 		|| length(profile.hostlistDomains) == 0 || profile.probeUrl == '') return false;
+	if (lower(profile.testHosts[0]) != primary || profile.probeUrl != 'https://' + primary + '/') return false;
 	for (let i = 0; i < length(profile.testHosts); i++) if (!valid_hostname(profile.testHosts[i])) return false;
 	for (let i = 0; i < length(profile.hostlistDomains); i++) if (!valid_hostname(profile.hostlistDomains[i])) return false;
 	for (let i = 0; i < length(profile.expectedHostlists); i++) if (!is_string(profile.expectedHostlists[i])) return false;
 	let protocol = request.protocol == 'udp' ? profile.udp : profile.tcp;
-	return is_object(protocol) && is_string(protocol.ports) && is_string(protocol.l7)
+	if (!(is_object(protocol) && is_string(protocol.ports) && is_string(protocol.l7)
 		&& is_string(protocol.payload)
-		&& (request.protocol == 'udp' ? protocol.l7 == 'quic' : protocol.l7 == 'tls');
+		&& (request.protocol == 'udp' ? protocol.l7 == 'quic' : protocol.l7 == 'tls'))) return false;
+	return true;
 }
 
 export const scanner_plan_build = function(request, catalogSnapshot, userStrategies) {
@@ -773,8 +823,9 @@ export const scanner_plan_build = function(request, catalogSnapshot, userStrateg
 			catalog: { serverOwned: true, marker: 'z2m-scanner-catalog.v1',
 				repository: AUTHORITATIVE_CATALOG_REPOSITORY, commit: AUTHORITATIVE_CATALOG_COMMIT,
 				catalogDigest: catalog.aggregateDigest, catalogEnvelopeDigest: catalog_envelope_digest(catalog),
-				source: catalog.source, winnerOrder: catalog.winnerOrder, sets: catalog.sets,
-				winners: catalog.winners } };
+				source: copy(catalog.source), winnerOrder: copy(catalog.winnerOrder),
+				sets: copy(catalog.sets), winners: copy(catalog.winners), targetProfile: copy(catalog.targetProfile),
+				compilerEnvironment: copy(catalog.compilerEnvironment), policy: copy(catalog.policy) } };
 		catalog.compilerDigest = compiler_digest();
 	}
 	if (!authority_valid(catalog)) return error_result('EVERIFY', 'Scanner Catalog/compiler authority is unavailable or stale.');
@@ -785,7 +836,9 @@ export const scanner_plan_build = function(request, catalogSnapshot, userStrateg
 		users = { serverOwned: true, authority: { marker: AUTHORITY_MARKER,
 			repository: AUTHORITATIVE_CATALOG_REPOSITORY, commit: AUTHORITATIVE_CATALOG_COMMIT,
 			catalogDigest: catalog.aggregateDigest, compilerDigest: compiler_digest(),
-			catalogEnvelopeDigest: catalog.authority.catalogEnvelopeDigest, catalog: catalog.authority.catalog }, strategies: listed.strategies };
+			catalogEnvelopeDigest: catalog.authority.catalogEnvelopeDigest, catalog: catalog.authority.catalog,
+			records: copy(listed.strategies), recordsDigest: sha256_text(sprintf('%J', listed.strategies)) },
+			strategies: listed.strategies };
 	}
 	if (!user_records_valid(users, catalog)) return error_result('EVERIFY', 'Scanner user Strategies must be server-owned records.');
 	let profile = target_profile_valid(catalog.targetProfile) ? copy(catalog.targetProfile) : null;
