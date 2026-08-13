@@ -193,7 +193,7 @@ function outputTargetExists(files, pathname) {
     || (clean === '' && files.includes('index.html'))
 }
 
-async function removeBrokenPublicLinks(output) {
+async function patchPublicInternalLinks(output) {
   const files = await listOutputFiles(output)
   for (const relativeFile of files.filter((file) => file.endsWith('.html'))) {
     const fullPath = path.join(output, relativeFile)
@@ -216,7 +216,7 @@ async function quartz(mode) {
   await run(quartzCommand([]).command, [...quartzCommand([]).args, 'build', '-d', DOCS_PATH, '-o', output], { cwd: QUARTZ_PATH })
   if (mode === 'public') {
     await patchPublicRuntimePaths(output)
-    await removeBrokenPublicLinks(output)
+    await patchPublicInternalLinks(output)
   }
   return output
 }
