@@ -62,11 +62,22 @@ case "${1:-verify}" in
     ;;
   build)
     bootstrap_quartz
-    echo "Building Quartz production site from docs/..."
-    pushd "$QUARTZ_DIR" >/dev/null
-    npx quartz build -d "$DOCS_DIR"
-    popd >/dev/null
-    echo "Build complete. Output in $QUARTZ_DIR/public"
+    MODE="${2:-public}"
+    if [[ "$MODE" == "internal" ]]; then
+      echo "Building INTERNAL (full vault) site from docs/..."
+      cp "$WORKTREE_ROOT/tools/docs-site/quartz.config.internal.ts" "$QUARTZ_DIR/quartz.config.ts"
+      pushd "$QUARTZ_DIR" >/dev/null
+      npx quartz build -d "$DOCS_DIR"
+      popd >/dev/null
+      echo "Internal build complete. Output in $QUARTZ_DIR/public"
+    else
+      echo "Building PUBLIC site from docs/..."
+      cp "$WORKTREE_ROOT/tools/docs-site/quartz.config.ts" "$QUARTZ_DIR/quartz.config.ts"
+      pushd "$QUARTZ_DIR" >/dev/null
+      npx quartz build -d "$DOCS_DIR"
+      popd >/dev/null
+      echo "Public build complete. Output in $QUARTZ_DIR/public"
+    fi
     ;;
   clean)
     if [[ -d "$ARTIFACTS_DIR" ]]; then
