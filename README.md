@@ -19,8 +19,8 @@ The repository is intentionally kept small and current. Historical implementatio
 
 The current compatibility contracts are:
 
-- `docs/contracts/native-backend-v1.md`
-- `docs/contracts/z2m-canonical-json-v1.md`
+- `docs/04-contracts/native-backend-v1.md`
+- `docs/04-contracts/z2m-canonical-json-v1.md`
 
 ## Build
 
@@ -60,3 +60,10 @@ Large implementation experiments and recovery history belong on dedicated backup
 ## License
 
 MIT. See `LICENSE`.
+
+## Knowledge Base
+
+- Open repository root as Obsidian vault
+- One-command local site: `scripts/docs.ps1 serve`
+- Run knowledge validation: `node scripts/validate-knowledge.mjs`
+- Public docs: (placeholder until deployment active)

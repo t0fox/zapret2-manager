@@ -1,0 +1,37 @@
+name: Knowledge CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  knowledge-ci:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup deterministic Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+
+      - name: Metadata + link + authority + legacy validation
+        run: node scripts/validate-knowledge.mjs
+
+      - name: Quartz public production build
+        run: |
+          node scripts/docs.mjs build --public --production
+
+      - name: Post-build privacy/leak smoke test
+        run: node tests/knowledge/public-leak.test.mjs
