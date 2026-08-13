@@ -1,5 +1,5 @@
 ﻿---
-id: template-handoff
+id: ai-handoff-template
 title: "Handoff Template"
 type: template
 status: normative

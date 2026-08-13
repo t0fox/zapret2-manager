@@ -1,3 +1,14 @@
+---
+id: spec-native-state-storage-foundation
+title: "Native State and Storage Foundation Design"
+type: spec
+status: planned
+authority: approved-spec
+updated: 2026-08-13
+publish: false
+tags: [spec, native, state, storage]
+---
+
 # Native State and Storage Foundation Design
 
 Date: 2026-08-08

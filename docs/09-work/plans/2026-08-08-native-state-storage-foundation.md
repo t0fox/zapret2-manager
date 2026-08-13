@@ -1,3 +1,14 @@
+---
+id: plan-native-state-storage-foundation
+title: "Native State and Storage Foundation Implementation Plan"
+type: plan
+status: planned
+authority: approved-spec
+updated: 2026-08-13
+publish: false
+tags: [plan, native, state, storage]
+---
+
 # Native State and Storage Foundation Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

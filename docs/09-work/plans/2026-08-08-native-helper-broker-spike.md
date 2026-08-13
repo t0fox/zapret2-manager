@@ -1,3 +1,14 @@
+---
+id: plan-native-helper-broker-spike
+title: "Native Helper Broker Spike Implementation Plan"
+type: plan
+status: planned
+authority: approved-spec
+updated: 2026-08-13
+publish: false
+tags: [plan, native, helper, broker]
+---
+
 # Native Helper Broker Spike Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

@@ -1,3 +1,14 @@
+---
+id: plan-avatar-strategy-catalog-parity
+title: "Avatar Strategy Catalog Parity Implementation Plan"
+type: plan
+status: planned
+authority: approved-spec
+updated: 2026-08-13
+publish: false
+tags: [plan, strategy, catalog, parity]
+---
+
 # Avatar Strategy Catalog Parity Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use

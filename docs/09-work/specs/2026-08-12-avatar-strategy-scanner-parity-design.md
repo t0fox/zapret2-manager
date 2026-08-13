@@ -1,3 +1,14 @@
+---
+id: spec-avatar-strategy-scanner-parity
+title: "Avatar-Compatible Strategy Scanner Parity Design"
+type: spec
+status: planned
+authority: approved-spec
+updated: 2026-08-13
+publish: false
+tags: [spec, scanner, strategy, parity]
+---
+
 # Avatar-Compatible Strategy Scanner Parity Design
 
 **Date:** 2026-08-12

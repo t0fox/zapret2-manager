@@ -1,3 +1,14 @@
+---
+id: plan-avatar-strategy-scanner-parity
+title: "Avatar-Compatible Strategy Scanner Implementation Plan"
+type: plan
+status: planned
+authority: approved-spec
+updated: 2026-08-13
+publish: false
+tags: [plan, scanner, strategy, parity]
+---
+
 # Avatar-Compatible Strategy Scanner Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

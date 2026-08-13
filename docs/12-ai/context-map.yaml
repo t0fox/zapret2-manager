@@ -11,29 +11,27 @@ updated: 2026-08-13
 
 scanner:
   code:
-    - "zapret2-manager/src/scanner/**/*"
-    - "zapret2-manager-full/src/scanner/**/*"
+    - "zapret2-manager/files/usr/libexec/zapret2-manager/scanner-*"
   tests:
-    - "tests/fixtures/avatar-strategy-scanner/**/*"
-    - "tests/product/scanner.test.*"
+    - "tests/product/avatar-strategy-scanner-*.test.mjs"
   required_docs:
+    - "docs/03-products/scanner/index.md"
     - "docs/05-parity/avatar-parity.md"
     - "docs/07-decisions/adr-001-avatar-parity-law.md"
   contracts:
     - "docs/04-contracts/z2m-canonical-json-v1.md"
   parity_references:
     - "docs/05-parity/avatar-parity.md"
-  active_spec: "docs/superpowers/specs/avatar-strategy-scanner-parity.md"
-  active_plan: "docs/superpowers/plans/2026-08-12-avatar-strategy-scanner-parity.md"
+  active_spec: "docs/09-work/specs/2026-08-12-avatar-strategy-scanner-parity-design.md"
+  active_plan: "docs/09-work/plans/2026-08-12-avatar-strategy-scanner-parity.md"
 
 strategy:
   code:
-    - "zapret2-manager/src/strategy/**/*"
-    - "zapret2-manager-full/src/strategy/**/*"
+    - "zapret2-manager/files/usr/libexec/zapret2-manager/strategy-*"
   tests:
-    - "tests/fixtures/avatar-strategy/**/*"
-    - "tests/product/strategy.test.*"
+    - "tests/product/avatar-strategy-*.test.mjs"
   required_docs:
+    - "docs/03-products/strategy/index.md"
     - "docs/05-parity/avatar-parity.md"
     - "docs/07-decisions/adr-001-avatar-parity-law.md"
     - "docs/07-decisions/adr-005-strategy-apply-authority.md"
@@ -46,12 +44,11 @@ strategy:
 
 blockcheck:
   code:
-    - "zapret2-manager/src/blockcheck/**/*"
-    - "zapret2-manager-full/src/blockcheck/**/*"
-    - "scripts/blockcheck*"
+    - "zapret2-manager/files/usr/libexec/zapret2-manager/blockcheck-*"
   tests:
-    - "tests/product/blockcheck.test.*"
+    - "tests/product/avatar-strategy-characterization.test.mjs"
   required_docs:
+    - "docs/03-products/index.md"
     - "docs/07-decisions/adr-002-blockcheck-execution-boundary.md"
     - "docs/07-decisions/adr-004-blockcheckw-version-policy.md"
   contracts:
@@ -62,11 +59,11 @@ blockcheck:
 
 deep-search:
   code:
-    - "zapret2-manager/src/deep-search/**/*"
-    - "zapret2-manager-full/src/deep-search/**/*"
+    - "zapret2-manager/files/usr/libexec/zapret2-manager/*.uc"
   tests:
-    - "tests/product/deep-search.test.*"
+    - "tests/product/*.test.mjs"
   required_docs:
+    - "docs/03-products/deep-search/index.md"
     - "docs/07-decisions/adr-003-deep-search-dual-engine.md"
   contracts: []
   parity_references: []
@@ -75,12 +72,12 @@ deep-search:
 
 dns:
   code:
-    - "zapret2-manager/src/dns/**/*"
-    - "zapret2-manager-full/src/dns/**/*"
-    - "luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/*dns*"
+    - "zapret2-manager/files/usr/libexec/zapret2-manager/dns*.uc"
+    - "zapret2-manager/files/usr/libexec/zapret2-manager/service-dns*.uc"
   tests:
-    - "tests/product/dns.test.*"
-  required_docs: []
+    - "tests/native/core/state-store.test.mjs"
+  required_docs:
+    - "docs/03-products/index.md"
   contracts: []
   parity_references: []
   active_spec: null
@@ -88,12 +85,11 @@ dns:
 
 routing:
   code:
-    - "zapret2-manager/src/routing/**/*"
-    - "zapret2-manager-full/src/routing/**/*"
-    - "luci-app-zapret2-manager/files/usr/share/luci/menu.d/*routing*"
+    - "zapret2-manager/files/usr/libexec/zapret2-manager/domain-hub*.uc"
   tests:
-    - "tests/product/routing.test.*"
-  required_docs: []
+    - "tests/product/profiles-model.test.mjs"
+  required_docs:
+    - "docs/03-products/index.md"
   contracts: []
   parity_references: []
   active_spec: null
@@ -101,12 +97,11 @@ routing:
 
 telegram:
   code:
-    - "tg-ws-proxy-go/**/*"
-    - "tg-ws-proxy-rs/**/*"
-    - "zapret2-manager/src/telegram/**/*"
+    - "zapret2-manager/files/usr/libexec/zapret2-manager/*.uc"
   tests:
-    - "tests/product/telegram.test.*"
-  required_docs: []
+    - "tests/product/avatar-strategy-characterization.test.mjs"
+  required_docs:
+    - "docs/03-products/index.md"
   contracts: []
   parity_references: []
   active_spec: null
@@ -114,11 +109,11 @@ telegram:
 
 tunnels:
   code:
-    - "zapret2-manager/src/tunnels/**/*"
-    - "zapret2-manager-full/src/tunnels/**/*"
+    - "zapret2-manager/files/usr/libexec/zapret2-manager/proxy*.uc"
   tests:
-    - "tests/product/tunnels.test.*"
-  required_docs: []
+    - "tests/product/avatar-strategy-scanner-probes.test.mjs"
+  required_docs:
+    - "docs/03-products/index.md"
   contracts: []
   parity_references: []
   active_spec: null

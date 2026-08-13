@@ -1,3 +1,14 @@
+---
+id: spec-profiles-product-slice
+title: "Profiles Product Slice Design"
+type: spec
+status: planned
+authority: approved-spec
+updated: 2026-08-13
+publish: false
+tags: [spec, profiles, product]
+---
+
 # Profiles Product Slice Design
 
 **Date:** 2026-08-10  

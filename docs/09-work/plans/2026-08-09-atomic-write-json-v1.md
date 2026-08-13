@@ -1,3 +1,14 @@
+---
+id: plan-atomic-write-json-v1
+title: "atomic_write_json v1 Implementation Plan"
+type: plan
+status: planned
+authority: approved-spec
+updated: 2026-08-13
+publish: false
+tags: [plan, native, json, atomic-write]
+---
+
 # atomic_write_json v1 Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
