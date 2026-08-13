@@ -473,8 +473,9 @@ expanding the Task 5 or Task 7 boundaries:
 
 Focused latest verification:
 
-- Product Scanner worker/probe/integration suites: **72 passed, 0 failed**.
-- Native helper/protocol/scanner suites: **56 passed, 0 failed**.
+- Product Scanner worker/probe suites: **65 passed, 0 failed**; planner generic
+  dependency regression: **1 passed, 0 failed**.
+- Native helper/protocol/scanner suites: **21 passed, 0 failed**.
 
 Task 5 remains `EUNSUPPORTED` for production compare-delete. Task 7 remains a
 non-terminal reconciliation dependency. No permanent config/Strategy/raw

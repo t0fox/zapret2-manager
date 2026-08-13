@@ -92,7 +92,7 @@ function probe_candidate(candidate, plan, baseline, seams, outerDeadline) {
 	if (raw == null) {
 		let now = int(time() * 1000), end = outerDeadline < now + PROBE_BUDGET_MS ? outerDeadline : now + PROBE_BUDGET_MS;
 		if (candidate.protocol == 'udp') {
-			let adapted = scanner_probe_adapter_udp(candidate, plan.targetProfile, { nowMs: now, deadlineMs: end, mode: plan.request.mode, cancelToken: plan.request.cancelToken, profileDigest: state.scanner_state_digest(plan.targetProfile) });
+			let adapted = scanner_probe_adapter_udp(candidate, plan.targetProfile, { nowMs: now, deadlineMs: end, mode: plan.request.mode, cancelToken: lifecycle?.record?.id, profileDigest: state.scanner_state_digest(plan.targetProfile) });
 			if (!adapted.ok) return scanner_candidate_verdict({ infrastructureFailure: true, error: adapted.error?.message }, []);
 			let executed = seam(seams, 'executor') || scanner_probe_execute(adapted);
 			if (!executed.ok) return { ok: false, error: executed.error || { code: 'EDEPENDENCY', message: 'Probe dependency failed.' } };
@@ -104,7 +104,7 @@ function probe_candidate(candidate, plan, baseline, seams, outerDeadline) {
 			let hosts = [];
 			for (let family in families) {
 				if (family != 'ipv4' && family != 'ipv6') return scanner_candidate_verdict({ infrastructureFailure: true, error: 'INVALID_ADDRESS_FAMILY' }, []);
-				let adapted = scanner_probe_adapter_tcp(candidate, plan.targetProfile, family, { nowMs: int(time() * 1000), deadlineMs: end, mode: plan.request.mode, cancelToken: plan.request.cancelToken, profileDigest: state.scanner_state_digest(plan.targetProfile) });
+				let adapted = scanner_probe_adapter_tcp(candidate, plan.targetProfile, family, { nowMs: int(time() * 1000), deadlineMs: end, mode: plan.request.mode, cancelToken: lifecycle?.record?.id, profileDigest: state.scanner_state_digest(plan.targetProfile) });
 				if (!adapted.ok) return scanner_candidate_verdict({ infrastructureFailure: true, error: adapted.error?.message }, []);
 				let executed = seam(seams, 'executor') || scanner_probe_execute(adapted);
 				if (!executed.ok) return { ok: false, error: executed.error || { code: 'EDEPENDENCY', message: 'Probe dependency failed.' } };
@@ -155,6 +155,15 @@ function finish(record, session, seams, transition, message) {
 	catch (exception) {
 		record.status = 'error'; record.phase = 'recovery'; record.recovery = merge_recovery(record.recovery,
 			{ state: 'uncertain', reconciliation: task7_dependency('terminal_checkpoint', exception) });
+		record.error = 'Task 7 reconciliation evidence is required after checkpoint failure.';
+		try { state.scanner_state_save(record); } catch (ignored) { }
+		return { ok: false, state: record, cleanup, recovery: record.recovery };
+	}
+	if (!saved.ok) {
+		let releasedAfterCheckpointFailure = null;
+		try { releasedAfterCheckpointFailure = state.scanner_state_release(record.id, record.worker); } catch (exception) { releasedAfterCheckpointFailure = { ok: false, error: exception }; }
+		record.status = 'error'; record.phase = 'recovery'; record.recovery = merge_recovery(record.recovery,
+			{ state: 'uncertain', activeRelease: releasedAfterCheckpointFailure, sessionCleanup: cleanup, reconciliation: task7_dependency('terminal_checkpoint', saved.error) });
 		record.error = 'Task 7 reconciliation evidence is required after checkpoint failure.';
 		try { state.scanner_state_save(record); } catch (ignored) { }
 		return { ok: false, state: record, cleanup, recovery: record.recovery };
