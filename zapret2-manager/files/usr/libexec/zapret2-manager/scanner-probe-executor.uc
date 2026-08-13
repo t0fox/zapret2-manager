@@ -70,12 +70,13 @@ function chunked_body(raw, start, limit) {
 		if (!match(line, /^[0-9a-fA-F]+$/)) return null;
 		let size = hex(line), data = offset + lineEnd + 2;
 		if (size == 0) {
-			if (substr(raw, data, 2) == '\r\n') return { body, complete: true };
+			if (substr(raw, data, 2) == '\r\n')
+				return data + 2 == length(raw) ? { body, complete: true } : null;
 			let trailerEnd = index(substr(raw, data), '\r\n\r\n');
 			if (trailerEnd < 0) return null;
 			let trailers = substr(raw, data, trailerEnd);
 			if (!trailers_valid(trailers)) return null;
-			return { body, complete: true };
+			return data + trailerEnd + 4 == length(raw) ? { body, complete: true } : null;
 		}
 		if (data + size + 2 > length(raw) || substr(raw, data + size, 2) != '\r\n') return null;
 		if (length(body) < limit) body += substr(raw, data, limit - length(body) < size ? limit - length(body) : size);
@@ -120,7 +121,7 @@ export const scanner_probe_parse_http = function(raw, startedAt, finishedAt, set
 	else {
 		if (headers['content-length'] != null && match(headers['content-length'], /^[0-9]+$/) == null) return indeterminate('HTTP Content-Length is invalid.', { stage: 'parse' });
 		let declared = decimal(headers['content-length']), available = length(raw) - bodyStart;
-		if (declared != null && available < declared && declared <= limit) return indeterminate('HTTP response body is truncated.', { stage: 'parse' });
+		if (declared != null && available < declared && available < limit) return indeterminate('HTTP response body is truncated.', { stage: 'parse' });
 		let wanted = declared == null ? available : (declared < available ? declared : available);
 		body = substr(raw, bodyStart, wanted < limit ? wanted : limit); capped = wanted > limit || length(body) >= limit; complete = declared == null || available >= declared || capped;
 	}
@@ -145,8 +146,20 @@ export const scanner_probe_parse_stun = function(raw, startedAt, finishedAt, set
 	return indeterminate('STUN response has no XOR-mapped IPv4 address.', { stage: 'parse' });
 };
 
-function descriptor_valid(descriptor) { return object(descriptor) && descriptor.authority == AUTHORITY && descriptor.adapterDigest == ADAPTER_DIGEST && object(descriptor.request) && object(descriptor.targetProfile) && string(descriptor.targetProfileDigest); }
+function descriptor_valid(descriptor) {
+	return object(descriptor) && descriptor.authority == AUTHORITY && descriptor.adapterDigest == ADAPTER_DIGEST
+		&& object(descriptor.request) && object(descriptor.targetProfile) && string(descriptor.targetProfileDigest)
+		&& string(descriptor.targetProfile.primaryHost) && object(descriptor.targetProfile.tcp)
+		&& object(descriptor.targetProfile.udp) && type(descriptor.targetProfile.testHosts) == 'array';
+}
 function native_output(result) { try { return b64dec(result.data.content); } catch (e) { return null; } }
+function native_observation_complete(result, raw) {
+	return result?.ok === true && object(result.data) && result.data.complete === true
+		&& type(result.data.byteLength) == 'int' && result.data.byteLength == length(raw)
+		&& type(result.data.exitCode) == 'int' && type(result.data.signal) == 'int'
+		&& type(result.data.startedAt) == 'int' && type(result.data.finishedAt) == 'int'
+		&& result.data.finishedAt >= result.data.startedAt;
+}
 function family_requested(families, family) { for (let item in families || []) if (item == family) return true; return false; }
 function bounded_timeout(request, configured) {
 	if (type(request?.deadlineMs) != 'int') return null;
@@ -155,6 +168,14 @@ function bounded_timeout(request, configured) {
 }
 function native_call(descriptor, request) {
 	return native_scanner_probe(descriptor.authority, descriptor.adapterDigest, descriptor.targetProfileDigest, descriptor.targetProfile, descriptor.candidate, request);
+}
+function native_call_safe(descriptor, request) {
+	try {
+		let result = native_call(descriptor, request);
+		if (!result?.ok && result.error?.code != 'EDEPENDENCY') return failure('EDEPENDENCY', 'Native probe helper returned an infrastructure failure.', { stage: 'transport', helper: result.error });
+		return result;
+	}
+	catch (exception) { return failure('EDEPENDENCY', 'Native probe helper is unavailable.', { stage: 'transport', exception }); }
 }
 
 function native_failure(result, message) {
@@ -172,11 +193,12 @@ export const scanner_probe_execute = function(descriptor) {
 			let timeoutMs = bounded_timeout(request, TLS_TIMEOUT_MS);
 			if (timeoutMs == null) return failure('EDEPENDENCY', 'Probe deadline has expired.', { stage: 'deadline' });
 			let probe = { transport: 'tls', mode: request.mode, retries: request.retries, host: request.host, addressFamily: family, port: request.port, portRange: request.portRange, tls: request.tls, timeoutMs, deadlineMs: request.deadlineMs };
-			result = native_call(descriptor, probe); if (!result.ok) return result;
-			raw = native_output(result); if (raw == null || result.data.complete !== true) return native_failure(result, 'TLS child output is incomplete.');
+			result = native_call_safe(descriptor, probe); if (!result.ok) return result;
+			raw = native_output(result); if (raw == null || !native_observation_complete(result, raw)) return native_failure(result, 'TLS child output is incomplete.');
 			if (result.data.signal != 0 || result.data.exitCode != 0) return native_failure(result, 'TLS child outcome is not a successful transport observation.');
 			let parsed = scanner_probe_parse_http(raw, result.data.startedAt, result.data.finishedAt, { readLimitBytes: TLS_READ_LIMIT });
-			observations[family] = parsed.ok ? { status: 'open', available: true, latencyMs: parsed.observation.latencyMs, startedAt: result.data.startedAt, finishedAt: result.data.finishedAt, error: null } : { status: 'failed', available: true, latencyMs: result.data.finishedAt - result.data.startedAt, startedAt: result.data.startedAt, finishedAt: result.data.finishedAt, error: 'PARSE_ERR' };
+			if (!parsed.ok) return failure('EDEPENDENCY', 'TLS response parsing is indeterminate.', { stage: 'parse', parser: parsed.error });
+			observations[family] = { status: 'open', available: true, latencyMs: parsed.observation.latencyMs, startedAt: result.data.startedAt, finishedAt: result.data.finishedAt, error: null };
 		}
 		return { ok: true, observations: [{ protocol: 'tcp', ipv4: observations.ipv4 || { status: 'skipped', available: false, latencyMs: 0, error: 'NOT_REQUESTED' }, ipv6: observations.ipv6 || { status: 'skipped', available: false, latencyMs: 0, error: 'NOT_REQUESTED' } }] };
 	}
@@ -186,11 +208,11 @@ export const scanner_probe_execute = function(descriptor) {
 			let timeoutMs = bounded_timeout(request, BODY_TIMEOUT_MS);
 			if (timeoutMs == null) return failure('EDEPENDENCY', 'Probe deadline has expired.', { stage: 'deadline' });
 			let probe = { transport: 'tls+body', mode: request.mode, retries: request.retries, host: item.host, addressFamily: item.addressFamily, port: item.port, portRange: item.portRange, url: item.url, tls: request.tls, body: request.body, timeoutMs, deadlineMs: request.deadlineMs };
-			result = native_call(descriptor, probe);
+			result = native_call_safe(descriptor, probe);
 			if (!result.ok) { return result; }
-			raw = native_output(result); if (raw == null || result.data.complete !== true || result.data.signal != 0 || result.data.exitCode != 0) return native_failure(result, 'HTTP child outcome is not usable.');
+			raw = native_output(result); if (raw == null || !native_observation_complete(result, raw) || result.data.signal != 0 || result.data.exitCode != 0) return native_failure(result, 'HTTP child outcome is not usable.');
 			let parsed = scanner_probe_parse_http(raw, result.data.startedAt, result.data.finishedAt, request.body);
-			if (!parsed.ok) { let latency = result.data.finishedAt - result.data.startedAt; push(hosts, { host: item.host, addressFamily: item.addressFamily, startedAt: result.data.startedAt, finishedAt: result.data.finishedAt, tls: { status: 'success', readBytes: TLS_READ_LIMIT, readLimitBytes: TLS_READ_LIMIT, latencyMs: latency }, body: { status: 'failed', error: 'PARSE_ERR', statusCode: 0, bytesReceived: 0, latencyMs: latency, rangeSatisfied: false, complete: false } }); continue; }
+			if (!parsed.ok) return failure('EDEPENDENCY', 'HTTP response parsing is indeterminate.', { stage: 'parse', parser: parsed.error });
 			push(hosts, { host: item.host, addressFamily: item.addressFamily, startedAt: result.data.startedAt, finishedAt: result.data.finishedAt, tls: { status: 'success', readBytes: TLS_READ_LIMIT, readLimitBytes: TLS_READ_LIMIT, latencyMs: parsed.observation.latencyMs }, body: parsed.observation });
 		}
 		return { ok: true, observations: [{ hosts }] };
@@ -200,12 +222,12 @@ export const scanner_probe_execute = function(descriptor) {
 		for (attempts = 1; attempts <= request.retries; attempts++) {
 			let timeoutMs = bounded_timeout(request, STUN_TIMEOUT_MS);
 			if (timeoutMs == null) return failure('EDEPENDENCY', 'Probe deadline has expired.', { stage: 'deadline' });
-			result = native_call(descriptor, { transport: 'stun', mode: request.mode, retries: request.retries, host: request.host, addressFamily: request.addressFamily, port: request.port, portRange: request.portRange, transactionId: request.transactionId || STUN_TRANSACTION_ID, receiveLimitBytes: request.receiveLimitBytes, timeoutMs, deadlineMs: request.deadlineMs }); if (!result.ok) return result;
-			raw = native_output(result); if (raw == null || result.data.complete !== true || result.data.signal != 0 || result.data.exitCode != 0) return native_failure(result, 'STUN child outcome is not usable.');
+			result = native_call_safe(descriptor, { transport: 'stun', mode: request.mode, retries: request.retries, host: request.host, addressFamily: request.addressFamily, port: request.port, portRange: request.portRange, transactionId: request.transactionId || STUN_TRANSACTION_ID, receiveLimitBytes: request.receiveLimitBytes, timeoutMs, deadlineMs: request.deadlineMs }); if (!result.ok) return result;
+			raw = native_output(result); if (raw == null || !native_observation_complete(result, raw) || result.data.signal != 0 || result.data.exitCode != 0) return native_failure(result, 'STUN child outcome is not usable.');
 			let parsed = scanner_probe_parse_stun(raw, result.data.startedAt, result.data.finishedAt, { attempts, transactionId: request.transactionId || STUN_TRANSACTION_ID }, 0x0101); if (parsed.ok) { parsed.observation.startedAt = result.data.startedAt; parsed.observation.finishedAt = result.data.finishedAt; return { ok: true, observations: [parsed.observation] }; }
-			if (attempts == request.retries) return parsed;
+			if (attempts == request.retries) return failure('EDEPENDENCY', 'STUN response parsing is indeterminate.', { stage: 'parse', parser: parsed.error });
 		}
-		return { ok: true, observations: [{ transport: 'stun', status: 'timeout', attempts: request.retries, latencyMs: STUN_TIMEOUT_MS, error: 'TIMEOUT' }] };
+		return failure('EDEPENDENCY', 'STUN response is indeterminate.', { stage: 'transport' });
 	}
 	return failure('EDEPENDENCY', 'Probe transport is not supported by the fixed executor.', { stage: 'descriptor' });
 };

@@ -825,7 +825,7 @@ function profile_matches_authority(profile, authoritative, request) {
 	let protocol = request.protocol == 'udp' ? profile.udp : profile.tcp;
 	if (!(is_object(protocol) && is_string(protocol.ports) && is_string(protocol.l7)
 		&& is_string(protocol.payload)
-		&& (request.protocol == 'udp' ? protocol.l7 == 'quic' : protocol.l7 == 'tls'))) return false;
+		&& (request.protocol == 'udp' ? protocol.l7 == 'stun' && protocol.payload == 'binding' : protocol.l7 == 'tls'))) return false;
 	return true;
 }
 
@@ -927,7 +927,7 @@ export const scanner_plan_build_test = function(request, catalogSnapshot, userSt
 		let target = normalized.value.target;
 		profile = { profileKey: 'generic', primaryHost: target, testHosts: [target], hostlistDomains: [target],
 			expectedHostlists: [], tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' },
-			udp: { ports: '443', l7: 'quic', payload: 'quic_initial' }, probeUrl: 'https://' + target + '/' };
+		udp: { ports: '443', l7: 'stun', payload: 'binding' }, probeUrl: 'https://' + target + '/' };
 	}
 	return scanner_plan_build_pure(request, catalogSnapshot, userStrategies, profile, scanner_compiler_authority());
 };

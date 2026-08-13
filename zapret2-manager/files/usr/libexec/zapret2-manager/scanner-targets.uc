@@ -21,7 +21,7 @@ function normalize_host(value) {
 function copy_array(values) {
 	let result = [];
 	if (type(values) != 'array') return result;
-	for (let i in values) push(result, values[i]);
+	for (let value in values) push(result, value);
 	return result;
 }
 
@@ -59,34 +59,34 @@ const KNOWN = {
 			'youtube-nocookie.com', 'googlevideo.com', 'rr1---sn-axq7sn7s.googlevideo.com', 'ytimg.com',
 			'i.ytimg.com', 'yt3.ggpht.com', 'ggpht.com', 'lh3.googleusercontent.com', 'yt3.googleusercontent.com'],
 		['youtube.txt', 'youtubeGV.txt', 'youtubeQ.txt', 'youtube_v2.txt'],
-		'80,443', 'tls', 'tls_client_hello', '443', 'quic', 'quic_initial',
+		'80,443', 'tls', 'tls_client_hello', '443', 'stun', 'binding',
 		'https://i.ytimg.com/generate_204'),
 	discord: target_profile('discord', 'discord.com',
 		['gateway.discord.gg', 'cdn.discordapp.com', 'media.discordapp.net'],
 		['discord.com', 'discordapp.com', 'discord.gg', 'discord.media',
 			'discord-attachments-uploads-prd.storage.googleapis.com', 'gateway.discord.gg',
 			'cdn.discordapp.com', 'media.discordapp.net'],
-		['discord.txt'], '443', 'tls', 'tls_client_hello', '50000-65535', 'discord', '',
+		['discord.txt'], '443', 'tls', 'tls_client_hello', '50000-65535', 'stun', 'binding',
 		'https://discord.com/api/v9/gateway'),
 	telegram: target_profile('telegram', 'web.telegram.org', ['telegram.org', 't.me'],
 		['telegram.org', 'web.telegram.org', 'telegram.me', 't.me', 'cdn-telegram.org'],
-		['telegram.txt'], '443', 'tls', 'tls_client_hello', '443', 'quic', 'quic_initial',
+	['telegram.txt'], '443', 'tls', 'tls_client_hello', '443', 'stun', 'binding',
 		'https://web.telegram.org/k/'),
 	instagram: target_profile('instagram', 'instagram.com', ['www.instagram.com', 'i.instagram.com'],
 		['instagram.com', 'www.instagram.com', 'i.instagram.com', 'scontent.cdninstagram.com', 'cdninstagram.com'],
-		['instagram.txt'], '443', 'tls', 'tls_client_hello', '443', 'quic', 'quic_initial',
+	['instagram.txt'], '443', 'tls', 'tls_client_hello', '443', 'stun', 'binding',
 		'https://instagram.com/'),
 	twitter: target_profile('twitter', 'x.com', ['twitter.com', 'abs.twimg.com'],
 		['x.com', 'twitter.com', 't.co', 'twimg.com', 'abs.twimg.com', 'video.twimg.com'],
-		['twitter.txt'], '443', 'tls', 'tls_client_hello', '443', 'quic', 'quic_initial',
+	['twitter.txt'], '443', 'tls', 'tls_client_hello', '443', 'stun', 'binding',
 		'https://x.com/'),
 	facebook: target_profile('facebook', 'facebook.com', ['www.facebook.com', 'scontent.xx.fbcdn.net'],
 		['facebook.com', 'www.facebook.com', 'fbcdn.net', 'scontent.xx.fbcdn.net'],
-		['facebook.txt'], '443', 'tls', 'tls_client_hello', '443', 'quic', 'quic_initial',
+	['facebook.txt'], '443', 'tls', 'tls_client_hello', '443', 'stun', 'binding',
 		'https://facebook.com/'),
 	google: target_profile('google', 'www.google.com', ['google.com', 'fonts.gstatic.com'],
 		['google.com', 'www.google.com', 'gstatic.com', 'fonts.gstatic.com'], [],
-		'443', 'tls', 'tls_client_hello', '443', 'quic', 'quic_initial',
+	'443', 'tls', 'tls_client_hello', '443', 'stun', 'binding',
 		'https://www.google.com/'),
 };
 
@@ -98,13 +98,13 @@ const HINTS = [
 ];
 
 function contains(values, value) {
-	for (let i in values) if (values[i] == value) return true;
+	for (let item in values) if (item == value) return true;
 	return false;
 }
 
 function has_label(host, label) {
 	let labels = split(host, '.');
-	for (let i in labels) if (labels[i] == label) return true;
+	for (let item in labels) if (item == label) return true;
 	return false;
 }
 
@@ -118,11 +118,11 @@ function hint_matches(host, hint) {
 }
 
 function custom_profile(base, host) {
-	let result = copy_profile(base), tests = [host], domains = [host];
-	for (let i in base.testHosts) if (!contains(tests, base.testHosts[i]) && length(tests) < 4)
-		push(tests, base.testHosts[i]);
-	for (let i in base.hostlistDomains) if (!contains(domains, base.hostlistDomains[i]))
-		push(domains, base.hostlistDomains[i]);
+	let result = copy_profile(base), tests = [], domains = [host];
+	for (let value in base.testHosts) if (!contains(tests, value) && length(tests) < 4)
+		push(tests, value);
+	for (let value in base.hostlistDomains) if (!contains(domains, value))
+		push(domains, value);
 	result.primaryHost = host;
 	result.testHosts = tests;
 	result.hostlistDomains = domains;
@@ -132,11 +132,11 @@ function custom_profile(base, host) {
 export const scanner_target_profile = function(value) {
 	let host = normalize_host(value), key = null;
 	if (host == null) return null;
-	for (let i in HINTS) {
-		if (hint_matches(host, HINTS[i][0])) { key = HINTS[i][1]; break; }
+	for (let hint in HINTS) {
+		if (hint_matches(host, hint[0])) { key = hint[1]; break; }
 	}
-	if (key == null) return target_profile('generic', host, [host], [host], [],
-		'443', 'tls', 'tls_client_hello', '443', 'quic', 'quic_initial', 'https://' + host + '/');
+	if (key == null) return target_profile('generic', host, [], [host], [],
+		'443', 'tls', 'tls_client_hello', '443', 'stun', 'binding', 'https://' + host + '/');
 	let base = KNOWN[key];
 	return host == base.primaryHost ? copy_profile(base) : custom_profile(base, host);
 };
@@ -152,7 +152,7 @@ export const scanner_target_hosts = function(value, mode) {
 	let profile = is_object(value) ? value : scanner_target_profile(value), maximum = max_hosts(mode);
 	if (!is_object(profile)) return [];
 	let result = [], candidates = [profile.primaryHost];
-	for (let i in profile.testHosts) if (!contains(candidates, profile.testHosts[i])) push(candidates, profile.testHosts[i]);
+	for (let value in profile.testHosts) if (!contains(candidates, value)) push(candidates, value);
 	for (let i = 0; i < length(candidates) && i < maximum; i++) push(result, candidates[i]);
 	return result;
 };

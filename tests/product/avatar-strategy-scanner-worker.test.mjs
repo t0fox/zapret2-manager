@@ -485,11 +485,27 @@ test('fixed HTTP parser handles interim responses, chunked framing, and truncate
     'HTTP/1.1 205 Reset Content\\r\\nContent-Length: 1\\r\\n\\r\\nx',
     'HTTP/1.1 304 Not Modified\\r\\nContent-Length: 0\\r\\nContent-Length: 0\\r\\n\\r\\n',
     'HTTP/1.1 200 OK\\r\\nTransfer-Encoding: chunked\\r\\n\\r\\n1\\r\\na\\r\\n0\\r\\nX-Trace: one\\r\\nX-Trace: two\\r\\n\\r\\n',
+    'HTTP/1.1 200 OK\\r\\nTransfer-Encoding: chunked\\r\\n\\r\\n1\\r\\na\\r\\n0\\r\\n\\r\\nJUNK',
+    'HTTP/1.1 200 OK\\r\\nTransfer-Encoding: chunked\\r\\n\\r\\n1\\r\\na\\r\\n0\\r\\nX-Trace: one\\r\\n\\r\\nJUNK',
   ]) {
     const invalid = invoke(EXECUTOR, `subject.scanner_probe_parse_http(${JSON.stringify(raw)}, 1000, 1042, ${JSON.stringify({ readLimitBytes: 64 })})`);
     assert.equal(invalid.ok, false, JSON.stringify(invalid));
     assert.equal(invalid.error.code, 'EINDETERMINATE');
   }
+});
+
+test('HTTP indeterminate transport is dependency evidence, never candidate failure evidence', () => {
+  const executor = fs.readFileSync(EXECUTOR, 'utf8');
+  const probes = fs.readFileSync(path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-probes.uc'), 'utf8');
+  assert.match(executor, /EINDETERMINATE/);
+  assert.doesNotMatch(executor, /body:\s*\{ status: 'failed', error: 'PARSE_ERR'/);
+  assert.match(probes, /infrastructure\('INVALID_OBSERVATION'/);
+});
+
+test('baseline evidence must include complete family observations before classification', () => {
+  const probes = fs.readFileSync(path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-probes.uc'), 'utf8');
+  assert.match(probes, /baseline_family_complete/);
+  assert.match(probes, /INCOMPLETE_BASELINE/);
 });
 
 test('fixed HTTP observations retain configured markers and measured throughput without success fabrication', () => {
@@ -560,7 +576,7 @@ test('baseline worker descriptor carries the validated request mode and native S
 test('adapter descriptors carry canonical URL/path, host identity, family, and pinned retry/read settings', () => {
   const profile = { profileKey: 'generic', primaryHost: 'example.com', testHosts: ['example.com', 'cdn.example.com'],
     probeUrl: 'https://example.com/probe/204', tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' },
-    udp: { ports: '443', l7: 'quic', payload: 'quic_initial' } };
+     udp: { ports: '443', l7: 'stun', payload: 'binding' } };
   const candidate = { scannerId: 'catalog:one', protocol: 'tcp', compiledDigest: 'a'.repeat(64), dependencyDigest: 'b'.repeat(64) };
   const tcp = adapt('scanner_probe_adapter_tcp', candidate, profile, 'ipv6', { nowMs: 1000, deadlineMs: 20000, mode: 'standard' });
   assert.equal(tcp.ok, true, JSON.stringify(tcp));
@@ -579,6 +595,15 @@ test('adapter descriptors carry canonical URL/path, host identity, family, and p
   assert.equal(udp.request.port, 443);
   assert.equal(udp.request.portRange, profile.udp.ports);
   assert.equal(udp.request.transactionId, '0102030405060708090a0b0c');
+});
+
+test('planner, adapter, and native descriptor share STUN-only UDP semantics', () => {
+  const planner = fs.readFileSync(path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-planner.uc'), 'utf8');
+  const adapter = fs.readFileSync(ADAPTER, 'utf8');
+  assert.doesNotMatch(planner, /udp:\s*\{[^}]*l7:\s*'quic'[^}]*payload:\s*'quic_initial'/s);
+  assert.match(planner, /udp:\s*\{[^}]*l7:\s*'stun'[^}]*payload:\s*'binding'/s);
+  assert.match(adapter, /transport:\s*'stun'/);
+  assert.doesNotMatch(`${planner}\n${adapter}`, /http3|http\/3|scanner_probe_adapter_quic|scanner_quic_classify/i);
 });
 
 test('scanner execution contract rejects shell-shaped descriptors and preserves typed transport status', () => {

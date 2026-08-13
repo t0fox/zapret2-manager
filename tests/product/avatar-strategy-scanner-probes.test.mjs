@@ -483,7 +483,7 @@ test('adapter rejects invalid deadlines and malformed mode or host-list shapes',
 test('adapter rejects executable, shell, raw nfqws arguments, paths, and unbound candidates', () => {
   const profile = { profileKey: 'generic', primaryHost: 'example.com', testHosts: ['example.com'],
     probeUrl: 'https://example.com/', tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' },
-    udp: { ports: '443', l7: 'quic', payload: 'quic_initial' } };
+    udp: { ports: '443', l7: 'stun', payload: 'binding' } };
   const candidate = { scannerId: 'catalog:one', protocol: 'tcp', compiledDigest: 'a'.repeat(64), dependencyDigest: 'b'.repeat(64) };
   const deadline = { nowMs: 1000, deadlineMs: 20000, mode: 'quick' };
   for (const injected of [

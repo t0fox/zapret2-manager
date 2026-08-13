@@ -107,7 +107,7 @@ test('target fixture preserves known profiles and generic fallback selection', (
       ],
       expectedHostlists: ['youtube.txt', 'youtubeGV.txt', 'youtubeQ.txt', 'youtube_v2.txt'],
       tcp: { ports: '80,443', l7: 'tls', payload: 'tls_client_hello' },
-      udp: { ports: '443', l7: 'quic', payload: 'quic_initial' },
+      udp: { ports: '443', l7: 'stun', payload: 'binding' },
       probeUrl: 'https://i.ytimg.com/generate_204',
     },
     'discord-known': {
@@ -120,7 +120,7 @@ test('target fixture preserves known profiles and generic fallback selection', (
       ],
       expectedHostlists: ['discord.txt'],
       tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' },
-      udp: { ports: '50000-65535', l7: 'discord', payload: '' },
+      udp: { ports: '50000-65535', l7: 'stun', payload: 'binding' },
       probeUrl: 'https://discord.com/api/v9/gateway',
     },
     'telegram-known': {
@@ -129,7 +129,7 @@ test('target fixture preserves known profiles and generic fallback selection', (
       hostlistDomains: ['telegram.org', 'web.telegram.org', 'telegram.me', 't.me', 'cdn-telegram.org'],
       expectedHostlists: ['telegram.txt'],
       tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' },
-      udp: { ports: '443', l7: 'quic', payload: 'quic_initial' },
+      udp: { ports: '443', l7: 'stun', payload: 'binding' },
       probeUrl: 'https://web.telegram.org/k/',
     },
     'instagram-known': {
@@ -141,7 +141,7 @@ test('target fixture preserves known profiles and generic fallback selection', (
       ],
       expectedHostlists: ['instagram.txt'],
       tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' },
-      udp: { ports: '443', l7: 'quic', payload: 'quic_initial' },
+      udp: { ports: '443', l7: 'stun', payload: 'binding' },
       probeUrl: 'https://instagram.com/',
     },
     'twitter-known': {
@@ -150,7 +150,7 @@ test('target fixture preserves known profiles and generic fallback selection', (
       hostlistDomains: ['x.com', 'twitter.com', 't.co', 'twimg.com', 'abs.twimg.com', 'video.twimg.com'],
       expectedHostlists: ['twitter.txt'],
       tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' },
-      udp: { ports: '443', l7: 'quic', payload: 'quic_initial' },
+      udp: { ports: '443', l7: 'stun', payload: 'binding' },
       probeUrl: 'https://x.com/',
     },
     'facebook-known': {
@@ -159,7 +159,7 @@ test('target fixture preserves known profiles and generic fallback selection', (
       hostlistDomains: ['facebook.com', 'www.facebook.com', 'fbcdn.net', 'scontent.xx.fbcdn.net'],
       expectedHostlists: ['facebook.txt'],
       tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' },
-      udp: { ports: '443', l7: 'quic', payload: 'quic_initial' },
+      udp: { ports: '443', l7: 'stun', payload: 'binding' },
       probeUrl: 'https://facebook.com/',
     },
     'google-known': {
@@ -168,14 +168,14 @@ test('target fixture preserves known profiles and generic fallback selection', (
       hostlistDomains: ['google.com', 'www.google.com', 'gstatic.com', 'fonts.gstatic.com'],
       expectedHostlists: [],
       tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' },
-      udp: { ports: '443', l7: 'quic', payload: 'quic_initial' },
+      udp: { ports: '443', l7: 'stun', payload: 'binding' },
       probeUrl: 'https://www.google.com/',
     },
     'generic-domain': {
       profileKey: 'generic', primaryHost: 'kernel.org',
-      testHosts: ['kernel.org'], hostlistDomains: ['kernel.org'], expectedHostlists: [],
+       testHosts: [], hostlistDomains: ['kernel.org'], expectedHostlists: [],
       tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' },
-      udp: { ports: '443', l7: 'quic', payload: 'quic_initial' },
+      udp: { ports: '443', l7: 'stun', payload: 'binding' },
       probeUrl: 'https://kernel.org/',
     },
   };
@@ -184,7 +184,7 @@ test('target fixture preserves known profiles and generic fallback selection', (
   const alternate = fixture.cases.find(entry => entry.id === 'youtube-alternate-host');
   assert.equal(alternate.expected.profileKey, 'youtube');
   assert.equal(alternate.expected.primaryHost, 'm.youtube.com');
-  assert.equal(alternate.expected.testHosts[0], 'm.youtube.com');
+   assert.equal(alternate.expected.testHosts[0], 'www.youtube.com');
 });
 
 test('candidate fixture captures bounded mode order, DPI filtering, and identity rules', () => {

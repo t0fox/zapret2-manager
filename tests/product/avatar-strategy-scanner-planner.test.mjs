@@ -178,7 +178,7 @@ function snapshot(entries, sets, extra = {}) {
     targetProfile: { profileKey: 'generic', primaryHost: 'example.com', testHosts: ['example.com'],
       hostlistDomains: ['example.com'], expectedHostlists: [],
       tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' },
-      udp: { ports: '443', l7: 'quic', payload: 'quic_initial' }, probeUrl: 'https://example.com/' },
+       udp: { ports: '443', l7: 'stun', payload: 'binding' }, probeUrl: 'https://example.com/' },
     ...extra,
   };
   const catalogEnvelopeDigest = invoke(`planner.scanner_snapshot_digest(${JSON.stringify(value)})`);
@@ -523,7 +523,7 @@ test('planner accepts the exact server-derived named profile when hosts and prob
       'i.ytimg.com', 'yt3.ggpht.com', 'ggpht.com', 'lh3.googleusercontent.com', 'yt3.googleusercontent.com'],
     expectedHostlists: ['youtube.txt', 'youtubeGV.txt', 'youtubeQ.txt', 'youtube_v2.txt'],
     tcp: { ports: '80,443', l7: 'tls', payload: 'tls_client_hello' },
-    udp: { ports: '443', l7: 'quic', payload: 'quic_initial' },
+    udp: { ports: '443', l7: 'stun', payload: 'binding' },
     probeUrl: 'https://i.ytimg.com/generate_204',
   };
   const data = snapshot([item], sets, { targetProfile: youtube });

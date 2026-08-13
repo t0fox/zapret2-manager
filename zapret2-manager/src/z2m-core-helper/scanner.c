@@ -73,6 +73,13 @@ static bool allowed_keys(json_object *object, const char *const *allowed, size_t
 	return true;
 }
 
+static bool required_keys(json_object *object, const char *const *required, size_t count)
+{
+	json_object *value;
+	for (size_t i = 0; i < count; i++) if (!json_object_object_get_ex(object, required[i], &value)) return false;
+	return true;
+}
+
 static bool string_array(json_object *value)
 {
 	if (!json_object_is_type(value, json_type_array)) return false;
@@ -94,9 +101,11 @@ static bool host_array(json_object *value)
 static bool profile_shape(json_object *profile)
 {
 	static const char *const profile_keys[] = {"profileKey", "primaryHost", "testHosts", "hostlistDomains", "expectedHostlists", "tcp", "udp", "probeUrl", "protocol"};
+	static const char *const profile_required[] = {"profileKey", "primaryHost", "testHosts", "hostlistDomains", "expectedHostlists", "tcp", "udp", "probeUrl"};
 	static const char *const transport_keys[] = {"ports", "l7", "payload"};
 	json_object *value, *primary, *tests, *tcp, *udp, *ports, *l7, *payload;
 	if (!allowed_keys(profile, profile_keys, sizeof(profile_keys) / sizeof(profile_keys[0])) ||
+		!required_keys(profile, profile_required, sizeof(profile_required) / sizeof(profile_required[0])) ||
 		!json_object_object_get_ex(profile, "primaryHost", &primary) || !json_object_is_type(primary, json_type_string) || !host_value(json_object_get_string(primary)) ||
 		!json_object_object_get_ex(profile, "testHosts", &tests) || !host_array(tests) ||
 		!json_object_object_get_ex(profile, "tcp", &tcp) || !json_object_is_type(tcp, json_type_object) ||
@@ -174,6 +183,19 @@ static bool profile_transport(json_object *profile, const char *name, const char
 		json_object_object_get_ex(transport, "ports", &ports) && json_object_is_type(ports, json_type_string) &&
 		!strcmp(json_object_get_string(ports), port_range) && profile_string(transport, "l7", l7) &&
 		profile_string(transport, "payload", payload) && port >= 1 && port <= 65535;
+}
+
+static bool candidate_shape(json_object *candidate)
+{
+	static const char *const keys[] = {"scannerId", "protocol", "compiledDigest", "dependencyDigest"};
+	const char *scanner_id, *protocol, *compiled, *dependency;
+	return json_object_is_type(candidate, json_type_object) &&
+		allowed_keys(candidate, keys, sizeof(keys) / sizeof(keys[0])) &&
+		required_keys(candidate, keys, sizeof(keys) / sizeof(keys[0])) &&
+		string_value(candidate, "scannerId", &scanner_id) && strlen(scanner_id) <= 160 &&
+		string_value(candidate, "protocol", &protocol) && (!strcmp(protocol, "tcp") || !strcmp(protocol, "udp")) &&
+		string_value(candidate, "compiledDigest", &compiled) && digest_value(compiled) &&
+		string_value(candidate, "dependencyDigest", &dependency) && digest_value(dependency);
 }
 
 static bool profile_url_matches(json_object *profile, const char *host, const char *url)
@@ -350,7 +372,7 @@ cleanup:
 	if (out[0] >= 0) close(out[0]);
 	if (!child_reaped) do waited = waitpid(child, &status, 0); while (waited < 0 && errno == EINTR);
 	*finished_at = now_ms();
-	sigaction(SIGPIPE, &old_pipe, NULL);
+	if (sigaction(SIGPIPE, &old_pipe, NULL) < 0) failed = true;
 	if (*finished_at < 0 || failed) { free(data); return -1; }
 	*output = data; *output_length = used; *exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : -1; *signal_number = WIFSIGNALED(status) ? WTERMSIG(status) : 0;
 	return 0;
@@ -358,7 +380,7 @@ cleanup:
 
 int z2m_scanner_probe(const struct z2m_request *request)
 {
-	json_object *args = request->arguments, *profile, *probe, *body = NULL;
+	json_object *args = request->arguments, *profile, *probe, *body = NULL, *value = NULL;
 	const char *authority, *adapter_digest, *profile_digest_value, *transport, *host, *family = NULL, *url = NULL, *path = NULL;
 	int64_t timeout, deadline_ms, port = 0, configured_limit = 0; unsigned int output_limit; unsigned char *input = NULL, *output = NULL; size_t input_length = 0, output_length = 0;
 	int exit_code, signal_number; bool overflow = false; char *encoded; int64_t started_at, finished_at;
@@ -368,6 +390,7 @@ int z2m_scanner_probe(const struct z2m_request *request)
 		!json_object_object_get_ex(args, "targetProfile", &profile) || !json_object_is_type(profile, json_type_object) || !profile_digest_matches(profile, profile_digest_value) ||
 		!json_object_object_get_ex(args, "request", &probe) || !json_object_is_type(probe, json_type_object) ||
 		!profile_shape(profile) ||
+		(json_object_object_get_ex(args, "candidate", &value) && !candidate_shape(value)) ||
 		!string_value(probe, "transport", &transport) || !string_value(probe, "host", &host) || !host_value(host) || !profile_host(profile, host) ||
 		!int_value(probe, "timeoutMs", 1, MAX_TIMEOUT_MS, &timeout) || !int_value(probe, "deadlineMs", 1, INT64_MAX, &deadline_ms)) return z2m_fail(request->request_id, "ESCHEMA", "canonical_validate");
 	if (!probe_shape(probe, transport) || !nested_settings_shape(probe, transport) ||

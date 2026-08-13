@@ -54,6 +54,16 @@ function normalize_family(raw) {
 	return result;
 }
 
+function baseline_family_complete(raw) {
+	let statuses = ['open', 'blocked', 'failed', 'timeout', 'skipped', 'unavailable', 'error'];
+	let allowed = false;
+	if (is_object(raw) && type(raw.status) == 'string') for (let value in statuses) if (value == raw.status) allowed = true;
+	return is_object(raw) && type(raw.status) == 'string'
+		&& allowed
+		&& (raw.available == null || type(raw.available) == 'bool')
+		&& (raw.latencyMs == null || valid_nonnegative_number(raw.latencyMs));
+}
+
 export const scanner_baseline_classify = function(raw) {
 	if (!is_object(raw) || (raw.protocol != 'tcp' && raw.protocol != 'udp'))
 		return { protocol: null, baselineOpen: false, allAvailableOpen: false,
@@ -87,6 +97,10 @@ export const scanner_baseline_classify = function(raw) {
 			error: raw.error || (status == 'timeout' ? 'TIMEOUT' : null) });
 	}
 	else {
+		if (!baseline_family_complete(raw.ipv4) || !baseline_family_complete(raw.ipv6))
+			return { protocol: 'tcp', baselineOpen: false, allAvailableOpen: false,
+				byAddressFamily: {}, probeAddressFamilies: [], infrastructureFailure: true,
+				error: 'INCOMPLETE_BASELINE' };
 		by.ipv4 = normalize_family(raw.ipv4);
 		by.ipv6 = normalize_family(raw.ipv6);
 	}

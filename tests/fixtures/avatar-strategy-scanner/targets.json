@@ -76,8 +76,8 @@
         },
         "udp": {
           "ports": "443",
-          "l7": "quic",
-          "payload": "quic_initial"
+          "l7": "stun",
+          "payload": "binding"
         },
         "probeUrl": "https://i.ytimg.com/generate_204"
       }
@@ -115,8 +115,8 @@
         },
         "udp": {
           "ports": "50000-65535",
-          "l7": "discord",
-          "payload": ""
+          "l7": "stun",
+          "payload": "binding"
         },
         "probeUrl": "https://discord.com/api/v9/gateway"
       }
@@ -147,8 +147,8 @@
         },
         "udp": {
           "ports": "443",
-          "l7": "quic",
-          "payload": "quic_initial"
+          "l7": "stun",
+          "payload": "binding"
         },
         "probeUrl": "https://web.telegram.org/k/"
       }
@@ -179,8 +179,8 @@
         },
         "udp": {
           "ports": "443",
-          "l7": "quic",
-          "payload": "quic_initial"
+          "l7": "stun",
+          "payload": "binding"
         },
         "probeUrl": "https://instagram.com/"
       }
@@ -212,8 +212,8 @@
         },
         "udp": {
           "ports": "443",
-          "l7": "quic",
-          "payload": "quic_initial"
+          "l7": "stun",
+          "payload": "binding"
         },
         "probeUrl": "https://x.com/"
       }
@@ -243,8 +243,8 @@
         },
         "udp": {
           "ports": "443",
-          "l7": "quic",
-          "payload": "quic_initial"
+          "l7": "stun",
+          "payload": "binding"
         },
         "probeUrl": "https://facebook.com/"
       }
@@ -274,8 +274,8 @@
         },
         "udp": {
           "ports": "443",
-          "l7": "quic",
-          "payload": "quic_initial"
+          "l7": "stun",
+          "payload": "binding"
         },
         "probeUrl": "https://www.google.com/"
       }
@@ -290,7 +290,7 @@
       "expected": {
         "profileKey": "generic",
         "primaryHost": "kernel.org",
-        "testHosts": ["kernel.org"],
+        "testHosts": [],
         "hostlistDomains": ["kernel.org"],
         "expectedHostlists": [],
         "tcp": {
@@ -300,8 +300,8 @@
         },
         "udp": {
           "ports": "443",
-          "l7": "quic",
-          "payload": "quic_initial"
+          "l7": "stun",
+          "payload": "binding"
         },
         "probeUrl": "https://kernel.org/"
       }
@@ -317,7 +317,6 @@
         "profileKey": "youtube",
         "primaryHost": "m.youtube.com",
         "testHosts": [
-          "m.youtube.com",
           "www.youtube.com",
           "i.ytimg.com",
           "yt3.ggpht.com"
@@ -351,8 +350,8 @@
         },
         "udp": {
           "ports": "443",
-          "l7": "quic",
-          "payload": "quic_initial"
+          "l7": "stun",
+          "payload": "binding"
         },
         "probeUrl": "https://i.ytimg.com/generate_204"
       }

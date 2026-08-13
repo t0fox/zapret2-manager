@@ -12,7 +12,7 @@ const fake = path.join(root, 'fake-ncat');
 const source = 'zapret2-manager/src/z2m-core-helper';
 const child = 'tests/native/core/scanner-probe-child.c';
 const adapterDigest = '7cd367ef2aed1be2567505bf978b2d2b73f97ff149cc48d64826ed4f2b8c885e';
-const profile = { profileKey: 'generic', primaryHost: 'example.com', testHosts: ['example.com', 'fail.example.com', 'sleep.example.com', 'stun.example.com'], probeUrl: 'https://example.com/probe', tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' }, udp: { ports: '19302', l7: 'stun', payload: 'binding' } };
+const profile = { profileKey: 'generic', primaryHost: 'example.com', testHosts: ['example.com', 'fail.example.com', 'sleep.example.com', 'stun.example.com'], hostlistDomains: ['example.com'], expectedHostlists: [], probeUrl: 'https://example.com/probe', tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' }, udp: { ports: '19302', l7: 'stun', payload: 'binding' } };
 const profileDigest = createHash('sha256').update(JSON.stringify(profile)).digest('hex');
 
 function compile(output, input, definitions = []) {
@@ -108,6 +108,24 @@ test('native scanner rejects unknown nested request and target profile fields', 
   assert.equal(requestUnknown.error.code, 'ESCHEMA');
 });
 
+test('native scanner requires complete nested candidate fields and rejects command-shaped additions', () => {
+  const missing = run(request({ transport: 'stun', host: 'stun.example.com', port: 19302,
+    addressFamily: 'ipv4', timeoutMs: 1000, retries: 2, receiveLimitBytes: 1024,
+    transactionId: '0102030405060708090a0b0c' }, {
+    candidate: { scannerId: 'candidate:one', compiledDigest: 'a'.repeat(64), dependencyDigest: 'b'.repeat(64) },
+  }), {}, 2);
+  assert.equal(missing.ok, false);
+  assert.equal(missing.error.code, 'ESCHEMA');
+
+  const forged = run(request({ transport: 'stun', host: 'stun.example.com', port: 19302,
+    addressFamily: 'ipv4', timeoutMs: 1000, retries: 2, receiveLimitBytes: 1024,
+    transactionId: '0102030405060708090a0b0c' }, {
+    candidate: { scannerId: 'candidate:one', protocol: 'udp', compiledDigest: 'a'.repeat(64), dependencyDigest: 'b'.repeat(64), command: '/bin/sh', path: '/tmp', args: ['-c', 'unsafe'] },
+  }), {}, 2);
+  assert.equal(forged.ok, false);
+  assert.equal(forged.error.code, 'ESCHEMA');
+});
+
 test('scanner probe input and output remain bounded at the native boundary', () => {
   const oversized = run(request({ transport: 'stun', host: 'stun.example.com', port: 19302,
     addressFamily: 'ipv4', timeoutMs: 1000, retries: 2, receiveLimitBytes: 1024,
@@ -142,6 +160,11 @@ test('nonzero child status and partial output are returned independently', () =>
   assert.equal(result.data.complete, true);
   assert.equal(typeof result.data.startedAt, 'number');
   assert.equal(typeof result.data.finishedAt, 'number');
+});
+
+test('native fixed child verifies SIGPIPE restoration after the pump', () => {
+  const sourceText = fs.readFileSync('zapret2-manager/src/z2m-core-helper/scanner.c', 'utf8');
+  assert.match(sourceText, /if \(sigaction\(SIGPIPE, &old_pipe, NULL\) < 0\) failed = true/);
 });
 
 test('deadline kills and reaps the fixed child without grace beyond the request deadline', () => {

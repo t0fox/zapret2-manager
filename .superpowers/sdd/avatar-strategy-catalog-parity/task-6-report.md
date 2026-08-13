@@ -374,3 +374,73 @@ keeping Task 7 and Task 5 explicit dependencies:
 - The broader repository still contains the previously documented unrelated
   Scanner model/target compatibility failures; this round claims only the
   focused native and product gates above.
+
+## Fix Round 8
+
+The latest Task 6 review fixes are applied without implementing Task 7 or
+expanding the reserved Task 5 boundary:
+
+- All server-owned UDP target profiles and planner fallbacks now use
+  `transport: stun`, `l7: stun`, `payload: binding`, IPv4, the fixed Binding
+  transaction ID, and the native adapter contract. No Scanner QUIC/HTTP3 probe
+  exists; catalog Strategy tokens may still contain unrelated QUIC strategy
+  data because Task 4 catalog/compiler semantics remain unchanged.
+- HTTP parser EINDETERMINATE, malformed, truncated, child, supervision, and
+  incomplete observation outcomes are returned as EDEPENDENCY and stop worker
+  progression. They never become candidate failure rows or advance the cursor.
+- Zero-chunk framing accepts only the terminal CRLF or valid unique trailers
+  followed by exactly the final CRLF. Any bytes after termination are rejected.
+- Baseline family observations and native helper observations require complete
+  bounded status, byte, exit/signal, and monotonic timestamp evidence before
+  classification or dereference.
+- Session cleanup, checkpoint publication, active release, and worker exception
+  paths retain explicit `Task 7 reconciliation` EDEPENDENCY evidence, publish
+  non-terminal error/recovery state, and never silently bypass recovery.
+- Native profile and nested candidate schemas require exact fields and reject
+  arbitrary nested command, path, args, executable, or raw fields. The protocol
+  manifest documents the closed candidate/profile shape.
+- SIGPIPE restoration is checked for failure in native supervision and the
+  source-level regression verifies that restoration is not ignored.
+
+## Fix Round 8 Verification
+
+- RED coverage was added for planner/adapter/native UDP agreement, post-zero
+  chunk bytes, incomplete baseline evidence, nested candidate fields, and
+  SIGPIPE restoration.
+- Focused product Scanner gate under pinned WSL ucode: **45 passed, 0 failed**
+  for characterization, integration, worker, and executor coverage.
+- Focused planner gate: **38 passed, 0 failed**.
+- Focused native helper/scanner gate: **46 passed, 0 failed**.
+- Extended native protocol/helper/scanner gate: **55 passed, 0 failed**.
+- `git diff --check`: clean.
+- The broader Scanner model tests retain the previously documented WSL
+  harness incompatibilities. The package byte-identity test retains its
+  pre-existing mode baseline mismatch. Neither was changed by this fix round.
+
+## Changed Files Round 8
+
+- `zapret2-manager/files/usr/libexec/zapret2-manager/core/native-helper.uc`
+- `zapret2-manager/files/usr/libexec/zapret2-manager/scanner-planner.uc`
+- `zapret2-manager/files/usr/libexec/zapret2-manager/scanner-probe-adapter.uc`
+- `zapret2-manager/files/usr/libexec/zapret2-manager/scanner-probe-executor.uc`
+- `zapret2-manager/files/usr/libexec/zapret2-manager/scanner-probes.uc`
+- `zapret2-manager/files/usr/libexec/zapret2-manager/scanner-targets.uc`
+- `zapret2-manager/files/usr/libexec/zapret2-manager/scanner-worker.uc`
+- `zapret2-manager/src/z2m-core-helper/protocol-v1.json`
+- `zapret2-manager/src/z2m-core-helper/scanner.c`
+- `tests/fixtures/avatar-strategy-scanner/targets.json`
+- `tests/native/core/scanner-probe-native.test.mjs`
+- `tests/product/avatar-strategy-scanner-characterization.test.mjs`
+- `tests/product/avatar-strategy-scanner-planner.test.mjs`
+- `tests/product/avatar-strategy-scanner-probes.test.mjs`
+- `tests/product/avatar-strategy-scanner-worker.test.mjs`
+
+## Concerns Round 8
+
+- Physical-router reachability and live TLS/STUN acceptance were not available
+  in this workspace. `ROUTER_E2E: NOT RUN`.
+- Task 7 reconciliation implementation remains intentionally absent; the
+  worker records it as an explicit dependency and refuses terminal success
+  without a verified provider.
+- Task 5 reserved operations remain EUNSUPPORTED. No permanent Strategy/config
+  writer, raw command, DNS/TG/router/LuCI/Orchestra implementation was added.

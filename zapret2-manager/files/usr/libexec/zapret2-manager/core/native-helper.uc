@@ -721,7 +721,8 @@ export const scanner_probe = function(authority, adapterDigest, targetProfileDig
 	if (candidate != null) arguments.candidate = candidate;
 	if (length(sprintf('%J', arguments)) > 4096) return invalid('Scanner probe request is too large.');
 	let remaining = request.deadlineMs - int(time() * 1000), timeout = request.timeoutMs > 0 && request.timeoutMs < remaining ? request.timeoutMs : remaining;
-	return invoke_private('scanner_probe', arguments, timeout > 0 ? timeout : 1);
+	try { return invoke_private('scanner_probe', arguments, timeout > 0 ? timeout : 1); }
+	catch (exception) { return dependency('Native scanner probe transport is unavailable.'); }
 };
 
 export const atomic_write = function(root, path, content, allowCreate) {

@@ -160,7 +160,7 @@ export const scanner_probe_adapter_tcp = function(candidate, target, addressFami
 		retries: 1, tls: { timeoutMs: TLS_TIMEOUT_MS, readLimitBytes: 2048 },
 		body: { timeoutMs: BODY_TIMEOUT_MS, minimumBytes: 65536, readChunkBytes: 4096,
 			markerScanBytes: 8192, readLimitBytes: 69633, range: 'bytes=0-69632',
-			markers: [{ name: 'isp_page', needles: ['blocked', 'access denied', 'captcha'] }] }, deadlineMs: end }, { scannerId: candidate.scannerId,
+		markers: [{ name: 'isp_page', needles: ['blocked', 'access denied', 'captcha'] }] }, deadlineMs: end }, { scannerId: candidate.scannerId, protocol: candidate.protocol,
 		compiledDigest: candidate.compiledDigest, dependencyDigest: candidate.dependencyDigest }, limit?.profileDigest);
 	return { ok: true, ...descriptor };
 };
@@ -176,7 +176,7 @@ export const scanner_probe_adapter_udp = function(candidate, target, limit) {
 	let port = first_port(target.udp.ports);
 	if (port == null) return fail('Invalid server-owned STUN port profile.');
 	let descriptor = descriptor_common(target, { transport: 'stun', mode: limit?.mode, host: target.primaryHost, port, portRange: target.udp.ports, addressFamily: 'ipv4',
-		timeoutMs: STUN_TIMEOUT_MS, retries: 2, receiveLimitBytes: 1024, transactionId: STUN_TRANSACTION_ID, deadlineMs: end }, { scannerId: candidate.scannerId,
+		timeoutMs: STUN_TIMEOUT_MS, retries: 2, receiveLimitBytes: 1024, transactionId: STUN_TRANSACTION_ID, deadlineMs: end }, { scannerId: candidate.scannerId, protocol: candidate.protocol,
 		compiledDigest: candidate.compiledDigest, dependencyDigest: candidate.dependencyDigest }, limit?.profileDigest);
 	return { ok: true, ...descriptor };
 };
