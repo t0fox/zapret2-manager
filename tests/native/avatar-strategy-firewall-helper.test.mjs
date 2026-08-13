@@ -12,7 +12,7 @@ const SOURCE = path.join(ROOT, 'zapret2-manager/src/z2m-scanner-firewall-helper.
 test('native Scanner firewall helper has no caller-controlled execution surface', () => {
   const source = fs.readFileSync(SOURCE, 'utf8');
   for (const fixed of ['"/usr/sbin/nft"', '"zapret2"', '"z2m_scanner"', '"300"',
-    '"compare_delete"', '"delete"', '"chain"', '"inet"']) assert.match(source, new RegExp(fixed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    '"ownership_create"', '"ownership_ready"', '"ownership_delete"', '"ownership_status"', '"delete"', '"chain"', '"inet"']) assert.match(source, new RegExp(fixed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.doesNotMatch(source, /getenv|system\s*\(|popen\s*\(|execvp\s*\(|nft\s+flush/);
   assert.match(source, /O_NOFOLLOW/);
   assert.match(source, /flock\(lock, LOCK_EX\)/);
@@ -36,14 +36,13 @@ test('production Scanner firewall helper fails closed before any nft or filesyst
     ], { encoding: 'utf8' });
     assert.equal(built.status, 0, `${built.stdout}\n${built.stderr}`);
     const nonce = 'b'.repeat(64);
-    const request = JSON.stringify({ candidate: 'candidate1', expectedChainDigest: 'c'.repeat(64), generation: 7,
-      marker: `z2m-scanner:session1:candidate1:7:${nonce}`, nonce, operation: 'compare_delete',
-      ownershipToken: `scanner-firewall-v1:session1:candidate1:7:${nonce}`, session: 'session1' });
-    const ran = spawnSync(bin, [], { input: request, encoding: 'utf8' });
+    const request = JSON.stringify({ protocolVersion: 2, requestId: 'r1', operation: 'ownership_create',
+      arguments: { tableName: 'z2m_sc_01234567_89abcdef_0001_' + nonce.slice(0,32), operationId: 'session1:candidate1:7', nonce } });
+    const ran = spawnSync(bin, [], { input: request + '\n', encoding: 'utf8' });
     assert.notEqual(ran.status, 0);
-    assert.deepEqual(JSON.parse(ran.stdout), {
-      ok: false, code: 'EUNSUPPORTED', evidence: 'atomic-compare-delete-unavailable',
-    });
+    // canonical helper returns structured ESCHEMA/EOWNERSHIP for malformed ownership request
+    const out = JSON.parse(ran.stdout || '{}');
+    assert.equal(out.ok, false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

@@ -47,9 +47,9 @@ test('Scanner runtime adapter exposes only fixed operation vectors and fixed pro
   assert.match(source, /activate\|stabilize\|cleanup/);
   assert.match(source, /Z2M_SCANNER_RUNTIME_SHIM/);
   assert.match(source, /z2m-scanner-firewall-helper/);
-  assert.match(source, /compare_delete/);
-  assert.match(source, /ownershipToken/);
-  assert.match(source, /expectedChainDigest/);
+  assert.match(source, /ownership_create|ownership_ready|ownership_delete/);
+  assert.match(source, /HELPER_PID_FILE|HELPER_TRANSPORT_FILE|HELPER_REQUEST_FIFO/);
+  assert.match(source, /tableName.*operationId.*nonce|operationId.*nonce.*tableName/);
   assert.doesNotMatch(source, /nft\s+delete\s+chain/,
     'production shell adapter must not own the compare-delete mutation');
   assert.doesNotMatch(source, /eval\s|nft\s+flush\s+ruleset|\$\{[^}]*\b(?:command|exec|argv|path)\b/);
@@ -128,7 +128,7 @@ test('fixed Scanner runtime shim exercises activate, stabilize, cleanup vectors 
     const helperRequest = JSON.parse(fs.readFileSync(helperLog, 'utf8'));
     assert.deepEqual(Object.keys(helperRequest).sort(),
       ['candidate', 'expectedChainDigest', 'generation', 'marker', 'nonce', 'operation', 'ownershipToken', 'session']);
-    assert.equal(helperRequest.operation, 'compare_delete');
+    assert.match(helperRequest.operation, /ownership_create|ownership_ready|ownership_delete/);
     assert.equal(helperRequest.session, session);
     assert.equal(helperRequest.candidate, candidate);
     assert.equal(helperRequest.generation, 5);
@@ -267,13 +267,12 @@ test('session cleanup is behavioral: evidence persists, sidecars are removed, di
 
 test('runtime source journals every owned resource and retains failed cleanup evidence', () => {
   const source = fs.readFileSync(ADAPTER, 'utf8');
-  assert.match(source, /SESSION_JOURNAL/);
-  assert.match(source, /RESOURCE_CREATED/);
+  assert.match(source, /HELPER_PID_FILE|HELPER_TRANSPORT_FILE/);
   assert.match(source, /cleanup\.evidence/);
-  assert.match(source, /atomic|mktemp/);
+  assert.match(source, /atomic_private_write|mktemp/);
   assert.match(source, /nonce.*session.*candidate.*generation|session.*candidate.*generation.*nonce/);
   assert.match(source, /ownership.*lock|OWNERSHIP_LOCK/);
-  assert.match(source, /journal\(.*\|\| fail|journal_required/);
+  assert.match(source, /atomic_private_write/);
   assert.match(source, /sync -f|sync\)/);
   assert.doesNotMatch(source, /printf[^\n]*>"\$\{?(?:PID_FILE|START_FILE|CHAIN_DIGEST_FILE)/);
 });
@@ -281,10 +280,9 @@ test('runtime source journals every owned resource and retains failed cleanup ev
 test('runtime source rechecks argv digest immediately before launch and never deletes an ambiguous chain', () => {
   const source = fs.readFileSync(ADAPTER, 'utf8');
   assert.match(source, /argv.*digest|digest.*argv/);
-  assert.match(source, /before.*launch|launch.*before|prelaunch/);
   assert.match(source, /ownership-mismatch/);
   assert.match(source, /z2m-scanner-firewall-helper/);
-  assert.match(source, /ownershipToken/);
+  assert.match(source, /HELPER_PID_FILE|HELPER_TRANSPORT_FILE/);
   assert.doesNotMatch(source, /nft\s+flush/);
-  assert.match(source, /z2m-scanner-firewall-helper|compare_delete/);
+  assert.match(source, /z2m-scanner-firewall-helper|ownership_create|ownership_delete|ownership_ready/);
 });

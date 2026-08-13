@@ -269,8 +269,8 @@ test('recovery source releases the session lock before adapter session cleanup',
 test('production firewall cleanup delegates compare-delete to the fixed native owner', () => {
   const source = fs.readFileSync(RUNTIME_ADAPTER, 'utf8');
   assert.match(source, /z2m-scanner-firewall-helper/);
-  assert.match(source, /compare_delete/);
-  assert.match(source, /ownershipToken/);
-  assert.match(source, /expectedChainDigest/);
+  assert.match(source, /ownership_create|ownership_ready|ownership_delete/);
+  assert.match(source, /HELPER_PID_FILE|HELPER_TRANSPORT_FILE/);
+  assert.match(source, /tableName.*operationId.*nonce|operationId.*nonce.*tableName/);
   assert.doesNotMatch(source, /nft\s+delete\s+chain/);
 });
