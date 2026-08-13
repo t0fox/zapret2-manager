@@ -81,6 +81,47 @@ test('native scanner binds every transport setting to the server-owned profile',
   assert.equal(forged.error.code, 'ESCHEMA');
 });
 
+test('native scanner requires the exact profile portRange, not merely an in-range port', () => {
+  const forged = run(request({ transport: 'stun', host: 'stun.example.com', port: 3478,
+    portRange: '3478', addressFamily: 'ipv4', timeoutMs: 1000, retries: 2,
+    receiveLimitBytes: 1024, transactionId: '0102030405060708090a0b0c' }, {
+    targetProfile: { ...profile, udp: { ports: '3478-3480', l7: 'stun', payload: 'binding' } },
+    targetProfileDigest: createHash('sha256').update(JSON.stringify({ ...profile, udp: { ports: '3478-3480', l7: 'stun', payload: 'binding' } })).digest('hex'),
+  }), {}, 2);
+  assert.equal(forged.ok, false);
+  assert.equal(forged.error.code, 'ESCHEMA');
+});
+
+test('native scanner rejects unknown nested request and target profile fields', () => {
+  const target = { ...profile, udp: { ports: '19302', l7: 'stun', payload: 'binding', command: 'ncat' } };
+  const digest = createHash('sha256').update(JSON.stringify(target)).digest('hex');
+  const profileUnknown = run(request({ transport: 'stun', host: 'stun.example.com', port: 19302,
+    addressFamily: 'ipv4', timeoutMs: 1000, retries: 2, receiveLimitBytes: 1024,
+    transactionId: '0102030405060708090a0b0c' }, { targetProfile: target, targetProfileDigest: digest }), {}, 2);
+  assert.equal(profileUnknown.ok, false);
+  assert.equal(profileUnknown.error.code, 'ESCHEMA');
+
+  const requestUnknown = run(request({ transport: 'stun', host: 'stun.example.com', port: 19302,
+    addressFamily: 'ipv4', timeoutMs: 1000, retries: 2, receiveLimitBytes: 1024,
+    transactionId: '0102030405060708090a0b0c', path: '/tmp', args: ['--unsafe'] }), {}, 2);
+  assert.equal(requestUnknown.ok, false);
+  assert.equal(requestUnknown.error.code, 'ESCHEMA');
+});
+
+test('scanner probe input and output remain bounded at the native boundary', () => {
+  const oversized = run(request({ transport: 'stun', host: 'stun.example.com', port: 19302,
+    addressFamily: 'ipv4', timeoutMs: 1000, retries: 2, receiveLimitBytes: 1024,
+    transactionId: '0102030405060708090a0b0c' }, { targetProfile: { ...profile, padding: 'x'.repeat(4000) },
+    targetProfileDigest: profileDigest }), {}, 2);
+  assert.equal(oversized.ok, false);
+  assert.equal(oversized.error.code, 'ESCHEMA');
+
+  const bounded = run(request({ transport: 'tls', host: 'example.com', addressFamily: 'ipv4',
+    port: 443, timeoutMs: 1000 }), {}, 0);
+  assert.equal(bounded.ok, true, JSON.stringify(bounded));
+  assert.ok(bounded.data.byteLength <= 2048);
+});
+
 test('forged URL/path and descriptor executable fields are rejected before spawn', () => {
   const forged = run(request({ transport: 'tls+body', host: 'example.com', addressFamily: 'ipv4', port: 443, timeoutMs: 1000, url: 'https://example.com/ok;touch', body: { range: 'bytes=0-69632', readLimitBytes: 69633 } }, { executable: '/bin/sh' }), {}, 2);
   assert.equal(forged.ok, false);
@@ -94,7 +135,7 @@ test('target profile digest is verified at the native execution boundary', () =>
 });
 
 test('nonzero child status and partial output are returned independently', () => {
-  const result = run(request({ transport: 'tls', host: 'fail.example.com', addressFamily: 'ipv4', port: 443, timeoutMs: 1000, addressFamilies: ['ipv4'] }));
+  const result = run(request({ transport: 'tls', host: 'fail.example.com', addressFamily: 'ipv4', port: 443, timeoutMs: 1000 }));
   assert.equal(result.ok, true, JSON.stringify(result));
   assert.equal(result.data.exitCode, 7);
   assert.equal(result.data.byteLength, 7);
@@ -105,7 +146,7 @@ test('nonzero child status and partial output are returned independently', () =>
 
 test('deadline kills and reaps the fixed child without grace beyond the request deadline', () => {
   const started = Date.now();
-  const result = run(request({ transport: 'tls', host: 'sleep.example.com', addressFamily: 'ipv4', port: 443, timeoutMs: 100, addressFamilies: ['ipv4'] }));
+  const result = run(request({ transport: 'tls', host: 'sleep.example.com', addressFamily: 'ipv4', port: 443, timeoutMs: 100 }));
   assert.equal(result.ok, true, JSON.stringify(result));
   assert.ok(Date.now() - started < 1000);
   assert.equal(result.data.signal > 0, true);

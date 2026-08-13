@@ -320,3 +320,57 @@ findings while preserving the Task 4/5/7 boundaries:
   deadline, supervision, and typed-failure behavior.
 - The repository's unrelated Scanner model/target baseline failures remain
   unchanged; the focused round-6 gate is the claimed verification boundary.
+
+## Fix Round 7
+
+The latest review follow-up closes the remaining Task 6 boundary findings while
+keeping Task 7 and Task 5 explicit dependencies:
+
+- Baseline adapter requests now carry the validated worker mode. Every native
+  TLS, HTTP-body, and STUN request carries mode, retries, profile port range,
+  native limits, and the outer deadline. Native helper requests are capped at
+  the scanner operation input/output limits.
+- Native validation recursively rejects unknown fields in the target profile,
+  transport settings, request, TLS/body settings, markers, and candidate-free
+  request shapes. A descriptor portRange must exactly equal the server target
+  profile range; an merely in-range forged range is rejected.
+- Typed helper, transport, child, and incomplete-observation failures remain
+  dependency failures. They are not converted into unavailable observations or
+  candidate evidence that lets the worker proceed.
+- Per-probe metrics use native startedAt/finishedAt values. Worker results retain
+  throughput, latency, success-rate, and native timing evidence.
+- HTTP 204/205/304 no-body responses reject conflicting framing and body bytes;
+  chunked trailers reject duplicate names. SIGPIPE is ignored only around the
+  fixed child pump and restored afterward, including in the child.
+- Missing Task 7 reconciliation is recorded as an explicit EDEPENDENCY recovery
+  result. The worker never reports terminal completed/cancelled without the
+  required verified provider and still performs session cleanup and active-marker
+  release. Task 7 implementation remains absent.
+
+## Fix Round 7 Verification
+
+- Pinned WSL product Scanner gate: **61 passed, 0 failed**.
+- Native scanner, protocol-manifest, and helper gate: **53 passed, 0 failed**.
+- `git diff --check`: clean.
+- Task 5 reserved operations retain `EUNSUPPORTED`; no Task 7 implementation,
+  permanent config/Strategy state, raw command, DNS/TG/router/LuCI/Orchestra
+  surface was added.
+
+## Changed Files Round 7
+
+- `zapret2-manager/files/usr/libexec/zapret2-manager/core/native-helper.uc`
+- `zapret2-manager/files/usr/libexec/zapret2-manager/scanner-probe-executor.uc`
+- `zapret2-manager/files/usr/libexec/zapret2-manager/scanner-probes.uc`
+- `zapret2-manager/files/usr/libexec/zapret2-manager/scanner-worker.uc`
+- `zapret2-manager/src/z2m-core-helper/protocol-v1.json`
+- `zapret2-manager/src/z2m-core-helper/scanner.c`
+- `tests/native/core/scanner-probe-native.test.mjs`
+- `tests/product/avatar-strategy-scanner-worker.test.mjs`
+
+## Concerns Round 7
+
+- Physical-router reachability and live TLS/STUN acceptance remain deployment
+  dependent and were not available in this workspace.
+- The broader repository still contains the previously documented unrelated
+  Scanner model/target compatibility failures; this round claims only the
+  focused native and product gates above.

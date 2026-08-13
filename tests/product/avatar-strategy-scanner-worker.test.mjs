@@ -86,7 +86,7 @@ function hooks(stopAfter = null) {
       lockRelease: { ok: true }, sessionCleanup: { ok: true, removed: true, verified: true },
     },
     baseline: { protocol: 'tcp', ipv4: { status: 'blocked', available: true }, ipv6: { status: 'skipped', available: false } },
-    probe: { hosts: [{ host: 'kernel.org', addressFamily: 'ipv4', tls: { status: 'success', latencyMs: 10, readBytes: 128 }, body: { statusCode: 200, bytesReceived: 70000, kbps: 100, latencyMs: 10 } }] },
+    probe: { hosts: [{ host: 'kernel.org', addressFamily: 'ipv4', startedAt: 100, finishedAt: 110, tls: { status: 'success', latencyMs: 10, readBytes: 128, startedAt: 100, finishedAt: 110 }, body: { statusCode: 200, bytesReceived: 70000, kbps: 100, latencyMs: 10, startedAt: 100, finishedAt: 110 } }] },
     reconcile: { ok: true, recovery: { state: 'verified' } },
     controlSequence: stopAfter == null ? [{ stopRequested: false }] : [{ stopRequested: false }, { stopRequested: true }],
   };
@@ -155,7 +155,26 @@ test('worker runs one sequential lifecycle with identity, heartbeat, bounded res
     assert.equal(result.state.worker.pid, 41);
     assert.equal(result.state.worker.startTime, 9001);
     assert.equal(result.state.heartbeatAt != null, true);
+    assert.equal(result.state.results[0].evidence.metrics.averageLatencyMs, 10);
+    assert.equal(result.state.results[0].evidence.metrics.averageKbps, 100);
+    assert.equal(result.state.results[0].evidence.metrics.perProbe[0].startedAt, 100);
+    assert.equal(result.state.results[0].evidence.metrics.perProbe[0].finishedAt, 110);
     assert.equal(result.state.plan, undefined);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('worker refuses terminal completion when the required Task 7 reconciliation provider is missing', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-missing-reconcile-'));
+  try {
+    const testHooks = hooks();
+    delete testHooks.reconcile;
+    const result = invoke(WORKER, `subject.scanner_worker_run({id:'scan-missing-reconcile',request:${JSON.stringify(request())}}, ${JSON.stringify(testHooks)})`, storageEnv(root));
+    assert.equal(result.ok, false, JSON.stringify(result));
+    assert.equal(result.state.status, 'error');
+    assert.notEqual(result.state.status, 'completed');
+    assert.notEqual(result.state.status, 'cancelled');
+    assert.equal(result.state.recovery.reconciliation.error.code, 'EDEPENDENCY');
+    assert.equal(result.state.recovery.sessionCleanup.ok, true);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -460,6 +479,17 @@ test('fixed HTTP parser handles interim responses, chunked framing, and truncate
   const wrongRange = invoke(EXECUTOR, `subject.scanner_probe_parse_http('HTTP/1.1 206 Partial Content\\r\\nContent-Length: 5\\r\\nContent-Range: bytes 0-3/5\\r\\n\\r\\nhello', 1000, 1042, ${JSON.stringify({ range: 'bytes=0-4', readLimitBytes: 64 })})`);
   assert.equal(wrongRange.ok, false, JSON.stringify(wrongRange));
   assert.equal(wrongRange.error.code, 'EINDETERMINATE');
+
+  for (const raw of [
+    'HTTP/1.1 204 No Content\\r\\nTransfer-Encoding: chunked\\r\\n\\r\\n',
+    'HTTP/1.1 205 Reset Content\\r\\nContent-Length: 1\\r\\n\\r\\nx',
+    'HTTP/1.1 304 Not Modified\\r\\nContent-Length: 0\\r\\nContent-Length: 0\\r\\n\\r\\n',
+    'HTTP/1.1 200 OK\\r\\nTransfer-Encoding: chunked\\r\\n\\r\\n1\\r\\na\\r\\n0\\r\\nX-Trace: one\\r\\nX-Trace: two\\r\\n\\r\\n',
+  ]) {
+    const invalid = invoke(EXECUTOR, `subject.scanner_probe_parse_http(${JSON.stringify(raw)}, 1000, 1042, ${JSON.stringify({ readLimitBytes: 64 })})`);
+    assert.equal(invalid.ok, false, JSON.stringify(invalid));
+    assert.equal(invalid.error.code, 'EINDETERMINATE');
+  }
 });
 
 test('fixed HTTP observations retain configured markers and measured throughput without success fabrication', () => {
@@ -505,6 +535,26 @@ test('worker preserves native executor failure classes instead of inventing netw
     assert.equal(result.state.error, 'EDEPENDENCY');
     assert.doesNotMatch(JSON.stringify(result.state), /NET_UNREACH|TIMEOUT/);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('executor preserves native helper dependency failures instead of returning unavailable observations', () => {
+  const descriptor = { authority: 'scanner-probe-adapter.v1', adapterDigest: '7cd367ef2aed1be2567505bf978b2d2b73f97ff149cc48d64826ed4f2b8c885e',
+    targetProfileDigest: 'a'.repeat(64), targetProfile: {}, request: { transport: 'tls', mode: 'quick', host: 'example.com',
+      addressFamilies: ['ipv4'], port: 443, portRange: '443', timeoutMs: 100, retries: 1,
+      tls: { timeoutMs: 6000, readLimitBytes: 2048 }, deadlineMs: Date.now() + 5000 } };
+  const result = invoke(EXECUTOR, `subject.scanner_probe_execute(${JSON.stringify(descriptor)})`);
+  assert.equal(result.ok, false, JSON.stringify(result));
+  assert.equal(result.error.code, 'EDEPENDENCY');
+});
+
+test('baseline worker descriptor carries the validated request mode and native STUN call carries all fields', () => {
+  const worker = fs.readFileSync(WORKER, 'utf8');
+  const executor = fs.readFileSync(EXECUTOR, 'utf8');
+  assert.match(worker, /baselineProfile\s*=\s*\{ \.\.\.plan\.targetProfile, protocol: req\.protocol \}/);
+  assert.match(worker, /scanner_probe_adapter_baseline\(baselineProfile, \{[^}]*mode: req\.mode/);
+  assert.match(executor, /transport:\s*'stun',[\s\S]*mode:\s*request\.mode[\s\S]*retries:\s*request\.retries[\s\S]*receiveLimitBytes:\s*request\.receiveLimitBytes/);
+  assert.doesNotMatch(executor, /scanner_probe_parse_http\(raw, now, int\(time\(\) \* 1000\)/);
+  assert.doesNotMatch(executor, /scanner_probe_parse_stun\(raw, now, int\(time\(\) \* 1000/);
 });
 
 test('adapter descriptors carry canonical URL/path, host identity, family, and pinned retry/read settings', () => {

@@ -111,12 +111,15 @@ export const scanner_baseline_classify = function(raw) {
 function normalize_tls(raw) {
 	raw = is_object(raw) ? raw : {};
 	let success = raw.status == 'success' || raw.success === true;
-	return {
+	let result = {
 		success, status: success ? 'success' : (raw.status || 'failed'),
 		error: success ? null : (raw.error || (raw.status == 'timeout' ? 'TIMEOUT' : 'TLS_FAIL')),
 		latencyMs: number(raw.latencyMs, 0),
 		readBytes: clamp(number(raw.readBytes, 0), 0, TLS_READ_LIMIT), readLimitBytes: TLS_READ_LIMIT,
 	};
+	if (is_number(raw.startedAt)) result.startedAt = raw.startedAt;
+	if (is_number(raw.finishedAt)) result.finishedAt = raw.finishedAt;
+	return result;
 }
 
 function in_cutoff(bytes) {
@@ -139,13 +142,16 @@ function normalize_body(raw) {
 	let success = error == null && raw.rangeSatisfied !== false && raw.complete !== false && (bytes >= BODY_MINIMUM || bytes > BLOCK_MAX ||
 		code == 204 || code == 205 || code == 304);
 	if (!success && error == null) error = 'SHORT_BODY';
-	return {
+	let result = {
 		success, status: success ? 'success' : (transport == 'timeout' ? 'timeout' : 'failed'),
 		error: success ? null : error, statusCode: code, bytesReceived: bytes,
 		kbps: is_number(raw.kbps) ? raw.kbps : (latency > 0 ? round_to((bytes * 8.0) / latency, 1) : 0), latencyMs: latency,
 		marker: marker, markerEvidence: marker_evidence, range: 'bytes=0-69632', rangeSatisfied: raw.rangeSatisfied !== false,
 		complete: raw.complete !== false, minimumBytes: BODY_MINIMUM,
 	};
+	if (is_number(raw.startedAt)) result.startedAt = raw.startedAt;
+	if (is_number(raw.finishedAt)) result.finishedAt = raw.finishedAt;
+	return result;
 }
 
 function pick_error(errors, tls_ok, body_ok) {
@@ -154,6 +160,13 @@ function pick_error(errors, tls_ok, body_ok) {
 	for (let error in errors) if (type(error) == 'string' && error != '') present[error] = true;
 	for (let candidate in ERROR_PRIORITY) if (present[candidate]) return candidate;
 	return errors[0];
+}
+function verdict_metrics(tests) {
+	let first = tests?.[0];
+	if (!is_object(first)) return null;
+	if (first.protocol == 'tcp') return { averageKbps: number(first.averageKbps, 0), averageLatencyMs: number(first.averageLatencyMs, 0), successRate: number(first.successRate, 0), perProbe: first.perHost };
+	return { averageKbps: 0, averageLatencyMs: number(first.latencyMs, 0), successRate: first.success === true ? 1 : 0,
+		perProbe: { startedAt: first.startedAt, finishedAt: first.finishedAt } };
 }
 
 export const scanner_score = function(result) {
@@ -197,8 +210,11 @@ export const scanner_tcp_classify = function(raw) {
 			else push(errors, body.error);
 		}
 		else push(errors, tls.error);
-		push(per_host, { host: type(item.host) == 'string' ? item.host : '',
-		addressFamily: item.addressFamily == 'ipv6' ? 'ipv6' : 'ipv4', tls, body });
+		let hostResult = { host: type(item.host) == 'string' ? item.host : '',
+			addressFamily: item.addressFamily == 'ipv6' ? 'ipv6' : 'ipv4', tls, body };
+		if (is_number(item.startedAt)) hostResult.startedAt = item.startedAt;
+		if (is_number(item.finishedAt)) hostResult.finishedAt = item.finishedAt;
+		push(per_host, hostResult);
 	}
 	if (!tls_count && !body_count && length(errors)) {
 		let result = { protocol: 'tcp', success: false, error: pick_error(errors, tls_count, body_count),
@@ -240,6 +256,8 @@ export const scanner_udp_classify = function(raw) {
 		latencyMs: latency, stunLatencyMs: latency,
 		mappedFamily: raw.mappedFamily == 'IPv6' ? 'IPv6' : (raw.mappedFamily == 'IPv4' ? 'IPv4' : null),
 	};
+	if (is_number(raw.startedAt)) result.startedAt = raw.startedAt;
+	if (is_number(raw.finishedAt)) result.finishedAt = raw.finishedAt;
 	result.score = scanner_score(result);
 	return result;
 };
@@ -313,10 +331,10 @@ export const scanner_candidate_verdict = function(baseline, tests) {
 			evidence: { infrastructure: false, baselineSuppressed: true, failureClass: 'baseline_open' } };
 	for (let evidence in tests) if (evidence?.success === true)
 		return { verdict: 'working', reason: null, success: true,
-			evidence: { infrastructure: false, baselineSuppressed: false, failureClass: null } };
+			evidence: { infrastructure: false, baselineSuppressed: false, failureClass: null, metrics: verdict_metrics(tests) } };
 	let errors = [];
 	for (let evidence in tests) if (evidence?.error) push(errors, evidence.error);
 	return { verdict: 'failed', reason: pick_error(errors, 0, 0), success: false,
 		evidence: { infrastructure: false, baselineSuppressed: false,
-			failureClass: tests[0]?.failureClass || 'candidate_blocked' } };
+			failureClass: tests[0]?.failureClass || 'candidate_blocked', metrics: verdict_metrics(tests) } };
 };

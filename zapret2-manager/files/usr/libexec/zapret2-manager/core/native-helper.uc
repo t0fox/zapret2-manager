@@ -5,6 +5,7 @@ const TRANSPORT_PROTOCOL = 'z2m-helper-transport-v1';
 const MAGIC = 'Z2MHTV1\n';
 const HEADER_LIMIT = 2048;
 const STDOUT_LIMIT = 6291456;
+const SCANNER_OUTPUT_LIMIT = 131072;
 const STDERR_LIMIT = 4096;
 const CHUNK = 65536;
 const JSON_STRING_CHUNK = 256;
@@ -506,7 +507,7 @@ function success_data_valid(operation, data) {
 	if (operation == 'scanner_probe')
 		return exact_fields(data, ['content', 'byteLength', 'exitCode', 'signal', 'startedAt', 'finishedAt', 'complete']) &&
 			canonical_base64(data.content) && type(data.byteLength) == 'int' && data.byteLength >= 0 &&
-			data.byteLength <= STDOUT_LIMIT && base64_length(data.content) == data.byteLength &&
+			data.byteLength <= SCANNER_OUTPUT_LIMIT && base64_length(data.content) == data.byteLength &&
 			type(data.exitCode) == 'int' && data.exitCode >= -1 && type(data.signal) == 'int' &&
 			data.signal >= 0 && type(data.startedAt) == 'int' && data.startedAt >= 0 &&
 			type(data.finishedAt) == 'int' && data.finishedAt >= data.startedAt && type(data.complete) == 'bool';
@@ -718,6 +719,7 @@ export const scanner_probe = function(authority, adapterDigest, targetProfileDig
 		return dependency('Scanner probe deadline has expired.');
 	let arguments = { authority, adapterDigest, targetProfileDigest, targetProfile, request };
 	if (candidate != null) arguments.candidate = candidate;
+	if (length(sprintf('%J', arguments)) > 4096) return invalid('Scanner probe request is too large.');
 	let remaining = request.deadlineMs - int(time() * 1000), timeout = request.timeoutMs > 0 && request.timeoutMs < remaining ? request.timeoutMs : remaining;
 	return invoke_private('scanner_probe', arguments, timeout > 0 ? timeout : 1);
 };

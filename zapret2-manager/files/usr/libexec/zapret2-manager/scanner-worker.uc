@@ -68,7 +68,9 @@ function publish(record) {
 function checkpoint(record, stage) { if (lifecycle) lifecycle.stage = stage; let saved = publish(record); if (!saved.ok) { let failure = null; failure(); } return saved; }
 function candidate_evidence(value) {
 	if (!object(value)) return null;
-	return { infrastructure: value.infrastructure === true, failureClass: string(value.failureClass) ? value.failureClass : null, baselineSuppressed: value.baselineSuppressed === true };
+	let evidence = { infrastructure: value.infrastructure === true, failureClass: string(value.failureClass) ? value.failureClass : null, baselineSuppressed: value.baselineSuppressed === true };
+	if (object(value.metrics)) evidence.metrics = copy(value.metrics);
+	return evidence;
 }
 function cleanup_verified(value) {
 	return object(value) && value.ok == true && value.processRemoved == true && value.firewallRemoved == true
@@ -81,7 +83,7 @@ function probe_candidate(candidate, plan, baseline, seams, outerDeadline) {
 	if (raw == null) {
 		let now = int(time() * 1000), end = outerDeadline < now + PROBE_BUDGET_MS ? outerDeadline : now + PROBE_BUDGET_MS;
 		if (candidate.protocol == 'udp') {
-			let adapted = scanner_probe_adapter_udp(candidate, plan.targetProfile, { nowMs: now, deadlineMs: end, profileDigest: state.scanner_state_digest(plan.targetProfile) });
+			let adapted = scanner_probe_adapter_udp(candidate, plan.targetProfile, { nowMs: now, deadlineMs: end, mode: plan.request.mode, profileDigest: state.scanner_state_digest(plan.targetProfile) });
 			if (!adapted.ok) return scanner_candidate_verdict({ infrastructureFailure: true, error: adapted.error?.message }, []);
 			let executed = seam(seams, 'executor') || scanner_probe_execute(adapted);
 			if (!executed.ok) return { ok: false, error: executed.error || { code: 'EDEPENDENCY', message: 'Probe dependency failed.' } };
@@ -129,6 +131,8 @@ function finish(record, session, seams, transition, message) {
 	let cleanup = scanner_session_finish(session, seam(seams, 'transient'));
 	if (lifecycle) lifecycle.sessionCleanup = cleanup;
 	let reconciliation = seam(seams, 'reconcile');
+	if (!object(reconciliation)) reconciliation = { ok: false, error: { code: 'EDEPENDENCY', message: 'Task 7 reconciliation provider is required.', stage: 'reconciliation' }, recovery: { state: 'uncertain' } };
+	else if (reconciliation.ok !== true || reconciliation.recovery?.state != 'verified') reconciliation = merge_recovery(reconciliation, { recovery: merge_recovery(reconciliation.recovery, { state: 'uncertain' }) });
 	if (!cleanup.ok || record.recovery?.state == 'uncertain' || reconciliation?.ok !== true || reconciliation?.recovery?.state != 'verified') {
 		record.status = 'error'; record.phase = 'recovery'; record.recovery = merge_recovery(record.recovery, { state: 'uncertain', sessionCleanup: cleanup, reconciliation }); record.error = message || 'Scanner recovery is uncertain.';
 	} else {
@@ -222,7 +226,7 @@ function scanner_worker_run_impl(input, seams) {
 	let probeStarted = int(time() * 1000), probeDeadline = probeStarted + PROBE_BUDGET_MS;
 	if (baseline == null) {
 		let baselineProfile = { ...plan.targetProfile, protocol: req.protocol };
-		let adapted = scanner_probe_adapter_baseline(baselineProfile, { nowMs: probeStarted, deadlineMs: probeDeadline, profileDigest: state.scanner_state_digest(baselineProfile) });
+		let adapted = scanner_probe_adapter_baseline(baselineProfile, { nowMs: probeStarted, deadlineMs: probeDeadline, mode: req.mode, profileDigest: state.scanner_state_digest(baselineProfile) });
 		if (!adapted.ok) return finish(record, session, seams, 'error', 'Scanner baseline adapter failed.');
 		let executed = seam(seams, 'executor') || scanner_probe_execute(adapted);
 		if (!executed.ok) { record.error = executed.error?.code || 'EDEPENDENCY'; record.recovery = { state: 'verified', failure: executed.error }; return finish(record, session, seams, 'error', record.error); }

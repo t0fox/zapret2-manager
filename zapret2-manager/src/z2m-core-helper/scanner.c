@@ -63,6 +63,88 @@ static bool profile_digest_matches(json_object *profile, const char *expected)
 	return serialized != NULL && z2m_sha256_bytes_hex((const unsigned char *)serialized, strlen(serialized), digest) == 0 && !strcmp(digest, expected);
 }
 
+static bool allowed_keys(json_object *object, const char *const *allowed, size_t count)
+{
+	json_object_object_foreach(object, key, value) {
+		bool found = false; (void)value;
+		for (size_t i = 0; i < count; i++) if (!strcmp(key, allowed[i])) { found = true; break; }
+		if (!found) return false;
+	}
+	return true;
+}
+
+static bool string_array(json_object *value)
+{
+	if (!json_object_is_type(value, json_type_array)) return false;
+	for (size_t i = 0; i < json_object_array_length(value); i++) {
+		json_object *item = json_object_array_get_idx(value, i);
+		if (!json_object_is_type(item, json_type_string) || strlen(json_object_get_string(item)) != (size_t)json_object_get_string_len(item)) return false;
+	}
+	return true;
+}
+
+static bool host_array(json_object *value)
+{
+	if (!string_array(value)) return false;
+	for (size_t i = 0; i < json_object_array_length(value); i++)
+		if (!host_value(json_object_get_string(json_object_array_get_idx(value, i)))) return false;
+	return true;
+}
+
+static bool profile_shape(json_object *profile)
+{
+	static const char *const profile_keys[] = {"profileKey", "primaryHost", "testHosts", "hostlistDomains", "expectedHostlists", "tcp", "udp", "probeUrl", "protocol"};
+	static const char *const transport_keys[] = {"ports", "l7", "payload"};
+	json_object *value, *primary, *tests, *tcp, *udp, *ports, *l7, *payload;
+	if (!allowed_keys(profile, profile_keys, sizeof(profile_keys) / sizeof(profile_keys[0])) ||
+		!json_object_object_get_ex(profile, "primaryHost", &primary) || !json_object_is_type(primary, json_type_string) || !host_value(json_object_get_string(primary)) ||
+		!json_object_object_get_ex(profile, "testHosts", &tests) || !host_array(tests) ||
+		!json_object_object_get_ex(profile, "tcp", &tcp) || !json_object_is_type(tcp, json_type_object) ||
+		!json_object_object_get_ex(profile, "udp", &udp) || !json_object_is_type(udp, json_type_object) ||
+		!allowed_keys(tcp, transport_keys, 3) || !allowed_keys(udp, transport_keys, 3)) return false;
+	for (size_t i = 0; i < 2; i++) {
+		json_object *transport = i == 0 ? tcp : udp;
+		if (!json_object_object_get_ex(transport, "ports", &ports) || !json_object_is_type(ports, json_type_string) ||
+			!json_object_object_get_ex(transport, "l7", &l7) || !json_object_is_type(l7, json_type_string) ||
+			!json_object_object_get_ex(transport, "payload", &payload) || !json_object_is_type(payload, json_type_string)) return false;
+	}
+	if (json_object_object_get_ex(profile, "profileKey", &value) && (!json_object_is_type(value, json_type_string) || strlen(json_object_get_string(value)) > 64)) return false;
+	if (json_object_object_get_ex(profile, "probeUrl", &value) && !json_object_is_type(value, json_type_string)) return false;
+	if (json_object_object_get_ex(profile, "protocol", &value) && (!json_object_is_type(value, json_type_string) || (strcmp(json_object_get_string(value), "tcp") && strcmp(json_object_get_string(value), "udp")))) return false;
+	if (json_object_object_get_ex(profile, "hostlistDomains", &value) && !string_array(value)) return false;
+	if (json_object_object_get_ex(profile, "expectedHostlists", &value) && !string_array(value)) return false;
+	return true;
+}
+
+static bool nested_settings_shape(json_object *probe, const char *transport)
+{
+	json_object *value;
+	static const char *const tls_keys[] = {"timeoutMs", "readLimitBytes"};
+	static const char *const body_keys[] = {"timeoutMs", "minimumBytes", "readChunkBytes", "markerScanBytes", "readLimitBytes", "range", "markers"};
+	static const char *const marker_keys[] = {"name", "needles"};
+	if (strcmp(transport, "tls") && strcmp(transport, "tls+body")) return true;
+	if (!json_object_object_get_ex(probe, "tls", &value) || !json_object_is_type(value, json_type_object) ||
+		!allowed_keys(value, tls_keys, 2)) return false;
+	if (!strcmp(transport, "tls")) return true;
+	if (!json_object_object_get_ex(probe, "body", &value) || !json_object_is_type(value, json_type_object) ||
+		!allowed_keys(value, body_keys, sizeof(body_keys) / sizeof(body_keys[0]))) return false;
+	json_object *markers;
+	if (!json_object_object_get_ex(value, "markers", &markers) || !json_object_is_type(markers, json_type_array) || json_object_array_length(markers) != 1) return false;
+	json_object *marker = json_object_array_get_idx(markers, 0), *needles;
+	return json_object_is_type(marker, json_type_object) && allowed_keys(marker, marker_keys, 2) &&
+		json_object_object_get_ex(marker, "needles", &needles) && string_array(needles);
+}
+
+static bool probe_shape(json_object *probe, const char *transport)
+{
+	static const char *const tls[] = {"transport", "mode", "retries", "host", "addressFamily", "port", "portRange", "tls", "timeoutMs", "deadlineMs"};
+	static const char *const body[] = {"transport", "mode", "retries", "host", "addressFamily", "port", "portRange", "url", "tls", "body", "timeoutMs", "deadlineMs"};
+	static const char *const stun[] = {"transport", "mode", "retries", "host", "addressFamily", "port", "portRange", "transactionId", "receiveLimitBytes", "timeoutMs", "deadlineMs"};
+	const char *const *keys = !strcmp(transport, "tls") ? tls : (!strcmp(transport, "tls+body") ? body : stun);
+	size_t count = !strcmp(transport, "tls") ? sizeof(tls) / sizeof(tls[0]) : (!strcmp(transport, "tls+body") ? sizeof(body) / sizeof(body[0]) : sizeof(stun) / sizeof(stun[0]));
+	return allowed_keys(probe, keys, count);
+}
+
 static bool profile_host(json_object *profile, const char *host)
 {
 	json_object *primary, *tests;
@@ -202,14 +284,16 @@ static int run_fixed(char *const argv[], const unsigned char *input, size_t inpu
 		int *exit_code, int *signal_number, bool *overflow, int64_t *started_at, int64_t *finished_at)
 {
 	int in[2] = {-1, -1}, out[2] = {-1, -1}, status = 0; pid_t child, waited; size_t used = 0, sent = 0; unsigned char *data = NULL; bool input_closed = false, child_reaped = false, failed = false;
-	int flags;
-	signal(SIGPIPE, SIG_IGN);
-	if (pipe(in) < 0) return -1;
-	if (pipe(out) < 0) { close(in[0]); close(in[1]); return -1; }
+	int flags; struct sigaction old_pipe, ignore_pipe = { .sa_handler = SIG_IGN };
+	sigemptyset(&ignore_pipe.sa_mask);
+	if (sigaction(SIGPIPE, &ignore_pipe, &old_pipe) < 0) return -1;
+	if (pipe(in) < 0) { sigaction(SIGPIPE, &old_pipe, NULL); return -1; }
+	if (pipe(out) < 0) { close(in[0]); close(in[1]); sigaction(SIGPIPE, &old_pipe, NULL); return -1; }
 	child = fork();
-	if (child < 0) { close(in[0]); close(in[1]); close(out[0]); close(out[1]); return -1; }
+	if (child < 0) { close(in[0]); close(in[1]); close(out[0]); close(out[1]); sigaction(SIGPIPE, &old_pipe, NULL); return -1; }
 	if (child == 0) {
 		int nullfd = open("/dev/null", O_WRONLY | O_CLOEXEC);
+		sigaction(SIGPIPE, &old_pipe, NULL);
 		if (setpgid(0, 0) < 0) _exit(126);
 		dup2(in[0], STDIN_FILENO); dup2(out[1], STDOUT_FILENO); if (nullfd >= 0) dup2(nullfd, STDERR_FILENO);
 		close(in[0]); close(in[1]); close(out[0]); close(out[1]); if (nullfd >= 0) close(nullfd);
@@ -266,6 +350,7 @@ cleanup:
 	if (out[0] >= 0) close(out[0]);
 	if (!child_reaped) do waited = waitpid(child, &status, 0); while (waited < 0 && errno == EINTR);
 	*finished_at = now_ms();
+	sigaction(SIGPIPE, &old_pipe, NULL);
 	if (*finished_at < 0 || failed) { free(data); return -1; }
 	*output = data; *output_length = used; *exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : -1; *signal_number = WIFSIGNALED(status) ? WTERMSIG(status) : 0;
 	return 0;
@@ -282,18 +367,22 @@ int z2m_scanner_probe(const struct z2m_request *request)
 		!string_value(args, "targetProfileDigest", &profile_digest_value) || !digest_value(profile_digest_value) ||
 		!json_object_object_get_ex(args, "targetProfile", &profile) || !json_object_is_type(profile, json_type_object) || !profile_digest_matches(profile, profile_digest_value) ||
 		!json_object_object_get_ex(args, "request", &probe) || !json_object_is_type(probe, json_type_object) ||
+		!profile_shape(profile) ||
 		!string_value(probe, "transport", &transport) || !string_value(probe, "host", &host) || !host_value(host) || !profile_host(profile, host) ||
 		!int_value(probe, "timeoutMs", 1, MAX_TIMEOUT_MS, &timeout) || !int_value(probe, "deadlineMs", 1, INT64_MAX, &deadline_ms)) return z2m_fail(request->request_id, "ESCHEMA", "canonical_validate");
+	if (!probe_shape(probe, transport) || !nested_settings_shape(probe, transport) ||
+		strlen(json_object_to_json_string_ext(args, JSON_C_TO_STRING_PLAIN)) > 4096) return z2m_fail(request->request_id, "ESCHEMA", "canonical_validate");
 	int64_t wall = wall_ms(), remaining = wall < 0 ? 0 : deadline_ms - wall;
 	if (remaining <= 0) return z2m_fail(request->request_id, "ESCHEMA", "canonical_validate");
 	if (remaining < timeout) timeout = remaining;
 	if (!strcmp(transport, "tls") || !strcmp(transport, "tls+body")) {
 		json_object *tcp, *tcp_ports;
-		if (!exact_mode(probe) || !int_value(probe, "retries", 1, 2, &configured_limit) || configured_limit != 1 ||
+		const char *probe_range;
+		if (!exact_mode(probe) || !string_value(probe, "portRange", &probe_range) || strlen(probe_range) > 64 || !int_value(probe, "retries", 1, 2, &configured_limit) || configured_limit != 1 ||
 			!string_value(probe, "addressFamily", &family) || (strcmp(family, "ipv4") && strcmp(family, "ipv6")) || !int_value(probe, "port", 1, 65535, &port) ||
 			!exact_tls_settings(probe) ||
 			!json_object_object_get_ex(profile, "tcp", &tcp) || !json_object_object_get_ex(tcp, "ports", &tcp_ports) || !json_object_is_type(tcp_ports, json_type_string) ||
-			!port_range_value(json_object_get_string(tcp_ports), port) || !profile_transport(profile, "tcp", json_object_get_string(tcp_ports), port, "tls", "tls_client_hello")) return z2m_fail(request->request_id, "ESCHEMA", "canonical_validate");
+			strcmp(probe_range, json_object_get_string(tcp_ports)) || !port_range_value(json_object_get_string(tcp_ports), port) || !profile_transport(profile, "tcp", json_object_get_string(tcp_ports), port, "tls", "tls_client_hello")) return z2m_fail(request->request_id, "ESCHEMA", "canonical_validate");
 		if (!strcmp(transport, "tls+body")) {
 			if (!string_value(probe, "url", &url) || !path_value(url, host, &path) || !json_object_object_get_ex(probe, "body", &body) || !json_object_is_type(body, json_type_object) ||
 				!int_value(body, "readLimitBytes", 1, 69633, &configured_limit) || configured_limit != 69633) return z2m_fail(request->request_id, "ESCHEMA", "canonical_validate");
@@ -312,10 +401,11 @@ int z2m_scanner_probe(const struct z2m_request *request)
 		}
 	} else if (!strcmp(transport, "stun")) {
 		json_object *udp, *ports;
-		if (!exact_mode(probe) || !int_value(probe, "retries", 1, 2, &configured_limit) || configured_limit != 2 || !int_value(probe, "receiveLimitBytes", 1, STUN_OUTPUT_LIMIT, &configured_limit) || configured_limit != 1024 ||
+		const char *probe_range;
+		if (!exact_mode(probe) || !string_value(probe, "portRange", &probe_range) || strlen(probe_range) > 64 || !int_value(probe, "retries", 1, 2, &configured_limit) || configured_limit != 2 || !int_value(probe, "receiveLimitBytes", 1, STUN_OUTPUT_LIMIT, &configured_limit) || configured_limit != 1024 ||
 			!string_value(probe, "addressFamily", &family) || strcmp(family, "ipv4") || !int_value(probe, "port", 1, 65535, &port) || !exact_transaction_id(probe) ||
 			!json_object_object_get_ex(profile, "udp", &udp) || !json_object_object_get_ex(udp, "ports", &ports) || !json_object_is_type(ports, json_type_string) ||
-			!port_range_value(json_object_get_string(ports), port) || !profile_transport(profile, "udp", json_object_get_string(ports), port, "stun", "binding")) return z2m_fail(request->request_id, "ESCHEMA", "canonical_validate");
+			strcmp(probe_range, json_object_get_string(ports)) || !port_range_value(json_object_get_string(ports), port) || !profile_transport(profile, "udp", json_object_get_string(ports), port, "stun", "binding")) return z2m_fail(request->request_id, "ESCHEMA", "canonical_validate");
 		input = malloc(20); if (!input) return z2m_fail(request->request_id, "EINTERNAL", "internal");
 		input[0]=0; input[1]=1; input[2]=0; input[3]=0; input[4]=0x21; input[5]=0x12; input[6]=0xa4; input[7]=0x42; for (size_t i=0;i<12;i++) input[8+i]=(unsigned char)(i+1); input_length=20; output_limit=STUN_OUTPUT_LIMIT;
 	} else return z2m_fail(request->request_id, "ESCHEMA", "canonical_validate");
