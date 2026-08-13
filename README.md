@@ -60,3 +60,10 @@ Large implementation experiments and recovery history belong on dedicated backup
 ## License
 
 MIT. See `LICENSE`.
+
+## Knowledge Base
+
+- Open repository root as Obsidian vault
+- One-command local site: `scripts/docs.ps1 serve`
+- Run knowledge validation: `node scripts/validate-knowledge.mjs`
+- Public docs: (placeholder until deployment active)
