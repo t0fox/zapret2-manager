@@ -1,6 +1,6 @@
 ---
-id: legacy-path-test
-title: "Legacy Path"
+id: topic-two
+title: "Topic Two"
 type: doc
 status: draft
 authority: proposed
@@ -9,4 +9,4 @@ publish: false
 tags: [fixture]
 ---
 
-Old reference to docs/architecture/old.md
+Topic two.

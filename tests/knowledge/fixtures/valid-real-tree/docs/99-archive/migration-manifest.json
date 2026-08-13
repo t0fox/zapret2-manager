@@ -1,0 +1,13 @@
+[
+  {
+    "OLD_PATH": "old/current-state.md",
+    "TYPE": "doc",
+    "AUTHORITY": "manual",
+    "STATUS": "done",
+    "TARGET_PATH": "docs/00-home/current-state.md",
+    "ACTION": "move",
+    "REFERENCED_BY": [],
+    "NOTES": "fixture",
+    "OLD_BLOB_SHA": "0123456789012345678901234567890123456789"
+  }
+]

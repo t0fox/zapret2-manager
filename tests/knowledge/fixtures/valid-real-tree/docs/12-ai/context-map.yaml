@@ -1,13 +1,13 @@
 version: 1.0.0
 generated: 2026-08-13T00:00:00Z
 sections:
-  scanner:
+  fixture:
     codeGlobs:
-      - "zapret2-manager/src/**/*"
+      - "src/**"
     testGlobs:
-      - "tests/knowledge/**/*"
+      - "tests/**"
     requiredDocs:
-      - id: current-state
+      - id: real-current-state
         path: docs/00-home/current-state.md
     contracts: []
     parityReferences: []

@@ -1,0 +1,24 @@
+[
+  {
+    "OLD_PATH": "old.md",
+    "TYPE": "doc",
+    "AUTHORITY": "invalid",
+    "STATUS": "done",
+    "TARGET_PATH": "missing.md",
+    "ACTION": "move",
+    "REFERENCED_BY": [],
+    "NOTES": "bad",
+    "OLD_BLOB_SHA": "not-a-sha"
+  },
+  {
+    "OLD_PATH": "old.md",
+    "TYPE": "doc",
+    "AUTHORITY": "manual",
+    "STATUS": "done",
+    "TARGET_PATH": "target.md",
+    "ACTION": "move",
+    "REFERENCED_BY": [],
+    "NOTES": "duplicate",
+    "OLD_BLOB_SHA": "0123456789012345678901234567890123456789"
+  }
+]
