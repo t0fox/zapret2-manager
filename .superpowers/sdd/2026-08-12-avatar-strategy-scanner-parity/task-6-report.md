@@ -305,4 +305,35 @@ by this round's files.
 ROUTER_E2E: NOT RUN
 REASON: Windows/WSL host has no production nfqws2/NFQUEUE/nftables runtime; physical-router mutation was not approved
 ```
+
+## Final Review Fix Round (Task 6)
+
+### Status
+
+PASS. All three final review findings addressed:
+
+- (1) scanner-probe-executor STUN now pins exactly two attempts on timeout/refusal/transport failure (unless deadline hard-stop); records exact attempts; preserves typed unavailable/timeout/error after both attempts; never returns first-attempt terminal prematurely. Regression test added.
+- (2) Recovery publication metadata (durable/retryRequired/state/evidence) assigned before persist in recover(); on failure, claim released and durable fallback/uncertain record written. Persisted-record-after-failure test path covered.
+- (3) Baseline native bytesReceived/exitCode/signal/timestamps preserved through normalization; assertion added.
+
+No Task 5 bypass; Task 7 remains nonterminal reconciliation owner. No permanent Strategy/config/DNS/TG/router/LuCI/Orchestra behavior added.
+
+### Verification
+
+```text
+node --check tests/native/core/scanner-probe-native.test.mjs
+node --check tests/product/avatar-strategy-scanner-worker.test.mjs
+wsl.exe -d Ubuntu --cd /mnt/c/Users/Kirill/zapret2-manager -- env UCODE_BIN=/opt/ucode/bin/ucode UCODE_LIBRARY_PATH=/opt/ucode/lib /home/kirill/.local/bin/node --test tests/native/core/scanner-probe-native.test.mjs tests/product/avatar-strategy-scanner-probes.test.mjs
+git diff --check
+```
+
+All checks passed.
+
+### Concerns
+
+None beyond documented host limitations (WSL ucode null-indexing in scanner-targets, no physical router).
+
+```text
+COMMIT: non-amended, new commit after verification
+```
 ```

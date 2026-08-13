@@ -139,9 +139,11 @@ function recover(record, seams, context, message) {
 	if (context?.session) { try { recovery.sessionCleanup = scanner_session_finish(context.session, seam(seams, 'transient')); recovery.lockRelease = recovery.sessionCleanup.lockRelease; } catch (e) { recovery.sessionCleanup = { ok: false, error: e, reconciliation: task7_dependency('session_cleanup', e) }; recovery.lockRelease = recovery.sessionCleanup; } }
 	recovery.activeRelease = release_claim(lifecycle?.claimed || (context?.record?.id && context?.record?.worker ? { id: context.record.id, identity: context.record.worker } : null));
 	record.status = 'error'; record.phase = 'recovery'; record.recovery = recovery; record.error = message || 'Scanner worker lifecycle failed; reconciliation is required.'; record.currentCandidate = null; record.finishedAt = time(); record.heartbeatAt = time();
+	recovery.publication = { ok: false, durable: false, retryRequired: true, result: null };
 	let published = null;
 	try { published = state.scanner_state_save(record); } catch (e) { published = { ok: false, error: e }; }
-	recovery.publication = { ok: published?.ok === true, durable: published?.ok === true, retryRequired: published?.ok !== true, result: published };
+	if (published && published.ok === true) recovery.publication = { ok: true, durable: true, retryRequired: false, result: published };
+	else { recovery.publication = { ok: false, durable: false, retryRequired: true, result: published }; let released = release_claim(lifecycle?.claimed); recovery.activeRelease = released; }
 	return { ok: false, state: record, error: { code: 'EINTERNAL', message: record.error }, recovery };
 }
 function finish(record, session, seams, transition, message) {

@@ -231,6 +231,7 @@ export const scanner_probe_execute = function(descriptor) {
 	}
 	if (request.transport == 'stun') {
 		let attempts = 0;
+		let lastTyped = null;
 		for (attempts = 1; attempts <= request.retries; attempts++) {
 			let timeoutMs = bounded_timeout(request, STUN_TIMEOUT_MS);
 			if (timeoutMs == null) return failure('EDEPENDENCY', 'Probe deadline has expired.', { stage: 'deadline' });
@@ -238,10 +239,11 @@ export const scanner_probe_execute = function(descriptor) {
 			if (result.data.cancelled === true) return failure('EDEPENDENCY', 'Scanner probe was cancelled.', { stage: 'cancel' });
 			raw = native_output(result); if (raw == null || !native_observation_complete(result, raw)) return native_failure(result, 'STUN child outcome is not usable.');
 			let typed = typed_transport_status(result);
-			if (typed) return { ok: true, observations: [{ transport: 'stun', status: typed.status, error: typed.error, attempts, latencyMs: result.data.finishedAt - result.data.startedAt, bytesReceived: result.data.byteLength, exitCode: result.data.exitCode, signal: result.data.signal, startedAt: result.data.startedAt, finishedAt: result.data.finishedAt }] };
+			if (typed) { lastTyped = { status: typed.status, error: typed.error, attempts, latencyMs: result.data.finishedAt - result.data.startedAt, bytesReceived: result.data.byteLength, exitCode: result.data.exitCode, signal: result.data.signal, startedAt: result.data.startedAt, finishedAt: result.data.finishedAt }; if (attempts < request.retries) continue; return { ok: true, observations: [{ transport: 'stun', status: lastTyped.status, error: lastTyped.error, attempts: lastTyped.attempts, latencyMs: lastTyped.latencyMs, bytesReceived: lastTyped.bytesReceived, exitCode: lastTyped.exitCode, signal: lastTyped.signal, startedAt: lastTyped.startedAt, finishedAt: lastTyped.finishedAt }] }; }
 			let parsed = scanner_probe_parse_stun(raw, result.data.startedAt, result.data.finishedAt, { attempts, transactionId: request.transactionId || STUN_TRANSACTION_ID }, 0x0101); if (parsed.ok) { parsed.observation.startedAt = result.data.startedAt; parsed.observation.finishedAt = result.data.finishedAt; parsed.observation.bytesReceived = result.data.byteLength; parsed.observation.exitCode = result.data.exitCode; parsed.observation.signal = result.data.signal; return { ok: true, observations: [parsed.observation] }; }
 			if (attempts == request.retries) return failure('EDEPENDENCY', 'STUN response parsing is indeterminate.', { stage: 'parse', parser: parsed.error });
 		}
+		if (lastTyped) return { ok: true, observations: [{ transport: 'stun', status: lastTyped.status, error: lastTyped.error, attempts: lastTyped.attempts, latencyMs: lastTyped.latencyMs, bytesReceived: lastTyped.bytesReceived, exitCode: lastTyped.exitCode, signal: lastTyped.signal, startedAt: lastTyped.startedAt, finishedAt: lastTyped.finishedAt }] };
 		return failure('EDEPENDENCY', 'STUN response is indeterminate.', { stage: 'transport' });
 	}
 	return failure('EDEPENDENCY', 'Probe transport is not supported by the fixed executor.', { stage: 'descriptor' });

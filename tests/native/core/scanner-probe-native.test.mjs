@@ -218,3 +218,13 @@ test('deadline kills and reaps the fixed child without grace beyond the request 
   assert.ok(Date.now() - started < 1000);
   assert.equal(result.data.signal > 0, true);
 });
+
+test('baseline evidence preserves native bytesReceived/exitCode/signal/timestamps through normalization', () => {
+  const refused = run(request({ transport: 'tls', host: 'fail.example.com', addressFamily: 'ipv4', port: 443, timeoutMs: 1000 }));
+  assert.equal(refused.ok, true);
+  assert.equal(typeof refused.data.byteLength, 'number');
+  assert.equal(typeof refused.data.exitCode, 'number');
+  assert.equal(typeof refused.data.signal, 'number');
+  assert.equal(typeof refused.data.startedAt, 'number');
+  assert.equal(typeof refused.data.finishedAt, 'number');
+});
