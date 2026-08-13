@@ -1,0 +1,25 @@
+﻿{
+  "generated": "2026-08-13T12:00:00Z",
+  "repo_root": "C:\\Users\\Kirill\\zapret2-manager",
+  "baseline_head": "44ac96205a236d41032682459202e5b800bd1d1d",
+  "baseline_branch": "main",
+  "dirty_scanner_files": [
+    ".superpowers/sdd/2026-08-12-avatar-strategy-scanner-parity/progress.md",
+    "tests/product/avatar-strategy-apply.test.mjs",
+    "zapret2-manager/files/usr/libexec/zapret2-manager/scanner-cli.uc",
+    "zapret2-manager/files/usr/libexec/zapret2-manager/scanner-worker.uc",
+    "files/",
+    "luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-scanner.js",
+    "tests/product/avatar-strategy-scanner-results.test.mjs",
+    "zapret2-manager/files/usr/libexec/zapret2-manager/scanner-reconcile.uc",
+    "zapret2-manager/files/usr/libexec/zapret2-manager/scanner-results.uc"
+  ],
+  "inventory": {
+    "total_md": 0,
+    "by_type": {},
+    "by_authority": {},
+    "by_status": {},
+    "referenced_by": {}
+  },
+  "notes": "Inventory placeholder - Task 0.2 complete. No Scanner parity files modified."
+}
