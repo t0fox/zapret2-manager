@@ -33,4 +33,7 @@ modified to mask those findings.
 - `tests/knowledge/validator.test.mjs`
 - `tests/knowledge/fixtures/`
 
-The commit hash is recorded by the final git verification after commit.
+## Commits
+
+- Validator, tests, and fixtures: `e79ad6a`
+- Report commit: `7e181e6`
