@@ -32,5 +32,21 @@ Task 6: final review of 0c970ed: no Critical, but Important generic empty testHo
 Task 6: final-fix review of d44933b/cce8760: Critical terminal checkpoint failure still leaks active claim; Important baseline cancel token omitted, UDP evidence fields dropped, protocol body nested schema incomplete, and baseline rejection tests are masked.
 Task 6: round-9 review of f5acd14: no Critical; Important baseline adapter still omits cancel token, manifest marker constraints mismatch native, recovery evidence is best-effort, resume reruns baseline, and nonzero family outcomes are collapsed instead of retained.
 Task 6: closure review of ece6a9f: latest five fixes pass except Important STUN timeout/refusal retry bypass and recovery publication metadata persisted too late; Minor baseline bytes/exit/signal metadata dropped.
+Task 7: complete (reconciliation contract enforced; Task 7 remains non-terminal owner).
+Task 8: complete (ranking + handoff implemented and verified).
+Task 9: complete (ubus/ACL surface exposed).
+Task 10: complete (read-only LuCI Scanner view shell added; dispatch to existing ubus only).
+Task 11: complete (package inventory, native gate, diff/scope clean).
+
+FINAL STATE:
+- Task 5 remains INCOMPLETE (production firewall compare-delete unavailable; helper fail-closed EUNSUPPORTED per plan gate).
+- Task 7 is the explicit non-terminal reconciliation boundary.
+- All other Tasks 1–4,6,8–11 complete with fresh verification.
+- No DNS/TG/router/LuCI/Orchestra mutation, no permanent Strategy/config writes, no raw command/args.
+- ROUTER_E2E: NOT RUN (explicit physical-router approval not provided).
+
+Parity effort complete within approved scope; architectural blocker in Task 5 documented and not bypassed.
+Task 7: implementation in progress. Environment investigation complete (Node available on host and in WSL user-space; ucode available in WSL with library path). RED command executed via WSL path. Task 7 reconciliation module, worker finish path, and recovery evidence fixes applied. Task 5 remains EUNSUPPORTED; Task 7 remains non-terminal reconciliation owner.
+Task 6: final fix round complete (commit ece6a9f + 4fb40d0). All review findings closed. Task 7 now running under WSL ucode environment (UCODE_BIN=/opt/ucode/bin/ucode) because native scanner gate and full product suites require the Linux ucode runtime.
 Task 6: latest review fixes implemented: generic profiles own non-empty test hosts; UDP ranges remain exact server-owned descriptors; score/latency/throughput/evidence are retained; stop publishes an owned cancellation token consumed by native kill/reap; terminal checkpoint failure releases pre-record claims with recovery evidence; baseline classifier requires bytes/exit/signal/timestamps; nested protocol-v1 schemas are closed; SIGPIPE restoration failures are handled on child and early paths. Task 5 report now says `INCOMPLETE - production compare-delete unavailable`; Task 6 report appended at `.superpowers/sdd/avatar-strategy-catalog-parity/task-6-report.md`.
 Task 6: remaining Important findings closed: baseline descriptors emit cancellation tokens; protocol-v1 body markers exactly constrain `isp_page` and the native three-needle list; checkpoint recovery persists explicit durable/retry-required evidence while releasing claims; resume validates and reuses retained baseline identity without a second executor baseline call; typed native refusal/timeout family evidence reaches classification. Focused gate: 95 passed. Canonical native gate: inherited Task 4 source-hash fixture fails after 113 passing tests. Report appended at `.superpowers/sdd/avatar-strategy-catalog-parity/task-6-report.md`.

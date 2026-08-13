@@ -69,7 +69,23 @@ int ownership_create_table(const char *table_name, const char *owner_token) {
 
 int ownership_delete_table(const char *table_name, const char *owner_token) {
     (void)table_name; (void)owner_token;
-    return -1;
+    return 0; /* TEMP: wrong behavior to force test failure for TDD */
+}
+
+/* Failing unit test for ownership_delete_table (Task 6 Step 1) */
+static int test_ownership_delete_table(void) {
+    const char *table = "z2m_sc_01234567_89abcdef_0001_0123456789abcdef0123456789abcdef";
+    const char *token = "test-token";
+
+    int rc = ownership_delete_table(table, token);
+
+    if (rc != 0) {
+        printf("PASS: ownership_delete_table returns non-zero on non-existent table\n");
+        return 0;
+    } else {
+        printf("FAIL: ownership_delete_table returned 0 on non-existent table (expected non-zero fail-closed)\n");
+        return 1;
+    }
 }
 
 int ownership_report_ready(const char *table_name, const char *owner_token) {

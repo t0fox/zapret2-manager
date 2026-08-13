@@ -3,6 +3,7 @@
 import { stat, readlink, readfile } from 'fs';
 import * as state from './scanner-state.uc';
 import { scanner_worker_run, scanner_worker_resume } from './scanner-worker.uc';
+import { scanner_report_build, scanner_save_generated_validate } from './scanner-results.uc';
 
 const COMMANDS = { start: true, status: true, results: true, stop: true, resume: true, 'save-generated': true };
 const MAX_REQUEST_BYTES = 65536;
@@ -47,14 +48,23 @@ function dispatch(command, input, seams) {
 		if (!object(input) || !safe_id(input.id)) return result('EINPUT', 'Scanner id is required.');
 		let loaded = state.scanner_state_load(input.id);
 		if (!loaded.ok) return loaded;
-		if (command == 'results') return bounded(response({ ok: true, id: input.id, results: loaded.state.results, status: loaded.state.status, progress: loaded.state.progress, total: loaded.state.total }));
+		if (command == 'results') {
+			let report = scanner_report_build(loaded.state);
+			if (!report.ok) return report;
+			return bounded(response({ ok: true, id: input.id, report: report.report }));
+		}
 		return bounded(response({ ok: true, id: input.id, status: loaded.state.status, phase: loaded.state.phase, progress: loaded.state.progress, total: loaded.state.total, currentCandidate: loaded.state.currentCandidate, counts: loaded.state.counts, recovery: loaded.state.recovery, error: loaded.state.error, heartbeatAt: loaded.state.heartbeatAt }));
 	}
 	if (command == 'stop') {
 		if (!object(input) || !safe_id(input.id)) return result('EINPUT', 'Scanner id is required.');
 		return state.scanner_control_request(input.id, 'stop', input);
 	}
-	if (command == 'save-generated') return result('EAPPLY', 'Generated Strategies are not persisted by Scanner Task 6.');
+	if (command == 'save-generated') {
+		if (!object(input) || !object(input.payload)) return result('EINPUT', 'Save payload is required.');
+		let validated = scanner_save_generated_validate(input.payload);
+		if (!validated.ok) return validated;
+		return { ok: true, validated: true, payload: input.payload };
+	}
 	if (!object(input) || !object(input.request)) return result('EINPUT', 'Scanner request is required.');
 	if (command == 'resume') return scanner_worker_resume(input, seams);
 	let checked = input.request;

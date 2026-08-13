@@ -618,3 +618,6 @@ test('runtime uncertainty records preserve bounded verified checks and rollback-
   })})`);
   assert.deepEqual(uncertain, { uncertain: true, rolledBack: false });
 }));
+test('scanner handoff: existing Strategy ID returned, unmatched generated cannot Apply, Save payload only', () => {
+  assert.fail('RED: Strategy handoff boundary absent');
+});
