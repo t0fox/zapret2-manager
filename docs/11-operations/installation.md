@@ -11,17 +11,17 @@ tags: [operations, installation, openwrt]
 
 # Installation
 
-The current zapret2-manager repository is a development/prototype project. It does **not** document a public binary package URL, so this guide does not invent a download command. The verified path is to build the packages with an OpenWrt build tree or SDK that contains this package source.
+zapret2-manager is currently a development/prototype project. The repository does **not** document a public binary package URL, so the supported documentation path is to build packages from source with an OpenWrt build tree or SDK.
 
-## Supported environment
+## Packages
 
-The package definitions target OpenWrt. The backend package is `zapret2-manager`; the browser interface is `luci-app-zapret2-manager`. A target-specific `zapret2-manager-full` meta-package installs the backend and LuCI application together and currently has a `mediatek_filogic` target constraint.
+The backend package is `zapret2-manager`. The browser interface is `luci-app-zapret2-manager` and depends on the backend. A target-specific `zapret2-manager-full` meta-package installs both and currently has a `mediatek_filogic` target constraint.
 
-The backend Makefile declares its package dependencies, including ucode and the ucode modules used by the runtime, plus normal utility and JSON libraries. The LuCI package depends on `luci-base` and the backend package.
+The backend Makefile declares the ucode modules, utilities, and JSON-related package dependencies required by the current build. Use the Makefiles as the source of truth rather than copying an old dependency list from external notes.
 
-## Build the current packages
+## Build
 
-Use the normal OpenWrt package build flow. From a correctly prepared OpenWrt build tree or SDK, the repository README lists these package targets:
+From a prepared OpenWrt build tree or SDK, the repository README lists these targets:
 
 ```sh
 make package/zapret2-manager/compile V=s
@@ -29,35 +29,33 @@ make package/luci-app-zapret2-manager/compile V=s
 make package/zapret2-manager-full/compile V=s
 ```
 
-Use only targets that are valid for your OpenWrt target. The `zapret2-manager-full` meta-package is target-specific; building the backend and LuCI packages separately is the more general development path.
+Use only targets valid for the selected OpenWrt target. Building the backend and LuCI packages separately is the general development path; the full meta-package is target-specific.
 
-Successful source tests are not a substitute for an OpenWrt target-toolchain build. The backend Makefile compiles its native components with `TARGET_CC`, so the SDK build is the evidence that those components compile for the selected router target.
+A host-side source test is not a substitute for a target-toolchain package build. The current backend package builds native components with the OpenWrt target compiler, so SDK compilation is important deployment evidence.
 
-## Install the locally built packages
+## Install the built packages
 
-After the OpenWrt build completes, locate the packages produced by that build system and install them using the normal package-management workflow for your OpenWrt version and target. This documentation intentionally does not hard-code an artifact directory or package-manager command because those details vary by OpenWrt build and repository state.
+After the build completes, install the packages produced by your OpenWrt build system using the normal package-management workflow for that OpenWrt version and target. This guide does not hard-code a generated artifact path because it depends on the build environment.
 
-Install the backend before or together with the LuCI package so its dependency is satisfied. The LuCI package depends on the backend and exposes the application in the OpenWrt web interface.
+Install the backend before or together with the LuCI package. After installation, open LuCI and look for **Zapret 2 Manager** under Services.
 
-## What post-install does
-
-The backend package creates its managed Strategy storage when needed, initializes Strategy state when absent, reloads `rpcd`, and enables the zapret2-manager service. The LuCI package clears LuCI caches during package lifecycle hooks so the application can appear in the menu after installation.
-
-After installation, open LuCI and look under **Services → Zapret 2 Manager**. If the page is not visible, continue with [Troubleshooting](./troubleshooting.md) rather than repeatedly reinstalling packages.
+The backend package initializes its managed Strategy storage when needed, reloads rpcd during post-install, and enables its service. The LuCI package clears its normal caches during package lifecycle hooks.
 
 ## First verification
 
-Before making durable changes, confirm that the LuCI application loads, backend status can be read, and the expected package files are present. Then follow [Quick Start](./quick-start.md) and begin with inspection, Preview, and validation rather than immediately applying a configuration.
+Confirm that the LuCI application loads and that application status can be read before making durable changes. Then continue with [First Run](./first-run.md), beginning with Strategy inspection, Preview, and validation where the current build supports them.
+
+If the page is missing or the backend status is unavailable, use [Troubleshooting](./troubleshooting.md).
 
 ## Upgrade and uninstall
 
-The repository currently defines package configuration files and standard OpenWrt package lifecycle hooks, but it does not document a separate public one-command upgrade or rollback release mechanism. Treat upgrades as development package upgrades built from a known repository revision. Preserve configuration according to your OpenWrt package-management policy and verify the service after upgrade.
+The repository does not document a separate public one-command release upgrade or universal rollback mechanism. Treat upgrades as development package upgrades from a known revision and verify the application after the package operation.
 
-For uninstall, use the normal OpenWrt package-manager behavior for packages you installed. Do not manually delete broad groups of system resources as a substitute for package removal.
+For uninstall, use normal OpenWrt package-management behavior. Do not replace package removal with broad manual deletion of unrelated platform state.
 
 ## Next steps
 
-- [Quick Start](./quick-start.md)
+- [First Run](./first-run.md)
 - [Troubleshooting](./troubleshooting.md)
 - [Project status](../01-project/status-roadmap.md)
 - [Development](../08-development/index.md)
