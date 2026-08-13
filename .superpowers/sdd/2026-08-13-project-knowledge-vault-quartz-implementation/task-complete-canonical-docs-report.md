@@ -51,3 +51,8 @@ docs, archive manifest, context-map changes, and this report.
 
 Only `docs/99-archive`, `docs/**/*.md`, the context map, and this report are to
 be committed. Existing unrelated worktree changes remain untouched.
+
+Commits:
+
+- `67bb7f3` `docs: complete canonical knowledge vault`
+- `8ff6aa2` `docs: preserve migrated document bodies`
