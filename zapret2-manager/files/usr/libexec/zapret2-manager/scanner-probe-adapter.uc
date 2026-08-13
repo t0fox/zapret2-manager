@@ -5,6 +5,7 @@ const BODY_TIMEOUT_MS = 8000;
 const STUN_TIMEOUT_MS = 4000;
 const MAX_DEADLINE_MS = 120000;
 const AUTHORITY = 'scanner-probe-adapter.v1';
+const ADAPTER_DIGEST = '7cd367ef2aed1be2567505bf978b2d2b73f97ff149cc48d64826ed4f2b8c885e';
 
 function is_object(value) { return type(value) == 'object' && value != null; }
 function fail(message) { return { ok: false, error: { code: 'EINPUT', message } }; }
@@ -103,6 +104,13 @@ function canonical_url(value, hosts) {
 		match(path, /^\/[A-Za-z0-9._~\/?=&%+-]*$/) != null;
 }
 
+function descriptor_common(profile, request, candidate, suppliedDigest) {
+	let result = { authority: AUTHORITY, adapterDigest: ADAPTER_DIGEST,
+		targetProfileDigest: is_hex64(suppliedDigest) ? suppliedDigest : null, targetProfile: profile, request };
+	if (candidate != null) result.candidate = candidate;
+	return result;
+}
+
 function candidate_valid(candidate, protocol) {
 	return is_object(candidate) && !forbidden(candidate) && candidate.protocol == protocol &&
 		type(candidate.scannerId) == 'string' && length(candidate.scannerId) > 0 && length(candidate.scannerId) <= 160 &&
@@ -113,13 +121,13 @@ export const scanner_probe_adapter_baseline = function(profile, limit) {
 	if (!is_object(profile) || forbidden(profile) || !safe_host(profile.primaryHost)) return fail('Invalid server-owned target profile.');
 	let protocol = profile.protocol, end = deadline(limit, protocol == 'udp' ? STUN_TIMEOUT_MS : TLS_TIMEOUT_MS);
 	if (!end || (protocol != 'tcp' && protocol != 'udp')) return fail('Invalid probe deadline or protocol.');
-	if (protocol == 'udp') return { ok: true, authority: AUTHORITY, request: { transport: 'stun', host: profile.primaryHost,
+	if (protocol == 'udp') return { ok: true, ...descriptor_common(profile, { transport: 'stun', host: profile.primaryHost,
 		port: 19302, addressFamily: 'ipv4', timeoutMs: STUN_TIMEOUT_MS, retries: 2,
-		receiveLimitBytes: 1024, deadlineMs: end } };
-	return { ok: true, authority: AUTHORITY, request: { transport: 'tls', host: profile.primaryHost,
+		receiveLimitBytes: 1024, deadlineMs: end }, null, limit?.profileDigest) };
+	return { ok: true, ...descriptor_common(profile, { transport: 'tls', host: profile.primaryHost,
 		addressFamilies: ['ipv4', 'ipv6'], port: 443,
 		timeoutMs: TLS_TIMEOUT_MS, readLimitBytes: 2048,
-		tls: { timeoutMs: TLS_TIMEOUT_MS, readLimitBytes: 2048 }, deadlineMs: end } };
+		tls: { timeoutMs: TLS_TIMEOUT_MS, readLimitBytes: 2048 }, deadlineMs: end }, null, limit?.profileDigest) };
 };
 
 export const scanner_probe_adapter_tcp = function(candidate, target, addressFamily, limit) {
@@ -131,24 +139,25 @@ export const scanner_probe_adapter_tcp = function(candidate, target, addressFami
 	let requests = [];
 	for (let host in hosts) push(requests, { host, hostIdentity: host, addressFamily, port: 443,
 		url: host == target.primaryHost ? target.probeUrl : 'https://' + host + '/' });
-	return { ok: true, authority: AUTHORITY, candidate: { scannerId: candidate.scannerId,
-		compiledDigest: candidate.compiledDigest, dependencyDigest: candidate.dependencyDigest },
-		request: { transport: 'tls+body', hosts: requests,
-			retries: 1, tls: { timeoutMs: TLS_TIMEOUT_MS, readLimitBytes: 2048 },
-			body: { timeoutMs: BODY_TIMEOUT_MS, minimumBytes: 65536, readChunkBytes: 4096,
-				markerScanBytes: 8192, readLimitBytes: 69633, range: 'bytes=0-69632',
-				markers: [{ name: 'isp_page', needles: ['blocked', 'access denied', 'captcha'] }] }, deadlineMs: end } };
+	let descriptor = descriptor_common(target, { transport: 'tls+body', mode: limit?.mode, hosts: requests,
+		retries: 1, tls: { timeoutMs: TLS_TIMEOUT_MS, readLimitBytes: 2048 },
+		body: { timeoutMs: BODY_TIMEOUT_MS, minimumBytes: 65536, readChunkBytes: 4096,
+			markerScanBytes: 8192, readLimitBytes: 69633, range: 'bytes=0-69632',
+			markers: [{ name: 'isp_page', needles: ['blocked', 'access denied', 'captcha'] }] }, deadlineMs: end }, { scannerId: candidate.scannerId,
+		compiledDigest: candidate.compiledDigest, dependencyDigest: candidate.dependencyDigest }, limit?.profileDigest);
+	return { ok: true, ...descriptor };
 };
 
 export const scanner_probe_adapter_udp = function(candidate, target, limit) {
 	if (!candidate_valid(candidate, 'udp')) return fail('Invalid planner-owned UDP candidate.');
-	if (!is_object(target) || forbidden(target) || !safe_host(target.host) ||
-		type(target.port) != 'int' || target.port < 1 || target.port > 65535)
+	if (!is_object(target) || forbidden(target) || !safe_host(target.primaryHost) ||
+		type(target.udp) != 'object' || type(target.udp.ports) != 'string' || match(target.udp.ports, /^[0-9]+$/) == null ||
+		+target.udp.ports < 1 || +target.udp.ports > 65535)
 		return fail('Invalid server-owned STUN target.');
 	let end = deadline(limit, STUN_TIMEOUT_MS);
 	if (!end) return fail('Invalid probe deadline.');
-	return { ok: true, authority: AUTHORITY, candidate: { scannerId: candidate.scannerId,
-		compiledDigest: candidate.compiledDigest, dependencyDigest: candidate.dependencyDigest },
-		request: { transport: 'stun', host: target.host, port: target.port, addressFamily: 'ipv4',
-			timeoutMs: STUN_TIMEOUT_MS, retries: 2, receiveLimitBytes: 1024, deadlineMs: end } };
+	let descriptor = descriptor_common(target, { transport: 'stun', host: target.primaryHost, port: +target.udp.ports, addressFamily: 'ipv4',
+		timeoutMs: STUN_TIMEOUT_MS, retries: 2, receiveLimitBytes: 1024, deadlineMs: end }, { scannerId: candidate.scannerId,
+		compiledDigest: candidate.compiledDigest, dependencyDigest: candidate.dependencyDigest }, limit?.profileDigest);
+	return { ok: true, ...descriptor };
 };

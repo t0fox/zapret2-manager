@@ -50,6 +50,16 @@ static void finish(struct sha256 *ctx,unsigned char digest[32])
 	for(size_t i=0;i<8;i++){digest[i*4]=(unsigned char)(ctx->state[i]>>24);digest[i*4+1]=(unsigned char)(ctx->state[i]>>16);digest[i*4+2]=(unsigned char)(ctx->state[i]>>8);digest[i*4+3]=(unsigned char)ctx->state[i];}
 }
 
+int z2m_sha256_bytes_hex(const unsigned char *data,size_t length,char hex[65])
+{
+	unsigned char digest[32];
+	struct sha256 ctx={{0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19},0,{0},0};
+	if (data == NULL && length != 0) return -1;
+	update(&ctx,data,length); finish(&ctx,digest);
+	for (size_t i=0;i<32;i++) snprintf(hex+i*2,3,"%02x",digest[i]);
+	hex[64]='\0'; return 0;
+}
+
 static bool unchanged(const struct stat *before,const struct stat *after)
 {
 	return before->st_dev==after->st_dev&&before->st_ino==after->st_ino&&before->st_mode==after->st_mode&&before->st_uid==after->st_uid&&before->st_gid==after->st_gid&&before->st_size==after->st_size&&before->st_mtim.tv_sec==after->st_mtim.tv_sec&&before->st_mtim.tv_nsec==after->st_mtim.tv_nsec;

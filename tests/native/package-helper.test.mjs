@@ -33,6 +33,7 @@ const productionSources = [
   'protocol.c',
   'roots.c',
   'sha256.c',
+  'scanner.c',
 ];
 const brokerSources = ['z2m-helperd.c', 'transport.c', 'supervise.c'];
 const scannerFirewallHelperSource = 'z2m-scanner-firewall-helper.c';
@@ -563,6 +564,7 @@ test('package target-builds the complete production helper with json-c', () => {
   assert.ok(fs.existsSync(`${helperDir}/helper.h`), 'helper.h must be present');
   assert.ok(fs.existsSync(`${helperDir}/protocol-v1.json`), 'protocol-v1.json must be present');
   assert.ok(fs.existsSync(`${helperDir}/test-audit.c`), 'Task 3 test audit source must be present');
+  assert.ok(fs.existsSync(`${helperDir}/scanner.c`), 'fixed Scanner process executor source must be present');
 
   const compile = block('Build/Compile');
   for (const source of productionSources) {
@@ -692,7 +694,7 @@ test('native helper adapter exposes only typed fixed-socket operations', () => {
   const exports = [...source.matchAll(/export const\s+([A-Za-z_][A-Za-z0-9_]*)/g)]
     .map(match => match[1]).sort();
   assert.deepEqual(exports,
-    ['atomic_write', 'atomic_write_json', 'mkdir_private', 'read_regular', 'sha256_regular', 'stat_regular']);
+    ['atomic_write', 'atomic_write_json', 'atomic_write_json_revision', 'mkdir_private', 'read_regular', 'scanner_probe', 'sha256_regular', 'stat_regular']);
   assert.match(source, /['"]\/tmp\/zapret2-manager\/runtime\/z2m-helperd\.sock['"]/,
     'production adapter must use the fixed broker socket');
   assert.match(source, /socket\.connect\(\s*\{\s*path:\s*SOCKET_PATH\s*\}/,

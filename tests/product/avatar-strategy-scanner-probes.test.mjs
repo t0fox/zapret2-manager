@@ -376,6 +376,20 @@ test('malformed nested TCP evidence is infrastructure, never a failed candidate'
   assert.equal(validFailure.failureClass, 'candidate_blocked');
 });
 
+test('valid typed body failure evidence remains candidate failure after validation', () => {
+  const baseline = call('scanner_baseline_classify', {
+    protocol: 'tcp', ipv4: { status: 'blocked' }, ipv6: { status: 'skipped', error: 'NO_ADDR' },
+  });
+  const failure = call('scanner_tcp_classify', { hosts: [{ host: 'example.com', addressFamily: 'ipv4',
+    tls: { status: 'success', readBytes: 2048, latencyMs: 20 },
+    body: { status: 'failed', error: 'ISP_PAGE', statusCode: 403, bytesReceived: 128,
+      markerEvidence: [{ name: 'isp_page', needle: 'blocked' }], rangeSatisfied: true, complete: true } }] });
+  assert.equal(failure.infrastructureFailure, false, JSON.stringify(failure));
+  assert.equal(failure.success, false);
+  assert.equal(call('scanner_candidate_verdict', baseline, [failure]).verdict, 'failed');
+  assert.equal(call('scanner_candidate_verdict', baseline, [failure]).evidence.infrastructure, false);
+});
+
 test('candidate verdict validates protocol-specific TCP and UDP evidence before success', () => {
   const baseline = call('scanner_baseline_classify', {
     protocol: 'tcp', ipv4: { status: 'blocked', error: 'TIMEOUT' }, ipv6: { status: 'skipped' },
@@ -424,8 +438,10 @@ test('fixed adapter plans pin timeout, read, Range, STUN, retry, and deadline bo
     readChunkBytes: 4096, markerScanBytes: 8192, readLimitBytes: 69633, range: 'bytes=0-69632',
     markers: [{ name: 'isp_page', needles: ['blocked', 'access denied', 'captcha'] }] });
 
-  const udp = adapt('scanner_probe_adapter_udp', { ...candidate, protocol: 'udp' },
-    { host: 'stun.l.google.com', port: 19302 }, deadline);
+  const udpProfile = { profileKey: 'generic', primaryHost: 'stun.l.google.com', testHosts: ['stun.l.google.com'],
+    tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' }, udp: { ports: '19302', l7: 'stun', payload: 'binding' },
+    probeUrl: 'https://stun.l.google.com/' };
+  const udp = adapt('scanner_probe_adapter_udp', { ...candidate, protocol: 'udp' }, udpProfile, deadline);
   assert.deepEqual(udp.request, { transport: 'stun', host: 'stun.l.google.com', port: 19302,
     addressFamily: 'ipv4', timeoutMs: 4000, retries: 2, receiveLimitBytes: 1024, deadlineMs: 20000 });
 

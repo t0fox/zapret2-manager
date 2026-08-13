@@ -1,26 +1,15 @@
 'use strict';
 
-// This is the only production network boundary for Scanner probes. Descriptors
-// are emitted by scanner-probe-adapter and contain no caller-selected command.
-import { popen } from 'fs';
+import { scanner_probe as native_scanner_probe } from './core/native-helper.uc';
 
-const NCAT = '/usr/bin/ncat';
-const TIMEOUT = '/usr/bin/timeout';
 const AUTHORITY = 'scanner-probe-adapter.v1';
-const TLS_TIMEOUT_MS = 6000;
-const BODY_TIMEOUT_MS = 8000;
-const STUN_TIMEOUT_MS = 4000;
+const ADAPTER_DIGEST = '7cd367ef2aed1be2567505bf978b2d2b73f97ff149cc48d64826ed4f2b8c885e';
 const TLS_READ_LIMIT = 2048;
 const BODY_READ_LIMIT = 69633;
 const STUN_READ_LIMIT = 1024;
-const MAX_RETRIES = 2;
-const STUN_COOKIE = [0x21, 0x12, 0xa4, 0x42];
-const STUN_TRANSACTION = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
-const FORBIDDEN = {
-	executable: true, executablePath: true, executable_path: true, program: true,
-	command: true, commandLine: true, command_line: true, argv: true, args: true,
-	raw: true, rawArgs: true, raw_args: true, path: true, cwd: true, shell: true,
-};
+const TLS_TIMEOUT_MS = 6000;
+const BODY_TIMEOUT_MS = 8000;
+const STUN_TIMEOUT_MS = 4000;
 
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
@@ -34,274 +23,143 @@ function lower(value) {
 	}
 	return result;
 }
-function forbidden(value) {
-	if (!object(value)) return false;
-	for (let key in value) {
-		let name = lower(key);
-		if (FORBIDDEN[key] || index(name, 'executable') >= 0 || index(name, 'command') >= 0 ||
-			index(name, 'raw') >= 0 || index(name, 'argv') >= 0 || index(name, 'path') >= 0) return true;
-		if (object(value[key]) && forbidden(value[key])) return true;
-	}
-	return false;
-}
-function valid_host(value) {
-	return string(value) && length(value) >= 1 && length(value) <= 253 &&
-		match(value, /^[a-z0-9][a-z0-9.-]*$/) != null && index(value, '..') < 0;
-}
-function valid_family(value) { return value == 'ipv4' || value == 'ipv6'; }
-function quote(value) {
-	let result = "'";
-	for (let i = 0; i < length(value); i++) result += substr(value, i, 1) == "'" ? "'\\''" : substr(value, i, 1);
-	return result + "'";
-}
 function decimal(value) { return string(value) && match(value, /^[0-9]+$/) != null ? +value : null; }
 function hex(value) { return string(value) && match(value, /^[0-9a-fA-F]+$/) != null ? +('0x' + value) : null; }
 function round_one(value) { return int(value * 10 + 0.5) / 10.0; }
-function remaining(request, minimum) {
-	let now = int(time() * 1000), end = request?.deadlineMs;
-	if (type(end) != 'int' || end <= now || end - now < minimum) return null;
-	return end - now;
-}
-function seconds(milliseconds, maximum) {
-	let value = milliseconds > maximum ? maximum : milliseconds, result = int(value / 1000);
-	return result < 1 ? 1 : result;
-}
-function family_flag(family) { return family == 'ipv6' ? '-6' : '-4'; }
-
-// timeout owns the child process and sends TERM followed by KILL. This keeps
-// popen.read('all') bounded by a fixed per-operation deadline.
-function run(command, operationMs, deadlineMs, outputLimit) {
-	if (!string(command) || type(outputLimit) != 'int' || outputLimit < 1) return indeterminate('Probe command or output bound is invalid.', { stage: 'descriptor' });
-	let available = remaining({ deadlineMs }, 1000);
-	if (available == null) return indeterminate('Probe deadline has expired.', { stage: 'deadline' });
-	let duration = seconds(operationMs < available ? operationMs : available, operationMs);
-	let process = null, started = int(time() * 1000), output = '';
-	let bounded = TIMEOUT + ' -k 1s ' + duration + 's sh -c ' + quote(command + ' 2>/dev/null | head -c ' + outputLimit);
-	try { process = popen(bounded + ' 2>/dev/null'); }
-	catch (exception) { return failure('EDEPENDENCY', 'Fixed probe executor could not start.', { stage: 'spawn' }); }
-	if (!process) return failure('EDEPENDENCY', 'Fixed probe executor is unavailable.', { stage: 'spawn' });
-	try { output = process.read('all') || ''; }
-	catch (exception) { process.close(); return indeterminate('Probe response could not be read.', { stage: 'read' }); }
-	let rc = process.close(), finished = int(time() * 1000);
-	if (finished > deadlineMs) return indeterminate('Probe descriptor deadline was exceeded.', { stage: 'deadline' });
-	if (rc == 124) return { ok: true, timeout: true, output, rc, startedAt: started, finishedAt: finished };
-	if (rc != 0) return failure('EDEPENDENCY', 'Fixed probe transport is uncertain.', { stage: 'transport', exitCode: rc });
-	return { ok: true, output, rc, startedAt: started, finishedAt: finished };
-}
-function header_end(raw, start) {
-	let found = index(substr(raw, start), '\r\n\r\n');
-	return found < 0 ? -1 : start + found;
-}
+function body_limit(settings) { return settings?.readLimitBytes > 0 ? settings.readLimitBytes : BODY_READ_LIMIT; }
+function expected_range(settings) { return string(settings?.range) && match(settings.range, /^bytes=[0-9]+-[0-9]+$/) ? settings.range : null; }
+function range_bounds(value) { let parts = split(substr(value, 6), '-'); return length(parts) == 2 ? { start: +parts[0], end: +parts[1] } : null; }
+function header_end(raw, start) { let found = index(substr(raw, start), '\r\n\r\n'); return found < 0 ? -1 : start + found; }
 function header_map(raw, start, end) {
 	let result = {}, lines = split(substr(raw, start, end - start), '\r\n');
-	for (let i = 1; i < length(lines); i++) {
-		let colon = index(lines[i], ':');
-		if (colon > 0) result[lower(trim(substr(lines[i], 0, colon)))] = trim(substr(lines[i], colon + 1));
-	}
+	for (let i = 1; i < length(lines); i++) { let colon = index(lines[i], ':'); if (colon > 0) result[lower(trim(substr(lines[i], 0, colon)))] = trim(substr(lines[i], colon + 1)); }
 	return result;
 }
 function status_line(raw, start, end) {
 	let line = substr(raw, start, end - start), status = decimal(substr(line, 9, 3));
-	if (length(line) < 12 || substr(line, 0, 5) != 'HTTP/' || substr(line, 6, 1) != '.' || substr(line, 8, 1) != ' ') return null;
-	return status != null && status >= 100 && status <= 599 ? status : null;
-}
-function body_limit(settings) {
-	let value = settings?.readLimitBytes;
-	return type(value) == 'int' && value > 0 ? value : BODY_READ_LIMIT;
-}
-function expected_range(settings) {
-	let value = settings?.range;
-	return string(value) && match(value, /^bytes=[0-9]+-[0-9]+$/) != null ? value : null;
-}
-function range_bounds(value) {
-	if (!value) return null;
-	let parts = split(substr(value, 6), '-');
-	return length(parts) == 2 ? { start: +parts[0], end: +parts[1] } : null;
+	return length(line) >= 12 && substr(line, 0, 5) == 'HTTP/' && substr(line, 6, 1) == '.' && substr(line, 8, 1) == ' ' && status >= 100 && status <= 599 ? status : null;
 }
 function chunked_body(raw, start, limit) {
-	let offset = start, body = '', complete = false;
+	let offset = start, body = '';
 	while (offset < length(raw)) {
-		let lineEnd = index(substr(raw, offset), '\r\n');
-		if (lineEnd < 0) return null;
-		let line = trim(substr(raw, offset, lineEnd)), semi = index(line, ';');
-		if (semi >= 0) line = substr(line, 0, semi);
+		let lineEnd = index(substr(raw, offset), '\r\n'); if (lineEnd < 0) return null;
+		let line = trim(substr(raw, offset, lineEnd)), semi = index(line, ';'); if (semi >= 0) line = substr(line, 0, semi);
 		if (!match(line, /^[0-9a-fA-F]+$/)) return null;
 		let size = hex(line), data = offset + lineEnd + 2;
-		if (size == 0) {
-			if (data + 2 > length(raw) || substr(raw, data, 2) != '\r\n') return null;
-			complete = true; break;
-		}
+		if (size == 0) return data + 2 <= length(raw) && substr(raw, data, 2) == '\r\n' ? { body, complete: true } : null;
 		if (data + size + 2 > length(raw) || substr(raw, data + size, 2) != '\r\n') return null;
 		if (length(body) < limit) body += substr(raw, data, limit - length(body) < size ? limit - length(body) : size);
 		offset = data + size + 2;
 	}
-	return { body, complete };
+	return null;
 }
 function marker_evidence(body, settings) {
 	let evidence = [], markers = settings?.markers;
 	if (type(markers) != 'array') return evidence;
 	body = substr(body, 0, settings?.markerScanBytes > 0 ? settings.markerScanBytes : length(body));
-	for (let marker in markers) {
-		if (!object(marker) || !string(marker.name) || type(marker.needles) != 'array') continue;
-		for (let needle in marker.needles) {
-			if (string(needle) && index(lower(body), lower(needle)) >= 0) {
-				push(evidence, { name: marker.name, needle }); break;
-			}
-		}
-	}
+	for (let marker in markers) for (let needle in marker.needles || []) if (string(needle) && index(lower(body), lower(needle)) >= 0) { push(evidence, { name: marker.name, needle }); break; }
 	return evidence;
 }
 function content_range_ok(value, expected) {
-	if (!expected || !value) return expected == null;
-	let bounds = range_bounds(expected), matchValue = match(value, /^bytes ([0-9]+)-([0-9]+)\/([0-9]+|\*)$/);
-	return bounds != null && matchValue != null && +matchValue[1] == bounds.start && +matchValue[2] <= bounds.end;
+	if (!expected) return true;
+	let bounds = range_bounds(expected), parsed = match(value || '', /^bytes ([0-9]+)-([0-9]+)\/([0-9]+|\*)$/);
+	return bounds != null && parsed != null && +parsed[1] == bounds.start && +parsed[2] <= bounds.end;
 }
 
 export const scanner_probe_parse_http = function(raw, startedAt, finishedAt, settings) {
-	if (!string(raw) || !length(raw) || type(startedAt) != 'int' || type(finishedAt) != 'int' || finishedAt < startedAt)
-		return indeterminate('HTTP response is unavailable.', { stage: 'parse' });
+	if (!string(raw) || !length(raw) || type(startedAt) != 'int' || type(finishedAt) != 'int' || finishedAt < startedAt) return indeterminate('HTTP response is unavailable.', { stage: 'parse' });
 	let offset = 0, status = null, headers = null, bodyStart = -1;
 	for (let interim = 0; interim < 8; interim++) {
-		let end = header_end(raw, offset);
-		if (end < 0) return indeterminate('HTTP response headers are incomplete.', { stage: 'parse' });
-		status = status_line(raw, offset, end);
-		if (status == null || status < 100 || status > 599) return indeterminate('HTTP response status is invalid.', { stage: 'parse' });
-		headers = header_map(raw, offset, end);
-		bodyStart = end + 4;
-		if (status < 200 && status != 101) { offset = bodyStart; continue; }
-		break;
+		let end = header_end(raw, offset); if (end < 0) return indeterminate('HTTP response headers are incomplete.', { stage: 'parse' });
+		status = status_line(raw, offset, end); if (status == null) return indeterminate('HTTP response status is invalid.', { stage: 'parse' });
+		headers = header_map(raw, offset, end); bodyStart = end + 4;
+		if (status < 200 && status != 101) { offset = bodyStart; continue; } break;
 	}
 	if (status == null || status < 200) return indeterminate('HTTP response has no final status.', { stage: 'parse' });
 	let limit = body_limit(settings), body = '', complete = false, capped = false;
-	if (status == 204 || status == 205 || status == 304) { complete = true; }
-	else if (index(lower(headers['transfer-encoding'] || ''), 'chunked') >= 0) {
-		let parsed = chunked_body(raw, bodyStart, limit);
-		if (parsed == null || !parsed.complete) return indeterminate('Chunked HTTP response is truncated.', { stage: 'parse' });
-		body = parsed.body; complete = true; capped = length(body) >= limit;
-	}
+	if (status == 204 || status == 205 || status == 304) complete = true;
+	else if (index(lower(headers['transfer-encoding'] || ''), 'chunked') >= 0) { let parsed = chunked_body(raw, bodyStart, limit); if (parsed == null) return indeterminate('Chunked HTTP response is truncated.', { stage: 'parse' }); body = parsed.body; complete = true; capped = length(body) >= limit; }
 	else {
 		let declared = decimal(headers['content-length']), available = length(raw) - bodyStart;
-		if (declared != null && declared < 0) return indeterminate('HTTP Content-Length is invalid.', { stage: 'parse' });
 		if (declared != null && available < declared && declared <= limit) return indeterminate('HTTP response body is truncated.', { stage: 'parse' });
 		let wanted = declared == null ? available : (declared < available ? declared : available);
-		body = substr(raw, bodyStart, wanted < limit ? wanted : limit); capped = wanted > limit || length(body) >= limit;
-		complete = declared == null || available >= declared || capped;
+		body = substr(raw, bodyStart, wanted < limit ? wanted : limit); capped = wanted > limit || length(body) >= limit; complete = declared == null || available >= declared || capped;
 	}
-	let elapsed = finishedAt - startedAt, range = expected_range(settings), rangeHeader = headers['content-range'];
-	let markers = marker_evidence(body, settings), kbps = elapsed > 0 ? round_one((length(body) * 8.0) / elapsed) : 0;
-	let rangeSatisfied = range == null || status == 200 || status == 204 || status == 205 || status == 304
-		? true : content_range_ok(rangeHeader, range);
-	return { ok: true, observation: {
-		statusCode: status, bytesReceived: length(body), body, responseBytes: length(raw),
-		latencyMs: elapsed, kbps, complete, truncated: !complete, capped,
-		range: range, rangeSatisfied,
-		contentLength: decimal(headers['content-length']), transferEncoding: headers['transfer-encoding'] || null,
-		marker: length(markers) ? markers[0].name : '', markerEvidence: markers, tlsStatus: 'success',
-	} };
+	let elapsed = finishedAt - startedAt, range = expected_range(settings), markers = marker_evidence(body, settings);
+	return { ok: true, observation: { statusCode: status, bytesReceived: length(body), body, responseBytes: length(raw), latencyMs: elapsed,
+		kbps: elapsed > 0 ? round_one((length(body) * 8.0) / elapsed) : 0, complete, truncated: !complete, capped, range,
+		rangeSatisfied: content_range_ok(headers['content-range'], range), contentLength: decimal(headers['content-length']),
+		transferEncoding: headers['transfer-encoding'] || null, marker: length(markers) ? markers[0].name : '', markerEvidence: markers, tlsStatus: 'success' } };
 };
 
 function u16(raw, offset) { return ord(raw, offset) * 256 + ord(raw, offset + 1); }
 function u32(raw, offset) { return ord(raw, offset) * 16777216 + ord(raw, offset + 1) * 65536 + ord(raw, offset + 2) * 256 + ord(raw, offset + 3); }
-function same_transaction(raw, settings) {
-	let expected = settings?.transactionId;
-	if (!string(expected) || length(expected) != 24) return true;
-	for (let i = 0; i < 12; i++) if (ord(raw, 8 + i) != hex(substr(expected, i * 2, 2))) return false;
-	return true;
-}
-function address(bytes) { return bytes[0] + '.' + bytes[1] + '.' + bytes[2] + '.' + bytes[3]; }
-
 export const scanner_probe_parse_stun = function(raw, startedAt, finishedAt, settings, expectedType) {
-	if (!string(raw) || length(raw) < 20 || type(startedAt) != 'int' || type(finishedAt) != 'int' || finishedAt < startedAt)
-		return indeterminate('STUN response is unavailable.', { stage: 'parse' });
-	if (u16(raw, 0) != (expectedType == null ? 0x0101 : expectedType) || (ord(raw, 0) & 0xc0) != 0 || u32(raw, 4) != 0x2112a442 || !same_transaction(raw, settings))
-		return indeterminate('STUN response header or transaction is invalid.', { stage: 'parse' });
-	let messageLength = u16(raw, 2);
-	if (messageLength > length(raw) - 20 || messageLength > STUN_READ_LIMIT - 20) return indeterminate('STUN response is truncated.', { stage: 'parse' });
-	for (let offset = 20; offset + 4 <= 20 + messageLength;) {
-		let kind = u16(raw, offset), size = u16(raw, offset + 2), value = offset + 4;
-		if (value + size > length(raw)) return indeterminate('STUN attribute is truncated.', { stage: 'parse' });
-		if (kind == 0x0020 && size >= 8 && ord(raw, value + 1) == 1) {
-			let port = u16(raw, value + 2) ^ 0x2112, bytes = [];
-			for (let i = 0; i < 4; i++) push(bytes, ord(raw, value + 4 + i) ^ STUN_COOKIE[i]);
-			return { ok: true, observation: { transport: 'stun', status: 'success', latencyMs: finishedAt - startedAt,
-				attempts: settings?.attempts || 1, mappedFamily: 'IPv4', mappedAddress: address(bytes), mappedPort: port } };
-		}
-		offset += 4 + ((size + 3) & ~3);
-	}
+	if (!string(raw) || length(raw) < 20 || type(startedAt) != 'int' || type(finishedAt) != 'int' || finishedAt < startedAt) return indeterminate('STUN response is unavailable.', { stage: 'parse' });
+	if (u16(raw, 0) != (expectedType == null ? 0x0101 : expectedType) || (ord(raw, 0) & 0xc0) != 0 || u32(raw, 4) != 0x2112a442) return indeterminate('STUN response header is invalid.', { stage: 'parse' });
+	if (string(settings?.transactionId) && length(settings.transactionId) == 24)
+		for (let i = 0; i < 12; i++) if (ord(raw, 8 + i) != hex(substr(settings.transactionId, i * 2, 2))) return indeterminate('STUN transaction identity is invalid.', { stage: 'parse' });
+	let size = u16(raw, 2); if (size > length(raw) - 20 || size > STUN_READ_LIMIT - 20) return indeterminate('STUN response is truncated.', { stage: 'parse' });
+	for (let offset = 20; offset + 4 <= 20 + size;) { let kind = u16(raw, offset), lengthValue = u16(raw, offset + 2), value = offset + 4; if (value + lengthValue > length(raw)) return indeterminate('STUN attribute is truncated.', { stage: 'parse' }); if (kind == 0x0020 && lengthValue >= 8 && ord(raw, value + 1) == 1) { let bytes = []; for (let i = 0; i < 4; i++) push(bytes, ord(raw, value + 4 + i) ^ [0x21, 0x12, 0xa4, 0x42][i]); return { ok: true, observation: { transport: 'stun', status: 'success', latencyMs: finishedAt - startedAt, attempts: settings?.attempts || 1, mappedFamily: 'IPv4', mappedAddress: bytes[0] + '.' + bytes[1] + '.' + bytes[2] + '.' + bytes[3], mappedPort: u16(raw, value + 2) ^ 0x2112 } }; } offset += 4 + ((lengthValue + 3) & ~3); }
 	return indeterminate('STUN response has no XOR-mapped IPv4 address.', { stage: 'parse' });
 };
 
-function http_path(url, host) {
-	if (!string(url) || substr(url, 0, 8) != 'https://') return null;
-	let rest = substr(url, 8), slash = index(rest, '/');
-	if (slash < 0 || substr(rest, 0, slash) != host || index(rest, '@') >= 0 || index(rest, '#') >= 0) return null;
-	return substr(rest, slash);
+function descriptor_valid(descriptor) { return object(descriptor) && descriptor.authority == AUTHORITY && descriptor.adapterDigest == ADAPTER_DIGEST && object(descriptor.request) && object(descriptor.targetProfile) && string(descriptor.targetProfileDigest); }
+function native_output(result) { try { return b64dec(result.data.content); } catch (e) { return null; } }
+function family_requested(families, family) { for (let item in families || []) if (item == family) return true; return false; }
+function bounded_timeout(request, configured) {
+	if (type(request?.deadlineMs) != 'int') return null;
+	let remaining = request.deadlineMs - int(time() * 1000);
+	return remaining > 0 ? (remaining < configured ? remaining : configured) : null;
 }
-function http_command(host, url, family, timeoutMs, settings) {
-	let path = http_path(url, host);
-	if (path == null || settings?.range != 'bytes=0-69632' || settings?.readLimitBytes != BODY_READ_LIMIT) return null;
-	let request = 'GET ' + path + ' HTTP/1.1\\r\\nHost: ' + host + '\\r\\nConnection: close\\r\\nRange: ' + settings.range + '\\r\\n\\r\\n';
-	return "printf '" + request + "' | " + TIMEOUT + ' -k 1s ' + seconds(timeoutMs, BODY_TIMEOUT_MS) + 's ' + NCAT + ' --ssl ' + family_flag(family) + ' -w ' + seconds(timeoutMs, BODY_TIMEOUT_MS) + ' ' + quote(host) + ' 443';
-}
-function tls_command(host, family, timeoutMs) {
-	let request = 'GET / HTTP/1.1\\r\\nHost: ' + host + '\\r\\nConnection: close\\r\\n\\r\\n';
-	return "printf '" + request + "' | " + TIMEOUT + ' -k 1s ' + seconds(timeoutMs, TLS_TIMEOUT_MS) + 's ' + NCAT + ' --ssl ' + family_flag(family) + ' -w ' + seconds(timeoutMs, TLS_TIMEOUT_MS) + ' ' + quote(host) + ' 443';
-}
-function stun_command(host, port, timeoutMs) {
-	let request = '\\000\\001\\000\\000\\041\\022\\244\\102\\001\\002\\003\\004\\005\\006\\007\\010\\011\\012\\013\\014';
-	return "printf '" + request + "' | " + TIMEOUT + ' -k 1s ' + seconds(timeoutMs, STUN_TIMEOUT_MS) + 's ' + NCAT + ' -u -4 -w ' + seconds(timeoutMs, STUN_TIMEOUT_MS) + ' ' + quote(host) + ' ' + port;
-}
-function descriptor_valid(descriptor) {
-	return object(descriptor) && descriptor.authority == AUTHORITY && !forbidden(descriptor) && object(descriptor.request);
-}
-function body_request_valid(request) {
-	return type(request.hosts) == 'array' && length(request.hosts) > 0 && request.retries == 1 &&
-		object(request.tls) && request.tls.timeoutMs == TLS_TIMEOUT_MS && request.tls.readLimitBytes == TLS_READ_LIMIT &&
-		object(request.body) && request.body.timeoutMs == BODY_TIMEOUT_MS && request.body.readLimitBytes == BODY_READ_LIMIT &&
-		request.body.range == 'bytes=0-69632';
+function native_call(descriptor, request) {
+	return native_scanner_probe(descriptor.authority, descriptor.adapterDigest, descriptor.targetProfileDigest, descriptor.targetProfile, descriptor.candidate, request);
 }
 
 export const scanner_probe_execute = function(descriptor) {
 	if (!descriptor_valid(descriptor)) return failure('EDEPENDENCY', 'Probe descriptor is not server-owned.', { stage: 'descriptor' });
-	let request = descriptor.request, now = int(time() * 1000), end = request.deadlineMs;
-	if (type(end) != 'int' || end <= now) return failure('EDEPENDENCY', 'Probe deadline has expired.', { stage: 'deadline' });
+	let request = descriptor.request, now = int(time() * 1000), result, raw;
 	if (request.transport == 'tls') {
-		if (!valid_host(request.host) || request.timeoutMs != TLS_TIMEOUT_MS || type(request.addressFamilies) != 'array') return failure('EDEPENDENCY', 'TLS descriptor settings are invalid.', { stage: 'descriptor' });
-		let observations = {};
-		for (let family in request.addressFamilies) {
-			if (!valid_family(family)) return failure('EDEPENDENCY', 'TLS address family is invalid.', { stage: 'descriptor' });
-			let available = remaining(request, 1000), result = run(tls_command(request.host, family, available), TLS_TIMEOUT_MS, end, TLS_READ_LIMIT);
-			if (!result.ok) return result;
-			observations[family] = result.timeout ? { status: 'timeout', available: true, latencyMs: result.finishedAt - result.startedAt, error: 'TIMEOUT' } : { status: 'open', available: true, latencyMs: result.finishedAt - result.startedAt, error: null };
+		let families = request.addressFamilies, observations = {};
+		if (type(families) != 'array') return failure('EDEPENDENCY', 'TLS descriptor settings are invalid.', { stage: 'descriptor' });
+		for (let family in families) {
+			let timeoutMs = bounded_timeout(request, TLS_TIMEOUT_MS);
+			if (timeoutMs == null) return failure('EDEPENDENCY', 'Probe deadline has expired.', { stage: 'deadline' });
+			let probe = { transport: 'tls', host: request.host, addressFamily: family, port: request.port, timeoutMs };
+			result = native_call(descriptor, probe); if (!result.ok) { observations[family] = { status: 'unavailable', available: false, latencyMs: 0, error: 'TRANSPORT' }; continue; }
+			raw = native_output(result); if (raw == null || result.data.complete !== true) { observations[family] = { status: 'unavailable', available: false, latencyMs: 0, error: 'INDETERMINATE' }; continue; }
+			if (result.data.signal != 0 || result.data.exitCode != 0) { observations[family] = { status: 'failed', available: true, latencyMs: 0, error: 'CONNECT_ERR' }; continue; }
+			let parsed = scanner_probe_parse_http(raw, now, int(time() * 1000), { readLimitBytes: TLS_READ_LIMIT });
+			observations[family] = parsed.ok ? { status: 'open', available: true, latencyMs: parsed.observation.latencyMs, error: null } : { status: 'failed', available: true, latencyMs: 0, error: 'PARSE_ERR' };
 		}
 		return { ok: true, observations: [{ protocol: 'tcp', ipv4: observations.ipv4 || { status: 'skipped', available: false, latencyMs: 0, error: 'NOT_REQUESTED' }, ipv6: observations.ipv6 || { status: 'skipped', available: false, latencyMs: 0, error: 'NOT_REQUESTED' } }] };
 	}
 	if (request.transport == 'tls+body') {
-		if (!body_request_valid(request)) return failure('EDEPENDENCY', 'HTTP body descriptor settings are invalid.', { stage: 'descriptor' });
-		let observations = [];
+		let hosts = [], transportFailures = 0;
 		for (let item in request.hosts) {
-			if (!object(item) || !valid_host(item.host) || item.hostIdentity != item.host || !valid_family(item.addressFamily) || http_path(item.url, item.host) == null) return failure('EDEPENDENCY', 'HTTP body target is not canonical.', { stage: 'descriptor' });
-			let available = remaining(request, 1000), result = run(http_command(item.host, item.url, item.addressFamily, available, request.body), BODY_TIMEOUT_MS, end, BODY_READ_LIMIT);
-			if (!result.ok) return result;
-			if (result.timeout) { push(observations, { host: item.host, addressFamily: item.addressFamily, tls: { status: 'success', readBytes: 0, readLimitBytes: TLS_READ_LIMIT, latencyMs: result.finishedAt - result.startedAt }, body: { status: 'timeout', error: 'TIMEOUT', statusCode: 0, bytesReceived: 0, latencyMs: result.finishedAt - result.startedAt, range: request.body.range, minimumBytes: request.body.minimumBytes } }); continue; }
-			let parsed = scanner_probe_parse_http(result.output, result.startedAt, result.finishedAt, request.body);
-			if (!parsed.ok) return parsed;
-			push(observations, { host: item.host, addressFamily: item.addressFamily, tls: { status: parsed.observation.tlsStatus, readBytes: parsed.observation.responseBytes > TLS_READ_LIMIT ? TLS_READ_LIMIT : parsed.observation.responseBytes, readLimitBytes: TLS_READ_LIMIT, latencyMs: parsed.observation.latencyMs }, body: parsed.observation });
+			let timeoutMs = bounded_timeout(request, BODY_TIMEOUT_MS);
+			if (timeoutMs == null) return failure('EDEPENDENCY', 'Probe deadline has expired.', { stage: 'deadline' });
+			let probe = { transport: 'tls+body', host: item.host, addressFamily: item.addressFamily, port: item.port, url: item.url, body: request.body, timeoutMs };
+			result = native_call(descriptor, probe);
+			if (!result.ok) { transportFailures++; push(hosts, { host: item.host, addressFamily: item.addressFamily, tls: { status: 'failed', error: 'TRANSPORT', readBytes: 0, readLimitBytes: TLS_READ_LIMIT, latencyMs: 0 }, body: null }); continue; }
+			raw = native_output(result); if (raw == null || result.data.complete !== true || result.data.signal != 0 || result.data.exitCode != 0) { push(hosts, { host: item.host, addressFamily: item.addressFamily, tls: { status: 'failed', error: result.data.complete === true ? 'CONNECT_ERR' : 'INDETERMINATE', readBytes: 0, readLimitBytes: TLS_READ_LIMIT, latencyMs: 0 }, body: null }); continue; }
+			let parsed = scanner_probe_parse_http(raw, now, int(time() * 1000), request.body);
+			if (!parsed.ok) { push(hosts, { host: item.host, addressFamily: item.addressFamily, tls: { status: 'success', readBytes: TLS_READ_LIMIT, readLimitBytes: TLS_READ_LIMIT, latencyMs: 0 }, body: { status: 'failed', error: 'PARSE_ERR', statusCode: 0, bytesReceived: 0, rangeSatisfied: false, complete: false } }); continue; }
+			push(hosts, { host: item.host, addressFamily: item.addressFamily, tls: { status: 'success', readBytes: TLS_READ_LIMIT, readLimitBytes: TLS_READ_LIMIT, latencyMs: parsed.observation.latencyMs }, body: parsed.observation });
 		}
-		return { ok: true, observations: [{ hosts: observations }] };
+		if (transportFailures == length(request.hosts)) return failure('EDEPENDENCY', 'Probe transport is unavailable.', { stage: 'transport' });
+		return { ok: true, observations: [{ hosts }] };
 	}
 	if (request.transport == 'stun') {
-		if (!valid_host(request.host) || request.addressFamily != 'ipv4' || request.port < 1 || request.port > 65535 || request.timeoutMs != STUN_TIMEOUT_MS || request.retries != MAX_RETRIES || request.receiveLimitBytes != STUN_READ_LIMIT) return failure('EDEPENDENCY', 'STUN descriptor settings are invalid.', { stage: 'descriptor' });
-		let attempts = 0, last = null;
+		let attempts = 0;
 		for (attempts = 1; attempts <= request.retries; attempts++) {
-			let available = remaining(request, 1000), result = run(stun_command(request.host, request.port, available), STUN_TIMEOUT_MS, end, STUN_READ_LIMIT);
-			if (!result.ok) return result;
-			if (result.timeout) { last = result; continue; }
-			let parsed = scanner_probe_parse_stun(result.output, result.startedAt, result.finishedAt, { transactionId: '0102030405060708090a0b0c', attempts }, 0x0101);
-			if (parsed.ok) return { ok: true, observations: [parsed.observation] };
-			return parsed;
+			let timeoutMs = bounded_timeout(request, STUN_TIMEOUT_MS);
+			if (timeoutMs == null) return failure('EDEPENDENCY', 'Probe deadline has expired.', { stage: 'deadline' });
+			result = native_call(descriptor, { transport: 'stun', host: request.host, addressFamily: request.addressFamily, port: request.port, timeoutMs }); if (!result.ok) continue;
+			raw = native_output(result); if (raw == null || result.data.complete !== true || result.data.signal != 0 || result.data.exitCode != 0) continue;
+			let parsed = scanner_probe_parse_stun(raw, now, int(time() * 1000), { attempts }, 0x0101); if (parsed.ok) return { ok: true, observations: [parsed.observation] };
 		}
-		return { ok: true, observations: [{ transport: 'stun', status: 'timeout', attempts, latencyMs: last ? last.finishedAt - last.startedAt : STUN_TIMEOUT_MS, error: 'TIMEOUT' }] };
+		return { ok: true, observations: [{ transport: 'stun', status: 'timeout', attempts: request.retries, latencyMs: STUN_TIMEOUT_MS, error: 'TIMEOUT' }] };
 	}
 	return failure('EDEPENDENCY', 'Probe transport is not supported by the fixed executor.', { stage: 'descriptor' });
 };

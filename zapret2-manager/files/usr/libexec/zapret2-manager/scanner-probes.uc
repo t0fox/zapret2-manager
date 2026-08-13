@@ -180,7 +180,7 @@ export const scanner_tcp_classify = function(raw) {
 		let tls = normalize_tls(item.tls), body = null;
 		if (tls.success) {
 			if (!is_object(item.body) ||
-				(!(item.body.status == 'failed' && type(item.body.error) == 'string' && length(item.body.error)) &&
+				(!((item.body.status == 'failed' || item.body.status == 'timeout') && type(item.body.error) == 'string' && length(item.body.error)) &&
 					(!is_number(item.body.statusCode) || item.body.statusCode < 0 ||
 						!is_number(item.body.bytesReceived) || item.body.bytesReceived < 0)))
 				return infrastructure('INVALID_OBSERVATION', 'tls+body');

@@ -412,7 +412,8 @@ test('production execution consumes fixed adapter descriptors through the server
 test('fixed executor parses real HTTP status/body bytes and latency, and never treats invalid output as success', () => {
   const source = fs.readFileSync(EXECUTOR, 'utf8');
   assert.doesNotMatch(source, /curl/);
-  assert.match(source, /uclient-fetch|ncat/);
+  assert.match(source, /native-helper|scanner_probe/);
+  assert.doesNotMatch(source, /sh\s+-c|head\s+-c|printf\s+['"]|popen\s*\(/);
   const http = invoke(EXECUTOR, `subject.scanner_probe_parse_http('HTTP/1.1 204 No Content\\r\\nContent-Length: 0\\r\\n\\r\\n', 1000, 1042)`);
   assert.equal(http.ok, true, JSON.stringify(http));
   assert.equal(http.observation.statusCode, 204);
@@ -484,6 +485,15 @@ test('adapter descriptors carry canonical URL/path, host identity, family, and p
   assert.equal(tcp.request.hosts[1].hostIdentity, 'cdn.example.com');
   assert.equal(tcp.request.retries, 1);
   assert.deepEqual(tcp.request.body.markers, [{ name: 'isp_page', needles: ['blocked', 'access denied', 'captcha'] }]);
+});
+
+test('scanner execution contract rejects shell-shaped descriptors and preserves typed transport status', () => {
+  const executor = fs.readFileSync(EXECUTOR, 'utf8');
+  assert.doesNotMatch(executor, /TIMEOUT\s*\+|command\s*\(|quote\s*\(|shell/i);
+  assert.match(executor, /argv|fixed|deadline/i);
+  const adapter = fs.readFileSync(ADAPTER, 'utf8');
+  assert.match(adapter, /targetProfileDigest|profileDigest/);
+  assert.match(adapter, /markerScanBytes|readLimitBytes|retries|deadlineMs/);
 });
 
 test('executor enforces descriptor deadline and rejects caller executable/raw arguments', () => {

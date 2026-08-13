@@ -46,6 +46,7 @@ define Build/Compile
 		$(PKG_BUILD_DIR)/protocol.c \
 		$(PKG_BUILD_DIR)/roots.c \
 		$(PKG_BUILD_DIR)/sha256.c \
+		$(PKG_BUILD_DIR)/scanner.c \
 		$(TARGET_LDFLAGS) -ljson-c \
 		-o $(PKG_BUILD_DIR)/z2m-core-helper
 	$(TARGET_CC) $(TARGET_CPPFLAGS) $(TARGET_CFLAGS) \

@@ -96,6 +96,8 @@ int z2m_stat_regular(const struct z2m_request *request, const struct z2m_root *r
 int z2m_read_regular(const struct z2m_request *request, const struct z2m_root *root, int root_fd);
 int z2m_sha256_regular(const struct z2m_request *request, const struct z2m_root *root, int root_fd);
 int z2m_sha256_fd_hex(int fd, size_t max_bytes, char hex[65]);
+int z2m_sha256_bytes_hex(const unsigned char *data, size_t length, char hex[65]);
+int z2m_scanner_probe(const struct z2m_request *request) __attribute__((weak));
 int z2m_mkdir_private(const struct z2m_request *request, const struct z2m_root *root, int root_fd, uint64_t root_mount);
 int z2m_atomic_write(const struct z2m_request *request, const struct z2m_root *root, int root_fd, uint64_t root_mount);
 int z2m_atomic_write_json(const struct z2m_request *request, const struct z2m_root *root, int root_fd, const unsigned char *content, size_t length);

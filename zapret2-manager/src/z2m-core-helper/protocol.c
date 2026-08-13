@@ -441,7 +441,7 @@ static bool valid_id(json_object *value)
 
 static bool known_operation(const char *op)
 {
-	static const char *const names[] = {"stat_regular","read_regular","atomic_write","atomic_write_json","atomic_write_json_revision","mkdir_private","sha256_regular","rename_owned","unlink_owned","lock_acquire","lock_release","lock_status"};
+	static const char *const names[] = {"stat_regular","read_regular","atomic_write","atomic_write_json","atomic_write_json_revision","mkdir_private","sha256_regular","rename_owned","unlink_owned","lock_acquire","lock_release","lock_status","scanner_probe"};
 	for (size_t i = 0; i < sizeof(names)/sizeof(names[0]); i++) if (strcmp(op, names[i]) == 0) return true;
 	return false;
 }
@@ -583,6 +583,11 @@ bool z2m_reserved_schema_valid(const struct z2m_request *request)
 	static const char *const acquire_fields[]={"name","owner","timeoutMs"};
 	static const char *const release_fields[]={"name","owner","token"};
 	static const char *const status_fields[]={"name"};
+	if(strcmp(request->operation,"scanner_probe")==0) {
+		static const char *const baseline[] = {"authority","adapterDigest","targetProfileDigest","targetProfile","request"};
+		static const char *const candidate[] = {"authority","adapterDigest","targetProfileDigest","targetProfile","candidate","request"};
+		return exact_fields(args,baseline,5) || exact_fields(args,candidate,6);
+	}
 	if(strcmp(request->operation,"atomic_write")==0)
 		return exact_fields(args,write_fields,7)&&string_value(args,"root",0,SIZE_MAX,&s)&&string_value(args,"path",0,SIZE_MAX,&s)&&z2m_path_valid(s,32)&&string_value(args,"content",0,694704,&s)&&z2m_base64_canonical(s,strlen(s),521028)&&string_value(args,"mode",4,4,&s)&&strcmp(s,"0600")==0&&integer_value(args,"uid",0,0,&number)&&integer_value(args,"gid",0,0,&number)&&boolean_value(args,"allowCreate");
 	if(strcmp(request->operation,"atomic_write_json")==0){

@@ -78,3 +78,36 @@ worktree; no Git configuration was changed.
 - WSL Git lacked an author identity. The implementation commit reused the
   existing repository identity (`OpenCode <opencode@local>`) through command
   environment variables; global and repository Git config were not modified.
+
+## Round 5: Fixed Scanner Probe Boundary
+
+**PASS for the Task 6 scanner boundary.** The production probe executor no
+longer constructs shell pipelines or accepts caller-selected executables,
+paths, commands, or arguments. It submits only server-owned typed descriptors
+to the native `scanner_probe` helper, which launches the fixed `/usr/bin/ncat`
+binary with fixed argv, bounded input/output, process-group cancellation, and
+independent child exit, signal, completion, and output evidence.
+
+The native boundary validates the adapter authority and digest, target-profile
+membership, canonical URL/path, transport family, fixed ports and read/range
+limits, then verifies the supplied target-profile digest against the received
+profile before spawning. The adapter digest and profile digest are carried in
+every descriptor. TCP baseline, TCP body, and IPv4 STUN paths retain typed
+unavailable, transport, parse, timeout, and candidate-failure distinctions.
+
+The native scanner behavioral fixture covers fixed argv and UDP port binding,
+shell/path/executable injection rejection, profile-digest forgery rejection,
+nonzero child status with partial output, and deadline kill/reap behavior. The
+focused native and product scanner suites pass **62 tests, 62 pass, 0 fail**.
+
+Additional focused product evidence passes **25/25** probe/classifier tests and
+**32/32** worker/executor tests. The package source assertions pass for the
+production source list, scanner compilation/install wiring, and typed helper
+export contract.
+
+The full native root suite was not used as a Task 6 pass claim because this
+workspace's WSL invocation was non-root and lacked the configured ucode shared
+library path in one transport invocation; unrelated existing provenance tests
+also reference an older commit. The scanner-focused commands were rerun with
+`LD_LIBRARY_PATH=/opt/ucode/lib`, the pinned ucode binary, and repository module
+paths.

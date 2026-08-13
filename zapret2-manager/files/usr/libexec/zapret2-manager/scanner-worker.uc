@@ -81,7 +81,7 @@ function probe_candidate(candidate, plan, baseline, seams, outerDeadline) {
 	if (raw == null) {
 		let now = int(time() * 1000), end = outerDeadline < now + PROBE_BUDGET_MS ? outerDeadline : now + PROBE_BUDGET_MS;
 		if (candidate.protocol == 'udp') {
-			let adapted = scanner_probe_adapter_udp(candidate, { host: plan.targetProfile.primaryHost, port: 443 }, { nowMs: now, deadlineMs: end });
+			let adapted = scanner_probe_adapter_udp(candidate, plan.targetProfile, { nowMs: now, deadlineMs: end, profileDigest: state.scanner_state_digest(plan.targetProfile) });
 			if (!adapted.ok) return scanner_candidate_verdict({ infrastructureFailure: true, error: adapted.error?.message }, []);
 			let executed = seam(seams, 'executor') || scanner_probe_execute(adapted);
 			if (!executed.ok) return scanner_candidate_verdict({ infrastructureFailure: true, error: executed.error?.code || 'PROBE_DEPENDENCY' }, []);
@@ -93,7 +93,7 @@ function probe_candidate(candidate, plan, baseline, seams, outerDeadline) {
 			let hosts = [];
 			for (let family in families) {
 				if (family != 'ipv4' && family != 'ipv6') return scanner_candidate_verdict({ infrastructureFailure: true, error: 'INVALID_ADDRESS_FAMILY' }, []);
-				let adapted = scanner_probe_adapter_tcp(candidate, plan.targetProfile, family, { nowMs: int(time() * 1000), deadlineMs: end, mode: plan.request.mode });
+				let adapted = scanner_probe_adapter_tcp(candidate, plan.targetProfile, family, { nowMs: int(time() * 1000), deadlineMs: end, mode: plan.request.mode, profileDigest: state.scanner_state_digest(plan.targetProfile) });
 				if (!adapted.ok) return scanner_candidate_verdict({ infrastructureFailure: true, error: adapted.error?.message }, []);
 				let executed = seam(seams, 'executor') || scanner_probe_execute(adapted);
 				if (!executed.ok) return scanner_candidate_verdict({ infrastructureFailure: true, error: executed.error?.code || 'PROBE_DEPENDENCY' }, []);
@@ -221,11 +221,14 @@ function scanner_worker_run_impl(input, seams) {
 	let baseline = seam(seams, 'baseline');
 	let probeStarted = int(time() * 1000), probeDeadline = probeStarted + PROBE_BUDGET_MS;
 	if (baseline == null) {
-		let adapted = scanner_probe_adapter_baseline({ ...plan.targetProfile, protocol: req.protocol }, { nowMs: probeStarted, deadlineMs: probeDeadline });
+		let baselineProfile = { ...plan.targetProfile, protocol: req.protocol };
+		let adapted = scanner_probe_adapter_baseline(baselineProfile, { nowMs: probeStarted, deadlineMs: probeDeadline, profileDigest: state.scanner_state_digest(baselineProfile) });
 		if (!adapted.ok) return finish(record, session, seams, 'error', 'Scanner baseline adapter failed.');
 		let executed = seam(seams, 'executor') || scanner_probe_execute(adapted);
-		if (!executed.ok) return finish(record, session, seams, 'error', 'Scanner baseline observation is unavailable.');
-		baseline = executed.observations?.[0];
+		if (!executed.ok) baseline = req.protocol == 'tcp'
+			? { protocol: 'tcp', ipv4: { status: 'unavailable', available: false, error: 'NET_UNREACH' }, ipv6: { status: 'unavailable', available: false, error: 'NET_UNREACH' } }
+			: { protocol: 'udp', transport: 'stun', status: 'timeout', latencyMs: 4000, error: 'TIMEOUT' };
+		else baseline = executed.observations?.[0];
 	}
 	baseline = baseline.baselineOpen != null ? baseline : scanner_baseline_classify(baseline);
 	record.baseline = { baselineOpen: baseline.baselineOpen, byAddressFamily: baseline.byAddressFamily };

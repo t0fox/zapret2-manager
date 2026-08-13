@@ -7,7 +7,8 @@ int main(void)
 {
 	struct z2m_request request={0};json_object *root_value;const char *root_name,*code;const struct z2m_root *root;struct z2m_canonical_error canonical_error;unsigned char *canonical_content=NULL;size_t canonical_length=0;uint64_t root_mount;int fd,result=z2m_read_request(&request);
 	if(result!=-1){z2m_request_free(&request);return result;}
-	if(strcmp(request.operation,"stat_regular")!=0&&strcmp(request.operation,"read_regular")!=0&&strcmp(request.operation,"atomic_write")!=0&&strcmp(request.operation,"atomic_write_json")!=0&&strcmp(request.operation,"atomic_write_json_revision")!=0&&strcmp(request.operation,"mkdir_private")!=0&&strcmp(request.operation,"sha256_regular")!=0){
+	if(strcmp(request.operation,"scanner_probe")==0){result=z2m_scanner_probe ? z2m_scanner_probe(&request) : z2m_fail(request.request_id,"EUNSUPPORTED","operation_dispatch");z2m_request_free(&request);return result;}
+	if(strcmp(request.operation,"scanner_probe")!=0&&strcmp(request.operation,"stat_regular")!=0&&strcmp(request.operation,"read_regular")!=0&&strcmp(request.operation,"atomic_write")!=0&&strcmp(request.operation,"atomic_write_json")!=0&&strcmp(request.operation,"atomic_write_json_revision")!=0&&strcmp(request.operation,"mkdir_private")!=0&&strcmp(request.operation,"sha256_regular")!=0){
 		result=z2m_reserved_schema_valid(&request)?z2m_fail(request.request_id,"EUNSUPPORTED","operation_dispatch"):z2m_fail(request.request_id,"ESCHEMA","schema");
 		z2m_request_free(&request);return result;
 	}

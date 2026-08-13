@@ -503,6 +503,12 @@ function success_data_valid(operation, data) {
 			type(data.byteLength) == 'int' && data.byteLength >= 0 && data.byteLength <= maximum &&
 			data.committed == true && index(['durable', 'tmpfs_visible'], data.durability) >= 0;
 	}
+	if (operation == 'scanner_probe')
+		return exact_fields(data, ['content', 'byteLength', 'exitCode', 'signal', 'complete']) &&
+			canonical_base64(data.content) && type(data.byteLength) == 'int' && data.byteLength >= 0 &&
+			data.byteLength <= STDOUT_LIMIT && base64_length(data.content) == data.byteLength &&
+			type(data.exitCode) == 'int' && data.exitCode >= -1 && type(data.signal) == 'int' &&
+			data.signal >= 0 && type(data.complete) == 'bool';
 	return false;
 }
 
@@ -566,7 +572,7 @@ function helper_response(operation, stdout, requestId, exitCode, mutation) {
 	if (value.ok) {
 		if (!exact_fields(value, ['protocolVersion', 'requestId', 'ok', 'data']) ||
 		    !success_data_valid(operation, value.data)) return helper_invalid(mutation, 'envelope');
-		if (exitCode != 0) return helper_invalid(mutation, 'exit');
+		if (exitCode != 0 && operation != 'scanner_probe') return helper_invalid(mutation, 'exit');
 		return { ok: true, data: value.data };
 	}
 	if (!exact_fields(value, ['protocolVersion', 'requestId', 'ok', 'error']) ||
@@ -701,6 +707,15 @@ export const mkdir_private = function(root, path, existOk) {
 export const sha256_regular = function(root, path, maxBytes) {
 	if (!valid_root(root) || !valid_path(path) || !valid_max(maxBytes)) return invalid();
 	return invoke_private('sha256_regular', { root, path, maxBytes }, 10000);
+};
+
+export const scanner_probe = function(authority, adapterDigest, targetProfileDigest, targetProfile, candidate, request) {
+	if (type(authority) != 'string' || type(adapterDigest) != 'string' || type(targetProfileDigest) != 'string' ||
+		type(targetProfile) != 'object' || targetProfile == null || type(request) != 'object' || request == null)
+		return invalid('Scanner probe arguments are invalid.');
+	let arguments = { authority, adapterDigest, targetProfileDigest, targetProfile, request };
+	if (candidate != null) arguments.candidate = candidate;
+	return invoke_private('scanner_probe', arguments, request.timeoutMs > 0 ? request.timeoutMs : 1000);
 };
 
 export const atomic_write = function(root, path, content, allowCreate) {
