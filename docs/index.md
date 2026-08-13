@@ -17,7 +17,7 @@ This repository is an active prototype. Some foundations and product paths are i
 
 ## Get started
 
-A new visitor should begin with [Installation](./11-operations/installation.md) and [Quick Start](./11-operations/quick-start.md). The installation guide is based on the package Makefiles and build instructions that exist in the current repository. It does not invent a public package download that is not present.
+A new visitor should begin with [Installation](./11-operations/installation.md) and [First Run](./11-operations/first-run.md). The installation guide is based on the package Makefiles and build instructions that exist in the current repository. It does not invent a public package download that is not present.
 
 If the application is already installed, [Troubleshooting](./11-operations/troubleshooting.md) explains how to collect useful diagnostics and how to approach recovery conservatively.
 
@@ -56,7 +56,7 @@ For goals and non-goals, read [Project overview](./01-project/index.md). For the
 ## Main documentation
 
 - [Installation](./11-operations/installation.md)
-- [Quick Start](./11-operations/quick-start.md)
+- [First Run](./11-operations/first-run.md)
 - [Project overview](./01-project/index.md)
 - [Strategy](./03-products/strategy/index.md)
 - [Scanner](./03-products/scanner/index.md)
