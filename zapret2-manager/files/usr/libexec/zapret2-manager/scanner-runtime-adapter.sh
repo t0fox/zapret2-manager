@@ -7,22 +7,16 @@ umask 077
 BASE=/tmp/zapret2-manager
 ROOT=$BASE/scanner
 NFQWS2=/opt/zapret2/nfq2/nfqws2
-NFT=/usr/sbin/nft
 FIREWALL_HELPER=/usr/libexec/zapret2-manager/z2m-scanner-firewall-helper
 NFQ_PROC=/proc/net/netfilter/nfnetlink_queue
-INIT=/etc/init.d/zapret2
 LOCK=/opt/zapret2/config.lock
-TABLE=zapret2
-CHAIN=z2m_scanner
 QUEUE=300
 OWNER=scanner/session
 
 if [ "${Z2M_SCANNER_RUNTIME_SHIM:-0}" = 1 ]; then
 	[ "${Z2M_SCANNER_SERVER_TEST:-0}" = 1 ] || { printf '%s\n' '{"ok":false,"code":"EINPUT","stage":"input"}'; exit 1; }
 	NFQWS2=${Z2M_SCANNER_TEST_NFQWS2:-$NFQWS2}
-	NFT=${Z2M_SCANNER_TEST_NFT:-$NFT}
 	FIREWALL_HELPER=${Z2M_SCANNER_TEST_FIREWALL_HELPER:-$FIREWALL_HELPER}
-	INIT=${Z2M_SCANNER_TEST_INIT:-$INIT}
 	NFQ_PROC=${Z2M_SCANNER_TEST_NFQ_PROC:-$NFQ_PROC}
 	LOCK=${Z2M_SCANNER_TEST_LOCK:-$LOCK}
 fi
@@ -32,6 +26,7 @@ case "$operation" in lock-acquire|lock-release|activate|stabilize|cleanup|sessio
 case "$session" in [A-Za-z0-9][A-Za-z0-9._-]*) ;; *) exit 1 ;; esac
 case "$candidate" in [A-Za-z0-9][A-Za-z0-9._-]*) ;; *) exit 1 ;; esac
 case "$generation" in ''|*[!0-9]*) exit 1 ;; esac
+[ "$generation" -le 65535 ] || exit 1
 
 DIR="$ROOT/$session"
 ARGV_FILE="$DIR/$candidate.argv"
@@ -43,9 +38,12 @@ LOG_FILE="$DIR/$candidate.log"
 HOSTLIST_FILE="$DIR/$candidate.hostlist"
 OWNERSHIP_FILE="$DIR/$candidate.ownership"
 CHAIN_DIGEST_FILE="$DIR/$candidate.chain.sha256"
+HELPER_PID_FILE="$DIR/$candidate.helper.pid"
+HELPER_TRANSPORT_FILE="$DIR/$candidate.helper.transport"
+HELPER_REQUEST_FIFO="$DIR/$candidate.helper.request"
+HELPER_RESPONSE_FIFO="$DIR/$candidate.helper.response"
 LOCK_OWNER="$DIR/lock.descriptor"
 OWNERSHIP_LOCK="$DIR/ownership.lock"
-SESSION_JOURNAL="$DIR/session.journal"
 CLEANUP_EVIDENCE="$DIR/cleanup.evidence"
 private_dir() {
 	path=$1
@@ -115,30 +113,154 @@ lock_held() {
 }
 
 chain_owned() {
-	chain_text=$("$NFT" list chain inet "$TABLE" "$CHAIN" 2>/dev/null || true)
-	owned_marker=$marker
-	if [ -r "$OWNERSHIP_FILE" ]; then
-		owned_record=$(cat "$OWNERSHIP_FILE" 2>/dev/null || true)
-		owned_marker=$(printf '%s\n' "$owned_record" | cut -d '|' -f4)
+	helper_request ownership_status
+}
+
+private_fifo() {
+	path=$1
+	[ -p "$path" ] && [ ! -L "$path" ] || return 1
+	set -- $(stat -c '%u %g %a' "$path" 2>/dev/null) || return 1
+	[ "$1" = "$(id -u)" ] && [ "$2" = "$(id -g)" ] && [ "$3" = 600 ]
+}
+
+private_file() {
+	path=$1
+	[ -f "$path" ] && [ ! -L "$path" ] || return 1
+	set -- $(stat -c '%u %g %a' "$path" 2>/dev/null) || return 1
+	[ "$1" = "$(id -u)" ] && [ "$2" = "$(id -g)" ] && [ "$3" = 600 ]
+}
+
+helper_identity() {
+	[ -r "$HELPER_PID_FILE" ] && [ -r "$HELPER_TRANSPORT_FILE" ] || return 1
+	[ ! -L "$HELPER_PID_FILE" ] && [ ! -L "$HELPER_TRANSPORT_FILE" ] || return 1
+	private_file "$HELPER_PID_FILE" && private_file "$HELPER_TRANSPORT_FILE" || return 1
+	helper_record=$(cat "$HELPER_PID_FILE" 2>/dev/null | tr -d '\n' || true)
+	helper_pid=${helper_record%%|*}; helper_rest=${helper_record#*|}
+	helper_start=${helper_rest%%|*}; helper_rest=${helper_rest#*|}
+	helper_operation=${helper_rest%%|*}; helper_rest=${helper_rest#*|}
+	helper_nonce=${helper_rest%%|*}; helper_table=${helper_rest#*|}
+	case "$helper_pid" in ''|*[!0-9]*) return 1 ;; esac
+	case "$helper_start" in ''|*[!0-9]*) return 1 ;; esac
+	case "$helper_nonce" in ''|*[!a-f0-9]*) return 1 ;; esac
+	[ "$(printf '%s' "$helper_nonce" | wc -c)" = 64 ] || return 1
+	[ "$helper_operation" = "$operation_id" ] && [ "$helper_nonce" = "$operation_nonce" ] || return 1
+	[ "$helper_table" = "$table_name" ] || return 1
+	[ "$(starttime "$helper_pid")" = "$helper_start" ] || return 1
+	[ "$(process_exe "$helper_pid")" = "$FIREWALL_HELPER" ] || return 1
+	kill -0 "$helper_pid" 2>/dev/null || return 1
+	transport_table=$(sed -n 's/^table=//p' "$HELPER_TRANSPORT_FILE")
+	transport_request=$(sed -n 's/^request=//p' "$HELPER_TRANSPORT_FILE")
+	transport_response=$(sed -n 's/^response=//p' "$HELPER_TRANSPORT_FILE")
+	[ "$transport_table" = "$helper_table" ] && [ "$transport_request" = "$HELPER_REQUEST_FIFO" ] &&
+		[ "$transport_response" = "$HELPER_RESPONSE_FIFO" ] || return 1
+	private_fifo "$HELPER_REQUEST_FIFO" && private_fifo "$HELPER_RESPONSE_FIFO"
+}
+
+helper_gone() {
+	[ ! -r "/proc/$helper_pid/stat" ] || [ "$(awk '{print $3}' "/proc/$helper_pid/stat" 2>/dev/null || true)" = Z ]
+}
+
+helper_stop_reap() {
+	case "${helper_pid:-}" in ''|*[!0-9]*) return 0 ;; esac
+	kill -TERM "$helper_pid" 2>/dev/null || true
+	i=0
+	while ! helper_gone && [ "$i" -lt 20 ]; do sleep 0.05; i=$((i + 1)); done
+	if ! helper_gone; then kill -KILL "$helper_pid" 2>/dev/null || true; fi
+	i=0
+	while ! helper_gone && [ "$i" -lt 20 ]; do sleep 0.05; i=$((i + 1)); done
+	wait "$helper_pid" 2>/dev/null || true
+	helper_gone
+}
+
+remove_private_helper_artifacts() {
+	private_file "$HELPER_PID_FILE" && rm -f "$HELPER_PID_FILE" || true
+	private_file "$HELPER_TRANSPORT_FILE" && rm -f "$HELPER_TRANSPORT_FILE" || true
+	private_fifo "$HELPER_REQUEST_FIFO" && rm -f "$HELPER_REQUEST_FIFO" || true
+	private_fifo "$HELPER_RESPONSE_FIFO" && rm -f "$HELPER_RESPONSE_FIFO" || true
+}
+
+helper_start_abort() {
+	helper_stop_reap || true
+	remove_private_helper_artifacts
+	return 42
+}
+
+helper_response_ok() {
+	request_id=$1; operation_name=$2; response=$3
+	[ "$(printf '%s' "$response" | jsonfilter -e '@.protocolVersion' 2>/dev/null)" = 2 ] || return 1
+	[ "$(printf '%s' "$response" | jsonfilter -e '@.requestId' 2>/dev/null)" = "$request_id" ] || return 1
+	[ "$(printf '%s' "$response" | jsonfilter -e '@.ok' 2>/dev/null)" = true ] || return 1
+	case "$operation_name" in
+		ownership_create) [ "$(printf '%s' "$response" | jsonfilter -e '@.data.created' 2>/dev/null)" = true ] || return 1 ;;
+		ownership_ready) [ "$(printf '%s' "$response" | jsonfilter -e '@.data.ready' 2>/dev/null)" = true ] || return 1 ;;
+		ownership_delete) [ "$(printf '%s' "$response" | jsonfilter -e '@.data.deleted' 2>/dev/null)" = true ] || return 1 ;;
+		ownership_status) [ "$(printf '%s' "$response" | jsonfilter -e '@.data.exists' 2>/dev/null)" = true ] && [ "$(printf '%s' "$response" | jsonfilter -e '@.data.owned' 2>/dev/null)" = true ] || return 1 ;;
+		*) return 1 ;;
+	esac
+	[ "$(printf '%s' "$response" | jsonfilter -e '@.data.tableName' 2>/dev/null)" = "$table_name" ] || return 1
+	[ "$(printf '%s' "$response" | jsonfilter -e '@.data.evidence.tableName' 2>/dev/null)" = "$table_name" ] || return 1
+	[ "$(printf '%s' "$response" | jsonfilter -e '@.data.evidence.ownerFlagRequested' 2>/dev/null)" = true ]
+}
+
+helper_request() {
+	helper_operation_name=$1
+	request_id="scanner:$session:$candidate:$generation:$(printf '%s' "$helper_operation_name" | tr -c 'A-Za-z0-9._:-' '_')"
+	if [ "$helper_operation_name" = ownership_create ]; then
+		table_name="z2m_sc_$(printf '%s' "$session" | sha256sum | cut -c1-8)_$(printf '%s' "$candidate" | sha256sum | cut -c1-8)_$(printf '%04x' "$generation")_$(printf '%s' "$operation_nonce" | cut -c1-32)"
+		[ "$(printf '%s' "$table_name" | wc -c)" = 62 ] || return 42
+		operation_id="$session:$candidate:$generation"
+		helper_start_lifecycle
+	else
+		table_name=$(sed -n 's/^table=//p' "$HELPER_TRANSPORT_FILE" 2>/dev/null || true)
+		if [ -r "$OWNERSHIP_FILE" ]; then
+			owned_record=$(cat "$OWNERSHIP_FILE" 2>/dev/null | tr -d '\n' || true)
+			operation_id=$(printf '%s' "$owned_record" | cut -d '|' -f4)
+			operation_nonce=$(printf '%s' "$owned_record" | cut -d '|' -f5)
+		fi
+		helper_identity || return 42
 	fi
-	marker_count=$(printf '%s\n' "$chain_text" | grep -F -c "$owned_marker" || true)
-	queue_count=$(printf '%s\n' "$chain_text" | grep -F -c "queue num $QUEUE" || true)
-	exact_digest=$(cat "$CHAIN_DIGEST_FILE" 2>/dev/null || true)
-	actual_digest=$(printf '%s\n' "$chain_text" | sha256sum | awk '{print $1}')
-	[ "$marker_count" = 1 ] && [ "$queue_count" = 1 ] && [ -n "$exact_digest" ] && [ "$actual_digest" = "$exact_digest" ]
+	exec 8<>"$HELPER_REQUEST_FIFO" || return 42
+	exec 9<>"$HELPER_RESPONSE_FIFO" || { exec 8>&-; return 42; }
+	request=$(printf '{"protocolVersion":2,"requestId":"%s","operation":"%s","arguments":{"tableName":"%s","operationId":"%s","nonce":"%s"}}\n' \
+		"$request_id" "$helper_operation_name" "$table_name" "$operation_id" "$operation_nonce")
+	printf '%s' "$request" >&8 || { exec 8>&-; exec 9>&-; return 42; }
+	IFS= read -r response <&9 || { exec 8>&-; exec 9>&-; return 42; }
+	exec 8>&-; exec 9>&-
+	if ! helper_response_ok "$request_id" "$helper_operation_name" "$response"; then
+		[ "$helper_operation_name" = ownership_create ] && helper_start_abort || true
+		return 42
+	fi
+}
+
+helper_start_lifecycle() {
+	[ -x "$FIREWALL_HELPER" ] || return 42
+	[ ! -e "$HELPER_PID_FILE" ] && [ ! -e "$HELPER_TRANSPORT_FILE" ] &&
+		[ ! -e "$HELPER_REQUEST_FIFO" ] && [ ! -e "$HELPER_RESPONSE_FIFO" ] || return 42
+	mkfifo "$HELPER_REQUEST_FIFO" "$HELPER_RESPONSE_FIFO" 2>/dev/null || helper_start_abort
+	chmod 600 "$HELPER_REQUEST_FIFO" "$HELPER_RESPONSE_FIFO" 2>/dev/null || helper_start_abort
+	private_fifo "$HELPER_REQUEST_FIFO" && private_fifo "$HELPER_RESPONSE_FIFO" || helper_start_abort
+	exec 8<>"$HELPER_REQUEST_FIFO" || helper_start_abort
+	exec 9<>"$HELPER_RESPONSE_FIFO" || { exec 8>&-; helper_start_abort; }
+	"$FIREWALL_HELPER" <&8 >&9 2>/dev/null &
+	helper_pid=$!; helper_start=$(starttime "$helper_pid")
+	exec 8>&-; exec 9>&-
+	[ -n "$helper_start" ] || helper_start_abort
+	atomic_private_write "$HELPER_PID_FILE" "$helper_pid|$helper_start|$operation_id|$operation_nonce|$table_name\n" || helper_start_abort
+	atomic_private_write "$HELPER_TRANSPORT_FILE" "table=$table_name\nrequest=$HELPER_REQUEST_FIFO\nresponse=$HELPER_RESPONSE_FIFO\n" || helper_start_abort
+	helper_identity || helper_start_abort
 }
 
 firewall_delete_owned() {
-	[ -x "$FIREWALL_HELPER" ] || return 42
-	owned_record=$(cat "$OWNERSHIP_FILE" 2>/dev/null || true)
-	owned_marker=$(printf '%s\n' "$owned_record" | cut -d '|' -f4)
-	owned_nonce=$(printf '%s\n' "$owned_record" | cut -d '|' -f5)
-	ownership_token="scanner-firewall-v1:$session:$candidate:$generation:$owned_nonce"
-	expected_chain_digest=$(cat "$CHAIN_DIGEST_FILE" 2>/dev/null || true)
-	request=$(printf '{"candidate":"%s","expectedChainDigest":"%s","generation":%s,"marker":"%s","nonce":"%s","operation":"compare_delete","ownershipToken":"%s","session":"%s"}\n' \
-		"$candidate" "$expected_chain_digest" "$generation" "$owned_marker" "$owned_nonce" "$ownership_token" "$session")
-	response=$(printf '%s' "$request" | "$FIREWALL_HELPER" 2>/dev/null) || return 42
-	printf '%s\n' "$response" | grep -F -q '"ok":true' || return 42
+	table_name=$(cat "$HELPER_TRANSPORT_FILE" 2>/dev/null | sed -n 's/^table=//p' || true)
+	operation_id="$session:$candidate:$generation"
+	helper_record=$(cat "$HELPER_PID_FILE" 2>/dev/null | tr -d '\n' || true)
+	helper_rest=${helper_record#*|}; helper_rest=${helper_rest#*|}; helper_rest=${helper_rest#*|}
+	operation_nonce=${helper_rest%%|*}
+	helper_request ownership_status || return 42
+	helper_request ownership_delete || return 42
+	helper_stop_reap || return 42
+	remove_private_helper_artifacts
+	[ ! -e "$HELPER_PID_FILE" ] && [ ! -e "$HELPER_REQUEST_FIFO" ]
 }
 
 atomic_private_write() {
@@ -148,14 +270,6 @@ atomic_private_write() {
 	[ ! -L "$tmp" ] && chmod 600 "$tmp" && (sync -f "$tmp" 2>/dev/null || sync) && mv -f "$tmp" "$path" || { rm -f "$tmp"; return 1; }
 	[ -f "$path" ] && [ ! -L "$path" ] && (sync -f "$path" 2>/dev/null || sync) && [ "$(cat "$path" 2>/dev/null || true)" = "$(printf '%b' "$content")" ]
 }
-
-journal_required() {
-	entry=$1
-	old=$(cat "$SESSION_JOURNAL" 2>/dev/null || true)
-	atomic_private_write "$SESSION_JOURNAL" "$old$entry\n"
-}
-
-journal() { journal_required "$1" || { JOURNAL_FAILED=1; fail EIO journal; }; }
 
 emit_cleanup() {
 	printf '%s\n' "{\"ok\":$1,\"processRemoved\":$2,\"firewallRemoved\":$3,\"nfqueueRemoved\":$4,\"hostlistRemoved\":$5,\"temporaryFilesRemoved\":$6,\"ownedOnly\":$7,\"evidence\":\"$8\"}"
@@ -167,6 +281,17 @@ cleanup_internal() {
 		return 0
 	fi
 	process_removed=true; firewall_removed=true; nfqueue_removed=true; hostlist_removed=true; temporary_removed=true; owned_only=true; evidence=complete
+	if [ -r "$HELPER_PID_FILE" ]; then
+		if [ -r "$OWNERSHIP_FILE" ]; then
+			owned_record=$(cat "$OWNERSHIP_FILE" 2>/dev/null | tr -d '\n' || true)
+			operation_id=$(printf '%s' "$owned_record" | cut -d '|' -f4)
+			operation_nonce=$(printf '%s' "$owned_record" | cut -d '|' -f5)
+		fi
+		table_name=$(sed -n 's/^table=//p' "$HELPER_TRANSPORT_FILE" 2>/dev/null || true)
+		helper_record=$(cat "$HELPER_PID_FILE" 2>/dev/null | tr -d '\n' || true)
+		helper_pid=${helper_record%%|*}
+		helper_identity || { process_removed=false; firewall_removed=false; owned_only=false; evidence=identity; }
+	fi
 	if [ -r "$PID_FILE" ] && [ -r "$START_FILE" ]; then
 		pid=$(cat "$PID_FILE"); start=$(cat "$START_FILE")
 		if process_alive "$pid" "$start"; then
@@ -181,37 +306,35 @@ cleanup_internal() {
 	fi
 	if [ "$process_removed" = true ]; then
 		if chain_owned; then
-			firewall_delete_owned || { firewall_removed=false; owned_only=false; evidence=ownership-mismatch; journal "cleanup.evidence=$evidence"; }
+			firewall_delete_owned || { firewall_removed=false; owned_only=false; evidence=ownership-mismatch; }
 		else
 			firewall_removed=false; owned_only=false; evidence=ownership-mismatch
 		fi
+	fi
+	if [ "$firewall_removed" = true ] && [ -r "$HELPER_PID_FILE" ]; then
+		helper_stop_reap || { firewall_removed=false; owned_only=false; evidence=helper; }
 	fi
 	i=0; while [ -n "$(queue_peer)" ] && [ "$i" -lt 20 ]; do sleep 0.05; i=$((i + 1)); done
 	[ -z "$(queue_peer)" ] || { nfqueue_removed=false; owned_only=false; evidence=nfqueue; }
 	if [ "$process_removed" = true ] && [ "$firewall_removed" = true ] && [ "$nfqueue_removed" = true ]; then
 		atomic_private_write "$CLEANUP_EVIDENCE" 'evidence=complete\n' || { temporary_removed=false; owned_only=false; evidence=temporary; }
-		[ "$temporary_removed" = true ] && journal "state=cleanup-verified|owner=$OWNER|session=$session|candidate=$candidate|generation=$generation|nonce=$lock_nonce"
 	fi
 	if [ "$process_removed" = true ] && [ "$firewall_removed" = true ] && [ "$nfqueue_removed" = true ] && [ "$temporary_removed" = true ]; then
 		rm -f "$ARGV_FILE" "$ARGV_DIGEST_FILE" "$ARGV_META_FILE" "$PID_FILE" "$START_FILE" "$LOG_FILE" "$HOSTLIST_FILE" "$CHAIN_DIGEST_FILE"
-		[ ! -e "$ARGV_FILE" ] && [ ! -e "$ARGV_DIGEST_FILE" ] && [ ! -e "$ARGV_META_FILE" ] && [ ! -e "$PID_FILE" ] && [ ! -e "$START_FILE" ] && [ ! -e "$LOG_FILE" ] && [ ! -e "$HOSTLIST_FILE" ] && [ ! -e "$CHAIN_DIGEST_FILE" ] || { temporary_removed=false; owned_only=false; evidence=temporary; }
+		remove_private_helper_artifacts
+		[ ! -e "$ARGV_FILE" ] && [ ! -e "$ARGV_DIGEST_FILE" ] && [ ! -e "$ARGV_META_FILE" ] && [ ! -e "$PID_FILE" ] && [ ! -e "$START_FILE" ] && [ ! -e "$LOG_FILE" ] && [ ! -e "$HOSTLIST_FILE" ] && [ ! -e "$CHAIN_DIGEST_FILE" ] && [ ! -e "$HELPER_PID_FILE" ] && [ ! -e "$HELPER_TRANSPORT_FILE" ] && [ ! -e "$HELPER_REQUEST_FIFO" ] && [ ! -e "$HELPER_RESPONSE_FIFO" ] || { temporary_removed=false; owned_only=false; evidence=temporary; }
 		if [ "$temporary_removed" = true ]; then
 			rm -f "$OWNERSHIP_FILE"
 			[ ! -e "$OWNERSHIP_FILE" ] || { temporary_removed=false; owned_only=false; evidence=ownership-metadata; }
-			[ "$temporary_removed" = true ] && journal "state=owned-resources-removed|owner=$OWNER|session=$session|candidate=$candidate|generation=$generation|nonce=$lock_nonce"
 		fi
 	else
-		temporary_removed=false; owned_only=false; journal "cleanup.evidence=$evidence"
+		temporary_removed=false; owned_only=false
 	fi
 	emit_cleanup true "$process_removed" "$firewall_removed" "$nfqueue_removed" "$hostlist_removed" "$temporary_removed" "$owned_only" "$evidence"
 }
 
 fail() {
 	code=$1; stage=$2
-	if [ "${JOURNAL_FAILED:-0}" = 1 ]; then
-		printf '%s\n' "{\"ok\":false,\"code\":\"$code\",\"stage\":\"$stage\",\"evidence\":\"journal-unavailable\"}"
-		exit 1
-	fi
 	if [ "${RESOURCE_CREATED:-0}" = 1 ] && [ "${ROLLING_BACK:-0}" = 0 ]; then
 		ROLLING_BACK=1; cleanup=$(cleanup_internal)
 		printf '%s\n' "{\"ok\":false,\"code\":\"$code\",\"stage\":\"$stage\",\"cleanup\":$cleanup}"
@@ -237,11 +360,6 @@ lock_acquire() {
 	lock_session=${lock_record%%|*}; lock_rest=${lock_record#*|}; lock_pid=${lock_rest%%|*}; lock_rest=${lock_rest#*|}; lock_start=${lock_rest%%|*}; lock_nonce=${lock_rest#*|}
 	[ "$lock_session" = "$session" ] && [ -n "$lock_pid" ] && [ -n "$lock_start" ] && [ "$lock_nonce" = "$nonce" ] || { reap_holder; kill "$owner" 2>/dev/null || true; wait "$owner" 2>/dev/null || true; fail ELOCKED lock; }
 	lock_session=$lock_session; lock_pid=$lock_pid; lock_start=$lock_start; lock_nonce=$lock_nonce
-	journal_required "lock.owner=$lock_session|$lock_pid|$lock_start|$lock_nonce" || {
-		JOURNAL_FAILED=1; kill -TERM "$lock_pid" 2>/dev/null || true
-		rm -f "$LOCK_OWNER" "$DIR/lock-holder.pid" "$DIR/lock.ready"
-		fail EIO journal
-	}
 	lock_held || { reap_holder; kill "$owner" 2>/dev/null || true; wait "$owner" 2>/dev/null || true; fail ELOCKED lock; }
 	printf '%s\n' "{\"ok\":true,\"owner\":\"config/global\",\"held\":true,\"lockPid\":$lock_pid,\"session\":\"$session\",\"nonce\":\"$nonce\"}"
 }
@@ -294,45 +412,19 @@ activate() {
 		esac
 		set -- "$@" "$token"
 	done < "$ARGV_FILE"
-	"$NFT" list table inet "$TABLE" >/dev/null 2>&1 || fail EDEPENDENCY firewall
-	if "$NFT" list chain inet "$TABLE" "$CHAIN" >/dev/null 2>&1; then fail EOWNERSHIP firewall; fi
-	"$INIT" stop >/dev/null 2>&1 || fail EDEPENDENCY runtime
-	[ -z "$(queue_peer)" ] || fail EOWNERSHIP runtime
-	journal "state=activating|owner=$OWNER|session=$session|candidate=$candidate|generation=$generation|nonce=$lock_nonce|resource-created.process=false|resource-created.firewall=false|resource-created.nfqueue=false|resource-created.argv=true"
-	"$NFT" add chain inet "$TABLE" "$CHAIN" "{ type filter hook forward priority -150; policy accept; }" >/dev/null 2>&1 || fail EDEPENDENCY firewall
+	operation_id="$session:$candidate:$generation"
+	operation_nonce="$lock_nonce"
+	table_name=""
+	helper_request ownership_create || fail EDEPENDENCY firewall
 	RESOURCE_CREATED=1
-	journal "resource-created.firewall=true|resource-created.nfqueue=false"
-	"$NFT" add rule inet "$TABLE" "$CHAIN" queue num "$QUEUE" comment "$marker" >/dev/null 2>&1 || fail EDEPENDENCY firewall
-	atomic_private_write "$OWNERSHIP_FILE" "$session|$candidate|$generation|$marker|$lock_nonce\n" || fail EIO ownership
-	journal "resource=$candidate|$generation|$nonce_marker|created"
-	journal "state=candidate-activated|owner=$OWNER|session=$session|candidate=$candidate|generation=$generation|nonce=$lock_nonce"
-	chain_digest=$("$NFT" list chain inet "$TABLE" "$CHAIN" 2>/dev/null | sha256sum | awk '{print $1}')
-	[ -n "$chain_digest" ] || fail EOWNERSHIP firewall
-	atomic_private_write "$CHAIN_DIGEST_FILE" "$chain_digest\n" || fail EIO ownership
-	argv_after=$(sha256sum "$ARGV_FILE" | awk '{print $1}'); [ "$argv_after" = "$compiled_digest" ] || fail ETAMPERED activate
-	prelaunch_digest=$(sha256sum "$ARGV_FILE" | awk '{print $1}'); [ "$prelaunch_digest" = "$compiled_digest" ] || fail ETAMPERED activate
-	setsid "$NFQWS2" --qnum="$QUEUE" "$@" >"$LOG_FILE" 2>&1 &
-	pid=$!; start=$(starttime "$pid"); [ -n "$start" ] || fail EIDENTITY activate
-	atomic_private_write "$PID_FILE" "$pid\n" || fail EIO identity
-	atomic_private_write "$START_FILE" "$start\n" || fail EIO identity
-	journal "resource-created.process=true|pid=$pid|starttime=$start"
-	[ "$(process_exe "$pid")" = "$NFQWS2" ] || fail EIDENTITY activate
-	digest=$(argv_digest "$pid"); case "$digest" in [a-f0-9][a-f0-9]*) ;; *) fail EIDENTITY activate ;; esac
-	peer=$(queue_peer); [ "$peer" = "$pid" ] || fail EOWNERSHIP activate
-	chain_owned || fail EOWNERSHIP firewall
-	printf '%s\n' "{\"ok\":true,\"identityVerified\":true,\"expectedProcess\":{\"pid\":$pid,\"startTime\":$start,\"exe\":\"$NFQWS2\",\"argvSha256\":\"$digest\",\"owner\":\"$OWNER\",\"generation\":$generation},\"process\":{\"pid\":$pid,\"startTime\":$start,\"exe\":\"$NFQWS2\",\"argvSha256\":\"$digest\",\"owner\":\"$OWNER\",\"generation\":$generation},\"firewall\":{\"table\":\"$TABLE\",\"owner\":\"$OWNER\",\"ownedRules\":[\"$marker\"],\"generation\":$generation},\"nfqueue\":{\"registered\":true,\"peer_portid\":$pid},\"compiledDigest\":\"$compiled_digest\"}"
+	helper_request ownership_ready || fail EOWNERSHIP firewall
+	atomic_private_write "$OWNERSHIP_FILE" "$session|$candidate|$generation|$operation_id|$operation_nonce\n" || fail EIO ownership
+	# The helper owns only the dedicated table. NFQUEUE rule installation remains a separate proof obligation.
+	fail EUNSUPPORTED firewall
 }
 
 stabilize() {
-	lock_held || fail ELOCKED lock
-	[ -r "$PID_FILE" ] && [ -r "$START_FILE" ] || fail EIDENTITY stabilize
-	pid=$(cat "$PID_FILE"); start=$(cat "$START_FILE")
-	if ! process_alive "$pid" "$start"; then printf '%s\n' '{"ok":true,"stable":false,"candidateFailure":"PROCESS_EXIT"}'; return 0; fi
-	peer=$(queue_peer); [ "$peer" = "$pid" ] || fail EOWNERSHIP stabilize
-	chain_owned || fail EOWNERSHIP stabilize
-	digest=$(argv_digest "$pid"); [ -n "$digest" ] || fail EIDENTITY stabilize
-	[ "$(process_exe "$pid")" = "$NFQWS2" ] || fail EIDENTITY stabilize
-	printf '%s\n' "{\"ok\":true,\"stable\":true,\"identityVerified\":true,\"process\":{\"pid\":$pid,\"startTime\":$start,\"exe\":\"$NFQWS2\",\"argvSha256\":\"$digest\",\"owner\":\"$OWNER\",\"generation\":$generation},\"firewall\":{\"table\":\"$TABLE\",\"owner\":\"$OWNER\",\"ownedRules\":[\"$marker\"],\"generation\":$generation},\"nfqueue\":{\"registered\":true,\"peer_portid\":$pid}}"
+	fail EUNSUPPORTED stabilize
 }
 
 cleanup() {
@@ -352,8 +444,8 @@ session_cleanup() {
 	recovery_evidence="$ROOT/$session.recovery.evidence"
 	atomic_private_write "$recovery_evidence" "session=$session\nverified=true\ndurability=tmpfs_visible\n" || fail ECLEANUP cleanup
 	# Remove only the fixed runtime sidecars; unknown files keep rmdir fail-closed.
-	rm -f "$DIR"/*.argv "$DIR"/*.argv.digest "$DIR"/*.argv.meta
-	rm -f "$SESSION_JOURNAL" "$CLEANUP_EVIDENCE" "$OWNERSHIP_LOCK" "$DIR/lock.ready"
+	rm -f "$DIR"/*.argv "$DIR"/*.argv.digest "$DIR"/*.argv.meta "$DIR"/*.helper.pid "$DIR"/*.helper.transport "$DIR"/*.helper.request "$DIR"/*.helper.response
+	rm -f "$CLEANUP_EVIDENCE" "$OWNERSHIP_LOCK" "$DIR/lock.ready"
 	rmdir "$DIR" 2>/dev/null || { atomic_private_write "$recovery_evidence" "session=$session\nverified=false\ndurability=tmpfs_visible\n" || true; fail ECLEANUP cleanup; }
 	[ ! -e "$DIR" ] || fail ECLEANUP cleanup
 	printf '%s\n' '{"ok":true,"removed":true,"verified":true,"sessionDirectoryRemoved":true}'

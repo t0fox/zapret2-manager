@@ -108,3 +108,15 @@ exit 0
 endef
 
 $(eval $(call BuildPackage,zapret2-manager))
+.PHONY: build-scanner-firewall-helper build-ownership-helper
+build-scanner-firewall-helper:
+	@mkdir -p build
+	$(CC) -std=c11 -Wall -Wextra -Werror -D_GNU_SOURCE -o build/z2m-scanner-firewall-helper \
+		src/z2m-scanner-firewall-helper.c \
+		$(shell pkg-config --cflags json-c 2>/dev/null || echo "") \
+		$(shell pkg-config --libs json-c 2>/dev/null || echo "-ljson-c")
+	@echo "firewall helper built: build/z2m-scanner-firewall-helper"
+
+# Compatibility alias for the old local verification command. The canonical
+# implementation is the scanner firewall helper above.
+build-ownership-helper: build-scanner-firewall-helper
