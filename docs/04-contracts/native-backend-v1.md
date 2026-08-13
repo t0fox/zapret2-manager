@@ -1,3 +1,13 @@
+---
+id: native-backend-v1
+title: "Native Backend Contract v1"
+type: contract
+status: normative
+authority: approved-spec
+updated: 2026-08-13
+publish: false
+tags: [contract, native-backend]
+---
 # Native Backend Contract v1
 
 Status: frozen at repository commit

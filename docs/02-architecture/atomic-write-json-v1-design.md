@@ -1,3 +1,13 @@
+---
+id: atomic-write-json-v1-design
+title: "atomic_write_json v1 Preparation Design"
+type: architecture
+status: normative
+authority: approved-spec
+updated: 2026-08-13
+publish: false
+tags: [atomic-write-json, design, architecture]
+---
 # atomic_write_json v1 Preparation Design
 
 Status: preparation only. This document does not implement `atomic_write_json`
@@ -9,9 +19,9 @@ Branch: `m4-canonical-json-prep`
 
 Frozen inputs:
 
-- `docs/contracts/z2m-canonical-json-v1.md`
+- `docs/04-contracts/z2m-canonical-json-v1.md`
 - `zapret2-manager/src/z2m-core-helper/protocol-v1.json`
-- `docs/contracts/native-backend-v1.md`
+- `docs/04-contracts/native-backend-v1.md`
 
 ## Scope And Non-Goals
 

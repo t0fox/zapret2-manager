@@ -1,3 +1,13 @@
+---
+id: z2m-canonical-json-v1
+title: "Z2M Canonical JSON v1"
+type: contract
+status: normative
+authority: approved-spec
+updated: 2026-08-13
+publish: false
+tags: [contract, canonical-json]
+---
 # Z2M Canonical JSON v1
 
 Canonicalization-ID: `z2m-canonical-json-v1`

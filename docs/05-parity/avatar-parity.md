@@ -1,3 +1,13 @@
+---
+id: avatar-parity
+title: "Avatar Behavioral Parity Contract"
+type: parity
+status: normative
+authority: approved-spec
+updated: 2026-08-13
+publish: false
+tags: [parity, avatar, contract]
+---
 # Avatar Behavioral Parity Contract
 
 **Avatar behavioral baseline:** `avatarDD/zapret-gui@f9dd3ea47a2239514f396a843b475c92c33f0b4c`  

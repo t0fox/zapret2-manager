@@ -19,8 +19,8 @@ The repository is intentionally kept small and current. Historical implementatio
 
 The current compatibility contracts are:
 
-- `docs/contracts/native-backend-v1.md`
-- `docs/contracts/z2m-canonical-json-v1.md`
+- `docs/04-contracts/native-backend-v1.md`
+- `docs/04-contracts/z2m-canonical-json-v1.md`
 
 ## Build
 

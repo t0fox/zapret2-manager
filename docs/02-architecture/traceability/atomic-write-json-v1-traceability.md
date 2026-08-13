@@ -1,3 +1,13 @@
+---
+id: atomic-write-json-v1-traceability
+title: "atomic_write_json v1 Traceability"
+type: architecture
+status: normative
+authority: approved-spec
+updated: 2026-08-13
+publish: false
+tags: [atomic-write-json, traceability, architecture]
+---
 # atomic_write_json v1 Traceability
 
 This table maps frozen wording to the reusable corpus and the proposed M4
