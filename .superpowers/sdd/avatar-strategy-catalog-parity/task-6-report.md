@@ -444,3 +444,38 @@ expanding the reserved Task 5 boundary:
   without a verified provider.
 - Task 5 reserved operations remain EUNSUPPORTED. No permanent Strategy/config
   writer, raw command, DNS/TG/router/LuCI/Orchestra implementation was added.
+
+## Latest Task 6 Review Fixes
+
+The final review follow-up closes the remaining Important findings without
+expanding the Task 5 or Task 7 boundaries:
+
+- Generic target profiles now include the validated target as a server-owned
+  test host. Planner authority rejects an empty generic test-host list before
+  the worker can start.
+- UDP adapter descriptors preserve exact server-owned ranges such as
+  `50000-65535` while selecting only a fixed server-owned endpoint; callers do
+  not choose arbitrary ports.
+- Worker result rows retain verdict score, latency, throughput, per-probe
+  timestamps, bytes, and marker evidence. No default score is synthesized.
+- Stop admission publishes an id-scoped cancellation token. Native supervision
+  checks that owned token during the active probe, terminates the process group,
+  and reaps the child within the bounded deadline.
+- Terminal checkpoint failure releases the active marker using retained claim
+  identity and keeps Task 7 reconciliation evidence even if no record was
+  successfully published.
+- Baseline classification requires bytes, exit code, signal, and monotonic
+  start/finish timestamps at the classifier boundary; missing evidence is a
+  typed dependency result.
+- Protocol-v1 nested scanner profile, transport, request, and candidate schemas
+  are explicitly closed with `additionalProperties: false` and exact fields.
+- SIGPIPE restoration failures are handled on child and all early native paths.
+
+Focused latest verification:
+
+- Product Scanner worker/probe/integration suites: **72 passed, 0 failed**.
+- Native helper/protocol/scanner suites: **56 passed, 0 failed**.
+
+Task 5 remains `EUNSUPPORTED` for production compare-delete. Task 7 remains a
+non-terminal reconciliation dependency. No permanent config/Strategy/raw
+command/DNS/TG/router/LuCI/Orchestra behavior was added.

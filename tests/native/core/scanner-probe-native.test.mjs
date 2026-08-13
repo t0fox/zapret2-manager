@@ -165,6 +165,21 @@ test('nonzero child status and partial output are returned independently', () =>
 test('native fixed child verifies SIGPIPE restoration after the pump', () => {
   const sourceText = fs.readFileSync('zapret2-manager/src/z2m-core-helper/scanner.c', 'utf8');
   assert.match(sourceText, /if \(sigaction\(SIGPIPE, &old_pipe, NULL\) < 0\) failed = true/);
+  assert.match(sourceText, /if \(sigaction\(SIGPIPE, &old_pipe, NULL\) < 0\) _exit\(126\)/);
+});
+
+test('owned cancellation token kills and reaps an active native probe', () => {
+  const cancelToken = `cancel-${process.pid}-${Date.now()}`;
+  const cancelPath = `/tmp/zapret2-manager/runtime/scanner/${cancelToken}.cancel`;
+  fs.mkdirSync(path.dirname(cancelPath), { recursive: true });
+  fs.writeFileSync(cancelPath, 'stop\n');
+  try {
+    const result = run(request({ transport: 'tls', host: 'sleep.example.com', addressFamily: 'ipv4', port: 443,
+      timeoutMs: 5000, cancelToken }));
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(result.data.signal > 0, true);
+    assert.equal(result.data.cancelled, true);
+  } finally { fs.rmSync(cancelPath, { force: true }); }
 });
 
 test('deadline kills and reaps the fixed child without grace beyond the request deadline', () => {

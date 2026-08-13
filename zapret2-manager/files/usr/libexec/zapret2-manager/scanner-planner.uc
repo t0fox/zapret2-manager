@@ -838,6 +838,8 @@ function scanner_plan_build_pure(request, catalogSnapshot, userStrategies, autho
 	let users = userStrategies;
 	if (!user_records_valid(users, catalog, compilerAuthority)) return error_result('EVERIFY', 'Scanner user Strategies must be server-owned records.');
 	let profile = target_profile_valid(catalog.targetProfile) ? copy(catalog.targetProfile) : null;
+	if (profile != null && profile.profileKey == 'generic' && length(profile.testHosts) == 0)
+		return error_result('EDEPENDENCY', 'Generic Scanner target profile has no server-owned test host.', 'targetProfile.testHosts');
 	if (profile == null || !profile_matches_authority(profile, authoritativeProfile, value))
 		return error_result('EINPUT', 'Scanner target profile is absent or mismatched.', 'target');
 	let environment = is_object(catalog.compilerEnvironment)

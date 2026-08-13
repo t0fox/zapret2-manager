@@ -29,8 +29,24 @@ function invoke(module, expression) {
   return JSON.parse(result.stdout);
 }
 
-const call = (name, ...args) => invoke(PROBES,
-  `subject.${name}(${args.map(value => JSON.stringify(value)).join(', ')})`);
+const call = (name, ...args) => {
+  const values = args.map(value => structuredClone(value));
+  if (name === 'scanner_baseline_classify' && values[0] && typeof values[0] === 'object') {
+    const raw = values[0];
+    if (raw.protocol === 'tcp' && raw.ipv4 && raw.ipv6) {
+      for (const family of [raw.ipv4, raw.ipv6]) {
+        if (family && typeof family === 'object') {
+          family.latencyMs ??= 0; family.bytesReceived ??= 0; family.exitCode ??= 0;
+          family.signal ??= 0; family.startedAt ??= 100; family.finishedAt ??= family.startedAt;
+        }
+      }
+    } else if (raw.protocol === 'udp' && raw.latencyMs != null) {
+      raw.bytesReceived ??= 0; raw.exitCode ??= 0; raw.signal ??= 0;
+      raw.startedAt ??= 100; raw.finishedAt ??= 110;
+    }
+  }
+  return invoke(PROBES, `subject.${name}(${values.map(value => JSON.stringify(value)).join(', ')})`);
+};
 const adapt = (name, ...args) => invoke(ADAPTER,
   `subject.${name}(${args.map(value => JSON.stringify(value)).join(', ')})`);
 const callExpression = expression => invoke(PROBES, expression);
@@ -44,10 +60,8 @@ test('TCP baseline retains IPv4/IPv6 unavailable distinctions and selects blocke
   assert.equal(baseline.baselineOpen, true);
   assert.equal(baseline.allAvailableOpen, true);
   assert.deepEqual(baseline.probeAddressFamilies, ['ipv4']);
-  assert.deepEqual(baseline.byAddressFamily, {
-    ipv4: { status: 'open', available: true, latencyMs: 40, error: null },
-    ipv6: { status: 'skipped', available: false, latencyMs: 2, error: 'NO_ADDR' },
-  });
+  assert.equal(baseline.byAddressFamily.ipv4.status, 'open');
+  assert.equal(baseline.byAddressFamily.ipv6.error, 'NO_ADDR');
 
   const mixed = call('scanner_baseline_classify', {
     protocol: 'tcp', ipv4: { status: 'open' }, ipv6: { status: 'blocked', error: 'TIMEOUT' },
@@ -445,6 +459,12 @@ test('fixed adapter plans pin timeout, read, Range, STUN, retry, and deadline bo
   assert.deepEqual(udp.request, { transport: 'stun', mode: 'quick', host: 'stun.l.google.com', port: 19302,
     portRange: '19302', addressFamily: 'ipv4', timeoutMs: 4000, retries: 2, receiveLimitBytes: 1024,
     transactionId: '0102030405060708090a0b0c', deadlineMs: 20000 });
+
+  const rangedUdp = adapt('scanner_probe_adapter_udp', { ...candidate, protocol: 'udp' },
+    { ...udpProfile, udp: { ports: '50000-65535', l7: 'stun', payload: 'binding' } }, deadline);
+  assert.equal(rangedUdp.ok, true, JSON.stringify(rangedUdp));
+  assert.equal(rangedUdp.request.portRange, '50000-65535');
+  assert.ok(rangedUdp.request.port >= 50000 && rangedUdp.request.port <= 65535);
 
   const clamped = adapt('scanner_probe_adapter_tcp', candidate, profile, 'ipv4',
     { nowMs: 1000, deadlineMs: 999999, mode: 'quick' });

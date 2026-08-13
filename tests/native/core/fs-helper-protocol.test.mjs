@@ -207,6 +207,11 @@ test('scanner_probe is present in the manifest and implementation registry with 
     ['authority', 'adapterDigest', 'targetProfileDigest', 'targetProfile', 'request']);
   assert.match(fs.readFileSync('zapret2-manager/src/z2m-core-helper/protocol.c', 'utf8'), /scanner_probe/);
   assert.match(fs.readFileSync('zapret2-manager/src/z2m-core-helper/main.c', 'utf8'), /scanner_probe/);
+  const schema = value.operations.scanner_probe.requestSchema;
+  assert.equal(schema.properties.targetProfile.properties.tcp.additionalProperties, false);
+  assert.equal(schema.properties.targetProfile.properties.udp.additionalProperties, false);
+  assert.equal(schema.properties.request.additionalProperties, false);
+  assert.equal(schema.properties.candidate.additionalProperties, false);
 });
 
 test('paths are canonical relative names without generic or absolute capability', () => {

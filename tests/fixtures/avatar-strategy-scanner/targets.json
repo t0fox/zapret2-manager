@@ -290,7 +290,7 @@
       "expected": {
         "profileKey": "generic",
         "primaryHost": "kernel.org",
-        "testHosts": [],
+        "testHosts": ["kernel.org"],
         "hostlistDomains": ["kernel.org"],
         "expectedHostlists": [],
         "tcp": {

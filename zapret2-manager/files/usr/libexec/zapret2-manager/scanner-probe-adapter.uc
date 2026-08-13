@@ -80,6 +80,12 @@ function first_port(value) {
 	return port >= 1 && port <= 65535 && (length(bounds) == 1 || (+bounds[1] >= port && +bounds[1] <= 65535)) ? port : null;
 }
 
+function attach_cancel(request, limit) {
+	if (type(limit?.cancelToken) == 'string' && match(limit.cancelToken, /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/) != null)
+		request.cancelToken = limit.cancelToken;
+	return request;
+}
+
 function profile_hosts(profile, mode) {
 	let limit = mode_limit(mode), result = [];
 	if (!limit || !is_object(profile) || !safe_host(profile.primaryHost) || type(profile.testHosts) != 'array') return null;
@@ -132,9 +138,9 @@ export const scanner_probe_adapter_baseline = function(profile, limit) {
 		let port = first_port(profile.udp?.ports);
 		if (port == null) return fail('Invalid server-owned UDP port profile.');
 		if (profile.udp?.l7 != 'stun' || profile.udp?.payload != 'binding') return fail('Server-owned UDP profile is not a STUN profile.');
-		return { ok: true, ...descriptor_common(profile, { transport: 'stun', mode: limit?.mode, host: profile.primaryHost,
+		return { ok: true, ...descriptor_common(profile, attach_cancel({ transport: 'stun', mode: limit?.mode, host: profile.primaryHost,
 			port, portRange: profile.udp.ports, addressFamily: 'ipv4', timeoutMs: STUN_TIMEOUT_MS, retries: 2,
-			receiveLimitBytes: 1024, transactionId: STUN_TRANSACTION_ID, deadlineMs: end }, null, limit?.profileDigest) };
+			receiveLimitBytes: 1024, transactionId: STUN_TRANSACTION_ID, deadlineMs: end }, limit), null, limit?.profileDigest) };
 	}
 	let port = first_port(profile.tcp?.ports);
 	if (port == null) return fail('Invalid server-owned TCP port profile.');
@@ -156,11 +162,11 @@ export const scanner_probe_adapter_tcp = function(candidate, target, addressFami
 	let requests = [];
 	for (let host in hosts) push(requests, { host, hostIdentity: host, addressFamily, port, portRange: target.tcp.ports,
 		url: host == target.primaryHost ? target.probeUrl : 'https://' + host + '/' });
-	let descriptor = descriptor_common(target, { transport: 'tls+body', mode: limit?.mode, hosts: requests,
+	let descriptor = descriptor_common(target, attach_cancel({ transport: 'tls+body', mode: limit?.mode, hosts: requests,
 		retries: 1, tls: { timeoutMs: TLS_TIMEOUT_MS, readLimitBytes: 2048 },
 		body: { timeoutMs: BODY_TIMEOUT_MS, minimumBytes: 65536, readChunkBytes: 4096,
 			markerScanBytes: 8192, readLimitBytes: 69633, range: 'bytes=0-69632',
-		markers: [{ name: 'isp_page', needles: ['blocked', 'access denied', 'captcha'] }] }, deadlineMs: end }, { scannerId: candidate.scannerId, protocol: candidate.protocol,
+		markers: [{ name: 'isp_page', needles: ['blocked', 'access denied', 'captcha'] }] }, deadlineMs: end }, limit), { scannerId: candidate.scannerId, protocol: candidate.protocol,
 		compiledDigest: candidate.compiledDigest, dependencyDigest: candidate.dependencyDigest }, limit?.profileDigest);
 	return { ok: true, ...descriptor };
 };
@@ -168,15 +174,14 @@ export const scanner_probe_adapter_tcp = function(candidate, target, addressFami
 export const scanner_probe_adapter_udp = function(candidate, target, limit) {
 	if (!candidate_valid(candidate, 'udp')) return fail('Invalid planner-owned UDP candidate.');
 	if (!is_object(target) || forbidden(target) || !safe_host(target.primaryHost) ||
-		type(target.udp) != 'object' || type(target.udp.ports) != 'string' || match(target.udp.ports, /^[0-9]+$/) == null ||
-		+target.udp.ports < 1 || +target.udp.ports > 65535)
+		type(target.udp) != 'object' || first_port(target.udp.ports) == null)
 		return fail('Invalid server-owned STUN target.');
 	let end = deadline(limit, STUN_TIMEOUT_MS);
 	if (!end) return fail('Invalid probe deadline.');
 	let port = first_port(target.udp.ports);
 	if (port == null) return fail('Invalid server-owned STUN port profile.');
-	let descriptor = descriptor_common(target, { transport: 'stun', mode: limit?.mode, host: target.primaryHost, port, portRange: target.udp.ports, addressFamily: 'ipv4',
+	let descriptor = descriptor_common(target, attach_cancel({ transport: 'stun', mode: limit?.mode, host: target.primaryHost, port, portRange: target.udp.ports, addressFamily: 'ipv4',
 		timeoutMs: STUN_TIMEOUT_MS, retries: 2, receiveLimitBytes: 1024, transactionId: STUN_TRANSACTION_ID, deadlineMs: end }, { scannerId: candidate.scannerId, protocol: candidate.protocol,
-		compiledDigest: candidate.compiledDigest, dependencyDigest: candidate.dependencyDigest }, limit?.profileDigest);
+		compiledDigest: candidate.compiledDigest, dependencyDigest: candidate.dependencyDigest }, limit), limit?.profileDigest);
 	return { ok: true, ...descriptor };
 };

@@ -2,7 +2,7 @@
 
 ## Status
 
-COMPLETE
+INCOMPLETE - production compare-delete unavailable
 
 Implemented the bounded transient Scanner session and its product/native runtime
 tests. The implementation is intentionally fail-closed where the current

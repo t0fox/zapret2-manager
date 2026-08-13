@@ -61,7 +61,12 @@ function baseline_family_complete(raw) {
 	return is_object(raw) && type(raw.status) == 'string'
 		&& allowed
 		&& (raw.available == null || type(raw.available) == 'bool')
-		&& (raw.latencyMs == null || valid_nonnegative_number(raw.latencyMs));
+		&& valid_nonnegative_number(raw.latencyMs)
+		&& type(raw.bytesReceived) == 'int' && raw.bytesReceived >= 0
+		&& type(raw.exitCode) == 'int' && raw.exitCode >= -1
+		&& type(raw.signal) == 'int' && raw.signal >= 0
+		&& type(raw.startedAt) == 'int' && raw.startedAt >= 0
+		&& type(raw.finishedAt) == 'int' && raw.finishedAt >= raw.startedAt;
 }
 
 export const scanner_baseline_classify = function(raw) {
@@ -78,7 +83,9 @@ export const scanner_baseline_classify = function(raw) {
 			return { protocol: 'udp', baselineOpen: false, allAvailableOpen: false,
 				byAddressFamily: {}, probeAddressFamilies: ['ipv4'], infrastructureFailure: true,
 				error: 'PROBE_DEPENDENCY' };
-		if (!valid_nonnegative_number(raw.latencyMs))
+		if (!valid_nonnegative_number(raw.latencyMs) || type(raw.bytesReceived) != 'int' || raw.bytesReceived < 0 ||
+			type(raw.exitCode) != 'int' || raw.exitCode < -1 || type(raw.signal) != 'int' || raw.signal < 0 ||
+			type(raw.startedAt) != 'int' || raw.startedAt < 0 || type(raw.finishedAt) != 'int' || raw.finishedAt < raw.startedAt)
 			return { protocol: 'udp', baselineOpen: false, allAvailableOpen: false,
 				byAddressFamily: {}, probeAddressFamilies: ['ipv4'], infrastructureFailure: true,
 				error: 'INVALID_BASELINE' };
@@ -181,6 +188,11 @@ function verdict_metrics(tests) {
 	if (first.protocol == 'tcp') return { averageKbps: number(first.averageKbps, 0), averageLatencyMs: number(first.averageLatencyMs, 0), successRate: number(first.successRate, 0), perProbe: first.perHost };
 	return { averageKbps: 0, averageLatencyMs: number(first.latencyMs, 0), successRate: first.success === true ? 1 : 0,
 		perProbe: { startedAt: first.startedAt, finishedAt: first.finishedAt } };
+}
+
+function verdict_score(tests) {
+	let first = tests?.[0];
+	return is_object(first) && is_number(first.score) ? first.score : null;
 }
 
 export const scanner_score = function(result) {
@@ -344,11 +356,11 @@ export const scanner_candidate_verdict = function(baseline, tests) {
 		return { verdict: 'failed', reason: 'BASELINE_OPEN', success: false,
 			evidence: { infrastructure: false, baselineSuppressed: true, failureClass: 'baseline_open' } };
 	for (let evidence in tests) if (evidence?.success === true)
-		return { verdict: 'working', reason: null, success: true,
+		return { verdict: 'working', reason: null, success: true, score: verdict_score(tests),
 			evidence: { infrastructure: false, baselineSuppressed: false, failureClass: null, metrics: verdict_metrics(tests) } };
 	let errors = [];
 	for (let evidence in tests) if (evidence?.error) push(errors, evidence.error);
-	return { verdict: 'failed', reason: pick_error(errors, 0, 0), success: false,
+	return { verdict: 'failed', reason: pick_error(errors, 0, 0), success: false, score: verdict_score(tests),
 		evidence: { infrastructure: false, baselineSuppressed: false,
 			failureClass: tests[0]?.failureClass || 'candidate_blocked', metrics: verdict_metrics(tests) } };
 };

@@ -85,6 +85,10 @@ function publish_revision(id, suffix, value, revision) {
 	if (id != '') { made = native.mkdir_private('runtime', 'scanner/' + id, true); if (!made.ok) return false; }
 	return native.atomic_write_json_revision('runtime', native_path(id, suffix), value, revision < 0, revision).ok;
 }
+function publish_cancel(id) {
+	if (test_mode()) return atomic(path(id, '.cancel'), { id, stopRequested: true, updatedAt: time() });
+	return native.atomic_write_json('runtime', native_path(id, '.cancel'), { id, stopRequested: true, updatedAt: time() }, true, null).ok;
+}
 function read_record(id) { return test_mode() ? read_json(path(id, '.record.json')) : native_read(id, '.record.json'); }
 function read_control(id) { return test_mode() ? read_json(path(id, '.control.json')) : native_read(id, '.control.json'); }
 function hash(value) {
@@ -236,7 +240,10 @@ export const scanner_control_request = function(id, command, input) {
 		return error('ECONFLICT', 'Scanner control revision is stale.', { revision: loaded.state.revision });
 	let control = { id, revision: (integer(old.revision) ? old.revision : 0) + 1, stopRequested: true, updatedAt: time() };
 	let expected = loadedControl.present ? old.revision : -1;
-	if (publish_revision(id, '.control.json', control, expected)) return { ok: true, control };
+	if (publish_revision(id, '.control.json', control, expected)) {
+		if (!publish_cancel(id)) return error('EDEPENDENCY', 'Scanner cancellation token could not be published.');
+		return { ok: true, control };
+	}
 	let retry = scanner_control_load(id);
 	if (retry.ok && retry.control.stopRequested === true) return { ok: true, control: retry.control, idempotent: true };
 	return error('ECONFLICT', 'Scanner control revision is stale.');
@@ -275,5 +282,6 @@ export const scanner_state_release = function(id, identity) {
 			? { ok: true, retained: true } : error('EDEPENDENCY', 'Scanner active marker release is uncertain.');
 	}
 	try { unlink(path('', ACTIVE)); } catch (e) { return error('EIO', 'Scanner active marker could not be removed.'); }
+	try { unlink(path(id, '.cancel')); } catch (e) { }
 	return { ok: true };
 };

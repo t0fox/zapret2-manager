@@ -192,13 +192,14 @@ export const scanner_probe_execute = function(descriptor) {
 		for (let family in families) {
 			let timeoutMs = bounded_timeout(request, TLS_TIMEOUT_MS);
 			if (timeoutMs == null) return failure('EDEPENDENCY', 'Probe deadline has expired.', { stage: 'deadline' });
-			let probe = { transport: 'tls', mode: request.mode, retries: request.retries, host: request.host, addressFamily: family, port: request.port, portRange: request.portRange, tls: request.tls, timeoutMs, deadlineMs: request.deadlineMs };
+			let probe = { transport: 'tls', mode: request.mode, retries: request.retries, host: request.host, addressFamily: family, port: request.port, portRange: request.portRange, tls: request.tls, timeoutMs, deadlineMs: request.deadlineMs, cancelToken: request.cancelToken };
 			result = native_call_safe(descriptor, probe); if (!result.ok) return result;
+			if (result.data.cancelled === true) return failure('EDEPENDENCY', 'Scanner probe was cancelled.', { stage: 'cancel' });
 			raw = native_output(result); if (raw == null || !native_observation_complete(result, raw)) return native_failure(result, 'TLS child output is incomplete.');
 			if (result.data.signal != 0 || result.data.exitCode != 0) return native_failure(result, 'TLS child outcome is not a successful transport observation.');
 			let parsed = scanner_probe_parse_http(raw, result.data.startedAt, result.data.finishedAt, { readLimitBytes: TLS_READ_LIMIT });
 			if (!parsed.ok) return failure('EDEPENDENCY', 'TLS response parsing is indeterminate.', { stage: 'parse', parser: parsed.error });
-			observations[family] = { status: 'open', available: true, latencyMs: parsed.observation.latencyMs, startedAt: result.data.startedAt, finishedAt: result.data.finishedAt, error: null };
+			observations[family] = { status: 'open', available: true, latencyMs: parsed.observation.latencyMs, bytesReceived: result.data.byteLength, exitCode: result.data.exitCode, signal: result.data.signal, startedAt: result.data.startedAt, finishedAt: result.data.finishedAt, error: null };
 		}
 		return { ok: true, observations: [{ protocol: 'tcp', ipv4: observations.ipv4 || { status: 'skipped', available: false, latencyMs: 0, error: 'NOT_REQUESTED' }, ipv6: observations.ipv6 || { status: 'skipped', available: false, latencyMs: 0, error: 'NOT_REQUESTED' } }] };
 	}
@@ -207,9 +208,10 @@ export const scanner_probe_execute = function(descriptor) {
 		for (let item in request.hosts) {
 			let timeoutMs = bounded_timeout(request, BODY_TIMEOUT_MS);
 			if (timeoutMs == null) return failure('EDEPENDENCY', 'Probe deadline has expired.', { stage: 'deadline' });
-			let probe = { transport: 'tls+body', mode: request.mode, retries: request.retries, host: item.host, addressFamily: item.addressFamily, port: item.port, portRange: item.portRange, url: item.url, tls: request.tls, body: request.body, timeoutMs, deadlineMs: request.deadlineMs };
+			let probe = { transport: 'tls+body', mode: request.mode, retries: request.retries, host: item.host, addressFamily: item.addressFamily, port: item.port, portRange: item.portRange, url: item.url, tls: request.tls, body: request.body, timeoutMs, deadlineMs: request.deadlineMs, cancelToken: request.cancelToken };
 			result = native_call_safe(descriptor, probe);
 			if (!result.ok) { return result; }
+			if (result.data.cancelled === true) return failure('EDEPENDENCY', 'Scanner probe was cancelled.', { stage: 'cancel' });
 			raw = native_output(result); if (raw == null || !native_observation_complete(result, raw) || result.data.signal != 0 || result.data.exitCode != 0) return native_failure(result, 'HTTP child outcome is not usable.');
 			let parsed = scanner_probe_parse_http(raw, result.data.startedAt, result.data.finishedAt, request.body);
 			if (!parsed.ok) return failure('EDEPENDENCY', 'HTTP response parsing is indeterminate.', { stage: 'parse', parser: parsed.error });
@@ -222,9 +224,10 @@ export const scanner_probe_execute = function(descriptor) {
 		for (attempts = 1; attempts <= request.retries; attempts++) {
 			let timeoutMs = bounded_timeout(request, STUN_TIMEOUT_MS);
 			if (timeoutMs == null) return failure('EDEPENDENCY', 'Probe deadline has expired.', { stage: 'deadline' });
-			result = native_call_safe(descriptor, { transport: 'stun', mode: request.mode, retries: request.retries, host: request.host, addressFamily: request.addressFamily, port: request.port, portRange: request.portRange, transactionId: request.transactionId || STUN_TRANSACTION_ID, receiveLimitBytes: request.receiveLimitBytes, timeoutMs, deadlineMs: request.deadlineMs }); if (!result.ok) return result;
+			result = native_call_safe(descriptor, { transport: 'stun', mode: request.mode, retries: request.retries, host: request.host, addressFamily: request.addressFamily, port: request.port, portRange: request.portRange, transactionId: request.transactionId || STUN_TRANSACTION_ID, receiveLimitBytes: request.receiveLimitBytes, timeoutMs, deadlineMs: request.deadlineMs, cancelToken: request.cancelToken }); if (!result.ok) return result;
+			if (result.data.cancelled === true) return failure('EDEPENDENCY', 'Scanner probe was cancelled.', { stage: 'cancel' });
 			raw = native_output(result); if (raw == null || !native_observation_complete(result, raw) || result.data.signal != 0 || result.data.exitCode != 0) return native_failure(result, 'STUN child outcome is not usable.');
-			let parsed = scanner_probe_parse_stun(raw, result.data.startedAt, result.data.finishedAt, { attempts, transactionId: request.transactionId || STUN_TRANSACTION_ID }, 0x0101); if (parsed.ok) { parsed.observation.startedAt = result.data.startedAt; parsed.observation.finishedAt = result.data.finishedAt; return { ok: true, observations: [parsed.observation] }; }
+			let parsed = scanner_probe_parse_stun(raw, result.data.startedAt, result.data.finishedAt, { attempts, transactionId: request.transactionId || STUN_TRANSACTION_ID }, 0x0101); if (parsed.ok) { parsed.observation.startedAt = result.data.startedAt; parsed.observation.finishedAt = result.data.finishedAt; parsed.observation.bytesReceived = result.data.byteLength; parsed.observation.exitCode = result.data.exitCode; parsed.observation.signal = result.data.signal; return { ok: true, observations: [parsed.observation] }; }
 			if (attempts == request.retries) return failure('EDEPENDENCY', 'STUN response parsing is indeterminate.', { stage: 'parse', parser: parsed.error });
 		}
 		return failure('EDEPENDENCY', 'STUN response is indeterminate.', { stage: 'transport' });

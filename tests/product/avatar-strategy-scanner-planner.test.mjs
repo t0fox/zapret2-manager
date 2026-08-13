@@ -504,6 +504,17 @@ test('planner fails closed when target profile resolution fails', () => {
   assert.equal(result.error.code, 'EINPUT');
 });
 
+test('generic scan planner rejects an empty server-owned test-host profile before worker admission', () => {
+  const item = entry('generic-one', '--filter-tcp=443');
+  const sets = { tcp: { quick: ['generic-one'], standard: ['generic-one'], full: ['generic-one'] }, udp: { quick: [], standard: [], full: [] } };
+  const generic = snapshot([item], sets).targetProfile;
+  generic.testHosts = [];
+  const result = invoke(`planner.scanner_plan_build_server_test(${JSON.stringify(request('quick'))}, ${JSON.stringify(snapshot([item], sets))}, [], ${JSON.stringify(generic)})`);
+  assert.equal(result.ok, false, JSON.stringify(result));
+  assert.equal(result.error.code, 'EDEPENDENCY');
+  assert.equal(result.error.path, 'targetProfile.testHosts');
+});
+
 test('planner rejects a target profile unrelated to the validated request target', () => {
   const item = entry('one', '--filter-tcp=443');
   const sets = { tcp: { quick: ['one'], standard: ['one'], full: ['one'] }, udp: { quick: [], standard: [], full: [] } };

@@ -135,7 +135,7 @@ export const scanner_target_profile = function(value) {
 	for (let hint in HINTS) {
 		if (hint_matches(host, hint[0])) { key = hint[1]; break; }
 	}
-	if (key == null) return target_profile('generic', host, [], [host], [],
+	if (key == null) return target_profile('generic', host, [host], [host], [],
 		'443', 'tls', 'tls_client_hello', '443', 'stun', 'binding', 'https://' + host + '/');
 	let base = KNOWN[key];
 	return host == base.primaryHost ? copy_profile(base) : custom_profile(base, host);

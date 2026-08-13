@@ -84,7 +84,7 @@ test('target profiles preserve pinned fixture facts and deterministic host selec
     assert.deepEqual(profile.udp, expected.udp, entry.id);
     assert.equal(profile.probeUrl, expected.probeUrl, entry.id);
 
-    const primaryAndAlternates = [expected.primaryHost, ...expected.testHosts];
+    const primaryAndAlternates = [...new Set([expected.primaryHost, ...expected.testHosts])];
     for (const [mode, maximum] of Object.entries(fixture.constants.maxHostsByMode)) {
       const hosts = invoke('scanner_target_hosts', profile, mode);
       assert.ok(hosts.length <= maximum, `${entry.id}:${mode}`);
@@ -111,4 +111,10 @@ test('target detection uses hostname labels and keeps unrelated domains generic'
   assert.deepEqual(invoke('scanner_target_hosts', 'notyoutube.example', 'full'), [
     'notyoutube.example',
   ]);
+});
+
+test('generic target profiles bind the requested host as a server-owned test host', () => {
+  const profile = invoke('scanner_target_profile', 'kernel.org');
+  assert.deepEqual(profile.testHosts, ['kernel.org']);
+  assert.deepEqual(invoke('scanner_target_hosts', profile, 'quick'), ['kernel.org']);
 });

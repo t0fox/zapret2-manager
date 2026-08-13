@@ -92,7 +92,7 @@ function probe_candidate(candidate, plan, baseline, seams, outerDeadline) {
 	if (raw == null) {
 		let now = int(time() * 1000), end = outerDeadline < now + PROBE_BUDGET_MS ? outerDeadline : now + PROBE_BUDGET_MS;
 		if (candidate.protocol == 'udp') {
-			let adapted = scanner_probe_adapter_udp(candidate, plan.targetProfile, { nowMs: now, deadlineMs: end, mode: plan.request.mode, profileDigest: state.scanner_state_digest(plan.targetProfile) });
+			let adapted = scanner_probe_adapter_udp(candidate, plan.targetProfile, { nowMs: now, deadlineMs: end, mode: plan.request.mode, cancelToken: plan.request.cancelToken, profileDigest: state.scanner_state_digest(plan.targetProfile) });
 			if (!adapted.ok) return scanner_candidate_verdict({ infrastructureFailure: true, error: adapted.error?.message }, []);
 			let executed = seam(seams, 'executor') || scanner_probe_execute(adapted);
 			if (!executed.ok) return { ok: false, error: executed.error || { code: 'EDEPENDENCY', message: 'Probe dependency failed.' } };
@@ -104,7 +104,7 @@ function probe_candidate(candidate, plan, baseline, seams, outerDeadline) {
 			let hosts = [];
 			for (let family in families) {
 				if (family != 'ipv4' && family != 'ipv6') return scanner_candidate_verdict({ infrastructureFailure: true, error: 'INVALID_ADDRESS_FAMILY' }, []);
-				let adapted = scanner_probe_adapter_tcp(candidate, plan.targetProfile, family, { nowMs: int(time() * 1000), deadlineMs: end, mode: plan.request.mode, profileDigest: state.scanner_state_digest(plan.targetProfile) });
+				let adapted = scanner_probe_adapter_tcp(candidate, plan.targetProfile, family, { nowMs: int(time() * 1000), deadlineMs: end, mode: plan.request.mode, cancelToken: plan.request.cancelToken, profileDigest: state.scanner_state_digest(plan.targetProfile) });
 				if (!adapted.ok) return scanner_candidate_verdict({ infrastructureFailure: true, error: adapted.error?.message }, []);
 				let executed = seam(seams, 'executor') || scanner_probe_execute(adapted);
 				if (!executed.ok) return { ok: false, error: executed.error || { code: 'EDEPENDENCY', message: 'Probe dependency failed.' } };
@@ -189,8 +189,8 @@ function checkpoint_valid(record, plan) {
 	for (let i = 0; i < length(record.results); i++) {
 		let row = record.results[i], candidate = plan.candidates[i];
 		if (!object(row) || !object(candidate) || row.candidateId != candidate.scannerId || row.ordinal != candidate.ordinal || row.planDigest != record.planDigest || seen[row.candidateId]
-			|| (row.verdict != 'working' && row.verdict != 'failed' && row.verdict != 'infrastructure') || type(row.success) != 'bool'
-			|| !(type(row.score) == 'int' || type(row.score) == 'double') || !object(row.evidence) || !digest(row.evidenceIdentity) || result_identity(row) != row.evidenceIdentity) return false;
+		|| (row.verdict != 'working' && row.verdict != 'failed' && row.verdict != 'infrastructure') || type(row.success) != 'bool'
+		|| (row.score != null && !(type(row.score) == 'int' || type(row.score) == 'double')) || !object(row.evidence) || !digest(row.evidenceIdentity) || result_identity(row) != row.evidenceIdentity) return false;
 		seen[row.candidateId] = true;
 	}
 	return true;
@@ -234,7 +234,8 @@ function scanner_worker_run_impl(input, seams) {
 	lifecycle.claimed = { id: record.id, identity: copy(identity) };
 	record.worker = { pid: identity.pid, startTime: identity.startTime, owner: 'scanner/worker', generation: integer(identity.generation) ? identity.generation : 0 };
 	record.status = 'running'; record.startedAt = record.startedAt || time(); record.recovery = { state: 'not_required' }; phase(record, 'validating', null);
-	checkpoint(record, 'claim');
+	let claimedCheckpoint = checkpoint(record, 'claim');
+	if (!claimedCheckpoint.ok) { let failure = null; failure(); }
 	let started = scanner_session_begin({ sessionId: record.id, candidates: plan.candidates }, seam(seams, 'transient'));
 	if (!started.ok) { record.error = started.error?.message || 'Scanner transient session could not start.'; record.recovery = { state: cleanup_verified(started.error?.cleanup) ? 'verified' : 'uncertain', evidence: started.error?.cleanup || started.error }; return finish(record, { sessionId: record.id }, seams, 'error', record.error); }
 	let session = started.session, transient = seam(seams, 'transient'); lifecycle.session = session;
@@ -250,7 +251,9 @@ function scanner_worker_run_impl(input, seams) {
 		else baseline = executed.observations?.[0];
 	}
 	baseline = baseline.baselineOpen != null ? baseline : scanner_baseline_classify(baseline);
-	record.baseline = { baselineOpen: baseline.baselineOpen, byAddressFamily: baseline.byAddressFamily };
+	if (!object(baseline) || baseline.infrastructureFailure === true)
+		return finish(record, session, seams, 'error', baseline?.error || 'EDEPENDENCY');
+	record.baseline = copy(baseline);
 	phase(record, 'baselining', null); checkpoint(record, 'baseline');
 	let start = integer(record.cursor?.nextCandidate) ? record.cursor.nextCandidate : 0;
 	for (let i = start; i < length(plan.candidates) && i < MAX_RESULTS; i++) {
@@ -268,8 +271,8 @@ function scanner_worker_run_impl(input, seams) {
 		record.heartbeatAt = time(); checkpoint(record, 'probe');
 		let cleaned = scanner_candidate_cleanup(activated.attempt);
 		if (!cleaned.ok) { record.counts.infrastructure++; record.recovery = merge_recovery(record.recovery, { state: 'uncertain', activation: activated.attempt.activation, candidateCleanup: cleaned, evidence: cleaned }); return finish(record, session, seams, 'error', 'Candidate cleanup was not verified.'); }
-		let result = { candidateId: candidate.scannerId, ordinal: candidate.ordinal, verdict: verdict.verdict, success: verdict.success === true, score: verdict.success === true ? 1 : 0, reason: verdict.reason, evidence: candidate_evidence(verdict.evidence) };
-		result.planDigest = record.planDigest; result.score = type(verdict.score) == 'double' || type(verdict.score) == 'int' ? verdict.score : result.score; result.evidenceIdentity = result_identity(result); push(record.results, result); if (result.success) record.counts.working++; else if (verdict.verdict == 'infrastructure') record.counts.infrastructure++; else record.counts.failed++;
+		let result = { candidateId: candidate.scannerId, ordinal: candidate.ordinal, verdict: verdict.verdict, success: verdict.success === true, score: type(verdict.score) == 'double' || type(verdict.score) == 'int' ? verdict.score : null, reason: verdict.reason, evidence: candidate_evidence(verdict.evidence) };
+		result.planDigest = record.planDigest; result.evidenceIdentity = result_identity(result); push(record.results, result); if (result.success) record.counts.working++; else if (verdict.verdict == 'infrastructure') record.counts.infrastructure++; else record.counts.failed++;
 		record.progress = i + 1; record.cursor = { nextCandidate: i + 1 }; record.currentCandidate = null; lifecycle.attempt = null; event(record, 'candidate', candidate.scannerId); checkpoint(record, 'candidate-result');
 		if (control(seams, record.id, i).stopRequested) { record.cancellationRequested = true; phase(record, 'cancelling', null); checkpoint(record, 'cancel'); return finish(record, session, seams, 'cancelled', null); }
 	}

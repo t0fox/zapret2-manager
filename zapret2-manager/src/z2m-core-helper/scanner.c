@@ -146,9 +146,9 @@ static bool nested_settings_shape(json_object *probe, const char *transport)
 
 static bool probe_shape(json_object *probe, const char *transport)
 {
-	static const char *const tls[] = {"transport", "mode", "retries", "host", "addressFamily", "port", "portRange", "tls", "timeoutMs", "deadlineMs"};
-	static const char *const body[] = {"transport", "mode", "retries", "host", "addressFamily", "port", "portRange", "url", "tls", "body", "timeoutMs", "deadlineMs"};
-	static const char *const stun[] = {"transport", "mode", "retries", "host", "addressFamily", "port", "portRange", "transactionId", "receiveLimitBytes", "timeoutMs", "deadlineMs"};
+	static const char *const tls[] = {"transport", "mode", "retries", "host", "addressFamily", "port", "portRange", "tls", "timeoutMs", "deadlineMs", "cancelToken"};
+	static const char *const body[] = {"transport", "mode", "retries", "host", "addressFamily", "port", "portRange", "url", "tls", "body", "timeoutMs", "deadlineMs", "cancelToken"};
+	static const char *const stun[] = {"transport", "mode", "retries", "host", "addressFamily", "port", "portRange", "transactionId", "receiveLimitBytes", "timeoutMs", "deadlineMs", "cancelToken"};
 	const char *const *keys = !strcmp(transport, "tls") ? tls : (!strcmp(transport, "tls+body") ? body : stun);
 	size_t count = !strcmp(transport, "tls") ? sizeof(tls) / sizeof(tls[0]) : (!strcmp(transport, "tls+body") ? sizeof(body) / sizeof(body[0]) : sizeof(stun) / sizeof(stun[0]));
 	return allowed_keys(probe, keys, count);
@@ -240,6 +240,26 @@ static bool exact_mode(json_object *probe)
 	return string_value(probe, "mode", &mode) && (!strcmp(mode, "quick") || !strcmp(mode, "standard") || !strcmp(mode, "full"));
 }
 
+static bool cancel_token_value(const char *value)
+{
+	if (!value || strlen(value) < 1 || strlen(value) > 128) return false;
+	for (size_t i = 0; value[i]; i++)
+		if (!((value[i] >= 'A' && value[i] <= 'Z') || (value[i] >= 'a' && value[i] <= 'z') ||
+			(value[i] >= '0' && value[i] <= '9') || strchr("._:-", value[i]))) return false;
+	return true;
+}
+
+static bool cancel_requested(const char *token)
+{
+	if (!token) return false;
+	char path[256]; int written = snprintf(path, sizeof(path), "/tmp/zapret2-manager/runtime/scanner/%s.cancel", token);
+	if (written < 0 || (size_t)written >= sizeof(path)) return false;
+	int fd = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+	if (fd < 0) return false;
+	close(fd);
+	return true;
+}
+
 static bool exact_tls_settings(json_object *probe)
 {
 	json_object *tls;
@@ -303,19 +323,20 @@ static int64_t wall_ms(void)
 
 static int run_fixed(char *const argv[], const unsigned char *input, size_t input_length,
 		unsigned int timeout_ms, int64_t absolute_deadline_ms, unsigned int output_limit, unsigned char **output, size_t *output_length,
-		int *exit_code, int *signal_number, bool *overflow, int64_t *started_at, int64_t *finished_at)
+		int *exit_code, int *signal_number, bool *overflow, int64_t *started_at, int64_t *finished_at,
+		const char *cancel_token, bool *cancelled)
 {
 	int in[2] = {-1, -1}, out[2] = {-1, -1}, status = 0; pid_t child, waited; size_t used = 0, sent = 0; unsigned char *data = NULL; bool input_closed = false, child_reaped = false, failed = false;
 	int flags; struct sigaction old_pipe, ignore_pipe = { .sa_handler = SIG_IGN };
 	sigemptyset(&ignore_pipe.sa_mask);
 	if (sigaction(SIGPIPE, &ignore_pipe, &old_pipe) < 0) return -1;
-	if (pipe(in) < 0) { sigaction(SIGPIPE, &old_pipe, NULL); return -1; }
-	if (pipe(out) < 0) { close(in[0]); close(in[1]); sigaction(SIGPIPE, &old_pipe, NULL); return -1; }
+	if (pipe(in) < 0) { if (sigaction(SIGPIPE, &old_pipe, NULL) < 0) return -1; return -1; }
+	if (pipe(out) < 0) { close(in[0]); close(in[1]); if (sigaction(SIGPIPE, &old_pipe, NULL) < 0) return -1; return -1; }
 	child = fork();
-	if (child < 0) { close(in[0]); close(in[1]); close(out[0]); close(out[1]); sigaction(SIGPIPE, &old_pipe, NULL); return -1; }
+	if (child < 0) { close(in[0]); close(in[1]); close(out[0]); close(out[1]); if (sigaction(SIGPIPE, &old_pipe, NULL) < 0) return -1; return -1; }
 	if (child == 0) {
 		int nullfd = open("/dev/null", O_WRONLY | O_CLOEXEC);
-		sigaction(SIGPIPE, &old_pipe, NULL);
+		if (sigaction(SIGPIPE, &old_pipe, NULL) < 0) _exit(126);
 		if (setpgid(0, 0) < 0) _exit(126);
 		dup2(in[0], STDIN_FILENO); dup2(out[1], STDOUT_FILENO); if (nullfd >= 0) dup2(nullfd, STDERR_FILENO);
 		close(in[0]); close(in[1]); close(out[0]); close(out[1]); if (nullfd >= 0) close(nullfd);
@@ -332,6 +353,7 @@ static int run_fixed(char *const argv[], const unsigned char *input, size_t inpu
 	int64_t deadline = *started_at + wall_remaining;
 	for (;;) {
 		struct pollfd watched[2] = { { out[0], POLLIN | POLLHUP | POLLERR, 0 }, { input_closed ? -1 : in[1], POLLOUT | POLLHUP | POLLERR, 0 } };
+		if (cancel_requested(cancel_token)) { *cancelled = true; if (kill(-child, SIGTERM) < 0 && errno != ESRCH) failed = true; if (kill(child, SIGTERM) < 0 && errno != ESRCH) failed = true; }
 		int64_t remaining = deadline - now_ms();
 		int wait_ms = remaining > 0 ? (remaining > 50 ? 50 : (int)remaining) : 0;
 		int ready = poll(watched, 2, wait_ms);
@@ -437,10 +459,16 @@ int z2m_scanner_probe(const struct z2m_request *request)
 	if (!strcmp(transport,"tls") || !strcmp(transport,"tls+body")) { argv[argc++]="--ssl"; argv[argc++]=(char *)(!strcmp(family,"ipv6") ? "-6" : "-4"); }
 	else { argv[argc++]="-u"; argv[argc++]="-4"; }
 	argv[argc++]="-w"; argv[argc++]=timeout_text; argv[argc++]=(char *)host; argv[argc++]=port_text; argv[argc]=NULL;
-	int result = run_fixed(argv,input,input_length,(unsigned int)timeout,deadline_ms,output_limit,&output,&output_length,&exit_code,&signal_number,&overflow,&started_at,&finished_at); free(input);
+	const char *cancel_token = NULL; json_object *cancel_value = NULL;
+	if (json_object_object_get_ex(probe, "cancelToken", &cancel_value)) {
+		if (!json_object_is_type(cancel_value, json_type_string) || !cancel_token_value(json_object_get_string(cancel_value))) return z2m_fail(request->request_id, "ESCHEMA", "canonical_validate");
+		cancel_token = json_object_get_string(cancel_value);
+	}
+	bool cancelled = false;
+	int result = run_fixed(argv,input,input_length,(unsigned int)timeout,deadline_ms,output_limit,&output,&output_length,&exit_code,&signal_number,&overflow,&started_at,&finished_at,cancel_token,&cancelled); free(input);
 	if (result < 0) return z2m_fail(request->request_id, "EINTERNAL", "internal");
 	encoded=z2m_base64(output,output_length); free(output); if (!encoded) return z2m_fail(request->request_id,"EINTERNAL","response_encode");
-	json_object *data=z2m_json_object(); bool ok=data && z2m_json_add(data,"content",z2m_json_string(encoded)) && z2m_json_add(data,"byteLength",z2m_json_int((int64_t)output_length)) && z2m_json_add(data,"exitCode",z2m_json_int(exit_code)) && z2m_json_add(data,"signal",z2m_json_int(signal_number)) && z2m_json_add(data,"startedAt",z2m_json_int(started_at)) && z2m_json_add(data,"finishedAt",z2m_json_int(finished_at)) && z2m_json_add(data,"complete",z2m_json_bool(!overflow)); free(encoded);
+	json_object *data=z2m_json_object(); bool ok=data && z2m_json_add(data,"content",z2m_json_string(encoded)) && z2m_json_add(data,"byteLength",z2m_json_int((int64_t)output_length)) && z2m_json_add(data,"exitCode",z2m_json_int(exit_code)) && z2m_json_add(data,"signal",z2m_json_int(signal_number)) && z2m_json_add(data,"startedAt",z2m_json_int(started_at)) && z2m_json_add(data,"finishedAt",z2m_json_int(finished_at)) && z2m_json_add(data,"complete",z2m_json_bool(!overflow)) && z2m_json_add(data,"cancelled",z2m_json_bool(cancelled)); free(encoded);
 	if (!ok) { json_object_put(data); return z2m_fail(request->request_id,"EINTERNAL","response_encode"); }
 	return z2m_success(request->request_id,data);
 }

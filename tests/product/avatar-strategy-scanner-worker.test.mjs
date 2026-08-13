@@ -85,7 +85,7 @@ function hooks(stopAfter = null) {
       },
       lockRelease: { ok: true }, sessionCleanup: { ok: true, removed: true, verified: true },
     },
-    baseline: { protocol: 'tcp', ipv4: { status: 'blocked', available: true }, ipv6: { status: 'skipped', available: false } },
+    baseline: { protocol: 'tcp', ipv4: { status: 'blocked', available: true, latencyMs: 10, bytesReceived: 0, exitCode: 0, signal: 0, startedAt: 100, finishedAt: 110 }, ipv6: { status: 'skipped', available: false, latencyMs: 0, bytesReceived: 0, exitCode: 0, signal: 0, startedAt: 100, finishedAt: 100 } },
     probe: { hosts: [{ host: 'kernel.org', addressFamily: 'ipv4', startedAt: 100, finishedAt: 110, tls: { status: 'success', latencyMs: 10, readBytes: 128, startedAt: 100, finishedAt: 110 }, body: { statusCode: 200, bytesReceived: 70000, kbps: 100, latencyMs: 10, startedAt: 100, finishedAt: 110 } }] },
     reconcile: { ok: true, recovery: { state: 'verified' } },
     controlSequence: stopAfter == null ? [{ stopRequested: false }] : [{ stopRequested: false }, { stopRequested: true }],
@@ -292,6 +292,7 @@ test('claim checkpoint failure releases the active marker even before a record e
     testHooks.publishFailureAt = 'claim';
     const result = invoke(WORKER, `subject.scanner_worker_run({id:'scan-claim-failure',request:${JSON.stringify(request())}}, ${JSON.stringify(testHooks)})`, storageEnv(root));
     assert.equal(result.ok, false, JSON.stringify(result));
+    assert.equal(result.recovery.activeRelease.ok, true, JSON.stringify(result));
     assert.equal(fs.existsSync(path.join(root, 'active.json')), false);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
@@ -655,5 +656,18 @@ test('terminal stop retry returns the existing terminal control/result rather th
     assert.equal(retry.ok, true, JSON.stringify(retry));
     assert.deepEqual(retry.control, first.control);
     assert.equal(retry.idempotent, true);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('worker preserves scanner verdict score and complete evidence in the ranked row', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-ranking-evidence-'));
+  try {
+    const result = invoke(WORKER, `subject.scanner_worker_run({id:'scan-ranking-evidence',request:${JSON.stringify(request())}}, ${JSON.stringify(hooks())})`, storageEnv(root));
+    assert.equal(result.ok, true, JSON.stringify(result));
+    const row = result.state.results[0];
+    assert.equal(row.score, 2000);
+    assert.equal(row.evidence.metrics.averageLatencyMs, 10);
+    assert.equal(row.evidence.metrics.averageKbps, 100);
+    assert.equal(row.evidence.metrics.perProbe[0].body.bytesReceived, 70000);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

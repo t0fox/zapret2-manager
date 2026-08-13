@@ -327,7 +327,7 @@ function scan_json(raw, operation) {
 	let data_fields = operation == 'stat_regular' ? ['type', 'size', 'mode', 'uid', 'gid', 'mtimeSec', 'mtimeNsec'] :
 		(operation == 'read_regular' ? ['content', 'byteLength'] :
 		(operation == 'mkdir_private' ? ['created', 'committed', 'durability'] :
-		(operation == 'sha256_regular' ? ['sha256', 'byteLength'] : ['byteLength', 'committed', 'durability'])));
+		(operation == 'sha256_regular' ? ['sha256', 'byteLength'] : (operation == 'scanner_probe' ? ['content', 'byteLength', 'exitCode', 'signal', 'startedAt', 'finishedAt', 'complete', 'cancelled'] : ['byteLength', 'committed', 'durability']))));
 	while (true) {
 		while (at < size && whitespace(ord(raw, at))) at++;
 		if (!depth && root_state == 'done')
@@ -505,12 +505,12 @@ function success_data_valid(operation, data) {
 			data.committed == true && index(['durable', 'tmpfs_visible'], data.durability) >= 0;
 	}
 	if (operation == 'scanner_probe')
-		return exact_fields(data, ['content', 'byteLength', 'exitCode', 'signal', 'startedAt', 'finishedAt', 'complete']) &&
+		return exact_fields(data, ['content', 'byteLength', 'exitCode', 'signal', 'startedAt', 'finishedAt', 'complete', 'cancelled']) &&
 			canonical_base64(data.content) && type(data.byteLength) == 'int' && data.byteLength >= 0 &&
 			data.byteLength <= SCANNER_OUTPUT_LIMIT && base64_length(data.content) == data.byteLength &&
 			type(data.exitCode) == 'int' && data.exitCode >= -1 && type(data.signal) == 'int' &&
 			data.signal >= 0 && type(data.startedAt) == 'int' && data.startedAt >= 0 &&
-			type(data.finishedAt) == 'int' && data.finishedAt >= data.startedAt && type(data.complete) == 'bool';
+			type(data.finishedAt) == 'int' && data.finishedAt >= data.startedAt && type(data.complete) == 'bool' && type(data.cancelled) == 'bool';
 	return false;
 }
 
