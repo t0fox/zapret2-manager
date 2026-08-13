@@ -143,7 +143,7 @@ function collectFiles(root) {
   const files = [];
   function walk(dir) {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === '.worktrees') continue;
+      if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === '.worktrees' || entry.name === '.artifacts' || entry.name === '.superpowers') continue;
       const path = join(dir, entry.name);
       if (entry.isDirectory()) walk(path);
       else files.push(path);
@@ -155,8 +155,7 @@ function collectFiles(root) {
 
 function isCanonicalMarkdown(path, repoRoot) {
   const value = displayPath(repoRoot, path);
-  if (!value.startsWith('docs/')) return true;
-  return !value.startsWith('docs/09-work/') && !value.startsWith('docs/99-archive/');
+  return value.startsWith('docs/') && !value.startsWith('docs/99-archive/') && !value.startsWith('docs/09-work/');
 }
 
 function resolveFile(from, target) {
@@ -327,6 +326,10 @@ export async function validate(input = process.cwd()) {
   const scanRoot = stat.isDirectory() ? root : dirname(root);
   const repoRoot = stat.isDirectory() && existsSync(join(root, 'docs')) ? root : findRepoRoot(scanRoot);
   const files = stat.isDirectory() ? collectFiles(root) : collectFiles(dirname(root));
+  const repositoryRootScan = stat.isDirectory() && (
+    resolve(root) === resolve(repoRoot)
+    || resolve(root) === resolve(join(repoRoot, 'docs'))
+  );
   const selectedFiles = stat.isDirectory() ? new Set(files) : new Set([root]);
   const markdownFiles = files.filter((path) => extname(path).toLowerCase() === '.md');
   const metadataByFile = new Map();
@@ -335,7 +338,7 @@ export async function validate(input = process.cwd()) {
 
   for (const path of markdownFiles) {
     const parsed = parseFrontmatter(readFileSync(path, 'utf8'));
-    if (!isCanonicalMarkdown(path, repoRoot)) continue;
+    if (repositoryRootScan && !isCanonicalMarkdown(path, repoRoot)) continue;
     if (parsed) metadataByFile.set(path, parsed);
     if (!selectedFiles.has(path)) continue;
     validateMetadata(path, parsed?.metadata, errors, repoRoot);
@@ -384,7 +387,7 @@ export async function validate(input = process.cwd()) {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const result = await validate(process.argv[2] ?? process.cwd());
+  const result = await validate(process.argv[2] ?? join(process.cwd(), 'docs'));
   if (result.passed) console.log('Knowledge validation passed.');
   else {
     for (const error of result.errors) console.error(error);

@@ -1,5 +1,5 @@
-import { QuartzConfig } from "../quartz/cfg"
-import { PluginTypes } from "../quartz/plugins/types"
+import { QuartzConfig } from "./quartz/cfg"
+import { PluginTypes } from "./quartz/plugins/types"
 /**
  * Internal/full-vault Quartz configuration.
  * explicitPublish is false (or omitted) so ALL notes are included regardless of publish frontmatter.

@@ -1,5 +1,5 @@
-import { QuartzConfig } from "../quartz/cfg"
-import { PluginTypes } from "../quartz/plugins/types"
+import { QuartzConfig } from "./quartz/cfg"
+import { PluginTypes } from "./quartz/plugins/types"
 /**
  * Quartz configuration overlay for zapret2-manager vault.
  * This file is copied into the bootstrapped Quartz directory during build.

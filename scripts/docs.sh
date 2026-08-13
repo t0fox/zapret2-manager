@@ -1,92 +1,20 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WORKTREE_ROOT="$(dirname "$SCRIPT_DIR")"
-LOCK_PATH="$WORKTREE_ROOT/tools/docs-site/quartz.lock.json"
-ARTIFACTS_DIR="$WORKTREE_ROOT/.artifacts/quartz"
-DOCS_DIR="$WORKTREE_ROOT/docs"
-
-if [[ ! -f "$LOCK_PATH" ]]; then
-  echo "quartz.lock.json not found at $LOCK_PATH" >&2
+NODE_BIN="${NODE_BIN:-node}"
+if ! command -v "$NODE_BIN" >/dev/null 2>&1 && command -v node.exe >/dev/null 2>&1; then
+  NODE_BIN="node.exe"
+fi
+if ! command -v "$NODE_BIN" >/dev/null 2>&1; then
+  echo "Node.js 22+ is required (tried node and node.exe)." >&2
   exit 1
 fi
-
-TAG=$(jq -r '.tag' "$LOCK_PATH")
-COMMIT=$(jq -r '.commit' "$LOCK_PATH")
-NODE_REQUIRED=$(jq -r '.node' "$LOCK_PATH")
-
-# Step 1: Verify Node 22+
-NODE_VERSION=$(node -v | sed 's/v//')
-MAJOR=${NODE_VERSION%%.*}
-if (( MAJOR < NODE_REQUIRED )); then
-  echo "Node $NODE_REQUIRED+ required, found $NODE_VERSION" >&2
-  exit 1
+SCRIPT_PATH="$SCRIPT_DIR/docs.mjs"
+if [[ "$NODE_BIN" == "node.exe" && "$SCRIPT_PATH" == /mnt/* && -x "$(command -v wslpath 2>/dev/null || true)" ]]; then
+  SCRIPT_PATH="$(wslpath -w "$SCRIPT_PATH")"
+elif [[ "$NODE_BIN" == "node.exe" && "$SCRIPT_PATH" == /c/* && -x "$(command -v cygpath 2>/dev/null || true)" ]]; then
+  SCRIPT_PATH="$(cygpath -w "$SCRIPT_PATH")"
 fi
-echo "Node $NODE_VERSION OK"
-
-QUARTZ_DIR="$ARTIFACTS_DIR/$TAG"
-
-bootstrap_quartz() {
-  if [[ ! -d "$QUARTZ_DIR" ]]; then
-    mkdir -p "$ARTIFACTS_DIR"
-    echo "Cloning Quartz $TAG ($COMMIT)..."
-    git clone --depth 1 -b "$TAG" https://github.com/jackyzha0/quartz.git "$QUARTZ_DIR"
-  fi
-  pushd "$QUARTZ_DIR" >/dev/null
-  ACTUAL=$(git rev-parse HEAD | tr -d '\n')
-  if [[ "$ACTUAL" != "$COMMIT" ]]; then
-    echo "SHA mismatch: expected $COMMIT, got $ACTUAL" >&2
-    exit 1
-  fi
-  echo "SHA verified: $ACTUAL"
-  if [[ ! -d node_modules ]]; then
-    echo "Running npm ci..."
-    npm ci
-  fi
-  popd >/dev/null
-}
-
-case "${1:-verify}" in
-  verify)
-    bootstrap_quartz
-    echo "VERIFY OK"
-    ;;
-  serve)
-    bootstrap_quartz
-    echo "Starting Quartz dev server on docs/..."
-    pushd "$QUARTZ_DIR" >/dev/null
-    echo "URL: http://localhost:8080"
-    npx quartz dev -d "$DOCS_DIR"
-    popd >/dev/null
-    ;;
-  build)
-    bootstrap_quartz
-    MODE="${2:-public}"
-    if [[ "$MODE" == "internal" ]]; then
-      echo "Building INTERNAL (full vault) site from docs/..."
-      cp "$WORKTREE_ROOT/tools/docs-site/quartz.config.internal.ts" "$QUARTZ_DIR/quartz.config.ts"
-      pushd "$QUARTZ_DIR" >/dev/null
-      npx quartz build -d "$DOCS_DIR"
-      popd >/dev/null
-      echo "Internal build complete. Output in $QUARTZ_DIR/public"
-    else
-      echo "Building PUBLIC site from docs/..."
-      cp "$WORKTREE_ROOT/tools/docs-site/quartz.config.ts" "$QUARTZ_DIR/quartz.config.ts"
-      pushd "$QUARTZ_DIR" >/dev/null
-      npx quartz build -d "$DOCS_DIR"
-      popd >/dev/null
-      echo "Public build complete. Output in $QUARTZ_DIR/public"
-    fi
-    ;;
-  clean)
-    if [[ -d "$ARTIFACTS_DIR" ]]; then
-      rm -rf "$ARTIFACTS_DIR"
-      echo "Cleaned $ARTIFACTS_DIR"
-    fi
-    ;;
-  *)
-    echo "Unknown command: $1" >&2
-    exit 1
-    ;;
-esac
+"$NODE_BIN" "$SCRIPT_PATH" "$@"
+exit $?

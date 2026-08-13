@@ -20,21 +20,15 @@ import { readdir, readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 
 const WORKTREE_ROOT = path.resolve(import.meta.dirname, '../..')
-const ARTIFACTS_DIR = path.join(WORKTREE_ROOT, '.artifacts', 'quartz')
+const PUBLIC_DIR = path.join(WORKTREE_ROOT, '.artifacts', 'docs-public')
 
 async function findPublicDir() {
-  // Find the most recent public/ directory under .artifacts/quartz/
   try {
-    const tags = await readdir(ARTIFACTS_DIR)
-    for (const tag of tags.reverse()) {
-      const publicDir = path.join(ARTIFACTS_DIR, tag, 'public')
-      try {
-        const st = await stat(publicDir)
-        if (st.isDirectory()) return publicDir
-      } catch {}
-    }
-  } catch {}
-  return null
+    const result = await stat(PUBLIC_DIR)
+    return result.isDirectory() ? PUBLIC_DIR : null
+  } catch {
+    return null
+  }
 }
 
 const FORBIDDEN_PATTERNS = [
@@ -66,10 +60,7 @@ async function scanDirectory(dir) {
 
 test('public Quartz build must not contain publish:false notes or internal assets', async (t) => {
   const publicDir = await findPublicDir()
-  if (!publicDir) {
-    t.skip('No public build output found. Run `scripts/docs.sh build` first.')
-    return
-  }
+  assert.ok(publicDir, `Public build output is required at ${PUBLIC_DIR}`)
 
   const leaks = await scanDirectory(publicDir)
   assert.equal(leaks.length, 0, `Found ${leaks.length} leaks in public build:\n${leaks.map(l => `${l.file} matched ${l.pattern}`).join('\n')}`)

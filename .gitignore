@@ -7,6 +7,13 @@
 # Agent/local workflow state
 /.claude/
 /docs/superpowers/
+/.worktrees/
+
+# Obsidian portable vault excludes machine-local state
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+.obsidian/cache/
+.obsidian/plugins/
 
 # Quartz + docs tooling
 .artifacts/

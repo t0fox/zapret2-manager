@@ -64,6 +64,10 @@ MIT. See `LICENSE`.
 ## Knowledge Base
 
 - Open repository root as Obsidian vault
-- One-command local site: `scripts/docs.ps1 serve`
+- Verify and bootstrap the pinned Quartz checkout: `node scripts/docs.mjs verify`
+- Serve the internal vault with hot reload: `scripts/docs.ps1 serve` or `scripts/docs.sh serve`
+- Build public docs: `node scripts/docs.mjs build public` (legacy `--public --production` is supported)
+- Build internal docs: `node scripts/docs.mjs build internal` (legacy `--internal` is supported)
+- Canonical outputs: `.artifacts/docs-public` and `.artifacts/docs-internal`; remove them with `node scripts/docs.mjs clean`
 - Run knowledge validation: `node scripts/validate-knowledge.mjs`
-- Public docs: (placeholder until deployment active)
+- Public Pages uploads `.artifacts/docs-public` after the public leak smoke test.

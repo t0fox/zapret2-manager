@@ -1,17 +1,15 @@
 name: Quartz Pages
 
 on:
-  push:
-    branches: [main]
+  workflow_run:
+    workflows: ["Knowledge CI"]
+    types: [completed]
   workflow_dispatch:
 
 jobs:
   deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
-    # Require knowledge-ci to have succeeded on the same commit
-    needs: []
-    # Use environment protection + required status checks in repo settings
-    # to gate on "knowledge-ci" workflow result before this job runs.
 
     # Grant pages write permission for deployment
     permissions:
@@ -30,18 +28,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Setup Node 22
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci --prefer-offline
 
       - name: Build public Quartz site
-        run: node scripts/docs.mjs build --public --production
+        run: node scripts/docs.mjs build public --production
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
@@ -49,7 +45,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: public
+          path: .artifacts/docs-public
 
       - name: Deploy to GitHub Pages
         id: deployment
