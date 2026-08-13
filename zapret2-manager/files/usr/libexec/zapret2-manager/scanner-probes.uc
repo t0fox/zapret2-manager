@@ -186,8 +186,11 @@ function verdict_metrics(tests) {
 	let first = tests?.[0];
 	if (!is_object(first)) return null;
 	if (first.protocol == 'tcp') return { averageKbps: number(first.averageKbps, 0), averageLatencyMs: number(first.averageLatencyMs, 0), successRate: number(first.successRate, 0), perProbe: first.perHost };
-	return { averageKbps: 0, averageLatencyMs: number(first.latencyMs, 0), successRate: first.success === true ? 1 : 0,
-		perProbe: { startedAt: first.startedAt, finishedAt: first.finishedAt } };
+	let metrics = { protocol: 'udp', attempts: first.attempts, mappedFamily: first.mappedFamily, bytesReceived: first.bytesReceived,
+		exitCode: first.exitCode, signal: first.signal, startedAt: first.startedAt, finishedAt: first.finishedAt,
+		latencyMs: number(first.latencyMs, 0), stunLatencyMs: number(first.stunLatencyMs, 0), kbps: number(first.kbps, 0),
+		markerEvidence: type(first.markerEvidence) == 'array' ? first.markerEvidence : [] };
+	return metrics;
 }
 
 function verdict_score(tests) {
@@ -282,6 +285,13 @@ export const scanner_udp_classify = function(raw) {
 		latencyMs: latency, stunLatencyMs: latency,
 		mappedFamily: raw.mappedFamily == 'IPv6' ? 'IPv6' : (raw.mappedFamily == 'IPv4' ? 'IPv4' : null),
 	};
+	if (type(raw.bytesReceived) == 'int' && raw.bytesReceived >= 0) result.bytesReceived = raw.bytesReceived;
+	if (type(raw.exitCode) == 'int' && raw.exitCode >= -1) result.exitCode = raw.exitCode;
+	if (type(raw.signal) == 'int' && raw.signal >= 0) result.signal = raw.signal;
+	if (type(raw.startedAt) == 'int' && raw.startedAt >= 0) result.startedAt = raw.startedAt;
+	if (type(raw.finishedAt) == 'int' && raw.finishedAt >= raw.startedAt) result.finishedAt = raw.finishedAt;
+	if (type(raw.kbps) == 'int' || type(raw.kbps) == 'double') result.kbps = raw.kbps;
+	if (type(raw.markerEvidence) == 'array') result.markerEvidence = raw.markerEvidence;
 	if (is_number(raw.startedAt)) result.startedAt = raw.startedAt;
 	if (is_number(raw.finishedAt)) result.finishedAt = raw.finishedAt;
 	result.score = scanner_score(result);
@@ -325,6 +335,11 @@ function valid_udp_test(evidence) {
 		valid_nonnegative_number(evidence.latencyMs) &&
 		valid_nonnegative_number(evidence.stunLatencyMs) && evidence.latencyMs == evidence.stunLatencyMs &&
 		(evidence.mappedFamily == null || evidence.mappedFamily == 'IPv4' || evidence.mappedFamily == 'IPv6') &&
+		type(evidence.bytesReceived) == 'int' && evidence.bytesReceived >= 0 &&
+		type(evidence.exitCode) == 'int' && evidence.exitCode >= -1 &&
+		type(evidence.signal) == 'int' && evidence.signal >= 0 &&
+		type(evidence.startedAt) == 'int' && evidence.startedAt >= 0 &&
+		type(evidence.finishedAt) == 'int' && evidence.finishedAt >= evidence.startedAt &&
 		(!evidence.success || evidence.mappedFamily == 'IPv4');
 }
 

@@ -29,51 +29,34 @@ function invoke(module, expression) {
   return JSON.parse(result.stdout);
 }
 
-const call = (name, ...args) => {
-  const values = args.map(value => structuredClone(value));
-  if (name === 'scanner_baseline_classify' && values[0] && typeof values[0] === 'object') {
-    const raw = values[0];
-    if (raw.protocol === 'tcp' && raw.ipv4 && raw.ipv6) {
-      for (const family of [raw.ipv4, raw.ipv6]) {
-        if (family && typeof family === 'object') {
-          family.latencyMs ??= 0; family.bytesReceived ??= 0; family.exitCode ??= 0;
-          family.signal ??= 0; family.startedAt ??= 100; family.finishedAt ??= family.startedAt;
-        }
-      }
-    } else if (raw.protocol === 'udp' && raw.latencyMs != null) {
-      raw.bytesReceived ??= 0; raw.exitCode ??= 0; raw.signal ??= 0;
-      raw.startedAt ??= 100; raw.finishedAt ??= 110;
-    }
-  }
-  return invoke(PROBES, `subject.${name}(${values.map(value => JSON.stringify(value)).join(', ')})`);
-};
+const call = (name, ...args) => invoke(PROBES,
+  `subject.${name}(${args.map(value => JSON.stringify(value)).join(', ')})`);
 const adapt = (name, ...args) => invoke(ADAPTER,
   `subject.${name}(${args.map(value => JSON.stringify(value)).join(', ')})`);
 const callExpression = expression => invoke(PROBES, expression);
+function tcpBaseline(ipv4 = {}, ipv6 = {}) {
+  return { protocol: 'tcp',
+    ipv4: { status: 'blocked', latencyMs: 1, bytesReceived: 0, exitCode: 0, signal: 0, startedAt: 100, finishedAt: 101, ...ipv4 },
+    ipv6: { status: 'skipped', latencyMs: 0, bytesReceived: 0, exitCode: 0, signal: 0, startedAt: 100, finishedAt: 100, ...ipv6 } };
+}
 
 test('TCP baseline retains IPv4/IPv6 unavailable distinctions and selects blocked families', () => {
-  const baseline = call('scanner_baseline_classify', {
-    protocol: 'tcp',
-    ipv4: { status: 'open', available: true, latencyMs: 40 },
-    ipv6: { status: 'skipped', error: 'NO_ADDR', latencyMs: 2 },
-  });
+  const baseline = call('scanner_baseline_classify', tcpBaseline(
+    { status: 'open', available: true, latencyMs: 40 }, { status: 'skipped', error: 'NO_ADDR', latencyMs: 2 }));
   assert.equal(baseline.baselineOpen, true);
   assert.equal(baseline.allAvailableOpen, true);
   assert.deepEqual(baseline.probeAddressFamilies, ['ipv4']);
   assert.equal(baseline.byAddressFamily.ipv4.status, 'open');
   assert.equal(baseline.byAddressFamily.ipv6.error, 'NO_ADDR');
 
-  const mixed = call('scanner_baseline_classify', {
-    protocol: 'tcp', ipv4: { status: 'open' }, ipv6: { status: 'blocked', error: 'TIMEOUT' },
-  });
+  const mixed = call('scanner_baseline_classify', tcpBaseline(
+    { status: 'open' }, { status: 'blocked', error: 'TIMEOUT' }));
   assert.equal(mixed.baselineOpen, true);
   assert.equal(mixed.allAvailableOpen, false);
   assert.deepEqual(mixed.probeAddressFamilies, ['ipv6']);
 
-  const unavailable = call('scanner_baseline_classify', {
-    protocol: 'tcp', ipv4: { status: 'error', error: 'DNS_ERR' },
-    ipv6: { status: 'error', error: 'NET_UNREACH' },
-  });
+  const unavailable = call('scanner_baseline_classify', tcpBaseline(
+    { status: 'error', error: 'DNS_ERR' }, { status: 'error', error: 'NET_UNREACH' }));
   assert.equal(unavailable.baselineOpen, false);
   assert.equal(unavailable.allAvailableOpen, false);
   assert.deepEqual(unavailable.probeAddressFamilies, ['ipv4']);
@@ -83,7 +66,7 @@ test('TCP baseline retains IPv4/IPv6 unavailable distinctions and selects blocke
 
 test('UDP baseline is STUN-only and remains IPv4-oriented', () => {
   const baseline = call('scanner_baseline_classify', {
-    protocol: 'udp', transport: 'stun', status: 'success', latencyMs: 80, mappedFamily: 'IPv4',
+    protocol: 'udp', transport: 'stun', status: 'success', latencyMs: 80, mappedFamily: 'IPv4', bytesReceived: 32, exitCode: 0, signal: 0, startedAt: 100, finishedAt: 180,
   });
   assert.equal(baseline.baselineOpen, true);
   assert.deepEqual(baseline.byAddressFamily, {
@@ -95,9 +78,7 @@ test('UDP baseline is STUN-only and remains IPv4-oriented', () => {
 });
 
 test('baseline-open suppression clears otherwise successful candidate evidence', () => {
-  const baseline = call('scanner_baseline_classify', {
-    protocol: 'tcp', ipv4: { status: 'open' }, ipv6: { status: 'open' },
-  });
+  const baseline = call('scanner_baseline_classify', tcpBaseline({ status: 'open' }, { status: 'open' }));
   const probe = call('scanner_tcp_classify', {
     hosts: [{ host: 'example.com', addressFamily: 'ipv4',
       tls: { status: 'success', readBytes: 2048, latencyMs: 30 },
@@ -245,10 +226,10 @@ test('UDP operational errors and incomplete STUN evidence are infrastructure', (
   }
 
   for (const raw of [
-    { protocol: 'udp', transport: 'stun', status: 'error', error: 'DNS_ERR' },
-    { protocol: 'udp', transport: 'stun', status: 'error', error: 'RESOLVE_ERR' },
-    { protocol: 'udp', transport: 'stun', status: 'unknown' },
-    { protocol: 'udp', transport: 'stun', status: 'success' },
+    { protocol: 'udp', transport: 'stun', status: 'error', error: 'DNS_ERR', latencyMs: 1 },
+    { protocol: 'udp', transport: 'stun', status: 'error', error: 'RESOLVE_ERR', latencyMs: 1 },
+    { protocol: 'udp', transport: 'stun', status: 'unknown', latencyMs: 1 },
+    { protocol: 'udp', transport: 'stun', status: 'success', latencyMs: 1 },
   ]) {
     const result = call('scanner_baseline_classify', raw);
     assert.equal(result.infrastructureFailure, true, JSON.stringify(raw));
@@ -259,7 +240,7 @@ test('UDP operational errors and incomplete STUN evidence are infrastructure', (
   });
   assert.equal(success.success, true);
   assert.equal(call('scanner_baseline_classify', {
-    protocol: 'udp', transport: 'stun', status: 'success', latencyMs: 80, mappedFamily: 'IPv4',
+    protocol: 'udp', transport: 'stun', status: 'success', latencyMs: 80, mappedFamily: 'IPv4', bytesReceived: 32, exitCode: 0, signal: 0, startedAt: 100, finishedAt: 180,
   }).baselineOpen, true);
 });
 
@@ -312,11 +293,28 @@ test('UDP baseline rejects invalid latency without publishing baseline evidence'
 test('UDP baseline preserves valid latency and STUN mapped-family semantics', () => {
   const result = call('scanner_baseline_classify', {
     protocol: 'udp', transport: 'stun', status: 'timeout', latencyMs: 4000,
+    bytesReceived: 0, exitCode: 0, signal: 0, startedAt: 100, finishedAt: 4100,
   });
   assert.equal(result.infrastructureFailure, false);
   assert.equal(result.byAddressFamily.ipv4.latencyMs, 4000);
   assert.equal(result.byAddressFamily.ipv4.status, 'timeout');
   assert.equal(result.byAddressFamily.ipv4.available, true);
+});
+
+test('baseline classification rejects literal incomplete TCP and UDP evidence', () => {
+  const tcp = call('scanner_baseline_classify', {
+    protocol: 'tcp',
+    ipv4: { status: 'blocked', latencyMs: 10, bytesReceived: 0, exitCode: 0, signal: 0, startedAt: 100 },
+    ipv6: { status: 'skipped', latencyMs: 0, bytesReceived: 0, exitCode: 0, signal: 0, startedAt: 100, finishedAt: 100 },
+  });
+  assert.equal(tcp.infrastructureFailure, true);
+  assert.equal(tcp.error, 'INCOMPLETE_BASELINE');
+  const udp = call('scanner_baseline_classify', {
+    protocol: 'udp', transport: 'stun', status: 'success', latencyMs: 10,
+    mappedFamily: 'IPv4', bytesReceived: 32, exitCode: 0, signal: 0, startedAt: 100,
+  });
+  assert.equal(udp.infrastructureFailure, true);
+  assert.equal(udp.error, 'INVALID_BASELINE');
 });
 
 test('score formulas are exact and infrastructure outcomes are not scored', () => {
@@ -331,9 +329,7 @@ test('score formulas are exact and infrastructure outcomes are not scored', () =
 });
 
 test('candidate verdict separates infrastructure failure from candidate failure', () => {
-  const baseline = call('scanner_baseline_classify', {
-    protocol: 'tcp', ipv4: { status: 'blocked', error: 'TIMEOUT' }, ipv6: { status: 'skipped' },
-  });
+  const baseline = call('scanner_baseline_classify', tcpBaseline({ error: 'TIMEOUT' }));
   const candidateEvidence = call('scanner_tcp_classify', { hosts: [{ host: 'example.com',
     addressFamily: 'ipv4', tls: { status: 'failed', error: 'TLS_RESET' }, body: null }] });
   const candidate = call('scanner_candidate_verdict', baseline, [candidateEvidence]);
@@ -374,9 +370,7 @@ test('malformed nested TCP evidence is infrastructure, never a failed candidate'
     assert.equal(result.failureClass, 'probe_dependency_failure', JSON.stringify(value));
   }
 
-  const baseline = call('scanner_baseline_classify', {
-    protocol: 'tcp', ipv4: { status: 'blocked', error: 'TIMEOUT' }, ipv6: { status: 'skipped' },
-  });
+  const baseline = call('scanner_baseline_classify', tcpBaseline({ error: 'TIMEOUT' }));
   for (const evidence of [null, {}, { status: 'unknown' }, { arbitrary: true }]) {
     const verdict = call('scanner_candidate_verdict', baseline, [evidence]);
     assert.equal(verdict.verdict, 'infrastructure', JSON.stringify(evidence));
@@ -391,9 +385,7 @@ test('malformed nested TCP evidence is infrastructure, never a failed candidate'
 });
 
 test('valid typed body failure evidence remains candidate failure after validation', () => {
-  const baseline = call('scanner_baseline_classify', {
-    protocol: 'tcp', ipv4: { status: 'blocked' }, ipv6: { status: 'skipped', error: 'NO_ADDR' },
-  });
+  const baseline = call('scanner_baseline_classify', tcpBaseline({}, { error: 'NO_ADDR' }));
   const failure = call('scanner_tcp_classify', { hosts: [{ host: 'example.com', addressFamily: 'ipv4',
     tls: { status: 'success', readBytes: 2048, latencyMs: 20 },
     body: { status: 'failed', error: 'ISP_PAGE', statusCode: 403, bytesReceived: 128,
@@ -405,9 +397,7 @@ test('valid typed body failure evidence remains candidate failure after validati
 });
 
 test('candidate verdict validates protocol-specific TCP and UDP evidence before success', () => {
-  const baseline = call('scanner_baseline_classify', {
-    protocol: 'tcp', ipv4: { status: 'blocked', error: 'TIMEOUT' }, ipv6: { status: 'skipped' },
-  });
+  const baseline = call('scanner_baseline_classify', tcpBaseline({ error: 'TIMEOUT' }));
   for (const evidence of [
     { success: true, infrastructureFailure: false },
     { protocol: 'sctp', testType: 'tls+body', success: true, infrastructureFailure: false },
@@ -427,10 +417,10 @@ test('candidate verdict validates protocol-specific TCP and UDP evidence before 
   assert.equal(call('scanner_candidate_verdict', baseline, [tcp]).verdict, 'working');
 
   const udpBaseline = call('scanner_baseline_classify', {
-    protocol: 'udp', transport: 'stun', status: 'timeout', latencyMs: 4000,
+    protocol: 'udp', transport: 'stun', status: 'timeout', latencyMs: 4000, bytesReceived: 0, exitCode: 0, signal: 0, startedAt: 100, finishedAt: 4100,
   });
   const udp = call('scanner_udp_classify', {
-    transport: 'stun', status: 'success', attempts: 1, latencyMs: 80, mappedFamily: 'IPv4',
+    transport: 'stun', status: 'success', attempts: 1, latencyMs: 80, mappedFamily: 'IPv4', bytesReceived: 32, exitCode: 0, signal: 0, startedAt: 100, finishedAt: 180,
   });
   assert.equal(call('scanner_candidate_verdict', udpBaseline, [udp]).verdict, 'working');
 });

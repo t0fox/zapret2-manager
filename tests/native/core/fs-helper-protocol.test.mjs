@@ -212,6 +212,16 @@ test('scanner_probe is present in the manifest and implementation registry with 
   assert.equal(schema.properties.targetProfile.properties.udp.additionalProperties, false);
   assert.equal(schema.properties.request.additionalProperties, false);
   assert.equal(schema.properties.candidate.additionalProperties, false);
+  const requestVariants = schema.properties.request.oneOf;
+  assert.equal(requestVariants.length, 3);
+  const body = requestVariants.find(variant => variant.properties.transport.const === 'tls+body');
+  assert.deepEqual(body.properties.body.required,
+    ['timeoutMs', 'minimumBytes', 'readChunkBytes', 'markerScanBytes', 'readLimitBytes', 'range', 'markers']);
+  assert.equal(body.properties.body.additionalProperties, false);
+  assert.equal(body.properties.body.properties.markers.items.additionalProperties, false);
+  assert.deepEqual(body.properties.body.properties.markers.items.properties.needles.items,
+    { type: 'string' });
+  for (const variant of requestVariants) assert.equal(variant.properties.cancelToken.type, 'string');
 });
 
 test('paths are canonical relative names without generic or absolute capability', () => {

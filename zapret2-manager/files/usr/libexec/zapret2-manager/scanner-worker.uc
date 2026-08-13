@@ -127,11 +127,16 @@ function merge_recovery(existing, update) {
 	if (existing?.state == 'uncertain' || update?.state == 'uncertain') out.state = 'uncertain';
 	return out;
 }
+function release_claim(claimed) {
+	if (!claimed) return { ok: false, error: { code: 'EDEPENDENCY', message: 'Scanner claim identity is unavailable.' } };
+	try { return state.scanner_state_release(claimed.id, claimed.identity); }
+	catch (exception) { return { ok: false, error: exception }; }
+}
 function recover(record, seams, context, message) {
 	let recovery = merge_recovery(record.recovery, { state: 'uncertain', message, exception: context?.exception || null, activation: context?.attempt?.activation || null, candidateCleanup: null, sessionCleanup: null, lockRelease: null, activeRelease: null, reconciliation: task7_dependency('recovery', message) });
 	if (context?.attempt) recovery.candidateCleanup = cleanup_attempt(context.attempt);
 	if (context?.session) { try { recovery.sessionCleanup = scanner_session_finish(context.session, seam(seams, 'transient')); recovery.lockRelease = recovery.sessionCleanup.lockRelease; } catch (e) { recovery.sessionCleanup = { ok: false, error: e, reconciliation: task7_dependency('session_cleanup', e) }; recovery.lockRelease = recovery.sessionCleanup; } }
-	if (context?.record?.id && context?.record?.worker) { try { recovery.activeRelease = state.scanner_state_release(context.record.id, context.record.worker); } catch (e) { recovery.activeRelease = { ok: false, error: e }; } }
+	recovery.activeRelease = release_claim(lifecycle?.claimed || (context?.record?.id && context?.record?.worker ? { id: context.record.id, identity: context.record.worker } : null));
 	record.status = 'error'; record.phase = 'recovery'; record.recovery = recovery; record.error = message || 'Scanner worker lifecycle failed; reconciliation is required.'; record.currentCandidate = null; record.finishedAt = time(); record.heartbeatAt = time();
 	try { state.scanner_state_save(record); } catch (e) { recovery.publish = { ok: false, error: e }; }
 	return { ok: false, state: record, error: { code: 'EINTERNAL', message: record.error }, recovery };
@@ -156,19 +161,19 @@ function finish(record, session, seams, transition, message) {
 		record.status = 'error'; record.phase = 'recovery'; record.recovery = merge_recovery(record.recovery,
 			{ state: 'uncertain', reconciliation: task7_dependency('terminal_checkpoint', exception) });
 		record.error = 'Task 7 reconciliation evidence is required after checkpoint failure.';
+		record.recovery.activeRelease = release_claim(lifecycle?.claimed);
 		try { state.scanner_state_save(record); } catch (ignored) { }
 		return { ok: false, state: record, cleanup, recovery: record.recovery };
 	}
 	if (!saved.ok) {
-		let releasedAfterCheckpointFailure = null;
-		try { releasedAfterCheckpointFailure = state.scanner_state_release(record.id, record.worker); } catch (exception) { releasedAfterCheckpointFailure = { ok: false, error: exception }; }
+		let releasedAfterCheckpointFailure = release_claim(lifecycle?.claimed);
 		record.status = 'error'; record.phase = 'recovery'; record.recovery = merge_recovery(record.recovery,
 			{ state: 'uncertain', activeRelease: releasedAfterCheckpointFailure, sessionCleanup: cleanup, reconciliation: task7_dependency('terminal_checkpoint', saved.error) });
 		record.error = 'Task 7 reconciliation evidence is required after checkpoint failure.';
 		try { state.scanner_state_save(record); } catch (ignored) { }
 		return { ok: false, state: record, cleanup, recovery: record.recovery };
 	}
-	let released = state.scanner_state_release(record.id, record.worker);
+	let released = release_claim(lifecycle?.claimed);
 	if (lifecycle) lifecycle.activeRelease = released;
 	if (!released.ok) {
 		record.status = 'error'; record.phase = 'recovery'; record.recovery = merge_recovery(record.recovery, { state: 'uncertain', sessionCleanup: cleanup, activeRelease: released }); record.error = 'Scanner active marker release is uncertain.';
@@ -233,6 +238,10 @@ function scanner_worker_run_impl(input, seams) {
 		error: null, recovery: { state: 'not_required' }, cancellationRequested: false, worker: null,
 		heartbeatAt: time(), startedAt: null, finishedAt: null, events: [], planAuthority: copy(plan)
 	};
+	if (!input.record && input.id) {
+		let existing = state.scanner_state_load(input.id);
+		if (existing.ok && existing.state.status == 'error' && existing.state.recovery?.state == 'uncertain') record = existing.state;
+	}
 	if (input.record) plan = input.record.planAuthority;
 	lifecycle.record = record;
 	record.id = input.id || record.id || 'scan-' + time(); record.request = copy(req); record.requestDigest = state.scanner_state_digest(req);
@@ -253,7 +262,7 @@ function scanner_worker_run_impl(input, seams) {
 	let probeStarted = int(time() * 1000), probeDeadline = probeStarted + PROBE_BUDGET_MS;
 	if (baseline == null) {
 		let baselineProfile = { ...plan.targetProfile, protocol: req.protocol };
-		let adapted = scanner_probe_adapter_baseline(baselineProfile, { nowMs: probeStarted, deadlineMs: probeDeadline, mode: req.mode, profileDigest: state.scanner_state_digest(baselineProfile) });
+		let adapted = scanner_probe_adapter_baseline(baselineProfile, { nowMs: probeStarted, deadlineMs: probeDeadline, mode: req.mode, cancelToken: record.id, profileDigest: state.scanner_state_digest(baselineProfile) });
 		if (!adapted.ok) return finish(record, session, seams, 'error', 'Scanner baseline adapter failed.');
 		let executed = seam(seams, 'executor') || scanner_probe_execute(adapted);
 		if (!executed.ok) { record.error = executed.error?.code || 'EDEPENDENCY'; record.recovery = { state: 'verified', failure: executed.error }; return finish(record, session, seams, 'error', record.error); }
@@ -298,11 +307,21 @@ export const scanner_worker_run = function(input, seams) {
 			let record = loaded.state, context = lifecycle || { record, seams };
 			context.record = record; context.exception = exception; return recover(record, seams, context, exception?.scanner ? 'Scanner checkpoint publication failed.' : 'Scanner worker lifecycle failed; reconciliation is required.');
 		}
-		let activeRelease = null;
-		try {
-			let claimed = lifecycle?.claimed || (input?.id ? { id: input.id, identity: self_identity(seams) } : null);
-			if (claimed) activeRelease = state.scanner_state_release(claimed.id, claimed.identity);
-		} catch (releaseException) { activeRelease = { ok: false, error: releaseException }; }
-		return error('EINTERNAL', 'Scanner worker lifecycle failed; state publication is unavailable.', { recovery: { state: 'uncertain', activeRelease } });
+		let claimed = lifecycle?.claimed || (input?.id ? { id: input.id, identity: self_identity(seams) } : null);
+		let activeRelease = release_claim(claimed);
+		let recovery = { state: 'uncertain', activeRelease, durable: false, evidence: 'state-publication-unavailable' };
+		if (claimed) {
+			let fallback = copy(lifecycle?.record || { schema: 1, id: claimed.id, revision: 0, request: input?.request || {},
+				requestDigest: null, catalogDigest: null, compilerDigest: null, planDigest: null, status: 'error', phase: 'recovery',
+				progress: 0, total: 0, cursor: { nextCandidate: 0 }, currentCandidate: null,
+				counts: { working: 0, failed: 0, infrastructure: 1 }, results: [], baseline: null, error: null,
+				recovery: { state: 'uncertain' }, cancellationRequested: false, worker: claimed.identity,
+				heartbeatAt: time(), startedAt: null, finishedAt: time(), events: [] });
+			fallback.id = claimed.id; fallback.worker = claimed.identity; fallback.status = 'error'; fallback.phase = 'recovery';
+			fallback.error = 'Scanner worker lifecycle failed; state publication is unavailable.'; fallback.recovery = recovery;
+			if (lifecycle) lifecycle.stage = 'recovery';
+			try { let published = state.scanner_state_save(fallback); recovery.durable = published.ok === true; } catch (ignored) { }
+		}
+		return error('EINTERNAL', 'Scanner worker lifecycle failed; state publication is unavailable.', { recovery });
 	}
 };

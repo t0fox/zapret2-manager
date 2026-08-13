@@ -163,6 +163,32 @@ ROUTER_E2E: NOT RUN
 REASON: production router activation and Task 5 compare-delete remain intentionally fail-closed
 ```
 
+## Latest Review Fix
+
+- Terminal checkpoint publication failure now releases the claim from the captured identity even when no checkpoint record was published, persists bounded recovery evidence when possible, and permits a subsequent same-id claim.
+- Baseline TCP and IPv6 descriptors carry the owned cancellation token into the native fixed-process executor.
+- UDP candidate verdict persistence retains attempts, mapped family, bytes, exit/signal, timestamps, latency, throughput, and marker evidence.
+- Baseline classification tests pass literal incomplete evidence directly and reject missing bytes, exit/signal, or timestamps as infrastructure dependency evidence.
+- Protocol-v1 manifest now declares nested body and marker properties, alongside the closed TLS/IPv6/STUN/cancellation shapes enforced by the native validator.
+- Task 5 remains fail-closed at `EUNSUPPORTED`; Task 7 remains the terminal reconciliation owner. No permanent config/Strategy/raw command/DNS/TG/router/LuCI/Orchestra behavior was added.
+
+Focused/static/native verification for this review fix:
+
+```text
+wsl.exe -d Ubuntu --cd /mnt/c/Users/Kirill/zapret2-manager -- env UCODE_BIN=/opt/ucode/bin/ucode UCODE_LIBRARY_PATH=/opt/ucode/lib /home/kirill/.local/bin/node --test tests/native/core/fs-helper-protocol.test.mjs tests/native/core/scanner-probe-native.test.mjs tests/product/avatar-strategy-scanner-worker.test.mjs tests/product/avatar-strategy-scanner-probes.test.mjs
+Result: 88 passed, 0 failed.
+
+wsl.exe -d Ubuntu --cd /mnt/c/Users/Kirill/zapret2-manager -- env UCODE_BIN=/opt/ucode/bin/ucode UCODE_LIBRARY_PATH=/opt/ucode/lib /home/kirill/.local/bin/node --test tests/product/avatar-strategy-scanner-transient.test.mjs tests/native/avatar-strategy-scanner-runtime.test.mjs tests/native/avatar-strategy-firewall-helper.test.mjs
+Result: 38 passed, 0 failed.
+
+node --check tests/product/avatar-strategy-scanner-worker.test.mjs
+node --check tests/product/avatar-strategy-scanner-probes.test.mjs
+node --check tests/native/core/fs-helper-protocol.test.mjs
+wsl.exe -d Ubuntu --cd /mnt/c/Users/Kirill/zapret2-manager -- bash -lc 'sh -n zapret2-manager/files/usr/libexec/zapret2-manager/scanner-runtime-adapter.sh && python3 -m json.tool zapret2-manager/src/z2m-core-helper/protocol-v1.json >/dev/null'
+git diff --check
+Result: all passed.
+```
+
 ## Fix Round 1
 
 ### Status

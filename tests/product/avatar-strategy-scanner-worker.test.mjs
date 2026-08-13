@@ -38,9 +38,9 @@ function request(overrides = {}) {
   return { target: 'example.com', protocol: 'tcp', mode: 'quick', resume: false, dpi_type: null, ...overrides };
 }
 
-function candidate(id, ordinal) {
+function candidate(id, ordinal, protocol = 'tcp') {
   return {
-    scannerId: id, protocol: 'tcp', ordinal,
+    scannerId: id, protocol, ordinal,
     compiledCandidate: '--filter-tcp=443', compiledTokens: ['--filter-tcp=443'],
     compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: DEPENDENCY_DIGEST,
     dependencyClosure: CLOSURE,
@@ -58,14 +58,14 @@ function plan(req = request()) {
       probeUrl: `https://${req.target}/`,
     },
     catalogDigest: DIGESTS.catalog, compilerDigest: DIGESTS.compiler,
-    candidates: [candidate('c1', 1), candidate('c2', 2)],
+    candidates: [candidate('c1', 1, req.protocol), candidate('c2', 2, req.protocol)],
   };
 }
 
-function hooks(stopAfter = null) {
+function hooks(stopAfter = null, protocol = 'tcp') {
   let probes = 0;
   return {
-    plan: plan(),
+    plan: plan(request({ protocol })),
     identity: { pid: 41, startTime: 9001, exe: '/usr/bin/ucode', owner: 'scanner/worker', generation: 1 },
     transient: {
       lock: { held: true, owner: 'config/global' },
@@ -85,8 +85,12 @@ function hooks(stopAfter = null) {
       },
       lockRelease: { ok: true }, sessionCleanup: { ok: true, removed: true, verified: true },
     },
-    baseline: { protocol: 'tcp', ipv4: { status: 'blocked', available: true, latencyMs: 10, bytesReceived: 0, exitCode: 0, signal: 0, startedAt: 100, finishedAt: 110 }, ipv6: { status: 'skipped', available: false, latencyMs: 0, bytesReceived: 0, exitCode: 0, signal: 0, startedAt: 100, finishedAt: 100 } },
-    probe: { hosts: [{ host: 'kernel.org', addressFamily: 'ipv4', startedAt: 100, finishedAt: 110, tls: { status: 'success', latencyMs: 10, readBytes: 128, startedAt: 100, finishedAt: 110 }, body: { statusCode: 200, bytesReceived: 70000, kbps: 100, latencyMs: 10, startedAt: 100, finishedAt: 110 } }] },
+    baseline: protocol === 'udp'
+      ? { protocol: 'udp', transport: 'stun', status: 'timeout', latencyMs: 4000, bytesReceived: 0, exitCode: 0, signal: 0, startedAt: 100, finishedAt: 4100 }
+      : { protocol: 'tcp', ipv4: { status: 'blocked', available: true, latencyMs: 10, bytesReceived: 0, exitCode: 0, signal: 0, startedAt: 100, finishedAt: 110 }, ipv6: { status: 'skipped', available: false, latencyMs: 0, bytesReceived: 0, exitCode: 0, signal: 0, startedAt: 100, finishedAt: 100 } },
+    probe: protocol === 'udp'
+      ? { transport: 'stun', status: 'success', attempts: 2, mappedFamily: 'IPv4', bytesReceived: 32, exitCode: 0, signal: 0, startedAt: 100, finishedAt: 180, latencyMs: 80, kbps: 3.2, markerEvidence: [{ name: 'stun', needle: 'mapped' }] }
+      : { hosts: [{ host: 'kernel.org', addressFamily: 'ipv4', startedAt: 100, finishedAt: 110, tls: { status: 'success', latencyMs: 10, readBytes: 128, startedAt: 100, finishedAt: 110 }, body: { statusCode: 200, bytesReceived: 70000, kbps: 100, latencyMs: 10, startedAt: 100, finishedAt: 110 } }] },
     reconcile: { ok: true, recovery: { state: 'verified' } },
     controlSequence: stopAfter == null ? [{ stopRequested: false }] : [{ stopRequested: false }, { stopRequested: true }],
   };
@@ -294,6 +298,11 @@ test('claim checkpoint failure releases the active marker even before a record e
     assert.equal(result.ok, false, JSON.stringify(result));
     assert.equal(result.recovery.activeRelease.ok, true, JSON.stringify(result));
     assert.equal(fs.existsSync(path.join(root, 'active.json')), false);
+    const recovery = invoke(STATE, `subject.scanner_state_load('scan-claim-failure')`, storageEnv(root));
+    assert.equal(recovery.ok, true, JSON.stringify(recovery));
+    assert.equal(recovery.state.recovery.activeRelease.ok, true, JSON.stringify(recovery));
+    const second = invoke(WORKER, `subject.scanner_worker_run({id:'scan-claim-failure',request:${JSON.stringify(request())}}, ${JSON.stringify(hooks())})`, storageEnv(root));
+    assert.equal(second.ok, true, JSON.stringify(second));
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -569,6 +578,7 @@ test('baseline worker descriptor carries the validated request mode and native S
   const executor = fs.readFileSync(EXECUTOR, 'utf8');
   assert.match(worker, /baselineProfile\s*=\s*\{ \.\.\.plan\.targetProfile, protocol: req\.protocol \}/);
   assert.match(worker, /scanner_probe_adapter_baseline\(baselineProfile, \{[^}]*mode: req\.mode/);
+  assert.match(worker, /scanner_probe_adapter_baseline\(baselineProfile, \{[^}]*cancelToken: record\.id/);
   assert.match(executor, /transport:\s*'stun',[\s\S]*mode:\s*request\.mode[\s\S]*retries:\s*request\.retries[\s\S]*receiveLimitBytes:\s*request\.receiveLimitBytes/);
   assert.doesNotMatch(executor, /scanner_probe_parse_http\(raw, now, int\(time\(\) \* 1000\)/);
   assert.doesNotMatch(executor, /scanner_probe_parse_stun\(raw, now, int\(time\(\) \* 1000/);
@@ -669,5 +679,26 @@ test('worker preserves scanner verdict score and complete evidence in the ranked
     assert.equal(row.evidence.metrics.averageLatencyMs, 10);
     assert.equal(row.evidence.metrics.averageKbps, 100);
     assert.equal(row.evidence.metrics.perProbe[0].body.bytesReceived, 70000);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('worker persists complete UDP verdict evidence without collapsing transport fields', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-udp-evidence-'));
+  try {
+    const result = invoke(WORKER, `subject.scanner_worker_run({id:'scan-udp-evidence',request:${JSON.stringify(request({ protocol: 'udp' }))}}, ${JSON.stringify(hooks(null, 'udp'))})`, storageEnv(root));
+    assert.equal(result.ok, true, JSON.stringify(result));
+    const metrics = result.state.results[0].evidence.metrics;
+    assert.equal(metrics.protocol, 'udp');
+    assert.equal(metrics.attempts, 2);
+    assert.equal(metrics.mappedFamily, 'IPv4');
+    assert.equal(metrics.bytesReceived, 32);
+    assert.equal(metrics.exitCode, 0);
+    assert.equal(metrics.signal, 0);
+    assert.equal(metrics.startedAt, 100);
+    assert.equal(metrics.finishedAt, 180);
+    assert.equal(metrics.latencyMs, 80);
+    assert.equal(metrics.stunLatencyMs, 80);
+    assert.equal(metrics.kbps, 3.2);
+    assert.deepEqual(metrics.markerEvidence, [{ name: 'stun', needle: 'mapped' }]);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
