@@ -23,7 +23,7 @@ This is the deterministic starting point for all AI agents working in this repos
 6. [Handoff template](./handoff-template.md)
 7. [Current state](../00-home/current-state.md)
 8. docs/00-home/project-map.md
-9. [Project knowledge vault ADR](../07-decisions/adr-000-project-knowledge-vault.md)
+9. docs/07-decisions/adr-000-project-knowledge-vault.md
 
 ## Internal authority navigation
 
