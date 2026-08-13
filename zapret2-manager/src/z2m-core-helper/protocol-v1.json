@@ -26,7 +26,7 @@
       "properties": {
         "protocolVersion": { "const": 1 },
         "requestId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]+$" },
-        "operation": { "type": "string", "enum": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "atomic_write_json_revision", "mkdir_private", "sha256_regular", "rename_owned", "unlink_owned", "lock_acquire", "lock_release", "lock_status"] },
+        "operation": { "type": "string", "enum": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "atomic_write_json_revision", "mkdir_private", "sha256_regular", "rename_owned", "unlink_owned", "lock_acquire", "lock_release", "lock_status", "scanner_probe"] },
         "arguments": { "type": "object" }
       }
     },
@@ -248,6 +248,13 @@
       "successSchema": { "type": "object", "additionalProperties": false, "required": ["held", "owner"], "properties": { "held": { "type": "boolean" }, "owner": { "type": ["string", "null"] } } },
       "limits": { "maxInputBytes": 4096, "maxOutputBytes": 1024, "timeoutMsMax": 5000 },
       "ownership": "Broker-only diagnostic metadata; token is never disclosed.", "crashSemantics": "Returns EUNSUPPORTED until a retained broker is proven necessary and separately designed.", "idempotency": "Idempotent observation of future broker state."
+    },
+    "scanner_probe": {
+      "milestone": 6, "status": "implemented", "roots": [],
+      "requestSchema": { "type": "object", "additionalProperties": false, "required": ["authority", "adapterDigest", "targetProfileDigest", "targetProfile", "request"], "properties": { "authority": { "const": "scanner-probe-adapter.v1" }, "adapterDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "targetProfileDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "targetProfile": { "type": "object" }, "candidate": { "type": "object" }, "request": { "type": "object" } } },
+      "successSchema": { "type": "object", "additionalProperties": false, "required": ["content", "byteLength", "exitCode", "signal", "startedAt", "finishedAt", "complete"], "properties": { "content": { "type": "string", "encoding": "canonical_base64" }, "byteLength": { "type": "integer", "minimum": 0 }, "exitCode": { "type": "integer" }, "signal": { "type": "integer", "minimum": 0 }, "startedAt": { "type": "integer", "minimum": 0 }, "finishedAt": { "type": "integer", "minimum": 0 }, "complete": { "type": "boolean" } } },
+      "limits": { "maxInputBytes": 4096, "maxOutputBytes": 131072, "timeoutMsMax": 120000 },
+      "ownership": "Server-owned fixed ncat operation; no filesystem root and no caller-selected executable.", "crashSemantics": "Nonzero, signal, parse, truncation, or supervision failures are typed dependency outcomes and never candidate evidence.", "idempotency": "One bounded network observation per request; retries are explicitly descriptor-controlled."
     }
   },
   "rpcMapping": {

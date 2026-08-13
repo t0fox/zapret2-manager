@@ -84,7 +84,7 @@ function probe_candidate(candidate, plan, baseline, seams, outerDeadline) {
 			let adapted = scanner_probe_adapter_udp(candidate, plan.targetProfile, { nowMs: now, deadlineMs: end, profileDigest: state.scanner_state_digest(plan.targetProfile) });
 			if (!adapted.ok) return scanner_candidate_verdict({ infrastructureFailure: true, error: adapted.error?.message }, []);
 			let executed = seam(seams, 'executor') || scanner_probe_execute(adapted);
-			if (!executed.ok) return scanner_candidate_verdict({ infrastructureFailure: true, error: executed.error?.code || 'PROBE_DEPENDENCY' }, []);
+			if (!executed.ok) return { ok: false, error: executed.error || { code: 'EDEPENDENCY', message: 'Probe dependency failed.' } };
 			raw = executed.observations?.[0] || null;
 		}
 		else {
@@ -96,7 +96,7 @@ function probe_candidate(candidate, plan, baseline, seams, outerDeadline) {
 				let adapted = scanner_probe_adapter_tcp(candidate, plan.targetProfile, family, { nowMs: int(time() * 1000), deadlineMs: end, mode: plan.request.mode, profileDigest: state.scanner_state_digest(plan.targetProfile) });
 				if (!adapted.ok) return scanner_candidate_verdict({ infrastructureFailure: true, error: adapted.error?.message }, []);
 				let executed = seam(seams, 'executor') || scanner_probe_execute(adapted);
-				if (!executed.ok) return scanner_candidate_verdict({ infrastructureFailure: true, error: executed.error?.code || 'PROBE_DEPENDENCY' }, []);
+				if (!executed.ok) return { ok: false, error: executed.error || { code: 'EDEPENDENCY', message: 'Probe dependency failed.' } };
 				let observation = executed.observations?.[0];
 				if (!object(observation) || type(observation.hosts) != 'array') return scanner_candidate_verdict({ infrastructureFailure: true, error: 'INVALID_OBSERVATION' }, []);
 				for (let host in observation.hosts) push(hosts, host);
@@ -225,9 +225,7 @@ function scanner_worker_run_impl(input, seams) {
 		let adapted = scanner_probe_adapter_baseline(baselineProfile, { nowMs: probeStarted, deadlineMs: probeDeadline, profileDigest: state.scanner_state_digest(baselineProfile) });
 		if (!adapted.ok) return finish(record, session, seams, 'error', 'Scanner baseline adapter failed.');
 		let executed = seam(seams, 'executor') || scanner_probe_execute(adapted);
-		if (!executed.ok) baseline = req.protocol == 'tcp'
-			? { protocol: 'tcp', ipv4: { status: 'unavailable', available: false, error: 'NET_UNREACH' }, ipv6: { status: 'unavailable', available: false, error: 'NET_UNREACH' } }
-			: { protocol: 'udp', transport: 'stun', status: 'timeout', latencyMs: 4000, error: 'TIMEOUT' };
+		if (!executed.ok) { record.error = executed.error?.code || 'EDEPENDENCY'; record.recovery = { state: 'verified', failure: executed.error }; return finish(record, session, seams, 'error', record.error); }
 		else baseline = executed.observations?.[0];
 	}
 	baseline = baseline.baselineOpen != null ? baseline : scanner_baseline_classify(baseline);
@@ -245,6 +243,7 @@ function scanner_worker_run_impl(input, seams) {
 		if (seams?.throwAfterActivation === true) { let failure = null; failure(); }
 		phase(record, 'probing', candidate.scannerId); checkpoint(record, 'probing');
 		let verdict = probe_candidate(candidate, plan, baseline, seams, probeDeadline);
+		if (verdict.ok === false) { record.counts.infrastructure++; record.error = verdict.error?.code || 'EDEPENDENCY'; record.recovery = { state: 'verified', failure: verdict.error }; return finish(record, session, seams, 'error', record.error); }
 		record.heartbeatAt = time(); checkpoint(record, 'probe');
 		let cleaned = scanner_candidate_cleanup(activated.attempt);
 		if (!cleaned.ok) { record.counts.infrastructure++; record.recovery = merge_recovery(record.recovery, { state: 'uncertain', activation: activated.attempt.activation, candidateCleanup: cleaned, evidence: cleaned }); return finish(record, session, seams, 'error', 'Candidate cleanup was not verified.'); }

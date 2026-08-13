@@ -34,7 +34,7 @@ async function roundTrip(expression, makeResponse = ({ header }) => childExited(
   return { result, request };
 }
 
-test('exports only the six typed operations and sends exact closed helper requests', async () => {
+test('exports typed operations and sends exact closed helper requests', async () => {
   const cases = [
     [`native.stat_regular('runtime', 'state.bin')`, 'stat_regular',
       { root: 'runtime', path: 'state.bin' }, 5000,
@@ -75,7 +75,7 @@ test('exports only the six typed operations and sends exact closed helper reques
     ids.add(request.header.requestId);
   }
   assert.deepEqual(await invoke(`sort(keys(native))`),
-    ['atomic_write', 'atomic_write_json', 'atomic_write_json_revision', 'mkdir_private', 'read_regular', 'sha256_regular', 'stat_regular']);
+    ['atomic_write', 'atomic_write_json', 'atomic_write_json_revision', 'mkdir_private', 'read_regular', 'scanner_probe', 'sha256_regular', 'stat_regular']);
 });
 
 test('rejects invalid typed arguments before opening the fixed socket', async () => {

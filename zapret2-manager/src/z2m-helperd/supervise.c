@@ -53,10 +53,11 @@ static void child_close(int fd, int status)
 	if (close(fd) < 0) child_error(status, STAGE_CLOSE, errno);
 }
 
-static void nonblocking(int fd)
+static int nonblocking(int fd)
 {
 	int flags = fcntl(fd, F_GETFL);
-	if (flags >= 0) (void)fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+	if (flags < 0) return -1;
+	return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
 
 static int supervised_poll(struct pollfd *fds, nfds_t count, int timeout,
@@ -216,15 +217,18 @@ static int discover_children(struct child_identity *tracked, size_t *count,
 	return 0;
 }
 
-static void signal_tracked(struct child_identity *tracked, size_t count,
+static int signal_tracked(struct child_identity *tracked, size_t count,
 	int signal_number)
 {
 #ifndef Z2M_TEST_SKIP_TERMINATION_SIGNALS
-	for (size_t i = 0; i < count; i++)
-		if (identity_live(&tracked[i])) (void)kill(tracked[i].pid, signal_number);
+	for (size_t i = 0; i < count; i++) {
+		if (!identity_live(&tracked[i])) continue;
+		if (kill(tracked[i].pid, signal_number) < 0 && errno != ESRCH) return -1;
+	}
 #else
 	(void)tracked; (void)count; (void)signal_number;
 #endif
+	return 0;
 }
 
 #ifdef Z2M_TESTING
@@ -274,17 +278,22 @@ int z2m_test_registry_reuse_transition(int pid, unsigned long long old_starttime
 }
 #endif
 
-static void signal_leader_group(pid_t leader, int signal_number, bool leader_reaped,
+static int signal_leader_group(pid_t leader, int signal_number, bool leader_reaped,
 	unsigned int *post_reap_group_signals)
 {
-	if (leader_reaped) return;
+	if (leader_reaped) return 0;
 #ifndef Z2M_TEST_SKIP_TERMINATION_SIGNALS
-	if (kill(-leader, signal_number) < 0 && errno == ESRCH)
-		(void)kill(leader, signal_number);
+	int group_result = kill(-leader, signal_number);
+	if (group_result < 0 && errno == ESRCH) {
+		if (kill(leader, signal_number) < 0 && errno != ESRCH) { *post_reap_group_signals = 1; return -1; }
+	} else if (group_result < 0) {
+		*post_reap_group_signals = 1; return -1;
+	}
 #else
 	(void)leader; (void)signal_number;
 #endif
 	(void)post_reap_group_signals;
+	return 0;
 }
 
 void z2m_supervise(int client, const struct z2m_request *request, struct z2m_result *result)
@@ -310,8 +319,10 @@ void z2m_supervise(int client, const struct z2m_request *request, struct z2m_res
 	result->start_state = "not_started";
 	result->reason = "supervision_failure";
 	result->exit_code = -1;
-	if (pipe2(input, O_CLOEXEC) < 0 || pipe2(output, O_CLOEXEC) < 0 ||
-	    pipe2(errors, O_CLOEXEC) < 0 || pipe2(status, O_CLOEXEC) < 0) goto finish;
+	if (pipe2(input, O_CLOEXEC) < 0) goto finish;
+	if (pipe2(output, O_CLOEXEC) < 0) goto finish;
+	if (pipe2(errors, O_CLOEXEC) < 0) goto finish;
+	if (pipe2(status, O_CLOEXEC) < 0) goto finish;
 	if (clock_gettime(CLOCK_MONOTONIC, &started) < 0) goto finish;
 	deadline = after_ms(started, request->timeout_ms);
 	pid = fork();
@@ -338,7 +349,9 @@ void z2m_supervise(int client, const struct z2m_request *request, struct z2m_res
 	if (track_identity(tracked, &tracked_count, pid) < 0) supervision_failed = true;
 	close(input[0]); input[0] = -1; close(output[1]); output[1] = -1;
 	close(errors[1]); errors[1] = -1; close(status[1]); status[1] = -1;
-	nonblocking(input[1]); nonblocking(output[0]); nonblocking(errors[0]); nonblocking(status[0]);
+	if (nonblocking(input[1]) < 0 || nonblocking(output[0]) < 0 || nonblocking(errors[0]) < 0 || nonblocking(status[0]) < 0) {
+		supervision_failed = true;
+	}
 	while (!reaped || !descendants_exhausted || !output_eof || !errors_eof || !status_eof) {
 		struct pollfd fds[5] = {
 			{ status[0], POLLIN | POLLHUP, 0 }, { output[0], POLLIN | POLLHUP, 0 },
@@ -354,6 +367,7 @@ void z2m_supervise(int client, const struct z2m_request *request, struct z2m_res
 		if (!input_closed && fds[3].revents) {
 			ssize_t count = write(input[1], request->body + input_at, request->body_length - input_at);
 			if (count > 0) input_at += (size_t)count;
+			if (count < 0 && errno != EPIPE && errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK) supervision_failed = true;
 			if (input_at == request->body_length || (count < 0 && errno == EPIPE)) {
 				close(input[1]); input[1] = -1; input_closed = true;
 			}
@@ -426,8 +440,8 @@ void z2m_supervise(int client, const struct z2m_request *request, struct z2m_res
 		}
 		if (!descendants_exhausted && discover_children(tracked, &tracked_count,
 		    &enumeration_bytes) < 0) supervision_failed = true;
-		if (terminating && !descendants_exhausted)
-			signal_tracked(tracked, tracked_count, kill_sent ? SIGKILL : SIGTERM);
+		if (terminating && !descendants_exhausted && signal_tracked(tracked, tracked_count, kill_sent ? SIGKILL : SIGTERM) < 0)
+			supervision_failed = true;
 		if (fds[4].revents & (POLLHUP | POLLERR)) disconnected = true;
 		if (z2m_stopping()) shutdown = true;
 		if (clock_gettime(CLOCK_MONOTONIC, &now) < 0) {
@@ -438,15 +452,15 @@ void z2m_supervise(int client, const struct z2m_request *request, struct z2m_res
 		if (!descendants_exhausted && compare_time(&now, &deadline) >= 0) timed_out = true;
 		if (!terminating && (disconnected || shutdown || overflow || timed_out || supervision_failed)) {
 			terminating = true;
-			signal_leader_group(pid, SIGTERM, reaped, &post_reap_group_signals);
-			signal_tracked(tracked, tracked_count, SIGTERM);
+			if (signal_leader_group(pid, SIGTERM, reaped, &post_reap_group_signals) < 0) supervision_failed = true;
+			if (signal_tracked(tracked, tracked_count, SIGTERM) < 0) supervision_failed = true;
 			grace = after_ms(now, 100);
 			cleanup_deadline = after_ms(grace, 300);
 		}
 		if (terminating && !kill_sent && compare_time(&now, &grace) >= 0 &&
 		    !descendants_exhausted) {
-			signal_leader_group(pid, SIGKILL, reaped, &post_reap_group_signals);
-			signal_tracked(tracked, tracked_count, SIGKILL);
+			if (signal_leader_group(pid, SIGKILL, reaped, &post_reap_group_signals) < 0) supervision_failed = true;
+			if (signal_tracked(tracked, tracked_count, SIGKILL) < 0) supervision_failed = true;
 			kill_sent = true;
 		}
 		if (terminating && compare_time(&now, &cleanup_deadline) >= 0 &&

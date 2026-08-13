@@ -586,7 +586,11 @@ bool z2m_reserved_schema_valid(const struct z2m_request *request)
 	if(strcmp(request->operation,"scanner_probe")==0) {
 		static const char *const baseline[] = {"authority","adapterDigest","targetProfileDigest","targetProfile","request"};
 		static const char *const candidate[] = {"authority","adapterDigest","targetProfileDigest","targetProfile","candidate","request"};
-		return exact_fields(args,baseline,5) || exact_fields(args,candidate,6);
+		return (exact_fields(args,baseline,5) || exact_fields(args,candidate,6)) &&
+			string_value(args,"authority",1,64,&s) && string_value(args,"adapterDigest",64,64,&token) && hex64(token) &&
+			string_value(args,"targetProfileDigest",64,64,&token) && hex64(token) &&
+			json_object_object_get_ex(args,"targetProfile",&value) && json_object_is_type(value,json_type_object) &&
+			json_object_object_get_ex(args,"request",&value) && json_object_is_type(value,json_type_object);
 	}
 	if(strcmp(request->operation,"atomic_write")==0)
 		return exact_fields(args,write_fields,7)&&string_value(args,"root",0,SIZE_MAX,&s)&&string_value(args,"path",0,SIZE_MAX,&s)&&z2m_path_valid(s,32)&&string_value(args,"content",0,694704,&s)&&z2m_base64_canonical(s,strlen(s),521028)&&string_value(args,"mode",4,4,&s)&&strcmp(s,"0600")==0&&integer_value(args,"uid",0,0,&number)&&integer_value(args,"gid",0,0,&number)&&boolean_value(args,"allowCreate");

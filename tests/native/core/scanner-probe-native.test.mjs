@@ -24,8 +24,17 @@ function compile(output, input, definitions = []) {
 }
 
 function request(request, extra = {}) {
+  const defaults = request.transport === 'stun'
+    ? { mode: 'quick', retries: 2, receiveLimitBytes: 1024, transactionId: '0102030405060708090a0b0c', portRange: String(request.port) }
+    : { mode: 'quick', retries: 1, tls: { timeoutMs: 6000, readLimitBytes: 2048 }, portRange: String(request.port) };
+  if (request.transport === 'tls+body') defaults.body = {
+    timeoutMs: 8000, minimumBytes: 65536, readChunkBytes: 4096, markerScanBytes: 8192,
+    readLimitBytes: 69633, range: 'bytes=0-69632',
+    markers: [{ name: 'isp_page', needles: ['blocked', 'access denied', 'captcha'] }],
+  };
   return JSON.stringify({ protocolVersion: 1, requestId: 'scanner:1', operation: 'scanner_probe', arguments: {
-    authority: 'scanner-probe-adapter.v1', adapterDigest, targetProfileDigest: profileDigest, targetProfile: profile, request, ...extra,
+    authority: 'scanner-probe-adapter.v1', adapterDigest, targetProfileDigest: profileDigest, targetProfile: profile,
+    request: { deadlineMs: Date.now() + 120000, ...defaults, ...request, ...(request.transport === 'tls+body' ? { body: { ...defaults.body, ...request.body } } : {}) }, ...extra,
   } }) + '\n';
 }
 
@@ -50,6 +59,28 @@ test('fixed scanner binary receives argv without shell interpretation and uses d
   assert.match(fs.readFileSync(log, 'utf8'), /-u\n-4\n-w\n1\nstun\.example\.com\n19302\n/);
 });
 
+test('native scanner binds every transport setting to the server-owned profile', () => {
+  const target = {
+    ...profile,
+    tcp: { ports: '8443', l7: 'tls', payload: 'tls_client_hello' },
+    udp: { ports: '3478-3480', l7: 'stun', payload: 'binding' },
+    probeUrl: 'https://example.com/probe/204',
+  };
+  const digest = createHash('sha256').update(JSON.stringify(target)).digest('hex');
+  const accepted = run(request({ transport: 'stun', host: 'stun.example.com', port: 3478,
+    portRange: '3478-3480', addressFamily: 'ipv4', timeoutMs: 1000, retries: 2,
+    receiveLimitBytes: 1024, transactionId: '0102030405060708090a0b0c' },
+    { targetProfile: target, targetProfileDigest: digest }));
+  assert.equal(accepted.ok, true, JSON.stringify(accepted));
+
+  const forged = run(request({ transport: 'stun', host: 'stun.example.com', port: 19302,
+    portRange: '19302', addressFamily: 'ipv4', timeoutMs: 1000, retries: 2,
+    receiveLimitBytes: 1024, transactionId: '0102030405060708090a0b0c' },
+    { targetProfile: target, targetProfileDigest: digest }), {}, 2);
+  assert.equal(forged.ok, false);
+  assert.equal(forged.error.code, 'ESCHEMA');
+});
+
 test('forged URL/path and descriptor executable fields are rejected before spawn', () => {
   const forged = run(request({ transport: 'tls+body', host: 'example.com', addressFamily: 'ipv4', port: 443, timeoutMs: 1000, url: 'https://example.com/ok;touch', body: { range: 'bytes=0-69632', readLimitBytes: 69633 } }, { executable: '/bin/sh' }), {}, 2);
   assert.equal(forged.ok, false);
@@ -68,6 +99,8 @@ test('nonzero child status and partial output are returned independently', () =>
   assert.equal(result.data.exitCode, 7);
   assert.equal(result.data.byteLength, 7);
   assert.equal(result.data.complete, true);
+  assert.equal(typeof result.data.startedAt, 'number');
+  assert.equal(typeof result.data.finishedAt, 'number');
 });
 
 test('deadline kills and reaps the fixed child without grace beyond the request deadline', () => {

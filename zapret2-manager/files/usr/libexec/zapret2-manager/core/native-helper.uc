@@ -504,11 +504,12 @@ function success_data_valid(operation, data) {
 			data.committed == true && index(['durable', 'tmpfs_visible'], data.durability) >= 0;
 	}
 	if (operation == 'scanner_probe')
-		return exact_fields(data, ['content', 'byteLength', 'exitCode', 'signal', 'complete']) &&
+		return exact_fields(data, ['content', 'byteLength', 'exitCode', 'signal', 'startedAt', 'finishedAt', 'complete']) &&
 			canonical_base64(data.content) && type(data.byteLength) == 'int' && data.byteLength >= 0 &&
 			data.byteLength <= STDOUT_LIMIT && base64_length(data.content) == data.byteLength &&
 			type(data.exitCode) == 'int' && data.exitCode >= -1 && type(data.signal) == 'int' &&
-			data.signal >= 0 && type(data.complete) == 'bool';
+			data.signal >= 0 && type(data.startedAt) == 'int' && data.startedAt >= 0 &&
+			type(data.finishedAt) == 'int' && data.finishedAt >= data.startedAt && type(data.complete) == 'bool';
 	return false;
 }
 
@@ -713,9 +714,12 @@ export const scanner_probe = function(authority, adapterDigest, targetProfileDig
 	if (type(authority) != 'string' || type(adapterDigest) != 'string' || type(targetProfileDigest) != 'string' ||
 		type(targetProfile) != 'object' || targetProfile == null || type(request) != 'object' || request == null)
 		return invalid('Scanner probe arguments are invalid.');
+	if (type(request.deadlineMs) != 'int' || request.deadlineMs <= int(time() * 1000))
+		return dependency('Scanner probe deadline has expired.');
 	let arguments = { authority, adapterDigest, targetProfileDigest, targetProfile, request };
 	if (candidate != null) arguments.candidate = candidate;
-	return invoke_private('scanner_probe', arguments, request.timeoutMs > 0 ? request.timeoutMs : 1000);
+	let remaining = request.deadlineMs - int(time() * 1000), timeout = request.timeoutMs > 0 && request.timeoutMs < remaining ? request.timeoutMs : remaining;
+	return invoke_private('scanner_probe', arguments, timeout > 0 ? timeout : 1);
 };
 
 export const atomic_write = function(root, path, content, allowCreate) {

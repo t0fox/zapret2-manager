@@ -6,6 +6,7 @@ const STUN_TIMEOUT_MS = 4000;
 const MAX_DEADLINE_MS = 120000;
 const AUTHORITY = 'scanner-probe-adapter.v1';
 const ADAPTER_DIGEST = '7cd367ef2aed1be2567505bf978b2d2b73f97ff149cc48d64826ed4f2b8c885e';
+const STUN_TRANSACTION_ID = '0102030405060708090a0b0c';
 
 function is_object(value) { return type(value) == 'object' && value != null; }
 function fail(message) { return { ok: false, error: { code: 'EINPUT', message } }; }
@@ -73,6 +74,12 @@ function mode_limit(mode) {
 	return 0;
 }
 
+function first_port(value) {
+	if (type(value) != 'string' || match(value, /^[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$/) == null) return null;
+	let bounds = split(split(value, ',')[0], '-'), port = +bounds[0];
+	return port >= 1 && port <= 65535 && (length(bounds) == 1 || (+bounds[1] >= port && +bounds[1] <= 65535)) ? port : null;
+}
+
 function profile_hosts(profile, mode) {
 	let limit = mode_limit(mode), result = [];
 	if (!limit || !is_object(profile) || !safe_host(profile.primaryHost) || type(profile.testHosts) != 'array') return null;
@@ -121,23 +128,33 @@ export const scanner_probe_adapter_baseline = function(profile, limit) {
 	if (!is_object(profile) || forbidden(profile) || !safe_host(profile.primaryHost)) return fail('Invalid server-owned target profile.');
 	let protocol = profile.protocol, end = deadline(limit, protocol == 'udp' ? STUN_TIMEOUT_MS : TLS_TIMEOUT_MS);
 	if (!end || (protocol != 'tcp' && protocol != 'udp')) return fail('Invalid probe deadline or protocol.');
-	if (protocol == 'udp') return { ok: true, ...descriptor_common(profile, { transport: 'stun', host: profile.primaryHost,
-		port: 19302, addressFamily: 'ipv4', timeoutMs: STUN_TIMEOUT_MS, retries: 2,
-		receiveLimitBytes: 1024, deadlineMs: end }, null, limit?.profileDigest) };
-	return { ok: true, ...descriptor_common(profile, { transport: 'tls', host: profile.primaryHost,
-		addressFamilies: ['ipv4', 'ipv6'], port: 443,
-		timeoutMs: TLS_TIMEOUT_MS, readLimitBytes: 2048,
+	if (protocol == 'udp') {
+		let port = first_port(profile.udp?.ports);
+		if (port == null) return fail('Invalid server-owned UDP port profile.');
+		if (profile.udp?.l7 != 'stun' || profile.udp?.payload != 'binding') return fail('Server-owned UDP profile is not a STUN profile.');
+		return { ok: true, ...descriptor_common(profile, { transport: 'stun', mode: limit?.mode, host: profile.primaryHost,
+			port, portRange: profile.udp.ports, addressFamily: 'ipv4', timeoutMs: STUN_TIMEOUT_MS, retries: 2,
+			receiveLimitBytes: 1024, transactionId: STUN_TRANSACTION_ID, deadlineMs: end }, null, limit?.profileDigest) };
+	}
+	let port = first_port(profile.tcp?.ports);
+	if (port == null) return fail('Invalid server-owned TCP port profile.');
+	return { ok: true, ...descriptor_common(profile, { transport: 'tls', mode: limit?.mode, host: profile.primaryHost,
+		addressFamilies: ['ipv4', 'ipv6'], port, portRange: profile.tcp.ports,
+		timeoutMs: TLS_TIMEOUT_MS, retries: 1, readLimitBytes: 2048,
 		tls: { timeoutMs: TLS_TIMEOUT_MS, readLimitBytes: 2048 }, deadlineMs: end }, null, limit?.profileDigest) };
 };
 
 export const scanner_probe_adapter_tcp = function(candidate, target, addressFamily, limit) {
 	if (!candidate_valid(candidate, 'tcp')) return fail('Invalid planner-owned TCP candidate.');
 	if (forbidden(target) || !is_object(target) || !canonical_url(target.probeUrl, [target.primaryHost, ...(target.testHosts || [])])) return fail('Invalid server-owned target profile.');
+	if (!is_object(target.tcp) || target.tcp.l7 != 'tls' || target.tcp.payload != 'tls_client_hello') return fail('Invalid server-owned TCP profile.');
 	if (addressFamily != 'ipv4' && addressFamily != 'ipv6') return fail('Invalid address family.');
 	let hosts = profile_hosts(target, limit?.mode), end = deadline(limit, BODY_TIMEOUT_MS);
 	if (!hosts || !end) return fail('Invalid host set or probe deadline.');
+	let port = first_port(target.tcp?.ports);
+	if (port == null) return fail('Invalid server-owned TCP port profile.');
 	let requests = [];
-	for (let host in hosts) push(requests, { host, hostIdentity: host, addressFamily, port: 443,
+	for (let host in hosts) push(requests, { host, hostIdentity: host, addressFamily, port, portRange: target.tcp.ports,
 		url: host == target.primaryHost ? target.probeUrl : 'https://' + host + '/' });
 	let descriptor = descriptor_common(target, { transport: 'tls+body', mode: limit?.mode, hosts: requests,
 		retries: 1, tls: { timeoutMs: TLS_TIMEOUT_MS, readLimitBytes: 2048 },
@@ -156,8 +173,10 @@ export const scanner_probe_adapter_udp = function(candidate, target, limit) {
 		return fail('Invalid server-owned STUN target.');
 	let end = deadline(limit, STUN_TIMEOUT_MS);
 	if (!end) return fail('Invalid probe deadline.');
-	let descriptor = descriptor_common(target, { transport: 'stun', host: target.primaryHost, port: +target.udp.ports, addressFamily: 'ipv4',
-		timeoutMs: STUN_TIMEOUT_MS, retries: 2, receiveLimitBytes: 1024, deadlineMs: end }, { scannerId: candidate.scannerId,
+	let port = first_port(target.udp.ports);
+	if (port == null) return fail('Invalid server-owned STUN port profile.');
+	let descriptor = descriptor_common(target, { transport: 'stun', mode: limit?.mode, host: target.primaryHost, port, portRange: target.udp.ports, addressFamily: 'ipv4',
+		timeoutMs: STUN_TIMEOUT_MS, retries: 2, receiveLimitBytes: 1024, transactionId: STUN_TRANSACTION_ID, deadlineMs: end }, { scannerId: candidate.scannerId,
 		compiledDigest: candidate.compiledDigest, dependencyDigest: candidate.dependencyDigest }, limit?.profileDigest);
 	return { ok: true, ...descriptor };
 };

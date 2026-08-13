@@ -12,7 +12,7 @@ const roots = [
 const operations = [
   'stat_regular', 'read_regular', 'atomic_write', 'atomic_write_json',
   'mkdir_private', 'sha256_regular', 'rename_owned', 'unlink_owned',
-  'lock_acquire', 'lock_release', 'lock_status'
+  'lock_acquire', 'lock_release', 'lock_status', 'scanner_probe'
 ];
 const exits = {
   success: 0,
@@ -192,8 +192,21 @@ test('root and operation authorization is bidirectionally consistent', () => {
   for (const operation of operations) {
     const fromRoots = roots.filter((root) =>
       value.roots[root].allowedOperations.includes(operation));
-    assert.deepEqual(sorted(value.operations[operation].roots), sorted(fromRoots), operation);
+    if (operation === 'scanner_probe') assert.deepEqual(fromRoots, []);
+    else assert.deepEqual(sorted(value.operations[operation].roots), sorted(fromRoots), operation);
   }
+});
+
+test('scanner_probe is present in the manifest and implementation registry with one closed contract', () => {
+  const value = manifest();
+  assert.ok(value.envelopes.request.properties.operation.enum.includes('scanner_probe'));
+  assert.ok(value.operations.scanner_probe);
+  assert.equal(value.operations.scanner_probe.status, 'implemented');
+  assert.deepEqual(value.operations.scanner_probe.roots, []);
+  assert.deepEqual(value.operations.scanner_probe.requestSchema.required,
+    ['authority', 'adapterDigest', 'targetProfileDigest', 'targetProfile', 'request']);
+  assert.match(fs.readFileSync('zapret2-manager/src/z2m-core-helper/protocol.c', 'utf8'), /scanner_probe/);
+  assert.match(fs.readFileSync('zapret2-manager/src/z2m-core-helper/main.c', 'utf8'), /scanner_probe/);
 });
 
 test('paths are canonical relative names without generic or absolute capability', () => {
@@ -242,7 +255,7 @@ test('operation registry is closed and specifies schemas, limits, ownership, cra
     assert.deepEqual(sorted(Object.keys(operation)), sorted(requiredKeys), name);
     assert.ok(Number.isInteger(operation.milestone) && operation.milestone > 0, name);
     assert.ok(['milestone_1', 'milestone_2', 'implemented', 'reserved_unsupported'].includes(operation.status), name);
-    assert.ok(operation.roots.length > 0, name);
+    if (name !== 'scanner_probe') assert.ok(operation.roots.length > 0, name);
     assert.ok(operation.roots.every((root) => roots.includes(root)), name);
     assert.equal(operation.requestSchema.type, 'object', name);
     assert.equal(operation.requestSchema.additionalProperties, false, name);
@@ -267,8 +280,9 @@ test('operation registry is closed and specifies schemas, limits, ownership, cra
   assert.equal(value.operations.mkdir_private.status, 'milestone_2');
   assert.equal(value.operations.sha256_regular.status, 'milestone_2');
   for (const name of operations.slice(2).filter((name) => !['atomic_write', 'atomic_write_json', 'mkdir_private', 'sha256_regular'].includes(name)))
-    assert.equal(value.operations[name].status, 'reserved_unsupported', name);
+    if (name !== 'scanner_probe') assert.equal(value.operations[name].status, 'reserved_unsupported', name);
   for (const name of operations.slice(2).filter((name) => !['atomic_write', 'atomic_write_json', 'mkdir_private', 'sha256_regular'].includes(name))) {
+    if (name === 'scanner_probe') continue;
     assert.deepEqual(value.operations[name].unsupportedBehavior, {
       errorCode: 'EUNSUPPORTED',
       dispatch: 'reject_before_operation_dispatch',

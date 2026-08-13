@@ -100,7 +100,7 @@ test('target profile modes produce exact quick, standard, and full TCP host coun
     const expression = `import * as adapter from ${JSON.stringify(ADAPTER)}; `
       + `print(sprintf('%J', adapter.scanner_probe_adapter_tcp(`
       + `${JSON.stringify({ scannerId: 'catalog:one', protocol: 'tcp', compiledDigest: 'a'.repeat(64), dependencyDigest: 'b'.repeat(64) })}, `
-      + `${JSON.stringify({ profileKey: 'youtube', primaryHost: 'youtube.com', testHosts: ['www.youtube.com', 'i.ytimg.com', 'yt3.ggpht.com'], probeUrl: 'https://i.ytimg.com/generate_204' })}, `
+      + `${JSON.stringify({ profileKey: 'youtube', primaryHost: 'youtube.com', testHosts: ['www.youtube.com', 'i.ytimg.com', 'yt3.ggpht.com'], probeUrl: 'https://i.ytimg.com/generate_204', tcp: { ports: '80,443', l7: 'tls', payload: 'tls_client_hello' }, udp: { ports: '443', l7: 'stun', payload: 'binding' } })}, `
       + `'ipv4', ${JSON.stringify({ nowMs: 1000, deadlineMs: 20000, mode })})));`;
     const argv = [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', expression];
     const child = spawnSync(UCODE_BIN, argv, { cwd: ROOT, encoding: 'utf8', timeout: 30_000,
@@ -424,7 +424,7 @@ test('candidate verdict validates protocol-specific TCP and UDP evidence before 
 test('fixed adapter plans pin timeout, read, Range, STUN, retry, and deadline bounds', () => {
   const profile = { profileKey: 'generic', primaryHost: 'example.com', testHosts: ['example.com'],
     probeUrl: 'https://example.com/', tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' },
-    udp: { ports: '443', l7: 'quic', payload: 'quic_initial' } };
+    udp: { ports: '443', l7: 'stun', payload: 'binding' } };
   const candidate = { scannerId: 'catalog:one', protocol: 'tcp', compiledDigest: 'a'.repeat(64), dependencyDigest: 'b'.repeat(64) };
   const deadline = { nowMs: 1000, deadlineMs: 20000, mode: 'quick' };
   const baseline = adapt('scanner_probe_adapter_baseline', { ...profile, protocol: 'tcp' }, deadline);
@@ -442,8 +442,9 @@ test('fixed adapter plans pin timeout, read, Range, STUN, retry, and deadline bo
     tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' }, udp: { ports: '19302', l7: 'stun', payload: 'binding' },
     probeUrl: 'https://stun.l.google.com/' };
   const udp = adapt('scanner_probe_adapter_udp', { ...candidate, protocol: 'udp' }, udpProfile, deadline);
-  assert.deepEqual(udp.request, { transport: 'stun', host: 'stun.l.google.com', port: 19302,
-    addressFamily: 'ipv4', timeoutMs: 4000, retries: 2, receiveLimitBytes: 1024, deadlineMs: 20000 });
+  assert.deepEqual(udp.request, { transport: 'stun', mode: 'quick', host: 'stun.l.google.com', port: 19302,
+    portRange: '19302', addressFamily: 'ipv4', timeoutMs: 4000, retries: 2, receiveLimitBytes: 1024,
+    transactionId: '0102030405060708090a0b0c', deadlineMs: 20000 });
 
   const clamped = adapt('scanner_probe_adapter_tcp', candidate, profile, 'ipv4',
     { nowMs: 1000, deadlineMs: 999999, mode: 'quick' });

@@ -48,7 +48,10 @@ function normalize_family(raw) {
 	if (raw.available !== false)
 		available = status == 'open' || status == 'blocked' || status == 'failed' || status == 'timeout';
 	if (status == 'skipped' || status == 'unavailable' || UNAVAILABLE_ERRORS[error]) available = false;
-	return { status, available, latencyMs: number(raw.latencyMs, 0), error };
+	let result = { status, available, latencyMs: number(raw.latencyMs, 0), error };
+	if (is_number(raw.startedAt)) result.startedAt = raw.startedAt;
+	if (is_number(raw.finishedAt)) result.finishedAt = raw.finishedAt;
+	return result;
 }
 
 export const scanner_baseline_classify = function(raw) {
@@ -58,6 +61,8 @@ export const scanner_baseline_classify = function(raw) {
 			error: 'INVALID_BASELINE' };
 
 	let by = {};
+	if (raw.infrastructureFailure === true) return { protocol: raw.protocol, baselineOpen: false, allAvailableOpen: false,
+		byAddressFamily: {}, probeAddressFamilies: [], infrastructureFailure: true, error: raw.error || 'PROBE_DEPENDENCY' };
 	if (raw.protocol == 'udp') {
 		if (raw.transport != 'stun')
 			return { protocol: 'udp', baselineOpen: false, allAvailableOpen: false,
@@ -121,7 +126,7 @@ function in_cutoff(bytes) {
 
 function normalize_body(raw) {
 	raw = is_object(raw) ? raw : {};
-	let bytes = number(raw.bytesReceived, 0), code = number(raw.statusCode, 0);
+	let bytes = number(raw.bytesReceived, 0), code = number(raw.statusCode, 0), latency = number(raw.latencyMs, 0);
 	let error = type(raw.error) == 'string' && raw.error != '' ? raw.error : null;
 	let marker = type(raw.marker) == 'string' ? raw.marker : '';
 	let marker_evidence = type(raw.markerEvidence) == 'array' ? raw.markerEvidence : [];
@@ -137,7 +142,7 @@ function normalize_body(raw) {
 	return {
 		success, status: success ? 'success' : (transport == 'timeout' ? 'timeout' : 'failed'),
 		error: success ? null : error, statusCode: code, bytesReceived: bytes,
-		kbps: number(raw.kbps, 0), latencyMs: number(raw.latencyMs, 0),
+		kbps: is_number(raw.kbps) ? raw.kbps : (latency > 0 ? round_to((bytes * 8.0) / latency, 1) : 0), latencyMs: latency,
 		marker: marker, markerEvidence: marker_evidence, range: 'bytes=0-69632', rangeSatisfied: raw.rangeSatisfied !== false,
 		complete: raw.complete !== false, minimumBytes: BODY_MINIMUM,
 	};
@@ -193,7 +198,13 @@ export const scanner_tcp_classify = function(raw) {
 		}
 		else push(errors, tls.error);
 		push(per_host, { host: type(item.host) == 'string' ? item.host : '',
-			addressFamily: item.addressFamily == 'ipv6' ? 'ipv6' : 'ipv4', tls, body });
+		addressFamily: item.addressFamily == 'ipv6' ? 'ipv6' : 'ipv4', tls, body });
+	}
+	if (!tls_count && !body_count && length(errors)) {
+		let result = { protocol: 'tcp', success: false, error: pick_error(errors, tls_count, body_count),
+			failureClass: 'candidate_blocked', infrastructureFailure: false, testType: 'tls+body', bodyPassed: false,
+			successRate: 0, averageKbps: 0, averageLatencyMs: 0, perHost: per_host };
+		result.score = scanner_score(result); return result;
 	}
 	let total = length(raw.hosts), rate = round_to((tls_count * 0.4 + body_count * 0.6) / total, 3);
 	let success = body_count > 0;

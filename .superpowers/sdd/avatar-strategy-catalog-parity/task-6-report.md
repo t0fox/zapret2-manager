@@ -242,3 +242,81 @@ GREEN and scope checks:
   failures in `avatar-strategy-scanner-model.test.mjs` and
   `avatar-strategy-scanner-integration.test.mjs`; no changes were made to
   those failing modules.
+
+## Fix Round 6
+
+The sixth scoped review follow-up closes the native scanner and fixed-executor
+findings while preserving the Task 4/5/7 boundaries:
+
+- Native `scanner_probe` accepts only the server-owned fixed executable and
+  validates the adapter digest, target-profile digest, canonical host and URL
+  path, profile-owned TCP/UDP port ranges, modes, retries, TLS/body settings,
+  markers, read limits, and the fixed STUN transaction ID. Caller executable,
+  path, raw argv, forged URL/path, and forged transport settings are rejected
+  before spawn.
+- The scanner adapter derives ports and probe settings from the retained target
+  profile instead of accepting caller-selected values. The protocol manifest,
+  C registry, and native helper expose one closed `scanner_probe` contract with
+  no filesystem root capability and no Task 5 operation changes.
+- Native and ucode execution now preserve typed dependency and indeterminate
+  failures. The worker stops with the executor's error instead of fabricating
+  `NET_UNREACH`, `TIMEOUT`, or candidate evidence when the broker, child, or
+  observation is unavailable.
+- The request deadline is enforced through the ucode helper, native child
+  runner, and per-operation remaining timeout. Native responses retain bounded
+  start and finish timestamps, which are used for latency and throughput
+  rather than wall-clock reconstruction in the parser.
+- HTTP parsing rejects invalid or duplicate headers, invalid content lengths,
+  unsupported transfer encodings, conflicting framing, malformed chunk
+  extensions or trailers, truncated bodies, and non-canonical Content-Range
+  evidence. Chunked trailers and exact range satisfaction are supported.
+- STUN parsing requires the fixed Binding response and exact transaction
+  identity. UDP descriptors remain IPv4/STUN-only with fixed retry and receive
+  limits; incomplete or mismatched responses remain typed infrastructure or
+  indeterminate outcomes.
+- Native child supervision checks nonblocking setup, process-group creation,
+  signal and cleanup errors, and `SIGPIPE`/`EPIPE` handling. It kills and reaps
+  the fixed process group without extending the request deadline and retains
+  deterministic failure state.
+
+## Fix Round 6 Verification
+
+- Focused native and product Scanner gate under pinned WSL ucode: **108
+  passed, 0 failed**.
+- Native scanner behavioral coverage: fixed argv/transport, profile authority,
+  forged descriptor rejection, digest validation, child status, deadline
+  cleanup, HTTP framing, STUN parsing, supervision, and protocol-manifest
+  consistency all passed.
+- Product Scanner coverage: adapter bounds and authority, parser and evidence
+  validation, typed executor failures, worker lifecycle, cleanup/recovery,
+  resume authority, and terminal stop idempotency all passed.
+- `git diff --check`: clean.
+- Changed JavaScript test syntax and protocol JSON parsing checks passed.
+- The broader Scanner glob still contains pre-existing model/target failures
+  in unchanged modules and is not claimed as a clean full-repository sweep.
+
+## Changed Files Round 6
+
+- `zapret2-manager/src/z2m-core-helper/scanner.c`
+- `zapret2-manager/src/z2m-helperd/supervise.c`
+- `zapret2-manager/src/z2m-core-helper/protocol.c`
+- `zapret2-manager/src/z2m-core-helper/protocol-v1.json`
+- `zapret2-manager/files/usr/libexec/zapret2-manager/core/native-helper.uc`
+- `zapret2-manager/files/usr/libexec/zapret2-manager/scanner-probe-adapter.uc`
+- `zapret2-manager/files/usr/libexec/zapret2-manager/scanner-probe-executor.uc`
+- `zapret2-manager/files/usr/libexec/zapret2-manager/scanner-probes.uc`
+- `zapret2-manager/files/usr/libexec/zapret2-manager/scanner-worker.uc`
+- `tests/native/core/fs-helper-protocol.test.mjs`
+- `tests/native/core/native-helper.test.mjs`
+- `tests/native/core/scanner-probe-native.test.mjs`
+- `tests/product/avatar-strategy-scanner-probes.test.mjs`
+- `tests/product/avatar-strategy-scanner-worker.test.mjs`
+
+## Concerns Round 6
+
+- Physical-router reachability and live TLS/STUN acceptance remain deployment
+  dependent and were not available in this workspace. The fixed executor was
+  verified through production-shaped native fixtures and strict parser,
+  deadline, supervision, and typed-failure behavior.
+- The repository's unrelated Scanner model/target baseline failures remain
+  unchanged; the focused round-6 gate is the claimed verification boundary.

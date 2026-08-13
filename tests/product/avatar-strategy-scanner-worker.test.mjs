@@ -54,7 +54,7 @@ function plan(req = request()) {
       profileKey: 'generic', primaryHost: req.target, testHosts: [req.target],
       hostlistDomains: [req.target], expectedHostlists: [],
       tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' },
-      udp: { ports: '443', l7: 'quic', payload: 'quic_initial' },
+    udp: { ports: '19302', l7: 'stun', payload: 'binding' },
       probeUrl: `https://${req.target}/`,
     },
     catalogDigest: DIGESTS.catalog, compilerDigest: DIGESTS.compiler,
@@ -232,9 +232,10 @@ test('worker invokes fixed adapters and never fabricates a successful production
     const testHooks = hooks();
     delete testHooks.probe;
     const result = invoke(WORKER, `subject.scanner_worker_run({id:'scan-no-fake',request:${JSON.stringify(request())}}, ${JSON.stringify(testHooks)})`, storageEnv(root));
-    assert.equal(result.ok, true, JSON.stringify(result));
-    assert.equal(result.state.status, 'completed');
-    assert.equal(result.state.results.every(row => row.verdict === 'working' || row.verdict === 'infrastructure'), true);
+    assert.equal(result.ok, false, JSON.stringify(result));
+    assert.equal(result.state.status, 'error');
+    assert.equal(result.state.error, 'EDEPENDENCY');
+    assert.doesNotMatch(JSON.stringify(result.state), /NET_UNREACH|TIMEOUT/);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -440,6 +441,25 @@ test('fixed HTTP parser handles interim responses, chunked framing, and truncate
   const truncated = invoke(EXECUTOR, `subject.scanner_probe_parse_http('HTTP/1.1 200 OK\\r\\nContent-Length: 10\\r\\n\\r\\nshort', 1000, 1042, ${JSON.stringify({ readLimitBytes: 64, markerScanBytes: 8 })})`);
   assert.equal(truncated.ok, false, JSON.stringify(truncated));
   assert.equal(truncated.error.code, 'EINDETERMINATE');
+
+  const trailers = invoke(EXECUTOR, `subject.scanner_probe_parse_http('HTTP/1.1 200 OK\\r\\nTransfer-Encoding: chunked\\r\\n\\r\\n5\\r\\nhello\\r\\n0\\r\\nX-Trace: ok\\r\\n\\r\\n', 1000, 1042, ${JSON.stringify({ readLimitBytes: 64, markerScanBytes: 8 })})`);
+  assert.equal(trailers.ok, true, JSON.stringify(trailers));
+  assert.equal(trailers.observation.bytesReceived, 5);
+
+  for (const raw of [
+    'HTTP/1.1 200 OK\\r\\nContent-Length: -1\\r\\n\\r\\n',
+    'HTTP/1.1 200 OK\\r\\nContent-Length: nope\\r\\n\\r\\n',
+    'HTTP/1.1 200 OK\\r\\nContent-Length: 1\\r\\nContent-Length: 2\\r\\n\\r\\nx',
+    'HTTP/1.1 200 OK\\r\\nTransfer-Encoding: gzip\\r\\n\\r\\n',
+  ]) {
+    const invalid = invoke(EXECUTOR, `subject.scanner_probe_parse_http(${JSON.stringify(raw)}, 1000, 1042, ${JSON.stringify({ readLimitBytes: 64 })})`);
+    assert.equal(invalid.ok, false, JSON.stringify(invalid));
+    assert.equal(invalid.error.code, 'EINDETERMINATE');
+  }
+
+  const wrongRange = invoke(EXECUTOR, `subject.scanner_probe_parse_http('HTTP/1.1 206 Partial Content\\r\\nContent-Length: 5\\r\\nContent-Range: bytes 0-3/5\\r\\n\\r\\nhello', 1000, 1042, ${JSON.stringify({ range: 'bytes=0-4', readLimitBytes: 64 })})`);
+  assert.equal(wrongRange.ok, false, JSON.stringify(wrongRange));
+  assert.equal(wrongRange.error.code, 'EINDETERMINATE');
 });
 
 test('fixed HTTP observations retain configured markers and measured throughput without success fabrication', () => {
@@ -473,6 +493,20 @@ test('fixed STUN parser requires a binding success response and preserves transa
   assert.equal(wrongTransaction.ok, false, JSON.stringify(wrongTransaction));
 });
 
+test('worker preserves native executor failure classes instead of inventing network evidence', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-typed-failure-'));
+  try {
+    const testHooks = hooks();
+    delete testHooks.probe;
+    testHooks.executor = { ok: false, error: { code: 'EDEPENDENCY', message: 'broker unavailable', stage: 'transport' } };
+    const result = invoke(WORKER, `subject.scanner_worker_run({id:'scan-typed-failure',request:${JSON.stringify(request())}}, ${JSON.stringify(testHooks)})`, storageEnv(root));
+    assert.equal(result.ok, false, JSON.stringify(result));
+    assert.equal(result.state.status, 'error');
+    assert.equal(result.state.error, 'EDEPENDENCY');
+    assert.doesNotMatch(JSON.stringify(result.state), /NET_UNREACH|TIMEOUT/);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('adapter descriptors carry canonical URL/path, host identity, family, and pinned retry/read settings', () => {
   const profile = { profileKey: 'generic', primaryHost: 'example.com', testHosts: ['example.com', 'cdn.example.com'],
     probeUrl: 'https://example.com/probe/204', tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' },
@@ -480,11 +514,21 @@ test('adapter descriptors carry canonical URL/path, host identity, family, and p
   const candidate = { scannerId: 'catalog:one', protocol: 'tcp', compiledDigest: 'a'.repeat(64), dependencyDigest: 'b'.repeat(64) };
   const tcp = adapt('scanner_probe_adapter_tcp', candidate, profile, 'ipv6', { nowMs: 1000, deadlineMs: 20000, mode: 'standard' });
   assert.equal(tcp.ok, true, JSON.stringify(tcp));
-  assert.deepEqual(tcp.request.hosts[0], { host: 'example.com', hostIdentity: 'example.com', addressFamily: 'ipv6', port: 443, url: 'https://example.com/probe/204' });
+  assert.deepEqual(tcp.request.hosts[0], { host: 'example.com', hostIdentity: 'example.com', addressFamily: 'ipv6', port: 443, portRange: '443', url: 'https://example.com/probe/204' });
   assert.equal(tcp.request.hosts[1].url, 'https://cdn.example.com/');
   assert.equal(tcp.request.hosts[1].hostIdentity, 'cdn.example.com');
   assert.equal(tcp.request.retries, 1);
   assert.deepEqual(tcp.request.body.markers, [{ name: 'isp_page', needles: ['blocked', 'access denied', 'captcha'] }]);
+  assert.equal(tcp.request.body.minimumBytes, 65536);
+  assert.equal(tcp.request.body.readChunkBytes, 4096);
+  assert.equal(tcp.request.body.markerScanBytes, 8192);
+  assert.equal(tcp.request.mode, 'standard');
+
+  const udp = adapt('scanner_probe_adapter_udp', { ...candidate, protocol: 'udp' }, profile, { nowMs: 1000, deadlineMs: 20000 });
+  assert.equal(udp.ok, true, JSON.stringify(udp));
+  assert.equal(udp.request.port, 443);
+  assert.equal(udp.request.portRange, profile.udp.ports);
+  assert.equal(udp.request.transactionId, '0102030405060708090a0b0c');
 });
 
 test('scanner execution contract rejects shell-shaped descriptors and preserves typed transport status', () => {

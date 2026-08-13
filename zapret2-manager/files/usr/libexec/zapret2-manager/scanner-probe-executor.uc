@@ -10,6 +10,7 @@ const STUN_READ_LIMIT = 1024;
 const TLS_TIMEOUT_MS = 6000;
 const BODY_TIMEOUT_MS = 8000;
 const STUN_TIMEOUT_MS = 4000;
+const STUN_TRANSACTION_ID = '0102030405060708090a0b0c';
 
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
@@ -32,7 +33,13 @@ function range_bounds(value) { let parts = split(substr(value, 6), '-'); return 
 function header_end(raw, start) { let found = index(substr(raw, start), '\r\n\r\n'); return found < 0 ? -1 : start + found; }
 function header_map(raw, start, end) {
 	let result = {}, lines = split(substr(raw, start, end - start), '\r\n');
-	for (let i = 1; i < length(lines); i++) { let colon = index(lines[i], ':'); if (colon > 0) result[lower(trim(substr(lines[i], 0, colon)))] = trim(substr(lines[i], colon + 1)); }
+	for (let i = 1; i < length(lines); i++) {
+		let colon = index(lines[i], ':');
+		if (colon <= 0 || match(trim(substr(lines[i], 0, colon)), /^[A-Za-z0-9-]+$/) == null) return null;
+		let key = lower(trim(substr(lines[i], 0, colon))), value = trim(substr(lines[i], colon + 1));
+		if (!length(value) || result[key] != null) return null;
+		result[key] = value;
+	}
 	return result;
 }
 function status_line(raw, start, end) {
@@ -43,10 +50,22 @@ function chunked_body(raw, start, limit) {
 	let offset = start, body = '';
 	while (offset < length(raw)) {
 		let lineEnd = index(substr(raw, offset), '\r\n'); if (lineEnd < 0) return null;
-		let line = trim(substr(raw, offset, lineEnd)), semi = index(line, ';'); if (semi >= 0) line = substr(line, 0, semi);
+		let line = trim(substr(raw, offset, lineEnd)), semi = index(line, ';');
+		if (semi >= 0) {
+			let extension = substr(line, semi + 1);
+			if (match(extension, /^[ \t]*[A-Za-z0-9!#$%&'*+.^_`|~-]+(?:=[A-Za-z0-9!#$%&'*+.^_`|~-]+)?(?:;[ \t]*[A-Za-z0-9!#$%&'*+.^_`|~-]+(?:=[A-Za-z0-9!#$%&'*+.^_`|~-]+)?)*[ \t]*$/) == null) return null;
+			line = substr(line, 0, semi);
+		}
 		if (!match(line, /^[0-9a-fA-F]+$/)) return null;
 		let size = hex(line), data = offset + lineEnd + 2;
-		if (size == 0) return data + 2 <= length(raw) && substr(raw, data, 2) == '\r\n' ? { body, complete: true } : null;
+		if (size == 0) {
+			if (substr(raw, data, 2) == '\r\n') return { body, complete: true };
+			let trailerEnd = index(substr(raw, data), '\r\n\r\n');
+			if (trailerEnd < 0) return null;
+			let trailers = substr(raw, data, trailerEnd);
+			if (length(trailers) && match(trailers, /^([A-Za-z0-9-]+:[ \t]*[^\r\n]+\r\n)*[A-Za-z0-9-]+:[ \t]*[^\r\n]+$/) == null) return null;
+			return { body, complete: true };
+		}
 		if (data + size + 2 > length(raw) || substr(raw, data + size, 2) != '\r\n') return null;
 		if (length(body) < limit) body += substr(raw, data, limit - length(body) < size ? limit - length(body) : size);
 		offset = data + size + 2;
@@ -63,7 +82,8 @@ function marker_evidence(body, settings) {
 function content_range_ok(value, expected) {
 	if (!expected) return true;
 	let bounds = range_bounds(expected), parsed = match(value || '', /^bytes ([0-9]+)-([0-9]+)\/([0-9]+|\*)$/);
-	return bounds != null && parsed != null && +parsed[1] == bounds.start && +parsed[2] <= bounds.end;
+	return bounds != null && parsed != null && +parsed[1] == bounds.start && +parsed[2] == bounds.end &&
+		(parsed[3] == '*' || +parsed[3] >= bounds.end + 1);
 }
 
 export const scanner_probe_parse_http = function(raw, startedAt, finishedAt, settings) {
@@ -72,23 +92,28 @@ export const scanner_probe_parse_http = function(raw, startedAt, finishedAt, set
 	for (let interim = 0; interim < 8; interim++) {
 		let end = header_end(raw, offset); if (end < 0) return indeterminate('HTTP response headers are incomplete.', { stage: 'parse' });
 		status = status_line(raw, offset, end); if (status == null) return indeterminate('HTTP response status is invalid.', { stage: 'parse' });
-		headers = header_map(raw, offset, end); bodyStart = end + 4;
+		headers = header_map(raw, offset, end); if (headers == null) return indeterminate('HTTP response headers are invalid.', { stage: 'parse' }); bodyStart = end + 4;
 		if (status < 200 && status != 101) { offset = bodyStart; continue; } break;
 	}
 	if (status == null || status < 200) return indeterminate('HTTP response has no final status.', { stage: 'parse' });
 	let limit = body_limit(settings), body = '', complete = false, capped = false;
 	if (status == 204 || status == 205 || status == 304) complete = true;
-	else if (index(lower(headers['transfer-encoding'] || ''), 'chunked') >= 0) { let parsed = chunked_body(raw, bodyStart, limit); if (parsed == null) return indeterminate('Chunked HTTP response is truncated.', { stage: 'parse' }); body = parsed.body; complete = true; capped = length(body) >= limit; }
+	else if (headers['transfer-encoding'] != null) {
+		if (headers['transfer-encoding'] != 'chunked' || headers['content-length'] != null) return indeterminate('HTTP framing is invalid.', { stage: 'parse' });
+		let parsed = chunked_body(raw, bodyStart, limit); if (parsed == null) return indeterminate('Chunked HTTP response is truncated.', { stage: 'parse' }); body = parsed.body; complete = true; capped = length(body) >= limit;
+	}
 	else {
+		if (headers['content-length'] != null && match(headers['content-length'], /^[0-9]+$/) == null) return indeterminate('HTTP Content-Length is invalid.', { stage: 'parse' });
 		let declared = decimal(headers['content-length']), available = length(raw) - bodyStart;
 		if (declared != null && available < declared && declared <= limit) return indeterminate('HTTP response body is truncated.', { stage: 'parse' });
 		let wanted = declared == null ? available : (declared < available ? declared : available);
 		body = substr(raw, bodyStart, wanted < limit ? wanted : limit); capped = wanted > limit || length(body) >= limit; complete = declared == null || available >= declared || capped;
 	}
 	let elapsed = finishedAt - startedAt, range = expected_range(settings), markers = marker_evidence(body, settings);
+	if (range && (!headers['content-range'] || !content_range_ok(headers['content-range'], range))) return indeterminate('HTTP Content-Range is not the requested canonical range.', { stage: 'parse' });
 	return { ok: true, observation: { statusCode: status, bytesReceived: length(body), body, responseBytes: length(raw), latencyMs: elapsed,
 		kbps: elapsed > 0 ? round_one((length(body) * 8.0) / elapsed) : 0, complete, truncated: !complete, capped, range,
-		rangeSatisfied: content_range_ok(headers['content-range'], range), contentLength: decimal(headers['content-length']),
+		rangeSatisfied: !range || (headers['content-range'] != null && content_range_ok(headers['content-range'], range)), contentLength: decimal(headers['content-length']),
 		transferEncoding: headers['transfer-encoding'] || null, marker: length(markers) ? markers[0].name : '', markerEvidence: markers, tlsStatus: 'success' } };
 };
 
@@ -99,6 +124,7 @@ export const scanner_probe_parse_stun = function(raw, startedAt, finishedAt, set
 	if (u16(raw, 0) != (expectedType == null ? 0x0101 : expectedType) || (ord(raw, 0) & 0xc0) != 0 || u32(raw, 4) != 0x2112a442) return indeterminate('STUN response header is invalid.', { stage: 'parse' });
 	if (string(settings?.transactionId) && length(settings.transactionId) == 24)
 		for (let i = 0; i < 12; i++) if (ord(raw, 8 + i) != hex(substr(settings.transactionId, i * 2, 2))) return indeterminate('STUN transaction identity is invalid.', { stage: 'parse' });
+	else if (settings?.transactionId != null) return indeterminate('STUN transaction identity is invalid.', { stage: 'parse' });
 	let size = u16(raw, 2); if (size > length(raw) - 20 || size > STUN_READ_LIMIT - 20) return indeterminate('STUN response is truncated.', { stage: 'parse' });
 	for (let offset = 20; offset + 4 <= 20 + size;) { let kind = u16(raw, offset), lengthValue = u16(raw, offset + 2), value = offset + 4; if (value + lengthValue > length(raw)) return indeterminate('STUN attribute is truncated.', { stage: 'parse' }); if (kind == 0x0020 && lengthValue >= 8 && ord(raw, value + 1) == 1) { let bytes = []; for (let i = 0; i < 4; i++) push(bytes, ord(raw, value + 4 + i) ^ [0x21, 0x12, 0xa4, 0x42][i]); return { ok: true, observation: { transport: 'stun', status: 'success', latencyMs: finishedAt - startedAt, attempts: settings?.attempts || 1, mappedFamily: 'IPv4', mappedAddress: bytes[0] + '.' + bytes[1] + '.' + bytes[2] + '.' + bytes[3], mappedPort: u16(raw, value + 2) ^ 0x2112 } }; } offset += 4 + ((lengthValue + 3) & ~3); }
 	return indeterminate('STUN response has no XOR-mapped IPv4 address.', { stage: 'parse' });
@@ -125,12 +151,12 @@ export const scanner_probe_execute = function(descriptor) {
 		for (let family in families) {
 			let timeoutMs = bounded_timeout(request, TLS_TIMEOUT_MS);
 			if (timeoutMs == null) return failure('EDEPENDENCY', 'Probe deadline has expired.', { stage: 'deadline' });
-			let probe = { transport: 'tls', host: request.host, addressFamily: family, port: request.port, timeoutMs };
+			let probe = { transport: 'tls', mode: request.mode, retries: request.retries, host: request.host, addressFamily: family, port: request.port, portRange: request.portRange, tls: request.tls, timeoutMs };
 			result = native_call(descriptor, probe); if (!result.ok) { observations[family] = { status: 'unavailable', available: false, latencyMs: 0, error: 'TRANSPORT' }; continue; }
 			raw = native_output(result); if (raw == null || result.data.complete !== true) { observations[family] = { status: 'unavailable', available: false, latencyMs: 0, error: 'INDETERMINATE' }; continue; }
 			if (result.data.signal != 0 || result.data.exitCode != 0) { observations[family] = { status: 'failed', available: true, latencyMs: 0, error: 'CONNECT_ERR' }; continue; }
-			let parsed = scanner_probe_parse_http(raw, now, int(time() * 1000), { readLimitBytes: TLS_READ_LIMIT });
-			observations[family] = parsed.ok ? { status: 'open', available: true, latencyMs: parsed.observation.latencyMs, error: null } : { status: 'failed', available: true, latencyMs: 0, error: 'PARSE_ERR' };
+			let parsed = scanner_probe_parse_http(raw, result.data.startedAt, result.data.finishedAt, { readLimitBytes: TLS_READ_LIMIT });
+			observations[family] = parsed.ok ? { status: 'open', available: true, latencyMs: parsed.observation.latencyMs, startedAt: result.data.startedAt, finishedAt: result.data.finishedAt, error: null } : { status: 'failed', available: true, latencyMs: 0, startedAt: result.data.startedAt, finishedAt: result.data.finishedAt, error: 'PARSE_ERR' };
 		}
 		return { ok: true, observations: [{ protocol: 'tcp', ipv4: observations.ipv4 || { status: 'skipped', available: false, latencyMs: 0, error: 'NOT_REQUESTED' }, ipv6: observations.ipv6 || { status: 'skipped', available: false, latencyMs: 0, error: 'NOT_REQUESTED' } }] };
 	}
@@ -139,15 +165,14 @@ export const scanner_probe_execute = function(descriptor) {
 		for (let item in request.hosts) {
 			let timeoutMs = bounded_timeout(request, BODY_TIMEOUT_MS);
 			if (timeoutMs == null) return failure('EDEPENDENCY', 'Probe deadline has expired.', { stage: 'deadline' });
-			let probe = { transport: 'tls+body', host: item.host, addressFamily: item.addressFamily, port: item.port, url: item.url, body: request.body, timeoutMs };
+			let probe = { transport: 'tls+body', mode: request.mode, retries: request.retries, host: item.host, addressFamily: item.addressFamily, port: item.port, portRange: item.portRange, url: item.url, tls: request.tls, body: request.body, timeoutMs };
 			result = native_call(descriptor, probe);
-			if (!result.ok) { transportFailures++; push(hosts, { host: item.host, addressFamily: item.addressFamily, tls: { status: 'failed', error: 'TRANSPORT', readBytes: 0, readLimitBytes: TLS_READ_LIMIT, latencyMs: 0 }, body: null }); continue; }
-			raw = native_output(result); if (raw == null || result.data.complete !== true || result.data.signal != 0 || result.data.exitCode != 0) { push(hosts, { host: item.host, addressFamily: item.addressFamily, tls: { status: 'failed', error: result.data.complete === true ? 'CONNECT_ERR' : 'INDETERMINATE', readBytes: 0, readLimitBytes: TLS_READ_LIMIT, latencyMs: 0 }, body: null }); continue; }
+			if (!result.ok) { return result; }
+			raw = native_output(result); if (raw == null || result.data.complete !== true || result.data.signal != 0 || result.data.exitCode != 0) return failure('EDEPENDENCY', 'HTTP child outcome is not usable.', { stage: 'transport' });
 			let parsed = scanner_probe_parse_http(raw, now, int(time() * 1000), request.body);
 			if (!parsed.ok) { push(hosts, { host: item.host, addressFamily: item.addressFamily, tls: { status: 'success', readBytes: TLS_READ_LIMIT, readLimitBytes: TLS_READ_LIMIT, latencyMs: 0 }, body: { status: 'failed', error: 'PARSE_ERR', statusCode: 0, bytesReceived: 0, rangeSatisfied: false, complete: false } }); continue; }
-			push(hosts, { host: item.host, addressFamily: item.addressFamily, tls: { status: 'success', readBytes: TLS_READ_LIMIT, readLimitBytes: TLS_READ_LIMIT, latencyMs: parsed.observation.latencyMs }, body: parsed.observation });
+			push(hosts, { host: item.host, addressFamily: item.addressFamily, startedAt: result.data.startedAt, finishedAt: result.data.finishedAt, tls: { status: 'success', readBytes: TLS_READ_LIMIT, readLimitBytes: TLS_READ_LIMIT, latencyMs: parsed.observation.latencyMs }, body: parsed.observation });
 		}
-		if (transportFailures == length(request.hosts)) return failure('EDEPENDENCY', 'Probe transport is unavailable.', { stage: 'transport' });
 		return { ok: true, observations: [{ hosts }] };
 	}
 	if (request.transport == 'stun') {
@@ -155,9 +180,10 @@ export const scanner_probe_execute = function(descriptor) {
 		for (attempts = 1; attempts <= request.retries; attempts++) {
 			let timeoutMs = bounded_timeout(request, STUN_TIMEOUT_MS);
 			if (timeoutMs == null) return failure('EDEPENDENCY', 'Probe deadline has expired.', { stage: 'deadline' });
-			result = native_call(descriptor, { transport: 'stun', host: request.host, addressFamily: request.addressFamily, port: request.port, timeoutMs }); if (!result.ok) continue;
-			raw = native_output(result); if (raw == null || result.data.complete !== true || result.data.signal != 0 || result.data.exitCode != 0) continue;
-			let parsed = scanner_probe_parse_stun(raw, now, int(time() * 1000), { attempts }, 0x0101); if (parsed.ok) return { ok: true, observations: [parsed.observation] };
+			result = native_call(descriptor, { transport: 'stun', host: request.host, addressFamily: request.addressFamily, port: request.port, portRange: request.portRange, transactionId: request.transactionId || STUN_TRANSACTION_ID, timeoutMs }); if (!result.ok) return result;
+			raw = native_output(result); if (raw == null || result.data.complete !== true || result.data.signal != 0 || result.data.exitCode != 0) return failure('EDEPENDENCY', 'STUN child outcome is not usable.', { stage: 'transport' });
+			let parsed = scanner_probe_parse_stun(raw, now, int(time() * 1000), { attempts, transactionId: request.transactionId || STUN_TRANSACTION_ID }, 0x0101); if (parsed.ok) return { ok: true, observations: [parsed.observation] };
+			if (attempts == request.retries) return parsed;
 		}
 		return { ok: true, observations: [{ transport: 'stun', status: 'timeout', attempts: request.retries, latencyMs: STUN_TIMEOUT_MS, error: 'TIMEOUT' }] };
 	}
