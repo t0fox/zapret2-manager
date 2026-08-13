@@ -5,7 +5,7 @@ type: contract
 status: normative
 authority: approved-spec
 updated: 2026-08-13
-publish: false
+publish: true
 tags: [contract, canonical-json]
 ---
 # Z2M Canonical JSON v1

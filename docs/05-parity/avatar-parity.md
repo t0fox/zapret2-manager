@@ -5,7 +5,7 @@ type: parity
 status: normative
 authority: approved-spec
 updated: 2026-08-13
-publish: false
+publish: true
 tags: [parity, avatar, contract]
 ---
 # Avatar Behavioral Parity Contract

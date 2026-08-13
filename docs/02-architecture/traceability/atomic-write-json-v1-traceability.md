@@ -5,7 +5,7 @@ type: architecture
 status: normative
 authority: approved-spec
 updated: 2026-08-13
-publish: false
+publish: true
 tags: [atomic-write-json, traceability, architecture]
 ---
 # atomic_write_json v1 Traceability
