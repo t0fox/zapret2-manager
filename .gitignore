@@ -8,6 +8,11 @@
 /.claude/
 /docs/superpowers/
 
+# Quartz + docs tooling
+.artifacts/
+node_modules/
+tools/docs-site/quartz/
+
 # Native/build outputs
 *.o
 *.so
