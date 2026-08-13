@@ -26,7 +26,7 @@
       "properties": {
         "protocolVersion": { "const": 1 },
         "requestId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]+$" },
-        "operation": { "type": "string", "enum": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "atomic_write_json_revision", "mkdir_private", "sha256_regular", "rename_owned", "unlink_owned", "lock_acquire", "lock_release", "lock_status", "scanner_probe"] },
+        "operation": { "type": "string", "enum": ["stat_regular", "read_regular", "atomic_write", "atomic_write_json", "atomic_write_json_revision", "mkdir_private", "sha256_regular", "rename_owned", "unlink_owned", "lock_acquire", "lock_release", "lock_status", "scanner_probe", "ownership_create", "ownership_ready", "ownership_delete", "ownership_status"] },
         "arguments": { "type": "object" }
       }
     },
