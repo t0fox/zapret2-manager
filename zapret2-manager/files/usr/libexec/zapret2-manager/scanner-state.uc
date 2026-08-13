@@ -75,7 +75,11 @@ function publish_json(id, suffix, value, expected) {
 	return result.ok;
 }
 function publish_revision(id, suffix, value, revision) {
-	if (test_mode()) return atomic(path(id, suffix), value);
+	if (test_mode()) {
+		let current = read_json(path(id, suffix));
+		if (revision < 0 ? current != null : (current == null || current.revision != revision)) return false;
+		return atomic(path(id, suffix), value);
+	}
 	let made = native.mkdir_private('runtime', 'scanner', true);
 	if (!made.ok) return false;
 	if (id != '') { made = native.mkdir_private('runtime', 'scanner/' + id, true); if (!made.ok) return false; }
@@ -206,14 +210,14 @@ export const scanner_state_save = function(input) {
 export const scanner_control_load = function(id) {
 	if (!safe_id(id)) return error('EINPUT', 'Scanner id is invalid.');
 	let value = read_control(id);
-	return value != null && value.id == id ? { ok: true, control: value } : { ok: true, control: { id, revision: 0, stopRequested: false, updatedAt: time() } };
+	return value != null && value.id == id ? { ok: true, control: value, present: true } : { ok: true, present: false, control: { id, revision: 0, stopRequested: false, updatedAt: time() } };
 };
 
 export const scanner_control_request = function(id, command, input) {
 	let loaded = scanner_state_load(id);
 	if (!loaded.ok) return loaded;
 	if (command != 'stop') return error('EINPUT', 'Only stop control is supported.');
-	let old = scanner_control_load(id).control;
+	let loadedControl = scanner_control_load(id), old = loadedControl.control;
 	if (old.stopRequested === true) {
 		if (!object(input) || (input.expectedRevision != loaded.state.revision && input.expectedRevision != old.revision))
 			return error('ECONFLICT', 'Scanner control revision is stale.', { revision: loaded.state.revision });
@@ -221,20 +225,28 @@ export const scanner_control_request = function(id, command, input) {
 	}
 	if (loaded.state.status != 'running' && loaded.state.status != 'idle') {
 		let terminal = { id, revision: (integer(old.revision) ? old.revision : 0) + 1, stopRequested: true, updatedAt: time(), terminal: true };
-		let publishedTerminal = publish_json(id, '.control.json', terminal, test_mode() ? null : native_digest(id, '.control.json'));
-		return publishedTerminal ? { ok: true, control: terminal, result: loaded.state, idempotent: true } : error('ECONFLICT', 'Scanner terminal control changed.');
+		let expected = loadedControl.present ? old.revision : -1;
+		let publishedTerminal = publish_revision(id, '.control.json', terminal, expected);
+		if (publishedTerminal) return { ok: true, control: terminal, result: loaded.state, idempotent: true };
+		let retry = scanner_control_load(id);
+		if (retry.ok && retry.control.stopRequested === true) return { ok: true, control: retry.control, result: loaded.state, idempotent: true };
+		return error('ECONFLICT', 'Scanner terminal control changed.');
 	}
 	if (!object(input) || input.expectedRevision != loaded.state.revision)
 		return error('ECONFLICT', 'Scanner control revision is stale.', { revision: loaded.state.revision });
 	let control = { id, revision: (integer(old.revision) ? old.revision : 0) + 1, stopRequested: true, updatedAt: time() };
-	return (test_mode() ? publish_json(id, '.control.json', control, null) : publish_revision(id, '.control.json', control, old.revision)) ? { ok: true, control } : error('ECONFLICT', 'Scanner control revision is stale.');
+	let expected = loadedControl.present ? old.revision : -1;
+	if (publish_revision(id, '.control.json', control, expected)) return { ok: true, control };
+	let retry = scanner_control_load(id);
+	if (retry.ok && retry.control.stopRequested === true) return { ok: true, control: retry.control, idempotent: true };
+	return error('ECONFLICT', 'Scanner control revision is stale.');
 };
 
 export const scanner_state_claim = function(id, identity, continuation) {
 	if (!safe_id(id) || !object(identity) || !integer(identity.pid) || !integer(identity.startTime)) return error('EINPUT', 'Scanner worker identity is invalid.');
-	let active = test_mode() ? read_json(path('', ACTIVE)) : native_read('', ACTIVE);
+	let active = test_mode() ? read_json(path('', ACTIVE)) : native_read('', ACTIVE), availableRevision = null;
 	if (active != null) {
-		if (active.released === true) active = null;
+		if (active.absent === true || active.released === true) { availableRevision = integer(active.revision) ? active.revision : null; active = null; }
 	}
 	if (active != null) {
 		if (!safe_id(active.id) || !integer(active.pid) || !integer(active.startTime)) return error('EIO', 'Scanner active marker is malformed.');
@@ -246,19 +258,20 @@ export const scanner_state_claim = function(id, identity, continuation) {
 		if (!test_mode() && !staleDigest) return error('ESTALE', 'Scanner active marker cannot be reclaimed without a verified digest.');
 		active._staleDigest = staleDigest;
 	}
-	let marker = { id, pid: identity.pid, startTime: identity.startTime, claimedAt: time(), revision: active != null && integer(active.revision) ? active.revision + 1 : 1 };
-	let expected = active != null && integer(active.revision) ? active.revision : -1;
-	let published = test_mode() ? publish_json('', ACTIVE, marker, null) : publish_revision('', ACTIVE, marker, expected);
+	let marker = { id, pid: identity.pid, startTime: identity.startTime, claimedAt: time(), revision: availableRevision != null ? availableRevision + 1 : (active != null && integer(active.revision) ? active.revision + 1 : 1) };
+	let expected = availableRevision != null ? availableRevision : (active != null && integer(active.revision) ? active.revision : -1);
+	let published = publish_revision('', ACTIVE, marker, expected);
 	return published ? { ok: true } : error('EBUSY', 'Scanner active marker could not be claimed.');
 };
 
 export const scanner_state_release = function(id, identity) {
 	let active = test_mode() ? read_json(path('', ACTIVE)) : native_read('', ACTIVE);
 	if (active == null) return { ok: true };
+	if (active.absent === true || active.released === true) return { ok: true, idempotent: true };
 	if (active.id != id || active.pid != identity?.pid || active.startTime != identity?.startTime) return error('ESTALE', 'Scanner active marker identity changed.');
 	if (!test_mode()) {
 		if (!integer(active.revision)) return error('EDEPENDENCY', 'Scanner active marker revision is unavailable.');
-		return publish_revision('', ACTIVE, { released: true, releasedAt: time(), revision: active.revision + 1 }, active.revision)
+		return publish_revision('', ACTIVE, { absent: true, releasedAt: time(), revision: active.revision + 1 }, active.revision)
 			? { ok: true, retained: true } : error('EDEPENDENCY', 'Scanner active marker release is uncertain.');
 	}
 	try { unlink(path('', ACTIVE)); } catch (e) { return error('EIO', 'Scanner active marker could not be removed.'); }

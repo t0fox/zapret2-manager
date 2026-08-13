@@ -165,3 +165,80 @@ The second scoped review follow-up closed the remaining compiler findings:
 - Native package suites (`package-helper` and `avatar-strategy-package`): 46
   passed, 0 failed.
 - `git diff --check`: clean.
+
+## Fix Round 3
+
+The third review round closes the scanner lifecycle, fixed-probe, recovery, and
+request-boundary findings without expanding Task 6 scope:
+
+- Claim publication now records the claimed identity before the first
+  checkpoint. If that checkpoint fails before a record exists, the worker
+  releases the marker directly from the retained claim identity, so no active
+  scan is leaked.
+- Active release is an atomic revision-checked transition to an explicit
+  `absent` marker in the production native store and an unlink in the test
+  store. Absent/released markers are idempotent and the next claim consumes the
+  revision. Two sequential claims are covered.
+- Stop control uses compare-publish with `allowCreate=true` and expected absent
+  revision `-1` for first stop admission. Terminal stop retries reread the
+  control and return the published terminal control idempotently.
+- The production probe executor no longer fabricates status, body size,
+  latency, mapped family, or success from an exit code. It uses only the fixed
+  packaged `/usr/bin/ncat` primitive, parses actual HTTP response status/body
+  bytes and elapsed time, parses STUN XOR-mapped IPv4 response data, enforces
+  the outer descriptor deadline plus remaining per-host time, rejects caller
+  executable/raw/path fields, and returns infrastructure/indeterminate for
+  missing, malformed, or incomplete observations.
+- Recovery and terminal finish merge evidence instead of replacing it. Active
+  activation identity, candidate cleanup, session cleanup, lock release, and
+  reconciliation evidence remain available together when recovery is uncertain.
+- CLI request validation checks every fixed private ancestor for directory,
+  ownership, mode, and no-symlink properties before opening the leaf, while the
+  leaf remains no-follow and identity-checked.
+- Runtime test seams remain gated by `Z2M_SCANNER_SERVER_TEST`; no permanent
+  config, Strategy state, Task 5 restoration, Task 7 behavior, raw command,
+  DNS/TG/router/LuCI/Orchestra behavior was added.
+
+## Fix Round 3 Verification
+
+RED evidence:
+
+- The new claim-release, sequential-claim, real-observation parser, deadline,
+  and evidence-retention tests failed against the round-2 implementation.
+  The initial focused run also confirmed the environment lacked ucode on the
+  Windows host; the pinned interpreter was built in WSL before rerunning.
+
+GREEN and scope checks:
+
+- Focused production-shaped Scanner worker suite under pinned ucode: **27
+  passed, 0 failed**.
+- `git diff --check`: clean.
+- JavaScript syntax check for the changed test file: passed.
+- Static forbidden-surface audit: changed Scanner state/worker/CLI/executor
+  contain no `eval`, `system`, `nft flush`, Strategy state writer,
+  Orchestra/DNS/LuCI/router/TG path, or caller-provided executable/raw argv
+  execution.
+- A broad product run was attempted under pinned ucode. It exceeded the
+  120-second command bound. Isolated pre-existing Scanner model/target tests
+  still fail on their existing invalid generated ucode call and null
+  comparison; those files are unchanged. The full product sweep therefore is
+  not claimed as complete.
+
+## Changed Files Round 3
+
+- `zapret2-manager/files/usr/libexec/zapret2-manager/scanner-state.uc`
+- `zapret2-manager/files/usr/libexec/zapret2-manager/scanner-worker.uc`
+- `zapret2-manager/files/usr/libexec/zapret2-manager/scanner-probe-executor.uc`
+- `zapret2-manager/files/usr/libexec/zapret2-manager/scanner-cli.uc`
+- `tests/product/avatar-strategy-scanner-worker.test.mjs`
+
+## Concerns Round 3
+
+- Physical-router network acceptance was not available in this workspace. The
+  fixed executor is tested through strict production-shaped parser and
+  deadline behavior, but live TLS/STUN reachability remains deployment
+  dependent.
+- The broad product suite remains time-bound and has unrelated baseline
+  failures in `avatar-strategy-scanner-model.test.mjs` and
+  `avatar-strategy-scanner-integration.test.mjs`; no changes were made to
+  those failing modules.

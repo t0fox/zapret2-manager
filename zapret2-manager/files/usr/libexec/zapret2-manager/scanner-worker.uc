@@ -75,14 +75,14 @@ function cleanup_verified(value) {
 		&& value.nfqueueRemoved == true && value.hostlistRemoved == true && value.temporaryFilesRemoved == true
 		&& value.ownedOnly == true;
 }
-function probe_candidate(candidate, plan, baseline, seams) {
+function probe_candidate(candidate, plan, baseline, seams, outerDeadline) {
 	let raw = seam(seams, 'probe');
 	if (type(raw) == 'function') raw = raw(candidate, plan);
 	if (raw == null) {
-		let now = int(time() * 1000);
+		let now = int(time() * 1000), end = outerDeadline < now + PROBE_BUDGET_MS ? outerDeadline : now + PROBE_BUDGET_MS;
 		let adapted = candidate.protocol == 'udp'
-			? scanner_probe_adapter_udp(candidate, { host: plan.targetProfile.primaryHost, port: 443 }, { nowMs: now, deadlineMs: now + PROBE_BUDGET_MS })
-			: scanner_probe_adapter_tcp(candidate, plan.targetProfile, 'ipv4', { nowMs: now, deadlineMs: now + PROBE_BUDGET_MS, mode: plan.request.mode });
+			? scanner_probe_adapter_udp(candidate, { host: plan.targetProfile.primaryHost, port: 443 }, { nowMs: now, deadlineMs: end })
+			: scanner_probe_adapter_tcp(candidate, plan.targetProfile, 'ipv4', { nowMs: now, deadlineMs: end, mode: plan.request.mode });
 		if (!adapted.ok) return scanner_candidate_verdict({ infrastructureFailure: true, error: adapted.error?.message }, []);
 		let executed = seam(seams, 'executor') || scanner_probe_execute(adapted);
 		if (!executed.ok) return scanner_candidate_verdict({ infrastructureFailure: true, error: executed.error?.code || 'PROBE_DEPENDENCY' }, []);
@@ -94,8 +94,14 @@ function probe_candidate(candidate, plan, baseline, seams) {
 }
 function result_identity(value) { return state.scanner_state_digest({ candidateId: value.candidateId, ordinal: value.ordinal, planDigest: value.planDigest, verdict: value.verdict, success: value.success, score: value.score, reason: value.reason, evidence: value.evidence }); }
 function cleanup_attempt(attempt) { if (!attempt) return { ok: true, evidence: null }; try { return scanner_candidate_cleanup(attempt); } catch (e) { return { ok: false, error: e }; } }
+function merge_recovery(existing, update) {
+	let out = object(existing) ? copy(existing) : {};
+	for (let key in update || {}) if (update[key] != null) out[key] = copy(update[key]);
+	if (existing?.state == 'uncertain' || update?.state == 'uncertain') out.state = 'uncertain';
+	return out;
+}
 function recover(record, seams, context, message) {
-	let recovery = { state: 'uncertain', message, candidateCleanup: null, sessionCleanup: null, lockRelease: null, activeRelease: null };
+	let recovery = merge_recovery(record.recovery, { state: 'uncertain', message, activation: context?.attempt?.activation || null, candidateCleanup: null, sessionCleanup: null, lockRelease: null, activeRelease: null });
 	if (context?.attempt) recovery.candidateCleanup = cleanup_attempt(context.attempt);
 	if (context?.session) { try { recovery.sessionCleanup = scanner_session_finish(context.session, seam(seams, 'transient')); recovery.lockRelease = recovery.sessionCleanup.lockRelease; } catch (e) { recovery.sessionCleanup = { ok: false, error: e }; recovery.lockRelease = recovery.sessionCleanup; } }
 	if (context?.record?.id && context?.record?.worker) { try { recovery.activeRelease = state.scanner_state_release(context.record.id, context.record.worker); } catch (e) { recovery.activeRelease = { ok: false, error: e }; } }
@@ -108,10 +114,10 @@ function finish(record, session, seams, transition, message) {
 	if (lifecycle) lifecycle.sessionCleanup = cleanup;
 	let reconciliation = seam(seams, 'reconcile');
 	if (!cleanup.ok || record.recovery?.state == 'uncertain' || reconciliation?.ok !== true || reconciliation?.recovery?.state != 'verified') {
-		record.status = 'error'; record.phase = 'recovery'; record.recovery = { state: 'uncertain', sessionCleanup: cleanup, reconciliation }; record.error = message || 'Scanner recovery is uncertain.';
+		record.status = 'error'; record.phase = 'recovery'; record.recovery = merge_recovery(record.recovery, { state: 'uncertain', sessionCleanup: cleanup, reconciliation }); record.error = message || 'Scanner recovery is uncertain.';
 	} else {
 		record.status = transition == 'cancelled' ? 'cancelled' : (transition == 'completed' ? 'completed' : 'error');
-		record.phase = record.status; record.recovery = { state: 'verified' };
+		record.phase = record.status; record.recovery = merge_recovery(record.recovery, { state: 'verified' });
 		if (message != null) record.error = message;
 	}
 	record.currentCandidate = null; record.finishedAt = time(); record.heartbeatAt = time();
@@ -119,7 +125,7 @@ function finish(record, session, seams, transition, message) {
 	let released = state.scanner_state_release(record.id, record.worker);
 	if (lifecycle) lifecycle.activeRelease = released;
 	if (!released.ok) {
-		record.status = 'error'; record.phase = 'recovery'; record.recovery = { state: 'uncertain', sessionCleanup: cleanup, activeRelease: released }; record.error = 'Scanner active marker release is uncertain.';
+		record.status = 'error'; record.phase = 'recovery'; record.recovery = merge_recovery(record.recovery, { state: 'uncertain', sessionCleanup: cleanup, activeRelease: released }); record.error = 'Scanner active marker release is uncertain.';
 		checkpoint(record, 'terminal-recovery');
 		return { ok: false, state: record, cleanup, recovery: record.recovery };
 	}
@@ -172,7 +178,7 @@ function scanner_worker_run_impl(input, seams) {
 	if (!prepared.ok) return prepared;
 	let req = prepared.value || prepared.request, plan = input.resume === true && input.resumePlan != null ? input.resumePlan : prepared.plan, identity = self_identity(seams);
 	if (!integer(identity.pid) || !integer(identity.startTime)) return error('EDEPENDENCY', 'Scanner worker identity is unavailable.');
-	lifecycle = { seams, stage: 'start', session: null, attempt: null, record: null };
+	lifecycle = { seams, stage: 'start', session: null, attempt: null, record: null, claimed: null };
 	let record = input.record || {
 		schema: 1, id: null, revision: 0, request: copy(req), requestDigest: null,
 		catalogDigest: plan.catalogDigest, compilerDigest: plan.compilerDigest, planDigest: null,
@@ -188,6 +194,7 @@ function scanner_worker_run_impl(input, seams) {
 	if (!digest(record.requestDigest) || !digest(record.planDigest)) return error('EDEPENDENCY', 'Scanner identity digests are unavailable.');
 	let claimed = state.scanner_state_claim(record.id || 'pending', identity, input.resume === true);
 	if (!claimed.ok) return claimed;
+	lifecycle.claimed = { id: record.id, identity: copy(identity) };
 	record.worker = { pid: identity.pid, startTime: identity.startTime, owner: 'scanner/worker', generation: integer(identity.generation) ? identity.generation : 0 };
 	record.status = 'running'; record.startedAt = record.startedAt || time(); record.recovery = { state: 'not_required' }; phase(record, 'validating', null);
 	checkpoint(record, 'claim');
@@ -196,9 +203,9 @@ function scanner_worker_run_impl(input, seams) {
 	let session = started.session, transient = seam(seams, 'transient'); lifecycle.session = session;
 	phase(record, 'snapshotting', null); checkpoint(record, 'snapshot');
 	let baseline = seam(seams, 'baseline');
-	let probeStarted = int(time() * 1000);
+	let probeStarted = int(time() * 1000), probeDeadline = probeStarted + PROBE_BUDGET_MS;
 	if (baseline == null) {
-		let adapted = scanner_probe_adapter_baseline({ ...plan.targetProfile, protocol: req.protocol }, { nowMs: probeStarted, deadlineMs: deadline(probeStarted) });
+		let adapted = scanner_probe_adapter_baseline({ ...plan.targetProfile, protocol: req.protocol }, { nowMs: probeStarted, deadlineMs: probeDeadline });
 		if (!adapted.ok) return finish(record, session, seams, 'error', 'Scanner baseline adapter failed.');
 		let executed = seam(seams, 'executor') || scanner_probe_execute(adapted);
 		if (!executed.ok) return finish(record, session, seams, 'error', 'Scanner baseline observation is unavailable.');
@@ -218,10 +225,10 @@ function scanner_worker_run_impl(input, seams) {
 		lifecycle.attempt = activated.attempt;
 		if (seams?.throwAfterActivation === true) { let failure = null; failure(); }
 		phase(record, 'probing', candidate.scannerId); checkpoint(record, 'probing');
-		let verdict = probe_candidate(candidate, plan, baseline, seams);
+		let verdict = probe_candidate(candidate, plan, baseline, seams, probeDeadline);
 		record.heartbeatAt = time(); checkpoint(record, 'probe');
 		let cleaned = scanner_candidate_cleanup(activated.attempt);
-		if (!cleaned.ok) { record.counts.infrastructure++; record.recovery = { state: 'uncertain', evidence: cleaned }; return finish(record, session, seams, 'error', 'Candidate cleanup was not verified.'); }
+		if (!cleaned.ok) { record.counts.infrastructure++; record.recovery = merge_recovery(record.recovery, { state: 'uncertain', activation: activated.attempt.activation, candidateCleanup: cleaned, evidence: cleaned }); return finish(record, session, seams, 'error', 'Candidate cleanup was not verified.'); }
 		let result = { candidateId: candidate.scannerId, ordinal: candidate.ordinal, verdict: verdict.verdict, success: verdict.success === true, score: verdict.success === true ? 1 : 0, reason: verdict.reason, evidence: candidate_evidence(verdict.evidence) };
 		result.planDigest = record.planDigest; result.score = type(verdict.score) == 'double' || type(verdict.score) == 'int' ? verdict.score : result.score; result.evidenceIdentity = result_identity(result); push(record.results, result); if (result.success) record.counts.working++; else if (verdict.verdict == 'infrastructure') record.counts.infrastructure++; else record.counts.failed++;
 		record.progress = i + 1; record.cursor = { nextCandidate: i + 1 }; record.currentCandidate = null; lifecycle.attempt = null; event(record, 'candidate', candidate.scannerId); checkpoint(record, 'candidate-result');
@@ -240,6 +247,11 @@ export const scanner_worker_run = function(input, seams) {
 			let record = loaded.state, context = lifecycle || { record, seams };
 			context.record = record; return recover(record, seams, context, exception?.scanner ? 'Scanner checkpoint publication failed.' : 'Scanner worker lifecycle failed; reconciliation is required.');
 		}
-		return error('EINTERNAL', 'Scanner worker lifecycle failed; state publication is unavailable.', { recovery: { state: 'uncertain' } });
+		let activeRelease = null;
+		try {
+			let claimed = lifecycle?.claimed || (input?.id ? { id: input.id, identity: self_identity(seams) } : null);
+			if (claimed) activeRelease = state.scanner_state_release(claimed.id, claimed.identity);
+		} catch (releaseException) { activeRelease = { ok: false, error: releaseException }; }
+		return error('EINTERNAL', 'Scanner worker lifecycle failed; state publication is unavailable.', { recovery: { state: 'uncertain', activeRelease } });
 	}
 };

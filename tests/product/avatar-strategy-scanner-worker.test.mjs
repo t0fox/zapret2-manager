@@ -11,6 +11,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const STATE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-state.uc');
 const WORKER = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-worker.uc');
 const CLI = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-cli.uc');
+const EXECUTOR = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-probe-executor.uc');
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.split('|') : [];
 const MODULE_PATTERN = ucodeModulePattern(process.env.UCODE_MODULE_PATH, process.env.UCODE_LIBRARY_PATH);
@@ -259,6 +260,31 @@ test('worker lifecycle exceptions publish uncertain infrastructure state and rel
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+test('claim checkpoint failure releases the active marker even before a record exists', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-claim-failure-'));
+  try {
+    const testHooks = hooks();
+    testHooks.publishFailureAt = 'claim';
+    const result = invoke(WORKER, `subject.scanner_worker_run({id:'scan-claim-failure',request:${JSON.stringify(request())}}, ${JSON.stringify(testHooks)})`, storageEnv(root));
+    assert.equal(result.ok, false, JSON.stringify(result));
+    assert.equal(fs.existsSync(path.join(root, 'active.json')), false);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('active release removes the marker so two sequential production-shaped claims succeed', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-claim-reuse-'));
+  try {
+    const env = storageEnv(root);
+    const first = invoke(STATE, `subject.scanner_state_claim('scan-first',{pid:2,startTime:1})`, env);
+    assert.equal(first.ok, true, JSON.stringify(first));
+    const released = invoke(STATE, `subject.scanner_state_release('scan-first',{pid:2,startTime:1})`, env);
+    assert.equal(released.ok, true, JSON.stringify(released));
+    assert.equal(fs.existsSync(path.join(root, 'active.json')), false);
+    const second = invoke(STATE, `subject.scanner_state_claim('scan-second',{pid:3,startTime:2})`, env);
+    assert.equal(second.ok, true, JSON.stringify(second));
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('resume rejects caller-supplied plan identity and malformed checkpoint results', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-resume-authority-'));
   try {
@@ -303,12 +329,21 @@ test('stop control is idempotent and stale revisions cannot overwrite it', () =>
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+test('first stop admission is create-if-absent and terminal stop retries compare-publish', () => {
+  const source = fs.readFileSync(STATE, 'utf8');
+  assert.match(source, /publish_revision\(id, '\.control\.json', control, expected\)/);
+  assert.match(source, /expected = loadedControl\.present \? old\.revision : -1/);
+  assert.match(source, /retry = scanner_control_load\(id\)/);
+  assert.match(source, /publish_revision\('', ACTIVE, marker, expected\)/);
+});
+
 test('CLI responses are schema-versioned and request files are private fixed records', () => {
   const cli = fs.readFileSync(CLI, 'utf8');
     assert.match(cli, /SCHEMA_VERSION\s*=\s*1/);
   assert.match(cli, /mode|request/);
   assert.match(cli, /readlink/);
   assert.match(cli, /uid|mode|private/i);
+  assert.match(cli, /ancestor|parent|root/i);
 });
 
 test('exception after activation runs centralized recovery and retains session, candidate, lock, and release evidence', () => {
@@ -325,6 +360,18 @@ test('exception after activation runs centralized recovery and retains session, 
     assert.equal(result.state.recovery.lockRelease != null, true, JSON.stringify(result));
     assert.equal(result.state.recovery.activeRelease != null, true, JSON.stringify(result));
     assert.equal(fs.existsSync(path.join(root, 'active.json')), false);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('terminal finish preserves candidate cleanup evidence while adding terminal recovery evidence', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-evidence-retention-'));
+  try {
+    const testHooks = hooks();
+    testHooks.transient.runtime.cleanup = [{ ok: false, processRemoved: false, firewallRemoved: true, nfqueueRemoved: true, hostlistRemoved: true, temporaryFilesRemoved: true, ownedOnly: true }];
+    const result = invoke(WORKER, `subject.scanner_worker_run({id:'scan-evidence-retention',request:${JSON.stringify(request())}}, ${JSON.stringify(testHooks)})`, storageEnv(root));
+    assert.equal(result.ok, false, JSON.stringify(result));
+    assert.equal(result.state.recovery.evidence != null, true, JSON.stringify(result));
+    assert.equal(result.state.recovery.sessionCleanup != null, true, JSON.stringify(result));
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -355,6 +402,43 @@ test('production execution consumes fixed adapter descriptors through the server
     assert.equal(result.ok, true, JSON.stringify(result));
     assert.equal(result.state.counts.infrastructure > 0, true);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('fixed executor parses real HTTP status/body bytes and latency, and never treats invalid output as success', () => {
+  const source = fs.readFileSync(EXECUTOR, 'utf8');
+  assert.doesNotMatch(source, /curl/);
+  assert.match(source, /uclient-fetch|ncat/);
+  const http = invoke(EXECUTOR, `subject.scanner_probe_parse_http('HTTP/1.1 204 No Content\\r\\nContent-Length: 0\\r\\n\\r\\n', 1000, 1042)`);
+  assert.equal(http.ok, true, JSON.stringify(http));
+  assert.equal(http.observation.statusCode, 204);
+  assert.equal(http.observation.bytesReceived, 0);
+  assert.equal(http.observation.latencyMs, 42);
+  const invalid = invoke(EXECUTOR, `subject.scanner_probe_parse_http('not an HTTP response', 1000, 1042)`);
+  assert.equal(invalid.ok, false, JSON.stringify(invalid));
+  assert.equal(invalid.error.code, 'EINDETERMINATE');
+});
+
+test('fixed executor parses STUN XOR-mapped IPv4 evidence and rejects no-response data', () => {
+  const bytes = [1, 1, 0, 12, 33, 18, 164, 66, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 0, 32, 0, 8, 0, 1, 17, 43, 225, 18, 166, 67];
+  const packet = `b64dec('AQEADCESpEIBAgMEBQYHCAkKCwwAIAAIAAERK+ESpkM=')`;
+  const parsed = invoke(EXECUTOR, `subject.scanner_probe_parse_stun(${packet}, 10, 75)`);
+  assert.equal(parsed.ok, true, JSON.stringify(parsed));
+  assert.equal(parsed.observation.status, 'success');
+  assert.equal(parsed.observation.mappedFamily, 'IPv4');
+  assert.equal(parsed.observation.mappedAddress, '192.0.2.1');
+  assert.equal(parsed.observation.latencyMs, 65);
+  const invalid = invoke(EXECUTOR, `subject.scanner_probe_parse_stun('', 10, 75)`);
+  assert.equal(invalid.ok, false, JSON.stringify(invalid));
+  assert.equal(invalid.error.code, 'EINDETERMINATE');
+});
+
+test('executor enforces descriptor deadline and rejects caller executable/raw arguments', () => {
+  const expired = invoke(EXECUTOR, `subject.scanner_probe_execute({request:{transport:'tls',host:'example.com',deadlineMs:1}})`);
+  assert.equal(expired.ok, false);
+  assert.equal(expired.error.code, 'EDEPENDENCY');
+  const invalid = invoke(EXECUTOR, `subject.scanner_probe_execute({request:{transport:'tls',host:'example.com',deadlineMs:999999999999,executable:'/bin/sh'}})`);
+  assert.equal(invalid.ok, false);
+  assert.equal(invalid.error.code, 'EDEPENDENCY');
 });
 
 test('resume uses retained immutable plan authority when the catalog changes', () => {

@@ -23,9 +23,17 @@ function request_file(path) {
 		|| substr(path, 0, length(REQUEST_ROOT)) != REQUEST_ROOT || index(path, '..') >= 0
 		|| !match(substr(path, length(REQUEST_ROOT)), /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\.json$/)) return result('EINPUT', 'Private request path is invalid.');
 	let link = null, metadata = null, before = null, after = null, raw = null, requestRoot = null;
-	try { requestRoot = stat(substr(REQUEST_ROOT, 0, length(REQUEST_ROOT) - 1)); link = readlink(path); metadata = stat(path); before = stat(path); raw = readfile(path); after = stat(path); } catch (e) { return result('EINPUT', 'Private request file is unavailable.'); }
+	try { requestRoot = stat(substr(REQUEST_ROOT, 0, length(REQUEST_ROOT) - 1)); } catch (e) { return result('EINPUT', 'Private request directory is unavailable.'); }
 	if (!object(requestRoot) || requestRoot.type != 'directory' || readlink(substr(REQUEST_ROOT, 0, length(REQUEST_ROOT) - 1)) != null
 		|| requestRoot.uid != 0 || requestRoot.gid != 0 || requestRoot.mode % 512 != 448) return result('EINPUT', 'Private request directory is unsafe.');
+	let ancestors = ['/tmp/zapret2-manager', '/tmp/zapret2-manager/runtime', '/tmp/zapret2-manager/runtime/requests'];
+	for (let parent in ancestors) {
+		let parentStat = null;
+		try { parentStat = stat(parent); } catch (e) { return result('EINPUT', 'Private request ancestor is unavailable.'); }
+		if (!object(parentStat) || parentStat.type != 'directory' || readlink(parent) != null || parentStat.uid != 0 || parentStat.gid != 0 || parentStat.mode % 512 != 448)
+			return result('EINPUT', 'Private request ancestor is unsafe.');
+	}
+	try { link = readlink(path); metadata = stat(path); before = stat(path); raw = readfile(path); after = stat(path); } catch (e) { return result('EINPUT', 'Private request file is unavailable.'); }
 	if (link != null || !object(metadata) || metadata.type != 'file' || metadata.uid != 0 || metadata.gid != 0 || metadata.mode % 512 != 384 || metadata.size < 0 || metadata.size > MAX_REQUEST_BYTES
 		|| before.inode != after.inode || before.size != after.size || length(raw) != before.size) return result('EINPUT', 'Private request file identity is unsafe.');
 	try { return json(raw); } catch (e) { return result('EINPUT', 'Private request JSON is malformed.'); }
