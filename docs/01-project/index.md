@@ -45,4 +45,4 @@ The public site is not a mirror of the internal engineering vault. Scratch notes
 
 The repository contains real OpenWrt package definitions, LuCI integration, ucode and shell runtime code, a native helper foundation, and active Strategy and Scanner implementation. It should still be treated as a prototype rather than a finished appliance. Source tests are useful evidence, while OpenWrt SDK compilation and router validation remain necessary for deployed-behavior claims.
 
-Continue with [Installation](../11-operations/installation.md), [Quick Start](../11-operations/quick-start.md), [Architecture](../02-architecture/index.md), or the compact [Status and roadmap](./status-roadmap.md).
+Continue with [Installation](../11-operations/installation.md), [First Run](../11-operations/first-run.md), [Architecture](../02-architecture/index.md), or the compact [Status and roadmap](./status-roadmap.md).
