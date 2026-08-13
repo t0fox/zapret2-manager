@@ -1,0 +1,3 @@
+[
+  {"OLD_PATH":"old.md","TYPE":"doc","AUTHORITY":"supporting","STATUS":"active","TARGET_PATH":"docs/new.md","ACTION":"move","REFERENCED_BY":[],"NOTES":"","OLD_BLOB_SHA":"abc"}
+]
