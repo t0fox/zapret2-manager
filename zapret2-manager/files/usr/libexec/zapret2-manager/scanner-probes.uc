@@ -55,7 +55,7 @@ function normalize_family(raw) {
 }
 
 function baseline_family_complete(raw) {
-	let statuses = ['open', 'blocked', 'failed', 'timeout', 'skipped', 'unavailable', 'error'];
+	let statuses = ['open', 'blocked', 'failed', 'timeout', 'refused', 'skipped', 'unavailable', 'error'];
 	let allowed = false;
 	if (is_object(raw) && type(raw.status) == 'string') for (let value in statuses) if (value == raw.status) allowed = true;
 	return is_object(raw) && type(raw.status) == 'string'

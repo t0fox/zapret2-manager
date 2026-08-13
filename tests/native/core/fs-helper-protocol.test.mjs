@@ -219,8 +219,24 @@ test('scanner_probe is present in the manifest and implementation registry with 
     ['timeoutMs', 'minimumBytes', 'readChunkBytes', 'markerScanBytes', 'readLimitBytes', 'range', 'markers']);
   assert.equal(body.properties.body.additionalProperties, false);
   assert.equal(body.properties.body.properties.markers.items.additionalProperties, false);
-  assert.deepEqual(body.properties.body.properties.markers.items.properties.needles.items,
-    { type: 'string' });
+  assert.deepEqual(body.properties.body.properties.markers, {
+    type: 'array', minItems: 1, maxItems: 1,
+    items: {
+      type: 'object', additionalProperties: false, required: ['name', 'needles'],
+      properties: {
+        name: { const: 'isp_page' },
+        needles: {
+          type: 'array', minItems: 3, maxItems: 3,
+          prefixItems: [{ const: 'blocked' }, { const: 'access denied' }, { const: 'captcha' }],
+          items: false,
+        },
+      },
+    },
+  });
+  assert.deepEqual(body.properties.body.properties.timeoutMs, { const: 8000 });
+  assert.equal(body.properties.body.properties.markers.items.properties.name.const, 'isp_page');
+  assert.deepEqual(body.properties.body.properties.markers.items.properties.needles.prefixItems,
+    [{ const: 'blocked' }, { const: 'access denied' }, { const: 'captcha' }]);
   for (const variant of requestVariants) assert.equal(variant.properties.cancelToken.type, 'string');
 });
 

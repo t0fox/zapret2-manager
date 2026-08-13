@@ -465,6 +465,21 @@ test('fixed adapter plans pin timeout, read, Range, STUN, retry, and deadline bo
   assert.equal(clamped.request.body.range, 'bytes=0-69632');
 });
 
+test('baseline descriptors carry the owned cancellation token into every emitted request', () => {
+  const profile = { profileKey: 'generic', protocol: 'tcp', primaryHost: 'example.com', testHosts: ['example.com'],
+    probeUrl: 'https://example.com/', tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' },
+    udp: { ports: '19302', l7: 'stun', payload: 'binding' } };
+  const tcp = adapt('scanner_probe_adapter_baseline', profile,
+    { nowMs: 1000, deadlineMs: 20000, mode: 'quick', cancelToken: 'scan-token' });
+  assert.equal(tcp.ok, true, JSON.stringify(tcp));
+  assert.equal(tcp.request.cancelToken, 'scan-token');
+
+  const udp = adapt('scanner_probe_adapter_baseline', { ...profile, protocol: 'udp' },
+    { nowMs: 1000, deadlineMs: 20000, mode: 'quick', cancelToken: 'scan-token' });
+  assert.equal(udp.ok, true, JSON.stringify(udp));
+  assert.equal(udp.request.cancelToken, 'scan-token');
+});
+
 test('adapter rejects invalid deadlines and malformed mode or host-list shapes', () => {
   const profile = { profileKey: 'generic', primaryHost: 'example.com', testHosts: ['example.com'],
     probeUrl: 'https://example.com/', tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' } };
@@ -528,4 +543,16 @@ test('fixture constants remain the adapter and classifier contract', () => {
     tcpBlockRangeWideBytes: [10240, 25600], maxImmediateCrashAttempts: 3,
     stunRetries: 2, pinnedScannerStartupWaitSeconds: 1,
   });
+});
+
+test('baseline retains structurally valid refused and timeout family outcomes as typed evidence', () => {
+  const baseline = call('scanner_baseline_classify', tcpBaseline(
+    { status: 'refused', available: false, error: 'TCP_REFUSED', exitCode: 1 },
+    { status: 'timeout', available: true, error: 'TCP_TIMEOUT', exitCode: -1 }));
+  assert.equal(baseline.infrastructureFailure, false, JSON.stringify(baseline));
+  assert.equal(baseline.byAddressFamily.ipv4.status, 'refused');
+  assert.equal(baseline.byAddressFamily.ipv4.error, 'TCP_REFUSED');
+  assert.equal(baseline.byAddressFamily.ipv6.status, 'timeout');
+  assert.equal(baseline.byAddressFamily.ipv6.error, 'TCP_TIMEOUT');
+  assert.deepEqual(baseline.probeAddressFamilies, ['ipv6']);
 });

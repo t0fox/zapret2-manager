@@ -154,6 +154,8 @@ function public_record(value) {
 		cursor: { nextCandidate: integer(value.cursor?.nextCandidate) ? value.cursor.nextCandidate : 0 },
 		currentCandidate: text(value.currentCandidate), counts: object(value.counts) ? copy(value.counts) : { working: 0, failed: 0, infrastructure: 0 },
 		results: bounded_results(value.results), baseline: object(value.baseline) ? copy(value.baseline) : null,
+		baselineIdentity: digest(value.baselineIdentity) ? value.baselineIdentity : null,
+		baselineExecutorCalls: integer(value.baselineExecutorCalls) ? value.baselineExecutorCalls : 0,
 		error: text(value.error), recovery: object(value.recovery) ? copy(value.recovery) : { state: 'not_required' },
 		cancellationRequested: value.cancellationRequested == true, worker: object(value.worker) ? copy(value.worker) : null,
 		heartbeatAt: integer(value.heartbeatAt) ? value.heartbeatAt : time(), startedAt: integer(value.startedAt) ? value.startedAt : null,
@@ -179,7 +181,7 @@ export const scanner_state_create = function(request, plan) {
 		requestDigest: request_digest(normalized), catalogDigest: plan?.catalogDigest,
 		compilerDigest: plan?.compilerDigest, planDigest: plan_digest(plan || {}), status: 'idle', phase: 'idle',
 		progress: 0, total: length(candidates), cursor: { nextCandidate: 0 }, currentCandidate: null,
-		counts: { working: 0, failed: 0, infrastructure: 0 }, results: [], baseline: null, error: null,
+		counts: { working: 0, failed: 0, infrastructure: 0 }, results: [], baseline: null, baselineIdentity: null, baselineExecutorCalls: 0, error: null,
 		recovery: { state: 'not_required' }, cancellationRequested: false, worker: null,
 		heartbeatAt: time(), startedAt: null, finishedAt: null, events: [], planAuthority: copy(plan || {}),
 	};

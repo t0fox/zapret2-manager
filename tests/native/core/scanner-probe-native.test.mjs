@@ -146,6 +146,26 @@ test('forged URL/path and descriptor executable fields are rejected before spawn
   assert.equal(forged.error.code, 'ESCHEMA');
 });
 
+test('native validator accepts only the exact isp_page marker and three native needles', () => {
+  const base = { transport: 'tls+body', host: 'example.com', addressFamily: 'ipv4', port: 443,
+    timeoutMs: 1000, url: 'https://example.com/probe', body: {
+      timeoutMs: 8000, minimumBytes: 65536, readChunkBytes: 4096, markerScanBytes: 8192,
+      readLimitBytes: 69633, range: 'bytes=0-69632', markers: [{ name: 'isp_page', needles: ['blocked', 'access denied', 'captcha'] }],
+    } };
+  const accepted = run(request(base));
+  assert.equal(accepted.ok, true, JSON.stringify(accepted));
+  for (const body of [
+    { ...base.body, markers: [{ name: 'other', needles: ['blocked', 'access denied', 'captcha'] }] },
+    { ...base.body, markers: [{ name: 'isp_page', needles: ['blocked', 'access denied'] }] },
+    { ...base.body, markers: [{ name: 'isp_page', needles: ['blocked', 'access denied', 'captcha', 'extra'] }] },
+    { ...base.body, markers: [{ name: 'isp_page', needles: ['blocked', 'access denied', 'wrong'] }] },
+  ]) {
+    const rejected = run(request({ ...base, body }), {}, 2);
+    assert.equal(rejected.ok, false, JSON.stringify(rejected));
+    assert.equal(rejected.error.code, 'ESCHEMA');
+  }
+});
+
 test('target profile digest is verified at the native execution boundary', () => {
   const forged = run(request({ transport: 'stun', host: 'stun.example.com', port: 19302, addressFamily: 'ipv4', timeoutMs: 1000, retries: 2, receiveLimitBytes: 1024 }, { targetProfileDigest: 'a'.repeat(64) }), {}, 2);
   assert.equal(forged.ok, false);
@@ -160,6 +180,15 @@ test('nonzero child status and partial output are returned independently', () =>
   assert.equal(result.data.complete, true);
   assert.equal(typeof result.data.startedAt, 'number');
   assert.equal(typeof result.data.finishedAt, 'number');
+});
+
+test('native nonzero family outcomes retain bounded typed child evidence', () => {
+  const refused = run(request({ transport: 'tls', host: 'fail.example.com', addressFamily: 'ipv4', port: 443, timeoutMs: 1000 }));
+  assert.equal(refused.ok, true, JSON.stringify(refused));
+  assert.equal(refused.data.exitCode, 7);
+  assert.equal(refused.data.signal, 0);
+  assert.equal(refused.data.complete, true);
+  assert.equal(refused.data.byteLength, 7);
 });
 
 test('native fixed child verifies SIGPIPE restoration after the pump', () => {

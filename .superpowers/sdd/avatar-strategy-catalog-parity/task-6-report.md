@@ -480,3 +480,24 @@ Focused latest verification:
 Task 5 remains `EUNSUPPORTED` for production compare-delete. Task 7 remains a
 non-terminal reconciliation dependency. No permanent config/Strategy/raw
 command/DNS/TG/router/LuCI/Orchestra behavior was added.
+
+## Remaining Important Findings Closure
+
+The follow-up review findings are closed without expanding Task 5 or Task 7:
+
+- Baseline TCP and UDP adapter descriptors now propagate the owned cancellation token. Regression coverage inspects emitted descriptor requests rather than source text.
+- Protocol-v1 body markers now require exactly one `isp_page` marker and exactly three ordered needles: `blocked`, `access denied`, and `captcha`, matching the native validator's fixed settings and retries/limits.
+- Terminal checkpoint recovery releases the active claim, records whether the recovery publication was durable, and explicitly marks `retryRequired` when the recovery save fails. Save failures are not suppressed or reported as durable.
+- Resume validates retained baseline authority and reuses the retained classified baseline. Missing baseline authority returns `EDEPENDENCY`; the executor-call regression keeps baseline execution at one across resume.
+- Structurally valid native nonzero per-family outcomes retain typed refusal/timeout evidence and bounded child metadata. Malformed observations and helper/transport failures remain whole infrastructure dependencies, so candidate ranking cannot misclassify them.
+
+## Verification
+
+- Focused native/product Task 6 gate: **95 passed, 0 failed**.
+- Canonical `scripts/test/native.sh` reached 113 passing tests and then hit the inherited Task 4 package source-hash fixture failure for `tests/native/core/z2m-helperd-spike.c` at recorded commit `7d570e095d09479ee9a0bb5e149b34fc0b1d88c1`; no Task 6 assertion failed.
+- `git diff --check`: clean; protocol JSON parses successfully.
+
+Task 5 remains `EUNSUPPORTED` for production compare-delete. Task 7 remains a
+non-terminal reconciliation dependency. `ROUTER_E2E: NOT RUN` because explicit
+physical-router mutation/deployment approval was not provided. No permanent
+config/Strategy/raw command/DNS/TG/router/LuCI/Orchestra behavior was added.

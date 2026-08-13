@@ -424,6 +424,22 @@ test('publish failure stops the worker and records recovery instead of continuin
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+test('terminal checkpoint recovery does not claim durable evidence when recovery publication also fails', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-terminal-publish-failure-'));
+  try {
+    const testHooks = hooks();
+    testHooks.publishFailureAt = 'terminal';
+    testHooks.saveFailureAt = 'terminal-recovery';
+    const result = invoke(WORKER, `subject.scanner_worker_run({id:'scan-terminal-publish-failure',request:${JSON.stringify(request())}}, ${JSON.stringify(testHooks)})`, storageEnv(root));
+    assert.equal(result.ok, false, JSON.stringify(result));
+    assert.equal(result.recovery.state, 'uncertain');
+    assert.equal(result.recovery.publication.ok, false, JSON.stringify(result));
+    assert.equal(result.recovery.publication.durable, false, JSON.stringify(result));
+    assert.equal(result.recovery.publication.retryRequired, true, JSON.stringify(result));
+    assert.equal(fs.existsSync(path.join(root, 'active.json')), false);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('production execution consumes fixed adapter descriptors through the server executor', () => {
   const source = fs.readFileSync(WORKER, 'utf8');
   assert.match(source, /scanner_probe_execute/);
@@ -679,6 +695,51 @@ test('worker preserves scanner verdict score and complete evidence in the ranked
     assert.equal(row.evidence.metrics.averageLatencyMs, 10);
     assert.equal(row.evidence.metrics.averageKbps, 100);
     assert.equal(row.evidence.metrics.perProbe[0].body.bytesReceived, 70000);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('resume reuses retained baseline identity without a second baseline executor call', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-resume-baseline-'));
+  try {
+    const env = storageEnv(root);
+    const req = request();
+    const p = plan(req);
+    const baseline = invoke(path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-probes.uc'),
+      `subject.scanner_baseline_classify(${JSON.stringify(hooks().baseline)})`);
+    const created = invoke(STATE, `subject.scanner_state_create(${JSON.stringify(req)}, ${JSON.stringify(p)})`, env);
+    const row = { candidateId: 'c1', ordinal: 1, verdict: 'working', success: true, score: 2000, reason: null,
+      evidence: { infrastructure: false, baselineSuppressed: false, failureClass: null, metrics: { averageKbps: 100, averageLatencyMs: 10, successRate: 1, perProbe: [] } },
+      planDigest: created.planDigest };
+    row.evidenceIdentity = invoke(STATE, `subject.scanner_state_digest(${JSON.stringify({ candidateId: row.candidateId, ordinal: row.ordinal, planDigest: row.planDigest, verdict: row.verdict, success: row.success, score: row.score, reason: row.reason, evidence: row.evidence })})`, env);
+    const checkpoint = { ...created, id: 'scan-resume-baseline', status: 'running', phase: 'probing',
+      heartbeatAt: Math.floor(Date.now() / 1000), worker: { pid: 41, startTime: 9001, owner: 'scanner/worker', generation: 1 },
+      cursor: { nextCandidate: 1 }, progress: 1, results: [row], baseline, baselineIdentity: invoke(STATE, `subject.scanner_state_digest(${JSON.stringify(baseline)})`, env), baselineExecutorCalls: 1 };
+    const saved = invoke(STATE, `subject.scanner_state_save(${JSON.stringify(checkpoint)})`, env);
+    assert.equal(saved.ok, true, JSON.stringify(saved));
+    assert.equal(saved.state.baseline.protocol, 'tcp');
+    assert.equal(saved.state.baseline.byAddressFamily.ipv4.status, 'blocked');
+    assert.equal(saved.state.planAuthority.candidates.length, 2);
+    assert.equal(saved.state.planDigest, created.planDigest);
+    const testHooks = hooks();
+    testHooks.baseline = null;
+    const resumed = invoke(WORKER, `subject.scanner_worker_resume({id:'scan-resume-baseline'},{identity:${JSON.stringify(testHooks.identity)},transient:${JSON.stringify(testHooks.transient)},probe:${JSON.stringify(testHooks.probe)},reconcile:${JSON.stringify(testHooks.reconcile)},executor:${JSON.stringify({ ok: true, observations: [{ hosts: [{ host: 'kernel.org', addressFamily: 'ipv4', startedAt: 100, finishedAt: 110, tls: { status: 'success', latencyMs: 10, readBytes: 128 }, body: { statusCode: 200, bytesReceived: 70000, kbps: 100, latencyMs: 10 } }] }] })},executorCalls:{baseline:1}})`, env);
+    assert.equal(resumed.ok, true, JSON.stringify({ loaded: invoke(STATE, `subject.scanner_state_load('scan-resume-baseline')`, env), resumed }));
+    assert.equal(resumed.state.baselineExecutorCalls, 1, JSON.stringify(resumed));
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('resume returns a dependency when the retained baseline is absent', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-resume-no-baseline-'));
+  try {
+    const env = storageEnv(root);
+    const req = request();
+    const p = plan(req);
+    const created = invoke(STATE, `subject.scanner_state_create(${JSON.stringify(req)}, ${JSON.stringify(p)})`, env);
+    const saved = invoke(STATE, `subject.scanner_state_save(${JSON.stringify({ ...created, id: 'scan-resume-no-baseline', status: 'running', heartbeatAt: Math.floor(Date.now() / 1000), worker: { pid: 41, startTime: 9001, owner: 'scanner/worker' } })})`, env);
+    assert.equal(saved.ok, true, JSON.stringify(saved));
+    const resumed = invoke(WORKER, `subject.scanner_worker_resume({id:'scan-resume-no-baseline'},{identity:${JSON.stringify(hooks().identity)}})`, env);
+    assert.equal(resumed.ok, false, JSON.stringify(resumed));
+    assert.equal(resumed.error.code, 'EDEPENDENCY');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 

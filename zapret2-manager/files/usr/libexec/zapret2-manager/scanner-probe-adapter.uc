@@ -144,10 +144,10 @@ export const scanner_probe_adapter_baseline = function(profile, limit) {
 	}
 	let port = first_port(profile.tcp?.ports);
 	if (port == null) return fail('Invalid server-owned TCP port profile.');
-	return { ok: true, ...descriptor_common(profile, { transport: 'tls', mode: limit?.mode, host: profile.primaryHost,
+	return { ok: true, ...descriptor_common(profile, attach_cancel({ transport: 'tls', mode: limit?.mode, host: profile.primaryHost,
 		addressFamilies: ['ipv4', 'ipv6'], port, portRange: profile.tcp.ports,
 		timeoutMs: TLS_TIMEOUT_MS, retries: 1, readLimitBytes: 2048,
-		tls: { timeoutMs: TLS_TIMEOUT_MS, readLimitBytes: 2048 }, deadlineMs: end }, null, limit?.profileDigest) };
+		tls: { timeoutMs: TLS_TIMEOUT_MS, readLimitBytes: 2048 }, deadlineMs: end }, limit), null, limit?.profileDigest) };
 };
 
 export const scanner_probe_adapter_tcp = function(candidate, target, addressFamily, limit) {

@@ -65,6 +65,7 @@ function phase(record, value, current) { record.phase = value; record.currentCan
 function event(record, type, message) { if (!record.events) record.events = []; push(record.events, { type, message, at: time() }); if (length(record.events) > 32) record.events = slice(record.events, length(record.events) - 32); }
 function publish(record) {
 	if (lifecycle?.seams?.publishFailureAt == lifecycle.stage) return error('EIO', 'Scanner checkpoint publication failed.');
+	if (lifecycle?.seams?.saveFailureAt == lifecycle.stage) return error('EIO', 'Scanner recovery publication failed.');
 	let saved = state.scanner_state_save(record);
 	if (!saved.ok) return saved;
 	record.revision = saved.revision; record.id = saved.id; return saved;
@@ -138,7 +139,9 @@ function recover(record, seams, context, message) {
 	if (context?.session) { try { recovery.sessionCleanup = scanner_session_finish(context.session, seam(seams, 'transient')); recovery.lockRelease = recovery.sessionCleanup.lockRelease; } catch (e) { recovery.sessionCleanup = { ok: false, error: e, reconciliation: task7_dependency('session_cleanup', e) }; recovery.lockRelease = recovery.sessionCleanup; } }
 	recovery.activeRelease = release_claim(lifecycle?.claimed || (context?.record?.id && context?.record?.worker ? { id: context.record.id, identity: context.record.worker } : null));
 	record.status = 'error'; record.phase = 'recovery'; record.recovery = recovery; record.error = message || 'Scanner worker lifecycle failed; reconciliation is required.'; record.currentCandidate = null; record.finishedAt = time(); record.heartbeatAt = time();
-	try { state.scanner_state_save(record); } catch (e) { recovery.publish = { ok: false, error: e }; }
+	let published = null;
+	try { published = state.scanner_state_save(record); } catch (e) { published = { ok: false, error: e }; }
+	recovery.publication = { ok: published?.ok === true, durable: published?.ok === true, retryRequired: published?.ok !== true, result: published };
 	return { ok: false, state: record, error: { code: 'EINTERNAL', message: record.error }, recovery };
 }
 function finish(record, session, seams, transition, message) {
@@ -162,7 +165,10 @@ function finish(record, session, seams, transition, message) {
 			{ state: 'uncertain', reconciliation: task7_dependency('terminal_checkpoint', exception) });
 		record.error = 'Task 7 reconciliation evidence is required after checkpoint failure.';
 		record.recovery.activeRelease = release_claim(lifecycle?.claimed);
-		try { state.scanner_state_save(record); } catch (ignored) { }
+		if (lifecycle) lifecycle.stage = 'terminal-recovery';
+		let published = null;
+		try { published = publish(record); } catch (publicationException) { published = { ok: false, error: publicationException }; }
+		record.recovery.publication = { ok: published?.ok === true, durable: published?.ok === true, retryRequired: published?.ok !== true, result: published };
 		return { ok: false, state: record, cleanup, recovery: record.recovery };
 	}
 	if (!saved.ok) {
@@ -170,7 +176,10 @@ function finish(record, session, seams, transition, message) {
 		record.status = 'error'; record.phase = 'recovery'; record.recovery = merge_recovery(record.recovery,
 			{ state: 'uncertain', activeRelease: releasedAfterCheckpointFailure, sessionCleanup: cleanup, reconciliation: task7_dependency('terminal_checkpoint', saved.error) });
 		record.error = 'Task 7 reconciliation evidence is required after checkpoint failure.';
-		try { state.scanner_state_save(record); } catch (ignored) { }
+		if (lifecycle) lifecycle.stage = 'terminal-recovery';
+		let published = null;
+		try { published = publish(record); } catch (publicationException) { published = { ok: false, error: publicationException }; }
+		record.recovery.publication = { ok: published?.ok === true, durable: published?.ok === true, retryRequired: published?.ok !== true, result: published };
 		return { ok: false, state: record, cleanup, recovery: record.recovery };
 	}
 	let released = release_claim(lifecycle?.claimed);
@@ -209,6 +218,14 @@ function checkpoint_valid(record, plan) {
 	}
 	return true;
 }
+function baseline_valid(value, protocol) {
+	return object(value) && value.infrastructureFailure === false && value.protocol == protocol &&
+		type(value.baselineOpen) == 'bool' && type(value.allAvailableOpen) == 'bool' && type(value.probeAddressFamilies) == 'array' && value.error == null &&
+		((protocol == 'tcp' && object(value.byAddressFamily) && object(value.byAddressFamily.ipv4) && object(value.byAddressFamily.ipv6)) ||
+		 (protocol == 'udp' && object(value.byAddressFamily) && object(value.byAddressFamily.ipv4)));
+}
+let scanner_worker_run_impl = null;
+function scanner_worker_resume_impl(input, seams) { return scanner_worker_run_impl(input, seams); }
 
 export const scanner_worker_resume = function(input, seams) {
 	let loaded = state.scanner_state_load(input?.id);
@@ -217,13 +234,15 @@ export const scanner_worker_resume = function(input, seams) {
 	if (record.status != 'running' || stale_heartbeat(record.heartbeatAt) || !plan || state.scanner_state_digest(record.request) != record.requestDigest || plan.catalogDigest != record.catalogDigest
 		|| plan.compilerDigest != record.compilerDigest || plan_identity(plan) != record.planDigest || !checkpoint_valid(record, plan))
 		return error('ESTALE', 'Scanner resume identity does not match the checkpoint.');
+	if (!baseline_valid(record.baseline, record.request?.protocol) || !digest(record.baselineIdentity) || state.scanner_state_digest(record.baseline) != record.baselineIdentity)
+		return error('EDEPENDENCY', 'Retained baseline authority is unavailable.');
 	let identity = self_identity(seams);
 	if (!object(record.worker) || record.worker.pid != identity.pid || record.worker.startTime != identity.startTime)
 		return error('ESTALE', 'Scanner worker identity is stale.');
-	return scanner_worker_run({ id: record.id, request: record.request, resume: true, record, resumePlan: copy(plan) }, seams);
+	return scanner_worker_resume_impl({ id: record.id, request: record.request, resume: true, record, resumePlan: copy(plan) }, seams);
 };
 
-function scanner_worker_run_impl(input, seams) {
+scanner_worker_run_impl = function(input, seams) {
 	if (!object(input) || !object(input.request)) return error('EINPUT', 'Scanner worker request is invalid.');
 	let prepared = input.resume === true && input.resumePlan != null ? request_validate(input.request) : request_and_plan(input, seams);
 	if (!prepared.ok) return prepared;
@@ -234,7 +253,7 @@ function scanner_worker_run_impl(input, seams) {
 		schema: 1, id: null, revision: 0, request: copy(req), requestDigest: null,
 		catalogDigest: plan.catalogDigest, compilerDigest: plan.compilerDigest, planDigest: null,
 		status: 'idle', phase: 'idle', progress: 0, total: length(plan.candidates), cursor: { nextCandidate: 0 },
-		currentCandidate: null, counts: { working: 0, failed: 0, infrastructure: 0 }, results: [], baseline: null,
+		currentCandidate: null, counts: { working: 0, failed: 0, infrastructure: 0 }, results: [], baseline: null, baselineIdentity: null, baselineExecutorCalls: 0,
 		error: null, recovery: { state: 'not_required' }, cancellationRequested: false, worker: null,
 		heartbeatAt: time(), startedAt: null, finishedAt: null, events: [], planAuthority: copy(plan)
 	};
@@ -258,13 +277,14 @@ function scanner_worker_run_impl(input, seams) {
 	if (!started.ok) { record.error = started.error?.message || 'Scanner transient session could not start.'; record.recovery = { state: cleanup_verified(started.error?.cleanup) ? 'verified' : 'uncertain', evidence: started.error?.cleanup || started.error }; return finish(record, { sessionId: record.id }, seams, 'error', record.error); }
 	let session = started.session, transient = seam(seams, 'transient'); lifecycle.session = session;
 	phase(record, 'snapshotting', null); checkpoint(record, 'snapshot');
-	let baseline = seam(seams, 'baseline');
+	let baseline = input.resume === true ? record.baseline : seam(seams, 'baseline');
 	let probeStarted = int(time() * 1000), probeDeadline = probeStarted + PROBE_BUDGET_MS;
 	if (baseline == null) {
 		let baselineProfile = { ...plan.targetProfile, protocol: req.protocol };
 		let adapted = scanner_probe_adapter_baseline(baselineProfile, { nowMs: probeStarted, deadlineMs: probeDeadline, mode: req.mode, cancelToken: record.id, profileDigest: state.scanner_state_digest(baselineProfile) });
 		if (!adapted.ok) return finish(record, session, seams, 'error', 'Scanner baseline adapter failed.');
 		let executed = seam(seams, 'executor') || scanner_probe_execute(adapted);
+		record.baselineExecutorCalls = (record.baselineExecutorCalls || 0) + 1;
 		if (!executed.ok) { record.error = executed.error?.code || 'EDEPENDENCY'; record.recovery = { state: 'verified', failure: executed.error }; return finish(record, session, seams, 'error', record.error); }
 		else baseline = executed.observations?.[0];
 	}
@@ -272,6 +292,7 @@ function scanner_worker_run_impl(input, seams) {
 	if (!object(baseline) || baseline.infrastructureFailure === true)
 		return finish(record, session, seams, 'error', baseline?.error || 'EDEPENDENCY');
 	record.baseline = copy(baseline);
+	record.baselineIdentity = state.scanner_state_digest(record.baseline);
 	phase(record, 'baselining', null); checkpoint(record, 'baseline');
 	let start = integer(record.cursor?.nextCandidate) ? record.cursor.nextCandidate : 0;
 	for (let i = start; i < length(plan.candidates) && i < MAX_RESULTS; i++) {
@@ -320,7 +341,9 @@ export const scanner_worker_run = function(input, seams) {
 			fallback.id = claimed.id; fallback.worker = claimed.identity; fallback.status = 'error'; fallback.phase = 'recovery';
 			fallback.error = 'Scanner worker lifecycle failed; state publication is unavailable.'; fallback.recovery = recovery;
 			if (lifecycle) lifecycle.stage = 'recovery';
-			try { let published = state.scanner_state_save(fallback); recovery.durable = published.ok === true; } catch (ignored) { }
+			let published = null;
+			try { published = state.scanner_state_save(fallback); } catch (exception) { published = { ok: false, error: exception }; }
+			recovery.publication = { ok: published.ok === true, durable: published.ok === true, retryRequired: published.ok !== true, result: published };
 		}
 		return error('EINTERNAL', 'Scanner worker lifecycle failed; state publication is unavailable.', { recovery });
 	}

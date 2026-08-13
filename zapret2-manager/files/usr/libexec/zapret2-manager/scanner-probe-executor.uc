@@ -182,6 +182,13 @@ function native_failure(result, message) {
 	if (!result?.ok) return result;
 	return failure('EDEPENDENCY', message, { stage: 'transport', child: result.data });
 }
+function typed_transport_status(result) {
+	if (result?.data?.signal != null && result.data.signal != 0)
+		return { status: 'timeout', error: 'TCP_TIMEOUT' };
+	if (result?.data?.exitCode != null && result.data.exitCode != 0)
+		return { status: 'refused', error: 'TCP_REFUSED' };
+	return null;
+}
 
 export const scanner_probe_execute = function(descriptor) {
 	if (!descriptor_valid(descriptor)) return failure('EDEPENDENCY', 'Probe descriptor is not server-owned.', { stage: 'descriptor' });
@@ -196,7 +203,8 @@ export const scanner_probe_execute = function(descriptor) {
 			result = native_call_safe(descriptor, probe); if (!result.ok) return result;
 			if (result.data.cancelled === true) return failure('EDEPENDENCY', 'Scanner probe was cancelled.', { stage: 'cancel' });
 			raw = native_output(result); if (raw == null || !native_observation_complete(result, raw)) return native_failure(result, 'TLS child output is incomplete.');
-			if (result.data.signal != 0 || result.data.exitCode != 0) return native_failure(result, 'TLS child outcome is not a successful transport observation.');
+			let typed = typed_transport_status(result);
+			if (typed) { observations[family] = { status: typed.status, available: true, latencyMs: result.data.finishedAt - result.data.startedAt, bytesReceived: result.data.byteLength, exitCode: result.data.exitCode, signal: result.data.signal, startedAt: result.data.startedAt, finishedAt: result.data.finishedAt, error: typed.error }; continue; }
 			let parsed = scanner_probe_parse_http(raw, result.data.startedAt, result.data.finishedAt, { readLimitBytes: TLS_READ_LIMIT });
 			if (!parsed.ok) return failure('EDEPENDENCY', 'TLS response parsing is indeterminate.', { stage: 'parse', parser: parsed.error });
 			observations[family] = { status: 'open', available: true, latencyMs: parsed.observation.latencyMs, bytesReceived: result.data.byteLength, exitCode: result.data.exitCode, signal: result.data.signal, startedAt: result.data.startedAt, finishedAt: result.data.finishedAt, error: null };
@@ -212,7 +220,9 @@ export const scanner_probe_execute = function(descriptor) {
 			result = native_call_safe(descriptor, probe);
 			if (!result.ok) { return result; }
 			if (result.data.cancelled === true) return failure('EDEPENDENCY', 'Scanner probe was cancelled.', { stage: 'cancel' });
-			raw = native_output(result); if (raw == null || !native_observation_complete(result, raw) || result.data.signal != 0 || result.data.exitCode != 0) return native_failure(result, 'HTTP child outcome is not usable.');
+			raw = native_output(result); if (raw == null || !native_observation_complete(result, raw)) return native_failure(result, 'HTTP child outcome is not usable.');
+			let typed = typed_transport_status(result);
+			if (typed) { push(hosts, { host: item.host, addressFamily: item.addressFamily, startedAt: result.data.startedAt, finishedAt: result.data.finishedAt, tls: { status: typed.status, success: false, error: typed.error, readBytes: result.data.byteLength, readLimitBytes: TLS_READ_LIMIT, latencyMs: result.data.finishedAt - result.data.startedAt }, body: null }); continue; }
 			let parsed = scanner_probe_parse_http(raw, result.data.startedAt, result.data.finishedAt, request.body);
 			if (!parsed.ok) return failure('EDEPENDENCY', 'HTTP response parsing is indeterminate.', { stage: 'parse', parser: parsed.error });
 			push(hosts, { host: item.host, addressFamily: item.addressFamily, startedAt: result.data.startedAt, finishedAt: result.data.finishedAt, tls: { status: 'success', readBytes: TLS_READ_LIMIT, readLimitBytes: TLS_READ_LIMIT, latencyMs: parsed.observation.latencyMs }, body: parsed.observation });
@@ -226,7 +236,9 @@ export const scanner_probe_execute = function(descriptor) {
 			if (timeoutMs == null) return failure('EDEPENDENCY', 'Probe deadline has expired.', { stage: 'deadline' });
 			result = native_call_safe(descriptor, { transport: 'stun', mode: request.mode, retries: request.retries, host: request.host, addressFamily: request.addressFamily, port: request.port, portRange: request.portRange, transactionId: request.transactionId || STUN_TRANSACTION_ID, receiveLimitBytes: request.receiveLimitBytes, timeoutMs, deadlineMs: request.deadlineMs, cancelToken: request.cancelToken }); if (!result.ok) return result;
 			if (result.data.cancelled === true) return failure('EDEPENDENCY', 'Scanner probe was cancelled.', { stage: 'cancel' });
-			raw = native_output(result); if (raw == null || !native_observation_complete(result, raw) || result.data.signal != 0 || result.data.exitCode != 0) return native_failure(result, 'STUN child outcome is not usable.');
+			raw = native_output(result); if (raw == null || !native_observation_complete(result, raw)) return native_failure(result, 'STUN child outcome is not usable.');
+			let typed = typed_transport_status(result);
+			if (typed) return { ok: true, observations: [{ transport: 'stun', status: typed.status, error: typed.error, attempts, latencyMs: result.data.finishedAt - result.data.startedAt, bytesReceived: result.data.byteLength, exitCode: result.data.exitCode, signal: result.data.signal, startedAt: result.data.startedAt, finishedAt: result.data.finishedAt }] };
 			let parsed = scanner_probe_parse_stun(raw, result.data.startedAt, result.data.finishedAt, { attempts, transactionId: request.transactionId || STUN_TRANSACTION_ID }, 0x0101); if (parsed.ok) { parsed.observation.startedAt = result.data.startedAt; parsed.observation.finishedAt = result.data.finishedAt; parsed.observation.bytesReceived = result.data.byteLength; parsed.observation.exitCode = result.data.exitCode; parsed.observation.signal = result.data.signal; return { ok: true, observations: [parsed.observation] }; }
 			if (attempts == request.retries) return failure('EDEPENDENCY', 'STUN response parsing is indeterminate.', { stage: 'parse', parser: parsed.error });
 		}
