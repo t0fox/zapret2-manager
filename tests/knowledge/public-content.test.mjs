@@ -9,13 +9,13 @@ const PUBLIC = path.join(ROOT, '.artifacts', 'docs-public')
 const REQUIRED = [
   ['index.html', 400, ['zapret2-manager', 'Get started', 'Strategy', 'Scanner', 'Architecture']],
   ['01-project/index.html', 300, ['Project goals', 'Non-goals']],
-  ['02-architecture/index.html', 400, ['LuCI', 'rpcd', 'NFQUEUE', 'nfqws2']],
+  ['02-architecture/index.html', 400, ['LuCI', 'canonical state', 'Strategy', 'Scanner']],
   ['03-products/strategy/index.html', 400, ['Preview', 'Validate', 'Apply']],
   ['03-products/scanner/index.html', 400, ['transient', 'cleanup', 'Save as Strategy']],
   ['03-products/blockcheck/index.html', 80, ['BlockCheck', 'Planned']],
   ['03-products/deep-search/index.html', 80, ['Deep Search', 'Planned']],
   ['11-operations/installation.html', 250, ['Installation', 'OpenWrt']],
-  ['11-operations/quick-start.html', 250, ['Quick Start', 'LuCI']],
+  ['11-operations/first-run.html', 250, ['First Run', 'LuCI']],
   ['11-operations/troubleshooting.html', 180, ['Troubleshooting', 'diagnostics']],
   ['08-development/index.html', 200, ['Development', 'tests']],
 ]
