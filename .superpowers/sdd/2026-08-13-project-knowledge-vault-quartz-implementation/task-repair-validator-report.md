@@ -36,4 +36,4 @@ modified to mask those findings.
 ## Commits
 
 - Validator, tests, and fixtures: `e79ad6a`
-- Report commit: `7e181e6`
+- Report history: initial report `7e181e6`; commit-record correction `6c429f2`
