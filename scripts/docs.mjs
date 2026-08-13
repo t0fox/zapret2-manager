@@ -187,10 +187,22 @@ async function listOutputFiles(dir, prefix = '') {
 
 function outputTargetExists(files, pathname) {
   const clean = pathname.replace(/^\//, '')
-  return files.includes(clean)
-    || files.includes(`${clean}.html`)
-    || files.includes(`${clean.replace(/\/$/, '')}/index.html`)
-    || (clean === '' && files.includes('index.html'))
+  if (files.includes(clean)) return true
+  if (files.includes(`${clean}.html`)) return true
+  if (files.includes(`${clean.replace(/\/$/, '')}/index.html`)) return true
+  if (clean === '' && files.includes('index.html')) return true
+
+  // Handle Markdown links that point to .md but generate .html
+  if (clean.endsWith('.md')) {
+    const htmlVersion = clean.replace(/\.md$/, '.html')
+    if (files.includes(htmlVersion)) return true
+  }
+  if (clean.endsWith('.md/')) {
+    const htmlIndex = clean.replace(/\.md\/$/, '.html')
+    if (files.includes(htmlIndex)) return true
+  }
+
+  return false
 }
 
 async function patchPublicInternalLinks(output) {
