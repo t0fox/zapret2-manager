@@ -8,7 +8,6 @@ updated: 2026-08-13
 publish: false
 tags: [plan, strategy, catalog, parity]
 ---
-
 # Avatar Strategy Catalog Parity Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use

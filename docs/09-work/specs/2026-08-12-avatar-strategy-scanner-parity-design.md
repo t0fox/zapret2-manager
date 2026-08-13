@@ -8,7 +8,6 @@ updated: 2026-08-13
 publish: false
 tags: [spec, scanner, strategy, parity]
 ---
-
 # Avatar-Compatible Strategy Scanner Parity Design
 
 **Date:** 2026-08-12

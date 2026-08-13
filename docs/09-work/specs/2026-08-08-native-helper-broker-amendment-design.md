@@ -8,7 +8,6 @@ updated: 2026-08-13
 publish: false
 tags: [spec, native, helper, broker]
 ---
-
 # Native Helper Broker Amendment Design
 
 Date: 2026-08-08

@@ -8,7 +8,6 @@ updated: 2026-08-13
 publish: false
 tags: [spec, strategy, catalog, parity]
 ---
-
 # Avatar Strategy Aggregate and Pinned Catalog Parity Design
 
 **Date:** 2026-08-10

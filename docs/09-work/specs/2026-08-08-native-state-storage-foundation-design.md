@@ -8,7 +8,6 @@ updated: 2026-08-13
 publish: false
 tags: [spec, native, state, storage]
 ---
-
 # Native State and Storage Foundation Design
 
 Date: 2026-08-08
