@@ -124,20 +124,22 @@ function normalize_body(raw) {
 	let bytes = number(raw.bytesReceived, 0), code = number(raw.statusCode, 0);
 	let error = type(raw.error) == 'string' && raw.error != '' ? raw.error : null;
 	let marker = type(raw.marker) == 'string' ? raw.marker : '';
+	let marker_evidence = type(raw.markerEvidence) == 'array' ? raw.markerEvidence : [];
 	let transport = type(raw.transport) == 'string' ? raw.transport : '';
-	if (marker == 'isp_page' || raw.ispMarker) error = 'ISP_PAGE';
+	if (marker == 'isp_page' || raw.ispMarker || length(marker_evidence)) error = 'ISP_PAGE';
 	else if (code == 400) error = 'FAKE_LEAK';
 	else if (in_cutoff(bytes) && bytes < BODY_MINIMUM) error = 'TCP_16_20';
 	else if (transport == 'timeout') error = 'TIMEOUT';
 	else if (transport == 'reset') error = 'RST';
-	let success = error == null && (bytes >= BODY_MINIMUM || bytes > BLOCK_MAX ||
+	let success = error == null && raw.rangeSatisfied !== false && raw.complete !== false && (bytes >= BODY_MINIMUM || bytes > BLOCK_MAX ||
 		code == 204 || code == 205 || code == 304);
 	if (!success && error == null) error = 'SHORT_BODY';
 	return {
 		success, status: success ? 'success' : (transport == 'timeout' ? 'timeout' : 'failed'),
 		error: success ? null : error, statusCode: code, bytesReceived: bytes,
 		kbps: number(raw.kbps, 0), latencyMs: number(raw.latencyMs, 0),
-		marker: marker, range: 'bytes=0-69632', minimumBytes: BODY_MINIMUM,
+		marker: marker, markerEvidence: marker_evidence, range: 'bytes=0-69632', rangeSatisfied: raw.rangeSatisfied !== false,
+		complete: raw.complete !== false, minimumBytes: BODY_MINIMUM,
 	};
 }
 
@@ -254,7 +256,8 @@ function valid_tcp_test(evidence) {
 				!valid_nonnegative_number(host.body.bytesReceived) ||
 				!valid_nonnegative_number(host.body.kbps) ||
 				!valid_nonnegative_number(host.body.latencyMs) ||
-				host.body.range != 'bytes=0-69632' || host.body.minimumBytes != BODY_MINIMUM) return false;
+				host.body.range != 'bytes=0-69632' || host.body.minimumBytes != BODY_MINIMUM ||
+				host.body.rangeSatisfied !== true || host.body.complete !== true || type(host.body.markerEvidence) != 'array') return false;
 		}
 		else if (host.body != null) return false;
 	}

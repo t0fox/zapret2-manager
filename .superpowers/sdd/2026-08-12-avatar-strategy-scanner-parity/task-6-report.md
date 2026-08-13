@@ -54,6 +54,73 @@ RED was run before the Task 6 modules existed:
 node --test tests/product/avatar-strategy-scanner-worker.test.mjs tests/product/avatar-strategy-scanner-integration.test.mjs
 ```
 
+## Fix Round 4
+
+### Status
+
+PASS WITH DOCUMENTED HOST LIMITATIONS. The four Important review findings are
+addressed at the Task 6 executor/worker boundary. Task 5 remains fail-closed at
+`EUNSUPPORTED`, Task 7 remains the terminal reconciliation owner, and no
+Strategy/config/DNS/TG/router/LuCI/Orchestra behavior was changed.
+
+### Fixes
+
+- The executor now accepts only the adapter authority token and fixed descriptor
+  schema. Canonical server-owned host identity, URL host/path, address family,
+  TLS/body settings, Range, marker settings, read caps, timeout, retry, and
+  deadline values are validated before execution. Caller commands, executables,
+  raw args, paths, and arbitrary URLs are rejected.
+- TCP baseline and body probes execute IPv4 and IPv6 independently from the
+  server-owned descriptor. Skipped/unavailable families remain typed. Worker
+  candidate probes use the baseline-selected available families instead of
+  hardcoding IPv4.
+- Every operation is wrapped by fixed `timeout` ownership with TERM/KILL grace,
+  a per-operation timeout, an outer absolute deadline, and a fixed stdout cap
+  before the blocking read. Body probes use one pinned retry; STUN sends a real
+  STUN Binding request, retries twice within four seconds, validates Binding
+  Success/cookie/transaction/XOR-MAPPED-ADDRESS, and returns typed timeout or
+  infrastructure observations.
+- HTTP parsing now handles interim responses, Content-Length, chunked framing,
+  EOF, truncation, nominal 64KiB/body exceptions for 204/205/304, Range
+  evidence, marker evidence, and measured throughput. Marker, failed Range,
+  incomplete, and parser/transport uncertainty cannot become success in
+  `scanner_tcp_classify`.
+
+### TDD And Verification
+
+Added production-shaped behavioral coverage for canonical URL/path and settings,
+IPv6/family selection, HTTP interim/chunked/truncated bodies, marker and
+throughput evidence, STUN response transaction/type parsing, fixed retries, and
+executor authority/deadline rejection.
+
+Focused verification under pinned WSL ucode:
+
+```text
+wsl.exe -d Ubuntu -- bash -lc 'cd /mnt/c/Users/Kirill/zapret2-manager && UCODE_BIN=/opt/ucode/bin/ucode UCODE_LIBRARY_PATH=/opt/ucode/lib /home/kirill/.local/bin/node --test tests/product/avatar-strategy-scanner-worker.test.mjs tests/product/avatar-strategy-scanner-probes.test.mjs'
+```
+
+Result: **55 passed, 0 failed**.
+
+`git diff --check` passed. The broader scanner integration attempt retained
+three failures in unchanged `scanner-targets.uc:136` under this WSL ucode build;
+the changed worker/probe tests passed. The canonical native gate could not link
+its helper because the pre-existing WSL `TMPDIR` target was not writable.
+
+### Concerns
+
+- Real OpenWrt ncat/TLS/IPv6/STUN behavior and nfqws2/NFQUEUE/nftables activation
+  were not run on this Windows/WSL host. Router E2E remains intentionally not
+  run; Task 5 production cleanup is not bypassed.
+- The fixed executor uses packaged `/usr/bin/ncat`, `/usr/bin/timeout`, and
+  `/usr/bin/head`; package/runtime availability is still a deployment concern.
+- Existing `scanner-targets.uc` WSL null-indexing failures remain outside this
+  round and were not modified.
+
+```text
+ROUTER_E2E: NOT RUN
+REASON: physical-router activation was not approved and Task 5 remains fail-closed
+```
+
 Expected missing-module failures were observed.
 
 Focused GREEN and adjacent Task 5 verification:

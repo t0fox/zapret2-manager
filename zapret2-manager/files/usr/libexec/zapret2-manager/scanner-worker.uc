@@ -80,13 +80,29 @@ function probe_candidate(candidate, plan, baseline, seams, outerDeadline) {
 	if (type(raw) == 'function') raw = raw(candidate, plan);
 	if (raw == null) {
 		let now = int(time() * 1000), end = outerDeadline < now + PROBE_BUDGET_MS ? outerDeadline : now + PROBE_BUDGET_MS;
-		let adapted = candidate.protocol == 'udp'
-			? scanner_probe_adapter_udp(candidate, { host: plan.targetProfile.primaryHost, port: 443 }, { nowMs: now, deadlineMs: end })
-			: scanner_probe_adapter_tcp(candidate, plan.targetProfile, 'ipv4', { nowMs: now, deadlineMs: end, mode: plan.request.mode });
-		if (!adapted.ok) return scanner_candidate_verdict({ infrastructureFailure: true, error: adapted.error?.message }, []);
-		let executed = seam(seams, 'executor') || scanner_probe_execute(adapted);
-		if (!executed.ok) return scanner_candidate_verdict({ infrastructureFailure: true, error: executed.error?.code || 'PROBE_DEPENDENCY' }, []);
-		raw = executed.observations?.[0] || null;
+		if (candidate.protocol == 'udp') {
+			let adapted = scanner_probe_adapter_udp(candidate, { host: plan.targetProfile.primaryHost, port: 443 }, { nowMs: now, deadlineMs: end });
+			if (!adapted.ok) return scanner_candidate_verdict({ infrastructureFailure: true, error: adapted.error?.message }, []);
+			let executed = seam(seams, 'executor') || scanner_probe_execute(adapted);
+			if (!executed.ok) return scanner_candidate_verdict({ infrastructureFailure: true, error: executed.error?.code || 'PROBE_DEPENDENCY' }, []);
+			raw = executed.observations?.[0] || null;
+		}
+		else {
+			let families = type(baseline?.probeAddressFamilies) == 'array' && length(baseline.probeAddressFamilies)
+				? baseline.probeAddressFamilies : ['ipv4'];
+			let hosts = [];
+			for (let family in families) {
+				if (family != 'ipv4' && family != 'ipv6') return scanner_candidate_verdict({ infrastructureFailure: true, error: 'INVALID_ADDRESS_FAMILY' }, []);
+				let adapted = scanner_probe_adapter_tcp(candidate, plan.targetProfile, family, { nowMs: int(time() * 1000), deadlineMs: end, mode: plan.request.mode });
+				if (!adapted.ok) return scanner_candidate_verdict({ infrastructureFailure: true, error: adapted.error?.message }, []);
+				let executed = seam(seams, 'executor') || scanner_probe_execute(adapted);
+				if (!executed.ok) return scanner_candidate_verdict({ infrastructureFailure: true, error: executed.error?.code || 'PROBE_DEPENDENCY' }, []);
+				let observation = executed.observations?.[0];
+				if (!object(observation) || type(observation.hosts) != 'array') return scanner_candidate_verdict({ infrastructureFailure: true, error: 'INVALID_OBSERVATION' }, []);
+				for (let host in observation.hosts) push(hosts, host);
+			}
+			raw = { hosts };
+		}
 	}
 	if (raw == null) return scanner_candidate_verdict({ infrastructureFailure: true, error: 'PROBE_DEPENDENCY' }, []);
 	let classified = candidate.protocol == 'udp' ? scanner_udp_classify(raw) : scanner_tcp_classify(raw);

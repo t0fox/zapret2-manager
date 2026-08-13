@@ -12,6 +12,7 @@ const STATE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager
 const WORKER = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-worker.uc');
 const CLI = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-cli.uc');
 const EXECUTOR = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-probe-executor.uc');
+const ADAPTER = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-probe-adapter.uc');
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.split('|') : [];
 const MODULE_PATTERN = ucodeModulePattern(process.env.UCODE_MODULE_PATH, process.env.UCODE_LIBRARY_PATH);
@@ -97,6 +98,10 @@ function storageEnv(root) {
 
 function invokeCli(expression, env = {}) {
   return invoke(CLI, expression, env);
+}
+
+function adapt(name, ...args) {
+  return invoke(ADAPTER, `subject.${name}(${args.map(value => JSON.stringify(value)).join(', ')})`);
 }
 
 test('Task 6 modules expose bounded volatile state, worker, and fixed CLI contracts', () => {
@@ -418,6 +423,33 @@ test('fixed executor parses real HTTP status/body bytes and latency, and never t
   assert.equal(invalid.error.code, 'EINDETERMINATE');
 });
 
+test('fixed HTTP parser handles interim responses, chunked framing, and truncated content', () => {
+  const interim = invoke(EXECUTOR, `subject.scanner_probe_parse_http('HTTP/1.1 100 Continue\\r\\n\\r\\nHTTP/1.1 206 Partial Content\\r\\nContent-Length: 5\\r\\nContent-Range: bytes 0-4/5\\r\\n\\r\\nhello', 1000, 1042, ${JSON.stringify({ range: 'bytes=0-4', readLimitBytes: 64, markerScanBytes: 8 })})`);
+  assert.equal(interim.ok, true, JSON.stringify(interim));
+  assert.equal(interim.observation.statusCode, 206);
+  assert.equal(interim.observation.bytesReceived, 5);
+  assert.equal(interim.observation.complete, true);
+  assert.equal(interim.observation.rangeSatisfied, true);
+
+  const chunked = invoke(EXECUTOR, `subject.scanner_probe_parse_http('HTTP/1.1 200 OK\\r\\nTransfer-Encoding: chunked\\r\\n\\r\\n5\\r\\nhello\\r\\n0\\r\\n\\r\\n', 1000, 1042, ${JSON.stringify({ readLimitBytes: 64, markerScanBytes: 8 })})`);
+  assert.equal(chunked.ok, true, JSON.stringify(chunked));
+  assert.equal(chunked.observation.bytesReceived, 5);
+  assert.equal(chunked.observation.complete, true);
+
+  const truncated = invoke(EXECUTOR, `subject.scanner_probe_parse_http('HTTP/1.1 200 OK\\r\\nContent-Length: 10\\r\\n\\r\\nshort', 1000, 1042, ${JSON.stringify({ readLimitBytes: 64, markerScanBytes: 8 })})`);
+  assert.equal(truncated.ok, false, JSON.stringify(truncated));
+  assert.equal(truncated.error.code, 'EINDETERMINATE');
+});
+
+test('fixed HTTP observations retain configured markers and measured throughput without success fabrication', () => {
+  const marker = invoke(EXECUTOR, `subject.scanner_probe_parse_http('HTTP/1.1 200 OK\\r\\nContent-Length: 12\\r\\n\\r\\nblocked page', 1000, 2000, ${JSON.stringify({ readLimitBytes: 64, markerScanBytes: 64, markers: [{ name: 'isp_page', needles: ['blocked page'] }] })})`);
+  assert.equal(marker.ok, true, JSON.stringify(marker));
+  assert.equal(marker.observation.marker, 'isp_page');
+  assert.equal(marker.observation.bytesReceived, 12);
+  assert.equal(marker.observation.kbps, 0.1);
+  assert.equal(marker.observation.markerEvidence[0].name, 'isp_page');
+});
+
 test('fixed executor parses STUN XOR-mapped IPv4 evidence and rejects no-response data', () => {
   const bytes = [1, 1, 0, 12, 33, 18, 164, 66, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 0, 32, 0, 8, 0, 1, 17, 43, 225, 18, 166, 67];
   const packet = `b64dec('AQEADCESpEIBAgMEBQYHCAkKCwwAIAAIAAERK+ESpkM=')`;
@@ -430,6 +462,28 @@ test('fixed executor parses STUN XOR-mapped IPv4 evidence and rejects no-respons
   const invalid = invoke(EXECUTOR, `subject.scanner_probe_parse_stun('', 10, 75)`);
   assert.equal(invalid.ok, false, JSON.stringify(invalid));
   assert.equal(invalid.error.code, 'EINDETERMINATE');
+});
+
+test('fixed STUN parser requires a binding success response and preserves transaction identity', () => {
+  const response = `b64dec('AQEADCESpEIBAgMEBQYHCAkKCwwAIAAIAAERK+ESpkM=')`;
+  const wrongType = invoke(EXECUTOR, `subject.scanner_probe_parse_stun(${response}, 10, 75, ${JSON.stringify({ transactionId: '0102030405060708090a0b0c' })}, 0x0111)`);
+  assert.equal(wrongType.ok, false, JSON.stringify(wrongType));
+  const wrongTransaction = invoke(EXECUTOR, `subject.scanner_probe_parse_stun(${response}, 10, 75, ${JSON.stringify({ transactionId: '0c0b0a090807060504030201' })}, 0x0101)`);
+  assert.equal(wrongTransaction.ok, false, JSON.stringify(wrongTransaction));
+});
+
+test('adapter descriptors carry canonical URL/path, host identity, family, and pinned retry/read settings', () => {
+  const profile = { profileKey: 'generic', primaryHost: 'example.com', testHosts: ['example.com', 'cdn.example.com'],
+    probeUrl: 'https://example.com/probe/204', tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' },
+    udp: { ports: '443', l7: 'quic', payload: 'quic_initial' } };
+  const candidate = { scannerId: 'catalog:one', protocol: 'tcp', compiledDigest: 'a'.repeat(64), dependencyDigest: 'b'.repeat(64) };
+  const tcp = adapt('scanner_probe_adapter_tcp', candidate, profile, 'ipv6', { nowMs: 1000, deadlineMs: 20000, mode: 'standard' });
+  assert.equal(tcp.ok, true, JSON.stringify(tcp));
+  assert.deepEqual(tcp.request.hosts[0], { host: 'example.com', hostIdentity: 'example.com', addressFamily: 'ipv6', port: 443, url: 'https://example.com/probe/204' });
+  assert.equal(tcp.request.hosts[1].url, 'https://cdn.example.com/');
+  assert.equal(tcp.request.hosts[1].hostIdentity, 'cdn.example.com');
+  assert.equal(tcp.request.retries, 1);
+  assert.deepEqual(tcp.request.body.markers, [{ name: 'isp_page', needles: ['blocked', 'access denied', 'captcha'] }]);
 });
 
 test('executor enforces descriptor deadline and rejects caller executable/raw arguments', () => {

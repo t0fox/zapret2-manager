@@ -421,7 +421,8 @@ test('fixed adapter plans pin timeout, read, Range, STUN, retry, and deadline bo
   const tcp = adapt('scanner_probe_adapter_tcp', candidate, profile, 'ipv4', deadline);
   assert.equal(tcp.ok, true, JSON.stringify(tcp));
   assert.deepEqual(tcp.request.body, { timeoutMs: 8000, minimumBytes: 65536,
-    readChunkBytes: 4096, markerScanBytes: 8192, readLimitBytes: 69633, range: 'bytes=0-69632' });
+    readChunkBytes: 4096, markerScanBytes: 8192, readLimitBytes: 69633, range: 'bytes=0-69632',
+    markers: [{ name: 'isp_page', needles: ['blocked', 'access denied', 'captcha'] }] });
 
   const udp = adapt('scanner_probe_adapter_udp', { ...candidate, protocol: 'udp' },
     { host: 'stun.l.google.com', port: 19302 }, deadline);
