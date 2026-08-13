@@ -58,10 +58,60 @@ async function scanDirectory(dir) {
   return leaks
 }
 
+async function listFiles(dir, prefix = '') {
+  const files = []
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const relative = path.join(prefix, entry.name)
+    const fullPath = path.join(dir, entry.name)
+    if (entry.isDirectory()) files.push(...await listFiles(fullPath, relative))
+    else files.push(relative.replaceAll(path.sep, '/'))
+  }
+  return files
+}
+
+function publicTargetExists(files, pathname) {
+  const clean = pathname.replace(/^\//, '')
+  return files.includes(clean)
+    || files.includes(`${clean}.html`)
+    || files.includes(`${clean.replace(/\/$/, '')}/index.html`)
+    || (clean === '' && files.includes('index.html'))
+}
+
+async function scanBrokenInternalLinks(dir) {
+  const files = await listFiles(dir)
+  const broken = []
+  for (const relativeFile of files.filter((file) => file.endsWith('.html'))) {
+    const html = await readFile(path.join(dir, relativeFile), 'utf8')
+    const base = new URL(`https://public.test/${relativeFile}`)
+    for (const match of html.matchAll(/href="([^"]+)"/g)) {
+      const href = match[1]
+      if (!href.startsWith('.') || href.startsWith('./#')) continue
+      const target = new URL(href, base)
+      if (!publicTargetExists(files, target.pathname)) broken.push(`${relativeFile} -> ${href}`)
+    }
+  }
+  return broken
+}
+
 test('public Quartz build must not contain publish:false notes or internal assets', async (t) => {
   const publicDir = await findPublicDir()
   assert.ok(publicDir, `Public build output is required at ${PUBLIC_DIR}`)
 
   const leaks = await scanDirectory(publicDir)
   assert.equal(leaks.length, 0, `Found ${leaks.length} leaks in public build:\n${leaks.map(l => `${l.file} matched ${l.pattern}`).join('\n')}`)
+})
+
+test('public Quartz navigation points only to generated pages and assets', async () => {
+  const publicDir = await findPublicDir()
+  assert.ok(publicDir, `Public build output is required at ${PUBLIC_DIR}`)
+  const broken = await scanBrokenInternalLinks(publicDir)
+  assert.deepEqual(broken, [], `Found broken public links:\n${broken.join('\n')}`)
+})
+
+test('public Quartz runtime uses the Pages subpath for content index data', async () => {
+  const publicDir = await findPublicDir()
+  assert.ok(publicDir, `Public build output is required at ${PUBLIC_DIR}`)
+  const postscript = await readFile(path.join(publicDir, 'postscript.js'), 'utf8')
+  assert.doesNotMatch(postscript, /fetch\("\/static\/contentIndex\.json"\)/)
+  assert.match(postscript, /location\.pathname\.match/)
 })

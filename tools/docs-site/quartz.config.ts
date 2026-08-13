@@ -15,7 +15,7 @@ const config: QuartzConfig = {
     enablePopovers: true,
     analytics: { provider: "none" },
     locale: "en-US",
-    baseUrl: "zapret2-manager.github.io",
+    baseUrl: "t0fox.github.io/zapret2-manager",
     ignorePatterns: ["private", ".obsidian"],
     defaultDateType: "created",
     theme: {

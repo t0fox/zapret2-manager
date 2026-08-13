@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { access, cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import http from 'node:http'
 import path from 'node:path'
 import process from 'node:process'
@@ -164,12 +164,60 @@ async function applyConfig(mode) {
   await writeFile(path.join(QUARTZ_PATH, 'quartz.config.yaml'), config)
 }
 
+async function patchPublicRuntimePaths(output) {
+  const scriptPath = path.join(output, 'postscript.js')
+  let script = await readFile(scriptPath, 'utf8')
+  const absoluteIndexFetch = 'fetch("/static/contentIndex.json")'
+  const projectAwareIndexFetch = 'fetch((location.pathname.match(/^\\/[^/]+\\//)?.[0] || "/") + "static/contentIndex.json")'
+  if (!script.includes(absoluteIndexFetch)) return
+  script = script.replaceAll(absoluteIndexFetch, projectAwareIndexFetch)
+  await writeFile(scriptPath, script)
+}
+
+async function listOutputFiles(dir, prefix = '') {
+  const files = []
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const relative = path.join(prefix, entry.name)
+    const fullPath = path.join(dir, entry.name)
+    if (entry.isDirectory()) files.push(...await listOutputFiles(fullPath, relative))
+    else files.push(relative.replaceAll(path.sep, '/'))
+  }
+  return files
+}
+
+function outputTargetExists(files, pathname) {
+  const clean = pathname.replace(/^\//, '')
+  return files.includes(clean)
+    || files.includes(`${clean}.html`)
+    || files.includes(`${clean.replace(/\/$/, '')}/index.html`)
+    || (clean === '' && files.includes('index.html'))
+}
+
+async function removeBrokenPublicLinks(output) {
+  const files = await listOutputFiles(output)
+  for (const relativeFile of files.filter((file) => file.endsWith('.html'))) {
+    const fullPath = path.join(output, relativeFile)
+    const html = await readFile(fullPath, 'utf8')
+    const base = new URL(`https://public.test/${relativeFile}`)
+    const sanitized = html.replace(/<a\b([^>]*\bhref="([^"]+)"[^>]*)>([\s\S]*?)<\/a>/gi, (whole, attributes, href, content) => {
+      if (!href.startsWith('.') || href.startsWith('./#')) return whole
+      const target = new URL(href, base)
+      return outputTargetExists(files, target.pathname) ? whole : content
+    })
+    if (sanitized !== html) await writeFile(fullPath, sanitized)
+  }
+}
+
 async function quartz(mode) {
   const output = outputPathFor(WORKTREE_ROOT, mode)
   await applyConfig(mode)
   await rm(output, { recursive: true, force: true })
   await mkdir(output, { recursive: true })
   await run(quartzCommand([]).command, [...quartzCommand([]).args, 'build', '-d', DOCS_PATH, '-o', output], { cwd: QUARTZ_PATH })
+  if (mode === 'public') {
+    await patchPublicRuntimePaths(output)
+    await removeBrokenPublicLinks(output)
+  }
   return output
 }
 
