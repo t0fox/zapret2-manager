@@ -6,6 +6,7 @@ import { scanner_baseline_classify, scanner_tcp_classify, scanner_udp_classify, 
 import { scanner_probe_adapter_baseline, scanner_probe_adapter_tcp, scanner_probe_adapter_udp } from './scanner-probe-adapter.uc';
 import { scanner_probe_execute } from './scanner-probe-executor.uc';
 import { scanner_session_begin, scanner_candidate_activate, scanner_candidate_cleanup, scanner_session_finish } from './scanner-transient.uc';
+import { scanner_terminal_reconcile, scanner_stale_worker_recover } from './scanner-reconcile.uc';
 import * as state from './scanner-state.uc';
 
 const MAX_RESULTS = 128;
@@ -150,13 +151,15 @@ function finish(record, session, seams, transition, message) {
 	let cleanup = scanner_session_finish(session, seam(seams, 'transient'));
 	if (lifecycle) lifecycle.sessionCleanup = cleanup;
 	let reconciliation = seam(seams, 'reconcile');
-	if (!object(reconciliation)) reconciliation = { ok: false, error: { code: 'EDEPENDENCY', message: 'Task 7 reconciliation provider is required.', stage: 'reconciliation' }, recovery: { state: 'uncertain' } };
-	else if (reconciliation.ok !== true || reconciliation.recovery?.state != 'verified') reconciliation = merge_recovery(reconciliation, { recovery: merge_recovery(reconciliation.recovery, { state: 'uncertain' }) });
-	if (!cleanup.ok || record.recovery?.state == 'uncertain' || reconciliation?.ok !== true || reconciliation?.recovery?.state != 'verified') {
-		record.status = 'error'; record.phase = 'recovery'; record.recovery = merge_recovery(record.recovery, { state: 'uncertain', sessionCleanup: cleanup, reconciliation: reconciliation || task7_dependency('terminal_reconciliation', null) }); record.error = message || 'Scanner recovery is uncertain.';
+	if (!object(reconciliation) || reconciliation.ok !== true || reconciliation.recovery?.state != 'verified') {
+		record.status = 'error';
+		record.phase = 'recovery';
+		record.recovery = merge_recovery(record.recovery, { state: 'uncertain', sessionCleanup: cleanup, reconciliation: reconciliation || task7_dependency('terminal_reconciliation', null) });
+		record.error = message || 'Scanner recovery is uncertain.';
 	} else {
 		record.status = transition == 'cancelled' ? 'cancelled' : (transition == 'completed' ? 'completed' : 'error');
-		record.phase = record.status; record.recovery = merge_recovery(record.recovery, { state: 'verified' });
+		record.phase = record.status;
+		record.recovery = merge_recovery(record.recovery, { state: 'verified' });
 		if (message != null) record.error = message;
 	}
 	record.currentCandidate = null; record.finishedAt = time(); record.heartbeatAt = time();
@@ -345,6 +348,9 @@ export const scanner_worker_run = function(input, seams) {
 			if (lifecycle) lifecycle.stage = 'recovery';
 			let published = null;
 			try { published = state.scanner_state_save(fallback); } catch (exception) { published = { ok: false, error: exception }; }
+			if (published.ok !== true) {
+				try { state.scanner_state_release(lifecycle.record.id, lifecycle.identity); } catch (e) {}
+			}
 			recovery.publication = { ok: published.ok === true, durable: published.ok === true, retryRequired: published.ok !== true, result: published };
 		}
 		return error('EINTERNAL', 'Scanner worker lifecycle failed; state publication is unavailable.', { recovery });

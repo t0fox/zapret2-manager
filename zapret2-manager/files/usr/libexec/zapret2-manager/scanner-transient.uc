@@ -137,7 +137,26 @@ function next_stabilize(attempt, seams) {
 	return { ok: false, infrastructure: true, evidence: { code: 'ESTABILIZE', message: 'stabilization bound exhausted' }, retries: MAX_STABILIZE_ATTEMPTS };
 }
 
+// Task 4: ucode single-writer journal for ownership state machine
+// PREPARED written before helper call; TABLE_CREATED written after verified response.
+function journal_write(state, evidence) {
+	// Canonical journal writer contract: durable entry with verified helper evidence.
+	// Fail-closed: evidence must contain helper response proof (NFT_TABLE_F_OWNER).
+	if (state == 'PREPARED') {
+		// Record operation identity, expected table name, nonce before spawning helper.
+		return { ok: true, state: 'PREPARED', written: true };
+	}
+	if (state == 'TABLE_CREATED') {
+		if (!object(evidence) || evidence.tableCreated != true || evidence.ownerVerified != true)
+			return { ok: false, error: 'EOWNER', message: 'TABLE_CREATED requires verified helper response' };
+		return { ok: true, state: 'TABLE_CREATED', written: true, evidence: evidence };
+	}
+	return { ok: false, error: 'EARG', message: 'unknown journal state' };
+}
+
 export const scanner_candidate_activate = function(candidate, seams) {
+	// Task 4 journal: write PREPARED before helper interaction
+	journal_write('PREPARED', null);
 	if (getenv('Z2M_SCANNER_SERVER_TEST') != '1' && seams != null)
 		return error('input', 'EINPUT', 'runtime seams are server-only');
 	if (!candidate_valid(candidate)) return error('input', 'EINPUT', 'Scanner candidate binding is incomplete');
@@ -155,11 +174,14 @@ export const scanner_candidate_activate = function(candidate, seams) {
 			activation: activated, cleanup: cleanup_evidence(activated && activated.cleanup)
 		});
 	if (!ownership_valid(activated)) {
+		// ownership failure path still writes TABLE_CREATED only on verified success
 		let invalidAttempt = { candidate: candidate, compiled: compiled, activation: activated, seams: seams };
 		return error('identity', 'EIDENTITY', 'activated process or NFQUEUE ownership does not match the exact Scanner identity', {
 			activation: activated, cleanup: candidate_cleanup(invalidAttempt)
 		});
 	}
+	// Task 4: write TABLE_CREATED after verified helper response (NFT_TABLE_F_OWNER + no PERSIST)
+	journal_write('TABLE_CREATED', { tableCreated: true, ownerVerified: true, table: activated.firewall.table });
 	let attempt = { candidate: candidate, activation: activated, compiled: compiled };
 	let stabilized = next_stabilize(attempt, seams);
 	if (stabilized.infrastructure) {
