@@ -118,3 +118,6 @@ test('generic target profiles bind the requested host as a server-owned test hos
   assert.deepEqual(profile.testHosts, ['kernel.org']);
   assert.deepEqual(invoke('scanner_target_hosts', profile, 'quick'), ['kernel.org']);
 });
+test('scanner_results integration exports and handoff contracts', () => {
+  assert.fail('RED: scanner-results + handoff absent');
+});
