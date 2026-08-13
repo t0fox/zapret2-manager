@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/schemas/context-map.schema.json",
+  "title": "Deterministic Context Map",
+  "description": "Single authoritative mapping of product areas to code, tests, docs, contracts, and parity references for the zapret2-manager knowledge vault.",
+  "type": "object",
+  "required": ["version", "generated", "sections"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "generated": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "sections": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/ProductSection"
+      }
+    }
+  },
+  "$defs": {
+    "ProductSection": {
+      "type": "object",
+      "required": ["codeGlobs", "testGlobs", "requiredDocs", "contracts", "parityReferences"],
+      "properties": {
+        "codeGlobs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "testGlobs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "requiredDocs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "path"],
+            "properties": {
+              "id": { "type": "string" },
+              "path": { "type": "string" }
+            }
+          }
+        },
+        "contracts": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "parityReferences": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "activeSpec": { "type": "string" },
+        "activePlan": { "type": "string" }
+      }
+    }
+  }
+}
