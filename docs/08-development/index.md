@@ -11,18 +11,18 @@ tags: [development, build, tests, docs]
 
 # Разработка
 
-Репозиторий организован вокруг OpenWrt packages, исходного кода приложения, автоматических тестов и базы документации в `docs/`. Публичный раздел разработки описывает структуру проекта и проверенные команды, которые нужны участнику разработки. Рабочие планы, внутренние handoff-записи и приватные engineering-инструкции остаются во внутренней документации.
+Репозиторий организован вокруг OpenWrt packages, исходного кода приложения, автоматических тестов и базы документации в `docs/`. Публичный раздел разработки описывает структуру проекта, уровни evidence и проверенные команды, которые нужны участнику разработки. Внутренние рабочие материалы остаются во внутренней документации.
 
 ## Структура репозитория
 
 Основные области:
 
-- `zapret2-manager/` — backend package и его implementation source;
+- `zapret2-manager/` — backend package и implementation source;
 - `luci-app-zapret2-manager/` — JavaScript frontend LuCI и package data;
 - `zapret2-manager-full/` — target-specific meta-package backend + LuCI;
 - `tests/` — автоматические тесты и verification gates;
 - `docs/` — база знаний и исходный контент Quartz;
-- `scripts/` — точки входа для документации и validation.
+- `scripts/` — точки входа для validation/documentation tooling.
 
 Сгенерированные packages, build directories, временные audit outputs и локальное состояние инструментов не должны попадать в обычное source tree.
 
@@ -36,17 +36,29 @@ make package/luci-app-zapret2-manager/compile V=s
 make package/zapret2-manager-full/compile V=s
 ```
 
-Host-side source test и сборка целевым OpenWrt toolchain подтверждают разные свойства. Нельзя сообщать об успешной target-сборке только потому, что локальный тест исходников завершился без ошибки.
+Host-side source test и сборка целевым OpenWrt toolchain подтверждают разные свойства. Нельзя сообщать об успешной target-сборке только потому, что локальный test исходников завершился без ошибки.
 
-## Текущие тесты
+## Evidence важнее слова «PASS»
 
-README указывает `scripts/test/native.sh` как текущую точку входа для проверки native foundation. Запускайте актуальные test entry points на известной ревизии и при регрессии сохраняйте точную команду и исходный текст ошибки.
+Разные gates отвечают на разные вопросы. Подробная [лестница доказательств](./evidence-testing.md) разделяет source/unit, integration/contract, package/toolchain, router read-only, router mutation/E2E и LAN/live evidence.
 
-Для документации отдельные тесты проверяют содержательность публичных страниц, отсутствие внутренних материалов, корректность ссылок и соответствие поведения статическому GitHub Pages hosting.
+Это особенно важно для Scanner: наличие model/planner/worker/A1 runtime и зелёных source tests является серьёзным прогрессом, но production-ready статус требует доказанной полной вертикали и target evidence.
 
-## Работа с документацией
+## Контракты и approved design
 
-Quartz infrastructure уже существует. Обычная работа с документацией должна расширять текущий контент и тесты, а не создавать второй сайт.
+Публичный индекс [Контракты, решения и approved design](./decisions-and-specs.md) объясняет основные архитектурные решения без публикации внутренних рабочих журналов. Там разделены current contract, approved design и implementation evidence.
+
+Ключевые темы: native backend contract, Strategy aggregate/catalog, Scanner design, single-writer, A1 ownership, OpenWrt-native deviations, Rust-first для нового native-кода и будущая routing/tunnel foundation.
+
+## Документация как часть разработки
+
+[Актуальность документации вместе с разработкой](./docs-freshness.md) описывает freshness contract. `scripts/check-docs-freshness.mjs` связывает изменения product/runtime областей с документацией, которую нужно пересмотреть в том же change set.
+
+Например, изменение Scanner runtime без изменения Scanner docs/parity/roadmap должно давать failure. При этом freshness gate не заменяет review фактических claims: он доказывает только то, что documentation impact был явно обработан.
+
+## Работа с Quartz
+
+Quartz infrastructure уже существует; обычная работа с документацией расширяет текущий сайт, а не создаёт второй pipeline.
 
 Проверка закреплённой версии Quartz:
 
@@ -66,7 +78,7 @@ node scripts/docs.mjs build internal
 node scripts/docs.mjs build public
 ```
 
-Стабильные выходные каталоги: `.artifacts/docs-internal` и `.artifacts/docs-public`. Bash и PowerShell wrappers используют тот же entry point `docs.mjs`.
+Стабильные выходные каталоги: `.artifacts/docs-internal` и `.artifacts/docs-public`.
 
 ## Проверка базы знаний
 
@@ -76,22 +88,30 @@ node scripts/docs.mjs build public
 node scripts/validate-knowledge.mjs
 ```
 
-Validator проверяет frontmatter contract, идентификаторы, даты, ссылки и другие правила базы знаний. Public-site tests дополнительно защищают границу публикации и проверяют generated links.
+Validator проверяет frontmatter contract, IDs, dates, links, authority/reachability и другие правила knowledge tree. Public-site suite дополнительно проверяет содержательность, границу публикации, generated links, GitHub Pages subpath/runtime и freshness fixtures.
 
-Новые публичные страницы используют уже существующие поля: `id`, `title`, `type`, `status`, `authority`, `updated`, `publish` и `tags`. Не создавайте параллельную metadata schema.
+Новые публичные страницы используют существующие поля `id`, `title`, `type`, `status`, `authority`, `updated`, `publish`, `tags`; параллельная metadata schema не создаётся.
 
-## Публичная и внутренняя документация
+## Public и internal
 
-Публичная документация должна объяснять назначение проекта, текущую зрелость, поддерживаемые пользовательские workflow, архитектуру на полезном уровне, установку и устранение неполадок.
+Публичная документация объясняет продукт, текущую зрелость, поддерживаемые workflows, архитектуру, parity, roadmap, evidence и operational boundaries.
 
-Внутренний Quartz сохраняет implementation evidence, рабочие планы, ADR, инженерные контракты, traceability и recovery history. Битая публичная ссылка не является основанием публиковать внутренний документ: нужно дать публичное объяснение, убрать ссылку или создать отдельную user-facing страницу.
+Internal Quartz остаётся местом для детальных implementation evidence, plans/specs, engineering recovery history и внутренних operational notes. Если public link требует объяснения внутреннего решения, создаётся безопасная user-facing summary, а не публикуется весь внутренний источник.
 
 ## Проверка изменений документации
 
-Само изменение Markdown не доказывает, что сайт работает. Нужно проверить metadata и links, собрать public artifact, прогнать тесты публикации и проверить generated HTML. При изменениях дерева документации важны и public, и internal builds.
+Изменение Markdown само по себе не доказывает, что сайт работает. Нужно проверить metadata/links, собрать public и internal artifacts, прогнать publication/content tests и посмотреть generated HTML.
 
-Отдельно учитывайте разницу между Quartz dev-server и GitHub Pages. Публичные ссылки должны разрешаться как реально загруженные статические файлы; нельзя рассчитывать на rewrite, который существует только у локального сервера.
+Отдельно учитывается разница Quartz dev-server и GitHub Pages: ссылка должна разрешаться как реально загруженный static file под `/zapret2-manager/`, а не рассчитывать на rewrite только локального сервера.
 
 ## С чего начать
 
-Новому участнику полезно прочитать [Обзор проекта](../01-project/index.md), [Архитектуру](../02-architecture/index.md) и страницу нужной продуктовой области. Для понимания пользовательского пути также посмотрите [Установку](../11-operations/installation.md) и [Устранение неполадок](../11-operations/troubleshooting.md).
+- [Обзор проекта](../01-project/index.md)
+- [Roadmap](../01-project/status-roadmap.md)
+- [Avatar parity](../01-project/avatar-parity.md)
+- [Архитектура](../02-architecture/index.md)
+- [Runtime flow](../02-architecture/runtime-flow.md)
+- [Владение состоянием](../02-architecture/state-ownership.md)
+- [Доказательства и тестирование](./evidence-testing.md)
+- [Контракты и решения](./decisions-and-specs.md)
+- [Актуальность документации](./docs-freshness.md)
