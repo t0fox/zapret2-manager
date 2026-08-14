@@ -30,6 +30,8 @@ This is the deterministic starting point for all AI agents working in this repos
 - [Atomic JSON design](../02-architecture/atomic-write-json-v1-design.md)
 - [Atomic JSON traceability](../02-architecture/traceability/atomic-write-json-v1-traceability.md)
 - [Knowledge workflow](../08-development/knowledge-workflow.md)
+- [Documentation Depth v2 design](../09-work/specs/2026-08-14-documentation-depth-v2-design.md)
+- [Documentation Depth v2 implementation plan](../09-work/plans/2026-08-14-documentation-depth-v2.md)
 
 ## Navigation
 
