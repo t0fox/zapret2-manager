@@ -53,6 +53,7 @@ const PUBLIC_DISABLED_PLUGINS = [
   'github:quartz-community/note-properties',
   'github:quartz-community/stacked-pages',
   'github:quartz-community/footer',
+  'github:quartz-community/breadcrumbs',
 ]
 
 function commandLine(command, args) {
