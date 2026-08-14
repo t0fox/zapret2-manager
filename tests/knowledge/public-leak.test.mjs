@@ -30,9 +30,15 @@ const FORBIDDEN_PATTERNS = [
 ]
 
 const FORBIDDEN_PUBLIC_PATH_PREFIXES = [
+  '04-contracts/',
+  '05-parity/',
+  '07-decisions/',
   '09-work/',
   '12-ai/',
   '99-archive/',
+  '02-architecture/traceability/',
+  '02-architecture/atomic-write-json-v1-design',
+  '08-development/knowledge-workflow',
 ]
 
 async function scanDirectory(dir) {
@@ -118,7 +124,7 @@ test('public Quartz build must not contain publish:false notes or internal asset
   assert.equal(leaks.length, 0, `Found ${leaks.length} leaks in public build:\n${leaks.map(l => `${l.file} matched ${l.pattern}`).join('\n')}`)
 })
 
-test('public artifact must not contain internal-only raw paths', async () => {
+test('public artifact must not contain internal-only paths', async () => {
   const publicDir = await findPublicDir()
   assert.ok(publicDir, `Public build output is required at ${PUBLIC_DIR}`)
   const files = await listFiles(publicDir)
