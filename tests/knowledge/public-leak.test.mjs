@@ -14,6 +14,7 @@ async function findPublicDir() {
   try {
     const result = await stat(PUBLIC_DIR)
     return result.isDirectory() ? PUBLIC_DIR : null
+
   } catch {
     return null
   }
@@ -203,7 +204,7 @@ test('public Quartz runtime uses the canonical Pages subpath for content index d
   const postscript = await readFile(path.join(publicDir, 'postscript.js'), 'utf8')
   assert.doesNotMatch(postscript, /fetch\("\/static\/contentIndex\.json"\)/)
   assert.match(postscript, /\/zapret2-manager\/static\/contentIndex\.json/)
-  assert.doesNotMatch(postscript, /location\.pathname\.match\(\/\^\\\/\[\^\/\]\+\\\/\//)
+  assert.match(postscript, /z2mStaticBase=\(\)=>"\/zapret2-manager\/"/)
 })
 
 test('public runtime does not regenerate root or extensionless navigation URLs', async () => {
@@ -223,5 +224,17 @@ test('public Explorer renders index-only sections as links without stale saved e
   const scannerHtml = await readFile(path.join(publicDir, '03-products', 'scanner', 'index.html'), 'utf8')
   assert.match(postscript, /z2mNormalizeExplorerLeaves/)
   assert.doesNotMatch(postscript, /localStorage\.getItem\("fileTree"\)/)
+  assert.doesNotMatch(postscript, /localStorage\.setItem\("fileTree"/)
   assert.match(scannerHtml, /data-savestate="false"/)
+})
+
+test('public visible Quartz chrome is Russian', async () => {
+  const publicDir = await findPublicDir()
+  assert.ok(publicDir, `Public build output is required at ${PUBLIC_DIR}`)
+  const scannerHtml = await readFile(path.join(publicDir, '03-products', 'scanner', 'index.html'), 'utf8')
+  assert.doesNotMatch(scannerHtml, />Search</)
+  assert.doesNotMatch(scannerHtml, /Search for something/)
+  assert.doesNotMatch(scannerHtml, />\d+ min read</)
+  assert.match(scannerHtml, />Поиск</)
+  assert.match(scannerHtml, />\d+ мин чтения</)
 })
