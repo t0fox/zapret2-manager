@@ -20,6 +20,8 @@ const REQUIRED = [
   ['08-development/index.html', 200, ['Разработка', 'тест']],
 ]
 
+const ALLOWED_PUBLIC_SLUGS = /^(index|01-project(?:\/|$)|02-architecture\/index$|03-products(?:\/|$)|08-development\/index$|11-operations(?:\/|$))$/
+
 function textOf(html) {
   return html
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
@@ -41,24 +43,32 @@ test('required public pages exist and contain meaningful rendered content', asyn
   }
 })
 
-test('public Quartz uses Russian locale and Russian-first navigation content', async () => {
+test('public Quartz uses Russian locale and curated Russian navigation', async () => {
   const html = await readFile(path.join(PUBLIC, 'index.html'), 'utf8')
   const text = textOf(html)
   assert.match(html, /<html\s+lang="ru(?:-RU)?"/i)
   assert.match(text, /[А-Яа-яЁё]{4,}/u)
   assert.match(text, /Установка|Начать|Документац/u)
+  assert.match(html, />\s*Навигация\s*</u)
+  assert.match(html, /data-behavior="collapse"/u)
+  assert.doesNotMatch(html, />\s*Explorer\s*</u)
+  assert.doesNotMatch(html, />\s*Graph View\s*</u)
+  assert.doesNotMatch(html, />\s*Backlinks\s*</u)
 })
 
-test('every indexed public document contains Russian text', async () => {
+test('every indexed public document is Russian and belongs to the curated public surface', async () => {
   const raw = await readFile(path.join(PUBLIC, 'static', 'contentIndex.json'), 'utf8')
   const parsed = JSON.parse(raw)
   const index = parsed.content ?? parsed
   const nonRussian = []
+  const unexpected = []
   for (const [slug, entry] of Object.entries(index)) {
     const text = `${entry?.title ?? ''} ${entry?.content ?? ''}`
     if (!/[А-Яа-яЁё]{4,}/u.test(text)) nonRussian.push(slug)
+    if (!ALLOWED_PUBLIC_SLUGS.test(slug)) unexpected.push(slug)
   }
   assert.deepEqual(nonRussian, [], `Public index contains non-Russian documents:\n${nonRussian.join('\n')}`)
+  assert.deepEqual(unexpected, [], `Public index contains internal/technical documents:\n${unexpected.join('\n')}`)
 })
 
 test('main public pages are not placeholder sections', async () => {
