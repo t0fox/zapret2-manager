@@ -13,55 +13,68 @@ tags: [project, status, roadmap, evidence]
 
 Этот roadmap — не обещание дат релизов и не список пожеланий. Он показывает **зависимости между продуктами, текущее доказанное состояние, следующий безопасный срез и критерий, после которого milestone действительно можно считать завершённым**.
 
-Исходный read-only audit package был снят 14 августа 2026 года с checkout `59d28af7`. С тех пор `main` изменился, особенно в Scanner. Поэтому ниже сохранена архитектурная последовательность аудита, но устаревшие наблюдения перепроверены по текущему дереву. Например, audit фиксировал отсутствие native result contract/source, однако в текущем `main` уже присутствуют и native backend contract, и `core/result.uc`; этот старый blocker не переносится в roadmap как будто он всё ещё актуален.
+Исходный read-only audit package был снят 14 августа 2026 года с более раннего checkout. С тех пор `main` существенно продвинулся. Статусы ниже привязаны к текущему проверенному baseline и не переносят старые audit-блокеры в настоящее время, если они уже закрыты evidence.
+
+## Current verified baseline
+
+Проверенный baseline этой страницы:
+
+- current main: `d8a833af4acae23d1b4a944deec0355960d1ceb7`;
+- Scanner parity: **COMPLETE**;
+- Scanner → Strategy handoff: **COMPLETE**;
+- native aggregate: **567/567 PASS**;
+- required native subgate: **36/36 PASS**;
+- root gate: **120/120 PASS**;
+- remaining failures: **0**.
+
+Предыдущие 10 native failures были verification-foundation regressions и к этому baseline уже исправлены. Это подтверждает текущую зелёную verification foundation, но не означает, что native foundation «заморожен навсегда»: новые runtime/contracts/product requirements могут потребовать дальнейшего развития и повторного полного прогона gates.
 
 ## Карта зависимостей
 
 ```text
-M1 Native foundation
-   ↓
-M2 Asset registries ─────────────┐
-   ↓                             │
-M3 Scanner provider/lifecycle    │
-   ↓                │            │
-M4 Strategy handoff │            │
-                    ↓            │
-                  M5 BlockCheck  │
-                                 ↓
-                         M6 Unified routing
-                              ↓       ↓
-                     M7 DNS/lists   M8 WARP/usque
-                              │       ↓
-                              │     M9 Tunnels
-                              │       ↓
-                              └──→ M10 Monitoring/failover
-                                         ↓
-                              M11 Auto-remediation
+[M1 COMPLETE] Native foundation
+   ├── [M2 NEXT / PARALLEL PLANNED] Canonical asset registries ───┐
+   │                                                              │
+   └── [M3 COMPLETE] Scanner provider/lifecycle                    │
+             ↓                                                     │
+        [M4 COMPLETE] Scanner → Strategy handoff                    │
+             ↓                                                     │
+        [M5 CURRENT / IN PROGRESS] BlockCheck family               │
+             ↓                                                     │
+        [M6 PLANNED] Unified routing ←──────────────────────────────┘
+             ↓       ↓
+     [M7 PLANNED]   [M8 FUTURE] WARP/usque
+       DNS/lists          ↓
+             │       [M9 FUTURE] Tunnels
+             │            ↓
+             └────→ [M10 FUTURE] Monitoring/failover
+                            ↓
+                  [M11 FUTURE] Auto-remediation
 
-M12 Documentation — не конец цепочки, а непрерывный слой над M1–M11
+M12 Documentation — непрерывный слой над M1–M11
 ```
 
-Документация обновляется на каждом milestone. `M12` означает зрелый публичный documentation product, а не правило «документы пишем только после завершения кода».
+M2 остаётся параллельной foundation-веткой для последующих asset/routing consumers. Текущий следующий product milestone после закрытых M3/M4 — M5 BlockCheck family.
 
 ## M1 — Native foundation
 
-**Сейчас.** В текущем `main` есть native core для state/jobs/namespace/process/transaction/recovery/result, отдельный native backend contract и соответствующие test suites. Старое наблюдение audit package о пропавших `core/result.uc` и contract-файле к текущему `main` уже не относится.
+**Статус: COMPLETE на текущем verified baseline.** Native aggregate проходит **567/567**, required native subgate — **36/36**, root gate — **120/120**, remaining failures — **0**. Предыдущие 10 verification-foundation regressions исправлены.
 
-**В работе.** Foundation продолжает использоваться новыми product slices, поэтому важнее не только наличие исходников, но стабильность contract при реальном package/toolchain/target использовании.
+**Сейчас.** Native core для state/jobs/namespace/process/transaction/recovery/result, native backend contract и verification gates согласованы на ревизии `d8a833af4acae23d1b4a944deec0355960d1ceb7`.
 
 **Зависимости.** OpenWrt/ucode toolchain, package layout, rpcd integration, process identity и state ownership.
 
-**Следующий срез.** Сохранять foundation narrow: Rust-first для нового native-кода, C только когда есть конкретная техническая причина; расширять helper/contracts только под доказанную потребность продукта.
+**Следующий срез.** Не открывать новый foundation scope сам по себе. Расширять helper/contracts только под доказанную потребность следующих product milestones и после изменения заново подтверждать соответствующие native/root gates.
 
-**Критерий завершения.** Native contract, source, package и read-only target behavior согласованы на одной ревизии; state/process/transaction boundaries не требуют второго writer.
+**Критерий завершения текущего milestone.** Для этого baseline выполнен: native verification foundation полностью зелёная и remaining failures равны нулю.
 
-**Доказательства.** Native unit/contract tests, ucode compilation, package build/install evidence, read-only router probe. Source tests сами по себе не равны target acceptance.
+**Доказательства.** `567/567 PASS`, `36/36 PASS`, `120/120 PASS`, remaining failures `0` на current verified main.
 
 ## M2 — Canonical asset registries
 
-**Сейчас.** В manager есть lists/catalog/domain data и preflight, умеющий проверять часть внешних зависимостей. Но это не единый Avatar-like asset layer.
+**Статус: NEXT / PARALLEL PLANNED.** Это параллельная foundation-работа, но на current baseline не доказано, что реализация именно canonical asset registries уже началась. Существующие lists/catalog/domain data, asset helpers и preflight — полезный substrate, но не считаются самим M2 registry model.
 
-**В работе.** Нужно разделить понятия «файл существует» и «asset имеет стабильную identity, provenance и consumers».
+**Сейчас.** В manager есть lists/catalog/domain data и preflight, умеющий проверять часть внешних зависимостей. Полного registry layer со стабильной identity/provenance/consumers пока нет.
 
 **Зависимости.** M1 state/ownership, безопасные paths/atomic writes, package provenance.
 
@@ -73,39 +86,37 @@ M12 Documentation — не конец цепочки, а непрерывный 
 
 ## M3 — Scanner provider и полный transient lifecycle
 
-**Сейчас.** Это уже не только план. В `main` присутствуют `scanner-model`, targets, planner, generator, compiler authority, state, probes, probe executor/adapter, worker, transient layer, CLI и runtime adapter. Также интегрирован **canonical A1 lifecycle**.
+**Статус: COMPLETE.** На current verified main Scanner parity закрыта; старые claims о незавершённых results/ranking/reconciliation больше не описывают текущее состояние.
 
-**В работе.** Результаты/ranking/reconciliation и полная product vertical ещё требуют доказательств; отдельные `scanner-results`/`scanner-reconcile` boundaries в текущем дереве не представлены законченной реализацией.
+**Сейчас.** Scanner vertical доказана как завершённая для текущего milestone: model/targets/planner/generator/compiler authority/state, canonical A1 transient lifecycle, probes/execution, results/ranking/reconciliation, cleanup/recovery и observable product flow больше не числятся незакрытым Scanner blocker.
 
-**Зависимости.** M1 process/namespace ownership; M2 assets для более полного Avatar candidate set; Strategy compiler authority; безопасное transient resource ownership.
+**Зависимости.** M1 process/namespace ownership, Strategy compiler authority и безопасное transient resource ownership. M2 остаётся параллельным расширением asset coverage, а не условием для сохранения статуса завершённого M3 baseline.
 
-**Следующий срез.** Закрыть typed results → ranking/report → cleanup/reconciliation как явные owners и связать их с текущим A1 lifecycle.
+**Критерий завершения.** Выполнен на текущем baseline: Scanner проходит полный evidence-backed provider/lifecycle contract без permanent mutation и без незакрытого ownership/cleanup blocker.
 
-**Критерий завершения.** Один Scanner run проходит model → planner → A1 runtime → probes → typed report → ranking → cleanup/recovery без permanent mutation и без unowned resource cleanup.
-
-**Доказательства.** Unit/provider tests, concurrent/cancel/crash/rerun tests, namespace/process ownership evidence, target-router Scanner run с подтверждённым cleanup.
+**Доказательства.** Current verified repository state на `d8a833af4acae23d1b4a944deec0355960d1ceb7`: **Scanner parity COMPLETE**; native/root verification gates полностью зелёные.
 
 ## M4 — Scanner → Strategy handoff
 
-**Сейчас.** Strategy vertical уже умеет catalog/model/compiler/Preview/Validate/transactional Apply. Scanner умеет строить и исполнять значительную часть кандидатов, но полный product handoff ещё не считается доказанным.
+**Статус: COMPLETE.** Старое утверждение, что полный product handoff ещё не доказан, больше не актуально.
 
-**В работе.** Нужно сохранить Strategy identity/provenance от Scanner result до постоянного применения.
+**Сейчас.** Scanner result может пройти доказанный handoff в durable Strategy flow. Постоянная mutation по-прежнему не принадлежит Scanner: durable результат проходит существующую Strategy authority и обычный Preview → Validate → Apply lifecycle.
 
-**Зависимости.** M3 typed report/ranking и стабильный Strategy aggregate.
+**Зависимости.** Завершённый M3 Scanner lifecycle и стабильный Strategy aggregate.
 
-**Следующий срез.** Working result превращается в Strategy reference либо generated user Strategy; затем обязательно проходит обычный Preview → Validate → Apply.
+**Критерий завершения.** Выполнен на current verified baseline: Scanner → Strategy handoff доказан как завершённая capability, сохраняя Strategy authority для постоянного применения.
 
-**Критерий завершения.** E2E-путь сохраняет Strategy ID/catalog digest/provenance от scan result до verified Apply; failure Apply подтверждает rollback.
-
-**Доказательства.** E2E contract test, transaction test, LuCI flow, target run и forced-failure rollback evidence.
+**Доказательства.** Current verified repository state на `d8a833af4acae23d1b4a944deec0355960d1ceb7`: **Scanner → Strategy handoff COMPLETE**.
 
 ## M5 — BlockCheck family
+
+**Статус: CURRENT / IN PROGRESS — следующий product milestone.** Это текущий product focus после закрытых M3/M4; сам M5 ещё не объявляется complete.
 
 **Сейчас.** Upstream `blockcheck2.sh` имеет managed wrapper/job path и часть result→profile поведения. Отдельный Avatar-equivalent BlockCheck classifier остаётся незакрытой capability.
 
 **В работе.** Нужно не смешать три продукта: Scanner, BlockCheck, BlockCheck2.
 
-**Зависимости.** Durable jobs, M3 result/evidence model, Strategy handoff.
+**Зависимости.** Durable jobs, завершённый M3 result/evidence lifecycle и завершённый M4 Strategy handoff.
 
 **Следующий срез.** Сначала отдельный BlockCheck diagnostic/classification contract; затем точная адаптация BlockCheck2 mode/env/stream/stop/result semantics.
 
@@ -213,8 +224,8 @@ M12 Documentation — не конец цепочки, а непрерывный 
 
 ## Как читать roadmap
 
-Milestone не становится `готов` из-за того, что создан файл или закрыт один unit test. Для перехода статуса смотрим на **вертикаль**: model/contract → consumer → mutation/ownership → failure/recovery → evidence соответствующего уровня.
+Milestone становится `COMPLETE` только на основании проверяемой вертикали и evidence соответствующего уровня. Статус относится к указанному baseline: завершённый milestone может дальше эволюционировать, а любое изменение его contract требует повторной проверки релевантных gates.
 
-Именно поэтому A1 lifecycle заметно продвигает M3, но пока не переводит весь Scanner в production-ready. Аналогично существующий Telegram proxy не закрывает M8/M9, а существующий DNS не равен unified routing.
+На current verified baseline M3 Scanner и M4 Scanner → Strategy handoff закрыты. Текущий product focus — M5 BlockCheck family; M2 canonical asset registries остаётся параллельной planned foundation-работой. M6–M11 сохраняют прежний порядок и scope.
 
 Связанные страницы: [Avatar parity](./avatar-parity.md), [Lifecycle Scanner](../03-products/scanner/lifecycle.md), [Lifecycle Strategy](../03-products/strategy/lifecycle.md), [Доказательства и тестирование](../08-development/evidence-testing.md), [Актуальность документации](../08-development/docs-freshness.md).

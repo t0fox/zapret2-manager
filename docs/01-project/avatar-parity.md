@@ -13,7 +13,7 @@ tags: [avatar, parity, compatibility, roadmap]
 
 Одна из целей zapret2-manager — воспроизвести важное **пользовательское поведение и продуктовые модели** `avatarDD/zapret-gui`, но сделать это нативно для OpenWrt. Parity здесь не означает копирование Python control plane, структуры файлов или каждой внутренней реализации. Сравниваются доступные пользователю capabilities, их state/result semantics и ожидаемый lifecycle.
 
-Эта страница специально отделяет **закреплённый аудит** от более свежих изменений `main`. Иначе любой новый Scanner-коммит создавал бы иллюзию, что глобальный процент совместимости автоматически пересчитан, хотя полный аудит 79 capability ещё не повторялся.
+Эта страница специально отделяет **закреплённый аудит** от более свежего verified state `main`. Исторические aggregate counts не пересчитываются без нового полного аудита всех 79 capability, но локальный статус уже повторно доказанной capability обновляется сразу.
 
 ## Закреплённый baseline
 
@@ -37,7 +37,25 @@ Manager baseline, относительно которого была постр�
 
 Отдельно в исходной матрице отслеживаются **3 capability, требующие пользовательского продуктового решения**, и **2 legacy-dead capability**, которые не входят в основную арифметику пяти статусов.
 
-Эти числа — **pinned audit snapshot**, а не live-счётчик. Они **не пересчитываются автоматически** после нескольких новых коммитов. Для изменения глобальных чисел нужен повторный полный аудит всех capability против выбранного Avatar baseline.
+Эти числа — **pinned audit snapshot**, а не live-счётчик. Они **не пересчитываются автоматически** после новых коммитов. Для изменения глобальных чисел нужен повторный полный аудит всех capability против выбранного Avatar baseline.
+
+## Current verified baseline
+
+Текущий проверенный manager baseline:
+
+`t0fox/zapret2-manager@d8a833af4acae23d1b4a944deec0355960d1ceb7`
+
+На нём повторно подтверждено:
+
+- Scanner parity: **COMPLETE**;
+- Scanner → Strategy handoff: **COMPLETE**;
+- Scanner results/ranking/reconciliation больше не являются открытым Scanner blocker;
+- native aggregate: **567/567 PASS**;
+- required native subgate: **36/36 PASS**;
+- root gate: **120/120 PASS**;
+- remaining failures: **0**.
+
+Этот current-main delta обновляет статус Scanner и handoff, но сам по себе не переписывает исторические aggregate counts `11/31/28/2/4` без нового полного 79-capability audit.
 
 ## Что означают статусы
 
@@ -65,29 +83,29 @@ Manager baseline, относительно которого была постр�
 
 Текущий `main` содержит отдельные `strategy-model`, `strategy-catalog`, `strategy-compiler`, `strategy-state`, `strategy-status` и CLI boundaries. Постоянная mutation использует существующий transactional Apply path с preflight, snapshot, revision/CAS guard, verification и rollback.
 
-Не всё вокруг Strategy завершено. Полная экосистема Avatar требует Lua/blob/IP-set registries, дополнительных asset references, полной protocol/applicability семантики и дальнейших consumers со стороны Scanner/routing.
+Не всё вокруг Strategy завершено. Полная экосистема Avatar требует Lua/blob/IP-set registries, дополнительных asset references, полной protocol/applicability семантики и дальнейших routing consumers.
 
 **Критерий перехода оставшихся PARTIAL/MISSING строк:** asset lifecycle и catalog semantics реализованы, имеют UI/contract tests и не создают второй compiler/Apply engine.
 
 ## Scanner
 
-В закреплённой матрице Scanner был одной из крупнейших зон разрыва: product model и ranking/handoff оценивались как `DIVERGENT`, а durable state/probes/cleanup — как `PARTIAL`. Orchestra давал полезные patterns, но не являлся Avatar Scanner.
+В закреплённой исторической матрице Scanner был одной из крупнейших зон разрыва: product model и ranking/handoff оценивались как `DIVERGENT`, а durable state/probes/cleanup — как `PARTIAL`. Этот вывод остаётся частью pinned audit history, но **не описывает текущий verified main**.
 
-### Текущий main: delta после аудита
+### Текущий main: COMPLETE
 
-После исходного audit package в `main` появился существенно более полный native Scanner слой: model, targets, planner, generator, compiler authority, state, transient execution, probes, probe adapter/executor, worker, CLI и runtime adapter.
+На `d8a833af4acae23d1b4a944deec0355960d1ceb7` Scanner parity подтверждена как **COMPLETE**. Прежние claims о незавершённых results/ranking/reconciliation и о недоказанном полном Scanner lifecycle устарели и больше не являются текущими blockers.
 
-Отдельные свежие изменения интегрировали **canonical A1 runtime lifecycle** и закрыли acceptance-tail сценарии вокруг повторного запуска, concurrent start, terminal state и runtime abort classification. Это важный реальный прогресс.
-
-Но мы намеренно **не меняем глобальные 11/31/28/2/4 на основании этого delta**. В текущем дереве, например, отдельные `scanner-results` и `scanner-reconcile` boundaries ещё не представлены законченной реализацией, а полная LuCI/target E2E цепочка не доказана.
-
-Scanner остаётся **prototype / active development**, пока не доказана вертикаль:
+Текущий доказанный Scanner vertical включает product/model planning, canonical A1 transient runtime, probes/execution, results/ranking/reconciliation, cleanup/recovery и завершённый handoff в Strategy authority.
 
 ```text
 model → planner/generator → A1 transient runtime → probes
 → typed results → ranking/report → cleanup/reconciliation
-→ Strategy handoff → LuCI → target evidence
+→ Strategy handoff
 ```
+
+Scanner → Strategy handoff также подтверждён как **COMPLETE**. Постоянное применение найденного результата остаётся обязанностью Strategy lifecycle; завершённый handoff не создаёт второй permanent writer и не отменяет обычный Preview → Validate → Apply path.
+
+Глобальные pinned counts не пересчитываются этой локальной статусной правкой: для них по-прежнему нужен новый полный аудит всех 79 capability.
 
 Подробнее: [Lifecycle Scanner](../03-products/scanner/lifecycle.md).
 
@@ -99,7 +117,7 @@ Avatar рассматривает `Scanner`, `BlockCheck` и `BlockCheck2` ка�
 
 **BlockCheck2** имеет `PARTIAL`: текущий manager умеет управляемо запускать upstream `blockcheck2.sh`, связывать его с job lifecycle и разбирать часть результата, но это ещё не полное совпадение Avatar mode/env/stream/result→Strategy semantics.
 
-Нельзя закрыть эти две строки фразой «у нас уже есть Scanner». Их назначение и result models различаются.
+Завершённый Scanner не закрывает эти две строки: их назначение и result models различаются. M5 BlockCheck family — текущий следующий product milestone.
 
 Подробнее: [Scanner / BlockCheck / BlockCheck2](../03-products/scanner/family.md).
 
@@ -109,7 +127,9 @@ Avatar рассматривает `Scanner`, `BlockCheck` и `BlockCheck2` ка�
 
 **Lists/assets: PARTIAL + MISSING.** Host/domain lists и catalog data существуют, но полноценные registries для Lua, blob, IP-set, geosite/geoip и связанных selector assets отсутствуют как единая продуктовая модель.
 
-Эти registries — не декоративная «страница файлов». На них зависят Strategy dependencies, Scanner candidate execution и будущий routing selector model.
+Canonical asset registries остаются **NEXT / PARALLEL PLANNED**: существующий substrate сам по себе не доказывает, что реализация M2 registry model уже начата.
+
+Эти registries — не декоративная «страница файлов». На них зависят Strategy dependencies и будущий routing selector model.
 
 ## Unified routing
 
@@ -129,7 +149,7 @@ Avatar рассматривает `Scanner`, `BlockCheck` и `BlockCheck2` ка�
 
 **Статус: MISSING относительно Avatar dispatcher.** В manager уже существует Auto Strategy с полезными CAS/cooldown/recovery механизмами, но это другая продуктовая модель.
 
-Avatar-style remediation зависит сразу от нескольких ранее незакрытых слоёв:
+Avatar-style remediation зависит от ещё незакрытых classifier/DNS/routing/tunnel слоёв:
 
 ```text
 classification
@@ -139,7 +159,7 @@ classification
   └─ IP/full block → routing/tunnel
 ```
 
-Пока Scanner, classifier, routing и tunnels не имеют законченных contracts, auto-remediation нельзя корректно объявить готовым одним orchestration-модулем.
+Scanner теперь завершён на current verified baseline, но пока classifier, routing и tunnels не имеют законченных contracts, auto-remediation нельзя корректно объявить готовым одним orchestration-модулем.
 
 ## Maintenance и lifecycle
 
@@ -149,19 +169,20 @@ GUI self-update является примером `INTENTIONAL_DEVIATION`: OpenW
 
 ## Главные блокеры parity
 
-1. Довести Scanner до полного evidence-backed lifecycle и Strategy handoff.
-2. Создать канонические registries для Lua/blob/IP-set/geosite/geoip и связанных assets.
-3. Разделить и закончить BlockCheck и BlockCheck2 capabilities.
-4. Ввести unified routing с Destination/selectors, primary/fallback methods и ownership.
-5. Построить tunnel lifecycle поверх routing foundation.
-6. Только после этого связывать classifier, DNS, Scanner и tunnels в auto-remediation.
+1. Создать канонические registries для Lua/blob/IP-set/geosite/geoip и связанных assets.
+2. Разделить и закончить BlockCheck и BlockCheck2 capabilities.
+3. Ввести unified routing с Destination/selectors, primary/fallback methods и ownership.
+4. Построить tunnel lifecycle поверх routing foundation.
+5. Только после этого связывать classifier, DNS, Scanner и tunnels в auto-remediation.
+
+Scanner lifecycle и Scanner → Strategy handoff больше не входят в этот список: оба подтверждены как **COMPLETE** на current verified baseline.
 
 ## Как статус будет обновляться
 
-Parity-страница обновляется вместе с разработкой, но **локальный delta и полный аудит — разные операции**.
+Parity-страница обновляется вместе с разработкой, но **локальный verified delta и полный aggregate audit — разные операции**.
 
-Если, например, Scanner получил новый доказанный A1 lifecycle, это сразу отражается в секции current-main delta и roadmap. Но строка `PARTIAL → PARITY` и глобальные counts меняются только тогда, когда весь соответствующий behavioral contract повторно проверен на актуальной ревизии и evidence достаточен для нового статуса.
+Scanner на `d8a833af4acae23d1b4a944deec0355960d1ceb7` — пример локального статуса, который уже можно поднять до `COMPLETE`, потому что соответствующий product contract повторно доказан. Исторические aggregate counts меняются только после нового полного 79-capability audit.
 
-Так документация не отстаёт от разработки и одновременно не превращает каждый merged test в маркетинговую надпись «готово».
+Так документация не отстаёт от разработки и одновременно не выдаёт локальный milestone update за молчаливый пересчёт всей Avatar parity matrix.
 
 Дальше: [Roadmap](./status-roadmap.md), [Архитектура](../02-architecture/index.md), [Lifecycle Strategy](../03-products/strategy/lifecycle.md), [Lifecycle Scanner](../03-products/scanner/lifecycle.md), [Доказательства и тестирование](../08-development/evidence-testing.md).
