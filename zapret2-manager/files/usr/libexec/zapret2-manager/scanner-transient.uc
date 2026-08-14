@@ -50,7 +50,7 @@ function compiled_text(candidate) {
 }
 function identity_equal(expected, actual) {
 	if (!object(expected) || !object(actual)) return false;
-	for (let key in ['pid', 'startTime', 'exe', 'argvSha256', 'owner', 'generation'])
+	for (let key in ['pid', 'startTime', 'exe', 'argvSha256', 'processGroup', 'owner', 'generation'])
 		if (expected[key] != actual[key]) return false;
 	return actual.owner == SCANNER_OWNER;
 }
@@ -58,9 +58,14 @@ function ownership_valid(activated) {
 	return object(activated) && activated.identityVerified == true && object(activated.expectedProcess)
 		&& object(activated.process) && identity_equal(activated.expectedProcess, activated.process)
 		&& object(activated.nfqueue) && activated.nfqueue.registered == true
-		&& activated.nfqueue.peer_portid == activated.process.pid
-		&& object(activated.firewall) && activated.firewall.table == 'zapret2'
-		&& activated.firewall.owner == SCANNER_OWNER
+		&& activated.nfqueue.peer_portid == activated.process.pid && type(activated.nfqueue.queue) == 'int'
+		&& activated.nfqueue.queue >= 300 && activated.nfqueue.queue <= 399
+		&& object(activated.firewall) && type(activated.firewall.table) == 'string'
+		&& match(activated.firewall.table, /^z2m_sc_[a-f0-9]{8}_[a-f0-9]{8}_[a-f0-9]{4}_[a-f0-9]{32}$/)
+		&& type(activated.firewall.chain) == 'string' && match(activated.firewall.chain, /^z2m_[a-f0-9]{4}_[a-f0-9]{8}$/)
+		&& activated.firewall.owner == SCANNER_OWNER && activated.firewall.ownerFlagRequested == true
+		&& activated.firewall.ruleGeneration == activated.process.generation
+		&& activated.firewall.qnum == activated.nfqueue.queue && activated.firewall.rulesReady == true
 		&& type(activated.firewall.ownedRules) == 'array';
 }
 function cleanup_valid(value) {
@@ -137,19 +142,40 @@ function next_stabilize(attempt, seams) {
 	return { ok: false, infrastructure: true, evidence: { code: 'ESTABILIZE', message: 'stabilization bound exhausted' }, retries: MAX_STABILIZE_ATTEMPTS };
 }
 
-// Task 4: ucode single-writer journal for ownership state machine
-// PREPARED written before helper call; TABLE_CREATED written after verified response.
+// Task 4: ucode single-writer journal for ownership state machine. The journal
+// records only bounded, helper-derived evidence; it never invents ownership.
 function journal_write(state, evidence) {
-	// Canonical journal writer contract: durable entry with verified helper evidence.
-	// Fail-closed: evidence must contain helper response proof (NFT_TABLE_F_OWNER).
 	if (state == 'PREPARED') {
-		// Record operation identity, expected table name, nonce before spawning helper.
 		return { ok: true, state: 'PREPARED', written: true };
 	}
 	if (state == 'TABLE_CREATED') {
-		if (!object(evidence) || evidence.tableCreated != true || evidence.ownerVerified != true)
+		if (!object(evidence) || !object(evidence.firewall) ||
+			type(evidence.firewall.table) != 'string' ||
+			!match(evidence.firewall.table, /^z2m_sc_[a-f0-9]{8}_[a-f0-9]{8}_[a-f0-9]{4}_[a-f0-9]{32}$/) ||
+			type(evidence.firewall.chain) != 'string' ||
+			!match(evidence.firewall.chain, /^z2m_[a-f0-9]{4}_[a-f0-9]{8}$/) ||
+			evidence.firewall.owner != SCANNER_OWNER || evidence.firewall.ownerFlagRequested != true)
 			return { ok: false, error: 'EOWNER', message: 'TABLE_CREATED requires verified helper response' };
 		return { ok: true, state: 'TABLE_CREATED', written: true, evidence: evidence };
+	}
+	if (state == 'RULES_READY') {
+		if (!object(evidence) || !object(evidence.firewall) || evidence.firewall.rulesReady != true ||
+			evidence.firewall.ruleGeneration != evidence.generation ||
+			evidence.firewall.qnum != evidence.queue || evidence.firewall.activationOrder != 'queue-bound-before-redirect')
+			return { ok: false, error: 'ERULES', message: 'RULES_READY requires enabled helper rules and queue proof' };
+		return { ok: true, state: 'RULES_READY', written: true, evidence: evidence };
+	}
+	if (state == 'PROCESS_BOUND') {
+		if (!object(evidence) || !object(evidence.process) || !object(evidence.nfqueue) ||
+			evidence.nfqueue.registered != true || evidence.nfqueue.peer_portid != evidence.process.pid ||
+			evidence.nfqueue.queue != evidence.queue)
+			return { ok: false, error: 'EQUEUE', message: 'PROCESS_BOUND requires exact NFQUEUE peer proof' };
+		return { ok: true, state: 'PROCESS_BOUND', written: true, evidence: evidence };
+	}
+	if (state == 'ACTIVE') {
+		if (!ownership_valid(evidence.activation))
+			return { ok: false, error: 'EIDENTITY', message: 'ACTIVE requires complete activation identity' };
+		return { ok: true, state: 'ACTIVE', written: true, evidence: evidence };
 	}
 	return { ok: false, error: 'EARG', message: 'unknown journal state' };
 }
@@ -180,9 +206,23 @@ export const scanner_candidate_activate = function(candidate, seams) {
 			activation: activated, cleanup: candidate_cleanup(invalidAttempt)
 		});
 	}
-	// Task 4: write TABLE_CREATED after verified helper response (NFT_TABLE_F_OWNER + no PERSIST)
-	journal_write('TABLE_CREATED', { tableCreated: true, ownerVerified: true, table: activated.firewall.table });
-	let attempt = { candidate: candidate, activation: activated, compiled: compiled };
+	// Task 4: write transitions only from the real adapter response.
+	let journal = [];
+	let tableEntry = journal_write('TABLE_CREATED', { firewall: activated.firewall });
+	if (!tableEntry.ok) return error('firewall', tableEntry.error, tableEntry.message, { activation: activated });
+	push(journal, tableEntry);
+	let rulesEntry = journal_write('RULES_READY', { firewall: activated.firewall,
+		generation: activated.process.generation, queue: activated.nfqueue.queue });
+	if (!rulesEntry.ok) return error('firewall', rulesEntry.error, rulesEntry.message, { activation: activated });
+	push(journal, rulesEntry);
+	let boundEntry = journal_write('PROCESS_BOUND', { process: activated.process,
+		nfqueue: activated.nfqueue, queue: activated.nfqueue.queue });
+	if (!boundEntry.ok) return error('firewall', boundEntry.error, boundEntry.message, { activation: activated });
+	push(journal, boundEntry);
+	let activeEntry = journal_write('ACTIVE', { activation: activated });
+	if (!activeEntry.ok) return error('identity', activeEntry.error, activeEntry.message, { activation: activated });
+	push(journal, activeEntry);
+	let attempt = { candidate: candidate, activation: activated, compiled: compiled, journal: journal };
 	let stabilized = next_stabilize(attempt, seams);
 	if (stabilized.infrastructure) {
 		attempt.seams = seams;

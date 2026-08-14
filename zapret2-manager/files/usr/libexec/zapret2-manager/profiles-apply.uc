@@ -156,14 +156,15 @@ function scanner_safe_id(value) {
 		&& match(value, /^[A-Za-z0-9][A-Za-z0-9._-]*$/);
 }
 
-function scanner_runtime_call(operation, sessionId, candidateId, generation, nonce) {
+function scanner_runtime_call(operation, sessionId, candidateId, generation, nonce, profile) {
 	if (index(['lock-acquire', 'lock-release', 'activate', 'stabilize', 'cleanup', 'session-cleanup'], operation) < 0
 		|| !scanner_safe_id(sessionId) || !scanner_safe_id(candidateId)
 		|| type(generation) != 'int' || generation < 0)
 		return err('runtime', 'EINPUT', 'fixed Scanner runtime binding is invalid');
 	let command = shell_escape(SCANNER_RUNTIME_ADAPTER) + ' ' + operation + ' '
 		+ shell_escape(sessionId) + ' ' + shell_escape(candidateId) + ' ' + generation
-		+ (nonce != null ? ' ' + shell_escape(nonce) : '');
+		+ (nonce != null ? ' ' + shell_escape(nonce) : '')
+		+ (profile != null ? ' ' + shell_escape(profile) : '');
 	let result = run(command), raw = trim(result.out), value = null;
 	try { value = length(raw) ? json(raw) : null; } catch (e) { value = null; }
 	if (result.rc != 0 || type(value) != 'object' || value == null)
@@ -932,8 +933,12 @@ export const profiles_transient_activate = function(candidate, compiled, supplie
 	if (injected != null) return injected;
 	if (!scanner_input_safe(candidate) || type(candidate) != 'object' || candidate == null || !scanner_stage_candidate(candidate, compiled))
 		return err('activate', 'EINPUT', 'server-owned compiled candidate staging failed');
+	let profile = candidate.profile != null ? candidate.profile
+		: (candidate.protocol == 'udp' ? 'udp_443' : 'tcp_https');
+	if (!(profile == 'tcp_https' || profile == 'tcp_http' || profile == 'udp_443'))
+		return err('activate', 'EINPUT', 'Scanner profile selector is not server-owned');
 	return scanner_runtime_call('activate', candidate.sessionId, scanner_runtime_id(candidate.scannerId),
-		type(candidate.generation) == 'int' ? candidate.generation : 0);
+		type(candidate.generation) == 'int' ? candidate.generation : 0, null, profile);
 };
 
 export const profiles_transient_session_cleanup = function(sessionId, generation, supplied) {

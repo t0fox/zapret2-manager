@@ -32,6 +32,10 @@ cc -std=c11 -Wall -Wextra -Werror -D_GNU_SOURCE \
 node --test --test-concurrency=1 tests/native/core/native-helper-broker.test.mjs
 node --test --test-concurrency=1 tests/native/core/native-helper.test.mjs
 node --test --test-concurrency=1 tests/native/package-helper.test.mjs
+sh zapret2-manager/tests/native/avatar-strategy-scanner-a1-canonical-helper.test.sh
+sh zapret2-manager/tests/native/avatar-strategy-scanner-a1-load-bearing.test.sh
+sh zapret2-manager/tests/native/avatar-strategy-scanner-a1-protocol-integration.test.sh
+sh zapret2-manager/tests/native/avatar-strategy-scanner-a1-rules.test.sh
 
 find tests/native -type f -name '*.test.mjs' \
   ! -path tests/native/bootstrap.test.mjs \

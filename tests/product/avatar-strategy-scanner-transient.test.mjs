@@ -41,7 +41,7 @@ const hooks = {
     reconciliation: { generation: 4, reference: 'pre-scan-runtime' },
   },
   compile: { ok: true, candidate: '--filter-tcp=443', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: DEPENDENCY_DIGEST, dependencies: DEPENDENCY_CLOSURE, native: { status: 'verified' } },
-  runtime: { activate: { ok: true, identityVerified: true, expectedProcess: { pid: 11, startTime: 21, exe: '/opt/zapret2/nfq2/nfqws2', argvSha256: '6'.repeat(64), owner: 'scanner/session', generation: 5 }, process: { pid: 11, startTime: 21, exe: '/opt/zapret2/nfq2/nfqws2', argvSha256: '6'.repeat(64), owner: 'scanner/session', generation: 5 }, firewall: { table: 'zapret2', owner: 'scanner/session', ownedRules: ['scanner-rule'] }, nfqueue: { registered: true, peer_portid: 11 } }, stabilize: [{ ok: true, stable: true }], cleanup: [{ ok: true, processRemoved: true, firewallRemoved: true, nfqueueRemoved: true, hostlistRemoved: true, temporaryFilesRemoved: true, ownedOnly: true }] },
+  runtime: { activate: { ok: true, identityVerified: true, expectedProcess: { pid: 11, startTime: 21, exe: '/opt/zapret2/nfq2/nfqws2', argvSha256: '6'.repeat(64), processGroup: 11, owner: 'scanner/session', generation: 5 }, process: { pid: 11, startTime: 21, exe: '/opt/zapret2/nfq2/nfqws2', argvSha256: '6'.repeat(64), processGroup: 11, owner: 'scanner/session', generation: 5 }, firewall: { table: 'z2m_sc_11111111_22222222_0005_' + '3'.repeat(32), chain: 'z2m_0005_66666666', owner: 'scanner/session', ownerFlagRequested: true, kernelReadBack: false, ruleGeneration: 5, profile: 'tcp_https', qnum: 300, rulesReady: true, activationOrder: 'queue-bound-before-redirect', ownedRules: ['z2m_0005_66666666'] }, nfqueue: { registered: true, peer_portid: 11, queue: 300 } }, stabilize: [{ ok: true, stable: true }], cleanup: [{ ok: true, processRemoved: true, firewallRemoved: true, nfqueueRemoved: true, hostlistRemoved: true, temporaryFilesRemoved: true, ownedOnly: true }] },
   sessionCleanup: { ok: true, removed: true, verified: true },
 };
 
@@ -106,7 +106,9 @@ test('production transient adapters are real fixed server-owned operations, not 
   const adapter = fs.readFileSync(RUNTIME_ADAPTER, 'utf8');
   assert.doesNotMatch(profiles, /profiles_transient_(activate|stabilize|cleanup)[\s\S]{0,500}EUNAVAILABLE/);
   assert.match(adapter, /\/opt\/zapret2\/nfq2\/nfqws2/);
-  assert.match(adapter, /\/usr\/sbin\/nft/);
+  assert.doesNotMatch(adapter, /\/usr\/sbin\/nft/);
+  assert.match(adapter, /rules_prepare/);
+  assert.match(adapter, /rules_enable/);
   assert.match(adapter, /case \"\$operation\" in/);
   assert.match(adapter, /activate\|stabilize\|cleanup/);
   assert.doesNotMatch(adapter, /eval\s|nft\s+flush\s+ruleset|\$\{[^}]*command|\$\{[^}]*exec|\$\{[^}]*argv/);
