@@ -1,6 +1,6 @@
 ---
 id: product-unified-routing
-title: "Unified Routing: первый backend vertical M6"
+title: "Unified Routing: COMPLETE — initial backend vertical M6"
 type: product
 status: current
 authority: evidence
@@ -9,9 +9,9 @@ publish: true
 tags: [routing, assets, service-dns, ownership]
 ---
 
-# Unified Routing: первый backend vertical M6
+# Unified Routing: COMPLETE — initial backend vertical M6
 
-M6 добавляет bounded backend-модель `Route`: typed asset selectors, primary method, ordered fallbacks, revision/CAS, Preview/Validate, Apply, Status, Remove и Reconcile. Это backend vertical; UI и автоматический failover в этот срез не входят.
+M6 завершает утверждённый initial backend vertical с bounded-моделью `Route`: typed asset selectors, primary method, ordered fallbacks, revision/CAS, Preview/Validate, Apply, Status, Remove и Reconcile. Это backend vertical, а не полная Avatar parity; UI и автоматический failover в этот срез не входят.
 
 ## Что реализовано
 

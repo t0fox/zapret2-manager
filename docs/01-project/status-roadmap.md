@@ -41,7 +41,7 @@ tags: [project, status, roadmap, evidence]
              ↓                                                     │
         [M5 CURRENT / IN PROGRESS] BlockCheck family               │
              ↓                                                     │
-        [M6 CURRENT / PARTIAL] Unified routing ←────────────────────┘
+        [M6 COMPLETE — initial vertical] Unified routing ←──────────┘
              ↓       ↓
      [M7 PLANNED]   [M8 FUTURE] WARP/usque
        DNS/lists          ↓
@@ -126,13 +126,15 @@ M2 typed asset registry уже является foundation для routing consum
 
 ## M6 — Unified routing
 
-**Сейчас.** M6 реализует первый backend vertical aggregate `Route: selectors → primary method → ordered fallbacks` поверх service-DNS writer. Полной Avatar-like family ещё нет: существующие DNS/list/proxy/network pieces нельзя автоматически считать всеми routing methods.
+**Статус: COMPLETE — initial Unified Routing vertical.** Завершён утверждённый первый backend vertical `Route: selectors → primary method → ordered fallbacks` поверх service-DNS writer. Это не заявление о полной Avatar parity: существующие DNS/list/proxy/network pieces нельзя автоматически считать всеми routing methods.
 
-**В работе.** Durable Route/CAS/ownership path есть для typed hostlist/hosts selectors и service-DNS method; остаются дополнительные live consumers, tunnel methods и failover policy.
+**Поддержанный scope.** Durable Route/CAS/ownership path, typed `hostlist`/`hosts` selectors, `service_dns` method, ordered fallback metadata, Preview/Validate, Apply, Status, Remove, Reconcile, delegated service-DNS mutation и target evidence.
+
+**Будущий scope.** Дополнительные live consumers и selector types (`ipset`, `geosite`, `geoip`, devices, arbitrary CIDR), tunnel methods, nft/network route rules, automatic failover и Avatar-like full routing parity остаются в M7–M11 и не входят в завершённый M6 initial vertical.
 
 **Зависимости.** M2 registries, device/list selectors, DNS cross-flow, безопасные runtime resource owners.
 
-**Следующий срез.** Доказать target-router install/runtime rollback для M6 service-DNS vertical, затем добавлять следующий method только вместе с его owner/consumer.
+**Следующий срез.** Развивать M7–M11 только по отдельным owner/consumer вертикалям; следующий routing method добавлять лишь вместе с его owner, lifecycle и target evidence.
 
 **Критерий завершения.** Route durable/revisioned, имеет Preview, Apply, Remove и Status, а mutation затрагивает только принадлежащие manager ресурсы.
 
@@ -226,6 +228,6 @@ M2 typed asset registry уже является foundation для routing consum
 
 Milestone становится `COMPLETE` только на основании проверяемой вертикали и evidence соответствующего уровня. Статус относится к указанному baseline: завершённый milestone может дальше эволюционировать, а любое изменение его contract требует повторной проверки релевантных gates.
 
-На current verified baseline M3 Scanner и M4 Scanner → Strategy handoff закрыты; M2 имеет current typed registry slice, а M6 — первый service-DNS routing vertical. Остальные M6 methods/consumers и M7–M11 сохраняют прежний порядок и scope.
+На current verified baseline M3 Scanner и M4 Scanner → Strategy handoff закрыты; M2 имеет current typed registry slice, а M6 initial Unified Routing vertical завершён. Остальные routing methods/consumers и M7–M11 сохраняют прежний порядок и scope.
 
 Связанные страницы: [Avatar parity](./avatar-parity.md), [Lifecycle Scanner](../03-products/scanner/lifecycle.md), [Lifecycle Strategy](../03-products/strategy/lifecycle.md), [Доказательства и тестирование](../08-development/evidence-testing.md), [Актуальность документации](../08-development/docs-freshness.md).
