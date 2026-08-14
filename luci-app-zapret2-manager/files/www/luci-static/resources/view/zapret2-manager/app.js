@@ -194,7 +194,7 @@ return L.view.extend({
       try { node = module.render(ctx); }
       catch (error) {
         activeContext = null;
-        content.replaceChildren(E('div', { 'class': 'warnbar' }, Api.normalizeError(error).message));
+        Shell.avatar.showErrorState(content, error, { api: Api, retry: function () { return activate(tab, true); } });
         return;
       }
       if (token !== activationToken) {
@@ -253,7 +253,7 @@ return L.view.extend({
         }
         activeModule = module;
         activeContext = null;
-        content.replaceChildren(E('div', { 'class': 'warnbar' }, message));
+        Shell.avatar.showErrorState(content, error, { api: Api, retry: function () { return activate(tab, true); } });
       });
     }
     function rollbackActions(result) {

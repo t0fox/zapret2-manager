@@ -1,6 +1,7 @@
 'use strict';
 'require baseclass';
 'require view.zapret2-manager.z2m-format as Format';
+'require view.zapret2-manager.z2m-avatar-ui as AvatarUi';
 
 var modalKeyHandler = null;
 var navigationObserver = null;
@@ -52,6 +53,7 @@ function observePrimaryNavigation() {
 function injectCss() {
   injectStylesheet('z2m-ui-css', 'z2m-ui.css');
   injectStylesheet('z2m-components-css', 'z2m-components.css');
+  injectStylesheet('z2m-avatar-ui-css', 'z2m-avatar-ui.css');
   observePrimaryNavigation();
 }
 
@@ -204,7 +206,7 @@ function statePanel(options) {
   if (message !== null) body.push(E('div', { 'class': 'z2m-state-message' }, message));
   if (actions.length) body.push(E('div', { 'class': 'z2m-state-actions' }, actions));
   return E('div', {
-    'class': 'z2m-state-panel ' + (options.kind || 'info'),
+    'class': 'z2m-state-panel z2m-avatar-state ' + (options.kind || 'info'),
     role: options.kind === 'error' ? 'alert' : 'status',
     'aria-live': options.kind === 'error' ? 'assertive' : 'polite'
   }, body);
@@ -316,6 +318,7 @@ function renderApplyBar(store, availability) {
 }
 
 return baseclass.extend({
+  avatar: AvatarUi,
   format: Format,
   injectCss: injectCss,
   normalizePrimaryNavigation: normalizePrimaryNavigation,

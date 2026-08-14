@@ -19,7 +19,25 @@ var calls={
 };
 var engineObject='zapret2-manager'+'-engine',engineCalls={};
 function engineCall(method,value){var key=method+(value==null?':read':':edit'),call=engineCalls[key];if(!call){call=rpc.declare({object:engineObject,method:method,params:value==null?undefined:['edit'],reject:true});engineCalls[key]=call;}return value==null?call():call(JSON.stringify(value));}
-function normalizeError(error){if(error==null)return{code:'unknown',message:_('Неизвестная ошибка')};if(typeof error==='string')return{code:'error',message:error};var value=error.error!=null?error.error:error;if(typeof value==='string')return{code:error.code||'error',message:value};return{code:value.code||error.code||'error',message:value.message||error.message||value.detail||error.detail||_('Неизвестная ошибка'),details:value.details||error.details||null};}
+function bounded(value, limit) { var text = value == null ? '' : String(value); return text.length > limit ? text.slice(0, limit) + '…' : text; }
+function normalizeError(error){
+ var outer=error&&typeof error==='object'?error:{}, value=outer.error!=null?outer.error:error, code='', raw='';
+ if (typeof value==='string') raw=value;
+ else if (value&&typeof value==='object') { code=String(value.code||outer.code||'error'); raw=String(value.message||value.detail||outer.message||outer.detail||''); }
+ else raw=value==null?'':String(value);
+ code=code||String(outer.code||'error');
+ var hay=(code+' '+raw).toLowerCase(), kind='backend_error', message=_('Backend вернул ошибку.'), retryable=false;
+ if (/not.?installed|component.?missing|package.?missing|enoent/.test(hay)) { kind='component_not_installed'; message=_('Компонент не установлен.'); retryable=false; }
+ else if (/provider|backend provider/.test(hay) && /unavailable|missing|not found|object not found|disabled/.test(hay)) { kind='provider_unavailable'; message=_('Backend provider недоступен.'); retryable=true; }
+ else if (/dependency|epref|eprobe|missing dependency|requires/.test(hay)) { kind='dependency_unavailable'; message=_('Зависимость недоступна.'); retryable=true; }
+ else if (/object not found|classconstructor|rpc|ubus|eobject|-32000/.test(hay)) { kind='rpc_unavailable'; message=_('RPC-компонент недоступен.'); retryable=true; }
+ else if (/malformed|schema|invalid response|parse error|unexpected response/.test(hay)) { kind='malformed_response'; message=_('Backend вернул некорректный ответ.'); retryable=false; }
+ else if (/reject|invalid input|validation|bad request|einput/.test(hay)) { kind='request_rejected'; message=_('Запрос отклонён. Проверьте введённые данные.'); retryable=false; }
+ else if (/session|auth|login|expired|401|403|network|timeout|offline|connection/.test(hay)) { kind='session_failure'; message=_('Сеанс LuCI или сетевое соединение недоступны.'); retryable=true; }
+ var details=null;
+ try { details=bounded(JSON.stringify(value&&typeof value==='object'?value:{ code:code, message:raw }), 1200); } catch (e) { details=bounded(raw, 1200); }
+ return { code:code, kind:kind, message:message, retryable:retryable, technical:bounded(raw, 320), details:details };
+}
 return baseclass.extend({
  normalizeError:normalizeError,all:calls,
  service:{status:calls.status,start:calls.start,stop:calls.stop},

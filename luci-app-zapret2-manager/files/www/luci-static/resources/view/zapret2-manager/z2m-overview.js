@@ -1,6 +1,7 @@
 'use strict';
 'require baseclass';
 'require view.zapret2-manager.z2m-overview-model as OverviewModel';
+'require view.zapret2-manager.z2m-avatar-ui as AvatarUi';
 
 var runtime = { timer: null, runId: null, target: '', overrideStrategyId: null };
 
@@ -337,6 +338,21 @@ function render(ctx) {
     return E('section', { 'class': 'z2m-panel z2m-overview-status' }, children);
   }
 
+  function renderReadiness() {
+    var entries = [
+      { title: _('Zapret2'), response: data.status, state: running === true ? 'running' : running === false ? 'stopped' : 'unknown', body: running === true ? _('Сервис сообщает рабочее состояние.') : running === false ? _('Сервис остановлен.') : _('Backend не подтвердил состояние.') },
+      { title: _('Стратегия'), response: data.preview, state: data.preview && data.preview.error ? 'unavailable' : view.visible.strategy ? 'ready' : 'unknown', body: data.preview && data.preview.error ? _('Текущая стратегия недоступна в этом ответе.') : view.visible.strategy ? _('Есть подтверждённое состояние Strategy.') : _('Подтверждённая стратегия отсутствует.') },
+      { title: _('Проверка DNS-сервисов'), response: data.serviceDns, state: data.serviceDns && data.serviceDns.error ? 'unavailable' : 'ready', body: data.serviceDns && data.serviceDns.error ? _('Опциональный DNS provider не сообщил состояние.') : _('Backend вернул состояние DNS-сервисов.') }
+    ];
+    return E('div', { 'class': 'z2m-avatar-grid z2m-overview-readiness' }, entries.map(function (entry) {
+      var error = entry.response && entry.response.error;
+      return AvatarUi.card(entry.title, error ? AvatarUi.state('unavailable', { body: entry.body }) : E('p', { 'class': 'z2m-muted' }, entry.body), {
+        badge: AvatarUi.statusBadge(entry.state),
+        className: error ? 'unavailable' : ''
+      });
+    }));
+  }
+
   var strategyOptions = catalog.map(function (candidate) {
     var id = candidateId(candidate);
     var name = candidateName(candidate, format);
@@ -450,6 +466,7 @@ function render(ctx) {
     pageHead,
     warnings.length ? warnings : null,
     renderStatusPanel(),
+    renderReadiness(),
     rowPanels.length ? E('div', { 'class': rowPanels.length > 1 ? 'z2m-row3' : 'z2m-row1' }, rowPanels) : null,
     advicePanel
   ]));
