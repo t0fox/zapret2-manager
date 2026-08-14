@@ -50,7 +50,9 @@ const PUBLIC_DISABLED_PLUGINS = [
   'github:quartz-community/tag-page',
   'github:quartz-community/graph',
   'github:quartz-community/backlinks',
+  'github:quartz-community/note-properties',
   'github:quartz-community/stacked-pages',
+  'github:quartz-community/footer',
 ]
 
 function commandLine(command, args) {
