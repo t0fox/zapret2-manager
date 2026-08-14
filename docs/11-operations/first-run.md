@@ -1,6 +1,6 @@
 ---
 id: operations-first-run
-title: "First Run"
+title: "Первый запуск"
 type: operations
 status: current
 authority: index
@@ -9,42 +9,62 @@ publish: true
 tags: [operations, first-run, luci]
 ---
 
-# First Run
+# Первый запуск
 
-Use this guide after completing [Installation](./installation.md). The current repository is a prototype, so the first session should focus on understanding application state and following the product review stages in order.
+Используйте эту инструкцию после завершения [Установки](./installation.md). Текущий репозиторий остаётся прототипом, поэтому первая сессия должна быть простой: убедиться, что приложение доступно, понять текущее состояние и пройти этапы проверки в правильном порядке без поспешного постоянного применения.
 
-## Open the application
+## Откройте приложение
 
-Open zapret2-manager in the OpenWrt LuCI interface and confirm that the page loads and the current application status can be read. If the page is missing or incomplete, switch to [Troubleshooting](./troubleshooting.md) before changing anything else.
+Откройте zapret2-manager в интерфейсе OpenWrt LuCI и убедитесь, что страница загружается полностью, а текущий status приложения читается. Если страница отсутствует, интерфейс неполный или данные backend недоступны, сначала перейдите в [Устранение неполадок](./troubleshooting.md) и не меняйте постоянное состояние вслепую.
 
-## Inspect Strategy
+## Посмотрите Strategy
 
-Strategy is the product area responsible for durable configuration. Start by inspecting the current catalog and selected Strategy. A Strategy definition and an applied Strategy are different lifecycle states, so knowing what is selected is the first useful piece of context.
+`Strategy` отвечает за долговременную конфигурацию. Начните с просмотра каталога и текущего выбранного варианта. Определение стратегии, выбранная Strategy и реально применённое состояние — разные этапы lifecycle, поэтому перед любым действием важно понимать, что именно показывает интерфейс.
 
-## Preview
+## Предпросмотр (Preview)
 
-Use **Preview** where it is available in the current build. Preview is intended to show the proposed result before durable application. Read warnings and preflight information rather than treating the preview itself as a successful application.
+Используйте **Preview**, если этот этап присутствует в установленной сборке. Предпросмотр показывает предполагаемый результат до постоянного изменения. Прочитайте предупреждения и preflight information и не интерпретируйте сам факт успешного Preview как уже выполненный Apply.
 
-## Validate
+## Проверка (Validate)
 
-Use **Validate** where the current Strategy path supports it. Validation provides another review point before Apply. Keep the result with the repository revision you are testing because the project is evolving and behavior can change between builds.
+Используйте **Validate** там, где текущий путь Strategy его поддерживает. Это ещё одна точка проверки перед постоянным применением. Сохраняйте результат вместе с ревизией репозитория или версией package, потому что проект активно развивается и поведение разных сборок может отличаться.
 
-## Apply deliberately
+## Применяйте осознанно
 
-**Apply is the Strategy authority boundary for durable state.** Use it only after the selected Strategy, Preview, and available validation output have been reviewed. The separation between inspection and durable application is a core product principle.
+**Apply — граница полномочий Strategy для постоянного состояния.** Используйте его только после того, как выбранная Strategy, результат Preview и доступная validation information понятны и проверены.
 
-## Use Scanner for candidates
+Полезная ментальная модель первой сессии:
 
-Scanner is a prototype under active development. When Scanner functionality is present in the build being evaluated, treat its results as candidate information. A useful candidate should move through the Strategy product path before it becomes durable configuration.
+```text
+прочитать текущее состояние
+          ↓
+выбрать / проверить Strategy
+          ↓
+       Preview
+          ↓
+       Validate
+          ↓
+ Apply только осознанно
+```
 
-The repository contains several Scanner implementation components, but this public documentation does not label the full end-to-end Scanner workflow production-complete.
+Разделение просмотра и постоянного применения — один из основных принципов проекта.
 
-## Keep the tested revision
+## Используйте Scanner только для кандидатов
 
-Record the repository revision and package release associated with the session. This makes later comparison, bug reports, and troubleshooting much more useful than a report that only says the latest build was used.
+`Scanner` остаётся прототипом в активной разработке. Если его функции доступны в тестируемой сборке, воспринимайте результат как информацию о кандидате, а не как постоянную конфигурацию.
 
-## What a successful first session looks like
+Полезный кандидат должен перейти через продуктовый путь Strategy до того, как станет долговременным состоянием. Это сохраняет явную границу между исследованием и применением.
 
-A useful first session is intentionally simple: the LuCI application opens, current state is readable, Strategy can be inspected, Preview and Validate can be exercised where supported, and the difference between candidate evaluation and durable Apply is clear.
+В репозитории уже существует несколько Scanner implementation components, но публичная документация пока не утверждает, что полный end-to-end Scanner workflow является production-complete.
 
-From here, continue with [Strategy](../03-products/strategy/index.md), [Scanner](../03-products/scanner/index.md), [Architecture](../02-architecture/index.md), or [Troubleshooting](./troubleshooting.md).
+## Сохраните точную ревизию
+
+Запишите commit/revision репозитория и версии packages, связанные с этой сессией. Для будущего сравнения, bug report и troubleshooting это намного полезнее фразы «использовал последнюю версию».
+
+Если позже поведение изменится, точная ревизия позволит понять, относится ли проблема к конкретной сборке, packaging, backend, LuCI или продуктовой логике.
+
+## Как выглядит успешный первый запуск
+
+Для первой сессии не нужно проверять всё приложение сразу. Достаточно, чтобы LuCI открывался, текущее состояние читалось, Strategy можно было осмотреть, Preview и Validate выполнялись там, где они поддерживаются, а различие между временным кандидатом и постоянным Apply было понятным.
+
+После этого можно перейти к [Strategy](../03-products/strategy/index.md), [Scanner](../03-products/scanner/index.md), [Архитектуре](../02-architecture/index.md) или [Устранению неполадок](./troubleshooting.md).
