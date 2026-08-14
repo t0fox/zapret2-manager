@@ -137,6 +137,46 @@ function lists_set_method(req) {
 	} catch (e) { return { ok: false, error: 'parse failed', raw: out }; }
 }
 
+// ---- typed canonical assets ------------------------------------------------
+const ASSET_CLI = '/usr/libexec/zapret2-manager/asset-registry-cli.uc';
+function asset_args(req) {
+	let edit = null;
+	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
+	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
+	if (type(edit) != 'string') return null;
+	try { let value = json(edit); return type(value) == 'object' && value != null ? value : null; } catch (e) { return null; }
+}
+function asset_cli_action(mode, argument) {
+	let cmd = '/usr/bin/ucode ' + ASSET_CLI + ' ' + mode + (argument == null ? '' : ' ' + shell_escape(argument)) + ' 2>/dev/null';
+	let p = popen(cmd, 'r'); if (!p) return { ok: false, error: { code: 'ETARGET', message: 'asset registry runner unavailable' } };
+	let out = p.read('all') || ''; let rc = p.close();
+	try { let result = json(out); return result != null ? result : { ok: false, error: { code: 'EINTERNAL', message: 'asset registry returned no response' } }; }
+	catch (e) { return { ok: false, error: { code: rc == 0 ? 'EINTERNAL' : 'ECHILD', message: 'asset registry response was malformed' } }; }
+}
+function asset_tmpfile() { let p = popen('umask 077; mktemp /tmp/z2m-assets-edit.XXXXXX 2>/dev/null', 'r'); if (!p) return null; let path = trim(p.read('all') || ''); let rc = p.close(); return rc == 0 && index(path, '/tmp/z2m-assets-edit.') == 0 ? path : null; }
+function asset_edit_action(mode, req, trailing) {
+	let edit = null; try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
+	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
+	if (type(edit) != 'string' || length(edit) > 32 * 1024 * 1024) return { ok: false, error: { code: 'EINPUT', message: 'asset edit must be a bounded JSON string' } };
+	let tmp = asset_tmpfile(); if (tmp == null) return { ok: false, error: { code: 'ETARGET', message: 'asset request temp file unavailable' } };
+	try { writefile(tmp, edit); } catch (e) { try { unlink(tmp); } catch (x) {} return { ok: false, error: { code: 'EIO', message: 'asset request temp file could not be written' } }; }
+	let command = '/usr/bin/ucode ' + ASSET_CLI + ' ' + mode + (trailing == null ? '' : ' ' + shell_escape(trailing)) + ' ' + shell_escape(tmp) + ' 2>/dev/null';
+	let p = popen(command, 'r'); if (!p) { try { unlink(tmp); } catch (e) {} return { ok: false, error: { code: 'ETARGET', message: 'asset registry runner unavailable' } }; }
+	let out = p.read('all') || ''; p.close(); try { unlink(tmp); } catch (e) {}
+	try { let result = json(out); return result != null ? result : { ok: false, error: { code: 'EINTERNAL', message: 'asset registry returned no response' } }; }
+	catch (e) { return { ok: false, error: { code: 'EINTERNAL', message: 'asset registry response was malformed' } }; }
+}
+function asset_id(req) { let args = asset_args(req); return args && type(args.id) == 'string' ? args.id : null; }
+function assets_list_method(req) { let args = asset_args(req); return asset_cli_action('list', args && type(args.type) == 'string' ? args.type : null); }
+function assets_get_method(req) { let id = asset_id(req); return id == null ? { ok: false, error: { code: 'EINPUT', message: 'asset id is required' } } : asset_cli_action('get', id); }
+function assets_validate_method(req) { let id = asset_id(req); return id == null ? { ok: false, error: { code: 'EINPUT', message: 'asset id is required' } } : asset_cli_action('validate', id); }
+function assets_delete_method(req) { let id = asset_id(req); return id == null ? { ok: false, error: { code: 'EINPUT', message: 'asset id is required' } } : asset_cli_action('delete', id); }
+function assets_import_method(req) { return asset_edit_action('import', req); }
+function assets_update_method(req) { let args = asset_args(req); return args && type(args.id) == 'string' ? asset_edit_action('update', req, args.id) : { ok: false, error: { code: 'EINPUT', message: 'asset id is required' } }; }
+function assets_register_builtin_method(req) { return asset_edit_action('register-builtin', req); }
+function assets_references_method(req) { return asset_edit_action('references', req); }
+function assets_resolve_method(req) { return asset_edit_action('resolve', req); }
+
 // ---- profiles methods (strategy read path — SLICE 1) -----------------------
 const PROFILES_CLI = '/usr/libexec/zapret2-manager/profiles-cli.uc';
 function profiles_action(sub) {
@@ -881,6 +921,15 @@ return {
 		lists_get:         { call: function (req) { return lists_get_method(req); } },
 		lists_check_domain: { args: { domain: 'string' }, call: function (req) { return lists_check_domain_method(req); } },
 		lists_set:         { args: { edit: 'string' }, call: function (req) { return lists_set_method(req); } },
+		assets_list:       { call: function (req) { return assets_list_method(req); } },
+		assets_get:        { args: { edit: 'string' }, call: function (req) { return assets_get_method(req); } },
+		assets_validate:   { args: { edit: 'string' }, call: function (req) { return assets_validate_method(req); } },
+		assets_resolve:    { args: { edit: 'string' }, call: function (req) { return assets_resolve_method(req); } },
+		assets_import:     { args: { edit: 'string' }, call: function (req) { return assets_import_method(req); } },
+		assets_update:     { args: { edit: 'string' }, call: function (req) { return assets_update_method(req); } },
+		assets_register_builtin: { args: { edit: 'string' }, call: function (req) { return assets_register_builtin_method(req); } },
+		assets_delete:     { args: { edit: 'string' }, call: function (req) { return assets_delete_method(req); } },
+		assets_references: { args: { edit: 'string' }, call: function (req) { return assets_references_method(req); } },
 		profiles_list:     { call: function (req) { return profiles_list_method(req); } },
 		profiles_create:   { args: { edit: 'string' }, call: function (req) { return profiles_create_method(req); } },
 		profiles_update:   { args: { edit: 'string' }, call: function (req) { return profiles_update_method(req); } },
