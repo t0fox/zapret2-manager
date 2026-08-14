@@ -1,11 +1,9 @@
 import { QuartzConfig } from "./quartz/cfg"
 import { PluginTypes } from "./quartz/plugins/types"
 /**
- * Quartz configuration overlay for zapret2-manager vault.
- * This file is copied into the bootstrapped Quartz directory during build.
- *
- * explicitPublish: true enables the publish frontmatter field.
- * Notes with `publish: false` (or absent when strict) are excluded from public output.
+ * Quartz configuration overlay for the public zapret2-manager documentation.
+ * The executable docs pipeline also applies these publication constraints to the
+ * pinned Quartz YAML configuration at build time.
  */
 const config: QuartzConfig = {
   configuration: {
@@ -14,9 +12,23 @@ const config: QuartzConfig = {
     enableSPA: true,
     enablePopovers: true,
     analytics: { provider: "none" },
-    locale: "en-US",
+    locale: "ru-RU",
     baseUrl: "t0fox.github.io/zapret2-manager",
-    ignorePatterns: ["private", ".obsidian"],
+    ignorePatterns: [
+      "private",
+      ".obsidian",
+      "04-contracts",
+      "05-parity",
+      "07-decisions",
+      "09-work",
+      "10-research",
+      "12-ai",
+      "90-templates",
+      "99-archive",
+      "02-architecture/atomic-write-json-v1-design.md",
+      "02-architecture/traceability",
+      "08-development/knowledge-workflow.md",
+    ],
     defaultDateType: "created",
     theme: {
       fontOrigin: "googleFonts",
