@@ -812,6 +812,7 @@ function strategies_import_profiles_method(req) { return strategy_edit_action('i
 // only selects a fixed Scanner subcommand and frames the child response; it
 // does not validate Scanner business fields or construct runtime arguments.
 const SCANNER_CLI = '/usr/libexec/zapret2-manager/scanner-cli.uc';
+const SCANNER_ROOT_BOOTSTRAP = '/usr/libexec/zapret2-manager/z2m-root-bootstrap';
 const SCANNER_UCODE_BIN = getenv('Z2M_SCANNER_UCODE_BIN') || '/usr/bin/ucode';
 const SCANNER_REQUEST_ROOT = '/tmp/zapret2-manager/runtime/requests';
 const SCANNER_MAX_REQUEST_BYTES = 65536;
@@ -823,9 +824,11 @@ function scanner_cleanup_request(tmp) {
 }
 
 function scanner_tmpfile() {
-	let command = 'umask 077; mkdir -- ' + shell_escape(SCANNER_REQUEST_ROOT)
-		+ ' 2>/dev/null || test -d ' + shell_escape(SCANNER_REQUEST_ROOT)
-		+ ' && mktemp ' + shell_escape(SCANNER_REQUEST_ROOT + '/scanner-rpc.XXXXXX.json') + ' 2>/dev/null';
+	let command = 'umask 077; ' + shell_escape(SCANNER_ROOT_BOOTSTRAP) + ' runtime 2>/dev/null'
+		+ ' && (mkdir ' + shell_escape(SCANNER_REQUEST_ROOT) + ' 2>/dev/null || test -d ' + shell_escape(SCANNER_REQUEST_ROOT) + ')'
+		+ ' && tmp=$(mktemp ' + shell_escape(SCANNER_REQUEST_ROOT + '/scanner-rpc.XXXXXX')
+		+ ' 2>/dev/null) && final="$tmp.json" && test ! -e "$final"'
+		+ ' && mv "$tmp" "$final" 2>/dev/null && printf "%s\\n" "$final"';
 	let p = null, output = '', rc = -1;
 	try { p = popen(command, 'r'); } catch (e) { p = null; }
 	if (!p) return null;

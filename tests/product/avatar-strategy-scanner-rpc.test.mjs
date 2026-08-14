@@ -34,6 +34,9 @@ function signatureSource(method, request, scannerCli) {
     "const SCANNER_CLI = '/usr/libexec/zapret2-manager/scanner-cli.uc';",
     `const SCANNER_CLI = ${JSON.stringify(scannerCli)};`,
   ).replace(
+    "const SCANNER_ROOT_BOOTSTRAP = '/usr/libexec/zapret2-manager/z2m-root-bootstrap';",
+    `const SCANNER_ROOT_BOOTSTRAP = ${JSON.stringify(path.join(path.dirname(scannerCli), 'z2m-root-bootstrap'))};`,
+  ).replace(
     "import { route_list, route_reconcile } from '/usr/libexec/zapret2-manager/unified-routing.uc';",
     "function route_list() { return { schema: 1, revision: 0, routes: [] }; }\nfunction route_reconcile() { return { ok: true, reconciled: 0 }; }",
   ).replace(
@@ -46,12 +49,18 @@ function signatureSource(method, request, scannerCli) {
 function stubScannerCli() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-rpc-stub-'));
   const file = path.join(root, 'scanner-cli.uc');
+  const bootstrap = path.join(root, 'z2m-root-bootstrap');
   fs.writeFileSync(file, `import { readfile } from 'fs';
 let value = json(readfile(ARGV[1]));
 if (getenv('Z2M_SCANNER_RPC_STUB_MODE') == 'nonzero') exit(7);
 print(sprintf('%J', {ok:true, command:ARGV[0], input:value}));
 `);
-  return { root, file };
+  fs.writeFileSync(bootstrap, `#!/bin/sh
+mkdir -p /tmp/zapret2-manager/runtime
+exit 0
+`);
+  fs.chmodSync(bootstrap, 0o755);
+  return { root, file, bootstrap };
 }
 
 test('Scanner RPC methods are registered with bounded edit-only signatures', () => {
@@ -88,6 +97,41 @@ test('Scanner RPC forwards one bounded JSON edit through the private request fil
     assert.deepEqual(result, { ok: true, command: 'start', input: JSON.parse(edit) });
     assert.deepEqual(fs.readdirSync(requestRoot).filter(name => name.startsWith('scanner-rpc.')), before);
   } finally {
+    fs.rmSync(stub.root, { recursive: true, force: true });
+  }
+});
+
+test('Scanner RPC creates nested request storage with BusyBox-compatible mktemp semantics', () => {
+  const stub = stubScannerCli();
+  const fakeBin = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-busybox-'));
+  const fakeMktemp = path.join(fakeBin, 'mktemp');
+  fs.writeFileSync(fakeMktemp, `#!/bin/sh
+template="$1"
+case "$template" in
+  *XXXXXX) ;;
+  *) exit 1 ;;
+esac
+prefix="\${template%XXXXXX}"
+path="\${prefix}busybox"
+(umask 077; : > "$path") || exit 1
+printf '%s\\n' "$path"
+`);
+  fs.chmodSync(fakeMktemp, 0o755);
+  const runtimeRoot = '/tmp/zapret2-manager/runtime';
+  fs.rmSync(runtimeRoot, { recursive: true, force: true });
+  fs.chmodSync('/tmp/zapret2-manager', 0o700);
+  const edit = JSON.stringify({ id: 'scan-busybox', request: { target: 'youtube.com', protocol: 'tcp', mode: 'quick' } });
+  try {
+    const result = invoke(signatureSource('scanner_start', { edit }, stub.file), {
+      PATH: `${fakeBin}:${process.env.PATH}`,
+      Z2M_SCANNER_UCODE_BIN: UCODE_BIN,
+    });
+    assert.deepEqual(result, { ok: true, command: 'start', input: JSON.parse(edit) });
+    assert.equal(fs.existsSync('/tmp/zapret2-manager/runtime/requests'), true);
+    assert.deepEqual(fs.readdirSync('/tmp/zapret2-manager/runtime/requests'), []);
+  } finally {
+    fs.rmSync(runtimeRoot, { recursive: true, force: true });
+    fs.rmSync(fakeBin, { recursive: true, force: true });
     fs.rmSync(stub.root, { recursive: true, force: true });
   }
 });
