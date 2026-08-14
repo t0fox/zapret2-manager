@@ -377,14 +377,20 @@ function product_edit_action(cli, sub, req, prefix) {
 	let command = product_command(cli, sub, tmp); if (!command) { try { unlink(tmp); } catch (e) { } return { ok: false, error: { code: 'EINPUT', message: 'unknown product operation' } }; }
 	let p = popen(command, 'r');
 	if (!p) { try { unlink(tmp); } catch (e) { } return { ok: false, error: { code: 'EDEPENDENCY', message: 'product CLI unavailable' } }; }
-	let out = p.read('all') || ''; p.close(); try { unlink(tmp); } catch (e) { }
+	let out = p.read('all') || '', rc = -1;
+	try { rc = p.close(); } catch (e) { rc = -1; }
+	try { unlink(tmp); } catch (e) { }
+	if (rc != 0) return { ok: false, error: { code: 'EDEPENDENCY', message: 'product CLI exited unsuccessfully' } };
 	try { return json(out); } catch (e) { return { ok: false, error: { code: 'EINTERNAL', message: 'product response parse failed' } }; }
 }
 function product_action(cli, sub) {
 	let command = product_command(cli, sub, null); if (!command) return { ok: false, error: { code: 'EINPUT', message: 'unknown product operation' } };
 	let p = popen(command, 'r');
 	if (!p) return { ok: false, error: { code: 'EDEPENDENCY', message: 'product CLI unavailable' } };
-	let out = p.read('all') || ''; p.close(); try { return json(out); } catch (e) { return { ok: false, error: { code: 'EINTERNAL', message: 'product response parse failed' } }; }
+	let out = p.read('all') || '', rc = -1;
+	try { rc = p.close(); } catch (e) { rc = -1; }
+	if (rc != 0) return { ok: false, error: { code: 'EDEPENDENCY', message: 'product CLI exited unsuccessfully' } };
+	try { return json(out); } catch (e) { return { ok: false, error: { code: 'EINTERNAL', message: 'product response parse failed' } }; }
 }
 function blockcheck_diag_start_method(req) { return product_edit_action(BLOCKCHECK_DIAG_CLI, 'start', req, 'z2m-bcdiag-edit'); }
 function blockcheck_diag_status_method(req) { return product_action(BLOCKCHECK_DIAG_CLI, 'status'); }
