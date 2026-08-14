@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { access, cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import http from 'node:http'
 import path from 'node:path'
 import process from 'node:process'
@@ -14,6 +14,7 @@ const QUARTZ_PATH = path.join(ARTIFACTS_PATH, 'quartz')
 const QUARTZ_ENTRY = path.join(QUARTZ_PATH, 'quartz', 'bootstrap-cli.mjs')
 const DEFAULT_PORT = 8080
 const READINESS_TIMEOUT_MS = 120_000
+
 const PUBLIC_IGNORE_PATTERNS = [
   '04-contracts',
   '05-parity',
@@ -27,6 +28,7 @@ const PUBLIC_IGNORE_PATTERNS = [
   '02-architecture/traceability',
   '08-development/knowledge-workflow.md',
 ]
+
 const PUBLIC_INTERNAL_OUTPUT_PATHS = [
   '04-contracts',
   '05-parity',
@@ -43,10 +45,16 @@ const PUBLIC_INTERNAL_OUTPUT_PATHS = [
   '08-development/knowledge-workflow-og-image.webp',
 ]
 
+const PUBLIC_DISABLED_PLUGINS = [
+  'github:quartz-community/folder-page',
+  'github:quartz-community/tag-page',
+  'github:quartz-community/graph',
+  'github:quartz-community/backlinks',
+  'github:quartz-community/stacked-pages',
+]
+
 function commandLine(command, args) {
-  if (process.platform !== 'win32' || !['npm', 'npx'].includes(command)) {
-    return { command, args }
-  }
+  if (process.platform !== 'win32' || !['npm', 'npx'].includes(command)) return { command, args }
   const escaped = args.map((arg) => {
     const value = String(arg).replaceAll('"', '\\"')
     return /\s/.test(value) ? `"${value}"` : value
@@ -66,9 +74,7 @@ function parseModeFlag(arg) {
 export function normalizeArgs(args) {
   const [first = 'verify', ...rest] = args
   const command = first === 'build' ? 'build' : first
-  if (!['verify', 'serve', 'build', 'clean'].includes(command)) {
-    throw new Error(`Unknown docs command: ${first}`)
-  }
+  if (!['verify', 'serve', 'build', 'clean'].includes(command)) throw new Error(`Unknown docs command: ${first}`)
 
   let mode = command === 'serve' ? 'internal' : null
   let production = false
@@ -79,9 +85,7 @@ export function normalizeArgs(args) {
     if (command === 'build' && (arg === 'public' || arg === 'internal')) mode = arg
   }
   if (command === 'build' && mode === null) mode = 'public'
-  if (command !== 'build' && command !== 'serve' && mode !== null) {
-    throw new Error(`${command} does not accept a build mode`)
-  }
+  if (command !== 'build' && command !== 'serve' && mode !== null) throw new Error(`${command} does not accept a build mode`)
   return { command, mode, production }
 }
 
@@ -108,6 +112,23 @@ function run(command, args, options = {}) {
   })
 }
 
+function capture(command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    const invocation = commandLine(command, args)
+    const child = spawn(invocation.command, invocation.args, {
+      cwd: options.cwd ?? WORKTREE_ROOT,
+      stdio: ['ignore', 'pipe', 'inherit'],
+    })
+    let output = ''
+    child.stdout.on('data', (chunk) => { output += chunk })
+    child.once('error', reject)
+    child.once('exit', (code) => {
+      if (code !== 0) reject(new Error(`${command} exited with code ${code}`))
+      else resolve(output.trim())
+    })
+  })
+}
+
 async function readLock() {
   const lock = JSON.parse(await readFile(LOCK_PATH, 'utf8'))
   for (const field of ['upstream', 'tag', 'commit', 'node']) {
@@ -127,9 +148,7 @@ async function exists(target) {
 
 async function assertNode(lock) {
   const major = Number(process.versions.node.split('.')[0])
-  if (major < Number(lock.node)) {
-    throw new Error(`Node ${lock.node}+ required, found ${process.versions.node}`)
-  }
+  if (major < Number(lock.node)) throw new Error(`Node ${lock.node}+ required, found ${process.versions.node}`)
 }
 
 async function bootstrap(lock) {
@@ -137,47 +156,29 @@ async function bootstrap(lock) {
   await mkdir(ARTIFACTS_PATH, { recursive: true })
   if (!(await exists(QUARTZ_PATH))) {
     await run('git', [
-      'clone',
-      '--filter=blob:none',
-      '--no-checkout',
-      `https://github.com/${lock.upstream}.git`,
-      QUARTZ_PATH,
+      'clone', '--filter=blob:none', '--no-checkout',
+      `https://github.com/${lock.upstream}.git`, QUARTZ_PATH,
     ])
     await run('git', ['checkout', '--detach', lock.commit], { cwd: QUARTZ_PATH })
   }
 
   const sha = await capture('git', ['rev-parse', 'HEAD'], { cwd: QUARTZ_PATH })
-  if (sha !== lock.commit) {
-    throw new Error(`Quartz SHA mismatch: expected ${lock.commit}, got ${sha}`)
-  }
-  if (!(await exists(path.join(QUARTZ_PATH, 'node_modules')))) {
-    await run('npm', ['ci'], { cwd: QUARTZ_PATH })
-  }
+  if (sha !== lock.commit) throw new Error(`Quartz SHA mismatch: expected ${lock.commit}, got ${sha}`)
+  if (!(await exists(path.join(QUARTZ_PATH, 'node_modules')))) await run('npm', ['ci'], { cwd: QUARTZ_PATH })
   const pluginIndex = path.join(QUARTZ_PATH, '.quartz', 'plugins', 'index.ts')
-  if (!(await exists(pluginIndex))) {
-    await run('npx', ['quartz', 'plugin', 'install'], { cwd: QUARTZ_PATH })
-  }
+  if (!(await exists(pluginIndex))) await run('npx', ['quartz', 'plugin', 'install'], { cwd: QUARTZ_PATH })
 }
 
 function quartzCommand(args) {
   return { command: process.execPath, args: [QUARTZ_ENTRY, ...args] }
 }
 
-function capture(command, args, options = {}) {
-  return new Promise((resolve, reject) => {
-    const invocation = commandLine(command, args)
-    const child = spawn(invocation.command, invocation.args, {
-      cwd: options.cwd ?? WORKTREE_ROOT,
-      stdio: ['ignore', 'pipe', 'inherit'],
-    })
-    let output = ''
-    child.stdout.on('data', (chunk) => { output += chunk })
-    child.once('error', reject)
-    child.once('exit', (code) => {
-      if (code !== 0) reject(new Error(`${command} exited with code ${code}`))
-      else resolve(output.trim())
-    })
-  })
+function setPluginEnabled(config, source, enabled) {
+  const escaped = source.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return config.replace(
+    new RegExp(`(source: ${escaped}\\r?\\n\\s+enabled:) (?:true|false)`),
+    `$1 ${enabled ? 'true' : 'false'}`,
+  )
 }
 
 async function applyConfig(mode) {
@@ -186,15 +187,15 @@ async function applyConfig(mode) {
   config = config.replace(/^  pageTitle:.*$/m, `  pageTitle: "zapret2-manager${mode === 'internal' ? ' (internal)' : ''}"`)
   config = config.replace(/^  baseUrl:.*$/m, `  baseUrl: "${mode === 'internal' ? 'localhost' : 't0fox.github.io/zapret2-manager'}"`)
   config = config.replace(/^  locale:.*$/m, `  locale: ${mode === 'public' ? 'ru-RU' : 'en-US'}`)
+
   if (mode === 'public') {
     const marker = '    - .obsidian'
     const additions = PUBLIC_IGNORE_PATTERNS.map((pattern) => `    - ${pattern}`).join('\n')
     config = config.replace(marker, `${marker}\n${additions}`)
+    for (const plugin of PUBLIC_DISABLED_PLUGINS) config = setPluginEnabled(config, plugin, false)
   }
-  config = config.replace(
-    /(source: github:quartz-community\/explicit-publish\r?\n\s+enabled:) false/,
-    `$1 ${mode === 'public' ? 'true' : 'false'}`,
-  )
+
+  config = setPluginEnabled(config, 'github:quartz-community/explicit-publish', mode === 'public')
   await writeFile(path.join(QUARTZ_PATH, 'quartz.config.yaml'), config)
 }
 
@@ -207,16 +208,17 @@ async function patchPublicRuntimePaths(output) {
 
   const helpers = 'const z2mStaticBase=()=>location.pathname.match(/^\\/[^/]+\\//)?.[0]||"/";const z2mStaticPageHref=slug=>{const base=z2mStaticBase();if(!slug||slug==="index")return base;if(slug.endsWith("/index"))return base+slug.slice(0,-6)+"/";return base+slug+".html"};const z2mStaticFolderHref=slug=>{const base=z2mStaticBase();if(!slug)return base;return base+slug.replace(/^\\/+|\\/+$/g,"")+"/"};'
   if (!script.includes('z2mStaticPageHref')) script = helpers + script
+
   script = script.replaceAll('ct.href="/"+ge.slug', 'ct.href=z2mStaticPageHref(ge.slug)')
   script = script.replaceAll('ue.href="/"+(We||"")', 'ue.href=z2mStaticFolderHref(We||"")')
   script = script.replaceAll('A.href="/"+o.data.slug', 'A.href=z2mStaticPageHref(o.data.slug)')
+  script = script.replaceAll('new URL("/"+e,window.location.origin).toString()', 'new URL(z2mStaticPageHref(e),window.location.origin).toString()')
+
   await writeFile(scriptPath, script)
 }
 
 async function removePublicInternalOutputPaths(output) {
-  await Promise.all(PUBLIC_INTERNAL_OUTPUT_PATHS.map((name) =>
-    rm(path.join(output, name), { recursive: true, force: true })
-  ))
+  await Promise.all(PUBLIC_INTERNAL_OUTPUT_PATHS.map((name) => rm(path.join(output, name), { recursive: true, force: true })))
 }
 
 async function listOutputFiles(dir, prefix = '') {
@@ -250,19 +252,21 @@ function staticHrefFor(files, href, pathname) {
   if (files.includes(`${clean}.html`)) return `${hrefPath}.html${suffix}`
 
   const directory = clean.replace(/\/$/, '')
-  if (files.includes(`${directory}/index.html`)) {
-    return `${hrefPath.replace(/\/?$/, '/')}${suffix}`
-  }
+  if (files.includes(`${directory}/index.html`)) return `${hrefPath.replace(/\/?$/, '/')}${suffix}`
   return null
 }
 
-async function patchPublicInternalLinks(output) {
+async function patchPublicHtml(output) {
   const files = await listOutputFiles(output)
   for (const relativeFile of files.filter((file) => file.endsWith('.html'))) {
     const fullPath = path.join(output, relativeFile)
-    const html = await readFile(fullPath, 'utf8')
+    let html = await readFile(fullPath, 'utf8')
+
+    html = html.replaceAll('data-behavior="link"', 'data-behavior="collapse"')
+    html = html.replace(/(<button[^>]*class="title-button explorer-toggle desktop-explorer"[^>]*>[\s\S]*?<h2>)Explorer(<\/h2>)/g, '$1Навигация$2')
+
     const base = new URL(`https://public.test/${relativeFile}`)
-    const sanitized = html.replace(/<a\b([^>]*\bhref="([^"]+)"[^>]*)>([\s\S]*?)<\/a>/gi, (whole, _attributes, href, content) => {
+    html = html.replace(/<a\b([^>]*\bhref="([^"]+)"[^>]*)>([\s\S]*?)<\/a>/gi, (whole, _attributes, href, content) => {
       if (!href.startsWith('.') || href.startsWith('./#')) return whole
       const target = new URL(href, base)
       const staticHref = staticHrefFor(files, href, target.pathname)
@@ -270,14 +274,15 @@ async function patchPublicInternalLinks(output) {
       if (staticHref === href) return whole
       return whole.replace(`href="${href}"`, `href="${staticHref}"`)
     })
-    if (sanitized !== html) await writeFile(fullPath, sanitized)
+
+    await writeFile(fullPath, html)
   }
 }
 
 async function postprocessPublicOutput(output) {
   await removePublicInternalOutputPaths(output)
   await patchPublicRuntimePaths(output)
-  await patchPublicInternalLinks(output)
+  await patchPublicHtml(output)
 }
 
 async function quartz(mode) {
@@ -285,7 +290,8 @@ async function quartz(mode) {
   await applyConfig(mode)
   await rm(output, { recursive: true, force: true })
   await mkdir(output, { recursive: true })
-  await run(quartzCommand([]).command, [...quartzCommand([]).args, 'build', '-d', DOCS_PATH, '-o', output], { cwd: QUARTZ_PATH })
+  const invocation = quartzCommand(['build', '-d', DOCS_PATH, '-o', output])
+  await run(invocation.command, invocation.args, { cwd: QUARTZ_PATH })
   if (mode === 'public') await postprocessPublicOutput(output)
   return output
 }
@@ -321,10 +327,7 @@ async function serve(mode) {
     'build', '--serve', '-d', DOCS_PATH, '-o', output,
     '--port', String(process.env.DOCS_PORT ?? DEFAULT_PORT),
   ])
-  const child = spawn(invocation.command, invocation.args, {
-    cwd: QUARTZ_PATH,
-    stdio: 'inherit',
-  })
+  const child = spawn(invocation.command, invocation.args, { cwd: QUARTZ_PATH, stdio: 'inherit' })
   child.exitCode = null
   child.once('exit', (code) => { child.exitCode = code ?? 1 })
   await waitForHttp(`http://localhost:${process.env.DOCS_PORT ?? DEFAULT_PORT}/`, child)
@@ -343,6 +346,7 @@ export async function main(args = process.argv.slice(2)) {
     console.log(`Cleaned ${ARTIFACTS_PATH}`)
     return
   }
+
   const lock = await readLock()
   await bootstrap(lock)
   if (normalized.command === 'verify') {
@@ -353,10 +357,9 @@ export async function main(args = process.argv.slice(2)) {
     await serve(normalized.mode)
     return
   }
+
   const output = await quartz(normalized.mode)
-  if (normalized.mode === 'public') {
-    await run(process.execPath, ['--test', path.join(WORKTREE_ROOT, 'tests', 'knowledge', 'public-leak.test.mjs')])
-  }
+  if (normalized.mode === 'public') await run(process.execPath, ['--test', path.join(WORKTREE_ROOT, 'tests', 'knowledge', 'public-leak.test.mjs')])
   console.log(`Built ${normalized.mode} docs at ${output}`)
 }
 
