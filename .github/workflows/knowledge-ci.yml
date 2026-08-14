@@ -25,6 +25,10 @@ jobs:
       - name: Metadata + link + authority + legacy validation
         run: node scripts/validate-knowledge.mjs
 
+      - name: Quartz internal production build
+        run: |
+          node scripts/docs.mjs build internal --production
+
       - name: Quartz public production build
         run: |
           node scripts/docs.mjs build public --production
