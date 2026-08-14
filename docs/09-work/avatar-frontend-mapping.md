@@ -1,6 +1,8 @@
 # Avatar Frontend to zapret2-manager Mapping
 
-**Target base:** `origin/main@984e5e617c610106a03777ece4b74a16ad3ef862`  
+**Initial BASE_HEAD:** `origin/main@984e5e617c610106a03777ece4b74a16ad3ef862`
+
+**Rebased target base:** `origin/main@b336e55a feat(assets): connect registry environment to strategy scanner`
 **Donor:** `avatarDD/zapret-gui@7263810c2923bb70f30fe2c41de45dac0feef492`  
 **Reviewed reference:** `947e213bd66b9b8bc23ce564abcf59a4c8e8ce4c`  
 **Scope:** `web/**` only; donor Python/API/backend is excluded.
@@ -24,7 +26,7 @@
 | `web/js/pages/block_detector.js` | Background discovery/results | ADAPT presentation only | `z2m-blockcheck-page.js` | `blockDetector*` | M5 tests |
 | `web/js/pages/blockcheck2.js` | Official engine output/results | ADAPT presentation only | `z2m-blockcheck-page.js` | `blockcheck2*` | M5 tests |
 | `web/js/pages/tgproxy.js` | Donor TG product UI and `/api` bindings | DROP implementation; salvage visual patterns only | `z2m-proxy-page-core.js` | existing Telegram Proxy lifecycle/settings/activity | proxy RPC/presentation tests |
-| `web/js/pages/blobs.js`, `lua_scripts.js`, `hostlists.js`, `hosts.js`, `ipsets.js` | Donor resource tables/editors | DROP donor pages; ADAPT list/table pattern | existing services/resources modules | current lists/domain hub and future M2 adapter | assets/resources tests; no M2 backend added |
+| `web/js/pages/blobs.js`, `lua_scripts.js`, `hostlists.js`, `hosts.js`, `ipsets.js` | Donor resource tables/editors | DROP donor pages; ADAPT list/table pattern | existing `z2m-assets.js`, services/resources modules | current M2 `assets_*` registry RPCs plus lists/domain hub | assets/resources tests; no donor resource backend added |
 | `web/js/api.js` | Browser HTTP client for donor Python API | DROP | none; retain `z2m-api.js` | explicit LuCI `rpc.declare` methods | no-live-Avatar-API test |
 | `web/index.html`, donor `web/js/app.js` | standalone web shell/script loader | DROP as runtime; inspect for patterns only | existing LuCI `app.js` | LuCI view lifecycle | packaging and no-dead-route checks |
 
@@ -35,4 +37,3 @@ No donor `core/**`, `api/**`, `app.py`, `/api/...` backend, AWG, sing-box, mihom
 ## Provenance
 
 Copied/adapted code remains MIT-licensed. The repository will add `docs/third-party/avatarDD-zapret-gui.md` with the donor repository, current head, reviewed reference, file-level mapping, and the donor MIT notice. Existing project `LICENSE` remains unchanged.
-
