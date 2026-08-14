@@ -11,28 +11,28 @@ tags: [product, blockcheck, planned]
 
 # BlockCheck
 
-**Status: Planned / in development.** BlockCheck is intended to be a focused diagnostic product area that provides structured evidence before a larger candidate-evaluation workflow begins.
+**Статус: Планируется / в разработке.** BlockCheck задуман как отдельная диагностическая область, которая должна дать структурированные данные до запуска более широкого workflow проверки кандидатов.
 
-## What it is
+## Что это такое
 
-BlockCheck is designed as a bounded diagnostic step. Its result should be information that another product workflow can consume, not durable configuration by itself.
+BlockCheck проектируется как ограниченный диагностический этап. Его результат — информация для пользователя и других продуктовых сценариев, а не постоянная конфигурация сама по себе.
 
-## Why it exists
+## Зачем он нужен
 
-A dedicated diagnostic stage makes later results easier to interpret. It gives the user a clearer starting point and keeps basic diagnosis separate from the broader search and ranking responsibilities of Scanner.
+Отдельная диагностика делает последующие результаты понятнее. Пользователь получает исходный контекст, а базовая проверка не смешивается с более широкой задачей перебора и ранжирования кандидатов, которой занимается Scanner.
 
-## Relationship to Scanner
+## Связь со Scanner
 
-Scanner is the candidate-evaluation workflow. BlockCheck is expected to provide context that can help decide whether a Scanner session is useful and what should be evaluated. It does not replace Scanner result handling or the Strategy authority path.
+Scanner остаётся основным workflow проверки кандидатов. BlockCheck должен предоставлять контекст, который помогает понять, нужен ли запуск Scanner и какие направления проверки имеют смысл. Он не заменяет обработку результатов Scanner и не получает полномочия Strategy.
 
-## Expected user workflow
+## Предполагаемый сценарий
 
-The planned model is simple: provide the relevant context, run the bounded check, inspect its result, and then decide whether to continue into Scanner or another product area. A diagnostic result should remain distinguishable from a candidate Strategy and from durable application state.
+Планируемая модель проста: передать нужный контекст, выполнить ограниченную проверку, посмотреть результат и решить, нужно ли переходить к Scanner или другой продуктовой области. Диагностический результат должен оставаться отличимым от Strategy-кандидата и от постоянного состояния.
 
-## Current implementation status
+## Текущее состояние реализации
 
-The current public status remains **planned**. This page intentionally does not provide command examples, stable API fields, or detailed UI instructions because the repository does not yet justify presenting a finished BlockCheck workflow as shipped functionality.
+Публичный статус остаётся **Планируется**. Страница намеренно не содержит выдуманных команд, стабильных API fields или подробных UI-инструкций, потому что текущий репозиторий ещё не подтверждает завершённый пользовательский workflow BlockCheck.
 
-When current code and fresh verification establish a real public path, this page can be expanded with verified usage. Until then it documents purpose, boundaries, and relationships only.
+Когда реальный код и свежая проверка подтвердят публичный путь, здесь появятся проверенные инструкции использования.
 
-See [Scanner](../scanner/index.md), [Strategy](../strategy/index.md), and [Status and roadmap](../../01-project/status-roadmap.md).
+См. также [Scanner](../scanner/index.md), [Strategy](../strategy/index.md) и [Статус и план развития](../../01-project/status-roadmap.md).
