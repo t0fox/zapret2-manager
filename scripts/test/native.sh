@@ -59,7 +59,7 @@ done >> "$test_list"
 
 count=$(tr -cd '\0' < "$test_list" | wc -c)
 [ "$count" -gt 0 ] || { echo 'no native tests found' >&2; exit 1; }
-xargs -0 node --test < "$test_list"
+xargs -0 node --test --test-concurrency=1 < "$test_list"
 
 if [ "$(id -u)" -eq 0 ]; then
   scripts/test/native-root.sh "$node_bin"

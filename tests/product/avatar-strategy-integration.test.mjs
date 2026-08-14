@@ -28,6 +28,7 @@ const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.split('|') : [];
 const UCODE_MODULE_PATTERN = ucodeModulePattern(process.env.UCODE_MODULE_PATH, process.env.UCODE_LIBRARY_PATH);
 const UCODE_LIBRARY_ARGS = UCODE_MODULE_PATTERN ? ['-L', UCODE_MODULE_PATTERN] : [];
+const DRVFS_SOURCE = process.platform === 'linux' && /^\/mnt\/[a-z]\//i.test(ROOT);
 const HASH = 'a'.repeat(64);
 const OLD_CONFIG_HASH = 'c'.repeat(64);
 const NEW_CONFIG_HASH = 'd'.repeat(64);
@@ -239,7 +240,7 @@ test('catalog digest, duplicate winner, protocol sets, package assets, and impor
   assert.deepEqual(fs.readdirSync(CATALOG_ROOT, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => entry.name).sort(), ['advanced', 'basic', 'builtin', 'direct']);
   for (const file of expectedManifest.files) {
     const asset = path.join(CATALOG_ROOT, ...file.path.split('/'));
-    assert.equal(fs.statSync(asset).mode & 0o777, 0o644, file.path);
+    if (!DRVFS_SOURCE) assert.equal(fs.statSync(asset).mode & 0o777, 0o644, file.path);
     assert.equal(createHash('sha256').update(fs.readFileSync(asset)).digest('hex'), file.sha256, file.path);
   }
   const draft = { schema: 1, profiles: [{ id: 'p1', name: 'Imported', opt: '--filter-tcp=443' }] };

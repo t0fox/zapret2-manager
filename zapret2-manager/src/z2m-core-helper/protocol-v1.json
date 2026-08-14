@@ -189,7 +189,7 @@
     "atomic_write_json": {
       "milestone": 2, "status": "implemented", "roots": ["persistent_state", "snapshots", "registry", "secrets", "runtime", "jobs", "staging"],
       "canonicalization": "z2m-canonical-json-v1",
-      "canonicalizationContract": "docs/contracts/z2m-canonical-json-v1.md",
+      "canonicalizationContract": "docs/04-contracts/z2m-canonical-json-v1.md",
       "requestSchema": { "type": "object", "additionalProperties": false, "required": ["root", "path", "value", "mode", "uid", "gid", "allowCreate"], "properties": { "root": { "type": "string" }, "path": { "type": "string" }, "value": {}, "mode": { "const": "0600" }, "uid": { "const": 0 }, "gid": { "const": 0 }, "allowCreate": { "type": "boolean" } } },
       "successSchema": { "type": "object", "additionalProperties": false, "required": ["byteLength", "committed", "durability"], "properties": { "byteLength": { "type": "integer", "minimum": 0, "maximum": 4194304 }, "committed": { "const": true }, "durability": { "enum": ["durable", "tmpfs_visible"] } } },
       "limits": { "maxInputBytes": 4194304, "maxOutputBytes": 1024, "timeoutMsMax": 30000, "maxCanonicalBytes": 521028, "maxCanonicalDepth": 64, "maxCanonicalContainers": 1024, "maxCanonicalMembers": 1024, "maxCanonicalNodes": 65536, "maxCanonicalKeyBytes": 4096 },

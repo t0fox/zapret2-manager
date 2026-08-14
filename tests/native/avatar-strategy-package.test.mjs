@@ -14,6 +14,7 @@ const EXPECTED_MANIFEST_PATH = path.join(ROOT, 'tests', 'fixtures', 'avatar-stra
   'manifest.expected.json');
 const PINNED_SHA = 'f9dd3ea47a2239514f396a843b475c92c33f0b4c';
 const LEVELS = ['advanced', 'basic', 'builtin', 'direct'];
+const DRVFS_SOURCE = process.platform === 'linux' && /^\/mnt\/[a-z]\//i.test(ROOT);
 
 const makefile = fs.readFileSync(path.join(ROOT, 'zapret2-manager', 'Makefile'), 'utf8');
 const expectedManifest = JSON.parse(fs.readFileSync(EXPECTED_MANIFEST_PATH, 'utf8'));
@@ -158,7 +159,8 @@ test('package manifest and raw files remain byte-identical to pinned evidence', 
   for (const file of expectedManifest.files) {
     const asset = installedPath(file.path);
     assert.equal(fs.statSync(asset).isFile(), true, file.path);
-    assert.equal(fs.statSync(asset).mode & 0o777, 0o644, `${file.path} mode`);
+    if (!DRVFS_SOURCE)
+      assert.equal(fs.statSync(asset).mode & 0o777, 0o644, `${file.path} mode`);
     assert.equal(fs.statSync(asset).size, file.byteSize, `${file.path} byte size`);
     assert.equal(
       createHash('sha256').update(fs.readFileSync(asset)).digest('hex'),

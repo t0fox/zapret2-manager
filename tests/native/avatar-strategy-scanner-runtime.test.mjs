@@ -69,7 +69,7 @@ test('fixed Scanner runtime shim exercises the real owner lifecycle and queue-sa
     assert.ok(true, 'native compiler unavailable; fixed runtime shim limitation documented');
     return;
   }
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-shim-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-test-shim-'));
   const session = `s${process.pid}-${Date.now()}`;
   const candidate = 'c1';
   const run = path.resolve(ADAPTER);
@@ -78,7 +78,8 @@ test('fixed Scanner runtime shim exercises the real owner lifecycle and queue-sa
   const queue = path.join(root, 'queue');
   const log = path.join(root, 'calls');
   const helperLog = path.join(root, 'firewall-helper.log');
-  const argvDir = path.join('/tmp/zapret2-manager/scanner', session);
+  const argvDir = path.join(root, 'scanner', session);
+  let nfqwsPid;
   let lockPid;
   try {
     const jsonfilter = path.join(root, 'jsonfilter');
@@ -96,7 +97,7 @@ node -e 'const fs=require("fs");const keys=process.argv[1].replace(/^@\\./, "").
     fs.mkdirSync(argvDir, { recursive: true });
     fs.writeFileSync(path.join(argvDir, `${candidate}.argv`), '--filter-tcp=443\n--payload=tls_client_hello\n');
     fs.writeFileSync(path.join(argvDir, `${candidate}.argv.digest`), `${crypto.createHash('sha256').update('--filter-tcp=443\n--payload=tls_client_hello\n').digest('hex')}\n`);
-    const env = { ...process.env, PATH: `${root}:${process.env.PATH}`, Z2M_SCANNER_RUNTIME_SHIM: '1', Z2M_SCANNER_SERVER_TEST: '1', Z2M_SCANNER_TEST_NFQWS2: fakeNfqws, Z2M_SCANNER_TEST_FIREWALL_HELPER: firewallHelper, Z2M_SCANNER_TEST_NFQ_PROC: queue, Z2M_SCANNER_TEST_LOCK: path.join(root, 'config.lock'), Z2M_TEST_LOG: log, Z2M_TEST_SESSION: session, Z2M_TEST_PID_FILE: path.join(argvDir, `${candidate}.pid`) };
+    const env = { ...process.env, PATH: `${root}:${process.env.PATH}`, Z2M_SCANNER_RUNTIME_SHIM: '1', Z2M_SCANNER_SERVER_TEST: '1', Z2M_SCANNER_TEST_BASE: root, Z2M_SCANNER_TEST_NFQWS2: fakeNfqws, Z2M_SCANNER_TEST_FIREWALL_HELPER: firewallHelper, Z2M_SCANNER_TEST_NFQ_PROC: queue, Z2M_SCANNER_TEST_LOCK: path.join(root, 'config.lock'), Z2M_TEST_LOG: log, Z2M_TEST_SESSION: session, Z2M_TEST_PID_FILE: path.join(argvDir, `${candidate}.pid`) };
     fs.writeFileSync(log, '');
     fs.writeFileSync(queue, '');
     const locked = spawnSync('sh', [run, 'lock-acquire', session, 'session', '5'], { env, encoding: 'utf8' });
@@ -123,6 +124,7 @@ node -e 'const fs=require("fs");const keys=process.argv[1].replace(/^@\\./, "").
     const stabilize = spawnSync('sh', [run, 'stabilize', session, candidate, '5'], { env, encoding: 'utf8' });
     assert.equal(stabilize.status, 0, stabilize.stderr || stabilize.stdout);
     assert.equal(JSON.parse(stabilize.stdout).stable, true);
+    try { nfqwsPid = Number(fs.readFileSync(path.join(argvDir, `${candidate}.pid`), 'utf8').split('|')[0]); } catch { }
     const cleanup = spawnSync('sh', [run, 'cleanup', session, candidate, '5'], { env, encoding: 'utf8' });
     assert.equal(cleanup.status, 0, `${cleanup.stderr || cleanup.stdout}\n${fs.readFileSync(log, 'utf8')}\nhelper=${fs.existsSync(helperLog) ? fs.readFileSync(helperLog, 'utf8') : '<none>'}`);
     assert.equal(JSON.parse(cleanup.stdout).ownedOnly, true);
@@ -146,7 +148,7 @@ node -e 'const fs=require("fs");const keys=process.argv[1].replace(/^@\\./, "").
     assert.equal(released.status, 0, released.stderr || released.stdout);
     assert.equal(JSON.parse(released.stdout).released, true);
   } finally {
-    try { spawnSync('pkill', ['-f', fakeNfqws], { encoding: 'utf8' }); } catch { }
+    try { if (Number.isInteger(nfqwsPid) && nfqwsPid > 1) process.kill(nfqwsPid, 'SIGTERM'); } catch { }
     try { if (typeof lockPid === 'number') process.kill(lockPid, 'SIGTERM'); } catch { }
     fs.rmSync(argvDir, { recursive: true, force: true });
     fs.rmSync(root, { recursive: true, force: true });
@@ -214,8 +216,10 @@ node -e 'const fs=require("fs");const keys=process.argv[1].replace(/^@\\./, "").
     assert.match(fs.readFileSync(helperLog, 'utf8'), /rules_enable\\|queue-present/,
       'redirect enable must be requested only after the NFQUEUE peer is registered');
   } finally {
-    try { spawnSync('pkill', ['-f', fakeNfqws], { encoding: 'utf8' }); } catch { }
-    try { spawnSync('pkill', ['-f', firewallHelper], { encoding: 'utf8' }); } catch { }
+    try {
+      const pid = Number(fs.readFileSync(path.join(argvDir, `${candidate}.pid`), 'utf8').split('|')[0]);
+      if (Number.isInteger(pid) && pid > 1) process.kill(pid, 'SIGTERM');
+    } catch { }
     try { if (typeof lockPid === 'number') process.kill(lockPid, 'SIGTERM'); } catch { }
     fs.rmSync(root, { recursive: true, force: true });
   }

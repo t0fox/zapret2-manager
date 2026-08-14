@@ -17,7 +17,8 @@ OWNER=scanner/session
 if [ "${Z2M_SCANNER_RUNTIME_SHIM:-0}" = 1 ]; then
 	[ "${Z2M_SCANNER_SERVER_TEST:-0}" = 1 ] || { printf '%s\n' '{"ok":false,"code":"EINPUT","stage":"input"}'; exit 1; }
 	case "${Z2M_SCANNER_TEST_BASE:-}" in
-		/tmp/z2m-router-e2e-*|/tmp/z2m-scanner-test-*) BASE=$Z2M_SCANNER_TEST_BASE; ROOT=$BASE/scanner ;;
+		/tmp/z2m-router-e2e-*|/tmp/z2m-scanner-test-*|"${TMPDIR:-/tmp}"/z2m-scanner-test-*)
+			BASE=$Z2M_SCANNER_TEST_BASE; ROOT=$BASE/scanner ;;
 		'') ;;
 		*) exit 1 ;;
 	esac
