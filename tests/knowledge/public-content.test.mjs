@@ -52,9 +52,18 @@ test('public Quartz uses Russian locale and curated Russian navigation', async (
   assert.match(html, />\s*(?:Навигация|Проводник)\s*</u)
   assert.match(html, /data-behavior="collapse"/u)
   assert.doesNotMatch(html, />\s*Explorer\s*</u)
-  assert.doesNotMatch(html, /class="graph(?:\s|"|>)/u)
-  assert.doesNotMatch(html, /class="backlinks(?:\s|"|>)/u)
-  assert.doesNotMatch(html, /class="note-properties(?:\s|"|>)/u)
+  assert.doesNotMatch(html, />Home</u)
+})
+
+test('public site suppresses internal vault chrome without breaking Quartz layout resources', async () => {
+  const html = await readFile(path.join(PUBLIC, 'index.html'), 'utf8')
+  assert.match(html, /<style id="z2m-public-chrome">/u)
+  assert.match(html, /\.graph,/u)
+  assert.match(html, /\.backlinks,/u)
+  assert.match(html, /\.note-properties,/u)
+  assert.match(html, /\.breadcrumb-container,/u)
+  assert.match(html, /\.stacked-pages-container/u)
+  assert.match(html, /display:none!important/u)
 })
 
 test('every indexed public document is Russian and belongs to the curated public surface', async () => {
