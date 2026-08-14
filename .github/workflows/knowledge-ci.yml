@@ -75,7 +75,7 @@ jobs:
 
           ready=0
           for _ in $(seq 1 120); do
-            if curl -fsS http://127.0.0.1:8080/ -o /tmp/docs-home.html; then
+            if curl -fsSL http://127.0.0.1:8080/ -o /tmp/docs-home.html; then
               ready=1
               break
             fi
@@ -87,7 +87,7 @@ jobs:
             route="$1"
             expected="$2"
             target="$(mktemp)"
-            curl -fsS "http://127.0.0.1:8080${route}" -o "$target"
+            curl -fsSL "http://127.0.0.1:8080${route}" -o "$target"
             grep -Fqi "$expected" "$target"
           }
 
