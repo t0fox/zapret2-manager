@@ -211,10 +211,10 @@ async function patchPublicRuntimePaths(output) {
   const helpers = 'const z2mStaticBase=()=>location.pathname.match(/^\\/[^/]+\\//)?.[0]||"/";const z2mStaticPageHref=slug=>{const base=z2mStaticBase();if(!slug||slug==="index")return base;if(slug.endsWith("/index"))return base+slug.slice(0,-6)+"/";return base+slug+".html"};const z2mStaticFolderHref=slug=>{const base=z2mStaticBase();if(!slug)return base;return base+slug.replace(/^\\/+|\\/+$/g,"")+"/"};'
   if (!script.includes('z2mStaticPageHref')) script = helpers + script
 
-  script = script.replaceAll('ct.href="/"+ge.slug', 'ct.href=z2mStaticPageHref(ge.slug)')
-  script = script.replaceAll('ue.href="/"+(We||"")', 'ue.href=z2mStaticFolderHref(We||"")')
-  script = script.replaceAll('A.href="/"+o.data.slug', 'A.href=z2mStaticPageHref(o.data.slug)')
-  script = script.replaceAll('new URL("/"+e,window.location.origin).toString()', 'new URL(z2mStaticPageHref(e),window.location.origin).toString()')
+  script = script.replace(/(\w+)\.href="\/"\+(\w+)\.slug/g, '$1.href=z2mStaticPageHref($2.slug)')
+  script = script.replace(/(\w+)\.href="\/"\+(\w+)\.data\.slug/g, '$1.href=z2mStaticPageHref($2.data.slug)')
+  script = script.replace(/(\w+)\.href="\/"\+\((\w+)\|\|""\)/g, '$1.href=z2mStaticFolderHref($2||"")')
+  script = script.replace(/new URL\("\/"\+(\w+),window\.location\.origin\)\.toString\(\)/g, 'new URL(z2mStaticPageHref($1),window.location.origin).toString()')
 
   await writeFile(scriptPath, script)
 }
