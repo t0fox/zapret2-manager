@@ -71,6 +71,14 @@ function publicTargetExists(files, pathname) {
     || (clean === '' && files.includes('index.html'))
 }
 
+function staticTargetExists(files, pathname) {
+  const clean = pathname.replace(/^\//, '')
+  if (clean === '') return files.includes('index.html')
+  if (files.includes(clean)) return true
+  if (clean.endsWith('/')) return files.includes(`${clean}index.html`)
+  return false
+}
+
 async function scanBrokenInternalLinks(dir) {
   const files = await listFiles(dir)
   const broken = []
@@ -82,6 +90,22 @@ async function scanBrokenInternalLinks(dir) {
       if (!href.startsWith('.') || href.startsWith('./#')) continue
       const target = new URL(href, base)
       if (!publicTargetExists(files, target.pathname)) broken.push(`${relativeFile} -> ${href}`)
+    }
+  }
+  return broken
+}
+
+async function scanStaticHostBrokenLinks(dir) {
+  const files = await listFiles(dir)
+  const broken = []
+  for (const relativeFile of files.filter((file) => file.endsWith('.html'))) {
+    const html = await readFile(path.join(dir, relativeFile), 'utf8')
+    const base = new URL(`https://public.test/${relativeFile}`)
+    for (const match of html.matchAll(/href="([^"]+)"/g)) {
+      const href = match[1]
+      if (!href.startsWith('.') || href.startsWith('./#')) continue
+      const target = new URL(href, base)
+      if (!staticTargetExists(files, target.pathname)) broken.push(`${relativeFile} -> ${href}`)
     }
   }
   return broken
@@ -107,6 +131,13 @@ test('public Quartz navigation points only to generated pages and assets', async
   assert.ok(publicDir, `Public build output is required at ${PUBLIC_DIR}`)
   const broken = await scanBrokenInternalLinks(publicDir)
   assert.deepEqual(broken, [], `Found broken public links:\n${broken.join('\n')}`)
+})
+
+test('public Quartz links resolve as uploaded static GitHub Pages files', async () => {
+  const publicDir = await findPublicDir()
+  assert.ok(publicDir, `Public build output is required at ${PUBLIC_DIR}`)
+  const broken = await scanStaticHostBrokenLinks(publicDir)
+  assert.deepEqual(broken, [], `Found static-host 404 links:\n${broken.slice(0, 100).join('\n')}${broken.length > 100 ? `\n... and ${broken.length - 100} more` : ''}`)
 })
 
 test('public Quartz runtime uses the Pages subpath for content index data', async () => {
