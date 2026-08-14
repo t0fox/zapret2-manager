@@ -1,6 +1,6 @@
 ---
 id: architecture-index
-title: "Architecture Overview"
+title: "Архитектура"
 type: architecture
 status: current
 authority: index
@@ -9,52 +9,56 @@ publish: true
 tags: [architecture, openwrt, overview]
 ---
 
-# Architecture overview
+# Архитектура
 
-The zapret2-manager architecture is designed around clear ownership. User interface code, application state, product logic, platform integration, and small native components are kept as separate responsibilities. The goal is to make it possible to answer a simple question for every change: which part of the application owns this state and which product path is allowed to make it durable?
+Архитектура zapret2-manager строится вокруг **явного владения состоянием и ответственностью**. Код интерфейса, состояние приложения, продуктовая логика, интеграция с OpenWrt и небольшие native-компоненты разделены по ролям. Для любого постоянного изменения должен существовать понятный ответ на два вопроса: какой компонент владеет этим состоянием и какой продуктовый путь имеет право сделать его долговременным.
 
-## Main layers
+## Основные слои
 
-At the top, LuCI provides the browser-facing interface. The application then crosses the normal OpenWrt service boundary into backend orchestration. Backend code works with canonical application state and delegates platform-specific work through adapters and narrow helpers.
+На верхнем уровне находится LuCI — браузерный интерфейс пользователя. Через стандартную для OpenWrt границу приложение обращается к backend orchestration. Backend работает с каноническим состоянием приложения, проверяет переходы и передаёт платформенно-зависимые действия runtime adapters и узким helpers.
 
-This layered model matters because the project contains more than one product workflow. Strategy and Scanner can both reason about configuration candidates, but they do not have the same authority.
+Такое разделение особенно важно потому, что в проекте есть несколько продуктовых сценариев. `Strategy` и `Scanner` могут работать с похожими кандидатами конфигурации, но обладают разными правами. Один сценарий исследует варианты, другой отвечает за долговременное состояние.
 
-## Canonical state
+## Каноническое состояние
 
-Canonical state is the representation that the application treats as durable truth. User-interface state is not a replacement for it. A page can display or edit a proposal, but the backend remains responsible for the state that survives across sessions and application lifecycle events.
+**Каноническое состояние** — это представление, которое приложение считает долговременным источником истины. Состояние страницы LuCI не заменяет его. Интерфейс может показать или отредактировать предложение, однако backend отвечает за данные, которые должны переживать переход между страницами, перезапуск интерфейса и другие события жизненного цикла.
 
-The native helper foundation supports backend responsibilities such as bounded parsing, safe filesystem access, hashing, and atomic writes. These helpers are deliberately narrow. They support the control plane rather than becoming a second independent product architecture.
+Native helper foundation помогает backend выполнять ограниченные задачи: безопасно работать с файловой системой, выполнять разбор данных, хеширование и атомарную запись там, где это нужно. Helpers намеренно остаются небольшими. Они обслуживают control plane, но не превращаются во вторую независимую архитектуру приложения.
 
-## Strategy ownership
+## Владение Strategy
 
-Strategy owns durable configuration. A Strategy can move through definition, compile, preflight, Preview, and Validate stages before the user reaches Apply. That separation means a proposal can be inspected without being treated as already permanent.
+`Strategy` отвечает за **постоянную конфигурацию**. Стратегия может пройти через определение, compile, preflight, `Preview` и `Validate` до того, как пользователь окажется у `Apply`.
 
-Apply is therefore an authority boundary rather than just another button. It marks the transition from reviewable intent to application-owned durable state.
+Такое разделение позволяет просмотреть и проверить предполагаемый результат, не считая его уже применённым. `Apply` поэтому является не просто очередной кнопкой, а **границей полномочий**: переходом от проверяемого намерения к состоянию, за которое приложение начинает отвечать как за долговременное.
 
-## Scanner ownership
+## Владение Scanner
 
-Scanner owns candidate exploration. Its work is temporary and should remain associated with one Scanner lifecycle: planning, candidate evaluation, observations, results, ranking, and cleanup.
+`Scanner` отвечает за исследование кандидатов. Его ресурсы по определению временны и должны быть связаны с одним Scanner lifecycle: планированием, проверкой кандидатов, наблюдениями, результатами, ранжированием и cleanup.
 
-A useful Scanner result is not automatically durable. The result can move into the Strategy model and then follow the Strategy review path. This prevents exploratory work from silently gaining permanent authority.
+Полезный результат Scanner не становится постоянным автоматически. Если кандидат нужно сохранить, он должен перейти в модель Strategy и затем пройти обычный путь проверки Strategy. Это не позволяет исследовательскому процессу незаметно получить право постоянного изменения роутера.
 
-## Single-writer idea
+## Принцип одного владельца записи
 
-When one product area owns a piece of canonical state, another product area should not independently make conflicting durable changes to it. This single-writer idea keeps state transitions understandable and reduces ambiguity during recovery.
+Если определённая часть канонического состояния принадлежит одному продуктовому компоненту, другой компонент не должен независимо выполнять конфликтующие постоянные записи в то же состояние. Этот принцип single-writer делает переходы предсказуемыми и упрощает диагностику.
 
-It also improves diagnostics: if the problem concerns a durable Strategy, start with Strategy state; if it concerns a temporary Scanner candidate, start with the Scanner lifecycle.
+Если проблема связана с постоянной Strategy, первым источником данных должно быть состояние Strategy. Если сбой произошёл во время временной проверки Scanner, нужно смотреть lifecycle конкретного Scanner-запуска и его временные ресурсы.
 
-## Reconciliation and cleanup
+## Reconciliation и cleanup
 
-Application-owned state needs a predictable lifecycle across success, failure, restart, and recovery. Reconciliation compares expected owned state with what the application can observe and resolves differences through the component that owns the state.
+Состояние, которым владеет приложение, должно иметь понятный lifecycle при успехе, ошибке, перезапуске и восстановлении. Reconciliation сравнивает ожидаемое состояние с тем, что приложение может наблюдать, а расхождения исправляются через компонент-владелец.
 
-Temporary work should be cleaned up through its owning lifecycle. Durable state should be changed through its owning product path. Broad resets are intentionally not part of the public architecture model.
+Временная работа должна очищаться своим lifecycle. Постоянное состояние должно изменяться через собственный продуктовый путь. Публичная архитектура намеренно не рассматривает широкие ручные сбросы как нормальный механизм восстановления.
 
-## Safety model
+## Модель безопасности
 
-The architecture favors bounded responsibilities, explicit ownership, review before durable changes, and scoped recovery. These are not separate security features added at the end; they are design constraints that shape the product workflow.
+Архитектура предпочитает ограниченные обязанности, явное владение, проверку до постоянных изменений и узкое восстановление. Это не отдельный «security layer», добавленный после реализации, а ограничения, которые формируют сами пользовательские сценарии.
 
-## Current maturity
+Отдельно важно различать доказательства. Успех локального source-теста не доказывает успешную сборку под OpenWrt target. Наличие runtime adapter не доказывает готовый end-to-end продуктовый lifecycle. А успешный `Preview` не означает, что `Apply` уже произошёл.
 
-The package, LuCI, backend, state, and native-helper foundations are real. Strategy is current and evolving. Scanner has substantial implementation but is still a prototype under active development. BlockCheck and Deep Search remain planned. The existence of an architectural layer is not evidence that every workflow using it is production-complete.
+## Текущая зрелость
 
-Continue with [Strategy](../03-products/strategy/index.md), [Scanner](../03-products/scanner/index.md), [Project overview](../01-project/index.md), [Installation](../11-operations/installation.md), [First Run / Quick Start](../11-operations/first-run.md), [Troubleshooting](../11-operations/troubleshooting.md), or [Development](../08-development/index.md).
+Основа пакетов, LuCI, backend, state model и native helpers существует в текущем репозитории. `Strategy` реализована и развивается. `Scanner` содержит существенный объём кода, но остаётся прототипом в активной разработке. `BlockCheck` и `Deep Search` пока описываются как запланированные области.
+
+Наличие архитектурного слоя не является доказательством production-готовности любого workflow, который предполагается построить поверх него. Статус каждой продуктовой области определяется отдельно по текущему коду и проверкам.
+
+Дальше читайте [Strategy](../03-products/strategy/index.md), [Scanner](../03-products/scanner/index.md), [Обзор проекта](../01-project/index.md), [Установку](../11-operations/installation.md), [Первый запуск](../11-operations/first-run.md), [Устранение неполадок](../11-operations/troubleshooting.md) или [Разработку](../08-development/index.md).
