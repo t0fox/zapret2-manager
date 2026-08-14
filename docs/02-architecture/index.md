@@ -63,10 +63,11 @@ Native helper foundation помогает backend выполнять огран�
 
 ## Глубокая архитектура
 
-Для перехода от обзорной схемы к конкретным границам читайте две отдельные страницы:
+Для перехода от обзорной схемы к конкретным границам читайте отдельные страницы:
 
 - [Runtime flow: от LuCI до nfqws2](./runtime-flow.md) — rpcd/ubus, compile/preflight, Preview/Validate, mutation boundary, verification и rollback;
-- [Владение состоянием и single-writer модель](./state-ownership.md) — generation/revision, Process Identity, durable jobs, namespaces, transactions, snapshots и reconciliation.
+- [Владение состоянием и single-writer модель](./state-ownership.md) — generation/revision, Process Identity, durable jobs, namespaces, transactions, snapshots и reconciliation;
+- [Карта компонентов и зависимостей](./component-map.md) — Graphify/UnderstandAnything-informed module families, Strategy/Scanner/core/DNS dependency edges и границы reusable substrate.
 
 Продуктовые вертикали описаны отдельно в [Lifecycle Strategy](../03-products/strategy/lifecycle.md) и [Lifecycle Scanner](../03-products/scanner/lifecycle.md). Уровни доказательств для заявлений о готовности — в [Доказательствах и тестировании](../08-development/evidence-testing.md).
 
