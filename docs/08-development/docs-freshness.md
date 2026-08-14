@@ -1,7 +1,7 @@
 ---
 id: development-docs-freshness
 title: "Актуальность документации вместе с разработкой"
-type: development
+type: doc
 status: current
 authority: evidence
 updated: 2026-08-14
@@ -11,24 +11,19 @@ tags: [development, docs, freshness, ci, evidence]
 
 # Актуальность документации вместе с разработкой
 
-Документация zapret2-manager должна меняться **вместе с продуктовым кодом**, а не отдельной кампанией раз в несколько месяцев. Для этого в репозитории есть bounded change-impact check `scripts/check-docs-freshness.mjs`: он сопоставляет изменившиеся product/runtime области с документацией, которую необходимо пересмотреть в том же change set.
+Документация zapret2-manager должна обновляться **вместе с продуктовым кодом**, а не отдельной кампанией раз в несколько месяцев. Для этого в репозитории есть bounded checker `scripts/check-docs-freshness.mjs`: он сопоставляет изменившиеся product/runtime области с документацией, которую необходимо пересмотреть в том же change set.
 
-Это не генератор текста и не попытка автоматически решить, что написано правильно. Gate отвечает на более простой, но важный вопрос: **«изменился ли продукт, а документационный impact вообще был обработан?»**
+Это не генератор текста и не автоматический судья правды. Freshness gate отвечает на более узкий вопрос: **изменился ли продукт, а documentation impact вообще был обработан?**
 
-## Зачем нужен freshness gate
+## Почему это необходимо
 
-Без формального правила documentation drift возникает почти неизбежно. Например, Scanner получает новый lifecycle, tests становятся зелёными, а публичная страница ещё месяц говорит, что существует только planner. Или Strategy меняет Apply admission, но roadmap/parity продолжают показывать старую границу.
+Без формального правила documentation drift возникает почти неизбежно. Scanner может получить новый lifecycle, tests стать зелёными, а публичная страница продолжит описывать старый прототип. Strategy может изменить Apply admission, а parity/roadmap останутся на предыдущей модели.
 
-Поэтому существенная source mutation должна иметь один из двух результатов:
-
-1. соответствующая public/evidence документация обновлена;
-2. документация явно пересмотрена и в ней зафиксировано, что публичный контракт не изменился.
-
-Просто отсутствие изменения Markdown больше не считается доказательством «docs не затронуты».
+Поэтому значимый source change требует явного решения: обновить релевантную страницу либо зафиксировать в ней, что публичный contract действительно не изменился.
 
 ## Strategy
 
-Изменения Strategy/Profile source, compiler, state, Apply/preflight или LuCI Strategy flow требуют пересмотреть как минимум одну из областей:
+Изменения Strategy/Profile source, compiler, state, Apply/preflight или Strategy LuCI требуют пересмотреть как минимум одну из областей:
 
 - `docs/03-products/strategy/`;
 - публичную Avatar parity;
@@ -39,145 +34,112 @@ tags: [development, docs, freshness, ci, evidence]
 ```text
 strategy-compiler.uc изменился
         ↓
-проверить:
-  Strategy lifecycle
-  parity status
-  roadmap milestone
+проверить Strategy lifecycle
+проверить parity impact
+проверить roadmap impact
 ```
 
-Если изменение только внутренне реорганизует код и не меняет product contract, допустимо коротко обновить lifecycle/evidence note с указанием, что внешняя семантика сохранена. Важно, что решение принято явно.
+Если изменение является чистым refactor и внешняя семантика сохранена, допустимо коротко зафиксировать это в соответствующем lifecycle/evidence document. Главное — решение принято явно, а не получено молчанием.
 
 ## Scanner
 
-Scanner — особенно чувствительная область, потому что его зрелость сейчас быстро меняется. Изменения model/planner/generator/probes/worker/transient/runtime adapter или Scanner LuCI должны сопровождаться пересмотром:
+Scanner сейчас развивается быстро, поэтому freshness особенно важен. Изменения model/planner/generator/probes/worker/transient/runtime adapter или Scanner LuCI должны сопровождаться пересмотром:
 
 - `docs/03-products/scanner/`;
 - Avatar parity;
 - roadmap.
 
-Это защищает от двух противоположных ошибок. Первая — документация отстаёт от кода. Вторая — документация слишком рано повышает Scanner до production-ready только потому, что появился очередной модуль.
+Так правило защищает сразу от двух ошибок: документация не отстаёт от кода и одновременно не повышает Scanner до production-ready после появления одного нового модуля.
 
-Например, усиление A1 lifecycle должно попасть в current-main delta и M3 roadmap. Но глобальный parity count не пересчитывается, пока не выполнен полный re-audit соответствующих capability.
+Усиление A1 lifecycle, например, должно попасть в current-main delta и M3 roadmap. Но глобальные parity counts не пересчитываются, пока соответствующий behavioral contract не прошёл полноценный re-audit.
 
 ## BlockCheck family
 
-Изменения `BlockCheck`/`BlockCheck2` source должны отражаться в:
+Изменения BlockCheck/BlockCheck2 source должны отражаться на странице BlockCheck, в документе [Scanner, BlockCheck и BlockCheck2](../03-products/scanner/family.md) либо в parity/roadmap.
 
-- странице BlockCheck;
-- странице [Scanner / BlockCheck / BlockCheck2](../03-products/scanner/family.md);
-- parity или roadmap.
-
-Это не позволяет снова смешать три разных Avatar flow в один общий статус «сканирование реализовано».
+Это сохраняет важную границу: три Avatar flow не сливаются в общий статус «сканирование реализовано».
 
 ## DNS, lists и routing dependencies
 
-Изменения DNS, service-DNS, domain hub или lists требуют пересмотра [DNS, routing и assets](../03-products/dns-routing-assets.md) либо project parity/roadmap.
+Изменения DNS, service-DNS, domain hub или lists требуют пересмотреть [DNS, routing и assets](../03-products/dns-routing-assets.md), parity или roadmap.
 
-Причина — эти области связаны не только с UI. Они являются dependency foundation для registries, selectors, unified routing и будущего auto-remediation. Новый DNS owner или list identity может менять дорожную карту даже тогда, когда внешний экран выглядит почти так же.
+Причина в том, что эти области являются foundation для assets/selectors, unified routing и будущего remediation. Новый list identity или DNS owner может влиять на roadmap даже при минимальном изменении UI.
 
 ## Proxy и tunnels
 
-Изменение proxy/provider lifecycle рассматривается как потенциальное изменение tunnel foundation. Оно требует обновления DNS/routing/assets, parity или roadmap.
+Изменение proxy/provider lifecycle рассматривается как потенциальный impact на tunnel foundation. Оно должно сопровождаться обновлением DNS/routing/assets, parity или roadmap.
 
-Это важно для будущих WARP/usque, AWG, sing-box и других providers: public docs должны показывать, какой lifecycle уже общий, а что всё ещё остаётся approved design.
+Так будущие WARP/usque, AWG, sing-box и другие providers не смогут тихо получить отдельный несовместимый lifecycle вне общей архитектуры.
 
 ## Core ownership
 
-Изменения state/jobs/transaction/namespace/process/recovery/result или native ownership foundation требуют пересмотра:
+Изменения state/jobs/transaction/namespace/process/recovery/result или native ownership foundation требуют пересмотреть:
 
 - [Runtime flow](../02-architecture/runtime-flow.md);
 - [Владение состоянием](../02-architecture/state-ownership.md);
 - [Доказательства и тестирование](./evidence-testing.md);
-- либо roadmap, если изменение относится к milestone foundation.
+- либо roadmap, если изменение относится к foundation milestone.
 
-Core refactor может быть невидим пользователю, но он часто меняет свойства recovery, process identity или transaction safety. Эти свойства являются частью публичной архитектуры проекта и должны оставаться актуальными.
+Core refactor может быть невидим пользователю, но менять recovery, Process Identity или transaction safety. Эти свойства являются частью публичной архитектуры.
 
 ## Что не триггерит gate само по себе
 
-Чтобы check не превратился в шум, первая версия ограничена product/runtime source. Изменения только в tests, docs, scripts, CI metadata или generated artifacts сами по себе не создают product freshness violation.
+Первая версия намеренно ограничена product/runtime source. Изменения только в tests, docs, scripts, CI metadata или generated artifacts сами по себе не создают product freshness violation.
 
-Это не означает, что tests не важны. Просто тесты являются **evidence**, а не причиной переписывать product docs при каждом переименовании fixture.
+Это не уменьшает значение tests: они являются evidence, но не каждый refactor fixture требует переписывать продуктовую страницу.
 
-## Как работает CLI
+## Как работает checker
 
-Checker умеет оценивать явный список changed paths — это используется unit tests. В CLI режиме он сравнивает Git range.
+Функция `evaluateDocsFreshness()` умеет оценивать явный список changed paths; это позволяет тестировать отрицательные и положительные сценарии без Git.
 
-Если задан `DOCS_FRESHNESS_BASE`, проверяется:
+В CLI режиме используется Git range. Если задан `DOCS_FRESHNESS_BASE`, проверяется `DOCS_FRESHNESS_BASE..HEAD`; иначе fallback — `HEAD^..HEAD`.
 
-```text
-DOCS_FRESHNESS_BASE..HEAD
-```
+Если history недоступна в архивной среде, checker выдаёт контролируемое предупреждение. Такой skip не должен считаться равным полноценному fresh CI на обычном репозитории.
 
-Иначе локальный fallback — `HEAD^..HEAD`.
+## RED → GREEN
 
-Если Git history в архивной/ограниченной среде недоступна, checker выдаёт контролируемый skip-warning. Это не следует трактовать как полноценное доказательство актуальности: источником истины для merge/deploy остаётся обычный репозиторий и fresh CI.
-
-## RED → GREEN контракт
-
-Freshness checker имеет отдельные tests. В частности:
+Contract покрывается tests:
 
 ```text
-Scanner runtime source changed
+Scanner source changed
 + no mapped docs
 = FAIL
 
-Scanner runtime source changed
+Scanner source changed
 + scanner/lifecycle.md changed
 = PASS
 ```
 
-Аналогично проверяется Strategy и core ownership. Это означает, что gate не существует только на словах: тесты проверяют как отрицательный, так и положительный путь.
+Аналогичные fixtures существуют для Strategy и core ownership. Это доказывает, что gate умеет ловить реальный missing-doc impact, а не только печатать информационное сообщение.
 
-## Чего freshness gate НЕ доказывает
+## Чего PASS не доказывает
 
-PASS не означает, что текст верен. Разработчик может изменить один символ в нужном Markdown и технически удовлетворить change-impact условие.
-
-Поэтому freshness — только первый слой:
+Разработчик теоретически может изменить один символ в нужной странице и пройти change-impact check. Поэтому freshness — только первый слой:
 
 ```text
 source change
    ↓
 docs impact gate
    ↓
-knowledge/frontmatter/link validation
+frontmatter/link validation
    ↓
-public/internal Quartz build
+public + internal Quartz build
    ↓
 content/leak/static-host tests
    ↓
 review фактических claims
 ```
 
-Правдивость статусов по-прежнему определяется evidence hierarchy: current source/tests/target observations имеют приоритет над старым audit или design intent.
+Правдивость статуса по-прежнему определяется evidence hierarchy. Текущий source, tests и target observations имеют приоритет над старым audit snapshot или design intent.
 
-## Как обновлять parity
+## Parity и roadmap
 
-При небольшом product change обычно обновляется **current-main delta** соответствующей области. Полные глобальные цифры Avatar parity меняются только после deliberate capability re-audit.
+Небольшой product change обычно обновляет current-main delta. Глобальные цифры Avatar parity меняются только после deliberate capability re-audit.
 
-Например:
+Roadmap обновляется, когда изменилось доказанное состояние или dependency: какой blocker исчез, что является следующим safe slice, изменился ли критерий завершения и каким evidence это подтверждается.
 
-```text
-новый Scanner cleanup test
-→ обновить Scanner current evidence / roadmap
-→ не объявлять автоматически PARTIAL → PARITY
-```
+## Практическое правило Definition of Done
 
-Такой подход позволяет документации быть живой без фальшивого live-percentage.
-
-## Как обновлять roadmap
-
-Milestone меняется, когда изменилось доказанное состояние или dependency. Хорошее обновление отвечает на вопросы:
-
-- что теперь реально существует;
-- какой blocker исчез;
-- какой следующий slice;
-- изменился ли критерий завершения;
-- каким evidence новый статус подтверждается.
-
-Roadmap поэтому становится частью engineering loop, а не презентацией будущих идей.
-
-## Практическое правило
-
-Если вы меняете пользовательскую capability, state ownership, runtime mutation или recovery semantics, **считайте документацию частью Definition of Done**. Изменение не считается полностью оформленным, пока релевантные Strategy/Scanner/architecture/parity/roadmap claims не были пересмотрены.
+Если изменение затрагивает пользовательскую capability, state ownership, runtime mutation или recovery semantics, **документация является частью Definition of Done**. Работа не считается полностью оформленной, пока релевантные Strategy/Scanner/architecture/parity/roadmap claims не были пересмотрены.
 
 Связанные страницы: [Разработка](./index.md), [Доказательства и тестирование](./evidence-testing.md), [Контракты и решения](./decisions-and-specs.md), [Roadmap](../01-project/status-roadmap.md), [Avatar parity](../01-project/avatar-parity.md).
