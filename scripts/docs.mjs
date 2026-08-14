@@ -46,8 +46,8 @@ const PUBLIC_INTERNAL_OUTPUT_PATHS = [
 ]
 
 const PUBLIC_DISABLED_PLUGINS = [
-  'github:quartz-community/folder-page',
   'github:quartz-community/tag-page',
+  'github:quartz-community/tag-list',
   'github:quartz-community/graph',
   'github:quartz-community/backlinks',
   'github:quartz-community/note-properties',
