@@ -1,19 +1,21 @@
 ---
 id: products-index
-title: "Products"
+title: "Продуктовые области"
 type: product
 status: current
 authority: index
-updated: 2026-08-13
+updated: 2026-08-14
 publish: true
 tags: [products, index]
 ---
 
-# Products
+# Продуктовые области
 
-Product-specific canonical knowledge is routed through the product folders and the AI context map.
+Публичная документация разделяет функции zapret2-manager по их назначению и праву на изменение состояния. Постоянная конфигурация относится к `Strategy`, временный поиск кандидатов — к `Scanner`, а `BlockCheck` и `Deep Search` пока описываются как планируемые области.
 
-- [Strategy](./strategy/index.md)
-- [Scanner](./scanner/index.md)
-- [BlockCheck](./blockcheck/index.md)
-- [Deep Search](./deep-search/index.md)
+- [Стратегии (Strategy)](./strategy/index.md) — постоянная конфигурация, проверка и граница `Apply`.
+- [Сканер (Scanner)](./scanner/index.md) — временная проверка и сравнение кандидатов.
+- [BlockCheck](./blockcheck/index.md) — планируемый ограниченный диагностический этап.
+- [Deep Search](./deep-search/index.md) — планируемый расширенный поиск для сложных случаев.
+
+Статус каждой области определяется текущим кодом и свежими проверками, а не наличием внутреннего design-документа.
