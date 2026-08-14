@@ -7,6 +7,8 @@ import path from 'node:path'
 
 const WORKTREE_ROOT = path.resolve(import.meta.dirname, '../..')
 const PUBLIC_DIR = path.join(WORKTREE_ROOT, '.artifacts', 'docs-public')
+const PUBLIC_ORIGIN = 'https://t0fox.github.io'
+const PUBLIC_BASE_PATH = '/zapret2-manager/'
 
 async function findPublicDir() {
   try {
@@ -87,6 +89,23 @@ function staticTargetExists(files, pathname) {
   return false
 }
 
+function deployedPathFor(relativeFile) {
+  if (relativeFile === 'index.html') return PUBLIC_BASE_PATH
+  if (relativeFile.endsWith('/index.html')) {
+    return `${PUBLIC_BASE_PATH}${relativeFile.slice(0, -'index.html'.length)}`
+  }
+  return `${PUBLIC_BASE_PATH}${relativeFile}`
+}
+
+function deployedTargetExists(files, pathname) {
+  if (!pathname.startsWith(PUBLIC_BASE_PATH)) return false
+  const clean = decodeURIComponent(pathname.slice(PUBLIC_BASE_PATH.length))
+  if (clean === '') return files.includes('index.html')
+  if (files.includes(clean)) return true
+  if (clean.endsWith('/')) return files.includes(`${clean}index.html`)
+  return false
+}
+
 async function scanBrokenInternalLinks(dir) {
   const files = await listFiles(dir)
   const broken = []
@@ -114,6 +133,29 @@ async function scanStaticHostBrokenLinks(dir) {
       if (!href.startsWith('.') || href.startsWith('./#')) continue
       const target = new URL(href, base)
       if (!staticTargetExists(files, target.pathname)) broken.push(`${relativeFile} -> ${href}`)
+    }
+  }
+  return broken
+}
+
+async function scanDeployedNavigation(dir) {
+  const files = await listFiles(dir)
+  const broken = []
+  for (const relativeFile of files.filter((file) => file.endsWith('.html'))) {
+    const html = await readFile(path.join(dir, relativeFile), 'utf8')
+    const base = new URL(deployedPathFor(relativeFile), PUBLIC_ORIGIN)
+    for (const match of html.matchAll(/<a\b[^>]*\bhref="([^"]+)"[^>]*>/gi)) {
+      const href = match[1]
+      if (href.startsWith('#') || /^(?:https?:|mailto:|tel:|javascript:)/i.test(href)) continue
+      const target = new URL(href, base)
+      if (target.origin !== PUBLIC_ORIGIN) continue
+      if (!target.pathname.startsWith(PUBLIC_BASE_PATH)) {
+        broken.push(`${relativeFile} -> ${href} escaped to ${target.pathname}`)
+        continue
+      }
+      if (!deployedTargetExists(files, target.pathname)) {
+        broken.push(`${relativeFile} -> ${href} resolves to missing ${target.pathname}`)
+      }
     }
   }
   return broken
@@ -148,12 +190,20 @@ test('public Quartz links resolve as uploaded static GitHub Pages files', async 
   assert.deepEqual(broken, [], `Found static-host 404 links:\n${broken.slice(0, 100).join('\n')}${broken.length > 100 ? `\n... and ${broken.length - 100} more` : ''}`)
 })
 
-test('public Quartz runtime uses the Pages subpath for content index data', async () => {
+test('public navigation stays inside the deployed GitHub Pages project subpath', async () => {
+  const publicDir = await findPublicDir()
+  assert.ok(publicDir, `Public build output is required at ${PUBLIC_DIR}`)
+  const broken = await scanDeployedNavigation(publicDir)
+  assert.deepEqual(broken, [], `Found deployed Pages navigation regressions:\n${broken.slice(0, 100).join('\n')}${broken.length > 100 ? `\n... and ${broken.length - 100} more` : ''}`)
+})
+
+test('public Quartz runtime uses the canonical Pages subpath for content index data', async () => {
   const publicDir = await findPublicDir()
   assert.ok(publicDir, `Public build output is required at ${PUBLIC_DIR}`)
   const postscript = await readFile(path.join(publicDir, 'postscript.js'), 'utf8')
   assert.doesNotMatch(postscript, /fetch\("\/static\/contentIndex\.json"\)/)
-  assert.match(postscript, /location\.pathname\.match/)
+  assert.match(postscript, /\/zapret2-manager\/static\/contentIndex\.json/)
+  assert.doesNotMatch(postscript, /location\.pathname\.match\(\/\^\\\/\[\^\/\]\+\\\/\//)
 })
 
 test('public runtime does not regenerate root or extensionless navigation URLs', async () => {
@@ -164,4 +214,14 @@ test('public runtime does not regenerate root or extensionless navigation URLs',
   assert.doesNotMatch(postscript, /new URL\("\/"\+/)
   assert.match(postscript, /z2mStaticPageHref/)
   assert.match(postscript, /z2mStaticFolderHref/)
+})
+
+test('public Explorer renders index-only sections as links without stale saved expansion state', async () => {
+  const publicDir = await findPublicDir()
+  assert.ok(publicDir, `Public build output is required at ${PUBLIC_DIR}`)
+  const postscript = await readFile(path.join(publicDir, 'postscript.js'), 'utf8')
+  const scannerHtml = await readFile(path.join(publicDir, '03-products', 'scanner', 'index.html'), 'utf8')
+  assert.match(postscript, /z2mNormalizeExplorerLeaves/)
+  assert.doesNotMatch(postscript, /localStorage\.getItem\("fileTree"\)/)
+  assert.match(scannerHtml, /data-savestate="false"/)
 })
