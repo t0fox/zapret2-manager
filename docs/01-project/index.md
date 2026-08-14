@@ -1,6 +1,6 @@
 ---
 id: project-index
-title: "Project Overview"
+title: "Обзор проекта"
 type: project
 status: current
 authority: index
@@ -9,40 +9,46 @@ publish: true
 tags: [project, openwrt, overview]
 ---
 
-# Project overview
+# Обзор проекта
 
-zapret2-manager is an OpenWrt-native management project built around a LuCI frontend, a backend package, structured state, runtime adapters, and narrow native helpers. The project is intended to make router configuration lifecycle explicit instead of hiding it behind one opaque wrapper.
+zapret2-manager — OpenWrt-native проект управления с интерфейсом LuCI, backend-пакетом, структурированным состоянием, runtime adapters и узкими native helpers. Его задача — сделать жизненный цикл конфигурации роутера явным и проверяемым, а не скрывать важные переходы состояния внутри одного непрозрачного wrapper-скрипта.
 
-## Project goals
+## Цели проекта
 
-The project aims to provide a coherent management layer for OpenWrt. User-facing actions should pass through explicit contracts, validation, state ownership, and bounded runtime operations. Permanent configuration belongs to Strategy. Exploratory Scanner work should use transient resources and must not silently turn a candidate result into permanent router configuration.
+Первая цель — дать OpenWrt цельный слой управления, где пользовательские действия проходят через понятные контракты, проверку входных данных, владение состоянием и ограниченные runtime-операции. Постоянная конфигурация относится к продуктовой области `Strategy`. Исследовательская работа `Scanner` должна использовать временные ресурсы и не имеет права незаметно превращать найденный кандидат в постоянную конфигурацию роутера.
 
-A second goal is behavioral parity with useful workflows from the upstream reference project where that behavior fits. Parity means matching useful user outcomes; it does not mean copying the upstream Python control-plane architecture. zapret2-manager deliberately targets an OpenWrt-native implementation.
+Вторая цель — сохранять полезное поведенческое соответствие проверенным upstream-сценариям там, где это имеет смысл. Parity здесь означает совпадение полезного пользовательского результата, а не копирование архитектуры upstream control plane. zapret2-manager специально строится как OpenWrt-native приложение.
 
-## Non-goals
+Третья цель — сделать диагностику и восстановление предсказуемыми. По состоянию приложения должно быть понятно, какой компонент владеет ресурсом, какое действие его изменило и каким способом проблему можно локализовать без широкого сброса платформы.
 
-zapret2-manager is not intended to be a generic privileged command runner. Native helpers expose narrow operations rather than an arbitrary execution surface. The project also does not claim that every designed feature is already implemented, and public documentation must not present plans as shipped functionality.
+## Что не входит в цели
 
-The public site is not a mirror of the internal engineering vault. Scratch notes, handoffs, private operating instructions and recovery records stay internal.
+zapret2-manager не является универсальным privileged command runner. Native helpers должны предоставлять узкие операции с понятными границами, а не произвольный запуск команд от имени привилегированного процесса.
 
-## Design principles
+Проект также не заявляет, что любая описанная или спроектированная функция уже реализована. Наличие плана, ADR или design-документа не превращает функцию в готовую. Публичная документация обязана различать статусы «реализовано», «прототип / активная разработка» и «планируется».
 
-**OpenWrt-native control plane.** Package layout, LuCI integration, rpcd/ubus boundaries, ucode orchestration, service lifecycle and target-toolchain builds are first-class concerns.
+Публичный сайт не является зеркалом внутренней инженерной базы знаний. Черновики, handoff-записи, внутренние ADR, приватные инструкции и recovery evidence остаются внутри репозитория и не публикуются как пользовательская документация.
 
-**Explicit authority.** Previewing or testing a candidate is different from applying permanent state. That authority boundary stays visible in the product model.
+## Принципы проектирования
 
-**Bounded native operations.** Native code is used where a narrow helper provides a clear boundary, not as a reason to move the whole control plane into native code.
+**OpenWrt-native control plane.** Структура пакетов, интеграция с LuCI, границы rpcd/ubus, ucode orchestration, service lifecycle и сборка целевым toolchain считаются полноценными частями архитектуры, а не второстепенной обвязкой.
 
-**Owned resources and cleanup.** Transient Scanner state should be attributable to its lifecycle and cleaned up through controlled paths. Recovery guidance avoids broad destructive actions.
+**Явное право на изменение.** Просмотр или тестирование кандидата не равны применению постоянного состояния. Граница `Apply` остаётся видимой частью продуктовой модели.
 
-**Evidence over aspiration.** Current code, tests, package metadata and current contracts outrank old plans. A detailed design can exist while the corresponding feature remains prototype, in development or planned.
+**Ограниченные native-операции.** Native-код используется там, где небольшой helper даёт чёткую техническую границу. Он не должен превращаться во второй независимый control plane.
 
-## Product areas
+**Владение ресурсами и очистка.** Временное состояние Scanner должно быть связано с конкретным lifecycle и удаляться через контролируемый cleanup. Восстановление не должно начинаться с разрушительных глобальных действий.
 
-[Strategy](../03-products/strategy/index.md) is the permanent configuration authority. [Scanner](../03-products/scanner/index.md) has substantial implementation pieces but remains an active prototype whose complete production lifecycle is still being completed. [BlockCheck](../03-products/blockcheck/index.md) and [Deep Search](../03-products/deep-search/index.md) remain planned product areas.
+**Доказательства важнее планов.** Текущий код, тесты, package metadata и действующие контракты имеют больший вес, чем старые планы. Подробный дизайн может существовать одновременно со статусом «прототип» или «планируется».
 
-## Current maturity
+## Продуктовые области
 
-The repository contains real OpenWrt package definitions, LuCI integration, ucode and shell runtime code, a native helper foundation, and active Strategy and Scanner implementation. It should still be treated as a prototype rather than a finished appliance. Source tests are useful evidence, while OpenWrt SDK compilation and router validation remain necessary for deployed-behavior claims.
+[Strategy](../03-products/strategy/index.md) отвечает за постоянную конфигурацию. [Scanner](../03-products/scanner/index.md) уже имеет существенные части реализации, но его полный production lifecycle ещё развивается. [BlockCheck](../03-products/blockcheck/index.md) и [Deep Search](../03-products/deep-search/index.md) пока остаются запланированными продуктовыми областями.
 
-Continue with [Installation](../11-operations/installation.md), [First Run](../11-operations/first-run.md), [Architecture](../02-architecture/index.md), or the compact [Status and roadmap](./status-roadmap.md).
+## Текущая зрелость
+
+В репозитории присутствуют реальные OpenWrt packages, LuCI integration, ucode и shell runtime-код, native helper foundation, а также активная реализация Strategy и Scanner. Проект всё ещё следует оценивать как прототип, а не как полностью готовый appliance.
+
+Source tests являются полезным доказательством, но для утверждений о поведении на устройстве по-прежнему нужны OpenWrt SDK compilation и target validation.
+
+Дальше можно перейти к [Установке](../11-operations/installation.md), [Первому запуску](../11-operations/first-run.md), [Архитектуре](../02-architecture/index.md) или краткому разделу [Статус и план развития](./status-roadmap.md).
