@@ -14,6 +14,7 @@ const REQUIRED = [
   ['02-architecture/index.html', 400, ['LuCI', 'каноническ', 'Стратег', 'Сканер']],
   ['02-architecture/runtime-flow.html', 450, ['rpcd', 'single-writer', 'rollback', 'верификац']],
   ['02-architecture/state-ownership.html', 450, ['generation', 'Process Identity', 'транзакц', 'snapshot']],
+  ['02-architecture/component-map.html', 550, ['Graphify', 'UnderstandAnything', 'Strategy', 'Scanner']],
   ['03-products/strategy/index.html', 400, ['Предпросмотр', 'Проверка', 'Применение']],
   ['03-products/strategy/lifecycle.html', 450, ['Preview', 'Validate', 'Apply', 'rollback']],
   ['03-products/scanner/index.html', 400, ['временн', 'очистк', 'Сохранить как стратегию']],
