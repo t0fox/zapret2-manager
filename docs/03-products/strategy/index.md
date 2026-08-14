@@ -1,6 +1,6 @@
 ---
 id: product-strategy-index
-title: "Strategy"
+title: "Стратегии (Strategy)"
 type: product
 status: current
 authority: index
@@ -9,72 +9,74 @@ publish: true
 tags: [product, strategy, workflow]
 ---
 
-# Strategy
+# Стратегии (Strategy)
 
-Strategy is the zapret2-manager product area for **durable configuration**. It is where a configuration can move from a definition that can be inspected into state that the application owns persistently. That makes Strategy different from Scanner: Scanner explores candidates, while Strategy owns the permanent Apply boundary.
+`Strategy` — продуктовая область zapret2-manager для **постоянной конфигурации**. Здесь описание конфигурации проходит путь от выбираемого и проверяемого определения до состояния, которым приложение владеет долговременно. Именно этим Strategy отличается от Scanner: Scanner исследует кандидатов, а Strategy отвечает за постоянную границу `Apply`.
 
-The current Strategy path is evolving, so this page describes the product lifecycle without claiming that every possible configuration or validation path is already production-complete.
+Текущий путь Strategy продолжает развиваться. Поэтому эта страница описывает подтверждённую продуктовую модель и последовательность этапов, но не утверждает, что любая возможная конфигурация или любая ветка проверки уже production-complete.
 
-## Strategy catalog
+## Каталог стратегий
 
-The Strategy catalog is the user-facing collection of available Strategy definitions. A definition is data that can be selected, inspected, compiled, and reviewed. It should not be confused with an already applied configuration.
+Каталог Strategy — пользовательский набор доступных определений. Определение стратегии является данными, которые можно выбрать, посмотреть, подготовить и проверить. Само присутствие определения в каталоге не означает, что оно уже применено на роутере.
 
-The repository also maintains Strategy state for selection and favorites. That state belongs to the product model and allows the interface to distinguish catalog contents from the current user choice.
+В продуктовой модели также существует состояние выбора и избранных стратегий. Это позволяет интерфейсу отличать содержимое каталога, текущий выбор пользователя и реально долговременное состояние.
 
-## Compile and preflight
+## Compile и preflight
 
-Before a Strategy becomes a runtime result, the project uses compile and preflight concepts. Compilation translates the selected definition into the form needed by the current backend. Preflight checks whether the proposal is coherent enough to proceed to later review stages.
+До формирования runtime-результата используются этапы `compile` и `preflight`. Compile переводит выбранное определение в форму, которая нужна текущему backend. Preflight проверяет, достаточно ли согласовано предложение для перехода к дальнейшему просмотру и проверке.
 
-A compile or preflight success is not the same thing as Apply. It is an earlier gate intended to make errors visible before durable state changes.
+Успешный compile или preflight **не равен применению**. Это ранние gates, задача которых — показать ошибку до изменения постоянного состояния.
 
-## Preview
+## Предпросмотр (Preview)
 
-**Preview** is the review surface for the proposed Strategy result. It gives the user a chance to understand what the application intends to do without treating the preview as already applied.
+**Preview — это предпросмотр предполагаемого результата.** Пользователь должен иметь возможность понять, что именно приложение собирается сделать, не считая этот результат уже применённым.
 
-The useful mental model is:
+Упрощённая последовательность выглядит так:
 
 ```text
-Strategy definition
-       ↓
-     compile
-       ↓
-    preflight
-       ↓
-     Preview
-       ↓
-    Validate
-       ↓
-      Apply
+Определение Strategy
+        ↓
+      compile
+        ↓
+     preflight
+        ↓
+ Preview / Предпросмотр
+        ↓
+ Validate / Проверка
+        ↓
+  Apply / Применение
 ```
 
-The exact fields shown by Preview come from the current implementation; public documentation does not invent example schema fields that are not verified by the repository.
+Конкретные поля Preview определяются текущей реализацией. Публичная документация не должна придумывать schema fields, которых нет или которые не подтверждены репозиторием.
 
-## Validate
+## Проверка (Validate)
 
-**Validate** is another gate before durable application where the current Strategy path supports it. It exists to catch a candidate that can be represented but should not be applied in its current form.
+**Validate — дополнительная проверка перед постоянным применением**, если этот этап поддерживается текущим путём Strategy. Она нужна для ситуаций, когда кандидат технически можно представить, но в текущем виде его не следует применять.
 
-Validation results are evidence for the tested build. They do not replace OpenWrt SDK compilation, target-specific testing, or later runtime observation.
+Результат Validate относится к конкретной проверяемой сборке. Он не заменяет OpenWrt SDK compilation, target-specific testing и последующее наблюдение runtime-поведения.
 
-## Apply: the permanent authority boundary
+## Применение (Apply): граница постоянных полномочий
 
-**Apply is intentionally special.** It is the point where a reviewed Strategy can become durable application state. Previewing, compiling, validating, or discovering a candidate does not grant that authority.
+**Apply намеренно является особым этапом.** Здесь просмотренная и проверенная Strategy может стать долговременным состоянием приложения. Compile, Preview, Validate или найденный Scanner-кандидат сами по себе такого права не дают.
 
-This boundary prevents exploratory workflows from silently becoming permanent. Scanner can discover something useful, but the durable result still belongs to Strategy and should move through the Strategy review path.
+Эта граница не позволяет исследовательским workflow незаметно превращаться в постоянные изменения. Scanner может найти полезный вариант, но сохранённый результат всё равно должен попасть в Strategy и пройти её обычный путь проверки.
 
-## Rollback and reconciliation
+При работе с интерфейсом полезно мыслить не в терминах «кнопка сработала / не сработала», а в терминах перехода состояния: какой объект выбран, какой результат показал Preview, что подтвердил Validate и произошёл ли фактический переход через Apply.
 
-The architecture includes reconciliation and recovery concepts for application-owned state. Public documentation only claims rollback behavior when the current implementation exposes and verifies it; users should not assume a universal rollback command exists for every development build.
+## Rollback и reconciliation
 
-The safer rule is to preserve observable state, use product-owned lifecycle actions, and avoid replacing a narrow recovery problem with broad manual reset actions.
+Архитектура содержит понятия reconciliation и восстановления состояния, которым владеет приложение. Публичная документация заявляет конкретное rollback-поведение только там, где текущая реализация действительно его предоставляет и проверяет.
 
-## Relationship to Scanner
+Не следует предполагать наличие универсальной rollback-команды для любой development-сборки. Более безопасный подход — сохранить наблюдаемое состояние, использовать действия lifecycle компонента-владельца и не заменять узкую проблему глобальным ручным сбросом.
 
-Scanner evaluates candidates and returns findings. Those findings are not permanent Strategies by default. A candidate that is worth keeping can be saved or promoted into the Strategy model, where it becomes subject to the same review and authority boundary as other durable configuration.
+## Связь со Scanner
 
-That separation also makes development easier to reason about: Scanner owns temporary exploration, Strategy owns persistent application.
+Scanner проверяет кандидатов и возвращает результаты наблюдений. По умолчанию эти результаты не являются постоянными Strategy. Полезный кандидат можно сохранить или перенести в модель Strategy, после чего он должен пройти те же стадии compile, preflight, Preview, Validate и Apply.
 
-## Current status
+Разделение упрощает и пользовательскую модель, и разработку: **Scanner владеет временным исследованием, Strategy владеет постоянным применением**.
 
-**Status: current, evolving.** Strategy is a real product area in the current repository, but the project as a whole remains a prototype. Treat the available UI and backend behavior of the exact build you are testing as the source of truth for supported fields and actions.
+## Текущий статус
 
-For a first session, follow [First Run / Quick Start](../../11-operations/first-run.md). For system ownership, see [Architecture](../../02-architecture/index.md). For maturity across all product areas, see [Status and roadmap](../../01-project/status-roadmap.md).
+**Статус: реализовано, развивается.** Strategy — реальная продуктовая область текущего репозитория, но сам проект пока остаётся прототипом. Для определения доступных полей и действий источником истины является конкретная тестируемая сборка, её UI, backend и свежие проверки.
+
+Для первого знакомства используйте [Первый запуск](../../11-operations/first-run.md). Модель владения описана в [Архитектуре](../../02-architecture/index.md), а общая зрелость функций — в разделе [Статус и план развития](../../01-project/status-roadmap.md).
