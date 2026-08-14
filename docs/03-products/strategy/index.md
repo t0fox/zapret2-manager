@@ -79,4 +79,10 @@ Scanner проверяет кандидатов и возвращает резу
 
 **Статус: реализовано, развивается.** Strategy — реальная продуктовая область текущего репозитория, но сам проект пока остаётся прототипом. Для определения доступных полей и действий источником истины является конкретная тестируемая сборка, её UI, backend и свежие проверки.
 
-Для первого знакомства используйте [Первый запуск](../../11-operations/first-run.md). Модель владения описана в [Архитектуре](../../02-architecture/index.md), а общая зрелость функций — в разделе [Статус и план развития](../../01-project/status-roadmap.md).
+## Глубже
+
+Подробный путь от aggregate Strategy и каталога до verified mutation описан на странице [Lifecycle Strategy: от каталога до проверенного Apply](./lifecycle.md). Там отдельно разобраны ordered Profiles, identity/digest, compiler authority, preflight, Preview, Validate, CAS/snapshot, runtime verification, rollback и drift.
+
+Для понимания связи с поиском кандидатов читайте [Lifecycle Scanner](../scanner/lifecycle.md), а для оценки полноты поведения относительно upstream — [Совместимость с avatarDD/zapret-gui](../../01-project/avatar-parity.md).
+
+Для первого знакомства используйте [Первый запуск](../../11-operations/first-run.md). Модель владения описана в [Архитектуре](../../02-architecture/index.md), а общая зрелость функций — в разделе [Roadmap](../../01-project/status-roadmap.md).
