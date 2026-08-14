@@ -4,7 +4,7 @@ title: "AI Entry Point"
 type: index
 status: normative
 authority: approved-spec
-updated: 2026-08-13
+updated: 2026-08-14
 publish: false
 tags: [ai, entrypoint]
 ---
@@ -15,15 +15,21 @@ This is the deterministic starting point for all AI agents working in this repos
 
 ## Required Reading Order
 
-1. docs/12-ai/ai-entry-point.md (this file)
-2. docs/12-ai/agent-operating-contract.md
-3. docs/12-ai/waiting-for-user-contract.md
-4. docs/12-ai/verification-contract.md
-5. docs/12-ai/knowledge-maintenance-contract.md
-6. docs/12-ai/handoff-template.md
-7. docs/00-home/current-state.md
+1. [AI entry point](./ai-entry-point.md)
+2. [Agent operating contract](./agent-operating-contract.md)
+3. [Waiting for user contract](./waiting-for-user-contract.md)
+4. [Verification contract](./verification-contract.md)
+5. [Knowledge maintenance contract](./knowledge-maintenance-contract.md)
+6. [Handoff template](./handoff-template.md)
+7. [Current state](../00-home/current-state.md)
 8. docs/00-home/project-map.md
 9. docs/07-decisions/adr-000-project-knowledge-vault.md
+
+## Internal authority navigation
+
+- [Atomic JSON design](../02-architecture/atomic-write-json-v1-design.md)
+- [Atomic JSON traceability](../02-architecture/traceability/atomic-write-json-v1-traceability.md)
+- [Knowledge workflow](../08-development/knowledge-workflow.md)
 
 ## Navigation
 
@@ -32,3 +38,5 @@ This is the deterministic starting point for all AI agents working in this repos
 - Contracts: docs/04-contracts/
 - Decisions: docs/07-decisions/
 - Work: docs/09-work/
+
+This page remains `publish: false`; these links exist for the internal knowledge graph and are not public navigation.

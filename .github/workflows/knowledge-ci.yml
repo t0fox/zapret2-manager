@@ -22,8 +22,15 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Verify pinned Quartz checkout
+        run: node scripts/docs.mjs verify
+
       - name: Metadata + link + authority + legacy validation
         run: node scripts/validate-knowledge.mjs
+
+      - name: Quartz internal production build
+        run: |
+          node scripts/docs.mjs build internal --production
 
       - name: Quartz public production build
         run: |
@@ -31,3 +38,63 @@ jobs:
 
       - name: Post-build privacy/leak smoke test
         run: node tests/knowledge/public-leak.test.mjs
+
+      - name: Public artifact metrics
+        run: |
+          set -eu
+          page_count="$(find .artifacts/docs-public -type f -name '*.html' | wc -l | tr -d ' ')"
+          html_size="$(find .artifacts/docs-public -type f -name '*.html' -printf '%s\n' | awk '{total += $1} END {print total + 0}')"
+          artifact_size="$(du -sb .artifacts/docs-public | cut -f1)"
+          echo "GENERATED_PUBLIC_PAGE_COUNT=$page_count"
+          echo "GENERATED_PUBLIC_HTML_SIZE=$html_size"
+          echo "GENERATED_PUBLIC_ARTIFACT_SIZE=$artifact_size"
+          for page in \
+            index.html \
+            01-project/index.html \
+            03-products/strategy/index.html \
+            03-products/scanner/index.html \
+            11-operations/installation.html \
+            11-operations/first-run.html; do
+            bytes="$(wc -c < ".artifacts/docs-public/$page" | tr -d ' ')"
+            echo "PAGE_BYTES $page=$bytes"
+          done
+          [ "$page_count" -gt 0 ]
+
+      - name: Quartz public serve smoke
+        run: |
+          set -eu
+          log="$(mktemp)"
+          node scripts/docs.mjs serve --public >"$log" 2>&1 &
+          server_pid=$!
+          cleanup() {
+            kill "$server_pid" 2>/dev/null || true
+            wait "$server_pid" 2>/dev/null || true
+            cat "$log"
+          }
+          trap cleanup EXIT
+
+          ready=0
+          for _ in $(seq 1 120); do
+            if curl -fsSL http://127.0.0.1:8080/ -o /tmp/docs-home.html; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          [ "$ready" -eq 1 ]
+
+          assert_page() {
+            route="$1"
+            expected="$2"
+            target="$(mktemp)"
+            curl -fsSL "http://127.0.0.1:8080${route}" -o "$target"
+            grep -Fqi "$expected" "$target"
+          }
+
+          assert_page / "zapret2-manager"
+          assert_page /11-operations/installation.html "Installation"
+          assert_page /11-operations/first-run.html "First Run"
+          assert_page /03-products/strategy/index.html "Strategy"
+          assert_page /03-products/scanner/index.html "Scanner"
+          assert_page /02-architecture/index.html "Architecture"
+          assert_page /11-operations/troubleshooting.html "Troubleshooting"

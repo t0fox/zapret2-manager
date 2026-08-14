@@ -1,18 +1,4 @@
-/**
- * Post-build negative test for Quartz public output.
- * Fails if any publish:false note or internal asset leaks into the generated site.
- *
- * Usage:
- *   node --test tests/knowledge/public-leak.test.mjs
- *
- * The test expects a public build output at:
- *   .artifacts/quartz/<tag>/public
- *
- * It scans the generated HTML/JS for:
- *   - Any occurrence of "publish: false" or 'publish:false'
- *   - Internal-only marker strings (e.g., INTERNAL_ONLY, zapret2-internal)
- *   - References to docs/ paths that should have been filtered
- */
+import './public-content.test.mjs'
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -35,7 +21,12 @@ const FORBIDDEN_PATTERNS = [
   /publish:\s*false/i,
   /INTERNAL_ONLY/i,
   /zapret2-internal/i,
-  /docs\/(09-work|12-ai|07-decisions)\/.*\.md/i,
+  /REQUIRED_USER_INPUT/i,
+  /AGENTS\.md/i,
+  /SDD ledger/i,
+  /internal handoff/i,
+  /docs\/(09-work|12-ai)(?:\/|\\)/i,
+  /docs\/07-decisions\/.*\.md/i,
 ]
 
 async function scanDirectory(dir) {
@@ -44,14 +35,11 @@ async function scanDirectory(dir) {
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name)
     if (entry.isDirectory()) {
-      const subLeaks = await scanDirectory(fullPath)
-      leaks.push(...subLeaks)
+      leaks.push(...await scanDirectory(fullPath))
     } else if (entry.isFile() && (entry.name.endsWith('.html') || entry.name.endsWith('.js'))) {
       const content = await readFile(fullPath, 'utf8')
       for (const pattern of FORBIDDEN_PATTERNS) {
-        if (pattern.test(content)) {
-          leaks.push({ file: fullPath, pattern: pattern.source })
-        }
+        if (pattern.test(content)) leaks.push({ file: fullPath, pattern: pattern.source })
       }
     }
   }
@@ -93,10 +81,9 @@ async function scanBrokenInternalLinks(dir) {
   return broken
 }
 
-test('public Quartz build must not contain publish:false notes or internal assets', async (t) => {
+test('public Quartz build must not contain publish:false notes or internal assets', async () => {
   const publicDir = await findPublicDir()
   assert.ok(publicDir, `Public build output is required at ${PUBLIC_DIR}`)
-
   const leaks = await scanDirectory(publicDir)
   assert.equal(leaks.length, 0, `Found ${leaks.length} leaks in public build:\n${leaks.map(l => `${l.file} matched ${l.pattern}`).join('\n')}`)
 })
