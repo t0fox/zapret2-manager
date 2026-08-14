@@ -652,6 +652,103 @@ function strategies_catalog_status_method(req) { return strategy_noarg_action('c
 function strategies_catalog_reload_method(req) { return strategy_noarg_action('catalog_reload'); }
 function strategies_import_profiles_method(req) { return strategy_edit_action('import_profiles', req); }
 
+// ---- Avatar Strategy Scanner API -------------------------------------------
+// Scanner requests use a private bounded JSON file because scanner-cli itself
+// revalidates the file identity immediately before reading it.  The RPC layer
+// only selects a fixed Scanner subcommand and frames the child response; it
+// does not validate Scanner business fields or construct runtime arguments.
+const SCANNER_CLI = '/usr/libexec/zapret2-manager/scanner-cli.uc';
+const SCANNER_UCODE_BIN = getenv('Z2M_SCANNER_UCODE_BIN') || '/usr/bin/ucode';
+const SCANNER_REQUEST_ROOT = '/tmp/zapret2-manager/runtime/requests';
+const SCANNER_MAX_REQUEST_BYTES = 65536;
+const SCANNER_MAX_CHILD_RESPONSE_BYTES = 131072;
+const SCANNER_CHILD_RESPONSE_MARKER = '__Z2M_CHILD_RC__';
+
+function scanner_cleanup_request(tmp) {
+	if (tmp != null) try { unlink(tmp); } catch (e) { }
+}
+
+function scanner_tmpfile() {
+	let command = 'umask 077; mkdir -p -- ' + shell_escape(SCANNER_REQUEST_ROOT)
+		+ ' && chmod 700 -- ' + shell_escape(SCANNER_REQUEST_ROOT)
+		+ ' && mktemp ' + shell_escape(SCANNER_REQUEST_ROOT + '/scanner-rpc.XXXXXX.json') + ' 2>/dev/null';
+	let p = null, output = '', rc = -1;
+	try { p = popen(command, 'r'); } catch (e) { p = null; }
+	if (!p) return null;
+	try { output = p.read('all') || ''; } catch (e) { output = ''; }
+	try { rc = p.close(); } catch (e) { rc = -1; }
+	let tmp = trim(output);
+	if (rc != 0 || !match(tmp, /^\/tmp\/zapret2-manager\/runtime\/requests\/scanner-rpc\.[A-Za-z0-9_-]+\.json$/)) {
+		scanner_cleanup_request(tmp);
+		return null;
+	}
+	return tmp;
+}
+
+function scanner_private_request(tmp, expectedSize) {
+	let metadata = null, link = null;
+	try { metadata = stat(tmp); } catch (e) { metadata = null; }
+	try { link = readlink(tmp); } catch (e) { link = 'error'; }
+	return metadata != null && metadata.type == 'file' && link == null
+		&& type(metadata.size) == 'int' && metadata.size == expectedSize
+		&& metadata.mode % 512 == 384
+		&& match(tmp, /^\/tmp\/zapret2-manager\/runtime\/requests\/scanner-rpc\.[A-Za-z0-9_-]+\.json$/);
+}
+
+function scanner_child_response(output, streamRc) {
+	if (streamRc != 0 || type(output) != 'string' || length(output) > SCANNER_MAX_CHILD_RESPONSE_BYTES + 128)
+		return { ok: false, error: { code: 'EOUTPUT', message: 'Scanner child response exceeded the safe bound' } };
+	let marker = '\n' + SCANNER_CHILD_RESPONSE_MARKER, markerAt = rindex(output, marker);
+	if (markerAt < 0) return { ok: false, error: { code: 'EOUTPUT', message: 'Scanner child response was truncated' } };
+	let rcText = trim(substr(output, markerAt + length(marker)));
+	if (!match(rcText, /^[0-9]+$/)) return { ok: false, error: { code: 'EOUTPUT', message: 'Scanner child status marker was malformed' } };
+	let body = substr(output, 0, markerAt), childRc = +rcText;
+	if (length(body) > SCANNER_MAX_CHILD_RESPONSE_BYTES)
+		return { ok: false, error: { code: 'EOUTPUT', message: 'Scanner child response exceeded the safe bound' } };
+	if (childRc != 0) return { ok: false, error: { code: 'ECHILD', message: 'Scanner child exited unsuccessfully' } };
+	try {
+		let parsed = json(body);
+		return parsed != null ? parsed : { ok: false, error: { code: 'EINTERNAL', message: 'Scanner response was empty' } };
+	} catch (e) { return { ok: false, error: { code: 'EINTERNAL', message: 'Scanner response was malformed' } }; }
+}
+
+function scanner_edit_action(sub, req) {
+	let edit = null;
+	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
+	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
+	if (edit == null) return { ok: false, error: { code: 'EINPUT', message: 'missing edit param' } };
+	if (type(edit) != 'string') return { ok: false, error: { code: 'EINPUT', message: 'edit must be a JSON string', got: type(edit) } };
+	if (length(edit) > SCANNER_MAX_REQUEST_BYTES)
+		return { ok: false, error: { code: 'EINPUT', message: 'edit exceeds the safe request size limit' } };
+	let tmp = scanner_tmpfile();
+	if (tmp == null) return { ok: false, error: { code: 'ETARGET', message: 'request temp file unavailable' } };
+	try { writefile(tmp, edit); }
+	catch (e) { scanner_cleanup_request(tmp); return { ok: false, error: { code: 'EIO', message: 'request temp file could not be written' } }; }
+	if (!scanner_private_request(tmp, length(edit))) {
+		scanner_cleanup_request(tmp);
+		return { ok: false, error: { code: 'EINPUT', message: 'request temp file failed the private-file invariant' } };
+	}
+	let command = shell_escape(SCANNER_UCODE_BIN) + ' ' + shell_escape(SCANNER_CLI)
+		+ ' ' + shell_escape(sub) + ' ' + shell_escape(tmp);
+	let wrapped = '(' + command + '; rc=$?; printf ' + shell_escape('\n' + SCANNER_CHILD_RESPONSE_MARKER + '%s\n')
+		+ ' "$rc") 2>&1 | head -c ' + (SCANNER_MAX_CHILD_RESPONSE_BYTES + 128);
+	let p = null, output = '', readOk = true, streamRc = -1;
+	try { p = popen(wrapped, 'r'); } catch (e) { p = null; }
+	if (!p) { scanner_cleanup_request(tmp); return { ok: false, error: { code: 'ETARGET', message: 'Scanner CLI unavailable' } }; }
+	try { output = p.read('all') || ''; } catch (e) { readOk = false; }
+	try { streamRc = p.close(); } catch (e) { streamRc = -1; }
+	scanner_cleanup_request(tmp);
+	if (!readOk) return { ok: false, error: { code: 'EIO', message: 'Scanner child response could not be read' } };
+	return scanner_child_response(output, streamRc);
+}
+
+function scanner_start_method(req) { return scanner_edit_action('start', req); }
+function scanner_status_method(req) { return scanner_edit_action('status', req); }
+function scanner_results_method(req) { return scanner_edit_action('results', req); }
+function scanner_stop_method(req) { return scanner_edit_action('stop', req); }
+function scanner_resume_method(req) { return scanner_edit_action('resume', req); }
+function scanner_save_generated_method(req) { return scanner_edit_action('save-generated', req); }
+
 // ---- service catalog (Phase B) -------------------------------------------------
 const CATALOG_CLI = '/usr/libexec/zapret2-manager/catalog-cli.uc';
 function catalog_list_method(req) { return cli_action(CATALOG_CLI, 'list'); }
@@ -832,6 +929,12 @@ return {
 		strategies_catalog_status: { call: function (req) { return strategies_catalog_status_method(req); } },
 		strategies_catalog_reload: { call: function (req) { return strategies_catalog_reload_method(req); } },
 		strategies_import_profiles: { args: { edit: 'string' }, call: function (req) { return strategies_import_profiles_method(req); } },
+		scanner_start: { args: { edit: 'string' }, call: function (req) { return scanner_start_method(req); } },
+		scanner_status: { args: { edit: 'string' }, call: function (req) { return scanner_status_method(req); } },
+		scanner_results: { args: { edit: 'string' }, call: function (req) { return scanner_results_method(req); } },
+		scanner_stop: { args: { edit: 'string' }, call: function (req) { return scanner_stop_method(req); } },
+		scanner_resume: { args: { edit: 'string' }, call: function (req) { return scanner_resume_method(req); } },
+		scanner_save_generated: { args: { edit: 'string' }, call: function (req) { return scanner_save_generated_method(req); } },
 		catalog_list:      { call: function (req) { return catalog_list_method(req); } },
 		catalog_get:       { args: { edit: 'string' }, call: function (req) { return catalog_get_method(req); } },
 		catalog_status:    { call: function (req) { return catalog_status_method(req); } },
