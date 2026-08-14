@@ -49,7 +49,7 @@ test('public Quartz uses Russian locale and curated Russian navigation', async (
   assert.match(html, /<html\s+lang="ru(?:-RU)?"/i)
   assert.match(text, /[А-Яа-яЁё]{4,}/u)
   assert.match(text, /Установка|Начать|Документац/u)
-  assert.match(html, />\s*Навигация\s*</u)
+  assert.match(html, />\s*(?:Навигация|Проводник)\s*</u)
   assert.match(html, /data-behavior="collapse"/u)
   assert.doesNotMatch(html, />\s*Explorer\s*</u)
   assert.doesNotMatch(html, />\s*Graph View\s*</u)
