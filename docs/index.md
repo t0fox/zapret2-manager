@@ -1,6 +1,6 @@
 ---
 id: knowledge-home
-title: "zapret2-manager Documentation"
+title: "Документация zapret2-manager"
 type: home
 status: current
 authority: index
@@ -11,58 +11,64 @@ tags: [home, documentation, openwrt]
 
 # zapret2-manager
 
-zapret2-manager is an OpenWrt-native management application with a LuCI frontend and a structured backend. The project brings its main product areas, package lifecycle, state model, and developer workflow into one coherent interface and repository.
+**zapret2-manager** — приложение для управления zapret2 на OpenWrt с интерфейсом LuCI, структурированным backend и явной моделью состояния. Цель проекта — собрать основные пользовательские сценарии, жизненный цикл конфигурации, диагностику и разработку в одном понятном интерфейсе, не превращая управление роутером в набор непрозрачных скриптов.
 
-This repository is an active prototype. Some foundations and product paths are implemented today, while other areas remain under development or planned. The public documentation uses those maturity labels deliberately so a reader can distinguish current code from future direction.
+Проект активно развивается и пока должен восприниматься как прототип. Часть фундаментальных механизмов и продуктовых сценариев уже реализована, другие находятся в активной разработке или только запланированы. В документации эти статусы указываются явно, чтобы не выдавать проектный замысел за уже готовую функцию.
 
-## Get started
+## Начать работу
 
-A new visitor should begin with [Installation](./11-operations/installation.md) and [First Run](./11-operations/first-run.md). The installation guide is based on the package Makefiles and build instructions that exist in the current repository. It does not invent a public package download that is not present.
+Если вы открыли проект впервые, начните с [Установки](./11-operations/installation.md), а затем пройдите [Первый запуск](./11-operations/first-run.md). Инструкция по установке опирается на реальные Makefile и команды сборки текущего репозитория. Здесь нет выдуманной ссылки на готовый бинарный релиз, которого проект пока не предоставляет.
 
-If the application is already installed, [Troubleshooting](./11-operations/troubleshooting.md) explains how to collect useful diagnostics and how to approach recovery conservatively.
+Если приложение уже установлено, но что-то работает не так, используйте [Устранение неполадок](./11-operations/troubleshooting.md). Этот раздел помогает собрать полезные данные и отделить проблему LuCI, backend, пакета или конкретного продуктового сценария без разрушительных сбросов.
 
-## Core capabilities
+## Основные возможности
 
-### Strategy — current, evolving
+### Стратегии (Strategy) — реализовано и развивается
 
-[Strategy](./03-products/strategy/index.md) is the product area for durable configuration. Its documentation explains the definition, compile, preflight, Preview, Validate, and Apply concepts and makes the permanent-application boundary visible.
+[Strategy](./03-products/strategy/index.md) отвечает за **постоянную конфигурацию**. Здесь описан путь от определения стратегии и предварительной подготовки до `Preview`, `Validate` и явной границы `Apply`. Важно понимать различие между просмотром предполагаемого результата и реальным сохранением состояния.
 
-### Scanner — prototype / under active development
+### Сканер (Scanner) — прототип, активная разработка
 
-[Scanner](./03-products/scanner/index.md) is the product area for evaluating candidate configurations. The repository already contains several Scanner implementation components, but the complete production lifecycle is still active development. The public page therefore documents both the current foundation and the remaining maturity boundary.
+[Scanner](./03-products/scanner/index.md) предназначен для проверки и сравнения кандидатов. В репозитории уже есть существенная часть реализации Scanner, но полный production E2E lifecycle ещё развивается. Поэтому результат сканирования считается кандидатом, а не автоматически применённой постоянной конфигурацией.
 
-### BlockCheck — planned
+### BlockCheck — планируется
 
-[BlockCheck](./03-products/blockcheck/index.md) is a planned diagnostic product area. Its page explains why it exists, how it relates to Scanner, and what a future user workflow is expected to look like without presenting nonexistent commands as available.
+[BlockCheck](./03-products/blockcheck/index.md) задуман как отдельный диагностический этап. Его задача — дать структурированный контекст до более широкого перебора кандидатов. Публичная страница описывает назначение и границы функции, но не придумывает несуществующие команды или элементы интерфейса.
 
-### Deep Search — planned
+### Deep Search — планируется
 
-[Deep Search](./03-products/deep-search/index.md) is also planned. It represents a broader search workflow for cases that need more exploration than the normal Scanner path.
+[Deep Search](./03-products/deep-search/index.md) предназначен для более широкого поиска в случаях, когда обычного Scanner недостаточно. Как и Scanner, он не должен самостоятельно получать право на постоянное изменение конфигурации.
 
-## Architecture
+## Архитектура
 
-The project is layered rather than monolithic. The LuCI frontend talks to backend services; orchestration works with structured state and runtime adapters; native helpers are kept narrow. The [Architecture](./02-architecture/index.md) page explains those layers, the ownership model, and the distinction between durable Strategy state and temporary Scanner work.
+Проект построен слоями, а не как монолит. LuCI отвечает за браузерный интерфейс, backend — за продуктовую логику и каноническое состояние, адаптеры — за взаимодействие с платформой, а native helpers остаются узкими и ограниченными по ответственности. Подробности находятся на странице [Архитектура](./02-architecture/index.md).
 
-## Safety
+Главный принцип — понятное владение состоянием. `Strategy` отвечает за постоянное состояние, а `Scanner` — за временную работу с кандидатами. Это различие позволяет однозначно понимать, какой компонент имеет право сделать изменение долговременным и где искать причину сбоя.
 
-Safety is treated as a product property rather than a troubleshooting afterthought. The design favors explicit ownership, bounded helper responsibilities, validation before durable changes, and cleanup for temporary work. Public recovery guidance avoids broad reset actions and focuses on evidence first.
+## Безопасность изменений
 
-## Project status
+Безопасность рассматривается как свойство архитектуры, а не как набор советов после аварии. Проект предпочитает явное владение ресурсами, ограниченные helper-операции, проверку перед постоянным изменением и обязательную очистку временного состояния.
 
-The repository contains real OpenWrt package definitions, a LuCI application, backend runtime components, native helper code, Strategy work, Scanner work, tests, and a Quartz documentation pipeline. It should still be evaluated as a prototype, not as a finished appliance. Build and router validation remain important evidence for deployed behavior.
+Публичные инструкции по восстановлению намеренно избегают универсальных «сбросить всё» действий. Сначала сохраняются наблюдаемое состояние, версия сборки и точная ошибка, после чего используется максимально узкий путь восстановления для компонента, который действительно владеет проблемным состоянием.
 
-For goals and non-goals, read [Project overview](./01-project/index.md). For the current maturity summary, read [Status and roadmap](./01-project/status-roadmap.md). Developers can start with [Development](./08-development/index.md).
+## Текущее состояние проекта
 
-## Main documentation
+В репозитории есть реальные OpenWrt package definitions, приложение LuCI, backend-компоненты, native helper foundation, реализация Strategy и Scanner, автоматические тесты и Quartz pipeline для документации. При этом проект пока не позиционируется как полностью завершённый продукт.
 
-- [Installation](./11-operations/installation.md)
-- [First Run](./11-operations/first-run.md)
-- [Project overview](./01-project/index.md)
-- [Strategy](./03-products/strategy/index.md)
-- [Scanner](./03-products/scanner/index.md)
-- [Architecture](./02-architecture/index.md)
-- [Troubleshooting](./11-operations/troubleshooting.md)
-- [Development](./08-development/index.md)
-- [Status and roadmap](./01-project/status-roadmap.md)
+Проверка исходного кода, сборка OpenWrt SDK и проверка на целевом устройстве дают разные уровни доказательств. Успешный unit-тест не заменяет target build, а наличие design-документа не означает готовую функцию.
 
-This site is the public explanation layer. Internal working notes, engineering handoffs, and private operating instructions remain outside public navigation.
+Подробнее о целях и ограничениях читайте в [Обзоре проекта](./01-project/index.md), краткую картину зрелости — в [Статусе и плане развития](./01-project/status-roadmap.md), а сведения для участников разработки — в разделе [Разработка](./08-development/index.md).
+
+## Основная документация
+
+- [Установка](./11-operations/installation.md)
+- [Первый запуск](./11-operations/first-run.md)
+- [Обзор проекта](./01-project/index.md)
+- [Стратегии (Strategy)](./03-products/strategy/index.md)
+- [Сканер (Scanner)](./03-products/scanner/index.md)
+- [Архитектура](./02-architecture/index.md)
+- [Устранение неполадок](./11-operations/troubleshooting.md)
+- [Разработка](./08-development/index.md)
+- [Статус и план развития](./01-project/status-roadmap.md)
+
+Этот сайт — публичный слой документации проекта. Рабочие планы, инженерные handoff-записи, внутренние ADR, закрытые контракты и приватные инструкции остаются во внутренней базе знаний и не должны попадать в публичную навигацию.
