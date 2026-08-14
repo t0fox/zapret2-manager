@@ -214,6 +214,9 @@ test('production surfaces keep BlockCheck and BlockCheck2 RPC and ACL namespaces
   assert.match(ui, /strategies\.preview/);
   const makefile = readFileSync(path.join(ROOT, 'zapret2-manager/Makefile'), 'utf8');
   assert.match(makefile, /blockcheck-domains\.json/);
+  const installer = readFileSync(path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/blockcheckw-install.sh'), 'utf8');
+  assert.match(installer, /sha256sum -c -s -/);
+  assert.doesNotMatch(installer, /sha256sum -c --quiet/);
   for (const file of ['block-detector-cli.uc', 'block-detector-run.sh', 'blockcheckw-cli.uc', 'blockcheckw-install.sh'])
     assert.ok(readFileSync(path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager', file), 'utf8').length > 0, file);
 });

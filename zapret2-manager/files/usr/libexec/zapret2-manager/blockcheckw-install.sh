@@ -19,7 +19,7 @@ base="https://github.com/$REPO/releases/download/$VERSION"
 if ! curl -fsSL --connect-timeout 5 --max-time 120 -o "$tmp/$name" "$base/$name" || ! curl -fsSL --connect-timeout 5 --max-time 120 -o "$tmp/SHA256SUMS.txt" "$base/SHA256SUMS.txt"; then
     printf '%s\n' '{"ok":false,"error":{"code":"ENETWORK","message":"BlockCheckW release download failed"}}'; exit 4
 fi
-if ! (cd "$tmp" && grep "  $name$" SHA256SUMS.txt | sha256sum -c --quiet -); then
+if ! (cd "$tmp" && grep "  $name$" SHA256SUMS.txt | sha256sum -c -s -); then
     printf '%s\n' '{"ok":false,"error":{"code":"EVERIFY","message":"BlockCheckW checksum verification failed"}}'; exit 5
 fi
 if ! tar xzf "$tmp/$name" -C "$tmp" || [ ! -f "$tmp/blockcheckw" ]; then

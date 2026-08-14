@@ -37,6 +37,6 @@ Block Detector — фоновый DNS-monitoring product. Он обнаружи�
 
 Production surface находится во вкладке BlockCheck. BlockCheck2 и BlockCheckW Fast доступны там же как независимые engines; только существующий Strategy authority может выполнять Preview → Validate → Apply.
 
-Evidence: `tests/product/blockcheck-family.test.mjs`, pinned ucode model/CLI smoke и upstream Avatar SHA `947e213bd66b9b8bc23ce564abcf59a4c8e8ce4c`. Физический router smoke в этом change set не запускался.
+Evidence: `tests/product/blockcheck-family.test.mjs`, pinned ucode model/CLI smoke, target RPC smoke и upstream Avatar SHA `947e213bd66b9b8bc23ce564abcf59a4c8e8ce4c`. BlockCheckW provider install проверяет release SHA-256 с BusyBox-compatible `sha256sum` и только после `--version` verification публикует `VERIFIED`.
 
 См. также [Scanner](../scanner/index.md), [Strategy](../strategy/index.md) и [Статус и план развития](../../01-project/status-roadmap.md).
