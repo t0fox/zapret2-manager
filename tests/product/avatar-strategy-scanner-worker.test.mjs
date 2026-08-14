@@ -10,6 +10,7 @@ import { ucodeDiagnostic, ucodeModulePattern } from '../native/core/ucode-test-h
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const STATE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-state.uc');
 const WORKER = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-worker.uc');
+const RECONCILE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-reconcile.uc');
 const CLI = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-cli.uc');
 const EXECUTOR = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-probe-executor.uc');
 const ADAPTER = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-probe-adapter.uc');
@@ -79,7 +80,7 @@ function hooks(stopAfter = null, protocol = 'tcp') {
       },
     compile: { ok: true, candidate: '--filter-tcp=443', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: DEPENDENCY_DIGEST, dependencies: CLOSURE, native: { status: 'verified' } },
       runtime: {
-        activate: { ok: true, identityVerified: true, expectedProcess: { pid: 11, startTime: 21, exe: '/opt/zapret2/nfq2/nfqws2', argvSha256: '6'.repeat(64), owner: 'scanner/session', generation: 5 }, process: { pid: 11, startTime: 21, exe: '/opt/zapret2/nfq2/nfqws2', argvSha256: '6'.repeat(64), owner: 'scanner/session', generation: 5 }, firewall: { table: 'zapret2', owner: 'scanner/session', ownedRules: ['scanner-rule'] }, nfqueue: { registered: true, peer_portid: 11 } },
+        activate: { ok: true, identityVerified: true, expectedProcess: { pid: 11, startTime: 21, exe: '/opt/zapret2/nfq2/nfqws2', argvSha256: '6'.repeat(64), owner: 'scanner/session', generation: 5 }, process: { pid: 11, startTime: 21, exe: '/opt/zapret2/nfq2/nfqws2', argvSha256: '6'.repeat(64), owner: 'scanner/session', generation: 5 }, firewall: { table: 'z2m_sc_11111111_22222222_0005_' + '3'.repeat(32), chain: 'z2m_0005_66666666', owner: 'scanner/session', ownerFlagRequested: true, ruleGeneration: 5, qnum: 300, rulesReady: true, activationOrder: 'queue-bound-before-redirect', ownedRules: ['z2m_0005_66666666'] }, nfqueue: { registered: true, peer_portid: 11, queue: 300 } },
         stabilize: [{ ok: true, stable: true }],
         cleanup: [{ ok: true, processRemoved: true, firewallRemoved: true, nfqueueRemoved: true, hostlistRemoved: true, temporaryFilesRemoved: true, ownedOnly: true }],
       },
@@ -179,6 +180,31 @@ test('worker refuses terminal completion when the required Task 7 reconciliation
     assert.notEqual(result.state.status, 'cancelled');
     assert.equal(result.state.recovery.reconciliation.error.code, 'EDEPENDENCY');
     assert.equal(result.state.recovery.sessionCleanup.ok, true);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('unproven cancellation is published only as error/uncertain after cleanup', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-cancel-uncertain-'));
+  try {
+    const testHooks = hooks(1);
+    testHooks.reconcile = { ok: false, error: { code: 'EVERIFY', message: 'restore not proven' } };
+    const result = invoke(WORKER, `subject.scanner_worker_run({id:'scan-cancel-uncertain',request:${JSON.stringify(request())}}, ${JSON.stringify(testHooks)})`, storageEnv(root));
+    assert.equal(result.ok, false, JSON.stringify(result));
+    assert.equal(result.state.status, 'error');
+    assert.equal(result.state.recovery.state, 'uncertain');
+    assert.equal(result.state.cancellationRequested, true);
+    assert.notDeepEqual({ terminalState: result.state.status, recoveryState: result.state.recovery.state }, { terminalState: 'cancelled', recoveryState: 'uncertain' });
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('stale worker recovery keeps infrastructure failure separate from Strategy verdict', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-stale-recovery-'));
+  try {
+    const record = { worker: { pid: 41, startTime: 9001 }, _session: { sessionId: 'scan-stale-recovery', generation: 5 } };
+    const result = invoke(RECONCILE, `subject.scanner_stale_worker_recover(${JSON.stringify(record)},{pid:41,startTime:9001},${JSON.stringify(hooks())})`, storageEnv(root));
+    assert.equal(result.status, 'error', JSON.stringify(result));
+    assert.equal(result.recovery.worker.state, 'dead', JSON.stringify(result));
+    assert.equal(result.recovery.worker.identity.pid, 41);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 

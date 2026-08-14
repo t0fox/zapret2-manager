@@ -148,18 +148,24 @@ function recover(record, seams, context, message) {
 	return { ok: false, state: record, error: { code: 'EINTERNAL', message: record.error }, recovery };
 }
 function finish(record, session, seams, transition, message) {
-	let cleanup = scanner_session_finish(session, seam(seams, 'transient'));
+	// Task 7 owns the terminal boundary.  Keep the session/attempt private to
+	// this call; scanner_state_save's bounded public projection never persists
+	// these live handles.
+	let terminalInput = copy(record);
+	terminalInput._session = session;
+	terminalInput._attempt = lifecycle?.attempt || null;
+	let terminal = scanner_terminal_reconcile(terminalInput, transition, seams);
+	let cleanup = terminal.sessionCleanup;
 	if (lifecycle) lifecycle.sessionCleanup = cleanup;
-	let reconciliation = seam(seams, 'reconcile');
-	if (!object(reconciliation) || reconciliation.ok !== true || reconciliation.recovery?.state != 'verified') {
+	if (!terminal.ok || terminal.recovery?.state != 'verified') {
 		record.status = 'error';
 		record.phase = 'recovery';
-		record.recovery = merge_recovery(record.recovery, { state: 'uncertain', sessionCleanup: cleanup, reconciliation: reconciliation || task7_dependency('terminal_reconciliation', null) });
+		record.recovery = merge_recovery(record.recovery, terminal.recovery || { state: 'uncertain', reconciliation: task7_dependency('terminal_reconciliation', null) });
 		record.error = message || 'Scanner recovery is uncertain.';
 	} else {
 		record.status = transition == 'cancelled' ? 'cancelled' : (transition == 'completed' ? 'completed' : 'error');
 		record.phase = record.status;
-		record.recovery = merge_recovery(record.recovery, { state: 'verified' });
+		record.recovery = merge_recovery(record.recovery, terminal.recovery);
 		if (message != null) record.error = message;
 	}
 	record.currentCandidate = null; record.finishedAt = time(); record.heartbeatAt = time();

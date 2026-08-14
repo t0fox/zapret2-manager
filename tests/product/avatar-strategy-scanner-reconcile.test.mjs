@@ -26,8 +26,7 @@ function invokeReconcile(expression, env = {}, timeout = 10000) {
 }
 
 test('scanner_terminal_reconcile returns EDEPENDENCY when journal absent (crash recovery)', () => {
-  // RED: scanner-reconcile.uc is empty stub; expect explicit Task 7 dependency marker
-  const result = invokeReconcile("subject.scanner_terminal_reconcile({ sid: 's1', cid: 'c1', gen: 1, nonce: 'n1', table: 'z2m_sc_s1_c1_0001_n1' })");
+  const result = invokeReconcile("subject.scanner_terminal_reconcile({ sid: 's1', cid: 'c1', gen: 1, nonce: 'n1', table: 'z2m_sc_s1_c1_0001_n1' }, 'completed')", { Z2M_SCANNER_SERVER_TEST: '1' });
   assert.equal(result.ok, false);
   assert.equal(result.error && result.error.code, 'EDEPENDENCY');
   assert.match(result.error.message || '', /Task 7/);
