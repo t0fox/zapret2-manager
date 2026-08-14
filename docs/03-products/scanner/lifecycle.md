@@ -2,7 +2,7 @@
 id: product-scanner-lifecycle
 title: "Lifecycle Scanner: кандидаты, A1 runtime, probes и handoff"
 type: product
-status: prototype
+status: current
 authority: evidence
 updated: 2026-08-14
 publish: true
