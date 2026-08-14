@@ -34,6 +34,9 @@ function signatureSource(method, request, scannerCli) {
     "const SCANNER_CLI = '/usr/libexec/zapret2-manager/scanner-cli.uc';",
     `const SCANNER_CLI = ${JSON.stringify(scannerCli)};`,
   ).replace(
+    "import { route_list, route_reconcile } from '/usr/libexec/zapret2-manager/unified-routing.uc';",
+    "function route_list() { return { schema: 1, revision: 0, routes: [] }; }\nfunction route_reconcile() { return { ok: true, reconciled: 0 }; }",
+  ).replace(
     "return {\n\t'zapret2-manager'",
     "let signature = {\n\t'zapret2-manager'",
   );
