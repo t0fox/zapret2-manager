@@ -1,6 +1,6 @@
 ---
 id: operations-troubleshooting
-title: "Troubleshooting"
+title: "Устранение неполадок"
 type: operations
 status: current
 authority: index
@@ -9,40 +9,67 @@ publish: true
 tags: [operations, troubleshooting, diagnostics]
 ---
 
-# Troubleshooting
+# Устранение неполадок
 
-Troubleshooting zapret2-manager should begin with evidence and stay scoped to the application. The project is a prototype, so an unexpected result may come from packaging, LuCI integration, backend state, or a product path that is still being completed.
+Диагностика zapret2-manager должна начинаться с **evidence** и оставаться в границах приложения. Проект активно развивается, поэтому неожиданный результат может быть связан с package build, интеграцией LuCI, backend state или продуктовым workflow, который ещё не завершён полностью.
 
-## LuCI page is not visible
+## Страница LuCI не видна
 
-Confirm that the backend package and `luci-app-zapret2-manager` were installed from the intended build. The LuCI package depends on the backend and registers the application under OpenWrt Services. Record the installed package versions before changing anything manually.
+Убедитесь, что backend package и `luci-app-zapret2-manager` установлены из ожидаемой сборки. LuCI package зависит от backend и регистрирует приложение в разделе Services. До ручных изменений запишите версии установленных packages.
 
-## Backend status is unavailable
+Если package установлен, но пункт меню не появился, полезно сначала отделить проблему package lifecycle/cache от проблемы самого backend. Не удаляйте вручную unrelated LuCI/OpenWrt state без доказательств.
 
-Separate a frontend rendering problem from a backend problem. If the LuCI shell loads but application data does not, keep the visible error and the relevant system log lines from the same time window. The backend package reloads rpcd during post-install and enables its service, so package and service state are useful first diagnostics.
+## Backend status недоступен
 
-## Package dependency or build errors
+Отделите frontend rendering problem от backend problem. Если оболочка LuCI открывается, но данные приложения не приходят, сохраните видимую ошибку и небольшой релевантный фрагмент system log из того же временного окна.
 
-Use the package Makefiles as the authority for dependencies. If an OpenWrt SDK build fails, keep the complete build message and target information. A host-side source test and a target package build provide different evidence.
+Backend package выполняет reload rpcd в post-install и включает свой service, поэтому package state и service state являются полезными первыми точками диагностики.
 
-## Strategy and Scanner issues
+## Ошибка зависимостей или сборки
 
-For Strategy, record the selected item plus the Preview, preflight, and validation information available before Apply. For Scanner, record the exact build revision, visible Scanner status, and the result or error information shown by the current interface.
+Используйте package Makefiles как источник истины для зависимостей. При ошибке OpenWrt SDK сохраняйте полный текст build error, выбранный target и ревизию репозитория.
 
-Scanner is under active development, so an unfinished Scanner path should not be treated as evidence that durable Strategy state needs a broad reset.
+Host-side source test и target package build дают разные доказательства. Успешный тест на рабочей машине не означает, что package собрался целевым toolchain.
 
-## Useful diagnostics
+## Проблемы Strategy и Scanner
 
-A useful report normally includes repository revision, package versions, OpenWrt version and target, whether LuCI loads, the exact product action that failed, and the smallest relevant log excerpt. For documentation failures, include the exact `scripts/docs.mjs` command and generated-site error. Keep secrets and unrelated personal configuration out of reports.
+Для `Strategy` запишите выбранный вариант, результат Preview, preflight и Validate, доступные **до Apply**. Это позволяет понять, на каком именно этапе возникло расхождение.
 
-## Safe recovery
+Для `Scanner` сохраните точную ревизию сборки, видимый статус Scanner, контекст кандидата и показанный результат или ошибку. Scanner находится в активной разработке, поэтому незавершённый Scanner path не является основанием сбрасывать постоянное состояние Strategy.
 
-Prefer the narrowest recovery action that matches the component which owns the failed state. Do not replace a specific application problem with a broad platform reset. Broad actions destroy evidence and can affect configuration outside zapret2-manager.
+## Полезная диагностика
 
-If the current code does not provide a verified recovery path, document the observed state rather than inventing a destructive workaround.
+Хороший отчёт обычно содержит:
 
-## Documentation diagnostics
+- commit/revision репозитория;
+- версии установленных packages;
+- версию и target OpenWrt;
+- открывается ли LuCI;
+- точное пользовательское действие, после которого возникла ошибка;
+- минимальный релевантный log excerpt;
+- для документации — точную команду `scripts/docs.mjs` и текст generated-site error.
 
-The documentation workflow uses `node scripts/docs.mjs verify`, `node scripts/docs.mjs build internal`, `node scripts/docs.mjs build public`, and `node scripts/validate-knowledge.mjs`. Generated outputs belong under `.artifacts/docs-internal` and `.artifacts/docs-public`.
+Не включайте в отчёт секреты и unrelated personal configuration.
 
-For normal first use, return to [Installation](./installation.md) and [First Run](./first-run.md). Developers should also read [Development](../08-development/index.md).
+## Безопасное восстановление
+
+Предпочитайте самое узкое recovery-действие, соответствующее компоненту, который владеет проблемным состоянием. Не превращайте локальную проблему приложения в полный сброс платформы.
+
+Широкие действия уничтожают evidence и могут затронуть конфигурацию, которой zapret2-manager не владеет. Если текущий код не предоставляет проверенный recovery path, лучше сохранить и описать наблюдаемое состояние, чем придумывать разрушительный workaround.
+
+## Диагностика документации
+
+Основные команды документационного pipeline:
+
+```sh
+node scripts/docs.mjs verify
+node scripts/docs.mjs build internal
+node scripts/docs.mjs build public
+node scripts/validate-knowledge.mjs
+```
+
+Generated outputs находятся в `.artifacts/docs-internal` и `.artifacts/docs-public`. Public tests проверяют не только существование HTML, но и publication boundary, статические ссылки для GitHub Pages и основной пользовательский контент.
+
+Если локальный Quartz server открывает страницу, а GitHub Pages отвечает 404, сравнивайте **реальный href** с именем загруженного статического файла. Локальный server может поддерживать rewrite, которого нет у static hosting.
+
+Для обычного первого использования вернитесь к [Установке](./installation.md) и [Первому запуску](./first-run.md). Участникам разработки также полезен раздел [Разработка](../08-development/index.md).
