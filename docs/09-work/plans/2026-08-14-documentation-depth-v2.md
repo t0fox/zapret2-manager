@@ -2,7 +2,7 @@
 id: plan-documentation-depth-v2
 title: "Documentation Depth v2 Implementation Plan"
 type: plan
-status: active
+status: current
 authority: approved-spec
 updated: 2026-08-14
 publish: false
