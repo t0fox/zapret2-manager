@@ -72,6 +72,7 @@ define Package/zapret2-manager/conffiles
 /etc/zapret2-manager/state.json
 /etc/zapret2-manager/service-dns-state.json
 /etc/zapret2-manager/engine-provider.json
+/etc/zapret2-manager/blockcheck-domains.json
 endef
 
 define Package/zapret2-manager/install

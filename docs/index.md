@@ -35,7 +35,7 @@ tags: [home, documentation, openwrt]
 
 ### BlockCheck и Deep Search
 
-[BlockCheck](./03-products/blockcheck/index.md) и [Deep Search](./03-products/deep-search/index.md) не выдаются за готовые capability. Отдельная страница [Scanner, BlockCheck и BlockCheck2](./03-products/scanner/family.md) объясняет, почему эти diagnostic flows нельзя сливать в один runner только из-за похожей тематики.
+[BlockCheck](./03-products/blockcheck/index.md) и [Deep Search](./03-products/deep-search/index.md) имеют M5 manager-owned verticals, но target-router evidence ещё выделяется отдельно. Страница [Scanner, BlockCheck, Block Detector и BlockCheck2](./03-products/scanner/family.md) объясняет, почему эти diagnostic flows нельзя сливать в один runner только из-за похожей тематики.
 
 ## Архитектура
 

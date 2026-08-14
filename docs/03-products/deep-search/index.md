@@ -2,20 +2,20 @@
 id: product-deep-search-index
 title: "Deep Search"
 type: product
-status: planned
+status: current
 authority: index
 updated: 2026-08-14
 publish: true
-tags: [product, deep-search, planned]
+tags: [product, deep-search, blockcheck2, blockcheckw, current]
 ---
 
 # Deep Search
 
-**Статус: Планируется / в разработке.** Deep Search задуман как расширенный поисковый workflow для случаев, когда обычной проверки кандидатов недостаточно и требуется более широкое исследование.
+**Статус: реализовано в M5 как два независимых engines.** Deep Search — расширенный поисковый workflow для случаев, когда обычной проверки кандидатов недостаточно.
 
 ## Что это такое
 
-Deep Search представляет более глубокий процесс поиска, чем стандартный путь Scanner. Его задача — организовать широкое исследование и вернуть структурированные результаты, которые пользователь сможет сравнить и проверить.
+Deep Search exposes official BlockCheck2 (`blockcheck2.sh`) and BlockCheckW Fast (`status`, `scan`, `universal`, `check`). Manager owns typed request validation, durable jobs, process identity, bounded output/results and cancellation; upstream engines own algorithms.
 
 ## Зачем он нужен
 
@@ -23,20 +23,18 @@ Deep Search представляет более глубокий процесс 
 
 ## Связь со Scanner
 
-Scanner остаётся нормальным путём проверки кандидатов. Deep Search предполагается строить вокруг знакомых понятий: кандидаты, наблюдения, результаты и ранжирование, но с возможностью более широкого или адаптивного исследования.
+Scanner остаётся отдельным Catalog Strategy workflow. BlockCheckW — отдельный external Rust provider with manual-only version/update policy; it is not a replacement for Avatar BlockCheck or Block Detector.
 
 Ни Scanner, ни Deep Search не владеют постоянным применением. Полезный результат должен перейти в Strategy и пройти её проверку до того, как станет долговременным состоянием.
 
 ## Предполагаемый сценарий
 
-Планируемый пользовательский путь: начать с обычной диагностики и Scanner, перейти к Deep Search только если более широкий поиск действительно нужен, изучить результаты и сохранить подходящий кандидат в Strategy для последующего Preview, Validate и Apply.
+Путь: выбрать engine и typed options, наблюдать progress/live output, изучить parsed report, затем отправить server-produced Strategy aggregate в Preview и Validate. Permanent Apply остаётся за Strategy.
 
 Так сохраняется общая модель полномочий: исследование отделено от постоянного применения.
 
 ## Текущее состояние реализации
 
-Публичный статус — **Планируется**. В репозитории существуют внутренние design materials по Deep Search, но сам факт наличия дизайна не является доказательством готовой функции. Поэтому страница не придумывает команды, стабильные настройки или элементы интерфейса.
-
-После появления актуальной реализации и свежей проверки здесь можно будет добавить реальные инструкции и пересмотреть статус зрелости.
+Evidence: BlockCheck2 env/parser/stream tests, BlockCheckW report adapter/provider tests and LuCI wiring in `z2m-blockcheck-page.js`. Router execution remains a separate target gate.
 
 См. [Scanner](../scanner/index.md), [Strategy](../strategy/index.md), [BlockCheck](../blockcheck/index.md) и [Статус и план развития](../../01-project/status-roadmap.md).

@@ -161,7 +161,7 @@ Orchestra product ─X→ Scanner identity
 
 ## BlockCheck family
 
-Managed `blockcheck2.sh` execution и будущий BlockCheck classifier должны оставаться отдельными от Scanner. Общая зависимость у них — jobs/evidence/state substrate и Strategy handoff для найденного результата, но request/result models различаются.
+Managed `blockcheck2.sh` execution, one-shot BlockCheck classifier и background Block Detector должны оставаться отдельными от Scanner. Общая зависимость у них — jobs/evidence/state substrate и Strategy handoff для найденного результата, но request/result models и lifecycles различаются.
 
 Подробнее это показано на странице [Scanner, BlockCheck и BlockCheck2](../03-products/scanner/family.md).
 

@@ -110,19 +110,19 @@ M2 остаётся параллельной foundation-веткой для по
 
 ## M5 — BlockCheck family
 
-**Статус: CURRENT / IN PROGRESS — следующий product milestone.** Это текущий product focus после закрытых M3/M4; сам M5 ещё не объявляется complete.
+**Статус: COMPLETE.** M5 имеет четыре раздельных runtime products: interactive BlockCheck, background Block Detector, official BlockCheck2 и optional BlockCheckW provider/fast engine. Catalog Strategy Scanner остаётся отдельным уже закрытым flow.
 
-**Сейчас.** Upstream `blockcheck2.sh` имеет managed wrapper/job path и часть result→profile поведения. Отдельный Avatar-equivalent BlockCheck classifier остаётся незакрытой capability.
+**Сейчас.** Все четыре M5 flow имеют отдельные typed request/state/result/error contracts и не смешивают BlockCheck с Block Detector или BlockCheckW.
 
-**В работе.** Нужно не смешать три продукта: Scanner, BlockCheck, BlockCheck2.
+**В работе.** Target evidence углубляет characterization; он не меняет ownership и не объединяет lifecycle продуктов.
 
 **Зависимости.** Durable jobs, завершённый M3 result/evidence lifecycle и завершённый M4 Strategy handoff.
 
-**Следующий срез.** Сначала отдельный BlockCheck diagnostic/classification contract; затем точная адаптация BlockCheck2 mode/env/stream/stop/result semantics.
+**Следующий срез.** M6 Unified routing; новые routing features не входят в M5.
 
-**Критерий завершения.** Все три flow доступны независимо и имеют собственные request/state/result/error semantics; BlockCheck2 result безопасно преобразуется в Strategy aggregate.
+**Критерий завершения.** BlockCheck, Block Detector, BlockCheck2 и BlockCheckW имеют отдельные request/state/result/error contracts; оба search engines передают только typed Strategy aggregates существующему Preview/Validate/Apply path.
 
-**Доказательства.** API/model tests, parser/stream/cleanup tests, LuCI reachability и target smoke.
+**Доказательства.** `tests/product/blockcheck-family.test.mjs`, Avatar/RPC/ACL tests, BlockCheckW target provider lifecycle и bounded runtime smoke.
 
 ## M6 — Unified routing
 

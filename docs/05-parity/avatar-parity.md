@@ -32,7 +32,7 @@ Two LEGACY_DEAD inventory rows are excluded from product-parity arithmetic.
 
 ## Top Product Parity Blockers
 
-1. Scanner and BlockCheck/BlockCheck2 are three distinct Avatar flows; ours does not preserve all three product models.
+1. Scanner, BlockCheck, Block Detector, BlockCheck2 and BlockCheckW are distinct product flows; ours preserves their manager boundaries while target evidence remains separate.
 2. Auto-remediation cannot reach parity until Scanner, DNS remediation and tunnel routing exist.
 3. Avatar unified routing requires destinations/selectors, primary method, ordered fallbacks, monitoring and failover; ours lacks that product model.
 4. Lua, blob and IP-set registries required by Strategies are absent.
@@ -75,10 +75,11 @@ Two LEGACY_DEAD inventory rows are excluded from product-parity arithmetic.
 | Scanner result ranking | scanner report/results | Working/failed Strategies, success rate and order | `scanner-results.uc`, result/integration/apply tests | Server-owned TCP/UDP scoring, deterministic ordering, separated infrastructure failures, evidence and best references are exposed | PARITY | — | Keep evidence identities stable across refreshes. |
 | Scanner runtime/firewall cleanup | scanner cleanup paths | Preserve current runtime/firewall and cleanup errors | `scanner-transient.uc`, `scanner-reconcile.uc`, native runtime and worker tests | Task 5/7 lifecycle ownership, fail-closed cleanup, terminal restoration and recovery states are the Scanner boundary | PARITY | — | `ROUTER_E2E: NOT RUN`; do not infer physical-router evidence. |
 | Scanner apply found Strategy | `/api/scan/results`, apply endpoint | Result maps/applies Strategy by ID/index | `scanner-results.uc`, `scanner-cli.uc`, `z2m-scanner.js`, Strategy Apply tests | Existing Strategy references hand off to Preview/Validate/Apply; generated candidates use Save as Strategy and never gain Scanner Apply | PARITY | SECURITY_HARDENING_EQUIVALENT_BEHAVIOR (DEV-003) | Preserve the single permanent Strategy Apply owner. |
-| BlockCheck | `core/blockcheck.py`; `api/blockcheck.py` | Native probe/classification runner with `quick|full|dpi_only`, results/traceroute/domains | no direct equivalent | Missing distinct feature | MISSING | — | Implement separately from Scanner and BlockCheck2. |
-| BlockCheck2 execution | `core/blockcheck2.py`; `api/blockcheck2.py` | Original bol-van subprocess with `SCANLEVEL=quick|standard|force`, BATCH/env, streaming, stop and parsed found Strategies | `jobs.uc` upstream script job | Durable job overlaps BlockCheck2 only | PARTIAL | OPENWRT_NATIVE (DEV-002) | Match test/repeats/parallel/env/result semantics and UI. |
-| BlockCheck2 result→Strategy | parser/tests/UI | Reconstruct filters/tricks and transfer found Strategy | blockcheck apply path/raw profile integration | Not Avatar whole-Strategy conversion | PARTIAL | — | Produce Avatar user Strategy with profiles[]. |
-| Block detector | `core/block_detector.py`; diagnostics consumers | Classify block type from probes | health matrix/classification differs | No Avatar block-detector contract | MISSING | — | Implement exact probe classes/result. |
+| BlockCheck | `core/blockcheck.py`; `api/blockcheck.py` | One-shot `quick|full|dpi_only`, rich evidence/classification, traceroute/deep trace and domains | `blockcheck-cli.uc`, diagnostic runner, result model and LuCI | Separate managed diagnostic vertical; router runtime evidence pending | PARTIAL | OPENWRT_NATIVE (DEV-002) | Preserve positive-evidence and infrastructure separation; collect target smoke. |
+| Block Detector | `core/block_detector.py`; `api/block_detector.py` | Background DNS discovery, periodic probes, findings and optional managed-list candidates | `block-detector-cli.uc`, owned monitor runner and LuCI | Separate background lifecycle with bounded discovery/probes | PARTIAL | OPENWRT_NATIVE (DEV-002) | Add target evidence for DNS source/capture and list handoff. |
+| BlockCheck2 execution | `core/blockcheck2.py`; `api/blockcheck2.py` | Original bol-van subprocess with `SCANLEVEL=quick|standard|force`, BATCH/env, streaming, stop and parsed found Strategies | dedicated `blockcheck2-cli.uc`/runner, RPC/ACL/LuCI | Typed env, monotonic bounded stream, ownership and parser are covered by focused tests | PARTIAL | OPENWRT_NATIVE (DEV-002) | Collect router script-discovery and terminal-tail evidence. |
+| BlockCheck2 result→Strategy | parser/tests/UI | Reconstruct filters/tricks and transfer found Strategy | evidence-bound Strategy aggregate with Preview/Validate handoff | No permanent BlockCheck2 Apply path | PARTIAL | — | Keep existing Strategy authority as sole Apply owner. |
+| BlockCheckW provider/Fast | external `rcd27/blockcheckw` | Version/provider lifecycle plus `status|scan|universal|check` structured reports | `blockcheckw-model/cli/install/run`, provider RPC/ACL/LuCI | Separate optional external provider; current characterization pinned to `d6f96719a6d555304aa565cd820699ef1de9515f` | PARTIAL | OPENWRT_NATIVE (DEV-002) | Verify asset compatibility and manual install/update on target architectures. |
 | Auto-remediation mapping | `core/auto_remediation.py` | none→skip; DNS manipulation→dns_fix; DPI→Scanner; IP/full→tunnel, with overrides | `auto-strategy.uc` only Strategy health/recovery | Different product | MISSING | — | Implement orchestrator only after dependent features. |
 | Auto-remediation safety | same module | preview/auto_apply/cooldown/concurrent guard/postverify/result | auto-strategy has CAS/cooldown/verification | Some machinery but wrong action model | PARTIAL | SECURITY_HARDENING_EQUIVALENT_BEHAVIOR (DEV-003) | Reuse safeguards while matching Avatar actions. |
 | Unified Destination model | `core/unified/model.py` Destination/Route | domains, CIDRs, lists, hostlists, ipsets, geosite/geoip, devices, DSCP | no unified route model | Missing | MISSING | — | Implement exact selector schema. |
@@ -134,8 +135,9 @@ Two LEGACY_DEAD inventory rows are excluded from product-parity arithmetic.
 |---|---|---|
 | Strategy catalog → Strategy → Profiles[] → preview → apply → status → autostart | PARTIAL | Pinned catalog, aggregate Strategy identity, ordered Profiles, Preview/Validate/Apply, derived status, rollback and reconciliation are covered by the focused and Task 16 integration gates; autostart is not evidenced. |
 | Scanner → catalog Strategies → working results → apply | DIVERGENT | Avatar `strategy_scanner.py` consumes catalog Strategies; ours Orchestra consumes other registries and requires different winner evidence. |
-| BlockCheck → recommendation | PARTIAL | Avatar native BlockCheck is distinct; ours lacks equivalent classification UI. |
-| BlockCheck2 → found Strategy | PARTIAL | Script job exists, but reconstruction does not yield Avatar Strategy aggregate. |
+| BlockCheck → recommendation | PARTIAL | One-shot diagnostic model/UI and typed recommendations exist; router/runtime parity remains unverified. |
+| Block Detector → managed lists | PARTIAL | Background discovery and candidates exist; automatic list mutation is intentionally not enabled in M5. |
+| BlockCheck2 → found Strategy | PARTIAL | Dedicated parser and evidence-bound Strategy Preview/Validate handoff exist; target script evidence remains pending. |
 | Auto-remediation → Scanner | MISSING | `auto-strategy.uc` is not Avatar auto-remediation. |
 | Auto-remediation → DNS fix | MISSING | No classification dispatcher. |
 | Auto-remediation → tunnel | MISSING | No unified routing/tunnel method graph. |
@@ -158,8 +160,8 @@ The approved Avatar Strategy Scanner slice is now implemented over the native St
 1. Strategy/Profile aggregate and pinned strategy-catalog parity.
 2. Lua, blob, hostlist and IP-set dependency registries.
 3. Scanner parity using the native durable runner. **COMPLETE for the approved scope.**
-4. Separate BlockCheck and BlockCheck2 parity, including result→Strategy.
-5. Block detector classification.
+4. Separate BlockCheck, Block Detector and BlockCheck2 parity, including result→Strategy.
+5. BlockCheckW provider/version policy and fast-engine integration.
 6. Unified Routing destination/selectors/method/fallback model.
 7. Devices, DNS/list/geosite/geoip routing crossflows.
 8. Core tunnel lifecycle foundation mapped onto procd/native storage.

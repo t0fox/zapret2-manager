@@ -1,6 +1,6 @@
 ---
 id: product-scanner-family
-title: "Scanner, BlockCheck и BlockCheck2 — три разных flow"
+title: "Scanner, BlockCheck, Block Detector и BlockCheck2 — разные flow"
 type: product
 status: current
 authority: evidence
@@ -9,7 +9,7 @@ publish: true
 tags: [scanner, blockcheck, blockcheck2, parity, diagnostics]
 ---
 
-# Scanner, BlockCheck и BlockCheck2 — три разных flow
+# Scanner, BlockCheck, Block Detector и BlockCheck2 — разные flow
 
 В Avatar baseline есть несколько диагностических механизмов, которые легко ошибочно объединить под словом «сканер». Для parity zapret2-manager это принципиально неверно: **Scanner, BlockCheck и BlockCheck2 решают разные задачи, имеют разные state/result semantics и не должны становиться одним универсальным runner только потому, что все они запускают сетевые проверки**.
 
@@ -18,8 +18,10 @@ tags: [scanner, blockcheck, blockcheck2, parity, diagnostics]
 | Flow | Главный вопрос | Результат | Текущий статус в zapret2-manager |
 |---|---|---|---|
 | Scanner | Какая Strategy работает для заданной цели? | working/failed candidates, ranking, Strategy handoff | prototype / active development |
-| BlockCheck | Какого типа проблема наблюдается и что показала диагностика? | classification/diagnostic result | отдельная Avatar-capability пока не доказана |
-| BlockCheck2 | Что нашёл upstream bol-van `blockcheck2.sh`? | subprocess output + найденные варианты | частичный managed wrapper |
+| BlockCheck | Какого типа проблема наблюдается и что показала диагностика? | classification/diagnostic result | separate one-shot M5 vertical |
+| Block Detector | Какие домены из живого DNS требуют фональной проверки? | discovered domains + periodic findings | отдельный managed background lifecycle |
+| BlockCheck2 | Что нашёл upstream bol-van `blockcheck2.sh`? | subprocess output + найденные варианты | managed official engine |
+| BlockCheckW Fast | Что быстро показывает external Rust engine? | upstream status/scan/universal/check report | optional provider + managed engine |
 
 ## Scanner
 
@@ -37,17 +39,21 @@ Avatar `BlockCheck` — самостоятельный diagnostic/classification
 
 Это важно для будущего auto-remediation. Решение «запустить Scanner» должно приниматься потому, что diagnostic evidence указывает на DPI-сценарий, а не потому, что любое нарушение доступности автоматически трактуется как задача Strategy Scanner.
 
-В текущем zapret2-manager отдельная Avatar-equivalent BlockCheck capability **не доказана**. Публичная страница BlockCheck поэтому остаётся planned, пока не существует законченной model → execution → result → LuCI vertical с проверенной семантикой.
+В текущем M5 BlockCheck имеет отдельную model → execution → result → LuCI vertical с quick/full/dpi_only, evidence, cancellation и Deep Trace. BlockCheckW может быть отдельным accelerator, но не подменяет этот contract.
+
+## Block Detector
+
+Avatar Block Detector — фоновой DNS-monitoring flow. Он обнаруживает домены из live DNS/log sources и периодически выполняет probes. Его state, stop и results отличаются от интерактивного BlockCheck; недоступный capture/probe dependency возвращается как infrastructure, а не как DPI finding.
 
 ## BlockCheck2
 
 `BlockCheck2` — другой случай. В текущем репозитории есть `blockcheck-run.sh`, который управляемо вызывает upstream `/opt/zapret2/blockcheck2.sh`, а `blockcheck-apply-cli.uc` умеет работать с рекомендацией/результатом дальше по существующему пути.
 
-Это полезная реальная capability, но она не равна ни Avatar Scanner, ни полноценному Avatar BlockCheck.
+Это отдельная real capability, но она не равна ни Avatar Scanner, ни BlockCheck, ни Block Detector.
 
 Причина — различие product contract. Managed subprocess может иметь bounded job ownership, stop/cleanup и parser результата, но upstream BlockCheck2 имеет собственные режимы, переменные окружения, streaming/result semantics и способ преобразования найденного варианта в Strategy. Для `PARITY` нужны именно эти пользовательские эффекты, а не просто факт запуска скрипта.
 
-Поэтому текущая parity-классификация разумно рассматривает BlockCheck2 как **PARTIAL**, а не как замену всей diagnostic family.
+BlockCheck2 и BlockCheckW не заменяют diagnostic family; их results converges to the existing Strategy Preview → Validate → Apply authority.
 
 ## Почему Orchestra тоже не Scanner
 
@@ -112,10 +118,10 @@ Preview → Validate → Apply
 
 Для **Scanner**: полная вертикаль request/model → candidate plan → transient runtime → probes → ranking/report → cleanup/reconciliation → Strategy handoff → LuCI, плюс target evidence.
 
-Для **BlockCheck**: отдельная модель диагностики, execution, classification/result и UI, соответствующая pinned Avatar behavior.
+Для **BlockCheck**: отдельная модель диагностики, execution, classification/result и UI, соответствующая pinned Avatar behavior. Для **Block Detector**: background discovery, periodic probe, independent lifecycle and managed-list candidates.
 
-Для **BlockCheck2**: точная характеристика режимов upstream runner, streaming/stop/result semantics и доказанный conversion найденного результата в user Strategy без обхода Strategy authority boundary.
+Для **BlockCheck2**: точная характеристика режимов upstream runner, streaming/stop/result semantics и conversion найденного результата в user Strategy без обхода Strategy authority boundary. Для **BlockCheckW**: provider/version lifecycle plus bounded fast-engine adapter.
 
-До выполнения этих условий документация будет показывать три статуса раздельно. Это лучше, чем красивая, но ложная надпись «Scanner/BlockCheck реализованы».
+Статусы остаются раздельными: готовность одного engine не повышает автоматически Scanner, BlockCheck или Block Detector.
 
 Связанные страницы: [Scanner](./index.md), [Lifecycle Scanner](./lifecycle.md), [BlockCheck](../blockcheck/index.md), [Avatar parity](../../01-project/avatar-parity.md), [Roadmap](../../01-project/status-roadmap.md).

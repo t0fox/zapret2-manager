@@ -109,17 +109,21 @@ Scanner → Strategy handoff также подтверждён как **COMPLETE
 
 Подробнее: [Lifecycle Scanner](../03-products/scanner/lifecycle.md).
 
-## BlockCheck и BlockCheck2
+## BlockCheck, Block Detector, BlockCheck2 и BlockCheckW
 
-Avatar рассматривает `Scanner`, `BlockCheck` и `BlockCheck2` как **три разных flow**.
+Avatar рассматривает `Scanner`, `BlockCheck`, `Block Detector` и `BlockCheck2` как разные flow; BlockCheckW — отдельный external provider/fast engine.
 
-Отдельный Avatar-like **BlockCheck classifier** в pinned audit имеет `MISSING`: нужен собственный diagnostic model, classification result и UI.
+M5 добавляет отдельный one-shot BlockCheck model, lifecycle, evidence/classification и UI. Target-router runtime evidence остаётся отдельным уровнем проверки.
 
-**BlockCheck2** имеет `PARTIAL`: текущий manager умеет управляемо запускать upstream `blockcheck2.sh`, связывать его с job lifecycle и разбирать часть результата, но это ещё не полное совпадение Avatar mode/env/stream/result→Strategy semantics.
+**BlockCheck2** имеет `PARTIAL`: manager имеет отдельные typed mode/env/stream/stop/parser/handoff boundaries; полная target parity требует router evidence.
 
-Завершённый Scanner не закрывает эти две строки: их назначение и result models различаются. M5 BlockCheck family — текущий следующий product milestone.
+**Block Detector** имеет `PARTIAL`: отдельный background DNS discovery/periodic probe lifecycle и managed-list candidates реализованы, но automatic list mutation и target capture evidence не входят в M5.
 
-Подробнее: [Scanner / BlockCheck / BlockCheck2](../03-products/scanner/family.md).
+**BlockCheckW** имеет `PARTIAL`: provider version/install/update boundary и fast adapter реализованы вокруг upstream Rust binary, без переписывания его engine.
+
+Завершённый Scanner не закрывает эти отдельные result models и lifecycle semantics.
+
+Подробнее: [Scanner / BlockCheck / Block Detector / BlockCheck2](../03-products/scanner/family.md).
 
 ## DNS, lists и assets
 

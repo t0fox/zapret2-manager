@@ -258,6 +258,80 @@ function blockcheck_start_method(req) { return jobs_edit_action('start', req); }
 function blockcheck_cancel_method(req) { return jobs_edit_action('cancel', req); }
 function blockcheck_status_method(req) { return jobs_action('status'); }
 
+// M5 product surfaces are intentionally separate from the legacy jobs wrapper:
+// BlockCheck is a diagnostic/classification run, while BlockCheck2 is the
+// official upstream subprocess and stream. Both use bounded JSON files, never
+// generic command or argv input from the browser.
+const BLOCKCHECK_DIAG_CLI = '/usr/libexec/zapret2-manager/blockcheck-cli.uc';
+const BLOCKCHECK2_CLI = '/usr/libexec/zapret2-manager/blockcheck2-cli.uc';
+const BLOCKCHECKW_CLI = '/usr/libexec/zapret2-manager/blockcheckw-cli.uc';
+const BLOCK_DETECTOR_CLI = '/usr/libexec/zapret2-manager/block-detector-cli.uc';
+function product_tmpfile(prefix) {
+	let p = null, raw = '';
+	try { p = popen('umask 077; mktemp /tmp/' + prefix + '.XXXXXX 2>/dev/null', 'r'); raw = p ? trim(p.read('all') || '') : ''; if (p) p.close(); } catch (e) { raw = ''; }
+	return raw && match(raw, /^\/tmp\/[A-Za-z0-9._-]+$/) ? raw : null;
+}
+function product_export(cli, sub) {
+	if (cli == BLOCKCHECK_DIAG_CLI) return sub == 'start' ? 'blockcheck_diag_start' : sub == 'status' ? 'blockcheck_diag_status' : sub == 'results' ? 'blockcheck_diag_results' : sub == 'stop' ? 'blockcheck_diag_stop' : sub == 'domains' ? 'blockcheck_diag_domains' : sub == 'traceroute' ? 'blockcheck_diag_traceroute' : null;
+	if (cli == BLOCKCHECK2_CLI) return sub == 'script' ? 'blockcheck2_script' : sub == 'start' ? 'blockcheck2_start' : sub == 'status' ? 'blockcheck2_status' : sub == 'output' ? 'blockcheck2_output' : sub == 'results' ? 'blockcheck2_results' : sub == 'stop' ? 'blockcheck2_stop' : null;
+	if (cli == BLOCKCHECKW_CLI) return sub == 'provider-status' ? 'blockcheckw_provider_status' : sub == 'update-check' ? 'blockcheckw_update_check' : sub == 'install' ? 'blockcheckw_install' : sub == 'script' ? 'blockcheckw_script' : sub == 'start' ? 'blockcheckw_start' : sub == 'status' ? 'blockcheckw_status' : sub == 'output' ? 'blockcheckw_output' : sub == 'results' ? 'blockcheckw_results' : sub == 'stop' ? 'blockcheckw_stop' : null;
+	if (cli == BLOCK_DETECTOR_CLI) return sub == 'start' ? 'block_detector_start' : sub == 'status' ? 'block_detector_status' : sub == 'results' ? 'block_detector_results' : sub == 'stop' ? 'block_detector_stop' : null;
+	return null;
+}
+function product_command(cli, sub, tmp) {
+	let fn = product_export(cli, sub); if (!fn) return null;
+	let expression = 'import * as api from "' + cli + '"; ';
+	if (tmp) expression = 'import { readfile } from "fs"; ' + expression + 'let input = json(readfile("' + tmp + '")); print(sprintf("%J", api.' + fn + '(input)));';
+	else expression += 'print(sprintf("%J", api.' + fn + '()));';
+	return '/usr/bin/ucode -e ' + shell_escape(expression) + ' 2>/dev/null';
+}
+function product_edit_action(cli, sub, req, prefix) {
+	let edit = null;
+	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
+	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
+	if (edit == null) return { ok: false, error: { code: 'EINPUT', message: 'missing edit param' } };
+	if (type(edit) != 'string' || length(edit) > 32768) return { ok: false, error: { code: 'EINPUT', message: 'edit must be a bounded JSON string' } };
+	let tmp = product_tmpfile(prefix);
+	if (!tmp) return { ok: false, error: { code: 'EDEPENDENCY', message: 'temporary request file unavailable' } };
+	writefile(tmp, edit);
+	let command = product_command(cli, sub, tmp); if (!command) { try { unlink(tmp); } catch (e) { } return { ok: false, error: { code: 'EINPUT', message: 'unknown product operation' } }; }
+	let p = popen(command, 'r');
+	if (!p) { try { unlink(tmp); } catch (e) { } return { ok: false, error: { code: 'EDEPENDENCY', message: 'product CLI unavailable' } }; }
+	let out = p.read('all') || ''; p.close(); try { unlink(tmp); } catch (e) { }
+	try { return json(out); } catch (e) { return { ok: false, error: { code: 'EINTERNAL', message: 'product response parse failed' } }; }
+}
+function product_action(cli, sub) {
+	let command = product_command(cli, sub, null); if (!command) return { ok: false, error: { code: 'EINPUT', message: 'unknown product operation' } };
+	let p = popen(command, 'r');
+	if (!p) return { ok: false, error: { code: 'EDEPENDENCY', message: 'product CLI unavailable' } };
+	let out = p.read('all') || ''; p.close(); try { return json(out); } catch (e) { return { ok: false, error: { code: 'EINTERNAL', message: 'product response parse failed' } }; }
+}
+function blockcheck_diag_start_method(req) { return product_edit_action(BLOCKCHECK_DIAG_CLI, 'start', req, 'z2m-bcdiag-edit'); }
+function blockcheck_diag_status_method(req) { return product_action(BLOCKCHECK_DIAG_CLI, 'status'); }
+function blockcheck_diag_results_method(req) { return product_edit_action(BLOCKCHECK_DIAG_CLI, 'results', req, 'z2m-bcdiag-edit'); }
+function blockcheck_diag_stop_method(req) { return product_edit_action(BLOCKCHECK_DIAG_CLI, 'stop', req, 'z2m-bcdiag-edit'); }
+function blockcheck_diag_domains_method(req) { return product_edit_action(BLOCKCHECK_DIAG_CLI, 'domains', req, 'z2m-bcdiag-edit'); }
+function blockcheck_diag_traceroute_method(req) { return product_edit_action(BLOCKCHECK_DIAG_CLI, 'traceroute', req, 'z2m-bcdiag-edit'); }
+function blockcheck2_script_method(req) { return product_action(BLOCKCHECK2_CLI, 'script'); }
+function blockcheck2_start_method(req) { return product_edit_action(BLOCKCHECK2_CLI, 'start', req, 'z2m-bc2-edit'); }
+function blockcheck2_status_method(req) { return product_action(BLOCKCHECK2_CLI, 'status'); }
+function blockcheck2_output_method(req) { return product_edit_action(BLOCKCHECK2_CLI, 'output', req, 'z2m-bc2-edit'); }
+function blockcheck2_results_method(req) { return product_edit_action(BLOCKCHECK2_CLI, 'results', req, 'z2m-bc2-edit'); }
+function blockcheck2_stop_method(req) { return product_edit_action(BLOCKCHECK2_CLI, 'stop', req, 'z2m-bc2-edit'); }
+function blockcheckw_provider_status_method(req) { return product_action(BLOCKCHECKW_CLI, 'provider-status'); }
+function blockcheckw_update_check_method(req) { return product_action(BLOCKCHECKW_CLI, 'update-check'); }
+function blockcheckw_install_method(req) { return product_edit_action(BLOCKCHECKW_CLI, 'install', req, 'z2m-bcw-install'); }
+function blockcheckw_script_method(req) { return product_action(BLOCKCHECKW_CLI, 'script'); }
+function blockcheckw_start_method(req) { return product_edit_action(BLOCKCHECKW_CLI, 'start', req, 'z2m-bcw-edit'); }
+function blockcheckw_status_method(req) { return product_action(BLOCKCHECKW_CLI, 'status'); }
+function blockcheckw_output_method(req) { return product_edit_action(BLOCKCHECKW_CLI, 'output', req, 'z2m-bcw-edit'); }
+function blockcheckw_results_method(req) { return product_edit_action(BLOCKCHECKW_CLI, 'results', req, 'z2m-bcw-edit'); }
+function blockcheckw_stop_method(req) { return product_edit_action(BLOCKCHECKW_CLI, 'stop', req, 'z2m-bcw-edit'); }
+function block_detector_start_method(req) { return product_edit_action(BLOCK_DETECTOR_CLI, 'start', req, 'z2m-bdetector-edit'); }
+function block_detector_status_method(req) { return product_action(BLOCK_DETECTOR_CLI, 'status'); }
+function block_detector_results_method(req) { return product_action(BLOCK_DETECTOR_CLI, 'results'); }
+function block_detector_stop_method(req) { return product_action(BLOCK_DETECTOR_CLI, 'stop'); }
+
 // health matrix (Phase C) — job_get/cancel are the GENERIC job methods;
 // these aliases give the matrix its own names per the contract.
 function health_matrix_get_method(req) { return jobs_action('hm-get'); }
@@ -824,6 +898,31 @@ return {
 		blockcheck_apply: { args: { edit: 'string' }, call: function (req) { return blockcheck_apply_method(req); } },
 		blockcheck_preview: { args: { edit: 'string' }, call: function (req) { return blockcheck_preview_method(req); } },
 		blockcheck_rollback: { args: { edit: 'string' }, call: function (req) { return blockcheck_rollback_method(req); } },
+		blockcheck_diag_start: { args: { edit: 'string' }, call: function (req) { return blockcheck_diag_start_method(req); } },
+		blockcheck_diag_status: { call: function (req) { return blockcheck_diag_status_method(req); } },
+		blockcheck_diag_results: { args: { edit: 'string' }, call: function (req) { return blockcheck_diag_results_method(req); } },
+		blockcheck_diag_stop: { args: { edit: 'string' }, call: function (req) { return blockcheck_diag_stop_method(req); } },
+		blockcheck_diag_domains: { args: { edit: 'string' }, call: function (req) { return blockcheck_diag_domains_method(req); } },
+		blockcheck_diag_traceroute: { args: { edit: 'string' }, call: function (req) { return blockcheck_diag_traceroute_method(req); } },
+		blockcheck2_script: { call: function (req) { return blockcheck2_script_method(req); } },
+		blockcheck2_start: { args: { edit: 'string' }, call: function (req) { return blockcheck2_start_method(req); } },
+		blockcheck2_status: { call: function (req) { return blockcheck2_status_method(req); } },
+		blockcheck2_output: { args: { edit: 'string' }, call: function (req) { return blockcheck2_output_method(req); } },
+		blockcheck2_results: { args: { edit: 'string' }, call: function (req) { return blockcheck2_results_method(req); } },
+		blockcheck2_stop: { args: { edit: 'string' }, call: function (req) { return blockcheck2_stop_method(req); } },
+		blockcheckw_provider_status: { call: function (req) { return blockcheckw_provider_status_method(req); } },
+		blockcheckw_update_check: { call: function (req) { return blockcheckw_update_check_method(req); } },
+		blockcheckw_install: { args: { edit: 'string' }, call: function (req) { return blockcheckw_install_method(req); } },
+		blockcheckw_script: { call: function (req) { return blockcheckw_script_method(req); } },
+		blockcheckw_start: { args: { edit: 'string' }, call: function (req) { return blockcheckw_start_method(req); } },
+		blockcheckw_status: { call: function (req) { return blockcheckw_status_method(req); } },
+		blockcheckw_output: { args: { edit: 'string' }, call: function (req) { return blockcheckw_output_method(req); } },
+		blockcheckw_results: { args: { edit: 'string' }, call: function (req) { return blockcheckw_results_method(req); } },
+		blockcheckw_stop: { args: { edit: 'string' }, call: function (req) { return blockcheckw_stop_method(req); } },
+		block_detector_start: { args: { edit: 'string' }, call: function (req) { return block_detector_start_method(req); } },
+		block_detector_status: { call: function (req) { return block_detector_status_method(req); } },
+		block_detector_results: { call: function (req) { return block_detector_results_method(req); } },
+		block_detector_stop: { call: function (req) { return block_detector_stop_method(req); } },
 		health_matrix_get: { call: function (req) { return health_matrix_get_method(req); } },
 		health_matrix_start: { args: { edit: 'string' }, call: function (req) { return health_matrix_start_method(req); } },
 		health_matrix_job_get: { args: { edit: 'string' }, call: function (req) { return health_matrix_job_get_method(req); } },

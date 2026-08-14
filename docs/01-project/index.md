@@ -43,7 +43,7 @@ zapret2-manager не является универсальным privileged comm
 
 ## Продуктовые области
 
-[Strategy](../03-products/strategy/index.md) отвечает за постоянную конфигурацию. [Scanner](../03-products/scanner/index.md) уже имеет существенные части реализации, но его полный production lifecycle ещё развивается. [BlockCheck](../03-products/blockcheck/index.md) и [Deep Search](../03-products/deep-search/index.md) пока остаются запланированными продуктовыми областями.
+[Strategy](../03-products/strategy/index.md) отвечает за постоянную конфигурацию. [Scanner](../03-products/scanner/index.md) уже имеет существенные части реализации, но его полный production lifecycle ещё развивается. [BlockCheck](../03-products/blockcheck/index.md) и [Deep Search](../03-products/deep-search/index.md) имеют M5 verticals, а target-router evidence остаётся отдельным уровнем готовности.
 
 Для сетевых зависимостей отдельно описаны [DNS, routing и assets](../03-products/dns-routing-assets.md): существующий DNS/list substrate, недостающие registries, unified routing и tunnel foundation.
 
