@@ -61,4 +61,13 @@ Native helper foundation помогает backend выполнять огран�
 
 Наличие архитектурного слоя не является доказательством production-готовности любого workflow, который предполагается построить поверх него. Статус каждой продуктовой области определяется отдельно по текущему коду и проверкам.
 
+## Глубокая архитектура
+
+Для перехода от обзорной схемы к конкретным границам читайте две отдельные страницы:
+
+- [Runtime flow: от LuCI до nfqws2](./runtime-flow.md) — rpcd/ubus, compile/preflight, Preview/Validate, mutation boundary, verification и rollback;
+- [Владение состоянием и single-writer модель](./state-ownership.md) — generation/revision, Process Identity, durable jobs, namespaces, transactions, snapshots и reconciliation.
+
+Продуктовые вертикали описаны отдельно в [Lifecycle Strategy](../03-products/strategy/lifecycle.md) и [Lifecycle Scanner](../03-products/scanner/lifecycle.md). Уровни доказательств для заявлений о готовности — в [Доказательствах и тестировании](../08-development/evidence-testing.md).
+
 Дальше читайте [Стратегии (Strategy)](../03-products/strategy/index.md), [Сканер (Scanner)](../03-products/scanner/index.md), [Обзор проекта](../01-project/index.md), [Установку](../11-operations/installation.md), [Первый запуск](../11-operations/first-run.md), [Устранение неполадок](../11-operations/troubleshooting.md) или [Разработку](../08-development/index.md).
