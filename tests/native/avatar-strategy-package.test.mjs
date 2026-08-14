@@ -46,6 +46,11 @@ function temporaryPackageRoot() {
   return root;
 }
 
+function seedUnifiedRoutingStorage(etc) {
+  fs.writeFileSync(path.join(etc, 'routes.json'), '{"schema":1,"revision":0,"routes":[]}\n', { mode: 0o600 });
+  fs.mkdirSync(path.join(etc, 'routes-journal'), { mode: 0o700 });
+}
+
 function runPostinst(root) {
   const fakeBin = path.join(root, 'bin');
   const installLog = path.join(root, 'install.log');
@@ -225,14 +230,23 @@ test('postinst creates absent Strategy storage in a temporary package root', () 
     const { calls } = runPostinst(root);
     const strategies = path.join(root, 'etc', 'zapret2-manager', 'strategies');
     const state = path.join(root, 'etc', 'zapret2-manager', 'strategy-state.json');
+    const routes = path.join(root, 'etc', 'zapret2-manager', 'routes.json');
+    const journal = path.join(root, 'etc', 'zapret2-manager', 'routes-journal');
     assert.equal(fs.statSync(strategies).isDirectory(), true);
     assert.equal(mode(strategies), 0o700);
     assert.equal(mode(state), 0o600);
     assert.deepEqual(JSON.parse(fs.readFileSync(state, 'utf8')), {
       schema: 1, revision: 0, favorites: [], selected: null,
     });
+    assert.deepEqual(JSON.parse(fs.readFileSync(routes, 'utf8')), {
+      schema: 1, revision: 0, routes: [],
+    });
+    assert.equal(mode(routes), 0o600);
+    assert.equal(mode(journal), 0o700);
     assertRootOwnership(strategies);
     assertRootOwnership(state);
+    assertRootOwnership(routes);
+    assertRootOwnership(journal);
     assert.ok(calls.some(args => args.includes('-d') && args.includes('-o') && args.includes('root')
       && args.includes('-g') && args.includes('root') && args.includes('0700') && args.includes(strategies)));
     assert.ok(calls.some(args => args.includes('-o') && args.includes('root') && args.includes('-g')
@@ -250,6 +264,7 @@ test('postinst preserves existing Strategy files, selection state, and legacy st
   const strategyState = path.join(etc, 'strategy-state.json');
   const legacyState = path.join(etc, 'state.json');
   try {
+    seedUnifiedRoutingStorage(etc);
     fs.mkdirSync(strategies);
     fs.writeFileSync(userStrategy, '{"id":"user-one","profiles":[]}');
     fs.writeFileSync(strategyState, '{"favorites":["user-one"],"selected":"user-one"}');
@@ -284,6 +299,7 @@ test('staged package upgrade preserves user Strategies, favorites, selection, an
   const strategyState = path.join(etc, 'strategy-state.json');
   const legacyState = path.join(etc, 'state.json');
   try {
+    seedUnifiedRoutingStorage(etc);
     fs.mkdirSync(strategies);
     fs.writeFileSync(userStrategy, '{"id":"user-one","profiles":[]}', { mode: 0o600 });
     fs.writeFileSync(strategyState, '{"favorites":["z2k_all_in_one","user-one"],"selected":"user-one"}', { mode: 0o640 });
@@ -333,6 +349,7 @@ test('postinst does not follow live Strategy storage symlinks', () => {
   const targetDir = path.join(root, 'user-strategies');
   const targetState = path.join(root, 'user-strategy-state.json');
   try {
+    seedUnifiedRoutingStorage(etc);
     fs.mkdirSync(targetDir);
     fs.writeFileSync(path.join(targetDir, 'keep.json'), 'keep');
     fs.writeFileSync(targetState, '{"favorites":["keep"]}');
@@ -357,6 +374,7 @@ test('postinst preserves dangling Strategy storage symlinks', () => {
   const strategies = path.join(etc, 'strategies');
   const strategyState = path.join(etc, 'strategy-state.json');
   try {
+    seedUnifiedRoutingStorage(etc);
     fs.symlinkSync(path.join(root, 'missing-strategies'), strategies, 'dir');
     fs.symlinkSync(path.join(root, 'missing-state.json'), strategyState);
     const { calls } = runPostinst(root);
