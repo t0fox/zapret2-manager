@@ -1,6 +1,6 @@
 ---
 id: product-scanner-index
-title: "Scanner"
+title: "Сканер (Scanner)"
 type: product
 status: current
 authority: index
@@ -9,80 +9,80 @@ publish: true
 tags: [product, scanner, prototype]
 ---
 
-# Scanner
+# Сканер (Scanner)
 
-**Status: prototype / under active development.** Scanner is the zapret2-manager product area for evaluating candidate configurations without giving those candidates permanent authority. The repository already contains substantial Scanner implementation, but the complete production end-to-end lifecycle is still being completed and should not be described as stable.
+**Статус: прототип / активная разработка.** `Scanner` — продуктовая область zapret2-manager для проверки и сравнения кандидатов без передачи им права на постоянное изменение конфигурации. В репозитории уже есть существенная часть реализации Scanner, однако полный production end-to-end lifecycle ещё развивается и не должен описываться как стабильный.
 
-## Purpose
+## Назначение
 
-Scanner exists to turn an open-ended search problem into a bounded candidate workflow. It takes a target and current scan settings, plans candidates, evaluates them through the available runtime path, records observations, ranks useful results, and cleans up temporary state.
+Scanner превращает открытый поисковый вопрос в ограниченный workflow кандидатов. Он получает цель и текущие параметры сканирования, планирует варианты, проверяет их через доступный runtime path, сохраняет наблюдения, формирует результаты, ранжирует полезные варианты и выполняет очистку временного состояния.
 
-The important product distinction is that a Scanner result is a **finding**, not an automatically applied Strategy.
+Главное продуктовое различие: результат Scanner — это **наблюдение и кандидат**, а не автоматически применённая Strategy.
 
-## Candidate planning
+## Планирование кандидатов
 
-Candidate generation is represented in the current repository by dedicated Scanner model and generator components. Planning determines which candidates should be evaluated and preserves enough structure for the rest of the lifecycle to identify the candidate being processed.
+Генерация кандидатов в текущем репозитории представлена отдельными Scanner model и generator components. Планирование определяет, какие варианты должны быть проверены, и сохраняет структуру, позволяющую остальному lifecycle однозначно понимать, какой кандидат сейчас обрабатывается.
 
-The public documentation does not publish internal search heuristics or assume that every planned candidate family is already complete. What matters to a user is that Scanner evaluates explicit candidates rather than making an unexplained permanent change.
+Публичная документация намеренно не раскрывает внутренние поисковые эвристики и не утверждает, что каждая запланированная группа кандидатов уже полностью реализована. Для пользователя важнее другое: Scanner проверяет явные варианты и не выполняет необъяснимое постоянное изменение.
 
-## Transient execution
+## Временное выполнение
 
-Scanner work is temporary by design. The repository contains a transient runtime component, worker path, runtime adapter, native Scanner helper, probe components, state handling, and result handling. Those pieces show that Scanner is more than a placeholder, but active integration work means they should not be interpreted as proof of full production E2E maturity.
+Работа Scanner по своей природе **временная**. В репозитории присутствуют transient runtime component, worker path, runtime adapter, native Scanner helper, probe components, state handling и result handling. Это показывает, что Scanner не является пустым placeholder, но продолжающаяся интеграция не позволяет считать весь путь production-complete.
 
-A simplified lifecycle is:
+Упрощённый lifecycle:
 
 ```text
-Scanner request
+Запрос Scanner
       ↓
-    planner
+  планирование
       ↓
-   candidate
+    кандидат
       ↓
-transient runtime
+временный runtime
       ↓
- observation / probe
+наблюдение / probe
       ↓
- result and ranking
+результат и рейтинг
       ↓
-    cleanup
+очистка временного состояния
 ```
 
-Temporary execution belongs to the Scanner lifecycle. Cleanup is part of the lifecycle rather than an optional afterthought.
+Временные ресурсы принадлежат конкретному Scanner lifecycle. Их очистка — обязательная часть сценария, а не необязательное действие после успешного теста.
 
-## Probes and observations
+## Probes и наблюдения
 
-Scanner uses probe-oriented components to collect evidence about a candidate. The exact supported probe set is implementation-defined and can change while the prototype evolves. Public documentation therefore explains the role of probes without inventing a stable CLI or configuration schema that the current repository does not guarantee.
+Scanner использует probe-oriented компоненты для получения доказательств о поведении кандидата. Точный поддерживаемый набор probes определяется реализацией и может меняться по мере развития прототипа.
 
-Probe output becomes useful only when it remains associated with the candidate and test context that produced it.
+Поэтому публичная документация объясняет роль наблюдений, но не придумывает стабильный CLI или schema, которых текущий репозиторий не гарантирует. Результат проверки полезен только тогда, когда остаётся связан с кандидатом, ревизией и контекстом, в котором он был получен.
 
-## Ranking and results
+## Ранжирование и результаты
 
-A scan can produce more than one candidate result. Ranking exists to help compare findings rather than forcing the first observed candidate to become the answer. Result handling should preserve enough context for the user or later product logic to decide whether a candidate is worth keeping.
+Один запуск может получить несколько результатов. Ранжирование помогает сравнивать кандидатов вместо того, чтобы автоматически принимать первый наблюдаемый вариант за окончательный ответ.
 
-A ranked result still does not cross the permanent Strategy authority boundary by itself.
+Result handling должен сохранять достаточно контекста, чтобы пользователь или последующая продуктовая логика могли решить, стоит ли сохранять кандидат. Даже кандидат с высоким рейтингом не пересекает постоянную границу Strategy автоматически.
 
-## Save as Strategy
+## Сохранить как стратегию
 
-The durable handoff is conceptually **Save as Strategy**: a useful Scanner candidate can be represented in the Strategy product model and then reviewed through Strategy's compile, preflight, Preview, Validate, and Apply stages.
+Долговременный переход можно описать как **«Сохранить как стратегию»** (`Save as Strategy`). Полезный Scanner-кандидат переносится в продуктовую модель Strategy и после этого проходит обычные стадии Strategy: compile, preflight, Preview, Validate и Apply.
 
-This separation is intentional. Scanner owns exploration; Strategy owns durable application. It prevents an exploratory workflow from silently becoming persistent state.
+Такое разделение намеренно: Scanner владеет исследованием, а Strategy — постоянным применением. Благодаря этому временный эксперимент не может незаметно стать частью долговременного состояния роутера.
 
-## Cleanup and recovery
+## Очистка и восстановление
 
-Scanner-created temporary state should be identifiable as Scanner-owned and cleaned up through controlled lifecycle paths. A failed candidate should not imply that unrelated OpenWrt state needs to be reset.
+Созданное Scanner временное состояние должно быть идентифицируемым как Scanner-owned и удаляться через контролируемый lifecycle. Неудачный кандидат не означает, что нужно сбрасывать unrelated OpenWrt state.
 
-When diagnosing a Scanner problem, preserve the build revision, candidate context, visible status, and result or error information. That evidence is more useful than a broad manual reset that erases the state needed to understand the failure.
+При диагностике сохраняйте ревизию сборки, контекст кандидата, видимый статус Scanner и результат или текст ошибки. Эти данные намного полезнее широкого ручного сброса, который уничтожает свидетельства и может затронуть состояние за пределами zapret2-manager.
 
-## Current implementation boundary
+## Текущая граница реализации
 
-The current tree contains Scanner CLI/model/state/generator/transient/probe/worker/result/runtime-adapter pieces and native Scanner code. At the same time, current engineering work still includes lifecycle/protocol integration. The correct public conclusion is therefore **substantial prototype, not finished production runtime**.
+Текущее дерево содержит Scanner model/state/generator/transient/probe/worker/result/runtime-adapter components и native Scanner code. Одновременно инженерная работа всё ещё затрагивает lifecycle и protocol integration. Корректный публичный вывод: **существенный прототип, но ещё не завершённый production runtime**.
 
-When later implementation and verification prove the full lifecycle, this page can be promoted. Until then, the status label stays conservative.
+Когда текущая реализация и свежая проверка подтвердят полный lifecycle, статус страницы можно будет повысить. До этого консервативная маркировка сохраняется.
 
-## Related documentation
+## Связанная документация
 
-- [Strategy](../strategy/index.md)
-- [Architecture](../../02-architecture/index.md)
-- [First Run / Quick Start](../../11-operations/first-run.md)
-- [Troubleshooting](../../11-operations/troubleshooting.md)
-- [Status and roadmap](../../01-project/status-roadmap.md)
+- [Стратегии (Strategy)](../strategy/index.md)
+- [Архитектура](../../02-architecture/index.md)
+- [Первый запуск](../../11-operations/first-run.md)
+- [Устранение неполадок](../../11-operations/troubleshooting.md)
+- [Статус и план развития](../../01-project/status-roadmap.md)
