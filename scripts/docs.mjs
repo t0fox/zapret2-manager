@@ -14,6 +14,7 @@ const QUARTZ_PATH = path.join(ARTIFACTS_PATH, 'quartz')
 const QUARTZ_ENTRY = path.join(QUARTZ_PATH, 'quartz', 'bootstrap-cli.mjs')
 const DEFAULT_PORT = 8080
 const READINESS_TIMEOUT_MS = 120_000
+const PUBLIC_BASE_PATH = '/zapret2-manager/'
 
 const PUBLIC_IGNORE_PATTERNS = [
   '04-contracts',
@@ -201,16 +202,23 @@ async function patchPublicRuntimePaths(output) {
   const scriptPath = path.join(output, 'postscript.js')
   let script = await readFile(scriptPath, 'utf8')
   const absoluteIndexFetch = 'fetch("/static/contentIndex.json")'
-  const projectAwareIndexFetch = 'fetch((location.pathname.match(/^\\/[^/]+\\//)?.[0] || "/") + "static/contentIndex.json")'
-  script = script.replaceAll(absoluteIndexFetch, projectAwareIndexFetch)
+  const canonicalIndexFetch = `fetch("${PUBLIC_BASE_PATH}static/contentIndex.json")`
+  script = script.replaceAll(absoluteIndexFetch, canonicalIndexFetch)
 
-  const helpers = 'const z2mStaticBase=()=>location.pathname.match(/^\\/[^/]+\\//)?.[0]||"/";const z2mStaticPageHref=slug=>{const base=z2mStaticBase();if(!slug||slug==="index")return base;if(slug.endsWith("/index"))return base+slug.slice(0,-6)+"/";return base+slug+".html"};const z2mStaticFolderHref=slug=>{const base=z2mStaticBase();if(!slug)return base;return base+slug.replace(/^\\/+|\\/+$/g,"")+"/"};'
+  const helpers = `const z2mStaticBase=()=>"${PUBLIC_BASE_PATH}";const z2mStaticPageHref=slug=>{const base=z2mStaticBase();if(!slug||slug==="index")return base;if(slug.endsWith("/index"))return base+slug.slice(0,-6)+"/";return base+slug+".html"};const z2mStaticFolderHref=slug=>{const base=z2mStaticBase();if(!slug)return base;return base+slug.replace(/^\\/+|\\/+$/g,"")+"/"};const z2mNormalizeExplorerLeaves=node=>!node.data||!!(node.children&&node.children.length);`
   if (!script.includes('z2mStaticPageHref')) script = helpers + script
 
   script = script.replace(/(\w+)\.href="\/"\+(\w+)\.slug/g, '$1.href=z2mStaticPageHref($2.slug)')
   script = script.replace(/(\w+)\.href="\/"\+(\w+)\.data\.slug/g, '$1.href=z2mStaticPageHref($2.data.slug)')
   script = script.replace(/(\w+)\.href="\/"\+\((\w+)\|\|""\)/g, '$1.href=z2mStaticFolderHref($2||"")')
   script = script.replace(/new URL\("\/"\+(\w+),window\.location\.origin\)\.toString\(\)/g, 'new URL(z2mStaticPageHref($1),window.location.origin).toString()')
+
+  const folderBranch = /if\((\w+)\.isFolder\)\{/
+  if (!folderBranch.test(script)) throw new Error('Quartz Explorer folder branch was not found for public leaf normalization')
+  script = script.replace(folderBranch, 'if($1.isFolder&&z2mNormalizeExplorerLeaves($1)){')
+
+  script = script.replaceAll('localStorage.getItem("fileTree")', 'null')
+  script = script.replace(/localStorage\.setItem\("fileTree",JSON\.stringify\((\w+)\)\)/g, 'void 0')
 
   await writeFile(scriptPath, script)
 }
@@ -236,21 +244,23 @@ function splitHref(href) {
   return [href.slice(0, index), href.slice(index)]
 }
 
-function staticHrefFor(files, href, pathname) {
-  const clean = pathname.replace(/^\//, '')
-  if (clean === '' && files.includes('index.html')) return href
-  if (files.includes(clean)) return href
-  if (clean.endsWith('/') && files.includes(`${clean}index.html`)) return href
+function canonicalPublicHrefFor(files, href, pathname) {
+  const [, suffix] = splitHref(href)
+  let clean = decodeURIComponent(pathname).replace(/^\//, '')
 
-  const [hrefPath, suffix] = splitHref(href)
-  if (clean.endsWith('.md')) {
-    const htmlClean = clean.replace(/\.md$/i, '.html')
-    if (files.includes(htmlClean)) return `${hrefPath.replace(/\.md$/i, '.html')}${suffix}`
+  if (clean === '' && files.includes('index.html')) return `${PUBLIC_BASE_PATH}${suffix}`
+
+  if (clean.endsWith('.md')) clean = clean.replace(/\.md$/i, '.html')
+  if (!files.includes(clean) && files.includes(`${clean}.html`)) clean = `${clean}.html`
+
+  if (files.includes(clean)) {
+    if (clean === 'index.html') return `${PUBLIC_BASE_PATH}${suffix}`
+    if (clean.endsWith('/index.html')) return `${PUBLIC_BASE_PATH}${clean.slice(0, -'index.html'.length)}${suffix}`
+    return `${PUBLIC_BASE_PATH}${clean}${suffix}`
   }
-  if (files.includes(`${clean}.html`)) return `${hrefPath}.html${suffix}`
 
   const directory = clean.replace(/\/$/, '')
-  if (files.includes(`${directory}/index.html`)) return `${hrefPath.replace(/\/?$/, '/')}${suffix}`
+  if (files.includes(`${directory}/index.html`)) return `${PUBLIC_BASE_PATH}${directory}/${suffix}`
   return null
 }
 
@@ -261,18 +271,29 @@ async function patchPublicHtml(output) {
     let html = await readFile(fullPath, 'utf8')
 
     html = html.replaceAll('data-behavior="link"', 'data-behavior="collapse"')
+    html = html.replaceAll('data-savestate="true"', 'data-savestate="false"')
     html = html.replace(/(<button[^>]*class="title-button explorer-toggle desktop-explorer"[^>]*>[\s\S]*?<h2>)Explorer(<\/h2>)/g, '$1Навигация$2')
     html = html.replaceAll('>Home<', '>Главная<')
+    html = html.replaceAll('<title>Search</title>', '<title>Поиск</title>')
+    html = html.replaceAll('>Search<', '>Поиск<')
+    html = html.replaceAll('aria-label="Search for something"', 'aria-label="Поиск"')
+    html = html.replaceAll('placeholder="Search for something"', 'placeholder="Поиск"')
+    html = html.replaceAll('>Dark mode<', '>Тёмная тема<')
+    html = html.replaceAll('>Light mode<', '>Светлая тема<')
+    html = html.replaceAll('>Reader mode<', '>Режим чтения<')
+    html = html.replace(/>(\d+) min read</g, '>$1 мин чтения<')
     if (!html.includes('id="z2m-public-chrome"')) html = html.replace('</head>', `${PUBLIC_CHROME_STYLE}</head>`)
 
     const base = new URL(`https://public.test/${relativeFile}`)
     html = html.replace(/<a\b([^>]*\bhref="([^"]+)"[^>]*)>([\s\S]*?)<\/a>/gi, (whole, _attributes, href, content) => {
-      if (!href.startsWith('.') || href.startsWith('./#')) return whole
+      if (href.startsWith('./#') || href.startsWith('#')) return whole
+      if (href === PUBLIC_BASE_PATH.slice(0, -1)) return whole.replace(`href="${href}"`, `href="${PUBLIC_BASE_PATH}"`)
+      if (!href.startsWith('.')) return whole
       const target = new URL(href, base)
-      const staticHref = staticHrefFor(files, href, target.pathname)
-      if (staticHref === null) return content
-      if (staticHref === href) return whole
-      return whole.replace(`href="${href}"`, `href="${staticHref}"`)
+      const canonicalHref = canonicalPublicHrefFor(files, href, target.pathname)
+      if (canonicalHref === null) return content
+      if (canonicalHref === href) return whole
+      return whole.replace(`href="${href}"`, `href="${canonicalHref}"`)
     })
 
     await writeFile(fullPath, html)
