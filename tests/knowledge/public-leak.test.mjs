@@ -22,9 +22,11 @@ const FORBIDDEN_PATTERNS = [
   /INTERNAL_ONLY/i,
   /zapret2-internal/i,
   /REQUIRED_USER_INPUT/i,
+  /AGENTS\.md/i,
   /SDD ledger/i,
   /internal handoff/i,
-  /docs\/(09-work|12-ai|07-decisions)\/.*\.md/i,
+  /docs\/(09-work|12-ai)(?:\/|\\)/i,
+  /docs\/07-decisions\/.*\.md/i,
 ]
 
 async function scanDirectory(dir) {
