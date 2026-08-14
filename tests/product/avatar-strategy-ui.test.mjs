@@ -111,7 +111,7 @@ function loadPageWithStubs(calls) {
   const context = {
     baseclass: { extend: value => value },
     EngineGate: { wrap: value => value },
-    Strategy: module('strategy'), Workflow: module('workflow'),
+    Strategy: module('strategy'), Workflow: module('workflow'), Scanner: module('scanner'),
     Auto: module('auto'), Runs: module('runs'),
     E: () => ({ appendChild() {} }),
     _: value => value,
@@ -185,6 +185,7 @@ function loadRecursiveStrategyPage(calls) {
     Workflow: workflowModule,
     Auto: lifecycle('auto'),
     Runs: lifecycle('runs'),
+    Scanner: lifecycle('scanner'),
   }, calls);
   return { pageModule, strategy };
 }
@@ -235,18 +236,18 @@ test('normal Strategy load/render excludes Orchestra Auto and Runs while Advance
   const normalPage = loadPageWithStubs(normalCalls);
   const normalData = await normalPage.load(pageContext(false));
   assert.equal(normalData.mode, 'manual');
-  assert.deepEqual(normalCalls, ['strategy.load']);
+  assert.deepEqual(normalCalls, ['strategy.load', 'scanner.load']);
   const normalRoot = normalPage.render({ ...pageContext(false), data: normalData });
   assert.ok(normalRoot);
-  assert.deepEqual(normalCalls, ['strategy.load', 'strategy.render']);
+  assert.deepEqual(normalCalls, ['strategy.load', 'scanner.load', 'strategy.render', 'scanner.render']);
 
   const advancedCalls = [];
   const advancedPage = loadPageWithStubs(advancedCalls);
   const advancedData = await advancedPage.load(pageContext(true));
   assert.equal(advancedData.mode, 'workflow');
-  assert.deepEqual(advancedCalls, ['workflow.load', 'auto.load', 'runs.load']);
+  assert.deepEqual(advancedCalls, ['workflow.load', 'scanner.load', 'auto.load', 'runs.load']);
   advancedPage.render({ ...pageContext(true), data: advancedData });
-  assert.deepEqual(advancedCalls, ['workflow.load', 'auto.load', 'runs.load', 'workflow.render', 'auto.render', 'runs.render']);
+  assert.deepEqual(advancedCalls, ['workflow.load', 'scanner.load', 'auto.load', 'runs.load', 'workflow.render', 'auto.render', 'runs.render', 'scanner.render']);
 });
 
 test('Advanced modules retain Orchestra mutation authority only behind the page boundary', () => {
@@ -274,7 +275,9 @@ test('actual Advanced workflow reaches Compatibility through the existing Profil
   assert.equal(advancedData.mode, 'workflow');
   const root = advanced.render({ ...advancedContext, data: advancedData });
   assert.ok(root);
-  assert.deepEqual(advancedCalls.slice(0, 2), ['auto.load', 'runs.load']);
+  assert.ok(advancedCalls.includes('scanner.load'));
+  assert.ok(advancedCalls.includes('auto.load'));
+  assert.ok(advancedCalls.includes('runs.load'));
   const tabs = advancedCalls.tabGroups.find(group => group.tabs.some(tab => tab.id === 'compatibility'));
   assert.ok(tabs);
   assert.equal(tabs.active, 'strategies');

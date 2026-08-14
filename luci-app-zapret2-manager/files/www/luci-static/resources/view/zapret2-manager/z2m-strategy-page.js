@@ -5,6 +5,7 @@
 'require view.zapret2-manager.z2m-strategy-workflow as Workflow';
 'require view.zapret2-manager.z2m-auto as Auto';
 'require view.zapret2-manager.z2m-runs as Runs';
+'require view.zapret2-manager.z2m-scanner as Scanner';
 
 function object(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
@@ -39,7 +40,7 @@ function load(ctx) {
   var isAdvanced = advanced(ctx);
   var mode = isAdvanced ? 'workflow' : 'manual';
   var primary = primaryModule(mode);
-  var requests = [primary.load(ctx)];
+  var requests = [primary.load(ctx), Scanner.load(ctx)];
   if (isAdvanced) {
     requests.push(Auto.load(ctx), Runs.load(ctx));
   }
@@ -47,8 +48,9 @@ function load(ctx) {
     return {
       mode: mode,
       primary: settled(results[0], ctx.api),
-      auto: isAdvanced ? settled(results[1], ctx.api) : null,
-      runs: isAdvanced ? settled(results[2], ctx.api) : null
+      scanner: settled(results[1], ctx.api),
+      auto: isAdvanced ? settled(results[2], ctx.api) : null,
+      runs: isAdvanced ? settled(results[3], ctx.api) : null
     };
   });
 }
@@ -64,6 +66,7 @@ function render(ctx) {
     root.appendChild(Auto.render(ctx, data.auto));
     root.appendChild(Runs.render(ctx, data.runs));
   }
+  root.appendChild(Scanner.render(Object.assign({}, ctx, { data: object(data.scanner && data.scanner.value) })));
   return root;
 }
 
@@ -72,6 +75,7 @@ function mount(ctx) {
   var primary = primaryModule(data.mode);
   if (!data.primary || !data.primary.error)
     primary.mount(primaryContext(ctx, data.primary));
+  Scanner.mount(Object.assign({}, ctx, { data: object(data.scanner && data.scanner.value) }));
 }
 
 function unmount() {
@@ -79,6 +83,7 @@ function unmount() {
   Workflow.unmount();
   Auto.unmount();
   Runs.unmount();
+  Scanner.unmount();
 }
 
 function createAdapter(api) {

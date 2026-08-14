@@ -669,8 +669,8 @@ function scanner_cleanup_request(tmp) {
 }
 
 function scanner_tmpfile() {
-	let command = 'umask 077; mkdir -p -- ' + shell_escape(SCANNER_REQUEST_ROOT)
-		+ ' && chmod 700 -- ' + shell_escape(SCANNER_REQUEST_ROOT)
+	let command = 'umask 077; mkdir -- ' + shell_escape(SCANNER_REQUEST_ROOT)
+		+ ' 2>/dev/null || test -d ' + shell_escape(SCANNER_REQUEST_ROOT)
 		+ ' && mktemp ' + shell_escape(SCANNER_REQUEST_ROOT + '/scanner-rpc.XXXXXX.json') + ' 2>/dev/null';
 	let p = null, output = '', rc = -1;
 	try { p = popen(command, 'r'); } catch (e) { p = null; }

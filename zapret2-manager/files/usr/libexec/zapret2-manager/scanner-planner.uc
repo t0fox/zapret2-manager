@@ -137,7 +137,7 @@ function request_normalize(input) {
 	if (dpi == null) dpi = null;
 	else {
 		if (!is_string(dpi)) return error_result('EINPUT', 'Scanner dpi_type must be bounded text.', 'dpi_type');
-		dpi = lower(trim_ws(dpi));
+		dpi = trim_ws(dpi);
 		if (dpi == '') dpi = null;
 		else if (length(dpi) > 64) return error_result('EINPUT', 'Scanner dpi_type has invalid bounded syntax.', 'dpi_type');
 		else for (let i = 0; i < length(dpi); i++) {
@@ -146,6 +146,7 @@ function request_normalize(input) {
 				|| (i > 0 && (code == 45 || code == 95))))
 				return error_result('EINPUT', 'Scanner dpi_type has invalid bounded syntax.', 'dpi_type');
 		}
+		if (dpi != null) dpi = lower(dpi);
 	}
 	return { ok: true, value: { target: target, protocol: protocol, mode: mode, resume: resume, dpi_type: dpi } };
 }
