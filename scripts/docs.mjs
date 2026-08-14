@@ -158,6 +158,7 @@ async function applyConfig(mode) {
   let config = await readFile(source, 'utf8')
   config = config.replace(/^  pageTitle:.*$/m, `  pageTitle: "zapret2-manager${mode === 'internal' ? ' (internal)' : ''}"`)
   config = config.replace(/^  baseUrl:.*$/m, `  baseUrl: "${mode === 'internal' ? 'localhost' : 't0fox.github.io/zapret2-manager'}"`)
+  config = config.replace(/^  locale:.*$/m, `  locale: ${mode === 'public' ? 'ru-RU' : 'en-US'}`)
   config = config.replace(
     /(source: github:quartz-community\/explicit-publish\r?\n\s+enabled:) false/,
     `$1 ${mode === 'public' ? 'true' : 'false'}`,
@@ -192,24 +193,30 @@ async function listOutputFiles(dir, prefix = '') {
   return files
 }
 
-function outputTargetExists(files, pathname) {
+function splitHref(href) {
+  const index = href.search(/[?#]/)
+  if (index === -1) return [href, '']
+  return [href.slice(0, index), href.slice(index)]
+}
+
+function staticHrefFor(files, href, pathname) {
   const clean = pathname.replace(/^\//, '')
-  if (files.includes(clean)) return true
-  if (files.includes(`${clean}.html`)) return true
-  if (files.includes(`${clean.replace(/\/$/, '')}/index.html`)) return true
-  if (clean === '' && files.includes('index.html')) return true
+  if (clean === '' && files.includes('index.html')) return href
+  if (files.includes(clean)) return href
+  if (clean.endsWith('/') && files.includes(`${clean}index.html`)) return href
 
-  // Handle Markdown links that point to .md but generate .html
+  const [hrefPath, suffix] = splitHref(href)
   if (clean.endsWith('.md')) {
-    const htmlVersion = clean.replace(/\.md$/, '.html')
-    if (files.includes(htmlVersion)) return true
+    const htmlClean = clean.replace(/\.md$/i, '.html')
+    if (files.includes(htmlClean)) return `${hrefPath.replace(/\.md$/i, '.html')}${suffix}`
   }
-  if (clean.endsWith('.md/')) {
-    const htmlIndex = clean.replace(/\.md\/$/, '.html')
-    if (files.includes(htmlIndex)) return true
-  }
+  if (files.includes(`${clean}.html`)) return `${hrefPath}.html${suffix}`
 
-  return false
+  const directory = clean.replace(/\/$/, '')
+  if (files.includes(`${directory}/index.html`)) {
+    return `${hrefPath.replace(/\/?$/, '/')}${suffix}`
+  }
+  return null
 }
 
 async function patchPublicInternalLinks(output) {
@@ -218,10 +225,13 @@ async function patchPublicInternalLinks(output) {
     const fullPath = path.join(output, relativeFile)
     const html = await readFile(fullPath, 'utf8')
     const base = new URL(`https://public.test/${relativeFile}`)
-    const sanitized = html.replace(/<a\b([^>]*\bhref="([^"]+)"[^>]*)>([\s\S]*?)<\/a>/gi, (whole, attributes, href, content) => {
+    const sanitized = html.replace(/<a\b([^>]*\bhref="([^"]+)"[^>]*)>([\s\S]*?)<\/a>/gi, (whole, _attributes, href, content) => {
       if (!href.startsWith('.') || href.startsWith('./#')) return whole
       const target = new URL(href, base)
-      return outputTargetExists(files, target.pathname) ? whole : content
+      const staticHref = staticHrefFor(files, href, target.pathname)
+      if (staticHref === null) return content
+      if (staticHref === href) return whole
+      return whole.replace(`href="${href}"`, `href="${staticHref}"`)
     })
     if (sanitized !== html) await writeFile(fullPath, sanitized)
   }
