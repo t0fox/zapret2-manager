@@ -34,7 +34,9 @@ const FORBIDDEN_PUBLIC_PATH_PREFIXES = [
   '05-parity/',
   '07-decisions/',
   '09-work/',
+  '10-research/',
   '12-ai/',
+  '90-templates/',
   '99-archive/',
   '02-architecture/traceability/',
   '02-architecture/atomic-write-json-v1-design',
@@ -154,11 +156,12 @@ test('public Quartz runtime uses the Pages subpath for content index data', asyn
   assert.match(postscript, /location\.pathname\.match/)
 })
 
-test('public runtime does not regenerate root extensionless navigation links', async () => {
+test('public runtime does not regenerate root or extensionless navigation URLs', async () => {
   const publicDir = await findPublicDir()
   assert.ok(publicDir, `Public build output is required at ${PUBLIC_DIR}`)
   const postscript = await readFile(path.join(publicDir, 'postscript.js'), 'utf8')
   assert.doesNotMatch(postscript, /\.href="\/"\+/)
+  assert.doesNotMatch(postscript, /new URL\("\/"\+/)
   assert.match(postscript, /z2mStaticPageHref/)
   assert.match(postscript, /z2mStaticFolderHref/)
 })
