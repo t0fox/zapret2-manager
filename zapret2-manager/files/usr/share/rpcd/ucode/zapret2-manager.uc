@@ -23,6 +23,7 @@
 // does not register at all.
 
 import { stat, readfile, writefile, unlink, readlink, popen } from 'fs';
+import { route_list, route_reconcile } from '/usr/libexec/zapret2-manager/unified-routing.uc';
 
 const STATUS_JSON = '/tmp/zapret2-manager/status.json';
 const COLLECTOR   = '/usr/libexec/zapret2-manager/status.uc';
@@ -176,6 +177,45 @@ function assets_update_method(req) { let args = asset_args(req); return args && 
 function assets_register_builtin_method(req) { return asset_edit_action('register-builtin', req); }
 function assets_references_method(req) { return asset_edit_action('references', req); }
 function assets_resolve_method(req) { return asset_edit_action('resolve', req); }
+
+// ---- M6 bounded unified routing -------------------------------------------
+// Route operations receive one bounded JSON request file. The Route owner
+// validates typed asset references and delegates runtime mutation to the
+// existing service-DNS writer; rpcd never accepts shell, nft, UCI, or paths.
+const ROUTE_CLI = '/usr/libexec/zapret2-manager/unified-routing-cli.uc';
+function route_tmpfile() {
+	let p = popen('umask 077; mktemp /tmp/z2m-route-edit.XXXXXX 2>/dev/null', 'r');
+	if (!p) return null;
+	let path = trim(p.read('all') || ''), rc = p.close();
+	return rc == 0 && index(path, '/tmp/z2m-route-edit.') == 0 ? path : null;
+}
+function route_edit_action(mode, req) {
+	let edit = null;
+	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
+	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
+	if (type(edit) != 'string' || length(edit) == 0 || length(edit) > 256 * 1024)
+		return { ok: false, error: { code: 'EINPUT', message: 'route edit must be a bounded JSON string' } };
+	let tmp = route_tmpfile();
+	if (tmp == null) return { ok: false, error: { code: 'ETARGET', message: 'route request temp file unavailable' } };
+	try { writefile(tmp, edit); } catch (e) { try { unlink(tmp); } catch (x) {} return { ok: false, error: { code: 'EIO', message: 'route request temp file could not be written' } }; }
+	let command = '/usr/bin/ucode ' + ROUTE_CLI + ' ' + mode + ' ' + shell_escape(tmp) + ' 2>/dev/null';
+	let p = popen(command, 'r');
+	if (!p) { try { unlink(tmp); } catch (e) {} return { ok: false, error: { code: 'ETARGET', message: 'route owner unavailable' } }; }
+	let output = p.read('all') || '', rc = p.close();
+	try { unlink(tmp); } catch (e) {}
+	try { let result = json(output); return result != null ? result : { ok: false, error: { code: rc == 0 ? 'EINTERNAL' : 'ECHILD', message: 'route owner returned no response' } }; }
+	catch (e) { return { ok: false, error: { code: rc == 0 ? 'EINTERNAL' : 'ECHILD', message: 'route owner response was malformed' } }; }
+}
+function route_list_method(req) { return route_list(); }
+function route_get_method(req) { return route_edit_action('get', req); }
+function route_create_method(req) { return route_edit_action('create', req); }
+function route_update_method(req) { return route_edit_action('update', req); }
+function route_preview_method(req) { return route_edit_action('preview', req); }
+function route_validate_method(req) { return route_edit_action('validate', req); }
+function route_apply_method(req) { return route_edit_action('apply', req); }
+function route_status_method(req) { return route_edit_action('status', req); }
+function route_remove_method(req) { return route_edit_action('remove', req); }
+function route_reconcile_method(req) { return route_reconcile(); }
 
 // ---- profiles methods (strategy read path — SLICE 1) -----------------------
 const PROFILES_CLI = '/usr/libexec/zapret2-manager/profiles-cli.uc';
@@ -930,6 +970,16 @@ return {
 		assets_register_builtin: { args: { edit: 'string' }, call: function (req) { return assets_register_builtin_method(req); } },
 		assets_delete:     { args: { edit: 'string' }, call: function (req) { return assets_delete_method(req); } },
 		assets_references: { args: { edit: 'string' }, call: function (req) { return assets_references_method(req); } },
+		route_list:        { call: function (req) { return route_list_method(req); } },
+		route_get:         { args: { edit: 'string' }, call: function (req) { return route_get_method(req); } },
+		route_create:      { args: { edit: 'string' }, call: function (req) { return route_create_method(req); } },
+		route_update:      { args: { edit: 'string' }, call: function (req) { return route_update_method(req); } },
+		route_preview:     { args: { edit: 'string' }, call: function (req) { return route_preview_method(req); } },
+		route_validate:    { args: { edit: 'string' }, call: function (req) { return route_validate_method(req); } },
+		route_apply:       { args: { edit: 'string' }, call: function (req) { return route_apply_method(req); } },
+		route_status:      { args: { edit: 'string' }, call: function (req) { return route_status_method(req); } },
+		route_remove:      { args: { edit: 'string' }, call: function (req) { return route_remove_method(req); } },
+		route_reconcile:   { call: function (req) { return route_reconcile_method(req); } },
 		profiles_list:     { call: function (req) { return profiles_list_method(req); } },
 		profiles_create:   { args: { edit: 'string' }, call: function (req) { return profiles_create_method(req); } },
 		profiles_update:   { args: { edit: 'string' }, call: function (req) { return profiles_update_method(req); } },

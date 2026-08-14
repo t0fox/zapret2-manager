@@ -62,7 +62,9 @@ tags: [home, documentation, openwrt]
 
 ## DNS, routing и assets
 
-[DNS, routing и assets](./03-products/dns-routing-assets.md) разделяет то, что уже существует, и будущий aggregate routing product. Текущий manager имеет реальный DNS/list/domain substrate и отдельный proxy lifecycle, но ещё не заявляет unified Destination/Route model или полную tunnel family.
+[DNS, routing и assets](./03-products/dns-routing-assets.md) разделяет существующий substrate и границы aggregate routing product. Текущий manager имеет реальный DNS/list/domain substrate, первый M6 Route/service-DNS vertical и отдельный proxy lifecycle, но ещё не полную tunnel family.
+
+Первый backend slice M6 описан в [Unified Routing](./03-products/unified-routing.md): он покрывает typed domain assets и delegated service-DNS method, но не tunnel/CIDR/ipset consumers и не automatic failover.
 
 ## Как проект доказывает готовность
 
@@ -91,6 +93,7 @@ tags: [home, documentation, openwrt]
 - [Сканер (Scanner)](./03-products/scanner/index.md)
 - [Lifecycle Scanner](./03-products/scanner/lifecycle.md)
 - [DNS, routing и assets](./03-products/dns-routing-assets.md)
+- [Unified Routing M6](./03-products/unified-routing.md)
 - [Устранение неполадок](./11-operations/troubleshooting.md)
 - [Разработка](./08-development/index.md)
 - [Доказательства и тестирование](./08-development/evidence-testing.md)

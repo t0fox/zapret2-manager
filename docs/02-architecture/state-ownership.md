@@ -137,6 +137,7 @@ Snapshot — это точка восстановления, созданная 
 | Scanner | Scanner state/worker/A1 transient lifecycle | временное + evidence | постоянный Strategy writer |
 | Jobs | jobs/core job state | durable operation state | конкретная вкладка браузера |
 | DNS | DNS/service-DNS owner | постоянное scope state | общий UI coordinator |
+| Unified Routing | M6 Route owner + delegated service-DNS writer | durable Route, revision, journal, exact delegated scope | LuCI, direct UCI/dnsmasq/nft writes |
 | Orchestra | Orchestra run/evidence lifecycle | run/evidence | Scanner identity |
 | Runtime nfqws2 | upstream runtime + manager verification | наблюдаемое runtime state | кеш LuCI |
 

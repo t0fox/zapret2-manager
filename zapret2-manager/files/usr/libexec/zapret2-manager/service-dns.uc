@@ -11,8 +11,8 @@ const JOBS_DIR = '/tmp/zapret2-manager/service-dns-jobs';
 const LOCK_FILE = '/tmp/zapret2-manager/service-dns-apply.lock';
 const LEGACY_FRAGMENT = '/etc/zapret2-manager/service-dns-routing.d/10-routing.conf';
 
-function run(cmd) { if (substr(cmd, 0, 12) == 'mkdir-child ') return { out: '', rc: create_job_dir(substr(cmd, 12)) ? 0 : 1 }; let p = popen(cmd + ' 2>&1', 'r'); if (!p) return { out: '', rc: -1 }; let out = p.read('all') || ''; return { out: out, rc: p.close() }; }
 function create_job_dir(dir) { try { mkdir(JOBS_DIR); } catch (e) {} try { mkdir(dir); } catch (e) {} return stat(dir) != null; }
+function run(cmd) { if (substr(cmd, 0, 12) == 'mkdir-child ') return { out: '', rc: create_job_dir(substr(cmd, 12)) ? 0 : 1 }; let p = popen(cmd + ' 2>&1', 'r'); if (!p) return { out: '', rc: -1 }; let out = p.read('all') || ''; return { out: out, rc: p.close() }; }
 
 function now() { return trim(run('date -u +%Y-%m-%dT%H:%M:%SZ').out); }
 function err(code, message, extra) { let out = { ok: false, error: { code: code, message: message } }; for (let k in extra || {}) out[k] = extra[k]; return out; }

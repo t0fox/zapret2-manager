@@ -74,6 +74,7 @@ define Package/zapret2-manager/conffiles
 /etc/zapret2-manager/engine-provider.json
 /etc/zapret2-manager/blockcheck-domains.json
 /etc/zapret2-manager/asset-registry.json
+/etc/zapret2-manager/routes.json
 endef
 
 define Package/zapret2-manager/install
@@ -104,6 +105,13 @@ fi
 if [ ! -e /etc/zapret2-manager/strategy-state.json ] && [ ! -L /etc/zapret2-manager/strategy-state.json ]; then
   printf '%s\n' '{"schema":1,"revision":0,"favorites":[],"selected":null}' \
     | install -o root -g root -m 0600 /dev/stdin /etc/zapret2-manager/strategy-state.json || exit $$?
+fi
+if [ ! -e /etc/zapret2-manager/routes.json ] && [ ! -L /etc/zapret2-manager/routes.json ]; then
+  printf '%s\n' '{"schema":1,"revision":0,"routes":[]}' \
+    | install -o root -g root -m 0600 /dev/stdin /etc/zapret2-manager/routes.json || exit $$?
+fi
+if [ ! -e /etc/zapret2-manager/routes-journal ] && [ ! -L /etc/zapret2-manager/routes-journal ]; then
+  install -d -o root -g root -m 0700 /etc/zapret2-manager/routes-journal || exit $$?
 fi
 if [ -x /usr/bin/ucode ] && [ -x /usr/libexec/zapret2-manager/asset-registry-package-init.uc ]; then
   if [ ! -e /etc/zapret2-manager/assets ] && [ ! -L /etc/zapret2-manager/assets ]; then

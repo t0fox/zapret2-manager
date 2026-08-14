@@ -11,7 +11,7 @@ tags: [dns, routing, assets, lists, tunnels]
 
 # DNS, routing и assets: что уже есть и чего не хватает
 
-В zapret2-manager уже существует несколько сильных сетевых подсистем — DNS provider, global/manual DNS, service-DNS, domain hub, lists/catalog и optional proxy provider. Но эти компоненты нельзя автоматически называть **unified routing**. Они решают отдельные задачи и пока не образуют единую Avatar-like модель `Destination → selectors → primary method → fallbacks`.
+В zapret2-manager уже существует несколько сильных сетевых подсистем — DNS provider, global/manual DNS, service-DNS, domain hub, lists/catalog и optional proxy provider. M6 теперь добавляет первый backend vertical unified routing поверх этих owners; это ещё не полная Avatar-like family методов.
 
 Эта страница показывает зависимость между тремя слоями: **данные/assets**, **DNS/domain decisions** и **routing/tunnel methods**.
 
@@ -112,9 +112,11 @@ Method
 
 Каждый Route должен иметь revision/state, Preview, Apply/Remove, status и точный resource ownership. Без этого routing превращается в набор несогласованных side effects.
 
-## Почему routing пока MISSING в parity
+## Что доказано в M6
 
-Текущие DNS, lists и proxy capabilities полезны, но у них нет общей durable Destination/Route model. Поэтому parity честно остаётся `MISSING` для unified routing.
+`Route` теперь имеет durable identity/revision, typed M2 asset selectors, ordered methods, Preview/Validate/Apply/Status/Remove/Reconcile и exact delegated ownership. Первый real method — service-DNS; он делегирует mutation существующему service-DNS writer. Подробный контракт описан на странице [Unified Routing M6](./unified-routing.md).
+
+Это означает **PARTIAL**, а не полную parity: нет device/CIDR/ipset/geosite/geoip consumers, tunnel methods и автоматического failover.
 
 Это не означает, что «ничего сетевого нет». Наоборот, foundation уже богатый. Просто **существование отдельных сетевых функций не доказывает aggregate product contract**.
 
@@ -176,7 +178,7 @@ unknown → diagnostic result без опасной mutation
 | Service DNS/domain flow | CURRENT / PARTIAL parity | owner и worker существуют; cross-routing неполон |
 | Domain/lists | CURRENT / PARTIAL parity | полезный substrate, но не полный universal registry |
 | Lua/blob/IP-set/geosite/geoip registry | PLANNED / MISSING parity | нет законченных owners/consumers |
-| Unified routing | PLANNED / MISSING parity | aggregate Route model не доказана |
+| Unified routing | CURRENT / PARTIAL parity | M6 service-DNS vertical доказан; остальные consumers и methods не входят в slice |
 | Telegram proxy | CURRENT / PARTIAL parity | отдельный provider, не вся tunnel family |
 | WARP/usque и другие tunnels | PLANNED / MISSING parity | требуют routing/resource foundation |
 

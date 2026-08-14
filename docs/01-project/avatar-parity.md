@@ -129,17 +129,17 @@ M5 добавляет отдельный one-shot BlockCheck model, lifecycle, e
 
 **DNS: PARTIAL.** В manager существуют DNS provider, manual/global DNS, service-DNS и domain/list-related slices. Это реальный substrate, но per-domain routing/remediation и точное совпадение provider/default/result semantics с Avatar ещё неполны.
 
-**Lists/assets: PARTIAL + MISSING.** Host/domain lists и catalog data существуют, но полноценные registries для Lua, blob, IP-set, geosite/geoip и связанных selector assets отсутствуют как единая продуктовая модель.
+**Lists/assets: PARTIAL.** M2 уже даёт typed registries для stable identity, hash/revision/provenance и references. Полная Avatar parity всё ещё требует дополнительных live consumers и полного coverage Lua/blob/IP-set/geosite/geoip semantics.
 
-Canonical asset registries остаются **NEXT / PARALLEL PLANNED**: существующий substrate сам по себе не доказывает, что реализация M2 registry model уже начата.
+Canonical asset registries имеют статус **CURRENT / PARTIAL**: базовый M2 owner реализован, но не каждый schema type подключён к живому product consumer-у.
 
 Эти registries — не декоративная «страница файлов». На них зависят Strategy dependencies и будущий routing selector model.
 
 ## Unified routing
 
-**Статус: MISSING.** Avatar имеет aggregate model вида Destination/selectors → primary method → ordered fallbacks → monitoring/failover. В текущем manager нет законченного владельца этой модели.
+**Статус: PARTIAL.** M6 добавляет законченного владельца Route aggregate для typed hostlist/hosts selectors и service-DNS method: Destination/selectors → primary method → ordered fallbacks, revision, ownership и reconciliation. Avatar-like monitoring/failover и остальные runtime consumers ещё не реализованы.
 
-Проблема не решается добавлением нескольких nft-правил. Для parity нужны durable selectors, CRUD/Preview/Apply/remove, device/list/geosite/geoip linkage, health state и ownership ресурсов.
+Для полной parity всё ещё нужны device/list/ipset/geosite/geoip linkage, tunnel methods, health state и automatic failover. M6 намеренно не добавляет несколько nft-правил и не создаёт второй writer DNS resources.
 
 В исходном parity contract отдельно существуют пользовательские решения по cyclic fallback behavior и фактическому смыслу route priority. Пока решение не принято, документация не должна выдумывать желаемое поведение.
 
@@ -173,9 +173,9 @@ GUI self-update является примером `INTENTIONAL_DEVIATION`: OpenW
 
 ## Главные блокеры parity
 
-1. Создать канонические registries для Lua/blob/IP-set/geosite/geoip и связанных assets.
+1. Расширить M2 registries живыми consumers для Lua/blob/IP-set/geosite/geoip и связанных assets.
 2. Разделить и закончить BlockCheck и BlockCheck2 capabilities.
-3. Ввести unified routing с Destination/selectors, primary/fallback methods и ownership.
+3. Расширить M6 unified routing следующими live methods/consumers поверх уже доказанного Route ownership.
 4. Построить tunnel lifecycle поверх routing foundation.
 5. Только после этого связывать classifier, DNS, Scanner и tunnels в auto-remediation.
 

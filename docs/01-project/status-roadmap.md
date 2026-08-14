@@ -33,7 +33,7 @@ tags: [project, status, roadmap, evidence]
 
 ```text
 [M1 COMPLETE] Native foundation
-   ├── [M2 NEXT / PARALLEL PLANNED] Canonical asset registries ───┐
+   ├── [M2 CURRENT / PARTIAL] Canonical asset registries ──────────┐
    │                                                              │
    └── [M3 COMPLETE] Scanner provider/lifecycle                    │
              ↓                                                     │
@@ -41,7 +41,7 @@ tags: [project, status, roadmap, evidence]
              ↓                                                     │
         [M5 CURRENT / IN PROGRESS] BlockCheck family               │
              ↓                                                     │
-        [M6 PLANNED] Unified routing ←──────────────────────────────┘
+        [M6 CURRENT / PARTIAL] Unified routing ←────────────────────┘
              ↓       ↓
      [M7 PLANNED]   [M8 FUTURE] WARP/usque
        DNS/lists          ↓
@@ -54,7 +54,7 @@ tags: [project, status, roadmap, evidence]
 M12 Documentation — непрерывный слой над M1–M11
 ```
 
-M2 остаётся параллельной foundation-веткой для последующих asset/routing consumers. Текущий следующий product milestone после закрытых M3/M4 — M5 BlockCheck family.
+M2 typed asset registry уже является foundation для routing consumers; расширение live consumers остаётся параллельной работой. M6 использует stable hostlist/hosts identity и делегирует runtime owner-у service-DNS.
 
 ## M1 — Native foundation
 
@@ -72,13 +72,13 @@ M2 остаётся параллельной foundation-веткой для по
 
 ## M2 — Canonical asset registries
 
-**Статус: NEXT / PARALLEL PLANNED.** Это параллельная foundation-работа, но на current baseline не доказано, что реализация именно canonical asset registries уже началась. Существующие lists/catalog/domain data, asset helpers и preflight — полезный substrate, но не считаются самим M2 registry model.
+**Статус: CURRENT / PARTIAL.** M2 registry model реализует typed stable IDs, hash/revision/provenance, bounded CRUD/resolve и consumer references. Полный набор живых consumers для каждого schema type ещё не закрыт.
 
-**Сейчас.** В manager есть lists/catalog/domain data и preflight, умеющий проверять часть внешних зависимостей. Полного registry layer со стабильной identity/provenance/consumers пока нет.
+**Сейчас.** Registry layer является backend owner-ом для typed assets, включая package-owned ipset и manager-owned hostlist/hosts. `geosite`/`geoip` остаются schema slots без live routing consumer-а.
 
 **Зависимости.** M1 state/ownership, безопасные paths/atomic writes, package provenance.
 
-**Следующий срез.** Вводить registries по одному домену: Lua, blob, IP-set, затем geosite/geoip/hosts, не создавая один безразмерный «файловый менеджер».
+**Следующий срез.** Подключать дополнительные live consumers по одному домену, сохраняя typed references и не превращая registry в произвольный файловый менеджер.
 
 **Критерий завершения.** Каждый asset имеет owner, стабильный ID, hash/provenance, bounded CRUD/read contract и явные ссылки из Strategy/Scanner/routing consumers.
 
@@ -126,17 +126,17 @@ M2 остаётся параллельной foundation-веткой для по
 
 ## M6 — Unified routing
 
-**Сейчас.** Полного Avatar-like aggregate `Destination/selectors → primary method → ordered fallbacks` нет. Существующие DNS/list/proxy/network pieces нельзя объявлять unified routing только потому, что они уже изменяют отдельные сетевые объекты.
+**Сейчас.** M6 реализует первый backend vertical aggregate `Route: selectors → primary method → ordered fallbacks` поверх service-DNS writer. Полной Avatar-like family ещё нет: существующие DNS/list/proxy/network pieces нельзя автоматически считать всеми routing methods.
 
-**В работе.** Нужна одна durable модель selectors и методов с single-writer ownership.
+**В работе.** Durable Route/CAS/ownership path есть для typed hostlist/hosts selectors и service-DNS method; остаются дополнительные live consumers, tunnel methods и failover policy.
 
 **Зависимости.** M2 registries, device/list selectors, DNS cross-flow, безопасные runtime resource owners.
 
-**Следующий срез.** Реализовать schema/selectors и один минимальный method path с Preview/Apply/remove прежде, чем добавлять много tunnels.
+**Следующий срез.** Доказать target-router install/runtime rollback для M6 service-DNS vertical, затем добавлять следующий method только вместе с его owner/consumer.
 
 **Критерий завершения.** Route durable/revisioned, имеет Preview, Apply, Remove и Status, а mutation затрагивает только принадлежащие manager ресурсы.
 
-**Доказательства.** Routing compiler/ownership tests, nft/ipset/dnsmasq fixtures, target Apply/rollback.
+**Доказательства.** `tests/product/unified-routing.test.mjs`, target ucode/RPC smoke, service-DNS delegated Apply/Remove and foreign/orphan reconciliation. nft/ipset/tunnel fixtures остаются будущим scope.
 
 ## M7 — DNS/lists/routing cross-flow
 
@@ -226,6 +226,6 @@ M2 остаётся параллельной foundation-веткой для по
 
 Milestone становится `COMPLETE` только на основании проверяемой вертикали и evidence соответствующего уровня. Статус относится к указанному baseline: завершённый milestone может дальше эволюционировать, а любое изменение его contract требует повторной проверки релевантных gates.
 
-На current verified baseline M3 Scanner и M4 Scanner → Strategy handoff закрыты. Текущий product focus — M5 BlockCheck family; M2 canonical asset registries остаётся параллельной planned foundation-работой. M6–M11 сохраняют прежний порядок и scope.
+На current verified baseline M3 Scanner и M4 Scanner → Strategy handoff закрыты; M2 имеет current typed registry slice, а M6 — первый service-DNS routing vertical. Остальные M6 methods/consumers и M7–M11 сохраняют прежний порядок и scope.
 
 Связанные страницы: [Avatar parity](./avatar-parity.md), [Lifecycle Scanner](../03-products/scanner/lifecycle.md), [Lifecycle Strategy](../03-products/strategy/lifecycle.md), [Доказательства и тестирование](../08-development/evidence-testing.md), [Актуальность документации](../08-development/docs-freshness.md).
