@@ -21,7 +21,7 @@ const REQUIRED = [
   ['03-products/scanner/family.html', 350, ['Scanner', 'BlockCheck', 'BlockCheck2']],
   ['03-products/blockcheck/index.html', 80, ['BlockCheck', 'Планируется']],
   ['03-products/deep-search/index.html', 80, ['Deep Search', 'Планируется']],
-  ['03-products/dns-routing-assets.html', 400, ['DNS', 'routing', 'assets', 'регист']],
+  ['03-products/dns-routing-assets.html', 400, ['DNS', 'routing', 'assets', 'registr']],
   ['11-operations/installation.html', 250, ['Установка', 'OpenWrt']],
   ['11-operations/first-run.html', 250, ['Первый запуск', 'LuCI']],
   ['11-operations/troubleshooting.html', 180, ['Устранение неполадок', 'диагностик']],
