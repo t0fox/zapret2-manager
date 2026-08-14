@@ -66,6 +66,41 @@ function walkFiles(entries) {
   return files;
 }
 
+function isWindowsDrivePath(value) {
+  return /^[A-Za-z]:[\\/]/.test(value);
+}
+
+function windowsPathToWsl(value) {
+  const drive = value[0].toLowerCase();
+  const tail = value.slice(2).replaceAll('\\', '/');
+  return `/mnt/${drive}${tail.startsWith('/') ? '' : '/'}${tail}`;
+}
+
+function resolveGitPath(base, value) {
+  if (isWindowsDrivePath(value))
+    return process.platform == 'win32' ? path.normalize(value) : windowsPathToWsl(value);
+  if (path.isAbsolute(value))
+    return value;
+  return path.resolve(base, value);
+}
+
+function resolveGitDirs(cwd = process.cwd()) {
+  const gitEntry = path.join(cwd, '.git');
+  const stat = fs.statSync(gitEntry);
+  const gitDir = stat.isDirectory()
+    ? gitEntry
+    : (() => {
+        const match = /^gitdir:\s*(.+)$/m.exec(fs.readFileSync(gitEntry, 'utf8'));
+        assert.ok(match, `${gitEntry} must declare a gitdir`);
+        return resolveGitPath(path.dirname(gitEntry), match[1].trim());
+      })();
+  const commondirPath = path.join(gitDir, 'commondir');
+  const commonDir = fs.existsSync(commondirPath)
+    ? resolveGitPath(gitDir, fs.readFileSync(commondirPath, 'utf8').trim())
+    : gitDir;
+  return { gitDir, commonDir };
+}
+
 test('native production and tests contain no Windows or WSL execution', () => {
   const files = walkFiles(['tests/native', 'zapret2-manager/files', 'scripts/test']);
   for (const file of files) {
@@ -484,13 +519,14 @@ test('Task 4 broker evidence binds clean tracked inputs and compiled target mark
 test('Task 4 source hashes bind the recorded executed input commit blobs', () => {
   const commit = /^Executed input commit: ([0-9a-f]{40})$/m.exec(brokerEvidence)?.[1];
   assert.ok(commit, 'evidence must record an executed input commit');
+  const { commonDir } = resolveGitDirs();
   for (const [label, file] of [
     ['C server source', 'tests/native/core/z2m-helperd-spike.c'],
     ['ucode client source', 'tests/native/core/native-helper-broker-spike.uc'],
     ['Node harness source', 'tests/native/core/native-helper-broker-spike.test.mjs'],
     ['child fixture source', 'tests/native/core/native-helper-broker-child.c'],
   ]) {
-    const blob = spawnSync('git', ['-c', `safe.directory=${process.cwd()}`, 'show', `${commit}:${file}`], {
+    const blob = spawnSync('git', ['--git-dir', commonDir, 'show', `${commit}:${file}`], {
       encoding: null,
     });
     assert.equal(blob.status, 0, `cannot read ${file} from ${commit}: ${blob.stderr}`);

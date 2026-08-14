@@ -337,12 +337,10 @@ cleanup_internal() {
 		return 0
 	fi
 	process_removed=true; firewall_removed=true; nfqueue_removed=true; hostlist_removed=true; temporary_removed=true; owned_only=true; evidence=complete
-	if [ -r "$HELPER_PID_FILE" ]; then
-		if [ -r "$OWNERSHIP_FILE" ]; then
-			owned_record=$(cat "$OWNERSHIP_FILE" 2>/dev/null | tr -d '\n' || true)
-			operation_id=$(printf '%s' "$owned_record" | cut -d '|' -f4)
-			operation_nonce=$(printf '%s' "$owned_record" | cut -d '|' -f5)
-		fi
+	if [ -r "$OWNERSHIP_FILE" ]; then
+		owned_record=$(cat "$OWNERSHIP_FILE" 2>/dev/null | tr -d '\n' || true)
+		operation_id=$(printf '%s' "$owned_record" | cut -d '|' -f4)
+		operation_nonce=$(printf '%s' "$owned_record" | cut -d '|' -f5)
 		table_name=$(sed -n 's/^table=//p' "$HELPER_TRANSPORT_FILE" 2>/dev/null || true)
 		helper_record=$(cat "$HELPER_PID_FILE" 2>/dev/null | tr -d '\n' || true)
 		helper_pid=${helper_record%%|*}

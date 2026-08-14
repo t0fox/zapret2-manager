@@ -7,10 +7,12 @@ import { fileURLToPath } from 'node:url';
 import { ucodeDiagnostic, ucodeModulePattern } from '../native/core/ucode-test-harness.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const TRANSIENT = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-transient.uc');
+const TRANSIENT = process.env.Z2M_TEST_TRANSIENT_PATH ??
+  path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-transient.uc');
 const APPLY = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/apply.uc');
 const PROFILES_APPLY = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/profiles-apply.uc');
-const RUNTIME_ADAPTER = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-runtime-adapter.sh');
+const RUNTIME_ADAPTER = process.env.Z2M_TEST_RUNTIME_ADAPTER_PATH ??
+  path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-runtime-adapter.sh');
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.split('|') : [];
 const MODULE_PATTERN = ucodeModulePattern(process.env.UCODE_MODULE_PATH, process.env.UCODE_LIBRARY_PATH);

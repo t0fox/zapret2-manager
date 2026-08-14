@@ -7,7 +7,8 @@ import { spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 
 const SOURCE = 'zapret2-manager/src/z2m-helperd/supervise.c';
-const ADAPTER = 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-runtime-adapter.sh';
+const ADAPTER = process.env.Z2M_TEST_ADAPTER_PATH ??
+  'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-runtime-adapter.sh';
 
 test('native Scanner runtime contract pins complete process identity and no router execution is attempted', () => {
   const source = fs.readFileSync(SOURCE, 'utf8');
@@ -152,6 +153,74 @@ node -e 'const fs=require("fs");const keys=process.argv[1].replace(/^@\\./, "").
   }
 });
 
+test('rules_enable waits for NFQUEUE peer registration before redirect is enabled', () => {
+  if (process.platform === 'win32') {
+    assert.ok(true, 'Linux/WSL shell and procfs runtime required');
+    return;
+  }
+  const cc = spawnSync('cc', ['--version'], { encoding: 'utf8' });
+  if (cc.status !== 0) {
+    assert.ok(true, 'native compiler unavailable; fixed runtime shim limitation documented');
+    return;
+  }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-test-queue-guard-'));
+  const session = `qguard-${process.pid}-${Date.now()}`;
+  const candidate = 'c1';
+  const run = path.resolve(ADAPTER);
+  const fakeNfqws = path.join(root, 'nfqws2');
+  const firewallHelper = path.join(root, 'firewall-helper');
+  const queue = path.join(root, 'queue');
+  const helperLog = path.join(root, 'helper.log');
+  const argvDir = path.join(root, 'scanner', session);
+  let lockPid;
+  try {
+    const jsonfilter = path.join(root, 'jsonfilter');
+    fs.writeFileSync(jsonfilter, `#!/bin/sh
+node -e 'const fs=require("fs");const keys=process.argv[1].replace(/^@\\./, "").split(".");let value=JSON.parse(fs.readFileSync(0,"utf8"));for(const key of keys)value=value[key];if(typeof value==="boolean")process.stdout.write(value?"true":"false");else if(value!==undefined&&value!==null)process.stdout.write(String(value));' "$2"
+`, { mode: 0o755 });
+    fs.writeFileSync(path.join(root, 'nfqws2.c'), `#include <stdio.h>\n#include <signal.h>\n#include <stdlib.h>\n#include <unistd.h>\nstatic const char *queue_file = "${queue}";\nstatic void stop(int s){(void)s;unlink(queue_file);_exit(0);}\nint main(void){const char *delay=getenv("Z2M_TEST_DELAY_MS");unsigned long ms=delay?strtoul(delay,NULL,10):0;signal(SIGTERM,stop);signal(SIGINT,stop);if(ms>0) usleep(ms*1000);FILE*f=fopen(queue_file,"w");if(!f) return 2;fprintf(f,"300 %d 0 0 0 0 0 0 1\\n",getpid());fclose(f);for(;;) pause();}\n`);
+    let built = spawnSync('cc', ['-std=c11', '-Wall', '-Wextra', '-Werror', '-D_GNU_SOURCE', path.join(root, 'nfqws2.c'), '-o', fakeNfqws], { encoding: 'utf8' });
+    assert.equal(built.status, 0, built.stderr);
+    fs.writeFileSync(path.join(root, 'firewall-helper.c'), `#include <stdio.h>\n#include <string.h>\n#include <signal.h>\nstatic const char *log_file = "${helperLog}";\nstatic void stop(int s){(void)s;_exit(0);}\nstatic char *field(const char *line,const char *key,char *out,size_t n){char needle[64];snprintf(needle,sizeof(needle),"\\\"%s\\\":\\\"",key);const char*p=strstr(line,needle);if(!p)return NULL;p+=strlen(needle);size_t i=0;while(p[i]&&p[i]!='\\\"'&&i+1<n){out[i]=p[i];i++;}if(p[i]!='\\\"')return NULL;out[i]=0;return out;}\nint main(void){char line[8192],id[256]={0},op[64]={0},table[128]={0},profile[32]={0},generation[32]={0},queuev[32]={0},response[2048];signal(SIGTERM,stop);signal(SIGINT,stop);while(fgets(line,sizeof(line),stdin)){field(line,\"requestId\",id,sizeof(id));field(line,\"operation\",op,sizeof(op));field(line,\"tableName\",table,sizeof(table));field(line,\"profile\",profile,sizeof(profile));field(line,\"generation\",generation,sizeof(generation));field(line,\"queue\",queuev,sizeof(queuev));FILE*log=fopen(log_file,\"a\");if(log){fprintf(log,\"%s\\n\",op);fclose(log);}snprintf(response,sizeof(response),\"{\\\"protocolVersion\\\":2,\\\"requestId\\\":\\\"%s\\\",\\\"ok\\\":true,\\\"data\\\":{\\\"tableName\\\":\\\"%s\\\",\\\"chainName\\\":\\\"z2m_0005_aaaaaaaa\\\",\\\"created\\\":true,\\\"ready\\\":true,\\\"prepared\\\":true,\\\"enabled\\\":true,\\\"disabled\\\":true,\\\"exists\\\":true,\\\"owned\\\":true,\\\"rulesEnabled\\\":true,\\\"queue\\\":%s,\\\"profile\\\":\\\"%s\\\",\\\"generation\\\":%s,\\\"evidence\\\":{\\\"tableName\\\":\\\"%s\\\",\\\"ownerFlagRequested\\\":true,\\\"kernelReadBack\\\":false}}}\\n\",id,table,queuev[0]?queuev:\"300\",profile[0]?profile:\"tcp_https\",generation[0]?generation:\"5\",table);fputs(response,stdout);fflush(stdout);}return 0;}\n`);
+    const helperSourcePath = path.join(root, 'firewall-helper.c');
+    let helperSource = fs.readFileSync(helperSourcePath, 'utf8');
+    helperSource = helperSource.replace(`static const char *log_file = "${helperLog}";`,
+      `static const char *log_file = "${helperLog}";\nstatic const char *queue_file = "${queue}";`);
+    helperSource = helperSource.replace('fprintf(log,"%s\\n",op);',
+      'fprintf(log,"%s%s\\n",op,strcmp(op,"rules_enable")==0?(access(queue_file,F_OK)==0?"|queue-present":"|queue-missing"):"");');
+    fs.writeFileSync(helperSourcePath, helperSource);
+    built = spawnSync('cc', ['-std=c11', '-Wall', '-Wextra', '-Werror', '-include', 'unistd.h', helperSourcePath, '-o', firewallHelper], { encoding: 'utf8' });
+    assert.equal(built.status, 0, built.stderr);
+    fs.mkdirSync(argvDir, { recursive: true });
+    const argvText = '--filter-tcp=443\n--payload=tls_client_hello\n';
+    const compiledDigest = crypto.createHash('sha256').update(argvText).digest('hex');
+    fs.writeFileSync(path.join(argvDir, `${candidate}.argv`), argvText);
+    fs.writeFileSync(path.join(argvDir, `${candidate}.argv.digest`), `${compiledDigest}\n`);
+    const env = { ...process.env, PATH: `${root}:${process.env.PATH}`, Z2M_SCANNER_RUNTIME_SHIM: '1', Z2M_SCANNER_SERVER_TEST: '1',
+      Z2M_SCANNER_TEST_BASE: root, Z2M_SCANNER_TEST_NFQWS2: fakeNfqws, Z2M_SCANNER_TEST_FIREWALL_HELPER: firewallHelper,
+      Z2M_SCANNER_TEST_NFQ_PROC: queue, Z2M_SCANNER_TEST_LOCK: path.join(root, 'config.lock'), Z2M_TEST_DELAY_MS: '900' };
+    fs.writeFileSync(path.join(root, 'config.lock'), '');
+    const locked = spawnSync('sh', [run, 'lock-acquire', session, candidate, '5'], { env, encoding: 'utf8' });
+    assert.equal(locked.status, 0, locked.stderr || locked.stdout);
+    lockPid = JSON.parse(locked.stdout).lockPid;
+    const nonce = JSON.parse(locked.stdout).nonce;
+    fs.writeFileSync(path.join(argvDir, `${candidate}.argv.meta`),
+      `{ "schema": 1, "session": "${session}", "candidate": "${candidate}", "generation": 5, "nonce": "${nonce}", "compiledDigest": "${compiledDigest}" }\n`);
+    const startedAt = Date.now();
+    const activate = spawnSync('sh', [run, 'activate', session, candidate, '5'], { env, encoding: 'utf8' });
+    const elapsedMs = Date.now() - startedAt;
+    assert.equal(activate.status, 0, `${activate.stderr || activate.stdout}\n${fs.existsSync(helperLog) ? fs.readFileSync(helperLog, 'utf8') : '<no-helper-log>'}`);
+    assert.ok(elapsedMs >= 700, `activate returned before delayed queue registration: ${elapsedMs}ms`);
+    assert.match(fs.readFileSync(helperLog, 'utf8'), /rules_enable\\|queue-present/,
+      'redirect enable must be requested only after the NFQUEUE peer is registered');
+  } finally {
+    try { spawnSync('pkill', ['-f', fakeNfqws], { encoding: 'utf8' }); } catch { }
+    try { spawnSync('pkill', ['-f', firewallHelper], { encoding: 'utf8' }); } catch { }
+    try { if (typeof lockPid === 'number') process.kill(lockPid, 'SIGTERM'); } catch { }
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('runtime keeps the native owner as the sole firewall mutation path', () => {
   if (process.platform === 'win32') {
     assert.ok(true, 'Linux/WSL shell and procfs runtime required');
@@ -215,6 +284,74 @@ test('lock acquisition failure preserves a pre-existing readiness artifact and l
   } finally {
     try { if (typeof lockPid === 'number') process.kill(lockPid, 'SIGTERM'); } catch { }
     fs.rmSync(adapterRoot, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('stale journal without helper identity fails closed and retains ownership metadata', () => {
+  if (process.platform === 'win32') {
+    assert.ok(true, 'Linux/WSL shell and procfs runtime required');
+    return;
+  }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-test-stale-journal-'));
+  const session = `stale-${process.pid}-${Date.now()}`;
+  const candidate = 'c1';
+  const generation = '5';
+  const run = path.resolve(ADAPTER);
+  const adapterRoot = path.join(root, 'scanner', session);
+  try {
+    fs.mkdirSync(adapterRoot, { recursive: true });
+    const env = { ...process.env, Z2M_SCANNER_RUNTIME_SHIM: '1', Z2M_SCANNER_SERVER_TEST: '1',
+      Z2M_SCANNER_TEST_BASE: root, Z2M_SCANNER_TEST_LOCK: path.join(root, 'config.lock') };
+    fs.writeFileSync(path.join(root, 'config.lock'), '');
+    const locked = spawnSync('sh', [run, 'lock-acquire', session, candidate, generation], { env, encoding: 'utf8' });
+    assert.equal(locked.status, 0, locked.stderr || locked.stdout);
+    const nonce = JSON.parse(locked.stdout).nonce;
+    fs.writeFileSync(path.join(adapterRoot, `${candidate}.ownership`),
+      `${session}|${candidate}|${generation}|${session}:${candidate}:${generation}|${nonce}|z2m_sc_aaaaaaaa_bbbbbbbb_0005_cccccccccccccccccccccccccccccccc|z2m_0005_deadbeef|300|tcp_https\n`);
+    const cleaned = spawnSync('sh', [run, 'cleanup', session, candidate, generation], { env, encoding: 'utf8' });
+    assert.notEqual(cleaned.status, 0);
+    assert.match(cleaned.stdout, /"code":"ECLEANUP"/);
+    assert.equal(fs.existsSync(path.join(adapterRoot, `${candidate}.ownership`)), true);
+    const released = spawnSync('sh', [run, 'lock-release', session, candidate, generation, nonce], { env, encoding: 'utf8' });
+    assert.equal(released.status, 0, released.stderr || released.stdout);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('dead helper identity fails closed and retains ownership metadata', () => {
+  if (process.platform === 'win32') {
+    assert.ok(true, 'Linux/WSL shell and procfs runtime required');
+    return;
+  }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-test-dead-helper-'));
+  const session = `dead-helper-${process.pid}-${Date.now()}`;
+  const candidate = 'c1';
+  const generation = '5';
+  const run = path.resolve(ADAPTER);
+  const adapterRoot = path.join(root, 'scanner', session);
+  try {
+    fs.mkdirSync(adapterRoot, { recursive: true });
+    const env = { ...process.env, Z2M_SCANNER_RUNTIME_SHIM: '1', Z2M_SCANNER_SERVER_TEST: '1',
+      Z2M_SCANNER_TEST_BASE: root, Z2M_SCANNER_TEST_LOCK: path.join(root, 'config.lock') };
+    fs.writeFileSync(path.join(root, 'config.lock'), '');
+    const locked = spawnSync('sh', [run, 'lock-acquire', session, candidate, generation], { env, encoding: 'utf8' });
+    assert.equal(locked.status, 0, locked.stderr || locked.stdout);
+    const nonce = JSON.parse(locked.stdout).nonce;
+    fs.writeFileSync(path.join(adapterRoot, `${candidate}.ownership`),
+      `${session}|${candidate}|${generation}|${session}:${candidate}:${generation}|${nonce}|z2m_sc_aaaaaaaa_bbbbbbbb_0005_cccccccccccccccccccccccccccccccc|z2m_0005_deadbeef|300|tcp_https\n`);
+    fs.writeFileSync(path.join(adapterRoot, `${candidate}.helper.pid`),
+      `999999|1|${session}:${candidate}:${generation}|${nonce}|z2m_sc_aaaaaaaa_bbbbbbbb_0005_cccccccccccccccccccccccccccccccc\n`, { mode: 0o600 });
+    fs.writeFileSync(path.join(adapterRoot, `${candidate}.helper.transport`),
+      `table=z2m_sc_aaaaaaaa_bbbbbbbb_0005_cccccccccccccccccccccccccccccccc\nrequest=${path.join(adapterRoot, `${candidate}.helper.request`)}\nresponse=${path.join(adapterRoot, `${candidate}.helper.response`)}\n`, { mode: 0o600 });
+    const cleaned = spawnSync('sh', [run, 'cleanup', session, candidate, generation], { env, encoding: 'utf8' });
+    assert.notEqual(cleaned.status, 0);
+    assert.match(cleaned.stdout, /"code":"ECLEANUP"/);
+    assert.equal(fs.existsSync(path.join(adapterRoot, `${candidate}.ownership`)), true);
+    const released = spawnSync('sh', [run, 'lock-release', session, candidate, generation, nonce], { env, encoding: 'utf8' });
+    assert.equal(released.status, 0, released.stderr || released.stdout);
+  } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
