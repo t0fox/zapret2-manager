@@ -49,6 +49,18 @@ test('public Quartz uses Russian locale and Russian-first navigation content', a
   assert.match(text, /Установка|Начать|Документац/u)
 })
 
+test('every indexed public document contains Russian text', async () => {
+  const raw = await readFile(path.join(PUBLIC, 'static', 'contentIndex.json'), 'utf8')
+  const parsed = JSON.parse(raw)
+  const index = parsed.content ?? parsed
+  const nonRussian = []
+  for (const [slug, entry] of Object.entries(index)) {
+    const text = `${entry?.title ?? ''} ${entry?.content ?? ''}`
+    if (!/[А-Яа-яЁё]{4,}/u.test(text)) nonRussian.push(slug)
+  }
+  assert.deepEqual(nonRussian, [], `Public index contains non-Russian documents:\n${nonRussian.join('\n')}`)
+})
+
 test('main public pages are not placeholder sections', async () => {
   for (const [relative] of REQUIRED) {
     const html = await readFile(path.join(PUBLIC, relative), 'utf8').catch(() => '')
