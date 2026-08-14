@@ -1,6 +1,6 @@
 ---
 id: operations-installation
-title: "Installation"
+title: "Установка"
 type: operations
 status: current
 authority: evidence
@@ -9,19 +9,19 @@ publish: true
 tags: [operations, installation, openwrt]
 ---
 
-# Installation
+# Установка
 
-zapret2-manager is currently a development/prototype project. The repository does **not** document a public binary package URL, so the supported documentation path is to build packages from source with an OpenWrt build tree or SDK.
+zapret2-manager пока является development/prototype проектом. Репозиторий **не предоставляет подтверждённый публичный URL готового бинарного пакета**, поэтому документированный путь установки начинается со сборки исходного кода в подготовленном OpenWrt build tree или SDK.
 
-## Packages
+## Пакеты
 
-The backend package is `zapret2-manager`. The browser interface is `luci-app-zapret2-manager` and depends on the backend. A target-specific `zapret2-manager-full` meta-package installs both and currently has a `mediatek_filogic` target constraint.
+Backend package называется `zapret2-manager`. Веб-интерфейс поставляется как `luci-app-zapret2-manager` и зависит от backend. Также существует target-specific meta-package `zapret2-manager-full`, который устанавливает backend и LuCI вместе и в текущем репозитории имеет ограничение на target `mediatek_filogic`.
 
-The backend Makefile declares the ucode modules, utilities, and JSON-related package dependencies required by the current build. Use the Makefiles as the source of truth rather than copying an old dependency list from external notes.
+Backend Makefile определяет реальные зависимости текущей сборки: необходимые ucode modules, utilities и JSON-related packages. Используйте Makefile как источник истины и не копируйте старый список зависимостей из внешних заметок.
 
-## Build
+## Сборка
 
-From a prepared OpenWrt build tree or SDK, the repository README lists these targets:
+В подготовленном OpenWrt build tree или SDK README репозитория указывает следующие targets:
 
 ```sh
 make package/zapret2-manager/compile V=s
@@ -29,33 +29,39 @@ make package/luci-app-zapret2-manager/compile V=s
 make package/zapret2-manager-full/compile V=s
 ```
 
-Use only targets valid for the selected OpenWrt target. Building the backend and LuCI packages separately is the general development path; the full meta-package is target-specific.
+Используйте только targets, подходящие выбранной платформе OpenWrt. Для обычной разработки backend и LuCI можно собирать отдельно; full meta-package остаётся target-specific.
 
-A host-side source test is not a substitute for a target-toolchain package build. The current backend package builds native components with the OpenWrt target compiler, so SDK compilation is important deployment evidence.
+Host-side тест исходного кода не заменяет сборку package целевым toolchain. Backend включает native components, которые компилируются OpenWrt target compiler, поэтому успешная SDK build является важным доказательством перед установкой на устройство.
 
-## Install the built packages
+## Установка собранных packages
 
-After the build completes, install the packages produced by your OpenWrt build system using the normal package-management workflow for that OpenWrt version and target. This guide does not hard-code a generated artifact path because it depends on the build environment.
+После завершения сборки установите packages, созданные вашей системой OpenWrt, стандартным способом для используемой версии и package manager. Эта документация не фиксирует универсальный путь к generated artifact, потому что он зависит от конкретного build environment.
 
-Install the backend before or together with the LuCI package. After installation, open LuCI and look for **Zapret 2 Manager** under Services.
+Backend должен быть установлен до LuCI package или одновременно с ним. После установки откройте LuCI и найдите **Zapret 2 Manager** в разделе Services / Сервисы.
 
-The backend package initializes its managed Strategy storage when needed, reloads rpcd during post-install, and enables its service. The LuCI package clears its normal caches during package lifecycle hooks.
+Backend package при необходимости инициализирует управляемое хранилище Strategy, выполняет reload rpcd в post-install и включает свой service. LuCI package очищает стандартные cache entries через package lifecycle hooks.
 
-## First verification
+## Первая проверка
 
-Confirm that the LuCI application loads and that application status can be read before making durable changes. Then continue with [First Run](./first-run.md), beginning with Strategy inspection, Preview, and validation where the current build supports them.
+До постоянных изменений убедитесь, что страница zapret2-manager открывается в LuCI и приложение может прочитать свой текущий status. Это отделяет проблемы установки и backend connectivity от проблем конкретной Strategy.
 
-If the page is missing or the backend status is unavailable, use [Troubleshooting](./troubleshooting.md).
+После этого перейдите к [Первому запуску](./first-run.md): начните с просмотра текущего состояния, затем используйте Preview и Validate там, где установленная сборка предоставляет эти этапы.
 
-## Upgrade and uninstall
+Если страница отсутствует, загружается не полностью или backend status недоступен, сначала откройте [Устранение неполадок](./troubleshooting.md).
 
-The repository does not document a separate public one-command release upgrade or universal rollback mechanism. Treat upgrades as development package upgrades from a known revision and verify the application after the package operation.
+## Обновление
 
-For uninstall, use normal OpenWrt package-management behavior. Do not replace package removal with broad manual deletion of unrelated platform state.
+Репозиторий пока не описывает универсальную публичную команду «обновить до последней версии» или общий rollback для всех development builds. Рассматривайте обновление как установку packages из известной ревизии и обязательно повторяйте базовую проверку приложения после package operation.
 
-## Next steps
+При сравнении сборок сохраняйте commit/revision и версии установленных packages. Формулировка «поставил latest» значительно хуже помогает диагностике, чем точная ревизия.
 
-- [First Run](./first-run.md)
-- [Troubleshooting](./troubleshooting.md)
-- [Project status](../01-project/status-roadmap.md)
-- [Development](../08-development/index.md)
+## Удаление
+
+Для удаления используйте штатное поведение package manager вашей версии OpenWrt. Не заменяйте package removal широким ручным удалением файлов и другого состояния платформы: это может затронуть данные, которыми zapret2-manager не владеет.
+
+## Что читать дальше
+
+- [Первый запуск](./first-run.md)
+- [Устранение неполадок](./troubleshooting.md)
+- [Статус и план развития](../01-project/status-roadmap.md)
+- [Разработка](../08-development/index.md)
