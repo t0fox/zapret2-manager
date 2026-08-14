@@ -92,9 +92,9 @@ jobs:
           }
 
           assert_page / "zapret2-manager"
-          assert_page /11-operations/installation.html "Installation"
-          assert_page /11-operations/first-run.html "First Run"
-          assert_page /03-products/strategy/index.html "Strategy"
-          assert_page /03-products/scanner/index.html "Scanner"
-          assert_page /02-architecture/index.html "Architecture"
-          assert_page /11-operations/troubleshooting.html "Troubleshooting"
+          assert_page /11-operations/installation.html "Установка"
+          assert_page /11-operations/first-run.html "Первый запуск"
+          assert_page /03-products/strategy/index.html "Стратегии"
+          assert_page /03-products/scanner/index.html "Сканер"
+          assert_page /02-architecture/index.html "Архитектура"
+          assert_page /11-operations/troubleshooting.html "Устранение неполадок"
