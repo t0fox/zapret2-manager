@@ -1,7 +1,7 @@
 ---
 id: development-decisions-specs
 title: "Контракты, решения и approved design"
-type: development
+type: doc
 status: current
 authority: evidence
 updated: 2026-08-14
@@ -11,130 +11,100 @@ tags: [development, contract, design, decisions, architecture]
 
 # Контракты, решения и approved design
 
-В репозитории есть подробные engineering contracts, design/spec материалы и исторические планы. Публичная документация **не публикует внутренний рабочий журнал целиком**, но должна объяснять решения, которые реально влияют на архитектуру и пользовательское поведение.
-
-Эта страница — безопасный индекс таких решений. Важно различать три уровня: **normative/current contract**, **approved design** и **implementation evidence**. Approved design описывает согласованное направление, но сам по себе не означает, что функция уже реализована.
+В zapret2-manager есть normative contract, approved design и implementation evidence. Это три разных уровня. Публичная документация должна объяснять архитектурно важные решения, но не выдавать подробный внутренний план за уже реализованную capability.
 
 ## Native backend v1 contract
 
-**Статус: normative/current contract.**
+**Статус: normative/current contract.** Native foundation задаёт общий язык для state, generation, errors/results, Process Identity, namespaces, jobs, transactions и recovery.
 
-Native backend contract определяет общие правила для state, errors/results, process identity, namespaces, jobs, transactions и recovery. Его основная архитектурная ценность — единый язык ownership, generation/revision и bounded operations.
+Публичные инварианты:
 
-Публичный смысл контракта:
+- state имеет явного owner;
+- Process Identity строже голого PID;
+- mutation должна быть bounded;
+- transaction разделяет snapshot, mutation, verification и rollback;
+- unknown/uncertain result не превращается автоматически в success;
+- native helper не становится вторым control plane.
 
-- state имеет явного владельца;
-- process ownership нельзя доказывать только PID;
-- mutation должна быть ограниченной и проверяемой;
-- транзакция отделяет snapshot, mutation, verification и rollback;
-- неопределённое состояние не маскируется под success;
-- helper не становится вторым control plane.
-
-Текущий `main` содержит contract/source foundation, включая result/error boundary. Это отличается от более раннего read-only audit snapshot, где часть этих файлов отсутствовала в локальном checkout.
-
-Подробнее: [Владение состоянием](../02-architecture/state-ownership.md) и [Runtime flow](../02-architecture/runtime-flow.md).
+В текущем `main` присутствуют соответствующие contract/source boundaries, включая result/error layer. Более ранний read-only audit фиксировал неполный локальный checkout, поэтому текущий tree имеет больший приоритет.
 
 ## Strategy aggregate и catalog
 
-**Статус: implemented/current с дальнейшей parity-работой.**
+**Статус: current implementation с дальнейшей parity-работой.**
 
-Ключевое продуктовое решение: `Strategy` является агрегатом и владеет ordered `Profiles[]`. Profile — дочерняя исполнимая единица, а не независимый верхнеуровневый product owner.
+Ключевое решение: `Strategy` владеет ordered `Profiles[]`. Profile остаётся дочерней исполнимой единицей; backend является compiler authority; builtin и user Strategy имеют разные mutation rights; Preview и Validate не равны Apply.
 
-Из этого следуют важные ограничения:
-
-- порядок enabled Profiles сохраняется;
-- builtin catalog и user Strategy имеют разные mutation rights;
-- backend является compiler authority;
-- Preview и Validate не равны Apply;
-- постоянная mutation использует существующий transactional writer;
-- active runtime observations не превращаются в вечную metadata Strategy.
-
-Это решение уже имеет реальную implementation vertical в текущем source и tests, поэтому публичная документация рассматривает Strategy как одну из наиболее зрелых областей.
+Permanent mutation использует существующий transactional writer, а runtime observations не сохраняются как вечная metadata Strategy. Это решение уже имеет source/tests/consumer, поэтому речь идёт не только об approved design.
 
 Подробнее: [Lifecycle Strategy](../03-products/strategy/lifecycle.md).
 
-## Avatar Strategy Scanner parity design
+## Avatar-compatible Scanner design
 
-**Статус: approved design + частичная текущая implementation.**
+**Статус: approved design + существенная текущая implementation.**
 
-Scanner design закрепляет flow:
+Продуктовый contract строится так:
 
 ```text
 Strategy catalog
-   ↓
-Scanner planning
-   ↓
-transient candidate execution
-   ↓
-probes / evidence
-   ↓
-ranking/report
-   ↓
-Strategy handoff
+ → Scanner planning
+ → transient candidate execution
+ → probes / evidence
+ → ranking / report
+ → Strategy handoff
 ```
 
-Главное решение — Scanner не становится вторым Strategy model, catalog или Apply engine. Он может использовать Strategy compiler authority и low-level ownership patterns, но владеет только planning, transient execution, evidence, ranking и handoff.
+Scanner не создаёт второй Strategy model, catalog или Apply engine. Он владеет planning, transient runtime, evidence, result/ranking и handoff.
 
-После утверждения design в `main` уже появились model/planner/probes/worker/transient/runtime modules и canonical A1 lifecycle. Поэтому статус больше не «только design». При этом пустые/незавершённые result/reconcile boundaries и отсутствие доказанного полного target/LuCI E2E не позволяют назвать весь Scanner current production capability.
+После утверждения design в `main` уже появились model, planner, generator, probes, worker, transient layer и canonical A1 runtime lifecycle. Но полный results/reconciliation/LuCI/target E2E ещё нельзя считать доказанным, поэтому вся capability остаётся prototype / active development.
 
 Подробнее: [Lifecycle Scanner](../03-products/scanner/lifecycle.md).
 
-## OpenWrt-native deviation
+## Single-writer
 
-Parity с Avatar сравнивает продуктовую семантику, а не обязанность повторить внутреннюю архитектуру.
+**Статус: архитектурный инвариант.** Один durable ресурс должен иметь одного sanctioned writer. Scanner, Orchestra или UI coordinator не получают альтернативное постоянное право записи только потому, что используют тот же runtime.
 
-Некоторые решения сознательно отличаются:
+Из single-writer следуют локальные rollback и reconciliation: сначала определяется owner состояния, затем вызывается его lifecycle.
 
-- procd/init и OpenWrt package lifecycle предпочтительнее отдельного self-managed process/package control;
-- более строгий preflight допустим, если он не ломает valid Strategy behavior;
-- snapshot/CAS/verified rollback могут быть строже baseline;
-- bounded rpcd/ubus contract предпочтительнее arbitrary shell execution;
-- target-owned paths/resources должны следовать OpenWrt conventions.
+## A1 transient ownership
 
-Такие отличия обозначаются как `INTENTIONAL_DEVIATION`, а не скрываются под словом parity.
+**Статус: current Scanner implementation slice.** A1 связывает одну попытку transient candidate execution от start до cleanup. Protocol/schema, helper/runtime adapter и process/resource ownership должны ссылаться на одну lifecycle identity.
 
-## Single-writer decision
+Свежие Scanner tests усиливают именно этот contract. Однако A1 является частью production gate, а не доказательством всей Scanner parity.
 
-**Статус: архитектурный инвариант.**
+## OpenWrt-native deviations
 
-Ни Scanner, ни Orchestra, ни UI coordinator не должны создавать альтернативный permanent writer для состояния, которым уже владеет Strategy/DNS/другой domain owner.
+Behavioral parity не требует копировать внутреннюю архитектуру Avatar. Допустимы intentional deviations, когда они явно документированы и сохраняют нужный пользовательский эффект.
 
-Это решение снижает риск конфликтующих apply paths и делает rollback/reconciliation локальными. Новый product flow сначала определяет owner и sanctioned mutation boundary, а потом добавляет UI.
+Примеры направления:
 
-## Scanner A1 ownership
+- procd/init и OpenWrt package lifecycle вместо отдельного self-managed control plane;
+- более строгий preflight;
+- snapshot/CAS/verified rollback;
+- bounded rpcd/ubus вместо arbitrary shell execution;
+- OpenWrt-owned paths и resource lifecycle.
 
-**Статус: current implementation slice.**
-
-A1 обозначает transient lifecycle одного Scanner candidate execution. Protocol/schema, runtime adapter и helper ownership должны ссылаться на одну и ту же A1 identity на всём пути start → probe → stop → cleanup.
-
-Свежая implementation и acceptance-tail tests усилили именно эту связь. Это важное evidence для roadmap, но не автоматическое доказательство полной Scanner parity.
+Такие отличия должны называться `INTENTIONAL_DEVIATION`, а не скрываться под словом PARITY.
 
 ## Rust-first для нового native-кода
 
-**Статус: архитектурное правило проекта.**
+**Статус: правило проекта.** Новый native-код проектируется Rust-first. C допустим только при конкретной технической причине; существующий проверенный C не переписывается автоматически ради унификации.
 
-Новый native-код проектируется Rust-first. C допускается как исключение, когда есть конкретная техническая причина, по которой Rust существенно хуже подходит. Уже существующий и проверенный C-код не переписывается автоматически только ради унификации.
-
-Это правило относится к реализации, а не к Avatar parity: пользовательская behavior compatibility не зависит от того, на каком native-языке реализован bounded helper.
+Это implementation decision и не меняет смысл behavioral parity: пользовательская compatibility определяется contract и evidence, а не языком bounded helper.
 
 ## Routing и tunnels
 
-**Статус: approved direction / planned product domains.**
+**Статус: approved direction / planned product domains.** Unified routing должен появляться как durable aggregate: Destination/selectors → primary method → ordered fallbacks → status/monitoring. Tunnel providers подключаются поверх общей routing/resource foundation, а не каждый создаёт отдельный control plane.
 
-Unified routing должен появляться как durable aggregate с Destination/selectors, method registry, primary/fallback policy, ownership, Preview/Apply/remove и status. Tunnel providers должны подключаться как methods поверх общей foundation, а не каждый создавать собственный отдельный routing control plane.
-
-WARP/usque и другие tunnels поэтому не считаются shipped только на основании исследовательского design или наличия upstream проекта.
-
-Подробнее: [DNS, routing и assets](../03-products/dns-routing-assets.md) и [Roadmap](../01-project/status-roadmap.md).
+Поэтому research/design по WARP/usque или другому provider не считается shipped implementation без package, config/secrets, process/interface ownership, health, routing integration и rollback evidence.
 
 ## Как читать этот индекс
 
-Если здесь написано **current contract**, это означает, что контракт применяется к текущей архитектуре и должен поддерживаться implementation/tests.
+**Current contract** — правило действует сейчас и должно поддерживаться implementation/tests.
 
-Если написано **approved design**, это означает, что направление и boundaries согласованы, но текущий source всё ещё нужно проверять отдельно.
+**Approved design** — направление и boundaries согласованы, но готовность определяется отдельно по source/consumer/evidence.
 
-Если конкретная implementation отстаёт от design, публичный status определяется implementation evidence, а не намерением документа.
+**Implementation evidence** — конкретный slice реально присутствует и проверяется.
 
-Именно эта дисциплина защищает документацию от типичной ошибки: «есть подробный spec → значит функция уже существует».
+Эта граница защищает проект от ошибки «есть подробный spec → функция готова».
 
-Связанные страницы: [Доказательства и тестирование](./evidence-testing.md), [Актуальность документации](./docs-freshness.md), [Avatar parity](../01-project/avatar-parity.md), [Roadmap](../01-project/status-roadmap.md).
+Связанные страницы: [Доказательства и тестирование](./evidence-testing.md), [Актуальность документации](./docs-freshness.md), [Avatar parity](../01-project/avatar-parity.md), [Roadmap](../01-project/status-roadmap.md), [Владение состоянием](../02-architecture/state-ownership.md).
