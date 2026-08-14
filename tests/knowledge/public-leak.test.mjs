@@ -1,4 +1,5 @@
 import './public-content.test.mjs'
+import './docs-freshness.test.mjs'
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
