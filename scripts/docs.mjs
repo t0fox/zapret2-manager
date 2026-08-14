@@ -14,6 +14,7 @@ const QUARTZ_PATH = path.join(ARTIFACTS_PATH, 'quartz')
 const QUARTZ_ENTRY = path.join(QUARTZ_PATH, 'quartz', 'bootstrap-cli.mjs')
 const DEFAULT_PORT = 8080
 const READINESS_TIMEOUT_MS = 120_000
+const PUBLIC_INTERNAL_OUTPUT_PATHS = ['09-work', '12-ai', '99-archive']
 
 function commandLine(command, args) {
   if (process.platform !== 'win32' || !['npm', 'npx'].includes(command)) {
@@ -174,6 +175,12 @@ async function patchPublicRuntimePaths(output) {
   await writeFile(scriptPath, script)
 }
 
+async function removePublicInternalOutputPaths(output) {
+  await Promise.all(PUBLIC_INTERNAL_OUTPUT_PATHS.map((name) =>
+    rm(path.join(output, name), { recursive: true, force: true })
+  ))
+}
+
 async function listOutputFiles(dir, prefix = '') {
   const files = []
   for (const entry of await readdir(dir, { withFileTypes: true })) {
@@ -220,16 +227,19 @@ async function patchPublicInternalLinks(output) {
   }
 }
 
+async function postprocessPublicOutput(output) {
+  await removePublicInternalOutputPaths(output)
+  await patchPublicRuntimePaths(output)
+  await patchPublicInternalLinks(output)
+}
+
 async function quartz(mode) {
   const output = outputPathFor(WORKTREE_ROOT, mode)
   await applyConfig(mode)
   await rm(output, { recursive: true, force: true })
   await mkdir(output, { recursive: true })
   await run(quartzCommand([]).command, [...quartzCommand([]).args, 'build', '-d', DOCS_PATH, '-o', output], { cwd: QUARTZ_PATH })
-  if (mode === 'public') {
-    await patchPublicRuntimePaths(output)
-    await patchPublicInternalLinks(output)
-  }
+  if (mode === 'public') await postprocessPublicOutput(output)
   return output
 }
 
@@ -271,6 +281,7 @@ async function serve(mode) {
   child.exitCode = null
   child.once('exit', (code) => { child.exitCode = code ?? 1 })
   await waitForHttp(`http://localhost:${process.env.DOCS_PORT ?? DEFAULT_PORT}/`, child)
+  if (mode === 'public') await postprocessPublicOutput(output)
   console.log(`Docs server ready at http://localhost:${process.env.DOCS_PORT ?? DEFAULT_PORT}/`)
   await new Promise((resolve, reject) => {
     child.once('exit', (code) => code === 0 ? resolve() : reject(new Error(`Quartz serve exited with code ${code}`)))

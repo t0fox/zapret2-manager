@@ -29,6 +29,12 @@ const FORBIDDEN_PATTERNS = [
   /docs\/07-decisions\/.*\.md/i,
 ]
 
+const FORBIDDEN_PUBLIC_PATH_PREFIXES = [
+  '09-work/',
+  '12-ai/',
+  '99-archive/',
+]
+
 async function scanDirectory(dir) {
   const leaks = []
   const entries = await readdir(dir, { withFileTypes: true })
@@ -86,6 +92,14 @@ test('public Quartz build must not contain publish:false notes or internal asset
   assert.ok(publicDir, `Public build output is required at ${PUBLIC_DIR}`)
   const leaks = await scanDirectory(publicDir)
   assert.equal(leaks.length, 0, `Found ${leaks.length} leaks in public build:\n${leaks.map(l => `${l.file} matched ${l.pattern}`).join('\n')}`)
+})
+
+test('public artifact must not contain internal-only raw paths', async () => {
+  const publicDir = await findPublicDir()
+  assert.ok(publicDir, `Public build output is required at ${PUBLIC_DIR}`)
+  const files = await listFiles(publicDir)
+  const leakedPaths = files.filter((file) => FORBIDDEN_PUBLIC_PATH_PREFIXES.some((prefix) => file.startsWith(prefix)))
+  assert.deepEqual(leakedPaths, [], `Found internal-only paths in public artifact:\n${leakedPaths.join('\n')}`)
 })
 
 test('public Quartz navigation points only to generated pages and assets', async () => {
