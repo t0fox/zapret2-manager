@@ -9,18 +9,29 @@ const PUBLIC = path.join(ROOT, '.artifacts', 'docs-public')
 const REQUIRED = [
   ['index.html', 400, ['zapret2-manager', 'Начать', 'Стратегии', 'Сканер', 'Архитектура']],
   ['01-project/index.html', 300, ['Цели проекта', 'Что не входит']],
+  ['01-project/avatar-parity.html', 500, ['Avatar', 'PARITY', 'PARTIAL', 'текущ', 'baseline']],
+  ['01-project/status-roadmap.html', 650, ['M1', 'M3', 'Критерий завершения', 'Доказательств']],
   ['02-architecture/index.html', 400, ['LuCI', 'каноническ', 'Стратег', 'Сканер']],
+  ['02-architecture/runtime-flow.html', 450, ['rpcd', 'single-writer', 'rollback', 'верификац']],
+  ['02-architecture/state-ownership.html', 450, ['generation', 'Process Identity', 'транзакц', 'snapshot']],
   ['03-products/strategy/index.html', 400, ['Предпросмотр', 'Проверка', 'Применение']],
+  ['03-products/strategy/lifecycle.html', 450, ['Preview', 'Validate', 'Apply', 'rollback']],
   ['03-products/scanner/index.html', 400, ['временн', 'очистк', 'Сохранить как стратегию']],
+  ['03-products/scanner/lifecycle.html', 500, ['A1', 'planner', 'ranking', 'production-ready']],
+  ['03-products/scanner/family.html', 350, ['Scanner', 'BlockCheck', 'BlockCheck2']],
   ['03-products/blockcheck/index.html', 80, ['BlockCheck', 'Планируется']],
   ['03-products/deep-search/index.html', 80, ['Deep Search', 'Планируется']],
+  ['03-products/dns-routing-assets.html', 400, ['DNS', 'routing', 'assets', 'регист']],
   ['11-operations/installation.html', 250, ['Установка', 'OpenWrt']],
   ['11-operations/first-run.html', 250, ['Первый запуск', 'LuCI']],
   ['11-operations/troubleshooting.html', 180, ['Устранение неполадок', 'диагностик']],
   ['08-development/index.html', 200, ['Разработка', 'тест']],
+  ['08-development/evidence-testing.html', 400, ['доказательств', 'router', 'E2E']],
+  ['08-development/decisions-and-specs.html', 300, ['contract', 'approved design', 'Strategy']],
+  ['08-development/docs-freshness.html', 300, ['актуальност', 'Strategy', 'Scanner']],
 ]
 
-const ALLOWED_PUBLIC_SLUGS = /^(index|01-project(?:\/.*)?|02-architecture\/index|03-products(?:\/.*)?|08-development\/index|11-operations(?:\/.*)?)$/
+const ALLOWED_PUBLIC_SLUGS = /^(index|01-project(?:\/.*)?|02-architecture(?:\/.*)?|03-products(?:\/.*)?|08-development(?:\/.*)?|11-operations(?:\/.*)?)$/
 
 function textOf(html) {
   return html
@@ -41,6 +52,27 @@ test('required public pages exist and contain meaningful rendered content', asyn
     assert.ok(words >= minWords, `${relative}: ${words} words, expected at least ${minWords}`)
     for (const term of terms) assert.ok(text.toLowerCase().includes(term.toLowerCase()), `${relative}: missing term ${term}`)
   }
+})
+
+test('public Avatar parity preserves the pinned audit snapshot and separates current-main delta', async () => {
+  const html = await readFile(path.join(PUBLIC, '01-project', 'avatar-parity.html'), 'utf8')
+  const text = textOf(html)
+  for (const token of ['PARITY', '11', 'PARTIAL', '31', 'MISSING', '28', 'DIVERGENT', '2', 'INTENTIONAL_DEVIATION', '4']) {
+    assert.ok(text.includes(token), `avatar-parity: missing pinned snapshot token ${token}`)
+  }
+  assert.match(text, /f9dd3ea47a2239514f396a843b475c92c33f0b4c/u)
+  assert.match(text, /текущ.*main|current-main/iu)
+  assert.match(text, /не.*пересчит|не.*пересчиты/u)
+})
+
+test('public roadmap is an evidence/dependency roadmap rather than a feature wish list', async () => {
+  const html = await readFile(path.join(PUBLIC, '01-project', 'status-roadmap.html'), 'utf8')
+  const text = textOf(html)
+  for (const term of ['M1', 'M2', 'M3', 'M4', 'M5', 'M6', 'Критерий завершения', 'Доказательства', 'Зависимости']) {
+    assert.ok(text.includes(term), `status-roadmap: missing ${term}`)
+  }
+  assert.match(text, /A1/u)
+  assert.match(text, /Scanner|Сканер/u)
 })
 
 test('public Quartz uses Russian locale and curated Russian navigation', async () => {
