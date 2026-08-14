@@ -11,32 +11,32 @@ tags: [product, deep-search, planned]
 
 # Deep Search
 
-**Status: Planned / in development.** Deep Search is intended to be a broader exploration product area for cases where the normal candidate workflow does not provide enough useful information.
+**Статус: Планируется / в разработке.** Deep Search задуман как расширенный поисковый workflow для случаев, когда обычной проверки кандидатов недостаточно и требуется более широкое исследование.
 
-## What it is
+## Что это такое
 
-Deep Search represents a more extensive search process than the standard Scanner path. Its purpose is to organize a wider exploration while still returning structured findings that can be reviewed by the user.
+Deep Search представляет более глубокий процесс поиска, чем стандартный путь Scanner. Его задача — организовать широкое исследование и вернуть структурированные результаты, которые пользователь сможет сравнить и проверить.
 
-## Why it exists
+## Зачем он нужен
 
-Not every case is resolved by a small candidate set. A separate Deep Search product area allows the project to model a broader workflow without making normal Scanner sessions unnecessarily complex.
+Не каждый случай решается небольшим набором кандидатов. Отдельная продуктовая область позволяет расширять поиск, не усложняя обычные Scanner-сессии для всех пользователей.
 
-## Relationship to Scanner
+## Связь со Scanner
 
-Scanner remains the normal candidate-evaluation path. Deep Search is expected to build on related concepts such as candidates, observations, results, and ranking, while allowing a larger or more adaptive exploration process.
+Scanner остаётся нормальным путём проверки кандидатов. Deep Search предполагается строить вокруг знакомых понятий: кандидаты, наблюдения, результаты и ранжирование, но с возможностью более широкого или адаптивного исследования.
 
-Neither product owns permanent application. A useful result still belongs in the Strategy workflow before it becomes durable state.
+Ни Scanner, ни Deep Search не владеют постоянным применением. Полезный результат должен перейти в Strategy и пройти её проверку до того, как станет долговременным состоянием.
 
-## Expected user workflow
+## Предполагаемый сценарий
 
-The planned user flow is to begin with normal diagnosis and Scanner where appropriate, move to Deep Search only when broader exploration is justified, inspect the resulting candidates, and save a useful result into Strategy for review.
+Планируемый пользовательский путь: начать с обычной диагностики и Scanner, перейти к Deep Search только если более широкий поиск действительно нужен, изучить результаты и сохранить подходящий кандидат в Strategy для последующего Preview, Validate и Apply.
 
-This keeps broader exploration separate from permanent application and preserves the same authority model used elsewhere in the project.
+Так сохраняется общая модель полномочий: исследование отделено от постоянного применения.
 
-## Current implementation status
+## Текущее состояние реализации
 
-The public status is **planned**. The repository contains design material for Deep Search, but design material is not sufficient evidence for a shipped feature. This page therefore does not invent commands, stable configuration fields, or UI controls.
+Публичный статус — **Планируется**. В репозитории существуют внутренние design materials по Deep Search, но сам факт наличия дизайна не является доказательством готовой функции. Поэтому страница не придумывает команды, стабильные настройки или элементы интерфейса.
 
-When a current implementation and fresh verification establish a supported workflow, the page can be expanded with real usage instructions and its maturity label can be reconsidered.
+После появления актуальной реализации и свежей проверки здесь можно будет добавить реальные инструкции и пересмотреть статус зрелости.
 
-See [Scanner](../scanner/index.md), [Strategy](../strategy/index.md), [BlockCheck](../blockcheck/index.md), and [Status and roadmap](../../01-project/status-roadmap.md).
+См. [Scanner](../scanner/index.md), [Strategy](../strategy/index.md), [BlockCheck](../blockcheck/index.md) и [Статус и план развития](../../01-project/status-roadmap.md).
