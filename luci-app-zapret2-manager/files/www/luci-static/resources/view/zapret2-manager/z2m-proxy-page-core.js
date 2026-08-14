@@ -127,13 +127,15 @@ function truthKind(truth) {
   return truth === 'healthy' ? 'g' : truth === 'stopped' || truth === 'starting' ? 'o' : 'r';
 }
 function confirm(ctx, title, message, label, action, danger) {
-  ctx.shell.openModal(title, E('p', {}, message), [
-    ctx.shell.button(_('Отмена'), '', ctx.shell.closeModal),
-    ctx.shell.button(label, danger === false ? 'primary' : 'danger', function () {
-      ctx.shell.closeModal();
-      action();
-    })
-  ]);
+  return ctx.shell.avatar.confirm({
+    title: title,
+    message: message,
+    okLabel: label,
+    className: danger === false ? '' : 'danger'
+  }).then(function (accepted) {
+    if (accepted) return action();
+    return null;
+  });
 }
 function reveal(ctx) {
   confirm(ctx, _('Показать секретную ссылку?'),

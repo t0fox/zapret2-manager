@@ -36,3 +36,7 @@ test('shared CSS defines graphite tokens and responsive top rails', () => {
   assert.match(css, /390px|480px|600px/);
 });
 
+test('Telegram Proxy uses the shared confirm lifecycle instead of a page-local modal', () => {
+  const proxy = read('z2m-proxy-page-core.js');
+  assert.match(proxy, /shell\.avatar\.confirm/);
+});

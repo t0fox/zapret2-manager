@@ -59,7 +59,7 @@ function showErrorState(root, error, options) {
 function confirm(options) {
   options = options || {};
   return new Promise(function (resolve) {
-    var host = E('div', { 'class': 'z2m-avatar-confirm', role: 'dialog', 'aria-modal': 'true' }, [
+    var host = E('div', { 'class': 'z2m-avatar-confirm ' + text(options.className), role: 'dialog', 'aria-modal': 'true' }, [
       E('div', { 'class': 'z2m-avatar-confirm-panel' }, [
         E('h2', {}, text(options.title, _('Подтвердите действие'))),
         E('p', {}, text(options.message)),
@@ -90,4 +90,3 @@ return baseclass.extend({
   showErrorState: showErrorState,
   confirm: confirm
 });
-
