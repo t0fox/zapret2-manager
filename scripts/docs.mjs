@@ -203,8 +203,13 @@ async function patchPublicRuntimePaths(output) {
   let script = await readFile(scriptPath, 'utf8')
   const absoluteIndexFetch = 'fetch("/static/contentIndex.json")'
   const projectAwareIndexFetch = 'fetch((location.pathname.match(/^\\/[^/]+\\//)?.[0] || "/") + "static/contentIndex.json")'
-  if (!script.includes(absoluteIndexFetch)) return
   script = script.replaceAll(absoluteIndexFetch, projectAwareIndexFetch)
+
+  const helpers = 'const z2mStaticBase=()=>location.pathname.match(/^\\/[^/]+\\//)?.[0]||"/";const z2mStaticPageHref=slug=>{const base=z2mStaticBase();if(!slug||slug==="index")return base;if(slug.endsWith("/index"))return base+slug.slice(0,-6)+"/";return base+slug+".html"};const z2mStaticFolderHref=slug=>{const base=z2mStaticBase();if(!slug)return base;return base+slug.replace(/^\\/+|\\/+$/g,"")+"/"};'
+  if (!script.includes('z2mStaticPageHref')) script = helpers + script
+  script = script.replaceAll('ct.href="/"+ge.slug', 'ct.href=z2mStaticPageHref(ge.slug)')
+  script = script.replaceAll('ue.href="/"+(We||"")', 'ue.href=z2mStaticFolderHref(We||"")')
+  script = script.replaceAll('A.href="/"+o.data.slug', 'A.href=z2mStaticPageHref(o.data.slug)')
   await writeFile(scriptPath, script)
 }
 
