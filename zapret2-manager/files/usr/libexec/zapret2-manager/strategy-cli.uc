@@ -16,6 +16,7 @@ import { z2m_parse, z2m_validate, z2m_tokenize } from './profiles.uc';
 import { avatar_tokenize, strategy_validate as model_validate, strategy_normalize } from './strategy-model.uc';
 import { strategy_candidate, strategy_effective_argv } from './strategy-compiler.uc';
 import { profiles_apply_candidate, profiles_config_hash, profiles_candidate_hash, profiles_reconcile_evidence } from './profiles-apply.uc';
+import { asset_registry_environment } from './asset-registry.uc';
 
 const DEFAULT_CATALOG_ROOT = '/usr/share/zapret2-manager/catalog/avatar';
 const ENGINE_PATH = '/opt/zapret2/nfq2/nfqws2';
@@ -259,9 +260,10 @@ function live_runtime_inputs() {
 	}
 	if (length(baseArgs) + length(luaInit) + length(hostlists) == 0 && length(configured) == 0)
 		return error_result('EUNAVAILABLE', 'authoritative live nfqws2 composition has no captured runtime inputs');
+	let assets = asset_registry_environment();
 	return { ok: true, environment: {
 		listMode: 'none', paths: { luaRoot: '/opt/zapret2/lua', blobRoot: '/opt/zapret2/bin', listRoot: '/lists', ipsetRoot: '/lists' },
-		functions: {}, blobs: {}, lua: {}, lists: {}
+		functions: assets.functions || {}, blobs: assets.blobs || {}, lua: assets.lua || {}, lists: assets.lists || {}, assetRefs: assets.assetRefs || {}
 	}, runtimeInputs: { source: 'live', enginePath: ENGINE_PATH, baseArgs: baseArgs, luaInit: luaInit, hostlists: hostlists } };
 }
 

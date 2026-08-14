@@ -93,6 +93,17 @@ function safe_absolute_path(value) {
 	return true;
 }
 
+function asset_descriptor(environment, value, expectedKind) {
+	if (!starts_with(value, 'asset://') || !is_object(environment) || !is_object(environment.assetRefs)) return null;
+	let body = substr(value, 8), slash = index(body, '/');
+	if (slash <= 0 || slash >= length(body) - 1) return { invalid: true, reason: 'asset reference is malformed' };
+	let kind = substr(body, 0, slash), id = substr(body, slash + 1), descriptor = environment.assetRefs[id];
+	if (kind != expectedKind || descriptor == null || descriptor.type != expectedKind)
+		return { invalid: true, reason: 'asset reference type or identity is unresolved' };
+	if (descriptor.available != true || !safe_absolute_path(descriptor.path)) return { invalid: true, reason: 'asset reference is unavailable or unsafe' };
+	return { id: id, type: kind, path: descriptor.path, available: true };
+}
+
 function shell_quote(value) {
 	let result = chr(39);
 	for (let i = 0; i < length(value); i++) {
@@ -132,11 +143,17 @@ function resolve_path(value, paths, kind, allowAbsolute) {
 	return value;
 }
 
-function resolve_blob_value(value, paths) {
+function resolve_value(value, paths, kind, environment) {
+	let asset = asset_descriptor(environment, value, kind);
+	if (asset != null) return asset.invalid ? null : asset.path;
+	return resolve_path(value, paths, kind, false);
+}
+
+function resolve_blob_value(value, paths, environment) {
 	let colon = index(value, ':');
 	if (colon < 0) return value;
 	let name = substr(value, 0, colon), source = substr(value, colon + 1);
-	let resolved = resolve_path(source, paths, 'blob');
+	let resolved = resolve_value(source, paths, 'blob', environment);
 	return name + ':' + (resolved != null ? resolved : source);
 }
 
@@ -144,19 +161,19 @@ function resolve_token(token, environment) {
 	let info = option_info(token), paths = is_object(environment.paths) ? environment.paths : {};
 	if (!info.hasEquals) return token;
 	if (info.name == 'lua-init') {
-		let resolvedLua = resolve_path(info.value, paths, 'lua');
+		let resolvedLua = resolve_value(info.value, paths, 'lua', environment);
 		return '--lua-init=' + (resolvedLua != null ? resolvedLua : info.value);
 	}
-	if (info.name == 'blob') return '--blob=' + resolve_blob_value(info.value, paths);
+	if (info.name == 'blob') return '--blob=' + resolve_blob_value(info.value, paths, environment);
 	if (info.name == 'hostlist' || info.name == 'hostlist-domains'
 		|| info.name == 'hostlist-exclude' || info.name == 'hostlist-exclude-domains'
 		|| info.name == 'hostlist-auto') {
-		let resolvedHostlist = resolve_path(info.value, paths, 'hostlist');
+		let resolvedHostlist = resolve_value(info.value, paths, 'hostlist', environment);
 		return '--' + info.name + '=' + (resolvedHostlist != null ? resolvedHostlist : info.value);
 	}
 	if (info.name == 'ipset' || info.name == 'ipset-ip'
 		|| info.name == 'ipset-exclude' || info.name == 'ipset-exclude-ip') {
-		let resolvedIpSet = resolve_path(info.value, paths, 'ipset');
+		let resolvedIpSet = resolve_value(info.value, paths, 'ipset', environment);
 		return '--' + info.name + '=' + (resolvedIpSet != null ? resolvedIpSet : info.value);
 	}
 	return token;

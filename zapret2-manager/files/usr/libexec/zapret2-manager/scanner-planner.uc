@@ -10,6 +10,7 @@ import { strategy_user_list } from './strategy-state.uc';
 import { strategy_candidate } from './strategy-compiler.uc';
 import { scanner_compiler_authority } from './scanner-compiler-authority.uc';
 import { scanner_generator_policy, scanner_generator_records } from './scanner-generator.uc';
+import { asset_registry_environment } from './asset-registry.uc';
 
 const AUTHORITY_MARKER = 'z2m-scanner-authority.v1';
 const GENERATOR_MARKER = 'z2m-scanner-generator.v1';
@@ -602,7 +603,7 @@ export const scanner_candidate_canonicalize = function(candidate, existingStrate
 	if (!is_object(loaded) || loaded.ok != true) return error_result('ENOENT', 'Scanner Strategy Catalog is unavailable.');
 	let catalog = loaded.catalog;
 	catalog.targetProfile = null;
-	catalog.compilerEnvironment = {};
+	catalog.compilerEnvironment = asset_registry_environment();
 	catalog.policy = { useGenerated: false };
 	let compilerAuthority = scanner_compiler_authority();
 	catalog = catalog_authority(catalog, compilerAuthority);
@@ -937,7 +938,7 @@ export const scanner_plan_build_test = function(request, catalogSnapshot, userSt
 
 function scanner_plan_build_server(request, catalog, strategies, profile, compilerAuthority) {
 	catalog.targetProfile = copy(profile);
-	catalog.compilerEnvironment = {};
+	catalog.compilerEnvironment = asset_registry_environment();
 	catalog.policy = scanner_generator_policy();
 	catalog = catalog_authority(catalog, compilerAuthority);
 	if (catalog.policy.useGenerated == true) catalog.generator = generator_authority(catalog, compilerAuthority);
