@@ -35,3 +35,42 @@ jobs:
 
       - name: Post-build privacy/leak smoke test
         run: node tests/knowledge/public-leak.test.mjs
+
+      - name: Quartz public serve smoke
+        run: |
+          set -eu
+          log="$(mktemp)"
+          node scripts/docs.mjs serve --public >"$log" 2>&1 &
+          server_pid=$!
+          cleanup() {
+            kill "$server_pid" 2>/dev/null || true
+            wait "$server_pid" 2>/dev/null || true
+            cat "$log"
+          }
+          trap cleanup EXIT
+
+          ready=0
+          for _ in $(seq 1 120); do
+            if curl -fsS http://127.0.0.1:8080/ -o /tmp/docs-home.html; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          [ "$ready" -eq 1 ]
+
+          assert_page() {
+            route="$1"
+            expected="$2"
+            target="$(mktemp)"
+            curl -fsS "http://127.0.0.1:8080${route}" -o "$target"
+            grep -Fqi "$expected" "$target"
+          }
+
+          assert_page / "zapret2-manager"
+          assert_page /11-operations/installation.html "Installation"
+          assert_page /11-operations/first-run.html "First Run"
+          assert_page /03-products/strategy/index.html "Strategy"
+          assert_page /03-products/scanner/index.html "Scanner"
+          assert_page /02-architecture/index.html "Architecture"
+          assert_page /11-operations/troubleshooting.html "Troubleshooting"
