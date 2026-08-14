@@ -4,6 +4,7 @@ import { stat, readlink, readfile } from 'fs';
 import * as state from './scanner-state.uc';
 import { scanner_worker_run, scanner_worker_resume } from './scanner-worker.uc';
 import { scanner_report_build, scanner_save_generated_validate } from './scanner-results.uc';
+import { strategy_cli_dispatch } from './strategy-cli.uc';
 
 const COMMANDS = { start: true, status: true, results: true, stop: true, resume: true, 'save-generated': true };
 const MAX_REQUEST_BYTES = 65536;
@@ -50,7 +51,8 @@ function dispatch(command, input, seams) {
 		if (!loaded.ok) return loaded;
 		if (command == 'results') {
 			let report = scanner_report_build(loaded.state);
-			if (!report.ok) return report;
+			if (!report.ok) return result(report.error && report.error.code ? report.error.code : 'EUNAVAILABLE',
+				'Scanner result report is unavailable.', { cause: report.error || null });
 			return bounded(response({ ok: true, id: input.id, report: report.report }));
 		}
 		return bounded(response({ ok: true, id: input.id, status: loaded.state.status, phase: loaded.state.phase, progress: loaded.state.progress, total: loaded.state.total, currentCandidate: loaded.state.currentCandidate, counts: loaded.state.counts, recovery: loaded.state.recovery, error: loaded.state.error, heartbeatAt: loaded.state.heartbeatAt }));
@@ -61,9 +63,19 @@ function dispatch(command, input, seams) {
 	}
 	if (command == 'save-generated') {
 		if (!object(input) || !object(input.payload)) return result('EINPUT', 'Save payload is required.');
-		let validated = scanner_save_generated_validate(input.payload);
+		if (!safe_id(input.payload.scanId) || !safe_id(input.payload.candidateId))
+			return result('EINPUT', 'Save payload must contain stable Scanner identity.');
+		let loaded = state.scanner_state_load(input.payload.scanId);
+		if (!loaded.ok) return loaded;
+		let validated = scanner_save_generated_validate({
+			scanId: input.payload.scanId, candidateId: input.payload.candidateId,
+		}, loaded.state);
 		if (!validated.ok) return validated;
-		return { ok: true, validated: true, payload: input.payload };
+		let created = seams && seams.strategyCreate ? seams.strategyCreate(validated.payload.strategy)
+			: strategy_cli_dispatch('create', { strategy: validated.payload.strategy });
+		if (!object(created) || created.ok !== true) return created || result('EIO', 'Strategy Save returned no result.');
+		return { ok: true, saved: true, scanId: validated.scanId, candidateId: validated.candidateId,
+			strategy: created.strategy, preview: { strategy_id: created.strategy?.id, revision: created.strategy?.revision } };
 	}
 	if (!object(input) || !object(input.request)) return result('EINPUT', 'Scanner request is required.');
 	if (command == 'resume') return scanner_worker_resume(input, seams);

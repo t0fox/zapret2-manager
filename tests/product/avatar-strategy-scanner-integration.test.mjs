@@ -119,5 +119,13 @@ test('generic target profiles bind the requested host as a server-owned test hos
   assert.deepEqual(invoke('scanner_target_hosts', profile, 'quick'), ['kernel.org']);
 });
 test('scanner_results integration exports and handoff contracts', () => {
-  assert.fail('RED: scanner-results + handoff absent');
+  const results = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-results.uc');
+  const cli = readFileSync(path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-cli.uc'), 'utf8');
+  const source = readFileSync(results, 'utf8');
+  for (const name of ['scanner_rank_results', 'scanner_report_build', 'scanner_best_reference', 'scanner_save_generated_validate'])
+    assert.match(source, new RegExp(`export const ${name}\\s*=`));
+  assert.match(cli, /scanner_report_build/);
+  assert.match(cli, /scanner_save_generated_validate/);
+  assert.match(cli, /strategy_cli_dispatch/);
+  assert.doesNotMatch(cli, /scanner_apply|scannerApply/);
 });

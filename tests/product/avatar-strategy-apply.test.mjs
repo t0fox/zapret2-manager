@@ -11,6 +11,7 @@ import { ucodeDiagnostic, ucodeModulePattern } from '../native/core/ucode-test-h
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const APPLY = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/profiles-apply.uc');
 const CLI = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-cli.uc');
+const SCANNER_CLI = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-cli.uc');
 const STATE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-state.uc');
 const CATALOG_ROOT = path.join(ROOT, 'zapret2-manager/files/usr/share/zapret2-manager/catalog/avatar');
 const CATALOG_DIGEST = JSON.parse(fs.readFileSync(path.join(CATALOG_ROOT, 'manifest.json'), 'utf8')).aggregateDigest;
@@ -618,6 +619,12 @@ test('runtime uncertainty records preserve bounded verified checks and rollback-
   })})`);
   assert.deepEqual(uncertain, { uncertain: true, rolledBack: false });
 }));
-test('scanner handoff: existing Strategy ID returned, unmatched generated cannot Apply, Save payload only', () => {
-  assert.fail('RED: Strategy handoff boundary absent');
+test('scanner handoff uses existing Preview/Validate/Apply boundary and never exposes Scanner Apply', () => {
+  const strategyCli = fs.readFileSync(CLI, 'utf8');
+  const scannerCli = fs.readFileSync(SCANNER_CLI, 'utf8');
+  assert.match(strategyCli, /preview/);
+  assert.match(strategyCli, /validate/);
+  assert.match(scannerCli, /strategy_cli_dispatch/);
+  assert.doesNotMatch(scannerCli, /scanner_apply|scannerApply/);
+  assert.doesNotMatch(scannerCli, /effectiveArgv|rawArgs|compiledTokens.*payload/);
 });
