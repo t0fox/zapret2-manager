@@ -35,7 +35,7 @@ zapret2-manager не является универсальным privileged comm
 
 **Явное право на изменение.** Просмотр или тестирование кандидата не равны применению постоянного состояния. Граница `Apply` остаётся видимой частью продуктовой модели.
 
-**Ограниченные native-операции.** Native-код используется там, где небольшой helper даёт чёткую техническую границу. Он не должен превращаться во второй независимый control plane.
+**Ограниченные native-операции.** Новый native-код проектируется Rust-first; C допускается только при конкретной технической причине. Native helper при этом остаётся узким и не должен превращаться во второй независимый control plane.
 
 **Владение ресурсами и очистка.** Временное состояние Scanner должно быть связано с конкретным lifecycle и удаляться через контролируемый cleanup. Восстановление не должно начинаться с разрушительных глобальных действий.
 
@@ -45,10 +45,24 @@ zapret2-manager не является универсальным privileged comm
 
 [Strategy](../03-products/strategy/index.md) отвечает за постоянную конфигурацию. [Scanner](../03-products/scanner/index.md) уже имеет существенные части реализации, но его полный production lifecycle ещё развивается. [BlockCheck](../03-products/blockcheck/index.md) и [Deep Search](../03-products/deep-search/index.md) пока остаются запланированными продуктовыми областями.
 
+Для сетевых зависимостей отдельно описаны [DNS, routing и assets](../03-products/dns-routing-assets.md): существующий DNS/list substrate, недостающие registries, unified routing и tunnel foundation.
+
+## Parity с avatarDD/zapret-gui
+
+Внутри проекта поддерживается evidence-backed comparison с `avatarDD/zapret-gui`. Публичная страница [Совместимость с avatarDD/zapret-gui](./avatar-parity.md) показывает закреплённый baseline матрицы и отдельно — изменения текущего `main`.
+
+Это важно: parity не является live-процентом, который растёт после каждого коммита. Глобальные статусы меняются после re-audit соответствующего behavioral contract; промежуточный прогресс сразу отражается как current-main delta и в roadmap.
+
+## Roadmap как инженерный dependency graph
+
+[Roadmap](./status-roadmap.md) теперь описывает M1–M12 не как список обещаний, а как последовательность зависимостей. Для каждого milestone указаны текущие доказательства, blockers, следующий safe slice, критерий завершения и тип evidence, который необходим для повышения статуса.
+
+Особенно это видно на Scanner: наличие A1 runtime и worker/probe компонентов продвигает M3, но не закрывает M4 Strategy handoff и не превращает весь Scanner в production-ready продукт.
+
 ## Текущая зрелость
 
 В репозитории присутствуют реальные OpenWrt packages, LuCI integration, ucode и shell runtime-код, native helper foundation, а также активная реализация Strategy и Scanner. Проект всё ещё следует оценивать как прототип, а не как полностью готовый appliance.
 
-Source tests являются полезным доказательством, но для утверждений о поведении на устройстве по-прежнему нужны OpenWrt SDK compilation и target validation.
+Source tests являются полезным доказательством, но для утверждений о поведении на устройстве по-прежнему нужны OpenWrt SDK compilation и target validation. Подробно уровни evidence разобраны на странице [Доказательства и тестирование](../08-development/evidence-testing.md).
 
-Дальше можно перейти к [Установке](../11-operations/installation.md), [Первому запуску](../11-operations/first-run.md), [Архитектуре](../02-architecture/index.md) или краткому разделу [Статус и план развития](./status-roadmap.md).
+Дальше можно перейти к [Установке](../11-operations/installation.md), [Первому запуску](../11-operations/first-run.md), [Архитектуре](../02-architecture/index.md), [Avatar parity](./avatar-parity.md) или [Roadmap](./status-roadmap.md).
