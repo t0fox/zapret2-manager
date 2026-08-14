@@ -14,7 +14,34 @@ const QUARTZ_PATH = path.join(ARTIFACTS_PATH, 'quartz')
 const QUARTZ_ENTRY = path.join(QUARTZ_PATH, 'quartz', 'bootstrap-cli.mjs')
 const DEFAULT_PORT = 8080
 const READINESS_TIMEOUT_MS = 120_000
-const PUBLIC_INTERNAL_OUTPUT_PATHS = ['09-work', '12-ai', '99-archive']
+const PUBLIC_IGNORE_PATTERNS = [
+  '04-contracts',
+  '05-parity',
+  '07-decisions',
+  '09-work',
+  '10-research',
+  '12-ai',
+  '90-templates',
+  '99-archive',
+  '02-architecture/atomic-write-json-v1-design.md',
+  '02-architecture/traceability',
+  '08-development/knowledge-workflow.md',
+]
+const PUBLIC_INTERNAL_OUTPUT_PATHS = [
+  '04-contracts',
+  '05-parity',
+  '07-decisions',
+  '09-work',
+  '10-research',
+  '12-ai',
+  '90-templates',
+  '99-archive',
+  '02-architecture/traceability',
+  '02-architecture/atomic-write-json-v1-design.html',
+  '02-architecture/atomic-write-json-v1-design-og-image.webp',
+  '08-development/knowledge-workflow.html',
+  '08-development/knowledge-workflow-og-image.webp',
+]
 
 function commandLine(command, args) {
   if (process.platform !== 'win32' || !['npm', 'npx'].includes(command)) {
@@ -159,6 +186,11 @@ async function applyConfig(mode) {
   config = config.replace(/^  pageTitle:.*$/m, `  pageTitle: "zapret2-manager${mode === 'internal' ? ' (internal)' : ''}"`)
   config = config.replace(/^  baseUrl:.*$/m, `  baseUrl: "${mode === 'internal' ? 'localhost' : 't0fox.github.io/zapret2-manager'}"`)
   config = config.replace(/^  locale:.*$/m, `  locale: ${mode === 'public' ? 'ru-RU' : 'en-US'}`)
+  if (mode === 'public') {
+    const marker = '    - .obsidian'
+    const additions = PUBLIC_IGNORE_PATTERNS.map((pattern) => `    - ${pattern}`).join('\n')
+    config = config.replace(marker, `${marker}\n${additions}`)
+  }
   config = config.replace(
     /(source: github:quartz-community\/explicit-publish\r?\n\s+enabled:) false/,
     `$1 ${mode === 'public' ? 'true' : 'false'}`,
