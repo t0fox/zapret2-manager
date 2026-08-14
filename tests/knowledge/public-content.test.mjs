@@ -7,17 +7,17 @@ const ROOT = path.resolve(import.meta.dirname, '../..')
 const PUBLIC = path.join(ROOT, '.artifacts', 'docs-public')
 
 const REQUIRED = [
-  ['index.html', 400, ['zapret2-manager', 'Get started', 'Strategy', 'Scanner', 'Architecture']],
-  ['01-project/index.html', 300, ['Project goals', 'Non-goals']],
-  ['02-architecture/index.html', 400, ['LuCI', 'canonical state', 'Strategy', 'Scanner']],
-  ['03-products/strategy/index.html', 400, ['Preview', 'Validate', 'Apply']],
-  ['03-products/scanner/index.html', 400, ['transient', 'cleanup', 'Save as Strategy']],
-  ['03-products/blockcheck/index.html', 80, ['BlockCheck', 'Planned']],
-  ['03-products/deep-search/index.html', 80, ['Deep Search', 'Planned']],
-  ['11-operations/installation.html', 250, ['Installation', 'OpenWrt']],
-  ['11-operations/first-run.html', 250, ['First Run', 'LuCI']],
-  ['11-operations/troubleshooting.html', 180, ['Troubleshooting', 'diagnostics']],
-  ['08-development/index.html', 200, ['Development', 'tests']],
+  ['index.html', 400, ['zapret2-manager', 'Начать', 'Стратегии', 'Сканер', 'Архитектура']],
+  ['01-project/index.html', 300, ['Цели проекта', 'Что не входит']],
+  ['02-architecture/index.html', 400, ['LuCI', 'каноническ', 'Стратег', 'Сканер']],
+  ['03-products/strategy/index.html', 400, ['Предпросмотр', 'Проверка', 'Применение']],
+  ['03-products/scanner/index.html', 400, ['временн', 'очистк', 'Сохранить как стратегию']],
+  ['03-products/blockcheck/index.html', 80, ['BlockCheck', 'Планируется']],
+  ['03-products/deep-search/index.html', 80, ['Deep Search', 'Планируется']],
+  ['11-operations/installation.html', 250, ['Установка', 'OpenWrt']],
+  ['11-operations/first-run.html', 250, ['Первый запуск', 'LuCI']],
+  ['11-operations/troubleshooting.html', 180, ['Устранение неполадок', 'диагностик']],
+  ['08-development/index.html', 200, ['Разработка', 'тест']],
 ]
 
 function textOf(html) {
@@ -39,6 +39,14 @@ test('required public pages exist and contain meaningful rendered content', asyn
     assert.ok(words >= minWords, `${relative}: ${words} words, expected at least ${minWords}`)
     for (const term of terms) assert.ok(text.toLowerCase().includes(term.toLowerCase()), `${relative}: missing term ${term}`)
   }
+})
+
+test('public Quartz uses Russian locale and Russian-first navigation content', async () => {
+  const html = await readFile(path.join(PUBLIC, 'index.html'), 'utf8')
+  const text = textOf(html)
+  assert.match(html, /<html\s+lang="ru(?:-RU)?"/i)
+  assert.match(text, /[А-Яа-яЁё]{4,}/u)
+  assert.match(text, /Установка|Начать|Документац/u)
 })
 
 test('main public pages are not placeholder sections', async () => {
