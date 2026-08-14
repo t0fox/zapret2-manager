@@ -153,3 +153,12 @@ test('public Quartz runtime uses the Pages subpath for content index data', asyn
   assert.doesNotMatch(postscript, /fetch\("\/static\/contentIndex\.json"\)/)
   assert.match(postscript, /location\.pathname\.match/)
 })
+
+test('public runtime does not regenerate root extensionless navigation links', async () => {
+  const publicDir = await findPublicDir()
+  assert.ok(publicDir, `Public build output is required at ${PUBLIC_DIR}`)
+  const postscript = await readFile(path.join(publicDir, 'postscript.js'), 'utf8')
+  assert.doesNotMatch(postscript, /\.href="\/"\+/)
+  assert.match(postscript, /z2mStaticPageHref/)
+  assert.match(postscript, /z2mStaticFolderHref/)
+})
