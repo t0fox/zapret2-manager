@@ -300,6 +300,11 @@ function installPane(ctx, data) {
 }
 function statusPane(ctx, data, normalized) {
   var shell = ctx.shell;
+  if (data.providerStatus && data.providerStatus.error) return shell.avatar.showErrorState(null, data.providerStatus.error, {
+    api: ctx.api,
+    retry: function () { return ctx.refresh('proxy'); },
+    body: _('Telegram Proxy опционален и не влияет на остальные функции Zapret 2 Manager.')
+  });
   var pstatus = providerStatus(data);
   if (!pstatus.installed) return shell.statePanel({
     title: _('TG Proxy не установлен'),

@@ -40,3 +40,9 @@ test('Telegram Proxy uses the shared confirm lifecycle instead of a page-local m
   const proxy = read('z2m-proxy-page-core.js');
   assert.match(proxy, /shell\.avatar\.confirm/);
 });
+
+test('Telegram Proxy distinguishes provider RPC failure from a successful not-installed state', () => {
+  const proxy = read('z2m-proxy-page-core.js');
+  assert.match(proxy, /data\.providerStatus\s*&&\s*data\.providerStatus\.error/);
+  assert.match(proxy, /showErrorState/);
+});
