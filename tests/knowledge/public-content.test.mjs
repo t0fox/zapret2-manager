@@ -52,8 +52,9 @@ test('public Quartz uses Russian locale and curated Russian navigation', async (
   assert.match(html, />\s*(?:Навигация|Проводник)\s*</u)
   assert.match(html, /data-behavior="collapse"/u)
   assert.doesNotMatch(html, />\s*Explorer\s*</u)
-  assert.doesNotMatch(html, />\s*Graph View\s*</u)
-  assert.doesNotMatch(html, />\s*Backlinks\s*</u)
+  assert.doesNotMatch(html, /class="graph(?:\s|"|>)/u)
+  assert.doesNotMatch(html, /class="backlinks(?:\s|"|>)/u)
+  assert.doesNotMatch(html, /class="note-properties(?:\s|"|>)/u)
 })
 
 test('every indexed public document is Russian and belongs to the curated public surface', async () => {
