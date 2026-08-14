@@ -2,7 +2,7 @@
 id: spec-documentation-depth-v2
 title: "Documentation Depth v2 Design"
 type: spec
-status: approved
+status: planned
 authority: approved-spec
 updated: 2026-08-14
 publish: false
