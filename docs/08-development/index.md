@@ -1,6 +1,6 @@
 ---
 id: development-index
-title: "Development"
+title: "Разработка"
 type: index
 status: current
 authority: index
@@ -9,26 +9,26 @@ publish: true
 tags: [development, build, tests, docs]
 ---
 
-# Development
+# Разработка
 
-The repository is organized around OpenWrt packages, application source, tests, and a repository-root documentation vault. Public development documentation focuses on the structure and verified project commands a contributor needs; private working notes and handoffs remain internal.
+Репозиторий организован вокруг OpenWrt packages, исходного кода приложения, автоматических тестов и базы документации в `docs/`. Публичный раздел разработки описывает структуру проекта и проверенные команды, которые нужны участнику разработки. Рабочие планы, внутренние handoff-записи и приватные engineering-инструкции остаются во внутренней документации.
 
-## Repository structure
+## Структура репозитория
 
-The main areas are:
+Основные области:
 
-- `zapret2-manager/` — backend package and implementation source;
-- `luci-app-zapret2-manager/` — LuCI JavaScript frontend and package data;
-- `zapret2-manager-full/` — target-specific backend + LuCI meta-package;
-- `tests/` — automated verification;
-- `docs/` — the knowledge vault and Quartz content;
-- `scripts/` — documentation and validation entry points.
+- `zapret2-manager/` — backend package и его implementation source;
+- `luci-app-zapret2-manager/` — JavaScript frontend LuCI и package data;
+- `zapret2-manager-full/` — target-specific meta-package backend + LuCI;
+- `tests/` — автоматические тесты и verification gates;
+- `docs/` — база знаний и исходный контент Quartz;
+- `scripts/` — точки входа для документации и validation.
 
-Generated packages, build directories, temporary audit output, and local tool state do not belong in the normal source tree.
+Сгенерированные packages, build directories, временные audit outputs и локальное состояние инструментов не должны попадать в обычное source tree.
 
-## OpenWrt package build
+## Сборка OpenWrt packages
 
-Use the normal OpenWrt build system. The repository README lists these package targets:
+Используйте стандартную систему сборки OpenWrt. В README репозитория указаны package targets:
 
 ```sh
 make package/zapret2-manager/compile V=s
@@ -36,58 +36,62 @@ make package/luci-app-zapret2-manager/compile V=s
 make package/zapret2-manager-full/compile V=s
 ```
 
-A host-side source test and an OpenWrt target build provide different evidence. Do not report a target build as successful based only on a host test.
+Host-side source test и сборка целевым OpenWrt toolchain подтверждают разные свойства. Нельзя сообщать об успешной target-сборке только потому, что локальный тест исходников завершился без ошибки.
 
-## Current tests
+## Текущие тесты
 
-The repository README identifies `scripts/test/native.sh` as the current native-foundation test entry point. Run current test entry points from a clean revision and keep the exact failing command when reporting a regression.
+README указывает `scripts/test/native.sh` как текущую точку входа для проверки native foundation. Запускайте актуальные test entry points на известной ревизии и при регрессии сохраняйте точную команду и исходный текст ошибки.
 
-## Documentation workflow
+Для документации отдельные тесты проверяют содержательность публичных страниц, отсутствие внутренних материалов, корректность ссылок и соответствие поведения статическому GitHub Pages hosting.
 
-Quartz infrastructure already exists. Ordinary documentation work should extend the content and tests rather than starting another documentation site.
+## Работа с документацией
 
-Verify the documentation environment:
+Quartz infrastructure уже существует. Обычная работа с документацией должна расширять текущий контент и тесты, а не создавать второй сайт.
+
+Проверка закреплённой версии Quartz:
 
 ```sh
 node scripts/docs.mjs verify
 ```
 
-Build the internal vault:
+Сборка внутренней базы:
 
 ```sh
 node scripts/docs.mjs build internal
 ```
 
-Build the public site:
+Сборка публичного сайта:
 
 ```sh
 node scripts/docs.mjs build public
 ```
 
-The stable outputs are `.artifacts/docs-internal` and `.artifacts/docs-public`. The Bash and PowerShell wrappers call the same `docs.mjs` entry point.
+Стабильные выходные каталоги: `.artifacts/docs-internal` и `.artifacts/docs-public`. Bash и PowerShell wrappers используют тот же entry point `docs.mjs`.
 
-## Knowledge validation
+## Проверка базы знаний
 
-Run:
+Запустите:
 
 ```sh
 node scripts/validate-knowledge.mjs
 ```
 
-The validator checks the existing frontmatter contract, identifiers, dates, links, and other knowledge-base rules. Public-site tests additionally protect the publication boundary and generated links.
+Validator проверяет frontmatter contract, идентификаторы, даты, ссылки и другие правила базы знаний. Public-site tests дополнительно защищают границу публикации и проверяют generated links.
 
-New public pages use the established fields: `id`, `title`, `type`, `status`, `authority`, `updated`, `publish`, and `tags`. Do not create a second metadata schema.
+Новые публичные страницы используют уже существующие поля: `id`, `title`, `type`, `status`, `authority`, `updated`, `publish` и `tags`. Не создавайте параллельную metadata schema.
 
-## Public and internal documentation
+## Публичная и внутренняя документация
 
-Public documentation explains what the product is, current maturity, supported prototype workflows, troubleshooting, and architecture at a useful level. Internal notes retain implementation evidence, working plans, private operating contracts, and recovery history.
+Публичная документация должна объяснять назначение проекта, текущую зрелость, поддерживаемые пользовательские workflow, архитектуру на полезном уровне, установку и устранение неполадок.
 
-A broken public link is not a reason to publish an internal target. Replace it with a public summary, remove it, or create a public-facing page.
+Внутренний Quartz сохраняет implementation evidence, рабочие планы, ADR, инженерные контракты, traceability и recovery history. Битая публичная ссылка не является основанием публиковать внутренний документ: нужно дать публичное объяснение, убрать ссылку или создать отдельную user-facing страницу.
 
-## Testing documentation changes
+## Проверка изменений документации
 
-A Markdown edit is not enough to prove the public site works. Validate metadata and links, build the public artifact, run the public tests, and inspect generated HTML. The public and internal builds are separate outputs and both matter when the change affects the documentation tree.
+Само изменение Markdown не доказывает, что сайт работает. Нужно проверить metadata и links, собрать public artifact, прогнать тесты публикации и проверить generated HTML. При изменениях дерева документации важны и public, и internal builds.
 
-## Where to start
+Отдельно учитывайте разницу между Quartz dev-server и GitHub Pages. Публичные ссылки должны разрешаться как реально загруженные статические файлы; нельзя рассчитывать на rewrite, который существует только у локального сервера.
 
-A new contributor should read [Project overview](../01-project/index.md), [Architecture](../02-architecture/index.md), and the relevant product page. For documentation work, also read [Installation](../11-operations/installation.md) and [Troubleshooting](../11-operations/troubleshooting.md) so new instructions stay consistent with the verified package workflow.
+## С чего начать
+
+Новому участнику полезно прочитать [Обзор проекта](../01-project/index.md), [Архитектуру](../02-architecture/index.md) и страницу нужной продуктовой области. Для понимания пользовательского пути также посмотрите [Установку](../11-operations/installation.md) и [Устранение неполадок](../11-operations/troubleshooting.md).
