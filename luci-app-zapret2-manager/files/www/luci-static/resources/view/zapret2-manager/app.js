@@ -13,11 +13,12 @@
 'require view.zapret2-manager.z2m-monitor as Monitor';
 'require view.zapret2-manager.z2m-maintenance as Maintenance';
 'require view.zapret2-manager.z2m-blockcheck-page as BlockCheck';
+'require view.zapret2-manager.z2m-assets as Assets';
 
 var APPLY_SCOPE_ORDER = ['strategy','domainHub','dns','proxy'];
-var TAB_IDS = ['overview','strategy','services','blockcheck','dns','proxy','monitor','maintenance'];
+var TAB_IDS = ['overview','strategy','services','blockcheck','assets','dns','proxy','monitor','maintenance'];
 var TAB_LABELS = {
-  overview: _('Обзор'), strategy: _('Стратегия'), services: _('Сервисы и домены'), blockcheck: _('BlockCheck'),
+  overview: _('Обзор'), strategy: _('Стратегия'), services: _('Сервисы и домены'), blockcheck: _('BlockCheck'), assets: _('Ресурсы'),
   dns: _('DNS'), proxy: _('Telegram Proxy'), monitor: _('Мониторинг'), maintenance: _('Обслуживание')
 };
 var DRAFT_META = {
@@ -28,7 +29,7 @@ var DRAFT_META = {
   maintenance: { label: _('Обслуживание'), tab: 'maintenance' }
 };
 var MODULES = {
-  overview: Overview, strategy: Strategy, services: Services, blockcheck: BlockCheck,
+  overview: Overview, strategy: Strategy, services: Services, blockcheck: BlockCheck, assets: Assets,
   dns: Dns, proxy: Proxy, monitor: Monitor, maintenance: Maintenance
 };
 var store = StoreModule.create();
@@ -64,7 +65,7 @@ Object.keys(DRAFT_META).forEach(function (scope) {
 });
 
 function tabFromHash() {
-  var match = String(window.location.hash || '').match(/^#\/(overview|strategy|services|blockcheck|lists|dns|proxy|monitor|maintenance)$/);
+  var match = String(window.location.hash || '').match(/^#\/(overview|strategy|services|blockcheck|assets|lists|dns|proxy|monitor|maintenance)$/);
   if (!match) return 'overview';
   return match[1] === 'lists' ? 'services' : match[1];
 }

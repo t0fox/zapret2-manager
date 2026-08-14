@@ -73,6 +73,7 @@ define Package/zapret2-manager/conffiles
 /etc/zapret2-manager/service-dns-state.json
 /etc/zapret2-manager/engine-provider.json
 /etc/zapret2-manager/blockcheck-domains.json
+/etc/zapret2-manager/asset-registry.json
 endef
 
 define Package/zapret2-manager/install
@@ -81,6 +82,7 @@ define Package/zapret2-manager/install
 	chmod 0755 $(1)/etc/init.d/zapret2-manager
 	chmod 0755 $(1)/etc/hotplug.d/iface/90-zapret2-manager
 	chmod 0644 $(1)/usr/libexec/zapret2-manager/*.uc
+	chmod 0755 $(1)/usr/libexec/zapret2-manager/asset-registry-package-init.uc
 	find $(1)/usr/share/zapret2-manager -type f -exec chmod 0644 {} +
 	chmod 0644 $(1)/etc/zapret2-manager/*.json
 	chmod 0640 $(1)/etc/zapret2-manager/ipset/*.txt
@@ -102,6 +104,12 @@ fi
 if [ ! -e /etc/zapret2-manager/strategy-state.json ] && [ ! -L /etc/zapret2-manager/strategy-state.json ]; then
   printf '%s\n' '{"schema":1,"revision":0,"favorites":[],"selected":null}' \
     | install -o root -g root -m 0600 /dev/stdin /etc/zapret2-manager/strategy-state.json || exit $$?
+fi
+if [ -x /usr/bin/ucode ] && [ -x /usr/libexec/zapret2-manager/asset-registry-package-init.uc ]; then
+  if [ ! -e /etc/zapret2-manager/assets ] && [ ! -L /etc/zapret2-manager/assets ]; then
+    install -d -o root -g root -m 0700 /etc/zapret2-manager/assets || exit $$?
+  fi
+  /usr/bin/ucode /usr/libexec/zapret2-manager/asset-registry-package-init.uc || exit $$?
 fi
 /etc/init.d/rpcd reload
 /etc/init.d/zapret2-manager enable
