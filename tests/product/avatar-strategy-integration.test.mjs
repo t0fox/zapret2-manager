@@ -314,6 +314,8 @@ function rpcSignatureSource(method, request) {
   return read(RPC)
     .replace("const STRATEGY_CLI = '/usr/libexec/zapret2-manager/strategy-cli.uc';",
       `const STRATEGY_CLI = ${JSON.stringify(CLI)};`)
+    .replace("import { route_list, route_reconcile } from '/usr/libexec/zapret2-manager/unified-routing.uc';",
+      "function route_list() { return { schema: 1, revision: 0, routes: [] }; }\nfunction route_reconcile() { return { ok: true, reconciled: 0 }; }")
     .replace("return {\n\t'zapret2-manager'", "let signature = {\n\t'zapret2-manager'")
     .replace(/\n};\s*$/, `\n};\nprint(sprintf('%J', signature['zapret2-manager'][${JSON.stringify(method)}].call(${JSON.stringify(request)})));`);
 }
