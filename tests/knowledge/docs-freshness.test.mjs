@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { evaluateDocsFreshness } from '../../scripts/check-docs-freshness.mjs'
+import { evaluateDocsFreshness, runDocsFreshnessCli } from '../../scripts/check-docs-freshness.mjs'
 
 test('Scanner source change requires mapped documentation impact', () => {
   const result = evaluateDocsFreshness([
@@ -56,4 +56,8 @@ test('tests, docs and unrelated source changes do not create product freshness v
     'scripts/docs.mjs',
   ])
   assert.deepEqual(result, { ok: true, violations: [] })
+})
+
+test('current Git change set satisfies mapped documentation impact', () => {
+  assert.equal(runDocsFreshnessCli(process.env), 0)
 })
