@@ -1,14 +1,20 @@
 ---
 id: operations-index
-title: "Operations"
+title: "Использование"
 type: operations
 status: current
 authority: index
-updated: 2026-08-13
-publish: false
+updated: 2026-08-14
+publish: true
 tags: [operations, index]
 ---
 
-# Operations
+# Использование
 
-Runbooks and recovery procedures belong here. Never store credentials in the vault.
+В этом разделе собраны публичные инструкции по установке и первому использованию zapret2-manager, а также безопасная диагностика типичных проблем.
+
+- [Установка](./installation.md) — как собрать packages из текущего исходного кода и что проверить после установки.
+- [Первый запуск](./first-run.md) — последовательность первого знакомства с LuCI, Strategy, Preview, Validate и границей Apply.
+- [Устранение неполадок](./troubleshooting.md) — как локализовать проблему по evidence и не уничтожить полезное состояние широким сбросом.
+
+Проект остаётся активно развивающимся прототипом. Для действий, которые могут менять постоянное состояние, ориентируйтесь на возможности конкретной установленной ревизии и сохраняйте версию сборки при диагностике.
