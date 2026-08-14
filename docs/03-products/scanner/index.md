@@ -27,7 +27,7 @@ Scanner превращает открытый поисковый вопрос в
 
 ## Временное выполнение
 
-Работа Scanner по своей природе **временная**. В репозитории присутствуют transient runtime component, worker path, runtime adapter, native Scanner helper, probe components, state handling и result handling. Это показывает, что Scanner не является пустым placeholder, но продолжающаяся интеграция не позволяет считать весь путь production-complete.
+Работа Scanner по своей природе **временная**. В репозитории присутствуют transient runtime component, worker path, runtime adapter, probe components и state handling. Текущий `main` также связывает transient execution с canonical A1 lifecycle. Это показывает, что Scanner не является пустым placeholder, но продолжающаяся интеграция не позволяет считать весь путь production-complete.
 
 Упрощённый lifecycle:
 
@@ -38,7 +38,7 @@ Scanner превращает открытый поисковый вопрос в
       ↓
     кандидат
       ↓
-временный runtime
+ A1 временный runtime
       ↓
 наблюдение / probe
       ↓
@@ -61,6 +61,8 @@ Scanner использует probe-oriented компоненты для полу
 
 Result handling должен сохранять достаточно контекста, чтобы пользователь или последующая продуктовая логика могли решить, стоит ли сохранять кандидат. Даже кандидат с высоким рейтингом не пересекает постоянную границу Strategy автоматически.
 
+Текущий repository уже содержит большой Scanner substrate, но отдельные `scanner-results` и `scanner-reconcile` boundaries пока не доказывают законченный product contract. Поэтому ranking/result/recovery остаются частью production gate, а не маркетинговым статусом.
+
 ## Сохранить как стратегию
 
 Долговременный переход можно описать как **«Сохранить как стратегию»** (`Save as Strategy`). Полезный Scanner-кандидат переносится в продуктовую модель Strategy и после этого проходит обычные стадии Strategy: compile, preflight, Preview, Validate и Apply.
@@ -75,9 +77,16 @@ Result handling должен сохранять достаточно конте�
 
 ## Текущая граница реализации
 
-Текущее дерево содержит Scanner model/state/generator/transient/probe/worker/result/runtime-adapter components и native Scanner code. Одновременно инженерная работа всё ещё затрагивает lifecycle и protocol integration. Корректный публичный вывод: **существенный прототип, но ещё не завершённый production runtime**.
+Текущее дерево содержит Scanner model/state/generator/planner/transient/probe/worker/runtime-adapter components. Одновременно инженерная работа всё ещё затрагивает result/ranking/reconciliation, product handoff и полный LuCI/target lifecycle. Корректный публичный вывод: **существенный прототип, но ещё не завершённый production runtime**.
 
 Когда текущая реализация и свежая проверка подтвердят полный lifecycle, статус страницы можно будет повысить. До этого консервативная маркировка сохраняется.
+
+## Глубже
+
+- [Lifecycle Scanner](./lifecycle.md) — model → planner/generator → A1 runtime → probes → results/ranking → cleanup → Strategy handoff → LuCI и точный production-readiness gate.
+- [Scanner, BlockCheck и BlockCheck2](./family.md) — почему это три разных Avatar flow и почему Orchestra/managed `blockcheck2.sh` не заменяют Scanner parity.
+- [Совместимость с avatarDD/zapret-gui](../../01-project/avatar-parity.md) — pinned parity snapshot и current-main delta.
+- [Roadmap](../../01-project/status-roadmap.md) — M3 Scanner и M4 Strategy handoff с критериями завершения.
 
 ## Связанная документация
 
@@ -85,4 +94,4 @@ Result handling должен сохранять достаточно конте�
 - [Архитектура](../../02-architecture/index.md)
 - [Первый запуск](../../11-operations/first-run.md)
 - [Устранение неполадок](../../11-operations/troubleshooting.md)
-- [Статус и план развития](../../01-project/status-roadmap.md)
+- [Доказательства и тестирование](../../08-development/evidence-testing.md)
