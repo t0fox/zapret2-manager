@@ -45,6 +45,72 @@ function retryButton(handler, label) {
   return button;
 }
 
+/* Bounded adaptation of Avatar web/js/components/list_ui.js. */
+function attachTableFilter(options) {
+  options = options || {};
+  var input = options.input, table = options.table, counter = options.counter || null;
+  if (!input || !table) return null;
+  var timer = null;
+  var countLabel = options.countLabel || function (visible, total) { return visible + ' / ' + total; };
+  function apply() {
+    var query = text(input.value).trim().toLowerCase();
+    var rows = table.tBodies && table.tBodies[0] ? Array.prototype.slice.call(table.tBodies[0].rows) : [];
+    var visible = 0;
+    rows.forEach(function (row) {
+      var match = !query || text(row.textContent).toLowerCase().indexOf(query) >= 0;
+      row.style.display = match ? '' : 'none';
+      if (match) visible++;
+    });
+    if (counter) counter.textContent = countLabel(visible, rows.length);
+  }
+  function onInput() {
+    if (timer) window.clearTimeout(timer);
+    timer = window.setTimeout(function () { timer = null; apply(); }, 150);
+  }
+  function onKeyDown(event) {
+    if (event.key === 'Escape') { input.value = ''; onInput(); }
+  }
+  input.addEventListener('input', onInput);
+  input.addEventListener('keydown', onKeyDown);
+  apply();
+  return {
+    update: apply,
+    destroy: function () {
+      if (timer) window.clearTimeout(timer);
+      timer = null;
+      input.removeEventListener('input', onInput);
+      input.removeEventListener('keydown', onKeyDown);
+    }
+  };
+}
+
+/* Bounded adaptation of Avatar web/js/components/toast.js. */
+var MAX_TOASTS = 5;
+var DEDUP_MS = 2000;
+var recentKeys = {};
+function showToast(message, kind, duration) {
+  var host = document.getElementById('z2m-toasts');
+  var value = text(message);
+  if (!host || !value) return;
+  var normalizedKind = kind === 'err' ? 'err' : kind === 'warn' ? 'warn' : kind === 'ok' ? 'ok' : '';
+  var key = normalizedKind + ':' + value;
+  var now = Date.now();
+  if (recentKeys[key] && now - recentKeys[key] < DEDUP_MS) return;
+  recentKeys[key] = now;
+  Object.keys(recentKeys).forEach(function (item) {
+    if (now - recentKeys[item] > DEDUP_MS * 4) delete recentKeys[item];
+  });
+  var existing = host.querySelectorAll('.z2m-toast');
+  if (existing.length >= MAX_TOASTS && existing[0] && existing[0].parentNode) existing[0].parentNode.removeChild(existing[0]);
+  var toast = E('div', { 'class': 'z2m-toast ' + normalizedKind, role: normalizedKind === 'err' ? 'alert' : 'status' }, value);
+  host.appendChild(toast);
+  var timer = window.setTimeout(function () { if (toast.parentNode) toast.parentNode.removeChild(toast); }, duration || 3600);
+  toast.addEventListener('click', function () {
+    window.clearTimeout(timer);
+    if (toast.parentNode) toast.parentNode.removeChild(toast);
+  });
+}
+
 function showErrorState(root, error, options) {
   options = options || {};
   var normalized = normalizeError(error, options.api);
@@ -87,6 +153,8 @@ return baseclass.extend({
   card: card,
   state: state,
   retryButton: retryButton,
+  attachTableFilter: attachTableFilter,
+  showToast: showToast,
   showErrorState: showErrorState,
   confirm: confirm
 });

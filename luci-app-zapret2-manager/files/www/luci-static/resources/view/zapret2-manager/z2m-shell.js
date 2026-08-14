@@ -251,14 +251,7 @@ function empty(message) {
 }
 
 function showToast(message, kind) {
-  var host = document.getElementById('z2m-toasts');
-  var value = Format.text(message);
-  if (!host || value === null) return;
-  var toast = E('div', { 'class': 'z2m-toast ' + (kind || ''), role: kind === 'err' ? 'alert' : 'status' }, value);
-  host.appendChild(toast);
-  window.setTimeout(function () {
-    if (toast.parentNode) toast.parentNode.removeChild(toast);
-  }, 3600);
+  return AvatarUi.showToast(Format.text(message), kind);
 }
 
 function openModal(title, body, footer) {

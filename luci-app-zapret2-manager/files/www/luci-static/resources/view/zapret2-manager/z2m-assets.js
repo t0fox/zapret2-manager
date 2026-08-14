@@ -1,11 +1,14 @@
 'use strict';
 'require baseclass';
+'require view.zapret2-manager.z2m-avatar-ui as AvatarUi';
 
 function assetsOf(response) { return response && Array.isArray(response.assets) ? response.assets : []; }
 function json(value) { return JSON.stringify(value); }
 function text(value) { return value == null ? '' : String(value); }
 function utf8Base64(value) { return btoa(unescape(encodeURIComponent(text(value)))); }
 function errorText(ctx, error) { return ctx.api.normalizeError(error).message; }
+
+var tableFilter = null;
 
 function load(ctx) {
   return ctx.api.assets.list().then(function (response) { return { value: response || {} }; })
@@ -41,12 +44,24 @@ function render(ctx) {
     var action = E('div', { 'class': 'z2m-actions' });
     var validate = shell.button(_('Проверить'), 'sm', function () { validate.disabled = true; ctx.api.assets.validate(json({ id: asset.id })).then(function () { return ctx.refresh('assets'); }).catch(function (error) { status.textContent = errorText(ctx, error); status.className = 'warnbar'; }).then(function () { validate.disabled = false; }); }, !!envelope.error);
     action.appendChild(validate);
-    if (asset.mutable === true && !referenced) action.appendChild(shell.button(_('Удалить'), 'sm', function () { if (!window.confirm(_('Удалить ресурс ') + asset.id + '?')) return; ctx.api.assets.delete(json({ id: asset.id })).then(function () { return ctx.refresh('assets'); }).catch(function (error) { status.textContent = errorText(ctx, error); status.className = 'warnbar'; }); }, !!envelope.error));
-    return E('tr', {}, [E('td', {}, E('code', {}, text(asset.id))), E('td', {}, text(asset.type)), E('td', {}, text(asset.ownership || 'manager')), E('td', {}, text(asset.provenance && asset.provenance.kind || 'unknown')), E('td', {}, text(validation.status || (asset.available === false ? 'unavailable' : 'registered'))), E('td', {}, text(asset.revision)), E('td', {}, E('code', {}, text(asset.contentSha256).slice(0, 16) + '…')), E('td', {}, referenced ? text(asset.references.map(function (ref) { return ref.consumer; }).join(', ')) : _('нет')), E('td', {}, action)]);
+    if (asset.mutable === true && !referenced) action.appendChild(shell.button(_('Удалить'), 'sm', function () {
+      AvatarUi.confirm({ title: _('Удалить ресурс'), message: asset.id + '?', okLabel: _('Удалить'), className: 'danger' }).then(function (confirmed) {
+        if (!confirmed) return;
+        return ctx.api.assets.delete(json({ id: asset.id })).then(function () { return ctx.refresh('assets'); });
+      }).catch(function (error) { status.textContent = errorText(ctx, error); status.className = 'warnbar'; });
+    }, !!envelope.error));
+    var statusValue = validation.status || (asset.available === false ? 'unavailable' : 'registered');
+    return E('tr', {}, [E('td', {}, E('code', {}, text(asset.id))), E('td', {}, text(asset.type)), E('td', {}, text(asset.ownership || 'manager')), E('td', {}, text(asset.provenance && asset.provenance.kind || 'unknown')), E('td', {}, AvatarUi.statusBadge(statusValue)), E('td', {}, text(asset.revision)), E('td', {}, E('code', {}, text(asset.contentSha256).slice(0, 16) + '…')), E('td', {}, referenced ? text(asset.references.map(function (ref) { return ref.consumer; }).join(', ')) : _('нет')), E('td', {}, action)]);
   }))]);
-  root.appendChild(shell.panel(_('Зарегистрированные ресурсы'), E('div', { 'class': 'z2m-table-wrap' }, table), _('Пути скрыты от клиента; referenced-by блокирует удаление.')));
+  var search = E('input', { type: 'search', placeholder: _('Поиск по ID, типу или provenance'), 'aria-label': _('Поиск ресурсов') });
+  var count = E('span', { 'class': 'z2m-dim' });
+  tableFilter = AvatarUi.attachTableFilter({ input: search, table: table, counter: count, countLabel: function (visible, total) { return visible + ' / ' + total + ' ' + _('ресурсов'); } });
+  root.appendChild(shell.panel(_('Зарегистрированные ресурсы'), E('div', { 'class': 'z2m-stack' }, [
+    E('div', { 'class': 'z2m-inline-form' }, [search, count]),
+    E('div', { 'class': 'z2m-table-wrap' }, table)
+  ]), _('Пути скрыты от клиента; referenced-by блокирует удаление.')));
   root.appendChild(status);
   return root;
 }
 
-return baseclass.extend({ id: 'assets', title: _('Ресурсы'), subtitle: _('Канонические asset registry ресурсы'), load: load, render: render, mount: function () {}, unmount: function () {} });
+return baseclass.extend({ id: 'assets', title: _('Ресурсы'), subtitle: _('Канонические asset registry ресурсы'), load: load, render: render, mount: function () {}, unmount: function () { if (tableFilter) tableFilter.destroy(); tableFilter = null; } });

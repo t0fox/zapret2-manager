@@ -26,6 +26,14 @@ test('shared state components cover loading, empty, unavailable, failed, and ret
   assert.match(shared, /<details|details/);
 });
 
+test('shared UI carries bounded Avatar list filtering and toast lifecycle patterns', () => {
+  const shared = read('z2m-avatar-ui.js');
+  assert.match(shared, /attachTableFilter/);
+  assert.match(shared, /IntersectionObserver|MAX_TOASTS/);
+  assert.match(shared, /DEDUP_MS|recentKeys/);
+  assert.match(shared, /removeEventListener\('keydown', onKeyDown\)/);
+});
+
 test('shared CSS defines graphite tokens and responsive top rails', () => {
   const css = read('z2m-avatar-ui.css');
   for (const token of ['--z2m-bg', '--z2m-surface', '--z2m-border', '--z2m-text', '--z2m-accent', '--z2m-danger']) {

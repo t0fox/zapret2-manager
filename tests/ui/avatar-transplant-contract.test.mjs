@@ -40,3 +40,12 @@ test('ships a project-owned shared Avatar-derived UI boundary', () => {
   assert.match(source, /statusBadge/);
   assert.match(source, /showErrorState/);
 });
+
+test('documents actual donor file-level reuse instead of only visual similarity', () => {
+  const mapping = fs.readFileSync(path.join(root, 'docs/09-work/avatar-frontend-mapping.md'), 'utf8');
+  for (const donorFile of ['components/confirm.js', 'components/list_ui.js', 'components/toast.js', 'pages/blockcheck.js']) {
+    assert.match(mapping, new RegExp(donorFile.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
+  assert.match(mapping, /COPIED\/ADAPTED CODE AREA/);
+  assert.match(mapping, /MAJOR MODIFICATIONS/);
+});

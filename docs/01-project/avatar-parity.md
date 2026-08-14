@@ -145,7 +145,7 @@ Canonical asset registries остаются **NEXT / PARALLEL PLANNED**: сущ�
 
 ## Tunnels
 
-**Telegram proxy: PARTIAL.** Есть bounded optional-provider lifecycle, status/health и UI, но это только одна tunnel capability и не вся Avatar tunnel family.
+**Telegram proxy: PARTIAL.** Есть bounded optional-provider lifecycle, status/health и UI, но это только одна tunnel capability и не вся Avatar tunnel family. LuCI UI reuses the donor's compact setup/status and confirmation presentation through the project-owned shell, while provider state remains authoritative in the existing `proxy_*` RPCs; provider RPC failure is rendered separately from a truthful not-installed state.
 
 **usque/MASQUE/WARP, AWG, sing-box, mihomo, Opera, warp-in-warp: MISSING или не доказаны как production product.** Для них нужны не только executable/config, но owned interface/routing resources, secret handling, lifecycle, health, update/rollback и integration с unified routing.
 
