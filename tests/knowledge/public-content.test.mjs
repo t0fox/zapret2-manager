@@ -20,7 +20,7 @@ const REQUIRED = [
   ['08-development/index.html', 200, ['Разработка', 'тест']],
 ]
 
-const ALLOWED_PUBLIC_SLUGS = /^(index|01-project(?:\/|$)|02-architecture\/index$|03-products(?:\/|$)|08-development\/index$|11-operations(?:\/|$))$/
+const ALLOWED_PUBLIC_SLUGS = /^(index|01-project(?:\/.*)?|02-architecture\/index|03-products(?:\/.*)?|08-development\/index|11-operations(?:\/.*)?)$/
 
 function textOf(html) {
   return html
