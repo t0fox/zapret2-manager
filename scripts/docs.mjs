@@ -38,6 +38,7 @@ const PUBLIC_INTERNAL_OUTPUT_PATHS = [
   '12-ai',
   '90-templates',
   '99-archive',
+  'tags',
   '02-architecture/traceability',
   '02-architecture/atomic-write-json-v1-design.html',
   '02-architecture/atomic-write-json-v1-design-og-image.webp',
@@ -45,16 +46,7 @@ const PUBLIC_INTERNAL_OUTPUT_PATHS = [
   '08-development/knowledge-workflow-og-image.webp',
 ]
 
-const PUBLIC_DISABLED_PLUGINS = [
-  'github:quartz-community/tag-page',
-  'github:quartz-community/tag-list',
-  'github:quartz-community/graph',
-  'github:quartz-community/backlinks',
-  'github:quartz-community/note-properties',
-  'github:quartz-community/stacked-pages',
-  'github:quartz-community/footer',
-  'github:quartz-community/breadcrumbs',
-]
+const PUBLIC_CHROME_STYLE = '<style id="z2m-public-chrome">.graph,.global-graph-outer,.global-graph-container,.backlinks,.note-properties,.page-footer,.breadcrumb-container,.stacked-pages-container{display:none!important}</style>'
 
 function commandLine(command, args) {
   if (process.platform !== 'win32' || !['npm', 'npx'].includes(command)) return { command, args }
@@ -195,10 +187,13 @@ async function applyConfig(mode) {
     const marker = '    - .obsidian'
     const additions = PUBLIC_IGNORE_PATTERNS.map((pattern) => `    - ${pattern}`).join('\n')
     config = config.replace(marker, `${marker}\n${additions}`)
-    for (const plugin of PUBLIC_DISABLED_PLUGINS) config = setPluginEnabled(config, plugin, false)
+    config = setPluginEnabled(config, 'github:quartz-community/tag-page', false)
   }
 
-  config = setPluginEnabled(config, 'github:quartz-community/explicit-publish', mode === 'public')
+  config = config.replace(
+    /(source: github:quartz-community\/explicit-publish\r?\n\s+enabled:) false/,
+    `$1 ${mode === 'public' ? 'true' : 'false'}`,
+  )
   await writeFile(path.join(QUARTZ_PATH, 'quartz.config.yaml'), config)
 }
 
@@ -267,6 +262,8 @@ async function patchPublicHtml(output) {
 
     html = html.replaceAll('data-behavior="link"', 'data-behavior="collapse"')
     html = html.replace(/(<button[^>]*class="title-button explorer-toggle desktop-explorer"[^>]*>[\s\S]*?<h2>)Explorer(<\/h2>)/g, '$1Навигация$2')
+    html = html.replaceAll('>Home<', '>Главная<')
+    if (!html.includes('id="z2m-public-chrome"')) html = html.replace('</head>', `${PUBLIC_CHROME_STYLE}</head>`)
 
     const base = new URL(`https://public.test/${relativeFile}`)
     html = html.replace(/<a\b([^>]*\bhref="([^"]+)"[^>]*)>([\s\S]*?)<\/a>/gi, (whole, _attributes, href, content) => {
