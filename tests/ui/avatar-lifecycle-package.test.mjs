@@ -15,7 +15,6 @@ test('top-level LuCI shell invalidates old modules before replacing page content
   assert.match(app, /removeEventListener\(['"]hashchange/);
   assert.match(app, /storeUnsubscribe\(\)/);
 });
-
 test('long-running top-level pages expose unmount cleanup boundaries', () => {
   for (const name of ['z2m-overview.js', 'z2m-strategy.js', 'z2m-scanner.js', 'z2m-blockcheck-page.js', 'z2m-dns.js', 'z2m-monitor.js']) {
     const source = read(name);
@@ -33,4 +32,3 @@ test('LuCI package wildcard installs the shared JS and CSS assets', () => {
   assert.equal(fs.existsSync(path.join(frontend, 'z2m-avatar-ui.js')), true);
   assert.equal(fs.existsSync(path.join(frontend, 'z2m-avatar-ui.css')), true);
 });
-

@@ -3,8 +3,8 @@
 **Initial BASE_HEAD:** `origin/main@984e5e617c610106a03777ece4b74a16ad3ef862`
 
 **Rebased target base:** `origin/main@b336e55a feat(assets): connect registry environment to strategy scanner`
-**Donor:** `avatarDD/zapret-gui@7263810c2923bb70f30fe2c41de45dac0feef492`  
-**Reviewed reference:** `947e213bd66b9b8bc23ce564abcf59a4c8e8ce4c`  
+**Donor:** `avatarDD/zapret-gui@7263810c2923bb70f30fe2c41de45dac0feef492`
+**Reviewed reference:** `947e213bd66b9b8bc23ce564abcf59a4c8e8ce4c`
 **Scope:** `web/**` only; donor Python/API/backend is excluded.
 
 | Donor file | Responsibility/dependencies | Decision | Target file(s) | Existing z2m contract | Test coverage |
