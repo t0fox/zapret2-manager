@@ -123,13 +123,13 @@ function architecture() {
 
 function metadata_url(provider) {
 	if (provider == 'rust') return 'https://github.com/valnesfjord/tg-ws-proxy-rs/releases/latest';
-	if (provider == 'go') return 'https://github.com/spatiumstas/tg-ws-proxy-go/releases/latest';
+	if (provider == 'go') return 'https://github.com/d0mhate/-tg-ws-proxy-Manager-go/releases/latest';
 	return null;
 }
 
 function github_api_url(provider) {
 	if (provider == 'rust') return 'https://api.github.com/repos/valnesfjord/tg-ws-proxy-rs/releases?per_page=50';
-	if (provider == 'go') return 'https://api.github.com/repos/spatiumstas/tg-ws-proxy-go/releases?per_page=50';
+	if (provider == 'go') return 'https://api.github.com/repos/d0mhate/-tg-ws-proxy-Manager-go/releases?per_page=50';
 	return null;
 }
 
@@ -141,6 +141,12 @@ function release_identity(providerId, tag) {
 			displayVersion: upstream, packageVersion: upstream + '-r1' };
 	}
 	if (providerId != 'go') return null;
+	let modern = match(tag, /^v([0-9][0-9A-Za-z._-]*)$/);
+	if (modern) {
+		let upstream = modern[1];
+		return { tag: tag, upstreamVersion: upstream, packageRevision: 1,
+			displayVersion: upstream, packageVersion: upstream };
+	}
 	let revised = match(tag, /^([0-9][0-9A-Za-z._-]*)-rev([0-9]+)$/), base = match(tag, /^([0-9][0-9A-Za-z._-]*)$/);
 	let upstream = revised ? revised[1] : base ? base[1] : null;
 	let revision = revised ? +revised[2] : base ? 1 : null;
@@ -190,7 +196,7 @@ function latest_candidate(providerId, arch) {
 	}
 	let prefix = providerId == 'rust'
 		? 'https://github.com/valnesfjord/tg-ws-proxy-rs/releases/tag/'
-		: 'https://github.com/spatiumstas/tg-ws-proxy-go/releases/tag/';
+		: 'https://github.com/d0mhate/-tg-ws-proxy-Manager-go/releases/tag/';
 	if (location == null || substr(location, 0, length(prefix)) != prefix) return error('EMETADATA', 'GitHub не вернул допустимую stable release ссылку.');
 	let tag = substr(location, length(prefix)), identity = release_identity(providerId, tag);
 	if (identity == null || !safe_package_version(identity.displayVersion) || !safe_package_version(identity.packageVersion))
@@ -228,19 +234,24 @@ function package_name(providerId) {
 
 function target_arch(providerId, arch) {
 	if (providerId == 'rust') return substr(arch, 0, 8) == 'aarch64_' ? 'aarch64' : arch;
-	return arch == 'aarch64' ? 'aarch64_generic' : arch;
+	if (substr(arch, 0, 8) == 'aarch64_' || arch == 'aarch64') return 'aarch64';
+	if (arch == 'x86_64') return 'x86_64';
+	if (substr(arch, 0, 4) == 'arm_' || substr(arch, 0, 5) == 'armv7') return 'armv7';
+	if (substr(arch, 0, 8) == 'mipsel_') return 'mipsel_24kc';
+	if (substr(arch, 0, 5) == 'mips_') return 'mips_24kc';
+	return arch;
 }
 
 function release_prefix(providerId, tag) {
 	return providerId == 'rust'
 		? 'https://github.com/valnesfjord/tg-ws-proxy-rs/releases/download/' + tag + '/'
-		: 'https://github.com/spatiumstas/tg-ws-proxy-go/releases/download/' + tag + '/';
+		: 'https://github.com/d0mhate/-tg-ws-proxy-Manager-go/releases/download/' + tag + '/';
 }
 
 function release_page_url(providerId, tag) {
 	return providerId == 'rust'
 		? 'https://github.com/valnesfjord/tg-ws-proxy-rs/releases/tag/' + tag
-		: 'https://github.com/spatiumstas/tg-ws-proxy-go/releases/tag/' + tag;
+		: 'https://github.com/d0mhate/-tg-ws-proxy-Manager-go/releases/tag/' + tag;
 }
 
 function public_release_assets(release, prefix) {
@@ -291,7 +302,7 @@ function release_candidate(providerId, arch, release) {
 	let identity = release_identity(providerId, tag);
 	if (identity == null) return null;
 	let version = identity.displayVersion, packageVersion = identity.packageVersion, assetName = null, artifactFormat = null;
-	let apkAssetName = null, directAssetName = null;
+	let apkAssetName = null, directAssetName = null, binaryPath = null;
 	let keyAssetName = null;
 	if (providerId == 'rust') {
 		apkAssetName = 'luci-app-tg-ws-proxy-rs-' + version + '-r1.apk';
@@ -303,8 +314,8 @@ function release_candidate(providerId, arch, release) {
 		else if (substr(target, 0, 5) == 'mips_') directAssetName = 'tg-ws-proxy-mips-unknown-linux-musl.tar.gz';
 	} else if (providerId == 'go') {
 		let targetArch = target_arch(providerId, arch);
-		apkAssetName = 'tg-ws-proxy_' + packageVersion + '_openwrt_' + targetArch + '.apk';
-		keyAssetName = 'tg-ws-proxy.pem';
+		directAssetName = 'tg-ws-proxy-openwrt-' + targetArch;
+		binaryPath = BINARY_PATH;
 	}
 	if (!safe_package_version(version) || !safe_package_version(packageVersion)) return null;
 	let prefix = release_prefix(providerId, tag);
@@ -313,7 +324,10 @@ function release_candidate(providerId, arch, release) {
 	let apkAvailable = usable_asset(apkAsset, prefix, apkAssetName);
 	let directBinaryAvailable = usable_asset(directAsset, prefix, directAssetName);
 	if (apkAvailable) { assetName = apkAssetName; artifactFormat = 'apk'; }
-	else if (directBinaryAvailable) { assetName = directAssetName; artifactFormat = 'tar.gz'; }
+	else if (directBinaryAvailable) {
+		assetName = directAssetName;
+		artifactFormat = providerId == 'go' ? 'binary' : 'tar.gz';
+	}
 	let asset = assetName != null ? exact_asset(release.assets, assetName) : null;
 	let digest = asset != null ? safe_digest(asset.digest) : null;
 	let keyAsset = keyAssetName != null ? exact_asset(release.assets, keyAssetName) : null;
@@ -326,13 +340,14 @@ function release_candidate(providerId, arch, release) {
 	let packageMatchesTarget = artifactAvailable;
 	let checksumAvailable = digest != null;
 	let apkSignatureTrusted = keyUsable;
-	let trustMode = apkAvailable ? (keyUsable ? 'upstream-key' : 'sha256-only') : null;
-	let installable = apkAvailable && architectureCompatible && checksumAvailable && trustMode != null;
+	let trustMode = apkAvailable ? (keyUsable ? 'upstream-key' : 'sha256-only') : directBinaryAvailable ? 'sha256-only' : null;
+	let installable = architectureCompatible && checksumAvailable && trustMode != null &&
+		(artifactFormat == 'apk' || (artifactFormat == 'binary' && binaryPath == BINARY_PATH));
 	let unavailableReason = !architectureCompatible
 		? 'Для target ' + arch + ' в релизе нет артефакта этой архитектуры.'
 		: !artifactAvailable
 			? 'В официальном релизе нет проверяемого артефакта.'
-			: artifactFormat != 'apk'
+			: artifactFormat != 'apk' && artifactFormat != 'binary'
 				? 'Найден direct binary для target, но canonical installer поддерживает только APK.'
 				: !checksumAvailable
 					? 'У APK отсутствует проверяемый SHA-256.'
@@ -351,6 +366,7 @@ function release_candidate(providerId, arch, release) {
 		assets: public_release_assets(release, prefix), publishedAt: release.published_at, metadataUrl: github_api_url(providerId),
 		downloadUrl: assetName != null ? prefix + assetName : null, trustMode: trustMode, keyAssetName: keyAssetName, keyAssetSha256: keyDigest,
 		keyAssetSize: keyAsset != null ? +keyAsset.size : null, keyDownloadUrl: keyUrl,
+		binaryPath: binaryPath,
 		installable: installable, unavailableReason: unavailableReason, incompatibilityReason: unavailableReason };
 }
 
@@ -445,11 +461,16 @@ function release_lock() {
 function snapshot_settings() {
 	run('rm -rf ' + SNAP_DIR);
 	let hadConfig = stat(CONFIG_DIR) != null;
-	if (!hadConfig) return { ok: true, hadConfig: false };
-	if (run('mkdir -p ' + SNAP_DIR + '/config').rc != 0)
-		return { ok: false, hadConfig: true };
-	let copied = run('cp -a ' + CONFIG_DIR + '/. ' + SNAP_DIR + '/config/');
-	return { ok: copied.rc == 0, hadConfig: true };
+	let hadBinary = stat(BINARY_PATH) != null;
+	let ok = true;
+	if (hadConfig) {
+		if (run('mkdir -p ' + SNAP_DIR + '/config').rc != 0) ok = false;
+		else if (run('cp -a ' + CONFIG_DIR + '/. ' + SNAP_DIR + '/config/').rc != 0) ok = false;
+	}
+	if (hadBinary) {
+		if (run('mkdir -p ' + SNAP_DIR).rc != 0 || run('cp -p ' + BINARY_PATH + ' ' + SNAP_DIR + '/binary').rc != 0) ok = false;
+	}
+	return { ok: ok, hadConfig: hadConfig, hadBinary: hadBinary };
 }
 
 function restore_settings(snapshot) {
@@ -457,6 +478,12 @@ function restore_settings(snapshot) {
 	if (stat(SNAP_DIR + '/config') == null) return false;
 	if (run('mkdir -p ' + CONFIG_DIR).rc != 0) return false;
 	return run('cp -a ' + SNAP_DIR + '/config/. ' + CONFIG_DIR + '/').rc == 0;
+}
+
+function restore_binary(snapshot) {
+	if (snapshot != null && snapshot.hadBinary === true && stat(SNAP_DIR + '/binary') != null)
+		return run('cp -p ' + SNAP_DIR + '/binary ' + BINARY_PATH + ' && chmod 755 ' + BINARY_PATH + ' && chown root:root ' + BINARY_PATH).rc == 0;
+	return run('rm -f ' + BINARY_PATH).rc == 0 && stat(BINARY_PATH) == null;
 }
 
 function clear_snapshot() {
@@ -480,6 +507,7 @@ function installed_rows() {
 }
 
 function feed_available(provider) {
+	if (provider.id == 'go') return false;
 	let quoted = literal(provider.package);
 	if (quoted == null) return false;
 	let result = run('apk policy ' + quoted);
@@ -658,7 +686,9 @@ function load_checked_candidate(providerId, token, sourceId, version) {
 		return error('EINPUT', 'Проверенный источник или версия не совпадает с запросом установки.');
 	if (!safe_package_version(candidate.version) || !safe_package_version(candidate.packageVersion) ||
 		candidate.packageName != package_name(providerId) ||
-		(candidate.sourceId == SOURCE_GITHUB && (safe_digest(candidate.assetSha256) == null || candidate.downloadUrl == null ||
+		(candidate.sourceId == SOURCE_GITHUB && (candidate.artifactFormat != 'apk' && candidate.artifactFormat != 'binary' ||
+			(candidate.artifactFormat == 'binary' && (providerId != 'go' || candidate.binaryPath != BINARY_PATH)) ||
+			safe_digest(candidate.assetSha256) == null || candidate.downloadUrl == null ||
 			(candidate.trustMode != 'sha256-only' && (candidate.trustMode != 'upstream-key' || safe_digest(candidate.keyAssetSha256) == null ||
 				candidate.keyDownloadUrl == null || +candidate.keyAssetSize < 128 || +candidate.keyAssetSize > 65536)))) || candidate.installable !== true)
 		return error('EINCOMPATIBLE', candidate.incompatibilityReason || 'Проверенная версия недоступна для установки на этой архитектуре.');
@@ -680,18 +710,41 @@ function remove_packages() {
 	return failures;
 }
 
+function remove_direct_binary() {
+	let state = load_state();
+	if (state.activeProvider != 'go' || state.activeSourceId != SOURCE_GITHUB) return true;
+	return run('rm -f ' + BINARY_PATH).rc == 0 && stat(BINARY_PATH) == null;
+}
+
 function download_candidate(candidate, token) {
 	let provider = provider_by_id(candidate.provider);
-	if (!candidate_package_matches(provider, candidate) || candidate.sourceId != SOURCE_GITHUB || candidate.artifactFormat != 'apk' ||
+	let binary = candidate.artifactFormat == 'binary';
+	if (!candidate_package_matches(provider, candidate) || candidate.sourceId != SOURCE_GITHUB ||
+		(candidate.artifactFormat != 'apk' && !binary) ||
+		(binary && (provider == null || provider.id != 'go' || candidate.binaryPath != BINARY_PATH || candidate.trustMode != 'sha256-only')) ||
 		type(candidate.downloadUrl) != 'string' || safe_digest(candidate.assetSha256) == null ||
 		(candidate.trustMode != 'sha256-only' && (candidate.trustMode != 'upstream-key' || type(candidate.keyDownloadUrl) != 'string' ||
 			safe_digest(candidate.keyAssetSha256) == null)) || safe_token(token) == null)
-		return error('EINCOMPATIBLE', candidate.incompatibilityReason || 'У выбранного релиза нет поддерживаемого проверенного APK.');
+		return error('EINCOMPATIBLE', candidate.incompatibilityReason || (binary ? 'У выбранного релиза нет поддерживаемого проверенного binary.' : 'У выбранного релиза нет поддерживаемого проверенного APK.'));
 	let url = literal(candidate.downloadUrl);
 	let keyUrl = candidate.trustMode == 'upstream-key' ? literal(candidate.keyDownloadUrl) : null;
 	if (url == null || (candidate.trustMode == 'upstream-key' && keyUrl == null) || substr(candidate.downloadUrl, 0, 19) != 'https://github.com/' ||
 		(candidate.trustMode == 'upstream-key' && substr(candidate.keyDownloadUrl, 0, 19) != 'https://github.com/')) return error('ESECURITY', 'URL артефакта или ключа не входит в allowlist.');
-	let file = '/tmp/zapret2-manager/tg-provider-' + token + '.apk', quotedFile = literal(file);
+	let file = '/tmp/zapret2-manager/tg-provider-' + token + (binary ? '.bin' : '.apk'), quotedFile = literal(file);
+	if (binary) {
+		let fetched = run('ulimit -f 32768; uclient-fetch -q -T 30 --user-agent zapret2-manager-proxy -O ' + quotedFile + ' ' + url);
+		let info = stat(file);
+		if (fetched.rc != 0 || info == null || +info.size != +candidate.assetSize) {
+			try { unlink(file); } catch (e) { }
+			return error('ENETWORK', 'Проверенный upstream binary не удалось скачать полностью.');
+		}
+		let digest = trim(run('sha256sum ' + quotedFile + ' | cut -d " " -f 1').out);
+		if (digest != candidate.assetSha256) {
+			try { unlink(file); } catch (e) { }
+			return error('EVERIFY', 'SHA-256 upstream binary не совпал.');
+		}
+		return { ok: true, file: file, keysDir: null, trustMode: 'sha256-only', artifactFormat: 'binary' };
+	}
 	let keysDir = '/tmp/zapret2-manager/tg-provider-' + token + '-keys', quotedKeysDir = literal(keysDir);
 	if (quotedFile == null || quotedKeysDir == null || run('mkdir -p ' + quotedKeysDir + ' && cp -p /etc/apk/keys/* ' + quotedKeysDir + '/').rc != 0)
 		return error('EINTERNAL', 'Не удалось подготовить временное хранилище ключей APK.');
@@ -766,7 +819,7 @@ export const proxy_provider_check_updates = function (input) {
 		candidate.installable = simulated.rc == 0;
 		candidate.unavailableReason = candidate.installable ? null : 'Пакет отсутствует или несовместим с настроенными APK feed/архитектурой.';
 		candidate.incompatibilityReason = candidate.unavailableReason;
-	} else if (candidate.artifactFormat != 'apk') {
+	} else if (candidate.artifactFormat != 'apk' && candidate.artifactFormat != 'binary') {
 		candidate.installable = false;
 		candidate.unavailableReason = 'Найден direct binary для target, но canonical installer поддерживает только APK.';
 		candidate.incompatibilityReason = candidate.unavailableReason;
@@ -776,6 +829,11 @@ export const proxy_provider_check_updates = function (input) {
 			candidate.installable = false;
 			candidate.unavailableReason = staged.error.message;
 			candidate.incompatibilityReason = candidate.unavailableReason;
+		} else if (candidate.artifactFormat == 'binary') {
+			cleanup_download(staged);
+			candidate.installable = true;
+			candidate.unavailableReason = null;
+			candidate.incompatibilityReason = null;
 		} else {
 			let trustFlag = staged.trustMode == 'sha256-only' ? '--allow-untrusted ' : '';
 			let simulated = run('apk ' + trustFlag + '--keys-dir ' + literal(staged.keysDir) + ' add --simulate --no-interactive ' + literal(staged.file));
@@ -815,6 +873,11 @@ function install_candidate(provider, candidate, token) {
 		return run('apk add --no-interactive ' + provider.package + '=' + candidate.packageVersion);
 	let downloaded = download_candidate(candidate, token);
 	if (!downloaded.ok) return downloaded;
+	if (candidate.artifactFormat == 'binary') {
+		let result = run('cp -f ' + literal(downloaded.file) + ' ' + BINARY_PATH + ' && chmod 755 ' + BINARY_PATH + ' && chown root:root ' + BINARY_PATH);
+		cleanup_download(downloaded);
+		return result;
+	}
 	let quoted = literal(downloaded.file), keys = literal(downloaded.keysDir);
 	let trustFlag = downloaded.trustMode == 'sha256-only' ? '--allow-untrusted ' : '';
 	let result = run('apk ' + trustFlag + '--keys-dir ' + keys + ' add --no-interactive ' + quoted);
@@ -824,17 +887,23 @@ function install_candidate(provider, candidate, token) {
 
 function restore_previous(previous, wasRunning, settingsSnapshot) {
 	let failures = remove_packages();
+	let binaryRestored = false;
 	if (previous.activeProvider != null && previous.packageVersion != null) {
 		let provider = provider_by_id(previous.activeProvider);
 		if (provider == null || !safe_package_version(previous.packageVersion)) {
 			push(failures, 'previous-provider-unknown');
+		} else if (previous.sourceId == SOURCE_GITHUB && provider.id == 'go') {
+			binaryRestored = restore_binary(settingsSnapshot);
+			if (!binaryRestored) push(failures, 'binary-restore');
+			else if (!save_state(provider.id, previous.activeVersion, previous.packageVersion, previous.sourceId)) push(failures, 'previous-state-restore');
 		} else {
 			let add = run('apk add --no-interactive ' + provider.package + '=' + previous.packageVersion);
 			if (add.rc != 0 || !package_present(provider.package)) push(failures, 'previous-package-restore');
-			else if (!save_state(provider.id, previous.activeVersion, previous.packageVersion)) push(failures, 'previous-state-restore');
+			else if (!save_state(provider.id, previous.activeVersion, previous.packageVersion, previous.sourceId)) push(failures, 'previous-state-restore');
 		}
 	} else if (!save_state(null, null, null)) push(failures, 'empty-state-restore');
 	if (!restore_settings(settingsSnapshot)) push(failures, 'settings-restore');
+	if (!binaryRestored && !restore_binary(settingsSnapshot)) push(failures, 'binary-restore');
 	if (wasRunning && length(failures) == 0 && service('start') != 0) push(failures, 'previous-service-restore');
 	return failures;
 }
@@ -891,7 +960,10 @@ export const proxy_provider_install = function (input) {
 				result = { ok: false, error: { code: 'ETARGET', message: 'Не удалось удалить текущую реализацию.' }, rollbackFailures: rollbackFailures };
 			} else {
 				let add = install_candidate(provider, latest, input.checkToken);
-				if (add.ok === false || add.rc != 0 || !provider_installed(provider) || stat(BINARY_PATH) == null) {
+				let runtimePresent = latest.artifactFormat == 'binary'
+					? latest.binaryPath == BINARY_PATH && stat(BINARY_PATH) != null
+					: provider_installed(provider);
+				if (add.ok === false || add.rc != 0 || !runtimePresent || stat(BINARY_PATH) == null) {
 					let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
 					result = { ok: false, error: { code: 'ETARGET', message: latest.incompatibilityReason || 'Выбранный пакет недоступен на устройстве.' }, rollbackFailures: rollbackFailures };
 				} else if (!restore_settings(settingsSnapshot)) {
@@ -940,6 +1012,7 @@ export const proxy_provider_remove = function (input) {
 		else {
 			let failures = remove_packages();
 			if (length(failures) > 0) result = { ok: false, error: { code: 'ETARGET', message: 'Не удалось удалить пакет TG Proxy.' }, failures: failures };
+			else if (!remove_direct_binary()) result = error('ETARGET', 'Не удалось удалить binary TG Proxy.');
 			else if (!restore_settings(settingsSnapshot)) result = error('ETARGET', 'Пакет удалён, но настройки восстановить не удалось.');
 		else if (!save_state(null, null, null)) result = error('ETARGET', 'Не удалось обновить состояние после удаления.');
 			else result = { ok: true, installed: false, settingsPreserved: settingsSnapshot.hadConfig === true, running: false };

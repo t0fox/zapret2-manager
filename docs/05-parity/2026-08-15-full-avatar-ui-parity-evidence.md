@@ -39,8 +39,8 @@ dirty primary checkout was not modified.
 - `git diff --check`: **PASS**
 - Target SSH: **PASS**, OpenWrt `aarch64`
 - Target read-only canaries: DNS `ok:true`, `dnsmasq-uci`, dnsmasq running; TG `running`, Rust, `aarch64`, listener `1443`; M6 `route_list ok:true`, empty route set
-- Target UI/backend transfer: **21/21 exact SHA256 matches**, all files `0644`, `root:root`; final provider implementation hash `92d6b56788dca437e77d3621c710e835d678fecb219edb7e643d10f6a61f624c`
-- Target ucode compile: **PASS**; Go `0.9.3-1` and `0.9.3-2` checks `installable=true` with upstream PEM key; Rust `2.2.4` check `installable=true` with explicit `sha256-only` mode; Rust `2.2.3` is direct-binary-only with the exact canonical APK reason
+- Target UI/backend transfer: **21/21 exact SHA256 matches**, all files `0644`, `root:root`; current provider implementation hash `48189c3505ab72a7dba771ba2f93eb74e32bd7012912a090298784ae3dcaa02f`
+- Target ucode compile: **PASS**; canonical Go `v1.4.1` check returned `installable=true` for `tg-ws-proxy-openwrt-aarch64` with `sha256-only`; Rust `2.2.4` check remains `installable=true` with explicit `sha256-only` mode; Rust `2.2.3` is direct-binary-only with the exact canonical APK reason
 - Target package preflight: `apk --allow-untrusted add --simulate` for the exact Rust `2.2.4-r1` APK: **PASS**; no package was installed or switched during acceptance.
 
 ## Browser acceptance
@@ -63,7 +63,7 @@ refresh.
 - Telegram Proxy current post-deploy acceptance: **NOT RUN**. The browser
   profile reached the target but presented `Authorization Required`, so no
   post-deploy DOM or console claim is made. The required checks are Go
-  `0.9.3-1`/`0.9.3-2`, Rust `2.2.4`/`2.2.3`, shared release-panel updates,
+  `v1.4.1` direct-binary selection, Rust `2.2.4`/`2.2.3`, shared release-panel updates,
   no raw Markdown markers, no visible `Источник` selector, balanced cards,
   zero console errors and zero network 404s.
 - Responsive browser gates retained: `1280px PASS`, `768px PASS`, `390px PASS`;

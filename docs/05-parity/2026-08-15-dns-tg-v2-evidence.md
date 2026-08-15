@@ -8,6 +8,24 @@ updated: 2026-08-15
 
 # Acceptance evidence
 
+## Current canonical Go upstream addendum (2026-08-15)
+
+The canonical Telegram Proxy Go source is now
+`d0mhate/-tg-ws-proxy-Manager-go`; the previous
+`spatiumstas/tg-ws-proxy-go` source is no longer allow-listed. The provider
+consumes the official `v1.x` OpenWrt direct binary assets, verifies the
+GitHub-release SHA-256, and installs the checked binary at
+`/usr/bin/tg-ws-proxy`. On `root@192.168.1.1` (`aarch64_cortex-a53`), the
+deployed code returned `v1.4.1`, asset
+`tg-ws-proxy-openwrt-aarch64`, `artifactFormat=binary`, and
+`installable=true`; the direct check downloaded and verified the 6,488,226-byte
+asset successfully. The guarded manifest was independently verified `21/21`
+with exact SHA-256, mode `0644`, and owner `root:root`.
+
+The active runtime was not switched; this acceptance only changed and
+validated provider discovery/preflight. Browser recheck remains `NOT RUN`
+while the current browser tab is stopped at HTTP Basic Authentication.
+
 `AVATAR_CURRENT_REF: avatarDD/zapret-gui@947e213bd66b9b8bc23ce564abcf59a4c8e8ce4c`
 
 Документ фиксирует закрытый backend/target slice DNS v2 и Telegram Proxy v2.

@@ -67,6 +67,22 @@ test('TG version metadata distinguishes release presence from installability', (
   assert.match(source, /installable/);
 });
 
+test('canonical Go provider follows the new direct-binary upstream', () => {
+  const source = fs.readFileSync(PROVIDER, 'utf8');
+  assert.match(source, /d0mhate\/-tg-ws-proxy-Manager-go/);
+  assert.doesNotMatch(source, /spatiumstas\/tg-ws-proxy-go/);
+  assert.match(source, /v\[0-9\]\[0-9A-Za-z\._-\]\*/);
+  assert.match(source, /tg-ws-proxy-openwrt-/);
+  assert.match(source, /artifactFormat\s*==\s*'binary'/);
+  assert.match(source, /BINARY_PATH/);
+  assert.match(source, /chmod 755/);
+});
+
+test('canonical Go provider does not fabricate an APK-feed version from GitHub metadata', () => {
+  const source = fs.readFileSync(PROVIDER, 'utf8');
+  assert.match(source, /provider\.id == 'go'\) return false/);
+});
+
 test('bounded untrusted APK fallback cannot accept an arbitrary package or URL', () => {
   const source = fs.readFileSync(PROVIDER, 'utf8');
   assert.match(source, /--allow-untrusted/);

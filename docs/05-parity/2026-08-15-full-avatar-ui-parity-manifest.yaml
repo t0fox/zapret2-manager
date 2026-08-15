@@ -461,7 +461,7 @@ rows:
     z2m_backend: proxy_provider_versions plus provider/source/version/checkToken install contract
     z2m_current_ui: Real clean-label version control with Go package revisions preserved and one shared selected-release panel; artifact-less tags are omitted
     status: ADAPTED
-    evidence: Selected version is checked against bounded upstream/feed metadata before canonical transactional install; Go `0.9.3-1` and `0.9.3-2` remain distinct.
+    evidence: Selected version is checked against bounded canonical GitHub metadata before canonical transactional install; Go `v1.4.1` is a checked OpenWrt direct binary with SHA-256 verification.
     browser_evidence: NOT RUN after current deploy; source selector removal and release-details rendering await re-authenticated browser check.
   - id: tg.source_selector
     group: telegram

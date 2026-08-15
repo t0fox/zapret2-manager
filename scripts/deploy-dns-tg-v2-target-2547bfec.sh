@@ -42,7 +42,7 @@ d02f459e492df8986e2d1c43404681e61c25965b2fd4ad8eb2e9e43c36af4094|zapret2-manager
 429c1abb9bc5d2c408dcfcfa6aad104dbbb113bf3e688446e5b9153847d197ac|zapret2-manager/files/usr/libexec/zapret2-manager/tg-product-cli.uc|/usr/libexec/zapret2-manager/tg-product-cli.uc
 e99aa351dafbf2a1c50f3798a29040dd401c76d182c86eb5e309577dc2a82138|zapret2-manager/files/usr/libexec/zapret2-manager/tg-product.uc|/usr/libexec/zapret2-manager/tg-product.uc
 eceb88484684e2260dcd79aef5fc7f5dbac8ed1d877aec5a78df12ea99fa435b|zapret2-manager/files/usr/libexec/zapret2-manager/proxy-provider-cli.uc|/usr/libexec/zapret2-manager/proxy-provider-cli.uc
-92d6b56788dca437e77d3621c710e835d678fecb219edb7e643d10f6a61f624c|zapret2-manager/files/usr/libexec/zapret2-manager/proxy-provider.uc|/usr/libexec/zapret2-manager/proxy-provider.uc
+48189c3505ab72a7dba771ba2f93eb74e32bd7012912a090298784ae3dcaa02f|zapret2-manager/files/usr/libexec/zapret2-manager/proxy-provider.uc|/usr/libexec/zapret2-manager/proxy-provider.uc
 a7ef09b53891dd460744c312a9c6a239ea9e61ed7d9f39905225ebd41dab2774|zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager-proxy-provider.uc|/usr/share/rpcd/ucode/zapret2-manager-proxy-provider.uc
 8b08f4268ebac81c20387bdcaa9c138a539acd0dba95baff5827c43a65ae8ab5|zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc|/usr/share/rpcd/ucode/zapret2-manager.uc
 '
