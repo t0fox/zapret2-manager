@@ -17,24 +17,25 @@
 Start-state evidence: the isolated worktree was clean before this P01 slice;
 no unrelated dirty files were present.
 
-## Frozen donor inventory
+## Accepted P01 section inventory
 
-The donor `DashboardPage.render()` composes the page in this order:
+The raw frozen donor contains product-catalog sections, but the current P01
+acceptance explicitly excludes those sections from the Z2M Dashboard. The
+accepted ordered composition is:
 
-1. `.page-header`: `Главная` / `Обзор состояния системы`.
-2. `#status-grid` with five cards in order: `nfqws2`, `Стратегия`, `Автозапуск`,
-   `Система`, `zapret2`.
-3. `VPN / Туннели` and `#vpn-grid`: WARP/MASQUE, Opera Proxy, AmneziaWG,
-   sing-box, mihomo, Telegram.
-4. `Мониторинг` and `#monitoring-grid`: Мониторинг DNS, Healthcheck.
-5. `Быстрые действия`: Запустить, Остановить, Перезапустить.
-6. `Последние события`: bounded log viewer and `Все логи →`.
+```text
+DONOR_SECTIONS: [page-header, status-grid, quick-actions, recent-events]
+Z2M_SECTIONS: [page-header, status-grid, quick-actions, recent-events, Проверить ресурс]
+MISSING_DONOR_SECTIONS: 0
+EXTRA_Z2M_SECTIONS: 0
+INTENTIONAL_Z2M_EXTENSIONS: [Проверить ресурс]
+```
 
-The donor refreshes through its own HTTP `/api/dashboard/status` and directly
-uses donor `API`, router, sidebar and backend conventions. Those dependencies
-are intentionally excluded. Donor composition and DOM/CSS semantics are used;
-Z2M's LuCI `E()`, shell helpers, router and existing RPC authority are used for
-implementation.
+The status grid contains `nfqws2`, `Стратегия`, `Автозапуск`, `Система`, and
+`zapret2`. VPN/Туннели, Мониторинг, Healthcheck, and “Что стоит сделать” are
+not Dashboard sections. Donor `/api/*`, sidebar, and backend conventions are
+excluded; Z2M keeps LuCI `E()`, shell helpers, router, and existing RPC
+authority.
 
 ## Current Z2M inventory before P01
 
@@ -42,14 +43,13 @@ implementation.
 |---|---|---|
 | Route | `dashboard` normalized to module `overview` | Keep canonical route and alias compatibility |
 | Home nav | Primary `Главная` plus redundant secondary `Обзор` | Add `hideSecondary` only for Home; leave other groups unchanged |
-| Runtime | `ctx.api.service.status()` and `OverviewModel.runtimeHealth()` | Use for nfqws2/zapret2 truth; unknown stays `Недоступно` |
-| Strategy | `ctx.api.strategy.preview()` and model normalization | Keep active Strategy card and extension controls |
+| Runtime | `ctx.api.service.status()` plus structured status-v3 evidence | Use process, autostart, runtime summary, engine and version fields; unknown stays `Недоступно` |
+| Strategy | Deferred `ctx.api.strategy.preview()` and model normalization | Keep active Strategy card and extension controls without blocking first mount |
 | Resource checker | `orchestra.runStart` + bounded `orchestra.runStatus` polling | Preserve unchanged backend flow and UI |
 | Point rules | Existing staged strategy-owned draft flow | Preserve after donor core |
-| DNS | `ctx.api.dns.serviceStatus()` | Use only as Dashboard monitoring summary; no new DNS writer |
-| Events | Existing `ctx.api.monitor.eventsTail()` API/ACL | Render timestamp/level/message with loading/empty/error states |
-| Telegram | Existing `ctx.api.tg.product.status()` | Show truthful Telegram card; do not change TG implementation |
-| Other donor tunnels | No corresponding Dashboard status authority in this slice | Show explicit `Недоступно`, never synthetic running state |
+| DNS/TG | No Dashboard RPC | Keep DNS/TG product state on their own pages; no catalog calls from Dashboard |
+| Events | Existing `ctx.api.monitor.eventsTail()` API/ACL | Deferred bounded read; render timestamp/level/message with loading/empty/error states |
+| First mount | App shell previously waited for `module.load()` | Dashboard structure mounts before status RPC and rerenders with live data |
 
 ## Explicit gap matrix
 
@@ -57,13 +57,13 @@ implementation.
 |---|---|---|
 | Avatar page header | Old `Обзор` hero header | Transplanted donor title/description |
 | Five-card status grid | Three-card custom readiness row plus hero | Donor five-card grid; no old readiness row |
-| VPN/tunnel grid | Not present | Donor-shaped grid with backend-backed Telegram and explicit unavailable states |
-| Monitoring grid | Not present as Dashboard composition | Donor-shaped DNS/Healthcheck summary from existing read-only status |
+| VPN/tunnel grid | Not accepted in current P01 IA | Removed from Dashboard; remains on its own pages |
+| Monitoring grid | Not accepted in current P01 IA | Removed from Dashboard; remains on its own pages |
 | Three quick actions | Start/Stop embedded in old status panel | One ordered quick-action panel; restart is existing stop-then-start composition |
 | Recent events/logs | No Dashboard event section | Existing `events_tail` rendered as bounded read-only log |
 | Home secondary nav | Redundant `Обзор` tab | Suppressed only for Home |
 | Resource checker | Existing and product-critical | Retained after donor core |
-| Strategy/rules/advice | Existing Z2M extensions | Retained after donor core; no lifecycle duplicates |
+| Strategy/rules/advice | Existing Z2M extensions | Only accepted `Проверить ресурс` remains in Dashboard; no catalog/advice creep |
 
 ## File and dependency closure
 
@@ -78,6 +78,12 @@ Changed P01 runtime files:
   — Conditional secondary-nav render, preserving all other groups.
 - `luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.css`
   — Scoped donor Dashboard cards, grid, logs and 1280/768/390 responsive rules.
+- `luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/app.js`
+  — Dashboard eager mount before RPC completion; other pages keep the existing loading contract.
+- `zapret2-manager/files/usr/libexec/zapret2-manager/core/status-collector.uc`
+  and `strategy-status.uc` — bounded fast canonical status projection.
+- `scripts/deploy-dashboard-parity-target.sh` — explicit SCP-compatible manifest,
+  including `app.js`.
 
 Test/documentation files:
 
@@ -92,17 +98,20 @@ backend implementation, or unrelated page file is part of the closure.
 
 | Check | Status | Evidence |
 |---|---|---|
-| Focused Dashboard contract RED before implementation | PASS | `node --test tests/ui/dashboard-parity-contract.test.mjs`; 4 expected failures, missing donor markers/API/nav contract |
-| Focused Dashboard contract GREEN | PASS | `node --test tests/ui/dashboard-parity-contract.test.mjs`; 4/4 passed |
-| Full local UI suite | NOT_RUN | Run after final refactor |
+| Focused Dashboard contract RED before implementation | PASS | Multiple RED-first checks covered composition, unused Orchestra reads, structured status fields, eager mount, and shell chrome |
+| Focused Dashboard contract GREEN | PASS | `node --test tests/ui/dashboard-parity-contract.test.mjs`; 8/8 passed |
+| Canonical status timeout regression | PASS | `node --test tests/native/status-timeout-regression.test.mjs`; 1/1 passed |
+| Target cold status | PASS | `ubus -t 3`: `RC=0`, `~567 ms`, schema 3, autostart true, engine installed true |
+| Target events | PASS | `ubus -t 3`: `RC=0`, `~203 ms`, `ok=true`, 50 returned events |
+| Browser first Dashboard paint | PASS | Current authenticated browser: ~3.66 s after eager mount; previous measured ~5.22 s |
+| Browser current target viewport | PASS | In-app browser current viewport `[652,698]`; structure/cards/events/error gates passed |
 | Package/build checks | NOT_RUN | Run after final refactor |
-| Target deploy | PASS | `3b5aaaebffceb2a82fd6c2b7871011353b94be6c`; guarded P01 script; rpcd reloaded |
-| Target hashes/owners/modes | PASS | All 4 changed assets matched local SHA-256; target `root:root`, `0644` |
-| Browser current target viewport | PARTIAL | Dashboard rendered after backend timeouts; width reported by in-app browser `637`; no secondary Home tab, no `[object HTMLDivElement]`, no horizontal overflow |
-| Browser 1280x900 | NOT_RUN | Current in-app browser viewport is 637px; exact 1280 viewport not established |
+| Target deploy | PASS | `0c88778fc26a425667593728cc17b701c9f9068b`; guarded direct SCP-compatible script; rpcd reloaded |
+| Target hashes/owners/modes | PASS | All 7 runtime assets matched local SHA-256; target `root:root`, `0644` |
+| Browser 1280x900 | NOT_RUN | Current in-app browser viewport is 652px; exact 1280 viewport not established |
 | Browser 768x900 | NOT_RUN | Exact viewport not established in current in-app browser |
 | Browser 390x844 | NOT_RUN | Exact viewport not established in current in-app browser |
-| Console/network acceptance | PARTIAL | Target UI shows normalized RPC errors; direct SSH `ubus -t 3 call zapret2-manager status '{}'` times out; no browser console error capture available |
+| Console/network acceptance | PASS | Browser hard refresh showed no Dashboard event error; no forbidden sections; no app console/network error capture available |
 | P02 and later Avatar pages | NOT_STARTED | Explicitly outside this task |
 
 ## Final acceptance update
@@ -116,7 +125,10 @@ must not be claimed from this page-only slice.
 
 | Asset | SHA-256 |
 |---|---|
-| `z2m-overview.js` | `acc81596b30d298365df594cf46465203fbc24d984d58bba0718d04b556f029d` |
+| `app.js` | `feaabc9430a36df14580d68cf7ca24bbcc0bf2b2d6af4b2ddff18df828f943d8` |
+| `z2m-overview.js` | `04ef4e5c954d5f0d434a8d3c61e9a71dc5617c54878a44810a8ab3279027a49a` |
 | `z2m-navigation.js` | `84376d87d07bac3ea000d4b093bcbde6dd70ee1b8a0468c79c0b07c8e34cef42` |
 | `z2m-shell.js` | `3006d5b62bc235eacc08c81c4bdb4556eb6e6713e5f7d2237b21355dfdc83c33` |
-| `z2m-ui.css` | `3518c8ce938462f71597407e8b04653f0de09928735e483c76a25d0c65a9ce69` |
+| `z2m-ui.css` | `a0895fd359279c5b0318086ad71e541077dd18d6fd1324bc988b6b881f3aa6c2` |
+| `core/status-collector.uc` | `6f0c249a5b72bdd11faca44465e89336efe54bc20f5336c19a89c60d513746b4` |
+| `strategy-status.uc` | `58c37d3b40bc026f9af8f9d9d9423e0fd72f0128f277d50e8c206de6682cc5cd` |
