@@ -24,6 +24,8 @@ test('P01 Dashboard follows the frozen donor composition and order', () => {
     previous = current;
   }
   assert.doesNotMatch(page, /z2m-overview-readiness|Проверка DNS-сервисов/);
+  assert.match(page, /dashboard-warnings/);
+  assert.doesNotMatch(page, /warnings\.length \? warnings : null/);
 });
 
 test('P01 Dashboard keeps Z2M APIs and the existing resource checker', () => {

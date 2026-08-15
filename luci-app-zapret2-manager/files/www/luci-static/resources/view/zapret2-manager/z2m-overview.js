@@ -592,7 +592,7 @@ function render(ctx) {
   var rowPanels = compact([resourcePanel, rulesPanel]);
   return E('section', { 'class': 'z2m-view on', id: 'z2m-view-overview' }, compact([
     pageHead,
-    warnings.length ? warnings : null,
+    warnings.length ? E('div', { 'class': 'dashboard-warnings' }, warnings) : null,
     E('section', { 'class': 'dashboard-section' }, [
       renderStatusGrid(),
       E('h2', { 'class': 'dashboard-section-title' }, _('VPN / Туннели')),
