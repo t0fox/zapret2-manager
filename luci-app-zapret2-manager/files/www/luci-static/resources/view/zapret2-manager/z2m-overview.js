@@ -235,14 +235,21 @@ function render(ctx) {
   function envelopeValue(key) { return object(data[key] && data[key].value); }
   function envelopeError(key) { return data[key] && data[key].error; }
   function statusKind(value) {
+    if (value === true) return 'g';
+    if (value === false) return 'r';
     value = String(value || '').toLowerCase();
-    if (value === 'running' || value === 'active' || value === 'enabled' || value === 'ready' || value === 'ok') return 'g';
+    if (value === 'running' || value === 'active' || value === 'enabled' || value === 'ready' || value === 'ok' || value === 'installed') return 'g';
     if (value === 'stopped' || value === 'disabled' || value === 'failed' || value === 'error') return 'r';
     return 'o';
   }
   function statusText(value, fallback) {
     if (value === true) return _('Включено');
     if (value === false) return _('Выключено');
+    var labels = {
+      mismatch: _('Расхождение'), installed: _('Установлен'), unavailable: _('Недоступно'),
+      running: _('Работает'), stopped: _('Остановлен'), ready: _('Готово')
+    };
+    if (labels[String(value || '').toLowerCase()]) return labels[String(value || '').toLowerCase()];
     return format.text(value) || fallback || _('Недоступно');
   }
   function statusCard(id, label, value, detail, kind, icon) {
@@ -261,19 +268,47 @@ function render(ctx) {
     if (running === false) return { value: _('Остановлен'), kind: 'stopped', detail: _('Служба zapret2 остановлена') };
     return { value: _('Недоступно'), kind: 'warning', detail: _('Backend не предоставил runtime evidence') };
   }
-  function optionalCardValue(envelope, valueKeys) {
-    if (envelope && envelope.error) return { value: _('Недоступно'), kind: 'warning', detail: _('Backend не сообщил состояние') };
-    var source = object(envelope && envelope.value);
-    var value = null;
-    for (var i = 0; i < valueKeys.length; i++) {
-      if (source[valueKeys[i]] !== undefined && source[valueKeys[i]] !== null && source[valueKeys[i]] !== '' &&
-          (typeof source[valueKeys[i]] !== 'object')) { value = source[valueKeys[i]]; break; }
+  function unavailableCard(detail) {
+    return { value: _('Недоступно'), kind: 'warning', detail: detail || _('Backend не сообщил состояние') };
+  }
+  function structuredCardState() {
+    if (data.status && data.status.error) return unavailableCard(_('Backend не сообщил состояние'));
+    return null;
+  }
+  function autostartCardValue() {
+    var unavailable = structuredCardState();
+    if (unavailable) return unavailable;
+    var auto = object(object(status.system).autostart);
+    if (typeof auto.enabled !== 'boolean') return unavailableCard(_('Backend не сообщил состояние автозапуска'));
+    return {
+      value: statusText(auto.enabled), kind: statusKind(auto.enabled),
+      detail: auto.enabled ? _('Автозапуск подтверждён') : _('Автозапуск отключён')
+    };
+  }
+  function systemCardValue() {
+    var unavailable = structuredCardState();
+    if (unavailable) return unavailable;
+    var summary = object(status.runtimeSummary);
+    var state = String(summary.status || '').toLowerCase();
+    if (!state) return unavailableCard(_('Backend не сообщил сводное состояние'));
+    var detail = summary.reasonCode === 'applied-mismatch'
+      ? _('Применённая конфигурация отличается от runtime')
+      : format.text(summary.reasonCode);
+    return { value: statusText(state), kind: statusKind(state), detail: detail };
+  }
+  function zapretCardValue() {
+    var unavailable = structuredCardState();
+    if (unavailable) return unavailable;
+    var engine = object(status.engine);
+    if (engine.installed === true) {
+      var version = format.text(object(status.upstream).nfqws2Version);
+      return {
+        value: _('Установлен'), kind: 'g',
+        detail: version !== null ? _('Версия ') + version : _('Пакет и бинарник подтверждены')
+      };
     }
-    if (value === null && source.status && typeof source.status !== 'object') value = source.status;
-    if (value === null && source.state && typeof source.state !== 'object') value = source.state;
-    return value === null
-      ? { value: _('Недоступно'), kind: 'warning', detail: _('Компонент не сообщил состояние') }
-      : { value: statusText(value), kind: statusKind(value), detail: source.version ? _('Версия ') + source.version : null };
+    if (engine.installed === false) return { value: _('Не установлен'), kind: 'r', detail: _('Backend подтвердил отсутствие пакета') };
+    return unavailableCard(_('Backend не сообщил состояние zapret2'));
   }
   function renderStatusGrid() {
     var process = processValue();
@@ -283,9 +318,9 @@ function render(ctx) {
       : activeName !== null
         ? { value: activeName, kind: 'running', detail: view.strategy.revision ? _('Ревизия ') + view.strategy.revision : _('Активная стратегия') }
         : { value: _('Не выбрана'), kind: 'warning', detail: _('Подтверждённая стратегия отсутствует') };
-    var autostart = optionalCardValue(data.status, ['autostart', 'autoStart', 'autostartEnabled']);
-    var system = optionalCardValue(data.status, ['system', 'hostname', 'device']);
-    var version = optionalCardValue(data.status, ['version', 'zapretVersion', 'runtimeVersion']);
+    var autostart = autostartCardValue();
+    var system = systemCardValue();
+    var version = zapretCardValue();
     return E('div', { id: 'status-grid', 'class': 'status-grid' }, [
       statusCard('card-nfqws', 'nfqws2', process.value, process.detail, process.kind, '◉'),
       statusCard('card-strategy', _('Стратегия'), strategy.value, strategy.detail, strategy.kind, '◆'),

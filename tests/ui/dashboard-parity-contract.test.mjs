@@ -55,6 +55,17 @@ test('P01 Dashboard initial load does not wait for unused Orchestra reads', () =
   assert.doesNotMatch(load, /ctx\.api\.orchestra\.status\(\)/);
 });
 
+test('P01 status cards consume structured status evidence without collapsing to unavailable', () => {
+  const page = read('z2m-overview.js');
+  assert.match(page, /status\.system/);
+  assert.match(page, /status\.runtimeSummary/);
+  assert.match(page, /status\.engine/);
+  assert.match(page, /status\.upstream/);
+  assert.match(page, /nfqws2Version/);
+  assert.doesNotMatch(page, /optionalCardValue\(data\.status, \['autostart'/);
+  assert.doesNotMatch(page, /optionalCardValue\(data\.status, \['version'/);
+});
+
 test('P01 Dashboard exposes one ordered quick-action set plus event states', () => {
   const page = read('z2m-overview.js');
   assert.equal((page.match(/dash-btn-start/g) || []).length, 1);
