@@ -359,6 +359,11 @@
 .z2m-dns-routing-row strong,.z2m-dns-routing-row small{display:block}.z2m-dns-routing-row small{margin-top:3px;color:var(--tx3)}.z2m-dns-routing-actions{justify-content:flex-end;margin-top:14px}
 @media(max-width:760px){.z2m-dns-routing-form{grid-template-columns:1fr}.z2m-dns-routing-row{grid-template-columns:minmax(0,1fr) auto}.z2m-dns-routing-row .z2m-btn{grid-column:1/-1;justify-self:start}}
 
+.z2m-routing-page .z2m-console{width:100%;box-sizing:border-box;min-height:230px}
+.z2m-routing-list{display:grid;gap:9px}.z2m-routing-row{display:grid;gap:8px;padding:13px 14px;border:1px solid var(--border);border-radius:7px;background:var(--panel2)}
+.z2m-routing-row-head{display:flex;align-items:center;gap:10px;min-width:0}.z2m-routing-row-head strong{overflow-wrap:anywhere}.z2m-routing-row .z2m-btnrow{flex-wrap:wrap}
+@media(max-width:760px){.z2m-routing-row .z2m-btnrow{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.z2m-routing-row .z2m-btnrow .z2m-btn{width:100%}}
+
 .z2m-proxy-install-progress{display:grid;gap:7px;padding:13px 15px;margin-bottom:14px;border:1px solid rgba(76,155,218,.42);border-radius:8px;background:rgba(76,155,218,.08)}
 .z2m-proxy-install-progress span{color:var(--tx2);font-size:12px}.z2m-progress-track{height:5px;overflow:hidden;border-radius:999px;background:rgba(255,255,255,.12)}.z2m-progress-bar{height:100%;width:35%;border-radius:999px;background:#5faee3}.z2m-progress-bar.indeterminate{animation:z2m-progress-slide 1.2s ease-in-out infinite}@keyframes z2m-progress-slide{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
 .z2m-proxy-connection-card{display:grid;gap:3px}.z2m-proxy-connection-card+.z2m-btnrow{margin-top:10px}

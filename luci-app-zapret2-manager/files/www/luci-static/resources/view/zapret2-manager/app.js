@@ -15,6 +15,7 @@
 'require view.zapret2-manager.z2m-maintenance as Maintenance';
 'require view.zapret2-manager.z2m-blockcheck-page as BlockCheck';
 'require view.zapret2-manager.z2m-assets as Assets';
+'require view.zapret2-manager.z2m-unified-routing as UnifiedRouting';
 
 var APPLY_SCOPE_ORDER = ['strategy','domainHub','dns','proxy'];
 var DRAFT_META = {
@@ -32,6 +33,7 @@ var MODULES = {
   lists: Services,
   hostlists: Services,
   'dns-routing': Dns,
+  'unified-routing': UnifiedRouting,
   'telegram-tunnel': Proxy,
   diagnostics: BlockCheck,
   blockcheck: BlockCheck,
