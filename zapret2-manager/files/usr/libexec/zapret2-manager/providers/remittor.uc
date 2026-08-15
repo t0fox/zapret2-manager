@@ -30,8 +30,8 @@ export const detectInstalled = function (meta, files, saved) {
 	if (type(meta) != 'object' || meta == null || meta.name != 'zapret2') return { provider: 'unknown', confidence: 'none' };
 	let v = meta.version, d = meta.description != null ? lc(meta.description) : '', r = meta.runtimeVersion != null ? lc(meta.runtimeVersion) : '', marker = meta.providerMarker != null ? lc(meta.providerMarker) : '';
 	let explicit = index(d, 'remittor/zapret-openwrt') >= 0 || index(marker, 'remittor/zapret-openwrt') >= 0, commit = index(r, substr(COMMIT_V20260307, 0, 7)) >= 0;
-	if (match(v, /^0\.9\.20260307(?:-r[0-9]+)?$/) && (explicit || commit)) return { provider: id, confidence: 'high', evidence: explicit ? 'updater-marker+version' : 'runtime-commit+version' };
+	if (match(v, /^0\.9\.20260307(-r[0-9]+)?$/) && (explicit || commit)) return { provider: id, confidence: 'high', evidence: explicit ? 'updater-marker+version' : 'runtime-commit+version' };
 	let stateMatch = type(saved) == 'object' && saved != null && saved.provider == id && saved.packageVersion == v && saved.assetSha256 == meta.managedAssetSha256;
-	if (match(v, /^0\.9\.20260307(?:-r[0-9]+)?$/) && stateMatch && meta.runtimeContract === true) return { provider: id, confidence: 'high', evidence: 'package+runtime+managed-asset' };
+	if (match(v, /^0\.9\.20260307(-r[0-9]+)?$/) && stateMatch && meta.runtimeContract === true) return { provider: id, confidence: 'high', evidence: 'package+runtime+managed-asset' };
 	return { provider: 'unknown', confidence: 'none' };
 };

@@ -64,7 +64,7 @@ function chunked_body(raw, start, limit) {
 		let line = trim(substr(raw, offset, lineEnd)), semi = index(line, ';');
 		if (semi >= 0) {
 			let extension = substr(line, semi + 1);
-			if (match(extension, /^[ \t]*[A-Za-z0-9!#$%&'*+.^_`|~-]+(?:=[A-Za-z0-9!#$%&'*+.^_`|~-]+)?(?:;[ \t]*[A-Za-z0-9!#$%&'*+.^_`|~-]+(?:=[A-Za-z0-9!#$%&'*+.^_`|~-]+)?)*[ \t]*$/) == null) return null;
+			if (match(extension, /^[ \t]*[A-Za-z0-9!#$%&'*+.^_`|~-]+(=[A-Za-z0-9!#$%&'*+.^_`|~-]+)?(;[ \t]*[A-Za-z0-9!#$%&'*+.^_`|~-]+(=[A-Za-z0-9!#$%&'*+.^_`|~-]+)?)*[ \t]*$/) == null) return null;
 			line = substr(line, 0, semi);
 		}
 		if (!match(line, /^[0-9a-fA-F]+$/)) return null;

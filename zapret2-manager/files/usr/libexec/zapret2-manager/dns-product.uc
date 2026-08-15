@@ -143,6 +143,30 @@ function check_revision(input, scope) {
 	if (expected != current.revision) return error('stale_revision', 'DNS revision changed; reload the product state', { expected: expected, actual: current.revision, scope: scope });
 	return null;
 }
+function preview_overrides(value, current) {
+	let wanted = is_object(value) && is_array(value.entries) ? value.entries : [];
+	let applied = current.value && is_array(current.value.applied) ? current.value.applied : [];
+	let byDomain = {}, seen = {}, added = [], changed = [], unchanged = [];
+	for (let i = 0; i < length(applied); i++) byDomain[applied[i].domain] = applied[i];
+	for (let j = 0; j < length(wanted); j++) {
+		let row = wanted[j], old = byDomain[row.domain];
+		seen[row.domain] = true;
+		if (old == null) push(added, row);
+		else if (old.ip != row.ip) push(changed, { domain: row.domain, from: old.ip, to: row.ip });
+		else push(unchanged, row);
+	}
+	let removed = [];
+	for (let k = 0; k < length(applied); k++) if (!seen[applied[k].domain]) push(removed, applied[k]);
+	let lines = ['# zapret2-manager DNS overrides (manager-owned; edit via the DNS page)'];
+	for (let n = 0; n < length(wanted); n++) if (wanted[n].enabled !== false) push(lines, wanted[n].ip + ' ' + wanted[n].domain);
+	return {
+		ok: true, mode: 'preview', registered: current.value.registered === true,
+		registrationNeeded: current.value.registered !== true,
+		diff: { added: added, removed: removed, changed: changed, unchangedCount: length(unchanged) },
+		candidate: join('\n', lines) + '\n',
+		note: 'preview is pure; apply writes the manager-owned overrides file and verifies dnsmasq'
+	};
+}
 function validate_global(input, value, cat) {
 	if (value.mode != null && MODES.indexOf(value.mode) < 0) return error('invalid_request', 'global mode is unsupported');
 	if (!provider_exists(value.primary, cat.providers) || !provider_exists(value.secondary, cat.providers)) return error('invalid_request', 'global provider id is not in the catalog');
@@ -225,7 +249,7 @@ export const dns_product_preview = function(input) {
 	let current = current_state(scope), result = null;
 	if (!current || current.ok !== true) return normalize_error(current, 'DNS state is unavailable');
 	if (scope == 'global') result = dns_global_preview();
-	else if (scope == 'overrides') result = dns_apply_preview();
+	else if (scope == 'overrides') result = preview_overrides(value_object(input), current);
 	else result = service_dns_preview({ args: {} });
 	if (!result || result.ok !== true) return normalize_error(result, 'DNS preview is unavailable');
 	return { ok: true, scope: scope, mode: 'preview', zeroWrites: true, revision: current.revision, requested: value_object(input), delegated: result, ownership: current.value ? (scope == 'global' ? 'dns-global' : scope == 'overrides' ? 'dns-overrides' : 'service-dns') : null };

@@ -1,7 +1,6 @@
 'use strict';
 'require baseclass';
 'require view.zapret2-manager.z2m-proxy-model as ProxyModel';
-'require view.zapret2-manager.z2m-proxy-provider-api as ProviderApi';
 'require view.zapret2-manager.z2m-qr as Qr';
 
 var FIELDS = [
@@ -59,10 +58,10 @@ function load(ctx) {
     ctx.api.proxy.configGet(),
     edit(ctx.api.proxy.health, {}),
     edit(ctx.api.proxy.logsTail, { n: 50 }),
-    ProviderApi.catalog(),
-    ProviderApi.status(),
-    ProviderApi.preflight(),
-    ProviderApi.checkUpdates()
+    ctx.api.tg.product.catalog(),
+    ctx.api.tg.product.status(),
+    ctx.api.tg.product.catalog(),
+    ctx.api.tg.product.checkUpdates()
   ]).then(function (results) {
     return {
       capabilities: settled(results[0], ctx.api),
@@ -226,7 +225,7 @@ function providerCard(ctx, data, provider, status) {
         shell.showToast(_('Сначала нажмите «Проверить обновления». После проверки установка будет доступна 10 минут.'), 'err');
         return;
       }
-      mutation(ctx, 'provider-install', ProviderApi.install({ provider: provider.id, checkToken: update.checkToken }));
+      mutation(ctx, 'provider-install', ctx.api.tg.product.switch({ provider: provider.id, checkToken: update.checkToken }));
     }, false);
   }, !!state.busy || installedLatest || preflight.available === false || !checked || update.installable === false);
 
@@ -259,7 +258,7 @@ function installPane(ctx, data) {
   function refreshChecks() {
     if (state.busy) return;
     state.busy = 'preflight';
-    Promise.allSettled([ProviderApi.preflight(), ProviderApi.checkUpdates()]).then(function () {
+    Promise.allSettled([ctx.api.tg.product.catalog(), ctx.api.tg.product.checkUpdates()]).then(function () {
       state.busy = null;
       return ctx.refresh('proxy');
     }).catch(function (error) { state.busy = null; showError(ctx, error); });
@@ -269,12 +268,12 @@ function installPane(ctx, data) {
     footer.push(shell.button(_('Удалить'), 'danger sm', function () {
       confirm(ctx, _('Удалить TG Proxy?'),
         _('Пакет и сервис будут удалены. Настройки и secret сохранятся для быстрой переустановки.'),
-        _('Удалить'), function () { mutation(ctx, 'provider-remove', ProviderApi.remove()); });
+        _('Удалить'), function () { mutation(ctx, 'provider-remove', ctx.api.tg.product.remove({ confirm: 'REMOVE' })); });
     }, !!state.busy));
     footer.push(shell.button(_('Удалить полностью'), 'danger sm', function () {
       confirm(ctx, _('Удалить настройки и secret?'),
         _('Это удалит пакет, конфигурацию и текущую Telegram Proxy ссылку без возможности восстановления.'),
-        _('Удалить полностью'), function () { mutation(ctx, 'provider-purge', ProviderApi.purge()); });
+        _('Удалить полностью'), function () { mutation(ctx, 'provider-purge', ctx.api.tg.product.purge({ confirm: 'PURGE' })); });
     }, !!state.busy));
   }
 
@@ -574,7 +573,7 @@ function createAdapter(api) {
     supported: true,
     validateDraft: function (scope, value) {
       if (!value || !value.settings) return Promise.resolve({ ok: false, message: _('Proxy draft не содержит safe settings.') });
-      return ProviderApi.status().then(function (status) {
+      return api.tg.product.status().then(function (status) {
         if (!status || status.installed !== true)
           return { ok: false, error: { code: 'ENOPROVIDER', message: _('Сначала установите Rust или Go во вкладке TG Proxy.') } };
         return edit(api.proxy.configValidate, { config: value.settings });

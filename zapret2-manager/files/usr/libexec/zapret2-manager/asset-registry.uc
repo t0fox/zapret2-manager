@@ -104,7 +104,7 @@ function normalized_ip(line) {
 	if (!family || (prefix != null && decimal(prefix, family == 4 ? 32 : 128) == null)) return null;
 	return lower_ascii(address) + (prefix == null ? '' : '/' + (+prefix));
 }
-function hostname(value) { let s = lower_ascii(value); while (substr(s, 0, 1) == '.') s = substr(s, 1); while (substr(s, length(s) - 1, 1) == '.') s = substr(s, 0, length(s) - 1); if (!length(s) || length(s) > 253 || !match(s, /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*$/)) return null; return s; }
+function hostname(value) { let s = lower_ascii(value); while (substr(s, 0, 1) == '.') s = substr(s, 1); while (substr(s, length(s) - 1, 1) == '.') s = substr(s, 0, length(s) - 1); if (!length(s) || length(s) > 253 || !match(s, /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/)) return null; return s; }
 function normalize_content(kind, content) {
 	if (!string(content)) return fail('EINPUT', 'decoded content is unavailable');
 	if (kind == 'blob' || kind == 'geosite' || kind == 'geoip') return { ok: true, content: content };

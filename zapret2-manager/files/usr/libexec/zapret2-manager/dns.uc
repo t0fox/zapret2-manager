@@ -504,7 +504,15 @@ export const dns_apply_run = function() {
 	}
 	run('chmod 644 ' + OVERRIDES_PATH);
 
-	if (!f.registered) {
+	// An empty manager-owned override set should not leave a permanent
+	// addnhosts registration behind. This keeps an empty canary restore
+	// byte-for-byte equivalent at the dnsmasq integration boundary.
+	if (length(f.entries) == 0 && f.registered) {
+		run("uci del_list dhcp.@dnsmasq[0].addnhosts='" + OVERRIDES_PATH + "'");
+		run('uci commit dhcp');
+		f.registered = false;
+	}
+	if (!f.registered && length(f.entries) > 0) {
 		run("uci add_list dhcp.@dnsmasq[0].addnhosts='" + OVERRIDES_PATH + "'");
 		run('uci commit dhcp');
 	}

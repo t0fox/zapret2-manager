@@ -4,7 +4,7 @@ title: "DNS, routing и assets: что уже есть и чего не хват
 type: product
 status: current
 authority: evidence
-updated: 2026-08-14
+updated: 2026-08-15
 publish: true
 tags: [dns, routing, assets, lists, tunnels]
 ---
@@ -22,6 +22,26 @@ tags: [dns, routing, assets, lists, tunnels]
 Пользовательский слой может работать с provider/diagnostic data, global/manual настройками и service-related DNS decisions. Mutation выполняется через ограниченные backend owners; LuCI не должен напрямую редактировать произвольные системные файлы.
 
 При этом parity с Avatar остаётся `PARTIAL`, потому что совпадение нужно доказывать не названием «DNS», а полями provider catalog, defaults, result schema, per-domain routing/remediation и lifecycle каждого поддерживаемого режима.
+
+## DNS v2 и Telegram Proxy v2 acceptance slice
+
+DNS v2 теперь предоставляет canonical `dns_product_*` facade с pure Preview,
+Validate, Apply и Rollback поверх существующего DNS writer. Empty rollback
+также снимает manager-owned `dnsmasq.addnhosts` registration, поэтому
+restore возвращает исходную integration boundary, а не только пустой draft.
+
+Telegram Proxy v2 предоставляет одну canonical `tg-product.v2` модель с
+фиксированными provider IDs `go` и `rust`. Provider install/update/remove и
+proxy-config lifecycle остаются делегированы существующим owners; facade не
+создаёт второй state store или второй production writer. На реальном target
+Rust catalog/status/preflight/health проходят, а Go availability подтверждена
+через `check_updates` с честным `installable: false`.
+
+Target backend acceptance и M6 Service DNS canary пройдены. Browser acceptance
+остаётся `BLOCKED`: authenticated reload LuCI вернул HTTP `403` и
+`x-luci-login-required: yes`, поэтому mobile/tablet/dead-control claims пока
+не выдаются. Полные доказательства и deployment manifest находятся в
+[DNS/TG v2 evidence](../05-parity/2026-08-15-dns-tg-v2-evidence.md).
 
 ## Domain hub и lists
 

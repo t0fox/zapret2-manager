@@ -88,6 +88,7 @@ define Package/zapret2-manager/install
 	chmod 0644 $(1)/etc/zapret2-manager/*.json
 	chmod 0640 $(1)/etc/zapret2-manager/ipset/*.txt
 	chmod 0600 $(1)/etc/zapret2-manager/state.json
+	chmod 0600 $(1)/etc/zapret2-manager/asset-registry.json
 	$(INSTALL_DIR) $(1)/usr/libexec/zapret2-manager
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/z2m-core-helper $(1)/usr/libexec/zapret2-manager/z2m-core-helper
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/z2m-root-bootstrap $(1)/usr/libexec/zapret2-manager/z2m-root-bootstrap
@@ -112,6 +113,10 @@ if [ ! -e /etc/zapret2-manager/routes.json ] && [ ! -L /etc/zapret2-manager/rout
 fi
 if [ ! -e /etc/zapret2-manager/routes-journal ] && [ ! -L /etc/zapret2-manager/routes-journal ]; then
   install -d -o root -g root -m 0700 /etc/zapret2-manager/routes-journal || exit $$?
+fi
+if [ ! -e /etc/zapret2-manager/asset-registry.json ] && [ ! -L /etc/zapret2-manager/asset-registry.json ]; then
+  printf '%s\n' '{"schema":1,"revision":0,"assets":[]}' \
+    | install -o root -g root -m 0600 /dev/stdin /etc/zapret2-manager/asset-registry.json || exit $$?
 fi
 if [ -x /usr/bin/ucode ] && [ -x /usr/libexec/zapret2-manager/asset-registry-package-init.uc ]; then
   if [ ! -e /etc/zapret2-manager/assets ] && [ ! -L /etc/zapret2-manager/assets ]; then

@@ -625,6 +625,28 @@ function proxy_restart_method(req) { return cli_action(PROXY_CLI, 'restart'); }
 function proxy_autostart_set_method(req) { return cli_edit_action(PROXY_CLI, 'autostart', req, 'proxy'); }
 function proxy_secret_rotate_method(req) { return cli_action(PROXY_CLI, 'secret_rotate'); }
 function proxy_quick_install_method(req) { return cli_action(PROXY_CLI, 'quick_install'); }
+
+// Canonical Telegram Proxy v2 facade.  The facade composes the existing
+// provider/config owners; it does not create a second lifecycle writer.
+const TG_PRODUCT_CLI = '/usr/libexec/zapret2-manager/tg-product-cli.uc';
+function tg_product_action(sub) { return cli_action(TG_PRODUCT_CLI, sub); }
+function tg_product_edit_action(sub, req) { return cli_edit_action(TG_PRODUCT_CLI, sub, req, 'tg-product'); }
+function tg_product_get_method(req) { return tg_product_action('get'); }
+function tg_product_catalog_method(req) { return tg_product_action('catalog'); }
+function tg_product_status_method(req) { return tg_product_action('status'); }
+function tg_product_validate_method(req) { return tg_product_edit_action('validate', req); }
+function tg_product_preview_method(req) { return tg_product_edit_action('preview', req); }
+function tg_product_apply_method(req) { return tg_product_edit_action('apply', req); }
+function tg_product_health_method(req) { return tg_product_edit_action('health', req); }
+function tg_product_check_updates_method(req) { return tg_product_edit_action('check_updates', req); }
+function tg_product_switch_method(req) { return tg_product_edit_action('switch', req); }
+function tg_product_install_method(req) { return tg_product_edit_action('install', req); }
+function tg_product_update_method(req) { return tg_product_edit_action('update', req); }
+function tg_product_remove_method(req) { return tg_product_edit_action('remove', req); }
+function tg_product_purge_method(req) { return tg_product_edit_action('purge', req); }
+function tg_product_start_method(req) { return tg_product_action('start'); }
+function tg_product_stop_method(req) { return tg_product_action('stop'); }
+function tg_product_restart_method(req) { return tg_product_action('restart'); }
 function backup_restore_preview_method(req) { return cli_edit_action(BACKUP_CLI, 'preview', req, 'backup'); }
 function backup_restore_method(req) { return cli_edit_action(BACKUP_CLI, 'restore', req, 'backup'); }
 function backup_delete_method(req) { return cli_edit_action(BACKUP_CLI, 'delete', req, 'backup'); }
@@ -1109,6 +1131,22 @@ return {
 		proxy_autostart_set: { args: { edit: 'string' }, call: function (req) { return proxy_autostart_set_method(req); } },
 		proxy_secret_rotate: { call: function (req) { return proxy_secret_rotate_method(req); } },
 		proxy_quick_install: { call: function (req) { return proxy_quick_install_method(req); } },
+		tg_product_get: { call: function (req) { return tg_product_get_method(req); } },
+		tg_product_catalog: { call: function (req) { return tg_product_catalog_method(req); } },
+		tg_product_status: { call: function (req) { return tg_product_status_method(req); } },
+		tg_product_validate: { args: { edit: 'string' }, call: function (req) { return tg_product_validate_method(req); } },
+		tg_product_preview: { args: { edit: 'string' }, call: function (req) { return tg_product_preview_method(req); } },
+		tg_product_apply: { args: { edit: 'string' }, call: function (req) { return tg_product_apply_method(req); } },
+		tg_product_health: { args: { edit: 'string' }, call: function (req) { return tg_product_health_method(req); } },
+		tg_product_check_updates: { args: { edit: 'string' }, call: function (req) { return tg_product_check_updates_method(req); } },
+		tg_product_switch: { args: { edit: 'string' }, call: function (req) { return tg_product_switch_method(req); } },
+		tg_product_install: { args: { edit: 'string' }, call: function (req) { return tg_product_install_method(req); } },
+		tg_product_update: { args: { edit: 'string' }, call: function (req) { return tg_product_update_method(req); } },
+		tg_product_remove: { args: { edit: 'string' }, call: function (req) { return tg_product_remove_method(req); } },
+		tg_product_purge: { args: { edit: 'string' }, call: function (req) { return tg_product_purge_method(req); } },
+		tg_product_start: { call: function (req) { return tg_product_start_method(req); } },
+		tg_product_stop: { call: function (req) { return tg_product_stop_method(req); } },
+		tg_product_restart: { call: function (req) { return tg_product_restart_method(req); } },
 		service_dns_providers: { call: function (req) { return service_dns_providers_method(req); } },
 		service_dns_status:    { call: function (req) { return service_dns_status_method(req); } },
 		service_dns_check:     { call: function (req) { return service_dns_check_method(req); } },
