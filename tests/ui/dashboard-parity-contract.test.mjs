@@ -84,3 +84,9 @@ test('Home navigation renders Dashboard directly without a redundant Overview ta
   assert.match(shell, /activeGroup\.hideSecondary/);
   assert.match(shell, /z2m-secondary-nav/);
 });
+
+test('P01 Dashboard mounts its structure before the first status RPC resolves', () => {
+  const app = read('app.js');
+  assert.match(app, /tab === 'dashboard' \|\| tab === 'control'/);
+  assert.match(app, /renderTabData\(tab, module, \{\}, token, force\)/);
+});

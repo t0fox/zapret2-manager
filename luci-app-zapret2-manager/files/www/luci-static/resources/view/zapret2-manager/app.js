@@ -293,10 +293,14 @@ return L.view.extend({
       if (tabs.setActive) tabs.setActive(tab);
       if (cached && !sameTab) renderTabData(tab, module, cached, token, force);
       else if (!cached && !(sameTab && force)) {
-        if (activeModule && activeContext && activeModule.unmount) activeModule.unmount(activeContext);
-        activeModule = module;
-        activeContext = null;
-        content.replaceChildren(Shell.renderLoadingState(Navigation.label(tab)));
+        if (tab === 'dashboard' || tab === 'control') {
+          renderTabData(tab, module, {}, token, force);
+        } else {
+          if (activeModule && activeContext && activeModule.unmount) activeModule.unmount(activeContext);
+          activeModule = module;
+          activeContext = null;
+          content.replaceChildren(Shell.renderLoadingState(Navigation.label(tab)));
+        }
       }
       setContentBusy(true);
       return loadTabData(tab, module).then(function (data) {
