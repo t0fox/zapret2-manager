@@ -1,79 +1,124 @@
 ---
 id: avatar-current-z2m-parity-matrix-2026-08-15
-title: "Актуальная матрица Avatar → Z2M"
+title: "Full Avatar UI parity closure: frozen baseline matrix"
 type: parity
-status: working-baseline
+status: inventory-baseline
 updated: 2026-08-15
+source_manifest: 2026-08-15-full-avatar-ui-parity-manifest.yaml
 ---
 
-# Актуальная матрица Avatar → Z2M
+# Full Avatar UI parity closure: frozen baseline matrix
 
-Это рабочая матрица перед адаптацией DNS и Telegram Proxy. Она построена по
-текущему донору `G:/avatarDD/zapret-gui`, а не по старому snapshot или старым
-заметкам.
+This matrix is rebuilt from the frozen references, not carried forward from
+the previous DNS/TG matrix. The machine-readable source with the complete
+interaction fields is
+[`2026-08-15-full-avatar-ui-parity-manifest.yaml`](2026-08-15-full-avatar-ui-parity-manifest.yaml).
 
-## Зафиксированные источники
-
-| Поле | Значение |
+| Field | Value |
 |---|---|
-| `AVATAR_CURRENT_REF` | `avatarDD/zapret-gui@947e213bd66b9b8bc23ce564abcf59a4c8e8ce4c` |
-| Донорский роутер | `G:/avatarDD/zapret-gui/web/js/app.js` |
-| Z2M foundation | `luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/app.js` |
-| Z2M canonical backend | `zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc` и typed CLI writers |
-| Приёмка | `EXACT`, `PARTIAL`, `MISSING`, `NOT_APPLICABLE`, `BACKEND_NOT_READY` |
+| `Z2M_BASE_HEAD` | `cbe93f47e53b55dd674bbde4355670b52862e8f1` |
+| `AVATAR_TARGET_HEAD` | `60bc16a5ddc5f43d97d414b99920c3d13da3151a` |
+| `PARITY_ROWS_TOTAL` | `45` |
+| `BACKEND_SUPPORTED_ROWS` | `39` — includes three currently missing UI rows |
+| `PARTIAL` | `36` |
+| `MISSING` | `3` — M6 route CRUD/lifecycle/ownership UI |
+| `BACKEND_NOT_READY` | `5` — TG version/source backend gaps plus WARP/usque UI scope |
+| `NOT_APPLICABLE` | `1` — excluded Avatar-only product family |
+| `DNS_CAPABILITY_COUNT` | `24` |
+| `M6_BACKEND_CLASSIFICATION` | `BACKEND_SUPPORTED_UI_MISSING` |
 
-`NOT_APPLICABLE` означает, что у Z2M нет заявленного продукта или backend
-контракта для этой Avatar-only зоны; это не разрешение silently пропустить
-эквивалентную Z2M capability. `BACKEND_NOT_READY` означает, что UI capability
-требует backend contract, которого пока нет или который не зарегистрирован.
+## Frozen navigation inventory
 
-## Матрица
+Avatar page order is translated into the Z2M horizontal navigation model. The
+Avatar sidebar is evidence only and is not a transplant target.
 
-| Avatar page/component | Capability | Interaction | Z2M backend capability | Current Z2M UI | Status | Required action | Donor files |
-|---|---|---|---|---|---|---|---|
-| Dashboard | Service/runtime overview, health cards, current Strategy | Open page, refresh, follow status shortcuts | `status`, `events_tail`, service lifecycle | Overview renders status and service controls | PARTIAL | Adapt card hierarchy, current Strategy identity, refresh and error/empty states | `web/js/pages/dashboard.js`, `web/js/components/sidebar.js` |
-| Control | Start/stop/restart and result feedback | Click lifecycle action, confirm, observe result | `start`, `stop`, `restart`, native init owner | Controls are distributed across Overview/Maintenance | PARTIAL | Preserve native owner and expose Avatar result/progress semantics in one product flow | `web/js/pages/control.js` |
-| Strategies | Catalog, search/filter, detail and metadata | Select, favorite, duplicate, edit, preview, validate, apply | `strategies_*`, compiler, Preview→Validate→Apply | Strategy page and canonical aggregate exist | PARTIAL | Close donor list/detail states, metadata, keyboard actions and all result/error states | `web/js/pages/strategies.js`, `web/js/components/list_ui.js` |
-| Strategy scanner hub | Quick/standard/full selection and target setup | Start, stop, resume, select result, hand off to apply | `scanner_start`, `scanner_status`, `scanner_results`, `scanner_resume`, `scanner_save_generated` | Scanner page exists with native lifecycle | PARTIAL | Adapt donor tabs/progress/ranking and prove every handoff with frontend tests | `web/js/pages/strategy_scan_hub.js`, `web/js/pages/scan.js`, `web/js/components/proxy_table.js` |
-| BlockCheck hub | Separate BlockCheck, BlockCheck2 and BlockCheckW flows | Choose mode, start/stop, inspect output/results | `blockcheck_*`, `blockcheck2_*`, `blockcheckw_*` | BlockCheck page and backend verticals exist | PARTIAL | Match donor mode navigation, stream/terminal-tail, result empty/error states | `web/js/pages/blockcheck_hub.js`, `web/js/pages/blockcheck.js`, `web/js/pages/blockcheck2.js` |
-| Block Detector | Background DNS discovery and findings | Start/stop monitor, inspect findings, candidate handoff | `block_detector_*` | Backend and page surface are present but donor behavior is not closed | PARTIAL | Adapt monitor tab, polling, findings and safe list/Strategy handoff | `web/js/pages/block_detector.js` |
-| Diagnostics | Diagnosis, deep trace and traceroute | Run, cancel, inspect classified evidence | `blockcheck_diag_*`, `diagnostics_export` | Diagnostics are reachable through BlockCheck/Monitoring | PARTIAL | Provide donor-equivalent run controls, classified failures and export behavior | `web/js/pages/diagnostics.js` |
-| Services/Domains | Service catalog and domain membership | Search/filter, add/remove domain, inspect references | `domain_hub_*`, `lists_*`, service-DNS writers | Domain Hub and Services page exist | PARTIAL | Adapt donor grouping, search, empty states and domain mutation feedback | `web/js/pages/hosts.js`, `web/js/pages/hostlists.js`, `web/js/pages/lists.js` |
-| Hostlists | Named hostlist CRUD/import/update | Create/import/edit/delete/refresh | Asset registry and lists RPCs | Resources/Services expose partial asset behavior | PARTIAL | Map file/list lifecycle, validation, references and import errors | `web/js/pages/hostlists.js` |
-| IP sets | Named IP set CRUD/import/update | Create/import/edit/delete/refresh | No equivalent named IP-set product RPC in current Z2M scope | No dedicated UI | BACKEND_NOT_READY | Decide backend contract, then add product page and tests before parity claim | `web/js/pages/ipsets.js` |
-| Lua scripts | List/edit/import/delete script assets | Open editor, save, delete, dependency warning | Only native preflight checks are present | No dedicated UI | BACKEND_NOT_READY | Add safe asset registry contract or explicitly scope out the Avatar capability | `web/js/pages/lua_scripts.js` |
-| Blobs | Binary asset registry and Strategy references | List/import/delete/stats | Typed asset registry exists, no Avatar blob UI equivalent | Resources page is a Z2M adaptation | PARTIAL | Adapt binary-safe list/import/reference states and verify Strategy linkage | `web/js/pages/blobs.js`, `web/js/components/proxy_table.js` |
-| DNS routing | Per-domain resolver rules and quick presets | Add rule, select DNS server, delete, apply, toast result | Existing DNS/provider/service-DNS writers; canonical `dns_product_*` facade | DNS page is provider/service oriented and not donor-shaped; authenticated browser run currently renders a backend error behind the stopped/unavailable engine state | PARTIAL | Preserve canonical facade and single DNS writer; reproduce after restoring target engine/backend readiness | `web/js/pages/dns_routing.js`, `web/js/components/toast.js` |
-| DNS providers | Provider catalog and diagnosis | Inspect providers, diagnose, select/apply | `dnsprov_*`, `dns_select_provider`, global/override DNS writers | DNS page exposes partial provider and dependency-gate states; live browser controls were not reachable behind the backend error | PARTIAL | Preserve native ownership while matching donor cards, errors and disabled states | `web/js/pages/dns_routing.js`, `web/js/pages/diagnostics.js` |
-| Telegram Proxy | Install/uninstall, engine detection, status polling | Confirm install/remove, poll progress, start/stop/restart | `proxy_*`, registered provider RPC, canonical Go/Rust runtime model | Authenticated responsive run has no horizontal overflow and shows Rust 2.0.0/running details, but the deployed pre-fix header chip mislabels the installed provider collection as `Не установлен` | PARTIAL | Deploy and recheck the `providerInstalled()` fix; keep provider lifecycle delegated to the existing owner | `web/js/pages/tgproxy.js`, `web/js/components/setup_ui.js`, `web/js/components/confirm.js` |
-| Telegram Proxy config | TG-WS config, tunnels, routes, secret rotation | Edit/save, add/remove route, rotate secret, connect-info copy | `proxy_config_*`, `proxy_secret_rotate`, runtime adapter | Existing config surface is narrower than donor; reveal/clipboard and destructive actions remain intentionally unexercised in this run | PARTIAL | Match donor forms, validation, tunnel rows, clipboard and destructive confirmations | `web/js/pages/tgproxy.js`, `web/js/components/toast.js` |
-| Monitoring | Runtime health and tunnel/service observations | Poll, filter, inspect event/log details | `monitor_snapshot`, `proxy_health`, `events_tail` | Monitor and Maintenance pages exist | PARTIAL | Adapt donor polling/visibility behavior and complete stale/error/empty states | `web/js/pages/tunnel_monitor.js`, `web/js/pages/logs.js` |
-| Maintenance | Logs, backups, updates, expert/settings surface | Inspect, export, backup/restore, update, toggle expert controls | `maintenance_status`, backup RPCs, versions | Maintenance page is native LuCI surface | PARTIAL | Close donor settings/autostart/update interactions where Z2M backend supports them | `web/js/pages/settings.js`, `web/js/pages/autostart.js`, `web/js/pages/update_checker.js` |
-| Unified routing | Destination selectors, primary/fallback methods, failover | CRUD route, preview/apply/remove, monitor | No complete unified route aggregate in current product | No equivalent product tab | BACKEND_NOT_READY | Implement/approve scope before frontend parity work; do not fake controls | `web/js/pages/routing_unified.js` |
-| Tunnel monitor/optimizer | Health history, failover and optimization | Inspect, tune, switch method | No Avatar-equivalent tunnel product contract in Z2M | No equivalent product tab | NOT_APPLICABLE | Revisit only if Z2M declares a corresponding tunnel product | `web/js/pages/tunnel_monitor.js`, `web/js/pages/tunnel_optimizer.js` |
-| AWG / sing-box / mihomo / usque / WARP / Opera | Separate proxy product lifecycles | Install/configure/start/stop each product | Outside current Z2M product contract | No corresponding tabs | NOT_APPLICABLE | Record scope decision; never count absence as parity for Z2M-owned capabilities | `web/js/pages/awg_*.js`, `web/js/pages/singbox_*.js`, `web/js/pages/mihomo*.js`, `web/js/pages/usque*.js`, `web/js/pages/warp*.js`, `web/js/pages/opera_proxy.js` |
-| Shared interaction primitives | Confirm modal, toast, tables, filtering, responsive states | Confirm/cancel, toast result, keyboard/filter, mobile layout | Z2M Shell/components/CSS equivalents exist | Foundation has adapted primitives, coverage is incomplete | PARTIAL | Reuse donor behavior within Z2M Graphite/LuCI shell and test non-destructive interactions | `web/js/components/confirm.js`, `web/js/components/toast.js`, `web/js/components/list_ui.js`, `web/css/style.css` |
+| Order | Group | Primary pages and children |
+|---:|---|---|
+| 1 | Главная | dashboard |
+| 2 | Обход DPI (nfqws2) | control; strategies; scan |
+| 3 | VPN и маршрутизация | unified-routing; warp; warp-setup; warp-in-warp; telegram-tunnel |
+| 4 | Списки и данные | lists; hostlists; ipsets; blobs; lua; hosts; dns-routing |
+| 5 | Диагностика | diagnostics; blockcheck; logs; monitor |
+| 6 | Система | updates; zapret; autostart; settings |
 
-## Current baseline conclusion
+## Interaction matrix
 
-The current Z2M frontend is a `FRONTEND FOUNDATION / PARTIAL TRANSPLANT`. It is
-not an Avatar parity completion. DNS and Telegram Proxy are the next two
-product slices, and each must use the donor component behavior while retaining
-Z2M's horizontal navigation, Graphite/LuCI shell, canonical RPCs and
-OpenWrt-native writers.
+`PARTIAL` and `MISSING` are intentional baseline findings. Any such row that
+is backend-supported blocks the final parity claim until the implementation
+and Browser evidence are closed. `BACKEND_NOT_READY` is reserved here for the
+explicit TG backend capability gaps and the approved WARP/usque disabled UI.
 
-The matrix must be refreshed after DNS/TG implementation and again after the
-whole-product closure pass. A final report may call a row `EXACT` only with
-donor source evidence, adapted implementation, automated frontend coverage and
-real Browser evidence. Any unexplained backend-supported `PARTIAL` or `MISSING`
-row blocks an `AVATAR_UI_PARITY: COMPLETE` claim.
+| ID | Group / page / subtab | Donor interaction | Z2M backend and current UI | Status | Evidence / browser |
+|---|---|---|---|---|---|
+| overview.runtime | home / dashboard | Poll cards, refresh, health shortcuts | status/events/service; z2m-overview.js | PARTIAL | readiness exists; Browser pending |
+| control.lifecycle | dpi / control | Confirm start/stop/restart | native service lifecycle; distributed controls | PARTIAL | owner exists; Browser pending |
+| control.feedback | dpi / control | Loading/progress/result/retry | events_tail/normalized errors; shell states | PARTIAL | primitives incomplete; Browser pending |
+| strategies.catalog | dpi / strategies/list | Search/filter/select/favorite/duplicate | strategies_list/get/favorite/duplicate; z2m-strategy.js | PARTIAL | catalog reachable; Browser pending |
+| strategies.detail | dpi / strategies/detail | Metadata/edit/validate | strategies CRUD/profiles; workflow modules | PARTIAL | canonical CRUD exists; Browser pending |
+| strategies.apply | dpi / strategies/apply | Preview/validate/apply/runtime proof | strategies_* and coordinator | PARTIAL | authority frozen; Browser pending |
+| scanner.setup | dpi / scan/setup | Select mode and target | scanner_start/status/results; z2m-scanner.js | PARTIAL | owner exists; Browser pending |
+| scanner.lifecycle | dpi / scan/progress | Start/stop/resume/poll | scanner_start/stop/resume/status | PARTIAL | separate state flow; Browser pending |
+| scanner.handoff | dpi / scan/results | Rank and hand off candidate | scanner_results/save_generated → Strategy | PARTIAL | ownership preserved; Browser pending |
+| blockcheck.hub | diagnostics / blockcheck/hub | Switch independent modes | diag/blockcheck2/blockcheckw/detector RPCs | PARTIAL | distinct backend flows; Browser pending |
+| blockcheck.run | diagnostics / blockcheck/run | Configure/run/stop | blockcheck_diag_*; z2m-blockcheck-page.js | PARTIAL | run controls exist; Browser pending |
+| blockcheck.results | diagnostics / blockcheck/results | Stream output/result/retry | blockcheck2/blockcheckw output/results | PARTIAL | terminal states incomplete; Browser pending |
+| block_detector.monitor | diagnostics / blockcheck/dns-monitor | Start/stop/findings/handoff | block_detector_*; same page | PARTIAL | lifecycle exists; Browser pending |
+| diagnostics.run | diagnostics / diagnostics/diagnosis | Run/cancel/classify | diag RPCs/health matrix | PARTIAL | no dedicated donor page; Browser pending |
+| diagnostics.export | diagnostics / diagnostics/evidence | Export/copy/error | diagnostics_export/events_tail | PARTIAL | RPC exists; Browser pending |
+| services.catalog | data / services/services | Search catalog/membership | catalog/domain_hub; domain hub page | PARTIAL | reachable under old Services; Browser pending |
+| services.domains | data / services/domains | Add/remove/references | domain_hub/lists; z2m-services.js | PARTIAL | canonical writer exists; Browser pending |
+| assets.list | data / assets/registry | Filter/hash/revision/references | assets_list/get/references; z2m-assets.js | PARTIAL | typed registry UI exists; Browser pending |
+| assets.lifecycle | data / assets/import-edit-delete | Import/update/validate/delete | assets_import/update/validate/delete | PARTIAL | safety exists; binary UI parity pending |
+| routing.crud | routing / unified-routing/routes | Route CRUD/ownership | route_list/get/create/update/remove; no old UI | MISSING | M6 backend tested; Browser pending |
+| routing.lifecycle | routing / unified-routing/preview-apply | Preview/validate/apply/status/remove/reconcile | route_* lifecycle; no old UI | MISSING | M6 lifecycle supported; Browser pending |
+| routing.ownership | routing / unified-routing/dependencies | CAS/foreign-state/rollback protection | revision/CAS/service_dns ownership | MISSING | M6 tests PASS; Browser pending |
+| dns.global | dns / dns-routing/global | Mode/providers/hijack/cache | dns_product_*; z2m-dns.js | PARTIAL | 24 DNS controls inventoried; target PASS |
+| dns.providers | dns / dns-routing/providers | Diagnose/select/provider results | dnsprov_*; z2m-dns.js | PARTIAL | target provider canary PASS; Browser pending |
+| dns.per_domain | dns / dns-routing/per-domain | Add/delete/presets | canonical DNS overrides; z2m-dns.js | PARTIAL | zero-loss capability; Browser pending |
+| dns.service_dns | dns / dns-routing/service-dns | Profile preview/apply | service_dns_*; service model/adapter | PARTIAL | M6 canary PASS; Browser pending |
+| dns.lifecycle | dns / dns-routing/apply | Preview/validate/apply/rollback/restore | dns_product lifecycle + coordinator | PARTIAL | target DNS canary PASS; Browser pending |
+| dns.diagnostics | dns / dns-routing/check | Check/readiness/success/error | dns_check/status/diagnose | PARTIAL | DNS отвечает target PASS; Browser pending |
+| tg.providers | telegram / telegram-tunnel/providers | Go/Rust choice/preflight | tg_product catalog/status; proxy page core | PARTIAL | Rust 2.0.0 target PASS; Browser pending |
+| tg.versions | telegram / telegram-tunnel/versions | Installed/package/latest/available metadata | status + latest-only check_updates | PARTIAL | latest only is backend limitation |
+| tg.version_selector | telegram / telegram-tunnel/versions | Select available version | no historical-version RPC or install input | BACKEND_NOT_READY | exact gap recorded; no fake versions |
+| tg.source_selector | telegram / telegram-tunnel/versions | Select supported source | no source enumeration/select RPC | BACKEND_NOT_READY | exact gap recorded; no fake sources |
+| tg.installation | telegram / telegram-tunnel/installation | Install/update/remove/progress/confirm | tg_product install/update/remove/purge | PARTIAL | target preflight/status PASS |
+| tg.lifecycle | telegram / telegram-tunnel/status | Lifecycle/listener/sessions/poll | tg_product lifecycle + proxy health | PARTIAL | canonical projection target PASS |
+| tg.configuration | telegram / telegram-tunnel/configuration | Edit/validate/apply config | proxy_config_* and secret owner | PARTIAL | writer preserved; Browser pending |
+| tg.reveal | telegram / telegram-tunnel/connection | Confirm reveal/QR/clipboard/rotate | proxy_link_info/secret_rotate | PARTIAL | bounded secret action; Browser pending |
+| monitoring.polling | diagnostics / monitor/runtime | Poll/filter/stale state | monitor_snapshot/proxy_health/events_tail | PARTIAL | old monitor reachable; Browser pending |
+| maintenance.logs | system / logs/events | Refresh/filter/export/error | events_tail/proxy_logs_tail/diagnostics_export | PARTIAL | APIs exist; dedicated page pending |
+| maintenance.backups | system / maintenance/backups | Create/preview/restore/delete | backup_* | PARTIAL | safety owner exists; Browser pending |
+| maintenance.system | system / maintenance/system | Versions/autostart/updates/diagnostics | versions/maintenance_status/engine_* | PARTIAL | native maintenance owner preserved |
+| warp.usque | routing / warp/tunnel | Full status/config/table, disabled actions | no usque backend | BACKEND_NOT_READY | complete disabled UI required |
+| warp.setup | routing / warp-setup/setup | Full setup workflow/progress | no usque setup backend | BACKEND_NOT_READY | complete disabled UI required |
+| warp.in_warp | routing / warp-in-warp/nested-tunnel | Full nested tunnel forms/subtabs | no WARP-in-WARP backend | BACKEND_NOT_READY | complete disabled UI required |
+| shared.primitives | shared / shell | Confirm/toast/retry/loading/empty/stale/filter/table/clipboard | z2m-shell/avatar-ui; partial coverage | PARTIAL | reusable layer pending |
+| scope.exclusions | excluded | AWG/sing-box/mihomo/Opera product nav | no approved Z2M mapping | NOT_APPLICABLE | explicitly excluded |
 
-## 2026-08-15 implementation delta
+## DNS zero-loss gate
 
-DNS routing now has donor-adapted per-domain rule, delete and quick-preset
-interactions over the canonical `dns_product_*` facade. Telegram Proxy now has
-donor-adapted install-progress, connection reveal/QR-link and clipboard
-interactions over the canonical `tg-product.v2` model. These are adapted
-surfaces, not `EXACT` rows: target Engine/provider RPC registration and the
-real DNS/TG canaries pass, while the required Browser gate is currently
-blocked by LuCI HTTP `403` with `x-luci-login-required: yes`.
+The complete pre-migration control inventory is in
+[`2026-08-15-dns-capability-inventory.yaml`](2026-08-15-dns-capability-inventory.yaml).
+It contains `24` capabilities covering global mode/providers/switches,
+dnsmasq status, provider diagnostics, per-domain rules/presets, Service DNS,
+Preview/Validate/Apply/Rollback/restore, DNS check and all error/empty states.
+The later DNS UI must satisfy:
+
+```text
+DNS_POST_CAPABILITIES >= DNS_PRE_CAPABILITIES
+DNS_FUNCTIONAL_REGRESSIONS = 0
+DNS_MISSING_CONTROLS = 0
+DNS_DEAD_CONTROLS = 0
+```
+
+## Scope decisions
+
+- M6 is `BACKEND_SUPPORTED_UI_MISSING`, not `BACKEND_NOT_READY`.
+- Asset Registry is typed and supports `lua`, `blob`, `ipset`, `hostlist`,
+  `geosite`, `geoip`, and `hosts`; arbitrary filesystem access is excluded.
+- TG version/source enumeration is an exact backend gap. The future UI must
+  show the required selector/source surfaces with an exact disabled reason if
+  the backend contract remains absent; it must not invent versions or RPCs.
+- WARP/usque is mandatory full disabled UI with `Backend пока не реализован`;
+  no fake state or failed bogus RPC is acceptable.

@@ -1,0 +1,189 @@
+schema: z2m-dns-zero-loss-inventory.v1
+z2m_base_head: cbe93f47e53b55dd674bbde4355670b52862e8f1
+scope: DNS UI capabilities reachable from z2m-dns-page.js and z2m-dns.js
+writer_authority:
+  canonical_facade: dns_product_get/providers/status/preview/validate/apply/rollback
+  compatibility_readers: dns_get, dnsprov_components, dnsprov_providers, service_dns_status
+  mutation_owner: existing DNS writer and Service DNS writer; LuCI never writes UCI directly
+  forbidden: second DNS writer, donor /api calls, arbitrary filesystem access
+target_proof_at_baseline:
+  dns_product_status: PASS
+  dnsmasq_backend: dnsmasq-uci
+  dns_canary: PASS
+  dns_check: DNS отвечает
+  service_dns_m6_canary: PASS
+capabilities:
+  - id: dns.global.mode
+    control: Resolution mode selector system/doh/dot/udp
+    current_ui: z2m-dns.js global pane #z2m-dns-mode
+    rpc: dns_product_get, dns_product_preview, dns_product_validate, dns_product_apply
+    mutation: draft only until Preview/Validate/Apply
+    preserve: required
+    evidence: z2m-dns.js renders DNS_MODES and updates globalDraft.mode
+  - id: dns.global.primary
+    control: Primary provider selector
+    current_ui: z2m-dns.js #z2m-dns-primary
+    rpc: dns_product_providers, dns_product_preview, dns_product_apply
+    mutation: canonical DNS product apply
+    preserve: required
+    evidence: disabled in system mode; provider list is canonical product data
+  - id: dns.global.secondary
+    control: Secondary/fallback provider selector
+    current_ui: z2m-dns.js #z2m-dns-secondary
+    rpc: dns_product_providers, dns_product_preview, dns_product_apply
+    mutation: canonical DNS product apply
+    preserve: required
+    evidence: explicit Нет option and fallback semantics are rendered
+  - id: dns.global.hijack
+    control: Intercept third-party DNS switch
+    current_ui: z2m-dns.js switch aria-label Запрещать сторонний DNS в сети
+    rpc: dns_product_preview, dns_product_validate, dns_product_apply
+    mutation: draft global.hijack
+    preserve: required
+    evidence: switch controls UDP/TCP port 53 interception draft
+  - id: dns.global.cache
+    control: Cache answers switch and cache-size display
+    current_ui: z2m-dns.js switch aria-label Кэшировать ответы
+    rpc: dns_product_preview, dns_product_validate, dns_product_apply
+    mutation: draft global.cache
+    preserve: required
+    evidence: current UI shows dg.cacheSize beside switch
+  - id: dns.global.active
+    control: Active system DNS/dnsmasq status card
+    current_ui: z2m-dns.js z2m-dns-active-status
+    rpc: dns_product_status, dns_get
+    mutation: read-only
+    preserve: required
+    evidence: target status showed active dnsmasq-uci and inherited OpenWrt/DHCP
+  - id: dns.providers.catalog
+    control: Provider groups, addresses, protocol and selected marker
+    current_ui: z2m-dns.js provider pane
+    rpc: dnsprov_providers, dns_product_providers
+    mutation: read-only
+    preserve: required
+    evidence: providerRows and grouped provider cards are current UI source
+  - id: dns.providers.check-one
+    control: Diagnose one provider and show response/latency/error
+    current_ui: z2m-dns.js Проверить per provider
+    rpc: dnsprov_diagnose
+    mutation: bounded diagnostic only
+    preserve: required
+    evidence: provider result includes probe outcome and minimum latency
+  - id: dns.providers.check-all
+    control: Diagnose all providers with progress state
+    current_ui: z2m-dns.js Проверить все and benchBar
+    rpc: dnsprov_diagnose per provider
+    mutation: bounded diagnostic only
+    preserve: required
+    evidence: allProvidersBusy state and progress bar are implemented
+  - id: dns.providers.select
+    control: Select provider
+    current_ui: z2m-dns.js Выбрать/Выбран
+    rpc: dns_select_provider or canonical product apply adapter
+    mutation: canonical DNS writer through coordinator
+    preserve: required
+    evidence: selected provider is reflected in provider pane and global state
+  - id: dns.domain.list
+    control: List current per-domain DNS entries
+    current_ui: z2m-dns.js manual/per-domain pane
+    rpc: dns_product_get and legacy compatibility projection
+    mutation: read-only
+    preserve: required
+    evidence: state.manualBaseline is derived from canonical product overrides
+  - id: dns.domain.add-edit
+    control: Add/edit domain resolver rule
+    current_ui: z2m-dns.js domain entry editor
+    rpc: dns_product_preview, dns_product_validate, dns_product_apply
+    mutation: draft then coordinator apply
+    preserve: required
+    evidence: updateDnsDraft records semantic changes and revision
+  - id: dns.domain.delete
+    control: Delete per-domain rule
+    current_ui: z2m-dns.js rule delete action
+    rpc: dns_product_preview, dns_product_validate, dns_product_apply
+    mutation: draft then coordinator apply
+    preserve: required
+    evidence: deletion is represented as a canonical override diff
+  - id: dns.domain.presets
+    control: Apply supported quick preset
+    current_ui: z2m-dns.js preset actions in manual pane
+    rpc: dns_product_preview, dns_product_validate, dns_product_apply
+    mutation: draft then explicit apply
+    preserve: required
+    evidence: preset modifies the same manual draft and never writes directly
+  - id: dns.service.catalog
+    control: Service DNS profiles/providers and required-domain notes
+    current_ui: z2m-dns-service-model.js service provider projection
+    rpc: service_dns_providers, service_dns_status
+    mutation: read-only
+    preserve: required
+    evidence: serviceProfiles are normalized into resolverProviders and service rows
+  - id: dns.service.select
+    control: Select DNS profile for a supported service
+    current_ui: z2m-dns.js service-dns pane
+    rpc: service_dns_set, service_dns_preview
+    mutation: draft service-dns selection
+    preserve: required
+    evidence: ServiceModel records baseline, selections and draftRevision
+  - id: dns.service.preview
+    control: Preview delegated Service DNS change
+    current_ui: app semantic diff/coordinator
+    rpc: service_dns_preview
+    mutation: pure
+    preserve: required
+    evidence: M6 contract requires zero-writes preview and delegated ownership
+  - id: dns.service.apply
+    control: Apply/read back Service DNS selection
+    current_ui: shared Apply bar and DNS service pane
+    rpc: service_dns_apply, service_dns_apply_async, service_dns_apply_status
+    mutation: bounded writer with reread
+    preserve: required
+    evidence: target M6 canary passed apply/status and restored state
+  - id: dns.lifecycle.preview-validate
+    control: Preview and Validate global/manual DNS changes
+    current_ui: shared coordinator and semantic diff
+    rpc: dns_product_preview, dns_product_validate
+    mutation: pure preview then validation
+    preserve: required
+    evidence: DNS v2 target canary proved preview zeroWrites=true and validate PASS
+  - id: dns.lifecycle.apply
+    control: Apply canonical DNS product change and verify status
+    current_ui: shared Apply bar
+    rpc: dns_product_apply, dns_product_status
+    mutation: canonical DNS writer
+    preserve: required
+    evidence: target DNS canary verified process/port/entry and reread
+  - id: dns.lifecycle.rollback
+    control: Rollback manager-owned DNS overrides
+    current_ui: shared rollback/result workflow
+    rpc: dns_product_rollback, dns_rollback
+    mutation: bounded restore
+    preserve: required
+    evidence: target DNS canary restored empty overrides and registered=false
+  - id: dns.lifecycle.restore-auto
+    control: Restore automatic OpenWrt/dnsmasq behavior
+    current_ui: DNS reset/restore action
+    rpc: dns_restore_auto
+    mutation: bounded restore
+    preserve: required
+    evidence: restore semantics are part of DNS zero-loss contract
+  - id: dns.check
+    control: Check DNS and show DNS отвечает/error/readiness state
+    current_ui: z2m-dns.js Проверить DNS and result panel
+    rpc: dns_check
+    mutation: bounded diagnostic only
+    preserve: required
+    evidence: target browser completed safe DNS check with DNS отвечает
+  - id: dns.errors.empty
+    control: RPC error, unavailable provider, empty catalog and stale draft states
+    current_ui: z2m-dns.js provider/error/result panels and shared shell states
+    rpc: all DNS read/diagnostic calls
+    mutation: read-only presentation
+    preserve: required
+    evidence: explicit current controls and error branches must remain reachable
+acceptance:
+  dns_pre_capabilities: 24
+  dns_post_capabilities: same_or_superset
+  dns_functional_regressions: 0
+  dns_missing_controls: 0
+  dns_dead_controls: 0

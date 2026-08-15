@@ -1,0 +1,637 @@
+schema: avatar-ui-parity-manifest.v1
+title: Full Avatar UI parity closure inventory
+z2m_base_head: cbe93f47e53b55dd674bbde4355670b52862e8f1
+avatar_target_head: 60bc16a5ddc5f43d97d414b99920c3d13da3151a
+avatar_repository: avatarDD/zapret-gui
+z2m_repository: t0fox/zapret2-manager
+generated_from:
+  avatar:
+    - web/index.html
+    - web/js/app.js
+    - web/js/components/sidebar.js
+    - web/js/components/confirm.js
+    - web/js/components/toast.js
+    - web/js/components/list_ui.js
+    - web/js/components/setup_ui.js
+    - web/js/components/proxy_table.js
+    - web/js/components/transport_select.js
+    - web/js/pages
+    - web/css/style.css
+  z2m:
+    - luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/app.js
+    - luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js
+    - luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-shell.js
+    - luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.js
+    - luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.css
+    - luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-components.css
+    - luci-app-zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc
+    - zapret2-manager/files/usr/libexec/zapret2-manager
+scope:
+  keep:
+    - LuCI integration
+    - Graphite visual theme
+    - Z2M horizontal top navigation
+    - canonical Z2M RPC/backend and ownership
+  include:
+    - every capability already implemented by Z2M
+    - usque
+    - usque setup
+    - WARP-in-WARP
+  exclude:
+    - AmneziaWG
+    - sing-box
+    - mihomo
+    - Opera Proxy
+    - Avatar-only products without a Z2M backend mapping
+navigation:
+  legacy_baseline:
+    tabs:
+      - { id: overview, label: Обзор, order: 1 }
+      - { id: strategy, label: Стратегия, order: 2 }
+      - { id: services, label: Сервисы и домены, order: 3 }
+      - { id: blockcheck, label: BlockCheck, order: 4 }
+      - { id: assets, label: Ресурсы, order: 5 }
+      - { id: dns, label: DNS, order: 6 }
+      - { id: proxy, label: Telegram Proxy, order: 7 }
+      - { id: monitor, label: Мониторинг, order: 8 }
+      - { id: maintenance, label: Обслуживание, order: 9 }
+    aliases:
+      - { from: "#/lists", to: "#/services" }
+  avatar_derived_target:
+    groups:
+      - id: home
+        label: Главная
+        order: 1
+        pages:
+          - { id: dashboard, label: Главная, donor_file: web/js/pages/dashboard.js }
+      - id: dpi
+        label: Обход DPI (nfqws2)
+        order: 2
+        pages:
+          - { id: control, label: Управление, donor_file: web/js/pages/control.js }
+          - { id: strategies, label: Стратегии, donor_file: web/js/pages/strategies.js }
+          - { id: scan, label: Подбор стратегий, donor_file: web/js/pages/strategy_scan_hub.js }
+      - id: routing
+        label: VPN и маршрутизация
+        order: 3
+        pages:
+          - { id: unified-routing, label: Маршрутизация, donor_file: web/js/pages/routing_unified.js }
+          - { id: warp, label: WARP/MASQUE, donor_file: web/js/pages/usque.js }
+          - { id: warp-setup, label: Установка WARP, donor_file: web/js/pages/usque_setup.js }
+          - { id: warp-in-warp, label: WARP-in-WARP, donor_file: web/js/pages/warp_in_warp.js }
+          - { id: telegram-tunnel, label: Telegram Tunnel, donor_file: web/js/pages/tgproxy.js }
+      - id: data
+        label: Списки и данные
+        order: 4
+        pages:
+          - { id: lists, label: Списки маршрутизации, donor_file: web/js/pages/lists.js }
+          - { id: hostlists, label: Домены, donor_file: web/js/pages/hostlists.js }
+          - { id: ipsets, label: IP-списки, donor_file: web/js/pages/ipsets.js }
+          - { id: blobs, label: Блобы, donor_file: web/js/pages/blobs.js }
+          - { id: lua, label: Lua-скрипты, donor_file: web/js/pages/lua_scripts.js }
+          - { id: hosts, label: Hosts, donor_file: web/js/pages/hosts.js }
+          - { id: dns-routing, label: DNS routing, donor_file: web/js/pages/dns_routing.js }
+      - id: diagnostics
+        label: Диагностика
+        order: 5
+        pages:
+          - { id: diagnostics, label: Диагностика, donor_file: web/js/pages/diagnostics.js }
+          - { id: blockcheck, label: Диагностика блокировок, donor_file: web/js/pages/blockcheck_hub.js }
+          - { id: logs, label: Логи, donor_file: web/js/pages/logs.js }
+          - { id: monitor, label: Мониторинг, donor_file: web/js/pages/tunnel_monitor.js }
+      - id: system
+        label: Система
+        order: 6
+        pages:
+          - { id: updates, label: Обновления, donor_file: web/js/pages/update_checker.js }
+          - { id: zapret, label: Zapret2, donor_file: web/js/pages/zapret_manager.js }
+          - { id: autostart, label: Автозапуск, donor_file: web/js/pages/autostart.js }
+          - { id: settings, label: Настройки, donor_file: web/js/pages/settings.js }
+tg_contract:
+  provider_choice: [Go, Rust]
+  installed_version: visible
+  package_version: visible
+  latest_version: visible
+  available_versions: required
+  version_selector: required
+  source_selection: required_when_supported
+  current_backend_gap:
+    - proxy_provider_catalog returns latestOnly=true
+    - proxy_provider_check_updates resolves one latest release only
+    - install accepts provider and checkToken, not version/source
+    - no historical version enumeration RPC exists
+    - no selectable source enumeration RPC exists
+  forbidden_copy:
+    - Только latest compatible
+    - Только из доверенного APK feed
+rows:
+  - id: overview.runtime
+    group: home
+    page: dashboard
+    subtab: null
+    donor_file: web/js/pages/dashboard.js
+    donor_interaction: Poll runtime cards, refresh, follow health shortcuts
+    z2m_backend: status, events_tail, service lifecycle, current Strategy projection
+    z2m_current_ui: z2m-overview.js
+    status: PARTIAL
+    evidence: Current overview renders status/readiness but not Avatar dashboard hierarchy.
+    browser_evidence: NOT_RUN at inventory baseline
+  - id: control.lifecycle
+    group: dpi
+    page: control
+    subtab: null
+    donor_file: web/js/pages/control.js
+    donor_interaction: Confirm start, stop, restart and inspect result
+    z2m_backend: status, start, stop, restart through native service owner
+    z2m_current_ui: Controls distributed across overview and maintenance
+    status: PARTIAL
+    evidence: Native lifecycle owner exists; no single Avatar-derived control page.
+    browser_evidence: NOT_RUN at inventory baseline
+  - id: control.feedback
+    group: dpi
+    page: control
+    subtab: null
+    donor_file: web/js/pages/control.js
+    donor_interaction: Loading, progress, terminal result and retry
+    z2m_backend: events_tail, operation status, normalized RPC errors
+    z2m_current_ui: z2m-shell state panels and page-local feedback
+    status: PARTIAL
+    evidence: Shared shell has state panels; result presentation is not unified.
+    browser_evidence: NOT_RUN at inventory baseline
+  - id: strategies.catalog
+    group: dpi
+    page: strategies
+    subtab: list
+    donor_file: web/js/pages/strategies.js
+    donor_interaction: Search, filter, select, favorite and duplicate strategy
+    z2m_backend: strategies_list, strategies_get, strategies_favorite, strategies_duplicate
+    z2m_current_ui: z2m-strategy.js and z2m-strategy-page.js
+    status: PARTIAL
+    evidence: Canonical Strategy catalog and CRUD are reachable inside current strategy page.
+    browser_evidence: NOT_RUN at inventory baseline
+  - id: strategies.detail
+    group: dpi
+    page: strategies
+    subtab: detail
+    donor_file: web/js/pages/strategies.js
+    donor_interaction: Inspect metadata, edit supported fields and validate draft
+    z2m_backend: strategies_get, strategies_create, strategies_update, strategies_delete, profiles_*
+    z2m_current_ui: z2m-strategy-workflow.js and profiles workflow
+    status: PARTIAL
+    evidence: Edit/metadata flows exist but are not organized as donor list/detail.
+    browser_evidence: NOT_RUN at inventory baseline
+  - id: strategies.apply
+    group: dpi
+    page: strategies
+    subtab: apply
+    donor_file: web/js/pages/strategies.js
+    donor_interaction: Preview, validate, apply and inspect runtime proof
+    z2m_backend: strategies_preview, strategies_validate, strategies_apply, coordinator, rollback
+    z2m_current_ui: z2m-strategy-workflow.js and app coordinator
+    status: PARTIAL
+    evidence: Preview/Validate/Apply authority is canonical and must not move into UI.
+    browser_evidence: NOT_RUN at inventory baseline
+  - id: scanner.setup
+    group: dpi
+    page: scan
+    subtab: setup
+    donor_file: web/js/pages/strategy_scan_hub.js
+    donor_interaction: Choose quick/standard/full scanner mode and target
+    z2m_backend: scanner_start, scanner_status, scanner_results
+    z2m_current_ui: z2m-scanner.js mounted by z2m-strategy-page.js
+    status: PARTIAL
+    evidence: Scanner ownership and target model exist; donor hub hierarchy is absent.
+    browser_evidence: NOT_RUN at inventory baseline
+  - id: scanner.lifecycle
+    group: dpi
+    page: scan
+    subtab: progress
+    donor_file: web/js/pages/scan.js
+    donor_interaction: Start, stop, resume and monitor progress
+    z2m_backend: scanner_start, scanner_stop, scanner_resume, scanner_status
+    z2m_current_ui: z2m-scanner.js
+    status: PARTIAL
+    evidence: Separate Scanner state/result flow is present but not donor-shaped.
+    browser_evidence: NOT_RUN at inventory baseline
+  - id: scanner.handoff
+    group: dpi
+    page: scan
+    subtab: results
+    donor_file: web/js/pages/scan.js
+    donor_interaction: Rank results and hand selected candidate to Strategy
+    z2m_backend: scanner_results, scanner_save_generated, Strategy import/apply
+    z2m_current_ui: z2m-scanner.js and Strategy adapter
+    status: PARTIAL
+    evidence: Existing ownership boundary must remain Scanner transient and Strategy persistent.
+    browser_evidence: NOT_RUN at inventory baseline
+  - id: blockcheck.hub
+    group: diagnostics
+    page: blockcheck
+    subtab: hub
+    donor_file: web/js/pages/blockcheck_hub.js
+    donor_interaction: Switch BlockCheck family modes without collapsing lifecycles
+    z2m_backend: blockcheck_diag_*, blockcheck2_*, blockcheckw_*, block_detector_*
+    z2m_current_ui: z2m-blockcheck-page.js
+    status: PARTIAL
+    evidence: Current page keeps separate backend flows but lacks donor hub structure.
+    browser_evidence: NOT_RUN at inventory baseline
+  - id: blockcheck.run
+    group: diagnostics
+    page: blockcheck
+    subtab: run
+    donor_file: web/js/pages/blockcheck.js
+    donor_interaction: Configure target, run, stop and observe progress
+    z2m_backend: blockcheck_diag_start/status/stop/domains/traceroute
+    z2m_current_ui: z2m-blockcheck-page.js
+    status: PARTIAL
+    evidence: Run and stop controls exist; output/result states need donor parity.
+    browser_evidence: NOT_RUN at inventory baseline
+  - id: blockcheck.results
+    group: diagnostics
+    page: blockcheck
+    subtab: results
+    donor_file: web/js/pages/blockcheck2.js
+    donor_interaction: Stream terminal output, inspect result and retry
+    z2m_backend: blockcheck2_output/results and blockcheckw_output/results
+    z2m_current_ui: z2m-blockcheck-page.js
+    status: PARTIAL
+    evidence: Official and modified flows are distinct; no second backend workflow may be introduced.
+    browser_evidence: NOT_RUN at inventory baseline
+  - id: block_detector.monitor
+    group: diagnostics
+    page: blockcheck
+    subtab: dns-monitor
+    donor_file: web/js/pages/block_detector.js
+    donor_interaction: Start/stop background monitor and inspect findings
+    z2m_backend: block_detector_start/status/results/stop
+    z2m_current_ui: z2m-blockcheck-page.js
+    status: PARTIAL
+    evidence: Detector lifecycle exists but candidate handoff and stale state need closure.
+    browser_evidence: NOT_RUN at inventory baseline
+  - id: diagnostics.run
+    group: diagnostics
+    page: diagnostics
+    subtab: diagnosis
+    donor_file: web/js/pages/diagnostics.js
+    donor_interaction: Run service diagnosis, cancel and classify evidence
+    z2m_backend: blockcheck_diag_*, health_matrix_get, diagnostics_export
+    z2m_current_ui: z2m-blockcheck-page.js and monitor surfaces
+    status: PARTIAL
+    evidence: Backend diagnostic family is present; no dedicated Avatar-derived page.
+    browser_evidence: NOT_RUN at inventory baseline
+  - id: diagnostics.export
+    group: diagnostics
+    page: diagnostics
+    subtab: evidence
+    donor_file: web/js/pages/diagnostics.js
+    donor_interaction: Export/copy classified evidence and show errors
+    z2m_backend: diagnostics_export, events_tail
+    z2m_current_ui: Partial page-local error handling
+    status: PARTIAL
+    evidence: Export RPC exists, but UI route and result presentation are not unified.
+    browser_evidence: NOT_RUN at inventory baseline
+  - id: services.catalog
+    group: data
+    page: services
+    subtab: services
+    donor_file: web/js/pages/lists.js
+    donor_interaction: Search service catalog and inspect service/domain membership
+    z2m_backend: catalog_list/get/status/preview/apply, domain_hub_get/preview
+    z2m_current_ui: z2m-domain-hub-page.js and z2m-services.js
+    status: PARTIAL
+    evidence: Current domain hub and service DNS adapters are reachable under Services.
+    browser_evidence: NOT_RUN at inventory baseline
+  - id: services.domains
+    group: data
+    page: services
+    subtab: domains
+    donor_file: web/js/pages/hosts.js
+    donor_interaction: Add/remove domains, inspect references and mutation feedback
+    z2m_backend: domain_hub_get, domain_hub_preview, domain_hub_apply, lists_*
+    z2m_current_ui: z2m-services.js and domain hub model
+    status: PARTIAL
+    evidence: Canonical domain hub writer exists; grouping/search/empty states need parity.
+    browser_evidence: NOT_RUN at inventory baseline
+  - id: assets.list
+    group: data
+    page: assets
+    subtab: registry
+    donor_file: web/js/pages/lists.js
+    donor_interaction: Filter typed assets and inspect revision/hash/provenance/references
+    z2m_backend: assets_list, assets_get, assets_references
+    z2m_current_ui: z2m-assets.js
+    status: PARTIAL
+    evidence: Typed registry UI exists and already exposes safety metadata.
+    browser_evidence: NOT_RUN at inventory baseline
+  - id: assets.lifecycle
+    group: data
+    page: assets
+    subtab: import-edit-delete
+    donor_file: web/js/pages/blobs.js
+    donor_interaction: Import/update/validate/delete with binary-safe and dependency warnings
+    z2m_backend: assets_import/update/validate/delete/resolve
+    z2m_current_ui: z2m-assets.js supports import, validate and guarded delete
+    status: PARTIAL
+    evidence: Registry supports lua/blob/ipset/hostlist/geosite/geoip/hosts; UI is text-oriented.
+    browser_evidence: NOT_RUN at inventory baseline
+  - id: routing.crud
+    group: routing
+    page: unified-routing
+    subtab: routes
+    donor_file: web/js/pages/routing_unified.js
+    donor_interaction: Create/edit/delete typed route and inspect ownership
+    z2m_backend: route_list/get/create/update/remove
+    z2m_current_ui: No reachable route page in legacy Z2M navigation
+    status: MISSING
+    evidence: M6 route aggregate is registered in canonical rpcd and tested.
+    browser_evidence: NOT_RUN at inventory baseline
+  - id: routing.lifecycle
+    group: routing
+    page: unified-routing
+    subtab: preview-apply
+    donor_file: web/js/pages/routing_unified.js
+    donor_interaction: Preview, validate, apply, status, remove and reconcile
+    z2m_backend: route_preview/validate/apply/status/remove/reconcile
+    z2m_current_ui: No route UI; no fake failover controls allowed
+    status: MISSING
+    evidence: Current M6 implementation supports service_dns and hostlist/hosts selectors.
+    browser_evidence: NOT_RUN at inventory baseline
+  - id: routing.ownership
+    group: routing
+    page: unified-routing
+    subtab: dependencies
+    donor_file: web/js/pages/routing_unified.js
+    donor_interaction: Show stale revision, foreign state and rollback protection
+    z2m_backend: revision/CAS, delegated Service DNS ownership and reconcile
+    z2m_current_ui: No route UI
+    status: MISSING
+    evidence: M6 tests cover ownership protection and restore semantics.
+    browser_evidence: NOT_RUN at inventory baseline
+  - id: dns.global
+    group: dns
+    page: dns-routing
+    subtab: global
+    donor_file: web/js/pages/dns_routing.js
+    donor_interaction: Select mode, primary/secondary provider, hijack and cache switches
+    z2m_backend: dns_product_get/providers/status/preview/validate/apply/rollback
+    z2m_current_ui: z2m-dns.js global pane
+    status: PARTIAL
+    evidence: Current working controls include system/doh/dot/udp, providers, hijack and cache.
+    browser_evidence: Target DNS browser PASS at frozen DNS/TG acceptance; parity browser recheck pending
+  - id: dns.providers
+    group: dns
+    page: dns-routing
+    subtab: providers
+    donor_file: web/js/pages/dns_routing.js
+    donor_interaction: Diagnose one/all providers, select provider and inspect latency/result
+    z2m_backend: dnsprov_components/providers/diagnose/select_provider
+    z2m_current_ui: z2m-dns.js provider pane
+    status: PARTIAL
+    evidence: Provider cards, diagnose, select and result/error states are implemented.
+    browser_evidence: Target DNS provider canary PASS; parity browser recheck pending
+  - id: dns.per_domain
+    group: dns
+    page: dns-routing
+    subtab: per-domain
+    donor_file: web/js/pages/dns_routing.js
+    donor_interaction: Add/delete per-domain DNS rule and use quick presets
+    z2m_backend: canonical DNS product facade and existing DNS writer
+    z2m_current_ui: z2m-dns.js manual/per-domain pane
+    status: PARTIAL
+    evidence: Rule editor/delete/presets are current Z2M capabilities and zero-loss protected.
+    browser_evidence: Target DNS browser PASS at frozen DNS/TG acceptance; parity browser recheck pending
+  - id: dns.service_dns
+    group: dns
+    page: dns-routing
+    subtab: service-dns
+    donor_file: web/js/pages/dns_routing.js
+    donor_interaction: Select service resolver profile, preview and apply delegated Service DNS
+    z2m_backend: service_dns_providers/status/preview/set/apply/apply_async/rollback
+    z2m_current_ui: z2m-dns-service-model.js and adapter
+    status: PARTIAL
+    evidence: M6 delegated writer and revision semantics must remain authoritative.
+    browser_evidence: M6 target canary PASS; parity browser recheck pending
+  - id: dns.lifecycle
+    group: dns
+    page: dns-routing
+    subtab: apply
+    donor_file: web/js/pages/dns_routing.js
+    donor_interaction: Preview, validate, Apply, status, rollback and restore auto
+    z2m_backend: dns_product_preview/validate/apply/rollback plus dns_restore_auto
+    z2m_current_ui: app coordinator and DNS draft adapters
+    status: PARTIAL
+    evidence: Single canonical DNS writer and Preview/Validate/Apply semantics are frozen.
+    browser_evidence: Target DNS canary PASS; parity browser recheck pending
+  - id: dns.diagnostics
+    group: dns
+    page: dns-routing
+    subtab: check
+    donor_file: web/js/pages/diagnostics.js
+    donor_interaction: Check DNS, show success/error/readiness and provider table
+    z2m_backend: dns_check, dns_product_status, dnsprov_diagnose
+    z2m_current_ui: z2m-dns.js check pane
+    status: PARTIAL
+    evidence: Safe DNS check returns DNS отвечает on target; error/empty states remain to parity-test.
+    browser_evidence: Target browser DNS check PASS; parity browser recheck pending
+  - id: tg.providers
+    group: telegram
+    page: telegram-tunnel
+    subtab: providers
+    donor_file: web/js/pages/tgproxy.js
+    donor_interaction: Choose Go or Rust and inspect provider preflight
+    z2m_backend: tg_product_catalog/status/health/check_updates/switch
+    z2m_current_ui: z2m-proxy-page-core.js provider cards
+    status: PARTIAL
+    evidence: Go/Rust choice exists; provider lifecycle remains canonical TG v2.
+    browser_evidence: Target browser shows Rust 2.0.0/running; parity browser recheck pending
+  - id: tg.versions
+    group: telegram
+    page: telegram-tunnel
+    subtab: versions
+    donor_file: web/js/pages/tgproxy.js
+    donor_interaction: See installed/package/latest/available version metadata
+    z2m_backend: tg_product_status and latest-only check_updates
+    z2m_current_ui: Installed/package/latest are partially visible; available list is absent
+    status: PARTIAL
+    evidence: Backend returns activeVersion/activePackageVersion/latest candidate only.
+    browser_evidence: Target browser verified installed Rust 2.0.0
+  - id: tg.version_selector
+    group: telegram
+    page: telegram-tunnel
+    subtab: versions
+    donor_file: web/js/pages/tgproxy.js
+    donor_interaction: Select an available supported version
+    z2m_backend: No historical-version enumeration or version-select install contract
+    z2m_current_ui: No version selector
+    status: BACKEND_NOT_READY
+    evidence: Exact gap: proxy_provider_catalog latestOnly=true; install accepts provider/checkToken only.
+    browser_evidence: Not applicable until backend contract exists; no fake versions permitted
+  - id: tg.source_selector
+    group: telegram
+    page: telegram-tunnel
+    subtab: versions
+    donor_file: web/js/pages/tgproxy.js
+    donor_interaction: Select supported source and show compatibility reason
+    z2m_backend: No source enumeration or source-select install contract
+    z2m_current_ui: Hard-coded trusted feed copy in provider card
+    status: BACKEND_NOT_READY
+    evidence: Exact gap recorded; future UI must not expose arbitrary URL or fake source.
+    browser_evidence: Not applicable until backend contract exists
+  - id: tg.installation
+    group: telegram
+    page: telegram-tunnel
+    subtab: installation
+    donor_file: web/js/components/setup_ui.js
+    donor_interaction: Install/update/remove with progress and destructive confirmation
+    z2m_backend: tg_product_install/update/remove/purge and operation status
+    z2m_current_ui: Provider cards, progress state, remove/purge confirmations
+    status: PARTIAL
+    evidence: Existing lifecycle is canonical but version/source policy text must be removed.
+    browser_evidence: Target install actions intentionally not exercised; status/preflight PASS
+  - id: tg.lifecycle
+    group: telegram
+    page: telegram-tunnel
+    subtab: status
+    donor_file: web/js/pages/tgproxy.js
+    donor_interaction: Start/stop/restart, status polling, listener and sessions
+    z2m_backend: tg_product_start/stop/restart/status/health, proxy health/logs
+    z2m_current_ui: z2m-proxy-page-core.js status pane
+    status: PARTIAL
+    evidence: Canonical listener/outbound projection is implemented; donor status hierarchy remains.
+    browser_evidence: Target browser Rust listener/health PASS
+  - id: tg.configuration
+    group: telegram
+    page: telegram-tunnel
+    subtab: configuration
+    donor_file: web/js/pages/tgproxy.js
+    donor_interaction: Edit listener/configuration and apply with validation
+    z2m_backend: proxy_config_get/validate/preview/apply, autostart and secret ownership
+    z2m_current_ui: Existing configuration pane and coordinator draft
+    status: PARTIAL
+    evidence: Current config writer and secret boundary must remain unchanged.
+    browser_evidence: Target config readback PASS; mutation not exercised in inventory
+  - id: tg.reveal
+    group: telegram
+    page: telegram-tunnel
+    subtab: connection
+    donor_file: web/js/components/confirm.js
+    donor_interaction: Confirm reveal, QR render, clipboard feedback and secret rotation
+    z2m_backend: proxy_link_info, proxy_secret_rotate
+    z2m_current_ui: z2m-proxy-page-core.js reveal/QR/clipboard actions
+    status: PARTIAL
+    evidence: Current UI has redacted secret boundary and confirmation; full browser interaction pending.
+    browser_evidence: Not exercised because secret-bearing action is bounded
+  - id: monitoring.polling
+    group: diagnostics
+    page: monitor
+    subtab: runtime
+    donor_file: web/js/pages/tunnel_monitor.js
+    donor_interaction: Poll, inspect runtime health, filter and show stale state
+    z2m_backend: monitor_snapshot, proxy_health, events_tail
+    z2m_current_ui: z2m-monitor.js
+    status: PARTIAL
+    evidence: Monitor page exists with table and polling-adjacent state but not donor hierarchy.
+    browser_evidence: NOT_RUN at inventory baseline
+  - id: maintenance.logs
+    group: system
+    page: logs
+    subtab: events
+    donor_file: web/js/pages/logs.js
+    donor_interaction: Refresh/filter/export logs and show stale/error state
+    z2m_backend: events_tail, proxy_logs_tail, diagnostics_export
+    z2m_current_ui: z2m-monitor.js and maintenance events pane
+    status: PARTIAL
+    evidence: Event/log APIs exist; separate Avatar log page is absent.
+    browser_evidence: NOT_RUN at inventory baseline
+  - id: maintenance.backups
+    group: system
+    page: maintenance
+    subtab: backups
+    donor_file: web/js/pages/settings.js
+    donor_interaction: Create, preview, restore and delete backup
+    z2m_backend: backup_list/create/restore_preview/restore/delete
+    z2m_current_ui: z2m-maintenance.js
+    status: PARTIAL
+    evidence: Safety-bounded backup workflow exists but remains inside native maintenance page.
+    browser_evidence: NOT_RUN at inventory baseline
+  - id: maintenance.system
+    group: system
+    page: maintenance
+    subtab: system
+    donor_file: web/js/pages/autostart.js
+    donor_interaction: Inspect versions, autostart, updates and system diagnostics
+    z2m_backend: versions, maintenance_status, engine_* and diagnostics_export
+    z2m_current_ui: z2m-maintenance.js and engine panel
+    status: PARTIAL
+    evidence: Native maintenance owner is supported; duplicate product tabs must not be created.
+    browser_evidence: NOT_RUN at inventory baseline
+  - id: warp.usque
+    group: routing
+    page: warp
+    subtab: tunnel
+    donor_file: web/js/pages/usque.js
+    donor_interaction: View full tunnel status/config/table and disabled lifecycle controls
+    z2m_backend: No usque backend contract at frozen baseline
+    z2m_current_ui: No page
+    status: BACKEND_NOT_READY
+    evidence: Full donor UI required with deterministic Backend пока не реализован state.
+    browser_evidence: Not run until page is transplanted
+  - id: warp.setup
+    group: routing
+    page: warp-setup
+    subtab: setup
+    donor_file: web/js/pages/usque_setup.js
+    donor_interaction: View setup workflow/forms/progress with disabled actions
+    z2m_backend: No usque setup backend contract
+    z2m_current_ui: No page
+    status: BACKEND_NOT_READY
+    evidence: Full setup UI required; no fake install/check RPC.
+    browser_evidence: Not run until page is transplanted
+  - id: warp.in_warp
+    group: routing
+    page: warp-in-warp
+    subtab: nested-tunnel
+    donor_file: web/js/pages/warp_in_warp.js
+    donor_interaction: View WARP-in-WARP forms/subtabs and disabled controls
+    z2m_backend: No WARP-in-WARP backend contract
+    z2m_current_ui: No page
+    status: BACKEND_NOT_READY
+    evidence: Full donor UI required with one explicit backend-not-ready explanation.
+    browser_evidence: Not run until page is transplanted
+  - id: shared.primitives
+    group: shared
+    page: shell
+    subtab: null
+    donor_file: web/js/components/confirm.js
+    donor_interaction: Confirm, toast, retry, empty/loading/stale/error, filter/table and clipboard feedback
+    z2m_backend: LuCI DOM APIs and canonical Z2M RPC adapters
+    z2m_current_ui: z2m-shell.js, z2m-avatar-ui.js, z2m-components.css
+    status: PARTIAL
+    evidence: Existing Graphite shell has adapted primitives but no complete shared parity contract.
+    browser_evidence: NOT_RUN at inventory baseline
+  - id: scope.exclusions
+    group: excluded
+    page: null
+    subtab: null
+    donor_file: web/js/components/sidebar.js
+    donor_interaction: Avatar-only AWG/sing-box/mihomo/Opera product navigation
+    z2m_backend: No approved Z2M mapping at frozen baseline
+    z2m_current_ui: Must remain absent
+    status: NOT_APPLICABLE
+    evidence: Explicitly excluded by frozen scope; do not transplant sidebar entries.
+    browser_evidence: N/A
+counts:
+  parity_rows_total: 45
+  exact: 0
+  adapted: 0
+  partial: 36
+  missing: 3
+  backend_not_ready: 5
+  not_applicable: 1
+  backend_supported_rows: 39
+  unexplained_capability_gaps: 0
+m6:
+  backend_classification: BACKEND_SUPPORTED_UI_MISSING
+  supported_selectors: [hostlist, hosts]
+  supported_method: service_dns
+  lifecycle: [CRUD, Preview, Validate, Apply, Status, Remove, Reconcile]
