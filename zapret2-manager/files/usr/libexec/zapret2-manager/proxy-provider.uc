@@ -7,6 +7,7 @@
 // digest-verified.
 
 import { readfile, writefile, stat, unlink, mkdir, popen } from 'fs';
+import { proxycfg_health } from './proxycfg.uc';
 
 const STATE_FILE = '/etc/zapret2-manager/proxy-provider.json';
 const LOCK_DIR = '/tmp/zapret2-manager-proxy-provider.lock';
@@ -16,6 +17,11 @@ const CONFIG_DIR = '/etc/tg-ws-proxy';
 const BINARY_PATH = '/usr/bin/tg-ws-proxy';
 const CHECK_DIR = '/tmp/zapret2-manager/proxy-provider-checks';
 const CHECK_TTL = 600;
+const OP_DIR = '/tmp/zapret2-manager/tg-operations';
+const OP_ACTIVE = OP_DIR + '/active.json';
+const OP_SUBMIT_LOCK = '/tmp/zapret2-manager-tg-operation-submit.lock';
+const OP_RUN_LOCK = '/tmp/zapret2-manager-tg-operation.lock';
+const OP_STAGES = [ 'PREPARE', 'PREFLIGHT', 'DOWNLOAD', 'VERIFY', 'BACKUP', 'INSTALL', 'CONFIG_VALIDATE', 'RESTART', 'HEALTHCHECK', 'COMMIT' ];
 const MAX_METADATA = 4194304;
 const MAX_RELEASES = 50;
 const MAX_RELEASE_BODY = 32768;
@@ -343,6 +349,7 @@ function release_candidate(providerId, arch, release) {
 	let trustMode = apkAvailable ? (keyUsable ? 'upstream-key' : 'sha256-only') : directBinaryAvailable ? 'sha256-only' : null;
 	let installable = architectureCompatible && checksumAvailable && trustMode != null &&
 		(artifactFormat == 'apk' || (artifactFormat == 'binary' && binaryPath == BINARY_PATH));
+	let reportedPackageVersion = artifactFormat == 'binary' ? null : packageVersion;
 	let unavailableReason = !architectureCompatible
 		? 'Для target ' + arch + ' в релизе нет артефакта этой архитектуры.'
 		: !artifactAvailable
@@ -354,7 +361,7 @@ function release_candidate(providerId, arch, release) {
 					: null;
 	return { provider: providerId, version: version, upstreamVersion: identity.upstreamVersion,
 		packageRevision: identity.packageRevision, displayVersion: identity.displayVersion, releaseTag: identity.tag,
-		releaseExists: true, provider: providerId, packageVersion: packageVersion, architecture: arch,
+		releaseExists: true, provider: providerId, packageVersion: reportedPackageVersion, runtimeVersion: version, architecture: arch,
 		sourceId: SOURCE_GITHUB, sourceKind: source_kind(SOURCE_GITHUB), artifactFormat: artifactFormat,
 		packageName: package_name(providerId), architectureCompatible: architectureCompatible,
 		artifactAvailable: artifactAvailable, packageMatchesTarget: packageMatchesTarget,
@@ -457,6 +464,129 @@ function acquire_lock() {
 function release_lock() {
 	run('rmdir ' + LOCK_DIR);
 }
+
+function safe_operation_id(value) {
+	return type(value) == 'string' && match(value, /^tg-[0-9]+-[a-f0-9]{12}$/) ? value : null;
+}
+
+function operation_path(operationId) {
+	return safe_operation_id(operationId) != null ? OP_DIR + '/' + operationId + '.json' : null;
+}
+
+function operation_read(operationId) {
+	let path = operation_path(operationId);
+	return path != null ? read_json(path, null) : null;
+}
+
+function operation_write(operation) {
+	let path = operation_path(operation != null ? operation.operationId : null);
+	return path != null && atomic_json(path, operation);
+}
+
+function operation_active() {
+	// An active operation is the single backend mutation owner.
+	let active = read_json(OP_ACTIVE, null);
+	if (active == null || safe_operation_id(active.operationId) == null) return null;
+	let operation = operation_read(active.operationId);
+	if (operation == null) return null;
+	if (operation.status != 'RUNNING' && operation.status != 'ROLLING_BACK') return null;
+	return operation;
+}
+
+function operation_stage_index(stage) {
+	for (let i = 0; i < length(OP_STAGES); i++) if (OP_STAGES[i] == stage) return i;
+	return -1;
+}
+
+function operation_update(operationId, stage, percent, message, status) {
+	let operation = operation_read(operationId);
+	if (operation == null) return false;
+	if (stage != null && operation_stage_index(stage) < 0 && stage != 'ROLLING_BACK' && stage != 'ROLLED_BACK') return false;
+	if (stage != null) operation.currentStage = stage;
+	if (percent != null) operation.progressPercent = +percent;
+	if (status != null) operation.status = status;
+	operation.updatedAt = time();
+	if (message != null) {
+		if (type(operation.events) != 'array') operation.events = [];
+		push(operation.events, { sequence: length(operation.events) + 1, stage: operation.currentStage,
+			percent: operation.progressPercent, message: message, at: operation.updatedAt });
+		while (length(operation.events) > 32) shift(operation.events);
+	}
+	return operation_write(operation);
+}
+
+function operation_terminal(operationId, result) {
+	let operation = operation_read(operationId);
+	if (operation == null) return false;
+	let rolledBack = result != null && result.rollbackFailures != null && length(result.rollbackFailures) == 0;
+	let failed = result == null || result.ok !== true;
+	if (failed) {
+		if (result != null && result.rollbackAttempted === true) {
+			operation_update(operationId, 'ROLLED_BACK', 100,
+				rolledBack ? 'Предыдущая реализация восстановлена и проверена.' : 'Откат не удалось полностью подтвердить.', rolledBack ? 'ROLLED_BACK' : 'FAILED');
+			operation = operation_read(operationId);
+			operation.rollback = { attempted: true, status: rolledBack ? 'ROLLED_BACK' : 'FAILED',
+				failures: result.rollbackFailures || [] };
+		} else {
+			operation_update(operationId, operation.currentStage, operation.progressPercent,
+				result.error != null ? result.error.message : 'Операция завершилась ошибкой.', 'FAILED');
+			operation = operation_read(operationId);
+			operation.rollback = { attempted: false, status: 'NOT_REQUIRED', failures: [] };
+		}
+		operation.error = result.error || { code: 'EINTERNAL', message: 'Операция завершилась ошибкой.' };
+	} else {
+		operation_update(operationId, 'COMMIT', 100, 'Изменение TG Proxy подтверждено.', 'COMPLETE');
+		operation = operation_read(operationId);
+		operation.rollback = { attempted: false, status: 'NOT_REQUIRED', failures: [] };
+	}
+	operation.updatedAt = time();
+	return operation_write(operation);
+}
+
+function operation_submit(operationType, from, to, input, candidate) {
+	ensure_dir('/tmp/zapret2-manager');
+	ensure_dir(OP_DIR);
+	if (run('mkdir ' + OP_SUBMIT_LOCK).rc != 0) return error('EBUSY', 'Другая операция TG Proxy уже создаётся.');
+	let active = operation_active();
+	if (active != null) {
+		run('rmdir ' + OP_SUBMIT_LOCK);
+		return { ok: false, error: { code: 'EBUSY', message: 'Другая операция TG Proxy уже выполняется.' }, operation: active };
+	}
+	let token = random_token();
+	if (safe_token(token) == null) {
+		run('rmdir ' + OP_SUBMIT_LOCK);
+		return error('EINTERNAL', 'Не удалось создать operation id.');
+	}
+	let operationId = 'tg-' + time() + '-' + substr(token, 0, 12), now = time();
+	let operation = {
+		schema: 'tg-operation.v1', operationId: operationId, operationType: operationType,
+		from: from || null, to: to || null, startedAt: now, updatedAt: now,
+		currentStage: 'PREPARE', progressPercent: 0, status: 'RUNNING', error: null,
+		rollback: { attempted: false, status: 'NOT_REQUIRED', failures: [] }, events: [],
+		input: input || {}, candidate: candidate || null
+	};
+	push(operation.events, { sequence: 1, stage: 'PREPARE', percent: 0, message: 'Операция подготовлена.', at: now });
+	if (!operation_write(operation) || !atomic_json(OP_ACTIVE, { operationId: operationId })) {
+		run('rmdir ' + OP_SUBMIT_LOCK);
+		return error('EINTERNAL', 'Не удалось сохранить TG operation.');
+	}
+	let spawned = run('/usr/bin/ucode /usr/libexec/zapret2-manager/proxy-provider-operation.uc ' + literal(operationId) + ' >/dev/null 2>&1 &');
+	run('rmdir ' + OP_SUBMIT_LOCK);
+	if (spawned.rc != 0) {
+		operation_update(operationId, 'PREPARE', 0, 'Worker TG Proxy не удалось запустить.', 'FAILED');
+		return { ok: false, operationId: operationId, error: { code: 'ETARGET', message: 'Worker операции TG Proxy не удалось запустить.' } };
+	}
+	return { ok: true, operationId: operationId, status: 'RUNNING', operation: operation };
+}
+
+export const proxy_provider_operation_status = function (input) {
+	let operationId = null;
+	if (type(input) == 'object' && input != null && input.operationId != null) operationId = input.operationId;
+	let operation = operationId != null ? operation_read(operationId) : operation_active();
+	if (operationId != null && operation == null) return error('ENOENT', 'Операция TG Proxy не найдена.');
+	return { ok: true, operation: operation, operationId: operation != null ? operation.operationId : null,
+		status: operation != null ? operation.status : 'IDLE', events: operation != null ? operation.events : [] };
+};
 
 function snapshot_settings() {
 	run('rm -rf ' + SNAP_DIR);
@@ -625,7 +755,8 @@ export const proxy_provider_status = function () {
 		push(installed, {
 			provider: stateProvider.id,
 			package: null,
-			packageVersion: safe_package_version(state.activePackageVersion) ? state.activePackageVersion : state_package_version(stateProvider.id, state.activeVersion),
+			packageVersion: safe_package_version(state.activePackageVersion) ? state.activePackageVersion :
+				(stateProvider.id == 'go' && state.activeSourceId == SOURCE_GITHUB ? null : state_package_version(stateProvider.id, state.activeVersion)),
 			source: 'pinned-release'
 		});
 	}
@@ -672,7 +803,8 @@ function check_input(value) {
 
 function candidate_package_matches(provider, candidate) {
 	return provider != null && candidate != null && candidate.packageName == package_name(provider.id) &&
-		candidate.packageVersion != null && safe_package_version(candidate.packageVersion);
+		(candidate.artifactFormat == 'binary' ? candidate.packageVersion == null :
+			candidate.packageVersion != null && safe_package_version(candidate.packageVersion));
 }
 
 function load_checked_candidate(providerId, token, sourceId, version) {
@@ -684,7 +816,7 @@ function load_checked_candidate(providerId, token, sourceId, version) {
 	let candidate = record.candidate;
 	if (candidate.sourceId != sourceId || candidate.version != version || source_kind(candidate.sourceId) == null)
 		return error('EINPUT', 'Проверенный источник или версия не совпадает с запросом установки.');
-	if (!safe_package_version(candidate.version) || !safe_package_version(candidate.packageVersion) ||
+	if (!safe_package_version(candidate.version) || (candidate.artifactFormat != 'binary' && !safe_package_version(candidate.packageVersion)) ||
 		candidate.packageName != package_name(providerId) ||
 		(candidate.sourceId == SOURCE_GITHUB && (candidate.artifactFormat != 'apk' && candidate.artifactFormat != 'binary' ||
 			(candidate.artifactFormat == 'binary' && (providerId != 'go' || candidate.binaryPath != BINARY_PATH)) ||
@@ -791,6 +923,21 @@ function cleanup_download(downloaded) {
 	}
 }
 
+function prepare_candidate(candidate, token) {
+	if (candidate.sourceId == SOURCE_APK) return { ok: true, feed: true, file: null, keysDir: null };
+	let downloaded = download_candidate(candidate, token);
+	if (!downloaded.ok) return downloaded;
+	if (candidate.artifactFormat == 'binary') {
+		let quoted = literal(downloaded.file);
+		if (quoted == null || run('chmod 755 ' + quoted + ' && ' + quoted + ' --version >/dev/null').rc != 0) {
+			cleanup_download(downloaded);
+			return error('EVERIFY', 'Проверенный binary не прошёл локальную валидацию.');
+		}
+		downloaded.validated = true;
+	}
+	return downloaded;
+}
+
 export const proxy_provider_check_updates = function (input) {
 	if (!check_input(input)) return error('EINPUT', 'Нужно выбрать реализацию, источник и версию TG Proxy.');
 	let arch = architecture();
@@ -851,7 +998,8 @@ export const proxy_provider_check_updates = function (input) {
 	if (!atomic_json(CHECK_DIR + '/' + token + '.json', record)) return error('EINTERNAL', 'Не удалось сохранить результат проверки.');
 	let status = proxy_provider_status();
 	let same = status.installed && status.activeProvider == input.provider;
-	let comparison = same ? compare_versions(status.activePackageVersion, candidate.packageVersion) : null;
+	let comparison = same ? compare_versions(status.activePackageVersion || status.activeVersion,
+		candidate.packageVersion || candidate.version) : null;
 	return {
 		ok: true,
 		checkToken: token,
@@ -868,14 +1016,17 @@ export const proxy_provider_check_updates = function (input) {
 	};
 };
 
-function install_candidate(provider, candidate, token) {
+function install_candidate(provider, candidate, token, prepared) {
 	if (candidate.sourceId == SOURCE_APK)
 		return run('apk add --no-interactive ' + provider.package + '=' + candidate.packageVersion);
-	let downloaded = download_candidate(candidate, token);
+	let downloaded = prepared != null ? prepared : download_candidate(candidate, token);
 	if (!downloaded.ok) return downloaded;
 	if (candidate.artifactFormat == 'binary') {
-		let result = run('cp -f ' + literal(downloaded.file) + ' ' + BINARY_PATH + ' && chmod 755 ' + BINARY_PATH + ' && chown root:root ' + BINARY_PATH);
-		cleanup_download(downloaded);
+		let tmp = BINARY_PATH + '.tmp.' + token, quotedTmp = literal(tmp), quotedFile = literal(downloaded.file);
+		let result = quotedTmp == null || quotedFile == null ? { rc: -1, out: '' } :
+			run('cp -p ' + quotedFile + ' ' + quotedTmp + ' && chmod 755 ' + quotedTmp + ' && chown root:root ' + quotedTmp + ' && mv -f ' + quotedTmp + ' ' + BINARY_PATH);
+		if (result.rc != 0) run('rm -f ' + (quotedTmp || "''"));
+		if (prepared == null || downloaded.file != null) cleanup_download(downloaded);
 		return result;
 	}
 	let quoted = literal(downloaded.file), keys = literal(downloaded.keysDir);
@@ -888,9 +1039,11 @@ function install_candidate(provider, candidate, token) {
 function restore_previous(previous, wasRunning, settingsSnapshot) {
 	let failures = remove_packages();
 	let binaryRestored = false;
-	if (previous.activeProvider != null && previous.packageVersion != null) {
+	if (previous.activeProvider != null && (previous.packageVersion != null ||
+		(previous.sourceId == SOURCE_GITHUB && previous.activeProvider == 'go' && previous.activeVersion != null))) {
 		let provider = provider_by_id(previous.activeProvider);
-		if (provider == null || !safe_package_version(previous.packageVersion)) {
+		if (provider == null || (previous.packageVersion == null && !(previous.sourceId == SOURCE_GITHUB && provider.id == 'go')) ||
+			(previous.packageVersion != null && !safe_package_version(previous.packageVersion))) {
 			push(failures, 'previous-provider-unknown');
 		} else if (previous.sourceId == SOURCE_GITHUB && provider.id == 'go') {
 			binaryRestored = restore_binary(settingsSnapshot);
@@ -923,16 +1076,7 @@ function input_provider_version(value) {
 	return provider_by_id(value.provider) != null && source_kind(value.sourceId) != null && safe_package_version(value.version);
 }
 
-export const proxy_provider_install = function (input) {
-	if (!input_provider_version(input))
-		return error('EINPUT', 'Установка требует provider, sourceId, version и token свежей проверки.');
-	let provider = provider_by_id(input.provider);
-	if (provider == null) return error('EINPUT', 'Неизвестная реализация TG Proxy.');
-	let checked = load_checked_candidate(provider.id, input.checkToken, input.sourceId, input.version);
-	if (!checked.ok) return checked;
-	let latest = checked.candidate;
-	if (!acquire_lock()) return error('EBUSY', 'Установка TG Proxy уже выполняется.');
-
+export const proxy_provider_install_transaction = function (provider, latest, token, operationId) {
 	let previousStatus = proxy_provider_status();
 	let previous = {
 		activeProvider: previousStatus.activeProvider,
@@ -943,39 +1087,71 @@ export const proxy_provider_install = function (input) {
 	let wasRunning = previousStatus.running === true;
 	let settingsSnapshot = snapshot_settings();
 	let result = null;
+	let prepared = null;
 	try {
+		operation_update(operationId, 'PREFLIGHT', 8, 'Проверяется выбранный релиз и архитектура.');
+		prepared = prepare_candidate(latest, token);
+		if (!prepared.ok) {
+			result = prepared;
+		} else {
+			operation_update(operationId, 'DOWNLOAD', 22, latest.artifactFormat == 'binary' ? 'Загружен direct binary выбранного релиза.' : 'Подготовлен выбранный APK.');
+			operation_update(operationId, 'VERIFY', 34, 'Размер, SHA-256 и формат артефакта подтверждены.');
+		}
 		let alreadyLatest = previousStatus.installed &&
 			previous.activeProvider == provider.id &&
 			previous.packageVersion == latest.packageVersion && previous.sourceId == latest.sourceId;
-		if (!settingsSnapshot.ok) {
+		if (result != null && result.ok === false) {
+			// Preparation failed before the running provider was touched.
+		} else if (!settingsSnapshot.ok) {
 			result = error('ESTATE', 'Настройки не удалось сохранить; установка не начата.');
 		} else if (alreadyLatest) {
 			result = { ok: true, changed: false, status: previousStatus };
-		} else if (wasRunning && service('stop') != 0) {
-			result = error('ETARGET', 'Не удалось остановить текущий TG Proxy.');
 		} else {
+			operation_update(operationId, 'BACKUP', 42, 'Создан snapshot текущего provider, binary и конфигурации.');
+		}
+		if (result == null && wasRunning && service('stop') != 0) {
+			result = error('ETARGET', 'Не удалось остановить текущий TG Proxy.');
+		} else if (result == null) {
 			let removeFailures = remove_packages();
 			if (length(removeFailures) > 0) {
+				operation_update(operationId, 'ROLLING_BACK', 78, 'Удаление текущей реализации не удалось; выполняется откат.', 'ROLLING_BACK');
 				let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
-				result = { ok: false, error: { code: 'ETARGET', message: 'Не удалось удалить текущую реализацию.' }, rollbackFailures: rollbackFailures };
+				result = { ok: false, error: { code: 'ETARGET', message: 'Не удалось удалить текущую реализацию.' }, rollbackFailures: rollbackFailures, rollbackAttempted: true };
 			} else {
-				let add = install_candidate(provider, latest, input.checkToken);
+				operation_update(operationId, 'INSTALL', 58, 'Устанавливается выбранная реализация атомарно.');
+				let add = install_candidate(provider, latest, token, prepared);
+				cleanup_download(prepared);
 				let runtimePresent = latest.artifactFormat == 'binary'
 					? latest.binaryPath == BINARY_PATH && stat(BINARY_PATH) != null
 					: provider_installed(provider);
 				if (add.ok === false || add.rc != 0 || !runtimePresent || stat(BINARY_PATH) == null) {
+					operation_update(operationId, 'ROLLING_BACK', 78, 'Новая реализация не прошла проверку; выполняется откат.', 'ROLLING_BACK');
 					let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
-					result = { ok: false, error: { code: 'ETARGET', message: latest.incompatibilityReason || 'Выбранный пакет недоступен на устройстве.' }, rollbackFailures: rollbackFailures };
+					result = { ok: false, error: { code: 'ETARGET', message: latest.incompatibilityReason || 'Выбранный пакет недоступен на устройстве.' }, rollbackFailures: rollbackFailures, rollbackAttempted: true };
 				} else if (!restore_settings(settingsSnapshot)) {
+					operation_update(operationId, 'ROLLING_BACK', 80, 'Конфигурация не прошла проверку; выполняется откат.', 'ROLLING_BACK');
 					let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
-					result = { ok: false, error: { code: 'ETARGET', message: 'Не удалось восстановить настройки после установки.' }, rollbackFailures: rollbackFailures };
+					result = { ok: false, error: { code: 'ETARGET', message: 'Не удалось восстановить настройки после установки.' }, rollbackFailures: rollbackFailures, rollbackAttempted: true };
 				} else if (!save_state(provider.id, latest.version, latest.packageVersion, latest.sourceId)) {
+					operation_update(operationId, 'ROLLING_BACK', 84, 'Состояние provider не сохранилось; выполняется откат.', 'ROLLING_BACK');
 					let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
-					result = { ok: false, error: { code: 'ETARGET', message: 'Не удалось сохранить выбранную реализацию.' }, rollbackFailures: rollbackFailures };
+					result = { ok: false, error: { code: 'ETARGET', message: 'Не удалось сохранить выбранную реализацию.' }, rollbackFailures: rollbackFailures, rollbackAttempted: true };
 				} else if (wasRunning && service('start') != 0) {
+					operation_update(operationId, 'ROLLING_BACK', 88, 'Новая реализация не запустилась; выполняется откат.', 'ROLLING_BACK');
 					let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
-					result = { ok: false, error: { code: 'ETARGET', message: 'Новая реализация установлена, но не прошла запуск.' }, rollbackFailures: rollbackFailures };
+					result = { ok: false, error: { code: 'ETARGET', message: 'Новая реализация установлена, но не прошла запуск.' }, rollbackFailures: rollbackFailures, rollbackAttempted: true };
 				} else {
+					operation_update(operationId, 'CONFIG_VALIDATE', 72, 'Конфигурация восстановлена и проверена.');
+					operation_update(operationId, 'RESTART', 84, wasRunning ? 'Сервис перезапущен.' : 'Сервис оставлен остановленным.');
+					let health = proxycfg_health({ upstream: true });
+					if (health == null || health.ok !== true) {
+						operation_update(operationId, 'ROLLING_BACK', 90, 'Healthcheck не подтвердил новый provider; выполняется откат.', 'ROLLING_BACK');
+						let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
+						result = { ok: false, error: { code: 'EHEALTH', message: 'Новая реализация не прошла проверку процесса, listener или Telegram.' }, rollbackFailures: rollbackFailures, rollbackAttempted: true };
+					}
+				}
+				if (result == null) {
+					operation_update(operationId, 'HEALTHCHECK', 94, 'Процесс, listener и Telegram healthcheck подтверждены.');
 					let reread = proxy_provider_status();
 					result = {
 						ok: reread.installed && reread.activeProvider == provider.id &&
@@ -991,27 +1167,48 @@ export const proxy_provider_install = function (input) {
 			}
 		}
 	} catch (e) {
+		operation_update(operationId, 'ROLLING_BACK', 90, 'Сбой транзакции; выполняется откат.', 'ROLLING_BACK');
 		let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
-		result = { ok: false, error: { code: 'EINTERNAL', message: 'Сбой транзакции установки.' }, rollbackFailures: rollbackFailures };
+		result = { ok: false, error: { code: 'EINTERNAL', message: 'Сбой транзакции установки.' }, rollbackFailures: rollbackFailures, rollbackAttempted: true };
 	}
+	cleanup_download(prepared);
 	clear_snapshot();
 	release_lock();
 	return result;
 };
 
-export const proxy_provider_remove = function (input) {
+export const proxy_provider_install = function (input) {
+	if (!input_provider_version(input))
+		return error('EINPUT', 'Установка требует provider, sourceId, version и token свежей проверки.');
+	let provider = provider_by_id(input.provider);
+	if (provider == null) return error('EINPUT', 'Неизвестная реализация TG Proxy.');
+	let activeOperation = operation_active();
+	if (activeOperation != null)
+		return { ok: false, error: { code: 'EBUSY', message: 'Другая операция TG Proxy уже выполняется.' }, operation: activeOperation };
+	let checked = load_checked_candidate(provider.id, input.checkToken, input.sourceId, input.version);
+	if (!checked.ok) return checked;
+	let latest = checked.candidate, previousStatus = proxy_provider_status();
+	let from = previousStatus.activeProvider != null ? { provider: previousStatus.activeProvider, version: previousStatus.activeVersion, packageVersion: previousStatus.activePackageVersion } : null;
+	let comparison = previousStatus.activeProvider == provider.id ? compare_versions(previousStatus.activePackageVersion || previousStatus.activeVersion,
+		latest.packageVersion || latest.version) : null;
+	let operationType = !previousStatus.installed ? 'INSTALL' : previousStatus.activeProvider != provider.id ? 'PROVIDER_SWITCH' : comparison != null && comparison > 0 ? 'DOWNGRADE' : 'UPDATE';
+	return operation_submit(operationType, from, { provider: provider.id, version: latest.version, packageVersion: latest.packageVersion }, input, latest);
+};
+
+export const proxy_provider_remove_transaction = function (input, operationId) {
 	if (type(input) != 'object' || input == null || input.confirm != 'REMOVE')
 		return error('EINPUT', 'Удаление требует подтверждение REMOVE.');
-	if (!acquire_lock()) return error('EBUSY', 'Другая операция TG Proxy уже выполняется.');
 	let wasRunning = running();
 	let settingsSnapshot = snapshot_settings();
 	let result = null;
 	try {
+		operation_update(operationId, 'PREFLIGHT', 8, 'Проверяется состояние установленного TG Proxy.');
 		if (!settingsSnapshot.ok) result = error('ESTATE', 'Настройки не удалось сохранить; удаление не начато.');
 		else if (wasRunning && service('stop') != 0) result = error('ETARGET', 'Не удалось остановить TG Proxy.');
 		else {
+			operation_update(operationId, 'BACKUP', 30, 'Создан snapshot конфигурации перед удалением.');
 			let failures = remove_packages();
-			if (length(failures) > 0) result = { ok: false, error: { code: 'ETARGET', message: 'Не удалось удалить пакет TG Proxy.' }, failures: failures };
+			if (length(failures) > 0) result = { ok: false, error: { code: 'ETARGET', message: 'Не удалось удалить пакет TG Proxy.' }, failures: failures, rollbackFailures: [] };
 			else if (!remove_direct_binary()) result = error('ETARGET', 'Не удалось удалить binary TG Proxy.');
 			else if (!restore_settings(settingsSnapshot)) result = error('ETARGET', 'Пакет удалён, но настройки восстановить не удалось.');
 		else if (!save_state(null, null, null)) result = error('ETARGET', 'Не удалось обновить состояние после удаления.');
@@ -1020,17 +1217,58 @@ export const proxy_provider_remove = function (input) {
 	} catch (e) {
 		result = error('EINTERNAL', 'Сбой удаления TG Proxy.');
 	}
+	operation_update(operationId, result != null && result.ok === true ? 'HEALTHCHECK' : 'ROLLING_BACK', result != null && result.ok === true ? 85 : 75,
+		result != null && result.ok === true ? 'Удаление проверено повторным чтением.' : 'Удаление завершилось ошибкой.', result != null && result.ok === true ? null : 'ROLLING_BACK');
 	clear_snapshot();
-	release_lock();
 	return result;
+};
+
+export const proxy_provider_remove = function (input) {
+	if (type(input) != 'object' || input == null || input.confirm != 'REMOVE')
+		return error('EINPUT', 'Удаление требует подтверждение REMOVE.');
+	let status = proxy_provider_status();
+	return operation_submit('UNINSTALL', status.activeProvider != null ? { provider: status.activeProvider, version: status.activeVersion } : null, null, input, null);
+};
+
+export const proxy_provider_purge_transaction = function (input, operationId) {
+	if (type(input) != 'object' || input == null || input.confirm != 'PURGE')
+		return error('EINPUT', 'Полная очистка требует подтверждение PURGE.');
+	let removed = proxy_provider_remove_transaction({ confirm: 'REMOVE' }, operationId);
+	if (!removed.ok) return removed;
+	operation_update(operationId, 'INSTALL', 92, 'Удаляется сохранённая конфигурация и secret.');
+	let rm = run('rm -rf ' + CONFIG_DIR + ' ' + STATE_FILE);
+	if (rm.rc != 0 || stat(CONFIG_DIR) != null) return error('ETARGET', 'Пакет удалён, но настройки очистить не удалось.');
+	return { ok: true, installed: false, settingsPreserved: false, purged: true };
 };
 
 export const proxy_provider_purge = function (input) {
 	if (type(input) != 'object' || input == null || input.confirm != 'PURGE')
 		return error('EINPUT', 'Полная очистка требует подтверждение PURGE.');
-	let removed = proxy_provider_remove({ confirm: 'REMOVE' });
-	if (!removed.ok) return removed;
-	let rm = run('rm -rf ' + CONFIG_DIR + ' ' + STATE_FILE);
-	if (rm.rc != 0 || stat(CONFIG_DIR) != null) return error('ETARGET', 'Пакет удалён, но настройки очистить не удалось.');
-	return { ok: true, installed: false, settingsPreserved: false, purged: true };
+	let status = proxy_provider_status();
+	return operation_submit('PURGE', status.activeProvider != null ? { provider: status.activeProvider, version: status.activeVersion } : null, null, input, null);
+};
+
+export const proxy_provider_operation_run = function (operationId) {
+	let operation = operation_read(operationId);
+	if (operation == null) return error('ENOENT', 'Операция TG Proxy не найдена.');
+	if (!acquire_lock()) {
+		let busy = error('EBUSY', 'Другая операция TG Proxy уже выполняется.');
+		operation_terminal(operationId, busy);
+		return busy;
+	}
+	let result = null;
+	try {
+		if (operation.operationType == 'UNINSTALL') result = proxy_provider_remove_transaction(operation.input, operationId);
+		else if (operation.operationType == 'PURGE') result = proxy_provider_purge_transaction(operation.input, operationId);
+		else {
+			let provider = provider_by_id(operation.to != null ? operation.to.provider : null);
+			if (provider == null || operation.candidate == null) result = error('EINPUT', 'Операция не содержит проверенного кандидата.');
+			else result = proxy_provider_install_transaction(provider, operation.candidate,
+				operation.input != null ? operation.input.checkToken : null, operationId);
+		}
+	} catch (e) { result = error('EINTERNAL', 'Worker TG Proxy завершился с исключением.'); }
+	if (result == null) result = error('EINTERNAL', 'Worker TG Proxy не вернул результат.');
+	operation_terminal(operationId, result);
+	release_lock();
+	return result;
 };

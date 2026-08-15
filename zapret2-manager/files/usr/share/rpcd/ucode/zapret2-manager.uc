@@ -635,6 +635,7 @@ function tg_product_get_method(req) { return tg_product_action('get'); }
 function tg_product_catalog_method(req) { return tg_product_action('catalog'); }
 function tg_product_versions_method(req) { return tg_product_action('versions'); }
 function tg_product_status_method(req) { return tg_product_action('status'); }
+function tg_product_operation_status_method(req) { return tg_product_edit_action('operation_status', req); }
 function tg_product_validate_method(req) { return tg_product_edit_action('validate', req); }
 function tg_product_preview_method(req) { return tg_product_edit_action('preview', req); }
 function tg_product_apply_method(req) { return tg_product_edit_action('apply', req); }
@@ -1136,6 +1137,7 @@ return {
 		tg_product_catalog: { call: function (req) { return tg_product_catalog_method(req); } },
 		tg_product_versions: { call: function (req) { return tg_product_versions_method(req); } },
 		tg_product_status: { call: function (req) { return tg_product_status_method(req); } },
+		tg_product_operation_status: { args: { edit: 'string' }, call: function (req) { return tg_product_operation_status_method(req); } },
 		tg_product_validate: { args: { edit: 'string' }, call: function (req) { return tg_product_validate_method(req); } },
 		tg_product_preview: { args: { edit: 'string' }, call: function (req) { return tg_product_preview_method(req); } },
 		tg_product_apply: { args: { edit: 'string' }, call: function (req) { return tg_product_apply_method(req); } },

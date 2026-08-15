@@ -4,6 +4,7 @@
 import { readfile } from 'fs';
 import {
 	tg_product_get, tg_product_catalog, tg_product_versions, tg_product_status,
+	tg_product_operation_status,
 	tg_product_validate, tg_product_preview, tg_product_apply, tg_product_health,
 	tg_product_check_updates, tg_product_switch, tg_product_install, tg_product_update,
 	tg_product_remove, tg_product_purge, tg_product_start, tg_product_stop,
@@ -24,6 +25,7 @@ if (mode == 'get') emit(tg_product_get());
 else if (mode == 'catalog') emit(tg_product_catalog());
 else if (mode == 'versions') emit(tg_product_versions(input));
 else if (mode == 'status') emit(tg_product_status());
+else if (mode == 'operation_status') emit(tg_product_operation_status(input));
 else if (mode == 'validate') emit(tg_product_validate(input));
 else if (mode == 'preview') emit(tg_product_preview(input));
 else if (mode == 'apply') emit(tg_product_apply(input));
@@ -37,4 +39,4 @@ else if (mode == 'purge') emit(tg_product_purge(input));
 else if (mode == 'start') emit(tg_product_start());
 else if (mode == 'stop') emit(tg_product_stop());
 else if (mode == 'restart') emit(tg_product_restart());
-else { print('usage: tg-product-cli.uc get|catalog|versions|status|validate|preview|apply|health|check_updates|switch|install|update|remove|purge|start|stop|restart [input]\n'); exit(1); }
+else { print('usage: tg-product-cli.uc get|catalog|versions|status|operation_status|validate|preview|apply|health|check_updates|switch|install|update|remove|purge|start|stop|restart [input]\n'); exit(1); }

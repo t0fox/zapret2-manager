@@ -9,7 +9,9 @@ import {
 	proxy_provider_check_updates,
 	proxy_provider_install,
 	proxy_provider_remove,
-	proxy_provider_purge
+	proxy_provider_purge,
+	proxy_provider_operation_status,
+	proxy_provider_operation_run
 } from './proxy-provider.uc';
 import { proxy_provider_preflight } from './proxy-provider-preflight.uc';
 
@@ -38,7 +40,9 @@ else if (action == 'check') emit(proxy_provider_check_updates(read_input(ARGV[1]
 else if (action == 'install') emit(proxy_provider_install(read_input(ARGV[1])));
 else if (action == 'remove') emit(proxy_provider_remove(read_input(ARGV[1])));
 else if (action == 'purge') emit(proxy_provider_purge(read_input(ARGV[1])));
+else if (action == 'operation-status') emit(proxy_provider_operation_status(read_input(ARGV[1])));
+else if (action == 'operation-run') emit(proxy_provider_operation_run(ARGV[1]));
 else {
-	print('usage: proxy-provider-cli.uc catalog | versions | status | preflight | check <json-file> | install <json-file> | remove <json-file> | purge <json-file>\n');
+	print('usage: proxy-provider-cli.uc catalog | versions | status | preflight | check <json-file> | install <json-file> | remove <json-file> | purge <json-file> | operation-status <json-file> | operation-run <operation-id>\n');
 	exit(1);
 }

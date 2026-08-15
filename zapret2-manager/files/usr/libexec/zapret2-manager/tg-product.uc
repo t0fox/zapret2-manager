@@ -9,6 +9,7 @@ import { proxycfg_get, proxycfg_validate, proxycfg_preview, proxycfg_apply,
 import { proxy_provider_catalog, proxy_provider_status,
 	proxy_provider_check_updates, proxy_provider_install, proxy_provider_remove,
 	proxy_provider_purge, proxy_provider_versions } from './proxy-provider.uc';
+import { proxy_provider_operation_status } from './proxy-provider.uc';
 import { proxy_provider_preflight } from './proxy-provider-preflight.uc';
 
 const SCHEMA = 'tg-product.v2';
@@ -57,6 +58,7 @@ function status_model() {
 	let runtime = proxy_status();
 	let config = proxycfg_get();
 	let health = proxycfg_health({});
+	let operation = proxy_provider_operation_status({});
 	let selected = providers.activeProvider;
 	let installed = [];
 	for (let i = 0; i < length(providers.packages); i++) {
@@ -96,6 +98,7 @@ function status_model() {
 			drift: providers.drift === true
 		},
 		health: health,
+		operation: operation.operation,
 		runtime: runtime,
 		// Compatibility projection for the existing provider cards.  The UI now
 		// obtains this from the canonical product RPC, not the old RPC object.
@@ -123,6 +126,11 @@ export const tg_product_install = function (input) { return proxy_provider_insta
 export const tg_product_update = function (input) { return proxy_provider_install(input); };
 export const tg_product_remove = function (input) { return proxy_provider_remove(input); };
 export const tg_product_purge = function (input) { return proxy_provider_purge(input); };
-export const tg_product_start = function () { return proxycfg_start(); };
-export const tg_product_stop = function () { return proxycfg_stop(); };
-export const tg_product_restart = function () { return proxycfg_restart(); };
+export const tg_product_operation_status = function (input) { return proxy_provider_operation_status(input || {}); };
+function reject_during_operation() {
+	let operation = proxy_provider_operation_status({});
+	return operation.operation != null ? { ok: false, error: { code: 'EBUSY', message: 'Операция TG Proxy ещё выполняется; дождитесь её завершения.', operationId: operation.operation.operationId } } : null;
+}
+export const tg_product_start = function () { let blocked = reject_during_operation(); return blocked || proxycfg_start(); };
+export const tg_product_stop = function () { let blocked = reject_during_operation(); return blocked || proxycfg_stop(); };
+export const tg_product_restart = function () { let blocked = reject_during_operation(); return blocked || proxycfg_restart(); };

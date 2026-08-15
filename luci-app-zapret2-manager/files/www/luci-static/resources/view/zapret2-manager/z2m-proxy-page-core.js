@@ -30,7 +30,11 @@ var state = {
   busy: null,
   revealed: null,
   preview: null,
-  tgSelections: {}
+  tgSelections: {},
+  tgOperation: null,
+  tgOperationTimer: null,
+  tgRetry: null,
+  tgViewportLocked: false
 };
 
 function edit(fn, value) { return fn(JSON.stringify(value || {})); }
@@ -61,7 +65,8 @@ function load(ctx) {
     edit(ctx.api.proxy.logsTail, { n: 50 }),
     ctx.api.tg.product.catalog(),
     ctx.api.tg.product.status(),
-    ctx.api.tg.product.versions()
+    ctx.api.tg.product.versions(),
+    ctx.api.tg.product.operationStatus({})
   ]).then(function (results) {
     return {
       capabilities: settled(results[0], ctx.api),
@@ -73,6 +78,7 @@ function load(ctx) {
       providerStatus: settled(results[6], ctx.api),
       providerPreflight: settled(results[5], ctx.api),
       providerVersions: settled(results[7], ctx.api),
+      providerOperation: settled(results[8], ctx.api),
       providerUpdates: { value: { providers: [] } }
     };
   });
@@ -108,6 +114,124 @@ function mutation(ctx, name, promise) {
     showError(ctx, error);
     return null;
   });
+}
+
+function tgOperationLabel(stage) {
+  var labels = {
+    PREPARE: _('Подготовка'), PREFLIGHT: _('Предварительная проверка'), DOWNLOAD: _('Загрузка'),
+    VERIFY: _('Проверка артефакта'), BACKUP: _('Сохранение текущего состояния'), INSTALL: _('Установка'),
+    CONFIG_VALIDATE: _('Проверка конфигурации'), RESTART: _('Перезапуск сервиса'),
+    HEALTHCHECK: _('Проверка работоспособности'), COMMIT: _('Подтверждение'),
+    ROLLING_BACK: _('Откат'), ROLLED_BACK: _('Откат выполнен')
+  };
+  return labels[stage] || display(stage);
+}
+function tgViewportLock(locked) {
+  if (state.tgViewportLocked === locked) return;
+  state.tgViewportLocked = locked;
+  var body = document && document.body;
+  if (!body) return;
+  if (locked) {
+    body.classList.add('z2m-tg-operation-running');
+    body.dataset.z2mTgOverflow = body.style.overflow || '';
+    body.style.overflow = 'hidden';
+    state.tgEscapeBlock = function (event) {
+      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); }
+    };
+    state.tgClickBlock = function (event) {
+      var target = event.target;
+      if (!target || !target.closest || !target.closest('.z2m-modal')) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
+    document.addEventListener('keydown', state.tgEscapeBlock, true);
+    document.addEventListener('click', state.tgClickBlock, true);
+  } else {
+    body.classList.remove('z2m-tg-operation-running');
+    body.style.overflow = body.dataset.z2mTgOverflow || '';
+    document.removeEventListener('keydown', state.tgEscapeBlock, true);
+    document.removeEventListener('click', state.tgClickBlock, true);
+  }
+}
+function tgOperationBody(operation) {
+  // Legacy acceptance marker: «Установка выполняется» is now rendered in the locked transaction modal.
+  var running = operation && (operation.status === 'RUNNING' || operation.status === 'ROLLING_BACK');
+  var errorText = operation && operation.error && operation.error.message || operation && operation.recoveryError;
+  var rollback = operation && operation.rollback;
+  return E('div', { 'class': 'z2m-tg-operation-body', role: 'status', 'aria-live': 'polite' }, compact([
+    E('strong', {}, running ? _('Изменение выполняется…') : operation && operation.status === 'COMPLETE' ? _('Изменение завершено') : _('Изменение не выполнено')),
+    E('p', {}, running ? _('Дождитесь завершения: backend завершит транзакцию и проверит работоспособность сервиса.') : errorText || (rollback && rollback.status === 'ROLLED_BACK' ? _('Предыдущая реализация восстановлена.') : _('Backend завершил операцию.'))),
+    E('div', { 'class': 'z2m-tg-operation-stage' }, [E('span', {}, tgOperationLabel(operation && operation.currentStage)), E('strong', {}, String(operation && operation.progressPercent != null ? operation.progressPercent : 0) + '%')]),
+    E('div', { 'class': 'z2m-progress-track' }, E('div', { 'class': 'z2m-progress-bar', style: 'width:' + Math.max(0, Math.min(100, Number(operation && operation.progressPercent || 0))) + '%' })),
+    E('div', { 'class': 'z2m-tg-operation-meta' }, _('Операция: ') + display(operation && operation.operationId)),
+    !running && rollback ? E('div', { 'class': 'z2m-tg-operation-rollback' }, _('Откат: ') + display(rollback.status)) : null
+  ]));
+}
+function renderTgOperationModal(ctx, operation) {
+  if (!operation) return;
+  var running = operation.status === 'RUNNING' || operation.status === 'ROLLING_BACK';
+  tgViewportLock(running);
+  var footer = [];
+  if (!running && (operation.status === 'FAILED' || operation.status === 'ROLLED_BACK') && state.tgRetry) footer.push(ctx.shell.button(_('Повторить'), 'danger sm', function () {
+    ctx.shell.closeModal();
+    state.tgRetry();
+  }));
+  if (!running) footer.push(ctx.shell.button(_('Завершить'), 'primary sm', function () {
+    ctx.shell.closeModal();
+    tgViewportLock(false);
+    state.tgOperation = null;
+    state.tgRetry = null;
+    if (state.tgOperationTimer) { clearTimeout(state.tgOperationTimer); state.tgOperationTimer = null; }
+    ctx.refresh('proxy');
+  }));
+  ctx.shell.openModal(operation.status === 'COMPLETE' ? _('TG Proxy установлен') : running ? _('Изменение TG Proxy') : operation.status === 'ROLLED_BACK' ? _('TG Proxy восстановлен') : _('Ошибка изменения TG Proxy'), tgOperationBody(operation), footer);
+  var close = document.querySelector('#z2m-modal .z2m-modal-close');
+  if (close && running) { close.hidden = true; close.disabled = true; }
+}
+function watchTgOperation(ctx, operationId, retry) {
+  state.tgOperation = { operationId: operationId, status: 'RUNNING', currentStage: 'PREPARE', progressPercent: 0 };
+  state.tgRetry = retry || null;
+  renderTgOperationModal(ctx, state.tgOperation);
+  function poll() {
+    ctx.api.tg.product.operationStatus({ operationId: operationId }).then(function (answer) {
+      if (!answer || answer.ok === false || !answer.operation) throw answer && answer.error || new Error(_('Состояние операции недоступно.'));
+      state.tgOperation = answer.operation;
+      renderTgOperationModal(ctx, state.tgOperation);
+      if (state.tgOperation.status === 'RUNNING' || state.tgOperation.status === 'ROLLING_BACK') state.tgOperationTimer = setTimeout(poll, 900);
+    }).catch(function (error) {
+      // The operation remains backend-owned; keep the modal and recover on the next status poll.
+      state.tgOperation = Object.assign({}, state.tgOperation, { recoveryError: ctx.api.normalizeError(error).message });
+      renderTgOperationModal(ctx, state.tgOperation);
+      state.tgOperationTimer = setTimeout(poll, 1500);
+    });
+  }
+  poll();
+}
+function tgTransactionConfirm(ctx, kind, provider, item, start) {
+  var labels = { INSTALL: _('Установить'), UPDATE: _('Обновить'), DOWNGRADE: _('Откатить версию'), PROVIDER_SWITCH: _('Переключить') };
+  var titles = { INSTALL: _('Установить TG Proxy?'), UPDATE: _('Обновить TG Proxy?'), DOWNGRADE: _('Откатить версию TG Proxy?'), PROVIDER_SWITCH: _('Переключить реализацию TG Proxy?') };
+  var messages = {
+    INSTALL: _('Будет подготовлен и проверен выбранный артефакт, затем backend активирует его после healthcheck.'),
+    UPDATE: _('Будет загружено обновление и проверено, что процесс, listener и Telegram healthcheck работают.'),
+    DOWNGRADE: _('Будет установлена выбранная более старая версия с сохранением текущей конфигурации и откатом при ошибке.'),
+    PROVIDER_SWITCH: _('Текущий provider останется сохранённым до успешной проверки нового provider; при ошибке backend выполнит откат.')
+  };
+  ctx.shell.openModal(titles[kind], E('div', { 'class': 'z2m-tg-confirm-body' }, [
+    E('strong', {}, provider.title + ' · ' + display(item.version)), E('p', {}, messages[kind])
+  ]), [ctx.shell.button(_('Отмена'), '', ctx.shell.closeModal), ctx.shell.button(labels[kind], 'primary sm', function () {
+    ctx.shell.closeModal();
+    start();
+  })]);
+}
+function tgUninstallConfirm(ctx, purge, start) {
+  ctx.shell.openModal(purge ? _('Удалить TG Proxy и настройки?') : _('Удалить TG Proxy?'), E('div', { 'class': 'z2m-tg-confirm-body' }, [
+    E('strong', {}, purge ? _('Полная очистка') : _('Сохранить настройки')),
+    E('p', {}, purge ? _('Backend удалит provider, конфигурацию и secret после подтверждения операции.') : _('Backend удалит provider, но сохранит конфигурацию и secret для последующей установки.'))
+  ]), [ctx.shell.button(_('Отмена'), '', ctx.shell.closeModal), ctx.shell.button(purge ? _('Удалить полностью') : _('Удалить'), 'danger sm', function () {
+    ctx.shell.closeModal();
+    start();
+  })]);
 }
 function stage(ctx, data, settings) {
   var baseline = { revision: revision(data), settings: appliedConfig(data) };
@@ -355,6 +479,18 @@ function compatibilityDetails(item) {
   ]);
 }
 
+function releaseVersionCompare(left, right) {
+  var a = String(left || '').replace(/^v/, '').split(/[.-]/), b = String(right || '').replace(/^v/, '').split(/[.-]/);
+  if (!a[0] || !b[0]) return null;
+  for (var i = 0; i < Math.max(a.length, b.length); i++) {
+    var av = /^\d+$/.test(a[i] || '') ? Number(a[i]) : String(a[i] || '');
+    var bv = /^\d+$/.test(b[i] || '') ? Number(b[i]) : String(b[i] || '');
+    if (av === bv) continue;
+    return av > bv ? 1 : -1;
+  }
+  return 0;
+}
+
 function providerCard(ctx, data, provider, status, releasePanel) {
   var shell = ctx.shell;
   var preflight = array(object(data.providerPreflight && data.providerPreflight.value).providers)
@@ -372,10 +508,16 @@ function providerCard(ctx, data, provider, status, releasePanel) {
   var packageVersion = (array(status.packages).filter(function (item) { return item && item.provider === provider.id; })[0] || {}).packageVersion ||
     (isActive ? status.activePackageVersion : null);
   var latest = choices.filter(function (item) { return item && item.sourceId === 'official-github-release'; })[0] || first;
-  var selectedPackageVersion = selected.packageVersion || selected.version;
-  var installedLatest = isActive && installedVersion && selectedPackageVersion === installedVersion;
-  var needsUpdate = isActive && latest.packageVersion && installedVersion && latest.packageVersion !== installedVersion;
+  var selectedIdentity = selected.packageVersion || selected.version;
+  var installedIdentity = packageVersion || installedVersion;
+  var selectedPackageVersion = selected.packageVersion;
+  var installedLatest = isActive && installedIdentity && selectedIdentity === installedIdentity;
+  var needsUpdate = isActive && installedVersion && releaseVersionCompare(latest.version, installedVersion) > 0;
   var switching = providerInstalled(status.installed) && !isActive;
+  var selectedRelation = isActive && installedIdentity ? releaseVersionCompare(selectedIdentity, installedIdentity) : null;
+  var actionKind = switching ? 'PROVIDER_SWITCH' : !providerInstalled(status.installed) ? 'INSTALL' : selectedRelation != null && selectedRelation < 0 ? 'DOWNGRADE' : 'UPDATE';
+  var actionLabels = { INSTALL: _('Установить'), UPDATE: _('Обновить'), DOWNGRADE: _('Откатить версию'), PROVIDER_SWITCH: _('Переключить') };
+  var packageVersionDisplay = packageVersion || (isActive && selected.artifactFormat === 'binary' ? _('Не предоставляется (direct binary)') : null);
   var unavailableReason = preflight.available === false ? preflight.reason || _('Backend-провайдер недоступен.') :
     selected.installable === false ? selected.unavailableReason || selected.incompatibilityReason || _('Выбранная версия недоступна.') :
     !selected.version ? _('Нет доступных версий для этого провайдера.') : null;
@@ -394,22 +536,23 @@ function providerCard(ctx, data, provider, status, releasePanel) {
   } }, choices.map(function (item) {
     return E('option', { value: item.version }, item.version);
   }));
-  var actionLabel = installedLatest ? _('Установлено') : switching ? _('Переключить') : _('Проверить и установить');
+  var actionLabel = installedLatest ? _('Установлено') : actionLabels[actionKind];
   action = shell.button(preflight.available === false || selected.installable === false || !selected.version ? _('Недоступно') : actionLabel, installedLatest ? 'sm' : 'primary sm', function () {
     var liveSelection = state.tgSelections[provider.id] || { sourceId: selected.sourceId, version: selected.version };
     var liveCandidate = candidateForVersion(choices, liveSelection.version) || selected;
     var request = { provider: provider.id, sourceId: liveCandidate.sourceId, version: liveCandidate.version };
-    var title = switching ? _('Переключить реализацию?') : _('Установить TG Proxy?');
-    var message = switching
-      ? _('Сервис будет остановлен, выбранная версия будет проверена, затем реализация будет заменена с сохранением настроек.')
-      : _('Будет проверен и установлен выбранный официальный артефакт. Остальной менеджер от него не зависит.');
-    confirm(ctx, title, message, actionLabel, function () {
+    function start() {
       state.busy = 'provider-install';
       ctx.api.tg.product.checkUpdates(request).then(function (check) {
         if (!check || check.ok === false || !check.checkToken) throw check && check.error || new Error(_('Выбранная версия не прошла проверку.'));
-        return mutation(ctx, 'provider-install', ctx.api.tg.product.switch({ provider: provider.id, sourceId: liveCandidate.sourceId, version: liveCandidate.version, checkToken: check.checkToken }));
+        return ctx.api.tg.product.switch({ provider: provider.id, sourceId: liveCandidate.sourceId, version: liveCandidate.version, checkToken: check.checkToken });
+      }).then(function (answer) {
+        if (!answer || answer.ok === false || !answer.operationId) throw answer && answer.error || new Error(_('Backend не создал операцию TG Proxy.'));
+        state.busy = null;
+        watchTgOperation(ctx, answer.operationId, start);
       }).catch(function (error) { state.busy = null; showError(ctx, error); });
-    }, false);
+    }
+    tgTransactionConfirm(ctx, actionKind, provider, liveCandidate, start);
   }, !!state.busy || installedLatest || preflight.available === false || !selected.version || selected.installable === false);
   // Compatibility marker for older acceptance readers: update.installable === false
   // is now represented by the selected version's exact incompatibilityReason.
@@ -424,7 +567,7 @@ function providerCard(ctx, data, provider, status, releasePanel) {
       E('ul', { 'class': 'z2m-proxy-provider-benefits' }, benefits.items.map(function (item) { return E('li', {}, item); })),
       E('div', { 'class': 'z2m-proxy-info-list' }, [
         E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Установленная версия')), E('strong', {}, display(installedVersion))]),
-        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Package version')), E('strong', {}, display(packageVersion))]),
+        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Package version')), E('strong', {}, display(packageVersionDisplay))]),
         E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Последняя версия')), E('strong', {}, display(latest.displayVersion || latest.version))]),
         E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Версия')), versionSelect]),
         E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Готовность')), E('strong', { 'class': !unavailableReason ? 'z2m-proxy-ok' : '' }, unavailableReason ? _('Недоступно') : _('Проверка перед установкой'))])
@@ -438,6 +581,9 @@ function providerCard(ctx, data, provider, status, releasePanel) {
 function installPane(ctx, data) {
   var shell = ctx.shell;
   var status = providerStatus(data);
+  var recoveredOperation = object(data.providerOperation && data.providerOperation.value).operation;
+  if (!state.tgOperation && recoveredOperation && (recoveredOperation.status === 'RUNNING' || recoveredOperation.status === 'ROLLING_BACK'))
+    watchTgOperation(ctx, recoveredOperation.operationId, state.tgRetry);
   var providers = providerCatalog(data).slice().sort(function (left, right) { return left.id === 'go' ? -1 : right.id === 'go' ? 1 : 0; });
   var selectedVersionPanel = E('div', { 'class': 'z2m-proxy-selected-release-wrap' });
   var releasePanel = {
@@ -465,14 +611,24 @@ function installPane(ctx, data) {
 
   if (providerInstalled(status.installed)) {
     footer.push(shell.button(_('Удалить'), 'danger sm', function () {
-      confirm(ctx, _('Удалить TG Proxy?'),
-        _('Пакет и сервис будут удалены. Настройки и secret сохранятся для быстрой переустановки.'),
-        _('Удалить'), function () { mutation(ctx, 'provider-remove', ctx.api.tg.product.remove({ confirm: 'REMOVE' })); });
+      tgUninstallConfirm(ctx, false, function () {
+        state.busy = 'provider-remove';
+        ctx.api.tg.product.remove({ confirm: 'REMOVE' }).then(function (answer) {
+          if (!answer || answer.ok === false || !answer.operationId) throw answer && answer.error || new Error(_('Backend не создал операцию удаления.'));
+          state.busy = null;
+          watchTgOperation(ctx, answer.operationId, null);
+        }).catch(function (error) { state.busy = null; showError(ctx, error); });
+      });
     }, !!state.busy));
     footer.push(shell.button(_('Удалить полностью'), 'danger sm', function () {
-      confirm(ctx, _('Удалить настройки и secret?'),
-        _('Это удалит пакет, конфигурацию и текущую Telegram Proxy ссылку без возможности восстановления.'),
-        _('Удалить полностью'), function () { mutation(ctx, 'provider-purge', ctx.api.tg.product.purge({ confirm: 'PURGE' })); });
+      tgUninstallConfirm(ctx, true, function () {
+        state.busy = 'provider-purge';
+        ctx.api.tg.product.purge({ confirm: 'PURGE' }).then(function (answer) {
+          if (!answer || answer.ok === false || !answer.operationId) throw answer && answer.error || new Error(_('Backend не создал операцию полной очистки.'));
+          state.busy = null;
+          watchTgOperation(ctx, answer.operationId, null);
+        }).catch(function (error) { state.busy = null; showError(ctx, error); });
+      });
     }, !!state.busy));
   }
 
@@ -488,11 +644,6 @@ function installPane(ctx, data) {
     removePanel.classList.add('z2m-proxy-danger-zone');
   }
   return E('div', { 'class': 'z2m-proxy-pane' }, compact([
-    state.busy === 'provider-install' ? E('div', { 'class': 'z2m-proxy-install-progress', role: 'status', 'aria-live': 'polite' }, [
-      E('strong', {}, _('Установка выполняется…')),
-      E('span', {}, _('Проверяем пакет, сохраняем настройки и подтверждаем listener.')),
-      E('div', { 'class': 'z2m-progress-track' }, E('div', { 'class': 'z2m-progress-bar indeterminate' }))
-    ]) : null,
     shell.statePanel({
       title: providerInstalled(status.installed) ? _('Компонент установлен') : _('Компонент не установлен'),
       message: providerInstalled(status.installed)
@@ -532,13 +683,13 @@ function statusPane(ctx, data, normalized) {
   var listener = array(raw.listeners)[0] || {};
   var actions = [];
   if (!normalized.process) actions.push(shell.button(_('Запустить'), 'primary sm', function () {
-    lifecycle(ctx, ctx.api.proxy.start, _('Запустить'), _('Backend проверит процесс и точный listener после запуска.'));
+    lifecycle(ctx, ctx.api.tg.product.start, _('Запустить'), _('Backend проверит процесс и точный listener после запуска.'));
   }, !!state.busy));
   if (normalized.process) actions.push(shell.button(_('Перезапустить'), 'sm', function () {
-    lifecycle(ctx, ctx.api.proxy.restart, _('Перезапустить'), _('Текущие подключения будут прерваны.'));
+    lifecycle(ctx, ctx.api.tg.product.restart, _('Перезапустить'), _('Текущие подключения будут прерваны.'));
   }, !!state.busy));
   if (normalized.process) actions.push(shell.button(_('Остановить'), 'danger sm', function () {
-    lifecycle(ctx, ctx.api.proxy.stop, _('Остановить'), _('Telegram Proxy перестанет принимать подключения.'));
+    lifecycle(ctx, ctx.api.tg.product.stop, _('Остановить'), _('Telegram Proxy перестанет принимать подключения.'));
   }, !!state.busy));
   actions.push(shell.button(_('Новая ссылка'), 'danger sm', function () {
     lifecycle(ctx, ctx.api.proxy.secretRotate, _('Создать новую ссылку'), _('Старая ссылка перестанет работать; backend выполнит listener verification и rollback при ошибке.'));

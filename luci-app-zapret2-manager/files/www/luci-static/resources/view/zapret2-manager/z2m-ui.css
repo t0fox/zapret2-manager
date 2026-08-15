@@ -166,6 +166,8 @@
 .z2m-modal .mh button{margin-left:auto;background:none;border:0;color:var(--tx3);font-size:18px;cursor:pointer}
 .z2m-modal .mb{padding:18px;overflow:auto}
 .z2m-modal .mf{padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.z2m-tg-operation-running .z2m-scrim{cursor:wait}
+.z2m-tg-operation-body{display:grid;gap:12px}.z2m-tg-operation-body>strong{font-size:15px}.z2m-tg-operation-body p{margin:0;color:var(--tx2);line-height:1.5}.z2m-tg-operation-stage{display:flex;justify-content:space-between;gap:12px;color:var(--tx2);font-size:12px}.z2m-tg-operation-stage strong{color:var(--tx)}.z2m-tg-operation-meta,.z2m-tg-operation-rollback{font-size:11px;color:var(--tx3);overflow-wrap:anywhere}.z2m-tg-confirm-body{display:grid;gap:8px}.z2m-tg-confirm-body p{margin:0;color:var(--tx2);line-height:1.5}
 .z2m-steps{list-style:none;margin:0;padding:0}
 .z2m-steps li{display:flex;gap:10px;align-items:center;padding:7px 0;color:var(--tx3);font-size:13px}
 .z2m-steps li .mk{width:18px;text-align:center}
