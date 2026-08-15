@@ -21,7 +21,7 @@ Browser gate для DNS/TG product views закрыт после target deployme
 
 This addendum supersedes earlier pending/blocked statements below where they
 conflict. The frozen product base was `2547bfec85b776588ab394591b01d888476e07fa`.
-New failing browser evidence justified five narrowly scoped uncommitted
+New failing browser evidence justified five narrowly scoped
 DNS/TG-slice fixes: TG status now projects canonical listener/outbound health;
 DNS uses `dns_product_get` for global scope when the legacy `dns.global.get` API
 is absent; the app chip uses allowed canonical product status; LuCI gets
@@ -51,8 +51,9 @@ Browser acceptance against the deployed manifest:
   exercised because they mutate runtime or expose secret-bearing UI.
 
 The current target is therefore the frozen `2547bfec` backend/runtime plus the
-five evidence-driven uncommitted DNS/TG-slice fixes. No canonical-main
-verification or push was performed.
+five evidence-driven DNS/TG-slice fixes committed in `52759f97`. No
+canonical-main verification or push was performed at the time of this
+evidence capture.
 
 ## Required final fields
 
@@ -176,19 +177,21 @@ all were regular `0644` files owned by `root:root`.
 
 ## Local verification
 
-Focused DNS/TG/UI/M6/Asset suite: `65 passed, 1 skipped, 0 failed`.
-The skipped test is the repository's strategy compiler test. `node --check`
-passed for changed JavaScript and `git diff --check` passed. New focused
-regression contract: `5 passed, 0 failed`.
+Focused DNS/TG/UI/M6/Asset suite after commit: `43 passed, 0 skipped,
+0 failed`. The separate UI surface group was `22/22`, TG v2 was `8/8`,
+Service DNS/M6 routing was `9/9`, and the new focused regression contract was
+`5/5`. `node --check` passed for all `57` LuCI JavaScript files and
+`git diff --check` passed.
 
 ## Finishing run and remaining gates
 
 - LuCI authentication: recovered through the normal `root` + empty-password
   login form. The router warns `No password set!`; this is a target security
   warning, not a login failure.
-- Full Strategy suite: `FAIL/NOT COMPLETE`; tests invoke the pinned harness
-  path `/opt/ucode/bin/ucode`, which is absent. The exact diagnostic is
-  `null !== 0` with `UCODE_BIN=null`, `UCODE_LIBRARY_PATH=null`.
+- `UCODE_RUNTIME: NOT_AVAILABLE`; the pinned harness path
+  `/opt/ucode/bin/ucode` is absent. The exact diagnostic is `null !== 0` with
+  `UCODE_BIN=null`, `UCODE_LIBRARY_PATH=null`.
+- `STRATEGY_FULL_SUITE: NOT_RUN`; no Strategy PASS is claimed from this host.
 - Project ucode bootstrap: `NOT RUN`; `wsl` cannot create a distro instance and
   returns `Wsl/Service/CreateInstance/E_ACCESSDENIED`. Git Bash has no Linux
   compiler or CMake, and Docker has no running daemon.
@@ -214,7 +217,8 @@ no replay branch was created and no push was attempted.
 | `INTEGRATION_HEAD` | `2547bfec85b776588ab394591b01d888476e07fa` |
 | `TARGET_DEPLOY_MANIFEST` | [`scripts/deploy-dns-tg-v2-target-2547bfec.sh`](../../scripts/deploy-dns-tg-v2-target-2547bfec.sh) |
 | `TARGET_BUILD_SHA` | `2547bfec85b776588ab394591b01d888476e07fa` |
-| `CURRENT_BROWSER_BUILD_MATCH` | `PASS` — router matches the final 17-entry deployment manifest; the manifest includes the five evidence-driven uncommitted DNS/TG-slice fixes |
+| `FINAL_DNS_TG_HEAD` | `52759f97` — focused DNS/TG acceptance commit |
+| `CURRENT_BROWSER_BUILD_MATCH` | `PASS` — router matches the final 17-entry deployment manifest; the manifest includes the five evidence-driven committed DNS/TG-slice fixes |
 
 The bounded deployment script contains 17 changed runtime/frontend files,
 their SHA256 values, `0644 root:root` installation, backup-before-write, a
@@ -229,19 +233,19 @@ they are not carried forward from the earlier local gate.
 
 | Group | Result | Classification |
 |---|---|---|
-| DNS/TG/M6/UI | `65 passed, 1 skipped, 0 failed` (`66` total) | PASS; the skip is the strategy compiler test |
+| DNS/TG/M6/UI | `43 passed, 0 skipped, 0 failed` | PASS |
 | UI | `22/22` | PASS |
 | TG v2 | `8/8` | PASS |
 | Service DNS | `9/9` | PASS |
-| M6 | `22/22` | PASS |
+| M6 | `9/9` | PASS |
 | JavaScript syntax | `57 files, 0 errors` | PASS |
 | M2 Profiles | `46 passed, 2 failed` (`48` total) | Infrastructure: missing `/opt/ucode/bin/ucode` |
 | M5 BlockCheck family | `1 passed, 11 failed` (`12` total) | Infrastructure: missing `/opt/ucode/bin/ucode` |
 | Scanner product | `32 passed, 109 failed` (`141` total) | Infrastructure: missing `/opt/ucode/bin/ucode` |
 | RPC/ACL mixed regression | `24 passed, 18 failed` (`42` total) | Infrastructure failures in legacy ucode-backed groups; DNS/TG/M6 RPC/ACL groups pass |
-| Strategy full suite | `NOT COMPLETE` | bounded run stopped after the unavailable ucode harness prevented completion |
+| Strategy full suite | `NOT_RUN` | Linux ucode runtime is unavailable; no Strategy PASS is claimed |
 | Native/root | `NOT RUN` | host gate reports `native tests require Linux` |
-| Docs freshness / diff check | `PASS / PASS` | PASS |
+| Docs freshness / diff check | `PASS / PASS` | PASS after mapped product-doc update |
 
 No test or test harness was modified to bypass the missing runtime.
 
@@ -251,5 +255,6 @@ No test or test harness was modified to bypass the missing runtime.
 execution environment. The final manifest was deployed and independently
 verified; DNS/TG/M6 target evidence and the post-deploy Browser product-view
 gate are recorded in the addendum above. Remaining separate limitations are
-the missing Linux ucode runtime (`NOT RUN`) and canonical GitHub/main
-verification/push (`NOT RUN`).
+the missing Linux ucode runtime (`UCODE_RUNTIME: NOT_AVAILABLE`,
+`STRATEGY_FULL_SUITE: NOT_RUN`) and canonical GitHub/main
+verification/push (`NOT RUN` at the time of this snapshot).

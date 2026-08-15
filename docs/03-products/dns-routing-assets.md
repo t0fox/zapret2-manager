@@ -37,11 +37,10 @@ proxy-config lifecycle остаются делегированы существ�
 Rust catalog/status/preflight/health проходят, а Go availability подтверждена
 через `check_updates` с честным `installable: false`.
 
-Target backend acceptance и M6 Service DNS canary пройдены. Browser acceptance
-остаётся `BLOCKED`: authenticated reload LuCI вернул HTTP `403` и
-`x-luci-login-required: yes`, поэтому mobile/tablet/dead-control claims пока
-не выдаются. Полные доказательства и deployment manifest находятся в
-[DNS/TG v2 evidence](../05-parity/2026-08-15-dns-tg-v2-evidence.md).
+Target backend acceptance, M6 Service DNS canary и Browser acceptance
+пройдены. Финальный Browser sweep подтвердил DNS и Telegram Proxy на 1280,
+768 и 390px без горизонтального overflow; полные доказательства, manifest и
+отдельные ограничения Linux ucode находятся в [DNS/TG v2 evidence](../05-parity/2026-08-15-dns-tg-v2-evidence.md).
 
 ## Domain hub и lists
 
