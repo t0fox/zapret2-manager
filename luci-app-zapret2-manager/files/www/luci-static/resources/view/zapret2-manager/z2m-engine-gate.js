@@ -83,7 +83,13 @@ function blocker(module, ctx) {
 function wrap(module) {
   var core = materialize(module);
   var wrapped = {};
-  for (var key in core) wrapped[key] = core[key];
+  Object.keys(core).forEach(function (key) { wrapped[key] = core[key]; });
+  // baseclass.extend stores view methods on the prototype. Copy those
+  // methods explicitly; a plain for-in over the materialized instance does
+  // not reliably expose them, which drops createAdapter and similar hooks.
+  if (module && module.prototype) Object.getOwnPropertyNames(module.prototype).forEach(function (key) {
+    if (key !== 'constructor' && typeof module.prototype[key] === 'function') wrapped[key] = module.prototype[key];
+  });
   wrapped.load = function (ctx) { return loadGuarded(core, ctx); };
   wrapped.render = function (ctx) {
     if (!hasEnvelope(ctx)) return core.render ? core.render(ctx) : E('div');
@@ -100,7 +106,10 @@ function wrap(module) {
     var gate = object(ctx.data[KEY]);
     if (gate.allowed === true && core.unmount) core.unmount(childContext(ctx));
   };
-  return wrapped;
+  // LuCI view factories must yield a baseclass constructor. Returning the
+  // copied method object works in local harnesses but is rejected by the
+  // target loader as an "invalid constructor" before the view can render.
+  return baseclass.extend(wrapped);
 }
 
 return baseclass.extend({
