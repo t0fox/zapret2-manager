@@ -172,6 +172,10 @@ function lifecycle(ctx, method, label, message) {
 function providerStatus(data) {
   return object(data.providerStatus && data.providerStatus.value);
 }
+function providerInstalled(value) {
+  if (Array.isArray(value)) return value.some(function (item) { return item && item.installed === true; });
+  return value === true;
+}
 function providerCatalog(data) {
   return array(object(data.providerCatalog && data.providerCatalog.value).providers);
 }
@@ -203,11 +207,11 @@ function providerCard(ctx, data, provider, status) {
     .filter(function (item) { return item && item.provider === provider.id; })[0] || {};
   var update = array(object(data.providerUpdates && data.providerUpdates.value).providers)
     .filter(function (item) { return item && (item.provider === provider.id || object(item.candidate).provider === provider.id); })[0] || {};
-  var isActive = status.installed === true && status.activeProvider === provider.id;
+  var isActive = providerInstalled(status.installed) && status.activeProvider === provider.id;
   var checked = update.ok === true && !!update.checkToken;
   var needsUpdate = isActive && checked && update.updateAvailable === true;
   var installedLatest = isActive && !needsUpdate;
-  var switching = status.installed === true && !isActive;
+  var switching = providerInstalled(status.installed) && !isActive;
   var benefits = providerBenefits(provider.id);
   var actionLabel = installedLatest ? _('Установлено') :
     needsUpdate ? _('Обновить') :
@@ -264,7 +268,7 @@ function installPane(ctx, data) {
     }).catch(function (error) { state.busy = null; showError(ctx, error); });
   }
 
-  if (status.installed) {
+  if (providerInstalled(status.installed)) {
     footer.push(shell.button(_('Удалить'), 'danger sm', function () {
       confirm(ctx, _('Удалить TG Proxy?'),
         _('Пакет и сервис будут удалены. Настройки и secret сохранятся для быстрой переустановки.'),
@@ -295,11 +299,11 @@ function installPane(ctx, data) {
       E('div', { 'class': 'z2m-progress-track' }, E('div', { 'class': 'z2m-progress-bar indeterminate' }))
     ]) : null,
     shell.statePanel({
-      title: status.installed ? _('Компонент установлен') : _('Компонент не установлен'),
-      message: status.installed
+      title: providerInstalled(status.installed) ? _('Компонент установлен') : _('Компонент не установлен'),
+      message: providerInstalled(status.installed)
         ? _('Выбрано: ') + String(status.activeProvider || '—') + ' ' + String(status.activeVersion || '')
         : _('Это нормально: TG Proxy полностью опционален и не влияет на остальные функции Zapret2 Manager.'),
-      kind: status.installed ? 'success' : 'info'
+      kind: providerInstalled(status.installed) ? 'success' : 'info'
     }),
     data.providerCatalog && data.providerCatalog.error ? shell.statePanel({
       title: _('Каталог недоступен'), message: data.providerCatalog.error.message, kind: 'error'
@@ -319,7 +323,8 @@ function statusPane(ctx, data, normalized) {
     body: _('Telegram Proxy опционален и не влияет на остальные функции Zapret 2 Manager.')
   });
   var pstatus = providerStatus(data);
-  if (!pstatus.installed) return shell.statePanel({
+  var installed = providerInstalled(pstatus.installed);
+  if (!installed) return shell.statePanel({
     title: _('TG Proxy не установлен'),
     message: _('Выберите Rust или Go во вкладке «Установка». Остальной менеджер продолжает работать без TG Proxy.'),
     kind: 'info'
@@ -361,7 +366,7 @@ function statusPane(ctx, data, normalized) {
     [_('Provider drift'), pstatus.drift ? _('Обнаружен') : _('Нет')]
   ];
   var health = [
-    [_('Provider'), pstatus.installed, pstatus.installed ? _('Готов') : _('Не установлен')],
+    [_('Provider'), installed, installed ? _('Готов') : _('Не установлен')],
     [_('Process'), normalized.process, normalized.process ? _('Запущен') : _('Остановлен')],
     [_('Listener'), normalized.listener, normalized.listener ? _('Готов') : _('Не подтверждён')],
     [_('Telegram DC'), normalized.outbound, normalized.outbound ? _('Готова') : _('Не подтверждена')]
@@ -438,6 +443,7 @@ function settingsSection(ctx, data, settings, title, subtitle, fields) {
 function settingsPane(ctx, data) {
   var shell = ctx.shell;
   var pstatus = providerStatus(data);
+  var installed = providerInstalled(pstatus.installed);
   var settings = workingConfig(ctx, data);
   var draft = currentDraft(ctx);
   var fallbackEntries = array(settings.mtprotoProxies);
@@ -463,7 +469,7 @@ function settingsPane(ctx, data) {
     });
   }
   return E('div', { 'class': 'z2m-proxy-pane' }, compact([
-    !pstatus.installed ? shell.statePanel({
+    !installed ? shell.statePanel({
       message: _('Настройки можно подготовить заранее, но применить их получится только после установки Rust или Go.'),
       kind: 'info'
     }) : null,
@@ -516,10 +522,10 @@ function render(ctx) {
   var merged = Object.assign({}, object(data.status && data.status.value), object(data.health && data.health.value), {
     capabilities: object(data.capabilities && data.capabilities.value),
     supported: object(data.capabilities && data.capabilities.value).supported,
-    installed: pstatus.installed === true
+    installed: providerInstalled(pstatus.installed)
   });
   var normalized = ProxyModel.normalize(merged);
-  if (state.pane == null) state.pane = pstatus.installed ? 'status' : 'install';
+  if (state.pane == null) state.pane = providerInstalled(pstatus.installed) ? 'status' : 'install';
   var panes = {
     install: installPane(ctx, data),
     status: statusPane(ctx, data, normalized),
@@ -574,7 +580,7 @@ function createAdapter(api) {
     validateDraft: function (scope, value) {
       if (!value || !value.settings) return Promise.resolve({ ok: false, message: _('Proxy draft не содержит safe settings.') });
       return api.tg.product.status().then(function (status) {
-        if (!status || status.installed !== true)
+        if (!status || !providerInstalled(status.installed))
           return { ok: false, error: { code: 'ENOPROVIDER', message: _('Сначала установите Rust или Go во вкладке TG Proxy.') } };
         return edit(api.proxy.configValidate, { config: value.settings });
       });

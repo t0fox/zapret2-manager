@@ -15,3 +15,9 @@ test('canonical product and UI do not use the compatibility provider RPC', () =>
   assert.match(product, /proxycfg_stop/);
   assert.match(product, /proxycfg_restart/);
 });
+
+test('UI normalizes canonical installed provider collection before deriving truth', () => {
+  assert.match(core, /function providerInstalled\(value\)/);
+  assert.match(core, /installed: providerInstalled\(pstatus\.installed\)/);
+  assert.match(core, /providerInstalled\(status\.installed\)/);
+});
