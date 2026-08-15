@@ -61,6 +61,7 @@ test('P01 status cards consume structured status evidence without collapsing to 
   const page = read('z2m-overview.js');
   assert.match(page, /status\.system/);
   assert.match(page, /status\.runtimeSummary/);
+  assert.match(page, /runtimeSummary\.process/);
   assert.match(page, /status\.engine/);
   assert.match(page, /status\.upstream/);
   assert.match(page, /nfqws2Version/);

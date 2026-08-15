@@ -36,7 +36,8 @@ function activeStrategy(preview) {
 }
 function runningState(status) {
   var process = object(status && status.runtime && status.runtime.process);
-  if (status && (status.serviceState === 'running' || status.state === 'running' || process.found === true)) return true;
+  var summaryProcess = object(status && status.runtimeSummary && status.runtimeSummary.process);
+  if (status && (status.serviceState === 'running' || status.state === 'running' || process.found === true || summaryProcess.found === true)) return true;
   if (status && (status.serviceState === 'stopped' || status.state === 'stopped')) return false;
   return null;
 }
@@ -280,7 +281,11 @@ function render(ctx) {
   }
   function processValue() {
     var process = object(status.runtime && status.runtime.process);
-    if (process.found === true || running === true) return { value: _('Работает'), kind: 'running', detail: process.pid ? 'PID ' + process.pid : _('Runtime подтверждён') };
+    var summaryProcess = object(status.runtimeSummary && status.runtimeSummary.process);
+    if (process.found === true || summaryProcess.found === true || running === true) {
+      var pid = process.pid || summaryProcess.pid;
+      return { value: _('Работает'), kind: 'running', detail: pid ? 'PID ' + pid : _('Runtime подтверждён') };
+    }
     if (running === false) return { value: _('Остановлен'), kind: 'stopped', detail: _('Служба zapret2 остановлена') };
     return { value: _('Недоступно'), kind: 'warning', detail: _('Backend не предоставил runtime evidence') };
   }
