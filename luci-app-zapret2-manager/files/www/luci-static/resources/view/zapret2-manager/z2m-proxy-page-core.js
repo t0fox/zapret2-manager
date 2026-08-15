@@ -42,6 +42,10 @@ function array(value) { return Array.isArray(value) ? value : []; }
 function compact(value) { return array(value).filter(function (item) { return item !== null && item !== undefined; }); }
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
 function display(value) { return value === null || value === undefined || value === '' ? '—' : String(value); }
+function installedVersionDisplay(version, packageVersion) {
+  var value = display(version);
+  return packageVersion ? value + ' · ' + String(packageVersion) : value;
+}
 function clone(value) {
   if (Array.isArray(value)) return value.map(clone);
   if (value && typeof value === 'object') {
@@ -517,7 +521,7 @@ function providerCard(ctx, data, provider, status, releasePanel) {
   var selectedRelation = isActive && installedIdentity ? releaseVersionCompare(selectedIdentity, installedIdentity) : null;
   var actionKind = switching ? 'PROVIDER_SWITCH' : !providerInstalled(status.installed) ? 'INSTALL' : selectedRelation != null && selectedRelation < 0 ? 'DOWNGRADE' : 'UPDATE';
   var actionLabels = { INSTALL: _('Установить'), UPDATE: _('Обновить'), DOWNGRADE: _('Откатить версию'), PROVIDER_SWITCH: _('Переключить') };
-  var packageVersionDisplay = packageVersion || (isActive && selected.artifactFormat === 'binary' ? _('Не предоставляется (direct binary)') : null);
+  var installedVersionValue = installedVersionDisplay(installedVersion, packageVersion);
   var unavailableReason = preflight.available === false ? preflight.reason || _('Backend-провайдер недоступен.') :
     selected.installable === false ? selected.unavailableReason || selected.incompatibilityReason || _('Выбранная версия недоступна.') :
     !selected.version ? _('Нет доступных версий для этого провайдера.') : null;
@@ -566,8 +570,7 @@ function providerCard(ctx, data, provider, status, releasePanel) {
       E('strong', { 'class': 'z2m-proxy-provider-short' }, benefits.title),
       E('ul', { 'class': 'z2m-proxy-provider-benefits' }, benefits.items.map(function (item) { return E('li', {}, item); })),
       E('div', { 'class': 'z2m-proxy-info-list' }, [
-        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Установленная версия')), E('strong', {}, display(installedVersion))]),
-        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Package version')), E('strong', {}, display(packageVersionDisplay))]),
+        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Установленная версия')), E('strong', {}, installedVersionValue)]),
         E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Последняя версия')), E('strong', {}, display(latest.displayVersion || latest.version))]),
         E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Версия')), versionSelect]),
         E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Готовность')), E('strong', { 'class': !unavailableReason ? 'z2m-proxy-ok' : '' }, unavailableReason ? _('Недоступно') : _('Проверка перед установкой'))])
@@ -704,8 +707,7 @@ function statusPane(ctx, data, normalized) {
     [_('Revision'), display(cfg.appliedRevision)]
   ];
   var statusRows = [
-    [_('Версия'), display(pstatus.activeVersion)],
-    [_('Package version'), display(pstatus.activePackageVersion)],
+    [_('Версия'), installedVersionDisplay(pstatus.activeVersion, pstatus.activePackageVersion)],
     [_('Процесс'), normalized.process ? _('Запущен') : _('Остановлен')],
     [_('Listener'), normalized.listener ? _('Подтверждён') : _('Не подтверждён')],
     [_('Связь с Telegram DC'), normalized.outbound ? _('Подтверждена') : _('Не подтверждена')],

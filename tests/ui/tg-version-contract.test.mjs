@@ -13,7 +13,10 @@ test('TG version UI is truthful about bounded version/source backend support', (
 
   assert.doesNotMatch(ui, /latest-only|Исторический выбор версий недоступен|Источник пакета не выбирается/i);
   assert.match(ui, /Установленная версия/);
-  assert.match(ui, /Package version/);
+  assert.match(ui, /installedVersionDisplay/);
+  assert.match(ui, /packageVersion/);
+  assert.doesNotMatch(ui, /_\('Package version'\)/,
+    'package version must be folded into the installed-version value, not shown as a separate row');
   assert.match(ui, /Последняя версия/);
   assert.match(ui, /status\.packages/);
   assert.match(ui, /provider === provider\.id/);

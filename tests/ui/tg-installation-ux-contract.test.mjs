@@ -26,8 +26,9 @@ test('TG running operation locks the viewport and cannot be dismissed by ESC, ba
 
 test('TG UI keeps direct Go binary package version truthful', () => {
   const ui = fs.readFileSync(UI, 'utf8');
-  assert.match(ui, /artifactFormat/);
+  assert.match(ui, /installedVersionDisplay/);
   assert.match(ui, /packageVersion/);
   assert.match(ui, /direct binary|binary/i);
-  assert.match(ui, /нет package version|не предоставляется|package version.*null/i);
+  assert.doesNotMatch(ui, /_\('Package version'\)/);
+  assert.doesNotMatch(ui, /не предоставляется \(direct binary\)/i);
 });

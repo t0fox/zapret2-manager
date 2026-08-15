@@ -14,7 +14,7 @@ SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout="$SSH_CONNECT_TIMEOUT")
 
 manifest='
 93efacd2c6564216411b39783b3abbf63bb01a43685fd3bdff4fb93bdcaa8698|luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js|/www/luci-static/resources/view/zapret2-manager/z2m-api.js
-a92a7377456e4e15e692353dfcacf4a13c25a1e00858939d2ebd14a7a1e65e28|luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-proxy-page-core.js|/www/luci-static/resources/view/zapret2-manager/z2m-proxy-page-core.js
+6c2cd9840553db802f3326d46fe584d2a13408c693a4035f0e935ff27b9ca6b2|luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-proxy-page-core.js|/www/luci-static/resources/view/zapret2-manager/z2m-proxy-page-core.js
 a09e44399fca009e4762b646818e59b3b2758a22979e28715a8de0426b64880a|luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.css|/www/luci-static/resources/view/zapret2-manager/z2m-ui.css
 6dc1a3cd0672825af22bf7b561adebc29f507237177a1b33258d206b27191dd0|zapret2-manager/files/usr/libexec/zapret2-manager/proxy-provider.uc|/usr/libexec/zapret2-manager/proxy-provider.uc
 cf3cfa87a66d541e6ddd9d377f194890cf37c79259c1e7004035aeefebe547aa|zapret2-manager/files/usr/libexec/zapret2-manager/proxy.uc|/usr/libexec/zapret2-manager/proxy.uc
