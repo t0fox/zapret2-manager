@@ -341,10 +341,10 @@ rows:
     donor_file: web/js/pages/routing_unified.js
     donor_interaction: Create/edit/delete typed route and inspect ownership
     z2m_backend: route_list/get/create/update/remove
-    z2m_current_ui: No reachable route page in legacy Z2M navigation
-    status: MISSING
-    evidence: M6 route aggregate is registered in canonical rpcd and tested.
-    browser_evidence: NOT_RUN at inventory baseline
+    z2m_current_ui: z2m-unified-routing.js exposes route list, editor and CRUD actions
+    status: PARITY
+    evidence: M6 route aggregate is registered in canonical rpcd and tested; target route_list returns an empty route set.
+    browser_evidence: PASS — route editor and empty state render on deployed target
   - id: routing.lifecycle
     group: routing
     page: unified-routing
@@ -352,10 +352,10 @@ rows:
     donor_file: web/js/pages/routing_unified.js
     donor_interaction: Preview, validate, apply, status, remove and reconcile
     z2m_backend: route_preview/validate/apply/status/remove/reconcile
-    z2m_current_ui: No route UI; no fake failover controls allowed
-    status: MISSING
-    evidence: Current M6 implementation supports service_dns and hostlist/hosts selectors.
-    browser_evidence: NOT_RUN at inventory baseline
+    z2m_current_ui: z2m-unified-routing.js exposes Preview/Validate/Apply/Status/Remove/Reconcile
+    status: PARITY
+    evidence: Current M6 implementation supports service_dns and hostlist/hosts selectors; no failover controls invented.
+    browser_evidence: PASS — lifecycle controls and empty target state render on deployed target
   - id: routing.ownership
     group: routing
     page: unified-routing
@@ -363,10 +363,10 @@ rows:
     donor_file: web/js/pages/routing_unified.js
     donor_interaction: Show stale revision, foreign state and rollback protection
     z2m_backend: revision/CAS, delegated Service DNS ownership and reconcile
-    z2m_current_ui: No route UI
-    status: MISSING
+    z2m_current_ui: z2m-unified-routing.js displays delegated service_dns ownership and CAS lifecycle context
+    status: PARITY
     evidence: M6 tests cover ownership protection and restore semantics.
-    browser_evidence: NOT_RUN at inventory baseline
+    browser_evidence: PASS — delegated Service DNS ownership message visible on deployed target
   - id: dns.global
     group: dns
     page: dns-routing
@@ -625,13 +625,13 @@ counts:
   exact: 0
   adapted: 0
   partial: 36
-  missing: 3
+  missing: 0
   backend_not_ready: 5
   not_applicable: 1
   backend_supported_rows: 39
   unexplained_capability_gaps: 0
 m6:
-  backend_classification: BACKEND_SUPPORTED_UI_MISSING
+  backend_classification: BACKEND_SUPPORTED_UI_PARITY
   supported_selectors: [hostlist, hosts]
   supported_method: service_dns
   lifecycle: [CRUD, Preview, Validate, Apply, Status, Remove, Reconcile]

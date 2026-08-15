@@ -2,7 +2,7 @@
 id: avatar-current-z2m-parity-matrix-2026-08-15
 title: "Full Avatar UI parity closure: frozen baseline matrix"
 type: parity
-status: inventory-baseline
+status: implementation-accepted-with-explicit-backend-gaps
 updated: 2026-08-15
 source_manifest: 2026-08-15-full-avatar-ui-parity-manifest.yaml
 ---
@@ -20,12 +20,13 @@ interaction fields is
 | `AVATAR_TARGET_HEAD` | `60bc16a5ddc5f43d97d414b99920c3d13da3151a` |
 | `PARITY_ROWS_TOTAL` | `45` |
 | `BACKEND_SUPPORTED_ROWS` | `39` — includes three currently missing UI rows |
-| `PARTIAL` | `36` |
-| `MISSING` | `3` — M6 route CRUD/lifecycle/ownership UI |
+| `PARITY` | `3` — M6 route CRUD/lifecycle/ownership UI |
+| `PARTIAL` | `36` — existing backend-supported surfaces retain their documented semantic differences |
+| `MISSING` | `0` |
 | `BACKEND_NOT_READY` | `5` — TG version/source backend gaps plus WARP/usque UI scope |
 | `NOT_APPLICABLE` | `1` — excluded Avatar-only product family |
 | `DNS_CAPABILITY_COUNT` | `24` |
-| `M6_BACKEND_CLASSIFICATION` | `BACKEND_SUPPORTED_UI_MISSING` |
+| `M6_BACKEND_CLASSIFICATION` | `BACKEND_SUPPORTED_UI_PARITY` |
 
 ## Frozen navigation inventory
 
@@ -69,9 +70,9 @@ explicit TG backend capability gaps and the approved WARP/usque disabled UI.
 | services.domains | data / services/domains | Add/remove/references | domain_hub/lists; z2m-services.js | PARTIAL | canonical writer exists; Browser pending |
 | assets.list | data / assets/registry | Filter/hash/revision/references | assets_list/get/references; z2m-assets.js | PARTIAL | typed registry UI exists; Browser pending |
 | assets.lifecycle | data / assets/import-edit-delete | Import/update/validate/delete | assets_import/update/validate/delete | PARTIAL | safety exists; binary UI parity pending |
-| routing.crud | routing / unified-routing/routes | Route CRUD/ownership | route_list/get/create/update/remove; no old UI | MISSING | M6 backend tested; Browser pending |
-| routing.lifecycle | routing / unified-routing/preview-apply | Preview/validate/apply/status/remove/reconcile | route_* lifecycle; no old UI | MISSING | M6 lifecycle supported; Browser pending |
-| routing.ownership | routing / unified-routing/dependencies | CAS/foreign-state/rollback protection | revision/CAS/service_dns ownership | MISSING | M6 tests PASS; Browser pending |
+| routing.crud | routing / unified-routing/routes | Route CRUD/ownership | route_list/get/create/update/remove; z2m-unified-routing.js | PARITY | M6 target canary and Browser PASS; empty target route set |
+| routing.lifecycle | routing / unified-routing/preview-apply | Preview/validate/apply/status/remove/reconcile | route_* lifecycle; z2m-unified-routing.js | PARITY | M6 lifecycle UI and Browser PASS |
+| routing.ownership | routing / unified-routing/dependencies | CAS/foreign-state/rollback protection | revision/CAS/service_dns ownership | PARITY | Service DNS ownership visible; focused tests and Browser PASS |
 | dns.global | dns / dns-routing/global | Mode/providers/hijack/cache | dns_product_*; z2m-dns.js | PARTIAL | 24 DNS controls inventoried; target PASS |
 | dns.providers | dns / dns-routing/providers | Diagnose/select/provider results | dnsprov_*; z2m-dns.js | PARTIAL | target provider canary PASS; Browser pending |
 | dns.per_domain | dns / dns-routing/per-domain | Add/delete/presets | canonical DNS overrides; z2m-dns.js | PARTIAL | zero-loss capability; Browser pending |

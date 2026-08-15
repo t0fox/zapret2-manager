@@ -33,3 +33,16 @@ test('future navigation contract is Avatar-derived and has no old duplicate tabs
   assert.match(app, /Shell\.primaryNavigation\(Navigation/);
   assert.match(app, /Navigation\.normalize\(window\.location\.hash\)/);
 });
+
+test('every canonical navigation route has a concrete UI module', () => {
+  const app = fs.readFileSync(APP, 'utf8');
+  const routes = [
+    'dashboard', 'control', 'strategies', 'scan', 'unified-routing', 'warp',
+    'warp-setup', 'warp-in-warp', 'telegram-tunnel', 'lists', 'hostlists',
+    'ipsets', 'blobs', 'lua', 'hosts', 'dns-routing', 'diagnostics',
+    'blockcheck', 'logs', 'monitor', 'updates', 'zapret', 'autostart', 'settings'
+  ];
+  const moduleSection = app.slice(app.indexOf('var MODULES = {'), app.indexOf('var PENDING_MODULE = {'));
+  for (const route of routes) assert.match(moduleSection, new RegExp(`(?:['"]${route}['"]|${route})\\s*:`), `route ${route} still falls through to placeholder UI`);
+  assert.doesNotMatch(app, /MODULES\[route\]\s*=\s*PENDING_MODULE/);
+});
