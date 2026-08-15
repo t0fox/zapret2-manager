@@ -2,7 +2,7 @@
 'require baseclass';
 'require view.zapret2-manager.z2m-overview-model as OverviewModel';
 
-var runtime = { timer: null, runId: null, target: '', overrideStrategyId: null };
+var runtime = { timer: null, runId: null, target: '', overrideStrategyId: null, deferred: {}, loadToken: 0 };
 
 function edit(fn, value) { return fn(JSON.stringify(value || {})); }
 function asArray(value) { return Array.isArray(value) ? value : []; }
@@ -54,23 +54,39 @@ function clearStrategyField(ctx, field) {
 }
 
 function load(ctx) {
-  return Promise.allSettled([
-    ctx.api.service.status(),
+  var token = ++runtime.loadToken;
+  var initialReady = false;
+  var secondaryReady = false;
+  runtime.deferred = {};
+  function rerender() {
+    if (token !== runtime.loadToken || !initialReady || !ctx || typeof ctx.rerender !== 'function') return;
+    window.setTimeout(function () {
+      if (token === runtime.loadToken) ctx.rerender();
+    }, 0);
+  }
+  var secondary = Promise.allSettled([
     ctx.api.strategy.preview(),
     edit(ctx.api.monitor.eventsTail, { limit: 100 })
   ]).then(function (results) {
-    return {
-      status: settled(results[0], ctx.api),
-      preview: settled(results[1], ctx.api),
-      events: settled(results[2], ctx.api)
+    if (token !== runtime.loadToken) return;
+    runtime.deferred = {
+      preview: settled(results[0], ctx.api),
+      events: settled(results[1], ctx.api)
     };
+    secondaryReady = true;
+    if (initialReady) rerender();
+  });
+  return Promise.allSettled([ctx.api.service.status()]).then(function (results) {
+    initialReady = true;
+    if (secondaryReady) rerender();
+    return { status: settled(results[0], ctx.api) };
   });
 }
 
 function render(ctx) {
   var shell = ctx.shell;
   var format = shell.format;
-  var data = ctx.data || {};
+  var data = Object.assign({}, ctx.data || {}, runtime.deferred || {});
   var view = OverviewModel.normalize(data);
   var status = object(data.status && data.status.value);
   var preview = object(data.preview && data.preview.value);

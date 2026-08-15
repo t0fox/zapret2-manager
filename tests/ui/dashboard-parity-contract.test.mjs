@@ -51,6 +51,8 @@ test('P01 Dashboard initial load does not wait for unused Orchestra reads', () =
   assert.match(load, /ctx\.api\.service\.status\(\)/);
   assert.match(load, /ctx\.api\.strategy\.preview\(\)/);
   assert.match(load, /ctx\.api\.monitor\.eventsTail/);
+  assert.match(load, /ctx\.rerender/);
+  assert.match(load, /secondary/);
   assert.doesNotMatch(load, /ctx\.api\.orchestra\.runHistory\(\)/);
   assert.doesNotMatch(load, /ctx\.api\.orchestra\.status\(\)/);
 });
