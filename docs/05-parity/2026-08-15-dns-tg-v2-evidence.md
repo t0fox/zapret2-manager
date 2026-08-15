@@ -217,7 +217,7 @@ focused acceptance commits; no replay branch or force push was used.
 | `TARGET_DEPLOY_MANIFEST` | [`scripts/deploy-dns-tg-v2-target-2547bfec.sh`](../../scripts/deploy-dns-tg-v2-target-2547bfec.sh) |
 | `TARGET_BUILD_SHA` | `2547bfec85b776588ab394591b01d888476e07fa` |
 | `FINAL_DNS_TG_HEAD` | `52759f97` — focused DNS/TG acceptance commit |
-| `PUSHED_MAIN_HEAD` | `1727bc3e` at the time of this evidence update; final docs-only evidence push follows this source acceptance record |
+| `PUSHED_MAIN_HEAD` | `e0f43b0f59e780e689e1489ea23addcb38428143` — verified after the main push |
 | `DNS_TG_V2_STATUS` | `COMPLETE` |
 | `NEXT_MILESTONE` | `FULL AVATAR UI PARITY CLOSURE` |
 | `CURRENT_BROWSER_BUILD_MATCH` | `PASS` — router matches the final 17-entry deployment manifest; the manifest includes the five evidence-driven committed DNS/TG-slice fixes |
