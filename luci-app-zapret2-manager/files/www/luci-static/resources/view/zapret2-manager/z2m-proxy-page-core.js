@@ -228,7 +228,9 @@ function providerCard(ctx, data, provider, status) {
   var needsUpdate = isActive && checked && update.updateAvailable === true;
   var installedLatest = isActive && !needsUpdate;
   var switching = providerInstalled(status.installed) && !isActive;
-  var installedVersion = isActive ? status.activeVersion || status.activePackageVersion : null;
+  var installedPackage = array(status.packages).filter(function (item) { return item && item.provider === provider.id; })[0] || {};
+  var installedVersion = installedPackage.version || installedPackage.packageVersion || (isActive ? status.activeVersion : null);
+  var packageVersion = installedPackage.packageVersion || installedPackage.version || (isActive ? status.activePackageVersion : null);
   var latestVersion = checked ? update.latestVersion || update.latestPackageVersion : null;
   var unavailableReason = preflight.available === false ? preflight.reason || _('Пакетный менеджер APK недоступен.') :
     checked && update.installable === false ? _('Проверенный latest-пакет недоступен для установки на этой архитектуре.') :
@@ -264,7 +266,7 @@ function providerCard(ctx, data, provider, status) {
       E('ul', { 'class': 'z2m-proxy-provider-benefits' }, benefits.items.map(function (item) { return E('li', {}, item); })),
       E('div', { 'class': 'z2m-proxy-info-list' }, [
         E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Установленная версия')), E('strong', {}, display(installedVersion))]),
-        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Package version')), E('strong', {}, display(status.activePackageVersion))]),
+        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Package version')), E('strong', {}, display(packageVersion))]),
         E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Последняя доступная версия')), E('strong', {}, display(latestVersion))]),
         E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Установка')), E('strong', {}, _('Проверенный backend-кандидат'))]),
         E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Выбор версии')), E('strong', {}, _('Исторический выбор версий недоступен: backend возвращает только latest'))]),

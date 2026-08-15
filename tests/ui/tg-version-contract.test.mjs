@@ -14,6 +14,8 @@ test('TG version UI is truthful about latest-only backend support', () => {
   assert.match(ui, /Установленная версия/);
   assert.match(ui, /Package version/);
   assert.match(ui, /Последняя доступная версия/);
+  assert.match(ui, /status\.packages/);
+  assert.match(ui, /provider === provider\.id/);
   assert.match(ui, /Исторический выбор версий недоступен/);
   assert.match(ui, /Источник пакета не выбирается/);
   assert.match(backend, /latestOnly:\s*true/);
