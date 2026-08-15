@@ -16,6 +16,7 @@
 'require view.zapret2-manager.z2m-blockcheck-page as BlockCheck';
 'require view.zapret2-manager.z2m-assets as Assets';
 'require view.zapret2-manager.z2m-unified-routing as UnifiedRouting';
+'require view.zapret2-manager.z2m-warp-page as Warp';
 
 var APPLY_SCOPE_ORDER = ['strategy','domainHub','dns','proxy'];
 var DRAFT_META = {
@@ -35,6 +36,13 @@ var MODULES = {
   'dns-routing': Dns,
   'unified-routing': UnifiedRouting,
   'telegram-tunnel': Proxy,
+  warp: Warp,
+  'warp-setup': Warp,
+  'warp-in-warp': Warp,
+  ipsets: Assets,
+  blobs: Assets,
+  lua: Assets,
+  hosts: Assets,
   diagnostics: BlockCheck,
   blockcheck: BlockCheck,
   logs: Monitor,
@@ -60,9 +68,6 @@ var PENDING_MODULE = {
     ]);
   }
 };
-[
-  'warp', 'warp-setup', 'warp-in-warp', 'ipsets', 'blobs', 'lua', 'hosts'
-].forEach(function (route) { MODULES[route] = PENDING_MODULE; });
 var store = StoreModule.create();
 var activeModule = null;
 var activeContext = null;
