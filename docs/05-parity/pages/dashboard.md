@@ -96,12 +96,13 @@ backend implementation, or unrelated page file is part of the closure.
 | Focused Dashboard contract GREEN | PASS | `node --test tests/ui/dashboard-parity-contract.test.mjs`; 4/4 passed |
 | Full local UI suite | NOT_RUN | Run after final refactor |
 | Package/build checks | NOT_RUN | Run after final refactor |
-| Target deploy | PASS | `7ce2e0cf629985a416a853fd6c26a8ef786fcb78`; guarded P01 script; rpcd reloaded |
+| Target deploy | PASS | `3b5aaaebffceb2a82fd6c2b7871011353b94be6c`; guarded P01 script; rpcd reloaded |
 | Target hashes/owners/modes | PASS | All 4 changed assets matched local SHA-256; target `root:root`, `0644` |
-| Browser 1280x900 | BLOCKED | Target opened, but LuCI browser session is unauthenticated (`Authorization Required`) |
-| Browser 768x900 | NOT_RUN | Blocked by browser authentication |
-| Browser 390x844 | NOT_RUN | Blocked by browser authentication |
-| Console/network acceptance | NOT_RUN | Blocked before page load by browser authentication |
+| Browser current target viewport | PARTIAL | Dashboard rendered after backend timeouts; width reported by in-app browser `637`; no secondary Home tab, no `[object HTMLDivElement]`, no horizontal overflow |
+| Browser 1280x900 | NOT_RUN | Current in-app browser viewport is 637px; exact 1280 viewport not established |
+| Browser 768x900 | NOT_RUN | Exact viewport not established in current in-app browser |
+| Browser 390x844 | NOT_RUN | Exact viewport not established in current in-app browser |
+| Console/network acceptance | PARTIAL | Target UI shows normalized RPC errors; direct SSH `ubus -t 3 call zapret2-manager status '{}'` times out; no browser console error capture available |
 | P02 and later Avatar pages | NOT_STARTED | Explicitly outside this task |
 
 ## Final acceptance update
@@ -115,7 +116,7 @@ must not be claimed from this page-only slice.
 
 | Asset | SHA-256 |
 |---|---|
-| `z2m-overview.js` | `2dc8bd62523dfe8d78d043e72e7fa3c80c2f9a3af28227809706c3091a5cd374` |
+| `z2m-overview.js` | `acc81596b30d298365df594cf46465203fbc24d984d58bba0718d04b556f029d` |
 | `z2m-navigation.js` | `84376d87d07bac3ea000d4b093bcbde6dd70ee1b8a0468c79c0b07c8e34cef42` |
 | `z2m-shell.js` | `3006d5b62bc235eacc08c81c4bdb4556eb6e6713e5f7d2237b21355dfdc83c33` |
 | `z2m-ui.css` | `3518c8ce938462f71597407e8b04653f0de09928735e483c76a25d0c65a9ce69` |
