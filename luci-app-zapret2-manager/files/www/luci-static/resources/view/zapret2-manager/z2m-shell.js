@@ -151,45 +151,48 @@ function primaryNavigation(model, activeId, onSelect, attrs) {
       primary.appendChild(node);
     });
 
-    var secondary = E('nav', {
-      id: 'z2m-secondary-nav',
-      'class': 'z2m-subtabs z2m-secondary-nav',
-      role: 'tablist',
-      'aria-label': Format.text(activeGroup.label)
-    });
-    (activeGroup.items || []).forEach(function (item) {
-      var targetItems = item.children && item.children.length ? item.children : [item];
-      if (item.children && item.children.length) {
-        var parent = E('button', {
-          type: 'button',
-          role: 'tab',
-          'class': item.id === route ? 'on z2m-nav-parent' : 'z2m-nav-parent',
-          'aria-selected': item.id === route ? 'true' : 'false',
-          tabindex: item.id === route ? '0' : '-1',
-          'data-tab': item.id
-        }, Format.text(item.label));
-        parent.addEventListener('click', function () {
-          if (typeof onSelect === 'function') onSelect(item.id, item);
-        });
-        secondary.appendChild(parent);
-      }
-      targetItems.forEach(function (target) {
-        var selected = target.id === route;
-        var node = E('button', {
-          type: 'button',
-          role: 'tab',
-          'class': selected ? 'on' : '',
-          'aria-selected': selected ? 'true' : 'false',
-          tabindex: selected ? '0' : '-1',
-          'data-tab': target.id
-        }, Format.text(target.label));
-        node.addEventListener('click', function () {
-          if (typeof onSelect === 'function') onSelect(target.id, target);
-        });
-        secondary.appendChild(node);
+    var secondary = null;
+    if (!activeGroup.hideSecondary) {
+      secondary = E('nav', {
+        id: 'z2m-secondary-nav',
+        'class': 'z2m-subtabs z2m-secondary-nav',
+        role: 'tablist',
+        'aria-label': Format.text(activeGroup.label)
       });
-    });
-    host.replaceChildren(primary, secondary);
+      (activeGroup.items || []).forEach(function (item) {
+        var targetItems = item.children && item.children.length ? item.children : [item];
+        if (item.children && item.children.length) {
+          var parent = E('button', {
+            type: 'button',
+            role: 'tab',
+            'class': item.id === route ? 'on z2m-nav-parent' : 'z2m-nav-parent',
+            'aria-selected': item.id === route ? 'true' : 'false',
+            tabindex: item.id === route ? '0' : '-1',
+            'data-tab': item.id
+          }, Format.text(item.label));
+          parent.addEventListener('click', function () {
+            if (typeof onSelect === 'function') onSelect(item.id, item);
+          });
+          secondary.appendChild(parent);
+        }
+        targetItems.forEach(function (target) {
+          var selected = target.id === route;
+          var node = E('button', {
+            type: 'button',
+            role: 'tab',
+            'class': selected ? 'on' : '',
+            'aria-selected': selected ? 'true' : 'false',
+            tabindex: selected ? '0' : '-1',
+            'data-tab': target.id
+          }, Format.text(target.label));
+          node.addEventListener('click', function () {
+            if (typeof onSelect === 'function') onSelect(target.id, target);
+          });
+          secondary.appendChild(node);
+        });
+      });
+    }
+    host.replaceChildren.apply(host, secondary ? [primary, secondary] : [primary]);
   }
 
   host.setActive = function (route) { render(model.normalize(route)); };

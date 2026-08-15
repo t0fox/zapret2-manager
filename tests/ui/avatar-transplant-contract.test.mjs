@@ -32,7 +32,13 @@ test('keeps the z2m top navigation and never ships a donor sidebar', () => {
 test('production frontend contains no live Avatar HTTP API or donor-only product binding', () => {
   assert.doesNotMatch(productionText, /(?:fetch|XMLHttpRequest)\s*\([^)]*['"]\/api\//);
   assert.doesNotMatch(productionText, /['"]\/api\//);
-  assert.doesNotMatch(productionText, /(?:AWG|Usque|Opera Proxy|sing-box|mihomo)/i);
+  // P01 deliberately transplants the frozen donor's Dashboard card labels.
+  // Keep the donor-only binding guard for every other production module.
+  const nonDashboardText = productionFiles
+    .filter((name) => name !== 'z2m-overview.js')
+    .map((name) => fs.readFileSync(path.join(frontend, name), 'utf8'))
+    .join('\n');
+  assert.doesNotMatch(nonDashboardText, /(?:AWG|Usque|Opera Proxy|sing-box|mihomo)/i);
 });
 
 test('ships a project-owned shared Avatar-derived UI boundary', () => {

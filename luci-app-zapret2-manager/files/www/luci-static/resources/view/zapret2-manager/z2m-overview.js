@@ -1,7 +1,6 @@
 'use strict';
 'require baseclass';
 'require view.zapret2-manager.z2m-overview-model as OverviewModel';
-'require view.zapret2-manager.z2m-avatar-ui as AvatarUi';
 
 var runtime = { timer: null, runId: null, target: '', overrideStrategyId: null };
 
@@ -60,14 +59,18 @@ function load(ctx) {
     ctx.api.strategy.preview(),
     ctx.api.orchestra.runHistory(),
     ctx.api.orchestra.status(),
-    ctx.api.dns.serviceStatus()
+    ctx.api.dns.serviceStatus(),
+    edit(ctx.api.monitor.eventsTail, { limit: 100 }),
+    ctx.api.tg.product.status()
   ]).then(function (results) {
     return {
       status: settled(results[0], ctx.api),
       preview: settled(results[1], ctx.api),
       history: settled(results[2], ctx.api),
       orchestra: settled(results[3], ctx.api),
-      serviceDns: settled(results[4], ctx.api)
+      serviceDns: settled(results[4], ctx.api),
+      events: settled(results[5], ctx.api),
+      telegram: settled(results[6], ctx.api)
     };
   });
 }
@@ -237,14 +240,154 @@ function render(ctx) {
     if (ctx.openSemanticDiff) ctx.openSemanticDiff();
   }
 
+  function envelopeValue(key) { return object(data[key] && data[key].value); }
+  function envelopeError(key) { return data[key] && data[key].error; }
+  function statusKind(value) {
+    value = String(value || '').toLowerCase();
+    if (value === 'running' || value === 'active' || value === 'enabled' || value === 'ready' || value === 'ok') return 'g';
+    if (value === 'stopped' || value === 'disabled' || value === 'failed' || value === 'error') return 'r';
+    return 'o';
+  }
+  function statusText(value, fallback) {
+    if (value === true) return _('Включено');
+    if (value === false) return _('Выключено');
+    return format.text(value) || fallback || _('Недоступно');
+  }
+  function statusCard(id, label, value, detail, kind, icon) {
+    return E('div', { id: id, 'class': 'status-card' }, [
+      E('div', { 'class': 'status-card-header' }, [
+        E('span', { 'class': 'status-card-icon', 'aria-hidden': 'true' }, icon || '•'),
+        E('span', { 'class': 'status-card-label' }, label)
+      ]),
+      E('div', { 'class': 'status-card-value ' + (kind || '') }, value),
+      detail ? E('div', { 'class': 'status-card-detail' }, detail) : null
+    ]);
+  }
+  function linkStatusCard(id, label, href, value, detail, kind, icon) {
+    return E('a', { id: id, href: href, 'class': 'status-card status-card-link' }, [
+      E('div', { 'class': 'status-card-header' }, [
+        E('span', { 'class': 'status-card-icon', 'aria-hidden': 'true' }, icon || '•'),
+        E('span', { 'class': 'status-card-label' }, label)
+      ]),
+      E('div', { 'class': 'status-card-value ' + (kind || '') }, value),
+      detail ? E('div', { 'class': 'status-card-detail' }, detail) : null
+    ]);
+  }
+  function processValue() {
+    var process = object(status.runtime && status.runtime.process);
+    if (process.found === true || running === true) return { value: _('Работает'), kind: 'running', detail: process.pid ? 'PID ' + process.pid : _('Runtime подтверждён') };
+    if (running === false) return { value: _('Остановлен'), kind: 'stopped', detail: _('Служба zapret2 остановлена') };
+    return { value: _('Недоступно'), kind: 'warning', detail: _('Backend не предоставил runtime evidence') };
+  }
+  function optionalCardValue(envelope, valueKeys) {
+    if (envelope && envelope.error) return { value: _('Недоступно'), kind: 'warning', detail: _('Backend не сообщил состояние') };
+    var source = object(envelope && envelope.value);
+    var value = null;
+    for (var i = 0; i < valueKeys.length; i++) {
+      if (source[valueKeys[i]] !== undefined && source[valueKeys[i]] !== null && source[valueKeys[i]] !== '' &&
+          (typeof source[valueKeys[i]] !== 'object')) { value = source[valueKeys[i]]; break; }
+    }
+    if (value === null && source.status && typeof source.status !== 'object') value = source.status;
+    if (value === null && source.state && typeof source.state !== 'object') value = source.state;
+    return value === null
+      ? { value: _('Недоступно'), kind: 'warning', detail: _('Компонент не сообщил состояние') }
+      : { value: statusText(value), kind: statusKind(value), detail: source.version ? _('Версия ') + source.version : null };
+  }
+  function renderStatusGrid() {
+    var process = processValue();
+    var activeName = format.text(view.strategy.name || view.strategy.id);
+    var strategy = envelopeError('preview')
+      ? { value: _('Недоступно'), kind: 'warning', detail: _('Backend не сообщил Strategy') }
+      : activeName !== null
+        ? { value: activeName, kind: 'running', detail: view.strategy.revision ? _('Ревизия ') + view.strategy.revision : _('Активная стратегия') }
+        : { value: _('Не выбрана'), kind: 'warning', detail: _('Подтверждённая стратегия отсутствует') };
+    var autostart = optionalCardValue(data.status, ['autostart', 'autoStart', 'autostartEnabled']);
+    var system = optionalCardValue(data.status, ['system', 'hostname', 'device']);
+    var version = optionalCardValue(data.status, ['version', 'zapretVersion', 'runtimeVersion']);
+    return E('div', { id: 'status-grid', 'class': 'status-grid' }, [
+      statusCard('card-nfqws', 'nfqws2', process.value, process.detail, process.kind, '◉'),
+      statusCard('card-strategy', _('Стратегия'), strategy.value, strategy.detail, strategy.kind, '◆'),
+      statusCard('card-autostart', _('Автозапуск'), autostart.value, autostart.detail, autostart.kind, '↻'),
+      statusCard('card-system', _('Система'), system.value, system.detail, system.kind, '⌂'),
+      statusCard('card-zapret-ver', 'zapret2', version.value, version.detail, version.kind, '◆')
+    ]);
+  }
+  function renderVpnGrid() {
+    var telegram = optionalCardValue(data.telegram, ['running', 'installed', 'enabled', 'state']);
+    var unavailable = { value: _('Недоступно'), kind: 'warning', detail: _('Backend/API для компонента не подключён') };
+    return E('div', { id: 'vpn-grid', 'class': 'status-grid vpn-grid' }, [
+      linkStatusCard('card-warp', _('WARP / MASQUE'), '#/warp', unavailable.value, unavailable.detail, unavailable.kind, '↗'),
+      linkStatusCard('card-opera', _('Opera Proxy'), '#/opera-proxy', unavailable.value, unavailable.detail, unavailable.kind, '◌'),
+      linkStatusCard('card-amneziawg', _('AmneziaWG'), '#/amneziawg', unavailable.value, unavailable.detail, unavailable.kind, '⌁'),
+      linkStatusCard('card-singbox', _('sing-box'), '#/sing-box', unavailable.value, unavailable.detail, unavailable.kind, '◇'),
+      linkStatusCard('card-mihomo', _('mihomo'), '#/mihomo', unavailable.value, unavailable.detail, unavailable.kind, '◈'),
+      linkStatusCard('card-telegram', _('Telegram'), '#/proxy', telegram.value, telegram.detail, telegram.kind, '➤')
+    ]);
+  }
+  function renderMonitoringGrid() {
+    var dns = envelopeError('serviceDns')
+      ? { value: _('Недоступно'), kind: 'warning', detail: _('DNS service status недоступен') }
+      : { value: _('Доступен'), kind: 'running', detail: _('Состояние DNS получено backend') };
+    var health = object(status.health || object(status.runtime).connectivity);
+    var healthValue = health.verified === true || health.status === 'healthy'
+      ? { value: _('Работает'), kind: 'running', detail: _('Healthcheck подтверждён') }
+      : { value: _('Недоступно'), kind: 'warning', detail: _('Подтверждённый healthcheck отсутствует') };
+    return E('div', { id: 'monitoring-grid', 'class': 'status-grid monitoring-grid' }, [
+      linkStatusCard('card-dns-monitoring', _('Мониторинг DNS'), '#/dns-routing', dns.value, dns.detail, dns.kind, '⌁'),
+      linkStatusCard('card-healthcheck', _('Healthcheck'), '#/monitor', healthValue.value, healthValue.detail, healthValue.kind, '♥')
+    ]);
+  }
+  function eventRows(envelope) {
+    var raw = envelope && envelope.value;
+    var source = Array.isArray(raw) ? raw : object(raw);
+    var rows = Array.isArray(source) ? source : asArray(source.events || source.lines || source.items || source.rows || source.log);
+    return rows.map(function (row) {
+      if (typeof row === 'string') return { timestamp: null, level: 'info', message: row };
+      row = object(row);
+      return {
+        timestamp: row.timestamp || row.time || row.ts || row.createdAt,
+        level: row.level || row.severity || row.kind || 'info',
+        message: row.message || row.msg || row.text || row.detail || JSON.stringify(row)
+      };
+    }).filter(function (row) { return row.message; }).slice(-100);
+  }
+  function renderEvents() {
+    var envelope = data.events || {};
+    var body;
+    if (envelope.error) body = shell.statePanel({ title: _('Не удалось загрузить события'), message: envelope.error.message, kind: 'error' });
+    else {
+      var rows = eventRows(envelope);
+      body = rows.length ? E('div', { 'class': 'log-viewer', id: 'dashboard-logs' }, rows.map(function (row) {
+        return E('div', { 'class': 'log-entry' }, [
+          E('span', { 'class': 'log-time' }, format.timestamp(row.timestamp) || '—'),
+          E('span', { 'class': 'log-level' }, row.level),
+          E('span', { 'class': 'log-message' }, String(row.message))
+        ]);
+      })) : E('div', { 'class': 'log-viewer', id: 'dashboard-logs' }, shell.statePanel({ message: _('Событий пока нет'), kind: 'info' }));
+    }
+    if (!body) body = E('div', { 'class': 'log-viewer', id: 'dashboard-logs' }, _('Загрузка логов...'));
+    return shell.panel(_('Последние события'), E('div', {}, [body, E('a', { href: '#/logs', 'class': 'dashboard-all-logs' }, _('Все логи →'))]));
+  }
+  function quickRestart() {
+    if (running !== true) return;
+    ctx.api.service.stop().then(function () { return ctx.api.service.start(); }).then(reload).catch(showError);
+  }
+  function renderQuickActions() {
+    return shell.panel(_('Быстрые действия'), E('div', { 'class': 'actions-row' }, [
+      shell.button(_('Запустить'), 'primary', function () { ctx.api.service.start().then(reload).catch(showError); }, running === true, { id: 'dash-btn-start', 'data-action': 'quickStart' }),
+      shell.button(_('Остановить'), 'danger', function () { ctx.api.service.stop().then(reload).catch(showError); }, running !== true, { id: 'dash-btn-stop', 'data-action': 'quickStop' }),
+      shell.button(_('Перезапустить'), '', quickRestart, running !== true, { id: 'dash-btn-restart', 'data-action': 'quickRestart' })
+    ]));
+  }
+
   var warnings = Object.keys(data).map(function (key) {
     var message = format.text(data[key] && data[key].error && data[key].error.message);
     return message === null ? null : shell.statePanel({ title: _('Backend не сообщил данные'), message: message, kind: 'error' });
   }).filter(Boolean);
 
-  var pageHead = E('div', { 'class': 'z2m-phead z2m-overview-head' }, [
-    E('div', {}, [E('h1', {}, _('Обзор')), E('p', {}, _('Состояние обхода блокировок на этом роутере'))]),
-    E('div', { 'class': 'sp' }, [modeControl, shell.button(_('Как это работает'), 'sm', openHelp)])
+  var pageHead = E('header', { 'class': 'page-header' }, [
+    E('h1', { 'class': 'page-title' }, _('Главная')),
+    E('p', { 'class': 'page-description' }, _('Обзор состояния системы'))
   ]);
 
   function strategyMeta() {
@@ -336,21 +479,6 @@ function render(ctx) {
     if (head.length) children.push(E('div', { 'class': 'hd' }, head));
     if (hero.length) children.push(E('div', { 'class': 'bd z2m-hero' + (hero.length === 1 ? ' z2m-hero-single' : '') }, hero));
     return E('section', { 'class': 'z2m-panel z2m-overview-status' }, children);
-  }
-
-  function renderReadiness() {
-    var entries = [
-      { title: _('Zapret2'), response: data.status, state: running === true ? 'running' : running === false ? 'stopped' : 'unknown', body: running === true ? _('Сервис сообщает рабочее состояние.') : running === false ? _('Сервис остановлен.') : _('Backend не подтвердил состояние.') },
-      { title: _('Стратегия'), response: data.preview, state: data.preview && data.preview.error ? 'unavailable' : view.visible.strategy ? 'ready' : 'unknown', body: data.preview && data.preview.error ? _('Текущая стратегия недоступна в этом ответе.') : view.visible.strategy ? _('Есть подтверждённое состояние Strategy.') : _('Подтверждённая стратегия отсутствует.') },
-      { title: _('Проверка DNS-сервисов'), response: data.serviceDns, state: data.serviceDns && data.serviceDns.error ? 'unavailable' : 'ready', body: data.serviceDns && data.serviceDns.error ? _('Опциональный DNS provider не сообщил состояние.') : _('Backend вернул состояние DNS-сервисов.') }
-    ];
-    return E('div', { 'class': 'z2m-avatar-grid z2m-overview-readiness' }, entries.map(function (entry) {
-      var error = entry.response && entry.response.error;
-      return AvatarUi.card(entry.title, error ? AvatarUi.state('unavailable', { body: entry.body }) : E('p', { 'class': 'z2m-muted' }, entry.body), {
-        badge: AvatarUi.statusBadge(entry.state),
-        className: error ? 'unavailable' : ''
-      });
-    }));
   }
 
   var strategyOptions = catalog.map(function (candidate) {
@@ -465,8 +593,15 @@ function render(ctx) {
   return E('section', { 'class': 'z2m-view on', id: 'z2m-view-overview' }, compact([
     pageHead,
     warnings.length ? warnings : null,
-    renderStatusPanel(),
-    renderReadiness(),
+    E('section', { 'class': 'dashboard-section' }, [
+      renderStatusGrid(),
+      E('h2', { 'class': 'dashboard-section-title' }, _('VPN / Туннели')),
+      renderVpnGrid(),
+      E('h2', { 'class': 'dashboard-section-title' }, _('Мониторинг')),
+      renderMonitoringGrid()
+    ]),
+    renderQuickActions(),
+    renderEvents(),
     rowPanels.length ? E('div', { 'class': rowPanels.length > 1 ? 'z2m-row3' : 'z2m-row1' }, rowPanels) : null,
     advicePanel
   ]));
@@ -480,6 +615,6 @@ function unmount() {
 }
 
 return baseclass.extend({
-  id: 'overview', title: _('Обзор'), subtitle: _('Состояние обхода блокировок на этом роутере'),
+  id: 'overview', title: _('Главная'), subtitle: _('Обзор состояния системы'),
   load: load, render: render, mount: mount, unmount: unmount
 });

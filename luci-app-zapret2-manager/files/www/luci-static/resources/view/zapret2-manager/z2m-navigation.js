@@ -11,8 +11,9 @@ var GROUPS = [
   {
     id: 'home',
     label: _('Главная'),
+    hideSecondary: true,
     items: [
-      { id: 'dashboard', label: _('Обзор'), module: 'overview' }
+      { id: 'dashboard', label: _('Главная'), module: 'overview' }
     ]
   },
   {
