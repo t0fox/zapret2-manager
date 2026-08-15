@@ -380,11 +380,6 @@ function render(ctx) {
     ]));
   }
 
-  var warnings = Object.keys(data).map(function (key) {
-    var message = format.text(data[key] && data[key].error && data[key].error.message);
-    return message === null ? null : shell.statePanel({ title: _('Backend не сообщил данные'), message: message, kind: 'error' });
-  }).filter(Boolean);
-
   var pageHead = E('header', { 'class': 'page-header' }, [
     E('h1', { 'class': 'page-title' }, _('Главная')),
     E('p', { 'class': 'page-description' }, _('Обзор состояния системы'))
@@ -592,7 +587,6 @@ function render(ctx) {
   var rowPanels = compact([resourcePanel, rulesPanel]);
   return E('section', { 'class': 'z2m-view on', id: 'z2m-view-overview' }, compact([
     pageHead,
-    warnings.length ? E('div', { 'class': 'dashboard-warnings' }, warnings) : null,
     E('section', { 'class': 'dashboard-section' }, [
       renderStatusGrid(),
       E('h2', { 'class': 'dashboard-section-title' }, _('VPN / Туннели')),
