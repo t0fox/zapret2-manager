@@ -160,7 +160,17 @@ function primaryNavigation(model, activeId, onSelect, attrs) {
     (activeGroup.items || []).forEach(function (item) {
       var targetItems = item.children && item.children.length ? item.children : [item];
       if (item.children && item.children.length) {
-        var parent = E('span', { 'class': 'z2m-nav-parent' }, Format.text(item.label));
+        var parent = E('button', {
+          type: 'button',
+          role: 'tab',
+          'class': item.id === route ? 'on z2m-nav-parent' : 'z2m-nav-parent',
+          'aria-selected': item.id === route ? 'true' : 'false',
+          tabindex: item.id === route ? '0' : '-1',
+          'data-tab': item.id
+        }, Format.text(item.label));
+        parent.addEventListener('click', function () {
+          if (typeof onSelect === 'function') onSelect(item.id, item);
+        });
         secondary.appendChild(parent);
       }
       targetItems.forEach(function (target) {
