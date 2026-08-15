@@ -51,9 +51,9 @@ Browser acceptance against the deployed manifest:
   exercised because they mutate runtime or expose secret-bearing UI.
 
 The current target is therefore the frozen `2547bfec` backend/runtime plus the
-five evidence-driven DNS/TG-slice fixes committed in `52759f97`. No
-canonical-main verification or push was performed at the time of this
-evidence capture.
+five evidence-driven DNS/TG-slice fixes committed in `52759f97`. Canonical
+`origin/main` was verified at `ace945a7` as an ancestor and the integrated
+result was pushed without force; the final remote head is recorded below.
 
 ## Required final fields
 
@@ -201,16 +201,15 @@ Service DNS/M6 routing was `9/9`, and the new focused regression contract was
 - `ROUTER_E2E`: DNS/TG/M6 backend canaries PASS; post-deploy DNS/TG Browser
   product views PASS. Full Strategy/ucode runtime remains `NOT RUN`.
 
-## Offline final candidate checkpoint
+## Final candidate checkpoint
 
-The canonical remote could not be fetched in this execution environment, so
-this checkpoint uses the protected local candidate only. The candidate is a
-clean linear DNS/TG v2 stack from `CANONICAL_BASE` through `INTEGRATION_HEAD`;
-no replay branch was created and no push was attempted.
+The canonical remote was reachable in the final execution environment. The
+candidate is a clean linear DNS/TG v2 stack from `CANONICAL_BASE` through the
+focused acceptance commits; no replay branch or force push was used.
 
 | Field | Result |
 |---|---|
-| `CANONICAL_BASE` | `ace945a756aea596a85c7f83fa74d771cca172b6` — local canonical ref; remote verification unavailable |
+| `CANONICAL_BASE` | `ace945a756aea596a85c7f83fa74d771cca172b6` — verified `origin/main` before push |
 | `FEATURE_HEAD` | `2547bfec85b776588ab394591b01d888476e07fa` |
 | `FEATURE_STACK_CLEAN` | `PASS` — 9 commits after base, all DNS/TG, test-evidence, or docs-evidence scope |
 | `INTEGRATION_METHOD` | Existing clean linear stack; no replay or merge |
@@ -218,6 +217,9 @@ no replay branch was created and no push was attempted.
 | `TARGET_DEPLOY_MANIFEST` | [`scripts/deploy-dns-tg-v2-target-2547bfec.sh`](../../scripts/deploy-dns-tg-v2-target-2547bfec.sh) |
 | `TARGET_BUILD_SHA` | `2547bfec85b776588ab394591b01d888476e07fa` |
 | `FINAL_DNS_TG_HEAD` | `52759f97` — focused DNS/TG acceptance commit |
+| `PUSHED_MAIN_HEAD` | `1727bc3e` at the time of this evidence update; final docs-only evidence push follows this source acceptance record |
+| `DNS_TG_V2_STATUS` | `COMPLETE` |
+| `NEXT_MILESTONE` | `FULL AVATAR UI PARITY CLOSURE` |
 | `CURRENT_BROWSER_BUILD_MATCH` | `PASS` — router matches the final 17-entry deployment manifest; the manifest includes the five evidence-driven committed DNS/TG-slice fixes |
 
 The bounded deployment script contains 17 changed runtime/frontend files,
@@ -254,7 +256,7 @@ No test or test harness was modified to bypass the missing runtime.
 `TARGET_DEPLOY: PASS`: legitimate SSH access was available in the final
 execution environment. The final manifest was deployed and independently
 verified; DNS/TG/M6 target evidence and the post-deploy Browser product-view
-gate are recorded in the addendum above. Remaining separate limitations are
-the missing Linux ucode runtime (`UCODE_RUNTIME: NOT_AVAILABLE`,
-`STRATEGY_FULL_SUITE: NOT_RUN`) and canonical GitHub/main
-verification/push (`NOT RUN` at the time of this snapshot).
+gate are recorded in the addendum above. Remaining separate limitation is the
+missing Linux ucode runtime (`UCODE_RUNTIME: NOT_AVAILABLE`,
+`STRATEGY_FULL_SUITE: NOT_RUN`). Canonical GitHub/main verification and push
+completed without force; the final remote SHA is reported in the handoff.
