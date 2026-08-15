@@ -81,6 +81,32 @@ function statusState(initial) {
   if (value === 'stopped') return { label: _('остановлена'), kind: 'r' };
   return { label: value || _('неизвестно'), kind: 'o' };
 }
+function canonicalProductState(value) {
+  if (!value || value.error) return null;
+  var dnsRunning = value.applied && value.applied.global && value.applied.global.running === true;
+  var dnsObserved = value.observed && value.observed.dnsmasq && value.observed.dnsmasq.running === true;
+  var tgRunning = value.status === 'running' || value.observed && value.observed.running === true || value.runtime && value.runtime.running === true;
+  if (dnsRunning || dnsObserved || tgRunning) return 'running';
+  if (value.ok === true) return 'stopped';
+  return null;
+}
+function canonicalAppStatus() {
+  return Promise.all([
+    Api.dns.product.status().catch(function () { return null; }),
+    Api.tg.product.status().catch(function () { return null; })
+  ]).then(function (values) {
+    var state = null;
+    values.some(function (value) {
+      state = canonicalProductState(value);
+      return state === 'running';
+    });
+    if (!state) values.some(function (value) {
+      state = canonicalProductState(value);
+      return !!state;
+    });
+    return state ? { serviceState: state, runtime: { state: state } } : null;
+  });
+}
 function detectedVersion(initial) {
   var meta = initial && initial.meta || {};
   var value = meta.managerVersion || meta.packageVersion || initial && initial.packageVersion;
@@ -139,7 +165,13 @@ function renderSemanticDiff(draft, applied, extraBlockers) {
 
 return L.view.extend({
   load: function () {
-    return Api.service.status().catch(function (error) { return { error: Api.normalizeError(error) }; });
+    return canonicalAppStatus().then(function (canonical) {
+      return canonical || Api.service.status();
+    }).catch(function (error) {
+      return Api.service.status().catch(function (serviceError) {
+        return { error: Api.normalizeError(serviceError || error) };
+      });
+    });
   },
 
   render: function (initial) {

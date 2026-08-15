@@ -341,7 +341,7 @@
 .z2m-dns-toggle-control{height:32px;gap:10px}.z2m-dns-toggle-control .z2m-sw{margin:-6px 0}
 .z2m-app .z2m-panel .bd.tight table.t th,.z2m-app .z2m-panel .bd.tight table.t td{padding-left:14px;padding-right:14px}
 .z2m-dns-check-result + .z2m-btnrow{justify-content:flex-start}.z2m-dns-check-result + .z2m-btnrow .z2m-btn{width:auto;flex:none}
-@media(max-width:760px){.z2m-global-dns-form{padding-bottom:20px}.z2m-dns-form-row{grid-template-columns:1fr;row-gap:4px}.z2m-dns-form-row>label{justify-self:start;text-align:left}.z2m-dns-form-row select{width:100%;max-width:none}.z2m-dns-form-row .z2m-hint{white-space:normal}}
+@media(max-width:800px){.z2m-global-dns-form{padding-bottom:20px}.z2m-dns-form-row{grid-template-columns:1fr;row-gap:4px}.z2m-dns-form-row>label{justify-self:start;text-align:left}.z2m-dns-form-row select{width:100%;max-width:none}.z2m-dns-form-row .z2m-hint{white-space:normal}}
 
 .z2m-dns-active-badge{padding:4px 9px;border:1px solid rgba(70,180,120,.45);border-radius:999px;background:rgba(70,180,120,.12);color:#7ee2a8}
 

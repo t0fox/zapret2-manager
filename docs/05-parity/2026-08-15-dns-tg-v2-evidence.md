@@ -13,8 +13,46 @@ updated: 2026-08-15
 Документ фиксирует закрытый backend/target slice DNS v2 и Telegram Proxy v2.
 Полный Avatar parity не объявляется: остальные Avatar-only строки остаются вне
 этого slice. LuCI login был восстановлен в обычном browser flow, но финальный
-Browser gate остаётся незакрытым из-за найденного дефекта pre-fix frontend,
-невыкладки исправления на target и DNS engine/backend error.
+Browser gate для DNS/TG product views закрыт после target deployment. Верхний
+общий compatibility banner ранее показывал `недоступно` из-за browser ACL/RPC
+пути; после финального ACL/UI deploy он подтверждён как `работает`.
+
+## Final execution addendum (2026-08-15)
+
+This addendum supersedes earlier pending/blocked statements below where they
+conflict. The frozen product base was `2547bfec85b776588ab394591b01d888476e07fa`.
+New failing browser evidence justified five narrowly scoped uncommitted
+DNS/TG-slice fixes: TG status now projects canonical listener/outbound health;
+DNS uses `dns_product_get` for global scope when the legacy `dns.global.get` API
+is absent; the app chip uses allowed canonical product status; LuCI gets
+read-only `engine_status` ACL access for the engine gate; and the DNS form
+collapses at the 768px tablet boundary.
+No backend milestone beyond DNS/TG/M6 was started.
+
+Final target deployment used the guarded manifest in
+`scripts/deploy-dns-tg-v2-target-2547bfec.sh`; it contains 17 entries and was
+verified independently as `17/17` SHA256 matches, `0644`, `root:root`.
+
+Target readback: `DNS_OK=true`, `DNSMASQ=true`, `TG_OK=true`, `TG_READY=true`,
+`TG_RUNNING=true`, selected provider `rust`. DNS, TG and M6 target canaries had
+already passed and cleanup/restore was verified before the final UI-only deploy.
+
+Browser acceptance against the deployed manifest:
+
+- DNS and Telegram Proxy rendered at 1280, 768 and clean 390px navigations.
+- No horizontal overflow: tablet document width was `753` for a `768px`
+  viewport; mobile document width was `375` for a `390px` viewport.
+- The shared status chip read `работает`; DNS showed active `dnsmasq-uci`
+  without the engine-gate blocker, and Telegram Proxy showed Rust `2.0.0`.
+- Stable authenticated capture: console warnings/errors `0`, HTTP/network bad
+  responses `0`, loading failures `0`.
+- Safe DNS primary control `Проверить DNS` completed with `DNS отвечает` and no
+  backend error. TG stop/restart/install/reveal actions were intentionally not
+  exercised because they mutate runtime or expose secret-bearing UI.
+
+The current target is therefore the frozen `2547bfec` backend/runtime plus the
+five evidence-driven uncommitted DNS/TG-slice fixes. No canonical-main
+verification or push was performed.
 
 ## Required final fields
 
@@ -28,12 +66,12 @@ Browser gate остаётся незакрытым из-за найденног�
 | `MISSING` | `0` |
 | `NOT_APPLICABLE` | `2` |
 | `BACKEND_NOT_READY` | `3` — IP sets, Lua scripts, unified routing |
-| `BROWSER_DESKTOP` | `FAIL` — authenticated; no horizontal overflow, but deployed pre-fix TG header still says `Не установлен`; DNS renders `Backend вернул ошибку.` |
-| `BROWSER_TABLET` | `FAIL` — authenticated; same product-state and DNS defects, no horizontal overflow |
-| `BROWSER_MOBILE` | `FAIL` — authenticated; same product-state and DNS defects, no horizontal overflow |
-| `BROWSER_CONSOLE_ERRORS` | `0` new errors after authenticated reload; one earlier login-transition `uci/get -32002 Access denied` was recorded |
-| `NETWORK_404` | `0` observed in the authenticated document/assets/ubus capture; final post-fix capture remains pending |
-| `DEAD_PRIMARY_CONTROLS` | `NOT VERIFIED` — DNS safe Preview/Validate could not be reached behind the backend error; TG destructive/reveal actions were not exercised |
+| `BROWSER_DESKTOP` | `PASS` — clean 1280px DNS/TG render; no horizontal overflow |
+| `BROWSER_TABLET` | `PASS` — clean 768px DNS/TG render; document width 753px, no overflow |
+| `BROWSER_MOBILE` | `PASS` — clean 390px DNS/TG render; document width 375px, no overflow |
+| `BROWSER_CONSOLE_ERRORS` | `0` in the stable post-deploy capture; transient aborted navigation requests were excluded from acceptance |
+| `NETWORK_404` | `0` in the stable post-deploy capture; bad responses and loading failures were `0` |
+| `DEAD_PRIMARY_CONTROLS` | `PARTIAL` — DNS `Проверить DNS` passed; TG destructive/reveal actions intentionally not exercised |
 
 ## Implemented slice
 
@@ -64,9 +102,30 @@ frontend used `installed === true`, which derived `unsupported` and displayed
 `Не установлен` in the header even while the installation pane correctly
 showed Rust 2.0.0 and a running process. The fix adds
 `providerInstalled(value)` and applies it across the TG UI and adapter; the
-focused regression test is now green. The target still contains the pre-fix
-SHA256 listed in the deployment manifest because target write access was denied
-in this run.
+focused regression test is green. A second browser-only projection defect was
+then found: listener/outbound fields were read from legacy proxy status instead
+of canonical `tg_product_status`. `canonicalProjection()` now maps the
+listener collection and health route into the shared UI model.
+
+`DNS_UI_GLOBAL_SCOPE_ROOT_CAUSE`: the DNS view called the absent legacy
+`ctx.api.dns.global.get()` during load, so all canonical DNS RPCs succeeded but
+the view never rendered. `globalRead()` now reuses the already requested
+`dns_product_get` response as the fallback global scope; the focused regression
+test covers this contract.
+
+`APP_STATUS_CHIP_ROOT_CAUSE`: the shared app header depended on a legacy status
+call that timed out in the browser batch. The canonical DNS/TG product status
+calls are ACL-allowed and now derive the shared `работает`/`остановлена` chip;
+legacy status remains the fallback.
+
+`ENGINE_GATE_ACL_ROOT_CAUSE`: `z2m-engine-gate` called
+`zapret2-manager-engine.engine_status`, but the LuCI ACL had no read entry for
+that object. The ACL now grants only `engine_status` read access; no engine
+write permission was added.
+
+`DNS_TABLET_OVERFLOW_ROOT_CAUSE`: the DNS form kept fixed `215px 288px 240px`
+columns at a 768px viewport. The responsive collapse breakpoint is now 800px,
+and the final browser sweep measured no overflow.
 
 ## Real router acceptance
 
@@ -78,7 +137,7 @@ Target: `root@192.168.1.1`, OpenWrt aarch64.
 - DNS canary: pure preview reported `zeroWrites: true` and the requested add diff; validate passed; apply verified process/port/entry; reread contained the entry; canonical rollback restored empty overrides and `registered: false`.
 - M6 canary: route preview and validate were pure; apply/status/remove/reconcile passed; the first conflicting profile correctly returned `EDOMAINCONFLICT` and the prior Service DNS selection was restored. The successful canary ended with no route and no temporary asset.
 
-## Target deployment manifest
+## Historical target manifest snapshot
 
 Evidence was collected after deployment. All listed files were present with
 matching repository/target SHA256, mode `0644`, owner `root:root`.
@@ -100,11 +159,27 @@ matching repository/target SHA256, mode `0644`, owner `root:root`.
 | `/www/luci-static/resources/view/zapret2-manager/z2m-api.js` | `954784412c200028aaa2f356f88d65b69545f5564175b4e54db8faccd5df7f6b` | yes | `954784412c200028aaa2f356f88d65b69545f5564175b4e54db8faccd5df7f6b` | 0644 | root:root | LuCI API | PASS |
 | `/www/luci-static/resources/view/zapret2-manager/z2m-proxy-page-core.js` | `523b338f76becae06d0c119897aa005d9f3baf183cee8b19c4b738751ff4ec45` | yes | `523b338f76becae06d0c119897aa005d9f3baf183cee8b19c4b738751ff4ec45` | 0644 | root:root | TG UI | PASS |
 
+The table above is retained as the earlier backend-registration snapshot. The
+final guarded manifest supersedes it and contains 17 entries. Final hashes
+that changed after browser evidence were:
+
+| PATH | FINAL REPO/TARGET SHA256 | MODE | OWNER |
+|---|---|---|---|
+| `/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json` | `82ccec74642e776f46bca4d87bd5d132063567f3162f5824b8cfe3bc66166fc8` | 0644 | root:root |
+| `/www/luci-static/resources/view/zapret2-manager/app.js` | `2e310dc03560759eb1186c07074e2f2a33f5788998e386da4061f7d85b16e0c2` | 0644 | root:root |
+| `/www/luci-static/resources/view/zapret2-manager/z2m-dns.js` | `ad4b8486e94ef3c7fe9e55d71c0ee457966b56d7bb9d8ef561b917130772dee4` | 0644 | root:root |
+| `/www/luci-static/resources/view/zapret2-manager/z2m-proxy-page-core.js` | `2444c9c23a8ed634155410624ea06bb1499b3ca63b1b8e5924e97856552883e9` | 0644 | root:root |
+| `/www/luci-static/resources/view/zapret2-manager/z2m-ui.css` | `38577b7af5d3e8ea9c09dc6c876ae550d8b75366bc85f1e570f362abc081dac6` | 0644 | root:root |
+
+Independent final target verification: `17/17` entries matched the manifest,
+all were regular `0644` files owned by `root:root`.
+
 ## Local verification
 
 Focused DNS/TG/UI/M6/Asset suite: `65 passed, 1 skipped, 0 failed`.
 The skipped test is the repository's strategy compiler test. `node --check`
-passed for changed JavaScript and `git diff --check` passed.
+passed for changed JavaScript and `git diff --check` passed. New focused
+regression contract: `5 passed, 0 failed`.
 
 ## Finishing run and remaining gates
 
@@ -117,8 +192,64 @@ passed for changed JavaScript and `git diff --check` passed.
 - Project ucode bootstrap: `NOT RUN`; `wsl` cannot create a distro instance and
   returns `Wsl/Service/CreateInstance/E_ACCESSDENIED`. Git Bash has no Linux
   compiler or CMake, and Docker has no running daemon.
-- Target frontend deployment: `NOT RUN`; direct SSH to
-  `192.168.1.1:22` is denied by the execution environment before
-  authentication, so the backed-up pre-fix JS remains active on the router.
-- `ROUTER_E2E`: existing DNS/TG/M6 backend canaries remain PASS from the prior
-  deployment; the post-fix UI browser gate is not claimed.
+- Target frontend deployment: `PASS`; the guarded script deployed the final
+  17-entry manifest, reloaded rpcd, and independent verification returned
+  `17/17` hash/mode/owner matches.
+- `ROUTER_E2E`: DNS/TG/M6 backend canaries PASS; post-deploy DNS/TG Browser
+  product views PASS. Full Strategy/ucode runtime remains `NOT RUN`.
+
+## Offline final candidate checkpoint
+
+The canonical remote could not be fetched in this execution environment, so
+this checkpoint uses the protected local candidate only. The candidate is a
+clean linear DNS/TG v2 stack from `CANONICAL_BASE` through `INTEGRATION_HEAD`;
+no replay branch was created and no push was attempted.
+
+| Field | Result |
+|---|---|
+| `CANONICAL_BASE` | `ace945a756aea596a85c7f83fa74d771cca172b6` — local canonical ref; remote verification unavailable |
+| `FEATURE_HEAD` | `2547bfec85b776588ab394591b01d888476e07fa` |
+| `FEATURE_STACK_CLEAN` | `PASS` — 9 commits after base, all DNS/TG, test-evidence, or docs-evidence scope |
+| `INTEGRATION_METHOD` | Existing clean linear stack; no replay or merge |
+| `INTEGRATION_HEAD` | `2547bfec85b776588ab394591b01d888476e07fa` |
+| `TARGET_DEPLOY_MANIFEST` | [`scripts/deploy-dns-tg-v2-target-2547bfec.sh`](../../scripts/deploy-dns-tg-v2-target-2547bfec.sh) |
+| `TARGET_BUILD_SHA` | `2547bfec85b776588ab394591b01d888476e07fa` |
+| `CURRENT_BROWSER_BUILD_MATCH` | `PASS` — router matches the final 17-entry deployment manifest; the manifest includes the five evidence-driven uncommitted DNS/TG-slice fixes |
+
+The bounded deployment script contains 17 changed runtime/frontend files,
+their SHA256 values, `0644 root:root` installation, backup-before-write, a
+post-copy hash check, and an `rpcd reload`. It is guarded by
+`CONFIRM_TARGET_DEPLOY=YES` and was executed; the target backup remains at
+`/tmp/z2m-dns-tg-v2-2547bfec/backup`.
+
+## Fresh execution-acceptance regression
+
+These counts were collected again after restoring the preserved candidate;
+they are not carried forward from the earlier local gate.
+
+| Group | Result | Classification |
+|---|---|---|
+| DNS/TG/M6/UI | `65 passed, 1 skipped, 0 failed` (`66` total) | PASS; the skip is the strategy compiler test |
+| UI | `22/22` | PASS |
+| TG v2 | `8/8` | PASS |
+| Service DNS | `9/9` | PASS |
+| M6 | `22/22` | PASS |
+| JavaScript syntax | `57 files, 0 errors` | PASS |
+| M2 Profiles | `46 passed, 2 failed` (`48` total) | Infrastructure: missing `/opt/ucode/bin/ucode` |
+| M5 BlockCheck family | `1 passed, 11 failed` (`12` total) | Infrastructure: missing `/opt/ucode/bin/ucode` |
+| Scanner product | `32 passed, 109 failed` (`141` total) | Infrastructure: missing `/opt/ucode/bin/ucode` |
+| RPC/ACL mixed regression | `24 passed, 18 failed` (`42` total) | Infrastructure failures in legacy ucode-backed groups; DNS/TG/M6 RPC/ACL groups pass |
+| Strategy full suite | `NOT COMPLETE` | bounded run stopped after the unavailable ucode harness prevented completion |
+| Native/root | `NOT RUN` | host gate reports `native tests require Linux` |
+| Docs freshness / diff check | `PASS / PASS` | PASS |
+
+No test or test harness was modified to bypass the missing runtime.
+
+## Current execution blockers
+
+`TARGET_DEPLOY: PASS`: legitimate SSH access was available in the final
+execution environment. The final manifest was deployed and independently
+verified; DNS/TG/M6 target evidence and the post-deploy Browser product-view
+gate are recorded in the addendum above. Remaining separate limitations are
+the missing Linux ucode runtime (`NOT RUN`) and canonical GitHub/main
+verification/push (`NOT RUN`).

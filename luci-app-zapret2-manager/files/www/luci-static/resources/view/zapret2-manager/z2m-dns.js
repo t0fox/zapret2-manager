@@ -382,11 +382,22 @@ function routingAddress(provider) {
 }
 
 /* ---- load ---- */
+function globalRead(api, productRead) {
+  if (api.dns && api.dns.global && api.dns.global.get)
+    return api.dns.global.get();
+  return (productRead || api.dns.product.get()).then(function (answer) {
+    var desired = answer && answer.desired && answer.desired.global || {};
+    var applied = answer && answer.applied && answer.applied.global || {};
+    var revision = answer && answer.revision && answer.revision.global != null ? answer.revision.global : 0;
+    return Object.assign({}, applied, { draft: desired, revision: revision });
+  });
+}
 function load(ctx) {
+  var productRead = ctx.api.dns.product.get();
   return Promise.allSettled([
-    ctx.api.dns.product.get(), ctx.api.dns.product.providers(), ctx.api.dns.product.status(),
+    productRead, ctx.api.dns.product.providers(), ctx.api.dns.product.status(),
     ctx.api.dns.get(), ctx.api.dns.serviceStatus(), ctx.api.dns.serviceProviders(),
-    ctx.api.dns.components(), ctx.api.dns.providers(), ctx.api.dns.global.get(), ctx.api.services.catalogList()
+    ctx.api.dns.components(), ctx.api.dns.providers(), globalRead(ctx.api, productRead), ctx.api.services.catalogList()
   ]).then(function (results) {
     return {
       product: settled(results[0], ctx.api), productProviders: settled(results[1], ctx.api), productStatus: settled(results[2], ctx.api),

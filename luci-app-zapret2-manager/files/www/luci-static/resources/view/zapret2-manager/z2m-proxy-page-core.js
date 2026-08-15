@@ -176,6 +176,23 @@ function providerInstalled(value) {
   if (Array.isArray(value)) return value.some(function (item) { return item && item.installed === true; });
   return value === true;
 }
+function canonicalProjection(status) {
+  status = object(status);
+  var runtime = object(status.runtime);
+  var health = object(status.health);
+  var route = object(health.route);
+  var upstream = object(route.upstream);
+  var listeners = array(runtime.listeners);
+  return {
+    process: status.status === 'running' || runtime.running === true || object(status.observed).running === true,
+    listener: listeners.some(function (item) {
+      return item && item.address && item.port !== undefined;
+    }),
+    outbound: upstream.ok === true || status.outbound === true,
+    activeConnections: runtime.activeConnections,
+    drift: status.drift === true
+  };
+}
 function providerCatalog(data) {
   return array(object(data.providerCatalog && data.providerCatalog.value).providers);
 }
@@ -519,10 +536,16 @@ function activityPane(ctx, data) {
 function render(ctx) {
   var data = ctx.data || {};
   var pstatus = providerStatus(data);
+  var canonical = canonicalProjection(pstatus);
   var merged = Object.assign({}, object(data.status && data.status.value), object(data.health && data.health.value), {
     capabilities: object(data.capabilities && data.capabilities.value),
     supported: object(data.capabilities && data.capabilities.value).supported,
-    installed: providerInstalled(pstatus.installed)
+    installed: providerInstalled(pstatus.installed),
+    process: canonical.process,
+    listener: canonical.listener,
+    outbound: canonical.outbound,
+    activeConnections: canonical.activeConnections,
+    drift: canonical.drift
   });
   var normalized = ProxyModel.normalize(merged);
   if (state.pane == null) state.pane = providerInstalled(pstatus.installed) ? 'status' : 'install';
