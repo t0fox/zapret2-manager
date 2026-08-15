@@ -59,18 +59,14 @@ function load(ctx) {
     ctx.api.strategy.preview(),
     ctx.api.orchestra.runHistory(),
     ctx.api.orchestra.status(),
-    ctx.api.dns.serviceStatus(),
-    edit(ctx.api.monitor.eventsTail, { limit: 100 }),
-    ctx.api.tg.product.status()
+    edit(ctx.api.monitor.eventsTail, { limit: 100 })
   ]).then(function (results) {
     return {
       status: settled(results[0], ctx.api),
       preview: settled(results[1], ctx.api),
       history: settled(results[2], ctx.api),
       orchestra: settled(results[3], ctx.api),
-      serviceDns: settled(results[4], ctx.api),
-      events: settled(results[5], ctx.api),
-      telegram: settled(results[6], ctx.api)
+      events: settled(results[4], ctx.api)
     };
   });
 }
@@ -263,16 +259,6 @@ function render(ctx) {
       detail ? E('div', { 'class': 'status-card-detail' }, detail) : null
     ]);
   }
-  function linkStatusCard(id, label, href, value, detail, kind, icon) {
-    return E('a', { id: id, href: href, 'class': 'status-card status-card-link' }, [
-      E('div', { 'class': 'status-card-header' }, [
-        E('span', { 'class': 'status-card-icon', 'aria-hidden': 'true' }, icon || '•'),
-        E('span', { 'class': 'status-card-label' }, label)
-      ]),
-      E('div', { 'class': 'status-card-value ' + (kind || '') }, value),
-      detail ? E('div', { 'class': 'status-card-detail' }, detail) : null
-    ]);
-  }
   function processValue() {
     var process = object(status.runtime && status.runtime.process);
     if (process.found === true || running === true) return { value: _('Работает'), kind: 'running', detail: process.pid ? 'PID ' + process.pid : _('Runtime подтверждён') };
@@ -310,31 +296,6 @@ function render(ctx) {
       statusCard('card-autostart', _('Автозапуск'), autostart.value, autostart.detail, autostart.kind, '↻'),
       statusCard('card-system', _('Система'), system.value, system.detail, system.kind, '⌂'),
       statusCard('card-zapret-ver', 'zapret2', version.value, version.detail, version.kind, '◆')
-    ]);
-  }
-  function renderVpnGrid() {
-    var telegram = optionalCardValue(data.telegram, ['running', 'installed', 'enabled', 'state']);
-    var unavailable = { value: _('Недоступно'), kind: 'warning', detail: _('Backend/API для компонента не подключён') };
-    return E('div', { id: 'vpn-grid', 'class': 'status-grid vpn-grid' }, [
-      linkStatusCard('card-warp', _('WARP / MASQUE'), '#/warp', unavailable.value, unavailable.detail, unavailable.kind, '↗'),
-      linkStatusCard('card-opera', _('Opera Proxy'), '#/opera-proxy', unavailable.value, unavailable.detail, unavailable.kind, '◌'),
-      linkStatusCard('card-amneziawg', _('AmneziaWG'), '#/amneziawg', unavailable.value, unavailable.detail, unavailable.kind, '⌁'),
-      linkStatusCard('card-singbox', _('sing-box'), '#/sing-box', unavailable.value, unavailable.detail, unavailable.kind, '◇'),
-      linkStatusCard('card-mihomo', _('mihomo'), '#/mihomo', unavailable.value, unavailable.detail, unavailable.kind, '◈'),
-      linkStatusCard('card-telegram', _('Telegram'), '#/proxy', telegram.value, telegram.detail, telegram.kind, '➤')
-    ]);
-  }
-  function renderMonitoringGrid() {
-    var dns = envelopeError('serviceDns')
-      ? { value: _('Недоступно'), kind: 'warning', detail: _('DNS service status недоступен') }
-      : { value: _('Доступен'), kind: 'running', detail: _('Состояние DNS получено backend') };
-    var health = object(status.health || object(status.runtime).connectivity);
-    var healthValue = health.verified === true || health.status === 'healthy'
-      ? { value: _('Работает'), kind: 'running', detail: _('Healthcheck подтверждён') }
-      : { value: _('Недоступно'), kind: 'warning', detail: _('Подтверждённый healthcheck отсутствует') };
-    return E('div', { id: 'monitoring-grid', 'class': 'status-grid monitoring-grid' }, [
-      linkStatusCard('card-dns-monitoring', _('Мониторинг DNS'), '#/dns-routing', dns.value, dns.detail, dns.kind, '⌁'),
-      linkStatusCard('card-healthcheck', _('Healthcheck'), '#/monitor', healthValue.value, healthValue.detail, healthValue.kind, '♥')
     ]);
   }
   function eventRows(envelope) {
@@ -560,44 +521,13 @@ function render(ctx) {
     rulesPanel = shell.panel(_('Точечные правила'), E('div', {}, rulesBody), _('важнее глобальной стратегии'));
   }
 
-  function adviceAction(item) {
-    if (item.action === 'report') return openReport;
-    if (item.action === 'refresh') return reload;
-    return null;
-  }
-  var advicePanel = null;
-  if (view.visible.advice) {
-    var adviceRows = view.advice.map(function (item) {
-      var title = format.text(item.title);
-      var detail = format.text(item.detail);
-      if (title === null && detail === null) return null;
-      var handler = adviceAction(item);
-      return E('div', { 'class': 'z2m-advice-row' }, compact([
-        E('span', { 'class': 'z2m-dot ' + item.kind, 'aria-hidden': 'true' }),
-        E('div', { 'class': 'z2m-advice-copy' }, compact([
-          title !== null ? E('div', { 'class': 'tt' }, title) : null,
-          detail !== null ? E('div', { 'class': 'dd' }, detail) : null
-        ])),
-        handler ? E('div', { 'class': 'sp' }, shell.button(_('Открыть'), 'sm', handler)) : null
-      ]));
-    }).filter(Boolean);
-    if (adviceRows.length) advicePanel = shell.panel(_('Что стоит сделать'), E('div', { 'class': 'z2m-advice' }, adviceRows));
-  }
-
   var rowPanels = compact([resourcePanel, rulesPanel]);
   return E('section', { 'class': 'z2m-view on', id: 'z2m-view-overview' }, compact([
     pageHead,
-    E('section', { 'class': 'dashboard-section' }, [
-      renderStatusGrid(),
-      E('h2', { 'class': 'dashboard-section-title' }, _('VPN / Туннели')),
-      renderVpnGrid(),
-      E('h2', { 'class': 'dashboard-section-title' }, _('Мониторинг')),
-      renderMonitoringGrid()
-    ]),
+    renderStatusGrid(),
     renderQuickActions(),
     renderEvents(),
-    rowPanels.length ? E('div', { 'class': rowPanels.length > 1 ? 'z2m-row3' : 'z2m-row1' }, rowPanels) : null,
-    advicePanel
+    rowPanels.length ? E('div', { 'class': rowPanels.length > 1 ? 'z2m-row3' : 'z2m-row1' }, rowPanels) : null
   ]));
 }
 

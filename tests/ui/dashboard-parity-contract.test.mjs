@@ -11,12 +11,12 @@ test('P01 Dashboard follows the frozen donor composition and order', () => {
     'page-header', 'Главная', 'Обзор состояния системы', 'status-grid',
     'card-nfqws', 'nfqws2', 'card-strategy', 'Стратегия',
     'card-autostart', 'Автозапуск', 'card-system', 'Система',
-    'card-zapret-ver', 'zapret2', 'vpn-grid', 'monitoring-grid',
+    'card-zapret-ver', 'zapret2',
     'Быстрые действия', 'dash-btn-start', 'dash-btn-stop',
     'dash-btn-restart', 'Последние события', 'dashboard-logs'
   ];
   for (const marker of required) assert.match(page, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `missing Dashboard marker: ${marker}`);
-  const order = ['pageHead,', '      renderStatusGrid(),', '      renderVpnGrid(),', '      renderMonitoringGrid()', '    renderQuickActions(),', '    renderEvents(),'];
+  const order = ['pageHead,', 'renderStatusGrid(),', 'renderQuickActions(),', 'renderEvents(),', 'rowPanels.length ?'];
   let previous = -1;
   for (const marker of order) {
     const current = page.indexOf(marker, previous + 1);
@@ -26,6 +26,10 @@ test('P01 Dashboard follows the frozen donor composition and order', () => {
   assert.doesNotMatch(page, /z2m-overview-readiness|Проверка DNS-сервисов/);
   assert.doesNotMatch(page, /dashboard-warnings/);
   assert.doesNotMatch(page, /warnings\.length \? warnings : null/);
+  assert.doesNotMatch(page, /renderVpnGrid|renderMonitoringGrid|VPN \/ Туннели|Мониторинг DNS|Healthcheck/);
+  assert.doesNotMatch(page, /Что стоит сделать|advicePanel|z2m-advice/);
+  assert.match(page, /page-title/);
+  assert.match(page, /page-description/);
 });
 
 test('P01 Dashboard keeps Z2M APIs and the existing resource checker', () => {
@@ -35,6 +39,8 @@ test('P01 Dashboard keeps Z2M APIs and the existing resource checker', () => {
   assert.match(page, /ctx\.api\.monitor\.eventsTail/);
   assert.match(page, /ctx\.api\.orchestra\.runStart/);
   assert.match(page, /ctx\.api\.orchestra\.runStatus/);
+  assert.doesNotMatch(page, /ctx\.api\.dns\.serviceStatus/);
+  assert.doesNotMatch(page, /ctx\.api\.tg\.product\.status/);
   assert.doesNotMatch(page, /['"]\/api\//);
   assert.doesNotMatch(page, /fetch\s*\(/);
 });

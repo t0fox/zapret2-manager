@@ -89,9 +89,9 @@
 .z2m-app select{max-width:220px;cursor:pointer}
 
 /* P01 Dashboard: frozen Avatar composition adapted to the LuCI shell. */
-.z2m-view#z2m-view-overview .page-header{margin-bottom:24px}
+.z2m-view#z2m-view-overview .page-header{display:block;margin:0 0 24px;padding:0}
 .z2m-view#z2m-view-overview .page-title{margin:0 0 4px;color:var(--tx);font-size:22px;font-weight:600;line-height:1.25;letter-spacing:-.2px}
-.z2m-view#z2m-view-overview .page-description{margin:0;color:var(--tx2);font-size:13px}
+.z2m-view#z2m-view-overview .page-description{display:block;margin:8px 0 0;color:var(--tx2);font-size:13px;line-height:1.4}
 .z2m-view#z2m-view-overview .dashboard-section{margin-bottom:20px}
 .z2m-view#z2m-view-overview .dashboard-section-title{margin:20px 0 12px;color:var(--tx);font-size:15px;font-weight:600}
 .z2m-view#z2m-view-overview .status-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-bottom:20px}
