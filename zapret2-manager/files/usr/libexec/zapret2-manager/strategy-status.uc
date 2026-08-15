@@ -33,7 +33,8 @@ function identity_from(selected, supplied, catalog) {
    revisionMismatch: supplied.revision != null && supplied.revision != selected.revision,
    name: type(supplied.name) == 'string' ? supplied.name : selected.id
   };
-  let entry = object(catalog) && object(catalog.winners) ? catalog.winners[selected.id] : null;
+  if (!object(catalog)) return { available: false, name: selected.id, catalogUnavailable: true };
+  let entry = object(catalog.winners) ? catalog.winners[selected.id] : null;
   let strategy = null;
   try { strategy = catalog_entry_to_strategy(entry); } catch (e) { strategy = null; }
    return strategy != null ? { available: selected.revision == 0, revision: 0, revisionMismatch: selected.revision != 0, name: strategy.name || selected.id }
@@ -135,18 +136,21 @@ function read_volatile() {
   reconciliation: reconciliationRead ? { unreadable: true } : reconciliation };
 }
 
-export const collect_strategy_status = function(observations) {
+export const collect_strategy_status = function(observations, options) {
  observations = observations || {};
+ options = options || {};
  let selection = null;
  try { selection = strategy_selection_get_readonly(); } catch (e) { selection = null; }
  let selectedState = selection && selection.ok === true
   ? { revision: selection.revision, selected: selection.selected }
   : { revision: 0, selected: null, readError: true };
  let catalog = null;
- try {
-  let loaded = strategy_catalog_load(getenv('Z2M_STRATEGY_CATALOG_ROOT') || '/usr/share/zapret2-manager/catalog/avatar');
-  catalog = loaded && loaded.ok === true ? loaded.catalog : null;
- } catch (e) { catalog = null; }
+ if (options.fast !== true) {
+  try {
+   let loaded = strategy_catalog_load(getenv('Z2M_STRATEGY_CATALOG_ROOT') || '/usr/share/zapret2-manager/catalog/avatar');
+   catalog = loaded && loaded.ok === true ? loaded.catalog : null;
+  } catch (e) { catalog = null; }
+ }
  let selected = selectedState.selected;
  if (selected != null) selectedState.identity = identity_from(selected, null, catalog);
  if (catalog != null) selectedState.digest = catalog.aggregateDigest;

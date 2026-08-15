@@ -408,7 +408,10 @@ export const collect = function() {
 	let observations = collect_observations(), native_result = state_read();
 	native_result = resolve_native_status(native_result, state_initialize);
 	let strategy_status = null;
-	try { strategy_status = collect_strategy_status(observations); } catch (e) { strategy_status = null; }
+	// Canonical status is an RPC fast path. Full Avatar catalog verification is
+	// intentionally owned by Strategy/catalog reads; doing it here makes a cold
+	// status call exceed the target ubus timeout and blocks the whole Dashboard.
+	try { strategy_status = collect_strategy_status(observations, { fast: true }); } catch (e) { strategy_status = null; }
 	let status = legacy_status_v3(native_result.ok ? native_result.data.state : degraded(native_result), observations);
 	status = with_strategy_status(status, strategy_status);
 	try { writefile(PATHS.status_json, sprintf('%J', status) + '\n'); } catch (e) { }
