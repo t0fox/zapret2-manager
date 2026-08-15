@@ -101,12 +101,13 @@ backend implementation, or unrelated page file is part of the closure.
 | Focused Dashboard contract RED before implementation | PASS | Multiple RED-first checks covered composition, unused Orchestra reads, structured status fields, eager mount, and shell chrome |
 | Focused Dashboard contract GREEN | PASS | `node --test tests/ui/dashboard-parity-contract.test.mjs`; 8/8 passed |
 | Canonical status timeout regression | PASS | `node --test tests/native/status-timeout-regression.test.mjs`; 1/1 passed |
-| Target cold status | PASS | `ubus -t 3`: `RC=0`, `~567 ms`, schema 3, autostart true, engine installed true |
+| Target cold status | PASS | `ubus -t 3`: `RC=0`, `~559 ms`, schema 3, autostart true, engine installed true |
+| Target runtime process evidence | PASS | `runtimeSummary.process.found=true`; browser card `Работает`, PID 12136; Start disabled, Stop/Restart enabled |
 | Target events | PASS | `ubus -t 3`: `RC=0`, `~203 ms`, `ok=true`, 50 returned events |
 | Browser first Dashboard paint | PASS | Current authenticated browser: ~3.66 s after eager mount; previous measured ~5.22 s |
 | Browser current target viewport | PASS | In-app browser current viewport `[652,698]`; structure/cards/events/error gates passed |
 | Package/build checks | NOT_RUN | Run after final refactor |
-| Target deploy | PASS | `0c88778fc26a425667593728cc17b701c9f9068b`; guarded direct SCP-compatible script; rpcd reloaded |
+| Target deploy | PASS | `aa9ff91146dc6bdc43e9001113f4d8f75d5c7aed`; guarded direct SCP-compatible script; rpcd reloaded |
 | Target hashes/owners/modes | PASS | All 7 runtime assets matched local SHA-256; target `root:root`, `0644` |
 | Browser 1280x900 | NOT_RUN | Current in-app browser viewport is 652px; exact 1280 viewport not established |
 | Browser 768x900 | NOT_RUN | Exact viewport not established in current in-app browser |
@@ -126,7 +127,7 @@ must not be claimed from this page-only slice.
 | Asset | SHA-256 |
 |---|---|
 | `app.js` | `feaabc9430a36df14580d68cf7ca24bbcc0bf2b2d6af4b2ddff18df828f943d8` |
-| `z2m-overview.js` | `04ef4e5c954d5f0d434a8d3c61e9a71dc5617c54878a44810a8ab3279027a49a` |
+| `z2m-overview.js` | `49e9fed0ab047310d166fe968fc29bcac9a304aacd6932e39cc9e84442c94c20` |
 | `z2m-navigation.js` | `84376d87d07bac3ea000d4b093bcbde6dd70ee1b8a0468c79c0b07c8e34cef42` |
 | `z2m-shell.js` | `3006d5b62bc235eacc08c81c4bdb4556eb6e6713e5f7d2237b21355dfdc83c33` |
 | `z2m-ui.css` | `a0895fd359279c5b0318086ad71e541077dd18d6fd1324bc988b6b881f3aa6c2` |
