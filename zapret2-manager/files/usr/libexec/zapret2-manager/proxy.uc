@@ -717,8 +717,6 @@ export const proxy_status = function() {
 		? count_active_connections(connectionsProbe.output, pids, listeners) : null;
 
 	let detectedProvider = determine_detected_provider(packages, existingBinaries, init, pids);
-	if (packageVersion == null && detectedProvider != null && detectedProvider.basis == 'manager-state')
-		packageVersion = '2.0.0-r1';
 
 	let cfg = probe_config();
 	let configParsed = null;

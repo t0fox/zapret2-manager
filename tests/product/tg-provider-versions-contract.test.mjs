@@ -4,6 +4,7 @@ import fs from 'node:fs';
 
 const PROVIDER = 'zapret2-manager/files/usr/libexec/zapret2-manager/proxy-provider.uc';
 const RPC = 'zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager-proxy-provider.uc';
+const LEGACY_PROXY = 'zapret2-manager/files/usr/libexec/zapret2-manager/proxy.uc';
 
 test('TG provider versions enumerate bounded official sources and verified artifacts', () => {
   const source = fs.readFileSync(PROVIDER, 'utf8');
@@ -80,6 +81,12 @@ test('Rust GitHub releases select the runtime archive instead of the LuCI-only A
   assert.match(source, /provider\.id != 'go' && provider\.id != 'rust'/);
   assert.match(source, /activeSourceId == SOURCE_GITHUB.*\? null/,
     'direct Rust installations must not fabricate an APK package version');
+});
+
+test('legacy proxy status does not fabricate a stale Rust package version', () => {
+  const source = fs.readFileSync(LEGACY_PROXY, 'utf8');
+  assert.doesNotMatch(source, /packageVersion\s*=\s*'2\.0\.0-r1'/,
+    'compatibility status must not report the old synthetic Rust package after a direct-binary update');
 });
 
 test('canonical Go provider follows the new direct-binary upstream', () => {

@@ -17,6 +17,7 @@ manifest='
 a92a7377456e4e15e692353dfcacf4a13c25a1e00858939d2ebd14a7a1e65e28|luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-proxy-page-core.js|/www/luci-static/resources/view/zapret2-manager/z2m-proxy-page-core.js
 a09e44399fca009e4762b646818e59b3b2758a22979e28715a8de0426b64880a|luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.css|/www/luci-static/resources/view/zapret2-manager/z2m-ui.css
 6dc1a3cd0672825af22bf7b561adebc29f507237177a1b33258d206b27191dd0|zapret2-manager/files/usr/libexec/zapret2-manager/proxy-provider.uc|/usr/libexec/zapret2-manager/proxy-provider.uc
+cf3cfa87a66d541e6ddd9d377f194890cf37c79259c1e7004035aeefebe547aa|zapret2-manager/files/usr/libexec/zapret2-manager/proxy.uc|/usr/libexec/zapret2-manager/proxy.uc
 b588f1c499992caa5f181643bf20f0722339df8ea970012f06c52136527473e9|zapret2-manager/files/usr/libexec/zapret2-manager/proxy-provider-operation.uc|/usr/libexec/zapret2-manager/proxy-provider-operation.uc
 c7a3f76768d2ebc8f810e86f5da3b5bbf798f2b0541c65f1c6dcfe9c3feb9779|zapret2-manager/files/usr/libexec/zapret2-manager/proxy-provider-cli.uc|/usr/libexec/zapret2-manager/proxy-provider-cli.uc
 20840557f50d4981ef2ae9fcfe0b80e29e9d30eb11dc69cc677a8dafa5df2231|zapret2-manager/files/usr/libexec/zapret2-manager/tg-product.uc|/usr/libexec/zapret2-manager/tg-product.uc
