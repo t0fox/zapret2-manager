@@ -60,7 +60,6 @@ function load(ctx) {
     edit(ctx.api.proxy.logsTail, { n: 50 }),
     ctx.api.tg.product.catalog(),
     ctx.api.tg.product.status(),
-    ctx.api.tg.product.catalog(),
     ctx.api.tg.product.checkUpdates()
   ]).then(function (results) {
     return {
@@ -71,8 +70,8 @@ function load(ctx) {
       logs: settled(results[4], ctx.api),
       providerCatalog: settled(results[5], ctx.api),
       providerStatus: settled(results[6], ctx.api),
-      providerPreflight: settled(results[7], ctx.api),
-      providerUpdates: settled(results[8], ctx.api)
+      providerPreflight: settled(results[5], ctx.api),
+      providerUpdates: settled(results[7], ctx.api)
     };
   });
 }
@@ -229,6 +228,11 @@ function providerCard(ctx, data, provider, status) {
   var needsUpdate = isActive && checked && update.updateAvailable === true;
   var installedLatest = isActive && !needsUpdate;
   var switching = providerInstalled(status.installed) && !isActive;
+  var installedVersion = isActive ? status.activeVersion || status.activePackageVersion : null;
+  var latestVersion = checked ? update.latestVersion || update.latestPackageVersion : null;
+  var unavailableReason = preflight.available === false ? preflight.reason || _('Пакетный менеджер APK недоступен.') :
+    checked && update.installable === false ? _('Проверенный latest-пакет недоступен для установки на этой архитектуре.') :
+    !checked ? _('Сначала выполните backend-проверку кандидата.') : null;
   var benefits = providerBenefits(provider.id);
   var actionLabel = installedLatest ? _('Установлено') :
     needsUpdate ? _('Обновить') :
@@ -237,10 +241,10 @@ function providerCard(ctx, data, provider, status) {
     var title = needsUpdate ? _('Обновить TG Proxy?') :
       switching ? _('Переключить реализацию?') : _('Установить TG Proxy?');
     var message = needsUpdate
-      ? _('Будет установлен последний совместимый пакет из доверенного feed. Настройки и secret сохранятся.')
+      ? _('Будет установлен проверенный latest-кандидат backend. Настройки и secret сохранятся.')
       : switching
-        ? _('Сервис будет остановлен, реализация заменена последней совместимой версией и запущена снова только после проверки.')
-        : _('Будет установлен последний совместимый пакет из доверенного feed. Остальной менеджер от него не зависит.');
+        ? _('Сервис будет остановлен, реализация заменена проверенным latest-кандидатом и запущена снова только после проверки.')
+        : _('Будет установлен проверенный latest-кандидат backend. Остальной менеджер от него не зависит.');
     confirm(ctx, title, message, actionLabel, function () {
       if (!checked) {
         shell.showToast(_('Сначала нажмите «Проверить обновления». После проверки установка будет доступна 10 минут.'), 'err');
@@ -259,12 +263,15 @@ function providerCard(ctx, data, provider, status) {
       E('strong', { 'class': 'z2m-proxy-provider-short' }, benefits.title),
       E('ul', { 'class': 'z2m-proxy-provider-benefits' }, benefits.items.map(function (item) { return E('li', {}, item); })),
       E('div', { 'class': 'z2m-proxy-info-list' }, [
-        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Последняя версия')), E('strong', {}, checked ? String(update.latestVersion || '—') : _('Нажмите «Проверить обновления»'))]),
-        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Установка')), E('strong', {}, _('Только из доверенного APK feed'))]),
-        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Версии')), E('strong', {}, _('Только latest compatible'))]),
-        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Готовность')), E('strong', { 'class': checked && update.installable !== false ? 'z2m-proxy-ok' : '' }, !checked ? _('Требуется проверка') : update.installable === false ? _('Версия ещё не опубликована в feed') : _('Готова к установке'))])
+        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Установленная версия')), E('strong', {}, display(installedVersion))]),
+        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Package version')), E('strong', {}, display(status.activePackageVersion))]),
+        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Последняя доступная версия')), E('strong', {}, display(latestVersion))]),
+        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Установка')), E('strong', {}, _('Проверенный backend-кандидат'))]),
+        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Выбор версии')), E('strong', {}, _('Исторический выбор версий недоступен: backend возвращает только latest'))]),
+        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Источник')), E('strong', {}, _('Источник пакета не выбирается: backend использует canonical feed'))]),
+        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Готовность')), E('strong', { 'class': checked && update.installable !== false ? 'z2m-proxy-ok' : '' }, !checked ? _('Требуется проверка') : update.installable === false ? _('Версия недоступна для этой архитектуры') : _('Готова к установке'))])
       ]),
-      preflight.available === false ? E('div', { 'class': 'z2m-proxy-provider-unavailable' }, preflight.reason || _('Установка недоступна.')) : null,
+      unavailableReason ? E('div', { 'class': 'z2m-proxy-provider-unavailable' }, _('Причина недоступности: ') + unavailableReason) : null,
       E('div', { 'class': 'z2m-btnrow z2m-proxy-provider-actions' }, [action])
     ]))
   ]);
