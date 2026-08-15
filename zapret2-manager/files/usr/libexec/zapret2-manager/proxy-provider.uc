@@ -1,10 +1,10 @@
 'use strict';
 // Optional TG Proxy provider manager.
 //
-// The browser sends only an allow-listed provider id. It cannot choose an old
-// version, package name, URL or shell fragment. The backend always installs
-// the single latest router-compatible package published in the configured
-// signed APK feed. Missing providers are a normal state.
+// The browser sends only allow-listed provider/source/version identifiers. It
+// cannot choose a package name, URL or shell fragment. The provider manager is
+// still the sole owner of TG packages and keeps every download bounded and
+// digest-verified.
 
 import { readfile, writefile, stat, unlink, mkdir, popen } from 'fs';
 
@@ -17,6 +17,9 @@ const BINARY_PATH = '/usr/bin/tg-ws-proxy';
 const CHECK_DIR = '/tmp/zapret2-manager/proxy-provider-checks';
 const CHECK_TTL = 600;
 const MAX_METADATA = 4194304;
+const MAX_RELEASES = 20;
+const SOURCE_APK = 'openwrt-apk-feed';
+const SOURCE_GITHUB = 'official-github-release';
 
 const PROVIDERS = [
 	{
@@ -60,7 +63,8 @@ function safe_token(value) {
 function safe_digest(value) {
 	if (type(value) != 'string') return null;
 	let found = match(value, /^sha256:([a-fA-F0-9]{64})$/);
-	return found ? lc(found[1]) : null;
+	if (found) return lc(found[1]);
+	return match(value, /^[a-fA-F0-9]{64}$/) ? lc(value) : null;
 }
 
 function safe_package_version(value) {
@@ -121,6 +125,40 @@ function metadata_url(provider) {
 	return null;
 }
 
+function github_api_url(provider) {
+	if (provider == 'rust') return 'https://api.github.com/repos/valnesfjord/tg-ws-proxy-rs/releases?per_page=20';
+	if (provider == 'go') return 'https://api.github.com/repos/spatiumstas/tg-ws-proxy-go/releases?per_page=20';
+	return null;
+}
+
+function source_url(provider, sourceId) {
+	if (sourceId == SOURCE_APK) return metadata_url(provider);
+	if (sourceId == SOURCE_GITHUB) return github_api_url(provider);
+	return null;
+}
+
+function source_kind(sourceId) {
+	return sourceId == SOURCE_APK ? 'apk-feed' : sourceId == SOURCE_GITHUB ? 'github-release' : null;
+}
+
+function fetch_releases(provider) {
+	let url = github_api_url(provider), quotedUrl = literal(url);
+	if (quotedUrl == null) return error('ESECURITY', 'Источник upstream не входит в allowlist.');
+	let file = '/tmp/zapret2-manager/proxy-provider-releases.' + provider + '.' + time();
+	let quotedFile = literal(file);
+	let result = run('ulimit -f 8192; uclient-fetch -q -T 20 --user-agent zapret2-manager-proxy -O ' + quotedFile + ' ' + quotedUrl);
+	let info = stat(file);
+	if (result.rc != 0 || info == null) { try { unlink(file); } catch (e) { } return error('ENETWORK', 'Не удалось получить список официальных релизов.'); }
+	if (info.size < 2 || info.size > MAX_METADATA) { try { unlink(file); } catch (e) { } return error('EMETADATA', 'Ответ upstream имеет недопустимый размер.'); }
+	let document = read_json(file, null);
+	try { unlink(file); } catch (e) { }
+	if (type(document) != 'array') return error('EMETADATA', 'Список официальных релизов повреждён.');
+	let releases = [];
+	for (let i = 0; i < length(document) && length(releases) < MAX_RELEASES; i++)
+		if (type(document[i]) == 'object' && document[i] != null) push(releases, document[i]);
+	return { ok: true, releases: releases };
+}
+
 function latest_candidate(providerId, arch) {
 	let url = metadata_url(providerId), quoted = literal(url);
 	if (quoted == null) return error('ESECURITY', 'Metadata URL не входит в allowlist.');
@@ -176,23 +214,35 @@ function release_candidate(providerId, arch, release) {
 	if (type(release) != 'object' || release == null || release.draft !== false || release.prerelease !== false) return null;
 	let tag = release.tag_name;
 	if (type(tag) != 'string') return null;
-	let version = null, packageVersion = null, assetName = null;
+	let version = null, packageVersion = null, assetName = null, artifactFormat = null;
+	let keyAssetName = null;
 	if (providerId == 'rust') {
 		if (!match(tag, /^v[0-9][0-9A-Za-z._-]*$/)) return null;
 		version = substr(tag, 1);
-		let target = substr(arch, 0, 8) == 'aarch64_' ? 'aarch64' : arch;
-		if (target == 'aarch64') assetName = 'tg-ws-proxy-aarch64-unknown-linux-musl.tar.gz';
-		else if (target == 'x86_64') assetName = 'tg-ws-proxy-x86_64-unknown-linux-musl.tar.gz';
-		else if (substr(target, 0, 4) == 'arm_') assetName = 'tg-ws-proxy-armv7-unknown-linux-musleabihf.tar.gz';
-		else if (substr(target, 0, 8) == 'mipsel_') assetName = 'tg-ws-proxy-mipsel-unknown-linux-musl.tar.gz';
-		else if (substr(target, 0, 5) == 'mips_') assetName = 'tg-ws-proxy-mips-unknown-linux-musl.tar.gz';
 		packageVersion = version + '-r1';
+		// Prefer the upstream OpenWrt APK when the release publishes one. Older
+		// releases only have a tarball; they remain visible with an exact reason
+		// but are not presented as installable by this transactional owner.
+		assetName = 'luci-app-tg-ws-proxy-rs-' + version + '-r1.apk';
+		artifactFormat = 'apk';
+		if (exact_asset(release.assets, assetName) == null) {
+			let target = substr(arch, 0, 8) == 'aarch64_' ? 'aarch64' : arch;
+			if (target == 'aarch64') assetName = 'tg-ws-proxy-aarch64-unknown-linux-musl.tar.gz';
+			else if (target == 'x86_64') assetName = 'tg-ws-proxy-x86_64-unknown-linux-musl.tar.gz';
+			else if (substr(target, 0, 4) == 'arm_') assetName = 'tg-ws-proxy-armv7-unknown-linux-musleabihf.tar.gz';
+			else if (substr(target, 0, 8) == 'mipsel_') assetName = 'tg-ws-proxy-mipsel-unknown-linux-musl.tar.gz';
+			else if (substr(target, 0, 5) == 'mips_') assetName = 'tg-ws-proxy-mips-unknown-linux-musl.tar.gz';
+			artifactFormat = 'tar.gz';
+		}
 	} else if (providerId == 'go') {
 		let found = match(tag, /^([0-9][0-9A-Za-z._-]*)-rev([0-9]+)$/);
 		if (!found) return null;
 		version = found[1] + '-' + found[2];
 		packageVersion = found[1] + '-r' + found[2];
-		assetName = 'tg-ws-proxy_' + packageVersion + '_openwrt_' + arch + '.apk';
+		let targetArch = arch == 'aarch64' ? 'aarch64_generic' : arch;
+		assetName = 'tg-ws-proxy_' + packageVersion + '_openwrt_' + targetArch + '.apk';
+		artifactFormat = 'apk';
+		keyAssetName = 'tg-ws-proxy.pem';
 	}
 	if (!safe_package_version(version) || !safe_package_version(packageVersion) || assetName == null) return null;
 	let asset = exact_asset(release.assets, assetName), digest = asset != null ? safe_digest(asset.digest) : null;
@@ -200,9 +250,23 @@ function release_candidate(providerId, arch, release) {
 		? 'https://github.com/valnesfjord/tg-ws-proxy-rs/releases/download/' + tag + '/'
 		: 'https://github.com/spatiumstas/tg-ws-proxy-go/releases/download/' + tag + '/';
 	if (asset == null || asset.state != 'uploaded' || digest == null || +asset.size < 1024 || +asset.size > 33554432 || asset.browser_download_url != prefix + assetName) return null;
+	let keyAsset = keyAssetName != null ? exact_asset(release.assets, keyAssetName) : null;
+	let keyDigest = keyAsset != null ? safe_digest(keyAsset.digest) : null;
+	let keyUrl = keyAsset != null ? prefix + keyAssetName : null;
+	let keyUsable = keyAssetName != null && keyAsset != null && keyAsset.state == 'uploaded' && keyDigest != null &&
+		+keyAsset.size >= 128 && +keyAsset.size <= 65536 && keyAsset.browser_download_url == keyUrl;
+	let trustMode = keyUsable ? 'upstream-key' : artifactFormat == 'apk' ? 'sha256-only' : null;
+	let installable = artifactFormat == 'apk' && trustMode != null;
+	let incompatibilityReason = artifactFormat != 'apk'
+		? 'У этого релиза только tar.gz; поддерживаемый OpenWrt APK отсутствует.'
+		: null;
 	return { provider: providerId, version: version, packageVersion: packageVersion, architecture: arch,
+		sourceId: SOURCE_GITHUB, sourceKind: source_kind(SOURCE_GITHUB), artifactFormat: artifactFormat,
 		assetName: assetName, assetSha256: digest, assetSize: +asset.size, releaseId: '' + release.id,
-		publishedAt: release.published_at, metadataUrl: metadata_url(providerId) };
+		publishedAt: release.published_at, metadataUrl: github_api_url(providerId),
+		downloadUrl: prefix + assetName, trustMode: trustMode, keyAssetName: keyAssetName, keyAssetSha256: keyDigest,
+		keyAssetSize: keyAsset != null ? +keyAsset.size : null, keyDownloadUrl: keyUrl,
+		installable: installable, incompatibilityReason: incompatibilityReason };
 }
 
 function clone_public(provider) {
@@ -230,13 +294,14 @@ function load_state() {
 	return { activeProvider: null, activeVersion: null, changedAt: null, malformed: true };
 }
 
-function save_state(providerId, versionId, packageVersion) {
+function save_state(providerId, versionId, packageVersion, sourceId) {
 	let tmp = STATE_FILE + '.tmp.' + time();
 	let payload = {
 		schema: 'proxy-provider.v2',
 		activeProvider: providerId,
 		activeVersion: versionId,
 		activePackageVersion: packageVersion != null ? packageVersion : null,
+		activeSourceId: sourceId != null ? sourceId : null,
 		changedAt: time()
 	};
 	writefile(tmp, sprintf('%J', payload) + '\n');
@@ -246,6 +311,19 @@ function save_state(providerId, versionId, packageVersion) {
 		return false;
 	}
 	return stat(STATE_FILE) != null;
+}
+
+function provider_package_names(provider) {
+	let names = [provider.package];
+	if (provider.id == 'rust') push(names, 'luci-app-tg-ws-proxy-rs');
+	if (provider.id == 'go') push(names, 'tg-ws-proxy');
+	return names;
+}
+
+function provider_installed(provider) {
+	let names = provider_package_names(provider);
+	for (let i = 0; i < length(names); i++) if (package_present(names[i])) return true;
+	return false;
 }
 
 function package_present(packageName) {
@@ -304,12 +382,88 @@ function installed_rows() {
 	let rows = [];
 	for (let i = 0; i < length(PROVIDERS); i++) {
 		let provider = PROVIDERS[i];
-		let packageVersion = installed_package_version(provider.package);
-		if (packageVersion != null)
-			push(rows, { provider: provider.id, package: provider.package, packageVersion: packageVersion });
+		let names = provider_package_names(provider);
+		for (let j = 0; j < length(names); j++) {
+			let packageVersion = installed_package_version(names[j]);
+			if (packageVersion != null) {
+				push(rows, { provider: provider.id, package: names[j], packageVersion: packageVersion });
+				break;
+			}
+		}
 	}
 	return rows;
 }
+
+function feed_available(provider) {
+	let quoted = literal(provider.package);
+	if (quoted == null) return false;
+	let result = run('apk policy ' + quoted);
+	return result.rc == 0 && index(lc(result.out), 'no such package') < 0 && index(lc(result.out), 'unable to select packages') < 0;
+}
+
+function feed_version(providerId, arch) {
+	let resolved = latest_candidate(providerId, arch);
+	if (!resolved.ok) return null;
+	let candidate = resolved.candidate;
+	candidate.sourceId = SOURCE_APK;
+	candidate.sourceKind = source_kind(SOURCE_APK);
+	candidate.metadataUrl = source_url(providerId, SOURCE_APK);
+	candidate.installable = null;
+	candidate.incompatibilityReason = null;
+	return candidate;
+}
+
+function provider_sources(provider, arch) {
+	let feed = feed_available(provider);
+	let github = fetch_releases(provider.id);
+	let sources = [
+		{ id: SOURCE_GITHUB, label: 'Official GitHub release', kind: source_kind(SOURCE_GITHUB),
+			available: github.ok === true, url: source_url(provider.id, SOURCE_GITHUB),
+			reason: github.ok === true ? null : (github.error ? github.error.message : 'Официальный release source недоступен.') },
+		{ id: SOURCE_APK, label: 'OpenWrt APK feed', kind: source_kind(SOURCE_APK),
+			available: feed, url: source_url(provider.id, SOURCE_APK),
+			reason: feed ? null : 'Пакетный менеджер или пакет не найден в настроенном OpenWrt APK feed.' }
+	];
+	let versions = [];
+	if (github.ok === true) {
+		for (let i = 0; i < length(github.releases) && length(versions) < MAX_RELEASES + 1; i++) {
+			let candidate = release_candidate(provider.id, arch, github.releases[i]);
+			if (candidate != null) push(versions, candidate);
+		}
+	}
+	if (feed) {
+		let feedCandidate = feed_version(provider.id, arch);
+		if (feedCandidate != null) push(versions, feedCandidate);
+	}
+	return { sources: sources, versions: versions, github: github };
+}
+
+function versions_for(providerId, arch) {
+	let provider = provider_by_id(providerId);
+	if (provider == null) return error('EINPUT', 'Неизвестная реализация TG Proxy.');
+	let model = provider_sources(provider, arch);
+	return {
+		id: provider.id, title: provider.title, package: provider.package,
+		sources: model.sources, versions: model.versions
+	};
+}
+
+export const proxy_provider_versions = function (input) {
+	let providerId = null;
+	if (type(input) == 'object' && input != null && input.provider != null) providerId = input.provider;
+	if (providerId != null && provider_by_id(providerId) == null) return error('EINPUT', 'Неизвестная реализация TG Proxy.');
+	let arch = architecture();
+	if (arch == null) return error('EARCH', 'Архитектура устройства не распознана.');
+	let rows = [];
+	for (let i = 0; i < length(PROVIDERS); i++) {
+		if (providerId != null && PROVIDERS[i].id != providerId) continue;
+	let row = versions_for(PROVIDERS[i].id, arch);
+		if (row.ok === false) return row;
+		push(rows, row);
+	}
+	return { ok: true, schema: 'proxy-provider.versions.v1', architecture: arch,
+		maxReleases: MAX_RELEASES, sources: [SOURCE_APK, SOURCE_GITHUB], providers: rows };
+};
 
 function state_package_version(providerId, version) {
 	if (!safe_package_version(version)) return null;
@@ -327,9 +481,9 @@ export const proxy_provider_catalog = function () {
 	return {
 		ok: true,
 		optional: true,
-		latestOnly: true,
 		providers: out,
-		note: 'Для каждой реализации предлагается только последний совместимый пакет из доверенного feed.'
+		sources: [SOURCE_APK, SOURCE_GITHUB],
+		note: 'Версии ограничены allow-listed OpenWrt feed и официальными GitHub release; произвольные URL не принимаются.'
 	};
 };
 
@@ -365,11 +519,11 @@ export const proxy_provider_status = function () {
 	return {
 		ok: true,
 		optional: true,
-		latestOnly: true,
 		installed: activeInstalled,
 		activeProvider: activeInstalled ? activeProvider : null,
 		activeVersion: activeVersion,
 		activePackageVersion: activeInstalled ? activePackageVersion : null,
+		activeSourceId: activeInstalled && state.activeProvider == activeProvider && source_kind(state.activeSourceId) != null ? state.activeSourceId : null,
 		latestVersion: null,
 		updateAvailable: null,
 		packages: installed,
@@ -381,20 +535,143 @@ export const proxy_provider_status = function () {
 };
 
 function check_input(value) {
-	return type(value) == 'object' && value != null && type(value.provider) == 'string' &&
-		length(keys(value)) == 1 && provider_by_id(value.provider) != null;
+	if (type(value) != 'object' || value == null || type(value.provider) != 'string' ||
+		type(value.sourceId) != 'string' || type(value.version) != 'string' || provider_by_id(value.provider) == null)
+		return false;
+	let ks = keys(value);
+	return length(ks) == 3 && source_kind(value.sourceId) != null && safe_package_version(value.version);
+}
+
+function load_checked_candidate(providerId, token, sourceId, version) {
+	if (provider_by_id(providerId) == null || safe_token(token) == null) return error('EINPUT', 'Некорректный provider или check token.');
+	let path = CHECK_DIR + '/' + token + '.json', record = read_json(path, null);
+	if (record == null || record.token != token || type(record.candidate) != 'object' || record.candidate.provider != providerId)
+		return error('ECHECKTOKEN', 'Сначала выполните проверку обновлений.');
+	if (+record.expiresAt < time()) { try { unlink(path); } catch (e) { } return error('ECHECKEXPIRED', 'Результат проверки устарел. Повторите проверку.'); }
+	let candidate = record.candidate;
+	if (candidate.sourceId != sourceId || candidate.version != version || source_kind(candidate.sourceId) == null)
+		return error('EINPUT', 'Проверенный источник или версия не совпадает с запросом установки.');
+	if (!safe_package_version(candidate.version) || !safe_package_version(candidate.packageVersion) ||
+		(candidate.sourceId == SOURCE_GITHUB && (safe_digest(candidate.assetSha256) == null || candidate.downloadUrl == null ||
+			(candidate.trustMode != 'sha256-only' && (candidate.trustMode != 'upstream-key' || safe_digest(candidate.keyAssetSha256) == null ||
+				candidate.keyDownloadUrl == null || +candidate.keyAssetSize < 128 || +candidate.keyAssetSize > 65536)))) || candidate.installable !== true)
+		return error('EINCOMPATIBLE', candidate.incompatibilityReason || 'Проверенная версия недоступна для установки на этой архитектуре.');
+	try { unlink(path); } catch (e) { }
+	return { ok: true, candidate: candidate };
+}
+
+function remove_packages() {
+	let failures = [];
+	for (let i = 0; i < length(PROVIDERS); i++) {
+		let provider = PROVIDERS[i];
+		let names = provider_package_names(provider);
+		for (let j = 0; j < length(names); j++) {
+			if (!package_present(names[j])) continue;
+			let r = run('apk del --no-interactive ' + names[j]);
+			if (r.rc != 0 || package_present(names[j])) push(failures, names[j]);
+		}
+	}
+	return failures;
+}
+
+function download_candidate(candidate, token) {
+	if (candidate.sourceId != SOURCE_GITHUB || candidate.artifactFormat != 'apk' ||
+		type(candidate.downloadUrl) != 'string' || safe_digest(candidate.assetSha256) == null ||
+		(candidate.trustMode != 'sha256-only' && (candidate.trustMode != 'upstream-key' || type(candidate.keyDownloadUrl) != 'string' ||
+			safe_digest(candidate.keyAssetSha256) == null)) || safe_token(token) == null)
+		return error('EINCOMPATIBLE', candidate.incompatibilityReason || 'У выбранного релиза нет поддерживаемого проверенного APK.');
+	let url = literal(candidate.downloadUrl);
+	let keyUrl = candidate.trustMode == 'upstream-key' ? literal(candidate.keyDownloadUrl) : null;
+	if (url == null || (candidate.trustMode == 'upstream-key' && keyUrl == null) || substr(candidate.downloadUrl, 0, 19) != 'https://github.com/' ||
+		(candidate.trustMode == 'upstream-key' && substr(candidate.keyDownloadUrl, 0, 19) != 'https://github.com/')) return error('ESECURITY', 'URL артефакта или ключа не входит в allowlist.');
+	let file = '/tmp/zapret2-manager/tg-provider-' + token + '.apk', quotedFile = literal(file);
+	let keysDir = '/tmp/zapret2-manager/tg-provider-' + token + '-keys', quotedKeysDir = literal(keysDir);
+	if (quotedFile == null || quotedKeysDir == null || run('mkdir -p ' + quotedKeysDir + ' && cp -p /etc/apk/keys/* ' + quotedKeysDir + '/').rc != 0)
+		return error('EINTERNAL', 'Не удалось подготовить временное хранилище ключей APK.');
+	let fetched = run('ulimit -f 32768; uclient-fetch -q -T 30 --user-agent zapret2-manager-proxy -O ' + quotedFile + ' ' + url);
+	let info = stat(file);
+	if (fetched.rc != 0 || info == null || +info.size != +candidate.assetSize) {
+		try { unlink(file); } catch (e) { }
+		run('rm -rf ' + quotedKeysDir);
+		return error('ENETWORK', 'Проверенный upstream APK не удалось скачать полностью.');
+	}
+	let digest = trim(run('sha256sum ' + quotedFile + ' | cut -d " " -f 1').out);
+	if (digest != candidate.assetSha256) {
+		try { unlink(file); } catch (e) { }
+		run('rm -rf ' + quotedKeysDir);
+		return error('EVERIFY', 'SHA-256 upstream артефакта не совпал.');
+	}
+	if (candidate.trustMode == 'upstream-key') {
+		let keyFile = keysDir + '/tg-ws-proxy.pem', quotedKeyFile = literal(keyFile);
+		let keyFetched = run('ulimit -f 64; uclient-fetch -q -T 30 --user-agent zapret2-manager-proxy -O ' + quotedKeyFile + ' ' + keyUrl);
+		let keyInfo = stat(keyFile);
+		if (keyFetched.rc != 0 || keyInfo == null || +keyInfo.size != +candidate.keyAssetSize) {
+			try { unlink(file); } catch (e) { }
+			try { unlink(keyFile); } catch (e) { }
+			run('rm -rf ' + quotedKeysDir);
+			return error('ENETWORK', 'Проверенный ключ подписи upstream не удалось скачать полностью.');
+		}
+		let keyDigest = trim(run('sha256sum ' + quotedKeyFile + ' | cut -d " " -f 1').out);
+		if (keyDigest != candidate.keyAssetSha256) {
+			try { unlink(file); } catch (e) { }
+			try { unlink(keyFile); } catch (e) { }
+			run('rm -rf ' + quotedKeysDir);
+			return error('EVERIFY', 'SHA-256 ключа подписи upstream не совпал.');
+		}
+	}
+	return { ok: true, file: file, keysDir: keysDir, trustMode: candidate.trustMode };
+}
+
+function cleanup_download(downloaded) {
+	if (downloaded == null) return;
+	if (downloaded.file != null) { try { unlink(downloaded.file); } catch (e) { } }
+	if (downloaded.keysDir != null) {
+		let quoted = literal(downloaded.keysDir);
+		if (quoted != null) run('rm -rf ' + quoted);
+	}
 }
 
 export const proxy_provider_check_updates = function (input) {
-	if (!check_input(input)) return error('EINPUT', 'Нужно выбрать Rust или Go.');
+	if (!check_input(input)) return error('EINPUT', 'Нужно выбрать реализацию, источник и версию TG Proxy.');
 	let arch = architecture();
 	if (arch == null) return error('EARCH', 'Архитектура устройства не распознана.');
-	let resolved = latest_candidate(input.provider, arch);
-	if (!resolved.ok) return resolved;
+	let resolved = null;
+	if (input.sourceId == SOURCE_APK) {
+		let feedCandidate = feed_version(input.provider, arch);
+		if (feedCandidate == null || feedCandidate.version != input.version)
+			return error('EVERSION', 'Выбранная версия отсутствует в текущем OpenWrt APK feed.');
+		resolved = { ok: true, candidate: feedCandidate };
+	} else {
+		let fetched = fetch_releases(input.provider);
+		if (!fetched.ok) return fetched;
+		for (let i = 0; i < length(fetched.releases); i++) {
+			let found = release_candidate(input.provider, arch, fetched.releases[i]);
+			if (found != null && found.version == input.version) { resolved = { ok: true, candidate: found }; break; }
+		}
+		if (resolved == null) return error('EVERSION', 'Выбранная официальная версия не содержит проверяемого артефакта для этой архитектуры.');
+	}
 	let candidate = resolved.candidate;
 	let provider = provider_by_id(input.provider);
-	let simulated = run('apk add --simulate --no-interactive ' + provider.package + '=' + candidate.packageVersion);
-	candidate.installable = simulated.rc == 0;
+	if (candidate.sourceId == SOURCE_APK) {
+		let simulated = run('apk add --simulate --no-interactive ' + provider.package + '=' + candidate.packageVersion);
+		candidate.installable = simulated.rc == 0;
+		candidate.incompatibilityReason = candidate.installable ? null : 'Пакет отсутствует или несовместим с настроенными APK feed/архитектурой.';
+	} else if (candidate.artifactFormat != 'apk') {
+		candidate.installable = false;
+		candidate.incompatibilityReason = 'У этого релиза только tar.gz; поддерживаемый OpenWrt APK отсутствует.';
+	} else if (candidate.installable === true) {
+		let staged = download_candidate(candidate, random_token());
+		if (!staged.ok) {
+			candidate.installable = false;
+			candidate.incompatibilityReason = staged.error.message;
+		} else {
+			let trustFlag = staged.trustMode == 'sha256-only' ? '--allow-untrusted ' : '';
+			let simulated = run('apk ' + trustFlag + '--keys-dir ' + literal(staged.keysDir) + ' add --simulate --no-interactive ' + literal(staged.file));
+			cleanup_download(staged);
+			candidate.installable = simulated.rc == 0;
+			candidate.incompatibilityReason = candidate.installable ? null : 'APK подпись подтверждена, но пакет несовместим с target или его зависимостями.';
+		}
+	}
 	let token = random_token();
 	if (safe_token(token) == null) return error('EINTERNAL', 'Не удалось создать token проверки.');
 	ensure_dir(CHECK_DIR);
@@ -420,28 +697,16 @@ export const proxy_provider_check_updates = function (input) {
 	};
 };
 
-function load_checked_candidate(providerId, token) {
-	if (provider_by_id(providerId) == null || safe_token(token) == null) return error('EINPUT', 'Некорректный provider или check token.');
-	let path = CHECK_DIR + '/' + token + '.json', record = read_json(path, null);
-	if (record == null || record.token != token || type(record.candidate) != 'object' || record.candidate.provider != providerId)
-		return error('ECHECKTOKEN', 'Сначала выполните проверку обновлений.');
-	if (+record.expiresAt < time()) { try { unlink(path); } catch (e) { } return error('ECHECKEXPIRED', 'Результат проверки устарел. Повторите проверку.'); }
-	let candidate = record.candidate;
-	if (!safe_package_version(candidate.version) || !safe_package_version(candidate.packageVersion) || candidate.installable !== true)
-		return error('EINCOMPATIBLE', 'Проверенная версия пока недоступна в доверенном APK feed.');
-	try { unlink(path); } catch (e) { }
-	return { ok: true, candidate: candidate };
-}
-
-function remove_packages() {
-	let failures = [];
-	for (let i = 0; i < length(PROVIDERS); i++) {
-		let provider = PROVIDERS[i];
-		if (!package_present(provider.package)) continue;
-		let r = run('apk del --no-interactive ' + provider.package);
-		if (r.rc != 0 || package_present(provider.package)) push(failures, provider.package);
-	}
-	return failures;
+function install_candidate(provider, candidate, token) {
+	if (candidate.sourceId == SOURCE_APK)
+		return run('apk add --no-interactive ' + provider.package + '=' + candidate.packageVersion);
+	let downloaded = download_candidate(candidate, token);
+	if (!downloaded.ok) return downloaded;
+	let quoted = literal(downloaded.file), keys = literal(downloaded.keysDir);
+	let trustFlag = downloaded.trustMode == 'sha256-only' ? '--allow-untrusted ' : '';
+	let result = run('apk ' + trustFlag + '--keys-dir ' + keys + ' add --no-interactive ' + quoted);
+	cleanup_download(downloaded);
+	return result;
 }
 
 function restore_previous(previous, wasRunning, settingsSnapshot) {
@@ -468,12 +733,20 @@ function input_provider_only(value) {
 	return (ks[0] == 'provider' && ks[1] == 'checkToken') || (ks[0] == 'checkToken' && ks[1] == 'provider');
 }
 
+function input_provider_version(value) {
+	if (type(value) != 'object' || value == null) return false;
+	let ks = keys(value);
+	if (length(ks) != 4 || type(value.provider) != 'string' || type(value.checkToken) != 'string' ||
+		type(value.sourceId) != 'string' || type(value.version) != 'string') return false;
+	return provider_by_id(value.provider) != null && source_kind(value.sourceId) != null && safe_package_version(value.version);
+}
+
 export const proxy_provider_install = function (input) {
-	if (!input_provider_only(input))
-		return error('EINPUT', 'Установка требует provider и token свежей проверки.');
+	if (!input_provider_version(input))
+		return error('EINPUT', 'Установка требует provider, sourceId, version и token свежей проверки.');
 	let provider = provider_by_id(input.provider);
 	if (provider == null) return error('EINPUT', 'Неизвестная реализация TG Proxy.');
-	let checked = load_checked_candidate(provider.id, input.checkToken);
+	let checked = load_checked_candidate(provider.id, input.checkToken, input.sourceId, input.version);
 	if (!checked.ok) return checked;
 	let latest = checked.candidate;
 	if (!acquire_lock()) return error('EBUSY', 'Установка TG Proxy уже выполняется.');
@@ -482,7 +755,8 @@ export const proxy_provider_install = function (input) {
 	let previous = {
 		activeProvider: previousStatus.activeProvider,
 		activeVersion: previousStatus.activeVersion,
-		packageVersion: previousStatus.activePackageVersion
+		packageVersion: previousStatus.activePackageVersion,
+		sourceId: previousStatus.activeSourceId
 	};
 	let wasRunning = previousStatus.running === true;
 	let settingsSnapshot = snapshot_settings();
@@ -490,7 +764,7 @@ export const proxy_provider_install = function (input) {
 	try {
 		let alreadyLatest = previousStatus.installed &&
 			previous.activeProvider == provider.id &&
-			previous.packageVersion == latest.packageVersion;
+			previous.packageVersion == latest.packageVersion && previous.sourceId == latest.sourceId;
 		if (!settingsSnapshot.ok) {
 			result = error('ESTATE', 'Настройки не удалось сохранить; установка не начата.');
 		} else if (alreadyLatest) {
@@ -503,14 +777,14 @@ export const proxy_provider_install = function (input) {
 				let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
 				result = { ok: false, error: { code: 'ETARGET', message: 'Не удалось удалить текущую реализацию.' }, rollbackFailures: rollbackFailures };
 			} else {
-				let add = run('apk add --no-interactive ' + provider.package + '=' + latest.packageVersion);
-				if (add.rc != 0 || !package_present(provider.package) || stat(BINARY_PATH) == null) {
+				let add = install_candidate(provider, latest, input.checkToken);
+				if (add.ok === false || add.rc != 0 || !provider_installed(provider) || stat(BINARY_PATH) == null) {
 					let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
-					result = { ok: false, error: { code: 'ETARGET', message: 'Последний совместимый пакет недоступен в доверенном feed.' }, rollbackFailures: rollbackFailures };
+					result = { ok: false, error: { code: 'ETARGET', message: latest.incompatibilityReason || 'Выбранный пакет недоступен на устройстве.' }, rollbackFailures: rollbackFailures };
 				} else if (!restore_settings(settingsSnapshot)) {
 					let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
 					result = { ok: false, error: { code: 'ETARGET', message: 'Не удалось восстановить настройки после установки.' }, rollbackFailures: rollbackFailures };
-				} else if (!save_state(provider.id, latest.version, latest.packageVersion)) {
+				} else if (!save_state(provider.id, latest.version, latest.packageVersion, latest.sourceId)) {
 					let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
 					result = { ok: false, error: { code: 'ETARGET', message: 'Не удалось сохранить выбранную реализацию.' }, rollbackFailures: rollbackFailures };
 				} else if (wasRunning && service('start') != 0) {

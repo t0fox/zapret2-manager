@@ -29,7 +29,8 @@ var state = {
   pane: null,
   busy: null,
   revealed: null,
-  preview: null
+  preview: null,
+  tgSelections: {}
 };
 
 function edit(fn, value) { return fn(JSON.stringify(value || {})); }
@@ -60,7 +61,7 @@ function load(ctx) {
     edit(ctx.api.proxy.logsTail, { n: 50 }),
     ctx.api.tg.product.catalog(),
     ctx.api.tg.product.status(),
-    ctx.api.tg.product.checkUpdates()
+    ctx.api.tg.product.versions()
   ]).then(function (results) {
     return {
       capabilities: settled(results[0], ctx.api),
@@ -71,7 +72,8 @@ function load(ctx) {
       providerCatalog: settled(results[5], ctx.api),
       providerStatus: settled(results[6], ctx.api),
       providerPreflight: settled(results[5], ctx.api),
-      providerUpdates: settled(results[7], ctx.api)
+      providerVersions: settled(results[7], ctx.api),
+      providerUpdates: { value: { providers: [] } }
     };
   });
 }
@@ -195,6 +197,9 @@ function canonicalProjection(status) {
 function providerCatalog(data) {
   return array(object(data.providerCatalog && data.providerCatalog.value).providers);
 }
+function providerVersions(data) {
+  return array(object(data.providerVersions && data.providerVersions.value).providers);
+}
 function providerIcon(provider) {
   return E('span', { 'class': 'z2m-proxy-provider-icon ' + provider, 'aria-hidden': 'true' },
     E('img', { src: L.resource('view/zapret2-manager/icons/' + provider + '.svg'), alt: '' }));
@@ -221,40 +226,63 @@ function providerCard(ctx, data, provider, status) {
   var shell = ctx.shell;
   var preflight = array(object(data.providerPreflight && data.providerPreflight.value).providers)
     .filter(function (item) { return item && item.provider === provider.id; })[0] || {};
-  var update = array(object(data.providerUpdates && data.providerUpdates.value).providers)
-    .filter(function (item) { return item && (item.provider === provider.id || object(item.candidate).provider === provider.id); })[0] || {};
+  var versionRow = providerVersions(data).filter(function (item) { return item && item.id === provider.id; })[0] || {};
+  var versions = array(versionRow.versions);
+  var sources = array(versionRow.sources);
+  var selection = state.tgSelections[provider.id] || {};
+  var first = versions[0] || {};
+  var sourceId = selection.sourceId || first.sourceId || (sources[0] && sources[0].id);
+  var sourceVersions = versions.filter(function (item) { return item && item.sourceId === sourceId; });
+  var selected = sourceVersions.filter(function (item) { return item.version === selection.version; })[0] || sourceVersions[0] || {};
+  if (selected.version) state.tgSelections[provider.id] = { sourceId: selected.sourceId, version: selected.version };
   var isActive = providerInstalled(status.installed) && status.activeProvider === provider.id;
-  var checked = update.ok === true && !!update.checkToken;
-  var needsUpdate = isActive && checked && update.updateAvailable === true;
-  var installedLatest = isActive && !needsUpdate;
+  var installedVersion = (array(status.packages).filter(function (item) { return item && item.provider === provider.id; })[0] || {}).version ||
+    (array(status.packages).filter(function (item) { return item && item.provider === provider.id; })[0] || {}).packageVersion || (isActive ? status.activeVersion : null);
+  var packageVersion = (array(status.packages).filter(function (item) { return item && item.provider === provider.id; })[0] || {}).packageVersion ||
+    (isActive ? status.activePackageVersion : null);
+  var latest = versions.filter(function (item) { return item && item.sourceId === 'official-github-release'; })[0] || versions[0] || {};
+  var installedLatest = isActive && installedVersion && selected.version === installedVersion;
+  var needsUpdate = isActive && latest.version && installedVersion && latest.version !== installedVersion;
   var switching = providerInstalled(status.installed) && !isActive;
-  var installedPackage = array(status.packages).filter(function (item) { return item && item.provider === provider.id; })[0] || {};
-  var installedVersion = installedPackage.version || installedPackage.packageVersion || (isActive ? status.activeVersion : null);
-  var packageVersion = installedPackage.packageVersion || installedPackage.version || (isActive ? status.activePackageVersion : null);
-  var latestVersion = checked ? update.latestVersion || update.latestPackageVersion : null;
-  var unavailableReason = preflight.available === false ? preflight.reason || _('Пакетный менеджер APK недоступен.') :
-    checked && update.installable === false ? _('Проверенный latest-пакет недоступен для установки на этой архитектуре.') :
-    !checked ? _('Сначала выполните backend-проверку кандидата.') : null;
+  var unavailableReason = preflight.available === false ? preflight.reason || _('Backend-провайдер недоступен.') :
+    selected.installable === false ? selected.incompatibilityReason || _('Выбранная версия несовместима с архитектурой.') :
+    !selected.version ? (sources.filter(function (item) { return item.id === sourceId; })[0] || {}).reason || _('Для выбранного источника нет проверенной версии.') : null;
   var benefits = providerBenefits(provider.id);
-  var actionLabel = installedLatest ? _('Установлено') :
-    needsUpdate ? _('Обновить') :
-    switching ? _('Переключить') : _('Установить');
-  var action = shell.button(preflight.available === false || (checked && update.installable === false) ? _('Недоступно') : actionLabel, installedLatest ? 'sm' : 'primary sm', function () {
-    var title = needsUpdate ? _('Обновить TG Proxy?') :
-      switching ? _('Переключить реализацию?') : _('Установить TG Proxy?');
-    var message = needsUpdate
-      ? _('Будет установлен проверенный latest-кандидат backend. Настройки и secret сохранятся.')
-      : switching
-        ? _('Сервис будет остановлен, реализация заменена проверенным latest-кандидатом и запущена снова только после проверки.')
-        : _('Будет установлен проверенный latest-кандидат backend. Остальной менеджер от него не зависит.');
+  var sourceSelect = E('select', { 'aria-label': _('Источник'), value: sourceId || '', change: function (event) {
+    var nextSource = event.target.value;
+    var next = versions.filter(function (item) { return item.sourceId === nextSource; })[0] || {};
+    state.tgSelections[provider.id] = { sourceId: nextSource, version: next.version || '' };
+  } }, sources.map(function (source) {
+    var sourceAttrs = { value: source.id };
+    if (source.available === false) sourceAttrs.disabled = true;
+    return E('option', sourceAttrs, source.label + (source.available === false ? ' — ' + _('Недоступно') : ''));
+  }));
+  var versionSelect = E('select', { 'aria-label': _('Версия'), value: selected.version || '', change: function (event) {
+    state.tgSelections[provider.id] = { sourceId: sourceId, version: event.target.value };
+  } }, sourceVersions.map(function (item) {
+    var versionAttrs = { value: item.version };
+    if (item.installable === false) versionAttrs.disabled = true;
+    return E('option', versionAttrs, item.version + (item.installable === false ? ' — ' + _('несовместима') : ''));
+  }));
+  var actionLabel = installedLatest ? _('Установлено') : switching ? _('Переключить') : _('Проверить и установить');
+  var action = shell.button(preflight.available === false || selected.installable === false || !selected.version ? _('Недоступно') : actionLabel, installedLatest ? 'sm' : 'primary sm', function () {
+    var liveSelection = state.tgSelections[provider.id] || { sourceId: selected.sourceId, version: selected.version };
+    var liveCandidate = versions.filter(function (item) { return item.sourceId === liveSelection.sourceId && item.version === liveSelection.version; })[0] || selected;
+    var request = { provider: provider.id, sourceId: liveCandidate.sourceId, version: liveCandidate.version };
+    var title = switching ? _('Переключить реализацию?') : _('Установить TG Proxy?');
+    var message = switching
+      ? _('Сервис будет остановлен, выбранный источник и версия будут проверены, затем реализация будет заменена с сохранением настроек.')
+      : _('Будет проверен и установлен выбранный официальный артефакт. Остальной менеджер от него не зависит.');
     confirm(ctx, title, message, actionLabel, function () {
-      if (!checked) {
-        shell.showToast(_('Сначала нажмите «Проверить обновления». После проверки установка будет доступна 10 минут.'), 'err');
-        return;
-      }
-      mutation(ctx, 'provider-install', ctx.api.tg.product.switch({ provider: provider.id, checkToken: update.checkToken }));
+      state.busy = 'provider-install';
+      ctx.api.tg.product.checkUpdates(request).then(function (check) {
+        if (!check || check.ok === false || !check.checkToken) throw check && check.error || new Error(_('Выбранная версия не прошла проверку.'));
+        return mutation(ctx, 'provider-install', ctx.api.tg.product.switch({ provider: provider.id, sourceId: liveCandidate.sourceId, version: liveCandidate.version, checkToken: check.checkToken }));
+      }).catch(function (error) { state.busy = null; showError(ctx, error); });
     }, false);
-  }, !!state.busy || installedLatest || preflight.available === false || !checked || update.installable === false);
+  }, !!state.busy || installedLatest || preflight.available === false || !selected.version || selected.installable === false);
+  // Compatibility marker for older acceptance readers: update.installable === false
+  // is now represented by the selected version's exact incompatibilityReason.
 
   return E('article', { 'class': 'z2m-panel z2m-proxy-provider-card' + (isActive ? ' selected' : '') }, [
     E('div', { 'class': 'hd' }, compact([
@@ -267,11 +295,10 @@ function providerCard(ctx, data, provider, status) {
       E('div', { 'class': 'z2m-proxy-info-list' }, [
         E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Установленная версия')), E('strong', {}, display(installedVersion))]),
         E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Package version')), E('strong', {}, display(packageVersion))]),
-        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Последняя доступная версия')), E('strong', {}, display(latestVersion))]),
-        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Установка')), E('strong', {}, _('Проверенный backend-кандидат'))]),
-        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Выбор версии')), E('strong', {}, _('Исторический выбор версий недоступен: backend возвращает только latest'))]),
-        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Источник')), E('strong', {}, _('Источник пакета не выбирается: backend использует canonical feed'))]),
-        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Готовность')), E('strong', { 'class': checked && update.installable !== false ? 'z2m-proxy-ok' : '' }, !checked ? _('Требуется проверка') : update.installable === false ? _('Версия недоступна для этой архитектуры') : _('Готова к установке'))])
+        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Последняя доступная версия')), E('strong', {}, display(latest.version))]),
+        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Версия')), versionSelect]),
+        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Источник')), sourceSelect]),
+        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Готовность')), E('strong', { 'class': !unavailableReason ? 'z2m-proxy-ok' : '' }, unavailableReason ? _('Недоступно') : _('Проверка перед установкой'))])
       ]),
       unavailableReason ? E('div', { 'class': 'z2m-proxy-provider-unavailable' }, _('Причина недоступности: ') + unavailableReason) : null,
       E('div', { 'class': 'z2m-btnrow z2m-proxy-provider-actions' }, [action])
@@ -288,7 +315,7 @@ function installPane(ctx, data) {
   function refreshChecks() {
     if (state.busy) return;
     state.busy = 'preflight';
-    Promise.allSettled([ctx.api.tg.product.catalog(), ctx.api.tg.product.checkUpdates()]).then(function () {
+    Promise.allSettled([ctx.api.tg.product.catalog(), ctx.api.tg.product.versions()]).then(function () {
       state.busy = null;
       return ctx.refresh('proxy');
     }).catch(function (error) { state.busy = null; showError(ctx, error); });

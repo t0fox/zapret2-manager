@@ -2,9 +2,12 @@
 id: avatar-current-z2m-parity-matrix-2026-08-15
 title: "Full Avatar UI parity closure: frozen baseline matrix"
 type: parity
-status: implementation-accepted-with-explicit-backend-gaps
+status: current
 updated: 2026-08-15
 source_manifest: 2026-08-15-full-avatar-ui-parity-manifest.yaml
+authority: evidence
+publish: false
+tags: [parity, avatar, matrix]
 ---
 
 # Full Avatar UI parity closure: frozen baseline matrix
@@ -19,11 +22,12 @@ interaction fields is
 | `Z2M_BASE_HEAD` | `cbe93f47e53b55dd674bbde4355670b52862e8f1` |
 | `AVATAR_TARGET_HEAD` | `60bc16a5ddc5f43d97d414b99920c3d13da3151a` |
 | `PARITY_ROWS_TOTAL` | `45` |
-| `BACKEND_SUPPORTED_ROWS` | `39` — includes three currently missing UI rows |
+| `BACKEND_SUPPORTED_ROWS` | `42` — all current Z2M-backed rows have an implemented UI surface |
 | `PARITY` | `3` — M6 route CRUD/lifecycle/ownership UI |
-| `PARTIAL` | `36` — existing backend-supported surfaces retain their documented semantic differences |
+| `ADAPTED` | `4` — TG provider/version/source controls use the canonical Z2M lifecycle |
+| `PARTIAL` | `34` — existing backend-supported surfaces retain their documented semantic differences |
 | `MISSING` | `0` |
-| `BACKEND_NOT_READY` | `5` — TG version/source backend gaps plus WARP/usque UI scope |
+| `BACKEND_NOT_READY` | `3` — WARP/usque UI-only scope |
 | `NOT_APPLICABLE` | `1` — excluded Avatar-only product family |
 | `DNS_CAPABILITY_COUNT` | `24` |
 | `M6_BACKEND_CLASSIFICATION` | `BACKEND_SUPPORTED_UI_PARITY` |
@@ -79,10 +83,10 @@ explicit TG backend capability gaps and the approved WARP/usque disabled UI.
 | dns.service_dns | dns / dns-routing/service-dns | Profile preview/apply | service_dns_*; service model/adapter | PARTIAL | M6 canary PASS; Browser pending |
 | dns.lifecycle | dns / dns-routing/apply | Preview/validate/apply/rollback/restore | dns_product lifecycle + coordinator | PARTIAL | target DNS canary PASS; Browser pending |
 | dns.diagnostics | dns / dns-routing/check | Check/readiness/success/error | dns_check/status/diagnose | PARTIAL | DNS отвечает target PASS; Browser pending |
-| tg.providers | telegram / telegram-tunnel/providers | Go/Rust choice/preflight | tg_product catalog/status; proxy page core | PARTIAL | Rust 2.0.0 target PASS; Browser pending |
-| tg.versions | telegram / telegram-tunnel/versions | Installed/package/latest/available metadata | status + latest-only check_updates | PARTIAL | latest only is backend limitation |
-| tg.version_selector | telegram / telegram-tunnel/versions | Select available version | no historical-version RPC or install input | BACKEND_NOT_READY | exact gap recorded; no fake versions |
-| tg.source_selector | telegram / telegram-tunnel/versions | Select supported source | no source enumeration/select RPC | BACKEND_NOT_READY | exact gap recorded; no fake sources |
+| tg.providers | telegram / telegram-tunnel/providers | Go/Rust choice/preflight | tg_product catalog/status; proxy page core; proxy_provider_versions | ADAPTED | canonical provider lifecycle and target checks PASS |
+| tg.versions | telegram / telegram-tunnel/versions | Installed/package/latest/available metadata | status + bounded proxy_provider_versions/check_updates | ADAPTED | real Go/Rust version enumeration, target PASS |
+| tg.version_selector | telegram / telegram-tunnel/versions | Select available version | proxy_provider_versions + provider/source/version/checkToken install input | ADAPTED | real selectors; incompatible releases carry exact reason |
+| tg.source_selector | telegram / telegram-tunnel/versions | Select supported source | bounded APK feed and official GitHub source enumeration/select | ADAPTED | no arbitrary URL; browser selection PASS |
 | tg.installation | telegram / telegram-tunnel/installation | Install/update/remove/progress/confirm | tg_product install/update/remove/purge | PARTIAL | target preflight/status PASS |
 | tg.lifecycle | telegram / telegram-tunnel/status | Lifecycle/listener/sessions/poll | tg_product lifecycle + proxy health | PARTIAL | canonical projection target PASS |
 | tg.configuration | telegram / telegram-tunnel/configuration | Edit/validate/apply config | proxy_config_* and secret owner | PARTIAL | writer preserved; Browser pending |
@@ -118,8 +122,8 @@ DNS_DEAD_CONTROLS = 0
 - M6 is `BACKEND_SUPPORTED_UI_MISSING`, not `BACKEND_NOT_READY`.
 - Asset Registry is typed and supports `lua`, `blob`, `ipset`, `hostlist`,
   `geosite`, `geoip`, and `hosts`; arbitrary filesystem access is excluded.
-- TG version/source enumeration is an exact backend gap. The future UI must
-  show the required selector/source surfaces with an exact disabled reason if
-  the backend contract remains absent; it must not invent versions or RPCs.
+- TG version/source enumeration is now backed by the canonical provider owner:
+  only the OpenWrt APK feed and allowlisted official GitHub releases are
+  exposed; every selected artifact is size/digest checked before install.
 - WARP/usque is mandatory full disabled UI with `Backend пока не реализован`;
   no fake state or failed bogus RPC is acceptable.

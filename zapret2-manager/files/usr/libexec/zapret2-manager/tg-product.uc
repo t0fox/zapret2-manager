@@ -8,7 +8,7 @@ import { proxycfg_get, proxycfg_validate, proxycfg_preview, proxycfg_apply,
 	proxycfg_health, proxycfg_start, proxycfg_stop, proxycfg_restart } from './proxycfg.uc';
 import { proxy_provider_catalog, proxy_provider_status,
 	proxy_provider_check_updates, proxy_provider_install, proxy_provider_remove,
-	proxy_provider_purge } from './proxy-provider.uc';
+	proxy_provider_purge, proxy_provider_versions } from './proxy-provider.uc';
 import { proxy_provider_preflight } from './proxy-provider-preflight.uc';
 
 const SCHEMA = 'tg-product.v2';
@@ -47,7 +47,7 @@ function catalog_model() {
 		product: 'telegram-proxy',
 		providers: rows,
 		architecture: preflight.architecture,
-		latestOnly: source.latestOnly === true,
+		// versions: provided by tg_product_versions; catalog remains the stable provider read model.
 		readOnly: true
 	};
 }
@@ -77,7 +77,7 @@ function status_model() {
 		ok: providers.ok === true && runtime.ok === true && config.ok === true,
 		schema: SCHEMA,
 		product: 'telegram-proxy',
-		selected: { provider: selected, desired: selected },
+		selected: { provider: selected, desired: selected, sourceId: providers.activeSourceId, version: providers.activeVersion },
 		installed: installed,
 		observed: { provider: observed, running: running },
 		status: running ? 'running' : (providers.installed === true ? 'stopped' : 'not-installed'),
@@ -110,6 +110,7 @@ function status_model() {
 }
 
 export const tg_product_catalog = function () { return catalog_model(); };
+export const tg_product_versions = function (input) { return proxy_provider_versions(input || {}); };
 export const tg_product_status = function () { return status_model(); };
 export const tg_product_get = function () { return status_model(); };
 export const tg_product_validate = function (input) { return proxycfg_validate(input); };

@@ -439,44 +439,44 @@ rows:
     subtab: providers
     donor_file: web/js/pages/tgproxy.js
     donor_interaction: Choose Go or Rust and inspect provider preflight
-    z2m_backend: tg_product_catalog/status/health/check_updates/switch
+    z2m_backend: tg_product_catalog/status/health/check_updates/switch plus proxy_provider_versions
     z2m_current_ui: z2m-proxy-page-core.js provider cards
-    status: PARTIAL
-    evidence: Go/Rust choice exists; provider lifecycle remains canonical TG v2.
-    browser_evidence: Target browser shows Rust 2.0.0/running; parity browser recheck pending
+    status: ADAPTED
+    evidence: Go/Rust choice and canonical provider lifecycle remain backed by the provider owner.
+    browser_evidence: Target browser shows both provider cards and real source/version controls.
   - id: tg.versions
     group: telegram
     page: telegram-tunnel
     subtab: versions
     donor_file: web/js/pages/tgproxy.js
     donor_interaction: See installed/package/latest/available version metadata
-    z2m_backend: tg_product_status and latest-only check_updates
-    z2m_current_ui: Installed/package/latest are partially visible; available list is absent
-    status: PARTIAL
-    evidence: Backend returns activeVersion/activePackageVersion/latest candidate only.
-    browser_evidence: Target browser verified installed Rust 2.0.0
+    z2m_backend: tg_product_status plus bounded proxy_provider_versions/check_updates
+    z2m_current_ui: Installed/package/latest and available versions are rendered per provider
+    status: ADAPTED
+    evidence: Canonical bounded sources[]/versions[] include architecture, artifact, digest, installability and exact reason.
+    browser_evidence: Target browser shows Go 0.9.3-2 and Rust 2.2.4 selectors; target checks pass.
   - id: tg.version_selector
     group: telegram
     page: telegram-tunnel
     subtab: versions
     donor_file: web/js/pages/tgproxy.js
     donor_interaction: Select an available supported version
-    z2m_backend: No historical-version enumeration or version-select install contract
-    z2m_current_ui: No version selector
-    status: BACKEND_NOT_READY
-    evidence: Exact gap: proxy_provider_catalog latestOnly=true; install accepts provider/checkToken only.
-    browser_evidence: Not applicable until backend contract exists; no fake versions permitted
+    z2m_backend: proxy_provider_versions plus provider/source/version/checkToken install contract
+    z2m_current_ui: Real selectable version control with disabled incompatible entries
+    status: ADAPTED
+    evidence: Selected version is checked against bounded upstream/feed metadata before canonical transactional install.
+    browser_evidence: Go and Rust version selectors are present; selected source persists.
   - id: tg.source_selector
     group: telegram
     page: telegram-tunnel
     subtab: versions
     donor_file: web/js/pages/tgproxy.js
     donor_interaction: Select supported source and show compatibility reason
-    z2m_backend: No source enumeration or source-select install contract
-    z2m_current_ui: Hard-coded trusted feed copy in provider card
-    status: BACKEND_NOT_READY
-    evidence: Exact gap recorded; future UI must not expose arbitrary URL or fake source.
-    browser_evidence: Not applicable until backend contract exists
+    z2m_backend: proxy_provider_versions plus provider/source/version/checkToken install contract
+    z2m_current_ui: Real supported-source control; no arbitrary URL input
+    status: ADAPTED
+    evidence: OpenWrt APK feed and allowlisted official GitHub release are the only source ids.
+    browser_evidence: Source selector renders both supported sources and persists selection.
   - id: tg.installation
     group: telegram
     page: telegram-tunnel
