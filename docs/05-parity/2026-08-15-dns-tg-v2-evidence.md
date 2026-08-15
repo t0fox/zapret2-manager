@@ -11,8 +11,10 @@ updated: 2026-08-15
 `AVATAR_CURRENT_REF: avatarDD/zapret-gui@947e213bd66b9b8bc23ce564abcf59a4c8e8ce4c`
 
 Документ фиксирует закрытый backend/target slice DNS v2 и Telegram Proxy v2.
-Полный Avatar parity не объявляется: Browser acceptance заблокирована
-аутентификацией LuCI, а остальные Avatar-only строки остаются вне этого slice.
+Полный Avatar parity не объявляется: остальные Avatar-only строки остаются вне
+этого slice. LuCI login был восстановлен в обычном browser flow, но финальный
+Browser gate остаётся незакрытым из-за найденного дефекта pre-fix frontend,
+невыкладки исправления на target и DNS engine/backend error.
 
 ## Required final fields
 
@@ -26,12 +28,12 @@ updated: 2026-08-15
 | `MISSING` | `0` |
 | `NOT_APPLICABLE` | `2` |
 | `BACKEND_NOT_READY` | `3` — IP sets, Lua scripts, unified routing |
-| `BROWSER_DESKTOP` | `BLOCKED` — reload returned HTTP `403`, header `x-luci-login-required: yes` |
-| `BROWSER_TABLET` | `BLOCKED` — same LuCI authentication gate |
-| `BROWSER_MOBILE` | `BLOCKED` — same LuCI authentication gate |
-| `BROWSER_CONSOLE_ERRORS` | `0` observed on the pre-reload page; current authenticated run not completed |
-| `NETWORK_404` | `NOT VERIFIED` because current page did not pass authentication |
-| `DEAD_PRIMARY_CONTROLS` | `NOT VERIFIED` |
+| `BROWSER_DESKTOP` | `FAIL` — authenticated; no horizontal overflow, but deployed pre-fix TG header still says `Не установлен`; DNS renders `Backend вернул ошибку.` |
+| `BROWSER_TABLET` | `FAIL` — authenticated; same product-state and DNS defects, no horizontal overflow |
+| `BROWSER_MOBILE` | `FAIL` — authenticated; same product-state and DNS defects, no horizontal overflow |
+| `BROWSER_CONSOLE_ERRORS` | `0` new errors after authenticated reload; one earlier login-transition `uci/get -32002 Access denied` was recorded |
+| `NETWORK_404` | `0` observed in the authenticated document/assets/ubus capture; final post-fix capture remains pending |
+| `DEAD_PRIMARY_CONTROLS` | `NOT VERIFIED` — DNS safe Preview/Validate could not be reached behind the backend error; TG destructive/reveal actions were not exercised |
 
 ## Implemented slice
 
@@ -54,6 +56,17 @@ objects are present in ubus and their calls succeed.
 regex groups `(?:...)`. The incompatible expressions were repaired in
 `remittor.uc`, `asset-registry.uc`, and `scanner-probe-executor.uc`. The local
 runtime contract test is `2/2`.
+
+`TG_UI_INSTALLED_COLLECTION_ROOT_CAUSE`: canonical `tg_product_status` returns
+`installed` as a provider collection, for example
+`[{"provider":"rust","installed":true,"selected":true}]`. The deployed
+frontend used `installed === true`, which derived `unsupported` and displayed
+`Не установлен` in the header even while the installation pane correctly
+showed Rust 2.0.0 and a running process. The fix adds
+`providerInstalled(value)` and applies it across the TG UI and adapter; the
+focused regression test is now green. The target still contains the pre-fix
+SHA256 listed in the deployment manifest because target write access was denied
+in this run.
 
 ## Real router acceptance
 
@@ -89,8 +102,23 @@ matching repository/target SHA256, mode `0644`, owner `root:root`.
 
 ## Local verification
 
-Focused DNS/TG/UI/M6/Asset suite: `64 passed, 1 skipped, 0 failed`.
+Focused DNS/TG/UI/M6/Asset suite: `65 passed, 1 skipped, 0 failed`.
 The skipped test is the repository's strategy compiler test. `node --check`
-passed for changed JavaScript and `git diff --check` passed. Physical-router
-Browser acceptance remains `BLOCKED` until an authenticated LuCI session is
-available; no `NETWORK_404=0` or dead-control claim is made.
+passed for changed JavaScript and `git diff --check` passed.
+
+## Finishing run and remaining gates
+
+- LuCI authentication: recovered through the normal `root` + empty-password
+  login form. The router warns `No password set!`; this is a target security
+  warning, not a login failure.
+- Full Strategy suite: `FAIL/NOT COMPLETE`; tests invoke the pinned harness
+  path `/opt/ucode/bin/ucode`, which is absent. The exact diagnostic is
+  `null !== 0` with `UCODE_BIN=null`, `UCODE_LIBRARY_PATH=null`.
+- Project ucode bootstrap: `NOT RUN`; `wsl` cannot create a distro instance and
+  returns `Wsl/Service/CreateInstance/E_ACCESSDENIED`. Git Bash has no Linux
+  compiler or CMake, and Docker has no running daemon.
+- Target frontend deployment: `NOT RUN`; direct SSH to
+  `192.168.1.1:22` is denied by the execution environment before
+  authentication, so the backed-up pre-fix JS remains active on the router.
+- `ROUTER_E2E`: existing DNS/TG/M6 backend canaries remain PASS from the prior
+  deployment; the post-fix UI browser gate is not claimed.
