@@ -4,19 +4,17 @@ import fs from 'node:fs';
 
 const APP = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/app.js';
 const NAVIGATION = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-navigation.js';
+const MANIFEST = 'docs/05-parity/2026-08-15-full-avatar-ui-parity-manifest.yaml';
 
 test('legacy baseline is exactly the nine-tab Z2M navigation', () => {
-  const source = fs.readFileSync(APP, 'utf8');
-  const ids = source.match(/var TAB_IDS = \[([^\]]+)\];/s)?.[1]
-    .split(',')
-    .map((item) => item.trim().replaceAll(/['"]/g, ''));
-
-  assert.deepEqual(ids, [
+  const inventory = fs.readFileSync(MANIFEST, 'utf8');
+  const ids = [
     'overview', 'strategy', 'services', 'blockcheck', 'assets',
     'dns', 'proxy', 'monitor', 'maintenance',
-  ]);
-  assert.equal(source.includes('#/') && source.includes('lists'), true);
-  assert.match(source, /return match\[1\] === 'lists' \? 'services' : match\[1\]/);
+  ];
+  assert.ok(inventory.includes('legacy_baseline:'), 'inventory must preserve the legacy baseline');
+  assert.deepEqual(ids.filter((id) => inventory.includes(`{ id: ${id},`)), ids);
+  assert.match(inventory, /legacy_baseline:[\s\S]*tabs:/);
 });
 
 test('future navigation contract is Avatar-derived and has no old duplicate tabs', () => {
@@ -31,4 +29,7 @@ test('future navigation contract is Avatar-derived and has no old duplicate tabs
   assert.doesNotMatch(navigation, /sidebar/i);
   assert.doesNotMatch(app, /var TAB_IDS = \[/);
   assert.doesNotMatch(app, /var TAB_LABELS = \{/);
+  assert.match(app, /z2m-navigation as Navigation/);
+  assert.match(app, /Shell\.primaryNavigation\(Navigation/);
+  assert.match(app, /Navigation\.normalize\(window\.location\.hash\)/);
 });

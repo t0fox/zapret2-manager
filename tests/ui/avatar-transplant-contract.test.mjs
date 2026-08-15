@@ -20,9 +20,12 @@ test('records the current Avatar donor and preserves its MIT provenance', () => 
 
 test('keeps the z2m top navigation and never ships a donor sidebar', () => {
   const app = fs.readFileSync(path.join(frontend, 'app.js'), 'utf8');
-  for (const tab of ['overview', 'strategy', 'services', 'blockcheck', 'dns', 'proxy', 'monitor', 'maintenance']) {
-    assert.match(app, new RegExp(`['"]${tab}['"]`), `missing top tab ${tab}`);
+  const navigation = fs.readFileSync(path.join(frontend, 'z2m-navigation.js'), 'utf8');
+  for (const group of ['home', 'dpi', 'routing', 'data', 'diagnostics', 'system']) {
+    assert.match(navigation, new RegExp(`id: '${group}'`), `missing navigation group ${group}`);
   }
+  assert.match(app, /z2m-navigation as Navigation/);
+  assert.match(app, /Shell\.primaryNavigation\(Navigation/);
   assert.doesNotMatch(productionText, /['"](?:require\s+)?(?:view\.)?sidebar|z2m-sidebar/);
 });
 

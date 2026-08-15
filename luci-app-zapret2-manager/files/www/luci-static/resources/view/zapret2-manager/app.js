@@ -3,6 +3,7 @@
 'require view.zapret2-manager.z2m-api as Api';
 'require view.zapret2-manager.z2m-store as StoreModule';
 'require view.zapret2-manager.z2m-shell as Shell';
+'require view.zapret2-manager.z2m-navigation as Navigation';
 'require view.zapret2-manager.z2m-draft-model as DraftModel';
 'require view.zapret2-manager.z2m-coordinator as Coordinator';
 'require view.zapret2-manager.z2m-overview as Overview';
@@ -16,11 +17,6 @@
 'require view.zapret2-manager.z2m-assets as Assets';
 
 var APPLY_SCOPE_ORDER = ['strategy','domainHub','dns','proxy'];
-var TAB_IDS = ['overview','strategy','services','blockcheck','assets','dns','proxy','monitor','maintenance'];
-var TAB_LABELS = {
-  overview: _('Обзор'), strategy: _('Стратегия'), services: _('Сервисы и домены'), blockcheck: _('BlockCheck'), assets: _('Ресурсы'),
-  dns: _('DNS'), proxy: _('Telegram Proxy'), monitor: _('Мониторинг'), maintenance: _('Обслуживание')
-};
 var DRAFT_META = {
   strategy: { label: _('Стратегия'), tab: 'strategy' },
   domainHub: { label: _('Сервисы и домены'), tab: 'services' },
@@ -29,9 +25,42 @@ var DRAFT_META = {
   maintenance: { label: _('Обслуживание'), tab: 'maintenance' }
 };
 var MODULES = {
-  overview: Overview, strategy: Strategy, services: Services, blockcheck: BlockCheck, assets: Assets,
-  dns: Dns, proxy: Proxy, monitor: Monitor, maintenance: Maintenance
+  dashboard: Overview,
+  control: Overview,
+  strategies: Strategy,
+  scan: Strategy,
+  lists: Services,
+  hostlists: Services,
+  'dns-routing': Dns,
+  'telegram-tunnel': Proxy,
+  diagnostics: BlockCheck,
+  blockcheck: BlockCheck,
+  logs: Monitor,
+  monitor: Monitor,
+  updates: Maintenance,
+  zapret: Maintenance,
+  autostart: Maintenance,
+  settings: Maintenance
 };
+var PENDING_MODULE = {
+  load: function () { return Promise.resolve({}); },
+  render: function (ctx) {
+    return E('section', { 'class': 'z2m-view on' }, [
+      E('div', { 'class': 'z2m-phead' }, [E('div', {}, [
+        E('h1', {}, Navigation.label(ctx.route)),
+        E('p', {}, _('Раздел навигации подготовлен; экран подключается к существующему backend-контракту по мере миграции.'))
+      ])]),
+      Shell.statePanel({
+        title: _('UI-раздел в миграции'),
+        message: _('Backend не вызывается, пока для этого экрана не подключен подтверждённый UI-контракт.'),
+        kind: 'info'
+      })
+    ]);
+  }
+};
+[
+  'unified-routing', 'warp', 'warp-setup', 'warp-in-warp', 'ipsets', 'blobs', 'lua', 'hosts'
+].forEach(function (route) { MODULES[route] = PENDING_MODULE; });
 var store = StoreModule.create();
 var activeModule = null;
 var activeContext = null;
@@ -65,14 +94,12 @@ Object.keys(DRAFT_META).forEach(function (scope) {
 });
 
 function tabFromHash() {
-  var match = String(window.location.hash || '').match(/^#\/(overview|strategy|services|blockcheck|assets|lists|dns|proxy|monitor|maintenance)$/);
-  if (!match) return 'overview';
-  return match[1] === 'lists' ? 'services' : match[1];
+  return Navigation.normalize(window.location.hash);
 }
 function setHash(tab) {
-  if (tab === 'lists') tab = 'services';
-  if (TAB_IDS.indexOf(tab) < 0) tab = 'overview';
-  if (window.location.hash !== '#/' + tab) window.location.hash = '#/' + tab;
+  tab = Navigation.normalize(tab);
+  var target = Navigation.hash(tab);
+  if (window.location.hash !== target) window.location.hash = target;
 }
 function statusState(initial) {
   if (initial && initial.error) return { label: _('недоступно'), kind: 'r' };
@@ -112,7 +139,7 @@ function detectedVersion(initial) {
   var value = meta.managerVersion || meta.packageVersion || initial && initial.packageVersion;
   return value === null || value === undefined || value === '' ? null : String(value);
 }
-function draftMeta(scope) { return DRAFT_META[scope] || { label: scope, tab: 'overview' }; }
+function draftMeta(scope) { return DRAFT_META[scope] || { label: scope, tab: 'dashboard' }; }
 function draftLabel(scope) { return draftMeta(scope).label; }
 function humanValue(value, depth) {
   depth = depth || 0;
@@ -177,7 +204,7 @@ return L.view.extend({
   render: function (initial) {
     Shell.injectCss();
     var content = E('main', { 'class': 'z2m-content', id: 'z2m-content' });
-    var tabs = E('nav', { 'class': 'z2m-tabs', id: 'z2m-tabs', role: 'tablist', 'aria-label': _('Разделы Zapret 2 Manager') });
+    var tabs = Shell.primaryNavigation(Navigation, tabFromHash(), navigateTo);
     var applyBar = Shell.renderApplyBar(store, { enabled: false, reason: _('Ожидается предварительная проверка.') });
     var appRoot = null;
     var coordinator = createCoordinator({ api: Api, store: store, shell: Shell, adapters: ADAPTERS, root: content });
@@ -188,6 +215,7 @@ return L.view.extend({
     }
     function buildContext(tab, module, data, root) {
       return {
+        route: tab,
         api: Api, store: store, shell: Shell, root: root || content,
         data: data || {}, initial: initial || {},
         navigate: navigateTo,
@@ -240,35 +268,28 @@ return L.view.extend({
       if (appRoot && appRoot.scrollIntoView && !force) appRoot.scrollIntoView({ block: 'start' });
     }
     function navigateTo(tab) {
-      if (tab === 'lists') tab = 'services';
-      if (TAB_IDS.indexOf(tab) < 0) tab = 'overview';
-      if (activeModule === MODULES[tab] && activeContext) return Promise.resolve();
-      if (window.location.hash !== '#/' + tab) {
+      tab = Navigation.normalize(tab);
+      if (window.location.hash !== Navigation.hash(tab)) {
         setHash(tab);
         return Promise.resolve();
       }
+      if (activeModule === MODULES[tab] && activeContext && activeContext.route === tab) return Promise.resolve();
       return activate(tab);
     }
     function activate(tab, force) {
-      if (tab === 'lists') tab = 'services';
-      if (TAB_IDS.indexOf(tab) < 0) tab = 'overview';
+      tab = Navigation.normalize(tab);
       var token = ++activationToken;
-      var module = MODULES[tab];
-      var sameTab = activeModule === module && !!activeContext;
+      var module = MODULES[tab] || PENDING_MODULE;
+      var sameTab = activeModule === module && !!activeContext && activeContext.route === tab;
       var cached = tabDataCache[tab];
       store.update({ ui: Object.assign({}, store.get().ui, { tab: tab }) });
-      Array.from(tabs.querySelectorAll('button[data-tab]')).forEach(function (button) {
-        var selected = button.getAttribute('data-tab') === tab;
-        button.classList.toggle('on', selected);
-        button.setAttribute('aria-selected', selected ? 'true' : 'false');
-        button.setAttribute('tabindex', selected ? '0' : '-1');
-      });
+      if (tabs.setActive) tabs.setActive(tab);
       if (cached && !sameTab) renderTabData(tab, module, cached, token, force);
       else if (!cached && !(sameTab && force)) {
         if (activeModule && activeContext && activeModule.unmount) activeModule.unmount(activeContext);
         activeModule = module;
         activeContext = null;
-        content.replaceChildren(Shell.renderLoadingState(TAB_LABELS[tab]));
+        content.replaceChildren(Shell.renderLoadingState(Navigation.label(tab)));
       }
       setContentBusy(true);
       return loadTabData(tab, module).then(function (data) {
@@ -304,7 +325,7 @@ return L.view.extend({
             Shell.closeModal();
             Shell.showToast(_('Откат выполнен и проверен.'), 'ok');
             tabDataCache = {};
-            return activate(store.get().ui.tab || 'overview', true);
+            return activate(store.get().ui.tab || Navigation.defaultRoute, true);
           }).catch(function (error) {
             button.disabled = false;
             Shell.showToast(Api.normalizeError(error).message, 'err');
@@ -325,7 +346,7 @@ return L.view.extend({
             Shell.closeModal();
             tabDataCache = {};
             renderState();
-            activate(store.get().ui.tab || 'overview', true);
+            activate(store.get().ui.tab || Navigation.defaultRoute, true);
             openApplyResult(result);
           }).catch(function (error) {
             apply.disabled = false;
@@ -361,7 +382,7 @@ return L.view.extend({
           }) });
           tabDataCache = {};
           renderState();
-          activate(store.get().ui.tab || 'overview', true);
+          activate(store.get().ui.tab || Navigation.defaultRoute, true);
         })
       ]);
     }
@@ -385,17 +406,6 @@ return L.view.extend({
     }
 
     var initialTab = tabFromHash();
-    TAB_IDS.forEach(function (tab) {
-      var selected = tab === initialTab;
-      var button = E('button', {
-        type: 'button', 'data-tab': tab, role: 'tab',
-        'class': selected ? 'on' : '',
-        'aria-selected': selected ? 'true' : 'false',
-        tabindex: selected ? '0' : '-1'
-      }, TAB_LABELS[tab]);
-      button.addEventListener('click', function () { navigateTo(tab); });
-      tabs.appendChild(button);
-    });
     if (hashHandler) window.removeEventListener('hashchange', hashHandler);
     hashHandler = function () { activate(tabFromHash()); };
     window.addEventListener('hashchange', hashHandler);

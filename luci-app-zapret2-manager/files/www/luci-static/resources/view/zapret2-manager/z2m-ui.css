@@ -40,6 +40,12 @@
 .z2m-tabs button.on{color:var(--tx);border-bottom-color:var(--blue);background:var(--panel)}
 .z2m-tabs .badge{display:inline-block;margin-left:7px;background:var(--raised);color:var(--tx2);border-radius:9px;padding:0 6px;font-size:11px;line-height:16px;vertical-align:1px}
 .z2m-tabs button.on .badge{background:var(--blue);color:#08131a}
+.z2m-navigation-shell{margin-bottom:20px;min-width:0}
+.z2m-primary-nav{margin-bottom:0;border-bottom:1px solid var(--border);overflow-x:auto;overscroll-behavior-inline:contain}
+.z2m-primary-nav button{font-weight:600}
+.z2m-secondary-nav{margin:0;border-bottom:1px solid var(--border2);overflow-x:auto;overscroll-behavior-inline:contain}
+.z2m-secondary-nav button{font-size:12.5px}
+.z2m-nav-parent{align-self:center;padding:8px 4px 8px 10px;color:var(--tx3);font-size:11px;white-space:nowrap}
 .z2m-subtabs{display:flex;gap:4px;border-bottom:1px solid var(--border);margin:0 0 16px}
 .z2m-subtabs button{background:none;border:0;border-bottom:2px solid transparent;padding:8px 12px;color:var(--tx2);cursor:pointer;font-size:13px}
 .z2m-subtabs button:hover{color:var(--tx)}
