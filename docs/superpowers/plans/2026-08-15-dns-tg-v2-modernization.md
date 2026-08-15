@@ -24,6 +24,39 @@
 
 ---
 
+### Task 0: Close the target frontend deployment closure before product work
+
+**Files:**
+- Create: `tests/ui/frontend-module-closure.test.mjs`
+- Modify: `docs/superpowers/specs/2026-08-15-dns-tg-v2-modernization-design.md`
+- Target-only: `/www/luci-static/resources/view/zapret2-manager/*`
+
+**Interfaces:**
+- Consumes: current worktree frontend tree, `luci-app-zapret2-manager/Makefile`, target static LuCI root, and authenticated browser access.
+- Produces: case-sensitive recursive `require` closure proof, exact target backup under `/tmp/z2m-ui-sync-20260815-01/`, synchronized current UI assets, and browser boot evidence before DNS/TG implementation.
+
+- [x] **Step 1: Inventory repository and target manifests**
+
+  Compare every shipped JS/CSS file and recursively referenced `require view.zapret2-manager.<module>` against the target. Record repo/target SHA-256, presence, mode, owner, references, and status. The observed root cause was a stale/partial target tree: the package Makefile wildcard includes all JS/CSS, current `app.js`/`z2m-api.js` hashes matched, `z2m-blockcheck-page.js` was absent, and three stale target-owned files came from another UI tree.
+
+- [x] **Step 2: Add and run the closure regression test**
+
+  Run `node --test tests/ui/frontend-module-closure.test.mjs`; it must pass the current repository and fail synthetic missing/case-only module fixtures.
+
+- [x] **Step 3: Back up and synchronize the complete target UI tree**
+
+  Back up the target tree, including file hashes/modes/owners, to `/tmp/z2m-ui-sync-20260815-01/`; copy the complete current frontend payload; remove only `z2m-shell-v2.js`, `z2m-test.js`, and `z2m-services.css` after proving they are absent from current `origin/main`; invalidate only LuCI caches.
+
+- [x] **Step 4: Verify static target closure**
+
+  Verify `MISSING_REQUIRED_ASSETS=0` and `HASH_MISMATCH_REQUIRED_ASSETS=0`. Direct browser fetch of `z2m-blockcheck-page.js` returned HTTP 200 with no console errors.
+
+- [ ] **Step 5: Complete authenticated browser boot acceptance**
+
+  Open `http://192.168.1.1/cgi-bin/luci/admin/services/zapret2-manager` with the available authenticated browser session and capture no module 404s, no compileClass NetworkError, app render, top navigation, Graphite shell, and all required tabs. HTTP 403 from the current headless browser is an authentication prerequisite failure, not evidence about the synchronized asset tree.
+
+---
+
 ### Task 1: Establish characterization fixtures and regression inventory
 
 **Files:**

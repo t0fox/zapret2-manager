@@ -88,6 +88,10 @@ DNS is organized into overview/runtime, global DNS, providers/profiles, Service 
 
 Legacy frontend adapters/models that are no longer on the runtime path are classified and removed only after import tests are updated. Low-level DNS writers, the Service DNS worker, provider lifecycle, and init/procd integration are retained as internal implementation details.
 
+## Target UI preflight
+
+Before DNS/TG target acceptance, the complete current frontend asset set must be synchronized from this worktree after a target backup. The required-module closure is checked case-sensitively from every shipped JavaScript file. A missing module such as `z2m-blockcheck-page.js` is a deployment-closure failure, not a DNS/TG product failure. The target gate requires zero missing and zero hash-mismatched required assets, removal only of stale zapret2-manager-owned files proven absent from the current source tree, targeted LuCI cache invalidation, and authenticated browser evidence for app render, top navigation, Graphite shell, and all product tabs.
+
 ## Migration and target safety
 
 The first canonical read is strictly read-only and must not rewrite state, restart services, change DNS, or select a provider. Existing DNS state, Service DNS selections, TG state, and configuration are imported from their current stores without destructive migration.
