@@ -17,7 +17,7 @@ const BINARY_PATH = '/usr/bin/tg-ws-proxy';
 const CHECK_DIR = '/tmp/zapret2-manager/proxy-provider-checks';
 const CHECK_TTL = 600;
 const MAX_METADATA = 4194304;
-const MAX_RELEASES = 20;
+const MAX_RELEASES = 50;
 const MAX_RELEASE_BODY = 32768;
 const MAX_RELEASE_ASSETS = 64;
 const SOURCE_APK = 'openwrt-apk-feed';
@@ -128,9 +128,26 @@ function metadata_url(provider) {
 }
 
 function github_api_url(provider) {
-	if (provider == 'rust') return 'https://api.github.com/repos/valnesfjord/tg-ws-proxy-rs/releases?per_page=20';
-	if (provider == 'go') return 'https://api.github.com/repos/spatiumstas/tg-ws-proxy-go/releases?per_page=20';
+	if (provider == 'rust') return 'https://api.github.com/repos/valnesfjord/tg-ws-proxy-rs/releases?per_page=50';
+	if (provider == 'go') return 'https://api.github.com/repos/spatiumstas/tg-ws-proxy-go/releases?per_page=50';
 	return null;
+}
+
+function release_identity(providerId, tag) {
+	if (providerId == 'rust') {
+		if (!match(tag, /^v[0-9][0-9A-Za-z._-]*$/)) return null;
+		let upstream = substr(tag, 1);
+		return { tag: tag, upstreamVersion: upstream, packageRevision: 1,
+			displayVersion: upstream, packageVersion: upstream + '-r1' };
+	}
+	if (providerId != 'go') return null;
+	let revised = match(tag, /^([0-9][0-9A-Za-z._-]*)-rev([0-9]+)$/), base = match(tag, /^([0-9][0-9A-Za-z._-]*)$/);
+	let upstream = revised ? revised[1] : base ? base[1] : null;
+	let revision = revised ? +revised[2] : base ? 1 : null;
+	if (upstream == null || revision == null || revision < 1 || revision > 99) return null;
+	let displayVersion = upstream + '-' + revision;
+	return { tag: tag, upstreamVersion: upstream, packageRevision: revision,
+		displayVersion: displayVersion, packageVersion: upstream + '-r' + revision };
 }
 
 function source_url(provider, sourceId) {
@@ -175,19 +192,12 @@ function latest_candidate(providerId, arch) {
 		? 'https://github.com/valnesfjord/tg-ws-proxy-rs/releases/tag/'
 		: 'https://github.com/spatiumstas/tg-ws-proxy-go/releases/tag/';
 	if (location == null || substr(location, 0, length(prefix)) != prefix) return error('EMETADATA', 'GitHub не вернул допустимую stable release ссылку.');
-	let tag = substr(location, length(prefix)), version = null, packageVersion = null;
-	if (providerId == 'rust') {
-		if (!match(tag, /^v[0-9][0-9A-Za-z._-]*$/)) return error('EMETADATA', 'Версия Rust имеет недопустимый формат.');
-		version = substr(tag, 1);
-		packageVersion = version + '-r1';
-	} else {
-		let found = match(tag, /^([0-9][0-9A-Za-z._-]*)-rev([0-9]+)$/);
-		if (!found) return error('EMETADATA', 'Версия Go имеет недопустимый формат.');
-		version = found[1] + '-' + found[2];
-		packageVersion = found[1] + '-r' + found[2];
-	}
-	if (!safe_package_version(version) || !safe_package_version(packageVersion)) return error('EMETADATA', 'Версия upstream не прошла проверку.');
-	return { ok: true, candidate: { provider: providerId, version: version, packageVersion: packageVersion,
+	let tag = substr(location, length(prefix)), identity = release_identity(providerId, tag);
+	if (identity == null || !safe_package_version(identity.displayVersion) || !safe_package_version(identity.packageVersion))
+		return error('EMETADATA', 'Версия upstream имеет недопустимый формат.');
+	return { ok: true, candidate: { provider: providerId, version: identity.displayVersion,
+		upstreamVersion: identity.upstreamVersion, packageRevision: identity.packageRevision,
+		displayVersion: identity.displayVersion, packageVersion: identity.packageVersion,
 		architecture: arch, releaseTag: tag, metadataUrl: url } };
 }
 
@@ -278,13 +288,12 @@ function release_candidate(providerId, arch, release) {
 	if (type(release) != 'object' || release == null || release.draft !== false || release.prerelease !== false) return null;
 	let tag = release.tag_name;
 	if (type(tag) != 'string') return null;
-	let version = null, packageVersion = null, assetName = null, artifactFormat = null;
+	let identity = release_identity(providerId, tag);
+	if (identity == null) return null;
+	let version = identity.displayVersion, packageVersion = identity.packageVersion, assetName = null, artifactFormat = null;
 	let apkAssetName = null, directAssetName = null;
 	let keyAssetName = null;
 	if (providerId == 'rust') {
-		if (!match(tag, /^v[0-9][0-9A-Za-z._-]*$/)) return null;
-		version = substr(tag, 1);
-		packageVersion = version + '-r1';
 		apkAssetName = 'luci-app-tg-ws-proxy-rs-' + version + '-r1.apk';
 		let target = target_arch(providerId, arch);
 		if (target == 'aarch64') directAssetName = 'tg-ws-proxy-aarch64-unknown-linux-musl.tar.gz';
@@ -293,10 +302,6 @@ function release_candidate(providerId, arch, release) {
 		else if (substr(target, 0, 8) == 'mipsel_') directAssetName = 'tg-ws-proxy-mipsel-unknown-linux-musl.tar.gz';
 		else if (substr(target, 0, 5) == 'mips_') directAssetName = 'tg-ws-proxy-mips-unknown-linux-musl.tar.gz';
 	} else if (providerId == 'go') {
-		let found = match(tag, /^([0-9][0-9A-Za-z._-]*)-rev([0-9]+)$/);
-		if (!found) return null;
-		version = found[1] + '-' + found[2];
-		packageVersion = found[1] + '-r' + found[2];
 		let targetArch = target_arch(providerId, arch);
 		apkAssetName = 'tg-ws-proxy_' + packageVersion + '_openwrt_' + targetArch + '.apk';
 		keyAssetName = 'tg-ws-proxy.pem';
@@ -318,6 +323,7 @@ function release_candidate(providerId, arch, release) {
 		+keyAsset.size >= 128 && +keyAsset.size <= 65536 && keyAsset.browser_download_url == keyUrl;
 	let architectureCompatible = apkAvailable || directBinaryAvailable;
 	let artifactAvailable = apkAvailable || directBinaryAvailable;
+	let packageMatchesTarget = artifactAvailable;
 	let checksumAvailable = digest != null;
 	let apkSignatureTrusted = keyUsable;
 	let trustMode = apkAvailable ? (keyUsable ? 'upstream-key' : 'sha256-only') : null;
@@ -331,10 +337,13 @@ function release_candidate(providerId, arch, release) {
 				: !checksumAvailable
 					? 'У APK отсутствует проверяемый SHA-256.'
 					: null;
-	return { provider: providerId, version: version, packageVersion: packageVersion, architecture: arch,
+	return { provider: providerId, version: version, upstreamVersion: identity.upstreamVersion,
+		packageRevision: identity.packageRevision, displayVersion: identity.displayVersion, releaseTag: identity.tag,
+		releaseExists: true, provider: providerId, packageVersion: packageVersion, architecture: arch,
 		sourceId: SOURCE_GITHUB, sourceKind: source_kind(SOURCE_GITHUB), artifactFormat: artifactFormat,
 		packageName: package_name(providerId), architectureCompatible: architectureCompatible,
-		artifactAvailable: artifactAvailable, apkAvailable: apkAvailable, directBinaryAvailable: directBinaryAvailable,
+		artifactAvailable: artifactAvailable, packageMatchesTarget: packageMatchesTarget,
+		apkAvailable: apkAvailable, directBinaryAvailable: directBinaryAvailable,
 		checksumAvailable: checksumAvailable, apkSignatureTrusted: apkSignatureTrusted,
 		assetName: assetName, assetSha256: digest, assetSize: asset != null ? +asset.size : null, releaseId: '' + release.id,
 		releaseName: type(release.name) == 'string' && release.name != '' ? substr(release.name, 0, 256) : tag,
@@ -485,8 +494,10 @@ function feed_version(providerId, arch) {
 	candidate.sourceKind = source_kind(SOURCE_APK);
 	candidate.metadataUrl = source_url(providerId, SOURCE_APK);
 	candidate.packageName = package_name(providerId);
+	candidate.releaseExists = true;
 	candidate.architectureCompatible = true;
 	candidate.artifactAvailable = true;
+	candidate.packageMatchesTarget = true;
 	candidate.apkAvailable = true;
 	candidate.directBinaryAvailable = false;
 	candidate.checksumAvailable = false;

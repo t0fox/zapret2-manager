@@ -236,80 +236,160 @@ function candidateForVersion(versions, version) {
 function versionChoices(versions) {
   var seen = {};
   return array(versions).filter(function (item) {
-    if (!item || !item.version || seen[item.version]) return false;
+    if (!item || !item.version || item.artifactAvailable !== true || seen[item.version]) return false;
     seen[item.version] = true;
     return true;
   });
 }
 
-function releaseText(value) {
+function safeMarkdownText(value) {
   var holder = document.createElement('span');
   holder.textContent = String(value === null || value === undefined ? '' : value).slice(0, 32768);
   return holder.textContent;
 }
 
-function releaseDetails(item) {
-  if (!item || !item.version) return null;
-  var notes = item.releaseBody ? releaseText(item.releaseBody) : _('Автор не указал описание изменений для этого релиза.');
-  return E('div', { 'class': 'z2m-proxy-release-details' }, [
-    E('h3', {}, _('Что изменилось в ') + item.version),
-    E('div', { 'class': 'z2m-proxy-release-meta' }, [
-      E('span', {}, _('Версия ') + item.version),
-      E('span', {}, _('Дата релиза: ') + display(item.publishedAt || '—'))
-    ]),
-    E('pre', { 'class': 'z2m-proxy-release-notes' }, notes),
-    item.releaseUrl ? E('a', { href: item.releaseUrl, target: '_blank', rel: 'noopener noreferrer' }, _('Полное описание релиза')) : null
+function safeReleaseUrl(value) {
+  return typeof value === 'string' && /^https?:\/\//i.test(value) ? value : null;
+}
+
+function markdownInline(value) {
+  var text = safeMarkdownText(value), nodes = [], cursor = 0;
+  var pattern = /(`[^`]*`|\[([^\]]+)\]\((https?:\/\/[^)\s]+)\))/g, found;
+  while ((found = pattern.exec(text)) !== null) {
+    if (found.index > cursor) nodes.push(E('span', {}, text.slice(cursor, found.index)));
+    if (found[0].charAt(0) === '`') nodes.push(E('code', {}, safeMarkdownText(found[0].slice(1, -1))));
+    else nodes.push(E('a', { href: safeReleaseUrl(found[3]) || '#', target: '_blank', rel: 'noopener noreferrer' }, safeMarkdownText(found[2])));
+    cursor = found.index + found[0].length;
+  }
+  if (cursor < text.length) nodes.push(E('span', {}, text.slice(cursor)));
+  return nodes.length ? nodes : [E('span', {}, text)];
+}
+
+function renderReleaseMarkdown(body) {
+  var lines = safeMarkdownText(body).replace(/\r\n?/g, '\n').split('\n'), blocks = [], paragraph = [], list = null, code = null;
+  function flushParagraph() {
+    if (!paragraph.length) return;
+    blocks.push(E('p', {}, markdownInline(paragraph.join(' '))));
+    paragraph = [];
+  }
+  function flushList() {
+    if (!list) return;
+    blocks.push(E(list.ordered ? 'ol' : 'ul', {}, list.items.map(function (item) { return E('li', {}, markdownInline(item)); })));
+    list = null;
+  }
+  function flushCode() {
+    if (!code) return;
+    blocks.push(E('pre', { 'class': 'z2m-proxy-release-code' }, E('code', {}, safeMarkdownText(code.lines.join('\n')))));
+    code = null;
+  }
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i], trimmed = line.trim(), fence = /^```/.test(trimmed);
+    if (code) {
+      if (fence) flushCode();
+      else code.lines.push(line);
+      continue;
+    }
+    if (fence) { flushParagraph(); flushList(); code = { lines: [] }; continue; }
+    var heading = /^(#{1,3})\s+(.+)$/.exec(trimmed);
+    if (heading) { flushParagraph(); flushList(); blocks.push(E(heading[1].length === 1 ? 'h3' : 'h4', {}, markdownInline(heading[2]))); continue; }
+    var unordered = /^[-*+]\s+(.+)$/.exec(trimmed), ordered = /^\d+[.)]\s+(.+)$/.exec(trimmed);
+    if (unordered || ordered) {
+      flushParagraph();
+      var isOrdered = !!ordered, value = (ordered || unordered)[1];
+      if (!list || list.ordered !== isOrdered) { flushList(); list = { ordered: isOrdered, items: [] }; }
+      list.items.push(value);
+      continue;
+    }
+    if (!trimmed) { flushParagraph(); flushList(); continue; }
+    flushList(); paragraph.push(trimmed);
+  }
+  if (code) flushCode();
+  flushParagraph();
+  flushList();
+  return blocks.length ? blocks : [E('p', { 'class': 'z2m-proxy-release-empty' }, _('Автор не указал описание изменений для этого релиза.'))];
+}
+
+function releaseSummary(item) {
+  if (!item || !item.releaseBody) return E('p', { 'class': 'z2m-proxy-release-empty' }, _('Автор не указал описание изменений для этого релиза.'));
+  var lines = safeMarkdownText(item.releaseBody).replace(/\r\n?/g, '\n').split('\n'), points = [];
+  for (var i = 0; i < lines.length && points.length < 3; i++) {
+    var line = lines[i].trim().replace(/^#{1,3}\s+/, '').replace(/^[-*+]\s+/, '').replace(/^\d+[.)]\s+/, '');
+    if (!line || /^```/.test(line)) continue;
+    points.push(line.slice(0, 220));
+  }
+  return points.length ? E('ul', { 'class': 'z2m-proxy-release-summary' }, points.map(function (point) { return E('li', {}, markdownInline(point)); })) :
+    E('p', { 'class': 'z2m-proxy-release-empty' }, _('Автор не указал описание изменений для этого релиза.'));
+}
+
+function selectedReleasePanel(provider, item) {
+  if (!item || !item.version) return E('section', { 'class': 'z2m-panel z2m-proxy-selected-release' }, E('div', { 'class': 'bd' }, _('Выберите версию, чтобы увидеть описание релиза.')));
+  var url = safeReleaseUrl(item.releaseUrl), full = item.releaseBody ? E('details', { 'class': 'z2m-proxy-release-full' }, [
+    E('summary', {}, _('Показать полный changelog')),
+    E('div', { 'class': 'z2m-proxy-release-markdown' }, renderReleaseMarkdown(item.releaseBody))
+  ]) : null;
+  return E('section', { 'class': 'z2m-panel z2m-proxy-selected-release' }, [
+    E('div', { 'class': 'hd' }, [E('div', {}, [E('h2', {}, provider.title + ' ' + item.version), E('div', { 'class': 'sub' }, _('Выбранная версия'))])]),
+    E('div', { 'class': 'bd' }, [
+      E('div', { 'class': 'z2m-proxy-release-meta' }, [
+        E('span', {}, _('Дата релиза: ') + display(item.publishedAt || '—')),
+        item.releaseName ? E('span', {}, display(item.releaseName)) : null
+      ]),
+      E('h3', {}, _('Что изменилось')),
+      releaseSummary(item),
+      full,
+      url ? E('a', { href: url, target: '_blank', rel: 'noopener noreferrer', 'class': 'z2m-proxy-release-link' }, _('Открыть релиз на GitHub')) : null
+    ])
   ]);
 }
 
 function compatibilityDetails(item) {
   if (!item || !item.version) return null;
-  if (item.installable === true) return E('div', { 'class': 'z2m-proxy-compatibility z2m-proxy-ok' }, [
-    E('div', {}, '✓ ' + _('Подходит для ') + display(item.architecture)),
-    E('div', {}, item.apkAvailable ? '✓ ' + _('Пакет найден') : '✓ ' + _('Артефакт найден')),
-    E('div', {}, item.checksumAvailable ? '✓ ' + _('SHA-256 проверяется') : _('Проверка SHA-256 перед установкой'))
-  ]);
   var reason = item.unavailableReason || item.incompatibilityReason || _('Точная причина недоступности не указана.');
-  return E('div', { 'class': 'z2m-proxy-compatibility z2m-proxy-provider-unavailable' }, [
-    E('strong', {}, _('Версия ') + item.version + ': ' + _('Недоступна')),
-    E('div', {}, _('Причина: ') + reason),
-    item.architectureCompatible === true ? E('div', { 'class': 'z2m-proxy-ok' }, '✓ ' + _('Архитектура подходит для ') + display(item.architecture)) : null,
-    item.directBinaryAvailable === true ? E('div', {}, '✓ ' + _('Direct binary найден')) : null
+  return E('div', { 'class': 'z2m-proxy-compatibility' }, [
+    item.installable === true ? E('div', { 'class': 'z2m-proxy-ok' }, '✓ ' + _('Архитектура и пакет подходят')) : E('div', { 'class': 'z2m-proxy-provider-unavailable' }, '⚠ ' + reason),
+    item.installable !== true ? E('div', {}, _('Причина: ') + reason) : null,
+    E('div', {}, _('Архитектура: ') + display(item.architecture) + (item.architectureCompatible === true ? ' ✓' : '')),
+    E('div', {}, _('Артефакт: ') + (item.apkAvailable ? _('OpenWrt APK') : item.directBinaryAvailable ? _('direct binary') : _('не найден'))),
+    E('div', {}, _('SHA-256: ') + (item.checksumAvailable ? _('проверяется') : _('нет'))),
+    E('div', {}, _('Механизм подписи: ') + (item.apkSignatureTrusted ? _('upstream key') : item.trustMode === 'sha256-only' ? _('sha256-only') : _('не подтверждён')))
   ]);
 }
 
-function providerCard(ctx, data, provider, status) {
+function providerCard(ctx, data, provider, status, releasePanel) {
   var shell = ctx.shell;
   var preflight = array(object(data.providerPreflight && data.providerPreflight.value).providers)
     .filter(function (item) { return item && item.provider === provider.id; })[0] || {};
   var versionRow = providerVersions(data).filter(function (item) { return item && item.id === provider.id; })[0] || {};
   var versions = array(versionRow.versions);
   var selection = state.tgSelections[provider.id] || {};
-  var first = versions[0] || {};
-  var selected = candidateForVersion(versions, selection.version || first.version);
   var choices = versionChoices(versions);
+  var first = choices[0] || {};
+  var selected = candidateForVersion(choices, selection.version || first.version);
   if (selected.version) state.tgSelections[provider.id] = { sourceId: selected.sourceId, version: selected.version };
   var isActive = providerInstalled(status.installed) && status.activeProvider === provider.id;
   var installedVersion = (array(status.packages).filter(function (item) { return item && item.provider === provider.id; })[0] || {}).version ||
     (array(status.packages).filter(function (item) { return item && item.provider === provider.id; })[0] || {}).packageVersion || (isActive ? status.activeVersion : null);
   var packageVersion = (array(status.packages).filter(function (item) { return item && item.provider === provider.id; })[0] || {}).packageVersion ||
     (isActive ? status.activePackageVersion : null);
-  var latest = versions.filter(function (item) { return item && item.sourceId === 'official-github-release'; })[0] || versions[0] || {};
-  var installedLatest = isActive && installedVersion && selected.version === installedVersion;
-  var needsUpdate = isActive && latest.version && installedVersion && latest.version !== installedVersion;
+  var latest = choices.filter(function (item) { return item && item.sourceId === 'official-github-release'; })[0] || first;
+  var selectedPackageVersion = selected.packageVersion || selected.version;
+  var installedLatest = isActive && installedVersion && selectedPackageVersion === installedVersion;
+  var needsUpdate = isActive && latest.packageVersion && installedVersion && latest.packageVersion !== installedVersion;
   var switching = providerInstalled(status.installed) && !isActive;
   var unavailableReason = preflight.available === false ? preflight.reason || _('Backend-провайдер недоступен.') :
     selected.installable === false ? selected.unavailableReason || selected.incompatibilityReason || _('Выбранная версия недоступна.') :
     !selected.version ? _('Нет доступных версий для этого провайдера.') : null;
   var benefits = providerBenefits(provider.id);
-  var detailsNode = E('div', { 'class': 'z2m-proxy-release-details-wrap' }, releaseDetails(selected));
-  var compatibilityNode = E('div', { 'class': 'z2m-proxy-compatibility-wrap' }, compatibilityDetails(selected));
+  var diagnostics = E('details', { 'class': 'z2m-proxy-technical z2m-proxy-provider-diagnostics' }, [
+    E('summary', {}, _('Подробнее')),
+    compatibilityDetails(selected)
+  ]);
   var action;
   var versionSelect = E('select', { 'aria-label': _('Версия'), value: selected.version || '', change: function (event) {
-    var next = candidateForVersion(versions, event.target.value);
+    var next = candidateForVersion(choices, event.target.value);
     state.tgSelections[provider.id] = { sourceId: next.sourceId, version: next.version };
-    detailsNode.replaceChildren(releaseDetails(next));
-    compatibilityNode.replaceChildren(compatibilityDetails(next));
+    releasePanel.update(provider, next);
+    diagnostics.replaceChildren(E('summary', {}, _('Подробнее')), compatibilityDetails(next));
     if (action) action.disabled = !!state.busy || !next.version || next.installable === false;
   } }, choices.map(function (item) {
     return E('option', { value: item.version }, item.version);
@@ -317,7 +397,7 @@ function providerCard(ctx, data, provider, status) {
   var actionLabel = installedLatest ? _('Установлено') : switching ? _('Переключить') : _('Проверить и установить');
   action = shell.button(preflight.available === false || selected.installable === false || !selected.version ? _('Недоступно') : actionLabel, installedLatest ? 'sm' : 'primary sm', function () {
     var liveSelection = state.tgSelections[provider.id] || { sourceId: selected.sourceId, version: selected.version };
-    var liveCandidate = candidateForVersion(versions, liveSelection.version) || selected;
+    var liveCandidate = candidateForVersion(choices, liveSelection.version) || selected;
     var request = { provider: provider.id, sourceId: liveCandidate.sourceId, version: liveCandidate.version };
     var title = switching ? _('Переключить реализацию?') : _('Установить TG Proxy?');
     var message = switching
@@ -345,12 +425,12 @@ function providerCard(ctx, data, provider, status) {
       E('div', { 'class': 'z2m-proxy-info-list' }, [
         E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Установленная версия')), E('strong', {}, display(installedVersion))]),
         E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Package version')), E('strong', {}, display(packageVersion))]),
-        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Последняя версия')), E('strong', {}, display(latest.version))]),
+        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Последняя версия')), E('strong', {}, display(latest.displayVersion || latest.version))]),
         E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Версия')), versionSelect]),
         E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Готовность')), E('strong', { 'class': !unavailableReason ? 'z2m-proxy-ok' : '' }, unavailableReason ? _('Недоступно') : _('Проверка перед установкой'))])
       ]),
-      compatibilityNode,
-      detailsNode,
+      E('div', { 'class': unavailableReason ? 'z2m-proxy-install-state unavailable' : 'z2m-proxy-install-state ready' }, unavailableReason ? '⚠ ' + unavailableReason : '✓ ' + _('Можно установить на это устройство')),
+      diagnostics,
       E('div', { 'class': 'z2m-btnrow z2m-proxy-provider-actions' }, [action])
     ]))
   ]);
@@ -358,8 +438,20 @@ function providerCard(ctx, data, provider, status) {
 function installPane(ctx, data) {
   var shell = ctx.shell;
   var status = providerStatus(data);
-  var providers = providerCatalog(data);
-  var cards = providers.map(function (provider) { return providerCard(ctx, data, provider, status); });
+  var providers = providerCatalog(data).slice().sort(function (left, right) { return left.id === 'go' ? -1 : right.id === 'go' ? 1 : 0; });
+  var selectedVersionPanel = E('div', { 'class': 'z2m-proxy-selected-release-wrap' });
+  var releasePanel = {
+    update: function (provider, item) {
+      state.tgSelectedRelease = item && item.version ? { provider: provider.id, version: item.version } : null;
+      selectedVersionPanel.replaceChildren(selectedReleasePanel(provider, item));
+    }
+  };
+  var cards = providers.map(function (provider) { return providerCard(ctx, data, provider, status, releasePanel); });
+  var initialProvider = providers.filter(function (provider) { return state.tgSelectedRelease && state.tgSelectedRelease.provider === provider.id; })[0] || providers[0];
+  var initialVersions = initialProvider ? providerVersions(data).filter(function (row) { return row && row.id === initialProvider.id; })[0] || {} : {};
+  var initialChoices = versionChoices(initialVersions.versions);
+  var initialVersion = state.tgSelectedRelease && state.tgSelectedRelease.provider === (initialProvider || {}).id ? state.tgSelectedRelease.version : (initialChoices[0] || {}).version;
+  releasePanel.update(initialProvider || { id: '', title: _('Telegram Proxy') }, candidateForVersion(initialChoices, initialVersion));
   var footer = [];
   var preflight = object(data.providerPreflight && data.providerPreflight.value);
   function refreshChecks() {
@@ -415,6 +507,7 @@ function installPane(ctx, data) {
       return E('div', { 'class': 'z2m-proxy-check ' + (item.good ? 'good' : 'warn') }, [E('span', {}, item.label), E('strong', {}, item.value)]);
     })), _('Перед установкой проверяются устройство и доступность реализации'), shell.button(_('Повторить проверку'), 'sm', refreshChecks, !!state.busy)),
     E('div', { 'class': 'z2m-grid z2m-grid-2 z2m-proxy-provider-grid' }, cards),
+    selectedVersionPanel,
     removePanel
   ]));
 }

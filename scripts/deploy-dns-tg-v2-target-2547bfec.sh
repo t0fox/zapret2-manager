@@ -30,9 +30,9 @@ c2bd86ee1fafd473072d9f275f8a3de95344627eb06c399fc4f1af72ed4a622c|luci-app-zapret
 cb66e29eea77a218617454275b38c3c523baf4fb2e3210e62615f563f2886a3f|luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-dns-service-adapter.js|/www/luci-static/resources/view/zapret2-manager/z2m-dns-service-adapter.js
 ad4b8486e94ef3c7fe9e55d71c0ee457966b56d7bb9d8ef561b917130772dee4|luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-dns.js|/www/luci-static/resources/view/zapret2-manager/z2m-dns.js
 946aa24d4575eb3fc4e71c2f30bcd2d3f1442d2993e90f4254499b39019bd045|luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-engine-gate.js|/www/luci-static/resources/view/zapret2-manager/z2m-engine-gate.js
-f104eb8a09aa6d0ed561da0c37c38e6ea31ff027e001c82bceae5a0c550a3dfa|luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-proxy-page-core.js|/www/luci-static/resources/view/zapret2-manager/z2m-proxy-page-core.js
+84e144530a35b73c68dcbe15874a3b725a8a4a84bdc142ede92c09d4570b185a|luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-proxy-page-core.js|/www/luci-static/resources/view/zapret2-manager/z2m-proxy-page-core.js
 023a5c4abc8da2807696e1ca5ee3158cdc4e1dce3038c3f975be678bef5ce975|luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategy.js|/www/luci-static/resources/view/zapret2-manager/z2m-strategy.js
-d37e142fc30d24594983f85d6c69084de09120db244c787e1f48d3bb905fa355|luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.css|/www/luci-static/resources/view/zapret2-manager/z2m-ui.css
+e311edc11b864a6c94791fd77d084cccddbd895141bbc2e07db1e48b554fa877|luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.css|/www/luci-static/resources/view/zapret2-manager/z2m-ui.css
 aed3abffa444d433a5b8ec8e53942c0fbef558e0e213802761df47e9b64f35d5|zapret2-manager/files/usr/libexec/zapret2-manager/asset-registry.uc|/usr/libexec/zapret2-manager/asset-registry.uc
 d02f459e492df8986e2d1c43404681e61c25965b2fd4ad8eb2e9e43c36af4094|zapret2-manager/files/usr/libexec/zapret2-manager/dns-product-cli.uc|/usr/libexec/zapret2-manager/dns-product-cli.uc
 032d94d589bde7cd67ed35f3255d3212f48280ccdac4d25ed544f77c85df6c89|zapret2-manager/files/usr/libexec/zapret2-manager/dns-product.uc|/usr/libexec/zapret2-manager/dns-product.uc
@@ -42,7 +42,7 @@ d02f459e492df8986e2d1c43404681e61c25965b2fd4ad8eb2e9e43c36af4094|zapret2-manager
 429c1abb9bc5d2c408dcfcfa6aad104dbbb113bf3e688446e5b9153847d197ac|zapret2-manager/files/usr/libexec/zapret2-manager/tg-product-cli.uc|/usr/libexec/zapret2-manager/tg-product-cli.uc
 e99aa351dafbf2a1c50f3798a29040dd401c76d182c86eb5e309577dc2a82138|zapret2-manager/files/usr/libexec/zapret2-manager/tg-product.uc|/usr/libexec/zapret2-manager/tg-product.uc
 eceb88484684e2260dcd79aef5fc7f5dbac8ed1d877aec5a78df12ea99fa435b|zapret2-manager/files/usr/libexec/zapret2-manager/proxy-provider-cli.uc|/usr/libexec/zapret2-manager/proxy-provider-cli.uc
-d791e8f78bd320a8cd1828dbb754e67b5469d2235b2448ec3da49394fc4bef05|zapret2-manager/files/usr/libexec/zapret2-manager/proxy-provider.uc|/usr/libexec/zapret2-manager/proxy-provider.uc
+92d6b56788dca437e77d3621c710e835d678fecb219edb7e643d10f6a61f624c|zapret2-manager/files/usr/libexec/zapret2-manager/proxy-provider.uc|/usr/libexec/zapret2-manager/proxy-provider.uc
 a7ef09b53891dd460744c312a9c6a239ea9e61ed7d9f39905225ebd41dab2774|zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager-proxy-provider.uc|/usr/share/rpcd/ucode/zapret2-manager-proxy-provider.uc
 8b08f4268ebac81c20387bdcaa9c138a539acd0dba95baff5827c43a65ae8ab5|zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc|/usr/share/rpcd/ucode/zapret2-manager.uc
 '

@@ -440,7 +440,7 @@ rows:
     z2m_current_ui: z2m-proxy-page-core.js provider cards
     status: ADAPTED
     evidence: Go/Rust choice and canonical provider lifecycle remain backed by the provider owner.
-    browser_evidence: Target browser shows both provider cards and real source/version controls.
+    browser_evidence: NOT RUN after current deploy; target browser requested Authorization Required.
   - id: tg.versions
     group: telegram
     page: telegram-tunnel
@@ -450,7 +450,7 @@ rows:
     z2m_backend: tg_product_status plus bounded proxy_provider_versions/check_updates
     z2m_current_ui: Installed/package/latest and bounded release versions are rendered per provider with release notes/details
     status: ADAPTED
-    evidence: Canonical bounded sources[]/versions[] include architecture, artifact, digest, signature trust, installability, release metadata and exact reason; target checks pass.
+    evidence: Canonical bounded sources[]/versions[] preserve upstream tags and package revisions, and include architecture, artifact, digest, signature trust, installability, release metadata and exact reason; target checks pass.
     browser_evidence: NOT RUN after current deploy; target browser requested Authorization Required.
   - id: tg.version_selector
     group: telegram
@@ -459,9 +459,9 @@ rows:
     donor_file: web/js/pages/tgproxy.js
     donor_interaction: Select an available supported version
     z2m_backend: proxy_provider_versions plus provider/source/version/checkToken install contract
-    z2m_current_ui: Real clean-label version control with a separate selected-release details panel; unavailable versions remain selectable for truthful explanation
+    z2m_current_ui: Real clean-label version control with Go package revisions preserved and one shared selected-release panel; artifact-less tags are omitted
     status: ADAPTED
-    evidence: Selected version is checked against bounded upstream/feed metadata before canonical transactional install.
+    evidence: Selected version is checked against bounded upstream/feed metadata before canonical transactional install; Go `0.9.3-1` and `0.9.3-2` remain distinct.
     browser_evidence: NOT RUN after current deploy; source selector removal and release-details rendering await re-authenticated browser check.
   - id: tg.source_selector
     group: telegram
@@ -472,7 +472,7 @@ rows:
     z2m_backend: proxy_provider_versions plus provider/source/version/checkToken install contract
     z2m_current_ui: No visible source control; backend provenance remains bounded to OpenWrt APK feed and official GitHub release ids.
     status: INTENTIONAL_DEVIATION
-    evidence: Source provenance is backend-only; no arbitrary URL input exists.
+    evidence: Source provenance is backend-only; no arbitrary URL input exists. Release notes are rendered as escaped structured Markdown with compact preview and expandable changelog.
     browser_evidence: NOT RUN after current deploy; current browser requires re-authentication.
   - id: tg.installation
     group: telegram

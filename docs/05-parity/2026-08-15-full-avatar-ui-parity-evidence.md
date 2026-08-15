@@ -29,18 +29,18 @@ dirty primary checkout was not modified.
 | `7f049bbe` | Provider-scoped TG version projection |
 | `8c671fbe` | Typed Asset Registry route pages and WARP disabled UI |
 | `9ad41966` | Reachable nested WARP parent route |
-| working tree | TG clean version/release-details UI, compatibility model, bounded APK trust modes, ACL and target deployment |
+| working tree | TG truthful package revisions, shared release panel, safe Markdown rendering, compatibility model, bounded APK trust modes and target deployment |
 
 ## Verification
 
-- `node --test tests/ui/*.test.mjs tests/product/tg-provider-versions-contract.test.mjs`: **44/44 PASS**
+- `node --test tests/ui/*.test.mjs tests/product/tg-provider-versions-contract.test.mjs`: **49/49 PASS**
 - `node --test tests/product/tg-*.test.mjs tests/ui/tg-version-contract.test.mjs tests/ui/proxy-canonical-status.test.mjs tests/ui/frontend-module-closure.test.mjs`: **23/23 PASS**
 - `node --check` for changed LuCI modules: **PASS**
 - `git diff --check`: **PASS**
 - Target SSH: **PASS**, OpenWrt `aarch64`
 - Target read-only canaries: DNS `ok:true`, `dnsmasq-uci`, dnsmasq running; TG `running`, Rust, `aarch64`, listener `1443`; M6 `route_list ok:true`, empty route set
-- Target UI/backend transfer: **21/21 exact SHA256 matches**, all files `0644`, `root:root`; final provider implementation hash `d791e8f78bd320a8cd1828dbb754e67b5469d2235b2448ec3da49394fc4bef05`
-- Target ucode compile: **PASS**; selected Go check `installable=true` with upstream PEM key; selected Rust `2.2.4` check `installable=true` with explicit `sha256-only` mode and exact APK digest
+- Target UI/backend transfer: **21/21 exact SHA256 matches**, all files `0644`, `root:root`; final provider implementation hash `92d6b56788dca437e77d3621c710e835d678fecb219edb7e643d10f6a61f624c`
+- Target ucode compile: **PASS**; Go `0.9.3-1` and `0.9.3-2` checks `installable=true` with upstream PEM key; Rust `2.2.4` check `installable=true` with explicit `sha256-only` mode; Rust `2.2.3` is direct-binary-only with the exact canonical APK reason
 - Target package preflight: `apk --allow-untrusted add --simulate` for the exact Rust `2.2.4-r1` APK: **PASS**; no package was installed or switched during acceptance.
 
 ## Browser acceptance
@@ -62,9 +62,10 @@ refresh.
   unsupported RPC or fake runtime state is invoked.
 - Telegram Proxy current post-deploy acceptance: **NOT RUN**. The browser
   profile reached the target but presented `Authorization Required`, so no
-  post-deploy DOM or console claim is made. The required checks are clean
-  `2.2.4`/`2.2.3`/older version labels, release notes/details, no visible
-  `Источник` selector, and zero console errors.
+  post-deploy DOM or console claim is made. The required checks are Go
+  `0.9.3-1`/`0.9.3-2`, Rust `2.2.4`/`2.2.3`, shared release-panel updates,
+  no raw Markdown markers, no visible `Источник` selector, balanced cards,
+  zero console errors and zero network 404s.
 - Responsive browser gates retained: `1280px PASS`, `768px PASS`, `390px PASS`;
   no horizontal overflow or missing JS modules were observed in the accepted
   route pass.

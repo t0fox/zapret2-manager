@@ -50,6 +50,23 @@ test('TG release compatibility separates architecture, artifact, signature, and 
   assert.match(source, /assets/);
 });
 
+test('TG release versions preserve upstream tags and package revisions without deduplication', () => {
+  const source = fs.readFileSync(PROVIDER, 'utf8');
+  for (const marker of ['upstreamVersion', 'packageRevision', 'displayVersion', 'releaseTag']) {
+    assert.match(source, new RegExp(marker), `missing version identity marker ${marker}`);
+  }
+  assert.match(source, /rev\(\[0-9\]\+\)/);
+  assert.match(source, /packageRevision\s*:\s*1/);
+});
+
+test('TG version metadata distinguishes release presence from installability', () => {
+  const source = fs.readFileSync(PROVIDER, 'utf8');
+  assert.match(source, /releaseExists/);
+  assert.match(source, /artifactAvailable/);
+  assert.match(source, /packageMatchesTarget/);
+  assert.match(source, /installable/);
+});
+
 test('bounded untrusted APK fallback cannot accept an arbitrary package or URL', () => {
   const source = fs.readFileSync(PROVIDER, 'utf8');
   assert.match(source, /--allow-untrusted/);

@@ -27,7 +27,7 @@ test('TG version UI is truthful about bounded version/source backend support', (
 test('TG unavailable state names the failed preflight or package check', () => {
   const ui = fs.readFileSync(CORE, 'utf8');
   assert.match(ui, /preflight\.available === false/);
-  assert.match(ui, /update\.installable === false/);
+  assert.match(ui, /selected\.installable === false/);
   assert.match(ui, /Причина:/);
 });
 
@@ -59,8 +59,35 @@ test('TG release details are rendered from the selected version without source c
   const ui = fs.readFileSync(CORE, 'utf8');
   assert.match(ui, /release details|releaseDetails|releaseBody/);
   assert.match(ui, /publishedAt|releaseDate/);
-  assert.match(ui, /Полное описание релиза/);
+  assert.match(ui, /Открыть релиз на GitHub/);
   assert.match(ui, /Автор не указал описание изменений/);
   assert.match(ui, /options|E\('option'/);
   assert.doesNotMatch(ui, /sourceVersions|sources\.filter/i);
+});
+
+test('TG UI keeps distinct truthful package revisions and omits artifact-less tags', () => {
+  const ui = fs.readFileSync(CORE, 'utf8');
+  assert.match(ui, /artifactAvailable/);
+  assert.match(ui, /versionChoices/);
+  assert.doesNotMatch(ui, /seen\[.*upstreamVersion|seen\[.*displayVersion/);
+  assert.match(ui, /0\.9\.3-2|displayVersion/);
+});
+
+test('TG release notes use a safe structured Markdown view and compact summary', () => {
+  const ui = fs.readFileSync(CORE, 'utf8');
+  assert.match(ui, /renderReleaseMarkdown|markdownBlocks|renderMarkdown/);
+  assert.match(ui, /Показать полный changelog/);
+  assert.match(ui, /<\/details>|E\('details'/);
+  assert.match(ui, /<\/code>|E\('code'/);
+  assert.match(ui, /<\/ul>|E\('ul'/);
+  assert.match(ui, /https\?:|noopener noreferrer/);
+  assert.doesNotMatch(ui, /E\('pre',[^\n]+releaseBody/);
+});
+
+test('TG release notes live in one shared selected-version panel, not provider cards', () => {
+  const ui = fs.readFileSync(CORE, 'utf8');
+  assert.match(ui, /selectedVersionPanel|releasePanel/);
+  assert.match(ui, /providerCard\([^\n]+releasePanel/);
+  assert.match(ui, /releasePanel\.replaceChildren|releasePanel\.update/);
+  assert.doesNotMatch(ui, /providerCard[\s\S]*detailsNode[\s\S]*releaseDetails\(selected\)/);
 });
