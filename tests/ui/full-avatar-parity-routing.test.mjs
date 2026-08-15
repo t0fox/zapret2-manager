@@ -16,6 +16,7 @@ test('M6 routing has a canonical LuCI API surface and app route', () => {
   assert.match(api, /routing:\{/);
   assert.match(app, /z2m-unified-routing as UnifiedRouting/);
   assert.match(app, /'unified-routing': UnifiedRouting/);
+  assert.doesNotMatch(app, /'unified-routing',[^\]]*PENDING_MODULE/);
 });
 
 test('M6 routing UI exposes lifecycle and ownership states without a second DNS writer', () => {

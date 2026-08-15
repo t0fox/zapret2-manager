@@ -61,7 +61,7 @@ var PENDING_MODULE = {
   }
 };
 [
-  'unified-routing', 'warp', 'warp-setup', 'warp-in-warp', 'ipsets', 'blobs', 'lua', 'hosts'
+  'warp', 'warp-setup', 'warp-in-warp', 'ipsets', 'blobs', 'lua', 'hosts'
 ].forEach(function (route) { MODULES[route] = PENDING_MODULE; });
 var store = StoreModule.create();
 var activeModule = null;
