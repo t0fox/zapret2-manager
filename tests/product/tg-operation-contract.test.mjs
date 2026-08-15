@@ -34,6 +34,27 @@ test('TG direct Go binary is staged and atomically installed only after verifica
   const source = fs.readFileSync(PROVIDER, 'utf8');
   assert.match(source, /staged|prepared/i);
   assert.match(source, /\.tmp\.|mv -f/);
-  assert.match(source, /--version/);
+  assert.match(source, /--help/);
+  assert.match(source, /grep -q "Usage of tg-ws-proxy"/);
+  assert.doesNotMatch(source, /--version/);
   assert.match(source, /HEALTHCHECK|healthcheck/i);
+});
+
+test('TG rollback distinguishes pinned direct binaries from real APK packages', () => {
+  const source = fs.readFileSync(PROVIDER, 'utf8');
+  assert.match(source, /packageInstalled/,
+    'rollback must carry actual package ownership instead of inferring it from a synthetic packageVersion');
+  assert.match(source, /previous\.packageInstalled\s*===\s*true/,
+    'APK restore must be gated by actual package ownership');
+});
+
+test('TG running operations have backend-owned stall detection and worker identity', () => {
+  const source = fs.readFileSync(PROVIDER, 'utf8');
+  assert.match(source, /STAGE_TIMEOUT/);
+  assert.match(source, /stageStartedAt/);
+  assert.match(source, /workerPid/);
+  assert.match(source, /operation_reconcile/);
+  assert.match(source, /service\('restart'\)/,
+    'provider transitions and rollback must force a procd restart to avoid stale deleted processes');
+  assert.match(source, /EWORKER_DEAD/);
 });

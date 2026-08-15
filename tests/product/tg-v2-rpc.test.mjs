@@ -19,7 +19,7 @@ test('TG v2 ACL separates reads from mutations', () => {
   const doc = JSON.parse(acl);
   const read = doc['zapret2-manager'].read.ubus['zapret2-manager'];
   const write = doc['zapret2-manager'].write.ubus['zapret2-manager'];
-  for (const method of ['tg_product_get', 'tg_product_catalog', 'tg_product_status', 'tg_product_validate', 'tg_product_preview', 'tg_product_health', 'tg_product_check_updates']) assert.ok(read.includes(method), method);
+  for (const method of ['tg_product_get', 'tg_product_catalog', 'tg_product_status', 'tg_product_operation_status', 'tg_product_validate', 'tg_product_preview', 'tg_product_health', 'tg_product_check_updates']) assert.ok(read.includes(method), method);
   for (const method of ['tg_product_apply', 'tg_product_switch', 'tg_product_install', 'tg_product_update', 'tg_product_remove', 'tg_product_purge', 'tg_product_start', 'tg_product_stop', 'tg_product_restart']) assert.ok(write.includes(method), method);
   assert.equal(read.includes('tg_product_apply'), false);
 });

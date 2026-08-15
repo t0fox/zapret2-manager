@@ -22,6 +22,11 @@ const OP_ACTIVE = OP_DIR + '/active.json';
 const OP_SUBMIT_LOCK = '/tmp/zapret2-manager-tg-operation-submit.lock';
 const OP_RUN_LOCK = '/tmp/zapret2-manager-tg-operation.lock';
 const OP_STAGES = [ 'PREPARE', 'PREFLIGHT', 'DOWNLOAD', 'VERIFY', 'BACKUP', 'INSTALL', 'CONFIG_VALIDATE', 'RESTART', 'HEALTHCHECK', 'COMMIT' ];
+const OP_STAGE_TIMEOUTS = {
+	PREPARE: 30, PREFLIGHT: 120, DOWNLOAD: 120, VERIFY: 90, BACKUP: 60,
+	INSTALL: 180, CONFIG_VALIDATE: 60, RESTART: 90, HEALTHCHECK: 120,
+	COMMIT: 30, ROLLING_BACK: 180
+};
 const MAX_METADATA = 4194304;
 const MAX_RELEASES = 50;
 const MAX_RELEASE_BODY = 32768;
@@ -448,6 +453,16 @@ function installed_package_version(packageName) {
 	return safe_package_version(line) ? line : null;
 }
 
+function installed_package_name(status, providerId) {
+	if (status == null || type(status.packages) != 'array') return null;
+	for (let i = 0; i < length(status.packages); i++) {
+		let row = status.packages[i];
+		if (type(row) == 'object' && row != null && row.provider == providerId &&
+			type(row.package) == 'string' && row.package != '') return row.package;
+	}
+	return null;
+}
+
 function running() {
 	return trim(run('pidof tg-ws-proxy').out) != '';
 }
@@ -490,7 +505,7 @@ function operation_active() {
 	let operation = operation_read(active.operationId);
 	if (operation == null) return null;
 	if (operation.status != 'RUNNING' && operation.status != 'ROLLING_BACK') return null;
-	return operation;
+	return operation_reconcile(operation);
 }
 
 function operation_stage_index(stage) {
@@ -498,14 +513,49 @@ function operation_stage_index(stage) {
 	return -1;
 }
 
+function operation_stage_timeout(stage) {
+	return OP_STAGE_TIMEOUTS[stage] != null ? +OP_STAGE_TIMEOUTS[stage] : 120;
+}
+
+function operation_worker_alive(pid) {
+	return pid != null && match('' + pid, /^[0-9]+$/) && run('kill -0 ' + pid).rc == 0;
+}
+
+function operation_reconcile(operation) {
+	if (operation == null || (operation.status != 'RUNNING' && operation.status != 'ROLLING_BACK')) return operation;
+	let now = time(), stageStartedAt = +operation.stageStartedAt || +operation.updatedAt || +operation.startedAt || now;
+	let overdue = now - stageStartedAt > operation_stage_timeout(operation.currentStage);
+	let workerKnown = operation.workerPid != null;
+	let workerDead = workerKnown && !operation_worker_alive(operation.workerPid) && now - (+operation.updatedAt || now) > 2;
+	if (!overdue && !workerDead) return operation;
+	let failedStage = operation.currentStage, workerFailure = workerDead;
+	operation.status = 'FAILED';
+	operation.failedStage = failedStage;
+	operation.error = {
+		code: workerFailure ? 'EWORKER_DEAD' : 'STAGE_TIMEOUT',
+		message: workerFailure ? 'Worker TG Proxy завершился без финального состояния.' : 'Стадия TG Proxy превысила допустимый срок.',
+		failedStage: failedStage
+	};
+	operation.rollback = {
+		attempted: false,
+		status: operation_stage_index(failedStage) >= operation_stage_index('INSTALL') ? 'UNKNOWN' : 'NOT_REQUIRED',
+		failures: operation_stage_index(failedStage) >= operation_stage_index('INSTALL') ? [workerFailure ? 'worker-dead' : 'stage-timeout'] : []
+	};
+	operation.updatedAt = now;
+	operation_write(operation);
+	return operation;
+}
+
 function operation_update(operationId, stage, percent, message, status) {
 	let operation = operation_read(operationId);
 	if (operation == null) return false;
 	if (stage != null && operation_stage_index(stage) < 0 && stage != 'ROLLING_BACK' && stage != 'ROLLED_BACK') return false;
+	let previousStage = operation.currentStage, now = time();
 	if (stage != null) operation.currentStage = stage;
 	if (percent != null) operation.progressPercent = +percent;
 	if (status != null) operation.status = status;
-	operation.updatedAt = time();
+	if (stage != null && stage != previousStage) operation.stageStartedAt = now;
+	operation.updatedAt = now;
 	if (message != null) {
 		if (type(operation.events) != 'array') operation.events = [];
 		push(operation.events, { sequence: length(operation.events) + 1, stage: operation.currentStage,
@@ -534,6 +584,7 @@ function operation_terminal(operationId, result) {
 			operation.rollback = { attempted: false, status: 'NOT_REQUIRED', failures: [] };
 		}
 		operation.error = result.error || { code: 'EINTERNAL', message: 'Операция завершилась ошибкой.' };
+		operation.failedStage = operation.currentStage;
 	} else {
 		operation_update(operationId, 'COMMIT', 100, 'Изменение TG Proxy подтверждено.', 'COMPLETE');
 		operation = operation_read(operationId);
@@ -561,7 +612,8 @@ function operation_submit(operationType, from, to, input, candidate) {
 	let operation = {
 		schema: 'tg-operation.v1', operationId: operationId, operationType: operationType,
 		from: from || null, to: to || null, startedAt: now, updatedAt: now,
-		currentStage: 'PREPARE', progressPercent: 0, status: 'RUNNING', error: null,
+		stageStartedAt: now, currentStage: 'PREPARE', progressPercent: 0, status: 'RUNNING', error: null,
+		failedStage: null, workerPid: null, workerStartedAt: null,
 		rollback: { attempted: false, status: 'NOT_REQUIRED', failures: [] }, events: [],
 		input: input || {}, candidate: candidate || null
 	};
@@ -570,19 +622,28 @@ function operation_submit(operationType, from, to, input, candidate) {
 		run('rmdir ' + OP_SUBMIT_LOCK);
 		return error('EINTERNAL', 'Не удалось сохранить TG operation.');
 	}
-	let spawned = run('/usr/bin/ucode /usr/libexec/zapret2-manager/proxy-provider-operation.uc ' + literal(operationId) + ' >/dev/null 2>&1 &');
+	let spawned = run("sh -c '/usr/bin/ucode /usr/libexec/zapret2-manager/proxy-provider-operation.uc " + literal(operationId) + " >/dev/null 2>&1 & echo $!'");
 	run('rmdir ' + OP_SUBMIT_LOCK);
-	if (spawned.rc != 0) {
+	let workerPid = trim(spawned.out), workerStarted = match(workerPid, /^[0-9]+$/);
+	if (spawned.rc != 0 || !workerStarted) {
 		operation_update(operationId, 'PREPARE', 0, 'Worker TG Proxy не удалось запустить.', 'FAILED');
 		return { ok: false, operationId: operationId, error: { code: 'ETARGET', message: 'Worker операции TG Proxy не удалось запустить.' } };
 	}
-	return { ok: true, operationId: operationId, status: 'RUNNING', operation: operation };
+	let submitted = operation_read(operationId);
+	if (submitted != null && submitted.status == 'RUNNING') {
+		submitted.workerPid = +workerPid;
+		submitted.workerStartedAt = time();
+		submitted.updatedAt = time();
+		operation_write(submitted);
+	}
+	return { ok: true, operationId: operationId, status: submitted != null ? submitted.status : 'RUNNING', operation: submitted || operation };
 }
 
 export const proxy_provider_operation_status = function (input) {
 	let operationId = null;
 	if (type(input) == 'object' && input != null && input.operationId != null) operationId = input.operationId;
 	let operation = operationId != null ? operation_read(operationId) : operation_active();
+	operation = operation_reconcile(operation);
 	if (operationId != null && operation == null) return error('ENOENT', 'Операция TG Proxy не найдена.');
 	return { ok: true, operation: operation, operationId: operation != null ? operation.operationId : null,
 		status: operation != null ? operation.status : 'IDLE', events: operation != null ? operation.events : [] };
@@ -929,7 +990,7 @@ function prepare_candidate(candidate, token) {
 	if (!downloaded.ok) return downloaded;
 	if (candidate.artifactFormat == 'binary') {
 		let quoted = literal(downloaded.file);
-		if (quoted == null || run('chmod 755 ' + quoted + ' && ' + quoted + ' --version >/dev/null').rc != 0) {
+		if (quoted == null || run('chmod 755 ' + quoted + ' && ' + quoted + ' --help 2>&1 | grep -q "Usage of tg-ws-proxy"').rc != 0) {
 			cleanup_download(downloaded);
 			return error('EVERIFY', 'Проверенный binary не прошёл локальную валидацию.');
 		}
@@ -1039,25 +1100,23 @@ function install_candidate(provider, candidate, token, prepared) {
 function restore_previous(previous, wasRunning, settingsSnapshot) {
 	let failures = remove_packages();
 	let binaryRestored = false;
-	if (previous.activeProvider != null && (previous.packageVersion != null ||
-		(previous.sourceId == SOURCE_GITHUB && previous.activeProvider == 'go' && previous.activeVersion != null))) {
+	if (previous.activeProvider != null && previous.packageInstalled === true && previous.packageVersion != null) {
 		let provider = provider_by_id(previous.activeProvider);
-		if (provider == null || (previous.packageVersion == null && !(previous.sourceId == SOURCE_GITHUB && provider.id == 'go')) ||
-			(previous.packageVersion != null && !safe_package_version(previous.packageVersion))) {
+		if (provider == null || !safe_package_version(previous.packageVersion)) {
 			push(failures, 'previous-provider-unknown');
-		} else if (previous.sourceId == SOURCE_GITHUB && provider.id == 'go') {
-			binaryRestored = restore_binary(settingsSnapshot);
-			if (!binaryRestored) push(failures, 'binary-restore');
-			else if (!save_state(provider.id, previous.activeVersion, previous.packageVersion, previous.sourceId)) push(failures, 'previous-state-restore');
 		} else {
 			let add = run('apk add --no-interactive ' + provider.package + '=' + previous.packageVersion);
 			if (add.rc != 0 || !package_present(provider.package)) push(failures, 'previous-package-restore');
 			else if (!save_state(provider.id, previous.activeVersion, previous.packageVersion, previous.sourceId)) push(failures, 'previous-state-restore');
 		}
+	} else if (previous.activeProvider != null) {
+		binaryRestored = restore_binary(settingsSnapshot);
+		if (!binaryRestored) push(failures, 'binary-restore');
+		else if (!save_state(previous.activeProvider, previous.activeVersion, previous.packageVersion, previous.sourceId)) push(failures, 'previous-state-restore');
 	} else if (!save_state(null, null, null)) push(failures, 'empty-state-restore');
 	if (!restore_settings(settingsSnapshot)) push(failures, 'settings-restore');
 	if (!binaryRestored && !restore_binary(settingsSnapshot)) push(failures, 'binary-restore');
-	if (wasRunning && length(failures) == 0 && service('start') != 0) push(failures, 'previous-service-restore');
+	if (wasRunning && length(failures) == 0 && service('restart') != 0) push(failures, 'previous-service-restore');
 	return failures;
 }
 
@@ -1082,7 +1141,8 @@ export const proxy_provider_install_transaction = function (provider, latest, to
 		activeProvider: previousStatus.activeProvider,
 		activeVersion: previousStatus.activeVersion,
 		packageVersion: previousStatus.activePackageVersion,
-		sourceId: previousStatus.activeSourceId
+		sourceId: previousStatus.activeSourceId,
+		packageInstalled: installed_package_name(previousStatus, previousStatus.activeProvider) != null
 	};
 	let wasRunning = previousStatus.running === true;
 	let settingsSnapshot = snapshot_settings();
@@ -1136,7 +1196,7 @@ export const proxy_provider_install_transaction = function (provider, latest, to
 					operation_update(operationId, 'ROLLING_BACK', 84, 'Состояние provider не сохранилось; выполняется откат.', 'ROLLING_BACK');
 					let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
 					result = { ok: false, error: { code: 'ETARGET', message: 'Не удалось сохранить выбранную реализацию.' }, rollbackFailures: rollbackFailures, rollbackAttempted: true };
-				} else if (wasRunning && service('start') != 0) {
+				} else if (wasRunning && service('restart') != 0) {
 					operation_update(operationId, 'ROLLING_BACK', 88, 'Новая реализация не запустилась; выполняется откат.', 'ROLLING_BACK');
 					let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
 					result = { ok: false, error: { code: 'ETARGET', message: 'Новая реализация установлена, но не прошла запуск.' }, rollbackFailures: rollbackFailures, rollbackAttempted: true };

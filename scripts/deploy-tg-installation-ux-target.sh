@@ -16,12 +16,13 @@ manifest='
 93efacd2c6564216411b39783b3abbf63bb01a43685fd3bdff4fb93bdcaa8698|luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js|/www/luci-static/resources/view/zapret2-manager/z2m-api.js
 a92a7377456e4e15e692353dfcacf4a13c25a1e00858939d2ebd14a7a1e65e28|luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-proxy-page-core.js|/www/luci-static/resources/view/zapret2-manager/z2m-proxy-page-core.js
 a09e44399fca009e4762b646818e59b3b2758a22979e28715a8de0426b64880a|luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.css|/www/luci-static/resources/view/zapret2-manager/z2m-ui.css
-68fe7e658aa12405ce7f778bbc2fe322ffd5fcaec86e3241a325c36820d2305c|zapret2-manager/files/usr/libexec/zapret2-manager/proxy-provider.uc|/usr/libexec/zapret2-manager/proxy-provider.uc
+654d7036eb3fcd4f760f7b7b7ff5f6afb0c9f8310561db01a33c29bada9c5e8f|zapret2-manager/files/usr/libexec/zapret2-manager/proxy-provider.uc|/usr/libexec/zapret2-manager/proxy-provider.uc
 b588f1c499992caa5f181643bf20f0722339df8ea970012f06c52136527473e9|zapret2-manager/files/usr/libexec/zapret2-manager/proxy-provider-operation.uc|/usr/libexec/zapret2-manager/proxy-provider-operation.uc
 c7a3f76768d2ebc8f810e86f5da3b5bbf798f2b0541c65f1c6dcfe9c3feb9779|zapret2-manager/files/usr/libexec/zapret2-manager/proxy-provider-cli.uc|/usr/libexec/zapret2-manager/proxy-provider-cli.uc
 20840557f50d4981ef2ae9fcfe0b80e29e9d30eb11dc69cc677a8dafa5df2231|zapret2-manager/files/usr/libexec/zapret2-manager/tg-product.uc|/usr/libexec/zapret2-manager/tg-product.uc
 47e24ab28ec2fd9b116dc75a2dfa428bcb180de419d803e449d43fb53248d655|zapret2-manager/files/usr/libexec/zapret2-manager/tg-product-cli.uc|/usr/libexec/zapret2-manager/tg-product-cli.uc
 14da5f82076cc830b35596518efc26e367fb834bc5e169916983d746f609c0ea|zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager-proxy-provider.uc|/usr/share/rpcd/ucode/zapret2-manager-proxy-provider.uc
+fe678d3517cbbddb7334caa55984176bfddb3809a5888b75d3ff7af47bf07358|luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json|/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json
 0e818681d33407a4cf7fc7cd90b2fd3f4740556a93c6fe5d31b51ee91314d40a|zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc|/usr/share/rpcd/ucode/zapret2-manager.uc
 '
 
