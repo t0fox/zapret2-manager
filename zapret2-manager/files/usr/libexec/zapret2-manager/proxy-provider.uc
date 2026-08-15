@@ -18,6 +18,8 @@ const CHECK_DIR = '/tmp/zapret2-manager/proxy-provider-checks';
 const CHECK_TTL = 600;
 const MAX_METADATA = 4194304;
 const MAX_RELEASES = 20;
+const MAX_RELEASE_BODY = 32768;
+const MAX_RELEASE_ASSETS = 64;
 const SOURCE_APK = 'openwrt-apk-feed';
 const SOURCE_GITHUB = 'official-github-release';
 
@@ -210,63 +212,137 @@ function exact_asset(assets, name) {
 	return null;
 }
 
+function package_name(providerId) {
+	return providerId == 'rust' ? 'luci-app-tg-ws-proxy-rs' : providerId == 'go' ? 'tg-ws-proxy' : null;
+}
+
+function target_arch(providerId, arch) {
+	if (providerId == 'rust') return substr(arch, 0, 8) == 'aarch64_' ? 'aarch64' : arch;
+	return arch == 'aarch64' ? 'aarch64_generic' : arch;
+}
+
+function release_prefix(providerId, tag) {
+	return providerId == 'rust'
+		? 'https://github.com/valnesfjord/tg-ws-proxy-rs/releases/download/' + tag + '/'
+		: 'https://github.com/spatiumstas/tg-ws-proxy-go/releases/download/' + tag + '/';
+}
+
+function release_page_url(providerId, tag) {
+	return providerId == 'rust'
+		? 'https://github.com/valnesfjord/tg-ws-proxy-rs/releases/tag/' + tag
+		: 'https://github.com/spatiumstas/tg-ws-proxy-go/releases/tag/' + tag;
+}
+
+function public_release_assets(release, prefix) {
+	let result = [];
+	if (type(release.assets) != 'array') return result;
+	for (let i = 0; i < length(release.assets) && length(result) < MAX_RELEASE_ASSETS; i++) {
+		let asset = release.assets[i];
+		if (type(asset) != 'object' || type(asset.name) != 'string' || length(asset.name) > 128 ||
+			!match(asset.name, /^[A-Za-z0-9][A-Za-z0-9._-]*$/) || asset.state != 'uploaded') continue;
+		let url = prefix + asset.name, digest = safe_digest(asset.digest);
+		if (asset.browser_download_url != url || +asset.size < 1 || +asset.size > 33554432) continue;
+		push(result, { name: asset.name, size: +asset.size, digest: digest, downloadUrl: url });
+	}
+	return result;
+}
+
+function usable_asset(asset, prefix, name) {
+	return asset != null && asset.state == 'uploaded' && +asset.size >= 1 && +asset.size <= 33554432 &&
+		asset.browser_download_url == prefix + name;
+}
+
+function release_body(release) {
+	if (type(release.body) != 'string' || release.body == '') return null;
+	return substr(release.body, 0, MAX_RELEASE_BODY);
+}
+
+function sort_versions(rows) {
+	for (let i = 1; i < length(rows); i++) {
+		let current = rows[i], j = i - 1;
+		while (j >= 0) {
+			let comparison = compare_versions(current.version, rows[j].version);
+			let preferCurrent = comparison != null && comparison > 0;
+			if (!preferCurrent && comparison == 0 && current.sourceId == SOURCE_GITHUB && rows[j].sourceId != SOURCE_GITHUB)
+				preferCurrent = true;
+			if (!preferCurrent) break;
+			rows[j + 1] = rows[j];
+			j--;
+		}
+		rows[j + 1] = current;
+	}
+	return rows;
+}
+
 function release_candidate(providerId, arch, release) {
 	if (type(release) != 'object' || release == null || release.draft !== false || release.prerelease !== false) return null;
 	let tag = release.tag_name;
 	if (type(tag) != 'string') return null;
 	let version = null, packageVersion = null, assetName = null, artifactFormat = null;
+	let apkAssetName = null, directAssetName = null;
 	let keyAssetName = null;
 	if (providerId == 'rust') {
 		if (!match(tag, /^v[0-9][0-9A-Za-z._-]*$/)) return null;
 		version = substr(tag, 1);
 		packageVersion = version + '-r1';
-		// Prefer the upstream OpenWrt APK when the release publishes one. Older
-		// releases only have a tarball; they remain visible with an exact reason
-		// but are not presented as installable by this transactional owner.
-		assetName = 'luci-app-tg-ws-proxy-rs-' + version + '-r1.apk';
-		artifactFormat = 'apk';
-		if (exact_asset(release.assets, assetName) == null) {
-			let target = substr(arch, 0, 8) == 'aarch64_' ? 'aarch64' : arch;
-			if (target == 'aarch64') assetName = 'tg-ws-proxy-aarch64-unknown-linux-musl.tar.gz';
-			else if (target == 'x86_64') assetName = 'tg-ws-proxy-x86_64-unknown-linux-musl.tar.gz';
-			else if (substr(target, 0, 4) == 'arm_') assetName = 'tg-ws-proxy-armv7-unknown-linux-musleabihf.tar.gz';
-			else if (substr(target, 0, 8) == 'mipsel_') assetName = 'tg-ws-proxy-mipsel-unknown-linux-musl.tar.gz';
-			else if (substr(target, 0, 5) == 'mips_') assetName = 'tg-ws-proxy-mips-unknown-linux-musl.tar.gz';
-			artifactFormat = 'tar.gz';
-		}
+		apkAssetName = 'luci-app-tg-ws-proxy-rs-' + version + '-r1.apk';
+		let target = target_arch(providerId, arch);
+		if (target == 'aarch64') directAssetName = 'tg-ws-proxy-aarch64-unknown-linux-musl.tar.gz';
+		else if (target == 'x86_64') directAssetName = 'tg-ws-proxy-x86_64-unknown-linux-musl.tar.gz';
+		else if (substr(target, 0, 4) == 'arm_') directAssetName = 'tg-ws-proxy-armv7-unknown-linux-musleabihf.tar.gz';
+		else if (substr(target, 0, 8) == 'mipsel_') directAssetName = 'tg-ws-proxy-mipsel-unknown-linux-musl.tar.gz';
+		else if (substr(target, 0, 5) == 'mips_') directAssetName = 'tg-ws-proxy-mips-unknown-linux-musl.tar.gz';
 	} else if (providerId == 'go') {
 		let found = match(tag, /^([0-9][0-9A-Za-z._-]*)-rev([0-9]+)$/);
 		if (!found) return null;
 		version = found[1] + '-' + found[2];
 		packageVersion = found[1] + '-r' + found[2];
-		let targetArch = arch == 'aarch64' ? 'aarch64_generic' : arch;
-		assetName = 'tg-ws-proxy_' + packageVersion + '_openwrt_' + targetArch + '.apk';
-		artifactFormat = 'apk';
+		let targetArch = target_arch(providerId, arch);
+		apkAssetName = 'tg-ws-proxy_' + packageVersion + '_openwrt_' + targetArch + '.apk';
 		keyAssetName = 'tg-ws-proxy.pem';
 	}
-	if (!safe_package_version(version) || !safe_package_version(packageVersion) || assetName == null) return null;
-	let asset = exact_asset(release.assets, assetName), digest = asset != null ? safe_digest(asset.digest) : null;
-	let prefix = providerId == 'rust'
-		? 'https://github.com/valnesfjord/tg-ws-proxy-rs/releases/download/' + tag + '/'
-		: 'https://github.com/spatiumstas/tg-ws-proxy-go/releases/download/' + tag + '/';
-	if (asset == null || asset.state != 'uploaded' || digest == null || +asset.size < 1024 || +asset.size > 33554432 || asset.browser_download_url != prefix + assetName) return null;
+	if (!safe_package_version(version) || !safe_package_version(packageVersion)) return null;
+	let prefix = release_prefix(providerId, tag);
+	let apkAsset = apkAssetName != null ? exact_asset(release.assets, apkAssetName) : null;
+	let directAsset = directAssetName != null ? exact_asset(release.assets, directAssetName) : null;
+	let apkAvailable = usable_asset(apkAsset, prefix, apkAssetName);
+	let directBinaryAvailable = usable_asset(directAsset, prefix, directAssetName);
+	if (apkAvailable) { assetName = apkAssetName; artifactFormat = 'apk'; }
+	else if (directBinaryAvailable) { assetName = directAssetName; artifactFormat = 'tar.gz'; }
+	let asset = assetName != null ? exact_asset(release.assets, assetName) : null;
+	let digest = asset != null ? safe_digest(asset.digest) : null;
 	let keyAsset = keyAssetName != null ? exact_asset(release.assets, keyAssetName) : null;
 	let keyDigest = keyAsset != null ? safe_digest(keyAsset.digest) : null;
 	let keyUrl = keyAsset != null ? prefix + keyAssetName : null;
 	let keyUsable = keyAssetName != null && keyAsset != null && keyAsset.state == 'uploaded' && keyDigest != null &&
 		+keyAsset.size >= 128 && +keyAsset.size <= 65536 && keyAsset.browser_download_url == keyUrl;
-	let trustMode = keyUsable ? 'upstream-key' : artifactFormat == 'apk' ? 'sha256-only' : null;
-	let installable = artifactFormat == 'apk' && trustMode != null;
-	let incompatibilityReason = artifactFormat != 'apk'
-		? 'У этого релиза только tar.gz; поддерживаемый OpenWrt APK отсутствует.'
-		: null;
+	let architectureCompatible = apkAvailable || directBinaryAvailable;
+	let artifactAvailable = apkAvailable || directBinaryAvailable;
+	let checksumAvailable = digest != null;
+	let apkSignatureTrusted = keyUsable;
+	let trustMode = apkAvailable ? (keyUsable ? 'upstream-key' : 'sha256-only') : null;
+	let installable = apkAvailable && architectureCompatible && checksumAvailable && trustMode != null;
+	let unavailableReason = !architectureCompatible
+		? 'Для target ' + arch + ' в релизе нет артефакта этой архитектуры.'
+		: !artifactAvailable
+			? 'В официальном релизе нет проверяемого артефакта.'
+			: artifactFormat != 'apk'
+				? 'Найден direct binary для target, но canonical installer поддерживает только APK.'
+				: !checksumAvailable
+					? 'У APK отсутствует проверяемый SHA-256.'
+					: null;
 	return { provider: providerId, version: version, packageVersion: packageVersion, architecture: arch,
 		sourceId: SOURCE_GITHUB, sourceKind: source_kind(SOURCE_GITHUB), artifactFormat: artifactFormat,
-		assetName: assetName, assetSha256: digest, assetSize: +asset.size, releaseId: '' + release.id,
-		publishedAt: release.published_at, metadataUrl: github_api_url(providerId),
-		downloadUrl: prefix + assetName, trustMode: trustMode, keyAssetName: keyAssetName, keyAssetSha256: keyDigest,
+		packageName: package_name(providerId), architectureCompatible: architectureCompatible,
+		artifactAvailable: artifactAvailable, apkAvailable: apkAvailable, directBinaryAvailable: directBinaryAvailable,
+		checksumAvailable: checksumAvailable, apkSignatureTrusted: apkSignatureTrusted,
+		assetName: assetName, assetSha256: digest, assetSize: asset != null ? +asset.size : null, releaseId: '' + release.id,
+		releaseName: type(release.name) == 'string' && release.name != '' ? substr(release.name, 0, 256) : tag,
+		releaseBody: release_body(release), releaseUrl: release_page_url(providerId, tag),
+		assets: public_release_assets(release, prefix), publishedAt: release.published_at, metadataUrl: github_api_url(providerId),
+		downloadUrl: assetName != null ? prefix + assetName : null, trustMode: trustMode, keyAssetName: keyAssetName, keyAssetSha256: keyDigest,
 		keyAssetSize: keyAsset != null ? +keyAsset.size : null, keyDownloadUrl: keyUrl,
-		installable: installable, incompatibilityReason: incompatibilityReason };
+		installable: installable, unavailableReason: unavailableReason, incompatibilityReason: unavailableReason };
 }
 
 function clone_public(provider) {
@@ -408,7 +484,19 @@ function feed_version(providerId, arch) {
 	candidate.sourceId = SOURCE_APK;
 	candidate.sourceKind = source_kind(SOURCE_APK);
 	candidate.metadataUrl = source_url(providerId, SOURCE_APK);
+	candidate.packageName = package_name(providerId);
+	candidate.architectureCompatible = true;
+	candidate.artifactAvailable = true;
+	candidate.apkAvailable = true;
+	candidate.directBinaryAvailable = false;
+	candidate.checksumAvailable = false;
+	candidate.apkSignatureTrusted = true;
+	candidate.releaseName = null;
+	candidate.releaseBody = null;
+	candidate.releaseUrl = candidate.metadataUrl;
+	candidate.assets = [];
 	candidate.installable = null;
+	candidate.unavailableReason = null;
 	candidate.incompatibilityReason = null;
 	return candidate;
 }
@@ -435,6 +523,7 @@ function provider_sources(provider, arch) {
 		let feedCandidate = feed_version(provider.id, arch);
 		if (feedCandidate != null) push(versions, feedCandidate);
 	}
+	sort_versions(versions);
 	return { sources: sources, versions: versions, github: github };
 }
 
@@ -542,6 +631,11 @@ function check_input(value) {
 	return length(ks) == 3 && source_kind(value.sourceId) != null && safe_package_version(value.version);
 }
 
+function candidate_package_matches(provider, candidate) {
+	return provider != null && candidate != null && candidate.packageName == package_name(provider.id) &&
+		candidate.packageVersion != null && safe_package_version(candidate.packageVersion);
+}
+
 function load_checked_candidate(providerId, token, sourceId, version) {
 	if (provider_by_id(providerId) == null || safe_token(token) == null) return error('EINPUT', 'Некорректный provider или check token.');
 	let path = CHECK_DIR + '/' + token + '.json', record = read_json(path, null);
@@ -552,6 +646,7 @@ function load_checked_candidate(providerId, token, sourceId, version) {
 	if (candidate.sourceId != sourceId || candidate.version != version || source_kind(candidate.sourceId) == null)
 		return error('EINPUT', 'Проверенный источник или версия не совпадает с запросом установки.');
 	if (!safe_package_version(candidate.version) || !safe_package_version(candidate.packageVersion) ||
+		candidate.packageName != package_name(providerId) ||
 		(candidate.sourceId == SOURCE_GITHUB && (safe_digest(candidate.assetSha256) == null || candidate.downloadUrl == null ||
 			(candidate.trustMode != 'sha256-only' && (candidate.trustMode != 'upstream-key' || safe_digest(candidate.keyAssetSha256) == null ||
 				candidate.keyDownloadUrl == null || +candidate.keyAssetSize < 128 || +candidate.keyAssetSize > 65536)))) || candidate.installable !== true)
@@ -575,7 +670,8 @@ function remove_packages() {
 }
 
 function download_candidate(candidate, token) {
-	if (candidate.sourceId != SOURCE_GITHUB || candidate.artifactFormat != 'apk' ||
+	let provider = provider_by_id(candidate.provider);
+	if (!candidate_package_matches(provider, candidate) || candidate.sourceId != SOURCE_GITHUB || candidate.artifactFormat != 'apk' ||
 		type(candidate.downloadUrl) != 'string' || safe_digest(candidate.assetSha256) == null ||
 		(candidate.trustMode != 'sha256-only' && (candidate.trustMode != 'upstream-key' || type(candidate.keyDownloadUrl) != 'string' ||
 			safe_digest(candidate.keyAssetSha256) == null)) || safe_token(token) == null)
@@ -652,24 +748,30 @@ export const proxy_provider_check_updates = function (input) {
 	}
 	let candidate = resolved.candidate;
 	let provider = provider_by_id(input.provider);
+	if (!candidate_package_matches(provider, candidate))
+		return error('EINCOMPATIBLE', 'Проверенный APK не соответствует каноническому пакету провайдера.');
 	if (candidate.sourceId == SOURCE_APK) {
 		let simulated = run('apk add --simulate --no-interactive ' + provider.package + '=' + candidate.packageVersion);
 		candidate.installable = simulated.rc == 0;
-		candidate.incompatibilityReason = candidate.installable ? null : 'Пакет отсутствует или несовместим с настроенными APK feed/архитектурой.';
+		candidate.unavailableReason = candidate.installable ? null : 'Пакет отсутствует или несовместим с настроенными APK feed/архитектурой.';
+		candidate.incompatibilityReason = candidate.unavailableReason;
 	} else if (candidate.artifactFormat != 'apk') {
 		candidate.installable = false;
-		candidate.incompatibilityReason = 'У этого релиза только tar.gz; поддерживаемый OpenWrt APK отсутствует.';
+		candidate.unavailableReason = 'Найден direct binary для target, но canonical installer поддерживает только APK.';
+		candidate.incompatibilityReason = candidate.unavailableReason;
 	} else if (candidate.installable === true) {
 		let staged = download_candidate(candidate, random_token());
 		if (!staged.ok) {
 			candidate.installable = false;
-			candidate.incompatibilityReason = staged.error.message;
+			candidate.unavailableReason = staged.error.message;
+			candidate.incompatibilityReason = candidate.unavailableReason;
 		} else {
 			let trustFlag = staged.trustMode == 'sha256-only' ? '--allow-untrusted ' : '';
 			let simulated = run('apk ' + trustFlag + '--keys-dir ' + literal(staged.keysDir) + ' add --simulate --no-interactive ' + literal(staged.file));
 			cleanup_download(staged);
 			candidate.installable = simulated.rc == 0;
-			candidate.incompatibilityReason = candidate.installable ? null : 'APK подпись подтверждена, но пакет несовместим с target или его зависимостями.';
+			candidate.unavailableReason = candidate.installable ? null : 'APK подпись/идентичность подтверждены, но пакет несовместим с target или его зависимостями.';
+			candidate.incompatibilityReason = candidate.unavailableReason;
 		}
 	}
 	let token = random_token();

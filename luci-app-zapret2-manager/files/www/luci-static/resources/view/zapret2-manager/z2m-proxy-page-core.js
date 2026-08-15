@@ -222,18 +222,72 @@ function providerBenefits(provider) {
     ]
   };
 }
+
+function candidateForVersion(versions, version) {
+  return array(versions).filter(function (item) { return item && item.version === version; }).sort(function (left, right) {
+    if (left.installable === true && right.installable !== true) return -1;
+    if (right.installable === true && left.installable !== true) return 1;
+    if (left.sourceId === 'official-github-release' && right.sourceId !== 'official-github-release') return -1;
+    if (right.sourceId === 'official-github-release' && left.sourceId !== 'official-github-release') return 1;
+    return 0;
+  })[0] || {};
+}
+
+function versionChoices(versions) {
+  var seen = {};
+  return array(versions).filter(function (item) {
+    if (!item || !item.version || seen[item.version]) return false;
+    seen[item.version] = true;
+    return true;
+  });
+}
+
+function releaseText(value) {
+  var holder = document.createElement('span');
+  holder.textContent = String(value === null || value === undefined ? '' : value).slice(0, 32768);
+  return holder.textContent;
+}
+
+function releaseDetails(item) {
+  if (!item || !item.version) return null;
+  var notes = item.releaseBody ? releaseText(item.releaseBody) : _('Автор не указал описание изменений для этого релиза.');
+  return E('div', { 'class': 'z2m-proxy-release-details' }, [
+    E('h3', {}, _('Что изменилось в ') + item.version),
+    E('div', { 'class': 'z2m-proxy-release-meta' }, [
+      E('span', {}, _('Версия ') + item.version),
+      E('span', {}, _('Дата релиза: ') + display(item.publishedAt || '—'))
+    ]),
+    E('pre', { 'class': 'z2m-proxy-release-notes' }, notes),
+    item.releaseUrl ? E('a', { href: item.releaseUrl, target: '_blank', rel: 'noopener noreferrer' }, _('Полное описание релиза')) : null
+  ]);
+}
+
+function compatibilityDetails(item) {
+  if (!item || !item.version) return null;
+  if (item.installable === true) return E('div', { 'class': 'z2m-proxy-compatibility z2m-proxy-ok' }, [
+    E('div', {}, '✓ ' + _('Подходит для ') + display(item.architecture)),
+    E('div', {}, item.apkAvailable ? '✓ ' + _('Пакет найден') : '✓ ' + _('Артефакт найден')),
+    E('div', {}, item.checksumAvailable ? '✓ ' + _('SHA-256 проверяется') : _('Проверка SHA-256 перед установкой'))
+  ]);
+  var reason = item.unavailableReason || item.incompatibilityReason || _('Точная причина недоступности не указана.');
+  return E('div', { 'class': 'z2m-proxy-compatibility z2m-proxy-provider-unavailable' }, [
+    E('strong', {}, _('Версия ') + item.version + ': ' + _('Недоступна')),
+    E('div', {}, _('Причина: ') + reason),
+    item.architectureCompatible === true ? E('div', { 'class': 'z2m-proxy-ok' }, '✓ ' + _('Архитектура подходит для ') + display(item.architecture)) : null,
+    item.directBinaryAvailable === true ? E('div', {}, '✓ ' + _('Direct binary найден')) : null
+  ]);
+}
+
 function providerCard(ctx, data, provider, status) {
   var shell = ctx.shell;
   var preflight = array(object(data.providerPreflight && data.providerPreflight.value).providers)
     .filter(function (item) { return item && item.provider === provider.id; })[0] || {};
   var versionRow = providerVersions(data).filter(function (item) { return item && item.id === provider.id; })[0] || {};
   var versions = array(versionRow.versions);
-  var sources = array(versionRow.sources);
   var selection = state.tgSelections[provider.id] || {};
   var first = versions[0] || {};
-  var sourceId = selection.sourceId || first.sourceId || (sources[0] && sources[0].id);
-  var sourceVersions = versions.filter(function (item) { return item && item.sourceId === sourceId; });
-  var selected = sourceVersions.filter(function (item) { return item.version === selection.version; })[0] || sourceVersions[0] || {};
+  var selected = candidateForVersion(versions, selection.version || first.version);
+  var choices = versionChoices(versions);
   if (selected.version) state.tgSelections[provider.id] = { sourceId: selected.sourceId, version: selected.version };
   var isActive = providerInstalled(status.installed) && status.activeProvider === provider.id;
   var installedVersion = (array(status.packages).filter(function (item) { return item && item.provider === provider.id; })[0] || {}).version ||
@@ -245,33 +299,29 @@ function providerCard(ctx, data, provider, status) {
   var needsUpdate = isActive && latest.version && installedVersion && latest.version !== installedVersion;
   var switching = providerInstalled(status.installed) && !isActive;
   var unavailableReason = preflight.available === false ? preflight.reason || _('Backend-провайдер недоступен.') :
-    selected.installable === false ? selected.incompatibilityReason || _('Выбранная версия несовместима с архитектурой.') :
-    !selected.version ? (sources.filter(function (item) { return item.id === sourceId; })[0] || {}).reason || _('Для выбранного источника нет проверенной версии.') : null;
+    selected.installable === false ? selected.unavailableReason || selected.incompatibilityReason || _('Выбранная версия недоступна.') :
+    !selected.version ? _('Нет доступных версий для этого провайдера.') : null;
   var benefits = providerBenefits(provider.id);
-  var sourceSelect = E('select', { 'aria-label': _('Источник'), value: sourceId || '', change: function (event) {
-    var nextSource = event.target.value;
-    var next = versions.filter(function (item) { return item.sourceId === nextSource; })[0] || {};
-    state.tgSelections[provider.id] = { sourceId: nextSource, version: next.version || '' };
-  } }, sources.map(function (source) {
-    var sourceAttrs = { value: source.id };
-    if (source.available === false) sourceAttrs.disabled = true;
-    return E('option', sourceAttrs, source.label + (source.available === false ? ' — ' + _('Недоступно') : ''));
-  }));
+  var detailsNode = E('div', { 'class': 'z2m-proxy-release-details-wrap' }, releaseDetails(selected));
+  var compatibilityNode = E('div', { 'class': 'z2m-proxy-compatibility-wrap' }, compatibilityDetails(selected));
+  var action;
   var versionSelect = E('select', { 'aria-label': _('Версия'), value: selected.version || '', change: function (event) {
-    state.tgSelections[provider.id] = { sourceId: sourceId, version: event.target.value };
-  } }, sourceVersions.map(function (item) {
-    var versionAttrs = { value: item.version };
-    if (item.installable === false) versionAttrs.disabled = true;
-    return E('option', versionAttrs, item.version + (item.installable === false ? ' — ' + _('несовместима') : ''));
+    var next = candidateForVersion(versions, event.target.value);
+    state.tgSelections[provider.id] = { sourceId: next.sourceId, version: next.version };
+    detailsNode.replaceChildren(releaseDetails(next));
+    compatibilityNode.replaceChildren(compatibilityDetails(next));
+    if (action) action.disabled = !!state.busy || !next.version || next.installable === false;
+  } }, choices.map(function (item) {
+    return E('option', { value: item.version }, item.version);
   }));
   var actionLabel = installedLatest ? _('Установлено') : switching ? _('Переключить') : _('Проверить и установить');
-  var action = shell.button(preflight.available === false || selected.installable === false || !selected.version ? _('Недоступно') : actionLabel, installedLatest ? 'sm' : 'primary sm', function () {
+  action = shell.button(preflight.available === false || selected.installable === false || !selected.version ? _('Недоступно') : actionLabel, installedLatest ? 'sm' : 'primary sm', function () {
     var liveSelection = state.tgSelections[provider.id] || { sourceId: selected.sourceId, version: selected.version };
-    var liveCandidate = versions.filter(function (item) { return item.sourceId === liveSelection.sourceId && item.version === liveSelection.version; })[0] || selected;
+    var liveCandidate = candidateForVersion(versions, liveSelection.version) || selected;
     var request = { provider: provider.id, sourceId: liveCandidate.sourceId, version: liveCandidate.version };
     var title = switching ? _('Переключить реализацию?') : _('Установить TG Proxy?');
     var message = switching
-      ? _('Сервис будет остановлен, выбранный источник и версия будут проверены, затем реализация будет заменена с сохранением настроек.')
+      ? _('Сервис будет остановлен, выбранная версия будет проверена, затем реализация будет заменена с сохранением настроек.')
       : _('Будет проверен и установлен выбранный официальный артефакт. Остальной менеджер от него не зависит.');
     confirm(ctx, title, message, actionLabel, function () {
       state.busy = 'provider-install';
@@ -295,12 +345,12 @@ function providerCard(ctx, data, provider, status) {
       E('div', { 'class': 'z2m-proxy-info-list' }, [
         E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Установленная версия')), E('strong', {}, display(installedVersion))]),
         E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Package version')), E('strong', {}, display(packageVersion))]),
-        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Последняя доступная версия')), E('strong', {}, display(latest.version))]),
+        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Последняя версия')), E('strong', {}, display(latest.version))]),
         E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Версия')), versionSelect]),
-        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Источник')), sourceSelect]),
         E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Готовность')), E('strong', { 'class': !unavailableReason ? 'z2m-proxy-ok' : '' }, unavailableReason ? _('Недоступно') : _('Проверка перед установкой'))])
       ]),
-      unavailableReason ? E('div', { 'class': 'z2m-proxy-provider-unavailable' }, _('Причина недоступности: ') + unavailableReason) : null,
+      compatibilityNode,
+      detailsNode,
       E('div', { 'class': 'z2m-btnrow z2m-proxy-provider-actions' }, [action])
     ]))
   ]);

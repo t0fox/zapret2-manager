@@ -29,17 +29,17 @@ dirty primary checkout was not modified.
 | `7f049bbe` | Provider-scoped TG version projection |
 | `8c671fbe` | Typed Asset Registry route pages and WARP disabled UI |
 | `9ad41966` | Reachable nested WARP parent route |
-| working tree | TG source/version contract, APK trust modes, ACL and target deployment |
+| working tree | TG clean version/release-details UI, compatibility model, bounded APK trust modes, ACL and target deployment |
 
 ## Verification
 
-- `node --test tests/ui/*.test.mjs`: **35/35 PASS** before the final TG contract run
+- `node --test tests/ui/*.test.mjs tests/product/tg-provider-versions-contract.test.mjs`: **44/44 PASS**
 - `node --test tests/product/tg-*.test.mjs tests/ui/tg-version-contract.test.mjs tests/ui/proxy-canonical-status.test.mjs tests/ui/frontend-module-closure.test.mjs`: **23/23 PASS**
 - `node --check` for changed LuCI modules: **PASS**
 - `git diff --check`: **PASS**
 - Target SSH: **PASS**, OpenWrt `aarch64`
 - Target read-only canaries: DNS `ok:true`, `dnsmasq-uci`, dnsmasq running; TG `running`, Rust, `aarch64`, listener `1443`; M6 `route_list ok:true`, empty route set
-- Target UI/backend transfer: **21/21 exact SHA256 matches**, all files `0644`, `root:root`; final provider implementation hash `deb19f12c338055a2cb0a18df826586fd8b432176066138d1a4822827066b4e5`
+- Target UI/backend transfer: **21/21 exact SHA256 matches**, all files `0644`, `root:root`; final provider implementation hash `d791e8f78bd320a8cd1828dbb754e67b5469d2235b2448ec3da49394fc4bef05`
 - Target ucode compile: **PASS**; selected Go check `installable=true` with upstream PEM key; selected Rust `2.2.4` check `installable=true` with explicit `sha256-only` mode and exact APK digest
 - Target package preflight: `apk --allow-untrusted add --simulate` for the exact Rust `2.2.4-r1` APK: **PASS**; no package was installed or switched during acceptance.
 
@@ -60,9 +60,11 @@ refresh.
   real target rows and validation controls.
 - WARP: `WARP / MASQUE` renders the complete disabled control surface; no
   unsupported RPC or fake runtime state is invoked.
-- Telegram Proxy: Go and Rust cards show installed/package/latest values per
-  provider; real version/source selectors are rendered. Browser selection of
-  the Go OpenWrt APK feed persisted without refresh; console errors were `0`.
+- Telegram Proxy current post-deploy acceptance: **NOT RUN**. The browser
+  profile reached the target but presented `Authorization Required`, so no
+  post-deploy DOM or console claim is made. The required checks are clean
+  `2.2.4`/`2.2.3`/older version labels, release notes/details, no visible
+  `Источник` selector, and zero console errors.
 - Responsive browser gates retained: `1280px PASS`, `768px PASS`, `390px PASS`;
   no horizontal overflow or missing JS modules were observed in the accepted
   route pass.
@@ -79,3 +81,5 @@ refresh.
   diagnostic invocation was stopped after it did not complete.
 - Linux ucode full Strategy/cross-project regression remains `NOT_RUN`.
 - No M7, failover, auto-remediation, or new backend feature was started.
+- Browser recheck is blocked until the user signs in to the target LuCI
+  session; this does not invalidate the target SSH/ucode/package evidence.

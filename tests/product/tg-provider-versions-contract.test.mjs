@@ -33,3 +33,28 @@ test('official APK installation carries and verifies the upstream signing key tr
   assert.match(source, /tg-ws-proxy\.pem/);
   assert.match(source, /sha256-only/);
 });
+
+test('TG release compatibility separates architecture, artifact, signature, and installability', () => {
+  const source = fs.readFileSync(PROVIDER, 'utf8');
+  for (const marker of [
+    'architectureCompatible', 'artifactAvailable', 'apkAvailable',
+    'directBinaryAvailable', 'checksumAvailable', 'apkSignatureTrusted',
+    'unavailableReason', 'packageName', 'sort_versions'
+  ]) {
+    assert.match(source, new RegExp(marker), `missing compatibility marker ${marker}`);
+  }
+  assert.match(source, /aarch64-unknown-linux-musl/);
+  assert.match(source, /releaseName/);
+  assert.match(source, /releaseBody/);
+  assert.match(source, /releaseUrl/);
+  assert.match(source, /assets/);
+});
+
+test('bounded untrusted APK fallback cannot accept an arbitrary package or URL', () => {
+  const source = fs.readFileSync(PROVIDER, 'utf8');
+  assert.match(source, /--allow-untrusted/);
+  assert.match(source, /assetSize/);
+  assert.match(source, /assetSha256/);
+  assert.match(source, /provider\.package|packageName/);
+  assert.doesNotMatch(source, /input\.url|input\.package|generic.*install/i);
+});

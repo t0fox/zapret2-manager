@@ -7,18 +7,17 @@ const API = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapre
 const BACKEND = 'zapret2-manager/files/usr/libexec/zapret2-manager/proxy-provider.uc';
 const TG_PRODUCT = 'zapret2-manager/files/usr/libexec/zapret2-manager/tg-product.uc';
 
-test('TG version UI is truthful about latest-only backend support', () => {
+test('TG version UI is truthful about bounded version/source backend support', () => {
   const ui = fs.readFileSync(CORE, 'utf8');
   const backend = fs.readFileSync(BACKEND, 'utf8');
 
   assert.doesNotMatch(ui, /latest-only|Исторический выбор версий недоступен|Источник пакета не выбирается/i);
   assert.match(ui, /Установленная версия/);
   assert.match(ui, /Package version/);
-  assert.match(ui, /Последняя доступная версия/);
+  assert.match(ui, /Последняя версия/);
   assert.match(ui, /status\.packages/);
   assert.match(ui, /provider === provider\.id/);
   assert.match(ui, /Версия/);
-  assert.match(ui, /Источник/);
   assert.match(ui, /versions/);
   assert.match(backend, /proxy_provider_versions/);
   assert.match(backend, /sourceId/);
@@ -29,7 +28,7 @@ test('TG unavailable state names the failed preflight or package check', () => {
   const ui = fs.readFileSync(CORE, 'utf8');
   assert.match(ui, /preflight\.available === false/);
   assert.match(ui, /update\.installable === false/);
-  assert.match(ui, /Причина недоступности/);
+  assert.match(ui, /Причина:/);
 });
 
 test('TG version/source contract is wired through the canonical product API', () => {
@@ -41,4 +40,27 @@ test('TG version/source contract is wired through the canonical product API', ()
   assert.match(product, /tg_product_check_updates/);
   assert.match(product, /sourceId/);
   assert.match(product, /version/);
+});
+
+test('TG installation UI exposes provider and clean version choices, not transport sources', () => {
+  const ui = fs.readFileSync(CORE, 'utf8');
+  const backend = fs.readFileSync(BACKEND, 'utf8');
+  assert.doesNotMatch(ui, /sourceSelect|aria-label': _('Источник')|_\('Источник'\)|— несовместима/);
+  assert.match(ui, /selected\.version/);
+  assert.match(ui, /releaseBody|releaseName|releaseUrl/);
+  assert.match(ui, /Что изменилось/);
+  assert.match(ui, /escape|textContent|sanitize/i);
+  assert.match(backend, /releaseName/);
+  assert.match(backend, /releaseBody/);
+  assert.match(backend, /releaseUrl/);
+});
+
+test('TG release details are rendered from the selected version without source controls', () => {
+  const ui = fs.readFileSync(CORE, 'utf8');
+  assert.match(ui, /release details|releaseDetails|releaseBody/);
+  assert.match(ui, /publishedAt|releaseDate/);
+  assert.match(ui, /Полное описание релиза/);
+  assert.match(ui, /Автор не указал описание изменений/);
+  assert.match(ui, /options|E\('option'/);
+  assert.doesNotMatch(ui, /sourceVersions|sources\.filter/i);
 });

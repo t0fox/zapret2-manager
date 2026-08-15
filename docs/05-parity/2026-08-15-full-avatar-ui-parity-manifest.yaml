@@ -116,11 +116,8 @@ tg_contract:
   version_selector: required
   source_selection: required_when_supported
   current_backend_gap:
-    - proxy_provider_catalog returns latestOnly=true
-    - proxy_provider_check_updates resolves one latest release only
-    - install accepts provider and checkToken, not version/source
-    - no historical version enumeration RPC exists
-    - no selectable source enumeration RPC exists
+    - source provenance remains an internal provider/sourceId contract and is not exposed as a visible TG installation selector
+    - browser post-deploy acceptance remains pending re-authentication
   forbidden_copy:
     - Только latest compatible
     - Только из доверенного APK feed
@@ -451,10 +448,10 @@ rows:
     donor_file: web/js/pages/tgproxy.js
     donor_interaction: See installed/package/latest/available version metadata
     z2m_backend: tg_product_status plus bounded proxy_provider_versions/check_updates
-    z2m_current_ui: Installed/package/latest and available versions are rendered per provider
+    z2m_current_ui: Installed/package/latest and bounded release versions are rendered per provider with release notes/details
     status: ADAPTED
-    evidence: Canonical bounded sources[]/versions[] include architecture, artifact, digest, installability and exact reason.
-    browser_evidence: Target browser shows Go 0.9.3-2 and Rust 2.2.4 selectors; target checks pass.
+    evidence: Canonical bounded sources[]/versions[] include architecture, artifact, digest, signature trust, installability, release metadata and exact reason; target checks pass.
+    browser_evidence: NOT RUN after current deploy; target browser requested Authorization Required.
   - id: tg.version_selector
     group: telegram
     page: telegram-tunnel
@@ -462,10 +459,10 @@ rows:
     donor_file: web/js/pages/tgproxy.js
     donor_interaction: Select an available supported version
     z2m_backend: proxy_provider_versions plus provider/source/version/checkToken install contract
-    z2m_current_ui: Real selectable version control with disabled incompatible entries
+    z2m_current_ui: Real clean-label version control with a separate selected-release details panel; unavailable versions remain selectable for truthful explanation
     status: ADAPTED
     evidence: Selected version is checked against bounded upstream/feed metadata before canonical transactional install.
-    browser_evidence: Go and Rust version selectors are present; selected source persists.
+    browser_evidence: NOT RUN after current deploy; source selector removal and release-details rendering await re-authenticated browser check.
   - id: tg.source_selector
     group: telegram
     page: telegram-tunnel
@@ -473,10 +470,10 @@ rows:
     donor_file: web/js/pages/tgproxy.js
     donor_interaction: Select supported source and show compatibility reason
     z2m_backend: proxy_provider_versions plus provider/source/version/checkToken install contract
-    z2m_current_ui: Real supported-source control; no arbitrary URL input
-    status: ADAPTED
-    evidence: OpenWrt APK feed and allowlisted official GitHub release are the only source ids.
-    browser_evidence: Source selector renders both supported sources and persists selection.
+    z2m_current_ui: No visible source control; backend provenance remains bounded to OpenWrt APK feed and official GitHub release ids.
+    status: INTENTIONAL_DEVIATION
+    evidence: Source provenance is backend-only; no arbitrary URL input exists.
+    browser_evidence: NOT RUN after current deploy; current browser requires re-authentication.
   - id: tg.installation
     group: telegram
     page: telegram-tunnel
@@ -486,8 +483,8 @@ rows:
     z2m_backend: tg_product_install/update/remove/purge and operation status
     z2m_current_ui: Provider cards, progress state, remove/purge confirmations
     status: PARTIAL
-    evidence: Existing lifecycle is canonical but version/source policy text must be removed.
-    browser_evidence: Target install actions intentionally not exercised; status/preflight PASS
+    evidence: Existing lifecycle is canonical; source provenance is internal and release compatibility is shown before install.
+    browser_evidence: Target install actions intentionally not exercised; target status/preflight PASS; browser recheck pending authentication.
   - id: tg.lifecycle
     group: telegram
     page: telegram-tunnel
