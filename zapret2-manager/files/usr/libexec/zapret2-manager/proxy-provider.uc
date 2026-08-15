@@ -323,6 +323,7 @@ function release_candidate(providerId, arch, release) {
 		else if (substr(target, 0, 4) == 'arm_') directAssetName = 'tg-ws-proxy-armv7-unknown-linux-musleabihf.tar.gz';
 		else if (substr(target, 0, 8) == 'mipsel_') directAssetName = 'tg-ws-proxy-mipsel-unknown-linux-musl.tar.gz';
 		else if (substr(target, 0, 5) == 'mips_') directAssetName = 'tg-ws-proxy-mips-unknown-linux-musl.tar.gz';
+		binaryPath = BINARY_PATH;
 	} else if (providerId == 'go') {
 		let targetArch = target_arch(providerId, arch);
 		directAssetName = 'tg-ws-proxy-openwrt-' + targetArch;
@@ -334,7 +335,8 @@ function release_candidate(providerId, arch, release) {
 	let directAsset = directAssetName != null ? exact_asset(release.assets, directAssetName) : null;
 	let apkAvailable = usable_asset(apkAsset, prefix, apkAssetName);
 	let directBinaryAvailable = usable_asset(directAsset, prefix, directAssetName);
-	if (apkAvailable) { assetName = apkAssetName; artifactFormat = 'apk'; }
+	if (directBinaryAvailable && providerId == 'rust') { assetName = directAssetName; artifactFormat = 'binary'; }
+	else if (apkAvailable) { assetName = apkAssetName; artifactFormat = 'apk'; }
 	else if (directBinaryAvailable) {
 		assetName = directAssetName;
 		artifactFormat = providerId == 'go' ? 'binary' : 'tar.gz';
@@ -470,6 +472,15 @@ function running() {
 function service(action) {
 	if (stat(INIT_PATH) == null) return 0;
 	return run(INIT_PATH + ' ' + action).rc;
+}
+
+function wait_for_service_ready() {
+	for (let i = 0; i < 6; i++) {
+		let health = proxycfg_health({ upstream: false });
+		if (health != null && health.ok === true) return true;
+		if (i < 5) run('sleep 1');
+	}
+	return false;
 }
 
 function acquire_lock() {
@@ -817,7 +828,7 @@ export const proxy_provider_status = function () {
 			provider: stateProvider.id,
 			package: null,
 			packageVersion: safe_package_version(state.activePackageVersion) ? state.activePackageVersion :
-				(stateProvider.id == 'go' && state.activeSourceId == SOURCE_GITHUB ? null : state_package_version(stateProvider.id, state.activeVersion)),
+				(state.activeSourceId == SOURCE_GITHUB ? null : state_package_version(stateProvider.id, state.activeVersion)),
 			source: 'pinned-release'
 		});
 	}
@@ -880,7 +891,7 @@ function load_checked_candidate(providerId, token, sourceId, version) {
 	if (!safe_package_version(candidate.version) || (candidate.artifactFormat != 'binary' && !safe_package_version(candidate.packageVersion)) ||
 		candidate.packageName != package_name(providerId) ||
 		(candidate.sourceId == SOURCE_GITHUB && (candidate.artifactFormat != 'apk' && candidate.artifactFormat != 'binary' ||
-			(candidate.artifactFormat == 'binary' && (providerId != 'go' || candidate.binaryPath != BINARY_PATH)) ||
+		(candidate.artifactFormat == 'binary' && ((providerId != 'go' && providerId != 'rust') || candidate.binaryPath != BINARY_PATH)) ||
 			safe_digest(candidate.assetSha256) == null || candidate.downloadUrl == null ||
 			(candidate.trustMode != 'sha256-only' && (candidate.trustMode != 'upstream-key' || safe_digest(candidate.keyAssetSha256) == null ||
 				candidate.keyDownloadUrl == null || +candidate.keyAssetSize < 128 || +candidate.keyAssetSize > 65536)))) || candidate.installable !== true)
@@ -914,7 +925,7 @@ function download_candidate(candidate, token) {
 	let binary = candidate.artifactFormat == 'binary';
 	if (!candidate_package_matches(provider, candidate) || candidate.sourceId != SOURCE_GITHUB ||
 		(candidate.artifactFormat != 'apk' && !binary) ||
-		(binary && (provider == null || provider.id != 'go' || candidate.binaryPath != BINARY_PATH || candidate.trustMode != 'sha256-only')) ||
+		(binary && (provider == null || (provider.id != 'go' && provider.id != 'rust') || candidate.binaryPath != BINARY_PATH || candidate.trustMode != 'sha256-only')) ||
 		type(candidate.downloadUrl) != 'string' || safe_digest(candidate.assetSha256) == null ||
 		(candidate.trustMode != 'sha256-only' && (candidate.trustMode != 'upstream-key' || type(candidate.keyDownloadUrl) != 'string' ||
 			safe_digest(candidate.keyAssetSha256) == null)) || safe_token(token) == null)
@@ -923,7 +934,8 @@ function download_candidate(candidate, token) {
 	let keyUrl = candidate.trustMode == 'upstream-key' ? literal(candidate.keyDownloadUrl) : null;
 	if (url == null || (candidate.trustMode == 'upstream-key' && keyUrl == null) || substr(candidate.downloadUrl, 0, 19) != 'https://github.com/' ||
 		(candidate.trustMode == 'upstream-key' && substr(candidate.keyDownloadUrl, 0, 19) != 'https://github.com/')) return error('ESECURITY', 'URL артефакта или ключа не входит в allowlist.');
-	let file = '/tmp/zapret2-manager/tg-provider-' + token + (binary ? '.bin' : '.apk'), quotedFile = literal(file);
+	let file = '/tmp/zapret2-manager/tg-provider-' + token +
+		(binary ? (candidate.provider == 'rust' ? '.tar.gz' : '.bin') : '.apk'), quotedFile = literal(file);
 	if (binary) {
 		let fetched = run('ulimit -f 32768; uclient-fetch -q -T 30 --user-agent zapret2-manager-proxy -O ' + quotedFile + ' ' + url);
 		let info = stat(file);
@@ -935,6 +947,24 @@ function download_candidate(candidate, token) {
 		if (digest != candidate.assetSha256) {
 			try { unlink(file); } catch (e) { }
 			return error('EVERIFY', 'SHA-256 upstream binary не совпал.');
+		}
+		if (candidate.provider == 'rust') {
+			let extractDir = file + '.extract', stagedFile = file + '.bin';
+			let quotedExtract = literal(extractDir), quotedStaged = literal(stagedFile);
+			let extracted = quotedExtract == null || quotedStaged == null ? { rc: -1 } :
+				run('rm -rf ' + quotedExtract + ' && mkdir -p ' + quotedExtract +
+					' && test "$(tar -tzf ' + quotedFile + ' | wc -l)" = 1' +
+					' && tar -xzf ' + quotedFile + ' -C ' + quotedExtract +
+					' && test -f ' + quotedExtract + '/tg-ws-proxy' +
+					' && cp -p ' + quotedExtract + '/tg-ws-proxy ' + quotedStaged +
+					' && chmod 755 ' + quotedStaged);
+			if (extracted.rc != 0) {
+				try { unlink(file); } catch (e) { }
+				run('rm -rf ' + (quotedExtract || "''"));
+				try { unlink(stagedFile); } catch (e) { }
+				return error('EVERIFY', 'Проверенный Rust runtime archive имеет недопустимое содержимое.');
+			}
+			return { ok: true, file: stagedFile, archive: file, extractDir: extractDir, keysDir: null, trustMode: 'sha256-only', artifactFormat: 'binary' };
 		}
 		return { ok: true, file: file, keysDir: null, trustMode: 'sha256-only', artifactFormat: 'binary' };
 	}
@@ -978,6 +1008,11 @@ function download_candidate(candidate, token) {
 function cleanup_download(downloaded) {
 	if (downloaded == null) return;
 	if (downloaded.file != null) { try { unlink(downloaded.file); } catch (e) { } }
+	if (downloaded.archive != null) { try { unlink(downloaded.archive); } catch (e) { } }
+	if (downloaded.extractDir != null) {
+		let quoted = literal(downloaded.extractDir);
+		if (quoted != null) run('rm -rf ' + quoted);
+	}
 	if (downloaded.keysDir != null) {
 		let quoted = literal(downloaded.keysDir);
 		if (quoted != null) run('rm -rf ' + quoted);
@@ -990,7 +1025,10 @@ function prepare_candidate(candidate, token) {
 	if (!downloaded.ok) return downloaded;
 	if (candidate.artifactFormat == 'binary') {
 		let quoted = literal(downloaded.file);
-		if (quoted == null || run('chmod 755 ' + quoted + ' && ' + quoted + ' --help 2>&1 | grep -q "Usage of tg-ws-proxy"').rc != 0) {
+		let probe = candidate.provider == 'rust'
+			? quoted + ' --version 2>&1 | grep -q "^tg-ws-proxy "'
+			: quoted + ' --help 2>&1 | grep -q "Usage of tg-ws-proxy"';
+		if (quoted == null || run('chmod 755 ' + quoted + ' && ' + probe).rc != 0) {
 			cleanup_download(downloaded);
 			return error('EVERIFY', 'Проверенный binary не прошёл локальную валидацию.');
 		}
@@ -1116,7 +1154,8 @@ function restore_previous(previous, wasRunning, settingsSnapshot) {
 	} else if (!save_state(null, null, null)) push(failures, 'empty-state-restore');
 	if (!restore_settings(settingsSnapshot)) push(failures, 'settings-restore');
 	if (!binaryRestored && !restore_binary(settingsSnapshot)) push(failures, 'binary-restore');
-	if (wasRunning && length(failures) == 0 && service('restart') != 0) push(failures, 'previous-service-restore');
+	if (wasRunning && length(failures) == 0 &&
+		(service('restart') != 0 || !wait_for_service_ready())) push(failures, 'previous-service-restore');
 	return failures;
 }
 
@@ -1196,7 +1235,7 @@ export const proxy_provider_install_transaction = function (provider, latest, to
 					operation_update(operationId, 'ROLLING_BACK', 84, 'Состояние provider не сохранилось; выполняется откат.', 'ROLLING_BACK');
 					let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
 					result = { ok: false, error: { code: 'ETARGET', message: 'Не удалось сохранить выбранную реализацию.' }, rollbackFailures: rollbackFailures, rollbackAttempted: true };
-				} else if (wasRunning && service('restart') != 0) {
+				} else if (wasRunning && (service('restart') != 0 || !wait_for_service_ready())) {
 					operation_update(operationId, 'ROLLING_BACK', 88, 'Новая реализация не запустилась; выполняется откат.', 'ROLLING_BACK');
 					let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
 					result = { ok: false, error: { code: 'ETARGET', message: 'Новая реализация установлена, но не прошла запуск.' }, rollbackFailures: rollbackFailures, rollbackAttempted: true };

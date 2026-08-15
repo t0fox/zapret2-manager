@@ -36,7 +36,7 @@ test('TG direct Go binary is staged and atomically installed only after verifica
   assert.match(source, /\.tmp\.|mv -f/);
   assert.match(source, /--help/);
   assert.match(source, /grep -q "Usage of tg-ws-proxy"/);
-  assert.doesNotMatch(source, /--version/);
+  assert.match(source, /candidate\.provider == 'rust'[\s\S]*--version/);
   assert.match(source, /HEALTHCHECK|healthcheck/i);
 });
 
@@ -56,5 +56,7 @@ test('TG running operations have backend-owned stall detection and worker identi
   assert.match(source, /operation_reconcile/);
   assert.match(source, /service\('restart'\)/,
     'provider transitions and rollback must force a procd restart to avoid stale deleted processes');
+  assert.match(source, /wait_for_service_ready/,
+    'healthcheck must wait for procd to publish the new listener before judging the provider');
   assert.match(source, /EWORKER_DEAD/);
 });

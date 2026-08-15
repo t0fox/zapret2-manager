@@ -67,6 +67,21 @@ test('TG version metadata distinguishes release presence from installability', (
   assert.match(source, /installable/);
 });
 
+test('Rust GitHub releases select the runtime archive instead of the LuCI-only APK', () => {
+  const source = fs.readFileSync(PROVIDER, 'utf8');
+  assert.match(source, /directBinaryAvailable && providerId == 'rust'/,
+    'Rust must prefer the runtime archive when a release also publishes a LuCI APK');
+  assert.match(source, /tg-ws-proxy-aarch64-unknown-linux-musl\.tar\.gz/);
+  assert.match(source, /tar -xzf/,
+    'the checked runtime archive must be extracted before atomic installation');
+  assert.match(source, /candidate\.provider == 'rust'/);
+  assert.match(source, /candidate\.provider == 'rust'[\s\S]*--version/);
+  assert.match(source, /providerId != 'go' && providerId != 'rust'/);
+  assert.match(source, /provider\.id != 'go' && provider\.id != 'rust'/);
+  assert.match(source, /activeSourceId == SOURCE_GITHUB.*\? null/,
+    'direct Rust installations must not fabricate an APK package version');
+});
+
 test('canonical Go provider follows the new direct-binary upstream', () => {
   const source = fs.readFileSync(PROVIDER, 'utf8');
   assert.match(source, /d0mhate\/-tg-ws-proxy-Manager-go/);
