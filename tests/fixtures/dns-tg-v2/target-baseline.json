@@ -1,0 +1,77 @@
+{
+  "dns": {
+    "global": {
+      "mode": "system",
+      "revision": 0,
+      "appliedRevision": 0,
+      "running": true,
+      "overrides": []
+    },
+    "serviceDns": {
+      "appliedRevision": 9,
+      "draftRevision": 9,
+      "rollbackAvailable": true,
+      "runtime": {
+        "backend": "dnsmasq-uci",
+        "dnsmasqRunning": true,
+        "runtimeForwardingVerified": false
+      },
+      "selections": {
+        "canva": "",
+        "chatgpt-openai": "prof-chatgpt-openai-comss-dns",
+        "discord": "prof-discord-cloudflare",
+        "flowseal-discord": "prof-flowseal-discord-cloudflare",
+        "youtube": "",
+        "tiktok": "prof-tiktok-malw-link"
+      }
+    },
+    "ownership": {
+      "global": "dns-global",
+      "overrides": "dns",
+      "serviceDns": "service-dns",
+      "serviceDnsWorker": "service-dns-apply-worker"
+    }
+  },
+  "telegramProxy": {
+    "selectedProvider": "rust",
+    "installedProviders": ["rust"],
+    "observedRunningProvider": "rust",
+    "desiredEnabled": true,
+    "observedStatus": "running",
+    "listen": {
+      "endpoint": "192.168.1.1:1443",
+      "pid": 2976,
+      "process": "tg-ws-proxy"
+    },
+    "go": {
+      "id": "go",
+      "available": true,
+      "installed": false,
+      "version": null
+    },
+    "rust": {
+      "id": "rust",
+      "available": true,
+      "installed": true,
+      "version": "2.0.0-r1"
+    },
+    "sharedConfig": {
+      "host": "192.168.1.1",
+      "port": 1443,
+      "enabled": true
+    },
+    "providerSpecificConfig": {
+      "rust": {
+        "poolSize": 4,
+        "bufKb": 256,
+        "defaultDomains": true
+      },
+      "go": {}
+    }
+  },
+  "providerRpc": {
+    "sourcePresent": true,
+    "sourceSyntaxValid": true,
+    "ubusObjectPresent": false
+  }
+}
