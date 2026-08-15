@@ -9,6 +9,7 @@ const MAX_RESULTS = 128;
 const MAX_EVENTS = 32;
 const MAX_TEXT = 256;
 const ACTIVE = 'active.json';
+const DOUBLE_TAG = '__z2m_double__';
 let sequence = 0;
 
 function object(value) { return type(value) == 'object' && value != null; }
@@ -20,6 +21,18 @@ function text(value) { return string(value) ? (length(value) > MAX_TEXT ? substr
 function copy(value) {
 	if (type(value) == 'array') { let out = []; for (let item in value) push(out, copy(item)); return out; }
 	if (object(value)) { let out = {}; for (let key in value) out[key] = copy(value[key]); return out; }
+	return value;
+}
+function storage_copy(value) {
+	if (type(value) == 'double') { let tagged = {}; tagged[DOUBLE_TAG] = sprintf('%J', value); return tagged; }
+	if (type(value) == 'array') { let out = []; for (let item in value) push(out, storage_copy(item)); return out; }
+	if (object(value)) { let out = {}; for (let key in value) out[key] = storage_copy(value[key]); return out; }
+	return value;
+}
+function restore_storage(value) {
+	if (object(value) && length(value) == 1 && type(value[DOUBLE_TAG]) == 'string') return +value[DOUBLE_TAG];
+	if (type(value) == 'array') { let out = []; for (let item in value) push(out, restore_storage(item)); return out; }
+	if (object(value)) { let out = {}; for (let key in value) out[key] = restore_storage(value[key]); return out; }
 	return value;
 }
 function root() { return getenv('Z2M_SCANNER_SERVER_TEST') == '1' ? (getenv('Z2M_SCANNER_STATE_ROOT') || ROOT) : ROOT; }
@@ -48,22 +61,31 @@ function atomic(file, value) {
 	if (!ok) try { unlink(tmp); } catch (e) { }
 	return ok;
 }
+function restore_plan_authority(value) {
+	if (!object(value) || object(value.planAuthority) || !string(value.planAuthorityBlob)) return value;
+	try {
+		let decoded = json(b64dec(value.planAuthorityBlob));
+		if (object(decoded) && type(decoded.candidates) == 'array') value.planAuthority = decoded;
+	} catch (e) { }
+	return value;
+}
 function read_json(file) {
 	let raw = null;
 	try { raw = readfile(file); } catch (e) { return null; }
 	if (!string(raw) || length(raw) > MAX_RECORD_BYTES) return null;
-	try { let value = json(raw); return object(value) ? value : null; } catch (e) { return null; }
+	try { let value = json(raw); return object(value) ? restore_plan_authority(restore_storage(value)) : null; } catch (e) { return null; }
 }
 function native_read(id, suffix) {
 	let result = native.read_regular('runtime', native_path(id, suffix), MAX_RECORD_BYTES);
 	if (!result.ok) return null;
-	try { return json(b64dec(result.data.content)); } catch (e) { return null; }
+	try { return restore_plan_authority(restore_storage(json(b64dec(result.data.content)))); } catch (e) { return null; }
 }
 function native_digest(id, suffix) {
 	let result = native.sha256_regular('runtime', native_path(id, suffix), MAX_RECORD_BYTES);
 	return result.ok ? result.data.sha256 : null;
 }
 function publish_json(id, suffix, value, expected) {
+	value = storage_copy(value);
 	if (test_mode()) return atomic(path(id, suffix), value);
 	let made = native.mkdir_private('runtime', 'scanner', true);
 	if (!made.ok) return false;
@@ -75,6 +97,7 @@ function publish_json(id, suffix, value, expected) {
 	return result.ok;
 }
 function publish_revision(id, suffix, value, revision) {
+	value = storage_copy(value);
 	if (test_mode()) {
 		let current = read_json(path(id, suffix));
 		if (revision < 0 ? current != null : (current == null || current.revision != revision)) return false;
@@ -83,7 +106,8 @@ function publish_revision(id, suffix, value, revision) {
 	let made = native.mkdir_private('runtime', 'scanner', true);
 	if (!made.ok) return false;
 	if (id != '') { made = native.mkdir_private('runtime', 'scanner/' + id, true); if (!made.ok) return false; }
-	return native.atomic_write_json_revision('runtime', native_path(id, suffix), value, revision < 0, revision).ok;
+	let result = native.atomic_write_json_revision('runtime', native_path(id, suffix), value, revision < 0, revision);
+	return result.ok;
 }
 function publish_cancel(id) {
 	if (test_mode()) return atomic(path(id, '.cancel'), { id, stopRequested: true, updatedAt: time() });
@@ -161,7 +185,11 @@ function public_record(value) {
 		heartbeatAt: integer(value.heartbeatAt) ? value.heartbeatAt : time(), startedAt: integer(value.startedAt) ? value.startedAt : null,
 		finishedAt: integer(value.finishedAt) ? value.finishedAt : null, events: bounded_events(value.events),
 	};
-	if (object(value.planAuthority) && type(value.planAuthority.candidates) == 'array') out.planAuthority = copy(value.planAuthority);
+	if (object(value.planAuthority) && type(value.planAuthority.candidates) == 'array') {
+		let serialized = sprintf('%J', value.planAuthority);
+		let blob = b64enc(serialized);
+		if (string(blob) && length(blob) <= 70000) out.planAuthorityBlob = blob;
+	}
 	return out;
 }
 function valid_record(value) {
@@ -208,9 +236,14 @@ export const scanner_state_save = function(input) {
 		return error('ESCHEMA', 'Scanner record digests are incomplete.');
 	if (length(sprintf('%J', candidate)) > MAX_RECORD_BYTES) return error('EOUTPUT', 'Scanner record exceeds volatile bounds.');
 	let expected = previous == null ? -1 : previous.revision;
-	return (test_mode() ? publish_json(candidate.id, '.record.json', candidate, null) : publish_revision(candidate.id, '.record.json', candidate, expected))
-		? { ok: true, id: candidate.id, revision: candidate.revision, state: candidate }
-		: error('EIO', 'Scanner record could not be atomically published.');
+	let published = test_mode() ? publish_json(candidate.id, '.record.json', candidate, null) : publish_revision(candidate.id, '.record.json', candidate, expected);
+	if (!published) return error('EIO', 'Scanner record could not be atomically published.');
+	// Keep the authoritative plan in the in-process save result as well as the
+	// bounded persisted blob; resume callers must be able to continue from the
+	// same result without depending on a second projection pass.
+	let state = copy(candidate);
+	if (object(input) && object(input.planAuthority)) state.planAuthority = copy(input.planAuthority);
+	return { ok: true, id: candidate.id, revision: candidate.revision, state: state };
 };
 
 export const scanner_control_load = function(id) {

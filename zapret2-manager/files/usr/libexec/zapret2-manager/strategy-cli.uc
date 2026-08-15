@@ -67,6 +67,9 @@ function error_result(code, message, extra) {
 	if (is_object(extra)) for (let key in extra) result[key] = extra[key];
 	return result;
 }
+function starts_with(value, prefix) {
+	return is_string(value) && is_string(prefix) && substr(value, 0, length(prefix)) == prefix;
+}
 
 let APPLY_HOOK = null, APPLY_HOOK_LOADED = false;
 

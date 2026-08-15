@@ -193,7 +193,9 @@ function scanner_candidate_tokens(candidate) {
 	let tokens = type(candidate.compiledTokens) == 'array' ? candidate.compiledTokens : null;
 	if (tokens == null) {
 		let parsed = z2m_tokenize(candidate.compiledCandidate);
-		if (parsed == null || parsed.ok != true || type(parsed.tokens) != 'array') return null;
+		if (parsed == null || type(parsed.tokens) != 'array') return null;
+		for (let diagnostic in parsed.diagnostics || [])
+			if (diagnostic.severity == 'error') return null;
 		tokens = [];
 		for (let token in parsed.tokens) push(tokens, token.value);
 	}
@@ -201,6 +203,16 @@ function scanner_candidate_tokens(candidate) {
 	for (let token in tokens)
 		if (type(token) != 'string' || !length(token) || index(token, '\n') >= 0 || index(token, '\r') >= 0 || index(token, chr(0)) >= 0) return null;
 	return tokens;
+}
+
+function scanner_secure_temp(template) {
+	let p = popen('umask 077; mktemp ' + shell_escape(template) + ' 2>/dev/null', 'r');
+	if (!p) return null;
+	let path = trim(p.read('all')), rc = p.close();
+	if (rc != 0 || !length(path)) return null;
+	let checked = run('[ -f ' + shell_escape(path) + ' ] && [ ! -L ' + shell_escape(path) + ' ] && chmod 600 ' + shell_escape(path));
+	if (checked.rc != 0) { try { unlink(path); } catch (e) { } return null; }
+	return path;
 }
 
 function scanner_stage_candidate(candidate, compiled) {
@@ -225,7 +237,7 @@ function scanner_stage_candidate(candidate, compiled) {
 		let tmp = scanner_secure_temp(destination + '.tmp.XXXXXX');
 		if (tmp == null) return false;
 		try { writefile(tmp, content); } catch (e) { cleanup(tmp); return false; }
-		let moved = command('mv -f ' + shell_escape(tmp) + ' ' + shell_escape(destination));
+		let moved = run('mv -f ' + shell_escape(tmp) + ' ' + shell_escape(destination));
 		if (moved.rc != 0) { cleanup(tmp); return false; }
 		let metadata = stat(destination);
 		return metadata != null && metadata.type == 'file' && readlink(destination) == null;
@@ -269,16 +281,6 @@ function scanner_dependency_closure_valid(value) {
 function scanner_dependency_digest(value) {
 	if (!scanner_dependency_closure_valid(value)) return null;
 	return sha256_text_via_file(sprintf('%J', value));
-}
-
-function scanner_secure_temp(template) {
-	let p = popen('umask 077; mktemp ' + shell_escape(template) + ' 2>/dev/null', 'r');
-	if (!p) return null;
-	let path = trim(p.read('all')), rc = p.close();
-	if (rc != 0 || !length(path)) return null;
-	let checked = run('[ -f ' + shell_escape(path) + ' ] && [ ! -L ' + shell_escape(path) + ' ] && chmod 600 ' + shell_escape(path));
-	if (checked.rc != 0) { try { unlink(path); } catch (e) { } return null; }
-	return path;
 }
 
 function dq_escape(s) {
@@ -790,7 +792,7 @@ function profiles_apply_candidate_locked(candidate, expectedHash, projection) {
 		return err('identity', 'EINPUT', 'Strategy projection context is invalid');
 	let internalProjection = projection != null ? projection : boundary.projection;
 	return apply_candidate_pipeline({ candidate: candidate, fragments: [], native: native, diff: diff,
-		 draftCount: length(model.profiles), allowExternalNfqws: true, projection: internalProjection });
+			 draftCount: length(model.profiles), allowExternalNfqws: false, projection: internalProjection });
 }
 
 export const profiles_apply_candidate = function(candidate, expectedHash, projection) {
@@ -915,8 +917,10 @@ export const profiles_transient_snapshot = function(supplied) {
 	let queue = observations.health && observations.health.queue;
 	if (type(queue) != 'object' || queue.registered != true || queue.peerPortid != process.pid)
 		return err('snapshot', 'EUNAVAILABLE', 'authoritative NFQUEUE ownership is unavailable');
+	let candidateHash = profiles_candidate_hash();
+	if (candidateHash == null) return err('snapshot', 'EUNAVAILABLE', 'authoritative Strategy candidate hash is unavailable');
 	return { ok: true, config: { bytes: configBytes, sha256: configSha },
-		identity: { selected: selection.selected, revision: selection.revision },
+		identity: { selected: selection.selected, revision: selection.revision, candidateSha256: candidateHash },
 		runtime: { process: process, rules: observations.runtime.rulesPresent == true,
 			nfqueue: { registered: true, peer_portid: queue.peerPortid } },
 		firewall: { table: 'zapret2', rulesPresent: observations.runtime && observations.runtime.rulesPresent == true,

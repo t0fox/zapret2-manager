@@ -180,9 +180,12 @@ static int discover_children(struct child_identity *tracked, size_t *count,
 		return -1;
 	fd = open(children_path, O_RDONLY | O_CLOEXEC);
 	if (fd < 0) {
-#ifdef Z2M_TEST_CHILDREN_PATH
+		/* OpenWrt targets may omit CONFIG_CHECKPOINT_RESTORE, and therefore
+		 * expose no procfs children file. The helper itself supervises its
+		 * direct child; without this optional descendant view there is simply
+		 * nothing additional to enumerate. Other procfs failures remain fatal.
+		 */
 		if (errno == ENOENT) return 0;
-#endif
 		return -1;
 	}
 	for (;;) {

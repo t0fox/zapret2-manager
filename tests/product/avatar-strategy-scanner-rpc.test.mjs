@@ -51,9 +51,11 @@ function stubScannerCli() {
   const file = path.join(root, 'scanner-cli.uc');
   const bootstrap = path.join(root, 'z2m-root-bootstrap');
   fs.writeFileSync(file, `import { readfile } from 'fs';
-let value = json(readfile(ARGV[1]));
-if (getenv('Z2M_SCANNER_RPC_STUB_MODE') == 'nonzero') exit(7);
-print(sprintf('%J', {ok:true, command:ARGV[0], input:value}));
+export const scanner_cli_request = function(command, requestPath) {
+  let value = json(readfile(requestPath));
+  if (getenv('Z2M_SCANNER_RPC_STUB_MODE') == 'nonzero') exit(7);
+  return {ok:true, command, input:value};
+};
 `);
   fs.writeFileSync(bootstrap, `#!/bin/sh
 mkdir -p /tmp/zapret2-manager/runtime

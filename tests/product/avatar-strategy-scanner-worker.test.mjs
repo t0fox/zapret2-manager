@@ -147,6 +147,26 @@ test('volatile records are atomic, bounded, CAS-protected, and separate from M5 
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+test('volatile records round-trip scanner double evidence through the native JSON contract', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-double-state-'));
+  try {
+    const env = storageEnv(root);
+    const req = request();
+    const p = plan(req);
+    const created = invoke(STATE, `subject.scanner_state_create(${JSON.stringify(req)}, ${JSON.stringify(p)})`, env);
+    created.results = [{ candidateId: 'c1', ordinal: 1, verdict: 'working', success: true, score: 12.5,
+      reason: null, evidence: { infrastructure: false, metrics: { successRate: 0.5, averageKbps: 3.25, averageLatencyMs: 80.5 } },
+      planDigest: created.planDigest, evidenceIdentity: 'a'.repeat(64) }];
+    const saved = invoke(STATE, `subject.scanner_state_save(${JSON.stringify(created)})`, env);
+    assert.equal(saved.ok, true, JSON.stringify(saved));
+    const loaded = invoke(STATE, `subject.scanner_state_load(${JSON.stringify(saved.id)})`, env);
+    assert.equal(loaded.ok, true, JSON.stringify(loaded));
+    assert.equal(loaded.state.results[0].score, 12.5);
+    assert.equal(loaded.state.results[0].evidence.metrics.averageKbps, 3.25);
+    assert.equal(loaded.state.results[0].evidence.metrics.averageLatencyMs, 80.5);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('worker runs one sequential lifecycle with identity, heartbeat, bounded results, and verified reconciliation', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-worker-'));
   try {
@@ -166,6 +186,18 @@ test('worker runs one sequential lifecycle with identity, heartbeat, bounded res
     assert.equal(result.state.results[0].evidence.metrics.perProbe[0].finishedAt, 110);
     assert.equal(result.state.plan, undefined);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('worker binds each planned candidate to the active session before activation', () => {
+  const worker = fs.readFileSync(WORKER, 'utf8');
+  assert.match(worker, /let candidate = plan\.candidates\[i\];/);
+  assert.match(worker, /let runtimeCandidate = copy\(candidate\);/);
+  assert.match(worker, /runtimeCandidate\.sessionId = session\.sessionId/);
+  assert.match(worker, /runtimeCandidate\.generation = session\.generation/);
+  assert.match(worker, /runtimeCandidate\.argvNonce/);
+  assert.match(worker, /scanner_candidate_activate\(runtimeCandidate, transient\)/);
+  assert.match(worker, /let probeCandidate = \{ scannerId: candidate\.scannerId/);
+  assert.match(worker, /probe_candidate\(probeCandidate, plan,/);
 });
 
 test('worker refuses terminal completion when the required Task 7 reconciliation provider is missing', () => {
@@ -528,9 +560,9 @@ test('fixed HTTP parser handles interim responses, chunked framing, and truncate
     assert.equal(invalid.error.code, 'EINDETERMINATE');
   }
 
-  const wrongRange = invoke(EXECUTOR, `subject.scanner_probe_parse_http('HTTP/1.1 206 Partial Content\\r\\nContent-Length: 5\\r\\nContent-Range: bytes 0-3/5\\r\\n\\r\\nhello', 1000, 1042, ${JSON.stringify({ range: 'bytes=0-4', readLimitBytes: 64 })})`);
-  assert.equal(wrongRange.ok, false, JSON.stringify(wrongRange));
-  assert.equal(wrongRange.error.code, 'EINDETERMINATE');
+	const shortRange = invoke(EXECUTOR, `subject.scanner_probe_parse_http('HTTP/1.1 206 Partial Content\\r\\nContent-Length: 5\\r\\nContent-Range: bytes 0-3/5\\r\\n\\r\\nhello', 1000, 1042, ${JSON.stringify({ range: 'bytes=0-4', readLimitBytes: 64 })})`);
+	assert.equal(shortRange.ok, true, JSON.stringify(shortRange));
+	assert.equal(shortRange.observation.rangeSatisfied, false);
 
   for (const raw of [
     'HTTP/1.1 204 No Content\\r\\nTransfer-Encoding: chunked\\r\\n\\r\\n',

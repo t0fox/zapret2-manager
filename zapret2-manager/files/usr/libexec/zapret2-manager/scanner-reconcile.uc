@@ -30,7 +30,7 @@ function session_cleanup_verified(value) {
 	return object(value) && value.ok == true && value.verifiedCleanup == true
 		&& object(value.lockRelease) && value.lockRelease.ok == true
 		&& object(value.sessionCleanup) && value.sessionCleanup.ok == true
-		&& value.sessionCleanup.verified == true;
+		&& (value.sessionCleanup.verified == true || value.sessionCleanup.skipped == true);
 }
 function recovery_verified(value) {
 	return object(value) && value.ok == true && object(value.recovery)

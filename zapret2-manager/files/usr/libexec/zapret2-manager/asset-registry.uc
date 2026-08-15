@@ -13,6 +13,8 @@ const EXT = { lua: 'lua', blob: 'bin', ipset: 'txt', hostlist: 'txt', geosite: '
 const TYPES = ['lua', 'blob', 'ipset', 'hostlist', 'geosite', 'geoip', 'hosts'];
 const LEGACY_ROOTS = { lua: ['/opt/zapret2/lua'], blob: ['/opt/zapret2/bin'], ipset: ['/opt/zapret2/ipset', '/etc/zapret2-manager/ipset'], hostlist: ['/opt/zapret2/ipset'], geosite: ['/opt/zapret2'], geoip: ['/opt/zapret2'], hosts: ['/opt/zapret2/ipset'] };
 const PROVENANCE = ['builtin/package', 'imported', 'user-created', 'generated', 'catalog/upstream'];
+const LEGACY_LUA_FILES = ['zapret-lib.lua', 'zapret-antidpi.lua', 'zapret-auto.lua',
+	'zapret-obfs.lua', 'zapret-pcap.lua', 'zapret-tests.lua'];
 
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
@@ -29,6 +31,29 @@ function shell_quote(value) { let out = "'", text = '' + value; for (let i = 0; 
 function command(command_text) { let p = popen(command_text + ' 2>&1', 'r'); if (!p) return { rc: -1, out: '' }; let out = p.read('all') || '', rc = p.close(); return { rc: rc, out: out }; }
 function regular(path) { let s = null, link = null; try { s = stat(path); link = readlink(path); } catch (e) { return false; } return object(s) && s.type == 'file' && link == null && type(s.size) == 'int' && s.size >= 0; }
 function directory(path) { let s = null, link = null; try { s = stat(path); link = readlink(path); } catch (e) { return false; } return object(s) && s.type == 'directory' && link == null; }
+function legacy_function_names(raw) {
+	let names = [], seen = {};
+	for (let line in split(raw || '', '\n')) {
+		line = trim(line);
+		if (substr(line, 0, 9) != 'function ') continue;
+		let name = trim(substr(line, 9)), end = index(name, '(');
+		if (end <= 0) continue;
+		name = trim(substr(name, 0, end));
+		if (match(name, /^[A-Za-z_][A-Za-z0-9_]*$/) != null && !seen[name]) { seen[name] = true; push(names, name); }
+	}
+	return names;
+}
+function add_legacy_environment(environment) {
+	environment.paths = { luaRoot: '/opt/zapret2/lua', blobRoot: '/opt/zapret2/bin',
+		listRoot: '/opt/zapret2/ipset', ipsetRoot: '/opt/zapret2/ipset' };
+	for (let filename in LEGACY_LUA_FILES) {
+		let path = environment.paths.luaRoot + '/' + filename;
+		if (!regular(path)) continue;
+		let descriptor = { path, available: true, present: true, safe: true, symlink: false };
+		environment.lua[filename] = descriptor;
+		for (let name in legacy_function_names(readfile(path))) environment.functions[name] = descriptor;
+	}
+}
 function link_target(path) { try { return readlink(path); } catch (e) { return null; } }
 function asset_parent_safe(kind) { let base = '/etc/zapret2-manager'; if (link_target(base) != null || (stat(base) != null && !directory(base))) return false; if (link_target(USER_ROOT) != null || (stat(USER_ROOT) != null && !directory(USER_ROOT))) return false; let typed = USER_ROOT + '/' + kind; return link_target(typed) == null && (stat(typed) == null || directory(typed)); }
 function under(path, root) { if (!string(path) || !string(root) || path == root || substr(path, 0, length(root) + 1) != root + '/') return false; let parts = split(substr(path, length(root) + 1), '/'); for (let i = 0; i < length(parts); i++) if (!length(parts[i]) || parts[i] == '.' || parts[i] == '..') return false; return true; }
@@ -133,9 +158,9 @@ export const asset_registry_validate = function(id) { let resolved = asset_regis
 // resolved paths produced here, never caller-supplied paths. Empty/unavailable
 // registry remains an empty compatibility environment for old catalog tests.
 export const asset_registry_environment = function() {
-	let listed = asset_registry_list(null), environment = {};
-	if (!listed.ok || length(listed.assets) == 0) return environment;
-	environment.assetRefs = {}; environment.lua = {}; environment.blobs = {}; environment.lists = {}; environment.functions = {};
+	let listed = asset_registry_list(null), environment = { assetRefs: {}, lua: {}, blobs: {}, lists: {}, functions: {} };
+	add_legacy_environment(environment);
+	if (!listed.ok) return {};
 	for (let i = 0; i < length(listed.assets); i++) {
 		let asset = listed.assets[i], descriptor = { id: asset.id, type: asset.type, path: asset.path,
 			available: regular(asset.path), revision: asset.revision, contentSha256: asset.contentSha256,

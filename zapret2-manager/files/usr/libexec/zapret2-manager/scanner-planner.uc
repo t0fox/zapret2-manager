@@ -11,6 +11,7 @@ import { strategy_candidate } from './strategy-compiler.uc';
 import { scanner_compiler_authority } from './scanner-compiler-authority.uc';
 import { scanner_generator_policy, scanner_generator_records } from './scanner-generator.uc';
 import { asset_registry_environment } from './asset-registry.uc';
+import { popen, writefile, unlink } from 'fs';
 
 const AUTHORITY_MARKER = 'z2m-scanner-authority.v1';
 const GENERATOR_MARKER = 'z2m-scanner-generator.v1';
@@ -310,9 +311,33 @@ function hex32(value) {
 	return text;
 }
 
-// Pure SHA-256 for the compiler dependency contract. Input is the authoritative
-// JSON serialization produced by this module; no filesystem or process access.
+// Pure SHA-256 fallback for the compiler dependency contract. Large authority
+// serializations use the target's bounded native sha256sum implementation so
+// Scanner planning does not spend minutes in the ucode interpreter on routers.
+function native_sha256_text(text) {
+	if (length(text) < 65536) return null;
+	let process = null, path = '', output = '', rc = -1;
+	try { process = popen('umask 077; mktemp /tmp/zapret2-manager/runtime/scanner-sha.XXXXXX 2>/dev/null', 'r'); }
+	catch (e) { process = null; }
+	if (!process) return null;
+	try { path = trim(process.read('all') || ''); } catch (e) { path = ''; }
+	try { rc = process.close(); } catch (e) { rc = -1; }
+	if (rc != 0 || !match(path, /^\/tmp\/zapret2-manager\/runtime\/scanner-sha\.[A-Za-z0-9_-]+$/)) return null;
+	let written = false;
+	try { writefile(path, text); written = true; } catch (e) { written = false; }
+	if (!written) { try { unlink(path); } catch (e) { } return null; }
+	try { process = popen('sha256sum ' + path + ' 2>/dev/null', 'r'); } catch (e) { process = null; }
+	if (!process) { try { unlink(path); } catch (e) { } return null; }
+	try { output = trim(process.read('all') || ''); } catch (e) { output = ''; }
+	try { rc = process.close(); } catch (e) { rc = -1; }
+	try { unlink(path); } catch (e) { }
+	let fields = split(output, /[ \t]+/);
+	return rc == 0 && length(fields) > 0 && match(fields[0], /^[0-9a-f]{64}$/) ? fields[0] : null;
+}
+
 function sha256_text(text) {
+	let native = native_sha256_text(text);
+	if (native != null) return native;
 	let bytes = [];
 	for (let i = 0; i < length(text); i++) {
 		let code = ord(substr(text, i, 1));
@@ -879,7 +904,8 @@ function scanner_plan_build_pure(request, catalogSnapshot, userStrategies, autho
 	for (let i = 0; i < length(generatedCandidates); i++) push(candidates, generatedCandidates[i]);
 	candidates = dedup_candidates(candidates);
 	let filtered = [];
-	for (let i = 0; i < length(candidates); i++) if (dpi_keep(candidates[i], value.dpi_type)) push(filtered, candidates[i]);
+	for (let i = 0; i < length(candidates); i++)
+		if (dpi_keep(candidates[i], value.dpi_type) && candidates[i].dependencyClosure?.available == true) push(filtered, candidates[i]);
 	for (let i = 0; i < length(filtered); i++) filtered[i].ordinal = i + 1;
 	return { ok: true, plan: {
 		schema: 1, request: copy(value), targetProfile: copy(profile),

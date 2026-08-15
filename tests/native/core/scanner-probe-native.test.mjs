@@ -19,7 +19,7 @@ function compile(output, input, definitions = []) {
   const jsonC = spawnSync('pkg-config', ['--cflags', '--libs', 'json-c'], { encoding: 'utf8' });
   assert.equal(jsonC.status, 0, jsonC.stderr);
   const result = spawnSync('cc', ['-std=c11', '-Wall', '-Wextra', '-Werror', '-D_GNU_SOURCE', '-I', source,
-    `-DZ2M_NCAT_PATH="${fake}"`, ...definitions, ...input, ...jsonC.stdout.trim().split(/\s+/), '-o', output], { encoding: 'utf8' });
+    `-DZ2M_NCAT_PATH="${fake}"`, `-DZ2M_CURL_PATH="${fake}"`, ...definitions, ...input, ...jsonC.stdout.trim().split(/\s+/), '-o', output], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
 }
 

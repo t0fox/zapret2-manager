@@ -144,10 +144,16 @@ static bool valid_hex(const char *value, size_t length)
 
 static bool valid_table_name(const char *value)
 {
-	return value && strlen(value) == 62U && strncmp(value, "z2m_sc_", 7) == 0 &&
-		value[15] == '_' && value[24] == '_' && value[29] == '_' &&
-		valid_hex(value + 7, 8) && valid_hex(value + 16, 8) &&
-		valid_hex(value + 25, 4) && valid_hex(value + 30, 32);
+	if (!value || strncmp(value, "z2m_sc_", 7) != 0) return false;
+	if (strlen(value) == 62U)
+		return value[15] == '_' && value[24] == '_' && value[29] == '_' &&
+			valid_hex(value + 7, 8) && valid_hex(value + 16, 8) &&
+			valid_hex(value + 25, 4) && valid_hex(value + 30, 32);
+	if (strlen(value) == 30U)
+		return value[12] == '_' && value[18] == '_' && value[23] == '_' &&
+			valid_hex(value + 7, 5) && valid_hex(value + 13, 5) &&
+			valid_hex(value + 19, 4) && valid_hex(value + 24, 6);
+	return false;
 }
 
 static bool valid_profile(const char *value)

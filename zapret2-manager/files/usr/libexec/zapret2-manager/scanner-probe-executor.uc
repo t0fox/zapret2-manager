@@ -97,6 +97,12 @@ function content_range_ok(value, expected) {
 	return bounds != null && parsed != null && +parsed[1] == bounds.start && +parsed[2] == bounds.end &&
 		(parsed[3] == '*' || +parsed[3] >= bounds.end + 1);
 }
+function content_range_valid(value, expected) {
+	if (!expected) return true;
+	let bounds = range_bounds(expected), parsed = match(value || '', /^bytes ([0-9]+)-([0-9]+)\/([0-9]+|\*)$/);
+	return bounds != null && parsed != null && +parsed[1] == bounds.start && +parsed[2] >= bounds.start &&
+		(parsed[3] == '*' || +parsed[3] >= +parsed[2] + 1);
+}
 
 export const scanner_probe_parse_http = function(raw, startedAt, finishedAt, settings) {
 	if (!string(raw) || !length(raw) || type(startedAt) != 'int' || type(finishedAt) != 'int' || finishedAt < startedAt) return indeterminate('HTTP response is unavailable.', { stage: 'parse' });
@@ -126,10 +132,11 @@ export const scanner_probe_parse_http = function(raw, startedAt, finishedAt, set
 		body = substr(raw, bodyStart, wanted < limit ? wanted : limit); capped = wanted > limit || length(body) >= limit; complete = declared == null || available >= declared || capped;
 	}
 	let elapsed = finishedAt - startedAt, range = expected_range(settings), markers = marker_evidence(body, settings);
-	if (range && (!headers['content-range'] || !content_range_ok(headers['content-range'], range))) return indeterminate('HTTP Content-Range is not the requested canonical range.', { stage: 'parse' });
+	if (range && (!headers['content-range'] || !content_range_valid(headers['content-range'], range))) return indeterminate('HTTP Content-Range is not a valid response range.', { stage: 'parse' });
+	let range_satisfied = !range || content_range_ok(headers['content-range'], range);
 	return { ok: true, observation: { statusCode: status, bytesReceived: length(body), body, responseBytes: length(raw), latencyMs: elapsed, startedAt, finishedAt,
 		kbps: elapsed > 0 ? round_one((length(body) * 8.0) / elapsed) : 0, complete, truncated: !complete, capped, range,
-		rangeSatisfied: !range || (headers['content-range'] != null && content_range_ok(headers['content-range'], range)), contentLength: decimal(headers['content-length']),
+		rangeSatisfied: range_satisfied, contentLength: decimal(headers['content-length']),
 		transferEncoding: headers['transfer-encoding'] || null, marker: length(markers) ? markers[0].name : '', markerEvidence: markers, tlsStatus: 'success' } };
 };
 

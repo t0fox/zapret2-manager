@@ -7,7 +7,13 @@
 
 int main(int argc, char **argv)
 {
-	const char *host = argc > 2 ? argv[argc - 2] : "";
+	const char *host = "";
+	for (int i = 1; i < argc; i++) {
+		if (strstr(argv[i], "sleep") || strstr(argv[i], "fail") || strstr(argv[i], "stun") || strstr(argv[i], "example.com")) {
+			host = argv[i];
+			break;
+		}
+	}
 	const char *mode = strstr(host, "sleep") ? "sleep" : (strstr(host, "fail") ? "fail" : (strstr(host, "stun") ? "stun" : "http"));
 	{
 		FILE *file = fopen("/tmp/z2m-scanner-probe-argv.log", "a");

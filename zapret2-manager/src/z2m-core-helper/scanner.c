@@ -14,6 +14,9 @@
 #ifndef Z2M_NCAT_PATH
 #define Z2M_NCAT_PATH "/usr/bin/ncat"
 #endif
+#ifndef Z2M_CURL_PATH
+#define Z2M_CURL_PATH "/usr/bin/curl"
+#endif
 
 #define ADAPTER_DIGEST "7cd367ef2aed1be2567505bf978b2d2b73f97ff149cc48d64826ed4f2b8c885e"
 #define BODY_OUTPUT_LIMIT 131072U
@@ -58,9 +61,12 @@ static bool path_value(const char *url, const char *host, const char **path);
 
 static bool profile_digest_matches(json_object *profile, const char *expected)
 {
-	const char *serialized = json_object_to_json_string_ext(profile, JSON_C_TO_STRING_PLAIN | JSON_C_TO_STRING_NOSLASHESCAPE);
 	char digest[65];
-	return serialized != NULL && z2m_sha256_bytes_hex((const unsigned char *)serialized, strlen(serialized), digest) == 0 && !strcmp(digest, expected);
+	const char *serialized = json_object_to_json_string_ext(profile, JSON_C_TO_STRING_PLAIN | JSON_C_TO_STRING_NOSLASHESCAPE);
+	if (serialized != NULL && z2m_sha256_bytes_hex((const unsigned char *)serialized, strlen(serialized), digest) == 0 && !strcmp(digest, expected)) return true;
+	serialized = json_object_to_json_string_ext(profile, JSON_C_TO_STRING_SPACED | JSON_C_TO_STRING_NOSLASHESCAPE);
+	if (serialized != NULL && z2m_sha256_bytes_hex((const unsigned char *)serialized, strlen(serialized), digest) == 0 && !strcmp(digest, expected)) return true;
+	return false;
 }
 
 static bool allowed_keys(json_object *object, const char *const *allowed, size_t count)
@@ -321,7 +327,7 @@ static int64_t wall_ms(void)
 	return (int64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
 }
 
-static int run_fixed(char *const argv[], const unsigned char *input, size_t input_length,
+static int run_fixed(const char *executable, char *const argv[], const unsigned char *input, size_t input_length,
 		unsigned int timeout_ms, int64_t absolute_deadline_ms, unsigned int output_limit, unsigned char **output, size_t *output_length,
 		int *exit_code, int *signal_number, bool *overflow, int64_t *started_at, int64_t *finished_at,
 		const char *cancel_token, bool *cancelled)
@@ -340,7 +346,7 @@ static int run_fixed(char *const argv[], const unsigned char *input, size_t inpu
 		if (setpgid(0, 0) < 0) _exit(126);
 		dup2(in[0], STDIN_FILENO); dup2(out[1], STDOUT_FILENO); if (nullfd >= 0) dup2(nullfd, STDERR_FILENO);
 		close(in[0]); close(in[1]); close(out[0]); close(out[1]); if (nullfd >= 0) close(nullfd);
-		execve(Z2M_NCAT_PATH, argv, (char *const[]){ "PATH=/usr/sbin:/usr/bin:/sbin:/bin", "LANG=C", NULL });
+		execve(executable, argv, (char *const[]){ "PATH=/usr/sbin:/usr/bin:/sbin:/bin", "LANG=C", NULL });
 		_exit(127);
 	}
 	close(in[0]); close(out[1]);
@@ -405,7 +411,7 @@ int z2m_scanner_probe(const struct z2m_request *request)
 	json_object *args = request->arguments, *profile, *probe, *body = NULL, *value = NULL;
 	const char *authority, *adapter_digest, *profile_digest_value, *transport, *host, *family = NULL, *url = NULL, *path = NULL;
 	int64_t timeout, deadline_ms, port = 0, configured_limit = 0; unsigned int output_limit; unsigned char *input = NULL, *output = NULL; size_t input_length = 0, output_length = 0;
-	int exit_code, signal_number; bool overflow = false; char *encoded; int64_t started_at, finished_at;
+	int exit_code, signal_number; bool overflow = false; char *encoded; int64_t started_at = 0, finished_at = 0;
 	if (!string_value(args, "authority", &authority) || strcmp(authority, "scanner-probe-adapter.v1") ||
 		!string_value(args, "adapterDigest", &adapter_digest) || strcmp(adapter_digest, ADAPTER_DIGEST) ||
 		!string_value(args, "targetProfileDigest", &profile_digest_value) || !digest_value(profile_digest_value) ||
@@ -455,17 +461,28 @@ int z2m_scanner_probe(const struct z2m_request *request)
 		input[0]=0; input[1]=1; input[2]=0; input[3]=0; input[4]=0x21; input[5]=0x12; input[6]=0xa4; input[7]=0x42; for (size_t i=0;i<12;i++) input[8+i]=(unsigned char)(i+1); input_length=20; output_limit=STUN_OUTPUT_LIMIT;
 	} else return z2m_fail(request->request_id, "ESCHEMA", "canonical_validate");
 	char port_text[24], timeout_text[24]; snprintf(port_text,sizeof(port_text),"%lld",(long long)port); snprintf(timeout_text,sizeof(timeout_text),"%lld",(long long)((timeout+999)/1000));
-	char *argv[10]; size_t argc=0; argv[argc++]=(char *)Z2M_NCAT_PATH;
-	if (!strcmp(transport,"tls") || !strcmp(transport,"tls+body")) { argv[argc++]="--ssl"; argv[argc++]=(char *)(!strcmp(family,"ipv6") ? "-6" : "-4"); }
-	else { argv[argc++]="-u"; argv[argc++]="-4"; }
-	argv[argc++]="-w"; argv[argc++]=timeout_text; argv[argc++]=(char *)host; argv[argc++]=port_text; argv[argc]=NULL;
+	char curl_url[4352]; const char *executable = Z2M_NCAT_PATH; char *argv[20]; size_t argc=0;
+	if (!strcmp(transport,"tls") || !strcmp(transport,"tls+body")) {
+		const char *request_path = path != NULL ? path : "/";
+		int written = snprintf(curl_url, sizeof(curl_url), "https://%s:%s%s", host, port_text, request_path);
+		if (written < 0 || (size_t)written >= sizeof(curl_url)) { free(input); return z2m_fail(request->request_id, "ESCHEMA", "canonical_validate"); }
+		executable = Z2M_CURL_PATH;
+		argv[argc++]=(char *)Z2M_CURL_PATH; argv[argc++]="--silent"; argv[argc++]="--show-error"; argv[argc++]="--insecure"; argv[argc++]="--raw";
+		argv[argc++]="--include"; argv[argc++]="--http1.0"; argv[argc++]=(char *)(!strcmp(family,"ipv6") ? "-6" : "-4");
+		argv[argc++]="--connect-timeout"; argv[argc++]=timeout_text; argv[argc++]="--max-time"; argv[argc++]=timeout_text;
+		if (!strcmp(transport,"tls+body")) { argv[argc++]="--range"; argv[argc++]="0-69632"; }
+		argv[argc++]="--url"; argv[argc++]=curl_url; argv[argc]=NULL;
+	} else {
+		argv[argc++]=(char *)Z2M_NCAT_PATH; argv[argc++]="-u"; argv[argc++]="-4"; argv[argc++]="-w"; argv[argc++]=timeout_text;
+		argv[argc++]=(char *)host; argv[argc++]=port_text; argv[argc]=NULL;
+	}
 	const char *cancel_token = NULL; json_object *cancel_value = NULL;
 	if (json_object_object_get_ex(probe, "cancelToken", &cancel_value)) {
 		if (!json_object_is_type(cancel_value, json_type_string) || !cancel_token_value(json_object_get_string(cancel_value))) return z2m_fail(request->request_id, "ESCHEMA", "canonical_validate");
 		cancel_token = json_object_get_string(cancel_value);
 	}
 	bool cancelled = false;
-	int result = run_fixed(argv,input,input_length,(unsigned int)timeout,deadline_ms,output_limit,&output,&output_length,&exit_code,&signal_number,&overflow,&started_at,&finished_at,cancel_token,&cancelled); free(input);
+	int result = run_fixed(executable,argv,input,input_length,(unsigned int)timeout,deadline_ms,output_limit,&output,&output_length,&exit_code,&signal_number,&overflow,&started_at,&finished_at,cancel_token,&cancelled); free(input);
 	if (result < 0) return z2m_fail(request->request_id, "EINTERNAL", "internal");
 	encoded=z2m_base64(output,output_length); free(output); if (!encoded) return z2m_fail(request->request_id,"EINTERNAL","response_encode");
 	json_object *data=z2m_json_object(); bool ok=data && z2m_json_add(data,"content",z2m_json_string(encoded)) && z2m_json_add(data,"byteLength",z2m_json_int((int64_t)output_length)) && z2m_json_add(data,"exitCode",z2m_json_int(exit_code)) && z2m_json_add(data,"signal",z2m_json_int(signal_number)) && z2m_json_add(data,"startedAt",z2m_json_int(started_at)) && z2m_json_add(data,"finishedAt",z2m_json_int(finished_at)) && z2m_json_add(data,"complete",z2m_json_bool(!overflow)) && z2m_json_add(data,"cancelled",z2m_json_bool(cancelled)); free(encoded);

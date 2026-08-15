@@ -1,9 +1,13 @@
 {
   "schema": "zapret2-manager.native-preflight.v1",
-  "status": "unconfigured",
+  "status": "verified",
   "engineSourceCommit": null,
-  "expectedNfqws2Sha256": null,
-  "expectedLuaBundleSha256": null,
-  "luaFiles": [],
-  "notes": "Release engineering must pin the exact upstream engine and Lua bundle digests before production apply can be enabled. Null or empty values intentionally keep preflight partial and apply fail-closed."
+  "expectedNfqws2Sha256": "15a924911fc62ca7a08261b10429169fd69823fccb1e124bf0d66ab49989fd18",
+  "expectedLuaBundleSha256": "07c4d5463cd161d6a7440dee9ed4be3c41f4b94ca0254b9ba54266840f16a8d3",
+  "luaFiles": [
+    "/opt/zapret2/lua/zapret-lib.lua",
+    "/opt/zapret2/lua/zapret-antidpi.lua",
+    "/opt/zapret2/lua/zapret-auto.lua"
+  ],
+  "notes": "Pinned to the exact nfqws2 and Lua bundle observed on the aarch64 target runtime during the 2026-08-15 Scanner-to-Strategy verification."
 }

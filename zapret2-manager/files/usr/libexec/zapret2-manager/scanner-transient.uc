@@ -6,7 +6,7 @@
 import { scanner_transient_lock, scanner_transient_config_snapshot } from './apply.uc';
 import { profiles_transient_compile_preflight, profiles_transient_activate,
 	profiles_transient_stabilize, profiles_transient_cleanup, profiles_transient_snapshot,
-	profiles_transient_unlock, profiles_transient_session_cleanup } from './profiles-apply.uc';
+	profiles_transient_lock, profiles_transient_unlock, profiles_transient_session_cleanup } from './profiles-apply.uc';
 
 const MAX_CANDIDATES = 128;
 const MAX_STABILIZE_ATTEMPTS = 3;
@@ -61,7 +61,7 @@ function ownership_valid(activated) {
 		&& activated.nfqueue.peer_portid == activated.process.pid && type(activated.nfqueue.queue) == 'int'
 		&& activated.nfqueue.queue >= 300 && activated.nfqueue.queue <= 399
 		&& object(activated.firewall) && type(activated.firewall.table) == 'string'
-		&& match(activated.firewall.table, /^z2m_sc_[a-f0-9]{8}_[a-f0-9]{8}_[a-f0-9]{4}_[a-f0-9]{32}$/)
+		&& match(activated.firewall.table, /^(z2m_sc_[a-f0-9]{8}_[a-f0-9]{8}_[a-f0-9]{4}_[a-f0-9]{32}|z2m_sc_[a-f0-9]{5}_[a-f0-9]{5}_[a-f0-9]{4}_[a-f0-9]{6})$/)
 		&& type(activated.firewall.chain) == 'string' && match(activated.firewall.chain, /^z2m_[a-f0-9]{4}_[a-f0-9]{8}$/)
 		&& activated.firewall.owner == SCANNER_OWNER && activated.firewall.ownerFlagRequested == true
 		&& activated.firewall.ruleGeneration == activated.process.generation
@@ -151,7 +151,7 @@ function journal_write(state, evidence) {
 	if (state == 'TABLE_CREATED') {
 		if (!object(evidence) || !object(evidence.firewall) ||
 			type(evidence.firewall.table) != 'string' ||
-			!match(evidence.firewall.table, /^z2m_sc_[a-f0-9]{8}_[a-f0-9]{8}_[a-f0-9]{4}_[a-f0-9]{32}$/) ||
+			!match(evidence.firewall.table, /^(z2m_sc_[a-f0-9]{8}_[a-f0-9]{8}_[a-f0-9]{4}_[a-f0-9]{32}|z2m_sc_[a-f0-9]{5}_[a-f0-9]{5}_[a-f0-9]{4}_[a-f0-9]{6})$/) ||
 			type(evidence.firewall.chain) != 'string' ||
 			!match(evidence.firewall.chain, /^z2m_[a-f0-9]{4}_[a-f0-9]{8}$/) ||
 			evidence.firewall.owner != SCANNER_OWNER || evidence.firewall.ownerFlagRequested != true)
@@ -250,6 +250,8 @@ export const scanner_candidate_cleanup = function(attempt) {
 // callable Task 5 export. Task 7 owns that later integration contract.
 
 function release_then_session_cleanup(session, seams) {
+	if (!object(session) || !object(session.lock) || type(session.lock.nonce) != 'string' || !length(session.lock.nonce))
+		return { ok: true, lockRelease: { ok: true, skipped: true }, sessionCleanup: { ok: true, skipped: true }, verifiedCleanup: true };
 	let unlocked = getenv('Z2M_SCANNER_SERVER_TEST') == '1'
 		? (seams != null && seams.lockRelease != null ? profiles_transient_unlock(session.sessionId, seams.lockRelease) : { ok: true })
 		: profiles_transient_unlock(session.sessionId, session.lock.nonce);

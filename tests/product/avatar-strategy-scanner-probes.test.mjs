@@ -86,7 +86,7 @@ test('baseline-open suppression clears otherwise successful candidate evidence',
   });
   assert.deepEqual(call('scanner_candidate_verdict', baseline, [probe]), {
     verdict: 'failed', reason: 'BASELINE_OPEN', success: false,
-    evidence: { infrastructure: false, baselineSuppressed: true, failureClass: 'baseline_open' },
+    evidence: { infrastructure: false, baselineSuppressed: true, failureClass: 'baseline_open', metrics: { averageKbps: 1000, averageLatencyMs: 100, successRate: 1, perProbe: [{ host: 'example.com', addressFamily: 'ipv4', tls: { status: 'success', success: true, error: null, latencyMs: 30, readBytes: 2048, readLimitBytes: 2048 }, body: { status: 'success', success: true, error: null, statusCode: 200, bytesReceived: 65536, kbps: 1000, latencyMs: 100, marker: '', markerEvidence: [], range: 'bytes=0-69632', rangeSatisfied: true, complete: true, minimumBytes: 65536 } }] } },
   });
 });
 
@@ -392,6 +392,17 @@ test('valid typed body failure evidence remains candidate failure after validati
       markerEvidence: [{ name: 'isp_page', needle: 'blocked' }], rangeSatisfied: true, complete: true } }] });
   assert.equal(failure.infrastructureFailure, false, JSON.stringify(failure));
   assert.equal(failure.success, false);
+  assert.equal(call('scanner_candidate_verdict', baseline, [failure]).verdict, 'failed');
+  assert.equal(call('scanner_candidate_verdict', baseline, [failure]).evidence.infrastructure, false);
+});
+
+test('a valid short Content-Range remains candidate failure evidence', () => {
+  const baseline = call('scanner_baseline_classify', tcpBaseline({ error: 'TIMEOUT' }));
+  const failure = call('scanner_tcp_classify', { hosts: [{ host: 'example.com', addressFamily: 'ipv4',
+    tls: { status: 'success', readBytes: 2048, latencyMs: 20 },
+    body: { statusCode: 206, bytesReceived: 19137, latencyMs: 20, rangeSatisfied: false, complete: true } }] });
+  assert.equal(failure.infrastructureFailure, false, JSON.stringify(failure));
+  assert.equal(failure.error, 'TCP_16_20');
   assert.equal(call('scanner_candidate_verdict', baseline, [failure]).verdict, 'failed');
   assert.equal(call('scanner_candidate_verdict', baseline, [failure]).evidence.infrastructure, false);
 });

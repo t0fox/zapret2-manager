@@ -275,7 +275,11 @@ function locked(operation, applyNonce) {
 	if (getenv('Z2M_STRATEGY_LOCKED') == '1') return operation();
 	if (!acquire_lock()) return error('ELOCKED', 'Strategy storage is locked.');
 	let result;
-	try { result = operation(); } catch (e) { result = error('EINTERNAL', 'Strategy storage operation failed.'); }
+	try { result = operation(); } catch (e) {
+		let cause = type(e) == 'string' ? e
+			: (type(e) == 'object' && e != null && e.message != null ? '' + e.message : 'uncaught storage operation exception');
+		result = error('EINTERNAL', 'Strategy storage operation failed.', { cause: substr(cause, 0, 160) });
+	}
 	release_lock();
 	return result;
 }
@@ -793,6 +797,16 @@ function selection_copy(value) {
 	};
 }
 
+function apply_uncertain_identity(value) {
+	return value == null || selected_valid(value);
+}
+
+function same_selection(left, right) {
+	if (left == null || right == null) return left == right;
+	return left.id == right.id && left.origin == right.origin
+		&& left.revision == right.revision && left.candidateSha256 == right.candidateSha256;
+}
+
 // Apply commits only the narrow selected identity projection. Config bytes
 // remain owned by profiles-apply.uc and are never written here.
 export const strategy_selection_apply = function(input) {
@@ -842,10 +856,6 @@ export const strategy_identity_outcome = function(input) {
 	if (input.identityOk == true) return { ok: true, state: 'verified' };
 	return { ok: false, state: 'rollback' };
 };
-
-function apply_uncertain_identity(value) {
-	return value == null || selected_valid(value);
-}
 
 function runtime_checks_shape(value) {
 	return is_object(value) && exact_fields(value, ['processPresent', 'singleInstance', 'rulesPresent', 'queueRegistered', 'ownerMatch'])
@@ -943,12 +953,6 @@ export const strategy_apply_uncertain_clear = function() {
 		return { ok: true, cleared: true };
 	});
 };
-
-function same_selection(left, right) {
-	if (left == null || right == null) return left == right;
-	return left.id == right.id && left.origin == right.origin
-		&& left.revision == right.revision && left.candidateSha256 == right.candidateSha256;
-}
 
 function selection_authoritative(value) {
 	if (!selected_valid(value)) return false;

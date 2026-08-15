@@ -30,7 +30,7 @@ const REQUIRED_FEED_LINKS = new Map([
 ]);
 const PACKAGE_DEPENDENCIES = [
   'ucode', 'ucode-mod-fs', 'ucode-mod-io', 'ucode-mod-socket', 'ucode-mod-uloop',
-  'ncat', 'flock', 'uclient-fetch', 'ca-bundle', 'unzip', 'jsonfilter', 'libjson-c',
+  'ncat', 'curl', 'flock', 'uclient-fetch', 'ca-bundle', 'unzip', 'jsonfilter', 'libjson-c',
 ];
 const SOCKET = 'tmp/zapret2-manager/runtime/z2m-helperd.sock';
 const CURL_CONFIG_SHA256 = '24a339331d64510a797fde4e6c0b31e36c247525d0e57cb2530d752161a5ace6';

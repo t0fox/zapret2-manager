@@ -891,8 +891,9 @@ function scanner_edit_action(sub, req) {
 		scanner_cleanup_request(tmp);
 		return { ok: false, error: { code: 'EINPUT', message: 'request temp file failed the private-file invariant' } };
 	}
-	let command = shell_escape(SCANNER_UCODE_BIN) + ' ' + shell_escape(SCANNER_CLI)
-		+ ' ' + shell_escape(sub) + ' ' + shell_escape(tmp);
+	let expression = 'import { scanner_cli_request } from ' + sprintf('%J', SCANNER_CLI)
+		+ '; print(sprintf("%J", scanner_cli_request(' + sprintf('%J', sub) + ', ' + sprintf('%J', tmp) + ')));';
+	let command = shell_escape(SCANNER_UCODE_BIN) + ' -e ' + shell_escape(expression);
 	let wrapped = '(' + command + '; rc=$?; printf ' + shell_escape('\n' + SCANNER_CHILD_RESPONSE_MARKER + '%s\n')
 		+ ' "$rc") 2>&1 | head -c ' + (SCANNER_MAX_CHILD_RESPONSE_BYTES + 128);
 	let p = null, output = '', readOk = true, streamRc = -1;

@@ -316,9 +316,10 @@ function add_dependency(dependencies, kind, reference, available, reason) {
 	let key = kind + ':' + reference;
 	for (let i = 0; i < length(dependencies.items); i++)
 		if (dependencies.items[i].key == key) return;
-	let item = { key: key, kind: kind, id: reference, reference: reference, available: available == true };
+	let item = { key: key, kind: kind, id: reference, reference: reference,
+		available: available == true, reason: available == true ? ''
+			: (reason != null ? reason : 'dependency is unavailable') };
 	if (!item.available) {
-		item.reason = reason != null ? reason : 'dependency is unavailable';
 		push(dependencies.missing, item);
 	}
 	push(dependencies.items, item);

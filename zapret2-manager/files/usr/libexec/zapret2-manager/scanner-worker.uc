@@ -21,6 +21,13 @@ function copy(value) {
 	if (object(value)) { let out = {}; for (let key in value) out[key] = copy(value[key]); return out; }
 	return value;
 }
+function session_nonce(session) {
+	if (object(session) && object(session.lock) && type(session.lock.nonce) == 'string'
+		&& match(session.lock.nonce, /^[a-f0-9]{32,128}$/)) return session.lock.nonce;
+	let out = '';
+	for (let i = 0; i < 64; i++) out += '0';
+	return out;
+}
 function error(code, message, extra) { let out = { ok: false, error: { code, message } }; for (let key in extra || {}) out[key] = extra[key]; return out; }
 function task7_dependency(stage, exception) {
 	return { ok: false, error: { code: 'EDEPENDENCY', message: 'Task 7 reconciliation evidence is required.', stage,
@@ -309,14 +316,21 @@ scanner_worker_run_impl = function(input, seams) {
 	for (let i = start; i < length(plan.candidates) && i < MAX_RESULTS; i++) {
 		if (!budget(probeStarted)) { record.error = 'Scanner probe deadline exceeded.'; record.recovery = { state: 'uncertain' }; return finish(record, session, seams, 'error', record.error); }
 		if (control(seams, record.id, i).stopRequested) { record.cancellationRequested = true; phase(record, 'cancelling', null); checkpoint(record, 'cancel'); return finish(record, session, seams, 'cancelled', null); }
-		let candidate = plan.candidates[i]; phase(record, 'executing', candidate.scannerId); checkpoint(record, 'candidate-start');
-		let activated = scanner_candidate_activate(candidate, transient);
+		let candidate = plan.candidates[i];
+		let runtimeCandidate = copy(candidate);
+		runtimeCandidate.sessionId = session.sessionId;
+		runtimeCandidate.generation = session.generation;
+		runtimeCandidate.argvNonce = session_nonce(session);
+		let probeCandidate = { scannerId: candidate.scannerId, protocol: candidate.protocol,
+			compiledDigest: candidate.compiledDigest, dependencyDigest: candidate.dependencyDigest };
+		phase(record, 'executing', candidate.scannerId); checkpoint(record, 'candidate-start');
+		let activated = scanner_candidate_activate(runtimeCandidate, transient);
 		if (!activated.ok) { record.counts.infrastructure++; record.error = activated.error?.message || 'Candidate activation failed.'; record.recovery = { state: cleanup_verified(activated.cleanup) ? 'verified' : 'uncertain', evidence: activated.cleanup || activated.error }; return finish(record, session, seams, 'error', record.error); }
 		activated.attempt.seams = transient;
 		lifecycle.attempt = activated.attempt;
 		if (seams?.throwAfterActivation === true) { let failure = null; failure(); }
 		phase(record, 'probing', candidate.scannerId); checkpoint(record, 'probing');
-		let verdict = probe_candidate(candidate, plan, baseline, seams, probeDeadline);
+		let verdict = probe_candidate(probeCandidate, plan, baseline, seams, probeDeadline);
 		if (verdict.ok === false) { record.counts.infrastructure++; record.error = verdict.error?.code || 'EDEPENDENCY'; record.recovery = { state: 'verified', failure: verdict.error }; return finish(record, session, seams, 'error', record.error); }
 		record.heartbeatAt = time(); checkpoint(record, 'probe');
 		let cleaned = scanner_candidate_cleanup(activated.attempt);

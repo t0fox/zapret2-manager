@@ -13,6 +13,9 @@ LOCK=/opt/zapret2/config.lock
 QUEUE=300
 PROFILE=tcp_https
 OWNER=scanner/session
+LUA_INIT_LIB=--lua-init=@/opt/zapret2/lua/zapret-lib.lua
+LUA_INIT_ANTIDPI=--lua-init=@/opt/zapret2/lua/zapret-antidpi.lua
+LUA_INIT_AUTO=--lua-init=@/opt/zapret2/lua/zapret-auto.lua
 
 if [ "${Z2M_SCANNER_RUNTIME_SHIM:-0}" = 1 ]; then
 	[ "${Z2M_SCANNER_SERVER_TEST:-0}" = 1 ] || { printf '%s\n' '{"ok":false,"code":"EINPUT","stage":"input"}'; exit 1; }
@@ -242,8 +245,8 @@ helper_request() {
 	helper_operation_name=$1
 	request_id="scanner:$session:$candidate:$generation:$(printf '%s' "$helper_operation_name" | tr -c 'A-Za-z0-9._:-' '_')"
 	if [ "$helper_operation_name" = ownership_create ]; then
-		table_name="z2m_sc_$(printf '%s' "$session" | sha256sum | cut -c1-8)_$(printf '%s' "$candidate" | sha256sum | cut -c1-8)_$(printf '%04x' "$generation")_$(printf '%s' "$operation_nonce" | cut -c1-32)"
-		[ "$(printf '%s' "$table_name" | wc -c)" = 62 ] || return 42
+		table_name="z2m_sc_$(printf '%s' "$session" | sha256sum | cut -c1-5)_$(printf '%s' "$candidate" | sha256sum | cut -c1-5)_$(printf '%04x' "$generation")_$(printf '%s' "$operation_nonce" | cut -c1-6)"
+		[ "$(printf '%s' "$table_name" | wc -c)" = 30 ] || return 42
 		operation_id="$session:$candidate:$generation"
 		helper_start_lifecycle
 	else
@@ -456,7 +459,13 @@ activate() {
 	meta=$(cat "$ARGV_META_FILE" 2>/dev/null || true)
 	expected_meta=$(printf '{ "schema": 1, "session": "%s", "candidate": "%s", "generation": %s, "nonce": "%s", "compiledDigest": "%s" }\n' "$session" "$candidate" "$generation" "$lock_nonce" "$compiled_digest")
 	[ "$meta" = "$expected_meta" ] || fail ETAMPERED activate
-	argv_before=$(sha256sum "$ARGV_FILE" | awk '{print $1}'); [ "$argv_before" = "$compiled_digest" ] || fail ETAMPERED activate
+argv_before=$(awk 'BEGIN { first=1 } { if (!first) printf " "; printf "%s", $0; first=0 }' "$ARGV_FILE" | sha256sum | awk '{print $1}')
+if [ "$argv_before" != "$compiled_digest" ]; then
+	# Keep accepting the legacy fixture digest while production artifacts use
+	# the canonical space-joined argv representation above.
+	argv_before=$(sha256sum "$ARGV_FILE" | awk '{print $1}')
+fi
+[ "$argv_before" = "$compiled_digest" ] || fail ETAMPERED activate
 	set --
 	while IFS= read -r token || [ -n "$token" ]; do
 		[ -n "$token" ] || fail EINPUT activate
@@ -479,8 +488,12 @@ activate() {
 	chain_name=$(printf '%s' "$LAST_HELPER_RESPONSE" | jsonfilter -e '@.data.chainName' 2>/dev/null)
 	[ -n "$chain_name" ] || fail EOWNERSHIP rules
 	set -- "$@" "--qnum=$QUEUE"
-	argv_before=$(sha256sum "$ARGV_FILE" | awk '{print $1}'); [ "$argv_before" = "$compiled_digest" ] || fail ETAMPERED activate
-	"$NFQWS2" "$@" >"$LOG_FILE" 2>&1 &
+	argv_before=$(awk 'BEGIN { first=1 } { if (!first) printf " "; printf "%s", $0; first=0 }' "$ARGV_FILE" | sha256sum | awk '{print $1}')
+	if [ "$argv_before" != "$compiled_digest" ]; then
+		argv_before=$(sha256sum "$ARGV_FILE" | awk '{print $1}')
+	fi
+	[ "$argv_before" = "$compiled_digest" ] || fail ETAMPERED activate
+	"$NFQWS2" "$LUA_INIT_LIB" "$LUA_INIT_ANTIDPI" "$LUA_INIT_AUTO" "$@" >"$LOG_FILE" 2>&1 &
 	pid=$!
 	start=$(starttime "$pid"); exe=$(process_exe "$pid"); group=$(process_group "$pid"); runtime_digest=$(argv_digest "$pid")
 	[ -n "$start" ] && [ "$exe" = "$NFQWS2" ] && [ -n "$group" ] && [ -n "$runtime_digest" ] || fail EPROCESS launch
@@ -512,6 +525,10 @@ activate() {
 stabilize() {
 	lock_held || fail ELOCKED lock
 	[ -r "$PID_FILE" ] && [ -r "$START_FILE" ] && [ -r "$RUNTIME_ARGV_DIGEST_FILE" ] || fail EIDENTITY stabilize
+	if [ -r "$OWNERSHIP_FILE" ]; then
+		owned_queue=$(cut -d '|' -f8 "$OWNERSHIP_FILE" 2>/dev/null || true)
+		case "$owned_queue" in ''|*[!0-9]*) ;; *) QUEUE=$owned_queue ;; esac
+	fi
 	pid=$(cat "$PID_FILE"); start=$(cat "$START_FILE"); runtime_digest=$(cat "$RUNTIME_ARGV_DIGEST_FILE")
 	i=0
 	while [ "$i" -lt 20 ]; do

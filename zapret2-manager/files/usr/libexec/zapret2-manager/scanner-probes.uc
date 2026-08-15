@@ -321,8 +321,9 @@ function valid_tcp_test(evidence) {
 				!valid_nonnegative_number(host.body.bytesReceived) ||
 				!valid_nonnegative_number(host.body.kbps) ||
 				!valid_nonnegative_number(host.body.latencyMs) ||
-				host.body.range != 'bytes=0-69632' || host.body.minimumBytes != BODY_MINIMUM ||
-				host.body.rangeSatisfied !== true || host.body.complete !== true || type(host.body.markerEvidence) != 'array') return false;
+				 host.body.range != 'bytes=0-69632' || host.body.minimumBytes != BODY_MINIMUM ||
+				 type(host.body.rangeSatisfied) != 'bool' || (host.body.success === true && host.body.rangeSatisfied !== true) ||
+				 host.body.complete !== true || type(host.body.markerEvidence) != 'array') return false;
 		}
 		else if (host.body != null) return false;
 	}
@@ -369,7 +370,7 @@ export const scanner_candidate_verdict = function(baseline, tests) {
 				failureClass: evidence.failureClass || 'probe_dependency_failure' } };
 	if (baseline.allAvailableOpen === true)
 		return { verdict: 'failed', reason: 'BASELINE_OPEN', success: false,
-			evidence: { infrastructure: false, baselineSuppressed: true, failureClass: 'baseline_open' } };
+			evidence: { infrastructure: false, baselineSuppressed: true, failureClass: 'baseline_open', metrics: verdict_metrics(tests) } };
 	for (let evidence in tests) if (evidence?.success === true)
 		return { verdict: 'working', reason: null, success: true, score: verdict_score(tests),
 			evidence: { infrastructure: false, baselineSuppressed: false, failureClass: null, metrics: verdict_metrics(tests) } };

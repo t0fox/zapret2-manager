@@ -68,7 +68,13 @@ function lua_bundle_digest(files) {
 
 function command_for(candidate, mode) {
 	let tokens = z2m_tokenize(candidate).tokens;
-	let cmd = shell_escape(NFQWS2_BIN) + ' ' + mode + ' --qnum=30999';
+	// A Lua desync option is resolved only for an active profile.  Keep this
+	// probe self-contained and harmless: port 443 is a throwaway filter and
+	// --intercept=0 exits before binding or intercepting traffic.
+	let cmd = shell_escape(NFQWS2_BIN) + ' ' + mode + ' --qnum=30999 --filter-tcp=443'
+		+ ' --lua-init=@/opt/zapret2/lua/zapret-lib.lua'
+		+ ' --lua-init=@/opt/zapret2/lua/zapret-antidpi.lua'
+		+ ' --lua-init=@/opt/zapret2/lua/zapret-auto.lua';
 	for (let i = 0; i < length(tokens); i++) cmd += ' ' + shell_escape(tokens[i].value);
 	return cmd;
 }
