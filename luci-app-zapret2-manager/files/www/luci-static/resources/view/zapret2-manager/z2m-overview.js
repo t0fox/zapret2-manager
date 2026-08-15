@@ -57,16 +57,12 @@ function load(ctx) {
   return Promise.allSettled([
     ctx.api.service.status(),
     ctx.api.strategy.preview(),
-    ctx.api.orchestra.runHistory(),
-    ctx.api.orchestra.status(),
     edit(ctx.api.monitor.eventsTail, { limit: 100 })
   ]).then(function (results) {
     return {
       status: settled(results[0], ctx.api),
       preview: settled(results[1], ctx.api),
-      history: settled(results[2], ctx.api),
-      orchestra: settled(results[3], ctx.api),
-      events: settled(results[4], ctx.api)
+      events: settled(results[2], ctx.api)
     };
   });
 }
