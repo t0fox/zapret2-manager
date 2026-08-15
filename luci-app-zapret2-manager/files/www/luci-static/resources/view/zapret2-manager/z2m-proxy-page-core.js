@@ -148,6 +148,15 @@ function reveal(ctx) {
         ctx.shell.openModal(_('QR-код Telegram Proxy'), E('div', { 'class': 'z2m-proxy-qr-card' }, [
           E('code', { 'class': 'z2m-proxy-link' }, url),
           Qr.render(url, 240),
+          E('div', { 'class': 'z2m-btnrow' }, [ctx.shell.button(_('Скопировать ссылку'), 'primary sm', function () {
+            if (!navigator.clipboard || !navigator.clipboard.writeText) {
+              ctx.shell.showToast(_('Буфер обмена недоступен в этом браузере.'), 'err');
+              return;
+            }
+            navigator.clipboard.writeText(url).then(function () {
+              ctx.shell.showToast(_('Ссылка скопирована.'), 'ok');
+            }).catch(function () { ctx.shell.showToast(_('Не удалось скопировать ссылку.'), 'err'); });
+          })]),
           E('div', { 'class': 'z2m-dim' }, _('Закрытие окна удалит ссылку из UI state.'))
         ]), [ctx.shell.button(_('Закрыть'), '', function () {
           state.revealed = null;
@@ -281,6 +290,11 @@ function installPane(ctx, data) {
     removePanel.classList.add('z2m-proxy-danger-zone');
   }
   return E('div', { 'class': 'z2m-proxy-pane' }, compact([
+    state.busy === 'provider-install' ? E('div', { 'class': 'z2m-proxy-install-progress', role: 'status', 'aria-live': 'polite' }, [
+      E('strong', {}, _('Установка выполняется…')),
+      E('span', {}, _('Проверяем пакет, сохраняем настройки и подтверждаем listener.')),
+      E('div', { 'class': 'z2m-progress-track' }, E('div', { 'class': 'z2m-progress-bar indeterminate' }))
+    ]) : null,
     shell.statePanel({
       title: status.installed ? _('Компонент установлен') : _('Компонент не установлен'),
       message: status.installed
@@ -372,6 +386,11 @@ function statusPane(ctx, data, normalized) {
     ]),
     E('div', { 'class': 'z2m-proxy-main-side' }, [
       shell.panel(_('Состояние Telegram Proxy'), E('div', { 'class': 'z2m-proxy-info-list' }, statusRows.map(function (row) { return E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, row[0]), E('strong', {}, row[1])]); }))),
+      shell.panel(_('Подключение Telegram'), E('div', { 'class': 'z2m-proxy-connection-card' }, [
+        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Listener')), E('strong', {}, normalized.listener ? display(listener.address || applied.host) + ':' + display(listener.port || applied.port) : _('не подтверждён'))]),
+        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Telegram DC')), E('strong', {}, normalized.outbound ? _('соединение подтверждено') : _('ожидает проверки'))]),
+        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Ссылка')), E('strong', {}, _('скрыта до подтверждения'))])
+      ]), E('div', { 'class': 'z2m-btnrow' }, [shell.button(_('Показать ссылку / QR'), 'primary sm', reveal.bind(null, ctx), !!state.busy)])),
       E('div', { 'class': 'z2m-proxy-side-stack' }, [
         shell.panel(_('Цепочка работоспособности'), E('div', { 'class': 'z2m-proxy-health-chain' }, health.map(function (row) { return E('div', { 'class': 'z2m-proxy-health-step ' + (row[1] ? 'ok' : 'warn') }, [E('span', {}, row[0]), E('strong', {}, row[2])]); }))),
         E('section', { 'class': 'z2m-proxy-secret-card' }, [E('h3', {}, _('Ссылка скрыта по умолчанию')), E('p', {}, _('Показывается временно после подтверждения.')), shell.button(_('Показать ссылку / QR'), 'primary sm', reveal.bind(null, ctx), !!state.busy)])
@@ -422,6 +441,7 @@ function settingsPane(ctx, data) {
   var pstatus = providerStatus(data);
   var settings = workingConfig(ctx, data);
   var draft = currentDraft(ctx);
+  var fallbackEntries = array(settings.mtprotoProxies);
   function fields(ids) {
     var hints = {
       host: _('Требуется конкретный локальный IPv4. Wildcard bind запрещён.'),
@@ -455,11 +475,12 @@ function settingsPane(ctx, data) {
       E('section', { 'class': 'z2m-proxy-form-section' }, [
         E('div', { 'class': 'z2m-proxy-form-head' }, [
           E('h3', {}, _('Upstream MTProto fallback')),
-          E('p', {}, _('Secret-bearing entries остаются на backend и не возвращаются в браузер.'))
+          E('p', {}, _('Поведение Avatar сохранено как безопасная backend-managed fallback-секция. Secret-bearing entries не возвращаются в браузер.'))
         ]),
         E('div', { 'class': 'z2m-state-panel warn' }, [
           E('strong', { 'class': 'z2m-state-title' }, _('Backend-side secret contract')),
-          E('div', { 'class': 'z2m-state-message' }, _('UI не показывает и не сохраняет существующие upstream secrets в draft или журнале.'))
+          E('div', { 'class': 'z2m-state-message' }, _('UI не показывает и не сохраняет существующие upstream secrets в draft или журнале. Управляемых fallback entries: ') + String(fallbackEntries.length)),
+          E('div', { 'class': 'z2m-btnrow' }, [shell.button(_('Обновить состояние'), 'sm', function () { return ctx.refresh('proxy'); })])
         ])
       ]),
       settingsSection(ctx, data, settings, _('Исходящее соединение'), _('Необязательный HTTP/SOCKS proxy для upstream connections'), fields(['outboundProxy','noProxy'])),

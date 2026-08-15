@@ -344,3 +344,15 @@
 @media(max-width:760px){.z2m-global-dns-form{padding-bottom:20px}.z2m-dns-form-row{grid-template-columns:1fr;row-gap:4px}.z2m-dns-form-row>label{justify-self:start;text-align:left}.z2m-dns-form-row select{width:100%;max-width:none}.z2m-dns-form-row .z2m-hint{white-space:normal}}
 
 .z2m-dns-active-badge{padding:4px 9px;border:1px solid rgba(70,180,120,.45);border-radius:999px;background:rgba(70,180,120,.12);color:#7ee2a8}
+
+/* Avatar-adapted DNS routing cards, kept inside the Graphite/LuCI shell. */
+.z2m-dns-routing-form{display:grid;grid-template-columns:minmax(180px,1fr) minmax(180px,1fr) auto;gap:12px;align-items:end;margin:14px 0}
+.z2m-dns-routing-form label{display:grid;gap:6px;color:var(--tx2);font-size:12px}.z2m-dns-routing-form .z2m-input,.z2m-dns-routing-form .z2m-select{width:100%;box-sizing:border-box}
+.z2m-dns-routing-presets{display:grid;gap:8px;margin-top:14px}.z2m-dns-routing-presets .z2m-btnrow{gap:8px;flex-wrap:wrap}
+.z2m-dns-routing-rules{display:grid;gap:8px}.z2m-dns-routing-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:12px;align-items:center;padding:11px 12px;border:1px solid var(--line);border-radius:8px;background:rgba(255,255,255,.02)}
+.z2m-dns-routing-row strong,.z2m-dns-routing-row small{display:block}.z2m-dns-routing-row small{margin-top:3px;color:var(--tx3)}.z2m-dns-routing-actions{justify-content:flex-end;margin-top:14px}
+@media(max-width:760px){.z2m-dns-routing-form{grid-template-columns:1fr}.z2m-dns-routing-row{grid-template-columns:minmax(0,1fr) auto}.z2m-dns-routing-row .z2m-btn{grid-column:1/-1;justify-self:start}}
+
+.z2m-proxy-install-progress{display:grid;gap:7px;padding:13px 15px;margin-bottom:14px;border:1px solid rgba(76,155,218,.42);border-radius:8px;background:rgba(76,155,218,.08)}
+.z2m-proxy-install-progress span{color:var(--tx2);font-size:12px}.z2m-progress-track{height:5px;overflow:hidden;border-radius:999px;background:rgba(255,255,255,.12)}.z2m-progress-bar{height:100%;width:35%;border-radius:999px;background:#5faee3}.z2m-progress-bar.indeterminate{animation:z2m-progress-slide 1.2s ease-in-out infinite}@keyframes z2m-progress-slide{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
+.z2m-proxy-connection-card{display:grid;gap:3px}.z2m-proxy-connection-card+.z2m-btnrow{margin-top:10px}

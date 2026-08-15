@@ -4,6 +4,7 @@
 var PANES = [
   ['setup', _('Настройка')],
   ['check', _('Проверка и выбор')],
+  ['routing', _('Маршрутизация')],
   ['access', _('Для сервисов')],
   ['adv', _('Дополнительно')],
   ['hist', _('История')]
@@ -55,12 +56,14 @@ function createAdapter(api, dnsModule) {
   dnsModule = dnsModule || {};
   function expected(value) { return dnsEntries({ entries: object(value).entries }); }
   function reloadAppliedState() {
-    return api.dns.get().then(function (answer) {
-      return { value: { entries: dnsEntries(answer), raw: answer || {} }, revision: dnsRevision(answer), raw: answer || {} };
+    return api.dns.product.get().then(function (answer) {
+      var overrides = answer && answer.applied && answer.applied.overrides || [];
+      var revision = answer && answer.revision && answer.revision.overrides;
+      return { value: { entries: dnsEntries({ entries: overrides }), raw: answer || {} }, revision: revision, raw: answer || {} };
     });
   }
   function validate(value) {
-    return edit(api.dns.validate, { entries: expected(value) }).then(function (answer) {
+    return edit(api.dns.product.validate, { scope: 'overrides', value: { entries: expected(value) }, revision: value && value.revision }).then(function (answer) {
       var errors = asArray(answer && answer.errors);
       if (!answer || answer.ok === false || answer.error || errors.length || answer.valid !== true)
         return { ok: false, message: answer && answer.error && (answer.error.message || answer.error) || errors[0] && (errors[0].message || errors[0]) || _('Проверка DNS не пройдена.') };
@@ -74,15 +77,15 @@ function createAdapter(api, dnsModule) {
       return validate(value).then(function (answer) {
         if (!answer || answer.ok !== true) return answer;
         var read = context && context.applied && context.applied.dns || {};
-        var revision = dnsRevision(read.raw || read);
-        return Object.assign({}, answer, { precondition: { revision: revision } });
+        var revision = read && typeof read.revision !== 'object' ? read.revision : null;
+        if (revision === null || revision === undefined) revision = read && read.raw && read.raw.revision && read.raw.revision.overrides;
+        return edit(api.dns.product.preview, { scope: 'overrides', value: { entries: expected(value) }, revision: revision }).then(function (preview) {
+          return Object.assign({}, preview || {}, { precondition: { revision: revision } });
+        });
       });
     },
     applyDraft: function (scope, value, expectedRevision) {
-      return edit(api.dns.set, { entries: expected(value), revision: expectedRevision }).then(function (setResult) {
-        if (setResult && setResult.ok === false) throw setResult;
-        return edit(api.dns.apply, { mode: 'apply' });
-      });
+      return edit(api.dns.product.apply, { scope: 'overrides', value: { entries: expected(value) }, revision: expectedRevision });
     },
     reloadAppliedState: reloadAppliedState,
     verifyApplied: function (value, context, read) {
@@ -108,28 +111,28 @@ function createGlobalAdapter(api) {
     supported: true,
     validateDraft: function (scope, value) {
       if (!value || !Object.keys(value.changes || {}).length) return Promise.resolve({ ok: true, valid: true });
-      return api.dns.global.preview().then(function (answer) {
+      return edit(api.dns.product.validate, { scope: 'global', value: globalPayload(value.revision), revision: value.revision }).then(function (answer) {
         if (!answer || answer.ok === false) return { ok: false, message: answer && answer.error && answer.error.message || _('Проверка глобальных DNS не пройдена.') };
-        return { ok: true, valid: true, changes: answer.changes };
+        return Object.assign({}, answer, { ok: true, valid: true });
       });
     },
     previewDraft: function (scope, value, context) {
-      return api.dns.global.preview().then(function (answer) {
+      var read = context && context.applied && context.applied['dns-global'] || context && context.applied && context.applied.dns || {};
+      var revision = read && typeof read.revision !== 'object' ? read.revision : state.globalBaseline && state.globalBaseline.revision;
+      return edit(api.dns.product.preview, { scope: 'global', value: globalPayload(revision), revision: revision }).then(function (answer) {
         if (!answer || answer.ok !== true) return answer;
-        return Object.assign({}, answer, { precondition: { revision: answer.revision != null ? answer.revision : value.revision } });
+        return Object.assign({}, answer, { precondition: { revision: answer.revision != null ? answer.revision : revision } });
       });
     },
     applyDraft: function (scope, value, expectedRevision) {
-      return edit(api.dns.global.set, globalPayload(value.revision != null ? value.revision : expectedRevision)).then(function (setResult) {
-        if (setResult && setResult.ok === false) throw setResult;
-        return api.dns.global.apply();
-      });
+      return edit(api.dns.product.apply, { scope: 'global', value: globalPayload(value.revision != null ? value.revision : expectedRevision), revision: value.revision != null ? value.revision : expectedRevision });
     },
     reloadAppliedState: function () {
-      return api.dns.global.get().then(function (answer) {
-        var draft = answer && answer.draft || {};
-        var revision = draft.revision != null ? draft.revision : 0;
-        return { value: answer.applied || {}, revision: revision, precondition: { revision: revision }, raw: answer || {} };
+      return api.dns.product.get().then(function (answer) {
+        var draft = answer && answer.desired && answer.desired.global || {};
+        var applied = answer && answer.applied && answer.applied.global || {};
+        var revision = answer && answer.revision && answer.revision.global != null ? answer.revision.global : 0;
+        return { value: applied, revision: revision, precondition: { revision: revision }, raw: answer || {}, draft: draft };
       });
     },
     verifyApplied: function (value, context, read) {
@@ -149,29 +152,29 @@ function sameSelections(left, right) {
 function createServiceDnsAdapter(api) {
   api = api || {};
   function readState() {
-    return api.dns.serviceStatus().then(function (answer) {
-      var revision = answer && answer.draftRevision != null ? answer.draftRevision : answer && answer.appliedRevision != null ? answer.appliedRevision : 0;
-      return { value: { selections: object(answer && answer.selections), raw: answer || {} }, revision: revision, precondition: { revision: revision }, raw: answer || {} };
+    return api.dns.product.get().then(function (answer) {
+      var desired = answer && answer.desired && answer.desired.service_dns || {};
+      var applied = answer && answer.applied && answer.applied.service_dns || {};
+      var revision = answer && answer.revision && answer.revision.service_dns != null ? answer.revision.service_dns : 0;
+      return { value: { selections: object(applied), raw: answer || {} }, revision: revision, precondition: { revision: revision }, raw: answer || {}, draft: desired };
     });
   }
   return {
     supported: true,
     validateDraft: function (scope, value) {
-      return Promise.resolve({ ok: Object.keys(object(value && value.changes)).length > 0, valid: true });
+      if (!Object.keys(object(value && value.changes)).length) return Promise.resolve({ ok: true, valid: true });
+      return edit(api.dns.product.validate, { scope: 'service_dns', value: { selections: Object.assign({}, state.selections || {}) }, revision: value && value.revision });
     },
-    previewDraft: function () {
-      return api.dns.servicePreview().then(function (answer) {
-        var precondition = object(answer && answer.precondition);
-        return Object.assign({}, answer, { precondition: Object.assign({}, precondition, {
-          revision: precondition.revision != null ? precondition.revision : precondition.draftRevision
-        }) });
+    previewDraft: function (scope, value, context) {
+      var read = context && context.applied && context.applied['service-dns'] || {};
+      var revision = read && typeof read.revision !== 'object' ? read.revision : null;
+      if (revision === null || revision === undefined) revision = read && read.raw && read.raw.revision && read.raw.revision.service_dns;
+      return edit(api.dns.product.preview, { scope: 'service_dns', value: { selections: Object.assign({}, state.selections || {}) }, revision: revision }).then(function (answer) {
+        return Object.assign({}, answer, { precondition: { revision: revision } });
       });
     },
     applyDraft: function (scope, value, expectedRevision) {
-      return edit(api.dns.serviceSet, { selections: Object.assign({}, state.selections || {}), revision: expectedRevision }).then(function (setResult) {
-        if (!setResult || setResult.ok !== true) throw setResult || { message: _('DNS для сервисов не сохранён.') };
-        return edit(api.dns.serviceApply, { revision: expectedRevision });
-      });
+      return edit(api.dns.product.apply, { scope: 'service_dns', value: { selections: Object.assign({}, state.selections || {}) }, revision: expectedRevision });
     },
     reloadAppliedState: readState,
     verifyApplied: function (value, context, read) {
@@ -370,20 +373,26 @@ function providerProtocol(provider) {
 function providerAddress(provider) {
   if (provider.doh) return provider.doh;
   if (provider.dot) return provider.dot;
-  if (type(provider.ipv4) == 'array' && length(provider.ipv4)) return provider.ipv4[0];
+  if (Array.isArray(provider.ipv4) && provider.ipv4.length) return provider.ipv4[0];
   return '—';
+}
+function routingAddress(provider) {
+  var addresses = provider && (provider.ipv4 || provider.addresses);
+  return Array.isArray(addresses) && addresses.length ? String(addresses[0]) : '';
 }
 
 /* ---- load ---- */
 function load(ctx) {
   return Promise.allSettled([
+    ctx.api.dns.product.get(), ctx.api.dns.product.providers(), ctx.api.dns.product.status(),
     ctx.api.dns.get(), ctx.api.dns.serviceStatus(), ctx.api.dns.serviceProviders(),
     ctx.api.dns.components(), ctx.api.dns.providers(), ctx.api.dns.global.get(), ctx.api.services.catalogList()
   ]).then(function (results) {
     return {
-      dns: settled(results[0], ctx.api), service: settled(results[1], ctx.api), serviceProviders: settled(results[2], ctx.api),
-      components: settled(results[3], ctx.api), providers: settled(results[4], ctx.api), global: settled(results[5], ctx.api),
-      serviceCatalog: settled(results[6], ctx.api)
+      product: settled(results[0], ctx.api), productProviders: settled(results[1], ctx.api), productStatus: settled(results[2], ctx.api),
+      dns: settled(results[3], ctx.api), service: settled(results[4], ctx.api), serviceProviders: settled(results[5], ctx.api),
+      components: settled(results[6], ctx.api), providers: settled(results[7], ctx.api), global: settled(results[8], ctx.api),
+      serviceCatalog: settled(results[9], ctx.api)
     };
   });
 }
@@ -393,6 +402,7 @@ function render(ctx) {
   state.disposed = false;
   var shell = ctx.shell;
   var data = ctx.data || {};
+  var product = data.product && data.product.value || {};
   var dns = data.dns && data.dns.value || {};
   var serviceStatus = data.service && data.service.value || {};
   var providers = providerRows(data.providers && data.providers.value || {});
@@ -405,9 +415,10 @@ function render(ctx) {
   var loadedSelections = selectionMap(serviceStatus);
   var global = data.global && data.global.value || {};
   var globalApplied = global || {};
+  var productOverrides = product.applied && product.applied.overrides;
 
   if (state.manual == null) {
-    state.manualBaseline = cloneEntries(dns);
+    state.manualBaseline = cloneEntries({ entries: Array.isArray(productOverrides) ? productOverrides : dns });
     state.manual = cloneEntries({ entries: state.manualBaseline });
   }
   if (state.serviceBaseline == null) state.serviceBaseline = Object.assign({}, loadedSelections);
@@ -864,6 +875,80 @@ function render(ctx) {
     return E('div', { 'class': 'z2m-dns-access-layout' }, [E('div', { 'class': 'z2m-dns-access-main' }, [shell.panel(_('Доступ сервисов'), E('div', {}, [stats, toolbar, groupsRoot]), _('Профиль DNS выбирается отдельно для каждого сервиса.'))]), sidebar]);
   }
 
+  /* ---- donor-adapted per-domain routing pane ---- */
+  function renderRouting() {
+    var canonical = data.product && data.product.value || {};
+    var catalog = canonical.providers || data.productProviders && data.productProviders.value && data.productProviders.value.providers || [];
+    var rules = state.manual || [];
+    var providerOptions = providerRows(catalog).filter(function (provider) { return !!routingAddress(provider); });
+    var domainInput = E('input', { type: 'text', 'class': 'z2m-input', placeholder: 'example.com', 'aria-label': _('Домен') });
+    var resolverSelect = E('select', { 'class': 'z2m-select', 'aria-label': _('DNS-сервер') });
+    resolverSelect.appendChild(E('option', { value: '' }, providerOptions.length ? _('Выберите DNS-сервер') : _('DNS-серверы недоступны')));
+    providerOptions.forEach(function (provider) {
+      resolverSelect.appendChild(E('option', { value: routingAddress(provider) }, providerName(provider)));
+    });
+    function addRule(domain, providerIdValue) {
+      domain = String(domain || '').trim().toLowerCase().replace(/^\.+|\.+$/g, '');
+      providerIdValue = String(providerIdValue || '').trim();
+      if (!domain || !providerIdValue || !/^[a-z0-9*._-]+$/i.test(domain)) {
+        shell.showToast(_('Укажите корректный домен и DNS-сервер.'), 'err');
+        return;
+      }
+      var next = rules.filter(function (item) { return item.domain !== domain; });
+      next.push({ domain: domain, ip: providerIdValue, enabled: true });
+      state.manual = next;
+      updateDnsDraft(next);
+      shell.showToast(_('Правило добавлено в черновик.'), 'ok');
+      renderPane();
+    }
+    var addButton = shell.button(_('Добавить правило'), 'primary sm', function () {
+      addRule(domainInput.value, resolverSelect.value);
+    }, !providerOptions.length);
+    var form = E('div', { 'class': 'z2m-dns-routing-form' }, [
+      E('label', {}, [_('Домен'), domainInput]),
+      E('label', {}, [_('DNS-сервер'), resolverSelect]),
+      addButton
+    ]);
+    var quick = [
+      ['youtube.com', _('YouTube')], ['google.com', _('Google')], ['telegram.org', _('Telegram')],
+      ['t.me', _('t.me')], ['discord.com', _('Discord')], ['facebook.com', _('Facebook')], ['instagram.com', _('Instagram')]
+    ];
+    var quickButtons = quick.map(function (item) {
+      return shell.button(item[1], 'sm', function () {
+        addRule(item[0], resolverSelect.value || providerOptions[0] && routingAddress(providerOptions[0]));
+      }, !providerOptions.length);
+    });
+    var rows = rules.length ? E('div', { 'class': 'z2m-dns-routing-rules' }, rules.map(function (rule) {
+      var provider = providerOptions.filter(function (item) { return routingAddress(item) === String(rule.ip || rule.address || ''); })[0];
+      var remove = shell.button(_('Удалить'), 'danger sm', function () {
+        state.manual = rules.filter(function (item) { return item.domain !== rule.domain; });
+        updateDnsDraft(state.manual);
+        shell.showToast(_('Правило удалено из черновика.'), 'ok');
+        renderPane();
+      });
+      return E('div', { 'class': 'z2m-dns-routing-row' }, [
+        E('div', {}, [E('strong', {}, rule.domain), E('small', {}, provider ? providerName(provider) : rule.ip || _('DNS-сервер не найден'))]),
+        E('span', { 'class': 'chip ' + (provider ? 'g' : 'o') }, provider ? _('готов') : _('недоступен')),
+        remove
+      ]);
+    })) : shell.empty(_('Правил пока нет. Добавьте домен или выберите быстрый пресет.'));
+    var changed = !sameEntries(state.manualBaseline || [], rules);
+    var productError = data.product && data.product.error;
+    return E('div', { 'class': 'z2m-dns-routing-layout', 'data-testid': 'dns-routing-pane' }, [
+      productError ? shell.statePanel({ title: _('Canonical DNS facade недоступен'), message: productError.message, kind: 'warn' }) : null,
+      shell.panel(_('Per-domain DNS'), E('div', {}, [
+        E('p', { 'class': 'z2m-dim' }, _('Поведение адаптировано из Avatar: правило добавляется в черновик, затем проходит Preview → Validate → Apply через canonical DNS backend.')),
+        form,
+        E('div', { 'class': 'z2m-dns-routing-presets' }, [E('strong', {}, _('Быстрые пресеты')), E('div', { 'class': 'z2m-btnrow' }, quickButtons)])
+      ])),
+      shell.panel(_('Правила'), rows, _('Активные изменения не влияют на роутер до подтверждения в общем окне применения.')),
+      E('div', { 'class': 'z2m-btnrow z2m-dns-routing-actions' }, [
+        shell.button(_('Предпросмотр и применить'), 'primary', function () { ctx.openSemanticDiff(); }, !changed),
+        shell.button(_('Обновить состояние'), 'sm', function () { return ctx.refresh('dns'); })
+      ])
+    ]);
+  }
+
   /* ---- adv pane ---- */
   function renderAdvanced() {
     var dg = state.globalDraft;
@@ -985,6 +1070,7 @@ function render(ctx) {
     host.replaceChildren(
       state.pane === 'setup' ? renderSetup() :
       state.pane === 'check' ? renderCheck() :
+      state.pane === 'routing' ? renderRouting() :
       state.pane === 'access' ? renderAccess() :
       state.pane === 'adv' ? renderAdvanced() : renderHistory()
     );

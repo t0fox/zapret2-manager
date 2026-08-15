@@ -660,6 +660,21 @@ function dns_global_preview_method(req) { return cli_action(DNSGLOBAL_CLI, 'prev
 function dns_global_apply_method(req) { return cli_action(DNSGLOBAL_CLI, 'apply'); }
 function dns_global_rollback_method(req) { return cli_action(DNSGLOBAL_CLI, 'rollback'); }
 
+// ---- canonical DNS product facade -----------------------------------------
+// This surface composes the existing global-DNS, override-DNS and Service DNS
+// writers. Callers can provide only the bounded JSON `edit` payload accepted
+// by cli_edit_action, never a command or a path.
+const DNS_PRODUCT_CLI = '/usr/libexec/zapret2-manager/dns-product-cli.uc';
+function dns_product_action(sub) { return cli_action(DNS_PRODUCT_CLI, sub); }
+function dns_product_edit_action(sub, req) { return cli_edit_action(DNS_PRODUCT_CLI, sub, req, 'dns-product'); }
+function dns_product_get_method(req) { return dns_product_action('get'); }
+function dns_product_providers_method(req) { return dns_product_action('providers'); }
+function dns_product_status_method(req) { return dns_product_action('status'); }
+function dns_product_preview_method(req) { return dns_product_edit_action('preview', req); }
+function dns_product_validate_method(req) { return dns_product_edit_action('validate', req); }
+function dns_product_apply_method(req) { return dns_product_edit_action('apply', req); }
+function dns_product_rollback_method(req) { return dns_product_edit_action('rollback', req); }
+
 // ---- Avatar Strategy API ----------------------------------------------------
 // Strategy requests use the same private JSON-string edit convention as
 // Profiles. The RPC layer chooses a fixed CLI mode; request content is carried
@@ -1124,6 +1139,13 @@ return {
 		dns_global_preview:{ call: function (req) { return dns_global_preview_method(req); } },
 		dns_global_apply:  { call: function (req) { return dns_global_apply_method(req); } },
 		dns_global_rollback: { call: function (req) { return dns_global_rollback_method(req); } },
+		dns_product_get: { call: function (req) { return dns_product_get_method(req); } },
+		dns_product_providers: { call: function (req) { return dns_product_providers_method(req); } },
+		dns_product_status: { call: function (req) { return dns_product_status_method(req); } },
+		dns_product_preview: { args: { edit: 'string' }, call: function (req) { return dns_product_preview_method(req); } },
+		dns_product_validate: { args: { edit: 'string' }, call: function (req) { return dns_product_validate_method(req); } },
+		dns_product_apply: { args: { edit: 'string' }, call: function (req) { return dns_product_apply_method(req); } },
+		dns_product_rollback: { args: { edit: 'string' }, call: function (req) { return dns_product_rollback_method(req); } },
 		strategies_list:   { call: function (req) { return strategies_list_method(req); } },
 		strategies_get:    { args: { edit: 'string' }, call: function (req) { return strategies_get_method(req); } },
 		strategies_create: { args: { edit: 'string' }, call: function (req) { return strategies_create_method(req); } },
