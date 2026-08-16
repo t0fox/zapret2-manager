@@ -44,22 +44,59 @@ function profiles(value) {
     };
   });
 }
+function profileText(value) {
+  return profiles(value).map(function (profile) { return profile.args || ''; }).join('\n');
+}
+function looksLikeStrategy(value) {
+  var source = text(value);
+  return /(^|\s)--(?:filter-|lua-desync=|payload=|hostlist=|ipset=|new(?:\s|$))/i.test(source);
+}
+function parseClipboardStrategies(value) {
+  var source = text(value).replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+  if (!source) return [];
+  source = source.replace(/^\s*nfqws2\??\s*[:|]?\s*/i, '');
+  return source.split(/\s+--new(?:\s+|$)/i).map(function (part) {
+    return text(part).trim();
+  }).filter(looksLikeStrategy).map(function (args, index) {
+    return { id: 'clipboard-' + String(index + 1), name: 'Импортированный профиль ' + String(index + 1), args: args, enabled: true };
+  });
+}
+function combineStrategies(values) {
+  var source = array(values), profilesList = [], names = [];
+  source.forEach(function (strategy) {
+    strategy = object(strategy);
+    if (text(strategy.name)) names.push(text(strategy.name));
+    profiles(strategy).forEach(function (profile, index) {
+      profilesList.push({
+        id: text(strategy.id) + '-' + text(profile.id || ('profile-' + String(index + 1))),
+        name: text(profile.name) || 'Профиль ' + String(profilesList.length + 1),
+        args: profile.args || '', enabled: profile.enabled !== false
+      });
+    });
+  });
+  return { id: '', name: names.join(' + ') || 'Объединённая стратегия', description: 'Объединено из: ' + names.join(', '), origin: 'user', isBuiltin: false, profiles: profilesList };
+}
 function normalize(value, status, selectedId) {
   value = object(value);
   var ids = identity(status);
   var id = text(value.id || value.strategyId);
   var origin = text(value.origin) || (value.is_builtin === true ? 'avatar_builtin' : 'user');
+  var metadata = object(value.metadata), label = text(value.label || metadata.label).toLowerCase();
+  var argsText = profileText(value);
   var result = {
     id: id,
     name: text(value.name || value.displayName) || id || 'Стратегия',
-    description: text(value.description || object(value.metadata).description),
-    author: text(value.author || object(value.metadata).author),
-    protocol: text(value.protocol || object(value.metadata).protocol),
+    description: text(value.description || metadata.description),
+    author: text(value.author || metadata.author),
+    protocol: text(value.protocol || metadata.protocol),
     origin: origin,
     isBuiltin: value.is_builtin === true || value.isBuiltin === true || origin === 'avatar_builtin' || origin === 'builtin',
     revision: value.revision,
     favorite: value.favorite === true || value.is_favorite === true,
-    featured: value.featured === true || object(value.metadata).featured === true,
+    label: label,
+    recommended: label === 'recommended' || /^recommended/.test(label),
+    featured: value.featured === true || metadata.featured === true,
+    circular: value.circular === true || metadata.circular === true || /(^|\s)--lua-desync=circular(?:[:=]|\s|$)/i.test(argsText),
     availability: value.availability,
     profiles: profiles(value)
   };
@@ -103,5 +140,8 @@ return baseclass.extend({
   actionCopy: actionCopy,
   canMutate: canMutate,
   visibleReason: visibleReason,
-  classifyUnsupported: classifyUnsupported
+  classifyUnsupported: classifyUnsupported,
+  looksLikeStrategy: looksLikeStrategy,
+  parseClipboardStrategies: parseClipboardStrategies,
+  combineStrategies: combineStrategies
 });

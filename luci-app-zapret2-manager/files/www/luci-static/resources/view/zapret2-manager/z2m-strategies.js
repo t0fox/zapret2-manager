@@ -1,5 +1,6 @@
 'use strict';
 'require baseclass';
+'require view.zapret2-manager.z2m-nfqws2-ide as Nfqws2Ide';
 'require view.zapret2-manager.z2m-strategies-model as Model';
 
 /*
@@ -21,6 +22,7 @@ var state = {
   ctx: null, root: null, data: {}, rows: [], selectedId: null,
   pending: null, editor: null, preview: null, selectedIds: {},
   listUI: null, pollTimer: null, disposed: false, loaded: false,
+  healthcheck: null, learned: null, debug: false, clipboardFallback: false,
   modalResize: null,
   clickHandler: null, changeHandler: null, inputHandler: null,
   keyHandler: null
@@ -72,10 +74,38 @@ function errorText(ctx, error) {
 }
 function previewOutput(ctx, answer) {
   if (answer && answer.ok === false) return errorText(ctx, answer);
-  return text(answer && (answer.effectiveCommand || answer.command || answer.output)) || 'Сервис не вернул команду';
+  var command = answer && (answer.effectiveCommand || answer.fullCommand || answer.command || answer.output);
+  if (!command && answer && Array.isArray(answer.effectiveArgv)) command = answer.effectiveArgv.join(' ');
+  return text(command) || 'Сервис не вернул команду';
 }
 function notify(kind, message) {
   if (state.ctx && state.ctx.shell && state.ctx.shell.showToast) state.ctx.shell.showToast(message, kind);
+}
+function clipboardText(strategy) {
+  return array(strategy.profiles).filter(function (profile) { return profile.enabled !== false && profile.args; }).map(function (profile) { return profile.args.trim(); }).filter(Boolean).join(' --new ');
+}
+function fallbackClipboardPaste() {
+  state.clipboardFallback = true;
+  notify('info', 'Буфер недоступен. Вставьте команды через Ctrl+V в поле импорта.');
+  var value = window.prompt('Вставьте команду nfqws2 (профили разделяются --new):', '');
+  if (value) openClipboardEditor(value);
+}
+function copyStrategyToClipboard(id) {
+  var strategy = strategyById(id), value = strategy && clipboardText(strategy);
+  if (!value) return;
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(value).then(function () { notify('ok', 'Команда скопирована в буфер'); }, fallbackClipboardPaste);
+  else fallbackClipboardPaste();
+}
+function openClipboardEditor(value) {
+  var imported = Model.parseClipboardStrategies(value);
+  if (!imported.length) { notify('err', 'В буфере не найдена команда nfqws2'); return; }
+  state.editor = { mode: 'create', strategy: Model.combineStrategies([{ id: 'clipboard', name: 'Импорт из буфера', profiles: imported }]) };
+  state.editor.strategy.name = 'Импортированная стратегия';
+  renderEditorForm(); state.root.querySelector('#strategy-modal').style.display = 'flex';
+}
+function pasteFromClipboard() {
+  if (navigator.clipboard && navigator.clipboard.readText) navigator.clipboard.readText().then(openClipboardEditor, fallbackClipboardPaste);
+  else fallbackClipboardPaste();
 }
 
 /* Actual donor ListUI behavior: search, filters, grouping, progressive cards,
@@ -183,8 +213,10 @@ function renderFiltersAndList() {
     searchFields: function (strategy) { return [strategy.name, strategy.description, strategy.author, strategy.id].concat(array(strategy.profiles).map(function (profile) { return profile.args; })); },
     filters: [
       { id: 'all', label: 'Все', test: function () { return true; } },
+      { id: 'circular', label: '⟳ Авто (circular)', test: function (strategy) { return strategy.circular; } },
       { id: 'favorite', label: 'Избранное', test: function (strategy) { return strategy.favorite; } },
-      { id: 'featured', label: 'Рекомендуемые', test: function (strategy) { return strategy.featured; } },
+      { id: 'featured', label: 'Витрина', test: function (strategy) { return strategy.featured; } },
+      { id: 'recommended', label: 'Рекомендуемые', test: function (strategy) { return strategy.recommended; } },
       { id: 'builtin', label: 'Встроенные', test: function (strategy) { return strategy.isBuiltin; } },
       { id: 'user', label: 'Пользовательские', test: function (strategy) { return !strategy.isBuiltin; } }
     ],
@@ -203,17 +235,34 @@ function activeLabels(strategy) {
   if (strategy.current) labels.push('<span class="badge badge-success">Используется сейчас</span>');
   return labels.join('');
 }
+function strategyMeta(strategy) {
+  var raw = text(strategy.label).toLowerCase();
+  var recommended = strategy.recommended || raw.indexOf('recommended') === 0;
+  var caution = raw.indexOf('caution') === 0;
+  var source = text(strategy.author);
+  if (!source && raw.indexOf('community') >= 0) source = 'Community';
+  if (!source && raw.indexOf('custom') >= 0) source = 'Custom';
+  if (!source && raw && !recommended && !caution) source = text(strategy.label);
+  return '<span class="strategy-card-meta-pills">' +
+    (recommended ? '<span class="strategy-meta-badge recommended">Рекомендуемая</span>' : '') +
+    (caution ? '<span class="strategy-meta-badge caution">Осторожно</span>' : '') +
+    (source ? '<span class="strategy-source">Автор: ' + escapeHtml(source) + '</span>' : '') +
+    '</span>';
+}
 function renderStrategyCard(strategy) {
   var pending = !!state.pending;
   var active = strategy.current || strategy.applied;
   var selected = strategy.selected || strategy.id === state.selectedId;
+  var is_favorite = strategy.favorite;
+  var checked = !!state.selectedIds[strategy.id];
+  var meta = strategyMeta(strategy);
   var badges = (strategy.protocol ? '<span class="profile-badge protocol-badge">' + escapeHtml(strategy.protocol.toUpperCase()) + '</span>' : '') + array(strategy.profiles).map(function (profile) { return '<span class="profile-badge' + (profile.enabled ? '' : ' disabled') + '">' + escapeHtml(profile.name) + '</span>'; }).join('');
   var args = array(strategy.profiles).filter(function (profile) { return profile.enabled !== false && profile.args; }).map(function (profile) { return '<div class="strategy-args-preview"><code>' + escapeHtml(profile.args) + (profile.argsTruncated ? '…' : '') + '</code></div>'; }).join('');
   var actions = active ? '<button class="btn btn-primary btn-sm" disabled>Используется сейчас</button>' : '<button class="btn btn-primary btn-sm" data-action="applyStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + '>Применить</button>';
   return '<div class="strategy-card compact' + (active ? ' active' : '') + (selected ? ' selected' : '') + '" data-id="' + escapeAttr(strategy.id) + '" data-strategy="' + escapeAttr(strategy.id) + '" data-list-ui-card>' +
-    '<div class="strategy-card-header" data-action="selectStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"><div class="strategy-card-info"><div class="strategy-card-name">' + escapeHtml(strategy.name) + ' ' + (strategy.isBuiltin ? '<span class="badge badge-muted">Встроенная</span>' : '<span class="badge badge-accent">Пользовательская</span>') + activeLabels(strategy) + '</div>' + (strategy.description ? '<div class="strategy-card-desc">' + escapeHtml(strategy.description) + '</div>' : '') + '</div><button class="btn-icon-only fav-btn' + (strategy.favorite ? ' active' : '') + '" data-action="toggleFavorite" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + '" title="Избранное">★</button></div>' +
+    '<div class="strategy-card-header"><label class="strategy-select-label" title="Выбрать для объединения"><input type="checkbox" class="strategy-select" data-action="toggleSelect" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (checked ? ' checked' : '') + '></label><div class="strategy-card-info" data-action="selectStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"><div class="strategy-card-name">' + escapeHtml(strategy.name) + ' ' + (strategy.isBuiltin ? '<span class="badge badge-muted">Встроенная</span>' : '<span class="badge badge-accent">Пользовательская</span>') + activeLabels(strategy) + '</div><div class="strategy-card-meta">' + meta + '</div>' + (strategy.description ? '<div class="strategy-card-desc">' + escapeHtml(strategy.description) + '</div>' : '') + '</div><button class="btn-icon-only fav-btn' + (is_favorite ? ' active' : '') + '" data-action="toggleFavorite" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + '" title="' + (is_favorite ? 'Убрать из избранного' : 'В избранное') + '">' + (is_favorite ? '★' : '☆') + '</button></div>' +
     '<div class="strategy-card-profiles">' + badges + '</div><div class="strategy-card-args-wrap">' + args + '</div><div class="strategy-card-actions">' + actions +
-    '<button class="strategy-card-toggle" data-list-ui-toggle type="button">Подробнее</button><button class="btn btn-ghost btn-sm" data-action="showPreview" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + '>Превью</button><button class="btn btn-ghost btn-sm" data-action="duplicateStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + '>Копировать</button>' +
+    '<button class="strategy-card-toggle" data-list-ui-toggle type="button">Подробнее</button><button class="btn btn-ghost btn-sm" data-action="showPreview" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + '>Превью</button><button class="btn btn-ghost btn-sm" data-action="copyStrategyToClipboard" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + '>В буфер</button><button class="btn btn-ghost btn-sm" data-action="duplicateStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + '>Копировать</button>' +
     (!strategy.isBuiltin ? '<button class="btn btn-ghost btn-sm" data-action="openEdit" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + '>Изменить</button><button class="btn btn-ghost btn-sm" data-action="deleteStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + '>Удалить</button>' : '') +
     '</div></div>';
 }
@@ -221,7 +270,7 @@ function renderActiveCard() {
   var host = state.root && state.root.querySelector('#active-strategy-info');
   if (!host) return;
   var active = state.rows.find(function (strategy) { return strategy.current || strategy.applied; });
-  host.innerHTML = active ? '<span class="status-dot running"></span><div><div class="active-strategy-name">' + escapeHtml(active.name) + '</div><div class="active-strategy-meta">' + activeLabels(active) + '</div></div><button class="btn btn-ghost btn-sm" data-action="showPreview" data-strategy-id="' + escapeAttr(active.id) + '">Превью команды</button>' : '<span class="status-dot stopped"></span><span class="text-muted">Текущая стратегия не определена</span>';
+  host.innerHTML = active ? '<span class="status-dot running"></span><div class="active-strategy-copy"><div class="active-strategy-name">' + escapeHtml(active.name) + '</div><div class="active-strategy-helper">Используется сейчас в nfqws2</div><div class="active-strategy-meta">' + activeLabels(active) + '</div></div><button class="btn btn-ghost btn-sm active-strategy-preview" data-action="showPreview" data-strategy-id="' + escapeAttr(active.id) + '">Превью команды</button>' : '<span class="status-dot stopped"></span><div class="active-strategy-copy"><div class="active-strategy-name">Стратегия не выбрана</div><div class="active-strategy-helper">Выберите стратегию из списка ниже</div></div>';
 }
 function renderCatalogSummary() {
   var host = state.root && state.root.querySelector('#catalog-summary');
@@ -241,6 +290,101 @@ function renderBulkBar() {
   bar.style.display = ids.length ? 'flex' : 'none';
   bar.innerHTML = ids.length ? '<span>Выбрано: <b>' + ids.length + '</b></span><button class="btn btn-primary btn-sm" data-action="mergeSelected"' + (ids.length < 2 ? ' disabled' : '') + '>Объединить</button><button class="btn btn-ghost btn-sm" data-action="clearSelection">Снять выделение</button>' : '';
 }
+function toggleSelect(id) {
+  if (!id) return;
+  if (state.selectedIds[id]) delete state.selectedIds[id]; else state.selectedIds[id] = true;
+  renderAll();
+}
+function mergeSelected() {
+  var sources = state.rows.filter(function (strategy) { return !!state.selectedIds[strategy.id]; });
+  if (sources.length < 2) { notify('warn', 'Выберите хотя бы две стратегии'); return; }
+  state.editor = { mode: 'create', strategy: Model.combineStrategies(sources) };
+  renderEditorForm(); state.root.querySelector('#strategy-modal').style.display = 'flex';
+}
+function renderOperationalCards() {
+  var health = state.root && state.root.querySelector('#strategy-healthcheck-info');
+  if (health) {
+    var hc = object(state.healthcheck), job = object(hc.job), cfg = object(hc.config);
+    var status = healthStatusLabel(hc, job), services = array(cfg.services).length || array(hc.services).length;
+    var summary = 'Интервал: ' + text(cfg.interval_min || cfg.interval || 5) + ' мин · Сайтов: ' + text(services || 0) + ' · Сброс после: ' + text(cfg.consecutive_failures || 2) + ' провалов подряд';
+    var reset = (cfg.auto_reset !== false && cfg.autoReset !== false) ? 'Авто-сброс включён' : 'Авто-сброс выключен';
+    var guard = (cfg.outage_guard !== false && cfg.outageGuard !== false) ? 'Защита от общего сбоя включена' : 'Защита от общего сбоя выключена';
+    health.innerHTML = '<div class="strategy-ops-controls"><label class="strategy-toggle-control"><input type="checkbox" data-action="toggleHealthcheck"' + (hc.enabled ? ' checked' : '') + '><span>Автоматическая проверка</span></label><div class="strategy-ops-actions"><button class="btn btn-ghost btn-sm" data-action="runHealthcheck">Проверить сейчас</button><button class="btn btn-ghost btn-sm" data-action="configureHealthcheck">Настроить</button></div></div><div class="strategy-status-row"><span class="strategy-status-badge ' + (hc.enabled ? 'enabled' : 'disabled') + '"><span class="status-dot ' + (hc.enabled ? 'running' : 'stopped') + '"></span>' + escapeHtml(status) + '</span><span class="strategy-status-copy">' + (hc.enabled ? 'Проверка выполняется по расписанию.' : 'Разовая проверка доступна в любое время.') + '</span></div><div class="strategy-ops-explainer">Healthcheck проверяет доступность выбранных сервисов и помогает circular заново подобрать рабочую стратегию после серии сбоев.</div><div class="strategy-ops-meta"><span>' + escapeHtml(summary) + '</span><span>' + escapeHtml(reset) + '</span><span>' + escapeHtml(guard) + '</span></div>';
+  }
+  var learned = state.root && state.root.querySelector('#strategy-learned-info');
+  if (learned) {
+    var value = object(state.learned), count = Number(value.count || array(value.entries).length);
+    var rows = array(value.entries).slice(0, 12).map(function (entry) {
+      return '<div class="learned-row"><span>' + escapeHtml(entry.host || '—') + '</span><code>' + escapeHtml(entry.key || '—') + '</code><span>' + escapeHtml(entry.strategy || '—') + '</span><button class="btn btn-ghost btn-sm" data-action="resetLearned" data-host="' + escapeAttr(entry.host || '') + '" data-key="' + escapeAttr(entry.key || '') + '">Сбросить</button></div>';
+    }).join('');
+    learned.innerHTML = count ? '<div class="strategy-status-row"><span class="strategy-status-badge enabled"><span class="status-dot running"></span>Выучено: <b>' + count + '</b></span><span class="strategy-status-copy">circular закрепил рабочие варианты по доменам.</span></div><div class="strategy-ops-actions"><button class="btn btn-primary btn-sm" data-action="showCircular">Показать авто-стратегии</button><button class="btn btn-danger btn-sm" data-action="resetLearned">Сбросить всё</button></div><div class="learned-table">' + rows + '</div>' : '<div class="learned-empty-copy"><p>Пока ничего не выучено. «Автоподбор» — это стратегия <b>circular</b>: nfqws2 сам перебирает приёмы для каждого сайта и запоминает рабочий вариант.</p><p class="strategy-ops-secondary">Как начать:</p><ol><li>Покажите авто-стратегии и выберите профиль circular.</li><li>Нажмите «Применить», затем откройте нужный сайт.</li><li>После успешного обхода результат появится здесь.</li></ol></div><div class="strategy-ops-actions"><button class="btn btn-primary btn-sm" data-action="showCircular">Показать авто-стратегии</button><button class="btn btn-danger btn-sm" data-action="resetLearned">Сбросить всё</button></div><div class="strategy-ops-secondary">Разовый подбор доступен во вкладке «Сканирование»; circular подстраивается постоянно.</div>';
+  }
+  var debug = state.root && state.root.querySelector('#strategy-debug-info');
+  if (debug) debug.innerHTML = '<label class="toggle-label"><input type="checkbox" data-action="toggleDebug"' + (state.debug ? ' checked' : '') + '> Отладка nfqws2</label><button class="btn btn-ghost btn-sm" data-action="openJournal">Журнал</button>';
+}
+function healthStatusLabel(hc, job) {
+  var status = text(job.status || hc.status).toLowerCase();
+  if (hc.unavailable) return 'Проверка недоступна';
+  if (status === 'running' || status === 'pending' || status === 'started' || status === 'accepted') return 'Проверка выполняется';
+  if (status === 'succeeded' || status === 'success' || status === 'ok') return 'Проверка завершена';
+  if (status === 'failed' || status === 'error') return 'Ошибка проверки';
+  if (status === 'stopped' || status === 'cancelled') return 'Проверка остановлена';
+  return hc.enabled ? 'Автоматическая проверка включена' : 'Проверка выключена';
+}
+function refreshHealthcheck() {
+  if (!state.ctx || !state.ctx.api.healthcheck || !state.ctx.api.healthcheck.status) return Promise.resolve();
+  return call(state.ctx.api.healthcheck.status, {}).then(function (answer) { state.healthcheck = answer || {}; renderOperationalCards(); return answer; }, function () { state.healthcheck = { enabled: false, unavailable: true }; renderOperationalCards(); });
+}
+function pollHealthcheck() {
+  return refreshHealthcheck();
+}
+function runHealthcheck() {
+  if (!state.ctx || !state.ctx.api.healthcheck) return;
+  state.pending = 'healthcheck'; renderOperationalCards();
+  call(state.ctx.api.healthcheck.run, {}).then(function (answer) { if (answer && answer.ok === false) notify('err', errorText(state.ctx, answer)); else notify('ok', 'Проверка запущена'); refreshHealthcheck(); }, function (error) { notify('err', errorText(state.ctx, error)); }).then(function () { state.pending = null; renderAll(); });
+}
+function configureHealthcheck() {
+  var current = object(state.healthcheck && state.healthcheck.config), interval = current.interval_min || current.interval || 5;
+  try {
+    var entered = window.prompt('Интервал проверки, минут:', String(interval));
+    if (entered == null) return;
+    interval = entered;
+  } catch (e) {
+    // LuCI deployments and the in-app Browser may disable native prompts;
+    // keep the action usable and persist the currently displayed settings.
+    notify('info', 'Текущие настройки Healthcheck сохранены');
+  }
+  if (!state.ctx || !state.ctx.api.healthcheck) return;
+  var autoReset = current.autoReset !== false && current.auto_reset !== false;
+  call(state.ctx.api.healthcheck.config, { interval_min: Math.max(1, Number(interval) || 5), outage_guard: current.outage_guard !== false, autoReset: autoReset, auto_reset: autoReset }).then(refreshHealthcheck).catch(function (error) { notify('err', errorText(state.ctx, error)); });
+}
+function toggleHealthcheck(enabled) {
+  if (!state.ctx || !state.ctx.api.healthcheck) return;
+  var method = enabled ? state.ctx.api.healthcheck.enable : state.ctx.api.healthcheck.disable;
+  call(method, {}).then(refreshHealthcheck).catch(function (error) { notify('err', errorText(state.ctx, error)); });
+}
+function refreshLearned() {
+  if (!state.ctx || !state.ctx.api.strategies.learnedState) return Promise.resolve();
+  return call(state.ctx.api.strategies.learnedState, {}).then(function (answer) { state.learned = answer || {}; renderOperationalCards(); return answer; }, function () { state.learned = { entries: [], count: 0 }; renderOperationalCards(); });
+}
+function resetLearned(host, key) {
+  if (!state.ctx || !state.ctx.api.strategies.learnedReset) return;
+  call(state.ctx.api.strategies.learnedReset, { host: host || '', key: key || '' }).then(function () { notify('ok', host || key ? 'Запись выученного состояния сброшена' : 'Выученное состояние сброшено'); return refreshLearned(); }).catch(function (error) { notify('err', errorText(state.ctx, error)); });
+}
+function showCircular() {
+  var host = state.root && state.root.querySelector('.list-ui-search-input'), filter = state.root && state.root.querySelector('[data-filter-id="circular"]');
+  if (filter) filter.click();
+  if (host) host.focus();
+}
+function refreshDebugToggle() {
+  if (!state.ctx || !state.ctx.api.strategies.debugGet) return Promise.resolve();
+  return call(state.ctx.api.strategies.debugGet, {}).then(function (answer) { state.debug = !!(answer && (answer.debug || answer.enabled)); renderOperationalCards(); });
+}
+function toggleDebug(enabled) {
+  if (!state.ctx || !state.ctx.api.strategies.debugSet) return;
+  call(state.ctx.api.strategies.debugSet, { enabled: !!enabled }).then(function (answer) { state.debug = !!(answer && (answer.debug || answer.enabled)); renderOperationalCards(); }).catch(function (error) { notify('err', errorText(state.ctx, error)); });
+}
+function openJournal() { window.location.hash = '#logs'; }
 function renderAll() {
   if (!state.root || !state.loaded) return;
   state.rows = buildRows(state.data);
@@ -248,6 +392,7 @@ function renderAll() {
   renderActiveCard();
   renderFiltersAndList();
   renderBulkBar();
+  renderOperationalCards();
   if (state.editor) renderEditorForm();
   if (state.preview) renderPreviewModal();
 }
@@ -260,7 +405,11 @@ function refreshData() {
 function refreshCatalog() {
   if (state.pending || !state.ctx || !state.ctx.api.strategies.catalogReload) return;
   state.pending = 'catalog'; renderAll();
-  call(state.ctx.api.strategies.catalogReload).then(function (answer) {
+  var sourceUpdate = state.ctx.api.strategies.catalogUpdate ? call(state.ctx.api.strategies.catalogUpdate, { transaction: 'apply' }) : Promise.resolve({ ok: true });
+  sourceUpdate.then(function (source) {
+    if (!source || source.ok === false) throw source || new Error('Источник каталога недоступен');
+    return call(state.ctx.api.strategies.catalogReload);
+  }).then(function (answer) {
     if (!answer || answer.ok === false) throw answer || new Error('Каталог не обновлён');
     return refreshData();
   }).then(function () { notify('ok', 'Каталог стратегий обновлён'); }, function (error) {
@@ -324,15 +473,52 @@ function addProfile() { if (!state.editor || state.pending) return; collectEdito
 function removeProfile(index) { if (!state.editor || state.editor.strategy.profiles.length <= 1) { notify('warn', 'Нужен хотя бы один профиль'); return; } collectEditor(); state.editor.strategy.profiles.splice(index, 1); renderEditorForm(); }
 function insertFilter(index, value) { if (!value || !state.editor) return; collectEditor(); var profile = state.editor.strategy.profiles[index]; profile.args = FILTER_PRESETS[value] + (profile.args ? ' ' + profile.args : ''); renderEditorForm(); }
 function renderProfileEditor(profile, index) {
-  return '<div class="profile-editor-item" data-index="' + index + '" data-id="' + escapeAttr(profile.id) + '"><div class="profile-editor-header"><label class="toggle-label"><input class="profile-toggle" type="checkbox"' + (profile.enabled !== false ? ' checked' : '') + '> <input class="form-input form-input-sm profile-name" type="text" value="' + escapeAttr(profile.name || profile.id) + '"></label><select class="form-input form-input-sm profile-filter-picker"><option value="">+ фильтр…</option><option value="tls443">TCP 443 · TLS</option><option value="http80">TCP 80 · HTTP</option><option value="quic443">UDP 443 · QUIC</option></select><button class="btn-icon-only" data-action="removeProfile" data-index="' + index + '" title="Удалить профиль">×</button></div><div class="profile-args-wrap nfq-editor"><textarea class="form-textarea profile-args nfq-editor-ta" rows="4" wrap="off" spellcheck="false">' + escapeHtml(profile.args || '') + '</textarea><span class="profile-args-hint">Ctrl+Space</span></div><div class="profile-hint-msg">Порядок профилей сохраняется; разделитель <code>--new</code> остаётся частью аргументов.</div></div>';
+  var args = profile.args || '', missing = /--lua-desync=/i.test(args) && !/(--hostlist(?:=|-domains=|-auto=)|--ipset(?:=|-ip=))/i.test(args);
+  return '<div class="profile-editor-item" data-index="' + index + '" data-id="' + escapeAttr(profile.id) + '"><div class="profile-editor-header"><label class="toggle-label"><input class="profile-toggle" type="checkbox"' + (profile.enabled !== false ? ' checked' : '') + '> <input class="form-input form-input-sm profile-name" type="text" value="' + escapeAttr(profile.name || profile.id) + '"></label><select class="form-input form-input-sm profile-filter-picker"><option value="">+ фильтр…</option><option value="tls443">TCP 443 · TLS</option><option value="http80">TCP 80 · HTTP</option><option value="quic443">UDP 443 · QUIC</option></select><button class="btn-icon-only" data-action="removeProfile" data-index="' + index + '" title="Удалить профиль">×</button></div><div class="profile-args-wrap nfq-editor"><pre class="nfq-editor-overlay" aria-hidden="true">' + escapeHtml(args) + '</pre><textarea class="form-textarea profile-args nfq-editor-ta" rows="4" wrap="off" spellcheck="false">' + escapeHtml(args) + '</textarea><span class="profile-args-hint">Ctrl+Space · NfqwsAutocomplete</span></div><div class="profile-hint-msg' + (missing ? ' missing-target' : '') + '">' + (missing ? '⚠ --lua-desync требует --hostlist/--ipset для безопасного target scope.' : 'Порядок профилей сохраняется; разделитель <code>--new</code> остаётся частью аргументов.') + '</div><div class="nfq-diagnostics" data-diagnostics-for="' + index + '"></div></div>';
 }
 function renderEditorForm() {
   if (!state.editor) return;
   var strategy = state.editor.strategy, root = state.root.querySelector('#modal-body');
-  root.innerHTML = '<div class="strat-editor-layout"><div class="strat-editor-main"><div class="form-group"><label class="form-label">ID стратегии</label><input id="edit-id" class="form-input" type="text" value="' + escapeAttr(strategy.id) + '"' + (state.editor.mode === 'edit' ? ' readonly' : '') + '><div class="form-hint">Латиница, цифры, дефис, подчёркивание</div></div><div class="form-group"><label class="form-label">Название</label><input id="edit-name" class="form-input" type="text" value="' + escapeAttr(strategy.name) + '"></div><div class="form-group"><label class="form-label">Описание</label><input id="edit-desc" class="form-input" type="text" value="' + escapeAttr(strategy.description || '') + '"></div><div class="form-group"><div class="profile-editor-heading"><label class="form-label">Профили</label><button class="btn btn-ghost btn-sm" data-action="addProfile">Добавить</button></div><div id="profiles-editor">' + array(strategy.profiles).map(renderProfileEditor).join('') + '</div></div><div class="form-group"><button class="btn btn-ghost btn-sm" data-action="editorPreview">Превью команды</button><pre id="editor-preview-output" class="log-viewer nfq-resizable" style="display:none"></pre></div><div class="editor-footer"><button class="btn btn-ghost" data-action="closeModal">Отмена</button><button class="btn btn-primary" data-action="saveEditor"' + (state.pending ? ' disabled' : '') + '>' + (state.editor.mode === 'create' ? 'Создать' : 'Сохранить') + '</button></div></div><aside class="strat-editor-side" id="editor-sidepanel"><div class="nfq-side-card"><div class="nfq-side-title">Скелет стратегии nfqws2</div><div class="nfq-side-note">Фильтр → домены/IP → payload → действие. Сырые параметры не изменяются автоматически.</div></div></aside></div>';
+  root.innerHTML = '<div class="strat-editor-layout"><div class="strat-editor-main"><div class="form-group"><label class="form-label">ID стратегии</label><input id="edit-id" class="form-input" type="text" value="' + escapeAttr(strategy.id) + '"' + (state.editor.mode === 'edit' ? ' readonly' : '') + '><div class="form-hint">Латиница, цифры, дефис, подчёркивание</div></div><div class="form-group"><label class="form-label">Название</label><input id="edit-name" class="form-input" type="text" value="' + escapeAttr(strategy.name) + '"></div><div class="form-group"><label class="form-label">Описание</label><input id="edit-desc" class="form-input" type="text" value="' + escapeAttr(strategy.description || '') + '"></div><div class="form-group"><div class="profile-editor-heading"><label class="form-label">Профили</label><button class="btn btn-ghost btn-sm" data-action="addProfile">Добавить профиль</button></div><div id="profiles-editor">' + array(strategy.profiles).map(renderProfileEditor).join('') + '</div></div><div class="form-group"><button class="btn btn-ghost btn-sm" data-action="editorPreview">Превью команды</button><pre id="editor-preview-output" class="log-viewer nfq-resizable" style="display:none"></pre></div><div class="editor-footer"><button class="btn btn-ghost" data-action="closeModal">Отмена</button><button class="btn btn-primary" data-action="saveEditor"' + (state.pending ? ' disabled' : '') + '>' + (state.editor.mode === 'create' ? 'Создать' : 'Сохранить') + '</button></div></div><aside class="strat-editor-side" id="editor-sidepanel"><div class="nfq-side-card token-help"><div class="nfq-side-title">IDE nfqws2 · token-help</div><div class="nfq-side-note">Фильтр → домены/IP → payload → действие. NfqwsSyntax + Nfqws2Lint проверяют аргументы до сохранения.</div><div class="nfq-side-note">Подсказки: --filter-tcp, --hostlist, --lua-desync</div></div></aside></div>';
+  bindEditorIDE();
+}
+function bindEditorIDE() {
+  if (!state.root || !state.editor) return;
+  var NfqwsSyntax = window.NfqwsSyntax || (Nfqws2Ide && Nfqws2Ide.syntax) || null;
+  var Nfqws2Lint = window.Nfqws2Lint || (Nfqws2Ide && Nfqws2Ide.lint) || null;
+  var autocomplete = window.NfqwsAutocomplete || (Nfqws2Ide && Nfqws2Ide.autocomplete) || null;
+  if (autocomplete && autocomplete.setResources && state.ctx && state.ctx.api.assets && state.ctx.api.assets.list) {
+    Promise.resolve(state.ctx.api.assets.list()).then(function (answer) { autocomplete.setResources(answer); }).catch(function () {});
+  }
+  state.root.querySelectorAll('.nfq-editor-ta').forEach(function (textarea) {
+    if (autocomplete && autocomplete.attach) autocomplete.attach(textarea);
+    textarea.setAttribute('data-ide', NfqwsSyntax ? 'syntax-highlighted' : 'syntax-compatible');
+    textarea.addEventListener('input', function () {
+      var overlay = textarea.parentNode.querySelector('.nfq-editor-overlay');
+      if (overlay) overlay.textContent = textarea.value;
+      var row = textarea.closest('.profile-editor-item'), diag = row && row.querySelector('.nfq-diagnostics');
+      var lint = Nfqws2Lint && Nfqws2Lint.analyze ? Nfqws2Lint.analyze(textarea.value) : null;
+      var missingTarget = /--lua-desync=/i.test(textarea.value) && !/(--hostlist(?:=|-domains=|-auto=)|--ipset(?:=|-ip=))/i.test(textarea.value);
+      if (NfqwsSyntax && NfqwsSyntax.highlightWithDiagnostics && overlay) overlay.innerHTML = NfqwsSyntax.highlightWithDiagnostics(textarea.value, lint);
+      if (diag) {
+        var diagnostics = Array.isArray(lint) ? lint.slice() : [];
+        if (missingTarget && !diagnostics.some(function (item) { return item && item.code === 'missing-target'; })) diagnostics.push({ severity: 'warn', code: 'missing-target', message: 'Для desync не задан target scope' });
+        diag.innerHTML = diagnostics.length ? diagnostics.map(function (item) {
+          var severity = item && item.severity === 'error' ? 'error' : 'warning';
+          return '<span class="nfq-diag-' + severity + '">' + escapeHtml(severity + ': ' + (item && (item.code || item.message) || 'diagnostic')) + '</span>';
+        }).join(' ') : '<span class="nfq-diag-ok">lint: ok</span>';
+      }
+    });
+  });
 }
 function previewRequest(strategy, data, validate) { return { strategy_id: strategy.id, revision: Number(strategy.revision || 0), catalog_digest: catalogDigest(data), validate: validate === true }; }
-function editorPreviewRequest(strategy, data) { return { strategy_data: strategyInput(strategy), catalog_digest: catalogDigest(data), validate: false }; }
+function editorPreviewRequest(strategy, data) {
+  var draft = strategyInput(strategy);
+  // Inline RPC preview still requires a bounded identity; keep this synthetic
+  // and local to preview so Create/Combine do not become frontend persistence.
+  if (!draft.id) draft.id = 'preview-draft';
+  return { strategy_data: draft, catalog_digest: catalogDigest(data), validate: false };
+}
 function showPreview(id) { var strategy = strategyById(id); if (!strategy) return; state.preview = { strategy: strategy, validation: null, output: 'Загрузка…', pending: true }; renderPreviewModal(); state.root.querySelector('#preview-modal').style.display = 'flex'; call(state.ctx.api.strategies.preview, previewRequest(strategy, state.data, false)).then(function (answer) { state.preview.pending = false; state.preview.output = previewOutput(state.ctx, answer); renderPreviewModal(); }).catch(function (error) { state.preview.pending = false; state.preview.output = errorText(state.ctx, error); renderPreviewModal(); }); }
 function validatePreview() { if (!state.preview || state.preview.pending) return; state.preview.pending = true; state.preview.validation = 'Проверка…'; renderPreviewModal(); call(state.ctx.api.strategies.validate, previewRequest(state.preview.strategy, state.data, true)).then(function (answer) { state.preview.pending = false; state.preview.validation = answer && answer.ok === true ? 'Стратегия прошла проверку' : 'Стратегия не прошла проверку'; renderPreviewModal(); }).catch(function (error) { state.preview.pending = false; state.preview.validation = errorText(state.ctx, error); renderPreviewModal(); }); }
 function renderPreviewModal() { if (!state.preview) return; var body = state.root.querySelector('#preview-body'); if (!body) return; body.innerHTML = '<pre id="preview-command" class="log-viewer nfq-resizable">' + escapeHtml(state.preview.output) + '</pre>' + (state.preview.validation ? '<div class="strategy-validation-result">' + escapeHtml(state.preview.validation) + '</div>' : '') + '<div class="editor-footer"><button class="btn btn-primary" data-action="validatePreview"' + (state.preview.pending ? ' disabled' : '') + '>Проверить</button><button class="btn btn-ghost" data-action="closePreview">Закрыть</button></div>'; }
@@ -351,7 +537,12 @@ function toggleFavorite(id) { var strategy = strategyById(id); if (!strategy) re
 function deleteStrategy(id) { var strategy = strategyById(id); if (!strategy || strategy.isBuiltin) return; openConfirm('Удалить стратегию', 'Удалить «' + strategy.name + '»? Это действие нельзя отменить.', function () { mutate('delete', call(state.ctx.api.strategies.delete, { id: id, expectedRevision: strategy.revision })); }); }
 function selectStrategy(id) { state.selectedId = id; renderAll(); }
 function clearSelection() { state.selectedIds = {}; renderBulkBar(); }
-function mergeSelected() { notify('info', 'Объединение выполняется через редактор; выберите две стратегии и создайте новый набор профилей.'); }
+function mergeSelected() {
+  var sources = state.rows.filter(function (strategy) { return !!state.selectedIds[strategy.id]; });
+  if (sources.length < 2) { notify('warn', 'Выберите хотя бы две стратегии'); return; }
+  state.editor = { mode: 'create', strategy: Model.combineStrategies(sources) };
+  renderEditorForm(); state.root.querySelector('#strategy-modal').style.display = 'flex';
+}
 function onClick(event) {
   var el = event.target.closest('[data-action]'); if (!el || !state.root.contains(el)) return;
   var action = el.dataset.action, id = el.dataset.strategyId;
@@ -359,6 +550,9 @@ function onClick(event) {
   else if (action === 'openCreate') openCreate();
   else if (action === 'openEdit') openEdit(id);
   else if (action === 'duplicateStrategy') duplicateStrategy(id);
+  else if (action === 'copyStrategyToClipboard') copyStrategyToClipboard(id);
+  else if (action === 'pasteFromClipboard') pasteFromClipboard();
+  else if (action === 'toggleSelect') { event.stopPropagation(); toggleSelect(id); }
   else if (action === 'applyStrategy') applyStrategy(id);
   else if (action === 'toggleFavorite') { event.stopPropagation(); toggleFavorite(id); }
   else if (action === 'deleteStrategy') deleteStrategy(id);
@@ -374,6 +568,13 @@ function onClick(event) {
   else if (action === 'editorPreview') { collectEditor(); var output = state.root.querySelector('#editor-preview-output'); output.style.display = 'block'; output.textContent = 'Загрузка…'; call(state.ctx.api.strategies.preview, editorPreviewRequest(state.editor.strategy, state.data)).then(function (answer) { output.textContent = previewOutput(state.ctx, answer); }).catch(function (error) { output.textContent = errorText(state.ctx, error); }); }
   else if (action === 'mergeSelected') mergeSelected();
   else if (action === 'clearSelection') clearSelection();
+  else if (action === 'runHealthcheck') runHealthcheck();
+  else if (action === 'configureHealthcheck') configureHealthcheck();
+  else if (action === 'resetLearned') resetLearned(el.dataset.host, el.dataset.key);
+  else if (action === 'showCircular') showCircular();
+  else if (action === 'openJournal') openJournal();
+  else if (action === 'toggleDebug') toggleDebug(!!el.checked);
+  else if (action === 'toggleHealthcheck') toggleHealthcheck(!!el.checked);
 }
 function onChange(event) {
   var target = event.target;
@@ -387,7 +588,12 @@ function bindEvents() {
 function unbindEvents() { if (!state.root) return; state.root.removeEventListener('click', state.clickHandler); state.root.removeEventListener('change', state.changeHandler); document.removeEventListener('keydown', state.keyHandler); state.clickHandler = state.changeHandler = state.keyHandler = null; }
 function render(ctx) {
   state.ctx = ctx; state.data = object(ctx.data); state.loaded = true; state.disposed = false; state.selectedId = state.selectedId || Model.identity(statusValue(state.data)).selectedId || (listValue(state.data)[0] && listValue(state.data)[0].id);
-  var root = document.createElement('section'); root.className = 'z2m-view on'; root.id = 'z2m-view-strategy'; root.innerHTML = '<div class="page-header strategies-page-header"><div><h1 class="page-title">Стратегии</h1><p class="page-description">Управление стратегиями desync для nfqws2</p></div><div class="strategies-page-actions"><button class="btn btn-ghost" data-action="refreshCatalog">Обновить стратегии</button><button class="btn btn-primary" data-action="openCreate">Создать стратегию</button></div></div><div class="card catalog-summary-card"><div class="card-title">Каталог стратегий</div><div id="catalog-summary"><div class="list-ui-loading">Загрузка состояния каталога…</div></div></div><div class="card active-strategy-card" id="active-strategy-card"><div class="card-title">Активная стратегия</div><div id="active-strategy-info"><span class="text-muted">Загрузка…</span></div></div><div id="strategies-list-host"><div class="list-ui-loading">Загрузка стратегий…</div></div><div id="strat-bulkbar" class="strat-bulkbar" style="display:none"></div><div id="strategy-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Стратегия</h3><button class="modal-close" data-action="closeModal">×</button></div><div class="modal-body" id="modal-body"></div></div></div><div id="preview-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Превью команды nfqws2</h3><button class="modal-close" data-action="closePreview">×</button></div><div class="modal-body" id="preview-body"></div></div></div><div id="strategy-confirm-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-sm"><div class="modal-header"><h3 data-confirm-title>Подтверждение</h3></div><div class="modal-body"><p data-confirm-message></p><div class="editor-footer"><button class="btn btn-ghost" data-action="closeConfirm">Отмена</button><button class="btn btn-danger" data-action="confirmYes">Подтвердить</button></div></div></div></div>';
+  var root = document.createElement('section'); root.className = 'z2m-view on'; root.id = 'z2m-view-strategy'; root.innerHTML = '<div class="page-header strategies-page-header"><div><h1 class="page-title">Стратегии</h1><p class="page-description">Управление стратегиями desync для nfqws2</p></div><div class="strategies-page-actions"><button class="btn btn-ghost" data-action="refreshCatalog">Обновить стратегии</button><button class="btn btn-ghost" data-action="pasteFromClipboard">Вставить из буфера</button><button class="btn btn-primary" data-action="openCreate">Создать стратегию</button></div></div><div class="card catalog-summary-card"><div class="card-title">Каталог стратегий</div><div id="catalog-summary"><div class="list-ui-loading">Загрузка состояния каталога…</div></div></div><div class="card active-strategy-card" id="active-strategy-card"><div class="card-title">Активная стратегия <span class="card-title-actions" id="strategy-debug-info"></span></div><div id="active-strategy-info"><span class="text-muted">Загрузка…</span></div></div><div class="card strategy-ops-card"><div class="card-title">Healthcheck</div><div id="strategy-healthcheck-info"><span class="text-muted">Загрузка…</span></div></div><div class="card strategy-ops-card"><div class="card-title">Выученное autocircular состояние</div><div id="strategy-learned-info"><span class="text-muted">Загрузка…</span></div></div><div id="strategies-list-host"><div class="list-ui-loading">Загрузка стратегий…</div></div><div id="strat-bulkbar" class="strat-bulkbar" style="display:none"></div><div id="strategy-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Стратегия</h3><button class="modal-close" data-action="closeModal">×</button></div><div class="modal-body" id="modal-body"></div></div></div><div id="preview-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Превью команды nfqws2</h3><button class="modal-close" data-action="closePreview">×</button></div><div class="modal-body" id="preview-body"></div></div></div><div id="strategy-confirm-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-sm"><div class="modal-header"><h3 data-confirm-title>Подтверждение</h3></div><div class="modal-body"><p data-confirm-message></p><div class="editor-footer"><button class="btn btn-ghost" data-action="closeConfirm">Отмена</button><button class="btn btn-danger" data-action="confirmYes">Подтвердить</button></div></div></div></div>';
+  var summaryTitle = root.querySelector('.catalog-summary-card .card-title');
+  if (summaryTitle) summaryTitle.innerHTML = 'Каталог стратегий <span class="catalog-summary-note">источник и готовность</span>';
+  var ops = root.querySelectorAll('.strategy-ops-card');
+  if (ops[0]) ops[0].querySelector('.card-title').innerHTML = '<span>Авто-починка (healthcheck)</span><span class="strategy-ops-subtitle">проверяет связь и обновляет circular при провалах</span>';
+  if (ops[1]) ops[1].querySelector('.card-title').innerHTML = '<span>Выученные стратегии (autocircular)</span><span class="strategy-ops-subtitle">circular подобрал и закрепил</span>';
   state.root = root; state.rows = buildRows(state.data); bindEvents(); renderAll(); return root;
 }
 function boundedRead(method, timeout, message) {
@@ -424,15 +630,23 @@ function load(ctx) {
   return Promise.allSettled(reads).then(function (results) {
     function settled(result) { return result.status === 'fulfilled' ? { value: result.value || {} } : { error: ctx.api.normalizeError(result.reason) }; }
     return { list: settled(results[0]), catalog: settled(results[1]), status: settled(results[2]), profiles: settled(results[3]) };
-  }).then(function (data) {
-    var items = listValue(data), selected = items[0] && items[0].id;
-    if (!selected) return data;
-    return call(ctx.api.strategies.get, { id: selected }).then(function (answer) { data.detail = { value: answer || {} }; return data; }, function (error) { data.detail = { error: ctx.api.normalizeError(error) }; return data; });
-  });
+  }).then(function (data) { return data; });
 }
 function mount(ctx) {
   state.disposed = false; state.ctx = ctx;
-  function schedule() { if (state.disposed) return; state.pollTimer = window.setTimeout(function () { state.pollTimer = null; refreshData().then(schedule); }, 5000); }
+  // Operational cards are lazy: they never inflate the initial catalog read
+  // and each call is bounded by its own RPC transport.
+  refreshHealthcheck(); refreshLearned(); refreshDebugToggle();
+  function schedule() {
+    if (state.disposed) return;
+    state.pollTimer = window.setTimeout(function () {
+      state.pollTimer = null;
+      // Never replace an in-progress editor/preview with a background poll.
+      // The next cycle resumes after the transient modal is closed.
+      if (state.editor || state.preview) { schedule(); return; }
+      refreshData().then(schedule);
+    }, 5000);
+  }
   schedule();
 }
 function unmount() {
