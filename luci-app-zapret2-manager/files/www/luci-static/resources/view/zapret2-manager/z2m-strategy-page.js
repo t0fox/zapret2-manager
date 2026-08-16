@@ -2,6 +2,7 @@
 'require baseclass';
 'require view.zapret2-manager.z2m-engine-gate as EngineGate';
 'require view.zapret2-manager.z2m-strategy as Strategy';
+'require view.zapret2-manager.z2m-avatar-strategies as AvatarStrategies';
 'require view.zapret2-manager.z2m-strategy-workflow as Workflow';
 'require view.zapret2-manager.z2m-auto as Auto';
 'require view.zapret2-manager.z2m-runs as Runs';
@@ -20,7 +21,7 @@ function settled(result, api) {
     : { error: api.normalizeError(result.reason) };
 }
 function primaryModule(mode) {
-  return mode === 'workflow' ? Workflow : Strategy;
+  return mode === 'workflow' ? Workflow : AvatarStrategies;
 }
 function primaryContext(ctx, envelope) {
   return Object.assign({}, ctx, { data: object(envelope && envelope.value) });
@@ -79,6 +80,7 @@ function mount(ctx) {
 }
 
 function unmount() {
+  AvatarStrategies.unmount();
   Strategy.unmount();
   Workflow.unmount();
   Auto.unmount();
