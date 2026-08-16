@@ -92,6 +92,14 @@ test('P01 Dashboard mounts its structure before the first status RPC resolves', 
   assert.match(app, /renderTabData\(tab, module, \{\}, token, force\)/);
 });
 
+test('P01 app entrypoint does not gate Dashboard on DNS/TG product status', () => {
+  const app = read('app.js');
+  const view = app.slice(app.indexOf('return L.view.extend({'));
+  const load = view.slice(view.indexOf('  load: function ()'), view.indexOf('\n\n  render: function'));
+  assert.doesNotMatch(load, /canonicalAppStatus|Api\.dns\.product\.status|Api\.tg\.product\.status/);
+  assert.match(load, /Api\.service\.status\(\)/);
+});
+
 test('P01 Dashboard removes LuCI shell chrome from the donor header and active tab', () => {
   const css = read('z2m-ui.css');
   assert.match(css, /\.z2m-view#z2m-view-overview \.page-header\{[^}]*background-image:none/);
