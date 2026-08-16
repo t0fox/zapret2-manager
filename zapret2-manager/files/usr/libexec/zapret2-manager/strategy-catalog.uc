@@ -2,10 +2,11 @@
 // Immutable Avatar Strategy catalog reader. The manifest is the only source of
 // file names and digests; raw files provide the parsed Strategy records.
 
-import { readfile, readlink, stat, popen } from 'fs';
+import { readfile, readlink, stat, popen, writefile } from 'fs';
 import { catalog_entry_to_strategy as normalize_catalog_entry } from './strategy-model.uc';
 
 const DEFAULT_ROOT = '/usr/share/zapret2-manager/catalog/avatar';
+const DERIVED_CACHE_PREFIX = '/tmp/zapret2-manager/strategy-catalog.';
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
 const PINNED_REPOSITORY = 'avatarDD/zapret-gui';
 const PINNED_COMMIT = 'f9dd3ea47a2239514f396a843b475c92c33f0b4c';
@@ -526,13 +527,47 @@ function build_catalog(root, manifest, manifestPath) {
 	} };
 }
 
-function load_catalog(root) {
+function derived_cache_path(root, digest) {
+	return root == DEFAULT_ROOT && match(digest || '', /^[0-9a-f]{64}$/)
+		? DERIVED_CACHE_PREFIX + digest + '.json' : null;
+}
+
+function cached_catalog(root, manifestResult) {
+	if (!is_object(manifestResult) || !is_object(manifestResult.manifest)) return null;
+	let digest = manifestResult.manifest.aggregateDigest;
+	let path = derived_cache_path(root, digest);
+	if (path == null) return null;
+	let raw = null, record = null;
+	try { raw = readfile(path); record = raw == null ? null : json(raw); } catch (e) { record = null; }
+	if (!is_object(record) || record.schema != 1 || record.root != root
+		|| record.aggregateDigest != digest || !is_object(record.catalog)) return null;
+	return record.catalog;
+}
+
+function persist_derived_catalog(root, catalog) {
+	if (!is_object(catalog)) return;
+	let path = derived_cache_path(root, catalog.aggregateDigest);
+	if (path == null) return;
+	try {
+		// The cache is disposable and digest-keyed. A partial write is treated
+		// as a cache miss; the canonical manifest/raw files remain authoritative.
+		writefile(path, sprintf('%J', { schema: 1, root: root,
+			aggregateDigest: catalog.aggregateDigest, catalog: catalog }));
+	} catch (e) { }
+}
+
+function load_catalog(root, bypassCache) {
 	let actualRoot = root == null ? DEFAULT_ROOT : root;
 	let manifestResult = read_manifest(actualRoot);
 	if (!manifestResult.ok) { loaded = null; loadedRoot = null; return manifestResult; }
+	if (bypassCache != true) {
+		let cached = cached_catalog(actualRoot, manifestResult);
+		if (cached != null) { loaded = cached; loadedRoot = actualRoot; return { ok: true, catalog: cached }; }
+	}
 	let result = build_catalog(actualRoot, manifestResult.manifest, manifestResult.manifestPath);
 	if (!result.ok) { loaded = null; loadedRoot = null; return result; }
 	loaded = result.catalog; loadedRoot = actualRoot;
+	persist_derived_catalog(actualRoot, loaded);
 	return result;
 }
 
@@ -580,7 +615,7 @@ export const strategy_catalog_status = function() {
 
 export const strategy_catalog_reload = function() {
 	let root = loadedRoot == null ? DEFAULT_ROOT : loadedRoot;
-	let result = load_catalog(root);
+	let result = load_catalog(root, true);
 	if (!result.ok) return result;
 	return strategy_catalog_status();
 };
