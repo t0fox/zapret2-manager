@@ -46,6 +46,15 @@ const ERROR_CODES = ['EINPUT', 'ENOENT', 'ECONFLICT', 'ENOENABLED', 'EDEPENDENCY
 	'EPREFLIGHT', 'EVERIFY', 'EINTERNAL', 'ELOCK', 'EUNCERTAIN', 'ERECONCILE', 'EIO',
 	'EOUTPUT', 'ECHILD', 'EUNAVAILABLE'];
 
+function strategy_trace(label) {
+	if (getenv('Z2M_STRATEGY_TRACE') != '1') return;
+	try {
+		let path = '/tmp/z2m-strategy-trace';
+		let previous = readfile(path) || '';
+		writefile(path, previous + label + '\t' + time() + '\n');
+	} catch (e) { }
+}
+
 function is_object(value) { return type(value) == 'object' && value != null; }
 function is_string(value) { return type(value) == 'string'; }
 function is_integer(value) { return type(value) == 'int' && value >= 0; }
@@ -864,10 +873,13 @@ function wire_strategy(strategy, current, selection) {
 }
 
 function strategy_list() {
+	strategy_trace('list:entry');
 	let current = load_request_catalog();
+	strategy_trace('list:catalog');
 	if (!is_object(current) || current.ok == false) return current;
 	let selection = null;
 	try { selection = strategy_selection_get(); } catch (e) { selection = null; }
+	strategy_trace('list:selection');
 	if (!is_object(selection) || selection.ok != true || type(selection.favorites) != 'array')
 		return error_result('EIO', 'Strategy favorites state is unavailable');
 	let strategies = [];
@@ -878,13 +890,18 @@ function strategy_list() {
 		if (strategy == null) return error_result('EVERIFY', 'catalog Strategy normalization failed');
 		push(strategies, wire_strategy(strategy, current, selection));
 	}
+	strategy_trace('list:catalog-wired');
 	let users = null;
 	try { users = strategy_user_list(); } catch (e) { users = null; }
+	strategy_trace('list:users');
 	if (!is_object(users) || users.ok != true) return users || error_result('EIO', 'User Strategy list is unavailable');
 	for (let strategy in users.strategies) push(strategies, wire_strategy(strategy, current, selection));
-	return bounded_strategy_response({ ok: true, strategies: strategies,
+	strategy_trace('list:before-bound');
+	let response = bounded_strategy_response({ ok: true, strategies: strategies,
 		state: { revision: selection.revision, favorites: selection.favorites },
 		favoritesRevision: selection.revision }, 'Strategy list');
+	strategy_trace('list:return');
+	return response;
 }
 
 function strategy_get(input) {
