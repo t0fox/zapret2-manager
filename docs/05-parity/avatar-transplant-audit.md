@@ -145,9 +145,9 @@ target deployment, and lifecycle-canary evidence remain separately gated below.
 | T06 dashboard closure | `PASS` | `avatar-dashboard-closure.test.mjs`; `dashboard-parity-contract.test.mjs` |
 | Knowledge validator | `PASS_WITH_PREEXISTING_UNRELATED_ERRORS` | no new P01-T errors; unrelated legacy frontmatter/link errors remain |
 | Browser 1280 / 768 / 390 | `NOT_RUN` | callable browser/CDP control surface unavailable in this cycle |
-| Direct SCP/target SHA/owner/mode | `NOT_RUN` | exact clean commit must be deployed before target evidence |
-| Start → RUNNING/NFQUEUE 300 → Restart → Stop | `NOT_RUN` | target lifecycle canary pending deployment |
-| Final `NFQWS2_ENABLE=0`, `STOPPED` | `NOT_RUN` | target state not inferred from history |
+| Direct SCP/target SHA/owner/mode | `PASS` | clean candidate `a06270489b465154322f2821b8e49bb7f54d1c06`; six frontend files matched source SHA-256; target owner/mode root:root/0644 |
+| Start → RUNNING/NFQUEUE 300 → Restart → Stop | `PASS` | `ubus call zapret2-manager start/restart/stop`; running states confirmed PID + NFQUEUE 300 registration/owner match |
+| Final `NFQWS2_ENABLE=0`, `STOPPED` | `PASS` | target config `NFQWS2_ENABLE=0`; final `runtimeSummary.status=stopped`, `reasonCode=process-confirmed-absent` |
 
 ## Verification requirements
 

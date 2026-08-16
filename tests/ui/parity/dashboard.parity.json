@@ -23,10 +23,10 @@
   "z2m_sections": ["page-header", "status-grid", "quick-actions", "recent-events", "Проверить ресурс"],
   "intentional_extensions": ["Проверить ресурс"],
   "intentional_deviations": ["LuCI RPC and shell remain authoritative; donor HTTP API/sidebar are excluded"],
-  "backend_supported": false,
+  "backend_supported": true,
   "visual_status": "ADAPTED_1TO1",
   "interaction_status": "PARTIAL",
-  "runtime_status": "PARTIAL",
+  "runtime_status": "PARITY",
   "browser": { "1280": "NOT_RUN", "768": "NOT_RUN", "390": "NOT_RUN" },
   "checks": {
     "console_errors": null,
@@ -35,7 +35,7 @@
     "clipped_controls": null,
     "dead_controls": null
   },
-  "target_candidate": null,
+  "target_candidate": "a06270489b465154322f2821b8e49bb7f54d1c06",
   "completion_status": "IN_PROGRESS",
-  "note": "P01-T source contracts are current and local checks pass; browser, direct-SCP target SHA/owner/mode, and lifecycle canary evidence are intentionally NOT_RUN for this cycle."
+  "note": "P01-T source contracts and target runtime canary pass; browser three-viewport evidence remains NOT_RUN because the configured browse executable/CDP control surface is unavailable."
 }
