@@ -37,5 +37,5 @@
   },
   "target_candidate": "a06270489b465154322f2821b8e49bb7f54d1c06",
   "completion_status": "IN_PROGRESS",
-  "note": "P01-T source contracts and target runtime canary pass; browser three-viewport evidence remains NOT_RUN because the configured browse executable/CDP control surface is unavailable."
+  "note": "P01-T source contracts and target runtime canary pass; browser three-viewport evidence remains NOT_RUN because local Edge CDP was available but target LuCI required an authenticated session and returned Authorization Required (HTTP 403)."
 }

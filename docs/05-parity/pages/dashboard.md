@@ -31,7 +31,7 @@ The current source-level transplant matrix is
 | Primary checkout | `G:\zapret2-manager` — untouched |
 | Scope | P01 only; P02 and all new backend milestones are not started |
 | P01-T source closure | T01–T06 local source/contracts `PASS`; custom approximation remaining `0` |
-| P01-T browser gate | `NOT_RUN`; configured browse executable/CDP control surface unavailable |
+| P01-T browser gate | `NOT_RUN`; local Edge 151.0.4129.78 CDP was available, but target LuCI required an authenticated session and returned `Authorization Required` (HTTP 403) |
 | P01-T target gate | `PASS`; clean candidate `a06270489b465154322f2821b8e49bb7f54d1c06` deployed by direct SCP; lifecycle canary passed |
 
 Historical start-state evidence above refers to the earlier P01 slice. For
