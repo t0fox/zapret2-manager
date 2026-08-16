@@ -75,32 +75,35 @@ Donor-only healthcheck, autocircular-state, debug-toggle, and `/api/*` backend
 flows are not supported by the canonical Z2M Strategy boundary. They must be
 classified `BACKEND_NOT_READY` or `INTENTIONAL_Z2M_DIFFERENCE`, never faked.
 
-## Final evidence
+## Final R2 evidence
 
-The earlier evidence below is historical and is superseded while P03-R2 is
-open. Current R2 closure requires a passing `strategies_list` RPC and a real
-authenticated Browser acceptance; a timeout fallback is not accepted.
-
-- GREEN focused contract suite: `32/32` P03/P02/P01 UI tests passed after the
-  final route change; all three P03 modules pass `node --check`; `git diff
-  --check` passed.
-- Final implementation candidate: `7724c6784916c3da5578ccad9801966e8aa22319`.
-- Target deploy: `STRATEGIES_ONLY` via clean detached worktree; target SHA,
-  `root:root`, and `0644` were verified for all four deployed files. `rpcd
-  reload` ran; no APK build, reboot, or Apply was performed.
-- Target read-only characterization: `engine_status` returned installed and
-  stopped; `strategies_list` timed out. The page therefore bounds read RPCs and
-  renders safe unavailable/empty states instead of waiting forever.
-- Browser acceptance: `PARTIAL / BLOCKED`. The existing tab was claimed and
-  the session-expiry login control was exercised as requested. After a full
-  navigation the LuCI form reported `Invalid username and/or password` with
-  the prefilled `root` username and empty password; no credentials were
-  available, so post-final-deploy DOM/editor/preview interaction could not be
-  completed. No strategy mutation or Apply was attempted.
-- Navigation/lifecycle source evidence: one replaceable timeout poller,
-  listener removal, autocomplete detach, modal cleanup, and forced Avatar
-  Strategies route are covered by the P03 lifecycle contracts.
-- Donor-only healthcheck/autocircular/debug flows: `BACKEND_NOT_READY` /
-  `INTENTIONAL_Z2M_DIFFERENCE`; no donor `/api/*` call is used.
-- Target Apply canary: `NOT RUN` because the service was stopped and no
+- Final P03-R2 candidate: `dcafaece` (`fix: keep strategies filter state in sync`);
+  the preceding implementation and target runtime closure is `c0404245`.
+- Focused contract suite: `17/17` passed. New Strategies JS passes `node
+  --check`; `git diff --check` passed.
+- Target list root cause: each uncached list request reparsed and reverified
+  the complete canonical manifest/catalog before serializing a large response.
+  The bounded projection reduced the direct call to about `15.69s`; the
+  digest-keyed disposable derived snapshot then reduced the cached ubus call to
+  `2.07s`. The target `strategies_list` RPC completed with `732` strategies,
+  and the cache key matched manifest digest
+  `5978d35bfc0b73caaae658124874e24619b1f448e673ec09fd7c5d4dd8c3dda1`.
+- Target deployment: P03-only files were copied with SHA-256 verification;
+  the final frontend patch is `root:root`, `0644`. No APK build, reboot, or
+  Apply was performed.
+- Real authenticated Browser acceptance in the existing tab: `PASS`.
+  `#/strategies` rendered the real catalog summary `23 files / 732
+  strategies`, active `Split`, and `80` visible cards. Search narrowed the
+  rendered rows to disorder matches; the recommended filter rendered `2` rows
+  and switched its active class; details expanded; preview opened the real
+  modal and the canonical backend reported `Сервис не вернул команду` because
+  the target `nfqws2` service is stopped. No mutation or Apply was attempted.
+- Final DOM checks: `[object HTMLDivElement]` absent, Scanner absent from the
+  Strategies surface, and Avatar/donor/transplant branding absent from the
+  rendered page. The same tab was left on the live Strategies route.
+- Donor-only healthcheck/autocircular/debug flows remain
+  `BACKEND_NOT_READY` / `INTENTIONAL_Z2M_DIFFERENCE`; no donor `/api/*` call is
+  used by the Z2M route.
+- Target Apply canary: `NOT RUN` because the service is stopped and no
   rollback-safe baseline was established.
+- `P04_STARTED=NO`.
