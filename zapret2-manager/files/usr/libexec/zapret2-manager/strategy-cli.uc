@@ -822,11 +822,26 @@ function load_request_catalog() {
 }
 
 function catalog_strategy(entry) {
-	let strategy = null;
-	try { strategy = catalog_entry_to_strategy(entry, true); } catch (e) { strategy = null; }
-	if (!is_object(strategy)) return null;
+	// The immutable catalog parser has already verified this entry. The list
+	// projection must not re-tokenize 732 entries on every RPC: full canonical
+	// normalization remains on get/preview/validate. A single raw profile keeps
+	// the real server arguments visible while preserving identity and digest
+	// authority for list/apply actions.
+	if (!is_object(entry) || type(entry.id) != 'string') return null;
+	let metadata = is_object(entry.metadata) ? entry.metadata : {};
+	let args = type(entry.args) == 'string' ? entry.args : '';
+	let strategy = {
+		id: entry.id, name: type(metadata.name) == 'string' && length(metadata.name) ? metadata.name : entry.id,
+		description: type(metadata.description) == 'string' ? metadata.description : '',
+		type: 'single', version: 1, is_builtin: true, source: 'catalog',
+		level: entry.level == null ? '' : entry.level, label: metadata.label || '',
+		author: metadata.author || '', protocol: entry.protocol == 'udp' ? 'udp' : 'tcp',
+		featured: metadata.featured === true, blobs: type(metadata.blobs) == 'array' ? metadata.blobs : [],
+		profiles: [{ id: 'profile-1', name: 'Параметры стратегии', enabled: true, args: args }]
+	};
+	for (let key in ['sourceFile', 'sourceOrdinal', 'duplicateGroup', 'cacheKey', 'cacheOrdinal', 'winner', 'effectiveOrdinal'])
+		if (entry[key] != null) strategy[key] = entry[key];
 	strategy.origin = 'avatar_builtin';
-	strategy.is_builtin = true;
 	strategy.revision = 0;
 	return strategy;
 }

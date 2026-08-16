@@ -190,7 +190,7 @@ function copy_catalog_provenance(strategy, entry) {
 // Convert one physical CatalogEntry without applying compiler transforms. The
 // catalog parser owns WinDivert line filtering; this boundary only tokenizes
 // the already parsed args and preserves all other tokens as Profile data.
-export const catalog_entry_to_strategy = function(entry, trustedCatalog) {
+export const catalog_entry_to_strategy = function(entry) {
 	if (!is_object(entry)) return null;
 	let strategyId = entry.id != null ? entry.id : entry.sectionId;
 	if (type(strategyId) != 'string' || length(strategyId) == 0) return null;
@@ -241,10 +241,6 @@ export const catalog_entry_to_strategy = function(entry, trustedCatalog) {
 	};
 	copy_catalog_provenance(strategy, entry);
 
-	// The immutable catalog parser already split exact separators and emitted
-	// canonical profile arguments. The list RPC can skip the second full
-	// tokenizer/normalizer pass; untrusted callers keep the original path.
-	if (trustedCatalog == true) return strategy;
 	let normalized = strategy_normalize(strategy);
 	return normalized.ok ? normalized.strategy : null;
 };
