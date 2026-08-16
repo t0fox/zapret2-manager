@@ -155,3 +155,65 @@ TARGET_OWNER_MODE: PASS (root:root, regular files)
 P04_STARTED: NO
 STATUS: DONE
 ```
+
+## P03 iconography + expanded-card correction: initial findings
+
+Status: `CORRECTION_INITIAL_REVIEW_COMPLETE`  
+Date: `2026-08-17`  
+Donor authority: frozen SHA `38ed85ce487c6b3dbdf703a5be197795f7c0cad1`, rendered at
+`http://127.0.0.1:8765/#strategies`. The deployed baseline was inspected in the
+same authenticated Browser session before implementation changes.
+
+The donor uses one lightweight inline SVG language: `viewBox="0 0 24 24"`,
+`fill="none"`, `stroke="currentColor"`, `stroke-width="2"`, rounded joins/caps,
+with compact `14px` control icons and `18px` favorite icons. Its usable source is
+the inline SVG markup in `web/js/pages/strategies.js`, the search/group SVGs in
+`web/js/components/list_ui.js`, and the shared `btn-icon`/`btn-icon-only` rules
+in `web/css/style.css`. The donor Details handler is delegated
+`[data-list-ui-toggle]` behavior that toggles `.expanded` on the same card;
+multiple cards can be expanded at once, the state is not persisted, and a list
+rerender clears the old DOM.
+
+| CONTROL | DONOR_ICON | Z2M_ICON_BEFORE | INITIAL_FINDING |
+|---|---|---|---|
+| Paste from clipboard | clipboard SVG | text-only | P1 `MISSING_ICONOGRAPHY` |
+| Create Strategy | plus SVG | text-only | P1 `MISSING_ICONOGRAPHY` |
+| Active Strategy | activity SVG + status dot | status dot only | P1 `MISSING_ICONOGRAPHY` |
+| nfqws2 Debug | bug SVG | checkbox + emoji-free text, no icon | P1 `MISSING_ICONOGRAPHY` |
+| Journal | document SVG | text-only | P1 `MISSING_ICONOGRAPHY` |
+| Healthcheck | activity/status SVG | status dot only | P1 `MISSING_ICONOGRAPHY` |
+| Run check now | play SVG | text-only | P1 `MISSING_ICONOGRAPHY` |
+| Settings | gear SVG | text-only | P1 `MISSING_ICONOGRAPHY` |
+| Learned Strategies | circular/activity SVG | text-only heading | P1 `MISSING_ICONOGRAPHY` |
+| Reset all | trash SVG | text-only | P1 `MISSING_ICONOGRAPHY` |
+| Show auto Strategies | circular/play affordance | text-only | P1 `MISSING_ICONOGRAPHY` |
+| Search | magnifier SVG | Unicode `⌕` | P1 `MISSING_ICONOGRAPHY` |
+| Auto/circular filter | no decorative icon beyond donor filter language | Unicode `⟳` | P2 consistency gap; replace with SVG filter icon |
+| Favorites filter | star semantics | text-only `Избранное` | P1 `MISSING_ICONOGRAPHY` |
+| Group disclosure | chevron SVG | Unicode `⌄` | P1 `MISSING_ICONOGRAPHY` |
+| Strategy favorite | outlined/filled star SVG | Unicode `☆`/`★` | P1 `MISSING_ICONOGRAPHY` |
+| Apply | primary action has no donor icon | text-only | P2 donor-equivalent exception: donor has no icon |
+| Details | chevron SVG | text-only and no state marker | P1 `DETAILS_EXPANDED_STATE_MISSING_OR_WEAK` |
+| Preview | code/terminal SVG | text-only | P1 `MISSING_ICONOGRAPHY` |
+| Clipboard | copy SVG | text-only | P1 `MISSING_ICONOGRAPHY` |
+| Copy/Duplicate | copy SVG | text-only | P1 `MISSING_ICONOGRAPHY` |
+| Bulk toolbar | donor action controls use normal icon+label rhythm | text-only | P1 `MISSING_ICONOGRAPHY` |
+| Combine | donor copy/action affordance | text-only | P1 `MISSING_ICONOGRAPHY` |
+| Clear selection | donor close/clear affordance | text-only | P1 `MISSING_ICONOGRAPHY` |
+
+Initial correction gates:
+
+- `ICONOGRAPHY_P1_REMAINING: 18` (all listed donor-icon controls except
+  donor-equivalent text-only Apply, plus the group/filter consistency item).
+- `DETAILS_STATE_P1_REMAINING: 1`: current Z2M already toggles `.expanded` and
+  reveals args, but the control has no SVG chevron, no active state, no
+  accessible expanded state, and no explicit one-card-vs-multi-card contract.
+- `TEXT_ONLY_WHERE_DONOR_HAS_ICON: FAIL`.
+- `DETAILS_EXPANDED_CONTROL_VISUAL: FAIL`.
+- `NFQWS_ARGUMENTS_READABLE: PARTIAL`: raw args exist but the current compact
+  card has no donor-style syntax presentation or clear expanded divider.
+
+Baseline evidence: the deployed screenshot showed text-only page actions,
+Healthcheck controls, filters, group disclosure, favorite, card actions and
+Details; the first card was collapsed with `.strategy-card-args-wrap` hidden.
+No backend or RPC change is part of this correction.
