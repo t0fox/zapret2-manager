@@ -44,6 +44,7 @@ luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2
 luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.css|/www/luci-static/resources/view/zapret2-manager/z2m-ui.css
 zapret2-manager/files/usr/libexec/zapret2-manager/strategy-catalog.uc|/usr/libexec/zapret2-manager/strategy-catalog.uc
 zapret2-manager/files/usr/libexec/zapret2-manager/strategy-cli.uc|/usr/libexec/zapret2-manager/strategy-cli.uc
+zapret2-manager/files/usr/libexec/zapret2-manager/strategy-model.uc|/usr/libexec/zapret2-manager/strategy-model.uc
 '
 
 remote() { ssh "${SSH_OPTS[@]}" "$TARGET" "$@" </dev/null; }

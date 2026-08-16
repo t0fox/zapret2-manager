@@ -823,7 +823,7 @@ function load_request_catalog() {
 
 function catalog_strategy(entry) {
 	let strategy = null;
-	try { strategy = catalog_entry_to_strategy(entry); } catch (e) { strategy = null; }
+	try { strategy = catalog_entry_to_strategy(entry, true); } catch (e) { strategy = null; }
 	if (!is_object(strategy)) return null;
 	strategy.origin = 'avatar_builtin';
 	strategy.is_builtin = true;
