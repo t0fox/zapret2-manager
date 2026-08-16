@@ -7,7 +7,7 @@ var modalKeyHandler = null;
 
 function injectStylesheet(id, filename) {
   if (!document || !document.head) return;
-  var revision = filename === 'z2m-ui.css' ? '?v=d73fbb3149c1079b' : '';
+  var revision = filename === 'z2m-ui.css' ? '?v=p03dr-bulk-1' : '';
   var existing = document.getElementById(id);
   if (existing) {
     var expected = L.resource('view/zapret2-manager/' + filename) + revision;

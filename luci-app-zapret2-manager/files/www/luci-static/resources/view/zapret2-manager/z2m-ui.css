@@ -940,4 +940,17 @@
 .z2m-view#z2m-view-strategy .strategy-source { padding-left:0; color:var(--tx3); }
 .z2m-view#z2m-view-strategy .fav-btn { width:36px; min-width:36px; height:36px; font-size:20px; }
 .z2m-view#z2m-view-strategy .fav-btn.active { color:var(--orange); background:rgba(224,163,59,.1); }
-.z2m-view#z2m-view-strategy .strat-bulkbar { border-radius:999px; padding:10px 16px; gap:12px; }
+.z2m-view#z2m-view-strategy .strat-bulkbar {
+  position:fixed;
+  left:50%;
+  bottom:24px;
+  transform:translateX(-50%);
+  z-index:550;
+  width:max-content;
+  max-width:calc(100% - 32px);
+  border-radius:999px;
+  padding:10px 16px;
+  gap:12px;
+  box-shadow:0 12px 28px rgba(0,0,0,.38);
+}
+.z2m-view#z2m-view-strategy .strategy-card.selected { border-color:var(--blue); box-shadow:inset 0 0 0 1px var(--blue); }

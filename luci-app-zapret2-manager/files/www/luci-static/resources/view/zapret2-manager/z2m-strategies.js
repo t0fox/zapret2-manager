@@ -335,7 +335,7 @@ function refreshStrategyStyles() {
   var link = document && document.getElementById ? document.getElementById('z2m-ui-css') : null;
   if (!link || !link.getAttribute || !link.setAttribute) return;
   var href = link.getAttribute('href') || '';
-  if (href.indexOf('v=d73fbb3149c1079b') < 0) link.setAttribute('href', href.split('?')[0] + '?v=d73fbb3149c1079b');
+  if (href.indexOf('v=p03dr-bulk-1') < 0) link.setAttribute('href', href.split('?')[0] + '?v=p03dr-bulk-1');
 }
 function refreshHealthcheck() {
   if (!state.ctx || !state.ctx.api.healthcheck || !state.ctx.api.healthcheck.status) return Promise.resolve();
