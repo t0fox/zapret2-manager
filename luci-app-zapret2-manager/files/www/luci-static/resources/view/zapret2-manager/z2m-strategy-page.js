@@ -1,6 +1,5 @@
 'use strict';
 'require baseclass';
-'require view.zapret2-manager.z2m-engine-gate as EngineGate';
 'require view.zapret2-manager.z2m-strategy as Strategy';
 'require view.zapret2-manager.z2m-avatar-strategies as AvatarStrategies';
 'require view.zapret2-manager.z2m-strategy-workflow as Workflow';
@@ -92,7 +91,7 @@ function createAdapter(api) {
   return Strategy.createAdapter ? Strategy.createAdapter(api) : null;
 }
 
-return EngineGate.wrap(baseclass.extend({
+return baseclass.extend({
   id: 'strategy',
   title: _('Стратегия'),
   subtitle: _('Выбор и проверка способа обхода DPI'),
@@ -101,4 +100,4 @@ return EngineGate.wrap(baseclass.extend({
   mount: mount,
   unmount: unmount,
   createAdapter: createAdapter
-}));
+});
