@@ -10,7 +10,8 @@ function injectStylesheet(id, filename) {
   var link = document.createElement('link');
   link.id = id;
   link.rel = 'stylesheet';
-  link.href = L.resource('view/zapret2-manager/' + filename);
+  var revision = filename === 'z2m-ui.css' ? '?v=d73fbb3149c1079b' : '';
+  link.href = L.resource('view/zapret2-manager/' + filename) + revision;
   document.head.appendChild(link);
 }
 
