@@ -95,5 +95,5 @@ test('P01 Dashboard mounts its structure before the first status RPC resolves', 
 test('P01 Dashboard removes LuCI shell chrome from the donor header and active tab', () => {
   const css = read('z2m-ui.css');
   assert.match(css, /\.z2m-view#z2m-view-overview \.page-header\{[^}]*background-image:none/);
-  assert.match(css, /\.z2m-navigation-shell \.z2m-primary-nav button\.on\{[^}]*background:transparent/);
+  assert.match(css, /\.z2m-navigation-shell \.z2m-primary-nav button\.on\{[^}]*background:transparent[^}]*box-shadow:none/);
 });
