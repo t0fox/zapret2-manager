@@ -25,7 +25,7 @@
   "intentional_deviations": ["LuCI RPC and shell remain authoritative; donor HTTP API/sidebar are excluded"],
   "backend_supported": true,
   "visual_status": "ADAPTED_1TO1",
-  "interaction_status": "PARTIAL",
+  "interaction_status": "PARITY",
   "runtime_status": "PARITY",
   "browser": { "1280": "PASS", "768": "PASS", "390": "PASS" },
   "checks": {

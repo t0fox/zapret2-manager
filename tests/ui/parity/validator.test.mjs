@@ -5,13 +5,12 @@ import { readManifest, validateManifest } from './validate-page-parity.mjs';
 
 const fixture = readManifest(new URL('./dashboard.parity.json', import.meta.url));
 
-test('Dashboard fixture records the current P01-T cycle without claiming target completion', () => {
+test('Dashboard fixture records the completed P01-T browser acceptance cycle', () => {
   const result = validateManifest(fixture);
-  assert.equal(result.complete, false);
+  assert.equal(result.complete, true);
   assert.equal(result.diff.missing_donor_sections.length, 0);
   assert.deepEqual(result.diff.unexplained_extra_sections, []);
-  assert.match(result.errors.join('\n'), /browser 1280px evidence is not PASS/);
-  assert.match(result.errors.join('\n'), /interaction parity is PARTIAL/);
+  assert.deepEqual(result.errors, []);
 });
 
 test('strict validator rejects a newly introduced browser console error', () => {
