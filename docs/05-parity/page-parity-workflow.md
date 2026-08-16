@@ -1,5 +1,21 @@
 # Avatar page parity workflow
 
+## Z2M Browser Acceptance Priority
+
+For zapret2-manager browser acceptance, use these paths in order:
+
+1. Codex built-in Browser.
+2. A connected user Browser extension or existing browser context.
+3. An existing authenticated CDP context.
+4. A fresh manual Chrome/Edge CDP profile only as a last fallback.
+
+Never declare authenticated LuCI browser acceptance blocked merely because a
+newly launched clean browser profile receives HTTP 403. Prefer reusing an
+existing authenticated browser context, and do not extract or print passwords
+or cookies. A frontend/UI change cannot be marked `COMPLETE` without real
+browser acceptance at the required exact viewports and its console, network,
+overflow, and interaction evidence.
+
 This workflow is evidence-first and page-scoped. It does not authorize
 implementation of the next page in the queue.
 
