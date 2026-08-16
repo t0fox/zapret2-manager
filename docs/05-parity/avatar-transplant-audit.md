@@ -51,6 +51,42 @@ and was not modified.
 The existing dirty files were inspected before edits. Only P01-T files will be
 changed; unrelated dirty changes will remain uncommitted and untouched.
 
+## P01-T2 start state
+
+| Field | Evidence |
+|---|---|
+| `ACTIVE_WORKTREE` | `G:\zapret2-manager\.codex-avatar-parity` |
+| `INITIAL_HEAD` | `a39ca7a05134e2c89b129ead64a616fef1bedf9c` |
+| `P01_T_PREVIOUS_REALITY` | `MOSTLY_AUDIT_WITH_CUSTOM_UI_RETAINED` |
+| `INITIAL_DIRTY_STATE` | Pre-existing changes in `z2m-maintenance-model.js`, `z2m-overview.js`, `z2m-shell.js`, `deploy-engine-single-upstream-target.sh`, native/product/UI tests, `Makefile`, engine worker/service; untracked `tests/ui/log-ux-contract.test.mjs` |
+| `P02_STARTED` | `NO` |
+
+The previous P01-T closure commit is not treated as transplant evidence. The
+source comparison below is the required pre-correction truth for the current
+candidate.
+
+## P01-T2 source re-audit — pre-correction truth
+
+Evidence uses donor source at `38ed85ce487c6b3dbdf703a5be197795f7c0cad1` and
+the current Z2M files. `YES` means actual source-derived code/structure is
+present; `PARTIAL` means only some donor structure was copied; `NO` means the
+current implementation is independently authored.
+
+| Component | DONOR_FILE / SYMBOL / CSS | PRE_P01_T_Z2M_FILE / STRUCTURE | CURRENT_Z2M_FILE / STRUCTURE | ACTUAL_DONOR_CODE_PORTED | DONOR_DERIVED_DOM | DONOR_DERIVED_JS | DONOR_DERIVED_CSS | CURRENT_CLASSIFICATION |
+|---|---|---|---|---|---|---|---|---|
+| Dashboard composition | `web/js/pages/dashboard.js:14-254`, `render`; `.page-header`, `.status-grid`, `.card`, `.card-title`, `.actions-row`, `.log-viewer` | `z2m-overview.js`: custom `E()` section with status/resource panels | `z2m-overview.js:609-708`: custom `pageHead` + `renderStatusGrid` + `renderQuickActions` + `renderEvents` composition | `PARTIAL` | `PARTIAL` | `NO` | `PARTIAL` | `CUSTOM_APPROXIMATION` |
+| Status cards | `web/js/pages/dashboard.js:21-88`, `render`/`updateCards`; `.status-card*`, `.status-dot` | `z2m-overview.js`: status cards already custom Z2M builders | `z2m-overview.js:421-439,512-529`; `z2m-ui.css:100-110` | `YES` | `YES` | `NO` for donor API/state update logic | `YES`, theme-adapted | `ADAPTED_BOUNDARY_ONLY` |
+| Quick Actions | `web/js/pages/dashboard.js:204-232,562-595`, `quickAction`; `.card`, `.card-title`, `.actions-row`, `.spinner` | `z2m-overview.js`: custom lifecycle buttons/state | `z2m-overview.js:146-209,600-606`: `lifecycleAction`, `lifecycleButton`, inline feedback | `PARTIAL` | `PARTIAL` | `NO` | `PARTIAL` | `CUSTOM_APPROXIMATION` |
+| Lifecycle result UI | `web/js/components/toast.js:14-89`, `Toast.show`; Dashboard `quickAction` result calls | `z2m-overview.js`: custom inline `z2m-lifecycle-feedback` | `z2m-overview.js:198-209`: custom structured result; no donor toast hierarchy for lifecycle result | `NO` for the structured result panel | `NO` | `NO` | `NO` | `INTENTIONAL_Z2M_DIFFERENCE` |
+| Log viewer / Recent Events | `web/js/pages/logs.js:452-521`, `renderEntries`/`createEntryElement`; `.log-row`, `.log-time`, `.log-badge`, `.log-source`, `.log-message` | `z2m-overview.js`: custom log rows before shared adapter | `z2m-avatar-log.js:96-127` and `z2m-overview.js:531-598`: donor-derived row renderer plus Z2M normalization | `YES` | `YES` | `YES`, adapter-boundary changed | `YES`, theme-adapted | `ADAPTED_BOUNDARY_ONLY` |
+| Dialogs / modals | `web/js/components/confirm.js:21-83`, `Confirm.show`/`cleanUp`; `.modal-overlay`, `.modal-content` | `z2m-shell.js`: custom `.z2m-modal/.mh/.mb/.mf` | `z2m-shell.js:315-349`, `z2m-avatar-ui.js:125-159`: custom modal/confirm hierarchy | `NO` | `NO` | `NO` | `NO` | `CUSTOM_APPROXIMATION` |
+
+The re-audit therefore finds three actionable custom approximations with usable
+donor implementations: Dashboard composition, Quick Actions, and Dialogs.
+Status cards and log rows are genuine donor-derived boundaries; the lifecycle
+result panel is an intentional Z2M extension because the donor only provides a
+toast and does not provide the required structured human reason/details panel.
+
 ## Exact donor manifest
 
 The following mappings were read from `AVATAR_DONOR_HEAD`, not reconstructed
@@ -84,13 +120,13 @@ The classification is source-level and uses the project contract:
 
 | Component | Donor file(s) | Donor symbol/selector | Current Z2M file(s) | Current classification | Intentional difference | Required action | Final classification |
 |---|---|---|---|---|---|---|---|
-| Dashboard header/composition | `web/js/pages/dashboard.js` | `render`; `.page-header` | `z2m-overview.js` | `CUSTOM_APPROXIMATION` | LuCI shell and Russian copy | Preserve donor composition/class structure; adapt Z2M mount and copy | `ADAPTED_BOUNDARY_ONLY` |
-| Status cards/grid | `web/js/pages/dashboard.js` | `render`, `updateCards`; `.status-card*` | `z2m-overview.js`, `z2m-ui.css` | `CUSTOM_APPROXIMATION` | Z2M runtime/status data and Graphite tokens | Transplant donor card structure and CSS behavior; keep canonical data adapter | `ADAPTED_BOUNDARY_ONLY` |
+| Dashboard header/composition | `web/js/pages/dashboard.js` | `render`; `.page-header` | `z2m-overview.js` | `CUSTOM_APPROXIMATION` | LuCI shell and Russian copy | Transplant donor composition/class structure; adapt Z2M mount and copy | `PENDING_REAL_TRANSPLANT` |
+| Status cards/grid | `web/js/pages/dashboard.js` | `render`, `updateCards`; `.status-card*` | `z2m-overview.js`, `z2m-ui.css` | `ADAPTED_BOUNDARY_ONLY` | Z2M runtime/status data and Graphite tokens | Preserve donor card structure while retaining canonical data adapter | `ADAPTED_BOUNDARY_ONLY` |
 | System card semantics | `web/js/pages/dashboard.js` | system card branch | `z2m-overview.js` | `INTENTIONAL_Z2M_DIFFERENCE` | OpenWrt/uptime/memory/overlay are required Z2M facts | Keep data semantics; transplant donor visual shell | `INTENTIONAL_Z2M_DIFFERENCE` |
-| Quick Actions | `web/js/pages/dashboard.js` | `quickAction`; `.actions-row` | `z2m-overview.js`, `z2m-shell.js` | `CUSTOM_APPROXIMATION` | Z2M RPC and truthful runtime convergence | Retain donor action layout/pending lock; adapt lifecycle RPC/result adapter | `ADAPTED_BOUNDARY_ONLY` |
-| Lifecycle result presentation | `web/js/pages/dashboard.js`, `web/js/components/toast.js` | `quickAction`, `Toast.*` | `z2m-overview.js`, `z2m-shell.js` | `ADAPTED_BOUNDARY_ONLY` | Human Russian title/reason and Z2M error semantics | Keep donor notification lifecycle; ensure structured result and collapsed technical details | `ADAPTED_BOUNDARY_ONLY` |
-| Recent Events viewer | `web/js/pages/logs.js`, `web/js/pages/dashboard.js` | `createEntryElement`, `renderLogs`; `.log-row*` | `z2m-avatar-log.js`, `z2m-overview.js`, `z2m-maintenance.js`, `z2m-ui.css` | `CUSTOM_APPROXIMATION` | Z2M canonical event schema and Russian severity adapter | Extract donor-derived normalized log component; preserve `eventsTail` boundary | `ADAPTED_BOUNDARY_ONLY` |
-| Confirmation/dialog | `web/js/components/confirm.js` | `Confirm.show`; `.modal-overlay` | `z2m-shell.js`, `z2m-avatar-ui.js`, engine/proxy pages | `ADAPTED_BOUNDARY_ONLY` | Z2M operation semantics, Graphite tokens, Russian copy | Verify donor cleanup/focus/dismissal behavior and reuse shared boundary | `ADAPTED_BOUNDARY_ONLY` |
+| Quick Actions | `web/js/pages/dashboard.js` | `quickAction`; `.actions-row` | `z2m-overview.js`, `z2m-shell.js` | `CUSTOM_APPROXIMATION` | Z2M RPC and truthful runtime convergence | Transplant donor action layout/pending lock; adapt lifecycle RPC/result adapter | `PENDING_REAL_TRANSPLANT` |
+| Lifecycle result presentation | `web/js/pages/dashboard.js`, `web/js/components/toast.js` | `quickAction`, `Toast.*` | `z2m-overview.js`, `z2m-shell.js` | `INTENTIONAL_Z2M_DIFFERENCE` | Required structured Russian result/reason/details panel | Keep structured Z2M result and add donor toast boundary for action notification | `INTENTIONAL_Z2M_DIFFERENCE` |
+| Log viewer / Recent Events | `web/js/pages/logs.js`, `web/js/pages/dashboard.js` | `createEntryElement`, `renderLogs`; `.log-row*` | `z2m-avatar-log.js`, `z2m-overview.js`, `z2m-maintenance.js`, `z2m-ui.css` | `ADAPTED_BOUNDARY_ONLY` | Z2M canonical event schema and Russian severity adapter | Preserve donor-derived normalized log component and `eventsTail` boundary | `ADAPTED_BOUNDARY_ONLY` |
+| Dialogs / modals | `web/js/components/confirm.js` | `Confirm.show`; `.modal-overlay` | `z2m-shell.js`, `z2m-avatar-ui.js`, engine/proxy pages | `CUSTOM_APPROXIMATION` | Z2M operation semantics, Graphite tokens, Russian copy | Port donor modal hierarchy and retain Z2M callback boundary | `PENDING_REAL_TRANSPLANT` |
 | Dashboard lifecycle/page teardown | `web/js/pages/dashboard.js` | `startPolling`, `destroy` | `z2m-overview.js`, `app.js` | `ADAPTED_BOUNDARY_ONLY` | LuCI view mount/unmount and horizontal nav | Keep donor teardown semantics; prove no duplicate bindings/zombie pollers | `ADAPTED_BOUNDARY_ONLY` |
 | Loading/empty/error states | `web/js/pages/dashboard.js`, `web/js/pages/logs.js` | initial render, empty log state, bounded error state | `z2m-overview.js`, `z2m-avatar-log.js`, `z2m-shell.js` | `CUSTOM_APPROXIMATION` | Z2M RPC envelopes and Russian product copy | Retain donor first-paint/empty viewer shape through shared Z2M shell adapter | `ADAPTED_BOUNDARY_ONLY` |
 | Donor-only VPN/Monitoring cards | `web/js/pages/dashboard.js` | `updateVpnCards`, `updateEngineCards`, `updateMonitoringCards` | no supported P01 Z2M equivalent | `INTENTIONAL_Z2M_DIFFERENCE` | No canonical Z2M backend capability in P01; no invented state | Exclude donor-only product cards and document the boundary | `INTENTIONAL_Z2M_DIFFERENCE` |
@@ -118,20 +154,22 @@ under technical details.
 
 ## Required closure counts
 
-These are updated only after the final audit and fresh verification:
+These are the current pre-correction counts; they must be replaced only after
+the real donor slices and fresh verification:
 
 ```text
-AUDITED_COMPONENTS: 11
+P01_T2_REAUDIT_STATUS: COMPLETE
+P01_T2_PREVIOUS_REALITY: MOSTLY_AUDIT_WITH_CUSTOM_UI_RETAINED
+AUDITED_COMPONENTS: 6 (P01-T2 required shared components)
 TRANSPLANTED_EXACT: 0
-ADAPTED_BOUNDARY_ONLY: 8
-INTENTIONAL_Z2M_DIFFERENCE: 3
+ADAPTED_BOUNDARY_ONLY: 2
+INTENTIONAL_Z2M_DIFFERENCE: 1
 NO_USABLE_DONOR: 0
-CUSTOM_APPROXIMATION_REMAINING: 0
+CUSTOM_APPROXIMATION_REMAINING: 3
 ```
 
-The final source audit closes the custom-approximation classification for the
-eleven audited P01 components. This is not a full completion claim: browser,
-target deployment, and lifecycle-canary evidence remain separately gated below.
+The source re-audit deliberately reopens the three false transplant claims.
+P01-T2 remains `WORKING` until those donor components are genuinely ported.
 
 ## P01-T current verification gate
 
