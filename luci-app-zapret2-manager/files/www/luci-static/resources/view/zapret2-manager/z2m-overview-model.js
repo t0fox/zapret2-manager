@@ -6,6 +6,14 @@ var ACTIVE_PHASES = ['queued', 'pending', 'running', 'testing', 'scanning', 'app
 
 function asArray(value) { return Array.isArray(value) ? value : []; }
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
+function payload(value) {
+  for (var i = 0; i < 4; i++) {
+    if (Array.isArray(value)) { value = value[0]; continue; }
+    if (value && typeof value === 'object' && value.value !== undefined) { value = value.value; continue; }
+    break;
+  }
+  return object(value);
+}
 function finite(value) {
   if (value == null || value === '') return null;
   var number = Number(value);
@@ -143,11 +151,11 @@ function adviceFor(view) {
 
 function normalize(data) {
   data = object(data);
-  var status = object(object(data.status).value);
-  var preview = object(object(data.preview).value);
-  var history = object(object(data.history).value);
-  var orchestra = object(object(data.orchestra).value);
-  var serviceDns = object(object(data.serviceDns).value);
+  var status = payload(data.status);
+  var preview = payload(data.preview);
+  var history = payload(data.history);
+  var orchestra = payload(data.orchestra);
+  var serviceDns = payload(data.serviceDns);
   var lastRun = latestCompletedRun(history);
   var rules = asArray(object(preview.overrides).rules);
   var errors = [];

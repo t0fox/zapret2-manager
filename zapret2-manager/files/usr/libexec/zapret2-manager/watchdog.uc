@@ -108,7 +108,11 @@ function find_pids() {
 		let cl = readfile('/proc/' + name + '/cmdline');
 		if (!cl) cl = '';
 		if (!length(cl)) continue;
-		if (index(replace(cl, '\x00', ' '), DAEMON) >= 0)
+		// /proc/<pid>/cmdline is NUL-delimited. ucode's replace() treats
+		// NUL as a string terminator on this target and corrupts the argv.
+		let argv = split(cl, chr(0));
+		let bin = length(argv) ? argv[0] : '';
+		if (bin == DAEMON || index(bin, '/' + DAEMON) >= 0)
 			push(pids, +name);
 	}
 	return pids;
@@ -292,7 +296,7 @@ function check_cycle() {
 
 	// 2) rules — alert only, never rebuild (upstream owns the table)
 	try {
-		let raw = sh('nft list table ' + NFT_TABLE);
+		let raw = sh('nft list table inet ' + NFT_TABLE);
 		if (!length(raw) || index(raw, 'chain ') < 0)
 			alert_if('rules_gone', 'health', 'watchdog',
 				'nft table ' + NFT_TABLE + ' missing or empty', 'crit', st,

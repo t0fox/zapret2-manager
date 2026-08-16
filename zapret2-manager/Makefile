@@ -3,7 +3,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=zapret2-manager
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=146
+PKG_RELEASE:=147
 PKG_MAINTAINER:=Ásgeir
 PKG_LICENSE:=MIT
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)
@@ -71,7 +71,7 @@ endef
 define Package/zapret2-manager/conffiles
 /etc/zapret2-manager/state.json
 /etc/zapret2-manager/service-dns-state.json
-/etc/zapret2-manager/engine-provider.json
+/etc/zapret2-manager/engine-state.json
 /etc/zapret2-manager/blockcheck-domains.json
 /etc/zapret2-manager/asset-registry.json
 /etc/zapret2-manager/routes.json

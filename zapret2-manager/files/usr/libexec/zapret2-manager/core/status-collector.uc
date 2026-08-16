@@ -48,15 +48,48 @@ function read_json(path, fallback) {
 
 function engine_level() {
 	let packagePresent = false;
+	let packageVersion = null;
+	let runtimeVersion = null;
+	let installedRelease = null;
+	let installedOrigin = null;
+	let officialRuntime = false;
 	try { packagePresent = length(trim(sh('apk info -e zapret2'))) > 0; }
 	catch (e) { packagePresent = false; }
+	if (packagePresent) {
+		try {
+			let raw = trim(sh("apk info -e -v zapret2 | head -n 1")), m = match(raw, /^zapret2-(.+)$/);
+			if (m && length(m) > 1) packageVersion = trim(m[1]);
+		} catch (e) { packageVersion = null; }
+	}
 	let binaryPresent = !!stat(PATHS.nfqws_bin);
 	let servicePresent = !!stat(PATHS.upstream_init);
+	if (binaryPresent) {
+		try { runtimeVersion = trim(sh(PATHS.nfqws_bin + ' --version')); } catch (e) { runtimeVersion = null; }
+	}
+	try {
+		let state = json(readfile('/etc/zapret2-manager/engine-state.json'));
+		if (state && state.schema == 'engine-state.v2') {
+			installedRelease = state.installedRelease || null;
+			installedOrigin = state.installedOrigin || null;
+		}
+	} catch (e) {}
+	if (installedRelease == null && runtimeVersion != null) {
+		let releaseMatch = match(runtimeVersion, /github version (v[0-9][0-9A-Za-z._-]*)/);
+		if (releaseMatch && length(releaseMatch) > 1) installedRelease = releaseMatch[1];
+	}
+	let officialMatch = runtimeVersion != null ? match(runtimeVersion, /^github version v[0-9]/) : null;
+	officialRuntime = binaryPresent && servicePresent && installedOrigin == 'OFFICIAL' &&
+		officialMatch != null && length(officialMatch) > 0;
 	return {
-		installed: packagePresent && binaryPresent && servicePresent,
+		installed: (packagePresent || officialRuntime) && binaryPresent && servicePresent,
 		packagePresent: packagePresent,
+		packageVersion: packageVersion,
 		binaryPresent: binaryPresent,
-		servicePresent: servicePresent
+		servicePresent: servicePresent,
+		runtimeVersion: length(runtimeVersion || '') ? runtimeVersion : null,
+		installedRelease: installedRelease,
+		installedOrigin: installedOrigin,
+		officialRuntime: officialRuntime
 	};
 }
 
@@ -384,6 +417,7 @@ export const collect_observations = function() {
 	});
 	return {
 		generatedAt: iso_now(),
+		serviceState: svc_state,
 		engine: engine,
 		runtime: runtime_out,
 		strategy: strategy_out,

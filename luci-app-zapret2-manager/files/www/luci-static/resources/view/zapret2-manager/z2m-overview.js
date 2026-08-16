@@ -1,12 +1,22 @@
 'use strict';
 'require baseclass';
 'require view.zapret2-manager.z2m-overview-model as OverviewModel';
+'require view.zapret2-manager.z2m-runtime-state as RuntimeState';
 
-var runtime = { timer: null, runId: null, target: '', overrideStrategyId: null, deferred: {}, loadToken: 0 };
+var runtime = { timer: null, runId: null, target: '', overrideStrategyId: null, deferred: {}, loadToken: 0,
+  lifecycle: { pending: false, action: null, result: null } };
 
 function edit(fn, value) { return fn(JSON.stringify(value || {})); }
 function asArray(value) { return Array.isArray(value) ? value : []; }
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
+function payload(value) {
+  for (var i = 0; i < 4; i++) {
+    if (Array.isArray(value)) { value = value[0]; continue; }
+    if (value && typeof value === 'object' && value.value !== undefined) { value = value.value; continue; }
+    break;
+  }
+  return object(value);
+}
 function displayValue(value) { return value == null || value === '' ? '—' : String(value); }
 function settled(result, api) {
   return result.status === 'fulfilled'
@@ -35,11 +45,8 @@ function activeStrategy(preview) {
   return strategyState.active || preview && preview.active || null;
 }
 function runningState(status) {
-  var process = object(status && status.runtime && status.runtime.process);
-  var summaryProcess = object(status && status.runtimeSummary && status.runtimeSummary.process);
-  if (status && (status.serviceState === 'running' || status.state === 'running' || process.found === true || summaryProcess.found === true)) return true;
-  if (status && (status.serviceState === 'stopped' || status.state === 'stopped')) return false;
-  return null;
+  var value = RuntimeState.state(status);
+  return value === 'running' ? true : value === 'stopped' ? false : null;
 }
 function strategyDraft(ctx) {
   return ctx.store.get().draft && ctx.store.get().draft.strategy || {};
@@ -77,10 +84,10 @@ function load(ctx) {
     secondaryReady = true;
     if (initialReady) rerender();
   });
-  return Promise.allSettled([ctx.api.service.status()]).then(function (results) {
+  return Promise.allSettled([ctx.api.service.status(), ctx.api.engine.status(), ctx.api.maintenance.status()]).then(function (results) {
     initialReady = true;
     if (secondaryReady) rerender();
-    return { status: settled(results[0], ctx.api) };
+    return { status: settled(results[0], ctx.api), engineStatus: settled(results[1], ctx.api), systemStatus: settled(results[2], ctx.api) };
   });
 }
 
@@ -89,8 +96,10 @@ function render(ctx) {
   var format = shell.format;
   var data = Object.assign({}, ctx.data || {}, runtime.deferred || {});
   var view = OverviewModel.normalize(data);
-  var status = object(data.status && data.status.value);
-  var preview = object(data.preview && data.preview.value);
+  var status = payload(data.status);
+  var engineStatus = payload(data.engineStatus);
+  var systemStatus = payload(data.systemStatus);
+  var preview = payload(data.preview);
   var active = activeStrategy(preview);
   var catalog = candidates(preview);
   var snapshot = ctx.store.get();
@@ -108,10 +117,67 @@ function render(ctx) {
     shell.showToast(normalized && normalized.message, 'err');
   }
   function reload() { return ctx.refresh('overview'); }
-  function serviceAction() {
-    if (running === null) return;
-    var action = running ? ctx.api.service.stop : ctx.api.service.start;
-    action().then(reload).catch(showError);
+  function lifecycleErrorDetail(error) {
+    if (error && error.message) return String(error.message);
+    var normalized = ctx.api.normalizeError(error);
+    return normalized && (normalized.technical || normalized.message) || _('Backend не подтвердил нужное состояние.');
+  }
+  function lifecycleCopy(action) {
+    return {
+      start: { pending: _('Запускается nfqws2…'), verify: _('Проверяется процесс и NFQUEUE.'), success: _('nfqws2 запущен'), failure: _('Не удалось запустить nfqws2') },
+      stop: { pending: _('Останавливается nfqws2…'), verify: _('Проверяется остановка процесса.'), success: _('nfqws2 остановлен'), failure: _('Не удалось остановить nfqws2') },
+      restart: { pending: _('Перезапускается nfqws2…'), verify: _('Проверяется процесс и NFQUEUE.'), success: _('nfqws2 перезапущен'), failure: _('Не удалось перезапустить nfqws2') }
+    }[action];
+  }
+  function lifecycleAction(action) {
+    if (runtime.lifecycle.pending || !ctx.api.service[action]) return;
+    var copy = lifecycleCopy(action);
+    runtime.lifecycle = { pending: true, action: action, result: null };
+    var lifecyclePending = runtime.lifecycle.pending;
+    var lifecycleResult = runtime.lifecycle.result;
+    ctx.rerender();
+    Promise.resolve().then(function () {
+      return action === 'restart' ? ctx.api.service.restart() : ctx.api.service[action]();
+    }).then(function (answer) {
+      if (!answer || answer.ok === false) throw answer || new Error('lifecycle request failed');
+      return ctx.api.service.status();
+    }).then(function (answer) {
+      var actual = RuntimeState.state(payload(answer));
+      var expected = action === 'stop' ? 'stopped' : 'running';
+      if (actual !== expected) throw { message: copy.failure + '. ' + _('Backend не подтвердил нужное состояние.') };
+      runtime.lifecycle.result = { kind: 'success', message: copy.success };
+    }).catch(function (error) {
+      runtime.lifecycle.result = { kind: 'error', message: copy.failure, detail: lifecycleErrorDetail(error) };
+    }).then(function () {
+      return reload().catch(function (error) {
+        runtime.lifecycle.result = { kind: 'error', message: copy.failure, detail: lifecycleErrorDetail(error) };
+      });
+    }).then(function () {
+      runtime.lifecycle.pending = false;
+      ctx.rerender();
+    });
+  }
+  function lifecycleButton(action, label, kind, disabled) {
+    var copy = lifecycleCopy(action);
+    var isPending = runtime.lifecycle.pending;
+    var buttonLabel = isPending && runtime.lifecycle.action === action
+      ? copy.pending : label;
+    return shell.button(buttonLabel, kind, function () { lifecycleAction(action); }, disabled || isPending, {
+      'data-lifecycle-action': action,
+      'aria-disabled': disabled || isPending ? 'true' : 'false'
+    });
+  }
+  function lifecycleFeedback() {
+    var result = runtime.lifecycle.result;
+    if (runtime.lifecycle.pending) return E('div', { 'class': 'z2m-lifecycle-feedback', role: 'status', 'aria-live': 'polite' }, [
+      E('span', { 'class': 'z2m-dim' }, lifecycleCopy(runtime.lifecycle.action).pending),
+      E('span', { 'class': 'z2m-dim' }, lifecycleCopy(runtime.lifecycle.action).verify)
+    ]);
+    if (!result) return null;
+    return E('div', { 'class': 'z2m-lifecycle-feedback ' + (result.kind === 'error' ? 'error' : 'success'), role: 'status', 'aria-live': 'polite' }, compact([
+      E('span', {}, result.message),
+      result.detail ? E('span', { 'class': 'z2m-dim' }, _('Причина: ') + result.detail) : null
+    ]));
   }
   function setAdvanced(mode) {
     var current = ctx.store.get();
@@ -264,13 +330,40 @@ function render(ctx) {
     if (value === false) return _('Выключено');
     var labels = {
       mismatch: _('Расхождение'), installed: _('Установлен'), unavailable: _('Недоступно'),
-      running: _('Работает'), stopped: _('Остановлен'), ready: _('Готово')
+      running: _('Работает'), stopped: _('Остановлен'), ready: _('Готово'), degraded: _('Требует проверки'),
+      unknown: _('Состояние неизвестно'), operation: _('Выполняется'), error: _('Ошибка')
     };
     if (labels[String(value || '').toLowerCase()]) return labels[String(value || '').toLowerCase()];
     return format.text(value) || fallback || _('Недоступно');
   }
-  function statusCard(id, label, value, detail, kind, icon) {
-    return E('div', { id: id, 'class': 'status-card' }, [
+  function reasonLabel(code) {
+    var labels = {
+      'process-confirmed-absent': _('Служба zapret2 остановлена'),
+      'runtime-evidence-incomplete': _('Состояние runtime ещё проверяется'),
+      'applied-mismatch': _('Применённая конфигурация отличается от runtime'),
+      'nfqueue-missing': _('NFQUEUE не подключён'),
+      'process-missing': _('Процесс nfqws2 не найден')
+    };
+    return labels[String(code || '').toLowerCase()] || _('Backend не предоставил подробности');
+  }
+  function durationLabel(seconds) {
+    var value = Number(seconds);
+    if (!isFinite(value) || value < 0) return _('неизвестно');
+    value = Math.floor(value);
+    var days = Math.floor(value / 86400);
+    var hours = Math.floor((value % 86400) / 3600);
+    var minutes = Math.floor((value % 3600) / 60);
+    if (days) return days + _(' д ') + hours + _(' ч');
+    if (hours) return hours + _(' ч ') + minutes + _(' мин');
+    return minutes + _(' мин');
+  }
+  function memoryLabel(kb) {
+    var value = Number(kb);
+    if (!isFinite(value) || value < 0) return _('неизвестно');
+    return (value >= 1024 ? (value / 1024).toFixed(0) + ' МБ' : value + ' КБ');
+  }
+  function statusCard(id, label, value, detail, kind, icon, href) {
+    return E(href ? 'a' : 'div', { id: id, href: href || null, 'class': 'status-card' + (href ? ' status-card-action' : '') }, [
       E('div', { 'class': 'status-card-header' }, [
         E('span', { 'class': 'status-card-icon', 'aria-hidden': 'true' }, icon || '•'),
         E('span', { 'class': 'status-card-label' }, label)
@@ -280,17 +373,23 @@ function render(ctx) {
     ]);
   }
   function processValue() {
-    var process = object(status.runtime && status.runtime.process);
-    var summaryProcess = object(status.runtimeSummary && status.runtimeSummary.process);
-    if (process.found === true || summaryProcess.found === true || running === true) {
-      var pid = process.pid || summaryProcess.pid;
+    var snapshot = RuntimeState.snapshot(status);
+    if (snapshot.state === 'running') {
+      var pid = snapshot.pid;
       return { value: _('Работает'), kind: 'running', detail: pid ? 'PID ' + pid : _('Runtime подтверждён') };
     }
-    if (running === false) return { value: _('Остановлен'), kind: 'stopped', detail: _('Служба zapret2 остановлена') };
+    if (snapshot.state === 'stopped') return { value: _('Остановлен'), kind: 'stopped', detail: reasonLabel(object(status.runtimeSummary).reasonCode) };
+    if (snapshot.state === 'mismatch') return { value: _('Расхождение'), kind: 'warning', detail: _('Процесс и NFQUEUE работают, но применённая конфигурация изменилась') };
     return { value: _('Недоступно'), kind: 'warning', detail: _('Backend не предоставил runtime evidence') };
   }
   function unavailableCard(detail) {
     return { value: _('Недоступно'), kind: 'warning', detail: detail || _('Backend не сообщил состояние') };
+  }
+  function runtimeRelease(statusValue) {
+    var upstream = object(object(statusValue).upstream);
+    var version = String(upstream.nfqws2Version || '');
+    var match = /^github version (v[0-9][0-9A-Za-z._-]*)/.exec(version);
+    return match ? match[1] : null;
   }
   function structuredCardState() {
     if (data.status && data.status.error) return unavailableCard(_('Backend не сообщил состояние'));
@@ -309,23 +408,34 @@ function render(ctx) {
   function systemCardValue() {
     var unavailable = structuredCardState();
     if (unavailable) return unavailable;
-    var summary = object(status.runtimeSummary);
-    var state = String(summary.status || '').toLowerCase();
-    if (!state) return unavailableCard(_('Backend не сообщил сводное состояние'));
-    var detail = summary.reasonCode === 'applied-mismatch'
-      ? _('Применённая конфигурация отличается от runtime')
-      : format.text(summary.reasonCode);
-    return { value: statusText(state), kind: statusKind(state), detail: detail };
+    if (data.systemStatus && data.systemStatus.error) return unavailableCard(_('Backend не сообщил состояние системы'));
+    var facts = object(systemStatus);
+    var memory = object(facts.memory);
+    var storage = object(facts.storage);
+    var details = [];
+    if (facts.hostname) details.push(_('Узел: ') + format.text(facts.hostname));
+    if (facts.uptimeSec !== null && facts.uptimeSec !== undefined) details.push(_('Время работы: ') + durationLabel(facts.uptimeSec));
+    if (memory.availableKb !== null && memory.availableKb !== undefined) details.push(_('Свободная память: ') + memoryLabel(memory.availableKb));
+    if (storage.overlayPercent !== null && storage.overlayPercent !== undefined) details.push(_('Overlay: ') + format.text(storage.overlayPercent) + '%');
+    return { value: _('OpenWrt'), kind: 'g', detail: details.join(' · ') || _('Система доступна') };
   }
   function zapretCardValue() {
     var unavailable = structuredCardState();
     if (unavailable) return unavailable;
     var engine = object(status.engine);
+    if (engine.installed !== true && engineStatus.installed === true)
+      engine = engineStatus;
+    if (engine.installed !== true) {
+      var release = runtimeRelease(status);
+      if (release) engine = { installed: true, installedRelease: release };
+    }
     if (engine.installed === true) {
-      var version = format.text(object(status.upstream).nfqws2Version);
+      var snapshot = RuntimeState.snapshot(status);
+      if (!snapshot.installedRelease) snapshot.installedRelease = engine.installedRelease || null;
+      var installedRelease = format.text(snapshot.installedRelease);
       return {
-        value: _('Установлен'), kind: 'g',
-        detail: version !== null ? _('Версия ') + version : _('Пакет и бинарник подтверждены')
+        value: installedRelease || _('Установлен'), kind: 'g',
+        detail: _('Официальный release bol-van/zapret2')
       };
     }
     if (engine.installed === false) return { value: _('Не установлен'), kind: 'r', detail: _('Backend подтвердил отсутствие пакета') };
@@ -347,7 +457,7 @@ function render(ctx) {
       statusCard('card-strategy', _('Стратегия'), strategy.value, strategy.detail, strategy.kind, '◆'),
       statusCard('card-autostart', _('Автозапуск'), autostart.value, autostart.detail, autostart.kind, '↻'),
       statusCard('card-system', _('Система'), system.value, system.detail, system.kind, '⌂'),
-      statusCard('card-zapret-ver', 'zapret2', version.value, version.detail, version.kind, '◆')
+      statusCard('card-zapret-ver', 'zapret2', version.value, version.detail, version.kind, '◆', '#/zapret')
     ]);
   }
   function eventRows(envelope) {
@@ -381,15 +491,12 @@ function render(ctx) {
     if (!body) body = E('div', { 'class': 'log-viewer', id: 'dashboard-logs' }, _('Загрузка логов...'));
     return shell.panel(_('Последние события'), E('div', {}, [body, E('a', { href: '#/logs', 'class': 'dashboard-all-logs' }, _('Все логи →'))]));
   }
-  function quickRestart() {
-    if (running !== true) return;
-    ctx.api.service.stop().then(function () { return ctx.api.service.start(); }).then(reload).catch(showError);
-  }
   function renderQuickActions() {
     return shell.panel(_('Быстрые действия'), E('div', { 'class': 'actions-row' }, [
-      shell.button(_('Запустить'), 'primary', function () { ctx.api.service.start().then(reload).catch(showError); }, running === true, { id: 'dash-btn-start', 'data-action': 'quickStart' }),
-      shell.button(_('Остановить'), 'danger', function () { ctx.api.service.stop().then(reload).catch(showError); }, running !== true, { id: 'dash-btn-stop', 'data-action': 'quickStop' }),
-      shell.button(_('Перезапустить'), '', quickRestart, running !== true, { id: 'dash-btn-restart', 'data-action': 'quickRestart' })
+      lifecycleButton('start', _('Запустить'), 'primary', running === true),
+      lifecycleButton('stop', _('Остановить'), 'danger', running !== true),
+      lifecycleButton('restart', _('Перезапустить'), '', running !== true),
+      lifecycleFeedback()
     ]));
   }
 
@@ -480,12 +587,13 @@ function render(ctx) {
       head.push(E('h2', {}, view.health.label));
       if (format.text(view.health.detail) !== null) head.push(E('span', { 'class': 'sub' }, view.health.detail));
       if (running !== null) head.push(E('div', { 'class': 'sp' }, [
-        shell.button(running ? _('Остановить') : _('Запустить'), running ? 'danger sm' : 'primary sm', serviceAction)
+        lifecycleButton(running ? 'stop' : 'start', running ? _('Остановить') : _('Запустить'), running ? 'danger sm' : 'primary sm', false)
       ]));
     }
     var children = [];
     if (head.length) children.push(E('div', { 'class': 'hd' }, head));
     if (hero.length) children.push(E('div', { 'class': 'bd z2m-hero' + (hero.length === 1 ? ' z2m-hero-single' : '') }, hero));
+    if (runtime.lifecycle.pending || runtime.lifecycle.result) children.push(lifecycleFeedback());
     return E('section', { 'class': 'z2m-panel z2m-overview-status' }, children);
   }
 

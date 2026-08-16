@@ -190,7 +190,7 @@ function start() {
 	sync_effective_presets();
 	let r = run(UPSTREAM_INIT + ' start');
 	event('ui', 'pause', 'info',
-		'start rc=' + r.rc + ' (resumed; NFQWS2_ENABLE=' + restored + ')',
+		(r.rc == 0 ? 'Запуск nfqws2: запрос завершён' : 'Запуск nfqws2 не выполнен'),
 		{ reason: 'manual_ui', rc: r.rc, pause: 'exit', nfqws2_enable: restored });
 	return { ok: r.rc == 0, action: 'start', rc: r.rc, out: r.out };
 }
@@ -206,7 +206,7 @@ function stop() {
 	let r = run(UPSTREAM_INIT + ' stop');
 	schedule_rollback();
 	event('ui', 'pause', 'info',
-		'stop rc=' + r.rc + ' (paused; NFQWS2_ENABLE=0; prev=' + (prev == null ? 'null' : prev) + ')',
+		(r.rc == 0 ? 'Остановка nfqws2: запрос завершён' : 'Остановка nfqws2 не выполнена'),
 		{ pause: 'enter', rc: r.rc, prev: prev });
 	return { ok: r.rc == 0, action: 'stop', rc: r.rc, out: r.out, paused: true,
 		rollback_pending: ROLLBACK_TIMEOUT_ENABLED, rollback_ttl: ROLLBACK_TTL };
@@ -218,8 +218,7 @@ function restart() {
 	sync_effective_presets();
 	let r = run(UPSTREAM_INIT + ' restart');
 	schedule_rollback();
-	event('ui', 'restart', 'info', 'restart rc=' + r.rc +
-		(ROLLBACK_TIMEOUT_ENABLED ? ' (rollback armed ' + ROLLBACK_TTL + 's)' : ' (snapshot taken; auto-rollback off by default)'),
+	event('ui', 'restart', 'info', r.rc == 0 ? 'Перезапуск nfqws2: запрос завершён' : 'Перезапуск nfqws2 не выполнен',
 		{ reason: 'manual_ui', rc: r.rc, rollback_ttl: ROLLBACK_TTL });
 	return { ok: r.rc == 0, action: 'restart', rc: r.rc, out: r.out,
 		rollback_pending: ROLLBACK_TIMEOUT_ENABLED, rollback_ttl: ROLLBACK_TTL };

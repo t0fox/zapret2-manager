@@ -1,6 +1,7 @@
 'use strict';
 'require view';
 'require view.zapret2-manager.z2m-api as Api';
+'require view.zapret2-manager.z2m-runtime-state as RuntimeState';
 'require view.zapret2-manager.z2m-store as StoreModule';
 'require view.zapret2-manager.z2m-shell as Shell';
 'require view.zapret2-manager.z2m-navigation as Navigation';
@@ -109,11 +110,12 @@ function setHash(tab) {
   if (window.location.hash !== target) window.location.hash = target;
 }
 function statusState(initial) {
-  if (initial && initial.error) return { label: _('недоступно'), kind: 'r' };
-  var value = initial && (initial.serviceState || initial.state || initial.runtime && initial.runtime.state);
+  var value = RuntimeState.state(initial);
+  if (value === 'unavailable') return { label: _('недоступно'), kind: 'r' };
   if (value === 'running') return { label: _('работает'), kind: 'g' };
   if (value === 'stopped') return { label: _('остановлена'), kind: 'r' };
-  return { label: value || _('неизвестно'), kind: 'o' };
+  if (value === 'mismatch') return { label: _('расхождение'), kind: 'o' };
+  return { label: value === 'degraded' ? _('деградировала') : _('неизвестно'), kind: 'o' };
 }
 function detectedVersion(initial) {
   var meta = initial && initial.meta || {};
@@ -184,6 +186,7 @@ return L.view.extend({
     var tabs = Shell.primaryNavigation(Navigation, tabFromHash(), navigateTo);
     var applyBar = Shell.renderApplyBar(store, { enabled: false, reason: _('Ожидается предварительная проверка.') });
     var appRoot = null;
+    var headerStatus = null;
     var coordinator = createCoordinator({ api: Api, store: store, shell: Shell, adapters: ADAPTERS, root: content });
 
     function setContentBusy(busy) {
@@ -240,6 +243,7 @@ return L.view.extend({
       }
       ctx.root = node;
       content.replaceChildren(node);
+      updateHeaderStatus(data);
       activeContext = ctx;
       if (module.mount) module.mount(ctx);
       if (appRoot && appRoot.scrollIntoView && !force) appRoot.scrollIntoView({ block: 'start' });
@@ -385,6 +389,21 @@ return L.view.extend({
       if (appRoot) appRoot.classList.toggle('adv', !!(store.get().ui && store.get().ui.advanced));
       updateDraftBar();
     }
+    function updateHeaderStatus(data) {
+      var envelope = data && data.status;
+      if (!envelope || envelope.error || !headerStatus) return;
+      var raw = envelope.value;
+      for (var i = 0; i < 4; i++) {
+        if (Array.isArray(raw)) { raw = raw[0]; continue; }
+        if (raw && typeof raw === 'object' && raw.value !== undefined) { raw = raw.value; continue; }
+        break;
+      }
+      if (!raw || typeof raw !== 'object') return;
+      var service = statusState(raw);
+      var next = Shell.chip(service.label, service.kind, true);
+      if (next && headerStatus.parentNode) headerStatus.replaceWith(next);
+      headerStatus = next;
+    }
 
     var initialTab = tabFromHash();
     if (hashHandler) window.removeEventListener('hashchange', hashHandler);
@@ -401,7 +420,7 @@ return L.view.extend({
         E('div', { 'class': 'z2m-brand' }, brand),
         E('div', { 'class': 'z2m-apptop-right' }, [
           E('span', { 'class': 'host' }, window.location.hostname || 'OpenWrt'),
-          Shell.chip(service.label, service.kind, true)
+          headerStatus = Shell.chip(service.label, service.kind, true)
         ])
       ])),
       E('div', { 'class': 'z2m-wrap' }, [tabs, content]),

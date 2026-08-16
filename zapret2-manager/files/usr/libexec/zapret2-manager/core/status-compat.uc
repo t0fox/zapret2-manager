@@ -32,7 +32,7 @@ export const legacy_status_v3 = function(native_state, observations) {
 		schema: 3,
 		generatedAt: observations.generatedAt,
 		generation: native_state.generation,
-		serviceState: native_state.serviceState,
+		serviceState: observations.serviceState != null ? observations.serviceState : status_value(native_state, 'serviceState'),
 		engine: observations.engine,
 		runtime: observations.runtime,
 		applied: observations.applied,
@@ -48,6 +48,10 @@ export const legacy_status_v3 = function(native_state, observations) {
 	status.runtimeSummary = runtime_summary(status);
 	return status;
 };
+
+function status_value(native_state, key) {
+	return native_state && native_state[key] != null ? native_state[key] : null;
+}
 
 export const with_strategy_status = function(status, strategy_status) {
 	if (strategy_status != null) status.strategyStatus = strategy_status;

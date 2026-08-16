@@ -37,7 +37,6 @@ aed3abffa444d433a5b8ec8e53942c0fbef558e0e213802761df47e9b64f35d5|zapret2-manager
 d02f459e492df8986e2d1c43404681e61c25965b2fd4ad8eb2e9e43c36af4094|zapret2-manager/files/usr/libexec/zapret2-manager/dns-product-cli.uc|/usr/libexec/zapret2-manager/dns-product-cli.uc
 032d94d589bde7cd67ed35f3255d3212f48280ccdac4d25ed544f77c85df6c89|zapret2-manager/files/usr/libexec/zapret2-manager/dns-product.uc|/usr/libexec/zapret2-manager/dns-product.uc
 7a1a76e010b96eb394b6bfd090cc78b0017d510f8163848f94a5aa239b41efac|zapret2-manager/files/usr/libexec/zapret2-manager/dns.uc|/usr/libexec/zapret2-manager/dns.uc
-3488385fd3d4c4e761a582229a134a79acbcd27460d660ba9ed3e88431674146|zapret2-manager/files/usr/libexec/zapret2-manager/providers/remittor.uc|/usr/libexec/zapret2-manager/providers/remittor.uc
 10ae04f281baf606da93e5b5ac3fad81f388b14e75df7089bdf5d4633b4537e9|zapret2-manager/files/usr/libexec/zapret2-manager/scanner-probe-executor.uc|/usr/libexec/zapret2-manager/scanner-probe-executor.uc
 429c1abb9bc5d2c408dcfcfa6aad104dbbb113bf3e688446e5b9153847d197ac|zapret2-manager/files/usr/libexec/zapret2-manager/tg-product-cli.uc|/usr/libexec/zapret2-manager/tg-product-cli.uc
 e99aa351dafbf2a1c50f3798a29040dd401c76d182c86eb5e309577dc2a82138|zapret2-manager/files/usr/libexec/zapret2-manager/tg-product.uc|/usr/libexec/zapret2-manager/tg-product.uc

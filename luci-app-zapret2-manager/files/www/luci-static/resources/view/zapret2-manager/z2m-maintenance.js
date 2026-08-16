@@ -4,6 +4,7 @@
 'require view.zapret2-manager.z2m-engine-panel as EnginePanel';
 
 var SCOPES = ['engineConfig', 'ourState', 'lists', 'profiles'];
+var LOAD_TIMEOUT_MS = 5000;
 var SCOPE_LABELS = {
   engineConfig: _('Конфигурация движка'),
   ourState: _('Состояние менеджера'),
@@ -28,13 +29,30 @@ function settled(result, api) {
     ? { value: result.value || {} }
     : { error: api.normalizeError(result.reason) };
 }
+function boundedLoad(promise, label) {
+  var timer;
+  return Promise.race([
+    promise,
+    new Promise(function (_, reject) {
+      timer = window.setTimeout(function () {
+        reject({ code: 'frontend-timeout', message: label + ' timeout' });
+      }, LOAD_TIMEOUT_MS);
+    })
+  ]).then(function (value) {
+    window.clearTimeout(timer);
+    return value;
+  }, function (error) {
+    window.clearTimeout(timer);
+    throw error;
+  });
+}
 function load(ctx) {
   return Promise.allSettled([
-    ctx.api.maintenance.versions(),
-    ctx.api.maintenance.status(),
-    ctx.api.maintenance.backupList(),
-    edit(ctx.api.maintenance.eventsTail, { limit: 100 }),
-    EnginePanel.load(ctx)
+    boundedLoad(ctx.api.maintenance.versions(), 'versions'),
+    boundedLoad(ctx.api.maintenance.status(), 'maintenance status'),
+    boundedLoad(ctx.api.maintenance.backupList(), 'backup list'),
+    boundedLoad(edit(ctx.api.maintenance.eventsTail, { limit: 100 }), 'events'),
+    boundedLoad(EnginePanel.load(ctx), 'engine')
   ]).then(function (results) {
     return {
       versions: settled(results[0], ctx.api),
