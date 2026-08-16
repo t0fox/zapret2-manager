@@ -17,7 +17,7 @@ function primaryContext(ctx, envelope) {
   return Object.assign({}, ctx, { data: object(envelope && envelope.value) });
 }
 function primaryFailure(ctx, error) {
-  var message = error && error.message || _('Не удалось загрузить основной интерфейс Strategy.');
+  var message = error && error.message || _('Не удалось загрузить страницу стратегий.');
   return E('section', { 'class': 'z2m-view on', id: 'z2m-view-strategy' }, [
     E('div', { 'class': 'z2m-phead' }, E('div', {}, [
       E('h1', {}, _('Стратегия')),

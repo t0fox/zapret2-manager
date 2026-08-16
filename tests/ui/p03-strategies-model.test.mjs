@@ -10,7 +10,9 @@ const modelPath = path.join(root, 'luci-app-zapret2-manager/files/www/luci-stati
 function loadModel() {
   assert.ok(fs.existsSync(modelPath), 'P03 Strategies model must exist');
   const source = fs.readFileSync(modelPath, 'utf8');
-  return vm.runInNewContext(`(function () { ${source}\n })()`, {});
+  return vm.runInNewContext(`(function () { ${source}\n })()`, {
+    baseclass: { extend: (value) => value }
+  });
 }
 
 test('Strategies model preserves canonical identity distinctions and ordered profiles', () => {

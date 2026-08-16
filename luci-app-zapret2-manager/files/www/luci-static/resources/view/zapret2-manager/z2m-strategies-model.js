@@ -1,4 +1,5 @@
 'use strict';
+'require baseclass';
 
 /* P03 model boundary: donor card semantics over canonical Z2M Strategy data. */
 function object(value) {
@@ -93,7 +94,7 @@ function visibleReason(value) { return value && value.reasonCode ? '' : ''; }
 function classifyUnsupported(action) {
   return action === 'healthcheck' || action === 'autocircular' ? 'BACKEND_NOT_READY' : 'INTENTIONAL_Z2M_DIFFERENCE';
 }
-return {
+return baseclass.extend({
   normalize: normalize,
   list: list,
   profiles: profiles,
@@ -103,4 +104,4 @@ return {
   canMutate: canMutate,
   visibleReason: visibleReason,
   classifyUnsupported: classifyUnsupported
-};
+});
