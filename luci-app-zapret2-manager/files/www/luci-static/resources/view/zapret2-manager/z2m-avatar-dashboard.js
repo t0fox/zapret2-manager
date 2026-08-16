@@ -100,7 +100,8 @@ function render(options) {
   var quickActions = options.quickActions || [];
   var recentEvents = options.recentEvents || null;
   var logViewer = recentEvents;
-  if (!logViewer || String(logViewer.className || '').split(/\s+/).indexOf('log-viewer') < 0) {
+  var recentClass = String(logViewer && logViewer.className || '').split(/\s+/);
+  if (!logViewer || (recentClass.indexOf('log-viewer') < 0 && recentClass.indexOf('log-stack') < 0)) {
     logViewer = E('div', {
       'class': 'logs-viewer log-viewer', id: 'dashboard-logs', role: 'log',
       'aria-live': 'polite', 'aria-label': _('Журнал событий')
