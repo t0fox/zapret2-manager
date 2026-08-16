@@ -621,3 +621,47 @@
 }
 #z2m-view-strategy .list-ui-search-input::placeholder { color:var(--tx3); opacity:1; }
 #z2m-view-strategy .list-ui-count { font-size:13px; }
+
+/* P03-V FINDING-002: present catalog facts as one information panel, with
+ * the digest and health state kept secondary to file/strategy counts. */
+#z2m-view-strategy .catalog-summary-card {
+  background:var(--panel);
+  border:1px solid var(--border);
+  border-radius:7px;
+  margin-bottom:20px;
+  overflow:hidden;
+}
+#z2m-view-strategy .catalog-summary-card .card-title {
+  padding:14px 20px;
+  border-bottom:1px solid var(--border);
+  font-size:14px;
+  font-weight:600;
+}
+#z2m-view-strategy .catalog-summary-grid {
+  grid-template-columns:1.1fr 1.1fr 1.35fr auto;
+  gap:0;
+  padding:14px 20px 16px;
+}
+#z2m-view-strategy .catalog-summary-grid > div {
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+  padding:2px 18px;
+  border:0;
+  border-right:1px solid var(--border);
+  border-radius:0;
+  background:transparent;
+}
+#z2m-view-strategy .catalog-summary-grid > div:first-child { padding-left:0; }
+#z2m-view-strategy .catalog-summary-grid > div:last-child { padding-right:0; border-right:0; }
+#z2m-view-strategy .catalog-summary-grid b { color:var(--tx); font-size:20px; line-height:1.15; font-variant-numeric:tabular-nums; }
+#z2m-view-strategy .catalog-summary-grid span { color:var(--tx3); font-size:12px; }
+#z2m-view-strategy .catalog-summary-grid > div:nth-child(3) b { color:var(--tx2); font:12px/1.35 "SFMono-Regular",Consolas,monospace; overflow-wrap:anywhere; }
+#z2m-view-strategy .catalog-summary-grid > div:nth-child(4) b { color:var(--green); font-size:13px; }
+
+#z2m-view-strategy .active-strategy-card .card-title { padding:14px 20px; font-size:14px; }
+#z2m-view-strategy #active-strategy-info { gap:16px; padding:18px 20px; min-height:72px; }
+#z2m-view-strategy .active-strategy-name { font-size:15px; }
+#z2m-view-strategy .active-strategy-meta { gap:8px; margin-top:7px; }
+#z2m-view-strategy .active-strategy-meta .badge { padding:2px 8px; font-size:11px; line-height:18px; }
