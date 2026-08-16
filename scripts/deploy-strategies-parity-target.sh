@@ -19,18 +19,7 @@ EXPECTED_COMMIT=${EXPECTED_COMMIT:-}
     exit 2
 }
 
-if [ -f "$ROOT/.git" ]; then
-    GIT_DIR=$(sed -n 's/^gitdir: //p' "$ROOT/.git" | tr '\\' '/')
-    case "$GIT_DIR" in
-        [A-Za-z]:/*)
-            drive=$(printf '%s' "${GIT_DIR%%:*}" | tr '[:upper:]' '[:lower:]')
-            GIT_DIR=/mnt/$drive/${GIT_DIR#?:/}
-            ;;
-    esac
-    GIT_CMD=(git --git-dir="$GIT_DIR" --work-tree="$ROOT")
-else
-    GIT_CMD=(git -C "$ROOT")
-fi
+GIT_CMD=(git -C "$ROOT")
 test "$(${GIT_CMD[@]} rev-parse HEAD)" = "$EXPECTED_COMMIT"
 test -z "$(${GIT_CMD[@]} status --porcelain)"
 
