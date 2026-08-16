@@ -742,3 +742,14 @@
 }
 #z2m-view-strategy .fav-btn:hover { background:rgba(224,163,59,.12); color:var(--orange); }
 #z2m-view-strategy .fav-btn:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
+
+/* The transplanted base rules carry the .z2m-view + id prefix. Match that
+ * specificity so the visual closure remains effective on compact cards. */
+.z2m-view#z2m-view-strategy .strategy-card-header { gap:14px; padding:16px 20px 10px; }
+.z2m-view#z2m-view-strategy .strategy-card-name { gap:8px; font-size:15px; line-height:1.4; }
+.z2m-view#z2m-view-strategy .strategy-card-desc { margin-top:6px; color:var(--tx2); font-size:13px; line-height:1.45; }
+.z2m-view#z2m-view-strategy .strategy-card-profiles { gap:6px; padding:0 20px 10px; }
+.z2m-view#z2m-view-strategy .profile-badge { padding:3px 8px; border:1px solid var(--border2); border-left:2px solid var(--blue); border-radius:5px; background:rgba(75,159,213,.07); color:var(--tx2); font-size:12px; }
+.z2m-view#z2m-view-strategy .strategy-card-actions { gap:8px; padding:10px 20px 16px; background:rgba(255,255,255,.012); }
+.z2m-view#z2m-view-strategy .strategy-card-actions .btn,
+.z2m-view#z2m-view-strategy .strategy-card-toggle { min-height:30px; padding:5px 10px; border-radius:5px; box-shadow:none; font-size:13px; }
