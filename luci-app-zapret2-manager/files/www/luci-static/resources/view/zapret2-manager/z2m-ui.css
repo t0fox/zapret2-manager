@@ -753,3 +753,4 @@
 .z2m-view#z2m-view-strategy .strategy-card-actions { gap:8px; padding:10px 20px 16px; background:rgba(255,255,255,.012); }
 .z2m-view#z2m-view-strategy .strategy-card-actions .btn,
 .z2m-view#z2m-view-strategy .strategy-card-toggle { min-height:30px; padding:5px 10px; border-radius:5px; box-shadow:none; font-size:13px; }
+.z2m-view#z2m-view-strategy .list-ui-search-input { height:40px; min-height:40px; max-height:40px; }
