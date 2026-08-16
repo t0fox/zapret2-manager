@@ -50,3 +50,58 @@ authenticated session and include the full stopped → start → running → res
 → running → stop → stopped lifecycle canary, route return/navigation checks,
 Russian copy checks, no raw enum/reason-code visibility, no stale Control DOM,
 and zero duplicate pollers/listeners.
+
+## Final implementation classification
+
+Frozen donor symbols transplanted into the Control module are `render`,
+`fetchStatus`, `updateUI`, `fetchLogs`, `renderLogs`, `doStart`, `doStop`,
+`doRestart`, `setActionPending`, `startPolling`, `stopPolling`, and `destroy`.
+The donor control CSS hierarchy is retained under the scoped
+`#z2m-view-control` namespace, including the status hero/indicator/ring/icon,
+status text/label/detail, process controls, status grid, firewall rules card,
+firewall viewer, log card, and action-result styling.
+
+| Control component | Classification | Z2M boundary |
+| --- | --- | --- |
+| Page header, status hero, process-control card, status grid | `DONOR_TRANSPLANT` | `z2m-avatar-control.js` |
+| Firewall details card and full-log link | `DONOR_TRANSPLANT` | `z2m-avatar-control.js` |
+| Log viewer | `SHARED_REUSE` | `z2m-avatar-log.js` |
+| Strategy, process, and firewall evidence cards | `Z2M_ADAPTER` | `z2m-control-model.js` |
+| Lifecycle action result | `Z2M_ADAPTER` | `z2m-api.js` canonical service RPCs |
+| Polling and destroy cleanup | `DONOR_TRANSPLANT` + `Z2M_ADAPTER` | bounded Control model confirmation |
+
+Primary classification counts are `DONOR_TRANSPLANT=8`, `SHARED_REUSE=1`,
+`Z2M_ADAPTER=4`, `CUSTOM_APPROXIMATION_REMAINING=0`.
+
+## Acceptance evidence
+
+- `GRAPHITE_THEME_PRESERVED=YES`; horizontal LuCI navigation and Z2M route
+  shell are preserved.
+- Normal Control content is Russian; technical product tokens (`nfqws2`,
+  `NFQUEUE`, `PID`) remain intentional. `MIXED_RU_EN_PRODUCT_COPY=0` and
+  `RAW_INTERNAL_ENUM_VISIBLE=0`; raw reason codes are not rendered.
+- Focused P02 plus Dashboard regression gate: `23/23` passed. JavaScript
+  syntax checks and `git diff --check` passed.
+- One existing authenticated in-app Browser session was used. The lifecycle
+  canary passed: STOPPED → Start pending → RUNNING with PID, NFQUEUE 300 and
+  valid nft rules → Restart pending → RUNNING → Stop pending → STOPPED. The
+  final restore was `NFQWS2_ENABLE=0`.
+- Route checks passed: Главная → Управление → Главная; Управление → Система →
+  Управление; Back returned `#/control`, Forward returned `#/updates`, and a
+  fresh Control render produced exactly one Control root, three action buttons,
+  one log container, and zero Dashboard roots. Browser warning/error log:
+  `[]`.
+- Final target state: `NFQWS2_ENABLE=0`, `runtimeSummary.status=stopped`,
+  process absent, NFQUEUE 300 unregistered, and firewall rules absent. The
+  deployed Control files are root-owned with mode `0644`.
+- Deployment used direct SCP from a clean detached deploy worktree and is
+  bound to Z2M commit `4d3bae39c153fbf21848d110405314f49d889c8d`; donor remains
+  frozen at `38ed85ce487c6b3dbdf703a5be197795f7c0cad1`.
+- The repository-wide native gate was attempted but is not a P02 gate: it
+  stopped at `35/36` because pre-existing dirty engine/proxy-provider changes
+  fail `tests/native/package-helper.test.mjs`. Those files were preserved and
+  no P02 source caused that failure.
+
+`FOOTPRINT=NO` — no new backend, RPC, package, or production writer was added.
+`P03=NO`. `STATUS=PASS` for the P02 Control transplant and its browser/target
+acceptance contract.
