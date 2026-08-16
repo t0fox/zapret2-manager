@@ -10,6 +10,7 @@ const read = relativePath => readFileSync(path.join(ROOT, relativePath), 'utf8')
 const api = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js');
 const scanner = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-scanner.js');
 const page = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategy-page.js');
+const app = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/app.js');
 
 function node() {
   return {
@@ -40,13 +41,10 @@ test('Scanner view exposes bounded controls, backend-owned evidence, handoff, an
   assert.doesNotMatch(scanner, /NFQWS2_OPT|effectiveArgv|join\(['"] --new ['"]|rawCommand|exec\(/);
 });
 
-test('Strategy page owns Scanner lifecycle without giving it a second Apply engine', () => {
-  assert.match(page, /require view\.zapret2-manager\.z2m-scanner as Scanner/);
-  assert.match(page, /Scanner\.load\(ctx\)/);
-  assert.match(page, /Scanner\.render\(/);
-  assert.match(page, /Scanner\.mount\(/);
-  assert.match(page, /Scanner\.unmount\(/);
-  assert.doesNotMatch(page, /Scanner\.apply|scannerApply|Scanner.*runtime/i);
+test('Scanner remains a separate navigation surface and is absent from Strategies', () => {
+  assert.match(app, /require view\.zapret2-manager\.z2m-scanner as Scanner/);
+  assert.match(app, /scan:\s*Scanner/);
+  assert.doesNotMatch(page, /Scanner\.(load|render|mount|unmount)/);
 });
 
 test('Scanner unmount invalidates a pending poll generation', async () => {

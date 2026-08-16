@@ -235,7 +235,10 @@ function renderError(ctx, data) {
     if (data[key] && data[key].error) errors.push(ctx.shell.statePanel({ title: _('Backend error'), message: data[key].error.message, kind: 'error' }));
   });
   if (state.lastError) errors.push(ctx.shell.statePanel({ message: state.lastError, kind: 'error' }));
-  return errors;
+  // E() accepts a node or a flat child array. Returning the array here and
+  // passing it as one child nested the DOM nodes; LuCI then string-coerced
+  // each HTMLDivElement into the visible "[object HTMLDivElement]" text.
+  return errors.length ? E('div', { 'class': 'z2m-strategy-errors', 'aria-live': 'polite' }, errors) : null;
 }
 function metadataText(strategy) {
   var metadata = object(strategy.metadata);

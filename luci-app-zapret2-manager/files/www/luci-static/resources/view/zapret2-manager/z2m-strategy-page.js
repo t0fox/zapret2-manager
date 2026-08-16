@@ -1,8 +1,6 @@
 'use strict';
 'require baseclass';
-'require view.zapret2-manager.z2m-strategy as Strategy';
-'require view.zapret2-manager.z2m-avatar-strategies as AvatarStrategies';
-'require view.zapret2-manager.z2m-scanner as Scanner';
+'require view.zapret2-manager.z2m-strategies as Strategies';
 
 function object(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
@@ -13,7 +11,7 @@ function settled(result, api) {
     : { error: api.normalizeError(result.reason) };
 }
 function primaryModule(mode) {
-  return AvatarStrategies;
+  return Strategies;
 }
 function primaryContext(ctx, envelope) {
   return Object.assign({}, ctx, { data: object(envelope && envelope.value) });
@@ -32,12 +30,10 @@ function primaryFailure(ctx, error) {
 function load(ctx) {
   var mode = 'manual';
   var primary = primaryModule(mode);
-  var requests = [primary.load(ctx), Scanner.load(ctx)];
-  return Promise.allSettled(requests).then(function (results) {
+  return Promise.allSettled([primary.load(ctx)]).then(function (results) {
     return {
       mode: mode,
       primary: settled(results[0], ctx.api),
-      scanner: settled(results[1], ctx.api),
       auto: null,
       runs: null
     };
@@ -51,7 +47,6 @@ function render(ctx) {
     ? primaryFailure(ctx, data.primary.error)
     : primary.render(primaryContext(ctx, data.primary));
 
-  root.appendChild(Scanner.render(Object.assign({}, ctx, { data: object(data.scanner && data.scanner.value) })));
   return root;
 }
 
@@ -60,23 +55,20 @@ function mount(ctx) {
   var primary = primaryModule(data.mode);
   if (!data.primary || !data.primary.error)
     primary.mount(primaryContext(ctx, data.primary));
-  Scanner.mount(Object.assign({}, ctx, { data: object(data.scanner && data.scanner.value) }));
 }
 
 function unmount() {
-  AvatarStrategies.unmount();
-  Strategy.unmount();
-  Scanner.unmount();
+  Strategies.unmount();
 }
 
 function createAdapter(api) {
-  return Strategy.createAdapter ? Strategy.createAdapter(api) : null;
+  return Strategies.createAdapter ? Strategies.createAdapter(api) : null;
 }
 
 return baseclass.extend({
   id: 'strategy',
-  title: _('Стратегия'),
-  subtitle: _('Выбор и проверка способа обхода DPI'),
+  title: _('Стратегии'),
+  subtitle: _('Управление способами обхода DPI'),
   load: load,
   render: render,
   mount: mount,

@@ -5,7 +5,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 
 const root = path.resolve(import.meta.dirname, '..', '..');
-const modelPath = path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-avatar-strategies-model.js');
+const modelPath = path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategies-model.js');
 
 function loadModel() {
   assert.ok(fs.existsSync(modelPath), 'P03 Strategies model must exist');

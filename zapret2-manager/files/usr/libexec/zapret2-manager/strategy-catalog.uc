@@ -543,6 +543,13 @@ function ensure_loaded(root) {
 }
 
 export const strategy_catalog_load = function(root) {
+	// Keep one verified catalog snapshot for the lifetime of the caller.
+	// strategies_list invokes this reader and then validates the persisted
+	// selection through strategy-state.uc.  Rebuilding the 2.7 MB manifest for
+	// both calls made one RPC take ~30 seconds on the target and exceed ubus's
+	// timeout.  Explicit reload remains the only path that forces a rebuild.
+	if (loaded != null && (root == null || root == loadedRoot))
+		return { ok: true, catalog: loaded };
 	return load_catalog(root);
 };
 
@@ -573,7 +580,7 @@ export const strategy_catalog_status = function() {
 
 export const strategy_catalog_reload = function() {
 	let root = loadedRoot == null ? DEFAULT_ROOT : loadedRoot;
-	let result = strategy_catalog_load(root);
+	let result = load_catalog(root);
 	if (!result.ok) return result;
 	return strategy_catalog_status();
 };

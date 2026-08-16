@@ -582,3 +582,11 @@
 .z2m-view#z2m-view-strategy .strategy-validation-result{margin-top:10px;border-left:3px solid var(--green);background:rgba(92,185,139,.1);color:var(--tx);padding:9px 11px}
 .z2m-view#z2m-view-strategy .editor-footer{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid var(--border)}
 @media(max-width:760px){.z2m-view#z2m-view-strategy .strat-editor-layout{grid-template-columns:1fr}.z2m-view#z2m-view-strategy .list-ui-toolbar{align-items:stretch;flex-direction:column}.z2m-view#z2m-view-strategy .list-ui-search{max-width:none}.z2m-view#z2m-view-strategy .strategy-card-actions .btn{flex:1 1 auto}.z2m-view#z2m-view-strategy .profile-editor-header{align-items:stretch;flex-wrap:wrap}.z2m-view#z2m-view-strategy .profile-filter-picker{max-width:none;width:100%}}
+/* P03 donor-derived Strategies summary and explicit error state. */
+#z2m-view-strategy .catalog-summary-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
+#z2m-view-strategy .catalog-summary-grid > div { display:flex; flex-direction:column; gap:4px; padding:12px 14px; border:1px solid var(--border,#2d3748); border-radius:8px; background:rgba(255,255,255,.025); }
+#z2m-view-strategy .catalog-summary-grid b { color:var(--text,#f3f4f6); font-size:16px; }
+#z2m-view-strategy .catalog-summary-grid span, #z2m-view-strategy .catalog-summary-state { color:var(--text-muted,#9ca3af); font-size:12px; }
+#z2m-view-strategy .catalog-summary-state.warning, #z2m-view-strategy .list-ui-error { display:flex; flex-direction:column; gap:5px; padding:14px; border:1px solid rgba(245,158,11,.35); border-radius:8px; color:var(--text-muted,#9ca3af); }
+#z2m-view-strategy .list-ui-error strong { color:var(--danger,#fca5a5); }
+@media (max-width:700px) { #z2m-view-strategy .catalog-summary-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }

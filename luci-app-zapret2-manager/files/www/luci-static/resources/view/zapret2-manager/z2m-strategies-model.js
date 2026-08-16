@@ -57,6 +57,7 @@ function normalize(value, status, selectedId) {
     isBuiltin: value.is_builtin === true || value.isBuiltin === true || origin === 'avatar_builtin' || origin === 'builtin',
     revision: value.revision,
     favorite: value.favorite === true || value.is_favorite === true,
+    featured: value.featured === true || object(value.metadata).featured === true,
     availability: value.availability,
     profiles: profiles(value)
   };

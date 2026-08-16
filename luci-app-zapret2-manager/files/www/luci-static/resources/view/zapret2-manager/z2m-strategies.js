@@ -1,6 +1,6 @@
 'use strict';
 'require baseclass';
-'require view.zapret2-manager.z2m-avatar-strategies-model as Model';
+'require view.zapret2-manager.z2m-strategies-model as Model';
 
 /*
  * P03 donor transplant.
@@ -20,7 +20,7 @@ var FILTER_PRESETS = {
 var state = {
   ctx: null, root: null, data: {}, rows: [], selectedId: null,
   pending: null, editor: null, preview: null, selectedIds: {},
-  listUI: null, pollTimer: null, disposed: false,
+  listUI: null, pollTimer: null, disposed: false, loaded: false,
   modalResize: null,
   clickHandler: null, changeHandler: null, inputHandler: null,
   keyHandler: null
@@ -44,6 +44,7 @@ function catalogDigest(data) {
   var value = unwrap(data && data.catalog);
   return text(value.aggregateDigest || value.catalogDigest || value.digest || object(value.catalog).digest);
 }
+function catalogValue(data) { return unwrap(data && data.catalog); }
 function statusValue(data) { return data && data.status ? data.status.value || data.status : {}; }
 function strategyInput(strategy) {
   return {
@@ -152,6 +153,13 @@ function buildRows(data) {
 function renderFiltersAndList() {
   var host = state.root && state.root.querySelector('#strategies-list-host');
   if (!host) return;
+  var listEnvelope = state.data && state.data.list;
+  if (!listEnvelope || listEnvelope.error) {
+    var failure = listEnvelope && listEnvelope.error ? listEnvelope.error : { message: 'Список стратегий ещё не загружен' };
+    host.innerHTML = '<div class="list-ui-error"><strong>Не удалось загрузить стратегии</strong><span>' + escapeHtml(failure.message || failure.code || 'Ошибка сервиса') + '</span></div>';
+    if (state.listUI) { state.listUI.destroy(); state.listUI = null; }
+    return;
+  }
   if (state.listUI) { state.listUI.setItems(state.rows); return; }
   var container = document.createElement('div');
   container.id = 'strategies-list';
@@ -161,10 +169,10 @@ function renderFiltersAndList() {
     searchFields: function (strategy) { return [strategy.name, strategy.description, strategy.author, strategy.id].concat(array(strategy.profiles).map(function (profile) { return profile.args; })); },
     filters: [
       { id: 'all', label: 'Все', test: function () { return true; } },
-      { id: 'available', label: 'Доступные', test: function (strategy) { return strategy.availability !== false; } },
+      { id: 'favorite', label: 'Избранное', test: function (strategy) { return strategy.favorite; } },
+      { id: 'featured', label: 'Рекомендуемые', test: function (strategy) { return strategy.featured; } },
       { id: 'builtin', label: 'Встроенные', test: function (strategy) { return strategy.isBuiltin; } },
-      { id: 'user', label: 'Пользовательские', test: function (strategy) { return !strategy.isBuiltin; } },
-      { id: 'favorite', label: 'Избранное', test: function (strategy) { return strategy.favorite; } }
+      { id: 'user', label: 'Пользовательские', test: function (strategy) { return !strategy.isBuiltin; } }
     ],
     groupBy: function (strategy) { return (strategy.protocol || 'other').toLowerCase(); },
     groupLabel: function (group) { return ({ tcp: 'TCP', udp: 'UDP / QUIC', http: 'HTTP', tls: 'TLS', other: 'Прочее' }[group] || String(group).toUpperCase()); },
@@ -185,7 +193,7 @@ function renderStrategyCard(strategy) {
   var pending = !!state.pending;
   var active = strategy.current || strategy.applied;
   var selected = strategy.selected || strategy.id === state.selectedId;
-  var badges = array(strategy.profiles).map(function (profile) { return '<span class="profile-badge' + (profile.enabled ? '' : ' disabled') + '">' + escapeHtml(profile.name) + '</span>'; }).join('');
+  var badges = (strategy.protocol ? '<span class="profile-badge protocol-badge">' + escapeHtml(strategy.protocol.toUpperCase()) + '</span>' : '') + array(strategy.profiles).map(function (profile) { return '<span class="profile-badge' + (profile.enabled ? '' : ' disabled') + '">' + escapeHtml(profile.name) + '</span>'; }).join('');
   var args = array(strategy.profiles).filter(function (profile) { return profile.enabled !== false && profile.args; }).map(function (profile) { return '<div class="strategy-args-preview"><code>' + escapeHtml(profile.args) + '</code></div>'; }).join('');
   var actions = active ? '<button class="btn btn-primary btn-sm" disabled>Используется сейчас</button>' : '<button class="btn btn-primary btn-sm" data-action="applyStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + '>Применить</button>';
   return '<div class="strategy-card compact' + (active ? ' active' : '') + (selected ? ' selected' : '') + '" data-id="' + escapeAttr(strategy.id) + '" data-strategy="' + escapeAttr(strategy.id) + '" data-list-ui-card>' +
@@ -201,6 +209,17 @@ function renderActiveCard() {
   var active = state.rows.find(function (strategy) { return strategy.current || strategy.applied; });
   host.innerHTML = active ? '<span class="status-dot running"></span><div><div class="active-strategy-name">' + escapeHtml(active.name) + '</div><div class="active-strategy-meta">' + activeLabels(active) + '</div></div><button class="btn btn-ghost btn-sm" data-action="showPreview" data-strategy-id="' + escapeAttr(active.id) + '">Превью команды</button>' : '<span class="status-dot stopped"></span><span class="text-muted">Текущая стратегия не определена</span>';
 }
+function renderCatalogSummary() {
+  var host = state.root && state.root.querySelector('#catalog-summary');
+  if (!host) return;
+  var envelope = state.data && state.data.catalog;
+  if (!envelope || envelope.error) {
+    host.innerHTML = '<div class="catalog-summary-state warning">Состояние каталога недоступно; локальные стратегии не скрыты.</div>';
+    return;
+  }
+  var value = catalogValue(state.data), counts = object(value.counts);
+  host.innerHTML = '<div class="catalog-summary-grid"><div><b>' + text(counts.files || 0) + '</b><span>Файлов</span></div><div><b>' + text(counts.uniqueStrategies || 0) + '</b><span>Стратегий</span></div><div><b>' + text(value.digest ? value.digest.slice(0, 12) : '—') + '</b><span>Версия каталога</span></div><div><b>' + (value.ok === true ? 'Готов' : 'Проверка') + '</b><span>Состояние</span></div></div>';
+}
 function renderBulkBar() {
   var bar = state.root && state.root.querySelector('#strat-bulkbar');
   if (!bar) return;
@@ -209,8 +228,9 @@ function renderBulkBar() {
   bar.innerHTML = ids.length ? '<span>Выбрано: <b>' + ids.length + '</b></span><button class="btn btn-primary btn-sm" data-action="mergeSelected"' + (ids.length < 2 ? ' disabled' : '') + '>Объединить</button><button class="btn btn-ghost btn-sm" data-action="clearSelection">Снять выделение</button>' : '';
 }
 function renderAll() {
-  if (!state.root) return;
+  if (!state.root || !state.loaded) return;
   state.rows = buildRows(state.data);
+  renderCatalogSummary();
   renderActiveCard();
   renderFiltersAndList();
   renderBulkBar();
@@ -222,6 +242,16 @@ function call(fn, payload) { return fn(JSON.stringify(payload || {})); }
 function refreshData() {
   if (state.disposed) return Promise.resolve();
   return load(state.ctx).then(function (data) { if (!state.disposed) { state.data = data; renderAll(); } return data; });
+}
+function refreshCatalog() {
+  if (state.pending || !state.ctx || !state.ctx.api.strategies.catalogReload) return;
+  state.pending = 'catalog'; renderAll();
+  call(state.ctx.api.strategies.catalogReload).then(function (answer) {
+    if (!answer || answer.ok === false) throw answer || new Error('Каталог не обновлён');
+    return refreshData();
+  }).then(function () { notify('ok', 'Каталог стратегий обновлён'); }, function (error) {
+    notify('err', errorText(state.ctx, error));
+  }).then(function () { state.pending = null; renderAll(); });
 }
 function mutate(action, request) {
   if (!Model.canMutate(!!state.pending)) return Promise.resolve(null);
@@ -304,7 +334,8 @@ function mergeSelected() { notify('info', 'Объединение выполня
 function onClick(event) {
   var el = event.target.closest('[data-action]'); if (!el || !state.root.contains(el)) return;
   var action = el.dataset.action, id = el.dataset.strategyId;
-  if (action === 'openCreate') openCreate();
+  if (action === 'refreshCatalog') refreshCatalog();
+  else if (action === 'openCreate') openCreate();
   else if (action === 'openEdit') openEdit(id);
   else if (action === 'duplicateStrategy') duplicateStrategy(id);
   else if (action === 'applyStrategy') applyStrategy(id);
@@ -334,8 +365,8 @@ function bindEvents() {
 }
 function unbindEvents() { if (!state.root) return; state.root.removeEventListener('click', state.clickHandler); state.root.removeEventListener('change', state.changeHandler); document.removeEventListener('keydown', state.keyHandler); state.clickHandler = state.changeHandler = state.keyHandler = null; }
 function render(ctx) {
-  state.ctx = ctx; state.data = object(ctx.data); state.disposed = false; state.selectedId = state.selectedId || Model.identity(statusValue(state.data)).selectedId || (listValue(state.data)[0] && listValue(state.data)[0].id);
-  var root = document.createElement('section'); root.className = 'z2m-view on'; root.id = 'z2m-view-strategy'; root.innerHTML = '<div class="page-header strategies-page-header"><div><h1 class="page-title">Стратегии</h1><p class="page-description">Настройка способов обхода DPI для nfqws2</p></div><div class="strategies-page-actions"><button class="btn btn-primary" data-action="openCreate">Создать стратегию</button></div></div><div class="card active-strategy-card" id="active-strategy-card"><div class="card-title">Текущая стратегия</div><div id="active-strategy-info"><span class="text-muted">Загрузка…</span></div></div><div id="strategies-list-host"><div class="list-ui-loading">Загрузка стратегий…</div></div><div id="strat-bulkbar" class="strat-bulkbar" style="display:none"></div><div id="strategy-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Стратегия</h3><button class="modal-close" data-action="closeModal">×</button></div><div class="modal-body" id="modal-body"></div></div></div><div id="preview-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Превью команды nfqws2</h3><button class="modal-close" data-action="closePreview">×</button></div><div class="modal-body" id="preview-body"></div></div></div><div id="strategy-confirm-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-sm"><div class="modal-header"><h3 data-confirm-title>Подтверждение</h3></div><div class="modal-body"><p data-confirm-message></p><div class="editor-footer"><button class="btn btn-ghost" data-action="closeConfirm">Отмена</button><button class="btn btn-danger" data-action="confirmYes">Подтвердить</button></div></div></div></div>';
+  state.ctx = ctx; state.data = object(ctx.data); state.loaded = true; state.disposed = false; state.selectedId = state.selectedId || Model.identity(statusValue(state.data)).selectedId || (listValue(state.data)[0] && listValue(state.data)[0].id);
+  var root = document.createElement('section'); root.className = 'z2m-view on'; root.id = 'z2m-view-strategy'; root.innerHTML = '<div class="page-header strategies-page-header"><div><h1 class="page-title">Стратегии</h1><p class="page-description">Управление стратегиями desync для nfqws2</p></div><div class="strategies-page-actions"><button class="btn btn-ghost" data-action="refreshCatalog">Обновить стратегии</button><button class="btn btn-primary" data-action="openCreate">Создать стратегию</button></div></div><div class="card catalog-summary-card"><div class="card-title">Каталог стратегий</div><div id="catalog-summary"><div class="list-ui-loading">Загрузка состояния каталога…</div></div></div><div class="card active-strategy-card" id="active-strategy-card"><div class="card-title">Активная стратегия</div><div id="active-strategy-info"><span class="text-muted">Загрузка…</span></div></div><div id="strategies-list-host"><div class="list-ui-loading">Загрузка стратегий…</div></div><div id="strat-bulkbar" class="strat-bulkbar" style="display:none"></div><div id="strategy-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Стратегия</h3><button class="modal-close" data-action="closeModal">×</button></div><div class="modal-body" id="modal-body"></div></div></div><div id="preview-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Превью команды nfqws2</h3><button class="modal-close" data-action="closePreview">×</button></div><div class="modal-body" id="preview-body"></div></div></div><div id="strategy-confirm-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-sm"><div class="modal-header"><h3 data-confirm-title>Подтверждение</h3></div><div class="modal-body"><p data-confirm-message></p><div class="editor-footer"><button class="btn btn-ghost" data-action="closeConfirm">Отмена</button><button class="btn btn-danger" data-action="confirmYes">Подтвердить</button></div></div></div></div>';
   state.root = root; state.rows = buildRows(state.data); bindEvents(); renderAll(); return root;
 }
 function boundedRead(method, timeout, message) {
@@ -360,7 +391,9 @@ function boundedRead(method, timeout, message) {
   });
 }
 function load(ctx) {
-  var readTimeout = 1500;
+  // The target verifies a large immutable catalog on the healthy path. This
+  // is a bounded error timeout, never an empty-state fallback.
+  var readTimeout = 25000;
   var reads = [
     boundedRead(ctx.api.strategies.list, readTimeout, 'Не удалось получить список стратегий.'),
     boundedRead(ctx.api.strategies.catalogStatus, readTimeout, 'Не удалось получить состояние каталога.'),

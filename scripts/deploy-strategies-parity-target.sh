@@ -36,10 +36,13 @@ test -z "$(${GIT_CMD[@]} status --porcelain)"
 
 SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout="$SSH_CONNECT_TIMEOUT")
 manifest='
-luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-avatar-strategies.js|/www/luci-static/resources/view/zapret2-manager/z2m-avatar-strategies.js
-luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-avatar-strategies-model.js|/www/luci-static/resources/view/zapret2-manager/z2m-avatar-strategies-model.js
+luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategies.js|/www/luci-static/resources/view/zapret2-manager/z2m-strategies.js
+luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategies-model.js|/www/luci-static/resources/view/zapret2-manager/z2m-strategies-model.js
 luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategy-page.js|/www/luci-static/resources/view/zapret2-manager/z2m-strategy-page.js
+luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/app.js|/www/luci-static/resources/view/zapret2-manager/app.js
+luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategy.js|/www/luci-static/resources/view/zapret2-manager/z2m-strategy.js
 luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.css|/www/luci-static/resources/view/zapret2-manager/z2m-ui.css
+zapret2-manager/files/usr/libexec/zapret2-manager/strategy-catalog.uc|/usr/libexec/zapret2-manager/strategy-catalog.uc
 '
 
 remote() { ssh "${SSH_OPTS[@]}" "$TARGET" "$@" </dev/null; }
