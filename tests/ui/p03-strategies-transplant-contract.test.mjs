@@ -73,6 +73,8 @@ test('P03 backend list path reuses one catalog snapshot and reload stays explici
   assert.match(catalog, /strategy_catalog_reload[\s\S]*let result = load_catalog\(root\)/);
   assert.match(cli, /function catalog_wire_metadata\(strategy, current, compact\)[\s\S]*if \(compact == true\)[\s\S]*catalogDigest/);
   assert.match(cli, /wire_strategy\(strategy, current, selection, true\)/);
+  assert.match(cli, /argsTruncated/);
+  assert.match(cli, /compact == true && strategy\.origin == 'avatar_builtin'/);
 });
 
 test('P03 static deploy does not reload the target auth daemon', () => {

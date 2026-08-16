@@ -830,20 +830,43 @@ function catalog_strategy(entry) {
 	if (!is_object(entry) || type(entry.id) != 'string') return null;
 	let metadata = is_object(entry.metadata) ? entry.metadata : {};
 	let args = type(entry.args) == 'string' ? entry.args : '';
+	let profiles = catalog_summary_profiles(args);
 	let strategy = {
 		id: entry.id, name: type(metadata.name) == 'string' && length(metadata.name) ? metadata.name : entry.id,
 		description: type(metadata.description) == 'string' ? metadata.description : '',
-		type: 'single', version: 1, is_builtin: true, source: 'catalog',
+		type: length(profiles) > 1 ? 'combined' : 'single', version: 1, is_builtin: true, source: 'catalog',
 		level: entry.level == null ? '' : entry.level, label: metadata.label || '',
 		author: metadata.author || '', protocol: entry.protocol == 'udp' ? 'udp' : 'tcp',
 		featured: metadata.featured === true, blobs: type(metadata.blobs) == 'array' ? metadata.blobs : [],
-		profiles: [{ id: 'profile-1', name: 'Параметры стратегии', enabled: true, args: args }]
+		// List is a product summary. Full profile args are resolved by get/
+		// preview/validate on demand; each real --new boundary remains a
+		// separate bounded profile for donor card rendering and search.
+		profiles: profiles
 	};
 	for (let key in ['sourceFile', 'sourceOrdinal', 'duplicateGroup', 'cacheKey', 'cacheOrdinal', 'winner', 'effectiveOrdinal'])
 		if (entry[key] != null) strategy[key] = entry[key];
 	strategy.origin = 'avatar_builtin';
 	strategy.revision = 0;
 	return strategy;
+}
+
+function catalog_summary_profiles(args) {
+	let sections = [], current = [], lines = split(args, '\n');
+	for (let line in lines) {
+		line = trim(line);
+		if (line == '--new') {
+			if (length(current)) { push(sections, join(' ', current)); current = []; }
+		} else if (line != '') push(current, line);
+	}
+	if (length(current)) push(sections, join(' ', current));
+	if (!length(sections) && args != '') push(sections, args);
+	let profiles = [];
+	for (let i = 0; i < length(sections); i++) {
+		let value = sections[i];
+		push(profiles, { id: 'profile-' + (i + 1), name: 'Профиль ' + (i + 1),
+			enabled: true, args: bounded_text(value, 256), argsTruncated: length(value) > 256 });
+	}
+	return profiles;
 }
 
 function catalog_wire_metadata(strategy, current, compact) {
@@ -881,7 +904,14 @@ function catalog_wire_metadata(strategy, current, compact) {
 function wire_strategy(strategy, current, selection, compact) {
 	if (!is_object(strategy)) return null;
 	let result = {};
-	for (let key in strategy) result[key] = strategy[key];
+	if (compact == true && strategy.origin == 'avatar_builtin') {
+		for (let key in ['id', 'name', 'description', 'type', 'version', 'is_builtin',
+			'source', 'level', 'label', 'author', 'protocol', 'featured', 'profiles',
+			'origin', 'revision', 'blobs'])
+			if (strategy[key] != null) result[key] = strategy[key];
+	} else {
+		for (let key in strategy) result[key] = strategy[key];
+	}
 	let selected = selection && selection.selected;
 	let revision = type(result.revision) == 'int' ? result.revision : 0;
 	result.revision = revision;
@@ -944,7 +974,9 @@ function strategy_get(input) {
 	let entry = null;
 	try { entry = strategy_catalog_get(input.id); } catch (e) { entry = null; }
 	if (is_object(entry) && entry.error) return entry;
-	let strategy = catalog_strategy(entry);
+	let strategy = null;
+	try { strategy = catalog_entry_to_strategy(entry); } catch (e) { strategy = null; }
+	if (strategy != null) strategy.origin = 'avatar_builtin';
 	return strategy == null ? error_result('ENOENT', 'Strategy was not found')
 		: bounded_strategy_response({ ok: true, strategy: wire_strategy(strategy, current, selection) }, 'Strategy detail');
 }

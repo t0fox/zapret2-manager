@@ -37,6 +37,7 @@ function profiles(value) {
       id: text(profile.id || profile.profileId) || 'profile-' + String(index + 1),
       name: text(profile.name || profile.label) || 'Профиль ' + String(index + 1),
       args: String(profile.args !== undefined ? profile.args : profile.opt || profile.raw || ''),
+      argsTruncated: profile.argsTruncated === true,
       enabled: profile.enabled !== false,
       revision: profile.revision
     };

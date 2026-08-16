@@ -194,7 +194,7 @@ function renderStrategyCard(strategy) {
   var active = strategy.current || strategy.applied;
   var selected = strategy.selected || strategy.id === state.selectedId;
   var badges = (strategy.protocol ? '<span class="profile-badge protocol-badge">' + escapeHtml(strategy.protocol.toUpperCase()) + '</span>' : '') + array(strategy.profiles).map(function (profile) { return '<span class="profile-badge' + (profile.enabled ? '' : ' disabled') + '">' + escapeHtml(profile.name) + '</span>'; }).join('');
-  var args = array(strategy.profiles).filter(function (profile) { return profile.enabled !== false && profile.args; }).map(function (profile) { return '<div class="strategy-args-preview"><code>' + escapeHtml(profile.args) + '</code></div>'; }).join('');
+  var args = array(strategy.profiles).filter(function (profile) { return profile.enabled !== false && profile.args; }).map(function (profile) { return '<div class="strategy-args-preview"><code>' + escapeHtml(profile.args) + (profile.argsTruncated ? '…' : '') + '</code></div>'; }).join('');
   var actions = active ? '<button class="btn btn-primary btn-sm" disabled>Используется сейчас</button>' : '<button class="btn btn-primary btn-sm" data-action="applyStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + '>Применить</button>';
   return '<div class="strategy-card compact' + (active ? ' active' : '') + (selected ? ' selected' : '') + '" data-id="' + escapeAttr(strategy.id) + '" data-strategy="' + escapeAttr(strategy.id) + '" data-list-ui-card>' +
     '<div class="strategy-card-header" data-action="selectStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"><div class="strategy-card-info"><div class="strategy-card-name">' + escapeHtml(strategy.name) + ' ' + (strategy.isBuiltin ? '<span class="badge badge-muted">Встроенная</span>' : '<span class="badge badge-accent">Пользовательская</span>') + activeLabels(strategy) + '</div>' + (strategy.description ? '<div class="strategy-card-desc">' + escapeHtml(strategy.description) + '</div>' : '') + '</div><button class="btn-icon-only fav-btn' + (strategy.favorite ? ' active' : '') + '" data-action="toggleFavorite" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + '" title="Избранное">★</button></div>' +
@@ -280,14 +280,20 @@ function openCreate() {
   state.root.querySelector('#strategy-modal').style.display = 'flex';
 }
 function openEdit(id) {
-  var source = strategyById(id); if (!source) return;
-  state.editor = { mode: 'edit', strategy: JSON.parse(JSON.stringify(source)) };
-  renderEditorForm(); state.root.querySelector('#strategy-modal').style.display = 'flex';
+  var source = strategyById(id); if (!source || state.pending) return;
+  state.pending = 'details'; renderAll();
+  call(state.ctx.api.strategies.get, { id: id }).then(function (answer) {
+    var raw = answer && answer.strategy ? answer.strategy : answer;
+    var full = Model.normalize(raw, statusValue(state.data), state.selectedId);
+    state.editor = { mode: 'edit', strategy: JSON.parse(JSON.stringify(full)) };
+    renderEditorForm(); state.root.querySelector('#strategy-modal').style.display = 'flex';
+  }).catch(function (error) { notify('err', errorText(state.ctx, error));
+  }).then(function () { state.pending = null; renderAll(); });
 }
 function duplicateStrategy(id) {
   var source = strategyById(id); if (!source) return;
   openConfirm('Копировать стратегию', 'Создать пользовательскую копию «' + source.name + '»?', function () {
-    mutate('duplicate', call(state.ctx.api.strategies.duplicate, { strategy: strategyInput(source), expectedRevision: source.revision }));
+    mutate('duplicate', call(state.ctx.api.strategies.duplicate, { id: source.id, expectedRevision: source.revision }));
   });
 }
 function collectEditor() {
@@ -311,7 +317,8 @@ function renderEditorForm() {
   var strategy = state.editor.strategy, root = state.root.querySelector('#modal-body');
   root.innerHTML = '<div class="strat-editor-layout"><div class="strat-editor-main"><div class="form-group"><label class="form-label">ID стратегии</label><input id="edit-id" class="form-input" type="text" value="' + escapeAttr(strategy.id) + '"' + (state.editor.mode === 'edit' ? ' readonly' : '') + '><div class="form-hint">Латиница, цифры, дефис, подчёркивание</div></div><div class="form-group"><label class="form-label">Название</label><input id="edit-name" class="form-input" type="text" value="' + escapeAttr(strategy.name) + '"></div><div class="form-group"><label class="form-label">Описание</label><input id="edit-desc" class="form-input" type="text" value="' + escapeAttr(strategy.description || '') + '"></div><div class="form-group"><div class="profile-editor-heading"><label class="form-label">Профили</label><button class="btn btn-ghost btn-sm" data-action="addProfile">Добавить</button></div><div id="profiles-editor">' + array(strategy.profiles).map(renderProfileEditor).join('') + '</div></div><div class="form-group"><button class="btn btn-ghost btn-sm" data-action="editorPreview">Превью команды</button><pre id="editor-preview-output" class="log-viewer nfq-resizable" style="display:none"></pre></div><div class="editor-footer"><button class="btn btn-ghost" data-action="closeModal">Отмена</button><button class="btn btn-primary" data-action="saveEditor"' + (state.pending ? ' disabled' : '') + '>' + (state.editor.mode === 'create' ? 'Создать' : 'Сохранить') + '</button></div></div><aside class="strat-editor-side" id="editor-sidepanel"><div class="nfq-side-card"><div class="nfq-side-title">Скелет стратегии nfqws2</div><div class="nfq-side-note">Фильтр → домены/IP → payload → действие. Сырые параметры не изменяются автоматически.</div></div></aside></div>';
 }
-function previewRequest(strategy, data, validate) { return { strategy_data: strategyInput(strategy), catalog_digest: catalogDigest(data), validate: validate === true }; }
+function previewRequest(strategy, data, validate) { return { strategy_id: strategy.id, revision: Number(strategy.revision || 0), catalog_digest: catalogDigest(data), validate: validate === true }; }
+function editorPreviewRequest(strategy, data) { return { strategy_data: strategyInput(strategy), catalog_digest: catalogDigest(data), validate: false }; }
 function showPreview(id) { var strategy = strategyById(id); if (!strategy) return; state.preview = { strategy: strategy, validation: null, output: 'Загрузка…', pending: true }; renderPreviewModal(); state.root.querySelector('#preview-modal').style.display = 'flex'; call(state.ctx.api.strategies.preview, previewRequest(strategy, state.data, false)).then(function (answer) { state.preview.pending = false; state.preview.output = text(answer && (answer.effectiveCommand || answer.command || answer.output)) || 'Сервис не вернул команду'; renderPreviewModal(); }).catch(function (error) { state.preview.pending = false; state.preview.output = errorText(state.ctx, error); renderPreviewModal(); }); }
 function validatePreview() { if (!state.preview || state.preview.pending) return; state.preview.pending = true; state.preview.validation = 'Проверка…'; renderPreviewModal(); call(state.ctx.api.strategies.validate, previewRequest(state.preview.strategy, state.data, true)).then(function (answer) { state.preview.pending = false; state.preview.validation = answer && answer.ok === true ? 'Стратегия прошла проверку' : 'Стратегия не прошла проверку'; renderPreviewModal(); }).catch(function (error) { state.preview.pending = false; state.preview.validation = errorText(state.ctx, error); renderPreviewModal(); }); }
 function renderPreviewModal() { if (!state.preview) return; var body = state.root.querySelector('#preview-body'); if (!body) return; body.innerHTML = '<pre id="preview-command" class="log-viewer nfq-resizable">' + escapeHtml(state.preview.output) + '</pre>' + (state.preview.validation ? '<div class="strategy-validation-result">' + escapeHtml(state.preview.validation) + '</div>' : '') + '<div class="editor-footer"><button class="btn btn-primary" data-action="validatePreview"' + (state.preview.pending ? ' disabled' : '') + '>Проверить</button><button class="btn btn-ghost" data-action="closePreview">Закрыть</button></div>'; }
@@ -350,7 +357,7 @@ function onClick(event) {
   else if (action === 'addProfile') addProfile();
   else if (action === 'removeProfile') removeProfile(Number(el.dataset.index));
   else if (action === 'saveEditor') saveEditor();
-  else if (action === 'editorPreview') { collectEditor(); var output = state.root.querySelector('#editor-preview-output'); output.style.display = 'block'; output.textContent = 'Загрузка…'; call(state.ctx.api.strategies.preview, previewRequest(state.editor.strategy, state.data, false)).then(function (answer) { output.textContent = text(answer && (answer.effectiveCommand || answer.command || answer.output)) || 'Сервис не вернул команду'; }).catch(function (error) { output.textContent = errorText(state.ctx, error); }); }
+  else if (action === 'editorPreview') { collectEditor(); var output = state.root.querySelector('#editor-preview-output'); output.style.display = 'block'; output.textContent = 'Загрузка…'; call(state.ctx.api.strategies.preview, editorPreviewRequest(state.editor.strategy, state.data)).then(function (answer) { output.textContent = text(answer && (answer.effectiveCommand || answer.command || answer.output)) || 'Сервис не вернул команду'; }).catch(function (error) { output.textContent = errorText(state.ctx, error); }); }
   else if (action === 'mergeSelected') mergeSelected();
   else if (action === 'clearSelection') clearSelection();
 }
