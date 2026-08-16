@@ -41,6 +41,26 @@ classified `BACKEND_NOT_READY` or `INTENTIONAL_Z2M_DIFFERENCE`, never faked.
 
 ## Final evidence
 
-This section is completed only after the RED/GREEN tests, target deployment,
-one real Browser acceptance, navigation/lifecycle checks, and final source
-classification are verified.
+- GREEN focused contract suite: `32/32` P03/P02/P01 UI tests passed after the
+  final route change; all three P03 modules pass `node --check`; `git diff
+  --check` passed.
+- Final implementation candidate: `7724c6784916c3da5578ccad9801966e8aa22319`.
+- Target deploy: `STRATEGIES_ONLY` via clean detached worktree; target SHA,
+  `root:root`, and `0644` were verified for all four deployed files. `rpcd
+  reload` ran; no APK build, reboot, or Apply was performed.
+- Target read-only characterization: `engine_status` returned installed and
+  stopped; `strategies_list` timed out. The page therefore bounds read RPCs and
+  renders safe unavailable/empty states instead of waiting forever.
+- Browser acceptance: `PARTIAL / BLOCKED`. The existing tab was claimed and
+  the session-expiry login control was exercised as requested. After a full
+  navigation the LuCI form reported `Invalid username and/or password` with
+  the prefilled `root` username and empty password; no credentials were
+  available, so post-final-deploy DOM/editor/preview interaction could not be
+  completed. No strategy mutation or Apply was attempted.
+- Navigation/lifecycle source evidence: one replaceable timeout poller,
+  listener removal, autocomplete detach, modal cleanup, and forced Avatar
+  Strategies route are covered by the P03 lifecycle contracts.
+- Donor-only healthcheck/autocircular/debug flows: `BACKEND_NOT_READY` /
+  `INTENTIONAL_Z2M_DIFFERENCE`; no donor `/api/*` call is used.
+- Target Apply canary: `NOT RUN` because the service was stopped and no
+  rollback-safe baseline was established.

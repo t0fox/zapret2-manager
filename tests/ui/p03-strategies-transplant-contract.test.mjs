@@ -34,6 +34,8 @@ test('P03 page maps supported donor actions to canonical Z2M Strategy RPCs', () 
   assert.match(app, /strategies:\s*Strategy/);
   assert.match(route, /z2m-view-strategy/);
   assert.match(route, /Strategy\.render|AvatarStrategies/);
+  assert.match(route, /function primaryModule[\s\S]*return AvatarStrategies/);
+  assert.doesNotMatch(route, /z2m-strategy-workflow/);
 });
 
 test('P03 documents donor-only healthcheck/autocircular scope instead of faking it', () => {

@@ -7,7 +7,7 @@ const read = (name) => fs.existsSync(`${root}/${name}`) ? fs.readFileSync(`${roo
 
 test('P03 Strategies has one bounded poller and complete page cleanup', () => {
   const page = read('z2m-avatar-strategies.js');
-  for (const marker of ['setTimeout', 'clearTimeout', 'function unmount', 'removeEventListener',
+  for (const marker of ['setTimeout', 'clearTimeout', 'boundedRead', 'ETIMEDOUT', 'function unmount', 'removeEventListener',
     'detachAll', 'selectedIds.clear', 'modalResize']) assert.match(page, new RegExp(marker));
   assert.doesNotMatch(page, /setInterval\([^)]*\)/);
 });
