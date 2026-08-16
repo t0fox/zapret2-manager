@@ -22,6 +22,42 @@ The frozen donor source audit covers `web/js/pages/strategies.js`,
 `web/js/utils/syntax.js`, `web/js/utils/autocomplete.js`, and the Strategies
 CSS ranges in `web/css/style.css`.
 
+## P03-R2 exact donor execution map
+
+This map was written from the frozen checkout at the pinned SHA, not from a
+screenshot. The donor page is the authority for composition and interaction;
+the Z2M RPC boundary remains the authority for data and mutations.
+
+| Contract | Exact donor source/symbol | Z2M adaptation |
+| --- | --- | --- |
+| `DONOR_PAGE_FILE` | `web/js/pages/strategies.js` | `z2m-strategies.js` |
+| `DONOR_RENDER_ENTRY` | `StrategiesPage.render(container)` | `Strategies.render(ctx)` |
+| `DONOR_DESTROY_ENTRY` | `StrategiesPage.destroy()` | `Strategies.unmount()` |
+| `DONOR_INITIAL_API_CALLS` | `fetchStrategies()`, `refreshDebugToggle()`, `refreshState()`, `refreshHealthcheck()` | `load(ctx)` reads `strategies_list`, catalog status, service status, and profiles list; unsupported donor healthcheck/autocircular calls are excluded |
+| `DONOR_CATALOG_LOAD` | `StrategyManager.get_strategies()` through `core/catalog_loader.CatalogManager.get_catalog_entries()` | `strategy_catalog_load()` and canonical Z2M catalog snapshot |
+| `DONOR_ACTIVE_STRATEGY_LOAD` | `fetchStrategies()` → `renderActiveCard(active)` | canonical selected/applied/runtime identity from Z2M status and list state |
+| `DONOR_SEARCH_HANDLER` | `ListUI.create(...).onInput()` | local presentation filtering in `ListUI` |
+| `DONOR_FILTER_HANDLER` | `ListUI.create(...).onFilter()` | local presentation filtering over supported fields |
+| `DONOR_GROUP_RENDERER` | `ListUI.refresh()` `groupBy`/`groupLabel` branch | protocol groups derived from current filtered rows |
+| `DONOR_CARD_RENDERER` | `renderStrategyCard(s)` | `renderStrategyCard(strategy)` |
+| `DONOR_APPLY_HANDLER` | `applyStrategy(sid)` | `strategies_apply` with canonical identity and revision |
+| `DONOR_DETAILS_HANDLER` | `ListUI.onBody()` `[data-list-ui-toggle]` branch | donor expand/collapse action |
+| `DONOR_PREVIEW_HANDLER` | `showPreview(sid)` and `validatePreview()` | `strategies_preview` / `strategies_validate`; final command is backend-generated |
+| `DONOR_COPY_HANDLER` | `copyPreview()` and `copyStrategyToClipboard(sid)` | supported Z2M duplicate/copy action; no client-side command authority |
+| `DONOR_FAVORITE_HANDLER` | `toggleFavorite(sid)` | `strategies_favorite` |
+| `DONOR_CREATE_FLOW` | `openCreate()` → `openEditor(data, 'create')` → `saveEditor()` | `strategies_create` with all profiles preserved |
+| `DONOR_EDITOR_FLOW` | `openEditor()`, `renderEditorForm()`, `renderProfileEditor()`, `addProfile()`, `removeProfile()`, `saveEditor()` | Z2M Strategy CRUD model with `profiles[]`, raw profile args, and `--new` boundaries preserved |
+| `DONOR_MODAL_COMPONENT` | `web/js/components/confirm.js` and page modal blocks | page-owned LuCI modal hierarchy and cleanup |
+| `DONOR_TOAST_COMPONENT` | `web/js/components/toast.js` | existing Z2M shell toast adapter |
+| `DONOR_CSS_SELECTORS` | `.page-header`, `.card`, `.active-strategy-card`, `.strategy-card`, `.strategy-card-header`, `.strategy-card-profiles`, `.strategy-card-actions`, `.list-ui-*`, `.strat-editor-*`, `.modal-*` in `web/css/style.css` | same donor hierarchy on `z2m-ui.css`, under Z2M Graphite shell |
+
+Donor backend inspection also covered `api/strategies.py` and the actual
+current equivalents `core/strategy_builder.StrategyManager`,
+`core/catalog_loader.CatalogManager`, and `core/catalog_merge`. The pinned
+checkout has no `api/catalog_update.py`; its update-related API is split across
+`api/gui_update.py` and `api/update_checker.py`. Those external update flows
+remain secondary to local Strategy availability in Z2M.
+
 Donor symbols/blocks to transplant or adapt include `render`, `_bindEvents`,
 `fetchStrategies`, `renderActiveCard`, `renderList`, `renderStrategyCard`,
 `applyStrategy`, `toggleFavorite`, `deleteStrategy`, `duplicateStrategy`,
@@ -40,6 +76,10 @@ flows are not supported by the canonical Z2M Strategy boundary. They must be
 classified `BACKEND_NOT_READY` or `INTENTIONAL_Z2M_DIFFERENCE`, never faked.
 
 ## Final evidence
+
+The earlier evidence below is historical and is superseded while P03-R2 is
+open. Current R2 closure requires a passing `strategies_list` RPC and a real
+authenticated Browser acceptance; a timeout fallback is not accepted.
 
 - GREEN focused contract suite: `32/32` P03/P02/P01 UI tests passed after the
   final route change; all three P03 modules pass `node --check`; `git diff

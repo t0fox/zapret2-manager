@@ -68,8 +68,11 @@ test('P03 keeps loading, empty, and backend error states distinct', () => {
 
 test('P03 backend list path reuses one catalog snapshot and reload stays explicit', () => {
   const catalog = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-catalog.uc'), 'utf8');
+  const cli = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-cli.uc'), 'utf8');
   assert.match(catalog, /strategy_catalog_load[\s\S]*if \(loaded != null[\s\S]*return \{ ok: true, catalog: loaded \}/);
   assert.match(catalog, /strategy_catalog_reload[\s\S]*let result = load_catalog\(root\)/);
+  assert.match(cli, /function catalog_wire_metadata\(strategy, current, compact\)[\s\S]*if \(compact == true\)[\s\S]*catalogDigest/);
+  assert.match(cli, /wire_strategy\(strategy, current, selection, true\)/);
 });
 
 test('P03 static deploy does not reload the target auth daemon', () => {

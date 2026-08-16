@@ -847,13 +847,18 @@ function catalog_strategy(entry) {
 }
 
 function catalog_wire_metadata(strategy, current, compact) {
+	if (compact == true)
+		// List cards already receive the product fields at the Strategy root.
+		// Keep only the digest needed to bind a later canonical read; do not
+		// repeat description/author/protocol/blobs and internal catalog facts
+		// 732 times in the ubus response.
+		return { catalogDigest: current.aggregateDigest };
 	let metadata = {};
 	if (is_object(strategy.metadata)) for (let key in strategy.metadata) metadata[key] = strategy.metadata[key];
 	for (let key in ['description', 'type', 'version', 'is_builtin', 'source', 'level', 'label',
 		'author', 'protocol', 'featured', 'blobs'])
 		if (strategy[key] != null && metadata[key] == null) metadata[key] = strategy[key];
 	metadata.catalogDigest = current.aggregateDigest;
-	if (compact == true) return metadata;
 	metadata.provenance = {
 		source: current.source, aggregateDigest: current.aggregateDigest,
 		aggregateDigestAlgorithm: current.aggregateDigestAlgorithm || null,
