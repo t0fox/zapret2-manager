@@ -665,3 +665,80 @@
 #z2m-view-strategy .active-strategy-name { font-size:15px; }
 #z2m-view-strategy .active-strategy-meta { gap:8px; margin-top:7px; }
 #z2m-view-strategy .active-strategy-meta .badge { padding:2px 8px; font-size:11px; line-height:18px; }
+
+/* P03-V FINDING-003: restore donor-like card hierarchy and turn LuCI
+ * controls into quiet, readable list controls. */
+#z2m-view-strategy .list-ui-filters { gap:6px; margin:0 0 14px; }
+#z2m-view-strategy .list-ui-filter {
+  min-height:30px;
+  padding:5px 11px;
+  border:1px solid transparent;
+  border-radius:999px;
+  background:transparent;
+  color:var(--tx2);
+  box-shadow:none;
+  font-size:13px;
+}
+#z2m-view-strategy .list-ui-filter:hover { background:rgba(255,255,255,.05); color:var(--tx); border-color:var(--border); }
+#z2m-view-strategy .list-ui-filter.active { background:rgba(75,159,213,.14); border-color:rgba(75,159,213,.55); color:var(--blue); }
+#z2m-view-strategy .list-ui-group { margin-bottom:14px; }
+#z2m-view-strategy .list-ui-group-header {
+  padding:9px 6px;
+  border:0;
+  border-bottom:1px solid var(--border);
+  background:transparent;
+  box-shadow:none;
+  font-size:13px;
+}
+#z2m-view-strategy .list-ui-group-header:hover { background:rgba(255,255,255,.025); }
+
+#z2m-view-strategy .strategy-card { margin-bottom:10px; border-radius:7px; box-shadow:none; }
+#z2m-view-strategy .strategy-card-header { gap:14px; padding:16px 20px 10px; }
+#z2m-view-strategy .strategy-card-name { gap:8px; font-size:15px; line-height:1.4; }
+#z2m-view-strategy .strategy-card-desc { margin-top:6px; color:var(--tx2); font-size:13px; line-height:1.45; }
+#z2m-view-strategy .strategy-card-profiles { gap:6px; padding:0 20px 10px; }
+#z2m-view-strategy .profile-badge {
+  padding:3px 8px;
+  border:1px solid var(--border2);
+  border-left:2px solid var(--blue);
+  border-radius:5px;
+  background:rgba(75,159,213,.07);
+  color:var(--tx2);
+  font-size:12px;
+}
+#z2m-view-strategy .strategy-card-actions {
+  gap:8px;
+  padding:10px 20px 16px;
+  background:rgba(255,255,255,.012);
+}
+#z2m-view-strategy .strategy-card-actions .btn,
+#z2m-view-strategy .strategy-card-toggle {
+  min-height:30px;
+  padding:5px 10px;
+  border-radius:5px;
+  box-shadow:none;
+  font-size:13px;
+}
+#z2m-view-strategy .strategy-card-actions .btn {
+  border:1px solid var(--border2);
+  background:var(--raised);
+  color:var(--tx);
+}
+#z2m-view-strategy .strategy-card-actions .btn:hover,
+#z2m-view-strategy .strategy-card-toggle:hover { background:var(--panel2); border-color:var(--blue); color:var(--tx); }
+#z2m-view-strategy .strategy-card-actions .btn-primary { background:var(--blue2); border-color:var(--blue); color:#fff; }
+#z2m-view-strategy .strategy-card-actions .btn[disabled],
+#z2m-view-strategy .strategy-card-actions .strategy-card-toggle[disabled] { opacity:.58; color:var(--tx2); border-color:var(--border2); background:rgba(255,255,255,.035); }
+#z2m-view-strategy .fav-btn {
+  width:32px;
+  min-width:32px;
+  height:32px;
+  margin-right:-4px;
+  border-radius:6px;
+  display:inline-grid;
+  place-items:center;
+  color:var(--tx3);
+  font-size:18px;
+}
+#z2m-view-strategy .fav-btn:hover { background:rgba(224,163,59,.12); color:var(--orange); }
+#z2m-view-strategy .fav-btn:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
