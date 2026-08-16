@@ -40,6 +40,7 @@ luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2
 luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-navigation.js|/www/luci-static/resources/view/zapret2-manager/z2m-navigation.js
 luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-shell.js|/www/luci-static/resources/view/zapret2-manager/z2m-shell.js
 luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.css|/www/luci-static/resources/view/zapret2-manager/z2m-ui.css
+luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json|/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json
 '
 
 remote() { ssh "${SSH_OPTS[@]}" "$TARGET" "$@" </dev/null; }

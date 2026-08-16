@@ -100,6 +100,12 @@ test('P01 app entrypoint does not gate Dashboard on DNS/TG product status', () =
   assert.match(load, /Api\.service\.status\(\)/);
 });
 
+test('P01 LuCI shell can read its own luci UCI config without widening writes', () => {
+  const acl = fs.readFileSync('luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json', 'utf8');
+  assert.match(acl, /"uci":\s*\[\s*"zapret2",\s*"luci"\s*\]/);
+  assert.doesNotMatch(acl, /"uci"\s*:\s*\{[^}]*"luci"/);
+});
+
 test('P01 Dashboard removes LuCI shell chrome from the donor header and active tab', () => {
   const css = read('z2m-ui.css');
   assert.match(css, /\.z2m-view#z2m-view-overview \.page-header\{[^}]*background-image:none/);

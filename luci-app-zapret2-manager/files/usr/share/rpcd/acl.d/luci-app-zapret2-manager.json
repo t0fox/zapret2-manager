@@ -10,7 +10,7 @@
         "zapret2-manager-engine": [ "engine_status" ],
         "zapret2-manager-proxy-provider": [ "proxy_provider_catalog", "proxy_provider_status", "proxy_provider_preflight", "proxy_provider_check_updates" ]
       },
-      "uci": [ "zapret2" ]
+      "uci": [ "zapret2", "luci" ]
     },
     "write": {
       "ubus": {
