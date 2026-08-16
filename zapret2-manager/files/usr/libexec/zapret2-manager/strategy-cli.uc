@@ -3,7 +3,7 @@
 // catalog provenance, and runtime composition on the server, then delegates
 // candidate construction to the shared Strategy compiler.
 
-import { readfile, stat, readlink, lsdir, popen } from 'fs';
+import { readfile, writefile, stat, readlink, lsdir, popen } from 'fs';
 import { strategy_catalog_load, strategy_catalog_get,
  strategy_catalog_status, strategy_catalog_reload, catalog_entry_to_strategy } from './strategy-catalog.uc';
 import { strategy_user_list, strategy_user_get_readonly, strategy_duplicate,
