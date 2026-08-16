@@ -180,7 +180,9 @@ var ListUI = {
         return search.toLowerCase().split(/\s+/).filter(Boolean).every(function (needle) { return hay.indexOf(needle) >= 0; });
       });
       var shown = filtered.slice(0, visibleCount);
-      count.textContent = cfg.countLabel(shown.length, items.length) + (shown.length !== filtered.length ? ' · отфильтровано' : '');
+      var defaultFilter = cfg.filters.find(function (item) { return item.default; }) || cfg.filters[0];
+      var isFiltered = !!search || !!(chosen && defaultFilter && chosen.id !== defaultFilter.id);
+      count.textContent = cfg.countLabel(shown.length, items.length) + (isFiltered ? ' · отфильтровано' : '');
       if (!filtered.length) body.innerHTML = cfg.renderEmpty(search, filterId);
       else if (cfg.groupBy) {
         var groups = {};
