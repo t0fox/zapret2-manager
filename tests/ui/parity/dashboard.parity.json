@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "page_id": "dashboard",
+  "donor_sha": "60bc16a5ddc5f43d97d414b99920c3d13da3151a",
+  "donor_files": ["web/js/pages/dashboard.js", "web/css/style.css"],
+  "z2m_files": [
+    "luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/app.js",
+    "luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-overview.js",
+    "luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-navigation.js",
+    "luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-shell.js",
+    "luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.css",
+    "zapret2-manager/files/usr/libexec/zapret2-manager/core/status-collector.uc",
+    "zapret2-manager/files/usr/libexec/zapret2-manager/strategy-status.uc"
+  ],
+  "donor_sections": ["page-header", "status-grid", "quick-actions", "recent-events"],
+  "z2m_sections": ["page-header", "status-grid", "quick-actions", "recent-events", "Проверить ресурс"],
+  "intentional_extensions": ["Проверить ресурс"],
+  "intentional_deviations": ["LuCI RPC and shell remain authoritative; donor HTTP API/sidebar are excluded"],
+  "backend_supported": true,
+  "visual_status": "ADAPTED_1TO1",
+  "interaction_status": "PARITY",
+  "runtime_status": "PARITY",
+  "browser": { "1280": "NOT_RUN", "768": "NOT_RUN", "390": "NOT_RUN" },
+  "checks": {
+    "console_errors": 0,
+    "network_404": 0,
+    "horizontal_overflow": 0,
+    "clipped_controls": 0,
+    "dead_controls": 0
+  },
+  "target_candidate": "c6dc7865c214f5075efcefb85989314405cb5d8c",
+  "completion_status": "NOT_COMPLETE",
+  "note": "Browser viewport evidence is intentionally incomplete; this fixture must not claim P01 completion."
+}
