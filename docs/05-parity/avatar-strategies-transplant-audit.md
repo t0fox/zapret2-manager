@@ -113,3 +113,91 @@ classified `BACKEND_NOT_READY` or `INTENTIONAL_Z2M_DIFFERENCE`, never faked.
 - Target Apply canary: `NOT RUN` because the service is stopped and no
   rollback-safe baseline was established.
 - `P04_STARTED=NO`.
+
+## P03-V visual polish evidence
+
+- `STATUS: DONE`.
+- `DONOR_SHA: 38ed85ce487c6b3dbdf703a5be197795f7c0cad1`.
+- The frozen donor was rendered again in the same authenticated browser tab at
+  `http://127.0.0.1:38123/#strategies`; the deployed Z2M route was rendered in
+  that same tab at `#/strategies`. Donor top, Z2M before, and Z2M after
+  screenshots are stored under
+  `C:\Users\Kirill\.codex\visualizations\2026\08\16\01a00aad-3cb6-7cc0-aa5f-be2d7b0d1f71\`.
+
+### VISUAL_ROOT_CAUSES
+
+| Finding | Classification | Evidence | Closure |
+| --- | --- | --- | --- |
+| Strategies wrapper left 28px of avoidable internal gutter at the target viewport | `CONTAINER_WIDTH_PROBLEM`, `Z2M_WRAPPER_INTERFERENCE` | LuCI content width `627px`; `z2m-wrap` was `599px`; donor content was `614px` inside a `646px` page container | scoped Strategies wrapper is `607px`, with no horizontal overflow |
+| Catalog facts were four equal bordered tiles | `INFORMATION_HIERARCHY_PROBLEM`, `BORDER_OVERUSE` | before summary was `177px` tall with four child borders | one cohesive `130px` panel; counts lead, digest/status are secondary |
+| Card and control rules lost to donor-derived and LuCI selector specificity | `TYPOGRAPHY_SCALE_PROBLEM`, `LUCI_STYLE_LEAK`, `BUTTON_STYLE_PROBLEM`, `BADGE_STYLE_PROBLEM` | computed before card description was `12px`, header padding `14px 16px 8px`, favorite hitbox `15px`; toolbar buttons had an inset shadow | card description `13px/18.85px`, header `16px 20px 10px`, favorite `32px`, buttons have explicit Graphite tokens and no glow |
+| Filter controls read as generic LuCI buttons | `BUTTON_STYLE_PROBLEM`, `SPACING_SCALE_PROBLEM` | before filters were `23px` high with inherited button treatment | `30px` rounded filter pills, quiet inactive state and clear active state |
+| Search height was inflated by LuCI `content-box` sizing | `LUCI_STYLE_LEAK` | CSS height was `40px` but the rendered hitbox was `50px` | scoped `border-box` gives an actual `40px` hitbox |
+
+### Required closure fields
+
+| Field | Before | After |
+| --- | --- | --- |
+| `CONTENT_WIDTH_ROOT_CAUSE` | `z2m-wrap` used `calc(100% - 28px)` at `max-width:1100px` | Strategies-only `calc(100% - 20px)` at the same viewport band |
+| `CONTENT_WIDTH_BEFORE` | `599px` |  |
+| `CONTENT_WIDTH_AFTER` |  | `607px` |
+| `PAGE_TITLE_BEFORE` | `22px / 27.5px` | `22px / 27.5px`, retained as stronger page-level hierarchy |
+| `BODY_TEXT_BEFORE` | `14px / 21px`; card description `12px / 18px` | `14px / 21px`; card description `13px / 18.85px` |
+| `CARD_TITLE_BEFORE` | `14px / 21px` | `15px / 21px` |
+| `CATALOG_SUMMARY_BEFORE` | four equal bordered KPI tiles, `177px` high |  |
+| `CATALOG_SUMMARY_AFTER` |  | cohesive panel, `130px` high; internal dividers only |
+| `CATALOG_HASH_PRIMARY_VISUAL` | visually equal to count | `NO`; secondary `12px` technical metadata |
+| `ACTIVE_STRATEGY` | working but dense badges and `125px` panel | readable `15px` name, `11px/22px` badges, `130.5px` panel |
+| `SEARCH` | generic LuCI input, `40px` CSS / `40px` before hitbox | Graphite surface, `13px`, `40px` actual hitbox |
+| `FILTERS` | inherited small LuCI buttons | rounded filter pills, `30px`, quiet active/inactive states |
+| `GROUP_HEADER` | thin divider treatment | readable `13px` disclosure row with count and divider |
+| `STRATEGY_CARDS` | `163.5px`, `14px` header padding, weak hierarchy | `186.2px`, `16px 20px 10px` header, stronger title/actions |
+| `CARD_DESCRIPTIONS` | `12px / 18px` | `13px / 18.85px`, readable two-line density |
+| `PROTOCOL_TAGS` | small bordered labels | `12px` compact semantic tags, no primary-action styling |
+| `ACTION_ROW` | inherited equal-looking LuCI controls | blue primary `Применить`, quiet secondary actions, `30px` controls |
+| `DISABLED_ACTIONS` | inherited opacity could make controls disappear | explicit readable disabled surface, `opacity:.58`, no business-rule change |
+| `FAVORITE_CONTROL` | `15px` rendered width | `32px` hitbox, active amber, hover/focus state |
+| `TOP_TOOLBAR` | `23px` inherited buttons with inset shadow | `33.5px` Graphite buttons, `Создать стратегию` primary, shadow `none` |
+| `BORDER_NESTING_REDUCED` | four nested summary borders plus button borders | `YES`; summary is one surface with deliberate internal dividers |
+
+`DONOR_SIDE_BY_SIDE: PASS`. The donor and target were compared from rendered
+screenshots and computed geometry, not recollection. `Z2M_THEME_CHANGED_GLOBALLY:
+NO`; all new selectors are scoped to `#z2m-view-strategy`, and no Avatar
+branding is present in the target DOM (`0` matches).
+
+`MIXED_RU_EN_PRODUCT_COPY: 0`; technical labels (`TCP`, `nfqws2`, HTTP) remain
+technical. `RAW_INTERNAL_ENUM_VISIBLE: 0`. `RAW_REASON_CODE_VISIBLE: 0`.
+
+`INITIAL_RPC_COUNT_BEFORE: 5`; `INITIAL_RPC_COUNT_AFTER: 5`. The closure is
+CSS-only, adds no JavaScript or RPC path, and the final browser render still
+has one search control, one catalog summary, and `80` visible cards from the
+real `732`-strategy catalog.
+
+### Files, commits, and target
+
+- Only `luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.css` changed for P03-V.
+- Atomic visual commits: `036676a8` (workspace/toolbar), `a5f0b9a0`
+  (catalog/active panel), `f94b3397` (cards/filters), `a36a698a`
+  (card selector specificity), `23499bed` (search height), `886894df`
+  (search box sizing).
+- Final worktree HEAD: `886894df3ab2ace1459f8f6b649f34baef709723`.
+- Target CSS SHA-256 matched local:
+  `eeaddd254fcabd4c02dd78d89fdd6f8c47d5e417f9feb7b3794a595171d8989c`.
+  Target mode/owner: `-rw-r--r-- root:root` (`0644`); `rpcd` PID remained
+  `7271`. Each upload used a bounded backup under
+  `/tmp/z2m-strategies-parity/backup`; no APK, reboot, rpcd reload, or Apply.
+
+### Verification
+
+- Focused P03 suite: `18/18` passed.
+- `node --check` Strategies JS: passed.
+- `git diff --check`: passed.
+- Final real Browser: `PASS`; `#/strategies` rendered `23 files / 732
+  strategies`, active `Split`, `80` cards, polished summary/search/filters,
+  readable cards and actions. Final screenshots: `p03v-z2m-before.png`,
+  `p03v-donor-before.png`, `p03v-z2m-final-top.png`, and
+  `p03v-z2m-final-card.png` in the evidence directory above.
+- P01/P02 shared-style safety: no shared component/token changed; all P03-V
+  rules are Strategies-scoped. Same-tab smoke navigation to the existing
+  overview/control shell produced no visible error text.
+- `P04_STARTED=NO`.
