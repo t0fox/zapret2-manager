@@ -107,7 +107,7 @@ function firewallDetails(view) {
   if (view.firewall.registered !== null) rows.push(E('div', { 'class': 'control-firewall-row' }, [E('span', {}, _('Регистрация очереди')), E('b', {}, view.firewall.registered ? _('Подтверждена') : _('Не подтверждена'))]));
   if (view.firewall.rulesPresent !== null) rows.push(E('div', { 'class': 'control-firewall-row' }, [E('span', {}, _('Правила перенаправления')), E('b', {}, view.firewall.rulesPresent ? _('Найдены') : _('Не найдены'))]));
   return E('div', { id: 'fw-rules-card', 'class': 'card' }, [
-    E('div', { 'class': 'card-title' }, [icon('firewall'), _('Правила firewall')]),
+    E('div', { 'class': 'card-title' }, [icon('firewall'), _('Правила межсетевого экрана')]),
     E('div', { id: 'fw-rules-viewer', 'class': 'log-viewer control-firewall-viewer', role: 'list' }, rows)
   ]);
 }
