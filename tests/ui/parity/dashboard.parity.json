@@ -28,7 +28,7 @@
     "clipped_controls": 0,
     "dead_controls": 0
   },
-  "target_candidate": "278e2aa42aa3097e6ff3251188f2678e78b346a3",
+  "target_candidate": "f7408aad9a23514a9461345c215d118dea310395",
   "completion_status": "NOT_COMPLETE",
   "note": "All three exact widths rendered, but strict browser acceptance remains incomplete because the shared LuCI shell emitted one unrelated uci/get -32002 Access denied error."
 }

@@ -1,6 +1,6 @@
 {
   "page_id": "dashboard",
-  "candidate": "278e2aa42aa3097e6ff3251188f2678e78b346a3",
+  "candidate": "f7408aad9a23514a9461345c215d118dea310395",
   "route": "#/dashboard",
   "viewports": [
     { "width": 1280, "height": 900, "status": "PASS" },
@@ -14,6 +14,13 @@
     "header_separated": true
   },
   "runtime": { "status": "PASS", "events": "PASS", "loading": false },
+  "ubus_dashboard_calls": [
+    "zapret2-manager.status",
+    "zapret2-manager.discord_profile_preview",
+    "zapret2-manager.events_tail",
+    "zapret2-manager.status"
+  ],
+  "forbidden_product_rpcs": [],
   "overflow": false,
   "active_nav": { "background": "transparent", "box_shadow": "none", "underline": "blue" },
   "console_errors": ["shared LuCI shell: RPC uci/get -32002 Access denied"],
@@ -21,5 +28,5 @@
   "clipped_controls": 0,
   "dead_controls": 0,
   "status": "NOT_COMPLETE",
-  "note": "The console error is outside Dashboard source and requires a separate LuCI shell/ACL investigation."
+  "note": "The console error is outside Dashboard source and requires a separate LuCI shell/ACL investigation. DNS/TG product RPCs were absent from the Dashboard load."
 }

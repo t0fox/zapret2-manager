@@ -114,7 +114,7 @@ backend implementation, or unrelated page file is part of the closure.
 | Browser first Dashboard paint | PASS | Current authenticated browser: ~3.66 s after eager mount; previous measured ~5.22 s |
 | Browser responsive evidence | PASS | Fresh in-app browser exact widths 1280/768/390: 5 cards, header split, no forbidden sections, no overflow, events loaded |
 | Package/build checks | NOT_RUN | No APK build/install by instruction |
-| Target deploy | PASS | `278e2aa42aa3097e6ff3251188f2678e78b346a3`; guarded direct SCP-compatible script; rpcd reloaded |
+| Target deploy | PASS | `f7408aad9a23514a9461345c215d118dea310395`; guarded direct SCP-compatible script; rpcd reloaded |
 | Target hashes/owners/modes | PASS | All 7 runtime assets matched local SHA-256; target `root:root`, `0644` |
 | Browser 1280x900 | PASS | Exact viewport evidence in `docs/05-parity/evidence/dashboard-278e2aa.json` |
 | Browser 768x900 | PASS | Exact viewport evidence in `docs/05-parity/evidence/dashboard-278e2aa.json` |
@@ -133,10 +133,10 @@ must not be claimed from this page-only slice.
 
 | Asset | SHA-256 |
 |---|---|
-| `app.js` | `feaabc9430a36df14580d68cf7ca24bbcc0bf2b2d6af4b2ddff18df828f943d8` |
+| `app.js` | `8e000a5913e0728c19a7a799866f1c0cfb2c31c41f88ffa83b772fcd92cd6a64` |
 | `z2m-overview.js` | `49e9fed0ab047310d166fe968fc29bcac9a304aacd6932e39cc9e84442c94c20` |
 | `z2m-navigation.js` | `84376d87d07bac3ea000d4b093bcbde6dd70ee1b8a0468c79c0b07c8e34cef42` |
 | `z2m-shell.js` | `3006d5b62bc235eacc08c81c4bdb4556eb6e6713e5f7d2237b21355dfdc83c33` |
-| `z2m-ui.css` | `6b52e437a9a37d27512f73c66d7ffe1300eee4c92662c87ddf4adb1d61f30600` |
+| `z2m-ui.css` | `b0f6e8ea44d9057e537d7430b6de31d330e9309c07e610815f0801296d03fb88` |
 | `core/status-collector.uc` | `6f0c249a5b72bdd11faca44465e89336efe54bc20f5336c19a89c60d513746b4` |
 | `strategy-status.uc` | `58c37d3b40bc026f9af8f9d9d9423e0fd72f0128f277d50e8c206de6682cc5cd` |
