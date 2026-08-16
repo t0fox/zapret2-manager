@@ -9,6 +9,7 @@
     "luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-navigation.js",
     "luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-shell.js",
     "luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.css",
+    "luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json",
     "zapret2-manager/files/usr/libexec/zapret2-manager/core/status-collector.uc",
     "zapret2-manager/files/usr/libexec/zapret2-manager/strategy-status.uc"
   ],
@@ -22,13 +23,13 @@
   "runtime_status": "PARITY",
   "browser": { "1280": "PASS", "768": "PASS", "390": "PASS" },
   "checks": {
-    "console_errors": 1,
+    "console_errors": 0,
     "network_404": 0,
     "horizontal_overflow": 0,
     "clipped_controls": 0,
     "dead_controls": 0
   },
-  "target_candidate": "f7408aad9a23514a9461345c215d118dea310395",
-  "completion_status": "NOT_COMPLETE",
-  "note": "All three exact widths rendered, but strict browser acceptance remains incomplete because the shared LuCI shell emitted one unrelated uci/get -32002 Access denied error."
+  "target_candidate": "ef5c18a20db92cab19dd821df4300339164bc6b1",
+  "completion_status": "ACCEPTED",
+  "note": "All three exact widths passed after the narrow-navigation wrap fix; shared LuCI shell uci/get is HTTP 200, no post-deploy console errors or 404s, and no DNS/TG product RPCs are issued."
 }

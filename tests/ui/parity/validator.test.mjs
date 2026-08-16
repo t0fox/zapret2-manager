@@ -5,11 +5,19 @@ import { readManifest, validateManifest } from './validate-page-parity.mjs';
 
 const fixture = readManifest(new URL('./dashboard.parity.json', import.meta.url));
 
-test('Dashboard fixture reports NOT COMPLETE while a strict browser gate is failing', () => {
+test('Dashboard fixture reports COMPLETE after all strict browser gates pass', () => {
   const result = validateManifest(fixture);
-  assert.equal(result.complete, false);
+  assert.equal(result.complete, true);
   assert.equal(result.diff.missing_donor_sections.length, 0);
   assert.deepEqual(result.diff.unexplained_extra_sections, []);
+  assert.deepEqual(result.errors, []);
+});
+
+test('strict validator rejects a newly introduced browser console error', () => {
+  const invalid = JSON.parse(JSON.stringify(fixture));
+  invalid.checks.console_errors = 1;
+  const result = validateManifest(invalid);
+  assert.equal(result.complete, false);
   assert.match(result.errors.join('\n'), /console_errors is 1/);
 });
 

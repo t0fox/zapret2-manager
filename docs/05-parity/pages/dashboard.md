@@ -105,21 +105,21 @@ backend implementation, or unrelated page file is part of the closure.
 | Check | Status | Evidence |
 |---|---|---|
 | Focused Dashboard contract RED before implementation | PASS | Multiple RED-first checks covered composition, unused Orchestra reads, structured status fields, eager mount, and shell chrome |
-| Focused Dashboard contract GREEN | PASS | `node --test tests/ui/dashboard-parity-contract.test.mjs`; 8/8 passed |
+| Focused Dashboard contract GREEN | PASS | `node --test tests/ui/dashboard-parity-contract.test.mjs`; 10/10 passed |
 | Canonical status timeout regression | PASS | `node --test tests/native/status-timeout-regression.test.mjs`; 1/1 passed |
 | Bounded runtime degradation contract | PASS | Fresh focused suite: 6/6; status success/failure/timeout plus independent events error/empty |
 | Target cold status | PASS | `ubus -t 3`: `RC=0`, ~558 ms wall, schema 3, autostart true, engine installed true |
 | Target runtime process evidence | PASS | `runtimeSummary.process.found=true`; browser card `Работает`, PID 12136; Start disabled, Stop/Restart enabled |
 | Target events | PASS | `ubus -t 3`: `RC=0`, ~218 ms wall, `ok=true`, 846 returned events |
 | Browser first Dashboard paint | PASS | Current authenticated browser: ~3.66 s after eager mount; previous measured ~5.22 s |
-| Browser responsive evidence | PASS | Fresh in-app browser exact widths 1280/768/390: 5 cards, header split, no forbidden sections, no overflow, events loaded |
+| Browser responsive evidence | PASS | Fresh in-app browser exact widths 1280/768/390: 5 cards, header split, no forbidden sections, wrapped narrow navigation, no visible overflow/clipping, events loaded |
 | Package/build checks | NOT_RUN | No APK build/install by instruction |
-| Target deploy | PASS | `f7408aad9a23514a9461345c215d118dea310395`; guarded direct SCP-compatible script; rpcd reloaded |
-| Target hashes/owners/modes | PASS | All 7 runtime assets matched local SHA-256; target `root:root`, `0644` |
+| Target deploy | PASS | `ef5c18a20db92cab19dd821df4300339164bc6b1`; guarded direct SCP-compatible script; rpcd reloaded |
+| Target hashes/owners/modes | PASS | All 6 deployed Dashboard frontend/ACL assets matched local SHA-256; target `root:root`, `0644`; status UCode assets also matched local SHA-256 |
 | Browser 1280x900 | PASS | Exact viewport evidence in `docs/05-parity/evidence/dashboard-278e2aa.json` |
 | Browser 768x900 | PASS | Exact viewport evidence in `docs/05-parity/evidence/dashboard-278e2aa.json` |
 | Browser 390x844 | PASS | Exact viewport evidence in `docs/05-parity/evidence/dashboard-278e2aa.json` |
-| Console/network acceptance | PARTIAL | Dashboard RPCs/events have no reported error and no 404; shared LuCI shell emits `uci/get -32002 Access denied`, so strict validator remains NOT COMPLETE |
+| Console/network acceptance | PASS | Fresh CDP capture: shared LuCI shell `uci/get` HTTP 200, 0 console errors, 0 network 404s, no forbidden DNS/TG RPCs |
 | P02 and later Avatar pages | NOT_STARTED | Explicitly outside this task |
 
 ## Final acceptance update
@@ -137,6 +137,7 @@ must not be claimed from this page-only slice.
 | `z2m-overview.js` | `49e9fed0ab047310d166fe968fc29bcac9a304aacd6932e39cc9e84442c94c20` |
 | `z2m-navigation.js` | `84376d87d07bac3ea000d4b093bcbde6dd70ee1b8a0468c79c0b07c8e34cef42` |
 | `z2m-shell.js` | `3006d5b62bc235eacc08c81c4bdb4556eb6e6713e5f7d2237b21355dfdc83c33` |
-| `z2m-ui.css` | `b0f6e8ea44d9057e537d7430b6de31d330e9309c07e610815f0801296d03fb88` |
+| `z2m-ui.css` | `6bb069337e4a81bc91df5cac4276dd17d0037213e4a4aa8185b4dd8df6b92907` |
+| `luci-app-zapret2-manager.json` | `f96acdb085e6982a59dd47d4599ffb0536b1a3101b6c4d1c5ea51fe5223c9bf6` |
 | `core/status-collector.uc` | `6f0c249a5b72bdd11faca44465e89336efe54bc20f5336c19a89c60d513746b4` |
 | `strategy-status.uc` | `58c37d3b40bc026f9af8f9d9d9423e0fd72f0128f277d50e8c206de6682cc5cd` |

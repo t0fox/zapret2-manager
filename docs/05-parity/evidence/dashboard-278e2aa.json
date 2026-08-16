@@ -1,6 +1,6 @@
 {
   "page_id": "dashboard",
-  "candidate": "f7408aad9a23514a9461345c215d118dea310395",
+  "candidate": "ef5c18a20db92cab19dd821df4300339164bc6b1",
   "route": "#/dashboard",
   "viewports": [
     { "width": 1280, "height": 900, "status": "PASS" },
@@ -23,10 +23,10 @@
   "forbidden_product_rpcs": [],
   "overflow": false,
   "active_nav": { "background": "transparent", "box_shadow": "none", "underline": "blue" },
-  "console_errors": ["shared LuCI shell: RPC uci/get -32002 Access denied"],
+  "console_errors": [],
   "network_404": 0,
   "clipped_controls": 0,
   "dead_controls": 0,
-  "status": "NOT_COMPLETE",
-  "note": "The console error is outside Dashboard source and requires a separate LuCI shell/ACL investigation. DNS/TG product RPCs were absent from the Dashboard load."
+  "status": "PASS",
+  "note": "Fresh post-deploy CDP capture: shared LuCI shell uci/get returned HTTP 200, no console errors or 404s, and DNS/TG product RPCs were absent from the Dashboard load."
 }
