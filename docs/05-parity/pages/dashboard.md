@@ -133,13 +133,13 @@ backend implementation, or unrelated page file is part of the closure.
 | Canonical status timeout regression | PASS | `node --test tests/native/status-timeout-regression.test.mjs`; 1/1 passed |
 | Bounded runtime degradation contract | PASS | Fresh focused suite: 6/6; status success/failure/timeout plus independent events error/empty |
 | Target cold status | PASS | `ubus -t 3`: `RC=0`, ~558 ms wall, schema 3, autostart true, engine installed true |
-| Target runtime process evidence | PASS | `runtimeSummary.process.found=true`; browser card `Работает`, PID 12136; Start disabled, Stop/Restart enabled |
+| Target runtime process evidence | PASS | Final read-only status: `runtimeSummary.process.found=false`, `status=stopped`; browser card `Остановлен`, Start enabled, Stop/Restart disabled |
 | Target events | PASS | `ubus -t 3`: `RC=0`, ~218 ms wall, `ok=true`, 846 returned events |
 | Browser first Dashboard paint | PASS | Current authenticated browser: ~3.66 s after eager mount; previous measured ~5.22 s |
 | Browser responsive evidence | PASS | Fresh in-app browser exact widths 1280/768/390: 5 cards, header split, no forbidden sections, wrapped narrow navigation, no visible overflow/clipping, events loaded |
 | Package/build checks | NOT_RUN | No APK build/install by instruction |
-| Target deploy | PASS | `ef5c18a20db92cab19dd821df4300339164bc6b1`; guarded direct SCP-compatible script; rpcd reloaded |
-| Target hashes/owners/modes | PASS | All 6 deployed Dashboard frontend/ACL assets matched local SHA-256; target `root:root`, `0644`; status UCode assets also matched local SHA-256 |
+| Target deploy | PASS | corrective candidate `4f62f6a85e00889bebd42044f356906af2a23b15`; guarded direct SCP-compatible script; rpcd reloaded |
+| Target hashes/owners/modes | PASS | Guarded Dashboard manifest assets matched local SHA-256; target `root:root`, `0644` |
 | Browser 1280x768 | PASS | Authenticated Codex in-app Browser: Dashboard cards, Quick Actions, event log and four-column log rows rendered; no horizontal overflow |
 | Browser 768x1024 | PASS | Authenticated Codex in-app Browser: responsive two-column cards and readable log rows; document width 753px |
 | Browser 390x844 | PASS | Authenticated Codex in-app Browser: responsive one-column cards and stacked log rows; document width 375px |
