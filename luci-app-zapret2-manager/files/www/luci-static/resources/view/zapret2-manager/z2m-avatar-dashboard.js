@@ -24,6 +24,14 @@ function icon(type) {
       E('path', { d: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4' }),
       E('polyline', { points: '7 10 12 15 17 10' }),
       E('line', { x1: '12', y1: '15', x2: '12', y2: '3' })
+    ],
+    process: [
+      E('rect', { x: '3', y: '4', width: '18', height: '16', rx: '2' }),
+      E('path', { d: 'M7 9h10M7 13h6' })
+    ],
+    firewall: [
+      E('path', { d: 'M12 3l8 3v5c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-3z' }),
+      E('path', { d: 'M8 12l2.5 2.5L16 9' })
     ]
   };
   return E('span', { 'class': 'status-card-icon', 'aria-hidden': 'true' }, E('svg', {
@@ -36,12 +44,14 @@ function statusCard(card) {
   var valueIds = {
     'card-nfqws': 'nfqws-status', 'card-strategy': 'strategy-name',
     'card-autostart': 'autostart-status', 'card-system': 'system-info',
-    'card-zapret-ver': 'zapret-ver-value'
+    'card-zapret-ver': 'zapret-ver-value', 'card-process': 'process-status',
+    'card-firewall': 'firewall-status'
   };
   var detailIds = {
     'card-nfqws': 'nfqws-detail', 'card-strategy': 'strategy-detail',
     'card-autostart': 'autostart-detail', 'card-system': 'system-detail',
-    'card-zapret-ver': 'zapret-ver-detail'
+    'card-zapret-ver': 'zapret-ver-detail', 'card-process': 'process-detail',
+    'card-firewall': 'firewall-detail'
   };
   var tag = card.href ? 'a' : 'div';
   return E(tag, {

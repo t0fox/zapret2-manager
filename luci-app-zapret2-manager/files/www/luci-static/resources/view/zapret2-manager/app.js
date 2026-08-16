@@ -8,6 +8,7 @@
 'require view.zapret2-manager.z2m-draft-model as DraftModel';
 'require view.zapret2-manager.z2m-coordinator as Coordinator';
 'require view.zapret2-manager.z2m-overview as Overview';
+'require view.zapret2-manager.z2m-avatar-control as Control';
 'require view.zapret2-manager.z2m-strategy-page as Strategy';
 'require view.zapret2-manager.z2m-domain-hub-page as Services';
 'require view.zapret2-manager.z2m-dns-page as Dns';
@@ -29,7 +30,7 @@ var DRAFT_META = {
 };
 var MODULES = {
   dashboard: Overview,
-  control: Overview,
+  control: Control,
   strategies: Strategy,
   scan: Strategy,
   lists: Services,
