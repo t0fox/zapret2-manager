@@ -58,7 +58,6 @@ printf '%s\n' "$manifest" | while IFS='|' read -r repo_path target_path; do
     remote "set -eu; test \"\$(sha256sum '$stage_path' | awk '{print \$1}')\" = '$expected'; cp -f '$stage_path' '$target_path'; chown root:root '$target_path'; chmod 0644 '$target_path'; test \"\$(sha256sum '$target_path' | awk '{print \$1}')\" = '$expected'"
 done
 
-remote "set -eu; /etc/init.d/rpcd reload"
 printf '%s\n' "$manifest" | while IFS='|' read -r repo_path target_path; do
     [ -n "$repo_path" ] || continue
     expected=$(sha256sum "$ROOT/$repo_path" | awk '{print $1}')

@@ -46,3 +46,9 @@ test('P03 documents donor-only healthcheck/autocircular scope instead of faking 
   assert.match(`${page}\n${audit}`, /BACKEND_NOT_READY|INTENTIONAL_Z2M_DIFFERENCE/);
   assert.doesNotMatch(page, /healthcheck\/status|autocircular|API\.get\(/);
 });
+
+test('P03 static deploy does not reload the target auth daemon', () => {
+  const deploy = fs.readFileSync(path.join(root, 'scripts/deploy-strategies-parity-target.sh'), 'utf8');
+  assert.match(deploy, /38ed85ce487c6b3dbdf703a5be197795f7c0cad1/);
+  assert.doesNotMatch(deploy, /rpcd\s+reload/);
+});
