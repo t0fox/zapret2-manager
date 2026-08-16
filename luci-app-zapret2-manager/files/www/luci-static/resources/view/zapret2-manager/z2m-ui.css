@@ -590,3 +590,34 @@
 #z2m-view-strategy .catalog-summary-state.warning, #z2m-view-strategy .list-ui-error { display:flex; flex-direction:column; gap:5px; padding:14px; border:1px solid rgba(245,158,11,.35); border-radius:8px; color:var(--text-muted,#9ca3af); }
 #z2m-view-strategy .list-ui-error strong { color:var(--danger,#fca5a5); }
 @media (max-width:700px) { #z2m-view-strategy .catalog-summary-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+
+/* P03-V visual closure: keep the Strategies workspace aligned with the
+ * available LuCI content region instead of the generic compact wrapper. */
+@media (min-width:601px) and (max-width:1100px) {
+  .z2m-app:has(#z2m-view-strategy) .z2m-wrap { width:calc(100% - 20px); }
+}
+
+#z2m-view-strategy .strategies-page-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+#z2m-view-strategy .strategies-page-actions .btn {
+  min-height:32px;
+  padding:6px 12px;
+  border:1px solid var(--border2);
+  border-radius:6px;
+  background:var(--raised);
+  color:var(--tx);
+  box-shadow:none;
+  font-size:13px;
+}
+#z2m-view-strategy .strategies-page-actions .btn:hover { background:var(--panel2); border-color:var(--blue); }
+#z2m-view-strategy .strategies-page-actions .btn-primary { background:var(--blue2); border-color:var(--blue); color:#fff; }
+#z2m-view-strategy .strategies-page-actions .btn-primary:hover { background:#4aa2d6; }
+#z2m-view-strategy .list-ui-search-input {
+  min-height:40px;
+  border:1px solid var(--border2);
+  border-radius:6px;
+  background:var(--panel2);
+  color:var(--tx);
+  font-size:13px;
+}
+#z2m-view-strategy .list-ui-search-input::placeholder { color:var(--tx3); opacity:1; }
+#z2m-view-strategy .list-ui-count { font-size:13px; }
