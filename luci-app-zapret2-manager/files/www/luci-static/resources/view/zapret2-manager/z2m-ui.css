@@ -238,6 +238,8 @@
 }
 @media (max-width:560px){
   .z2m-app{overflow-x:hidden}.z2m-wrap{max-width:100%;padding:12px 12px 170px}.z2m-panel>.bd{overflow-x:auto}
+  .z2m-navigation-shell .z2m-primary-nav{flex-wrap:wrap;overflow-x:visible}
+  .z2m-navigation-shell .z2m-primary-nav button{flex:1 1 auto;min-width:0;white-space:normal;text-align:center}
   .z2m-cbi>*,.z2m-svcrow>*,.z2m-srow>*,.z2m-kpi,.z2m-kpis>*,.z2m-row2>*,.z2m-row3>*,.z2m-panel,.z2m-panel .bd>*{min-width:0}
   .z2m-mono,.z2m-tech,.z2m-console,.z2m-argv,.z2m-diff{overflow-wrap:anywhere;word-break:break-word}
   .z2m-app table.t{font-size:12px}.z2m-app table.t td,.z2m-app table.t th{padding-left:6px;padding-right:6px}
