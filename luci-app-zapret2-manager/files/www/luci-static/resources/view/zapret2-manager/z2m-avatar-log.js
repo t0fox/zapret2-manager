@@ -51,6 +51,7 @@ function messageLabel(value) {
   if (config) return _('Параметр NFQWS2_ENABLE=') + config[1] + _(' записан в конфигурацию');
   if (raw === 'nfqws2 process gone; recovery start rc=0') return _('Процесс nfqws2 завершился; выполнен запуск восстановления');
   if (raw === 'NFQUEUE 300 not registered in kernel (nfqws2 not connected)') return _('Очередь NFQUEUE 300 не зарегистрирована в ядре: nfqws2 не подключён');
+  if (raw === 'nft table zapret2 missing or empty') return _('Правила межсетевого экрана не найдены: таблица zapret2 пуста или отсутствует');
   return raw;
 }
 

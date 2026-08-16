@@ -59,6 +59,7 @@ test('P02 Control exposes Russian normal-state copy without raw backend enums', 
     assert.match(page, new RegExp(marker));
   assert.doesNotMatch(page, /innerHTML\s*=|textContent\s*=\s*[^_]/);
   assert.doesNotMatch(page, /reasonCode|process-confirmed-absent|runtime-evidence-incomplete/);
+  assert.doesNotMatch(page, /Backend не/);
 });
 
 test('P02 Control carries donor control CSS in the Graphite shell', () => {

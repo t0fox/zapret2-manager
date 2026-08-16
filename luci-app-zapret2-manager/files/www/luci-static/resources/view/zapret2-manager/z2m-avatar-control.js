@@ -125,7 +125,7 @@ function renderLogs(envelope) {
 
 function lifecycleError(ctx, error) {
   var normalized = ctx.api.normalizeError(error);
-  return normalized && normalized.message || _('Backend не подтвердил операцию.');
+  return normalized && normalized.message || _('Сервис управления не подтвердил операцию.');
 }
 
 function lifecycleAction(ctx, action) {
@@ -147,7 +147,7 @@ function lifecycleAction(ctx, action) {
     runtime.logs = data.logs;
     var actual = ControlModel.state(payload(data.status));
     var expected = action === 'stop' ? 'stopped' : 'running';
-    if (actual !== expected) throw new Error(_('Backend не подтвердил нужное состояние.'));
+    if (actual !== expected) throw new Error(_('Сервис управления не подтвердил нужное состояние.'));
     runtime.result = { kind: 'success', message: ControlModel.actionCopy(action).success };
   }).catch(function (error) {
     runtime.result = { kind: 'error', message: ControlModel.actionCopy(action).failure, detail: lifecycleError(ctx, error) };
@@ -176,7 +176,7 @@ function render(ctx) {
   var cards = [
     card('card-strategy', _('Стратегия'), view.strategy.value, view.strategy.detail, view.strategy.kind, 'strategy'),
     card('card-process', _('Процесс'), view.process.value, view.process.detail, view.process.kind, 'process'),
-    card('card-firewall', _('Firewall'), view.firewall.value, view.firewall.detail, view.firewall.kind, 'firewall')
+    card('card-firewall', _('Межсетевой экран'), view.firewall.value, view.firewall.detail, view.firewall.kind, 'firewall')
   ];
 
   return E('section', { 'class': 'z2m-view on', id: 'z2m-view-control' }, [

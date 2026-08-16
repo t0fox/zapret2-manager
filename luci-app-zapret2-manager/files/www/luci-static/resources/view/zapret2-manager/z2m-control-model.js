@@ -61,7 +61,7 @@ function strategy(status, preview) {
   var value = text(active.name || active.displayName || active.id || active.managerId);
   return {
     value: value || 'Недоступно',
-    detail: value ? (active.revision != null ? 'Ревизия ' + active.revision : 'Активная стратегия') : 'Backend не сообщил стратегию',
+    detail: value ? (active.revision != null ? 'Ревизия ' + active.revision : 'Активная стратегия') : 'Сервис не сообщил стратегию',
     kind: value ? 'running' : 'warning'
   };
 }
@@ -74,7 +74,7 @@ function process(status, current) {
   if (current === 'running' && evidence.found === true)
     return { value: 'Работает', detail: pid == null ? 'Runtime подтверждён' : 'PID ' + pid, pid: pid, kind: 'running' };
   if (current === 'stopped') return { value: 'Остановлен', detail: 'Процесс не запущен', pid: null, kind: 'stopped' };
-  return { value: 'Неизвестно', detail: 'Backend не подтвердил процесс', pid: null, kind: 'warning' };
+  return { value: 'Неизвестно', detail: 'Сервис не подтвердил процесс', pid: null, kind: 'warning' };
 }
 
 function firewall(status, current) {
@@ -92,7 +92,7 @@ function firewall(status, current) {
   var absent = registered === false || rulesPresent === false || current === 'stopped';
   return {
     value: applied ? 'Применён' : absent ? 'Не применён' : 'Неизвестно',
-    detail: applied ? 'Правила и NFQUEUE подтверждены' : absent ? 'Правила обхода не активны' : 'Backend не подтвердил firewall',
+    detail: applied ? 'Правила и NFQUEUE подтверждены' : absent ? 'Правила обхода не активны' : 'Сервис не подтвердил правила',
     kind: applied ? 'running' : absent ? 'stopped' : 'warning',
     detailsVisible: detailsVisible,
     table: table,
@@ -106,7 +106,7 @@ function hero(current, pending, action) {
   if (pending) return { label: actionCopy(action).pending, detail: 'Проверяется процесс и NFQUEUE.', kind: 'pending', pending: true };
   if (current === 'running') return { label: 'Работает', detail: 'nfqws2 и NFQUEUE подтверждены.', kind: 'running', pending: false };
   if (current === 'stopped') return { label: 'Остановлен', detail: 'Служба zapret2 остановлена.', kind: 'stopped', pending: false };
-  return { label: 'Состояние неизвестно', detail: 'Backend не подтвердил состояние службы.', kind: 'unknown', pending: false };
+  return { label: 'Состояние неизвестно', detail: 'Сервис не подтвердил состояние службы.', kind: 'unknown', pending: false };
 }
 
 function normalize(status, preview, lifecycle) {
