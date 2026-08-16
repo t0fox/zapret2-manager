@@ -246,7 +246,7 @@ function renderFiltersAndList() {
   container.id = 'strategies-list';
   host.replaceChildren(container);
   state.listUI = ListUI.create({
-    container: container, items: state.rows, searchPlaceholder: 'Поиск по имени, автору, описанию и аргументам…',
+    container: container, items: state.rows, searchPlaceholder: 'Поиск по имени, автору, описанию, args...',
     searchFields: function (strategy) { return [strategy.name, strategy.description, strategy.author, strategy.id].concat(array(strategy.profiles).map(function (profile) { return profile.args; })); },
     filters: [
       { id: 'all', label: 'Все', test: function () { return true; } },

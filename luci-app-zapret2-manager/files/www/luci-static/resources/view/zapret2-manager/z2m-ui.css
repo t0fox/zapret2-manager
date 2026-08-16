@@ -987,4 +987,4 @@
 .z2m-view#z2m-view-strategy .list-ui-group-header{width:100%;min-height:35px;display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:rgba(255,255,255,.025);color:var(--tx2);font-size:13px}
 .z2m-view#z2m-view-strategy .list-ui-group-header b{font-weight:600;color:var(--tx2)}
 .z2m-view#z2m-view-strategy .list-ui-group-header>span:last-child{margin-left:auto;color:var(--tx3);font-size:12px;font-variant-numeric:tabular-nums}
-@media(max-width:700px){.z2m-view#z2m-view-strategy .list-ui-toolbar{flex-wrap:wrap}.z2m-view#z2m-view-strategy .list-ui-search{width:100%;max-width:none;flex-basis:100%}.z2m-view#z2m-view-strategy .list-ui-toolbar-right{width:100%;justify-content:flex-end}}
+@media(max-width:480px){.z2m-view#z2m-view-strategy .list-ui-toolbar{flex-wrap:wrap}.z2m-view#z2m-view-strategy .list-ui-search{width:100%;max-width:none;flex-basis:100%}.z2m-view#z2m-view-strategy .list-ui-toolbar-right{width:100%;justify-content:flex-end}}
