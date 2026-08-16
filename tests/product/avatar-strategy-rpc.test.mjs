@@ -13,6 +13,8 @@ const RPC = readFileSync(path.join(ROOT,
   'zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc'), 'utf8');
 const CLI_PATH = path.join(ROOT,
   'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-cli.uc');
+const COMPILER_PATH = path.join(ROOT,
+  'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-compiler.uc');
 const CLI = readFileSync(CLI_PATH, 'utf8');
 const ACL = readFileSync(path.join(ROOT,
   'luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json'), 'utf8');
@@ -483,6 +485,20 @@ test('RPC Preview fails closed when authoritative runtime composition is unavail
   });
   assert.equal(result.ok, false);
   assert.equal(result.error.code, 'EUNAVAILABLE');
+});
+
+test('Strategy compiler can preview from server-owned configured runtime inputs', () => {
+  const source = `import { strategy_effective_argv } from ${JSON.stringify(COMPILER_PATH)}; print(sprintf('%J', strategy_effective_argv('--filter-tcp=443', ${JSON.stringify({
+    source: 'configured', enginePath: '/opt/zapret2/nfq2/nfqws2',
+    baseArgs: ['--user=daemon', '--fwmark=0x40000000', '--qnum=300'],
+    luaInit: ['/opt/zapret2/lua/zapret-lib.lua'], hostlists: [],
+  })})));`;
+  const result = invokeUcode(source);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(result.effectiveArgv.slice(0, 5), [
+    '/opt/zapret2/nfq2/nfqws2', '--user=daemon', '--fwmark=0x40000000', '--qnum=300',
+    '--lua-init=/opt/zapret2/lua/zapret-lib.lua',
+  ]);
 });
 
 test('full list is measured before any projection is allowed', () => {

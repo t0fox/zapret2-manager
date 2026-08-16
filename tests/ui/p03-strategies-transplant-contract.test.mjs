@@ -42,6 +42,13 @@ test('P03 page maps supported donor actions to canonical Z2M Strategy RPCs', () 
   assert.doesNotMatch(route, /z2m-strategy-workflow/);
 });
 
+test('P03 favorite mutation uses the shared Strategy state revision', () => {
+  const page = read('z2m-strategies.js');
+  assert.match(page, /function stateRevision\(data\)/);
+  assert.match(page, /expectedRevision:\s*stateRevision\(state\.data\)/);
+  assert.doesNotMatch(page, /favorite:\s*!strategy\.favorite,\s*expectedRevision:\s*strategy\.revision/);
+});
+
 test('P03 documents donor-only healthcheck/autocircular scope instead of faking it', () => {
   const page = read('z2m-strategies.js');
   const audit = fs.existsSync(path.join(root, 'docs/05-parity/avatar-strategies-transplant-audit.md'))

@@ -215,6 +215,7 @@ function effective_projection(value) {
 
 function runtime_inputs_bounded(value) {
 	if (!is_object(value)) return false;
+	if (value.source != 'live' && value.source != 'configured') return false;
 	if (value.source != null && (!is_string(value.source) || length(value.source) > MAX_TEXT)) return false;
 	for (let key in ['baseArgs', 'luaInit', 'hostlists']) {
 		let values = value[key];
@@ -279,18 +280,54 @@ function live_runtime_inputs() {
 	}, runtimeInputs: { source: 'live', enginePath: ENGINE_PATH, baseArgs: baseArgs, luaInit: luaInit, hostlists: hostlists } };
 }
 
+function configured_runtime_inputs() {
+	// Preview must remain useful before Apply and while NFQWS2 is paused. The
+	// upstream init helper is the server-owned source for the fixed daemon
+	// arguments; the current config supplies only runtime hostlist inputs.
+	// No client value is interpolated into this read-only shell probe.
+	let script = '. /opt/zapret2/init.d/openwrt/functions; printf "%s|%s|%s" "$QNUM" "$WS_USER" "$DESYNC_MARK"';
+	let p = null, output = '', rc = -1;
+	try { p = popen('/bin/sh -c ' + shell_escape(script) + ' 2>/dev/null', 'r'); } catch (e) { p = null; }
+	if (!p) return error_result('EUNAVAILABLE', 'server runtime configuration is unavailable');
+	try { output = p.read('all') || ''; } catch (e) { output = ''; }
+	try { rc = p.close(); } catch (e) { rc = -1; }
+	let values = split(trim(output), '|');
+	if (rc != 0 || length(values) != 3 || !match(values[0], /^[0-9]+$/)
+		|| +values[0] <= 0 || !match(values[1], /^[A-Za-z0-9_.-]+$/)
+		|| !match(values[2], /^0x[0-9A-Fa-f]+$/))
+		return error_result('EUNAVAILABLE', 'server runtime configuration is malformed');
+	let applied = null, tokenized = null, hostlists = [];
+	try { applied = read_var('NFQWS2_OPT'); } catch (e) { applied = null; }
+	try { tokenized = z2m_tokenize(is_string(applied) ? applied : ''); } catch (e) { tokenized = null; }
+	if (is_object(tokenized) && type(tokenized.tokens) == 'array')
+		for (let token in tokenized.tokens)
+			if (is_object(token) && is_string(token.value) && starts_with(token.value, '--hostlist='))
+				push(hostlists, substr(token.value, 11));
+	let assets = asset_registry_environment();
+	return { ok: true, environment: {
+		listMode: 'none', paths: { luaRoot: '/opt/zapret2/lua', blobRoot: '/opt/zapret2/bin', listRoot: '/lists', ipsetRoot: '/lists' },
+		functions: assets.functions || {}, blobs: assets.blobs || {}, lua: assets.lua || {}, lists: assets.lists || {}, assetRefs: assets.assetRefs || {}
+	}, runtimeInputs: {
+		source: 'configured', enginePath: ENGINE_PATH,
+		baseArgs: ['--user=' + values[1], '--fwmark=' + values[2], '--qnum=' + values[0]],
+		luaInit: ['/opt/zapret2/lua/zapret-lib.lua', '/opt/zapret2/lua/zapret-antidpi.lua', '/opt/zapret2/lua/zapret-auto.lua'],
+		hostlists: hostlists
+	} };
+}
+
 function server_context(context) {
 	if (getenv('Z2M_STRATEGY_SERVER_TEST') == '1') {
 		let testContext = runtime_context_from_environment();
 		return testContext != null ? testContext : error_result('EUNAVAILABLE', 'server runtime composition test evidence is unavailable');
 	}
 	if (getenv('Z2M_STRATEGY_RPC') == '1') {
-		return live_runtime_inputs();
+		let live = live_runtime_inputs();
+		return live.ok ? live : (live.error && live.error.code == 'EUNAVAILABLE' ? configured_runtime_inputs() : live);
 	}
 	// Direct module callers may supply an internal test context. RPC requests
 	// never reach this branch and cannot provide runtime composition inputs.
 	if (is_object(context)) {
-		if (!is_object(context.runtimeInputs) || context.runtimeInputs.source != 'live'
+		if (!is_object(context.runtimeInputs) || (context.runtimeInputs.source != 'live' && context.runtimeInputs.source != 'configured')
 			|| context.runtimeInputs.enginePath != ENGINE_PATH)
 			return error_result('EINPUT', 'internal runtime composition evidence is invalid');
 		let environment = {};
@@ -298,7 +335,8 @@ function server_context(context) {
 			if (key != 'executionAdmission' && key != 'validate') environment[key] = context.environment[key];
 		return { ok: true, environment: environment, runtimeInputs: context.runtimeInputs };
 	}
-	return live_runtime_inputs();
+	let live = live_runtime_inputs();
+	return live.ok ? live : (live.error && live.error.code == 'EUNAVAILABLE' ? configured_runtime_inputs() : live);
 }
 
 function minimal_dependencies() {

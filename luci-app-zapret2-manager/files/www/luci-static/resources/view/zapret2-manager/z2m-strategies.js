@@ -46,6 +46,12 @@ function catalogDigest(data) {
 }
 function catalogValue(data) { return unwrap(data && data.catalog); }
 function statusValue(data) { return data && data.status ? data.status.value || data.status : {}; }
+function stateRevision(data) {
+  var value = unwrap(data && data.list), stateValue = object(value.state);
+  var revision = value.favoritesRevision != null ? value.favoritesRevision : stateValue.revision;
+  revision = Number(revision);
+  return isNaN(revision) || revision < 0 ? 0 : revision;
+}
 function strategyInput(strategy) {
   return {
     id: strategy.id, name: strategy.name, origin: strategy.origin,
@@ -63,6 +69,10 @@ function requestIdentity(strategy, data) {
 function errorText(ctx, error) {
   var normalized = ctx && ctx.api && ctx.api.normalizeError ? ctx.api.normalizeError(error) : error;
   return text(normalized && normalized.message) || 'Операция не выполнена';
+}
+function previewOutput(ctx, answer) {
+  if (answer && answer.ok === false) return errorText(ctx, answer);
+  return text(answer && (answer.effectiveCommand || answer.command || answer.output)) || 'Сервис не вернул команду';
 }
 function notify(kind, message) {
   if (state.ctx && state.ctx.shell && state.ctx.shell.showToast) state.ctx.shell.showToast(message, kind);
@@ -322,7 +332,7 @@ function renderEditorForm() {
 }
 function previewRequest(strategy, data, validate) { return { strategy_id: strategy.id, revision: Number(strategy.revision || 0), catalog_digest: catalogDigest(data), validate: validate === true }; }
 function editorPreviewRequest(strategy, data) { return { strategy_data: strategyInput(strategy), catalog_digest: catalogDigest(data), validate: false }; }
-function showPreview(id) { var strategy = strategyById(id); if (!strategy) return; state.preview = { strategy: strategy, validation: null, output: 'Загрузка…', pending: true }; renderPreviewModal(); state.root.querySelector('#preview-modal').style.display = 'flex'; call(state.ctx.api.strategies.preview, previewRequest(strategy, state.data, false)).then(function (answer) { state.preview.pending = false; state.preview.output = text(answer && (answer.effectiveCommand || answer.command || answer.output)) || 'Сервис не вернул команду'; renderPreviewModal(); }).catch(function (error) { state.preview.pending = false; state.preview.output = errorText(state.ctx, error); renderPreviewModal(); }); }
+function showPreview(id) { var strategy = strategyById(id); if (!strategy) return; state.preview = { strategy: strategy, validation: null, output: 'Загрузка…', pending: true }; renderPreviewModal(); state.root.querySelector('#preview-modal').style.display = 'flex'; call(state.ctx.api.strategies.preview, previewRequest(strategy, state.data, false)).then(function (answer) { state.preview.pending = false; state.preview.output = previewOutput(state.ctx, answer); renderPreviewModal(); }).catch(function (error) { state.preview.pending = false; state.preview.output = errorText(state.ctx, error); renderPreviewModal(); }); }
 function validatePreview() { if (!state.preview || state.preview.pending) return; state.preview.pending = true; state.preview.validation = 'Проверка…'; renderPreviewModal(); call(state.ctx.api.strategies.validate, previewRequest(state.preview.strategy, state.data, true)).then(function (answer) { state.preview.pending = false; state.preview.validation = answer && answer.ok === true ? 'Стратегия прошла проверку' : 'Стратегия не прошла проверку'; renderPreviewModal(); }).catch(function (error) { state.preview.pending = false; state.preview.validation = errorText(state.ctx, error); renderPreviewModal(); }); }
 function renderPreviewModal() { if (!state.preview) return; var body = state.root.querySelector('#preview-body'); if (!body) return; body.innerHTML = '<pre id="preview-command" class="log-viewer nfq-resizable">' + escapeHtml(state.preview.output) + '</pre>' + (state.preview.validation ? '<div class="strategy-validation-result">' + escapeHtml(state.preview.validation) + '</div>' : '') + '<div class="editor-footer"><button class="btn btn-primary" data-action="validatePreview"' + (state.preview.pending ? ' disabled' : '') + '>Проверить</button><button class="btn btn-ghost" data-action="closePreview">Закрыть</button></div>'; }
 function saveEditor() {
@@ -336,7 +346,7 @@ function saveEditor() {
   mutate(operation, request).then(function (answer) { if (answer) { closeModal(); renderAll(); } });
 }
 function applyStrategy(id) { var strategy = strategyById(id); if (!strategy) return; openConfirm('Применить стратегию', 'Применить «' + strategy.name + '» к nfqws2?', function () { mutate('apply', call(state.ctx.api.strategies.apply, requestIdentity(strategy, state.data))); }); }
-function toggleFavorite(id) { var strategy = strategyById(id); if (!strategy) return; mutate('favorite', call(state.ctx.api.strategies.favorite, { id: id, favorite: !strategy.favorite, expectedRevision: strategy.revision })); }
+function toggleFavorite(id) { var strategy = strategyById(id); if (!strategy) return; mutate('favorite', call(state.ctx.api.strategies.favorite, { id: id, favorite: !strategy.favorite, expectedRevision: stateRevision(state.data) })); }
 function deleteStrategy(id) { var strategy = strategyById(id); if (!strategy || strategy.isBuiltin) return; openConfirm('Удалить стратегию', 'Удалить «' + strategy.name + '»? Это действие нельзя отменить.', function () { mutate('delete', call(state.ctx.api.strategies.delete, { id: id, expectedRevision: strategy.revision })); }); }
 function selectStrategy(id) { state.selectedId = id; renderAll(); }
 function clearSelection() { state.selectedIds = {}; renderBulkBar(); }
@@ -360,7 +370,7 @@ function onClick(event) {
   else if (action === 'addProfile') addProfile();
   else if (action === 'removeProfile') removeProfile(Number(el.dataset.index));
   else if (action === 'saveEditor') saveEditor();
-  else if (action === 'editorPreview') { collectEditor(); var output = state.root.querySelector('#editor-preview-output'); output.style.display = 'block'; output.textContent = 'Загрузка…'; call(state.ctx.api.strategies.preview, editorPreviewRequest(state.editor.strategy, state.data)).then(function (answer) { output.textContent = text(answer && (answer.effectiveCommand || answer.command || answer.output)) || 'Сервис не вернул команду'; }).catch(function (error) { output.textContent = errorText(state.ctx, error); }); }
+  else if (action === 'editorPreview') { collectEditor(); var output = state.root.querySelector('#editor-preview-output'); output.style.display = 'block'; output.textContent = 'Загрузка…'; call(state.ctx.api.strategies.preview, editorPreviewRequest(state.editor.strategy, state.data)).then(function (answer) { output.textContent = previewOutput(state.ctx, answer); }).catch(function (error) { output.textContent = errorText(state.ctx, error); }); }
   else if (action === 'mergeSelected') mergeSelected();
   else if (action === 'clearSelection') clearSelection();
 }

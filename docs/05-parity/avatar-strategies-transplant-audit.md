@@ -91,13 +91,19 @@ classified `BACKEND_NOT_READY` or `INTENTIONAL_Z2M_DIFFERENCE`, never faked.
 - Target deployment: P03-only files were copied with SHA-256 verification;
   the final frontend patch is `root:root`, `0644`. No APK build, reboot, or
   Apply was performed.
+- Post-acceptance repair: favorite mutations now send the shared Strategy
+  state revision (`favoritesRevision`), not the per-Strategy revision. Preview
+  now falls back to a server-owned baseline derived from the upstream init
+  helper and applied config when no nfqws2 process is running; it never accepts
+  client-composed runtime arguments.
 - Real authenticated Browser acceptance in the existing tab: `PASS`.
   `#/strategies` rendered the real catalog summary `23 files / 732
   strategies`, active `Split`, and `80` visible cards. Search narrowed the
   rendered rows to disorder matches; the recommended filter rendered `2` rows
   and switched its active class; details expanded; preview opened the real
-  modal and the canonical backend reported `Сервис не вернул команду` because
-  the target `nfqws2` service is stopped. No mutation or Apply was attempted.
+  modal with a complete generated command while the target `nfqws2` service
+  remained stopped; the first card favorite toggle completed successfully.
+  No Apply was attempted.
 - Final DOM checks: `[object HTMLDivElement]` absent, Scanner absent from the
   Strategies surface, and Avatar/donor/transplant branding absent from the
   rendered page. The same tab was left on the live Strategies route.

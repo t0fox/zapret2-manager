@@ -744,9 +744,9 @@ export const strategy_compiler_source_authority = function(semantic, sourceSha25
 
 export const strategy_effective_argv = function(strategyArgs, runtimeInputs) {
 	if (type(strategyArgs) != 'string' || !is_object(runtimeInputs))
-		return error_result('EINPUT', 'strategy args and live runtime inputs are required');
-	if (runtimeInputs.source != 'live' || runtimeInputs.command != null || runtimeInputs.argv != null)
-		return error_result('EINPUT', 'effective command requires captured live runtime inputs, not client-composed argv');
+		return error_result('EINPUT', 'strategy args and server runtime inputs are required');
+	if ((runtimeInputs.source != 'live' && runtimeInputs.source != 'configured') || runtimeInputs.command != null || runtimeInputs.argv != null)
+		return error_result('EINPUT', 'effective command requires server-owned runtime inputs, not client-composed argv');
 	if (runtimeInputs.enginePath != ENGINE_PATH)
 		return error_result('EINPUT', 'effective command engine path is not the pinned zapret2 engine');
 	let argv = [ENGINE_PATH];
