@@ -37,6 +37,34 @@ function escapeHtml(value) {
   return div.innerHTML;
 }
 function escapeAttr(value) { return escapeHtml(value).replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+var STRATEGY_ICONS = {
+  activity: '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
+  bug: '<path d="M9 7.13V6a3 3 0 0 1 6 0v1.13"/><path d="M9 18v-6a3 3 0 0 1 6 0v6"/><path d="M12 18v4"/><path d="M4 10h4"/><path d="M16 10h4"/><path d="M4 14h4"/><path d="M16 14h4"/><path d="m8 2 2 2"/><path d="m16 2-2 2"/>',
+  clipboard: '<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/>',
+  copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+  plus: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+  file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>',
+  play: '<polygon points="5 3 19 12 5 21 5 3"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09A1.65 1.65 0 0 0 15 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09A1.65 1.65 0 0 0 19.4 15z"/>',
+  refresh: '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"/>',
+  trash: '<polyline points="3 6 5 6 21 6"/><path d="M19 6 17 20a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/>',
+  search: '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+  star: '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
+  chevronDown: '<polyline points="6 9 12 15 18 9"/>',
+  terminal: '<polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>',
+  edit: '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>',
+  x: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+  merge: '<circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><path d="M8.5 8.5 15.5 15.5"/><path d="M18 9v6"/>'
+};
+function svgIcon(name, size, extraClass) {
+  var body = STRATEGY_ICONS[name] || '';
+  if (!body) return '';
+  return '<svg class="z2m-icon' + (extraClass ? ' ' + extraClass : '') + '" aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="' + (size || 14) + '" height="' + (size || 14) + '" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + body + '</svg>';
+}
+function highlightStrategyArgs(value) {
+  var syntax = Nfqws2Ide && Nfqws2Ide.syntax;
+  return syntax && syntax.highlight ? syntax.highlight(value) : escapeHtml(value);
+}
 function unwrap(value) { value = object(value); return object(value.value || value); }
 function listValue(data) {
   var value = unwrap(data && data.list);
@@ -125,9 +153,9 @@ var ListUI = {
     array(saved.collapsedGroups).forEach(function (id) { collapsed[id] = true; });
     var searchTimer = null, observer = null, listeners = [];
     root.classList.add('list-ui');
-    root.innerHTML = '<div class="list-ui-toolbar"><div class="list-ui-search"><span class="list-ui-search-icon">⌕</span>' +
-      '<input class="form-input list-ui-search-input" type="search" placeholder="' + escapeAttr(cfg.searchPlaceholder || 'Поиск…') + '" value="' + escapeAttr(search) + '">' +
-      '<button class="list-ui-search-clear" type="button" title="Очистить">×</button></div><span class="list-ui-count"></span></div>' +
+    root.innerHTML = '<div class="list-ui-toolbar"><div class="list-ui-search"><span class="list-ui-search-icon">' + svgIcon('search', 14) + '</span>' +
+      '<input class="form-input list-ui-search-input" type="search" aria-label="Поиск стратегий" placeholder="' + escapeAttr(cfg.searchPlaceholder || 'Поиск…') + '" value="' + escapeAttr(search) + '">' +
+      '<button class="list-ui-search-clear" type="button" title="Очистить" aria-label="Очистить поиск">' + svgIcon('x', 12) + '</button></div><div class="list-ui-toolbar-right"><span class="list-ui-count"></span></div></div>' +
       '<div class="list-ui-filters"></div><div class="list-ui-body"></div><div class="list-ui-loadmore" style="display:none"><button class="btn btn-ghost btn-sm" type="button">Показать ещё</button></div>';
     var input = root.querySelector('.list-ui-search-input');
     var clear = root.querySelector('.list-ui-search-clear');
@@ -158,7 +186,7 @@ var ListUI = {
         var groups = {};
         shown.forEach(function (item) { var id = String(cfg.groupBy(item) || 'other'); (groups[id] || (groups[id] = [])).push(item); });
         body.innerHTML = Object.keys(groups).map(function (id) {
-          return '<div class="list-ui-group ' + (collapsed[id] ? 'collapsed' : '') + '"><button type="button" class="list-ui-group-header" data-list-ui-group="' + escapeAttr(id) + '"><span>⌄</span><b>' + escapeHtml(cfg.groupLabel(id)) + '</b><span>' + groups[id].length + '</span></button><div class="list-ui-group-body">' + groups[id].map(cfg.renderItem).join('') + '</div></div>';
+          return '<div class="list-ui-group ' + (collapsed[id] ? 'collapsed' : '') + '"><button type="button" class="list-ui-group-header" data-list-ui-group="' + escapeAttr(id) + '">' + svgIcon('chevronDown', 14, 'list-ui-group-chevron') + '<b>' + escapeHtml(cfg.groupLabel(id)) + '</b><span>' + groups[id].length + '</span></button><div class="list-ui-group-body">' + groups[id].map(cfg.renderItem).join('') + '</div></div>';
         }).join('');
       } else body.innerHTML = shown.map(cfg.renderItem).join('');
       more.style.display = shown.length < filtered.length ? '' : 'none';
@@ -174,12 +202,21 @@ var ListUI = {
       var group = event.target.closest('[data-list-ui-group]');
       if (group) { var id = group.dataset.listUiGroup; if (collapsed[id]) delete collapsed[id]; else collapsed[id] = true; persist(); refresh(); return; }
       var toggle = event.target.closest('[data-list-ui-toggle]');
-      if (toggle) { var card = toggle.closest('[data-list-ui-card]'); if (card) card.classList.toggle('expanded'); }
+      if (toggle) {
+        var card = toggle.closest('[data-list-ui-card]');
+        if (card) {
+          var expanded = card.classList.toggle('expanded');
+          toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+          toggle.classList.toggle('active', expanded);
+          toggle.querySelector('.strategy-card-toggle-label').textContent = expanded ? 'Скрыть' : 'Подробнее';
+        }
+      }
     }
     function onMore() { visibleCount += cfg.pageSize; refresh(); }
     input.addEventListener('input', onInput); clear.addEventListener('click', onClear); filters.addEventListener('click', onFilter); body.addEventListener('click', onBody); moreButton.addEventListener('click', onMore);
     listeners.push([input, 'input', onInput], [clear, 'click', onClear], [filters, 'click', onFilter], [body, 'click', onBody], [moreButton, 'click', onMore]);
-    filters.innerHTML = cfg.filters.map(function (item) { return '<button type="button" class="btn btn-ghost btn-sm list-ui-filter' + (item.id === filterId ? ' active' : '') + '" data-filter-id="' + escapeAttr(item.id) + '">' + escapeHtml(item.label) + '</button>'; }).join('');
+    function filterButton(item) { return '<button type="button" class="btn btn-ghost btn-sm list-ui-filter' + (item.id === filterId ? ' active' : '') + '" data-filter-id="' + escapeAttr(item.id) + '">' + (item.icon ? svgIcon(item.icon, 13) : '') + '<span>' + escapeHtml(item.label) + '</span></button>'; }
+    filters.innerHTML = '<div class="list-ui-filter-primary">' + cfg.filters.filter(function (item) { return !item.extension; }).map(filterButton).join('') + '</div>' + (cfg.filters.some(function (item) { return item.extension; }) ? '<div class="list-ui-filter-secondary"><span>Дополнительно</span>' + cfg.filters.filter(function (item) { return item.extension; }).map(filterButton).join('') + '</div>' : '');
     refresh();
     return {
       setItems: function (next) { items = array(next).slice(); visibleCount = cfg.pageSize; refresh(); },
@@ -213,9 +250,9 @@ function renderFiltersAndList() {
     searchFields: function (strategy) { return [strategy.name, strategy.description, strategy.author, strategy.id].concat(array(strategy.profiles).map(function (profile) { return profile.args; })); },
     filters: [
       { id: 'all', label: 'Все', test: function () { return true; } },
-      { id: 'circular', label: '⟳ Авто (circular)', test: function (strategy) { return strategy.circular; } },
-      { id: 'favorite', label: 'Избранное', test: function (strategy) { return strategy.favorite; } },
-      { id: 'featured', label: 'Витрина', test: function (strategy) { return strategy.featured; } },
+      { id: 'circular', label: 'Авто (circular)', icon: 'refresh', test: function (strategy) { return strategy.circular; } },
+      { id: 'favorite', label: 'Избранное', icon: 'star', test: function (strategy) { return strategy.favorite; } },
+      { id: 'featured', label: 'Витрина', extension: true, icon: 'star', test: function (strategy) { return strategy.featured; } },
       { id: 'recommended', label: 'Рекомендуемые', test: function (strategy) { return strategy.recommended; } },
       { id: 'builtin', label: 'Встроенные', test: function (strategy) { return strategy.isBuiltin; } },
       { id: 'user', label: 'Пользовательские', test: function (strategy) { return !strategy.isBuiltin; } }
@@ -257,20 +294,20 @@ function renderStrategyCard(strategy) {
   var checked = !!state.selectedIds[strategy.id];
   var meta = strategyMeta(strategy);
   var badges = (strategy.protocol ? '<span class="profile-badge protocol-badge">' + escapeHtml(strategy.protocol.toUpperCase()) + '</span>' : '') + array(strategy.profiles).map(function (profile) { return '<span class="profile-badge' + (profile.enabled ? '' : ' disabled') + '">' + escapeHtml(profile.name) + '</span>'; }).join('');
-  var args = array(strategy.profiles).filter(function (profile) { return profile.enabled !== false && profile.args; }).map(function (profile) { return '<div class="strategy-args-preview"><code>' + escapeHtml(profile.args) + (profile.argsTruncated ? '…' : '') + '</code></div>'; }).join('');
+  var args = array(strategy.profiles).filter(function (profile) { return profile.enabled !== false && profile.args; }).map(function (profile) { return '<div class="strategy-args-preview"><code>' + highlightStrategyArgs(profile.args) + (profile.argsTruncated ? '…' : '') + '</code></div>'; }).join('');
   var actions = active ? '<button class="btn btn-primary btn-sm" disabled>Используется сейчас</button>' : '<button class="btn btn-primary btn-sm" data-action="applyStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + '>Применить</button>';
   return '<div class="strategy-card compact' + (active ? ' active' : '') + (selected ? ' selected' : '') + '" data-id="' + escapeAttr(strategy.id) + '" data-strategy="' + escapeAttr(strategy.id) + '" data-list-ui-card>' +
-    '<div class="strategy-card-header"><label class="strategy-select-label" title="Выбрать для объединения"><input type="checkbox" class="strategy-select" data-action="toggleSelect" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (checked ? ' checked' : '') + '></label><div class="strategy-card-info" data-action="selectStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"><div class="strategy-card-name">' + escapeHtml(strategy.name) + ' ' + (strategy.isBuiltin ? '<span class="badge badge-muted">Встроенная</span>' : '<span class="badge badge-accent">Пользовательская</span>') + activeLabels(strategy) + '</div><div class="strategy-card-meta">' + meta + '</div>' + (strategy.description ? '<div class="strategy-card-desc">' + escapeHtml(strategy.description) + '</div>' : '') + '</div><button class="btn-icon-only fav-btn' + (is_favorite ? ' active' : '') + '" data-action="toggleFavorite" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + '" title="' + (is_favorite ? 'Убрать из избранного' : 'В избранное') + '">' + (is_favorite ? '★' : '☆') + '</button></div>' +
-    '<div class="strategy-card-profiles">' + badges + '</div><div class="strategy-card-args-wrap">' + args + '</div><div class="strategy-card-actions">' + actions +
-    '<button class="strategy-card-toggle" data-list-ui-toggle type="button">Подробнее</button><button class="btn btn-ghost btn-sm" data-action="showPreview" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + '>Превью</button><button class="btn btn-ghost btn-sm" data-action="copyStrategyToClipboard" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + '>В буфер</button><button class="btn btn-ghost btn-sm" data-action="duplicateStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + '>Копировать</button>' +
-    (!strategy.isBuiltin ? '<button class="btn btn-ghost btn-sm" data-action="openEdit" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + '>Изменить</button><button class="btn btn-ghost btn-sm" data-action="deleteStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + '>Удалить</button>' : '') +
+    '<div class="strategy-card-header"><label class="strategy-select-label" title="Выбрать для объединения"><input type="checkbox" class="strategy-select" data-action="toggleSelect" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (checked ? ' checked' : '') + '></label><div class="strategy-card-info" data-action="selectStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"><div class="strategy-card-name">' + escapeHtml(strategy.name) + ' ' + (strategy.isBuiltin ? '<span class="badge badge-muted">Встроенная</span>' : '<span class="badge badge-accent">Пользовательская</span>') + activeLabels(strategy) + '</div><div class="strategy-card-meta">' + meta + '</div>' + (strategy.description ? '<div class="strategy-card-desc">' + escapeHtml(strategy.description) + '</div>' : '') + '</div><button class="btn-icon-only fav-btn' + (is_favorite ? ' active' : '') + '" data-action="toggleFavorite" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="' + (is_favorite ? 'Убрать из избранного' : 'В избранное') + '" aria-label="' + (is_favorite ? 'Убрать из избранного' : 'Добавить в избранное') + '">' + svgIcon('star', 18) + '</button></div>' +
+    '<div class="strategy-card-profiles">' + badges + '</div><div class="strategy-card-args-wrap" id="strategy-details-' + escapeAttr(strategy.id) + '">' + args + '</div><div class="strategy-card-actions">' + actions +
+    '<button class="strategy-card-toggle" data-list-ui-toggle type="button" aria-expanded="false" aria-controls="strategy-details-' + escapeAttr(strategy.id) + '" title="Развернуть подробности">' + svgIcon('chevronDown', 12) + '<span class="strategy-card-toggle-label">Подробнее</span></button><button class="btn btn-ghost btn-sm" data-action="showPreview" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="Превью команды">' + svgIcon('terminal', 14) + '<span>Превью</span></button><button class="btn btn-ghost btn-sm" data-action="copyStrategyToClipboard" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="Скопировать стратегию со всеми профилями">' + svgIcon('clipboard', 14) + '<span>В буфер</span></button><button class="btn btn-ghost btn-sm" data-action="duplicateStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="Копировать как пользовательскую">' + svgIcon('copy', 14) + '<span>Копировать</span></button>' +
+    (!strategy.isBuiltin ? '<button class="btn btn-ghost btn-sm" data-action="openEdit" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="Изменить">' + svgIcon('edit', 14) + '<span>Изменить</span></button><button class="btn btn-ghost btn-sm" data-action="deleteStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="Удалить">' + svgIcon('trash', 14) + '<span>Удалить</span></button>' : '') +
     '</div></div>';
 }
 function renderActiveCard() {
   var host = state.root && state.root.querySelector('#active-strategy-info');
   if (!host) return;
   var active = state.rows.find(function (strategy) { return strategy.current || strategy.applied; });
-  host.innerHTML = active ? '<span class="status-dot running"></span><div class="active-strategy-copy"><div class="active-strategy-name">' + escapeHtml(active.name) + '</div><div class="active-strategy-helper">Используется сейчас в nfqws2</div><div class="active-strategy-meta">' + activeLabels(active) + '</div></div><button class="btn btn-ghost btn-sm active-strategy-preview" data-action="showPreview" data-strategy-id="' + escapeAttr(active.id) + '">Превью команды</button>' : '<span class="status-dot stopped"></span><div class="active-strategy-copy"><div class="active-strategy-name">Стратегия не выбрана</div><div class="active-strategy-helper">Выберите стратегию из списка ниже</div></div>';
+  host.innerHTML = active ? '<span class="status-dot running"></span><div class="active-strategy-copy"><div class="active-strategy-name">' + escapeHtml(active.name) + '</div><div class="active-strategy-helper">Используется сейчас в nfqws2</div><div class="active-strategy-meta">' + activeLabels(active) + '</div></div><button class="btn btn-ghost btn-sm active-strategy-preview" data-action="showPreview" data-strategy-id="' + escapeAttr(active.id) + '">' + svgIcon('terminal', 14) + '<span>Превью команды</span></button>' : '<span class="status-dot stopped"></span><div class="active-strategy-copy"><div class="active-strategy-name">Стратегия не выбрана</div><div class="active-strategy-helper">Выберите стратегию из списка ниже</div></div>';
 }
 function renderCatalogSummary() {
   var host = state.root && state.root.querySelector('#catalog-summary');
@@ -288,7 +325,7 @@ function renderBulkBar() {
   if (!bar) return;
   var ids = Object.keys(state.selectedIds);
   bar.style.display = ids.length ? 'flex' : 'none';
-  bar.innerHTML = ids.length ? '<span>Выбрано: <b>' + ids.length + '</b></span><button class="btn btn-primary btn-sm" data-action="mergeSelected"' + (ids.length < 2 ? ' disabled' : '') + '>Объединить</button><button class="btn btn-ghost btn-sm" data-action="clearSelection">Снять выделение</button>' : '';
+  bar.innerHTML = ids.length ? '<span>Выбрано: <b>' + ids.length + '</b></span><button class="btn btn-primary btn-sm" data-action="mergeSelected"' + (ids.length < 2 ? ' disabled' : '') + '>' + svgIcon('merge', 14) + '<span>Объединить</span></button><button class="btn btn-ghost btn-sm" data-action="clearSelection">' + svgIcon('x', 14) + '<span>Снять выделение</span></button>' : '';
 }
 function toggleSelect(id) {
   if (!id) return;
@@ -309,18 +346,18 @@ function renderOperationalCards() {
     var summary = 'Интервал: ' + text(cfg.interval_min || cfg.interval || 5) + ' мин · Сайтов: ' + text(services || 0) + ' · Сброс после: ' + text(cfg.consecutive_failures || 2) + ' провалов подряд';
     var reset = (cfg.auto_reset !== false && cfg.autoReset !== false) ? 'Авто-сброс включён' : 'Авто-сброс выключен';
     var guard = (cfg.outage_guard !== false && cfg.outageGuard !== false) ? 'Защита от общего сбоя включена' : 'Защита от общего сбоя выключена';
-    health.innerHTML = '<div class="strategy-ops-controls"><label class="strategy-toggle-control"><input type="checkbox" data-action="toggleHealthcheck"' + (hc.enabled ? ' checked' : '') + '><span>Автоматическая проверка</span></label><div class="strategy-ops-actions"><button class="btn btn-ghost btn-sm" data-action="runHealthcheck">Проверить сейчас</button><button class="btn btn-ghost btn-sm" data-action="configureHealthcheck">Настроить</button></div></div><div class="strategy-status-row"><span class="strategy-status-badge ' + (hc.enabled ? 'enabled' : 'disabled') + '"><span class="status-dot ' + (hc.enabled ? 'running' : 'stopped') + '"></span>' + escapeHtml(status) + '</span><span class="strategy-status-copy">' + (hc.enabled ? 'Проверка выполняется по расписанию.' : 'Разовая проверка доступна в любое время.') + '</span></div><div class="strategy-ops-explainer">Healthcheck проверяет доступность выбранных сервисов и помогает circular заново подобрать рабочую стратегию после серии сбоев.</div><div class="strategy-ops-meta"><span>' + escapeHtml(summary) + '</span><span>' + escapeHtml(reset) + '</span><span>' + escapeHtml(guard) + '</span></div>';
+    health.innerHTML = '<div class="strategy-ops-controls"><label class="strategy-toggle-control"><input type="checkbox" data-action="toggleHealthcheck"' + (hc.enabled ? ' checked' : '') + '><span>' + svgIcon('activity', 14) + '<span>Автоматическая проверка</span></span></label><div class="strategy-ops-actions"><button class="btn btn-ghost btn-sm" data-action="runHealthcheck">' + svgIcon('play', 14) + '<span>Проверить сейчас</span></button><button class="btn btn-ghost btn-sm" data-action="configureHealthcheck">' + svgIcon('settings', 14) + '<span>Настроить</span></button></div></div><div class="strategy-status-row"><span class="strategy-status-badge ' + (hc.enabled ? 'enabled' : 'disabled') + '"><span class="status-dot ' + (hc.enabled ? 'running' : 'stopped') + '"></span>' + escapeHtml(status) + '</span><span class="strategy-status-copy">' + (hc.enabled ? 'Проверка выполняется по расписанию.' : 'Разовая проверка доступна в любое время.') + '</span></div><div class="strategy-ops-explainer">Healthcheck проверяет доступность выбранных сервисов и помогает circular заново подобрать рабочую стратегию после серии сбоев.</div><div class="strategy-ops-meta"><span>' + escapeHtml(summary) + '</span><span>' + escapeHtml(reset) + '</span><span>' + escapeHtml(guard) + '</span></div>';
   }
   var learned = state.root && state.root.querySelector('#strategy-learned-info');
   if (learned) {
     var value = object(state.learned), count = Number(value.count || array(value.entries).length);
     var rows = array(value.entries).slice(0, 12).map(function (entry) {
-      return '<div class="learned-row"><span>' + escapeHtml(entry.host || '—') + '</span><code>' + escapeHtml(entry.key || '—') + '</code><span>' + escapeHtml(entry.strategy || '—') + '</span><button class="btn btn-ghost btn-sm" data-action="resetLearned" data-host="' + escapeAttr(entry.host || '') + '" data-key="' + escapeAttr(entry.key || '') + '">Сбросить</button></div>';
+      return '<div class="learned-row"><span>' + escapeHtml(entry.host || '—') + '</span><code>' + escapeHtml(entry.key || '—') + '</code><span>' + escapeHtml(entry.strategy || '—') + '</span><button class="btn btn-ghost btn-sm" data-action="resetLearned" data-host="' + escapeAttr(entry.host || '') + '" data-key="' + escapeAttr(entry.key || '') + '">' + svgIcon('trash', 14) + '<span>Сбросить</span></button></div>';
     }).join('');
-    learned.innerHTML = count ? '<div class="strategy-status-row"><span class="strategy-status-badge enabled"><span class="status-dot running"></span>Выучено: <b>' + count + '</b></span><span class="strategy-status-copy">circular закрепил рабочие варианты по доменам.</span></div><div class="strategy-ops-actions"><button class="btn btn-primary btn-sm" data-action="showCircular">Показать авто-стратегии</button><button class="btn btn-danger btn-sm" data-action="resetLearned">Сбросить всё</button></div><div class="learned-table">' + rows + '</div>' : '<div class="learned-empty-copy"><p>Пока ничего не выучено. «Автоподбор» — это стратегия <b>circular</b>: nfqws2 сам перебирает приёмы для каждого сайта и запоминает рабочий вариант.</p><p class="strategy-ops-secondary">Как начать:</p><ol><li>Покажите авто-стратегии и выберите профиль circular.</li><li>Нажмите «Применить», затем откройте нужный сайт.</li><li>После успешного обхода результат появится здесь.</li></ol></div><div class="strategy-ops-actions"><button class="btn btn-primary btn-sm" data-action="showCircular">Показать авто-стратегии</button><button class="btn btn-danger btn-sm" data-action="resetLearned">Сбросить всё</button></div><div class="strategy-ops-secondary">Разовый подбор доступен во вкладке «Сканирование»; circular подстраивается постоянно.</div>';
+    learned.innerHTML = count ? '<div class="strategy-status-row"><span class="strategy-status-badge enabled"><span class="status-dot running"></span>Выучено: <b>' + count + '</b></span><span class="strategy-status-copy">circular закрепил рабочие варианты по доменам.</span></div><div class="strategy-ops-actions"><button class="btn btn-primary btn-sm" data-action="showCircular">' + svgIcon('refresh', 14) + '<span>Показать авто-стратегии</span></button><button class="btn btn-danger btn-sm" data-action="resetLearned">' + svgIcon('trash', 14) + '<span>Сбросить всё</span></button></div><div class="learned-table">' + rows + '</div>' : '<div class="learned-empty-copy"><p>Пока ничего не выучено. «Автоподбор» — это стратегия <b>circular</b>: nfqws2 сам перебирает приёмы для каждого сайта и запоминает рабочий вариант.</p><p class="strategy-ops-secondary">Как начать:</p><ol><li>Покажите авто-стратегии и выберите профиль circular.</li><li>Нажмите «Применить», затем откройте нужный сайт.</li><li>После успешного обхода результат появится здесь.</li></ol></div><div class="strategy-ops-actions"><button class="btn btn-primary btn-sm" data-action="showCircular">' + svgIcon('refresh', 14) + '<span>Показать авто-стратегии</span></button><button class="btn btn-danger btn-sm" data-action="resetLearned">' + svgIcon('trash', 14) + '<span>Сбросить всё</span></button></div><div class="strategy-ops-secondary">Разовый подбор доступен во вкладке «Сканирование»; circular подстраивается постоянно.</div>';
   }
   var debug = state.root && state.root.querySelector('#strategy-debug-info');
-  if (debug) debug.innerHTML = '<label class="toggle-label"><input type="checkbox" data-action="toggleDebug"' + (state.debug ? ' checked' : '') + '> Отладка nfqws2</label><button class="btn btn-ghost btn-sm" data-action="openJournal">Журнал</button>';
+  if (debug) debug.innerHTML = '<label class="toggle-label"><input type="checkbox" data-action="toggleDebug"' + (state.debug ? ' checked' : '') + '>' + svgIcon('bug', 14) + '<span>Отладка nfqws2</span></label><button class="btn btn-ghost btn-sm" data-action="openJournal">' + svgIcon('file', 14) + '<span>Журнал</span></button>';
 }
 function healthStatusLabel(hc, job) {
   var status = text(job.status || hc.status).toLowerCase();
@@ -596,11 +633,17 @@ function render(ctx) {
   refreshStrategyStyles();
   state.ctx = ctx; state.data = object(ctx.data); state.loaded = true; state.disposed = false; state.selectedId = state.selectedId || Model.identity(statusValue(state.data)).selectedId || (listValue(state.data)[0] && listValue(state.data)[0].id);
   var root = document.createElement('section'); root.className = 'z2m-view on'; root.id = 'z2m-view-strategy'; root.innerHTML = '<div class="page-header strategies-page-header"><div><h1 class="page-title">Стратегии</h1><p class="page-description">Управление стратегиями desync для nfqws2</p></div><div class="strategies-page-actions"><button class="btn btn-ghost" data-action="refreshCatalog">Обновить стратегии</button><button class="btn btn-ghost" data-action="pasteFromClipboard">Вставить из буфера</button><button class="btn btn-primary" data-action="openCreate">Создать стратегию</button></div></div><div class="card catalog-summary-card"><div class="card-title">Каталог стратегий</div><div id="catalog-summary"><div class="list-ui-loading">Загрузка состояния каталога…</div></div></div><div class="card active-strategy-card" id="active-strategy-card"><div class="card-title">Активная стратегия <span class="card-title-actions" id="strategy-debug-info"></span></div><div id="active-strategy-info"><span class="text-muted">Загрузка…</span></div></div><div class="card strategy-ops-card"><div class="card-title">Healthcheck</div><div id="strategy-healthcheck-info"><span class="text-muted">Загрузка…</span></div></div><div class="card strategy-ops-card"><div class="card-title">Выученное autocircular состояние</div><div id="strategy-learned-info"><span class="text-muted">Загрузка…</span></div></div><div id="strategies-list-host"><div class="list-ui-loading">Загрузка стратегий…</div></div><div id="strat-bulkbar" class="strat-bulkbar" style="display:none"></div><div id="strategy-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Стратегия</h3><button class="modal-close" data-action="closeModal">×</button></div><div class="modal-body" id="modal-body"></div></div></div><div id="preview-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Превью команды nfqws2</h3><button class="modal-close" data-action="closePreview">×</button></div><div class="modal-body" id="preview-body"></div></div></div><div id="strategy-confirm-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-sm"><div class="modal-header"><h3 data-confirm-title>Подтверждение</h3></div><div class="modal-body"><p data-confirm-message></p><div class="editor-footer"><button class="btn btn-ghost" data-action="closeConfirm">Отмена</button><button class="btn btn-danger" data-action="confirmYes">Подтвердить</button></div></div></div></div>';
+  var pasteButton = root.querySelector('[data-action="pasteFromClipboard"]');
+  if (pasteButton) pasteButton.innerHTML = svgIcon('clipboard', 14) + '<span>Вставить из буфера</span>';
+  var createButton = root.querySelector('[data-action="openCreate"]');
+  if (createButton) createButton.innerHTML = svgIcon('plus', 14) + '<span>Создать стратегию</span>';
+  var activeTitle = root.querySelector('.active-strategy-card .card-title');
+  if (activeTitle) activeTitle.innerHTML = svgIcon('activity', 16) + '<span>Активная стратегия</span><span class="card-title-actions" id="strategy-debug-info"></span>';
   var summaryTitle = root.querySelector('.catalog-summary-card .card-title');
   if (summaryTitle) summaryTitle.innerHTML = 'Каталог стратегий <span class="catalog-summary-note">источник и готовность</span>';
   var ops = root.querySelectorAll('.strategy-ops-card');
-  if (ops[0]) ops[0].querySelector('.card-title').innerHTML = '<span>Авто-починка (healthcheck)</span><span class="strategy-ops-subtitle">проверяет связь и обновляет circular при провалах</span>';
-  if (ops[1]) ops[1].querySelector('.card-title').innerHTML = '<span>Выученные стратегии (autocircular)</span><span class="strategy-ops-subtitle">circular подобрал и закрепил</span>';
+  if (ops[0]) ops[0].querySelector('.card-title').innerHTML = svgIcon('activity', 16) + '<span>Авто-починка (healthcheck)</span><span class="strategy-ops-subtitle">проверяет связь и обновляет circular при провалах</span>';
+  if (ops[1]) ops[1].querySelector('.card-title').innerHTML = svgIcon('refresh', 16) + '<span>Выученные стратегии (autocircular)</span><span class="strategy-ops-subtitle">circular подобрал и закрепил</span>';
   state.root = root; state.rows = buildRows(state.data); bindEvents(); renderAll(); return root;
 }
 function boundedRead(method, timeout, message) {

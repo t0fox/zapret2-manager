@@ -954,3 +954,37 @@
   box-shadow:0 12px 28px rgba(0,0,0,.38);
 }
 .z2m-view#z2m-view-strategy .strategy-card.selected { border-color:var(--blue); box-shadow:inset 0 0 0 1px var(--blue); }
+
+/* P03 iconography correction: one donor-derived inline SVG language. */
+.z2m-view#z2m-view-strategy .z2m-icon{display:inline-block;flex:0 0 auto;vertical-align:-.16em;color:currentColor;opacity:.86}
+.z2m-view#z2m-view-strategy button>.z2m-icon,.z2m-view#z2m-view-strategy label>.z2m-icon,.z2m-view#z2m-view-strategy .strategy-card-toggle,.z2m-view#z2m-view-strategy .list-ui-filter,.z2m-view#z2m-view-strategy .strat-bulkbar .btn{display:inline-flex;align-items:center;gap:6px}
+.z2m-view#z2m-view-strategy .strategies-page-actions .btn,.z2m-view#z2m-view-strategy .strategy-ops-actions .btn,.z2m-view#z2m-view-strategy .strategy-card-actions .btn,.z2m-view#z2m-view-strategy .strat-bulkbar .btn{display:inline-flex;align-items:center;gap:6px}
+.z2m-view#z2m-view-strategy .list-ui-search-icon{display:flex;align-items:center;line-height:0}.z2m-view#z2m-view-strategy .list-ui-search-icon .z2m-icon{opacity:.72}
+.z2m-view#z2m-view-strategy .list-ui-filter{justify-content:center}.z2m-view#z2m-view-strategy .list-ui-group-chevron{transition:transform .15s ease}.z2m-view#z2m-view-strategy .list-ui-group.collapsed .list-ui-group-chevron{transform:rotate(-90deg)}
+.z2m-view#z2m-view-strategy .active-strategy-card .card-title,.z2m-view#z2m-view-strategy .strategy-ops-card .card-title{display:flex;align-items:center;gap:8px}.z2m-view#z2m-view-strategy .strategy-ops-card .card-title>.z2m-icon{color:var(--tx2)}
+.z2m-view#z2m-view-strategy #strategy-debug-info{display:inline-flex;align-items:center;gap:10px;margin-left:auto}.z2m-view#z2m-view-strategy #strategy-debug-info .toggle-label,.z2m-view#z2m-view-strategy #strategy-debug-info .btn{display:inline-flex;align-items:center;gap:6px}
+.z2m-view#z2m-view-strategy .fav-btn .z2m-icon{opacity:.8}.z2m-view#z2m-view-strategy .fav-btn.active .z2m-icon{fill:currentColor;opacity:1}
+.z2m-view#z2m-view-strategy .strategy-card-toggle{color:var(--tx)}.z2m-view#z2m-view-strategy .strategy-card-toggle .z2m-icon{transition:transform .15s ease}.z2m-view#z2m-view-strategy .strategy-card.expanded .strategy-card-toggle,.z2m-view#z2m-view-strategy .strategy-card-toggle.active{color:var(--blue);border-color:rgba(75,159,213,.65);background:rgba(75,159,213,.12)}.z2m-view#z2m-view-strategy .strategy-card.expanded .strategy-card-toggle .z2m-icon{transform:rotate(180deg)}
+.z2m-view#z2m-view-strategy .strategy-card-args-wrap{margin:0 20px;padding:12px 0 2px;border-top:1px solid var(--border)}.z2m-view#z2m-view-strategy .strategy-args-preview{border:0;border-radius:4px;background:rgba(0,0,0,.18);color:var(--tx2);padding:9px 10px;font:12px/1.6 "SFMono-Regular",Consolas,monospace;white-space:pre-wrap;overflow:auto;max-height:220px}.z2m-view#z2m-view-strategy .strategy-args-preview .nfq-flag{color:#83c7ff}.z2m-view#z2m-view-strategy .strategy-args-preview .nfq-eq{color:var(--tx3)}.z2m-view#z2m-view-strategy .strategy-args-preview .nfq-value{color:#b9e7c8}
+.z2m-view#z2m-view-strategy .strategy-card.expanded .strategy-card-actions{padding-top:10px}.z2m-view#z2m-view-strategy .strategy-ops-controls .strategy-toggle-control{display:inline-flex;align-items:center;gap:7px}.z2m-view#z2m-view-strategy .strategy-ops-controls .strategy-toggle-control>span{display:inline-flex;align-items:center;gap:6px}
+
+/* P03 search/filter/group correction: measured donor rhythm and filled active pill. */
+.z2m-view#z2m-view-strategy .list-ui{gap:12px}
+.z2m-view#z2m-view-strategy .list-ui-toolbar{display:flex;align-items:center;gap:12px;flex-wrap:nowrap;justify-content:flex-start;padding:8px 0;margin:0;border-bottom:1px solid var(--border);}
+.z2m-view#z2m-view-strategy .list-ui-search{flex:0 1 52%;width:52%;max-width:560px;min-width:240px}
+.z2m-view#z2m-view-strategy .list-ui-toolbar-right{display:flex;align-items:center;margin-left:auto;flex:0 0 auto;color:var(--tx2);font-size:13px}
+.z2m-view#z2m-view-strategy .list-ui-search-input{height:35px;min-height:35px;border-radius:6px;padding-left:32px!important;padding-right:34px!important}
+.z2m-view#z2m-view-strategy .list-ui-search-clear{display:flex;align-items:center;justify-content:center;top:50%;right:5px;width:28px;height:28px;padding:0;transform:translateY(-50%);border-radius:5px}
+.z2m-view#z2m-view-strategy .list-ui-filters{display:flex;flex-direction:column;gap:6px;margin:0}
+.z2m-view#z2m-view-strategy .list-ui-filter-primary{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.z2m-view#z2m-view-strategy .list-ui-filter-secondary{display:flex;align-items:center;gap:6px;flex-wrap:wrap;color:var(--tx3);font-size:11px}
+.z2m-view#z2m-view-strategy .list-ui-filter-secondary>span{margin-right:2px}
+.z2m-view#z2m-view-strategy .list-ui-filter{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:29px;min-height:29px;padding:5px 11px;border:1px solid var(--border2);border-radius:6px;background:rgba(255,255,255,.04);color:var(--tx2);font-size:13px;line-height:1;box-shadow:none}
+.z2m-view#z2m-view-strategy .list-ui-filter:hover{background:rgba(255,255,255,.08);border-color:var(--border2);color:var(--tx)}
+.z2m.view#z2m-view-strategy .list-ui-filter:focus-visible,.z2m-view#z2m-view-strategy .list-ui-filter:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.z2m-view#z2m-view-strategy .list-ui-filter.active{background:var(--blue);border-color:var(--blue);color:#fff;box-shadow:0 1px 5px rgba(75,159,213,.24)}
+.z2m-view#z2m-view-strategy .list-ui-group{margin:0}
+.z2m-view#z2m-view-strategy .list-ui-group-header{width:100%;min-height:35px;display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:rgba(255,255,255,.025);color:var(--tx2);font-size:13px}
+.z2m-view#z2m-view-strategy .list-ui-group-header b{font-weight:600;color:var(--tx2)}
+.z2m-view#z2m-view-strategy .list-ui-group-header>span:last-child{margin-left:auto;color:var(--tx3);font-size:12px;font-variant-numeric:tabular-nums}
+@media(max-width:700px){.z2m-view#z2m-view-strategy .list-ui-toolbar{flex-wrap:wrap}.z2m-view#z2m-view-strategy .list-ui-search{width:100%;max-width:none;flex-basis:100%}.z2m-view#z2m-view-strategy .list-ui-toolbar-right{width:100%;justify-content:flex-end}}
