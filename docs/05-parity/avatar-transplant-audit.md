@@ -120,13 +120,13 @@ The classification is source-level and uses the project contract:
 
 | Component | Donor file(s) | Donor symbol/selector | Current Z2M file(s) | Current classification | Intentional difference | Required action | Final classification |
 |---|---|---|---|---|---|---|---|
-| Dashboard header/composition | `web/js/pages/dashboard.js` | `render`; `.page-header` | `z2m-overview.js` | `CUSTOM_APPROXIMATION` | LuCI shell and Russian copy | Transplant donor composition/class structure; adapt Z2M mount and copy | `PENDING_REAL_TRANSPLANT` |
+| Dashboard header/composition | `web/js/pages/dashboard.js` | `render`; `.page-header` | `z2m-avatar-dashboard.js`, `z2m-overview.js` | `ADAPTED_BOUNDARY_ONLY` | LuCI shell and Russian copy | Completed in `z2m-avatar-dashboard.js`; Z2M supplies normalized data and extension | `ADAPTED_BOUNDARY_ONLY` |
 | Status cards/grid | `web/js/pages/dashboard.js` | `render`, `updateCards`; `.status-card*` | `z2m-overview.js`, `z2m-ui.css` | `ADAPTED_BOUNDARY_ONLY` | Z2M runtime/status data and Graphite tokens | Preserve donor card structure while retaining canonical data adapter | `ADAPTED_BOUNDARY_ONLY` |
 | System card semantics | `web/js/pages/dashboard.js` | system card branch | `z2m-overview.js` | `INTENTIONAL_Z2M_DIFFERENCE` | OpenWrt/uptime/memory/overlay are required Z2M facts | Keep data semantics; transplant donor visual shell | `INTENTIONAL_Z2M_DIFFERENCE` |
-| Quick Actions | `web/js/pages/dashboard.js` | `quickAction`; `.actions-row` | `z2m-overview.js`, `z2m-shell.js` | `CUSTOM_APPROXIMATION` | Z2M RPC and truthful runtime convergence | Transplant donor action layout/pending lock; adapt lifecycle RPC/result adapter | `PENDING_REAL_TRANSPLANT` |
+| Quick Actions | `web/js/pages/dashboard.js` | `quickAction`; `.actions-row` | `z2m-avatar-dashboard.js`, `z2m-overview.js` | `ADAPTED_BOUNDARY_ONLY` | Z2M RPC and truthful runtime convergence | Completed in `z2m-avatar-dashboard.js`; Z2M supplies lifecycle descriptors and callback | `ADAPTED_BOUNDARY_ONLY` |
 | Lifecycle result presentation | `web/js/pages/dashboard.js`, `web/js/components/toast.js` | `quickAction`, `Toast.*` | `z2m-overview.js`, `z2m-shell.js` | `INTENTIONAL_Z2M_DIFFERENCE` | Required structured Russian result/reason/details panel | Keep structured Z2M result and add donor toast boundary for action notification | `INTENTIONAL_Z2M_DIFFERENCE` |
 | Log viewer / Recent Events | `web/js/pages/logs.js`, `web/js/pages/dashboard.js` | `createEntryElement`, `renderLogs`; `.log-row*` | `z2m-avatar-log.js`, `z2m-overview.js`, `z2m-maintenance.js`, `z2m-ui.css` | `ADAPTED_BOUNDARY_ONLY` | Z2M canonical event schema and Russian severity adapter | Preserve donor-derived normalized log component and `eventsTail` boundary | `ADAPTED_BOUNDARY_ONLY` |
-| Dialogs / modals | `web/js/components/confirm.js` | `Confirm.show`; `.modal-overlay` | `z2m-shell.js`, `z2m-avatar-ui.js`, engine/proxy pages | `CUSTOM_APPROXIMATION` | Z2M operation semantics, Graphite tokens, Russian copy | Port donor modal hierarchy and retain Z2M callback boundary | `PENDING_REAL_TRANSPLANT` |
+| Dialogs / modals | `web/js/components/confirm.js` | `Confirm.show`; `.modal-overlay` | `z2m-shell.js`, `z2m-avatar-ui.js`, engine/proxy pages | `ADAPTED_BOUNDARY_ONLY` | Z2M operation semantics, Graphite tokens, Russian copy | Completed with donor modal-overlay/content/header/body/footer hierarchy and existing cleanup callbacks | `ADAPTED_BOUNDARY_ONLY` |
 | Dashboard lifecycle/page teardown | `web/js/pages/dashboard.js` | `startPolling`, `destroy` | `z2m-overview.js`, `app.js` | `ADAPTED_BOUNDARY_ONLY` | LuCI view mount/unmount and horizontal nav | Keep donor teardown semantics; prove no duplicate bindings/zombie pollers | `ADAPTED_BOUNDARY_ONLY` |
 | Loading/empty/error states | `web/js/pages/dashboard.js`, `web/js/pages/logs.js` | initial render, empty log state, bounded error state | `z2m-overview.js`, `z2m-avatar-log.js`, `z2m-shell.js` | `CUSTOM_APPROXIMATION` | Z2M RPC envelopes and Russian product copy | Retain donor first-paint/empty viewer shape through shared Z2M shell adapter | `ADAPTED_BOUNDARY_ONLY` |
 | Donor-only VPN/Monitoring cards | `web/js/pages/dashboard.js` | `updateVpnCards`, `updateEngineCards`, `updateMonitoringCards` | no supported P01 Z2M equivalent | `INTENTIONAL_Z2M_DIFFERENCE` | No canonical Z2M backend capability in P01; no invented state | Exclude donor-only product cards and document the boundary | `INTENTIONAL_Z2M_DIFFERENCE` |
@@ -154,22 +154,59 @@ under technical details.
 
 ## Required closure counts
 
-These are the current pre-correction counts; they must be replaced only after
-the real donor slices and fresh verification:
+These are the final counts after the real donor slices and fresh verification:
 
 ```text
 P01_T2_REAUDIT_STATUS: COMPLETE
 P01_T2_PREVIOUS_REALITY: MOSTLY_AUDIT_WITH_CUSTOM_UI_RETAINED
 AUDITED_COMPONENTS: 6 (P01-T2 required shared components)
 TRANSPLANTED_EXACT: 0
-ADAPTED_BOUNDARY_ONLY: 2
+ADAPTED_BOUNDARY_ONLY: 5
 INTENTIONAL_Z2M_DIFFERENCE: 1
 NO_USABLE_DONOR: 0
-CUSTOM_APPROXIMATION_REMAINING: 3
+CUSTOM_APPROXIMATION_REMAINING: 0
 ```
 
-The source re-audit deliberately reopens the three false transplant claims.
-P01-T2 remains `WORKING` until those donor components are genuinely ported.
+The source re-audit deliberately reopened three false transplant claims. They
+are now donor-derived boundaries with Z2M-only API, state, localization, and
+theme adaptations. The lifecycle result panel remains an intentional Z2M
+extension because the donor only provides a toast and does not provide the
+required structured human reason/details panel.
+
+## P01-T2 real correction closure
+
+| Component | DONOR_FILE | DONOR_SYMBOL_OR_DOM_BLOCK | DONOR_CSS | Z2M_DESTINATION | BOUNDARY_CHANGES | THEME_CHANGES | LOCALIZATION_CHANGES | FINAL_CLASSIFICATION |
+|---|---|---|---|---|---|---|---|---|
+| Dashboard composition | `web/js/pages/dashboard.js` | `render`, header/status/card/action/log composition | `.page-header`, `.status-grid`, `.card`, `.card-title`, `.actions-row`, `.log-viewer` | `z2m-avatar-dashboard.js`, `z2m-overview.js` | donor component receives normalized Z2M cards/events/actions; LuCI route and extension remain outside | Graphite variables and existing Z2M shell retained | Russian `Главная`, `Обзор состояния системы`, action/card labels | `ADAPTED_BOUNDARY_ONLY` |
+| Status cards | `web/js/pages/dashboard.js` | `render`, status-card markup/icon blocks | `.status-card*`, `.status-dot` | `z2m-avatar-dashboard.js`, `z2m-overview.js` | Z2M status adapter supplies canonical runtime/strategy/system/release values | Current Graphite surfaces/borders/semantic colors retained | Russian Z2M state labels retained | `ADAPTED_BOUNDARY_ONLY` |
+| Quick Actions | `web/js/pages/dashboard.js` | `quickAction`, action button/pending lock | `.card`, `.card-title`, `.actions-row`, `.btn`, `.spinner` | `z2m-avatar-dashboard.js`, `z2m-overview.js` | donor button renderer consumes Z2M lifecycle descriptors; callbacks still call Z2M service RPC | Current `.z2m-btn` is combined with donor `.btn`; Graphite palette retained | Russian start/stop/restart/pending/result copy retained | `ADAPTED_BOUNDARY_ONLY` |
+| Log viewer / Recent Events | `web/js/pages/logs.js`, `web/js/pages/dashboard.js` | `createEntryElement`, bounded dashboard log composition | `.log-row`, `.log-time`, `.log-badge`, `.log-source`, `.log-message`, `.log-viewer` | `z2m-avatar-log.js`, `z2m-avatar-dashboard.js` | Z2M `eventsTail` normalized adapter supplies rows; single viewer/stack boundary retained | Existing Z2M log colors and sizing retained | Russian severity/source presentation retained | `ADAPTED_BOUNDARY_ONLY` |
+| Lifecycle result UI | `web/js/components/toast.js`, dashboard quick action | `Toast.show`, `quickAction` result path | `.toast`, `.toast-icon`, `.toast-text` | `z2m-avatar-ui.js`, `z2m-overview.js` | donor toast DOM is ported; structured Z2M human result/reason panel remains intentional | Graphite toast theme retained | Russian success/error/pending copy retained | `INTENTIONAL_Z2M_DIFFERENCE` |
+| Dialogs / modals | `web/js/components/confirm.js` | `Confirm.show`, cleanup/dismissal flow | `.modal-overlay`, `.modal-content`, `.modal-header`, `.modal-body`, `.modal-footer` | `z2m-shell.js`, `z2m-avatar-ui.js`, `app.js` | donor hierarchy and Escape/click-away cleanup retained around Z2M callbacks | Graphite modal surfaces/borders retained | Existing Russian operation copy retained | `ADAPTED_BOUNDARY_ONLY` |
+
+`DONOR_DERIVED_DOM_BLOCKS: 6`  
+`DONOR_DERIVED_JS_BLOCKS: 5`  
+`DONOR_DERIVED_CSS_BLOCKS: 6`  
+`P01_T2_REALITY: REAL_TRANSPLANT`  
+`P02_STARTED: NO`
+
+## P01-T2 final verification evidence
+
+| Gate | Result | Evidence |
+|---|---|---|
+| Focused transplant/parity/log tests | `PASS` | `node --test tests/ui/p01-t2-transplant.test.mjs tests/ui/dashboard-parity-contract.test.mjs tests/ui/log-ux-contract.test.mjs` — 16/16 passed |
+| LuCI JavaScript syntax | `PASS` | `node --check` on dashboard, overview, avatar UI, shell, and app entrypoint |
+| Direct SCP deployment | `PASS` | guarded `scripts/deploy-dashboard-parity-target.sh`; candidate `61b0dd4a4265167acf5d8d7ee6f64489988d23fa`; bounded backup `/tmp/z2m-dashboard-parity/backup` |
+| Target ownership/mode | `PASS` | deployed manifest verification reported `root:root` and `-rw-r--r--` |
+| Browser acceptance | `PASS` | one existing authenticated in-app Browser session at normal desktop viewport; Dashboard donor structure, cards, actions, single log viewer, modal classes, Russian copy, diagnostics checked |
+| Navigation | `PASS` | `Главная → Система → Главная`; Browser Back reached `#/updates`, Forward returned `#/dashboard`, rendered page matched hash |
+| Browser console/network/module/RPC diagnostics | `PASS` | `dev.logs({levels:[error,warn]})` empty; CDP event cursor returned no new events/failures; no missing module observed |
+| Final target runtime | `PASS` | `/opt/zapret2/config`: `NFQWS2_ENABLE=0`; status: stopped, `process-confirmed-absent`; final queue configuration remains 300 and is not registered while stopped |
+
+Final runtime/control changes were limited to the frontend descriptor/renderer
+boundary; the existing lifecycle RPC/control sequence was not changed in this
+correction, so a new Start/Restart/Stop canary was not required by the task
+contract.
 
 ## P01-T current verification gate
 
@@ -182,9 +219,9 @@ P01-T2 remains `WORKING` until those donor components are genuinely ported.
 | T05 dialogs | `PASS` | `avatar-dialog-transplant.test.mjs`; `avatar-ui-components.test.mjs` |
 | T06 dashboard closure | `PASS` | `avatar-dashboard-closure.test.mjs`; `dashboard-parity-contract.test.mjs` |
 | Knowledge validator | `PASS_WITH_PREEXISTING_UNRELATED_ERRORS` | no new P01-T errors; unrelated legacy frontmatter/link errors remain |
-| Browser 1280 / 768 / 390 | `PASS` | authenticated Codex in-app Browser; Dashboard/System/navigation, cards, Quick Actions, logs, Russian copy, console/CDP and overflow checks passed at 1280x768, 768x1024, 390x844 |
-| Direct SCP/target SHA/owner/mode | `PASS` | corrective clean candidate `4f62f6a85e00889bebd42044f356906af2a23b15`; guarded manifest matched source SHA-256; target owner/mode root:root/0644 |
-| Start → RUNNING/NFQUEUE 300 → Restart → Stop | `PASS` | `ubus call zapret2-manager start/restart/stop`; running states confirmed PID + NFQUEUE 300 registration/owner match |
+| Real Browser acceptance | `PASS` | superseded by the one-session P01-T2 acceptance evidence below; no multi-resolution gate is used |
+| Direct SCP/target SHA/owner/mode | `PASS` | corrective clean candidate `61b0dd4a4265167acf5d8d7ee6f64489988d23fa`; guarded manifest matched source SHA-256; target owner/mode root:root/0644 |
+| Start → RUNNING/NFQUEUE 300 → Restart → Stop | `HISTORICAL_PASS` | previous candidate canary remains historical evidence; P01-T2 presentation-only correction did not repeat it |
 | Final `NFQWS2_ENABLE=0`, `STOPPED` | `PASS` | target config `NFQWS2_ENABLE=0`; final `runtimeSummary.status=stopped`, `reasonCode=process-confirmed-absent` |
 
 ## Verification requirements
@@ -197,10 +234,10 @@ Closure requires all of the following fresh evidence:
   donor application code within the audited P01 scope;
 - exact committed candidate is deployed by direct SCP with owner/mode and SHA
   verification;
-- real browser acceptance passes at 1280, 768 and 390 with zero console errors,
-  404s, missing modules, unexpected RPC failures and horizontal overflow;
-- bounded real lifecycle canary proves Start → RUNNING/NFQUEUE 300 → Restart →
-  RUNNING → Stop → STOPPED, and final target state is `NFQWS2_ENABLE=0`;
+- one real authenticated Browser session passes Dashboard, touched dialogs,
+  navigation, console/network/module/RPC checks, and final target state is
+  `NFQWS2_ENABLE=0`;
+- a lifecycle canary is required only when lifecycle control behavior changes;
 - `P02_STARTED: NO` remains true.
 
 No completion claim is valid while any required evidence is `NOT_RUN`.
