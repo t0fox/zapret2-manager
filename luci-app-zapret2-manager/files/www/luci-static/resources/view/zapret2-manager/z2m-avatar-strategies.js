@@ -338,8 +338,36 @@ function render(ctx) {
   var root = document.createElement('section'); root.className = 'z2m-view on'; root.id = 'z2m-view-strategy'; root.innerHTML = '<div class="page-header strategies-page-header"><div><h1 class="page-title">Стратегии</h1><p class="page-description">Настройка способов обхода DPI для nfqws2</p></div><div class="strategies-page-actions"><button class="btn btn-primary" data-action="openCreate">Создать стратегию</button></div></div><div class="card active-strategy-card" id="active-strategy-card"><div class="card-title">Текущая стратегия</div><div id="active-strategy-info"><span class="text-muted">Загрузка…</span></div></div><div id="strategies-list-host"><div class="list-ui-loading">Загрузка стратегий…</div></div><div id="strat-bulkbar" class="strat-bulkbar" style="display:none"></div><div id="strategy-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Стратегия</h3><button class="modal-close" data-action="closeModal">×</button></div><div class="modal-body" id="modal-body"></div></div></div><div id="preview-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Превью команды nfqws2</h3><button class="modal-close" data-action="closePreview">×</button></div><div class="modal-body" id="preview-body"></div></div></div><div id="strategy-confirm-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-sm"><div class="modal-header"><h3 data-confirm-title>Подтверждение</h3></div><div class="modal-body"><p data-confirm-message></p><div class="editor-footer"><button class="btn btn-ghost" data-action="closeConfirm">Отмена</button><button class="btn btn-danger" data-action="confirmYes">Подтвердить</button></div></div></div></div>';
   state.root = root; state.rows = buildRows(state.data); bindEvents(); renderAll(); return root;
 }
+function boundedRead(method, timeout, message) {
+  return new Promise(function (resolve, reject) {
+    var settled = false;
+    var timer = window.setTimeout(function () {
+      if (settled) return;
+      settled = true;
+      reject({ code: 'ETIMEDOUT', message: message });
+    }, timeout);
+    Promise.resolve().then(method).then(function (value) {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      resolve(value);
+    }, function (error) {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      reject(error);
+    });
+  });
+}
 function load(ctx) {
-  return Promise.allSettled([ctx.api.strategies.list(), ctx.api.strategies.catalogStatus(), ctx.api.service.status(), ctx.api.profiles.list()]).then(function (results) {
+  var readTimeout = 1500;
+  var reads = [
+    boundedRead(ctx.api.strategies.list, readTimeout, 'Не удалось получить список стратегий.'),
+    boundedRead(ctx.api.strategies.catalogStatus, readTimeout, 'Не удалось получить состояние каталога.'),
+    boundedRead(ctx.api.service.status, readTimeout, 'Не удалось получить состояние службы.'),
+    boundedRead(ctx.api.profiles.list, readTimeout, 'Не удалось получить список профилей.')
+  ];
+  return Promise.allSettled(reads).then(function (results) {
     function settled(result) { return result.status === 'fulfilled' ? { value: result.value || {} } : { error: ctx.api.normalizeError(result.reason) }; }
     return { list: settled(results[0]), catalog: settled(results[1]), status: settled(results[2]), profiles: settled(results[3]) };
   }).then(function (data) {
