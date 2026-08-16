@@ -217,3 +217,95 @@ Baseline evidence: the deployed screenshot showed text-only page actions,
 Healthcheck controls, filters, group disclosure, favorite, card actions and
 Details; the first card was collapsed with `.strategy-card-args-wrap` hidden.
 No backend or RPC change is part of this correction.
+
+## P03 iconography + search/filter/group: final review
+
+Status: `CORRECTION_FINAL_REVIEW_COMPLETE`  
+Date: `2026-08-17`  
+Final Browser target: `http://192.168.1.1/cgi-bin/luci/admin/services/zapret2-manager?p03v2=finaldr#/strategies`.
+
+### Final correction report
+
+```text
+DONOR_ICON_SYSTEM: inline SVG; viewBox 0 0 24 24; fill none; currentColor stroke; stroke-width 2; round caps/joins; 14px controls and 18px favorite
+Z2M_ICON_SYSTEM: one local svgIcon(name,size) helper using the donor SVG language; no emoji, Unicode arrows, Unicode stars, or external icon framework
+ICON_CONTROLS_AUDITED: 23 named controls plus search/filter/group/bulk surfaces
+ICON_CONTROLS_FIXED: all donor-icon controls; Apply remains text-only as the donor-equivalent exception
+TEXT_ONLY_WHERE_DONOR_HAS_ICON: 0
+DETAILS_DONOR_HANDLER: ListUI delegated [data-list-ui-toggle] handler toggles .expanded on the same card; rerender replaces card DOM
+DETAILS_EXPANSION_MODEL: MULTI
+DETAILS_EXPANDED_CONTROL_VISUAL: PASS (active blue treatment, aria-expanded=true, chevron rotates 180 degrees, label becomes Скрыть)
+COLLAPSED_CARD: PASS (checkbox, name/metadata/source, description, protocol/profile tags, favorite and action row; args hidden)
+EXPANDED_CARD: PASS (same card, divider, readable syntax-colored nfqws2 args, inline code rows, no nested giant card)
+EXPANDED_ARGS_PRESENTATION: PASS (Nfqws2Ide.syntax.highlight; flags/equals/values use donor-derived nfq styles)
+RECOMMENDED_PLUS_EXPANDED: PASS (green recommendation badge remains visible while Details is active)
+BULK_SELECTED_PLUS_EXPANDED: PASS (blue selected border remains distinct from blue Details surface and sticky toolbar)
+FAVORITE_PLUS_EXPANDED: PASS by separate-state CSS/DOM precedence; current canonical dataset has zero favorite rows, so no backend favorite mutation was performed
+
+SEARCH_FIELD_WIDTH_BEFORE: 100% / wrapped count on the deployed baseline
+SEARCH_FIELD_WIDTH_AFTER: 52% of the usable toolbar width
+RESULT_COUNT_ALIGNMENT: same horizontal toolbar row, right edge aligned
+SEARCH_PLACEHOLDER: Поиск по имени, автору, описанию, args...
+SEARCH_ICON: inline SVG magnifier inside the field
+SEARCH_CLEAR: inline SVG X action inside the right edge; verified visible after query input
+FILTER_COMPONENTS_UNIFIED: YES; all filters use the same 29px pill component and hitbox
+ACTIVE_FILTER_VISUAL: filled blue donor-equivalent state, not outline-only
+AUTO_FILTER_ICON: PASS; inline SVG refresh/circular icon
+FAVORITES_FILTER_ICON: PASS; inline SVG star icon
+SHOWCASE_FILTER_SOURCE: no equivalent filter in frozen donor strategies.js; Z2M catalog exposes strategy.featured
+SHOWCASE_FILTER_CLASSIFICATION: INTENTIONAL_Z2M_EXTENSION in secondary UI, labeled Дополнительно; not claimed as donor parity
+FILTER_HITBOX_CONSISTENT: YES
+GROUP_HEADER: PASS; full-width 607px quiet graphite bar, 38px rendered height, count at the far right
+GROUP_DISCLOSURE_ICON: PASS; donor-derived SVG chevron, rotated on collapse
+RESULT_COUNT_SOURCE: ListUI shown.length from the current canonical Z2M rows
+RESULT_TOTAL_SOURCE: ListUI items.length from the current canonical Z2M rows; Browser showed 80 из 639 стратегий
+GROUP_COUNT_SOURCE: grouped current ListUI window, not donor screenshot numbers
+SEARCH_FILTER_GROUP_INITIAL_P1: 5
+SEARCH_FILTER_GROUP_FINAL_P1: 0
+ICONOGRAPHY_P1_REMAINING: 0
+DETAILS_STATE_P1_REMAINING: 0
+SEARCH_FILTER_GROUP_P0: 0
+SEARCH_FILTER_GROUP_P1: 0
+NFQWS_ARGUMENTS_READABLE: PASS
+REAL_BROWSER_SEARCH_FILTER_PARITY: PASS
+REAL_BROWSER_ACCEPTANCE: PASS
+DESIGN_REVIEW_FINAL_P0: 0
+DESIGN_REVIEW_FINAL_P1: 0
+P04_STARTED: NO
+STATUS: DONE
+```
+
+### Browser evidence
+
+The same authenticated Browser session verified:
+
+- initial collapsed card, inline expansion, `Скрыть` active state, rotated
+  chevron, syntax-colored args, collapse cleanup, and a second card expanded
+  independently;
+- query input with internal SVG clear button, canonical count suffix only while
+  filtered, and clean `80 из 639 стратегий` after clearing;
+- filled active `Авто (circular)` pill with SVG icon, unified pill hitboxes,
+  full-width TCP group bar and rotated disclosure chevron;
+- recommendation green treatment remains present during expansion;
+- selected-plus-expanded state retains the blue selected border and separate
+  Details surface; the selection toolbar was cleared before handoff;
+- final UI raw-copy gate returned no `expired`, compound internal labels, emoji,
+  or Unicode placeholder icons; Browser diagnostics were empty.
+
+The final screenshot showed the search row, right-aligned count, all primary
+filters, secondary `Витрина` extension, TCP group header and Strategy cards.
+
+### Correction deployment and tests
+
+- Only frontend assets and one new UI regression contract changed in this pass;
+  no catalog, healthcheck, autocircular, Apply, scanner, engine, DNS or TG
+  backend work was performed.
+- Target SHA256 matches local for `z2m-strategies.js`:
+  `4d7f60ae73f129032476555117bdebb39d2fdd000975bdc8c947862810e14d43` and
+  `z2m-ui.css`:
+  `c182fe3798a96bbcaff2ddaba8de307c4a3e8aafd29a2c193a4204a4a396994d`.
+- Target files are regular `root:root` mode `0666` files on the mounted router
+  filesystem. No auth daemon restart, Apply, firewall change, reboot or WAN
+  mutation was used.
+- Final focused regression suite: `20/20 PASS`; all JS syntax checks and
+  `git diff --check` pass.
