@@ -1,0 +1,78 @@
+# P03-DR — DESIGN_REVIEW_SUMMARY
+
+Status: `INITIAL_REVIEW_COMPLETE`  
+Scope: deployed Z2M Strategies page versus the rendered Avatar donor at frozen
+SHA `38ed85ce487c6b3dbdf703a5be197795f7c0cad1`.  
+P04: `NO`
+
+The review used one authenticated in-app Browser session for the deployed Z2M
+page and a local render of the frozen donor. The comparison screenshots were
+shown during the review. Computed measurements were taken from both rendered
+pages, not inferred from source alone.
+
+## First impression
+
+The donor communicates a focused strategy workspace: title, actions, one
+cohesive active-status component, then two explanatory product cards. Z2M
+communicates the same capability but the first viewport is dominated by a
+catalog KPI extension and the operational cards collapse into terse control
+rows. The eye goes to the Z2M catalog numbers, then the green active strip,
+then the dense search/card list; in the donor it goes to the page title, the
+active strategy state, and the healthcheck explanation.
+
+Rendered baseline evidence:
+
+- Donor: `G:\avatarDD\zapret-gui-p03`, local render `http://127.0.0.1:8765/#strategies`.
+- Z2M: `http://192.168.1.1/cgi-bin/luci/admin/services/zapret2-manager?p03v2=dr#/strategies`.
+- Donor computed card metrics: Active `614x103`, Healthcheck `614x289`, Learned `614x366`, radius `12px`, padding `20px`.
+- Z2M computed metrics: Active `607x112`, Strategy card `607x188`, search `393x40`, radius `7px`; the Healthcheck/Learned surfaces were visually raw operational rows rather than donor-equivalent product cards.
+
+## Component review
+
+| COMPONENT | DONOR_BEHAVIOR | CURRENT_Z2M_BEHAVIOR | VISUAL_GAP | UX_GAP | SEVERITY | ROOT_CAUSE | RECOMMENDED_FIX |
+|---|---|---|---|---|---|---|---|
+| Page Header | Compact title, description, two clear actions; no catalog KPI block before the work area. | Same title/actions plus a full catalog summary immediately below. | KPI surface competes with the page task and pushes Active below the fold. | Users must parse infrastructure status before choosing a strategy. | P1 | Z2M-only summary is in the primary flow. | Keep the summary as a compact secondary status row; reduce height and visual weight. |
+| Toolbar | Clipboard and create actions have obvious primary/secondary hierarchy and icon affordance. | Three actions including refresh; similar hierarchy but denser and more LuCI-like. | Buttons are compact rectangular controls with less breathing room. | Refresh has equal prominence with user actions. | P2 | Shared LuCI button sizing and page-header spacing. | Group refresh as a quiet utility action; preserve create as the sole primary CTA. |
+| Active Strategy | One cohesive padded status card: heading, state dot/name, contextual helper, debug toggle and Journal aligned as one component. | Green strip plus title row, inline checkbox/button, badges and preview; computed padding on outer card is `0px`. | Status, controls and badges read as separate fragments. | Current strategy state is harder to scan and debug/journal feel detached. | P1 | Donor composition was reduced to shared card/title primitives. | Recompose as a padded status block with state line, helper text, and grouped controls. |
+| Debug Control | Small muted toggle sits in the Active header with tooltip and deliberate spacing. | Checkbox and label are inline against title; current snapshot can visually run into the title. | Weak grouping and cramped control hierarchy. | Users can miss that debug is part of Active Strategy. | P1 | Header content is rendered as a flat flex line. | Give debug a compact control cluster with stable gap and label treatment. |
+| Journal | Quiet ghost action with document icon, aligned to debug in the Active header. | Text button is present but visually small and close to debug. | Donor control has clearer icon/target composition. | Journal is less discoverable as the log destination. | P2 | Z2M uses a generic small ghost button. | Match donor spacing/icon weight while keeping Z2M shell. |
+| Healthcheck | Product card with title/subtitle, grouped controls, explanatory panel, explicit disabled message, config summary and restrained status. | Loose line: toggle, `Выключен · expired`, two buttons; no donor-equivalent explanation or config summary in the visible card. | Highest visible component-quality gap; no surface hierarchy. | Healthcheck looks like a debugging switch, not an understandable safety feature. | P1 | Runtime data is rendered directly into a minimal operational template. | Use donor hierarchy: subtitle, grouped actions, explanation, localized status, config metadata, last-result/outage-guard row. |
+| Learned Strategies | Product card explains autocircular, empty state, numbered onboarding, CTA, reset and secondary help. | Two lines plus `Показать авто-стратегии` and `Сбросить всё`. | Empty state lacks hierarchy and onboarding context. | New users do not learn what autocircular does or what to do next. | P1 | Empty state was reduced to a status sentence. | Add concise explanation, three numbered steps, CTA, reset action and secondary help. |
+| Search | Donor search is a clear list-control entry with readable placeholder and count nearby. | Search is `393x40`, placeholder is small, clear icon/count/filter controls form a dense strip. | Search/filter row feels compressed and generic. | Finding a strategy requires more visual parsing. | P2 | Shared ListUI spacing and small LuCI input typography. | Increase usable search prominence slightly and separate count from pills without expanding the page excessively. |
+| Filter Pills | Donor pills use consistent compact controls with clear active state; Auto and Recommended are semantic filters. | Same base set plus Z2M `Витрина`; active blue outline works but pills are visually uniform. | Z2M row is denser and adds an extension filter without hierarchy. | Semantic filters are not visually prioritized. | P2 | Generic `.btn-ghost` styling for all filters. | Keep all filters but use semantic color only for active/Recommended; make Auto and Recommended easier to scan. |
+| Group Header | Full-width, lightly surfaced bar with arrow, label and count, separated from cards. | Similar TCP header, but smaller/admin-like and visually close to first card. | Lower contrast and weaker section rhythm. | Group boundaries are easy to miss in a long list. | P2 | Z2M reuses compact ListUI group styles. | Increase group padding slightly and preserve clear gap before first card. |
+| Strategy Card | Card hierarchy: name, `builtin`/user, green `recommended`, labeled author, description, protocol/port/profile metadata, favorite and actions. | Compact card hides args and shows `Встроенная`, raw author/label values such as `recommendedCommunity`, generic `TCP`/`Профиль 1`, then five equal-looking actions. | Z2M is flatter and more admin-like; metadata is incomplete at a glance. | Users cannot quickly distinguish recommendation, source, coverage and next action. | P1 | Card renderer maps donor fields into generic badges and compact profile labels. | Restore donor metadata hierarchy and use a quieter secondary action row. |
+| Recommended Card | `recommended` is a distinct green semantic marker and card metadata visibly differs from normal cards. | Recommended data is visible in raw compound labels such as `recommendedCommunity`; no reliable donor-like green marker in the baseline. | Hard parity failure for recommended semantics. | Recommendation signal is unclear and may look like an internal enum. | P1 | Model label and author are concatenated without semantic presentation mapping. | Render a localized/semantic recommended badge using Z2M green; keep normal cards neutral. |
+| Featured Metadata | Donor supports priority metadata through card/list semantics when present. | Current Forgejo catalog has no featured rows; Z2M filter exists but no visible featured metadata. | No visual evidence can be shown from the current source. | None for current data, but the distinction must remain separate from recommended/favorite. | P2 | Current source dataset has no featured entries. | Preserve field/filter and document the source-empty boundary; do not invent badges. |
+| Favorite | Star control is a distinct user state with accessible label and active treatment. | Tiny `★` icon button is present; neutral state is visually quiet and active state is not demonstrated in the baseline. | Target/label hierarchy is weaker than donor. | Users may not understand the star affordance until hover. | P2 | Icon-only control inherits compact LuCI sizing. | Keep star semantics separate; enlarge target and make active state explicit without making it a recommendation color. |
+| Bulk Selection | Checkbox, selected outline, selected count and sticky rounded bulk toolbar form one clear mode. | Checkbox exists, selected state uses a blue outline, toolbar is hidden until selection and has a rectangular admin surface. | Selection state is visually less cohesive and can compete with active/recommended colors. | Bulk mode is easy to miss after selecting a card. | P1 | Generic selected-card shadow and non-sticky toolbar styling. | Use clear selection precedence and donor-like sticky rounded toolbar with count, Combine and Clear actions. |
+| Actions | Apply is primary; Details/Preview/Clipboard/Copy are grouped secondary actions with consistent icon/text rhythm. | Apply is blue; remaining actions are equal compact ghost buttons, and `В буфер`/`Копировать` are visually near-duplicates. | Action hierarchy is flatter and row is crowded. | Users must read five buttons to distinguish copy/export versus duplicate. | P1 | All actions share the same small button primitive. | Separate primary Apply, details/preview utilities, and copy/duplicate semantics with labels/icons and consistent targets. |
+| Empty / Error / Loading | Donor has a designed empty learned state and skeleton/list loading shape. | Loaded empty learned state is terse; transient loading uses generic skeletons; no error is visible in this pass. | Empty/loading states do not carry donor-level guidance. | Recovery and next action are less obvious. | P2 | State renderers use generic text/skeleton defaults. | Apply the same component hierarchy to empty and loading states; keep error copy localized and actionable. |
+
+## Hard gates from the initial review
+
+| Gate | Initial result |
+|---|---|
+| INITIAL_DESIGN_REVIEW | COMPLETE |
+| INITIAL_P0 | 0 |
+| INITIAL_P1 | 9: Active, Debug, Healthcheck, Learned, Strategy Card, Recommended Card, Bulk Selection, Actions, Header hierarchy |
+| INITIAL_P2 | 8: Toolbar, Journal, Search, Filters, Group Header, Featured boundary, Favorite, Empty/Error/Loading |
+| RAW_HEALTHCHECK_ENUM_VISIBLE | FAIL: `expired` visible in the rendered Z2M page |
+| MIXED_RU_EN_PRODUCT_COPY | FAIL: raw `recommendedCommunity`, `cautionCustom`, `experimentalloop-uh`, and `expired` are visible; technical protocol names are excluded |
+| RECOMMENDED_GREEN_VISUAL | FAIL in the baseline: recommended marker is not rendered as a distinct donor-like green semantic badge |
+| DONOR_STRUCTURAL_PARITY | FAIL for Healthcheck, Learned, Active and Strategy Card composition |
+
+## Fix order
+
+1. Localize and semantically render status/metadata labels, including the green
+   Recommended badge. This removes misleading internal copy first.
+2. Recompose Healthcheck and Learned into donor-equivalent product cards while
+   keeping the canonical Z2M RPCs and state semantics unchanged.
+3. Recompose Active Strategy/debug/Journal as one status component.
+4. Restore Strategy Card metadata hierarchy and action grouping.
+5. Compact/demote the catalog summary, then tune search/filter/group/bulk
+   spacing and selection precedence.
+
+No backend rewrite is required by this review. The current Forgejo source has no
+featured rows and no circular rows, so those empty data boundaries remain
+explicit rather than being faked visually.
