@@ -291,7 +291,7 @@ function strategyMeta(strategy) {
 function renderStrategyCard(strategy) {
   var pending = !!state.pending;
   var active = strategy.current || strategy.applied;
-  var selected = strategy.selected || strategy.id === state.selectedId;
+  var selected = strategy.selected || strategy.id === state.selectedId || !!state.selectedIds[strategy.id];
   var is_favorite = strategy.favorite;
   var checked = !!state.selectedIds[strategy.id];
   var meta = strategyMeta(strategy);
