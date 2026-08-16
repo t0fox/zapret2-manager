@@ -139,18 +139,27 @@ function lifecycleAction(ctx, action) {
     if (action === 'stop') return ctx.api.service.stop();
     return ctx.api.service.restart();
   }
+  function confirmState(expected, remaining, answer) {
+    return fetchData(ctx).then(function (data) {
+      runtime.status = data.status;
+      runtime.logs = data.logs;
+      if (ControlModel.state(payload(data.status)) === expected) return data;
+      if (remaining <= 0) {
+        if (answer && answer.ok === false) throw answer;
+        throw new Error(_('Сервис управления не подтвердил нужное состояние.'));
+      }
+      return new Promise(function (resolve) { window.setTimeout(resolve, 350); }).then(function () {
+        return confirmState(expected, remaining - 1, answer);
+      });
+    });
+  }
   Promise.resolve().then(callService).then(function (answer) {
-    return fetchData(ctx).then(function (data) { return { answer: answer, data: data }; });
+    var expected = action === 'stop' ? 'stopped' : 'running';
+    return confirmState(expected, 12, answer).then(function (data) { return { answer: answer, data: data }; });
   }).then(function (packet) {
     var data = packet.data;
     runtime.status = data.status;
     runtime.logs = data.logs;
-    var actual = ControlModel.state(payload(data.status));
-    var expected = action === 'stop' ? 'stopped' : 'running';
-    if (actual !== expected) {
-      if (packet.answer && packet.answer.ok === false) throw packet.answer;
-      throw new Error(_('Сервис управления не подтвердил нужное состояние.'));
-    }
     runtime.result = { kind: 'success', message: ControlModel.actionCopy(action).success };
   }).catch(function (error) {
     runtime.result = { kind: 'error', message: ControlModel.actionCopy(action).failure, detail: lifecycleError(ctx, error) };

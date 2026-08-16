@@ -13,7 +13,8 @@ test('P02 lifecycle actions use the canonical Z2M service RPCs and refresh evide
     'runtime.logs = data.logs', 'control-action-result'
   ]) assert.match(page, new RegExp(marker.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')));
   assert.match(page, /return fetchData\(ctx\)\.then/);
-  assert.match(page, /if \(packet\.answer && packet\.answer\.ok === false\) throw packet\.answer/);
+  assert.match(page, /confirmState\(expected, 12, answer\)/);
+  assert.match(page, /if \(answer && answer\.ok === false\) throw answer/);
 });
 
 test('P02 pending state prevents duplicate mutations and disables every control', () => {
