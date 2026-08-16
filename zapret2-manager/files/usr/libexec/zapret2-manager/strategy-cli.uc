@@ -846,13 +846,14 @@ function catalog_strategy(entry) {
 	return strategy;
 }
 
-function catalog_wire_metadata(strategy, current) {
+function catalog_wire_metadata(strategy, current, compact) {
 	let metadata = {};
 	if (is_object(strategy.metadata)) for (let key in strategy.metadata) metadata[key] = strategy.metadata[key];
 	for (let key in ['description', 'type', 'version', 'is_builtin', 'source', 'level', 'label',
 		'author', 'protocol', 'featured', 'blobs'])
 		if (strategy[key] != null && metadata[key] == null) metadata[key] = strategy[key];
 	metadata.catalogDigest = current.aggregateDigest;
+	if (compact == true) return metadata;
 	metadata.provenance = {
 		source: current.source, aggregateDigest: current.aggregateDigest,
 		aggregateDigestAlgorithm: current.aggregateDigestAlgorithm || null,
@@ -872,7 +873,7 @@ function catalog_wire_metadata(strategy, current) {
 	return metadata;
 }
 
-function wire_strategy(strategy, current, selection) {
+function wire_strategy(strategy, current, selection, compact) {
 	if (!is_object(strategy)) return null;
 	let result = {};
 	for (let key in strategy) result[key] = strategy[key];
@@ -883,7 +884,7 @@ function wire_strategy(strategy, current, selection) {
 		&& selected.origin == result.origin && selected.revision == revision;
 	result.is_favorite = type(selection.favorites) == 'array' && index(selection.favorites, result.id) >= 0;
 	result.metadata = result.origin == 'avatar_builtin'
-		? catalog_wire_metadata(result, current) : (is_object(result.metadata) ? result.metadata : {});
+		? catalog_wire_metadata(result, current, compact) : (is_object(result.metadata) ? result.metadata : {});
 	return result;
 }
 
@@ -903,7 +904,7 @@ function strategy_list() {
 	for (let id in order) {
 		let strategy = catalog_strategy(current.winners[id]);
 		if (strategy == null) return error_result('EVERIFY', 'catalog Strategy normalization failed');
-		push(strategies, wire_strategy(strategy, current, selection));
+		push(strategies, wire_strategy(strategy, current, selection, true));
 	}
 	strategy_trace('list:catalog-wired');
 	let users = null;
