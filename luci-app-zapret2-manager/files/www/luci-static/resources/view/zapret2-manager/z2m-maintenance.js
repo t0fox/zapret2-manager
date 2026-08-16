@@ -122,7 +122,6 @@ function kvPanel(shell, rows) {
 function formatTime(shell, value) {
   return shell.format.timestamp(value) || '';
 }
-
 function renderSystem(ctx, data) {
   var shell = ctx.shell;
   var versions = MaintenanceModel.normalizeVersions(data.versions && data.versions.value || {});
@@ -275,7 +274,7 @@ function renderBackups(ctx, data) {
     ]);
   });
   return E('div', {}, [
-    shell.panel(_('Backups'), E('div', {}, [
+    shell.panel(_('Резервные копии'), E('div', {}, [
       E('div', { 'class': 'z2m-btnrow' }, [scopeSelect, createButton]),
       E('div', { 'class': 'z2m-backup-history' }, rows.length ? rows : [
         shell.statePanel({ message: _('История backup пуста.'), kind: 'info' })
@@ -316,7 +315,7 @@ function renderDiagnostics(ctx) {
   return shell.panel(_('Diagnostics export'), E('div', {}, [
     E('div', { 'class': 'z2m-btnrow' }, exportButton),
     resultRows.length ? kvPanel(shell, resultRows) : shell.statePanel({
-      message: _('Export ещё не запускался. Диагностика не изменяет router state.'),
+      message: _('Экспорт ещё не запускался. Диагностика не изменяет состояние роутера.'),
       kind: 'info'
     })
   ]));
@@ -340,7 +339,7 @@ function render(ctx) {
   var tabs = ctx.shell.subTabs([
     { id: 'system', label: _('Система') },
     { id: 'engine', label: _('Движок') },
-    { id: 'backups', label: _('Backups') },
+    { id: 'backups', label: _('Резервные копии') },
     { id: 'events', label: _('События') },
     { id: 'diagnostics', label: _('Диагностика') }
   ], state.pane, function (id) {
@@ -354,7 +353,7 @@ function render(ctx) {
   });
   return E('section', { 'class': 'z2m-view on', id: 'z2m-view-maintenance' }, [
     E('div', { 'class': 'z2m-phead' }, [
-      E('div', {}, [E('h1', {}, _('Обслуживание')), E('p', {}, _('Движок, версии, безопасные backups, события и diagnostics export'))])
+      E('div', {}, [E('h1', {}, _('Обслуживание')), E('p', {}, _('Движок, версии, резервные копии, события и экспорт диагностики'))])
     ]),
     errors.length ? E('div', {}, errors) : null,
     tabs,
@@ -362,12 +361,12 @@ function render(ctx) {
   ]);
 }
 function mount(ctx) { EnginePanel.mount(ctx); }
-function unmount() { EnginePanel.unmount(); }
+function unmount(ctx) { EnginePanel.unmount(ctx); }
 
 return baseclass.extend({
   id: 'maintenance',
   title: _('Обслуживание'),
-  subtitle: _('Engine installer, backups, versions, events и diagnostics'),
+  subtitle: _('Установка движка, резервные копии, версии, события и диагностика'),
   load: load,
   render: render,
   mount: mount,

@@ -31,8 +31,8 @@ The current source-level transplant matrix is
 | Primary checkout | `G:\zapret2-manager` — untouched |
 | Scope | P01 only; P02 and all new backend milestones are not started |
 | P01-T source closure | T01–T06 local source/contracts `PASS`; custom approximation remaining `0` |
-| P01-T browser gate | `NOT_RUN`; local Edge 151.0.4129.78 CDP was available, but target LuCI required an authenticated session and returned `Authorization Required` (HTTP 403) |
-| P01-T target gate | `PASS`; clean candidate `a06270489b465154322f2821b8e49bb7f54d1c06` deployed by direct SCP; lifecycle canary passed |
+| P01-T browser gate | `PASS`; authenticated Codex in-app Browser accepted Dashboard/System/navigation at 1280x768, 768x1024, and 390x844 |
+| P01-T target gate | `PASS`; clean corrective candidate `4f62f6a85e00889bebd42044f356906af2a23b15` deployed by direct SCP; lifecycle canary remained stopped |
 
 Historical start-state evidence above refers to the earlier P01 slice. For
 P01-T, the isolated worktree already contained 12 pre-existing changed or
@@ -140,10 +140,10 @@ backend implementation, or unrelated page file is part of the closure.
 | Package/build checks | NOT_RUN | No APK build/install by instruction |
 | Target deploy | PASS | `ef5c18a20db92cab19dd821df4300339164bc6b1`; guarded direct SCP-compatible script; rpcd reloaded |
 | Target hashes/owners/modes | PASS | All 6 deployed Dashboard frontend/ACL assets matched local SHA-256; target `root:root`, `0644`; status UCode assets also matched local SHA-256 |
-| Browser 1280x900 | PASS | Exact viewport evidence in `docs/05-parity/evidence/dashboard-278e2aa.json` |
-| Browser 768x900 | PASS | Exact viewport evidence in `docs/05-parity/evidence/dashboard-278e2aa.json` |
-| Browser 390x844 | PASS | Exact viewport evidence in `docs/05-parity/evidence/dashboard-278e2aa.json` |
-| Console/network acceptance | PASS | Fresh CDP capture: shared LuCI shell `uci/get` HTTP 200, 0 console errors, 0 network 404s, no forbidden DNS/TG RPCs |
+| Browser 1280x768 | PASS | Authenticated Codex in-app Browser: Dashboard cards, Quick Actions, event log and four-column log rows rendered; no horizontal overflow |
+| Browser 768x1024 | PASS | Authenticated Codex in-app Browser: responsive two-column cards and readable log rows; document width 753px |
+| Browser 390x844 | PASS | Authenticated Codex in-app Browser: responsive one-column cards and stacked log rows; document width 375px |
+| Console/network acceptance | PASS | Post-fix CDP capture recorded 0 new runtime exceptions/console errors and no failed resource events; stale pre-fix error was isolated to the prior candidate |
 | P02 and later Avatar pages | NOT_STARTED | Explicitly outside this task |
 
 ## Final acceptance update

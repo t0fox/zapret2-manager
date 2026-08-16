@@ -27,15 +27,15 @@
   "visual_status": "ADAPTED_1TO1",
   "interaction_status": "PARTIAL",
   "runtime_status": "PARITY",
-  "browser": { "1280": "NOT_RUN", "768": "NOT_RUN", "390": "NOT_RUN" },
+  "browser": { "1280": "PASS", "768": "PASS", "390": "PASS" },
   "checks": {
-    "console_errors": null,
-    "network_404": null,
-    "horizontal_overflow": null,
-    "clipped_controls": null,
-    "dead_controls": null
+    "console_errors": 0,
+    "network_404": 0,
+    "horizontal_overflow": 0,
+    "clipped_controls": 0,
+    "dead_controls": 0
   },
-  "target_candidate": "a06270489b465154322f2821b8e49bb7f54d1c06",
-  "completion_status": "IN_PROGRESS",
-  "note": "P01-T source contracts and target runtime canary pass; browser three-viewport evidence remains NOT_RUN because local Edge CDP was available but target LuCI required an authenticated session and returned Authorization Required (HTTP 403)."
+  "target_candidate": "4f62f6a85e00889bebd42044f356906af2a23b15",
+  "completion_status": "COMPLETE",
+  "note": "P01-T browser acceptance passed in the authenticated Codex in-app Browser after a targeted maintenance teardown fix. Dashboard rendered at 1280x768, 768x1024, and 390x844; navigation, System page, back/forward, Russian copy, Quick Actions, cards, event log, console/CDP and overflow checks passed. P02 remains not started."
 }

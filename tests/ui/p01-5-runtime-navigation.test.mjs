@@ -6,6 +6,7 @@ import test from 'node:test';
 const root = path.resolve(import.meta.dirname, '..', '..');
 const overview = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-overview.js'), 'utf8');
 const enginePanel = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-engine-panel.js'), 'utf8');
+const maintenance = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js'), 'utf8');
 const engineModel = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-engine-model.js'), 'utf8');
 const navigation = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-navigation.js'), 'utf8');
 const app = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/app.js'), 'utf8');
@@ -53,4 +54,5 @@ test('primary navigation has reversible canonical routes and one hash listener',
 test('page teardown clears Dashboard and maintenance pollers', () => {
   assert.match(overview, /function unmount\(\)[\s\S]*clearTimeout\(runtime\.timer\)/);
   assert.match(enginePanel, /function unmount\(ctx\)[\s\S]*clearInterval\(ctx\.engineState\.timer\)/);
+  assert.match(maintenance, /function unmount\(ctx\) \{ EnginePanel\.unmount\(ctx\); \}/);
 });
