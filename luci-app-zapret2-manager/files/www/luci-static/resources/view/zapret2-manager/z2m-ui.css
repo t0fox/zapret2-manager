@@ -754,3 +754,25 @@
 .z2m-view#z2m-view-strategy .strategy-card-actions .btn,
 .z2m-view#z2m-view-strategy .strategy-card-toggle { min-height:30px; padding:5px 10px; border-radius:5px; box-shadow:none; font-size:13px; }
 .z2m-view#z2m-view-strategy .list-ui-search-input { box-sizing:border-box !important; height:40px; min-height:40px; max-height:40px; }
+
+/* P03-V2 final visual correction: keep the search control, summary facts,
+ * active state, groups, and card actions as calm donor-like surfaces. */
+.z2m-view#z2m-view-strategy .active-strategy-card .card-title{padding:15px 20px 0;border-bottom:0;color:var(--tx3);font-size:11px;font-weight:500;letter-spacing:.04em;text-transform:uppercase;}
+.z2m-view#z2m-view-strategy #active-strategy-info{padding:10px 20px 18px;min-height:0;}
+.z2m-view#z2m-view-strategy .catalog-summary-grid{grid-template-columns:minmax(105px,.7fr) minmax(160px,1.3fr) auto;gap:0;}
+.z2m-view#z2m-view-strategy .catalog-summary-grid > div{padding-top:0;padding-bottom:0;}
+.z2m-view#z2m-view-strategy .catalog-summary-grid > div:nth-child(3){border-right:0;padding-right:0;}
+.z2m-view#z2m-view-strategy .catalog-summary-grid > div:nth-child(3) b{color:var(--green);font:13px/1.35 inherit;}
+.z2m-view#z2m-view-strategy .list-ui-group-header{padding:9px 12px;border:1px solid var(--border);border-radius:6px;background:rgba(255,255,255,.025);}
+.z2m-view#z2m-view-strategy .list-ui-group-header:hover{background:rgba(255,255,255,.045);border-color:var(--border2);}
+.z2m-view#z2m-view-strategy .strategy-card-actions{background:transparent;}
+.z2m-view#z2m-view-strategy .strategy-card-toggle{border:1px solid var(--border2);background:var(--raised);color:var(--tx);border-radius:5px;}
+.z2m-view#z2m-view-strategy .list-ui-search-input{padding-right:36px;}
+.z2m-view#z2m-view-strategy .list-ui-search-clear{top:50%;right:5px;width:32px;height:32px;display:flex;align-items:center;justify-content:center;transform:translateY(-50%);border:0;border-radius:6px;color:var(--tx2);background:transparent;}
+.z2m-view#z2m-view-strategy .list-ui-search-clear:hover{color:var(--tx);background:rgba(255,255,255,.08);}
+@media (min-width:601px) and (max-width:1100px){
+  .z2m-view#z2m-view-strategy .list-ui-toolbar{flex-direction:row;align-items:center;flex-wrap:nowrap;gap:12px;}
+  .z2m-view#z2m-view-strategy .list-ui-search{flex:1 1 0;width:auto;min-width:0;max-width:none;}
+  .z2m-view#z2m-view-strategy .list-ui-search-input{width:100%;max-width:none !important;}
+  .z2m-view#z2m-view-strategy .list-ui-count{flex:0 0 auto;width:auto;}
+}

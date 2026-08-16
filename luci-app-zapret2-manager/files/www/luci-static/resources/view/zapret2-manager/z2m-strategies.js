@@ -110,6 +110,7 @@ var ListUI = {
       try { localStorage.setItem(cfg.storageKey, JSON.stringify({ search: search, filterId: filterId, collapsedGroups: Object.keys(collapsed) })); } catch (_e) {}
     }
     function refresh() {
+      clear.style.display = search ? '' : 'none';
       var chosen = cfg.filters.find(function (item) { return item.id === filterId; });
       filters.querySelectorAll('[data-filter-id]').forEach(function (button) {
         button.classList.toggle('active', button.dataset.filterId === filterId);
@@ -231,7 +232,7 @@ function renderCatalogSummary() {
     return;
   }
   var value = catalogValue(state.data), counts = object(value.counts);
-  host.innerHTML = '<div class="catalog-summary-grid"><div><b>' + text(counts.files || 0) + '</b><span>Файлов</span></div><div><b>' + text(counts.uniqueStrategies || 0) + '</b><span>Стратегий</span></div><div><b>' + text(value.digest ? value.digest.slice(0, 12) : '—') + '</b><span>Версия каталога</span></div><div><b>' + (value.ok === true ? 'Готов' : 'Проверка') + '</b><span>Состояние</span></div></div>';
+  host.innerHTML = '<div class="catalog-summary-grid"><div class="catalog-summary-files"><b>' + text(counts.files || 0) + '</b><span>Файлов</span></div><div class="catalog-summary-strategies"><b>' + text(counts.uniqueStrategies || 0) + '</b><span>Стратегий</span></div><div class="catalog-summary-health"><b>' + (value.ok === true ? 'Готов' : 'Проверка') + '</b><span>Состояние</span></div></div>';
 }
 function renderBulkBar() {
   var bar = state.root && state.root.querySelector('#strat-bulkbar');

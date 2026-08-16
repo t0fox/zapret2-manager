@@ -114,6 +114,66 @@ classified `BACKEND_NOT_READY` or `INTENTIONAL_Z2M_DIFFERENCE`, never faked.
   rollback-safe baseline was established.
 - `P04_STARTED=NO`.
 
+## P03-V2 — final Strategies visual correction
+
+`P03-V2_STATUS: COMPLETE`. This closure stayed presentation-only: no backend,
+catalog source, RPC, CRUD, Apply/Preview authority, Scanner, engine, DNS,
+routing, or shared/global theme code changed. `P04_STARTED: NO` and
+`CATALOG_UPSTREAM_CHANGED: NO`.
+
+### Acceptance evidence
+
+| Contract | Result | Evidence |
+| --- | --- | --- |
+| `FLOATING_SEARCH_CLEAR_VISIBLE` | `0` | Empty search renders the clear button with `display:none` and zero-size rect |
+| `SEARCH_CLEAR_INSIDE_INPUT` | `YES` | Typed search renders `×` inside the 40px input rect; click clears value and returns it to hidden |
+| `SEARCH_CLEAR_VISIBLE_WHEN_EMPTY` | `NO` | Browser interaction verified after clearing |
+| `SEARCH_ROW` | `PASS` | Search width `392.97px`, result count on the same row at `x=419.97px` |
+| `RAW_CATALOG_HASH_PRIMARY_VISIBLE` | `0` | Summary now exposes only files, strategies, and trusted health state |
+| `SUMMARY_PRIMARY_FACTS` | `PASS` | `23`, `732`, `Готов` in one cohesive surface; no fourth KPI tile |
+| `ACTIVE_CARD_SURFACE` | `PASS` | Inner divider removed; active name, badges, and `Превью команды` preserved |
+| `GROUP_HEADER` | `PASS` | Full-width rounded subtle surface with `1px` border and right-aligned count |
+| `STRATEGY_CARD_SURFACE` | `PASS` | Action row background is transparent; readable description, tags, buttons, disabled state, and 32px favorite hitbox retained |
+| `AVATAR_BRANDING_VISIBLE` | `0` | No Avatar branding introduced |
+| `EXTRA_RPC` | `0` | No new RPC path; real browser rendered `80` of `732` strategies |
+
+### Changed files
+
+- `luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategies.js`
+  — toggles clear-button visibility and removes the raw digest from the
+  primary summary while retaining trusted `value.ok` state.
+- `luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.css`
+  — final scoped search-row, active-surface, group-header, card-action, and
+  Graphite control corrections.
+- `tests/ui/p03-v2-visual-contract.test.mjs` — regression contract for the
+  required presentation invariants.
+
+### Verification and deployment
+
+- P03 UI suite: `18/18` passed, including the new V2 contract (`4/4`).
+- `node --check` Strategies JS: passed; `git diff --check`: passed.
+- Browser acceptance: same authenticated target tab and same donor tab;
+  donor snapshot captured at `http://127.0.0.1:38123/#strategies`, target at
+  `http://192.168.1.1/...#/strategies`. Target final state: `80` cards, no
+  raw hash, clear hidden when empty, clear inside input when typed, and clear
+  action restores the full list.
+- Direct target SHA-256: Strategies JS
+  `d2788d88cc883711e2cb4d851bbf93d5c0984c28f0cba7dfd950bd53a27fc336`;
+  Strategies CSS
+  `6dcf69fc04e59aafe5950104cebf4bb67b628df0f48d3b52d6a8956e2030b559`.
+- Target mode/owner: `-rw-r--r-- root:root` (`0644`) for both files;
+  `rpcd` PID remained `7271`. Bounded backup:
+  `/tmp/z2m-strategies-parity/backup/20260816-215959/`.
+- No APK build/install, reboot, rpcd reload, or Apply was performed.
+- Evidence: `p03v2-z2m-before.png`, `p03v2-donor.png`,
+  `p03v2-z2m-final-top.png`, and `p03v2-z2m-final-card.png` under
+  `C:\Users\Kirill\.codex\visualizations\2026\08\16\01a00aad-3cb6-7cc0-aa5f-be2d7b0d1f71\`.
+
+The broader product/backend test invocation remains separately non-clean in
+this dirty worktree because of pre-existing ucode/WSL target-runtime failures;
+those failures are outside this presentation-only closure. No unrelated
+working-tree changes were reset, staged, or modified.
+
 ## P03-V visual polish evidence
 
 - `STATUS: DONE`.
