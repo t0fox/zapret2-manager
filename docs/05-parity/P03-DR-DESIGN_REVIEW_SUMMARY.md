@@ -76,3 +76,82 @@ Rendered baseline evidence:
 No backend rewrite is required by this review. The current Forgejo source has no
 featured rows and no circular rows, so those empty data boundaries remain
 explicit rather than being faked visually.
+
+## Final second-pass review
+
+Status: `FINAL_REVIEW_COMPLETE`  
+Date: `2026-08-17`  
+Reviewer skill: `design-review` used for both the initial and final passes.  
+Final rendered target: `http://192.168.1.1/cgi-bin/luci/admin/services/zapret2-manager?p03v2=finaldr#/strategies`.
+
+The final pass used the same authenticated in-app Browser session. A temporary
+wide viewport was used for the detailed interaction screenshots and was closed;
+the user's original tab was restored to the Strategies route. The donor remained
+the rendered frozen SHA listed above.
+
+| FINAL_GATE | RESULT | EVIDENCE |
+|---|---|---|
+| FINAL_P0 | 0 | No blocking visual or interaction defect observed. |
+| FINAL_P1 | 0 | All nine initial P1 gaps were corrected and rechecked. |
+| Active strategy | PASS | Padded `active-strategy-card`, state/helper copy, grouped Debug and Journal controls; rendered `607x159`, `20px` padding, `12px` radius at the user's viewport. |
+| Healthcheck | PASS | First-class `strategy-ops-card` with subtitle, grouped controls, localized status, explanation, config and outage-guard metadata; rendered `607x269`, `20px` padding, `12px` radius. |
+| Learned strategies | PASS | First-class autocircular card with explanation, three onboarding steps, CTA, reset and secondary help; rendered `607x282`, `20px` padding, `12px` radius. |
+| Strategy/recommended metadata | PASS | Semantic `Рекомендуемая` badge, green treatment, localized source label and neutral normal cards. |
+| Bulk selection | PASS | Selected cards show blue selection precedence; sticky rounded toolbar shows `Выбрано`, `Объединить`, and `Снять выделение`. |
+| Raw health enum visible | PASS | Browser body leak check returned `[]` for `succeeded`, `pending`, `failed`, `running`, `stopped`, `expired` and internal compound labels. Backend retains its canonical `expired` state; only the UI presentation is localized. |
+| Mixed RU/EN product copy | PASS | Product copy is Russian; technical names (`nfqws2`, `healthcheck`, `autocircular`, protocol names) and source author metadata remain intentional. |
+| Recommended green visual | PASS | Computed badge: `rgb(92,185,139)`, `rgba(92,185,139,0.1)`, `1px solid rgb(63,111,87)`. |
+| Browser diagnostics | PASS | Final in-app Browser dev log list was empty. |
+
+### Final parity classification
+
+- `DONOR_EQUIVALENT`: Active Strategy composition, Debug/Journal grouping,
+  Healthcheck hierarchy, Learned/autocircular empty state, strategy metadata,
+  Recommended semantic color, selection precedence and bulk toolbar behavior.
+- `INTENTIONAL_Z2M_EXTENSION`: compact Forgejo catalog summary, existing
+  horizontal LuCI navigation, Z2M route/API/RPC authority, and the `Витрина`
+  filter. The catalog summary is now compact and demoted so it does not own the
+  primary visual hierarchy.
+- `SOURCE_EMPTY_BOUNDARY`: no current Forgejo `featured` or `circular` rows;
+  the fields and filters remain distinct and no unsupported badges were invented.
+- `REMAINING_P2`: small-screen LuCI shell/navigation density, compact search and
+  group spacing, and the fact that the current source has no featured/circular
+  examples. None blocks P03 closure.
+
+### Deployment and regression evidence
+
+- Direct static deployment to `root@192.168.1.1` completed without package
+  rebuild, auth-daemon restart, Apply, firewall change, reboot or WAN mutation.
+- Target read-only RPCs remained healthy: catalog `ok:true` with 4 files and
+  639 unique strategies; learned state is explicitly empty; debug is `false`.
+- Focused regression suite: `17/17` passed. JavaScript syntax checks and
+  `git diff --check` passed.
+- Final target file SHA256 matches the local worktree for all four deployed
+  assets: `z2m-strategies.js`, `z2m-strategies-model.js`, `z2m-ui.css`, and
+  `z2m-shell.js`. Target files are regular `root:root` mode `0666` files as
+  reported by the router's mounted filesystem (no symlink or directory target).
+
+## Closure report
+
+```text
+DESIGN_REVIEWER_SKILL_USED_INITIAL: YES
+DESIGN_REVIEWER_SKILL_USED_FINAL: YES
+INITIAL_DESIGN_SCORE: D
+INITIAL_P0: 0
+INITIAL_P1: 9
+INITIAL_P2: 8
+FINAL_DESIGN_SCORE: B
+FINAL_DESIGN_REVIEW_P0: 0
+FINAL_DESIGN_REVIEW_P1: 0
+RAW_HEALTHCHECK_ENUM_VISIBLE: 0
+MIXED_RU_EN_PRODUCT_COPY: 0
+RECOMMENDED_GREEN_VISUAL: PASS
+FIXED_P0: ALL (none present)
+FIXED_P1: ALL 9
+FUNCTIONAL_REGRESSION_TESTS: 17/17 PASS
+REAL_BROWSER_ACCEPTANCE: PASS
+TARGET_SHA_MATCH: PASS
+TARGET_OWNER_MODE: PASS (root:root, regular files)
+P04_STARTED: NO
+STATUS: DONE
+```
