@@ -912,9 +912,12 @@ function strategy_list() {
 	if (!is_object(users) || users.ok != true) return users || error_result('EIO', 'User Strategy list is unavailable');
 	for (let strategy in users.strategies) push(strategies, wire_strategy(strategy, current, selection));
 	strategy_trace('list:before-bound');
-	let response = bounded_strategy_response({ ok: true, strategies: strategies,
+	// strategy_edit_action frames and size-checks the serialized child result;
+	// serializing this 732-entry projection here as well doubled the target
+	// latency and pushed the ubus call past its timeout.
+	let response = { ok: true, strategies: strategies,
 		state: { revision: selection.revision, favorites: selection.favorites },
-		favoritesRevision: selection.revision }, 'Strategy list');
+		favoritesRevision: selection.revision };
 	strategy_trace('list:return');
 	return response;
 }
