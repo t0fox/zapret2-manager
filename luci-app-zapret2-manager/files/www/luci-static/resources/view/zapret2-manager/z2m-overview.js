@@ -144,7 +144,10 @@ function render(ctx) {
     }).then(function (answer) {
       var actual = RuntimeState.state(payload(answer));
       var expected = action === 'stop' ? 'stopped' : 'running';
-      if (actual !== expected) throw { message: copy.failure + '. ' + _('Backend не подтвердил нужное состояние.') };
+      if (actual !== expected) {
+        var reason = reasonLabel(object(payload(answer).runtimeSummary).reasonCode);
+        throw { message: reason };
+      }
       runtime.lifecycle.result = { kind: 'success', message: copy.success };
     }).catch(function (error) {
       runtime.lifecycle.result = { kind: 'error', message: copy.failure, detail: lifecycleErrorDetail(error) };
@@ -171,13 +174,14 @@ function render(ctx) {
     var result = runtime.lifecycle.result;
     if (runtime.lifecycle.pending) return E('div', { 'class': 'z2m-lifecycle-feedback', role: 'status', 'aria-live': 'polite' }, [
       E('span', { 'class': 'z2m-dim' }, lifecycleCopy(runtime.lifecycle.action).pending),
+      E('span', { 'class': 'z2m-dim' }, ' · '),
       E('span', { 'class': 'z2m-dim' }, lifecycleCopy(runtime.lifecycle.action).verify)
     ]);
     if (!result) return null;
-    return E('div', { 'class': 'z2m-lifecycle-feedback ' + (result.kind === 'error' ? 'error' : 'success'), role: 'status', 'aria-live': 'polite' }, compact([
-      E('span', {}, result.message),
-      result.detail ? E('span', { 'class': 'z2m-dim' }, _('Причина: ') + result.detail) : null
-    ]));
+    var resultMessage = result.message + (result.detail ? '. ' + _('Причина: ') + result.detail : '');
+    return E('div', { 'class': 'z2m-lifecycle-feedback ' + (result.kind === 'error' ? 'error' : 'success'), role: 'status', 'aria-live': 'polite' }, [
+      E('span', {}, resultMessage)
+    ]);
   }
   function setAdvanced(mode) {
     var current = ctx.store.get();

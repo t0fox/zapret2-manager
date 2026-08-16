@@ -21,6 +21,7 @@ test('lifecycle actions expose truthful pending feedback and use one mutation pe
 test('lifecycle result is visible and buttons stay locked while the request is pending', () => {
   assert.match(overview, /all lifecycle buttons|lifecyclePending|lifecycleResult/i);
   assert.match(overview, /Не удалось запустить nfqws2/);
+  assert.doesNotMatch(overview, /throw \{ message: copy\.failure/);
   assert.match(overview, /disabled.*lifecycle|lifecycle.*disabled/i);
 });
 
