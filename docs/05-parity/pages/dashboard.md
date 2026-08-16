@@ -1,21 +1,41 @@
+---
+id: p01-dashboard
+title: "P01 — Главная / Dashboard"
+type: parity
+status: current
+authority: evidence
+updated: 2026-08-16
+publish: false
+tags: [p01, dashboard, avatar, parity]
+---
+
 # P01 — Главная / Dashboard
+
+P01-T supersedes the old frozen-donor implementation evidence in this page.
+The current source-level transplant matrix is
+[`../avatar-transplant-audit.md`](../avatar-transplant-audit.md).
 
 ## Provenance and execution boundary
 
 | Field | Evidence |
 |---|---|
 | Donor | `G:\avatarDD\zapret-gui` |
-| Frozen donor commit | `60bc16a5ddc5f43d97d414b99920c3d13da3151a` |
+| Historical P01 donor commit | `60bc16a5ddc5f43d97d414b99920c3d13da3151a` |
+| P01-T current donor commit | `38ed85ce487c6b3dbdf703a5be197795f7c0cad1` |
 | Donor page source | `web/js/pages/dashboard.js` |
 | Donor styles | `web/css/style.css` (`page-header`, `status-grid`, `status-card`, log and responsive blocks) |
 | Z2M worktree | `G:\zapret2-manager\.codex-avatar-parity` |
 | Branch | `codex/avatar-ui-parity` |
-| Start HEAD | `618318492964aa923b0e5ec64a6e002a57f54817` |
+| Historical P01 start HEAD | `618318492964aa923b0e5ec64a6e002a57f54817` |
+| P01-T start HEAD | `21fe4d2ee8c20e4fe6d44ca802e266903c82b8f2` |
 | Primary checkout | `G:\zapret2-manager` — untouched |
 | Scope | P01 only; P02 and all new backend milestones are not started |
+| P01-T source closure | T01–T06 local source/contracts `PASS`; custom approximation remaining `0` |
+| P01-T browser/target gates | `NOT_RUN`; no current browser or target claims are inherited from historical P01 evidence |
 
-Start-state evidence: the isolated worktree was clean before this P01 slice;
-no unrelated dirty files were present.
+Historical start-state evidence above refers to the earlier P01 slice. For
+P01-T, the isolated worktree already contained 12 pre-existing changed or
+untracked files; unrelated changes are preserved and excluded from this task.
 
 ## Accepted P01 section inventory
 
@@ -78,6 +98,9 @@ Changed P01 runtime files:
   — Conditional secondary-nav render, preserving all other groups.
 - `luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.css`
   — Scoped donor Dashboard cards, grid, logs and 1280/768/390 responsive rules.
+- `luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-avatar-log.js`
+  — Donor-derived log row/badge/viewer renderer with a thin Z2M event adapter;
+  donor HTTP/SSE/API code is excluded.
 - `luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/app.js`
   — Dashboard eager mount before RPC completion; other pages keep the existing loading contract.
 - `zapret2-manager/files/usr/libexec/zapret2-manager/core/status-collector.uc`

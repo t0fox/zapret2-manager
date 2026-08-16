@@ -2,9 +2,11 @@
 'require baseclass';
 'require view.zapret2-manager.z2m-overview-model as OverviewModel';
 'require view.zapret2-manager.z2m-runtime-state as RuntimeState';
+'require view.zapret2-manager.z2m-avatar-log as AvatarLog';
 
 var runtime = { timer: null, runId: null, target: '', overrideStrategyId: null, deferred: {}, loadToken: 0,
-  lifecycle: { pending: false, action: null, result: null } };
+  lifecycle: { pending: false, action: null, result: null },
+  events: { initialized: false, keys: [], follow: true, unread: 0 } };
 
 function edit(fn, value) { return fn(JSON.stringify(value || {})); }
 function asArray(value) { return Array.isArray(value) ? value : []; }
@@ -18,6 +20,18 @@ function payload(value) {
   return object(value);
 }
 function displayValue(value) { return value == null || value === '' ? '—' : String(value); }
+function phaseLabel(value) {
+  return {
+    completed: _('Проверка завершена'), partial: _('Проверка завершена частично'),
+    failed: _('Не удалось завершить проверку'), stopped: _('Проверка остановлена'),
+    'timed-out': _('Проверка превысила время ожидания'), timeout: _('Проверка превысила время ожидания'),
+    interrupted: _('Проверка прервана'), 'infrastructure-error': _('Ошибка инфраструктуры')
+  }[String(value || '').toLowerCase()] || _('Проверка выполняется');
+}
+function phaseKind(value) {
+  return ['failed', 'timed-out', 'timeout', 'infrastructure-error', 'interrupted'].indexOf(String(value || '').toLowerCase()) >= 0 ? 'r'
+    : String(value || '').toLowerCase() === 'completed' ? 'g' : 'b';
+}
 function settled(result, api) {
   return result.status === 'fulfilled'
     ? { value: result.value || {} }
@@ -161,13 +175,22 @@ function render(ctx) {
     });
   }
   function lifecycleButton(action, label, kind, disabled) {
+    // DONOR TRANSPLANT: web/js/pages/dashboard.js@38ed85ce487c6b3dbdf703a5be197795f7c0cad1
+    // Donor quickAction affordance retained; API mutation remains Z2M-owned.
     var copy = lifecycleCopy(action);
     var isPending = runtime.lifecycle.pending;
-    var buttonLabel = isPending && runtime.lifecycle.action === action
-      ? copy.pending : label;
+    var isThisPending = isPending && runtime.lifecycle.action === action;
+    var buttonLabel = isThisPending ? [
+      E('span', { 'class': 'spinner spinner-inline', 'aria-hidden': 'true' }),
+      E('span', {}, copy.pending)
+    ] : label;
+    var dashboardId = { start: 'dash-btn-start', stop: 'dash-btn-stop', restart: 'dash-btn-restart' }[action];
     return shell.button(buttonLabel, kind, function () { lifecycleAction(action); }, disabled || isPending, {
+      id: dashboardId,
       'data-lifecycle-action': action,
-      'aria-disabled': disabled || isPending ? 'true' : 'false'
+      'aria-disabled': disabled || isPending ? 'true' : 'false',
+      'aria-busy': isThisPending ? 'true' : 'false',
+      'data-lifecycle-pending': isThisPending ? 'true' : 'false'
     });
   }
   function lifecycleFeedback() {
@@ -204,8 +227,8 @@ function render(ctx) {
   function openReport() {
     if (!view.lastRun) return;
     var rows = compact([
-      reportRow(_('Run ID'), view.lastRun.runId),
-      reportRow(_('Состояние'), view.lastRun.phase),
+      advanced ? reportRow(_('Идентификатор запуска'), view.lastRun.runId) : null,
+      reportRow(_('Состояние'), phaseLabel(view.lastRun.phase)),
       reportRow(_('Открывается'), view.corpus.opened !== null && view.corpus.total !== null
         ? view.corpus.opened + ' / ' + view.corpus.total : null),
       reportRow(_('Медианная задержка'), view.corpus.medianLatencyMs !== null
@@ -244,8 +267,7 @@ function render(ctx) {
     var phase = format.text(run.phase);
     var target = format.text(run.target || run.domain || normalizeTarget(targetInput.value));
     var nodes = [];
-    if (phase !== null) nodes.push(shell.chip(phase,
-      phase === 'completed' ? 'g' : ['failed','timed-out','timeout','infrastructure-error'].indexOf(phase) >= 0 ? 'r' : 'b'));
+    if (phase !== null) nodes.push(shell.chip(phaseLabel(phase), phaseKind(phase)));
     if (target !== null) nodes.push(E('span', { 'class': 'z2m-muted' }, target));
     runResult.replaceChildren(nodes.length ? E('div', { 'class': 'z2m-inline-state' }, nodes) : null);
   }
@@ -366,14 +388,52 @@ function render(ctx) {
     if (!isFinite(value) || value < 0) return _('неизвестно');
     return (value >= 1024 ? (value / 1024).toFixed(0) + ' МБ' : value + ' КБ');
   }
+  // DONOR TRANSPLANT: web/js/pages/dashboard.js@38ed85ce487c6b3dbdf703a5be197795f7c0cad1
+  // The donor card DOM and icon placement are retained; only data/state and
+  // navigation are supplied by the Z2M boundary.
+  function donorStatusIcon(type) {
+    if (type === 'nfqws') return E('span', { 'class': 'status-dot stopped', id: 'nfqws-dot' });
+    var paths = {
+      strategy: [E('polyline', { points: '22 12 18 12 15 21 9 3 6 12 2 12' })],
+      autostart: [
+        E('path', { d: 'M23 4v6h-6' }), E('path', { d: 'M1 20v-6h6' }),
+        E('path', { d: 'M3.51 9a9 9 0 0 1 14.85-3.36L23 10' }),
+        E('path', { d: 'M1 14l4.64 4.36A9 9 0 0 0 20.49 15' })
+      ],
+      system: [
+        E('rect', { x: '2', y: '3', width: '20', height: '14', rx: '2', ry: '2' }),
+        E('line', { x1: '8', y1: '21', x2: '16', y2: '21' }),
+        E('line', { x1: '12', y1: '17', x2: '12', y2: '21' })
+      ],
+      zapret: [
+        E('path', { d: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4' }),
+        E('polyline', { points: '7 10 12 15 17 10' }),
+        E('line', { x1: '12', y1: '15', x2: '12', y2: '3' })
+      ]
+    };
+    return E('span', { 'class': 'status-card-icon', 'aria-hidden': 'true' }, E('svg', {
+      viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2',
+      width: '18', height: '18'
+    }, paths[type] || []));
+  }
   function statusCard(id, label, value, detail, kind, icon, href) {
+    var valueIds = {
+      'card-nfqws': 'nfqws-status', 'card-strategy': 'strategy-name',
+      'card-autostart': 'autostart-status', 'card-system': 'system-info',
+      'card-zapret-ver': 'zapret-ver-value'
+    };
+    var detailIds = {
+      'card-nfqws': 'nfqws-detail', 'card-strategy': 'strategy-detail',
+      'card-autostart': 'autostart-detail', 'card-system': 'system-detail',
+      'card-zapret-ver': 'zapret-ver-detail'
+    };
     return E(href ? 'a' : 'div', { id: id, href: href || null, 'class': 'status-card' + (href ? ' status-card-action' : '') }, [
       E('div', { 'class': 'status-card-header' }, [
-        E('span', { 'class': 'status-card-icon', 'aria-hidden': 'true' }, icon || '•'),
+        donorStatusIcon(icon),
         E('span', { 'class': 'status-card-label' }, label)
       ]),
-      E('div', { 'class': 'status-card-value ' + (kind || '') }, value),
-      detail ? E('div', { 'class': 'status-card-detail' }, detail) : null
+      E('div', { id: valueIds[id] || null, 'class': 'status-card-value ' + (kind || '') }, value),
+      detail ? E('div', { id: detailIds[id] || null, 'class': 'status-card-detail' }, detail) : null
     ]);
   }
   function processValue() {
@@ -457,42 +517,80 @@ function render(ctx) {
     var system = systemCardValue();
     var version = zapretCardValue();
     return E('div', { id: 'status-grid', 'class': 'status-grid' }, [
-      statusCard('card-nfqws', 'nfqws2', process.value, process.detail, process.kind, '◉'),
-      statusCard('card-strategy', _('Стратегия'), strategy.value, strategy.detail, strategy.kind, '◆'),
-      statusCard('card-autostart', _('Автозапуск'), autostart.value, autostart.detail, autostart.kind, '↻'),
-      statusCard('card-system', _('Система'), system.value, system.detail, system.kind, '⌂'),
-      statusCard('card-zapret-ver', 'zapret2', version.value, version.detail, version.kind, '◆', '#/zapret')
+      statusCard('card-nfqws', 'nfqws2', process.value, process.detail, process.kind, 'nfqws'),
+      statusCard('card-strategy', _('Стратегия'), strategy.value, strategy.detail, strategy.kind, 'strategy'),
+      statusCard('card-autostart', _('Автозапуск'), autostart.value, autostart.detail, autostart.kind, 'autostart'),
+      statusCard('card-system', _('Система'), system.value, system.detail, system.kind, 'system'),
+      statusCard('card-zapret-ver', 'zapret2', version.value, version.detail, version.kind, 'zapret', '#/zapret')
     ]);
   }
   function eventRows(envelope) {
-    var raw = envelope && envelope.value;
-    var source = Array.isArray(raw) ? raw : object(raw);
-    var rows = Array.isArray(source) ? source : asArray(source.events || source.lines || source.items || source.rows || source.log);
-    return rows.map(function (row) {
-      if (typeof row === 'string') return { timestamp: null, level: 'info', message: row };
-      row = object(row);
-      return {
-        timestamp: row.timestamp || row.time || row.ts || row.createdAt,
-        level: row.level || row.severity || row.kind || 'info',
-        message: row.message || row.msg || row.text || row.detail || JSON.stringify(row)
-      };
-    }).filter(function (row) { return row.message; }).slice(-100);
+    return AvatarLog.normalizeRows(envelope, 8);
+  }
+  function eventKey(row, index) {
+    return String(row.id || [row.timestamp || '', row.level || '', row.message || '', index].join('|'));
+  }
+  function updateEventWindow(rows) {
+    var keys = rows.map(eventKey);
+    if (!runtime.events.initialized) {
+      runtime.events.initialized = true;
+    } else if (!runtime.events.follow) {
+      var added = keys.filter(function (key) { return runtime.events.keys.indexOf(key) < 0; }).length;
+      if (added) runtime.events.unread = Math.min(99, runtime.events.unread + added);
+    }
+    runtime.events.keys = keys;
+  }
+  function refreshLogStylesheet() {
+    var link = document && document.getElementById('z2m-ui-css');
+    if (!link || link.getAttribute('data-z2m-revision') === 'adaa1aa40aa33e7ac') return;
+    link.setAttribute('data-z2m-revision', 'adaa1aa40aa33e7ac');
+    link.href = link.href.split('?')[0] + '?v=adaa1aa40aa33e7ac';
+  }
+
+  function renderLogViewer(rows) {
+    refreshLogStylesheet();
+    updateEventWindow(rows);
+    var notice;
+    var viewer = AvatarLog.renderNormalized(rows, {
+      id: 'dashboard-logs',
+      label: _('Журнал событий'),
+      formatTimestamp: format.timestamp,
+      advanced: !!advanced
+    });
+    viewer.addEventListener('scroll', function () {
+      var atBottom = viewer.scrollHeight - viewer.scrollTop - viewer.clientHeight < 24;
+      runtime.events.follow = atBottom;
+      if (atBottom) {
+        runtime.events.unread = 0;
+        if (notice) notice.hidden = true;
+      }
+    });
+    notice = E('button', {
+      type: 'button', 'class': 'log-new-events', hidden: runtime.events.unread ? null : 'hidden',
+      'aria-label': _('Перейти к новым событиям')
+    }, '↓ ' + runtime.events.unread + ' ' + _('новых событий'));
+    notice.addEventListener('click', function () {
+      runtime.events.follow = true;
+      runtime.events.unread = 0;
+      viewer.scrollTop = viewer.scrollHeight;
+      notice.hidden = true;
+    });
+    if (runtime.events.follow) window.setTimeout(function () { viewer.scrollTop = viewer.scrollHeight; }, 0);
+    return E('div', { 'class': 'log-stack' }, [viewer, notice]);
   }
   function renderEvents() {
-    var envelope = data.events || {};
+    var envelope = data.events;
     var body;
-    if (envelope.error) body = shell.statePanel({ title: _('Не удалось загрузить события'), message: envelope.error.message, kind: 'error' });
+    if (!envelope) body = shell.statePanel({ message: _('Загрузка событий…'), kind: 'loading' });
+    else if (envelope.error) body = shell.statePanel({ title: _('Не удалось загрузить события'), message: envelope.error.message || _('Backend не сообщил журнал событий.'), kind: 'error' });
     else {
       var rows = eventRows(envelope);
-      body = rows.length ? E('div', { 'class': 'log-viewer', id: 'dashboard-logs' }, rows.map(function (row) {
-        return E('div', { 'class': 'log-entry' }, [
-          E('span', { 'class': 'log-time' }, format.timestamp(row.timestamp) || '—'),
-          E('span', { 'class': 'log-level' }, row.level),
-          E('span', { 'class': 'log-message' }, String(row.message))
-        ]);
-      })) : E('div', { 'class': 'log-viewer', id: 'dashboard-logs' }, shell.statePanel({ message: _('Событий пока нет'), kind: 'info' }));
+      body = rows.length ? renderLogViewer(rows) : AvatarLog.renderNormalized([], {
+        id: 'dashboard-logs',
+        label: _('Журнал событий'),
+        empty: shell.statePanel({ message: _('Событий пока нет'), kind: 'info' })
+      });
     }
-    if (!body) body = E('div', { 'class': 'log-viewer', id: 'dashboard-logs' }, _('Загрузка логов...'));
     return shell.panel(_('Последние события'), E('div', {}, [body, E('a', { href: '#/logs', 'class': 'dashboard-all-logs' }, _('Все логи →'))]));
   }
   function renderQuickActions() {
@@ -700,6 +798,7 @@ function unmount() {
   if (runtime.timer) window.clearTimeout(runtime.timer);
   runtime.timer = null;
   runtime.runId = null;
+  runtime.events = { initialized: false, keys: [], follow: true, unread: 0 };
 }
 
 return baseclass.extend({

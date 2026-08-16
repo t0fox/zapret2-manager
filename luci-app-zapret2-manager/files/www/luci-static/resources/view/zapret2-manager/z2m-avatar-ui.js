@@ -123,9 +123,11 @@ function showErrorState(root, error, options) {
 }
 
 function confirm(options) {
+  /* Bounded adaptation of Avatar web/js/components/confirm.js. */
   options = options || {};
   return new Promise(function (resolve) {
-    var host = E('div', { 'class': 'z2m-avatar-confirm ' + text(options.className), role: 'dialog', 'aria-modal': 'true' }, [
+    var previousFocus = document.activeElement;
+    var host = E('div', { 'class': 'z2m-avatar-confirm ' + text(options.className), role: 'dialog', 'aria-modal': 'true', tabindex: '-1' }, [
       E('div', { 'class': 'z2m-avatar-confirm-panel' }, [
         E('h2', {}, text(options.title, _('Подтвердите действие'))),
         E('p', {}, text(options.message)),
@@ -136,7 +138,14 @@ function confirm(options) {
       ])
     ]);
     var done = false;
-    function finish(value) { if (done) return; done = true; document.removeEventListener('keydown', onKey); if (host.parentNode) host.parentNode.removeChild(host); resolve(value); }
+    function finish(value) {
+      if (done) return;
+      done = true;
+      document.removeEventListener('keydown', onKey);
+      if (host.parentNode) host.parentNode.removeChild(host);
+      if (previousFocus && typeof previousFocus.focus === 'function') previousFocus.focus();
+      resolve(value);
+    }
     function onKey(event) { if (event.key === 'Escape') finish(false); }
     host.querySelector('[data-confirm="cancel"]').addEventListener('click', function () { finish(false); });
     host.querySelector('[data-confirm="ok"]').addEventListener('click', function () { finish(true); });

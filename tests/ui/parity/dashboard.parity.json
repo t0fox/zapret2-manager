@@ -1,8 +1,14 @@
 {
   "schema_version": 1,
   "page_id": "dashboard",
-  "donor_sha": "60bc16a5ddc5f43d97d414b99920c3d13da3151a",
-  "donor_files": ["web/js/pages/dashboard.js", "web/css/style.css"],
+  "donor_sha": "38ed85ce487c6b3dbdf703a5be197795f7c0cad1",
+  "donor_files": [
+    "web/js/pages/dashboard.js",
+    "web/js/pages/logs.js",
+    "web/js/components/confirm.js",
+    "web/js/components/toast.js",
+    "web/css/style.css"
+  ],
   "z2m_files": [
     "luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/app.js",
     "luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-overview.js",
@@ -17,19 +23,19 @@
   "z2m_sections": ["page-header", "status-grid", "quick-actions", "recent-events", "Проверить ресурс"],
   "intentional_extensions": ["Проверить ресурс"],
   "intentional_deviations": ["LuCI RPC and shell remain authoritative; donor HTTP API/sidebar are excluded"],
-  "backend_supported": true,
+  "backend_supported": false,
   "visual_status": "ADAPTED_1TO1",
-  "interaction_status": "PARITY",
-  "runtime_status": "PARITY",
-  "browser": { "1280": "PASS", "768": "PASS", "390": "PASS" },
+  "interaction_status": "PARTIAL",
+  "runtime_status": "PARTIAL",
+  "browser": { "1280": "NOT_RUN", "768": "NOT_RUN", "390": "NOT_RUN" },
   "checks": {
-    "console_errors": 0,
-    "network_404": 0,
-    "horizontal_overflow": 0,
-    "clipped_controls": 0,
-    "dead_controls": 0
+    "console_errors": null,
+    "network_404": null,
+    "horizontal_overflow": null,
+    "clipped_controls": null,
+    "dead_controls": null
   },
-  "target_candidate": "ef5c18a20db92cab19dd821df4300339164bc6b1",
-  "completion_status": "ACCEPTED",
-  "note": "All three exact widths passed after the narrow-navigation wrap fix; shared LuCI shell uci/get is HTTP 200, no post-deploy console errors or 404s, and no DNS/TG product RPCs are issued."
+  "target_candidate": null,
+  "completion_status": "IN_PROGRESS",
+  "note": "P01-T source contracts are current and local checks pass; browser, direct-SCP target SHA/owner/mode, and lifecycle canary evidence are intentionally NOT_RUN for this cycle."
 }

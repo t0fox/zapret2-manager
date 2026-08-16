@@ -312,6 +312,8 @@ function showToast(message, kind) {
 }
 
 function openModal(title, body, footer) {
+  // DONOR TRANSPLANT: web/js/components/confirm.js@38ed85ce487c6b3dbdf703a5be197795f7c0cad1
+  // Shared LuCI modal keeps the donor cleanup/focus boundary without donor API/theme.
   var host = document.getElementById('z2m-modal');
   if (!host) return;
   closeModal();

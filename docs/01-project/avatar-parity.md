@@ -4,12 +4,56 @@ title: "Совместимость с avatarDD/zapret-gui"
 type: parity
 status: current
 authority: evidence
-updated: 2026-08-14
+updated: 2026-08-16
 publish: true
 tags: [avatar, parity, compatibility, roadmap]
 ---
 
 # Совместимость с avatarDD/zapret-gui
+
+## Текущий donor authority
+
+Для нового parity/transplant work текущим authority является ровно один
+resolved donor SHA, выбранный в начале конкретного task cycle:
+
+`avatarDD/zapret-gui@38ed85ce487c6b3dbdf703a5be197795f7c0cad1`
+
+Этот SHA был разрешён из чистого локального checkout
+`G:\avatarDD\zapret-gui` после `git fetch origin main` и заморожен для
+P01-T. Donor source, а не screenshot или память, является authority для
+переносимых frontend-компонентов.
+
+Refs `60bc16a5ddc5f43d97d414b99920c3d13da3151a`,
+`7263810c2923bb70f30fe2c41de45dac0feef492` и
+`947e213bd66b9b8bc23ce564abcf59a4c8e8ce4c` сохраняются только как
+исторические evidence и не являются текущим authority.
+
+## AVATAR TRANSPLANT RULE
+
+Для каждой Avatar parity page/component:
+
+1. Сначала определить exact donor files из текущего `AVATAR_DONOR_HEAD`.
+2. Переносить actual usable donor implementation: DOM, layout, spacing,
+   composition, CSS states, interactions, loading/empty/error/pending states,
+   responsive behavior, status/log presentation, dialogs и focus behavior.
+3. Custom Z2M approximation запрещена, если usable donor implementation
+   существует; «выглядит похоже» не является parity evidence.
+4. Заменять только несовместимые boundaries: Avatar `/api` на canonical Z2M
+   RPC/ubus, Avatar router на LuCI/Z2M router, Avatar state на canonical Z2M
+   state, Avatar sidebar на Z2M horizontal navigation.
+5. Сохранять approved Z2M differences: LuCI, Graphite theme, horizontal
+   navigation, Russian product language, canonical backend/state и approved
+   Z2M extensions.
+6. Не импортировать Avatar backend architecture, сохранять required
+   MIT/license attribution и не shipping unused donor code.
+7. Если donor functionality технически unusable, сначала записать concrete
+   incompatibility, затем разрешается custom replacement.
+
+Future parity work must remain source-driven:
+
+```text
+DONOR FILE -> DONOR COMPONENT/BEHAVIOR -> Z2M BOUNDARY ADAPTATION
+```
 
 Одна из целей zapret2-manager — воспроизвести важное **пользовательское поведение и продуктовые модели** `avatarDD/zapret-gui`, но сделать это нативно для OpenWrt. Parity здесь не означает копирование Python control plane, структуры файлов или каждой внутренней реализации. Сравниваются доступные пользователю capabilities, их state/result semantics и ожидаемый lifecycle.
 

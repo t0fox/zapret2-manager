@@ -2,6 +2,7 @@
 'require baseclass';
 'require view.zapret2-manager.z2m-maintenance-model as MaintenanceModel';
 'require view.zapret2-manager.z2m-engine-panel as EnginePanel';
+'require view.zapret2-manager.z2m-avatar-log as AvatarLog';
 
 var SCOPES = ['engineConfig', 'ourState', 'lists', 'profiles'];
 var LOAD_TIMEOUT_MS = 5000;
@@ -286,30 +287,20 @@ function renderBackups(ctx, data) {
 
 function renderEvents(ctx, data) {
   var shell = ctx.shell;
+  if (!data.events) return shell.panel(_('События'), shell.statePanel({ message: _('Загрузка событий…'), kind: 'loading' }));
   var envelope = data.events && data.events.value || {};
-  var source = array(envelope.events || envelope.lines || envelope.items).map(function (item) {
-    return typeof item === 'string' ? { message: item } : item;
-  });
-  var events = MaintenanceModel.events(source, 100);
+  if (data.events && data.events.error)
+    return shell.panel(_('События'), shell.statePanel({ title: _('Не удалось загрузить события'), message: data.events.error.message, kind: 'error' }));
+  var latestSource = AvatarLog.normalizeRows(envelope, 100);
   var advanced = !!(ctx.store.get().ui && ctx.store.get().ui.advanced);
-  var rows = events.map(function (event) {
-    var details = advanced && event.details && Object.keys(event.details).length
-      ? E('details', { 'class': 'z2m-acc' }, [
-          E('summary', {}, _('Технические детали')),
-          E('pre', { 'class': 'z2m-console' }, JSON.stringify(MaintenanceModel.redact(event.details), null, 2))
-        ]) : null;
-    return E('div', { 'class': 'z2m-svcrow z2m-single-row' }, [
-      E('div', {}, [
-        event.message ? E('div', { 'class': 'nm' }, event.message) : null,
-        event.timestamp ? E('div', { 'class': 'co' }, formatTime(shell, event.timestamp)) : null,
-        details
-      ]),
-      event.severity ? shell.chip(event.severity, event.severity === 'error' ? 'r' : 'o') : null
-    ]);
+  var viewer = AvatarLog.renderNormalized(latestSource, {
+    label: _('Журнал событий'),
+    formatTimestamp: function (value) { return formatTime(shell, value); },
+    advanced: advanced,
+    redactTechnical: MaintenanceModel.redact,
+    empty: shell.statePanel({ message: _('Событий нет.'), kind: 'info' })
   });
-  return shell.panel(_('События'), E('div', {}, rows.length ? rows : [
-    shell.statePanel({ message: _('Событий нет.'), kind: 'info' })
-  ]), _('Показаны последние 100 redacted событий.'));
+  return shell.panel(_('События'), viewer, _('Показаны последние 100 событий.'));
 }
 
 function renderDiagnostics(ctx) {

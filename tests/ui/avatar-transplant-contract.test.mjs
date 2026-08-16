@@ -12,10 +12,24 @@ const productionText = productionFiles.map((name) => fs.readFileSync(path.join(f
 test('records the current Avatar donor and preserves its MIT provenance', () => {
   const mapping = fs.readFileSync(path.join(root, 'docs/09-work/avatar-frontend-mapping.md'), 'utf8');
   const notice = fs.readFileSync(path.join(root, 'docs/third-party/avatarDD-zapret-gui.md'), 'utf8');
-  assert.match(mapping, /7263810c2923bb70f30fe2c41de45dac0feef492/);
-  assert.match(mapping, /947e213bd66b9b8bc23ce564abcf59a4c8e8ce4c/);
+  const parity = fs.readFileSync(path.join(root, 'docs/01-project/avatar-parity.md'), 'utf8');
+  const audit = fs.readFileSync(path.join(root, 'docs/05-parity/avatar-transplant-audit.md'), 'utf8');
+  assert.match(mapping, /38ed85ce487c6b3dbdf703a5be197795f7c0cad1/);
+  assert.match(parity, /38ed85ce487c6b3dbdf703a5be197795f7c0cad1/);
+  assert.match(audit, /AVATAR_DONOR_HEAD.*38ed85ce487c6b3dbdf703a5be197795f7c0cad1/s);
+  assert.match(parity, /исторические evidence/);
+  assert.doesNotMatch(parity, /Current.*(?:60bc16a5|7263810c|947e213b)/s);
   assert.match(notice, /Copyright \(c\) 2026 avatarDD/);
   assert.match(notice, /MIT/);
+});
+
+test('durable transplant rule forbids donor-backed custom approximations', () => {
+  const parity = fs.readFileSync(path.join(root, 'docs/01-project/avatar-parity.md'), 'utf8');
+  const audit = fs.readFileSync(path.join(root, 'docs/05-parity/avatar-transplant-audit.md'), 'utf8');
+  assert.match(parity, /AVATAR TRANSPLANT RULE/);
+  assert.match(parity, /Custom Z2M approximation запрещена/);
+  assert.match(audit, /CUSTOM_APPROXIMATION/);
+  assert.match(audit, /CUSTOM_APPROXIMATION_REMAINING/);
 });
 
 test('keeps the z2m top navigation and never ships a donor sidebar', () => {

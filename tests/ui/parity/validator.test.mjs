@@ -5,12 +5,13 @@ import { readManifest, validateManifest } from './validate-page-parity.mjs';
 
 const fixture = readManifest(new URL('./dashboard.parity.json', import.meta.url));
 
-test('Dashboard fixture reports COMPLETE after all strict browser gates pass', () => {
+test('Dashboard fixture records the current P01-T cycle without claiming target completion', () => {
   const result = validateManifest(fixture);
-  assert.equal(result.complete, true);
+  assert.equal(result.complete, false);
   assert.equal(result.diff.missing_donor_sections.length, 0);
   assert.deepEqual(result.diff.unexplained_extra_sections, []);
-  assert.deepEqual(result.errors, []);
+  assert.match(result.errors.join('\n'), /browser 1280px evidence is not PASS/);
+  assert.match(result.errors.join('\n'), /interaction parity is PARTIAL/);
 });
 
 test('strict validator rejects a newly introduced browser console error', () => {
@@ -23,8 +24,17 @@ test('strict validator rejects a newly introduced browser console error', () => 
 
 test('strict validator accepts only a complete parity record', () => {
   const complete = JSON.parse(JSON.stringify(fixture));
+  complete.backend_supported = true;
+  complete.interaction_status = 'PARITY';
+  complete.runtime_status = 'PARITY';
   complete.browser = { '1280': 'PASS', '768': 'PASS', '390': 'PASS' };
-  complete.checks.console_errors = 0;
+  complete.checks = {
+    console_errors: 0,
+    network_404: 0,
+    horizontal_overflow: 0,
+    clipped_controls: 0,
+    dead_controls: 0,
+  };
   complete.completion_status = 'ACCEPTED';
   assert.equal(validateManifest(complete).complete, true);
 });

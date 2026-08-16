@@ -3,8 +3,8 @@
 **Initial BASE_HEAD:** `origin/main@984e5e617c610106a03777ece4b74a16ad3ef862`
 
 **Rebased target base:** `origin/main@b336e55a feat(assets): connect registry environment to strategy scanner`
-**Donor:** `avatarDD/zapret-gui@7263810c2923bb70f30fe2c41de45dac0feef492`
-**Reviewed reference:** `947e213bd66b9b8bc23ce564abcf59a4c8e8ce4c`
+**Donor for P01-T:** `avatarDD/zapret-gui@38ed85ce487c6b3dbdf703a5be197795f7c0cad1`
+**Historical references:** `60bc16a5ddc5f43d97d414b99920c3d13da3151a`, `7263810c2923bb70f30fe2c41de45dac0feef492`, `947e213bd66b9b8bc23ce564abcf59a4c8e8ce4c`
 **Scope:** `web/**` only; donor Python/API/backend is excluded.
 
 | Donor file | Responsibility/dependencies | Decision | Target file(s) | Existing z2m contract | Test coverage |
@@ -32,7 +32,10 @@
 
 ## Actual donor provenance matrix
 
-The rows below are based on the inspected donor source at `7263810c2923bb70f30fe2c41de45dac0feef492` (the reviewed reference `947e213bd66b9b8bc23ce564abcf59a4c8e8ce4c` has the same `web/**` implementation). They distinguish actual adapted code from project-owned replacements.
+The rows below are historical mappings from the inspected donor source at
+`7263810c2923bb70f30fe2c41de45dac0feef492`. The current P01-T source mapping
+is maintained in `docs/05-parity/avatar-transplant-audit.md` against the frozen
+latest donor `38ed85ce487c6b3dbdf703a5be197795f7c0cad1`.
 
 | TARGET_FILE | DONOR_FILE | DONOR_COMMIT | COPIED/ADAPTED CODE AREA | MAJOR MODIFICATIONS | WHY IT WAS REUSED |
 |---|---|---|---|---|---|
@@ -46,7 +49,10 @@ The rows below are based on the inspected donor source at `7263810c2923bb70f30fe
 | `z2m-proxy-page-core.js` | `web/js/components/setup_ui.js`, `tgproxy.js` | `7263810c...` | Install/provider state-card vocabulary and confirmation interaction | Existing Telegram Proxy RPCs, no donor package routes or `/api/tgproxy` calls; provider failures remain typed | Improve provider lifecycle clarity without transplanting donor TG implementation |
 | `z2m-api.js` | `web/js/api.js` | `7263810c...` | NONE — donor HTTP client is intentionally dropped | Project-owned allowlisted LuCI RPC adapter and typed error normalization | Backend authority and authentication must remain the target's rpcd/ubus contract |
 
-`7263810c...` is shorthand only inside this matrix; the full donor commit is recorded above and in `docs/third-party/avatarDD-zapret-gui.md`.
+`7263810c...` is historical shorthand only inside this matrix; the current
+donor commit and P01-T file-level mapping are recorded in
+`docs/05-parity/avatar-transplant-audit.md` and
+`docs/third-party/avatarDD-zapret-gui.md`.
 
 ## Explicit exclusions
 
