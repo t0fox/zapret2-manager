@@ -6,11 +6,17 @@
 var modalKeyHandler = null;
 
 function injectStylesheet(id, filename) {
-  if (!document || !document.head || document.getElementById(id)) return;
+  if (!document || !document.head) return;
+  var revision = filename === 'z2m-ui.css' ? '?v=d73fbb3149c1079b' : '';
+  var existing = document.getElementById(id);
+  if (existing) {
+    var expected = L.resource('view/zapret2-manager/' + filename) + revision;
+    if (existing.getAttribute('href') !== expected) existing.setAttribute('href', expected);
+    return;
+  }
   var link = document.createElement('link');
   link.id = id;
   link.rel = 'stylesheet';
-  var revision = filename === 'z2m-ui.css' ? '?v=d73fbb3149c1079b' : '';
   link.href = L.resource('view/zapret2-manager/' + filename) + revision;
   document.head.appendChild(link);
 }
