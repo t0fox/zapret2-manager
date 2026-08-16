@@ -101,6 +101,9 @@ var ListUI = {
     }
     function refresh() {
       var chosen = cfg.filters.find(function (item) { return item.id === filterId; });
+      filters.querySelectorAll('[data-filter-id]').forEach(function (button) {
+        button.classList.toggle('active', button.dataset.filterId === filterId);
+      });
       var filtered = items.filter(function (item) {
         if (chosen && chosen.test && !chosen.test(item)) return false;
         if (!search) return true;
