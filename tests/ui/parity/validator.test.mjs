@@ -5,17 +5,18 @@ import { readManifest, validateManifest } from './validate-page-parity.mjs';
 
 const fixture = readManifest(new URL('./dashboard.parity.json', import.meta.url));
 
-test('Dashboard fixture reports NOT COMPLETE while exact viewport evidence is absent', () => {
+test('Dashboard fixture reports NOT COMPLETE while a strict browser gate is failing', () => {
   const result = validateManifest(fixture);
   assert.equal(result.complete, false);
   assert.equal(result.diff.missing_donor_sections.length, 0);
   assert.deepEqual(result.diff.unexplained_extra_sections, []);
-  assert.match(result.errors.join('\n'), /browser 1280px evidence is not PASS/);
+  assert.match(result.errors.join('\n'), /console_errors is 1/);
 });
 
 test('strict validator accepts only a complete parity record', () => {
   const complete = JSON.parse(JSON.stringify(fixture));
   complete.browser = { '1280': 'PASS', '768': 'PASS', '390': 'PASS' };
+  complete.checks.console_errors = 0;
   complete.completion_status = 'ACCEPTED';
   assert.equal(validateManifest(complete).complete, true);
 });

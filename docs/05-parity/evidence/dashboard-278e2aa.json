@@ -1,0 +1,25 @@
+{
+  "page_id": "dashboard",
+  "candidate": "278e2aa42aa3097e6ff3251188f2678e78b346a3",
+  "route": "#/dashboard",
+  "viewports": [
+    { "width": 1280, "height": 900, "status": "PASS" },
+    { "width": 768, "height": 900, "status": "PASS" },
+    { "width": 390, "height": 844, "status": "PASS" }
+  ],
+  "structure": {
+    "headings": ["Главная", "Быстрые действия", "Последние события", "Проверить ресурс"],
+    "status_cards": 5,
+    "forbidden_sections": [],
+    "header_separated": true
+  },
+  "runtime": { "status": "PASS", "events": "PASS", "loading": false },
+  "overflow": false,
+  "active_nav": { "background": "transparent", "box_shadow": "none", "underline": "blue" },
+  "console_errors": ["shared LuCI shell: RPC uci/get -32002 Access denied"],
+  "network_404": 0,
+  "clipped_controls": 0,
+  "dead_controls": 0,
+  "status": "NOT_COMPLETE",
+  "note": "The console error is outside Dashboard source and requires a separate LuCI shell/ACL investigation."
+}

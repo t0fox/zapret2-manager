@@ -20,15 +20,15 @@
   "visual_status": "ADAPTED_1TO1",
   "interaction_status": "PARITY",
   "runtime_status": "PARITY",
-  "browser": { "1280": "NOT_RUN", "768": "NOT_RUN", "390": "NOT_RUN" },
+  "browser": { "1280": "PASS", "768": "PASS", "390": "PASS" },
   "checks": {
-    "console_errors": 0,
+    "console_errors": 1,
     "network_404": 0,
     "horizontal_overflow": 0,
     "clipped_controls": 0,
     "dead_controls": 0
   },
-  "target_candidate": "c6dc7865c214f5075efcefb85989314405cb5d8c",
+  "target_candidate": "278e2aa42aa3097e6ff3251188f2678e78b346a3",
   "completion_status": "NOT_COMPLETE",
-  "note": "Browser viewport evidence is intentionally incomplete; this fixture must not claim P01 completion."
+  "note": "All three exact widths rendered, but strict browser acceptance remains incomplete because the shared LuCI shell emitted one unrelated uci/get -32002 Access denied error."
 }
