@@ -973,7 +973,7 @@
 .z2m-view#z2m-view-strategy .list-ui-toolbar{display:flex;align-items:center;gap:12px;flex-wrap:nowrap;justify-content:flex-start;padding:8px 0;margin:0;border-bottom:1px solid var(--border);}
 .z2m-view#z2m-view-strategy .list-ui-search{flex:0 1 52%;width:52%;max-width:560px;min-width:240px}
 .z2m-view#z2m-view-strategy .list-ui-toolbar-right{display:flex;align-items:center;margin-left:auto;flex:0 0 auto;color:var(--tx2);font-size:13px}
-.z2m-view#z2m-view-strategy .list-ui-search-input{height:35px;min-height:35px;border-radius:6px;padding-left:32px!important;padding-right:34px!important}
+.z2m-view#z2m-view-strategy .list-ui-search-input{height:35px;min-height:35px;border-radius:6px;padding-left:32px!important;padding-right:34px!important;font-size:12px}
 .z2m-view#z2m-view-strategy .list-ui-search-clear{display:flex;align-items:center;justify-content:center;top:50%;right:5px;width:28px;height:28px;padding:0;transform:translateY(-50%);border-radius:5px}
 .z2m-view#z2m-view-strategy .list-ui-filters{display:flex;flex-direction:column;gap:6px;margin:0}
 .z2m-view#z2m-view-strategy .list-ui-filter-primary{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
