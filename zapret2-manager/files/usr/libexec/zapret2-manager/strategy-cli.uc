@@ -821,6 +821,25 @@ function load_request_catalog() {
 		? loaded.catalog : error_result('EVERIFY', 'verified Avatar catalog is unavailable');
 }
 
+function catalog_summary_profiles(args) {
+	let sections = [], current = [], lines = split(args, '\n');
+	for (let line in lines) {
+		line = trim(line);
+		if (line == '--new') {
+			if (length(current)) { push(sections, join(' ', current)); current = []; }
+		} else if (line != '') push(current, line);
+	}
+	if (length(current)) push(sections, join(' ', current));
+	if (!length(sections) && args != '') push(sections, args);
+	let profiles = [];
+	for (let i = 0; i < length(sections); i++) {
+		let value = sections[i];
+		push(profiles, { id: 'profile-' + (i + 1), name: 'Профиль ' + (i + 1),
+			enabled: true, args: bounded_text(value, 256), argsTruncated: length(value) > 256 });
+	}
+	return profiles;
+}
+
 function catalog_strategy(entry) {
 	// The immutable catalog parser has already verified this entry. The list
 	// projection must not re-tokenize 732 entries on every RPC: full canonical
@@ -848,25 +867,6 @@ function catalog_strategy(entry) {
 	strategy.origin = 'avatar_builtin';
 	strategy.revision = 0;
 	return strategy;
-}
-
-function catalog_summary_profiles(args) {
-	let sections = [], current = [], lines = split(args, '\n');
-	for (let line in lines) {
-		line = trim(line);
-		if (line == '--new') {
-			if (length(current)) { push(sections, join(' ', current)); current = []; }
-		} else if (line != '') push(current, line);
-	}
-	if (length(current)) push(sections, join(' ', current));
-	if (!length(sections) && args != '') push(sections, args);
-	let profiles = [];
-	for (let i = 0; i < length(sections); i++) {
-		let value = sections[i];
-		push(profiles, { id: 'profile-' + (i + 1), name: 'Профиль ' + (i + 1),
-			enabled: true, args: bounded_text(value, 256), argsTruncated: length(value) > 256 });
-	}
-	return profiles;
 }
 
 function catalog_wire_metadata(strategy, current, compact) {
