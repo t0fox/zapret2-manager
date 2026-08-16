@@ -37,6 +37,7 @@ SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout="$SSH_CONNECT_TIMEOUT")
 manifest='
 luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/app.js|/www/luci-static/resources/view/zapret2-manager/app.js
 luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-overview.js|/www/luci-static/resources/view/zapret2-manager/z2m-overview.js
+luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-avatar-dashboard.js|/www/luci-static/resources/view/zapret2-manager/z2m-avatar-dashboard.js
 luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-avatar-log.js|/www/luci-static/resources/view/zapret2-manager/z2m-avatar-log.js
 luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js|/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js
 luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-avatar-ui.js|/www/luci-static/resources/view/zapret2-manager/z2m-avatar-ui.js

@@ -84,7 +84,7 @@ function attachTableFilter(options) {
   };
 }
 
-/* Bounded adaptation of Avatar web/js/components/toast.js. */
+/* DONOR TRANSPLANT: web/js/components/toast.js@38ed85ce487c6b3dbdf703a5be197795f7c0cad1 */
 var MAX_TOASTS = 5;
 var DEDUP_MS = 2000;
 var recentKeys = {};
@@ -102,7 +102,13 @@ function showToast(message, kind, duration) {
   });
   var existing = host.querySelectorAll('.z2m-toast');
   if (existing.length >= MAX_TOASTS && existing[0] && existing[0].parentNode) existing[0].parentNode.removeChild(existing[0]);
-  var toast = E('div', { 'class': 'z2m-toast ' + normalizedKind, role: normalizedKind === 'err' ? 'alert' : 'status' }, value);
+  var iconPath = normalizedKind === 'err' ? 'M6 6l12 12M18 6L6 18' : normalizedKind === 'warn' ? 'M12 8v4M12 16h.01' : 'M5 12l4 4L19 6';
+  var toast = E('div', { 'class': 'z2m-toast toast ' + normalizedKind, role: normalizedKind === 'err' ? 'alert' : 'status' }, [
+    E('span', { 'class': 'toast-icon', 'aria-hidden': 'true' }, E('svg', {
+      viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', width: '16', height: '16'
+    }, E('path', { d: iconPath }))),
+    E('span', { 'class': 'toast-text' }, value)
+  ]);
   host.appendChild(toast);
   var timer = window.setTimeout(function () { if (toast.parentNode) toast.parentNode.removeChild(toast); }, duration || 3600);
   toast.addEventListener('click', function () {
@@ -123,15 +129,15 @@ function showErrorState(root, error, options) {
 }
 
 function confirm(options) {
-  /* Bounded adaptation of Avatar web/js/components/confirm.js. */
+  /* DONOR TRANSPLANT: web/js/components/confirm.js@38ed85ce487c6b3dbdf703a5be197795f7c0cad1 */
   options = options || {};
   return new Promise(function (resolve) {
     var previousFocus = document.activeElement;
-    var host = E('div', { 'class': 'z2m-avatar-confirm ' + text(options.className), role: 'dialog', 'aria-modal': 'true', tabindex: '-1' }, [
-      E('div', { 'class': 'z2m-avatar-confirm-panel' }, [
-        E('h2', {}, text(options.title, _('Подтвердите действие'))),
-        E('p', {}, text(options.message)),
-        E('div', { 'class': 'z2m-btnrow' }, [
+    var host = E('div', { 'class': 'modal-overlay z2m-avatar-confirm ' + text(options.className), role: 'dialog', 'aria-modal': 'true', tabindex: '-1' }, [
+      E('div', { 'class': 'modal-content z2m-avatar-confirm-panel' }, [
+        E('div', { 'class': 'modal-header' }, E('h2', { 'class': 'modal-title' }, text(options.title, _('Подтвердите действие')))),
+        E('div', { 'class': 'modal-body' }, E('p', {}, text(options.message))),
+        E('div', { 'class': 'modal-footer z2m-btnrow' }, [
           E('button', { type: 'button', 'class': 'z2m-btn', 'data-confirm': 'cancel' }, text(options.cancelLabel, _('Отмена'))),
           E('button', { type: 'button', 'class': 'z2m-btn primary', 'data-confirm': 'ok' }, text(options.okLabel, _('Подтвердить')))
         ])

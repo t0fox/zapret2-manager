@@ -425,7 +425,7 @@ return L.view.extend({
       ])),
       E('div', { 'class': 'z2m-wrap' }, [tabs, content]),
       applyBar,
-      E('div', { id: 'z2m-modal', 'class': 'z2m-scrim' }),
+      E('div', { id: 'z2m-modal', 'class': 'z2m-scrim modal-overlay' }),
       E('div', { id: 'z2m-toasts', 'class': 'z2m-toasts' })
     ]);
     applyBar.querySelector('#z2m-discard-drafts').addEventListener('click', discardDrafts);

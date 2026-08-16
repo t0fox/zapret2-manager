@@ -3,6 +3,7 @@
 'require view.zapret2-manager.z2m-overview-model as OverviewModel';
 'require view.zapret2-manager.z2m-runtime-state as RuntimeState';
 'require view.zapret2-manager.z2m-avatar-log as AvatarLog';
+'require view.zapret2-manager.z2m-avatar-dashboard as AvatarDashboard';
 
 var runtime = { timer: null, runId: null, target: '', overrideStrategyId: null, deferred: {}, loadToken: 0,
   lifecycle: { pending: false, action: null, result: null },
@@ -180,18 +181,17 @@ function render(ctx) {
     var copy = lifecycleCopy(action);
     var isPending = runtime.lifecycle.pending;
     var isThisPending = isPending && runtime.lifecycle.action === action;
-    var buttonLabel = isThisPending ? [
-      E('span', { 'class': 'spinner spinner-inline', 'aria-hidden': 'true' }),
-      E('span', {}, copy.pending)
-    ] : label;
     var dashboardId = { start: 'dash-btn-start', stop: 'dash-btn-stop', restart: 'dash-btn-restart' }[action];
-    return shell.button(buttonLabel, kind, function () { lifecycleAction(action); }, disabled || isPending, {
+    return {
+      action: action,
       id: dashboardId,
-      'data-lifecycle-action': action,
-      'aria-disabled': disabled || isPending ? 'true' : 'false',
-      'aria-busy': isThisPending ? 'true' : 'false',
-      'data-lifecycle-pending': isThisPending ? 'true' : 'false'
-    });
+      label: label,
+      pendingLabel: copy.pending,
+      kind: kind,
+      disabled: disabled || isPending,
+      pending: isThisPending,
+      onClick: function () { lifecycleAction(action); }
+    };
   }
   function lifecycleFeedback() {
     var result = runtime.lifecycle.result;
@@ -388,54 +388,6 @@ function render(ctx) {
     if (!isFinite(value) || value < 0) return _('неизвестно');
     return (value >= 1024 ? (value / 1024).toFixed(0) + ' МБ' : value + ' КБ');
   }
-  // DONOR TRANSPLANT: web/js/pages/dashboard.js@38ed85ce487c6b3dbdf703a5be197795f7c0cad1
-  // The donor card DOM and icon placement are retained; only data/state and
-  // navigation are supplied by the Z2M boundary.
-  function donorStatusIcon(type) {
-    if (type === 'nfqws') return E('span', { 'class': 'status-dot stopped', id: 'nfqws-dot' });
-    var paths = {
-      strategy: [E('polyline', { points: '22 12 18 12 15 21 9 3 6 12 2 12' })],
-      autostart: [
-        E('path', { d: 'M23 4v6h-6' }), E('path', { d: 'M1 20v-6h6' }),
-        E('path', { d: 'M3.51 9a9 9 0 0 1 14.85-3.36L23 10' }),
-        E('path', { d: 'M1 14l4.64 4.36A9 9 0 0 0 20.49 15' })
-      ],
-      system: [
-        E('rect', { x: '2', y: '3', width: '20', height: '14', rx: '2', ry: '2' }),
-        E('line', { x1: '8', y1: '21', x2: '16', y2: '21' }),
-        E('line', { x1: '12', y1: '17', x2: '12', y2: '21' })
-      ],
-      zapret: [
-        E('path', { d: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4' }),
-        E('polyline', { points: '7 10 12 15 17 10' }),
-        E('line', { x1: '12', y1: '15', x2: '12', y2: '3' })
-      ]
-    };
-    return E('span', { 'class': 'status-card-icon', 'aria-hidden': 'true' }, E('svg', {
-      viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2',
-      width: '18', height: '18'
-    }, paths[type] || []));
-  }
-  function statusCard(id, label, value, detail, kind, icon, href) {
-    var valueIds = {
-      'card-nfqws': 'nfqws-status', 'card-strategy': 'strategy-name',
-      'card-autostart': 'autostart-status', 'card-system': 'system-info',
-      'card-zapret-ver': 'zapret-ver-value'
-    };
-    var detailIds = {
-      'card-nfqws': 'nfqws-detail', 'card-strategy': 'strategy-detail',
-      'card-autostart': 'autostart-detail', 'card-system': 'system-detail',
-      'card-zapret-ver': 'zapret-ver-detail'
-    };
-    return E(href ? 'a' : 'div', { id: id, href: href || null, 'class': 'status-card' + (href ? ' status-card-action' : '') }, [
-      E('div', { 'class': 'status-card-header' }, [
-        donorStatusIcon(icon),
-        E('span', { 'class': 'status-card-label' }, label)
-      ]),
-      E('div', { id: valueIds[id] || null, 'class': 'status-card-value ' + (kind || '') }, value),
-      detail ? E('div', { id: detailIds[id] || null, 'class': 'status-card-detail' }, detail) : null
-    ]);
-  }
   function processValue() {
     var snapshot = RuntimeState.snapshot(status);
     if (snapshot.state === 'running') {
@@ -505,7 +457,7 @@ function render(ctx) {
     if (engine.installed === false) return { value: _('Не установлен'), kind: 'r', detail: _('Backend подтвердил отсутствие пакета') };
     return unavailableCard(_('Backend не сообщил состояние zapret2'));
   }
-  function renderStatusGrid() {
+  function statusCards() {
     var process = processValue();
     var activeName = format.text(view.strategy.name || view.strategy.id);
     var strategy = envelopeError('preview')
@@ -516,13 +468,13 @@ function render(ctx) {
     var autostart = autostartCardValue();
     var system = systemCardValue();
     var version = zapretCardValue();
-    return E('div', { id: 'status-grid', 'class': 'status-grid' }, [
-      statusCard('card-nfqws', 'nfqws2', process.value, process.detail, process.kind, 'nfqws'),
-      statusCard('card-strategy', _('Стратегия'), strategy.value, strategy.detail, strategy.kind, 'strategy'),
-      statusCard('card-autostart', _('Автозапуск'), autostart.value, autostart.detail, autostart.kind, 'autostart'),
-      statusCard('card-system', _('Система'), system.value, system.detail, system.kind, 'system'),
-      statusCard('card-zapret-ver', 'zapret2', version.value, version.detail, version.kind, 'zapret', '#/zapret')
-    ]);
+    return [
+      { id: 'card-nfqws', label: 'nfqws2', value: process.value, detail: process.detail, kind: process.kind, icon: 'nfqws' },
+      { id: 'card-strategy', label: _('Стратегия'), value: strategy.value, detail: strategy.detail, kind: strategy.kind, icon: 'strategy' },
+      { id: 'card-autostart', label: _('Автозапуск'), value: autostart.value, detail: autostart.detail, kind: autostart.kind, icon: 'autostart' },
+      { id: 'card-system', label: _('Система'), value: system.value, detail: system.detail, kind: system.kind, icon: 'system' },
+      { id: 'card-zapret-ver', label: 'zapret2', value: version.value, detail: version.detail, kind: version.kind, icon: 'zapret', href: '#/zapret' }
+    ];
   }
   function eventRows(envelope) {
     return AvatarLog.normalizeRows(envelope, 8);
@@ -591,112 +543,15 @@ function render(ctx) {
         empty: shell.statePanel({ message: _('Событий пока нет'), kind: 'info' })
       });
     }
-    return shell.panel(_('Последние события'), E('div', {}, [body, E('a', { href: '#/logs', 'class': 'dashboard-all-logs' }, _('Все логи →'))]));
+    return body;
   }
   function renderQuickActions() {
-    return shell.panel(_('Быстрые действия'), E('div', { 'class': 'actions-row' }, [
+    return compact([
       lifecycleButton('start', _('Запустить'), 'primary', running === true),
       lifecycleButton('stop', _('Остановить'), 'danger', running !== true),
       lifecycleButton('restart', _('Перезапустить'), '', running !== true),
       lifecycleFeedback()
-    ]));
-  }
-
-  var pageHead = E('header', { 'class': 'page-header' }, [
-    E('h1', { 'class': 'page-title' }, _('Главная')),
-    E('p', { 'class': 'page-description' }, _('Обзор состояния системы'))
-  ]);
-
-  function strategyMeta() {
-    var parts = [];
-    var source = format.text(view.strategy.source);
-    var appliedAt = format.timestamp(view.strategy.appliedAt);
-    var revision = format.text(view.strategy.revision);
-    if (source !== null) parts.push(_('источник: ') + source);
-    if (appliedAt !== null) parts.push(appliedAt);
-    if (revision !== null) parts.push(_('ревизия: ') + displayValue(revision));
-    return parts.length ? E('div', { 'class': 'z2m-dim z2m-strategy-meta' }, parts.join(' · ')) : null;
-  }
-
-  function renderStrategyHero() {
-    if (!view.visible.strategy) return null;
-    var name = format.text(view.strategy.name || view.strategy.id);
-    var description = format.text(view.strategy.description);
-    var argv = format.text(view.strategy.argv);
-    var actions = [
-      shell.button(_('Подобрать лучшую стратегию'), 'primary', function () { ctx.navigate('strategy'); }),
-      shell.button(_('Все стратегии'), '', function () { ctx.navigate('strategy'); })
-    ];
-    if (view.rollback.available) actions.push(shell.button(_('Вернуться к предыдущей'), '', function () {
-      ctx.api.strategy.rollback().then(reload).catch(showError);
-    }));
-    return E('div', { 'class': 'z2m-hero-left' }, compact([
-      E('div', { 'class': 'z2m-kick' }, _('активная стратегия')),
-      name !== null ? E('h3', {}, name) : null,
-      description !== null ? E('div', { 'class': 'z2m-strategy-description' }, description) : null,
-      strategyMeta(),
-      argv !== null ? E('div', { 'class': 'z2m-mono z2m-dim z2m-adv-only z2m-overview-argv' }, argv) : null,
-      E('div', { 'class': 'z2m-btnrow z2m-hero-actions' }, actions)
-    ]));
-  }
-
-  function metricCard(value, label, accent) {
-    var text = format.text(value);
-    if (text === null) return null;
-    return E('div', { 'class': 'z2m-kpi' + (accent ? ' z2m-acc' : '') }, [
-      E('div', { 'class': 'v' }, text),
-      E('div', { 'class': 'l' }, label)
     ]);
-  }
-
-  function renderCorpusHero() {
-    if (!view.visible.corpus) return null;
-    var cards = compact([
-      view.corpus.opened !== null && view.corpus.total !== null
-        ? metricCard(view.corpus.opened + ' / ' + view.corpus.total, _('доменов открываются'), true) : null,
-      view.corpus.medianLatencyMs !== null
-        ? metricCard(view.corpus.medianLatencyMs + ' мс', _('медианная задержка'), false) : null
-    ]);
-    var blocks = [];
-    if (cards.length) blocks.push(E('div', { 'class': 'z2m-kpis z2m-overview-kpis' }, cards));
-    if (view.corpus.percent !== null) {
-      var progress = Math.max(0, Math.min(100, view.corpus.percent));
-      blocks.push(E('div', {
-        'class': 'z2m-bar z2m-overview-progress', role: 'progressbar',
-        'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(progress),
-        'aria-label': _('Результат последней проверки')
-      }, E('i', { 'class': 'g', style: 'width:' + progress + '%' })));
-    }
-    if (view.corpus.failedDomains.length) {
-      blocks.push(E('div', { 'class': 'z2m-dim z2m-failure-title' }, _('не открылись при последней проверке')));
-      blocks.push(E('div', { 'class': 'z2m-overview-failures' }, view.corpus.failedDomains.map(function (domain) {
-        return shell.chip(domain, 'r');
-      }).filter(Boolean)));
-    }
-    blocks.push(E('div', { 'class': 'z2m-btnrow z2m-report-actions' }, [
-      shell.button(_('Отчёт проверки'), 'sm', openReport),
-      shell.button(_('Диагностика'), 'sm', function () { ctx.navigate('monitor'); })
-    ]));
-    return E('div', { 'class': 'z2m-hero-right' }, blocks);
-  }
-
-  function renderStatusPanel() {
-    var hero = compact([renderStrategyHero(), renderCorpusHero()]);
-    if (!view.visible.health && !hero.length) return null;
-    var head = [];
-    if (view.visible.health) {
-      head.push(E('span', { 'class': 'z2m-dot ' + view.health.kind, 'aria-hidden': 'true' }));
-      head.push(E('h2', {}, view.health.label));
-      if (format.text(view.health.detail) !== null) head.push(E('span', { 'class': 'sub' }, view.health.detail));
-      if (running !== null) head.push(E('div', { 'class': 'sp' }, [
-        lifecycleButton(running ? 'stop' : 'start', running ? _('Остановить') : _('Запустить'), running ? 'danger sm' : 'primary sm', false)
-      ]));
-    }
-    var children = [];
-    if (head.length) children.push(E('div', { 'class': 'hd' }, head));
-    if (hero.length) children.push(E('div', { 'class': 'bd z2m-hero' + (hero.length === 1 ? ' z2m-hero-single' : '') }, hero));
-    if (runtime.lifecycle.pending || runtime.lifecycle.result) children.push(lifecycleFeedback());
-    return E('section', { 'class': 'z2m-panel z2m-overview-status' }, children);
   }
 
   var strategyOptions = catalog.map(function (candidate) {
@@ -784,13 +639,12 @@ function render(ctx) {
   }
 
   var rowPanels = compact([resourcePanel, rulesPanel]);
-  return E('section', { 'class': 'z2m-view on', id: 'z2m-view-overview' }, compact([
-    pageHead,
-    renderStatusGrid(),
-    renderQuickActions(),
-    renderEvents(),
-    rowPanels.length ? E('div', { 'class': rowPanels.length > 1 ? 'z2m-row3' : 'z2m-row1' }, rowPanels) : null
-  ]));
+  return AvatarDashboard.render({
+    cards: statusCards(),
+    quickActions: renderQuickActions(),
+    recentEvents: renderEvents(),
+    extension: rowPanels.length ? E('div', { 'class': rowPanels.length > 1 ? 'z2m-row3' : 'z2m-row1' }, rowPanels) : null
+  });
 }
 
 function mount() {}

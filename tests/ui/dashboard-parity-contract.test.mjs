@@ -7,6 +7,8 @@ const read = (name) => fs.readFileSync(`${ROOT}/${name}`, 'utf8');
 
 test('P01 Dashboard follows the frozen donor composition and order', () => {
   const page = read('z2m-overview.js');
+  const dashboard = read('z2m-avatar-dashboard.js');
+  const composition = `${page}\n${dashboard}`;
   const required = [
     'page-header', 'Главная', 'Обзор состояния системы', 'status-grid',
     'card-nfqws', 'nfqws2', 'card-strategy', 'Стратегия',
@@ -15,21 +17,21 @@ test('P01 Dashboard follows the frozen donor composition and order', () => {
     'Быстрые действия', 'dash-btn-start', 'dash-btn-stop',
     'dash-btn-restart', 'Последние события', 'dashboard-logs'
   ];
-  for (const marker of required) assert.match(page, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `missing Dashboard marker: ${marker}`);
-  const order = ['pageHead,', 'renderStatusGrid(),', 'renderQuickActions(),', 'renderEvents(),', 'rowPanels.length ?'];
+  for (const marker of required) assert.match(composition, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `missing Dashboard marker: ${marker}`);
+  const order = ['AvatarDashboard.render({', 'cards: statusCards(),', 'quickActions: renderQuickActions(),', 'recentEvents: renderEvents(),', 'rowPanels.length ?'];
   let previous = -1;
   for (const marker of order) {
     const current = page.indexOf(marker, previous + 1);
     assert.ok(current > previous, `Dashboard order marker is missing or misplaced: ${marker}`);
     previous = current;
   }
-  assert.doesNotMatch(page, /z2m-overview-readiness|Проверка DNS-сервисов/);
-  assert.doesNotMatch(page, /dashboard-warnings/);
-  assert.doesNotMatch(page, /warnings\.length \? warnings : null/);
-  assert.doesNotMatch(page, /renderVpnGrid|renderMonitoringGrid|VPN \/ Туннели|Мониторинг DNS|Healthcheck/);
-  assert.doesNotMatch(page, /Что стоит сделать|advicePanel|z2m-advice/);
-  assert.match(page, /page-title/);
-  assert.match(page, /page-description/);
+  assert.doesNotMatch(composition, /z2m-overview-readiness|Проверка DNS-сервисов/);
+  assert.doesNotMatch(composition, /dashboard-warnings/);
+  assert.doesNotMatch(composition, /warnings\.length \? warnings : null/);
+  assert.doesNotMatch(composition, /renderVpnGrid|renderMonitoringGrid|VPN \/ Туннели|Мониторинг DNS|Healthcheck/);
+  assert.doesNotMatch(composition, /Что стоит сделать|advicePanel|z2m-advice/);
+  assert.match(composition, /page-title/);
+  assert.match(composition, /page-description/);
 });
 
 test('P01 Dashboard keeps Z2M APIs and the existing resource checker', () => {
@@ -70,7 +72,7 @@ test('P01 status cards consume structured status evidence without collapsing to 
 });
 
 test('P01 Dashboard exposes one ordered quick-action set plus event states', () => {
-  const page = read('z2m-overview.js');
+  const page = `${read('z2m-overview.js')}\n${read('z2m-avatar-dashboard.js')}`;
   assert.equal((page.match(/dash-btn-start/g) || []).length, 1);
   assert.equal((page.match(/dash-btn-stop/g) || []).length, 1);
   assert.equal((page.match(/dash-btn-restart/g) || []).length, 1);

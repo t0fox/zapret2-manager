@@ -313,20 +313,20 @@ function showToast(message, kind) {
 
 function openModal(title, body, footer) {
   // DONOR TRANSPLANT: web/js/components/confirm.js@38ed85ce487c6b3dbdf703a5be197795f7c0cad1
-  // Shared LuCI modal keeps the donor cleanup/focus boundary without donor API/theme.
+  // DONOR modal-overlay/modal-content cleanup boundary is retained without donor API/theme.
   var host = document.getElementById('z2m-modal');
   if (!host) return;
   closeModal();
   var titleText = Format.text(title);
   if (titleText === null) return;
-  var close = button('×', 'z2m-modal-close', closeModal, false, { 'aria-label': _('Закрыть') });
-  var dialog = E('div', { 'class': 'z2m-modal', role: 'dialog', 'aria-modal': 'true', tabindex: '-1' }, [
-    E('div', { 'class': 'mh' }, [E('h3', {}, titleText), close]),
-    E('div', { 'class': 'mb' }, body),
-    E('div', { 'class': 'mf' }, footer || button(_('Закрыть'), 'primary', closeModal))
+  var close = button('×', 'z2m-modal-close modal-close', closeModal, false, { 'aria-label': _('Закрыть') });
+  var dialog = E('div', { 'class': 'z2m-modal modal-content', role: 'dialog', 'aria-modal': 'true', tabindex: '-1' }, [
+    E('div', { 'class': 'mh modal-header' }, [E('h3', { 'class': 'modal-title' }, titleText), close]),
+    E('div', { 'class': 'mb modal-body' }, body),
+    E('div', { 'class': 'mf modal-footer' }, footer || button(_('Закрыть'), 'primary', closeModal))
   ]);
   host.replaceChildren(dialog);
-  host.classList.add('on');
+  host.classList.add('on', 'modal-overlay');
   host.onclick = function (event) {
     if (event.target === host) closeModal();
   };
@@ -343,7 +343,7 @@ function closeModal() {
   modalKeyHandler = null;
   if (!host) return;
   host.onclick = null;
-  host.classList.remove('on');
+  host.classList.remove('on', 'modal-overlay');
   host.replaceChildren();
 }
 

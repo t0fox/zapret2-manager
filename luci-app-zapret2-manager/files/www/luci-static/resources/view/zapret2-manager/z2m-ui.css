@@ -97,6 +97,15 @@
 .z2m-view#z2m-view-overview .page-description{display:block;margin:8px 0 0;color:var(--tx2);font-size:13px;line-height:1.4}
 .z2m-view#z2m-view-overview .dashboard-section{margin-bottom:20px}
 .z2m-view#z2m-view-overview .dashboard-section-title{margin:20px 0 12px;color:var(--tx);font-size:15px;font-weight:600}
+.z2m-view#z2m-view-overview .card{background:var(--panel);border:1px solid var(--border);border-radius:7px;margin-bottom:20px;overflow:hidden}
+.z2m-view#z2m-view-overview .card-title{display:flex;align-items:center;gap:8px;padding:13px 18px;color:var(--tx);font-size:14px;font-weight:600;border-bottom:1px solid var(--border)}
+.z2m-view#z2m-view-overview .card-title svg{color:var(--tx3);flex:0 0 auto}
+.z2m-view#z2m-view-overview .recent-events-title{justify-content:space-between}
+.z2m-view#z2m-view-overview .recent-events-heading{display:flex;align-items:center;gap:8px}
+.z2m-view#z2m-view-overview .card>.log-stack{padding:0 18px 18px}
+.z2m-view#z2m-view-overview .card>.log-viewer{margin:0 18px 18px}
+.z2m-view#z2m-view-overview .actions-row{padding:18px}
+.z2m-view#z2m-view-overview .actions-row .z2m-lifecycle-feedback{flex:1 0 100%}
 .z2m-view#z2m-view-overview .status-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:20px}
 .z2m-view#z2m-view-overview .status-card{display:block;min-width:0;min-height:116px;padding:16px;background:var(--panel);border:1px solid var(--border);border-radius:7px;color:inherit;overflow:hidden;transition:background .12s,border-color .12s}
 .z2m-view#z2m-view-overview .status-card:hover{background:var(--panel2);border-color:var(--border2);text-decoration:none}
@@ -203,14 +212,19 @@
 .z2m-draft-preview:last-child{border-bottom:0;margin-bottom:0}
 .z2m-draft-preview h4{margin:0 0 9px;font-size:14px}
 .z2m-draft-preview .warnbar{margin:0 0 10px}
-.z2m-scrim{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:80;padding:24px}
+.z2m-scrim,.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:80;padding:24px}
 .z2m-scrim.on{display:flex}
-.z2m-modal{background:var(--panel);border:1px solid var(--border2);border-radius:6px;width:min(700px,100%);max-height:84vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.55)}
+.z2m-scrim.modal-overlay.on,.modal-overlay.on{display:flex}
+.z2m-modal,.modal-content{background:var(--panel);border:1px solid var(--border2);border-radius:6px;width:min(700px,100%);max-height:84vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.55)}
 .z2m-modal .mh{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center}
+.modal-header{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center}
 .z2m-modal .mh h3{margin:0;font-size:15px;font-weight:600}
+.modal-title{margin:0;font-size:15px;font-weight:600}
 .z2m-modal .mh button{margin-left:auto;background:none;border:0;color:var(--tx3);font-size:18px;cursor:pointer}
 .z2m-modal .mb{padding:18px;overflow:auto}
+.modal-body{padding:18px;overflow:auto}
 .z2m-modal .mf{padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.modal-footer{padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
 .z2m-tg-operation-running .z2m-scrim{cursor:wait}
 .z2m-tg-operation-body{display:grid;gap:12px}.z2m-tg-operation-body>strong{font-size:15px}.z2m-tg-operation-body p{margin:0;color:var(--tx2);line-height:1.5}.z2m-tg-operation-stage{display:flex;justify-content:space-between;gap:12px;color:var(--tx2);font-size:12px}.z2m-tg-operation-stage strong{color:var(--tx)}.z2m-tg-operation-meta,.z2m-tg-operation-rollback{font-size:11px;color:var(--tx3);overflow-wrap:anywhere}.z2m-tg-confirm-body{display:grid;gap:8px}.z2m-tg-confirm-body p{margin:0;color:var(--tx2);line-height:1.5}
 .z2m-steps{list-style:none;margin:0;padding:0}
@@ -219,7 +233,8 @@
 .z2m-steps li.run{color:var(--tx)}
 .z2m-steps li.done{color:var(--green)}
 .z2m-toasts{position:fixed;right:18px;bottom:78px;display:flex;flex-direction:column;gap:8px;z-index:90}
-.z2m-toast{background:var(--panel);border:1px solid var(--border2);border-left:3px solid var(--blue);border-radius:4px;padding:10px 14px;font-size:13px;max-width:340px;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.z2m-toast,.toast{background:var(--panel);border:1px solid var(--border2);border-left:3px solid var(--blue);border-radius:4px;padding:10px 14px;font-size:13px;max-width:340px;box-shadow:0 8px 24px rgba(0,0,0,.4);display:flex;align-items:center;gap:8px}
+.toast-icon{display:inline-flex;flex:0 0 auto}.toast-text{min-width:0}
 .z2m-toast.ok{border-left-color:var(--green)}
 .z2m-toast.warn{border-left-color:var(--orange)}
 .z2m-toast.err{border-left-color:var(--red)}
