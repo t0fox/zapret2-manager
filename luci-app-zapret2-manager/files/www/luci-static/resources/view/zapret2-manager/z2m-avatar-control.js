@@ -140,14 +140,17 @@ function lifecycleAction(ctx, action) {
     return ctx.api.service.restart();
   }
   Promise.resolve().then(callService).then(function (answer) {
-    if (answer && answer.ok === false) throw answer;
-    return fetchData(ctx);
-  }).then(function (data) {
+    return fetchData(ctx).then(function (data) { return { answer: answer, data: data }; });
+  }).then(function (packet) {
+    var data = packet.data;
     runtime.status = data.status;
     runtime.logs = data.logs;
     var actual = ControlModel.state(payload(data.status));
     var expected = action === 'stop' ? 'stopped' : 'running';
-    if (actual !== expected) throw new Error(_('Сервис управления не подтвердил нужное состояние.'));
+    if (actual !== expected) {
+      if (packet.answer && packet.answer.ok === false) throw packet.answer;
+      throw new Error(_('Сервис управления не подтвердил нужное состояние.'));
+    }
     runtime.result = { kind: 'success', message: ControlModel.actionCopy(action).success };
   }).catch(function (error) {
     runtime.result = { kind: 'error', message: ControlModel.actionCopy(action).failure, detail: lifecycleError(ctx, error) };
