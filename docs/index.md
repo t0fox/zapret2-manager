@@ -50,9 +50,7 @@ tags: [home, documentation, openwrt]
 
 ## Parity с avatarDD/zapret-gui
 
-[Совместимость с avatarDD/zapret-gui](./01-project/avatar-parity.md) — отдельный evidence-backed раздел. Он сохраняет pinned audit snapshot `11 PARITY / 31 PARTIAL / 28 MISSING / 2 DIVERGENT / 4 INTENTIONAL_DEVIATION` и отдельно показывает current-main delta.
-
-Глобальные counts не превращены в фальшивый live-percentage: свежий Scanner progress попадает в delta сразу, но итоговая матрица меняется только после deliberate re-audit соответствующих capability.
+[Совместимость с avatarDD/zapret-gui](./01-project/avatar-parity.md) — текущий контракт донорских presentation/behavior boundaries и их Z2M-native адаптации. Исторические audit counts не являются product authority.
 
 ## Roadmap
 

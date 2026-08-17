@@ -673,8 +673,8 @@ test('package installation assigns reviewed runtime file modes', () => {
     'ordinary top-level JSON configuration must be non-executable');
   assert.match(install, /chmod 0644[^\n]*\/etc\/zapret2-manager\/ipset\/\*\.txt/,
     'daemon-consumed data lists must be readable by the runtime user');
-  assert.match(install, /chmod 0600[^\n]*\/etc\/zapret2-manager\/state\.json/,
-    'state must remain private');
+  assert.doesNotMatch(install, /chmod 0600[^\n]*\/etc\/zapret2-manager\/state\.json/,
+    'mutable draft state is initialized by postinst, not copied from the source tree');
 });
 
 test('compiled package does not claim architecture all', () => {

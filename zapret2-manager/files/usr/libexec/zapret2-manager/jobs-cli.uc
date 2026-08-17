@@ -1,7 +1,6 @@
 #!/usr/bin/ucode
 'use strict';
-// jobs-cli.uc — CLI wrapper for jobs.uc (same idiom as lists-cli.uc /
-// profiles-cli.uc: script-mode entry point; the library is NEVER run
+// jobs-cli.uc — CLI wrapper for jobs.uc; the library is NEVER run
 // directly, this file is NEVER imported).
 //
 //   ucode jobs-cli.uc list                      → { ok, jobs:[...] }

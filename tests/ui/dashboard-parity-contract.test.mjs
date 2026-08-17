@@ -5,7 +5,7 @@ import fs from 'node:fs';
 const ROOT = 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager';
 const read = (name) => fs.readFileSync(`${ROOT}/${name}`, 'utf8');
 
-test('P01 Dashboard follows the frozen donor composition and order', () => {
+test('P01 Dashboard follows the current accepted composition and order', () => {
   const page = read('z2m-overview.js');
   const dashboard = read('z2m-avatar-dashboard.js');
   const composition = `${page}\n${dashboard}`;
@@ -13,12 +13,12 @@ test('P01 Dashboard follows the frozen donor composition and order', () => {
     'page-header', 'Главная', 'Обзор состояния системы', 'status-grid',
     'card-nfqws', 'nfqws2', 'card-strategy', 'Стратегия',
     'card-autostart', 'Автозапуск', 'card-system', 'Система',
-    'card-zapret-ver', 'zapret2',
+    'zapret2',
     'Быстрые действия', 'dash-btn-start', 'dash-btn-stop',
     'dash-btn-restart', 'Последние события', 'dashboard-logs'
   ];
   for (const marker of required) assert.match(composition, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `missing Dashboard marker: ${marker}`);
-  const order = ['AvatarDashboard.render({', 'cards: statusCards(),', 'quickActions: renderQuickActions(),', 'recentEvents: renderEvents(),', 'rowPanels.length ?'];
+  const order = ['AvatarDashboard.render({', 'cards: statusCards(),', 'quickActions: renderQuickActions(),', 'recommendations: renderRecommendations(),', 'recentEvents: renderEvents()'];
   let previous = -1;
   for (const marker of order) {
     const current = page.indexOf(marker, previous + 1);

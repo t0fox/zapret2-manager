@@ -143,7 +143,7 @@ function collectFiles(root) {
   const files = [];
   function walk(dir) {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === '.worktrees' || entry.name === '.artifacts' || entry.name === '.superpowers') continue;
+      if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === '.worktrees' || entry.name === '.artifacts') continue;
       const path = join(dir, entry.name);
       if (entry.isDirectory()) walk(path);
       else files.push(path);
@@ -155,7 +155,7 @@ function collectFiles(root) {
 
 function isCanonicalMarkdown(path, repoRoot) {
   const value = displayPath(repoRoot, path);
-  return value.startsWith('docs/') && !value.startsWith('docs/99-archive/') && !value.startsWith('docs/09-work/');
+  return value.startsWith('docs/');
 }
 
 function resolveFile(from, target) {

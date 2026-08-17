@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { resolveFrontendDependencyClosure, resolveLuCIRequireClosure } from './parity/dependency-closure.mjs';
+import { resolveFrontendDependencyClosure, resolveLuCIRequireClosure } from './support/frontend-dependency-closure.mjs';
 
 const ROOT = path.resolve('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager');
 
@@ -50,7 +50,7 @@ test('engine-gated views preserve LuCI constructor contract', () => {
   const gate = fs.readFileSync(path.join(ROOT, 'z2m-engine-gate.js'), 'utf8');
   assert.match(gate, /return\s+baseclass\.extend\(wrapped\)/);
   assert.match(gate, /Object\.getOwnPropertyNames\(module\.prototype\)/);
-  for (const entrypoint of ['z2m-strategy-page.js', 'z2m-domain-hub-page.js', 'z2m-dns-page.js', 'z2m-monitor.js']) {
+  for (const entrypoint of ['z2m-domain-hub-page.js', 'z2m-dns-page.js', 'z2m-monitor.js']) {
     const body = fs.readFileSync(path.join(ROOT, entrypoint), 'utf8');
     assert.match(body, /return\s+EngineGate\.wrap\(/, entrypoint);
   }

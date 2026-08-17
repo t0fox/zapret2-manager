@@ -72,10 +72,11 @@ test('P02 Control carries donor control CSS in the Graphite shell', () => {
   assert.doesNotMatch(css, /avatar-sidebar|donor-sidebar/);
 });
 
-test('P02 deploy closure declares the frozen donor source', () => {
-  const packageFiles = fs.readdirSync('scripts').filter((name) => /control|parity/i.test(name));
-  assert.ok(packageFiles.length > 0, 'P02 direct deploy manifest is required');
-  const closure = packageFiles.map((name) => fs.readFileSync(`scripts/${name}`, 'utf8')).join('\n');
-  assert.match(closure, /38ed85ce487c6b3dbdf703a5be197795f7c0cad1/);
-  assert.match(closure, /z2m-avatar-control\.js/);
+test('P02 deploy closure uses the single explicit reviewed manifest path', () => {
+  const deploy = fs.readFileSync('scripts/deploy-target.sh', 'utf8');
+  assert.match(deploy, /TARGET=\$\{TARGET:\?/, 'target must be explicit');
+  assert.match(deploy, /MANIFEST=\$\{MANIFEST:\?/, 'manifest must be explicit');
+  assert.match(deploy, /EXPECTED_COMMIT=\$\{EXPECTED_COMMIT:\?/, 'source commit must be explicit');
+  assert.match(deploy, /backup/i);
+  assert.match(deploy, /while IFS='\|'/, 'deployment closure must be manifest-driven');
 });

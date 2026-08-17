@@ -211,11 +211,11 @@ test('postinst bootstraps absent Strategy storage with fixed root ownership and 
   assert.match(postinst, /\/usr\/libexec\/zapret2-manager\/z2m-root-bootstrap persistent \|\| exit \$\$\?/);
 });
 
-test('postinst preserves existing Strategy data and legacy Profile state on upgrades', () => {
+test('postinst preserves existing Strategy data and unrelated legacy files on upgrades', () => {
   const postinst = block('Package/zapret2-manager/postinst');
   const conffiles = block('Package/zapret2-manager/conffiles');
-  assert.match(conffiles, /^\/etc\/zapret2-manager\/state\.json$/m,
-    'legacy Profile state must remain a package compatibility document');
+  assert.doesNotMatch(conffiles, /^\/etc\/zapret2-manager\/state\.json$/m,
+    'mutable draft state must be created by postinst, not shipped as a conffile');
   assert.doesNotMatch(postinst, /(?:cp|mv|rm|rmdir|truncate|tee)\b[^\n]*(?:strateg(?:y|ies)|state\.json)/i,
     'postinst must not replace or remove user state');
   assert.doesNotMatch(postinst, /(?:>|>>)[^\n]*(?:strateg(?:y|ies)|state\.json)/i,
@@ -256,7 +256,7 @@ test('postinst creates absent Strategy storage in a temporary package root', () 
   }
 });
 
-test('postinst preserves existing Strategy files, selection state, and legacy state', () => {
+test('postinst preserves existing Strategy files, selection state, and unrelated legacy state', () => {
   const root = temporaryPackageRoot();
   const etc = path.join(root, 'etc', 'zapret2-manager');
   const strategies = path.join(etc, 'strategies');
@@ -289,7 +289,7 @@ test('postinst preserves existing Strategy files, selection state, and legacy st
   }
 });
 
-test('staged package upgrade preserves user Strategies, favorites, selection, and conffiles', () => {
+test('staged package upgrade preserves user Strategies, favorites, selection, and leaves legacy state untouched', () => {
   const liveRoot = temporaryPackageRoot();
   const staging = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-package-stage-'));
   const buildRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-package-build-'));
@@ -320,12 +320,13 @@ test('staged package upgrade preserves user Strategies, favorites, selection, an
     }
     runPackageInstall(staging, buildRoot);
     assert.equal(fs.existsSync(path.join(staging, 'etc', 'zapret2-manager', 'strategies')), false);
-    assert.equal(fs.statSync(path.join(staging, 'etc', 'zapret2-manager', 'state.json')).mode & 0o777, 0o600);
+    assert.equal(fs.existsSync(path.join(staging, 'etc', 'zapret2-manager', 'state.json')), false,
+      'mutable draft state must not be present in the package staging payload');
     assert.equal(fs.statSync(path.join(staging, 'usr', 'share', 'zapret2-manager', 'catalog',
       'avatar', 'manifest.json')).mode & 0o777, 0o644);
 
     const conffiles = new Set(block('Package/zapret2-manager/conffiles').trim().split('\n'));
-    assert.ok(conffiles.has('/etc/zapret2-manager/state.json'));
+    assert.equal(conffiles.has('/etc/zapret2-manager/state.json'), false);
     mergePackagePayload(staging, liveRoot, conffiles);
     const { calls } = runPostinst(liveRoot);
     assert.deepEqual(calls, [], 'upgrade must not bootstrap over existing user state');

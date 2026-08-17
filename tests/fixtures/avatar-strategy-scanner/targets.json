@@ -9,7 +9,7 @@
       "repository": "t0fox/zapret2-manager",
       "head": "681fb45bc87b0dad590e86b86b1459eb45438c08"
     },
-    "approvedSpec": "359ce10b4b3b3830fe5cabd73036e69dbdbfc78b"
+    "approvedSpec": "docs/03-products/scanner/lifecycle.md"
   },
   "deviationClasses": [
     "OPENWRT_NATIVE",
@@ -20,7 +20,7 @@
   "sourceEvidence": [
     "core/scan_targets.py@f9dd3ea47a2239514f396a843b475c92c33f0b4c",
     "core/strategy_scanner.py@f9dd3ea47a2239514f396a843b475c92c33f0b4c",
-    "docs/superpowers/specs/2026-08-12-avatar-strategy-scanner-parity-design.md@359ce10b4b3b3830fe5cabd73036e69dbdbfc78b"
+    "docs/03-products/scanner/lifecycle.md"
   ],
   "constants": {
     "tcpModes": ["quick", "standard", "full"],

@@ -10,9 +10,9 @@ const readOptional = name => fs.existsSync(path.join(viewRoot, name)) ? read(nam
 
 test('P03-FULL catalog uses the current official Forgejo source and exposes update provenance', () => {
   const catalog = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-catalog.uc'), 'utf8');
-  const doc = fs.readFileSync(path.join(root, 'docs/05-parity/strategies-full-feature-parity.md'), 'utf8');
-  assert.match(`${catalog}\n${doc}`, /git\.zapret\.moe\/zapretdiscordyoutube\/zapretgui/);
-  assert.match(`${catalog}\n${doc}`, /6824294ee53421cc9c3e2a361f4976783ff62307/);
+  const provenance = fs.readFileSync(path.join(root, 'docs/03-products/strategy/source-provenance.md'), 'utf8');
+  assert.match(`${catalog}\n${provenance}`, /git\.zapret\.moe\/zapretdiscordyoutube\/zapretgui/);
+  assert.match(`${catalog}\n${provenance}`, /6824294ee53421cc9c3e2a361f4976783ff62307/);
   assert.match(catalog, /catalog_update|source_update|transaction/i);
   assert.doesNotMatch(catalog, /PINNED_REPOSITORY\s*=\s*'avatarDD\/zapret-gui'/);
 });

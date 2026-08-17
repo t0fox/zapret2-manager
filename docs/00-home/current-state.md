@@ -11,7 +11,7 @@ tags: [state, baseline, vault]
 
 # Current State (Evidence-Backed)
 
-**Repository Root:** C:\Users\Kirill\zapret2-manager (Obsidian vault root)
+**Repository Root:** the active checkout selected by the operator (not a fixed machine path)
 
 **Worktree:** main working tree; inspect actual git status, branch, and log for dynamic state.
 

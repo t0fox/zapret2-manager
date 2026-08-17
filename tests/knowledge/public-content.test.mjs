@@ -55,15 +55,14 @@ test('required public pages exist and contain meaningful rendered content', asyn
   }
 })
 
-test('public Avatar parity preserves the pinned audit snapshot and separates current-main delta', async () => {
+test('public Avatar parity publishes the current source and boundary contract', async () => {
   const html = await readFile(path.join(PUBLIC, '01-project', 'avatar-parity.html'), 'utf8')
   const text = textOf(html)
-  for (const token of ['PARITY', '11', 'PARTIAL', '31', 'MISSING', '28', 'DIVERGENT', '2', 'INTENTIONAL_DEVIATION', '4']) {
+  for (const token of ['PARITY', 'Avatar', 'Z2M', 'boundary', 'Strategy']) {
     assert.ok(text.includes(token), `avatar-parity: missing pinned snapshot token ${token}`)
   }
-  assert.match(text, /f9dd3ea47a2239514f396a843b475c92c33f0b4c/u)
-  assert.match(text, /текущ.*main|current-main/iu)
-  assert.match(text, /не.*пересчит|не.*пересчиты/u)
+  assert.match(text, /38ed85ce487c6b3dbdf703a5be197795f7c0cad1/u)
+  assert.match(text, /не.*хран|not.*store/iu)
 })
 
 test('public roadmap is an evidence/dependency roadmap rather than a feature wish list', async () => {

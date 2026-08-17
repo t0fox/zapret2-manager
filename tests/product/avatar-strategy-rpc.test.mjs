@@ -803,7 +803,7 @@ test('ACL grants the exact Strategy read/write split and preserves existing Prof
   for (const method of WRITE_METHODS) assert.ok(!read.includes(method), `write leaked to read ${method}`);
   assert.ok(!write.includes('strategies_catalog_reload'));
   assert.ok(!read.includes('strategies_create'));
-  assert.ok(read.includes('profiles_list') && write.includes('profiles_create'));
+  assert.ok(read.includes('strategies_list') && write.includes('strategies_create'));
   assert.ok(read.includes('orchestra_status') && write.includes('orchestra_run_start'));
   for (const method of METHODS) assert.ok(read.includes(method) || write.includes(method), method);
 });

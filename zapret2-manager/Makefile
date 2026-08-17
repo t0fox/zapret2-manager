@@ -69,7 +69,6 @@ define Build/Compile
 endef
 
 define Package/zapret2-manager/conffiles
-/etc/zapret2-manager/state.json
 /etc/zapret2-manager/service-dns-state.json
 /etc/zapret2-manager/engine-state.json
 /etc/zapret2-manager/blockcheck-domains.json
@@ -87,7 +86,6 @@ define Package/zapret2-manager/install
 	find $(1)/usr/share/zapret2-manager -type f -exec chmod 0644 {} +
 	chmod 0644 $(1)/etc/zapret2-manager/*.json
 	chmod 0644 $(1)/etc/zapret2-manager/ipset/*.txt
-	chmod 0600 $(1)/etc/zapret2-manager/state.json
 	chmod 0600 $(1)/etc/zapret2-manager/asset-registry.json
 	$(INSTALL_DIR) $(1)/usr/libexec/zapret2-manager
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/z2m-core-helper $(1)/usr/libexec/zapret2-manager/z2m-core-helper

@@ -85,4 +85,7 @@ Scanner проверяет кандидатов и возвращает резу
 
 Для понимания связи с поиском кандидатов читайте [Lifecycle Scanner](../scanner/lifecycle.md), а для оценки полноты поведения относительно upstream — [Совместимость с avatarDD/zapret-gui](../../01-project/avatar-parity.md).
 
+Закреплённые источники, lossless semantic identity и provenance описаны в
+[Источниках и канонической модели Strategy](./source-provenance.md).
+
 Для первого знакомства используйте [Первый запуск](../../11-operations/first-run.md). Модель владения описана в [Архитектуре](../../02-architecture/index.md), а общая зрелость функций — в разделе [Roadmap](../../01-project/status-roadmap.md).

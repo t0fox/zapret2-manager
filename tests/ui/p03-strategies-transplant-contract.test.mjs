@@ -49,20 +49,18 @@ test('P03 favorite mutation uses the shared Strategy state revision', () => {
   assert.doesNotMatch(page, /favorite:\s*!strategy\.favorite,\s*expectedRevision:\s*strategy\.revision/);
 });
 
-test('P03-FULL closes the adopted healthcheck/autocircular surface through Z2M RPCs', () => {
+test('Strategies closes the adopted healthcheck/autocircular surface through Z2M RPCs', () => {
   const page = read('z2m-strategies.js');
-  const audit = fs.existsSync(path.join(root, 'docs/05-parity/strategies-full-feature-parity.md'))
-    ? fs.readFileSync(path.join(root, 'docs/05-parity/strategies-full-feature-parity.md'), 'utf8') : '';
   assert.ok(page, 'P03 donor-derived Strategies module must exist');
-  assert.match(`${page}\n${audit}`, /healthcheck|autocircular|P03-FULL/);
+  assert.match(page, /healthcheck|autocircular/);
   assert.doesNotMatch(page, /API\.get\(/);
 });
 
-test('P03 fixes the DOM-node string coercion regression at its source', () => {
-  const legacy = read('z2m-strategy.js');
-  assert.match(legacy, /return errors\.length \? E\('div'/);
-  assert.doesNotMatch(legacy, /return errors;\s*\}/);
-  assert.doesNotMatch(legacy, /renderError[\s\S]{0,500}errors\.join/);
+test('P03 keeps current card/detail rendering on the active Strategies page', () => {
+  const page = read('z2m-strategies.js');
+  assert.match(page, /renderStrategyCard/);
+  assert.match(page, /showDetails|details|strategy-modal/);
+  assert.doesNotMatch(page, /renderError[\s\S]{0,500}errors\.join/);
 });
 
 test('P03 keeps loading, empty, and backend error states distinct', () => {
@@ -92,8 +90,12 @@ test('P03 backend list path reuses one catalog snapshot and reload stays explici
   assert.match(page, /function copyStrategyToClipboard\(id\)[\s\S]*strategies\.get/);
 });
 
-test('P03 static deploy does not reload the target auth daemon', () => {
-  const deploy = fs.readFileSync(path.join(root, 'scripts/deploy-strategies-parity-target.sh'), 'utf8');
-  assert.match(deploy, /38ed85ce487c6b3dbdf703a5be197795f7c0cad1/);
-  assert.doesNotMatch(deploy, /rpcd\s+reload/);
+test('the single target deploy path requires an explicit reviewed closure', () => {
+  const deploy = fs.readFileSync(path.join(root, 'scripts/deploy-target.sh'), 'utf8');
+  assert.match(deploy, /MANIFEST/);
+  assert.match(deploy, /EXPECTED_COMMIT/);
+  assert.match(deploy, /git -C .*diff --quiet/);
+  assert.match(deploy, /scp -q -O/);
+  assert.match(deploy, /sha256sum/);
+  assert.match(deploy, /BACKUP_ROOT/);
 });

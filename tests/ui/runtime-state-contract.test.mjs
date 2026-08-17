@@ -83,6 +83,8 @@ test('runtime mismatch is presented consistently instead of contradictory runnin
 
 test('Dashboard zapret2 card links to engine management', () => {
   const overview = fs.readFileSync(overviewPath, 'utf8');
-  assert.match(overview, /status-card-action/);
-  assert.match(overview, /'#\/zapret'/);
+  assert.match(overview, /card-zapret-ver/);
+  assert.match(overview, /Официальный release bol-van\/zapret2/);
+  assert.doesNotMatch(overview, /id: 'card-zapret-ver', label: 'zapret2'/,
+    'engine version remains restrained System metadata rather than a peer overview card');
 });

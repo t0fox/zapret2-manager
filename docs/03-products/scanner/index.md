@@ -90,7 +90,7 @@ Result handling должен сохранять достаточно конте�
 
 - [Lifecycle Scanner](./lifecycle.md) — model → planner/generator → A1 runtime → probes → results/ranking → cleanup → Strategy handoff → LuCI и точный production-readiness gate.
 - [Scanner, BlockCheck и BlockCheck2](./family.md) — почему это три разных Avatar flow и почему Orchestra/managed `blockcheck2.sh` не заменяют Scanner parity.
-- [Совместимость с avatarDD/zapret-gui](../../01-project/avatar-parity.md) — pinned parity snapshot и current-main delta.
+- [Совместимость с avatarDD/zapret-gui](../../01-project/avatar-parity.md) — текущие donor/source boundary contracts.
 - [Roadmap](../../01-project/status-roadmap.md) — M3 Scanner и M4 Strategy handoff с критериями завершения.
 
 ## Связанная документация

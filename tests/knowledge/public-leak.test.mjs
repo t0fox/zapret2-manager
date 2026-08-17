@@ -29,7 +29,7 @@ const FORBIDDEN_PATTERNS = [
   /AGENTS\.md/i,
   /SDD ledger/i,
   /internal handoff/i,
-  /docs\/(09-work|12-ai)(?:\/|\\)/i,
+  /docs\/12-ai(?:\/|\\)/i,
   /docs\/07-decisions\/.*\.md/i,
 ]
 
@@ -37,11 +37,8 @@ const FORBIDDEN_PUBLIC_PATH_PREFIXES = [
   '04-contracts/',
   '05-parity/',
   '07-decisions/',
-  '09-work/',
-  '10-research/',
   '12-ai/',
   '90-templates/',
-  '99-archive/',
   '02-architecture/traceability/',
   '02-architecture/atomic-write-json-v1-design',
   '08-development/knowledge-workflow',

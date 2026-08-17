@@ -11,11 +11,7 @@ tags: [architecture, graph, dependencies, modules, graphify]
 
 # Карта компонентов и зависимостей
 
-Эта страница переводит результаты структурного аудита Graphify/UnderstandAnything в человекочитаемую карту. Она не публикует raw graph и не пытается заменить source tree. Цель — показать, **какие семейства модулей существуют, кто от кого зависит и где проходят ownership boundaries**.
-
-Read-only audit package 14 августа 2026 года обработал 657 читаемых файлов; UnderstandAnything структурно разобрал 401 файл и построил граф примерно на **4 918 узлах / 10 142 связях**. Graphify сформировал отдельный граф примерно на **2 387 узлах / 4 386 связях** и 224 сообщества без dangling edges.
-
-Эти числа относятся к audit snapshot `59d28af7`. Они полезны как характеристика сложности проекта, но **не являются live-метрикой текущего main**. После аудита Scanner получил дополнительные implementation commits, поэтому текущие product statuses берутся из source/tests, а не из старого graph count.
+Эта страница описывает текущую карту компонентов и ownership boundaries. Она не заменяет source tree; актуальность проверяется по текущему коду, тестам и package closure.
 
 ## High-level map
 

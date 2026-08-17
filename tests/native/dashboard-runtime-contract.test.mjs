@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import {
   collectStatusProjection,
   loadDashboardRuntime,
-} from '../ui/parity/dashboard-runtime-model.mjs';
+} from '../support/dashboard-runtime-model.mjs';
 
 const collector = fs.readFileSync(
   'zapret2-manager/files/usr/libexec/zapret2-manager/core/status-collector.uc',

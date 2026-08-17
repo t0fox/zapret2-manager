@@ -15,7 +15,7 @@
 //   - atomic write (temp + mv in the SAME directory) + a rolling backup of
 //     the previous draft (.bak.1 newest, .bak.2, .bak.3 — capped at 3);
 //   - serialization of concurrent writers: the CLI wraps mutating modes in
-//     flock when present (see profiles-cli.uc); the marker file here is the
+//     flock when present; the marker file here is the
 //     fallback only (same remaining-race caveat as apply.uc documents);
 //   - opt fragments are OPAQUE — stored byte-verbatim, never normalized;
 //   - profiles_validate runs the native parser ONLY as `nfqws2 --dry-run`
@@ -112,7 +112,7 @@ export const load_state = function() {
 // Exported (Slice 6): the DNS module writes its draft entries through the
 // SAME disciplined path (lock + backups + atomic), never a second writer.
 export const save_state = function(state) {
-	// marker fallback (flock is the real serializer — see profiles-cli.uc)
+	// marker fallback (flock is the real serializer when available)
 	if (stat(MARKER)) {
 		let mt = trim(readfile(MARKER));
 		let age = time() - (+mt);

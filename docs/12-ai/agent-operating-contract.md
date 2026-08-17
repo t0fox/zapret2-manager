@@ -19,4 +19,5 @@ All autonomous agents operating in this repository must:
 4. Use WAITING_FOR_USER only when the two-line contract is satisfied.
 5. Run validator after every file creation/move/modification.
 6. Commit only the files created/updated by the current task.
-7. Write evidence-backed reports to .superpowers/sdd/.
+7. Keep evidence-backed reports in the task handoff or current product docs;
+   do not commit transient agent reports into the product tree.

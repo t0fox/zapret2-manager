@@ -18,5 +18,6 @@ Agents maintaining this vault must:
 3. Run validator before committing any documentation change.
 4. Never publish internal-only notes (publish: false) to the public Quartz site.
 5. Maintain the context-map.yaml when adding new products, contracts, or specs.
-6. Archive superseded documents to docs/99-archive/ with migration manifest entry.
+6. Remove superseded working notes from the product tree; Git history preserves
+   them, so the repository does not accumulate a documentation museum.
 7. Keep AGENTS.md bootstrap pointer current.

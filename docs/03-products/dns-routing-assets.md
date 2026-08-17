@@ -38,9 +38,9 @@ Rust catalog/status/preflight/health проходят, а Go availability под
 через `check_updates` с честным `installable: false`.
 
 Target backend acceptance, M6 Service DNS canary и Browser acceptance
-пройдены. Финальный Browser sweep подтвердил DNS и Telegram Proxy на 1280,
-768 и 390px без горизонтального overflow; полные доказательства, manifest и
-отдельные ограничения Linux ucode находятся в [DNS/TG v2 evidence](../05-parity/2026-08-15-dns-tg-v2-evidence.md).
+пройдены. Текущие проверки DNS и Telegram Proxy выполняются по source-owned
+contracts и target runtime checks; ограничения Linux ucode описаны в
+[evidence and testing](../08-development/evidence-testing.md).
 
 ## Domain hub и lists
 

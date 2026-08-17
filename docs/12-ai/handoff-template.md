@@ -28,5 +28,5 @@ Use this template when handing off work between agents or sessions.
 - Known open questions (if any)
 
 ## Evidence
-- Link to task report in .superpowers/sdd/
-- Link to plan step
+- Exact verification commands and evidence level
+- Link to the current product contract, when applicable

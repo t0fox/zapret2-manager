@@ -20,9 +20,8 @@ const STATUS = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manage
 const STATUS_COMPAT = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/core/status-compat.uc');
 const RPC = path.join(ROOT, 'zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc');
 const ACL = path.join(ROOT, 'luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json');
-const PAGE = path.join(ROOT, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategy.js');
+const PAGE = path.join(ROOT, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategies.js');
 const PAGE_ADAPTER = path.join(ROOT, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategy-page.js');
-const WORKFLOW_CORE = path.join(ROOT, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategy-workflow-core.js');
 const MAKEFILE = path.join(ROOT, 'zapret2-manager/Makefile');
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.split('|') : [];
@@ -269,7 +268,6 @@ test('RPC, ACL, UI reachability, schema 3, and out-of-scope boundaries remain ex
   const acl = JSON.parse(read(ACL))['zapret2-manager'];
   const page = read(PAGE);
   const adapter = read(PAGE_ADAPTER);
-  const workflowCore = read(WORKFLOW_CORE);
   const cli = read(CLI);
   const statusCompat = read(STATUS_COMPAT);
   const methods = ['strategies_list', 'strategies_get', 'strategies_preview', 'strategies_validate', 'strategies_apply', 'strategies_catalog_status', 'strategies_catalog_reload', 'strategies_import_profiles'];
@@ -278,10 +276,8 @@ test('RPC, ACL, UI reachability, schema 3, and out-of-scope boundaries remain ex
     assert.ok(acl.write.ubus['zapret2-manager'].includes(method), method);
   assert.match(page, /ctx\.api\.strategies\.list/);
   assert.match(page, /ctx\.api\.service\.status/);
-  assert.match(page, /Compatibility|Advanced/);
-  assert.match(workflowCore, /Compatibility \/ Profiles/);
-  assert.match(workflowCore, /indexOf\(state\.tab\) < 0/);
-  assert.match(adapter, /mode === 'workflow'/);
+  assert.match(page, /strategy-card|renderStrategyCard/);
+  assert.match(adapter, /return Strategies/);
   assert.match(statusCompat, /schema\s*:\s*3/);
   assert.doesNotMatch(page, /ctx\.api\.orchestra/);
   assert.doesNotMatch(rpc, /strategy.*Orchestra|ORCH_CLI.*STRATEGY/i);

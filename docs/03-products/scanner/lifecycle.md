@@ -81,7 +81,7 @@ Planner не запускает runtime. Это pure/near-pure boundary: сна�
 
 Самая важная текущая нагрузочная часть Scanner — **A1 transient runtime lifecycle**. A1 связывает один candidate execution от подготовки до cleanup. Это не просто имя процесса: protocol/schema, helper contract и `scanner-runtime-adapter.sh` должны использовать одну и ту же долгоживущую identity.
 
-Последние изменения в `main` отдельно усилили canonical A1 ownership и runtime integration, а acceptance-tail тесты проверяют случаи повторного запуска, concurrent start, terminal state и классификацию runtime abort. Это current-main delta после исходного audit package.
+Текущие acceptance-тесты проверяют повторный запуск, concurrent start, terminal state и классификацию runtime abort. Эти проверки относятся к живому lifecycle contract и не зависят от исторических audit packages.
 
 Почему это важно: Scanner постоянно создаёт временное состояние. Если разные уровни считают «A1» разными сущностями, после ошибки невозможно доказать, какой процесс/namespace/правило принадлежит текущему кандидату и что именно разрешено очищать.
 

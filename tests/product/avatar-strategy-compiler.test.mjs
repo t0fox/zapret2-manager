@@ -8,8 +8,7 @@ import path from 'node:path';
 import { ucodeDiagnostic, ucodeModulePattern } from '../native/core/ucode-test-harness.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const UCODE_ROOT = process.platform === 'win32' && ROOT.startsWith('\\\\wsl.localhost\\Ubuntu\\')
-  ? '/home/kirill/z2m-work/m5-native-state-store' : ROOT;
+const UCODE_ROOT = process.env.UCODE_ROOT || ROOT;
 const COMPILER = path.posix.join(UCODE_ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-compiler.uc');
 const MODEL = path.posix.join(UCODE_ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-model.uc');
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';

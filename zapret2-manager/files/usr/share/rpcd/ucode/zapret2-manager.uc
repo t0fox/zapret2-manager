@@ -78,66 +78,6 @@ function passthrough_method(req) {
 	return service_action('passthrough ' + (on ? 'true' : 'false'));
 }
 
-// ---- lists methods (ЦЕЛЬ ДВА — ui/07-lists-page) ---------------------------
-const LISTS_CLI = '/usr/libexec/zapret2-manager/lists-cli.uc';
-function shell_escape(value) {
-	let s = '' + (value == null ? '' : value), out = "'";
-	for (let i = 0; i < length(s); i++) {
-		let c = substr(s, i, 1);
-		out += c == "'" ? "'\\''" : c;
-	}
-	return out + "'";
-}
-function lists_action(sub) {
-	let cmd = '/usr/bin/ucode ' + LISTS_CLI + ' ' + sub + ' 2>/dev/null';
-	let p = popen(cmd, 'r');
-	if (!p) return { ok: false, error: 'popen failed' };
-	let out = p.read('all');
-	if (!out) out = '';
-	p.close();
-	try {
-		let parsed = json(out);
-		if (parsed != null) return parsed;
-		return { ok: false, error: 'no output', raw: out };
-	} catch (e) { return { ok: false, error: 'parse failed', raw: out }; }
-}
-
-function lists_get_method(req) { return lists_action('get'); }
-function lists_check_domain_method(req) {
-	let d = null;
-	try { if (req && req.args && req.args.domain != null) d = req.args.domain; } catch (e) { }
-	if (d == null) { try { if (req && req.domain != null) d = req.domain; } catch (e) { } }
-	if (d == null) return { ok: false, error: 'missing domain param' };
-	return lists_action('check ' + shell_escape(d));
-}
-// lists_set: the frontend sends `edit` as a JSON STRING (rpcd params are
-// strings). We check it IS a string, write it VERBATIM to a temp file (NO
-// sprintf("%J") re-encode — that would double-encode a JSON string), and hand
-// the file to lists-cli.uc 'set <file>'. lists_set parses the string ONCE
-// (json(edit)) and validates the object/keys/values. A file (not argv) carries
-// multi-line lists and avoids shell injection.
-function lists_set_method(req) {
-	let edit = null;
-	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
-	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
-	if (edit == null) return { ok: false, error: 'missing edit param' };
-	if (type(edit) != 'string') return { ok: false, error: 'edit must be a JSON string', got: type(edit) };
-	let tmp = '/tmp/z2m-lists-edit.' + time();
-	writefile(tmp, edit);   // verbatim — no sprintf("%J"), no double-encode
-	let cmd = '/usr/bin/ucode ' + LISTS_CLI + ' set ' + tmp + ' 2>/dev/null';
-	let p = popen(cmd, 'r');
-	if (!p) return { ok: false, error: 'popen failed' };
-	let out = p.read('all');
-	if (!out) out = '';
-	p.close();
-	try { unlink(tmp); } catch (e) { }
-	try {
-		let parsed = json(out);
-		if (parsed != null) return parsed;
-		return { ok: false, error: 'no output', raw: out };
-	} catch (e) { return { ok: false, error: 'parse failed', raw: out }; }
-}
-
 // ---- typed canonical assets ------------------------------------------------
 const ASSET_CLI = '/usr/libexec/zapret2-manager/asset-registry-cli.uc';
 function asset_args(req) {
@@ -216,69 +156,6 @@ function route_apply_method(req) { return route_edit_action('apply', req); }
 function route_status_method(req) { return route_edit_action('status', req); }
 function route_remove_method(req) { return route_edit_action('remove', req); }
 function route_reconcile_method(req) { return route_reconcile(); }
-
-// ---- profiles methods (strategy read path — SLICE 1) -----------------------
-const PROFILES_CLI = '/usr/libexec/zapret2-manager/profiles-cli.uc';
-function profiles_action(sub) {
-	let cmd = '/usr/bin/ucode ' + PROFILES_CLI + ' ' + sub + ' 2>/dev/null';
-	let p = popen(cmd, 'r');
-	if (!p) return { ok: false, error: 'popen failed' };
-	let out = p.read('all');
-	if (!out) out = '';
-	p.close();
-	try {
-		let parsed = json(out);
-		if (parsed != null) return parsed;
-		return { ok: false, error: 'no output', raw: out };
-	} catch (e) { return { ok: false, error: 'parse failed', raw: out }; }
-}
-function profiles_list_method(req) { return profiles_action('list'); }
-
-// profiles mutating/parametrized methods: the frontend sends `edit` as a JSON
-// STRING (same wire pattern as lists_set): written verbatim to a temp file
-// and handed to the CLI (a file, not argv, carries multi-line opts and
-// avoids shell interpolation of content entirely).
-function profiles_tmpfile() {
-	let p = popen('umask 077; mktemp /tmp/z2m-profiles-edit.XXXXXX 2>/dev/null', 'r');
-	if (!p) return null;
-	let tmp = trim(p.read('all') || '');
-	let rc = p.close();
-	if (rc != 0 || index(tmp, '/tmp/z2m-profiles-edit.') != 0) {
-		if (length(tmp)) try { unlink(tmp); } catch (e) { }
-		return null;
-	}
-	return tmp;
-}
-function profiles_edit_action(sub, req) {
-	let edit = null;
-	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
-	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
-	if (edit == null) return { ok: false, error: { code: 'EINPUT', message: 'missing edit param' } };
-	if (type(edit) != 'string') return { ok: false, error: { code: 'EINPUT', message: 'edit must be a JSON string', got: type(edit) } };
-	let tmp = profiles_tmpfile();
-	if (tmp == null) return { ok: false, error: { code: 'ETARGET', message: 'request temp file unavailable' } };
-	writefile(tmp, edit);   // verbatim — no re-encode
-	let cmd = '/usr/bin/ucode ' + PROFILES_CLI + ' ' + sub + ' ' + tmp + ' 2>/dev/null';
-	let p = popen(cmd, 'r');
-	if (!p) { try { unlink(tmp); } catch (e) { } return { ok: false, error: 'popen failed' }; }
-	let out = p.read('all');
-	if (!out) out = '';
-	p.close();
-	try { unlink(tmp); } catch (e) { }
-	try {
-		let parsed = json(out);
-		if (parsed != null) return parsed;
-		return { ok: false, error: 'no output', raw: out };
-	} catch (e) { return { ok: false, error: 'parse failed', raw: out }; }
-}
-
-function profiles_create_method(req) { return profiles_edit_action('create', req); }
-function profiles_update_method(req) { return profiles_edit_action('update', req); }
-function profiles_clone_method(req) { return profiles_edit_action('clone', req); }
-function profiles_delete_method(req) { return profiles_edit_action('delete', req); }
-function profiles_reorder_method(req) { return profiles_edit_action('reorder', req); }
-function profiles_validate_method(req) { return profiles_edit_action('validate', req); }
-function profiles_import_applied_method(req) { return profiles_action('import_applied'); }
 
 const BLOCKCHECK_APPLY_CLI = '/usr/libexec/zapret2-manager/blockcheck-apply-cli.uc';
 function blockcheck_apply_method(req) {
@@ -420,14 +297,9 @@ function block_detector_stop_method(req) { return product_action(BLOCK_DETECTOR_
 
 // health matrix (Phase C) — job_get/cancel are the GENERIC job methods;
 // these aliases give the matrix its own names per the contract.
-function health_matrix_get_method(req) { return jobs_action('hm-get'); }
-function health_matrix_start_method(req) { return jobs_edit_action('hm-start', req, 'health'); }
-function health_matrix_job_get_method(req) { return job_get_method(req); }
-function health_matrix_job_cancel_method(req) { return blockcheck_cancel_method(req); }
 
 // ---- orchestra read-only adapter (Phase D) ---------------------------------------
 const ORCH_CLI = '/usr/libexec/zapret2-manager/orchestra-cli.uc';
-const AUTO_STRATEGY_CLI = '/usr/libexec/zapret2-manager/auto-strategy-cli.uc';
 const DISCORD_CLI = '/usr/libexec/zapret2-manager/discord-profile-cli.uc';
 // (method wrappers live below cli_action — ucode does not hoist declarations)
 
@@ -536,18 +408,6 @@ function orchestra_reqfile_action(sub, req) {
 		return { ok: false, error: { code: 'invalid-run-response', message: 'Orchestra returned no response' } };
 	} catch (e) { return { ok: false, error: { code: 'invalid-run-response', message: 'Orchestra response was invalid' } }; }
 }
-function auto_strategy_reqfile_action(sub, req) {
-	let tmp = orch_tmpfile();
-	if (tmp == null) return { ok: false, error: { code: 'ETARGET', message: 'request temp file unavailable' } };
-	writefile(tmp, sprintf("%J", { args: orchestra_request_args(req) }) + '\n');
-	// Do not put a kill timeout around restore: its existing sanctioned apply is
-	// transactional and must be allowed to finish or roll back safely.
-	let p = popen('/usr/bin/ucode ' + AUTO_STRATEGY_CLI + ' ' + sub + ' ' + tmp + ' 2>/dev/null | head -c ' + ORCH_MAX_OUTPUT, 'r');
-	if (!p) { try { unlink(tmp); } catch (e) { } return { ok: false, error: { code: 'ETARGET', message: 'Auto Strategy controller is unavailable' } }; }
-	let out = p.read('all') || ''; p.close(); try { unlink(tmp); } catch (e) { }
-	try { let parsed = json(out); return parsed != null ? parsed : { ok: false, error: { code: 'EINTERNAL', message: 'Auto Strategy returned no response' } }; }
-	catch (e) { return { ok: false, error: { code: 'EINTERNAL', message: 'Auto Strategy response was invalid' } }; }
-}
 function orchestra_history_paginated_method(req) { return orchestra_reqfile_action('history_paginated', req); }
 function orchestra_history_export_method(req) { return orchestra_reqfile_action('history_export', req); }
 function orchestra_history_clear_method(req) { return orchestra_reqfile_action('history_clear', req); }
@@ -569,12 +429,6 @@ function orchestra_preview_best_method(req) { return orchestra_reqfile_action('p
 function orchestra_apply_status_method(req) { return orchestra_reqfile_action('apply_status', req); }
 function orchestra_apply_events_method(req) { return orchestra_reqfile_action('apply_events', req); }
 function orchestra_restore_previous_method(req) { return orchestra_reqfile_action('restore_previous', req); }
-function orchestra_auto_status_method(req) { return auto_strategy_reqfile_action('status', req); }
-function orchestra_auto_enable_method(req) { return auto_strategy_reqfile_action('enable', req); }
-function orchestra_auto_disable_method(req) { return auto_strategy_reqfile_action('disable', req); }
-function orchestra_auto_run_method(req) { return auto_strategy_reqfile_action('run', req); }
-function orchestra_auto_stop_method(req) { return auto_strategy_reqfile_action('stop', req); }
-function orchestra_auto_restore_method(req) { return auto_strategy_reqfile_action('restore', req); }
 
 // ---- DNS providers + component diagnostics (Phase E) -----------------------------
 const DNSPROV_CLI = '/usr/libexec/zapret2-manager/dnsprov-cli.uc';
@@ -1001,23 +855,6 @@ function service_dns_apply_async_method(req) { return cli_edit_action(SERVICE_DN
 function service_dns_apply_status_method(req) { return cli_edit_action(SERVICE_DNS_CLI, 'apply-status', req, 'service_dns'); }
 function service_dns_rollback_method(req)  { return cli_action(SERVICE_DNS_CLI, 'rollback'); }
 
-// profiles_apply {edit: '{"mode":"preview"|"apply"}'} — preview is read-only
-// (no write, no restart); apply runs the full pipeline (snapshot → write →
-// restart → verify → rollback-on-failure). Mode parsing happens here; the
-// CLI subcommand is chosen, never interpolated from the payload.
-function profiles_apply_method(req) {
-	let edit = null;
-	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
-	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
-	let mode = 'preview';
-	if (edit != null && type(edit) == 'string') {
-		let obj = null;
-		try { obj = json(edit); } catch (e) { obj = null; }
-		if (type(obj) == 'object' && obj != null && obj.mode == 'apply') mode = 'apply';
-	}
-	return profiles_action(mode);
-}
-
 // Signature: top-level key == ubus object name (matches ACL). Methods nested.
 // Signature: top-level key == ubus object name (matches ACL). Per the rpcd
 // ucode plugin contract (verified against the on-device `luci` plugin):
@@ -1036,9 +873,6 @@ return {
 		confirm_alive:     { call: function (req) { return service_action('confirm_alive'); } },
 		rollback:          { call: function (req) { return service_action('rollback'); } },
 		passthrough:       { args: { enabled: 'boolean' }, call: function (req) { return passthrough_method(req); } },
-		lists_get:         { call: function (req) { return lists_get_method(req); } },
-		lists_check_domain: { args: { domain: 'string' }, call: function (req) { return lists_check_domain_method(req); } },
-		lists_set:         { args: { edit: 'string' }, call: function (req) { return lists_set_method(req); } },
 		assets_list:       { call: function (req) { return assets_list_method(req); } },
 		assets_get:        { args: { edit: 'string' }, call: function (req) { return assets_get_method(req); } },
 		assets_validate:   { args: { edit: 'string' }, call: function (req) { return assets_validate_method(req); } },
@@ -1058,15 +892,6 @@ return {
 		route_status:      { args: { edit: 'string' }, call: function (req) { return route_status_method(req); } },
 		route_remove:      { args: { edit: 'string' }, call: function (req) { return route_remove_method(req); } },
 		route_reconcile:   { call: function (req) { return route_reconcile_method(req); } },
-		profiles_list:     { call: function (req) { return profiles_list_method(req); } },
-		profiles_create:   { args: { edit: 'string' }, call: function (req) { return profiles_create_method(req); } },
-		profiles_update:   { args: { edit: 'string' }, call: function (req) { return profiles_update_method(req); } },
-		profiles_clone:    { args: { edit: 'string' }, call: function (req) { return profiles_clone_method(req); } },
-		profiles_delete:   { args: { edit: 'string' }, call: function (req) { return profiles_delete_method(req); } },
-		profiles_reorder:  { args: { edit: 'string' }, call: function (req) { return profiles_reorder_method(req); } },
-		profiles_validate: { args: { edit: 'string' }, call: function (req) { return profiles_validate_method(req); } },
-		profiles_import_applied: { call: function (req) { return profiles_import_applied_method(req); } },
-		profiles_apply:    { args: { edit: 'string' }, call: function (req) { return profiles_apply_method(req); } },
 		job_get:           { args: { edit: 'string' }, call: function (req) { return job_get_method(req); } },
 		job_list:          { call: function (req) { return job_list_method(req); } },
 		blockcheck_start:  { args: { edit: 'string' }, call: function (req) { return blockcheck_start_method(req); } },
@@ -1100,10 +925,6 @@ return {
 		block_detector_status: { call: function (req) { return block_detector_status_method(req); } },
 		block_detector_results: { call: function (req) { return block_detector_results_method(req); } },
 		block_detector_stop: { call: function (req) { return block_detector_stop_method(req); } },
-		health_matrix_get: { call: function (req) { return health_matrix_get_method(req); } },
-		health_matrix_start: { args: { edit: 'string' }, call: function (req) { return health_matrix_start_method(req); } },
-		health_matrix_job_get: { args: { edit: 'string' }, call: function (req) { return health_matrix_job_get_method(req); } },
-		health_matrix_job_cancel: { args: { edit: 'string' }, call: function (req) { return health_matrix_job_cancel_method(req); } },
 		orchestra_capabilities: { call: function (req) { return orchestra_capabilities_method(req); } },
 		discord_profile_preview: { call: function (req) { return discord_profile_preview_method(req); } },
 		discord_profile_apply: { args: { edit: 'string' }, call: function (req) { return discord_profile_apply_method(req); } },
@@ -1137,12 +958,6 @@ return {
 		orchestra_apply_status: { args: { edit: 'string' }, call: function (req) { return orchestra_apply_status_method(req); } },
 		orchestra_apply_events: { args: { edit: 'string' }, call: function (req) { return orchestra_apply_events_method(req); } },
 		orchestra_restore_previous: { args: { edit: 'string' }, call: function (req) { return orchestra_restore_previous_method(req); } },
-		orchestra_auto_status: { call: function (req) { return orchestra_auto_status_method(req); } },
-		orchestra_auto_enable: { args: { edit: 'string' }, call: function (req) { return orchestra_auto_enable_method(req); } },
-		orchestra_auto_disable: { args: { edit: 'string' }, call: function (req) { return orchestra_auto_disable_method(req); } },
-		orchestra_auto_run: { args: { edit: 'string' }, call: function (req) { return orchestra_auto_run_method(req); } },
-		orchestra_auto_stop: { args: { edit: 'string' }, call: function (req) { return orchestra_auto_stop_method(req); } },
-		orchestra_auto_restore: { args: { edit: 'string' }, call: function (req) { return orchestra_auto_restore_method(req); } },
 		dnsprov_components: { call: function (req) { return dnsprov_components_method(req); } },
 		dnsprov_providers: { call: function (req) { return dnsprov_providers_method(req); } },
 		dnsprov_diagnose: { args: { edit: 'string' }, call: function (req) { return dnsprov_diagnose_method(req); } },

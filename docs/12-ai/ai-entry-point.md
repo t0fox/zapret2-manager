@@ -30,8 +30,8 @@ This is the deterministic starting point for all AI agents working in this repos
 - [Atomic JSON design](../02-architecture/atomic-write-json-v1-design.md)
 - [Atomic JSON traceability](../02-architecture/traceability/atomic-write-json-v1-traceability.md)
 - [Knowledge workflow](../08-development/knowledge-workflow.md)
-- [Documentation Depth v2 design](../09-work/specs/2026-08-14-documentation-depth-v2-design.md)
-- [Documentation Depth v2 implementation plan](../09-work/plans/2026-08-14-documentation-depth-v2.md)
+- [Documentation freshness](../08-development/docs-freshness.md)
+- [Knowledge workflow](../08-development/knowledge-workflow.md)
 
 ## Navigation
 
@@ -39,6 +39,6 @@ This is the deterministic starting point for all AI agents working in this repos
 - Products: docs/03-products/
 - Contracts: docs/04-contracts/
 - Decisions: docs/07-decisions/
-- Work: docs/09-work/
+- Current product docs: docs/03-products/
 
 This page remains `publish: false`; these links exist for the internal knowledge graph and are not public navigation.

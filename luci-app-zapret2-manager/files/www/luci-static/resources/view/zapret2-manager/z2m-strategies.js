@@ -843,12 +843,11 @@ function load(ctx) {
   var reads = [
     boundedRead(ctx.api.strategies.list, readTimeout, 'Не удалось получить список стратегий.'),
     boundedRead(ctx.api.strategies.catalogStatus, readTimeout, 'Не удалось получить состояние каталога.'),
-    boundedRead(ctx.api.service.status, readTimeout, 'Не удалось получить состояние службы.'),
-    boundedRead(ctx.api.profiles.list, readTimeout, 'Не удалось получить список профилей.')
+    boundedRead(ctx.api.service.status, readTimeout, 'Не удалось получить состояние службы.')
   ];
   return Promise.allSettled(reads).then(function (results) {
     function settled(result) { return result.status === 'fulfilled' ? { value: result.value || {} } : { error: ctx.api.normalizeError(result.reason) }; }
-    return { list: settled(results[0]), catalog: settled(results[1]), status: settled(results[2]), profiles: settled(results[3]) };
+    return { list: settled(results[0]), catalog: settled(results[1]), status: settled(results[2]) };
   }).then(function (data) { return data; });
 }
 function mount(ctx) {

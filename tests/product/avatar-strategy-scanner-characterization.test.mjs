@@ -12,7 +12,7 @@ const FIXTURE_ROOT = path.join(ROOT, 'tests', 'fixtures', 'avatar-strategy-scann
 const FIXTURE_NAMES = ['targets.json', 'candidates.json', 'probes.json', 'recovery.json'];
 const AVATAR_COMMIT = 'f9dd3ea47a2239514f396a843b475c92c33f0b4c';
 const MANAGER_HEAD = '681fb45bc87b0dad590e86b86b1459eb45438c08';
-const APPROVED_SPEC = '359ce10b4b3b3830fe5cabd73036e69dbdbfc78b';
+const APPROVED_SPEC = 'docs/03-products/scanner/lifecycle.md';
 const DEVIATION_CLASSES = [
   'OPENWRT_NATIVE',
   'SECURITY_HARDENING_EQUIVALENT_BEHAVIOR',

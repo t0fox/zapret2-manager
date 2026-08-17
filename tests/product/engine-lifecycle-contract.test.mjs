@@ -5,7 +5,6 @@ import test from 'node:test';
 
 const root = path.resolve(import.meta.dirname, '..', '..');
 const catalog = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/engine-catalog.uc'), 'utf8');
-const legacy = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/engine-legacy-detect.uc'), 'utf8');
 const worker = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/engine-operation-worker.sh'), 'utf8');
 const service = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/service.uc'), 'utf8');
 const cli = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/engine-cli.uc'), 'utf8');
@@ -29,11 +28,9 @@ test('the engine has exactly one normal upstream and no provider registry', () =
   assert.doesNotMatch(rpc, /provider|channel/i);
 });
 
-test('legacy recognition is isolated and read-only', () => {
-  assert.match(legacy, /detect_origin/);
-  assert.match(legacy, /LEGACY_REMITTOR/);
-  assert.match(legacy, /LEGACY_ANDREVICH/);
-  assert.doesNotMatch(legacy, /uclient-fetch|apk add|apk del|releases\?/i);
+test('engine state accepts only the managed official runtime', () => {
+  assert.match(catalog, /function valid_state\(value\)[\s\S]*installedOrigin == 'OFFICIAL'/);
+  assert.doesNotMatch(catalog, /engine-provider|LEGACY_REMITTOR|LEGACY_ANDREVICH|remittor|1andrevich/i);
 });
 
 test('official catalog exposes release facts and official checksum metadata', () => {
@@ -45,11 +42,10 @@ test('official catalog exposes release facts and official checksum metadata', ()
   assert.doesNotMatch(catalog, /\.map\(/);
 });
 
-test('state migration removes the old state file after atomic engine-state creation', () => {
+test('engine state has one managed file and no provider migration path', () => {
   assert.match(catalog, /engine-state\.json/);
-  assert.match(catalog, /engine-provider\.json/);
-  assert.match(catalog, /atomic_json\(STATE_FILE, migrated\)/);
-  assert.match(catalog, /unlink\(LEGACY_STATE_FILE\)/);
+  assert.doesNotMatch(catalog, /engine-provider\.json|LEGACY_STATE_FILE|migrate_state/);
+  assert.match(catalog, /function saved_state\(\)[\s\S]*valid_state\(current\)/);
   assert.doesNotMatch(manager, /engine-provider\.v1|save_engine_provider_state/);
 });
 

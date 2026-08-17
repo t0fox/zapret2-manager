@@ -82,12 +82,6 @@ request
 
 Live evidence может подтвердить, что target действительно работает с выбранной Strategy, failover переживает outage или серия Scanner candidates не оставляет runtime мусор. Но успех в одной сети не заменяет state-machine/error-path tests.
 
-## Исторический audit snapshot
-
-Read-only audit package от 14 августа 2026 года для checkout `59d28af7` фиксировал **191 PASS, 0 FAIL, 11 SKIP** в targeted tests; skip были связаны с отсутствующим `ucode` в той host-среде. Native-foundation subset показывал **34 PASS, 2 FAIL** из-за отсутствовавших в том checkout contract/result files.
-
-Это историческая точка, а не live-статус `main`. В текущем `main` ранее отсутствовавшие native contract и `core/result.uc` уже существуют. Свежий CI или target evidence всегда выше старого audit snapshot.
-
 ## Как evidence влияет на public status
 
 | Статус | Что он означает |

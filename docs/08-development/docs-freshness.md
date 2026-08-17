@@ -51,7 +51,7 @@ Scanner сейчас развивается быстро, поэтому freshne
 
 Так правило защищает сразу от двух ошибок: документация не отстаёт от кода и одновременно не повышает Scanner до production-ready после появления одного нового модуля.
 
-Усиление A1 lifecycle, например, должно попасть в current-main delta и M3 roadmap. Но глобальные parity counts не пересчитываются, пока соответствующий behavioral contract не прошёл полноценный re-audit.
+Усиление A1 lifecycle, например, должно попасть в текущую карту продукта и M3 roadmap. Контракт обновляется только вместе с проверкой соответствующего поведения.
 
 ## BlockCheck family
 
@@ -130,11 +130,11 @@ content/leak/static-host tests
 review фактических claims
 ```
 
-Правдивость статуса по-прежнему определяется evidence hierarchy. Текущий source, tests и target observations имеют приоритет над старым audit snapshot или design intent.
+Правдивость статуса по-прежнему определяется evidence hierarchy. Текущий source, tests и target observations имеют приоритет над предположениями и design intent.
 
 ## Parity и roadmap
 
-Небольшой product change обычно обновляет current-main delta. Глобальные цифры Avatar parity меняются только после deliberate capability re-audit.
+Небольшой product change обычно обновляет текущую карту продукта. Числа покрытия меняются только после deliberate capability review.
 
 Roadmap обновляется, когда изменилось доказанное состояние или dependency: какой blocker исчез, что является следующим safe slice, изменился ли критерий завершения и каким evidence это подтверждается.
 

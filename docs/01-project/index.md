@@ -49,9 +49,7 @@ zapret2-manager не является универсальным privileged comm
 
 ## Parity с avatarDD/zapret-gui
 
-Внутри проекта поддерживается evidence-backed comparison с `avatarDD/zapret-gui`. Публичная страница [Совместимость с avatarDD/zapret-gui](./avatar-parity.md) показывает закреплённый baseline матрицы и отдельно — изменения текущего `main`.
-
-Это важно: parity не является live-процентом, который растёт после каждого коммита. Глобальные статусы меняются после re-audit соответствующего behavioral contract; промежуточный прогресс сразу отражается как current-main delta и в roadmap.
+Внутри проекта поддерживается evidence-backed comparison с `avatarDD/zapret-gui`. Страница [Совместимость с avatarDD/zapret-gui](./avatar-parity.md) описывает только текущие source и boundary contracts; она не является вторым backend и не хранит исторические отчёты.
 
 ## Roadmap как инженерный dependency graph
 

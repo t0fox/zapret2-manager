@@ -6,7 +6,6 @@
 
 # Agent/local workflow state
 /.claude/
-/docs/superpowers/
 /.worktrees/
 
 # Obsidian portable vault excludes machine-local state

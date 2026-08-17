@@ -18,13 +18,9 @@ const PUBLIC_BASE_PATH = '/zapret2-manager/'
 
 const PUBLIC_IGNORE_PATTERNS = [
   '04-contracts',
-  '05-parity',
   '07-decisions',
-  '09-work',
-  '10-research',
   '12-ai',
   '90-templates',
-  '99-archive',
   '02-architecture/atomic-write-json-v1-design.md',
   '02-architecture/traceability',
   '08-development/knowledge-workflow.md',
@@ -32,13 +28,9 @@ const PUBLIC_IGNORE_PATTERNS = [
 
 const PUBLIC_INTERNAL_OUTPUT_PATHS = [
   '04-contracts',
-  '05-parity',
   '07-decisions',
-  '09-work',
-  '10-research',
   '12-ai',
   '90-templates',
-  '99-archive',
   'tags',
   '02-architecture/traceability',
   '02-architecture/atomic-write-json-v1-design.html',
