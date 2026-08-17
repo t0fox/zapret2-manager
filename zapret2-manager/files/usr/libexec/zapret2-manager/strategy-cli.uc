@@ -936,6 +936,10 @@ function wire_strategy(strategy, current, selection, compact) {
 			let summary = {};
 			for (let key in ['id', 'name', 'enabled', 'protocol', 'tcpPorts', 'udpPorts'])
 				if (profile[key] != null) summary[key] = profile[key];
+			// Compact list projections intentionally omit execution args. Make
+			// that loss explicit so consumers cannot mistake a summary for a
+			// complete canonical Strategy profile.
+			summary.argsTruncated = true;
 			push(result.profiles, summary);
 		}
 	} else {

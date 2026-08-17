@@ -31,15 +31,22 @@ test('P01-V3 Dashboard resolves human strategy metadata without exposing raw IDs
   assert.match(page, /value: _\('OpenWrt'\), kind: ''/);
 });
 
-test('P01-V3 Dashboard keeps resource checking transient and separates apply', () => {
+test('P01-V6 Dashboard replaces Resource Check with bounded read-only Recommendations', () => {
   const page = read('z2m-overview.js');
+  const css = read('z2m-ui.css');
+  const dashboard = read('z2m-avatar-dashboard.js');
+  assert.doesNotMatch(page, /resource-check-card|Стратегия точечного правила|Применить только к ресурсу/);
+  assert.doesNotMatch(css, /resource-check-/);
   assert.match(page, /ctx\.api\.orchestra\.runStart/);
-  assert.match(page, /ctx\.api\.orchestra\.runStatus/);
-  assert.match(page, /resource-check-primary/);
-  assert.match(page, /resource-check-action/);
-  assert.match(page, /resource-check-note/);
-  assert.match(page, /stageOverrideSet/);
-  assert.doesNotMatch(page, /checkResource[\s\S]{0,1200}service\.(start|stop|restart)/);
+  assert.match(page, /ctx\.api\.strategies\.recommendations\(\)/);
+  assert.match(page, /recommendations: renderRecommendations\(\)/);
+  assert.match(page, /slice\(0,\s*3\)/);
+  assert.match(page, /scannerEvidence/);
+  assert.match(page, /learnedEvidence/);
+  assert.match(page, /healthEvidence/);
+  assert.match(dashboard, /options\.recommendations/);
+  assert.doesNotMatch(page, /recommendation[\s\S]{0,140}strategies\.apply/);
+  assert.doesNotMatch(page, /recommendation[\s\S]{0,140}stageOverride/);
 });
 
 test('P01-V3 Dashboard keeps the shared bounded journal and avoids a second poller', () => {

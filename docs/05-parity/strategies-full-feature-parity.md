@@ -1,6 +1,6 @@
 # P03-FULL — Strategies feature parity audit
 
-Status: `CLOSED`  
+Status: `CLOSED`
 P04: `NO`
 
 This is the source-driven closure record for the frozen donor and the current

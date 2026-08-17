@@ -83,8 +83,13 @@ test('P03 backend list path reuses one catalog snapshot and reload stays explici
   assert.match(catalog, /load_catalog\(root, true\)/);
   assert.match(cli, /function catalog_wire_metadata\(strategy, current, compact\)[\s\S]*if \(compact == true\)[\s\S]*catalogDigest/);
   assert.match(cli, /wire_strategy\(strategy, current, selection, true\)/);
-  assert.match(cli, /argsTruncated/);
+  assert.match(cli, /summary\.argsTruncated\s*=\s*true/);
   assert.match(cli, /compact == true && strategy\.origin == 'avatar_builtin'/);
+  const model = fs.readFileSync(path.join(viewRoot, 'z2m-strategies-model.js'), 'utf8');
+  const page = fs.readFileSync(path.join(viewRoot, 'z2m-strategies.js'), 'utf8');
+  assert.match(model, /argsTruncated:\s*profile\.argsTruncated === true/);
+  assert.match(page, /function mergeSelected\(\)[\s\S]*strategies\.get/);
+  assert.match(page, /function copyStrategyToClipboard\(id\)[\s\S]*strategies\.get/);
 });
 
 test('P03 static deploy does not reload the target auth daemon', () => {

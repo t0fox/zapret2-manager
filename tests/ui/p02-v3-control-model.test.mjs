@@ -41,7 +41,6 @@ test('P02-V3 treats a running service with confirmed process evidence as RUNNING
   assert.equal(model.normalize(runningMismatch).hero.label, 'Работает');
   assert.equal(model.normalize(runningMismatch).process.value, 'Работает');
 });
-
 test('P02-V3 retains last-known-good state during a bounded refresh gap', () => {
   const model = loadModel();
   const view = model.normalize({ error: { code: 'ETIMEDOUT' } }, null, {
@@ -72,4 +71,3 @@ test('P02-V3 exposes genuine UNKNOWN after the last-known-good snapshot is stale
   assert.equal(view.hero.label, 'Состояние неизвестно');
   assert.equal(view.process.value, 'Неизвестно');
 });
-

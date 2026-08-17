@@ -450,8 +450,24 @@ function renderHealthcheckResults() {
 function mergeSelected() {
   var sources = state.rows.filter(function (strategy) { return !!state.selectedIds[strategy.id]; });
   if (sources.length < 2) { notify('warn', 'Выберите хотя бы две стратегии'); return; }
-  state.editor = { mode: 'create', strategy: Model.combineStrategies(sources) };
-  renderEditorForm(); state.root.querySelector('#strategy-modal').style.display = 'flex';
+  // The list RPC is intentionally compact for builtin catalog entries and
+  // marks omitted profile args with argsTruncated. Combine only canonical
+  // full Strategies; never turn a bounded summary into an executable draft.
+  state.pending = 'combine'; renderAll();
+  Promise.all(sources.map(function (strategy) {
+    return strategy.profiles.some(function (profile) { return profile.args && !profile.argsTruncated; })
+      ? Promise.resolve(strategy)
+      : call(state.ctx.api.strategies.get, { id: strategy.id }).then(function (answer) {
+        return Model.normalize(answer && answer.strategy ? answer.strategy : answer, statusValue(state.data), state.selectedId);
+      });
+  })).then(function (fullSources) {
+    state.editor = { mode: 'create', strategy: Model.combineStrategies(fullSources) };
+    renderEditorForm(); state.root.querySelector('#strategy-modal').style.display = 'flex';
+  }).catch(function (error) {
+    notify('err', errorText(state.ctx, error));
+  }).then(function () {
+    state.pending = null; renderAll();
+  });
 }
 function renderOperationalCards() {
   var health = state.root && state.root.querySelector('#strategy-healthcheck-info');

@@ -16,7 +16,6 @@ test('P03-FULL catalog uses the current official Forgejo source and exposes upda
   assert.match(catalog, /catalog_update|source_update|transaction/i);
   assert.doesNotMatch(catalog, /PINNED_REPOSITORY\s*=\s*'avatarDD\/zapret-gui'/);
 });
-
 test('P03-FULL cards expose donor metadata, circular/recommended filters, selection, clipboard and full actions', () => {
   const page = read('z2m-strategies.js');
   for (const marker of [
@@ -66,4 +65,3 @@ test('P03-FULL keeps the canonical route wired to the Strategies module', () => 
   assert.match(route, /return Strategies/);
   assert.doesNotMatch(route, /zapret-gui|avatarDD.*api|fetch\s*\(/i);
 });
-
