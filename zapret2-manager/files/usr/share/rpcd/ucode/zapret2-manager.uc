@@ -31,6 +31,14 @@ const SERVICE     = '/usr/libexec/zapret2-manager/service.uc';
 const CACHE_TTL   = 3;
 
 function now() { return time(); }
+function shell_escape(value) {
+	let result = "'";
+	for (let i = 0; i < length(value); i++) {
+		let c = substr(value, i, 1);
+		result += c == "'" ? "'\\''" : c;
+	}
+	return result + "'";
+}
 
 function cache_fresh() {
 	let st = stat(STATUS_JSON);
