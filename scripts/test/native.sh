@@ -45,8 +45,6 @@ find tests/native -type f -name '*.test.mjs' \
   ! -path tests/native/core/native-helper-broker.test.mjs \
   ! -path tests/native/core/native-helper.test.mjs \
   ! -path tests/native/package-helper.test.mjs \
-  ! -path tests/native/core/native-helper-transport-probe.test.mjs \
-  ! -path tests/native/core/native-helper-broker-spike.test.mjs \
   ! -path tests/native/core/native-helper-production-e2e.test.mjs \
   -print | LC_ALL=C sort |
 while IFS= read -r test_file; do
