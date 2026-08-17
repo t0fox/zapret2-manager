@@ -24,15 +24,15 @@ test('DNS view has a canonical global-scope fallback when legacy API is absent',
   assert.match(source, /globalRead\(ctx\.api, productRead\)/);
 });
 
-test('app header prefers allowed canonical product status and retains legacy fallback', () => {
+test('app header derives its chip from the canonical service status projection', () => {
   const source = fs.readFileSync(APP, 'utf8');
   const load = source.slice(source.indexOf('load: function ()'), source.indexOf('render: function (initial)'));
 
-  assert.match(source, /function canonicalAppStatus\(\)/);
-  assert.match(source, /Api\.dns\.product\.status\(\)/);
-  assert.match(source, /Api\.tg\.product\.status\(\)/);
+  assert.doesNotMatch(source, /canonicalAppStatus|Api\.dns\.product\.status|Api\.tg\.product\.status/);
+  assert.match(source, /function statusState\(initial\)/);
+  assert.match(source, /function updateHeaderStatus\(data\)/);
+  assert.match(source, /statusState\(initial\)/);
   assert.match(load, /Api\.service\.status\(\)/);
-  assert.match(source, /serviceState/);
   assert.doesNotMatch(load, /Api\.engine\.status\(\)/);
 });
 

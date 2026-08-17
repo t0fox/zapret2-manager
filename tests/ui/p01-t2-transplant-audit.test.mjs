@@ -4,6 +4,7 @@ import test from 'node:test';
 
 const audit = fs.readFileSync('docs/05-parity/avatar-transplant-audit.md', 'utf8');
 const overview = fs.readFileSync('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-overview.js', 'utf8');
+const dashboard = fs.readFileSync('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-avatar-dashboard.js', 'utf8');
 const log = fs.readFileSync('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-avatar-log.js', 'utf8');
 const shell = fs.readFileSync('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-shell.js', 'utf8');
 const avatarUi = fs.readFileSync('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-avatar-ui.js', 'utf8');
@@ -17,14 +18,18 @@ test('P01-T2 records the pre-correction source reality before transplant closure
   assert.match(audit, /Dialogs.*CUSTOM_APPROXIMATION/);
   assert.match(audit, /Status cards.*ADAPTED_BOUNDARY_ONLY/);
   assert.match(audit, /Log viewer.*ADAPTED_BOUNDARY_ONLY/);
-  assert.match(audit, /CUSTOM_APPROXIMATION_REMAINING.*3/);
+  assert.match(audit, /P01_T2_REAUDIT_STATUS:\s*COMPLETE/);
+  assert.match(audit, /CUSTOM_APPROXIMATION_REMAINING:\s*0/);
 });
 
-test('P01-T2 source evidence names actual current structures', () => {
-  assert.match(overview, /function statusCard\(/);
+test('P01-T2 source evidence names the current transplanted component boundaries', () => {
+  assert.match(overview, /function statusCards\(/);
   assert.match(overview, /function lifecycleButton\(/);
   assert.match(overview, /function renderQuickActions\(/);
   assert.match(overview, /function renderEvents\(/);
+  assert.match(overview, /AvatarDashboard\.render\(/);
+  assert.match(dashboard, /function statusCard\(/);
+  assert.match(dashboard, /function renderAction\(/);
   assert.match(log, /function createEntryElement\(/);
   assert.match(log, /function renderNormalized\(/);
   assert.match(shell, /function openModal\(/);
