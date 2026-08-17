@@ -21,7 +21,6 @@
 'require view.zapret2-manager.z2m-unified-routing as UnifiedRouting';
 'require view.zapret2-manager.z2m-warp-page as Warp';
 
-var APPLY_SCOPE_ORDER = ['strategy','domainHub','dns','proxy'];
 var DRAFT_META = {
   strategy: { label: _('Стратегия'), tab: 'strategy' },
   domainHub: { label: _('Сервисы и домены'), tab: 'services' },
@@ -54,22 +53,6 @@ var MODULES = {
   zapret: Maintenance,
   autostart: Maintenance,
   settings: Maintenance
-};
-var PENDING_MODULE = {
-  load: function () { return Promise.resolve({}); },
-  render: function (ctx) {
-    return E('section', { 'class': 'z2m-view on' }, [
-      E('div', { 'class': 'z2m-phead' }, [E('div', {}, [
-        E('h1', {}, Navigation.label(ctx.route)),
-        E('p', {}, _('Раздел навигации подготовлен; экран подключается к существующему backend-контракту по мере миграции.'))
-      ])]),
-      Shell.statePanel({
-        title: _('UI-раздел в миграции'),
-        message: _('Backend не вызывается, пока для этого экрана не подключен подтверждённый UI-контракт.'),
-        kind: 'info'
-      })
-    ]);
-  }
 };
 var store = StoreModule.create();
 var activeModule = null;
@@ -140,7 +123,6 @@ function humanValue(value, depth) {
 function createCoordinator(options) { return Coordinator.create(options); }
 function preflightDraft(coordinator, snapshot, context) { return coordinator.preflightDraft(snapshot, context); }
 function applyDrafts(coordinator, snapshot, context) { return coordinator.applyDrafts(snapshot, context); }
-function handleApplyResult(coordinator, result) { return coordinator.handleApplyResult(result); }
 
 function renderSemanticDiff(draft, applied, extraBlockers) {
   var groups = DraftModel.semanticDiff(draft, applied);
@@ -262,7 +244,7 @@ return L.view.extend({
     function activate(tab, force) {
       tab = Navigation.normalize(tab);
       var token = ++activationToken;
-      var module = MODULES[tab] || PENDING_MODULE;
+      var module = MODULES[tab];
       var sameTab = activeModule === module && !!activeContext && activeContext.route === tab;
       var cached = tabDataCache[tab];
       store.update({ ui: Object.assign({}, store.get().ui, { tab: tab }) });
@@ -442,16 +424,5 @@ return L.view.extend({
 
   handleSaveApply: null,
   handleSave: null,
-  handleReset: null,
-  APPLY_SCOPE_ORDER: APPLY_SCOPE_ORDER,
-  createCoordinator: createCoordinator,
-  createServicesAdapter: Services.createAdapter,
-  createDomainHubAdapter: Services.createAdapter,
-  createDnsAdapter: Dns.createAdapter,
-  createProxyAdapter: Proxy.createAdapter,
-  createStrategyAdapter: Strategy.createAdapter,
-  renderSemanticDiff: renderSemanticDiff,
-  preflightDraft: preflightDraft,
-  applyDrafts: applyDrafts,
-  handleApplyResult: handleApplyResult
+  handleReset: null
 });
