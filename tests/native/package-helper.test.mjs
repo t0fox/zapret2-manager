@@ -671,8 +671,8 @@ test('package installation assigns reviewed runtime file modes', () => {
     'shared package data must be non-executable');
   assert.match(install, /chmod 0644[^\n]*\/etc\/zapret2-manager\/\*\.json/,
     'ordinary top-level JSON configuration must be non-executable');
-  assert.match(install, /chmod 0640[^\n]*\/etc\/zapret2-manager\/ipset\/\*\.txt/,
-    'managed data lists must be group-readable but not executable');
+  assert.match(install, /chmod 0644[^\n]*\/etc\/zapret2-manager\/ipset\/\*\.txt/,
+    'daemon-consumed data lists must be readable by the runtime user');
   assert.match(install, /chmod 0600[^\n]*\/etc\/zapret2-manager\/state\.json/,
     'state must remain private');
 });

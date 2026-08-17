@@ -6,7 +6,8 @@
 import { readfile, writefile, stat, mkdir, unlink, popen } from 'fs';
 import { PATHS, PASSTHROUGH_PROFILE_NAME,
 	NFQWS2_ENABLE_VAR, PAUSE_STOPS_FW,
-	ROLLBACK_TIMEOUT_ENABLED, ROLLBACK_TTL } from './constants.uc';
+	ROLLBACK_TIMEOUT_ENABLED, ROLLBACK_TTL,
+	MANUAL_TRANSITION_TTL_SEC } from './constants.uc';
 import { read_var, set_var, restore_whole_file, config_sha256 } from './apply.uc';
 
 const UPSTREAM_INIT = '/etc/init.d/zapret2';
@@ -39,12 +40,15 @@ function sync_effective_presets() {
 			for (let token in split(line, ' ')) if (preset_token(token)) push(tokens, token);
 		}
 	}
-	if (!length(tokens)) return null;
 	try {
 		mkdir('/etc/zapret2-manager/ipset');
 		if (!stat('/etc/zapret2-manager/ipset/games.txt')) writefile('/etc/zapret2-manager/ipset/games.txt', '');
 		if (!stat('/etc/zapret2-manager/ipset/steam.txt')) writefile('/etc/zapret2-manager/ipset/steam.txt', '');
+		run('chmod 755 /etc/zapret2-manager');
+		run('chmod 755 /etc/zapret2-manager/ipset');
+		run('chmod 644 /etc/zapret2-manager/ipset/*.txt');
 	} catch (e) { }
+	if (!length(tokens)) return null;
 	let rendered = join(' ', tokens);
 	set_var('NFQWS2_OPT', rendered);
 	return rendered;
@@ -108,6 +112,26 @@ function set_paused(on) {
 	} else {
 		try { unlink(PATHS.paused_flag); } catch (e) { }
 	}
+}
+
+function begin_manual_transition(action) {
+	set_paused(true);
+	try {
+		writefile(PATHS.manual_transition, sprintf("%J", {
+			schema: 1, action: action, startedAt: time(),
+			until: time() + MANUAL_TRANSITION_TTL_SEC
+		}) + '\n');
+	} catch (e) { }
+}
+
+function clear_manual_transition() {
+	try { unlink(PATHS.manual_transition); } catch (e) { }
+}
+
+function finish_manual_transition() {
+	// Keep the marker until its bounded expiry.  The upstream command can
+	// return before nfqws2 has registered NFQUEUE and installed all rules.
+	set_paused(false);
 }
 
 function basename(p) {
@@ -181,22 +205,28 @@ function apply_nfqws2_enable(value) {
 }
 
 function start() {
-	set_paused(false);
+	begin_manual_transition('start');
 	try { unlink(PENDING); } catch (e) { }
 	let prev = read_prev_enable();
 	let restored = (prev == null) ? 1 : prev;
-	if (apply_nfqws2_enable(restored) == null)
+	if (apply_nfqws2_enable(restored) == null) {
+		finish_manual_transition();
 		return { ok: false, action: 'start', error: 'config write failed' };
-	sync_effective_presets();
+	}
+	// The active Strategy Apply owns NFQWS2_OPT. Do not regenerate it from
+	// legacy static presets during a lifecycle transition.
 	let r = run(UPSTREAM_INIT + ' start');
+	finish_manual_transition();
 	event('ui', 'pause', 'info',
 		(r.rc == 0 ? 'Запуск nfqws2: запрос завершён' : 'Запуск nfqws2 не выполнен'),
-		{ reason: 'manual_ui', rc: r.rc, pause: 'exit', nfqws2_enable: restored });
+		{ code: 'manual_start', reason: 'manual_ui', rc: r.rc, pause: 'exit',
+			nfqws2_enable: restored, transitionTtlSec: MANUAL_TRANSITION_TTL_SEC });
 	return { ok: r.rc == 0, action: 'start', rc: r.rc, out: r.out };
 }
 
 function stop() {
 	let prev = read_var(NFQWS2_ENABLE_VAR);
+	clear_manual_transition();
 	set_paused(true);
 	snapshot_last_good();
 	save_prev_enable(prev);
@@ -207,19 +237,22 @@ function stop() {
 	schedule_rollback();
 	event('ui', 'pause', 'info',
 		(r.rc == 0 ? 'Остановка nfqws2: запрос завершён' : 'Остановка nfqws2 не выполнена'),
-		{ pause: 'enter', rc: r.rc, prev: prev });
+		{ code: 'manual_stop', pause: 'enter', rc: r.rc, prev: prev,
+			desiredState: 'stopped' });
 	return { ok: r.rc == 0, action: 'stop', rc: r.rc, out: r.out, paused: true,
 		rollback_pending: ROLLBACK_TIMEOUT_ENABLED, rollback_ttl: ROLLBACK_TTL };
 }
 
 function restart() {
-	set_paused(false);
+	begin_manual_transition('restart');
 	snapshot_last_good();
-	sync_effective_presets();
 	let r = run(UPSTREAM_INIT + ' restart');
+	finish_manual_transition();
 	schedule_rollback();
 	event('ui', 'restart', 'info', r.rc == 0 ? 'Перезапуск nfqws2: запрос завершён' : 'Перезапуск nfqws2 не выполнен',
-		{ reason: 'manual_ui', rc: r.rc, rollback_ttl: ROLLBACK_TTL });
+		{ code: 'manual_restart', reason: 'manual_ui', rc: r.rc,
+			rollback_ttl: ROLLBACK_TTL, transitionTtlSec: MANUAL_TRANSITION_TTL_SEC,
+			desiredState: 'running' });
 	return { ok: r.rc == 0, action: 'restart', rc: r.rc, out: r.out,
 		rollback_pending: ROLLBACK_TIMEOUT_ENABLED, rollback_ttl: ROLLBACK_TTL };
 }
@@ -227,7 +260,6 @@ function restart() {
 function restart_daemons() {
 	set_paused(false);
 	snapshot_last_good();
-	sync_effective_presets();
 	let r = run(UPSTREAM_INIT + ' restart_daemons 2>/dev/null || ' + UPSTREAM_INIT + ' restart');
 	schedule_rollback();
 	event('ui', 'restart', 'info', 'restart_daemons rc=' + r.rc,
@@ -240,7 +272,6 @@ function debug(enabled) {
 	let on = enabled == '1' || enabled == 'true';
 	if (set_var(DAEMON_LOG_ENABLE, on ? '1' : '0') == null)
 		return { ok: false, action: 'debug', enabled: on, error: 'config write failed' };
-	sync_effective_presets();
 	let r = run(UPSTREAM_INIT + ' restart_daemons 2>/dev/null || ' + UPSTREAM_INIT + ' restart');
 	return { ok: r.rc == 0, action: 'debug', enabled: on, rc: r.rc, out: r.out };
 }

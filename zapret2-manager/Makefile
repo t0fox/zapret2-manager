@@ -86,7 +86,7 @@ define Package/zapret2-manager/install
 	chmod 0755 $(1)/usr/libexec/zapret2-manager/asset-registry-package-init.uc
 	find $(1)/usr/share/zapret2-manager -type f -exec chmod 0644 {} +
 	chmod 0644 $(1)/etc/zapret2-manager/*.json
-	chmod 0640 $(1)/etc/zapret2-manager/ipset/*.txt
+	chmod 0644 $(1)/etc/zapret2-manager/ipset/*.txt
 	chmod 0600 $(1)/etc/zapret2-manager/state.json
 	chmod 0600 $(1)/etc/zapret2-manager/asset-registry.json
 	$(INSTALL_DIR) $(1)/usr/libexec/zapret2-manager
@@ -123,6 +123,9 @@ if [ -x /usr/bin/ucode ] && [ -x /usr/libexec/zapret2-manager/asset-registry-pac
     install -d -o root -g root -m 0700 /etc/zapret2-manager/assets || exit $$?
   fi
   /usr/bin/ucode /usr/libexec/zapret2-manager/asset-registry-package-init.uc || exit $$?
+fi
+if [ -x /usr/libexec/zapret2-manager/strategy-runtime-assets-sync.sh ]; then
+  /usr/libexec/zapret2-manager/strategy-runtime-assets-sync.sh || exit $$?
 fi
 /etc/init.d/rpcd reload
 /etc/init.d/zapret2-manager enable

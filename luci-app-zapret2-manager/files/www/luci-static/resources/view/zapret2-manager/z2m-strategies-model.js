@@ -34,15 +34,79 @@ function identity(status) {
 function profiles(value) {
   return array(object(value).profiles).map(function (profile, index) {
     profile = object(profile);
+    var filters = object(profile.filters);
     return {
       id: text(profile.id || profile.profileId) || 'profile-' + String(index + 1),
       name: text(profile.name || profile.label) || 'Профиль ' + String(index + 1),
       args: String(profile.args !== undefined ? profile.args : profile.opt || profile.raw || ''),
       argsTruncated: profile.argsTruncated === true,
       enabled: profile.enabled !== false,
-      revision: profile.revision
+      revision: profile.revision,
+      protocol: text(profile.protocol),
+      tcpPorts: text(profile.tcpPorts || filters.tcpPorts),
+      udpPorts: text(profile.udpPorts || filters.udpPorts),
+      filters: filters
     };
   });
+}
+function validPortList(value) {
+  value = text(value);
+  var match = value.match(/^([0-9]+(?:-[0-9]+)?(?:,[0-9]+(?:-[0-9]+)?)*)\b/);
+  return match ? match[1] : '';
+}
+function pushPortTag(result, protocol, ports) {
+  protocol = text(protocol).toLowerCase();
+  ports = validPortList(ports);
+  if ((protocol !== 'tcp' && protocol !== 'udp') || !ports) return;
+  var label = protocol.toUpperCase() + ' (порты ' + ports + ')';
+  if (!result.some(function (item) { return item.label === label; })) {
+    result.push({ label: label, kind: 'protocol-port', protocol: protocol, ports: ports });
+  }
+}
+function profilePortTags(profile) {
+  profile = object(profile);
+  var result = [], filters = object(profile.filters);
+  pushPortTag(result, 'tcp', profile.tcpPorts || filters.tcpPorts);
+  pushPortTag(result, 'udp', profile.udpPorts || filters.udpPorts);
+  var args = text(profile.args), match;
+  var filterPattern = /(?:^|\s)--filter-(tcp|udp)=([^\s]+)/g;
+  while ((match = filterPattern.exec(args)) !== null) pushPortTag(result, match[1], match[2]);
+  return result;
+}
+function isGeneratedProfileName(value) {
+  return /^(?:profile|профиль)\s+\d+$/i.test(text(value));
+}
+function strategyProfileTags(strategy) {
+  strategy = object(strategy);
+  var result = [], hasFallbackProtocol = false;
+  array(strategy.profiles).forEach(function (profile) {
+    profile = object(profile);
+    var portTags = profilePortTags(profile);
+    if (portTags.length) {
+      portTags.forEach(function (tag) {
+        var existing = result.find(function (item) { return item.label === tag.label; });
+        if (existing) {
+          existing.enabled = existing.enabled || profile.enabled !== false;
+          return;
+        }
+        result.push({ label: tag.label, kind: tag.kind, protocol: tag.protocol, ports: tag.ports, enabled: profile.enabled !== false });
+      });
+      return;
+    }
+    var protocol = text(profile.protocol || strategy.protocol).toLowerCase();
+    if (protocol && !hasFallbackProtocol) {
+      result.push({ label: protocol.toUpperCase(), kind: 'protocol', protocol: protocol, enabled: profile.enabled !== false });
+      hasFallbackProtocol = true;
+    }
+    var profileName = text(profile.name);
+    if (profileName && !isGeneratedProfileName(profileName))
+      result.push({ label: profileName, kind: 'profile', protocol: protocol, enabled: profile.enabled !== false });
+  });
+  if (!result.length && text(strategy.protocol)) {
+    var fallback = text(strategy.protocol).toLowerCase();
+    result.push({ label: fallback.toUpperCase(), kind: 'protocol', protocol: fallback, enabled: true });
+  }
+  return result;
 }
 function profileText(value) {
   return profiles(value).map(function (profile) { return profile.args || ''; }).join('\n');
@@ -135,6 +199,8 @@ return baseclass.extend({
   normalize: normalize,
   list: list,
   profiles: profiles,
+  profilePortTags: profilePortTags,
+  strategyProfileTags: strategyProfileTags,
   identity: identity,
   stateLabel: stateLabel,
   actionCopy: actionCopy,

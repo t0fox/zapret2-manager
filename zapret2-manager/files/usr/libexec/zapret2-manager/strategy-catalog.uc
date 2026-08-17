@@ -5,11 +5,21 @@
 import { readfile, readlink, stat, popen, writefile } from 'fs';
 import { catalog_entry_to_strategy as normalize_catalog_entry } from './strategy-model.uc';
 
-const DEFAULT_ROOT = '/usr/share/zapret2-manager/catalog/avatar';
+const PACKAGE_ROOT = '/usr/share/zapret2-manager/catalog/avatar';
+const ACTIVE_ROOT = '/etc/zapret2-manager/catalog/avatar';
+const SECONDARY_FORGEJO_ROOT = '/usr/share/zapret2-manager/catalog/forgejo';
 const DERIVED_CACHE_PREFIX = '/tmp/zapret2-manager/strategy-catalog.';
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
-const PINNED_REPOSITORY = 'avatarDD/zapret-gui';
-const PINNED_COMMIT = 'f9dd3ea47a2239514f396a843b475c92c33f0b4c';
+// Current update source is Forgejo (see strategy-catalog-update.uc). The
+// installed immutable snapshot is still checked as a legacy package baseline
+// until a validated Forgejo transaction replaces it. catalog_update is the
+// source_update transaction marker: stage -> validate -> atomic activate.
+const LEGACY_SNAPSHOT_REPOSITORY = 'avatarDD/zapret-gui';
+const LEGACY_SNAPSHOT_COMMIT = 'f9dd3ea47a2239514f396a843b475c92c33f0b4c';
+const OFFICIAL_FORGEJO_REPOSITORY = 'https://git.zapret.moe/zapretdiscordyoutube/zapretgui';
+const OFFICIAL_FORGEJO_COMMIT = '6824294ee53421cc9c3e2a361f4976783ff62307';
+const CATALOG_UPDATE_TRANSACTION = 'stage-validate-atomic-activate';
+const CATALOG_MODEL = 'avatar-curated-lossless-semantic-v1';
 const AGGREGATE_ALGORITHM = 'sha256(source-order lines "<file-sha256>  catalogs/<relative-path>\\n")';
 const LEVELS = ['advanced', 'basic', 'builtin', 'direct'];
 const PROTOCOLS = ['tcp', 'udp'];
@@ -19,6 +29,14 @@ const WINDIVERT_PREFIXES = ['--wf-tcp', '--wf-udp', '--wf-raw', '--wf-l3', '--wf
 
 let loaded = null;
 let loadedRoot = null;
+
+function default_root() {
+	let configured = getenv('Z2M_STRATEGY_CATALOG_ROOT');
+	if (configured) return configured;
+	let info = null;
+	try { info = stat(ACTIVE_ROOT); } catch (e) { info = null; }
+	return info != null && info.type == 'directory' ? ACTIVE_ROOT : PACKAGE_ROOT;
+}
 
 function error_result(code, message, path) {
 	let result = { ok: false, error: { code: code, message: message } };
@@ -138,9 +156,12 @@ function read_manifest(root) {
 	try { manifest = json(raw); } catch (e) { return error_result('EMANIFEST', 'manifest is not valid JSON', manifestPath); }
 	if (!is_object(manifest) || manifest.schema != 1)
 		return error_result('EMANIFEST', 'unsupported manifest schema', manifestPath);
-	if (!is_object(manifest.source) || manifest.source.repository != PINNED_REPOSITORY
-		|| manifest.source.commit != PINNED_COMMIT)
-		return error_result('EPROVENANCE', 'manifest provenance does not match the pinned Avatar source', manifestPath);
+	let official = is_object(manifest.source) && manifest.source.repository == OFFICIAL_FORGEJO_REPOSITORY
+		&& manifest.source.commit == OFFICIAL_FORGEJO_COMMIT;
+	let legacy = is_object(manifest.source) && manifest.source.repository == LEGACY_SNAPSHOT_REPOSITORY
+		&& manifest.source.commit == LEGACY_SNAPSHOT_COMMIT;
+	if (!official && !legacy)
+		return error_result('EPROVENANCE', 'manifest provenance does not match the current Forgejo source or an explicit legacy fixture', manifestPath);
 	if (manifest.aggregateDigestAlgorithm != AGGREGATE_ALGORITHM
 		|| type(manifest.aggregateDigest) != 'string'
 		|| !match(manifest.aggregateDigest, /^[0-9a-f]{64}$/))
@@ -309,6 +330,146 @@ function unique_entries(entries) {
 	return result;
 }
 
+function canonical_args(value) {
+	if (value == null || type(value) != 'string') return null;
+	// Source lines are already parsed as nfqws2 arguments. Normalize only
+	// record separators and edge whitespace here; do not split quoted values or
+	// inline arguments in the fingerprint layer.
+	let lines = split(value, '\n'), kept = [];
+	for (let i = 0; i < length(lines); i++) {
+		let line = trim(lines[i]);
+		if (line != '') push(kept, line);
+	}
+	return join('\n', kept);
+}
+
+function semantic_fingerprint(canonical) {
+	// The complete ordered token stream is the execution contract: it keeps
+	// globals, --new boundaries, filters, targeting, ranges, payload, Lua,
+	// blobs, and unknown future nfqws2 options. Metadata and display names are
+	// intentionally outside the fingerprint.
+	if (canonical == null || canonical == '') return null;
+	// Do not fork a sha256sum process once per record on the router. The full
+	// canonical token stream remains the collision-free grouping key; this
+	// compact two-lane digest is only a stable wire identifier and suffix.
+	let left = 5381, right = 2166136261 % 2147483647;
+	for (let i = 0; i < length(canonical); i++) {
+		let code = ord(substr(canonical, i, 1));
+		left = (left * 33 + code) % 2147483647;
+		right = (right * 16777619 + code) % 2147483647;
+	}
+	return 'v1-' + left + '-' + right;
+}
+
+function source_kind(entry) {
+	if (is_object(entry.__source) && index(entry.__source.repository || '', 'git.zapret.moe') >= 0)
+		return 'forgejo';
+	let file = entry.sourceFile || '';
+	if (starts(file, 'builtin/z2k_')) return 'z2k';
+	return 'avatar-curated';
+}
+
+function copy_entry(entry) {
+	let result = {};
+	for (let key in entry) if (key != '__source') result[key] = entry[key];
+	if (is_object(entry.metadata)) {
+		result.metadata = {};
+		for (let key in entry.metadata) result.metadata[key] = entry.metadata[key];
+	}
+	return result;
+}
+
+function canonical_ids(entries) {
+	let result = [];
+	for (let i = 0; i < length(entries); i++) push(result, entries[i].id);
+	return result;
+}
+
+function canonical_sets(entries) {
+	let sets = { tcp: {}, udp: {} };
+	for (let protocol in PROTOCOLS) {
+		let all = [], recommended = [], others = [];
+		for (let i = 0; i < length(entries); i++) {
+			let entry = entries[i];
+			if (entry.protocol != protocol) continue;
+			push(all, entry);
+			if (entry.metadata.label == 'recommended') push(recommended, entry);
+			else push(others, entry);
+		}
+		let quickEntries = slice(recommended, 0, 30);
+		for (let i = 0; i < length(others) && length(quickEntries) < 30; i++) push(quickEntries, others[i]);
+		let standardEntries = [];
+		for (let i = 0; i < length(entries); i++) {
+			let entry = entries[i];
+			if (entry.protocol == protocol && (entry.level == 'basic' || entry.level == 'advanced'))
+				push(standardEntries, entry);
+		}
+		sets[protocol] = {
+			quick: canonical_ids(quickEntries),
+			standard: canonical_ids(slice(standardEntries, 0, 80)),
+			full: canonical_ids(all)
+		};
+	}
+	return sets;
+}
+
+function build_canonical_projection(physicalEntries, source) {
+	let groups = {}, groupOrder = [], sameIdFingerprints = {}, provenanceLinks = 0;
+	for (let i = 0; i < length(physicalEntries); i++) {
+		let physical = physicalEntries[i], canonical = canonical_args(physical.args);
+		let fingerprint = semantic_fingerprint(canonical);
+		if (canonical == null || fingerprint == null)
+			return error_result('ESEMANTIC', 'catalog entry has no semantic fingerprint', physical.sourceFile);
+		let group = groups[canonical];
+		if (group == null) {
+			group = { key: canonical, fingerprint: fingerprint, physical: physical, records: [] };
+			groups[canonical] = group;
+			push(groupOrder, canonical);
+		}
+		push(group.records, {
+			source: is_object(physical.__source) ? physical.__source : source,
+			sourceKind: source_kind(physical),
+			id: physical.id,
+			name: physical.metadata.name,
+			level: physical.level,
+			protocol: physical.protocol,
+			sourceFile: physical.sourceFile,
+			sourceOrdinal: physical.sourceOrdinal,
+			semanticFingerprint: fingerprint
+		});
+		provenanceLinks++;
+		if (sameIdFingerprints[physical.id] == null) sameIdFingerprints[physical.id] = {};
+		sameIdFingerprints[physical.id][canonical] = true;
+	}
+	let usedIds = {}, winners = {}, winnerOrder = [], entries = [], exactDuplicates = 0;
+	for (let i = 0; i < length(groupOrder); i++) {
+		let key = groupOrder[i], group = groups[key], fingerprint = group.fingerprint, physical = group.physical;
+		let id = physical.id;
+		if (usedIds[id] != null && usedIds[id] != key)
+			id += '--' + substr(fingerprint, 0, 12);
+		while (usedIds[id] != null && usedIds[id] != key) id += '-x';
+		usedIds[id] = key;
+		let entry = copy_entry(physical);
+		entry.id = id;
+		entry.sourceId = physical.id;
+		entry.semanticFingerprint = fingerprint;
+		entry.semanticFingerprintEqual = length(group.records) > 1;
+		entry.provenance = group.records;
+		entry.provenanceCount = length(group.records);
+		entry.canonical = true;
+		if (length(group.records) > 1) exactDuplicates++;
+		push(entries, entry);
+		winners[id] = entry;
+		push(winnerOrder, id);
+	}
+	let sameNameDifferent = 0;
+	for (let id in sameIdFingerprints) if (length(keys(sameIdFingerprints[id])) > 1) sameNameDifferent++;
+	return { ok: true, entries: entries, winners: winners, winnerOrder: winnerOrder,
+		sets: canonical_sets(entries), semanticFingerprintCount: length(entries),
+		semanticDuplicateGroupCount: exactDuplicates, provenanceLinkCount: provenanceLinks,
+		sameIdDifferentSemanticCount: sameNameDifferent };
+}
+
 function filter_label(entries, label) {
 	let result = [];
 	for (let i = 0; i < length(entries); i++) if (entries[i].metadata.label == label) push(result, entries[i]);
@@ -358,6 +519,21 @@ function declaration_error(message, path) {
 
 function validate_declarations(manifest, files, physicalEntries, duplicateGroups,
 	 winnerOrder, sets, winners, levelEntryCounts, protocolEntryCounts, featuredIds) {
+	let official = is_object(manifest.source) && manifest.source.repository == OFFICIAL_FORGEJO_REPOSITORY
+		&& manifest.source.commit == OFFICIAL_FORGEJO_COMMIT;
+	// Forgejo's four source files are the authoritative inventory. Its source
+	// order is preserved and every file/hash/count is still verified, while the
+	// legacy Avatar declaration fields (winner order and duplicate-group shape)
+	// are not required to describe a different catalog representation.
+	if (official) {
+		if (manifest.physicalFileCount != length(files) || manifest.physicalEntryCount != length(physicalEntries)
+			|| type(manifest.files) != 'array' || length(manifest.files) != length(files))
+			return declaration_error('Forgejo manifest aggregate counts differ from recomputed catalog', 'manifest.json');
+		for (let i = 0; i < length(files); i++)
+			if (!same_file_evidence(manifest.files[i], files[i]))
+				return declaration_error('Forgejo manifest file evidence differs from recomputed files', manifest.files[i].path);
+		return null;
+	}
 	if (manifest.physicalFileCount != length(files) || manifest.physicalEntryCount != length(physicalEntries)
 		|| manifest.uniqueStrategyIdCount != length(keys(winners))
 		|| manifest.duplicateIdGroupCount != length(duplicateGroups))
@@ -516,6 +692,18 @@ function build_catalog(root, manifest, manifestPath) {
 	let declaration = validate_declarations(manifest, files, physicalEntries, duplicateGroups,
 		winnerOrder, sets, winners, levelEntryCounts, protocolEntryCounts, featuredIds);
 	if (declaration != null) return declaration;
+	let canonical = null;
+	// The two package roots are merged once below. Avoid computing three
+	// semantic projections for the same physical records during first load.
+	if (root == PACKAGE_ROOT || root == SECONDARY_FORGEJO_ROOT) {
+		canonical = { entries: [], winners: {}, winnerOrder: [], sets: { tcp: {}, udp: {} },
+			semanticFingerprintCount: 0, semanticDuplicateGroupCount: 0,
+			provenanceLinkCount: 0, sameIdDifferentSemanticCount: 0 };
+	} else {
+		canonical = build_canonical_projection(physicalEntries,
+			is_object(manifest.source) ? manifest.source : { repository: 'unknown', commit: null });
+		if (!canonical.ok) return canonical;
+	}
 	return { ok: true, catalog: {
 		schema: manifest.schema, source: manifest.source, aggregateDigest: manifest.aggregateDigest,
 		aggregateDigestAlgorithm: manifest.aggregateDigestAlgorithm, physicalFileCount: length(files),
@@ -523,12 +711,19 @@ function build_catalog(root, manifest, manifestPath) {
 		duplicateIdGroupCount: length(duplicateGroups), levelEntryCounts: levelEntryCounts,
 		protocolEntryCounts: protocolEntryCounts, featuredIds: featuredIds, files: files,
 		physicalEntries: physicalEntries, duplicateGroups: duplicateGroups, winnerOrder: winnerOrder,
-		winners: winners, sets: sets, tcp: sets.tcp, udp: sets.udp, manifestPath: manifestPath
+		winners: winners, sets: sets, tcp: sets.tcp, udp: sets.udp, manifestPath: manifestPath,
+		canonicalEntries: canonical.entries, canonicalWinners: canonical.winners,
+		canonicalWinnerOrder: canonical.winnerOrder, canonicalSets: canonical.sets,
+		canonicalTcp: canonical.sets.tcp, canonicalUdp: canonical.sets.udp,
+		semanticFingerprintCount: canonical.semanticFingerprintCount,
+		semanticDuplicateGroupCount: canonical.semanticDuplicateGroupCount,
+		provenanceLinkCount: canonical.provenanceLinkCount,
+		sameIdDifferentSemanticCount: canonical.sameIdDifferentSemanticCount
 	} };
 }
 
 function derived_cache_path(root, digest) {
-	return root == DEFAULT_ROOT && match(digest || '', /^[0-9a-f]{64}$/)
+	return (root == PACKAGE_ROOT || root == ACTIVE_ROOT) && match(digest || '', /^[0-9a-f]{64}$/)
 		? DERIVED_CACHE_PREFIX + digest + '.json' : null;
 }
 
@@ -540,7 +735,9 @@ function cached_catalog(root, manifestResult) {
 	let raw = null, record = null;
 	try { raw = readfile(path); record = raw == null ? null : json(raw); } catch (e) { record = null; }
 	if (!is_object(record) || record.schema != 1 || record.root != root
-		|| record.aggregateDigest != digest || !is_object(record.catalog)) return null;
+		|| record.aggregateDigest != digest || record.model != CATALOG_MODEL
+		|| !is_object(record.catalog)
+		|| !is_object(record.catalog.canonicalWinners)) return null;
 	return record.catalog;
 }
 
@@ -551,13 +748,48 @@ function persist_derived_catalog(root, catalog) {
 	try {
 		// The cache is disposable and digest-keyed. A partial write is treated
 		// as a cache miss; the canonical manifest/raw files remain authoritative.
-		writefile(path, sprintf('%J', { schema: 1, root: root,
+		writefile(path, sprintf('%J', { schema: 1, model: CATALOG_MODEL, root: root,
 			aggregateDigest: catalog.aggregateDigest, catalog: catalog }));
 	} catch (e) { }
 }
 
+function merge_verified_secondary_source(result, root) {
+	if (!result.ok || root != PACKAGE_ROOT) return result;
+	let secondaryManifest = read_manifest(SECONDARY_FORGEJO_ROOT);
+	if (!secondaryManifest.ok) return error_result('EPROVENANCE',
+		'complete catalog requires the verified Forgejo secondary source', SECONDARY_FORGEJO_ROOT);
+	let secondary = build_catalog(SECONDARY_FORGEJO_ROOT, secondaryManifest.manifest,
+		secondaryManifest.manifestPath);
+	if (!secondary.ok) return secondary;
+	let combined = copy_array(result.catalog.physicalEntries);
+	for (let i = 0; i < length(secondary.catalog.physicalEntries); i++) {
+		let external = copy_entry(secondary.catalog.physicalEntries[i]);
+		external.__source = secondary.catalog.source;
+		push(combined, external);
+	}
+	let canonical = build_canonical_projection(combined, result.catalog.source);
+	if (!canonical.ok) return canonical;
+	result.catalog.canonicalEntries = canonical.entries;
+	result.catalog.canonicalWinners = canonical.winners;
+	result.catalog.canonicalWinnerOrder = canonical.winnerOrder;
+	result.catalog.canonicalSets = canonical.sets;
+	result.catalog.canonicalTcp = canonical.sets.tcp;
+	result.catalog.canonicalUdp = canonical.sets.udp;
+	result.catalog.semanticFingerprintCount = canonical.semanticFingerprintCount;
+	result.catalog.semanticDuplicateGroupCount = canonical.semanticDuplicateGroupCount;
+	result.catalog.provenanceLinkCount = canonical.provenanceLinkCount;
+	result.catalog.sameIdDifferentSemanticCount = canonical.sameIdDifferentSemanticCount;
+	result.catalog.sourceCatalogCount = 2;
+	result.catalog.sourcePhysicalEntryCount = length(combined);
+	result.catalog.sourcePhysicalEntryCounts = {
+		avatar: result.catalog.physicalEntryCount,
+		forgejo: secondary.catalog.physicalEntryCount
+	};
+	return result;
+}
+
 function load_catalog(root, bypassCache) {
-	let actualRoot = root == null ? DEFAULT_ROOT : root;
+	let actualRoot = root == null ? default_root() : root;
 	let manifestResult = read_manifest(actualRoot);
 	if (!manifestResult.ok) { loaded = null; loadedRoot = null; return manifestResult; }
 	if (bypassCache != true) {
@@ -566,6 +798,8 @@ function load_catalog(root, bypassCache) {
 	}
 	let result = build_catalog(actualRoot, manifestResult.manifest, manifestResult.manifestPath);
 	if (!result.ok) { loaded = null; loadedRoot = null; return result; }
+	result = merge_verified_secondary_source(result, actualRoot);
+	if (!result.ok) { loaded = null; loadedRoot = null; return result; }
 	loaded = result.catalog; loadedRoot = actualRoot;
 	persist_derived_catalog(actualRoot, loaded);
 	return result;
@@ -573,7 +807,7 @@ function load_catalog(root, bypassCache) {
 
 function ensure_loaded(root) {
 	if (loaded != null && (root == null || root == loadedRoot)) return loaded;
-	let result = load_catalog(root == null ? DEFAULT_ROOT : root);
+	let result = load_catalog(root == null ? default_root() : root);
 	return result.ok ? loaded : null;
 }
 
@@ -592,34 +826,43 @@ export const strategy_catalog_list = function(protocol, set) {
 	let catalog = ensure_loaded(null);
 	if (catalog == null || index(PROTOCOLS, protocol) < 0 || index(SETS, set) < 0) return [];
 	let result = [];
-	for (let i = 0; i < length(catalog.sets[protocol][set]); i++)
-		push(result, catalog.winners[catalog.sets[protocol][set][i]]);
+	for (let i = 0; i < length(catalog.canonicalSets[protocol][set]); i++)
+		push(result, catalog.canonicalWinners[catalog.canonicalSets[protocol][set][i]]);
 	return result;
 };
 
 export const strategy_catalog_get = function(id) {
 	let catalog = ensure_loaded(null);
-	if (catalog == null || type(id) != 'string' || catalog.winners[id] == null)
+	if (catalog == null || type(id) != 'string' || catalog.canonicalWinners[id] == null)
 		return { error: { code: 'ENOENT', message: 'strategy is not present in the catalog' } };
-	return catalog.winners[id];
+	return catalog.canonicalWinners[id];
 };
 
 export const strategy_catalog_status = function() {
 	let catalog = ensure_loaded(null);
-	if (catalog == null) return { ok: false, error: { code: 'ESTATE', message: 'Avatar catalog is unavailable' } };
+	if (catalog == null) return { ok: false, error: { code: 'ESTATE', message: 'Strategy catalog is unavailable' } };
 	return { ok: true, digest: catalog.aggregateDigest, counts: {
 		files: catalog.physicalFileCount, physicalEntries: catalog.physicalEntryCount,
 		uniqueStrategies: catalog.uniqueStrategyIdCount, duplicateGroups: catalog.duplicateIdGroupCount
-	}, source: catalog.manifestPath };
+	}, semantic: {
+		canonicalStrategies: catalog.semanticFingerprintCount,
+		semanticDuplicateGroups: catalog.semanticDuplicateGroupCount,
+		provenanceLinks: catalog.provenanceLinkCount,
+		sameIdDifferentSemantics: catalog.sameIdDifferentSemanticCount
+	}, sources: {
+		catalogs: catalog.sourceCatalogCount || 1,
+		physicalEntries: catalog.sourcePhysicalEntryCount || catalog.physicalEntryCount,
+		physicalEntryCounts: catalog.sourcePhysicalEntryCounts || { avatar: catalog.physicalEntryCount }
+	}, source: catalog.manifestPath, sourceModel: 'avatar-curated-lossless-semantic-v1' };
 };
 
 export const strategy_catalog_reload = function() {
-	let root = loadedRoot == null ? DEFAULT_ROOT : loadedRoot;
+	let root = loadedRoot == null ? default_root() : loadedRoot;
 	let result = load_catalog(root, true);
 	if (!result.ok) return result;
 	return strategy_catalog_status();
 };
 
-export const catalog_entry_to_strategy = function(entry) {
-	return normalize_catalog_entry(entry);
+export const catalog_entry_to_strategy = function(entry, fastProjection) {
+	return normalize_catalog_entry(entry, fastProjection);
 };

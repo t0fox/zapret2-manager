@@ -43,7 +43,7 @@ export const avatar_tokenize = function(text) {
 		if (i >= n) break;
 
 		let start = i;
-		let value = '';
+		let chars = [];
 		while (i < n) {
 			let ch = substr(text, i, 1);
 			if (quote == null && is_whitespace(ch)) break;
@@ -51,10 +51,10 @@ export const avatar_tokenize = function(text) {
 				if (quote == null) quote = ch;
 				else if (quote == ch) quote = null;
 			}
-			value += ch;
+			push(chars, ch);
 			i++;
 		}
-		push(tokens, { value: value, start: start, end: i });
+		push(tokens, { value: join('', chars), start: start, end: i });
 	}
 
 	return { ok: true, tokens: tokens };
@@ -124,6 +124,13 @@ function copy_values(values) {
 	return result;
 }
 
+function catalog_fast_tokenize(text) {
+	let result = [];
+	for (let value in split(trim(text), /[ \t\r\n]+/))
+		if (length(value)) push(result, { value: value });
+	return { ok: true, tokens: result };
+}
+
 function catalog_field(entry, name, fallback) {
 	let metadata = is_object(entry.metadata) ? entry.metadata : entry;
 	return metadata[name] == null ? fallback : metadata[name];
@@ -161,12 +168,12 @@ function profile_identity(tokens, index) {
 		let value = tokens[i];
 		if (starts_with(value, '--filter-tcp=')) {
 			let ports = substr(value, length('--filter-tcp='));
-			if (ports == '80') return { id: 'http' + (index + 1), name: 'HTTP (порт 80)' };
-			return { id: 'tcp' + (index + 1), name: 'TCP (порты ' + ports + ')' };
+			if (ports == '80') return { id: 'http' + (index + 1), name: 'HTTP (порт 80)', protocol: 'tcp', tcpPorts: ports };
+			return { id: 'tcp' + (index + 1), name: 'TCP (порты ' + ports + ')', protocol: 'tcp', tcpPorts: ports };
 		}
 		if (starts_with(value, '--filter-udp=')) {
 			let ports = substr(value, length('--filter-udp='));
-			return { id: 'udp' + (index + 1), name: 'UDP (порты ' + ports + ')' };
+			return { id: 'udp' + (index + 1), name: 'UDP (порты ' + ports + ')', protocol: 'udp', udpPorts: ports };
 		}
 		if (starts_with(value, '--filter-l3=')) {
 			let version = substr(value, length('--filter-l3='));
@@ -185,18 +192,28 @@ function copy_catalog_provenance(strategy, entry) {
 	if (entry.winner != null) strategy.winner = entry.winner;
 	if (entry.effectiveOrdinal != null) strategy.effectiveOrdinal = entry.effectiveOrdinal;
 	if (entry.rawArgs != null) strategy.rawArgs = entry.rawArgs;
+	if (entry.sourceId != null) strategy.sourceId = entry.sourceId;
+	if (entry.semanticFingerprint != null) strategy.semanticFingerprint = entry.semanticFingerprint;
+	if (entry.semanticFingerprintEqual != null) strategy.semanticFingerprintEqual = entry.semanticFingerprintEqual;
+	if (entry.provenance != null) strategy.provenance = copy_values(entry.provenance);
+	if (entry.provenanceCount != null) strategy.provenanceCount = entry.provenanceCount;
+	if (entry.canonical != null) strategy.canonical = entry.canonical;
 }
 
 // Convert one physical CatalogEntry without applying compiler transforms. The
 // catalog parser owns WinDivert line filtering; this boundary only tokenizes
 // the already parsed args and preserves all other tokens as Profile data.
-export const catalog_entry_to_strategy = function(entry) {
+export const catalog_entry_to_strategy = function(entry, fastProjection) {
 	if (!is_object(entry)) return null;
 	let strategyId = entry.id != null ? entry.id : entry.sectionId;
 	if (type(strategyId) != 'string' || length(strategyId) == 0) return null;
 
 	let args = entry.args == null ? '' : entry.args;
-	let tokenized = avatar_tokenize(args);
+	// Package catalogs currently contain no quoted whitespace. Use the native
+	// split path for the large list projection while retaining the exact
+	// quote-aware tokenizer for any future/source entry that needs it.
+	let tokenized = fastProjection == true && index(args, chr(34)) < 0 && index(args, chr(39)) < 0
+		? catalog_fast_tokenize(args) : avatar_tokenize(args);
 	if (!tokenized.ok || length(tokenized.tokens) == 0) return null;
 
 	let sections = [], current = [];
@@ -213,12 +230,16 @@ export const catalog_entry_to_strategy = function(entry) {
 	let profiles = [];
 	for (let i = 0; i < length(sections); i++) {
 		let identity = profile_identity(sections[i], i);
-		push(profiles, {
+		let profile = {
 			id: identity.id,
 			name: identity.name,
 			enabled: true,
 			args: canonical_values(sections[i])
-		});
+		};
+		if (identity.protocol != null) profile.protocol = identity.protocol;
+		if (identity.tcpPorts != null) profile.tcpPorts = identity.tcpPorts;
+		if (identity.udpPorts != null) profile.udpPorts = identity.udpPorts;
+		push(profiles, profile);
 	}
 	let strategyName = catalog_field(entry, 'name', strategyId);
 	if (type(strategyName) != 'string' || length(strategyName) == 0) strategyName = strategyId;
@@ -241,7 +262,10 @@ export const catalog_entry_to_strategy = function(entry) {
 	};
 	copy_catalog_provenance(strategy, entry);
 
-	let normalized = strategy_normalize(strategy);
+	// The catalog parser has already performed lossless tokenization and the
+	// profile split above. List projection may use that trusted parsed form
+	// directly; detail/compile paths retain the full normalization boundary.
+	let normalized = fastProjection == true ? { ok: true, strategy: strategy } : strategy_normalize(strategy);
 	return normalized.ok ? normalized.strategy : null;
 };
 

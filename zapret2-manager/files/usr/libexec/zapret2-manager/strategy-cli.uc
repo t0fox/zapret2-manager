@@ -19,6 +19,7 @@ import { profiles_apply_candidate, profiles_config_hash, profiles_candidate_hash
 import { asset_registry_environment } from './asset-registry.uc';
 
 const DEFAULT_CATALOG_ROOT = '/usr/share/zapret2-manager/catalog/avatar';
+const ACTIVE_CATALOG_ROOT = '/etc/zapret2-manager/catalog/avatar';
 const ENGINE_PATH = '/opt/zapret2/nfq2/nfqws2';
 const CONFIG_LOCK = getenv('Z2M_STRATEGY_CONFIG_LOCK') || '/opt/zapret2/config.lock';
 const PROFILE_APPLY_MODULE = getenv('Z2M_STRATEGY_PROFILE_MODULE') || '/usr/libexec/zapret2-manager/profiles-apply.uc';
@@ -275,7 +276,7 @@ function live_runtime_inputs() {
 		return error_result('EUNAVAILABLE', 'authoritative live nfqws2 composition has no captured runtime inputs');
 	let assets = asset_registry_environment();
 	return { ok: true, environment: {
-		listMode: 'none', paths: { luaRoot: '/opt/zapret2/lua', blobRoot: '/opt/zapret2/bin', listRoot: '/lists', ipsetRoot: '/lists' },
+		listMode: 'none', paths: { luaRoot: '/opt/zapret2/lua', blobRoot: '/opt/zapret2/files/fake', listRoot: '/opt/zapret2/lists', ipsetRoot: '/opt/zapret2/ipset' },
 		functions: assets.functions || {}, blobs: assets.blobs || {}, lua: assets.lua || {}, lists: assets.lists || {}, assetRefs: assets.assetRefs || {}
 	}, runtimeInputs: { source: 'live', enginePath: ENGINE_PATH, baseArgs: baseArgs, luaInit: luaInit, hostlists: hostlists } };
 }
@@ -305,7 +306,7 @@ function configured_runtime_inputs() {
 				push(hostlists, substr(token.value, 11));
 	let assets = asset_registry_environment();
 	return { ok: true, environment: {
-		listMode: 'none', paths: { luaRoot: '/opt/zapret2/lua', blobRoot: '/opt/zapret2/bin', listRoot: '/lists', ipsetRoot: '/lists' },
+		listMode: 'none', paths: { luaRoot: '/opt/zapret2/lua', blobRoot: '/opt/zapret2/files/fake', listRoot: '/opt/zapret2/lists', ipsetRoot: '/opt/zapret2/ipset' },
 		functions: assets.functions || {}, blobs: assets.blobs || {}, lua: assets.lua || {}, lists: assets.lists || {}, assetRefs: assets.assetRefs || {}
 	}, runtimeInputs: {
 		source: 'configured', enginePath: ENGINE_PATH,
@@ -351,7 +352,7 @@ function catalog() {
 	let loaded = null;
 	try { loaded = strategy_catalog_load(root); } catch (e) { loaded = null; }
 	if (!is_object(loaded) || loaded.ok != true || !is_object(loaded.catalog))
-		return error_result('EVERIFY', 'verified Avatar catalog is unavailable');
+		return error_result('EVERIFY', 'verified Strategy catalog is unavailable');
 	return loaded.catalog;
 }
 
@@ -388,9 +389,9 @@ function resolve_strategy(input, currentCatalog) {
 	let shape = input_shape(input, false);
 	if (!shape.ok) return shape;
 	if (!is_object(currentCatalog) || !digest(currentCatalog.aggregateDigest))
-		return error_result('EVERIFY', 'verified Avatar catalog digest is unavailable');
+		return error_result('EVERIFY', 'verified Strategy catalog digest is unavailable');
 	if (input.catalog_digest != null && input.catalog_digest != currentCatalog.aggregateDigest)
-		return error_result('ECONFLICT', 'Avatar catalog revision is stale');
+		return error_result('ECONFLICT', 'Strategy catalog revision is stale');
 	if (shape.hasId) {
 		let user = null;
 		try { user = strategy_user_get_readonly({ id: input.strategy_id }); } catch (e) { user = null; }
@@ -849,59 +850,28 @@ export const strategy_import_profiles_test = function(input, context) {
 };
 
 function catalog_root() {
-	return getenv('Z2M_STRATEGY_CATALOG_ROOT') || DEFAULT_CATALOG_ROOT;
+	let configured = getenv('Z2M_STRATEGY_CATALOG_ROOT');
+	if (configured) return configured;
+	try { if (stat(ACTIVE_CATALOG_ROOT) != null) return ACTIVE_CATALOG_ROOT; } catch (e) { }
+	return DEFAULT_CATALOG_ROOT;
 }
 
 function load_request_catalog() {
 	let loaded = null;
-	try { loaded = strategy_catalog_load(catalog_root()); } catch (e) { loaded = null; }
+	let root = catalog_root();
+	try { loaded = strategy_catalog_load(root); } catch (e) { loaded = null; }
 	return is_object(loaded) && loaded.ok == true && is_object(loaded.catalog)
-		? loaded.catalog : error_result('EVERIFY', 'verified Avatar catalog is unavailable');
-}
-
-function catalog_summary_profiles(args) {
-	let sections = [], current = [], lines = split(args, '\n');
-	for (let line in lines) {
-		line = trim(line);
-		if (line == '--new') {
-			if (length(current)) { push(sections, join(' ', current)); current = []; }
-		} else if (line != '') push(current, line);
-	}
-	if (length(current)) push(sections, join(' ', current));
-	if (!length(sections) && args != '') push(sections, args);
-	let profiles = [];
-	for (let i = 0; i < length(sections); i++) {
-		let value = sections[i];
-		push(profiles, { id: 'profile-' + (i + 1), name: 'Профиль ' + (i + 1),
-			enabled: true, args: bounded_text(value, 256), argsTruncated: length(value) > 256 });
-	}
-	return profiles;
+		? loaded.catalog : error_result('EVERIFY', 'verified Strategy catalog is unavailable');
 }
 
 function catalog_strategy(entry) {
-	// The immutable catalog parser has already verified this entry. The list
-	// projection must not re-tokenize 732 entries on every RPC: full canonical
-	// normalization remains on get/preview/validate. A single raw profile keeps
-	// the real server arguments visible while preserving identity and digest
-	// authority for list/apply actions.
+	// List, get, preview, and Apply share the same lossless conversion. This
+	// keeps profile boundaries and filter-derived protocol/port names visible
+	// on collapsed cards instead of manufacturing "Профиль N" summaries.
 	if (!is_object(entry) || type(entry.id) != 'string') return null;
-	let metadata = is_object(entry.metadata) ? entry.metadata : {};
-	let args = type(entry.args) == 'string' ? entry.args : '';
-	let profiles = catalog_summary_profiles(args);
-	let strategy = {
-		id: entry.id, name: type(metadata.name) == 'string' && length(metadata.name) ? metadata.name : entry.id,
-		description: type(metadata.description) == 'string' ? metadata.description : '',
-		type: length(profiles) > 1 ? 'combined' : 'single', version: 1, is_builtin: true, source: 'catalog',
-		level: entry.level == null ? '' : entry.level, label: metadata.label || '',
-		author: metadata.author || '', protocol: entry.protocol == 'udp' ? 'udp' : 'tcp',
-		featured: metadata.featured === true, blobs: type(metadata.blobs) == 'array' ? metadata.blobs : [],
-		// List is a product summary. Full profile args are resolved by get/
-		// preview/validate on demand; each real --new boundary remains a
-		// separate bounded profile for donor card rendering and search.
-		profiles: profiles
-	};
-	for (let key in ['sourceFile', 'sourceOrdinal', 'duplicateGroup', 'cacheKey', 'cacheOrdinal', 'winner', 'effectiveOrdinal'])
-		if (entry[key] != null) strategy[key] = entry[key];
+	let strategy = null;
+	try { strategy = catalog_entry_to_strategy(entry, true); } catch (e) { strategy = null; }
+	if (!is_object(strategy)) return null;
 	strategy.origin = 'avatar_builtin';
 	strategy.revision = 0;
 	return strategy;
@@ -926,15 +896,28 @@ function catalog_wire_metadata(strategy, current, compact) {
 		sourceFile: strategy.sourceFile || null, sourceOrdinal: strategy.sourceOrdinal || null,
 		cacheKey: strategy.cacheKey || null, cacheOrdinal: strategy.cacheOrdinal || null,
 		duplicateGroup: strategy.duplicateGroup || null, effectiveOrdinal: strategy.effectiveOrdinal || null,
-		winner: strategy.winner === true
+		winner: strategy.winner === true,
+		sourceId: strategy.sourceId || strategy.id,
+		semanticFingerprint: strategy.semanticFingerprint || null,
+		semanticFingerprintEqual: strategy.semanticFingerprintEqual === true,
+		provenanceCount: strategy.provenanceCount || 0,
+		links: strategy.provenance || []
 	};
 	metadata.catalog = {
 		schema: current.schema || 1, source: current.source, aggregateDigest: current.aggregateDigest,
 		aggregateDigestAlgorithm: current.aggregateDigestAlgorithm || null,
 		physicalFileCount: current.physicalFileCount, physicalEntryCount: current.physicalEntryCount,
+		sourceCatalogCount: current.sourceCatalogCount || 1,
+		sourcePhysicalEntryCount: current.sourcePhysicalEntryCount || current.physicalEntryCount,
+		sourcePhysicalEntryCounts: current.sourcePhysicalEntryCounts || { avatar: current.physicalEntryCount },
 		uniqueStrategyIdCount: current.uniqueStrategyIdCount, duplicateIdGroupCount: current.duplicateIdGroupCount,
+		canonicalStrategyCount: current.semanticFingerprintCount,
+		semanticDuplicateGroupCount: current.semanticDuplicateGroupCount,
+		provenanceLinkCount: current.provenanceLinkCount,
+		sameIdDifferentSemanticCount: current.sameIdDifferentSemanticCount,
 		levelEntryCounts: current.levelEntryCounts, protocolEntryCounts: current.protocolEntryCounts,
-		featuredIds: current.featuredIds
+		featuredIds: current.featuredIds,
+		sourceModel: 'avatar-curated-lossless-semantic-v1'
 	};
 	return metadata;
 }
@@ -944,9 +927,17 @@ function wire_strategy(strategy, current, selection, compact) {
 	let result = {};
 	if (compact == true && strategy.origin == 'avatar_builtin') {
 		for (let key in ['id', 'name', 'description', 'type', 'version', 'is_builtin',
-			'source', 'level', 'label', 'author', 'protocol', 'featured', 'profiles',
+			'source', 'level', 'label', 'author', 'protocol', 'featured',
+			'sourceId', 'semanticFingerprint', 'semanticFingerprintEqual', 'provenanceCount',
 			'origin', 'revision', 'blobs'])
 			if (strategy[key] != null) result[key] = strategy[key];
+		result.profiles = [];
+		for (let profile in strategy.profiles || []) {
+			let summary = {};
+			for (let key in ['id', 'name', 'enabled', 'protocol', 'tcpPorts', 'udpPorts'])
+				if (profile[key] != null) summary[key] = profile[key];
+			push(result.profiles, summary);
+		}
 	} else {
 		for (let key in strategy) result[key] = strategy[key];
 	}
@@ -972,10 +963,10 @@ function strategy_list() {
 	if (!is_object(selection) || selection.ok != true || type(selection.favorites) != 'array')
 		return error_result('EIO', 'Strategy favorites state is unavailable');
 	let strategies = [];
-	let order = is_object(current.winners) && type(current.winnerOrder) == 'array'
-		? current.winnerOrder : keys(current.winners || {});
+	let order = is_object(current.canonicalWinners) && type(current.canonicalWinnerOrder) == 'array'
+		? current.canonicalWinnerOrder : keys(current.canonicalWinners || {});
 	for (let id in order) {
-		let strategy = catalog_strategy(current.winners[id]);
+		let strategy = catalog_strategy(current.canonicalWinners[id]);
 		if (strategy == null) return error_result('EVERIFY', 'catalog Strategy normalization failed');
 		push(strategies, wire_strategy(strategy, current, selection, true));
 	}
@@ -996,6 +987,46 @@ function strategy_list() {
 	return response;
 }
 
+function strategy_recommendations() {
+	let current = load_request_catalog();
+	if (!is_object(current) || current.ok == false) return current;
+	let order = is_object(current.canonicalWinners) && type(current.canonicalWinnerOrder) == 'array'
+		? current.canonicalWinnerOrder : keys(current.canonicalWinners || {});
+	let featured = [], recommended = [];
+	for (let id in order) {
+		let entry = current.canonicalWinners[id];
+		let metadata = is_object(entry) && is_object(entry.metadata) ? entry.metadata : {};
+		let strategy = catalog_strategy(entry);
+		if (strategy == null || (metadata.label != 'recommended' && strategy.label != 'recommended')) continue;
+		let item = {
+			id: strategy.id, name: strategy.name, description: strategy.description,
+			protocol: strategy.protocol, featured: strategy.featured === true,
+			upstreamRecommended: true, catalogDigest: current.aggregateDigest, profiles: []
+		};
+		for (let profile in strategy.profiles || []) {
+			let summary = {};
+			for (let key in ['id', 'name', 'enabled', 'protocol', 'tcpPorts', 'udpPorts'])
+				if (profile[key] != null) summary[key] = profile[key];
+			push(item.profiles, summary);
+		}
+		if (item.featured) push(featured, item); else push(recommended, item);
+	}
+	let bounded = [];
+	for (let item in featured) {
+		if (length(bounded) >= 3) break;
+		push(bounded, item);
+	}
+	for (let item in recommended) {
+		if (length(bounded) >= 3) break;
+		push(bounded, item);
+	}
+	return {
+		ok: true, recommendations: bounded,
+		source: { kind: 'catalog', digest: current.aggregateDigest, upstreamRecommended: true,
+			localEvidence: { scanner: false, learned: false, health: false } }
+	};
+}
+
 function strategy_get(input) {
 	if (!is_object(input) || !safe_id(input.id)) return error_result('EINPUT', 'Strategy get requires a safe id');
 	let current = load_request_catalog();
@@ -1009,8 +1040,9 @@ function strategy_get(input) {
 	if (is_object(user) && user.ok == true)
 		return bounded_strategy_response({ ok: true, strategy: wire_strategy(user.strategy, current, selection) }, 'Strategy detail');
 	if (is_object(user) && user.error && user.error.code != 'ENOENT') return user;
-	let entry = null;
-	try { entry = strategy_catalog_get(input.id); } catch (e) { entry = null; }
+	let entry = is_object(current.canonicalWinners) && current.canonicalWinners[input.id] != null
+		? current.canonicalWinners[input.id] : null;
+	if (entry == null) try { entry = strategy_catalog_get(input.id); } catch (e) { entry = null; }
 	if (is_object(entry) && entry.error) return entry;
 	let strategy = null;
 	try { strategy = catalog_entry_to_strategy(entry); } catch (e) { strategy = null; }
@@ -1023,14 +1055,14 @@ function strategy_catalog_status_request() {
 	let current = load_request_catalog();
 	if (!is_object(current) || current.ok == false) return current;
 	try { return strategy_catalog_status(); }
-	catch (e) { return error_result('EVERIFY', 'verified Avatar catalog status is unavailable'); }
+	catch (e) { return error_result('EVERIFY', 'verified Strategy catalog status is unavailable'); }
 }
 
 function strategy_catalog_reload_request() {
 	let current = load_request_catalog();
 	if (!is_object(current) || current.ok == false) return current;
 	try { return strategy_catalog_reload(); }
-	catch (e) { return error_result('EVERIFY', 'verified Avatar catalog reload failed'); }
+	catch (e) { return error_result('EVERIFY', 'verified Strategy catalog reload failed'); }
 }
 
 function request(path) {
@@ -1080,6 +1112,7 @@ function request(path) {
 function dispatch_result(mode, input, context, testContext) {
 	if (mode == 'reconcile') return strategy_reconcile(input, context);
 	if (mode == 'list') return strategy_list();
+	if (mode == 'recommendations') return strategy_recommendations();
 	if (mode == 'get') return strategy_get(input);
 	if (mode == 'create') return strategy_state['strategy_' + 'user_create'](input);
 	if (mode == 'update') return strategy_state['strategy_' + 'user_update'](input);

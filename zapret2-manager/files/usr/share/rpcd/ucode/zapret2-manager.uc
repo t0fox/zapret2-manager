@@ -838,6 +838,7 @@ function strategy_edit_action(mode, req) {
 
 function strategy_noarg_action(mode) { return strategy_edit_action(mode, { edit: '{}' }); }
 function strategies_list_method(req) { return strategy_noarg_action('list'); }
+function strategies_recommendations_method(req) { return strategy_noarg_action('recommendations'); }
 function strategies_get_method(req) { return strategy_edit_action('get', req); }
 function strategies_create_method(req) { return strategy_edit_action('create', req); }
 function strategies_update_method(req) { return strategy_edit_action('update', req); }
@@ -850,6 +851,34 @@ function strategies_apply_method(req) { return strategy_edit_action('apply', req
 function strategies_catalog_status_method(req) { return strategy_noarg_action('catalog_status'); }
 function strategies_catalog_reload_method(req) { return strategy_noarg_action('catalog_reload'); }
 function strategies_import_profiles_method(req) { return strategy_edit_action('import_profiles', req); }
+function strategies_ops_tmp(input) {
+	let maker = popen('umask 077; mktemp /tmp/z2m-strategies-edit.XXXXXX 2>/dev/null', 'r');
+	if (!maker) return null;
+	let path = trim(maker.read('all') || ''), makerRc = maker.close();
+	if (makerRc != 0 || index(path, '/tmp/z2m-strategies-edit.') != 0) return null;
+	try { writefile(path, sprintf('%J', input || {})); } catch (e) { return null; }
+	return path;
+}
+function strategies_ops_call(mode, input) {
+	let path = strategies_ops_tmp(input), result = null;
+	if (path == null) return { ok: false, error: { code: 'EIO', message: 'Strategies operation request could not be staged' } };
+	let p = popen('/usr/bin/ucode /usr/libexec/zapret2-manager/strategies-ops-cli.uc ' + mode + ' ' + path + ' 2>/dev/null', 'r');
+	if (!p) { unlink(path); return { ok: false, error: { code: 'ETARGET', message: 'Strategies operation runner unavailable' } }; }
+	let output = p.read('all') || '', rc = p.close(); unlink(path);
+	try { result = json(output); } catch (e) { result = null; }
+	return result != null ? result : { ok: false, error: { code: rc == 0 ? 'EINTERNAL' : 'ECHILD', message: 'Strategies operation returned no result' } };
+}
+function strategies_catalog_source_method(req) { return strategies_ops_call('catalog-source', {}); }
+function strategies_catalog_update_method(req) { return strategies_ops_call('catalog-update', asset_args(req) || {}); }
+function strategies_state_method(req) { return strategies_ops_call('state', {}); }
+function strategies_state_clear_method(req) { return strategies_ops_call('state-clear', asset_args(req) || {}); }
+function strategies_debug_get_method(req) { return strategies_ops_call('debug-get', {}); }
+function strategies_debug_set_method(req) { return strategies_ops_call('debug-set', asset_args(req) || {}); }
+function healthcheck_status_method(req) { return strategies_ops_call('health-status', {}); }
+function healthcheck_run_method(req) { return strategies_ops_call('health-run', asset_args(req) || {}); }
+function healthcheck_enable_method(req) { return strategies_ops_call('health-enable', asset_args(req) || {}); }
+function healthcheck_disable_method(req) { return strategies_ops_call('health-disable', asset_args(req) || {}); }
+function healthcheck_config_method(req) { return strategies_ops_call('health-config', asset_args(req) || {}); }
 
 // ---- Avatar Strategy Scanner API -------------------------------------------
 // Scanner requests use a private bounded JSON file because scanner-cli itself
@@ -1189,6 +1218,7 @@ return {
 		dns_product_apply: { args: { edit: 'string' }, call: function (req) { return dns_product_apply_method(req); } },
 		dns_product_rollback: { args: { edit: 'string' }, call: function (req) { return dns_product_rollback_method(req); } },
 		strategies_list:   { call: function (req) { return strategies_list_method(req); } },
+		strategies_recommendations: { call: function (req) { return strategies_recommendations_method(req); } },
 		strategies_get:    { args: { edit: 'string' }, call: function (req) { return strategies_get_method(req); } },
 		strategies_create: { args: { edit: 'string' }, call: function (req) { return strategies_create_method(req); } },
 		strategies_update: { args: { edit: 'string' }, call: function (req) { return strategies_update_method(req); } },
@@ -1200,7 +1230,18 @@ return {
 		strategies_apply: { args: { edit: 'string' }, call: function (req) { return strategies_apply_method(req); } },
 		strategies_catalog_status: { call: function (req) { return strategies_catalog_status_method(req); } },
 		strategies_catalog_reload: { call: function (req) { return strategies_catalog_reload_method(req); } },
+		strategies_catalog_source: { call: function (req) { return strategies_catalog_source_method(req); } },
+		strategies_catalog_update: { args: { edit: 'string' }, call: function (req) { return strategies_catalog_update_method(req); } },
 		strategies_import_profiles: { args: { edit: 'string' }, call: function (req) { return strategies_import_profiles_method(req); } },
+		strategies_state: { call: function (req) { return strategies_state_method(req); } },
+		strategies_state_clear: { args: { edit: 'string' }, call: function (req) { return strategies_state_clear_method(req); } },
+		strategies_debug_get: { call: function (req) { return strategies_debug_get_method(req); } },
+		strategies_debug_set: { args: { edit: 'string' }, call: function (req) { return strategies_debug_set_method(req); } },
+		healthcheck_status: { call: function (req) { return healthcheck_status_method(req); } },
+		healthcheck_run: { args: { edit: 'string' }, call: function (req) { return healthcheck_run_method(req); } },
+		healthcheck_enable: { args: { edit: 'string' }, call: function (req) { return healthcheck_enable_method(req); } },
+		healthcheck_disable: { args: { edit: 'string' }, call: function (req) { return healthcheck_disable_method(req); } },
+		healthcheck_config: { args: { edit: 'string' }, call: function (req) { return healthcheck_config_method(req); } },
 		scanner_start: { args: { edit: 'string' }, call: function (req) { return scanner_start_method(req); } },
 		scanner_status: { args: { edit: 'string' }, call: function (req) { return scanner_status_method(req); } },
 		scanner_results: { args: { edit: 'string' }, call: function (req) { return scanner_results_method(req); } },

@@ -61,6 +61,12 @@ export const PAUSE_STOPS_FW = false;   // [VERIFY:ROUTER] → smoke.sh pause_fw_
 export const ROLLBACK_TIMEOUT_ENABLED = false;   // [VERIFY:ROUTER] → smoke.sh rollback_timer
 export const ROLLBACK_TTL = 90;
 
+// A manual start/restart can briefly expose no process, queue, or nft rules
+// while the upstream init script is still converging.  The watchdog skips
+// only this bounded transition window; after it expires, an absent runtime is
+// again an actual fault.
+export const MANUAL_TRANSITION_TTL_SEC = 15;
+
 // Passthrough is OUR entity (no upstream option exists). It is modelled as a
 // profile with no strategies — see service.uc and docs/upstream-mapping.md.
 // It is NOT stored as a UCI flag (would desync from reality and create a 4th
@@ -82,9 +88,9 @@ export const PATHS = {
 	pending_rollback:'/tmp/zapret2-manager/pending-rollback',
 	events_ndjson:  '/tmp/zapret2-manager/events.ndjson',
 	paused_flag:    '/tmp/zapret2-manager/paused',
+	manual_transition: '/tmp/zapret2-manager/manual-transition.json',
 	nfqueue_proc:   '/proc/net/netfilter/nfnetlink_queue',
 	collector:      '/usr/libexec/zapret2-manager/status.uc',
 	qlen_lib:       '/usr/libexec/zapret2-manager/qlen.uc',
 	lists_model:    '/usr/libexec/zapret2-manager/lists-model.json'
 };
-

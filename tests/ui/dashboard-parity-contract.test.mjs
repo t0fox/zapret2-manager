@@ -76,7 +76,7 @@ test('P01 Dashboard exposes one ordered quick-action set plus event states', () 
   assert.equal((page.match(/dash-btn-start/g) || []).length, 1);
   assert.equal((page.match(/dash-btn-stop/g) || []).length, 1);
   assert.equal((page.match(/dash-btn-restart/g) || []).length, 1);
-  for (const marker of ['Загрузка логов', 'Событий пока нет', 'Не удалось загрузить события', 'Все логи'])
+  for (const marker of ['Загрузка событий', 'Событий пока нет', 'Не удалось загрузить события', 'Все логи'])
     assert.match(page, new RegExp(marker));
 });
 

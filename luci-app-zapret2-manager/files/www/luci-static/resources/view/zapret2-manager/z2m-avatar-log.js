@@ -61,7 +61,7 @@ function normalizeOne(value, index) {
   var message = raw.message || raw.msg || raw.text || raw.detail || JSON.stringify(raw);
   var technicalDetails = raw.technicalDetails || raw.technical || raw.details || null;
   return {
-    eventId: raw.eventId || raw.id || 'row-' + index,
+    eventId: raw.eventId || raw.id || null,
     timestamp: timestamp(raw.timestamp !== undefined ? raw.timestamp : raw.time !== undefined ? raw.time : raw.ts || raw.createdAt),
     level: level(raw.level || raw.severity || raw.kind),
     source: sourceLabel(raw.source || raw.component),
@@ -75,7 +75,15 @@ function normalizeRows(envelope, limit) {
   var source = Array.isArray(value) ? value : object(value);
   var rows = Array.isArray(source) ? source : (source.events || source.lines || source.items || source.rows || source.log || []);
   rows = Array.isArray(rows) ? rows : [];
-  var normalized = rows.map(normalizeOne).filter(function (row) { return row.message; });
+  var seen = {};
+  var normalized = rows.map(normalizeOne).filter(function (row) {
+    if (!row.message) return false;
+    var key = row.eventId || [row.timestamp, row.level, row.source, row.message].join('|');
+    if (seen[key]) return false;
+    seen[key] = true;
+    row.eventId = key;
+    return true;
+  });
   return normalized.slice(-(limit || 100));
 }
 

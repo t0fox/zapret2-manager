@@ -29,6 +29,7 @@ import { NFQUEUE, QLEN_WARN, QLEN_CRIT_CONSECUTIVE,
 	DAEMON, NFT_TABLE, PATHS } from './constants.uc';
 import { parse_queue } from './qlen.uc';
 import { auto_controller_tick } from './auto-strategy.uc';
+import { healthcheck_scheduler_tick } from './strategies-ops.uc';
 
 const CYCLE_SEC    = 60;
 const CPU_WARN_PCT = 70;
@@ -67,6 +68,26 @@ function read_state() {
 function write_state(st) {
 	try { writefile(STATE_FILE, sprintf("%J", st) + '\n'); }
 	catch (e) { }
+}
+
+// The pause marker is the normal manual-stop guard.  Read the upstream
+// desired flag as a second, source-level guard so a short file/flag race can
+// never turn an intentional NFQWS2_ENABLE=0 state into an outage event.
+function desired_running() {
+	try {
+		let raw = readfile(PATHS.applied_conf);
+		if (!raw) return true;
+		let prefix = 'NFQWS2_ENABLE=';
+		for (let line in split(raw, '\n')) {
+			line = trim(line);
+			if (!length(line) || substr(line, 0, 1) == '#') continue;
+			if (substr(line, 0, length(prefix)) != prefix) continue;
+			let value = trim(substr(line, length(prefix)));
+			if (substr(value, 0, 1) == '"') value = replace(value, '"', '');
+			return value != '0';
+		}
+	} catch (e) { }
+	return true;
 }
 
 // Append an events.v1 ndjson event. Telemetry never blocks. See
@@ -181,7 +202,8 @@ function qlen_cycle(st) {
 		write_qlen_state(next);
 		alert_if('queue_not_registered', 'queue', 'qlen',
 			'NFQUEUE ' + NFQUEUE + ' not registered in kernel (nfqws2 not connected)',
-			'crit', st, { queue: NFQUEUE });
+			'crit', st, { code: 'queue_not_registered', queue: NFQUEUE,
+				desiredState: 'running' });
 		return { registered: false, queue_total: null };
 	}
 
@@ -281,6 +303,24 @@ function check_cycle() {
 		return { skipped: true };
 	}
 
+	// Manual start/restart owns a short convergence window.  Do not turn the
+	// expected intermediate absence of process/NFQUEUE/rules into fault events;
+	// once the marker expires, normal checks resume and a real loss is critical.
+	try {
+		let rawTransition = readfile(PATHS.manual_transition);
+		let transition = rawTransition ? json(rawTransition) : null;
+		if (transition && transition.until != null && now() < +transition.until) {
+			write_state(st);
+			return { skipped: true, reason: 'manual_transition', action: transition.action,
+				until: transition.until };
+		}
+		if (transition) unlink(PATHS.manual_transition);
+	} catch (e) { }
+
+	if (!desired_running()) {
+		write_state(st);
+		return { skipped: true, reason: 'desired_stopped' };
+	}
 
 	// 1) process — crash recovery only (not thresholds)
 	let pids = find_pids();
@@ -289,7 +329,8 @@ function check_cycle() {
 		let r = run('/etc/init.d/zapret2 start');   // [VERIFY] upstream init
 		alert_if('process_gone', 'restart', 'watchdog',
 			'nfqws2 process gone; recovery start rc=' + r.rc, 'crit', st,
-			{ reason: 'process_crash', rc: r.rc });
+			{ code: 'process_unexpected_loss', reason: 'process_crash', rc: r.rc,
+				desiredState: 'running', manualTransition: false });
 	} else {
 		st.last_seen_process = now();
 	}
@@ -300,7 +341,7 @@ function check_cycle() {
 		if (!length(raw) || index(raw, 'chain ') < 0)
 			alert_if('rules_gone', 'health', 'watchdog',
 				'nft table ' + NFT_TABLE + ' missing or empty', 'crit', st,
-				{ table: NFT_TABLE });
+				{ code: 'rules_missing', table: NFT_TABLE, desiredState: 'running' });
 	} catch (e) { }
 
 	// 3) queue signals — queue_total three-consecutive critical, dropped delta
@@ -367,9 +408,12 @@ function check_cycle() {
 	let auto = null;
 	try { auto = auto_controller_tick(); }
 	catch (e) { event('watchdog', 'auto-strategy', 'error', 'auto controller tick failed: ' + e); }
+	let healthcheck = null;
+	try { healthcheck = healthcheck_scheduler_tick(); }
+	catch (e) { event('watchdog', 'healthcheck', 'error', 'healthcheck scheduler tick failed: ' + e); }
 
 	write_state(st);
-	return { skipped: false, pids: length(pids), cpu: cpu_pct, ram: ram, overlay: ov, qlen: qlen, auto: auto };
+	return { skipped: false, pids: length(pids), cpu: cpu_pct, ram: ram, overlay: ov, qlen: qlen, auto: auto, healthcheck: healthcheck };
 }
 
 // ---- entry ------------------------------------------------------------------

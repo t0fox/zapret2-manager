@@ -1,8 +1,8 @@
 #!/bin/ash
 # health-run.sh <job-id> — the Service Health Matrix runner (Phase C).
 #
-# Runs bounded per-layer probes over catalog-provided targets (NEVER
-# user-supplied URLs): catalog presence (list file), local DNS, upstream DNS
+# Runs bounded per-layer probes over explicitly selected catalog targets (NEVER
+# user-supplied URLs): catalog presence (diagnostic only), local DNS, upstream DNS
 # comparison, TCP 443 connect (curl), TLS handshake (curl), HTTP code (curl).
 # Evidence = exit codes + http codes only (no response bodies, no secrets).
 # Cancellation is real (cancel flag → kill current curl → mark cancelled).
@@ -47,8 +47,12 @@ for svc in $SERVICES; do
 
 	echo "- probing $svc ($d1)" >>"$LOG"
 
-	# catalog presence (the domain list is the applied truth)
-	if grep -Fxq "$d1" "$LISTFILE" 2>/dev/null; then present=1; else present=0; fi
+	# Catalog presence is meaningful for canonical services; custom targets are
+	# explicitly selected by the operator and must not be classified as skipped.
+	case "$svc" in
+		custom[0-9]*) present=1 ;;
+		*) if grep -Fxq "$d1" "$LISTFILE" 2>/dev/null; then present=1; else present=0; fi ;;
+	esac
 
 	# local DNS
 	if nslookup "$d1" 127.0.0.1 2>&1 | grep -q "Address: "; then dns=1; else dns=0; fi

@@ -1,5 +1,6 @@
 'use strict';
 'require baseclass';
+'require rpc';
 'require view.zapret2-manager.z2m-overview-model as OverviewModel';
 'require view.zapret2-manager.z2m-runtime-state as RuntimeState';
 'require view.zapret2-manager.z2m-avatar-log as AvatarLog';
@@ -8,6 +9,7 @@
 var runtime = { timer: null, runId: null, target: '', overrideStrategyId: null, deferred: {}, loadToken: 0,
   lifecycle: { pending: false, action: null, result: null },
   events: { initialized: false, keys: [], follow: true, unread: 0 } };
+var recommendationsRpc = rpc.declare({ object: 'zapret2-manager', method: 'strategies_recommendations', reject: true });
 
 function edit(fn, value) { return fn(JSON.stringify(value || {})); }
 function asArray(value) { return Array.isArray(value) ? value : []; }
@@ -59,6 +61,18 @@ function activeStrategy(preview) {
   var strategyState = preview && preview.strategyState || {};
   return strategyState.active || preview && preview.active || null;
 }
+function statusStrategyId(status) {
+  var strategy = object(object(status).strategyStatus);
+  return strategy.id || strategy.strategyId || strategy.name || null;
+}
+function resolveCanonicalStrategy(ctx, statusEnvelope) {
+  var id = statusStrategyId(payload(statusEnvelope));
+  if (!id || !ctx.api.strategies || !ctx.api.strategies.get) return Promise.resolve(null);
+  return edit(ctx.api.strategies.get, { id: id }).then(function (answer) {
+    var value = payload(answer);
+    return value.strategy || value.item || value;
+  });
+}
 function runningState(status) {
   var value = RuntimeState.state(status);
   return value === 'running' ? true : value === 'stopped' ? false : null;
@@ -89,20 +103,36 @@ function load(ctx) {
   }
   var secondary = Promise.allSettled([
     ctx.api.strategy.preview(),
-    edit(ctx.api.monitor.eventsTail, { limit: 100 })
+    edit(ctx.api.monitor.eventsTail, { limit: 8 }),
+    typeof ctx.api.strategies.recommendations === 'function' ? ctx.api.strategies.recommendations() : recommendationsRpc()
   ]).then(function (results) {
     if (token !== runtime.loadToken) return;
     runtime.deferred = {
       preview: settled(results[0], ctx.api),
-      events: settled(results[1], ctx.api)
+      events: settled(results[1], ctx.api),
+      recommendations: settled(results[2], ctx.api)
     };
     secondaryReady = true;
     if (initialReady) rerender();
   });
-  return Promise.allSettled([ctx.api.service.status(), ctx.api.engine.status(), ctx.api.maintenance.status()]).then(function (results) {
+  return Promise.allSettled([ctx.api.service.status(), ctx.api.engine.status(), ctx.api.maintenance.status(), ctx.api.maintenance.versions()]).then(function (results) {
+    var data = {
+      status: settled(results[0], ctx.api),
+      engineStatus: settled(results[1], ctx.api),
+      systemStatus: settled(results[2], ctx.api),
+      versionStatus: settled(results[3], ctx.api)
+    };
+    return resolveCanonicalStrategy(ctx, data.status).then(function (strategy) {
+      if (strategy) data.strategy = { value: strategy };
+      return data;
+    }).catch(function (error) {
+      data.strategy = { error: ctx.api.normalizeError(error) };
+      return data;
+    });
+  }).then(function (data) {
     initialReady = true;
     if (secondaryReady) rerender();
-    return { status: settled(results[0], ctx.api), engineStatus: settled(results[1], ctx.api), systemStatus: settled(results[2], ctx.api) };
+    return data;
   });
 }
 
@@ -114,7 +144,9 @@ function render(ctx) {
   var status = payload(data.status);
   var engineStatus = payload(data.engineStatus);
   var systemStatus = payload(data.systemStatus);
+  var versionStatus = payload(data.versionStatus);
   var preview = payload(data.preview);
+  var recommendations = payload(data.recommendations);
   var active = activeStrategy(preview);
   var catalog = candidates(preview);
   var snapshot = ctx.store.get();
@@ -152,7 +184,9 @@ function render(ctx) {
     var lifecycleResult = runtime.lifecycle.result;
     ctx.rerender();
     Promise.resolve().then(function () {
-      return action === 'restart' ? ctx.api.service.restart() : ctx.api.service[action]();
+      if (action === 'start') return ctx.api.service.start();
+      if (action === 'stop') return ctx.api.service.stop();
+      return ctx.api.service.restart();
     }).then(function (answer) {
       if (!answer || answer.ok === false) throw answer || new Error('lifecycle request failed');
       return ctx.api.service.status();
@@ -388,21 +422,31 @@ function render(ctx) {
     if (!isFinite(value) || value < 0) return _('неизвестно');
     return (value >= 1024 ? (value / 1024).toFixed(0) + ' МБ' : value + ' КБ');
   }
+  function strategyPresentation(name) {
+    var value = String(name || '').trim();
+    var suffix = /\s*\(([^()]+)\)\s*$/.exec(value);
+    return {
+      primary: suffix ? value.slice(0, suffix.index).trim() : value,
+      secondary: suffix ? suffix[1].trim() : null
+    };
+  }
   function processValue() {
     var snapshot = RuntimeState.snapshot(status);
+    var runtimeSummary = object(status.runtimeSummary);
+    var processEvidence = object(runtimeSummary.process);
     if (snapshot.state === 'running') {
-      var pid = snapshot.pid;
+      var pid = snapshot.pid || processEvidence.pid;
       return { value: _('Работает'), kind: 'running', detail: pid ? 'PID ' + pid : _('Runtime подтверждён') };
     }
-    if (snapshot.state === 'stopped') return { value: _('Остановлен'), kind: 'stopped', detail: reasonLabel(object(status.runtimeSummary).reasonCode) };
+    if (snapshot.state === 'stopped') return { value: _('Остановлен'), kind: 'stopped', detail: _('Процесс не запущен') };
     if (snapshot.state === 'mismatch') return { value: _('Расхождение'), kind: 'warning', detail: _('Процесс и NFQUEUE работают, но применённая конфигурация изменилась') };
     return { value: _('Недоступно'), kind: 'warning', detail: _('Backend не предоставил runtime evidence') };
   }
   function unavailableCard(detail) {
     return { value: _('Недоступно'), kind: 'warning', detail: detail || _('Backend не сообщил состояние') };
   }
-  function runtimeRelease(statusValue) {
-    var upstream = object(object(statusValue).upstream);
+  function runtimeRelease(status) {
+    var upstream = object(status.upstream);
     var version = String(upstream.nfqws2Version || '');
     var match = /^github version (v[0-9][0-9A-Za-z._-]*)/.exec(version);
     return match ? match[1] : null;
@@ -417,7 +461,7 @@ function render(ctx) {
     var auto = object(object(status.system).autostart);
     if (typeof auto.enabled !== 'boolean') return unavailableCard(_('Backend не сообщил состояние автозапуска'));
     return {
-      value: statusText(auto.enabled), kind: statusKind(auto.enabled),
+      value: auto.enabled ? _('Включён') : _('Выключен'), kind: statusKind(auto.enabled),
       detail: auto.enabled ? _('Автозапуск подтверждён') : _('Автозапуск отключён')
     };
   }
@@ -428,12 +472,26 @@ function render(ctx) {
     var facts = object(systemStatus);
     var memory = object(facts.memory);
     var storage = object(facts.storage);
-    var details = [];
-    if (facts.hostname) details.push(_('Узел: ') + format.text(facts.hostname));
-    if (facts.uptimeSec !== null && facts.uptimeSec !== undefined) details.push(_('Время работы: ') + durationLabel(facts.uptimeSec));
-    if (memory.availableKb !== null && memory.availableKb !== undefined) details.push(_('Свободная память: ') + memoryLabel(memory.availableKb));
-    if (storage.overlayPercent !== null && storage.overlayPercent !== undefined) details.push(_('Overlay: ') + format.text(storage.overlayPercent) + '%');
-    return { value: _('OpenWrt'), kind: 'g', detail: details.join(' · ') || _('Система доступна') };
+    var versions = object(versionStatus);
+    var systemBase = { value: _('OpenWrt'), kind: '' };
+    var os = format.text(versions.os);
+    var osMatch = os && /^OpenWrt\s+([^\s]+)/i.exec(os);
+    var engine = zapretCardValue();
+    var meta = compact([
+      metadataItem(_('ОЗУ'), memory.availableKb !== null && memory.availableKb !== undefined ? memoryLabel(memory.availableKb) + ' ' + _('свободно') : null, null),
+      metadataItem(_('Overlay'), storage.overlayPercent !== null && storage.overlayPercent !== undefined ? format.text(storage.overlayPercent) + '%' : null, null),
+      metadataItem('zapret2', engine && engine.kind !== 'r' && engine.kind !== 'warning' ? engine.value : null, 'card-zapret-ver')
+    ]);
+    var osVersion = osMatch ? osMatch[1] : os && os.replace(/^OpenWrt\s*/i, '');
+    return { value: osVersion ? systemBase.value + ' ' + osVersion : systemBase.value, kind: systemBase.kind, detail: meta.length ? E('div', { 'class': 'status-card-meta' }, meta) : _('Система доступна') };
+  }
+  function metadataItem(label, value, id) {
+    var text = format.text(value);
+    if (text === null) return null;
+    return E('span', { 'class': 'status-card-meta-item', id: id || null }, [
+      E('span', { 'class': 'status-card-meta-label' }, label),
+      E('strong', { 'class': 'status-card-meta-value' }, text)
+    ]);
   }
   function zapretCardValue() {
     var unavailable = structuredCardState();
@@ -450,7 +508,7 @@ function render(ctx) {
       if (!snapshot.installedRelease) snapshot.installedRelease = engine.installedRelease || null;
       var installedRelease = format.text(snapshot.installedRelease);
       return {
-        value: installedRelease || _('Установлен'), kind: 'g',
+        value: installedRelease || _('Установлен'), kind: '',
         detail: _('Официальный release bol-van/zapret2')
       };
     }
@@ -458,22 +516,31 @@ function render(ctx) {
     return unavailableCard(_('Backend не сообщил состояние zapret2'));
   }
   function statusCards() {
+    if (!data.status && !data.engineStatus && !data.systemStatus) {
+      return [
+        { id: 'card-nfqws', label: 'nfqws2', value: _('Загрузка…'), detail: null, kind: '', icon: 'nfqws' },
+        { id: 'card-strategy', label: _('Стратегия'), value: _('Загрузка…'), detail: null, kind: '', icon: 'strategy' },
+        { id: 'card-autostart', label: _('Автозапуск'), value: _('Загрузка…'), detail: null, kind: '', icon: 'autostart' },
+        { id: 'card-system', label: _('Система'), value: _('Загрузка…'), detail: null, kind: '', icon: 'system' }
+      ];
+    }
     var process = processValue();
-    var activeName = format.text(view.strategy.name || view.strategy.id);
+    var canonicalName = format.text(view.strategy.name);
+    var strategyName = strategyPresentation(canonicalName);
+    var activeName = format.text(strategyName.primary);
+    var strategySecondary = format.text(strategyName.secondary);
     var strategy = envelopeError('preview')
       ? { value: _('Недоступно'), kind: 'warning', detail: _('Backend не сообщил Strategy') }
       : activeName !== null
-        ? { value: activeName, kind: 'running', detail: view.strategy.revision ? _('Ревизия ') + view.strategy.revision : _('Активная стратегия') }
-        : { value: _('Не выбрана'), kind: 'warning', detail: _('Подтверждённая стратегия отсутствует') };
+        ? { value: activeName, kind: 'running', detail: strategySecondary || _('Активная стратегия') }
+        : { value: _('Не выбрана'), kind: '', detail: _('Подтверждённая стратегия отсутствует') };
     var autostart = autostartCardValue();
     var system = systemCardValue();
-    var version = zapretCardValue();
     return [
       { id: 'card-nfqws', label: 'nfqws2', value: process.value, detail: process.detail, kind: process.kind, icon: 'nfqws' },
       { id: 'card-strategy', label: _('Стратегия'), value: strategy.value, detail: strategy.detail, kind: strategy.kind, icon: 'strategy' },
       { id: 'card-autostart', label: _('Автозапуск'), value: autostart.value, detail: autostart.detail, kind: autostart.kind, icon: 'autostart' },
-      { id: 'card-system', label: _('Система'), value: system.value, detail: system.detail, kind: system.kind, icon: 'system' },
-      { id: 'card-zapret-ver', label: 'zapret2', value: version.value, detail: version.detail, kind: version.kind, icon: 'zapret', href: '#/zapret' }
+      { id: 'card-system', label: _('Система'), value: system.value, detail: system.detail, kind: system.kind, icon: 'system' }
     ];
   }
   function eventRows(envelope) {
@@ -494,9 +561,9 @@ function render(ctx) {
   }
   function refreshLogStylesheet() {
     var link = document && document.getElementById('z2m-ui-css');
-    if (!link || link.getAttribute('data-z2m-revision') === 'adaa1aa40aa33e7ac') return;
-    link.setAttribute('data-z2m-revision', 'adaa1aa40aa33e7ac');
-    link.href = link.href.split('?')[0] + '?v=adaa1aa40aa33e7ac';
+    if (!link || link.getAttribute('data-z2m-revision') === 'p01v3-dashboard-20260817') return;
+    link.setAttribute('data-z2m-revision', 'p01v3-dashboard-20260817');
+    link.href = link.href.split('?')[0] + '?v=p01v3-dashboard-20260817';
   }
 
   function renderLogViewer(rows) {
@@ -547,103 +614,69 @@ function render(ctx) {
   }
   function renderQuickActions() {
     return compact([
-      lifecycleButton('start', _('Запустить'), 'primary', running === true),
+      lifecycleButton('start', _('Запустить'), 'success', running === true),
       lifecycleButton('stop', _('Остановить'), 'danger', running !== true),
       lifecycleButton('restart', _('Перезапустить'), '', running !== true),
       lifecycleFeedback()
     ]);
   }
 
-  var strategyOptions = catalog.map(function (candidate) {
-    var id = candidateId(candidate);
-    var name = candidateName(candidate, format);
-    return id === null || name === null ? null : { id: id, name: name };
-  }).filter(Boolean);
-  var strategySelect = null;
-  if (strategyOptions.length) {
-    strategySelect = E('select', { 'aria-label': _('Стратегия точечного правила') });
-    strategyOptions.forEach(function (candidate) {
-      strategySelect.appendChild(E('option', {
-        value: candidate.id,
-        selected: candidate.id === selectedOverrideId ? 'selected' : null
-      }, candidate.name));
-    });
-    if (selectedOverrideId !== null) strategySelect.value = selectedOverrideId;
-    strategySelect.addEventListener('change', function () {
-      runtime.overrideStrategyId = strategySelect.value;
-      selectedOverrideId = strategySelect.value;
-    });
+  function recommendationReason(item) {
+    var reasons = [];
+    var scannerEvidence = object(item.scannerEvidence);
+    var learnedEvidence = object(item.learnedEvidence);
+    var healthEvidence = object(item.healthEvidence);
+    if (item.upstreamRecommended === true) reasons.push(_('Рекомендуется каталогом'));
+    if (scannerEvidence.verified === true) reasons.push(_('Подтверждено сканированием'));
+    if (learnedEvidence.count > 0 || asArray(learnedEvidence.domains).length) reasons.push(_('Подтверждено историей'));
+    if (healthEvidence.recentlyHealthy === true || healthEvidence.status === 'healthy') reasons.push(_('Проверено healthcheck'));
+    return reasons;
   }
 
-  var resourceBody = [
-    E('div', { 'class': 'z2m-fieldline' }, [targetInput, shell.button(_('Проверить'), 'primary', checkResource)]),
-    E('div', { 'class': 'z2m-dim' }, _('Проверка выполняется backend и не меняет текущую конфигурацию.')),
-    runResult
-  ];
-  if (strategySelect) {
-    resourceBody.push(E('div', { 'class': 'z2m-hr' }));
-    resourceBody.push(E('div', { 'class': 'z2m-fieldline' }, [
-      strategySelect,
-      shell.button(_('Применить только к ресурсу'), '', stageOverrideSet)
-    ]));
-    resourceBody.push(E('div', { 'class': 'z2m-dim' }, _('Сначала создаётся черновик. Runtime изменится только после явного применения.')));
-  }
-  var resourcePanel = shell.panel(_('Проверить ресурс'), E('div', {}, resourceBody), _('домен, URL или IP'));
-
-  var ruleRows = rules.map(function (rule) {
-    rule = object(rule);
-    var target = format.text(rule.target);
-    var strategy = format.text(rule.strategyName || rule.strategyId);
-    if (target === null && strategy === null) return null;
-    var removing = pendingOverride && pendingOverride.action === 'override_delete' && pendingOverride.id === rule.id;
-    return E('div', { 'class': 'z2m-rule' + (removing ? ' changed' : '') }, [
-      E('span', { 'class': 'z2m-rule-main' }, compact([
-        target !== null ? E('b', {}, target) : null,
-        strategy !== null ? E('small', {}, strategy) : null
-      ])),
-      shell.chip(removing ? _('удаление в черновике') : rule.enabled === false ? _('выкл') : _('вкл'),
-        removing ? 'o' : rule.enabled === false ? '' : 'g'),
-      rule.id ? shell.button('×', 'danger sm', function () { stageOverrideDelete(rule); }, removing, {
-        'aria-label': _('Удалить точечное правило')
-      }) : null
+  function renderRecommendations() {
+    var items = asArray(recommendations.recommendations || recommendations.items).slice(0, 3);
+    var rows = items.map(function (item) {
+      item = object(item);
+      var presentation = strategyPresentation(format.text(item.name));
+      var primary = format.text(presentation.primary);
+      if (primary === null) return null;
+      var secondary = format.text(presentation.secondary);
+      if (secondary === null) {
+        secondary = format.text(item.protocol);
+        if (secondary === null && format.text(item.description) !== null)
+          secondary = format.text(item.description).slice(0, 88) + (format.text(item.description).length > 88 ? '…' : '');
+      }
+      var reasons = recommendationReason(item);
+      return E('div', { 'class': 'recommendation-row' }, [
+        E('span', { 'class': 'recommendation-row-icon', 'aria-hidden': 'true' }, [AvatarDashboard.icon('badge-check')]),
+        E('div', { 'class': 'recommendation-copy' }, [
+          E('div', { 'class': 'recommendation-name' }, primary),
+          secondary ? E('div', { 'class': 'recommendation-secondary' }, secondary) : null
+        ]),
+        E('div', { 'class': 'recommendation-reasons' }, reasons.map(function (reason) {
+          return E('span', { 'class': 'recommendation-reason' }, reason);
+        }))
+      ]);
+    }).filter(Boolean);
+    var body = rows.length ? E('div', { 'class': 'recommendation-list' }, rows) : E('div', { 'class': 'recommendation-empty' }, [
+      _('Нет подтверждённых рекомендаций.'), ' ',
+      E('a', { href: '#/strategies' }, _('Подобрать стратегии →'))
     ]);
-  }).filter(Boolean);
-
-  var rulesPanel = null;
-  if (ruleRows.length || pendingOverride) {
-    var rulesBody = [];
-    if (pendingOverride) {
-      var selectedCandidate = catalog.find(function (item) { return candidateId(item) === pendingOverride.strategyId; });
-      var pendingTarget = format.text(pendingOverride.target || pendingOverride.id);
-      var pendingStrategy = candidateName(selectedCandidate, format) || format.text(pendingOverride.strategyId);
-      var pendingText = pendingOverride.action === 'override_delete'
-        ? pendingTarget
-        : compact([pendingTarget, pendingStrategy]).join(' → ');
-      rulesBody.push(E('div', { 'class': 'warnbar z2m-override-pending' }, [
-        E('div', {}, compact([
-          E('b', {}, _('Черновик точечного правила')),
-          pendingText ? E('div', { 'class': 'z2m-dim' }, pendingText) : null
-        ])),
-        E('div', { 'class': 'sp z2m-btnrow' }, [
-          shell.button(_('Отменить изменение'), '', function () { clearPendingOverride(true); }),
-          shell.button(_('Применить изменение'), 'primary', applyPendingOverride, activeId === null)
-        ])
-      ]));
-      rulesBody.push(shell.statePanel({
-        message: _('Точечные правила нельзя применить через общий координатор: откройте семантическое сравнение и используйте strategy-owned adapter.'),
-        kind: 'warning'
-      }));
-    }
-    if (ruleRows.length) rulesBody.push(E('div', { 'class': 'z2m-rule-list' }, ruleRows));
-    rulesPanel = shell.panel(_('Точечные правила'), E('div', {}, rulesBody), _('важнее глобальной стратегии'));
+    return E('section', { id: 'dashboard-recommendations', 'class': 'card dashboard-recommendations' }, [
+      E('div', { 'class': 'card-title dashboard-recommendations-title' }, [
+        E('span', { 'class': 'dashboard-recommendations-heading' }, [AvatarDashboard.icon('badge-check'), _('Рекомендации для вас')]),
+        E('a', { href: '#/strategies', 'class': 'dashboard-recommendations-link' }, [AvatarDashboard.icon('external-link'), _('Все рекомендации →')])
+      ]),
+      body
+    ]);
   }
 
-  var rowPanels = compact([resourcePanel, rulesPanel]);
   return AvatarDashboard.render({
     cards: statusCards(),
     quickActions: renderQuickActions(),
+    recommendations: renderRecommendations(),
     recentEvents: renderEvents(),
-    extension: rowPanels.length ? E('div', { 'class': rowPanels.length > 1 ? 'z2m-row3' : 'z2m-row1' }, rowPanels) : null
+    extension: null
   });
 }
 

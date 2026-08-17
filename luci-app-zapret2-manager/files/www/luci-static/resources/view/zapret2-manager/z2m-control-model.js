@@ -21,8 +21,13 @@ function text(value, fallback) {
 function state(status) {
   status = payload(status);
   if (status.error) return 'unknown';
-  var value = String(object(status.runtimeSummary).status || '').toLowerCase();
-  return value === 'running' || value === 'stopped' ? value : 'unknown';
+  var summary = object(status.runtimeSummary);
+  var value = String(summary.status || '').toLowerCase();
+  if (value === 'running' || value === 'stopped') return value;
+  var serviceState = String(status.serviceState || '').toLowerCase();
+  if (serviceState === 'running' && object(summary.process).found === true) return 'running';
+  if (serviceState === 'stopped') return 'stopped';
+  return 'unknown';
 }
 
 function boolAt(values) {
@@ -57,13 +62,29 @@ function strategy(status, preview) {
   preview = payload(preview);
   var direct = object(status.strategyStatus);
   var previewState = object(preview.strategyState);
-  var active = object(direct.id || direct.name ? direct : previewState.active || preview.active);
-  var value = text(active.name || active.displayName || active.id || active.managerId);
-  return {
-    value: value || 'Недоступно',
-    detail: value ? (active.revision != null ? 'Ревизия ' + active.revision : 'Активная стратегия') : 'Сервис не сообщил стратегию',
-    kind: value ? 'running' : 'warning'
-  };
+  var canonical = object(preview.strategy);
+	var metadata = object(preview.metadata);
+	var active = object(direct.id || direct.name ? direct : previewState.active || preview.active);
+	var value = text(preview.displayName || preview.title || preview.name || canonical.displayName || canonical.title || canonical.name || metadata.displayName || metadata.title || metadata.name || active.displayName || active.title || active.name || active.id || active.managerId);
+	var detail = text(preview.shortDescription || preview.subtitle || preview.summary || canonical.shortDescription || canonical.subtitle || canonical.summary || metadata.shortDescription || metadata.subtitle || metadata.summary || active.shortDescription || active.subtitle || active.summary);
+	// The canonical catalog currently carries the compact semantic suffix in
+	// `name` (for example: `z2k всё-в-одном (TLS/HTTP + QUIC + Discord)`).
+	// Prefer explicit presentation metadata when present; only then expose the
+	// source name's own parenthesized suffix as the secondary line.  This keeps
+	// the split source-driven and avoids frontend parsing of execution args.
+	if (value && !detail) {
+		var opening = value.indexOf(' (');
+		if (opening > 0 && value.charAt(value.length - 1) === ')') {
+			detail = value.slice(opening + 2, -1);
+			value = value.slice(0, opening);
+		}
+	}
+	if (!detail) detail = text(preview.description || canonical.description || metadata.description || active.description);
+	return {
+		value: value || 'Недоступно',
+		detail: value ? detail : 'Сервис не сообщил стратегию',
+		kind: value ? 'running' : 'warning'
+	};
 }
 
 function process(status, current) {
@@ -102,20 +123,32 @@ function firewall(status, current) {
   };
 }
 
-function hero(current, pending, action) {
+function hero(current, pending, action, meta) {
+  meta = meta || {};
   if (pending) return { label: actionCopy(action).pending, detail: 'Проверяется процесс и NFQUEUE.', kind: 'pending', pending: true };
-  if (current === 'running') return { label: 'Работает', detail: 'nfqws2 и NFQUEUE подтверждены.', kind: 'running', pending: false };
-  if (current === 'stopped') return { label: 'Остановлен', detail: 'Служба zapret2 остановлена.', kind: 'stopped', pending: false };
-  return { label: 'Состояние неизвестно', detail: 'Сервис не подтвердил состояние службы.', kind: 'unknown', pending: false };
+  if (current === 'running') return { label: 'Работает', detail: meta.retaining ? 'Обновление состояния…' : 'nfqws2 запущен' + (meta.pid == null ? '' : ' · PID ' + meta.pid), kind: 'running', pending: false };
+  if (current === 'stopped') return { label: 'Остановлен', detail: 'nfqws2 не запущен', kind: 'stopped', pending: false };
+  if (meta.error) return { label: 'Ошибка наблюдения', detail: 'Не удалось получить свежий статус службы.', kind: 'error', pending: false };
+  return { label: 'Состояние неизвестно', detail: 'Не удалось подтвердить состояние nfqws2', kind: 'unknown', pending: false };
 }
 
 function normalize(status, preview, lifecycle) {
   lifecycle = object(lifecycle);
-  var current = state(status);
+  var rawStatus = payload(status);
+  var observed = state(rawStatus);
+  var pollIntervalMs = Number(lifecycle.pollIntervalMs) > 0 ? Number(lifecycle.pollIntervalMs) : 3000;
+  var freshnessWindowMs = pollIntervalMs * 3;
+  var lastKnownAt = Number(lifecycle.lastKnownAt) || 0;
+  var now = Number(lifecycle.now) || Date.now();
+  var hasLastKnown = (lifecycle.lastKnownState === 'running' || lifecycle.lastKnownState === 'stopped') && lifecycle.lastKnownStatus;
+  var retaining = observed === 'unknown' && hasLastKnown && now - lastKnownAt <= freshnessWindowMs;
+  var effectiveStatus = retaining ? payload(lifecycle.lastKnownStatus) : rawStatus;
+  var current = retaining ? lifecycle.lastKnownState : observed;
   var pending = lifecycle.pending === true;
   var action = text(lifecycle.action, 'start');
   var permissions = buttons(current, pending);
   var actionNames = { start: 'Запустить', stop: 'Остановить', restart: 'Перезапустить' };
+  var processView = process(effectiveStatus, current);
   var actions = {};
   ['start', 'stop', 'restart'].forEach(function (name) {
     var copy = actionCopy(name);
@@ -127,10 +160,11 @@ function normalize(status, preview, lifecycle) {
   return {
     state: current,
     pending: pending,
-    hero: hero(current, pending, action),
-    strategy: strategy(status, preview),
-    process: process(status, current),
-    firewall: firewall(status, current),
+    retaining: retaining,
+    hero: hero(current, pending, action, { retaining: retaining, error: String(object(rawStatus.runtimeSummary).status || '').toLowerCase() === 'error', pid: processView.pid }),
+    strategy: strategy(effectiveStatus, preview),
+    process: processView,
+    firewall: firewall(effectiveStatus, current),
     actions: actions
   };
 }

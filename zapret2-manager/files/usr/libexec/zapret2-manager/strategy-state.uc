@@ -17,7 +17,11 @@ const APPLY_LASTGOOD_DIR = getenv('Z2M_STRATEGY_APPLY_LASTGOOD') || '/tmp/zapret
 const APPLY_BLOCK_PATH = getenv('Z2M_STRATEGY_APPLY_BLOCK') || APPLY_LASTGOOD_DIR + '/strategy-apply-block.json';
 const APPLY_LEASE_PATH = getenv('Z2M_STRATEGY_APPLY_LEASE') || APPLY_LASTGOOD_DIR + '/strategy-apply-lease.json';
 const LOCK_PATH = getenv('Z2M_STRATEGY_LOCK') || '/tmp/zapret2-manager/strategy-state.lock';
-const CATALOG_ROOT = getenv('Z2M_STRATEGY_CATALOG_ROOT') || '/usr/share/zapret2-manager/catalog/avatar';
+// Apply guards must hash the same merged Avatar+Forgejo catalog that the
+// Strategy CLI resolves. Hashing the legacy Forgejo-only root makes a
+// current UI digest look stale and rejects every persisted catalog Apply.
+const PACKAGE_CATALOG_ROOT = '/usr/share/zapret2-manager/catalog/avatar';
+const ACTIVE_CATALOG_ROOT = '/etc/zapret2-manager/catalog/avatar';
 const EXTENSION_MANIFEST_PATH = getenv('Z2M_STRATEGY_EXTENSION_MANIFEST') || '/usr/share/zapret2-manager/strategies/extensions.json';
 const MAX_BYTES = 521028;
 const MAX_ID = 128;
@@ -28,6 +32,13 @@ const MAX_METADATA_TEXT = 4096;
 const LOCK_STALE_SECONDS = 300;
 const PRIVATE_DIR_MODE = 448; // 0700
 const PRIVATE_FILE_MODE = 384; // 0600
+
+function catalog_root() {
+	let configured = getenv('Z2M_STRATEGY_CATALOG_ROOT');
+	if (configured) return configured;
+	try { if (stat(ACTIVE_CATALOG_ROOT) != null) return ACTIVE_CATALOG_ROOT; } catch (e) { }
+	return PACKAGE_CATALOG_ROOT;
+}
 const HASH_TAG = getenv('Z2M_STRATEGY_HASH_TAG') || '';
 const MAX_APPLY_UNCERTAIN_BYTES = 16384;
 const APPLY_BLOCK_MARKER = 'z2m-strategy-apply-block.v1';
@@ -66,7 +77,7 @@ function load_catalog_ids() {
 	if (catalog_loaded) return catalog_available;
 	catalog_loaded = true;
 	let loaded = null;
-	try { loaded = strategy_catalog_load(CATALOG_ROOT); } catch (e) { loaded = null; }
+	try { loaded = strategy_catalog_load(catalog_root()); } catch (e) { loaded = null; }
 	if (!is_object(loaded) || loaded.ok != true || !is_object(loaded.catalog) ||
 		!is_object(loaded.catalog.winners)) return false;
 	for (let id in loaded.catalog.winners) catalog_ids[id] = true;
@@ -625,7 +636,7 @@ export const strategy_duplicate = function(input) {
 		if (source == null && sourceResult.error && sourceResult.error.code != 'ENOENT') return sourceResult;
 		if (source == null) {
 			let loaded = null;
-			try { loaded = strategy_catalog_load(CATALOG_ROOT); } catch (e) { loaded = null; }
+			try { loaded = strategy_catalog_load(catalog_root()); } catch (e) { loaded = null; }
 			let entry = loaded && loaded.ok == true && loaded.catalog && loaded.catalog.winners
 				? loaded.catalog.winners[requested] : null;
 			try { source = entry == null ? null : catalog_entry_to_strategy(entry); } catch (e) { source = null; }
@@ -719,7 +730,7 @@ function apply_block_clear() {
 
 function apply_catalog_digest() {
 	let loaded = null;
-	try { loaded = strategy_catalog_load(CATALOG_ROOT); } catch (e) { loaded = null; }
+		try { loaded = strategy_catalog_load(catalog_root()); } catch (e) { loaded = null; }
 	return is_object(loaded) && loaded.ok == true && is_object(loaded.catalog)
 		&& sha256(loaded.catalog.aggregateDigest) ? loaded.catalog.aggregateDigest : null;
 }

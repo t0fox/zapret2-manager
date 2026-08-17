@@ -7,6 +7,7 @@ const root = path.resolve(import.meta.dirname, '..', '..');
 const catalog = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/engine-catalog.uc'), 'utf8');
 const legacy = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/engine-legacy-detect.uc'), 'utf8');
 const worker = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/engine-operation-worker.sh'), 'utf8');
+const service = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/service.uc'), 'utf8');
 const cli = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/engine-cli.uc'), 'utf8');
 const rpc = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager-engine.uc'), 'utf8');
 const manager = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/engine-manager.uc'), 'utf8');
@@ -100,6 +101,19 @@ test('worker is official tar-only and retains transactional rollback checks', ()
   assert.match(worker, /pause_watchdog/);
   assert.match(worker, /resume_watchdog/);
   assert.doesNotMatch(worker, /1andrevich|remittor|\.apk|\.zip/);
+});
+
+test('official runtime normalizes permissions for the daemon user after umask-077 staging', () => {
+  assert.match(worker, /normalize_runtime_permissions\(\)\{/);
+  assert.match(worker, /find \/opt\/zapret2 -type d -exec chmod 755/);
+  assert.match(worker, /find \/opt\/zapret2 -type f -exec chmod 644/);
+  assert.match(worker, /normalize_runtime_permissions \|\| fail EINSTALL/);
+  assert.match(worker, /find \/opt\/zapret2\/init\.d -type f -exec chmod 755/);
+  assert.match(worker, /chmod 755 \/etc\/zapret2-manager\/ipset/);
+  assert.match(worker, /find \/etc\/zapret2-manager\/ipset -type f -name '\*\.txt' -exec chmod 644/);
+  assert.match(service, /chmod 755 \/etc\/zapret2-manager'\)/);
+  assert.match(service, /chmod 755 \/etc\/zapret2-manager\/ipset'\)/);
+  assert.match(service, /chmod 644 \/etc\/zapret2-manager\/ipset\/\*\.txt'\)/);
 });
 
 test('official runtime can commit state without a legacy APK package', () => {

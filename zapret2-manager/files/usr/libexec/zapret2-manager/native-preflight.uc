@@ -9,6 +9,16 @@ import { z2m_tokenize, z2m_parse, z2m_validate } from './profiles.uc';
 const NFQWS2_BIN = '/opt/zapret2/nfq2/nfqws2';
 const MANIFEST = '/usr/share/zapret2-manager/native-preflight.json';
 const ALLOWED_LUA_ROOT = '/opt/zapret2/';
+// The catalog contains z2k desync/detector names that are not part of the
+// official three-file Lua base. Preflight must execute the same extension
+// chain that the production init script loads, otherwise valid Strategies
+// are rejected before Apply with a false missing-function diagnosis.
+const CUSTOM_LUA_INIT = [
+	'/opt/zapret2/lua/z2k-modern-core.lua',
+	'/opt/zapret2/lua/z2k-detectors.lua',
+	'/opt/zapret2/lua/z2k-fooling-ext.lua',
+	'/opt/zapret2/lua/z2k-state-persist.lua'
+];
 
 function shell_escape(value) {
 	let s = '' + value, out = "'";
@@ -75,6 +85,8 @@ function command_for(candidate, mode) {
 		+ ' --lua-init=@/opt/zapret2/lua/zapret-lib.lua'
 		+ ' --lua-init=@/opt/zapret2/lua/zapret-antidpi.lua'
 		+ ' --lua-init=@/opt/zapret2/lua/zapret-auto.lua';
+	for (let i = 0; i < length(CUSTOM_LUA_INIT); i++)
+		cmd += ' --lua-init=@' + shell_escape(CUSTOM_LUA_INIT[i]);
 	for (let i = 0; i < length(tokens); i++) cmd += ' ' + shell_escape(tokens[i].value);
 	return cmd;
 }

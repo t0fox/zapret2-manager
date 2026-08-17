@@ -530,8 +530,11 @@ function classify_curl_stage(rc, httpCode) {
 }
 
 function classify_service(probes) {
-	if (probes.catalog != null && probes.catalog.domainsPresent == false)
-		return { class: 'skipped', reason: 'service domains are not in the user list (service disabled?)' };
+	// The Healthcheck service checkbox is the explicit user selection. Catalog
+	// presence is retained as diagnostic evidence, but must not turn a selected
+	// service into "skipped" because the service domains are not in a separate
+	// user list.
+	// catalog presence is diagnostic only.
 	if (probes.dns == null || probes.dns.ok != true)
 		return { class: 'dns', reason: 'local resolution failed' };
 	let tcp = (probes.tcp != null) ? classify_curl_stage(probes.tcp.rc, null) : { outcome: 'fail', layer: 'unknown' };
@@ -625,6 +628,32 @@ function matrix_summary(rows) {
 		note: 'diagnostics per layer, not service-availability verdicts' };
 }
 
+function normalize_health_domain(value) {
+	if (type(value) != 'string') return null;
+	let domain = lc(trim(value));
+	if (substr(domain, 0, 7) == 'http://') domain = substr(domain, 7);
+	else if (substr(domain, 0, 8) == 'https://') domain = substr(domain, 8);
+	let cut = index(domain, '/');
+	if (cut >= 0) domain = substr(domain, 0, cut);
+	if (length(domain) > 253 || !match(domain, /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/)) return null;
+	return domain;
+}
+function health_custom_domains(value) {
+	if (value == null) return { ok: true, domains: [] };
+	let raw = type(value) == 'array' ? value : (type(value) == 'string' ? split(value, /[\n,]+/) : null);
+	if (raw == null) return err('EINPUT', 'custom_domains must be an array or newline-separated string');
+	let domains = [];
+	for (let item in raw) {
+		let candidate = trim('' + item);
+		if (!length(candidate)) continue;
+		let domain = normalize_health_domain(candidate);
+		if (domain == null) return err('EINPUT', 'custom_domains contains an invalid domain');
+		if (index(domains, domain) < 0) push(domains, domain);
+	}
+	if (length(domains) > 16) return err('EINPUT', 'too many custom domains (max 16)');
+	return { ok: true, domains: domains };
+}
+
 export const health_matrix_start = function(input) {
 	crash_recover_all();
 	sweep();
@@ -635,6 +664,8 @@ export const health_matrix_start = function(input) {
 
 	// targets: requested services, else ledger-enabled, else whole catalog
 	let requested = (type(input) == 'object' && input != null && type(input.services) == 'array') ? input.services : null;
+	let custom = health_custom_domains(type(input) == 'object' && input != null ? input.custom_domains : null);
+	if (!custom.ok) return custom;
 	let ids = [];
 	if (requested != null) ids = requested;
 	else if (length(ll.ledger.enabled) > 0) ids = ll.ledger.enabled;
@@ -650,8 +681,11 @@ export const health_matrix_start = function(input) {
 		else push(targets, svc);
 	}
 	if (length(unknown) > 0) return err('EINPUT', 'unknown service ids: ' + join(', ', unknown));
-	if (length(targets) == 0) return err('EINPUT', 'no services to probe');
-	if (length(targets) > 16) return err('EINPUT', 'too many targets (max 16 per matrix)');
+	if (length(targets) + length(custom.domains) == 0) return err('EINPUT', 'no services or custom domains to probe');
+	if (length(targets) + length(custom.domains) > 16) return err('EINPUT', 'too many targets (max 16 per matrix)');
+	for (let i = 0; i < length(custom.domains); i++) push(targets, { id: 'custom' + (i + 1), name: 'Свой сайт', domains: [custom.domains[i]], custom: true });
+	let targetIds = [];
+	for (let i = 0; i < length(targets); i++) push(targetIds, targets[i].id);
 	if (!stat(HEALTH_RUNNER)) return err('EINTERNAL', 'health runner not installed at ' + HEALTH_RUNNER);
 
 	// at most ONE active healthmatrix job
@@ -697,7 +731,8 @@ export const health_matrix_start = function(input) {
 
 	let job = {
 		version: 2, id: id, kind: 'healthmatrix', mode: 'matrix',
-		services: ids,
+		services: targetIds,
+		custom_domains: custom.domains,
 		status: 'pending', createdAt: now, startedAt: null, finishedAt: null,
 		runnerPid: null, childPid: null,
 		timeoutSec: timeoutSec,

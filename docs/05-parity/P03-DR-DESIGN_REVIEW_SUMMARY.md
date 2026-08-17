@@ -309,3 +309,196 @@ filters, secondary `Витрина` extension, TCP group header and Strategy car
   mutation was used.
 - Final focused regression suite: `20/20 PASS`; all JS syntax checks and
   `git diff --check` pass.
+
+## P03 Healthcheck settings initial review
+
+The live authenticated Z2M page was audited at
+`/cgi-bin/luci/admin/services/zapret2-manager?p03v2=healthcheck#/strategies`.
+The collapsed Healthcheck card exposed `Проверить сейчас`, `Настроить`,
+`Интервал: 5 мин`, `Сайтов: 3`, `Сброс после: 2 провалов подряд`, and the
+outage/auto-reset labels. Activating the existing `configureHealthcheck()`
+handler invoked `window.prompt()` and then sent a partial
+`healthcheck_config` mutation.
+
+The frozen Avatar donor renderer was traced in `web/js/pages/strategies.js`:
+`toggleHealthcheckSettings()` opens an inline nested panel and
+`renderHealthcheckSettings()` renders canonical service selection, custom
+domains, interval, failure threshold, outage guard, control site, Save and
+Cancel. Its save handler submits one complete healthcheck configuration body.
+The donor also renders last-run/result rows from returned data. Donor service
+icons are defined in `web/js/pages/diagnostics.js`.
+
+INITIAL_FUNCTIONAL_PARITY: FAIL
+INITIAL_DESIGN_PARITY: FAIL
+INITIAL_SEVERITY: P1
+HEALTHCHECK_NATIVE_PROMPT: 1
+HEALTHCHECK_SETTINGS_INLINE: 0
+CURRENT_CONFIG_FIELDS: services, custom_domains, interval_min, consecutive_failures, auto_reset, history_size, control_domain, outage_guard
+DONOR_CONFIG_FIELDS: services, custom_domains, interval_min, consecutive_failures, outage_guard, control_domain
+UI_MISSING_FIELDS: services, custom_domains, consecutive_failures, outage_guard, control_domain
+BACKEND_CONFIG_STORAGE: PARTIAL (fields exist, validation and custom-target handoff absent)
+BACKEND_CANONICAL_MUTATION: healthcheck_config
+HEALTHCHECK_INITIAL_P1: 1
+P03_HEALTHCHECK_STARTED: YES
+
+## P03 Healthcheck final closure
+
+The donor was run locally from frozen checkout `38ed85ce487c6b3dbdf703a5be197795f7c0cad1` and compared in Browser with the deployed target card. The donor collapsed card keeps the operation controls and compact interval/site/threshold summary in the card; its expanded state nests the settings panel, service icon checkboxes, custom-domain textarea, numeric controls, outage/control-domain fields, and Save/Cancel actions. The Z2M card now follows that same hierarchy while retaining Z2M's canonical RPC and LuCI shell.
+
+DESIGN_REVIEW_COLLAPSED_DONOR_VS_Z2M: PASS
+DESIGN_REVIEW_EXPANDED_DONOR_VS_Z2M: PASS
+DESIGN_REVIEW_SERVICE_ICONS: PASS (donor-derived presentation map; canonical catalog IDs/names remain authoritative)
+DESIGN_REVIEW_VISUAL_HIERARCHY: PASS
+DESIGN_REVIEW_WRAPPING: PASS
+DESIGN_REVIEW_READABILITY: PASS
+FUNCTIONAL_PARITY: PASS
+DESIGN_PARITY: PASS
+HEALTHCHECK_NATIVE_PROMPT: 0
+HEALTHCHECK_SETTINGS_INLINE: YES
+HEALTHCHECK_CANCEL_BACKEND_MUTATIONS: 0
+HEALTHCHECK_SAVE_MUTATIONS: 1 canonical `healthcheck_config` call
+HEALTHCHECK_SETTINGS_FIELDS: services, custom_domains, interval_min, consecutive_failures, outage_guard, control_domain
+HEALTHCHECK_CUSTOM_DOMAIN_VALIDATION: PASS (blank lines ignored; malformed, bounded and total-target limits rejected)
+HEALTHCHECK_RAW_ENUMS_IN_UI: 0
+HEALTHCHECK_RESULTS_SOURCE: canonical health_matrix job rows
+P1_REMAINING: 0
+
+### Real Browser acceptance
+
+The same authenticated Browser session verified the deployed router UI:
+
+1. Opened the collapsed Healthcheck card and expanded the inline panel. No native dialog appeared. Canonical current services were rendered as icon-backed checkboxes, with custom domains, interval, threshold, outage guard, control site, Save and Cancel.
+2. Changed the interval to `7`, pressed Cancel, and verified the panel closed while the router config remained at `interval_min: 5`.
+3. Reopened, saved bounded value `6`, verified the collapsed card showed `Интервал: 6 мин`, then reopened and saved `5`.
+4. Final target config was restored to the original values: services `youtube, discord, twitch`, custom domains empty, interval `5`, threshold `2`, auto-reset enabled, outage guard enabled, control site empty.
+5. Pressed `Проверить сейчас`. Browser showed `Проверка выполняется`; the resulting job was `job-1786919084-3`, `status: succeeded`, `elapsedSec: 28`, and three canonical result rows. Reopened settings after completion and verified the result table rendered without raw backend class enums.
+
+HEALTHCHECK_BROWSER_ACCEPTANCE: PASS
+HEALTHCHECK_ASYNC_COMPLETION: PASS
+HEALTHCHECK_FINAL_JOB: job-1786919084-3 / succeeded / 3 rows
+HEALTHCHECK_FINAL_CONFIG_RESTORED: YES
+HEALTHCHECK_LEARNED_RESET: NOT RUN
+HEALTHCHECK_FIREWALL_APPLY: NOT RUN
+HEALTHCHECK_REBOOT_OR_WAN_MUTATION: NOT RUN
+
+### Verification and deployment
+
+- Focused contract suite: `4/4 PASS` (`tests/ui/p03-healthcheck-settings-contract.test.mjs`).
+- `git diff --check`: PASS.
+- Target `ubus call zapret2-manager healthcheck_status` loaded the deployed ucode successfully; invalid `custom_domains: ["bad domain"]` returned `EINPUT` without a mutation.
+- Local and target SHA256 matched for all six deployed files:
+  - `z2m-strategies.js`: `be518b6a9b2b4ee786fa514d202e36dd034a9ed9e182fb93e4e64595e7030ff8`
+  - `z2m-healthcheck-model.js`: `6926dff07a06302bbbd78ac4e717a46908d7ca906c77374e6dd2611dbdec6cdb`
+  - `z2m-ui.css`: `17b322aedb3d686a3fdf681633bd927125a13d4913ed6747a01873d2e305d6a8`
+  - `strategies-ops.uc`: `78ca1f93b43fbfea87a1ff379005a0cb59310ac9c85dceffc6af5121f5c411f8`
+  - `jobs.uc`: `4498fd17b749ecb3accf180a2cf405d24d4ce423d05c7904f53787ca6e72170f`
+  - `health-run.sh`: `191771e8b9e11b1d1b1db506ebe35777c6d74e00895b117490f6737a8ea7262f`
+- No Apply, firewall change, reboot, WAN mutation, learned-state reset, or unrelated checkout cleanup was performed.
+
+P03_HEALTHCHECK_FINAL: DONE
+
+## P03 Strategy collapsed-card port metadata parity
+
+The frozen Avatar donor renderer was traced in `web/js/pages/strategies.js`:
+collapsed cards render the already-derived Profile `name`; `_detectProfileInfo`
+derives `TCP (порты ...)` and `UDP (порты ...)` from canonical
+`--filter-tcp/udp=` arguments. The Z2M model now applies the same presentation
+boundary to canonical Profile fields (`tcpPorts`, `udpPorts`, `filters`) and
+the raw Profile `args`, preserving each protocol and range as a separate tag.
+No port value is stored in the renderer or hardcoded into the card.
+
+The deployed target was verified in Browser against a temporary user Strategy
+containing real TCP and UDP ranges. Its collapsed card showed
+`TCP (порты 2053,2083,2087,2096,8443)` and
+`UDP (порты 19294-19344,50000-50100)` while `Подробнее` remained closed. The
+temporary Strategy and bounded `/tmp` verification artifacts were removed
+after acceptance; the pre-existing selected Strategy and Healthcheck config
+were unchanged.
+
+The real donor card `ALL TCP & UDP YTDisBystro 3.4 v1` was compared with the
+real Z2M card for protocol tags, ranges, visual hierarchy, wrapping and
+readability. Both retained separate TCP/UDP pills in the collapsed state.
+
+COLLAPSED_CARD_PROTOCOL_VISIBLE = YES
+COLLAPSED_CARD_PORTS_VISIBLE = YES
+PORT_DATA_SOURCE = CANONICAL_STRATEGY_DATA
+HARDCODED_PORT_LABELS = 0
+DESIGN_REVIEW_PROTOCOL_TAGS: PASS
+DESIGN_REVIEW_PORT_RANGES: PASS
+DESIGN_REVIEW_VISUAL_HIERARCHY: PASS
+DESIGN_REVIEW_WRAPPING: PASS
+DESIGN_REVIEW_READABILITY: PASS
+PORT_METADATA_PARITY = PASS
+
+### Verification and deployment
+
+- Focused port contract: `3/3 PASS` (`tests/ui/p03-strategy-port-metadata.test.mjs`).
+- JavaScript syntax checks and `git diff --check`: PASS.
+- Local and target SHA256 matched after scoped deployment:
+  - `z2m-strategies.js`: `49e1507727633df4ea00cee71ecfb55b9fa09dc7622f3f7ed616278a53b32c83`
+  - `z2m-strategies-model.js`: `35652709bd7cad7e8d6dbfe1607a52af824d3c260157480e05afeb44c2a19afa`
+  - `z2m-ui.css`: `2ab84c559470f1d449d4c79303391d907b9a573f2b8c18e0a552d54eca22717b`
+- Browser acceptance: real collapsed-card DOM contained two independent protocol/range badges; details rectangle was zero-sized and `expanded=false`.
+
+P03_PORT_METADATA_FINAL: DONE
+
+### Healthcheck result visibility correction
+
+The canonical `healthcheck_status` response already contained the completed
+job rows, including rows from an `expired` job. Z2M rendered those rows only
+inside the settings-open branch, while the donor renders the latest result
+body in the normal collapsed Healthcheck card. The renderer now appends the
+canonical result table independently of the settings panel.
+
+HEALTHCHECK_RESULT_SOURCE = CANONICAL_HEALTHCHECK_JOB_ROWS
+HEALTHCHECK_RESULTS_COLLAPSED_VISIBLE = YES
+HEALTHCHECK_RESULTS_SETTINGS_REQUIRED = NO
+HEALTHCHECK_RESULTS_PARITY = PASS
+
+Browser acceptance on the live target, with settings closed, showed the
+actual completed run with three rows: `youtube`, `discord`, and `twitch`.
+The result table remained visible without opening «Настроить».
+
+### Verification and deployment
+
+- Focused P03 regression set: `20/20 PASS`.
+- JavaScript syntax check and `git diff --check`: PASS.
+- Local and target SHA256 matched for the deployed `z2m-strategies.js`:
+  `52c1ed4526934b6f0854338379ce3e98fcef239804c0b3c7f8661845f9616d24`.
+- Browser screenshot and DOM inspection confirmed the visible result table
+  while the settings fields were absent (`settingsFields = 0`).
+
+HEALTHCHECK_RESULTS_FINAL: DONE
+
+### Healthcheck selected-service classification correction
+
+The previous target run incorrectly classified every checked service as
+`skipped` when `catalogPresent=false`. That field only describes presence in
+the separate domain include list; it is not the Healthcheck selection. A
+checked service is already an explicit canonical target, so catalog presence
+is now retained as diagnostic evidence and no longer short-circuits the
+DNS/TCP/TLS/HTTP classifier.
+
+HEALTHCHECK_CHECKBOX_IS_EXPLICIT_TARGET = YES
+HEALTHCHECK_CATALOG_PRESENCE_IS_DIAGNOSTIC_ONLY = YES
+HEALTHCHECK_SELECTED_SERVICE_SKIP_ON_LIST_MISS = NO
+HEALTHCHECK_CLASSIFICATION_PARITY = PASS
+
+Live target acceptance after the backend deployment:
+
+- `youtube`: `unknown-timeout` / TCP probe timed out.
+- `discord`: `unknown-timeout` / TCP probe timed out.
+- `twitch`: `reachable-http` / HTTP 301.
+
+The Browser card showed the corresponding user-facing statuses `Недоступен`,
+`Недоступен`, and `OK`; no row was `Пропущен`.
+
+### Verification and deployment
+
+- Focused P03 regression set: `21/21 PASS`.
+- JavaScript syntax check, target `ash -n`, and `git diff --check`: PASS.
+- Deployed target SHA256:
+  - `jobs.uc`: `a5231950477e13763a046729cabce4d6d9707750dcfeb1e8aa88e5eb5366f4fa`
+  - `health-run.sh`: `ce7adedb3911d4034ef590003a1afaa693981c34bf08a62cb8b7bb4c59d71a75`
+
+HEALTHCHECK_SELECTED_SERVICE_CLASSIFICATION_FINAL: DONE

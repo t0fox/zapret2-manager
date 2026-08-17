@@ -2,6 +2,7 @@
 'require baseclass';
 'require view.zapret2-manager.z2m-nfqws2-ide as Nfqws2Ide';
 'require view.zapret2-manager.z2m-strategies-model as Model';
+'require view.zapret2-manager.z2m-healthcheck-model as HealthcheckModel';
 
 /*
  * P03 donor transplant.
@@ -21,8 +22,10 @@ var FILTER_PRESETS = {
 var state = {
   ctx: null, root: null, data: {}, rows: [], selectedId: null,
   pending: null, editor: null, preview: null, selectedIds: {},
+  detailLoading: {},
   listUI: null, pollTimer: null, disposed: false, loaded: false,
-  healthcheck: null, learned: null, debug: false, clipboardFallback: false,
+  healthcheck: null, healthcheckCatalog: [], healthcheckSettings: { open: false, loading: false, draft: null, error: null },
+  learned: null, debug: false, clipboardFallback: false,
   modalResize: null,
   clickHandler: null, changeHandler: null, inputHandler: null,
   keyHandler: null
@@ -60,6 +63,22 @@ function svgIcon(name, size, extraClass) {
   var body = STRATEGY_ICONS[name] || '';
   if (!body) return '';
   return '<svg class="z2m-icon' + (extraClass ? ' ' + extraClass : '') + '" aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="' + (size || 14) + '" height="' + (size || 14) + '" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + body + '</svg>';
+}
+/* Donor diagnostics.js service marks.  Catalog identity remains canonical;
+ * icons are presentation-only and fall back to the same activity mark. */
+var HEALTH_SERVICE_ICONS = {
+  youtube: '<path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 0 0 .5 6.2 31.9 31.9 0 0 0 0 12a31.9 31.9 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 0 0 2.1-2.1A31.9 31.9 0 0 0 24 12a31.9 31.9 0 0 0-.5-5.8zM9.6 15.6V8.4L15.8 12z"/>',
+  discord: '<path d="M20.3 4.4a19.6 19.6 0 0 0-4.9-1.5 14.5 14.5 0 0 0-.6 1.3 18 18 0 0 0-5.6 0 14.5 14.5 0 0 0-.7-1.3A19.6 19.6 0 0 0 3.7 4.4 20.5 20.5 0 0 0 .1 16.5a19.7 19.7 0 0 0 6 3 14.2 14.2 0 0 0 1.2-2 12.8 12.8 0 0 1-2-.9l.5-.4a14 14 0 0 0 12.1 0l.5.4a12.8 12.8 0 0 1-2 .9 14.2 14.2 0 0 0 1.2 2 19.7 19.7 0 0 0 6-3A20.5 20.5 0 0 0 20.3 4.4zM8 13.9c-1 0-1.9-1-1.9-2.1s.8-2.1 1.9-2.1 2 1 1.9 2.1c0 1.2-.8 2.1-1.9 2.1zm8 0c-1 0-1.9-1-1.9-2.1s.8-2.1 1.9-2.1 2 1 1.9 2.1c0 1.2-.8 2.1-1.9 2.1z"/>',
+  telegram: '<path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm4.9 6.8-1.7 7.8c-.1.5-.5.7-.9.4l-2.5-1.8-1.2 1.2-.2-2.5 4.7-4.2c.2-.2 0-.3-.3-.1L8.8 13l-2.4-.8c-.5-.2-.5-.5.1-.7l9.4-3.6c.5-.1.8.1.7.9z"/>',
+  instagram: '<rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1"/>',
+  twitter: '<path d="M18.2 2.3h3.5l-7.6 8.7L23 21.7h-7l-5.5-7.2-6.3 7.2H.7l8.1-9.3L.4 2.3h7.2l5 6.6z"/>',
+  'x-twitter': '<path d="M18.2 2.3h3.5l-7.6 8.7L23 21.7h-7l-5.5-7.2-6.3 7.2H.7l8.1-9.3L.4 2.3h7.2l5 6.6z"/>',
+  'chatgpt-openai': '<path d="M22.3 10.3a6.1 6.1 0 0 0-.5-5 6.2 6.2 0 0 0-6.7-3 6.1 6.1 0 0 0-4.6-2.1 6.2 6.2 0 0 0-5.9 4.3 6.1 6.1 0 0 0-4.1 3 6.2 6.2 0 0 0 .8 7.3 6.1 6.1 0 0 0 .5 5 6.2 6.2 0 0 0 6.7 3 6.1 6.1 0 0 0 4.6 2.1 6.2 6.2 0 0 0 5.9-4.3 6.1 6.1 0 0 0 4.1-3 6.2 6.2 0 0 0-.8-7.3z"/>',
+  claude: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4" fill="currentColor" opacity=".35"/>'
+};
+function healthServiceIcon(id) {
+  var body = HEALTH_SERVICE_ICONS[text(id).toLowerCase()] || STRATEGY_ICONS.activity;
+  return '<svg class="healthcheck-service-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + body + '</svg>';
 }
 function highlightStrategyArgs(value) {
   var syntax = Nfqws2Ide && Nfqws2Ide.syntax;
@@ -112,6 +131,47 @@ function notify(kind, message) {
 function clipboardText(strategy) {
   return array(strategy.profiles).filter(function (profile) { return profile.enabled !== false && profile.args; }).map(function (profile) { return profile.args.trim(); }).filter(Boolean).join(' --new ');
 }
+function strategyArgsHtml(strategy) {
+  return array(strategy && strategy.profiles).filter(function (profile) { return profile.enabled !== false && profile.args; }).map(function (profile) {
+    return '<div class="strategy-args-preview"><code>' + highlightStrategyArgs(profile.args) + (profile.argsTruncated ? '…' : '') + '</code></div>';
+  }).join('');
+}
+function strategyBadgesHtml(strategy) {
+  return Model.strategyProfileTags(strategy).map(function (tag) {
+    return '<span class="profile-badge ' + (tag.kind === 'protocol-port' ? 'protocol-port-badge' : '') + (tag.enabled ? '' : ' disabled') + '">' + escapeHtml(tag.label) + '</span>';
+  }).join('');
+}
+function loadStrategyDetails(id, card) {
+  var wrap = card && card.querySelector('.strategy-card-args-wrap');
+  if (!wrap || wrap.dataset.detailsLoaded === 'true' || state.detailLoading[id]) return;
+  if (!state.ctx || !state.ctx.api || !state.ctx.api.strategies || !state.ctx.api.strategies.get) return;
+  state.detailLoading[id] = true;
+  wrap.dataset.detailsLoading = 'true';
+  wrap.innerHTML = '<div class="strategy-details-loading">Загрузка профилей…</div>';
+  call(state.ctx.api.strategies.get, { id: id }).then(function (answer) {
+    var raw = answer && answer.strategy ? answer.strategy : answer;
+    var full = Model.normalize(raw, statusValue(state.data), state.selectedId);
+    var args = strategyArgsHtml(full);
+    wrap.innerHTML = args || '<div class="strategy-details-empty">У стратегии нет текстовых аргументов профиля.</div>';
+    wrap.dataset.detailsLoaded = 'true';
+    wrap.removeAttribute('data-details-loading');
+    var badges = card.querySelector('.strategy-card-profiles');
+    if (badges) badges.innerHTML = strategyBadgesHtml(full);
+  }).catch(function (error) {
+    wrap.innerHTML = '<div class="strategy-details-error">' + escapeHtml(errorText(state.ctx, error)) + '</div>';
+    wrap.removeAttribute('data-details-loading');
+  }).then(function () {
+    delete state.detailLoading[id];
+  });
+}
+function toggleDetails(id) {
+  var card = state.root && state.root.querySelector('[data-list-ui-card][data-id="' + escapeAttr(id) + '"]');
+  if (card && card.classList.contains('expanded')) loadStrategyDetails(id, card);
+}
+function hasOpenStrategyDetails() {
+  if (state.root && state.root.querySelector('.strategy-card.expanded')) return true;
+  return Object.keys(state.detailLoading).some(function (id) { return state.detailLoading[id]; });
+}
 function fallbackClipboardPaste() {
   state.clipboardFallback = true;
   notify('info', 'Буфер недоступен. Вставьте команды через Ctrl+V в поле импорта.');
@@ -119,10 +179,13 @@ function fallbackClipboardPaste() {
   if (value) openClipboardEditor(value);
 }
 function copyStrategyToClipboard(id) {
-  var strategy = strategyById(id), value = strategy && clipboardText(strategy);
-  if (!value) return;
-  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(value).then(function () { notify('ok', 'Команда скопирована в буфер'); }, fallbackClipboardPaste);
-  else fallbackClipboardPaste();
+  var strategy = strategyById(id); if (!strategy) return;
+  var loadFull = strategy.profiles.some(function (profile) { return profile.args; }) ? Promise.resolve(strategy) : call(state.ctx.api.strategies.get, { id: id }).then(function (answer) { return Model.normalize(answer && answer.strategy ? answer.strategy : answer, statusValue(state.data), state.selectedId); });
+  loadFull.then(function (full) {
+    var value = clipboardText(full); if (!value) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(value).then(function () { notify('ok', 'Команда скопирована в буфер'); }, fallbackClipboardPaste);
+    else fallbackClipboardPaste();
+  }).catch(function (error) { notify('err', errorText(state.ctx, error)); });
 }
 function openClipboardEditor(value) {
   var imported = Model.parseClipboardStrategies(value);
@@ -182,7 +245,7 @@ var ListUI = {
       var shown = filtered.slice(0, visibleCount);
       var defaultFilter = cfg.filters.find(function (item) { return item.default; }) || cfg.filters[0];
       var isFiltered = !!search || !!(chosen && defaultFilter && chosen.id !== defaultFilter.id);
-      count.textContent = cfg.countLabel(shown.length, items.length) + (isFiltered ? ' · отфильтровано' : '');
+      count.textContent = cfg.countLabel(shown.length, items.length) + (isFiltered ? ' (отфильтровано из ' + items.length + ')' : '');
       if (!filtered.length) body.innerHTML = cfg.renderEmpty(search, filterId);
       else if (cfg.groupBy) {
         var groups = {};
@@ -295,13 +358,13 @@ function renderStrategyCard(strategy) {
   var is_favorite = strategy.favorite;
   var checked = !!state.selectedIds[strategy.id];
   var meta = strategyMeta(strategy);
-  var badges = (strategy.protocol ? '<span class="profile-badge protocol-badge">' + escapeHtml(strategy.protocol.toUpperCase()) + '</span>' : '') + array(strategy.profiles).map(function (profile) { return '<span class="profile-badge' + (profile.enabled ? '' : ' disabled') + '">' + escapeHtml(profile.name) + '</span>'; }).join('');
-  var args = array(strategy.profiles).filter(function (profile) { return profile.enabled !== false && profile.args; }).map(function (profile) { return '<div class="strategy-args-preview"><code>' + highlightStrategyArgs(profile.args) + (profile.argsTruncated ? '…' : '') + '</code></div>'; }).join('');
+  var badges = strategyBadgesHtml(strategy);
+  var args = strategyArgsHtml(strategy);
   var actions = active ? '<button class="btn btn-primary btn-sm" disabled>Используется сейчас</button>' : '<button class="btn btn-primary btn-sm" data-action="applyStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + '>Применить</button>';
   return '<div class="strategy-card compact' + (active ? ' active' : '') + (selected ? ' selected' : '') + '" data-id="' + escapeAttr(strategy.id) + '" data-strategy="' + escapeAttr(strategy.id) + '" data-list-ui-card>' +
     '<div class="strategy-card-header"><label class="strategy-select-label" title="Выбрать для объединения"><input type="checkbox" class="strategy-select" data-action="toggleSelect" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (checked ? ' checked' : '') + '></label><div class="strategy-card-info" data-action="selectStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"><div class="strategy-card-name">' + escapeHtml(strategy.name) + ' ' + (strategy.isBuiltin ? '<span class="badge badge-muted">Встроенная</span>' : '<span class="badge badge-accent">Пользовательская</span>') + activeLabels(strategy) + '</div><div class="strategy-card-meta">' + meta + '</div>' + (strategy.description ? '<div class="strategy-card-desc">' + escapeHtml(strategy.description) + '</div>' : '') + '</div><button class="btn-icon-only fav-btn' + (is_favorite ? ' active' : '') + '" data-action="toggleFavorite" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="' + (is_favorite ? 'Убрать из избранного' : 'В избранное') + '" aria-label="' + (is_favorite ? 'Убрать из избранного' : 'Добавить в избранное') + '">' + svgIcon('star', 18) + '</button></div>' +
-    '<div class="strategy-card-profiles">' + badges + '</div><div class="strategy-card-args-wrap" id="strategy-details-' + escapeAttr(strategy.id) + '">' + args + '</div><div class="strategy-card-actions">' + actions +
-    '<button class="strategy-card-toggle" data-list-ui-toggle type="button" aria-expanded="false" aria-controls="strategy-details-' + escapeAttr(strategy.id) + '" title="Развернуть подробности">' + svgIcon('chevronDown', 12) + '<span class="strategy-card-toggle-label">Подробнее</span></button><button class="btn btn-ghost btn-sm" data-action="showPreview" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="Превью команды">' + svgIcon('terminal', 14) + '<span>Превью</span></button><button class="btn btn-ghost btn-sm" data-action="copyStrategyToClipboard" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="Скопировать стратегию со всеми профилями">' + svgIcon('clipboard', 14) + '<span>В буфер</span></button><button class="btn btn-ghost btn-sm" data-action="duplicateStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="Копировать как пользовательскую">' + svgIcon('copy', 14) + '<span>Копировать</span></button>' +
+    '<div class="strategy-card-profiles">' + badges + '</div><div class="strategy-card-args-wrap" id="strategy-details-' + escapeAttr(strategy.id) + '" data-details-loaded="' + (args ? 'true' : 'false') + '">' + args + '</div><div class="strategy-card-actions">' + actions +
+    '<button class="strategy-card-toggle" data-action="toggleDetails" data-strategy-id="' + escapeAttr(strategy.id) + '" data-list-ui-toggle type="button" aria-expanded="false" aria-controls="strategy-details-' + escapeAttr(strategy.id) + '" title="Развернуть подробности">' + svgIcon('chevronDown', 12) + '<span class="strategy-card-toggle-label">Подробнее</span></button><button class="btn btn-ghost btn-sm" data-action="showPreview" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="Превью команды">' + svgIcon('terminal', 14) + '<span>Превью</span></button><button class="btn btn-ghost btn-sm" data-action="copyStrategyToClipboard" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="Скопировать стратегию со всеми профилями">' + svgIcon('clipboard', 14) + '<span>В буфер</span></button><button class="btn btn-ghost btn-sm" data-action="duplicateStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="Копировать как пользовательскую">' + svgIcon('copy', 14) + '<span>Копировать</span></button>' +
     (!strategy.isBuiltin ? '<button class="btn btn-ghost btn-sm" data-action="openEdit" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="Изменить">' + svgIcon('edit', 14) + '<span>Изменить</span></button><button class="btn btn-ghost btn-sm" data-action="deleteStrategy" data-strategy-id="' + escapeAttr(strategy.id) + '"' + (pending ? ' disabled' : '') + ' title="Удалить">' + svgIcon('trash', 14) + '<span>Удалить</span></button>' : '') +
     '</div></div>';
 }
@@ -319,8 +382,8 @@ function renderCatalogSummary() {
     host.innerHTML = '<div class="catalog-summary-state warning">Состояние каталога недоступно; локальные стратегии не скрыты.</div>';
     return;
   }
-  var value = catalogValue(state.data), counts = object(value.counts);
-  host.innerHTML = '<div class="catalog-summary-grid"><div class="catalog-summary-files"><b>' + text(counts.files || 0) + '</b><span>Файлов</span></div><div class="catalog-summary-strategies"><b>' + text(counts.uniqueStrategies || 0) + '</b><span>Стратегий</span></div><div class="catalog-summary-health"><b>' + (value.ok === true ? 'Готов' : 'Проверка') + '</b><span>Состояние</span></div></div>';
+  var value = catalogValue(state.data), counts = object(value.counts), semantic = object(value.semantic);
+  host.innerHTML = '<div class="catalog-summary-grid"><div class="catalog-summary-files"><b>' + text(counts.files || 0) + '</b><span>Файлов</span></div><div class="catalog-summary-strategies"><b>' + text(semantic.canonicalStrategies || counts.uniqueStrategies || 0) + '</b><span>Стратегий</span></div><div class="catalog-summary-health"><b>' + (value.ok === true ? 'Готов' : 'Проверка') + '</b><span>Состояние</span></div></div>';
 }
 function renderBulkBar() {
   var bar = state.root && state.root.querySelector('#strat-bulkbar');
@@ -333,6 +396,56 @@ function toggleSelect(id) {
   if (!id) return;
   if (state.selectedIds[id]) delete state.selectedIds[id]; else state.selectedIds[id] = true;
   renderAll();
+}
+function healthcheckConfig() { return HealthcheckModel.config(object(state.healthcheck && state.healthcheck.config)); }
+function healthcheckDraftFromDom() {
+  var settings = state.healthcheckSettings || {}, base = settings.draft || healthcheckConfig(), checked = {};
+  Array.prototype.forEach.call(state.root.querySelectorAll('#healthcheck-settings-services input[type="checkbox"]:checked'), function (input) { checked[input.value] = true; });
+  var services = array(base.services).filter(function (id) { return checked[id]; });
+  Array.prototype.forEach.call(state.root.querySelectorAll('#healthcheck-settings-services input[type="checkbox"]:checked'), function (input) { if (services.indexOf(input.value) < 0) services.push(input.value); });
+  var custom = state.root.querySelector('#healthcheck-settings-custom');
+  var interval = state.root.querySelector('#healthcheck-settings-interval');
+  var threshold = state.root.querySelector('#healthcheck-settings-threshold');
+  var outage = state.root.querySelector('#healthcheck-settings-outage');
+  var control = state.root.querySelector('#healthcheck-settings-control');
+  return Object.assign({}, base, {
+    services: services,
+    custom_domains: custom ? custom.value : base.custom_domains,
+    interval_min: interval ? interval.value : base.interval_min,
+    consecutive_failures: threshold ? threshold.value : base.consecutive_failures,
+    outage_guard: outage ? outage.checked : base.outage_guard,
+    control_domain: control ? control.value : base.control_domain
+  });
+}
+function renderHealthcheckSettings() {
+  var settings = state.healthcheckSettings || {}, draft = settings.draft || healthcheckConfig();
+  var customValue = Array.isArray(draft.custom_domains) ? draft.custom_domains.join('\n') : String(draft.custom_domains || '');
+  var services = HealthcheckModel.catalog(state.healthcheckCatalog), selected = {};
+  array(draft.services).forEach(function (id) { selected[id] = true; });
+  var rows = services.map(function (service) {
+    return '<label class="healthcheck-service-choice"><input type="checkbox" value="' + escapeAttr(service.id) + '"' + (selected[service.id] ? ' checked' : '') + '><span class="healthcheck-service-mark">' + healthServiceIcon(service.id) + '</span><span class="healthcheck-service-name">' + escapeHtml(service.name) + '</span></label>';
+  }).join('');
+  var invalid = settings.error ? '<div class="healthcheck-settings-error" role="alert">' + escapeHtml(settings.error) + '</div>' : '';
+  var loading = settings.loading ? '<div class="healthcheck-settings-loading">Загружаю каталог сервисов…</div>' : '';
+  return '<div id="healthcheck-settings-panel" class="healthcheck-settings-panel">' +
+    '<div class="healthcheck-settings-heading"><div><strong>Настройки авто-починки</strong><span>Параметры сохраняются одной операцией.</span></div></div>' + invalid + loading +
+    '<div class="healthcheck-settings-section"><div class="healthcheck-settings-label">Сервисы для проверки</div><div id="healthcheck-settings-services" class="healthcheck-service-grid">' + (rows || '<span class="text-muted">Каталог сервисов недоступен.</span>') + '</div></div>' +
+    '<label class="healthcheck-settings-section"><span class="healthcheck-settings-label">Свои сайты <small>по одному домену или URL в строке</small></span><textarea id="healthcheck-settings-custom" rows="3" placeholder="rutracker.org&#10;https://example.com">' + escapeHtml(customValue) + '</textarea></label>' +
+    '<div class="healthcheck-settings-grid"><label><span>Интервал, мин</span><input id="healthcheck-settings-interval" type="number" min="1" max="1440" value="' + escapeAttr(draft.interval_min) + '"></label><label><span>Сброс после N провалов</span><input id="healthcheck-settings-threshold" type="number" min="1" max="20" value="' + escapeAttr(draft.consecutive_failures) + '"></label></div>' +
+    '<label class="healthcheck-guard"><input id="healthcheck-settings-outage" type="checkbox"' + (draft.outage_guard ? ' checked' : '') + '><span><strong>Защита от ложного сброса при «обвале связи»</strong><small>Если все цели недоступны, сначала проверяется контрольный сайт.</small></span></label>' +
+    '<label class="healthcheck-control"><span>Контрольный сайт</span><input id="healthcheck-settings-control" type="text" value="' + escapeAttr(draft.control_domain) + '" placeholder="ya.ru"><small>Обычно доступный домен. Если он тоже недоступен, связь может быть нарушена.</small></label>' +
+    '<div class="healthcheck-settings-actions"><button class="btn btn-primary btn-sm" data-action="saveHealthcheckSettings">Сохранить</button><button class="btn btn-ghost btn-sm" data-action="cancelHealthcheckSettings">Отмена</button></div></div>';
+}
+function renderHealthcheckResults() {
+  var rows = HealthcheckModel.resultRows(state.healthcheck, state.healthcheckCatalog);
+  if (!rows.length) return '';
+  var lastRun = object(state.healthcheck && state.healthcheck.job).finishedAt || object(state.healthcheck && state.healthcheck.job).createdAt || '—';
+  var lastRunNumber = Number(lastRun);
+  if (isFinite(lastRunNumber) && lastRunNumber > 0) lastRun = new Date(lastRunNumber * 1000).toLocaleString();
+  var body = rows.map(function (row) {
+    return '<tr><td>' + escapeHtml(row.name) + '</td><td><span class="healthcheck-result-status">' + escapeHtml(row.status) + '</span></td><td>' + escapeHtml(row.time || '—') + '</td><td>' + escapeHtml(row.response || '—') + '</td><td>' + escapeHtml(row.reset || '—') + '</td></tr>';
+  }).join('');
+  return '<div class="healthcheck-last-run" id="healthcheck-results-table"><div class="healthcheck-last-run-heading"><span>Последняя проверка</span><span>' + escapeHtml(text(lastRun)) + '</span></div><div class="healthcheck-results-scroll"><table class="healthcheck-results-table"><thead><tr><th>Сайт</th><th>Статус</th><th>Время</th><th>Ответ</th><th>Авто-починка</th></tr></thead><tbody>' + body + '</tbody></table></div></div>';
 }
 function mergeSelected() {
   var sources = state.rows.filter(function (strategy) { return !!state.selectedIds[strategy.id]; });
@@ -348,7 +461,9 @@ function renderOperationalCards() {
     var summary = 'Интервал: ' + text(cfg.interval_min || cfg.interval || 5) + ' мин · Сайтов: ' + text(services || 0) + ' · Сброс после: ' + text(cfg.consecutive_failures || 2) + ' провалов подряд';
     var reset = (cfg.auto_reset !== false && cfg.autoReset !== false) ? 'Авто-сброс включён' : 'Авто-сброс выключен';
     var guard = (cfg.outage_guard !== false && cfg.outageGuard !== false) ? 'Защита от общего сбоя включена' : 'Защита от общего сбоя выключена';
-    health.innerHTML = '<div class="strategy-ops-controls"><label class="strategy-toggle-control"><input type="checkbox" data-action="toggleHealthcheck"' + (hc.enabled ? ' checked' : '') + '><span>' + svgIcon('activity', 14) + '<span>Автоматическая проверка</span></span></label><div class="strategy-ops-actions"><button class="btn btn-ghost btn-sm" data-action="runHealthcheck">' + svgIcon('play', 14) + '<span>Проверить сейчас</span></button><button class="btn btn-ghost btn-sm" data-action="configureHealthcheck">' + svgIcon('settings', 14) + '<span>Настроить</span></button></div></div><div class="strategy-status-row"><span class="strategy-status-badge ' + (hc.enabled ? 'enabled' : 'disabled') + '"><span class="status-dot ' + (hc.enabled ? 'running' : 'stopped') + '"></span>' + escapeHtml(status) + '</span><span class="strategy-status-copy">' + (hc.enabled ? 'Проверка выполняется по расписанию.' : 'Разовая проверка доступна в любое время.') + '</span></div><div class="strategy-ops-explainer">Healthcheck проверяет доступность выбранных сервисов и помогает circular заново подобрать рабочую стратегию после серии сбоев.</div><div class="strategy-ops-meta"><span>' + escapeHtml(summary) + '</span><span>' + escapeHtml(reset) + '</span><span>' + escapeHtml(guard) + '</span></div>';
+    var settings = state.healthcheckSettings || {};
+    var healthContent = '<div class="strategy-ops-controls"><label class="strategy-toggle-control"><input type="checkbox" data-action="toggleHealthcheck"' + (hc.enabled ? ' checked' : '') + '><span>' + svgIcon('activity', 14) + '<span>Автоматическая проверка</span></span></label><div class="strategy-ops-actions"><button class="btn btn-ghost btn-sm" data-action="runHealthcheck">' + svgIcon('play', 14) + '<span>Проверить сейчас</span></button><button class="btn btn-ghost btn-sm" data-action="configureHealthcheck">' + svgIcon('settings', 14) + '<span>' + (settings.open ? 'Свернуть' : 'Настроить') + '</span></button></div></div><div class="strategy-status-row"><span class="strategy-status-badge ' + (hc.enabled ? 'enabled' : 'disabled') + '"><span class="status-dot ' + (hc.enabled ? 'running' : 'stopped') + '"></span>' + escapeHtml(status) + '</span><span class="strategy-status-copy">' + (hc.enabled ? 'Проверка выполняется по расписанию.' : 'Разовая проверка доступна в любое время.') + '</span></div><div class="strategy-ops-explainer">Healthcheck проверяет доступность выбранных сервисов и помогает circular заново подобрать рабочую стратегию после серии сбоев.</div><div class="strategy-ops-meta"><span>' + escapeHtml(summary) + '</span><span>' + escapeHtml(reset) + '</span><span>' + escapeHtml(guard) + '</span></div>' + (settings.open ? renderHealthcheckSettings() : '') + renderHealthcheckResults();
+    health.innerHTML = healthContent;
   }
   var learned = state.root && state.root.querySelector('#strategy-learned-info');
   if (learned) {
@@ -389,19 +504,47 @@ function runHealthcheck() {
   call(state.ctx.api.healthcheck.run, {}).then(function (answer) { if (answer && answer.ok === false) notify('err', errorText(state.ctx, answer)); else notify('ok', 'Проверка запущена'); refreshHealthcheck(); }, function (error) { notify('err', errorText(state.ctx, error)); }).then(function () { state.pending = null; renderAll(); });
 }
 function configureHealthcheck() {
-  var current = object(state.healthcheck && state.healthcheck.config), interval = current.interval_min || current.interval || 5;
-  try {
-    var entered = window.prompt('Интервал проверки, минут:', String(interval));
-    if (entered == null) return;
-    interval = entered;
-  } catch (e) {
-    // LuCI deployments and the in-app Browser may disable native prompts;
-    // keep the action usable and persist the currently displayed settings.
-    notify('info', 'Текущие настройки Healthcheck сохранены');
+  var settings = state.healthcheckSettings || {};
+  if (settings.open) return cancelHealthcheckSettings();
+  settings.open = true; settings.loading = true; settings.error = null; settings.draft = healthcheckConfig();
+  state.healthcheckSettings = settings;
+  renderOperationalCards();
+  if (!state.ctx || !state.ctx.api.services || !state.ctx.api.services.catalogList) {
+    settings.loading = false; settings.error = 'Каталог сервисов недоступен.'; renderOperationalCards(); return;
   }
-  if (!state.ctx || !state.ctx.api.healthcheck) return;
-  var autoReset = current.autoReset !== false && current.auto_reset !== false;
-  call(state.ctx.api.healthcheck.config, { interval_min: Math.max(1, Number(interval) || 5), outage_guard: current.outage_guard !== false, autoReset: autoReset, auto_reset: autoReset }).then(refreshHealthcheck).catch(function (error) { notify('err', errorText(state.ctx, error)); });
+  state.ctx.api.services.catalogList().then(function (answer) {
+    settings.loading = false;
+    settings.error = null;
+    state.healthcheckCatalog = HealthcheckModel.catalog(answer);
+    renderOperationalCards();
+  }).catch(function (error) {
+    settings.loading = false; settings.error = errorText(state.ctx, error); renderOperationalCards();
+  });
+}
+function cancelHealthcheckSettings() {
+  state.healthcheckSettings = { open: false, loading: false, draft: null, error: null };
+  renderOperationalCards();
+}
+function saveHealthcheckSettings() {
+  if (!state.ctx || !state.ctx.api.healthcheck || state.pending === 'healthcheck-settings') return;
+  var draft = healthcheckDraftFromDom();
+  var custom = state.root.querySelector('#healthcheck-settings-custom');
+  var invalidTargets = HealthcheckModel.invalidCustomTargets(custom ? custom.value : '');
+  var validation = HealthcheckModel.validateDraft(draft, state.healthcheckCatalog);
+  if (invalidTargets.length) validation = { ok: false, errors: ['Исправьте сайты: ' + invalidTargets.join(', ')] };
+  if (!validation.ok) {
+    state.healthcheckSettings.error = validation.errors.join(' '); state.healthcheckSettings.draft = draft; renderOperationalCards(); return;
+  }
+  state.pending = 'healthcheck-settings'; state.healthcheckSettings.draft = validation.value; renderOperationalCards();
+  var value = validation.value, current = healthcheckConfig();
+  var payload = { services: value.services, custom_domains: value.custom_domains, interval_min: value.interval_min,
+    consecutive_failures: value.consecutive_failures, outage_guard: value.outage_guard,
+    control_domain: value.control_domain, auto_reset: current.auto_reset };
+  call(state.ctx.api.healthcheck.config, payload).then(function (answer) {
+    state.healthcheck = answer || state.healthcheck; state.pending = null; cancelHealthcheckSettings(); notify('ok', 'Настройки сохранены');
+  }).catch(function (error) {
+    state.pending = null; state.healthcheckSettings.error = errorText(state.ctx, error); renderOperationalCards();
+  });
 }
 function toggleHealthcheck(enabled) {
   if (!state.ctx || !state.ctx.api.healthcheck) return;
@@ -602,6 +745,7 @@ function onClick(event) {
   else if (action === 'toggleFavorite') { event.stopPropagation(); toggleFavorite(id); }
   else if (action === 'deleteStrategy') deleteStrategy(id);
   else if (action === 'selectStrategy') selectStrategy(id);
+  else if (action === 'toggleDetails') toggleDetails(id);
   else if (action === 'showPreview') showPreview(id);
   else if (action === 'validatePreview') validatePreview();
   else if (action === 'closePreview') closePreview();
@@ -615,6 +759,8 @@ function onClick(event) {
   else if (action === 'clearSelection') clearSelection();
   else if (action === 'runHealthcheck') runHealthcheck();
   else if (action === 'configureHealthcheck') configureHealthcheck();
+  else if (action === 'saveHealthcheckSettings') saveHealthcheckSettings();
+  else if (action === 'cancelHealthcheckSettings') cancelHealthcheckSettings();
   else if (action === 'resetLearned') resetLearned(el.dataset.host, el.dataset.key);
   else if (action === 'showCircular') showCircular();
   else if (action === 'openJournal') openJournal();
@@ -624,13 +770,18 @@ function onClick(event) {
 function onChange(event) {
   var target = event.target;
   if (target.classList.contains('profile-filter-picker')) insertFilter(Number(target.closest('.profile-editor-item').dataset.index), target.value);
+  if (target.closest && target.closest('#healthcheck-settings-panel') && state.healthcheckSettings) state.healthcheckSettings.draft = healthcheckDraftFromDom();
+}
+function onInput(event) {
+  var target = event.target;
+  if (target.closest && target.closest('#healthcheck-settings-panel') && state.healthcheckSettings) state.healthcheckSettings.draft = healthcheckDraftFromDom();
 }
 function onKey(event) { if (event.key !== 'Escape') return; if (state.editor) closeModal(); else if (state.preview) closePreview(); }
 function bindEvents() {
-  state.clickHandler = onClick; state.changeHandler = onChange; state.keyHandler = onKey;
-  state.root.addEventListener('click', state.clickHandler); state.root.addEventListener('change', state.changeHandler); document.addEventListener('keydown', state.keyHandler);
+  state.clickHandler = onClick; state.changeHandler = onChange; state.inputHandler = onInput; state.keyHandler = onKey;
+  state.root.addEventListener('click', state.clickHandler); state.root.addEventListener('change', state.changeHandler); state.root.addEventListener('input', state.inputHandler); document.addEventListener('keydown', state.keyHandler);
 }
-function unbindEvents() { if (!state.root) return; state.root.removeEventListener('click', state.clickHandler); state.root.removeEventListener('change', state.changeHandler); document.removeEventListener('keydown', state.keyHandler); state.clickHandler = state.changeHandler = state.keyHandler = null; }
+function unbindEvents() { if (!state.root) return; state.root.removeEventListener('click', state.clickHandler); state.root.removeEventListener('change', state.changeHandler); state.root.removeEventListener('input', state.inputHandler); document.removeEventListener('keydown', state.keyHandler); state.clickHandler = state.changeHandler = state.inputHandler = state.keyHandler = null; }
 function render(ctx) {
   refreshStrategyStyles();
   state.ctx = ctx; state.data = object(ctx.data); state.loaded = true; state.disposed = false; state.selectedId = state.selectedId || Model.identity(statusValue(state.data)).selectedId || (listValue(state.data)[0] && listValue(state.data)[0].id);
@@ -695,7 +846,7 @@ function mount(ctx) {
       state.pollTimer = null;
       // Never replace an in-progress editor/preview with a background poll.
       // The next cycle resumes after the transient modal is closed.
-      if (state.editor || state.preview) { schedule(); return; }
+      if (state.editor || state.preview || hasOpenStrategyDetails()) { schedule(); return; }
       refreshData().then(schedule);
     }, 5000);
   }

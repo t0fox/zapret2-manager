@@ -147,7 +147,7 @@ export const collect_strategy_status = function(observations, options) {
  let catalog = null;
  if (options.fast !== true) {
   try {
-   let loaded = strategy_catalog_load(getenv('Z2M_STRATEGY_CATALOG_ROOT') || '/usr/share/zapret2-manager/catalog/avatar');
+   let loaded = strategy_catalog_load(getenv('Z2M_STRATEGY_CATALOG_ROOT') || '/usr/share/zapret2-manager/catalog/forgejo');
    catalog = loaded && loaded.ok === true ? loaded.catalog : null;
   } catch (e) { catalog = null; }
  }

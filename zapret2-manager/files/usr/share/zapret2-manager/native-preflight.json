@@ -2,8 +2,8 @@
   "schema": "zapret2-manager.native-preflight.v1",
   "status": "verified",
   "engineSourceCommit": null,
-  "expectedNfqws2Sha256": "15a924911fc62ca7a08261b10429169fd69823fccb1e124bf0d66ab49989fd18",
-  "expectedLuaBundleSha256": "07c4d5463cd161d6a7440dee9ed4be3c41f4b94ca0254b9ba54266840f16a8d3",
+  "expectedNfqws2Sha256": "b2827dcad28c2d3fc567cf7da34fd94832a551cbb492e8ce820ab944814a82c6",
+  "expectedLuaBundleSha256": "dc520446201e8586bac503b35d0fa1df9aeb67697576a7cd2f60b8207505f547",
   "luaFiles": [
     "/opt/zapret2/lua/zapret-lib.lua",
     "/opt/zapret2/lua/zapret-antidpi.lua",

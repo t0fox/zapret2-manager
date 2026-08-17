@@ -13,6 +13,7 @@ test('P03-V2 keeps the clear control inside the search field and hides it when e
   assert.match(page, /<div class="list-ui-search">[\s\S]*list-ui-search-input[\s\S]*list-ui-search-clear/);
   assert.match(page, /clear\.style\.display\s*=\s*search\s*\?\s*''\s*:\s*'none'/);
   assert.match(css, /\.z2m-view#z2m-view-strategy \.list-ui-search-input[^\n]*padding-right/);
+  assert.match(css, /\.z2m-view#z2m-view-strategy \.list-ui-search-input::\-webkit-search-cancel-button\{[^}]*appearance:none/);
   assert.match(css, /\.z2m-view#z2m-view-strategy \.list-ui-search-clear[^\n]*position:absolute/);
 });
 
@@ -34,5 +35,11 @@ test('P03-V2 uses one cohesive active/card surface', () => {
 test('P03-V2 puts search and result count on one donor-like desktop row', () => {
   const css = read('z2m-ui.css');
   assert.match(css, /\.z2m-view#z2m-view-strategy \.list-ui-toolbar[^\n]*flex-direction:row/);
+  assert.match(css, /\.z2m-view#z2m-view-strategy \.list-ui-search\{flex:0 1 52%[\s\S]*?\.z2m-view#z2m-view-strategy \.list-ui-search-input\{[^}]*width:100%/);
   assert.match(css, /\.z2m-view#z2m-view-strategy \.list-ui-count[^\n]*flex:0 0 auto/);
+});
+
+test('P03-V2 formats filtered search counts with the donor parenthetical', () => {
+  const page = read('z2m-strategies.js');
+  assert.match(page, /' \(отфильтровано из ' \+ items\.length \+ '\)'/);
 });

@@ -15,9 +15,9 @@ import { popen, writefile, unlink } from 'fs';
 
 const AUTHORITY_MARKER = 'z2m-scanner-authority.v1';
 const GENERATOR_MARKER = 'z2m-scanner-generator.v1';
-const AUTHORITATIVE_CATALOG_DIGEST = '5978d35bfc0b73caaae658124874e24619b1f448e673ec09fd7c5d4dd8c3dda1';
-const AUTHORITATIVE_CATALOG_REPOSITORY = 'avatarDD/zapret-gui';
-const AUTHORITATIVE_CATALOG_COMMIT = 'f9dd3ea47a2239514f396a843b475c92c33f0b4c';
+const AUTHORITATIVE_CATALOG_DIGEST = 'c58c265ab9527dd4a29108568e7f61d01f9c8d8957bce9fef321c4e4dbbace49';
+const AUTHORITATIVE_CATALOG_REPOSITORY = 'https://git.zapret.moe/zapretdiscordyoutube/zapretgui';
+const AUTHORITATIVE_CATALOG_COMMIT = '6824294ee53421cc9c3e2a361f4976783ff62307';
 
 const KNOWN_DPI = {
 	tls_dpi: { must: ['filter-l7=tls', 'tls_client_hello'], bad: ['filter-l7=quic', 'quic_initial'] },

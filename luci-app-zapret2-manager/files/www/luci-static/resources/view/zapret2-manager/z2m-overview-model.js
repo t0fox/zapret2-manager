@@ -99,18 +99,29 @@ function corpusMetrics(run) {
   };
 }
 
-function strategyInfo(preview) {
+function strategyInfo(preview, canonical) {
   preview = object(preview);
+  canonical = object(canonical);
+  canonical = object(canonical.strategy || canonical.item || canonical);
   var state = object(preview.strategyState);
   var active = object(state.active || preview.active);
+  var name = firstDefined([canonical.name, canonical.displayName, active.name, active.displayName]);
+  var description = firstDefined([canonical.description, canonical.summary, active.description, active.summary]);
+  if (name && !description) {
+    var suffix = /\s*\(([^()]+)\)\s*$/.exec(String(name));
+    if (suffix) {
+      name = String(name).slice(0, suffix.index).trim();
+      description = suffix[1];
+    }
+  }
   return {
-    id: firstDefined([active.candidateId, active.managerId, active.id]),
-    name: firstDefined([active.name, active.displayName]),
-    description: firstDefined([active.description, active.summary]),
-    source: firstDefined([active.source, state.source, preview.source]),
-    appliedAt: firstDefined([active.appliedAt, state.appliedAt]),
-    argv: firstDefined([active.argv, active.options, active.opt]),
-    revision: firstDefined([active.revision, state.revision, preview.revision])
+    id: firstDefined([canonical.id, canonical.strategyId, active.candidateId, active.managerId, active.id]),
+    name: name,
+    description: description,
+    source: firstDefined([canonical.source, active.source, state.source, preview.source]),
+    appliedAt: firstDefined([canonical.appliedAt, active.appliedAt, state.appliedAt]),
+    argv: firstDefined([canonical.argv, active.argv, active.options, active.opt]),
+    revision: firstDefined([canonical.revision, active.revision, state.revision, preview.revision])
   };
 }
 
@@ -153,6 +164,7 @@ function normalize(data) {
   data = object(data);
   var status = payload(data.status);
   var preview = payload(data.preview);
+  var canonicalStrategy = payload(data.strategy);
   var history = payload(data.history);
   var orchestra = payload(data.orchestra);
   var serviceDns = payload(data.serviceDns);
@@ -168,7 +180,7 @@ function normalize(data) {
   });
 
   var health = runtimeHealth(status);
-  var strategy = strategyInfo(preview);
+  var strategy = strategyInfo(preview, canonicalStrategy);
   var corpus = corpusMetrics(lastRun);
   var operation = activeRun(orchestra, history);
   var rollback = rollbackInfo(preview, status);

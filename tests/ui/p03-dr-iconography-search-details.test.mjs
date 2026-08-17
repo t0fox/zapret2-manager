@@ -28,6 +28,17 @@ test('P03-DR Details is an inline multi-card state with accessible active contro
   assert.match(css, /strategy-card\.expanded \.strategy-card-toggle \.z2m-icon\{transform:rotate\(180deg\)\}/);
 });
 
+test('Strategy Details lazy-loads the canonical full profile before rendering args', () => {
+  assert.match(js, /data-action="toggleDetails"/);
+  assert.match(js, /function loadStrategyDetails\(/);
+  assert.match(js, /api\.strategies\.get/);
+});
+
+test('background polling does not replace an open or loading Strategy Details card', () => {
+  assert.match(js, /function hasOpenStrategyDetails\(/);
+  assert.match(js, /state\.editor \|\| state\.preview \|\| hasOpenStrategyDetails\(\)/);
+});
+
 test('P03-DR search count and filters keep canonical data semantics', () => {
   assert.match(js, /list-ui-toolbar-right/);
   assert.match(js, /searchPlaceholder: 'Поиск по имени, автору, описанию, args\.\.\.'/);

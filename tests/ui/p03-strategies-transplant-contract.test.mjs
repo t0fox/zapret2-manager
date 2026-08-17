@@ -49,13 +49,13 @@ test('P03 favorite mutation uses the shared Strategy state revision', () => {
   assert.doesNotMatch(page, /favorite:\s*!strategy\.favorite,\s*expectedRevision:\s*strategy\.revision/);
 });
 
-test('P03 documents donor-only healthcheck/autocircular scope instead of faking it', () => {
+test('P03-FULL closes the adopted healthcheck/autocircular surface through Z2M RPCs', () => {
   const page = read('z2m-strategies.js');
-  const audit = fs.existsSync(path.join(root, 'docs/05-parity/avatar-strategies-transplant-audit.md'))
-    ? fs.readFileSync(path.join(root, 'docs/05-parity/avatar-strategies-transplant-audit.md'), 'utf8') : '';
+  const audit = fs.existsSync(path.join(root, 'docs/05-parity/strategies-full-feature-parity.md'))
+    ? fs.readFileSync(path.join(root, 'docs/05-parity/strategies-full-feature-parity.md'), 'utf8') : '';
   assert.ok(page, 'P03 donor-derived Strategies module must exist');
-  assert.match(`${page}\n${audit}`, /BACKEND_NOT_READY|INTENTIONAL_Z2M_DIFFERENCE/);
-  assert.doesNotMatch(page, /healthcheck\/status|autocircular|API\.get\(/);
+  assert.match(`${page}\n${audit}`, /healthcheck|autocircular|P03-FULL/);
+  assert.doesNotMatch(page, /API\.get\(/);
 });
 
 test('P03 fixes the DOM-node string coercion regression at its source', () => {

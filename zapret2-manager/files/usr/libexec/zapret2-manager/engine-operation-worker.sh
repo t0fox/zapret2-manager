@@ -16,6 +16,22 @@ cleanup(){ resume_watchdog; rm -rf "$WORK" "$CANCEL"; }; trap cleanup EXIT HUP I
 phase(){ /usr/bin/ucode "$CLI" phase "$ID" "$1" "$2" "$3" >/dev/null 2>&1 || true; }
 value(){ jsonfilter -i "$JOB" -e "$1" 2>/dev/null | head -n 1; }
 cancelled(){ [ -f "$CANCEL" ]; }; sha(){ sha256sum "$1" | awk '{print $1}'; }; size(){ wc -c <"$1" | tr -d ' '; }
+normalize_runtime_permissions(){
+ find /opt/zapret2 -type d -exec chmod 755 {} \; || return 1
+ find /opt/zapret2 -type f -exec chmod 644 {} \; || return 1
+ find /opt/zapret2/init.d -type f -exec chmod 755 {} \; 2>/dev/null || return 1
+ find /opt/zapret2 -type f -name '*.sh' -exec chmod 755 {} \; || return 1
+ chmod 755 /opt/zapret2/nfq2/nfqws2 /opt/zapret2/ip2net/ip2net /opt/zapret2/mdig/mdig || return 1
+ [ ! -f "$CONFIG" ] || chmod 600 "$CONFIG" || return 1
+ if [ -d /etc/zapret2-manager ]; then
+  chmod 755 /etc/zapret2-manager || return 1
+  if [ -d /etc/zapret2-manager/ipset ]; then
+   chmod 755 /etc/zapret2-manager/ipset || return 1
+   find /etc/zapret2-manager/ipset -type f -name '*.txt' -exec chmod 644 {} \; || return 1
+  fi
+ fi
+ return 0
+}
 postflight(){
  [ -x "$BINARY" ] && [ -x /opt/zapret2/ip2net/ip2net ] && [ -x /opt/zapret2/mdig/mdig ] && [ -d /opt/zapret2/common ] && [ -d /opt/zapret2/ipset ] && [ -d /opt/zapret2/lua ] && [ -r "$CONFIG" ] && [ -x "$INIT" ] || return 1
  NFQWS2_ENABLE=1; . "$CONFIG" 2>/dev/null || return 1
@@ -100,7 +116,7 @@ BINDIR="$ROOTDIR/binaries/linux-arm64"; [ -x "$BINDIR/nfqws2" ] || BINDIR="$ROOT
 RUNTIME_SHA="$(awk '$2 ~ /\/binaries\/linux-arm64\/nfqws2$/ {print $1; exit}' "$CHECKSUM")"; printf '%s\n' "$RUNTIME_SHA" | grep -Eq '^[a-f0-9]{64}$' || fail ESHA256 'Checksum manifest не содержит digest nfqws2.'; [ "$(sha "$BINDIR/nfqws2")" = "$RUNTIME_SHA" ] || fail ESHA256 'SHA-256 nfqws2 не совпадает с checksum manifest.'
 cp -a "$ROOTDIR/blockcheck2.sh" "$ENGINE_STAGE/" || fail EPACKAGE 'Не удалось подготовить blockcheck2.'; cp -a "$ROOTDIR/blockcheck2.d" "$ENGINE_STAGE/" || fail EPACKAGE 'Не удалось подготовить blockcheck2 catalog.'; cp -a "$ROOTDIR/common" "$ENGINE_STAGE/" || fail EPACKAGE 'Не удалось подготовить common runtime.'; cp -a "$ROOTDIR/ipset" "$ENGINE_STAGE/" || fail EPACKAGE 'Не удалось подготовить ipset runtime.'; cp -a "$ROOTDIR/files" "$ENGINE_STAGE/" || fail EPACKAGE 'Не удалось подготовить fake packet data.'; cp -a "$ROOTDIR/config.default" "$ENGINE_STAGE/" || fail EPACKAGE 'Не удалось подготовить default config.'; cp -a "$BINDIR/nfqws2" "$ENGINE_STAGE/nfq2/nfqws2" || fail EPACKAGE 'Не удалось подготовить nfqws2.'; cp -a "$BINDIR/ip2net" "$ENGINE_STAGE/ip2net/ip2net" || fail EPACKAGE 'Не удалось подготовить ip2net.'; cp -a "$BINDIR/mdig" "$ENGINE_STAGE/mdig/mdig" || fail EPACKAGE 'Не удалось подготовить mdig.'; [ -d "$ROOTDIR/lua" ] && for lua in "$ROOTDIR"/lua/*.lua.gz; do [ -f "$lua" ] || continue; gzip -dc "$lua" >"$ENGINE_STAGE/lua/$(basename "$lua" .gz)" || fail EPACKAGE 'Не удалось распаковать Lua module.'; done; [ -d "$ROOTDIR/init.d/openwrt" ] && cp -a "$ROOTDIR/init.d/openwrt/." "$ENGINE_STAGE/init.d/openwrt/" || true
 ROLLBACK_REQUIRED=1; phase stopping 52 'Служба zapret2 останавливается.'; [ -x "$INIT" ] && "$INIT" stop >/dev/null 2>&1 || [ "$OLD_INSTALLED" -eq 0 ] || fail ESTOP 'Не удалось остановить zapret2.'
-phase installing 65 'Удаляется legacy package и устанавливается полный official engine payload.'; remove_legacy_package || fail EREMOVE 'Legacy package ownership не удалось снять.'; rm -rf /opt/zapret2; mkdir -p /opt/zapret2; chmod 755 /opt/zapret2 || fail EINSTALL 'Не удалось установить mode /opt/zapret2.'; cp -a "$ENGINE_STAGE/." /opt/zapret2/ || fail EINSTALL 'Official embedded engine files не установлены.'; chmod 755 /opt/zapret2 || fail EINSTALL 'Не удалось закрепить mode /opt/zapret2.'; [ -x "$ENGINE_STAGE/init.d/openwrt/zapret2" ] && cp -a "$ENGINE_STAGE/init.d/openwrt/zapret2" "$INIT" && chmod 755 "$INIT" || true; [ -f "$ENGINE_STAGE/init.d/openwrt/90-zapret2" ] && cp -a "$ENGINE_STAGE/init.d/openwrt/90-zapret2" /etc/hotplug.d/iface/90-zapret2 || true; [ -f "$ENGINE_STAGE/init.d/openwrt/firewall.zapret2" ] && cp -a "$ENGINE_STAGE/init.d/openwrt/firewall.zapret2" /etc/firewall.zapret2 || true
+phase installing 65 'Удаляется legacy package и устанавливается полный official engine payload.'; remove_legacy_package || fail EREMOVE 'Legacy package ownership не удалось снять.'; rm -rf /opt/zapret2; mkdir -p /opt/zapret2; chmod 755 /opt/zapret2 || fail EINSTALL 'Не удалось установить mode /opt/zapret2.'; cp -a "$ENGINE_STAGE/." /opt/zapret2/ || fail EINSTALL 'Official embedded engine files не установлены.'; normalize_runtime_permissions || fail EINSTALL 'Не удалось нормализовать права official runtime.'; chmod 755 /opt/zapret2 || fail EINSTALL 'Не удалось закрепить mode /opt/zapret2.'; [ -x "$ENGINE_STAGE/init.d/openwrt/zapret2" ] && cp -a "$ENGINE_STAGE/init.d/openwrt/zapret2" "$INIT" && chmod 755 "$INIT" || true; [ -f "$ENGINE_STAGE/init.d/openwrt/90-zapret2" ] && cp -a "$ENGINE_STAGE/init.d/openwrt/90-zapret2" /etc/hotplug.d/iface/90-zapret2 || true; [ -f "$ENGINE_STAGE/init.d/openwrt/firewall.zapret2" ] && cp -a "$ENGINE_STAGE/init.d/openwrt/firewall.zapret2" /etc/firewall.zapret2 || true
 phase restoring 75 'Восстанавливаются конфигурация и пользовательские списки.'; restore_config || fail ERESTORE "Не удалось восстановить пользовательские данные: ${RESTORE_ERROR:-unknown}."
 phase starting 82 'Запускается новый official runtime.'; phase postflight 88 'Проверяется runtime, NFQUEUE и nft.'; postflight || fail EPOSTFLIGHT 'Новый engine не прошёл postflight.'
 mkdir -p "$CACHE"; chmod 700 "$CACHE"; cp -a "$ASSET" "$CACHE/current.tar.gz"; sha "$CACHE/current.tar.gz" >"$CACHE/current.sha256"

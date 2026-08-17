@@ -128,11 +128,18 @@ function path_join(root, value) {
 
 function resolve_path(value, paths, kind, allowAbsolute) {
 	if (value == null || value == '') return value;
-	if (starts_with(value, '/')) return kind == 'list' || kind == 'hostlist' || kind == 'ipset'
-		? (allowAbsolute == true && safe_absolute_path(value) ? value : null) : null;
 	let root = kind == 'lua' ? paths.luaRoot
 		: (kind == 'blob' ? paths.blobRoot
 			: (kind == 'ipset' ? paths.ipsetRoot : paths.listRoot));
+	if (starts_with(value, '/')) {
+		// Registry descriptors may carry an absolute path. Accept it only when
+		// it remains inside the already trusted kind-specific runtime root.
+		if ((kind == 'lua' || kind == 'blob') && safe_absolute_path(value)
+			&& safe_absolute_path(root) && (value == root || starts_with(value, root + '/')))
+			return value;
+		return kind == 'list' || kind == 'hostlist' || kind == 'ipset'
+			? (allowAbsolute == true && safe_absolute_path(value) ? value : null) : null;
+	}
 	if (kind == 'lua' && starts_with(value, '@lua/')) return path_join(root, substr(value, 5));
 	if (kind == 'blob' && starts_with(value, '@bin/')) return path_join(root, substr(value, 5));
 	if (kind == 'blob' && inline_blob_source(value)) return value;
@@ -359,7 +366,7 @@ function blob_dependency(environment, reference, sourceOverride) {
 	let descriptor = is_object(environment.blobs) ? environment.blobs[reference] : null;
 	let source = sourceOverride != null ? sourceOverride : descriptor_path(descriptor, null), resolved = source == null ? null
 		: resolve_path(source, is_object(environment.paths) ? environment.paths : {}, 'blob');
-	let inline = sourceOverride != null && !!inline_blob_source(sourceOverride);
+	let inline = inline_blob_source(reference) || (sourceOverride != null && !!inline_blob_source(sourceOverride));
 	return {
 		available: inline || (descriptor != null && descriptor_safe(descriptor)
 			&& descriptor_present(descriptor, false) && resolved != null),
@@ -455,7 +462,7 @@ function collect_dependencies(strategy, fragments, environment, rawFragments) {
 	let metadataBlobs = type(strategy.blobs) == 'array' ? strategy.blobs : [];
 	for (let i = 0; i < length(metadataBlobs); i++) {
 		let name = metadataBlobs[i];
-		let blob = inlineBlobs[name] ? { available: true, reason: null } : blob_dependency(environment, name);
+		let blob = inlineBlobs[name] || inline_blob_source(name) ? { available: true, reason: null } : blob_dependency(environment, name);
 		add_dependency(dependencies, 'blob', name, blob.available, blob.reason);
 	}
 	if (rawFragments != null) collect_raw_lua_dependencies(dependencies, rawFragments, environment);
@@ -486,7 +493,7 @@ function collect_dependencies(strategy, fragments, environment, rawFragments) {
 					add_dependency(dependencies, 'function', functionName,
 						functionRecord.available, functionRecord.reason);
 				for (let pi = 1; pi < length(parts); pi++) if (starts_with(parts[pi], 'blob=')) {
-					let name = substr(parts[pi], 5), blob = inlineBlobs[name]
+					let name = substr(parts[pi], 5), blob = inlineBlobs[name] || inline_blob_source(name)
 						? { available: true, reason: null } : blob_dependency(environment, name);
 					add_dependency(dependencies, 'blob', name, blob.available, blob.reason);
 				}

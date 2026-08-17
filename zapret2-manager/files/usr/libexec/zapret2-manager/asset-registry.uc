@@ -2,7 +2,7 @@
 // Typed canonical asset registry. Paths are server-owned implementation
 // details; consumers bind to {type,id,revision,contentSha256} references.
 
-import { readfile, writefile, stat, readlink, unlink, mkdir, popen } from 'fs';
+import { readfile, writefile, stat, readlink, unlink, mkdir, lsdir, popen } from 'fs';
 
 const STATE = '/etc/zapret2-manager/asset-registry.json';
 const USER_ROOT = '/etc/zapret2-manager/assets';
@@ -11,7 +11,7 @@ const LIMITS = { lua: 4 * 1024 * 1024, blob: 16 * 1024 * 1024, ipset: 1024 * 102
 	hostlist: 1024 * 1024, geosite: 32 * 1024 * 1024, geoip: 32 * 1024 * 1024, hosts: 1024 * 1024 };
 const EXT = { lua: 'lua', blob: 'bin', ipset: 'txt', hostlist: 'txt', geosite: 'db', geoip: 'db', hosts: 'txt' };
 const TYPES = ['lua', 'blob', 'ipset', 'hostlist', 'geosite', 'geoip', 'hosts'];
-const LEGACY_ROOTS = { lua: ['/opt/zapret2/lua'], blob: ['/opt/zapret2/bin'], ipset: ['/opt/zapret2/ipset', '/etc/zapret2-manager/ipset'], hostlist: ['/opt/zapret2/ipset'], geosite: ['/opt/zapret2'], geoip: ['/opt/zapret2'], hosts: ['/opt/zapret2/ipset'] };
+const LEGACY_ROOTS = { lua: ['/opt/zapret2/lua'], blob: ['/opt/zapret2/files/fake', '/opt/zapret2/bin'], ipset: ['/opt/zapret2/ipset', '/etc/zapret2-manager/ipset'], hostlist: ['/opt/zapret2/lists', '/opt/zapret2/ipset'], geosite: ['/opt/zapret2'], geoip: ['/opt/zapret2'], hosts: ['/opt/zapret2/ipset'] };
 const PROVENANCE = ['builtin/package', 'imported', 'user-created', 'generated', 'catalog/upstream'];
 const LEGACY_LUA_FILES = ['zapret-lib.lua', 'zapret-antidpi.lua', 'zapret-auto.lua',
 	'zapret-obfs.lua', 'zapret-pcap.lua', 'zapret-tests.lua'];
@@ -44,8 +44,8 @@ function legacy_function_names(raw) {
 	return names;
 }
 function add_legacy_environment(environment) {
-	environment.paths = { luaRoot: '/opt/zapret2/lua', blobRoot: '/opt/zapret2/bin',
-		listRoot: '/opt/zapret2/ipset', ipsetRoot: '/opt/zapret2/ipset' };
+		environment.paths = { luaRoot: '/opt/zapret2/lua', blobRoot: '/opt/zapret2/files/fake',
+		listRoot: '/opt/zapret2/lists', ipsetRoot: '/opt/zapret2/ipset' };
 	for (let filename in LEGACY_LUA_FILES) {
 		let path = environment.paths.luaRoot + '/' + filename;
 		if (!regular(path)) continue;
@@ -53,6 +53,37 @@ function add_legacy_environment(environment) {
 		environment.lua[filename] = descriptor;
 		for (let name in legacy_function_names(readfile(path))) environment.functions[name] = descriptor;
 	}
+	// Package-supplied Avatar/z2k extensions are synchronized into the same
+	// trusted roots as the official runtime. Register their actual files in
+	// the compiler environment without making them mutable registry objects.
+	for (let filename in (lsdir(environment.paths.luaRoot) || [])) {
+		if (substr(filename, -4) != '.lua') continue;
+		let path = environment.paths.luaRoot + '/' + filename;
+		if (!regular(path)) continue;
+		let descriptor = { path: path, available: true, present: true, safe: true, symlink: false };
+		environment.lua[filename] = descriptor;
+		for (let name in legacy_function_names(readfile(path))) environment.functions[name] = descriptor;
+	}
+	let blobFiles = {};
+	for (let filename in (lsdir(environment.paths.blobRoot) || [])) {
+		if (substr(filename, -4) != '.bin') continue;
+		let path = environment.paths.blobRoot + '/' + filename;
+		if (!regular(path)) continue;
+		let descriptor = { path: path, available: true, present: true, safe: true, symlink: false };
+		let stem = substr(filename, 0, length(filename) - 4);
+		environment.blobs[stem] = descriptor;
+		blobFiles[filename] = descriptor;
+	}
+	let aliases = {
+		quic_google: 'quic_initial_www_google_com.bin', quic5: 'quic_5.bin',
+		quic4: 'quic_4.bin', quic1: 'quic_1.bin', quic6: 'quic_6.bin',
+		fake_default_tls: 'fake_tls_1.bin', fake_default_http: 'http_iana_org.bin',
+		// The canonical z2k catalog names this payload tls_max_ru while the
+		// package-owned binary keeps the upstream descriptive filename.
+		tls_max_ru: 'tls_clienthello_max_ru.bin',
+		fake_default_quic: 'fake_quic.bin'
+	};
+	for (let alias in aliases) if (blobFiles[aliases[alias]] != null) environment.blobs[alias] = blobFiles[aliases[alias]];
 }
 function link_target(path) { try { return readlink(path); } catch (e) { return null; } }
 function asset_parent_safe(kind) { let base = '/etc/zapret2-manager'; if (link_target(base) != null || (stat(base) != null && !directory(base))) return false; if (link_target(USER_ROOT) != null || (stat(USER_ROOT) != null && !directory(USER_ROOT))) return false; let typed = USER_ROOT + '/' + kind; return link_target(typed) == null && (stat(typed) == null || directory(typed)); }

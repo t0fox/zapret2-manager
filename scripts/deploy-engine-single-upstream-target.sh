@@ -19,12 +19,16 @@ luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2
 luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-engine-panel.js|/www/luci-static/resources/view/zapret2-manager/z2m-engine-panel.js
 luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-engine.js|/www/luci-static/resources/view/zapret2-manager/z2m-engine.js
 luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js|/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js
+luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance-model.js|/www/luci-static/resources/view/zapret2-manager/z2m-maintenance-model.js
+luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.css|/www/luci-static/resources/view/zapret2-manager/z2m-ui.css
+luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-shell.js|/www/luci-static/resources/view/zapret2-manager/z2m-shell.js
 zapret2-manager/files/usr/libexec/zapret2-manager/core/status-collector.uc|/usr/libexec/zapret2-manager/core/status-collector.uc
 zapret2-manager/files/usr/libexec/zapret2-manager/engine-legacy-detect.uc|/usr/libexec/zapret2-manager/engine-legacy-detect.uc
 zapret2-manager/files/usr/libexec/zapret2-manager/engine-catalog.uc|/usr/libexec/zapret2-manager/engine-catalog.uc
 zapret2-manager/files/usr/libexec/zapret2-manager/engine-manager.uc|/usr/libexec/zapret2-manager/engine-manager.uc
 zapret2-manager/files/usr/libexec/zapret2-manager/engine-cli.uc|/usr/libexec/zapret2-manager/engine-cli.uc
 zapret2-manager/files/usr/libexec/zapret2-manager/engine-operation-worker.sh|/usr/libexec/zapret2-manager/engine-operation-worker.sh
+zapret2-manager/files/usr/libexec/zapret2-manager/service.uc|/usr/libexec/zapret2-manager/service.uc
 zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager-engine.uc|/usr/share/rpcd/ucode/zapret2-manager-engine.uc
 luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager-engine.json|/usr/share/rpcd/acl.d/luci-app-zapret2-manager-engine.json
 '
