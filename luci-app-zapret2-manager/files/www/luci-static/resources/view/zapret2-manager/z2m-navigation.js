@@ -2,10 +2,9 @@
 'require baseclass';
 
 /*
- * The navigation model is the single source for the product IA.  Route
+ * The navigation model is the single source for the product IA. Route
  * aliases keep existing bookmarks working while pages move to their target
- * locations.  Items without a migrated module remain explicit model entries;
- * the app can present their state without inventing backend calls.
+ * locations.
  */
 var GROUPS = [
   {
@@ -13,61 +12,61 @@ var GROUPS = [
     label: _('Главная'),
     hideSecondary: true,
     items: [
-      { id: 'dashboard', label: _('Главная'), module: 'overview' }
+      { id: 'dashboard', label: _('Главная') }
     ]
   },
   {
     id: 'dpi',
     label: _('Обход DPI'),
     items: [
-      { id: 'control', label: _('Управление'), module: 'overview' },
-      { id: 'strategies', label: _('Стратегии'), module: 'strategy' },
-      { id: 'scan', label: _('Сканирование'), module: 'strategy' }
+      { id: 'control', label: _('Управление') },
+      { id: 'strategies', label: _('Стратегии') },
+      { id: 'scan', label: _('Сканирование') }
     ]
   },
   {
     id: 'routing',
     label: _('VPN и маршрутизация'),
     items: [
-      { id: 'unified-routing', label: _('Единая маршрутизация'), module: null },
-      { id: 'warp', label: _('WARP / MASQUE'), module: null, children: [
-        { id: 'warp-setup', label: _('Настройка WARP'), module: null },
-        { id: 'warp-in-warp', label: _('WARP-in-WARP'), module: null }
+      { id: 'unified-routing', label: _('Единая маршрутизация') },
+      { id: 'warp', label: _('WARP / MASQUE'), children: [
+        { id: 'warp-setup', label: _('Настройка WARP') },
+        { id: 'warp-in-warp', label: _('WARP-in-WARP') }
       ] },
-      { id: 'telegram-tunnel', label: _('Telegram Proxy'), module: 'proxy' }
+      { id: 'telegram-tunnel', label: _('Telegram Proxy') }
     ]
   },
   {
     id: 'data',
     label: _('Списки и данные'),
     items: [
-      { id: 'lists', label: _('Списки'), module: 'services' },
-      { id: 'hostlists', label: _('Хост-листы'), module: 'services' },
-      { id: 'ipsets', label: _('IP-наборы'), module: null },
-      { id: 'blobs', label: _('Бинарные ресурсы'), module: null },
-      { id: 'lua', label: _('Lua-скрипты'), module: null },
-      { id: 'hosts', label: _('Hosts'), module: null },
-      { id: 'dns-routing', label: _('DNS-маршрутизация'), module: 'dns' }
+      { id: 'lists', label: _('Списки') },
+      { id: 'hostlists', label: _('Хост-листы') },
+      { id: 'ipsets', label: _('IP-наборы') },
+      { id: 'blobs', label: _('Бинарные ресурсы') },
+      { id: 'lua', label: _('Lua-скрипты') },
+      { id: 'hosts', label: _('Hosts') },
+      { id: 'dns-routing', label: _('DNS-маршрутизация') }
     ]
   },
   {
     id: 'diagnostics',
     label: _('Диагностика'),
     items: [
-      { id: 'diagnostics', label: _('Диагностика'), module: 'blockcheck' },
-      { id: 'blockcheck', label: _('BlockCheck'), module: 'blockcheck' },
-      { id: 'logs', label: _('Журналы'), module: 'monitor' },
-      { id: 'monitor', label: _('Мониторинг'), module: 'monitor' }
+      { id: 'diagnostics', label: _('Диагностика') },
+      { id: 'blockcheck', label: _('BlockCheck') },
+      { id: 'logs', label: _('Журналы') },
+      { id: 'monitor', label: _('Мониторинг') }
     ]
   },
   {
     id: 'system',
     label: _('Система'),
     items: [
-      { id: 'updates', label: _('Обновления'), module: 'maintenance' },
-      { id: 'zapret', label: _('Zapret'), module: 'maintenance' },
-      { id: 'autostart', label: _('Автозапуск'), module: 'maintenance' },
-      { id: 'settings', label: _('Настройки'), module: 'maintenance' }
+      { id: 'updates', label: _('Обновления') },
+      { id: 'zapret', label: _('Zapret') },
+      { id: 'autostart', label: _('Автозапуск') },
+      { id: 'settings', label: _('Настройки') }
     ]
   }
 ];
@@ -113,17 +112,8 @@ function label(value) {
 
 return baseclass.extend({
   groups: GROUPS,
-  aliases: ALIASES,
   defaultRoute: 'dashboard',
   normalize: normalize,
   hash: hash,
-  label: label,
-  find: findItem,
-  items: function () {
-    var result = [];
-    eachItem(function (item, group, parent) {
-      result.push({ id: item.id, label: item.label, module: item.module, group: group.id, parent: parent && parent.id || null });
-    });
-    return result;
-  }
+  label: label
 });
