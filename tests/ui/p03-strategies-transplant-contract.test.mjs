@@ -86,7 +86,13 @@ test('P03 backend list path reuses one catalog snapshot and reload stays explici
   const model = fs.readFileSync(path.join(viewRoot, 'z2m-strategies-model.js'), 'utf8');
   const page = fs.readFileSync(path.join(viewRoot, 'z2m-strategies.js'), 'utf8');
   assert.match(model, /argsTruncated:\s*profile\.argsTruncated === true/);
-  assert.match(page, /function mergeSelected\(\)[\s\S]*strategies\.get/);
+  const mergeDeclarations = page.match(/function mergeSelected\(\)\s*\{/g) || [];
+  assert.equal(mergeDeclarations.length, 1, 'Combine must have one effective implementation');
+  const mergeStart = page.indexOf('function mergeSelected() {');
+  const mergeEnd = page.indexOf('\nfunction renderOperationalCards()', mergeStart);
+  const mergeBody = page.slice(mergeStart, mergeEnd);
+  assert.match(mergeBody, /argsTruncated/);
+  assert.match(mergeBody, /strategies\.get/);
   assert.match(page, /function copyStrategyToClipboard\(id\)[\s\S]*strategies\.get/);
 });
 
