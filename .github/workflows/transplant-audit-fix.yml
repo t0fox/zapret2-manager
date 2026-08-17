@@ -1,0 +1,66 @@
+name: transplant-audit-fix
+
+on:
+  push:
+    branches:
+      - audit/transplant-fidelity-fix-2026-08-17
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: "${{ github.event.head_commit.message == 'chore(audit): apply canonical combine regression fix v2' }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Patch duplicate Combine implementation and strengthen regression contract
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          page_path = Path('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategies.js')
+          page = page_path.read_text()
+          lossy = """function mergeSelected() {
+            var sources = state.rows.filter(function (strategy) { return !!state.selectedIds[strategy.id]; });
+            if (sources.length < 2) { notify('warn', 'Выберите хотя бы две стратегии'); return; }
+            state.editor = { mode: 'create', strategy: Model.combineStrategies(sources) };
+            renderEditorForm(); state.root.querySelector('#strategy-modal').style.display = 'flex';
+          }
+          """
+          assert page.count('function mergeSelected() {') == 2, 'expected exactly two mergeSelected declarations before fix'
+          assert lossy in page, 'lossy duplicate mergeSelected body not found'
+          page = page.replace(lossy, '', 1)
+          assert page.count('function mergeSelected() {') == 1, 'mergeSelected must be unique after fix'
+          page_path.write_text(page)
+
+          test_path = Path('tests/ui/p03-strategies-transplant-contract.test.mjs')
+          test = test_path.read_text()
+          old = "  assert.match(page, /function mergeSelected\\(\\)[\\s\\S]*strategies\\.get/);\n"
+          new = """  const mergeDeclarations = page.match(/function mergeSelected\\(\\)\\s*\\{/g) || [];
+            assert.equal(mergeDeclarations.length, 1, 'Combine must have one effective implementation');
+            const mergeStart = page.indexOf('function mergeSelected() {');
+            const mergeEnd = page.indexOf('\\nfunction renderOperationalCards()', mergeStart);
+            const mergeBody = page.slice(mergeStart, mergeEnd);
+            assert.match(mergeBody, /argsTruncated/);
+            assert.match(mergeBody, /strategies\\.get/);
+          """
+          assert old in test, 'weak mergeSelected assertion not found'
+          test = test.replace(old, new, 1)
+          test_path.write_text(test)
+          PY
+      - name: Focused regression tests
+        run: node --test tests/ui/p03-strategies-transplant-contract.test.mjs tests/ui/p03-full-feature-contract.test.mjs tests/ui/p03-strategies-model.test.mjs
+      - name: Commit fix and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name 'transplant-audit-bot'
+          git config user.email 'transplant-audit-bot@users.noreply.github.com'
+          git rm .github/workflows/transplant-audit-fix.yml
+          git add luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategies.js tests/ui/p03-strategies-transplant-contract.test.mjs
+          git commit -m 'fix: preserve canonical strategy combine semantics'
+          git push origin HEAD:audit/transplant-fidelity-fix-2026-08-17
