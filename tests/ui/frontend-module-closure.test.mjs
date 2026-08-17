@@ -6,11 +6,58 @@ import path from 'node:path';
 import { resolveFrontendDependencyClosure, resolveLuCIRequireClosure } from './support/frontend-dependency-closure.mjs';
 
 const ROOT = path.resolve('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager');
+const LOCAL_REQUIRE = /['"]require\s+view\.zapret2-manager\.([A-Za-z0-9_-]+)(?:\s+as\s+[A-Za-z0-9_$]+)?['"];?/g;
+
+function reachableModules(root, entry = 'app.js') {
+  const shipped = fs.readdirSync(root).filter((name) => name.endsWith('.js')).sort();
+  const shippedSet = new Set(shipped);
+  const reachable = new Set();
+  const missing = [];
+  const queue = [entry];
+
+  while (queue.length) {
+    const file = queue.shift();
+    if (reachable.has(file)) continue;
+    assert.ok(shippedSet.has(file), `frontend entry must exist: ${file}`);
+    reachable.add(file);
+    const body = fs.readFileSync(path.join(root, file), 'utf8');
+    LOCAL_REQUIRE.lastIndex = 0;
+    for (let match; (match = LOCAL_REQUIRE.exec(body)); ) {
+      const target = `${match[1]}.js`;
+      if (!shippedSet.has(target)) missing.push({ from: file, target });
+      else if (!reachable.has(target)) queue.push(target);
+    }
+  }
+
+  return {
+    reachable: [...reachable].sort(),
+    missing,
+    orphaned: shipped.filter((file) => !reachable.has(file)),
+  };
+}
 
 test('all shipped LuCI require references resolve to case-sensitive files', () => {
   const result = resolveLuCIRequireClosure(ROOT);
   assert.deepEqual(result.missing, [], JSON.stringify(result.missing, null, 2));
   assert.ok(result.references.get('app.js')?.some((module) => module.name === 'z2m-blockcheck-page'));
+});
+
+test('every shipped frontend JS module is reachable from the LuCI app entry', () => {
+  const result = reachableModules(ROOT);
+  assert.deepEqual(result.missing, [], `missing dependencies:\n${JSON.stringify(result.missing, null, 2)}`);
+  assert.deepEqual(result.orphaned, [], `orphaned frontend modules:\n${JSON.stringify(result.orphaned, null, 2)}`);
+});
+
+test('reachability test catches an orphan module', () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-ui-reachability-'));
+  try {
+    fs.writeFileSync(path.join(temp, 'app.js'), "'require view.zapret2-manager.used as Used';\n");
+    fs.writeFileSync(path.join(temp, 'used.js'), '');
+    fs.writeFileSync(path.join(temp, 'orphan.js'), '');
+    assert.deepEqual(reachableModules(temp).orphaned, ['orphan.js']);
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
 });
 
 test('closure test catches a missing module before deployment', () => {
