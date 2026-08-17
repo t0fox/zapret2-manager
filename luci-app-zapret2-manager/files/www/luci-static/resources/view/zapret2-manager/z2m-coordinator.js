@@ -313,13 +313,10 @@ function create(options) {
     semanticBlockers: semanticBlockers,
     preflightDraft: preflightDraft,
     applyDrafts: applyDrafts,
-    handleApplyResult: handleApplyResult,
-    rollbackResult: rollbackResult,
-    order: APPLY_SCOPE_ORDER.slice()
+    rollbackResult: rollbackResult
   };
 }
 
 return baseclass.extend({
-  APPLY_SCOPE_ORDER: APPLY_SCOPE_ORDER,
   create: create
 });
