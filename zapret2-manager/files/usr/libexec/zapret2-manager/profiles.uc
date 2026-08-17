@@ -25,7 +25,7 @@
 // ucode does not run in the build environment; runtime is confirmed on
 // target via tools/smoke.sh.
 
-import { readfile, stat, popen } from 'fs';
+import { readfile, stat, popen, unlink } from 'fs';
 import { read_var } from './apply.uc';
 import { PATHS } from './constants.uc';
 

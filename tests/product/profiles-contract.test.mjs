@@ -182,6 +182,12 @@ test('profiles list exposes the exact applied option hash for post-apply verific
   assert.match(profiles, /mktemp \/tmp\/z2m-profiles-sha\.XXXXXX/);
 });
 
+test('profile hash temporary files use the fs unlink primitive for cleanup', () => {
+  const profiles = read('zapret2-manager/files/usr/libexec/zapret2-manager/profiles.uc');
+  assert.match(profiles, /import \{[^}]*unlink[^}]*\} from 'fs';/);
+  assert.match(functionBody(profiles, 'sha256_text'), /unlink\(path\)/);
+});
+
 test('profile transaction substrate stays internal to canonical Strategy Apply', () => {
   assert.doesNotMatch(rpc, /profiles_(?:list|create|update|clone|delete|reorder|validate|import_applied|apply)_method/);
   assert.doesNotMatch(rpc, /profiles_(?:list|create|update|clone|delete|reorder|validate|import_applied|apply):/);
