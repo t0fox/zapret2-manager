@@ -147,105 +147,6 @@ function learned_summary(rows) {
 	return result;
 }
 
-function learned_state() {
-	let rows = learned_rows();
-	return { ok: true, source: LEARNED_PATH, entries: rows, summary: learned_summary(rows), empty: !length(rows), count: length(rows) };
-}
-
-function state_save_rows(rows) {
-	let lines = [
-		'# z2k autocircular state (persisted circular nstrategy)',
-		'# key\thost\tstrategy\tts\tmode'
-	];
-	for (let row in rows) {
-		let k = safe_text(row.key);
-		let h = safe_text(row.host);
-		let s = safe_text(row.strategy);
-		let t = safe_text(row.ts) || '' + time();
-		let m = row.mode == 'frozen' ? 'frozen' : 'auto';
-		if (length(k) && length(h) && length(s)) {
-			push(lines, k + '\t' + h + '\t' + s + '\t' + t + '\t' + m);
-		}
-	}
-	ensure_dir();
-	let temporary = LEARNED_PATH + '.tmp.' + time() + '.' + (++tmp_sequence);
-	try { writefile(temporary, join('\n', lines) + '\n'); } catch (e) { return false; }
-	let p = popen('mv -f ' + shell_escape(temporary) + ' ' + shell_escape(LEARNED_PATH) + ' 2>/dev/null', 'r');
-	if (!p) return false;
-	p.read('all'); let rc = p.close();
-	return rc == 0;
-}
-
-function state_set(input) {
-	let value = request_value(input);
-	let key = safe_text(value.key);
-	let host = safe_text(value.host);
-	let strategy = safe_text(value.strategy != null ? value.strategy : value.strategyNumber);
-	let mode = safe_text(value.mode) == 'frozen' ? 'frozen' : 'auto';
-
-	if (!length(key) || !match(key, /^[a-zA-Z0-9_]+$/))
-		return { ok: false, error: { code: 'EINPUT', message: 'key is invalid' } };
-	if (!length(host) || !match(host, /^[a-zA-Z0-9.|-]+$/))
-		return { ok: false, error: { code: 'EINPUT', message: 'host is invalid' } };
-	if (!length(strategy) || !match(strategy, /^[0-9]+$/) || +strategy < 1)
-		return { ok: false, error: { code: 'EINPUT', message: 'strategy must be a positive integer' } };
-
-	let rows = learned_rows();
-	let updated = false;
-	let now_ts = '' + time();
-	for (let row in rows) {
-		if (row.key == key && row.host == host) {
-			row.strategy = strategy;
-			row.ts = now_ts;
-			row.mode = mode;
-			updated = true;
-			break;
-		}
-	}
-	if (!updated) {
-		push(rows, { key: key, host: host, strategy: strategy, ts: now_ts, mode: mode });
-	}
-
-	if (!state_save_rows(rows))
-		return { ok: false, error: { code: 'EIO', message: 'could not save state.tsv' } };
-
-	return { ok: true, key: key, host: host, strategy: strategy, mode: mode, ts: now_ts };
-}
-
-function state_delete(input) {
-	let value = request_value(input);
-	let key = safe_text(value.key);
-	let host = safe_text(value.host);
-
-	if (!length(key) || !length(host))
-		return { ok: false, error: { code: 'EINPUT', message: 'key and host are required' } };
-
-	let rows = learned_rows();
-	let kept = [];
-	for (let row in rows) {
-		if (!(row.key == key && row.host == host))
-			push(kept, row);
-	}
-
-	if (!state_save_rows(kept))
-		return { ok: false, error: { code: 'EIO', message: 'could not save state.tsv' } };
-
-	return { ok: true, deleted: true, key: key, host: host };
-}
-
-function learned_clear(input) {
-	let value = request_value(input), host = safe_text(value.host), key = safe_text(value.key), rows = learned_rows(), kept = [];
-	for (let row in rows) if ((host && row.host != host) || (key && row.key != key)) push(kept, row);
-	if (!host && !key) kept = [];
-	if (!state_save_rows(kept))
-		return { ok: false, error: { code: 'EIO', message: 'learned state reset failed' } };
-	if (!host && !key) {
-		let p = popen('/etc/init.d/zapret2 restart >/dev/null 2>&1 &', 'r');
-		if (p) p.close();
-	}
-	return { ok: true, source: LEARNED_PATH, entries: [], summary: [], empty: true, count: 0 };
-}
-
 function parse_desync_label(action, params, proto) {
 	let label = '';
 	if (action == 'fake') {
@@ -360,7 +261,7 @@ function pools_read() {
 					name = join(' + ', strats_by_num[sIdx]);
 				}
 				if (!name) {
-					name = (sIdx == 1) ? 'Default v2 (circular)' : ('Strategy #' + sIdx);
+					name = 'Стратегия #' + sIdx;
 				}
 				push(strategies, { index: sIdx, name: name });
 			}
@@ -387,6 +288,106 @@ function pools_read() {
 	if (!pools['discord_udp']) pools['discord_udp'] = { key: 'discord_udp', protocol: 'STUN', size: 8, strategies: [ { index: 1, name: 'Default v2 (circular)' } ] };
 
 	return { ok: true, pools: pools };
+}
+
+function learned_state() {
+	let rows = learned_rows();
+	let pools_info = pools_read();
+	return { ok: true, source: LEARNED_PATH, entries: rows, summary: learned_summary(rows), empty: !length(rows), count: length(rows), pools: pools_info.pools || {} };
+}
+
+function state_save_rows(rows) {
+	let lines = [
+		'# z2k autocircular state (persisted circular nstrategy)',
+		'# key\thost\tstrategy\tts\tmode'
+	];
+	for (let row in rows) {
+		let k = safe_text(row.key);
+		let h = safe_text(row.host);
+		let s = safe_text(row.strategy);
+		let t = safe_text(row.ts) || '' + time();
+		let m = row.mode == 'frozen' ? 'frozen' : 'auto';
+		if (length(k) && length(h) && length(s)) {
+			push(lines, k + '\t' + h + '\t' + s + '\t' + t + '\t' + m);
+		}
+	}
+	ensure_dir();
+	let temporary = LEARNED_PATH + '.tmp.' + time() + '.' + (++tmp_sequence);
+	try { writefile(temporary, join('\n', lines) + '\n'); } catch (e) { return false; }
+	let p = popen('mv -f ' + shell_escape(temporary) + ' ' + shell_escape(LEARNED_PATH) + ' 2>/dev/null', 'r');
+	if (!p) return false;
+	p.read('all'); let rc = p.close();
+	return rc == 0;
+}
+
+function state_set(input) {
+	let value = request_value(input);
+	let key = safe_text(value.key);
+	let host = safe_text(value.host);
+	let strategy = safe_text(value.strategy != null ? value.strategy : value.strategyNumber);
+	let mode = safe_text(value.mode) == 'frozen' ? 'frozen' : 'auto';
+
+	if (!length(key) || !match(key, /^[a-zA-Z0-9_]+$/))
+		return { ok: false, error: { code: 'EINPUT', message: 'key is invalid' } };
+	if (!length(host) || !match(host, /^[a-zA-Z0-9.|-]+$/))
+		return { ok: false, error: { code: 'EINPUT', message: 'host is invalid' } };
+	if (!length(strategy) || !match(strategy, /^[0-9]+$/) || +strategy < 1)
+		return { ok: false, error: { code: 'EINPUT', message: 'strategy must be a positive integer' } };
+
+	let rows = learned_rows();
+	let updated = false;
+	let now_ts = '' + time();
+	for (let row in rows) {
+		if (row.key == key && row.host == host) {
+			row.strategy = strategy;
+			row.ts = now_ts;
+			row.mode = mode;
+			updated = true;
+			break;
+		}
+	}
+	if (!updated) {
+		push(rows, { key: key, host: host, strategy: strategy, ts: now_ts, mode: mode });
+	}
+
+	if (!state_save_rows(rows))
+		return { ok: false, error: { code: 'EIO', message: 'could not save state.tsv' } };
+
+	return { ok: true, key: key, host: host, strategy: strategy, mode: mode, ts: now_ts };
+}
+
+function state_delete(input) {
+	let value = request_value(input);
+	let key = safe_text(value.key);
+	let host = safe_text(value.host);
+
+	if (!length(key) || !length(host))
+		return { ok: false, error: { code: 'EINPUT', message: 'key and host are required' } };
+
+	let rows = learned_rows();
+	let kept = [];
+	for (let row in rows) {
+		if (!(row.key == key && row.host == host))
+			push(kept, row);
+	}
+
+	if (!state_save_rows(kept))
+		return { ok: false, error: { code: 'EIO', message: 'could not save state.tsv' } };
+
+	return { ok: true, deleted: true, key: key, host: host };
+}
+
+function learned_clear(input) {
+	let value = request_value(input), host = safe_text(value.host), key = safe_text(value.key), rows = learned_rows(), kept = [];
+	for (let row in rows) if ((host && row.host != host) || (key && row.key != key)) push(kept, row);
+	if (!host && !key) kept = [];
+	if (!state_save_rows(kept))
+		return { ok: false, error: { code: 'EIO', message: 'learned state reset failed' } };
+	if (!host && !key) {
+		let p = popen('/etc/init.d/zapret2 restart >/dev/null 2>&1 &', 'r');
+		if (p) p.close();
+	}
+	return { ok: true, source: LEARNED_PATH, entries: [], summary: [], empty: true, count: 0 };
 }
 
 function cleanup_deprecated_bindings() {

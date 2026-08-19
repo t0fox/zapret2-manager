@@ -189,8 +189,8 @@ test('UX: strategyOptionsForPool returns human readable labels while preserving 
 test('UX: strategyOptionsForPool fallback label when strategy has no metadata name', () => {
   const Model = loadModel();
   const pools = {
-    rkn_tcp: {
-      key: 'rkn_tcp',
+    custom_test_pool: {
+      key: 'custom_test_pool',
       protocol: 'TLS',
       size: 5,
       strategies: [
@@ -200,7 +200,7 @@ test('UX: strategyOptionsForPool fallback label when strategy has no metadata na
     }
   };
 
-  const options = Model.strategyOptionsForPool('rkn_tcp', '5', pools);
+  const options = Model.strategyOptionsForPool('custom_test_pool', '5', pools);
   assert.equal(options.length, 5);
 
   assert.equal(options[0].value, '1');
@@ -208,7 +208,7 @@ test('UX: strategyOptionsForPool fallback label when strategy has no metadata na
 
   // Index 5 fallback
   assert.equal(options[4].value, '5');
-  assert.equal(options[4].label, '5 — Strategy #5');
+  assert.equal(options[4].label, '5 — Стратегия #5');
   assert.equal(options[4].selected, true);
 });
 
@@ -412,4 +412,41 @@ test('Integration: Real production router RPC payload resolves exact strategy na
   assert.equal(pickerOptions[0].selected, true);
   assert.equal(pickerOptions[1].name, 'Multidisorder (midsld) + Fake (Dynamic TTL)');
   assert.equal(pickerOptions[1].selected, false);
+});
+
+test('Regression: Runtime strategy names vs parent catalog name substitution', () => {
+  const Model = loadModel();
+
+  // Test 1: circular_1_1 #1 -> Fake TLS (MD5), even with empty pools object
+  assert.equal(Model.resolveStrategyName('circular_1_1', 1, {}), 'Fake TLS (MD5)');
+  assert.notEqual(Model.resolveStrategyName('circular_1_1', 1, {}), 'Default v2 (circular)');
+
+  // Test 2: circular_1_1 picker contains exactly 6 options
+  const tlsOptions = Model.strategyOptionsForPool('circular_1_1', 1, {});
+  assert.equal(tlsOptions.length, 6);
+  assert.equal(tlsOptions[0].name, 'Fake TLS (MD5)');
+  assert.equal(tlsOptions[5].name, 'Multisplit (host)');
+  assert.equal(Model.resolveStrategyName('circular_1_1', 6, {}), 'Multisplit (host)');
+
+  // Test 3: yt_quic #1 -> Fake QUIC (google x11), picker contains exactly 9 options
+  assert.equal(Model.resolveStrategyName('yt_quic', 1, {}), 'Fake QUIC (google x11)');
+  assert.notEqual(Model.resolveStrategyName('yt_quic', 1, {}), 'Default v2 (circular)');
+  const quicOptions = Model.strategyOptionsForPool('yt_quic', 1, {});
+  assert.equal(quicOptions.length, 9);
+  assert.equal(quicOptions[0].name, 'Fake QUIC (google x11)');
+  assert.equal(quicOptions[8].name, 'UDPLen (+8) + Fake QUIC (x2)');
+
+  // Test 4: discord_voice picker contains exactly 12 options
+  const voiceOptions = Model.strategyOptionsForPool('discord_voice', 1, {});
+  assert.equal(voiceOptions.length, 12);
+  assert.equal(voiceOptions[0].name, 'QUIC Morph v2');
+
+  // Test 5: TLS and QUIC names do not cross contaminate
+  assert.notEqual(Model.resolveStrategyName('circular_1_1', 1, {}), Model.resolveStrategyName('yt_quic', 1, {}));
+
+  // Test 6: Zero options in any pool have parent catalog name 'Default v2 (circular)'
+  const allGenerated = [...tlsOptions, ...quicOptions, ...voiceOptions];
+  for (const opt of allGenerated) {
+    assert.notEqual(opt.name, 'Default v2 (circular)', `Option ${opt.value} in pool must not be named Default v2 (circular)`);
+  }
 });

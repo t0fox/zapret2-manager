@@ -835,7 +835,7 @@ function refreshLearned() {
   var p2 = poolsMethod ? call(poolsMethod, {}).catch(function () { return { pools: {} }; }) : Promise.resolve({ pools: {} });
   return Promise.all([p1, p2]).then(function (res) {
     state.learned = res[0] || { entries: [], count: 0 };
-    state.pools = (res[1] && res[1].pools) || {};
+    state.pools = (res[1] && res[1].pools) || (res[0] && res[0].pools) || {};
     renderOperationalCards();
     if (state.learnedModal && state.learnedModal.open) renderLearnedModal();
     return state.learned;
@@ -857,11 +857,15 @@ function stateSet(key, host, strategy, mode) {
     }
     if (state.learnedModal && state.learnedModal.open) renderLearnedModal();
   }
+  var curNum = Number(strategy) || 1;
+  var stratName = (Model && typeof Model.resolveStrategyName === 'function')
+    ? Model.resolveStrategyName(key, curNum, state.pools)
+    : ('#' + strategy);
   call(setMethod, { key: key, host: host, strategy: String(strategy), mode: mode || 'auto' }).then(function () {
     if (mode === 'frozen') {
-      notify('ok', '🔒 ' + host + ': стратегия ' + strategy + ' зафиксирована');
+      notify('ok', '🔒 ' + host + ': ' + stratName + ' зафиксирована');
     } else {
-      notify('ok', '🔓 ' + host + ': включен автоподбор (стратегия ' + strategy + ')');
+      notify('ok', '🔓 ' + host + ': включен автоподбор (' + stratName + ')');
     }
     return refreshLearned();
   }).catch(function (error) {

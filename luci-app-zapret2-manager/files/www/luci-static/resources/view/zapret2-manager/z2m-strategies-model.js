@@ -269,15 +269,81 @@ function actionCopy(action) {
 }
 function canMutate(pending) { return pending !== true; }
 
-function strategyOptionsForPool(poolKey, currentStrategy, pools) {
+var DEFAULT_RUNTIME_POOLS = {
+  circular_1_1: {
+    key: 'circular_1_1',
+    protocol: 'TLS',
+    size: 6,
+    strategies: [
+      { index: 1, name: 'Fake TLS (MD5)' },
+      { index: 2, name: 'Multidisorder (midsld) + Fake (Dynamic TTL)' },
+      { index: 3, name: 'Multisplit (SeqOvl) + Multisplit (host)' },
+      { index: 4, name: 'Fake (Dynamic TTL) + Multidisorder (host)' },
+      { index: 5, name: 'Fake TLS + Multisplit (midsld)' },
+      { index: 6, name: 'Multisplit (host)' }
+    ]
+  },
+  yt_quic: {
+    key: 'yt_quic',
+    protocol: 'QUIC',
+    size: 9,
+    strategies: [
+      { index: 1, name: 'Fake QUIC (google x11)' },
+      { index: 2, name: 'Fake QUIC (google x8)' },
+      { index: 3, name: 'Fake QUIC (google x6)' },
+      { index: 4, name: 'Fake QUIC (x3) + IPFrag' },
+      { index: 5, name: 'UDPLen (+4) + Fake QUIC (x2)' },
+      { index: 6, name: 'UDPLen (+8) + Fake QUIC (x2)' },
+      { index: 7, name: 'UDPLen (+25) + Fake QUIC (x2)' },
+      { index: 8, name: 'Fake QUIC (x6)' },
+      { index: 9, name: 'UDPLen (+8) + Fake QUIC (x2)' }
+    ]
+  },
+  discord_voice: {
+    key: 'discord_voice',
+    protocol: 'QUIC',
+    size: 12,
+    strategies: [
+      { index: 1, name: 'QUIC Morph v2' },
+      { index: 2, name: 'Timing Morph + Fake QUIC (x2) + IPFrag' },
+      { index: 3, name: 'QUIC Morph (p2)' },
+      { index: 4, name: 'Fake (Dynamic TTL)' },
+      { index: 5, name: 'Fake (Dynamic TTL)' },
+      { index: 6, name: 'Fake (Dynamic TTL)' },
+      { index: 7, name: 'Fake (Dynamic TTL)' },
+      { index: 8, name: 'IPFrag' },
+      { index: 9, name: 'UDPLen (+4) + Fake QUIC (x2)' },
+      { index: 10, name: 'UDPLen (+8) + Fake QUIC (x2)' },
+      { index: 11, name: 'Fake QUIC (x2) + IPFrag' },
+      { index: 12, name: 'Fake QUIC (x3)' }
+    ]
+  }
+};
+DEFAULT_RUNTIME_POOLS.default = DEFAULT_RUNTIME_POOLS.circular_1_1;
+DEFAULT_RUNTIME_POOLS.rkn_tcp = DEFAULT_RUNTIME_POOLS.circular_1_1;
+DEFAULT_RUNTIME_POOLS.discord_udp = DEFAULT_RUNTIME_POOLS.discord_voice;
+
+function findPool(poolKey, pools) {
+  var pKey = text(poolKey).toLowerCase();
   pools = object(pools);
-  var pool = pools[poolKey] || pools[text(poolKey)] || null;
-  if (!pool && (poolKey === 'circular_1_1' || poolKey === 'default' || poolKey === 'rkn_tcp')) {
-    pool = pools['circular_1_1'] || pools['default'] || pools['rkn_tcp'] || null;
+  var pool = pools[poolKey] || pools[pKey] || null;
+  if (!pool && (pKey === 'circular_1_1' || pKey === 'default' || pKey === 'rkn_tcp' || pKey.indexOf('circular') >= 0 || pKey.indexOf('tls') >= 0 || pKey.indexOf('tcp') >= 0)) {
+    pool = pools['circular_1_1'] || pools['default'] || pools['rkn_tcp'] || DEFAULT_RUNTIME_POOLS['circular_1_1'];
   }
-  if (!pool && (poolKey === 'discord_voice' || poolKey === 'discord_udp')) {
-    pool = pools['discord_voice'] || pools['discord_udp'] || null;
+  if (!pool && (pKey === 'yt_quic' || pKey.indexOf('quic') >= 0 || pKey.indexOf('yt') >= 0)) {
+    pool = pools['yt_quic'] || DEFAULT_RUNTIME_POOLS['yt_quic'];
   }
+  if (!pool && (pKey === 'discord_voice' || pKey === 'discord_udp' || pKey.indexOf('voice') >= 0 || pKey.indexOf('stun') >= 0 || pKey.indexOf('discord') >= 0)) {
+    pool = pools['discord_voice'] || pools['discord_udp'] || DEFAULT_RUNTIME_POOLS['discord_voice'];
+  }
+  if (!pool) {
+    pool = DEFAULT_RUNTIME_POOLS[poolKey] || DEFAULT_RUNTIME_POOLS[pKey] || null;
+  }
+  return pool;
+}
+
+function strategyOptionsForPool(poolKey, currentStrategy, pools) {
+  var pool = findPool(poolKey, pools);
   var poolSize = 0;
   var stratsMap = {};
   if (typeof pool === 'number') {
@@ -303,7 +369,7 @@ function strategyOptionsForPool(poolKey, currentStrategy, pools) {
     var meta = stratsMap[i];
     var sName = meta && text(meta.name);
     if (!sName) {
-      sName = (i === 1) ? 'Default v2 (circular)' : ('Strategy #' + i);
+      sName = 'Стратегия #' + i;
     }
     var label = String(i) + ' — ' + sName;
     options.push({
@@ -331,15 +397,7 @@ function strategyOptionsForPool(poolKey, currentStrategy, pools) {
 }
 
 function resolveStrategyName(poolKey, currentStrategy, pools) {
-  pools = object(pools);
-  var pool = pools[poolKey] || pools[text(poolKey)] || null;
-  if (!pool && (poolKey === 'circular_1_1' || poolKey === 'default' || poolKey === 'rkn_tcp')) {
-    pool = pools['circular_1_1'] || pools['default'] || pools['rkn_tcp'] || null;
-  }
-  if (!pool && (poolKey === 'discord_voice' || poolKey === 'discord_udp')) {
-    pool = pools['discord_voice'] || pools['discord_udp'] || null;
-  }
-
+  var pool = findPool(poolKey, pools);
   var curNum = Number(currentStrategy);
   if (isNaN(curNum) || curNum < 1) curNum = 1;
 
@@ -352,7 +410,6 @@ function resolveStrategyName(poolKey, currentStrategy, pools) {
     }
   }
 
-  if (curNum === 1) return 'Default v2 (circular)';
   return 'Стратегия #' + curNum;
 }
 
