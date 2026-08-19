@@ -329,3 +329,87 @@ test('API contract: z2m-api.js declares strategiesStateSet and strategiesPools a
   assert.match(apiCode, /stateSet:\s*calls\.strategiesStateSet/);
   assert.match(apiCode, /pools:\s*calls\.strategiesPools/);
 });
+
+test('Integration: Real production router RPC payload resolves exact strategy names and modes', () => {
+  const Model = loadModel();
+  const routerPoolsPayload = {
+    circular_1_1: {
+      key: 'circular_1_1',
+      protocol: 'TLS',
+      size: 6,
+      strategies: [
+        { index: 1, name: 'Fake TLS (MD5)' },
+        { index: 2, name: 'Multidisorder (midsld) + Fake (Dynamic TTL)' },
+        { index: 3, name: 'Multisplit (SeqOvl) + Multisplit (host)' },
+        { index: 4, name: 'Fake (Dynamic TTL) + Multidisorder (host)' },
+        { index: 5, name: 'Fake TLS + Multisplit (midsld)' },
+        { index: 6, name: 'Multisplit (host)' }
+      ]
+    },
+    yt_quic: {
+      key: 'yt_quic',
+      protocol: 'QUIC',
+      size: 9,
+      strategies: [
+        { index: 1, name: 'Fake QUIC (google x11)' },
+        { index: 2, name: 'Fake QUIC (google x8)' },
+        { index: 3, name: 'Fake QUIC (google x6)' },
+        { index: 4, name: 'Fake QUIC (x3) + IPFrag' },
+        { index: 5, name: 'UDPLen (+4) + Fake QUIC (x2)' },
+        { index: 6, name: 'UDPLen (+8) + Fake QUIC (x2)' },
+        { index: 7, name: 'UDPLen (+25) + Fake QUIC (x2)' },
+        { index: 8, name: 'Fake QUIC (x6)' },
+        { index: 9, name: 'UDPLen (+8) + Fake QUIC (x2)' }
+      ]
+    },
+    discord_voice: {
+      key: 'discord_voice',
+      protocol: 'QUIC',
+      size: 12,
+      strategies: [
+        { index: 1, name: 'QUIC Morph v2' },
+        { index: 2, name: 'Timing Morph + Fake QUIC (x2) + IPFrag' },
+        { index: 3, name: 'QUIC Morph (p2)' },
+        { index: 4, name: 'Fake (Dynamic TTL)' },
+        { index: 5, name: 'Fake (Dynamic TTL)' },
+        { index: 6, name: 'Fake (Dynamic TTL)' },
+        { index: 7, name: 'Fake (Dynamic TTL)' },
+        { index: 8, name: 'IPFrag' },
+        { index: 9, name: 'UDPLen (+4) + Fake QUIC (x2)' },
+        { index: 10, name: 'UDPLen (+8) + Fake QUIC (x2)' },
+        { index: 11, name: 'Fake QUIC (x2) + IPFrag' },
+        { index: 12, name: 'Fake QUIC (x3)' }
+      ]
+    }
+  };
+
+  const routerStateRow = {
+    key: 'circular_1_1',
+    host: 'kws4.pclead.co.uk',
+    strategy: '1',
+    ts: '1787143957',
+    mode: 'frozen'
+  };
+
+  const humanized = Model.humanizeLearnedEntry(routerStateRow);
+  assert.equal(humanized.host, 'kws4.pclead.co.uk');
+  assert.equal(humanized.protocol, 'TLS');
+  assert.equal(humanized.strategy, '1');
+  assert.equal(humanized.mode, 'frozen');
+  assert.equal(humanized.frozen, true);
+
+  const stratName = Model.resolveStrategyName(routerStateRow.key, routerStateRow.strategy, routerPoolsPayload);
+  assert.equal(stratName, 'Fake TLS (MD5)');
+
+  const badge = Model.modeBadge(routerStateRow.mode);
+  assert.equal(badge.label, 'Зафиксировано');
+  assert.equal(badge.icon, 'lock');
+  assert.equal(badge.isFrozen, true);
+
+  const pickerOptions = Model.strategyOptionsForPool(routerStateRow.key, routerStateRow.strategy, routerPoolsPayload);
+  assert.equal(pickerOptions.length, 6);
+  assert.equal(pickerOptions[0].name, 'Fake TLS (MD5)');
+  assert.equal(pickerOptions[0].selected, true);
+  assert.equal(pickerOptions[1].name, 'Multidisorder (midsld) + Fake (Dynamic TTL)');
+  assert.equal(pickerOptions[1].selected, false);
+});
