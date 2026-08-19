@@ -487,14 +487,50 @@ function renderOperationalCards() {
   var debug = state.root && state.root.querySelector('#strategy-debug-info');
   if (debug) debug.innerHTML = '<label class="toggle-label"><input type="checkbox" data-action="toggleDebug"' + (state.debug ? ' checked' : '') + '>' + svgIcon('bug', 14) + '<span>Отладка nfqws2</span></label><button class="btn btn-ghost btn-sm" data-action="openJournal">' + svgIcon('file', 14) + '<span>Журнал</span></button>';
 }
+function getStrategyOptions(key, curStrat, pools) {
+  if (Model && typeof Model.strategyOptionsForPool === 'function') {
+    try {
+      return Model.strategyOptionsForPool(key, curStrat, pools);
+    } catch (_e) {}
+  }
+  var pool = pools && (pools[key] || pools[String(key)]);
+  var poolMax = Math.max(Number(pool && (pool.size || pool)) || 0, Number(curStrat) || 1, 10);
+  var opts = [];
+  for (var i = 1; i <= poolMax; i++) {
+    opts.push({ value: String(i), label: String(i) + ' — Strategy #' + i, selected: i === Number(curStrat) });
+  }
+  return opts;
+}
+
+function getModeBadge(mode) {
+  if (Model && typeof Model.modeBadge === 'function') {
+    try {
+      return Model.modeBadge(mode);
+    } catch (_e) {}
+  }
+  var isFrozen = String(mode) === 'frozen';
+  return {
+    mode: isFrozen ? 'frozen' : 'auto',
+    isFrozen: isFrozen,
+    label: isFrozen ? 'Зафиксировано' : 'Авто',
+    icon: isFrozen ? 'lock' : 'unlock',
+    tooltip: isFrozen ? 'Текущая стратегия зафиксирована вручную. Нажмите, чтобы вернуть автоподбор' : 'Стратегия управляется autocircular автоматически. Нажмите, чтобы зафиксировать',
+    ariaLabel: isFrozen ? 'Вернуть автоматический режим' : 'Зафиксировать текущую стратегию'
+  };
+}
+
 function openLearnedModal() {
   if (!state.learnedModal) {
     state.learnedModal = { search: '', protoFilter: 'all', sortField: 'ts', sortDir: 'desc', visibleCount: 50 };
   }
   state.learnedModal.open = true;
-  renderLearnedModal();
   var modal = state.root && state.root.querySelector('#learned-modal');
   if (modal) modal.style.display = 'flex';
+  try {
+    renderLearnedModal();
+  } catch (err) {
+    console.error('renderLearnedModal error:', err);
+  }
 }
 function closeLearnedModal() {
   var modal = state.root && state.root.querySelector('#learned-modal');
@@ -541,7 +577,7 @@ function renderLearnedModal() {
   var body = state.root && state.root.querySelector('#learned-modal-body');
   if (!body) return;
   var value = object(state.learned);
-  var allEntries = array(value.entries).map(function (entry) { return Model.humanizeLearnedEntry ? Model.humanizeLearnedEntry(entry) : entry; });
+  var allEntries = array(value.entries).map(function (entry) { return Model && Model.humanizeLearnedEntry ? Model.humanizeLearnedEntry(entry) : entry; });
   var modalState = state.learnedModal || { search: '', protoFilter: 'all', sortField: 'ts', sortDir: 'desc', visibleCount: 50 };
   var query = (modalState.search || '').trim().toLowerCase();
   var protoFilter = modalState.protoFilter || 'all';
@@ -577,12 +613,12 @@ function renderLearnedModal() {
   var pools = state.pools || {};
   var rowsHtml = shown.length ? shown.map(function (item) {
     var curStrat = Number(item.strategy || item.variantNum) || 1;
-    var options = Model.strategyOptionsForPool(item.key, curStrat, pools);
+    var options = getStrategyOptions(item.key, curStrat, pools);
     var stratOpts = options.map(function (opt) {
       return '<option value="' + escapeAttr(opt.value) + '"' + (opt.selected ? ' selected' : '') + '>' + escapeHtml(opt.label) + '</option>';
     }).join('');
 
-    var badge = Model.modeBadge(item.mode);
+    var badge = getModeBadge(item.mode);
     return '<tr class="learned-row' + (badge.isFrozen ? ' learned-row-frozen' : '') + '"' + (badge.isFrozen ? ' style="background:rgba(59,130,246,0.06)"' : '') + '>' +
       '<td class="learned-col-domain"><span class="learned-domain-copyable" data-action="copyLearnedDomain" data-host="' + escapeAttr(item.host) + '" title="Нажмите, чтобы скопировать"><strong>' + escapeHtml(item.host) + '</strong></span></td>' +
       '<td><span class="learned-proto-badge ' + escapeAttr(item.protoClass || 'tls') + '">' + escapeHtml(item.protocol || 'TLS') + '</span></td>' +
