@@ -246,38 +246,146 @@ function learned_clear(input) {
 	return { ok: true, source: LEARNED_PATH, entries: [], summary: [], empty: true, count: 0 };
 }
 
+function parse_desync_label(action, params, proto) {
+	let label = '';
+	if (action == 'fake') {
+		if (match(params, /tcp_md5/)) label = 'Fake ' + (proto || 'TLS') + ' (MD5)';
+		else if (match(params, /fool=z2k_dynamic_ttl/) || match(params, /ip_autottl/)) label = 'Fake (Dynamic TTL)';
+		else if (match(params, /quic_google/)) {
+			let rep = match(params, /repeats=([0-9]+)/);
+			label = 'Fake QUIC (google' + (rep ? ' x' + rep[1] : '') + ')';
+		} else if (match(params, /quic/)) {
+			let rep = match(params, /repeats=([0-9]+)/);
+			label = 'Fake QUIC' + (rep ? ' (x' + rep[1] + ')' : '');
+		} else if (proto == 'QUIC') {
+			let rep = match(params, /repeats=([0-9]+)/);
+			label = 'Fake QUIC' + (rep ? ' (x' + rep[1] + ')' : '');
+		} else if (proto == 'HTTP') {
+			label = 'Fake HTTP';
+		} else {
+			let rep = match(params, /repeats=([0-9]+)/);
+			label = 'Fake TLS' + (rep ? ' (x' + rep[1] + ')' : '');
+		}
+	} else if (action == 'multisplit') {
+		if (match(params, /seqovl/)) label = 'Multisplit (SeqOvl)';
+		else if (match(params, /pos=[^:\s]*midsld/)) label = 'Multisplit (midsld)';
+		else if (match(params, /pos=[^:\s]*host/)) label = 'Multisplit (host)';
+		else label = 'Multisplit';
+	} else if (action == 'multidisorder') {
+		if (match(params, /pos=[^:\s]*midsld/)) label = 'Multidisorder (midsld)';
+		else if (match(params, /pos=[^:\s]*host/)) label = 'Multidisorder (host)';
+		else label = 'Multidisorder';
+	} else if (action == 'z2k_quic_morph_v2') {
+		if (match(params, /profile=2/)) label = 'QUIC Morph (p2)';
+		else label = 'QUIC Morph v2';
+	} else if (action == 'z2k_timing_morph') {
+		label = 'Timing Morph';
+	} else if (action == 'udplen') {
+		let inc = match(params, /increment=([0-9]+)/);
+		if (inc) label = 'UDPLen (+' + inc[1] + ')';
+		else if (match(params, /pattern/)) label = 'UDPLen (pattern)';
+		else label = 'UDPLen';
+	} else if (action == 'send' && match(params, /ipfrag/)) {
+		label = 'IPFrag';
+	} else if (action == 'drop') {
+		label = '';
+	} else if (action == 'fakedsplit') {
+		label = 'Fake Split';
+	} else if (action == 'fakeddisorder') {
+		label = 'Fake Disorder';
+	} else if (action == 'hostfakesplit') {
+		label = 'Host Fake Split';
+	} else if (action == 'pktmod') {
+		label = 'PktMod';
+	} else {
+		label = action;
+	}
+	return label;
+}
+
 function pools_read() {
-	let pools = {
-		rkn_tcp: 50,
-		yt_tcp: 24,
-		gv_tcp: 22,
-		yt_quic: 9,
-		discord_udp: 8
-	};
+	let pools = {};
 
 	let cfg_path = '/opt/zapret2/config';
 	let raw = null;
 	try { raw = readfile(cfg_path); } catch (e) { raw = null; }
 	if (raw) {
 		let segments = split(raw, '--new');
-		for (let seg in segments) {
-			let key_match = match(seg, /--lua-desync=circular:[^\s]*key=([a-zA-Z0-9_]+)/);
-			let key = key_match ? key_match[1] : null;
-			if (key) {
-				let max_strat = 1;
-				let pos = 0;
-				while (true) {
-					let m = match(substr(seg, pos), /strategy=([0-9]+)/);
-					if (!m) break;
-					let n = +m[1];
-					if (n > max_strat) max_strat = n;
-					let idx = index(substr(seg, pos), m[0]);
-					pos += idx + length(m[0]);
+		for (let i = 0; i < length(segments); i++) {
+			let seg = segments[i];
+			let circ = match(seg, /--lua-desync=circular:([^ \t\r\n]*)/);
+			if (!circ) continue;
+			let key = null;
+			let parts = split(circ[1], ':');
+			for (let p in parts) {
+				let km = match(p, /^key=([a-zA-Z0-9_]+)$/);
+				if (km) key = km[1];
+			}
+			if (!key) key = 'circular_1_' + (i + 1);
+
+			let proto = 'TLS';
+			if (match(seg, /--filter-udp/) || match(seg, /--filter-l7=[^:\s]*quic/)) proto = 'QUIC';
+			else if (match(seg, /--filter-l7=[^:\s]*discord/) || match(seg, /--filter-l7=[^:\s]*stun/)) proto = 'STUN';
+			else if (match(seg, /--filter-l7=[^:\s]*http\b/)) proto = 'HTTP';
+
+			let strats_by_num = {};
+			let max_strat = 1;
+
+			let tokens = split(seg, /[ \t\r\n]+/);
+			for (let tok in tokens) {
+				let desync_m = match(tok, /^--lua-desync=([a-zA-Z0-9_]+):(.*)$/);
+				if (desync_m) {
+					let action = desync_m[1], params = desync_m[2];
+					let strat_m = match(params, /strategy=([0-9]+)/);
+					if (strat_m) {
+						let n = +strat_m[1];
+						if (n > max_strat) max_strat = n;
+						let lbl = parse_desync_label(action, params, proto);
+						if (lbl && length(lbl) > 0) {
+							if (!strats_by_num[n]) strats_by_num[n] = [];
+							let already = false;
+							for (let existing in strats_by_num[n]) {
+								if (existing == lbl) { already = true; break; }
+							}
+							if (!already) push(strats_by_num[n], lbl);
+						}
+					}
 				}
-				if (max_strat > 1) pools[key] = max_strat;
+			}
+
+			let strategies = [];
+			for (let sIdx = 1; sIdx <= max_strat; sIdx++) {
+				let name = null;
+				if (strats_by_num[sIdx] && length(strats_by_num[sIdx]) > 0) {
+					name = join(' + ', strats_by_num[sIdx]);
+				}
+				if (!name) {
+					name = (sIdx == 1) ? 'Default v2 (circular)' : ('Strategy #' + sIdx);
+				}
+				push(strategies, { index: sIdx, name: name });
+			}
+
+			let pool_obj = {
+				key: key,
+				protocol: proto,
+				size: max_strat,
+				strategies: strategies
+			};
+			pools[key] = pool_obj;
+			if (key == 'circular_1_1') {
+				pools['default'] = pool_obj;
+				pools['rkn_tcp'] = pool_obj;
+			}
+			if (key == 'discord_voice') {
+				pools['discord_udp'] = pool_obj;
 			}
 		}
 	}
+
+	if (!pools['rkn_tcp']) pools['rkn_tcp'] = { key: 'rkn_tcp', protocol: 'TLS', size: 6, strategies: [ { index: 1, name: 'Default v2 (circular)' } ] };
+	if (!pools['yt_quic']) pools['yt_quic'] = { key: 'yt_quic', protocol: 'QUIC', size: 9, strategies: [ { index: 1, name: 'Default v2 (circular)' } ] };
+	if (!pools['discord_udp']) pools['discord_udp'] = { key: 'discord_udp', protocol: 'STUN', size: 8, strategies: [ { index: 1, name: 'Default v2 (circular)' } ] };
+
 	return { ok: true, pools: pools };
 }
 

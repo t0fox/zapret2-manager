@@ -1081,14 +1081,16 @@
 .z2m-view#z2m-view-strategy .learned-strat-sel {
   height: 26px !important;
   min-height: 26px !important;
-  max-width: 68px !important;
-  padding: 2px 6px !important;
+  min-width: 140px !important;
+  max-width: 260px !important;
+  padding: 2px 8px !important;
   font-size: 12px !important;
   border-radius: 4px !important;
   background: #181a1d !important;
   color: #f1f5f9 !important;
   border: 1px solid var(--border2, #3a3f45) !important;
   cursor: pointer !important;
+  text-overflow: ellipsis !important;
 }
 #z2m-view-strategy .learned-row-frozen td,
 .z2m-view#z2m-view-strategy .learned-row-frozen td {

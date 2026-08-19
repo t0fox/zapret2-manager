@@ -576,27 +576,27 @@ function renderLearnedModal() {
 
   var pools = state.pools || {};
   var rowsHtml = shown.length ? shown.map(function (item) {
-    var poolMax = Math.max(Number(pools[item.key] || 0), Number(item.strategy || item.variantNum) || 1, 10);
-    var stratOpts = '';
     var curStrat = Number(item.strategy || item.variantNum) || 1;
-    for (var i = 1; i <= poolMax; i++) {
-      stratOpts += '<option value="' + i + '"' + (i === curStrat ? ' selected' : '') + '>' + i + '</option>';
-    }
-    var frozen = item.frozen || item.mode === 'frozen';
-    return '<tr class="learned-row' + (frozen ? ' learned-row-frozen' : '') + '"' + (frozen ? ' style="background:rgba(59,130,246,0.06)"' : '') + '>' +
+    var options = Model.strategyOptionsForPool(item.key, curStrat, pools);
+    var stratOpts = options.map(function (opt) {
+      return '<option value="' + escapeAttr(opt.value) + '"' + (opt.selected ? ' selected' : '') + '>' + escapeHtml(opt.label) + '</option>';
+    }).join('');
+
+    var badge = Model.modeBadge(item.mode);
+    return '<tr class="learned-row' + (badge.isFrozen ? ' learned-row-frozen' : '') + '"' + (badge.isFrozen ? ' style="background:rgba(59,130,246,0.06)"' : '') + '>' +
       '<td class="learned-col-domain"><span class="learned-domain-copyable" data-action="copyLearnedDomain" data-host="' + escapeAttr(item.host) + '" title="Нажмите, чтобы скопировать"><strong>' + escapeHtml(item.host) + '</strong></span></td>' +
       '<td><span class="learned-proto-badge ' + escapeAttr(item.protoClass || 'tls') + '">' + escapeHtml(item.protocol || 'TLS') + '</span></td>' +
       '<td>' +
-        '<select class="form-select form-select-sm learned-strat-sel" data-key="' + escapeAttr(item.key) + '" data-host="' + escapeAttr(item.host) + '" data-mode="' + (frozen ? 'frozen' : 'auto') + '" title="Выбор стратегии 1..' + poolMax + '">' + stratOpts + '</select>' +
+        '<select class="form-select form-select-sm learned-strat-sel" data-key="' + escapeAttr(item.key) + '" data-host="' + escapeAttr(item.host) + '" data-mode="' + (badge.isFrozen ? 'frozen' : 'auto') + '" title="Выбор стратегии">' + stratOpts + '</select>' +
       '</td>' +
       '<td>' +
-        '<button type="button" class="btn btn-sm learned-freeze-btn ' + (frozen ? 'is-frozen' : 'is-auto') + '" data-action="toggleStateFreeze" data-key="' + escapeAttr(item.key) + '" data-host="' + escapeAttr(item.host) + '" data-strategy="' + curStrat + '" data-mode="' + (frozen ? 'frozen' : 'auto') + '" title="' + (frozen ? 'Режим: Зафиксировано. Нажмите, чтобы включить автоподбор' : 'Режим: Автоподбор. Нажмите, чтобы зафиксировать стратегию ' + curStrat) + '">' +
-          (frozen ? svgIcon('lock', 13) + ' <span>Зафиксировано</span>' : svgIcon('unlock', 13) + ' <span>Автоподбор</span>') +
+        '<button type="button" class="btn btn-sm learned-freeze-btn ' + (badge.isFrozen ? 'is-frozen' : 'is-auto') + '" data-action="toggleStateFreeze" data-key="' + escapeAttr(item.key) + '" data-host="' + escapeAttr(item.host) + '" data-strategy="' + curStrat + '" data-mode="' + (badge.isFrozen ? 'frozen' : 'auto') + '" title="' + escapeAttr(badge.tooltip) + '" aria-label="' + escapeAttr(badge.ariaLabel) + '">' +
+          (badge.isFrozen ? svgIcon('lock', 13) + ' <span>' + escapeHtml(badge.label) + '</span>' : svgIcon('unlock', 13) + ' <span>' + escapeHtml(badge.label) + '</span>') +
         '</button>' +
       '</td>' +
       '<td class="text-muted learned-col-ts">' + escapeHtml(item.ts || '—') + '</td>' +
       '<td class="learned-col-key"><code class="learned-key-code" title="Технический ключ">' + escapeHtml(item.key || '—') + '</code></td>' +
-      '<td style="text-align:right"><button type="button" class="learned-row-reset-btn" data-action="resetLearned" data-host="' + escapeAttr(item.host || '') + '" data-key="' + escapeAttr(item.key || '') + '" title="Удалить запись (сброс на стратегию 1)">' + svgIcon('trash', 14) + '</button></td>' +
+      '<td style="text-align:right"><button type="button" class="learned-row-reset-btn" data-action="resetLearned" data-host="' + escapeAttr(item.host || '') + '" data-key="' + escapeAttr(item.key || '') + '" title="Сбросить выученную стратегию для этого ресурса">' + svgIcon('trash', 14) + '</button></td>' +
       '</tr>';
   }).join('') : '<tr><td colspan="7" class="text-center text-muted" style="padding:28px">Ничего не найдено</td></tr>';
 
@@ -641,7 +641,7 @@ function renderLearnedModal() {
     '</div>' +
     (shown.length < filtered.length ? '<div style="text-align:center;margin-top:12px"><button class="btn btn-ghost btn-sm" data-action="loadMoreLearned">Показать ещё (' + Math.min(50, filtered.length - shown.length) + ')</button></div>' : '') +
     '<div class="editor-footer">' +
-    '<button class="btn btn-danger btn-sm" data-action="resetLearned" style="margin-right:auto">' + svgIcon('trash', 14) + '<span>Сбросить всю историю</span></button>' +
+    '<button class="btn btn-danger btn-sm" data-action="resetLearned" style="margin-right:auto">' + svgIcon('trash', 14) + '<span>Сбросить всё</span></button>' +
     '<button class="btn btn-ghost" data-action="closeLearnedModal">Закрыть</button>' +
     '</div>';
 

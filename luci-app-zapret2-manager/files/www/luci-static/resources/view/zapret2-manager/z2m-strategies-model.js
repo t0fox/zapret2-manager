@@ -268,6 +268,84 @@ function actionCopy(action) {
   return { pending: 'Выполняется…', success: 'Готово', failure: 'Операция не выполнена' };
 }
 function canMutate(pending) { return pending !== true; }
+
+function strategyOptionsForPool(poolKey, currentStrategy, pools) {
+  pools = object(pools);
+  var pool = pools[poolKey] || pools[text(poolKey)] || null;
+  var poolSize = 0;
+  var stratsMap = {};
+  if (typeof pool === 'number') {
+    poolSize = pool;
+  } else if (pool && typeof pool === 'object') {
+    poolSize = Number(pool.size || pool.max || (Array.isArray(pool.strategies) ? pool.strategies.length : 0)) || 0;
+    if (Array.isArray(pool.strategies)) {
+      pool.strategies.forEach(function (s) {
+        if (s && s.index !== undefined) {
+          stratsMap[s.index] = s;
+        }
+      });
+      if (pool.strategies.length > poolSize) poolSize = pool.strategies.length;
+    }
+  }
+
+  var curNum = Number(currentStrategy);
+  if (isNaN(curNum) || curNum < 1) curNum = 1;
+  var total = Math.max(poolSize, 1);
+  var options = [];
+
+  for (var i = 1; i <= total; i++) {
+    var meta = stratsMap[i];
+    var sName = meta && text(meta.name);
+    if (!sName) {
+      sName = 'Strategy #' + i;
+    }
+    var label = String(i) + ' — ' + sName;
+    options.push({
+      index: i,
+      value: String(i),
+      name: sName,
+      label: label,
+      selected: i === curNum,
+      isUnknown: false
+    });
+  }
+
+  if (curNum > total) {
+    options.push({
+      index: curNum,
+      value: String(curNum),
+      name: 'Неизвестная стратегия #' + curNum,
+      label: String(curNum) + ' — Неизвестная стратегия #' + curNum,
+      selected: true,
+      isUnknown: true
+    });
+  }
+
+  return options;
+}
+
+function modeBadge(mode) {
+  var isFrozen = text(mode) === 'frozen';
+  if (isFrozen) {
+    return {
+      mode: 'frozen',
+      isFrozen: true,
+      label: 'Зафиксировано',
+      icon: 'lock',
+      tooltip: 'Текущая стратегия зафиксирована вручную. Нажмите, чтобы вернуть автоподбор',
+      ariaLabel: 'Вернуть автоматический режим'
+    };
+  }
+  return {
+    mode: 'auto',
+    isFrozen: false,
+    label: 'Авто',
+    icon: 'unlock',
+    tooltip: 'Стратегия управляется autocircular автоматически. Нажмите, чтобы зафиксировать',
+    ariaLabel: 'Зафиксировать текущую стратегию'
+  };
+}
+
 return baseclass.extend({
   normalize: normalize,
   list: list,
@@ -280,5 +358,7 @@ return baseclass.extend({
   parseClipboardStrategies: parseClipboardStrategies,
   combineStrategies: combineStrategies,
   isCircularStrategy: isCircularStrategy,
-  humanizeLearnedEntry: humanizeLearnedEntry
+  humanizeLearnedEntry: humanizeLearnedEntry,
+  strategyOptionsForPool: strategyOptionsForPool,
+  modeBadge: modeBadge
 });
