@@ -573,6 +573,60 @@ function copyLearnedDomain(domain) {
     notify('info', domain);
   }
 }
+function openStratPicker(key, host, currentStrategy, mode) {
+  state.stratPicker = {
+    key: key,
+    host: host,
+    currentStrategy: Number(currentStrategy) || 1,
+    mode: mode || 'auto'
+  };
+  renderStratPickerModal();
+  var modal = state.root && state.root.querySelector('#strat-picker-modal');
+  if (modal) modal.style.display = 'flex';
+}
+function closeStratPicker() {
+  var modal = state.root && state.root.querySelector('#strat-picker-modal');
+  if (modal) modal.style.display = 'none';
+  state.stratPicker = null;
+}
+function renderStratPickerModal() {
+  if (!state.stratPicker) return;
+  var body = state.root && state.root.querySelector('#strat-picker-body');
+  if (!body) return;
+  var key = state.stratPicker.key;
+  var host = state.stratPicker.host;
+  var curStrat = state.stratPicker.currentStrategy;
+  var pools = state.pools || {};
+  var options = getStrategyOptions(key, curStrat, pools);
+
+  var itemsHtml = options.map(function (opt) {
+    var isSelected = opt.selected || (Number(opt.value) === curStrat);
+    return '<div class="strat-picker-item' + (isSelected ? ' active' : '') + '" data-action="selectStratPickerOption" data-value="' + escapeAttr(opt.value) + '">' +
+      '<div class="strat-picker-radio"><input type="radio" name="strat-picker-choice" value="' + escapeAttr(opt.value) + '"' + (isSelected ? ' checked' : '') + '></div>' +
+      '<div class="strat-picker-info">' +
+        '<div class="strat-picker-name">' + escapeHtml(opt.name || opt.label) + '</div>' +
+        '<div class="strat-picker-meta"><span class="strat-picker-idx">#' + escapeHtml(opt.value) + '</span> ' + (opt.isUnknown ? '<span class="strat-picker-warn">Вне пула</span>' : '<span class="text-muted">вариант runtime</span>') + '</div>' +
+      '</div>' +
+      '</div>';
+  }).join('');
+
+  body.innerHTML = '<div class="strat-picker-context">' +
+    '<div class="strat-picker-domain"><strong>' + escapeHtml(host) + '</strong></div>' +
+    '<div class="strat-picker-sub text-muted">Выберите вариант обхода для runtime-пула <code>' + escapeHtml(key) + '</code></div>' +
+    '</div>' +
+    '<div class="strat-picker-list">' + itemsHtml + '</div>' +
+    '<div class="editor-footer" style="margin-top:16px">' +
+    '<button type="button" class="btn btn-ghost" data-action="closeStratPicker">Отмена</button>' +
+    '</div>';
+}
+function selectStratPickerOption(value) {
+  if (!state.stratPicker) return;
+  var key = state.stratPicker.key;
+  var host = state.stratPicker.host;
+  var mode = state.stratPicker.mode || 'auto';
+  closeStratPicker();
+  stateSet(key, host, value, mode);
+}
 function renderLearnedModal() {
   var body = state.root && state.root.querySelector('#learned-modal-body');
   if (!body) return;
@@ -613,17 +667,20 @@ function renderLearnedModal() {
   var pools = state.pools || {};
   var rowsHtml = shown.length ? shown.map(function (item) {
     var curStrat = Number(item.strategy || item.variantNum) || 1;
-    var options = getStrategyOptions(item.key, curStrat, pools);
-    var stratOpts = options.map(function (opt) {
-      return '<option value="' + escapeAttr(opt.value) + '"' + (opt.selected ? ' selected' : '') + '>' + escapeHtml(opt.label) + '</option>';
-    }).join('');
-
+    var stratName = (Model && typeof Model.resolveStrategyName === 'function')
+      ? Model.resolveStrategyName(item.key, curStrat, pools)
+      : (pools[item.key] && pools[item.key].strategies && pools[item.key].strategies[curStrat - 1] && pools[item.key].strategies[curStrat - 1].name) || ('Стратегия #' + curStrat);
     var badge = getModeBadge(item.mode);
+
     return '<tr class="learned-row' + (badge.isFrozen ? ' learned-row-frozen' : '') + '"' + (badge.isFrozen ? ' style="background:rgba(59,130,246,0.06)"' : '') + '>' +
       '<td class="learned-col-domain"><span class="learned-domain-copyable" data-action="copyLearnedDomain" data-host="' + escapeAttr(item.host) + '" title="Нажмите, чтобы скопировать"><strong>' + escapeHtml(item.host) + '</strong></span></td>' +
       '<td><span class="learned-proto-badge ' + escapeAttr(item.protoClass || 'tls') + '">' + escapeHtml(item.protocol || 'TLS') + '</span></td>' +
       '<td>' +
-        '<select class="form-select form-select-sm learned-strat-sel" data-key="' + escapeAttr(item.key) + '" data-host="' + escapeAttr(item.host) + '" data-mode="' + (badge.isFrozen ? 'frozen' : 'auto') + '" title="Выбор стратегии">' + stratOpts + '</select>' +
+        '<div class="learned-strat-cell">' +
+          '<span class="learned-strat-name" title="' + escapeAttr(stratName) + '">' + escapeHtml(stratName) + '</span>' +
+          '<span class="learned-strat-idx" title="Runtime strategy index: ' + curStrat + '">#' + curStrat + '</span>' +
+          '<button type="button" class="btn btn-ghost btn-sm learned-strat-edit-btn" data-action="openStratPicker" data-key="' + escapeAttr(item.key) + '" data-host="' + escapeAttr(item.host) + '" data-strategy="' + curStrat + '" data-mode="' + (badge.isFrozen ? 'frozen' : 'auto') + '" title="Выбрать стратегию" aria-label="Выбрать стратегию">' + svgIcon('edit', 12) + '</button>' +
+        '</div>' +
       '</td>' +
       '<td>' +
         '<button type="button" class="btn btn-sm learned-freeze-btn ' + (badge.isFrozen ? 'is-frozen' : 'is-auto') + '" data-action="toggleStateFreeze" data-key="' + escapeAttr(item.key) + '" data-host="' + escapeAttr(item.host) + '" data-strategy="' + curStrat + '" data-mode="' + (badge.isFrozen ? 'frozen' : 'auto') + '" title="' + escapeAttr(badge.tooltip) + '" aria-label="' + escapeAttr(badge.ariaLabel) + '">' +
@@ -1093,6 +1150,9 @@ function onClick(event) {
   else if (action === 'toggleStateFreeze') toggleStateFreeze(el.dataset.key, el.dataset.host, el.dataset.strategy, el.dataset.mode);
   else if (action === 'openLearnedModal') openLearnedModal();
   else if (action === 'closeLearnedModal') closeLearnedModal();
+  else if (action === 'openStratPicker') openStratPicker(el.dataset.key, el.dataset.host, el.dataset.strategy, el.dataset.mode);
+  else if (action === 'closeStratPicker') closeStratPicker();
+  else if (action === 'selectStratPickerOption') selectStratPickerOption(el.dataset.value);
   else if (action === 'setLearnedProtoFilter') setLearnedProtoFilter(el.dataset.proto);
   else if (action === 'sortLearned') toggleLearnedSort(el.dataset.sortField);
   else if (action === 'clearLearnedSearch') clearLearnedSearch();
@@ -1113,7 +1173,7 @@ function onInput(event) {
   var target = event.target;
   if (target.closest && target.closest('#healthcheck-settings-panel') && state.healthcheckSettings) state.healthcheckSettings.draft = healthcheckDraftFromDom();
 }
-function onKey(event) { if (event.key !== 'Escape') return; if (state.editor) closeModal(); else if (state.preview) closePreview(); else if (state.learnedModal && state.learnedModal.open) closeLearnedModal(); }
+function onKey(event) { if (event.key !== 'Escape') return; if (state.editor) closeModal(); else if (state.preview) closePreview(); else if (state.stratPicker) closeStratPicker(); else if (state.learnedModal && state.learnedModal.open) closeLearnedModal(); }
 function bindEvents() {
   state.clickHandler = onClick; state.changeHandler = onChange; state.inputHandler = onInput; state.keyHandler = onKey;
   state.root.addEventListener('click', state.clickHandler); state.root.addEventListener('change', state.changeHandler); state.root.addEventListener('input', state.inputHandler); document.addEventListener('keydown', state.keyHandler);
@@ -1122,7 +1182,7 @@ function unbindEvents() { if (!state.root) return; state.root.removeEventListene
 function render(ctx) {
   refreshStrategyStyles();
   state.ctx = ctx; state.data = object(ctx.data); state.loaded = true; state.disposed = false; state.selectedId = state.selectedId || Model.identity(statusValue(state.data)).selectedId || (listValue(state.data)[0] && listValue(state.data)[0].id);
-  var root = document.createElement('section'); root.className = 'z2m-view on'; root.id = 'z2m-view-strategy'; root.innerHTML = '<div class="page-header strategies-page-header"><div><h1 class="page-title">Стратегии</h1><p class="page-description">Управление стратегиями desync для nfqws2</p></div><div class="strategies-page-actions"><button class="btn btn-ghost" data-action="refreshCatalog">Обновить стратегии</button><button class="btn btn-ghost" data-action="pasteFromClipboard">Вставить из буфера</button><button class="btn btn-primary" data-action="openCreate">Создать стратегию</button></div></div><div class="card catalog-summary-card"><div class="card-title">Каталог стратегий</div><div id="catalog-summary"><div class="list-ui-loading">Загрузка состояния каталога…</div></div></div><div class="card active-strategy-card" id="active-strategy-card"><div class="card-title">Активная стратегия <span class="card-title-actions" id="strategy-debug-info"></span></div><div id="active-strategy-info"><span class="text-muted">Загрузка…</span></div></div><div class="card strategy-ops-card"><div class="card-title">Healthcheck</div><div id="strategy-healthcheck-info"><span class="text-muted">Загрузка…</span></div></div><div class="card strategy-ops-card"><div class="card-title">Выученные стратегии (autocircular)</div><div id="strategy-learned-info"><span class="text-muted">Загрузка…</span></div></div><div id="strategies-list-host"><div class="list-ui-loading">Загрузка стратегий…</div></div><div id="strat-bulkbar" class="strat-bulkbar" style="display:none"></div><div id="strategy-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Стратегия</h3><button class="modal-close" data-action="closeModal">×</button></div><div class="modal-body" id="modal-body"></div></div></div><div id="preview-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Превью команды nfqws2</h3><button class="modal-close" data-action="closePreview">×</button></div><div class="modal-body" id="preview-body"></div></div></div><div id="learned-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Выученные стратегии (autocircular)</h3><button class="modal-close" data-action="closeLearnedModal">×</button></div><div class="modal-body" id="learned-modal-body"></div></div></div><div id="strategy-confirm-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-sm"><div class="modal-header"><h3 data-confirm-title>Подтверждение</h3></div><div class="modal-body"><p data-confirm-message></p><div class="editor-footer"><button class="btn btn-ghost" data-action="closeConfirm">Отмена</button><button class="btn btn-danger" data-action="confirmYes">Подтвердить</button></div></div></div></div>';
+  var root = document.createElement('section'); root.className = 'z2m-view on'; root.id = 'z2m-view-strategy'; root.innerHTML = '<div class="page-header strategies-page-header"><div><h1 class="page-title">Стратегии</h1><p class="page-description">Управление стратегиями desync для nfqws2</p></div><div class="strategies-page-actions"><button class="btn btn-ghost" data-action="refreshCatalog">Обновить стратегии</button><button class="btn btn-ghost" data-action="pasteFromClipboard">Вставить из буфера</button><button class="btn btn-primary" data-action="openCreate">Создать стратегию</button></div></div><div class="card catalog-summary-card"><div class="card-title">Каталог стратегий</div><div id="catalog-summary"><div class="list-ui-loading">Загрузка состояния каталога…</div></div></div><div class="card active-strategy-card" id="active-strategy-card"><div class="card-title">Активная стратегия <span class="card-title-actions" id="strategy-debug-info"></span></div><div id="active-strategy-info"><span class="text-muted">Загрузка…</span></div></div><div class="card strategy-ops-card"><div class="card-title">Healthcheck</div><div id="strategy-healthcheck-info"><span class="text-muted">Загрузка…</span></div></div><div class="card strategy-ops-card"><div class="card-title">Выученные стратегии (autocircular)</div><div id="strategy-learned-info"><span class="text-muted">Загрузка…</span></div></div><div id="strategies-list-host"><div class="list-ui-loading">Загрузка стратегий…</div></div><div id="strat-bulkbar" class="strat-bulkbar" style="display:none"></div><div id="strategy-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Стратегия</h3><button class="modal-close" data-action="closeModal">×</button></div><div class="modal-body" id="modal-body"></div></div></div><div id="preview-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Превью команды nfqws2</h3><button class="modal-close" data-action="closePreview">×</button></div><div class="modal-body" id="preview-body"></div></div></div><div id="learned-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-lg"><div class="modal-header"><h3 class="modal-title">Выученные стратегии (autocircular)</h3><button class="modal-close" data-action="closeLearnedModal">×</button></div><div class="modal-body" id="learned-modal-body"></div></div></div><div id="strat-picker-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-md"><div class="modal-header"><h3 class="modal-title">Выбрать стратегию</h3><button class="modal-close" data-action="closeStratPicker">×</button></div><div class="modal-body" id="strat-picker-body"></div></div></div><div id="strategy-confirm-modal" class="modal-backdrop" style="display:none"><div class="modal-content modal-sm"><div class="modal-header"><h3 data-confirm-title>Подтверждение</h3></div><div class="modal-body"><p data-confirm-message></p><div class="editor-footer"><button class="btn btn-ghost" data-action="closeConfirm">Отмена</button><button class="btn btn-danger" data-action="confirmYes">Подтвердить</button></div></div></div></div>';
   var pasteButton = root.querySelector('[data-action="pasteFromClipboard"]');
   if (pasteButton) pasteButton.innerHTML = svgIcon('clipboard', 14) + '<span>Вставить из буфера</span>';
   var createButton = root.querySelector('[data-action="openCreate"]');
@@ -1190,7 +1250,7 @@ function mount(ctx) {
 }
 function unmount() {
   state.disposed = true; if (state.pollTimer) window.clearTimeout(state.pollTimer); state.pollTimer = null;
-  if (state.listUI) state.listUI.destroy(); state.listUI = null; unbindEvents(); closeModal(); closePreview(); closeConfirm();
+  if (state.listUI) state.listUI.destroy(); state.listUI = null; unbindEvents(); closeModal(); closePreview(); closeConfirm(); closeLearnedModal(); closeStratPicker();
   if (window.NfqwsAutocomplete && window.NfqwsAutocomplete.detachAll) window.NfqwsAutocomplete.detachAll();
   state.modalResize = null; state.selectedIds = {}; /* donor selectedIds.clear() boundary */
   state.root = null; state.ctx = null;

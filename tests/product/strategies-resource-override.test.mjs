@@ -258,3 +258,74 @@ test('UX: modeBadge provides explicit accessible badges for auto and frozen stat
   assert.ok(frozenBadge.tooltip.includes('зафиксирована'));
   assert.equal(frozenBadge.ariaLabel, 'Вернуть автоматический режим');
 });
+
+test('UX: resolveStrategyName resolves real strategy name and handles aliases', () => {
+  const Model = loadModel();
+  const pools = {
+    circular_1_1: {
+      key: 'circular_1_1',
+      protocol: 'TLS',
+      size: 3,
+      strategies: [
+        { index: 1, name: 'Fake TLS (MD5)' },
+        { index: 2, name: 'Multidisorder (midsld) + Fake (Dynamic TTL)' },
+        { index: 3, name: 'Multisplit (SeqOvl) + Multisplit (host)' }
+      ]
+    },
+    yt_quic: {
+      key: 'yt_quic',
+      protocol: 'QUIC',
+      size: 2,
+      strategies: [
+        { index: 1, name: 'Fake QUIC (google x11)' },
+        { index: 2, name: 'Fake QUIC (google x8)' }
+      ]
+    }
+  };
+
+  assert.equal(Model.resolveStrategyName('circular_1_1', 1, pools), 'Fake TLS (MD5)');
+  assert.equal(Model.resolveStrategyName('circular_1_1', 2, pools), 'Multidisorder (midsld) + Fake (Dynamic TTL)');
+  // Alias lookup
+  assert.equal(Model.resolveStrategyName('default', 1, pools), 'Fake TLS (MD5)');
+  assert.equal(Model.resolveStrategyName('rkn_tcp', 3, pools), 'Multisplit (SeqOvl) + Multisplit (host)');
+  assert.equal(Model.resolveStrategyName('yt_quic', 1, pools), 'Fake QUIC (google x11)');
+
+  // Out of bounds fallback
+  assert.equal(Model.resolveStrategyName('circular_1_1', 99, pools), 'Стратегия #99');
+});
+
+test('UX: No all-fallback regression on known named pools', () => {
+  const Model = loadModel();
+  const pools = {
+    circular_1_1: {
+      key: 'circular_1_1',
+      protocol: 'TLS',
+      size: 6,
+      strategies: [
+        { index: 1, name: 'Fake TLS (MD5)' },
+        { index: 2, name: 'Multidisorder (midsld) + Fake (Dynamic TTL)' },
+        { index: 3, name: 'Multisplit (SeqOvl) + Multisplit (host)' },
+        { index: 4, name: 'Fake (Dynamic TTL) + Multidisorder (host)' },
+        { index: 5, name: 'Fake TLS + Multisplit (midsld)' },
+        { index: 6, name: 'Multisplit (host)' }
+      ]
+    }
+  };
+
+  const options = Model.strategyOptionsForPool('circular_1_1', 1, pools);
+  assert.equal(options.length, 6);
+  const genericFallbacks = options.filter(o => o.label.includes('Strategy #') || o.name.startsWith('Strategy #'));
+  assert.equal(genericFallbacks.length, 0, 'Known named pool must have ZERO generic Strategy #N fallbacks');
+});
+
+test('API contract: z2m-api.js declares strategiesStateSet and strategiesPools and maps to strategies object', () => {
+  const apiPath = path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-api.js');
+  const apiCode = fs.readFileSync(apiPath, 'utf8');
+
+  assert.match(apiCode, /calls\.strategiesStateSet\s*=\s*rpc\.declare/);
+  assert.match(apiCode, /method:\s*'strategies_state_set'/);
+  assert.match(apiCode, /calls\.strategiesPools\s*=\s*rpc\.declare/);
+  assert.match(apiCode, /method:\s*'strategies_pools'/);
+  assert.match(apiCode, /stateSet:\s*calls\.strategiesStateSet/);
+  assert.match(apiCode, /pools:\s*calls\.strategiesPools/);
+});

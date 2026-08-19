@@ -19,6 +19,8 @@ var calls={
 };
 calls.tgProductOperationStatus=rpc.declare({object:'zapret2-manager',method:'tg_product_operation_status',params:['edit'],reject:true});
 calls.strategiesState=rpc.declare({object:'zapret2-manager',method:'strategies_state',reject:true});
+calls.strategiesStateSet=rpc.declare({object:'zapret2-manager',method:'strategies_state_set',params:['edit'],reject:true});
+calls.strategiesPools=rpc.declare({object:'zapret2-manager',method:'strategies_pools',reject:true});
 calls.strategiesCatalogUpdate=rpc.declare({object:'zapret2-manager',method:'strategies_catalog_update',params:['edit'],reject:true});
 calls.strategiesStateClear=rpc.declare({object:'zapret2-manager',method:'strategies_state_clear',params:['edit'],reject:true});
 calls.strategiesDebugGet=rpc.declare({object:'zapret2-manager',method:'strategies_debug_get',reject:true});
@@ -84,7 +86,7 @@ return baseclass.extend({
  normalizeError:normalizeError,all:calls,
  service:{status:calls.status,start:calls.start,stop:calls.stop,restart:calls.restart},
   strategy:{preview:calls.discordProfilePreview,apply:calls.discordProfileApply,rollback:calls.discordProfileRollback,confirmAlive:calls.confirmAlive,rollbackManager:calls.rollback},
-  strategies:{list:calls.strategiesList,recommendations:calls.strategiesRecommendations,get:calls.strategiesGet,create:calls.strategiesCreate,update:calls.strategiesUpdate,delete:calls.strategiesDelete,duplicate:calls.strategiesDuplicate,favorite:calls.strategiesFavorite,preview:calls.strategiesPreview,validate:calls.strategiesValidate,apply:calls.strategiesApply,catalogStatus:calls.strategiesCatalogStatus,catalogReload:calls.strategiesCatalogReload,catalogUpdate:calls.strategiesCatalogUpdate,importProfiles:calls.strategiesImportProfiles,learnedState:calls.strategiesState,learnedReset:calls.strategiesStateClear,debugGet:calls.strategiesDebugGet,debugSet:calls.strategiesDebugSet},
+  strategies:{list:calls.strategiesList,recommendations:calls.strategiesRecommendations,get:calls.strategiesGet,create:calls.strategiesCreate,update:calls.strategiesUpdate,delete:calls.strategiesDelete,duplicate:calls.strategiesDuplicate,favorite:calls.strategiesFavorite,preview:calls.strategiesPreview,validate:calls.strategiesValidate,apply:calls.strategiesApply,catalogStatus:calls.strategiesCatalogStatus,catalogReload:calls.strategiesCatalogReload,catalogUpdate:calls.strategiesCatalogUpdate,importProfiles:calls.strategiesImportProfiles,learnedState:calls.strategiesState,learnedReset:calls.strategiesStateClear,stateSet:calls.strategiesStateSet,customCreate:calls.strategiesStateSet,pools:calls.strategiesPools,debugGet:calls.strategiesDebugGet,debugSet:calls.strategiesDebugSet},
   healthcheck:{status:calls.healthcheckStatus,run:calls.healthcheckRun,enable:calls.healthcheckEnable,disable:calls.healthcheckDisable,config:calls.healthcheckConfig},
   scanner:{start:calls.scannerStart,status:calls.scannerStatus,results:calls.scannerResults,stop:calls.scannerStop,resume:calls.scannerResume,saveGenerated:calls.scannerSaveGenerated},
  blockcheck:{start:calls.blockcheckDiagStart,status:calls.blockcheckDiagStatus,results:calls.blockcheckDiagResults,stop:calls.blockcheckDiagStop,domains:calls.blockcheckDiagDomains,traceroute:calls.blockcheckDiagTraceroute},

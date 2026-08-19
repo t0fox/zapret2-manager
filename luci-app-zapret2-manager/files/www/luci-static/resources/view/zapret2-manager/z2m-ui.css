@@ -1077,21 +1077,146 @@
   color: var(--tx, #f8fafc) !important;
   border-color: rgba(255, 255, 255, 0.3) !important;
 }
-#z2m-view-strategy .learned-strat-sel,
-.z2m-view#z2m-view-strategy .learned-strat-sel {
-  height: 26px !important;
-  min-height: 26px !important;
-  min-width: 140px !important;
+#z2m-view-strategy .learned-strat-cell,
+.z2m-view#z2m-view-strategy .learned-strat-cell {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
   max-width: 260px !important;
-  padding: 2px 8px !important;
-  font-size: 12px !important;
-  border-radius: 4px !important;
-  background: #181a1d !important;
-  color: #f1f5f9 !important;
-  border: 1px solid var(--border2, #3a3f45) !important;
-  cursor: pointer !important;
-  text-overflow: ellipsis !important;
 }
+#z2m-view-strategy .learned-strat-name,
+.z2m-view#z2m-view-strategy .learned-strat-name {
+  font-weight: 500 !important;
+  color: #f1f5f9 !important;
+  font-size: 12px !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  max-width: 180px !important;
+}
+#z2m-view-strategy .learned-strat-idx,
+.z2m-view#z2m-view-strategy .learned-strat-idx {
+  display: inline-block !important;
+  padding: 1px 5px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  border-radius: 3px !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+  color: var(--tx3, #94a3b8) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  flex-shrink: 0 !important;
+}
+#z2m-view-strategy .learned-strat-edit-btn,
+.z2m-view#z2m-view-strategy .learned-strat-edit-btn {
+  padding: 2px 5px !important;
+  height: 22px !important;
+  min-height: 22px !important;
+  border-radius: 4px !important;
+  color: var(--tx3, #94a3b8) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: transparent !important;
+  cursor: pointer !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-shrink: 0 !important;
+}
+#z2m-view-strategy .learned-strat-edit-btn:hover,
+.z2m-view#z2m-view-strategy .learned-strat-edit-btn:hover {
+  color: var(--tx, #f8fafc) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+#strat-picker-modal .modal-content {
+  max-width: 480px !important;
+}
+.strat-picker-context {
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  margin-bottom: 12px;
+}
+.strat-picker-domain {
+  font-size: 14px;
+  font-weight: 600;
+  color: #f8fafc;
+  margin-bottom: 2px;
+}
+.strat-picker-sub {
+  font-size: 12px;
+  color: var(--tx3, #94a3b8);
+}
+.strat-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 380px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.strat-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #181a1d;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.strat-picker-item:hover {
+  background: #202428;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+.strat-picker-item.active {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: #3b82f6;
+}
+.strat-picker-radio {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.strat-picker-radio input[type="radio"] {
+  cursor: pointer;
+  accent-color: #3b82f6;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+.strat-picker-info {
+  flex: 1;
+  min-width: 0;
+}
+.strat-picker-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: #f1f5f9;
+  line-height: 1.3;
+}
+.strat-picker-item.active .strat-picker-name {
+  color: #60a5fa;
+}
+.strat-picker-meta {
+  font-size: 11px;
+  color: var(--tx3, #94a3b8);
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.strat-picker-idx {
+  font-weight: 600;
+  color: var(--tx2, #cbd5e1);
+}
+.strat-picker-warn {
+  color: #fbbf24;
+  font-weight: 500;
+}
+
 #z2m-view-strategy .learned-row-frozen td,
 .z2m-view#z2m-view-strategy .learned-row-frozen td {
   background: rgba(59, 130, 246, 0.06) !important;

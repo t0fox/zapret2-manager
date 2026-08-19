@@ -272,6 +272,12 @@ function canMutate(pending) { return pending !== true; }
 function strategyOptionsForPool(poolKey, currentStrategy, pools) {
   pools = object(pools);
   var pool = pools[poolKey] || pools[text(poolKey)] || null;
+  if (!pool && (poolKey === 'circular_1_1' || poolKey === 'default' || poolKey === 'rkn_tcp')) {
+    pool = pools['circular_1_1'] || pools['default'] || pools['rkn_tcp'] || null;
+  }
+  if (!pool && (poolKey === 'discord_voice' || poolKey === 'discord_udp')) {
+    pool = pools['discord_voice'] || pools['discord_udp'] || null;
+  }
   var poolSize = 0;
   var stratsMap = {};
   if (typeof pool === 'number') {
@@ -297,7 +303,7 @@ function strategyOptionsForPool(poolKey, currentStrategy, pools) {
     var meta = stratsMap[i];
     var sName = meta && text(meta.name);
     if (!sName) {
-      sName = 'Strategy #' + i;
+      sName = (i === 1) ? 'Default v2 (circular)' : ('Strategy #' + i);
     }
     var label = String(i) + ' — ' + sName;
     options.push({
@@ -322,6 +328,32 @@ function strategyOptionsForPool(poolKey, currentStrategy, pools) {
   }
 
   return options;
+}
+
+function resolveStrategyName(poolKey, currentStrategy, pools) {
+  pools = object(pools);
+  var pool = pools[poolKey] || pools[text(poolKey)] || null;
+  if (!pool && (poolKey === 'circular_1_1' || poolKey === 'default' || poolKey === 'rkn_tcp')) {
+    pool = pools['circular_1_1'] || pools['default'] || pools['rkn_tcp'] || null;
+  }
+  if (!pool && (poolKey === 'discord_voice' || poolKey === 'discord_udp')) {
+    pool = pools['discord_voice'] || pools['discord_udp'] || null;
+  }
+
+  var curNum = Number(currentStrategy);
+  if (isNaN(curNum) || curNum < 1) curNum = 1;
+
+  if (pool && typeof pool === 'object' && Array.isArray(pool.strategies)) {
+    for (var i = 0; i < pool.strategies.length; i++) {
+      var s = pool.strategies[i];
+      if (s && Number(s.index) === curNum && text(s.name)) {
+        return text(s.name);
+      }
+    }
+  }
+
+  if (curNum === 1) return 'Default v2 (circular)';
+  return 'Стратегия #' + curNum;
 }
 
 function modeBadge(mode) {
@@ -360,5 +392,6 @@ return baseclass.extend({
   isCircularStrategy: isCircularStrategy,
   humanizeLearnedEntry: humanizeLearnedEntry,
   strategyOptionsForPool: strategyOptionsForPool,
+  resolveStrategyName: resolveStrategyName,
   modeBadge: modeBadge
 });
