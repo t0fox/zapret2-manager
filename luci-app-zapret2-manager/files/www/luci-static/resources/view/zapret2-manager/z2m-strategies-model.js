@@ -323,27 +323,42 @@ DEFAULT_RUNTIME_POOLS.default = DEFAULT_RUNTIME_POOLS.circular_1_1;
 DEFAULT_RUNTIME_POOLS.rkn_tcp = DEFAULT_RUNTIME_POOLS.circular_1_1;
 DEFAULT_RUNTIME_POOLS.discord_udp = DEFAULT_RUNTIME_POOLS.discord_voice;
 
-function findPool(poolKey, pools) {
+function findLivePool(poolKey, pools) {
   var pKey = text(poolKey).toLowerCase();
   pools = object(pools);
   var pool = pools[poolKey] || pools[pKey] || null;
   if (!pool && (pKey === 'circular_1_1' || pKey === 'default' || pKey === 'rkn_tcp' || pKey.indexOf('circular') >= 0 || pKey.indexOf('tls') >= 0 || pKey.indexOf('tcp') >= 0)) {
-    pool = pools['circular_1_1'] || pools['default'] || pools['rkn_tcp'] || DEFAULT_RUNTIME_POOLS['circular_1_1'];
+    pool = pools['circular_1_1'] || pools['default'] || pools['rkn_tcp'] || null;
   }
   if (!pool && (pKey === 'yt_quic' || pKey.indexOf('quic') >= 0 || pKey.indexOf('yt') >= 0)) {
-    pool = pools['yt_quic'] || DEFAULT_RUNTIME_POOLS['yt_quic'];
+    pool = pools['yt_quic'] || null;
   }
   if (!pool && (pKey === 'discord_voice' || pKey === 'discord_udp' || pKey.indexOf('voice') >= 0 || pKey.indexOf('stun') >= 0 || pKey.indexOf('discord') >= 0)) {
-    pool = pools['discord_voice'] || pools['discord_udp'] || DEFAULT_RUNTIME_POOLS['discord_voice'];
-  }
-  if (!pool) {
-    pool = DEFAULT_RUNTIME_POOLS[poolKey] || DEFAULT_RUNTIME_POOLS[pKey] || null;
+    pool = pools['discord_voice'] || pools['discord_udp'] || null;
   }
   return pool;
 }
 
+function findPool(poolKey, pools) {
+  var live = findLivePool(poolKey, pools);
+  if (live) return live;
+  var pKey = text(poolKey).toLowerCase();
+  if (pKey === 'circular_1_1' || pKey === 'default' || pKey === 'rkn_tcp' || pKey.indexOf('circular') >= 0 || pKey.indexOf('tls') >= 0 || pKey.indexOf('tcp') >= 0) {
+    return DEFAULT_RUNTIME_POOLS['circular_1_1'];
+  }
+  if (pKey === 'yt_quic' || pKey.indexOf('quic') >= 0 || pKey.indexOf('yt') >= 0) {
+    return DEFAULT_RUNTIME_POOLS['yt_quic'];
+  }
+  if (pKey === 'discord_voice' || pKey === 'discord_udp' || pKey.indexOf('voice') >= 0 || pKey.indexOf('stun') >= 0 || pKey.indexOf('discord') >= 0) {
+    return DEFAULT_RUNTIME_POOLS['discord_voice'];
+  }
+  return DEFAULT_RUNTIME_POOLS[poolKey] || DEFAULT_RUNTIME_POOLS[pKey] || null;
+}
+
 function extractDiscordVoiceState(entries, pools) {
   entries = array(entries);
+  var livePool = findLivePool('discord_voice', pools);
+  var isLive = !!livePool;
   var found = null;
   for (var i = 0; i < entries.length; i++) {
     var e = entries[i];
@@ -373,6 +388,8 @@ function extractDiscordVoiceState(entries, pools) {
       isFrozen: mode === 'frozen',
       ts: found.ts || '',
       exists: true,
+      isLive: isLive,
+      poolSize: livePool ? (livePool.size || 12) : 12,
       legacyKey: text(found.key).toLowerCase() === 'discord_udp' ? 'discord_udp' : null
     };
   }
@@ -385,6 +402,8 @@ function extractDiscordVoiceState(entries, pools) {
     isFrozen: false,
     ts: '',
     exists: false,
+    isLive: isLive,
+    poolSize: livePool ? (livePool.size || 12) : 12,
     legacyKey: null
   };
 }
@@ -492,6 +511,7 @@ function modeBadge(mode) {
 
 return baseclass.extend({
   DEFAULT_RUNTIME_POOLS: DEFAULT_RUNTIME_POOLS,
+  findLivePool: findLivePool,
   findPool: findPool,
   extractDiscordVoiceState: extractDiscordVoiceState,
   filterDomainLearnedEntries: filterDomainLearnedEntries,

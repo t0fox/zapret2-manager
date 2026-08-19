@@ -641,47 +641,63 @@ function renderLearnedModal() {
 
   var discordState = (Model && typeof Model.extractDiscordVoiceState === 'function')
     ? Model.extractDiscordVoiceState(rawEntries, pools)
-    : { key: 'discord_voice', host: 'nohost', strategy: 1, mode: 'auto', isFrozen: false, exists: false };
-  var discordPool = (Model && typeof Model.findPool === 'function')
-    ? Model.findPool('discord_voice', pools)
-    : (pools.discord_voice || pools.discord_udp || {});
+    : { key: 'discord_voice', host: 'nohost', strategy: 1, mode: 'auto', isFrozen: false, exists: false, isLive: false };
+  var isDiscordLive = discordState && discordState.isLive;
+  var discordPool = (Model && typeof Model.findLivePool === 'function')
+    ? Model.findLivePool('discord_voice', pools)
+    : (pools.discord_voice || pools.discord_udp || null);
   var discordPoolSize = Number(discordPool && (discordPool.size || (Array.isArray(discordPool.strategies) ? discordPool.strategies.length : 12))) || 12;
   var discordStratName = (Model && typeof Model.resolveStrategyName === 'function')
     ? Model.resolveStrategyName('discord_voice', discordState.strategy, pools)
     : ('#' + discordState.strategy);
   var discordBadge = getModeBadge(discordState.mode);
 
-  var discordControlHtml = '<div class="discord-voice-card">' +
-    '<div class="discord-voice-header">' +
-      '<div class="discord-voice-title">' +
-        '<strong>Discord Voice / Video</strong>' +
-        '<div class="discord-voice-sub text-muted">STUN / UDP · autocircular · ' + discordPoolSize + ' вариантов</div>' +
-      '</div>' +
-      '<div class="discord-voice-status">' +
-        '<span class="badge ' + (discordBadge.isFrozen ? 'badge-accent' : 'badge-muted') + '">' + escapeHtml(discordBadge.label) + '</span>' +
-      '</div>' +
-    '</div>' +
-    '<div class="discord-voice-body">' +
-      '<div class="discord-voice-strat">' +
-        '<span class="text-muted">Текущая стратегия:</span>' +
-        '<div class="discord-voice-strat-val">' +
-          '<span class="discord-voice-strat-idx">#' + discordState.strategy + '</span> ' +
-          '<strong>' + escapeHtml(discordStratName) + '</strong>' +
+  var discordControlHtml = '';
+  if (!isDiscordLive) {
+    discordControlHtml = '<div class="discord-voice-card is-inactive">' +
+      '<div class="discord-voice-header">' +
+        '<div class="discord-voice-title">' +
+          '<strong>Discord Voice / Video</strong>' +
+          '<div class="discord-voice-sub text-muted">Не используется текущей стратегией</div>' +
+        '</div>' +
+        '<div class="discord-voice-status">' +
+          '<span class="badge badge-muted">Не активно</span>' +
         '</div>' +
       '</div>' +
-      '<div class="discord-voice-actions">' +
-        '<button type="button" class="btn btn-sm btn-primary" data-action="openStratPicker" data-key="discord_voice" data-host="nohost" data-strategy="' + discordState.strategy + '" data-mode="' + (discordBadge.isFrozen ? 'frozen' : 'auto') + '">' +
-          svgIcon('edit', 12) + ' <span>Изменить стратегию</span>' +
-        '</button>' +
-        '<button type="button" class="btn btn-sm btn-ghost" data-action="toggleStateFreeze" data-key="discord_voice" data-host="nohost" data-strategy="' + discordState.strategy + '" data-mode="' + (discordBadge.isFrozen ? 'frozen' : 'auto') + '">' +
-          (discordBadge.isFrozen ? svgIcon('unlock', 12) + ' <span>Вернуть авто</span>' : svgIcon('lock', 12) + ' <span>Зафиксировать</span>') +
-        '</button>' +
-        '<button type="button" class="btn btn-sm btn-danger-ghost" data-action="resetLearned" data-host="nohost" data-key="discord_voice" title="Сбросить оверрайд Discord Voice">' +
-          svgIcon('trash', 12) + ' <span>Сбросить</span>' +
-        '</button>' +
+    '</div>';
+  } else {
+    discordControlHtml = '<div class="discord-voice-card">' +
+      '<div class="discord-voice-header">' +
+        '<div class="discord-voice-title">' +
+          '<strong>Discord Voice / Video</strong>' +
+          '<div class="discord-voice-sub text-muted">STUN / UDP · autocircular · ' + discordPoolSize + ' вариантов</div>' +
+        '</div>' +
+        '<div class="discord-voice-status">' +
+          '<span class="badge ' + (discordBadge.isFrozen ? 'badge-accent' : 'badge-muted') + '">' + escapeHtml(discordBadge.label) + '</span>' +
+        '</div>' +
       '</div>' +
-    '</div>' +
-  '</div>';
+      '<div class="discord-voice-body">' +
+        '<div class="discord-voice-strat">' +
+          '<span class="text-muted">Текущая стратегия:</span>' +
+          '<div class="discord-voice-strat-val">' +
+            '<span class="discord-voice-strat-idx">#' + discordState.strategy + '</span> ' +
+            '<strong>' + escapeHtml(discordStratName) + '</strong>' +
+          '</div>' +
+        '</div>' +
+        '<div class="discord-voice-actions">' +
+          '<button type="button" class="btn btn-sm btn-primary" data-action="openStratPicker" data-key="discord_voice" data-host="nohost" data-strategy="' + discordState.strategy + '" data-mode="' + (discordBadge.isFrozen ? 'frozen' : 'auto') + '">' +
+            svgIcon('edit', 12) + ' <span>Изменить стратегию</span>' +
+          '</button>' +
+          '<button type="button" class="btn btn-sm btn-ghost" data-action="toggleStateFreeze" data-key="discord_voice" data-host="nohost" data-strategy="' + discordState.strategy + '" data-mode="' + (discordBadge.isFrozen ? 'frozen' : 'auto') + '">' +
+            (discordBadge.isFrozen ? svgIcon('unlock', 12) + ' <span>Вернуть авто</span>' : svgIcon('lock', 12) + ' <span>Зафиксировать</span>') +
+          '</button>' +
+          '<button type="button" class="btn btn-sm btn-danger-ghost" data-action="resetLearned" data-host="nohost" data-key="discord_voice" title="Сбросить оверрайд Discord Voice">' +
+            svgIcon('trash', 12) + ' <span>Сбросить</span>' +
+          '</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
 
   var domainEntries = (Model && typeof Model.filterDomainLearnedEntries === 'function')
     ? Model.filterDomainLearnedEntries(rawEntries)

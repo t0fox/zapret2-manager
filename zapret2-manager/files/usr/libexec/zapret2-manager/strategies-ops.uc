@@ -93,7 +93,21 @@ function config_load() {
 	if (type(result.history) != 'array') result.history = [];
 	return result;
 }
-function request_value(value) { return object(value); }
+function request_value(value) {
+	if (type(value) == 'string') {
+		try { let parsed = json(value); return object(parsed); } catch (e) { return {}; }
+	}
+	if (type(value) == 'object' && value != null) {
+		if (value.edit != null) {
+			if (type(value.edit) == 'string') {
+				try { let parsed = json(value.edit); return object(parsed); } catch (e) { return {}; }
+			}
+			return object(value.edit);
+		}
+		return value;
+	}
+	return {};
+}
 
 function journal_event(severity, message, extra) {
 	try {
@@ -293,11 +307,6 @@ function pools_read() {
 		}
 	}
 
-	if (!pools['rkn_tcp']) pools['rkn_tcp'] = { key: 'rkn_tcp', protocol: 'TLS', size: 6, strategies: [ { index: 1, name: 'Default v2 (circular)' } ] };
-	if (!pools['yt_quic']) pools['yt_quic'] = { key: 'yt_quic', protocol: 'QUIC', size: 9, strategies: [ { index: 1, name: 'Default v2 (circular)' } ] };
-	if (!pools['discord_voice']) pools['discord_voice'] = { key: 'discord_voice', protocol: 'STUN', size: 12, strategies: [ { index: 1, name: 'QUIC Morph v2' } ] };
-	if (!pools['discord_udp']) pools['discord_udp'] = pools['discord_voice'];
-
 	return { ok: true, pools: pools };
 }
 
@@ -350,6 +359,9 @@ function state_set(input) {
 
 	let pools_info = pools_read();
 	let pool = pools_info && pools_info.pools && (pools_info.pools[key] || pools_info.pools[lc(key)]);
+	if (!pool) {
+		return { ok: false, error: { code: 'EPOOL', message: 'pool ' + key + ' is not active in current configuration' } };
+	}
 	if (pool && pool.size && (+strategy > pool.size)) {
 		return { ok: false, error: { code: 'EINPUT', message: 'strategy ' + strategy + ' exceeds pool size (' + pool.size + ')' } };
 	}

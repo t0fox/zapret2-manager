@@ -127,10 +127,37 @@ function loadUI(mockState = {}) {
   return { ui: uiModule, domNodes, Model };
 }
 
-test('UI: renderLearnedModal renders Discord Voice card with empty state (#1, Auto)', () => {
+test('TEST O: UI without live discord_voice renders inactive card with no mutation buttons', () => {
   const { ui, domNodes } = loadUI({
     learned: { entries: [], count: 0 },
-    pools: {}
+    pools: {
+      circular_1_1: { key: 'circular_1_1', protocol: 'TLS', size: 6, strategies: [] }
+    }
+  });
+
+  ui.renderLearnedModal();
+  const bodyHtml = domNodes.get('learned-modal-body').innerHTML;
+
+  assert.match(bodyHtml, /Discord Voice/i, 'Learned modal must contain Discord Voice heading');
+  assert.match(bodyHtml, /Не используется текущей/i, 'Must indicate pool is not used by active strategy');
+  assert.match(bodyHtml, /Не активно/i, 'Must have badge Не активно');
+  assert.doesNotMatch(bodyHtml, /data-action="openStratPicker"[^>]*data-key="discord_voice"/, 'Inactive card must NOT have strategy picker button');
+  assert.doesNotMatch(bodyHtml, /data-action="toggleStateFreeze"[^>]*data-key="discord_voice"/, 'Inactive card must NOT have freeze button');
+  assert.doesNotMatch(bodyHtml, /data-action="resetLearned"[^>]*data-key="discord_voice"/, 'Inactive card must NOT have reset button');
+});
+
+test('TEST P: UI with live discord_voice renders active card and picker with 12 variants', () => {
+  const Model = loadModel();
+  const { ui, domNodes } = loadUI({
+    learned: { entries: [], count: 0 },
+    pools: {
+      discord_voice: {
+        key: 'discord_voice',
+        protocol: 'STUN',
+        size: 12,
+        strategies: Model.DEFAULT_RUNTIME_POOLS?.discord_voice?.strategies || []
+      }
+    }
   });
 
   ui.renderLearnedModal();
@@ -141,11 +168,13 @@ test('UI: renderLearnedModal renders Discord Voice card with empty state (#1, Au
   assert.match(bodyHtml, /#1/i, 'Default strategy must be #1');
   assert.match(bodyHtml, /QUIC Morph v2/i, 'Strategy #1 name should be QUIC Morph v2');
   assert.match(bodyHtml, /Авто/i, 'Mode badge must be Авто');
-  assert.match(bodyHtml, /data-action="openStratPicker"[^>]*data-key="discord_voice"[^>]*data-host="nohost"/, 'Must have strategy picker action button for discord_voice/nohost');
-  assert.match(bodyHtml, /data-action="toggleStateFreeze"[^>]*data-key="discord_voice"[^>]*data-host="nohost"/, 'Must have freeze toggle button for discord_voice/nohost');
+  assert.match(bodyHtml, /data-action="openStratPicker"[^>]*data-key="discord_voice"[^>]*data-host="nohost"/, 'Must have strategy picker button');
+  assert.match(bodyHtml, /data-action="toggleStateFreeze"[^>]*data-key="discord_voice"[^>]*data-host="nohost"/, 'Must have freeze toggle button');
+  assert.match(bodyHtml, /data-action="resetLearned"[^>]*data-key="discord_voice"/, 'Must have reset button');
 });
 
 test('UI: renderLearnedModal renders Discord Voice card with frozen state (#7, Зафиксировано)', () => {
+  const Model = loadModel();
   const { ui, domNodes } = loadUI({
     learned: {
       entries: [
@@ -154,7 +183,14 @@ test('UI: renderLearnedModal renders Discord Voice card with frozen state (#7, �
       ],
       count: 2
     },
-    pools: {}
+    pools: {
+      discord_voice: {
+        key: 'discord_voice',
+        protocol: 'STUN',
+        size: 12,
+        strategies: Model.DEFAULT_RUNTIME_POOLS?.discord_voice?.strategies || []
+      }
+    }
   });
 
   ui.renderLearnedModal();
@@ -170,8 +206,16 @@ test('UI: renderLearnedModal renders Discord Voice card with frozen state (#7, �
 });
 
 test('UI: openStratPicker for discord_voice opens picker with exactly 12 Discord variants', () => {
+  const Model = loadModel();
   const { ui, domNodes } = loadUI({
-    pools: {}
+    pools: {
+      discord_voice: {
+        key: 'discord_voice',
+        protocol: 'STUN',
+        size: 12,
+        strategies: Model.DEFAULT_RUNTIME_POOLS?.discord_voice?.strategies || []
+      }
+    }
   });
 
   ui.openStratPicker('discord_voice', 'nohost', 7, 'frozen');
@@ -183,17 +227,25 @@ test('UI: openStratPicker for discord_voice opens picker with exactly 12 Discord
   assert.match(pickerHtml, /#7/);
   assert.match(pickerHtml, /#12/);
   assert.match(pickerHtml, /Fake QUIC \(x3\)/);
-  // Ensure TLS options are not in Discord Voice picker
   assert.doesNotMatch(pickerHtml, /Fake TLS \(MD5\)/);
 });
 
 test('UI: selectStratPickerOption while frozen maintains frozen mode', () => {
   let calledApi = null;
+  const Model = loadModel();
   const { ui } = loadUI({
     learned: {
       entries: [
         { key: 'discord_voice', host: 'nohost', strategy: '1', ts: '1787150000', mode: 'frozen' }
       ]
+    },
+    pools: {
+      discord_voice: {
+        key: 'discord_voice',
+        protocol: 'STUN',
+        size: 12,
+        strategies: Model.DEFAULT_RUNTIME_POOLS?.discord_voice?.strategies || []
+      }
     },
     ctx: {
       api: {
@@ -220,8 +272,17 @@ test('UI: selectStratPickerOption while frozen maintains frozen mode', () => {
 
 test('UI: toggleStateFreeze switches auto -> frozen and frozen -> auto', () => {
   const calls = [];
+  const Model = loadModel();
   const { ui } = loadUI({
     learned: { entries: [] },
+    pools: {
+      discord_voice: {
+        key: 'discord_voice',
+        protocol: 'STUN',
+        size: 12,
+        strategies: Model.DEFAULT_RUNTIME_POOLS?.discord_voice?.strategies || []
+      }
+    },
     ctx: {
       api: {
         strategies: {
@@ -243,6 +304,7 @@ test('UI: toggleStateFreeze switches auto -> frozen and frozen -> auto', () => {
 
 test('UI: resetLearned for nohost deletes only Discord hostless state', () => {
   let deletedPayload = null;
+  const Model = loadModel();
   const { ui } = loadUI({
     learned: {
       entries: [
@@ -250,6 +312,14 @@ test('UI: resetLearned for nohost deletes only Discord hostless state', () => {
         { key: 'circular_1_1', host: 'youtube.com', strategy: '2', ts: '1787150001', mode: 'auto' }
       ],
       count: 2
+    },
+    pools: {
+      discord_voice: {
+        key: 'discord_voice',
+        protocol: 'STUN',
+        size: 12,
+        strategies: Model.DEFAULT_RUNTIME_POOLS?.discord_voice?.strategies || []
+      }
     },
     ctx: {
       api: {

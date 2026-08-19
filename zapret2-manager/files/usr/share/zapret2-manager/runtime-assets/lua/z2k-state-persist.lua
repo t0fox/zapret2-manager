@@ -708,10 +708,13 @@ if type(circular) == "function" then
           and (not failure_after) and (not server_active_event)
           and n_after and n_after > 1
         -- Broad fallback so default-1 / hard-to-observe profiles still show.
+        local is_discord_outgoing = (askey == "discord_voice" or askey == "discord_udp" or hostn == "nohost")
+          and (desync.l7payload == "discord_ip_discovery" or desync.l7payload == "quic_initial")
         local outgoing_initial = desync and desync.outgoing and n_after and
           (desync.l7payload == "tls_client_hello" or
            desync.l7payload == "quic_initial" or
-           desync.l7payload == "http_req")
+           desync.l7payload == "http_req" or
+           is_discord_outgoing)
         local success_event = successful_state or response_state or quic_candidate_state
 
         -- Sticky-success revert (THE accuracy fix). orig_circular advances
