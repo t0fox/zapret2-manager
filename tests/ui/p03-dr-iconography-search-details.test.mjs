@@ -1,0 +1,54 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const root = path.join(here, '../../luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager');
+const js = fs.readFileSync(path.join(root, 'z2m-strategies.js'), 'utf8');
+const icons = fs.readFileSync(path.join(root, 'z2m-icons.js'), 'utf8');
+const css = fs.readFileSync(path.join(root, 'z2m-ui.css'), 'utf8');
+
+test('P03-DR uses the canonical shared SVG registry for donor interaction affordances', () => {
+  assert.match(js, /z2m-icons as Icons/);
+  assert.match(js, /Icons\.html\(name/);
+  assert.doesNotMatch(js, /var STRATEGY_ICONS = \{|var HEALTH_SERVICE_ICONS = \{/);
+  assert.match(icons, /viewBox="0 0 24 24" width="/);
+  for (const name of ['clipboard', 'plus', 'bug', 'file', 'play', 'settings', 'refresh', 'trash', 'search', 'star', 'chevronDown', 'terminal', 'copy', 'merge', 'x']) {
+    assert.match(icons, new RegExp(`${name}:`));
+  }
+  assert.doesNotMatch(js, /label: '⟳|>☆<|>★<|>⌕<|<span>⌄<\/span>/);
+});
+
+test('P03-DR Details is an inline multi-card state with accessible active control', () => {
+  assert.match(js, /data-list-ui-toggle type="button" aria-expanded="false"/);
+  assert.match(js, /aria-controls="strategy-details-/);
+  assert.match(js, /card\.classList\.toggle\('expanded'\)/);
+  assert.match(js, /toggle\.setAttribute\('aria-expanded', expanded \? 'true' : 'false'\)/);
+  assert.match(js, /toggle\.classList\.toggle\('active', expanded\)/);
+  assert.match(js, /strategy-card-toggle-label/);
+  assert.match(js, /highlightStrategyArgs/);
+  assert.match(css, /strategy-card\.expanded \.strategy-card-toggle \.z2m-icon\{transform:rotate\(180deg\)\}/);
+});
+
+test('Strategy Details lazy-loads the canonical full profile before rendering args', () => {
+  assert.match(js, /data-action="toggleDetails"/);
+  assert.match(js, /function loadStrategyDetails\(/);
+  assert.match(js, /api\.strategies\.get/);
+});
+
+test('background polling does not replace an open or loading Strategy Details card', () => {
+  assert.match(js, /function hasOpenStrategyDetails\(/);
+  assert.match(js, /state\.editor \|\| state\.preview \|\| hasOpenStrategyDetails\(\)/);
+});
+
+test('P03-DR search count and filters keep canonical data semantics', () => {
+  assert.match(js, /list-ui-toolbar-right/);
+  assert.match(js, /searchPlaceholder: 'Поиск по имени, автору, описанию, args\.\.\.'/);
+  assert.match(js, /var isFiltered = !!search/);
+  assert.match(js, /extension: true/);
+  assert.match(css, /list-ui-search\{flex:0 1 52%/);
+  assert.match(css, /list-ui-filter\.active\{background:var\(--blue\)/);
+  assert.match(css, /list-ui-group-header\{width:100%/);
+});

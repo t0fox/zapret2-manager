@@ -1,13 +1,40 @@
 'use strict';
 'require baseclass';
+'require rpc';
 'require view.zapret2-manager.z2m-overview-model as OverviewModel';
+'require view.zapret2-manager.z2m-runtime-state as RuntimeState';
+'require view.zapret2-manager.z2m-avatar-log as AvatarLog';
+'require view.zapret2-manager.z2m-avatar-dashboard as AvatarDashboard';
+'require view.zapret2-manager.z2m-icons as Icons';
 
-var runtime = { timer: null, runId: null, target: '', overrideStrategyId: null };
+var runtime = { timer: null, runId: null, target: '', overrideStrategyId: null, deferred: {}, loadToken: 0,
+  lifecycle: { pending: false, action: null, result: null },
+  events: { initialized: false, keys: [], follow: true, unread: 0 } };
+var recommendationsRpc = rpc.declare({ object: 'zapret2-manager', method: 'strategies_recommendations', reject: true });
 
 function edit(fn, value) { return fn(JSON.stringify(value || {})); }
 function asArray(value) { return Array.isArray(value) ? value : []; }
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
-function displayValue(value) { return value == null || value === '' ? '—' : String(value); }
+function payload(value) {
+  for (var i = 0; i < 4; i++) {
+    if (Array.isArray(value)) { value = value[0]; continue; }
+    if (value && typeof value === 'object' && value.value !== undefined) { value = value.value; continue; }
+    break;
+  }
+  return object(value);
+}
+function phaseLabel(value) {
+  return {
+    completed: _('Проверка завершена'), partial: _('Проверка завершена частично'),
+    failed: _('Не удалось завершить проверку'), stopped: _('Проверка остановлена'),
+    'timed-out': _('Проверка превысила время ожидания'), timeout: _('Проверка превысила время ожидания'),
+    interrupted: _('Проверка прервана'), 'infrastructure-error': _('Ошибка инфраструктуры')
+  }[String(value || '').toLowerCase()] || _('Проверка выполняется');
+}
+function phaseKind(value) {
+  return ['failed', 'timed-out', 'timeout', 'infrastructure-error', 'interrupted'].indexOf(String(value || '').toLowerCase()) >= 0 ? 'r'
+    : String(value || '').toLowerCase() === 'completed' ? 'g' : 'b';
+}
 function settled(result, api) {
   return result.status === 'fulfilled'
     ? { value: result.value || {} }
@@ -27,18 +54,25 @@ function candidateId(candidate) {
   var value = candidate && (candidate.managerId || candidate.candidateId || candidate.id);
   return value === null || value === undefined || value === '' ? null : String(value);
 }
-function candidateName(candidate, format) {
-  return format.text(candidate && (candidate.name || candidate.displayName || candidateId(candidate)));
-}
 function activeStrategy(preview) {
   var strategyState = preview && preview.strategyState || {};
   return strategyState.active || preview && preview.active || null;
 }
+function statusStrategyId(status) {
+  var strategy = object(object(status).strategyStatus);
+  return strategy.id || strategy.strategyId || strategy.name || null;
+}
+function resolveCanonicalStrategy(ctx, statusEnvelope) {
+  var id = statusStrategyId(payload(statusEnvelope));
+  if (!id || !ctx.api.strategies || !ctx.api.strategies.get) return Promise.resolve(null);
+  return edit(ctx.api.strategies.get, { id: id }).then(function (answer) {
+    var value = payload(answer);
+    return value.strategy || value.item || value;
+  });
+}
 function runningState(status) {
-  var process = object(status && status.runtime && status.runtime.process);
-  if (status && (status.serviceState === 'running' || status.state === 'running' || process.found === true)) return true;
-  if (status && (status.serviceState === 'stopped' || status.state === 'stopped')) return false;
-  return null;
+  var value = RuntimeState.state(status);
+  return value === 'running' ? true : value === 'stopped' ? false : null;
 }
 function strategyDraft(ctx) {
   return ctx.store.get().draft && ctx.store.get().draft.strategy || {};
@@ -54,30 +88,62 @@ function clearStrategyField(ctx, field) {
 }
 
 function load(ctx) {
-  return Promise.allSettled([
-    ctx.api.service.status(),
+  var token = ++runtime.loadToken;
+  var initialReady = false;
+  var secondaryReady = false;
+  runtime.deferred = {};
+  function rerender() {
+    if (token !== runtime.loadToken || !initialReady || !ctx || typeof ctx.rerender !== 'function') return;
+    window.setTimeout(function () {
+      if (token === runtime.loadToken) ctx.rerender();
+    }, 0);
+  }
+  var secondary = Promise.allSettled([
     ctx.api.strategy.preview(),
-    ctx.api.orchestra.runHistory(),
-    ctx.api.orchestra.status(),
-    ctx.api.dns.serviceStatus()
+    edit(ctx.api.monitor.eventsTail, { limit: 8 }),
+    typeof ctx.api.strategies.recommendations === 'function' ? ctx.api.strategies.recommendations() : recommendationsRpc()
   ]).then(function (results) {
-    return {
-      status: settled(results[0], ctx.api),
-      preview: settled(results[1], ctx.api),
-      history: settled(results[2], ctx.api),
-      orchestra: settled(results[3], ctx.api),
-      serviceDns: settled(results[4], ctx.api)
+    if (token !== runtime.loadToken) return;
+    runtime.deferred = {
+      preview: settled(results[0], ctx.api),
+      events: settled(results[1], ctx.api),
+      recommendations: settled(results[2], ctx.api)
     };
+    secondaryReady = true;
+    if (initialReady) rerender();
+  });
+  return Promise.allSettled([ctx.api.service.status(), ctx.api.engine.status(), ctx.api.maintenance.status(), ctx.api.maintenance.versions()]).then(function (results) {
+    var data = {
+      status: settled(results[0], ctx.api),
+      engineStatus: settled(results[1], ctx.api),
+      systemStatus: settled(results[2], ctx.api),
+      versionStatus: settled(results[3], ctx.api)
+    };
+    return resolveCanonicalStrategy(ctx, data.status).then(function (strategy) {
+      if (strategy) data.strategy = { value: strategy };
+      return data;
+    }).catch(function (error) {
+      data.strategy = { error: ctx.api.normalizeError(error) };
+      return data;
+    });
+  }).then(function (data) {
+    initialReady = true;
+    if (secondaryReady) rerender();
+    return data;
   });
 }
 
 function render(ctx) {
   var shell = ctx.shell;
   var format = shell.format;
-  var data = ctx.data || {};
+  var data = Object.assign({}, ctx.data || {}, runtime.deferred || {});
   var view = OverviewModel.normalize(data);
-  var status = object(data.status && data.status.value);
-  var preview = object(data.preview && data.preview.value);
+  var status = payload(data.status);
+  var engineStatus = payload(data.engineStatus);
+  var systemStatus = payload(data.systemStatus);
+  var versionStatus = payload(data.versionStatus);
+  var preview = payload(data.preview);
+  var recommendations = payload(data.recommendations);
   var active = activeStrategy(preview);
   var catalog = candidates(preview);
   var snapshot = ctx.store.get();
@@ -95,10 +161,81 @@ function render(ctx) {
     shell.showToast(normalized && normalized.message, 'err');
   }
   function reload() { return ctx.refresh('overview'); }
-  function serviceAction() {
-    if (running === null) return;
-    var action = running ? ctx.api.service.stop : ctx.api.service.start;
-    action().then(reload).catch(showError);
+  function lifecycleErrorDetail(error) {
+    if (error && error.message) return String(error.message);
+    var normalized = ctx.api.normalizeError(error);
+    return normalized && (normalized.technical || normalized.message) || _('Backend не подтвердил нужное состояние.');
+  }
+  function lifecycleCopy(action) {
+    return {
+      start: { pending: _('Запускается nfqws2…'), verify: _('Проверяется процесс и NFQUEUE.'), success: _('nfqws2 запущен'), failure: _('Не удалось запустить nfqws2') },
+      stop: { pending: _('Останавливается nfqws2…'), verify: _('Проверяется остановка процесса.'), success: _('nfqws2 остановлен'), failure: _('Не удалось остановить nfqws2') },
+      restart: { pending: _('Перезапускается nfqws2…'), verify: _('Проверяется процесс и NFQUEUE.'), success: _('nfqws2 перезапущен'), failure: _('Не удалось перезапустить nfqws2') }
+    }[action];
+  }
+  function lifecycleAction(action) {
+    if (runtime.lifecycle.pending || !ctx.api.service[action]) return;
+    var copy = lifecycleCopy(action);
+    runtime.lifecycle = { pending: true, action: action, result: null };
+    var lifecyclePending = runtime.lifecycle.pending;
+    var lifecycleResult = runtime.lifecycle.result;
+    ctx.rerender();
+    Promise.resolve().then(function () {
+      if (action === 'start') return ctx.api.service.start();
+      if (action === 'stop') return ctx.api.service.stop();
+      return ctx.api.service.restart();
+    }).then(function (answer) {
+      if (!answer || answer.ok === false) throw answer || new Error('lifecycle request failed');
+      return ctx.api.service.status();
+    }).then(function (answer) {
+      var actual = RuntimeState.state(payload(answer));
+      var expected = action === 'stop' ? 'stopped' : 'running';
+      if (actual !== expected) {
+        var reason = reasonLabel(object(payload(answer).runtimeSummary).reasonCode);
+        throw { message: reason };
+      }
+      runtime.lifecycle.result = { kind: 'success', message: copy.success };
+    }).catch(function (error) {
+      runtime.lifecycle.result = { kind: 'error', message: copy.failure, detail: lifecycleErrorDetail(error) };
+    }).then(function () {
+      return reload().catch(function (error) {
+        runtime.lifecycle.result = { kind: 'error', message: copy.failure, detail: lifecycleErrorDetail(error) };
+      });
+    }).then(function () {
+      runtime.lifecycle.pending = false;
+      ctx.rerender();
+    });
+  }
+  function lifecycleButton(action, label, kind, disabled) {
+    // DONOR TRANSPLANT: web/js/pages/dashboard.js@38ed85ce487c6b3dbdf703a5be197795f7c0cad1
+    // Donor quickAction affordance retained; API mutation remains Z2M-owned.
+    var copy = lifecycleCopy(action);
+    var isPending = runtime.lifecycle.pending;
+    var isThisPending = isPending && runtime.lifecycle.action === action;
+    var dashboardId = { start: 'dash-btn-start', stop: 'dash-btn-stop', restart: 'dash-btn-restart' }[action];
+    return {
+      action: action,
+      id: dashboardId,
+      label: label,
+      pendingLabel: copy.pending,
+      kind: kind,
+      disabled: disabled || isPending,
+      pending: isThisPending,
+      onClick: function () { lifecycleAction(action); }
+    };
+  }
+  function lifecycleFeedback() {
+    var result = runtime.lifecycle.result;
+    if (runtime.lifecycle.pending) return E('div', { 'class': 'z2m-lifecycle-feedback', role: 'status', 'aria-live': 'polite' }, [
+      E('span', { 'class': 'z2m-dim' }, lifecycleCopy(runtime.lifecycle.action).pending),
+      E('span', { 'class': 'z2m-dim' }, ' · '),
+      E('span', { 'class': 'z2m-dim' }, lifecycleCopy(runtime.lifecycle.action).verify)
+    ]);
+    if (!result) return null;
+    var resultMessage = result.message + (result.detail ? '. ' + _('Причина: ') + result.detail : '');
+    return E('div', { 'class': 'z2m-lifecycle-feedback ' + (result.kind === 'error' ? 'error' : 'success'), role: 'status', 'aria-live': 'polite' }, [
+      E('span', {}, resultMessage)
+    ]);
   }
   function setAdvanced(mode) {
     var current = ctx.store.get();
@@ -121,8 +258,8 @@ function render(ctx) {
   function openReport() {
     if (!view.lastRun) return;
     var rows = compact([
-      reportRow(_('Run ID'), view.lastRun.runId),
-      reportRow(_('Состояние'), view.lastRun.phase),
+      advanced ? reportRow(_('Идентификатор запуска'), view.lastRun.runId) : null,
+      reportRow(_('Состояние'), phaseLabel(view.lastRun.phase)),
       reportRow(_('Открывается'), view.corpus.opened !== null && view.corpus.total !== null
         ? view.corpus.opened + ' / ' + view.corpus.total : null),
       reportRow(_('Медианная задержка'), view.corpus.medianLatencyMs !== null
@@ -161,8 +298,7 @@ function render(ctx) {
     var phase = format.text(run.phase);
     var target = format.text(run.target || run.domain || normalizeTarget(targetInput.value));
     var nodes = [];
-    if (phase !== null) nodes.push(shell.chip(phase,
-      phase === 'completed' ? 'g' : ['failed','timed-out','timeout','infrastructure-error'].indexOf(phase) >= 0 ? 'r' : 'b'));
+    if (phase !== null) nodes.push(shell.chip(phaseLabel(phase), phaseKind(phase)));
     if (target !== null) nodes.push(E('span', { 'class': 'z2m-muted' }, target));
     runResult.replaceChildren(nodes.length ? E('div', { 'class': 'z2m-inline-state' }, nodes) : null);
   }
@@ -236,223 +372,314 @@ function render(ctx) {
     if (ctx.openSemanticDiff) ctx.openSemanticDiff();
   }
 
-  var warnings = Object.keys(data).map(function (key) {
-    var message = format.text(data[key] && data[key].error && data[key].error.message);
-    return message === null ? null : shell.statePanel({ title: _('Backend не сообщил данные'), message: message, kind: 'error' });
-  }).filter(Boolean);
-
-  var pageHead = E('div', { 'class': 'z2m-phead z2m-overview-head' }, [
-    E('div', {}, [E('h1', {}, _('Обзор')), E('p', {}, _('Состояние обхода блокировок на этом роутере'))]),
-    E('div', { 'class': 'sp' }, [modeControl, shell.button(_('Как это работает'), 'sm', openHelp)])
-  ]);
-
-  function strategyMeta() {
-    var parts = [];
-    var source = format.text(view.strategy.source);
-    var appliedAt = format.timestamp(view.strategy.appliedAt);
-    var revision = format.text(view.strategy.revision);
-    if (source !== null) parts.push(_('источник: ') + source);
-    if (appliedAt !== null) parts.push(appliedAt);
-    if (revision !== null) parts.push(_('ревизия: ') + displayValue(revision));
-    return parts.length ? E('div', { 'class': 'z2m-dim z2m-strategy-meta' }, parts.join(' · ')) : null;
+  function envelopeValue(key) { return object(data[key] && data[key].value); }
+  function envelopeError(key) { return data[key] && data[key].error; }
+  function statusKind(value) {
+    if (value === true) return 'g';
+    if (value === false) return 'r';
+    value = String(value || '').toLowerCase();
+    if (value === 'running' || value === 'active' || value === 'enabled' || value === 'ready' || value === 'ok' || value === 'installed') return 'g';
+    if (value === 'stopped' || value === 'disabled' || value === 'failed' || value === 'error') return 'r';
+    return 'o';
   }
-
-  function renderStrategyHero() {
-    if (!view.visible.strategy) return null;
-    var name = format.text(view.strategy.name || view.strategy.id);
-    var description = format.text(view.strategy.description);
-    var argv = format.text(view.strategy.argv);
-    var actions = [
-      shell.button(_('Подобрать лучшую стратегию'), 'primary', function () { ctx.navigate('strategy'); }),
-      shell.button(_('Все стратегии'), '', function () { ctx.navigate('strategy'); })
-    ];
-    if (view.rollback.available) actions.push(shell.button(_('Вернуться к предыдущей'), '', function () {
-      ctx.api.strategy.rollback().then(reload).catch(showError);
-    }));
-    return E('div', { 'class': 'z2m-hero-left' }, compact([
-      E('div', { 'class': 'z2m-kick' }, _('активная стратегия')),
-      name !== null ? E('h3', {}, name) : null,
-      description !== null ? E('div', { 'class': 'z2m-strategy-description' }, description) : null,
-      strategyMeta(),
-      argv !== null ? E('div', { 'class': 'z2m-mono z2m-dim z2m-adv-only z2m-overview-argv' }, argv) : null,
-      E('div', { 'class': 'z2m-btnrow z2m-hero-actions' }, actions)
-    ]));
+  function statusText(value, fallback) {
+    if (value === true) return _('Включено');
+    if (value === false) return _('Выключено');
+    var labels = {
+      mismatch: _('Расхождение'), installed: _('Установлен'), unavailable: _('Недоступно'),
+      running: _('Работает'), stopped: _('Остановлен'), ready: _('Готово'), degraded: _('Требует проверки'),
+      unknown: _('Состояние неизвестно'), operation: _('Выполняется'), error: _('Ошибка')
+    };
+    if (labels[String(value || '').toLowerCase()]) return labels[String(value || '').toLowerCase()];
+    return format.text(value) || fallback || _('Недоступно');
   }
-
-  function metricCard(value, label, accent) {
-    var text = format.text(value);
-    if (text === null) return null;
-    return E('div', { 'class': 'z2m-kpi' + (accent ? ' z2m-acc' : '') }, [
-      E('div', { 'class': 'v' }, text),
-      E('div', { 'class': 'l' }, label)
-    ]);
+  function reasonLabel(code) {
+    var labels = {
+      'process-confirmed-absent': _('Служба zapret2 остановлена'),
+      'runtime-evidence-incomplete': _('Состояние runtime ещё проверяется'),
+      'applied-mismatch': _('Применённая конфигурация отличается от runtime'),
+      'nfqueue-missing': _('NFQUEUE не подключён'),
+      'process-missing': _('Процесс nfqws2 не найден')
+    };
+    return labels[String(code || '').toLowerCase()] || _('Backend не предоставил подробности');
   }
-
-  function renderCorpusHero() {
-    if (!view.visible.corpus) return null;
-    var cards = compact([
-      view.corpus.opened !== null && view.corpus.total !== null
-        ? metricCard(view.corpus.opened + ' / ' + view.corpus.total, _('доменов открываются'), true) : null,
-      view.corpus.medianLatencyMs !== null
-        ? metricCard(view.corpus.medianLatencyMs + ' мс', _('медианная задержка'), false) : null
-    ]);
-    var blocks = [];
-    if (cards.length) blocks.push(E('div', { 'class': 'z2m-kpis z2m-overview-kpis' }, cards));
-    if (view.corpus.percent !== null) {
-      var progress = Math.max(0, Math.min(100, view.corpus.percent));
-      blocks.push(E('div', {
-        'class': 'z2m-bar z2m-overview-progress', role: 'progressbar',
-        'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(progress),
-        'aria-label': _('Результат последней проверки')
-      }, E('i', { 'class': 'g', style: 'width:' + progress + '%' })));
+  function durationLabel(seconds) {
+    var value = Number(seconds);
+    if (!isFinite(value) || value < 0) return _('неизвестно');
+    value = Math.floor(value);
+    var days = Math.floor(value / 86400);
+    var hours = Math.floor((value % 86400) / 3600);
+    var minutes = Math.floor((value % 3600) / 60);
+    if (days) return days + _(' д ') + hours + _(' ч');
+    if (hours) return hours + _(' ч ') + minutes + _(' мин');
+    return minutes + _(' мин');
+  }
+  function memoryLabel(kb) {
+    var value = Number(kb);
+    if (!isFinite(value) || value < 0) return _('неизвестно');
+    return (value >= 1024 ? (value / 1024).toFixed(0) + ' МБ' : value + ' КБ');
+  }
+  function strategyPresentation(name) {
+    var value = String(name || '').trim();
+    var suffix = /\s*\(([^()]+)\)\s*$/.exec(value);
+    return {
+      primary: suffix ? value.slice(0, suffix.index).trim() : value,
+      secondary: suffix ? suffix[1].trim() : null
+    };
+  }
+  function processValue() {
+    var snapshot = RuntimeState.snapshot(status);
+    var runtimeSummary = object(status.runtimeSummary);
+    var processEvidence = object(runtimeSummary.process);
+    if (snapshot.state === 'running') {
+      var pid = snapshot.pid || processEvidence.pid;
+      return { value: _('Работает'), kind: 'running', detail: pid ? 'PID ' + pid : _('Runtime подтверждён') };
     }
-    if (view.corpus.failedDomains.length) {
-      blocks.push(E('div', { 'class': 'z2m-dim z2m-failure-title' }, _('не открылись при последней проверке')));
-      blocks.push(E('div', { 'class': 'z2m-overview-failures' }, view.corpus.failedDomains.map(function (domain) {
-        return shell.chip(domain, 'r');
-      }).filter(Boolean)));
-    }
-    blocks.push(E('div', { 'class': 'z2m-btnrow z2m-report-actions' }, [
-      shell.button(_('Отчёт проверки'), 'sm', openReport),
-      shell.button(_('Диагностика'), 'sm', function () { ctx.navigate('monitor'); })
-    ]));
-    return E('div', { 'class': 'z2m-hero-right' }, blocks);
+    if (snapshot.state === 'stopped') return { value: _('Остановлен'), kind: 'stopped', detail: _('Процесс не запущен') };
+    if (snapshot.state === 'mismatch') return { value: _('Расхождение'), kind: 'warning', detail: _('Процесс и NFQUEUE работают, но применённая конфигурация изменилась') };
+    return { value: _('Недоступно'), kind: 'warning', detail: _('Backend не предоставил runtime evidence') };
   }
-
-  function renderStatusPanel() {
-    var hero = compact([renderStrategyHero(), renderCorpusHero()]);
-    if (!view.visible.health && !hero.length) return null;
-    var head = [];
-    if (view.visible.health) {
-      head.push(E('span', { 'class': 'z2m-dot ' + view.health.kind, 'aria-hidden': 'true' }));
-      head.push(E('h2', {}, view.health.label));
-      if (format.text(view.health.detail) !== null) head.push(E('span', { 'class': 'sub' }, view.health.detail));
-      if (running !== null) head.push(E('div', { 'class': 'sp' }, [
-        shell.button(running ? _('Остановить') : _('Запустить'), running ? 'danger sm' : 'primary sm', serviceAction)
-      ]));
-    }
-    var children = [];
-    if (head.length) children.push(E('div', { 'class': 'hd' }, head));
-    if (hero.length) children.push(E('div', { 'class': 'bd z2m-hero' + (hero.length === 1 ? ' z2m-hero-single' : '') }, hero));
-    return E('section', { 'class': 'z2m-panel z2m-overview-status' }, children);
+  function unavailableCard(detail) {
+    return { value: _('Недоступно'), kind: 'warning', detail: detail || _('Backend не сообщил состояние') };
   }
-
-  var strategyOptions = catalog.map(function (candidate) {
-    var id = candidateId(candidate);
-    var name = candidateName(candidate, format);
-    return id === null || name === null ? null : { id: id, name: name };
-  }).filter(Boolean);
-  var strategySelect = null;
-  if (strategyOptions.length) {
-    strategySelect = E('select', { 'aria-label': _('Стратегия точечного правила') });
-    strategyOptions.forEach(function (candidate) {
-      strategySelect.appendChild(E('option', {
-        value: candidate.id,
-        selected: candidate.id === selectedOverrideId ? 'selected' : null
-      }, candidate.name));
-    });
-    if (selectedOverrideId !== null) strategySelect.value = selectedOverrideId;
-    strategySelect.addEventListener('change', function () {
-      runtime.overrideStrategyId = strategySelect.value;
-      selectedOverrideId = strategySelect.value;
-    });
+  function runtimeRelease(status) {
+    var upstream = object(status.upstream);
+    var version = String(upstream.nfqws2Version || '');
+    var match = /^github version (v[0-9][0-9A-Za-z._-]*)/.exec(version);
+    return match ? match[1] : null;
   }
-
-  var resourceBody = [
-    E('div', { 'class': 'z2m-fieldline' }, [targetInput, shell.button(_('Проверить'), 'primary', checkResource)]),
-    E('div', { 'class': 'z2m-dim' }, _('Проверка выполняется backend и не меняет текущую конфигурацию.')),
-    runResult
-  ];
-  if (strategySelect) {
-    resourceBody.push(E('div', { 'class': 'z2m-hr' }));
-    resourceBody.push(E('div', { 'class': 'z2m-fieldline' }, [
-      strategySelect,
-      shell.button(_('Применить только к ресурсу'), '', stageOverrideSet)
-    ]));
-    resourceBody.push(E('div', { 'class': 'z2m-dim' }, _('Сначала создаётся черновик. Runtime изменится только после явного применения.')));
-  }
-  var resourcePanel = shell.panel(_('Проверить ресурс'), E('div', {}, resourceBody), _('домен, URL или IP'));
-
-  var ruleRows = rules.map(function (rule) {
-    rule = object(rule);
-    var target = format.text(rule.target);
-    var strategy = format.text(rule.strategyName || rule.strategyId);
-    if (target === null && strategy === null) return null;
-    var removing = pendingOverride && pendingOverride.action === 'override_delete' && pendingOverride.id === rule.id;
-    return E('div', { 'class': 'z2m-rule' + (removing ? ' changed' : '') }, [
-      E('span', { 'class': 'z2m-rule-main' }, compact([
-        target !== null ? E('b', {}, target) : null,
-        strategy !== null ? E('small', {}, strategy) : null
-      ])),
-      shell.chip(removing ? _('удаление в черновике') : rule.enabled === false ? _('выкл') : _('вкл'),
-        removing ? 'o' : rule.enabled === false ? '' : 'g'),
-      rule.id ? shell.button('×', 'danger sm', function () { stageOverrideDelete(rule); }, removing, {
-        'aria-label': _('Удалить точечное правило')
-      }) : null
-    ]);
-  }).filter(Boolean);
-
-  var rulesPanel = null;
-  if (ruleRows.length || pendingOverride) {
-    var rulesBody = [];
-    if (pendingOverride) {
-      var selectedCandidate = catalog.find(function (item) { return candidateId(item) === pendingOverride.strategyId; });
-      var pendingTarget = format.text(pendingOverride.target || pendingOverride.id);
-      var pendingStrategy = candidateName(selectedCandidate, format) || format.text(pendingOverride.strategyId);
-      var pendingText = pendingOverride.action === 'override_delete'
-        ? pendingTarget
-        : compact([pendingTarget, pendingStrategy]).join(' → ');
-      rulesBody.push(E('div', { 'class': 'warnbar z2m-override-pending' }, [
-        E('div', {}, compact([
-          E('b', {}, _('Черновик точечного правила')),
-          pendingText ? E('div', { 'class': 'z2m-dim' }, pendingText) : null
-        ])),
-        E('div', { 'class': 'sp z2m-btnrow' }, [
-          shell.button(_('Отменить изменение'), '', function () { clearPendingOverride(true); }),
-          shell.button(_('Применить изменение'), 'primary', applyPendingOverride, activeId === null)
-        ])
-      ]));
-      rulesBody.push(shell.statePanel({
-        message: _('Точечные правила нельзя применить через общий координатор: откройте семантическое сравнение и используйте strategy-owned adapter.'),
-        kind: 'warning'
-      }));
-    }
-    if (ruleRows.length) rulesBody.push(E('div', { 'class': 'z2m-rule-list' }, ruleRows));
-    rulesPanel = shell.panel(_('Точечные правила'), E('div', {}, rulesBody), _('важнее глобальной стратегии'));
-  }
-
-  function adviceAction(item) {
-    if (item.action === 'report') return openReport;
-    if (item.action === 'refresh') return reload;
+  function structuredCardState() {
+    if (data.status && data.status.error) return unavailableCard(_('Backend не сообщил состояние'));
     return null;
   }
-  var advicePanel = null;
-  if (view.visible.advice) {
-    var adviceRows = view.advice.map(function (item) {
-      var title = format.text(item.title);
-      var detail = format.text(item.detail);
-      if (title === null && detail === null) return null;
-      var handler = adviceAction(item);
-      return E('div', { 'class': 'z2m-advice-row' }, compact([
-        E('span', { 'class': 'z2m-dot ' + item.kind, 'aria-hidden': 'true' }),
-        E('div', { 'class': 'z2m-advice-copy' }, compact([
-          title !== null ? E('div', { 'class': 'tt' }, title) : null,
-          detail !== null ? E('div', { 'class': 'dd' }, detail) : null
-        ])),
-        handler ? E('div', { 'class': 'sp' }, shell.button(_('Открыть'), 'sm', handler)) : null
-      ]));
-    }).filter(Boolean);
-    if (adviceRows.length) advicePanel = shell.panel(_('Что стоит сделать'), E('div', { 'class': 'z2m-advice' }, adviceRows));
+  function autostartCardValue() {
+    var unavailable = structuredCardState();
+    if (unavailable) return unavailable;
+    var auto = object(object(status.system).autostart);
+    if (typeof auto.enabled !== 'boolean') return unavailableCard(_('Backend не сообщил состояние автозапуска'));
+    return {
+      value: auto.enabled ? _('Включён') : _('Выключен'), kind: statusKind(auto.enabled),
+      detail: auto.enabled ? _('Автозапуск подтверждён') : _('Автозапуск отключён')
+    };
+  }
+  function systemCardValue() {
+    var unavailable = structuredCardState();
+    if (unavailable) return unavailable;
+    if (data.systemStatus && data.systemStatus.error) return unavailableCard(_('Backend не сообщил состояние системы'));
+    var facts = object(systemStatus);
+    var memory = object(facts.memory);
+    var storage = object(facts.storage);
+    var versions = object(versionStatus);
+    var systemBase = { value: _('OpenWrt'), kind: '' };
+    var os = format.text(versions.os);
+    var osMatch = os && /^OpenWrt\s+([^\s]+)/i.exec(os);
+    var engine = zapretCardValue();
+    var meta = compact([
+      metadataItem(_('ОЗУ'), memory.availableKb !== null && memory.availableKb !== undefined ? memoryLabel(memory.availableKb) + ' ' + _('свободно') : null, null),
+      metadataItem(_('Overlay'), storage.overlayPercent !== null && storage.overlayPercent !== undefined ? format.text(storage.overlayPercent) + '%' : null, null),
+      metadataItem('zapret2', engine && engine.kind !== 'r' && engine.kind !== 'warning' ? engine.value : null, 'card-zapret-ver')
+    ]);
+    var osVersion = osMatch ? osMatch[1] : os && os.replace(/^OpenWrt\s*/i, '');
+    return { value: osVersion ? systemBase.value + ' ' + osVersion : systemBase.value, kind: systemBase.kind, detail: meta.length ? E('div', { 'class': 'status-card-meta' }, meta) : _('Система доступна') };
+  }
+  function metadataItem(label, value, id) {
+    var text = format.text(value);
+    if (text === null) return null;
+    return E('span', { 'class': 'status-card-meta-item', id: id || null }, [
+      E('span', { 'class': 'status-card-meta-label' }, label),
+      E('strong', { 'class': 'status-card-meta-value' }, text)
+    ]);
+  }
+  function zapretCardValue() {
+    var unavailable = structuredCardState();
+    if (unavailable) return unavailable;
+    var engine = object(status.engine);
+    if (engine.installed !== true && engineStatus.installed === true)
+      engine = engineStatus;
+    if (engine.installed !== true) {
+      var release = runtimeRelease(status);
+      if (release) engine = { installed: true, installedRelease: release };
+    }
+    if (engine.installed === true) {
+      var snapshot = RuntimeState.snapshot(status);
+      if (!snapshot.installedRelease) snapshot.installedRelease = engine.installedRelease || null;
+      var installedRelease = format.text(snapshot.installedRelease);
+      return {
+        value: installedRelease || _('Установлен'), kind: '',
+        detail: _('Официальный release bol-van/zapret2')
+      };
+    }
+    if (engine.installed === false) return { value: _('Не установлен'), kind: 'r', detail: _('Backend подтвердил отсутствие пакета') };
+    return unavailableCard(_('Backend не сообщил состояние zapret2'));
+  }
+  function statusCards() {
+    if (!data.status && !data.engineStatus && !data.systemStatus) {
+      return [
+        { id: 'card-nfqws', label: 'nfqws2', value: _('Загрузка…'), detail: null, kind: '', icon: 'nfqws' },
+        { id: 'card-strategy', label: _('Стратегия'), value: _('Загрузка…'), detail: null, kind: '', icon: 'strategy' },
+        { id: 'card-autostart', label: _('Автозапуск'), value: _('Загрузка…'), detail: null, kind: '', icon: 'autostart' },
+        { id: 'card-system', label: _('Система'), value: _('Загрузка…'), detail: null, kind: '', icon: 'system' }
+      ];
+    }
+    var process = processValue();
+    var canonicalName = format.text(view.strategy.name);
+    var strategyName = strategyPresentation(canonicalName);
+    var activeName = format.text(strategyName.primary);
+    var strategySecondary = format.text(strategyName.secondary);
+    var strategy = envelopeError('preview')
+      ? { value: _('Недоступно'), kind: 'warning', detail: _('Backend не сообщил Strategy') }
+      : activeName !== null
+        ? { value: activeName, kind: 'running', detail: strategySecondary || _('Активная стратегия') }
+        : { value: _('Не выбрана'), kind: '', detail: _('Подтверждённая стратегия отсутствует') };
+    var autostart = autostartCardValue();
+    var system = systemCardValue();
+    return [
+      { id: 'card-nfqws', label: 'nfqws2', value: process.value, detail: process.detail, kind: process.kind, icon: 'nfqws' },
+      { id: 'card-strategy', label: _('Стратегия'), value: strategy.value, detail: strategy.detail, kind: strategy.kind, icon: 'strategy' },
+      { id: 'card-autostart', label: _('Автозапуск'), value: autostart.value, detail: autostart.detail, kind: autostart.kind, icon: 'autostart' },
+      { id: 'card-system', label: _('Система'), value: system.value, detail: system.detail, kind: system.kind, icon: 'system' }
+    ];
+  }
+  function eventRows(envelope) {
+    return AvatarLog.normalizeRows(envelope, 8);
+  }
+  function eventKey(row, index) {
+    return String(row.id || [row.timestamp || '', row.level || '', row.message || '', index].join('|'));
+  }
+  function updateEventWindow(rows) {
+    var keys = rows.map(eventKey);
+    if (!runtime.events.initialized) {
+      runtime.events.initialized = true;
+    } else if (!runtime.events.follow) {
+      var added = keys.filter(function (key) { return runtime.events.keys.indexOf(key) < 0; }).length;
+      if (added) runtime.events.unread = Math.min(99, runtime.events.unread + added);
+    }
+    runtime.events.keys = keys;
+  }
+  function refreshLogStylesheet() {
+    var link = document && document.getElementById('z2m-ui-css');
+    if (!link || link.getAttribute('data-z2m-revision') === 'p01v3-dashboard-20260817') return;
+    link.setAttribute('data-z2m-revision', 'p01v3-dashboard-20260817');
+    link.href = link.href.split('?')[0] + '?v=p01v3-dashboard-20260817';
   }
 
-  var rowPanels = compact([resourcePanel, rulesPanel]);
-  return E('section', { 'class': 'z2m-view on', id: 'z2m-view-overview' }, compact([
-    pageHead,
-    warnings.length ? warnings : null,
-    renderStatusPanel(),
-    rowPanels.length ? E('div', { 'class': rowPanels.length > 1 ? 'z2m-row3' : 'z2m-row1' }, rowPanels) : null,
-    advicePanel
-  ]));
+  function renderLogViewer(rows) {
+    refreshLogStylesheet();
+    updateEventWindow(rows);
+    var notice;
+    var viewer = AvatarLog.renderNormalized(rows, {
+      id: 'dashboard-logs',
+      label: _('Журнал событий'),
+      formatTimestamp: format.timestamp,
+      compact: true,
+      advanced: false
+    });
+    viewer.tabIndex = 0;
+    viewer.addEventListener('scroll', function () {
+      var atBottom = (viewer.scrollHeight - viewer.scrollTop - viewer.clientHeight) < 24;
+      runtime.events.follow = atBottom;
+      runtime.events.scrollTop = viewer.scrollTop;
+      if (atBottom) {
+        runtime.events.unread = 0;
+        if (notice) notice.hidden = true;
+      }
+    }, { passive: true });
+    notice = E('button', {
+      type: 'button', 'class': 'log-new-events', hidden: runtime.events.unread ? null : 'hidden',
+      'aria-label': _('Перейти к новым событиям')
+    }, '↓ ' + runtime.events.unread + ' ' + _('новых событий'));
+    notice.addEventListener('click', function () {
+      runtime.events.follow = true;
+      runtime.events.unread = 0;
+      viewer.scrollTop = viewer.scrollHeight;
+      notice.hidden = true;
+    });
+    window.setTimeout(function () {
+      viewer.scrollTop = runtime.events.follow ? viewer.scrollHeight : (runtime.events.scrollTop || 0);
+    }, 0);
+    return E('div', { 'class': 'log-stack' }, [viewer, notice]);
+  }
+  function renderEvents() {
+    var envelope = data.events;
+    var body;
+    if (!envelope) body = shell.statePanel({ message: _('Загрузка событий…'), kind: 'loading' });
+    else if (envelope.error) body = shell.statePanel({ title: _('Не удалось загрузить события'), message: envelope.error.message || _('Backend не сообщил журнал событий.'), kind: 'error' });
+    else {
+      var rows = eventRows(envelope);
+      body = rows.length ? renderLogViewer(rows) : AvatarLog.renderNormalized([], {
+        id: 'dashboard-logs',
+        label: _('Журнал событий'),
+        empty: shell.statePanel({ message: _('Событий пока нет'), kind: 'info' })
+      });
+    }
+    return body;
+  }
+  function renderQuickActions() {
+    return compact([
+      lifecycleButton('start', _('Запустить'), 'success', running === true),
+      lifecycleButton('stop', _('Остановить'), 'danger', running !== true),
+      lifecycleButton('restart', _('Перезапустить'), '', running !== true),
+      lifecycleFeedback()
+    ]);
+  }
+
+  function recommendationReason(item) {
+    var reasons = [];
+    var scannerEvidence = object(item.scannerEvidence);
+    var learnedEvidence = object(item.learnedEvidence);
+    var healthEvidence = object(item.healthEvidence);
+    if (item.upstreamRecommended === true) reasons.push(_('Рекомендуется каталогом'));
+    if (scannerEvidence.verified === true) reasons.push(_('Подтверждено сканированием'));
+    if (learnedEvidence.count > 0 || asArray(learnedEvidence.domains).length) reasons.push(_('Подтверждено историей'));
+    if (healthEvidence.recentlyHealthy === true || healthEvidence.status === 'healthy') reasons.push(_('Проверено healthcheck'));
+    return reasons;
+  }
+
+  function renderRecommendations() {
+    var items = asArray(recommendations.recommendations || recommendations.items).slice(0, 3);
+    var rows = items.map(function (item) {
+      item = object(item);
+      var presentation = strategyPresentation(format.text(item.name));
+      var primary = format.text(presentation.primary);
+      if (primary === null) return null;
+      var secondary = format.text(presentation.secondary);
+      if (secondary === null) {
+        secondary = format.text(item.protocol);
+        if (secondary === null && format.text(item.description) !== null)
+          secondary = format.text(item.description).slice(0, 88) + (format.text(item.description).length > 88 ? '…' : '');
+      }
+      var reasons = recommendationReason(item);
+      return E('div', { 'class': 'recommendation-row' }, [
+        E('span', { 'class': 'recommendation-row-icon', 'aria-hidden': 'true' }, [Icons.wrappedNode('badge-check', { size: 18, wrapperClass: 'status-card-icon' })]),
+        E('div', { 'class': 'recommendation-copy' }, [
+          E('div', { 'class': 'recommendation-name' }, primary),
+          secondary ? E('div', { 'class': 'recommendation-secondary' }, secondary) : null
+        ]),
+        E('div', { 'class': 'recommendation-reasons' }, reasons.map(function (reason) {
+          return E('span', { 'class': 'recommendation-reason' }, reason);
+        }))
+      ]);
+    }).filter(Boolean);
+    var body = rows.length ? E('div', { 'class': 'recommendation-list' }, rows) : E('div', { 'class': 'recommendation-empty' }, [
+      _('Нет подтверждённых рекомендаций.'), ' ',
+      E('a', { href: '#/strategies' }, _('Подобрать стратегии →'))
+    ]);
+    return E('section', { id: 'dashboard-recommendations', 'class': 'card dashboard-recommendations' }, [
+      E('div', { 'class': 'card-title dashboard-recommendations-title' }, [
+        E('span', { 'class': 'dashboard-recommendations-heading' }, [Icons.wrappedNode('badge-check', { size: 18, wrapperClass: 'status-card-icon' }), _('Рекомендации для вас')]),
+        E('a', { href: '#/strategies', 'class': 'dashboard-recommendations-link' }, [Icons.wrappedNode('external-link', { size: 14, wrapperClass: 'status-card-icon' }), _('Все рекомендации →')])
+      ]),
+      body
+    ]);
+  }
+
+  return AvatarDashboard.render({
+    cards: statusCards(),
+    quickActions: renderQuickActions(),
+    recommendations: renderRecommendations(),
+    recentEvents: renderEvents(),
+    extension: null
+  });
 }
 
 function mount() {}
@@ -460,9 +687,10 @@ function unmount() {
   if (runtime.timer) window.clearTimeout(runtime.timer);
   runtime.timer = null;
   runtime.runId = null;
+  runtime.events = { initialized: false, keys: [], follow: true, unread: 0 };
 }
 
 return baseclass.extend({
-  id: 'overview', title: _('Обзор'), subtitle: _('Состояние обхода блокировок на этом роутере'),
+  id: 'overview', title: _('Главная'), subtitle: _('Обзор состояния системы'),
   load: load, render: render, mount: mount, unmount: unmount
 });

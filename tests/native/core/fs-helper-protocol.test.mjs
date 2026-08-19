@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const manifestPath = 'zapret2-manager/src/z2m-core-helper/protocol-v1.json';
-const canonicalJsonPath = 'docs/contracts/z2m-canonical-json-v1.md';
+const canonicalJsonPath = 'docs/04-contracts/z2m-canonical-json-v1.md';
 
 const roots = [
   'persistent_state', 'snapshots', 'registry', 'secrets',
@@ -350,7 +350,7 @@ test('operation registry is closed and specifies schemas, limits, ownership, cra
   assert.equal(value.operations.atomic_write_json.canonicalization,
     'z2m-canonical-json-v1');
   assert.equal(value.operations.atomic_write_json.canonicalizationContract,
-    'docs/contracts/z2m-canonical-json-v1.md');
+     'docs/contracts/z2m-canonical-json-v1.md');
   assert.deepEqual(value.operations.atomic_write_json.limits, {
     maxInputBytes: 4194304,
     maxOutputBytes: 1024,

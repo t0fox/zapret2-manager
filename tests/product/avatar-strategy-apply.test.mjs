@@ -12,6 +12,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const APPLY = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/profiles-apply.uc');
 const CLI = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-cli.uc');
 const STATE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-state.uc');
+const RESULTS = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-results.uc');
 const CATALOG_ROOT = path.join(ROOT, 'zapret2-manager/files/usr/share/zapret2-manager/catalog/avatar');
 const CATALOG_DIGEST = JSON.parse(fs.readFileSync(path.join(CATALOG_ROOT, 'manifest.json'), 'utf8')).aggregateDigest;
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
@@ -619,5 +620,12 @@ test('runtime uncertainty records preserve bounded verified checks and rollback-
   assert.deepEqual(uncertain, { uncertain: true, rolledBack: false });
 }));
 test('scanner handoff: existing Strategy ID returned, unmatched generated cannot Apply, Save payload only', () => {
-  assert.fail('RED: Strategy handoff boundary absent');
+  const existing = invoke(RESULTS, `mod.scanner_best_reference({ranked:[{strategyId:'catalog-one',strategyRevision:0,saveRequired:false}]},{})`);
+  assert.deepEqual(existing, { kind: 'strategy', strategyId: 'catalog-one', revision: 0, saveRequired: false });
+  const generated = invoke(RESULTS, `mod.scanner_best_reference({ranked:[{candidateId:'generated:one',identityKind:'generated',saveRequired:true}]},{})`);
+  assert.deepEqual(generated, { kind: 'generated', strategyId: null, revision: null, candidateId: 'generated:one', saveRequired: true });
+  const saved = invoke(RESULTS, `mod.scanner_save_generated_validate({candidate:{profile:{name:'generated'}},compiler:{version:'1'},catalog:{version:'2'},deps:[],provenance:{source:'scanner'}})`);
+  assert.equal(saved.ok, true);
+  assert.equal(saved.savePayload.type, 'SaveStrategy');
+  assert.doesNotMatch(fs.readFileSync(RESULTS, 'utf8'), /scanner_.*apply|apply_.*scanner/i);
 });

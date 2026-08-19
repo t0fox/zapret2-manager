@@ -55,26 +55,6 @@ function bytes(value) {
   return formatted === null ? null : formatted + '\u00a0' + units[index];
 }
 
-function duration(value) {
-  var total = numeric(value);
-  if (total === null || total < 0) return null;
-  total = Math.floor(total);
-  var units = [
-    { size: 86400, label: 'д' },
-    { size: 3600, label: 'ч' },
-    { size: 60, label: 'мин' },
-    { size: 1, label: 'с' }
-  ];
-  var parts = [];
-  units.forEach(function (unit) {
-    if (!total && parts.length) return;
-    var count = Math.floor(total / unit.size);
-    total %= unit.size;
-    if (count || unit.size === 1 && !parts.length) parts.push(count + '\u00a0' + unit.label);
-  });
-  return parts.join(' ');
-}
-
 function timestamp(value) {
   if (value === null || value === undefined || value === '') return null;
   var date;
@@ -93,7 +73,7 @@ function timestamp(value) {
     return null;
   }
   if (!Number.isFinite(date.getTime())) return null;
-  function pad(number) { return String(number).padStart(2, '0'); }
+  function pad(number) { return ('0' + number).slice(-2); }
   return pad(date.getDate()) + '.' + pad(date.getMonth() + 1) + '.' + date.getFullYear() +
     ', ' + pad(date.getHours()) + ':' + pad(date.getMinutes()) + ':' + pad(date.getSeconds());
 }
@@ -101,10 +81,6 @@ function timestamp(value) {
 return baseclass.extend({
   present: present,
   text: text,
-  numeric: numeric,
-  integer: integer,
-  decimal: decimal,
   bytes: bytes,
-  duration: duration,
   timestamp: timestamp
 });

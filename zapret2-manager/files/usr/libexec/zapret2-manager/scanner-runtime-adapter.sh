@@ -11,6 +11,7 @@ FIREWALL_HELPER=/usr/libexec/zapret2-manager/z2m-scanner-firewall-helper
 NFQ_PROC=/proc/net/netfilter/nfnetlink_queue
 LOCK=/opt/zapret2/config.lock
 QUEUE=300
+QUEUE_MAX=307
 OWNER=scanner/session
 
 if [ "${Z2M_SCANNER_RUNTIME_SHIM:-0}" = 1 ]; then
@@ -45,6 +46,8 @@ HELPER_RESPONSE_FIFO="$DIR/$candidate.helper.response"
 LOCK_OWNER="$DIR/lock.descriptor"
 OWNERSHIP_LOCK="$DIR/ownership.lock"
 CLEANUP_EVIDENCE="$DIR/cleanup.evidence"
+LIFECYCLE_JOURNAL="$DIR/$candidate.lifecycle"
+queue_num=$QUEUE
 private_dir() {
 	path=$1
 	[ -d "$path" ] && [ ! -L "$path" ] || return 1
@@ -68,7 +71,8 @@ private_dir "$BASE" && private_dir "$ROOT" && private_dir "$DIR" || {
 
 starttime() { awk '{print $22}' "/proc/$1/stat" 2>/dev/null || true; }
 argv_digest() { sha256sum "/proc/$1/cmdline" 2>/dev/null | awk '{print $1}' || true; }
-queue_peer() { awk -v q="$QUEUE" '$1 == q { print $2; exit }' "$NFQ_PROC" 2>/dev/null || true; }
+queue_peer() { awk -v q="$queue_num" '$1 == q { print $2; exit }' "$NFQ_PROC" 2>/dev/null || true; }
+queue_available() { [ -z "$(awk -v q="$1" '$1 == q { print $2; exit }' "$NFQ_PROC" 2>/dev/null || true)" ]; }
 process_alive() { [ -r "/proc/$1/stat" ] && [ "$(starttime "$1")" = "$2" ]; }
 process_exe() { readlink "/proc/$1/exe" 2>/dev/null || true; }
 
@@ -195,11 +199,32 @@ helper_response_ok() {
 		ownership_ready) [ "$(printf '%s' "$response" | jsonfilter -e '@.data.ready' 2>/dev/null)" = true ] || return 1 ;;
 		ownership_delete) [ "$(printf '%s' "$response" | jsonfilter -e '@.data.deleted' 2>/dev/null)" = true ] || return 1 ;;
 		ownership_status) [ "$(printf '%s' "$response" | jsonfilter -e '@.data.exists' 2>/dev/null)" = true ] && [ "$(printf '%s' "$response" | jsonfilter -e '@.data.owned' 2>/dev/null)" = true ] || return 1 ;;
+		ownership_nfqueue_prepare) [ "$(printf '%s' "$response" | jsonfilter -e '@.data.chainCreated' 2>/dev/null)" = true ] && [ "$(printf '%s' "$response" | jsonfilter -e '@.data.ruleCreated' 2>/dev/null)" = true ] || return 1 ;;
+		ownership_nfqueue_bind) [ "$(printf '%s' "$response" | jsonfilter -e '@.data.queueBound' 2>/dev/null)" = true ] || return 1 ;;
+		ownership_nfqueue_activate) [ "$(printf '%s' "$response" | jsonfilter -e '@.data.active' 2>/dev/null)" = true ] || return 1 ;;
 		*) return 1 ;;
 	esac
 	[ "$(printf '%s' "$response" | jsonfilter -e '@.data.tableName' 2>/dev/null)" = "$table_name" ] || return 1
 	[ "$(printf '%s' "$response" | jsonfilter -e '@.data.evidence.tableName' 2>/dev/null)" = "$table_name" ] || return 1
-	[ "$(printf '%s' "$response" | jsonfilter -e '@.data.evidence.ownerFlagRequested' 2>/dev/null)" = true ]
+	[ "$(printf '%s' "$response" | jsonfilter -e '@.data.evidence.ownerFlagRequested' 2>/dev/null)" = true ] || return 1
+	[ "$(printf '%s' "$response" | jsonfilter -e '@.data.evidence.kernelReadBack' 2>/dev/null)" = true ]
+}
+
+lifecycle_transition() {
+	state=$1; evidence=$2
+	old=$(cat "$LIFECYCLE_JOURNAL" 2>/dev/null || true)
+	case "$old" in *"state=$state"*) return 0 ;; esac
+	[ "$(printf '%s' "$old" | wc -c)" -lt 8192 ] || return 1
+	atomic_private_write "$LIFECYCLE_JOURNAL" "$old${old:+\n}state=$state\nevidence=$evidence\n"
+}
+
+allocate_queue() {
+	queue_num=$QUEUE
+	while [ "$queue_num" -le "$QUEUE_MAX" ]; do
+		queue_available "$queue_num" && return 0
+		queue_num=$((queue_num + 1))
+	done
+	return 1
 }
 
 helper_request() {
@@ -212,6 +237,9 @@ helper_request() {
 		helper_start_lifecycle
 	else
 		table_name=$(sed -n 's/^table=//p' "$HELPER_TRANSPORT_FILE" 2>/dev/null || true)
+		queue_num=$(sed -n 's/^queue=//p' "$HELPER_TRANSPORT_FILE" 2>/dev/null || true)
+		case "$queue_num" in ''|*[!0-9]*) return 42 ;; esac
+		[ "$queue_num" -ge "$QUEUE" ] && [ "$queue_num" -le "$QUEUE_MAX" ] || return 42
 		if [ -r "$OWNERSHIP_FILE" ]; then
 			owned_record=$(cat "$OWNERSHIP_FILE" 2>/dev/null | tr -d '\n' || true)
 			operation_id=$(printf '%s' "$owned_record" | cut -d '|' -f4)
@@ -221,8 +249,13 @@ helper_request() {
 	fi
 	exec 8<>"$HELPER_REQUEST_FIFO" || return 42
 	exec 9<>"$HELPER_RESPONSE_FIFO" || { exec 8>&-; return 42; }
-	request=$(printf '{"protocolVersion":2,"requestId":"%s","operation":"%s","arguments":{"tableName":"%s","operationId":"%s","nonce":"%s"}}\n' \
-		"$request_id" "$helper_operation_name" "$table_name" "$operation_id" "$operation_nonce")
+	helper_peer=0
+	case "$helper_operation_name" in ownership_nfqueue_bind|ownership_nfqueue_activate)
+		[ -r "$PID_FILE" ] || { exec 8>&-; exec 9>&-; return 42; }
+		pid_record=$(cat "$PID_FILE" 2>/dev/null | tr -d '\n' || true); helper_peer=${pid_record%%|*} ;;
+	esac
+	request=$(printf '{"protocolVersion":2,"requestId":"%s","operation":"%s","arguments":{"tableName":"%s","operationId":"%s","nonce":"%s","queue":%s,"peerPid":%s}}\n' \
+		"$request_id" "$helper_operation_name" "$table_name" "$operation_id" "$operation_nonce" "$queue_num" "$helper_peer")
 	printf '%s' "$request" >&8 || { exec 8>&-; exec 9>&-; return 42; }
 	IFS= read -r response <&9 || { exec 8>&-; exec 9>&-; return 42; }
 	exec 8>&-; exec 9>&-
@@ -246,7 +279,7 @@ helper_start_lifecycle() {
 	exec 8>&-; exec 9>&-
 	[ -n "$helper_start" ] || helper_start_abort
 	atomic_private_write "$HELPER_PID_FILE" "$helper_pid|$helper_start|$operation_id|$operation_nonce|$table_name\n" || helper_start_abort
-	atomic_private_write "$HELPER_TRANSPORT_FILE" "table=$table_name\nrequest=$HELPER_REQUEST_FIFO\nresponse=$HELPER_RESPONSE_FIFO\n" || helper_start_abort
+	atomic_private_write "$HELPER_TRANSPORT_FILE" "table=$table_name\nqueue=$queue_num\nrequest=$HELPER_REQUEST_FIFO\nresponse=$HELPER_RESPONSE_FIFO\n" || helper_start_abort
 	helper_identity || helper_start_abort
 }
 
@@ -272,7 +305,9 @@ atomic_private_write() {
 }
 
 emit_cleanup() {
-	printf '%s\n' "{\"ok\":$1,\"processRemoved\":$2,\"firewallRemoved\":$3,\"nfqueueRemoved\":$4,\"hostlistRemoved\":$5,\"temporaryFilesRemoved\":$6,\"ownedOnly\":$7,\"evidence\":\"$8\"}"
+	local table_checked=false
+	[ "$2" = true ] && [ "$3" = true ] && [ "$4" = true ] && [ "$7" = true ] && table_checked=true
+	printf '%s\n' "{\"ok\":$1,\"processRemoved\":$2,\"firewallRemoved\":$3,\"nfqueueRemoved\":$4,\"hostlistRemoved\":$5,\"temporaryFilesRemoved\":$6,\"ownedOnly\":$7,\"tableChecked\":$table_checked,\"tablePresent\":false,\"evidence\":\"$8\"}"
 }
 
 cleanup_internal() {
@@ -289,6 +324,9 @@ cleanup_internal() {
 		fi
 		table_name=$(sed -n 's/^table=//p' "$HELPER_TRANSPORT_FILE" 2>/dev/null || true)
 		helper_record=$(cat "$HELPER_PID_FILE" 2>/dev/null | tr -d '\n' || true)
+		queue_num=$(sed -n 's/^queue=//p' "$HELPER_TRANSPORT_FILE" 2>/dev/null || true)
+		case "$queue_num" in ''|*[!0-9]*) process_removed=false; firewall_removed=false; owned_only=false; evidence=identity ;; esac
+		[ "$queue_num" -ge "$QUEUE" ] 2>/dev/null && [ "$queue_num" -le "$QUEUE_MAX" ] 2>/dev/null || { process_removed=false; firewall_removed=false; owned_only=false; evidence=identity; }
 		helper_pid=${helper_record%%|*}
 		helper_identity || { process_removed=false; firewall_removed=false; owned_only=false; evidence=identity; }
 	fi
@@ -415,23 +453,66 @@ activate() {
 	operation_id="$session:$candidate:$generation"
 	operation_nonce="$lock_nonce"
 	table_name=""
+	allocate_queue || fail EDEPENDENCY nfqueue
+	lifecycle_transition PREPARED input || fail EIO journal
 	helper_request ownership_create || fail EDEPENDENCY firewall
 	RESOURCE_CREATED=1
+	lifecycle_transition TABLE_CREATED kernel-owner-readback || fail EIO journal
 	helper_request ownership_ready || fail EOWNERSHIP firewall
 	atomic_private_write "$OWNERSHIP_FILE" "$session|$candidate|$generation|$operation_id|$operation_nonce\n" || fail EIO ownership
-	# The helper owns only the dedicated table. NFQUEUE rule installation remains a separate proof obligation.
-	fail EUNSUPPORTED firewall
+	# Bounded NFQUEUE rule creation under the owned table only.
+	# Server-issued values only; no client-controlled raw nft.
+		helper_request ownership_nfqueue_prepare || fail EOWNERSHIP firewall
+	lifecycle_transition RULES_READY helper-kernel-readback || fail EIO journal
+	# Spawn nfqws2 under exact identity; candidate args already sanitized upstream.
+	set -- "$@" "--qnum=$queue_num" "--daemon" "--pidfile=$PID_FILE" "--user=0"
+	"$NFQWS2" "$@" >"$LOG_FILE" 2>&1 &
+	nfq_pid=$!
+	nfq_start=$(starttime "$nfq_pid")
+	[ -n "$nfq_start" ] || fail EDEPENDENCY nfqws2
+	atomic_private_write "$PID_FILE" "$nfq_pid|$nfq_start\n" || fail EIO pid
+	atomic_private_write "$START_FILE" "$nfq_start\n" || fail EIO start
+	# Verify NFQUEUE registration and exact process identity before enabling final hook.
+	helper_request ownership_nfqueue_bind || fail EOWNERSHIP nfqueue
+	lifecycle_transition PROCESS_BOUND queue-peer-readback || fail EIO journal
+	# Atomically enable final redirect rule under the owned table only.
+	helper_request ownership_nfqueue_activate || fail EOWNERSHIP activate
+	lifecycle_transition ACTIVE helper-active-readback || fail EIO journal
+	nfq_digest=$(argv_digest "$nfq_pid"); [ -n "$nfq_digest" ] || fail EIDENTITY activate
+	[ "$(process_exe "$nfq_pid")" = "$NFQWS2" ] || fail EIDENTITY activate
+	printf '%s\n' "{\"ok\":true,\"activated\":true,\"identityVerified\":true,\"kernelReadBack\":true,\"chainCreated\":true,\"ruleCreated\":true,\"active\":true,\"expectedProcess\":{\"pid\":$nfq_pid,\"startTime\":$nfq_start,\"exe\":\"$NFQWS2\",\"argvSha256\":\"$nfq_digest\",\"owner\":\"$OWNER\",\"generation\":$generation},\"process\":{\"pid\":$nfq_pid,\"startTime\":$nfq_start,\"exe\":\"$NFQWS2\",\"argvSha256\":\"$nfq_digest\",\"owner\":\"$OWNER\",\"generation\":$generation},\"firewall\":{\"table\":\"$table_name\",\"owner\":\"$OWNER\",\"ownedRules\":[\"z2m_scan_prerouting\"]},\"nfqueue\":{\"registered\":true,\"peer_portid\":$nfq_pid,\"queue\":$queue_num}}"
 }
 
 stabilize() {
-	fail EUNSUPPORTED stabilize
+	lock_held || fail ELOCKED lock
+	[ -r "$OWNERSHIP_FILE" ] || fail EIDENTITY stabilize
+	[ -r "$PID_FILE" ] || fail EIDENTITY stabilize
+	pid_record=$(cat "$PID_FILE" 2>/dev/null | tr -d '\n' || true)
+	pid=${pid_record%%|*}; start=${pid_record#*|}
+	[ -n "$pid" ] && [ -n "$start" ] || fail EIDENTITY stabilize
+	deadline=$(( $(date +%s) + 30 ))
+	while :; do
+		if ! process_alive "$pid" "$start"; then
+			printf '%s\n' '{"ok":false,"candidateFailure":true,"reason":"process_exit"}'; return 0
+		fi
+		q=$(queue_peer)
+		if [ -n "$q" ] && [ "$q" = "$pid" ]; then
+			helper_request ownership_status || { printf '%s\n' '{"ok":false,"infrastructure":true,"reason":"ownership_lost"}'; return 0; }
+			digest=$(argv_digest "$pid"); [ -n "$digest" ] || { printf '%s\n' '{"ok":false,"infrastructure":true,"reason":"identity_unavailable"}'; return 0; }
+			printf '%s\n' "{\"ok\":true,\"stable\":true,\"identityVerified\":true,\"process\":{\"pid\":$pid,\"startTime\":$start,\"exe\":\"$NFQWS2\",\"argvSha256\":\"$digest\",\"owner\":\"$OWNER\",\"generation\":$generation},\"firewall\":{\"table\":\"$table_name\",\"owner\":\"$OWNER\",\"ownedRules\":[\"z2m_scan_prerouting\"]},\"nfqueue\":{\"registered\":true,\"peer_portid\":$pid,\"queue\":$queue_num}}"; return 0
+		fi
+		now=$(date +%s)
+		[ "$now" -lt "$deadline" ] || { printf '%s\n' '{"ok":false,"infrastructure":true,"reason":"timeout"}'; return 0; }
+		sleep 0.2
+	done
 }
 
 cleanup() {
 	lock_held || fail ELOCKED lock
 	[ -r "$OWNERSHIP_FILE" ] || { [ -r "$CLEANUP_EVIDENCE" ] && grep -F -q 'evidence=complete' "$CLEANUP_EVIDENCE" 2>/dev/null || fail EIDENTITY cleanup; }
+	lifecycle_transition CLEANING cleanup-start || fail EIO journal
 	cleanup=$(cleanup_internal)
-	case "$cleanup" in *'"ownedOnly":true'*) printf '%s\n' "$cleanup" ;; *) fail ECLEANUP cleanup ;; esac
+	case "$cleanup" in *'"ownedOnly":true'*) lifecycle_transition CLEANED cleanup-complete || fail EIO journal; printf '%s\n' "$cleanup" ;; *) fail ECLEANUP cleanup ;; esac
 }
 
 session_cleanup() {
@@ -444,7 +525,7 @@ session_cleanup() {
 	recovery_evidence="$ROOT/$session.recovery.evidence"
 	atomic_private_write "$recovery_evidence" "session=$session\nverified=true\ndurability=tmpfs_visible\n" || fail ECLEANUP cleanup
 	# Remove only the fixed runtime sidecars; unknown files keep rmdir fail-closed.
-	rm -f "$DIR"/*.argv "$DIR"/*.argv.digest "$DIR"/*.argv.meta "$DIR"/*.helper.pid "$DIR"/*.helper.transport "$DIR"/*.helper.request "$DIR"/*.helper.response
+	rm -f "$DIR"/*.argv "$DIR"/*.argv.digest "$DIR"/*.argv.meta "$DIR"/*.helper.pid "$DIR"/*.helper.transport "$DIR"/*.helper.request "$DIR"/*.helper.response "$DIR"/*.lifecycle
 	rm -f "$CLEANUP_EVIDENCE" "$OWNERSHIP_LOCK" "$DIR/lock.ready"
 	rmdir "$DIR" 2>/dev/null || { atomic_private_write "$recovery_evidence" "session=$session\nverified=false\ndurability=tmpfs_visible\n" || true; fail ECLEANUP cleanup; }
 	[ ! -e "$DIR" ] || fail ECLEANUP cleanup

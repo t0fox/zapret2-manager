@@ -41,7 +41,7 @@ const hooks = {
     reconciliation: { generation: 4, reference: 'pre-scan-runtime' },
   },
   compile: { ok: true, candidate: '--filter-tcp=443', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: DEPENDENCY_DIGEST, dependencies: DEPENDENCY_CLOSURE, native: { status: 'verified' } },
-  runtime: { activate: { ok: true, identityVerified: true, expectedProcess: { pid: 11, startTime: 21, exe: '/opt/zapret2/nfq2/nfqws2', argvSha256: '6'.repeat(64), owner: 'scanner/session', generation: 5 }, process: { pid: 11, startTime: 21, exe: '/opt/zapret2/nfq2/nfqws2', argvSha256: '6'.repeat(64), owner: 'scanner/session', generation: 5 }, firewall: { table: 'zapret2', owner: 'scanner/session', ownedRules: ['scanner-rule'] }, nfqueue: { registered: true, peer_portid: 11 } }, stabilize: [{ ok: true, stable: true }], cleanup: [{ ok: true, processRemoved: true, firewallRemoved: true, nfqueueRemoved: true, hostlistRemoved: true, temporaryFilesRemoved: true, ownedOnly: true }] },
+  runtime: { activate: { ok: true, identityVerified: true, kernelReadBack: true, expectedProcess: { pid: 11, startTime: 21, exe: '/opt/zapret2/nfq2/nfqws2', argvSha256: '6'.repeat(64), owner: 'scanner/session', generation: 5 }, process: { pid: 11, startTime: 21, exe: '/opt/zapret2/nfq2/nfqws2', argvSha256: '6'.repeat(64), owner: 'scanner/session', generation: 5 }, firewall: { table: 'z2m_sc_01234567_89abcdef_0005_0123456789abcdef0123456789abcdef', owner: 'scanner/session', ownedRules: ['scanner-rule'] }, nfqueue: { registered: true, peer_portid: 11 } }, stabilize: [{ ok: true, stable: true }], cleanup: [{ ok: true, processRemoved: true, firewallRemoved: true, nfqueueRemoved: true, hostlistRemoved: true, temporaryFilesRemoved: true, ownedOnly: true }] },
   sessionCleanup: { ok: true, removed: true, verified: true },
 };
 
@@ -49,11 +49,18 @@ test('transient Scanner exports only the Task 5 lifecycle and documents the Task
   const source = fs.readFileSync(TRANSIENT, 'utf8');
   for (const name of ['scanner_session_begin', 'scanner_candidate_activate', 'scanner_candidate_cleanup'])
     assert.match(source, new RegExp(`export const ${name}\\s*=`));
-  assert.doesNotMatch(source, /export const scanner_session_restore/);
+  assert.match(source, /export const scanner_session_restore/);
   assert.match(source, /Task 7 boundary marker/);
   assert.match(source, /ScannerSession/);
   assert.match(source, /CandidateAttempt/);
   assert.match(source, /CleanupEvidence/);
+});
+
+test('terminal session finish restores the pre-scan runtime once before releasing the session', () => {
+  const result = invoke(`subject.scanner_session_finish({sessionId:'restore-once',generation:5,lock:{nonce:'${'a'.repeat(64)}'},snapshot:${JSON.stringify(hooks.snapshot)}},{restore:{ok:true,state:'verified',configRestored:true,runtimeRestored:true,reconciled:true},lockRelease:{ok:true},sessionCleanup:{ok:true,removed:true,verified:true}})`);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.restore.state, 'verified');
+  assert.equal(result.verifiedCleanup, true);
 });
 
 test('transient session snapshots once, stays neutral between candidates, and preserves identity', () => {
@@ -106,10 +113,18 @@ test('production transient adapters are real fixed server-owned operations, not 
   const adapter = fs.readFileSync(RUNTIME_ADAPTER, 'utf8');
   assert.doesNotMatch(profiles, /profiles_transient_(activate|stabilize|cleanup)[\s\S]{0,500}EUNAVAILABLE/);
   assert.match(adapter, /\/opt\/zapret2\/nfq2\/nfqws2/);
-  assert.match(adapter, /\/usr\/sbin\/nft/);
+  assert.match(adapter, /z2m-scanner-firewall-helper/);
+  assert.match(adapter, /ownership_(?:create|ready|delete|status)/);
   assert.match(adapter, /case \"\$operation\" in/);
   assert.match(adapter, /activate\|stabilize\|cleanup/);
   assert.doesNotMatch(adapter, /eval\s|nft\s+flush\s+ruleset|\$\{[^}]*command|\$\{[^}]*exec|\$\{[^}]*argv/);
+});
+
+test('production terminal restore feeds the Apply owner exact snapshot bytes and verifies the restored runtime', () => {
+  const profiles = fs.readFileSync(PROFILES_APPLY, 'utf8');
+  assert.match(profiles, /restore_whole_file\(PATHS\.applied_conf, snapshot\.config\.bytes, true\)/);
+  assert.match(profiles, /verify_status\(status,\s*queue,\s*true\)/);
+  assert.match(profiles, /expectedConfigSha256/);
 });
 
 test('production rejects all injected runtime seams', () => {

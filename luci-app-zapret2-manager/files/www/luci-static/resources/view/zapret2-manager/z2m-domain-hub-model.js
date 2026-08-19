@@ -198,14 +198,6 @@ function ignoreAutohost(state, domain) {
   next.autohostOps.ignore = domains(next.autohostOps.ignore.concat([normalized]));
   return next;
 }
-function setSourceOperation(state, operation) {
-  if (!state.sources.writable)
-    return { allowed: false, reason: state.sources.reason || 'source-owner-unavailable', state: state };
-  var next = nextState(state);
-  next.sourceOps = clone(operation || {});
-  return { allowed: true, reason: null, state: next };
-}
-
 function change(label, before, after) { return { label: label, before: clone(before), after: clone(after) }; }
 function draft(baseline, next) {
   baseline = object(baseline);
@@ -255,8 +247,6 @@ function draft(baseline, next) {
     }
   };
 }
-function changedCount(value) { return Object.keys(object(value).changes).length; }
-
 return baseclass.extend({
   normalize: normalize,
   categoryState: categoryState,
@@ -267,8 +257,4 @@ return baseclass.extend({
   setDomains: setDomains,
   promoteAutohost: promoteAutohost,
   ignoreAutohost: ignoreAutohost,
-  setSourceOperation: setSourceOperation,
-  draft: draft,
-  changedCount: changedCount,
-  normalizeDomain: normalizeDomain
-});
+  draft: draft});

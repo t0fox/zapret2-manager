@@ -173,7 +173,7 @@ test('target fixture preserves known profiles and generic fallback selection', (
     },
     'generic-domain': {
       profileKey: 'generic', primaryHost: 'kernel.org',
-       testHosts: [], hostlistDomains: ['kernel.org'], expectedHostlists: [],
+       testHosts: ['kernel.org'], hostlistDomains: ['kernel.org'], expectedHostlists: [],
       tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' },
       udp: { ports: '443', l7: 'stun', payload: 'binding' },
       probeUrl: 'https://kernel.org/',

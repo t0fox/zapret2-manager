@@ -135,7 +135,6 @@ function view(snapshot, filters) {
 }
 
 return baseclass.extend({
-  MAX_ROWS: MAX_ROWS,
   normalize: normalize,
   filter: filter,
   polling: polling,

@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { ucodeModulePattern } from '../native/core/ucode-test-harness.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const MODULE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-model.uc');
@@ -11,10 +12,13 @@ const PROBES_FIXTURE = JSON.parse(readFileSync(
   path.join(ROOT, 'tests/fixtures/avatar-strategy-scanner/probes.json'), 'utf8'));
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.split('|') : [];
+const MODULE_PATTERN = ucodeModulePattern(process.env.UCODE_MODULE_PATH, process.env.UCODE_LIBRARY_PATH);
+const LIBRARY_ARGS = MODULE_PATTERN && !process.env.UCODE_ARGS_PIPE ? ['-L', MODULE_PATTERN] : [];
 
 function invoke(functionName, ...args) {
-  const source = `import { ${functionName} } from ${JSON.stringify(MODULE)}; print(sprintf('%J', ${functionName}(${args.map(JSON.stringify).join(', ')})));`;
-  const result = spawnSync(UCODE_BIN, [...UCODE_ARGS, '-e', source], {
+  const serializedArgs = args.map(value => value === undefined ? 'null' : JSON.stringify(value));
+  const source = `import { ${functionName} } from ${JSON.stringify(MODULE)}; print(sprintf('%J', ${functionName}(${serializedArgs.join(', ')})));`;
+  const result = spawnSync(UCODE_BIN, [...UCODE_ARGS, ...LIBRARY_ARGS, '-e', source], {
     cwd: ROOT,
     env: { ...process.env, LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib' },
     encoding: 'utf8',

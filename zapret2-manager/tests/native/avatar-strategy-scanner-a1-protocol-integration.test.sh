@@ -17,6 +17,12 @@ grep -Fq '"error"' "$HELPER" || fail 'helper responses omit structured errors'
 grep -Fq 'table_name' "$HELPER" || fail 'canonical helper does not define tableName state'
 grep -Fq 'operation_id' "$HELPER" || fail 'canonical helper does not define operationId state'
 grep -Fq 'nonce' "$HELPER" || fail 'canonical helper does not define nonce state'
+grep -Fq 'queue' "$HELPER" || fail 'canonical helper does not define bounded queue state'
+grep -Fq 'NFT_MSG_NEWCHAIN' "$HELPER" || fail 'canonical helper does not create the fixed chain'
+grep -Fq 'NFT_MSG_NEWRULE' "$HELPER" || fail 'canonical helper does not create the fixed NFQUEUE rule'
+grep -Fq 'ownership_nfqueue_prepare' "$HELPER" || fail 'canonical helper does not implement prepare'
+grep -Fq 'ownership_nfqueue_bind' "$HELPER" || fail 'canonical helper does not implement bind'
+grep -Fq 'ownership_nfqueue_activate' "$HELPER" || fail 'canonical helper does not implement activate'
 cleanup_source=$(sed -n '/^firewall_delete_owned()/,/^}/p' "$ADAPTER")
 if printf '%s\n' "$cleanup_source" | grep -Fq 'compare_delete'; then
 	 fail 'runtime adapter still invokes retired compare_delete'

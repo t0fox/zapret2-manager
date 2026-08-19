@@ -9,6 +9,7 @@ const MAX_RESULTS = 128;
 const MAX_EVENTS = 32;
 const MAX_TEXT = 256;
 const ACTIVE = 'active.json';
+const JOURNAL_STATES = ['PREPARED', 'TABLE_CREATED', 'RULES_READY', 'PROCESS_BOUND', 'ACTIVE', 'CLEANING', 'CLEANED'];
 let sequence = 0;
 
 function object(value) { return type(value) == 'object' && value != null; }
@@ -18,7 +19,7 @@ function digest(value) { return string(value) && match(value, /^[a-f0-9]{64}$/);
 function safe_id(value) { return string(value) && match(value, /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/); }
 function text(value) { return string(value) ? (length(value) > MAX_TEXT ? substr(value, 0, MAX_TEXT) : value) : null; }
 function copy(value) {
-	if (type(value) == 'array') { let out = []; for (let item in value) push(out, copy(item)); return out; }
+	if (type(value) == 'array') { let out = []; for (let i = 0; i < length(value); i++) push(out, copy(value[i])); return out; }
 	if (object(value)) { let out = {}; for (let key in value) out[key] = copy(value[key]); return out; }
 	return value;
 }
@@ -91,6 +92,7 @@ function publish_cancel(id) {
 }
 function read_record(id) { return test_mode() ? read_json(path(id, '.record.json')) : native_read(id, '.record.json'); }
 function read_control(id) { return test_mode() ? read_json(path(id, '.control.json')) : native_read(id, '.control.json'); }
+function read_journal(id) { return test_mode() ? read_json(path(id, '.journal.json')) : native_read(id, '.journal.json'); }
 function hash(value) {
 	if (!ensure_root()) return null;
 	let file = root() + '/.digest.' + time() + '.' + (++sequence), result = null, process = null;
@@ -118,6 +120,14 @@ function result_projection(value) {
 	if (!object(value)) return null;
 	return {
 		candidateId: text(value.candidateId), ordinal: integer(value.ordinal) ? value.ordinal : 0,
+		identityKind: text(value.identityKind), strategyId: text(value.strategyId), strategyRevision: integer(value.strategyRevision) ? value.strategyRevision : null,
+		saveRequired: value.saveRequired === true, source: text(value.source),
+		compiledTokens: type(value.compiledTokens) == 'array' ? copy(value.compiledTokens) : null,
+		compiledDigest: digest(value.compiledDigest) ? value.compiledDigest : null,
+		dependencyClosure: object(value.dependencyClosure) ? copy(value.dependencyClosure) : null,
+		dependencyDigest: digest(value.dependencyDigest) ? value.dependencyDigest : null,
+		catalogDigest: digest(value.candidateCatalogDigest) ? value.candidateCatalogDigest : null,
+		compilerDigest: digest(value.candidateCompilerDigest) ? value.candidateCompilerDigest : null,
 		verdict: text(value.verdict) || 'infrastructure', success: value.success == true,
 		score: type(value.score) == 'double' || type(value.score) == 'int' ? value.score : null,
 		reason: text(value.reason), evidence: object(value.evidence) ? copy(value.evidence) : null,
@@ -171,6 +181,16 @@ function valid_record(value) {
 		&& index(['idle', 'running', 'completed', 'cancelled', 'error'], value.status) >= 0
 		&& type(value.results) == 'array' && length(value.results) <= MAX_RESULTS;
 }
+function valid_journal(value, id) {
+	if (!object(value) || value.schema != 1 || value.id != id || type(value.entries) != 'array' || !length(value.entries)) return false;
+	let previous = -1;
+	for (let entry in value.entries) {
+		let stateIndex = index(JOURNAL_STATES, entry?.state);
+		if (!object(entry) || stateIndex < 0 || stateIndex < previous || !object(entry.evidence)) return false;
+		previous = stateIndex;
+	}
+	return true;
+}
 function new_id() { return 'scan-' + time() + '-' + (++sequence); }
 
 export const scanner_state_create = function(request, plan) {
@@ -188,6 +208,28 @@ export const scanner_state_create = function(request, plan) {
 };
 
 export const scanner_state_digest = function(value) { return hash(sprintf('%J', value)); };
+
+export const scanner_journal_load = function(id) {
+	if (!safe_id(id)) return error('EINPUT', 'Scanner journal identity is invalid.');
+	let value = read_journal(id);
+	return valid_journal(value, id) ? { ok: true, journal: value } : error('ENOENT', 'Scanner journal is unavailable.');
+};
+
+export const scanner_journal_write = function(id, state, evidence) {
+	if (!safe_id(id) || index(JOURNAL_STATES, state) < 0 || !object(evidence)) return error('EINPUT', 'Scanner journal entry is invalid.');
+	let loaded = scanner_journal_load(id), journal;
+	if (loaded.ok) journal = loaded.journal;
+	else if (loaded.error.code == 'ENOENT') journal = { schema: 1, id, entries: [] };
+	else return loaded;
+	let previous = length(journal.entries) ? journal.entries[length(journal.entries) - 1] : null;
+	let next = index(JOURNAL_STATES, state);
+	if (previous != null && next < index(JOURNAL_STATES, previous.state)) return error('ECONFLICT', 'Scanner journal state regressed.');
+	if (state == 'TABLE_CREATED' && (evidence.tableCreated != true || evidence.ownerVerified != true || evidence.kernelReadBack != true))
+		return error('EOWNER', 'TABLE_CREATED requires verified kernel ownership evidence.');
+	let updated = { schema: 1, id, entries: copy(journal.entries) };
+	push(updated.entries, { state, evidence: copy(evidence), at: time() });
+	return publish_json(id, '.journal.json', updated, null) ? { ok: true, journal: updated } : error('EIO', 'Scanner journal could not be durably published.');
+};
 
 export const scanner_state_load = function(id) {
 	if (!safe_id(id)) return error('EINPUT', 'Scanner id is invalid.');

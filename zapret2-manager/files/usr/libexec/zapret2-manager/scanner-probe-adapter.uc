@@ -23,17 +23,20 @@ function lower_key(value) {
 
 function forbidden_name(value) {
 	let key = lower_key(value);
-	for (let token in ['command', 'cmd', 'argv', 'arg', 'argument', 'executable', 'binary',
-		'shell', 'process', 'path', 'raw', 'strategyargs', 'nfqwsargs', 'workingdirectory', 'cwd'])
-		if (index(key, token) >= 0) return true;
+	let tokens = ['command', 'cmd', 'argv', 'arg', 'argument', 'executable', 'binary',
+		'shell', 'process', 'path', 'raw', 'strategyargs', 'nfqwsargs', 'workingdirectory', 'cwd'];
+	for (let i = 0; i < length(tokens); i++) if (index(key, tokens[i]) >= 0) return true;
 	return false;
 }
 
 function safe_host(value) {
 	if (type(value) != 'string' || length(value) < 1 || length(value) > 253 ||
 		match(value, /^[a-z0-9][a-z0-9.-]*$/) == null || substr(value, -1) == '-') return false;
-	for (let label in split(value, '.')) if (!length(label) || length(label) > 63 ||
-		match(label, /^[a-z0-9][a-z0-9-]*$/) == null || substr(label, -1) == '-') return false;
+	let labels = split(value, '.');
+	for (let i = 0; i < length(labels); i++) {
+		let label = labels[i];
+		if (!length(label) || length(label) > 63 || match(label, /^[a-z0-9][a-z0-9-]*$/) == null || substr(label, -1) == '-') return false;
+	}
 	return true;
 }
 
@@ -90,10 +93,11 @@ function profile_hosts(profile, mode) {
 	let limit = mode_limit(mode), result = [];
 	if (!limit || !is_object(profile) || !safe_host(profile.primaryHost) || type(profile.testHosts) != 'array') return null;
 	push(result, profile.primaryHost);
-	for (let host in profile.testHosts) {
+	for (let i = 0; i < length(profile.testHosts); i++) {
+		let host = profile.testHosts[i];
 		if (!safe_host(host)) return null;
 		let seen = false;
-		for (let existing in result) if (existing == host) seen = true;
+		for (let j = 0; j < length(result); j++) if (result[j] == host) seen = true;
 		if (!seen && length(result) < limit) push(result, host);
 	}
 	return result;
@@ -112,7 +116,7 @@ function canonical_url(value, hosts) {
 	let path = slash >= 0 ? substr(rest, slash) : '';
 	let host = slash >= 0 ? substr(rest, 0, slash) : '';
 	let known = false;
-	for (let candidate in hosts || []) if (candidate == host) known = true;
+	for (let i = 0; i < length(hosts || []); i++) if ((hosts || [])[i] == host) known = true;
 	return slash >= 0 && known &&
 		match(path, /^\/[A-Za-z0-9._~\/?=&%+-]*$/) != null;
 }
@@ -160,8 +164,11 @@ export const scanner_probe_adapter_tcp = function(candidate, target, addressFami
 	let port = first_port(target.tcp?.ports);
 	if (port == null) return fail('Invalid server-owned TCP port profile.');
 	let requests = [];
-	for (let host in hosts) push(requests, { host, hostIdentity: host, addressFamily, port, portRange: target.tcp.ports,
-		url: host == target.primaryHost ? target.probeUrl : 'https://' + host + '/' });
+	for (let i = 0; i < length(hosts); i++) {
+		let host = hosts[i];
+		push(requests, { host, hostIdentity: host, addressFamily, port, portRange: target.tcp.ports,
+			url: host == target.primaryHost ? target.probeUrl : 'https://' + host + '/' });
+	}
 	let descriptor = descriptor_common(target, attach_cancel({ transport: 'tls+body', mode: limit?.mode, hosts: requests,
 		retries: 1, tls: { timeoutMs: TLS_TIMEOUT_MS, readLimitBytes: 2048 },
 		body: { timeoutMs: BODY_TIMEOUT_MS, minimumBytes: 65536, readChunkBytes: 4096,

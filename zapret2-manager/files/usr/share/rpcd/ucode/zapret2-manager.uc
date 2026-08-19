@@ -22,7 +22,7 @@
 // and a permissioned LuCI call succeeds. If the shape is wrong the object
 // does not register at all.
 
-import { stat, readfile, writefile, unlink, readlink, popen } from 'fs';
+import { stat, readfile, writefile, unlink, readlink, mkdir, popen } from 'fs';
 
 const STATUS_JSON = '/tmp/zapret2-manager/status.json';
 const COLLECTOR   = '/usr/libexec/zapret2-manager/status.uc';
@@ -251,6 +251,98 @@ function jobs_edit_action(sub, req) {
 		return { ok: false, error: 'no output', raw: out };
 	} catch (e) { return { ok: false, error: 'parse failed', raw: out }; }
 }
+
+// ---- Scanner catalog adapter -------------------------------------------------
+// Scanner request bodies use the same private JSON-string convention as the
+// Strategy and Jobs adapters. The RPC layer only selects a fixed CLI mode and
+// transports the opaque request; Scanner owns validation and lifecycle state.
+const SCANNER_CLI = '/usr/libexec/zapret2-manager/scanner-cli.uc';
+const SCANNER_REQUEST_ROOT = '/tmp/zapret2-manager/runtime/requests/';
+const SCANNER_MAX_REQUEST_BYTES = 65536;
+const SCANNER_MAX_OUTPUT_BYTES = 131072;
+function scanner_request_root_ready() {
+	for (let path in ['/tmp/zapret2-manager', '/tmp/zapret2-manager/runtime', SCANNER_REQUEST_ROOT]) {
+		let metadata = null;
+		try { metadata = stat(path); } catch (e) { metadata = null; }
+		if (metadata == null) { try { mkdir(path); metadata = stat(path); } catch (e) { return false; } }
+		if (metadata == null || metadata.type != 'directory' || readlink(path) != null
+			|| metadata.uid != 0 || metadata.gid != 0 || metadata.mode % 512 != 448) return false;
+	}
+	return true;
+}
+
+function scanner_edit_action(sub, req, tag) {
+	if (tag == 'async-start') return scanner_start_async(req);
+	if (!scanner_request_root_ready()) return { ok: false, error: { code: 'EINPUT', message: 'Scanner request directory is unsafe' } };
+	let edit = null;
+	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
+	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
+	if (edit == null) return { ok: false, error: { code: 'EINPUT', message: 'missing edit param' } };
+	if (type(edit) != 'string') return { ok: false, error: { code: 'EINPUT', message: 'edit must be a JSON string', got: type(edit) } };
+	if (length(edit) > SCANNER_MAX_REQUEST_BYTES)
+		return { ok: false, error: { code: 'EINPUT', message: 'edit exceeds the safe request size limit' } };
+	let tmp = null;
+	let created = popen('umask 077; mktemp /tmp/zapret2-manager/runtime/requests/scanner.XXXXXX.json 2>/dev/null', 'r');
+	if (created) { tmp = trim(created.read('all') || ''); created.close(); }
+	if (!tmp || index(tmp, SCANNER_REQUEST_ROOT) != 0
+		|| !match(substr(tmp, length(SCANNER_REQUEST_ROOT)), /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\.json$/)) {
+		if (tmp) try { unlink(tmp); } catch (e) { }
+		return { ok: false, error: { code: 'ETARGET', message: 'request temp file unavailable' } };
+	}
+	try { writefile(tmp, edit); }
+	catch (e) { try { unlink(tmp); } catch (ignore) { } return { ok: false, error: { code: 'EIO', message: 'request temp file could not be written' } }; }
+	let cmd = '/usr/bin/ucode ' + SCANNER_CLI + ' ' + sub + ' ' + tmp + ' 2>/dev/null | head -c ' + SCANNER_MAX_OUTPUT_BYTES;
+	let p = popen(cmd, 'r');
+	if (!p) { try { unlink(tmp); } catch (e) { } return { ok: false, error: { code: 'ETARGET', message: 'Scanner CLI unavailable' } }; }
+	let out = p.read('all') || '';
+	p.close();
+	try { unlink(tmp); } catch (e) { }
+	if (length(out) >= SCANNER_MAX_OUTPUT_BYTES)
+		return { ok: false, error: { code: 'EOUTPUT', message: 'Scanner response exceeds the safe output size limit' } };
+	try {
+		let parsed = json(out);
+		return parsed != null ? parsed : { ok: false, error: { code: 'EINTERNAL', message: 'Scanner returned no response' } };
+	} catch (e) { return { ok: false, error: { code: 'EINTERNAL', message: 'Scanner response was malformed' } }; }
+}
+
+function scanner_start_async(req) {
+	if (!scanner_request_root_ready()) return { ok: false, error: { code: 'EINPUT', message: 'Scanner request directory is unsafe' } };
+	let edit = null;
+	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
+	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
+	if (type(edit) != 'string' || length(edit) > SCANNER_MAX_REQUEST_BYTES)
+		return { ok: false, error: { code: 'EINPUT', message: 'Scanner start edit is invalid' } };
+	let request = null;
+	try { request = json(edit); } catch (e) { return { ok: false, error: { code: 'EINPUT', message: 'Scanner start request is malformed' } }; }
+	if (type(request) != 'object' || request == null)
+		return { ok: false, error: { code: 'EINPUT', message: 'Scanner start request is invalid' } };
+	if (request.id == null) request.id = 'scan-' + time() + '-' + (++scanner_start_sequence);
+	if (type(request.id) != 'string' || !match(request.id, /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/))
+		return { ok: false, error: { code: 'EINPUT', message: 'Scanner id is invalid' } };
+	let serialized = sprintf('%J', request), tmp = null;
+	let created = popen('umask 077; mktemp /tmp/zapret2-manager/runtime/requests/scanner.XXXXXX.json 2>/dev/null', 'r');
+	if (created) { tmp = trim(created.read('all') || ''); created.close(); }
+	if (!tmp || index(tmp, SCANNER_REQUEST_ROOT) != 0
+		|| !match(substr(tmp, length(SCANNER_REQUEST_ROOT)), /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\.json$/)) {
+		if (tmp) try { unlink(tmp); } catch (e) { }
+		return { ok: false, error: { code: 'ETARGET', message: 'request temp file unavailable' } };
+	}
+	try { writefile(tmp, serialized); } catch (e) { try { unlink(tmp); } catch (ignore) { } return { ok: false, error: { code: 'EIO', message: 'request temp file could not be written' } }; }
+	let cmd = '( /usr/bin/ucode ' + SCANNER_CLI + ' start ' + tmp
+		+ ' >/dev/null 2>&1; rm -f ' + tmp + ' >/dev/null 2>&1 ) >/dev/null 2>&1 &';
+	let launched = popen(cmd, 'r');
+	if (!launched) { try { unlink(tmp); } catch (e) { } return { ok: false, error: { code: 'ETARGET', message: 'Scanner worker could not be launched' } }; }
+	launched.close();
+	return { ok: true, accepted: true, scanId: request.id, status: 'running' };
+}
+
+let scanner_start_sequence = 0;
+function scanner_start_method(req) { return scanner_edit_action('start', req, 'async-start'); }
+function scanner_status_method(req) { return scanner_edit_action('status', req, 'status'); }
+function scanner_results_method(req) { return scanner_edit_action('results', req, 'results'); }
+function scanner_stop_method(req) { return scanner_edit_action('stop', req, 'stop'); }
+function scanner_resume_method(req) { return scanner_edit_action('resume', req, 'resume'); }
+function scanner_save_generated_method(req) { return scanner_edit_action('save-generated', req, 'save-generated'); }
 
 function job_get_method(req) { return jobs_edit_action('get', req); }
 function job_list_method(req) { return jobs_action('list'); }
@@ -652,6 +744,47 @@ function strategies_catalog_status_method(req) { return strategy_noarg_action('c
 function strategies_catalog_reload_method(req) { return strategy_noarg_action('catalog_reload'); }
 function strategies_import_profiles_method(req) { return strategy_edit_action('import_profiles', req); }
 
+// ---- Strategies Operations & Autocircular State (5-column state.tsv) ----------
+const STRATEGIES_OPS_CLI = '/usr/libexec/zapret2-manager/strategies-ops-cli.uc';
+function strategies_state_method(req) { return cli_action(STRATEGIES_OPS_CLI, 'state'); }
+function strategies_state_clear_method(req) {
+	let edit = null;
+	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
+	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
+	if (edit == null) return cli_edit_action(STRATEGIES_OPS_CLI, 'state-clear', { edit: '{}' }, 'strategies');
+	return cli_edit_action(STRATEGIES_OPS_CLI, 'state-clear', req, 'strategies');
+}
+function strategies_state_set_method(req) { return cli_edit_action(STRATEGIES_OPS_CLI, 'state-set', req, 'strategies'); }
+function strategies_state_delete_method(req) { return cli_edit_action(STRATEGIES_OPS_CLI, 'state-delete', req, 'strategies'); }
+function strategies_pools_method(req) { return cli_action(STRATEGIES_OPS_CLI, 'pools'); }
+function strategies_cleanup_deprecated_method(req) { return cli_action(STRATEGIES_OPS_CLI, 'cleanup-deprecated'); }
+function strategies_debug_get_method(req) { return cli_action(STRATEGIES_OPS_CLI, 'debug-get'); }
+function strategies_debug_set_method(req) { return cli_edit_action(STRATEGIES_OPS_CLI, 'debug-set', req, 'strategies'); }
+function healthcheck_status_method(req) { return cli_action(STRATEGIES_OPS_CLI, 'health-status'); }
+function healthcheck_run_method(req) {
+	let edit = null;
+	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
+	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
+	if (edit == null) return cli_edit_action(STRATEGIES_OPS_CLI, 'health-run', { edit: '{}' }, 'strategies');
+	return cli_edit_action(STRATEGIES_OPS_CLI, 'health-run', req, 'strategies');
+}
+function healthcheck_enable_method(req) {
+	let edit = null;
+	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
+	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
+	if (edit == null) return cli_edit_action(STRATEGIES_OPS_CLI, 'health-enable', { edit: '{}' }, 'strategies');
+	return cli_edit_action(STRATEGIES_OPS_CLI, 'health-enable', req, 'strategies');
+}
+function healthcheck_disable_method(req) {
+	let edit = null;
+	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
+	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
+	if (edit == null) return cli_edit_action(STRATEGIES_OPS_CLI, 'health-disable', { edit: '{}' }, 'strategies');
+	return cli_edit_action(STRATEGIES_OPS_CLI, 'health-disable', req, 'strategies');
+}
+function healthcheck_config_method(req) { return cli_edit_action(STRATEGIES_OPS_CLI, 'health-config', req, 'strategies'); }
+
+
 // ---- service catalog (Phase B) -------------------------------------------------
 const CATALOG_CLI = '/usr/libexec/zapret2-manager/catalog-cli.uc';
 function catalog_list_method(req) { return cli_action(CATALOG_CLI, 'list'); }
@@ -832,10 +965,31 @@ return {
 		strategies_catalog_status: { call: function (req) { return strategies_catalog_status_method(req); } },
 		strategies_catalog_reload: { call: function (req) { return strategies_catalog_reload_method(req); } },
 		strategies_import_profiles: { args: { edit: 'string' }, call: function (req) { return strategies_import_profiles_method(req); } },
+		strategies_state:  { call: function (req) { return strategies_state_method(req); } },
+		strategies_state_clear: { args: { edit: 'string' }, call: function (req) { return strategies_state_clear_method(req); } },
+		strategies_state_set: { args: { edit: 'string' }, call: function (req) { return strategies_state_set_method(req); } },
+		strategies_state_delete: { args: { edit: 'string' }, call: function (req) { return strategies_state_delete_method(req); } },
+		strategies_pools:  { call: function (req) { return strategies_pools_method(req); } },
+		strategies_custom_create: { args: { edit: 'string' }, call: function (req) { return strategies_state_set_method(req); } },
+		strategies_custom_bindings: { call: function (req) { return { ok: true, bindings: {} }; } },
+		strategies_custom_remove: { args: { edit: 'string' }, call: function (req) { return strategies_state_delete_method(req); } },
+		strategies_debug_get: { call: function (req) { return strategies_debug_get_method(req); } },
+		strategies_debug_set: { args: { edit: 'string' }, call: function (req) { return strategies_debug_set_method(req); } },
+		healthcheck_status: { call: function (req) { return healthcheck_status_method(req); } },
+		healthcheck_run:   { args: { edit: 'string' }, call: function (req) { return healthcheck_run_method(req); } },
+		healthcheck_enable: { args: { edit: 'string' }, call: function (req) { return healthcheck_enable_method(req); } },
+		healthcheck_disable: { args: { edit: 'string' }, call: function (req) { return healthcheck_disable_method(req); } },
+		healthcheck_config: { args: { edit: 'string' }, call: function (req) { return healthcheck_config_method(req); } },
 		catalog_list:      { call: function (req) { return catalog_list_method(req); } },
 		catalog_get:       { args: { edit: 'string' }, call: function (req) { return catalog_get_method(req); } },
 		catalog_status:    { call: function (req) { return catalog_status_method(req); } },
 		catalog_preview:   { args: { edit: 'string' }, call: function (req) { return catalog_preview_method(req); } },
-		catalog_apply:     { args: { edit: 'string' }, call: function (req) { return catalog_apply_method(req); } }
+		catalog_apply:     { args: { edit: 'string' }, call: function (req) { return catalog_apply_method(req); } },
+		scanner_start:     { args: { edit: 'string' }, call: function (req) { return scanner_start_method(req); } },
+		scanner_status:    { args: { edit: 'string' }, call: function (req) { return scanner_status_method(req); } },
+		scanner_results:   { args: { edit: 'string' }, call: function (req) { return scanner_results_method(req); } },
+		scanner_stop:      { args: { edit: 'string' }, call: function (req) { return scanner_stop_method(req); } },
+		scanner_resume:    { args: { edit: 'string' }, call: function (req) { return scanner_resume_method(req); } },
+		scanner_save_generated: { args: { edit: 'string' }, call: function (req) { return scanner_save_generated_method(req); } }
 	}
 };

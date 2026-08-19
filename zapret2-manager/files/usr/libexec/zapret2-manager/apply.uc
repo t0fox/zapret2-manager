@@ -292,9 +292,9 @@ export const set_var_cas = function(name, value, expected_sha) {
 	return { ok: true, previousSha256: actual, configSha256: config_sha256(), content: written };
 };
 
-export const restore_whole_file = function(path, content) {
+export const restore_whole_file = function(path, content, lockedOverride) {
 	if (path != CONFIG || content == null) return null;
-	if (locked()) return atomic_replace_locked(path, '' + content);
+	if (locked() || lockedOverride === true) return atomic_replace_locked(path, '' + content);
 	if (!have_flock()) return null;
 	let path_f = secure_temp('/tmp/z2m-restore-path.XXXXXX');
 	let content_f = secure_temp('/tmp/z2m-restore-content.XXXXXX');

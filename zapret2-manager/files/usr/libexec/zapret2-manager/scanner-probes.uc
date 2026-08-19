@@ -57,7 +57,7 @@ function normalize_family(raw) {
 function baseline_family_complete(raw) {
 	let statuses = ['open', 'blocked', 'failed', 'timeout', 'refused', 'skipped', 'unavailable', 'error'];
 	let allowed = false;
-	if (is_object(raw) && type(raw.status) == 'string') for (let value in statuses) if (value == raw.status) allowed = true;
+	if (is_object(raw) && type(raw.status) == 'string') for (let i = 0; i < length(statuses); i++) if (statuses[i] == raw.status) allowed = true;
 	return is_object(raw) && type(raw.status) == 'string'
 		&& allowed
 		&& (raw.available == null || type(raw.available) == 'bool')
@@ -113,7 +113,9 @@ export const scanner_baseline_classify = function(raw) {
 	}
 
 	let available = 0, open = 0, blocked = [];
-	for (let af in ['ipv4', 'ipv6']) {
+	let families = ['ipv4', 'ipv6'];
+	for (let i = 0; i < length(families); i++) {
+		let af = families[i];
 		if (!by[af] || !by[af].available) continue;
 		available++;
 		if (by[af].status == 'open') open++;
@@ -178,8 +180,8 @@ function normalize_body(raw) {
 function pick_error(errors, tls_ok, body_ok) {
 	if (!length(errors)) return tls_ok == 0 ? 'TLS_FAIL' : 'BODY_FAIL';
 	let present = {};
-	for (let error in errors) if (type(error) == 'string' && error != '') present[error] = true;
-	for (let candidate in ERROR_PRIORITY) if (present[candidate]) return candidate;
+	for (let i = 0; i < length(errors); i++) if (type(errors[i]) == 'string' && errors[i] != '') present[errors[i]] = true;
+	for (let i = 0; i < length(ERROR_PRIORITY); i++) if (present[ERROR_PRIORITY[i]]) return ERROR_PRIORITY[i];
 	return errors[0];
 }
 function verdict_metrics(tests) {
@@ -219,7 +221,8 @@ export const scanner_tcp_classify = function(raw) {
 		return infrastructure('INVALID_OBSERVATION', 'tls+body');
 	let per_host = [], errors = [], tls_count = 0, body_count = 0;
 	let sum_kbps = 0, kbps_count = 0, sum_latency = 0;
-	for (let item in raw.hosts) {
+	for (let i = 0; i < length(raw.hosts); i++) {
+		let item = raw.hosts[i];
 		if (!is_object(item) || type(item.host) != 'string' || !length(item.host) ||
 			(item.addressFamily != 'ipv4' && item.addressFamily != 'ipv6') || !is_object(item.tls) ||
 			type(item.tls.status) != 'string' && item.tls.success !== true)
@@ -307,7 +310,8 @@ function valid_tcp_test(evidence) {
 		evidence.successRate > 1 || !valid_nonnegative_number(evidence.averageKbps) ||
 		!valid_nonnegative_number(evidence.averageLatencyMs) || type(evidence.perHost) != 'array' ||
 		!length(evidence.perHost) || length(evidence.perHost) > 8) return false;
-	for (let host in evidence.perHost) {
+	for (let i = 0; i < length(evidence.perHost); i++) {
+		let host = evidence.perHost[i];
 		if (!is_object(host) || !valid_text(host.host) ||
 			(host.addressFamily != 'ipv4' && host.addressFamily != 'ipv6') || !is_object(host.tls) ||
 		type(host.tls.success) != 'bool' || !valid_text(host.tls.status) ||
@@ -360,21 +364,23 @@ export const scanner_candidate_verdict = function(baseline, tests) {
 	if (type(tests) != 'array' || !length(tests))
 		return { verdict: 'infrastructure', reason: 'INDETERMINATE', success: false,
 			evidence: { infrastructure: true, baselineSuppressed: false, failureClass: 'indeterminate' } };
-	for (let evidence in tests) if (!valid_candidate_test(evidence, baseline.protocol))
+	for (let i = 0; i < length(tests); i++) if (!valid_candidate_test(tests[i], baseline.protocol))
 		return { verdict: 'infrastructure', reason: 'INDETERMINATE', success: false,
 			evidence: { infrastructure: true, baselineSuppressed: false, failureClass: 'indeterminate' } };
-	for (let evidence in tests) if (evidence.infrastructureFailure === true)
+	for (let i = 0; i < length(tests); i++) if (tests[i].infrastructureFailure === true) {
+		let evidence = tests[i];
 		return { verdict: 'infrastructure', reason: evidence.error || 'INFRASTRUCTURE_FAILURE', success: false,
 			evidence: { infrastructure: true, baselineSuppressed: false,
 				failureClass: evidence.failureClass || 'probe_dependency_failure' } };
+	}
 	if (baseline.allAvailableOpen === true)
 		return { verdict: 'failed', reason: 'BASELINE_OPEN', success: false,
 			evidence: { infrastructure: false, baselineSuppressed: true, failureClass: 'baseline_open' } };
-	for (let evidence in tests) if (evidence?.success === true)
+	for (let i = 0; i < length(tests); i++) if (tests[i]?.success === true)
 		return { verdict: 'working', reason: null, success: true, score: verdict_score(tests),
 			evidence: { infrastructure: false, baselineSuppressed: false, failureClass: null, metrics: verdict_metrics(tests) } };
 	let errors = [];
-	for (let evidence in tests) if (evidence?.error) push(errors, evidence.error);
+	for (let i = 0; i < length(tests); i++) if (tests[i]?.error) push(errors, tests[i].error);
 	return { verdict: 'failed', reason: pick_error(errors, 0, 0), success: false, score: verdict_score(tests),
 		evidence: { infrastructure: false, baselineSuppressed: false,
 			failureClass: tests[0]?.failureClass || 'candidate_blocked', metrics: verdict_metrics(tests) } };

@@ -1,24 +1,28 @@
 'use strict';
 'require view';
 'require view.zapret2-manager.z2m-api as Api';
+'require view.zapret2-manager.z2m-runtime-state as RuntimeState';
 'require view.zapret2-manager.z2m-store as StoreModule';
 'require view.zapret2-manager.z2m-shell as Shell';
+'require view.zapret2-manager.z2m-navigation as Navigation';
 'require view.zapret2-manager.z2m-draft-model as DraftModel';
 'require view.zapret2-manager.z2m-coordinator as Coordinator';
 'require view.zapret2-manager.z2m-overview as Overview';
+'require view.zapret2-manager.z2m-avatar-control as Control';
 'require view.zapret2-manager.z2m-strategy-page as Strategy';
+'require view.zapret2-manager.z2m-scanner as Scanner';
+'require view.zapret2-manager.z2m-scanner-hub as ScannerHub';
 'require view.zapret2-manager.z2m-domain-hub-page as Services';
 'require view.zapret2-manager.z2m-dns-page as Dns';
 'require view.zapret2-manager.z2m-proxy-page as Proxy';
 'require view.zapret2-manager.z2m-monitor as Monitor';
 'require view.zapret2-manager.z2m-maintenance as Maintenance';
+'require view.zapret2-manager.z2m-blockcheck-page as BlockCheck';
+'require view.zapret2-manager.z2m-assets as Assets';
+'require view.zapret2-manager.z2m-unified-routing as UnifiedRouting';
+'require view.zapret2-manager.z2m-warp-page as Warp';
+'require view.zapret2-manager.z2m-avatar-log as AvatarLog';
 
-var APPLY_SCOPE_ORDER = ['strategy','domainHub','dns','proxy'];
-var TAB_IDS = ['overview','strategy','services','dns','proxy','monitor','maintenance'];
-var TAB_LABELS = {
-  overview: _('Обзор'), strategy: _('Стратегия'), services: _('Сервисы и домены'),
-  dns: _('DNS'), proxy: _('Telegram Proxy'), monitor: _('Мониторинг'), maintenance: _('Обслуживание')
-};
 var DRAFT_META = {
   strategy: { label: _('Стратегия'), tab: 'strategy' },
   domainHub: { label: _('Сервисы и домены'), tab: 'services' },
@@ -27,8 +31,31 @@ var DRAFT_META = {
   maintenance: { label: _('Обслуживание'), tab: 'maintenance' }
 };
 var MODULES = {
-  overview: Overview, strategy: Strategy, services: Services,
-  dns: Dns, proxy: Proxy, monitor: Monitor, maintenance: Maintenance
+  dashboard: Overview,
+  control: Control,
+  strategies: Strategy,
+  scan: ScannerHub,
+  scanner: ScannerHub,
+  lists: Services,
+  hostlists: Services,
+  'dns-routing': Dns,
+  'unified-routing': UnifiedRouting,
+  'telegram-tunnel': Proxy,
+  warp: Warp,
+  'warp-setup': Warp,
+  'warp-in-warp': Warp,
+  ipsets: Assets,
+  blobs: Assets,
+  lua: Assets,
+  hosts: Assets,
+  diagnostics: BlockCheck,
+  blockcheck: BlockCheck,
+  logs: AvatarLog,
+  monitor: Monitor,
+  updates: Maintenance,
+  zapret: Maintenance,
+  autostart: Maintenance,
+  settings: Maintenance
 };
 var store = StoreModule.create();
 var activeModule = null;
@@ -63,28 +90,27 @@ Object.keys(DRAFT_META).forEach(function (scope) {
 });
 
 function tabFromHash() {
-  var match = String(window.location.hash || '').match(/^#\/(overview|strategy|services|lists|dns|proxy|monitor|maintenance)$/);
-  if (!match) return 'overview';
-  return match[1] === 'lists' ? 'services' : match[1];
+  return Navigation.normalize(window.location.hash);
 }
 function setHash(tab) {
-  if (tab === 'lists') tab = 'services';
-  if (TAB_IDS.indexOf(tab) < 0) tab = 'overview';
-  if (window.location.hash !== '#/' + tab) window.location.hash = '#/' + tab;
+  tab = Navigation.normalize(tab);
+  var target = Navigation.hash(tab);
+  if (window.location.hash !== target) window.location.hash = target;
 }
 function statusState(initial) {
-  if (initial && initial.error) return { label: _('недоступно'), kind: 'r' };
-  var value = initial && (initial.serviceState || initial.state || initial.runtime && initial.runtime.state);
+  var value = RuntimeState.state(initial);
+  if (value === 'unavailable') return { label: _('недоступно'), kind: 'r' };
   if (value === 'running') return { label: _('работает'), kind: 'g' };
   if (value === 'stopped') return { label: _('остановлена'), kind: 'r' };
-  return { label: value || _('неизвестно'), kind: 'o' };
+  if (value === 'mismatch') return { label: _('расхождение'), kind: 'o' };
+  return { label: value === 'degraded' ? _('деградировала') : _('неизвестно'), kind: 'o' };
 }
 function detectedVersion(initial) {
   var meta = initial && initial.meta || {};
   var value = meta.managerVersion || meta.packageVersion || initial && initial.packageVersion;
   return value === null || value === undefined || value === '' ? null : String(value);
 }
-function draftMeta(scope) { return DRAFT_META[scope] || { label: scope, tab: 'overview' }; }
+function draftMeta(scope) { return DRAFT_META[scope] || { label: scope, tab: 'dashboard' }; }
 function draftLabel(scope) { return draftMeta(scope).label; }
 function humanValue(value, depth) {
   depth = depth || 0;
@@ -100,7 +126,6 @@ function humanValue(value, depth) {
 function createCoordinator(options) { return Coordinator.create(options); }
 function preflightDraft(coordinator, snapshot, context) { return coordinator.preflightDraft(snapshot, context); }
 function applyDrafts(coordinator, snapshot, context) { return coordinator.applyDrafts(snapshot, context); }
-function handleApplyResult(coordinator, result) { return coordinator.handleApplyResult(result); }
 
 function renderSemanticDiff(draft, applied, extraBlockers) {
   var groups = DraftModel.semanticDiff(draft, applied);
@@ -137,15 +162,18 @@ function renderSemanticDiff(draft, applied, extraBlockers) {
 
 return L.view.extend({
   load: function () {
-    return Api.service.status().catch(function (error) { return { error: Api.normalizeError(error) }; });
+    return Api.service.status().catch(function (error) {
+      return { error: Api.normalizeError(error) };
+    });
   },
 
   render: function (initial) {
     Shell.injectCss();
     var content = E('main', { 'class': 'z2m-content', id: 'z2m-content' });
-    var tabs = E('nav', { 'class': 'z2m-tabs', id: 'z2m-tabs', role: 'tablist', 'aria-label': _('Разделы Zapret 2 Manager') });
-    var applyBar = Shell.renderApplyBar(store, { enabled: false, reason: _('Ожидается предварительная проверка.') });
+    var tabs = Shell.primaryNavigation(Navigation, tabFromHash(), navigateTo);
+    var applyBar = Shell.renderApplyBar({ enabled: false, reason: _('Ожидается предварительная проверка.') });
     var appRoot = null;
+    var headerStatus = null;
     var coordinator = createCoordinator({ api: Api, store: store, shell: Shell, adapters: ADAPTERS, root: content });
 
     function setContentBusy(busy) {
@@ -154,6 +182,7 @@ return L.view.extend({
     }
     function buildContext(tab, module, data, root) {
       return {
+        route: tab,
         api: Api, store: store, shell: Shell, root: root || content,
         data: data || {}, initial: initial || {},
         navigate: navigateTo,
@@ -192,7 +221,7 @@ return L.view.extend({
       try { node = module.render(ctx); }
       catch (error) {
         activeContext = null;
-        content.replaceChildren(E('div', { 'class': 'warnbar' }, Api.normalizeError(error).message));
+        Shell.avatar.showErrorState(content, error, { api: Api, retry: function () { return activate(tab, true); } });
         return;
       }
       if (token !== activationToken) {
@@ -201,40 +230,38 @@ return L.view.extend({
       }
       ctx.root = node;
       content.replaceChildren(node);
+      updateHeaderStatus(data);
       activeContext = ctx;
       if (module.mount) module.mount(ctx);
       if (appRoot && appRoot.scrollIntoView && !force) appRoot.scrollIntoView({ block: 'start' });
     }
     function navigateTo(tab) {
-      if (tab === 'lists') tab = 'services';
-      if (TAB_IDS.indexOf(tab) < 0) tab = 'overview';
-      if (activeModule === MODULES[tab] && activeContext) return Promise.resolve();
-      if (window.location.hash !== '#/' + tab) {
+      tab = Navigation.normalize(tab);
+      if (window.location.hash !== Navigation.hash(tab)) {
         setHash(tab);
         return Promise.resolve();
       }
+      if (activeModule === MODULES[tab] && activeContext && activeContext.route === tab) return Promise.resolve();
       return activate(tab);
     }
     function activate(tab, force) {
-      if (tab === 'lists') tab = 'services';
-      if (TAB_IDS.indexOf(tab) < 0) tab = 'overview';
+      tab = Navigation.normalize(tab);
       var token = ++activationToken;
       var module = MODULES[tab];
-      var sameTab = activeModule === module && !!activeContext;
+      var sameTab = activeModule === module && !!activeContext && activeContext.route === tab;
       var cached = tabDataCache[tab];
       store.update({ ui: Object.assign({}, store.get().ui, { tab: tab }) });
-      Array.from(tabs.querySelectorAll('button[data-tab]')).forEach(function (button) {
-        var selected = button.getAttribute('data-tab') === tab;
-        button.classList.toggle('on', selected);
-        button.setAttribute('aria-selected', selected ? 'true' : 'false');
-        button.setAttribute('tabindex', selected ? '0' : '-1');
-      });
+      if (tabs.setActive) tabs.setActive(tab);
       if (cached && !sameTab) renderTabData(tab, module, cached, token, force);
       else if (!cached && !(sameTab && force)) {
-        if (activeModule && activeContext && activeModule.unmount) activeModule.unmount(activeContext);
-        activeModule = module;
-        activeContext = null;
-        content.replaceChildren(Shell.renderLoadingState(TAB_LABELS[tab]));
+        if (tab === 'dashboard' || tab === 'control') {
+          renderTabData(tab, module, {}, token, force);
+        } else {
+          if (activeModule && activeContext && activeModule.unmount) activeModule.unmount(activeContext);
+          activeModule = module;
+          activeContext = null;
+          content.replaceChildren(Shell.renderLoadingState(Navigation.label(tab)));
+        }
       }
       setContentBusy(true);
       return loadTabData(tab, module).then(function (data) {
@@ -251,7 +278,7 @@ return L.view.extend({
         }
         activeModule = module;
         activeContext = null;
-        content.replaceChildren(E('div', { 'class': 'warnbar' }, message));
+        Shell.avatar.showErrorState(content, error, { api: Api, retry: function () { return activate(tab, true); } });
       });
     }
     function rollbackActions(result) {
@@ -270,7 +297,7 @@ return L.view.extend({
             Shell.closeModal();
             Shell.showToast(_('Откат выполнен и проверен.'), 'ok');
             tabDataCache = {};
-            return activate(store.get().ui.tab || 'overview', true);
+            return activate(store.get().ui.tab || Navigation.defaultRoute, true);
           }).catch(function (error) {
             button.disabled = false;
             Shell.showToast(Api.normalizeError(error).message, 'err');
@@ -291,7 +318,7 @@ return L.view.extend({
             Shell.closeModal();
             tabDataCache = {};
             renderState();
-            activate(store.get().ui.tab || 'overview', true);
+            activate(store.get().ui.tab || Navigation.defaultRoute, true);
             openApplyResult(result);
           }).catch(function (error) {
             apply.disabled = false;
@@ -327,7 +354,7 @@ return L.view.extend({
           }) });
           tabDataCache = {};
           renderState();
-          activate(store.get().ui.tab || 'overview', true);
+          activate(store.get().ui.tab || Navigation.defaultRoute, true);
         })
       ]);
     }
@@ -349,19 +376,23 @@ return L.view.extend({
       if (appRoot) appRoot.classList.toggle('adv', !!(store.get().ui && store.get().ui.advanced));
       updateDraftBar();
     }
+    function updateHeaderStatus(data) {
+      var envelope = data && data.status;
+      if (!envelope || envelope.error || !headerStatus) return;
+      var raw = envelope.value;
+      for (var i = 0; i < 4; i++) {
+        if (Array.isArray(raw)) { raw = raw[0]; continue; }
+        if (raw && typeof raw === 'object' && raw.value !== undefined) { raw = raw.value; continue; }
+        break;
+      }
+      if (!raw || typeof raw !== 'object') return;
+      var service = statusState(raw);
+      var next = Shell.chip(service.label, service.kind, true);
+      if (next && headerStatus.parentNode) headerStatus.replaceWith(next);
+      headerStatus = next;
+    }
 
     var initialTab = tabFromHash();
-    TAB_IDS.forEach(function (tab) {
-      var selected = tab === initialTab;
-      var button = E('button', {
-        type: 'button', 'data-tab': tab, role: 'tab',
-        'class': selected ? 'on' : '',
-        'aria-selected': selected ? 'true' : 'false',
-        tabindex: selected ? '0' : '-1'
-      }, TAB_LABELS[tab]);
-      button.addEventListener('click', function () { navigateTo(tab); });
-      tabs.appendChild(button);
-    });
     if (hashHandler) window.removeEventListener('hashchange', hashHandler);
     hashHandler = function () { activate(tabFromHash()); };
     window.addEventListener('hashchange', hashHandler);
@@ -376,12 +407,12 @@ return L.view.extend({
         E('div', { 'class': 'z2m-brand' }, brand),
         E('div', { 'class': 'z2m-apptop-right' }, [
           E('span', { 'class': 'host' }, window.location.hostname || 'OpenWrt'),
-          Shell.chip(service.label, service.kind, true)
+          headerStatus = Shell.chip(service.label, service.kind, true)
         ])
       ])),
       E('div', { 'class': 'z2m-wrap' }, [tabs, content]),
       applyBar,
-      E('div', { id: 'z2m-modal', 'class': 'z2m-scrim' }),
+      E('div', { id: 'z2m-modal', 'class': 'z2m-scrim modal-overlay' }),
       E('div', { id: 'z2m-toasts', 'class': 'z2m-toasts' })
     ]);
     applyBar.querySelector('#z2m-discard-drafts').addEventListener('click', discardDrafts);
@@ -396,16 +427,5 @@ return L.view.extend({
 
   handleSaveApply: null,
   handleSave: null,
-  handleReset: null,
-  APPLY_SCOPE_ORDER: APPLY_SCOPE_ORDER,
-  createCoordinator: createCoordinator,
-  createServicesAdapter: Services.createAdapter,
-  createDomainHubAdapter: Services.createAdapter,
-  createDnsAdapter: Dns.createAdapter,
-  createProxyAdapter: Proxy.createAdapter,
-  createStrategyAdapter: Strategy.createAdapter,
-  renderSemanticDiff: renderSemanticDiff,
-  preflightDraft: preflightDraft,
-  applyDrafts: applyDrafts,
-  handleApplyResult: handleApplyResult
+  handleReset: null
 });

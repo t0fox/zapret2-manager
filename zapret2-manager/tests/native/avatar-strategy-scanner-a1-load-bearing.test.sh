@@ -22,7 +22,7 @@ nonce=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 operation_id=session:candidate:1
 
 request() {
-    printf '%s\n' "{\"protocolVersion\":2,\"requestId\":\"$1\",\"operation\":\"$2\",\"arguments\":{\"tableName\":\"$table\",\"operationId\":\"$operation_id\",\"nonce\":\"$nonce\"}}"
+    printf '%s\n' "{\"protocolVersion\":2,\"requestId\":\"$1\",\"operation\":\"$2\",\"arguments\":{\"tableName\":\"$table\",\"operationId\":\"$operation_id\",\"nonce\":\"$nonce\",\"queue\":300,\"peerPid\":0}}"
 }
 
 request malformed-id unknown | "$BIN" >"$TMP/malformed-id.out" 2>/dev/null || true

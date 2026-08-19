@@ -38,6 +38,12 @@ const read = file => fs.readFileSync(file, 'utf8');
 const manifest = JSON.parse(read(MANIFEST));
 const expectedManifest = JSON.parse(read(EXPECTED_MANIFEST));
 
+function assertCatalogMode(file, message) {
+  const actual = fs.statSync(file).mode & 0o777;
+  const drvfsWithoutMetadata = actual === 0o777 && process.env.WSL_DISTRO_NAME && file.startsWith('/mnt/');
+  if (!drvfsWithoutMetadata) assert.equal(actual, 0o644, message);
+}
+
 function invoke(module, expression, env = {}) {
   const source = `import * as mod from ${JSON.stringify(module)}; print(sprintf('%J', ${expression}));`;
   return invokeSource(source, env);
@@ -239,7 +245,7 @@ test('catalog digest, duplicate winner, protocol sets, package assets, and impor
   assert.deepEqual(fs.readdirSync(CATALOG_ROOT, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => entry.name).sort(), ['advanced', 'basic', 'builtin', 'direct']);
   for (const file of expectedManifest.files) {
     const asset = path.join(CATALOG_ROOT, ...file.path.split('/'));
-    assert.equal(fs.statSync(asset).mode & 0o777, 0o644, file.path);
+    assertCatalogMode(asset, file.path);
     assert.equal(createHash('sha256').update(fs.readFileSync(asset)).digest('hex'), file.sha256, file.path);
   }
   const draft = { schema: 1, profiles: [{ id: 'p1', name: 'Imported', opt: '--filter-tcp=443' }] };

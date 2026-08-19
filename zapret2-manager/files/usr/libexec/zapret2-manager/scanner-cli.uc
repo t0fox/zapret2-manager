@@ -3,7 +3,8 @@
 import { stat, readlink, readfile } from 'fs';
 import * as state from './scanner-state.uc';
 import { scanner_worker_run, scanner_worker_resume } from './scanner-worker.uc';
-import { scanner_report_build, scanner_save_generated_validate } from './scanner-results.uc';
+import { scanner_report_from_record, scanner_save_generated_validate } from './scanner-results.uc';
+import { strategy_user_create } from './strategy-state.uc';
 
 const COMMANDS = { start: true, status: true, results: true, stop: true, resume: true, 'save-generated': true };
 const MAX_REQUEST_BYTES = 65536;
@@ -49,7 +50,7 @@ function dispatch(command, input, seams) {
 		let loaded = state.scanner_state_load(input.id);
 		if (!loaded.ok) return loaded;
 		if (command == 'results') {
-			let report = scanner_report_build(loaded.state);
+			let report = scanner_report_from_record(loaded.state);
 			if (!report.ok) return report;
 			return bounded(response({ ok: true, id: input.id, report: report.report }));
 		}
@@ -60,14 +61,50 @@ function dispatch(command, input, seams) {
 		return state.scanner_control_request(input.id, 'stop', input);
 	}
 	if (command == 'save-generated') {
-		if (!object(input) || !object(input.payload)) return result('EINPUT', 'Save payload is required.');
-		let validated = scanner_save_generated_validate(input.payload);
+		if (!object(input) || !safe_id(input.scanId) || !safe_id(input.candidateId))
+			return result('EINPUT', 'scanId and candidateId are required');
+		let loaded = state.scanner_state_load(input.scanId);
+		if (!loaded.ok) return loaded;
+		let rec = loaded.state;
+		let cand = null;
+		let rows = rec.results || [];
+		for (let i = 0; i < length(rows); i++) {
+			let r = rows[i];
+			if (r.candidateId == input.candidateId || r.identity?.candidate == input.candidateId) { cand = r; break; }
+		}
+	if (!object(cand)) return result('ENOENT', 'candidate not found in scan results');
+	if (cand.success !== true || (cand.saveRequired !== true && cand.identityKind != 'generated'))
+		return result('EBOUNDARY', 'only a successful unmatched generated candidate can be saved');
+	if (cand.saveRequired !== true && cand.identityKind != 'generated')
+		return result('EBOUNDARY', 'catalog and user Strategies use the existing Strategy reference');
+	let authority = rec.planAuthority && type(rec.planAuthority.candidates) == 'array' ? rec.planAuthority.candidates : null;
+	let bound = null;
+	if (authority != null) for (let item in authority)
+		if (item.scannerId == cand.candidateId) { bound = item; break; }
+	if (!object(bound) || bound.identityKind != 'generated' || bound.saveRequired !== true
+		|| sprintf('%J', bound.compiledTokens) != sprintf('%J', cand.compiledTokens)
+		|| bound.compiledDigest != cand.compiledDigest || bound.dependencyDigest != cand.dependencyDigest
+		|| sprintf('%J', bound.dependencyClosure) != sprintf('%J', cand.dependencyClosure))
+		return result('ECONFLICT', 'candidate no longer matches the retained server-owned plan');
+    let compiler = { version: rec.compilerDigest };
+    let catalog = { version: rec.catalogDigest };
+    let deps = cand.dependencyClosure || [];
+		let prov = { scanId: input.scanId, candidateId: input.candidateId, generatedAt: time() };
+		let validated = scanner_save_generated_validate({ candidate: cand, compiler, catalog, deps, provenance: prov });
 		if (!validated.ok) return validated;
-		return { ok: true, validated: true, payload: input.payload };
+	let generated = { id: 'scan-' + input.scanId + '-' + replace(input.candidateId, /[^A-Za-z0-9_-]/g, '-'),
+		name: '[Scan] ' + input.candidateId, origin: 'user', is_builtin: false,
+		profiles: [{ id: 'p1', args: join(' ', cand.compiledTokens || []), enabled: true }],
+		metadata: { source: 'scanner', scanId: input.scanId, candidateId: input.candidateId,
+			compilerDigest: rec.compilerDigest, catalogDigest: rec.catalogDigest,
+			dependencyClosure: sprintf('%J', cand.dependencyClosure || {}), provenance: sprintf('%J', prov) } };
+    let saved = strategy_user_create({ strategy: generated });
+    if (!saved.ok) return saved;
+    return { ok: true, validated: true, strategy: saved.strategy, payload: validated.savePayload, scanId: input.scanId, candidateId: input.candidateId };
 	}
-	if (!object(input) || !object(input.request)) return result('EINPUT', 'Scanner request is required.');
 	if (command == 'resume') return scanner_worker_resume(input, seams);
-	let checked = input.request;
+	if (!object(input)) return result('EINPUT', 'Scanner request is required.');
+	let checked = object(input.request) ? input.request : input;
 	return scanner_worker_run({ id: input.id, request: checked }, seams);
 }
 

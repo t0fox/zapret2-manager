@@ -87,13 +87,6 @@ function draft(baseline, next) {
     advanced: { expectedRevision: baseline.revision !== undefined ? baseline.revision : object(baseline.config).revision }
   };
 }
-function linkGate(value) {
-  value = object(value);
-  return {
-    allowed: value.reveal === true && value.confirm === 'REVEAL',
-    reason: value.reveal !== true ? 'reveal-required' : value.confirm !== 'REVEAL' ? 'confirmation-required' : null
-  };
-}
 function activity(rows, limit) {
   limit = Number.isFinite(Number(limit)) ? Math.max(0, Math.floor(Number(limit))) : 100;
   return array(rows).slice(0, limit).map(function (row) {
@@ -107,28 +100,10 @@ function activity(rows, limit) {
     };
   });
 }
-function applyGate(draftValue, appliedValue, previewValue) {
-  var draft = object(draftValue);
-  var applied = object(appliedValue);
-  var preview = object(previewValue);
-  if (draft.expectedRevision === null || draft.expectedRevision === undefined)
-    return { allowed: false, reason: 'missing-revision' };
-  if (String(draft.expectedRevision) !== String(applied.revision))
-    return { allowed: false, reason: 'stale-revision' };
-  if (preview.ok !== true || preview.verified === false)
-    return { allowed: false, reason: 'preview-rejected' };
-  if (draft.applicable === false || draft.blocker)
-    return { allowed: false, reason: draft.blocker || 'blocked' };
-  return { allowed: true, reason: null };
-}
-
 return baseclass.extend({
-  classify: classify,
   normalize: normalize,
   draft: draft,
-  linkGate: linkGate,
   activity: activity,
-  applyGate: applyGate,
   redact: redact,
   safeSettings: safeSettings
 });

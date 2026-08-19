@@ -147,9 +147,5 @@ function install(api) {
 }
 
 return baseclass.extend({
-  withTimeout: withTimeout,
-  synthesizeStatus: synthesizeStatus,
-  sanitizeNode: sanitizeNode,
-  installDomObserver: installDomObserver,
   install: install
 });

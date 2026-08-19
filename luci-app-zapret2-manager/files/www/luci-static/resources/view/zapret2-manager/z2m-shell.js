@@ -1,58 +1,30 @@
 'use strict';
 'require baseclass';
 'require view.zapret2-manager.z2m-format as Format';
+'require view.zapret2-manager.z2m-avatar-ui as AvatarUi';
 
 var modalKeyHandler = null;
-var navigationObserver = null;
 
 function injectStylesheet(id, filename) {
-  if (!document || !document.head || document.getElementById(id)) return;
+  if (!document || !document.head) return;
+  var revision = '?v=logs-ux-1';
+  var existing = document.getElementById(id);
+  if (existing) {
+    var expected = L.resource('view/zapret2-manager/' + filename) + revision;
+    if (existing.getAttribute('href') !== expected) existing.setAttribute('href', expected);
+    return;
+  }
   var link = document.createElement('link');
   link.id = id;
   link.rel = 'stylesheet';
-  link.href = L.resource('view/zapret2-manager/' + filename);
+  link.href = L.resource('view/zapret2-manager/' + filename) + revision;
   document.head.appendChild(link);
-}
-
-function normalizePrimaryNavigation() {
-  var host = document && document.getElementById('z2m-tabs');
-  if (!host) return false;
-  var services = host.querySelector('button[data-tab="services"]');
-  var lists = host.querySelector('button[data-tab="lists"]');
-  if (services && services.getAttribute('data-z2m-label') !== 'services-domains') {
-    services.replaceChildren(_('Сервисы и домены'));
-    services.setAttribute('data-z2m-label', 'services-domains');
-    services.setAttribute('aria-label', _('Сервисы и домены'));
-  }
-  if (lists) {
-    lists.hidden = true;
-    lists.setAttribute('aria-hidden', 'true');
-    lists.setAttribute('tabindex', '-1');
-    if (lists.classList.contains('on') && services) {
-      services.classList.add('on');
-      services.setAttribute('aria-selected', 'true');
-      lists.setAttribute('aria-selected', 'false');
-    }
-  }
-  return true;
-}
-
-function observePrimaryNavigation() {
-  if (typeof MutationObserver !== 'function' || navigationObserver) return;
-  navigationObserver = new MutationObserver(function () { normalizePrimaryNavigation(); });
-  navigationObserver.observe(document.documentElement, {
-    childList: true,
-    subtree: true,
-    attributes: true,
-    attributeFilter: ['class']
-  });
-  normalizePrimaryNavigation();
 }
 
 function injectCss() {
   injectStylesheet('z2m-ui-css', 'z2m-ui.css');
   injectStylesheet('z2m-components-css', 'z2m-components.css');
-  observePrimaryNavigation();
+  injectStylesheet('z2m-avatar-ui-css', 'z2m-avatar-ui.css');
 }
 
 function optional(factory, value) {
@@ -135,10 +107,98 @@ function tabStrip(className, dataName, items, activeId, onSelect, attrs) {
   return host;
 }
 
-function primaryTabs(items, activeId, onSelect, attrs) {
-  return tabStrip('z2m-tabs', 'tab', items, activeId, onSelect, Object.assign({
-    'aria-label': _('Разделы Zapret 2 Manager')
+function primaryNavigation(model, activeId, onSelect, attrs) {
+  var host = E('div', Object.assign({
+    id: 'z2m-tabs',
+    'class': 'z2m-navigation-shell'
   }, attrs || {}));
+
+  function itemIsActive(item, route) {
+    if (item.id === route) return true;
+    return (item.children || []).some(function (child) { return child.id === route; });
+  }
+
+  function render(route) {
+    var groups = model.groups || [];
+    var activeGroup = groups[0];
+    groups.some(function (group) {
+      if ((group.items || []).some(function (item) { return itemIsActive(item, route); })) {
+        activeGroup = group;
+        return true;
+      }
+      return false;
+    });
+
+    var primary = E('nav', {
+      'class': 'z2m-tabs z2m-primary-nav',
+      role: 'tablist',
+      'aria-label': _('Разделы Zapret 2 Manager')
+    });
+    groups.forEach(function (group) {
+      var target = group.items && group.items[0];
+      if (!target) return;
+      var selected = group.id === activeGroup.id;
+      var node = E('button', {
+        type: 'button',
+        role: 'tab',
+        'class': selected ? 'on' : '',
+        'aria-selected': selected ? 'true' : 'false',
+        'aria-controls': 'z2m-secondary-nav',
+        'data-nav-group': group.id
+      }, Format.text(group.label));
+      node.addEventListener('click', function () {
+        if (typeof onSelect === 'function') onSelect(target.id, target);
+      });
+      primary.appendChild(node);
+    });
+
+    var secondary = null;
+    if (!activeGroup.hideSecondary) {
+      secondary = E('nav', {
+        id: 'z2m-secondary-nav',
+        'class': 'z2m-subtabs z2m-secondary-nav',
+        role: 'tablist',
+        'aria-label': Format.text(activeGroup.label)
+      });
+      (activeGroup.items || []).forEach(function (item) {
+        var targetItems = item.children && item.children.length ? item.children : [item];
+        if (item.children && item.children.length) {
+          var parent = E('button', {
+            type: 'button',
+            role: 'tab',
+            'class': item.id === route ? 'on z2m-nav-parent' : 'z2m-nav-parent',
+            'aria-selected': item.id === route ? 'true' : 'false',
+            tabindex: item.id === route ? '0' : '-1',
+            'data-tab': item.id
+          }, Format.text(item.label));
+          parent.addEventListener('click', function () {
+            if (typeof onSelect === 'function') onSelect(item.id, item);
+          });
+          secondary.appendChild(parent);
+        }
+        targetItems.forEach(function (target) {
+          var selected = target.id === route;
+          var node = E('button', {
+            type: 'button',
+            role: 'tab',
+            'class': selected ? 'on' : '',
+            'aria-selected': selected ? 'true' : 'false',
+            tabindex: selected ? '0' : '-1',
+            'data-tab': target.id
+          }, Format.text(target.label));
+          node.addEventListener('click', function () {
+            if (typeof onSelect === 'function') onSelect(target.id, target);
+          });
+          secondary.appendChild(node);
+        });
+      });
+    }
+    host.replaceChildren.apply(host, secondary ? [primary, secondary] : [primary]);
+  }
+
+  host.setActive = function (route) { render(model.normalize(route)); };
+  render(model.normalize(activeId));
+  return host;
 }
 
 function subTabs(items, activeId, onSelect, attrs) {
@@ -204,7 +264,7 @@ function statePanel(options) {
   if (message !== null) body.push(E('div', { 'class': 'z2m-state-message' }, message));
   if (actions.length) body.push(E('div', { 'class': 'z2m-state-actions' }, actions));
   return E('div', {
-    'class': 'z2m-state-panel ' + (options.kind || 'info'),
+    'class': 'z2m-state-panel z2m-avatar-state ' + (options.kind || 'info'),
     role: options.kind === 'error' ? 'alert' : 'status',
     'aria-live': options.kind === 'error' ? 'assertive' : 'polite'
   }, body);
@@ -249,30 +309,25 @@ function empty(message) {
 }
 
 function showToast(message, kind) {
-  var host = document.getElementById('z2m-toasts');
-  var value = Format.text(message);
-  if (!host || value === null) return;
-  var toast = E('div', { 'class': 'z2m-toast ' + (kind || ''), role: kind === 'err' ? 'alert' : 'status' }, value);
-  host.appendChild(toast);
-  window.setTimeout(function () {
-    if (toast.parentNode) toast.parentNode.removeChild(toast);
-  }, 3600);
+  return AvatarUi.showToast(Format.text(message), kind);
 }
 
 function openModal(title, body, footer) {
+  // DONOR TRANSPLANT: web/js/components/confirm.js@38ed85ce487c6b3dbdf703a5be197795f7c0cad1
+  // DONOR modal-overlay/modal-content cleanup boundary is retained without donor API/theme.
   var host = document.getElementById('z2m-modal');
   if (!host) return;
   closeModal();
   var titleText = Format.text(title);
   if (titleText === null) return;
-  var close = button('×', 'z2m-modal-close', closeModal, false, { 'aria-label': _('Закрыть') });
-  var dialog = E('div', { 'class': 'z2m-modal', role: 'dialog', 'aria-modal': 'true', tabindex: '-1' }, [
-    E('div', { 'class': 'mh' }, [E('h3', {}, titleText), close]),
-    E('div', { 'class': 'mb' }, body),
-    E('div', { 'class': 'mf' }, footer || button(_('Закрыть'), 'primary', closeModal))
+  var close = button('×', 'z2m-modal-close modal-close', closeModal, false, { 'aria-label': _('Закрыть') });
+  var dialog = E('div', { 'class': 'z2m-modal modal-content', role: 'dialog', 'aria-modal': 'true', tabindex: '-1' }, [
+    E('div', { 'class': 'mh modal-header' }, [E('h3', { 'class': 'modal-title' }, titleText), close]),
+    E('div', { 'class': 'mb modal-body' }, body),
+    E('div', { 'class': 'mf modal-footer' }, footer || button(_('Закрыть'), 'primary', closeModal))
   ]);
   host.replaceChildren(dialog);
-  host.classList.add('on');
+  host.classList.add('on', 'modal-overlay');
   host.onclick = function (event) {
     if (event.target === host) closeModal();
   };
@@ -289,16 +344,16 @@ function closeModal() {
   modalKeyHandler = null;
   if (!host) return;
   host.onclick = null;
-  host.classList.remove('on');
+  host.classList.remove('on', 'modal-overlay');
   host.replaceChildren();
 }
 
-function renderApplyBar(store, availability) {
+function renderApplyBar(availability) {
   availability = availability || {};
   var reason = Format.text(availability.reason);
   var disabled = availability.enabled !== true;
   return E('div', {
-    'class': 'z2m-applybar' + (store && store.hasDraft && store.hasDraft() ? '' : ' hidden'),
+    'class': 'z2m-applybar hidden',
     id: 'z2m-applybar'
   }, E('div', { 'class': 'in' }, [
     chip(_('Черновик'), 'o'),
@@ -316,13 +371,12 @@ function renderApplyBar(store, availability) {
 }
 
 return baseclass.extend({
+  avatar: AvatarUi,
   format: Format,
   injectCss: injectCss,
-  normalizePrimaryNavigation: normalizePrimaryNavigation,
-  optional: optional,
   button: button,
   chip: chip,
-  primaryTabs: primaryTabs,
+  primaryNavigation: primaryNavigation,
   subTabs: subTabs,
   segmented: segmented,
   switchControl: switchControl,

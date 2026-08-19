@@ -160,7 +160,7 @@ function native_observation_complete(result, raw) {
 		&& type(result.data.startedAt) == 'int' && type(result.data.finishedAt) == 'int'
 		&& result.data.finishedAt >= result.data.startedAt;
 }
-function family_requested(families, family) { for (let item in families || []) if (item == family) return true; return false; }
+function family_requested(families, family) { for (let i = 0; i < length(families || []); i++) if ((families || [])[i] == family) return true; return false; }
 function bounded_timeout(request, configured) {
 	if (type(request?.deadlineMs) != 'int') return null;
 	let remaining = request.deadlineMs - int(time() * 1000);
@@ -196,7 +196,8 @@ export const scanner_probe_execute = function(descriptor) {
 	if (request.transport == 'tls') {
 		let families = request.addressFamilies, observations = {};
 		if (type(families) != 'array') return failure('EDEPENDENCY', 'TLS descriptor settings are invalid.', { stage: 'descriptor' });
-		for (let family in families) {
+		for (let i = 0; i < length(families); i++) {
+			let family = families[i];
 			let timeoutMs = bounded_timeout(request, TLS_TIMEOUT_MS);
 			if (timeoutMs == null) return failure('EDEPENDENCY', 'Probe deadline has expired.', { stage: 'deadline' });
 			let probe = { transport: 'tls', mode: request.mode, retries: request.retries, host: request.host, addressFamily: family, port: request.port, portRange: request.portRange, tls: request.tls, timeoutMs, deadlineMs: request.deadlineMs, cancelToken: request.cancelToken };
@@ -213,7 +214,8 @@ export const scanner_probe_execute = function(descriptor) {
 	}
 	if (request.transport == 'tls+body') {
 		let hosts = [], transportFailures = 0;
-		for (let item in request.hosts) {
+		for (let i = 0; i < length(request.hosts); i++) {
+			let item = request.hosts[i];
 			let timeoutMs = bounded_timeout(request, BODY_TIMEOUT_MS);
 			if (timeoutMs == null) return failure('EDEPENDENCY', 'Probe deadline has expired.', { stage: 'deadline' });
 			let probe = { transport: 'tls+body', mode: request.mode, retries: request.retries, host: item.host, addressFamily: item.addressFamily, port: item.port, portRange: item.portRange, url: item.url, tls: request.tls, body: request.body, timeoutMs, deadlineMs: request.deadlineMs, cancelToken: request.cancelToken };

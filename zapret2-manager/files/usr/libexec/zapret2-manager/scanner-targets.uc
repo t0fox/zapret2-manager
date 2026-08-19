@@ -14,14 +14,14 @@ function lower(value) {
 function normalize_host(value) {
 	if (value == null || type(value) != 'string') return null;
 	let host = lower(trim(value == null ? '' : '' + value));
-	if (substr(host, -1) == '.') host = substr(host, 0, -1);
+	if (length(host) && substr(host, length(host) - 1, 1) == '.') host = substr(host, 0, length(host) - 1);
 	return host == '' ? null : host;
 }
 
 function copy_array(values) {
 	let result = [];
 	if (type(values) != 'array') return result;
-	for (let value in values) push(result, value);
+	for (let i = 0; i < length(values); i++) push(result, values[i]);
 	return result;
 }
 
@@ -43,7 +43,7 @@ function target_profile(key, primaryHost, testHosts, hostlistDomains, expectedHo
 	return {
 		profileKey: key,
 		primaryHost: primaryHost,
-		testHosts: testHosts,
+		testHosts: copy_array(testHosts),
 		hostlistDomains: hostlistDomains,
 		expectedHostlists: expectedHostlists,
 		tcp: { ports: tcpPorts, l7: tcpL7, payload: tcpPayload },
@@ -98,13 +98,13 @@ const HINTS = [
 ];
 
 function contains(values, value) {
-	for (let item in values) if (item == value) return true;
+	for (let i = 0; i < length(values); i++) if (values[i] == value) return true;
 	return false;
 }
 
 function has_label(host, label) {
 	let labels = split(host, '.');
-	for (let item in labels) if (item == label) return true;
+	for (let i = 0; i < length(labels); i++) if (labels[i] == label) return true;
 	return false;
 }
 
@@ -119,10 +119,10 @@ function hint_matches(host, hint) {
 
 function custom_profile(base, host) {
 	let result = copy_profile(base), tests = [], domains = [host];
-	for (let value in base.testHosts) if (!contains(tests, value) && length(tests) < 4)
-		push(tests, value);
-	for (let value in base.hostlistDomains) if (!contains(domains, value))
-		push(domains, value);
+	for (let i = 0; i < length(base.testHosts); i++) if (!contains(tests, base.testHosts[i]) && length(tests) < 4)
+		push(tests, base.testHosts[i]);
+	for (let i = 0; i < length(base.hostlistDomains); i++) if (!contains(domains, base.hostlistDomains[i]))
+		push(domains, base.hostlistDomains[i]);
 	result.primaryHost = host;
 	result.testHosts = tests;
 	result.hostlistDomains = domains;
@@ -132,8 +132,8 @@ function custom_profile(base, host) {
 export const scanner_target_profile = function(value) {
 	let host = normalize_host(value), key = null;
 	if (host == null) return null;
-	for (let hint in HINTS) {
-		if (hint_matches(host, hint[0])) { key = hint[1]; break; }
+	for (let i = 0; i < length(HINTS); i++) {
+		if (hint_matches(host, HINTS[i][0])) { key = HINTS[i][1]; break; }
 	}
 	if (key == null) return target_profile('generic', host, [host], [host], [],
 		'443', 'tls', 'tls_client_hello', '443', 'stun', 'binding', 'https://' + host + '/');
@@ -152,7 +152,7 @@ export const scanner_target_hosts = function(value, mode) {
 	let profile = is_object(value) ? value : scanner_target_profile(value), maximum = max_hosts(mode);
 	if (!is_object(profile)) return [];
 	let result = [], candidates = [profile.primaryHost];
-	for (let value in profile.testHosts) if (!contains(candidates, value)) push(candidates, value);
+	for (let i = 0; i < length(profile.testHosts); i++) if (!contains(candidates, profile.testHosts[i])) push(candidates, profile.testHosts[i]);
 	for (let i = 0; i < length(candidates) && i < maximum; i++) push(result, candidates[i]);
 	return result;
 };

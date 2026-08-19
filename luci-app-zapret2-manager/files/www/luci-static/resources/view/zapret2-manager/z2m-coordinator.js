@@ -45,10 +45,6 @@ function responseFailure(value, fallbackCode, fallbackMessage) {
   };
   return { code: value && value.code || fallbackCode, message: error ? String(error) : fallbackMessage };
 }
-function responseBlocker(value, fallback) {
-  var failure = responseFailure(value, 'preflight-blocked', fallback);
-  return failure ? failure.message : null;
-}
 function previewRevision(preview) {
   var precondition = object(preview && preview.precondition);
   if (precondition.revision !== null && precondition.revision !== undefined) return precondition.revision;
@@ -313,13 +309,10 @@ function create(options) {
     semanticBlockers: semanticBlockers,
     preflightDraft: preflightDraft,
     applyDrafts: applyDrafts,
-    handleApplyResult: handleApplyResult,
-    rollbackResult: rollbackResult,
-    order: APPLY_SCOPE_ORDER.slice()
+    rollbackResult: rollbackResult
   };
 }
 
 return baseclass.extend({
-  APPLY_SCOPE_ORDER: APPLY_SCOPE_ORDER,
   create: create
 });

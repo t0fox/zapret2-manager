@@ -64,12 +64,12 @@ function valid_label(label) {
 function normalize_hostname(value) {
 	if (!is_string(value)) return null;
 	let host = lower(trim(value));
-	if (substr(host, -1) == '.') host = substr(host, 0, -1);
+	if (length(host) && substr(host, length(host) - 1, 1) == '.') host = substr(host, 0, length(host) - 1);
 	if (length(host) < 1 || length(host) > MAX_TARGET || index(host, ':') >= 0
 		|| match(host, /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/)) return null;
 	let labels = split(host, '.');
 	if (length(labels) < 2) return null;
-	for (let i in labels) if (!valid_label(labels[i])) return null;
+	for (let i = 0; i < length(labels); i++) if (!valid_label(labels[i])) return null;
 	return host;
 }
 
@@ -107,7 +107,7 @@ export const scanner_request_validate = function(input) {
 	if (dpi == null) dpi = null;
 	else {
 		if (!is_string(dpi)) return error_result('EINPUT', 'Scanner dpi_type must be bounded text.', 'dpi_type');
-		dpi = lower(trim(dpi));
+		dpi = trim(dpi);
 		if (dpi == '') dpi = null;
 		else if (length(dpi) > MAX_DPI || !valid_dpi(dpi))
 			return error_result('EINPUT', 'Scanner dpi_type has invalid bounded syntax.', 'dpi_type');
@@ -252,7 +252,7 @@ function baseline_view(value) {
 	let result = {};
 	if (!is_object(value)) return result;
 	let families = ['ipv4', 'ipv6'];
-	for (let i in families) {
+	for (let i = 0; i < length(families); i++) {
 		let family = families[i];
 		let entry = value[family];
 		if (!is_object(entry) || !is_string(entry.status) || !BASELINE_VALUES[entry.status]

@@ -3,13 +3,19 @@
 'require view.zapret2-manager.z2m-dns as Dns';
 'require view.zapret2-manager.z2m-dns-service-model as Model';
 
-var SERVICE_TERMINAL = ['success','completed','applied','failed','error','rolled-back','cancelled','canceled','stopped'];
-
 function object(value) { return Model.object(value); }
 function array(value) { return Model.array(value); }
 function edit(fn, value) { return fn(JSON.stringify(value || {})); }
 function serviceChanged(value) { return !!(value && value.serviceDns && Object.keys(object(value.serviceDns.changes)).length); }
 function manualChanged(value) { return !!(value && (value.entries || object(value.changes).entries)); }
+function servicePayload(service) {
+  service = object(service);
+  return { selections: object(service.selections) };
+}
+function serviceRevision(value) {
+  value = object(value);
+  return value.expectedDraftRevision != null ? value.expectedDraftRevision : value.revision;
+}
 function serviceFailure(answer, fallback) {
   if (answer && answer.ok === true) return null;
   var error = answer && answer.error || answer || {};
@@ -19,91 +25,42 @@ function serviceFailure(answer, fallback) {
   };
 }
 function validateService(api, service) {
-  if (!api.dns || typeof api.dns.serviceProviders !== 'function')
+  if (!api.dns || !api.dns.product || typeof api.dns.product.validate !== 'function')
     return Promise.resolve({ ok: false, message: _('Backend Service DNS недоступен.') });
-  return api.dns.serviceProviders().then(function (answer) {
-    var failure = serviceFailure(answer, _('Каталог Service DNS недоступен.'));
-    if (failure) return { ok: false, message: failure.message };
-    var known = {};
-    array(answer.profiles).forEach(function (profile) { if (profile && profile.id) known[profile.id] = true; });
-    var unknown = Object.keys(object(service.selections)).filter(function (id) {
-      var selected = service.selections[id];
-      return selected && selected !== 'off' && !known[selected];
-    });
-    return unknown.length
-      ? { ok: false, message: _('Неизвестный DNS-профиль для сервиса: ') + unknown.join(', ') }
-      : { ok: true };
-  });
-}
-function requestId() {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
-    return 'service-dns-' + crypto.randomUUID();
-  return 'service-dns-' + Date.now() + '-' + Math.floor(Math.random() * 1000000);
-}
-function terminal(operation) {
-  var phase = String(operation && (operation.phase || operation.state || operation.status) || '').toLowerCase();
-  return operation && operation.finished === true || SERVICE_TERMINAL.indexOf(phase) >= 0;
-}
-function succeeded(operation) {
-  var phase = String(operation && (operation.phase || operation.state || operation.status) || '').toLowerCase();
-  return operation && operation.ok !== false && (phase === 'success' || phase === 'completed' || phase === 'applied');
-}
-function pollService(api, operationId, deadline) {
-  if (Date.now() >= deadline)
-    return Promise.reject({ code: 'ETIMEOUT', message: _('Применение Service DNS не завершилось за 120 секунд.') });
-  return edit(api.dns.serviceApplyStatus, { operationId: operationId }).then(function (answer) {
-    var failure = serviceFailure(answer, _('Не удалось прочитать состояние Service DNS операции.'));
-    if (failure) throw failure;
-    var operation = answer.operation || answer;
-    if (terminal(operation)) {
-      if (!succeeded(operation)) throw operation.error || {
-        code: 'E_SERVICE_DNS_APPLY', message: _('Service DNS завершился с ошибкой.')
-      };
-      return operation;
-    }
-    return new Promise(function (resolve) { window.setTimeout(resolve, 1500); }).then(function () {
-      return pollService(api, operationId, deadline);
-    });
+  return edit(api.dns.product.validate, {
+    scope: 'service_dns',
+    value: servicePayload(service),
+    revision: serviceRevision(service)
+  }).then(function (answer) {
+    var failure = serviceFailure(answer, _('Проверка Service DNS не пройдена.'));
+    return failure ? { ok: false, message: failure.message } : Object.assign({}, answer, { ok: true });
   });
 }
 function applyService(api, service) {
-  return api.dns.serviceStatus().then(function (before) {
-    var failure = serviceFailure(before, _('Состояние Service DNS недоступно.'));
-    if (failure) throw failure;
-    if (service.expectedDraftRevision != null && String(before.draftRevision) !== String(service.expectedDraftRevision))
-      throw { code: 'ECONFLICT', message: _('Черновик Service DNS изменился в другом сеансе.') };
-    return edit(api.dns.serviceSet, { selections: service.selections }).then(function (setAnswer) {
-      var setFailure = serviceFailure(setAnswer, _('Не удалось сохранить черновик Service DNS.'));
-      if (setFailure) throw setFailure;
-      var revision = setAnswer.draftRevision;
-      return api.dns.servicePreview().then(function (preview) {
-        var previewFailure = serviceFailure(preview, _('Zero-write preview Service DNS отклонён.'));
-        if (previewFailure || preview.zeroWrites !== true || !preview.precondition ||
-            String(preview.precondition.draftRevision) !== String(revision)) {
-          var reason = previewFailure || { code: 'E_PREVIEW', message: _('Preview не подтвердил точную ревизию Service DNS.') };
-          return edit(api.dns.serviceSet, { selections: service.baseline || {} }).catch(function () {}).then(function () {
-            throw reason;
-          });
-        }
-        var operationId = requestId();
-        return edit(api.dns.serviceApplyAsync, { operationId: operationId, draftRevision: revision }).then(function (start) {
-          var startFailure = serviceFailure(start, _('Не удалось запустить Service DNS apply.'));
-          if (startFailure) throw startFailure;
-          return pollService(api, start.operationId || operationId, Date.now() + 120000);
-        });
-      });
-    });
+  if (!api.dns || !api.dns.product || typeof api.dns.product.apply !== 'function')
+    return Promise.reject({ code: 'E_SERVICE_DNS', message: _('Backend Service DNS недоступен.') });
+  return edit(api.dns.product.apply, {
+    scope: 'service_dns',
+    value: servicePayload(service),
+    revision: serviceRevision(service)
   });
 }
 function createAdapter(api, module) {
   var manual = Dns.createAdapter(api, module || Dns);
   function reloadAppliedState() {
-    return manual.reloadAppliedState().then(function (read) {
-      if (!api.dns || typeof api.dns.serviceStatus !== 'function') return read;
-      return api.dns.serviceStatus().then(function (status) {
-        read.value = Object.assign({}, object(read.value), { serviceDns: status || {} });
-        return read;
-      }).catch(function () { return read; });
+    if (!api.dns || !api.dns.product || typeof api.dns.product.get !== 'function')
+      return Promise.reject({ code: 'E_SERVICE_DNS', message: _('Backend Service DNS недоступен.') });
+    return api.dns.product.get().then(function (answer) {
+      var applied = answer && answer.applied && answer.applied.service_dns || {};
+      var desired = answer && answer.desired && answer.desired.service_dns || {};
+      var revision = answer && answer.revision && answer.revision.service_dns;
+      return {
+        value: { serviceDns: { selections: object(applied), raw: answer || {} } },
+        revision: revision,
+        precondition: { revision: revision },
+        raw: answer || {},
+        draft: desired
+      };
     });
   }
   return {
@@ -117,18 +74,17 @@ function createAdapter(api, module) {
     previewDraft: function (scope, value, context) {
       if (!serviceChanged(value)) return manual.previewDraft(scope, value, context);
       var read = context && context.applied && context.applied.dns || {};
-      var revision = Model.dnsRevision(read.raw || read);
+      var revision = read && read.raw && read.raw.revision && read.raw.revision.service_dns;
+      if (revision == null) revision = Model.dnsRevision(read.raw || read);
       return validateService(api, value.serviceDns).then(function (answer) {
         if (!answer || answer.ok !== true) return answer;
-        return {
-          ok: true,
-          valid: true,
-          zeroWrites: true,
-          precondition: {
-            revision: revision,
-            serviceDraftRevision: value.serviceDns.expectedDraftRevision
-          }
-        };
+        return edit(api.dns.product.preview, {
+          scope: 'service_dns',
+          value: servicePayload(value.serviceDns),
+          revision: revision
+        }).then(function (preview) {
+          return Object.assign({}, preview || {}, { precondition: { revision: revision } });
+        });
       });
     },
     previewValid: function (answer) {
@@ -144,7 +100,7 @@ function createAdapter(api, module) {
     verifyApplied: function (value, context, read) {
       if (!serviceChanged(value)) return manual.verifyApplied(value, context, read);
       var status = object(read && read.value && read.value.serviceDns);
-      var applied = Model.selectionMap(status, true);
+      var applied = object(status.selections);
       return Model.same(applied, value.serviceDns.selections);
     },
     resetDraft: function () {
@@ -155,8 +111,5 @@ function createAdapter(api, module) {
 }
 
 return baseclass.extend({
-  validateService: validateService,
-  pollService: pollService,
-  applyService: applyService,
   createAdapter: createAdapter
 });

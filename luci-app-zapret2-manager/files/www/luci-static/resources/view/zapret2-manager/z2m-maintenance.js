@@ -2,8 +2,10 @@
 'require baseclass';
 'require view.zapret2-manager.z2m-maintenance-model as MaintenanceModel';
 'require view.zapret2-manager.z2m-engine-panel as EnginePanel';
+'require view.zapret2-manager.z2m-avatar-log as AvatarLog';
 
 var SCOPES = ['engineConfig', 'ourState', 'lists', 'profiles'];
+var LOAD_TIMEOUT_MS = 5000;
 var SCOPE_LABELS = {
   engineConfig: _('Конфигурация движка'),
   ourState: _('Состояние менеджера'),
@@ -21,20 +23,36 @@ var state = {
 };
 
 function edit(fn, value) { return fn(JSON.stringify(value || {})); }
-function array(value) { return Array.isArray(value) ? value : []; }
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
 function settled(result, api) {
   return result.status === 'fulfilled'
     ? { value: result.value || {} }
     : { error: api.normalizeError(result.reason) };
 }
+function boundedLoad(promise, label) {
+  var timer;
+  return Promise.race([
+    promise,
+    new Promise(function (_, reject) {
+      timer = window.setTimeout(function () {
+        reject({ code: 'frontend-timeout', message: label + ' timeout' });
+      }, LOAD_TIMEOUT_MS);
+    })
+  ]).then(function (value) {
+    window.clearTimeout(timer);
+    return value;
+  }, function (error) {
+    window.clearTimeout(timer);
+    throw error;
+  });
+}
 function load(ctx) {
   return Promise.allSettled([
-    ctx.api.maintenance.versions(),
-    ctx.api.maintenance.status(),
-    ctx.api.maintenance.backupList(),
-    edit(ctx.api.maintenance.eventsTail, { limit: 100 }),
-    EnginePanel.load(ctx)
+    boundedLoad(ctx.api.maintenance.versions(), 'versions'),
+    boundedLoad(ctx.api.maintenance.status(), 'maintenance status'),
+    boundedLoad(ctx.api.maintenance.backupList(), 'backup list'),
+    boundedLoad(edit(ctx.api.maintenance.eventsTail, { limit: 100 }), 'events'),
+    boundedLoad(EnginePanel.load(ctx), 'engine')
   ]).then(function (results) {
     return {
       versions: settled(results[0], ctx.api),
@@ -103,7 +121,6 @@ function kvPanel(shell, rows) {
 function formatTime(shell, value) {
   return shell.format.timestamp(value) || '';
 }
-
 function renderSystem(ctx, data) {
   var shell = ctx.shell;
   var versions = MaintenanceModel.normalizeVersions(data.versions && data.versions.value || {});
@@ -256,7 +273,7 @@ function renderBackups(ctx, data) {
     ]);
   });
   return E('div', {}, [
-    shell.panel(_('Backups'), E('div', {}, [
+    shell.panel(_('Резервные копии'), E('div', {}, [
       E('div', { 'class': 'z2m-btnrow' }, [scopeSelect, createButton]),
       E('div', { 'class': 'z2m-backup-history' }, rows.length ? rows : [
         shell.statePanel({ message: _('История backup пуста.'), kind: 'info' })
@@ -268,30 +285,20 @@ function renderBackups(ctx, data) {
 
 function renderEvents(ctx, data) {
   var shell = ctx.shell;
+  if (!data.events) return shell.panel(_('События'), shell.statePanel({ message: _('Загрузка событий…'), kind: 'loading' }));
   var envelope = data.events && data.events.value || {};
-  var source = array(envelope.events || envelope.lines || envelope.items).map(function (item) {
-    return typeof item === 'string' ? { message: item } : item;
-  });
-  var events = MaintenanceModel.events(source, 100);
+  if (data.events && data.events.error)
+    return shell.panel(_('События'), shell.statePanel({ title: _('Не удалось загрузить события'), message: data.events.error.message, kind: 'error' }));
+  var latestSource = AvatarLog.normalizeRows(envelope, 100);
   var advanced = !!(ctx.store.get().ui && ctx.store.get().ui.advanced);
-  var rows = events.map(function (event) {
-    var details = advanced && event.details && Object.keys(event.details).length
-      ? E('details', { 'class': 'z2m-acc' }, [
-          E('summary', {}, _('Технические детали')),
-          E('pre', { 'class': 'z2m-console' }, JSON.stringify(MaintenanceModel.redact(event.details), null, 2))
-        ]) : null;
-    return E('div', { 'class': 'z2m-svcrow z2m-single-row' }, [
-      E('div', {}, [
-        event.message ? E('div', { 'class': 'nm' }, event.message) : null,
-        event.timestamp ? E('div', { 'class': 'co' }, formatTime(shell, event.timestamp)) : null,
-        details
-      ]),
-      event.severity ? shell.chip(event.severity, event.severity === 'error' ? 'r' : 'o') : null
-    ]);
+  var viewer = AvatarLog.renderNormalized(latestSource, {
+    label: _('Журнал событий'),
+    formatTimestamp: function (value) { return formatTime(shell, value); },
+    advanced: advanced,
+    redactTechnical: MaintenanceModel.redact,
+    empty: shell.statePanel({ message: _('Событий нет.'), kind: 'info' })
   });
-  return shell.panel(_('События'), E('div', {}, rows.length ? rows : [
-    shell.statePanel({ message: _('Событий нет.'), kind: 'info' })
-  ]), _('Показаны последние 100 redacted событий.'));
+  return shell.panel(_('События'), viewer, _('Показаны последние 100 событий.'));
 }
 
 function renderDiagnostics(ctx) {
@@ -307,7 +314,7 @@ function renderDiagnostics(ctx) {
   return shell.panel(_('Diagnostics export'), E('div', {}, [
     E('div', { 'class': 'z2m-btnrow' }, exportButton),
     resultRows.length ? kvPanel(shell, resultRows) : shell.statePanel({
-      message: _('Export ещё не запускался. Диагностика не изменяет router state.'),
+      message: _('Экспорт ещё не запускался. Диагностика не изменяет состояние роутера.'),
       kind: 'info'
     })
   ]));
@@ -331,7 +338,7 @@ function render(ctx) {
   var tabs = ctx.shell.subTabs([
     { id: 'system', label: _('Система') },
     { id: 'engine', label: _('Движок') },
-    { id: 'backups', label: _('Backups') },
+    { id: 'backups', label: _('Резервные копии') },
     { id: 'events', label: _('События') },
     { id: 'diagnostics', label: _('Диагностика') }
   ], state.pane, function (id) {
@@ -345,7 +352,7 @@ function render(ctx) {
   });
   return E('section', { 'class': 'z2m-view on', id: 'z2m-view-maintenance' }, [
     E('div', { 'class': 'z2m-phead' }, [
-      E('div', {}, [E('h1', {}, _('Обслуживание')), E('p', {}, _('Движок, версии, безопасные backups, события и diagnostics export'))])
+      E('div', {}, [E('h1', {}, _('Обслуживание')), E('p', {}, _('Движок, версии, резервные копии, события и экспорт диагностики'))])
     ]),
     errors.length ? E('div', {}, errors) : null,
     tabs,
@@ -353,12 +360,12 @@ function render(ctx) {
   ]);
 }
 function mount(ctx) { EnginePanel.mount(ctx); }
-function unmount() { EnginePanel.unmount(); }
+function unmount(ctx) { EnginePanel.unmount(ctx); }
 
 return baseclass.extend({
   id: 'maintenance',
   title: _('Обслуживание'),
-  subtitle: _('Engine installer, backups, versions, events и diagnostics'),
+  subtitle: _('Установка движка, резервные копии, версии, события и диагностика'),
   load: load,
   render: render,
   mount: mount,

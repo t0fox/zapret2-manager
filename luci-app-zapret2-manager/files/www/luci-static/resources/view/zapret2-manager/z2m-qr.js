@@ -321,4 +321,4 @@ function render(text, size) {
   dark.setAttribute('d', path.join('')); dark.setAttribute('fill', '#000'); svg.appendChild(dark);
   return svg;
 }
-return baseclass.extend({ matrix: matrix, render: render });
+return baseclass.extend({ render: render });

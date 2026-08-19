@@ -192,7 +192,7 @@ function protocolMemoryFields(value, prefix = '') {
   if (value == null || typeof value !== 'object') return fields;
   for (const [key, child] of Object.entries(value)) {
     const field = prefix ? `${prefix}.${key}` : key;
-    if (/(?:memory|rss|resident|address)/i.test(key)) fields.push(field);
+    if (/(?:memory|rss|resident)/i.test(key)) fields.push(field);
     fields.push(...protocolMemoryFields(child, field));
   }
   return fields;

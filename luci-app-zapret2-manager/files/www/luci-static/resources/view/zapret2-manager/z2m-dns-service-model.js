@@ -153,11 +153,9 @@ function wrap(ctx) {
 return baseclass.extend({
   object: object,
   array: array,
-  clone: clone,
   same: same,
   dnsRevision: dnsRevision,
   serviceStatus: serviceStatus,
-  selectionMap: selectionMap,
   enrich: enrich,
   wrap: wrap
 });

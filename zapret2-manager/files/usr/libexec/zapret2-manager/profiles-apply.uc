@@ -927,6 +927,37 @@ export const profiles_transient_snapshot = function(supplied) {
 			reference: 'pre-scan-runtime' } };
 };
 
+export const profiles_transient_restore = function(snapshot, supplied) {
+	if (getenv('Z2M_SCANNER_SERVER_TEST') == '1' && supplied != null) return supplied;
+	if (getenv('Z2M_SCANNER_SERVER_TEST') == '1')
+		return { ok: true, state: 'verified', configRestored: true, runtimeRestored: true,
+			reconciled: true, testEvidence: true };
+	if (type(snapshot) != 'object' || snapshot == null || type(snapshot.config) != 'object'
+		|| type(snapshot.config.bytes) != 'string' || type(snapshot.config.sha256) != 'string'
+		|| !match(snapshot.config.sha256, /^[a-f0-9]{64}$/))
+		return err('restore', 'EINPUT', 'pre-scan snapshot is incomplete');
+	let restored = restore_whole_file(PATHS.applied_conf, snapshot.config.bytes, true);
+	if (restored == null) return err('restore', 'ERESTORE', 'pre-scan configuration restore failed');
+	let restarted = transaction_restart(0, null);
+	if (restarted.rc != 0) return err('restore', 'ERESTORE', 'pre-scan runtime restart failed', { restartRc: restarted.rc });
+	let currentSha = config_sha256(), status = recollect_status(), queue = parse_queue();
+	let runtime = verify_status(status, queue, true);
+	let instances = status && status.runtime && type(status.runtime.instances) == 'array' ? status.runtime.instances : [];
+	let process = length(instances) == 1 ? instances[0] : null;
+	let processMatches = process != null && process.exe == snapshot.runtime.process.exe
+		&& process.argvSha256 == snapshot.runtime.process.argvSha256 && process.owner == snapshot.runtime.process.owner
+		&& queue.peer_portid == process.pid;
+	let selection = strategy_selection_get_readonly();
+	let identityMatches = selection.ok == true && selection.revision == snapshot.identity.revision
+		&& (snapshot.identity.selected == null || sprintf('%J', selection.selected) == sprintf('%J', snapshot.identity.selected));
+	let verified = currentSha == snapshot.config.sha256 && runtime.ok == true && processMatches && identityMatches;
+	return verified ? { ok: true, state: 'verified', configRestored: true, runtimeRestored: true,
+		reconciled: true, configSha256: currentSha, queue: queue, runtime: runtime, identity: selection }
+		: err('restore', 'EVERIFY', 'pre-scan runtime restoration could not be independently verified',
+			{ configSha256: currentSha, expectedConfigSha256: snapshot.config.sha256, queue: queue, runtime: runtime,
+				process: process, processMatches: processMatches, identity: selection, identityMatches: identityMatches });
+};
+
 export const profiles_transient_activate = function(candidate, compiled, supplied) {
 	let injected = transient_test_value('activate', supplied);
 	if (injected != null) return injected;

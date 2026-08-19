@@ -95,7 +95,7 @@ function trim_ws(value) {
 function valid_hostname(value) {
 	if (!is_string(value)) return false;
 	let host = lower(trim_ws(value));
-	if (substr(host, -1) == '.') host = substr(host, 0, length(host) - 1);
+	if (length(host) && substr(host, length(host) - 1, 1) == '.') host = substr(host, 0, length(host) - 1);
 	if (length(host) < 1 || length(host) > 253 || index(host, ':') >= 0) return false;
 	let labels = split(host, '.');
 	if (length(labels) < 2) return false;
@@ -126,7 +126,7 @@ function request_normalize(input) {
 	if (!is_string(input.target)) return error_result('EINPUT', 'Scanner target must be a strict hostname.', 'target');
 	let target = lower(trim_ws(input.target));
 	if (!valid_hostname(target)) return error_result('EINPUT', 'Scanner target must be a strict hostname.', 'target');
-	if (substr(target, -1) == '.') target = substr(target, 0, length(target) - 1);
+	if (length(target) && substr(target, length(target) - 1, 1) == '.') target = substr(target, 0, length(target) - 1);
 	let protocol = input.protocol == null ? 'tcp' : lower(trim_ws('' + input.protocol));
 	if (protocol != 'tcp' && protocol != 'udp') return error_result('EINPUT', 'Scanner protocol must be tcp or udp.', 'protocol');
 	let mode = input.mode == null ? 'quick' : lower(trim_ws('' + input.mode));

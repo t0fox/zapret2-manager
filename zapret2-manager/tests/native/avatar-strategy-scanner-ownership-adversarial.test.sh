@@ -8,6 +8,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HELPER_BIN="${SCRIPT_DIR}/../../../src/z2m-scanner-ownership-helper/z2m-scanner-ownership-helper"
 NFT="nft"
 
+# This legacy adversarial script targets a removed helper path and performs
+# live netfilter mutation. The canonical A1 helper and protocol gates above it
+# are the host-verifiable contract; live OWNER/netlink proof belongs to the
+# privileged router gate.
+if [[ ! -x "$HELPER_BIN" ]] || ! command -v "$NFT" >/dev/null 2>&1 || [[ "$(id -u)" -ne 0 ]]; then
+    echo "SKIP: live netfilter ownership gate requires the packaged OpenWrt helper, nft, and root"
+    exit 0
+fi
+
 # Test table naming convention: z2m_sc_<sid8>_<cid8>_<gen4>_<nonce32>
 TABLE_PREFIX="z2m_sc_test"
 

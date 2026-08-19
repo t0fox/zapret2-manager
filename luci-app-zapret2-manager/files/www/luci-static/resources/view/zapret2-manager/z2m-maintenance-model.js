@@ -17,6 +17,10 @@ function number(value) {
   return isFinite(result) ? result : null;
 }
 function timestamp(value) {
+  if (typeof value === 'string' && value.trim() && !/^\d+$/.test(value.trim())) {
+    var parsed = Date.parse(value.trim());
+    if (isFinite(parsed)) return Math.floor(parsed / 1000);
+  }
   var result = number(value);
   if (result === null) return null;
   return result > 100000000000 ? Math.floor(result / 1000) : Math.floor(result);
@@ -208,19 +212,19 @@ function backups(value, limit) {
 function events(value, limit) {
   limit = number(limit);
   if (limit === null || limit < 1) limit = 100;
-  return array(value).slice(0, Math.floor(limit)).map(function (event) {
+  return array(value).slice(-Math.floor(limit)).map(function (event) {
     event = object(event);
     return {
       timestamp: timestamp(event.timestamp !== undefined ? event.timestamp : event.ts),
       message: text(event.message || event.msg),
       severity: text(event.severity || event.level),
+      source: text(event.source || event.component),
       details: redact(object(event.details))
     };
   });
 }
 
 return baseclass.extend({
-  formatUptime: formatUptime,
   normalizeSystem: normalizeSystem,
   normalizeVersions: normalizeVersions,
   restorePreview: restorePreview,

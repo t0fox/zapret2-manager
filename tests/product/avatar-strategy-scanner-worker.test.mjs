@@ -79,7 +79,7 @@ function hooks(stopAfter = null, protocol = 'tcp') {
       },
     compile: { ok: true, candidate: '--filter-tcp=443', compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550', dependencyDigest: DEPENDENCY_DIGEST, dependencies: CLOSURE, native: { status: 'verified' } },
       runtime: {
-        activate: { ok: true, identityVerified: true, expectedProcess: { pid: 11, startTime: 21, exe: '/opt/zapret2/nfq2/nfqws2', argvSha256: '6'.repeat(64), owner: 'scanner/session', generation: 5 }, process: { pid: 11, startTime: 21, exe: '/opt/zapret2/nfq2/nfqws2', argvSha256: '6'.repeat(64), owner: 'scanner/session', generation: 5 }, firewall: { table: 'zapret2', owner: 'scanner/session', ownedRules: ['scanner-rule'] }, nfqueue: { registered: true, peer_portid: 11 } },
+         activate: { ok: true, identityVerified: true, kernelReadBack: true, expectedProcess: { pid: 11, startTime: 21, exe: '/opt/zapret2/nfq2/nfqws2', argvSha256: '6'.repeat(64), owner: 'scanner/session', generation: 5 }, process: { pid: 11, startTime: 21, exe: '/opt/zapret2/nfq2/nfqws2', argvSha256: '6'.repeat(64), owner: 'scanner/session', generation: 5 }, firewall: { table: 'z2m_sc_01234567_89abcdef_0005_0123456789abcdef0123456789abcdef', owner: 'scanner/session', ownedRules: ['scanner-rule'] }, nfqueue: { registered: true, peer_portid: 11 } },
         stabilize: [{ ok: true, stable: true }],
         cleanup: [{ ok: true, processRemoved: true, firewallRemoved: true, nfqueueRemoved: true, hostlistRemoved: true, temporaryFilesRemoved: true, ownedOnly: true }],
       },
@@ -121,7 +121,7 @@ test('Task 6 modules expose bounded volatile state, worker, and fixed CLI contra
   assert.match(state, /expectedRevision|CAS|generation/);
   assert.match(worker, /startTime|starttime/);
   assert.doesNotMatch(`${state}\n${worker}\n${cli}`, /eval\s|system\s*\(|nft\s+flush|orchestra|dns|luci|router/i);
-  assert.doesNotMatch(`${state}\n${worker}\n${cli}`, /write_var|set_var|strategy_user_(create|update|delete)/);
+  assert.doesNotMatch(`${state}\n${worker}`, /write_var|set_var|strategy_user_(create|update|delete)/);
 });
 
 test('volatile records are atomic, bounded, CAS-protected, and separate from M5 manager state', () => {
@@ -194,6 +194,20 @@ test('stop is accepted and honored before the next candidate, while cancellation
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+test('verified cancellation can be explicitly resumed from the retained checkpoint', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-resume-cancelled-'));
+  try {
+    const env = storageEnv(root);
+    const stopped = invoke(WORKER, `subject.scanner_worker_run({id:'scan-resume-cancelled',request:${JSON.stringify(request())}}, ${JSON.stringify(hooks(1))})`, env);
+    assert.equal(stopped.ok, true, JSON.stringify(stopped));
+    assert.equal(stopped.state.status, 'cancelled');
+    const resumed = invoke(WORKER, `subject.scanner_worker_resume({id:'scan-resume-cancelled'},{identity:${JSON.stringify(hooks().identity)},transient:${JSON.stringify(hooks().transient)},probe:${JSON.stringify(hooks().probe)},reconcile:${JSON.stringify(hooks().reconcile)}})`, env);
+    assert.equal(resumed.ok, true, JSON.stringify(resumed));
+    assert.equal(resumed.state.status, 'completed');
+    assert.equal(resumed.state.progress, 2);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('control request uses id and revision admission and stale workers cannot resume', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-control-'));
   try {
@@ -231,13 +245,23 @@ test('resume requires exact request, catalog, compiler, plan, and cursor identit
     assert.match(source, new RegExp(marker));
   const cli = fs.readFileSync(CLI, 'utf8');
   assert.match(cli, /save-generated/);
-  assert.match(cli, /EAPPLY|EUNAVAILABLE/);
+	assert.match(cli, /scanner-results|EAPPLY|EUNAVAILABLE/);
 });
 
 test('CLI start dispatch validates the request and invokes the worker', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-cli-start-'));
   try {
     const result = invokeCli(`subject.scanner_cli_dispatch('start', {id:'scan-cli', request:${JSON.stringify(request())}}, ${JSON.stringify(hooks())})`, storageEnv(root));
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(result.state.status, 'completed');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('CLI start accepts the raw server-owned request envelope used by RPC', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-cli-raw-start-'));
+  try {
+    const raw = { id: 'scan-cli-raw', ...request() };
+    const result = invokeCli(`subject.scanner_cli_dispatch('start', ${JSON.stringify(raw)}, ${JSON.stringify(hooks())})`, storageEnv(root));
     assert.equal(result.ok, true, JSON.stringify(result));
     assert.equal(result.state.status, 'completed');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
@@ -695,6 +719,31 @@ test('worker preserves scanner verdict score and complete evidence in the ranked
     assert.equal(row.evidence.metrics.averageLatencyMs, 10);
     assert.equal(row.evidence.metrics.averageKbps, 100);
     assert.equal(row.evidence.metrics.perProbe[0].body.bytesReceived, 70000);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('worker retains generated Strategy identity and compiler handoff metadata in results', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-generated-handoff-'));
+  try {
+    const testHooks = hooks();
+    testHooks.plan.candidates[0] = {
+      ...testHooks.plan.candidates[0], scannerId: 'generated:gen-one', identityKind: 'generated',
+      strategyId: null, strategyRevision: null, source: 'generator', saveRequired: true,
+      compiledTokens: ['--filter-tcp=443'], dependencyClosure: CLOSURE,
+      catalogDigest: DIGESTS.catalog, compilerDigest: DIGESTS.compiler,
+    };
+    const result = invoke(WORKER, `subject.scanner_worker_run({id:'scan-generated-handoff',request:${JSON.stringify(request())}}, ${JSON.stringify(testHooks)})`, storageEnv(root));
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.deepEqual(result.state.results[0], {
+      candidateId: 'generated:gen-one', ordinal: 1, identityKind: 'generated', strategyId: null,
+      strategyRevision: null, saveRequired: true, source: 'generator',
+      compiledTokens: ['--filter-tcp=443'], compiledDigest: 'a11f88c641d6409c8b02db9f173033440dcb6a08511a9f1b296bd04269ca0550',
+      dependencyClosure: CLOSURE, dependencyDigest: DEPENDENCY_DIGEST,
+      candidateCatalogDigest: DIGESTS.catalog, candidateCompilerDigest: DIGESTS.compiler,
+      verdict: 'working', success: true, score: 2000, reason: null,
+      evidence: result.state.results[0].evidence,
+      planDigest: result.state.planDigest, evidenceIdentity: result.state.results[0].evidenceIdentity,
+    });
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 

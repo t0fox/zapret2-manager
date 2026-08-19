@@ -4,9 +4,10 @@
 // identity, or firewall syntax. Those remain with the existing Apply/Profile
 // and server-owned runtime adapters.
 import { scanner_transient_lock, scanner_transient_config_snapshot } from './apply.uc';
+import * as scanner_state from './scanner-state.uc';
 import { profiles_transient_compile_preflight, profiles_transient_activate,
 	profiles_transient_stabilize, profiles_transient_cleanup, profiles_transient_snapshot,
-	profiles_transient_unlock, profiles_transient_session_cleanup } from './profiles-apply.uc';
+	profiles_transient_unlock, profiles_transient_session_cleanup, profiles_transient_restore } from './profiles-apply.uc';
 
 const MAX_CANDIDATES = 128;
 const MAX_STABILIZE_ATTEMPTS = 3;
@@ -54,12 +55,13 @@ function identity_equal(expected, actual) {
 		if (expected[key] != actual[key]) return false;
 	return actual.owner == SCANNER_OWNER;
 }
+function scanner_table(value) { return type(value) == 'string' && match(value, /^z2m_sc_[a-f0-9]{8}_[a-f0-9]{8}_[0-9a-f]{4}_[a-f0-9]{32}$/); }
 function ownership_valid(activated) {
 	return object(activated) && activated.identityVerified == true && object(activated.expectedProcess)
 		&& object(activated.process) && identity_equal(activated.expectedProcess, activated.process)
 		&& object(activated.nfqueue) && activated.nfqueue.registered == true
 		&& activated.nfqueue.peer_portid == activated.process.pid
-		&& object(activated.firewall) && activated.firewall.table == 'zapret2'
+		&& object(activated.firewall) && scanner_table(activated.firewall.table)
 		&& activated.firewall.owner == SCANNER_OWNER
 		&& type(activated.firewall.ownedRules) == 'array';
 }
@@ -84,7 +86,7 @@ function zero_nonce() {
 function clone_value(value) {
 	if (type(value) == 'array') {
 		let out = [];
-		for (let item in value) push(out, clone_value(item));
+		for (let i = 0; i < length(value); i++) push(out, clone_value(value[i]));
 		return out;
 	}
 	if (type(value) == 'object' && value != null) {
@@ -94,12 +96,24 @@ function clone_value(value) {
 	}
 	return value;
 }
+function ownership_journal(sessionId, state, evidence) {
+	if (getenv('Z2M_SCANNER_SERVER_TEST') == '1') return { ok: true, state: state, written: true, evidence: evidence };
+	return scanner_state.scanner_journal_write(sessionId, state, evidence);
+}
 function candidate_cleanup(attempt) {
 	if (!object(attempt) || !ownership_valid(attempt.activation)) return error('cleanup', 'EIDENTITY', 'cleanup ownership evidence is incomplete');
+	let cleaning = ownership_journal(attempt.candidate.sessionId, 'CLEANING', {
+		table: attempt.activation.firewall.table, candidateId: attempt.candidate.scannerId,
+		process: attempt.activation.process, nfqueue: attempt.activation.nfqueue });
+	if (!cleaning.ok) return error('journal', 'EJOURNAL', 'Scanner cleanup journal could not record CLEANING', { journal: cleaning });
 	let supplied = attempt.seams != null && attempt.seams.runtime != null ? attempt.seams.runtime.cleanup : null;
 	if (type(supplied) == 'array') supplied = supplied[0];
 	let result = profiles_transient_cleanup(attempt, supplied);
 	if (!cleanup_valid(result)) return error('cleanup', 'ECLEANUP', 'owned candidate cleanup was not verified', { cleanup: result });
+	let cleaned = ownership_journal(attempt.candidate.sessionId, 'CLEANED', {
+		table: attempt.activation.firewall.table, candidateId: attempt.candidate.scannerId,
+		cleanup: result, tableChecked: result.tableChecked === true, tablePresent: result.tablePresent === true });
+	if (!cleaned.ok) return error('journal', 'EJOURNAL', 'Scanner cleanup journal could not record CLEANED', { cleanup: result, journal: cleaned });
 	return { ok: true, cleanup: { ok: true, processRemoved: true, firewallRemoved: true,
 		nfqueueRemoved: true, hostlistRemoved: true, temporaryFilesRemoved: true,
 		ownedOnly: true, evidence: result } };
@@ -115,7 +129,7 @@ function snapshot_valid(value) {
 	return object(value) && value.ok == true && object(value.config) && digest(value.config.sha256)
 		&& object(value.identity) && type(value.identity.revision) == 'int' && value.identity.revision >= 0
 		&& object(value.runtime) && snapshot_process_valid(value.runtime.process)
-		&& object(value.firewall) && value.firewall.table == 'zapret2'
+		&& object(value.firewall) && (value.firewall.table == 'zapret2' || scanner_table(value.firewall.table))
 		&& object(value.firewall.nfqueue) && value.firewall.nfqueue.registered == true
 		&& value.firewall.nfqueue.peerPortid == value.runtime.process.pid
 		&& object(value.artifacts) && value.artifacts.config == '/opt/zapret2/' + 'config'
@@ -153,12 +167,17 @@ function journal_write(state, evidence) {
 	}
 	return { ok: false, error: 'EARG', message: 'unknown journal state' };
 }
-
 export const scanner_candidate_activate = function(candidate, seams) {
-	// Task 4 journal: write PREPARED before helper interaction
-	journal_write('PREPARED', null);
 	if (getenv('Z2M_SCANNER_SERVER_TEST') != '1' && seams != null)
 		return error('input', 'EINPUT', 'runtime seams are server-only');
+	// Task 4 journal: write PREPARED before helper interaction
+	let prepared = ownership_journal(candidate.sessionId, 'PREPARED', {
+		sessionId: candidate.sessionId, candidateId: candidate.scannerId,
+		generation: type(candidate.generation) == 'int' ? candidate.generation : 0,
+		expectedTable: candidate.expectedTable || null,
+		nonce: candidate.argvNonce || null
+	});
+	if (!prepared.ok) return error('journal', 'EJOURNAL', 'Scanner ownership journal could not record PREPARED', { journal: prepared });
 	if (!candidate_valid(candidate)) return error('input', 'EINPUT', 'Scanner candidate binding is incomplete');
 	for (let key in ['command', 'argv', 'args', 'executable', 'path', 'rawCommand', 'rawPath'])
 		if (candidate[key] != null) return error('input', 'EINPUT', 'raw runtime command or path input is forbidden');
@@ -181,7 +200,28 @@ export const scanner_candidate_activate = function(candidate, seams) {
 		});
 	}
 	// Task 4: write TABLE_CREATED after verified helper response (NFT_TABLE_F_OWNER + no PERSIST)
-	journal_write('TABLE_CREATED', { tableCreated: true, ownerVerified: true, table: activated.firewall.table });
+	let created = ownership_journal(candidate.sessionId, 'TABLE_CREATED', {
+		tableCreated: true, ownerVerified: true, kernelReadBack: activated.kernelReadBack === true,
+		table: activated.firewall.table, operationId: candidate.sessionId + ':' + candidate.scannerId + ':' + candidate.generation,
+		nonce: candidate.argvNonce || null
+	});
+	if (!created.ok || activated.kernelReadBack !== true) {
+		let invalidAttempt = { candidate: candidate, compiled: compiled, activation: activated, seams: seams };
+		return error('identity', 'EOWNER', 'verified kernel ownership evidence is required before activation', {
+			activation: activated, journal: created, cleanup: candidate_cleanup(invalidAttempt)
+		});
+	}
+	for (let transition in [
+		{ state: 'RULES_READY', evidence: { table: activated.firewall.table, chainCreated: activated.chainCreated === true, ruleCreated: activated.ruleCreated === true, kernelReadBack: activated.kernelReadBack === true } },
+		{ state: 'PROCESS_BOUND', evidence: { table: activated.firewall.table, process: activated.process, nfqueue: activated.nfqueue, kernelReadBack: activated.kernelReadBack === true } },
+		{ state: 'ACTIVE', evidence: { table: activated.firewall.table, process: activated.process, nfqueue: activated.nfqueue, kernelReadBack: activated.kernelReadBack === true } }
+	]) {
+		let entry = ownership_journal(candidate.sessionId, transition.state, transition.evidence);
+		if (!entry.ok) {
+			let invalidAttempt = { candidate: candidate, compiled: compiled, activation: activated, seams: seams };
+			return error('journal', 'EJOURNAL', 'Scanner ownership journal could not record active runtime state', { journal: entry, cleanup: candidate_cleanup(invalidAttempt) });
+		}
+	}
 	let attempt = { candidate: candidate, activation: activated, compiled: compiled };
 	let stabilized = next_stabilize(attempt, seams);
 	if (stabilized.infrastructure) {
@@ -316,5 +356,14 @@ export const scanner_session_run = function(input, seams) {
 // caller as explicit evidence; this export never restores Strategy/config.
 export const scanner_session_finish = function(session, seams) {
 	if (!session || !session.sessionId) return { ok: false, error: { stage: 'cleanup', code: 'EINPUT', message: 'Scanner session identity is missing' } };
-	return release_then_session_cleanup(session, seams);
+	let restore = profiles_transient_restore(session.snapshot, seams != null ? seams.restore : null);
+	if (restore.ok !== true || restore.state != 'verified') return { ok: false, restore: restore, recovery: { state: 'uncertain' } };
+	let released = release_then_session_cleanup(session, seams);
+	return { ok: released.ok == true, restore: restore, lockRelease: released.lockRelease,
+		sessionCleanup: released.sessionCleanup, verifiedCleanup: released.verifiedCleanup == true };
+};
+
+export const scanner_session_restore = function(session, supplied) {
+	if (!session || !session.sessionId) return { ok: false, state: 'uncertain', error: 'session identity is missing' };
+	return profiles_transient_restore(session.snapshot, supplied);
 };

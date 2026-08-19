@@ -13,6 +13,7 @@ const PROBES = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manage
 const PROBE_ADAPTER = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-probe-adapter.uc');
 const WORKER = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-worker.uc');
 const STATE = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-state.uc');
+const RESULTS = path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-results.uc');
 const FIXTURE = path.join(ROOT, 'tests/fixtures/avatar-strategy-scanner/targets.json');
 const UCODE_BIN = process.env.UCODE_BIN ?? '/opt/ucode/bin/ucode';
 const UCODE_ARGS = process.env.UCODE_ARGS_PIPE ? process.env.UCODE_ARGS_PIPE.split('|') : [];
@@ -71,6 +72,12 @@ test('Task 6 worker remains a volatile coordinator and keeps Task 5 cleanup fail
   assert.doesNotMatch(worker, /popen\s*\(|system\s*\(|eval\s|argv\s*=/);
 });
 
+test('production terminal paths invoke the fail-closed reconciliation module without a seam', () => {
+  const worker = readFileSync(WORKER, 'utf8');
+  assert.match(worker, /scanner_stale_worker_recover\(|scanner_terminal_reconcile\(/);
+  assert.match(worker, /seam\(seams, 'reconcile'\) \|\| terminal_reconciliation/);
+});
+
 test('target profiles preserve pinned fixture facts and deterministic host selection', () => {
   for (const entry of fixture.cases) {
     const profile = invoke('scanner_target_profile', entry.input.target);
@@ -118,6 +125,39 @@ test('generic target profiles bind the requested host as a server-owned test hos
   assert.deepEqual(profile.testHosts, ['kernel.org']);
   assert.deepEqual(invoke('scanner_target_hosts', profile, 'quick'), ['kernel.org']);
 });
-test('scanner_results integration exports and handoff contracts', () => {
-  assert.fail('RED: scanner-results + handoff absent');
+function invokeResults(expression) {
+  const source = `import * as subject from ${JSON.stringify(RESULTS)}; print(sprintf('%J', ${expression}));`;
+  const result = spawnSync(UCODE_BIN, [...UCODE_ARGS, '-e', source], {
+    cwd: ROOT,
+    env: { ...process.env, LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib' },
+    encoding: 'utf8',
+    timeout: 15_000,
+  });
+  assert.equal(result.status, 0, `${result.stderr || result.stdout}\n${source}`);
+  return JSON.parse(result.stdout);
+}
+
+test('scanner results rank candidates and preserve infrastructure failures', () => {
+  const result = invokeResults(`subject.scanner_rank_results([
+    {identity:{candidate:'slow'},verdict:{status:'pass',score:1}},
+    {identity:{candidate:'fast'},verdict:{status:'pass',tcp:{pinned:true,latency:4}}},
+    {identity:{candidate:'infra'},verdict:{status:'infra'}}
+  ], {})`);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.ranked.map((row) => row.identity.candidate), ['fast', 'slow']);
+  assert.deepEqual(result.infra.map((row) => row.identity.candidate), ['infra']);
+});
+
+test('scanner report is unavailable while terminal recovery is uncertain', () => {
+  const result = invokeResults(`subject.scanner_report_build({status:'error',recovery:{state:'uncertain'},results:[]})`);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, 'EUNAVAILABLE');
+});
+
+test('generated save validation accepts only an unmatched candidate with complete dependencies', () => {
+  const valid = invokeResults(`subject.scanner_save_generated_validate({profile:{name:'generated'}},{version:'1'},{version:'2'},[],{source:'scanner'})`);
+  assert.equal(valid.ok, true);
+  const matched = invokeResults(`subject.scanner_save_generated_validate({matchedCatalog:'catalog'},{version:'1'},{version:'2'},[],{source:'scanner'})`);
+  assert.equal(matched.ok, false);
+  assert.equal(matched.error.code, 'EBOUNDARY');
 });

@@ -55,7 +55,12 @@ done >> "$test_list"
 
 count=$(tr -cd '\0' < "$test_list" | wc -c)
 [ "$count" -gt 0 ] || { echo 'no native tests found' >&2; exit 1; }
-xargs -0 node --test < "$test_list"
+# Several native tests intentionally exercise the fixed production socket
+# path (/tmp/zapret2-manager/runtime/z2m-helperd.sock).  Running those files
+# concurrently makes unrelated tests unlink or replace one another's socket.
+# Keep file-level execution serial while retaining per-file test concurrency
+# control in the individual suites.
+xargs -0 -n 1 node --test --test-concurrency=1 < "$test_list"
 
 if [ "$(id -u)" -eq 0 ]; then
   scripts/test/native-root.sh "$node_bin"
