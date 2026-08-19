@@ -301,7 +301,7 @@ var DEFAULT_RUNTIME_POOLS = {
   },
   discord_voice: {
     key: 'discord_voice',
-    protocol: 'QUIC',
+    protocol: 'STUN',
     size: 12,
     strategies: [
       { index: 1, name: 'QUIC Morph v2' },
@@ -340,6 +340,61 @@ function findPool(poolKey, pools) {
     pool = DEFAULT_RUNTIME_POOLS[poolKey] || DEFAULT_RUNTIME_POOLS[pKey] || null;
   }
   return pool;
+}
+
+function extractDiscordVoiceState(entries, pools) {
+  entries = array(entries);
+  var found = null;
+  for (var i = 0; i < entries.length; i++) {
+    var e = entries[i];
+    if (e && text(e.host).toLowerCase() === 'nohost' && text(e.key).toLowerCase() === 'discord_voice') {
+      found = e;
+      break;
+    }
+  }
+  if (!found) {
+    for (var j = 0; j < entries.length; j++) {
+      var le = entries[j];
+      if (le && text(le.host).toLowerCase() === 'nohost' && text(le.key).toLowerCase() === 'discord_udp') {
+        found = le;
+        break;
+      }
+    }
+  }
+
+  if (found) {
+    var curStrat = Number(found.strategy || found.variantNum) || 1;
+    var mode = text(found.mode) === 'frozen' ? 'frozen' : 'auto';
+    return {
+      key: 'discord_voice',
+      host: 'nohost',
+      strategy: curStrat,
+      mode: mode,
+      isFrozen: mode === 'frozen',
+      ts: found.ts || '',
+      exists: true,
+      legacyKey: text(found.key).toLowerCase() === 'discord_udp' ? 'discord_udp' : null
+    };
+  }
+
+  return {
+    key: 'discord_voice',
+    host: 'nohost',
+    strategy: 1,
+    mode: 'auto',
+    isFrozen: false,
+    ts: '',
+    exists: false,
+    legacyKey: null
+  };
+}
+
+function filterDomainLearnedEntries(entries) {
+  return array(entries).filter(function (entry) {
+    if (!entry) return false;
+    var host = text(entry.host).toLowerCase();
+    return host !== 'nohost';
+  });
 }
 
 function strategyOptionsForPool(poolKey, currentStrategy, pools) {
@@ -436,6 +491,10 @@ function modeBadge(mode) {
 }
 
 return baseclass.extend({
+  DEFAULT_RUNTIME_POOLS: DEFAULT_RUNTIME_POOLS,
+  findPool: findPool,
+  extractDiscordVoiceState: extractDiscordVoiceState,
+  filterDomainLearnedEntries: filterDomainLearnedEntries,
   normalize: normalize,
   list: list,
   profiles: profiles,

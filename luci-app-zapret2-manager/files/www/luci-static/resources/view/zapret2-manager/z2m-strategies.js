@@ -610,8 +610,13 @@ function renderStratPickerModal() {
       '</div>';
   }).join('');
 
+  var hostTitle = host;
+  if (host === 'nohost' || key === 'discord_voice' || key === 'discord_udp') {
+    hostTitle = 'Discord Voice / Video (STUN / UDP)';
+  }
+
   body.innerHTML = '<div class="strat-picker-context">' +
-    '<div class="strat-picker-domain"><strong>' + escapeHtml(host) + '</strong></div>' +
+    '<div class="strat-picker-domain"><strong>' + escapeHtml(hostTitle) + '</strong></div>' +
     '<div class="strat-picker-sub text-muted">Выберите вариант обхода для runtime-пула <code>' + escapeHtml(key) + '</code></div>' +
     '</div>' +
     '<div class="strat-picker-list">' + itemsHtml + '</div>' +
@@ -631,7 +636,57 @@ function renderLearnedModal() {
   var body = state.root && state.root.querySelector('#learned-modal-body');
   if (!body) return;
   var value = object(state.learned);
-  var allEntries = array(value.entries).map(function (entry) { return Model && Model.humanizeLearnedEntry ? Model.humanizeLearnedEntry(entry) : entry; });
+  var rawEntries = array(value.entries);
+  var pools = state.pools || {};
+
+  var discordState = (Model && typeof Model.extractDiscordVoiceState === 'function')
+    ? Model.extractDiscordVoiceState(rawEntries, pools)
+    : { key: 'discord_voice', host: 'nohost', strategy: 1, mode: 'auto', isFrozen: false, exists: false };
+  var discordPool = (Model && typeof Model.findPool === 'function')
+    ? Model.findPool('discord_voice', pools)
+    : (pools.discord_voice || pools.discord_udp || {});
+  var discordPoolSize = Number(discordPool && (discordPool.size || (Array.isArray(discordPool.strategies) ? discordPool.strategies.length : 12))) || 12;
+  var discordStratName = (Model && typeof Model.resolveStrategyName === 'function')
+    ? Model.resolveStrategyName('discord_voice', discordState.strategy, pools)
+    : ('#' + discordState.strategy);
+  var discordBadge = getModeBadge(discordState.mode);
+
+  var discordControlHtml = '<div class="discord-voice-card">' +
+    '<div class="discord-voice-header">' +
+      '<div class="discord-voice-title">' +
+        '<strong>Discord Voice / Video</strong>' +
+        '<div class="discord-voice-sub text-muted">STUN / UDP · autocircular · ' + discordPoolSize + ' вариантов</div>' +
+      '</div>' +
+      '<div class="discord-voice-status">' +
+        '<span class="badge ' + (discordBadge.isFrozen ? 'badge-accent' : 'badge-muted') + '">' + escapeHtml(discordBadge.label) + '</span>' +
+      '</div>' +
+    '</div>' +
+    '<div class="discord-voice-body">' +
+      '<div class="discord-voice-strat">' +
+        '<span class="text-muted">Текущая стратегия:</span>' +
+        '<div class="discord-voice-strat-val">' +
+          '<span class="discord-voice-strat-idx">#' + discordState.strategy + '</span> ' +
+          '<strong>' + escapeHtml(discordStratName) + '</strong>' +
+        '</div>' +
+      '</div>' +
+      '<div class="discord-voice-actions">' +
+        '<button type="button" class="btn btn-sm btn-primary" data-action="openStratPicker" data-key="discord_voice" data-host="nohost" data-strategy="' + discordState.strategy + '" data-mode="' + (discordBadge.isFrozen ? 'frozen' : 'auto') + '">' +
+          svgIcon('edit', 12) + ' <span>Изменить стратегию</span>' +
+        '</button>' +
+        '<button type="button" class="btn btn-sm btn-ghost" data-action="toggleStateFreeze" data-key="discord_voice" data-host="nohost" data-strategy="' + discordState.strategy + '" data-mode="' + (discordBadge.isFrozen ? 'frozen' : 'auto') + '">' +
+          (discordBadge.isFrozen ? svgIcon('unlock', 12) + ' <span>Вернуть авто</span>' : svgIcon('lock', 12) + ' <span>Зафиксировать</span>') +
+        '</button>' +
+        '<button type="button" class="btn btn-sm btn-danger-ghost" data-action="resetLearned" data-host="nohost" data-key="discord_voice" title="Сбросить оверрайд Discord Voice">' +
+          svgIcon('trash', 12) + ' <span>Сбросить</span>' +
+        '</button>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+
+  var domainEntries = (Model && typeof Model.filterDomainLearnedEntries === 'function')
+    ? Model.filterDomainLearnedEntries(rawEntries)
+    : rawEntries.filter(function (entry) { return entry && String(entry.host).toLowerCase() !== 'nohost'; });
+  var allEntries = domainEntries.map(function (entry) { return Model && Model.humanizeLearnedEntry ? Model.humanizeLearnedEntry(entry) : entry; });
   var modalState = state.learnedModal || { search: '', protoFilter: 'all', sortField: 'ts', sortDir: 'desc', visibleCount: 50 };
   var query = (modalState.search || '').trim().toLowerCase();
   var protoFilter = modalState.protoFilter || 'all';
@@ -641,6 +696,7 @@ function renderLearnedModal() {
       var proto = (item.protoClass || item.protocol || '').toLowerCase();
       if (protoFilter === 'tls' && proto !== 'tls') return false;
       if (protoFilter === 'quic' && proto !== 'quic') return false;
+      if (protoFilter === 'stun' && proto !== 'stun') return false;
     }
     if (!query) return true;
     return (item.host && item.host.toLowerCase().indexOf(query) >= 0) ||
@@ -664,7 +720,6 @@ function renderLearnedModal() {
   var visibleCount = modalState.visibleCount || 50;
   var shown = filtered.slice(0, visibleCount);
 
-  var pools = state.pools || {};
   var rowsHtml = shown.length ? shown.map(function (item) {
     var curStrat = Number(item.strategy || item.variantNum) || 1;
     var stratName = (Model && typeof Model.resolveStrategyName === 'function')
@@ -701,7 +756,8 @@ function renderLearnedModal() {
   var hostSortIcon = sortField === 'host' ? (sortDir > 0 ? svgIcon('chevronUp', 12) : svgIcon('chevronDown', 12)) : svgIcon('chevronDown', 12, 'learned-sort-muted');
   var tsSortIcon = sortField === 'ts' ? (sortDir > 0 ? svgIcon('chevronUp', 12) : svgIcon('chevronDown', 12)) : svgIcon('chevronDown', 12, 'learned-sort-muted');
 
-  body.innerHTML = '<div class="learned-modal-toolbar">' +
+  body.innerHTML = discordControlHtml +
+    '<div class="learned-modal-toolbar">' +
     '<div class="learned-modal-toolbar-left">' +
     '<div class="list-ui-search learned-search-wrap">' +
     '<span class="list-ui-search-icon learned-search-icon">' + svgIcon('search', 14) + '</span>' +
@@ -845,28 +901,56 @@ function refreshLearned() {
 function stateSet(key, host, strategy, mode) {
   var setMethod = state.ctx && state.ctx.api.strategies && (state.ctx.api.strategies.stateSet || state.ctx.api.strategies.customCreate);
   if (!setMethod) return;
+  if (key === 'discord_udp') key = 'discord_voice';
+  var isDiscord = (key === 'discord_voice' && host === 'nohost');
+  var canonicalKey = isDiscord ? 'discord_voice' : key;
+  var canonicalHost = isDiscord ? 'nohost' : host;
+
   // Optimistic in-memory update
   if (state.learned && Array.isArray(state.learned.entries)) {
+    var found = false;
     for (var i = 0; i < state.learned.entries.length; i++) {
       var item = state.learned.entries[i];
-      if (item.key === key && item.host === host) {
+      if ((isDiscord && (item.key === 'discord_voice' || item.key === 'discord_udp') && item.host === 'nohost') ||
+          (item.key === canonicalKey && item.host === canonicalHost)) {
+        item.key = canonicalKey;
+        item.host = canonicalHost;
         item.strategy = String(strategy);
         item.mode = mode || 'auto';
         item.frozen = (mode === 'frozen');
+        found = true;
         break;
       }
+    }
+    if (!found) {
+      state.learned.entries.push({
+        key: canonicalKey,
+        host: canonicalHost,
+        strategy: String(strategy),
+        mode: mode || 'auto',
+        frozen: (mode === 'frozen'),
+        ts: '' + Math.floor(Date.now() / 1000)
+      });
+      state.learned.count = state.learned.entries.length;
+    }
+    if (isDiscord) {
+      state.learned.entries = state.learned.entries.filter(function (it) {
+        if (it.host === 'nohost' && it.key === 'discord_udp') return false;
+        return true;
+      });
     }
     if (state.learnedModal && state.learnedModal.open) renderLearnedModal();
   }
   var curNum = Number(strategy) || 1;
   var stratName = (Model && typeof Model.resolveStrategyName === 'function')
-    ? Model.resolveStrategyName(key, curNum, state.pools)
+    ? Model.resolveStrategyName(canonicalKey, curNum, state.pools)
     : ('#' + strategy);
-  call(setMethod, { key: key, host: host, strategy: String(strategy), mode: mode || 'auto' }).then(function () {
+  var targetLabel = isDiscord ? 'Discord Voice' : canonicalHost;
+  call(setMethod, { key: canonicalKey, host: canonicalHost, strategy: String(strategy), mode: mode || 'auto' }).then(function () {
     if (mode === 'frozen') {
-      notify('ok', '🔒 ' + host + ': ' + stratName + ' зафиксирована');
+      notify('ok', '🔒 ' + targetLabel + ': ' + stratName + ' зафиксирована');
     } else {
-      notify('ok', '🔓 ' + host + ': включен автоподбор (' + stratName + ')');
+      notify('ok', '🔓 ' + targetLabel + ': включен автоподбор (' + stratName + ')');
     }
     return refreshLearned();
   }).catch(function (error) {
@@ -897,19 +981,26 @@ function resetLearned(host, key) {
     });
     return;
   }
-  // Single row delete
+  // Single row delete (domain row or discord hostless)
+  var isDiscord = (key === 'discord_voice' || key === 'discord_udp' || host === 'nohost');
+  var targetKey = isDiscord ? 'discord_voice' : key;
+  var targetHost = isDiscord ? 'nohost' : host;
   var delMethod = state.ctx && state.ctx.api.strategies && (state.ctx.api.strategies.stateDelete || state.ctx.api.strategies.learnedReset);
   if (!delMethod) return;
   if (state.learned && Array.isArray(state.learned.entries)) {
     state.learned.entries = state.learned.entries.filter(function (it) {
+      if (isDiscord) {
+        return !(it.host === 'nohost' && (it.key === 'discord_voice' || it.key === 'discord_udp'));
+      }
       return !(it.key === key && it.host === host);
     });
     state.learned.count = state.learned.entries.length;
     renderOperationalCards();
     if (state.learnedModal && state.learnedModal.open) renderLearnedModal();
   }
-  call(delMethod, { host: host || '', key: key || '' }).then(function () {
-    notify('ok', 'Запись ' + (host || key) + ' удалена');
+  call(delMethod, { host: targetHost || '', key: targetKey || '' }).then(function () {
+    var label = isDiscord ? 'Discord Voice' : (host || key);
+    notify('ok', 'Запись ' + label + ' удалена');
     return refreshLearned();
   }).catch(function (error) {
     notify('err', errorText(state.ctx, error));

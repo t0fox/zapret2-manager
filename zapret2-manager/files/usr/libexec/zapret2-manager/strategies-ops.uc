@@ -211,7 +211,13 @@ function pools_read() {
 	let raw = null;
 	try { raw = readfile(cfg_path); } catch (e) { raw = null; }
 	if (raw) {
-		let segments = split(raw, '--new');
+		let clean_lines = [];
+		for (let line in split(raw, '\n')) {
+			let t = trim(line);
+			if (length(t) && substr(t, 0, 1) != '#') push(clean_lines, t);
+		}
+		let clean_raw = join(' ', clean_lines);
+		let segments = split(clean_raw, '--new');
 		for (let i = 0; i < length(segments); i++) {
 			let seg = segments[i];
 			let circ = match(seg, /--lua-desync=circular:([^ \t\r\n]*)/);
@@ -225,8 +231,9 @@ function pools_read() {
 			if (!key) key = 'circular_1_' + (i + 1);
 
 			let proto = 'TLS';
-			if (match(seg, /--filter-udp/) || match(seg, /--filter-l7=[^:\s]*quic/)) proto = 'QUIC';
-			else if (match(seg, /--filter-l7=[^:\s]*discord/) || match(seg, /--filter-l7=[^:\s]*stun/)) proto = 'STUN';
+			if (match(seg, /--filter-l7=[^:\s]*discord/) || match(seg, /--filter-l7=[^:\s]*stun/)) proto = 'STUN';
+			else if (match(seg, /--filter-udp/) || match(seg, /--filter-l7=[^:\s]*quic/)) proto = 'QUIC';
+			else if (match(seg, /--filter-l7=[^:\s]*tls/)) proto = 'TLS';
 			else if (match(seg, /--filter-l7=[^:\s]*http\b/)) proto = 'HTTP';
 
 			let strats_by_num = {};
@@ -280,12 +287,16 @@ function pools_read() {
 			if (key == 'discord_voice') {
 				pools['discord_udp'] = pool_obj;
 			}
+			if (key == 'discord_udp') {
+				pools['discord_voice'] = pool_obj;
+			}
 		}
 	}
 
 	if (!pools['rkn_tcp']) pools['rkn_tcp'] = { key: 'rkn_tcp', protocol: 'TLS', size: 6, strategies: [ { index: 1, name: 'Default v2 (circular)' } ] };
 	if (!pools['yt_quic']) pools['yt_quic'] = { key: 'yt_quic', protocol: 'QUIC', size: 9, strategies: [ { index: 1, name: 'Default v2 (circular)' } ] };
-	if (!pools['discord_udp']) pools['discord_udp'] = { key: 'discord_udp', protocol: 'STUN', size: 8, strategies: [ { index: 1, name: 'Default v2 (circular)' } ] };
+	if (!pools['discord_voice']) pools['discord_voice'] = { key: 'discord_voice', protocol: 'STUN', size: 12, strategies: [ { index: 1, name: 'QUIC Morph v2' } ] };
+	if (!pools['discord_udp']) pools['discord_udp'] = pools['discord_voice'];
 
 	return { ok: true, pools: pools };
 }
@@ -324,8 +335,11 @@ function state_set(input) {
 	let value = request_value(input);
 	let key = safe_text(value.key);
 	let host = safe_text(value.host);
-	let strategy = safe_text(value.strategy != null ? value.strategy : value.strategyNumber);
+	let strategy_raw = value.strategy != null ? value.strategy : value.strategyNumber;
+	let strategy = safe_text('' + (strategy_raw != null ? strategy_raw : ''));
 	let mode = safe_text(value.mode) == 'frozen' ? 'frozen' : 'auto';
+
+	if (key == 'discord_udp') key = 'discord_voice';
 
 	if (!length(key) || !match(key, /^[a-zA-Z0-9_]+$/))
 		return { ok: false, error: { code: 'EINPUT', message: 'key is invalid' } };
@@ -334,23 +348,39 @@ function state_set(input) {
 	if (!length(strategy) || !match(strategy, /^[0-9]+$/) || +strategy < 1)
 		return { ok: false, error: { code: 'EINPUT', message: 'strategy must be a positive integer' } };
 
+	let pools_info = pools_read();
+	let pool = pools_info && pools_info.pools && (pools_info.pools[key] || pools_info.pools[lc(key)]);
+	if (pool && pool.size && (+strategy > pool.size)) {
+		return { ok: false, error: { code: 'EINPUT', message: 'strategy ' + strategy + ' exceeds pool size (' + pool.size + ')' } };
+	}
+
 	let rows = learned_rows();
 	let updated = false;
 	let now_ts = '' + time();
+	let kept = [];
 	for (let row in rows) {
+		if ((key == 'discord_voice' && host == 'nohost') && (row.key == 'discord_udp' || row.key == 'discord_voice') && row.host == 'nohost') {
+			if (!updated) {
+				push(kept, { key: 'discord_voice', host: 'nohost', strategy: strategy, ts: now_ts, mode: mode });
+				updated = true;
+			}
+			continue;
+		}
 		if (row.key == key && row.host == host) {
 			row.strategy = strategy;
 			row.ts = now_ts;
 			row.mode = mode;
 			updated = true;
-			break;
+			push(kept, row);
+		} else {
+			push(kept, row);
 		}
 	}
 	if (!updated) {
-		push(rows, { key: key, host: host, strategy: strategy, ts: now_ts, mode: mode });
+		push(kept, { key: key, host: host, strategy: strategy, ts: now_ts, mode: mode });
 	}
 
-	if (!state_save_rows(rows))
+	if (!state_save_rows(kept))
 		return { ok: false, error: { code: 'EIO', message: 'could not save state.tsv' } };
 
 	return { ok: true, key: key, host: host, strategy: strategy, mode: mode, ts: now_ts };
@@ -364,11 +394,16 @@ function state_delete(input) {
 	if (!length(key) || !length(host))
 		return { ok: false, error: { code: 'EINPUT', message: 'key and host are required' } };
 
+	let is_discord = (key == 'discord_voice' || key == 'discord_udp') && host == 'nohost';
+
 	let rows = learned_rows();
 	let kept = [];
 	for (let row in rows) {
-		if (!(row.key == key && row.host == host))
-			push(kept, row);
+		if (is_discord && (row.key == 'discord_voice' || row.key == 'discord_udp') && row.host == 'nohost')
+			continue;
+		if (row.key == key && row.host == host)
+			continue;
+		push(kept, row);
 	}
 
 	if (!state_save_rows(kept))
@@ -379,7 +414,12 @@ function state_delete(input) {
 
 function learned_clear(input) {
 	let value = request_value(input), host = safe_text(value.host), key = safe_text(value.key), rows = learned_rows(), kept = [];
-	for (let row in rows) if ((host && row.host != host) || (key && row.key != key)) push(kept, row);
+	let is_discord = (key == 'discord_voice' || key == 'discord_udp') && (host == 'nohost' || !host);
+	for (let row in rows) {
+		if (is_discord && (row.key == 'discord_voice' || row.key == 'discord_udp') && (row.host == 'nohost' || (host && row.host == host)))
+			continue;
+		if ((host && row.host != host) || (key && row.key != key)) push(kept, row);
+	}
 	if (!host && !key) kept = [];
 	if (!state_save_rows(kept))
 		return { ok: false, error: { code: 'EIO', message: 'learned state reset failed' } };
