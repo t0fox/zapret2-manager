@@ -1603,6 +1603,7 @@ function z2k_silent_drop_detector(desync, crec)
       if is_browser_cancel then
         DLOG("z2k_silent_drop_detector: SKIP browser-cancel out="..out_count..
              " in="..in_count.." in_bytes="..in_bytes.." age="..conn_age.."s")
+        return false
       else
         DLOG("z2k_silent_drop_detector: FAILURE out="..out_count.." in="..in_count..
              " in_bytes="..in_bytes.." age="..conn_age.."s")
@@ -1759,3 +1760,64 @@ function z2k_http_partial_response(desync, crec)
 
   return false
 end
+
+-- ===========================================================================
+-- QUIC rotation detectors — wired ONLY on yt_quic via config_official
+-- (success_detector=z2k_quic_success / failure_detector=z2k_quic_stall).
+--
+-- WHY: the legacy standard UDP success latches when incoming packets > udp_in
+-- (=1), i.e. on the 2nd incoming datagram. Any QUIC server Initial+Handshake
+-- flight is 2+ incoming datagrams, so it pinned slot1 INSTANTLY even when the
+-- strategy never pierced to deliver video → yt_quic NEVER rotated.
+--
+-- FIX: pin only on SUSTAINED DOWNLOAD (real video flowing), and rotate off a
+-- slot that handshakes-but-stalls or doesn't pierce.
+-- ===========================================================================
+local Z2K_QUIC_SUCCESS_BYTES    = 24576  -- 24 KiB download = sustained video
+local Z2K_QUIC_STALL_OUT_MIN    = 3      -- client must have actively retried (>=3 datagrams)
+local Z2K_QUIC_STALL_AGE_SEC    = 2      -- connection had >=2s to deliver
+local Z2K_QUIC_STALL_NOPROG_SEC = 1      -- download stopped growing for >=1s
+
+function z2k_quic_success(desync, crec)
+  if not desync or desync.outgoing then return false end            -- INCOMING only
+  if not desync.dis or not desync.dis.udp then return false end
+  if not (desync.track and desync.track.pos) then return false end
+  local dl_bytes = pos_get(desync, 'b')                             -- direct on incoming = DOWNLOAD bytes
+  if dl_bytes and dl_bytes > Z2K_QUIC_SUCCESS_BYTES then
+    DLOG("z2k_quic_success: download " .. dl_bytes .. " > " ..
+         Z2K_QUIC_SUCCESS_BYTES .. " — sustained QUIC data, pin")
+    return true
+  end
+  return false
+end
+
+function z2k_quic_stall(desync, crec)
+  if not desync or not desync.outgoing then return false end         -- OUTGOING only
+  if not desync.dis or not desync.dis.udp then return false end
+  if not (desync.track and desync.track.pos and desync.track.lua_state) then return false end
+  local dl_bytes = pos_get(desync, 'b', true) or 0                  -- reverse on outgoing = DOWNLOAD bytes
+  local out_pkts = pos_get(desync, 'd', false) or 0                 -- direct on outgoing = client datagram count
+  local now = (os and os.time and os.time()) or 0
+
+  local st = desync.track.lua_state.quic
+  if not st then
+    st = { first_ts = now, max_dl = dl_bytes, progress_ts = now }
+    desync.track.lua_state.quic = st
+  end
+  if dl_bytes > st.max_dl then
+    st.max_dl = dl_bytes
+    st.progress_ts = now
+  end
+
+  if out_pkts >= Z2K_QUIC_STALL_OUT_MIN
+     and dl_bytes < Z2K_QUIC_SUCCESS_BYTES
+     and (now - st.first_ts)    >= Z2K_QUIC_STALL_AGE_SEC
+     and (now - st.progress_ts) >= Z2K_QUIC_STALL_NOPROG_SEC then
+    DLOG("z2k_quic_stall: out=" .. out_pkts .. " download=" .. dl_bytes ..
+         " age=" .. (now - st.first_ts) .. "s no-progress=" .. (now - st.progress_ts) ..
+         "s (<" .. Z2K_QUIC_SUCCESS_BYTES .. " sustained) — QUIC stall/no-pierce, fail")
+    return true
+  end
+  return false
+end
+

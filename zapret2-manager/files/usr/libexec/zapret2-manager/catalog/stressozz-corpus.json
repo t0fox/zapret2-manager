@@ -1,543 +1,3603 @@
 {
-	"schemaVersion": 1,
-	"sourceRepo": "StressOzz/Zapret-Manager",
-	"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
-	"records": [
-		{
-			"id": "stressozz-discord-media-dv1",
-			"feature": "discord-media",
-			"sourceRepo": "StressOzz/Zapret-Manager",
-			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
-			"sourceName": "Dv1",
-			"originalOptions": [
-				"--filter-tcp=2053,2083,2087,2096,8443",
-				"--hostlist-domains=discord.media",
-				"--dpi-desync=multisplit",
-				"--dpi-desync-split-seqovl=652",
-				"--dpi-desync-split-pos=2",
-				"--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
-			],
-			"filters": {
-				"tcpPorts": "2053,2083,2087,2096,8443",
-				"domains": [
-					"discord.media"
-				]
-			},
-			"payloadReferences": [
-				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
-			],
-			"executionStatus": "not-adapted"
-		},
-		{
-			"id": "stressozz-discord-media-dv2",
-			"feature": "discord-media",
-			"sourceRepo": "StressOzz/Zapret-Manager",
-			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
-			"sourceName": "Dv2",
-			"originalOptions": [
-				"--filter-tcp=2053,2083,2087,2096,8443",
-				"--hostlist-domains=discord.media",
-				"--dpi-desync=fake,multisplit",
-				"--dpi-desync-split-seqovl=681",
-				"--dpi-desync-split-pos=1",
-				"--dpi-desync-fooling=ts",
-				"--dpi-desync-repeats=8",
-				"--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
-				"--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com"
-			],
-			"filters": {
-				"tcpPorts": "2053,2083,2087,2096,8443",
-				"domains": [
-					"discord.media"
-				]
-			},
-			"payloadReferences": [
-				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
-				"rnd,dupsid,sni"
-			],
-			"executionStatus": "not-adapted"
-		},
-		{
-			"id": "stressozz-discord-media-dv3",
-			"feature": "discord-media",
-			"sourceRepo": "StressOzz/Zapret-Manager",
-			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
-			"sourceName": "Dv3",
-			"originalOptions": [
-				"--filter-tcp=2053,2083,2087,2096,8443",
-				"--hostlist-domains=discord.media",
-				"--dpi-desync=fake",
-				"--dpi-desync-repeats=6",
-				"--dpi-desync-fooling=ts",
-				"--dpi-desync-fake-tls=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
-				"--dpi-desync-fake-tls-mod=none"
-			],
-			"filters": {
-				"tcpPorts": "2053,2083,2087,2096,8443",
-				"domains": [
-					"discord.media"
-				]
-			},
-			"payloadReferences": [
-				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
-				"none"
-			],
-			"executionStatus": "not-adapted"
-		},
-		{
-			"id": "stressozz-discord-media-dv4",
-			"feature": "discord-media",
-			"sourceRepo": "StressOzz/Zapret-Manager",
-			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
-			"sourceName": "Dv4",
-			"originalOptions": [
-				"--filter-tcp=2053,2083,2087,2096,8443",
-				"--hostlist-domains=discord.media",
-				"--dpi-desync=multisplit",
-				"--dpi-desync-split-seqovl=652",
-				"--dpi-desync-split-pos=2",
-				"--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
-			],
-			"filters": {
-				"tcpPorts": "2053,2083,2087,2096,8443",
-				"domains": [
-					"discord.media"
-				]
-			},
-			"payloadReferences": [
-				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
-			],
-			"executionStatus": "not-adapted"
-		},
-		{
-			"id": "stressozz-discord-media-dv5",
-			"feature": "discord-media",
-			"sourceRepo": "StressOzz/Zapret-Manager",
-			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
-			"sourceName": "Dv5",
-			"originalOptions": [
-				"--filter-tcp=2053,2083,2087,2096,8443",
-				"--hostlist-domains=discord.media",
-				"--dpi-desync=fake,multisplit",
-				"--dpi-desync-repeats=6",
-				"--dpi-desync-fooling=badseq",
-				"--dpi-desync-badseq-increment=1000",
-				"--dpi-desync-fake-tls=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
-			],
-			"filters": {
-				"tcpPorts": "2053,2083,2087,2096,8443",
-				"domains": [
-					"discord.media"
-				]
-			},
-			"payloadReferences": [
-				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
-			],
-			"executionStatus": "not-adapted"
-		},
-		{
-			"id": "stressozz-discord-media-dv6",
-			"feature": "discord-media",
-			"sourceRepo": "StressOzz/Zapret-Manager",
-			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
-			"sourceName": "Dv6",
-			"originalOptions": [
-				"--filter-tcp=2053,2083,2087,2096,8443",
-				"--hostlist-domains=discord.media",
-				"--dpi-desync=multisplit",
-				"--dpi-desync-split-seqovl=681",
-				"--dpi-desync-split-pos=1",
-				"--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
-			],
-			"filters": {
-				"tcpPorts": "2053,2083,2087,2096,8443",
-				"domains": [
-					"discord.media"
-				]
-			},
-			"payloadReferences": [
-				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
-			],
-			"executionStatus": "not-adapted"
-		},
-		{
-			"id": "stressozz-discord-media-dv7",
-			"feature": "discord-media",
-			"sourceRepo": "StressOzz/Zapret-Manager",
-			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
-			"sourceName": "Dv7",
-			"originalOptions": [
-				"--filter-tcp=2053,2083,2087,2096,8443",
-				"--hostlist-domains=discord.media",
-				"--dpi-desync=multisplit",
-				"--dpi-desync-split-pos=2,sniext+1",
-				"--dpi-desync-split-seqovl=679",
-				"--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
-			],
-			"filters": {
-				"tcpPorts": "2053,2083,2087,2096,8443",
-				"domains": [
-					"discord.media"
-				]
-			},
-			"payloadReferences": [
-				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
-			],
-			"executionStatus": "not-adapted"
-		},
-		{
-			"id": "stressozz-discord-media-dv8",
-			"feature": "discord-media",
-			"sourceRepo": "StressOzz/Zapret-Manager",
-			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
-			"sourceName": "Dv8",
-			"originalOptions": [
-				"--filter-tcp=2053,2083,2087,2096,8443",
-				"--hostlist-domains=discord.media",
-				"--dpi-desync=fake",
-				"--dpi-desync-fake-tls-mod=none",
-				"--dpi-desync-repeats=6",
-				"--dpi-desync-fooling=badseq",
-				"--dpi-desync-badseq-increment=2"
-			],
-			"filters": {
-				"tcpPorts": "2053,2083,2087,2096,8443",
-				"domains": [
-					"discord.media"
-				]
-			},
-			"payloadReferences": [
-				"none"
-			],
-			"executionStatus": "not-adapted"
-		},
-		{
-			"id": "stressozz-discord-media-dv9",
-			"feature": "discord-media",
-			"sourceRepo": "StressOzz/Zapret-Manager",
-			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
-			"sourceName": "Dv9",
-			"originalOptions": [
-				"--filter-tcp=2053,2083,2087,2096,8443",
-				"--hostlist-domains=discord.media",
-				"--dpi-desync=fake,fakedsplit",
-				"--dpi-desync-split-pos=1",
-				"--dpi-desync-fooling=badseq",
-				"--dpi-desync-badseq-increment=2",
-				"--dpi-desync-repeats=8",
-				"--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com"
-			],
-			"filters": {
-				"tcpPorts": "2053,2083,2087,2096,8443",
-				"domains": [
-					"discord.media"
-				]
-			},
-			"payloadReferences": [
-				"rnd,dupsid,sni"
-			],
-			"executionStatus": "not-adapted"
-		},
-		{
-			"id": "stressozz-discord-media-dv10",
-			"feature": "discord-media",
-			"sourceRepo": "StressOzz/Zapret-Manager",
-			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
-			"sourceName": "Dv10",
-			"originalOptions": [
-				"--filter-tcp=2053,2083,2087,2096,8443",
-				"--hostlist-domains=discord.media",
-				"--dpi-desync=fake,multisplit",
-				"--dpi-desync-split-seqovl=681",
-				"--dpi-desync-split-pos=1",
-				"--dpi-desync-fooling=badseq",
-				"--dpi-desync-badseq-increment=10000000",
-				"--dpi-desync-repeats=8",
-				"--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
-				"--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com"
-			],
-			"filters": {
-				"tcpPorts": "2053,2083,2087,2096,8443",
-				"domains": [
-					"discord.media"
-				]
-			},
-			"payloadReferences": [
-				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
-				"rnd,dupsid,sni"
-			],
-			"executionStatus": "not-adapted"
-		},
-		{
-			"id": "stressozz-discord-media-dv11",
-			"feature": "discord-media",
-			"sourceRepo": "StressOzz/Zapret-Manager",
-			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
-			"sourceName": "Dv11",
-			"originalOptions": [
-				"--filter-tcp=2053,2083,2087,2096,8443",
-				"--hostlist-domains=discord.media",
-				"--dpi-desync=fake,multisplit",
-				"--dpi-desync-split-seqovl=681",
-				"--dpi-desync-split-pos=1",
-				"--dpi-desync-fooling=ts",
-				"--dpi-desync-repeats=8",
-				"--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
-				"--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com"
-			],
-			"filters": {
-				"tcpPorts": "2053,2083,2087,2096,8443",
-				"domains": [
-					"discord.media"
-				]
-			},
-			"payloadReferences": [
-				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
-				"rnd,dupsid,sni"
-			],
-			"executionStatus": "not-adapted"
-		},
-		{
-			"id": "stressozz-discord-media-dv12",
-			"feature": "discord-media",
-			"sourceRepo": "StressOzz/Zapret-Manager",
-			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
-			"sourceName": "Dv12",
-			"originalOptions": [
-				"--filter-tcp=2053,2083,2087,2096,8443",
-				"--hostlist-domains=discord.media",
-				"--dpi-desync=fake",
-				"--dpi-desync-repeats=6",
-				"--dpi-desync-fooling=badseq",
-				"--dpi-desync-badseq-increment=2",
-				"--dpi-desync-fake-tls=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
-			],
-			"filters": {
-				"tcpPorts": "2053,2083,2087,2096,8443",
-				"domains": [
-					"discord.media"
-				]
-			},
-			"payloadReferences": [
-				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
-			],
-			"executionStatus": "not-adapted"
-		},
-		{
-			"id": "stressozz-discord-media-dv13",
-			"feature": "discord-media",
-			"sourceRepo": "StressOzz/Zapret-Manager",
-			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
-			"sourceName": "Dv13",
-			"originalOptions": [
-				"--filter-tcp=2053,2083,2087,2096,8443",
-				"--hostlist-domains=discord.media",
-				"--dpi-desync=fake",
-				"--dpi-desync-repeats=6",
-				"--dpi-desync-fooling=ts",
-				"--dpi-desync-fake-tls=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
-			],
-			"filters": {
-				"tcpPorts": "2053,2083,2087,2096,8443",
-				"domains": [
-					"discord.media"
-				]
-			},
-			"payloadReferences": [
-				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
-			],
-			"executionStatus": "not-adapted"
-		},
-		{
-			"id": "stressozz-discord-media-dv14",
-			"feature": "discord-media",
-			"sourceRepo": "StressOzz/Zapret-Manager",
-			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
-			"sourceName": "Dv14",
-			"originalOptions": [
-				"--filter-tcp=2053,2083,2087,2096,8443",
-				"--hostlist-domains=discord.media",
-				"--dpi-desync=fake,fakedsplit",
-				"--dpi-desync-repeats=6",
-				"--dpi-desync-fooling=ts",
-				"--dpi-desync-fakedsplit-pattern=0x00",
-				"--dpi-desync-fake-tls=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
-			],
-			"filters": {
-				"tcpPorts": "2053,2083,2087,2096,8443",
-				"domains": [
-					"discord.media"
-				]
-			},
-			"payloadReferences": [
-				"0x00",
-				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin"
-			],
-			"executionStatus": "not-adapted"
-		},
-		{
-			"id": "stressozz-discord-media-dv15",
-			"feature": "discord-media",
-			"sourceRepo": "StressOzz/Zapret-Manager",
-			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
-			"sourceName": "Dv15",
-			"originalOptions": [
-				"--filter-tcp=2053,2083,2087,2096,8443",
-				"--hostlist-domains=discord.media",
-				"--dpi-desync=fake,multidisorder",
-				"--dpi-desync-split-pos=1,midsld",
-				"--dpi-desync-repeats=11",
-				"--dpi-desync-fooling=badseq",
-				"--dpi-desync-fake-tls=0x00000000",
-				"--dpi-desync-fake-tls=/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
-				"--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com"
-			],
-			"filters": {
-				"tcpPorts": "2053,2083,2087,2096,8443",
-				"domains": [
-					"discord.media"
-				]
-			},
-			"payloadReferences": [
-				"0x00000000",
-				"/opt/zapret/files/fake/tls_clienthello_www_google_com.bin",
-				"rnd,dupsid,sni"
-			],
-			"executionStatus": "not-adapted"
-		},
-		{
-			"id": "stressozz-discord-media-dv16",
-			"feature": "discord-media",
-			"sourceRepo": "StressOzz/Zapret-Manager",
-			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
-			"sourceName": "Dv16",
-			"originalOptions": [
-				"--filter-tcp=2053,2083,2087,2096,8443",
-				"--hostlist-domains=discord.media",
-				"--dpi-desync=fake,hostfakesplit",
-				"--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com",
-				"--dpi-desync-hostfakesplit-mod=host=www.google.com,altorder=1",
-				"--dpi-desync-fooling=ts"
-			],
-			"filters": {
-				"tcpPorts": "2053,2083,2087,2096,8443",
-				"domains": [
-					"discord.media"
-				]
-			},
-			"payloadReferences": [
-				"rnd,dupsid,sni"
-			],
-			"executionStatus": "not-adapted"
-		},
-		{
-			"id": "stressozz-discord-media-dv17",
-			"feature": "discord-media",
-			"sourceRepo": "StressOzz/Zapret-Manager",
-			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
-			"sourceName": "Dv17",
-			"originalOptions": [
-				"--filter-tcp=2053,2083,2087,2096,8443",
-				"--hostlist-domains=discord.media",
-				"--dpi-desync=hostfakesplit",
-				"--dpi-desync-repeats=4",
-				"--dpi-desync-fooling=ts",
-				"--dpi-desync-hostfakesplit-mod=host=www.google.com"
-			],
-			"filters": {
-				"tcpPorts": "2053,2083,2087,2096,8443",
-				"domains": [
-					"discord.media"
-				]
-			},
-			"payloadReferences": [],
-			"executionStatus": "not-adapted"
-		},
-		{
-			"id": "stressozz-discord-voice",
-			"feature": "discord-voice",
-			"sourceRepo": "StressOzz/Zapret-Manager",
-			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
-			"sourceName": "discord voice/STUN",
-			"originalOptions": [
-				"--filter-udp=19294-19344,50000-50100",
-				"--filter-l7=discord,stun",
-				"--dpi-desync=fake",
-				"--dpi-desync-fake-discord=/opt/zapret/files/fake/stun.bin",
-				"--dpi-desync-fake-stun=/opt/zapret/files/fake/stun.bin",
-				"--dpi-desync-repeats=6"
-			],
-			"filters": {
-				"udpPorts": "19294-19344,50000-50100",
-				"l7": [
-					"discord",
-					"stun"
-				]
-			},
-			"payloadReferences": [
-				"/opt/zapret/files/fake/stun.bin"
-			],
-			"executionStatus": "not-adapted"
-		},
-		{
-			"id": "stressozz-discord-finland",
-			"feature": "discord-finland",
-			"sourceRepo": "StressOzz/Zapret-Manager",
-			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
-			"sourceName": "Finnish Discord media scope",
-			"originalOptions": [
-				"104\\.25\\.158\\.178 finland[0-9]\\{5\\}\\.discord\\.media"
-			],
-			"filters": {
-				"hostnames": [
-					"finland[0-9]{5}.discord.media"
-				],
-				"ips": [
-					"104.25.158.178"
-				]
-			},
-			"payloadReferences": [],
-			"executionStatus": "not-adapted"
-		},
-		{
-			"id": "stressozz-game-filter",
-			"feature": "game-filter",
-			"sourceRepo": "StressOzz/Zapret-Manager",
-			"sourceCommit": "b3269f852ed2d70b4c24918750c6b5b46b8b6a69",
-			"sourceName": "Gv1",
-			"originalOptions": [
-				"--filter-udp=88,1024-2407,2409-4499,4502-19293,19345-49999,50101-65535",
-				"--dpi-desync=fake",
-				"--dpi-desync-cutoff=d2",
-				"--dpi-desync-any-protocol=1",
-				"--dpi-desync-fake-unknown-udp=/opt/zapret/files/fake/stun.bin",
-				"--new",
-				"--filter-tcp=2802,2302,2502,3724,6000-8000,8085,8090,8100,8903,8904,25565,27015-27030,27036-27037,50001,60442",
-				"--dpi-desync-any-protocol=1",
-				"--dpi-desync-cutoff=n5",
-				"--dpi-desync=multisplit",
-				"--dpi-desync-split-seqovl=582",
-				"--dpi-desync-split-pos=1",
-				"--dpi-desync-split-seqovl-pattern=/opt/zapret/files/fake/stun.bin"
-			],
-			"filters": {
-				"tcpPorts": "2802,2302,2502,3724,6000-8000,8085,8090,8100,8903,8904,25565,27015-27030,27036-27037,50001,60442",
-				"udpPorts": "88,1024-2407,2409-4499,4502-19293,19345-49999,50101-65535",
-				"metadata": {
-					"enable": "fix_GAME installs Gv1",
-					"disable": "fix_GAME removes Gv1",
-					"strategyVariants": [
-						"Gv1",
-						"Gv2",
-						"Gv3",
-						"Gv4"
-					]
-				}
-			},
-			"payloadReferences": [
-				"/opt/zapret/files/fake/stun.bin"
-			],
-			"executionStatus": "not-adapted"
-		}
-	]
+  "schema": "zapret2-manager.strategy-corpus.v2",
+  "provenance": {
+    "upstream": "necronicle/z2k@z2k-enhanced",
+    "commit": "99be613303e00d42ed027d5197f6e353995bb353",
+    "tag": "r-77.2",
+    "parsedAt": "2026-08-19T13:59:25.979Z"
+  },
+  "pools": {
+    "rkn_tcp": {
+      "name": "RKN TCP Pool",
+      "count": 50,
+      "strategies": [
+        "rkn_tcp_strat_1",
+        "rkn_tcp_strat_2",
+        "rkn_tcp_strat_3",
+        "rkn_tcp_strat_4",
+        "rkn_tcp_strat_5",
+        "rkn_tcp_strat_6",
+        "rkn_tcp_strat_7",
+        "rkn_tcp_strat_8",
+        "rkn_tcp_strat_9",
+        "rkn_tcp_strat_10",
+        "rkn_tcp_strat_11",
+        "rkn_tcp_strat_12",
+        "rkn_tcp_strat_13",
+        "rkn_tcp_strat_14",
+        "rkn_tcp_strat_15",
+        "rkn_tcp_strat_16",
+        "rkn_tcp_strat_17",
+        "rkn_tcp_strat_18",
+        "rkn_tcp_strat_19",
+        "rkn_tcp_strat_20",
+        "rkn_tcp_strat_21",
+        "rkn_tcp_strat_22",
+        "rkn_tcp_strat_23",
+        "rkn_tcp_strat_24",
+        "rkn_tcp_strat_25",
+        "rkn_tcp_strat_26",
+        "rkn_tcp_strat_27",
+        "rkn_tcp_strat_28",
+        "rkn_tcp_strat_29",
+        "rkn_tcp_strat_30",
+        "rkn_tcp_strat_31",
+        "rkn_tcp_strat_32",
+        "rkn_tcp_strat_33",
+        "rkn_tcp_strat_34",
+        "rkn_tcp_strat_35",
+        "rkn_tcp_strat_36",
+        "rkn_tcp_strat_37",
+        "rkn_tcp_strat_38",
+        "rkn_tcp_strat_39",
+        "rkn_tcp_strat_40",
+        "rkn_tcp_strat_41",
+        "rkn_tcp_strat_42",
+        "rkn_tcp_strat_43",
+        "rkn_tcp_strat_44",
+        "rkn_tcp_strat_45",
+        "rkn_tcp_strat_46",
+        "rkn_tcp_strat_47",
+        "rkn_tcp_strat_48",
+        "rkn_tcp_strat_49",
+        "rkn_tcp_strat_50"
+      ]
+    },
+    "yt_tcp": {
+      "name": "YouTube TCP Pool",
+      "count": 22,
+      "strategies": [
+        "yt_tcp_strat_1",
+        "yt_tcp_strat_2",
+        "yt_tcp_strat_3",
+        "yt_tcp_strat_4",
+        "yt_tcp_strat_5",
+        "yt_tcp_strat_6",
+        "yt_tcp_strat_7",
+        "yt_tcp_strat_8",
+        "yt_tcp_strat_9",
+        "yt_tcp_strat_10",
+        "yt_tcp_strat_11",
+        "yt_tcp_strat_12",
+        "yt_tcp_strat_13",
+        "yt_tcp_strat_14",
+        "yt_tcp_strat_15",
+        "yt_tcp_strat_16",
+        "yt_tcp_strat_17",
+        "yt_tcp_strat_18",
+        "yt_tcp_strat_19",
+        "yt_tcp_strat_20",
+        "yt_tcp_strat_21",
+        "yt_tcp_strat_22"
+      ]
+    },
+    "gv_tcp": {
+      "name": "GoogleVideo TCP Pool",
+      "count": 22,
+      "strategies": [
+        "gv_tcp_strat_1",
+        "gv_tcp_strat_2",
+        "gv_tcp_strat_3",
+        "gv_tcp_strat_4",
+        "gv_tcp_strat_5",
+        "gv_tcp_strat_6",
+        "gv_tcp_strat_7",
+        "gv_tcp_strat_8",
+        "gv_tcp_strat_9",
+        "gv_tcp_strat_10",
+        "gv_tcp_strat_11",
+        "gv_tcp_strat_12",
+        "gv_tcp_strat_13",
+        "gv_tcp_strat_14",
+        "gv_tcp_strat_15",
+        "gv_tcp_strat_16",
+        "gv_tcp_strat_17",
+        "gv_tcp_strat_18",
+        "gv_tcp_strat_19",
+        "gv_tcp_strat_20",
+        "gv_tcp_strat_21",
+        "gv_tcp_strat_22"
+      ]
+    },
+    "yt_quic": {
+      "name": "YouTube QUIC Pool",
+      "count": 13,
+      "strategies": [
+        "yt_quic_strat_1",
+        "yt_quic_strat_2",
+        "yt_quic_strat_3",
+        "yt_quic_strat_4",
+        "yt_quic_strat_5",
+        "yt_quic_strat_6",
+        "yt_quic_strat_7",
+        "yt_quic_strat_8",
+        "yt_quic_strat_9",
+        "yt_quic_strat_10",
+        "yt_quic_strat_11",
+        "yt_quic_strat_12",
+        "yt_quic_strat_13"
+      ]
+    },
+    "discord_voice": {
+      "name": "Discord Voice STUN Pool",
+      "count": 12,
+      "strategies": [
+        "discord_voice_strat_1",
+        "discord_voice_strat_2",
+        "discord_voice_strat_3",
+        "discord_voice_strat_4",
+        "discord_voice_strat_5",
+        "discord_voice_strat_6",
+        "discord_voice_strat_7",
+        "discord_voice_strat_8",
+        "discord_voice_strat_9",
+        "discord_voice_strat_10",
+        "discord_voice_strat_11",
+        "discord_voice_strat_12"
+      ]
+    }
+  },
+  "totalStrategies": 119,
+  "strategies": [
+    {
+      "id": "rkn_tcp_strat_1",
+      "pool": "rkn_tcp",
+      "slot": 1,
+      "name": "RKN_TCP Slot 1",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_1_p1",
+          "name": "RKN_TCP Slot 1 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=fake_default_tls:repeats=8:tcp_ts=-1000:tls_mod=rnd,dupsid,sni=www.google.com:strategy=1 --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=1:seqovl=681:seqovl_pattern=tls_clienthello_www_google_com:strategy=1",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "fake_default_tls",
+          "tls_clienthello_www_google_com"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_2",
+      "pool": "rkn_tcp",
+      "slot": 2,
+      "name": "RKN_TCP Slot 2",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_2_p1",
+          "name": "RKN_TCP Slot 2 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=hostfakesplit:payload=tls_client_hello:dir=out:seqovl=726:badsum:badseq:badseq_increment=0:strategy=2",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_3",
+      "pool": "rkn_tcp",
+      "slot": 3,
+      "name": "RKN_TCP Slot 3",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_3_p1",
+          "name": "RKN_TCP Slot 3 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=1:seqovl=568:seqovl_pattern=tls_clienthello_4pda_to:strategy=3",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_clienthello_4pda_to"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_4",
+      "pool": "rkn_tcp",
+      "slot": 4,
+      "name": "RKN_TCP Slot 4",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_4_p1",
+          "name": "RKN_TCP Slot 4 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=1,sniext+1:seqovl=1:strategy=4",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_5",
+      "pool": "rkn_tcp",
+      "slot": 5,
+      "name": "RKN_TCP Slot 5",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_5_p1",
+          "name": "RKN_TCP Slot 5 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=0x00000000:repeats=11:tcp_seq=2:tls_mod=rnd,dupsid,sni=www.google.com:strategy=5 --lua-desync=multidisorder:payload=tls_client_hello:dir=out:pos=1,midsld:strategy=5",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_6",
+      "pool": "rkn_tcp",
+      "slot": 6,
+      "name": "RKN_TCP Slot 6",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_6_p1",
+          "name": "RKN_TCP Slot 6 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=hostfakesplit:payload=tls_client_hello:dir=out:badseq:badsum:badseq_increment=0:strategy=6",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_7",
+      "pool": "rkn_tcp",
+      "slot": 7,
+      "name": "RKN_TCP Slot 7",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_7_p1",
+          "name": "RKN_TCP Slot 7 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=fake_default_tls:repeats=8:tcp_seq=2:tls_mod=rnd,dupsid,sni=www.google.com:strategy=7 --lua-desync=fakedsplit:payload=tls_client_hello:dir=out:pos=1:strategy=7",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "fake_default_tls"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_8",
+      "pool": "rkn_tcp",
+      "slot": 8,
+      "name": "RKN_TCP Slot 8",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_8_p1",
+          "name": "RKN_TCP Slot 8 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_activated:repeats=8:badseq:badsum:badseq_increment=0:strategy=8 --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=1:seqovl=654:seqovl_pattern=tls_clienthello_activated:strategy=8",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_clienthello_activated"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_9",
+      "pool": "rkn_tcp",
+      "slot": 9,
+      "name": "RKN_TCP Slot 9",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_9_p1",
+          "name": "RKN_TCP Slot 9 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=fake_default_tls:repeats=8:tcp_seq=10000000:tls_mod=rnd,dupsid,sni=www.google.com:strategy=9 --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=1:seqovl=681:seqovl_pattern=tls_clienthello_www_google_com:strategy=9",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "fake_default_tls",
+          "tls_clienthello_www_google_com"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_10",
+      "pool": "rkn_tcp",
+      "slot": 10,
+      "name": "RKN_TCP Slot 10",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_10_p1",
+          "name": "RKN_TCP Slot 10 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_www_google_com:repeats=6:tcp_ts=-1000:badsum:ip_id=zero:strategy=10 --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=1:seqovl=681:seqovl_pattern=tls_clienthello_www_google_com:strategy=10",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_clienthello_www_google_com"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_11",
+      "pool": "rkn_tcp",
+      "slot": 11,
+      "name": "RKN_TCP Slot 11",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_11_p1",
+          "name": "RKN_TCP Slot 11 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=stun:repeats=6:tcp_ts=-43210:strategy=11 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_www_google_com:repeats=6:tcp_ts=-43210:strategy=11 --lua-desync=fakedsplit:payload=tls_client_hello:dir=out:pos=1:strategy=11",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "stun",
+          "tls_clienthello_www_google_com"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_12",
+      "pool": "rkn_tcp",
+      "slot": 12,
+      "name": "RKN_TCP Slot 12",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_12_p1",
+          "name": "RKN_TCP Slot 12 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_www_onetrust_com:tcp_ts=-1000:badsum:tls_mod=rnd,dupsid,sni=m.ok.ru:strategy=12 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=0x0F0F0F0F:tcp_ts=-1000:badsum:strategy=12 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_vk_com:tcp_ts=-1000:badsum:strategy=12 --lua-desync=fakeddisorder:payload=tls_client_hello:dir=out:pos=10,midsld:seqovl=336:seqovl_pattern=tls_clienthello_gosuslugi_ru:strategy=12",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_clienthello_www_onetrust_com",
+          "tls_clienthello_vk_com",
+          "tls_clienthello_gosuslugi_ru"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_13",
+      "pool": "rkn_tcp",
+      "slot": 13,
+      "name": "RKN_TCP Slot 13",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_13_p1",
+          "name": "RKN_TCP Slot 13 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=2:seqovl=652:seqovl_pattern=tls_clienthello_www_google_com:strategy=13",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_clienthello_www_google_com"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_14",
+      "pool": "rkn_tcp",
+      "slot": 14,
+      "name": "RKN_TCP Slot 14",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_14_p1",
+          "name": "RKN_TCP Slot 14 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=t2:tcp_ts=-1000:badsum:tls_mod=rnd,dupsid,sni=fonts.google.com:strategy=14 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=0x0F0F0F0F:tcp_ts=-1000:badsum:strategy=14 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_vk_com:tcp_ts=-1000:badsum:strategy=14 --lua-desync=fakeddisorder:payload=tls_client_hello:dir=out:pos=10,midsld:seqovl=336:seqovl_pattern=tls_clienthello_gosuslugi_ru:strategy=14",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "t2",
+          "tls_clienthello_vk_com",
+          "tls_clienthello_gosuslugi_ru"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_15",
+      "pool": "rkn_tcp",
+      "slot": 15,
+      "name": "RKN_TCP Slot 15",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_15_p1",
+          "name": "RKN_TCP Slot 15 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=fake_default_tls:tcp_ts=-100000:tls_mod=rnd,dupsid,sni=ya.ru:strategy=15 --lua-desync=hostfakesplit:payload=tls_client_hello:dir=out:strategy=15",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "fake_default_tls"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_16",
+      "pool": "rkn_tcp",
+      "slot": 16,
+      "name": "RKN_TCP Slot 16",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_16_p1",
+          "name": "RKN_TCP Slot 16 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_www_onetrust_com:repeats=8:badseq:badsum:badseq_increment=0:strategy=16 --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=1:seqovl=654:seqovl_pattern=tls_clienthello_www_onetrust_com:strategy=16",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_clienthello_www_onetrust_com"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_17",
+      "pool": "rkn_tcp",
+      "slot": 17,
+      "name": "RKN_TCP Slot 17",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_17_p1",
+          "name": "RKN_TCP Slot 17 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=stun:repeats=6:tcp_seq=1000:strategy=17 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_www_google_com:repeats=6:tcp_seq=1000:strategy=17 --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=1:strategy=17",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "stun",
+          "tls_clienthello_www_google_com"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_18",
+      "pool": "rkn_tcp",
+      "slot": 18,
+      "name": "RKN_TCP Slot 18",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_18_p1",
+          "name": "RKN_TCP Slot 18 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=fake_default_tls:repeats=8:tcp_ts=-500000:tls_mod=rnd,dupsid,sni=fonts.google.com:strategy=18 --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=1:seqovl=681:seqovl_pattern=tls_clienthello_www_google_com:strategy=18",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "fake_default_tls",
+          "tls_clienthello_www_google_com"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_19",
+      "pool": "rkn_tcp",
+      "slot": 19,
+      "name": "RKN_TCP Slot 19",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_19_p1",
+          "name": "RKN_TCP Slot 19 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=syndata:payload=tls_client_hello:dir=out:blob=syn_packet:strategy=19 --lua-desync=multidisorder:payload=tls_client_hello:dir=out:pos=1,midsld:strategy=19",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "syn_packet"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_20",
+      "pool": "rkn_tcp",
+      "slot": 20,
+      "name": "RKN_TCP Slot 20",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_20_p1",
+          "name": "RKN_TCP Slot 20 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=1:seqovl=681:seqovl_pattern=tls_clienthello_www_google_com:strategy=20",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_clienthello_www_google_com"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_21",
+      "pool": "rkn_tcp",
+      "slot": 21,
+      "name": "RKN_TCP Slot 21",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_21_p1",
+          "name": "RKN_TCP Slot 21 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=2,sniext+1:seqovl=679:seqovl_pattern=tls_clienthello_www_google_com:strategy=21",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_clienthello_www_google_com"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_22",
+      "pool": "rkn_tcp",
+      "slot": 22,
+      "name": "RKN_TCP Slot 22",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_22_p1",
+          "name": "RKN_TCP Slot 22 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=fake_default_tls:repeats=6:tcp_seq=2:strategy=22",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "fake_default_tls"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_23",
+      "pool": "rkn_tcp",
+      "slot": 23,
+      "name": "RKN_TCP Slot 23",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_23_p1",
+          "name": "RKN_TCP Slot 23 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=stun:repeats=6:tcp_ts=-43210:strategy=23 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_4pda_to:repeats=6:tcp_ts=-43210:strategy=23",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "stun",
+          "tls_clienthello_4pda_to"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_24",
+      "pool": "rkn_tcp",
+      "slot": 24,
+      "name": "RKN_TCP Slot 24",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_24_p1",
+          "name": "RKN_TCP Slot 24 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=stun:repeats=8:tcp_ts=-7777:strategy=24 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_max_ru:repeats=8:tcp_ts=-7777:strategy=24 --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=1:seqovl=664:seqovl_pattern=tls_max_ru:strategy=24",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "stun",
+          "tls_max_ru"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_25",
+      "pool": "rkn_tcp",
+      "slot": 25,
+      "name": "RKN_TCP Slot 25",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_25_p1",
+          "name": "RKN_TCP Slot 25 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=stun:repeats=6:tcp_ts=-43210:strategy=25 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_www_google_com:repeats=6:tcp_ts=-43210:strategy=25",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "stun",
+          "tls_clienthello_www_google_com"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_26",
+      "pool": "rkn_tcp",
+      "slot": 26,
+      "name": "RKN_TCP Slot 26",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_26_p1",
+          "name": "RKN_TCP Slot 26 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=stun:repeats=6:tcp_seq=2:strategy=26 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_www_google_com:repeats=6:tcp_seq=2:strategy=26",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "stun",
+          "tls_clienthello_www_google_com"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_27",
+      "pool": "rkn_tcp",
+      "slot": 27,
+      "name": "RKN_TCP Slot 27",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_27_p1",
+          "name": "RKN_TCP Slot 27 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=stun:repeats=6:tcp_ts=-1000:strategy=27 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_max_ru:repeats=6:tcp_ts=-1000:strategy=27",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "stun",
+          "tls_max_ru"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_28",
+      "pool": "rkn_tcp",
+      "slot": 28,
+      "name": "RKN_TCP Slot 28",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_28_p1",
+          "name": "RKN_TCP Slot 28 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=fake_default_tls:badsum:tls_mod=rnd,dupsid,sni=www.google.com:strategy=28 --lua-desync=multidisorder:payload=tls_client_hello:dir=out:pos=1,midsld:strategy=28",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "fake_default_tls"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_29",
+      "pool": "rkn_tcp",
+      "slot": 29,
+      "name": "RKN_TCP Slot 29",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_29_p1",
+          "name": "RKN_TCP Slot 29 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=stun:tcp_ts=-1000:badsum:strategy=29 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_max_ru:tcp_ts=-1000:badsum:tls_mod=sni=msn.com:strategy=29",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "stun",
+          "tls_max_ru"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_30",
+      "pool": "rkn_tcp",
+      "slot": 30,
+      "name": "RKN_TCP Slot 30",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_30_p1",
+          "name": "RKN_TCP Slot 30 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=0x0F0F0E0F:repeats=2:tcp_md5:tls_mod=rnd,dupsid:strategy=30 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_14:repeats=2:tcp_md5:tls_mod=rnd,dupsid:strategy=30 --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=sld+1:strategy=30",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_clienthello_14"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_31",
+      "pool": "rkn_tcp",
+      "slot": 31,
+      "name": "RKN_TCP Slot 31",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_31_p1",
+          "name": "RKN_TCP Slot 31 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_max_ru:repeats=6:tcp_ts=-1000:badsum:tls_mod=sni=msn.com:strategy=31",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_max_ru"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_32",
+      "pool": "rkn_tcp",
+      "slot": 32,
+      "name": "RKN_TCP Slot 32",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_32_p1",
+          "name": "RKN_TCP Slot 32 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=syndata:payload=tls_client_hello:dir=out:blob=syn_packet:strategy=32 --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=1,sld+1,endsld-2:seqovl=1:strategy=32",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "syn_packet"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_33",
+      "pool": "rkn_tcp",
+      "slot": 33,
+      "name": "RKN_TCP Slot 33",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_33_p1",
+          "name": "RKN_TCP Slot 33 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_4pda_to:repeats=6:tcp_ts=-1000:badsum:strategy=33",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_clienthello_4pda_to"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_34",
+      "pool": "rkn_tcp",
+      "slot": 34,
+      "name": "RKN_TCP Slot 34",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_34_p1",
+          "name": "RKN_TCP Slot 34 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_www_google_com:repeats=6:tcp_ts=-1000:badsum:strategy=34",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_clienthello_www_google_com"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_35",
+      "pool": "rkn_tcp",
+      "slot": 35,
+      "name": "RKN_TCP Slot 35",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_35_p1",
+          "name": "RKN_TCP Slot 35 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=hostfakesplit:payload=tls_client_hello:dir=out:repeats=4:tcp_ts=-43210:badsum:strategy=35",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_36",
+      "pool": "rkn_tcp",
+      "slot": 36,
+      "name": "RKN_TCP Slot 36",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_36_p1",
+          "name": "RKN_TCP Slot 36 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_www_google_com:repeats=6:tcp_ts=-1000:badsum:strategy=36 --lua-desync=fakedsplit:payload=tls_client_hello:dir=out:pos=1:strategy=36",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_clienthello_www_google_com"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_37",
+      "pool": "rkn_tcp",
+      "slot": 37,
+      "name": "RKN_TCP Slot 37",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_37_p1",
+          "name": "RKN_TCP Slot 37 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_www_google_com:tcp_ts=-100000:badsum:tls_mod=rnd,dupsid,sni=fonts.google.com:strategy=37 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=0x0F0F0F0F:tcp_ts=-100000:badsum:strategy=37 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_vk_com:tcp_ts=-100000:badsum:strategy=37 --lua-desync=fakeddisorder:payload=tls_client_hello:dir=out:pos=10,midsld:seqovl=336:seqovl_pattern=tls_clienthello_gosuslugi_ru:strategy=37",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_clienthello_www_google_com",
+          "tls_clienthello_vk_com",
+          "tls_clienthello_gosuslugi_ru"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_38",
+      "pool": "rkn_tcp",
+      "slot": 38,
+      "name": "RKN_TCP Slot 38",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_38_p1",
+          "name": "RKN_TCP Slot 38 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=fake_default_tls:strategy=38 --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=1:seqovl=1:strategy=38",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "fake_default_tls"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_39",
+      "pool": "rkn_tcp",
+      "slot": 39,
+      "name": "RKN_TCP Slot 39",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_39_p1",
+          "name": "RKN_TCP Slot 39 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=fake_default_tls:repeats=8:tcp_ts=-1000:badsum:tls_mod=rnd,dupsid,sni=www.google.com:strategy=39 --lua-desync=fakedsplit:payload=tls_client_hello:dir=out:pos=1:tcp_seq=2:strategy=39",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "fake_default_tls"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_40",
+      "pool": "rkn_tcp",
+      "slot": 40,
+      "name": "RKN_TCP Slot 40",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_40_p1",
+          "name": "RKN_TCP Slot 40 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=multidisorder:payload=tls_client_hello:dir=out:pos=2,5,105,host+5,sld-1,endsld-5,endsld:strategy=40",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_41",
+      "pool": "rkn_tcp",
+      "slot": 41,
+      "name": "RKN_TCP Slot 41",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_41_p1",
+          "name": "RKN_TCP Slot 41 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=0x00000000:repeats=11:tcp_seq=1000000:strategy=41 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=fake_default_tls:repeats=11:tcp_seq=1000000:tls_mod=rnd,dupsid,sni=www.google.com:strategy=41 --lua-desync=multidisorder:payload=tls_client_hello:dir=out:pos=1,midsld:strategy=41",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "fake_default_tls"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_42",
+      "pool": "rkn_tcp",
+      "slot": 42,
+      "name": "RKN_TCP Slot 42",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_42_p1",
+          "name": "RKN_TCP Slot 42 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=hostfakesplit:payload=tls_client_hello:dir=out:repeats=4:tcp_ts=-10000:badsum:strategy=42",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_43",
+      "pool": "rkn_tcp",
+      "slot": 43,
+      "name": "RKN_TCP Slot 43",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_43_p1",
+          "name": "RKN_TCP Slot 43 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=hostfakesplit:payload=tls_client_hello:dir=out:midhost=host-2:seqovl=726:badsum:badseq:badseq_increment=0:strategy=43",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_44",
+      "pool": "rkn_tcp",
+      "slot": 44,
+      "name": "RKN_TCP Slot 44",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_44_p1",
+          "name": "RKN_TCP Slot 44 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=0x0F0F0F0F:tcp_ts=-1000:badsum:strategy=44 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=fake_default_tls:tls_mod=rnd,dupsid,sni=fonts.google.com:tcp_ts=-1000:badsum:strategy=44 --lua-desync=multidisorder:payload=tls_client_hello:dir=out:pos=7,sld+1:strategy=44",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "fake_default_tls"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_45",
+      "pool": "rkn_tcp",
+      "slot": 45,
+      "name": "RKN_TCP Slot 45",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_45_p1",
+          "name": "RKN_TCP Slot 45 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=multidisorder:payload=tls_client_hello:dir=out:pos=1,sniext+1,host+1,midsld-2,midsld,midsld+2,endhost-1:strategy=45",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_46",
+      "pool": "rkn_tcp",
+      "slot": 46,
+      "name": "RKN_TCP Slot 46",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_46_p1",
+          "name": "RKN_TCP Slot 46 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=fake_default_tls:tls_mod=rnd,dupsid,sni=fonts.google.com:repeats=2:badseq:badseq_increment=10000000:strategy=46 --lua-desync=multidisorder:payload=tls_client_hello:dir=out:pos=1:seqovl=681:seqovl_pattern=tls_clienthello_www_google_com:strategy=46",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "fake_default_tls",
+          "tls_clienthello_www_google_com"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_47",
+      "pool": "rkn_tcp",
+      "slot": 47,
+      "name": "RKN_TCP Slot 47",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_47_p1",
+          "name": "RKN_TCP Slot 47 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_www_onetrust_com:tls_mod=rnd,dupsid:badsum:badseq:badseq_increment=0:strategy=47 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=0x0F0F0F0F:badsum:badseq:strategy=47 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_vk_com:badsum:badseq:strategy=47 --lua-desync=fakeddisorder:payload=tls_client_hello:dir=out:pos=10,midsld:seqovl=336:seqovl_pattern=tls_clienthello_gosuslugi_ru:strategy=47",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_clienthello_www_onetrust_com",
+          "tls_clienthello_vk_com",
+          "tls_clienthello_gosuslugi_ru"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_48",
+      "pool": "rkn_tcp",
+      "slot": 48,
+      "name": "RKN_TCP Slot 48",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_48_p1",
+          "name": "RKN_TCP Slot 48 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=fake_default_tls:repeats=6:tcp_ts=-1000:badsum:tcp_seq=2:strategy=48",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "fake_default_tls"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_49",
+      "pool": "rkn_tcp",
+      "slot": 49,
+      "name": "RKN_TCP Slot 49",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_49_p1",
+          "name": "RKN_TCP Slot 49 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=0x0F0F0E0F:tcp_md5:strategy=49 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_14:tls_mod=rnd,dupsid:tcp_md5:strategy=49 --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=sld+1:strategy=49 --lua-desync=send:payload=empty:dir=out:repeats=2:tcp_md5:strategy=49",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_clienthello_14"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "rkn_tcp_strat_50",
+      "pool": "rkn_tcp",
+      "slot": 50,
+      "name": "RKN_TCP Slot 50",
+      "profiles": [
+        {
+          "id": "rkn_tcp_strat_50_p1",
+          "name": "RKN_TCP Slot 50 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=syndata:payload=tls_client_hello:dir=out:blob=syn_packet:strategy=50 --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=1,sld+1,endsld-2:seqovl=1:strategy=50 --lua-desync=send:payload=empty:dir=out:repeats=2:strategy=50",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "syn_packet"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "yt_tcp_strat_1",
+      "pool": "yt_tcp",
+      "slot": 1,
+      "name": "YT_TCP Slot 1",
+      "profiles": [
+        {
+          "id": "yt_tcp_strat_1_p1",
+          "name": "YT_TCP Slot 1 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=fake_default_tls:badsum:tls_mod=rnd,dupsid,sni=www.google.com:strategy=1 --lua-desync=multidisorder:payload=tls_client_hello:dir=out:pos=1,midsld:strategy=1",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "fake_default_tls"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "yt_tcp_strat_2",
+      "pool": "yt_tcp",
+      "slot": 2,
+      "name": "YT_TCP Slot 2",
+      "profiles": [
+        {
+          "id": "yt_tcp_strat_2_p1",
+          "name": "YT_TCP Slot 2 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=multidisorder:payload=tls_client_hello:dir=out:pos=2,5,105,host+5,sld-1,endsld-5,endsld:strategy=2",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "yt_tcp_strat_3",
+      "pool": "yt_tcp",
+      "slot": 3,
+      "name": "YT_TCP Slot 3",
+      "profiles": [
+        {
+          "id": "yt_tcp_strat_3_p1",
+          "name": "YT_TCP Slot 3 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_www_google_com:repeats=6:tcp_ts=-1000:badsum:ip_id=zero:strategy=3 --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=1:seqovl=681:seqovl_pattern=tls_clienthello_www_google_com:strategy=3",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_clienthello_www_google_com"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "yt_tcp_strat_4",
+      "pool": "yt_tcp",
+      "slot": 4,
+      "name": "YT_TCP Slot 4",
+      "profiles": [
+        {
+          "id": "yt_tcp_strat_4_p1",
+          "name": "YT_TCP Slot 4 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_www_onetrust_com:repeats=8:badseq:badsum:strategy=4 --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=1:seqovl=654:seqovl_pattern=tls_clienthello_www_onetrust_com:strategy=4",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_clienthello_www_onetrust_com"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "yt_tcp_strat_5",
+      "pool": "yt_tcp",
+      "slot": 5,
+      "name": "YT_TCP Slot 5",
+      "profiles": [
+        {
+          "id": "yt_tcp_strat_5_p1",
+          "name": "YT_TCP Slot 5 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_www_onetrust_com:tcp_ts=-1000:badsum:tls_mod=rnd,dupsid,sni=m.ok.ru:strategy=5 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=0x0F0F0F0F:tcp_ts=-1000:badsum:strategy=5 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_vk_com:tcp_ts=-1000:badsum:strategy=5 --lua-desync=fakeddisorder:payload=tls_client_hello:dir=out:pos=10,midsld:seqovl=336:seqovl_pattern=tls_clienthello_gosuslugi_ru:strategy=5",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_clienthello_www_onetrust_com",
+          "tls_clienthello_vk_com",
+          "tls_clienthello_gosuslugi_ru"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "yt_tcp_strat_6",
+      "pool": "yt_tcp",
+      "slot": 6,
+      "name": "YT_TCP Slot 6",
+      "profiles": [
+        {
+          "id": "yt_tcp_strat_6_p1",
+          "name": "YT_TCP Slot 6 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=1,sniext+1:seqovl=1:strategy=6",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "yt_tcp_strat_7",
+      "pool": "yt_tcp",
+      "slot": 7,
+      "name": "YT_TCP Slot 7",
+      "profiles": [
+        {
+          "id": "yt_tcp_strat_7_p1",
+          "name": "YT_TCP Slot 7 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=stun:tcp_ts=-1000:badsum:strategy=7 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_max_ru:tcp_ts=-1000:badsum:tls_mod=sni=msn.com:strategy=7",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "stun",
+          "tls_max_ru"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "yt_tcp_strat_8",
+      "pool": "yt_tcp",
+      "slot": 8,
+      "name": "YT_TCP Slot 8",
+      "profiles": [
+        {
+          "id": "yt_tcp_strat_8_p1",
+          "name": "YT_TCP Slot 8 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=0x0F0F0E0F:repeats=2:tcp_md5:tls_mod=rnd,dupsid:strategy=8 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_14:repeats=2:tcp_md5:tls_mod=rnd,dupsid:strategy=8 --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=sld+1:strategy=8",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_clienthello_14"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "yt_tcp_strat_9",
+      "pool": "yt_tcp",
+      "slot": 9,
+      "name": "YT_TCP Slot 9",
+      "profiles": [
+        {
+          "id": "yt_tcp_strat_9_p1",
+          "name": "YT_TCP Slot 9 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_max_ru:repeats=6:tcp_ts=-1000:badsum:tls_mod=sni=msn.com:strategy=9",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_max_ru"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "yt_tcp_strat_10",
+      "pool": "yt_tcp",
+      "slot": 10,
+      "name": "YT_TCP Slot 10",
+      "profiles": [
+        {
+          "id": "yt_tcp_strat_10_p1",
+          "name": "YT_TCP Slot 10 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=hostfakesplit:payload=tls_client_hello:dir=out:seqovl=726:badsum:strategy=10 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=fake_default_tls:tcp_seq=1000000:strategy=10",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "fake_default_tls"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "yt_tcp_strat_11",
+      "pool": "yt_tcp",
+      "slot": 11,
+      "name": "YT_TCP Slot 11",
+      "profiles": [
+        {
+          "id": "yt_tcp_strat_11_p1",
+          "name": "YT_TCP Slot 11 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=syndata:payload=tls_client_hello:dir=out:blob=syn_packet:strategy=11 --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=1,sld+1,endsld-2:seqovl=1:strategy=11",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "syn_packet"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "yt_tcp_strat_12",
+      "pool": "yt_tcp",
+      "slot": 12,
+      "name": "YT_TCP Slot 12",
+      "profiles": [
+        {
+          "id": "yt_tcp_strat_12_p1",
+          "name": "YT_TCP Slot 12 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_4pda_to:repeats=6:tcp_ts=-1000:badsum:strategy=12",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_clienthello_4pda_to"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "yt_tcp_strat_13",
+      "pool": "yt_tcp",
+      "slot": 13,
+      "name": "YT_TCP Slot 13",
+      "profiles": [
+        {
+          "id": "yt_tcp_strat_13_p1",
+          "name": "YT_TCP Slot 13 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_www_google_com:repeats=6:tcp_ts=-1000:badsum:strategy=13",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_clienthello_www_google_com"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "yt_tcp_strat_14",
+      "pool": "yt_tcp",
+      "slot": 14,
+      "name": "YT_TCP Slot 14",
+      "profiles": [
+        {
+          "id": "yt_tcp_strat_14_p1",
+          "name": "YT_TCP Slot 14 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=hostfakesplit:payload=tls_client_hello:dir=out:repeats=4:tcp_ts=-1000:badsum:strategy=14",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "yt_tcp_strat_15",
+      "pool": "yt_tcp",
+      "slot": 15,
+      "name": "YT_TCP Slot 15",
+      "profiles": [
+        {
+          "id": "yt_tcp_strat_15_p1",
+          "name": "YT_TCP Slot 15 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_www_google_com:repeats=6:tcp_ts=-1000:badsum:strategy=15 --lua-desync=fakedsplit:payload=tls_client_hello:dir=out:pos=1:strategy=15",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_clienthello_www_google_com"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "yt_tcp_strat_16",
+      "pool": "yt_tcp",
+      "slot": 16,
+      "name": "YT_TCP Slot 16",
+      "profiles": [
+        {
+          "id": "yt_tcp_strat_16_p1",
+          "name": "YT_TCP Slot 16 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_www_google_com:tcp_ts=-1000:badsum:tls_mod=rnd,dupsid,sni=fonts.google.com:strategy=16 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=0x0F0F0F0F:tcp_ts=-1000:badsum:strategy=16 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_vk_com:tcp_ts=-1000:badsum:strategy=16 --lua-desync=fakeddisorder:payload=tls_client_hello:dir=out:pos=10,midsld:seqovl=336:seqovl_pattern=tls_clienthello_gosuslugi_ru:strategy=16",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_clienthello_www_google_com",
+          "tls_clienthello_vk_com",
+          "tls_clienthello_gosuslugi_ru"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "yt_tcp_strat_17",
+      "pool": "yt_tcp",
+      "slot": 17,
+      "name": "YT_TCP Slot 17",
+      "profiles": [
+        {
+          "id": "yt_tcp_strat_17_p1",
+          "name": "YT_TCP Slot 17 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_max_ru:repeats=8:tcp_ts=-1000:badsum:tls_mod=sni=msn.com:strategy=17 --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=1:seqovl=654:seqovl_pattern=tls_clienthello_activated:strategy=17",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_max_ru",
+          "tls_clienthello_activated"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "yt_tcp_strat_18",
+      "pool": "yt_tcp",
+      "slot": 18,
+      "name": "YT_TCP Slot 18",
+      "profiles": [
+        {
+          "id": "yt_tcp_strat_18_p1",
+          "name": "YT_TCP Slot 18 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=fake_default_tls:strategy=18 --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=1:seqovl=1:strategy=18",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "fake_default_tls"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "yt_tcp_strat_19",
+      "pool": "yt_tcp",
+      "slot": 19,
+      "name": "YT_TCP Slot 19",
+      "profiles": [
+        {
+          "id": "yt_tcp_strat_19_p1",
+          "name": "YT_TCP Slot 19 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=fake_default_tls:repeats=6:tcp_ts=-1000:badsum:tcp_seq=2:strategy=19",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "fake_default_tls"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "yt_tcp_strat_20",
+      "pool": "yt_tcp",
+      "slot": 20,
+      "name": "YT_TCP Slot 20",
+      "profiles": [
+        {
+          "id": "yt_tcp_strat_20_p1",
+          "name": "YT_TCP Slot 20 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=fake_default_tls:repeats=8:tcp_ts=-1000:badsum:tls_mod=rnd,dupsid,sni=www.google.com:strategy=20 --lua-desync=fakedsplit:payload=tls_client_hello:dir=out:pos=1:tcp_seq=2:strategy=20",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "fake_default_tls"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "yt_tcp_strat_21",
+      "pool": "yt_tcp",
+      "slot": 21,
+      "name": "YT_TCP Slot 21",
+      "profiles": [
+        {
+          "id": "yt_tcp_strat_21_p1",
+          "name": "YT_TCP Slot 21 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_www_google_com:tls_mod=rnd,dupsid,sni=ggpht.com:badsum:badseq:strategy=21 --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=2,sld:seqovl=620:seqovl_pattern=tls_clienthello_www_google_com:strategy=21",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_clienthello_www_google_com"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "yt_tcp_strat_22",
+      "pool": "yt_tcp",
+      "slot": 22,
+      "name": "YT_TCP Slot 22",
+      "profiles": [
+        {
+          "id": "yt_tcp_strat_22_p1",
+          "name": "YT_TCP Slot 22 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=0x00000000:repeats=11:tcp_seq=1000000:strategy=22 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=fake_default_tls:repeats=11:tcp_seq=1000000:tls_mod=rnd,dupsid,sni=www.google.com:strategy=22 --lua-desync=multidisorder:payload=tls_client_hello:dir=out:pos=1,midsld:strategy=22",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "fake_default_tls"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "gv_tcp_strat_1",
+      "pool": "gv_tcp",
+      "slot": 1,
+      "name": "GV_TCP Slot 1",
+      "profiles": [
+        {
+          "id": "gv_tcp_strat_1_p1",
+          "name": "GV_TCP Slot 1 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=fake_default_tls:badsum:tls_mod=rnd,dupsid,sni=www.google.com:strategy=1 --lua-desync=multidisorder:payload=tls_client_hello:dir=out:pos=1,midsld:strategy=1",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "fake_default_tls"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "gv_tcp_strat_2",
+      "pool": "gv_tcp",
+      "slot": 2,
+      "name": "GV_TCP Slot 2",
+      "profiles": [
+        {
+          "id": "gv_tcp_strat_2_p1",
+          "name": "GV_TCP Slot 2 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_www_google_com:tls_mod=rnd,dupsid,sni=ggpht.com:badsum:badseq:strategy=2 --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=2,sld:seqovl=620:seqovl_pattern=tls_clienthello_www_google_com:strategy=2",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_clienthello_www_google_com"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "gv_tcp_strat_3",
+      "pool": "gv_tcp",
+      "slot": 3,
+      "name": "GV_TCP Slot 3",
+      "profiles": [
+        {
+          "id": "gv_tcp_strat_3_p1",
+          "name": "GV_TCP Slot 3 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_www_google_com:repeats=6:tcp_ts=-1000:badsum:ip_id=zero:strategy=3 --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=1:seqovl=681:seqovl_pattern=tls_clienthello_www_google_com:strategy=3",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_clienthello_www_google_com"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "gv_tcp_strat_4",
+      "pool": "gv_tcp",
+      "slot": 4,
+      "name": "GV_TCP Slot 4",
+      "profiles": [
+        {
+          "id": "gv_tcp_strat_4_p1",
+          "name": "GV_TCP Slot 4 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_www_onetrust_com:repeats=8:badseq:badsum:strategy=4 --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=1:seqovl=654:seqovl_pattern=tls_clienthello_www_onetrust_com:strategy=4",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_clienthello_www_onetrust_com"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "gv_tcp_strat_5",
+      "pool": "gv_tcp",
+      "slot": 5,
+      "name": "GV_TCP Slot 5",
+      "profiles": [
+        {
+          "id": "gv_tcp_strat_5_p1",
+          "name": "GV_TCP Slot 5 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_www_onetrust_com:tcp_ts=-1000:badsum:tls_mod=rnd,dupsid,sni=m.ok.ru:strategy=5 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=0x0F0F0F0F:tcp_ts=-1000:badsum:strategy=5 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_vk_com:tcp_ts=-1000:badsum:strategy=5 --lua-desync=fakeddisorder:payload=tls_client_hello:dir=out:pos=10,midsld:seqovl=336:seqovl_pattern=tls_clienthello_gosuslugi_ru:strategy=5",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_clienthello_www_onetrust_com",
+          "tls_clienthello_vk_com",
+          "tls_clienthello_gosuslugi_ru"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "gv_tcp_strat_6",
+      "pool": "gv_tcp",
+      "slot": 6,
+      "name": "GV_TCP Slot 6",
+      "profiles": [
+        {
+          "id": "gv_tcp_strat_6_p1",
+          "name": "GV_TCP Slot 6 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=1,sniext+1:seqovl=1:strategy=6",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "gv_tcp_strat_7",
+      "pool": "gv_tcp",
+      "slot": 7,
+      "name": "GV_TCP Slot 7",
+      "profiles": [
+        {
+          "id": "gv_tcp_strat_7_p1",
+          "name": "GV_TCP Slot 7 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=stun:tcp_ts=-1000:badsum:strategy=7 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_max_ru:tcp_ts=-1000:badsum:tls_mod=sni=msn.com:strategy=7",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "stun",
+          "tls_max_ru"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "gv_tcp_strat_8",
+      "pool": "gv_tcp",
+      "slot": 8,
+      "name": "GV_TCP Slot 8",
+      "profiles": [
+        {
+          "id": "gv_tcp_strat_8_p1",
+          "name": "GV_TCP Slot 8 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=0x0F0F0E0F:repeats=2:tcp_md5:tls_mod=rnd,dupsid:strategy=8 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_14:repeats=2:tcp_md5:tls_mod=rnd,dupsid:strategy=8 --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=sld+1:strategy=8",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_clienthello_14"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "gv_tcp_strat_9",
+      "pool": "gv_tcp",
+      "slot": 9,
+      "name": "GV_TCP Slot 9",
+      "profiles": [
+        {
+          "id": "gv_tcp_strat_9_p1",
+          "name": "GV_TCP Slot 9 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_max_ru:repeats=6:tcp_ts=-1000:badsum:tls_mod=sni=msn.com:strategy=9",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_max_ru"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "gv_tcp_strat_10",
+      "pool": "gv_tcp",
+      "slot": 10,
+      "name": "GV_TCP Slot 10",
+      "profiles": [
+        {
+          "id": "gv_tcp_strat_10_p1",
+          "name": "GV_TCP Slot 10 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=hostfakesplit:payload=tls_client_hello:dir=out:seqovl=726:badsum:strategy=10 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=fake_default_tls:tcp_seq=1000000:strategy=10",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "fake_default_tls"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "gv_tcp_strat_11",
+      "pool": "gv_tcp",
+      "slot": 11,
+      "name": "GV_TCP Slot 11",
+      "profiles": [
+        {
+          "id": "gv_tcp_strat_11_p1",
+          "name": "GV_TCP Slot 11 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=1,sniext+1:seqovl=1:strategy=11",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "gv_tcp_strat_12",
+      "pool": "gv_tcp",
+      "slot": 12,
+      "name": "GV_TCP Slot 12",
+      "profiles": [
+        {
+          "id": "gv_tcp_strat_12_p1",
+          "name": "GV_TCP Slot 12 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=pktmod:payload=tls_client_hello:dir=out:ip_autottl=-2,3-20:strategy=12",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [
+          "z2k_dynamic_ttl"
+        ],
+        "blobs": [],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua",
+          "z2k-fooling-ext.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "gv_tcp_strat_13",
+      "pool": "gv_tcp",
+      "slot": 13,
+      "name": "GV_TCP Slot 13",
+      "profiles": [
+        {
+          "id": "gv_tcp_strat_13_p1",
+          "name": "GV_TCP Slot 13 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_www_google_com:repeats=6:tcp_ts=-1000:badsum:strategy=13",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_clienthello_www_google_com"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "gv_tcp_strat_14",
+      "pool": "gv_tcp",
+      "slot": 14,
+      "name": "GV_TCP Slot 14",
+      "profiles": [
+        {
+          "id": "gv_tcp_strat_14_p1",
+          "name": "GV_TCP Slot 14 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_www_google_com:repeats=6:tcp_ts=-1000:badsum:ip_id=zero:strategy=14",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_clienthello_www_google_com"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "gv_tcp_strat_15",
+      "pool": "gv_tcp",
+      "slot": 15,
+      "name": "GV_TCP Slot 15",
+      "profiles": [
+        {
+          "id": "gv_tcp_strat_15_p1",
+          "name": "GV_TCP Slot 15 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_www_google_com:repeats=6:tcp_ts=-1000:badsum:strategy=15 --lua-desync=fakedsplit:payload=tls_client_hello:dir=out:pos=1:strategy=15",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_clienthello_www_google_com"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "gv_tcp_strat_16",
+      "pool": "gv_tcp",
+      "slot": 16,
+      "name": "GV_TCP Slot 16",
+      "profiles": [
+        {
+          "id": "gv_tcp_strat_16_p1",
+          "name": "GV_TCP Slot 16 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_www_google_com:tcp_ts=-1000:badsum:tls_mod=rnd,dupsid,sni=fonts.google.com:strategy=16 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=0x0F0F0F0F:tcp_ts=-1000:badsum:strategy=16 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_clienthello_vk_com:tcp_ts=-1000:badsum:strategy=16 --lua-desync=fakeddisorder:payload=tls_client_hello:dir=out:pos=10,midsld:seqovl=336:seqovl_pattern=tls_clienthello_gosuslugi_ru:strategy=16",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_clienthello_www_google_com",
+          "tls_clienthello_vk_com",
+          "tls_clienthello_gosuslugi_ru"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "gv_tcp_strat_17",
+      "pool": "gv_tcp",
+      "slot": 17,
+      "name": "GV_TCP Slot 17",
+      "profiles": [
+        {
+          "id": "gv_tcp_strat_17_p1",
+          "name": "GV_TCP Slot 17 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=tls_max_ru:repeats=8:tcp_ts=-1000:badsum:tls_mod=sni=msn.com:strategy=17 --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=1:seqovl=654:seqovl_pattern=tls_clienthello_activated:strategy=17",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "tls_max_ru",
+          "tls_clienthello_activated"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "gv_tcp_strat_18",
+      "pool": "gv_tcp",
+      "slot": 18,
+      "name": "GV_TCP Slot 18",
+      "profiles": [
+        {
+          "id": "gv_tcp_strat_18_p1",
+          "name": "GV_TCP Slot 18 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=fake_default_tls:strategy=18 --lua-desync=multisplit:payload=tls_client_hello:dir=out:pos=1:seqovl=1:strategy=18",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "fake_default_tls"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "gv_tcp_strat_19",
+      "pool": "gv_tcp",
+      "slot": 19,
+      "name": "GV_TCP Slot 19",
+      "profiles": [
+        {
+          "id": "gv_tcp_strat_19_p1",
+          "name": "GV_TCP Slot 19 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=fake_default_tls:repeats=6:tcp_ts=-1000:badsum:tcp_seq=2:strategy=19",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "fake_default_tls"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "gv_tcp_strat_20",
+      "pool": "gv_tcp",
+      "slot": 20,
+      "name": "GV_TCP Slot 20",
+      "profiles": [
+        {
+          "id": "gv_tcp_strat_20_p1",
+          "name": "GV_TCP Slot 20 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=fake_default_tls:repeats=8:tcp_ts=-1000:badsum:tls_mod=rnd,dupsid,sni=www.google.com:strategy=20 --lua-desync=fakedsplit:payload=tls_client_hello:dir=out:pos=1:tcp_seq=2:strategy=20",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "fake_default_tls"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "gv_tcp_strat_21",
+      "pool": "gv_tcp",
+      "slot": 21,
+      "name": "GV_TCP Slot 21",
+      "profiles": [
+        {
+          "id": "gv_tcp_strat_21_p1",
+          "name": "GV_TCP Slot 21 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=multidisorder:payload=tls_client_hello:dir=out:pos=2,5,105,host+5,sld-1,endsld-5,endsld:strategy=21",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "gv_tcp_strat_22",
+      "pool": "gv_tcp",
+      "slot": 22,
+      "name": "GV_TCP Slot 22",
+      "profiles": [
+        {
+          "id": "gv_tcp_strat_22_p1",
+          "name": "GV_TCP Slot 22 Profile",
+          "args": "--filter-tcp=443 --filter-l7=tls --payload=tls_client_hello --lua-desync=fake:payload=tls_client_hello:dir=out:blob=0x00000000:repeats=11:tcp_seq=1000000:ip_id=zero:strategy=22 --lua-desync=fake:payload=tls_client_hello:dir=out:blob=fake_default_tls:repeats=11:tcp_seq=1000000:ip_id=zero:tls_mod=rnd,dupsid,sni=www.google.com:strategy=22 --lua-desync=multidisorder:payload=tls_client_hello:dir=out:pos=1,midsld:strategy=22",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [
+          "Z2K_TLS_MOD"
+        ],
+        "luaFunctions": [],
+        "blobs": [
+          "fake_default_tls"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "yt_quic_strat_1",
+      "pool": "yt_quic",
+      "slot": 1,
+      "name": "YT_QUIC Slot 1",
+      "profiles": [
+        {
+          "id": "yt_quic_strat_1_p1",
+          "name": "YT_QUIC Slot 1 Profile",
+          "args": "--filter-udp=443 --filter-l7=quic --payload=quic_initial --lua-desync=fake:payload=quic_initial:dir=out:blob=quic5:repeats=3:ip_autottl=-2,3-20:strategy=1 --lua-desync=send:payload=quic_initial:dir=out:ipfrag=z2k_ipfrag3_tiny:ipfrag_pos_udp=8:ipfrag_pos2=32:ipfrag_overlap12=8:ipfrag_overlap23=8:ipfrag_disorder:ipfrag_next2=255:strategy=1 --lua-desync=drop:strategy=1",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [
+          "z2k_dynamic_ttl"
+        ],
+        "blobs": [
+          "quic5"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua",
+          "z2k-fooling-ext.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "yt_quic_strat_2",
+      "pool": "yt_quic",
+      "slot": 2,
+      "name": "YT_QUIC Slot 2",
+      "profiles": [
+        {
+          "id": "yt_quic_strat_2_p1",
+          "name": "YT_QUIC Slot 2 Profile",
+          "args": "--filter-udp=443 --filter-l7=quic --payload=quic_initial --lua-desync=fake:payload=quic_initial:dir=out:blob=quic5:repeats=4:ip_autottl=-2,3-20:strategy=2 --lua-desync=send:payload=quic_initial:dir=out:ipfrag=z2k_ipfrag3_tiny:ipfrag_pos_udp=8:ipfrag_pos2=32:ipfrag_overlap12=8:ipfrag_overlap23=8:ipfrag_disorder:ipfrag_next2=255:strategy=2 --lua-desync=drop:strategy=2",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [
+          "z2k_dynamic_ttl"
+        ],
+        "blobs": [
+          "quic5"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua",
+          "z2k-fooling-ext.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "yt_quic_strat_3",
+      "pool": "yt_quic",
+      "slot": 3,
+      "name": "YT_QUIC Slot 3",
+      "profiles": [
+        {
+          "id": "yt_quic_strat_3_p1",
+          "name": "YT_QUIC Slot 3 Profile",
+          "args": "--filter-udp=443 --filter-l7=quic --payload=quic_initial --lua-desync=fake:payload=quic_initial:dir=out:blob=quic_rutracker:repeats=6:strategy=3 --lua-desync=send:payload=quic_initial:dir=out:ipfrag=z2k_ipfrag3:ipfrag_pos_udp=16:ipfrag_pos2=48:ipfrag_overlap12=8:ipfrag_overlap23=8:ipfrag_disorder:ipfrag_next2=255:strategy=3 --lua-desync=drop:strategy=3",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "quic_rutracker"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "yt_quic_strat_4",
+      "pool": "yt_quic",
+      "slot": 4,
+      "name": "YT_QUIC Slot 4",
+      "profiles": [
+        {
+          "id": "yt_quic_strat_4_p1",
+          "name": "YT_QUIC Slot 4 Profile",
+          "args": "--filter-udp=443 --filter-l7=quic --payload=quic_initial --lua-desync=fake:payload=quic_initial:dir=out:blob=fake_default_quic:repeats=6:ip_autottl=-2,3-20:strategy=4",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [
+          "z2k_dynamic_ttl"
+        ],
+        "blobs": [
+          "fake_default_quic"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua",
+          "z2k-fooling-ext.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "yt_quic_strat_5",
+      "pool": "yt_quic",
+      "slot": 5,
+      "name": "YT_QUIC Slot 5",
+      "profiles": [
+        {
+          "id": "yt_quic_strat_5_p1",
+          "name": "YT_QUIC Slot 5 Profile",
+          "args": "--filter-udp=443 --filter-l7=quic --payload=quic_initial --lua-desync=fake:payload=quic_initial:dir=out:blob=quic5:repeats=6:payload=all:ip_autottl=-2,3-20:strategy=5 --lua-desync=send:payload=quic_initial:dir=out:ipfrag:ipfrag_pos_udp=16:strategy=5 --lua-desync=drop:strategy=5",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [
+          "z2k_dynamic_ttl"
+        ],
+        "blobs": [
+          "quic5"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua",
+          "z2k-fooling-ext.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "yt_quic_strat_6",
+      "pool": "yt_quic",
+      "slot": 6,
+      "name": "YT_QUIC Slot 6",
+      "profiles": [
+        {
+          "id": "yt_quic_strat_6_p1",
+          "name": "YT_QUIC Slot 6 Profile",
+          "args": "--filter-udp=443 --filter-l7=quic --payload=quic_initial --lua-desync=udplen:payload=quic_initial:dir=out:increment=4:strategy=6 --lua-desync=fake:payload=quic_initial:dir=out:blob=quic5:repeats=2:strategy=6",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "quic5"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "yt_quic_strat_7",
+      "pool": "yt_quic",
+      "slot": 7,
+      "name": "YT_QUIC Slot 7",
+      "profiles": [
+        {
+          "id": "yt_quic_strat_7_p1",
+          "name": "YT_QUIC Slot 7 Profile",
+          "args": "--filter-udp=443 --filter-l7=quic --payload=quic_initial --lua-desync=udplen:payload=quic_initial:dir=out:increment=8:pattern=0xFEA82025:strategy=7 --lua-desync=fake:payload=quic_initial:dir=out:blob=quic5:repeats=2:strategy=7",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "quic5"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "yt_quic_strat_8",
+      "pool": "yt_quic",
+      "slot": 8,
+      "name": "YT_QUIC Slot 8",
+      "profiles": [
+        {
+          "id": "yt_quic_strat_8_p1",
+          "name": "YT_QUIC Slot 8 Profile",
+          "args": "--filter-udp=443 --filter-l7=quic --payload=quic_initial --lua-desync=fake:payload=quic_initial:dir=out:blob=0x00000000000000000000000000000000:repeats=2:payload=all:strategy=8 --lua-desync=send:payload=quic_initial:dir=out:ipfrag:ipfrag_pos_udp=8:strategy=8 --lua-desync=drop:strategy=8",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "yt_quic_strat_9",
+      "pool": "yt_quic",
+      "slot": 9,
+      "name": "YT_QUIC Slot 9",
+      "profiles": [
+        {
+          "id": "yt_quic_strat_9_p1",
+          "name": "YT_QUIC Slot 9 Profile",
+          "args": "--filter-udp=443 --filter-l7=quic --payload=quic_initial --lua-desync=fake:payload=quic_initial:dir=out:blob=fake_default_quic:repeats=11:ip_autottl=-2,3-20:strategy=9 --lua-desync=send:payload=quic_initial:dir=out:ipfrag:ipfrag_pos_udp=24:strategy=9 --lua-desync=drop:strategy=9",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [
+          "z2k_dynamic_ttl"
+        ],
+        "blobs": [
+          "fake_default_quic"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua",
+          "z2k-fooling-ext.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "yt_quic_strat_10",
+      "pool": "yt_quic",
+      "slot": 10,
+      "name": "YT_QUIC Slot 10",
+      "profiles": [
+        {
+          "id": "yt_quic_strat_10_p1",
+          "name": "YT_QUIC Slot 10 Profile",
+          "args": "--filter-udp=443 --filter-l7=quic --payload=quic_initial --lua-desync=fake:payload=quic_initial:dir=out:blob=fake_default_quic:repeats=3:strategy=10",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "fake_default_quic"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "yt_quic_strat_11",
+      "pool": "yt_quic",
+      "slot": 11,
+      "name": "YT_QUIC Slot 11",
+      "profiles": [
+        {
+          "id": "yt_quic_strat_11_p1",
+          "name": "YT_QUIC Slot 11 Profile",
+          "args": "--filter-udp=443 --filter-l7=quic --payload=quic_initial --lua-desync=z2k_quic_morph_v2:payload=quic_initial:dir=out:packets=2:noise=2:pad_min=12:pad_max=72:strategy=11",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [
+          "z2k_quic_morph_v2"
+        ],
+        "blobs": [],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua",
+          "z2k-modern-core.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "yt_quic_strat_12",
+      "pool": "yt_quic",
+      "slot": 12,
+      "name": "YT_QUIC Slot 12",
+      "profiles": [
+        {
+          "id": "yt_quic_strat_12_p1",
+          "name": "YT_QUIC Slot 12 Profile",
+          "args": "--filter-udp=443 --filter-l7=quic --payload=quic_initial --lua-desync=z2k_quic_morph_v2:payload=quic_initial:dir=out:packets=2:profile=2:noise=2:pad_min=8:pad_max=64:ipfrag_pos_udp=16:ipfrag_pos2=56:ipfrag_overlap12=16:ipfrag_overlap23=8:strategy=12",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [
+          "z2k_quic_morph_v2"
+        ],
+        "blobs": [],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua",
+          "z2k-modern-core.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "yt_quic_strat_13",
+      "pool": "yt_quic",
+      "slot": 13,
+      "name": "YT_QUIC Slot 13",
+      "profiles": [
+        {
+          "id": "yt_quic_strat_13_p1",
+          "name": "YT_QUIC Slot 13 Profile",
+          "args": "--filter-udp=443 --filter-l7=quic --payload=quic_initial --lua-desync=z2k_timing_morph:payload=quic_initial:dir=out:packets=2:chance=85:fakes=2:pad_min=12:pad_max=72:strategy=13",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [
+          "z2k_timing_morph"
+        ],
+        "blobs": [],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua",
+          "z2k-modern-core.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "discord_voice_strat_1",
+      "pool": "discord_voice",
+      "slot": 1,
+      "name": "DISCORD_VOICE Slot 1",
+      "profiles": [
+        {
+          "id": "discord_voice_strat_1_p1",
+          "name": "DISCORD_VOICE Slot 1 Profile",
+          "args": "--filter-udp=50000-50099,1400,3478-3481,5349,19294-19344 --filter-l7=discord,stun --payload=quic_initial,discord_ip_discovery --lua-desync=z2k_quic_morph_v2:payload=quic_initial:dir=out:packets=2:noise=2:pad_min=8:pad_max=56:strategy=1",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [
+          "z2k_quic_morph_v2"
+        ],
+        "blobs": [],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua",
+          "z2k-modern-core.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "discord_voice_strat_2",
+      "pool": "discord_voice",
+      "slot": 2,
+      "name": "DISCORD_VOICE Slot 2",
+      "profiles": [
+        {
+          "id": "discord_voice_strat_2_p1",
+          "name": "DISCORD_VOICE Slot 2 Profile",
+          "args": "--filter-udp=50000-50099,1400,3478-3481,5349,19294-19344 --filter-l7=discord,stun --payload=quic_initial,discord_ip_discovery --lua-desync=z2k_timing_morph:payload=quic_initial:dir=out:packets=2:chance=80:fakes=2:pad_min=8:pad_max=64:strategy=2 --lua-desync=fake:payload=all:blob=0x00000000000000000000000000000000:repeats=2:out_range=-d10:strategy=2 --lua-desync=send:payload=quic_initial:dir=out:ipfrag=z2k_ipfrag3_tiny:ipfrag_pos_udp=8:ipfrag_pos2=32:ipfrag_overlap12=8:ipfrag_overlap23=8:ipfrag_disorder:ipfrag_next2=255:strategy=2 --lua-desync=drop:strategy=2",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [
+          "z2k_timing_morph"
+        ],
+        "blobs": [],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua",
+          "z2k-modern-core.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "discord_voice_strat_3",
+      "pool": "discord_voice",
+      "slot": 3,
+      "name": "DISCORD_VOICE Slot 3",
+      "profiles": [
+        {
+          "id": "discord_voice_strat_3_p1",
+          "name": "DISCORD_VOICE Slot 3 Profile",
+          "args": "--filter-udp=50000-50099,1400,3478-3481,5349,19294-19344 --filter-l7=discord,stun --payload=quic_initial,discord_ip_discovery --lua-desync=z2k_quic_morph_v2:payload=quic_initial:dir=out:packets=2:profile=2:noise=2:pad_min=8:pad_max=64:ipfrag_pos_udp=16:ipfrag_pos2=56:ipfrag_overlap12=16:ipfrag_overlap23=8:strategy=3",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [
+          "z2k_quic_morph_v2"
+        ],
+        "blobs": [],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua",
+          "z2k-modern-core.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "discord_voice_strat_4",
+      "pool": "discord_voice",
+      "slot": 4,
+      "name": "DISCORD_VOICE Slot 4",
+      "profiles": [
+        {
+          "id": "discord_voice_strat_4_p1",
+          "name": "DISCORD_VOICE Slot 4 Profile",
+          "args": "--filter-udp=50000-50099,1400,3478-3481,5349,19294-19344 --filter-l7=discord,stun --payload=quic_initial,discord_ip_discovery --lua-desync=fake:payload=all:blob=quic_google:repeats=3:ip_autottl=-2,3-20:out_range=-d3:strategy=4",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [
+          "z2k_dynamic_ttl"
+        ],
+        "blobs": [
+          "quic_google"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua",
+          "z2k-fooling-ext.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "discord_voice_strat_5",
+      "pool": "discord_voice",
+      "slot": 5,
+      "name": "DISCORD_VOICE Slot 5",
+      "profiles": [
+        {
+          "id": "discord_voice_strat_5_p1",
+          "name": "DISCORD_VOICE Slot 5 Profile",
+          "args": "--filter-udp=50000-50099,1400,3478-3481,5349,19294-19344 --filter-l7=discord,stun --payload=quic_initial,discord_ip_discovery --lua-desync=fake:payload=all:blob=quic5:repeats=4:ip_autottl=-2,3-20:out_range=-n5:strategy=5",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [
+          "z2k_dynamic_ttl"
+        ],
+        "blobs": [
+          "quic5"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua",
+          "z2k-fooling-ext.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "discord_voice_strat_6",
+      "pool": "discord_voice",
+      "slot": 6,
+      "name": "DISCORD_VOICE Slot 6",
+      "profiles": [
+        {
+          "id": "discord_voice_strat_6_p1",
+          "name": "DISCORD_VOICE Slot 6 Profile",
+          "args": "--filter-udp=50000-50099,1400,3478-3481,5349,19294-19344 --filter-l7=discord,stun --payload=quic_initial,discord_ip_discovery --lua-desync=fake:payload=all:blob=fake_default_quic:repeats=6:ip_autottl=-2,3-20:out_range=-d100:strategy=6",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [
+          "z2k_dynamic_ttl"
+        ],
+        "blobs": [
+          "fake_default_quic"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua",
+          "z2k-fooling-ext.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "discord_voice_strat_7",
+      "pool": "discord_voice",
+      "slot": 7,
+      "name": "DISCORD_VOICE Slot 7",
+      "profiles": [
+        {
+          "id": "discord_voice_strat_7_p1",
+          "name": "DISCORD_VOICE Slot 7 Profile",
+          "args": "--filter-udp=50000-50099,1400,3478-3481,5349,19294-19344 --filter-l7=discord,stun --payload=quic_initial,discord_ip_discovery --lua-desync=fake:payload=all:blob=quic5:repeats=6:ip_autottl=-2,3-20:out_range=-n2:strategy=7",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [
+          "z2k_dynamic_ttl"
+        ],
+        "blobs": [
+          "quic5"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua",
+          "z2k-fooling-ext.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "discord_voice_strat_8",
+      "pool": "discord_voice",
+      "slot": 8,
+      "name": "DISCORD_VOICE Slot 8",
+      "profiles": [
+        {
+          "id": "discord_voice_strat_8_p1",
+          "name": "DISCORD_VOICE Slot 8 Profile",
+          "args": "--filter-udp=50000-50099,1400,3478-3481,5349,19294-19344 --filter-l7=discord,stun --payload=quic_initial,discord_ip_discovery --lua-desync=send:payload=quic_initial:dir=out:ipfrag=z2k_ipfrag3:ipfrag_pos_udp=16:ipfrag_pos2=48:ipfrag_overlap12=8:ipfrag_overlap23=8:ipfrag_disorder:ipfrag_next2=255:strategy=8 --lua-desync=drop:strategy=8",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "discord_voice_strat_9",
+      "pool": "discord_voice",
+      "slot": 9,
+      "name": "DISCORD_VOICE Slot 9",
+      "profiles": [
+        {
+          "id": "discord_voice_strat_9_p1",
+          "name": "DISCORD_VOICE Slot 9 Profile",
+          "args": "--filter-udp=50000-50099,1400,3478-3481,5349,19294-19344 --filter-l7=discord,stun --payload=quic_initial,discord_ip_discovery --lua-desync=udplen:payload=quic_initial:dir=out:increment=4:strategy=9 --lua-desync=fake:payload=all:blob=quic5:repeats=2:strategy=9",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "quic5"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "discord_voice_strat_10",
+      "pool": "discord_voice",
+      "slot": 10,
+      "name": "DISCORD_VOICE Slot 10",
+      "profiles": [
+        {
+          "id": "discord_voice_strat_10_p1",
+          "name": "DISCORD_VOICE Slot 10 Profile",
+          "args": "--filter-udp=50000-50099,1400,3478-3481,5349,19294-19344 --filter-l7=discord,stun --payload=quic_initial,discord_ip_discovery --lua-desync=udplen:payload=quic_initial:dir=out:increment=8:pattern=0xFEA82025:strategy=10 --lua-desync=fake:payload=all:blob=quic5:repeats=2:strategy=10",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "quic5"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "discord_voice_strat_11",
+      "pool": "discord_voice",
+      "slot": 11,
+      "name": "DISCORD_VOICE Slot 11",
+      "profiles": [
+        {
+          "id": "discord_voice_strat_11_p1",
+          "name": "DISCORD_VOICE Slot 11 Profile",
+          "args": "--filter-udp=50000-50099,1400,3478-3481,5349,19294-19344 --filter-l7=discord,stun --payload=quic_initial,discord_ip_discovery --lua-desync=fake:payload=all:blob=0x00000000000000000000000000000000:repeats=2:strategy=11 --lua-desync=send:payload=quic_initial:dir=out:ipfrag:ipfrag_pos_udp=8:strategy=11 --lua-desync=drop:strategy=11",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    },
+    {
+      "id": "discord_voice_strat_12",
+      "pool": "discord_voice",
+      "slot": 12,
+      "name": "DISCORD_VOICE Slot 12",
+      "profiles": [
+        {
+          "id": "discord_voice_strat_12_p1",
+          "name": "DISCORD_VOICE Slot 12 Profile",
+          "args": "--filter-udp=50000-50099,1400,3478-3481,5349,19294-19344 --filter-l7=discord,stun --payload=quic_initial,discord_ip_discovery --lua-desync=fake:payload=all:blob=fake_default_quic:repeats=3:strategy=12",
+          "enabled": true
+        }
+      ],
+      "requirements": {
+        "engineCapabilities": [],
+        "luaFunctions": [],
+        "blobs": [
+          "fake_default_quic"
+        ],
+        "luaFiles": [
+          "zapret-lib.lua",
+          "zapret-antidpi.lua",
+          "zapret-auto.lua"
+        ]
+      },
+      "status": "imported",
+      "usable": true
+    }
+  ]
 }
