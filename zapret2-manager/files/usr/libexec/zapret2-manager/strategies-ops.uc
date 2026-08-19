@@ -237,7 +237,13 @@ function learned_clear(input) {
 	let value = request_value(input), host = safe_text(value.host), key = safe_text(value.key), rows = learned_rows(), kept = [];
 	for (let row in rows) if ((host && row.host != host) || (key && row.key != key)) push(kept, row);
 	if (!host && !key) kept = [];
-	return state_save_rows(kept) ? learned_state() : { ok: false, error: { code: 'EIO', message: 'learned state reset failed' } };
+	if (!state_save_rows(kept))
+		return { ok: false, error: { code: 'EIO', message: 'learned state reset failed' } };
+	if (!host && !key) {
+		let p = popen('/etc/init.d/zapret2 restart >/dev/null 2>&1 &', 'r');
+		if (p) p.close();
+	}
+	return { ok: true, source: LEARNED_PATH, entries: [], summary: [], empty: true, count: 0 };
 }
 
 function pools_read() {

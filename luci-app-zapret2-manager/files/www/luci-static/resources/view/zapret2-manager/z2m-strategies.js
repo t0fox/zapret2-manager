@@ -583,15 +583,15 @@ function renderLearnedModal() {
       stratOpts += '<option value="' + i + '"' + (i === curStrat ? ' selected' : '') + '>' + i + '</option>';
     }
     var frozen = item.frozen || item.mode === 'frozen';
-    return '<tr' + (frozen ? ' style="background:rgba(120,140,255,0.08)"' : '') + '>' +
+    return '<tr class="learned-row' + (frozen ? ' learned-row-frozen' : '') + '"' + (frozen ? ' style="background:rgba(59,130,246,0.06)"' : '') + '>' +
       '<td class="learned-col-domain"><span class="learned-domain-copyable" data-action="copyLearnedDomain" data-host="' + escapeAttr(item.host) + '" title="Нажмите, чтобы скопировать"><strong>' + escapeHtml(item.host) + '</strong></span></td>' +
       '<td><span class="learned-proto-badge ' + escapeAttr(item.protoClass || 'tls') + '">' + escapeHtml(item.protocol || 'TLS') + '</span></td>' +
       '<td>' +
-        '<select class="form-select form-select-sm learned-strat-sel" data-key="' + escapeAttr(item.key) + '" data-host="' + escapeAttr(item.host) + '" data-mode="' + (frozen ? 'frozen' : 'auto') + '" style="max-width:70px;display:inline-block;padding:2px 6px">' + stratOpts + '</select>' +
+        '<select class="form-select form-select-sm learned-strat-sel" data-key="' + escapeAttr(item.key) + '" data-host="' + escapeAttr(item.host) + '" data-mode="' + (frozen ? 'frozen' : 'auto') + '" title="Выбор стратегии 1..' + poolMax + '">' + stratOpts + '</select>' +
       '</td>' +
       '<td>' +
-        '<button type="button" class="btn btn-ghost btn-sm learned-freeze-btn" data-action="toggleStateFreeze" data-key="' + escapeAttr(item.key) + '" data-host="' + escapeAttr(item.host) + '" data-strategy="' + curStrat + '" data-mode="' + (frozen ? 'frozen' : 'auto') + '" style="color:' + (frozen ? 'var(--primary, #1a73e8)' : 'var(--text-muted, #70757a)') + '" title="' + (frozen ? 'Заморожено — нажмите, чтобы разморозить (вернуть авторотацию)' : 'Авторотация — нажмите, чтобы заморозить на текущей стратегии') + '">' +
-          (frozen ? svgIcon('lock', 14) + ' <span>Заморожено</span>' : svgIcon('unlock', 14) + ' <span>Авто</span>') +
+        '<button type="button" class="btn btn-sm learned-freeze-btn ' + (frozen ? 'is-frozen' : 'is-auto') + '" data-action="toggleStateFreeze" data-key="' + escapeAttr(item.key) + '" data-host="' + escapeAttr(item.host) + '" data-strategy="' + curStrat + '" data-mode="' + (frozen ? 'frozen' : 'auto') + '" title="' + (frozen ? 'Режим: Зафиксировано. Нажмите, чтобы включить автоподбор' : 'Режим: Автоподбор. Нажмите, чтобы зафиксировать стратегию ' + curStrat) + '">' +
+          (frozen ? svgIcon('lock', 13) + ' <span>Зафиксировано</span>' : svgIcon('unlock', 13) + ' <span>Автоподбор</span>') +
         '</button>' +
       '</td>' +
       '<td class="text-muted learned-col-ts">' + escapeHtml(item.ts || '—') + '</td>' +
@@ -631,7 +631,7 @@ function renderLearnedModal() {
     '<th class="learned-sort-th" data-action="sortLearned" data-sort-field="host"><span>Ресурс / домен</span> <span class="learned-sort-indicator">' + hostSortIcon + '</span></th>' +
     '<th>Протокол</th>' +
     '<th>Стратегия</th>' +
-    '<th>Заморозка</th>' +
+    '<th>Режим</th>' +
     '<th class="learned-sort-th" data-action="sortLearned" data-sort-field="ts"><span>Выучено</span> <span class="learned-sort-indicator">' + tsSortIcon + '</span></th>' +
     '<th class="learned-col-key">Ключ</th>' +
     '<th style="text-align:right">Действие</th>' +
@@ -641,7 +641,7 @@ function renderLearnedModal() {
     '</div>' +
     (shown.length < filtered.length ? '<div style="text-align:center;margin-top:12px"><button class="btn btn-ghost btn-sm" data-action="loadMoreLearned">Показать ещё (' + Math.min(50, filtered.length - shown.length) + ')</button></div>' : '') +
     '<div class="editor-footer">' +
-    '<button class="btn btn-danger btn-sm" data-action="resetLearned" style="margin-right:auto">' + svgIcon('trash', 14) + '<span>Сбросить всё</span></button>' +
+    '<button class="btn btn-danger btn-sm" data-action="resetLearned" style="margin-right:auto">' + svgIcon('trash', 14) + '<span>Сбросить всю историю</span></button>' +
     '<button class="btn btn-ghost" data-action="closeLearnedModal">Закрыть</button>' +
     '</div>';
 
@@ -751,10 +751,30 @@ function refreshLearned() {
 function stateSet(key, host, strategy, mode) {
   var setMethod = state.ctx && state.ctx.api.strategies && (state.ctx.api.strategies.stateSet || state.ctx.api.strategies.customCreate);
   if (!setMethod) return;
+  // Optimistic in-memory update
+  if (state.learned && Array.isArray(state.learned.entries)) {
+    for (var i = 0; i < state.learned.entries.length; i++) {
+      var item = state.learned.entries[i];
+      if (item.key === key && item.host === host) {
+        item.strategy = String(strategy);
+        item.mode = mode || 'auto';
+        item.frozen = (mode === 'frozen');
+        break;
+      }
+    }
+    if (state.learnedModal && state.learnedModal.open) renderLearnedModal();
+  }
   call(setMethod, { key: key, host: host, strategy: String(strategy), mode: mode || 'auto' }).then(function () {
-    notify('ok', mode === 'frozen' ? 'Заморожено на стратегии ' + strategy : 'Стратегия ' + strategy + ' выбрана');
+    if (mode === 'frozen') {
+      notify('ok', '🔒 ' + host + ': стратегия ' + strategy + ' зафиксирована');
+    } else {
+      notify('ok', '🔓 ' + host + ': включен автоподбор (стратегия ' + strategy + ')');
+    }
     return refreshLearned();
-  }).catch(function (error) { notify('err', errorText(state.ctx, error)); });
+  }).catch(function (error) {
+    notify('err', errorText(state.ctx, error));
+    refreshLearned();
+  });
 }
 function toggleStateFreeze(key, host, strategy, currentMode) {
   var newMode = currentMode === 'frozen' ? 'auto' : 'frozen';
@@ -762,22 +782,41 @@ function toggleStateFreeze(key, host, strategy, currentMode) {
 }
 function resetLearned(host, key) {
   if (!host && !key) {
-    openConfirm('Сбросить выученное состояние', 'Сбросить все выученные записи autocircular? nfqws2 начнёт подбор вариантов заново.', function () {
+    openConfirm('Сброс всей истории обучения', 'Сбросить все выученные записи autocircular и перезапустить службу nfqws2 с чистого листа?', function () {
       var clearMethod = state.ctx && state.ctx.api.strategies && (state.ctx.api.strategies.stateClear || state.ctx.api.strategies.learnedReset);
       if (!clearMethod) return;
+      // Optimistic update
+      state.learned = { entries: [], count: 0 };
+      renderOperationalCards();
+      if (state.learnedModal && state.learnedModal.open) renderLearnedModal();
       call(clearMethod, { host: '', key: '' }).then(function () {
-        notify('ok', 'Выученное состояние сброшено');
+        notify('ok', 'Вся история обучения сброшена, nfqws2 перезапущен');
         return refreshLearned();
-      }).catch(function (error) { notify('err', errorText(state.ctx, error)); });
+      }).catch(function (error) {
+        notify('err', errorText(state.ctx, error));
+        refreshLearned();
+      });
     });
     return;
   }
+  // Single row delete
   var delMethod = state.ctx && state.ctx.api.strategies && (state.ctx.api.strategies.stateDelete || state.ctx.api.strategies.learnedReset);
   if (!delMethod) return;
+  if (state.learned && Array.isArray(state.learned.entries)) {
+    state.learned.entries = state.learned.entries.filter(function (it) {
+      return !(it.key === key && it.host === host);
+    });
+    state.learned.count = state.learned.entries.length;
+    renderOperationalCards();
+    if (state.learnedModal && state.learnedModal.open) renderLearnedModal();
+  }
   call(delMethod, { host: host || '', key: key || '' }).then(function () {
     notify('ok', 'Запись ' + (host || key) + ' удалена');
     return refreshLearned();
-  }).catch(function (error) { notify('err', errorText(state.ctx, error)); });
+  }).catch(function (error) {
+    notify('err', errorText(state.ctx, error));
+    refreshLearned();
+  });
 }
 function showCircular() {
   if (state.learnedModal && state.learnedModal.open) closeLearnedModal();

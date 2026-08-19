@@ -1033,6 +1033,67 @@
 .z2m-view#z2m-view-strategy .learned-summary-row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:7px 12px; background:rgba(255,255,255,.025); border:1px solid var(--border); border-radius:6px; font-size:12px; }
 .z2m-view#z2m-view-strategy .learned-summary-domain { font-weight:500; color:var(--tx); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .z2m-view#z2m-view-strategy .learned-summary-label { display:inline-flex; align-items:center; gap:6px; color:var(--tx2); white-space:nowrap; font-size:12px; }
+/* Learned Modal and Freeze Controls */
+#z2m-view-strategy .learned-freeze-btn,
+.z2m-view#z2m-view-strategy .learned-freeze-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 5px !important;
+  min-height: 26px !important;
+  height: 26px !important;
+  padding: 2px 10px !important;
+  border-radius: 5px !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  transition: all .15s ease !important;
+  user-select: none !important;
+  white-space: nowrap !important;
+  line-height: 1 !important;
+}
+#z2m-view-strategy .learned-freeze-btn.is-frozen,
+.z2m-view#z2m-view-strategy .learned-freeze-btn.is-frozen {
+  background: rgba(59, 130, 246, 0.25) !important;
+  color: #93c5fd !important;
+  border: 1px solid rgba(96, 165, 250, 0.6) !important;
+  font-weight: 600 !important;
+}
+#z2m-view-strategy .learned-freeze-btn.is-frozen:hover,
+.z2m-view#z2m-view-strategy .learned-freeze-btn.is-frozen:hover {
+  background: rgba(59, 130, 246, 0.4) !important;
+  border-color: #93c5fd !important;
+  color: #fff !important;
+}
+#z2m-view-strategy .learned-freeze-btn.is-auto,
+.z2m-view#z2m-view-strategy .learned-freeze-btn.is-auto {
+  background: rgba(255, 255, 255, 0.04) !important;
+  color: var(--tx3, #94a3b8) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+}
+#z2m-view-strategy .learned-freeze-btn.is-auto:hover,
+.z2m-view#z2m-view-strategy .learned-freeze-btn.is-auto:hover {
+  background: rgba(255, 255, 255, 0.09) !important;
+  color: var(--tx, #f8fafc) !important;
+  border-color: rgba(255, 255, 255, 0.3) !important;
+}
+#z2m-view-strategy .learned-strat-sel,
+.z2m-view#z2m-view-strategy .learned-strat-sel {
+  height: 26px !important;
+  min-height: 26px !important;
+  max-width: 68px !important;
+  padding: 2px 6px !important;
+  font-size: 12px !important;
+  border-radius: 4px !important;
+  background: #181a1d !important;
+  color: #f1f5f9 !important;
+  border: 1px solid var(--border2, #3a3f45) !important;
+  cursor: pointer !important;
+}
+#z2m-view-strategy .learned-row-frozen td,
+.z2m-view#z2m-view-strategy .learned-row-frozen td {
+  background: rgba(59, 130, 246, 0.06) !important;
+}
 .z2m-view#z2m-view-strategy .learned-proto-badge { display:inline-block; padding:1px 6px; border-radius:4px; font-size:11px; font-weight:600; background:rgba(75,159,213,.12); color:var(--blue); border:1px solid rgba(75,159,213,.3); line-height:1.4; }
 .z2m-view#z2m-view-strategy .learned-proto-badge.quic { background:rgba(168,85,247,.12); color:#c084fc; border-color:rgba(168,85,247,.3); }
 .z2m-view#z2m-view-strategy .learned-proto-badge.tls { background:rgba(75,159,213,.12); color:var(--blue); border-color:rgba(75,159,213,.3); }
