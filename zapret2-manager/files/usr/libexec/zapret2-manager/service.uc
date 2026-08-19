@@ -17,10 +17,11 @@ const USER_PRESETS = '/etc/zapret2-manager/presets';
 const FACTORY_PRESETS = '/usr/share/zapret2-manager/presets';
 const PRESET_FILES = [ 'tcp_https.txt', 'stun_voice.txt', 'udp_games.txt' ];
 const DAEMON_LOG_ENABLE = 'DAEMON_LOG_ENABLE';
+const WHITELIST_PATH = '/etc/zapret2-manager/lists/whitelist.txt';
 
 function preset_token(token) {
 	if (token == '--lua-desync=old') return false;
-	let prefixes = [ '--filter-tcp=', '--filter-udp=', '--hostlist-domains=', '--hostlist=', '--ipset=', '--filter-l7=', '--payload=', '--out-range=', '--in-range=', '--lua-desync=', '--new' ];
+	let prefixes = [ '--filter-tcp=', '--filter-udp=', '--hostlist-domains=', '--hostlist=', '--hostlist-exclude=', '--ipset=', '--filter-l7=', '--payload=', '--out-range=', '--in-range=', '--lua-desync=', '--new' ];
 	for (let i = 0; i < length(prefixes); i++)
 		if (token == prefixes[i] || substr(token, 0, length(prefixes[i])) == prefixes[i]) return true;
 	return false;
