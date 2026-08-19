@@ -139,8 +139,8 @@ export const strategy_evaluate_admission = function(strategy, context) {
 		};
 	}
 
-	// Stage 3: Native Preflight (if preflight execution is requested)
-	if (ctx.runNativePreflight && typeof native_preflight === 'function') {
+	// Stage 3: Native Preflight (Unconditionally Mandatory)
+	if (typeof native_preflight === 'function') {
 		let pfResult = native_preflight(fullArgs);
 		if (pfResult.status != 'verified') {
 			return {
@@ -155,8 +155,8 @@ export const strategy_evaluate_admission = function(strategy, context) {
 		}
 	}
 
-	// Stage 4: Bounded Isolated Smoke Test (if smoke execution is requested)
-	if (ctx.runSmoke && typeof engine_smoke === 'function') {
+	// Stage 4: Bounded Isolated Smoke Test (Unconditionally Mandatory)
+	if (typeof engine_smoke === 'function') {
 		let smokeResult = engine_smoke(fullArgs, { timeoutSec: 2 });
 		if (!smokeResult.ok) {
 			return {
@@ -171,7 +171,7 @@ export const strategy_evaluate_admission = function(strategy, context) {
 		}
 	}
 
-	// All stages passed cleanly
+	// All 4 stages passed cleanly
 	return {
 		strategyId: stratId,
 		admitted: true,

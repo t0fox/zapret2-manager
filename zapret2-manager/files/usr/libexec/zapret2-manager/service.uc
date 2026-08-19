@@ -8,6 +8,7 @@ import { PATHS, PASSTHROUGH_PROFILE_NAME,
 	NFQWS2_ENABLE_VAR, PAUSE_STOPS_FW,
 	ROLLBACK_TIMEOUT_ENABLED, ROLLBACK_TTL } from './constants.uc';
 import { read_var, set_var, restore_whole_file, config_sha256 } from './apply.uc';
+import { fetch_list } from './list-fetcher.uc';
 
 const UPSTREAM_INIT = '/etc/init.d/zapret2';
 const LASTGOOD_DIR = '/tmp/zapret2-manager/last-good';
@@ -417,6 +418,8 @@ if (arg == 'passthrough') {
 	let m = { start: start, stop: stop, restart: restart, restart_daemons: restart_daemons,
 		start_fw: start_fw, reload_ifsets: reload_ifsets, confirm_alive: confirm_alive };
 	print(sprintf("%J", m[arg]()) + '\n');
+} else if (arg == 'sync_lists') {
+	print(sprintf("%J", fetch_list({ name: 'ru-blocked.txt' })) + '\n');
 } else {
 	let argval = arg ? arg : '';
 	print(sprintf("%J", { ok: false, error: 'unknown action: ' + argval }) + '\n');

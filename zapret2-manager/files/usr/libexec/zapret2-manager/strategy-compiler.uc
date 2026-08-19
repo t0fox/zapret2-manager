@@ -269,15 +269,31 @@ function list_flags(environment, tokens) {
 	let hasHostlistAuto = has_name(tokens, ['hostlist-auto']);
 	let hasExclude = has_name(tokens, ['hostlist-exclude', 'hostlist-exclude-domains']);
 
-	if (mode == 'explicit' && !hasHostlist) {
+	// Check if this profile is a synthetic no-host profile (like discord_voice, discord, stun)
+	let isSyntheticNoHost = false;
+	for (let i = 0; i < length(tokens); i++) {
+		let opt = option_info(tokens[i]);
+		if (opt.name == 'filter-l7' && (opt.value == 'discord' || opt.value == 'stun' || opt.value == 'discord,stun' || index(opt.value, 'discord') >= 0 || index(opt.value, 'stun') >= 0)) {
+			isSyntheticNoHost = true;
+		}
+		if (opt.name == 'lua-desync' && index(opt.value, 'hostkey=z2k_nohost_key') >= 0) {
+			isSyntheticNoHost = true;
+		}
+	}
+
+	if (!isSyntheticNoHost) {
+		if (mode == 'explicit' && !hasHostlist) {
 			let path = environment.listPath;
 			let list = path == null ? null : list_reference(environment, path, 'list', true);
 			if (list != null && list.available) push(result, '--hostlist=' + list.path);
-	} else if ((mode == 'auto' || mode == 'autohostlist') && !hasHostlistAuto) {
+		} else if ((mode == 'auto' || mode == 'autohostlist') && !hasHostlistAuto) {
 			if (safe_absolute_path(paths.autoHostlist)) push(result, '--hostlist-auto=' + paths.autoHostlist);
+		}
+		if (!hasExclude && mode != 'ipset') {
+			let exclPath = safe_absolute_path(paths.hostlistExclude) ? paths.hostlistExclude : '/etc/zapret2-manager/lists/whitelist.txt';
+			if (safe_absolute_path(exclPath)) push(result, '--hostlist-exclude=' + exclPath);
+		}
 	}
-	if (!hasExclude && mode != 'ipset' && safe_absolute_path(paths.hostlistExclude))
-		push(result, '--hostlist-exclude=' + paths.hostlistExclude);
 	return result;
 }
 
