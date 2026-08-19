@@ -641,14 +641,15 @@ function renderLearnedModal() {
 
   var discordState = (Model && typeof Model.extractDiscordVoiceState === 'function')
     ? Model.extractDiscordVoiceState(rawEntries, pools)
-    : { key: 'discord_voice', host: 'nohost', strategy: 1, mode: 'auto', isFrozen: false, exists: false, isLive: false };
+    : { key: 'discord_udp', host: 'nohost', strategy: 1, mode: 'auto', isFrozen: false, exists: false, isLive: false, runtimeKey: 'discord_udp' };
   var isDiscordLive = discordState && discordState.isLive;
+  var liveRuntimeKey = discordState.runtimeKey || discordState.key || 'discord_udp';
   var discordPool = (Model && typeof Model.findLivePool === 'function')
-    ? Model.findLivePool('discord_voice', pools)
-    : (pools.discord_voice || pools.discord_udp || null);
-  var discordPoolSize = Number(discordPool && (discordPool.size || (Array.isArray(discordPool.strategies) ? discordPool.strategies.length : 12))) || 12;
+    ? (Model.findLivePool(liveRuntimeKey, pools) || Model.findLivePool('discord_udp', pools) || Model.findLivePool('discord_voice', pools))
+    : (pools.discord_udp || pools.discord_voice || null);
+  var discordPoolSize = Number(discordPool && (discordPool.size || (Array.isArray(discordPool.strategies) ? discordPool.strategies.length : 6))) || (discordState.poolSize || 6);
   var discordStratName = (Model && typeof Model.resolveStrategyName === 'function')
-    ? Model.resolveStrategyName('discord_voice', discordState.strategy, pools)
+    ? Model.resolveStrategyName(liveRuntimeKey, discordState.strategy, pools)
     : ('#' + discordState.strategy);
   var isFrozen = discordState.mode === 'frozen';
 
@@ -704,13 +705,13 @@ function renderLearnedModal() {
           '<div class="discord-voice-mode-desc text-muted">' + escapeHtml(modeDesc) + '</div>' +
         '</div>' +
         '<div class="discord-voice-actions">' +
-          '<button type="button" class="btn btn-sm btn-primary" data-action="openStratPicker" data-key="discord_voice" data-host="nohost" data-strategy="' + discordState.strategy + '" data-mode="' + (isFrozen ? 'frozen' : 'auto') + '">' +
+          '<button type="button" class="btn btn-sm btn-primary" data-action="openStratPicker" data-key="' + escapeHtml(liveRuntimeKey) + '" data-host="nohost" data-strategy="' + discordState.strategy + '" data-mode="' + (isFrozen ? 'frozen' : 'auto') + '">' +
             svgIcon('edit', 12) + ' <span>Выбрать вариант</span>' +
           '</button>' +
-          '<button type="button" class="btn btn-sm btn-ghost" data-action="toggleStateFreeze" data-key="discord_voice" data-host="nohost" data-strategy="' + discordState.strategy + '" data-mode="' + (isFrozen ? 'frozen' : 'auto') + '" title="' + (isFrozen ? 'Вернуть автоматический подбор' : 'Зафиксировать текущий вариант #' + discordState.strategy) + '">' +
+          '<button type="button" class="btn btn-sm btn-ghost" data-action="toggleStateFreeze" data-key="' + escapeHtml(liveRuntimeKey) + '" data-host="nohost" data-strategy="' + discordState.strategy + '" data-mode="' + (isFrozen ? 'frozen' : 'auto') + '" title="' + (isFrozen ? 'Вернуть автоматический подбор' : 'Зафиксировать текущий вариант #' + discordState.strategy) + '">' +
             freezeBtnHtml +
           '</button>' +
-          '<button type="button" class="btn btn-sm btn-danger-ghost" data-action="resetLearned" data-key="discord_voice" data-host="nohost" title="Сбросить выбор Discord Voice">' +
+          '<button type="button" class="btn btn-sm btn-danger-ghost" data-action="resetLearned" data-key="' + escapeHtml(liveRuntimeKey) + '" data-host="nohost" title="Сбросить выбор Discord Voice">' +
             svgIcon('trash', 12) + ' <span>Сбросить выбор</span>' +
           '</button>' +
         '</div>' +
@@ -949,9 +950,11 @@ function refreshLearned() {
 function stateSet(key, host, strategy, mode) {
   var setMethod = state.ctx && state.ctx.api.strategies && (state.ctx.api.strategies.stateSet || state.ctx.api.strategies.customCreate);
   if (!setMethod) return;
-  if (key === 'discord_udp') key = 'discord_voice';
-  var isDiscord = (key === 'discord_voice' && host === 'nohost');
-  var canonicalKey = isDiscord ? 'discord_voice' : key;
+  var isDiscord = (key === 'discord_voice' || key === 'discord_udp' || host === 'nohost');
+  var liveDiscordKey = isDiscord
+    ? ((Model && Model.extractDiscordVoiceState && Model.extractDiscordVoiceState(state.learned && state.learned.entries, state.pools).runtimeKey) || key || 'discord_udp')
+    : key;
+  var canonicalKey = isDiscord ? liveDiscordKey : key;
   var canonicalHost = isDiscord ? 'nohost' : host;
 
   // Optimistic in-memory update
@@ -983,7 +986,7 @@ function stateSet(key, host, strategy, mode) {
     }
     if (isDiscord) {
       state.learned.entries = state.learned.entries.filter(function (it) {
-        if (it.host === 'nohost' && it.key === 'discord_udp') return false;
+        if (it.host === 'nohost' && (it.key === 'discord_udp' || it.key === 'discord_voice') && it.key !== canonicalKey) return false;
         return true;
       });
     }
@@ -1031,7 +1034,7 @@ function resetLearned(host, key) {
   }
   // Single row delete (domain row or discord hostless)
   var isDiscord = (key === 'discord_voice' || key === 'discord_udp' || host === 'nohost');
-  var targetKey = isDiscord ? 'discord_voice' : key;
+  var targetKey = isDiscord ? (key || 'discord_udp') : key;
   var targetHost = isDiscord ? 'nohost' : host;
   var delMethod = state.ctx && state.ctx.api.strategies && (state.ctx.api.strategies.stateDelete || state.ctx.api.strategies.learnedReset);
   if (!delMethod) return;

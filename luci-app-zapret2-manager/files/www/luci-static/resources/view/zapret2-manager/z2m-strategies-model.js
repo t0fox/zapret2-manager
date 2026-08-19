@@ -299,29 +299,24 @@ var DEFAULT_RUNTIME_POOLS = {
       { index: 9, name: 'UDPLen (+8) + Fake QUIC (x2)' }
     ]
   },
-  discord_voice: {
-    key: 'discord_voice',
+  discord_udp: {
+    key: 'discord_udp',
+    runtimeKey: 'discord_udp',
     protocol: 'STUN',
-    size: 12,
+    size: 6,
     strategies: [
-      { index: 1, name: 'QUIC Morph v2' },
-      { index: 2, name: 'Timing Morph + Fake QUIC (x2) + IPFrag' },
-      { index: 3, name: 'QUIC Morph (p2)' },
-      { index: 4, name: 'Fake (Dynamic TTL)' },
-      { index: 5, name: 'Fake (Dynamic TTL)' },
-      { index: 6, name: 'Fake (Dynamic TTL)' },
-      { index: 7, name: 'Fake (Dynamic TTL)' },
-      { index: 8, name: 'IPFrag' },
-      { index: 9, name: 'UDPLen (+4) + Fake QUIC (x2)' },
-      { index: 10, name: 'UDPLen (+8) + Fake QUIC (x2)' },
-      { index: 11, name: 'Fake QUIC (x2) + IPFrag' },
-      { index: 12, name: 'Fake QUIC (x3)' }
+      { index: 1, name: 'Fake QUIC (x10)' },
+      { index: 2, name: 'Fake QUIC (x3)' },
+      { index: 3, name: 'Fake QUIC (x6)' },
+      { index: 4, name: 'Fake QUIC (Dynamic TTL, x6)' },
+      { index: 5, name: 'Fake QUIC (x4)' },
+      { index: 6, name: 'Fake QUIC (x5)' }
     ]
   }
 };
 DEFAULT_RUNTIME_POOLS.default = DEFAULT_RUNTIME_POOLS.circular_1_1;
 DEFAULT_RUNTIME_POOLS.rkn_tcp = DEFAULT_RUNTIME_POOLS.circular_1_1;
-DEFAULT_RUNTIME_POOLS.discord_udp = DEFAULT_RUNTIME_POOLS.discord_voice;
+DEFAULT_RUNTIME_POOLS.discord_voice = DEFAULT_RUNTIME_POOLS.discord_udp;
 
 function findLivePool(poolKey, pools) {
   var pKey = text(poolKey).toLowerCase();
@@ -334,7 +329,7 @@ function findLivePool(poolKey, pools) {
     pool = pools['yt_quic'] || null;
   }
   if (!pool && (pKey === 'discord_voice' || pKey === 'discord_udp' || pKey.indexOf('voice') >= 0 || pKey.indexOf('stun') >= 0 || pKey.indexOf('discord') >= 0)) {
-    pool = pools['discord_voice'] || pools['discord_udp'] || null;
+    pool = pools['discord_udp'] || pools['discord_voice'] || null;
   }
   return pool;
 }
@@ -350,19 +345,22 @@ function findPool(poolKey, pools) {
     return DEFAULT_RUNTIME_POOLS['yt_quic'];
   }
   if (pKey === 'discord_voice' || pKey === 'discord_udp' || pKey.indexOf('voice') >= 0 || pKey.indexOf('stun') >= 0 || pKey.indexOf('discord') >= 0) {
-    return DEFAULT_RUNTIME_POOLS['discord_voice'];
+    return DEFAULT_RUNTIME_POOLS['discord_udp'];
   }
   return DEFAULT_RUNTIME_POOLS[poolKey] || DEFAULT_RUNTIME_POOLS[pKey] || null;
 }
 
 function extractDiscordVoiceState(entries, pools) {
   entries = array(entries);
-  var livePool = findLivePool('discord_voice', pools);
+  var livePool = findLivePool('discord_udp', pools) || findLivePool('discord_voice', pools);
   var isLive = !!livePool;
+  var liveKey = (livePool && (livePool.runtimeKey || livePool.key)) || 'discord_udp';
+  var poolSize = livePool ? (livePool.size || 6) : 6;
+
   var found = null;
   for (var i = 0; i < entries.length; i++) {
     var e = entries[i];
-    if (e && text(e.host).toLowerCase() === 'nohost' && text(e.key).toLowerCase() === 'discord_voice') {
+    if (e && text(e.host).toLowerCase() === 'nohost' && text(e.key).toLowerCase() === liveKey.toLowerCase()) {
       found = e;
       break;
     }
@@ -370,7 +368,7 @@ function extractDiscordVoiceState(entries, pools) {
   if (!found) {
     for (var j = 0; j < entries.length; j++) {
       var le = entries[j];
-      if (le && text(le.host).toLowerCase() === 'nohost' && text(le.key).toLowerCase() === 'discord_udp') {
+      if (le && text(le.host).toLowerCase() === 'nohost' && (text(le.key).toLowerCase() === 'discord_udp' || text(le.key).toLowerCase() === 'discord_voice')) {
         found = le;
         break;
       }
@@ -380,8 +378,12 @@ function extractDiscordVoiceState(entries, pools) {
   if (found) {
     var curStrat = Number(found.strategy || found.variantNum) || 1;
     var mode = text(found.mode) === 'frozen' ? 'frozen' : 'auto';
+    if (curStrat < 1 || curStrat > poolSize) {
+      curStrat = 1;
+      mode = 'auto';
+    }
     return {
-      key: 'discord_voice',
+      key: liveKey,
       host: 'nohost',
       strategy: curStrat,
       mode: mode,
@@ -389,13 +391,14 @@ function extractDiscordVoiceState(entries, pools) {
       ts: found.ts || '',
       exists: true,
       isLive: isLive,
-      poolSize: livePool ? (livePool.size || 12) : 12,
-      legacyKey: text(found.key).toLowerCase() === 'discord_udp' ? 'discord_udp' : null
+      runtimeKey: liveKey,
+      poolSize: poolSize,
+      legacyKey: text(found.key).toLowerCase() !== liveKey.toLowerCase() ? text(found.key).toLowerCase() : null
     };
   }
 
   return {
-    key: 'discord_voice',
+    key: liveKey,
     host: 'nohost',
     strategy: 1,
     mode: 'auto',
@@ -403,7 +406,8 @@ function extractDiscordVoiceState(entries, pools) {
     ts: '',
     exists: false,
     isLive: isLive,
-    poolSize: livePool ? (livePool.size || 12) : 12,
+    runtimeKey: liveKey,
+    poolSize: poolSize,
     legacyKey: null
   };
 }

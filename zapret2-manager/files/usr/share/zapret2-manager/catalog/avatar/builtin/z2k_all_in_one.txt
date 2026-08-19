@@ -13,13 +13,14 @@ author = necronicle/z2k
 label = recommended
 featured = 1
 description = Один автоподбор на всё: TCP TLS/HTTP с умными детекторами z2k (не залипает на блок-странице РКН и столле потока) + YouTube QUIC (UDP/443) + Discord voice/video. Покрывает сайты, видео YouTube (QUIC/HTTP3) и звонки Discord одним процессом nfqws2. Рекомендуется как основная стратегия.
-blobs = quic_google, quic5, quic4, quic1, quic6
+blobs = quic_google, quic5, quic4, quic1, quic6, quic_dbankcloud
 # ── blob-декларации (union QUIC), глобальны — до первого --new ──
 --blob=quic_google:@bin/quic_initial_www_google_com.bin
 --blob=quic5:@bin/quic_5.bin
 --blob=quic4:@bin/quic_4.bin
 --blob=quic1:@bin/quic_1.bin
 --blob=quic6:@bin/quic_6.bin
+--blob=quic_dbankcloud:@bin/quic_initial_dbankcloud_ru.bin
 # ─────────── Профиль 1: TCP TLS+HTTP, умные детекторы z2k ───────────
 --filter-tcp=80,443 --filter-l7=tls,http --ipcache-hostname=1 --out-range=-s34228 --in-range=-s5556
 --lua-desync=circular:fails=3:retrans=3:nld=3:failure_detector=z2k_mid_stream_stall:success_detector=z2k_http_success_positive_only:hostkey=z2k_nohost_key
@@ -60,29 +61,14 @@ blobs = quic_google, quic5, quic4, quic1, quic6
 --lua-desync=fake:payload=quic_initial:dir=out:blob=quic6:repeats=2:out_range=-n3:strategy=9
 --new
 # ─────────── Профиль 3: Discord voice/video (UDP) ───────────
---filter-udp=50000-50099,1400,3478-3481,5349,19294-19344
+--filter-udp=50000-50100,1400,3478-3481,5349,19294-19344
 --filter-l7=discord,stun
---in-range=-d100
---out-range=-d100
---payload=quic_initial,discord_ip_discovery
---lua-desync=circular:fails=3:time=60:udp_in=1:udp_out=4:key=discord_voice:nld=2:hostkey=z2k_nohost_key
---lua-desync=z2k_quic_morph_v2:payload=quic_initial:dir=out:packets=2:noise=2:pad_min=8:pad_max=56:strategy=1
---lua-desync=z2k_timing_morph:payload=quic_initial:dir=out:packets=2:chance=80:fakes=2:pad_min=8:pad_max=64:strategy=2
---lua-desync=fake:payload=all:blob=0x00000000000000000000000000000000:repeats=2:out_range=-d10:strategy=2
---lua-desync=send:payload=quic_initial:dir=out:ipfrag=z2k_ipfrag3_tiny:ipfrag_pos_udp=8:ipfrag_pos2=32:ipfrag_overlap12=8:ipfrag_overlap23=8:ipfrag_disorder:ipfrag_next2=255:strategy=2
---lua-desync=drop:strategy=2
---lua-desync=z2k_quic_morph_v2:payload=quic_initial:dir=out:packets=2:profile=2:noise=2:pad_min=8:pad_max=64:ipfrag_pos_udp=16:ipfrag_pos2=56:ipfrag_overlap12=16:ipfrag_overlap23=8:strategy=3
---lua-desync=fake:payload=all:blob=quic_google:repeats=3:ip_autottl=-2,3-20:out_range=-d3:strategy=4
---lua-desync=fake:payload=all:blob=quic5:repeats=4:ip_autottl=-2,3-20:out_range=-n5:strategy=5
---lua-desync=fake:payload=all:blob=fake_default_quic:repeats=6:ip_autottl=-2,3-20:out_range=-d100:strategy=6
---lua-desync=fake:payload=all:blob=quic5:repeats=6:ip_autottl=-2,3-20:out_range=-n2:strategy=7
---lua-desync=send:payload=quic_initial:dir=out:ipfrag=z2k_ipfrag3:ipfrag_pos_udp=16:ipfrag_pos2=48:ipfrag_overlap12=8:ipfrag_overlap23=8:ipfrag_disorder:ipfrag_next2=255:strategy=8
---lua-desync=drop:strategy=8
---lua-desync=udplen:payload=quic_initial:dir=out:increment=4:strategy=9
---lua-desync=fake:payload=all:blob=quic5:repeats=2:strategy=9
---lua-desync=udplen:payload=quic_initial:dir=out:increment=8:pattern=0xFEA82025:strategy=10
---lua-desync=fake:payload=all:blob=quic5:repeats=2:strategy=10
---lua-desync=fake:payload=all:blob=0x00000000000000000000000000000000:repeats=2:strategy=11
---lua-desync=send:payload=quic_initial:dir=out:ipfrag:ipfrag_pos_udp=8:strategy=11
---lua-desync=drop:strategy=11
---lua-desync=fake:payload=all:blob=fake_default_quic:repeats=3:strategy=12
+--out-range=-d4
+--payload=discord_ip_discovery,stun
+--lua-desync=circular:fails=3:time=60:udp_in=1:udp_out=4:key=discord_udp:nld=2:hostkey=z2k_nohost_key
+--lua-desync=fake:payload=all:blob=quic_dbankcloud:repeats=10:strategy=1
+--lua-desync=fake:payload=all:blob=quic_dbankcloud:repeats=3:strategy=2
+--lua-desync=fake:payload=all:blob=quic_dbankcloud:repeats=6:strategy=3
+--lua-desync=fake:payload=all:blob=quic_dbankcloud:repeats=6:ip_autottl=-2,3-20:strategy=4
+--lua-desync=fake:payload=all:blob=quic_dbankcloud:repeats=4:strategy=5
+--lua-desync=fake:payload=all:blob=quic_dbankcloud:repeats=5:strategy=6

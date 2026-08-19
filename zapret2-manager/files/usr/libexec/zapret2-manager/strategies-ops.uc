@@ -169,6 +169,14 @@ function parse_desync_label(action, params, proto) {
 		else if (match(params, /quic_google/)) {
 			let rep = match(params, /repeats=([0-9]+)/);
 			label = 'Fake QUIC (google' + (rep ? ' x' + rep[1] : '') + ')';
+		} else if (match(params, /quic_dbankcloud/)) {
+			let rep = match(params, /repeats=([0-9]+)/);
+			let ttl = match(params, /ip_autottl/);
+			if (ttl) {
+				label = 'Fake QUIC (Dynamic TTL' + (rep ? ', x' + rep[1] : '') + ')';
+			} else {
+				label = 'Fake QUIC' + (rep ? ' (x' + rep[1] + ')' : '');
+			}
 		} else if (match(params, /quic/)) {
 			let rep = match(params, /repeats=([0-9]+)/);
 			label = 'Fake QUIC' + (rep ? ' (x' + rep[1] + ')' : '');
@@ -217,6 +225,15 @@ function parse_desync_label(action, params, proto) {
 	}
 	return label;
 }
+
+export const resolve_live_discord_key = function(pools) {
+	if (!is_object(pools)) return null;
+	if (pools['discord_udp'] && pools['discord_udp'].runtimeKey == 'discord_udp') return 'discord_udp';
+	if (pools['discord_voice'] && pools['discord_voice'].runtimeKey == 'discord_voice') return 'discord_voice';
+	if (pools['discord_udp']) return pools['discord_udp'].runtimeKey || 'discord_udp';
+	if (pools['discord_voice']) return pools['discord_voice'].runtimeKey || 'discord_voice';
+	return null;
+};
 
 function pools_read() {
 	let pools = {};
@@ -289,6 +306,7 @@ function pools_read() {
 
 			let pool_obj = {
 				key: key,
+				runtimeKey: key,
 				protocol: proto,
 				size: max_strat,
 				strategies: strategies
@@ -299,10 +317,24 @@ function pools_read() {
 				pools['rkn_tcp'] = pool_obj;
 			}
 			if (key == 'discord_voice') {
-				pools['discord_udp'] = pool_obj;
+				pools['discord_udp'] = {
+					key: 'discord_udp',
+					runtimeKey: 'discord_voice',
+					aliasOf: 'discord_voice',
+					protocol: proto,
+					size: max_strat,
+					strategies: strategies
+				};
 			}
 			if (key == 'discord_udp') {
-				pools['discord_voice'] = pool_obj;
+				pools['discord_voice'] = {
+					key: 'discord_voice',
+					runtimeKey: 'discord_udp',
+					aliasOf: 'discord_udp',
+					protocol: proto,
+					size: max_strat,
+					strategies: strategies
+				};
 			}
 		}
 	}
@@ -313,6 +345,48 @@ function pools_read() {
 function learned_state() {
 	let rows = learned_rows();
 	let pools_info = pools_read();
+	let live_discord = resolve_live_discord_key(pools_info.pools);
+	let pool_size = live_discord && pools_info.pools[live_discord] ? pools_info.pools[live_discord].size : 6;
+
+	if (live_discord) {
+		let discord_seen = false;
+		let modified = false;
+		let normalized_rows = [];
+		for (let row in rows) {
+			if ((row.key == 'discord_voice' || row.key == 'discord_udp') && row.host == 'nohost') {
+				if (!discord_seen) {
+					discord_seen = true;
+					let strat_num = +row.strategy;
+					let new_strat = row.strategy;
+					let new_mode = row.mode;
+					if (strat_num < 1 || strat_num > pool_size) {
+						new_strat = '1';
+						new_mode = 'auto';
+						modified = true;
+					}
+					if (row.key != live_discord) {
+						modified = true;
+					}
+					push(normalized_rows, {
+						key: live_discord,
+						host: 'nohost',
+						strategy: new_strat,
+						ts: row.ts || '' + time(),
+						mode: new_mode
+					});
+				} else {
+					modified = true;
+				}
+			} else {
+				push(normalized_rows, row);
+			}
+		}
+		if (modified) {
+			state_save_rows(normalized_rows);
+			rows = normalized_rows;
+		}
+	}
+
 	return { ok: true, source: LEARNED_PATH, entries: rows, summary: learned_summary(rows), empty: !length(rows), count: length(rows), pools: pools_info.pools || {} };
 }
 
@@ -348,7 +422,16 @@ function state_set(input) {
 	let strategy = safe_text('' + (strategy_raw != null ? strategy_raw : ''));
 	let mode = safe_text(value.mode) == 'frozen' ? 'frozen' : 'auto';
 
-	if (key == 'discord_udp') key = 'discord_voice';
+	let pools_info = pools_read();
+	let is_discord = (key == 'discord_voice' || key == 'discord_udp') && host == 'nohost';
+	let live_discord_key = resolve_live_discord_key(pools_info.pools);
+
+	if (is_discord) {
+		if (!live_discord_key) {
+			return { ok: false, error: { code: 'EPOOL', message: 'Discord pool is not active in current configuration' } };
+		}
+		key = live_discord_key;
+	}
 
 	if (!length(key) || !match(key, /^[a-zA-Z0-9_]+$/))
 		return { ok: false, error: { code: 'EINPUT', message: 'key is invalid' } };
@@ -357,7 +440,6 @@ function state_set(input) {
 	if (!length(strategy) || !match(strategy, /^[0-9]+$/) || +strategy < 1)
 		return { ok: false, error: { code: 'EINPUT', message: 'strategy must be a positive integer' } };
 
-	let pools_info = pools_read();
 	let pool = pools_info && pools_info.pools && (pools_info.pools[key] || pools_info.pools[lc(key)]);
 	if (!pool) {
 		return { ok: false, error: { code: 'EPOOL', message: 'pool ' + key + ' is not active in current configuration' } };
@@ -371,9 +453,9 @@ function state_set(input) {
 	let now_ts = '' + time();
 	let kept = [];
 	for (let row in rows) {
-		if ((key == 'discord_voice' && host == 'nohost') && (row.key == 'discord_udp' || row.key == 'discord_voice') && row.host == 'nohost') {
+		if (is_discord && (row.key == 'discord_udp' || row.key == 'discord_voice') && row.host == 'nohost') {
 			if (!updated) {
-				push(kept, { key: 'discord_voice', host: 'nohost', strategy: strategy, ts: now_ts, mode: mode });
+				push(kept, { key: key, host: 'nohost', strategy: strategy, ts: now_ts, mode: mode });
 				updated = true;
 			}
 			continue;

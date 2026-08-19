@@ -146,16 +146,16 @@ test('TEST O: UI without live discord_voice renders inactive card with no mutati
   assert.doesNotMatch(bodyHtml, /data-action="resetLearned"[^>]*data-key="discord_voice"/, 'Inactive card must NOT have reset button');
 });
 
-test('TEST P: UI with live discord_voice renders active card and picker with 12 variants', () => {
+test('TEST P: UI with live discord_udp renders active card and picker with 6 variants', () => {
   const Model = loadModel();
   const { ui, domNodes } = loadUI({
     learned: { entries: [], count: 0 },
     pools: {
-      discord_voice: {
-        key: 'discord_voice',
+      discord_udp: {
+        key: 'discord_udp',
         protocol: 'STUN',
-        size: 12,
-        strategies: Model.DEFAULT_RUNTIME_POOLS?.discord_voice?.strategies || []
+        size: 6,
+        strategies: Model.DEFAULT_RUNTIME_POOLS?.discord_udp?.strategies || []
       }
     }
   });
@@ -166,29 +166,29 @@ test('TEST P: UI with live discord_voice renders active card and picker with 12 
   assert.match(bodyHtml, /Discord Voice/i, 'Learned modal must contain Discord Voice heading');
   assert.match(bodyHtml, /STUN/i, 'Must mention STUN protocol');
   assert.match(bodyHtml, /#1/i, 'Default strategy must be #1');
-  assert.match(bodyHtml, /QUIC Morph v2/i, 'Strategy #1 name should be QUIC Morph v2');
+  assert.match(bodyHtml, /Fake QUIC \(x10\)/i, 'Strategy #1 name should be Fake QUIC (x10)');
   assert.match(bodyHtml, /Авто/i, 'Mode badge must be Авто');
-  assert.match(bodyHtml, /data-action="openStratPicker"[^>]*data-key="discord_voice"[^>]*data-host="nohost"/, 'Must have strategy picker button');
-  assert.match(bodyHtml, /data-action="toggleStateFreeze"[^>]*data-key="discord_voice"[^>]*data-host="nohost"/, 'Must have freeze toggle button');
-  assert.match(bodyHtml, /data-action="resetLearned"[^>]*data-key="discord_voice"/, 'Must have reset button');
+  assert.match(bodyHtml, /data-action="openStratPicker"[^>]*data-key="discord_udp"[^>]*data-host="nohost"/, 'Must have strategy picker button with live key');
+  assert.match(bodyHtml, /data-action="toggleStateFreeze"[^>]*data-key="discord_udp"[^>]*data-host="nohost"/, 'Must have freeze toggle button');
+  assert.match(bodyHtml, /data-action="resetLearned"[^>]*data-key="discord_udp"/, 'Must have reset button');
 });
 
-test('UI: renderLearnedModal renders Discord Voice card with frozen state (#7, Зафиксировано)', () => {
+test('UI: renderLearnedModal renders Discord Voice card with frozen state (#4, Зафиксировано)', () => {
   const Model = loadModel();
   const { ui, domNodes } = loadUI({
     learned: {
       entries: [
-        { key: 'discord_voice', host: 'nohost', strategy: '7', ts: '1787150000', mode: 'frozen' },
+        { key: 'discord_udp', host: 'nohost', strategy: '4', ts: '1787150000', mode: 'frozen' },
         { key: 'circular_1_1', host: 'youtube.com', strategy: '2', ts: '1787150001', mode: 'auto' }
       ],
       count: 2
     },
     pools: {
-      discord_voice: {
-        key: 'discord_voice',
+      discord_udp: {
+        key: 'discord_udp',
         protocol: 'STUN',
-        size: 12,
-        strategies: Model.DEFAULT_RUNTIME_POOLS?.discord_voice?.strategies || []
+        size: 6,
+        strategies: Model.DEFAULT_RUNTIME_POOLS?.discord_udp?.strategies || []
       }
     }
   });
@@ -196,8 +196,8 @@ test('UI: renderLearnedModal renders Discord Voice card with frozen state (#7, �
   ui.renderLearnedModal();
   const bodyHtml = domNodes.get('learned-modal-body').innerHTML;
 
-  assert.match(bodyHtml, /#7/i, 'Must show strategy #7');
-  assert.match(bodyHtml, /Fake \(Dynamic TTL\)/i, 'Strategy #7 name should be Fake (Dynamic TTL)');
+  assert.match(bodyHtml, /#4/i, 'Must show strategy #4');
+  assert.match(bodyHtml, /Fake QUIC \(Dynamic TTL/i, 'Strategy #4 name should be Fake QUIC (Dynamic TTL)');
   assert.match(bodyHtml, /Зафиксирован/i, 'Mode badge must indicate frozen state');
 
   // Verify domain table does NOT show nohost as a domain row
@@ -205,29 +205,30 @@ test('UI: renderLearnedModal renders Discord Voice card with frozen state (#7, �
   assert.match(bodyHtml, /youtube\.com/, 'youtube.com must appear as a domain row');
 });
 
-test('UI: openStratPicker for discord_voice opens picker with exactly 12 Discord variants', () => {
+test('UI: openStratPicker for discord_udp opens picker with exactly 6 Discord variants', () => {
   const Model = loadModel();
   const { ui, domNodes } = loadUI({
     pools: {
-      discord_voice: {
-        key: 'discord_voice',
+      discord_udp: {
+        key: 'discord_udp',
         protocol: 'STUN',
-        size: 12,
-        strategies: Model.DEFAULT_RUNTIME_POOLS?.discord_voice?.strategies || []
+        size: 6,
+        strategies: Model.DEFAULT_RUNTIME_POOLS?.discord_udp?.strategies || []
       }
     }
   });
 
-  ui.openStratPicker('discord_voice', 'nohost', 7, 'frozen');
+  ui.openStratPicker('discord_udp', 'nohost', 4, 'frozen');
   const pickerHtml = domNodes.get('strat-picker-body').innerHTML;
 
-  assert.match(pickerHtml, /discord_voice/i);
+  assert.match(pickerHtml, /discord_udp/i);
   assert.match(pickerHtml, /#1/);
-  assert.match(pickerHtml, /QUIC Morph v2/);
-  assert.match(pickerHtml, /#7/);
-  assert.match(pickerHtml, /#12/);
-  assert.match(pickerHtml, /Fake QUIC \(x3\)/);
-  assert.doesNotMatch(pickerHtml, /Fake TLS \(MD5\)/);
+  assert.match(pickerHtml, /Fake QUIC \(x10\)/);
+  assert.match(pickerHtml, /#4/);
+  assert.match(pickerHtml, /Fake QUIC \(Dynamic TTL/);
+  assert.match(pickerHtml, /#6/);
+  assert.match(pickerHtml, /Fake QUIC \(x5\)/);
+  assert.doesNotMatch(pickerHtml, /#7/);
 });
 
 test('UI: selectStratPickerOption while frozen maintains frozen mode', () => {
@@ -236,15 +237,15 @@ test('UI: selectStratPickerOption while frozen maintains frozen mode', () => {
   const { ui } = loadUI({
     learned: {
       entries: [
-        { key: 'discord_voice', host: 'nohost', strategy: '1', ts: '1787150000', mode: 'frozen' }
+        { key: 'discord_udp', host: 'nohost', strategy: '1', ts: '1787150000', mode: 'frozen' }
       ]
     },
     pools: {
-      discord_voice: {
-        key: 'discord_voice',
+      discord_udp: {
+        key: 'discord_udp',
         protocol: 'STUN',
-        size: 12,
-        strategies: Model.DEFAULT_RUNTIME_POOLS?.discord_voice?.strategies || []
+        size: 6,
+        strategies: Model.DEFAULT_RUNTIME_POOLS?.discord_udp?.strategies || []
       }
     },
     ctx: {
@@ -259,13 +260,13 @@ test('UI: selectStratPickerOption while frozen maintains frozen mode', () => {
     }
   });
 
-  ui.openStratPicker('discord_voice', 'nohost', 1, 'frozen');
-  ui.selectStratPickerOption('7');
+  ui.openStratPicker('discord_udp', 'nohost', 1, 'frozen');
+  ui.selectStratPickerOption('4');
 
   assert.deepEqual(calledApi, {
-    key: 'discord_voice',
+    key: 'discord_udp',
     host: 'nohost',
-    strategy: '7',
+    strategy: '4',
     mode: 'frozen'
   });
 });
@@ -276,11 +277,11 @@ test('UI: toggleStateFreeze switches auto -> frozen and frozen -> auto', () => {
   const { ui } = loadUI({
     learned: { entries: [] },
     pools: {
-      discord_voice: {
-        key: 'discord_voice',
+      discord_udp: {
+        key: 'discord_udp',
         protocol: 'STUN',
-        size: 12,
-        strategies: Model.DEFAULT_RUNTIME_POOLS?.discord_voice?.strategies || []
+        size: 6,
+        strategies: Model.DEFAULT_RUNTIME_POOLS?.discord_udp?.strategies || []
       }
     },
     ctx: {
@@ -295,10 +296,10 @@ test('UI: toggleStateFreeze switches auto -> frozen and frozen -> auto', () => {
     }
   });
 
-  ui.toggleStateFreeze('discord_voice', 'nohost', 7, 'auto');
+  ui.toggleStateFreeze('discord_udp', 'nohost', 4, 'auto');
   assert.equal(calls[0].mode, 'frozen');
 
-  ui.toggleStateFreeze('discord_voice', 'nohost', 7, 'frozen');
+  ui.toggleStateFreeze('discord_udp', 'nohost', 4, 'frozen');
   assert.equal(calls[1].mode, 'auto');
 });
 
@@ -308,17 +309,17 @@ test('UI: resetLearned for nohost deletes only Discord hostless state', () => {
   const { ui } = loadUI({
     learned: {
       entries: [
-        { key: 'discord_voice', host: 'nohost', strategy: '7', ts: '1787150000', mode: 'frozen' },
+        { key: 'discord_udp', host: 'nohost', strategy: '4', ts: '1787150000', mode: 'frozen' },
         { key: 'circular_1_1', host: 'youtube.com', strategy: '2', ts: '1787150001', mode: 'auto' }
       ],
       count: 2
     },
     pools: {
-      discord_voice: {
-        key: 'discord_voice',
+      discord_udp: {
+        key: 'discord_udp',
         protocol: 'STUN',
-        size: 12,
-        strategies: Model.DEFAULT_RUNTIME_POOLS?.discord_voice?.strategies || []
+        size: 6,
+        strategies: Model.DEFAULT_RUNTIME_POOLS?.discord_udp?.strategies || []
       }
     },
     ctx: {
@@ -333,9 +334,9 @@ test('UI: resetLearned for nohost deletes only Discord hostless state', () => {
     }
   });
 
-  ui.resetLearned('nohost', 'discord_voice');
+  ui.resetLearned('nohost', 'discord_udp');
 
-  assert.deepEqual(deletedPayload, { host: 'nohost', key: 'discord_voice' });
+  assert.deepEqual(deletedPayload, { host: 'nohost', key: 'discord_udp' });
   assert.equal(ui.state.learned.entries.length, 1);
   assert.equal(ui.state.learned.entries[0].host, 'youtube.com');
 });
@@ -548,19 +549,19 @@ test('TEST UI-8: Inactive live pool shows "Не используется тек�
   assert.doesNotMatch(bodyHtml, /Сбросить выбор/i);
 });
 
-test('TEST UI-9: Discord reset action sends key=discord_voice, host=nohost and labels button "Сбросить выбор"', () => {
+test('TEST UI-9: Discord reset action sends key=discord_udp, host=nohost and labels button "Сбросить выбор"', () => {
   let deletedPayload = null;
   const Model = loadModel();
   const { ui, domNodes } = loadUI({
     learned: {
-      entries: [{ key: 'discord_voice', host: 'nohost', strategy: '7', ts: '1787150000', mode: 'frozen' }]
+      entries: [{ key: 'discord_udp', host: 'nohost', strategy: '4', ts: '1787150000', mode: 'frozen' }]
     },
     pools: {
-      discord_voice: {
-        key: 'discord_voice',
+      discord_udp: {
+        key: 'discord_udp',
         protocol: 'STUN',
-        size: 12,
-        strategies: Model.DEFAULT_RUNTIME_POOLS?.discord_voice?.strategies || []
+        size: 6,
+        strategies: Model.DEFAULT_RUNTIME_POOLS?.discord_udp?.strategies || []
       }
     },
     ctx: {
@@ -579,10 +580,10 @@ test('TEST UI-9: Discord reset action sends key=discord_voice, host=nohost and l
   const bodyHtml = domNodes.get('learned-modal-body').innerHTML;
 
   assert.match(bodyHtml, /Сбросить выбор/i, 'Discord reset button must be labeled "Сбросить выбор"');
-  assert.match(bodyHtml, /data-action="resetLearned"[^>]*data-key="discord_voice"[^>]*data-host="nohost"/);
+  assert.match(bodyHtml, /data-action="resetLearned"[^>]*data-key="discord_udp"[^>]*data-host="nohost"/);
 
-  ui.resetLearned('nohost', 'discord_voice');
-  assert.deepEqual(deletedPayload, { host: 'nohost', key: 'discord_voice' });
+  ui.resetLearned('nohost', 'discord_udp');
+  assert.deepEqual(deletedPayload, { host: 'nohost', key: 'discord_udp' });
 });
 
 test('TEST UI-10: Global footer reset button is labeled "Сбросить обучение"', () => {

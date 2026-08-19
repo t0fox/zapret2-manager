@@ -48,6 +48,7 @@ const ERROR_CODES = ['EINPUT', 'ENOENT', 'ECONFLICT', 'ENOENABLED', 'EDEPENDENCY
 function is_object(value) { return type(value) == 'object' && value != null; }
 function is_string(value) { return type(value) == 'string'; }
 function is_integer(value) { return type(value) == 'int' && value >= 0; }
+function starts_with(str, prefix) { return is_string(str) && is_string(prefix) && index(str, prefix) == 0; }
 function bounded_text(value, maximum) {
 	if (!is_string(value)) return '';
 	return length(value) > maximum ? substr(value, 0, maximum) : value;
@@ -259,9 +260,43 @@ function live_runtime_inputs() {
 	}
 	if (length(baseArgs) + length(luaInit) + length(hostlists) == 0 && length(configured) == 0)
 		return error_result('EUNAVAILABLE', 'authoritative live nfqws2 composition has no captured runtime inputs');
+
+	let liveBlobs = {}, liveLua = {}, liveFunctions = {
+		circular: { present: true }, fake: { present: true }, multidisorder: { present: true },
+		multisplit: { present: true }, send: { present: true }, drop: { present: true },
+		udplen: { present: true }, hostfakesplit: { present: true }, fakedsplit: { present: true },
+		synack: { present: true }, synack_split: { present: true }, pktmod: { present: true },
+		z2k_dynamic_ttl: { present: true }, z2k_quic_morph_v2: { present: true },
+		z2k_timing_morph: { present: true }, z2k_range_rand: { present: true },
+		z2k_nohost_key: { present: true }
+	};
+	let fakeFiles = [];
+	try { fakeFiles = lsdir('/opt/zapret2/files/fake') || []; } catch (e) { fakeFiles = []; }
+	for (let fn in fakeFiles) {
+		if (!is_string(fn) || !length(fn)) continue;
+		liveBlobs[fn] = { path: fn, present: true };
+	}
+	liveBlobs['fake_default_tls'] = { present: true, safe: true };
+	liveBlobs['fake_default_http'] = { present: true, safe: true };
+	liveBlobs['fake_default_quic'] = { present: true, safe: true };
+	liveBlobs['tls_google'] = { path: 'tls_clienthello_www_google_com.bin', present: stat('/opt/zapret2/files/fake/tls_clienthello_www_google_com.bin') != null, safe: true };
+	liveBlobs['quic_google'] = { path: 'quic_initial_www_google_com.bin', present: stat('/opt/zapret2/files/fake/quic_initial_www_google_com.bin') != null, safe: true };
+	liveBlobs['quic_dbankcloud'] = { path: 'quic_initial_dbankcloud_ru.bin', present: stat('/opt/zapret2/files/fake/quic_initial_dbankcloud_ru.bin') != null, safe: true };
+	liveBlobs['quic5'] = { path: 'quic_5.bin', present: stat('/opt/zapret2/files/fake/quic_5.bin') != null, safe: true };
+	liveBlobs['quic4'] = { path: 'quic_4.bin', present: stat('/opt/zapret2/files/fake/quic_4.bin') != null, safe: true };
+	liveBlobs['quic1'] = { path: 'quic_1.bin', present: stat('/opt/zapret2/files/fake/quic_1.bin') != null, safe: true };
+	liveBlobs['quic6'] = { path: 'quic_6.bin', present: stat('/opt/zapret2/files/fake/quic_6.bin') != null, safe: true };
+
+	let luaEntries = [];
+	try { luaEntries = lsdir('/opt/zapret2/lua') || []; } catch (e) { luaEntries = []; }
+	for (let lf in luaEntries) {
+		if (!is_string(lf) || !length(lf)) continue;
+		liveLua[lf] = { present: true };
+	}
+
 	return { ok: true, environment: {
-		listMode: 'none', paths: { luaRoot: '/opt/zapret2/lua', blobRoot: '/opt/zapret2/bin', listRoot: '/lists', ipsetRoot: '/lists' },
-		functions: {}, blobs: {}, lua: {}, lists: {}
+		listMode: 'none', paths: { luaRoot: '/opt/zapret2/lua', blobRoot: '/opt/zapret2/files/fake', listRoot: '/lists', ipsetRoot: '/lists' },
+		functions: liveFunctions, blobs: liveBlobs, lua: liveLua, lists: {}
 	}, runtimeInputs: { source: 'live', enginePath: ENGINE_PATH, baseArgs: baseArgs, luaInit: luaInit, hostlists: hostlists } };
 }
 

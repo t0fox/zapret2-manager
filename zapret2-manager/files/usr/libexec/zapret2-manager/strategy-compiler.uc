@@ -360,11 +360,11 @@ function blob_dependency(environment, reference, sourceOverride) {
 	let inline = sourceOverride != null && !!inline_blob_source(sourceOverride);
 	return {
 		available: inline || (descriptor != null && descriptor_safe(descriptor)
-			&& descriptor_present(descriptor, false) && resolved != null),
+			&& descriptor_present(descriptor, false) && (resolved != null || source == null)),
 		descriptor: descriptor,
 		reason: descriptor == null ? 'Blob descriptor is missing'
 			: (!descriptor_safe(descriptor) ? 'Blob descriptor resolves through a symlink'
-				: (resolved == null ? 'Blob path is outside the bounded native root' : 'Blob file is missing')),
+				: (resolved == null && source != null ? 'Blob path is outside the bounded native root' : 'Blob file is missing')),
 	};
 }
 

@@ -11,6 +11,9 @@ STATE_ROOT=/etc/zapret2-manager/state
 
 [ -d "$SRC" ] || exit 0
 mkdir -p "$BASE/files/fake" "$BASE/lua" "$BASE/lists" "$BASE/ipset"
+[ -e "$BASE/bin" ] || ln -s "$BASE/files/fake" "$BASE/bin"
+mkdir -p /etc/zapret2-manager/lists
+[ -f /etc/zapret2-manager/lists/whitelist.txt ] || touch /etc/zapret2-manager/lists/whitelist.txt
 
 # The nfqws2 daemon persists circular host bindings while rpcd reads them from
 # the canonical Z2M state path. Keep this narrow state directory writable by
