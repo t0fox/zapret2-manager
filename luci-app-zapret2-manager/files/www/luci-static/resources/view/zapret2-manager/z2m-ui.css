@@ -1226,6 +1226,47 @@
 .z2m-view#z2m-view-strategy .learned-proto-badge.tls { background:rgba(75,159,213,.12); color:var(--blue); border-color:rgba(75,159,213,.3); }
 .z2m-view#z2m-view-strategy .learned-proto-badge.stun { background:rgba(224,163,59,.12); color:var(--orange); border-color:rgba(224,163,59,.3); }
 .z2m-view#z2m-view-strategy .learned-proto-badge.http { background:rgba(92,185,139,.12); color:var(--green); border-color:rgba(92,185,139,.3); }
+/* Learned Modal Sections & Special Resources */
+.learned-section,
+.z2m-view#z2m-view-strategy .learned-section {
+  margin-bottom: 4px;
+}
+.learned-section-header,
+.z2m-view#z2m-view-strategy .learned-section-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.learned-section-title,
+.z2m-view#z2m-view-strategy .learned-section-title {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--tx2, #cbd5e1);
+}
+.learned-section-desc,
+.z2m-view#z2m-view-strategy .learned-section-desc {
+  font-size: 12px;
+  color: var(--tx3, #94a3b8);
+}
+.learned-section-count,
+.z2m-view#z2m-view-strategy .learned-section-count {
+  font-weight: 400;
+  font-size: 13px;
+  color: var(--tx3, #94a3b8);
+  margin-left: 4px;
+  text-transform: none;
+}
+.learned-section-divider,
+.z2m-view#z2m-view-strategy .learned-section-divider {
+  height: 1px;
+  background: var(--border2, rgba(255, 255, 255, 0.08));
+  margin: 18px 0 16px 0;
+}
+
 /* Discord Voice Special Hostless Control in Learned Modal */
 .discord-voice-card,
 .z2m-view#z2m-view-strategy .discord-voice-card {
@@ -1233,7 +1274,7 @@
   border: 1px solid var(--border2, rgba(255, 255, 255, 0.12));
   border-radius: 8px;
   padding: 13px 16px;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 .discord-voice-header {
   display: flex;
@@ -1288,6 +1329,21 @@
   background: rgba(224, 163, 59, 0.15);
   color: var(--orange, #e0a33b);
   border: 1px solid rgba(224, 163, 59, 0.3);
+}
+.discord-voice-mode-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+}
+.discord-voice-mode-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.discord-voice-mode-desc {
+  font-size: 11px;
+  color: var(--tx3, #94a3b8);
 }
 .discord-voice-actions {
   display: flex;

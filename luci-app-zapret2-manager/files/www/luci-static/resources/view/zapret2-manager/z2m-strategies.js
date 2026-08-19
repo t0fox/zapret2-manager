@@ -650,11 +650,16 @@ function renderLearnedModal() {
   var discordStratName = (Model && typeof Model.resolveStrategyName === 'function')
     ? Model.resolveStrategyName('discord_voice', discordState.strategy, pools)
     : ('#' + discordState.strategy);
-  var discordBadge = getModeBadge(discordState.mode);
+  var isFrozen = discordState.mode === 'frozen';
 
-  var discordControlHtml = '';
+  var specialSectionHtml = '<div class="learned-section">' +
+    '<div class="learned-section-header">' +
+      '<div class="learned-section-title">Особые ресурсы</div>' +
+      '<div class="learned-section-desc text-muted">Отдельные runtime-профили autocircular</div>' +
+    '</div>';
+
   if (!isDiscordLive) {
-    discordControlHtml = '<div class="discord-voice-card is-inactive">' +
+    specialSectionHtml += '<div class="discord-voice-card is-inactive">' +
       '<div class="discord-voice-header">' +
         '<div class="discord-voice-title">' +
           '<strong>Discord Voice / Video</strong>' +
@@ -666,42 +671,63 @@ function renderLearnedModal() {
       '</div>' +
     '</div>';
   } else {
-    discordControlHtml = '<div class="discord-voice-card">' +
+    var modeBadgeHtml = isFrozen
+      ? '<span class="badge badge-accent">🔒 Зафиксировано</span>'
+      : '<span class="badge badge-muted">● Автоподбор</span>';
+    var modeDesc = isFrozen
+      ? 'Autocircular не будет автоматически менять выбранный вариант.'
+      : 'Autocircular сможет перейти к другому варианту при сбоях.';
+    var freezeBtnHtml = isFrozen
+      ? svgIcon('unlock', 12) + ' <span>Вернуть автоподбор</span>'
+      : svgIcon('lock', 12) + ' <span>Зафиксировать #' + discordState.strategy + '</span>';
+
+    specialSectionHtml += '<div class="discord-voice-card">' +
       '<div class="discord-voice-header">' +
         '<div class="discord-voice-title">' +
           '<strong>Discord Voice / Video</strong>' +
-          '<div class="discord-voice-sub text-muted">STUN / UDP · autocircular · ' + discordPoolSize + ' вариантов</div>' +
+          '<div class="discord-voice-sub text-muted">Голосовые и видеозвонки · STUN / UDP</div>' +
         '</div>' +
         '<div class="discord-voice-status">' +
-          '<span class="badge ' + (discordBadge.isFrozen ? 'badge-accent' : 'badge-muted') + '">' + escapeHtml(discordBadge.label) + '</span>' +
+          modeBadgeHtml +
         '</div>' +
       '</div>' +
       '<div class="discord-voice-body">' +
         '<div class="discord-voice-strat">' +
-          '<span class="text-muted">Текущая стратегия:</span>' +
+          '<span class="text-muted">Текущий вариант:</span>' +
           '<div class="discord-voice-strat-val">' +
-            '<span class="discord-voice-strat-idx">#' + discordState.strategy + '</span> ' +
+            '<span class="discord-voice-strat-idx">#' + discordState.strategy + ' из ' + discordPoolSize + '</span> ' +
             '<strong>' + escapeHtml(discordStratName) + '</strong>' +
           '</div>' +
         '</div>' +
+        '<div class="discord-voice-mode-info">' +
+          '<div class="discord-voice-mode-line"><span class="text-muted">Режим:</span> <span>' + (isFrozen ? '🔒 Зафиксировано' : '● Автоподбор') + '</span></div>' +
+          '<div class="discord-voice-mode-desc text-muted">' + escapeHtml(modeDesc) + '</div>' +
+        '</div>' +
         '<div class="discord-voice-actions">' +
-          '<button type="button" class="btn btn-sm btn-primary" data-action="openStratPicker" data-key="discord_voice" data-host="nohost" data-strategy="' + discordState.strategy + '" data-mode="' + (discordBadge.isFrozen ? 'frozen' : 'auto') + '">' +
-            svgIcon('edit', 12) + ' <span>Изменить стратегию</span>' +
+          '<button type="button" class="btn btn-sm btn-primary" data-action="openStratPicker" data-key="discord_voice" data-host="nohost" data-strategy="' + discordState.strategy + '" data-mode="' + (isFrozen ? 'frozen' : 'auto') + '">' +
+            svgIcon('edit', 12) + ' <span>Выбрать вариант</span>' +
           '</button>' +
-          '<button type="button" class="btn btn-sm btn-ghost" data-action="toggleStateFreeze" data-key="discord_voice" data-host="nohost" data-strategy="' + discordState.strategy + '" data-mode="' + (discordBadge.isFrozen ? 'frozen' : 'auto') + '">' +
-            (discordBadge.isFrozen ? svgIcon('unlock', 12) + ' <span>Вернуть авто</span>' : svgIcon('lock', 12) + ' <span>Зафиксировать</span>') +
+          '<button type="button" class="btn btn-sm btn-ghost" data-action="toggleStateFreeze" data-key="discord_voice" data-host="nohost" data-strategy="' + discordState.strategy + '" data-mode="' + (isFrozen ? 'frozen' : 'auto') + '" title="' + (isFrozen ? 'Вернуть автоматический подбор' : 'Зафиксировать текущий вариант #' + discordState.strategy) + '">' +
+            freezeBtnHtml +
           '</button>' +
-          '<button type="button" class="btn btn-sm btn-danger-ghost" data-action="resetLearned" data-host="nohost" data-key="discord_voice" title="Сбросить оверрайд Discord Voice">' +
-            svgIcon('trash', 12) + ' <span>Сбросить</span>' +
+          '<button type="button" class="btn btn-sm btn-danger-ghost" data-action="resetLearned" data-key="discord_voice" data-host="nohost" title="Сбросить выбор Discord Voice">' +
+            svgIcon('trash', 12) + ' <span>Сбросить выбор</span>' +
           '</button>' +
         '</div>' +
       '</div>' +
     '</div>';
   }
+  specialSectionHtml += '</div>';
 
   var domainEntries = (Model && typeof Model.filterDomainLearnedEntries === 'function')
     ? Model.filterDomainLearnedEntries(rawEntries)
-    : rawEntries.filter(function (entry) { return entry && String(entry.host).toLowerCase() !== 'nohost'; });
+    : rawEntries.filter(function (entry) {
+        if (!entry || !entry.host) return false;
+        var h = String(entry.host).toLowerCase();
+        var k = String(entry.key || '').toLowerCase();
+        if (h === 'nohost' && (k === 'discord_voice' || k === 'discord_udp')) return false;
+        return h !== 'nohost';
+      });
   var allEntries = domainEntries.map(function (entry) { return Model && Model.humanizeLearnedEntry ? Model.humanizeLearnedEntry(entry) : entry; });
   var modalState = state.learnedModal || { search: '', protoFilter: 'all', sortField: 'ts', sortDir: 'desc', visibleCount: 50 };
   var query = (modalState.search || '').trim().toLowerCase();
@@ -712,7 +738,6 @@ function renderLearnedModal() {
       var proto = (item.protoClass || item.protocol || '').toLowerCase();
       if (protoFilter === 'tls' && proto !== 'tls') return false;
       if (protoFilter === 'quic' && proto !== 'quic') return false;
-      if (protoFilter === 'stun' && proto !== 'stun') return false;
     }
     if (!query) return true;
     return (item.host && item.host.toLowerCase().indexOf(query) >= 0) ||
@@ -740,7 +765,7 @@ function renderLearnedModal() {
     var curStrat = Number(item.strategy || item.variantNum) || 1;
     var stratName = (Model && typeof Model.resolveStrategyName === 'function')
       ? Model.resolveStrategyName(item.key, curStrat, pools)
-      : (pools[item.key] && pools[item.key].strategies && pools[item.key].strategies[curStrat - 1] && pools[item.key].strategies[curStrat - 1].name) || ('Стратегия #' + curStrat);
+      : (pools[item.key] && pools[item.key].strategies && pools[item.key].strategies[curStrat - 1] && pools[item.key].strategies[curStrat - 1].name) || ('Вариант #' + curStrat);
     var badge = getModeBadge(item.mode);
 
     return '<tr class="learned-row' + (badge.isFrozen ? ' learned-row-frozen' : '') + '"' + (badge.isFrozen ? ' style="background:rgba(59,130,246,0.06)"' : '') + '>' +
@@ -750,7 +775,7 @@ function renderLearnedModal() {
         '<div class="learned-strat-cell">' +
           '<span class="learned-strat-name" title="' + escapeAttr(stratName) + '">' + escapeHtml(stratName) + '</span>' +
           '<span class="learned-strat-idx" title="Runtime strategy index: ' + curStrat + '">#' + curStrat + '</span>' +
-          '<button type="button" class="btn btn-ghost btn-sm learned-strat-edit-btn" data-action="openStratPicker" data-key="' + escapeAttr(item.key) + '" data-host="' + escapeAttr(item.host) + '" data-strategy="' + curStrat + '" data-mode="' + (badge.isFrozen ? 'frozen' : 'auto') + '" title="Выбрать стратегию" aria-label="Выбрать стратегию">' + svgIcon('edit', 12) + '</button>' +
+          '<button type="button" class="btn btn-ghost btn-sm learned-strat-edit-btn" data-action="openStratPicker" data-key="' + escapeAttr(item.key) + '" data-host="' + escapeAttr(item.host) + '" data-strategy="' + curStrat + '" data-mode="' + (badge.isFrozen ? 'frozen' : 'auto') + '" title="Выбрать вариант" aria-label="Выбрать вариант">' + svgIcon('edit', 12) + '</button>' +
         '</div>' +
       '</td>' +
       '<td>' +
@@ -759,8 +784,8 @@ function renderLearnedModal() {
         '</button>' +
       '</td>' +
       '<td class="text-muted learned-col-ts">' + escapeHtml(item.ts || '—') + '</td>' +
-      '<td class="learned-col-key"><code class="learned-key-code" title="Технический ключ">' + escapeHtml(item.key || '—') + '</code></td>' +
-      '<td style="text-align:right"><button type="button" class="learned-row-reset-btn" data-action="resetLearned" data-host="' + escapeAttr(item.host || '') + '" data-key="' + escapeAttr(item.key || '') + '" title="Сбросить выученную стратегию для этого ресурса">' + svgIcon('trash', 14) + '</button></td>' +
+      '<td class="learned-col-key text-muted" title="Runtime pool"><code class="learned-key-code">' + escapeHtml(item.key || '—') + '</code></td>' +
+      '<td style="text-align:right"><button type="button" class="learned-row-reset-btn" data-action="resetLearned" data-host="' + escapeAttr(item.host || '') + '" data-key="' + escapeAttr(item.key || '') + '" title="Сбросить выученный вариант для этого ресурса">' + svgIcon('trash', 14) + '</button></td>' +
       '</tr>';
   }).join('') : '<tr><td colspan="7" class="text-center text-muted" style="padding:28px">Ничего не найдено</td></tr>';
 
@@ -772,19 +797,21 @@ function renderLearnedModal() {
   var hostSortIcon = sortField === 'host' ? (sortDir > 0 ? svgIcon('chevronUp', 12) : svgIcon('chevronDown', 12)) : svgIcon('chevronDown', 12, 'learned-sort-muted');
   var tsSortIcon = sortField === 'ts' ? (sortDir > 0 ? svgIcon('chevronUp', 12) : svgIcon('chevronDown', 12)) : svgIcon('chevronDown', 12, 'learned-sort-muted');
 
-  body.innerHTML = discordControlHtml +
+  var resourcesSectionHtml = '<div class="learned-section">' +
+    '<div class="learned-section-header">' +
+      '<div class="learned-section-title">Ресурсы <span class="learned-section-count text-muted">— ' + allEntries.length + '</span></div>' +
+    '</div>' +
     '<div class="learned-modal-toolbar">' +
     '<div class="learned-modal-toolbar-left">' +
     '<div class="list-ui-search learned-search-wrap">' +
     '<span class="list-ui-search-icon learned-search-icon">' + svgIcon('search', 14) + '</span>' +
-    '<input type="search" class="form-input list-ui-search-input learned-modal-search" placeholder="Поиск по сайту, протоколу, варианту..." aria-label="Поиск по сайту, протоколу, варианту" value="' + escapeAttr(modalState.search || '') + '">' +
+    '<input type="search" class="form-input list-ui-search-input learned-modal-search" placeholder="Поиск по ресурсам..." aria-label="Поиск по ресурсам" value="' + escapeAttr(modalState.search || '') + '">' +
     '<button type="button" class="list-ui-search-clear learned-search-clear" data-action="clearLearnedSearch" title="Очистить поиск" aria-label="Очистить поиск" style="display:' + (modalState.search ? 'flex' : 'none') + '">' + svgIcon('x', 12) + '</button>' +
     '</div>' +
     '<div class="learned-proto-filters">' +
     '<button type="button" class="btn btn-ghost btn-sm learned-proto-filter-btn' + (protoFilter === 'all' ? ' active' : '') + '" data-action="setLearnedProtoFilter" data-proto="all">Все</button>' +
     '<button type="button" class="btn btn-ghost btn-sm learned-proto-filter-btn' + (protoFilter === 'tls' ? ' active' : '') + '" data-action="setLearnedProtoFilter" data-proto="tls">TLS</button>' +
     '<button type="button" class="btn btn-ghost btn-sm learned-proto-filter-btn' + (protoFilter === 'quic' ? ' active' : '') + '" data-action="setLearnedProtoFilter" data-proto="quic">QUIC</button>' +
-    '<button type="button" class="btn btn-ghost btn-sm learned-proto-filter-btn' + (protoFilter === 'stun' ? ' active' : '') + '" data-action="setLearnedProtoFilter" data-proto="stun">Discord / STUN</button>' +
     '</div>' +
     '</div>' +
     '<div class="learned-modal-toolbar-right">' +
@@ -796,18 +823,23 @@ function renderLearnedModal() {
     '<thead><tr>' +
     '<th class="learned-sort-th" data-action="sortLearned" data-sort-field="host"><span>Ресурс / домен</span> <span class="learned-sort-indicator">' + hostSortIcon + '</span></th>' +
     '<th>Протокол</th>' +
-    '<th>Стратегия</th>' +
+    '<th>Вариант</th>' +
     '<th>Режим</th>' +
     '<th class="learned-sort-th" data-action="sortLearned" data-sort-field="ts"><span>Выучено</span> <span class="learned-sort-indicator">' + tsSortIcon + '</span></th>' +
-    '<th class="learned-col-key">Ключ</th>' +
+    '<th class="learned-col-key" title="Runtime pool">Ключ</th>' +
     '<th style="text-align:right">Действие</th>' +
     '</tr></thead>' +
     '<tbody>' + rowsHtml + '</tbody>' +
     '</table>' +
     '</div>' +
     (shown.length < filtered.length ? '<div style="text-align:center;margin-top:12px"><button class="btn btn-ghost btn-sm" data-action="loadMoreLearned">Показать ещё (' + Math.min(50, filtered.length - shown.length) + ')</button></div>' : '') +
+    '</div>';
+
+  body.innerHTML = specialSectionHtml +
+    '<div class="learned-section-divider"></div>' +
+    resourcesSectionHtml +
     '<div class="editor-footer">' +
-    '<button class="btn btn-danger btn-sm" data-action="resetLearned" style="margin-right:auto">' + svgIcon('trash', 14) + '<span>Сбросить всё</span></button>' +
+    '<button class="btn btn-danger btn-sm" data-action="resetLearned" style="margin-right:auto">' + svgIcon('trash', 14) + '<span>Сбросить обучение</span></button>' +
     '<button class="btn btn-ghost" data-action="closeLearnedModal">Закрыть</button>' +
     '</div>';
 

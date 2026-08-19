@@ -340,3 +340,301 @@ test('UI: resetLearned for nohost deletes only Discord hostless state', () => {
   assert.equal(ui.state.learned.entries[0].host, 'youtube.com');
 });
 
+// ---------------------------------------------------------------------------
+// TEST UI-1 to TEST UI-12 UX-Cleanup Suite
+// ---------------------------------------------------------------------------
+
+test('TEST UI-1: renderLearnedModal separates Особые ресурсы and Ресурсы sections', () => {
+  const Model = loadModel();
+  const domainEntries = Array.from({ length: 585 }, (_, i) => ({
+    key: 'circular_1_1',
+    host: `domain-${i}.com`,
+    strategy: '1',
+    ts: '1787150000',
+    mode: 'auto'
+  }));
+
+  const { ui, domNodes } = loadUI({
+    learned: {
+      entries: [
+        { key: 'discord_voice', host: 'nohost', strategy: '1', ts: '1787150000', mode: 'auto' },
+        ...domainEntries
+      ],
+      count: 586
+    },
+    pools: {
+      discord_voice: {
+        key: 'discord_voice',
+        protocol: 'STUN',
+        size: 12,
+        strategies: Model.DEFAULT_RUNTIME_POOLS?.discord_voice?.strategies || []
+      },
+      circular_1_1: {
+        key: 'circular_1_1',
+        protocol: 'TLS',
+        size: 6,
+        strategies: []
+      }
+    }
+  });
+
+  ui.renderLearnedModal();
+  const bodyHtml = domNodes.get('learned-modal-body').innerHTML;
+
+  assert.match(bodyHtml, /Особые ресурсы/i, 'Must contain "Особые ресурсы" section heading');
+  assert.match(bodyHtml, /Discord Voice \/ Video/i, 'Must contain "Discord Voice / Video" card');
+  assert.match(bodyHtml, /Ресурсы\s*<span[^>]*>[^<]*585/i, 'Must contain "Ресурсы — 585" section heading');
+});
+
+test('TEST UI-2: Discord hostless row is NOT included in resources count', () => {
+  const Model = loadModel();
+  const domainEntries = Array.from({ length: 585 }, (_, i) => ({
+    key: 'circular_1_1',
+    host: `site-${i}.com`,
+    strategy: '1',
+    ts: '1787150000',
+    mode: 'auto'
+  }));
+
+  const { ui, domNodes } = loadUI({
+    learned: {
+      entries: [
+        { key: 'discord_voice', host: 'nohost', strategy: '1', ts: '1787150000', mode: 'auto' },
+        ...domainEntries
+      ],
+      count: 586
+    },
+    pools: {
+      discord_voice: { key: 'discord_voice', protocol: 'STUN', size: 12, strategies: [] },
+      circular_1_1: { key: 'circular_1_1', protocol: 'TLS', size: 6, strategies: [] }
+    }
+  });
+
+  ui.renderLearnedModal();
+  const bodyHtml = domNodes.get('learned-modal-body').innerHTML;
+
+  assert.match(bodyHtml, /Ресурсы[^0-9]*585/, 'Display count for resources must be 585');
+  assert.doesNotMatch(bodyHtml, /Ресурсы[^0-9]*586/, 'Must not show 586 in resources title');
+});
+
+test('TEST UI-3: Search and domain table do NOT contain nohost', () => {
+  const Model = loadModel();
+  const { ui, domNodes } = loadUI({
+    learned: {
+      entries: [
+        { key: 'discord_voice', host: 'nohost', strategy: '1', ts: '1787150000', mode: 'auto' },
+        { key: 'circular_1_1', host: 'example.com', strategy: '1', ts: '1787150000', mode: 'auto' }
+      ],
+      count: 2
+    },
+    pools: {
+      discord_voice: { key: 'discord_voice', protocol: 'STUN', size: 12, strategies: [] }
+    }
+  });
+
+  ui.renderLearnedModal();
+  const bodyHtml = domNodes.get('learned-modal-body').innerHTML;
+
+  assert.doesNotMatch(bodyHtml, /<td[^>]*learned-col-domain[^>]*>[^<]*nohost/i, 'Domain table must not contain a nohost row');
+  assert.match(bodyHtml, /example\.com/i, 'Domain table must contain regular domain');
+});
+
+test('TEST UI-4: Filter buttons contain Все, TLS, QUIC and do NOT contain Discord / STUN', () => {
+  const Model = loadModel();
+  const { ui, domNodes } = loadUI({
+    learned: { entries: [], count: 0 },
+    pools: {
+      discord_voice: { key: 'discord_voice', protocol: 'STUN', size: 12, strategies: [] }
+    }
+  });
+
+  ui.renderLearnedModal();
+  const bodyHtml = domNodes.get('learned-modal-body').innerHTML;
+
+  assert.match(bodyHtml, /data-proto="all"[^>]*>Все<\/button>/, 'Must have "Все" filter button');
+  assert.match(bodyHtml, /data-proto="tls"[^>]*>TLS<\/button>/, 'Must have "TLS" filter button');
+  assert.match(bodyHtml, /data-proto="quic"[^>]*>QUIC<\/button>/, 'Must have "QUIC" filter button');
+  assert.doesNotMatch(bodyHtml, /data-proto="stun"/, 'Must NOT have "Discord / STUN" filter button');
+  assert.doesNotMatch(bodyHtml, />Discord \/ STUN<\/button>/, 'Must NOT render "Discord / STUN" filter button');
+});
+
+test('TEST UI-5: Discord active card uses "Текущий вариант" and "Выбрать вариант" terminology', () => {
+  const Model = loadModel();
+  const { ui, domNodes } = loadUI({
+    learned: {
+      entries: [{ key: 'discord_voice', host: 'nohost', strategy: '1', ts: '1787150000', mode: 'auto' }]
+    },
+    pools: {
+      discord_voice: {
+        key: 'discord_voice',
+        protocol: 'STUN',
+        size: 12,
+        strategies: Model.DEFAULT_RUNTIME_POOLS?.discord_voice?.strategies || []
+      }
+    }
+  });
+
+  ui.renderLearnedModal();
+  const bodyHtml = domNodes.get('learned-modal-body').innerHTML;
+
+  assert.match(bodyHtml, /Текущий вариант/i, 'Discord card must label current choice as "Текущий вариант"');
+  assert.match(bodyHtml, /Выбрать вариант/i, 'Discord card action must be "Выбрать вариант"');
+  assert.doesNotMatch(bodyHtml, /Текущая стратегия/i, 'Must NOT use "Текущая стратегия" in Discord card');
+  assert.doesNotMatch(bodyHtml, /Изменить стратегию/i, 'Must NOT use "Изменить стратегию" in Discord card');
+});
+
+test('TEST UI-6: Auto mode shows "Автоподбор" and button "Зафиксировать #1"', () => {
+  const Model = loadModel();
+  const { ui, domNodes } = loadUI({
+    learned: {
+      entries: [{ key: 'discord_voice', host: 'nohost', strategy: '1', ts: '1787150000', mode: 'auto' }]
+    },
+    pools: {
+      discord_voice: {
+        key: 'discord_voice',
+        protocol: 'STUN',
+        size: 12,
+        strategies: Model.DEFAULT_RUNTIME_POOLS?.discord_voice?.strategies || []
+      }
+    }
+  });
+
+  ui.renderLearnedModal();
+  const bodyHtml = domNodes.get('learned-modal-body').innerHTML;
+
+  assert.match(bodyHtml, /Автоподбор/i, 'Mode label must be "Автоподбор"');
+  assert.match(bodyHtml, /Зафиксировать\s*#1/i, 'Freeze button must show "Зафиксировать #1"');
+});
+
+test('TEST UI-7: Frozen mode shows #7, "Зафиксировано", and button "Вернуть автоподбор"', () => {
+  const Model = loadModel();
+  const { ui, domNodes } = loadUI({
+    learned: {
+      entries: [{ key: 'discord_voice', host: 'nohost', strategy: '7', ts: '1787150000', mode: 'frozen' }]
+    },
+    pools: {
+      discord_voice: {
+        key: 'discord_voice',
+        protocol: 'STUN',
+        size: 12,
+        strategies: Model.DEFAULT_RUNTIME_POOLS?.discord_voice?.strategies || []
+      }
+    }
+  });
+
+  ui.renderLearnedModal();
+  const bodyHtml = domNodes.get('learned-modal-body').innerHTML;
+
+  assert.match(bodyHtml, /#7/i, 'Must show variant #7');
+  assert.match(bodyHtml, /Зафиксировано/i, 'Mode label must be "Зафиксировано"');
+  assert.match(bodyHtml, /Вернуть автоподбор/i, 'Unfreeze button must show "Вернуть автоподбор"');
+});
+
+test('TEST UI-8: Inactive live pool shows "Не используется текущей стратегией" and no mutation buttons', () => {
+  const { ui, domNodes } = loadUI({
+    learned: { entries: [] },
+    pools: {
+      circular_1_1: { key: 'circular_1_1', protocol: 'TLS', size: 6, strategies: [] }
+    }
+  });
+
+  ui.renderLearnedModal();
+  const bodyHtml = domNodes.get('learned-modal-body').innerHTML;
+
+  assert.match(bodyHtml, /Не используется текущей стратегией/i);
+  assert.match(bodyHtml, /Не активно/i);
+  assert.doesNotMatch(bodyHtml, /Выбрать вариант/i);
+  assert.doesNotMatch(bodyHtml, /Зафиксировать/i);
+  assert.doesNotMatch(bodyHtml, /Сбросить выбор/i);
+});
+
+test('TEST UI-9: Discord reset action sends key=discord_voice, host=nohost and labels button "Сбросить выбор"', () => {
+  let deletedPayload = null;
+  const Model = loadModel();
+  const { ui, domNodes } = loadUI({
+    learned: {
+      entries: [{ key: 'discord_voice', host: 'nohost', strategy: '7', ts: '1787150000', mode: 'frozen' }]
+    },
+    pools: {
+      discord_voice: {
+        key: 'discord_voice',
+        protocol: 'STUN',
+        size: 12,
+        strategies: Model.DEFAULT_RUNTIME_POOLS?.discord_voice?.strategies || []
+      }
+    },
+    ctx: {
+      api: {
+        strategies: {
+          stateDelete: (payload) => {
+            deletedPayload = typeof payload === 'string' ? JSON.parse(payload) : payload;
+            return Promise.resolve({ ok: true, deleted: true });
+          }
+        }
+      }
+    }
+  });
+
+  ui.renderLearnedModal();
+  const bodyHtml = domNodes.get('learned-modal-body').innerHTML;
+
+  assert.match(bodyHtml, /Сбросить выбор/i, 'Discord reset button must be labeled "Сбросить выбор"');
+  assert.match(bodyHtml, /data-action="resetLearned"[^>]*data-key="discord_voice"[^>]*data-host="nohost"/);
+
+  ui.resetLearned('nohost', 'discord_voice');
+  assert.deepEqual(deletedPayload, { host: 'nohost', key: 'discord_voice' });
+});
+
+test('TEST UI-10: Global footer reset button is labeled "Сбросить обучение"', () => {
+  const { ui, domNodes } = loadUI({
+    learned: { entries: [] },
+    pools: {}
+  });
+
+  ui.renderLearnedModal();
+  const bodyHtml = domNodes.get('learned-modal-body').innerHTML;
+
+  assert.match(bodyHtml, /Сбросить обучение/i, 'Global reset button must be labeled "Сбросить обучение"');
+  assert.doesNotMatch(bodyHtml, /Сбросить всё/i, 'Must NOT use "Сбросить всё" in footer');
+});
+
+test('TEST UI-11: Domain table column header uses "Вариант" instead of "Стратегия"', () => {
+  const { ui, domNodes } = loadUI({
+    learned: { entries: [] },
+    pools: {}
+  });
+
+  ui.renderLearnedModal();
+  const bodyHtml = domNodes.get('learned-modal-body').innerHTML;
+
+  assert.match(bodyHtml, /<th>Вариант<\/th>/i, 'Domain table column header must be "Вариант"');
+  assert.doesNotMatch(bodyHtml, /<th>Стратегия<\/th>/i, 'Must NOT use "Стратегия" as column header');
+});
+
+test('TEST UI-12: Existing domain row edit and freeze toggle remain functional', () => {
+  const Model = loadModel();
+  const calls = [];
+  const { ui } = loadUI({
+    learned: {
+      entries: [{ key: 'circular_1_1', host: 'example.com', strategy: '2', ts: '1787150000', mode: 'auto' }]
+    },
+    pools: {
+      circular_1_1: { key: 'circular_1_1', protocol: 'TLS', size: 6, strategies: [] }
+    },
+    ctx: {
+      api: {
+        strategies: {
+          stateSet: (payload) => {
+            calls.push(typeof payload === 'string' ? JSON.parse(payload) : payload);
+            return Promise.resolve({ ok: true });
+          }
+        }
+      }
+    }
+  });
+
+  ui.toggleStateFreeze('circular_1_1', 'example.com', 2, 'auto');
+  assert.deepEqual(calls[0], { key: 'circular_1_1', host: 'example.com', strategy: '2', mode: 'frozen' });
+});
+
+
