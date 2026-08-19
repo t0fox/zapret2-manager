@@ -24,9 +24,9 @@
 //      must both verify or the result is a critical manual-recovery failure.
 
 import { readfile, writefile, stat, readlink, unlink, popen, mkdir } from 'fs';
-import { read_var, set_var_cas, restore_whole_file, read_config_bytes, config_sha256 } from './apply.uc';
+import { read_var, set_var_cas, set_vars_cas, restore_whole_file, read_config_bytes, config_sha256 } from './apply.uc';
 import { PATHS } from './constants.uc';
-import { z2m_parse, z2m_validate, z2m_fragment, z2m_tokenize } from './profiles.uc';
+import { z2m_parse, z2m_validate, z2m_fragment, z2m_tokenize, derive_capture_ports } from './profiles.uc';
 import { load_state } from './profiles-draft.uc';
 import { parse_queue } from './qlen.uc';
 import { native_preflight } from './native-preflight.uc';
@@ -576,10 +576,13 @@ function pipeline_front() {
 	if (!rc.ok) return { refuse: rc };
 	if (!candidate_round_trip(rc.candidate, rc.fragments))
 		return { refuse: err('render', 'EINTERNAL', 'round trip lost content — refusing to apply (MANAGER_LOSSY_ROUNDTRIP)') };
+	let ports = derive_capture_ports(rc.candidate);
+	if (!ports.ok)
+		return { refuse: err('validate', 'EINPUT', 'candidate contains invalid port expressions: ' + ports.error) };
 	let native = native_preflight(rc.candidate);
 	let cur = read_var(OPT_VAR);
 	let diff = diff_summary(cur != null ? cur : '', rc.candidate);
-	return { candidate: rc.candidate, fragments: rc.fragments, native: native, diff: diff, draftCount: length(ld.state.profiles) };
+	return { candidate: rc.candidate, ports: ports, fragments: rc.fragments, native: native, diff: diff, draftCount: length(ld.state.profiles) };
 }
 
 export const profiles_apply_preview = function() {
@@ -597,6 +600,11 @@ export const profiles_apply_preview = function() {
 function apply_candidate_pipeline(f) {
 	if (getenv('Z2M_CONFIG_LOCKED') != '1' && apply_hook() == null)
 		return err('lock', 'ELOCK', 'config transaction lock is not held — nothing was written');
+	if (f.ports == null) {
+		f.ports = derive_capture_ports(f.candidate);
+		if (!f.ports.ok)
+			return err('validate', 'EINPUT', 'candidate contains invalid port expressions: ' + f.ports.error);
+	}
 	let decision = apply_decision(f.native);
 	if (!decision.proceed)
 		return err('validate', 'EPREFLIGHT', 'complete pinned native/Lua validation is required — nothing was written', { native: f.native });
@@ -607,7 +615,8 @@ function apply_candidate_pipeline(f) {
 		try { la = json(la_raw); } catch (e) { la = null; }
 		if (type(la) == 'object' && la != null && la.candidateSha256 == f.diff.candidateSha256) {
 			let age = time() - (type(la.at) == 'int' ? la.at : 0);
-			let currentMatches = read_var(OPT_VAR) == f.candidate;
+			let currentMatches = read_var(OPT_VAR) == f.candidate
+				&& (f.ports == null || (read_var('NFQWS2_PORTS_TCP') == f.ports.tcp && read_var('NFQWS2_PORTS_UDP') == f.ports.udp));
 			let cachedVerifyHook = hook_value('transaction', 'verify');
 			let currentVerify = currentMatches
 				? (cachedVerifyHook != null ? transaction_verify(0, f.allowExternalNfqws == true, cachedVerifyHook)
@@ -638,9 +647,15 @@ function apply_candidate_pipeline(f) {
 		if (!currentIdentity.ok)
 			return err('validate', 'ECONFLICT', 'Strategy identity changed before config mutation', { identity: currentIdentity });
 	}
+	let vars_map = {};
+	vars_map[OPT_VAR] = dq_escape(f.candidate);
+	if (f.ports != null && f.ports.ok) {
+		vars_map['NFQWS2_PORTS_TCP'] = f.ports.tcp;
+		vars_map['NFQWS2_PORTS_UDP'] = f.ports.udp;
+	}
 	let casHook = hook_value('transaction', 'cas');
 	let cas = casHook != null ? transaction_cas(f.candidate, f.diff.candidateSha256, snap, casHook)
-		: set_var_cas(OPT_VAR, dq_escape(f.candidate), snap.configSha256);
+		: set_vars_cas(vars_map, snap.configSha256);
 	if (type(cas) != 'object' || cas == null || cas.ok != true) {
 		let code = (cas && cas.code) ? cas.code : 'EWRITE';
 		return err('write', code, code == 'ECONFLICT'
@@ -784,11 +799,12 @@ function profiles_apply_candidate_locked(candidate, expectedHash, projection) {
 	if (expectedHash != null && diff.candidateSha256 != expectedHash)
 		return err('validate', 'ECONFLICT', 'typed candidate hash changed before mutation', { expected: expectedHash, actual: diff.candidateSha256 });
 	let boundary = profiles_projection_boundary(expectedHash);
-	if (!boundary.ok) return boundary;
 	if (projection != null && !projection_valid(projection, expectedHash))
 		return err('identity', 'EINPUT', 'Strategy projection context is invalid');
 	let internalProjection = projection != null ? projection : boundary.projection;
-	return apply_candidate_pipeline({ candidate: candidate, fragments: [], native: native, diff: diff,
+	let ports = derive_capture_ports(candidate);
+	if (!ports.ok) return err('validate', 'EINPUT', 'candidate contains invalid port expressions: ' + ports.error);
+	return apply_candidate_pipeline({ candidate: candidate, ports: ports, fragments: [], native: native, diff: diff,
 		 draftCount: length(model.profiles), allowExternalNfqws: true, projection: internalProjection });
 }
 

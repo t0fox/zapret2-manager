@@ -240,6 +240,18 @@ function set_locked(name, value) {
 	return atomic_replace_locked(CONFIG, out);
 }
 
+export const set_vars_locked = function(vars_map) {
+	if (!locked()) return null;
+	let raw = read_config_bytes();
+	let current = raw;
+	for (let name in vars_map) {
+		let val = vars_map[name];
+		current = render_var(current, name, val == null ? '' : '' + val);
+	}
+	let out = preserve_trailing_newline(raw, current);
+	return atomic_replace_locked(CONFIG, out);
+};
+
 export const do_set = function(name_f, val_f) {
 	if (!locked()) return false;
 	let name = trim(readfile(name_f));
@@ -282,14 +294,20 @@ export const set_var = function(name, value) {
 	return null;
 };
 
-export const set_var_cas = function(name, value, expected_sha) {
+export const set_vars_cas = function(vars_map, expected_sha) {
 	if (!locked()) return { ok: false, code: 'ELOCK', message: 'config transaction lock is not held' };
 	let actual = config_sha256();
 	if (expected_sha == null || actual == null || actual != expected_sha)
 		return { ok: false, code: 'ECONFLICT', expectedSha256: expected_sha, actualSha256: actual };
-	let written = set_locked(name, value);
+	let written = set_vars_locked(vars_map);
 	if (written == null) return { ok: false, code: 'EWRITE', message: 'durable atomic replace failed' };
 	return { ok: true, previousSha256: actual, configSha256: config_sha256(), content: written };
+};
+
+export const set_var_cas = function(name, value, expected_sha) {
+	let vars_map = {};
+	vars_map[name] = value;
+	return set_vars_cas(vars_map, expected_sha);
 };
 
 export const restore_whole_file = function(path, content, lockedOverride) {

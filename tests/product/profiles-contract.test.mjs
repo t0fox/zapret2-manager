@@ -140,7 +140,7 @@ test('apply transaction snapshots, writes, restarts, recollects, verifies, and r
 
   assertOrdered(transaction, [
     /snapshot_apply\(\)/,
-    /set_var_cas\(OPT_VAR, dq_escape\(f\.candidate\), snap\.configSha256\)/,
+    /set_vars?_cas\(/,
     /run\(UPSTREAM_INIT \+ ' restart'\)/,
     /recollect_status\(\)/,
     /verify_status\(/,

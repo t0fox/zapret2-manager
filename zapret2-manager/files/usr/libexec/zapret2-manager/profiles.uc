@@ -1182,3 +1182,105 @@ export const z2m_tokenize = tokenize;
 export const z2m_parse = parse_opt;
 export const z2m_validate = validate_manager;
 export const z2m_fragment = profile_fragment;
+
+export const derive_capture_ports = function(candidate) {
+	if (type(candidate) != 'string' || !length(candidate))
+		return { ok: false, error: 'empty candidate' };
+
+	let tz = tokenize(candidate);
+	let tokens = tz.tokens;
+	for (let i = 0; i < length(tz.diagnostics); i++) {
+		let d = tz.diagnostics[i];
+		if (d.severity == 'error') return { ok: false, error: 'syntax error in candidate: ' + d.message };
+	}
+
+	let tcp_intervals = [];
+	let udp_intervals = [];
+
+	for (let i = 0; i < length(tokens); i++) {
+		let token = tokens[i];
+		if (token.kind != 'option') continue;
+
+		let body = substr(token.value, 2);
+		let eq = index(body, '=');
+		let name = (eq >= 0) ? substr(body, 0, eq) : body;
+		let val = (eq >= 0) ? substr(body, eq + 1) : null;
+
+		if (name != 'filter-tcp' && name != 'filter-udp') continue;
+
+		if (val == null || !length(val)) {
+			if (i + 1 < length(tokens) && tokens[i + 1].kind == 'value') {
+				val = tokens[++i].value;
+			} else {
+				return { ok: false, error: 'empty port filter for ' + name };
+			}
+		}
+
+		let parts = split(val, ',');
+		for (let j = 0; j < length(parts); j++) {
+			let part = trim(parts[j]);
+			if (!length(part)) return { ok: false, error: 'empty port in list for ' + name };
+
+			if (part == '*') {
+				let target = (name == 'filter-tcp') ? tcp_intervals : udp_intervals;
+				push(target, { from: 1, to: 65535 });
+				continue;
+			}
+
+			let dash = index(part, '-');
+			if (dash >= 0) {
+				let lo_str = substr(part, 0, dash);
+				let hi_str = substr(part, dash + 1);
+				if (!is_digits(lo_str) || !is_digits(hi_str))
+					return { ok: false, error: 'malformed range digits: ' + part };
+				let lo = int(lo_str), hi = int(hi_str);
+				if (lo < 1 || hi > 65535 || lo > hi)
+					return { ok: false, error: 'range out of bounds: ' + part };
+				let target = (name == 'filter-tcp') ? tcp_intervals : udp_intervals;
+				push(target, { from: lo, to: hi });
+			} else {
+				if (!is_digits(part))
+					return { ok: false, error: 'malformed port digits: ' + part };
+				let p = int(part);
+				if (p < 1 || p > 65535)
+					return { ok: false, error: 'port out of bounds: ' + part };
+				let target = (name == 'filter-tcp') ? tcp_intervals : udp_intervals;
+				push(target, { from: p, to: p });
+			}
+		}
+	}
+
+	let canonicalize = function(intervals) {
+		if (length(intervals) == 0) return '';
+		sort(intervals, function(a, b) {
+			if (a.from != b.from) return a.from - b.from;
+			return a.to - b.to;
+		});
+		let merged = [];
+		let cur = { from: intervals[0].from, to: intervals[0].to };
+		for (let j = 1; j < length(intervals); j++) {
+			let next = intervals[j];
+			if (next.from <= cur.to + 1) {
+				if (next.to > cur.to) cur.to = next.to;
+			} else {
+				push(merged, cur);
+				cur = { from: next.from, to: next.to };
+			}
+		}
+		push(merged, cur);
+
+		let res = [];
+		for (let k = 0; k < length(merged); k++) {
+			let m = merged[k];
+			if (m.from == m.to) push(res, '' + m.from);
+			else push(res, '' + m.from + '-' + m.to);
+		}
+		return join(',', res);
+	};
+
+	return {
+		ok: true,
+		tcp: canonicalize(tcp_intervals),
+		udp: canonicalize(udp_intervals)
+	};
+};
