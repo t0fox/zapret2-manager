@@ -6,10 +6,12 @@ const rpc = fs.readFileSync('zapret2-manager/files/usr/share/rpcd/ucode/zapret2-
 const acl = fs.readFileSync('luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager.json', 'utf8');
 const cli = fs.readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/strategy-cli.uc', 'utf8');
 const opsCli = fs.readFileSync('zapret2-manager/files/usr/libexec/zapret2-manager/strategies-ops-cli.uc', 'utf8');
+const catalogUpdate = 'zapret2-manager/files/usr/libexec/zapret2-manager/strategy-catalog-update.uc';
 
 test('Strategies recommendation and catalog update RPCs are registered for the current UI', () => {
   assert.match(cli, /mode == 'recommendations'/, 'strategy CLI must support recommendations');
   assert.match(opsCli, /mode == 'catalog-update'/, 'strategies ops CLI must support catalog-update');
+  assert.equal(fs.existsSync(catalogUpdate), true, 'catalog update adapter must be packaged');
   assert.match(rpc, /strategies_recommendations:/);
   assert.match(rpc, /strategies_catalog_update:/);
   assert.match(acl, /"strategies_recommendations"/);
