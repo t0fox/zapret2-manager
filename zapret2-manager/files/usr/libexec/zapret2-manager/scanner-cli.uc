@@ -118,8 +118,3 @@ export const scanner_cli_request = function(command, requestPath) {
 	let input = command == 'status' || command == 'results' || command == 'stop' ? request_file(requestPath) : request_file(requestPath);
 	return input && input.ok === false && input.error ? response(input) : response(dispatch(command, input, null));
 };
-
-if (ARGV[0] != null) {
-	let output = scanner_cli_request(ARGV[0], ARGV[1]);
-	print(sprintf('%J', bounded(output)));
-}

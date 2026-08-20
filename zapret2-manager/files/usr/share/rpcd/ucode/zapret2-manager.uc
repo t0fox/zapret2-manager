@@ -305,7 +305,7 @@ function jobs_edit_action(sub, req) {
 // Scanner request bodies use the same private JSON-string convention as the
 // Strategy and Jobs adapters. The RPC layer only selects a fixed CLI mode and
 // transports the opaque request; Scanner owns validation and lifecycle state.
-const SCANNER_CLI = '/usr/libexec/zapret2-manager/scanner-cli.uc';
+const SCANNER_CLI = '/usr/libexec/zapret2-manager/scanner-cli-entry.uc';
 const SCANNER_REQUEST_ROOT = '/tmp/zapret2-manager/runtime/requests/';
 const SCANNER_MAX_REQUEST_BYTES = 65536;
 const SCANNER_MAX_OUTPUT_BYTES = 131072;

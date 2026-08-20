@@ -46,3 +46,14 @@ test('NFQUEUE dependencies and fail-before-mutation preflight are explicit', () 
   assert.ok(preflightPosition < worker.indexOf('scanner_session_begin('), 'preflight must precede session begin');
   assert.doesNotMatch(worker, /insmod|modprobe/);
 });
+
+test('Scanner RPC launches the export-bearing CLI through a module-safe entrypoint', () => {
+  const rpc = read('zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc');
+  const cli = read('zapret2-manager/files/usr/libexec/zapret2-manager/scanner-cli.uc');
+  const entry = path.join(backendRoot, 'scanner-cli-entry.uc');
+  assert.equal(fs.existsSync(entry), true, 'runtime entrypoint must exist');
+  assert.match(fs.readFileSync(entry, 'utf8'), /import .*scanner-cli\.uc/);
+  assert.match(fs.readFileSync(entry, 'utf8'), /scanner_cli_request/);
+  assert.match(rpc, /scanner-cli-entry\.uc/);
+  assert.doesNotMatch(cli, /if \(ARGV\[0\] != null\)/);
+});

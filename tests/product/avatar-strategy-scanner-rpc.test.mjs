@@ -19,7 +19,7 @@ const scannerMethods = ['scanner_start', 'scanner_status', 'scanner_results', 's
 test('Scanner RPC methods use fixed CLI subcommands and private bounded edit transport', () => {
   for (const method of scannerMethods)
     assert.match(rpc, new RegExp(`\\b${method}:\\s*\\{`), method);
-  assert.match(rpc, /const SCANNER_CLI = ['"]\/usr\/libexec\/zapret2-manager\/scanner-cli\.uc['"]/);
+  assert.match(rpc, /const SCANNER_CLI = ['"]\/usr\/libexec\/zapret2-manager\/scanner-cli-entry\.uc['"]/);
   assert.match(rpc, /function scanner_edit_action\(sub, req, tag\)/);
   assert.match(rpc, /mktemp \/tmp\/zapret2-manager\/runtime\/requests\/scanner\.XXXXXX\.json/);
   assert.match(rpc, /writefile\(tmp, edit\)/);
