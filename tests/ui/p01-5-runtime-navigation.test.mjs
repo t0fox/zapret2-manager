@@ -36,8 +36,8 @@ test('Dashboard maps machine reason codes to product copy and system facts', () 
 test('engine normal rows use Russian product labels and state mapping', () => {
   assert.match(engineModel, /stateLabel/);
   assert.match(engineModel, /serviceLabel/);
-  assert.match(enginePanel, /Официальные версии/);
-  assert.match(enginePanel, /Проверить версию/);
+  assert.match(enginePanel, /Поставщик движка/);
+  assert.match(enginePanel, /Проверить обновления/);
   assert.doesNotMatch(enginePanel, /value:status\.state/);
   assert.doesNotMatch(enginePanel, /value:status\.serviceState/);
   assert.doesNotMatch(enginePanel, /Официальные releases/);
