@@ -6,8 +6,8 @@ import { proxy_capabilities, proxy_status } from './proxy.uc';
 import { proxycfg_get, proxycfg_validate, proxycfg_preview, proxycfg_apply,
 	proxycfg_health, proxycfg_start, proxycfg_stop, proxycfg_restart } from './proxycfg.uc';
 import { proxy_provider_catalog, proxy_provider_status,
-	proxy_provider_check_updates, proxy_provider_install, proxy_provider_remove,
-	proxy_provider_purge } from './proxy-provider.uc';
+	proxy_provider_versions, proxy_provider_check_updates, proxy_provider_install,
+	proxy_provider_remove, proxy_provider_purge } from './proxy-provider.uc';
 import { proxy_provider_preflight } from './proxy-provider-preflight.uc';
 
 const SCHEMA = 'tg-product.v2';
@@ -83,16 +83,24 @@ export const tg_product_catalog = function () { return catalog_model(); };
 export const tg_product_status = function () { return status_model(); };
 export const tg_product_get = function () { return status_model(); };
 export const tg_product_versions = function () {
-	let status = proxy_provider_status(), rows = [];
-	for (let i = 0; i < length(PROVIDERS); i++) {
-		let versions = [];
-		for (let j = 0; j < length(status.packages); j++)
-			if (status.packages[j].provider == PROVIDERS[i])
-				push(versions, { version: status.packages[j].packageVersion, packageVersion: status.packages[j].packageVersion,
-					provider: PROVIDERS[i], installed: true, installable: true });
-		push(rows, { id: PROVIDERS[i], provider: PROVIDERS[i], versions: versions, latest: null });
+	let source = proxy_provider_versions(), rows = [];
+	for (let i = 0; i < length(source.providers); i++) {
+		let row = source.providers[i], versions = [];
+		for (let j = 0; j < length(row.versions); j++) {
+			let item = row.versions[j];
+			push(versions, { provider: row.provider, version: item.version, packageVersion: item.packageVersion,
+				sourceId: item.sourceId, artifactAvailable: item.artifactAvailable === true,
+				installable: item.installable === true, architecture: item.architecture || source.architecture,
+				architectureCompatible: item.architectureCompatible === true, directBinaryAvailable: item.directBinaryAvailable === true,
+				apkAvailable: item.apkAvailable === true, checksumAvailable: item.checksumAvailable === true,
+				trustMode: item.trustMode, releaseName: item.releaseName, releaseBody: item.releaseBody,
+				releaseUrl: item.releaseUrl, publishedAt: item.publishedAt, assetName: item.assetName,
+				assetSha256: item.assetSha256, assetSize: item.assetSize, installMode: item.installMode,
+				unavailableReason: item.unavailableReason });
+		}
+		push(rows, { id: row.id, provider: row.provider, versions: versions, latest: row.latest });
 	}
-	return { ok: status.ok === true, optional: true, latestOnly: status.latestOnly === true, providers: rows };
+	return { ok: source.ok === true, optional: true, latestOnly: false, architecture: source.architecture, providers: rows };
 };
 export const tg_product_operation_status = function () { return { ok: true, operation: null, state: 'idle' }; };
 export const tg_product_validate = function (input) { return proxycfg_validate(input); };

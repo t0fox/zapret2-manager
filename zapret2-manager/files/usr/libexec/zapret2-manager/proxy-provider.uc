@@ -1,10 +1,10 @@
 'use strict';
 // Optional TG Proxy provider manager.
 //
-// The browser sends only an allow-listed provider id. It cannot choose an old
-// version, package name, URL or shell fragment. The backend always installs
-// the single latest router-compatible package published in the configured
-// signed APK feed. Missing providers are a normal state.
+// The browser sends only an allow-listed provider id and release identity. It
+// cannot choose an arbitrary version, package name, URL or shell fragment.
+// Rust is distributed as a signed-by-digest official GitHub release archive;
+// Go remains package based until its OpenWrt artifact is available.
 
 import { readfile, writefile, stat, unlink, mkdir, popen } from 'fs';
 
@@ -116,39 +116,9 @@ function architecture() {
 }
 
 function metadata_url(provider) {
-	if (provider == 'rust') return 'https://github.com/valnesfjord/tg-ws-proxy-rs/releases/latest';
-	if (provider == 'go') return 'https://github.com/spatiumstas/tg-ws-proxy-go/releases/latest';
+	if (provider == 'rust') return 'https://api.github.com/repos/valnesfjord/tg-ws-proxy-rs/releases/latest';
+	if (provider == 'go') return 'https://api.github.com/repos/spatiumstas/tg-ws-proxy-go/releases/latest';
 	return null;
-}
-
-function latest_candidate(providerId, arch) {
-	let url = metadata_url(providerId), quoted = literal(url);
-	if (quoted == null) return error('ESECURITY', 'Metadata URL не входит в allowlist.');
-	let response = run('curl -sSI --connect-timeout 10 --max-time 20 ' + quoted);
-	if (response.rc != 0) return error('ENETWORK', 'Не удалось проверить обновления.');
-	let lines = split(response.out, '\n'), location = null;
-	for (let i = 0; i < length(lines); i++) {
-		let line = trim(lines[i]);
-		if (substr(lc(line), 0, 9) == 'location:') location = trim(substr(line, 9));
-	}
-	let prefix = providerId == 'rust'
-		? 'https://github.com/valnesfjord/tg-ws-proxy-rs/releases/tag/'
-		: 'https://github.com/spatiumstas/tg-ws-proxy-go/releases/tag/';
-	if (location == null || substr(location, 0, length(prefix)) != prefix) return error('EMETADATA', 'GitHub не вернул допустимую stable release ссылку.');
-	let tag = substr(location, length(prefix)), version = null, packageVersion = null;
-	if (providerId == 'rust') {
-		if (!match(tag, /^v[0-9][0-9A-Za-z._-]*$/)) return error('EMETADATA', 'Версия Rust имеет недопустимый формат.');
-		version = substr(tag, 1);
-		packageVersion = version + '-r1';
-	} else {
-		let found = match(tag, /^([0-9][0-9A-Za-z._-]*)-rev([0-9]+)$/);
-		if (!found) return error('EMETADATA', 'Версия Go имеет недопустимый формат.');
-		version = found[1] + '-' + found[2];
-		packageVersion = found[1] + '-r' + found[2];
-	}
-	if (!safe_package_version(version) || !safe_package_version(packageVersion)) return error('EMETADATA', 'Версия upstream не прошла проверку.');
-	return { ok: true, candidate: { provider: providerId, version: version, packageVersion: packageVersion,
-		architecture: arch, releaseTag: tag, metadataUrl: url } };
 }
 
 function fetch_metadata(provider) {
@@ -202,7 +172,27 @@ function release_candidate(providerId, arch, release) {
 	if (asset == null || asset.state != 'uploaded' || digest == null || +asset.size < 1024 || +asset.size > 33554432 || asset.browser_download_url != prefix + assetName) return null;
 	return { provider: providerId, version: version, packageVersion: packageVersion, architecture: arch,
 		assetName: assetName, assetSha256: digest, assetSize: +asset.size, releaseId: '' + release.id,
-		publishedAt: release.published_at, metadataUrl: metadata_url(providerId) };
+		publishedAt: release.published_at, metadataUrl: metadata_url(providerId),
+		releaseName: release.name || null, releaseBody: release.body || null,
+		releaseUrl: release.html_url || null,
+		 downloadUrl: asset.browser_download_url };
+}
+
+function latest_candidate(providerId, arch) {
+	let fetched = fetch_metadata(providerId);
+	if (!fetched.ok) return fetched;
+	let candidate = release_candidate(providerId, arch, fetched.document);
+	if (candidate == null) return error('EMETADATA', 'Для архитектуры устройства нет подходящего официального артефакта.');
+	candidate.sourceId = 'official-github-release';
+	candidate.artifactAvailable = true;
+	candidate.architectureCompatible = true;
+	candidate.checksumAvailable = true;
+	candidate.trustMode = 'sha256-only';
+	candidate.directBinaryAvailable = providerId == 'rust';
+	candidate.apkAvailable = providerId == 'go';
+	candidate.installMode = providerId == 'rust' ? 'direct-release' : 'apk-package';
+	candidate.installable = providerId == 'rust';
+	return { ok: true, candidate: candidate };
 }
 
 function clone_public(provider) {
@@ -282,11 +272,14 @@ function release_lock() {
 function snapshot_settings() {
 	run('rm -rf ' + SNAP_DIR);
 	let hadConfig = stat(CONFIG_DIR) != null;
-	if (!hadConfig) return { ok: true, hadConfig: false };
-	if (run('mkdir -p ' + SNAP_DIR + '/config').rc != 0)
-		return { ok: false, hadConfig: true };
-	let copied = run('cp -a ' + CONFIG_DIR + '/. ' + SNAP_DIR + '/config/');
-	return { ok: copied.rc == 0, hadConfig: true };
+	let hadBinary = stat(BINARY_PATH) != null;
+	if (hadConfig && run('mkdir -p ' + SNAP_DIR + '/config').rc != 0)
+		return { ok: false, hadConfig: true, hadBinary: hadBinary };
+	if (hadConfig && run('cp -a ' + CONFIG_DIR + '/. ' + SNAP_DIR + '/config/').rc != 0)
+		return { ok: false, hadConfig: true, hadBinary: hadBinary };
+	if (hadBinary && run('cp -a ' + literal(BINARY_PATH) + ' ' + literal(SNAP_DIR + '/binary')).rc != 0)
+		return { ok: false, hadConfig: hadConfig, hadBinary: true };
+	return { ok: true, hadConfig: hadConfig, hadBinary: hadBinary };
 }
 
 function restore_settings(snapshot) {
@@ -294,6 +287,13 @@ function restore_settings(snapshot) {
 	if (stat(SNAP_DIR + '/config') == null) return false;
 	if (run('mkdir -p ' + CONFIG_DIR).rc != 0) return false;
 	return run('cp -a ' + SNAP_DIR + '/config/. ' + CONFIG_DIR + '/').rc == 0;
+}
+
+function restore_binary(snapshot) {
+	if (snapshot == null || snapshot.hadBinary !== true) return true;
+	if (stat(SNAP_DIR + '/binary') == null) return false;
+	return run('cp -a ' + literal(SNAP_DIR + '/binary') + ' ' + literal(BINARY_PATH) +
+		' && chmod 755 ' + literal(BINARY_PATH)).rc == 0;
 }
 
 function clear_snapshot() {
@@ -327,11 +327,31 @@ export const proxy_provider_catalog = function () {
 	return {
 		ok: true,
 		optional: true,
-		latestOnly: true,
+		latestOnly: false,
 		providers: out,
-		note: 'Для каждой реализации предлагается только последний совместимый пакет из доверенного feed.'
+		note: 'Показывается установленная версия и последний совместимый официальный release.'
 	};
 };
+
+function installed_version_row(status, providerId) {
+	for (let i = 0; i < length(status.packages); i++) {
+		let item = status.packages[i];
+		if (item.provider == providerId)
+			return {
+				provider: providerId,
+				version: status.activeProvider == providerId && status.activeVersion != null
+					? status.activeVersion : item.packageVersion,
+				packageVersion: item.packageVersion,
+				installed: true,
+				sourceId: 'installed-runtime',
+				artifactAvailable: true,
+				installable: true,
+				architectureCompatible: true,
+				unavailableReason: null
+			};
+	}
+	return null;
+}
 
 export const proxy_provider_status = function () {
 	let state = load_state();
@@ -365,7 +385,7 @@ export const proxy_provider_status = function () {
 	return {
 		ok: true,
 		optional: true,
-		latestOnly: true,
+		latestOnly: false,
 		installed: activeInstalled,
 		activeProvider: activeInstalled ? activeProvider : null,
 		activeVersion: activeVersion,
@@ -380,9 +400,33 @@ export const proxy_provider_status = function () {
 	};
 };
 
+export const proxy_provider_versions = function () {
+	let status = proxy_provider_status(), arch = architecture(), rows = [], allOk = arch != null;
+	for (let i = 0; i < length(PROVIDERS); i++) {
+		let provider = PROVIDERS[i], versions = [], installed = installed_version_row(status, provider.id), latest = null;
+		if (arch != null) {
+			let resolved = latest_candidate(provider.id, arch);
+			if (resolved.ok) {
+				latest = resolved.candidate;
+				push(versions, latest);
+			} else if (installed == null) {
+				allOk = false;
+			}
+		}
+		if (installed != null) push(versions, installed);
+		push(rows, { id: provider.id, provider: provider.id, versions: versions, latest: latest,
+			architecture: arch, error: latest == null && installed == null ? 'Версия недоступна.' : null });
+	}
+	return { ok: status.ok === true && allOk, optional: true, latestOnly: false, architecture: arch, providers: rows };
+};
+
 function check_input(value) {
-	return type(value) == 'object' && value != null && type(value.provider) == 'string' &&
-		length(keys(value)) == 1 && provider_by_id(value.provider) != null;
+	if (type(value) != 'object' || value == null || type(value.provider) != 'string' || provider_by_id(value.provider) == null)
+		return false;
+	let ks = keys(value);
+	if (length(ks) == 1) return true;
+	return length(ks) == 3 && type(value.sourceId) == 'string' && value.sourceId == 'official-github-release' &&
+		type(value.version) == 'string' && safe_package_version(value.version);
 }
 
 export const proxy_provider_check_updates = function (input) {
@@ -392,9 +436,8 @@ export const proxy_provider_check_updates = function (input) {
 	let resolved = latest_candidate(input.provider, arch);
 	if (!resolved.ok) return resolved;
 	let candidate = resolved.candidate;
-	let provider = provider_by_id(input.provider);
-	let simulated = run('apk add --simulate --no-interactive ' + provider.package + '=' + candidate.packageVersion);
-	candidate.installable = simulated.rc == 0;
+	if (input.version != null && (input.sourceId != candidate.sourceId || input.version != candidate.version))
+		return error('EVERSION', 'Выбранная версия больше не является последним официальным release.');
 	let token = random_token();
 	if (safe_token(token) == null) return error('EINTERNAL', 'Не удалось создать token проверки.');
 	ensure_dir(CHECK_DIR);
@@ -428,7 +471,7 @@ function load_checked_candidate(providerId, token) {
 	if (+record.expiresAt < time()) { try { unlink(path); } catch (e) { } return error('ECHECKEXPIRED', 'Результат проверки устарел. Повторите проверку.'); }
 	let candidate = record.candidate;
 	if (!safe_package_version(candidate.version) || !safe_package_version(candidate.packageVersion) || candidate.installable !== true)
-		return error('EINCOMPATIBLE', 'Проверенная версия пока недоступна в доверенном APK feed.');
+		return error('EINCOMPATIBLE', 'Проверенная официальная версия пока недоступна для установки.');
 	try { unlink(path); } catch (e) { }
 	return { ok: true, candidate: candidate };
 }
@@ -441,7 +484,43 @@ function remove_packages() {
 		let r = run('apk del --no-interactive ' + provider.package);
 		if (r.rc != 0 || package_present(provider.package)) push(failures, provider.package);
 	}
+	let state = load_state();
+	if (length(failures) == 0 && state.activeProvider != null && stat(BINARY_PATH) != null) {
+		let removed = run('rm -f ' + literal(BINARY_PATH));
+		if (removed.rc != 0 || stat(BINARY_PATH) != null) push(failures, 'direct-binary-remove');
+	}
 	return failures;
+}
+
+function install_direct_candidate(candidate) {
+	if (type(candidate) != 'object' || candidate == null || candidate.installMode != 'direct-release' ||
+		type(candidate.downloadUrl) != 'string' || safe_digest('sha256:' + candidate.assetSha256) == null)
+		return error('EINCOMPATIBLE', 'Официальный direct release не прошёл проверку.');
+	let base = '/tmp/zapret2-manager/tg-proxy.' + time(), archive = base + '.tar.gz', extract = base + '.extract';
+	let archiveQ = literal(archive), extractQ = literal(extract), urlQ = literal(candidate.downloadUrl);
+	if (archiveQ == null || extractQ == null || urlQ == null) return error('ESECURITY', 'Ссылка release не прошла allowlist.');
+	let download = run('mkdir -p ' + literal('/tmp/zapret2-manager') + ' && ulimit -f 65536; uclient-fetch -q -T 30 --user-agent zapret2-manager/tg-proxy -O ' + archiveQ + ' ' + urlQ);
+	if (download.rc != 0 || stat(archive) == null) {
+		run('rm -rf ' + archiveQ + ' ' + extractQ);
+		return error('ENETWORK', 'Не удалось загрузить официальный Rust release.');
+	}
+	let digest = trim(run('sha256sum ' + archiveQ + ' | awk \'{print $1}\'').out);
+	if (lc(digest) != lc(candidate.assetSha256)) {
+		run('rm -rf ' + archiveQ + ' ' + extractQ);
+		return error('EVERIFY', 'SHA-256 Rust release не совпал с GitHub digest.');
+	}
+	if (run('mkdir -p ' + extractQ + ' && tar -xzf ' + archiveQ + ' -C ' + extractQ).rc != 0) {
+		run('rm -rf ' + archiveQ + ' ' + extractQ);
+		return error('EVERIFY', 'Архив Rust release не удалось распаковать.');
+	}
+	let binary = trim(run('find ' + extractQ + ' -type f -name tg-ws-proxy -print -quit').out);
+	let binaryQ = literal(binary), staged = literal(BINARY_PATH + '.new');
+	if (binaryQ == null || stat(binary) == null || run('chmod 755 ' + binaryQ + ' && cp -f ' + binaryQ + ' ' + staged + ' && chmod 755 ' + staged + ' && mv -f ' + staged + ' ' + literal(BINARY_PATH)).rc != 0) {
+		run('rm -rf ' + archiveQ + ' ' + extractQ + ' ' + staged);
+		return error('ETARGET', 'Не удалось заменить Rust binary.');
+	}
+	run('rm -rf ' + archiveQ + ' ' + extractQ);
+	return { ok: true };
 }
 
 function restore_previous(previous, wasRunning, settingsSnapshot) {
@@ -450,6 +529,8 @@ function restore_previous(previous, wasRunning, settingsSnapshot) {
 		let provider = provider_by_id(previous.activeProvider);
 		if (provider == null || !safe_package_version(previous.packageVersion)) {
 			push(failures, 'previous-provider-unknown');
+		} else if (previous.package == null && settingsSnapshot.hadBinary === true) {
+			if (!save_state(provider.id, previous.activeVersion, previous.packageVersion)) push(failures, 'previous-state-restore');
 		} else {
 			let add = run('apk add --no-interactive ' + provider.package + '=' + previous.packageVersion);
 			if (add.rc != 0 || !package_present(provider.package)) push(failures, 'previous-package-restore');
@@ -457,6 +538,7 @@ function restore_previous(previous, wasRunning, settingsSnapshot) {
 		}
 	} else if (!save_state(null, null, null)) push(failures, 'empty-state-restore');
 	if (!restore_settings(settingsSnapshot)) push(failures, 'settings-restore');
+	if (!restore_binary(settingsSnapshot)) push(failures, 'binary-restore');
 	if (wasRunning && length(failures) == 0 && service('start') != 0) push(failures, 'previous-service-restore');
 	return failures;
 }
@@ -482,7 +564,8 @@ export const proxy_provider_install = function (input) {
 	let previous = {
 		activeProvider: previousStatus.activeProvider,
 		activeVersion: previousStatus.activeVersion,
-		packageVersion: previousStatus.activePackageVersion
+		packageVersion: previousStatus.activePackageVersion,
+		package: previousStatus.packages && length(previousStatus.packages) ? previousStatus.packages[0].package : null
 	};
 	let wasRunning = previousStatus.running === true;
 	let settingsSnapshot = snapshot_settings();
@@ -503,10 +586,14 @@ export const proxy_provider_install = function (input) {
 				let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
 				result = { ok: false, error: { code: 'ETARGET', message: 'Не удалось удалить текущую реализацию.' }, rollbackFailures: rollbackFailures };
 			} else {
-				let add = run('apk add --no-interactive ' + provider.package + '=' + latest.packageVersion);
-				if (add.rc != 0 || !package_present(provider.package) || stat(BINARY_PATH) == null) {
+				let add = latest.installMode == 'direct-release' ? install_direct_candidate(latest) :
+					run('apk add --no-interactive ' + provider.package + '=' + latest.packageVersion);
+				let installed = latest.installMode == 'direct-release'
+					? add.ok === true
+					: add.rc == 0 && package_present(provider.package) && stat(BINARY_PATH) != null;
+				if (!installed) {
 					let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
-					result = { ok: false, error: { code: 'ETARGET', message: 'Последний совместимый пакет недоступен в доверенном feed.' }, rollbackFailures: rollbackFailures };
+					result = { ok: false, error: add.error || { code: 'ETARGET', message: 'Официальный TG Proxy release недоступен на устройстве.' }, rollbackFailures: rollbackFailures };
 				} else if (!restore_settings(settingsSnapshot)) {
 					let rollbackFailures = restore_previous(previous, wasRunning, settingsSnapshot);
 					result = { ok: false, error: { code: 'ETARGET', message: 'Не удалось восстановить настройки после установки.' }, rollbackFailures: rollbackFailures };

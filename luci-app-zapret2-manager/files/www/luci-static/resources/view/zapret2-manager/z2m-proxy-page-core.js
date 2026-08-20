@@ -311,10 +311,14 @@ function canonicalProjection(status) {
   var health = object(status.health);
   var route = object(health.route);
   var upstream = object(route.upstream);
+  var checks = array(health.checks);
+  var listenerCheck = checks.some(function (item) {
+    return item && item.name === 'listener' && item.ok === true;
+  });
   var listeners = array(runtime.listeners);
   return {
     process: status.status === 'running' || runtime.running === true || object(status.observed).running === true,
-    listener: listeners.some(function (item) {
+    listener: listenerCheck || route.local && route.local.ok === true || listeners.some(function (item) {
       return item && item.address && item.port !== undefined;
     }),
     outbound: upstream.ok === true || status.outbound === true,
