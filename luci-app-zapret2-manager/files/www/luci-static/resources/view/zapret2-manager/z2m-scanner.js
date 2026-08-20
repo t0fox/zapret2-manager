@@ -94,8 +94,10 @@ function start(ctx, controls) {
   state.request = safeRequest({ target: controls.target.value, protocol: controls.protocol.value, mode: controls.mode.value, resume: controls.resume.checked, dpi_type: controls.dpi.value });
   state.error = null; state.report = null; state.status = { status: 'starting', phase: 'validating' };
   call(ctx, 'start', { request: state.request }).then(function (answer) {
-    state.scanId = answerId(answer);
-    state.status = answer || state.status;
+    var accepted = object(answer);
+    if (accepted.status == null && accepted.state != null) accepted.status = accepted.state;
+    state.scanId = answerId(accepted);
+    state.status = accepted || state.status;
     if (!state.scanId) throw answer || { code: 'EDEPENDENCY', message: _('Scanner did not return an identity.') };
     return refresh(ctx);
   }).catch(function (error) { state.error = error; state.status = { status: 'error', error: errorText(error) }; refresh(ctx); });

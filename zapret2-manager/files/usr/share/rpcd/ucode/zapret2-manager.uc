@@ -320,6 +320,43 @@ function scanner_request_root_ready() {
 	return true;
 }
 
+let scanner_start_sequence = 0;
+function scanner_start_async_impl(req) {
+	if (!scanner_request_root_ready()) return { ok: false, error: { code: 'EINPUT', message: 'Scanner request directory is unsafe' } };
+	let edit = null;
+	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
+	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
+	if (type(edit) != 'string' || length(edit) > SCANNER_MAX_REQUEST_BYTES)
+		return { ok: false, error: { code: 'EINPUT', message: 'Scanner start edit is invalid' } };
+	let request = null;
+	try { request = json(edit); } catch (e) { return { ok: false, error: { code: 'EINPUT', message: 'Scanner start request is malformed' } }; }
+	if (type(request) != 'object' || request == null)
+		return { ok: false, error: { code: 'EINPUT', message: 'Scanner start request is invalid' } };
+	if (request.id == null) request.id = 'scan-' + time() + '-' + (++scanner_start_sequence);
+	if (type(request.id) != 'string' || !match(request.id, /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/))
+		return { ok: false, error: { code: 'EINPUT', message: 'Scanner id is invalid' } };
+	let serialized = sprintf('%J', request), tmp = null;
+	let created = popen('umask 077; mktemp /tmp/zapret2-manager/runtime/requests/scanner.XXXXXX 2>/dev/null', 'r');
+	if (created) { tmp = trim(created.read('all') || ''); created.close(); }
+	if (!tmp || index(tmp, SCANNER_REQUEST_ROOT) != 0
+		|| !match(substr(tmp, length(SCANNER_REQUEST_ROOT)), /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/)) {
+		if (tmp) try { unlink(tmp); } catch (e) { }
+		return { ok: false, error: { code: 'ETARGET', message: 'request temp file unavailable' } };
+	}
+	try { writefile(tmp, serialized); } catch (e) { try { unlink(tmp); } catch (ignore) { } return { ok: false, error: { code: 'EIO', message: 'request temp file could not be written' } }; }
+	let cmd = '( /usr/bin/ucode ' + SCANNER_CLI + ' start ' + tmp
+		+ ' >/dev/null 2>&1; rm -f ' + tmp + ' >/dev/null 2>&1 ) >/dev/null 2>&1 &';
+	let launched = popen(cmd, 'r');
+	if (!launched) { try { unlink(tmp); } catch (e) { } return { ok: false, error: { code: 'ETARGET', message: 'Scanner worker could not be launched' } }; }
+	launched.close();
+	return { ok: true, accepted: true, scanId: request.id, state: 'running' };
+}
+
+function scanner_start_async(req) {
+	try { return scanner_start_async_impl(req); }
+	catch (e) { return { ok: false, error: { code: 'EINTERNAL', message: 'Scanner start failed before worker launch.' } }; }
+}
+
 function scanner_edit_action(sub, req, tag) {
 	if (tag == 'async-start') return scanner_start_async(req);
 	if (!scanner_request_root_ready()) return { ok: false, error: { code: 'EINPUT', message: 'Scanner request directory is unsafe' } };
@@ -354,47 +391,6 @@ function scanner_edit_action(sub, req, tag) {
 	} catch (e) { return { ok: false, error: { code: 'EINTERNAL', message: 'Scanner response was malformed' } }; }
 }
 
-function scanner_start_async(req) {
-	try { return scanner_start_async_impl(req); }
-	catch (e) { return { ok: false, error: { code: 'EINTERNAL', message: 'Scanner start failed before worker launch.' } }; }
-}
-
-function scanner_start_async_impl(req) {
-	if (!scanner_request_root_ready()) return { ok: false, error: { code: 'EINPUT', message: 'Scanner request directory is unsafe' } };
-	let edit = null;
-	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
-	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
-	if (type(edit) != 'string' || length(edit) > SCANNER_MAX_REQUEST_BYTES)
-		return { ok: false, error: { code: 'EINPUT', message: 'Scanner start edit is invalid' } };
-	let request = null;
-	try { request = json(edit); } catch (e) { return { ok: false, error: { code: 'EINPUT', message: 'Scanner start request is malformed' } }; }
-	if (type(request) != 'object' || request == null)
-		return { ok: false, error: { code: 'EINPUT', message: 'Scanner start request is invalid' } };
-	if (request.id == null) request.id = 'scan-' + time() + '-' + (++scanner_start_sequence);
-	if (type(request.id) != 'string' || !match(request.id, /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/))
-		return { ok: false, error: { code: 'EINPUT', message: 'Scanner id is invalid' } };
-	let serialized = sprintf('%J', request), tmp = null;
-	let created = popen('umask 077; mktemp /tmp/zapret2-manager/runtime/requests/scanner.XXXXXX 2>/dev/null', 'r');
-	if (created) { tmp = trim(created.read('all') || ''); created.close(); }
-	if (!tmp || index(tmp, SCANNER_REQUEST_ROOT) != 0
-		|| !match(substr(tmp, length(SCANNER_REQUEST_ROOT)), /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/)) {
-		if (tmp) try { unlink(tmp); } catch (e) { }
-		return { ok: false, error: { code: 'ETARGET', message: 'request temp file unavailable' } };
-	}
-	try { writefile(tmp, serialized); } catch (e) { try { unlink(tmp); } catch (ignore) { } return { ok: false, error: { code: 'EIO', message: 'request temp file could not be written' } }; }
-	// Match the detached launcher contract used by the production job runner.
-	// Starting ucode directly from rpcd is not detached reliably on the target
-	// BusyBox image and makes ubus report status 9 before returning the accept
-	// envelope. The request path is bounded to a safe filename above.
-	let cmd = "setsid ash -c '/usr/bin/ucode " + SCANNER_CLI + ' start ' + tmp
-		+ ' >/dev/null 2>&1; rm -f ' + tmp + " >/dev/null 2>&1' </dev/null >/dev/null 2>&1 &";
-	let launched = popen(cmd, 'r');
-	if (!launched) { try { unlink(tmp); } catch (e) { } return { ok: false, error: { code: 'ETARGET', message: 'Scanner worker could not be launched' } }; }
-	launched.close();
-	return { ok: true, accepted: true, scanId: request.id, status: 'running' };
-}
-
-let scanner_start_sequence = 0;
 function scanner_start_method(req) { return scanner_edit_action('start', req, 'async-start'); }
 function scanner_status_method(req) { return scanner_edit_action('status', req, 'status'); }
 function scanner_results_method(req) { return scanner_edit_action('results', req, 'results'); }
