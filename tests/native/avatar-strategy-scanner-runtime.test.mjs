@@ -66,6 +66,17 @@ test('fixed Scanner runtime admits only bounded ownership-bound NFQUEUE phases',
   assert.match(source, /queue_peer/);
 });
 
+test('runtime adapter uses a target-compatible bounded short sleep primitive', () => {
+  const source = fs.readFileSync(ADAPTER, 'utf8');
+  assert.match(source, /short_sleep\(\)/);
+  assert.doesNotMatch(source, /sleep 0\.05/);
+  assert.doesNotMatch(source, /sleep \d+\.\d+/);
+  assert.doesNotMatch(source, /stat -c/);
+  assert.match(source, /ls -ldn/);
+  assert.doesNotMatch(source, /od -An/);
+  assert.match(source, /head -c 32 \/dev\/urandom/);
+});
+
 test('canonical helper exposes kernel read-back evidence and absence verification', () => {
   const source = fs.readFileSync('zapret2-manager/src/z2m-scanner-firewall-helper.c', 'utf8');
   assert.match(source, /kernel_read_back/);

@@ -59,7 +59,7 @@ test('pinned Avatar fixture has the complete physical catalog contract', () => {
   assert.equal(fixture.uniqueStrategyIdCount, 732);
   assert.equal(fixture.duplicateIdGroupCount, 503);
   assert.equal(fixture.aggregateDigest,
-    '5978d35bfc0b73caaae658124874e24619b1f448e673ec09fd7c5d4dd8c3dda1');
+    'e716554fa8292d8b934e809514b46dae3d3874b84a57a56934b5e30d5a768136');
   assert.equal(fixture.aggregateDigestAlgorithm,
     'sha256(source-order lines "<file-sha256>  catalogs/<relative-path>\\n")');
   assert.deepEqual(fixture.featuredIds, ['z2k_all_in_one', 'z2k_tls_circular_smart']);

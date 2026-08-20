@@ -134,6 +134,24 @@ export const scanner_probe_parse_http = function(raw, startedAt, finishedAt, set
 		transferEncoding: headers['transfer-encoding'] || null, marker: length(markers) ? markers[0].name : '', markerEvidence: markers, tlsStatus: 'success' } };
 };
 
+export const scanner_probe_parse_tls = function(raw, startedAt, finishedAt) {
+	if (!string(raw) || !length(raw) || type(startedAt) != 'int' || type(finishedAt) != 'int' || finishedAt < startedAt)
+		return indeterminate('TLS handshake response is unavailable.', { stage: 'tls' });
+	let offset = 0, status = null, headers = null;
+	for (let interim = 0; interim < 8; interim++) {
+		let end = header_end(raw, offset);
+		if (end < 0) return indeterminate('TLS handshake response has no complete HTTP headers.', { stage: 'tls' });
+		status = status_line(raw, offset, end);
+		headers = header_map(raw, offset, end);
+		if (status == null || headers == null) return indeterminate('TLS handshake response headers are invalid.', { stage: 'tls' });
+		if (status >= 200 || status == 101) break;
+		offset = end + 4;
+	}
+	if (status == null || (status < 200 && status != 101)) return indeterminate('TLS handshake response has no final HTTP status.', { stage: 'tls' });
+	return { ok: true, observation: { tlsStatus: 'success', statusCode: status,
+		responseBytes: length(raw), latencyMs: finishedAt - startedAt, startedAt, finishedAt } };
+};
+
 function u16(raw, offset) { return ord(raw, offset) * 256 + ord(raw, offset + 1); }
 function u32(raw, offset) { return ord(raw, offset) * 16777216 + ord(raw, offset + 1) * 65536 + ord(raw, offset + 2) * 256 + ord(raw, offset + 3); }
 export const scanner_probe_parse_stun = function(raw, startedAt, finishedAt, settings, expectedType) {
@@ -198,9 +216,28 @@ function typed_transport_status(result) {
 
 function p5_code(result, fallback) {
 	let exit = result?.data?.exitCode;
-	if (exit == 7 || exit == 28) return 'TCP_TIMEOUT';
+	if (fallback == 'TLS_FAIL') {
+		if (result?.data?.signal != null && result.data.signal != 0 || exit == 28) return 'TLS_TIMEOUT';
+		if (exit == 56) return 'TLS_RESET';
+		return 'TLS_FAIL';
+	}
 	return fallback || (exit != null && exit != 0 ? 'TLS_FAIL' : 'HTTP_CUTOFF');
 }
+
+function p5_tls_observation(raw, startedAt, finishedAt, exitCode, signal) {
+	let parsed = scanner_probe_parse_tls(raw, startedAt, finishedAt);
+	if (!parsed.ok) return { ok: false, failureCode: p5_code({ data: { exitCode, signal } }, 'TLS_FAIL'),
+		failureReason: parsed.error?.message || parsed.error || 'TLS handshake response is incomplete.',
+		exitCode, signal, bytesReceived: length(raw), latencyMs: finishedAt - startedAt,
+		startedAt, finishedAt };
+	return { ok: true, failureCode: null, tls: parsed.observation, exitCode, signal,
+		bytesReceived: length(raw), latencyMs: parsed.observation.latencyMs, startedAt, finishedAt };
+}
+
+export const scanner_probe_p5_tls_test = function(raw, exitCode, signal, startedAt, finishedAt) {
+	if (getenv('Z2M_SCANNER_SERVER_TEST') != '1') return failure('EACCES', 'Scanner test authority is disabled.');
+	return p5_tls_observation(raw, startedAt, finishedAt, exitCode, signal);
+};
 
 function p5_probe(descriptor, host, ip, sni, stage, tlsMaxVersion, httpVersion) {
 	let request = descriptor.request, timeoutMs = bounded_timeout(request, BODY_TIMEOUT_MS);
@@ -218,9 +255,11 @@ function p5_probe(descriptor, host, ip, sni, stage, tlsMaxVersion, httpVersion) 
 	if (result.data.cancelled === true) return failure('EDEPENDENCY', 'Scanner probe was cancelled.', { stage: 'cancel' });
 	let raw = native_output(result);
 	if (raw == null || !native_observation_complete(result, raw)) return native_failure(result, 'P5 child outcome is incomplete.');
+	if (stage == 'tls') return { ok: true, observation: p5_tls_observation(raw, result.data.startedAt,
+		result.data.finishedAt, result.data.exitCode, result.data.signal) };
 	let parsed = scanner_probe_parse_http(raw, result.data.startedAt, result.data.finishedAt,
-		{ readLimitBytes: stage == 'tls' ? TLS_READ_LIMIT : P5_BODY_LIMIT });
-	if (!parsed.ok) return { ok: true, observation: { ok: false, failureCode: p5_code(result, stage == 'tls' ? 'TLS_FAIL' : 'HTTP_CUTOFF'),
+		{ readLimitBytes: P5_BODY_LIMIT });
+	if (!parsed.ok) return { ok: true, observation: { ok: false, failureCode: p5_code(result, 'HTTP_CUTOFF'),
 		failureReason: parsed.error?.message || parsed.error || 'P5 response is incomplete.', exitCode: result.data.exitCode,
 		bytesReceived: result.data.byteLength, latencyMs: result.data.finishedAt - result.data.startedAt,
 		startedAt: result.data.startedAt, finishedAt: result.data.finishedAt } };

@@ -13,10 +13,11 @@ import { scanner_generator_policy, scanner_generator_records } from './scanner-g
 
 const AUTHORITY_MARKER = 'z2m-scanner-authority.v1';
 const GENERATOR_MARKER = 'z2m-scanner-generator.v1';
-const AUTHORITATIVE_CATALOG_DIGEST = '5978d35bfc0b73caaae658124874e24619b1f448e673ec09fd7c5d4dd8c3dda1';
+const AUTHORITATIVE_CATALOG_DIGEST = 'e716554fa8292d8b934e809514b46dae3d3874b84a57a56934b5e30d5a768136';
 const AUTHORITATIVE_CATALOG_REPOSITORY = 'avatarDD/zapret-gui';
 const AUTHORITATIVE_CATALOG_COMMIT = 'f9dd3ea47a2239514f396a843b475c92c33f0b4c';
 const MAX_EXECUTION_CANDIDATES = 20;
+const MAX_COMPILE_ATTEMPTS = 64;
 
 const KNOWN_DPI = {
 	tls_dpi: { must: ['filter-l7=tls', 'tls_client_hello'], bad: ['filter-l7=quic', 'quic_initial'] },
@@ -380,10 +381,7 @@ function dependency_digest(strategy, catalog, source, closure) {
 function raw_entry_ids(catalog, protocol, mode) {
 	if (!is_object(catalog.sets) || !is_object(catalog.sets[protocol])
 		|| type(catalog.sets[protocol][mode]) != 'array') return [];
-	let result = [];
-	for (let i = 0; i < length(catalog.sets[protocol][mode]); i++)
-		push(result, catalog.sets[protocol][mode][i]);
-	return result;
+	return catalog.sets[protocol][mode];
 }
 
 function entry_for(catalog, id) {
@@ -393,38 +391,6 @@ function entry_for(catalog, id) {
 			if (catalog.physicalEntries[i].id == id && catalog.physicalEntries[i].winner == true)
 				return catalog.physicalEntries[i];
 	return null;
-}
-
-function selected_entries(catalog, protocol, mode) {
-	let ids = raw_entry_ids(catalog, protocol, mode), result = [], full = [];
-	for (let i = 0; i < length(ids); i++) {
-		let entry = entry_for(catalog, ids[i]);
-		if (entry != null && entry.protocol == protocol) push(result, entry);
-	}
-	if (mode == 'quick' || mode == 'standard') {
-		let limit = mode == 'quick' ? 10 : 20, order = type(catalog.winnerOrder) == 'array'
-			? catalog.winnerOrder : ids;
-		for (let i = 0; i < length(order); i++) {
-			let entry = entry_for(catalog, order[i]);
-			if (entry != null && entry.protocol == protocol && entry.level == 'builtin'
-				&& full_preset(entry.args) && !contains(full, entry.id)) push(full, entry.id);
-		}
-		let prefix = [], tail = [];
-		for (let i = 0; i < length(full) && i < limit; i++) push(prefix, full[i]);
-		for (let i = 0; i < length(prefix); i++)
-			for (let j = 0; j < length(result); j++) if (result[j] != null && result[j].id == prefix[i]) result[j] = null;
-		for (let i = 0; i < length(result); i++) if (result[i] != null
-			&& !(result[i].level == 'builtin' && full_preset(result[i].args))) push(tail, result[i]);
-		result = [];
-		for (let i = 0; i < length(prefix); i++) {
-			let item = entry_for(catalog, prefix[i]);
-			if (item != null) push(result, item);
-		}
-		let tailLimit = mode == 'quick' ? 30 - length(prefix) : length(tail);
-		if (tailLimit < 20) tailLimit = 20;
-		for (let i = 0; i < length(tail) && i < tailLimit; i++) push(result, tail[i]);
-	}
-	return result;
 }
 
 function catalog_strategy(entry) {
@@ -541,7 +507,7 @@ function generated_identity(candidate, existingStrategies, environment, compiler
 		|| existingStrategies.authority.marker != AUTHORITY_MARKER
 		|| existingStrategies.authority.repository != AUTHORITATIVE_CATALOG_REPOSITORY
 		|| existingStrategies.authority.commit != AUTHORITATIVE_CATALOG_COMMIT
-		|| existingStrategies.authority.catalogDigest != '5978d35bfc0b73caaae658124874e24619b1f448e673ec09fd7c5d4dd8c3dda1'
+		|| existingStrategies.authority.catalogDigest != AUTHORITATIVE_CATALOG_DIGEST
 		|| !valid_digest(existingStrategies.authority.catalogEnvelopeDigest)
 		|| !is_object(existingStrategies.authority.catalog)
 		|| existingStrategies.authority.catalog.serverOwned != true
@@ -678,6 +644,58 @@ function dpi_keep(candidate, dpi) {
 	return true;
 }
 
+function lightweight_dpi_keep(strategy, sourcePath, dpi) {
+	if (dpi == null || dpi == '') return true;
+	let rule = KNOWN_DPI[dpi];
+	if (rule == null) return true;
+	if (rule.skip == true) return false;
+	let text = lower(token_stream(token_values(strategy_argument_text(strategy)))), hasMust = false;
+	for (let i = 0; i < length(rule.must); i++) if (index(text, rule.must[i]) >= 0) { hasMust = true; break; }
+	let trick = starts_with(sourcePath || '', 'basic/')
+		|| starts_with(sourcePath || '', 'direct/')
+		|| starts_with(sourcePath || '', 'builtin/')
+		|| ((index(text, 'split') >= 0 || index(text, 'disorder') >= 0 || index(text, 'oob') >= 0)
+			&& index(text, 'desync') < 0);
+	if (length(rule.must) > 0 && !hasMust && !full_preset(strategy_argument_text(strategy)) && !trick) return false;
+	for (let i = 0; i < length(rule.bad); i++) if (index(text, rule.bad[i]) >= 0) return false;
+	return true;
+}
+
+function lightweight_descriptor(strategy, protocol, source, sourcePath, ordinal, generated, sourceInput) {
+	if (!is_object(strategy)) return null;
+	let args = strategy_argument_text(strategy);
+	return {
+		strategy: strategy, protocol: protocol, source: source, sourcePath: sourcePath,
+		ordinal: ordinal, generated: generated, sourceInput: sourceInput,
+		scannerId: (generated ? 'generated:' : '') + strategy.id,
+		strategyId: generated ? null : strategy.id,
+		fullPreset: full_preset(args), recommended: source_metadata(strategy, 'label', '') == 'recommended',
+		complexity: complexity(args),
+		sourceOrdinal: integer_value(strategy.sourceOrdinal != null ? strategy.sourceOrdinal
+			: (is_object(sourceInput) && sourceInput.sourceOrdinal != null ? sourceInput.sourceOrdinal
+				: source_metadata(sourceInput, 'sourceOrdinal', 0))),
+		sectionOrdinal: integer_value(strategy.sectionOrdinal != null ? strategy.sectionOrdinal
+			: (is_object(sourceInput) && sourceInput.sectionOrdinal != null ? sourceInput.sectionOrdinal
+				: source_metadata(sourceInput, 'sectionOrdinal', 0))),
+		effectiveOrdinal: integer_value(strategy.effectiveOrdinal != null ? strategy.effectiveOrdinal
+			: (is_object(sourceInput) && sourceInput.effectiveOrdinal != null ? sourceInput.effectiveOrdinal
+				: source_metadata(sourceInput, 'effectiveOrdinal', 0))),
+		catalogOrder: ordinal,
+	};
+}
+
+function shortlist_lightweight(pool, item) {
+	let position = length(pool);
+	for (let i = 0; i < length(pool); i++) {
+		if (compare_candidates(item, pool[i]) < 0) { position = i; break; }
+	}
+	if (position >= MAX_COMPILE_ATTEMPTS) return;
+	push(pool, null);
+	for (let i = length(pool) - 1; i > position; i--) pool[i] = pool[i - 1];
+	pool[position] = item;
+	if (length(pool) > MAX_COMPILE_ATTEMPTS) pop(pool);
+}
+
 function dedup_candidates(values) {
 	let result = [], seen = {};
 	for (let i = 0; i < length(values); i++) {
@@ -733,6 +751,9 @@ function target_profile_valid(profile) {
 
 function authority_valid(catalog, compilerAuthority) {
 	let compilerDigest = compiler_digest(compilerAuthority);
+	if (catalog?.syntheticTest == true && getenv('Z2M_SCANNER_SERVER_TEST') == '1')
+		return catalog.serverOwned == true && catalog.aggregateDigest == AUTHORITATIVE_CATALOG_DIGEST
+			&& catalog.compilerDigest == compilerDigest && is_object(catalog.authority);
 	let envelopeDigest = catalog_envelope_digest(catalog);
 	if (is_object(catalog) && is_object(catalog.authority) && catalog.authority.catalogEnvelopeDigest != envelopeDigest)
 		return false;
@@ -845,18 +866,48 @@ function scanner_plan_build_pure(request, catalogSnapshot, userStrategies, autho
 		return error_result('EINPUT', 'Scanner target profile is absent or mismatched.', 'target');
 	let environment = is_object(catalog.compilerEnvironment)
 		? copy(catalog.compilerEnvironment) : {};
-	let catalogEntriesConsidered = length(raw_entry_ids(catalog, value.protocol, value.mode));
-	let entries = selected_entries(catalog, value.protocol, value.mode), catalogCandidates = [], ordinal = 1;
-	for (let i = 0; i < length(entries); i++) {
-		let strategy = catalog_strategy(entries[i]);
-		if (strategy == null) continue;
-		let candidate = candidate_from_strategy(strategy, value.protocol, 'catalog',
-			strategy.sourceFile || entries[i].sourceFile || 'catalog', ordinal++, environment, false, users, catalog, entries[i], compilerAuthority);
-		if (candidate != null && candidate.ok == false) return candidate;
-		if (candidate != null) push(catalogCandidates, candidate);
+	let ids = raw_entry_ids(catalog, value.protocol, value.mode), catalogEntriesConsidered = length(ids);
+	let lightweight = [], ordinal = 1, lightweightEligible = 0;
+	let prefix = [], prefixLimit = value.mode == 'quick' ? 10 : 20;
+	if (value.mode == 'quick' || value.mode == 'standard') {
+		let order = type(catalog.winnerOrder) == 'array' ? catalog.winnerOrder : ids;
+		for (let i = 0; i < length(order) && length(prefix) < prefixLimit; i++) {
+			let item = entry_for(catalog, order[i]);
+			if (item != null && item.protocol == value.protocol && item.level == 'builtin'
+				&& full_preset(item.args) && contains(ids, item.id) && !contains(prefix, item.id)) push(prefix, item.id);
+		}
 	}
-	catalogCandidates = dedup_candidates(sort_candidates(catalogCandidates));
-	let generatedCandidates = [];
+	let add_catalog_lightweight = function(entry) {
+		let strategy = catalog_strategy(entry);
+		if (strategy == null) return;
+		let sourcePath = strategy.sourceFile || entry.sourceFile || 'catalog';
+		let item = lightweight_descriptor(strategy, value.protocol, 'catalog', sourcePath,
+			ordinal++, false, entry);
+		if (!lightweight_dpi_keep(strategy, sourcePath, value.dpi_type)) return;
+		lightweightEligible++;
+		shortlist_lightweight(lightweight, item);
+	};
+	if (value.mode == 'full') {
+		for (let i = 0; i < length(ids); i++) {
+			let entry = entry_for(catalog, ids[i]);
+			if (entry != null && entry.protocol == value.protocol) add_catalog_lightweight(entry);
+		}
+	} else {
+		for (let i = 0; i < length(prefix); i++) {
+			let entry = entry_for(catalog, prefix[i]);
+			if (entry != null) add_catalog_lightweight(entry);
+		}
+		let tailLimit = value.mode == 'quick' ? 30 - length(prefix) : length(ids);
+		if (tailLimit < 20) tailLimit = 20;
+		let tail = 0;
+		for (let i = 0; i < length(ids) && tail < tailLimit; i++) {
+			let entry = entry_for(catalog, ids[i]);
+			if (entry == null || entry.protocol != value.protocol
+				|| (entry.level == 'builtin' && full_preset(entry.args))) continue;
+			add_catalog_lightweight(entry);
+			tail++;
+		}
+	}
 	if ((value.mode == 'standard' || value.mode == 'full') && is_object(catalog.policy)
 		&& catalog.policy.useGenerated == true) {
 		if (!generator_valid(catalog, compilerAuthority)) return error_result('EVERIFY', 'Scanner generator authority is unavailable or stale.');
@@ -866,29 +917,37 @@ function scanner_plan_build_pure(request, catalogSnapshot, userStrategies, autho
 				|| !records_shape_valid([generated.strategy], true))
 				return error_result('EVERIFY', 'Scanner generator record is not authoritative.');
 			if ((generated.protocol == null ? value.protocol : generated.protocol) != value.protocol) continue;
-			let strategy = is_object(generated.strategy) ? generated.strategy : null;
-			if (strategy == null) continue;
-			let candidate = candidate_from_strategy(strategy, value.protocol, 'generator', 'generator', ordinal++,
-				environment, true, users, catalog, generated, compilerAuthority);
-			if (candidate != null && candidate.ok == false) return candidate;
-			if (candidate != null) push(generatedCandidates, candidate);
+			let strategy = generated.strategy, sourcePath = 'generator';
+			let item = lightweight_descriptor(strategy, value.protocol, 'generator', sourcePath,
+				ordinal++, true, generated);
+			if (!lightweight_dpi_keep(strategy, sourcePath, value.dpi_type)) continue;
+			lightweightEligible++;
+			shortlist_lightweight(lightweight, item);
 		}
 	}
-	let candidates = [];
-	for (let i = 0; i < length(catalogCandidates); i++) push(candidates, catalogCandidates[i]);
-	for (let i = 0; i < length(generatedCandidates); i++) push(candidates, generatedCandidates[i]);
-	candidates = dedup_candidates(candidates);
-	let filtered = [];
-	for (let i = 0; i < length(candidates); i++) if (dpi_keep(candidates[i], value.dpi_type)) push(filtered, candidates[i]);
-	let shortlisted = length(filtered);
-	if (shortlisted > MAX_EXECUTION_CANDIDATES) filtered = slice(sort_candidates(filtered), 0, MAX_EXECUTION_CANDIDATES);
-	for (let i = 0; i < length(filtered); i++) filtered[i].ordinal = i + 1;
+	let candidates = [], compileAttempts = 0;
+	for (let i = 0; i < length(lightweight); i++) {
+		let item = lightweight[i];
+		compileAttempts++;
+		let candidate = candidate_from_strategy(item.strategy, item.protocol, item.source,
+			item.sourcePath, item.ordinal, environment, item.generated, users, catalog,
+			item.sourceInput, compilerAuthority);
+		if (candidate != null && candidate.ok == false) return candidate;
+		if (candidate != null && dpi_keep(candidate, value.dpi_type)) push(candidates, candidate);
+	}
+	candidates = dedup_candidates(sort_candidates(candidates));
+	let compiledAccepted = length(candidates);
+	if (length(candidates) > MAX_EXECUTION_CANDIDATES) candidates = slice(candidates, 0, MAX_EXECUTION_CANDIDATES);
+	let shortlisted = length(candidates);
+	for (let i = 0; i < length(candidates); i++) candidates[i].ordinal = i + 1;
 	return { ok: true, plan: {
 		schema: 1, request: copy(value), targetProfile: copy(profile),
 		catalogDigest: catalog.aggregateDigest || null,
 		compilerDigest: catalog.compilerDigest || null,
-		candidates: copy(filtered), execution: { catalogEntriesConsidered, candidatesCompiled: length(candidates),
-			candidatesEligible: shortlisted, candidatesShortlisted: length(filtered), maxCandidates: MAX_EXECUTION_CANDIDATES },
+		candidates: copy(candidates), execution: { catalogEntriesConsidered,
+			lightweightEligible, compileAttempts, compiledAccepted,
+			candidatesCompiled: compiledAccepted, candidatesEligible: lightweightEligible,
+			candidatesShortlisted: shortlisted, maxCandidates: MAX_EXECUTION_CANDIDATES },
 	} };
 }
 
@@ -937,6 +996,45 @@ export const scanner_plan_build_test = function(request, catalogSnapshot, userSt
 		udp: { ports: '443', l7: 'stun', payload: 'binding' }, probeUrl: 'https://' + target + '/' };
 	}
 	return scanner_plan_build_pure(request, catalogSnapshot, userStrategies, profile, scanner_compiler_authority());
+};
+
+export const scanner_plan_build_synthetic_test = function(request, count) {
+	if (getenv('Z2M_SCANNER_SERVER_TEST') != '1')
+		return error_result('EACCES', 'Scanner test authority is disabled.');
+	if (type(count) != 'int' || count < 1 || count > 10000)
+		return error_result('EINPUT', 'Synthetic catalog size is bounded.', 'count');
+	let compilerAuthority = scanner_compiler_authority(), compilerDigest = compiler_digest(compilerAuthority);
+	let profile = { profileKey: 'generic', primaryHost: 'example.com', testHosts: ['example.com'],
+		hostlistDomains: ['example.com'], expectedHostlists: [],
+		tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' },
+		udp: { ports: '443', l7: 'stun', payload: 'binding' }, probeUrl: 'https://example.com/' };
+	let winners = {}, ids = [];
+	for (let i = 1; i <= count; i++) {
+		let id = 'synthetic-' + i;
+		let entry = { id: id, args: '--filter-tcp=443 --lua-desync=split:pos=1', winner: true,
+			level: 'advanced', protocol: 'tcp', sourceFile: 'advanced/tcp.txt', sourceOrdinal: i,
+			sectionOrdinal: 1, effectiveOrdinal: i, metadata: { name: id, label: '' } };
+		winners[id] = entry; push(ids, id);
+	}
+	let sets = { tcp: { quick: ids, standard: ids, full: ids }, udp: { quick: [], standard: [], full: [] } };
+	let catalog = { syntheticTest: true, serverOwned: true, aggregateDigest: AUTHORITATIVE_CATALOG_DIGEST,
+		compilerDigest: compilerDigest, source: { repository: AUTHORITATIVE_CATALOG_REPOSITORY, commit: AUTHORITATIVE_CATALOG_COMMIT },
+		winnerOrder: ids, sets: sets, winners: winners, targetProfile: profile,
+		compilerEnvironment: {}, policy: { useGenerated: false } };
+	let authorityCatalog = { serverOwned: true, marker: 'z2m-scanner-catalog.v1',
+		repository: AUTHORITATIVE_CATALOG_REPOSITORY, commit: AUTHORITATIVE_CATALOG_COMMIT,
+		catalogDigest: catalog.aggregateDigest, catalogEnvelopeDigest: '0000000000000000000000000000000000000000000000000000000000000000',
+		source: catalog.source, winnerOrder: ids, sets: sets, winners: winners,
+		targetProfile: profile, compilerEnvironment: {}, policy: catalog.policy };
+	catalog.authority = { marker: AUTHORITY_MARKER, repository: AUTHORITATIVE_CATALOG_REPOSITORY,
+		commit: AUTHORITATIVE_CATALOG_COMMIT, catalogDigest: catalog.aggregateDigest,
+		compilerDigest: compilerDigest, catalogEnvelopeDigest: '0000000000000000000000000000000000000000000000000000000000000000', catalog: authorityCatalog };
+	let strategies = [], users = { serverOwned: true, authority: { marker: AUTHORITY_MARKER,
+		repository: AUTHORITATIVE_CATALOG_REPOSITORY, commit: AUTHORITATIVE_CATALOG_COMMIT,
+		catalogDigest: catalog.aggregateDigest, compilerDigest: compilerDigest,
+		catalogEnvelopeDigest: '0000000000000000000000000000000000000000000000000000000000000000', catalog: authorityCatalog, records: strategies,
+		recordsDigest: sha256_text(sprintf('%J', strategies)) }, strategies: strategies };
+	return scanner_plan_build_pure(request, catalog, users, profile, compilerAuthority);
 };
 
 function scanner_plan_build_server(request, catalog, strategies, profile, compilerAuthority) {

@@ -43,7 +43,7 @@ harness where already established.
 - Avatar-facing args accept spaces, tabs, CR/LF and quoted values; token-semantic equality is required after native canonicalization.
 - Canonical Strategy protocol is only `tcp` or `udp`; HTTP80, QUIC/HTTP3 and Discord Voice remain source/category/filter distinctions.
 - The physical snapshot is `advanced/`, `basic/`, `builtin/`, `direct/`; there is no packaged `catalogs/presets/` directory; `builtin/winws2_presets.txt` is included.
-- Preserve 23 files, 1,836 physical entries, 732 unique IDs, duplicate occurrences, aggregate digest `5978d35bfc0b73caaae658124874e24619b1f448e673ec09fd7c5d4dd8c3dda1`, and exact winner traversal.
+- Preserve 23 files, 1,836 physical entries, 732 unique IDs, duplicate occurrences, aggregate digest `e716554fa8292d8b934e809514b46dae3d3874b84a57a56934b5e30d5a768136`, and exact winner traversal.
 - User Strategies live under `/etc/zapret2-manager/strategies/`; persisted selection/favorites live in `/etc/zapret2-manager/strategy-state.json`; existing drafts remain in `/etc/zapret2-manager/state.json`.
 - Strategy feature documents never persist current drift, dependency availability, runtime health, process state or queue state; status derives those observations read-only.
 - Existing `profiles.uc`, `profiles-apply.uc`, `apply.uc`, native preflight, schema-3 status and rollback are reused; Strategy code never directly writes `/opt/zapret2/config`.
@@ -130,7 +130,7 @@ test('pinned Avatar fixture has the complete physical catalog contract', () => {
   assert.equal(fixture.uniqueStrategyIdCount, 732);
   assert.equal(fixture.duplicateIdGroupCount, 503);
   assert.equal(fixture.aggregateDigest,
-    '5978d35bfc0b73caaae658124874e24619b1f448e673ec09fd7c5d4dd8c3dda1');
+    'e716554fa8292d8b934e809514b46dae3d3874b84a57a56934b5e30d5a768136');
 });
 ```
 

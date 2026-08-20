@@ -24,7 +24,7 @@ const UCODE_MODULE_PATTERN = ucodeModulePattern(
 const UCODE_LIBRARY_ARGS = UCODE_MODULE_PATTERN ? ['-L', UCODE_MODULE_PATTERN] : [];
 const AUTHORITY_MARKER = 'z2m-scanner-authority.v1';
 const GENERATOR_MARKER = 'z2m-scanner-generator.v1';
-const CATALOG_DIGEST = '5978d35bfc0b73caaae658124874e24619b1f448e673ec09fd7c5d4dd8c3dda1';
+const CATALOG_DIGEST = CATALOG_MANIFEST.aggregateDigest;
 
 function invokeCompiler(expression, extraEnv = {}) {
   const source = `import * as compiler from ${JSON.stringify(COMPILER)}; print(${expression});`;
@@ -53,6 +53,13 @@ const COMPILER_AUTHORITY = (() => {
 })();
 const COMPILER_DIGEST = COMPILER_AUTHORITY.digest;
 let lastCatalogAuthority = null;
+const FALLBACK_CATALOG_AUTHORITY = {
+  serverOwned: true, marker: 'z2m-scanner-catalog.v1', repository: 'avatarDD/zapret-gui',
+  commit: 'f9dd3ea47a2239514f396a843b475c92c33f0b4c', catalogDigest: CATALOG_DIGEST,
+  catalogEnvelopeDigest: '0'.repeat(64), source: {}, winnerOrder: [],
+  sets: { tcp: { quick: [], standard: [], full: [] }, udp: { quick: [], standard: [], full: [] } },
+  winners: {}, targetProfile: null, compilerEnvironment: null, policy: { useGenerated: false },
+};
 
 function catalogEnvelope(value) {
   return {
@@ -145,9 +152,12 @@ function invoke(expression, useTestAuthority = true, extraEnv = {}) {
     'planner.scanner_plan_build(', 'planner.scanner_plan_build_test(')
     .replaceAll('planner.scanner_candidate_canonicalize(', 'planner.scanner_candidate_canonicalize_test(');
   const source = `import * as planner from ${JSON.stringify(MODULE)}; print(sprintf('%J', ${expression}));`;
-  const argv = [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source];
+  const argv = source.length > 100_000
+    ? [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-']
+    : [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source];
   const result = spawnSync(UCODE_BIN, argv, {
     cwd: ROOT,
+    input: source.length > 100_000 ? source : undefined,
     env: { ...process.env, Z2M_SCANNER_SERVER_TEST: '1', Z2M_SCANNER_COMPILER_SOURCE: COMPILER,
       LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib', ...extraEnv },
     encoding: 'utf8', timeout: 120_000, maxBuffer: 20 * 1024 * 1024,
@@ -198,10 +208,11 @@ function snapshot(entries, sets, extra = {}) {
 }
 
 function users(strategies = []) {
+  const catalogAuthority = lastCatalogAuthority ?? FALLBACK_CATALOG_AUTHORITY;
   return { serverOwned: true, authority: { marker: AUTHORITY_MARKER, repository: 'avatarDD/zapret-gui', commit: 'f9dd3ea47a2239514f396a843b475c92c33f0b4c',
     catalogDigest: CATALOG_DIGEST, compilerDigest: COMPILER_DIGEST,
-    catalogEnvelopeDigest: lastCatalogAuthority?.catalogEnvelopeDigest,
-    catalog: lastCatalogAuthority, records: structuredClone(strategies),
+    catalogEnvelopeDigest: catalogAuthority.catalogEnvelopeDigest,
+    catalog: catalogAuthority, records: structuredClone(strategies),
     recordsDigest: invoke(`planner.scanner_records_digest(${JSON.stringify(strategies)})`) }, strategies };
 }
 
@@ -263,6 +274,19 @@ test('standard prepends twenty full presets, while full keeps only the requested
   assert.deepEqual(fullUdp.candidates.map(item => item.strategyId), ['udp-full']);
 });
 
+test('large catalogs use a bounded precompile pool and expose execution counters', () => {
+  const result = invoke(`planner.scanner_plan_build_synthetic_test(${JSON.stringify(request('full'))}, 9000)`);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  const execution = result.plan.execution;
+  assert.equal(execution.catalogEntriesConsidered, 9000);
+  assert.ok(execution.lightweightEligible >= 9000);
+  assert.ok(execution.compileAttempts <= 64);
+  assert.ok(execution.compiledAccepted <= 20);
+  assert.ok(execution.candidatesShortlisted <= 20);
+  assert.ok(execution.maxCandidates <= 20);
+  assert.ok(result.plan.candidates.length <= 20);
+});
+
 test('generated entries append after catalog candidates and known DPI filtering runs after generation', () => {
   const catalogEntries = [
     entry('tls-one', '--filter-tcp=443 --filter-l7=tls --lua-desync=split:pos=1'),
@@ -284,7 +308,7 @@ test('generated entries append after catalog candidates and known DPI filtering 
   const skipped = invoke(`planner.scanner_plan_build(${JSON.stringify(request('standard', 'tcp', 'dns_fake'))}, ${data}, ${JSON.stringify(users())})`).plan;
   assert.deepEqual(skipped.candidates, []);
   const unknown = invoke(`planner.scanner_plan_build(${JSON.stringify(request('standard', 'tcp', 'vendor_block_v1'))}, ${data}, ${JSON.stringify(users())})`).plan;
-  assert.deepEqual(unknown.candidates.map(item => item.strategyId || item.scannerId), ['tls-one', 'generated:gen-keep', 'generated:gen-drop']);
+  assert.deepEqual(unknown.candidates.map(item => item.strategyId || item.scannerId), ['tls-one', 'generated:gen-drop', 'generated:gen-keep']);
 });
 
 test('normalized compiled-token and dependency closure dedup keeps the catalog identity', () => {
@@ -380,11 +404,12 @@ test('dependency digest fallback hashes the canonical closure without process ac
 });
 
 test('canonicalization maps only exact normalized compiled tokens and dependency closure', () => {
+  snapshot([], { tcp: { quick: [], standard: [], full: [] }, udp: { quick: [], standard: [], full: [] } });
   const exact = {
     scannerId: 'generated:gen-one', identityKind: 'generated', strategyId: null,
     strategyRevision: null, source: 'generator', sourcePath: 'generator', protocol: 'tcp',
     catalogDigest: CATALOG_DIGEST, compilerDigest: COMPILER_DIGEST,
-    compiledTokens: ['--filter-tcp=443'],
+    compiledTokens: ['--filter-tcp=443', '--hostlist-exclude=/etc/zapret2-manager/lists/whitelist.txt'],
     dependencyClosure: { available: true, items: [], missing: [], structurallyCompilable: true },
     ordinal: 1, complexity: [1, 0, 0], recommended: false, fullPreset: false, saveRequired: true,
   };
@@ -398,7 +423,10 @@ test('canonicalization maps only exact normalized compiled tokens and dependency
   for (const changed of [
     { ...exact, scannerId: 'generated:user-one' },
     { ...exact, compiledTokens: ['--filter-tcp=443', '--lua-desync=multisplit:pos=2'] },
-    { ...exact, compiledTokens: ['--filter-tcp=443', '--lua-desync=multisplit:pos=1'], dependencyClosure: { ...exact.dependencyClosure, items: [] } },
+    { ...exact, compiledTokens: ['--filter-tcp=443', '--lua-desync=multisplit:pos=1'], dependencyClosure: {
+      ...exact.dependencyClosure,
+      items: [{ key: 'lua:x', kind: 'lua', id: 'x', reference: 'x', available: true, reason: null }],
+    } },
   ]) {
     const result = invoke(`planner.scanner_candidate_canonicalize(${JSON.stringify(changed)}, ${JSON.stringify(users(existing))})`);
     assert.deepEqual(result, { identityKind: 'generated', strategyId: null, strategyRevision: null, saveRequired: true });

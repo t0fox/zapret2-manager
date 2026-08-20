@@ -544,6 +544,29 @@ test('fixed HTTP parser handles interim responses, chunked framing, and truncate
   }
 });
 
+test('P5 keeps TLS handshake evidence separate from HTTP body evidence', () => {
+  const success = invoke(EXECUTOR, `subject.scanner_probe_p5_tls_test('HTTP/1.1 200 OK\\r\\nContent-Length: 5\\r\\n\\r\\nhello', 0, 0, 1000, 1042)`, { Z2M_SCANNER_SERVER_TEST: '1' });
+  assert.equal(success.ok, true, JSON.stringify(success));
+  assert.equal(success.tls.tlsStatus, 'success');
+  assert.equal(success.tls.statusCode, 200);
+
+  const cutoff = invoke(EXECUTOR, `subject.scanner_probe_p5_tls_test('HTTP/1.1 200 OK\\r\\nContent-Length: 65536\\r\\n\\r\\nshort', 18, 0, 1000, 1042)`, { Z2M_SCANNER_SERVER_TEST: '1' });
+  assert.equal(cutoff.ok, true, JSON.stringify(cutoff));
+  assert.equal(cutoff.tls.tlsStatus, 'success');
+
+  const rejected = invoke(EXECUTOR, `subject.scanner_probe_p5_tls_test('HTTP/1.1 403 Forbidden\\r\\nContent-Length: 0\\r\\n\\r\\n', 0, 0, 1000, 1042)`, { Z2M_SCANNER_SERVER_TEST: '1' });
+  assert.equal(rejected.ok, true, JSON.stringify(rejected));
+  assert.equal(rejected.tls.statusCode, 403);
+
+  const handshake = invoke(EXECUTOR, `subject.scanner_probe_p5_tls_test('', 35, 0, 1000, 1042)`, { Z2M_SCANNER_SERVER_TEST: '1' });
+  assert.equal(handshake.ok, false, JSON.stringify(handshake));
+  assert.equal(handshake.failureCode, 'TLS_FAIL');
+  const timeout = invoke(EXECUTOR, `subject.scanner_probe_p5_tls_test('', 28, 0, 1000, 1042)`, { Z2M_SCANNER_SERVER_TEST: '1' });
+  assert.equal(timeout.failureCode, 'TLS_TIMEOUT');
+  const reset = invoke(EXECUTOR, `subject.scanner_probe_p5_tls_test('', 56, 0, 1000, 1042)`, { Z2M_SCANNER_SERVER_TEST: '1' });
+  assert.equal(reset.failureCode, 'TLS_RESET');
+});
+
 test('HTTP indeterminate transport is dependency evidence, never candidate failure evidence', () => {
   const executor = fs.readFileSync(EXECUTOR, 'utf8');
   const probes = fs.readFileSync(path.join(ROOT, 'zapret2-manager/files/usr/libexec/zapret2-manager/scanner-probes.uc'), 'utf8');

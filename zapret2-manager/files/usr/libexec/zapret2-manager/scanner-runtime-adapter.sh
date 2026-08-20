@@ -14,6 +14,9 @@ QUEUE=300
 QUEUE_MAX=307
 OWNER=scanner/session
 
+# OpenWrt BusyBox sleep may not accept fractional seconds. Keep polling bounded.
+short_sleep() { sleep 1; }
+
 if [ "${Z2M_SCANNER_RUNTIME_SHIM:-0}" = 1 ]; then
 	[ "${Z2M_SCANNER_SERVER_TEST:-0}" = 1 ] || { printf '%s\n' '{"ok":false,"code":"EINPUT","stage":"input"}'; exit 1; }
 	NFQWS2=${Z2M_SCANNER_TEST_NFQWS2:-$NFQWS2}
@@ -51,10 +54,10 @@ queue_num=$QUEUE
 private_dir() {
 	path=$1
 	[ -d "$path" ] && [ ! -L "$path" ] || return 1
-	set -- $(stat -c '%u %g %a' "$path" 2>/dev/null) || return 1
+	set -- $(ls -ldn "$path" 2>/dev/null) || return 1
 	expected_uid=0
 	[ "${Z2M_SCANNER_RUNTIME_SHIM:-0}" = 1 ] && [ "${Z2M_SCANNER_SERVER_TEST:-0}" = 1 ] && expected_uid=$(id -u)
-	[ "$1" = "$expected_uid" ] && [ "$2" = "$expected_uid" ] && [ "$3" = 700 ]
+	[ "$1" = drwx------ ] && [ "$3" = "$expected_uid" ] && [ "$4" = "$expected_uid" ]
 }
 if [ "$operation" != session-cleanup ]; then
 	[ ! -L "$BASE" ] || exit 1
@@ -85,14 +88,16 @@ reap_holder() {
 		[ "$ready_record" = "$session|$nonce|$record_pid" ] && [ "$ready_pid" = "$record_pid" ]; then
 		case "$record_pid" in ''|*[!0-9]*) return ;; esac
 		kill -TERM "$record_pid" 2>/dev/null || true
-		i=0; while kill -0 "$record_pid" 2>/dev/null && [ "$i" -lt 20 ]; do sleep 0.05; i=$((i + 1)); done
+		i=0; while kill -0 "$record_pid" 2>/dev/null && [ "$i" -lt 20 ]; do short_sleep; i=$((i + 1)); done
 		kill -KILL "$record_pid" 2>/dev/null || true
 		wait "$record_pid" 2>/dev/null || true
 		rm -f "$LOCK_OWNER" "$DIR/lock-holder.pid" "$DIR/lock.ready"
 	fi
 }
 
-nonce_marker="$session:$candidate:$generation:$(od -An -N16 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n' || true)"
+# Kept for compatibility with the historical marker contract; no entropy is
+# consumed here because this marker is not used as an identity or lock nonce.
+nonce_marker="$session:$candidate:$generation"
 lock_session=""; lock_pid=""; lock_start=""; lock_nonce=""
 if [ -r "$LOCK_OWNER" ]; then
 	lock_record=$(cat "$LOCK_OWNER" 2>/dev/null || true)
@@ -123,15 +128,15 @@ chain_owned() {
 private_fifo() {
 	path=$1
 	[ -p "$path" ] && [ ! -L "$path" ] || return 1
-	set -- $(stat -c '%u %g %a' "$path" 2>/dev/null) || return 1
-	[ "$1" = "$(id -u)" ] && [ "$2" = "$(id -g)" ] && [ "$3" = 600 ]
+	set -- $(ls -ldn "$path" 2>/dev/null) || return 1
+	[ "$1" = prw------- ] && [ "$3" = "$(id -u)" ] && [ "$4" = "$(id -g)" ]
 }
 
 private_file() {
 	path=$1
 	[ -f "$path" ] && [ ! -L "$path" ] || return 1
-	set -- $(stat -c '%u %g %a' "$path" 2>/dev/null) || return 1
-	[ "$1" = "$(id -u)" ] && [ "$2" = "$(id -g)" ] && [ "$3" = 600 ]
+	set -- $(ls -ldn "$path" 2>/dev/null) || return 1
+	[ "$1" = -rw------- ] && [ "$3" = "$(id -u)" ] && [ "$4" = "$(id -g)" ]
 }
 
 helper_identity() {
@@ -168,10 +173,10 @@ helper_stop_reap() {
 	case "${helper_pid:-}" in ''|*[!0-9]*) return 0 ;; esac
 	kill -TERM "$helper_pid" 2>/dev/null || true
 	i=0
-	while ! helper_gone && [ "$i" -lt 20 ]; do sleep 0.05; i=$((i + 1)); done
+	while ! helper_gone && [ "$i" -lt 20 ]; do short_sleep; i=$((i + 1)); done
 	if ! helper_gone; then kill -KILL "$helper_pid" 2>/dev/null || true; fi
 	i=0
-	while ! helper_gone && [ "$i" -lt 20 ]; do sleep 0.05; i=$((i + 1)); done
+	while ! helper_gone && [ "$i" -lt 20 ]; do short_sleep; i=$((i + 1)); done
 	wait "$helper_pid" 2>/dev/null || true
 	helper_gone
 }
@@ -334,9 +339,9 @@ cleanup_internal() {
 		pid=$(cat "$PID_FILE"); start=$(cat "$START_FILE")
 		if process_alive "$pid" "$start"; then
 			kill -TERM "$pid" 2>/dev/null || true; i=0
-			while process_alive "$pid" "$start" && [ "$i" -lt 20 ]; do sleep 0.05; i=$((i + 1)); done
+			while process_alive "$pid" "$start" && [ "$i" -lt 20 ]; do short_sleep; i=$((i + 1)); done
 			if process_alive "$pid" "$start"; then kill -KILL "$pid" 2>/dev/null || true; fi
-			i=0; while process_alive "$pid" "$start" && [ "$i" -lt 20 ]; do sleep 0.05; i=$((i + 1)); done
+			i=0; while process_alive "$pid" "$start" && [ "$i" -lt 20 ]; do short_sleep; i=$((i + 1)); done
 		fi
 		if process_alive "$pid" "$start"; then process_removed=false; owned_only=false; evidence=process; fi
 	else
@@ -352,7 +357,7 @@ cleanup_internal() {
 	if [ "$firewall_removed" = true ] && [ -r "$HELPER_PID_FILE" ]; then
 		helper_stop_reap || { firewall_removed=false; owned_only=false; evidence=helper; }
 	fi
-	i=0; while [ -n "$(queue_peer)" ] && [ "$i" -lt 20 ]; do sleep 0.05; i=$((i + 1)); done
+	i=0; while [ -n "$(queue_peer)" ] && [ "$i" -lt 20 ]; do short_sleep; i=$((i + 1)); done
 	[ -z "$(queue_peer)" ] || { nfqueue_removed=false; owned_only=false; evidence=nfqueue; }
 	if [ "$process_removed" = true ] && [ "$firewall_removed" = true ] && [ "$nfqueue_removed" = true ]; then
 		atomic_private_write "$CLEANUP_EVIDENCE" 'evidence=complete\n' || { temporary_removed=false; owned_only=false; evidence=temporary; }
@@ -386,11 +391,11 @@ lock_acquire() {
 	[ ! -e "$LOCK_OWNER" ] && [ ! -e "$DIR/lock-holder.pid" ] && [ ! -e "$DIR/lock.ready" ] || {
 		lock_held && fail ELOCKED lock; fail ETAMPERED lock;
 	}
-	nonce=$(od -An -N32 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
+	nonce=$(head -c 32 /dev/urandom | sha256sum | cut -c1-64)
 	case "$nonce" in *[!a-f0-9]*|'') fail ELOCKED lock ;; esac
 	[ "$(printf '%s' "$nonce" | wc -c)" = 64 ] || fail ELOCKED lock
 	flock -n "$LOCK" sh -c 'umask 077; set -C; holder="$1"; descriptor="$2"; ready="$3"; session="$4"; nonce="$5"; start=$(awk '\''{print $22}'\'' "/proc/$$/stat"); printf "%s|%s|%s|%s\n" "$session" "$$" "$start" "$nonce" > "$descriptor" || exit 61; printf "%s\n" "$$" > "$holder" || exit 62; printf "%s|%s|%s\n" "$session" "$nonce" "$$" > "$ready" || exit 63; trap '\''rm -f "$descriptor" "$holder" "$ready"; exit 0'\'' TERM INT HUP; while :; do sleep 1; done' sh "$DIR/lock-holder.pid" "$LOCK_OWNER" "$DIR/lock.ready" "$session" "$nonce" >/dev/null 2>&1 &
-	owner=$!; i=0; while [ "$i" -lt 20 ] && [ ! -s "$DIR/lock.ready" ]; do sleep 0.05; i=$((i + 1)); done
+	owner=$!; i=0; while [ "$i" -lt 20 ] && [ ! -s "$DIR/lock.ready" ]; do short_sleep; i=$((i + 1)); done
 	ready_record=$(cat "$DIR/lock.ready" 2>/dev/null | tr -d '\n' || true)
 	ready_pid=$(cat "$DIR/lock-holder.pid" 2>/dev/null || true)
 	[ "$ready_record" = "$session|$nonce|$ready_pid" ] || { reap_holder; kill "$owner" 2>/dev/null || true; wait "$owner" 2>/dev/null || true; fail ELOCKED lock; }
@@ -418,7 +423,7 @@ lock_release() {
 	[ "$actual_start" = "$current_start" ] || fail ETAMPERED lock
 	flock -n "$LOCK" -c true >/dev/null 2>&1 && fail ETAMPERED lock
 	kill -TERM "$current_pid" 2>/dev/null || fail ELOCKED lock
-	i=0; while kill -0 "$current_pid" 2>/dev/null && [ "$i" -lt 20 ]; do sleep 0.05; i=$((i + 1)); done
+	i=0; while kill -0 "$current_pid" 2>/dev/null && [ "$i" -lt 20 ]; do short_sleep; i=$((i + 1)); done
 	kill -0 "$current_pid" 2>/dev/null && fail ELOCKED lock
 	actual_start=$(starttime "$current_pid")
 	[ -z "$actual_start" ] || [ "$actual_start" != "$current_start" ] || fail ETAMPERED lock
@@ -503,7 +508,7 @@ stabilize() {
 		fi
 		now=$(date +%s)
 		[ "$now" -lt "$deadline" ] || { printf '%s\n' '{"ok":false,"infrastructure":true,"reason":"timeout"}'; return 0; }
-		sleep 0.2
+		short_sleep
 	done
 }
 

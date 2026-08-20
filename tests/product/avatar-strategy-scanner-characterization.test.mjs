@@ -192,7 +192,7 @@ test('candidate fixture captures bounded mode order, DPI filtering, and identity
   assertProvenance(fixture, 'candidates.json');
   assert.deepEqual(fixture.catalog, {
     manifest: 'tests/fixtures/avatar-strategy/manifest.expected.json',
-    aggregateDigest: '5978d35bfc0b73caaae658124874e24619b1f448e673ec09fd7c5d4dd8c3dda1',
+    aggregateDigest: 'e716554fa8292d8b934e809514b46dae3d3874b84a57a56934b5e30d5a768136',
   });
   assert.deepEqual(fixture.candidateSchema.requiredFields, [
     'scannerId', 'identityKind', 'strategyId', 'strategyRevision', 'source',

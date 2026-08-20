@@ -232,7 +232,8 @@ function staged_score(result) {
 export const scanner_staged_classify = function(raw) {
 	if (!is_object(raw) || raw.protocol != 'tcp' || type(raw.dnsOk) != 'bool' ||
 		type(raw.tcpOk) != 'bool' || type(raw.resolvedIps) != 'array' ||
-		length(raw.resolvedIps) < 1 || length(raw.resolvedIps) > 3)
+		length(raw.resolvedIps) > 3 || (raw.dnsOk && length(raw.resolvedIps) < 1) ||
+		(!raw.dnsOk && length(raw.resolvedIps) != 0))
 		return infrastructure('INVALID_STAGED_OBSERVATION', 'staged');
 	for (let ip in raw.resolvedIps) if (!valid_ipv4(ip)) return infrastructure('INVALID_STAGED_OBSERVATION', 'staged');
 	let target = is_object(raw.target) ? raw.target : {}, neutral = is_object(raw.neutral) ? raw.neutral : {};

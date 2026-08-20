@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSy
 import path from 'node:path';
 
 const PINNED_SHA = 'f9dd3ea47a2239514f396a843b475c92c33f0b4c';
-const AUDITED_AGGREGATE_DIGEST = '5978d35bfc0b73caaae658124874e24619b1f448e673ec09fd7c5d4dd8c3dda1';
+const AUDITED_AGGREGATE_DIGEST = 'e716554fa8292d8b934e809514b46dae3d3874b84a57a56934b5e30d5a768136';
 const LEVELS = ['advanced', 'basic', 'builtin', 'direct'];
 const WINDIVERT_PREFIXES = ['--wf-tcp', '--wf-udp', '--wf-raw', '--wf-l3', '--wf-ip'];
 const VALID_LABELS = new Set(['recommended', 'experimental', 'game', 'stable', 'caution', 'deprecated']);

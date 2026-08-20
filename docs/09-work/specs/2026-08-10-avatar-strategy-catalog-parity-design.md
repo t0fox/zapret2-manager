@@ -125,7 +125,7 @@ first-unseen ID within each accumulated cache.
 | `direct/voice.txt` | 76 | `e4f444173a19e9364536b80c7df1197b50be225ba783b0947e1422bc78002b4b` |
 
 The aggregate digest over sorted lines `<file-sha256>  <relative-path>\n` is
-`5978d35bfc0b73caaae658124874e24619b1f448e673ec09fd7c5d4dd8c3dda1`.
+`e716554fa8292d8b934e809514b46dae3d3874b84a57a56934b5e30d5a768136`.
 
 ## 7. Strategy Domain Contract
 

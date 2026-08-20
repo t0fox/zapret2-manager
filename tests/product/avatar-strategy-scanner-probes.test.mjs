@@ -459,7 +459,31 @@ test('P5 staged prober classifies SNI, IP, server and TLS13 failure paths with s
   });
   assert.equal(server.pathVerdict, 'server');
   assert.equal(server.failureCode, 'TLS_ALERT');
+
+  const tls13 = call('scanner_staged_classify', {
+    protocol: 'tcp', dnsOk: true, resolvedIps: ['203.0.113.10'], tcpOk: true,
+    target: { tlsOk: true, tls13Ok: false, tls12Ok: true, httpOk: true, h2Ok: true },
+  });
+  assert.equal(tls13.failureCode, 'TLS13_BLOCK');
+  assert.equal(tls13.pathVerdict, null);
   assert.equal(call('scanner_candidate_verdict', baseline, [sni]).verdict, 'failed');
+});
+
+test('staged DNS failure with no resolved IPs is candidate evidence, not infrastructure', () => {
+  const result = call('scanner_staged_classify', {
+    protocol: 'tcp', dnsOk: false, resolvedIps: [], tcpOk: false,
+    stages: [{ stage: 'dns', ok: false, failureCode: 'DNS_ERROR' }],
+  });
+  assert.equal(result.success, false);
+  assert.equal(result.failureCode, 'DNS_ERROR');
+  assert.equal(result.infrastructureFailure, false);
+  assert.equal(result.pathVerdict, null);
+  assert.equal(call('scanner_staged_classify', {
+    protocol: 'tcp', dnsOk: false, resolvedIps: ['203.0.113.10'], tcpOk: false,
+  }).infrastructureFailure, true);
+  assert.equal(call('scanner_staged_classify', {
+    protocol: 'tcp', dnsOk: true, resolvedIps: [], tcpOk: false,
+  }).infrastructureFailure, true);
 });
 
 test('fixed adapter plans pin timeout, read, Range, STUN, retry, and deadline bounds', () => {
