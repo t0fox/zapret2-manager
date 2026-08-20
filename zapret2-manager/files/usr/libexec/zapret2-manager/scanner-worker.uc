@@ -3,7 +3,7 @@
 import { readfile } from 'fs';
 import { scanner_plan_build } from './scanner-planner.uc';
 import { scanner_baseline_classify, scanner_tcp_classify, scanner_udp_classify, scanner_candidate_verdict } from './scanner-probes.uc';
-import { scanner_probe_adapter_baseline, scanner_probe_adapter_tcp, scanner_probe_adapter_udp } from './scanner-probe-adapter.uc';
+import { scanner_probe_adapter_baseline, scanner_probe_adapter_tcp, scanner_probe_adapter_staged, scanner_probe_adapter_udp } from './scanner-probe-adapter.uc';
 import { scanner_probe_execute } from './scanner-probe-executor.uc';
 import { scanner_session_begin, scanner_candidate_activate, scanner_candidate_cleanup, scanner_session_finish } from './scanner-transient.uc';
 import { scanner_terminal_reconcile, scanner_stale_worker_recover } from './scanner-reconcile.uc';
@@ -82,6 +82,8 @@ function candidate_evidence(value) {
 	if (!object(value)) return null;
 	let evidence = { infrastructure: value.infrastructure === true, failureClass: string(value.failureClass) ? value.failureClass : null, baselineSuppressed: value.baselineSuppressed === true };
 	if (object(value.metrics)) evidence.metrics = copy(value.metrics);
+	for (let key in ['pathVerdict', 'pathReason', 'failureCode', 'failureReason', 'resolvedIps', 'stages'])
+		if (value[key] != null) evidence[key] = copy(value[key]);
 	return evidence;
 }
 function cleanup_verified(value) {
@@ -102,21 +104,12 @@ function probe_candidate(candidate, plan, baseline, seams, outerDeadline) {
 			raw = executed.observations?.[0] || null;
 		}
 		else {
-			let families = type(baseline?.probeAddressFamilies) == 'array' && length(baseline.probeAddressFamilies)
-				? baseline.probeAddressFamilies : ['ipv4'];
-			let hosts = [];
-			for (let i = 0; i < length(families); i++) {
-				let family = families[i];
-				if (family != 'ipv4' && family != 'ipv6') return scanner_candidate_verdict({ infrastructureFailure: true, error: 'INVALID_ADDRESS_FAMILY' }, []);
-				let adapted = scanner_probe_adapter_tcp(candidate, plan.targetProfile, family, { nowMs: int(time() * 1000), deadlineMs: end, mode: plan.request.mode, cancelToken: lifecycle?.record?.id, profileDigest: state.scanner_state_digest(plan.targetProfile) });
-				if (!adapted.ok) return scanner_candidate_verdict({ infrastructureFailure: true, error: adapted.error?.message }, []);
-				let executed = seam(seams, 'executor') || scanner_probe_execute(adapted);
-				if (!executed.ok) return { ok: false, error: executed.error || { code: 'EDEPENDENCY', message: 'Probe dependency failed.' } };
-				let observation = executed.observations?.[0];
-				if (!object(observation) || type(observation.hosts) != 'array') return scanner_candidate_verdict({ infrastructureFailure: true, error: 'INVALID_OBSERVATION' }, []);
-				for (let i = 0; i < length(observation.hosts); i++) push(hosts, observation.hosts[i]);
-			}
-			raw = { hosts };
+			let adapted = scanner_probe_adapter_staged(candidate, plan.targetProfile, { nowMs: int(time() * 1000), deadlineMs: end,
+				mode: plan.request.mode, cancelToken: lifecycle?.record?.id, profileDigest: state.scanner_state_digest(plan.targetProfile) });
+			if (!adapted.ok) return scanner_candidate_verdict({ infrastructureFailure: true, error: adapted.error?.message }, []);
+			let executed = seam(seams, 'executor') || scanner_probe_execute(adapted);
+			if (!executed.ok) return { ok: false, error: executed.error || { code: 'EDEPENDENCY', message: 'Probe dependency failed.' } };
+			raw = executed.observations?.[0];
 		}
 	}
 	if (raw == null) return scanner_candidate_verdict({ infrastructureFailure: true, error: 'PROBE_DEPENDENCY' }, []);

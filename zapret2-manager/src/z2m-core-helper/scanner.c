@@ -1,18 +1,26 @@
 #include "helper.h"
 
 #include <errno.h>
+#include <arpa/inet.h>
 #include <fcntl.h>
+#include <limits.h>
+#include <netdb.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <netinet/in.h>
 #include <sys/wait.h>
+#include <sys/socket.h>
 #include <time.h>
 #include <unistd.h>
 
 #ifndef Z2M_NCAT_PATH
 #define Z2M_NCAT_PATH "/usr/bin/ncat"
+#endif
+#ifndef Z2M_CURL_PATH
+#define Z2M_CURL_PATH "/usr/bin/curl"
 #endif
 
 #define ADAPTER_DIGEST "7cd367ef2aed1be2567505bf978b2d2b73f97ff149cc48d64826ed4f2b8c885e"
@@ -54,13 +62,43 @@ static bool host_value(const char *value)
 	return value[0] != '-' && value[strlen(value) - 1] != '-';
 }
 
+static bool ipv4_value(const char *value)
+{
+	struct in_addr address;
+	return value != NULL && inet_pton(AF_INET, value, &address) == 1;
+}
+
 static bool path_value(const char *url, const char *host, const char **path);
 
 static bool profile_digest_matches(json_object *profile, const char *expected)
 {
 	const char *serialized = json_object_to_json_string_ext(profile, JSON_C_TO_STRING_PLAIN | JSON_C_TO_STRING_NOSLASHESCAPE);
 	char digest[65];
-	return serialized != NULL && z2m_sha256_bytes_hex((const unsigned char *)serialized, strlen(serialized), digest) == 0 && !strcmp(digest, expected);
+	if (serialized == NULL || z2m_sha256_bytes_hex((const unsigned char *)serialized, strlen(serialized), digest) != 0) return false;
+	if (!strcmp(digest, expected)) return true;
+	/* ucode %J uses the spaced JSON form for server-owned profile digests. */
+	size_t length = strlen(serialized), capacity = length * 2 + 1, used = 0;
+	char *spaced = malloc(capacity); bool quoted = false, escaped = false;
+	if (spaced == NULL) return false;
+	for (size_t i = 0; i < length; i++) {
+		char character = serialized[i];
+		if (quoted) {
+			spaced[used++] = character;
+			if (escaped) escaped = false;
+			else if (character == '\\') escaped = true;
+			else if (character == '"') quoted = false;
+			continue;
+		}
+		if (character == '"') { quoted = true; spaced[used++] = character; continue; }
+		if (character == '{' || character == '[' || character == ',' || character == ':') spaced[used++] = character, spaced[used++] = ' ';
+		else if (character == '}' || character == ']') { if (used == 0 || spaced[used - 1] != ' ') spaced[used++] = ' '; spaced[used++] = character; }
+		else spaced[used++] = character;
+	}
+	spaced[used] = '\0';
+	bool spaced_hash_ok = z2m_sha256_bytes_hex((const unsigned char *)spaced, used, digest) == 0;
+	bool matches = spaced_hash_ok && !strcmp(digest, expected);
+	free(spaced);
+	return matches;
 }
 
 static bool allowed_keys(json_object *object, const char *const *allowed, size_t count)
@@ -146,9 +184,13 @@ static bool nested_settings_shape(json_object *probe, const char *transport)
 
 static bool probe_shape(json_object *probe, const char *transport)
 {
-	static const char *const tls[] = {"transport", "mode", "retries", "host", "addressFamily", "port", "portRange", "tls", "timeoutMs", "deadlineMs", "cancelToken"};
-	static const char *const body[] = {"transport", "mode", "retries", "host", "addressFamily", "port", "portRange", "url", "tls", "body", "timeoutMs", "deadlineMs", "cancelToken"};
+	static const char *const tls[] = {"transport", "mode", "retries", "host", "addressFamily", "port", "portRange", "tls", "timeoutMs", "deadlineMs", "cancelToken", "connectAddress", "serverName", "tlsMaxVersion", "httpVersion", "p5Stage", "p5"};
+	static const char *const body[] = {"transport", "mode", "retries", "host", "addressFamily", "port", "portRange", "url", "tls", "body", "timeoutMs", "deadlineMs", "cancelToken", "connectAddress", "serverName", "tlsMaxVersion", "httpVersion", "p5Stage", "p5"};
 	static const char *const stun[] = {"transport", "mode", "retries", "host", "addressFamily", "port", "portRange", "transactionId", "receiveLimitBytes", "timeoutMs", "deadlineMs", "cancelToken"};
+	static const char *const resolve[] = {"transport", "mode", "host", "addressFamily", "port", "portRange", "timeoutMs", "deadlineMs", "cancelToken"};
+	static const char *const connect_keys[] = {"transport", "mode", "host", "addressFamily", "port", "portRange", "connectAddress", "timeoutMs", "deadlineMs", "cancelToken"};
+	if (!strcmp(transport, "resolve")) return allowed_keys(probe, resolve, sizeof(resolve) / sizeof(resolve[0]));
+	if (!strcmp(transport, "connect")) return allowed_keys(probe, connect_keys, sizeof(connect_keys) / sizeof(connect_keys[0]));
 	const char *const *keys = !strcmp(transport, "tls") ? tls : (!strcmp(transport, "tls+body") ? body : stun);
 	size_t count = !strcmp(transport, "tls") ? sizeof(tls) / sizeof(tls[0]) : (!strcmp(transport, "tls+body") ? sizeof(body) / sizeof(body[0]) : sizeof(stun) / sizeof(stun[0]));
 	return allowed_keys(probe, keys, count);
@@ -403,9 +445,9 @@ cleanup:
 int z2m_scanner_probe(const struct z2m_request *request)
 {
 	json_object *args = request->arguments, *profile, *probe, *body = NULL, *value = NULL;
-	const char *authority, *adapter_digest, *profile_digest_value, *transport, *host, *family = NULL, *url = NULL, *path = NULL;
+	const char *authority, *adapter_digest, *profile_digest_value, *transport, *host, *family = NULL, *url = NULL, *path = NULL, *connect_address = NULL, *server_name = NULL, *tls_max = NULL, *http_version = NULL, *p5_stage = NULL;
 	int64_t timeout, deadline_ms, port = 0, configured_limit = 0; unsigned int output_limit; unsigned char *input = NULL, *output = NULL; size_t input_length = 0, output_length = 0;
-	int exit_code, signal_number; bool overflow = false; char *encoded; int64_t started_at, finished_at;
+	int exit_code, signal_number; bool overflow = false, p5 = false; char *encoded; int64_t started_at, finished_at;
 	if (!string_value(args, "authority", &authority) || strcmp(authority, "scanner-probe-adapter.v1") ||
 		!string_value(args, "adapterDigest", &adapter_digest) || strcmp(adapter_digest, ADAPTER_DIGEST) ||
 		!string_value(args, "targetProfileDigest", &profile_digest_value) || !digest_value(profile_digest_value) ||
@@ -420,6 +462,68 @@ int z2m_scanner_probe(const struct z2m_request *request)
 	int64_t wall = wall_ms(), remaining = wall < 0 ? 0 : deadline_ms - wall;
 	if (remaining <= 0) return z2m_fail(request->request_id, "ESCHEMA", "canonical_validate");
 	if (remaining < timeout) timeout = remaining;
+	if (!strcmp(transport, "connect")) {
+		const char *connect_family, *connect_range, *connect_ip;
+		int64_t connect_port;
+		if (!exact_mode(probe) || !string_value(probe, "addressFamily", &connect_family) || strcmp(connect_family, "ipv4") ||
+			!int_value(probe, "port", 1, 65535, &connect_port) || !string_value(probe, "portRange", &connect_range) ||
+			!port_range_value(connect_range, connect_port) || !string_value(probe, "connectAddress", &connect_ip) || !ipv4_value(connect_ip))
+			return z2m_fail(request->request_id, "ESCHEMA", "canonical_validate");
+		int fd = socket(AF_INET, SOCK_STREAM, 0), connect_code = 1;
+		if (fd >= 0) {
+			int flags = fcntl(fd, F_GETFL, 0);
+			struct sockaddr_in address = { .sin_family = AF_INET, .sin_port = htons((uint16_t)connect_port) };
+			inet_pton(AF_INET, connect_ip, &address.sin_addr);
+			if (flags >= 0 && fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0) {
+				int connected = connect(fd, (struct sockaddr *)&address, sizeof(address));
+				if (connected == 0) connect_code = 0;
+				else if (errno == EINPROGRESS) {
+					struct pollfd watched = { fd, POLLOUT | POLLERR | POLLHUP, 0 };
+					int wait_ms = timeout > INT_MAX ? INT_MAX : (int)timeout;
+					if (poll(&watched, 1, wait_ms) > 0) {
+						int error = 0; socklen_t error_length = sizeof(error);
+						if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &error_length) == 0 && error == 0) connect_code = 0;
+					}
+				}
+			}
+			close(fd);
+		}
+		int64_t stamp = wall_ms();
+		const unsigned char empty[1] = { 0 };
+		encoded = z2m_base64(empty, 0);
+		if (!encoded) return z2m_fail(request->request_id, "EINTERNAL", "response_encode");
+		json_object *data = z2m_json_object(); bool ok = data && z2m_json_add(data, "content", z2m_json_string(encoded)) && z2m_json_add(data, "byteLength", z2m_json_int(0)) && z2m_json_add(data, "exitCode", z2m_json_int(connect_code)) && z2m_json_add(data, "signal", z2m_json_int(0)) && z2m_json_add(data, "startedAt", z2m_json_int(stamp)) && z2m_json_add(data, "finishedAt", z2m_json_int(stamp)) && z2m_json_add(data, "complete", z2m_json_bool(true)) && z2m_json_add(data, "cancelled", z2m_json_bool(false));
+		free(encoded); if (!ok) { json_object_put(data); return z2m_fail(request->request_id, "EINTERNAL", "response_encode"); }
+		return z2m_success(request->request_id, data);
+	}
+	if (!strcmp(transport, "resolve")) {
+		const char *resolve_family, *resolve_range;
+		int64_t resolve_port;
+		if (!exact_mode(probe) || !string_value(probe, "addressFamily", &resolve_family) || strcmp(resolve_family, "ipv4") ||
+			!int_value(probe, "port", 1, 65535, &resolve_port) || !string_value(probe, "portRange", &resolve_range) ||
+			!port_range_value(resolve_range, resolve_port)) return z2m_fail(request->request_id, "ESCHEMA", "canonical_validate");
+		struct addrinfo hints = { .ai_family = AF_INET, .ai_socktype = SOCK_STREAM }, *answers = NULL;
+		int lookup = getaddrinfo(host, NULL, &hints, &answers);
+		char resolved[256] = ""; char seen[3][INET_ADDRSTRLEN] = {{0}}; size_t count = 0;
+		if (lookup == 0) {
+			for (struct addrinfo *item = answers; item != NULL && count < 3; item = item->ai_next) {
+				char address[INET_ADDRSTRLEN];
+				if (item->ai_family != AF_INET || inet_ntop(AF_INET, &((struct sockaddr_in *)item->ai_addr)->sin_addr, address, sizeof(address)) == NULL) continue;
+				bool duplicate = false; for (size_t i = 0; i < count; i++) if (!strcmp(seen[i], address)) duplicate = true;
+				if (duplicate) continue;
+				snprintf(seen[count], sizeof(seen[count]), "%s", address);
+				if (count != 0) strncat(resolved, "\n", sizeof(resolved) - strlen(resolved) - 1);
+				strncat(resolved, address, sizeof(resolved) - strlen(resolved) - 1); count++;
+			}
+			if (answers != NULL) freeaddrinfo(answers);
+		}
+		int64_t stamp = wall_ms();
+		encoded = z2m_base64((const unsigned char *)resolved, strlen(resolved));
+		if (!encoded) return z2m_fail(request->request_id, "EINTERNAL", "response_encode");
+		json_object *data = z2m_json_object(); bool ok = data && z2m_json_add(data, "content", z2m_json_string(encoded)) && z2m_json_add(data, "byteLength", z2m_json_int((int64_t)strlen(resolved))) && z2m_json_add(data, "exitCode", z2m_json_int(lookup == 0 ? 0 : 1)) && z2m_json_add(data, "signal", z2m_json_int(0)) && z2m_json_add(data, "startedAt", z2m_json_int(stamp)) && z2m_json_add(data, "finishedAt", z2m_json_int(stamp)) && z2m_json_add(data, "complete", z2m_json_bool(true)) && z2m_json_add(data, "cancelled", z2m_json_bool(false));
+		free(encoded); if (!ok) { json_object_put(data); return z2m_fail(request->request_id, "EINTERNAL", "response_encode"); }
+		return z2m_success(request->request_id, data);
+	}
 	if (!strcmp(transport, "tls") || !strcmp(transport, "tls+body")) {
 		json_object *tcp, *tcp_ports;
 		const char *probe_range;
@@ -439,6 +543,16 @@ int z2m_scanner_probe(const struct z2m_request *request)
 			input = (unsigned char *)malloc(strlen(path) + strlen(host) + 128); if (!input) return z2m_fail(request->request_id, "EINTERNAL", "internal");
 			input_length = (size_t)snprintf((char *)input, strlen(path) + strlen(host) + 128, "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\nRange: bytes=0-69632\r\n\r\n", path, host);
 			output_limit = BODY_OUTPUT_LIMIT;
+			if (json_object_object_get_ex(probe, "p5", &value)) {
+				if (!json_object_is_type(value, json_type_boolean) || !json_object_get_boolean(value) ||
+					!string_value(probe, "connectAddress", &connect_address) || !ipv4_value(connect_address) ||
+					!string_value(probe, "serverName", &server_name) || !host_value(server_name) ||
+					!string_value(probe, "tlsMaxVersion", &tls_max) || (strcmp(tls_max, "any") && strcmp(tls_max, "1.2")) ||
+					!string_value(probe, "httpVersion", &http_version) || (strcmp(http_version, "1.1") && strcmp(http_version, "2")) ||
+					!string_value(probe, "p5Stage", &p5_stage) || (strcmp(p5_stage, "tls") && strcmp(p5_stage, "http") && strcmp(p5_stage, "h2")))
+					return z2m_fail(request->request_id, "ESCHEMA", "canonical_validate");
+				p5 = true; input_length = 0; output_limit = !strcmp(p5_stage, "tls") ? TLS_OUTPUT_LIMIT : 32768U;
+			}
 		} else {
 			input = (unsigned char *)malloc(strlen(host) + 96); if (!input) return z2m_fail(request->request_id, "EINTERNAL", "internal");
 			input_length = (size_t)snprintf((char *)input, strlen(host) + 96, "GET / HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", host);
@@ -454,11 +568,20 @@ int z2m_scanner_probe(const struct z2m_request *request)
 		input = malloc(20); if (!input) return z2m_fail(request->request_id, "EINTERNAL", "internal");
 		input[0]=0; input[1]=1; input[2]=0; input[3]=0; input[4]=0x21; input[5]=0x12; input[6]=0xa4; input[7]=0x42; for (size_t i=0;i<12;i++) input[8+i]=(unsigned char)(i+1); input_length=20; output_limit=STUN_OUTPUT_LIMIT;
 	} else return z2m_fail(request->request_id, "ESCHEMA", "canonical_validate");
-	char port_text[24], timeout_text[24]; snprintf(port_text,sizeof(port_text),"%lld",(long long)port); snprintf(timeout_text,sizeof(timeout_text),"%lld",(long long)((timeout+999)/1000));
-	char *argv[10]; size_t argc=0; argv[argc++]=(char *)Z2M_NCAT_PATH;
-	if (!strcmp(transport,"tls") || !strcmp(transport,"tls+body")) { argv[argc++]="--ssl"; argv[argc++]=(char *)(!strcmp(family,"ipv6") ? "-6" : "-4"); }
-	else { argv[argc++]="-u"; argv[argc++]="-4"; }
-	argv[argc++]="-w"; argv[argc++]=timeout_text; argv[argc++]=(char *)host; argv[argc++]=port_text; argv[argc]=NULL;
+	char port_text[24], timeout_text[24], resolve_text[320], url_text[320]; snprintf(port_text,sizeof(port_text),"%lld",(long long)port); snprintf(timeout_text,sizeof(timeout_text),"%lld",(long long)((timeout+999)/1000));
+	char *argv[24]; size_t argc=0;
+	if (p5) {
+		argv[argc++]=(char *)Z2M_CURL_PATH; argv[argc++]="--silent"; argv[argc++]="--insecure"; argv[argc++]="--dump-header"; argv[argc++]="-";
+		argv[argc++]=!strcmp(http_version, "2") ? "--http2" : "--http1.1"; argv[argc++]="--connect-timeout"; argv[argc++]=timeout_text; argv[argc++]="--max-time"; argv[argc++]=timeout_text;
+		if (!strcmp(tls_max, "1.2")) { argv[argc++]="--tls-max"; argv[argc++]="1.2"; }
+		snprintf(resolve_text, sizeof(resolve_text), "%s:443:%s", server_name, connect_address); argv[argc++]="--resolve"; argv[argc++]=resolve_text;
+		snprintf(url_text, sizeof(url_text), "https://%s/", server_name); argv[argc++]=url_text; argv[argc]=NULL;
+	} else {
+		argv[argc++]=(char *)Z2M_NCAT_PATH;
+		if (!strcmp(transport,"tls") || !strcmp(transport,"tls+body")) { argv[argc++]="--ssl"; argv[argc++]=(char *)(!strcmp(family,"ipv6") ? "-6" : "-4"); }
+		else { argv[argc++]="-u"; argv[argc++]="-4"; }
+		argv[argc++]="-w"; argv[argc++]=timeout_text; argv[argc++]=(char *)host; argv[argc++]=port_text; argv[argc]=NULL;
+	}
 	const char *cancel_token = NULL; json_object *cancel_value = NULL;
 	if (json_object_object_get_ex(probe, "cancelToken", &cancel_value)) {
 		if (!json_object_is_type(cancel_value, json_type_string) || !cancel_token_value(json_object_get_string(cancel_value))) return z2m_fail(request->request_id, "ESCHEMA", "canonical_validate");

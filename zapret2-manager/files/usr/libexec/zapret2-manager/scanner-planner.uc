@@ -16,6 +16,7 @@ const GENERATOR_MARKER = 'z2m-scanner-generator.v1';
 const AUTHORITATIVE_CATALOG_DIGEST = '5978d35bfc0b73caaae658124874e24619b1f448e673ec09fd7c5d4dd8c3dda1';
 const AUTHORITATIVE_CATALOG_REPOSITORY = 'avatarDD/zapret-gui';
 const AUTHORITATIVE_CATALOG_COMMIT = 'f9dd3ea47a2239514f396a843b475c92c33f0b4c';
+const MAX_EXECUTION_CANDIDATES = 20;
 
 const KNOWN_DPI = {
 	tls_dpi: { must: ['filter-l7=tls', 'tls_client_hello'], bad: ['filter-l7=quic', 'quic_initial'] },
@@ -844,6 +845,7 @@ function scanner_plan_build_pure(request, catalogSnapshot, userStrategies, autho
 		return error_result('EINPUT', 'Scanner target profile is absent or mismatched.', 'target');
 	let environment = is_object(catalog.compilerEnvironment)
 		? copy(catalog.compilerEnvironment) : {};
+	let catalogEntriesConsidered = length(raw_entry_ids(catalog, value.protocol, value.mode));
 	let entries = selected_entries(catalog, value.protocol, value.mode), catalogCandidates = [], ordinal = 1;
 	for (let i = 0; i < length(entries); i++) {
 		let strategy = catalog_strategy(entries[i]);
@@ -878,12 +880,15 @@ function scanner_plan_build_pure(request, catalogSnapshot, userStrategies, autho
 	candidates = dedup_candidates(candidates);
 	let filtered = [];
 	for (let i = 0; i < length(candidates); i++) if (dpi_keep(candidates[i], value.dpi_type)) push(filtered, candidates[i]);
+	let shortlisted = length(filtered);
+	if (shortlisted > MAX_EXECUTION_CANDIDATES) filtered = slice(sort_candidates(filtered), 0, MAX_EXECUTION_CANDIDATES);
 	for (let i = 0; i < length(filtered); i++) filtered[i].ordinal = i + 1;
 	return { ok: true, plan: {
 		schema: 1, request: copy(value), targetProfile: copy(profile),
 		catalogDigest: catalog.aggregateDigest || null,
 		compilerDigest: catalog.compilerDigest || null,
-		candidates: copy(filtered),
+		candidates: copy(filtered), execution: { catalogEntriesConsidered, candidatesCompiled: length(candidates),
+			candidatesEligible: shortlisted, candidatesShortlisted: length(filtered), maxCandidates: MAX_EXECUTION_CANDIDATES },
 	} };
 }
 

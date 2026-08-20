@@ -33,3 +33,14 @@ test('generated save validation accepts the CLI payload shape', () => {
   assert.equal(result.ok, true);
   assert.equal(result.savePayload.type, 'SaveStrategy');
 });
+
+test('report best is never selected from a non-success result', () => {
+  const result = invoke(`subject.scanner_report_from_record({status:'completed',recovery:{state:'verified'},results:[
+    {candidateId:'blocked',ordinal:1,verdict:'failed',success:false,score:9999,evidence:{}},
+    {candidateId:'working',ordinal:2,verdict:'working',success:true,score:1,evidence:{}}
+  ]})`);
+  assert.equal(result.ok, true);
+  assert.equal(result.report.best.candidateId, 'working');
+  assert.deepEqual(result.report.evidence.ranked.map((row) => row.candidateId), ['working']);
+  assert.deepEqual(result.report.evidence.failed.map((row) => row.candidateId), ['blocked']);
+});

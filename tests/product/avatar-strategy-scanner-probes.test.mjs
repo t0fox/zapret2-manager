@@ -425,6 +425,43 @@ test('candidate verdict validates protocol-specific TCP and UDP evidence before 
   assert.equal(call('scanner_candidate_verdict', udpBaseline, [udp]).verdict, 'working');
 });
 
+test('P5 staged prober classifies SNI, IP, server and TLS13 failure paths with stable evidence', () => {
+  const baseline = call('scanner_baseline_classify', tcpBaseline({ error: 'TIMEOUT' }));
+  const success = call('scanner_staged_classify', {
+    protocol: 'tcp', dnsOk: true, resolvedIps: ['203.0.113.10'], tcpOk: true,
+    target: { tlsOk: true, tls13Ok: true, httpOk: true, h2Ok: true },
+  });
+  assert.equal(success.success, true);
+  assert.equal(success.testType, 'staged');
+  assert.equal(success.pathVerdict, null);
+  assert.equal(success.failureCode, null);
+
+  const sni = call('scanner_staged_classify', {
+    protocol: 'tcp', dnsOk: true, resolvedIps: ['203.0.113.10'], tcpOk: true,
+    target: { tlsOk: false, failureCode: 'TLS_SNI_REJECT' },
+    neutral: { tlsOk: true },
+  });
+  assert.equal(sni.success, false);
+  assert.equal(sni.pathVerdict, 'sni');
+  assert.equal(sni.failureCode, 'TLS_SNI_REJECT');
+
+  const ip = call('scanner_staged_classify', {
+    protocol: 'tcp', dnsOk: true, resolvedIps: ['203.0.113.10'], tcpOk: true,
+    target: { tlsOk: false, failureCode: 'TLS_TIMEOUT' },
+    neutral: { tlsOk: false, failureCode: 'TLS_TIMEOUT' },
+  });
+  assert.equal(ip.pathVerdict, 'ip');
+
+  const server = call('scanner_staged_classify', {
+    protocol: 'tcp', dnsOk: true, resolvedIps: ['203.0.113.10'], tcpOk: true,
+    target: { tlsOk: false, failureCode: 'TLS_ALERT' },
+    neutral: { tlsOk: false, failureCode: 'TLS_ALERT' },
+  });
+  assert.equal(server.pathVerdict, 'server');
+  assert.equal(server.failureCode, 'TLS_ALERT');
+  assert.equal(call('scanner_candidate_verdict', baseline, [sni]).verdict, 'failed');
+});
+
 test('fixed adapter plans pin timeout, read, Range, STUN, retry, and deadline bounds', () => {
   const profile = { profileKey: 'generic', primaryHost: 'example.com', testHosts: ['example.com'],
     probeUrl: 'https://example.com/', tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' },

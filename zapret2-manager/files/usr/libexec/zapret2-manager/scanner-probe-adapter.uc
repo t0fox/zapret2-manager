@@ -178,6 +178,23 @@ export const scanner_probe_adapter_tcp = function(candidate, target, addressFami
 	return { ok: true, ...descriptor };
 };
 
+export const scanner_probe_adapter_staged = function(candidate, target, limit) {
+	if (!candidate_valid(candidate, 'tcp')) return fail('Invalid planner-owned TCP candidate.');
+	if (forbidden(target) || !is_object(target) || !canonical_url(target.probeUrl, [target.primaryHost, ...(target.testHosts || [])]))
+		return fail('Invalid server-owned target profile.');
+	if (!is_object(target.tcp) || target.tcp.l7 != 'tls' || target.tcp.payload != 'tls_client_hello')
+		return fail('Invalid server-owned TCP profile.');
+	let end = deadline(limit, BODY_TIMEOUT_MS), hosts = profile_hosts(target, limit?.mode);
+	if (!end || !hosts) return fail('Invalid staged probe deadline or host set.');
+	let port = first_port(target.tcp.ports);
+	if (port == null) return fail('Invalid server-owned TCP port profile.');
+	return { ok: true, ...descriptor_common(target, attach_cancel({ transport: 'staged', mode: limit?.mode,
+		host: target.primaryHost, hosts, port, portRange: target.tcp.ports, neutralSni: 'example.com',
+		h2Required: target.h2Required === true, timeoutMs: BODY_TIMEOUT_MS, deadlineMs: end }, limit),
+		{ scannerId: candidate.scannerId, protocol: candidate.protocol, compiledDigest: candidate.compiledDigest,
+			dependencyDigest: candidate.dependencyDigest }, limit?.profileDigest) };
+};
+
 export const scanner_probe_adapter_udp = function(candidate, target, limit) {
 	if (!candidate_valid(candidate, 'udp')) return fail('Invalid planner-owned UDP candidate.');
 	if (!is_object(target) || forbidden(target) || !safe_host(target.primaryHost) ||

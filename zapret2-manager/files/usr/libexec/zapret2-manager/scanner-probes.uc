@@ -187,6 +187,10 @@ function pick_error(errors, tls_ok, body_ok) {
 function verdict_metrics(tests) {
 	let first = tests?.[0];
 	if (!is_object(first)) return null;
+	if (first.testType == 'staged') return { failureCode: first.failureCode || null,
+		failureReason: first.failureReason || null, pathVerdict: first.pathVerdict || null,
+		pathReason: first.pathReason || null, resolvedIps: first.resolvedIps || [], stages: first.stages || [],
+		averageKbps: number(first.averageKbps, 0), averageLatencyMs: number(first.averageLatencyMs, 0), successRate: number(first.successRate, 0) };
 	if (first.protocol == 'tcp') return { averageKbps: number(first.averageKbps, 0), averageLatencyMs: number(first.averageLatencyMs, 0), successRate: number(first.successRate, 0), perProbe: first.perHost };
 	let metrics = { protocol: 'udp', attempts: first.attempts, mappedFamily: first.mappedFamily, bytesReceived: first.bytesReceived,
 		exitCode: first.exitCode, signal: first.signal, startedAt: first.startedAt, finishedAt: first.finishedAt,
@@ -199,6 +203,64 @@ function verdict_score(tests) {
 	let first = tests?.[0];
 	return is_object(first) && is_number(first.score) ? first.score : null;
 }
+
+function staged_failure(code, path, reason, stages, ips) {
+	return { protocol: 'tcp', success: false, error: code, failureCode: code,
+		failureReason: reason || code, pathVerdict: path || null, pathReason: reason || null,
+		failureClass: 'candidate_blocked', infrastructureFailure: false, testType: 'staged',
+		bodyPassed: false, successRate: 0, averageKbps: 0, averageLatencyMs: 0,
+		resolvedIps: type(ips) == 'array' ? ips : [], stages: stages || [] };
+}
+
+function staged_reachable(code) {
+	return code == 'TLS_ALERT' || code == 'MTLS_REQUIRED' || code == 'HTTP_SERVER_REJECT';
+}
+
+function valid_ipv4(value) {
+	if (type(value) != 'string' || match(value, /^[0-9]+(\.[0-9]+){3}$/) == null) return false;
+	let parts = split(value, '.');
+	for (let i = 0; i < 4; i++) if (+parts[i] < 0 || +parts[i] > 255) return false;
+	return true;
+}
+
+function staged_score(result) {
+	let kbps = clamp(number(result.averageKbps, 0), 0, 2048), latency = number(result.averageLatencyMs, 0);
+	latency = latency < 50 ? 50 : latency;
+	return round_to(number(result.successRate, 0) * (kbps / (latency * 1.0)) * 1000, 2);
+}
+
+export const scanner_staged_classify = function(raw) {
+	if (!is_object(raw) || raw.protocol != 'tcp' || type(raw.dnsOk) != 'bool' ||
+		type(raw.tcpOk) != 'bool' || type(raw.resolvedIps) != 'array' ||
+		length(raw.resolvedIps) < 1 || length(raw.resolvedIps) > 3)
+		return infrastructure('INVALID_STAGED_OBSERVATION', 'staged');
+	for (let ip in raw.resolvedIps) if (!valid_ipv4(ip)) return infrastructure('INVALID_STAGED_OBSERVATION', 'staged');
+	let target = is_object(raw.target) ? raw.target : {}, neutral = is_object(raw.neutral) ? raw.neutral : {};
+	if (!raw.dnsOk) return staged_failure('DNS_ERROR', null, 'DNS resolution failed.', raw.stages, raw.resolvedIps);
+	if (!raw.tcpOk) return staged_failure('TCP_TIMEOUT', 'ip', 'TCP:443 did not reach a peer.', raw.stages, raw.resolvedIps);
+	let targetCode = type(target.failureCode) == 'string' && length(target.failureCode) ? target.failureCode : 'TLS_FAIL';
+	if (target.tls13Ok === false && target.tls12Ok === true)
+		return staged_failure('TLS13_BLOCK', null, 'TLS 1.3 failed while the TLS 1.2 retry succeeded.', raw.stages, raw.resolvedIps);
+	if (target.tlsOk !== true) {
+		if (staged_reachable(targetCode))
+			return staged_failure(targetCode, 'server', 'The target server returned a typed TLS response.', raw.stages, raw.resolvedIps);
+		let neutralCode = type(neutral.failureCode) == 'string' && length(neutral.failureCode) ? neutral.failureCode : 'TLS_FAIL';
+		if (neutral.tlsOk === true || staged_reachable(neutralCode))
+			return staged_failure(targetCode, 'sni', 'Neutral SNI succeeded on the same reachable IP.', raw.stages, raw.resolvedIps);
+		return staged_failure(targetCode, 'ip', 'Target and neutral SNI both failed on the same IP.', raw.stages, raw.resolvedIps);
+	}
+	if (target.httpOk !== true)
+		return staged_failure(type(target.failureCode) == 'string' && length(target.failureCode) ? target.failureCode : 'HTTP_CUTOFF', null,
+			target.failureReason || 'Bounded HTTP response was cut off or incomplete.', raw.stages, raw.resolvedIps);
+	if (raw.h2Required === true && target.h2Ok !== true)
+		return staged_failure('H2_FAILURE', null, 'Required HTTP/2 probe did not complete.', raw.stages, raw.resolvedIps);
+	let result = { protocol: 'tcp', success: true, error: null, failureCode: null, failureReason: null,
+		pathVerdict: null, pathReason: null, failureClass: null, infrastructureFailure: false,
+		testType: 'staged', bodyPassed: true, successRate: 1, averageKbps: target.kbps || 0,
+		averageLatencyMs: target.latencyMs || 0, resolvedIps: raw.resolvedIps, stages: raw.stages || [] };
+	result.score = staged_score(result);
+	return result;
+};
 
 export const scanner_score = function(result) {
 	if (!is_object(result) || result.infrastructureFailure === true) return null;
@@ -217,6 +279,7 @@ export const scanner_score = function(result) {
 };
 
 export const scanner_tcp_classify = function(raw) {
+	if (is_object(raw) && is_object(raw.staged)) return scanner_staged_classify(raw.staged);
 	if (!is_object(raw) || type(raw.hosts) != 'array' || !length(raw.hosts) || length(raw.hosts) > 8)
 		return infrastructure('INVALID_OBSERVATION', 'tls+body');
 	let per_host = [], errors = [], tls_count = 0, body_count = 0;
@@ -305,6 +368,14 @@ function valid_text(value) { return type(value) == 'string' && length(value) > 0
 function valid_nullable_text(value) { return value == null || valid_text(value); }
 
 function valid_tcp_test(evidence) {
+	if (evidence.testType == 'staged') {
+		return type(evidence.success) == 'bool' && type(evidence.infrastructureFailure) == 'bool' &&
+			type(evidence.bodyPassed) == 'bool' && valid_nonnegative_number(evidence.successRate) && evidence.successRate <= 1 &&
+			valid_nonnegative_number(evidence.averageKbps) && valid_nonnegative_number(evidence.averageLatencyMs) &&
+			(!evidence.success ? valid_text(evidence.error) && valid_text(evidence.failureClass) : true) &&
+			(evidence.pathVerdict == null || evidence.pathVerdict == 'sni' || evidence.pathVerdict == 'ip' || evidence.pathVerdict == 'server') &&
+			(type(evidence.failureCode) == 'string' || evidence.failureCode == null) && type(evidence.resolvedIps) == 'array' && length(evidence.resolvedIps) <= 3;
+	}
 	if (evidence.protocol != 'tcp' || evidence.testType != 'tls+body' ||
 		type(evidence.bodyPassed) != 'bool' || !valid_nonnegative_number(evidence.successRate) ||
 		evidence.successRate > 1 || !valid_nonnegative_number(evidence.averageKbps) ||

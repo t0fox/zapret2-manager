@@ -15,18 +15,39 @@ const adapterDigest = '7cd367ef2aed1be2567505bf978b2d2b73f97ff149cc48d64826ed4f2
 const profile = { profileKey: 'generic', primaryHost: 'example.com', testHosts: ['example.com', 'fail.example.com', 'sleep.example.com', 'stun.example.com'], hostlistDomains: ['example.com'], expectedHostlists: [], probeUrl: 'https://example.com/probe', tcp: { ports: '443', l7: 'tls', payload: 'tls_client_hello' }, udp: { ports: '19302', l7: 'stun', payload: 'binding' } };
 const profileDigest = createHash('sha256').update(JSON.stringify(profile)).digest('hex');
 
+function spacedJson(value) {
+  const compact = JSON.stringify(value);
+  let result = '', quoted = false, escaped = false;
+  for (const character of compact) {
+    if (quoted) {
+      result += character;
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === '"') quoted = false;
+    } else if (character === '"') { quoted = true; result += character;
+    } else if ('{[,:' .includes(character)) result += character + ' ';
+    else if ('}]'.includes(character)) result += (result.endsWith(' ') ? '' : ' ') + character;
+    else result += character;
+  }
+  return result;
+}
+
 function compile(output, input, definitions = []) {
   const jsonC = spawnSync('pkg-config', ['--cflags', '--libs', 'json-c'], { encoding: 'utf8' });
   assert.equal(jsonC.status, 0, jsonC.stderr);
   const result = spawnSync('cc', ['-std=c11', '-Wall', '-Wextra', '-Werror', '-D_GNU_SOURCE', '-I', source,
-    `-DZ2M_NCAT_PATH="${fake}"`, ...definitions, ...input, ...jsonC.stdout.trim().split(/\s+/), '-o', output], { encoding: 'utf8' });
+    `-DZ2M_NCAT_PATH="${fake}"`, `-DZ2M_CURL_PATH="${fake}"`, ...definitions, ...input, ...jsonC.stdout.trim().split(/\s+/), '-o', output], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
 }
 
 function request(request, extra = {}) {
   const defaults = request.transport === 'stun'
     ? { mode: 'quick', retries: 2, receiveLimitBytes: 1024, transactionId: '0102030405060708090a0b0c', portRange: String(request.port) }
-    : { mode: 'quick', retries: 1, tls: { timeoutMs: 6000, readLimitBytes: 2048 }, portRange: String(request.port) };
+    : request.transport === 'connect'
+      ? { mode: 'quick', portRange: String(request.port) }
+      : request.transport === 'resolve'
+        ? { mode: 'quick', portRange: String(request.port) }
+      : { mode: 'quick', retries: 1, tls: { timeoutMs: 6000, readLimitBytes: 2048 }, portRange: String(request.port) };
   if (request.transport === 'tls+body') defaults.body = {
     timeoutMs: 8000, minimumBytes: 65536, readChunkBytes: 4096, markerScanBytes: 8192,
     readLimitBytes: 69633, range: 'bytes=0-69632',
@@ -79,6 +100,31 @@ test('native scanner binds every transport setting to the server-owned profile',
     { targetProfile: target, targetProfileDigest: digest }), {}, 2);
   assert.equal(forged.ok, false);
   assert.equal(forged.error.code, 'ESCHEMA');
+});
+
+test('native staged transport resolves only bounded IPv4 and keeps connect separate from TLS', () => {
+  const resolved = run(request({ transport: 'resolve', host: 'example.com', port: 443, addressFamily: 'ipv4', timeoutMs: 1000 }));
+  assert.equal(resolved.ok, true, JSON.stringify(resolved));
+  assert.equal(resolved.data.complete, true);
+  const result = run(request({ transport: 'connect', host: 'example.com', port: 443, addressFamily: 'ipv4',
+    connectAddress: '127.0.0.1', timeoutMs: 1000 }));
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.data.complete, true);
+  assert.equal(result.data.byteLength, 0);
+  assert.equal(typeof result.data.exitCode, 'number');
+});
+
+test('native staged TLS uses fixed curl SNI, IP pinning, TLS retry and HTTP/2 argv', () => {
+  fs.rmSync('/tmp/z2m-scanner-probe-argv.log', { force: true });
+  const result = run(request({ transport: 'tls+body', host: 'example.com', addressFamily: 'ipv4', port: 443,
+    url: 'https://example.com/probe', connectAddress: '127.0.0.1', serverName: 'example.com',
+    tlsMaxVersion: '1.2', httpVersion: '2', p5Stage: 'h2', p5: true, timeoutMs: 1000 }));
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.data.complete, true);
+  const argv = fs.readFileSync('/tmp/z2m-scanner-probe-argv.log', 'utf8');
+  assert.match(argv, /--resolve\nexample\.com:443:127\.0\.0\.1\n/);
+  assert.match(argv, /--tls-max\n1\.2\n/);
+  assert.match(argv, /--http2\n/);
 });
 
 test('native scanner requires the exact profile portRange, not merely an in-range port', () => {
@@ -170,6 +216,16 @@ test('target profile digest is verified at the native execution boundary', () =>
   const forged = run(request({ transport: 'stun', host: 'stun.example.com', port: 19302, addressFamily: 'ipv4', timeoutMs: 1000, retries: 2, receiveLimitBytes: 1024 }, { targetProfileDigest: 'a'.repeat(64) }), {}, 2);
   assert.equal(forged.ok, false);
   assert.equal(forged.error.code, 'ESCHEMA');
+});
+
+test('native scanner accepts the production ucode spaced profile digest', () => {
+  const prettyDigest = createHash('sha256').update(spacedJson(profile)).digest('hex');
+  const accepted = run(request({ transport: 'connect', host: 'example.com', port: 443,
+    addressFamily: 'ipv4', connectAddress: '127.0.0.1', timeoutMs: 1000 }), { }, 0);
+  assert.equal(accepted.ok, true, JSON.stringify(accepted));
+  const withPrettyDigest = run(request({ transport: 'connect', host: 'example.com', port: 443,
+    addressFamily: 'ipv4', connectAddress: '127.0.0.1', timeoutMs: 1000 }, { targetProfileDigest: prettyDigest }));
+  assert.equal(withPrettyDigest.ok, true, JSON.stringify(withPrettyDigest));
 });
 
 test('nonzero child status and partial output are returned independently', () => {

@@ -11,6 +11,7 @@ const TLS_TIMEOUT_MS = 6000;
 const BODY_TIMEOUT_MS = 8000;
 const STUN_TIMEOUT_MS = 4000;
 const STUN_TRANSACTION_ID = '0102030405060708090a0b0c';
+const P5_BODY_LIMIT = 32768;
 
 function object(value) { return type(value) == 'object' && value != null; }
 function string(value) { return type(value) == 'string'; }
@@ -178,6 +179,11 @@ function native_call_safe(descriptor, request) {
 	catch (exception) { return failure('EDEPENDENCY', 'Native probe helper is unavailable.', { stage: 'transport', exception }); }
 }
 
+function attach_cancel(request, descriptor) {
+	if (string(descriptor?.cancelToken)) request.cancelToken = descriptor.cancelToken;
+	return request;
+}
+
 function native_failure(result, message) {
 	if (!result?.ok) return result;
 	return failure('EDEPENDENCY', message, { stage: 'transport', child: result.data });
@@ -190,6 +196,39 @@ function typed_transport_status(result) {
 	return null;
 }
 
+function p5_code(result, fallback) {
+	let exit = result?.data?.exitCode;
+	if (exit == 7 || exit == 28) return 'TCP_TIMEOUT';
+	return fallback || (exit != null && exit != 0 ? 'TLS_FAIL' : 'HTTP_CUTOFF');
+}
+
+function p5_probe(descriptor, host, ip, sni, stage, tlsMaxVersion, httpVersion) {
+	let request = descriptor.request, timeoutMs = bounded_timeout(request, BODY_TIMEOUT_MS);
+	if (timeoutMs == null) return failure('EDEPENDENCY', 'Probe deadline has expired.', { stage: 'deadline' });
+	let probe = { transport: 'tls+body', mode: request.mode, retries: 1, host, addressFamily: 'ipv4',
+		connectAddress: ip, serverName: sni, tlsMaxVersion: tlsMaxVersion || 'any', httpVersion: httpVersion || '1.1',
+		p5Stage: stage, p5: true, port: request.port, portRange: request.portRange, url: 'https://' + host + '/',
+		tls: { timeoutMs: TLS_TIMEOUT_MS, readLimitBytes: TLS_READ_LIMIT },
+		body: { timeoutMs: BODY_TIMEOUT_MS, minimumBytes: 65536, readChunkBytes: 4096, markerScanBytes: 8192,
+			readLimitBytes: 69633, range: 'bytes=0-69632', markers: [{ name: 'isp_page', needles: ['blocked', 'access denied', 'captcha'] }] },
+		timeoutMs, deadlineMs: request.deadlineMs };
+	attach_cancel(probe, request);
+	let result = native_call_safe(descriptor, probe);
+	if (!result.ok) return result;
+	if (result.data.cancelled === true) return failure('EDEPENDENCY', 'Scanner probe was cancelled.', { stage: 'cancel' });
+	let raw = native_output(result);
+	if (raw == null || !native_observation_complete(result, raw)) return native_failure(result, 'P5 child outcome is incomplete.');
+	let parsed = scanner_probe_parse_http(raw, result.data.startedAt, result.data.finishedAt,
+		{ readLimitBytes: stage == 'tls' ? TLS_READ_LIMIT : P5_BODY_LIMIT });
+	if (!parsed.ok) return { ok: true, observation: { ok: false, failureCode: p5_code(result, stage == 'tls' ? 'TLS_FAIL' : 'HTTP_CUTOFF'),
+		failureReason: parsed.error?.message || parsed.error || 'P5 response is incomplete.', exitCode: result.data.exitCode,
+		bytesReceived: result.data.byteLength, latencyMs: result.data.finishedAt - result.data.startedAt,
+		startedAt: result.data.startedAt, finishedAt: result.data.finishedAt } };
+	return { ok: true, observation: { ok: true, failureCode: null, http: parsed.observation,
+		exitCode: result.data.exitCode, bytesReceived: result.data.byteLength,
+		latencyMs: parsed.observation.latencyMs, startedAt: result.data.startedAt, finishedAt: result.data.finishedAt } };
+}
+
 export const scanner_probe_execute = function(descriptor) {
 	if (!descriptor_valid(descriptor)) return failure('EDEPENDENCY', 'Probe descriptor is not server-owned.', { stage: 'descriptor' });
 	let request = descriptor.request, now = int(time() * 1000), result, raw;
@@ -200,7 +239,8 @@ export const scanner_probe_execute = function(descriptor) {
 			let family = families[i];
 			let timeoutMs = bounded_timeout(request, TLS_TIMEOUT_MS);
 			if (timeoutMs == null) return failure('EDEPENDENCY', 'Probe deadline has expired.', { stage: 'deadline' });
-			let probe = { transport: 'tls', mode: request.mode, retries: request.retries, host: request.host, addressFamily: family, port: request.port, portRange: request.portRange, tls: request.tls, timeoutMs, deadlineMs: request.deadlineMs, cancelToken: request.cancelToken };
+			let probe = { transport: 'tls', mode: request.mode, retries: request.retries, host: request.host, addressFamily: family, port: request.port, portRange: request.portRange, tls: request.tls, timeoutMs, deadlineMs: request.deadlineMs };
+			attach_cancel(probe, request);
 			result = native_call_safe(descriptor, probe); if (!result.ok) return result;
 			if (result.data.cancelled === true) return failure('EDEPENDENCY', 'Scanner probe was cancelled.', { stage: 'cancel' });
 			raw = native_output(result); if (raw == null || !native_observation_complete(result, raw)) return native_failure(result, 'TLS child output is incomplete.');
@@ -218,7 +258,8 @@ export const scanner_probe_execute = function(descriptor) {
 			let item = request.hosts[i];
 			let timeoutMs = bounded_timeout(request, BODY_TIMEOUT_MS);
 			if (timeoutMs == null) return failure('EDEPENDENCY', 'Probe deadline has expired.', { stage: 'deadline' });
-			let probe = { transport: 'tls+body', mode: request.mode, retries: request.retries, host: item.host, addressFamily: item.addressFamily, port: item.port, portRange: item.portRange, url: item.url, tls: request.tls, body: request.body, timeoutMs, deadlineMs: request.deadlineMs, cancelToken: request.cancelToken };
+			let probe = { transport: 'tls+body', mode: request.mode, retries: request.retries, host: item.host, addressFamily: item.addressFamily, port: item.port, portRange: item.portRange, url: item.url, tls: request.tls, body: request.body, timeoutMs, deadlineMs: request.deadlineMs };
+			attach_cancel(probe, request);
 			result = native_call_safe(descriptor, probe);
 			if (!result.ok) { return result; }
 			if (result.data.cancelled === true) return failure('EDEPENDENCY', 'Scanner probe was cancelled.', { stage: 'cancel' });
@@ -231,13 +272,77 @@ export const scanner_probe_execute = function(descriptor) {
 		}
 		return { ok: true, observations: [{ hosts }] };
 	}
+	if (request.transport == 'staged') {
+		let now = int(time() * 1000), resolveTimeout = bounded_timeout(request, TLS_TIMEOUT_MS);
+		if (resolveTimeout == null) return failure('EDEPENDENCY', 'Probe deadline has expired.', { stage: 'deadline' });
+		let resolveProbe = { transport: 'resolve', mode: request.mode, host: request.host,
+			addressFamily: 'ipv4', port: request.port, portRange: request.portRange, timeoutMs: resolveTimeout,
+			deadlineMs: request.deadlineMs };
+		attach_cancel(resolveProbe, request);
+		let resolved = native_call_safe(descriptor, resolveProbe);
+		if (!resolved.ok) return resolved;
+		let rawIps = native_output(resolved), ips = [];
+		if (rawIps != null) for (let item in split(trim(rawIps), '\n'))
+			if (match(trim(item), /^[0-9]{1,3}(\.[0-9]{1,3}){3}$/) != null && length(ips) < 3 && index(ips, trim(item)) < 0) push(ips, trim(item));
+		if (!length(ips)) return { ok: true, observations: [{ staged: { protocol: 'tcp', dnsOk: false, tcpOk: false, resolvedIps: [], stages: [{ stage: 'dns', ok: false, failureCode: 'DNS_ERROR' }] } }] };
+		let target = null, selectedIp = null, stages = [{ stage: 'dns', ok: true, resolvedIps: ips }];
+		for (let i = 0; i < length(ips); i++) {
+			let connectProbe = { transport: 'connect', mode: request.mode, host: request.host,
+				addressFamily: 'ipv4', port: request.port, portRange: request.portRange, connectAddress: ips[i],
+				timeoutMs: resolveTimeout, deadlineMs: request.deadlineMs };
+			attach_cancel(connectProbe, request);
+			let tcp = native_call_safe(descriptor, connectProbe);
+			if (!tcp.ok) return tcp;
+			let tcpOk = tcp.data?.exitCode === 0 && tcp.data?.signal === 0;
+			push(stages, { stage: 'tcp', ip: ips[i], ok: tcpOk, failureCode: tcpOk ? null : 'TCP_TIMEOUT' });
+			if (!tcpOk) continue;
+			let attempt = p5_probe(descriptor, request.host, ips[i], request.host, 'tls', 'any', '1.1');
+			if (!attempt.ok) return attempt;
+			push(stages, { stage: 'tcp_tls', ip: ips[i], ok: attempt.observation.ok === true,
+				failureCode: attempt.observation.failureCode || null });
+			if (attempt.observation.ok === true || attempt.observation.failureCode != 'TCP_TIMEOUT') { target = attempt.observation; selectedIp = ips[i]; break; }
+		}
+		if (target == null) return { ok: true, observations: [{ staged: { protocol: 'tcp', dnsOk: true, tcpOk: false, resolvedIps: ips, stages } }] };
+		let targetResult = { tlsOk: target.ok === true, failureCode: target.failureCode, failureReason: target.failureReason, latencyMs: target.latencyMs };
+		if (!targetResult.tlsOk) {
+			let retry = p5_probe(descriptor, request.host, selectedIp, request.host, 'tls', '1.2', '1.1');
+			if (!retry.ok) return retry;
+			targetResult.tls13Ok = false; targetResult.tls12Ok = retry.observation.ok === true;
+			if (targetResult.tls12Ok) { targetResult.tlsOk = true; targetResult.failureCode = null; }
+		} else targetResult.tls13Ok = true;
+		if (targetResult.tlsOk || targetResult.tls12Ok === true) {
+			let body = p5_probe(descriptor, request.host, selectedIp, request.host, 'http', 'any', '1.1');
+			if (!body.ok) return body;
+			targetResult.httpOk = body.observation.ok === true;
+			targetResult.failureCode = body.observation.failureCode || targetResult.failureCode || (targetResult.httpOk ? null : 'HTTP_CUTOFF');
+			targetResult.failureReason = body.observation.failureReason || targetResult.failureReason;
+			targetResult.kbps = body.observation.http?.kbps || 0; targetResult.latencyMs = body.observation.latencyMs;
+			let h2 = p5_probe(descriptor, request.host, selectedIp, request.host, 'h2', 'any', '2');
+			if (!h2.ok) return h2;
+			targetResult.h2Ok = h2.observation.ok === true;
+			push(stages, { stage: 'http', ip: selectedIp, ok: targetResult.httpOk, failureCode: targetResult.failureCode || null });
+			push(stages, { stage: 'h2', ip: selectedIp, ok: targetResult.h2Ok, required: request.h2Required === true,
+				failureCode: h2.observation.failureCode || null });
+		}
+		if (!targetResult.tlsOk) {
+			let neutral = p5_probe(descriptor, request.host, selectedIp, request.neutralSni || 'example.com', 'tls', 'any', '1.1');
+			if (!neutral.ok) return neutral;
+			targetResult.neutral = { tlsOk: neutral.observation.ok === true, failureCode: neutral.observation.failureCode || 'TLS_FAIL' };
+			push(stages, { stage: 'neutral_sni', ip: selectedIp, sni: request.neutralSni || 'example.com', ok: neutral.observation.ok === true,
+				failureCode: neutral.observation.failureCode || null });
+		}
+		return { ok: true, observations: [{ staged: { protocol: 'tcp', dnsOk: true, tcpOk: true, resolvedIps: ips,
+				target: targetResult, neutral: targetResult.neutral || null, h2Required: request.h2Required === true, stages } }] };
+	}
 	if (request.transport == 'stun') {
 		let attempts = 0;
 		let lastTyped = null;
 		for (attempts = 1; attempts <= request.retries; attempts++) {
 			let timeoutMs = bounded_timeout(request, STUN_TIMEOUT_MS);
 			if (timeoutMs == null) return failure('EDEPENDENCY', 'Probe deadline has expired.', { stage: 'deadline' });
-			result = native_call_safe(descriptor, { transport: 'stun', mode: request.mode, retries: request.retries, host: request.host, addressFamily: request.addressFamily, port: request.port, portRange: request.portRange, transactionId: request.transactionId || STUN_TRANSACTION_ID, receiveLimitBytes: request.receiveLimitBytes, timeoutMs, deadlineMs: request.deadlineMs, cancelToken: request.cancelToken }); if (!result.ok) return result;
+			let stunProbe = { transport: 'stun', mode: request.mode, retries: request.retries, host: request.host, addressFamily: request.addressFamily, port: request.port, portRange: request.portRange, transactionId: request.transactionId || STUN_TRANSACTION_ID, receiveLimitBytes: request.receiveLimitBytes, timeoutMs, deadlineMs: request.deadlineMs };
+			attach_cancel(stunProbe, request);
+			result = native_call_safe(descriptor, stunProbe); if (!result.ok) return result;
 			if (result.data.cancelled === true) return failure('EDEPENDENCY', 'Scanner probe was cancelled.', { stage: 'cancel' });
 			raw = native_output(result); if (raw == null || !native_observation_complete(result, raw)) return native_failure(result, 'STUN child outcome is not usable.');
 			let typed = typed_transport_status(result);

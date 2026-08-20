@@ -15,8 +15,8 @@ export const scanner_rank_results = function(results, catalogIndex) {
     let candidate = r.identity?.candidate || r.candidateId;
     if (!string(candidate)) { push(infra,r); continue; }
     if (r.verdict === 'infrastructure' || r.verdict?.status === 'infra') { push(infra,r); continue; }
-    if (r.verdict === 'failed' || r.verdict?.status === 'fail') { push(failed,r); continue; }
-    push(working,r);
+    if (r.success === true || r.verdict === 'working' || r.verdict?.status === 'working') { push(working,r); continue; }
+    push(failed,r);
   }
   function score(r){
     let s = 0;
