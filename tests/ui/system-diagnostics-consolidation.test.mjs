@@ -66,6 +66,13 @@ test('Updates presents product version rows and truthful unavailable update stat
   assert.match(system, /Технические детали/);
 });
 
+test('System Updates stays compatible with a stale cached maintenance model module', () => {
+  const system = read('z2m-maintenance.js');
+
+  assert.match(system, /function normalizeUpdateModel/);
+  assert.match(system, /MaintenanceModel\.normalizeUpdateModel\s*\|\|\s*normalizeUpdateModel/);
+});
+
 test('Diagnostics is the only canonical Monitoring and Logs viewer', () => {
   const app = read('app.js');
   const navigation = read('z2m-navigation.js');

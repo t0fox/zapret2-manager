@@ -58,6 +58,27 @@ function activePane(ctx) {
   if (route === 'settings') return 'settings';
   return 'updates';
 }
+function normalizeUpdateModel(value) {
+  value = object(value);
+  var manager = object(value.manager), upstream = object(value.upstreamPkg);
+  function row(id, label, installed, record) {
+    record = object(record);
+    var state = record.error ? 'ERROR' : record.stale === true ? 'STALE'
+      : installed === null ? 'NOT_INSTALLED'
+      : record.updateAvailable === true ? 'UPDATE_AVAILABLE'
+      : record.updateAvailable === false && (record.checkedAt || record.checked === true) ? 'UP_TO_DATE' : 'UNKNOWN';
+    var labels = { ERROR: 'Ошибка проверки', STALE: 'Проверка устарела', NOT_INSTALLED: 'Не установлен', UPDATE_AVAILABLE: 'Доступно обновление', UP_TO_DATE: 'Актуально', UNKNOWN: 'Проверка недоступна' };
+    return { id: id, label: label, installed: installed, latest: record.latest || record.latestVersion || null, state: state, stateLabel: labels[state] };
+  }
+  return {
+    rows: [
+      row('manager', 'zapret2-manager', manager.version == null ? null : String(manager.version), manager),
+      row('zapret2', 'zapret2', upstream.version == null ? null : String(upstream.version), upstream),
+      row('openwrt', 'OpenWrt', value.os == null ? null : String(value.os), object(value.openwrt))
+    ],
+    technical: { luciApp: object(value.luciApp), nfqws2: value.nfqws2, luaCompatVer: value.luaCompatVer, updateAvailable: value.updateAvailable }
+  };
+}
 function load(ctx) {
   var pane = activePane(ctx);
   var promise;
@@ -137,7 +158,8 @@ function updateTable(shell, model) {
 }
 function renderSystem(ctx, data) {
   var shell = ctx.shell;
-  var updateModel = MaintenanceModel.normalizeUpdateModel(data.versions && data.versions.value || {});
+  var normalizeUpdates = MaintenanceModel.normalizeUpdateModel || normalizeUpdateModel;
+  var updateModel = normalizeUpdates(data.versions && data.versions.value || {});
   var technical = updateModel.technical || {};
   var technicalRows = [
     { label: _('Версия luci-app'), value: object(technical.luciApp).version },
