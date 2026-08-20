@@ -40,12 +40,12 @@ test('watchdog matches NUL-delimited argv and qualified nft table', () => {
   assert.doesNotMatch(source, /nft list table ' \+ NFT_TABLE/);
 });
 
-test('engine UI uses the official release catalog and keeps package metadata out of the normal version row', () => {
+test('engine UI uses the provider catalog and keeps package metadata out of the normal version row', () => {
   const source = fs.readFileSync(enginePanelPath, 'utf8');
-  assert.match(source, /state\.selectedVersion/);
-  assert.match(source, /items\.filter\(function\(i\)/);
+  assert.match(source, /state\.selectedProvider/);
+  assert.match(source, /state\.providers/);
   assert.match(source, /status\.installedRelease/);
-  assert.match(source, /value:status\.installedRelease/);
+  assert.match(source, /value:\s*status\.installedRelease/);
   assert.doesNotMatch(source, / · package /);
   assert.match(source, /Технические детали/);
   assert.doesNotMatch(source, /label: _\('Package version'\)/);
@@ -58,7 +58,7 @@ test('official release remains the only normal version authority while build met
   const collector = fs.readFileSync(statusCollectorPath, 'utf8');
   assert.doesNotMatch(overview, /detail[\s\S]{0,400}snapshot\.packageVersion/);
   assert.doesNotMatch(overview, /detail[\s\S]{0,400}snapshot\.runtimeVersion/);
-  assert.match(panel, /value:status\.installedRelease/);
+  assert.match(panel, /value:\s*status\.installedRelease/);
   assert.doesNotMatch(panel, / · package /);
   assert.match(panel, /packageVersion/);
   assert.match(panel, /runtimeBuild/);
