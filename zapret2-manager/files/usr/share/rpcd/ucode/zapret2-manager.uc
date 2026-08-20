@@ -382,8 +382,12 @@ function scanner_start_async_impl(req) {
 		return { ok: false, error: { code: 'ETARGET', message: 'request temp file unavailable' } };
 	}
 	try { writefile(tmp, serialized); } catch (e) { try { unlink(tmp); } catch (ignore) { } return { ok: false, error: { code: 'EIO', message: 'request temp file could not be written' } }; }
-	let cmd = '( /usr/bin/ucode ' + SCANNER_CLI + ' start ' + tmp
-		+ ' >/dev/null 2>&1; rm -f ' + tmp + ' >/dev/null 2>&1 ) >/dev/null 2>&1 &';
+	// Match the detached launcher contract used by the production job runner.
+	// Starting ucode directly from rpcd is not detached reliably on the target
+	// BusyBox image and makes ubus report status 9 before returning the accept
+	// envelope. The request path is bounded to a safe filename above.
+	let cmd = "setsid ash -c '/usr/bin/ucode " + SCANNER_CLI + ' start ' + tmp
+		+ ' >/dev/null 2>&1; rm -f ' + tmp + " >/dev/null 2>&1' </dev/null >/dev/null 2>&1 &";
 	let launched = popen(cmd, 'r');
 	if (!launched) { try { unlink(tmp); } catch (e) { } return { ok: false, error: { code: 'ETARGET', message: 'Scanner worker could not be launched' } }; }
 	launched.close();
