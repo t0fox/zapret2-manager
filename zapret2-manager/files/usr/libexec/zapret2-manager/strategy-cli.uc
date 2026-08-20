@@ -940,6 +940,35 @@ function strategy_list() {
 		favoritesRevision: selection.revision }, 'Strategy list', MAX_STRATEGY_LIST_RESPONSE_BYTES);
 }
 
+function strategy_recommendations() {
+	let current = load_request_catalog();
+	if (!is_object(current) || current.ok == false) return current;
+	let order = is_object(current.winners) && type(current.winnerOrder) == 'array'
+		? current.winnerOrder : keys(current.winners || {});
+	let featured = [], recommended = [];
+	for (let id in order) {
+		let entry = current.winners[id], metadata = is_object(entry) && is_object(entry.metadata) ? entry.metadata : {};
+		let strategy = catalog_strategy(entry);
+		if (strategy == null || (metadata.label != 'recommended' && strategy.label != 'recommended')) continue;
+		let item = { id: strategy.id, name: strategy.name, description: strategy.description,
+			protocol: strategy.protocol, featured: strategy.featured === true,
+			upstreamRecommended: true, catalogDigest: current.aggregateDigest, profiles: [] };
+		for (let profile in strategy.profiles || []) {
+			let summary = {};
+			for (let key in ['id', 'name', 'enabled', 'protocol', 'tcpPorts', 'udpPorts'])
+				if (profile[key] != null) summary[key] = profile[key];
+			push(item.profiles, summary);
+		}
+		if (item.featured) push(featured, item); else push(recommended, item);
+	}
+	let bounded = [];
+	for (let item in featured) { if (length(bounded) >= 3) break; push(bounded, item); }
+	for (let item in recommended) { if (length(bounded) >= 3) break; push(bounded, item); }
+	return { ok: true, recommendations: bounded,
+		source: { kind: 'catalog', digest: current.aggregateDigest, upstreamRecommended: true,
+			localEvidence: { scanner: false, learned: false, health: false } } };
+}
+
 function strategy_get(input) {
 	if (!is_object(input) || !safe_id(input.id)) return error_result('EINPUT', 'Strategy get requires a safe id');
 	let current = load_request_catalog();
@@ -1022,6 +1051,7 @@ function request(path) {
 function dispatch_result(mode, input, context, testContext) {
 	if (mode == 'reconcile') return strategy_reconcile(input, context);
 	if (mode == 'list') return strategy_list();
+	if (mode == 'recommendations') return strategy_recommendations();
 	if (mode == 'get') return strategy_get(input);
 	if (mode == 'create') return strategy_state['strategy_' + 'user_create'](input);
 	if (mode == 'update') return strategy_state['strategy_' + 'user_update'](input);

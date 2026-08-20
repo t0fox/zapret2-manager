@@ -766,6 +766,7 @@ function strategy_read_action(mode, req) {
 	catch (e) { return { ok: false, error: { code: 'EINTERNAL', message: 'Strategy read dispatch failed' } }; }
 }
 function strategies_list_method(req) { return strategy_read_action('list', req); }
+function strategies_recommendations_method(req) { return strategy_read_action('recommendations', req); }
 function strategies_get_method(req) { return strategy_read_action('get', req); }
 function strategies_create_method(req) { return strategy_edit_action('create', req); }
 function strategies_update_method(req) { return strategy_edit_action('update', req); }
@@ -782,6 +783,7 @@ function strategies_import_profiles_method(req) { return strategy_edit_action('i
 // ---- Strategies Operations & Autocircular State (5-column state.tsv) ----------
 const STRATEGIES_OPS_CLI = '/usr/libexec/zapret2-manager/strategies-ops-cli.uc';
 function strategies_state_method(req) { return cli_action(STRATEGIES_OPS_CLI, 'state'); }
+function strategies_catalog_update_method(req) { return cli_edit_action(STRATEGIES_OPS_CLI, 'catalog-update', req, 'strategies'); }
 function strategies_state_clear_method(req) {
 	let edit = null;
 	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
@@ -1014,6 +1016,7 @@ return {
 		dns_global_apply:  { call: function (req) { return dns_global_apply_method(req); } },
 		dns_global_rollback: { call: function (req) { return dns_global_rollback_method(req); } },
 		strategies_list:   { call: function (req) { return strategies_list_method(req); } },
+		strategies_recommendations: { call: function (req) { return strategies_recommendations_method(req); } },
 		strategies_get:    { args: { edit: 'string' }, call: function (req) { return strategies_get_method(req); } },
 		strategies_create: { args: { edit: 'string' }, call: function (req) { return strategies_create_method(req); } },
 		strategies_update: { args: { edit: 'string' }, call: function (req) { return strategies_update_method(req); } },
@@ -1025,6 +1028,7 @@ return {
 		strategies_apply: { args: { edit: 'string' }, call: function (req) { return strategies_apply_method(req); } },
 		strategies_catalog_status: { call: function (req) { return strategies_catalog_status_method(req); } },
 		strategies_catalog_reload: { call: function (req) { return strategies_catalog_reload_method(req); } },
+		strategies_catalog_update: { args: { edit: 'string' }, call: function (req) { return strategies_catalog_update_method(req); } },
 		strategies_import_profiles: { args: { edit: 'string' }, call: function (req) { return strategies_import_profiles_method(req); } },
 		strategies_state:  { call: function (req) { return strategies_state_method(req); } },
 		strategies_state_clear: { args: { edit: 'string' }, call: function (req) { return strategies_state_clear_method(req); } },
