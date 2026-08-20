@@ -4,7 +4,7 @@
 // candidate construction to the shared Strategy compiler.
 
 import { readfile, stat, readlink, lsdir, popen } from 'fs';
-import { strategy_catalog_load, strategy_catalog_get,
+import { strategy_catalog_read_index, strategy_catalog_get_detail,
  strategy_catalog_status, strategy_catalog_reload, catalog_entry_to_strategy } from './strategy-catalog.uc';
 import { strategy_user_list, strategy_user_get_readonly, strategy_duplicate,
  strategy_selection_get, strategy_apply_uncertain_get,
@@ -839,14 +839,15 @@ function catalog_root() {
 
 function load_request_catalog() {
 	let loaded = null;
-	try { loaded = strategy_catalog_load(catalog_root()); } catch (e) { loaded = null; }
+	try { loaded = strategy_catalog_read_index(catalog_root()); } catch (e) { loaded = null; }
 	return is_object(loaded) && loaded.ok == true && is_object(loaded.catalog)
 		? loaded.catalog : error_result('EVERIFY', 'verified Strategy catalog is unavailable');
 }
 
 function catalog_strategy(entry) {
 	let strategy = null;
-	try { strategy = catalog_entry_to_strategy(entry); } catch (e) { strategy = null; }
+	if (is_object(entry) && entry.indexEntry == true) strategy = entry;
+	else try { strategy = catalog_entry_to_strategy(entry); } catch (e) { strategy = null; }
 	if (!is_object(strategy)) return null;
 	strategy.origin = 'avatar_builtin';
 	strategy.is_builtin = true;
@@ -983,7 +984,7 @@ function strategy_get(input) {
 		return bounded_strategy_response({ ok: true, strategy: wire_strategy(user.strategy, current, selection) }, 'Strategy detail');
 	if (is_object(user) && user.error && user.error.code != 'ENOENT') return user;
 	let entry = null;
-	try { entry = strategy_catalog_get(input.id); } catch (e) { entry = null; }
+	try { entry = strategy_catalog_get_detail(input.id); } catch (e) { entry = null; }
 	if (is_object(entry) && entry.error) return entry;
 	let strategy = catalog_strategy(entry);
 	return strategy == null ? error_result('ENOENT', 'Strategy was not found')

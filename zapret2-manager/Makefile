@@ -102,6 +102,8 @@ if [ ! -e /etc/zapret2-manager/strategy-state.json ] && [ ! -L /etc/zapret2-mana
   printf '%s\n' '{"schema":1,"revision":0,"favorites":[],"selected":null}' \
     | install -o root -g root -m 0600 /dev/stdin /etc/zapret2-manager/strategy-state.json || exit $$?
 fi
+rm -f /etc/zapret2-manager/strategy-catalog-index.json
+/usr/bin/ucode /usr/libexec/zapret2-manager/strategy-catalog-index-cli.uc >/dev/null 2>&1 || true
 /etc/init.d/rpcd reload
 /etc/init.d/zapret2-manager enable
 exit 0

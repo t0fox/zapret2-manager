@@ -1,11 +1,14 @@
 'use strict';
 // Immutable Avatar Strategy catalog reader. The manifest is the only source of
-// file names and digests; raw files provide the parsed Strategy records.
+// file names and digests; raw files provide the parsed Strategy records. The
+// read-only RPC path can use the manifest's already-materialized index, while
+// full catalog loads still verify every raw file and declaration.
 
 import { readfile, readlink, stat, popen, writefile } from 'fs';
 import { catalog_entry_to_strategy as normalize_catalog_entry } from './strategy-model.uc';
 
 const DEFAULT_ROOT = '/usr/share/zapret2-manager/catalog/avatar';
+const READ_INDEX_PATH = '/etc/zapret2-manager/strategy-catalog-index.json';
 const DERIVED_CACHE_PREFIX = '/tmp/zapret2-manager/strategy-catalog.';
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
 const PINNED_REPOSITORY = 'avatarDD/zapret-gui';
@@ -148,6 +151,159 @@ function read_manifest(root) {
 	if (type(manifest.files) != 'array' || length(manifest.files) == 0)
 		return error_result('EMANIFEST', 'manifest files must be a non-empty array', manifestPath);
 	return { ok: true, manifest: manifest, manifestPath: manifestPath };
+}
+
+// The shipped manifest is generated from a successful full catalog validation
+// and contains the exact winner entries and set membership needed by the
+// read-only UI. Re-reading the 12 MB derived cache for every RPC needlessly
+// blocks rpcd; keep full verification on strategy_catalog_load/reload and use
+// this bounded index for list/recommendation/detail/status reads.
+function manifest_read_index(manifestResult) {
+	if (!is_object(manifestResult) || manifestResult.ok != true
+		|| !is_object(manifestResult.manifest)) return null;
+	let manifest = manifestResult.manifest;
+	if (type(manifest.physicalEntries) != 'array'
+		|| length(manifest.physicalEntries) != manifest.physicalEntryCount
+		|| type(manifest.winnerOrder) != 'array'
+		|| !is_object(manifest.sets) || !is_object(manifest.sets.tcp)
+		|| !is_object(manifest.sets.udp)) return null;
+	let winners = {}, winnerCount = 0;
+	for (let entry in manifest.physicalEntries) {
+		if (!is_object(entry) || type(entry.id) != 'string' || entry.id == '') return null;
+		if (entry.winner == true) {
+			if (winners[entry.id] != null) return null;
+			winners[entry.id] = entry;
+			winnerCount++;
+		}
+	}
+	if (winnerCount != manifest.uniqueStrategyIdCount
+		|| length(manifest.winnerOrder) != winnerCount) return null;
+	for (let id in manifest.winnerOrder)
+		if (type(id) != 'string' || winners[id] == null) return null;
+	return { schema: manifest.schema, source: manifest.source,
+		aggregateDigest: manifest.aggregateDigest,
+		aggregateDigestAlgorithm: manifest.aggregateDigestAlgorithm,
+		physicalFileCount: manifest.physicalFileCount,
+		physicalEntryCount: manifest.physicalEntryCount,
+		uniqueStrategyIdCount: manifest.uniqueStrategyIdCount,
+		duplicateIdGroupCount: manifest.duplicateIdGroupCount,
+		levelEntryCounts: manifest.levelEntryCounts,
+		protocolEntryCounts: manifest.protocolEntryCounts,
+		featuredIds: manifest.featuredIds, winnerOrder: manifest.winnerOrder,
+		winners: winners, sets: manifest.sets, tcp: manifest.sets.tcp,
+		udp: manifest.sets.udp, manifestPath: manifestResult.manifestPath };
+}
+
+function index_profile_identity(values, index) {
+	for (let value in values) {
+		if (starts(value, '--filter-tcp=')) {
+			let ports = substr(value, length('--filter-tcp='));
+			return { id: ports == '80' ? 'http' + (index + 1) : 'tcp' + (index + 1),
+				name: ports == '80' ? 'HTTP (порт 80)' : 'TCP (порты ' + ports + ')' };
+		}
+		if (starts(value, '--filter-udp='))
+			return { id: 'udp' + (index + 1), name: 'UDP (порты ' + substr(value, length('--filter-udp=')) + ')' };
+		if (starts(value, '--filter-l3='))
+			return { id: substr(value, length('--filter-l3=')) + '_' + (index + 1), name: substr(value, length('--filter-l3=')) };
+	}
+	return { id: 'profile' + (index + 1), name: 'Profile ' + (index + 1) };
+}
+
+function index_profiles(entry) {
+	let sections = [], current = [];
+	for (let line in split(entry.args == null ? '' : entry.args, '\n')) {
+		let value = trim(line);
+		if (value == '') continue;
+		if (value == '--new') { if (length(current)) push(sections, current); current = []; }
+		else push(current, value);
+	}
+	if (length(current)) push(sections, current);
+	let result = [];
+	for (let i = 0; i < length(sections); i++) {
+		let identity = index_profile_identity(sections[i], i);
+		push(result, { id: identity.id, name: identity.name, enabled: true });
+	}
+	return result;
+}
+
+function index_entry(entry) {
+	if (!is_object(entry) || type(entry.id) != 'string' || type(entry.args) != 'string') return null;
+	let metadata = is_object(entry.metadata) ? entry.metadata : {};
+	let result = { indexEntry: true, profiles: index_profiles(entry) };
+	for (let key in ['id', 'name', 'description', 'is_builtin', 'source', 'level',
+		'label', 'author', 'protocol', 'featured', 'metadata', 'sourceFile',
+		'sourceOrdinal', 'cacheKey', 'cacheOrdinal', 'duplicateGroup',
+		'winner', 'effectiveOrdinal'])
+		if (entry[key] != null) result[key] = entry[key];
+	if (result.name == null) result.name = metadata.name == null ? entry.id : metadata.name;
+	if (result.description == null) result.description = metadata.description == null ? '' : metadata.description;
+	if (result.label == null) result.label = metadata.label == null ? '' : metadata.label;
+	if (result.author == null) result.author = metadata.author == null ? '' : metadata.author;
+	if (result.featured == null) result.featured = metadata.featured == true;
+	if (result.is_builtin == null) result.is_builtin = true;
+	if (result.source == null) result.source = 'catalog';
+	if (result.protocol == null) result.protocol = entry.protocol == 'udp' ? 'udp' : 'tcp';
+	if (result.level == null) result.level = '';
+	if (result.metadata == null) result.metadata = metadata;
+	if (result.winner == null) result.winner = entry.winner == true;
+	if (result.effectiveOrdinal == null && entry.effectiveOrdinal != null)
+		result.effectiveOrdinal = entry.effectiveOrdinal;
+	if (result.sourceFile == null && entry.sourceFile != null) result.sourceFile = entry.sourceFile;
+	if (result.sourceOrdinal == null && entry.sourceOrdinal != null) result.sourceOrdinal = entry.sourceOrdinal;
+	if (result.cacheKey == null && entry.cacheKey != null) result.cacheKey = entry.cacheKey;
+	if (result.cacheOrdinal == null && entry.cacheOrdinal != null) result.cacheOrdinal = entry.cacheOrdinal;
+	if (result.duplicateGroup == null && entry.duplicateGroup != null) result.duplicateGroup = entry.duplicateGroup;
+	for (let profile in result.profiles) {
+		if (profile.protocol == null) profile.protocol = result.protocol;
+	}
+	return result;
+}
+
+function compact_catalog(catalog) {
+	if (!is_object(catalog) || !is_object(catalog.winners)) return null;
+	let winners = {};
+	for (let key in catalog.winnerOrder || []) {
+		if (catalog.winners[key] == null) return null;
+		winners[key] = index_entry(catalog.winners[key]);
+	}
+	let result = {};
+	for (let key in ['schema', 'source', 'aggregateDigest', 'aggregateDigestAlgorithm',
+		'physicalFileCount', 'physicalEntryCount', 'uniqueStrategyIdCount',
+		'duplicateIdGroupCount', 'levelEntryCounts', 'protocolEntryCounts',
+		'featuredIds', 'winnerOrder', 'sets', 'tcp', 'udp', 'manifestPath'])
+		if (catalog[key] != null) result[key] = catalog[key];
+	result.winners = winners;
+	return result;
+}
+
+function read_persisted_index(root) {
+	if (root != DEFAULT_ROOT) return null;
+	let metadata = null;
+	try { metadata = stat(READ_INDEX_PATH); } catch (e) { return null; }
+	if (!metadata || metadata.type != 'file' || metadata.size > MAX_FILE_BYTES
+		|| symlink_target(READ_INDEX_PATH) != null) return null;
+	let raw = null, record = null;
+	try { raw = readfile(READ_INDEX_PATH); record = raw == null ? null : json(raw); } catch (e) { return null; }
+	if (!is_object(record) || record.schema != 'z2m.strategy-read-index.v2'
+		|| record.root != root || !is_object(record.catalog)) return null;
+	let catalog = record.catalog;
+	if (type(catalog.aggregateDigest) != 'string'
+		|| !match(catalog.aggregateDigest, /^[0-9a-f]{64}$/)
+		|| type(catalog.winnerOrder) != 'array' || !is_object(catalog.winners)
+		|| !is_object(catalog.sets) || !is_object(catalog.sets.tcp)
+		|| !is_object(catalog.sets.udp)) return null;
+	for (let id in catalog.winnerOrder)
+		if (type(id) != 'string' || !is_object(catalog.winners[id])) return null;
+	return catalog;
+}
+
+function persist_read_index(catalog) {
+	if (!is_object(catalog) || catalog.manifestPath == null) return false;
+	let compact = compact_catalog(catalog);
+	if (compact == null) return false;
+	try { writefile(READ_INDEX_PATH, sprintf('%J', {
+		schema: 'z2m.strategy-read-index.v2', root: DEFAULT_ROOT, catalog: compact
+	})); return true; } catch (e) { return false; }
 }
 
 function protocol_for(filename) {
@@ -568,6 +724,7 @@ function load_catalog(root, bypassCache) {
 	if (!result.ok) { loaded = null; loadedRoot = null; return result; }
 	loaded = result.catalog; loadedRoot = actualRoot;
 	persist_derived_catalog(actualRoot, loaded);
+	persist_read_index(loaded);
 	return result;
 }
 
@@ -579,6 +736,32 @@ function ensure_loaded(root) {
 
 export const strategy_catalog_load = function(root) {
 	return load_catalog(root);
+};
+
+export const strategy_catalog_read_index = function(root) {
+	let actualRoot = root == null ? DEFAULT_ROOT : root;
+	let persisted = read_persisted_index(actualRoot);
+	if (persisted != null) {
+		loaded = persisted; loadedRoot = actualRoot;
+		return { ok: true, catalog: persisted };
+	}
+	let result = read_manifest(actualRoot);
+	if (!result.ok) { loaded = null; loadedRoot = null; return result; }
+	let catalog = manifest_read_index(result);
+	if (catalog == null) {
+		loaded = null; loadedRoot = null;
+		return error_result('EDECLARATION', 'catalog manifest read index is incomplete', result.manifestPath);
+	}
+	loaded = catalog; loadedRoot = actualRoot;
+	persist_read_index(catalog);
+	return { ok: true, catalog: catalog };
+};
+
+export const strategy_catalog_write_read_index = function(root) {
+	let result = load_catalog(root == null ? DEFAULT_ROOT : root, true);
+	if (!result.ok) return result;
+	return { ok: true, digest: result.catalog.aggregateDigest,
+		written: persist_read_index(result.catalog) };
 };
 
 export const strategy_catalog_list = function(protocol, set) {
@@ -595,6 +778,24 @@ export const strategy_catalog_get = function(id) {
 	if (catalog == null || type(id) != 'string' || catalog.winners[id] == null)
 		return { error: { code: 'ENOENT', message: 'strategy is not present in the catalog' } };
 	return catalog.winners[id];
+};
+
+export const strategy_catalog_get_detail = function(id) {
+	let fast = strategy_catalog_read_index(null);
+	if (!fast.ok || !is_object(fast.catalog) || fast.catalog.winners[id] == null)
+		return { error: { code: 'ENOENT', message: 'strategy is not present in the catalog' } };
+	let indexed = fast.catalog.winners[id], path = safe_file_path(DEFAULT_ROOT, indexed.sourceFile);
+	if (path == null) return { error: { code: 'EPATH', message: 'strategy source path is unavailable' } };
+	let raw = null, entries = [];
+	try { raw = readfile(path); entries = raw == null ? [] : parse_file(raw, indexed.sourceFile, indexed.level, indexed.protocol); }
+	catch (e) { entries = []; }
+	for (let entry in entries) if (entry.id == id) {
+		for (let key in ['sourceFile', 'sourceOrdinal', 'cacheKey', 'cacheOrdinal',
+			'duplicateGroup', 'winner', 'effectiveOrdinal'])
+			if (indexed[key] != null) entry[key] = indexed[key];
+		return entry;
+	}
+	return { error: { code: 'ENOENT', message: 'strategy source entry is unavailable' } };
 };
 
 export const strategy_catalog_status = function() {
