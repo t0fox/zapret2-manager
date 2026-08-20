@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "assets": [
+    {
+      "type": "ipset",
+      "id": "ipset:package-games",
+      "name": "games",
+      "canonicalPath": "/etc/zapret2-manager/ipset/games.txt",
+      "provenance": {
+        "kind": "builtin/package",
+        "source": "zapret2-manager-package",
+        "expectedSha256": "58c94cfef7ca0d5a296de8568e64b9ff8c90bdc2a7698455ba1fb39b91b536de"
+      }
+    },
+    {
+      "type": "ipset",
+      "id": "ipset:package-steam",
+      "name": "steam",
+      "canonicalPath": "/etc/zapret2-manager/ipset/steam.txt",
+      "provenance": {
+        "kind": "builtin/package",
+        "source": "zapret2-manager-package",
+        "expectedSha256": "4a37a28827b2a9251d6a627bbf6a1a34fa24f4423ce9aeac05ba9ceaa028dca9"
+      }
+    }
+  ]
+}
