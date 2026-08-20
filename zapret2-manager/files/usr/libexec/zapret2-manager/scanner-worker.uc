@@ -6,6 +6,7 @@ import { scanner_baseline_classify, scanner_tcp_classify, scanner_udp_classify, 
 import { scanner_probe_adapter_baseline, scanner_probe_adapter_tcp, scanner_probe_adapter_staged, scanner_probe_adapter_udp } from './scanner-probe-adapter.uc';
 import { scanner_probe_execute } from './scanner-probe-executor.uc';
 import { scanner_session_begin, scanner_candidate_activate, scanner_candidate_cleanup, scanner_session_finish } from './scanner-transient.uc';
+import { scanner_dependency_preflight } from './scanner-dependency-preflight.uc';
 import { scanner_terminal_reconcile, scanner_stale_worker_recover } from './scanner-reconcile.uc';
 import * as state from './scanner-state.uc';
 
@@ -302,6 +303,8 @@ scanner_worker_run_impl = function(input, seams) {
 	record.id = input.id || record.id || 'scan-' + time(); record.request = copy(req); record.requestDigest = state.scanner_state_digest(req);
 	record.catalogDigest = plan.catalogDigest; record.compilerDigest = plan.compilerDigest; record.planDigest = plan_identity(plan);
 	if (!digest(record.requestDigest) || !digest(record.planDigest)) return error('EDEPENDENCY', 'Scanner identity digests are unavailable.');
+	let dependencies = seam(seams, 'dependencyPreflight') || scanner_dependency_preflight();
+	if (!dependencies.ok) return dependencies;
 	let claimed = state.scanner_state_claim(record.id || 'pending', identity, input.resume === true);
 	if (!claimed.ok) return claimed;
 	lifecycle.claimed = { id: record.id, identity: copy(identity) };

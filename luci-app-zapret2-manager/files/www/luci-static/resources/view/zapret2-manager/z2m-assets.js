@@ -7,7 +7,9 @@ function json(value) { return JSON.stringify(value); }
 function text(value) { return value == null ? '' : String(value); }
 function utf8Base64(value) { return btoa(unescape(encodeURIComponent(text(value)))); }
 function errorText(ctx, error) { return ctx.api.normalizeError(error).message; }
-function assetTypeForRoute(route) { return { ipsets: 'ipset', blobs: 'blob', lua: 'lua', hosts: 'hosts' }[route] || null; }
+function assetTypeForRoute(route, params) {
+  return (params && params.type) || ({ ipsets: 'ipset', blobs: 'blob', lua: 'lua', hosts: 'hosts', hostlists: 'hostlist' }[route] || null);
+}
 function titleForType(type) { return { ipset: _('IP-наборы'), blob: _('Бинарные ресурсы'), lua: _('Lua-скрипты'), hosts: _('Hosts') }[type] || _('Канонические ресурсы'); }
 
 var tableFilter = null;
@@ -19,7 +21,7 @@ function load(ctx) {
 
 function render(ctx) {
   var shell = ctx.shell, envelope = ctx.data || {}, response = envelope.value || {}, root = E('section', { 'class': 'z2m-view on', id: 'z2m-view-assets' });
-  var assetType = assetTypeForRoute(ctx.route);
+  var assetType = assetTypeForRoute(ctx.route, ctx.routeParams);
   var status = E('span', { 'class': 'z2m-dim' });
   var formStatus = E('div', { 'class': 'z2m-dim' });
   var type = E('select', { 'aria-label': _('Тип ресурса') }, ['lua', 'blob', 'ipset', 'hostlist', 'hosts', 'geosite', 'geoip'].map(function (value) { return E('option', { value: value }, value); }));

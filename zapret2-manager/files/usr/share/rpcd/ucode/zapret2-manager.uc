@@ -392,6 +392,8 @@ function scanner_results_method(req) { return scanner_edit_action('results', req
 function scanner_stop_method(req) { return scanner_edit_action('stop', req, 'stop'); }
 function scanner_resume_method(req) { return scanner_edit_action('resume', req, 'resume'); }
 function scanner_save_generated_method(req) { return scanner_edit_action('save-generated', req, 'save-generated'); }
+function scanner_history_list_method(req) { return scanner_edit_action('history', req, 'history'); }
+function scanner_history_get_method(req) { return scanner_edit_action('history-get', req, 'history-get'); }
 
 function job_get_method(req) { return jobs_edit_action('get', req); }
 function job_list_method(req) { return jobs_action('list'); }
@@ -1086,6 +1088,8 @@ return {
 		scanner_results:   { args: { edit: 'string' }, call: function (req) { return scanner_results_method(req); } },
 		scanner_stop:      { args: { edit: 'string' }, call: function (req) { return scanner_stop_method(req); } },
 		scanner_resume:    { args: { edit: 'string' }, call: function (req) { return scanner_resume_method(req); } },
-		scanner_save_generated: { args: { edit: 'string' }, call: function (req) { return scanner_save_generated_method(req); } }
+		scanner_save_generated: { args: { edit: 'string' }, call: function (req) { return scanner_save_generated_method(req); } },
+		scanner_history_list: { args: { edit: 'string' }, call: function (req) { return scanner_history_list_method(req); } },
+		scanner_history_get: { args: { edit: 'string' }, call: function (req) { return scanner_history_get_method(req); } }
 	}
 };

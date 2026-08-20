@@ -9,7 +9,7 @@ function disabledButton(label, kind) { return Shell.button(label, kind || '', nu
 function routeTitle(route) { return { warp: _('WARP / MASQUE'), 'warp-setup': _('Настройка WARP'), 'warp-in-warp': _('WARP-in-WARP') }[route] || _('WARP / MASQUE'); }
 
 function render(ctx) {
-  var route = ctx.route, title = routeTitle(route), root = E('section', { 'class': 'z2m-view on' });
+  var route = ctx.routeParams && ctx.routeParams.tab === 'setup' ? 'warp-setup' : (ctx.routeParams && ctx.routeParams.tab === 'warp-in-warp' ? 'warp-in-warp' : ctx.route), title = routeTitle(route), root = E('section', { 'class': 'z2m-view on' });
   var reason = _('Backend пока не реализован: нет подтверждённого WARP RPC-контракта для состояния, настройки или применения.');
   root.appendChild(E('div', { 'class': 'z2m-phead' }, [E('div', {}, [E('h1', {}, title), E('p', {}, _('Полный UI-контур подготовлен; backend-зависимые действия отключены до появления поддержанного контракта.'))])]));
   root.appendChild(Shell.statePanel({ title: _('Функция недоступна'), message: reason, kind: 'info' }));

@@ -47,7 +47,7 @@ test('The canonical Scanner page has Search, Diagnostics, and History tabs', () 
 test('Diagnostic engine controls remain in the diagnostic module and visual-frozen modules stay owned', () => {
   const diagnostics = read('z2m-blockcheck-page.js');
   const app = read('app.js');
-  for (const control of ['blockcheckw', 'blockcheck2', 'setBcwMode', 'setBc2Mode']) assert.match(diagnostics, new RegExp(control));
+  for (const control of ['blockcheckw', 'blockcheck2', 'status', 'scan', 'universal', 'check', 'quick', 'full', 'dpi_only']) assert.match(diagnostics, new RegExp(control));
   assert.match(app, /'dns-routing':\s*Dns/);
   assert.match(app, /'telegram-tunnel':\s*Proxy/);
   assert.match(app, /strategies:\s*Strategy/);

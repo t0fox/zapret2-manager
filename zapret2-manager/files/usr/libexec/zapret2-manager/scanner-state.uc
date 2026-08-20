@@ -1,12 +1,13 @@
 'use strict';
 
-import { stat, readfile, writefile, mkdir, unlink, popen, readlink } from 'fs';
+import { stat, readfile, writefile, mkdir, unlink, popen, readlink, lsdir } from 'fs';
 import * as native from './core/native-helper.uc';
 
 const ROOT = '/tmp/zapret2-manager/runtime/scanner';
 const MAX_RECORD_BYTES = 98304;
 const MAX_RESULTS = 128;
 const MAX_EVENTS = 32;
+const MAX_HISTORY = 50;
 const MAX_TEXT = 256;
 const ACTIVE = 'active.json';
 const JOURNAL_STATES = ['PREPARED', 'TABLE_CREATED', 'RULES_READY', 'PROCESS_BOUND', 'ACTIVE', 'CLEANING', 'CLEANED'];
@@ -235,6 +236,51 @@ export const scanner_state_load = function(id) {
 	if (!safe_id(id)) return error('EINPUT', 'Scanner id is invalid.');
 	let value = read_record(id);
 	return valid_record(value) ? { ok: true, state: value } : error('ENOENT', 'Scanner record is unavailable.');
+};
+
+function history_projection(value) {
+	return {
+		id: safe_id(value.id) ? value.id : null,
+		revision: integer(value.revision) ? value.revision : 0,
+		request: object(value.request) ? copy(value.request) : null,
+		status: text(value.status) || 'error', phase: text(value.phase) || 'error',
+		progress: integer(value.progress) ? value.progress : 0, total: integer(value.total) ? value.total : 0,
+		currentCandidate: text(value.currentCandidate), counts: object(value.counts) ? copy(value.counts) : {},
+		error: text(value.error), recovery: object(value.recovery) ? copy(value.recovery) : {},
+		startedAt: integer(value.startedAt) ? value.startedAt : null,
+		finishedAt: integer(value.finishedAt) ? value.finishedAt : null,
+		heartbeatAt: integer(value.heartbeatAt) ? value.heartbeatAt : null
+	};
+}
+
+function history_id(name) {
+	if (!string(name)) return null;
+	if (substr(name, -12) == '.record.json') name = substr(name, 0, length(name) - 12);
+	return safe_id(name) ? name : null;
+}
+
+export const scanner_state_history_list = function(input) {
+	let requested = object(input) && integer(input.limit) && input.limit > 0 ? input.limit : MAX_HISTORY;
+	let limit = requested > MAX_HISTORY ? MAX_HISTORY : requested, names = null, rows = [];
+	try { names = lsdir(root()); } catch (e) { names = null; }
+	if (type(names) != 'array') return { ok: true, items: [], limit: limit };
+	for (let name in names) {
+		if (length(rows) >= limit) break;
+		let id = history_id(name);
+		if (!id) continue;
+		let loaded = scanner_state_load(id);
+		if (loaded.ok) push(rows, history_projection(loaded.state));
+	}
+	for (let i = 0; i < length(rows); i++) for (let j = i + 1; j < length(rows); j++) {
+		let left = rows[i].finishedAt || rows[i].startedAt || 0, right = rows[j].finishedAt || rows[j].startedAt || 0;
+		if (right > left) { let swap = rows[i]; rows[i] = rows[j]; rows[j] = swap; }
+	}
+	return { ok: true, items: rows, limit: limit };
+};
+
+export const scanner_state_history_get = function(id) {
+	let loaded = scanner_state_load(id);
+	return loaded.ok ? { ok: true, record: public_record(loaded.state) } : loaded;
 };
 
 export const scanner_state_save = function(input) {

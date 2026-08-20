@@ -135,7 +135,7 @@ function primaryNavigation(model, activeId, onSelect, attrs) {
       'aria-label': _('Разделы Zapret 2 Manager')
     });
     groups.forEach(function (group) {
-      var target = group.items && group.items[0];
+      var target = (group.items || []).filter(function (item) { return item.hidden !== true; })[0];
       if (!target) return;
       var selected = group.id === activeGroup.id;
       var node = E('button', {
@@ -160,7 +160,7 @@ function primaryNavigation(model, activeId, onSelect, attrs) {
         role: 'tablist',
         'aria-label': Format.text(activeGroup.label)
       });
-      (activeGroup.items || []).forEach(function (item) {
+      (activeGroup.items || []).filter(function (item) { return item.hidden !== true; }).forEach(function (item) {
         var targetItems = item.children && item.children.length ? item.children : [item];
         if (item.children && item.children.length) {
           var parent = E('button', {

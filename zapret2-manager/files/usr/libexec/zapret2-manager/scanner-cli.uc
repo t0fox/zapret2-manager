@@ -6,7 +6,7 @@ import { scanner_worker_run, scanner_worker_resume } from './scanner-worker.uc';
 import { scanner_report_from_record, scanner_save_generated_validate } from './scanner-results.uc';
 import { strategy_user_create } from './strategy-state.uc';
 
-const COMMANDS = { start: true, status: true, results: true, stop: true, resume: true, 'save-generated': true };
+const COMMANDS = { start: true, status: true, results: true, stop: true, resume: true, 'save-generated': true, history: true, 'history-get': true };
 const MAX_REQUEST_BYTES = 65536;
 const MAX_OUTPUT_BYTES = 131072;
 const SCHEMA_VERSION = 1;
@@ -55,6 +55,11 @@ function dispatch(command, input, seams) {
 			return bounded(response({ ok: true, id: input.id, report: report.report }));
 		}
 		return bounded(response({ ok: true, id: input.id, status: loaded.state.status, phase: loaded.state.phase, progress: loaded.state.progress, total: loaded.state.total, currentCandidate: loaded.state.currentCandidate, counts: loaded.state.counts, recovery: loaded.state.recovery, error: loaded.state.error, heartbeatAt: loaded.state.heartbeatAt }));
+	}
+	if (command == 'history') return bounded(response(state.scanner_state_history_list(input || {})));
+	if (command == 'history-get') {
+		if (!object(input) || !safe_id(input.id)) return result('EINPUT', 'Scanner id is required.');
+		return bounded(response(state.scanner_state_history_get(input.id)));
 	}
 	if (command == 'stop') {
 		if (!object(input) || !safe_id(input.id)) return result('EINPUT', 'Scanner id is required.');

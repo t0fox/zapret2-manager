@@ -48,7 +48,7 @@ test('Scanner API and view use server-owned lifecycle data', () => {
   for (const control of ['target', 'protocol', 'mode', 'resume', 'dpi_type'])
     assert.match(ui, new RegExp(control), control);
   for (const lifecycle of ['start', 'status', 'results', 'stop', 'resume', 'saveGenerated'])
-    assert.match(ui, new RegExp(`ctx\\.api\\.scanner\\.${lifecycle}`), lifecycle);
+    assert.match(ui, new RegExp(`ctx\\.api\\.scanner(?:\\.${lifecycle}|\\[method\\])`), lifecycle);
   for (const hook of ['load:', 'render:', 'mount:', 'unmount:']) assert.match(ui, new RegExp(hook), hook);
   assert.match(ui, /setTimeout|setInterval/);
   assert.match(ui, /disposed|unmounted|generation|token/);
@@ -56,6 +56,6 @@ test('Scanner API and view use server-owned lifecycle data', () => {
   assert.match(ui, /Use Strategy|strategyId/);
   assert.doesNotMatch(ui, /nfqws|raw command|effectiveArgv|join\(['"] --new ['"]|\.sort\(/i);
   assert.match(app, /z2m-scanner as Scanner/);
-  assert.match(app, /TAB_IDS = \['overview','strategy','scanner'/);
-  assert.match(app, /MODULES = \{[\s\S]*scanner: Scanner/);
+  assert.match(app, /z2m-scanner-product as ScannerProduct/);
+  assert.match(app, /MODULES = \{[\s\S]*scan: ScannerProduct/);
 });

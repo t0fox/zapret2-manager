@@ -26,13 +26,10 @@ var GROUPS = [
   },
   {
     id: 'routing',
-    label: _('VPN и маршрутизация'),
+    label: _('Прокси и маршрутизация'),
     items: [
-      { id: 'unified-routing', label: _('Единая маршрутизация') },
-      { id: 'warp', label: _('WARP / MASQUE'), children: [
-        { id: 'warp-setup', label: _('Настройка WARP') },
-        { id: 'warp-in-warp', label: _('WARP-in-WARP') }
-      ] },
+      { id: 'unified-routing', label: _('Единая маршрутизация'), hidden: true },
+      { id: 'warp', label: _('WARP / MASQUE') },
       { id: 'telegram-tunnel', label: _('Telegram Proxy') }
     ]
   },
@@ -40,12 +37,8 @@ var GROUPS = [
     id: 'data',
     label: _('Списки и данные'),
     items: [
-      { id: 'lists', label: _('Списки') },
-      { id: 'hostlists', label: _('Хост-листы') },
-      { id: 'ipsets', label: _('IP-наборы') },
-      { id: 'blobs', label: _('Бинарные ресурсы') },
-      { id: 'lua', label: _('Lua-скрипты') },
-      { id: 'hosts', label: _('Hosts') },
+      { id: 'services', label: _('Сервисы и домены') },
+      { id: 'resources', label: _('Ресурсы') },
       { id: 'dns-routing', label: _('DNS-маршрутизация') }
     ]
   },
@@ -53,8 +46,6 @@ var GROUPS = [
     id: 'diagnostics',
     label: _('Диагностика'),
     items: [
-      { id: 'diagnostics', label: _('Диагностика') },
-      { id: 'blockcheck', label: _('BlockCheck') },
       { id: 'logs', label: _('Журналы') },
       { id: 'monitor', label: _('Мониторинг') }
     ]
@@ -65,7 +56,6 @@ var GROUPS = [
     items: [
       { id: 'updates', label: _('Обновления') },
       { id: 'zapret', label: _('Zapret') },
-      { id: 'autostart', label: _('Автозапуск') },
       { id: 'settings', label: _('Настройки') }
     ]
   }
@@ -76,9 +66,37 @@ var ALIASES = {
   strategy: 'strategies',
   dns: 'dns-routing',
   proxy: 'telegram-tunnel',
-  services: 'lists',
-  assets: 'lists',
+  services: 'services',
+  lists: 'services',
+  assets: 'resources',
+  hostlists: 'resources',
+  ipsets: 'resources',
+  blobs: 'resources',
+  lua: 'resources',
+  hosts: 'resources',
+  diagnostics: 'scan',
+  blockcheck: 'scan',
+  scanner: 'scan',
+  'warp-setup': 'warp',
+  'warp-in-warp': 'warp',
+  autostart: 'zapret',
+  'unified-routing': 'unified-routing',
   maintenance: 'settings'
+};
+
+var LEGACY_PARAMS = {
+  hostlists: { type: 'hostlist' },
+  ipsets: { type: 'ipset' },
+  blobs: { type: 'blob' },
+  lua: { type: 'lua' },
+  hosts: { type: 'hosts' },
+  diagnostics: { tab: 'diagnostics' },
+  blockcheck: { tab: 'diagnostics' },
+  scanner: { tab: 'search' },
+  'warp-setup': { tab: 'setup' },
+  'warp-in-warp': { tab: 'warp-in-warp' },
+  autostart: { tab: 'autostart' },
+  'unified-routing': { tab: 'unified-routing' }
 };
 
 function eachItem(callback) {
@@ -98,13 +116,28 @@ function findItem(id) {
   return result;
 }
 
-function normalize(value) {
-  var raw = String(value || '').replace(/^#\/?/, '').split('?')[0].replace(/^\/+|\/+$/g, '');
+function parse(value) {
+  var rawValue = String(value || '').replace(/^#\/?/, '').replace(/^\/+|\/+$/g, '');
+  var pieces = rawValue.split('?'), raw = pieces.shift() || 'dashboard';
+  var params = Object.assign({}, LEGACY_PARAMS[raw] || {});
+  (pieces.join('?').split('&') || []).forEach(function (pair) {
+    if (!pair) return;
+    var bits = pair.split('='), key = decodeURIComponent(bits.shift() || '');
+    if (!key) return;
+    params[key] = decodeURIComponent(bits.join('=') || '');
+  });
   var canonical = ALIASES[raw] || raw;
-  return findItem(canonical) ? canonical : 'dashboard';
+  return { route: findItem(canonical) ? canonical : 'dashboard', params: params, raw: raw };
 }
 
-function hash(value) { return '#/' + normalize(value); }
+function normalize(value) { return parse(value).route; }
+
+function hash(value) {
+  var parsed = parse(value), query = Object.keys(parsed.params).sort().map(function (key) {
+    return encodeURIComponent(key) + '=' + encodeURIComponent(parsed.params[key]);
+  }).join('&');
+  return '#/' + parsed.route + (query ? '?' + query : '');
+}
 function label(value) {
   var found = findItem(normalize(value));
   return found ? found.item.label : _('Обзор');
@@ -113,6 +146,7 @@ function label(value) {
 return baseclass.extend({
   groups: GROUPS,
   defaultRoute: 'dashboard',
+  parse: parse,
   normalize: normalize,
   hash: hash,
   label: label

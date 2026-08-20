@@ -11,7 +11,7 @@
 'require view.zapret2-manager.z2m-avatar-control as Control';
 'require view.zapret2-manager.z2m-strategy-page as Strategy';
 'require view.zapret2-manager.z2m-scanner as Scanner';
-'require view.zapret2-manager.z2m-scanner-hub as ScannerHub';
+'require view.zapret2-manager.z2m-scanner-product as ScannerProduct';
 'require view.zapret2-manager.z2m-domain-hub-page as Services';
 'require view.zapret2-manager.z2m-dns-page as Dns';
 'require view.zapret2-manager.z2m-proxy-page as Proxy';
@@ -35,10 +35,12 @@ var MODULES = {
   dashboard: Overview,
   control: Control,
   strategies: Strategy,
-  scan: ScannerHub,
-  scanner: ScannerHub,
+  scan: ScannerProduct,
+  scanner: ScannerProduct,
+  services: Services,
   lists: Services,
-  hostlists: Services,
+  hostlists: Assets,
+  resources: Assets,
   'dns-routing': Dns,
   'unified-routing': UnifiedRouting,
   'telegram-tunnel': Proxy,
@@ -49,8 +51,8 @@ var MODULES = {
   blobs: Assets,
   lua: Assets,
   hosts: Assets,
-  diagnostics: BlockCheck,
-  blockcheck: BlockCheck,
+  diagnostics: ScannerProduct,
+  blockcheck: ScannerProduct,
   logs: AvatarLog,
   monitor: Monitor,
   updates: Maintenance,
@@ -106,6 +108,9 @@ Object.keys(DRAFT_META).forEach(function (scope) {
 
 function tabFromHash() {
   return Navigation.normalize(window.location.hash);
+}
+function paramsFromHash() {
+  return Navigation.parse(window.location.hash).params || {};
 }
 function setHash(tab) {
   tab = Navigation.normalize(tab);
@@ -209,6 +214,7 @@ return L.view.extend({
     function buildContext(tab, module, data, root) {
       return {
         route: tab,
+        routeParams: paramsFromHash(),
         api: Api, store: store, shell: Shell, root: root || content,
         data: data || {}, initial: initial || {},
         navigate: navigateTo,

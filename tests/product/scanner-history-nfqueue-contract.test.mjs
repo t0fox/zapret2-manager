@@ -40,10 +40,9 @@ test('NFQUEUE dependencies and fail-before-mutation preflight are explicit', () 
   assert.match(source, /nfnetlink_queue/);
   assert.match(source, /nft_queue/);
   assert.match(worker, /scanner_dependency_preflight/);
-  const preflightPosition = worker.indexOf('scanner_dependency_preflight');
+  const preflightPosition = worker.indexOf('scanner_dependency_preflight();');
   assert.ok(preflightPosition >= 0);
   assert.ok(preflightPosition < worker.indexOf('scanner_state_claim'), 'preflight must precede state claim');
-  assert.ok(preflightPosition < worker.indexOf('scanner_session_begin'), 'preflight must precede session begin');
+  assert.ok(preflightPosition < worker.indexOf('scanner_session_begin('), 'preflight must precede session begin');
   assert.doesNotMatch(worker, /insmod|modprobe/);
 });
-
