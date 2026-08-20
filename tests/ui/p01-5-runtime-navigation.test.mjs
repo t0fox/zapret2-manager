@@ -45,7 +45,7 @@ test('engine normal rows use Russian product labels and state mapping', () => {
 });
 
 test('primary navigation has reversible canonical routes and one hash listener', () => {
-  for (const route of ['dashboard', 'control', 'lists', 'diagnostics', 'updates'])
+  for (const route of ['dashboard', 'control', 'services', 'diagnostics', 'updates', 'engine', 'backups'])
     assert.match(navigation, new RegExp("id: '" + route + "'"));
   assert.match(app, /hashHandler = function \(\) \{ activate\(tabFromHash\(\)\); \}/);
   assert.match(app, /window\.removeEventListener\('hashchange', hashHandler\)/);
@@ -54,5 +54,5 @@ test('primary navigation has reversible canonical routes and one hash listener',
 test('page teardown clears Dashboard and maintenance pollers', () => {
   assert.match(overview, /function unmount\(\)[\s\S]*clearTimeout\(runtime\.timer\)/);
   assert.match(enginePanel, /function unmount\(ctx\)[\s\S]*clearInterval\(ctx\.engineState\.timer\)/);
-  assert.match(maintenance, /function unmount\(ctx\) \{ EnginePanel\.unmount\(ctx\); \}/);
+  assert.match(maintenance, /function unmount\(ctx\)[\s\S]*ctx\.engineState[\s\S]*EnginePanel\.unmount/);
 });

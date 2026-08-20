@@ -9,6 +9,7 @@ const nav = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/
 const page = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-overview.js'), 'utf8');
 const control = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-avatar-control.js'), 'utf8');
 const maintenance = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance.js'), 'utf8');
+const diagnostics = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-diagnostics-page.js'), 'utf8');
 const maintenanceModel = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-maintenance-model.js'), 'utf8');
 const avatarLog = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-avatar-log.js'), 'utf8');
 const css = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-ui.css'), 'utf8');
@@ -44,8 +45,8 @@ test('Dashboard log window exposes loading, empty, error and smart autoscroll st
 });
 
 test('full event history keeps the same Russian semantic columns', () => {
-  assert.match(maintenance, /Загрузка событий/);
-  assert.match(maintenance, /Показаны последние 100 событий/);
+  assert.match(diagnostics, /eventsTail/);
+  assert.match(diagnostics, /Единый журнал событий/);
   assert.match(avatarLog, /eventId/);
   assert.match(avatarLog, /severity-badge/);
   assert.match(maintenanceModel, /source: text\(event\.source \|\| event\.component\)/);
@@ -54,12 +55,13 @@ test('full event history keeps the same Russian semantic columns', () => {
   assert.match(avatarLog, /function messageLabel/);
   assert.match(avatarLog, /Параметр NFQWS2_ENABLE=/);
   assert.match(avatarLog, /function timestamp/);
-  assert.match(maintenance, /AvatarLog\.normalizeRows/);
+  assert.match(diagnostics, /AvatarLog\.normalizeRows/);
 });
 
 test('Logs page is a dedicated full-fidelity route wired to AvatarLog', () => {
-  assert.match(app, /require view\.zapret2-manager\.z2m-avatar-log as AvatarLog/);
-  assert.match(app, /logs:\s*AvatarLog/);
+  assert.match(diagnostics, /require view\.zapret2-manager\.z2m-avatar-log as AvatarLog/);
+  assert.match(app, /logs:\s*Diagnostics/);
+  assert.match(app, /diagnostics:\s*Diagnostics/);
   assert.doesNotMatch(app, /logs:\s*Monitor/);
   assert.match(nav, /id:\s*'logs',\s*label:\s*_\('Журналы'\)/);
   assert.match(avatarLog, /id:\s*'logs'/);
@@ -170,8 +172,8 @@ test('Canonical event journal is single authoritative producer and shared across
   assert.match(page, /eventsTail/);
   // 4. Consumed by Control journal
   assert.match(control, /eventsTail/);
-  // 5. Consumed by Maintenance tab
-  assert.match(maintenance, /eventsTail/);
+  // 5. Consumed by Diagnostics canonical Logs tab
+  assert.match(diagnostics, /eventsTail/);
 });
 
 test('Logs view uses Graphite page-header reset without gray gradient and keeps flex layout', () => {
@@ -249,4 +251,3 @@ test('Universal Event Journal Unification Contract: single renderer, single CSS 
   assert.match(avatarLog, /'class': 'log-source'/);
   assert.match(avatarLog, /'class': 'log-message'/);
 });
-

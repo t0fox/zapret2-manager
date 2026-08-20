@@ -11,7 +11,7 @@ test('Product IA exposes the approved six groups and canonical page routes', () 
   const navigation = read('z2m-navigation.js');
   for (const label of ['Главная', 'Обход DPI', 'Прокси и маршрутизация', 'Списки и данные', 'Диагностика', 'Система'])
     assert.match(navigation, new RegExp(label));
-  for (const route of ['dashboard', 'control', 'strategies', 'scan', 'warp', 'telegram-tunnel', 'services', 'resources', 'dns-routing', 'monitor', 'logs', 'zapret', 'updates', 'settings'])
+  for (const route of ['dashboard', 'control', 'strategies', 'scan', 'warp', 'telegram-tunnel', 'services', 'resources', 'dns-routing', 'monitor', 'logs', 'updates', 'engine', 'backups', 'settings'])
     assert.match(navigation, new RegExp(`id: ['"]${route}['"]`), route);
   assert.match(navigation, /function parse|routeParams|parameters/i);
   assert.match(navigation, /hostlists|ipsets|blobs|lua|hosts/);
@@ -23,7 +23,8 @@ test('Legacy routes resolve to one canonical lifecycle without changing frozen p
   const app = read('app.js');
   assert.match(navigation, /assets\s*:\s*['"]resources['"]/);
   assert.match(navigation, /services\s*:\s*['"]services['"]/);
-  assert.match(navigation, /autostart.*zapret|zapret.*autostart/i);
+  assert.match(navigation, /autostart:\s*['"]engine['"]/);
+  assert.match(navigation, /zapret:\s*['"]engine['"]/);
   assert.match(app, /ScannerProduct/);
   assert.match(app, /scan:\s*ScannerProduct/);
   assert.match(app, /strategies:\s*Strategy/);

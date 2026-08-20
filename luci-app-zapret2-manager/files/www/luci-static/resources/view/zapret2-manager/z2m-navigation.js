@@ -46,16 +46,19 @@ var GROUPS = [
     id: 'diagnostics',
     label: _('Диагностика'),
     items: [
-      { id: 'logs', label: _('Журналы') },
-      { id: 'monitor', label: _('Мониторинг') }
+      { id: 'diagnostics', label: _('Диагностика'), hidden: true },
+      { id: 'monitor', label: _('Мониторинг') },
+      { id: 'logs', label: _('Журналы') }
     ]
   },
   {
     id: 'system',
     label: _('Система'),
     items: [
+      { id: 'system', label: _('Система'), hidden: true },
       { id: 'updates', label: _('Обновления') },
-      { id: 'zapret', label: _('Zapret') },
+      { id: 'engine', label: _('Движок') },
+      { id: 'backups', label: _('Резервные копии') },
       { id: 'settings', label: _('Настройки') }
     ]
   }
@@ -74,14 +77,19 @@ var ALIASES = {
   blobs: 'resources',
   lua: 'resources',
   hosts: 'resources',
-  diagnostics: 'scan',
+  diagnostics: 'diagnostics',
   blockcheck: 'scan',
   scanner: 'scan',
   'warp-setup': 'warp',
   'warp-in-warp': 'warp',
-  autostart: 'zapret',
+  zapret: 'engine',
+  autostart: 'engine',
+  maintenance: 'updates',
+  updates: 'updates',
+  settings: 'settings',
   'unified-routing': 'unified-routing',
-  maintenance: 'settings'
+  monitor: 'monitor',
+  logs: 'logs'
 };
 
 var LEGACY_PARAMS = {
@@ -90,12 +98,14 @@ var LEGACY_PARAMS = {
   blobs: { type: 'blob' },
   lua: { type: 'lua' },
   hosts: { type: 'hosts' },
-  diagnostics: { tab: 'diagnostics' },
+  diagnostics: { tab: 'monitor' },
   blockcheck: { tab: 'diagnostics' },
   scanner: { tab: 'search' },
   'warp-setup': { tab: 'setup' },
   'warp-in-warp': { tab: 'warp-in-warp' },
-  autostart: { tab: 'autostart' },
+  zapret: { tab: 'engine' },
+  autostart: { tab: 'engine' },
+  maintenance: { tab: 'updates' },
   'unified-routing': { tab: 'unified-routing' }
 };
 

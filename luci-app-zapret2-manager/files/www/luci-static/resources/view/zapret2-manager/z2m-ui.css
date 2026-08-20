@@ -187,13 +187,12 @@
 
 
 
-.z2m-view#z2m-view-overview .log-stack,.z2m-view#z2m-view-maintenance .log-stack{position:relative}
+.z2m-view#z2m-view-overview .log-stack{position:relative}
 #z2m-view-overview .log-viewer{max-height:220px;overflow-y:auto;overflow-x:hidden}
 .z2m-view#z2m-view-overview .log-viewer,.log-viewer.compact{max-height:220px;overflow-y:auto;overflow-x:hidden}
 .z2m-view#z2m-view-overview .log-stack .log-viewer{margin:0}
 #z2m-view-control .log-viewer{max-height:300px;overflow-y:auto;overflow-x:hidden}
 .z2m-view#z2m-view-control .log-viewer,#z2m-view-control #control-logs{max-height:300px;margin:0 18px 18px;overflow-y:auto;overflow-x:hidden}
-.z2m-view#z2m-view-maintenance .log-viewer{max-height:300px;overflow-y:auto;overflow-x:hidden}
 .z2m-view .spinner{width:24px;height:24px;border:2px solid var(--border);border-top-color:var(--blue);border-radius:50%;animation:z2m-avatar-spin .8s linear infinite;display:inline-block}
 .z2m-view .spinner-inline{width:12px;height:12px;border-width:2px;vertical-align:middle;margin-right:6px}
 @keyframes z2m-avatar-spin{to{transform:rotate(360deg)}}
@@ -2619,5 +2618,4 @@
   justify-content: flex-end;
   gap: 10px;
 }
-
 

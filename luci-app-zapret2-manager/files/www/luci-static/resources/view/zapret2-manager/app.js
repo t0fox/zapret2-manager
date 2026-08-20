@@ -15,13 +15,12 @@
 'require view.zapret2-manager.z2m-domain-hub-page as Services';
 'require view.zapret2-manager.z2m-dns-page as Dns';
 'require view.zapret2-manager.z2m-proxy-page as Proxy';
-'require view.zapret2-manager.z2m-monitor as Monitor';
+'require view.zapret2-manager.z2m-diagnostics-page as Diagnostics';
 'require view.zapret2-manager.z2m-maintenance as Maintenance';
 'require view.zapret2-manager.z2m-blockcheck-page as BlockCheck';
 'require view.zapret2-manager.z2m-assets as Assets';
 'require view.zapret2-manager.z2m-unified-routing as UnifiedRouting';
 'require view.zapret2-manager.z2m-warp-page as Warp';
-'require view.zapret2-manager.z2m-avatar-log as AvatarLog';
 'require view.zapret2-manager.z2m-tab-cache as TabCache';
 
 var DRAFT_META = {
@@ -29,7 +28,7 @@ var DRAFT_META = {
   domainHub: { label: _('Сервисы и домены'), tab: 'services' },
   dns: { label: _('DNS'), tab: 'dns' },
   proxy: { label: _('Telegram Proxy'), tab: 'proxy' },
-  maintenance: { label: _('Обслуживание'), tab: 'maintenance' }
+  maintenance: { label: _('Система'), tab: 'updates' }
 };
 var MODULES = {
   dashboard: Overview,
@@ -51,15 +50,17 @@ var MODULES = {
   blobs: Assets,
   lua: Assets,
   hosts: Assets,
-  diagnostics: ScannerProduct,
+  diagnostics: Diagnostics,
   blockcheck: ScannerProduct,
-  logs: AvatarLog,
-  monitor: Monitor,
-  updates: Maintenance,
-  zapret: Maintenance,
-  autostart: Maintenance,
-  settings: Maintenance
+  logs: Diagnostics,
+  monitor: Diagnostics,
+  system: Maintenance
 };
+// Compatibility tab routes all resolve to the single System lifecycle object.
+MODULES.updates = MODULES.system;
+MODULES.engine = MODULES.system;
+MODULES.backups = MODULES.system;
+MODULES.settings = MODULES.system;
 var store = StoreModule.create();
 var activeModule = null;
 var activeContext = null;

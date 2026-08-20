@@ -370,6 +370,16 @@ function render(ctx) {
   var host = E('div', { id: 'z2m-dns-pane' });
   var tabs = E('div', { 'class': 'z2m-subtabs', role: 'tablist' });
 
+  var productStatus = data.productStatus && data.productStatus.value || {};
+  var serviceHealth = data.service && data.service.value || {};
+  var dnsHealth = productStatus.ok === false || serviceHealth.ok === false ? _('Есть проблемы') : _('Готов к проверке');
+  var healthKind = productStatus.ok === false || serviceHealth.ok === false ? 'r' : 'g';
+  var taskSummary = E('div', { 'class': 'z2m-kpis z2m-dns-task-summary' }, [
+    E('div', { 'class': 'z2m-kpi' }, [E('div', { 'class': 'v' }, shell.chip(dnsHealth, healthKind, true)), E('div', { 'class': 'l' }, _('Состояние DNS'))]),
+    E('div', { 'class': 'z2m-kpi' }, [E('div', { 'class': 'v' }, currentProviderId || _('Не выбран')), E('div', { 'class': 'l' }, _('Профиль / провайдер'))]),
+    E('div', { 'class': 'z2m-kpi' }, [E('div', { 'class': 'v' }, String(state.manual.length)), E('div', { 'class': 'l' }, _('Правила в черновике'))])
+  ]);
+
   function showError(error) { shell.showToast(ctx.api.normalizeError(error).message, 'err'); }
   function updateGlobalDraft(updated) {
     var d = state.globalDraft;
@@ -994,6 +1004,10 @@ function render(ctx) {
   root.appendChild(E('div', { 'class': 'z2m-phead' }, [
     E('div', {}, [E('h1', {}, _('DNS')), E('p', {}, _('Upstream-серверы, провайдеры и DNS-ответы для отдельных сервисов'))])
   ]));
+  root.appendChild(shell.panel(_('Сначала задача'), E('div', {}, [
+    E('p', { 'class': 'z2m-dim' }, _('Выберите профиль или провайдера, проверьте состояние, затем сделайте Preview и Apply. Rollback доступен в Истории.')),
+    taskSummary
+  ]), _('Backend ownership сохраняется за canonical DNS facade.')));
   Object.keys(data).forEach(function (key) {
     if (data[key] && data[key].error) root.appendChild(E('div', { 'class': 'warnbar' }, data[key].error.message));
   });

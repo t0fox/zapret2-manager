@@ -2,7 +2,6 @@
 'require baseclass';
 'require view.zapret2-manager.z2m-maintenance-model as MaintenanceModel';
 'require view.zapret2-manager.z2m-engine-panel as EnginePanel';
-'require view.zapret2-manager.z2m-avatar-log as AvatarLog';
 
 var SCOPES = ['engineConfig', 'ourState', 'lists', 'profiles'];
 var LOAD_TIMEOUT_MS = 5000;
@@ -46,21 +45,23 @@ function boundedLoad(promise, label) {
     throw error;
   });
 }
+function activePane(ctx) {
+  var route = ctx.route || '';
+  if (route === 'engine') return 'engine';
+  if (route === 'backups') return 'backups';
+  if (route === 'settings') return 'settings';
+  return 'updates';
+}
 function load(ctx) {
-  return Promise.allSettled([
-    boundedLoad(ctx.api.maintenance.versions(), 'versions'),
-    boundedLoad(ctx.api.maintenance.status(), 'maintenance status'),
-    boundedLoad(ctx.api.maintenance.backupList(), 'backup list'),
-    boundedLoad(edit(ctx.api.maintenance.eventsTail, { limit: 100 }), 'events'),
-    boundedLoad(EnginePanel.load(ctx), 'engine')
-  ]).then(function (results) {
-    return {
-      versions: settled(results[0], ctx.api),
-      status: settled(results[1], ctx.api),
-      backups: settled(results[2], ctx.api),
-      events: settled(results[3], ctx.api),
-      engine: settled(results[4], ctx.api)
-    };
+  var pane = activePane(ctx);
+  var promise;
+  if (pane === 'engine') promise = EnginePanel.load(ctx).then(function (value) { return { engine: settled({ status: 'fulfilled', value: value }, ctx.api) }; });
+  else if (pane === 'backups') promise = boundedLoad(ctx.api.maintenance.backupList(), 'backup list').then(function (value) { return { backups: { value: value || {} } }; });
+  else if (pane === 'settings') promise = Promise.resolve({ settings: { value: { ui: ctx.store.get().ui || {} } } });
+  else promise = boundedLoad(ctx.api.maintenance.versions(), 'versions').then(function (value) { return { versions: { value: value || {} } }; });
+  return promise.catch(function (error) {
+    var key = pane === 'engine' ? 'engine' : pane === 'backups' ? 'backups' : pane === 'settings' ? 'settings' : 'versions';
+    var result = {}; result[key] = { error: ctx.api.normalizeError(error) }; return result;
   });
 }
 function showError(ctx, error) {
@@ -72,7 +73,7 @@ function rerender(ctx) {
   ctx.root.replaceChildren(next);
 }
 function refresh(ctx) {
-  return ctx.refresh('maintenance');
+  return ctx.refresh(ctx.route || 'system');
 }
 function mutation(ctx, name, promise) {
   if (state.busy) return Promise.resolve(null);
@@ -124,27 +125,19 @@ function formatTime(shell, value) {
 function renderSystem(ctx, data) {
   var shell = ctx.shell;
   var versions = MaintenanceModel.normalizeVersions(data.versions && data.versions.value || {});
-  var system = MaintenanceModel.normalizeSystem(data.status && data.status.value || {});
   var versionCards = versions.map(function (item) {
     return E('div', { 'class': 'z2m-kpi' }, [
       E('div', { 'class': 'v' }, item.value),
       E('div', { 'class': 'l' }, item.label)
     ]);
   });
-  var systemRows = [];
-  if (system.uptime) systemRows.push({ label: _('Uptime'), value: system.uptime });
-  if (system.memoryAvailable) systemRows.push({ label: _('Доступная память'), value: system.memoryAvailable });
-  if (system.overlay) systemRows.push({ label: _('Overlay'), value: system.overlay });
-  systemRows = systemRows.concat(system.runtime.map(function (row) {
-    return { label: row.label, value: row.value };
-  }));
   return E('div', {}, [
     shell.panel(_('Версии пакетов'), versionCards.length
       ? E('div', { 'class': 'z2m-kpis' }, versionCards)
       : shell.statePanel({ message: _('Backend не вернул версии пакетов.'), kind: 'info' })),
-    shell.panel(_('Система и runtime'), systemRows.length
-      ? kvPanel(shell, systemRows)
-      : shell.statePanel({ message: _('Системные данные недоступны.'), kind: 'info' }))
+    shell.panel(_('Состояние обновлений'), shell.statePanel({
+      message: _('Доступность обновлений не проверяется этим read-only контрактом; показаны только версии, реально установленные в системе.'), kind: 'info'
+    }))
   ]);
 }
 
@@ -283,89 +276,65 @@ function renderBackups(ctx, data) {
   ]);
 }
 
-function renderEvents(ctx, data) {
+function renderSettings(ctx, data) {
   var shell = ctx.shell;
-  if (!data.events) return shell.panel(_('События'), shell.statePanel({ message: _('Загрузка событий…'), kind: 'loading' }));
-  var envelope = data.events && data.events.value || {};
-  if (data.events && data.events.error)
-    return shell.panel(_('События'), shell.statePanel({ title: _('Не удалось загрузить события'), message: data.events.error.message, kind: 'error' }));
-  var latestSource = AvatarLog.normalizeRows(envelope, 100);
-  var advanced = !!(ctx.store.get().ui && ctx.store.get().ui.advanced);
-  var viewer = AvatarLog.renderNormalized(latestSource, {
-    label: _('Журнал событий'),
-    formatTimestamp: function (value) { return formatTime(shell, value); },
-    advanced: advanced,
-    redactTechnical: MaintenanceModel.redact,
-    empty: shell.statePanel({ message: _('Событий нет.'), kind: 'info' })
+  var ui = object(data.settings && data.settings.value && data.settings.value.ui);
+  var advanced = ui.advanced === true;
+  var toggle = shell.switchControl({
+    checked: advanced,
+    label: _('Расширенный режим интерфейса'),
+    onChange: function (enabled) {
+      ctx.store.update({ ui: Object.assign({}, ctx.store.get().ui || {}, { advanced: enabled }) });
+      ctx.rerender();
+    }
   });
-  return shell.panel(_('События'), viewer, _('Показаны последние 100 событий.'));
-}
-
-function renderDiagnostics(ctx) {
-  var shell = ctx.shell;
-  var resultRows = scalarRows(MaintenanceModel.redact(state.diagnostics || {}));
-  var exportButton = shell.button(_('Собрать диагностику'), 'primary', function () {
-    mutation(ctx, 'diagnostics-export', ctx.api.maintenance.diagnosticsExport()).then(function (answer) {
-      if (!answer) return;
-      state.diagnostics = MaintenanceModel.redact(answer);
-      rerender(ctx);
-    });
-  }, !!state.busy);
-  return shell.panel(_('Diagnostics export'), E('div', {}, [
-    E('div', { 'class': 'z2m-btnrow' }, exportButton),
-    resultRows.length ? kvPanel(shell, resultRows) : shell.statePanel({
-      message: _('Экспорт ещё не запускался. Диагностика не изменяет состояние роутера.'),
+  return E('div', {}, [
+    shell.panel(_('Настройки менеджера'), E('div', { 'class': 'z2m-setting-row' }, [
+      E('div', {}, [E('strong', {}, _('Расширенный режим')), E('p', { 'class': 'z2m-dim' }, _('Показывает технические детали и диагностические поля в существующих экранах.'))]),
+      toggle
+    ])),
+    shell.panel(_('Граница контракта'), shell.statePanel({
+      message: _('В текущем backend нет отдельного settings RPC. Эта настройка хранится в manager UI state; серверные конфигурации изменяются только своими существующими product contracts.'),
       kind: 'info'
-    })
-  ]));
+    }))
+  ]);
 }
 
 function render(ctx) {
   var data = ctx.data || {};
-  if (!state.paneInitialized) {
-    state.pane = data.engine && data.engine.value && EnginePanel.missing(data.engine.value) ? 'engine' : 'system';
-    state.paneInitialized = true;
-  }
-  var panes = {
-    system: renderSystem(ctx, data),
-    engine: renderEngine(ctx, data),
-    backups: renderBackups(ctx, data),
-    events: renderEvents(ctx, data),
-    diagnostics: renderDiagnostics(ctx)
-  };
-  if (!panes[state.pane]) state.pane = 'system';
-  var paneHost = E('div', { id: 'z2m-maintenance-pane' }, panes[state.pane]);
+  var pane = activePane(ctx);
+  var paneBody = pane === 'engine' ? renderEngine(ctx, data)
+    : pane === 'backups' ? renderBackups(ctx, data)
+    : pane === 'settings' ? renderSettings(ctx, data)
+    : renderSystem(ctx, data);
+  var paneHost = E('div', { id: 'z2m-system-pane' }, paneBody);
   var tabs = ctx.shell.subTabs([
-    { id: 'system', label: _('Система') },
+    { id: 'updates', label: _('Обновления') },
     { id: 'engine', label: _('Движок') },
     { id: 'backups', label: _('Резервные копии') },
-    { id: 'events', label: _('События') },
-    { id: 'diagnostics', label: _('Диагностика') }
-  ], state.pane, function (id) {
-    state.pane = id;
-    paneHost.replaceChildren(panes[id]);
-  }, { 'aria-label': _('Разделы обслуживания') });
+    { id: 'settings', label: _('Настройки') }
+  ], pane, function (id) { ctx.navigate(id); }, { 'aria-label': _('Разделы системы') });
   var errors = [];
   Object.keys(data).forEach(function (key) {
     if (key !== 'engine' && data[key] && data[key].error)
       errors.push(ctx.shell.statePanel({ title: _('Ошибка backend'), message: data[key].error.message, kind: 'error' }));
   });
-  return E('section', { 'class': 'z2m-view on', id: 'z2m-view-maintenance' }, [
+  return E('section', { 'class': 'z2m-view on', id: 'z2m-view-system' }, [
     E('div', { 'class': 'z2m-phead' }, [
-      E('div', {}, [E('h1', {}, _('Обслуживание')), E('p', {}, _('Движок, версии, резервные копии, события и экспорт диагностики'))])
+      E('div', {}, [E('h1', {}, _('Система')), E('p', {}, _('Версии, движок, резервные копии и настройки manager UI'))])
     ]),
     errors.length ? E('div', {}, errors) : null,
     tabs,
     paneHost
   ]);
 }
-function mount(ctx) { EnginePanel.mount(ctx); }
-function unmount(ctx) { EnginePanel.unmount(ctx); }
+function mount(ctx) { if (activePane(ctx) === 'engine') EnginePanel.mount(ctx); }
+function unmount(ctx) { if (ctx && ctx.engineState) EnginePanel.unmount(ctx); }
 
 return baseclass.extend({
-  id: 'maintenance',
-  title: _('Обслуживание'),
-  subtitle: _('Установка движка, резервные копии, версии, события и диагностика'),
+  id: 'system',
+  title: _('Система'),
+  subtitle: _('Версии, движок, резервные копии и настройки'),
   load: load,
   render: render,
   mount: mount,
