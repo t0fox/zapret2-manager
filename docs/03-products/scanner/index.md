@@ -12,3 +12,6 @@ tags: [product, scanner, parity]
 # Scanner
 
 Scanner findings are transient/candidate results and use the Strategy authority path for permanent Apply.
+
+Runtime authority and discovery evidence are recorded in
+[Scanner Runtime Authority](../../02-architecture/scanner-runtime-authority.md).
