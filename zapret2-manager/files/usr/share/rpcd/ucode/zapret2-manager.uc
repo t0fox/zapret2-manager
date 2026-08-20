@@ -331,10 +331,10 @@ function scanner_edit_action(sub, req, tag) {
 	if (length(edit) > SCANNER_MAX_REQUEST_BYTES)
 		return { ok: false, error: { code: 'EINPUT', message: 'edit exceeds the safe request size limit' } };
 	let tmp = null;
-	let created = popen('umask 077; mktemp /tmp/zapret2-manager/runtime/requests/scanner.XXXXXX.json 2>/dev/null', 'r');
+	let created = popen('umask 077; mktemp /tmp/zapret2-manager/runtime/requests/scanner.XXXXXX 2>/dev/null', 'r');
 	if (created) { tmp = trim(created.read('all') || ''); created.close(); }
 	if (!tmp || index(tmp, SCANNER_REQUEST_ROOT) != 0
-		|| !match(substr(tmp, length(SCANNER_REQUEST_ROOT)), /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\.json$/)) {
+		|| !match(substr(tmp, length(SCANNER_REQUEST_ROOT)), /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/)) {
 		if (tmp) try { unlink(tmp); } catch (e) { }
 		return { ok: false, error: { code: 'ETARGET', message: 'request temp file unavailable' } };
 	}
@@ -369,10 +369,10 @@ function scanner_start_async(req) {
 	if (type(request.id) != 'string' || !match(request.id, /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/))
 		return { ok: false, error: { code: 'EINPUT', message: 'Scanner id is invalid' } };
 	let serialized = sprintf('%J', request), tmp = null;
-	let created = popen('umask 077; mktemp /tmp/zapret2-manager/runtime/requests/scanner.XXXXXX.json 2>/dev/null', 'r');
+	let created = popen('umask 077; mktemp /tmp/zapret2-manager/runtime/requests/scanner.XXXXXX 2>/dev/null', 'r');
 	if (created) { tmp = trim(created.read('all') || ''); created.close(); }
 	if (!tmp || index(tmp, SCANNER_REQUEST_ROOT) != 0
-		|| !match(substr(tmp, length(SCANNER_REQUEST_ROOT)), /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\.json$/)) {
+		|| !match(substr(tmp, length(SCANNER_REQUEST_ROOT)), /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/)) {
 		if (tmp) try { unlink(tmp); } catch (e) { }
 		return { ok: false, error: { code: 'ETARGET', message: 'request temp file unavailable' } };
 	}

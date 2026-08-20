@@ -21,7 +21,7 @@ test('Scanner RPC methods use fixed CLI subcommands and private bounded edit tra
     assert.match(rpc, new RegExp(`\\b${method}:\\s*\\{`), method);
   assert.match(rpc, /const SCANNER_CLI = ['"]\/usr\/libexec\/zapret2-manager\/scanner-cli-entry\.uc['"]/);
   assert.match(rpc, /function scanner_edit_action\(sub, req, tag\)/);
-  assert.match(rpc, /mktemp \/tmp\/zapret2-manager\/runtime\/requests\/scanner\.XXXXXX\.json/);
+  assert.match(rpc, /mktemp \/tmp\/zapret2-manager\/runtime\/requests\/scanner\.XXXXXX/);
   assert.match(rpc, /writefile\(tmp, edit\)/);
   assert.match(rpc, /SCANNER_CLI \+ ' ' \+ sub \+ ' ' \+ tmp/);
   assert.match(rpc, /head -c/);

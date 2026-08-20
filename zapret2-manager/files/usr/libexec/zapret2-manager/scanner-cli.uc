@@ -23,7 +23,7 @@ function response(value) {
 function request_file(path) {
 	if (!string(path) || length(path) < length(REQUEST_ROOT) || length(path) > length(REQUEST_ROOT) + 128
 		|| substr(path, 0, length(REQUEST_ROOT)) != REQUEST_ROOT || index(path, '..') >= 0
-		|| !match(substr(path, length(REQUEST_ROOT)), /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\.json$/)) return result('EINPUT', 'Private request path is invalid.');
+		|| !match(substr(path, length(REQUEST_ROOT)), /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/)) return result('EINPUT', 'Private request path is invalid.');
 	let link = null, metadata = null, before = null, after = null, raw = null, requestRoot = null;
 	try { requestRoot = stat(substr(REQUEST_ROOT, 0, length(REQUEST_ROOT) - 1)); } catch (e) { return result('EINPUT', 'Private request directory is unavailable.'); }
 	if (!object(requestRoot) || requestRoot.type != 'directory' || readlink(substr(REQUEST_ROOT, 0, length(REQUEST_ROOT) - 1)) != null

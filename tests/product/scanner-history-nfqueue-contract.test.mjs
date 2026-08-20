@@ -57,3 +57,12 @@ test('Scanner RPC launches the export-bearing CLI through a module-safe entrypoi
   assert.match(rpc, /scanner-cli-entry\.uc/);
   assert.doesNotMatch(cli, /if \(ARGV\[0\] != null\)/);
 });
+
+test('Scanner RPC request temp files use the BusyBox-compatible mktemp form', () => {
+  const rpc = read('zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc');
+  const cli = read('zapret2-manager/files/usr/libexec/zapret2-manager/scanner-cli.uc');
+  assert.match(rpc, /mktemp \/tmp\/zapret2-manager\/runtime\/requests\/scanner\.XXXXXX(?:\s|['"])/);
+  assert.doesNotMatch(rpc, /scanner\.XXXXXX\.json/);
+  assert.match(cli, /REQUEST_ROOT/);
+  assert.doesNotMatch(cli, /\.json\$\/\)\) return result\('EINPUT'/);
+});
