@@ -78,6 +78,8 @@ function transactionHook(overrides = {}) {
     restart: [{ rc: 0, out: '' }, { rc: 0, out: '' }],
     verify: [{ ok: true, checks: runtimeChecks(true) }, { ok: true, checks: runtimeChecks(true) }],
     rollback: { restoreOk: true, configBytes: 'old-config', configSha256: OLD_CONFIG_HASH },
+    appliedIdentity: { config: NEW_CONFIG_HASH, uci: null },
+    rollbackAppliedIdentity: { config: OLD_CONFIG_HASH, uci: null },
     configHash: OLD_CONFIG_HASH, candidateHash: HASH,
     ...transactionOverrides
   }};
@@ -338,6 +340,7 @@ test('profiles_apply_candidate executes a verified Strategy transaction through 
   });
   assert.equal(result.ok, true, JSON.stringify(result));
   assert.equal(result.identity.ok, true);
+  assert.deepEqual(result.appliedIdentity, { config: NEW_CONFIG_HASH, uci: null });
   assert.deepEqual(invoke(STATE, 'mod.strategy_selection_get()', env).selected, oldIdentity);
 }));
 
@@ -354,6 +357,7 @@ test('profiles_apply_candidate executes restart failure and verified rollback th
   assert.equal(result.ok, false);
   assert.equal(result.error.code, 'ETARGET');
   assert.equal(result.rolledBack, true);
+  assert.deepEqual(result.rollbackAppliedIdentity, { config: OLD_CONFIG_HASH, uci: null });
   assert.deepEqual(invoke(STATE, 'mod.strategy_selection_get()', env).selected, oldIdentity);
 }));
 

@@ -161,6 +161,28 @@ test('apply transaction snapshots, writes, restarts, recollects, verifies, and r
   ]);
 });
 
+test('applied identity is committed only after verified apply and after verified rollback restore', () => {
+  const snapshot = functionBody(apply, 'snapshot_apply');
+  const transaction = functionBody(apply, 'apply_candidate_pipeline');
+  const applyWriter = read('zapret2-manager/files/usr/libexec/zapret2-manager/apply.uc');
+
+  assert.doesNotMatch(snapshot, /applied\.sha256/,
+    'snapshot must not claim the pre-CAS state as successfully applied');
+  assertOrdered(transaction, [
+    /(?:set_var_cas\(OPT_VAR, dq_escape\(f\.candidate\), snap\.configSha256\)|set_vars_cas\(vars_map, snap\.configSha256\))/,
+    /run\(UPSTREAM_INIT \+ ' restart'\)/,
+    /verify_status\(/,
+    /commit_applied_identity/,
+  ]);
+  assertOrdered(transaction, [
+    /restore_whole_file\(PATHS\.applied_conf, snap\.configBytes\)/,
+    /rollbackVerify\.ok/,
+    /commit_applied_identity/,
+  ]);
+  assert.match(applyWriter, /export const commit_applied_identity/);
+  assert.match(applyWriter, /Z2M_APPLIED_IDENTITY/);
+});
+
 test('recent apply cache verifies current config and runtime before returning idempotent success', () => {
   const transaction = functionBody(apply, 'apply_candidate_pipeline');
 

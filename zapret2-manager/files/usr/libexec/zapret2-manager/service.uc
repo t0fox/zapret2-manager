@@ -7,7 +7,7 @@ import { readfile, writefile, stat, mkdir, unlink, popen } from 'fs';
 import { PATHS, PASSTHROUGH_PROFILE_NAME,
 	NFQWS2_ENABLE_VAR, PAUSE_STOPS_FW,
 	ROLLBACK_TIMEOUT_ENABLED, ROLLBACK_TTL } from './constants.uc';
-import { read_var, set_var, restore_whole_file, config_sha256 } from './apply.uc';
+import { read_var, set_var, restore_whole_file, config_sha256, commit_applied_identity } from './apply.uc';
 import { fetch_list } from './list-fetcher.uc';
 
 const UPSTREAM_INIT = '/etc/init.d/zapret2';
@@ -143,11 +143,7 @@ function sha256_file(path) {
 }
 
 function capture_applied_hash() {
-	try {
-		let st = { config: sha256_file(PATHS.applied_conf),
-			uci: sha256_file(PATHS.uci_conf), captured_at: time() };
-		writefile('/tmp/zapret2-manager/applied.sha256', sprintf("%J", st) + '\n');
-	} catch (e) { }
+	try { commit_applied_identity(); } catch (e) { }
 }
 
 function snapshot_last_good() {
@@ -159,7 +155,6 @@ function snapshot_last_good() {
 		if (uciBytes == null) uciBytes = '';
 		writefile(LASTGOOD_DIR + '/' + basename(PATHS.applied_conf), configBytes);
 		writefile(LASTGOOD_DIR + '/' + basename(PATHS.uci_conf), uciBytes);
-		capture_applied_hash();
 	} catch (e) { }
 }
 
@@ -175,7 +170,6 @@ function schedule_rollback() {
 function apply_nfqws2_enable(value) {
 	let written = set_var(NFQWS2_ENABLE_VAR, '' + value);
 	if (written == null) return null;
-	capture_applied_hash();
 	event('ui', 'config', 'info',
 		NFQWS2_ENABLE_VAR + '=' + value + ' written to /opt/zapret2/config via apply.uc',
 		{ var: NFQWS2_ENABLE_VAR, value: value });
@@ -191,6 +185,7 @@ function start() {
 		return { ok: false, action: 'start', error: 'config write failed' };
 	sync_effective_presets();
 	let r = run(UPSTREAM_INIT + ' start');
+	if (r.rc == 0) capture_applied_hash();
 	event('ui', 'pause', 'info',
 		'start rc=' + r.rc + ' (resumed; NFQWS2_ENABLE=' + restored + ')',
 		{ reason: 'manual_ui', rc: r.rc, pause: 'exit', nfqws2_enable: restored });
@@ -206,6 +201,7 @@ function stop() {
 		return { ok: false, action: 'stop', error: 'config write failed' };
 	if (PAUSE_STOPS_FW) run(UPSTREAM_INIT + ' stop_fw');
 	let r = run(UPSTREAM_INIT + ' stop');
+	if (r.rc == 0) capture_applied_hash();
 	schedule_rollback();
 	event('ui', 'pause', 'info',
 		'stop rc=' + r.rc + ' (paused; NFQWS2_ENABLE=0; prev=' + (prev == null ? 'null' : prev) + ')',
@@ -298,8 +294,8 @@ function rollback(force) {
 		if (!configRestored)
 			return { ok: false, action: 'rollback', code: 'EROLLBACK', error: 'exact config restore verification failed', configRestored: false };
 		try { unlink(PENDING); } catch (e) { }
-		capture_applied_hash();
 		let r = run(UPSTREAM_INIT + ' restart');
+		if (r.rc == 0) capture_applied_hash();
 		event('ui', 'rollback', 'crit', 'ROLLBACK exact snapshot restored rc=' + r.rc,
 			{ rc: r.rc, rollback_ttl: ROLLBACK_TTL, configRestored: configRestored });
 		return { ok: r.rc == 0, action: 'rollback', rc: r.rc, configRestored: configRestored };
@@ -375,7 +371,6 @@ function passthrough(enabled) {
 		save_orig_opt(cur);
 		if (set_var('NFQWS2_OPT', strip_lua_desync(cur)) == null)
 			return { ok: false, action: 'passthrough', enabled: true, error: 'config write failed' };
-		capture_applied_hash();
 		st.active_profile = { name: PASSTHROUGH_PROFILE_NAME, strategies: [] };
 		st.passthrough = { enabled: true };
 		write_state(st);
@@ -384,13 +379,13 @@ function passthrough(enabled) {
 		if (orig != null) {
 			if (set_var('NFQWS2_OPT', orig) == null)
 				return { ok: false, action: 'passthrough', enabled: false, error: 'config write failed' };
-			capture_applied_hash();
 		}
 		st.active_profile = { name: 'default', strategies: null };
 		st.passthrough = { enabled: false };
 		write_state(st);
 	}
 	let r = run(UPSTREAM_INIT + ' restart');
+	if (r.rc == 0) capture_applied_hash();
 	schedule_rollback();
 	event('ui', 'config', 'info', 'passthrough ' + (on ? 'ON' : 'OFF') + ' (profile=' +
 		(on ? PASSTHROUGH_PROFILE_NAME : 'default') + ') rc=' + r.rc,

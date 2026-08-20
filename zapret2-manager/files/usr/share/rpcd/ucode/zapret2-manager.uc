@@ -23,6 +23,7 @@
 // does not register at all.
 
 import { stat, readfile, writefile, unlink, readlink, mkdir, popen } from 'fs';
+import { strategy_cli_dispatch } from '/usr/libexec/zapret2-manager/strategy-cli.uc';
 
 const STATUS_JSON = '/tmp/zapret2-manager/status.json';
 const COLLECTOR   = '/usr/libexec/zapret2-manager/status.uc';
@@ -730,8 +731,25 @@ function strategy_edit_action(mode, req) {
 }
 
 function strategy_noarg_action(mode) { return strategy_edit_action(mode, { edit: '{}' }); }
-function strategies_list_method(req) { return strategy_noarg_action('list'); }
-function strategies_get_method(req) { return strategy_edit_action('get', req); }
+function strategy_read_input(mode, req) {
+	if (mode != 'get') return {};
+	let edit = null;
+	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
+	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
+	if (type(edit) != 'string' || length(edit) > STRATEGY_MAX_REQUEST_BYTES)
+		return { ok: false, error: { code: 'EINPUT', message: 'missing or oversized Strategy read request' } };
+	let value = null;
+	try { value = json(edit); } catch (e) { return { ok: false, error: { code: 'EINPUT', message: 'Strategy read request is malformed' } }; }
+	return value != null && type(value) == 'object' && value.args != null ? value.args : value;
+}
+function strategy_read_action(mode, req) {
+	let input = strategy_read_input(mode, req);
+	if (input && input.ok == false && input.error) return input;
+	try { return strategy_cli_dispatch(mode, input); }
+	catch (e) { return { ok: false, error: { code: 'EINTERNAL', message: 'Strategy read dispatch failed' } }; }
+}
+function strategies_list_method(req) { return strategy_read_action('list', req); }
+function strategies_get_method(req) { return strategy_read_action('get', req); }
 function strategies_create_method(req) { return strategy_edit_action('create', req); }
 function strategies_update_method(req) { return strategy_edit_action('update', req); }
 function strategies_delete_method(req) { return strategy_edit_action('delete', req); }
@@ -740,7 +758,7 @@ function strategies_favorite_method(req) { return strategy_edit_action('favorite
 function strategies_preview_method(req) { return strategy_edit_action('preview', req); }
 function strategies_validate_method(req) { return strategy_edit_action('validate', req); }
 function strategies_apply_method(req) { return strategy_edit_action('apply', req); }
-function strategies_catalog_status_method(req) { return strategy_noarg_action('catalog_status'); }
+function strategies_catalog_status_method(req) { return strategy_read_action('catalog_status', req); }
 function strategies_catalog_reload_method(req) { return strategy_noarg_action('catalog_reload'); }
 function strategies_import_profiles_method(req) { return strategy_edit_action('import_profiles', req); }
 

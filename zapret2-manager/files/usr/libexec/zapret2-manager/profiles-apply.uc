@@ -24,7 +24,7 @@
 //      must both verify or the result is a critical manual-recovery failure.
 
 import { readfile, writefile, stat, readlink, unlink, popen, mkdir } from 'fs';
-import { read_var, set_var_cas, set_vars_cas, restore_whole_file, read_config_bytes, config_sha256 } from './apply.uc';
+import { read_var, set_var_cas, set_vars_cas, restore_whole_file, read_config_bytes, config_sha256, commit_applied_identity } from './apply.uc';
 import { PATHS } from './constants.uc';
 import { z2m_parse, z2m_validate, z2m_fragment, z2m_tokenize, derive_capture_ports } from './profiles.uc';
 import { load_state } from './profiles-draft.uc';
@@ -391,7 +391,6 @@ function snapshot_apply() {
 	writefile(uciSnapshot, uciBytes);
 	writefile(LASTGOOD_DIR + '/state.json', draftBytes);
 	let st = { config: config_sha256(), uci: sha256_file(PATHS.uci_conf), captured_at: time() };
-	writefile('/tmp/zapret2-manager/applied.sha256', sprintf("%J", st) + '\n');
 	let gen = null;
 	try {
 		let raw = readfile(PATHS.status_json);
@@ -457,6 +456,10 @@ function transaction_config_hash(injected) {
 
 function transaction_config_bytes(injected) {
 	return injected != null && injected.configBytes != null ? injected.configBytes : read_config_bytes();
+}
+
+function transaction_commit_applied_identity(injected) {
+	return injected != null ? injected : commit_applied_identity();
 }
 
 export const profiles_rollback_decision = function(restartRc, verifyOk, configRestored, rollbackRestartRc, rollbackVerifyOk) {
@@ -670,12 +673,19 @@ function apply_candidate_pipeline(f) {
 	let verify = verifyHook != null ? transaction_verify(0, f.allowExternalNfqws == true, verifyHook)
 		: verify_status(recollect_status(), parse_queue(), f.allowExternalNfqws == true);
 	let rollbackDecision = profiles_rollback_decision(r.rc, verify.ok, false, -1, false);
-	let identity = null, identityRetry = null, identityFailure = false;
+	let identity = null, identityRetry = null, identityFailure = false, appliedIdentity = null;
 	if (!rollbackDecision.rollbackRequired && f.projection != null) {
 		identity = strategy_state_call('strategy_selection_apply', { expectedRevision: f.projection.expectedRevision, selected: f.projection.selected, applyNonce: f.projection.operationNonce });
 		if (!identity.ok) identityRetry = strategy_state_call('strategy_selection_apply', { expectedRevision: f.projection.expectedRevision, selected: f.projection.selected, applyNonce: f.projection.operationNonce });
 		identityFailure = !identity.ok && (identityRetry == null || !identityRetry.ok);
 		if (identityFailure) rollbackDecision.rollbackRequired = true;
+	}
+	if (!rollbackDecision.rollbackRequired) {
+		appliedIdentity = transaction_commit_applied_identity(hook_value('transaction', 'appliedIdentity'));
+		if (appliedIdentity == null || appliedIdentity.config != cas.configSha256) {
+			rollbackDecision.rollbackRequired = true;
+			identityFailure = true;
+		}
 	}
 	if (rollbackDecision.rollbackRequired) {
 		let rollbackHook = hook_value('transaction', 'rollback');
@@ -691,9 +701,13 @@ function apply_candidate_pipeline(f) {
 		let configRestored = restored != null
 			&& (rollbackHook != null ? transaction_config_hash(rollbackHook) == snap.configSha256 : config_sha256() == snap.configSha256)
 			&& (rollbackHook != null ? transaction_config_bytes(rollbackHook) == snap.configBytes : read_config_bytes() == snap.configBytes);
+		let rollbackAppliedIdentity = configRestored && rollbackVerify.ok
+			? transaction_commit_applied_identity(hook_value('transaction', 'rollbackAppliedIdentity')) : null;
 		let rollbackOk = identityFailure
-			? (configRestored && rr.rc == 0 && rollbackVerify.ok)
-			: profiles_rollback_decision(r.rc, verify.ok, configRestored, rr.rc, rollbackVerify.ok).rollbackOk;
+			? (configRestored && rr.rc == 0 && rollbackVerify.ok && rollbackAppliedIdentity != null
+				&& rollbackAppliedIdentity.config == snap.configSha256)
+			: (profiles_rollback_decision(r.rc, verify.ok, configRestored, rr.rc, rollbackVerify.ok).rollbackOk
+				&& rollbackAppliedIdentity != null && rollbackAppliedIdentity.config == snap.configSha256);
 		let identityRestored = restore_projection_identity(f.projection);
 		if (!identityRestored.ok) rollbackOk = false;
 		if (!rollbackOk) {
@@ -703,20 +717,23 @@ function apply_candidate_pipeline(f) {
 			}, 'rollback or identity restoration could not be verified');
 			event_apply('crit', 'APPLY FAILED AND EXACT ROLLBACK VERIFICATION FAILED — manual recovery required', {
 				restartRc: r.rc, verify: verify.checks, rollbackRestartRc: rr.rc,
-				rollbackVerify: rollbackVerify.checks, configRestored: configRestored
+				rollbackVerify: rollbackVerify.checks, configRestored: configRestored,
+				rollbackAppliedIdentity: rollbackAppliedIdentity
 			});
 			return err('rollback', f.projection != null ? 'EVERIFY' : 'EINTERNAL', f.projection != null
 				? 'Strategy Apply is uncertain — explicit reconciliation is required'
 				: 'apply failed and exact rollback could not be verified — MANUAL RECOVERY REQUIRED', {
 				verify: verify, rollbackOk: false, rollbackVerify: rollbackVerify,
 				configRestored: configRestored, identityRestored: identityRestored,
+				rollbackAppliedIdentity: rollbackAppliedIdentity,
 				uncertain: f.projection != null, critical: f.projection == null, rolledBack: false,
 				uncertaintyPersistence: uncertain
 			});
 		}
 		if (identityFailure) {
 			return err('identity', 'EVERIFY', 'Strategy Apply identity commit failed after exact rollback', {
-				uncertain: false, rolledBack: true, rollbackOk: true, identity: identityRetry || identity
+				uncertain: false, rolledBack: true, rollbackOk: true, identity: identityRetry || identity,
+				rollbackAppliedIdentity: rollbackAppliedIdentity
 			});
 		}
 		event_apply('crit', 'apply failed verification; exact snapshot restored and verified', {
@@ -725,7 +742,8 @@ function apply_candidate_pipeline(f) {
 		});
 		return err('verify', 'ETARGET', 'apply failed verification — exact last-good snapshot restored and verified', {
 			verify: verify, rolledBack: true, rollbackOk: true,
-			rollbackVerify: rollbackVerify, configRestored: configRestored
+			rollbackVerify: rollbackVerify, configRestored: configRestored,
+			rollbackAppliedIdentity: rollbackAppliedIdentity
 		});
 	}
 
@@ -738,6 +756,7 @@ function apply_candidate_pipeline(f) {
 	return {
 		ok: true, mode: 'apply',
 		applied: { profiles: f.draftCount, candidateSha256: f.diff.candidateSha256, configSha256: cas.configSha256 },
+		appliedIdentity: appliedIdentity,
 		verify: verify, snapshot: snap, identity: f.projection == null ? null : (identityRetry && identityRetry.ok ? identityRetry : identity),
 		identityRetry: identityRetry,
 		rollback: { available: true, armed: false, exactSnapshot: true }

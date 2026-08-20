@@ -82,7 +82,7 @@ test('P03 backend list path reuses one catalog snapshot and reload stays explici
   assert.match(cli, /function catalog_wire_metadata\(strategy, current, compact\)[\s\S]*if \(compact == true\)[\s\S]*catalogDigest/);
   assert.match(cli, /wire_strategy\(strategy, current, selection, true\)/);
   assert.match(cli, /summary\.argsTruncated\s*=\s*true/);
-  assert.match(cli, /compact == true && strategy\.origin == 'avatar_builtin'/);
+  assert.match(cli, /function wire_strategy_for_list\(strategy, current, selection\)/);
   const model = fs.readFileSync(path.join(viewRoot, 'z2m-strategies-model.js'), 'utf8');
   const page = fs.readFileSync(path.join(viewRoot, 'z2m-strategies.js'), 'utf8');
   assert.match(model, /argsTruncated:\s*profile\.argsTruncated === true/);

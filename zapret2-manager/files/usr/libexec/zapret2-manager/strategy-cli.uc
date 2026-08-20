@@ -25,6 +25,7 @@ const STATE_MODULE = getenv('Z2M_STRATEGY_STATE_MODULE') || '/usr/libexec/zapret
 const UCODE_BIN = getenv('Z2M_STRATEGY_UCODE_BIN') || '/usr/bin/ucode';
 const MAX_REQUEST_BYTES = 524288;
 const MAX_STRATEGY_RESPONSE_BYTES = 4 * 1024 * 1024;
+const MAX_STRATEGY_LIST_RESPONSE_BYTES = 768 * 1024;
 const REQUEST_UID = getenv('Z2M_STRATEGY_REQUEST_UID') || '0';
 const REQUEST_GID = getenv('Z2M_STRATEGY_REQUEST_GID') || '0';
 const MAX_INLINE_BYTES = 262144;
@@ -171,9 +172,10 @@ function serialize(value) {
 	try { return sprintf('%J', value); } catch (e) { return null; }
 }
 
-function bounded_strategy_response(value, label) {
+function bounded_strategy_response(value, label, maximum) {
 	let encoded = serialize(value);
-	if (encoded == null || length(encoded) > MAX_STRATEGY_RESPONSE_BYTES)
+	maximum = maximum == null ? MAX_STRATEGY_RESPONSE_BYTES : maximum;
+	if (encoded == null || length(encoded) > maximum)
 		return error_result('EOUTPUT', label + ' exceeds the safe response bound');
 	return value;
 }
@@ -334,7 +336,7 @@ function catalog() {
 	let loaded = null;
 	try { loaded = strategy_catalog_load(root); } catch (e) { loaded = null; }
 	if (!is_object(loaded) || loaded.ok != true || !is_object(loaded.catalog))
-		return error_result('EVERIFY', 'verified Avatar catalog is unavailable');
+		return error_result('EVERIFY', 'verified Strategy catalog is unavailable');
 	return loaded.catalog;
 }
 
@@ -839,7 +841,7 @@ function load_request_catalog() {
 	let loaded = null;
 	try { loaded = strategy_catalog_load(catalog_root()); } catch (e) { loaded = null; }
 	return is_object(loaded) && loaded.ok == true && is_object(loaded.catalog)
-		? loaded.catalog : error_result('EVERIFY', 'verified Avatar catalog is unavailable');
+		? loaded.catalog : error_result('EVERIFY', 'verified Strategy catalog is unavailable');
 }
 
 function catalog_strategy(entry) {
@@ -852,7 +854,9 @@ function catalog_strategy(entry) {
 	return strategy;
 }
 
-function catalog_wire_metadata(strategy, current) {
+function catalog_wire_metadata(strategy, current, compact) {
+	if (compact == true)
+		return { catalogDigest: current.aggregateDigest };
 	let metadata = {};
 	if (is_object(strategy.metadata)) for (let key in strategy.metadata) metadata[key] = strategy.metadata[key];
 	for (let key in ['description', 'type', 'version', 'is_builtin', 'source', 'level', 'label',
@@ -878,10 +882,25 @@ function catalog_wire_metadata(strategy, current) {
 	return metadata;
 }
 
-function wire_strategy(strategy, current, selection) {
+function wire_strategy(strategy, current, selection, compact) {
 	if (!is_object(strategy)) return null;
 	let result = {};
-	for (let key in strategy) result[key] = strategy[key];
+	if (compact == true) {
+		for (let key in ['id', 'name', 'description', 'is_builtin', 'source', 'level',
+			'label', 'author', 'protocol', 'featured', 'origin', 'revision'])
+			if (strategy[key] != null) result[key] = key == 'description'
+				? bounded_text(strategy[key], 256) : strategy[key];
+		result.profiles = [];
+		for (let profile in strategy.profiles || []) {
+			let summary = {};
+			for (let key in ['id', 'name', 'enabled'])
+				if (profile[key] != null) summary[key] = profile[key];
+			summary.argsTruncated = true;
+			push(result.profiles, summary);
+		}
+	} else {
+		for (let key in strategy) result[key] = strategy[key];
+	}
 	let selected = selection && selection.selected;
 	let revision = type(result.revision) == 'int' ? result.revision : 0;
 	result.revision = revision;
@@ -889,8 +908,12 @@ function wire_strategy(strategy, current, selection) {
 		&& selected.origin == result.origin && selected.revision == revision;
 	result.is_favorite = type(selection.favorites) == 'array' && index(selection.favorites, result.id) >= 0;
 	result.metadata = result.origin == 'avatar_builtin'
-		? catalog_wire_metadata(result, current) : (is_object(result.metadata) ? result.metadata : {});
+		? catalog_wire_metadata(result, current, compact) : (is_object(result.metadata) ? result.metadata : {});
 	return result;
+}
+
+function wire_strategy_for_list(strategy, current, selection) {
+	return wire_strategy(strategy, current, selection, true);
 }
 
 function strategy_list() {
@@ -906,15 +929,15 @@ function strategy_list() {
 	for (let id in order) {
 		let strategy = catalog_strategy(current.winners[id]);
 		if (strategy == null) return error_result('EVERIFY', 'catalog Strategy normalization failed');
-		push(strategies, wire_strategy(strategy, current, selection));
+		push(strategies, wire_strategy_for_list(strategy, current, selection));
 	}
 	let users = null;
 	try { users = strategy_user_list(); } catch (e) { users = null; }
 	if (!is_object(users) || users.ok != true) return users || error_result('EIO', 'User Strategy list is unavailable');
-	for (let strategy in users.strategies) push(strategies, wire_strategy(strategy, current, selection));
+	for (let strategy in users.strategies) push(strategies, wire_strategy_for_list(strategy, current, selection));
 	return bounded_strategy_response({ ok: true, strategies: strategies,
 		state: { revision: selection.revision, favorites: selection.favorites },
-		favoritesRevision: selection.revision }, 'Strategy list');
+		favoritesRevision: selection.revision }, 'Strategy list', MAX_STRATEGY_LIST_RESPONSE_BYTES);
 }
 
 function strategy_get(input) {

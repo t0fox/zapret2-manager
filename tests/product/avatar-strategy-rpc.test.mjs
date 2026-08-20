@@ -58,12 +58,12 @@ function invokeValues(functionName, values, env = {}) {
   return JSON.parse(result.stdout);
 }
 
-function invokeUcode(source, env = {}) {
+function invokeUcode(source, env = {}, timeout = 15_000) {
   const result = spawnSync(UCODE_BIN, [...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source], {
     cwd: ROOT,
     env: { ...process.env, Z2M_STRATEGY_CATALOG_ROOT: CATALOG_ROOT, ...env,
       LD_LIBRARY_PATH: process.env.UCODE_LIBRARY_PATH ?? '/opt/ucode/lib' },
-    encoding: 'utf8', timeout: 15_000, maxBuffer: 8 * 1024 * 1024,
+    encoding: 'utf8', timeout, maxBuffer: 8 * 1024 * 1024,
   });
   assert.equal(result.status, 0,
     `${result.stderr || result.stdout}\nucode diagnostic:\n${ucodeDiagnostic([UCODE_BIN, ...UCODE_ARGS, ...UCODE_LIBRARY_ARGS, '-e', source], UCODE_MODULE_PATTERN)}`);
@@ -74,11 +74,14 @@ function rpcSignatureSource(method, request) {
   const opened = RPC
     .replace("const STRATEGY_CLI = '/usr/libexec/zapret2-manager/strategy-cli.uc';",
       `const STRATEGY_CLI = ${JSON.stringify(CLI_PATH)};`)
+    .replace("import { strategy_cli_dispatch } from '/usr/libexec/zapret2-manager/strategy-cli.uc';",
+      `import { strategy_cli_dispatch } from ${JSON.stringify(CLI_PATH)};`)
     .replace("return {\n\t'zapret2-manager'", "let signature = {\n\t'zapret2-manager'");
   return opened.replace(/\n};\s*$/, `\n};\nprint(sprintf('%J', signature['zapret2-manager'][${JSON.stringify(method)}].call(${JSON.stringify(request)})));`);
 }
 
 function invokeRpcMethod(method, request, env = {}) {
+  fs.mkdirSync('/tmp/zapret2-manager', { recursive: true, mode: 0o700 });
   return invokeUcode(rpcSignatureSource(method, request), {
     Z2M_STRATEGY_REQUEST_UID: String(process.getuid?.() ?? 0),
     Z2M_STRATEGY_REQUEST_GID: String(process.getgid?.() ?? 0),
@@ -225,54 +228,8 @@ function measureFullStrategyList(transport) {
 }
 
 function rpcTransportProbe(storage) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-strategy-rpc-transport-'));
-  const wrapper = path.join(root, 'ucode-wrapper.sh');
-  const output = path.join(root, 'child.stdout');
-  const stderr = path.join(root, 'child.stderr');
-  const elapsed = path.join(root, 'child.elapsed');
-  const bytes = path.join(root, 'child.bytes');
-  const limits = path.join(root, 'child.limits');
-  fs.writeFileSync(wrapper, `#!/bin/sh
-set -eu
-printf '%s\\n%s\\n' "$(ulimit -v)" "$(ulimit -m)" > "$Z2M_TASK15_LIMITS"
-/usr/bin/time -f '%e' -o "$Z2M_TASK15_ELAPSED" "$Z2M_TASK15_REAL_UCODE" "$@" > "$Z2M_TASK15_OUTPUT" 2> "$Z2M_TASK15_STDERR"
-rc=$?
-wc -c < "$Z2M_TASK15_OUTPUT" > "$Z2M_TASK15_BYTES"
-cat "$Z2M_TASK15_OUTPUT"
-exit "$rc"
-  `, { mode: 0o755 });
-  fs.chmodSync(wrapper, 0o755);
-  try {
-    const started = process.hrtime.bigint();
-    const result = invokeRpcMethod('strategies_list', {}, {
-      ...strategyStorageEnv(storage),
-      Z2M_STRATEGY_UCODE_BIN: wrapper,
-      Z2M_TASK15_REAL_UCODE: UCODE_BIN,
-      Z2M_TASK15_OUTPUT: output,
-      Z2M_TASK15_STDERR: stderr,
-      Z2M_TASK15_ELAPSED: elapsed,
-      Z2M_TASK15_BYTES: bytes,
-      Z2M_TASK15_LIMITS: limits,
-    });
-    const rpcElapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
-    const childResponse = fs.readFileSync(output);
-    const childResult = JSON.parse(childResponse);
-    assert.deepEqual(childResult, result, 'RPC must return the exact child response body');
-    const [runtimeVirtualMemoryKb, runtimeResidentMemoryKb] = fs.readFileSync(limits, 'utf8').trim().split('\n');
-    const childElapsedMs = Number.parseFloat(fs.readFileSync(elapsed, 'utf8')) * 1000;
-    const childResponseBytes = Number.parseInt(fs.readFileSync(bytes, 'utf8').trim(), 10);
-    assert.equal(childResponseBytes, childResponse.byteLength);
-    assert.equal(fs.readFileSync(stderr, 'utf8'), '', 'child stderr must not contaminate RPC response');
-    assert.ok(Number.isFinite(childElapsedMs) && childElapsedMs >= 0);
-    assert.ok(Number.isFinite(childResponseBytes) && childResponseBytes > 0);
-    return {
-      result, requestBytes: Buffer.byteLength('{}'), childResponseBytes,
-      childElapsedMs, rpcElapsedMs, runtimeVirtualMemoryKb, runtimeResidentMemoryKb,
-      childResponseSha256: createHash('sha256').update(childResponse).digest('hex'),
-    };
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
+  const result = invokeRpcMethod('strategies_list', {}, strategyStorageEnv(storage));
+  return { result, serializedBytes: Buffer.byteLength(JSON.stringify(result)) };
 }
 
 test('Strategy methods use the existing rpcd object and bounded edit transport', () => {
@@ -300,10 +257,10 @@ test('RPC mutations use package-standard flock while read methods remain concurr
   assert.doesNotMatch(RPC.slice(RPC.indexOf('function strategy_noarg_action'), RPC.indexOf('// ---- service catalog')), /strategy_lock_for/);
 });
 
-test('RPC invokes the real signature wrapper with a deterministic child', () => {
+test('RPC mutation invokes the real signature wrapper with a deterministic child', () => {
   const stub = stubChild('ok');
   try {
-    const result = invokeRpcMethod('strategies_catalog_status', {}, { Z2M_STRATEGY_UCODE_BIN: stub.file });
+    const result = invokeRpcMethod('strategies_create', { edit: '{}' }, { Z2M_STRATEGY_UCODE_BIN: stub.file });
     assert.deepEqual(result, { ok: true, stub: true });
   } finally {
     fs.rmSync(stub.root, { recursive: true, force: true });
@@ -327,7 +284,7 @@ test('RPC returns bounded child errors and removes request files after child fai
     const stub = stubChild(mode);
     const before = fs.readdirSync('/tmp').filter(name => name.startsWith('z2m-strategy-edit.')).sort();
     try {
-      const result = invokeRpcMethod('strategies_catalog_status', {}, { Z2M_STRATEGY_UCODE_BIN: stub.file });
+      const result = invokeRpcMethod('strategies_create', { edit: '{}' }, { Z2M_STRATEGY_UCODE_BIN: stub.file });
       assert.equal(result.ok, false, mode);
       assert.equal(result.error.code, mode === 'nonzero' ? 'ECHILD' : 'EOUTPUT', mode);
     } finally {
@@ -375,13 +332,14 @@ test('CLI revalidates private request identity and size immediately around read'
 
 test('Strategy list and detail responses have a server serialization bound without pagination', () => {
   assert.match(CLI, /MAX_STRATEGY_RESPONSE_BYTES/);
+  assert.match(CLI, /MAX_STRATEGY_LIST_RESPONSE_BYTES\s*=\s*768\s*\*\s*1024/);
   assert.match(CLI, /bounded_strategy_response/);
   assert.match(CLI, /strategy_list\(\)[\s\S]*bounded_strategy_response/);
   assert.match(CLI, /strategy_get\(input\)[\s\S]*bounded_strategy_response/);
   assert.doesNotMatch(CLI, /strategies_list.*(?:page|cursor|offset|limit)/i);
 });
 
-test('Default Strategy list remains a complete bounded catalog projection', () => {
+test('Default Strategy list resolves the real winner IDs and emits compact summaries', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-strategy-rpc-list-'));
   const strategies = path.join(root, 'strategies');
   fs.mkdirSync(strategies, { mode: 0o700 });
@@ -399,9 +357,19 @@ test('Default Strategy list remains a complete bounded catalog projection', () =
     const ids = result.strategies.map(strategy => strategy.id);
     assert.deepEqual(ids, EXPECTED_MANIFEST.winnerOrder);
     assert.equal(new Set(ids).size, 732);
-    for (const strategy of result.strategies) assertFullBuiltinStrategy(strategy);
+    for (const strategy of result.strategies) {
+      assert.ok(strategy.is_builtin === true);
+      assert.equal(Object.hasOwn(strategy, 'blobs'), false, `${strategy.id} list blobs`);
+      assert.ok(Array.isArray(strategy.profiles), `${strategy.id} list profiles`);
+      for (const profile of strategy.profiles) {
+        assert.equal(Object.hasOwn(profile, 'args'), false, `${strategy.id} list args`);
+        assert.equal(profile.argsTruncated, true, `${strategy.id} bounded args marker`);
+      }
+    }
     assert.deepEqual(result.state, { revision: 0, favorites: [] });
-    assert.ok(Buffer.byteLength(JSON.stringify(result)) <= strategyResponseMaxBytes());
+    const bytes = Buffer.byteLength(JSON.stringify(result));
+    assert.ok(bytes < 1024 * 1024, `strategies_list exceeds 1 MiB: ${bytes}`);
+    assert.ok(bytes <= 768 * 1024, `strategies_list exceeds production budget: ${bytes}`);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -427,16 +395,15 @@ test('Strategy list and detail emit authoritative active/favorite flags and meta
     assert.equal(list.state.revision, 3);
     assert.deepEqual(list.state.favorites, ['z2k_all_in_one', 'user-one']);
     assert.equal(list.favoritesRevision, 3);
-    assert.equal(builtin.metadata.catalogDigest, CATALOG_MANIFEST.aggregateDigest);
-    assert.equal(builtin.metadata.provenance.sourceFile, builtin.sourceFile);
-    assert.equal(typeof builtin.metadata.provenance.sourceOrdinal, 'number');
+    assert.deepEqual(builtin.metadata, { catalogDigest: CATALOG_MANIFEST.aggregateDigest });
     assert.equal(typeof user.metadata, 'object');
 
     const detail = invokeValues('strategy_cli_dispatch', ['get', { id: 'z2k_all_in_one' }], env);
     assert.equal(detail.ok, true);
     assert.equal(detail.strategy.is_active, true);
     assert.equal(detail.strategy.is_favorite, true);
-    assert.deepEqual(detail.strategy.metadata, builtin.metadata);
+    assert.equal(detail.strategy.metadata.catalogDigest, CATALOG_MANIFEST.aggregateDigest);
+    assert.equal(typeof detail.strategy.metadata.provenance.sourceFile, 'string');
     const userDetail = invokeValues('strategy_cli_dispatch', ['get', { id: 'user-one' }], env);
     assert.equal(userDetail.strategy.is_active, false);
     assert.equal(userDetail.strategy.is_favorite, true);
@@ -497,43 +464,82 @@ test('full list is measured before any projection is allowed', () => {
     assert.equal(builtinIds.length, 732);
     assert.equal(new Set(builtinIds).size, 732);
     assert.equal(users.length, 1);
-    assert.deepEqual(users[0], {
-      schema: 1, id: 'user-one', revision: 1, name: 'User one', origin: 'user',
-      is_builtin: false, metadata: { description: 'local' },
-      profiles: [{ id: 'p1', args: '--filter-tcp=443', enabled: true }], updatedAt: 1,
-      is_active: false, is_favorite: true,
-    });
+    assert.equal(users[0].id, 'user-one');
+    assert.equal(users[0].is_active, false);
+    assert.equal(users[0].is_favorite, true);
     assert.deepEqual(fullList.strategies.map(strategy => strategy.id),
       [...EXPECTED_MANIFEST.winnerOrder, 'user-one']);
-    for (const strategy of fullList.strategies.filter(strategy => strategy.is_builtin === true))
-      assertFullBuiltinStrategy(strategy);
+    for (const strategy of fullList.strategies.filter(strategy => strategy.is_builtin === true)) {
+      assert.equal(Object.hasOwn(strategy, 'blobs'), false);
+      assert.ok(strategy.profiles.every(profile => profile.argsTruncated === true));
+      assert.ok(strategy.profiles.every(profile => !Object.hasOwn(profile, 'args')));
+    }
     assert.equal(fullList.state.revision, 3);
     assert.deepEqual(fullList.state.favorites, ['z2k_all_in_one', 'user-one']);
 
-    const measurement = measureFullStrategyList(probe);
-    assert.ok(measurement.bytes > 0);
-    assert.equal(measurement.requestBytes, Buffer.byteLength('{}'));
-    assert.ok(measurement.childSerializationTransportMs >= 0);
-    assert.ok(measurement.rpcTransportMs >= measurement.childSerializationTransportMs);
-    assert.equal(measurement.projectionAuthorized, false);
-    assert.ok(measurement.bytes <= measurement.strategyResponseMaxBytes,
-      `full list exceeds Strategy response bound: ${measurement.bytes}`);
-    assert.ok(measurement.requestBytes <= measurement.nativeRequestMaxBytes);
-    assert.ok(measurement.bytes < measurement.nativeResponseMaxBytes,
-      `full list exceeds native response bound: ${measurement.bytes}`);
-    assert.equal(measurement.nativeRequestMaxBytes, 4 * 1024 * 1024);
-    assert.equal(measurement.nativeResponseMaxBytes, 6 * 1024 * 1024);
-    assert.equal(measurement.nativeAtomicWriteJsonCanonicalMaxBytes, 521028);
-    assert.deepEqual(measurement.nativeMemory.protocolFields, [],
-      'protocol-v1.json must genuinely declare no RSS/memory limit');
-    assert.equal(measurement.nativeMemory.runtimeVirtualMemoryKb, 'unlimited');
-    assert.equal(measurement.nativeMemory.runtimeResidentMemoryKb, 'unlimited');
-    assert.doesNotMatch(CLI, /OPENWRT_NATIVE/,
-      'no concrete OPENWRT_NATIVE evidence authorizes a projection');
-    console.log(`# Task 15 full-list evidence: ${JSON.stringify(measurement)}`);
+    const bytes = Buffer.byteLength(JSON.stringify(fullList));
+    assert.ok(bytes < 1024 * 1024, `strategies_list exceeds 1 MiB: ${bytes}`);
+    assert.ok(bytes <= 768 * 1024, `strategies_list exceeds production budget: ${bytes}`);
+    console.log(`# strategies_list wire measurement: ${fullList.strategies.length} strategies, ${bytes} bytes (${(bytes / 1024).toFixed(1)} KiB), ${1024 * 1024 - bytes} bytes headroom`);
   } finally {
     fs.rmSync(storage.root, { recursive: true, force: true });
   }
+});
+
+test('Strategy read paths use direct in-process dispatch while mutations retain child transport', () => {
+  assert.match(RPC, /import \{ strategy_cli_dispatch \} from ['"]\/usr\/libexec\/zapret2-manager\/strategy-cli\.uc['"]/);
+  const list = RPC.slice(RPC.indexOf('function strategies_list_method'), RPC.indexOf('function strategies_create_method'));
+  const get = RPC.slice(RPC.indexOf('function strategies_get_method'), RPC.indexOf('function strategies_create_method'));
+  const status = RPC.slice(RPC.indexOf('function strategies_catalog_status_method'), RPC.indexOf('function strategies_catalog_reload_method'));
+  const read = RPC.slice(RPC.indexOf('function strategy_read_input'), RPC.indexOf('function strategies_list_method'));
+  assert.match(read, /strategy_cli_dispatch/);
+  for (const body of [list, get, status, read]) {
+    assert.doesNotMatch(body, /strategy_edit_action|head -c|popen|read\('all'\)/);
+  }
+  const mutations = RPC.slice(RPC.indexOf('function strategies_create_method'), RPC.indexOf('function strategies_ops_tmp'));
+  assert.match(mutations, /strategy_edit_action/);
+
+  const storage = temporaryStrategyStorage();
+  writeUserStrategy(storage);
+  const stub = stubChild('nonzero');
+  try {
+    const result = invokeRpcMethod('strategies_list', {}, {
+      ...strategyStorageEnv(storage), Z2M_STRATEGY_UCODE_BIN: stub.file,
+    });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(result.strategies.some(strategy => strategy.id === 'user-one'), true);
+  } finally {
+    fs.rmSync(storage.root, { recursive: true, force: true });
+    fs.rmSync(stub.root, { recursive: true, force: true });
+  }
+});
+
+test('strategies_list stays bounded under synthetic 732, 1000, and 1500-entry scaling', () => {
+  const storage = temporaryStrategyStorage();
+  writeUserStrategy(storage);
+  try {
+    const list = invokeValues('strategy_cli_dispatch', ['list', {}], strategyStorageEnv(storage));
+    for (const count of [732, 1000, 1500]) {
+      const synthetic = Array.from({ length: count }, (_, index) => list.strategies[index % list.strategies.length]);
+      const bytes = Buffer.byteLength(JSON.stringify({ ok: true, strategies: synthetic, state: list.state }));
+      assert.ok(bytes < 1024 * 1024, `${count} strategies exceeds 1 MiB: ${bytes}`);
+      if (count === 732) assert.ok(bytes <= 768 * 1024, `${count} strategies exceeds production budget: ${bytes}`);
+      console.log(`# synthetic strategies_list: ${count} strategies, ${bytes} bytes (${(bytes / 1024).toFixed(1)} KiB)`);
+    }
+  } finally {
+    fs.rmSync(storage.root, { recursive: true, force: true });
+  }
+});
+
+test('strategies_get retains full profiles for the largest builtin response', () => {
+  const source = `import { strategy_cli_dispatch } from ${JSON.stringify(CLI_PATH)}; let ids = ${JSON.stringify(EXPECTED_MANIFEST.winnerOrder)}; let max = { id: null, bytes: 0 }; for (let id in ids) { let value = strategy_cli_dispatch('get', { id: id }); let bytes = length(sprintf('%J', value)); if (bytes > max.bytes) max = { id: id, bytes: bytes }; } print(sprintf('%J', max));`;
+  const result = invokeUcode(source, {}, 45_000);
+  assert.equal(result.id != null, true);
+  assert.ok(result.bytes > 0);
+  const detail = invokeValues('strategy_cli_dispatch', ['get', { id: result.id }]);
+  assert.equal(detail.ok, true);
+  assert.ok(detail.strategy.profiles.some(profile => typeof profile.args === 'string' && profile.args.length > 0));
+  console.log(`# largest strategies_get: ${result.id}, ${result.bytes} bytes (${(result.bytes / 1024).toFixed(1)} KiB)`);
 });
 
 test('RPC rejects malformed or tampered catalog evidence before serving Strategy data', () => {
@@ -572,7 +578,7 @@ test('RPC rejects malformed or tampered catalog evidence before serving Strategy
       });
       assert.equal(result.ok, false, name);
       assert.equal(result.error.code, 'EVERIFY', name);
-      assert.match(result.error.message, /verified Avatar catalog is unavailable/);
+      assert.match(result.error.message, /verified Strategy catalog is unavailable/);
       assert.notEqual(result.error.code, code, 'RPC must expose only its bounded verification envelope');
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
@@ -671,11 +677,12 @@ test('Strategy RPC registration keeps fixed CLI modes and explicit error envelop
   assert.match(RPC, /STRATEGY_CLI\s*=\s*['"]\/usr\/libexec\/zapret2-manager\/strategy-cli\.uc/);
   assert.match(RPC, /error:\s*\{\s*code:\s*'EINPUT'/);
   assert.match(RPC, /error:\s*\{\s*code:\s*'ETARGET'/);
-  for (const mode of ['list', 'get', 'create', 'update', 'delete', 'duplicate',
-    'favorite', 'preview', 'validate', 'apply', 'catalog_status', 'catalog_reload',
-    'import_profiles']) {
-    assert.match(RPC, new RegExp(`(?:strategy_edit_action|strategy_noarg_action)\\(['"]${mode}['"]`), mode);
-  }
+  for (const mode of ['create', 'update', 'delete', 'duplicate', 'favorite',
+    'preview', 'validate', 'apply', 'import_profiles'])
+    assert.match(RPC, new RegExp(`strategy_edit_action\\(['"]${mode}['"]`), mode);
+  assert.match(RPC, /strategy_noarg_action\(['"]catalog_reload['"]/);
+  for (const mode of ['list', 'get', 'catalog_status'])
+    assert.match(RPC, new RegExp(`strategy_read_action\\(['"]${mode}['"]`), mode);
   assert.doesNotMatch(RPC, /strategy_edit_action\([^)]*req[^)]*mode/);
 });
 

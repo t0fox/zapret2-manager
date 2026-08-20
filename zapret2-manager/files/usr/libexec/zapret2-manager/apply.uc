@@ -210,6 +210,26 @@ export const config_sha256 = function() {
 	return r.rc == 0 && length(digest) == 64 ? digest : null;
 };
 
+const APPLIED_IDENTITY = getenv('Z2M_APPLIED_IDENTITY') || '/tmp/zapret2-manager/applied.sha256';
+
+function file_sha256(path) {
+	if (!stat(path)) return null;
+	let r = command("sha256sum " + shell_escape(path) + " 2>/dev/null | awk '{print $1}'");
+	let digest = trim(r.out);
+	return r.rc == 0 && length(digest) == 64 ? digest : null;
+}
+
+// Commit point for the status identity. Callers must invoke this only after
+// the owning transaction has verified the runtime; snapshots and pre-CAS
+// states must never update this marker.
+export const commit_applied_identity = function() {
+	let identity = { config: config_sha256(), uci: file_sha256(PATHS.uci_conf), captured_at: time() };
+	if (identity.config == null) return null;
+	try { writefile(APPLIED_IDENTITY, sprintf('%J', identity) + '\n'); }
+	catch (e) { return null; }
+	return identity;
+};
+
 function preserve_trailing_newline(raw, rendered) {
 	if (length(raw) > 0 && substr(raw, length(raw) - 1, 1) == '\n' &&
 	    (length(rendered) == 0 || substr(rendered, length(rendered) - 1, 1) != '\n'))
