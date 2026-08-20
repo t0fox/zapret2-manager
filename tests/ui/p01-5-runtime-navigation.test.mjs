@@ -33,11 +33,13 @@ test('Dashboard maps machine reason codes to product copy and system facts', () 
   assert.match(overview, /hostname|memoryAvailable|uptime/i);
 });
 
-test('engine normal rows use Russian product labels and state mapping', () => {
+test('engine normal rows use Russian product labels and official source mapping', () => {
   assert.match(engineModel, /stateLabel/);
   assert.match(engineModel, /serviceLabel/);
-  assert.match(enginePanel, /Поставщик движка/);
-  assert.match(enginePanel, /Проверить обновления/);
+  assert.match(enginePanel, /Официальный движок zapret2/);
+  assert.match(enginePanel, /Проверить/);
+  assert.match(enginePanel, /bol-van\/zapret2/);
+  assert.doesNotMatch(enginePanel, /Remittor|1andrevich|providerPicker|type:\s*['"]radio/);
   assert.doesNotMatch(enginePanel, /value:status\.state/);
   assert.doesNotMatch(enginePanel, /value:status\.serviceState/);
   assert.doesNotMatch(enginePanel, /Официальные releases/);

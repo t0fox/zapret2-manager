@@ -73,18 +73,49 @@ test('System Updates stays compatible with a stale cached maintenance model modu
   assert.match(system, /MaintenanceModel\.normalizeUpdateModel\s*\|\|\s*normalizeUpdateModel/);
 });
 
-test('System Engine uses the current engine provider RPC contract', () => {
+test('System Engine uses the current official RPC contract', () => {
   const api = read('z2m-api.js');
   const panel = read('z2m-engine-panel.js');
 
-  for (const method of ['engine_providers', 'engine_check_updates', 'engine_install', 'engine_remove'])
+  for (const method of ['engine_releases', 'engine_check', 'engine_install', 'engine_update', 'engine_reinstall', 'engine_uninstall'])
     assert.match(api, new RegExp(method), method);
-  for (const stale of ['engine_releases', 'engine_check', 'engine_update', 'engine_downgrade', 'engine_reinstall', 'engine_uninstall'])
-    assert.doesNotMatch(api, new RegExp("'" + stale + "'"), stale);
-  assert.match(panel, /engine\.providers\(\)/);
-  assert.match(panel, /engine\.checkUpdates/);
-  assert.match(panel, /engine\.remove/);
-  assert.doesNotMatch(panel, /engine\.releases|engine\.check\(|engine\.uninstall/);
+  assert.doesNotMatch(api, /engine_providers|engine_check_updates/);
+  assert.match(panel, /engine\.releases\(\)/);
+  assert.match(panel, /engine\.check\(/);
+  assert.match(panel, /engine\.uninstall/);
+  assert.doesNotMatch(panel, /engine\.providers|engine\.checkUpdates/);
+});
+
+test('System Engine uses the official bol-van authority without a provider selector', () => {
+  const api = read('z2m-api.js');
+  const panel = read('z2m-engine-panel.js');
+  const rpc = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager-engine.uc'), 'utf8');
+  const manager = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/engine-manager.uc'), 'utf8');
+  const catalog = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/engine-catalog.uc'), 'utf8');
+  const worker = fs.readFileSync(path.join(root, 'zapret2-manager/files/usr/libexec/zapret2-manager/engine-operation-worker.sh'), 'utf8');
+  const acl = fs.readFileSync(path.join(root, 'luci-app-zapret2-manager/files/usr/share/rpcd/acl.d/luci-app-zapret2-manager-engine.json'), 'utf8');
+  const makefile = fs.readFileSync(path.join(root, 'zapret2-manager/Makefile'), 'utf8');
+
+  assert.match(catalog, /UPSTREAM\s*=\s*['"]bol-van\/zapret2['"]/);
+  assert.match(catalog, /STATE_FILE\s*=\s*['"]\/etc\/zapret2-manager\/engine-state\.json['"]/);
+  assert.doesNotMatch(catalog, /engine-provider\.json/);
+  assert.match(manager, /engine-catalog\.uc/);
+  assert.doesNotMatch(manager, /engine-providers\.uc|engine-provider\.json/);
+  assert.match(rpc, /engine_releases|engine_check/);
+  assert.doesNotMatch(rpc, /engine_providers|engine_check_updates/);
+  assert.match(acl, /engine_releases/);
+  assert.match(acl, /engine_update/);
+  assert.doesNotMatch(acl, /engine_providers|engine_check_updates|engine_remove/);
+  assert.match(makefile, /\/etc\/zapret2-manager\/engine-state\.json/);
+  assert.doesNotMatch(makefile, /\/etc\/zapret2-manager\/engine-provider\.json/);
+  assert.match(api, /engine_releases|engine_check/);
+  assert.doesNotMatch(api, /engine_providers|engine_check_updates/);
+  assert.match(panel, /bol-van\/zapret2/);
+  assert.match(panel, /engine\.releases\(\)|engine\.check\(/);
+  assert.doesNotMatch(panel, /Remittor|1andrevich|engine\.providers|engine\.checkUpdates|type:\s*['"]radio/);
+  assert.match(worker, /bol-van\/zapret2/);
+  assert.match(worker, /CONTAINER.*tar\.gz|tar\.gz.*CONTAINER/);
+  assert.doesNotMatch(worker, /PROVIDER|remittor|andrevich/);
 });
 
 test('Diagnostics is the only canonical Monitoring and Logs viewer', () => {

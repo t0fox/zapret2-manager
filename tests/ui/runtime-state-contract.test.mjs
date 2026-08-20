@@ -40,12 +40,14 @@ test('watchdog matches NUL-delimited argv and qualified nft table', () => {
   assert.doesNotMatch(source, /nft list table ' \+ NFT_TABLE/);
 });
 
-test('engine UI uses the provider catalog and keeps package metadata out of the normal version row', () => {
+test('engine UI uses the official catalog and keeps package metadata out of the normal version row', () => {
   const source = fs.readFileSync(enginePanelPath, 'utf8');
-  assert.match(source, /state\.selectedProvider/);
-  assert.match(source, /state\.providers/);
+  assert.match(source, /state\.selectedVersion/);
+  assert.match(source, /engine\.releases\(\)/);
   assert.match(source, /status\.installedRelease/);
   assert.match(source, /value:\s*status\.installedRelease/);
+  assert.match(source, /bol-van\/zapret2/);
+  assert.doesNotMatch(source, /Remittor|1andrevich|providerPicker/);
   assert.doesNotMatch(source, / · package /);
   assert.match(source, /Технические детали/);
   assert.doesNotMatch(source, /label: _\('Package version'\)/);
@@ -62,9 +64,9 @@ test('official release remains the only normal version authority while build met
   assert.doesNotMatch(panel, / · package /);
   assert.match(panel, /packageVersion/);
   assert.match(panel, /runtimeBuild/);
-  assert.match(collector, /apk info -e -v zapret2/);
-  assert.match(collector, /packageVersion: packageVersion/);
-  assert.match(collector, /serviceState: svc_state/);
+  assert.match(collector, /apk info -e zapret2/);
+  assert.match(collector, /packagePresent/);
+  assert.match(collector, /serviceState/);
   assert.match(fs.readFileSync(statusCompatPath, 'utf8'), /observations\.serviceState != null \? observations\.serviceState/);
 });
 
