@@ -27,6 +27,11 @@ import { strategy_cli_dispatch } from '/usr/libexec/zapret2-manager/strategy-cli
 import { dns_product_get, dns_product_providers, dns_product_status,
 	dns_product_preview, dns_product_validate, dns_product_apply,
 	dns_product_rollback } from '/usr/libexec/zapret2-manager/dns-product.uc';
+import { tg_product_get, tg_product_catalog, tg_product_status, tg_product_versions,
+	tg_product_operation_status, tg_product_validate, tg_product_preview, tg_product_apply,
+	tg_product_health, tg_product_check_updates, tg_product_switch, tg_product_install,
+	tg_product_update, tg_product_remove, tg_product_purge, tg_product_start,
+	tg_product_stop, tg_product_restart } from '/usr/libexec/zapret2-manager/tg-product.uc';
 
 const STATUS_JSON = '/tmp/zapret2-manager/status.json';
 const COLLECTOR   = '/usr/libexec/zapret2-manager/status.uc';
@@ -969,6 +974,24 @@ return {
 		dns_product_validate: { args: { edit: 'string' }, call: function (req) { return dns_product_validate(req); } },
 		dns_product_apply: { args: { edit: 'string' }, call: function (req) { return dns_product_apply(req); } },
 		dns_product_rollback: { args: { edit: 'string' }, call: function (req) { return dns_product_rollback(req); } },
+		tg_product_get: { call: function (req) { return tg_product_get(req); } },
+		tg_product_catalog: { call: function (req) { return tg_product_catalog(req); } },
+		tg_product_status: { call: function (req) { return tg_product_status(req); } },
+		tg_product_versions: { call: function (req) { return tg_product_versions(req); } },
+		tg_product_operation_status: { args: { edit: 'string' }, call: function (req) { return tg_product_operation_status(req); } },
+		tg_product_validate: { args: { edit: 'string' }, call: function (req) { return tg_product_validate(req); } },
+		tg_product_preview: { args: { edit: 'string' }, call: function (req) { return tg_product_preview(req); } },
+		tg_product_apply: { args: { edit: 'string' }, call: function (req) { return tg_product_apply(req); } },
+		tg_product_health: { args: { edit: 'string' }, call: function (req) { return tg_product_health(req); } },
+		tg_product_check_updates: { args: { edit: 'string' }, call: function (req) { return tg_product_check_updates(req); } },
+		tg_product_switch: { args: { edit: 'string' }, call: function (req) { return tg_product_switch(req); } },
+		tg_product_install: { args: { edit: 'string' }, call: function (req) { return tg_product_install(req); } },
+		tg_product_update: { args: { edit: 'string' }, call: function (req) { return tg_product_update(req); } },
+		tg_product_remove: { args: { edit: 'string' }, call: function (req) { return tg_product_remove(req); } },
+		tg_product_purge: { args: { edit: 'string' }, call: function (req) { return tg_product_purge(req); } },
+		tg_product_start: { call: function (req) { return tg_product_start(req); } },
+		tg_product_stop: { call: function (req) { return tg_product_stop(req); } },
+		tg_product_restart: { call: function (req) { return tg_product_restart(req); } },
 		versions:          { call: function (req) { return versions_method(req); } },
 		maintenance_status: { call: function (req) { return maintenance_status_method(req); } },
 		events_tail:       { args: { edit: 'string' }, call: function (req) { return events_tail_method(req); } },
