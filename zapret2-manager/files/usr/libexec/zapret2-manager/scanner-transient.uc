@@ -5,7 +5,7 @@
 // and server-owned runtime adapters.
 import { scanner_transient_lock, scanner_transient_config_snapshot } from './apply.uc';
 import * as scanner_state from './scanner-state.uc';
-import { profiles_transient_compile_preflight, profiles_transient_activate,
+import { profiles_transient_lock, profiles_transient_compile_preflight, profiles_transient_activate,
 	profiles_transient_stabilize, profiles_transient_cleanup, profiles_transient_snapshot,
 	profiles_transient_unlock, profiles_transient_session_cleanup, profiles_transient_restore } from './profiles-apply.uc';
 
