@@ -40,6 +40,32 @@ test('System loads only the active tab and keeps runtime facts in diagnostics', 
   assert.doesNotMatch(system, /system\.uptime|system\.memoryAvailable|system\.overlay/);
 });
 
+test('System uses shell navigation as the only visible System tab bar', () => {
+  const system = read('z2m-maintenance.js');
+
+  assert.doesNotMatch(system, /ctx\.shell\.subTabs\(/);
+  assert.match(system, /PANE_META|paneMeta/);
+  assert.match(system, /route === ['"]engine['"]|activePane\(ctx\)/);
+});
+
+test('Updates presents product version rows and truthful unavailable update state', () => {
+  const model = read('z2m-maintenance-model.js');
+  const system = read('z2m-maintenance.js');
+
+  assert.match(model, /UPDATE_STATES/);
+  assert.match(model, /normalizeUpdateModel/);
+  for (const state of ['CHECKING', 'UP_TO_DATE', 'UPDATE_AVAILABLE', 'UNKNOWN', 'STALE', 'ERROR', 'NOT_INSTALLED'])
+    assert.match(model, new RegExp(state), state);
+  assert.match(system, /normalizeUpdateModel/);
+  assert.match(system, /Установленные версии/);
+  assert.match(system, /Проверка обновлений недоступна/);
+  assert.doesNotMatch(system, /z2m-kpis|z2m-kpi/);
+  assert.doesNotMatch(system, /Доступность обновлений не проверяется этим read-only контрактом/);
+  assert.doesNotMatch(system, /installed versions read|Backup scope|Version gate|Integrity/);
+  assert.doesNotMatch(system, /Backend|backend|Scope|Verification/);
+  assert.match(system, /Технические детали/);
+});
+
 test('Diagnostics is the only canonical Monitoring and Logs viewer', () => {
   const app = read('app.js');
   const navigation = read('z2m-navigation.js');

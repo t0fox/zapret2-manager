@@ -62,6 +62,11 @@
 .z2m-panel>.hd .sp{margin-left:auto;display:flex;gap:8px;align-items:center}
 .z2m-panel>.bd{padding:18px}
 .z2m-panel>.bd.tight{padding:0}
+.z2m-system-version-table{display:grid;gap:0;border:1px solid var(--border);border-radius:6px;overflow:hidden}
+.z2m-system-version-row{display:grid;grid-template-columns:minmax(150px,1.4fr) repeat(3,minmax(110px,1fr));gap:12px;align-items:center;padding:11px 13px;border-top:1px solid var(--border);font-size:13px}
+.z2m-system-version-row:first-child{border-top:0}
+.z2m-system-version-head{background:var(--panel2);color:var(--tx3);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+.z2m-system-version-name{font-weight:600;color:var(--tx)}
 .z2m-row2{display:grid;grid-template-columns:1fr 320px;gap:14px;align-items:start}
 
 .z2m-muted{color:var(--tx2)}
@@ -2618,4 +2623,3 @@
   justify-content: flex-end;
   gap: 10px;
 }
-

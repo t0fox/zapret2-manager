@@ -11,6 +11,12 @@ var SCOPE_LABELS = {
   lists: _('Списки'),
   profiles: _('Профили')
 };
+var PANE_META = {
+  updates: { title: _('Обновления'), subtitle: _('Версии и состояние компонентов') },
+  engine: { title: _('Движок'), subtitle: _('Установка и управление zapret2') },
+  backups: { title: _('Резервные копии'), subtitle: _('Сохранение и восстановление состояния менеджера') },
+  settings: { title: _('Настройки'), subtitle: _('Параметры интерфейса менеджера') }
+};
 var state = {
   pane: 'system',
   paneInitialized: false,
@@ -98,22 +104,6 @@ function confirmAction(ctx, title, message, confirmLabel, handler) {
     })
   ]);
 }
-function scalarRows(value, prefix) {
-  var rows = [];
-  value = object(value);
-  Object.keys(value).sort().forEach(function (key) {
-    var item = value[key];
-    var label = prefix ? prefix + ' · ' + key : key;
-    if (item === null || item === undefined) return;
-    if (typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean') {
-      rows.push({ label: label, value: String(item) });
-      return;
-    }
-    if (item && typeof item === 'object' && !Array.isArray(item))
-      rows = rows.concat(scalarRows(item, label));
-  });
-  return rows;
-}
 function kvPanel(shell, rows) {
   return E('div', { 'class': 'z2m-proxy-kv' }, rows.map(function (row) {
     return E('div', {}, [E('span', {}, row.label), E('strong', {}, row.value)]);
@@ -122,22 +112,48 @@ function kvPanel(shell, rows) {
 function formatTime(shell, value) {
   return shell.format.timestamp(value) || '';
 }
-function renderSystem(ctx, data) {
-  var shell = ctx.shell;
-  var versions = MaintenanceModel.normalizeVersions(data.versions && data.versions.value || {});
-  var versionCards = versions.map(function (item) {
-    return E('div', { 'class': 'z2m-kpi' }, [
-      E('div', { 'class': 'v' }, item.value),
-      E('div', { 'class': 'l' }, item.label)
+function updateStateKind(stateName) {
+  if (stateName === 'UP_TO_DATE') return 'g';
+  if (stateName === 'UPDATE_AVAILABLE') return 'o';
+  if (stateName === 'ERROR' || stateName === 'NOT_INSTALLED') return 'r';
+  return 'o';
+}
+function updateTable(shell, model) {
+  var head = E('div', { 'class': 'z2m-system-version-row z2m-system-version-head' }, [
+    E('strong', {}, _('Компонент')),
+    E('strong', {}, _('Установлено')),
+    E('strong', {}, _('Последняя')),
+    E('strong', {}, _('Состояние'))
+  ]);
+  var rows = model.rows.map(function (row) {
+    return E('div', { 'class': 'z2m-system-version-row' }, [
+      E('span', { 'class': 'z2m-system-version-name' }, row.label),
+      E('span', {}, row.installed || '—'),
+      E('span', {}, row.latest || '—'),
+      E('span', { 'class': 'z2m-chip ' + updateStateKind(row.state) }, row.stateLabel)
     ]);
   });
+  return E('div', { 'class': 'z2m-system-version-table' }, [head].concat(rows));
+}
+function renderSystem(ctx, data) {
+  var shell = ctx.shell;
+  var updateModel = MaintenanceModel.normalizeUpdateModel(data.versions && data.versions.value || {});
+  var technical = updateModel.technical || {};
+  var technicalRows = [
+    { label: _('Версия luci-app'), value: object(technical.luciApp).version },
+    { label: _('Версия nfqws2'), value: technical.nfqws2 },
+    { label: _('Совместимость Lua'), value: technical.luaCompatVer },
+    { label: _('Сырые данные проверки обновлений'), value: technical.updateAvailable }
+  ].filter(function (row) { return row.value !== null && row.value !== undefined && row.value !== ''; });
   return E('div', {}, [
-    shell.panel(_('Версии пакетов'), versionCards.length
-      ? E('div', { 'class': 'z2m-kpis' }, versionCards)
-      : shell.statePanel({ message: _('Backend не вернул версии пакетов.'), kind: 'info' })),
-    shell.panel(_('Состояние обновлений'), shell.statePanel({
-      message: _('Доступность обновлений не проверяется этим read-only контрактом; показаны только версии, реально установленные в системе.'), kind: 'info'
-    }))
+    shell.panel(_('Установленные версии'), [
+      updateTable(shell, updateModel),
+      shell.statePanel({ message: _('Проверка обновлений недоступна для текущего серверного контракта. Показаны версии, реально установленные в системе.'), kind: 'info' }),
+      technicalRows.length ? E('details', { 'class': 'z2m-acc' }, [
+        E('summary', {}, _('Технические детали')),
+        kvPanel(shell, technicalRows)
+      ]) : null
+    ])
   ]);
 }
 
@@ -183,11 +199,11 @@ function restoreBackup(ctx) {
   var preview = state.previewModel;
   if (!preview) return;
   confirmAction(ctx, _('Восстановить backup?'),
-    _('Backend сначала проверит identity/revision preview, сохранит текущее состояние, выполнит restore и повторно прочитает каждый файл.'),
+    _('Сервер сначала проверит идентификатор и ревизию предпросмотра, сохранит текущее состояние, выполнит восстановление и повторно прочитает каждый файл.'),
     _('Восстановить'), function () {
       var request = MaintenanceModel.restoreRequest(preview, true);
       if (!request.ok) {
-        ctx.shell.showToast(_('Restore заблокирован: ') + request.reason, 'err');
+        ctx.shell.showToast(_('Восстановление заблокировано: ') + request.reason, 'err');
         return;
       }
       mutation(ctx, 'backup-restore', edit(ctx.api.maintenance.backupRestore, request.edit)).then(function (answer) {
@@ -217,28 +233,28 @@ function renderPreview(ctx) {
     ]);
   });
   var metadata = [
-    { label: _('Scope'), value: preview.scope || '' },
+    { label: _('Область'), value: preview.scope || '' },
     { label: _('Время'), value: formatTime(shell, preview.takenAt) },
-    { label: _('Integrity'), value: preview.integrity || '' },
-    { label: _('Version gate'), value: preview.versionGate || '' }
+    { label: _('Целостность'), value: preview.integrity || '' },
+    { label: _('Проверка версии'), value: preview.versionGate || '' }
   ].filter(function (row) { return row.value; });
   var restore = shell.button(_('Восстановить этот архив'), 'danger', restoreBackup.bind(null, ctx),
     !preview.allowed || !!state.busy);
   return E('section', { 'class': 'z2m-panel', id: 'z2m-backup-preview' }, [
     E('div', { 'class': 'hd' }, [E('h2', {}, _('Предпросмотр восстановления')), E('div', { 'class': 'sp' }, restore)]),
     E('div', { 'class': 'bd' }, [
-      preview.blocker ? shell.statePanel({ title: _('Restore заблокирован'), message: preview.blocker, kind: 'error' }) : null,
+      preview.blocker ? shell.statePanel({ title: _('Восстановление заблокировано'), message: preview.blocker, kind: 'error' }) : null,
       metadata.length ? kvPanel(shell, metadata) : null,
       sections.length ? E('div', {}, sections) : shell.statePanel({ message: preview.primaryText, kind: 'info' }),
       state.verification && !state.verification.verified
-        ? shell.statePanel({ title: _('Verification не подтверждён'), message: state.verification.message, kind: 'error' }) : null
+        ? shell.statePanel({ title: _('Проверка восстановления не подтверждена'), message: state.verification.message, kind: 'error' }) : null
     ])
   ]);
 }
 function renderBackups(ctx, data) {
   var shell = ctx.shell;
   var records = MaintenanceModel.backups(data.backups && data.backups.value || {}, 100);
-  var scopeSelect = E('select', { id: 'z2m-backup-scope', 'aria-label': _('Backup scope') }, [
+  var scopeSelect = E('select', { id: 'z2m-backup-scope', 'aria-label': _('Область резервной копии') }, [
     E('option', { value: 'all' }, _('Все области'))
   ].concat(SCOPES.map(function (scope) {
     return E('option', { value: scope }, SCOPE_LABELS[scope]);
@@ -271,7 +287,7 @@ function renderBackups(ctx, data) {
       E('div', { 'class': 'z2m-backup-history' }, rows.length ? rows : [
         shell.statePanel({ message: _('История backup пуста.'), kind: 'info' })
       ])
-    ]), _('Четыре независимые области; backend хранит SHA-256 manifest и pre-restore snapshot.')),
+    ]), _('Четыре области состояния; для восстановления используется проверка целостности и версии.')),
     renderPreview(ctx)
   ]);
 }
@@ -294,7 +310,7 @@ function renderSettings(ctx, data) {
       toggle
     ])),
     shell.panel(_('Граница контракта'), shell.statePanel({
-      message: _('В текущем backend нет отдельного settings RPC. Эта настройка хранится в manager UI state; серверные конфигурации изменяются только своими существующими product contracts.'),
+      message: _('В текущем серверном API нет отдельного RPC настроек. Эта настройка хранится в состоянии интерфейса; серверные конфигурации изменяются только своими существующими контрактами.'),
       kind: 'info'
     }))
   ]);
@@ -303,28 +319,22 @@ function renderSettings(ctx, data) {
 function render(ctx) {
   var data = ctx.data || {};
   var pane = activePane(ctx);
+  var meta = PANE_META[pane] || PANE_META.updates;
   var paneBody = pane === 'engine' ? renderEngine(ctx, data)
     : pane === 'backups' ? renderBackups(ctx, data)
     : pane === 'settings' ? renderSettings(ctx, data)
     : renderSystem(ctx, data);
   var paneHost = E('div', { id: 'z2m-system-pane' }, paneBody);
-  var tabs = ctx.shell.subTabs([
-    { id: 'updates', label: _('Обновления') },
-    { id: 'engine', label: _('Движок') },
-    { id: 'backups', label: _('Резервные копии') },
-    { id: 'settings', label: _('Настройки') }
-  ], pane, function (id) { ctx.navigate(id); }, { 'aria-label': _('Разделы системы') });
   var errors = [];
   Object.keys(data).forEach(function (key) {
     if (key !== 'engine' && data[key] && data[key].error)
-      errors.push(ctx.shell.statePanel({ title: _('Ошибка backend'), message: data[key].error.message, kind: 'error' }));
+      errors.push(ctx.shell.statePanel({ title: _('Не удалось загрузить данные'), message: data[key].error.message, kind: 'error' }));
   });
   return E('section', { 'class': 'z2m-view on', id: 'z2m-view-system' }, [
     E('div', { 'class': 'z2m-phead' }, [
-      E('div', {}, [E('h1', {}, _('Система')), E('p', {}, _('Версии, движок, резервные копии и настройки manager UI'))])
+      E('div', {}, [E('h1', {}, meta.title), E('p', {}, meta.subtitle)])
     ]),
     errors.length ? E('div', {}, errors) : null,
-    tabs,
     paneHost
   ]);
 }

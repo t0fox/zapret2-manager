@@ -92,6 +92,69 @@ function normalizeVersions(value) {
     return formatted === null ? null : { id: key, label: key, value: formatted };
   }).filter(Boolean);
 }
+var UPDATE_STATES = {
+  CHECKING: 'CHECKING',
+  UP_TO_DATE: 'UP_TO_DATE',
+  UPDATE_AVAILABLE: 'UPDATE_AVAILABLE',
+  UNKNOWN: 'UNKNOWN',
+  STALE: 'STALE',
+  ERROR: 'ERROR',
+  NOT_INSTALLED: 'NOT_INSTALLED'
+};
+var UPDATE_STATE_LABELS = {
+  CHECKING: 'Проверяется',
+  UP_TO_DATE: 'Актуально',
+  UPDATE_AVAILABLE: 'Доступно обновление',
+  UNKNOWN: 'Проверка недоступна',
+  STALE: 'Проверка устарела',
+  ERROR: 'Ошибка проверки',
+  NOT_INSTALLED: 'Не установлен'
+};
+function updateState(record, installed) {
+  record = object(record);
+  var explicit = text(record.updateState || record.state);
+  if (explicit && UPDATE_STATES[explicit]) return explicit;
+  if (record.error) return UPDATE_STATES.ERROR;
+  if (record.stale === true) return UPDATE_STATES.STALE;
+  if (installed === null) return UPDATE_STATES.NOT_INSTALLED;
+  if (record.updateAvailable === true) return UPDATE_STATES.UPDATE_AVAILABLE;
+  if (record.updateAvailable === false && (record.checkedAt || record.checked === true)) return UPDATE_STATES.UP_TO_DATE;
+  return UPDATE_STATES.UNKNOWN;
+}
+function updateRow(id, label, installed, record) {
+  record = object(record);
+  var state = updateState(record, installed);
+  return {
+    id: id,
+    label: label,
+    installed: installed,
+    latest: text(record.latest || record.latestVersion || record.candidateVersion),
+    state: state,
+    stateLabel: UPDATE_STATE_LABELS[state]
+  };
+}
+function normalizeUpdateModel(value) {
+  value = object(value);
+  var manager = object(value.manager);
+  var upstream = object(value.upstreamPkg);
+  var os = text(value.os);
+  var rows = [
+    updateRow('manager', 'zapret2-manager', text(manager.version), manager),
+    updateRow('zapret2', 'zapret2', text(upstream.version), upstream),
+    updateRow('openwrt', 'OpenWrt', os, object(value.openwrt))
+  ];
+  return {
+    rows: rows,
+    canCheck: value.updateChecker === true,
+    message: text(value.note) || 'Проверка обновлений недоступна.',
+    technical: {
+      luciApp: object(value.luciApp),
+      nfqws2: text(value.nfqws2),
+      luaCompatVer: value.luaCompatVer,
+      updateAvailable: value.updateAvailable
+    }
+  };
+}
 function semanticItems(value) {
   return array(value).map(function (item) {
     if (typeof item === 'string' || typeof item === 'number') return String(item);
@@ -227,6 +290,8 @@ function events(value, limit) {
 return baseclass.extend({
   normalizeSystem: normalizeSystem,
   normalizeVersions: normalizeVersions,
+  UPDATE_STATES: UPDATE_STATES,
+  normalizeUpdateModel: normalizeUpdateModel,
   restorePreview: restorePreview,
   restoreRequest: restoreRequest,
   verifyRestore: verifyRestore,
