@@ -117,7 +117,7 @@ function request(ctx, promise, success) {
   });
 }
 
-function check(ctx, state) {
+function checkRelease(ctx, state) {
   if (state.busy || !state.selectedVersion) return;
   state.busy = true;
   state.check = null;
@@ -189,7 +189,7 @@ function build(ctx, state) {
     compatible: check.compatible === true
   });
   var buttons = [
-    ctx.shell.button(_('Проверить'), 'primary', function () { check(ctx, state); },
+    ctx.shell.button(_('Проверить'), 'primary', function () { checkRelease(ctx, state); },
       actions.check.disabled || !state.selectedVersion)
   ];
 

@@ -112,6 +112,9 @@ test('System Engine uses the official bol-van authority without a provider selec
   assert.doesNotMatch(api, /engine_providers|engine_check_updates/);
   assert.match(panel, /bol-van\/zapret2/);
   assert.match(panel, /engine\.releases\(\)|engine\.check\(/);
+  assert.match(panel, /function checkRelease\(ctx, state\)/);
+  assert.match(panel, /checkRelease\(ctx, state\)/);
+  assert.doesNotMatch(panel, /function check\(ctx, state\)/);
   assert.doesNotMatch(panel, /Remittor|1andrevich|engine\.providers|engine\.checkUpdates|type:\s*['"]radio/);
   assert.match(worker, /bol-van\/zapret2/);
   assert.match(worker, /CONTAINER.*tar\.gz|tar\.gz.*CONTAINER/);
