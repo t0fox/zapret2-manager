@@ -75,6 +75,150 @@ function loadTabCache() {
   });
 }
 
+function loadNavigationHarness({ cache, moduleHooks }) {
+  const source = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/app.js');
+  const start = source.indexOf('    function loadTabData(tab, module, force) {');
+  const end = source.indexOf('    function rollbackActions(', start);
+  assert.ok(start >= 0 && end > start, 'app navigation functions must be present');
+  const calls = { render: 0, mount: 0, load: 0, busy: [] };
+  const navigationModule = {
+    load: moduleHooks && moduleHooks.load || (() => { calls.load += 1; return Promise.resolve({ source: 'loader' }); }),
+    render: () => { calls.render += 1; return { node: true }; },
+    mount: moduleHooks && moduleHooks.mount || (() => { calls.mount += 1; }),
+    unmount: moduleHooks && moduleHooks.unmount || (() => {})
+  };
+  const context = {
+    Promise, Object, Array,
+    Navigation: { normalize: (tab) => tab, hash: (tab) => '#' + tab, label: (tab) => tab },
+    MODULES: { strategies: navigationModule },
+    tabSessionKey: 'session-a',
+    syncTabCacheSession: () => {},
+    tabCache: cache,
+    tabDataCache: {},
+    tabLoadPromises: {},
+    activationToken: 0,
+    activeModule: null,
+    activeContext: null,
+    store: { get: () => ({ ui: {} }), update: () => {} },
+    tabs: { setActive: () => {} },
+    buildContext: (tab, currentModule, data) => ({ route: tab, module: currentModule, data }),
+    content: { replaceChildren: () => {} },
+    appRoot: null,
+    updateHeaderStatus: () => {},
+    setContentBusy: (busy) => { calls.busy.push(busy); },
+    Shell: { showToast: () => {}, renderLoadingState: () => ({}), avatar: { showErrorState: () => {} } },
+    Api: { normalizeError: (error) => error },
+    setHash: () => {}
+  };
+  const functions = vm.runInNewContext(`(function () {\n${source.slice(start, end)}\nreturn { activate: activate };\n})()`, context);
+  return { activate: functions.activate, calls, module: navigationModule };
+}
+
+function loadStrategiesModule() {
+  const source = read('luci-app-zapret2-manager/files/www/luci-static/resources/view/zapret2-manager/z2m-strategies.js');
+  return vm.runInNewContext(`(function () { ${source}\n })()`, {
+    Promise, Object, Array, Date, JSON, String, Number, Boolean, isNaN,
+    _: (value) => value,
+    baseclass: { extend: (value) => value },
+    Nfqws2Ide: {}, Model: {}, HealthcheckModel: {}, Icons: {},
+    window: { setTimeout: () => 1, clearTimeout: () => {} },
+    document: {}
+  });
+}
+
+test('PERF-1.1 fresh cached navigation renders and mounts once without loading', async () => {
+  const cached = { cached: true };
+  const harness = loadNavigationHarness({
+    cache: {
+      get: () => ({ fresh: true, data: cached }),
+      load: (tab, loader) => Promise.resolve(cached)
+    }
+  });
+
+  await harness.activate('strategies');
+
+  assert.equal(harness.calls.load, 0, 'fresh navigation must not call module.load');
+  assert.equal(harness.calls.render, 1, 'fresh navigation must render cached data once');
+  assert.equal(harness.calls.mount, 1, 'fresh navigation must mount cached data once');
+  assert.deepEqual(harness.calls.busy, [false], 'fresh navigation must finish without entering load busy state');
+});
+
+test('PERF-1.1 force refresh bypasses fresh cache and calls loader', async () => {
+  const harness = loadNavigationHarness({
+    cache: {
+      get: () => ({ fresh: true, data: { cached: true } }),
+      load: (tab, loader, options) => options.bypass ? loader() : Promise.resolve({ cached: true })
+    }
+  });
+
+  await harness.activate('strategies', true);
+
+  assert.equal(harness.calls.load, 1, 'force refresh must call module.load');
+  assert.equal(harness.calls.render, 1);
+  assert.equal(harness.calls.mount, 1);
+});
+
+test('PERF-1.1 expired cache calls loader instead of using stale data', async () => {
+  const harness = loadNavigationHarness({
+    cache: {
+      get: () => null,
+      load: (tab, loader) => loader()
+    }
+  });
+
+  await harness.activate('strategies');
+
+  assert.equal(harness.calls.load, 1, 'expired cache must call module.load');
+  assert.equal(harness.calls.render, 1);
+  assert.equal(harness.calls.mount, 1);
+});
+
+test('PERF-1.1 Strategies fresh cache does not repeat mount-side read-only RPCs', async () => {
+  const strategies = loadStrategiesModule();
+  const calls = { healthcheck: 0, learned: 0, pools: 0, debug: 0 };
+  const pending = [];
+  const rpc = (key, value) => () => {
+    calls[key] += 1;
+    const result = Promise.resolve(value);
+    pending.push(result);
+    return result;
+  };
+  const ctx = {
+    api: {
+      healthcheck: { status: rpc('healthcheck', {}) },
+      strategies: { state: rpc('learned', {}), pools: rpc('pools', {}), debugGet: rpc('debug', {}) }
+    },
+    shell: {}, root: { querySelector: () => null }
+  };
+  const harness = loadNavigationHarness({
+    cache: { get: () => ({ fresh: true, data: {} }), load: () => Promise.resolve({}) },
+    moduleHooks: { mount: () => strategies.mount(ctx) }
+  });
+
+  await harness.activate('strategies');
+  await Promise.all(pending);
+
+  assert.deepEqual(calls, { healthcheck: 1, learned: 1, pools: 1, debug: 1 });
+});
+
+test('PERF-1.1 keeps inflight dedupe and session invalidation semantics', async () => {
+  const module = loadTabCache();
+  let resolveOld;
+  const cache = module.create({ now: () => 1000, ttls: { strategies: 1000 }, sessionKey: 'session-a' });
+  let calls = 0;
+  const first = cache.load('strategies', () => {
+    calls += 1;
+    return new Promise((resolve) => { resolveOld = resolve; });
+  });
+  assert.equal(first, cache.load('strategies', () => { calls += 1; return Promise.resolve({ wrong: true }); }));
+  assert.equal(calls, 1, 'same-session inflight loads must deduplicate');
+  cache.setSession('session-b');
+  resolveOld({ session: 'old' });
+  await first;
+  assert.equal(cache.get('strategies'), null, 'stale session response must not repopulate cache');
+  assert.deepEqual(await cache.load('strategies', () => Promise.resolve({ session: 'new' })), { session: 'new' });
+});
+
 test('PERF-1D fresh TTL cache avoids load and expired cache reloads', async () => {
   const module = loadTabCache();
   let now = 1000;

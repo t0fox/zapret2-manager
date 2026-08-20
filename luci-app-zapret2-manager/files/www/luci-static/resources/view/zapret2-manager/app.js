@@ -299,6 +299,11 @@ return L.view.extend({
           content.replaceChildren(Shell.renderLoadingState(Navigation.label(tab)));
         }
       }
+      if (cached && force !== true) {
+        tabDataCache[tab] = cached;
+        setContentBusy(false);
+        return Promise.resolve(cached);
+      }
       setContentBusy(true);
       return loadTabData(tab, module, force).then(function (data) {
         if (token !== activationToken) return;
