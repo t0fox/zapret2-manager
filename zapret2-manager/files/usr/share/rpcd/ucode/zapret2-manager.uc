@@ -24,6 +24,9 @@
 
 import { stat, readfile, writefile, unlink, readlink, mkdir, popen } from 'fs';
 import { strategy_cli_dispatch } from '/usr/libexec/zapret2-manager/strategy-cli.uc';
+import { dns_product_get, dns_product_providers, dns_product_status,
+	dns_product_preview, dns_product_validate, dns_product_apply,
+	dns_product_rollback } from '/usr/libexec/zapret2-manager/dns-product.uc';
 
 const STATUS_JSON = '/tmp/zapret2-manager/status.json';
 const COLLECTOR   = '/usr/libexec/zapret2-manager/status.uc';
@@ -959,6 +962,13 @@ return {
 		service_dns_apply_async: { args: { edit: 'string' }, call: function (req) { return service_dns_apply_async_method(req); } },
 		service_dns_apply_status: { args: { edit: 'string' }, call: function (req) { return service_dns_apply_status_method(req); } },
 		service_dns_rollback:  { call: function (req) { return service_dns_rollback_method(req); } },
+		dns_product_get: { call: function (req) { return dns_product_get(req); } },
+		dns_product_providers: { call: function (req) { return dns_product_providers(req); } },
+		dns_product_status: { call: function (req) { return dns_product_status(req); } },
+		dns_product_preview: { args: { edit: 'string' }, call: function (req) { return dns_product_preview(req); } },
+		dns_product_validate: { args: { edit: 'string' }, call: function (req) { return dns_product_validate(req); } },
+		dns_product_apply: { args: { edit: 'string' }, call: function (req) { return dns_product_apply(req); } },
+		dns_product_rollback: { args: { edit: 'string' }, call: function (req) { return dns_product_rollback(req); } },
 		versions:          { call: function (req) { return versions_method(req); } },
 		maintenance_status: { call: function (req) { return maintenance_status_method(req); } },
 		events_tail:       { args: { edit: 'string' }, call: function (req) { return events_tail_method(req); } },

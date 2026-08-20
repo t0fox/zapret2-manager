@@ -102,11 +102,16 @@ export const versions = function() {
 // ---------------------------------------------------------------------------
 export const events_tail = function(input) {
 	let limit = 50;
-	if (type(input) == 'object' && input != null && type(input.n) == 'int') limit = input.n;
+	let since_seq = 0;
+	if (type(input) == 'object' && input != null) {
+		if (type(input.limit) == 'int') limit = input.limit;
+		else if (type(input.n) == 'int') limit = input.n;
+		if (type(input.since_seq) == 'int') since_seq = input.since_seq;
+	}
 	if (limit < 1) limit = 1;
-	if (limit > 200) limit = 200;
+	if (limit > 500) limit = 500;
 	let raw = readfile(PATHS.events_ndjson);
-	if (!raw) return { ok: true, events: [], malformed: [], total: 0, note: 'no events file yet' };
+	if (!raw) return { ok: true, events: [], malformed: [], total: 0, last_seq: 0, note: 'no events file yet' };
 	let lines = split(raw, '\n');
 	let nonEmpty = [];
 	for (let i = 0; i < length(lines); i++) if (length(trim(lines[i]))) push(nonEmpty, lines[i]);
@@ -116,10 +121,13 @@ export const events_tail = function(input) {
 	for (let i = start; i < length(nonEmpty); i++) {
 		let ev = null;
 		try { ev = json(nonEmpty[i]); } catch (e) { ev = null; }
-		if (ev != null) push(events, ev);
+		if (ev != null) {
+			ev.seq = i + 1;
+			if (ev.seq > since_seq) push(events, ev);
+		}
 		else push(malformed, { preview: substr(nonEmpty[i], 0, 120) });
 	}
-	return { ok: true, events: events, malformed: malformed, total: length(nonEmpty) };
+	return { ok: true, events: events, malformed: malformed, total: length(nonEmpty), last_seq: length(nonEmpty) };
 };
 
 // ---------------------------------------------------------------------------
