@@ -37,6 +37,7 @@ ARGV_FILE="$DIR/$candidate.argv"
 ARGV_DIGEST_FILE="$ARGV_FILE.digest"
 ARGV_META_FILE="$ARGV_FILE.meta"
 PID_FILE="$DIR/$candidate.pid"
+NFQWS_PID_FILE="$DIR/$candidate.nfqws2.pid"
 START_FILE="$DIR/$candidate.starttime"
 LOG_FILE="$DIR/$candidate.log"
 HOSTLIST_FILE="$DIR/$candidate.hostlist"
@@ -261,7 +262,7 @@ helper_request() {
 	esac
 	request=$(printf '{"protocolVersion":2,"requestId":"%s","operation":"%s","arguments":{"tableName":"%s","operationId":"%s","nonce":"%s","queue":%s,"peerPid":%s}}\n' \
 		"$request_id" "$helper_operation_name" "$table_name" "$operation_id" "$operation_nonce" "$queue_num" "$helper_peer")
-	printf '%s' "$request" >&8 || { exec 8>&-; exec 9>&-; return 42; }
+	printf '%s\n' "$request" >&8 || { exec 8>&-; exec 9>&-; return 42; }
 	IFS= read -r response <&9 || { exec 8>&-; exec 9>&-; return 42; }
 	exec 8>&-; exec 9>&-
 	if ! helper_response_ok "$request_id" "$helper_operation_name" "$response"; then
@@ -336,7 +337,8 @@ cleanup_internal() {
 		helper_identity || { process_removed=false; firewall_removed=false; owned_only=false; evidence=identity; }
 	fi
 	if [ -r "$PID_FILE" ] && [ -r "$START_FILE" ]; then
-		pid=$(cat "$PID_FILE"); start=$(cat "$START_FILE")
+		pid_record=$(cat "$PID_FILE" 2>/dev/null | tr -d '\n' || true)
+		pid=${pid_record%%|*}; start=$(cat "$START_FILE")
 		if process_alive "$pid" "$start"; then
 			kill -TERM "$pid" 2>/dev/null || true; i=0
 			while process_alive "$pid" "$start" && [ "$i" -lt 20 ]; do short_sleep; i=$((i + 1)); done
@@ -363,9 +365,9 @@ cleanup_internal() {
 		atomic_private_write "$CLEANUP_EVIDENCE" 'evidence=complete\n' || { temporary_removed=false; owned_only=false; evidence=temporary; }
 	fi
 	if [ "$process_removed" = true ] && [ "$firewall_removed" = true ] && [ "$nfqueue_removed" = true ] && [ "$temporary_removed" = true ]; then
-		rm -f "$ARGV_FILE" "$ARGV_DIGEST_FILE" "$ARGV_META_FILE" "$PID_FILE" "$START_FILE" "$LOG_FILE" "$HOSTLIST_FILE" "$CHAIN_DIGEST_FILE"
+		rm -f "$ARGV_FILE" "$ARGV_DIGEST_FILE" "$ARGV_META_FILE" "$PID_FILE" "$NFQWS_PID_FILE" "$START_FILE" "$LOG_FILE" "$HOSTLIST_FILE" "$CHAIN_DIGEST_FILE"
 		remove_private_helper_artifacts
-		[ ! -e "$ARGV_FILE" ] && [ ! -e "$ARGV_DIGEST_FILE" ] && [ ! -e "$ARGV_META_FILE" ] && [ ! -e "$PID_FILE" ] && [ ! -e "$START_FILE" ] && [ ! -e "$LOG_FILE" ] && [ ! -e "$HOSTLIST_FILE" ] && [ ! -e "$CHAIN_DIGEST_FILE" ] && [ ! -e "$HELPER_PID_FILE" ] && [ ! -e "$HELPER_TRANSPORT_FILE" ] && [ ! -e "$HELPER_REQUEST_FIFO" ] && [ ! -e "$HELPER_RESPONSE_FIFO" ] || { temporary_removed=false; owned_only=false; evidence=temporary; }
+		[ ! -e "$ARGV_FILE" ] && [ ! -e "$ARGV_DIGEST_FILE" ] && [ ! -e "$ARGV_META_FILE" ] && [ ! -e "$PID_FILE" ] && [ ! -e "$NFQWS_PID_FILE" ] && [ ! -e "$START_FILE" ] && [ ! -e "$LOG_FILE" ] && [ ! -e "$HOSTLIST_FILE" ] && [ ! -e "$CHAIN_DIGEST_FILE" ] && [ ! -e "$HELPER_PID_FILE" ] && [ ! -e "$HELPER_TRANSPORT_FILE" ] && [ ! -e "$HELPER_REQUEST_FIFO" ] && [ ! -e "$HELPER_RESPONSE_FIFO" ] || { temporary_removed=false; owned_only=false; evidence=temporary; }
 		if [ "$temporary_removed" = true ]; then
 			rm -f "$OWNERSHIP_FILE"
 			[ ! -e "$OWNERSHIP_FILE" ] || { temporary_removed=false; owned_only=false; evidence=ownership-metadata; }
@@ -470,7 +472,7 @@ activate() {
 		helper_request ownership_nfqueue_prepare || fail EOWNERSHIP firewall
 	lifecycle_transition RULES_READY helper-kernel-readback || fail EIO journal
 	# Spawn nfqws2 under exact identity; candidate args already sanitized upstream.
-	set -- "$@" "--qnum=$queue_num" "--daemon" "--pidfile=$PID_FILE" "--user=0"
+	set -- "$@" "--qnum=$queue_num" "--pidfile=$NFQWS_PID_FILE" "--user=daemon"
 	"$NFQWS2" "$@" >"$LOG_FILE" 2>&1 &
 	nfq_pid=$!
 	nfq_start=$(starttime "$nfq_pid")
@@ -495,6 +497,9 @@ stabilize() {
 	pid_record=$(cat "$PID_FILE" 2>/dev/null | tr -d '\n' || true)
 	pid=${pid_record%%|*}; start=${pid_record#*|}
 	[ -n "$pid" ] && [ -n "$start" ] || fail EIDENTITY stabilize
+	queue_num=$(sed -n 's/^queue=//p' "$HELPER_TRANSPORT_FILE" 2>/dev/null || true)
+	case "$queue_num" in ''|*[!0-9]*) fail EIDENTITY stabilize ;; esac
+	[ "$queue_num" -ge "$QUEUE" ] && [ "$queue_num" -le "$QUEUE_MAX" ] || fail EIDENTITY stabilize
 	deadline=$(( $(date +%s) + 30 ))
 	while :; do
 		if ! process_alive "$pid" "$start"; then
@@ -530,7 +535,7 @@ session_cleanup() {
 	recovery_evidence="$ROOT/$session.recovery.evidence"
 	atomic_private_write "$recovery_evidence" "session=$session\nverified=true\ndurability=tmpfs_visible\n" || fail ECLEANUP cleanup
 	# Remove only the fixed runtime sidecars; unknown files keep rmdir fail-closed.
-	rm -f "$DIR"/*.argv "$DIR"/*.argv.digest "$DIR"/*.argv.meta "$DIR"/*.helper.pid "$DIR"/*.helper.transport "$DIR"/*.helper.request "$DIR"/*.helper.response "$DIR"/*.lifecycle
+	rm -f "$DIR"/*.argv "$DIR"/*.argv.digest "$DIR"/*.argv.meta "$DIR"/*.pid "$DIR"/*.nfqws2.pid "$DIR"/*.helper.pid "$DIR"/*.helper.transport "$DIR"/*.helper.request "$DIR"/*.helper.response "$DIR"/*.lifecycle
 	rm -f "$CLEANUP_EVIDENCE" "$OWNERSHIP_LOCK" "$DIR/lock.ready"
 	rmdir "$DIR" 2>/dev/null || { atomic_private_write "$recovery_evidence" "session=$session\nverified=false\ndurability=tmpfs_visible\n" || true; fail ECLEANUP cleanup; }
 	[ ! -e "$DIR" ] || fail ECLEANUP cleanup

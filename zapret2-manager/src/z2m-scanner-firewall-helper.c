@@ -530,8 +530,6 @@ static enum transaction_result netlink_transaction(struct owner_state *state, ui
 	header->nlmsg_len = NLMSG_LENGTH(sizeof(*generic));
 	header->nlmsg_type = (uint16_t)((NFNL_SUBSYS_NFTABLES << 8) | message);
 	header->nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
-	if (message == NFT_MSG_NEWCHAIN || message == NFT_MSG_NEWRULE)
-		header->nlmsg_flags |= NLM_F_CREATE | NLM_F_EXCL;
 	expected_sequence = sequence++;
 	header->nlmsg_seq = expected_sequence;
 	generic = (struct nfgenmsg *)NLMSG_DATA(header);
@@ -637,6 +635,10 @@ static enum transaction_result netlink_transaction_attrs(struct owner_state *sta
 	header->nlmsg_len = NLMSG_LENGTH(sizeof(*generic));
 	header->nlmsg_type = (uint16_t)((NFNL_SUBSYS_NFTABLES << 8) | message);
 	header->nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
+	if (message == NFT_MSG_NEWCHAIN)
+		header->nlmsg_flags |= NLM_F_CREATE | NLM_F_EXCL;
+	else if (message == NFT_MSG_NEWRULE)
+		header->nlmsg_flags |= NLM_F_CREATE | NLM_F_APPEND;
 	expected_sequence = sequence++;
 	header->nlmsg_seq = expected_sequence;
 	generic = (struct nfgenmsg *)NLMSG_DATA(header);
@@ -709,13 +711,15 @@ static enum transaction_result create_nfqueue_chain(struct owner_state *state)
 	unsigned char attributes[2048] = { 0 };
 	unsigned char hook[256] = { 0 };
 	size_t used = 0, hook_used = 0;
-	uint32_t hook_number = NF_INET_FORWARD;
-	int32_t priority = -150;
+	uint32_t hook_number = htonl(NF_INET_FORWARD);
+	uint32_t priority = htonl((uint32_t)-150);
 
 	if (!append_attr(attributes, sizeof(attributes), &used, NFTA_CHAIN_TABLE,
 		state->table_name, strlen(state->table_name) + 1U) ||
 		!append_attr(attributes, sizeof(attributes), &used, NFTA_CHAIN_NAME,
 		SCANNER_CHAIN, sizeof(SCANNER_CHAIN)) ||
+		!append_attr(attributes, sizeof(attributes), &used, NFTA_CHAIN_TYPE,
+		"filter", sizeof("filter")) ||
 		!append_attr(hook, sizeof(hook), &hook_used, NFTA_HOOK_HOOKNUM,
 		&hook_number, sizeof(hook_number)) ||
 		!append_attr(hook, sizeof(hook), &hook_used, NFTA_HOOK_PRIORITY,
@@ -733,10 +737,13 @@ static enum transaction_result create_nfqueue_rule(struct owner_state *state)
 	unsigned char expression[512] = { 0 };
 	unsigned char expression_data[256] = { 0 };
 	unsigned char queue_number[sizeof(uint16_t)];
+	unsigned char queue_total[sizeof(uint16_t)];
 	size_t used = 0, expressions_used = 0, expression_used = 0, data_used = 0;
-	uint16_t queue = state->queue;
+	uint16_t queue = htons(state->queue);
+	uint16_t total = htons(1);
 
 	memcpy(queue_number, &queue, sizeof(queue));
+	memcpy(queue_total, &total, sizeof(total));
 	if (!append_attr(attributes, sizeof(attributes), &used, NFTA_RULE_TABLE,
 		state->table_name, strlen(state->table_name) + 1U) ||
 		!append_attr(attributes, sizeof(attributes), &used, NFTA_RULE_CHAIN,
@@ -745,6 +752,8 @@ static enum transaction_result create_nfqueue_rule(struct owner_state *state)
 		"queue", sizeof("queue")) ||
 		!append_attr(expression_data, sizeof(expression_data), &data_used,
 		NFTA_QUEUE_NUM, queue_number, sizeof(queue_number)) ||
+		!append_attr(expression_data, sizeof(expression_data), &data_used,
+		NFTA_QUEUE_TOTAL, queue_total, sizeof(queue_total)) ||
 		!append_nested(expression, sizeof(expression), &expression_used, NFTA_EXPR_DATA,
 		expression_data, data_used) ||
 		!append_nested(expressions, sizeof(expressions), &expressions_used,

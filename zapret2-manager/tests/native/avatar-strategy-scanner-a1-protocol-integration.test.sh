@@ -20,6 +20,13 @@ grep -Fq 'nonce' "$HELPER" || fail 'canonical helper does not define nonce state
 grep -Fq 'queue' "$HELPER" || fail 'canonical helper does not define bounded queue state'
 grep -Fq 'NFT_MSG_NEWCHAIN' "$HELPER" || fail 'canonical helper does not create the fixed chain'
 grep -Fq 'NFT_MSG_NEWRULE' "$HELPER" || fail 'canonical helper does not create the fixed NFQUEUE rule'
+grep -Fq 'NLM_F_CREATE | NLM_F_EXCL' "$HELPER" || fail 'canonical helper does not request exclusive creation'
+grep -Fq 'NFTA_CHAIN_TYPE' "$HELPER" || fail 'canonical helper does not declare filter chain type'
+grep -Fq 'htonl(NF_INET_FORWARD)' "$HELPER" || fail 'canonical helper does not encode hook number for netlink'
+grep -Fq 'htonl((uint32_t)-150)' "$HELPER" || fail 'canonical helper does not encode hook priority for netlink'
+grep -Fq 'htons(state->queue)' "$HELPER" || fail 'canonical helper does not encode queue number for netlink'
+grep -Fq 'NFTA_QUEUE_TOTAL' "$HELPER" || fail 'canonical helper omits NFQUEUE total attribute'
+grep -Fq 'htons(1)' "$HELPER" || fail 'canonical helper does not encode NFQUEUE total for netlink'
 grep -Fq 'ownership_nfqueue_prepare' "$HELPER" || fail 'canonical helper does not implement prepare'
 grep -Fq 'ownership_nfqueue_bind' "$HELPER" || fail 'canonical helper does not implement bind'
 grep -Fq 'ownership_nfqueue_activate' "$HELPER" || fail 'canonical helper does not implement activate'
@@ -35,5 +42,10 @@ grep -Fq 'ownership_ready' "$ADAPTER" || fail 'runtime adapter does not invoke o
 grep -Fq 'ownership_delete' "$ADAPTER" || fail 'runtime adapter does not invoke ownership_delete'
 grep -Fq 'helper.pid' "$ADAPTER" || fail 'runtime adapter has no retained helper identity'
 grep -Fq 'helper.transport' "$ADAPTER" || fail 'runtime adapter has no private helper transport metadata'
+grep -Fq "printf '%s\\n' \"\$request\" >&8" "$ADAPTER" || fail 'runtime adapter does not frame helper requests with a newline'
+grep -Fq '"--user=daemon"' "$ADAPTER" || fail 'runtime adapter does not use the target daemon account'
+if grep -Fq '"--daemon"' "$ADAPTER"; then
+	 fail 'runtime adapter daemonizes nfqws2 away from the verified pid'
+fi
 
 printf '%s\n' 'PASS: A1 helper protocol and runtime integration contract'
