@@ -355,6 +355,11 @@ function scanner_edit_action(sub, req, tag) {
 }
 
 function scanner_start_async(req) {
+	try { return scanner_start_async_impl(req); }
+	catch (e) { return { ok: false, error: { code: 'EINTERNAL', message: 'Scanner start failed before worker launch.' } }; }
+}
+
+function scanner_start_async_impl(req) {
 	if (!scanner_request_root_ready()) return { ok: false, error: { code: 'EINPUT', message: 'Scanner request directory is unsafe' } };
 	let edit = null;
 	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }

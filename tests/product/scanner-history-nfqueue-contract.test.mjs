@@ -66,3 +66,11 @@ test('Scanner RPC request temp files use the BusyBox-compatible mktemp form', ()
   assert.match(cli, /REQUEST_ROOT/);
   assert.doesNotMatch(cli, /\.json\$\/\)\) return result\('EINPUT'/);
 });
+
+test('Scanner async start converts runtime exceptions into a bounded error response', () => {
+  const rpc = read('zapret2-manager/files/usr/share/rpcd/ucode/zapret2-manager.uc');
+  assert.match(rpc, /function scanner_start_async\(req\)/);
+  assert.match(rpc, /function scanner_start_async_impl\(req\)/);
+  assert.match(rpc, /try \{ return scanner_start_async_impl\(req\); \}/);
+  assert.match(rpc, /code: 'EINTERNAL'/);
+});
