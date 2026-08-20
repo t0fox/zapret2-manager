@@ -27,6 +27,7 @@ import { strategy_cli_dispatch } from '/usr/libexec/zapret2-manager/strategy-cli
 
 const STATUS_JSON = '/tmp/zapret2-manager/status.json';
 const COLLECTOR   = '/usr/libexec/zapret2-manager/status.uc';
+const FAST_COLLECTOR = '/usr/libexec/zapret2-manager/status-fast.uc';
 const SERVICE     = '/usr/libexec/zapret2-manager/service.uc';
 const CACHE_TTL   = 3;
 
@@ -49,6 +50,14 @@ function status_method(req) {
 	if (!raw) return { error: 'status unavailable', generatedAt: null };
 	try { return json(raw); }
 	catch (e) { return { error: 'status parse failed', raw: raw }; }
+}
+
+function status_fast_method(req) {
+	let p = popen('/usr/bin/ucode ' + FAST_COLLECTOR + ' 2>/dev/null', 'r');
+	if (!p) return { ok: false, error: { code: 'EFAST_STATUS', message: 'Fast status collector unavailable.' } };
+	let out = p.read('all') || '', rc = p.close();
+	if (rc != 0 || !length(trim(out))) return { ok: false, error: { code: 'EFAST_STATUS', message: 'Fast status collector failed.' } };
+	try { return json(out); } catch (e) { return { ok: false, error: { code: 'EFAST_STATUS', message: 'Fast status response malformed.' } }; }
 }
 
 function service_action(action) {
@@ -849,6 +858,7 @@ function profiles_apply_method(req) {
 return {
 	'zapret2-manager': {
 		status:            { call: function (req) { return status_method(req); } },
+		status_fast:       { call: function (req) { return status_fast_method(req); } },
 		start:             { call: function (req) { return service_action('start'); } },
 		stop:              { call: function (req) { return service_action('stop'); } },
 		restart:           { call: function (req) { return service_action('restart'); } },

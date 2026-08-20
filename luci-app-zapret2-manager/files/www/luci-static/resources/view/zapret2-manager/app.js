@@ -22,6 +22,7 @@
 'require view.zapret2-manager.z2m-unified-routing as UnifiedRouting';
 'require view.zapret2-manager.z2m-warp-page as Warp';
 'require view.zapret2-manager.z2m-avatar-log as AvatarLog';
+'require view.zapret2-manager.z2m-tab-cache as TabCache';
 
 var DRAFT_META = {
   strategy: { label: _('Стратегия'), tab: 'strategy' },
@@ -65,6 +66,20 @@ var hashHandler = null;
 var storeUnsubscribe = null;
 var tabDataCache = {};
 var tabLoadPromises = {};
+function currentSessionKey() {
+  var env = window.L && window.L.env || {};
+  return env.sessionid || env.sessionId || window.location.host || 'luci';
+}
+var tabSessionKey = currentSessionKey();
+var tabCache = TabCache.create({ sessionKey: tabSessionKey });
+function syncTabCacheSession() {
+  var next = currentSessionKey();
+  if (next === tabSessionKey) return;
+  tabSessionKey = next;
+  tabCache.setSession(next);
+  tabDataCache = {};
+  tabLoadPromises = {};
+}
 
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
 function array(value) { return Array.isArray(value) ? value : []; }
@@ -112,6 +127,17 @@ function detectedVersion(initial) {
 }
 function draftMeta(scope) { return DRAFT_META[scope] || { label: scope, tab: 'dashboard' }; }
 function draftLabel(scope) { return draftMeta(scope).label; }
+function invalidateTabCache(tab) {
+  if (tab) tabCache.invalidate(tab);
+  else tabCache.invalidateAll();
+  if (tab) {
+    delete tabDataCache[tab];
+    delete tabLoadPromises[tab];
+  } else {
+    tabDataCache = {};
+    tabLoadPromises = {};
+  }
+}
 function humanValue(value, depth) {
   depth = depth || 0;
   if (depth > 2) return _('изменено');
@@ -187,6 +213,10 @@ return L.view.extend({
         data: data || {}, initial: initial || {},
         navigate: navigateTo,
         refresh: function (next) { return activate(next || tab, true); },
+        invalidateCache: function (target) {
+          var route = target && draftMeta(target).tab || target || tab;
+          invalidateTabCache(route);
+        },
         rerender: function () {
           var token = ++activationToken;
           renderTabData(tab, module, tabDataCache[tab] || data || {}, token, true);
@@ -200,17 +230,21 @@ return L.view.extend({
         coordinator: coordinator
       };
     }
-    function loadTabData(tab, module) {
+    function loadTabData(tab, module, force) {
       if (tabLoadPromises[tab]) return tabLoadPromises[tab];
-      tabLoadPromises[tab] = Promise.resolve(module.load(buildContext(tab, module, tabDataCache[tab]))).then(function (data) {
-        tabDataCache[tab] = data || {};
-        delete tabLoadPromises[tab];
-        return tabDataCache[tab];
+      var requestSession = tabSessionKey;
+      var requestPromise = tabCache.load(tab, function () {
+        return module.load(buildContext(tab, module, tabDataCache[tab]));
+      }, { bypass: force === true }).then(function (data) {
+        if (requestSession === tabSessionKey) tabDataCache[tab] = data || {};
+        if (tabLoadPromises[tab] === requestPromise) delete tabLoadPromises[tab];
+        return requestSession === tabSessionKey ? tabDataCache[tab] : (data || {});
       }, function (error) {
-        delete tabLoadPromises[tab];
+        if (tabLoadPromises[tab] === requestPromise) delete tabLoadPromises[tab];
         throw error;
       });
-      return tabLoadPromises[tab];
+      tabLoadPromises[tab] = requestPromise;
+      return requestPromise;
     }
     function renderTabData(tab, module, data, token, force) {
       if (token !== activationToken) return;
@@ -246,10 +280,12 @@ return L.view.extend({
     }
     function activate(tab, force) {
       tab = Navigation.normalize(tab);
+      syncTabCacheSession();
       var token = ++activationToken;
       var module = MODULES[tab];
       var sameTab = activeModule === module && !!activeContext && activeContext.route === tab;
-      var cached = tabDataCache[tab];
+      var cachedEntry = force ? null : tabCache.get(tab);
+      var cached = cachedEntry ? cachedEntry.data : null;
       store.update({ ui: Object.assign({}, store.get().ui, { tab: tab }) });
       if (tabs.setActive) tabs.setActive(tab);
       if (cached && !sameTab) renderTabData(tab, module, cached, token, force);
@@ -264,7 +300,7 @@ return L.view.extend({
         }
       }
       setContentBusy(true);
-      return loadTabData(tab, module).then(function (data) {
+      return loadTabData(tab, module, force).then(function (data) {
         if (token !== activationToken) return;
         renderTabData(tab, module, data, token, force);
         setContentBusy(false);
@@ -296,7 +332,7 @@ return L.view.extend({
             if (!answer || answer.ok === false || answer.verified === false) throw answer || new Error('rollback failed');
             Shell.closeModal();
             Shell.showToast(_('Откат выполнен и проверен.'), 'ok');
-            tabDataCache = {};
+            invalidateTabCache();
             return activate(store.get().ui.tab || Navigation.defaultRoute, true);
           }).catch(function (error) {
             button.disabled = false;
@@ -316,7 +352,7 @@ return L.view.extend({
           apply.disabled = true;
           applyDrafts(coordinator, store.snapshotDraft(), { root: content }).then(function (result) {
             Shell.closeModal();
-            tabDataCache = {};
+            invalidateTabCache();
             renderState();
             activate(store.get().ui.tab || Navigation.defaultRoute, true);
             openApplyResult(result);
@@ -352,7 +388,7 @@ return L.view.extend({
           store.update({ pending: Object.assign({}, snapshot.pending, {
             pendingStrategyId: null, pendingOverride: null
           }) });
-          tabDataCache = {};
+          invalidateTabCache();
           renderState();
           activate(store.get().ui.tab || Navigation.defaultRoute, true);
         })

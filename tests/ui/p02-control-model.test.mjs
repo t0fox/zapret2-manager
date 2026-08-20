@@ -76,3 +76,29 @@ test('Control model keeps pending visible and maps lifecycle results to Russian 
   assert.equal(model.actionCopy('restart').success, 'nfqws2 перезапущен');
   assert.equal(model.actionCopy('stop').failure, 'Не удалось остановить nfqws2');
 });
+
+test('Control model preserves fast-status running, stopped, and queue-owner error semantics', () => {
+  const model = loadModel();
+  const fastRunning = {
+    schema: 'status-fast.v1', serviceState: 'running',
+    runtimeSummary: { status: 'running', process: { found: true, pid: 42 }, nfqueue: { number: 300, registered: true, ownerMatches: true, rulesPresent: null } },
+    health: { queue: { number: 300, registered: true, ownerConflict: false } },
+    strategyStatus: { id: 'active-fast', name: 'Active fast' }
+  };
+  const fastStopped = {
+    schema: 'status-fast.v1', serviceState: 'stopped',
+    runtimeSummary: { status: 'stopped', process: { found: false }, nfqueue: { number: 300, registered: false, ownerMatches: null, rulesPresent: null } },
+    health: { queue: { number: 300, registered: false } }, strategyStatus: null
+  };
+  const fastOwnerError = {
+    schema: 'status-fast.v1', serviceState: 'error',
+    runtimeSummary: { status: 'error', process: { found: true, pid: 42 }, nfqueue: { number: 300, registered: true, ownerMatches: false, rulesPresent: null } },
+    health: { queue: { number: 300, registered: true, ownerConflict: true } }, strategyStatus: null
+  };
+  assert.equal(model.state(fastRunning), 'running');
+  assert.equal(model.normalize(fastRunning, {}).strategy.value, 'Active fast');
+  assert.equal(model.state(fastStopped), 'stopped');
+  assert.equal(model.state(fastOwnerError), 'unknown');
+  assert.equal(model.normalize(fastOwnerError, {}).firewall.registered, true);
+  assert.equal(model.normalize(fastOwnerError, {}).firewall.value, 'Неизвестно');
+});

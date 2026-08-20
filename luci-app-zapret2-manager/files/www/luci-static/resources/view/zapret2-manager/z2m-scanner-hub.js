@@ -1012,22 +1012,14 @@ return baseclass.extend({
     state.disposed = false;
     if (ctx) state.ctx = ctx;
 
-    // Initial state refresh
-    if (state.ctx && state.ctx.api) {
-      callApi('blockcheckw', 'status').then(function(res) {
-        if (res && res.job) state.bcwJob = res.job;
-        if (res && res.provider) state.bcwProvider = res.provider;
-        render();
-        if (isAnyRunning()) pollJobs();
-      }).catch(function() {});
-      callApi('blockcheck2', 'status').then(function(res) {
-        if (res && res.job) state.bc2Job = res.job;
-        render();
-        if (isAnyRunning()) pollJobs();
-      }).catch(function() {});
-    }
-
+    // load() already performed the two initial reads. Reuse them so render
+    // does not create a second pair of RPC calls before polling starts.
+    var initial = ctx && ctx.data || {};
+    state.bcwJob = initial.bcwStatus && initial.bcwStatus.job || null;
+    state.bcwProvider = initial.bcwStatus && initial.bcwStatus.provider || null;
+    state.bc2Job = initial.bc2Status && initial.bc2Status.job || null;
     render();
+    if (isAnyRunning()) pollJobs();
     return container;
   },
 

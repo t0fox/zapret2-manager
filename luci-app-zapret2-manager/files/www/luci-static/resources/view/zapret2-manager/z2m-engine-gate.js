@@ -41,8 +41,8 @@ function loadCore(module, ctx, status) {
   });
 }
 function loadGuarded(module, ctx) {
-  var statusCall = ctx && ctx.api && ctx.api.engine && ctx.api.engine.status;
-  if (typeof statusCall !== 'function') return loadCore(module, ctx, null);
+  var statusCall = ctx && ctx.api && ctx.api.engine && ctx.api.engine.gateStatus;
+  if (typeof statusCall !== 'function') return envelope(false, null, null, normalizeError(ctx, { code: 'engine-gate-unavailable', message: _('Cheap состояние движка недоступно.') }));
   return Promise.resolve(statusCall()).then(function (status) {
     if (!status || status.ok === false) {
       var backendError = status && status.error || { code: 'engine-status-unavailable', message: _('Backend не вернул состояние движка.') };

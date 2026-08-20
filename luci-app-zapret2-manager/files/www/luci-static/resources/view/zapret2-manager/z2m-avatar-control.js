@@ -88,7 +88,7 @@ function restoreLogViewport() {
 
 function fetchData(ctx) {
   return Promise.allSettled([
-    ctx.api.service.status(),
+    (ctx.api.service.statusFast || ctx.api.service.status)(),
     edit(ctx.api.monitor.eventsTail, { limit: 30 })
   ]).then(function (results) {
     return {
@@ -118,23 +118,21 @@ function strategyFromList(answer, id) {
 function resolveStrategy(ctx, data) {
   var id = strategyId(data);
   if (!id || !ctx.api.strategies) return Promise.resolve(data);
-  var list = ctx.api.strategies.list
-    ? ctx.api.strategies.list().then(function (answer) { return strategyFromList(answer, id); })
-    : Promise.resolve(null);
-  return list.then(function (candidate) {
-    if (candidate) return candidate;
-    if (!ctx.api.strategies.get) return null;
-    return edit(ctx.api.strategies.get, { id: id }).then(function (answer) {
+  if (ctx.api.strategies.get) return edit(ctx.api.strategies.get, { id: id }).then(function (answer) {
       var normalized = payload(answer);
       return normalized.strategy || normalized;
-    });
-  }).then(function (candidate) {
+    }).then(function (candidate) {
     data.strategy = candidate ? { value: candidate } : null;
     return data;
   }).catch(function (error) {
     data.strategy = { error: ctx.api.normalizeError(error) };
     return data;
   });
+  // Compatibility fallback for an older backend that has no targeted get.
+  return ctx.api.strategies.list ? ctx.api.strategies.list().then(function (answer) {
+    data.strategy = { value: strategyFromList(answer, id) };
+    return data;
+  }) : Promise.resolve(data);
 }
 
 function refresh(ctx, token, render) {

@@ -1110,7 +1110,7 @@ function refreshData(full) {
     });
   }
   var reads = [
-    boundedRead(state.ctx.api.service.status, 8000, 'Не удалось получить состояние службы.'),
+    boundedRead(state.ctx.api.service.statusFast || state.ctx.api.service.status, 8000, 'Не удалось получить состояние службы.'),
     refreshLearned(),
     refreshHealthcheck(),
     refreshDebugToggle()
@@ -1141,6 +1141,7 @@ function mutate(action, request) {
   state.pending = action; renderAll();
   return Promise.resolve(request).then(function (answer) {
     if (!answer || answer.ok === false) throw answer || new Error('Операция не выполнена');
+    if (state.ctx && state.ctx.invalidateCache) state.ctx.invalidateCache('strategies');
     return refreshData(true).then(function () { return answer; });
   }).then(function (answer) { state.pending = null; renderAll(); notify('ok', action === 'apply' ? Model.actionCopy('apply').success : 'Изменения сохранены'); return answer; }, function (error) {
     state.pending = null; renderAll(); notify('err', errorText(state.ctx, error)); return null;
@@ -1371,7 +1372,7 @@ function load(ctx) {
   var reads = [
     boundedRead(ctx.api.strategies.list, readTimeout, 'Не удалось получить список стратегий.'),
     boundedRead(ctx.api.strategies.catalogStatus, readTimeout, 'Не удалось получить состояние каталога.'),
-    boundedRead(ctx.api.service.status, readTimeout, 'Не удалось получить состояние службы.')
+    boundedRead(ctx.api.service.statusFast || ctx.api.service.status, readTimeout, 'Не удалось получить состояние службы.')
   ];
   return Promise.allSettled(reads).then(function (results) {
     function settled(result) { return result.status === 'fulfilled' ? { value: result.value || {} } : { error: ctx.api.normalizeError(result.reason) }; }
