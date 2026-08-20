@@ -73,6 +73,20 @@ test('System Updates stays compatible with a stale cached maintenance model modu
   assert.match(system, /MaintenanceModel\.normalizeUpdateModel\s*\|\|\s*normalizeUpdateModel/);
 });
 
+test('System Engine uses the current engine provider RPC contract', () => {
+  const api = read('z2m-api.js');
+  const panel = read('z2m-engine-panel.js');
+
+  for (const method of ['engine_providers', 'engine_check_updates', 'engine_install', 'engine_remove'])
+    assert.match(api, new RegExp(method), method);
+  for (const stale of ['engine_releases', 'engine_check', 'engine_update', 'engine_downgrade', 'engine_reinstall', 'engine_uninstall'])
+    assert.doesNotMatch(api, new RegExp("'" + stale + "'"), stale);
+  assert.match(panel, /engine\.providers\(\)/);
+  assert.match(panel, /engine\.checkUpdates/);
+  assert.match(panel, /engine\.remove/);
+  assert.doesNotMatch(panel, /engine\.releases|engine\.check\(|engine\.uninstall/);
+});
+
 test('Diagnostics is the only canonical Monitoring and Logs viewer', () => {
   const app = read('app.js');
   const navigation = read('z2m-navigation.js');
