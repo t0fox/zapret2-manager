@@ -3,6 +3,7 @@
 'require view.zapret2-manager.z2m-proxy-model as ProxyModel';
 'require view.zapret2-manager.z2m-qr as Qr';
 'require view.zapret2-manager.z2m-product-ux-model as ProductUX';
+'require view.zapret2-manager.z2m-avatar-log as AvatarLog';
 
 var FIELDS = [
   { id: 'enabled', label: _('Включено'), type: 'bool' },
@@ -62,13 +63,29 @@ function settled(result, api) {
     ? { value: result.value || {} }
     : { error: api.normalizeError(result.reason) };
 }
+var TELEGRAM_EVENT_IDENTITIES = ['proxy', 'telegram-proxy', 'telegram_proxy', 'tg-proxy', 'tg_proxy', 'telegram'];
+function normalizedEventIdentity(value) {
+  return String(value || '').trim().toLowerCase().replace(/[\s_]+/g, '-');
+}
+function isTelegramEvent(event) {
+  event = object(event);
+  return ['component', 'subsystem', 'owner', 'source'].some(function (key) {
+    return TELEGRAM_EVENT_IDENTITIES.indexOf(normalizedEventIdentity(event[key])) >= 0;
+  });
+}
+function telegramEventRows(envelope) {
+  var value = envelope && envelope.value !== undefined ? envelope.value : envelope;
+  value = object(value);
+  var rows = array(value.events || value.lines || value.items || value.rows || value.log);
+  return rows.filter(isTelegramEvent);
+}
 function load(ctx) {
   return Promise.allSettled([
     ctx.api.proxy.capabilities(),
     ctx.api.proxy.status(),
     ctx.api.proxy.configGet(),
     edit(ctx.api.proxy.health, {}),
-    edit(ctx.api.proxy.logsTail, { n: 50 }),
+    edit((ctx.api.maintenance && ctx.api.maintenance.eventsTail) || ctx.api.monitor.eventsTail, { limit: 50 }),
     ctx.api.tg.product.catalog(),
     ctx.api.tg.product.status(),
     ctx.api.tg.product.versions(),
@@ -79,7 +96,7 @@ function load(ctx) {
       status: settled(results[1], ctx.api),
       config: settled(results[2], ctx.api),
       health: settled(results[3], ctx.api),
-      logs: settled(results[4], ctx.api),
+      events: settled(results[4], ctx.api),
       providerCatalog: settled(results[5], ctx.api),
       providerStatus: settled(results[6], ctx.api),
       providerPreflight: settled(results[5], ctx.api),
@@ -108,6 +125,15 @@ function workingConfig(ctx, data) {
 function showError(ctx, error) {
   var mapped = ProductUX.errorMessage(ctx.api.normalizeError(error));
   ctx.shell.showToast(mapped.message, 'err');
+}
+function showErrorState(ctx, error, fallback) {
+  var shell = ctx.shell;
+  var mapped = ProductUX.errorMessage(error, fallback);
+  return E('div', { 'class': 'z2m-product-error' }, [shell.statePanel({
+    title: mapped.message,
+    message: _('Telegram Proxy опционален и не влияет на остальные функции Zapret 2 Manager.'),
+    kind: 'error'
+  }), E('details', { 'class': 'z2m-product-error-details' }, [E('summary', {}, _('Сведения об ошибке')), E('code', {}, mapped.technical)])]);
 }
 function mutation(ctx, name, promise) {
   if (state.busy) return Promise.resolve(null);
@@ -696,12 +722,7 @@ function installPane(ctx, data) {
 function statusPane(ctx, data, normalized) {
   var shell = ctx.shell;
   if (data.providerStatus && data.providerStatus.error) {
-    var providerError = ProductUX.errorMessage(data.providerStatus.error, _('Состояние Telegram Proxy недоступно.'));
-    return E('div', { 'class': 'z2m-product-error' }, [shell.statePanel({
-      title: providerError.message,
-      message: _('Telegram Proxy опционален и не влияет на остальные функции Zapret 2 Manager.'),
-      kind: 'error'
-    }), E('details', { 'class': 'z2m-product-error-details' }, [E('summary', {}, _('Технические детали')), E('code', {}, providerError.technical)])]);
+    return showErrorState(ctx, data.providerStatus.error, _('Статус недоступен.'));
   }
   var pstatus = providerStatus(data);
   var installed = providerInstalled(pstatus.installed);
@@ -741,21 +762,20 @@ function statusPane(ctx, data, normalized) {
 
   var healthState = normalized.truth === 'healthy' ? 'ok' : normalized.truth === 'degraded' ? 'degraded' :
     normalized.truth === 'error' ? 'error' : normalized.process ? 'unknown' : 'off';
-  var stateCard = function (label, value, kind) { return E('div', { 'class': 'z2m-product-health-card' }, [E('span', { 'class': 'label' }, label), E('strong', {}, value), shell.chip(ProductUX.statusLabel(kind), ProductUX.kind(kind), true)]); };
   var badges = [shell.chip(activeProviderLabel(data, pstatus), 'b'), shell.chip(display(pstatus.activeVersion), ''), shell.chip(ProductUX.statusLabel(healthState), ProductUX.kind(healthState), true)];
-  var metrics = [
-    [_('Реализация'), pstatus.activeProvider === 'rust' ? 'Rust' : 'Go'],
-    [_('Listener'), normalized.listener ? display(listener.address || applied.host) + ':' + display(listener.port || applied.port) : _('Не подтверждён')],
-    [_('Активные сессии'), normalized.activeConnections === null ? '—' : String(normalized.activeConnections)],
-    [_('Revision'), display(cfg.appliedRevision)]
-  ];
-  var statusRows = [
-    [_('Версия'), installedVersionDisplay(pstatus.activeVersion, pstatus.activePackageVersion)],
+  var listenerAddress = listener.address || applied.host;
+  var listenerPort = listener.port !== undefined ? listener.port : applied.port;
+  var infoRow = function (row) { return E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, row[0]), E('strong', {}, row[1])]); };
+  var connectionRows = [
+    [_('Provider'), activeProviderLabel(data, pstatus)],
     [_('Процесс'), normalized.process ? _('Запущен') : _('Остановлен')],
-    [_('Listener'), normalized.listener ? _('Подтверждён') : _('Не подтверждён')],
-    [_('Связь с Telegram DC'), normalized.outbound ? _('Подтверждена') : _('Не подтверждена')],
+    [_('Listener'), normalized.listener && listenerAddress ? display(listenerAddress) + ':' + display(listenerPort) : _('Не подтверждён')],
+    [_('Telegram DC'), normalized.outbound ? _('Соединение подтверждено') : _('Ожидает проверки')]
+  ];
+  var additionalRows = [
+    [_('Версия'), installedVersionDisplay(pstatus.activeVersion, pstatus.activePackageVersion)],
     [_('Автозапуск'), object(cfg.autostart).rcDEnabled ? _('Включён') : _('Выключен')],
-    [_('Provider drift'), pstatus.drift ? _('Обнаружен') : _('Нет')]
+    [_('Активные сессии'), normalized.activeConnections === null ? '—' : String(normalized.activeConnections)]
   ];
   var health = [
     [_('Provider'), installed, installed ? _('Готов') : _('Не установлен')],
@@ -763,17 +783,29 @@ function statusPane(ctx, data, normalized) {
     [_('Listener'), normalized.listener, normalized.listener ? _('Готов') : _('Не подтверждён')],
     [_('Telegram DC'), normalized.outbound, normalized.outbound ? _('Готова') : _('Не подтверждена')]
   ];
+  var rawHealth = object(data.health && data.health.value);
+  var runtime = object(raw.runtime);
+  var technicalRows = [
+    [_('PID'), display(raw.pid !== undefined ? raw.pid : runtime.pid)],
+    [_('Revision'), display(cfg.appliedRevision)],
+    [_('Provider drift'), pstatus.drift ? _('Обнаружен') : _('Нет')],
+    [_('Package revision'), display(pstatus.activePackageVersion)],
+    [_('Внутреннее состояние'), display(pstatus.state !== undefined ? pstatus.state : raw.state)]
+  ];
+  var technicalEvidence = ProductUX.redact({
+    status: raw,
+    health: raw.health || rawHealth,
+    provider: pstatus,
+    config: { appliedRevision: cfg.appliedRevision },
+    timestamps: {
+      status: raw.timestamp !== undefined ? raw.timestamp : raw.ts,
+      health: rawHealth.generatedAt !== undefined ? rawHealth.generatedAt : rawHealth.timestamp,
+      provider: pstatus.generatedAt !== undefined ? pstatus.generatedAt : pstatus.updatedAt
+    }
+  });
   return E('div', { 'class': 'z2m-proxy-pane' }, [
     E('section', { 'class': 'z2m-panel z2m-proxy-status-panel' }, [
       E('div', { 'class': 'bd' }, [
-        E('div', { 'class': 'z2m-product-health-grid' }, [
-          stateCard(_('Установлен'), _('Да'), 'ok'),
-          stateCard(_('Provider'), activeProviderLabel(data, pstatus), 'ok'),
-          stateCard(_('Работает'), normalized.process ? _('Да') : _('Нет'), normalized.process ? 'ok' : 'off'),
-          stateCard(_('Health'), ProductUX.statusLabel(healthState), healthState),
-          stateCard(_('Версия'), installedVersionDisplay(pstatus.activeVersion, pstatus.activePackageVersion), 'ok'),
-          stateCard(_('Обновление'), update.label, update.state)
-        ]),
         E('div', { 'class': 'z2m-proxy-status-hero' }, [
           E('div', { 'class': 'z2m-proxy-status-summary' }, [
             E('div', { 'class': 'z2m-proxy-telegram-logo' }, E('img', { src: L.resource('view/zapret2-manager/icons/telegram.svg'), alt: 'Telegram' })),
@@ -785,19 +817,23 @@ function statusPane(ctx, data, normalized) {
           ]),
           E('div', { 'class': 'z2m-btnrow z2m-proxy-lifecycle-actions' }, actions)
         ]),
-        E('div', { 'class': 'z2m-proxy-metrics-grid' }, metrics.map(function (row) { return E('div', { 'class': 'z2m-proxy-metric-card' }, [E('span', {}, row[0]), E('strong', {}, row[1])]); }))
-      ])
-    ]),
-    E('div', { 'class': 'z2m-proxy-main-side' }, [
-      shell.panel(_('Состояние Telegram Proxy'), E('div', { 'class': 'z2m-proxy-info-list' }, statusRows.map(function (row) { return E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, row[0]), E('strong', {}, row[1])]); }))),
-      shell.panel(_('Подключение Telegram'), E('div', { 'class': 'z2m-proxy-connection-card' }, [
-        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Listener')), E('strong', {}, normalized.listener ? display(listener.address || applied.host) + ':' + display(listener.port || applied.port) : _('не подтверждён'))]),
-        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Telegram DC')), E('strong', {}, normalized.outbound ? _('соединение подтверждено') : _('ожидает проверки'))]),
-        E('div', { 'class': 'z2m-proxy-info-row' }, [E('span', {}, _('Ссылка')), E('strong', {}, _('скрыта до подтверждения'))])
-      ]), E('div', { 'class': 'z2m-btnrow' }, [shell.button(_('Показать ссылку / QR'), 'primary sm', reveal.bind(null, ctx), !!state.busy)])),
-      E('div', { 'class': 'z2m-proxy-side-stack' }, [
-        shell.panel(_('Цепочка работоспособности'), E('div', { 'class': 'z2m-proxy-health-chain' }, health.map(function (row) { return E('div', { 'class': 'z2m-proxy-health-step ' + (row[1] ? 'ok' : 'warn') }, [E('span', {}, row[0]), E('strong', {}, row[2])]); }))),
-        E('section', { 'class': 'z2m-proxy-secret-card' }, [E('h3', {}, _('Ссылка скрыта по умолчанию')), E('p', {}, _('Показывается временно после подтверждения.')), shell.button(_('Показать ссылку / QR'), 'primary sm', reveal.bind(null, ctx), !!state.busy)])
+        E('div', { 'class': 'z2m-proxy-status-section' }, [
+          E('h3', {}, _('Состояние подключения')),
+          E('div', { 'class': 'z2m-proxy-info-list' }, connectionRows.map(infoRow))
+        ]),
+        E('div', { 'class': 'z2m-proxy-status-section' }, [
+          E('h3', {}, _('Цепочка работоспособности')),
+          E('div', { 'class': 'z2m-proxy-health-chain' }, health.map(function (row) { return E('div', { 'class': 'z2m-proxy-health-step ' + (row[1] ? 'ok' : 'warn') }, [E('span', {}, row[0]), E('strong', {}, row[2])]); }))
+        ]),
+        E('div', { 'class': 'z2m-proxy-status-section' }, [
+          E('h3', {}, _('Дополнительное состояние')),
+          E('div', { 'class': 'z2m-proxy-info-list' }, additionalRows.map(infoRow))
+        ]),
+        E('details', { 'class': 'z2m-proxy-technical' }, [
+          E('summary', {}, _('Технические сведения')),
+          E('div', { 'class': 'z2m-proxy-info-list' }, technicalRows.map(infoRow)),
+          E('pre', { 'class': 'z2m-console' }, JSON.stringify(technicalEvidence, null, 2))
+        ])
       ])
     ])
   ]);
@@ -904,17 +940,22 @@ function settingsPane(ctx, data) {
 }
 function activityPane(ctx, data) {
   var shell = ctx.shell;
-  var logs = object(data.logs && data.logs.value);
-  var rows = ProxyModel.activity(array(logs.lines || logs.items), 50);
-  var host = E('div', { 'class': 'z2m-proxy-log-table' }, rows.length ? rows.map(function (row) {
-    return E('div', { 'class': 'z2m-proxy-log-line' }, compact([row.ts ? E('time', {}, display(row.ts)) : null, E('strong', {}, row.event || _('Событие')), row.message ? E('span', {}, row.message) : null]));
-  }) : [E('div', { 'class': 'z2m-proxy-log-empty' }, _('Событий пока нет.'))]);
-  var refresh = shell.button(_('Обновить'), 'sm', function () { ctx.refresh('proxy'); });
-  var diagnostics = shell.button(_('Копировать диагностику'), 'sm', function () {
-    var payload = JSON.stringify({ status: object(data.status && data.status.value), health: object(data.health && data.health.value), logs: rows }, null, 2);
-    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(payload).then(function () { shell.showToast(_('Диагностика скопирована.'), 'ok'); }).catch(function () { shell.showToast(_('Не удалось скопировать диагностику.'), 'err'); });
+  var rows = AvatarLog.normalizeRows({ events: telegramEventRows(data.events) }, 8);
+  var host = AvatarLog.renderNormalized(rows, {
+    id: 'telegram-activity-events',
+    label: _('Последние события Telegram Proxy'),
+    formatTimestamp: function (value) { return shell.format.timestamp(value); },
+    compact: true,
+    advanced: true,
+    redactTechnical: ProductUX.redact,
+    empty: shell.statePanel({ message: _('Событий Telegram Proxy пока нет.'), kind: 'info' })
   });
-  return shell.panel(_('Активность и redacted logs'), host, _('Secret и Telegram links удаляются backend и frontend-моделью'), E('div', { 'class': 'z2m-btnrow' }, [refresh, diagnostics]));
+  var refresh = shell.button(_('Обновить'), 'sm', function () { ctx.refresh('proxy'); });
+  var openLogs = shell.button(_('Открыть все журналы →'), 'primary sm', function () { return ctx.navigate('logs'); });
+  var title = E('span', { style: 'white-space:nowrap' }, _('Последние события Telegram Proxy'));
+  return shell.panel(title, host,
+    _('Короткий контекст Telegram Proxy из общего журнала. Полная история находится в разделе «Диагностика → Журналы».'),
+    E('div', { 'class': 'z2m-btnrow' }, [refresh, openLogs]));
 }
 function render(ctx) {
   var data = ctx.data || {};
@@ -950,7 +991,7 @@ function render(ctx) {
     paneHost.replaceChildren(panes[id]);
   }, { 'aria-label': _('Разделы Telegram Proxy') });
   var errors = [];
-  ['providerStatus', 'capabilities', 'status', 'config', 'health', 'logs'].forEach(function (key) {
+  ['providerStatus', 'capabilities', 'status', 'config', 'health', 'events'].forEach(function (key) {
     if (data[key] && data[key].error) {
       var mapped = ProductUX.errorMessage(data[key].error, _('Данные Telegram Proxy недоступны.'));
       errors.push(E('div', { 'class': 'z2m-product-error' }, [

@@ -18,7 +18,7 @@ function readCall(fn, value) {
 }
 function load(ctx) {
   if (activePane(ctx) === 'logs') {
-    return readCall(ctx.api.maintenance.eventsTail, { limit: 100 }).then(function (value) {
+    return readCall(ctx.api.maintenance.eventsTail, JSON.stringify({ limit: 100 })).then(function (value) {
       return { events: { value: value || {} } };
     }).catch(function (error) { return { events: { error: ctx.api.normalizeError(error) } }; });
   }
