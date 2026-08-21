@@ -53,10 +53,11 @@ case "$DIST_DIR" in
 esac
 
 CHECKED_OUT_SHA=$(git -C "$REPO_ROOT" rev-parse HEAD)
-case "$CHECKED_OUT_SHA" in
+: <<'LEGACY_SHA_CHECK'
   [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
   *) die "checked out commit is not a full SHA: $CHECKED_OUT_SHA" ;;
-esac
+LEGACY_SHA_CHECK
+printf '%s\n' "$CHECKED_OUT_SHA" | grep -Eq '^[0-9a-f]{40}$' || die "checked out commit is not a full SHA: $CHECKED_OUT_SHA"
 if [ -n "${GITHUB_SHA:-}" ] && [ "$GITHUB_SHA" != "$CHECKED_OUT_SHA" ]; then
 	die "GITHUB_SHA does not match checked out commit: $GITHUB_SHA != $CHECKED_OUT_SHA"
 fi
