@@ -1,5 +1,6 @@
 'use strict';
 'require baseclass';
+'require view.zapret2-manager.z2m-product-ux-model as ProductUX';
 
 var PANES = [
   ['setup', _('Настройка')],
@@ -372,15 +373,33 @@ function render(ctx) {
 
   var productStatus = data.productStatus && data.productStatus.value || {};
   var serviceHealth = data.service && data.service.value || {};
-  var dnsHealth = productStatus.ok === false || serviceHealth.ok === false ? _('Есть проблемы') : _('Готов к проверке');
-  var healthKind = productStatus.ok === false || serviceHealth.ok === false ? 'r' : 'g';
+  var productState = ProductUX.state(productStatus);
+  var serviceState = ProductUX.state(serviceHealth);
+  var dnsmasqEvidence = object(productStatus.dnsmasq || serviceHealth.dnsmasq || dns.dnsmasq);
+  var dnsmasqState = ProductUX.state(dnsmasqEvidence);
+  var dnsState = productState === 'error' || serviceState === 'error' ? 'error' :
+    productState === 'unknown' || serviceState === 'unknown' ? 'unknown' :
+    productState === 'degraded' || serviceState === 'degraded' ? 'degraded' :
+    productState === 'off' || serviceState === 'off' ? 'off' : 'ok';
+  var activeProvider = providers.filter(function (provider) { return providerId(provider) === currentProviderId; })[0];
+  var lastApplied = object(productStatus.lastOperation || serviceHealth.lastOperation || dns.lastOperation || product.lastOperation);
+  var lastAppliedRevision = lastApplied.revision !== undefined ? lastApplied.revision :
+    productStatus.appliedRevision !== undefined ? productStatus.appliedRevision : serviceHealth.appliedRevision;
+  var ownership = object(serviceHealth.ownership || dns.ownership || product.ownership);
+  var dnsHealth = ProductUX.statusLabel(dnsState);
+  var healthKind = ProductUX.kind(dnsState);
   var taskSummary = E('div', { 'class': 'z2m-kpis z2m-dns-task-summary' }, [
     E('div', { 'class': 'z2m-kpi' }, [E('div', { 'class': 'v' }, shell.chip(dnsHealth, healthKind, true)), E('div', { 'class': 'l' }, _('Состояние DNS'))]),
-    E('div', { 'class': 'z2m-kpi' }, [E('div', { 'class': 'v' }, currentProviderId || _('Не выбран')), E('div', { 'class': 'l' }, _('Профиль / провайдер'))]),
+    E('div', { 'class': 'z2m-kpi' }, [E('div', { 'class': 'v' }, providerName(activeProvider)), E('div', { 'class': 'l' }, _('Активный профиль / Provider'))]),
+    E('div', { 'class': 'z2m-kpi' }, [E('div', { 'class': 'v' }, shell.chip(ProductUX.statusLabel(dnsmasqState), ProductUX.kind(dnsmasqState), true)), E('div', { 'class': 'l' }, _('dnsmasq'))]),
+    E('div', { 'class': 'z2m-kpi' }, [E('div', { 'class': 'v' }, lastAppliedRevision == null ? _('Не подтверждено') : 'rev ' + String(lastAppliedRevision)), E('div', { 'class': 'l' }, _('Последнее применение'))]),
     E('div', { 'class': 'z2m-kpi' }, [E('div', { 'class': 'v' }, String(state.manual.length)), E('div', { 'class': 'l' }, _('Правила в черновике'))])
   ]);
 
-  function showError(error) { shell.showToast(ctx.api.normalizeError(error).message, 'err'); }
+  function showError(error) {
+    var mapped = ProductUX.errorMessage(ctx.api.normalizeError(error));
+    shell.showToast(mapped.message, 'err');
+  }
   function updateGlobalDraft(updated) {
     var d = state.globalDraft;
     var b = state.globalBaseline;
@@ -620,7 +639,13 @@ function render(ctx) {
     var id = providerId(provider);
     var error = state.providerErrors[id];
     var result = state.providerResults[id];
-    if (error) return E('div', { 'class': 'z2m-provider-result z2m-provider-result-error' }, [shell.chip(_('Ошибка RPC'), 'r'), E('div', { 'class': 'z2m-dim' }, error)]);
+    if (error) {
+      var mapped = ProductUX.errorMessage(error, _('Проверка провайдера не выполнена.'));
+      return E('div', { 'class': 'z2m-provider-result z2m-provider-result-error' }, [
+        shell.chip(mapped.message, 'r'),
+        E('details', { 'class': 'z2m-product-error-details' }, [E('summary', {}, _('Технические детали')), E('code', {}, mapped.technical)])
+      ]);
+    }
     if (!result) return E('div', { 'class': 'z2m-provider-result z2m-dim' }, _('Не проверялось'));
     var ok = providerResultClass(id) === 'z2m-provider-result-success';
     var probe = providerProbe(result, id);
@@ -1006,10 +1031,24 @@ function render(ctx) {
   ]));
   root.appendChild(shell.panel(_('Сначала задача'), E('div', {}, [
     E('p', { 'class': 'z2m-dim' }, _('Выберите профиль или провайдера, проверьте состояние, затем сделайте Preview и Apply. Rollback доступен в Истории.')),
-    taskSummary
+    taskSummary,
+    E('details', { 'class': 'z2m-product-health-details' }, [
+      E('summary', {}, _('Расширенные сведения и ownership')),
+      E('div', { 'class': 'z2m-dim' }, [
+        E('span', {}, _('managed / external: ') + display(ownership.owner || ownership.mode || '—')),
+        E('span', {}, _(' · provenance: ') + display(product.provenance || productStatus.provenance || serviceHealth.provenance || '—')),
+        E('span', {}, _(' · revision: ') + display(product.revision || productStatus.revision || serviceHealth.revision || '—'))
+      ])
+    ])
   ]), _('Backend ownership сохраняется за canonical DNS facade.')));
   Object.keys(data).forEach(function (key) {
-    if (data[key] && data[key].error) root.appendChild(E('div', { 'class': 'warnbar' }, data[key].error.message));
+    if (data[key] && data[key].error) {
+      var mapped = ProductUX.errorMessage(data[key].error, _('DNS данные недоступны.'));
+      root.appendChild(E('div', { 'class': 'warnbar z2m-product-error' }, [
+        E('strong', {}, mapped.message),
+        E('details', { 'class': 'z2m-product-error-details' }, [E('summary', {}, _('Технические детали')), E('code', {}, mapped.technical)])
+      ]));
+    }
   });
   var messages = collectMessages(data, [], 0);
   var overrideWarning = messages.filter(function (message) { return /manager overrides|dnsmasq/i.test(message); })[0];

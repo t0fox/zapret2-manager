@@ -2,6 +2,7 @@
 'require baseclass';
 'require view.zapret2-manager.z2m-proxy-model as ProxyModel';
 'require view.zapret2-manager.z2m-qr as Qr';
+'require view.zapret2-manager.z2m-product-ux-model as ProductUX';
 
 var FIELDS = [
   { id: 'enabled', label: _('Включено'), type: 'bool' },
@@ -34,6 +35,7 @@ var state = {
   tgOperation: null,
   tgOperationTimer: null,
   tgRetry: null,
+  tgPollGeneration: 0,
   tgViewportLocked: false
 };
 
@@ -104,7 +106,8 @@ function workingConfig(ctx, data) {
   return Object.keys(object(draft.settings)).length ? clone(draft.settings) : appliedConfig(data);
 }
 function showError(ctx, error) {
-  ctx.shell.showToast(ctx.api.normalizeError(error).message, 'err');
+  var mapped = ProductUX.errorMessage(ctx.api.normalizeError(error));
+  ctx.shell.showToast(mapped.message, 'err');
 }
 function mutation(ctx, name, promise) {
   if (state.busy) return Promise.resolve(null);
@@ -194,16 +197,23 @@ function renderTgOperationModal(ctx, operation) {
   if (close && running) { close.hidden = true; close.disabled = true; }
 }
 function watchTgOperation(ctx, operationId, retry) {
+  if (state.tgOperationTimer) clearTimeout(state.tgOperationTimer);
+  state.tgOperationTimer = null;
+  state.tgPollGeneration++;
+  var generation = state.tgPollGeneration;
   state.tgOperation = { operationId: operationId, status: 'RUNNING', currentStage: 'PREPARE', progressPercent: 0 };
   state.tgRetry = retry || null;
   renderTgOperationModal(ctx, state.tgOperation);
   function poll() {
+    if (generation !== state.tgPollGeneration) return;
     ctx.api.tg.product.operationStatus({ operationId: operationId }).then(function (answer) {
+      if (generation !== state.tgPollGeneration) return;
       if (!answer || answer.ok === false || !answer.operation) throw answer && answer.error || new Error(_('Состояние операции недоступно.'));
       state.tgOperation = answer.operation;
       renderTgOperationModal(ctx, state.tgOperation);
       if (state.tgOperation.status === 'RUNNING' || state.tgOperation.status === 'ROLLING_BACK') state.tgOperationTimer = setTimeout(poll, 900);
     }).catch(function (error) {
+      if (generation !== state.tgPollGeneration) return;
       // The operation remains backend-owned; keep the modal and recover on the next status poll.
       state.tgOperation = Object.assign({}, state.tgOperation, { recoveryError: ctx.api.normalizeError(error).message });
       renderTgOperationModal(ctx, state.tgOperation);
@@ -331,6 +341,20 @@ function providerCatalog(data) {
 }
 function providerVersions(data) {
   return array(object(data.providerVersions && data.providerVersions.value).providers);
+}
+function activeProviderLabel(data, status) {
+  var id = status && status.activeProvider;
+  var provider = providerCatalog(data).filter(function (item) { return item && item.id === id; })[0] || {};
+  return provider.title || provider.name || (id === 'rust' ? 'Rust' : id === 'go' ? 'Go' : id || '—');
+}
+function activeUpdateState(data, status) {
+  if (!providerInstalled(status && status.installed)) return { state: 'off', label: _('Не установлено') };
+  var row = providerVersions(data).filter(function (item) { return item && item.id === status.activeProvider; })[0] || {};
+  var choices = versionChoices(array(row.versions));
+  var latest = choices.filter(function (item) { return item && item.sourceId === 'official-github-release'; })[0] || choices[0];
+  if (!latest || !latest.version || !status.activeVersion) return { state: 'unknown', label: _('Проверка недоступна') };
+  if (releaseVersionCompare(latest.version, status.activeVersion) > 0) return { state: 'degraded', label: _('Доступно обновление') };
+  return { state: 'ok', label: _('Актуально') };
 }
 function providerIcon(provider) {
   return E('span', { 'class': 'z2m-proxy-provider-icon ' + provider, 'aria-hidden': 'true' },
@@ -671,11 +695,14 @@ function installPane(ctx, data) {
 }
 function statusPane(ctx, data, normalized) {
   var shell = ctx.shell;
-  if (data.providerStatus && data.providerStatus.error) return shell.avatar.showErrorState(null, data.providerStatus.error, {
-    api: ctx.api,
-    retry: function () { return ctx.refresh('proxy'); },
-    body: _('Telegram Proxy опционален и не влияет на остальные функции Zapret 2 Manager.')
-  });
+  if (data.providerStatus && data.providerStatus.error) {
+    var providerError = ProductUX.errorMessage(data.providerStatus.error, _('Состояние Telegram Proxy недоступно.'));
+    return E('div', { 'class': 'z2m-product-error' }, [shell.statePanel({
+      title: providerError.message,
+      message: _('Telegram Proxy опционален и не влияет на остальные функции Zapret 2 Manager.'),
+      kind: 'error'
+    }), E('details', { 'class': 'z2m-product-error-details' }, [E('summary', {}, _('Технические детали')), E('code', {}, providerError.technical)])]);
+  }
   var pstatus = providerStatus(data);
   var installed = providerInstalled(pstatus.installed);
   if (!installed) return shell.statePanel({
@@ -688,6 +715,7 @@ function statusPane(ctx, data, normalized) {
   var cfg = object(data.config && data.config.value);
   var applied = object(cfg.applied || cfg.draft);
   var listener = array(raw.listeners)[0] || {};
+  var update = activeUpdateState(data, pstatus);
   var actions = [];
   if (!normalized.process) actions.push(shell.button(_('Запустить'), 'primary sm', function () {
     lifecycle(ctx, ctx.api.tg.product.start, _('Запустить'), _('Backend проверит процесс и точный listener после запуска.'));
@@ -702,8 +730,19 @@ function statusPane(ctx, data, normalized) {
     lifecycle(ctx, ctx.api.proxy.secretRotate, _('Создать новую ссылку'), _('Старая ссылка перестанет работать; backend выполнит listener verification и rollback при ошибке.'));
   }, !!state.busy));
   actions.push(shell.button(_('Показать ссылку / QR'), 'primary sm', reveal.bind(null, ctx), !!state.busy));
+  if (update.state === 'degraded') actions.push(shell.button(_('Обновить'), 'primary sm', function () {
+    state.pane = 'install';
+    ctx.root.replaceChildren(render(ctx));
+  }, !!state.busy));
+  actions.push(shell.button(_('Настройки'), 'sm', function () {
+    state.pane = 'settings';
+    ctx.root.replaceChildren(render(ctx));
+  }, !!state.busy));
 
-  var badges = [shell.chip(pstatus.activeProvider === 'rust' ? 'Rust' : 'Go', 'b'), shell.chip(display(pstatus.activeVersion), ''), shell.chip(truthLabel(normalized.truth), truthKind(normalized.truth), true)];
+  var healthState = normalized.truth === 'healthy' ? 'ok' : normalized.truth === 'degraded' ? 'degraded' :
+    normalized.truth === 'error' ? 'error' : normalized.process ? 'unknown' : 'off';
+  var stateCard = function (label, value, kind) { return E('div', { 'class': 'z2m-product-health-card' }, [E('span', { 'class': 'label' }, label), E('strong', {}, value), shell.chip(ProductUX.statusLabel(kind), ProductUX.kind(kind), true)]); };
+  var badges = [shell.chip(activeProviderLabel(data, pstatus), 'b'), shell.chip(display(pstatus.activeVersion), ''), shell.chip(ProductUX.statusLabel(healthState), ProductUX.kind(healthState), true)];
   var metrics = [
     [_('Реализация'), pstatus.activeProvider === 'rust' ? 'Rust' : 'Go'],
     [_('Listener'), normalized.listener ? display(listener.address || applied.host) + ':' + display(listener.port || applied.port) : _('Не подтверждён')],
@@ -727,6 +766,14 @@ function statusPane(ctx, data, normalized) {
   return E('div', { 'class': 'z2m-proxy-pane' }, [
     E('section', { 'class': 'z2m-panel z2m-proxy-status-panel' }, [
       E('div', { 'class': 'bd' }, [
+        E('div', { 'class': 'z2m-product-health-grid' }, [
+          stateCard(_('Установлен'), _('Да'), 'ok'),
+          stateCard(_('Provider'), activeProviderLabel(data, pstatus), 'ok'),
+          stateCard(_('Работает'), normalized.process ? _('Да') : _('Нет'), normalized.process ? 'ok' : 'off'),
+          stateCard(_('Health'), ProductUX.statusLabel(healthState), healthState),
+          stateCard(_('Версия'), installedVersionDisplay(pstatus.activeVersion, pstatus.activePackageVersion), 'ok'),
+          stateCard(_('Обновление'), update.label, update.state)
+        ]),
         E('div', { 'class': 'z2m-proxy-status-hero' }, [
           E('div', { 'class': 'z2m-proxy-status-summary' }, [
             E('div', { 'class': 'z2m-proxy-telegram-logo' }, E('img', { src: L.resource('view/zapret2-manager/icons/telegram.svg'), alt: 'Telegram' })),
@@ -904,8 +951,13 @@ function render(ctx) {
   }, { 'aria-label': _('Разделы Telegram Proxy') });
   var errors = [];
   ['providerStatus', 'capabilities', 'status', 'config', 'health', 'logs'].forEach(function (key) {
-    if (data[key] && data[key].error)
-      errors.push(ctx.shell.statePanel({ title: _('Ошибка backend'), message: data[key].error.message, kind: 'error' }));
+    if (data[key] && data[key].error) {
+      var mapped = ProductUX.errorMessage(data[key].error, _('Данные Telegram Proxy недоступны.'));
+      errors.push(E('div', { 'class': 'z2m-product-error' }, [
+        ctx.shell.statePanel({ title: mapped.message, message: _('Повторите проверку или откройте технические детали.'), kind: 'error' }),
+        E('details', { 'class': 'z2m-product-error-details' }, [E('summary', {}, _('Технические детали')), E('code', {}, mapped.technical)])
+      ]));
+    }
   });
   return E('section', { 'class': 'z2m-view on z2m-proxy-production', id: 'z2m-view-proxy' }, compact([
     E('div', { 'class': 'z2m-phead' }, [
@@ -969,7 +1021,16 @@ function createAdapter(api) {
     resetDraft: function () {}
   };
 }
-function unmount() { state.revealed = null; }
+function unmount() {
+  state.revealed = null;
+  if (state.tgOperationTimer) clearTimeout(state.tgOperationTimer);
+  state.tgOperationTimer = null;
+  state.tgPollGeneration++;
+  state.tgOperation = null;
+  state.tgRetry = null;
+  state.busy = null;
+  tgViewportLock(false);
+}
 
 return baseclass.extend({
   id: 'proxy',
