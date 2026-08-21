@@ -40,3 +40,18 @@ test('ownership journal durably records PREPARED then TABLE_CREATED evidence in 
     fs.rmSync(stateRoot, { recursive: true, force: true });
   }
 });
+
+test('ownership journal permits a new candidate cycle only after verified CLEANED', () => {
+  const stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'z2m-scanner-journal-cycle-'));
+  const env = { Z2M_SCANNER_SERVER_TEST: '1', Z2M_SCANNER_STATE_ROOT: stateRoot };
+  try {
+    assert.equal(invoke("subject.scanner_journal_write('scan-cycle', 'PREPARED', { sid: 'scan-cycle', cid: 'c1', gen: 1 })", env).ok, true);
+    assert.equal(invoke("subject.scanner_journal_write('scan-cycle', 'CLEANED', { cid: 'c1', tableChecked: true, tablePresent: false })", env).ok, true);
+    const next = invoke("subject.scanner_journal_write('scan-cycle', 'PREPARED', { sid: 'scan-cycle', cid: 'c2', gen: 1 })", env);
+    assert.equal(next.ok, true, JSON.stringify(next));
+    const loaded = invoke("subject.scanner_journal_load('scan-cycle')", env);
+    assert.deepEqual(loaded.journal.entries.map(entry => entry.state), ['PREPARED', 'CLEANED', 'PREPARED']);
+  } finally {
+    fs.rmSync(stateRoot, { recursive: true, force: true });
+  }
+});

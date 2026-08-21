@@ -256,10 +256,10 @@ function live_runtime_inputs() {
 		else push(baseArgs, found[0][i]);
 	}
 	let luaInit = [], hostlists = [];
-	for (let value in configured) {
+	for (let value in found[0])
 		if (starts_with(value, '--lua-init=')) push(luaInit, substr(value, 11));
-		else if (starts_with(value, '--hostlist=')) push(hostlists, substr(value, 11));
-	}
+	for (let value in configured)
+		if (starts_with(value, '--hostlist=')) push(hostlists, substr(value, 11));
 	if (length(baseArgs) + length(luaInit) + length(hostlists) == 0 && length(configured) == 0)
 		return error_result('EUNAVAILABLE', 'authoritative live nfqws2 composition has no captured runtime inputs');
 
@@ -291,9 +291,28 @@ function live_runtime_inputs() {
 
 	let luaEntries = [];
 	try { luaEntries = lsdir('/opt/zapret2/lua') || []; } catch (e) { luaEntries = []; }
-	for (let lf in luaEntries) {
-		if (!is_string(lf) || !length(lf)) continue;
-		liveLua[lf] = { present: true };
+	for (let lf in luaEntries)
+		if (is_string(lf) && length(lf)) liveLua[lf] = { present: true };
+	// Only Lua files actually present in the authoritative nfqws2 --lua-init
+	// argv are part of the live function registry. Installed-but-unloaded files
+	// are package inventory, not runtime compatibility evidence.
+	for (let init in luaInit) {
+		if (!is_string(init) || !length(init)) continue;
+		let path = starts_with(init, '@') ? substr(init, 1) : init;
+		if (!starts_with(path, '/opt/zapret2/lua/') || !match(path, /\.lua$/)) continue;
+		let lf = substr(path, length('/opt/zapret2/lua/'));
+		if (!length(lf) || liveLua[lf] == null) continue;
+		let rawLua = null;
+		try { rawLua = readfile(path); } catch (e) { rawLua = null; }
+		if (!is_string(rawLua)) continue;
+		for (let line in split(rawLua, '\n')) {
+			let declaration = trim(line), prefix = 'function ';
+			if (starts_with(declaration, 'local function ')) prefix = 'local function ';
+			else if (!starts_with(declaration, prefix)) continue;
+			let name = substr(declaration, length(prefix)), opening = index(name, '(');
+			if (opening >= 1) name = substr(name, 0, opening);
+			if (match(name, /^[A-Za-z0-9_]+$/)) liveFunctions[name] = { present: true, source: lf };
+		}
 	}
 
 	return { ok: true, environment: {
@@ -301,6 +320,13 @@ function live_runtime_inputs() {
 		functions: liveFunctions, blobs: liveBlobs, lua: liveLua, lists: {}
 	}, runtimeInputs: { source: 'live', enginePath: ENGINE_PATH, baseArgs: baseArgs, luaInit: luaInit, hostlists: hostlists } };
 }
+
+// Scanner production planning uses the same server-owned live composition
+// evidence as Strategy preview/validate. Keep this as an internal module
+// boundary so Scanner never invents a second runtime inventory.
+export const strategy_runtime_environment = function() {
+	return live_runtime_inputs();
+};
 
 function server_context(context) {
 	if (getenv('Z2M_STRATEGY_SERVER_TEST') == '1') {

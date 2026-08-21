@@ -519,7 +519,7 @@ test('test authority hook is unavailable without the explicit server-test gate',
 test('production catalog loading ignores path overrides outside the server-test gate', () => {
   const source = readFileSync(MODULE, 'utf8');
   assert.match(source,
-    /strategy_catalog_load\(getenv\('Z2M_SCANNER_SERVER_TEST'\) == '1' \? getenv\('Z2M_STRATEGY_CATALOG_ROOT'\) \|\| null : null\)/);
+    /strategy_catalog_read_index\(getenv\('Z2M_SCANNER_SERVER_TEST'\) == '1' \? getenv\('Z2M_STRATEGY_CATALOG_ROOT'\) \|\| null : null\)/);
   assert.doesNotMatch(source,
     /strategy_catalog_load\(getenv\('Z2M_STRATEGY_CATALOG_ROOT'\) \|\| null\)/);
 });

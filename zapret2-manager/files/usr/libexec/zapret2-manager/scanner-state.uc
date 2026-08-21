@@ -224,7 +224,8 @@ export const scanner_journal_write = function(id, state, evidence) {
 	else return loaded;
 	let previous = length(journal.entries) ? journal.entries[length(journal.entries) - 1] : null;
 	let next = index(JOURNAL_STATES, state);
-	if (previous != null && next < index(JOURNAL_STATES, previous.state)) return error('ECONFLICT', 'Scanner journal state regressed.');
+	let startsNextCandidate = previous != null && previous.state == 'CLEANED' && state == 'PREPARED';
+	if (previous != null && !startsNextCandidate && next < index(JOURNAL_STATES, previous.state)) return error('ECONFLICT', 'Scanner journal state regressed.');
 	if (state == 'TABLE_CREATED' && (evidence.tableCreated != true || evidence.ownerVerified != true || evidence.kernelReadBack != true))
 		return error('EOWNER', 'TABLE_CREATED requires verified kernel ownership evidence.');
 	let updated = { schema: 1, id, entries: copy(journal.entries) };

@@ -237,8 +237,11 @@ function preserve_trailing_newline(raw, rendered) {
 	return rendered;
 }
 
-function atomic_replace_locked(path, content) {
-	if (!locked() || path != CONFIG) return null;
+function atomic_replace_locked(path, content, callerHoldsLock) {
+	// Scanner owns the external config.lock holder during its transient
+	// session. It may use the same atomic writer without recursively flocking;
+	// every other caller still requires Z2M_CONFIG_LOCKED=1.
+	if ((!locked() && callerHoldsLock !== true) || path != CONFIG) return null;
 	let tmp = secure_temp(path + '.tmp.XXXXXX');
 	if (tmp == null) return null;
 	writefile(tmp, content);
@@ -332,7 +335,7 @@ export const set_var_cas = function(name, value, expected_sha) {
 
 export const restore_whole_file = function(path, content, lockedOverride) {
 	if (path != CONFIG || content == null) return null;
-	if (locked() || lockedOverride === true) return atomic_replace_locked(path, '' + content);
+	if (locked() || lockedOverride === true) return atomic_replace_locked(path, '' + content, lockedOverride === true);
 	if (!have_flock()) return null;
 	let path_f = secure_temp('/tmp/z2m-restore-path.XXXXXX');
 	let content_f = secure_temp('/tmp/z2m-restore-content.XXXXXX');
