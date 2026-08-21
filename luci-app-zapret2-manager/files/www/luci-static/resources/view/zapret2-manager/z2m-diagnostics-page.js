@@ -8,7 +8,6 @@ var state = { exported: null, busy: false };
 
 function edit(fn, value) { return fn(JSON.stringify(value || {})); }
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
-function array(value) { return Array.isArray(value) ? value : []; }
 function activePane(ctx) { return ctx.route === 'logs' ? 'logs' : 'monitor'; }
 function settled(result, api) {
   return result.status === 'fulfilled' ? { value: result.value || {} } : { error: api.normalizeError(result.reason) };
@@ -18,9 +17,10 @@ function readCall(fn, value) {
 }
 function load(ctx) {
   if (activePane(ctx) === 'logs') {
-    return readCall(ctx.api.maintenance.eventsTail, JSON.stringify({ limit: 100 })).then(function (value) {
-      return { events: { value: value || {} } };
-    }).catch(function (error) { return { events: { error: ctx.api.normalizeError(error) } }; });
+    // Logs owns its bounded cursor, visibility-aware poller and toolbar. Keep
+    // the Diagnostics route as the product owner, but do not create a second
+    // compact viewer or a second events_tail lifecycle here.
+    return AvatarLog.load(ctx);
   }
   var fastCall = ctx.api.service && ctx.api.service.statusFast ? ctx.api.service.statusFast() : Promise.reject(new Error('status_fast unavailable'));
   return Promise.allSettled([
@@ -41,7 +41,6 @@ function load(ctx) {
     };
   });
 }
-function valueOf(data, key) { return data[key] && data[key].value || {}; }
 function statusKind(status) { return status === 'ok' ? 'g' : (status === 'error' ? 'r' : 'o'); }
 function freshnessLabel(freshness) {
   if (!freshness || freshness.state === 'unknown') return _('время evidence не подтверждено');
@@ -121,20 +120,10 @@ function renderMonitoring(ctx, data) {
     ]), _('Read-only сборка; ничего не меняет в router state.'))
   ]);
 }
-function renderLogs(ctx, data) {
-  var shell = ctx.shell, envelope = data.events || {};
-  if (envelope.error) return shell.statePanel({ title: _('Журналы недоступны'), message: envelope.error.message, kind: 'error' });
-  var rows = AvatarLog.normalizeRows(envelope.value || {}, 100);
-  return shell.panel(_('Журналы'), AvatarLog.renderNormalized(rows, {
-    label: _('Единый журнал событий'),
-    formatTimestamp: function (value) { return shell.format.timestamp(value); },
-    advanced: !!(ctx.store.get().ui && ctx.store.get().ui.advanced),
-    empty: shell.statePanel({ message: _('Событий нет.'), kind: 'info' })
-  }), _('Maintenance Events перенесены сюда; отдельного viewer в System нет.'));
-}
 function render(ctx) {
   var pane = activePane(ctx);
-  var body = pane === 'logs' ? renderLogs(ctx, ctx.data || {}) : renderMonitoring(ctx, ctx.data || {});
+  if (pane === 'logs') return AvatarLog.render(ctx);
+  var body = renderMonitoring(ctx, ctx.data || {});
   var tabs = ctx.shell.subTabs([
     { id: 'monitor', label: _('Мониторинг') },
     { id: 'logs', label: _('Журналы') }
@@ -146,10 +135,20 @@ function render(ctx) {
   ]);
 }
 
+function mount(ctx) {
+  if (activePane(ctx) === 'logs' && AvatarLog.mount) AvatarLog.mount(ctx);
+}
+
+function unmount() {
+  if (AvatarLog.unmount) AvatarLog.unmount();
+}
+
 return baseclass.extend({
   id: 'diagnostics',
   title: _('Диагностика'),
   subtitle: _('Мониторинг и журналы'),
   load: load,
-  render: render
+  render: render,
+  mount: mount,
+  unmount: unmount
 });

@@ -45,8 +45,9 @@ test('Dashboard log window exposes loading, empty, error and smart autoscroll st
 });
 
 test('full event history keeps the same Russian semantic columns', () => {
-  assert.match(diagnostics, /eventsTail/);
-  assert.match(diagnostics, /Единый журнал событий/);
+  assert.match(diagnostics, /AvatarLog\.load\(ctx\)/);
+  assert.match(diagnostics, /AvatarLog\.render\(ctx\)/);
+  assert.match(avatarLog, /Единый журнал событий/);
   assert.match(avatarLog, /eventId/);
   assert.match(avatarLog, /severity-badge/);
   assert.match(maintenanceModel, /source: text\(event\.source \|\| event\.component\)/);
@@ -55,7 +56,7 @@ test('full event history keeps the same Russian semantic columns', () => {
   assert.match(avatarLog, /function messageLabel/);
   assert.match(avatarLog, /Параметр NFQWS2_ENABLE=/);
   assert.match(avatarLog, /function timestamp/);
-  assert.match(diagnostics, /AvatarLog\.normalizeRows/);
+  assert.match(avatarLog, /function normalizeRows/);
 });
 
 test('Logs page is a dedicated full-fidelity route wired to AvatarLog', () => {
@@ -172,8 +173,10 @@ test('Canonical event journal is single authoritative producer and shared across
   assert.match(page, /eventsTail/);
   // 4. Consumed by Control journal
   assert.match(control, /eventsTail/);
-  // 5. Consumed by Diagnostics canonical Logs tab
-  assert.match(diagnostics, /eventsTail/);
+  // 5. Diagnostics owns the route; AvatarLog owns the canonical consumer and poller.
+  assert.match(diagnostics, /AvatarLog\.load\(ctx\)/);
+  assert.match(diagnostics, /AvatarLog\.render\(ctx\)/);
+  assert.match(diagnostics, /AvatarLog\.mount\(ctx\)/);
 });
 
 test('Logs view uses Graphite page-header reset without gray gradient and keeps flex layout', () => {

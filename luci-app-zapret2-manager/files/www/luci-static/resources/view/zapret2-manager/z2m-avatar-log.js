@@ -826,7 +826,7 @@ function renderPage(ctx) {
   var header = E('header', { 'class': 'page-header z2m-phead' }, [
     E('div', { 'class': 'page-header-left' }, [
       E('h1', { 'class': 'page-title' }, [iconNode('scroll-text', { size: 20 }), E('span', {}, _('Журнал'))]),
-      E('p', { 'class': 'page-description' }, _('Журнал событий в реальном времени'))
+      E('p', { 'class': 'page-description' }, _('Единый журнал событий в реальном времени'))
     ]),
     E('div', { 'class': 'logs-header-actions sp' }, connStatus)
   ]);
