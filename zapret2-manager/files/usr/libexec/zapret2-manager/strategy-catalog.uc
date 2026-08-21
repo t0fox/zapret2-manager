@@ -8,6 +8,7 @@ import { readfile, readlink, stat, popen, writefile } from 'fs';
 import { avatar_tokenize, catalog_entry_to_strategy as normalize_catalog_entry } from './strategy-model.uc';
 
 const DEFAULT_ROOT = '/usr/share/zapret2-manager/catalog/avatar';
+const MANAGED_ROOT = '/etc/zapret2-manager/catalog/avatar-active';
 const READ_INDEX_PATH = '/etc/zapret2-manager/strategy-catalog-index.json';
 const DERIVED_CACHE_PREFIX = '/tmp/zapret2-manager/strategy-catalog.';
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
@@ -22,6 +23,7 @@ const WINDIVERT_PREFIXES = ['--wf-tcp', '--wf-udp', '--wf-raw', '--wf-l3', '--wf
 
 let loaded = null;
 let loadedRoot = null;
+function catalog_root() { try { let managed = stat(MANAGED_ROOT + '/manifest.json'); if (managed != null && managed.type == 'file') return MANAGED_ROOT; } catch (e) {} return DEFAULT_ROOT; }
 
 function error_result(code, message, path) {
 	let result = { ok: false, error: { code: code, message: message } };
@@ -310,7 +312,7 @@ function compact_catalog(catalog) {
 }
 
 function read_persisted_index(root) {
-	if (root != DEFAULT_ROOT) return null;
+	if (root != catalog_root()) return null;
 	let metadata = null;
 	try { metadata = stat(READ_INDEX_PATH); } catch (e) { return null; }
 	if (!metadata || metadata.type != 'file' || metadata.size > MAX_FILE_BYTES
@@ -335,7 +337,7 @@ function persist_read_index(catalog) {
 	let compact = compact_catalog(catalog);
 	if (compact == null) return false;
 	try { writefile(READ_INDEX_PATH, sprintf('%J', {
-		schema: 'z2m.strategy-read-index.v2', root: DEFAULT_ROOT, catalog: compact
+		schema: 'z2m.strategy-read-index.v2', root: catalog_root(), catalog: compact
 	})); return true; } catch (e) { return false; }
 }
 
@@ -717,7 +719,7 @@ function build_catalog(root, manifest, manifestPath) {
 }
 
 function derived_cache_path(root, digest) {
-	return root == DEFAULT_ROOT && match(digest || '', /^[0-9a-f]{64}$/)
+	return root == catalog_root() && match(digest || '', /^[0-9a-f]{64}$/)
 		? DERIVED_CACHE_PREFIX + digest + '.json' : null;
 }
 
@@ -746,7 +748,7 @@ function persist_derived_catalog(root, catalog) {
 }
 
 function load_catalog(root, bypassCache) {
-	let actualRoot = root == null ? DEFAULT_ROOT : root;
+	let actualRoot = root == null ? catalog_root() : root;
 	let manifestResult = read_manifest(actualRoot);
 	if (!manifestResult.ok) { loaded = null; loadedRoot = null; return manifestResult; }
 	if (bypassCache != true) {
@@ -763,19 +765,19 @@ function load_catalog(root, bypassCache) {
 
 function ensure_loaded(root) {
 	if (loaded != null && (root == null || root == loadedRoot)) return loaded;
-	let result = load_catalog(root == null ? DEFAULT_ROOT : root);
+	let result = load_catalog(root == null ? catalog_root() : root);
 	return result.ok ? loaded : null;
 }
 
 export const strategy_catalog_load = function(root) {
-	let actualRoot = root == null ? DEFAULT_ROOT : root;
+	let actualRoot = root == null ? catalog_root() : root;
 	if (loaded != null && loadedRoot == actualRoot)
 		return { ok: true, catalog: loaded };
 	return load_catalog(root);
 };
 
 export const strategy_catalog_read_index = function(root) {
-	let actualRoot = root == null ? DEFAULT_ROOT : root;
+	let actualRoot = root == null ? catalog_root() : root;
 	if (loaded != null && loadedRoot == actualRoot)
 		return { ok: true, catalog: loaded };
 	let persisted = read_persisted_index(actualRoot);
@@ -796,7 +798,7 @@ export const strategy_catalog_read_index = function(root) {
 };
 
 export const strategy_catalog_write_read_index = function(root) {
-	let result = load_catalog(root == null ? DEFAULT_ROOT : root, true);
+	let result = load_catalog(root == null ? catalog_root() : root, true);
 	if (!result.ok) return result;
 	return { ok: true, digest: result.catalog.aggregateDigest,
 		written: persist_read_index(result.catalog) };
@@ -822,7 +824,7 @@ export const strategy_catalog_get_detail = function(id) {
 	let fast = strategy_catalog_read_index(null);
 	if (!fast.ok || !is_object(fast.catalog) || fast.catalog.winners[id] == null)
 		return { error: { code: 'ENOENT', message: 'strategy is not present in the catalog' } };
-	let indexed = fast.catalog.winners[id], path = safe_file_path(DEFAULT_ROOT, indexed.sourceFile);
+	let indexed = fast.catalog.winners[id], path = safe_file_path(catalog_root(), indexed.sourceFile);
 	if (path == null) return { error: { code: 'EPATH', message: 'strategy source path is unavailable' } };
 	let raw = null, entries = [];
 	try { raw = readfile(path); entries = raw == null ? [] : parse_file(raw, indexed.sourceFile, indexed.level, indexed.protocol); }
@@ -841,8 +843,8 @@ export const strategy_catalog_get_detail = function(id) {
 // parsed only for those selected ids and are never expanded into the planner's
 // full working set on the Quick path.
 export const strategy_catalog_materialize = function(ids, root) {
-	let actualRoot = root == null ? DEFAULT_ROOT : root;
-	if (actualRoot != DEFAULT_ROOT && getenv('Z2M_SCANNER_SERVER_TEST') != '1')
+	let actualRoot = root == null ? catalog_root() : root;
+	if (actualRoot != catalog_root() && getenv('Z2M_SCANNER_SERVER_TEST') != '1')
 		return error_result('EPATH', 'catalog root override is available only in server tests', 'root');
 	if (type(ids) != 'array' || length(ids) > 64)
 		return error_result('EINPUT', 'catalog materialization ids are bounded', 'ids');
@@ -896,7 +898,7 @@ export const strategy_catalog_status = function() {
 };
 
 export const strategy_catalog_reload = function() {
-	let root = loadedRoot == null ? DEFAULT_ROOT : loadedRoot;
+	let root = loadedRoot == null ? catalog_root() : loadedRoot;
 	let result = load_catalog(root, true);
 	if (!result.ok) return result;
 	return strategy_catalog_status();

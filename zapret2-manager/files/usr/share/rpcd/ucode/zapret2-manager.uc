@@ -188,6 +188,7 @@ function lists_set_method(req) {
 
 // ---- typed canonical assets -----------------------------------------------
 const ASSET_CLI = '/usr/libexec/zapret2-manager/asset-registry-cli.uc';
+const RESOURCE_CLI = '/usr/libexec/zapret2-manager/resource-update-cli.uc';
 function asset_args(req) {
 	let edit = null;
 	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
@@ -237,6 +238,35 @@ function assets_update_method(req) { let args = asset_args(req); return args && 
 function assets_register_builtin_method(req) { return asset_edit_action('register-builtin', req); }
 function assets_references_method(req) { return asset_edit_action('references', req); }
 function assets_resolve_method(req) { return asset_edit_action('resolve', req); }
+function resource_cli_action(mode) {
+	let command = '/usr/bin/ucode ' + RESOURCE_CLI + ' ' + mode + ' 2>/dev/null';
+	let p = popen(command, 'r');
+	if (!p) return { ok: false, error: { code: 'ETARGET', message: 'resource center runner unavailable' } };
+	let out = p.read('all') || '', rc = p.close();
+	try { let result = json(out); return result != null ? result : { ok: false, error: { code: 'EINTERNAL', message: 'resource center returned no response' } }; }
+	catch (e) { return { ok: false, error: { code: rc == 0 ? 'EINTERNAL' : 'ECHILD', message: 'resource center response was malformed' } }; }
+}
+function resources_status_method(req) { return resource_cli_action('status'); }
+function resources_check_method(req) { return resource_cli_action('check'); }
+function resource_edit_action(req) {
+	let edit = null;
+	try { if (req && req.args && req.args.edit != null) edit = req.args.edit; } catch (e) { }
+	if (edit == null) { try { if (req && req.edit != null) edit = req.edit; } catch (e) { } }
+	if (type(edit) != 'string' || length(edit) > 32 * 1024 * 1024)
+		return { ok: false, error: { code: 'EINPUT', message: 'resource edit must be a bounded JSON string' } };
+	let p = popen('umask 077; mktemp /tmp/z2m-resources-edit.XXXXXX 2>/dev/null', 'r');
+	if (!p) return { ok: false, error: { code: 'ETARGET', message: 'resource request temp file unavailable' } };
+	let tmp = trim(p.read('all') || ''), mkrc = p.close();
+	if (mkrc != 0 || index(tmp, '/tmp/z2m-resources-edit.') != 0) return { ok: false, error: { code: 'ETARGET', message: 'resource request temp file unavailable' } };
+	try { writefile(tmp, edit); } catch (e) { try { unlink(tmp); } catch (x) {} return { ok: false, error: { code: 'EIO', message: 'resource request could not be written' } }; }
+	let command = '/usr/bin/ucode ' + RESOURCE_CLI + ' update ' + shell_escape(tmp) + ' 2>/dev/null';
+	let child = popen(command, 'r');
+	if (!child) { try { unlink(tmp); } catch (e) {} return { ok: false, error: { code: 'ETARGET', message: 'resource center runner unavailable' } }; }
+	let out = child.read('all') || '', rc = child.close(); try { unlink(tmp); } catch (e) {}
+	try { let result = json(out); return result != null ? result : { ok: false, error: { code: rc == 0 ? 'EINTERNAL' : 'ECHILD', message: 'resource center returned no response' } }; }
+	catch (e) { return { ok: false, error: { code: rc == 0 ? 'EINTERNAL' : 'ECHILD', message: 'resource center response was malformed' } }; }
+}
+function resources_update_method(req) { return resource_edit_action(req); }
 
 // ---- profiles methods (strategy read path — SLICE 1) -----------------------
 const PROFILES_CLI = '/usr/libexec/zapret2-manager/profiles-cli.uc';
@@ -985,6 +1015,9 @@ return {
 		assets_register_builtin: { args: { edit: 'string' }, call: function (req) { return assets_register_builtin_method(req); } },
 		assets_delete:     { args: { edit: 'string' }, call: function (req) { return assets_delete_method(req); } },
 		assets_references: { args: { edit: 'string' }, call: function (req) { return assets_references_method(req); } },
+		resources_status: { call: function (req) { return resources_status_method(req); } },
+		resources_check: { call: function (req) { return resources_check_method(req); } },
+		resources_update: { args: { edit: 'string' }, call: function (req) { return resources_update_method(req); } },
 		profiles_list:     { call: function (req) { return profiles_list_method(req); } },
 		profiles_create:   { args: { edit: 'string' }, call: function (req) { return profiles_create_method(req); } },
 		profiles_update:   { args: { edit: 'string' }, call: function (req) { return profiles_update_method(req); } },

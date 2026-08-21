@@ -1,0 +1,130 @@
+{
+  "schema": "zapret2-manager.resource-manifest.v1",
+  "bundleId": "z2m-resources-catalog",
+  "version": "2026.08.21.1",
+  "generatedAt": "2026-08-21T00:00:00Z",
+  "sources": [
+    {
+      "id": "avatar-strategy-catalog",
+      "kind": "strategy-catalog",
+      "label": "Avatar Strategy Catalog",
+      "repository": "avatarDD/zapret-gui",
+      "commit": "f9dd3ea47a2239514f396a843b475c92c33f0b4c",
+      "manifestPath": "catalogs/manifest.json",
+      "status": "package-pinned"
+    },
+    {
+      "id": "z2k-resources",
+      "kind": "asset-bundle",
+      "label": "Z2K Resources",
+      "repository": "necronicle/z2k",
+      "commit": "54b6765f2ab3e0f7f13030c90c809f1dcacfcce2",
+      "manifestPath": "UPDATES.json",
+      "status": "configured"
+    },
+    {
+      "id": "package-baseline",
+      "kind": "package",
+      "label": "Package baseline",
+      "repository": "t0fox/zapret2-manager",
+      "commit": "2f328a9c71b97c49eb8e45f4ff3d52f3ac9e4e47",
+      "version": "0.1.0-147",
+      "status": "installed"
+    }
+  ],
+  "bundles": [
+    {
+      "id": "z2k-curated-lua",
+      "version": "r-77.5",
+      "sourceId": "z2k-resources",
+      "sourceCommit": "54b6765f2ab3e0f7f13030c90c809f1dcacfcce2",
+      "generatedAt": "2026-08-20T00:00:00Z",
+      "assets": [
+        {
+          "type": "lua",
+          "id": "lua:z2k-modern-core",
+          "name": "Z2K modern core",
+          "sourcePath": "files/lua/z2k-modern-core.lua",
+          "contentUrl": "https://raw.githubusercontent.com/necronicle/z2k/54b6765f2ab3e0f7f13030c90c809f1dcacfcce2/files/lua/z2k-modern-core.lua",
+          "packagePath": "/usr/share/zapret2-manager/runtime-assets/lua/z2k-modern-core.lua",
+          "sha256": "5f4b5312e69447b887d868be74b756d103515eca59765f9155a358bf96da08c7",
+          "byteSize": 24878,
+          "dependencies": [],
+          "compatibility": { "consumer": "z2k strategy compiler", "requires": ["Z2K_TLS_MOD"] }
+        },
+        {
+          "type": "lua",
+          "id": "lua:z2k-detectors",
+          "name": "Z2K detectors",
+          "sourcePath": "files/lua/z2k-detectors.lua",
+          "contentUrl": "https://raw.githubusercontent.com/necronicle/z2k/54b6765f2ab3e0f7f13030c90c809f1dcacfcce2/files/lua/z2k-detectors.lua",
+          "packagePath": "/usr/share/zapret2-manager/runtime-assets/lua/z2k-detectors.lua",
+          "sha256": "c7702b2f1adb007176fe25ebe25cfedfd24827891e7883477340479fadf3eac4",
+          "byteSize": 92129,
+          "dependencies": [],
+          "compatibility": { "consumer": "z2k detector strategies", "requires": [] }
+        },
+        {
+          "type": "lua",
+          "id": "lua:z2k-fooling-ext",
+          "name": "Z2K fooling extensions",
+          "sourcePath": "files/lua/z2k-fooling-ext.lua",
+          "contentUrl": "https://raw.githubusercontent.com/necronicle/z2k/54b6765f2ab3e0f7f13030c90c809f1dcacfcce2/files/lua/z2k-fooling-ext.lua",
+          "packagePath": "/usr/share/zapret2-manager/runtime-assets/lua/z2k-fooling-ext.lua",
+          "sha256": "4b5efb6672f54dbe4d04440066f06e84d92e43c8534cdfb88d136028e6d8231f",
+          "byteSize": 2714,
+          "dependencies": [],
+          "compatibility": { "consumer": "z2k strategies", "requires": [] }
+        },
+        {
+          "type": "lua",
+          "id": "lua:z2k-range-rand",
+          "name": "Z2K range randomizer",
+          "sourcePath": "files/lua/z2k-range-rand.lua",
+          "contentUrl": "https://raw.githubusercontent.com/necronicle/z2k/54b6765f2ab3e0f7f13030c90c809f1dcacfcce2/files/lua/z2k-range-rand.lua",
+          "packagePath": "/usr/share/zapret2-manager/runtime-assets/lua/z2k-range-rand.lua",
+          "sha256": "073c24d9133484b9f2282f1e398b5963eb577b483c1cab8c29cfd6e7bf8acd9a",
+          "byteSize": 5040,
+          "dependencies": [],
+          "compatibility": { "consumer": "z2k strategy compiler", "requires": [] }
+        },
+        {
+          "type": "lua",
+          "id": "lua:z2k-state-persist",
+          "name": "Z2K state persistence",
+          "sourcePath": "files/lua/z2k-state-persist.lua",
+          "contentUrl": "https://raw.githubusercontent.com/necronicle/z2k/54b6765f2ab3e0f7f13030c90c809f1dcacfcce2/files/lua/z2k-state-persist.lua",
+          "packagePath": "/usr/share/zapret2-manager/runtime-assets/lua/z2k-state-persist.lua",
+          "sha256": "fa4cd3fc83449b1d85e92e75848109cc03340343af87fc014ced423bd9574219",
+          "byteSize": 39064,
+          "dependencies": [],
+          "compatibility": { "consumer": "autocircular strategy state", "requires": [] }
+        },
+        {
+          "type": "lua",
+          "id": "lua:z2k-alert",
+          "name": "Z2K client alert detector",
+          "sourcePath": "files/lua/z2k-alert.lua",
+          "contentUrl": "https://raw.githubusercontent.com/necronicle/z2k/54b6765f2ab3e0f7f13030c90c809f1dcacfcce2/files/lua/z2k-alert.lua",
+          "packagePath": "/usr/share/zapret2-manager/runtime-assets/lua/z2k-alert.lua",
+          "sha256": "bc0e702e52e090c6340779c70bd101d2707e202ee1a772083d4f8535bd90ec47",
+          "byteSize": 27437,
+          "dependencies": [],
+          "compatibility": { "consumer": "TLS alert diagnostics", "requires": [] }
+        },
+        {
+          "type": "lua",
+          "id": "lua:z2k-quic-silence",
+          "name": "Z2K QUIC silence detector",
+          "sourcePath": "files/lua/z2k-quic-silence.lua",
+          "contentUrl": "https://raw.githubusercontent.com/necronicle/z2k/54b6765f2ab3e0f7f13030c90c809f1dcacfcce2/files/lua/z2k-quic-silence.lua",
+          "packagePath": "/usr/share/zapret2-manager/runtime-assets/lua/z2k-quic-silence.lua",
+          "sha256": "3080b592cee163c99eb60ebc1a074fd66f5d04d822821d066a358c455e50dde3",
+          "byteSize": 8786,
+          "dependencies": [],
+          "compatibility": { "consumer": "QUIC stall diagnostics", "requires": [] }
+        }
+      ]
+    }
+  ]
+}

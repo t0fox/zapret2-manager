@@ -4,7 +4,8 @@
 import { readfile, stat, readlink } from 'fs';
 import { asset_registry_list, asset_registry_get, asset_registry_import,
 	asset_registry_register_builtin, asset_registry_update, asset_registry_delete,
-	asset_registry_set_references, asset_registry_resolve, asset_registry_validate } from './asset-registry.uc';
+	asset_registry_set_references, asset_registry_resolve, asset_registry_validate,
+	asset_registry_apply_bundle } from './asset-registry.uc';
 
 function emit(value) { print(sprintf('%J', value) + '\n'); }
 function private_request_path(path) {
@@ -29,6 +30,7 @@ else if (mode == 'delete') result = asset_registry_delete(ARGV[1]);
 else if (mode == 'references') { let input = request_file(1); result = input == null ? { ok: false, error: { code: 'EINPUT', message: 'invalid references request' } } : asset_registry_set_references(input.consumer, input.references); }
 else if (mode == 'resolve') result = asset_registry_resolve(request_file(1));
 else if (mode == 'validate') result = asset_registry_validate(ARGV[1]);
+else if (mode == 'update-bundle') result = asset_registry_apply_bundle(request_file(1));
 else result = { ok: false, error: { code: 'EINPUT', message: 'unsupported asset registry operation' } };
 emit(result);
 if (!result || result.ok != true) exit(1);
