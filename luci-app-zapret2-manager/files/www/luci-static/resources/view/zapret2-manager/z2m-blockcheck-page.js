@@ -1,29 +1,40 @@
 'use strict';
 'require baseclass';
 
-var state = { diagnostic: null, diagnosticResults: null, official: null, officialResults: null, fast: null, fastProvider: null, fastResults: null, fastOutput: '', fastCursor: 0, detector: null, detectorResults: null, output: '', cursor: 0, timer: null, disposed: false };
+var state = { diagnostic: null, diagnosticResults: null, official: null, officialResults: null, fast: null, fastProvider: null, fastResults: null, fastOutput: '', fastCursor: 0, detector: null, detectorResults: null, output: '', cursor: 0, timer: null, disposed: false, loadState: 'loading', loadError: null, timedOut: false };
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
 function array(value) { return Array.isArray(value) ? value : []; }
 function text(value) { return value === null || value === undefined ? '' : String(value); }
 function edit(value) { return JSON.stringify(value || {}); }
 function terminal(job) { return ['completed', 'cancelled', 'error'].indexOf(text(object(job).status)) >= 0; }
 function message(ctx, value) { return ctx.api.normalizeError(value).message; }
+function humanStatus(value) { return ({ running: _('Проверяется'), starting: _('Подготавливается'), completed: _('Завершено'), cancelled: _('Остановлено'), error: _('Ошибка') })[text(value)] || _('Не запущено'); }
+function bounded(promise, label) {
+  var settled = false, timer;
+  return Promise.race([
+    Promise.resolve(promise).then(function (value) { settled = true; return { value: value }; }, function (error) { settled = true; return { error: error }; }),
+    new Promise(function (resolve) { timer = window.setTimeout(function () { if (!settled) resolve({ timeout: true, label: label }); }, 5000); })
+  ]).then(function (result) { if (timer) window.clearTimeout(timer); return result; });
+}
 function refresh(ctx) {
-  return Promise.all([ctx.api.blockcheck.status(), ctx.api.blockcheck2.status(), ctx.api.blockcheckw.status(), ctx.api.blockDetector.status()]).then(function (values) {
-    state.diagnostic = object(values[0]).job;
-    state.official = object(values[1]).job;
-    state.fast = object(values[2]).job;
-    state.fastProvider = object(values[2]).provider;
-    state.detector = object(values[3]).job;
+  return Promise.all([bounded(ctx.api.blockcheck.status(), 'basic'), bounded(ctx.api.blockcheck2.status(), 'extended'), bounded(ctx.api.blockcheckw.status(), 'search'), bounded(ctx.api.blockDetector.status(), 'dns')]).then(function (values) {
+    state.loadError = null; state.timedOut = values.some(function (item) { return item.timeout; });
+    values.forEach(function (item) { if (item.error && !state.loadError) state.loadError = item.error; });
+    state.diagnostic = object(values[0].value).job;
+    state.official = object(values[1].value).job;
+    state.fast = object(values[2].value).job;
+    state.fastProvider = object(values[2].value).provider;
+    state.detector = object(values[3].value).job;
+    state.loadState = state.loadError ? 'error' : (state.timedOut ? 'degraded' : 'loaded');
     var requests = [];
-    if (state.diagnostic && terminal(state.diagnostic)) requests.push(ctx.api.blockcheck.results(edit({ id: state.diagnostic.id })).then(function (value) { state.diagnosticResults = object(value).results; }));
+    if (state.diagnostic && terminal(state.diagnostic)) requests.push(bounded(ctx.api.blockcheck.results(edit({ id: state.diagnostic.id })), 'basic-results').then(function (item) { if (item.value) state.diagnosticResults = object(item.value).results; }));
     if (state.official && state.official.id) {
-      requests.push(ctx.api.blockcheck2.output(edit({ id: state.official.id, cursor: state.cursor })).then(function (value) { value = object(value); if (value.reset) state.cursor = value.cursor || 0; state.output += text(value.chunk); state.cursor = value.nextCursor || state.cursor; }));
-      if (terminal(state.official)) requests.push(ctx.api.blockcheck2.results(edit({ id: state.official.id })).then(function (value) { state.officialResults = object(value).result; }));
+      requests.push(bounded(ctx.api.blockcheck2.output(edit({ id: state.official.id, cursor: state.cursor })), 'extended-output').then(function (item) { var value = object(item.value); if (value.reset) state.cursor = value.cursor || 0; state.output += text(value.chunk); state.cursor = value.nextCursor || state.cursor; }));
+      if (terminal(state.official)) requests.push(bounded(ctx.api.blockcheck2.results(edit({ id: state.official.id })), 'extended-results').then(function (item) { if (item.value) state.officialResults = object(item.value).result; }));
     }
-    if (state.fast && state.fast.id) requests.push(ctx.api.blockcheckw.output(edit({ id: state.fast.id, cursor: state.fastCursor })).then(function (value) { value = object(value); state.fastOutput += text(value.chunk); state.fastCursor = value.nextCursor || state.fastCursor; }));
-    if (state.fast && terminal(state.fast)) requests.push(ctx.api.blockcheckw.results(edit({ id: state.fast.id })).then(function (value) { state.fastResults = object(value).result; }));
-    if (state.detector && state.detector.running) requests.push(ctx.api.blockDetector.results().then(function (value) { state.detectorResults = object(value).results; }));
+    if (state.fast && state.fast.id) requests.push(bounded(ctx.api.blockcheckw.output(edit({ id: state.fast.id, cursor: state.fastCursor })), 'search-output').then(function (item) { var value = object(item.value); state.fastOutput += text(value.chunk); state.fastCursor = value.nextCursor || state.fastCursor; }));
+    if (state.fast && terminal(state.fast)) requests.push(bounded(ctx.api.blockcheckw.results(edit({ id: state.fast.id })), 'search-results').then(function (item) { if (item.value) state.fastResults = object(item.value).result; }));
+    if (state.detector && state.detector.running) requests.push(bounded(ctx.api.blockDetector.results(), 'dns-results').then(function (item) { if (item.value) state.detectorResults = object(item.value).results; }));
     return Promise.all(requests);
   });
 }
@@ -50,24 +61,24 @@ function handoff(ctx, strategy, validate) {
 function panel(ctx, kind) {
   var official = kind === 'official', job = official ? state.official : state.diagnostic;
   var input = E('input', { type: 'text', value: 'youtube.com discord.com', 'aria-label': _('Домены') });
-  var select = E('select', {}, official ? ['quick', 'standard', 'force'].map(function (mode) { return E('option', { value: mode }, mode); }) : ['quick', 'full', 'dpi_only'].map(function (mode) { return E('option', { value: mode }, mode); }));
+  var select = E('select', { 'aria-label': _('Режим проверки') }, official ? ['quick', 'standard', 'force'].map(function (mode) { return E('option', { value: mode }, mode === 'quick' ? _('Быстрая') : (mode === 'standard' ? _('Обычная') : _('Расширенная'))); }) : ['quick', 'full', 'dpi_only'].map(function (mode) { return E('option', { value: mode }, mode === 'quick' ? _('Быстрая') : (mode === 'full' ? _('Полная') : _('Только признаки блокировки'))); }));
   var start = ctx.shell.button(_('Запустить'), 'primary sm', function () { start.disabled = true; var work = official ? startOfficial(ctx, select.value, domainsValue(input)) : startDiagnostic(ctx, select.value, domainsValue(input)); work.then(function () { start.disabled = false; renderInto(ctx, root); }); }, !!job && !terminal(job));
   var stop = ctx.shell.button(_('Остановить'), 'danger sm', function () { stop.disabled = true; (official ? stopOfficial(ctx) : stopDiagnostic(ctx)).then(function () { renderInto(ctx, root); }); }, !job || terminal(job));
   var root = E('section', { 'class': 'z2m-panel z2m-blockcheck-panel', 'data-product': official ? 'blockcheck2' : 'blockcheck' }, [
-    E('div', { 'class': 'z2m-panel-head' }, [E('h2', {}, official ? _('BlockCheck2 — официальный сканер') : _('BlockCheck — диагностика блокировки')), E('span', { 'class': 'z2m-muted' }, official ? _('upstream blockcheck2.sh') : _('classification/evidence'))]),
+    E('div', { 'class': 'z2m-panel-head' }, [E('h2', {}, official ? _('Расширенная проверка соединения') : _('Проверка соединения')), E('span', { 'class': 'z2m-muted' }, official ? _('Подробный отчёт и найденные варианты') : _('Быстрая оценка доступности'))]),
     E('div', { 'class': 'z2m-form-row' }, [select, input, start, stop]),
-    E('p', { 'class': 'z2m-muted' }, job ? _('Статус: ') + text(job.status) + ' · ' + text(job.phase) + ' · ' + text(job.progress || 0) + '/' + text(job.total || 0) : _('Нет активного запуска.')),
-    official ? E('div', {}, [E('pre', { 'class': 'z2m-log', 'aria-live': 'polite' }, state.output || _('Вывод появится во время запуска.')), officialResults(ctx, state.officialResults)]) : findings(state.diagnosticResults)
+    E('p', { 'class': 'z2m-muted' }, job ? humanStatus(job.status) + (job.progress !== undefined ? ' · ' + text(job.progress || 0) + '/' + text(job.total || 0) : '') : _('Проверка ещё не запускалась.')),
+    official ? E('div', {}, [E('details', {}, [E('summary', {}, _('Показать технический вывод')), E('pre', { 'class': 'z2m-log', 'aria-live': 'polite' }, state.output || _('Вывод появится во время запуска.'))]), officialResults(ctx, state.officialResults)]) : findings(state.diagnosticResults)
   ]);
   return root;
 }
 function officialResults(ctx, result) {
   result = object(result); var strategies = array(result.strategies);
-  if (!strategies.length) return terminal(state.official) ? E('p', { 'class': 'z2m-muted' }, text(object(result.parse).outcome || 'no_results')) : E('p', { 'class': 'z2m-muted' }, _('После завершения появятся найденные Strategy.'));
+  if (!strategies.length) return terminal(state.official) ? E('p', { 'class': 'z2m-muted' }, _('Рабочие варианты не найдены.')) : E('p', { 'class': 'z2m-muted' }, _('После завершения появятся найденные варианты.'));
   return E('div', { 'class': 'z2m-stack' }, strategies.map(function (strategy) {
-    var preview = ctx.shell.button(_('Preview'), 'sm', function () { preview.disabled = true; handoff(ctx, strategy, false).then(function () { preview.disabled = false; }); });
-    var validate = ctx.shell.button(_('Validate'), 'sm', function () { validate.disabled = true; handoff(ctx, strategy, true).then(function () { validate.disabled = false; }); });
-    return E('article', { 'class': 'z2m-result-card', 'data-handoff': 'strategy' }, [E('strong', {}, text(strategy.name)), E('span', {}, text(object(strategy.provenance).domain) + ' · ' + text(object(strategy.provenance).ipv)), E('div', { 'class': 'z2m-form-row' }, [preview, validate])]);
+    var preview = ctx.shell.button(_('Предпросмотр'), 'sm', function () { preview.disabled = true; handoff(ctx, strategy, false).then(function () { preview.disabled = false; }); });
+    var validate = ctx.shell.button(_('Проверить'), 'sm', function () { validate.disabled = true; handoff(ctx, strategy, true).then(function () { validate.disabled = false; }); });
+    return E('article', { 'class': 'z2m-result-card', 'data-handoff': 'strategy' }, [E('strong', {}, text(strategy.name || _('Найденный вариант'))), E('span', {}, text(object(strategy.provenance).domain || _('Сайт из проверки'))), E('div', { 'class': 'z2m-form-row' }, [preview, validate])]);
   }));
 }
 function detectorPanel(ctx) {
@@ -75,26 +86,30 @@ function detectorPanel(ctx) {
   var start = ctx.shell.button(_('Запустить мониторинг'), 'primary sm', function () { start.disabled = true; startDetector(ctx).then(function () { renderInto(ctx, document.getElementById('z2m-view-blockcheck')); }); }, running);
   var stop = ctx.shell.button(_('Остановить'), 'danger sm', function () { stop.disabled = true; stopDetector(ctx).then(function () { renderInto(ctx, document.getElementById('z2m-view-blockcheck')); }); }, !running);
   var rows = array(state.detectorResults && state.detectorResults.results);
-  return E('section', { 'class': 'z2m-panel z2m-blockcheck-panel', 'data-product': 'block-detector' }, [E('div', { 'class': 'z2m-panel-head' }, [E('h2', {}, _('Block Detector — фоновый DNS-мониторинг')), E('span', { 'class': 'z2m-muted' }, _('отдельный lifecycle от BlockCheck'))]), E('div', { 'class': 'z2m-form-row' }, [start, stop]), E('p', { 'class': 'z2m-muted' }, job ? _('Статус: ') + text(job.status) + ' · discovered ' + text(job.discoveredCount) : _('Мониторинг не запущен.')), rows.length ? E('div', { 'class': 'z2m-stack' }, rows.map(function (row) { return E('article', { 'class': 'z2m-result-card' }, [E('strong', {}, text(row.classification)), E('span', {}, text(array(row.domains).join(', ')))]); })) : E('p', { 'class': 'z2m-muted' }, _('Результаты фоновых проверок появятся после обнаружения DNS-запросов.'))]);
+  return E('section', { 'class': 'z2m-panel z2m-blockcheck-panel', 'data-product': 'block-detector' }, [E('div', { 'class': 'z2m-panel-head' }, [E('h2', {}, _('Наблюдение за DNS')), E('span', { 'class': 'z2m-muted' }, _('Ищет признаки проблем в фоне'))]), E('div', { 'class': 'z2m-form-row' }, [start, stop]), E('p', { 'class': 'z2m-muted' }, job ? humanStatus(job.running ? 'running' : job.status) + (job.discoveredCount !== undefined ? ' · ' + _('найдено: ') + text(job.discoveredCount) : '') : _('Наблюдение не запущено.')), rows.length ? E('div', { 'class': 'z2m-stack' }, rows.map(function (row) { return E('article', { 'class': 'z2m-result-card' }, [E('strong', {}, text(row.classification)), E('span', {}, text(array(row.domains).join(', ')))]); })) : E('p', { 'class': 'z2m-muted' }, _('Результаты появятся после обнаружения DNS-запросов.'))]);
 }
 function fastPanel(ctx) {
   var job = state.fast, select = E('select', {}, ['status', 'scan', 'universal', 'check'].map(function (engine) { return E('option', { value: engine }, engine); }));
   var input = E('input', { type: 'text', value: 'youtube.com discord.com', 'aria-label': _('Домены') });
-  var start = ctx.shell.button(_('Запустить Fast engine'), 'primary sm', function () { start.disabled = true; startFast(ctx, select.value, domainsValue(input)).then(function () { renderInto(ctx, document.getElementById('z2m-view-blockcheck')); }); }, !!job && !terminal(job));
+  var start = ctx.shell.button(_('Запустить расширенный поиск'), 'primary sm', function () { start.disabled = true; startFast(ctx, select.value, domainsValue(input)).then(function () { renderInto(ctx, document.getElementById('z2m-view-blockcheck')); }); }, !!job && !terminal(job));
   var stop = ctx.shell.button(_('Остановить'), 'danger sm', function () { stop.disabled = true; stopFast(ctx).then(function () { renderInto(ctx, document.getElementById('z2m-view-blockcheck')); }); }, !job || terminal(job));
   var provider = object(state.fastProvider);
-  return E('section', { 'class': 'z2m-panel z2m-blockcheck-panel', 'data-product': 'blockcheckw' }, [E('div', { 'class': 'z2m-panel-head' }, [E('h2', {}, _('Deep Search — BlockCheckW Fast')), E('span', { 'class': 'z2m-muted' }, text(provider.compatibility || 'UNKNOWN') + ' · ' + text(provider.installedVersion || 'not installed'))]), E('div', { 'class': 'z2m-form-row' }, [select, input, start, stop]), E('p', { 'class': 'z2m-muted' }, job ? _('Статус: ') + text(job.status) + ' · ' + text(job.engine) : _('Fast engine не запущен.')), job ? E('pre', { 'class': 'z2m-log', 'aria-live': 'polite' }, state.fastOutput) : null, fastResults(ctx, state.fastResults)]);
+  return E('section', { 'class': 'z2m-panel z2m-blockcheck-panel', 'data-product': 'blockcheckw' }, [E('div', { 'class': 'z2m-panel-head' }, [E('h2', {}, _('Расширенный поиск проблем')), E('span', { 'class': 'z2m-muted' }, text(provider.compatibility || _('Состояние уточняется')))]), E('div', { 'class': 'z2m-form-row' }, [select, input, start, stop]), E('p', { 'class': 'z2m-muted' }, job ? humanStatus(job.status) : _('Проверка ещё не запускалась.')), job ? E('details', {}, [E('summary', {}, _('Показать технический вывод')), E('pre', { 'class': 'z2m-log', 'aria-live': 'polite' }, state.fastOutput)]) : null, fastResults(ctx, state.fastResults)]);
 }
-function fastResults(ctx, result) { result = object(result); var strategies = array(result.strategies); if (!strategies.length) return E('p', { 'class': 'z2m-muted' }, result.outcome ? text(result.outcome) : _('Результаты Fast engine появятся после запуска.')); return E('div', { 'class': 'z2m-stack' }, strategies.map(function (strategy) { var preview = ctx.shell.button(_('Preview'), 'sm', function () { handoff(ctx, strategy, false); }); var validate = ctx.shell.button(_('Validate'), 'sm', function () { handoff(ctx, strategy, true); }); return E('article', { 'class': 'z2m-result-card', 'data-handoff': 'strategy' }, [E('strong', {}, text(strategy.name)), E('div', { 'class': 'z2m-form-row' }, [preview, validate])]); })); }
+function fastResults(ctx, result) { result = object(result); var strategies = array(result.strategies); if (!strategies.length) return E('p', { 'class': 'z2m-muted' }, _('Результаты расширенного поиска появятся после запуска.')); return E('div', { 'class': 'z2m-stack' }, strategies.map(function (strategy) { var preview = ctx.shell.button(_('Предпросмотр'), 'sm', function () { handoff(ctx, strategy, false); }); var validate = ctx.shell.button(_('Проверить'), 'sm', function () { handoff(ctx, strategy, true); }); return E('article', { 'class': 'z2m-result-card', 'data-handoff': 'strategy' }, [E('strong', {}, text(strategy.name)), E('div', { 'class': 'z2m-form-row' }, [preview, validate])]); })); }
 function findings(result) {
   result = object(result); var rows = array(result.findings).concat(array(result.infrastructure));
-  if (!rows.length) return E('p', { 'class': 'z2m-muted' }, _('После завершения здесь появятся классификация и probe evidence.'));
+  if (!rows.length) return E('p', { 'class': 'z2m-muted' }, _('После завершения здесь появятся результаты проверки.'));
   return E('div', { 'class': 'z2m-stack' }, rows.map(function (row) { return E('article', { 'class': 'z2m-result-card' }, [E('strong', {}, text(row.classification || row.code || 'infrastructure')), E('span', {}, text(row.recommendation || row.message || ''))]); }));
 }
-function renderInto(ctx, root) { root.replaceChildren(panel(ctx, 'diagnostic'), panel(ctx, 'official'), fastPanel(ctx), detectorPanel(ctx)); }
-function tick(ctx, root) { if (state.disposed) return; refresh(ctx).then(function () { renderInto(ctx, root); if ((state.diagnostic && !terminal(state.diagnostic)) || (state.official && !terminal(state.official)) || (state.fast && !terminal(state.fast)) || (state.detector && state.detector.running)) state.timer = window.setTimeout(function () { tick(ctx, root); }, 1200); }); }
-function load(ctx) { state.disposed = false; return refresh(ctx).then(function () { return {}; }); }
-function render(ctx) { var root = E('section', { 'class': 'z2m-view on', id: 'z2m-view-blockcheck' }, [E('div', { 'class': 'z2m-phead' }, [E('h1', {}, _('BlockCheck family')), E('p', {}, _('Независимая диагностика и официальный BlockCheck2 с потоковым выводом'))])]); renderInto(ctx, root); return root; }
-function mount(ctx) { var root = document.getElementById('z2m-view-blockcheck'); if (root) tick(ctx, root); }
+function renderInto(ctx, root) {
+  var stateView = state.loadState === 'loading' ? ctx.shell.loadingState(_('Состояние системы')) : null;
+  var warning = state.loadState === 'error' ? ctx.shell.statePanel({ title: _('Не удалось получить состояние'), message: _('Проверьте доступность служб и повторите запрос.'), kind: 'error', actions: [ctx.shell.button(_('Повторить'), 'sm', function () { tick(ctx, root); })] }) : (state.loadState === 'degraded' ? ctx.shell.statePanel({ title: _('Данные получены частично'), message: _('Некоторые проверки не ответили вовремя. Значения UNKNOWN не считаются нормой.'), kind: 'info', actions: [ctx.shell.button(_('Повторить'), 'sm', function () { tick(ctx, root); })] }) : null);
+  root.replaceChildren(warning || stateView || E('div', {}, [panel(ctx, 'diagnostic'), panel(ctx, 'official'), fastPanel(ctx), detectorPanel(ctx)]));
+}
+function tick(ctx, root) { if (state.disposed) return; state.loadState = 'loading'; renderInto(ctx, root); refresh(ctx).then(function () { if (state.disposed) return; renderInto(ctx, root); if ((state.diagnostic && !terminal(state.diagnostic)) || (state.official && !terminal(state.official)) || (state.fast && !terminal(state.fast)) || (state.detector && state.detector.running)) state.timer = window.setTimeout(function () { tick(ctx, root); }, 1200); }); }
+function load(ctx) { state.disposed = false; state.loadState = 'loading'; return Promise.resolve({}); }
+function render(ctx) { var root = E('section', { 'class': 'z2m-view on', id: 'z2m-view-blockcheck' }, [E('div', { 'class': 'z2m-phead' }, [E('h1', {}, _('Диагностика')), E('p', {}, _('Проверка соединения, расширенный поиск проблем и наблюдение за DNS'))])]); renderInto(ctx, root); return root; }
+function mount(ctx) { state.disposed = false; var root = document.getElementById('z2m-view-blockcheck'); if (root) tick(ctx, root); }
 function unmount() { state.disposed = true; if (state.timer !== null) window.clearTimeout(state.timer); state.timer = null; }
 return baseclass.extend({ id: 'blockcheck', load: load, render: render, mount: mount, unmount: unmount });

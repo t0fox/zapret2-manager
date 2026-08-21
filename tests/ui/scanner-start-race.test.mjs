@@ -14,5 +14,5 @@ test('Scanner treats async record publication ENOENT as bounded starting state',
 
 test('Scanner keeps non-ENOENT failures as application errors', () => {
   assert.match(source, /state\.error\s*=\s*error/);
-  assert.match(source, /Scanner recovery\/error/);
+  assert.match(source, /Проверка не завершена/);
 });
