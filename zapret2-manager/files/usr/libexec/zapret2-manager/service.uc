@@ -9,48 +9,14 @@ import { PATHS, PASSTHROUGH_PROFILE_NAME,
 	ROLLBACK_TIMEOUT_ENABLED, ROLLBACK_TTL } from './constants.uc';
 import { read_var, set_var, restore_whole_file, config_sha256, commit_applied_identity } from './apply.uc';
 import { fetch_list } from './list-fetcher.uc';
+import { collect_observations } from './core/status-collector.uc';
 
 const UPSTREAM_INIT = '/etc/init.d/zapret2';
 const LASTGOOD_DIR = '/tmp/zapret2-manager/last-good';
 const PREV_ENABLE = LASTGOOD_DIR + '/nfqws2_enable.prev';
 const PENDING = '/tmp/zapret2-manager/pending-rollback';
-const USER_PRESETS = '/etc/zapret2-manager/presets';
-const FACTORY_PRESETS = '/usr/share/zapret2-manager/presets';
-const PRESET_FILES = [ 'tcp_https.txt', 'stun_voice.txt', 'udp_games.txt' ];
 const DAEMON_LOG_ENABLE = 'DAEMON_LOG_ENABLE';
 const WHITELIST_PATH = '/etc/zapret2-manager/lists/whitelist.txt';
-
-function preset_token(token) {
-	if (token == '--lua-desync=old') return false;
-	let prefixes = [ '--filter-tcp=', '--filter-udp=', '--hostlist-domains=', '--hostlist=', '--hostlist-exclude=', '--ipset=', '--filter-l7=', '--payload=', '--out-range=', '--in-range=', '--lua-desync=', '--new' ];
-	for (let i = 0; i < length(prefixes); i++)
-		if (token == prefixes[i] || substr(token, 0, length(prefixes[i])) == prefixes[i]) return true;
-	return false;
-}
-
-function sync_effective_presets() {
-	let tokens = [];
-	for (let i = 0; i < length(PRESET_FILES); i++) {
-		let user = USER_PRESETS + '/' + PRESET_FILES[i];
-		let factory = FACTORY_PRESETS + '/' + PRESET_FILES[i];
-		let text = readfile(stat(user) ? user : factory);
-		if (!text) continue;
-		for (let line in split(text, '\n')) {
-			line = trim(line);
-			if (!length(line) || substr(line, 0, 1) == '#') continue;
-			for (let token in split(line, ' ')) if (preset_token(token)) push(tokens, token);
-		}
-	}
-	if (!length(tokens)) return null;
-	try {
-		mkdir('/etc/zapret2-manager/ipset');
-		if (!stat('/etc/zapret2-manager/ipset/games.txt')) writefile('/etc/zapret2-manager/ipset/games.txt', '');
-		if (!stat('/etc/zapret2-manager/ipset/steam.txt')) writefile('/etc/zapret2-manager/ipset/steam.txt', '');
-	} catch (e) { }
-	let rendered = join(' ', tokens);
-	set_var('NFQWS2_OPT', rendered);
-	return rendered;
-}
 
 function run(cmd) {
 	let p = popen(cmd + ' 2>&1', 'r');
@@ -146,6 +112,52 @@ function capture_applied_hash() {
 	try { commit_applied_identity(); } catch (e) { }
 }
 
+function verify_engine_runtime(stage, expectedConfigSha) {
+	let last = null;
+	for (let attempt = 1; attempt <= 5; attempt++) {
+		let observations = null;
+		try { observations = collect_observations(); } catch (e) { observations = null; }
+		let runtime = observations && observations.runtime ? observations.runtime : {};
+		let health = observations && observations.health ? observations.health : {};
+		let queue = health.queue ? health.queue : {};
+		let instances = runtime.instances && type(runtime.instances) == 'array' ? runtime.instances : [];
+		let processPresent = length(instances) > 0;
+		let singleInstance = length(instances) == 1;
+		let process = singleInstance ? instances[0] : null;
+		let executable = process != null && process.exe == PATHS.nfqws_bin;
+		let queueRegistered = queue.registered == true;
+		let ownerMatch = process != null && queue.peerPortid != null && queue.peerPortid == process.pid;
+		let rulesPresent = runtime.rulesPresent == true;
+		let currentConfigSha = config_sha256();
+		let configMatch = expectedConfigSha != null && currentConfigSha == expectedConfigSha;
+		let checks = {
+			processPresent: processPresent,
+			singleInstance: singleInstance,
+			executable: executable,
+			rulesPresent: rulesPresent,
+			queueRegistered: queueRegistered,
+			ownerMatch: ownerMatch,
+			configMatch: configMatch
+		};
+		last = { attempt: attempt, checks: checks, process: process,
+			queue: queue, configSha256: currentConfigSha, expectedConfigSha256: expectedConfigSha,
+			serviceState: observations && observations.serviceState ? observations.serviceState : null };
+		if (checks.processPresent && checks.singleInstance && checks.executable &&
+			checks.rulesPresent && checks.queueRegistered && checks.ownerMatch && checks.configMatch)
+			return { ok: true, stage: stage, attempts: attempt, evidence: last };
+		if (attempt < 5) run('sleep 1');
+	}
+	return { ok: false, code: 'ESTARTVERIFY', stage: stage, attempts: 5, evidence: last };
+}
+
+function runtime_failure(action, initResult, verification) {
+	event('ui', 'runtime', 'crit', action + ' rc=0 but runtime verification failed',
+		{ action: action, code: 'ESTARTVERIFY', stage: verification.stage, evidence: verification.evidence });
+	return { ok: false, action: action, rc: initResult.rc, code: 'ESTARTVERIFY',
+		stage: verification.stage, error: 'upstream init returned rc=0 but nfqws2 runtime is not verified',
+		out: initResult.out, verification: verification };
+}
+
 function snapshot_last_good() {
 	try {
 		try { mkdir(LASTGOOD_DIR); } catch (e) { }
@@ -183,9 +195,13 @@ function start() {
 	let restored = (prev == null) ? 1 : prev;
 	if (apply_nfqws2_enable(restored) == null)
 		return { ok: false, action: 'start', error: 'config write failed' };
-	sync_effective_presets();
+	let expectedConfigSha = config_sha256();
 	let r = run(UPSTREAM_INIT + ' start');
-	if (r.rc == 0) capture_applied_hash();
+	if (r.rc == 0) {
+		let verification = verify_engine_runtime('start', expectedConfigSha);
+		if (!verification.ok) return runtime_failure('start', r, verification);
+		capture_applied_hash();
+	}
 	event('ui', 'pause', 'info',
 		'start rc=' + r.rc + ' (resumed; NFQWS2_ENABLE=' + restored + ')',
 		{ reason: 'manual_ui', rc: r.rc, pause: 'exit', nfqws2_enable: restored });
@@ -213,8 +229,13 @@ function stop() {
 function restart() {
 	set_paused(false);
 	snapshot_last_good();
-	sync_effective_presets();
+	let expectedConfigSha = config_sha256();
 	let r = run(UPSTREAM_INIT + ' restart');
+	if (r.rc == 0) {
+		let verification = verify_engine_runtime('restart', expectedConfigSha);
+		if (!verification.ok) return runtime_failure('restart', r, verification);
+		capture_applied_hash();
+	}
 	schedule_rollback();
 	event('ui', 'restart', 'info', 'restart rc=' + r.rc +
 		(ROLLBACK_TIMEOUT_ENABLED ? ' (rollback armed ' + ROLLBACK_TTL + 's)' : ' (snapshot taken; auto-rollback off by default)'),
@@ -226,8 +247,13 @@ function restart() {
 function restart_daemons() {
 	set_paused(false);
 	snapshot_last_good();
-	sync_effective_presets();
+	let expectedConfigSha = config_sha256();
 	let r = run(UPSTREAM_INIT + ' restart_daemons 2>/dev/null || ' + UPSTREAM_INIT + ' restart');
+	if (r.rc == 0) {
+		let verification = verify_engine_runtime('restart_daemons', expectedConfigSha);
+		if (!verification.ok) return runtime_failure('restart_daemons', r, verification);
+		capture_applied_hash();
+	}
 	schedule_rollback();
 	event('ui', 'restart', 'info', 'restart_daemons rc=' + r.rc,
 		{ reason: 'manual_ui', rc: r.rc });
@@ -239,8 +265,13 @@ function debug(enabled) {
 	let on = enabled == '1' || enabled == 'true';
 	if (set_var(DAEMON_LOG_ENABLE, on ? '1' : '0') == null)
 		return { ok: false, action: 'debug', enabled: on, error: 'config write failed' };
-	sync_effective_presets();
+	let expectedConfigSha = config_sha256();
 	let r = run(UPSTREAM_INIT + ' restart_daemons 2>/dev/null || ' + UPSTREAM_INIT + ' restart');
+	if (r.rc == 0) {
+		let verification = verify_engine_runtime('debug', expectedConfigSha);
+		if (!verification.ok) return runtime_failure('debug', r, verification);
+		capture_applied_hash();
+	}
 	return { ok: r.rc == 0, action: 'debug', enabled: on, rc: r.rc, out: r.out };
 }
 

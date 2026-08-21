@@ -40,6 +40,57 @@
   var known = {};
   knownNames.forEach(function (name) { known['--' + name] = 1; });
 
+  /*
+   * The donor's nfqws2_spec is the syntax reference for the IDE.  Z2M keeps
+   * the reference local and deliberately limits it to completion metadata;
+   * compilation and capability checks remain server-owned.  Names and value
+   * groups below mirror the donor's current nfqws2/Z2K vocabulary, including
+   * circular orchestration and detector/hostkey values.
+   */
+  var specFlags = {
+    '--filter-tcp': { type: 'csv-port', label: 'TCP ports', desc: 'TCP target ports' },
+    '--filter-udp': { type: 'csv-port', label: 'UDP ports', desc: 'UDP target ports' },
+    '--filter-l7': { type: 'csv-enum', values: ['all', 'unknown', 'known', 'http', 'tls', 'dtls', 'quic', 'wireguard', 'dht', 'discord', 'stun', 'xmpp', 'dns', 'mtproto', 'bt', 'utp_bt'], desc: 'L7 protocol' },
+    '--payload': { type: 'csv-enum', values: ['all', 'unknown', 'empty', 'known', 'ipv4', 'ipv6', 'icmp', 'http_req', 'http_reply', 'tls_client_hello', 'tls_server_hello', 'dtls_client_hello', 'dtls_server_hello', 'quic_initial', 'wireguard_initiation', 'wireguard_response', 'wireguard_cookie', 'wireguard_keepalive', 'wireguard_data', 'dht', 'discord_ip_discovery', 'stun', 'xmpp_stream', 'xmpp_starttls', 'xmpp_proceed', 'xmpp_features', 'dns_query', 'dns_response', 'mtproto_initial', 'bt_handshake', 'utp_bt_handshake'], desc: 'Payload type' },
+    '--hostlist': { type: 'file', fileType: 'hostlist', desc: 'Canonical hostlist asset' },
+    '--hostlist-exclude': { type: 'file', fileType: 'hostlist', desc: 'Canonical hostlist exclusion asset' },
+    '--hostlist-auto': { type: 'file', fileType: 'hostlist', desc: 'Canonical auto-hostlist asset' },
+    '--ipset': { type: 'file', fileType: 'ipset', desc: 'Canonical IP set asset' },
+    '--ipset-exclude': { type: 'file', fileType: 'ipset', desc: 'Canonical IP set exclusion asset' },
+    '--blob': { type: 'file', fileType: 'blob', desc: 'Canonical blob asset' },
+    '--lua-init': { type: 'file', fileType: 'lua', desc: 'Canonical Lua asset' },
+    '--lua-desync': { type: 'lua-chain', desc: 'Lua/Z2K desync chain' },
+    '--in-range': { type: 'value', values: ['a', 'x', 'n', 'd', 'b', 's', 'p'], desc: 'Inbound range mode' },
+    '--out-range': { type: 'value', values: ['a', 'x', 'n', 'd', 'b', 's', 'p'], desc: 'Outbound range mode' },
+    '--dpi-desync': { type: 'value', values: ['fake', 'multisplit', 'multidisorder', 'fakedsplit', 'fakedsplit2', 'hostfakesplit', 'syndata', 'disorder', 'split2'], desc: 'Legacy desync mode' },
+    '--dpi-desync-repeats': { type: 'value', values: ['2', '3', '6', '11'], desc: 'Legacy repeat count' },
+    '--dpi-desync-split-pos': { type: 'value', values: ['1', '2', 'midsld', 'host', 'endhost', 'sld', 'endsld', 'sniext', 'method+2'], desc: 'Split position' },
+    '--template': { type: 'value', values: ['default', 'tls', 'quic', 'http'], desc: 'Profile template' }
+  };
+  Object.keys(specFlags).forEach(function (name) { known[name] = 1; });
+  var specFunctions = {
+    fake: { desc: 'Direct fake packet', file: 'zapret-antidpi.lua' },
+    multisplit: { desc: 'Split payload at positions', file: 'zapret-antidpi.lua' },
+    multidisorder: { desc: 'Disorder payload segments', file: 'zapret-antidpi.lua' },
+    fakedsplit: { desc: 'Fake and split payload', file: 'zapret-antidpi.lua' },
+    fakedsplit2: { desc: 'Fake and split variant', file: 'zapret-antidpi.lua' },
+    hostfakesplit: { desc: 'Host-aware fake split', file: 'zapret-antidpi.lua' },
+    syndata: { desc: 'Synthetic data', file: 'zapret-antidpi.lua' },
+    disorder: { desc: 'Disorder payload', file: 'zapret-antidpi.lua' },
+    split2: { desc: 'Split payload variant', file: 'zapret-antidpi.lua' },
+    circular: { desc: 'Run ordered circular strategy steps', file: 'zapret-lib.lua', circular: true },
+    z2k_dynamic_ttl: { desc: 'Z2K dynamic TTL fooling', file: 'zapret-lib.lua', z2k: true }
+  };
+  var detectorValues = ['standard_failure_detector', 'combined_failure_detector', 'udp_aggressive_failure_detector', 'silent_drop_detector', 'z2k_mid_stream_stall', 'z2k_http_mid_stream_stall', 'z2k_tls_stalled', 'z2k_tls_alert_fatal', 'z2k_silent_drop_detector', 'standard_success_detector', 'combined_success_detector', 'udp_protocol_success_detector', 'z2k_http_success_positive_only', 'z2k_success_no_reset', 'z2k_http_partial_response'];
+  var hostkeyValues = ['standard_hostkey', 'get_grouped_hostname', 'udp_global_hostkey', 'z2k_nohost_key'];
+  var iffValues = ['cond_true', 'cond_false', 'cond_random', 'cond_payload_str', 'cond_tcp_has_ts', 'cond_lua'];
+  var luaSubargs = {
+    fake: ['blob', 'payload', 'tls_mod', 'dir', 'optional', 'ip_ttl', 'ip6_ttl', 'tcp_seq', 'tcp_ack', 'tcp_ts', 'tcp_md5', 'repeats', 'fwmark', 'ifout'],
+    circular: ['strategy', 'final', 'cond', 'cond_neg', 'detector', 'failure_detector', 'success', 'hostkey', 'preload', 'blob'],
+    z2k_dynamic_ttl: ['strategy', 'hostkey', 'min', 'max', 'delta']
+  };
+  var luaSubargValues = { detector: detectorValues, failure_detector: detectorValues, success: detectorValues, hostkey: hostkeyValues, cond: iffValues, iff: iffValues, preload: ['strategy_preload', 'strategy_preload_history'], fool: ['z2k_dynamic_ttl'], tls_mod: ['rnd', 'rndsni', 'dupsid', 'padencap', 'sni'] };
+
   function text(value) { return value === null || value === undefined ? '' : String(value); }
   function uniquePush(list, value) { if (value && list.indexOf(value) < 0) list.push(value); }
   function tokenize(value) {
@@ -59,6 +110,72 @@
   }
   function addCsv(target, value) {
     text(value).split(',').map(function (item) { return valueOf(item).trim(); }).filter(Boolean).forEach(function (item) { uniquePush(target, item); });
+  }
+  function tokenAt(value, cursor) {
+    value = text(value); cursor = Math.max(0, Math.min(Number(cursor == null ? value.length : cursor), value.length));
+    var start = cursor;
+    while (start > 0 && !/\s/.test(value.charAt(start - 1))) start--;
+    return { token: value.slice(start, cursor), start: start, end: cursor, before: value.slice(0, cursor) };
+  }
+  function contextFor(value, cursor) {
+    var part = tokenAt(value, cursor), token = part.token, eq = token.indexOf('='), flag;
+    if (token === '' || token.charAt(0) === '-' && token.charAt(1) !== '-') return { type: 'flag', prefix: token, tokenStart: part.start };
+    if (token.indexOf('--') !== 0) return null;
+    if (eq < 0) return { type: 'flag', prefix: token, tokenStart: part.start };
+    flag = token.slice(0, eq); var valueStart = part.start + eq + 1, valueText = token.slice(eq + 1);
+    if (flag === '--lua-desync') {
+      var colon = valueText.lastIndexOf(':'), chainPart = colon < 0 ? valueText : valueText.slice(colon + 1), chainStart = valueStart + (colon < 0 ? 0 : colon + 1), subeq = chainPart.indexOf('=');
+      if (colon < 0) return { type: 'function', prefix: valueText, tokenStart: valueStart, flag: flag };
+      if (subeq < 0) return { type: 'subarg', prefix: chainPart, tokenStart: chainStart, functionName: valueText.slice(0, valueText.indexOf(':')), flag: flag };
+      var subkey = chainPart.slice(0, subeq), subvalueStart = chainStart + subeq + 1, subvalue = chainPart.slice(subeq + 1);
+      return { type: 'subvalue', prefix: subvalue, tokenStart: subvalueStart, subkey: subkey, functionName: valueText.slice(0, valueText.indexOf(':')), flag: flag };
+    }
+    var fspec = specFlags[flag];
+    if (!fspec) return { type: 'value', prefix: valueText, tokenStart: valueStart, flag: flag, values: [] };
+    if (fspec.type === 'file') return { type: 'file', fileType: fspec.fileType, prefix: valueText, tokenStart: valueStart, flag: flag };
+    return { type: 'value', prefix: valueText, tokenStart: valueStart, flag: flag, values: fspec.values || [], label: fspec.label || flag };
+  }
+  function resourceItems(resources) {
+    var list = resources && resources.assets || resources && resources.items || resources && resources.list || resources || [];
+    if (!Array.isArray(list)) return [];
+    return list.map(function (item) {
+      if (typeof item === 'string') return { name: item, path: item, type: 'blob' };
+      return { name: text(item.name || item.id || item.path), path: text(item.path || item.name || item.id), type: text(item.type || 'blob'), revision: item.revision, contentSha256: item.contentSha256 };
+    }).filter(function (item) { return !!item.name; });
+  }
+  function prefixFilter(values, prefix) {
+    var p = text(prefix).toLowerCase();
+    return values.filter(function (value) { return !p || text(value).toLowerCase().indexOf(p) === 0; });
+  }
+  function suggestions(context, resources) {
+    if (!context) return [];
+    var out = [], p = text(context.prefix);
+    if (context.type === 'flag') Object.keys(specFlags).forEach(function (name) { if (!p || name.indexOf(p) === 0) out.push({ text: name, insert: name + '=', kind: 'flag', category: 'flag', description: specFlags[name].desc }); });
+    else if (context.type === 'function') Object.keys(specFunctions).forEach(function (name) { if (!p || name.indexOf(p) === 0) out.push({ text: name, insert: name, kind: 'function', category: 'lua', description: specFunctions[name].desc, source: specFunctions[name].file }); });
+    else if (context.type === 'subarg') (luaSubargs[context.functionName] || luaSubargs.fake).forEach(function (name) { if (!p || name.indexOf(p) === 0) out.push({ text: name, insert: name + '=', kind: 'subarg', category: 'lua', description: 'Параметр функции ' + context.functionName }); });
+    else if (context.type === 'subvalue') prefixFilter(luaSubargValues[context.subkey] || [], p).forEach(function (name) { out.push({ text: name, insert: name, kind: 'value', category: 'lua', description: context.subkey }); });
+    else if (context.type === 'value') prefixFilter(context.values || [], p).forEach(function (name) { out.push({ text: name, insert: name, kind: 'value', category: 'value', description: context.label || context.flag });
+    });
+    else if (context.type === 'file') resourceItems(resources).filter(function (item) { return item.type === context.fileType || (context.fileType === 'lua' && item.type === 'lua') || (context.fileType === 'blob' && item.type === 'blob'); }).forEach(function (item) { if (!p || item.name.toLowerCase().indexOf(p.toLowerCase()) === 0 || item.path.toLowerCase().indexOf(p.toLowerCase()) === 0) out.push({ text: item.name, insert: item.path || item.name, kind: 'asset', category: context.fileType, description: 'Канонический asset', source: item.path, revision: item.revision, contentSha256: item.contentSha256 }); });
+    return out.slice(0, 60);
+  }
+  function tokenHelp(value, cursor) {
+    var ctx = contextFor(value, cursor), first = suggestions(ctx, []), item = first[0];
+    if (!ctx) return { title: 'Справка по стратегии', text: 'Поставьте курсор на флаг или значение nfqws2.' };
+    if (item) return { title: item.text, text: item.description || 'Допустимый элемент nfqws2/Z2K.', category: item.category, source: item.source || null };
+    if (ctx.type === 'subvalue') return { title: ctx.subkey, text: ctx.subkey === 'strategy' ? 'Выбор circular/autocircular стратегии; точная совместимость проверяется сервером.' : 'Значение параметра ' + ctx.subkey + ' в цепочке ' + ctx.functionName + ' проверяется сервером.' };
+    if (ctx.type === 'file') return { title: 'Asset ' + ctx.fileType, text: 'Выберите файл из canonical Asset Registry; путь не вводится вручную.' };
+    return { title: ctx.flag || ctx.type, text: 'Значение проверяется серверным compiler/validation.' };
+  }
+  function clampWorkspace(value, viewport) {
+    var v = value || {}, w = viewport || {}, maxW = Math.max(420, Number(w.width || 960) - 40), maxH = Math.max(360, Number(w.height || 720) - 40);
+    return { width: Math.max(420, Math.min(maxW, Number(v.width || 880))), height: Math.max(360, Math.min(maxH, Number(v.height || 640))) };
+  }
+  function circularSteps(value) {
+    var parts = splitLua(value), name = valueOf(parts.shift() || ''), steps = [];
+    if (name !== 'circular') return [];
+    parts.forEach(function (part) { var eq = part.indexOf('='); if (eq > 0) steps.push({ key: part.slice(0, eq), value: part.slice(eq + 1) }); });
+    return steps;
   }
   function splitLua(value) {
     var parts = [], current = '', quote = null;
@@ -132,11 +249,32 @@
       diagnostics.push({ severity: 'warn', path: 'fields.hostlists', code: 'missing-target', message: 'Desync не ограничен hostlist/ipset; серверная validation остаётся обязательной' });
     if (fields.protocols.indexOf('quic') >= 0) fields.protocols = fields.protocols.filter(function (protocol) { return protocol !== 'udp'; });
     ['tcp', 'udp'].forEach(function (proto) { fields.ports[proto].forEach(function (port) { if (!/^(?:\*|\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*)$/.test(port)) diagnostics.push({ severity: 'error', path: 'fields.ports.' + proto, code: 'invalid-port', message: 'Некорректный список портов: ' + port }); }); });
-    return { raw: raw, originalRaw: raw, tokens: tokens, fields: fields, unknown: unknown, diagnostics: diagnostics, mode: rawOnly ? 'raw-only' : 'structured', lossless: true };
+    var circular = fields.desync.filter(function (entry) { return entry.name === 'circular'; })[0] || null;
+    return { raw: raw, originalRaw: raw, tokens: tokens, fields: fields, unknown: unknown, diagnostics: diagnostics, mode: rawOnly ? 'raw-only' : 'structured', lossless: true,
+      visual: { editable: !rawOnly, protocols: fields.protocols.slice(), ports: { tcp: fields.ports.tcp.slice(), udp: fields.ports.udp.slice() }, hostlists: fields.hostlists.slice(), ipsets: fields.ipsets.slice(), payloads: fields.payloads.slice(), desync: fields.desync.slice(), circular: !!circular, circularSteps: circular ? circularSteps(circular.raw) : [] } };
   }
-  function serializeProfile(parsed) {
+  function replaceOrAppend(source, flag, value) {
+    var pattern = new RegExp('(^|\\s)(' + flag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '=)[^\\s]+');
+    if (pattern.test(source)) return source.replace(pattern, function (_all, lead, prefix) { return value === '' ? lead : lead + prefix + value; });
+    if (value === '') return source;
+    return source + (source ? ' ' : '') + flag + '=' + value;
+  }
+  function serializeProfile(parsed, edits) {
     if (!parsed || parsed.lossless !== true) return '';
-    return text(parsed.raw !== undefined ? parsed.raw : parsed.originalRaw);
+    var source = text(parsed.raw !== undefined ? parsed.raw : parsed.originalRaw);
+    if (!edits || parsed.mode !== 'structured') return source;
+    if (edits.tcp != null) source = replaceOrAppend(source, '--filter-tcp', text(edits.tcp));
+    if (edits.udp != null) source = replaceOrAppend(source, '--filter-udp', text(edits.udp));
+    if (edits.hostlist != null) source = replaceOrAppend(source, '--hostlist', text(edits.hostlist));
+    if (edits.ipset != null) source = replaceOrAppend(source, '--ipset', text(edits.ipset));
+    if (edits.payload != null) source = replaceOrAppend(source, '--payload', text(edits.payload));
+    if (edits.l7 != null) source = replaceOrAppend(source, '--filter-l7', text(edits.l7));
+    if (edits.protocol) source = replaceOrAppend(source, '--filter-l7', edits.protocol === 'quic' ? 'quic' : edits.protocol === 'udp' ? 'udp' : 'tls');
+    if (Array.isArray(edits.circularSteps) && parsed.visual && parsed.visual.circular) {
+      var chain = 'circular' + edits.circularSteps.map(function (step) { return ':' + text(step.key) + (step.value === true || step.value === '' ? '' : '=' + text(step.value)); }).join('');
+      source = source.replace(/(--lua-desync=)(circular[^\s]*)/, '$1' + chain);
+    }
+    return source;
   }
   function diagnostics(value) { return parseProfile(value).diagnostics; }
   var NfqwsSyntax = {
@@ -166,36 +304,61 @@
       if (/--lua-desync=/.test(text) && !/(--hostlist(?:=|-domains=|-auto=)|--ipset(?:=|-ip=))/.test(text)) diagnostics.push({ severity: 'warn', code: 'missing-target', message: 'Для desync не задан target scope' });
       return diagnostics;
     },
-    tokenHelp: function (value) { return value ? 'nfqws2 token: ' + value : 'Введите -- для списка флагов'; }
+    tokenHelp: function (value, cursor) { var help = tokenHelp(value, cursor); return help.text ? help.title + ': ' + help.text : 'Введите -- для списка флагов'; }
   };
   var attached = [];
   var resources = [];
+  var popup = null, active = null;
+  function popupEnsure() {
+    if (popup || typeof document === 'undefined') return popup;
+    popup = document.createElement('div'); popup.className = 'nfq-ac-popup'; popup.setAttribute('role', 'listbox'); popup.style.display = 'none';
+    document.body.appendChild(popup);
+    popup.addEventListener('mousedown', function (event) { event.preventDefault(); var item = event.target.closest && event.target.closest('[data-nfq-ac-index]'); if (item && active) insert(active, Number(item.getAttribute('data-nfq-ac-index'))); });
+    return popup;
+  }
+  function renderPopup(instance) {
+    var host = popupEnsure(); if (!host) return;
+    host.innerHTML = instance.items.map(function (item, index) { return '<div class="nfq-ac-item' + (index === instance.index ? ' is-selected' : '') + '" role="option" data-nfq-ac-index="' + index + '"><span class="nfq-ac-kind" aria-hidden="true">' + escapeCategory(item.category) + '</span><span class="nfq-ac-main"><b>' + esc(item.text) + '</b><small>' + esc(item.description || item.source || '') + '</small></span></div>'; }).join('');
+    host.style.display = instance.items.length ? 'block' : 'none'; active = instance;
+  }
+  function escapeCategory(value) { return value === 'asset' || value === 'blob' || value === 'hostlist' || value === 'ipset' || value === 'lua' ? 'asset' : value === 'flag' ? 'flag' : value === 'function' ? 'fn' : value === 'subarg' ? 'arg' : 'val'; }
+  function hidePopup(instance) { if (active === instance) active = null; if (popup) popup.style.display = 'none'; if (instance) instance.visible = false; }
+  function openPopup(instance) { if (!instance.items.length) return hidePopup(instance); instance.visible = true; renderPopup(instance); if (popup && instance.textarea.getBoundingClientRect) { var rect = instance.textarea.getBoundingClientRect(); popup.style.left = Math.max(8, rect.left) + 'px'; popup.style.top = Math.min(window.innerHeight - 270, rect.bottom + 4) + 'px'; } }
+  function insert(instance, index) {
+    var item = instance.items[index]; if (!item) return;
+    var area = instance.textarea, ctx = contextFor(area.value, area.selectionStart); if (!ctx) return;
+    var insertText = item.insert, end = area.selectionStart, value = area.value, next = value.slice(0, ctx.tokenStart) + insertText + value.slice(end);
+    area.value = next; area.selectionStart = area.selectionEnd = ctx.tokenStart + insertText.length;
+    hidePopup(instance); area.dispatchEvent(new Event('input', { bubbles: true }));
+  }
   var NfqwsAutocomplete = {
     setResources: function (value) {
-      var items = value && (value.assets || value.items || value.list) || [];
-      resources = Array.isArray(items) ? items.map(function (item) { return String(item.name || item.id || item.path || item); }).filter(Boolean).slice(0, 128) : [];
+      resources = resourceItems(value).slice(0, 256);
     },
+    contextFor: contextFor,
+    suggestions: function (context) { return suggestions(context, resources); },
+    tokenHelp: tokenHelp,
     attach: function (textarea) {
       if (!textarea || textarea.dataset.nfqAutocomplete === '1') return;
       textarea.dataset.nfqAutocomplete = '1';
+      var instance = { textarea: textarea, items: [], index: 0, visible: false };
+      var onInput = function () { var ctx = contextFor(textarea.value, textarea.selectionStart); instance.items = suggestions(ctx, resources); instance.index = 0; openPopup(instance); };
       var handler = function (event) {
-        if (!event.ctrlKey && !event.metaKey || event.key !== ' ') return;
-        event.preventDefault();
-        var before = textarea.value.slice(0, textarea.selectionStart), prefix = before.split(/\s+/).pop() || '--';
-        var choices = /--(?:blob|hostlist|ipset)=/.test(before) ? resources.filter(function (item) { return item.indexOf(prefix) === 0; }) : Object.keys(known).filter(function (item) { return item.indexOf(prefix) === 0; });
-        if (choices.length) {
-          var start = textarea.selectionStart - prefix.length, insert = choices[0];
-          textarea.value = textarea.value.slice(0, start) + insert + textarea.value.slice(textarea.selectionStart);
-          textarea.selectionStart = textarea.selectionEnd = start + insert.length;
-          textarea.dispatchEvent(new Event('input', { bubbles: true }));
-        }
+        if ((event.ctrlKey || event.metaKey) && event.key === ' ') { event.preventDefault(); onInput(); return; }
+        if (!instance.visible) return;
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); instance.index = (instance.index + (event.key === 'ArrowDown' ? 1 : instance.items.length - 1)) % instance.items.length; renderPopup(instance); }
+        else if (event.key === 'Enter' || event.key === 'Tab') { event.preventDefault(); insert(instance, instance.index); }
+        else if (event.key === 'Escape') { event.preventDefault(); hidePopup(instance); }
       };
-      textarea.addEventListener('keydown', handler); attached.push({ textarea: textarea, handler: handler });
+      var onBlur = function () { setTimeout(function () { hidePopup(instance); }, 120); };
+      textarea.addEventListener('input', onInput); textarea.addEventListener('keydown', handler); textarea.addEventListener('blur', onBlur);
+      attached.push({ textarea: textarea, handler: handler, onInput: onInput, onBlur: onBlur, instance: instance });
     },
-    detachAll: function () { attached.forEach(function (item) { item.textarea.removeEventListener('keydown', item.handler); delete item.textarea.dataset.nfqAutocomplete; }); attached = []; }
+    detach: function (textarea) { attached.slice().forEach(function (item) { if (item.textarea !== textarea) return; item.textarea.removeEventListener('input', item.onInput); item.textarea.removeEventListener('keydown', item.handler); item.textarea.removeEventListener('blur', item.onBlur); delete item.textarea.dataset.nfqAutocomplete; hidePopup(item.instance); attached.splice(attached.indexOf(item), 1); }); },
+    detachAll: function () { attached.slice().forEach(function (item) { NfqwsAutocomplete.detach(item.textarea); }); if (popup) popup.style.display = 'none'; }
   };
   root.NfqwsSyntax = NfqwsSyntax; root.Nfqws2Lint = Nfqws2Lint; root.NfqwsAutocomplete = NfqwsAutocomplete;
-  root.NfqwsIde = { tokenize: tokenize, parseProfile: parseProfile, serializeProfile: serializeProfile, diagnostics: diagnostics };
+  root.NfqwsIde = { tokenize: tokenize, parseProfile: parseProfile, serializeProfile: serializeProfile, diagnostics: diagnostics, contextFor: contextFor, suggestions: suggestions, tokenHelp: tokenHelp, circularSteps: circularSteps, clampWorkspace: clampWorkspace };
 }(window));
 
 return baseclass.extend({
@@ -205,5 +368,10 @@ return baseclass.extend({
   tokenize: window.NfqwsIde.tokenize,
   parseProfile: window.NfqwsIde.parseProfile,
   serializeProfile: window.NfqwsIde.serializeProfile,
-  diagnostics: window.NfqwsIde.diagnostics
+  diagnostics: window.NfqwsIde.diagnostics,
+  contextFor: window.NfqwsIde.contextFor,
+  suggestions: window.NfqwsIde.suggestions,
+  tokenHelp: window.NfqwsIde.tokenHelp,
+  circularSteps: window.NfqwsIde.circularSteps,
+  clampWorkspace: window.NfqwsIde.clampWorkspace
 });
