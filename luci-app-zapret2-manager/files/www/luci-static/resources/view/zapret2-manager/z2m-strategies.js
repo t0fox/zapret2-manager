@@ -388,8 +388,10 @@ function renderCatalogSummary() {
     host.innerHTML = '<div class="catalog-summary-state warning">Состояние каталога недоступно; локальные стратегии не скрыты.</div>';
     return;
   }
-  var value = catalogValue(state.data), counts = object(value.counts), semantic = object(value.semantic);
-  host.innerHTML = '<div class="catalog-summary-grid"><div class="catalog-summary-files"><b>' + text(counts.files || 0) + '</b><span>Файлов</span></div><div class="catalog-summary-strategies"><b>' + text(semantic.canonicalStrategies || counts.uniqueStrategies || 0) + '</b><span>Стратегий</span></div><div class="catalog-summary-health"><b>' + (value.ok === true ? 'Готов' : 'Проверка') + '</b><span>Состояние</span></div></div>';
+  var value = catalogValue(state.data), counts = object(value.counts), semantic = object(value.semantic), resolution = object(value.resolution), source = object(value.source);
+  var commit = text(resolution.sourceCommit || source.commit), kind = resolution.kind === 'managed' ? 'Управляемый snapshot' : 'Пакетный baseline';
+  var verification = resolution.verified === true ? 'Проверен' : 'Не проверен';
+  host.innerHTML = '<div class="catalog-summary-grid"><div class="catalog-summary-files"><b>' + text(counts.files || 0) + '</b><span>Файлов</span></div><div class="catalog-summary-strategies"><b>' + text(semantic.canonicalStrategies || counts.uniqueStrategies || 0) + '</b><span>Стратегий</span></div><div class="catalog-summary-health"><b>' + (value.ok === true ? verification : 'Проверка') + '</b><span>Состояние</span></div></div><div class="catalog-summary-provenance"><span>' + escapeHtml(kind) + '</span><span>commit: <code>' + escapeHtml(commit ? commit.slice(0, 12) : '—') + '</code></span>' + (resolution.fallbackUsed === true ? '<span class="text-warning">Fallback: ' + escapeHtml(object(resolution.verificationError).message || 'managed snapshot недоступен') + '</span>' : '') + '</div>';
 }
 function renderBulkBar() {
   var bar = state.root && state.root.querySelector('#strat-bulkbar');
