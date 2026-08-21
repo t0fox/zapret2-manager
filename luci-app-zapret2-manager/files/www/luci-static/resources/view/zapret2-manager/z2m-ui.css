@@ -2875,6 +2875,12 @@
 .z2m-app .z2m-service-dns-technical code{display:block;margin-top:6px;font-size:10px}
 @media(max-width:820px){.z2m-app .z2m-service-dns-toolbar{grid-template-columns:minmax(220px,1fr) auto}.z2m-app .z2m-service-dns-filterbar{grid-column:1 / -1;grid-row:2}.z2m-app .z2m-service-dns-filter{flex:1;max-width:none}.z2m-app .z2m-service-dns-changed{justify-self:end}}
 @media(max-width:620px){.z2m-app .z2m-service-dns-toolbar{grid-template-columns:1fr}.z2m-app .z2m-service-dns-filterbar{grid-column:auto;grid-row:auto}.z2m-app .z2m-service-dns-changed{justify-self:start}.z2m-app .z2m-service-dns-row{grid-template-columns:1fr;gap:10px;padding:12px}.z2m-app .z2m-service-dns-action{width:100%;min-width:0}.z2m-app .z2m-service-dns-select{width:100%;max-width:none}.z2m-app .z2m-service-dns-icon{width:36px;height:36px}.z2m-app .z2m-service-dns-row-main{grid-template-columns:36px minmax(0,1fr)}}
+
+/* Shared weighted tab primitive: DNS uses the same canonical page-section treatment as accepted Z2M sections. */
+.z2m-app .z2m-subtabs:not(.z2m-secondary-nav){display:inline-flex;align-items:center;gap:2px;width:max-content;max-width:100%;padding:3px;border:1px solid var(--border);border-radius:8px;background:var(--panel2);overflow-x:auto}
+.z2m-app .z2m-subtabs:not(.z2m-secondary-nav) button{min-height:34px;padding:7px 14px;border:0;border-radius:6px;color:var(--tx2);font-size:13px;font-weight:500;white-space:nowrap}
+.z2m-app .z2m-subtabs:not(.z2m-secondary-nav) button:hover{background:rgba(255,255,255,.05);color:var(--tx)}
+.z2m-app .z2m-subtabs:not(.z2m-secondary-nav) button.on{border:0;background:var(--raised);color:var(--tx);box-shadow:0 1px 2px rgba(0,0,0,.35)}
 .z2m-service-catalog-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;min-width:0}
 .z2m-subtabs .badge{display:inline-block;margin-left:6px;background:var(--raised);color:var(--tx2);border-radius:9px;padding:0 5px;font-size:10px;line-height:16px;vertical-align:1px}
 .z2m-subtabs button.on .badge{background:var(--blue);color:#08131a}
@@ -2916,12 +2922,6 @@
 .z2m-asset-card-side>.z2m-dim{max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .z2m-asset-detail dl{display:grid;grid-template-columns:100px minmax(0,1fr);gap:9px 14px;margin:14px 0}.z2m-asset-detail dt{color:var(--tx3)}.z2m-asset-detail dd{margin:0;min-width:0}.z2m-asset-detail pre{max-height:260px;overflow:auto;white-space:pre-wrap;font-size:10px}
 @media(max-width:700px){.z2m-asset-card{align-items:flex-start;flex-direction:column}.z2m-asset-card-side{justify-content:space-between;width:100%;min-width:0}.z2m-data-toolbar{align-items:stretch;flex-direction:column;gap:8px}}
-
-/* Shared weighted tab primitive: DNS uses the same canonical page-section treatment as accepted Z2M sections. */
-.z2m-app .z2m-subtabs:not(.z2m-secondary-nav){display:inline-flex;align-items:center;gap:2px;width:max-content;max-width:100%;padding:3px;border:1px solid var(--border);border-radius:8px;background:var(--panel2);overflow-x:auto}
-.z2m-app .z2m-subtabs:not(.z2m-secondary-nav) button{min-height:34px;padding:7px 14px;border:0;border-radius:6px;color:var(--tx2);font-size:13px;font-weight:500;white-space:nowrap}
-.z2m-app .z2m-subtabs:not(.z2m-secondary-nav) button:hover{background:rgba(255,255,255,.05);color:var(--tx)}
-.z2m-app .z2m-subtabs:not(.z2m-secondary-nav) button.on{border:0;background:var(--raised);color:var(--tx);box-shadow:0 1px 2px rgba(0,0,0,.35)}
 
 /* Scanner V2: product composition for the frozen Scanner runtime. */
 .z2m-scanner-product .z2m-scanner-panel,.z2m-scanner-workflow{overflow:hidden;background:var(--panel)}
