@@ -848,11 +848,11 @@ function render(ctx) {
           var autoSwitch = shell.switchControl({ checked: auto.enabled === true, small: true, label: _('Автоисправление ленты'), disabled: state.tiktokAutoBusy === true, attrs: { type: 'button', role: 'switch', 'aria-checked': auto.enabled ? 'true' : 'false', 'class': 'z2m-sw sm z2m-tiktok-auto-switch', title: _('Включить или выключить автоисправление TikTok') }, onChange: function (enabled) { toggleTiktok(enabled); } });
           autoSwitch.disabled = state.tiktokAutoBusy === true;
           function toggleTiktok(enabled) {
-            if (!ctx.api.dns.serviceTiktokSet || state.tiktokAutoBusy) return;
+            if (!ctx.api.dns.serviceTiktokSetAsync || state.tiktokAutoBusy) return;
             state.tiktokAutoBusy = true;
             autoSwitch.disabled = true;
             autoSwitch.classList.add('busy');
-            ctx.api.dns.serviceTiktokSet(edit(ctx.api.dns.serviceTiktokSet, { enabled: enabled })).then(function (answer) {
+            ctx.api.dns.serviceTiktokSetAsync(edit(ctx.api.dns.serviceTiktokSetAsync, { enabled: enabled })).then(function (answer) {
               if (answer && answer.operationId) state.operation = answer;
               return ctx.api.dns.serviceTiktokStatus ? ctx.api.dns.serviceTiktokStatus() : answer;
             }).then(function (status) {
