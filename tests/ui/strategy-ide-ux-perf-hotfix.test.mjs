@@ -79,3 +79,42 @@ test('UX hotfix performance contract keeps cursor help local and editor reads ta
   assert.doesNotMatch(openEdit, /strategies\.list|catalog/);
   assert.doesNotMatch(ide, /rpc|api\.|strategies\.(get|list)/i);
 });
+
+test('UX hotfix schedules the detail RPC after the loading modal can paint', () => {
+  const page = read('z2m-strategies.js');
+  const openEdit = page.match(/function openEdit\(id\)\s*\{[\s\S]*?\n\}/)?.[0] || '';
+  assert.match(page, /function scheduleAfterPaint\(/);
+  assert.match(openEdit, /scheduleAfterPaint\(function/);
+  assert.match(openEdit, /scheduleAfterPaint\(function[\s\S]*?strategies\.get/);
+  assert.doesNotMatch(openEdit, /renderEditorLoading\(\);\s*call\(state\.ctx\.api\.strategies\.get/);
+});
+
+test('UX hotfix uses a reusable animated spinner with reduced-motion support', () => {
+  const page = read('z2m-strategies.js');
+  const css = read('z2m-ui.css');
+  assert.match(page, /class="(?:z2m-)?spinner editor-loading-spinner"|class="editor-loading-spinner spinner"/);
+  assert.match(page, /btn-spinner/);
+  assert.match(css, /\.btn-spinner/);
+  assert.match(css, /prefers-reduced-motion\s*:\s*reduce/);
+  assert.match(css, /animation\s*:\s*(?:none|none\s*!important)/);
+});
+
+test('UX hotfix keeps card Apply scoped and renders current as a status, not a disabled primary action', () => {
+  const page = read('z2m-strategies.js');
+  const css = read('z2m-ui.css');
+  assert.match(page, /mutate\(['"]apply['"][\s\S]*scope:\s*['"]card['"]/);
+  assert.match(page, /Применяем…/);
+  assert.match(page, /btn-status-current/);
+  assert.doesNotMatch(page, /active \? '<button class="btn btn-primary btn-sm" disabled>Используется сейчас/);
+  assert.match(css, /\.btn-status-current/);
+  assert.match(css, /\.btn-primary:disabled[^}]*background\s*:/);
+});
+
+test('UX hotfix labels Create and editor operations with a local button spinner', () => {
+  const page = read('z2m-strategies.js');
+  assert.match(page, /Создаём…/);
+  assert.match(page, /Проверяем…/);
+  assert.match(page, /Готовим превью…/);
+  assert.match(page, /Сохраняем…/);
+  assert.match(page, /btn-spinner/);
+});
