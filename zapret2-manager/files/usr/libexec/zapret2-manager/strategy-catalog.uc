@@ -768,11 +768,16 @@ function ensure_loaded(root) {
 }
 
 export const strategy_catalog_load = function(root) {
+	let actualRoot = root == null ? DEFAULT_ROOT : root;
+	if (loaded != null && loadedRoot == actualRoot)
+		return { ok: true, catalog: loaded };
 	return load_catalog(root);
 };
 
 export const strategy_catalog_read_index = function(root) {
 	let actualRoot = root == null ? DEFAULT_ROOT : root;
+	if (loaded != null && loadedRoot == actualRoot)
+		return { ok: true, catalog: loaded };
 	let persisted = read_persisted_index(actualRoot);
 	if (persisted != null) {
 		loaded = persisted; loadedRoot = actualRoot;
