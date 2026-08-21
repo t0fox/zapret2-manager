@@ -2686,3 +2686,89 @@
   gap: 16px;
   flex-wrap: wrap;
 }
+
+/* Strategy IDE workflow */
+.strategy-ide-workflow,
+.strategy-ide-provenance,
+.strategy-ide-preview,
+.strategy-ide-validation {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.strategy-ide-workflow {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel2);
+  color: var(--tx2);
+  font-size: 12px;
+}
+.strategy-ide-provenance,
+.strategy-provenance {
+  padding: 8px 10px;
+  border-left: 3px solid var(--blue);
+  background: var(--panel2);
+  color: var(--tx2);
+  font-size: 12px;
+}
+.strategy-provenance-item { white-space: nowrap; }
+.strategy-ide-structured,
+.ide-structured-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel2);
+}
+.strategy-ide-structured-item,
+.ide-structured-fields > span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.strategy-ide-structured-item small,
+.ide-structured-fields > span b { color: var(--tx3); }
+.strategy-ide-structured-item code,
+.strategy-ide-preview code,
+.strategy-ide-validation code {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.strategy-ide-raw-only,
+.ide-raw-only {
+  padding: 9px 10px;
+  border: 1px solid rgba(245, 158, 11, .45);
+  border-radius: 6px;
+  background: rgba(245, 158, 11, .08);
+  color: var(--tx2);
+  font-size: 12px;
+}
+.strategy-ide-actions,
+.editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.strategy-ide-diff,
+.strategy-ide-assets {
+  margin-top: 8px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel2);
+}
+.strategy-ide-diff.is-changed { border-color: var(--blue); }
+.strategy-ide-diff.is-same { border-color: var(--green, #35c48a); }
+.strategy-ide-validation .error { color: var(--red, #ef6b73); }
+.strategy-ide-validation .warning { color: var(--yellow, #f5b942); }
+@media (max-width: 720px) {
+  .strategy-ide-structured,
+  .ide-structured-fields { grid-template-columns: 1fr; }
+  .strategy-ide-actions .btn,
+  .editor-actions .btn { flex: 1 1 140px; }
+}
